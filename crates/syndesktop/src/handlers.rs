@@ -72,7 +72,7 @@ use smithay::{
             wlr_layer::{Layer, LayerSurface as WlrLayerSurface, LayerSurfaceData, WlrLayerShellHandler, WlrLayerShellState},
             xdg::{
                 decoration::XdgDecorationHandler, PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler,
-                XdgShellState, XdgToplevelSurfaceData,
+                XdgShellState,
             },
         },
         shm::{ShmHandler, ShmState},

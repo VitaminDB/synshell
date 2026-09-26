@@ -216,6 +216,9 @@ impl State {
             (m.above, m.maximized, m.fullscreen)
         };
         self.core.wm.stack.push(id);
+        if self.core.config.windows.new_is_master {
+            self.core.wm.make_master(id);
+        }
         if above {
             self.core.wm.raise(id);
         }

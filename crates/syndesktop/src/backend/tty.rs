@@ -235,7 +235,7 @@ pub fn init(state: &mut State, event_loop: &EventLoop<'static, State>) -> anyhow
     // Глобалы, зависящие от рендерера.
     {
         let crate::backend::Backend::Tty(t) = &mut state.backend else { unreachable!() };
-        let mut renderer = t.gpus.single_renderer(&t.primary_gpu)?;
+        let renderer = t.gpus.single_renderer(&t.primary_gpu)?;
         state.core.shm_state.update_formats(renderer.shm_formats());
         let formats = renderer.dmabuf_formats();
         let feedback = DmabufFeedbackBuilder::new(t.primary_gpu.dev_id(), formats.clone()).build()?;
