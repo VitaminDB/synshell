@@ -1191,6 +1191,12 @@ impl State {
         self.core.ipc.broadcast(&Event::ShellCommand { command: cmd });
         // Показываем выбранное окно сразу (как Plasma с «показать выбранное»).
         self.focus_window(Some(target));
+        // Вызвано не с клавиатуры (IPC, кнопка) — отпускания модификатора
+        // не будет, выбор фиксируем сразу.
+        let mods = self.core.keyboard.modifier_state();
+        if !mods.alt && !mods.logo && !mods.ctrl {
+            self.end_cycle();
+        }
     }
 
     /// Отпущен модификатор — завершить Alt+Tab.
