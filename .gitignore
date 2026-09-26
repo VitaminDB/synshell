@@ -1,0 +1,11 @@
+/target
+/android/app/build
+/android/build
+/android/.gradle
+/android/app/src/main/jniLibs
+/android/local.properties
+/.phone_ip
+# сырые сгенерированные треки и их логи (в игру вшиты только track1..5.wav)
+/assets/music/yue_*
+/assets/music/bgm_*
+/assets/music/*.log
