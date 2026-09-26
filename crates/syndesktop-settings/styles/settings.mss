@@ -60,6 +60,10 @@
 .nav-item {
     border-radius: 8px;
     padding: 7px 10px;
+    /* Подпись — от левого края (без явного размера бокс центрирует ребёнка). */
+    min-width: 0px;
+    justify-content: flex-start;
+    align-items: center;
     transition: background 120ms ease;
     &:hover { background: var(--hover); }
 }
