@@ -42,6 +42,25 @@ pub fn handle(cmd: &str) {
         }
         "media" => system::media(arg.trim()),
         "window-switcher" => crate::switcher::command(ctx, arg.trim()),
+        "window-switcher-end" => crate::switcher::end(ctx),
+        "window-menu" => window_menu(ctx, &arg),
+        "osd-layout" => {
+            let (glyph, label) = match arg.trim() {
+                "floating" => (crate::ui::mi::FLOAT, "Плавающие окна"),
+                "tile" => (crate::ui::mi::TILE, "Мозаика"),
+                "columns" => (crate::ui::mi::TILE, "Колонки"),
+                "grid" => (crate::ui::mi::GRID, "Сетка"),
+                "monocle" => (crate::ui::mi::FULLSCREEN, "Одно окно"),
+                other => (crate::ui::mi::TILE, other),
+            };
+            crate::osd::show(ctx, glyph, None, label.to_string());
+        }
+        "screenshot-taken" => crate::notifications::local(
+            ctx,
+            "Снимок экрана",
+            &format!("Сохранён в {}", arg.trim()),
+            Some(arg.trim().to_string()),
+        ),
         "close-popup" => ctx.close_popup(),
         "lock" => lock(ctx),
         "dnd" => ctx.dnd.set(!ctx.dnd.get_untracked()),
@@ -56,18 +75,40 @@ pub fn handle(cmd: &str) {
     }
 }
 
+/// Меню окна по ПКМ на заголовке: `<id> <x> <y>` в глобальных координатах.
+fn window_menu(ctx: ShellCtx, arg: &str) {
+    let v: Vec<&str> = arg.split_whitespace().collect();
+    let (Some(id), Some(x), Some(y)) = (
+        v.first().and_then(|s| s.parse::<u64>().ok()),
+        v.get(1).and_then(|s| s.parse::<f32>().ok()),
+        v.get(2).and_then(|s| s.parse::<f32>().ok()),
+    ) else {
+        return;
+    };
+    // Вывод, в который попадает точка, и координаты относительно него.
+    let outs = ctx.comp_outputs.get_untracked();
+    let hit = outs.iter().find(|o| {
+        let [ox, oy, w, h] = o.geometry;
+        x >= ox as f32 && y >= oy as f32 && x < (ox + w) as f32 && y < (oy + h) as f32
+    });
+    let (output, lx, ly) = match hit {
+        Some(o) => (Some(o.name.clone()), x - o.geometry[0] as f32, y - o.geometry[1] as f32),
+        None => (None, x, y),
+    };
+    ctx.popup.set(Some(crate::ctx::Popup {
+        kind: PopupKind::WindowMenu(id),
+        anchor: PopupAnchor { output, rect: Some([lx, ly, 0.0, 0.0]), edge: Edge::Top },
+    }));
+}
+
 /// Блокировка экрана: внешняя программа из `[lock] command`, иначе
-/// `loginctl lock-session` (её перехватывает менеджер блокировки сеанса).
+/// встроенный экран (ext-session-lock + PAM).
 fn lock(ctx: ShellCtx) {
     let cfg = ctx.cfg();
     ctx.close_popup();
     if !cfg.lock.command.trim().is_empty() {
         crate::actions::spawn(&cfg.lock.command);
-    } else if crate::actions::which("swaylock") {
-        crate::actions::spawn("swaylock -f");
     } else {
-        // TODO: встроенный экран блокировки на ext-session-lock + PAM.
-        log::warn!("экран блокировки: задайте [lock] command (например, «swaylock -f»)");
-        crate::actions::spawn("loginctl lock-session");
+        crate::lock::lock_now(ctx);
     }
 }

@@ -10,6 +10,7 @@ mod commands;
 mod ctx;
 mod ipc;
 mod launcher;
+mod lock;
 mod manager;
 mod notifications;
 mod osd;
@@ -63,6 +64,8 @@ fn main() {
         popup::install(ctx);
         osd::install(ctx);
         notifications::install(ctx);
+        switcher::install(ctx);
+        applets::taskbar::start_minimize_rects();
         watch_config();
         // Отладка: выполнить команды оболочки после старта
         // (`SYNDESKTOP_SHELL_EXEC="launcher;volume +5"`).

@@ -20,7 +20,6 @@ pub enum PopupKind {
     Power,
     Notifications,
     WindowMenu(u64),
-    WindowSwitcher,
 }
 
 /// Где открыть всплывающее окно: вывод и прямоугольник-якорь (кнопка
@@ -77,6 +76,8 @@ pub struct ShellCtx {
     pub generation: RwSignal<u64>,
     /// Окна, свёрнутые кнопкой «показать рабочий стол».
     pub shown_desktop: RwSignal<Vec<u64>>,
+    /// Лента Alt+Tab: выбранное окно и порядок окон (от композитора).
+    pub switcher: RwSignal<Option<(u64, Vec<u64>)>>,
 }
 
 impl ShellCtx {
@@ -102,6 +103,7 @@ impl ShellCtx {
             now: use_signal(crate::clock::unix_now()),
             generation: use_signal(0),
             shown_desktop: use_signal(Vec::new()),
+            switcher: use_signal(None),
         }
     }
 

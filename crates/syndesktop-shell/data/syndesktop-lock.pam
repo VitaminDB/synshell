@@ -1,0 +1,3 @@
+#%PAM-1.0
+# Экран блокировки syndesktop. Устанавливается в /etc/pam.d/syndesktop-lock.
+auth include login

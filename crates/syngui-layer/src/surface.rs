@@ -5,6 +5,7 @@ use crate::gpu::{self, Gpu, Offscreen};
 use crate::{Factory, SurfaceHooks, SurfaceId, SurfaceSpec};
 use smithay_client_toolkit::reexports::protocols::wp::fractional_scale::v1::client::wp_fractional_scale_v1::WpFractionalScaleV1;
 use smithay_client_toolkit::reexports::protocols::wp::viewporter::client::wp_viewport::WpViewport;
+use smithay_client_toolkit::session_lock::SessionLockSurface;
 use smithay_client_toolkit::shell::wlr_layer::{Anchor, LayerSurface};
 use smithay_client_toolkit::shell::WaylandSurface;
 use std::path::Path;
@@ -24,11 +25,26 @@ pub enum Backend {
         wsurf: Option<WindowSurface>,
         viewport: Option<WpViewport>,
         fractional: Option<WpFractionalScaleV1>,
-        layer: LayerSurface,
+        role: Role,
     },
     Headless {
         offscreen: Option<Offscreen>,
     },
+}
+
+/// Роль `wl_surface`: layer-поверхность или поверхность блокировки экрана.
+pub enum Role {
+    Layer(LayerSurface),
+    Lock(SessionLockSurface),
+}
+
+impl Role {
+    pub fn wl_surface(&self) -> &wayland_client::protocol::wl_surface::WlSurface {
+        match self {
+            Role::Layer(l) => l.wl_surface(),
+            Role::Lock(l) => l.wl_surface(),
+        }
+    }
 }
 
 pub struct Surface {
@@ -84,9 +100,20 @@ impl Surface {
 
     pub fn layer(&self) -> Option<&LayerSurface> {
         match &self.backend {
-            Backend::Wayland { layer, .. } => Some(layer),
+            Backend::Wayland { role: Role::Layer(l), .. } => Some(l),
             _ => None,
         }
+    }
+
+    pub fn wl_surface(&self) -> Option<&wayland_client::protocol::wl_surface::WlSurface> {
+        match &self.backend {
+            Backend::Wayland { role, .. } => Some(role.wl_surface()),
+            _ => None,
+        }
+    }
+
+    pub fn is_lock(&self) -> bool {
+        matches!(self.backend, Backend::Wayland { role: Role::Lock(_), .. })
     }
 
     pub fn scale(&self) -> f64 {
@@ -98,7 +125,12 @@ impl Surface {
         let Some(layer) = self.layer() else { return };
         let s = &self.spec;
         layer.set_anchor(s.anchor);
-        layer.set_size(self.requested.0, self.requested.1);
+        // Ноль по оси без обоих якорей — ошибка протокола; до замера
+        // содержимого (`auto_size`) просим 1.
+        let (sx, sy) = self.stretched();
+        let w = if self.requested.0 == 0 && !sx { 1 } else { self.requested.0 };
+        let h = if self.requested.1 == 0 && !sy { 1 } else { self.requested.1 };
+        layer.set_size(w, h);
         layer.set_margin(s.margin[0], s.margin[1], s.margin[2], s.margin[3]);
         layer.set_exclusive_zone(s.exclusive_zone);
         layer.set_keyboard_interactivity(s.keyboard);
@@ -151,9 +183,9 @@ impl Surface {
 
         // Поверхность wgpu и рендерер — лениво и при смене размера.
         let format = match &mut self.backend {
-            Backend::Wayland { wsurf, layer, .. } => {
+            Backend::Wayland { wsurf, role, .. } => {
                 if wsurf.is_none() {
-                    let s = gpu.create_surface(layer.wl_surface())?;
+                    let s = gpu.create_surface(role.wl_surface())?;
                     let shared = gpu.ensure(Some(&s))?;
                     *wsurf = Some(gpu::configure_surface(shared, s, phys.0, phys.1));
                     self.phys = phys;
@@ -203,9 +235,20 @@ impl Surface {
         // Подгонка размера под содержимое по свободным осям.
         if self.spec.auto_size {
             let (sx, sy) = self.stretched();
+            // Заданный размер по оси — жёсткий предел замера (ширина карточек
+            // уведомлений), растянутая ось — её размер, иначе — вывод.
+            let axis = |stretched: bool, fixed: u32, cur: u32, out: u32| -> f32 {
+                if stretched {
+                    cur as f32
+                } else if fixed != 0 {
+                    fixed as f32
+                } else {
+                    out.max(1) as f32
+                }
+            };
             let max = Size::new(
-                if sx { self.logical.0 as f32 } else { output_size.0.max(1) as f32 },
-                if sy { self.logical.1 as f32 } else { output_size.1.max(1) as f32 },
+                axis(sx, self.spec.size.0, self.logical.0, output_size.0),
+                axis(sy, self.spec.size.1, self.logical.1, output_size.1),
             );
             let m = self.view.measure(engine, max);
             let want = (
@@ -213,12 +256,14 @@ impl Surface {
                 if sy || self.spec.size.1 != 0 { self.spec.size.1 } else { m.height.ceil().max(1.0) as u32 },
             );
             if want != self.requested {
+                log::trace!("{} #{}: подгонка размера {:?} → {:?}", self.spec.namespace, self.id.0, self.requested, want);
                 self.requested = want;
                 match &self.backend {
-                    Backend::Wayland { layer, .. } => {
+                    Backend::Wayland { role: Role::Layer(layer), .. } => {
                         layer.set_size(want.0, want.1);
                         layer.commit();
                     }
+                    Backend::Wayland { .. } => {}
                     Backend::Headless { .. } => {
                         self.logical = (
                             if want.0 == 0 { self.logical.0 } else { want.0 },
@@ -274,8 +319,8 @@ impl Surface {
         );
 
         match &mut self.backend {
-            Backend::Wayland { wsurf, viewport, layer, .. } => {
-                let wl = layer.wl_surface();
+            Backend::Wayland { wsurf, viewport, role, .. } => {
+                let wl = role.wl_surface();
                 if let Some(vp) = viewport {
                     wl.set_buffer_scale(1);
                     vp.set_destination(lw as i32, lh as i32);

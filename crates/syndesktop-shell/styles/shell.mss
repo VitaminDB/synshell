@@ -332,3 +332,59 @@ Text {
 .desk-item:hover { background-color: #ffffff22; }
 .desk-icon { width: 48px; height: 48px; }
 .desk-label { font-size: 12px; color: #ffffff; text-shadow: 0 1px 3px #000000cc; }
+
+.switcher {
+    padding: 12px;
+    border-radius: var(--radius);
+    background-color: var(--menu-bg);
+    border-width: 1px;
+    border-color: var(--border);
+}
+
+/* ─── Экран блокировки ───────────────────────────────────────────────────── */
+
+.lock-scrim { background-color: #00000066; }
+.lock-root { padding: 80px 40px 32px 40px; }
+.lock-time { font-size: 84px; font-weight: bold; color: #ffffff; }
+.lock-date { font-size: 20px; color: #ffffffcc; }
+.lock-avatar {
+    width: 96px;
+    height: 96px;
+    border-radius: 48px;
+    background-color: var(--accent);
+}
+.lock-avatar-text { font-size: 42px; font-weight: bold; color: var(--accent-fg); }
+.lock-user { font-size: 22px; color: #ffffff; }
+.lock-icon { icon-size: 20px; icon-color: #ffffffcc; }
+.lock-field {
+    width: 300px;
+    padding: 8px 14px;
+    border-radius: 20px;
+    background-color: #ffffff22;
+    border-width: 1px;
+    border-color: #ffffff44;
+    color: #ffffff;
+    font-size: 15px;
+    caret-color: #ffffff;
+}
+.lock-error { font-size: 13px; color: var(--danger); }
+.lock-layout { font-size: 12px; color: #ffffffaa; }
+
+/* Календарь во всплывающем окне часов */
+.cal {
+    background-color: var(--menu-bg);
+    border-color: var(--menu-bg);
+    color: var(--fg);
+    accent-color: var(--accent);
+    --cal-panel-bg: var(--menu-bg);
+    --cal-panel-border: var(--menu-bg);
+    --cal-hover-bg: var(--hover);
+    --cal-cell-size: 35px;
+}
+
+/* Поля ввода оболочки */
+TextField {
+    color: var(--fg);
+    caret-color: var(--accent);
+    selection-color: var(--accent-soft);
+}

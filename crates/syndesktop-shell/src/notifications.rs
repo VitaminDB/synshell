@@ -31,6 +31,8 @@ pub struct Notification {
     pub time: i64,
     pub transient: bool,
     pub resident: bool,
+    /// Своё уведомление оболочки: по клику открыть этот файл.
+    pub open_path: Option<String>,
 }
 
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
@@ -118,6 +120,7 @@ impl Server {
             time: crate::clock::unix_now(),
             transient: bool_hint("transient"),
             resident: bool_hint("resident"),
+            open_path: None,
         };
         let n = Notification { timeout_ms: if expire_timeout < 0 { u32::MAX } else { expire_timeout as u32 }, ..n };
         let ctx = self.ctx;
@@ -181,6 +184,7 @@ enum SignalArg {
 }
 
 fn add(ctx: ShellCtx, n: Notification) {
+    log::debug!("уведомление #{} от «{}»: {} (срочность {})", n.id, n.app_name, n.summary, n.urgency);
     let cfg = ctx.cfg();
     let timeout = match n.timeout_ms {
         u32::MAX | 0 if n.urgency >= 2 => cfg.notifications.critical_timeout,
@@ -225,10 +229,41 @@ pub fn close(ctx: ShellCtx, id: u32, reason: u32) {
 }
 
 fn invoke(ctx: ShellCtx, n: &Notification, key: &str) {
+    if let Some(p) = &n.open_path {
+        crate::actions::spawn(&format!("xdg-open '{}'", p.replace('\'', "'\\''")));
+        close(ctx, n.id, 2);
+        return;
+    }
     emit("ActionInvoked", n.id, SignalArg::Action(key.to_string()));
     if !n.resident {
         close(ctx, n.id, 2);
     }
+}
+
+/// Уведомление от самой оболочки (снимок экрана и т.п.). `open` — файл,
+/// который откроется по клику; если это картинка — она же и значок.
+pub fn local(ctx: ShellCtx, summary: &str, body: &str, open: Option<String>) {
+    let icon = open
+        .as_ref()
+        .filter(|p| p.ends_with(".png") || p.ends_with(".jpg"))
+        .cloned()
+        .or_else(|| crate::xdg::lookup_icon("preferences-desktop-notification").map(|p| p.to_string_lossy().into_owned()));
+    let n = Notification {
+        id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+        app_name: "syndesktop".into(),
+        icon,
+        image: None,
+        summary: summary.into(),
+        body: body.into(),
+        actions: if open.is_some() { vec![("default".into(), "Открыть".into())] } else { Vec::new() },
+        urgency: 1,
+        timeout_ms: u32::MAX,
+        time: crate::clock::unix_now(),
+        transient: false,
+        resident: false,
+        open_path: open,
+    };
+    add(ctx, n);
 }
 
 // ─── Вид ─────────────────────────────────────────────────────────────────────

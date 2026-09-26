@@ -339,7 +339,7 @@ pub mod mi {
     pub const LOCK: &str = "\u{E897}";
     pub const LOGOUT: &str = "\u{E9BA}";
     pub const RESTART: &str = "\u{F053}";
-    pub const SLEEP: &str = "\u{E1AC}"; // bedtime… (nights_stay)
+    pub const SLEEP: &str = "\u{EF44}"; // bedtime
     pub const VOLUME_UP: &str = "\u{E050}";
     pub const VOLUME_DOWN: &str = "\u{E04D}";
     pub const VOLUME_MUTE: &str = "\u{E04F}";

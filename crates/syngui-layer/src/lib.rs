@@ -122,14 +122,20 @@ pub(crate) enum Command {
     Timer { id: u64, after: Duration, f: Box<dyn FnMut() -> Option<Duration>> },
     CancelTimer(u64),
     Redraw(Option<SurfaceId>),
+    Lock(LockFactory),
+    Unlock,
     Quit,
 }
+
+/// Виджет экрана блокировки для вывода.
+pub(crate) type LockFactory = std::rc::Rc<dyn Fn(&OutputInfo) -> Box<dyn Widget>>;
 
 thread_local! {
     static COMMANDS: RefCell<Vec<Command>> = const { RefCell::new(Vec::new()) };
     static NEXT_ID: std::cell::Cell<u64> = const { std::cell::Cell::new(1) };
     static OUTPUTS: RefCell<Option<RwSignal<Vec<OutputInfo>>>> = const { RefCell::new(None) };
     static WAKE: RefCell<Option<Box<dyn Fn()>>> = const { RefCell::new(None) };
+    static LOCKED: RefCell<Option<RwSignal<bool>>> = const { RefCell::new(None) };
 }
 
 fn push(cmd: Command) {
@@ -214,6 +220,23 @@ pub fn outputs() -> RwSignal<Vec<OutputInfo>> {
     OUTPUTS.with(|o| *o.borrow_mut().get_or_insert_with(|| syngui::signal::use_signal(Vec::new())))
 }
 
+/// Заблокировать сеанс (ext-session-lock): композитор перестаёт показывать
+/// окна, на каждом выводе — поверхность из `factory`. Снять — [`unlock_session`]
+/// после проверки пароля. Без поддержки протокола [`session_locked`] так и
+/// останется `false`.
+pub fn lock_session(factory: impl Fn(&OutputInfo) -> Box<dyn Widget> + 'static) {
+    push(Command::Lock(std::rc::Rc::new(factory)));
+}
+
+pub fn unlock_session() {
+    push(Command::Unlock);
+}
+
+/// Сеанс заблокирован (композитор подтвердил блокировку).
+pub fn session_locked() -> RwSignal<bool> {
+    LOCKED.with(|o| *o.borrow_mut().get_or_insert_with(|| syngui::signal::use_signal(false)))
+}
+
 /// Параметры запуска.
 #[derive(Debug, Clone, Default)]
 pub struct RunOptions {
@@ -225,4 +248,8 @@ pub struct RunOptions {
 /// [`outputs`]); в нём создают первые поверхности.
 pub fn run(options: RunOptions, stylesheet: &str, init: impl FnOnce() + 'static) -> anyhow::Result<()> {
     state::run(options, stylesheet, Box::new(init))
+}
+
+pub(crate) fn next_id_pub() -> u64 {
+    next_id()
 }

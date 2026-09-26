@@ -1,7 +1,7 @@
 //! Апплеты панели. Каждый — функция `(настройки, панель) → виджет`.
 //! Внешний вид — классы `.applet`, `.applet-<тип>` в MSS.
 
-mod taskbar;
+pub mod taskbar;
 mod workspaces;
 
 use std::time::Duration;

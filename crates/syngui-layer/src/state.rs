@@ -7,7 +7,7 @@ use crate::{Command, KeyInfo, OutputInfo, RunOptions, SurfaceId, SurfaceSpec};
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
     delegate_compositor, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer,
-    delegate_registry, delegate_seat, delegate_shm,
+    delegate_registry, delegate_seat, delegate_session_lock, delegate_shm,
     output::{OutputHandler, OutputState},
     reexports::{
         calloop::{
@@ -26,6 +26,7 @@ use smithay_client_toolkit::{
         },
     },
     registry::{ProvidesRegistryState, RegistryState},
+    session_lock::{SessionLock, SessionLockHandler, SessionLockState, SessionLockSurface, SessionLockSurfaceConfigure},
     registry_handlers,
     seat::{
         keyboard::{KeyEvent, KeyboardHandler, Keysym, Modifiers},
@@ -61,6 +62,9 @@ pub struct State {
     shm: Option<Shm>,
     fractional: Option<WpFractionalScaleManagerV1>,
     viewporter: Option<WpViewporter>,
+    lock_state: Option<SessionLockState>,
+    session_lock: Option<SessionLock>,
+    lock_factory: Option<crate::LockFactory>,
     gpu: Gpu,
     engine: StyleEngine,
     surfaces: BTreeMap<SurfaceId, Surface>,
@@ -132,6 +136,9 @@ pub fn run(options: RunOptions, stylesheet: &str, init: Box<dyn FnOnce()>) -> an
         shm: None,
         fractional: None,
         viewporter: None,
+        lock_state: None,
+        session_lock: None,
+        lock_factory: None,
         gpu: Gpu::new(),
         engine: parse_stylesheet(stylesheet),
         surfaces: BTreeMap::new(),
@@ -200,6 +207,10 @@ pub fn run(options: RunOptions, stylesheet: &str, init: Box<dyn FnOnce()>) -> an
             None
         };
         event_loop.dispatch(timeout, &mut state)?;
+        // Ошибка протокола убивает соединение: дальше крутиться бессмысленно.
+        if let Some(err) = state.conn.as_ref().and_then(|c| c.protocol_error()) {
+            anyhow::bail!("ошибка протокола Wayland: {} (объект {}@{})", err.message, err.object_interface, err.object_id);
+        }
     }
     // Сначала wgpu-поверхности, потом всё остальное.
     for s in state.surfaces.values_mut() {
@@ -228,6 +239,7 @@ impl State {
         self.shm = Shm::bind(globals, qh).ok();
         self.fractional = globals.bind::<WpFractionalScaleManagerV1, _, _>(qh, 1..=1, ()).ok();
         self.viewporter = globals.bind::<WpViewporter, _, _>(qh, 1..=1, ()).ok();
+        self.lock_state = Some(SessionLockState::new(globals, qh));
         Ok(())
     }
 
@@ -373,6 +385,8 @@ impl State {
                     }
                 }
             }
+            Command::Lock(factory) => self.lock(factory),
+            Command::Unlock => self.unlock(),
             Command::Quit => self.exit = true,
         }
     }
@@ -445,7 +459,7 @@ impl State {
             None
         };
         let s = self.surfaces.get_mut(&id).unwrap();
-        s.backend = Backend::Wayland { wsurf: None, viewport, fractional, layer };
+        s.backend = Backend::Wayland { wsurf: None, viewport, fractional, role: crate::surface::Role::Layer(layer) };
         s.apply_spec();
         s.layer().unwrap().commit();
     }
@@ -476,7 +490,7 @@ impl State {
     }
 
     fn surface_id_of(&self, wl: &wl_surface::WlSurface) -> Option<SurfaceId> {
-        self.surfaces.iter().find(|(_, s)| s.layer().is_some_and(|l| l.wl_surface() == wl)).map(|(id, _)| *id)
+        self.surfaces.iter().find(|(_, s)| s.wl_surface().is_some_and(|l| l == wl)).map(|(id, _)| *id)
     }
 
     fn update_cursor(&mut self) {
@@ -554,8 +568,12 @@ impl OutputHandler for State {
     fn output_state(&mut self) -> &mut OutputState {
         self.output_state.as_mut().unwrap()
     }
-    fn new_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {
+    fn new_output(&mut self, _: &Connection, _: &QueueHandle<Self>, output: wl_output::WlOutput) {
         self.publish_outputs();
+        // Новый монитор при заблокированном сеансе — тоже под замок.
+        if self.session_lock.as_ref().is_some_and(|l| l.is_locked()) {
+            self.add_lock_surface(&output);
+        }
     }
     fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {
         self.publish_outputs();
@@ -578,6 +596,133 @@ impl OutputHandler for State {
         p.insert_idle(|st| st.publish_outputs());
     }
 }
+
+impl State {
+    fn lock(&mut self, factory: crate::LockFactory) {
+        if self.session_lock.is_some() || self.surfaces.values().any(|s| s.spec.namespace == LOCK_NS) {
+            return;
+        }
+        self.lock_factory = Some(factory.clone());
+        if let Some((w, h)) = self.headless {
+            // Проверка без композитора: поверхности блокировки — в PNG.
+            let info = crate::outputs().get_untracked().first().cloned().unwrap_or_default();
+            let id = SurfaceId(crate::next_id_pub());
+            let f = factory.clone();
+            let mut s = Surface::new(id, lock_spec(&info), Default::default(), Box::new(move || f(&info)));
+            s.backend = Backend::Headless { offscreen: None };
+            s.logical = (w, h);
+            s.configured = true;
+            self.surfaces.insert(id, s);
+            crate::session_locked().set(true);
+            return;
+        }
+        let (Some(ls), Some(qh)) = (&self.lock_state, &self.qh) else { return };
+        match ls.lock(qh) {
+            Ok(l) => {
+                log::info!("syngui-layer: запрошена блокировка сеанса");
+                self.session_lock = Some(l);
+                // Поверхности — сразу, не дожидаясь `locked`: композитор
+                // вправе подтвердить блокировку только когда они готовы.
+                let outs: Vec<wl_output::WlOutput> = self.output_list().into_iter().map(|(o, _)| o).collect();
+                for o in outs {
+                    self.add_lock_surface(&o);
+                }
+            }
+            Err(e) => log::error!("syngui-layer: ext-session-lock недоступен: {e}"),
+        }
+    }
+
+    fn unlock(&mut self) {
+        if let Some(l) = self.session_lock.take() {
+            l.unlock();
+        }
+        let ids: Vec<SurfaceId> = self.surfaces.iter().filter(|(_, s)| s.spec.namespace == LOCK_NS).map(|(id, _)| *id).collect();
+        for id in ids {
+            if let Some(mut s) = self.surfaces.remove(&id) {
+                s.teardown();
+            }
+            if self.kb_focus == Some(id) {
+                self.kb_focus = None;
+            }
+            if self.pointer_focus == Some(id) {
+                self.pointer_focus = None;
+            }
+        }
+        self.lock_factory = None;
+        crate::session_locked().set(false);
+        if let Some(c) = &self.conn {
+            let _ = c.flush();
+        }
+    }
+
+    fn add_lock_surface(&mut self, output: &wl_output::WlOutput) {
+        let (Some(lock), Some(qh), Some(comp), Some(factory)) =
+            (&self.session_lock, &self.qh, &self.compositor, self.lock_factory.clone())
+        else {
+            return;
+        };
+        let info = self.output_list().into_iter().find(|(o, _)| o == output).map(|(_, i)| i).unwrap_or_default();
+        let wl = comp.create_surface(qh);
+        let ls: SessionLockSurface = lock.create_lock_surface(wl, output, qh);
+        let id = SurfaceId(crate::next_id_pub());
+        let fractional = self.fractional.as_ref().map(|m| m.get_fractional_scale(ls.wl_surface(), qh, id));
+        let viewport = match (&fractional, &self.viewporter) {
+            (Some(_), Some(vp)) => Some(vp.get_viewport(ls.wl_surface(), qh, ())),
+            _ => None,
+        };
+        let f = factory.clone();
+        let spec = lock_spec(&info);
+        let mut s = Surface::new(id, spec, Default::default(), Box::new(move || f(&info)));
+        s.backend = Backend::Wayland { wsurf: None, viewport, fractional, role: crate::surface::Role::Lock(ls) };
+        self.surfaces.insert(id, s);
+    }
+}
+
+const LOCK_NS: &str = "syndesktop-lock";
+
+fn lock_spec(info: &OutputInfo) -> SurfaceSpec {
+    SurfaceSpec {
+        namespace: LOCK_NS.into(),
+        output: Some(info.name.clone()),
+        clear_color: [0.0, 0.0, 0.0, 1.0],
+        ..Default::default()
+    }
+}
+
+impl SessionLockHandler for State {
+    fn locked(&mut self, _: &Connection, _: &QueueHandle<Self>, _lock: SessionLock) {
+        log::info!("syngui-layer: сеанс заблокирован");
+        crate::session_locked().set(true);
+    }
+
+    fn finished(&mut self, _: &Connection, _: &QueueHandle<Self>, _lock: SessionLock) {
+        log::warn!("syngui-layer: композитор отказал в блокировке (или она снята)");
+        self.session_lock = None;
+        self.unlock();
+    }
+
+    fn configure(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        surface: SessionLockSurface,
+        cfg: SessionLockSurfaceConfigure,
+        _: u32,
+    ) {
+        let Some(id) = self.surface_id_of(surface.wl_surface()) else { return };
+        let s = self.surfaces.get_mut(&id).unwrap();
+        let (w, h) = cfg.new_size;
+        if s.logical != (w, h) {
+            s.view.invalidate();
+        }
+        s.logical = (w.max(1), h.max(1));
+        s.configured = true;
+        s.needs_frame = true;
+        s.frame_pending = false;
+    }
+}
+
+delegate_session_lock!(State);
 
 impl LayerShellHandler for State {
     fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, layer: &LayerSurface) {

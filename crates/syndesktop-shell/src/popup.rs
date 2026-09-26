@@ -35,13 +35,12 @@ fn width_of(kind: &PopupKind, ctx: &ShellCtx) -> f32 {
     match kind {
         PopupKind::Launcher => ctx.cfg().launcher.width as f32,
         PopupKind::Run => 560.0,
-        PopupKind::Calendar => 320.0,
+        PopupKind::Calendar => 340.0,
         PopupKind::Volume => 320.0,
         PopupKind::Network | PopupKind::Battery => 300.0,
         PopupKind::Power => 360.0,
         PopupKind::Notifications => ctx.cfg().notifications.width as f32 + 20.0,
         PopupKind::WindowMenu(_) => 240.0,
-        PopupKind::WindowSwitcher => 640.0,
     }
 }
 
@@ -122,7 +121,8 @@ fn frame(p: &Popup, card: Box<dyn Widget>, width: f32, out: (f32, f32)) -> impl 
             let clamp_x = |cx: f32| cx.clamp(GAP, (ow - width - GAP).max(GAP));
             match p.anchor.edge {
                 Edge::Bottom | Edge::Top => {
-                    let left = clamp_x(x + w / 2.0 - width / 2.0);
+                    // Точка (меню окна) — от неё вправо, кнопка — по центру над ней.
+                    let left = if w <= 0.0 { clamp_x(x) } else { clamp_x(x + w / 2.0 - width / 2.0) };
                     let row = Row::new().child(card).style("padding-left", StyleValue::px(left));
                     let col = if p.anchor.edge == Edge::Bottom {
                         Column::new()
@@ -167,7 +167,6 @@ fn content(kind: &PopupKind, ctx: ShellCtx) -> Box<dyn Widget> {
         PopupKind::Power => Box::new(power()),
         PopupKind::Notifications => Box::new(crate::notifications::center(ctx)),
         PopupKind::WindowMenu(id) => Box::new(window_menu(ctx, *id)),
-        PopupKind::WindowSwitcher => Box::new(crate::switcher::view(ctx)),
     }
 }
 

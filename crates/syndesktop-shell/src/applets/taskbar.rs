@@ -88,7 +88,10 @@ fn task(w: WindowInfo, labels: bool, max_width: f32, pc: PanelCtx) -> impl Widge
         row = row.child(Text::new(title).max_lines(1).class("task-title"));
     }
     let id = w.id;
-    InputArea::new(
+    let slot = std::sync::Arc::new(syngui::core::sync::Mutex::new(Rect::zero()));
+    TASKS.with(|t| t.borrow_mut().insert(id, (pc.clone(), slot.clone())));
+    let pc_click = pc.clone();
+    let area = InputArea::new(
         DecoratedBox::new()
             .child(crate::ui::vcenter(row))
             .class(cls)
@@ -98,7 +101,46 @@ fn task(w: WindowInfo, labels: bool, max_width: f32, pc: PanelCtx) -> impl Widge
     .on_click(move |b, _, r| match b {
         MouseButton::Left => crate::actions::window_op(id, WindowOp::ToggleMinimize),
         MouseButton::Middle => crate::actions::window_op(id, WindowOp::Close),
-        MouseButton::Right => ShellCtx::get().open_popup(PopupKind::WindowMenu(id), pc.anchor(r)),
+        MouseButton::Right => ShellCtx::get().open_popup(PopupKind::WindowMenu(id), pc_click.anchor(r)),
         _ => {}
-    })
+    });
+    syngui::widgets::EventHook::new().report_bounds(slot).child(area)
+}
+
+thread_local! {
+    /// Кнопки окон на панелях: окно → (панель, границы кнопки).
+    static TASKS: std::cell::RefCell<std::collections::HashMap<u64, (PanelCtx, std::sync::Arc<syngui::core::sync::Mutex<Rect>>)>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+    static SENT: std::cell::RefCell<std::collections::HashMap<u64, (String, [i32; 4])>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// Раз в секунду сообщать композитору, где на панели кнопка каждого окна —
+/// туда он «сворачивает» окно анимацией. Шлются только изменения.
+pub fn start_minimize_rects() {
+    syngui_layer::add_timer(std::time::Duration::from_secs(1), || {
+        let ctx = ShellCtx::get();
+        if !ctx.connected.get_untracked() {
+            return Some(std::time::Duration::from_secs(1));
+        }
+        let alive: Vec<u64> = ctx.windows.get_untracked().iter().map(|w| w.id).collect();
+        TASKS.with(|t| t.borrow_mut().retain(|id, _| alive.contains(id)));
+        SENT.with(|s| s.borrow_mut().retain(|id, _| alive.contains(id)));
+        let list: Vec<(u64, PanelCtx, Rect)> = TASKS.with(|t| {
+            t.borrow().iter().map(|(id, (pc, slot))| (*id, pc.clone(), *slot.lock().unwrap_or_else(|e| e.into_inner()))).collect()
+        });
+        for (id, pc, r) in list {
+            if r.size.width <= 0.0 {
+                continue;
+            }
+            let Some([x, y, w, h]) = pc.anchor(r).rect else { continue };
+            let rect = [x.round() as i32, y.round() as i32, w.round() as i32, h.round() as i32];
+            let changed = SENT.with(|s| s.borrow().get(&id) != Some(&(pc.output.clone(), rect)));
+            if changed {
+                SENT.with(|s| s.borrow_mut().insert(id, (pc.output.clone(), rect)));
+                crate::actions::send(syndesktop_common::ipc::Request::SetMinimizeRect { id, output: pc.output.clone(), rect });
+            }
+        }
+        Some(std::time::Duration::from_secs(1))
+    });
 }
