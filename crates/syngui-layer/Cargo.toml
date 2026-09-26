@@ -1,8 +1,23 @@
 [package]
 name = "syngui-layer"
+description = "Хост syngui на layer-shell поверхностях Wayland (панели, обои, меню оболочки)"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
 [dependencies]
+syngui = { workspace = true, features = ["winit", "clipboard", "msdf", "effects", "svg", "material-icons", "i18n"] }
+smithay-client-toolkit = { version = "0.19", default-features = false, features = ["calloop", "xkbcommon"] }
+wayland-client = "0.31"
+wayland-backend = { version = "0.3", features = ["client_system"] }
+calloop = "0.13"
+raw-window-handle = "0.6"
+wgpu = "28.0.0"
+pollster = "0.4"
+log = "0.4"
+image = { version = "0.25", default-features = false, features = ["png"] }
+anyhow.workspace = true
+
+[dev-dependencies]
+env_logger = "0.11"
