@@ -37,6 +37,7 @@ package() {
     install -Dm644 data/syndesktop-portals.conf "$pkgdir/usr/share/xdg-desktop-portal/syndesktop-portals.conf"
     install -Dm644 crates/syndesktop-settings/data/syndesktop-settings.desktop \
         "$pkgdir/usr/share/applications/syndesktop-settings.desktop"
+    install -Dm644 crates/syndesktop-shell/data/syndesktop-lock.pam "$pkgdir/etc/pam.d/syndesktop-lock"
     install -Dm644 crates/syndesktop-common/default-config.toml \
         "$pkgdir/usr/share/doc/syndesktop/config.toml.example"
 }
