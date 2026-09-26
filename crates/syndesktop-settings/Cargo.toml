@@ -1,8 +1,30 @@
 [package]
 name = "syndesktop-settings"
+description = "Параметры системы syndesktop"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "syndesktop-settings"
+path = "src/main.rs"
+
 [dependencies]
+syndesktop-common.workspace = true
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "clipboard", "i18n", "image"] }
+toml.workspace = true
+toml_edit.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+libc.workspace = true
+# Offscreen-снимок интерфейса (`--screenshot`): свой wgpu-девайс + PNG.
+wgpu = "28.0.0"
+pollster = "0.4"
+png = "0.17"
+
+[dev-dependencies]
+syngui = { workspace = true, features = ["testing"] }
