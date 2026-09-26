@@ -83,6 +83,14 @@ impl CursorManager {
         (buffer, hotspot)
     }
 
+    /// Первый кадр курсора по умолчанию: (RGBA, ширина, высота, xhot, yhot) — для Xwayland.
+    pub fn default_image(&mut self) -> Option<(Vec<u8>, u32, u32, u32, u32)> {
+        let size = self.size;
+        let images = self.load(CursorIcon::Default)?.clone();
+        let (_, f) = frame(0, size, &images);
+        Some((f.pixels_rgba.clone(), f.width, f.height, f.xhot, f.yhot))
+    }
+
     /// Есть ли у курсора анимация (тогда кадры нужно перерисовывать).
     pub fn is_animated(&mut self, icon: CursorIcon) -> bool {
         self.load(icon).map(|i| i.iter().any(|f| f.delay > 0) && i.len() > 1).unwrap_or(false)

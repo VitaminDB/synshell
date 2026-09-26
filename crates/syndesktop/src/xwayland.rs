@@ -59,9 +59,9 @@ impl State {
             XWaylandEvent::Ready { x11_socket, display_number } => {
                 match X11Wm::start_wm(state.core.loop_handle.clone(), x11_socket, client.clone()) {
                     Ok(mut wm) => {
-                        let (buf, hot) = state.core.cursor.get(smithay::input::pointer::CursorIcon::Default, 1, std::time::Duration::ZERO);
-                        let _ = (buf, hot);
-                        let _ = wm.set_cursor(&[0u8; 4 * 4], (1, 1).into(), (0, 0).into());
+                        if let Some((px, w, h, xh, yh)) = state.core.cursor.default_image() {
+                            let _ = wm.set_cursor(&px, (w as u16, h as u16).into(), (xh as u16, yh as u16).into());
+                        }
                         if let Some(x) = &mut state.core.xwayland {
                             x.wm = Some(wm);
                             x.display = Some(display_number);

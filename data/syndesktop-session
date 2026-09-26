@@ -1,0 +1,15 @@
+#!/bin/sh
+# Запуск сеанса syndesktop из менеджера входа (SDDM/GDM/greetd) или с TTY.
+export XDG_CURRENT_DESKTOP=syndesktop
+export XDG_SESSION_DESKTOP=syndesktop
+export XDG_SESSION_TYPE=wayland
+# Пользовательские переменные окружения сеанса.
+if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/syndesktop/env" ]; then
+    set -a
+    . "${XDG_CONFIG_HOME:-$HOME/.config}/syndesktop/env"
+    set +a
+fi
+if [ -z "$DBUS_SESSION_BUS_ADDRESS" ] && command -v dbus-run-session >/dev/null; then
+    exec dbus-run-session syndesktop --tty "$@"
+fi
+exec syndesktop --tty "$@"
