@@ -1,0 +1,241 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  syndesktop — конфигурация рабочего стола
+#
+#  Файл перечитывается на лету: сохраните — и изменения применятся.
+#  Любую секцию и любое поле можно удалить — возьмётся значение по умолчанию.
+#  То же самое настраивается в «Параметрах системы» (syndesktop-settings).
+# ─────────────────────────────────────────────────────────────────────────────
+
+[general]
+terminal = "konsole"
+file_manager = "dolphin"
+browser = "xdg-open https://"
+# Оболочка: панели, меню запуска, уведомления. Пусто — без оболочки
+# (например, если вы запускаете waybar через autostart).
+shell = "syndesktop-shell"
+# Команды при входе в сеанс.
+autostart = []
+# Запускать ~/.config/autostart/*.desktop
+xdg_autostart = true
+# Xwayland для X11-программ (нужен xwayland-satellite).
+xwayland = true
+screenshot_dir = "~/Pictures/Screenshots"
+
+[general.environment]
+# QT_QPA_PLATFORMTHEME = "kde"
+
+[appearance]
+color_scheme = "dark"          # dark | light
+accent = "#3d8bfd"
+font = ""                      # пусто — системный шрифт
+font_size = 13.0
+icon_theme = "breeze-dark"
+cursor_theme = "breeze_cursors"
+cursor_size = 24
+corner_radius = 10.0
+panel_opacity = 0.92
+ui_scale = 1.0
+
+[appearance.colors]
+# Переопределение цветов палитры: bg, surface, surface_alt, fg, muted,
+# border, accent_fg, danger, success, warning.
+# bg = "#101010"
+
+[input.keyboard]
+layouts = "us,ru"
+variants = ""
+options = "grp:alt_shift_toggle"
+model = ""
+repeat_delay = 400
+repeat_rate = 30
+numlock = true
+per_window_layout = false
+
+[input.mouse]
+accel_speed = 0.0              # -1.0 .. 1.0
+accel_profile = "adaptive"     # adaptive | flat
+natural_scroll = false
+left_handed = false
+scroll_factor = 1.0
+middle_emulation = false
+
+[input.touchpad]
+tap = true
+tap_drag = true
+natural_scroll = true
+disable_while_typing = true
+accel_speed = 0.2
+accel_profile = "adaptive"
+left_handed = false
+scroll_factor = 1.0
+scroll_method = "two-finger"   # two-finger | edge | none
+click_method = "clickfinger"   # clickfinger | button-areas
+middle_emulation = false
+
+# Мониторы. Без секций — все включены в предпочтительном режиме, слева направо.
+# [[output]]
+# name = "eDP-1"
+# mode = "1920x1080@60"
+# scale = 1.25
+# position = [0, 0]
+# transform = "normal"         # normal | 90 | 180 | 270 | flipped | flipped-90 | ...
+# vrr = false
+# primary = true
+
+[windows]
+focus_mode = "click"           # click | sloppy | follow-mouse
+raise_on_focus = true
+autoraise_delay = 250
+decorations = "server"         # server | client
+placement = "center"           # center | cascade | under-mouse | smart
+mod_key = "Super"              # модификатор: перетаскивание ЛКМ, размер ПКМ
+border_width = 2
+gaps_inner = 8
+gaps_outer = 8
+default_layout = "floating"    # floating | tile | columns | grid | monocle
+master_ratio = 0.55
+master_count = 1
+new_is_master = false
+snap = true
+snap_distance = 12
+edge_tiling = true
+titlebar_double_click = "toggle-maximize"
+titlebar_middle_click = "minimize"
+titlebar_wheel = "none"
+hide_cursor_after = 0
+dim_inactive = 0.0
+focus_stealing = false
+
+[decorations]
+title_height = 32
+font_size = 13.0
+title_align = "center"         # left | center
+# Кнопки: левые:правые. icon, sticky, above, minimize, maximize, close
+buttons = "icon:minimize,maximize,close"
+corner_radius = 10.0
+resize_border = 8
+shadow = true
+shadow_size = 22
+shadow_opacity = 0.45
+active_color = "surface"       # accent | surface | bg | #rrggbb
+inactive_color = "bg"
+
+[animations]
+enabled = true
+speed = 1.0                    # 0.5 — быстрее, 2.0 — медленнее
+window_open = "zoom"           # zoom | fade | slide | none
+window_close = "zoom"
+workspace_switch = "slide"     # slide | slide-vertical | fade | none
+minimize = "zoom"
+layout_changes = true
+
+[workspaces]
+count = 4
+names = []
+wrap = true
+back_and_forth = false
+
+[workspaces.layouts]
+# "3" = "tile"
+
+# Правила окон: все заданные условия (регулярные выражения) должны совпасть.
+# [[rule]]
+# app_id = "^org\\.kde\\.kcalc$"
+# floating = true
+# center = true
+#
+# [[rule]]
+# app_id = "firefox"
+# workspace = 2
+#
+# [[rule]]
+# title = "Picture-in-Picture"
+# always_on_top = true
+# sticky = true
+
+# Сочетания клавиш. Дополняют встроенные; "none" снимает встроенное.
+# Действия: spawn <cmd>, close, kill, toggle-floating, toggle-fullscreen,
+# toggle-maximize, minimize, toggle-sticky, toggle-always-on-top,
+# snap left|right|up|down, center, focus <dir>, move <dir>, focus-next,
+# focus-prev, workspace <N|next|prev|last>, move-to-workspace <…>,
+# move-to-workspace-follow <…>, focus-output <dir>, move-to-output <dir>,
+# layout <kind>, cycle-layout, master-ratio <±x>, master-count <±n>,
+# keyboard-layout-next, keyboard-layout <n>, screenshot, screenshot-window,
+# overview, reload-config, quit, lock, suspend, reboot, poweroff,
+# monitors-off, shell <launcher|run|power-menu|notifications|volume ±n|…>
+[keybindings]
+# "Super+Return" = "spawn foot"
+# "Super+B" = "spawn firefox"
+# "Super+Q" = "none"
+
+[wallpaper]
+path = ""                      # картинка или каталог (слайд-шоу)
+mode = "fill"                  # fill | fit | stretch | center | tile
+color = "#1b2233"
+color2 = "#3a2a4a"             # градиент, если нет картинки
+slideshow_minutes = 0
+desktop_icons = false
+
+[wallpaper.per_output]
+# "HDMI-A-1" = "~/Pictures/other.jpg"
+
+# Панели. Их может быть сколько угодно, на любом крае и мониторе.
+[[panel]]
+output = "*"                   # * | primary | имя монитора
+edge = "bottom"                # top | bottom | left | right
+size = 46
+floating = true
+length = 1.0
+align = "center"
+autohide = false
+exclusive = true
+applets = [
+    { type = "launcher" },
+    { type = "workspaces" },
+    { type = "taskbar" },
+    { type = "spacer" },
+    { type = "tray" },
+    { type = "keyboard" },
+    { type = "volume" },
+    { type = "network" },
+    { type = "battery" },
+    { type = "notifications" },
+    { type = "clock" },
+    { type = "power" },
+]
+# Другие апплеты: separator, show-desktop, layout, cpu, memory,
+# button (icon, label, action), command (command, interval, action),
+# clock (format = "%H:%M", date_format = "%a, %d %b", seconds = false),
+# taskbar (labels = true, group = false, all_workspaces = false).
+
+[launcher]
+style = "menu"                 # menu | fullscreen
+favorites = ["org.kde.konsole", "org.kde.dolphin", "firefox", "syndesktop-settings"]
+show_categories = true
+show_recent = true
+columns = 5
+width = 640
+height = 560
+search_keywords = true
+calculator = true
+run_commands = true
+
+[notifications]
+enabled = true
+position = "top-right"         # top-right | top-left | bottom-right | bottom-left | top | bottom
+timeout = 6000
+critical_timeout = 0
+max_visible = 5
+width = 380
+do_not_disturb = false
+history = true
+history_size = 100
+
+[lock]
+command = ""                   # пусто — встроенный экран блокировки; или "swaylock -f"
+before_sleep = true
+
+[idle]
+dpms_after = 600               # секунды, 0 — никогда
+lock_after = 0
+suspend_after = 0

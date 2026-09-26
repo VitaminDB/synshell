@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/syndesktop-common",
+    "crates/syndesktop",
+    "crates/syngui-layer",
+    "crates/syndesktop-shell",
+    "crates/syndesktop-settings",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+authors = ["Alexeyev Vitaly"]
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+syndesktop-common = { path = "crates/syndesktop-common" }
+syngui-layer = { path = "crates/syngui-layer" }
+syngui = { path = "../syngui/syngui", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.9"
+toml_edit = "0.23"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+libc = "0.2"
+regex = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 16
+debug = 1
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
