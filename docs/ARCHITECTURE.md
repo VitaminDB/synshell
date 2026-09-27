@@ -67,6 +67,26 @@
 Правки из режима редактирования оболочка пишет в `config.toml` сама
 (`syndesktop_common::config_edit`) и сразу перечитывает. Подробно — [DOCK.md](DOCK.md).
 
+## Адаптивная панель и глобальное меню
+
+`[[panel]] defloat = "maximized" | "touch"`: оболочка раз в 150 мс смотрит на окна вывода и
+пересоздаёт спецификацию поверхности — без отступа и во всю длину края, класс `.panel-defloated`
+вместо `.panel-floating`. Зона резервирования остаётся толщиной панели.
+
+Панель-заголовок: апплеты `window-title`, `window-buttons`, `appmenu`
+(`syndesktop-shell/src/applets/window.rs`) показывают активное окно своего вывода;
+`[windows] borderless_maximized` убирает у развёрнутых окон серверный заголовок
+(`Managed::has_titlebar`). Перетаскивание заголовка на панели — `WindowOp::StartMove`:
+композитор перехватывает указатель, пока кнопка ещё нажата.
+
+Глобальное меню: композитор реализует `org_kde_kwin_appmenu` (`syndesktop/src/appmenu.rs`) и
+отдаёт адрес меню в `WindowInfo::appmenu`; окна X11 регистрируют меню у
+`com.canonical.AppMenu.Registrar` (`syndesktop-shell/src/appmenu.rs`, по `WindowInfo::x11_id`).
+Реестр на шине, только пока в конфиге есть апплет `appmenu`: по нему Qt решает, убирать ли
+строку меню из окна. Меню читается по `com.canonical.dbusmenu` (AboutToShow + GetLayout,
+Event `opened`/`clicked`/`closed`). Qt-программам нужна тема `QT_QPA_PLATFORMTHEME=kde`
+(plasma-integration); GTK-меню (gtk-shell, org.gtk.Menus) не поддерживаются.
+
 ## IPC
 
 `syndesktop-common/src/ipc.rs`. Запрос-ответ одной JSON-строкой; `EventStream` переводит

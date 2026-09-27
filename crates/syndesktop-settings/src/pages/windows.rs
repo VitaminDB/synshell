@@ -107,6 +107,12 @@ pub fn windows() -> W {
                         deco,
                         &[("server", "Рисует композитор"), ("client", "Рисует приложение")],
                     ),
+                    switch_row(
+                        "Развёрнутые окна без заголовка",
+                        "Заголовок, кнопки и меню развёрнутого окна показывает панель (апплеты «Заголовок окна», «Кнопки окна», «Глобальное меню»)",
+                        op!["windows", "borderless_maximized"],
+                        w.borderless_maximized,
+                    ),
                     int_row("Толщина рамки", "px", op!["windows", "border_width"], w.border_width as i64, 0, 16, 1),
                     choice_row(
                         "Клавиша-модификатор",

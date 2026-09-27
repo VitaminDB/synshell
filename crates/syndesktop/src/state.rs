@@ -305,6 +305,7 @@ impl Core {
         TextInputManagerState::new::<State>(&dh);
         InputMethodManagerState::new::<State, _>(&dh, |_| true);
         VirtualKeyboardManagerState::new::<State, _>(&dh, |_| true);
+        crate::appmenu::init(&dh);
         smithay::wayland::security_context::SecurityContextState::new::<State, _>(&dh, |client| {
             client
                 .get_data::<ClientState>()

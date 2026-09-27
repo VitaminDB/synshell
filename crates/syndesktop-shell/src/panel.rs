@@ -1,6 +1,8 @@
 //! Панели `[[panel]]`: layer-поверхность на краю вывода, внутри — апплеты.
 //! Горизонтальные и вертикальные, во всю длину или частью края, плавающие
-//! (отступ + скругление, как в Plasma 6), с автоскрытием.
+//! (отступ + скругление, как в Plasma 6), с автоскрытием. Плавающая панель
+//! умеет «отлипать» (`defloat`): при развёрнутом окне или окне у самой
+//! панели она прижимается к краю во всю длину, как адаптивная панель Plasma.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -163,11 +165,12 @@ pub fn forget(key: u64) {
     PANELS.with(|p| p.borrow_mut().remove(&key));
 }
 
-fn spec_for(panel: &Panel, out: &OutputInfo, hidden: bool) -> SurfaceSpec {
+fn spec_for(panel: &Panel, out: &OutputInfo, hidden: bool, defloated: bool) -> SurfaceSpec {
     let vertical = panel.edge.is_vertical();
-    let gap = if panel.floating && !hidden { FLOAT_GAP } else { 0 };
+    let gap = if panel.floating && !hidden && !defloated { FLOAT_GAP } else { 0 };
     let thickness = if hidden { HIDDEN_STRIP } else { panel.size.max(16) };
-    let full = panel.length >= 0.999;
+    // Отлипшая панель — во всю длину края.
+    let full = panel.length >= 0.999 || defloated;
     let edge_anchor = match panel.edge {
         Edge::Top => Anchor::TOP,
         Edge::Bottom => Anchor::BOTTOM,
@@ -229,13 +232,65 @@ fn origin_of(spec: &SurfaceSpec, out: &OutputInfo, w: u32, h: u32) -> (f32, f32)
     (x, y)
 }
 
+/// Прижать ли плавающую панель к краю (`defloat`) при текущих окнах.
+fn want_defloat(panel: &Panel, out: &OutputInfo) -> bool {
+    if !panel.floating {
+        return false;
+    }
+    let touch = match panel.defloat.as_str() {
+        "maximized" => false,
+        "touch" => true,
+        _ => return false,
+    };
+    let ctx = ShellCtx::get();
+    let ws = ctx.workspaces.get_untracked().iter().find(|w| w.active).map(|w| w.index);
+    let offset = ctx
+        .comp_outputs
+        .get_untracked()
+        .iter()
+        .find(|o| o.name == out.name)
+        .map(|o| (o.geometry[0], o.geometry[1]))
+        .unwrap_or((out.position.0, out.position.1));
+    // Место плавающей панели вместе с отступом до края и до окон.
+    let zone = if touch {
+        let spec = spec_for(panel, out, false, false);
+        let (ow, oh) = (out.size.0.max(0) as u32, out.size.1.max(0) as u32);
+        let (w, h) = (
+            if spec.size.0 == 0 { ow.saturating_sub(2 * FLOAT_GAP as u32) } else { spec.size.0 },
+            if spec.size.1 == 0 { oh.saturating_sub(2 * FLOAT_GAP as u32) } else { spec.size.1 },
+        );
+        let (x, y) = origin_of(&spec, out, w, h);
+        let g = FLOAT_GAP as f32;
+        Some([x - g, y - g, x + w as f32 + g, y + h as f32 + g])
+    } else {
+        None
+    };
+    let title_h = ctx.cfg().decorations.title_height as f32;
+    ctx.windows.get_untracked().iter().any(|w| {
+        if w.minimized || !(Some(w.workspace) == ws || w.sticky) || w.output.as_deref().is_some_and(|o| o != out.name) {
+            return false;
+        }
+        if w.maximized || w.fullscreen {
+            return true;
+        }
+        let Some([zx0, zy0, zx1, zy1]) = zone else { return false };
+        let [x, y, ww, hh] = w.geometry;
+        let (x0, y0) = ((x - offset.0) as f32, (y - offset.1) as f32);
+        // Геометрия — без заголовка; он сверху, высотой из настроек рамок.
+        let y0 = y0 - title_h;
+        let (x1, y1) = (x0 + ww as f32, y0 + hh as f32 + title_h);
+        x0 < zx1 && x1 > zx0 && y0 < zy1 && y1 > zy0
+    })
+}
+
 /// Создать панель (или док) номер `index` на выводе.
 pub fn create(ctx: ShellCtx, index: usize, panel: &Panel, out: &OutputInfo) -> (SurfaceId, u64) {
     if panel.is_dock() {
         return crate::dock::create(ctx, index, panel, out);
     }
     let key = next_key();
-    let spec = spec_for(panel, out, panel.autohide);
+    let defloated = use_signal(want_defloat(panel, out));
+    let spec = spec_for(panel, out, panel.autohide, defloated.get_untracked());
     register(key, &out.name, panel.edge, &spec);
     let hidden = use_signal(panel.autohide);
     let hide_timer: Arc<std::sync::Mutex<Option<u64>>> = Arc::new(std::sync::Mutex::new(None));
@@ -270,7 +325,7 @@ pub fn create(ctx: ShellCtx, index: usize, panel: &Panel, out: &OutputInfo) -> (
                     if inside {
                         if hidden.get_untracked() {
                             hidden.set(false);
-                            let s = spec_for(&panel_hover, &out_hover, false);
+                            let s = spec_for(&panel_hover, &out_hover, false, defloated.get_untracked());
                             PANELS.with(|p| {
                                 if let Some(rt) = p.borrow_mut().get_mut(&key) {
                                     rt.spec = s.clone();
@@ -287,7 +342,7 @@ pub fn create(ctx: ShellCtx, index: usize, panel: &Panel, out: &OutputInfo) -> (
                                 return Some(Duration::from_millis(500));
                             }
                             hidden.set(true);
-                            let s = spec_for(&panel, &out, true);
+                            let s = spec_for(&panel, &out, true, defloated.get_untracked());
                             PANELS.with(|p| {
                                 if let Some(rt) = p.borrow_mut().get_mut(&key) {
                                     rt.spec = s.clone();
@@ -322,14 +377,39 @@ pub fn create(ctx: ShellCtx, index: usize, panel: &Panel, out: &OutputInfo) -> (
                 return Box::new(DecoratedBox::new().class("panel-hidden")) as Box<dyn Widget>;
             }
             let editing = ShellCtx::get().editing.get() == Some(pcc.index);
-            Box::new(view(&panel_v, &pcc, bg, editing))
+            Box::new(view(&panel_v, &pcc, bg, editing, defloated.get()))
         })))
     });
     *id_cell.lock().unwrap() = Some(id);
+    if panel.floating && matches!(panel.defloat.as_str(), "maximized" | "touch") {
+        start_defloat_timer(id, key, panel.clone(), out.clone(), hidden, defloated);
+    }
     (id, key)
 }
 
-fn view(panel: &Panel, pc: &PanelCtx, bg: Option<syngui::core::Color>, editing: bool) -> impl Widget {
+/// Следить за окнами и прижимать/отпускать плавающую панель.
+fn start_defloat_timer(id: SurfaceId, key: u64, panel: Panel, out: OutputInfo, hidden: RwSignal<bool>, defloated: RwSignal<bool>) {
+    syngui_layer::add_timer(Duration::from_millis(150), move || {
+        // Панель разобрана (перечитан конфиг, сменились мониторы).
+        if !alive(key) {
+            return None;
+        }
+        let want = want_defloat(&panel, &out);
+        if want != defloated.get_untracked() {
+            defloated.set(want);
+            let s = spec_for(&panel, &out, hidden.get_untracked(), want);
+            PANELS.with(|p| {
+                if let Some(rt) = p.borrow_mut().get_mut(&key) {
+                    rt.spec = s.clone();
+                }
+            });
+            syngui_layer::reconfigure_surface(id, s);
+        }
+        Some(Duration::from_millis(150))
+    });
+}
+
+fn view(panel: &Panel, pc: &PanelCtx, bg: Option<syngui::core::Color>, editing: bool, defloated: bool) -> impl Widget {
     let mut flex = Flex::new()
         .direction(if pc.vertical { FlexDirection::Column } else { FlexDirection::Row })
         .gap(4.0)
@@ -342,7 +422,7 @@ fn view(panel: &Panel, pc: &PanelCtx, bg: Option<syngui::core::Color>, editing: 
         let item_slot = pc.item_slot(ai);
         // Правый клик по апплету, который сам его не обрабатывает, — меню
         // этого апплета (убрать, настроить, изменить панель).
-        let w: Box<dyn Widget> = if editing || matches!(a.kind.as_str(), "taskbar" | "tray" | "app" | "group" | "folder") {
+        let w: Box<dyn Widget> = if editing || matches!(a.kind.as_str(), "taskbar" | "tray" | "app" | "group" | "folder" | "window-title") {
             w
         } else {
             let pcm = pc.clone();
@@ -370,8 +450,11 @@ fn view(panel: &Panel, pc: &PanelCtx, bg: Option<syngui::core::Color>, editing: 
         Edge::Right => "right",
     };
     let mut classes = format!("panel panel-{edge}");
-    if panel.floating {
+    if panel.floating && !defloated {
         classes.push_str(" panel-floating");
+    }
+    if defloated {
+        classes.push_str(" panel-defloated");
     }
     if pc.vertical {
         classes.push_str(" panel-vertical");

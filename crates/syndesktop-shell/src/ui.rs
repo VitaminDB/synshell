@@ -21,6 +21,11 @@ use syngui::widgets::IntoWidget;
 type PressCb = Arc<Mutex<dyn FnMut(MouseButton, Point, Rect) + Send>>;
 type WheelCb = Arc<Mutex<dyn FnMut(f32) + Send>>;
 type HoverCb = Arc<Mutex<dyn FnMut(bool) + Send>>;
+type ButtonCb = Arc<Mutex<dyn FnMut(MouseButton) + Send>>;
+
+/// Сколько пикселей надо протащить с нажатой кнопкой, чтобы это стало
+/// перетаскиванием, а не щелчком.
+const DRAG_THRESHOLD: f32 = 6.0;
 
 /// Область ввода вокруг одного ребёнка.
 pub struct InputArea {
@@ -29,6 +34,8 @@ pub struct InputArea {
     on_click: Option<PressCb>,
     on_wheel: Option<WheelCb>,
     on_hover: Option<HoverCb>,
+    on_double_click: Option<ButtonCb>,
+    on_drag: Option<ButtonCb>,
     absorb: bool,
     cursor: CursorIcon,
     buttons: Option<&'static [MouseButton]>,
@@ -43,6 +50,8 @@ impl InputArea {
             on_click: None,
             on_wheel: None,
             on_hover: None,
+            on_double_click: None,
+            on_drag: None,
             absorb: false,
             cursor: CursorIcon::Default,
             buttons: None,
@@ -81,6 +90,19 @@ impl InputArea {
         self
     }
 
+    /// Двойной щелчок (второе нажатие; щелчок по отпусканию тоже придёт).
+    pub fn on_double_click(mut self, f: impl FnMut(MouseButton) + Send + 'static) -> Self {
+        self.on_double_click = Some(Arc::new(Mutex::new(f)));
+        self
+    }
+
+    /// Начало перетаскивания: кнопку нажали здесь и сдвинули указатель
+    /// дальше порога. Щелчка по отпусканию после этого не будет.
+    pub fn on_drag(mut self, f: impl FnMut(MouseButton) + Send + 'static) -> Self {
+        self.on_drag = Some(Arc::new(Mutex::new(f)));
+        self
+    }
+
     /// Поглощать все события мыши внутри области.
     pub fn absorb(mut self) -> Self {
         self.absorb = true;
@@ -109,6 +131,9 @@ impl Widget for InputArea {
             on_click: self.on_click.clone(),
             on_wheel: self.on_wheel.clone(),
             on_hover: self.on_hover.clone(),
+            on_double_click: self.on_double_click.clone(),
+            on_drag: self.on_drag.clone(),
+            press_at: None,
             absorb: self.absorb,
             cursor: self.cursor,
             buttons: self.buttons,
@@ -155,6 +180,10 @@ struct InputAreaElement {
     on_click: Option<PressCb>,
     on_wheel: Option<WheelCb>,
     on_hover: Option<HoverCb>,
+    on_double_click: Option<ButtonCb>,
+    on_drag: Option<ButtonCb>,
+    /// Где нажали (для порога перетаскивания).
+    press_at: Option<Point>,
     absorb: bool,
     cursor: CursorIcon,
     buttons: Option<&'static [MouseButton]>,
@@ -162,6 +191,14 @@ struct InputAreaElement {
     classes: Vec<String>,
     dirty: DirtyFlags,
     mss: MssFields,
+}
+
+fn call1(cb: &Option<ButtonCb>, b: MouseButton) {
+    if let Some(cb) = cb {
+        if let Ok(mut f) = cb.lock() {
+            f(b);
+        }
+    }
 }
 
 fn call3(cb: &Option<PressCb>, b: MouseButton, p: Point, r: Rect) {
@@ -179,6 +216,8 @@ impl Element for InputAreaElement {
             self.on_click = w.on_click.clone();
             self.on_wheel = w.on_wheel.clone();
             self.on_hover = w.on_hover.clone();
+            self.on_double_click = w.on_double_click.clone();
+            self.on_drag = w.on_drag.clone();
             self.absorb = w.absorb;
             self.cursor = w.cursor;
             self.buttons = w.buttons;
@@ -210,6 +249,14 @@ impl Element for InputAreaElement {
         }
         match event {
             Event::MouseMove(pos) => {
+                if let (Some(b), Some(at), true) = (self.pressed, self.press_at, self.on_drag.is_some()) {
+                    if (pos.x - at.x).abs() > DRAG_THRESHOLD || (pos.y - at.y).abs() > DRAG_THRESHOLD {
+                        self.pressed = None;
+                        self.press_at = None;
+                        call1(&self.on_drag, b);
+                        return EventResult::Handled;
+                    }
+                }
                 let inside = self.bounds.contains(*pos);
                 if inside != self.hovered {
                     self.hovered = inside;
@@ -229,6 +276,7 @@ impl Element for InputAreaElement {
                 let inside = self.bounds.contains(*position);
                 if inside && (self.on_click.is_some() || self.on_press.is_some()) {
                     self.pressed = Some(*button);
+                    self.press_at = Some(*position);
                     call3(&self.on_press, *button, *position, self.bounds);
                     return EventResult::Handled;
                 }
@@ -251,7 +299,9 @@ impl Element for InputAreaElement {
                 let inside = self.bounds.contains(*position);
                 if inside && (self.on_click.is_some() || self.on_press.is_some()) {
                     self.pressed = Some(*button);
+                    self.press_at = Some(*position);
                     call3(&self.on_press, *button, *position, self.bounds);
+                    call1(&self.on_double_click, *button);
                     return EventResult::Handled;
                 }
                 absorbed(inside)
@@ -381,6 +431,8 @@ pub mod mi {
     pub const CLOSE: &str = "\u{E5CD}";
     pub const MINIMIZE: &str = "\u{E931}";
     pub const MAXIMIZE: &str = "\u{E3C6}";
+    /// filter_none — «восстановить размер».
+    pub const RESTORE: &str = "\u{E3E0}";
     pub const FULLSCREEN: &str = "\u{E5D0}";
     pub const PUSH_PIN: &str = "\u{F10D}";
     pub const ARROW_UP: &str = "\u{E5D8}";

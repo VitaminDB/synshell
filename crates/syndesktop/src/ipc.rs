@@ -252,6 +252,19 @@ impl State {
             WindowOp::ToggleFloating => self.toggle_floating(id),
             WindowOp::ToggleSticky => self.toggle_sticky(id),
             WindowOp::ToggleAlwaysOnTop => self.toggle_above(id),
+            WindowOp::StartMove => {
+                // Кнопка ещё нажата (неявный захват поверхности оболочки) —
+                // перехватить указатель и тащить окно.
+                let pointer = self.core.pointer.clone();
+                if let Some(start) = pointer.grab_start_data() {
+                    let start = smithay::input::pointer::GrabStartData {
+                        focus: None,
+                        button: start.button,
+                        location: pointer.current_location(),
+                    };
+                    self.start_move(id, start, smithay::utils::SERIAL_COUNTER.next_serial());
+                }
+            }
             WindowOp::MoveToWorkspace(ws) => self.move_to_workspace(id, ws, false),
         }
     }

@@ -66,6 +66,11 @@ pub struct MenuEntry {
     /// (радиокнопка, включено) для checkmark/radio.
     pub toggle: Option<(bool, bool)>,
     pub icon: TrayIcon,
+    /// Сочетание клавиш для подписи («Ctrl+S»).
+    pub shortcut: String,
+    /// Подменю (`children-display = submenu`), даже если пункты ещё не
+    /// загружены — Qt наполняет их по AboutToShow.
+    pub submenu: bool,
     pub children: Vec<MenuEntry>,
 }
 
@@ -234,7 +239,7 @@ fn split_item(s: &str) -> (String, String) {
     }
 }
 
-fn owner_of(conn: &Connection, name: &str) -> String {
+pub(crate) fn owner_of(conn: &Connection, name: &str) -> String {
     if name.starts_with(':') {
         return name.to_string();
     }
@@ -295,7 +300,7 @@ fn load_item(conn: &Connection, full: &str, icon_px: i32) -> Option<TrayItem> {
 
 // ─── dbusmenu ────────────────────────────────────────────────────────────────
 
-type RawEntry = (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>);
+pub(crate) type RawEntry = (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>);
 
 /// Ребёнок в `av` — вариант со структурой `(ia{sv}av)`.
 fn child_entry(v: &OwnedValue) -> Option<MenuEntry> {
@@ -311,7 +316,7 @@ fn child_entry(v: &OwnedValue) -> Option<MenuEntry> {
     Some(entry_from(raw))
 }
 
-fn entry_from((id, props, kids): RawEntry) -> MenuEntry {
+pub(crate) fn entry_from((id, props, kids): RawEntry) -> MenuEntry {
     let s_prop = |k: &str| props.get(k).and_then(|v| v.try_clone().ok()).and_then(|v| String::try_from(v).ok());
     let b_prop = |k: &str, d: bool| props.get(k).and_then(|v| bool::try_from(v).ok()).unwrap_or(d);
     let label = s_prop("label").unwrap_or_default();
@@ -337,9 +342,28 @@ fn entry_from((id, props, kids): RawEntry) -> MenuEntry {
             icon = TrayIcon::Path(p.to_string_lossy().into_owned());
         }
     }
+    // `aas`: [["Control", "S"]] — первое сочетание.
+    let shortcut = props
+        .get("shortcut")
+        .and_then(|v| v.try_clone().ok())
+        .and_then(|v| <Vec<Vec<String>>>::try_from(v).ok())
+        .and_then(|l| l.into_iter().next())
+        .map(|keys| {
+            keys.iter()
+                .map(|k| match k.as_str() {
+                    "Control" => "Ctrl",
+                    "Super" => "Super",
+                    other => other,
+                })
+                .collect::<Vec<_>>()
+                .join("+")
+        })
+        .unwrap_or_default();
     MenuEntry {
         id,
         label,
+        shortcut,
+        submenu: s_prop("children-display").as_deref() == Some("submenu"),
         enabled: b_prop("enabled", true),
         visible: b_prop("visible", true),
         separator: s_prop("type").as_deref() == Some("separator"),

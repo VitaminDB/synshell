@@ -406,9 +406,10 @@ where
         }
     }
 
-    // Обводка: у плиточных окон и окон без заголовка.
+    // Обводка: у плиточных окон и окон без заголовка (кроме развёрнутых —
+    // у них заголовок убран ради панели, рамка там лишняя).
     let tiled = m.is_tiled(layout);
-    if border_w > 0 && !m.fullscreen && (tiled || top == 0) && m.ssd {
+    if border_w > 0 && !m.fullscreen && !m.maximized && (tiled || top == 0) && m.ssd {
         let color = if focused { palette.accent } else { palette.border };
         let bw_phys = (border_w as f64 * scale_f).round() as i32;
         let outer = rect_phys(

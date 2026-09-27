@@ -41,6 +41,7 @@ fn width_of(kind: &PopupKind, ctx: &ShellCtx) -> f32 {
         PopupKind::Power => 360.0,
         PopupKind::Notifications => ctx.cfg().notifications.width as f32 + 20.0,
         PopupKind::WindowMenu(_) => 240.0,
+        PopupKind::GlobalMenu { .. } => 300.0,
         PopupKind::TrayMenu(_) => 280.0,
         PopupKind::TrayOverflow => 260.0,
         PopupKind::Stack { panel, index, .. } => crate::launchers::stack_width(ctx, *panel, *index),
@@ -117,7 +118,13 @@ pub fn install(ctx: ShellCtx) {
 
 /// Подложка (клик — закрыть) + карточка у якоря.
 fn frame(p: &Popup, card: Box<dyn Widget>, width: f32, out: (f32, f32), fan: bool) -> impl Widget {
-    let backdrop = InputArea::new(DecoratedBox::new().class("popup-backdrop")).on_press(|_, _, _| ShellCtx::get().close_popup());
+    // Клик мимо окна закрывает его; по другому пункту строки глобального
+    // меню — открывает его меню (как в строке меню программы).
+    let backdrop = InputArea::new(DecoratedBox::new().class("popup-backdrop")).on_press(|_, p, _| {
+        if !crate::applets::window::switch_menu_at(p) {
+            ShellCtx::get().close_popup();
+        }
+    });
     let hover_close = matches!(p.kind, PopupKind::Stack { hover: true, .. });
     let leave_timer: std::sync::Arc<std::sync::Mutex<Option<u64>>> = Default::default();
     if hover_close {
@@ -216,6 +223,7 @@ fn content(kind: &PopupKind, ctx: ShellCtx) -> Box<dyn Widget> {
         PopupKind::Notifications => Box::new(crate::notifications::center(ctx)),
         PopupKind::WindowMenu(id) => Box::new(window_menu(ctx, *id)),
         PopupKind::TrayMenu(key) => Box::new(crate::tray::menu_view(ctx, key.clone())),
+        PopupKind::GlobalMenu { id, .. } => Box::new(crate::applets::window::menu_view(*id)),
         PopupKind::TrayOverflow => Box::new(crate::tray::overflow_view(ctx)),
         PopupKind::Stack { panel, index, .. } => crate::launchers::stack_view(ctx, *panel, *index),
         PopupKind::ItemMenu { panel, index } => Box::new(crate::edit::item_menu(ctx, *panel, *index)),

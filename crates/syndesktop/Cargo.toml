@@ -26,6 +26,8 @@ tiny-skia = "0.11"
 fontdue = "0.9"
 # Снимки экрана.
 png = "0.17"
+# Протокол меню приложений KDE (org_kde_kwin_appmenu).
+wayland-protocols-plasma = { version = "0.3", features = ["server"] }
 
 [dependencies.smithay]
 version = "0.7"

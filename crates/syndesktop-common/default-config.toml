@@ -110,6 +110,7 @@ titlebar_wheel = "none"
 hide_cursor_after = 0
 dim_inactive = 0.0
 focus_stealing = false
+borderless_maximized = false   # развёрнутые окна без заголовка — его заменяет панель
 
 [decorations]
 title_height = 32
@@ -190,6 +191,8 @@ output = "*"                   # * | primary | имя монитора
 edge = "bottom"                # top | bottom | left | right
 size = 46
 floating = true
+defloat = "never"              # never | maximized | touch — прижиматься к краю во всю длину,
+                               # когда окно развёрнуто или касается панели (как в Plasma 6)
 length = 1.0
 align = "center"
 autohide = false
@@ -218,6 +221,11 @@ applets = [
 # group — раздел со всплывающим окном (name, icon, items = ["code", "~/Проекты"],
 #   view = "grid" | "list" | "fan", open = "click" | "hover"),
 # folder — содержимое каталога (path = "xdg:DOWNLOAD" | "trash:" | "~/…", name, view, open).
+# Панель как заголовок развёрнутого окна (с [windows] borderless_maximized = true):
+# window-title (only_maximized = true, icon = true, text = "title" | "app" | "both",
+#   max_width = 480; двойной щелчок — развернуть, перетащить — вытащить окно),
+# window-buttons (only_maximized = true, buttons = "minimize,maximize,close"),
+# appmenu — глобальное меню программы (Qt/KDE; only_maximized = false, app_name = true).
 # Значки, разделы и папки удобнее добавлять мышью: правый клик по панели →
 # «Изменить панель» (перетаскивание, ×, +).
 

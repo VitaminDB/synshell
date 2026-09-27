@@ -2,6 +2,7 @@
 //! Внешний вид — классы `.applet`, `.applet-<тип>` в MSS.
 
 pub mod taskbar;
+pub mod window;
 mod workspaces;
 
 use std::time::Duration;
@@ -38,6 +39,9 @@ pub fn build(a: &Applet, pc: &PanelCtx, index: usize) -> Box<dyn Widget> {
         "layout" => layout(pc),
         "show-desktop" => show_desktop(),
         "tray" => crate::tray::applet(a, pc),
+        "window-title" => window::title(a, pc),
+        "window-buttons" => window::buttons(a, pc),
+        "appmenu" => window::appmenu(a, pc),
         other => {
             log::warn!("неизвестный апплет «{other}»");
             Box::new(Text::new(format!("?{other}")).class("applet-label"))

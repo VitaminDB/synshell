@@ -9,6 +9,7 @@ pub mod layout;
 pub mod ops;
 pub mod rules;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use smithay::{
@@ -245,11 +246,15 @@ impl Managed {
             && self.mapped
     }
 
-    /// Рисовать ли заголовок (серверные рамки и не во весь экран).
+    /// Рисовать ли заголовок (серверные рамки и не во весь экран; у
+    /// развёрнутого — если не включены развёрнутые окна без заголовка).
     pub fn has_titlebar(&self) -> bool {
-        self.ssd && !self.fullscreen
+        self.ssd && !self.fullscreen && !(self.maximized && BORDERLESS_MAXIMIZED.load(Ordering::Relaxed))
     }
 }
+
+/// `windows.borderless_maximized`: развёрнутые окна без заголовка.
+static BORDERLESS_MAXIMIZED: AtomicBool = AtomicBool::new(false);
 
 pub struct Workspace {
     pub layout: LayoutKind,
@@ -328,6 +333,7 @@ impl Wm {
     /// Число и раскладки столов из конфига (существующие окна со столов
     /// сверх нового количества переезжают на последний).
     pub fn apply_config(&mut self, config: &Config) {
+        BORDERLESS_MAXIMIZED.store(config.windows.borderless_maximized, Ordering::Relaxed);
         let count = config.workspaces.count.clamp(1, 32);
         while self.workspaces.len() < count as usize {
             let i = self.workspaces.len() as u32;

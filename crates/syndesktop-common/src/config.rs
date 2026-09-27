@@ -694,6 +694,10 @@ pub struct Windows {
     /// Разрешить окнам активировать себя по xdg-activation без токена
     /// пользователя (иначе — только пометка «требует внимания»).
     pub focus_stealing: bool,
+    /// Развёрнутые окна без серверного заголовка (как в KWin): заголовок,
+    /// кнопки и меню показывает панель (апплеты `window-title`,
+    /// `window-buttons`, `appmenu`).
+    pub borderless_maximized: bool,
 }
 
 impl Default for Windows {
@@ -721,6 +725,7 @@ impl Default for Windows {
             hide_cursor_after: 0,
             dim_inactive: 0.0,
             focus_stealing: false,
+            borderless_maximized: false,
         }
     }
 }
@@ -936,6 +941,11 @@ pub struct Panel {
     pub size: u32,
     /// «Плавающая» панель с отступом от края и скруглениями (Plasma 6).
     pub floating: bool,
+    /// Когда плавающая панель прилипает к краю (во всю длину, без отступа
+    /// и скруглений), как адаптивная панель Plasma 6: `never` — никогда,
+    /// `maximized` — на выводе есть развёрнутое окно, `touch` — окно
+    /// касается панели или её отступа.
+    pub defloat: String,
     /// Длина: доля края 0..1 (1 — во всю ширину).
     pub length: f32,
     /// Выравнивание при `length < 1`: `start`, `center`, `end`.
@@ -1060,6 +1070,7 @@ impl Default for Panel {
             edge: Edge::Bottom,
             size: 46,
             floating: true,
+            defloat: "never".into(),
             length: 1.0,
             align: "center".into(),
             autohide: false,

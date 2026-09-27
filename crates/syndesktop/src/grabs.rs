@@ -232,13 +232,23 @@ impl MoveGrab {
         let float = m.float_geo.unwrap_or(old);
         let rel = ((pointer.x - old.loc.x as f64) / old.size.w.max(1) as f64).clamp(0.0, 1.0);
         let was_max = m.maximized;
-        {
+        let title_h = data.core.deco_theme.height;
+        let frame_top = old.loc.y - if m.has_titlebar() { title_h } else { 0 };
+        let new_y = {
             let m = data.core.wm.get_mut(self.id).unwrap();
             m.maximized = false;
             m.snap = None;
-        }
+            // Окно тащат с панели (заголовок окна на ней): курсор выше рамки —
+            // заголовок встаёт под курсор.
+            let top = if m.has_titlebar() { title_h } else { 0 };
+            if top > 0 && pointer.y < frame_top as f64 {
+                pointer.y as i32 + top / 2
+            } else {
+                old.loc.y
+            }
+        };
         let new_x = pointer.x as i32 - (rel * float.size.w as f64) as i32;
-        let new_loc: Point<i32, Logical> = (new_x, old.loc.y).into();
+        let new_loc: Point<i32, Logical> = (new_x, new_y).into();
         let m = data.core.wm.get_mut(self.id).unwrap();
         m.float_geo = Some(Rectangle::new(new_loc, float.size));
         m.loc = new_loc;

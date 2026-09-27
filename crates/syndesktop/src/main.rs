@@ -4,6 +4,7 @@
 //! во вложенном окне); `syndesktop msg …` — управление по IPC.
 
 mod anim;
+mod appmenu;
 mod backend;
 mod bindings;
 mod config;

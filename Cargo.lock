@@ -3387,6 +3387,7 @@ dependencies = [
  "tiny-skia",
  "tracing",
  "tracing-subscriber",
+ "wayland-protocols-plasma",
  "xcursor",
 ]
 
@@ -4090,6 +4091,7 @@ dependencies = [
  "wayland-client",
  "wayland-protocols",
  "wayland-scanner",
+ "wayland-server",
 ]
 
 [[package]]

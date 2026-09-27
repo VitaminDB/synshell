@@ -113,6 +113,35 @@ Text {
 .task-glyph { icon-size: 20px; }
 .task-title { font-size: 13px; line-height: 22px; }
 
+/* Панель как заголовок окна: заголовок, кнопки, глобальное меню */
+.applet-window-title { padding: 4px 10px; }
+.window-title-icon { width: 20px; height: 20px; }
+.window-title-glyph { icon-size: 18px; }
+.window-title-text { font-size: 13px; font-weight: bold; line-height: 20px; }
+.applet-window-buttons { padding: 0px; }
+.window-button {
+    padding: 5px 8px;
+    border-radius: var(--radius-sm);
+    background-color: #00000000;
+    transition: background-color 120ms ease-out;
+}
+.window-button .icon { icon-size: 18px; }
+.window-button:hover { background-color: var(--hover); }
+.window-button-close:hover { background-color: var(--danger); }
+.window-button-close:hover .icon { icon-color: #ffffff; }
+.applet-appmenu { padding: 0px; }
+.appmenu-item { padding: 4px 9px; border-radius: var(--radius-sm); }
+.appmenu-button {
+    background-color: #00000000;
+    transition: background-color 120ms ease-out;
+}
+.appmenu-button:hover { background-color: var(--hover); }
+.appmenu-open { background-color: var(--accent-soft); }
+.appmenu-open:hover { background-color: var(--accent-soft); }
+.appmenu-app { font-size: 13px; font-weight: bold; line-height: 20px; }
+.appmenu-label { font-size: 13px; line-height: 20px; }
+.menu-shortcut { font-size: 12px; color: var(--muted); }
+
 /* ─── Всплывающие окна ───────────────────────────────────────────────────── */
 
 .popup-backdrop { background-color: #00000000; }

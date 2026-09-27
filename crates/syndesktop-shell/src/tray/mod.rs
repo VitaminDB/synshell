@@ -52,7 +52,7 @@ fn ensure_started(icon_px: i32) {
     });
 }
 
-fn icon_widget(ic: &TrayIcon, size: f32, class: &str) -> Box<dyn Widget> {
+pub fn icon_widget(ic: &TrayIcon, size: f32, class: &str) -> Box<dyn Widget> {
     let px = StyleValue::px(size);
     match ic {
         TrayIcon::Path(p) => Box::new(
@@ -234,82 +234,99 @@ pub fn menu_view(_ctx: ShellCtx, key: String) -> impl Widget {
     let sub = submenu();
     Column::new().gap(2.0).child(move || {
         let menu = sig.menu.get();
-        let path = sub.get();
-        let mut col = Column::new().gap(2.0);
         let Some((k, entries)) = menu.filter(|(k, _)| *k == key) else {
-            return col.child(Text::new("Загрузка…").class("launcher-empty"));
+            return Column::new().gap(2.0).child(Text::new("Загрузка…").class("launcher-empty"));
         };
-        if !path.is_empty() {
-            col = col.child(
-                InputArea::new(
-                    DecoratedBox::new()
-                        .child(
-                            Row::new()
-                                .gap(10.0)
-                                .cross_axis_alignment(CrossAxisAlignment::Center)
-                                .child(icon("\u{E5C4}").class("menu-icon"))
-                                .child(Text::new("Назад").class("menu-label")),
-                        )
-                        .class("menu-item"),
-                )
-                .pointer()
-                .on_click(move |_, _, _| sub.update(|p| {
-                    p.pop();
-                })),
-            );
-        }
-        let Some(list) = find_path(&entries, &path) else {
-            return col.child(Text::new("Меню изменилось").class("launcher-empty"));
-        };
-        if list.is_empty() {
-            col = col.child(Text::new("Меню пусто").class("launcher-empty"));
-        }
-        for e in list.iter().filter(|e| e.visible) {
-            if e.separator {
-                col = col.child(DecoratedBox::new().class("menu-sep"));
-                continue;
-            }
-            let lead: Box<dyn Widget> = match e.toggle {
-                Some((radio, on)) => {
-                    let g = match (radio, on) {
-                        (true, true) => "\u{E837}",
-                        (true, false) => "\u{E836}",
-                        (false, true) => "\u{E834}",
-                        (false, false) => "\u{E835}",
-                    };
-                    Box::new(icon(g).class("menu-icon"))
-                }
-                None if !e.icon.is_none() => icon_widget(&e.icon, 18.0, "menu-img"),
-                None => Box::new(DecoratedBox::new().class("menu-icon-space")),
-            };
-            let mut row = Row::new()
-                .gap(10.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(lead)
-                .child(Text::new(e.label.clone()).max_lines(1).class("menu-label grow"));
-            let has_sub = !e.children.is_empty();
-            if has_sub {
-                row = row.child(icon("\u{E5CC}").class("menu-icon"));
-            }
-            let (id, enabled, kk) = (e.id, e.enabled, k.clone());
-            col = col.child(
-                InputArea::new(DecoratedBox::new().child(row).class(if enabled { "menu-item" } else { "menu-item menu-disabled" }))
-                    .pointer()
-                    .on_click(move |b, _, _| {
-                        if b != MouseButton::Left || !enabled {
-                            return;
-                        }
-                        if has_sub {
-                            sub.update(|p| p.push(id));
-                        } else {
-                            sni::send(Cmd::MenuEvent { key: kk.clone(), id });
-                            ShellCtx::get().close_popup();
-                        }
-                    }),
-            );
-        }
-        col
+        menu_list(&entries, sub, move |id| sni::send(Cmd::MenuEvent { key: k.clone(), id }), |_| {})
     })
+}
+
+/// Список пунктов dbusmenu с переходом по подменю на месте (`sub` — путь
+/// по id подменю). `activate` — выбран пункт, `enter` — открыто подменю
+/// (глобальное меню подгружает его содержимое).
+pub fn menu_list(
+    entries: &[MenuEntry],
+    sub: RwSignal<Vec<i32>>,
+    activate: impl Fn(i32) + Clone + Send + Sync + 'static,
+    enter: impl Fn(i32) + Clone + Send + Sync + 'static,
+) -> Column {
+    let path = sub.get();
+    let mut col = Column::new().gap(2.0);
+    if !path.is_empty() {
+        col = col.child(
+            InputArea::new(
+                DecoratedBox::new()
+                    .child(
+                        Row::new()
+                            .gap(10.0)
+                            .cross_axis_alignment(CrossAxisAlignment::Center)
+                            .child(icon("\u{E5C4}").class("menu-icon"))
+                            .child(Text::new("Назад").class("menu-label")),
+                    )
+                    .class("menu-item"),
+            )
+            .pointer()
+            .on_click(move |_, _, _| sub.update(|p| {
+                p.pop();
+            })),
+        );
+    }
+    let Some(list) = find_path(entries, &path) else {
+        return col.child(Text::new("Меню изменилось").class("launcher-empty"));
+    };
+    if list.is_empty() {
+        col = col.child(Text::new("Меню пусто").class("launcher-empty"));
+    }
+    for e in list.iter().filter(|e| e.visible) {
+        if e.separator {
+            col = col.child(DecoratedBox::new().class("menu-sep"));
+            continue;
+        }
+        let lead: Box<dyn Widget> = match e.toggle {
+            Some((radio, on)) => {
+                let g = match (radio, on) {
+                    (true, true) => "\u{E837}",
+                    (true, false) => "\u{E836}",
+                    (false, true) => "\u{E834}",
+                    (false, false) => "\u{E835}",
+                };
+                Box::new(icon(g).class("menu-icon"))
+            }
+            None if !e.icon.is_none() => icon_widget(&e.icon, 18.0, "menu-img"),
+            None => Box::new(DecoratedBox::new().class("menu-icon-space")),
+        };
+        let mut row = Row::new()
+            .gap(10.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(lead)
+            .child(Text::new(e.label.clone()).max_lines(1).class("menu-label grow"));
+        if !e.shortcut.is_empty() {
+            row = row.child(Text::new(e.shortcut.clone()).max_lines(1).class("menu-shortcut"));
+        }
+        let has_sub = e.submenu || !e.children.is_empty();
+        if has_sub {
+            row = row.child(icon("\u{E5CC}").class("menu-icon"));
+        }
+        let (id, enabled) = (e.id, e.enabled);
+        let (activate, enter) = (activate.clone(), enter.clone());
+        col = col.child(
+            InputArea::new(DecoratedBox::new().child(row).class(if enabled { "menu-item" } else { "menu-item menu-disabled" }))
+                .pointer()
+                .on_click(move |b, _, _| {
+                    if b != MouseButton::Left || !enabled {
+                        return;
+                    }
+                    if has_sub {
+                        enter(id);
+                        sub.update(|p| p.push(id));
+                    } else {
+                        activate(id);
+                        ShellCtx::get().close_popup();
+                    }
+                }),
+        );
+    }
+    col
 }
 
 /// Открыть меню `index`-го значка (команда `tray-menu N`).

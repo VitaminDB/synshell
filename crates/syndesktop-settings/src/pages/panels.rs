@@ -88,6 +88,24 @@ fn applet_types() -> Vec<(&'static str, &'static str, &'static str, Vec<Opt>)> {
             Int("max_visible", "Видимых значков (0 — все)", 0, 0, 64),
         ]),
         ("notifications", "Уведомления", "Центр уведомлений", vec![]),
+        ("window-title", "Заголовок окна", "Значок и заголовок активного окна: двойной щелчок — развернуть, перетащить — вытащить окно", vec![
+            Bool("only_maximized", "Только у развёрнутого окна", true),
+            Bool("icon", "Значок", true),
+            Choice("text", "Текст", "title", &[
+                ("title", "Заголовок окна"),
+                ("app", "Имя программы"),
+                ("both", "Программа — заголовок"),
+            ]),
+            Int("max_width", "Наибольшая ширина, px", 480, 40, 2000),
+        ]),
+        ("window-buttons", "Кнопки окна", "Свернуть, развернуть, закрыть активное окно", vec![
+            Bool("only_maximized", "Только у развёрнутого окна", true),
+            List("buttons", "Кнопки", "minimize, maximize, close"),
+        ]),
+        ("appmenu", "Глобальное меню", "Строка меню активной программы (Qt/KDE; как в macOS)", vec![
+            Bool("only_maximized", "Только у развёрнутого окна", false),
+            Bool("app_name", "Имя программы первым пунктом", true),
+        ]),
         ("power", "Питание", "Выход, сон, перезагрузка", vec![]),
         ("show-desktop", "Показать рабочий стол", "Свернуть все окна", vec![]),
         ("layout", "Раскладка окон", "Плавающая/плитка на столе", vec![]),
@@ -439,6 +457,13 @@ fn panel_card(pi: usize, p: &Panel, outputs: &[(String, String)]) -> W {
             SpinBox::new().range(20.0, 128.0).value(p.size as f64).width(140.0).on_change(move |v| pset(pi, "size", v.round() as i64))
         }),
         row("Плавающая", "Отступ от края и скругления (как в Plasma 6)", Toggle::with_state(p.floating).on_change(move |v| pset(pi, "floating", v))),
+        row("Прилипать к краю", "Плавающая панель встаёт к краю во всю длину, как адаптивная панель Plasma", {
+            let mut dd = Dropdown::new().width(240.0);
+            for (v, l) in [("never", "Никогда"), ("maximized", "Когда окно развёрнуто"), ("touch", "Когда окно касается панели")] {
+                dd = dd.item(DropdownItem::new(v, l));
+            }
+            dd.selected(p.defloat.clone()).on_change(move |v: &str| pset(pi, "defloat", v.to_string()))
+        }),
         row("Длина", "Доля края экрана", {
             Slider::new().range(0.1, 1.0).step(0.01).value(p.length).show_value(2).width(240.0).on_change(move |v| pset(pi, "length", round_to(v as f64, 2)))
         }),
@@ -531,6 +556,25 @@ pub fn panels() -> W {
                     store::doc_push_table(d, "panel", store::to_table(&p));
                     true
                 });
+                state::bump();
+            }))
+            .child(button("Добавить панель-заголовок", || {
+                // Верхняя панель как строка меню macOS/Plasma: у развёрнутого
+                // окна она становится его заголовком.
+                ensure();
+                let a = |kind: &str| Applet::new(kind);
+                let p = Panel {
+                    edge: syndesktop_common::config::Edge::Top,
+                    size: 34,
+                    floating: false,
+                    applets: vec![a("launcher"), a("window-title"), a("appmenu"), a("spacer"), a("tray"), a("clock"), a("window-buttons")],
+                    ..Panel::default()
+                };
+                store::edit(|d| {
+                    store::doc_push_table(d, "panel", store::to_table(&p));
+                    true
+                });
+                set(&op!["windows", "borderless_maximized"], true);
                 state::bump();
             }))
             .child(button("Добавить док", || {

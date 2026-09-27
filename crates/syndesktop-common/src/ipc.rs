@@ -46,6 +46,9 @@ pub enum WindowOp {
     ToggleFloating,
     ToggleSticky,
     ToggleAlwaysOnTop,
+    /// Начать перетаскивание окна мышью (кнопка уже нажата — например, на
+    /// заголовке окна на панели); развёрнутое окно при этом восстанавливается.
+    StartMove,
     /// Переместить окно на стол с индексом (с 0).
     MoveToWorkspace(u32),
 }
@@ -108,6 +111,14 @@ pub struct WindowInfo {
     pub skip_taskbar: bool,
     /// Геометрия в глобальных логических координатах [x, y, w, h].
     pub geometry: [i32; 4],
+    /// Меню приложения (`com.canonical.dbusmenu`), о котором окно сообщило
+    /// по `org_kde_kwin_appmenu`: служба D-Bus и путь объекта.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub appmenu: Option<(String, String)>,
+    /// Идентификатор окна X11 (XWayland) — по нему меню регистрируют через
+    /// `com.canonical.AppMenu.Registrar`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x11_id: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

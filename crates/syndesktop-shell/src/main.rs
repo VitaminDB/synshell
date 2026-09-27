@@ -4,6 +4,7 @@
 //! общается по IPC, а под другими композиторами работает без него.
 
 mod actions;
+mod appmenu;
 mod applets;
 mod clock;
 mod commands;
@@ -62,6 +63,7 @@ fn main() {
         clock::start(ctx);
         system::start(ctx);
         ipc::start(ctx);
+        appmenu::install(ctx);
         notifications::start(ctx);
         manager::install(ctx);
         popup::install(ctx);
