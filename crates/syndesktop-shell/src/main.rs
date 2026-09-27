@@ -11,6 +11,7 @@ mod commands;
 mod ctx;
 mod dock;
 mod edit;
+mod gtkmenu;
 mod ipc;
 mod launcher;
 mod launchers;

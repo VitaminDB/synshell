@@ -85,7 +85,15 @@
 Реестр на шине, только пока в конфиге есть апплет `appmenu`: по нему Qt решает, убирать ли
 строку меню из окна. Меню читается по `com.canonical.dbusmenu` (AboutToShow + GetLayout,
 Event `opened`/`clicked`/`closed`). Qt-программам нужна тема `QT_QPA_PLATFORMTHEME=kde`
-(plasma-integration); GTK-меню (gtk-shell, org.gtk.Menus) не поддерживаются.
+(plasma-integration).
+
+GTK3: композитор реализует `gtk_shell1` (`syndesktop/src/gtk_shell.rs`, протокол —
+`protocols/gtk-shell.xml`) и, пока есть апплет `appmenu`, объявляет возможность
+`global_menu_bar` — GTK убирает строку меню из окна и сообщает `set_dbus_properties`
+(`WindowInfo::gtk_menu`). Оболочка читает модель `org.gtk.Menus` (Start по группам, разделы
+через черту) и действия `org.gtk.Actions` (DescribeAll — доступность, флажки, радио;
+Activate), `syndesktop-shell/src/gtkmenu.rs`. GIMP 3 отдаёт меню так только с
+`GIMP_GTK_MENUBAR=1` — композитор выставляет её детям, пока есть апплет `appmenu`.
 
 ## IPC
 

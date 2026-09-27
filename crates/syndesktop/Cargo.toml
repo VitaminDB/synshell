@@ -28,6 +28,10 @@ fontdue = "0.9"
 png = "0.17"
 # Протокол меню приложений KDE (org_kde_kwin_appmenu).
 wayland-protocols-plasma = { version = "0.3", features = ["server"] }
+# gtk_shell1 (protocols/gtk-shell.xml): глобальное меню GTK-программ.
+wayland-server = "0.31"
+wayland-backend = "0.3"
+wayland-scanner = "0.31"
 
 [dependencies.smithay]
 version = "0.7"

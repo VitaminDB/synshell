@@ -1240,6 +1240,7 @@ impl State {
             geometry: [g.loc.x, g.loc.y, g.size.w, g.size.h],
             appmenu: m.window.toplevel().and_then(|t| crate::appmenu::address(t.wl_surface())),
             x11_id: m.window.x11_surface().map(|x| x.window_id()),
+            gtk_menu: m.window.toplevel().and_then(|t| crate::gtk_shell::menu(t.wl_surface())),
         }
     }
 

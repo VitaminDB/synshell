@@ -1,8 +1,10 @@
 //! Глобальное меню: меню активного окна по D-Bus (`com.canonical.dbusmenu`).
 //!
 //! Адрес меню окно сообщает композитору по `org_kde_kwin_appmenu` (Qt/KDE
-//! на Wayland, приходит в `WindowInfo::appmenu`) или регистрирует у
-//! `com.canonical.AppMenu.Registrar` по идентификатору окна X11 (XWayland).
+//! на Wayland, приходит в `WindowInfo::appmenu`), по `gtk_shell1` (GTK3,
+//! `WindowInfo::gtk_menu`, меню `org.gtk.Menus` — см. `crate::gtkmenu`) или
+//! регистрирует у `com.canonical.AppMenu.Registrar` по идентификатору окна
+//! X11 (XWayland).
 //! Реестр оболочка держит, только пока на какой-нибудь панели есть апплет
 //! `appmenu`: по его наличию на шине Qt решает, убирать ли строку меню из
 //! окна — без апплета меню пропало бы совсем.
@@ -14,7 +16,7 @@ use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
-use syndesktop_common::ipc::WindowInfo;
+use syndesktop_common::ipc::{GtkMenu, WindowInfo};
 use syngui::prelude::*;
 use zbus::blocking::{Connection, MessageIterator};
 use zbus::message::Header;
@@ -23,6 +25,7 @@ use zbus::zvariant::{ObjectPath, OwnedObjectPath, Value};
 use zbus::MatchRule;
 
 use crate::ctx::ShellCtx;
+use crate::gtkmenu::{self, GtkState};
 use crate::tray::sni::{entry_from, owner_of, MenuEntry, RawEntry};
 
 const REGISTRAR: &str = "com.canonical.AppMenu.Registrar";
@@ -37,9 +40,27 @@ pub struct AppMenu {
     pub entries: Vec<MenuEntry>,
 }
 
+/// Где меню окна.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MenuAddr {
+    /// `com.canonical.dbusmenu`: служба и путь.
+    DbusMenu(String, String),
+    /// `org.gtk.Menus` + `org.gtk.Actions`.
+    Gtk(GtkMenu),
+}
+
+impl MenuAddr {
+    pub fn key(&self) -> String {
+        match self {
+            MenuAddr::DbusMenu(s, p) => format!("{s}|{p}"),
+            MenuAddr::Gtk(g) => format!("gtk:{}|{}", g.bus, g.menubar),
+        }
+    }
+}
+
 enum Cmd {
     /// Меню активного окна (None — окна нет или у него нет меню).
-    Watch(Option<(String, String)>),
+    Watch(Option<MenuAddr>),
     /// Подгрузить подменю `id` (AboutToShow + GetLayout).
     Expand(i32),
     /// Выбран пункт.
@@ -48,6 +69,8 @@ enum Cmd {
     Closed(i32),
     /// Меню у владельца `sender` изменилось.
     Reload(String),
+    /// У владельца `sender` изменились действия GTK (доступность, флажки).
+    Refresh(String),
     /// Держать ли реестр на шине.
     Registrar(bool),
 }
@@ -108,13 +131,20 @@ pub fn install(ctx: ShellCtx) {
 }
 
 /// Адрес меню окна.
-pub fn address_of(w: &WindowInfo) -> Option<(String, String)> {
-    w.appmenu.clone().or_else(|| w.x11_id.and_then(|id| signals().x11.get().get(&id).cloned()))
+pub fn address_of(w: &WindowInfo) -> Option<MenuAddr> {
+    if let Some((s, p)) = &w.appmenu {
+        return Some(MenuAddr::DbusMenu(s.clone(), p.clone()));
+    }
+    if let Some(g) = &w.gtk_menu {
+        return Some(MenuAddr::Gtk(g.clone()));
+    }
+    let (s, p) = w.x11_id.and_then(|id| signals().x11.get().get(&id).cloned())?;
+    Some(MenuAddr::DbusMenu(s, p))
 }
 
 /// Следить за меню этого окна (вызывается апплетом при смене окна).
-pub fn watch(addr: Option<(String, String)>) {
-    thread_local! { static WATCHED: std::cell::RefCell<Option<Option<(String, String)>>> = const { std::cell::RefCell::new(None) }; }
+pub fn watch(addr: Option<MenuAddr>) {
+    thread_local! { static WATCHED: std::cell::RefCell<Option<Option<MenuAddr>>> = const { std::cell::RefCell::new(None) }; }
     let changed = WATCHED.with(|w| {
         let mut w = w.borrow_mut();
         if w.as_ref() == Some(&addr) {
@@ -230,6 +260,8 @@ fn run(sig: Signals, tx: Sender<Cmd>, rx: Receiver<Cmd>) -> zbus::Result<()> {
     let rules = [
         MatchRule::builder().msg_type(zbus::message::Type::Signal).interface(MENU_IFACE)?.member("LayoutUpdated")?.build(),
         MatchRule::builder().msg_type(zbus::message::Type::Signal).interface(MENU_IFACE)?.member("ItemsPropertiesUpdated")?.build(),
+        MatchRule::builder().msg_type(zbus::message::Type::Signal).interface("org.gtk.Menus")?.member("Changed")?.build(),
+        MatchRule::builder().msg_type(zbus::message::Type::Signal).interface("org.gtk.Actions")?.member("Changed")?.build(),
         MatchRule::builder()
             .msg_type(zbus::message::Type::Signal)
             .sender("org.freedesktop.DBus")?
@@ -256,8 +288,12 @@ fn run(sig: Signals, tx: Sender<Cmd>, rx: Receiver<Cmd>) -> zbus::Result<()> {
         let hdr = msg.header();
         let member = hdr.member().map(|m| m.to_string()).unwrap_or_default();
         let sender = hdr.sender().map(|s| s.to_string()).unwrap_or_default();
+        let iface = hdr.interface().map(|i| i.to_string()).unwrap_or_default();
         match member.as_str() {
-            "LayoutUpdated" | "ItemsPropertiesUpdated" => {
+            "Changed" if iface == "org.gtk.Actions" => {
+                let _ = tx.send(Cmd::Refresh(sender));
+            }
+            "LayoutUpdated" | "ItemsPropertiesUpdated" | "Changed" => {
                 let _ = tx.send(Cmd::Reload(sender));
             }
             "NameOwnerChanged" => {
@@ -279,18 +315,30 @@ fn run(sig: Signals, tx: Sender<Cmd>, rx: Receiver<Cmd>) -> zbus::Result<()> {
     Ok(())
 }
 
+/// Откуда меню, которое показываем.
+enum Source {
+    /// dbusmenu: служба, путь, уникальное имя владельца.
+    DbusMenu { path: String, owner: String },
+    Gtk(GtkState),
+}
+
+impl Source {
+    fn owner(&self) -> &str {
+        match self {
+            Source::DbusMenu { owner, .. } => owner,
+            Source::Gtk(st) => &st.menu.bus,
+        }
+    }
+}
+
 /// Состояние исполнителя: чьё меню показываем и что в нём раскрыто.
 #[derive(Default)]
 struct Current {
-    /// (служба, путь, уникальное имя владельца).
-    addr: Option<(String, String, String)>,
+    key: String,
+    source: Option<Source>,
     tree: Vec<MenuEntry>,
-    /// Подгруженные подменю — после обновления меню подгрузить заново.
+    /// Подгруженные подменю dbusmenu — после обновления подгрузить заново.
     expanded: Vec<i32>,
-}
-
-fn key_of(service: &str, path: &str) -> String {
-    format!("{service}|{path}")
 }
 
 fn get_layout(conn: &Connection, dest: &str, path: &str, parent: i32) -> Option<MenuEntry> {
@@ -328,17 +376,54 @@ fn splice(tree: &mut [MenuEntry], id: i32, children: Vec<MenuEntry>) -> bool {
 }
 
 fn publish(sig: Signals, cur: &Current) {
-    let menu = cur.addr.as_ref().map(|(s, p, _)| AppMenu { key: key_of(s, p), entries: cur.tree.clone() });
+    let menu = cur.source.as_ref().map(|_| AppMenu { key: cur.key.clone(), entries: cur.tree.clone() });
     sig.menu.set(menu);
 }
 
-/// Перечитать меню целиком и заново подгрузить раскрытые подменю.
+/// Перечитать меню целиком (у dbusmenu — и раскрытые подменю).
 fn reload(conn: &Connection, cur: &mut Current) {
-    let Some((_, path, owner)) = cur.addr.clone() else { return };
-    cur.tree = get_layout(conn, &owner, &path, 0).map(|r| r.children).unwrap_or_default();
-    for id in cur.expanded.clone() {
-        if let Some(sub) = get_layout(conn, &owner, &path, id) {
-            splice(&mut cur.tree, id, sub.children);
+    match cur.source.take() {
+        Some(Source::DbusMenu { path, owner }) => {
+            cur.tree = get_layout(conn, &owner, &path, 0).map(|r| r.children).unwrap_or_default();
+            for id in cur.expanded.clone() {
+                if let Some(sub) = get_layout(conn, &owner, &path, id) {
+                    splice(&mut cur.tree, id, sub.children);
+                }
+            }
+            cur.source = Some(Source::DbusMenu { path, owner });
+        }
+        Some(Source::Gtk(old)) => {
+            gtkmenu::end(conn, &old);
+            let (tree, st) = gtkmenu::load(conn, &old.menu);
+            cur.tree = tree;
+            cur.source = Some(Source::Gtk(st));
+        }
+        None => {}
+    }
+}
+
+/// Начать показывать меню `addr`.
+fn watch_addr(conn: &Connection, cur: &mut Current, addr: Option<MenuAddr>) {
+    if let Some(Source::Gtk(old)) = &cur.source {
+        gtkmenu::end(conn, old);
+    }
+    *cur = Current::default();
+    let Some(addr) = addr else { return };
+    cur.key = addr.key();
+    match addr {
+        MenuAddr::DbusMenu(service, path) => {
+            let owner = owner_of(conn, &service);
+            let owner = if owner.is_empty() { service } else { owner };
+            // Qt наполняет строку меню лениво — попросить показать.
+            about_to_show(conn, &owner, &path, 0);
+            cur.source = Some(Source::DbusMenu { path, owner });
+            reload(conn, cur);
+        }
+        MenuAddr::Gtk(g) => {
+            let (tree, st) = gtkmenu::load(conn, &g);
+            log::debug!("меню GTK {}{}: {} пунктов", g.bus, g.menubar, tree.len());
+            cur.tree = tree;
+            cur.source = Some(Source::Gtk(st));
         }
     }
 }
@@ -365,52 +450,64 @@ fn worker(conn: Connection, sig: Signals, rx: Receiver<Cmd>) {
                 }
             }
             Cmd::Watch(addr) => {
-                cur = Current::default();
-                if let Some((service, path)) = addr {
-                    let owner = owner_of(&conn, &service);
-                    let owner = if owner.is_empty() { service.clone() } else { owner };
-                    // Qt наполняет строку меню лениво — попросить показать.
-                    about_to_show(&conn, &owner, &path, 0);
-                    cur.addr = Some((service, path, owner));
-                    reload(&conn, &mut cur);
-                }
+                watch_addr(&conn, &mut cur, addr);
                 publish(sig, &cur);
             }
-            Cmd::Reload(sender) => {
-                if cur.addr.as_ref().is_none_or(|(_, _, owner)| *owner != sender) {
+            Cmd::Reload(ref sender) | Cmd::Refresh(ref sender) => {
+                if cur.source.as_ref().is_none_or(|s| s.owner() != sender) {
                     continue;
                 }
                 // Программа шлёт обновления пачками — собрать их в одно,
                 // прочие команды выполнить следом.
-                std::thread::sleep(Duration::from_millis(40));
-                queue.extend(rx.try_iter().filter(|c| !matches!(c, Cmd::Reload(_))));
-                reload(&conn, &mut cur);
+                std::thread::sleep(Duration::from_millis(60));
+                let mut full = matches!(cmd, Cmd::Reload(_));
+                for c in rx.try_iter() {
+                    match c {
+                        Cmd::Reload(_) => full = true,
+                        Cmd::Refresh(_) => {}
+                        other => queue.push_back(other),
+                    }
+                }
+                match (&mut cur.source, full) {
+                    (Some(Source::Gtk(st)), false) => cur.tree = gtkmenu::refresh(&conn, st),
+                    _ => reload(&conn, &mut cur),
+                }
                 publish(sig, &cur);
             }
-            Cmd::Expand(id) | Cmd::Activate(id) | Cmd::Closed(id) => {
-                let Some((_, path, owner)) = cur.addr.clone() else { continue };
-                match cmd {
-                    Cmd::Expand(_) => {
-                        about_to_show(&conn, &owner, &path, id);
-                        event(&conn, &owner, &path, id, "opened");
-                        if !cur.expanded.contains(&id) {
-                            cur.expanded.push(id);
-                        }
-                        if let Some(sub) = get_layout(&conn, &owner, &path, id) {
-                            splice(&mut cur.tree, id, sub.children);
-                            publish(sig, &cur);
-                        }
+            Cmd::Expand(id) => match &mut cur.source {
+                Some(Source::DbusMenu { path, owner }) => {
+                    let (path, owner) = (path.clone(), owner.clone());
+                    about_to_show(&conn, &owner, &path, id);
+                    event(&conn, &owner, &path, id, "opened");
+                    if !cur.expanded.contains(&id) {
+                        cur.expanded.push(id);
                     }
-                    Cmd::Closed(_) => {
-                        event(&conn, &owner, &path, id, "closed");
-                        cur.expanded.clear();
+                    if let Some(sub) = get_layout(&conn, &owner, &path, id) {
+                        splice(&mut cur.tree, id, sub.children);
+                        publish(sig, &cur);
                     }
-                    _ => {
-                        // Сначала закрывается окно меню и фокус возвращается
-                        // программе — действие («Вставить») идёт уже в неё.
-                        std::thread::sleep(Duration::from_millis(60));
-                        event(&conn, &owner, &path, id, "clicked");
-                    }
+                }
+                // Меню GTK загружено целиком — обновить флажки и доступность.
+                Some(Source::Gtk(st)) => {
+                    cur.tree = gtkmenu::refresh(&conn, st);
+                    publish(sig, &cur);
+                }
+                None => {}
+            },
+            Cmd::Closed(id) => {
+                if let Some(Source::DbusMenu { path, owner }) = &cur.source {
+                    event(&conn, owner, path, id, "closed");
+                }
+                cur.expanded.clear();
+            }
+            Cmd::Activate(id) => {
+                // Сначала закрывается окно меню и фокус возвращается
+                // программе — действие («Вставить») идёт уже в неё.
+                std::thread::sleep(Duration::from_millis(60));
+                match &cur.source {
+                    Some(Source::DbusMenu { path, owner }) => event(&conn, owner, path, id, "clicked"),
+                    Some(Source::Gtk(st)) => gtkmenu::activate(&conn, st, id),
+                    None => {}
                 }
             }
         }

@@ -12,6 +12,7 @@ mod cursor;
 mod deco;
 mod focus;
 mod grabs;
+mod gtk_shell;
 mod handlers;
 mod input;
 mod ipc;

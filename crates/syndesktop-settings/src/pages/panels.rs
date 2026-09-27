@@ -104,7 +104,7 @@ fn applet_types() -> Vec<(&'static str, &'static str, &'static str, Vec<Opt>)> {
         ]),
         ("appmenu", "Глобальное меню", "Строка меню активной программы (Qt/KDE; как в macOS)", vec![
             Bool("only_maximized", "Только у развёрнутого окна", false),
-            Bool("app_name", "Имя программы первым пунктом", true),
+            Bool("app_name", "Имя программы первым пунктом", false),
         ]),
         ("power", "Питание", "Выход, сон, перезагрузка", vec![]),
         ("show-desktop", "Показать рабочий стол", "Свернуть все окна", vec![]),

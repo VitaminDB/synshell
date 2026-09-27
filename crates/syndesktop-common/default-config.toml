@@ -225,7 +225,7 @@ applets = [
 # window-title (only_maximized = true, icon = true, text = "title" | "app" | "both",
 #   max_width = 480; двойной щелчок — развернуть, перетащить — вытащить окно),
 # window-buttons (only_maximized = true, buttons = "minimize,maximize,close"),
-# appmenu — глобальное меню программы (Qt/KDE; only_maximized = false, app_name = true).
+# appmenu — глобальное меню программы (Qt/KDE, GTK3 с GtkApplication, GIMP; only_maximized = false, app_name = false).
 # Значки, разделы и папки удобнее добавлять мышью: правый клик по панели →
 # «Изменить панель» (перетаскивание, ×, +).
 

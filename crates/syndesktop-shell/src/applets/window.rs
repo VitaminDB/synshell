@@ -153,10 +153,11 @@ thread_local! {
 }
 
 /// Строка меню активного окна. Настройки: `only_maximized` (нет),
-/// `app_name` — первым пунктом жирное имя программы (да).
+/// `app_name` — первым пунктом жирное имя программы (нет: оно обычно уже
+/// в апплете `window-title`).
 pub fn appmenu(a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
     let only_max = a.bool_or("only_maximized", false);
-    let show_name = a.bool_or("app_name", true);
+    let show_name = a.bool_or("app_name", false);
     let pc = pc.clone();
     Box::new(crate::ui::rx(move || {
         let w = active(&pc, only_max);
@@ -165,15 +166,15 @@ pub fn appmenu(a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
         let menu = crate::appmenu::menu();
         ITEMS.with(|it| it.borrow_mut().retain(|(p, _, _)| p.key != pc.key));
         let Some(w) = w else { return empty() };
+        // Меню нет — пусто (имя программы и так в заголовке окна).
+        let key = addr.as_ref().map(|a| a.key());
+        let Some(m) = menu.filter(|m| Some(&m.key) == key.as_ref() && !m.entries.is_empty()) else { return empty() };
         let mut row = Row::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Center);
         if show_name {
             row = row.child(DecoratedBox::new().child(crate::ui::vcenter(Text::new(app_name(&w)).max_lines(1).class("appmenu-app"))).class("appmenu-item"));
         }
-        let key = addr.as_ref().map(|(s, p)| format!("{s}|{p}"));
-        if let Some(m) = menu.filter(|m| Some(&m.key) == key.as_ref()) {
-            for e in m.entries.iter().filter(|e| e.visible && !e.separator) {
-                row = row.child(menu_button(&pc, e.id, &e.label, e.enabled));
-            }
+        for e in m.entries.iter().filter(|e| e.visible && !e.separator) {
+            row = row.child(menu_button(&pc, e.id, &e.label, e.enabled));
         }
         Box::new(DecoratedBox::new().child(row).class("applet-appmenu"))
     }))

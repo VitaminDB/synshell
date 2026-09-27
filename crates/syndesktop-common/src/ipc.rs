@@ -119,6 +119,20 @@ pub struct WindowInfo {
     /// `com.canonical.AppMenu.Registrar`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub x11_id: Option<u32>,
+    /// Меню GTK-программы (`gtk_shell1.set_dbus_properties`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gtk_menu: Option<GtkMenu>,
+}
+
+/// Где на D-Bus меню GTK-программы: `org.gtk.Menus` по пути `menubar`,
+/// действия `app.*` — `org.gtk.Actions` по `app_path`, `win.*` — по
+/// `window_path`; всё у владельца `bus`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
+pub struct GtkMenu {
+    pub bus: String,
+    pub menubar: String,
+    pub app_path: String,
+    pub window_path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
