@@ -76,6 +76,14 @@ impl Backend {
         }
     }
 
+    /// Доступ к GLES-рендереру основного GPU (снимки, захват экрана).
+    pub fn with_gles<T>(&mut self, f: impl FnOnce(&mut smithay::backend::renderer::gles::GlesRenderer) -> T) -> Option<T> {
+        match self {
+            Backend::Winit(w) => Some(f(w.gles())),
+            Backend::Tty(t) => t.with_gles(f),
+        }
+    }
+
     /// Применить `[[output]]` из конфига (режимы, масштаб, положение).
     pub fn apply_output_config(&mut self, core: &mut Core) {
         match self {
@@ -236,6 +244,10 @@ impl State {
                 .is_some_and(|d| d.redraw == crate::state::RedrawState::Queued);
             if queued {
                 self.backend.render(&mut self.core, &o);
+                let damaged = self.core.output_data.get(&o).is_some_and(|d| d.damaged);
+                if damaged {
+                    self.flush_pending_copies(&o);
+                }
             }
         }
     }

@@ -103,8 +103,13 @@ impl WinitBackend {
         self.backend.renderer().import_dmabuf(dmabuf, None).is_ok()
     }
 
+    pub fn gles(&mut self) -> &mut GlesRenderer {
+        self.backend.renderer()
+    }
+
     pub fn render(&mut self, core: &mut Core, output: &Output) {
         let age = self.backend.buffer_age().unwrap_or(0);
+        let mut damaged = false;
         let result = {
             let (renderer, mut fb) = match self.backend.bind() {
                 Ok(x) => x,
@@ -119,6 +124,7 @@ impl WinitBackend {
         match result {
             Ok(r) => {
                 let has_damage = r.damage.is_some();
+                damaged = has_damage;
                 if let Some(damage) = r.damage {
                     if let Err(e) = self.backend.submit(Some(damage)) {
                         tracing::warn!(?e, "winit: submit");
@@ -155,6 +161,7 @@ impl WinitBackend {
         }
         let data = core.output_data.entry(output.clone()).or_default();
         data.redraw = RedrawState::Idle;
+        data.damaged = damaged;
         data.frames += 1;
         data.last_frame = std::time::Instant::now();
         if core.wants_continuous_redraw() {

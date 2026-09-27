@@ -13,7 +13,9 @@ optdepends=('xorg-xwayland: X11-программы'
             'networkmanager: апплет сети'
             'playerctl: мультимедийные клавиши'
             'wl-clipboard: снимки в буфер обмена'
-            'xdg-desktop-portal-kde: порталы (выбор файлов, снимки)'
+            'xdg-desktop-portal-wlr: демонстрация экрана (браузеры, OBS) и снимки через портал'
+            'xdg-desktop-portal-kde: портал выбора файлов'
+            'grim: снимки экрана из командной строки'
             'breeze-icons: тема значков по умолчанию')
 makedepends=('cargo' 'rust')
 
@@ -34,6 +36,7 @@ package() {
     done
     install -Dm755 data/syndesktop-session "$pkgdir/usr/bin/syndesktop-session"
     install -Dm644 data/syndesktop.desktop "$pkgdir/usr/share/wayland-sessions/syndesktop.desktop"
+    install -Dm644 data/xdg-desktop-portal-wlr/syndesktop "$pkgdir/etc/xdg/xdg-desktop-portal-wlr/syndesktop"
     install -Dm644 data/syndesktop-portals.conf "$pkgdir/usr/share/xdg-desktop-portal/syndesktop-portals.conf"
     install -Dm644 crates/syndesktop-settings/data/syndesktop-settings.desktop \
         "$pkgdir/usr/share/applications/syndesktop-settings.desktop"

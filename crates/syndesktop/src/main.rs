@@ -16,6 +16,7 @@ mod input;
 mod ipc;
 mod libinput_config;
 mod render;
+mod screencopy;
 mod screenshot;
 mod spawn;
 mod state;
@@ -145,6 +146,7 @@ fn run(args: &[String]) -> anyhow::Result<()> {
         state.poll_config();
         state.check_idle();
         state.watch_shell();
+        state.flush_stale_copies();
         TimeoutAction::ToDuration(Duration::from_secs(1))
     }).map_err(|e| anyhow::anyhow!("{}", e.error))?;
 
@@ -214,6 +216,23 @@ fn msg(args: &[String]) -> i32 {
         "workspaces" => Request::Workspaces,
         "outputs" => Request::Outputs,
         "layouts" => Request::KeyboardLayouts,
+        // Имя монитора под указателем — для выбора экрана в портале
+        // (xdg-desktop-portal-wlr: chooser_cmd).
+        "focused-output" => {
+            let outputs = Client::connect().and_then(|mut c| c.request(&Request::Outputs));
+            return match outputs {
+                Ok(Response::Outputs { outputs }) => {
+                    match outputs.iter().find(|o| o.focused).or(outputs.first()) {
+                        Some(o) => {
+                            println!("{}", o.name);
+                            0
+                        }
+                        None => 1,
+                    }
+                }
+                _ => 1,
+            };
+        }
         "reload" => Request::Action { action: syndesktop_common::Action::ReloadConfig },
         "action" => match args[1..].join(" ").parse() {
             Ok(action) => Request::Action { action },

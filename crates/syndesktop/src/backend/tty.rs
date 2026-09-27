@@ -658,6 +658,7 @@ impl TtyBackend {
         core.post_repaint(output, &states);
 
         let data = core.output_data.entry(output.clone()).or_default();
+        data.damaged = rendered;
         if rendered {
             let feedback = core.take_presentation_feedback(output, &states);
             match surface.drm_output.queue_frame(Some(feedback)) {
@@ -711,6 +712,11 @@ impl TtyBackend {
                 }
             }
         }
+    }
+
+    pub fn with_gles<T>(&mut self, f: impl FnOnce(&mut GlesRenderer) -> T) -> Option<T> {
+        let mut r = self.gpus.single_renderer(&self.primary_gpu).ok()?;
+        Some(f(r.as_mut()))
     }
 
     pub fn screenshot(&mut self, core: &mut Core, output: &Output) -> anyhow::Result<(u32, u32, Vec<u8>)> {

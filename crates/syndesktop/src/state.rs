@@ -115,11 +115,13 @@ pub struct OutputData {
     pub frames: u64,
     /// Мониторы погашены (DPMS).
     pub powered_off: bool,
+    /// Последний кадр был с изменениями (для copy_with_damage).
+    pub damaged: bool,
 }
 
 impl Default for OutputData {
     fn default() -> Self {
-        Self { redraw: RedrawState::Idle, last_frame: Instant::now(), frames: 0, powered_off: false }
+        Self { redraw: RedrawState::Idle, last_frame: Instant::now(), frames: 0, powered_off: false, damaged: false }
     }
 }
 
@@ -216,6 +218,8 @@ pub struct Core {
     pub xwayland: Option<crate::xwayland::XwaylandState>,
     /// Нужно разослать изменения окон по IPC после текущего цикла.
     pub ipc_dirty: bool,
+    /// Захваты экрана, ждущие кадра с изменениями.
+    pub pending_copies: Vec<crate::screencopy::PendingCopy>,
     pub frame_ids: crate::render::FrameIds,
     pub gesture: crate::input::GestureState,
     pub last_title_click: Option<crate::input::LastTitleClick>,
@@ -295,6 +299,7 @@ impl Core {
         let xdg_foreign_state = XdgForeignState::new::<State>(&dh);
         let single_pixel_buffer_state = SinglePixelBufferState::new::<State>(&dh);
         let tablet_manager_state = TabletManagerState::new::<State>(&dh);
+        crate::screencopy::init(&dh);
         TextInputManagerState::new::<State>(&dh);
         InputMethodManagerState::new::<State, _>(&dh, |_| true);
         VirtualKeyboardManagerState::new::<State, _>(&dh, |_| true);
@@ -413,6 +418,7 @@ impl Core {
             shell: crate::spawn::ShellProcess::default(),
             xwayland: None,
             ipc_dirty: false,
+            pending_copies: Vec::new(),
             frame_ids: Default::default(),
             gesture: Default::default(),
             last_title_click: None,
