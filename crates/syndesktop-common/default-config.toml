@@ -40,6 +40,9 @@ cursor_size = 24
 corner_radius = 10.0
 panel_opacity = 0.92
 ui_scale = 1.0
+# Перекрашивать программы под тему: GTK 3/4 (Breeze, libadwaita), Qt/KDE
+# (цветовая схема Syndesktop в kdeglobals) и GIMP 3.
+app_colors = true
 
 [appearance.colors]
 # Переопределение цветов палитры поверх темы: bg, surface, surface_alt, fg, muted,
@@ -193,6 +196,7 @@ size = 46
 floating = true
 defloat = "never"              # never | maximized | touch — прижиматься к краю во всю длину,
                                # когда окно развёрнуто или касается панели (как в Plasma 6)
+defloated_size = 0             # толщина прилипшей панели; 0 — как size
 length = 1.0
 align = "center"
 autohide = false

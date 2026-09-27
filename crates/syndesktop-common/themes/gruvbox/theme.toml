@@ -10,6 +10,11 @@ panel_opacity = 0.97
 corner_radius = 4
 title_align = "left"
 
+[panel]
+# Толщина плавающей панели и прилипшей к краю (defloat).
+size = 42
+defloated_size = 36
+
 [dark]
 bg = "#1d2021"
 surface = "#282828"

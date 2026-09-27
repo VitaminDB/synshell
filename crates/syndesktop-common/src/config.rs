@@ -141,6 +141,9 @@ pub struct Appearance {
     /// Переопределения цветов палитры: `bg`, `surface`, `fg`, `muted`,
     /// `border`, `danger`, `success`, `warning`.
     pub colors: BTreeMap<String, String>,
+    /// Перекрашивать программы под тему: GTK 3/4 (Breeze, libadwaita),
+    /// Qt/KDE (`kdeglobals`) и GIMP 3 (см. `app_theme`).
+    pub app_colors: bool,
     /// Загруженная тема `theme` (заполняется в [`Config::parse`]).
     #[serde(skip)]
     pub resolved: Option<Arc<Theme>>,
@@ -161,6 +164,7 @@ impl Default for Appearance {
             panel_opacity: 0.92,
             ui_scale: 1.0,
             colors: BTreeMap::new(),
+            app_colors: true,
             resolved: None,
         }
     }
@@ -946,6 +950,8 @@ pub struct Panel {
     /// `maximized` — на выводе есть развёрнутое окно, `touch` — окно
     /// касается панели или её отступа.
     pub defloat: String,
+    /// Толщина прилипшей панели (`defloat`), логические px; 0 — как `size`.
+    pub defloated_size: u32,
     /// Длина: доля края 0..1 (1 — во всю ширину).
     pub length: f32,
     /// Выравнивание при `length < 1`: `start`, `center`, `end`.
@@ -1071,6 +1077,7 @@ impl Default for Panel {
             size: 46,
             floating: true,
             defloat: "never".into(),
+            defloated_size: 0,
             length: 1.0,
             align: "center".into(),
             autohide: false,

@@ -71,7 +71,13 @@
 
 `[[panel]] defloat = "maximized" | "touch"`: оболочка раз в 150 мс смотрит на окна вывода и
 пересоздаёт спецификацию поверхности — без отступа и во всю длину края, класс `.panel-defloated`
-вместо `.panel-floating`. Зона резервирования остаётся толщиной панели.
+вместо `.panel-floating` (без рамки и скруглений) и толщиной `defloated_size` (0 — как `size`);
+зона резервирования — толщина панели в текущем состоянии. Обе толщины рекомендует тема (`[panel]`
+в `theme.toml`).
+
+Цвета программ (`[appearance] app_colors`): `syndesktop-common/src/app_theme.rs` строит из палитры
+`colors.css`/`gtk.css` GTK, группы `kdeglobals` и `gimp.css`; оболочка (`app_colors.rs`) пишет их в
+фоне при загрузке конфига и оповещает Qt/KDE по D-Bus.
 
 Панель-заголовок: апплеты `window-title`, `window-buttons`, `appmenu`
 (`syndesktop-shell/src/applets/window.rs`) показывают активное окно своего вывода;

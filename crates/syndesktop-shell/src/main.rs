@@ -4,6 +4,7 @@
 //! общается по IPC, а под другими композиторами работает без него.
 
 mod actions;
+mod app_colors;
 mod appmenu;
 mod applets;
 mod clock;
@@ -56,6 +57,7 @@ fn main() {
     xdg::set_icon_theme(&config.appearance.icon_theme);
     xdg::warm_up();
     let mss = theme::build(&config);
+    app_colors::sync(&config);
     let font = Some(config.appearance.font.trim().to_string()).filter(|f| !f.is_empty());
 
     let result = syngui_layer::run(syngui_layer::RunOptions { font_family: font }, &mss, move || {
@@ -146,6 +148,7 @@ pub fn reload_config() {
     log::info!("конфиг перечитан");
     xdg::set_icon_theme(&cfg.appearance.icon_theme);
     syngui_layer::set_stylesheet(theme::build(&cfg));
+    app_colors::sync(&cfg);
     ctx.dnd.set(cfg.notifications.do_not_disturb);
     ctx.config.set_always(Arc::new(cfg));
     if !ctx.popup.get_untracked().is_some_and(|p| p.kind.survives_reload()) {

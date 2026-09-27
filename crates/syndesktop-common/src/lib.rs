@@ -4,6 +4,7 @@
 //! оболочкой и настройками.
 
 pub mod action;
+pub mod app_theme;
 pub mod config;
 pub mod config_edit;
 pub mod ipc;

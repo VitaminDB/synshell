@@ -464,6 +464,9 @@ fn panel_card(pi: usize, p: &Panel, outputs: &[(String, String)]) -> W {
             }
             dd.selected(p.defloat.clone()).on_change(move |v: &str| pset(pi, "defloat", v.to_string()))
         }),
+        row("Толщина у края", "Прилипшей панели; 0 — как обычно", {
+            SpinBox::new().range(0.0, 128.0).value(p.defloated_size as f64).width(140.0).on_change(move |v| pset(pi, "defloated_size", v.round() as i64))
+        }),
         row("Длина", "Доля края экрана", {
             Slider::new().range(0.1, 1.0).step(0.01).value(p.length).show_value(2).width(240.0).on_change(move |v| pset(pi, "length", round_to(v as f64, 2)))
         }),

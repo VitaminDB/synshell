@@ -14,6 +14,13 @@ pub fn config_dir() -> PathBuf {
         .unwrap_or_else(|| home().join(".config/syndesktop"))
 }
 
+/// `$XDG_CONFIG_HOME` (по умолчанию `~/.config`) — конфиги других программ.
+pub fn xdg_config_home() -> PathBuf {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home().join(".config"))
+}
+
 /// Главный файл конфигурации.
 pub fn config_file() -> PathBuf {
     config_dir().join("config.toml")

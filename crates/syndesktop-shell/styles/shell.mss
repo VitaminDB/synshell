@@ -33,6 +33,13 @@ Text {
     border-radius: var(--radius);
 }
 .panel-vertical { padding: 6px 4px; }
+/* Прилипшая к краю панель (`defloat`) — часть экрана, а не остров: без
+ * рамки, скруглений и тени. Составной селектор сильнее `.panel` тем. */
+.panel.panel-defloated {
+    border-width: 0px;
+    border-radius: 0px;
+    box-shadow: none;
+}
 
 .panel-content { flex-grow: 1; gap: 4px; }
 

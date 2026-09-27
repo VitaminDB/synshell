@@ -265,6 +265,15 @@ pub fn appearance() -> W {
                     ),
                 ],
             ),
+            group(
+                "Программы",
+                vec![switch_row(
+                    "Цвета программ по теме",
+                    "GTK (Breeze, libadwaita), Qt/KDE и GIMP; открытые окна GTK — после перезапуска",
+                    op!["appearance", "app_colors"],
+                    a.app_colors,
+                )],
+            ),
             group("Палитра", colors_rows),
             note("Пустое поле — цвет схемы. Тонкая настройка стилей — в ~/.config/syndesktop/theme.mss (MSS поверх встроенной темы)."),
         ],

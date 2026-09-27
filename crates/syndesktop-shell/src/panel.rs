@@ -168,7 +168,8 @@ pub fn forget(key: u64) {
 fn spec_for(panel: &Panel, out: &OutputInfo, hidden: bool, defloated: bool) -> SurfaceSpec {
     let vertical = panel.edge.is_vertical();
     let gap = if panel.floating && !hidden && !defloated { FLOAT_GAP } else { 0 };
-    let thickness = if hidden { HIDDEN_STRIP } else { panel.size.max(16) };
+    let thick = if defloated && panel.defloated_size > 0 { panel.defloated_size } else { panel.size }.max(16);
+    let thickness = if hidden { HIDDEN_STRIP } else { thick };
     // Отлипшая панель — во всю длину края.
     let full = panel.length >= 0.999 || defloated;
     let edge_anchor = match panel.edge {
@@ -194,7 +195,7 @@ fn spec_for(panel: &Panel, out: &OutputInfo, hidden: bool, defloated: bool) -> S
     let size = if vertical { (thickness, length) } else { (length, thickness) };
     // Отступы: сверху, справа, снизу, слева.
     let margin = [gap; 4];
-    let exclusive = if panel.exclusive && !panel.autohide { panel.size as i32 } else { 0 };
+    let exclusive = if panel.exclusive && !panel.autohide { thick as i32 } else { 0 };
     SurfaceSpec {
         namespace: "syndesktop-panel".into(),
         layer: Layer::Top,

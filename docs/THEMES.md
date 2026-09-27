@@ -37,7 +37,7 @@ accent = ""             # пусто — акцент темы
 (по умолчанию).
 
 При выборе темы в настройках записываются её рекомендации (скругление,
-прозрачность панелей, рамки окон, шрифт — если установлен), сбрасываются свой
+прозрачность панелей, толщина панелей, рамки окон, шрифт — если установлен), сбрасываются свой
 акцент, `[appearance.colors]` и цвета обоев. Вручную в `config.toml` можно
 поменять одну строку `theme` — тогда остальные значения остаются как были.
 
@@ -62,6 +62,10 @@ panel_opacity = 0.9
 
 [decorations]     # title_height, font_size, title_align, buttons, corner_radius, shadow, shadow_size, shadow_opacity
 title_align = "left"
+
+[panel]           # size, defloated_size — во все панели, кроме доков
+size = 44                 # толщина плавающей панели
+defloated_size = 38       # толщина прилипшей к краю (defloat = "maximized" | "touch")
 
 [dark]            # и/или [light]
 bg = "#1e1e2e"            # фон, панели
@@ -101,3 +105,34 @@ glow = "#cba6f766"
 `text-transform`, `letter-spacing`, переходы. Примеры — во встроенных темах
 (`crates/syndesktop-common/themes/`): неон в `synthwave`, жёсткие тени в
 `brutal`, стекло в `aurora`.
+
+Прилипшая к краю панель (`[[panel]] defloat`) получает класс
+`.panel-defloated` вместо `.panel-floating`; встроенный стиль убирает у неё
+рамку, скругления и тень (`.panel.panel-defloated`). Тема может вернуть,
+например, линию по внутреннему краю:
+`.panel.panel-defloated.panel-top { border-bottom: 1px solid var(--border); }`.
+
+## Цвета программ
+
+При `[appearance] app_colors = true` (по умолчанию; «Внешний вид → Программы»)
+оболочка при каждой смене темы, схемы, акцента или цветов палитры
+перекрашивает программы под итоговую палитру:
+
+| Что | Файл | Кто читает |
+|---|---|---|
+| GTK 3/4, тема Breeze | `~/.config/gtk-{3,4}.0/colors.css` (`*_breeze`) | GTK-тема Breeze |
+| GTK 4 libadwaita, GTK 3 adw-gtk3 | блок `/* syndesktop: … */` в `~/.config/gtk-{3,4}.0/gtk.css` | libadwaita (`--window-bg-color` …), adw-gtk3 |
+| тёмная/светлая схема | `settings.ini` (`gtk-application-prefer-dark-theme`), `gsettings … color-scheme` | GTK, порталы |
+| Qt/KDE | `[Colors:*]`, `[WM]` в `~/.config/kdeglobals`, схема `~/.local/share/color-schemes/Syndesktop.colors` | Qt с `QT_QPA_PLATFORMTHEME=kde`, kded6 |
+| GIMP 3 | блок в `~/.config/GIMP/<версия>/gimp.css` | стандартная тема GIMP |
+
+Роли цветов: фон окна — `surface` в тёмной схеме и `bg` в светлой, фон
+содержимого (списки, поля, холсты) — наоборот; кнопки — `surface_alt`/`surface`,
+выделение — акцент, заголовки — цвета заголовков окон темы.
+
+Файлы переписываются только при изменении; свои строки в `gtk.css`,
+`gimp.css` и остальные группы `kdeglobals` сохраняются, перед первой правкой
+`kdeglobals` сохраняется копия `kdeglobals.syndesktop-backup`. Программы Qt/KDE
+перекрашиваются сразу (сигнал `KGlobalSettings.notifyChange`), GTK — у новых
+окон (открытые — при наличии `colorreload-gtk-module`), GIMP — после
+перезапуска. У GIMP должна быть выбрана тема «Default» (любой вариант).

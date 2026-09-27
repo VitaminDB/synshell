@@ -3,8 +3,8 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
-use syndesktop_common::config::{Appearance, ColorScheme, Decorations, Palette, Rgba, COLOR_KEYS};
-use syndesktop_common::theme::{self, Theme, APPEARANCE_KEYS, DECORATION_KEYS};
+use syndesktop_common::config::{Appearance, ColorScheme, Config, Decorations, Palette, Panel, Rgba, COLOR_KEYS};
+use syndesktop_common::theme::{self, Theme, APPEARANCE_KEYS, DECORATION_KEYS, PANEL_KEYS};
 use syngui::prelude::*;
 
 use crate::op;
@@ -206,8 +206,13 @@ pub fn apply(t: Option<&Theme>) {
     let app_defaults = toml::Table::try_from(Appearance::default()).unwrap_or_default();
     let deco_defaults = toml::Table::try_from(Decorations::default()).unwrap_or_default();
     let empty = toml::Table::new();
-    let (rec_app, rec_deco) = t.map(|t| (&t.appearance, &t.decorations)).unwrap_or((&empty, &empty));
+    let panel_defaults = toml::Table::try_from(Panel::default()).unwrap_or_default();
+    let (rec_app, rec_deco, rec_panel) =
+        t.map(|t| (&t.appearance, &t.decorations, &t.panel)).unwrap_or((&empty, &empty, &empty));
     let id = t.map(|t| t.id.clone()).unwrap_or_default();
+    // Толщина панелей (не доков) — из темы; панели по умолчанию — в файл.
+    store::ensure_aot("panel", &Config::default().panels);
+    let panels: Vec<bool> = store::config().panels.iter().map(Panel::is_dock).collect();
     store::edit(move |d| {
         let mut ch = false;
         let k = Seg::K;
@@ -249,6 +254,14 @@ pub fn apply(t: Option<&Theme>) {
             let like = deco_defaults.get(*key);
             if let Some(v) = rec_deco.get(*key).or(like).and_then(|v| to_edit_value(v, like)) {
                 ch |= doc_set(d, &[k("decorations"), k(key)], v);
+            }
+        }
+        for (pi, _) in panels.iter().enumerate().filter(|(_, dock)| !**dock) {
+            for key in PANEL_KEYS {
+                let like = panel_defaults.get(*key);
+                if let Some(v) = rec_panel.get(*key).or(like).and_then(|v| to_edit_value(v, like)) {
+                    ch |= doc_set(d, &[k("panel"), Seg::I(pi), k(key)], v);
+                }
             }
         }
         ch |= doc_set(d, &[k("decorations"), k("active_color")], "theme".into());

@@ -3,7 +3,7 @@
 //! Тема — каталог `<id>/`:
 //! - `theme.toml` — название, палитры вариантов `[dark]`/`[light]`,
 //!   градиент обоев, свои MSS-переменные и рекомендуемые значения
-//!   `[appearance]`/`[decorations]` (их записывают «Параметры системы»
+//!   `[appearance]`/`[decorations]`/`[panel]` (их записывают «Параметры системы»
 //!   при выборе темы);
 //! - `shell.mss` — правила поверх встроенного стиля оболочки (необязательно);
 //! - `settings.mss` — то же для «Параметров системы» (необязательно).
@@ -80,6 +80,7 @@ struct ThemeFile {
     light: Option<Variant>,
     appearance: toml::Table,
     decorations: toml::Table,
+    panel: toml::Table,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,12 +103,18 @@ pub struct Theme {
     pub appearance: toml::Table,
     /// Рекомендуемые значения `[decorations]` (ключи [`DECORATION_KEYS`]).
     pub decorations: toml::Table,
+    /// Рекомендуемые значения панелей `[[panel]]` (ключи [`PANEL_KEYS`]),
+    /// записываются во все панели, кроме доков.
+    pub panel: toml::Table,
     pub shell_mss: String,
     pub settings_mss: String,
 }
 
 /// Какие ключи `[appearance]` тема может рекомендовать.
 pub const APPEARANCE_KEYS: &[&str] = &["corner_radius", "panel_opacity", "font", "font_size", "icon_theme", "cursor_theme"];
+/// Какие ключи панелей тема может рекомендовать: толщина плавающей и
+/// прилипшей к краю панели.
+pub const PANEL_KEYS: &[&str] = &["size", "defloated_size"];
 /// Какие ключи `[decorations]` тема может рекомендовать.
 pub const DECORATION_KEYS: &[&str] =
     &["title_height", "font_size", "title_align", "buttons", "corner_radius", "shadow", "shadow_size", "shadow_opacity"];
@@ -131,6 +138,7 @@ impl Theme {
             light: f.light,
             appearance: keep(f.appearance, APPEARANCE_KEYS),
             decorations: keep(f.decorations, DECORATION_KEYS),
+            panel: keep(f.panel, PANEL_KEYS),
             shell_mss,
             settings_mss,
         })
