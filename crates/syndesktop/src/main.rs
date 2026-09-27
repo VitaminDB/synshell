@@ -48,7 +48,7 @@ fn main() {
         println!(
             "syndesktop {} — окружение рабочего стола для Wayland\n\n\
              syndesktop [--nested | --tty] [--no-shell] [--no-autostart]\n\
-             syndesktop msg <version|windows|workspaces|outputs|layouts|events|action ДЕЙСТВИЕ|window ID ОПЕРАЦИЯ|reload>\n",
+             syndesktop msg <version|windows|workspaces|outputs|layouts|events|action ДЕЙСТВИЕ|window ID ОПЕРАЦИЯ|reload|restart-shell|restart>\n",
             env!("CARGO_PKG_VERSION")
         );
         return;
@@ -58,11 +58,54 @@ fn main() {
         return;
     }
     init_logging();
-    if let Err(e) = run(&args) {
-        tracing::error!("{e:#}");
-        eprintln!("syndesktop: {e:#}");
-        std::process::exit(1);
+    let inherited = InheritedEnv::capture();
+    match run(&args) {
+        Ok(true) => reexec(&inherited),
+        Ok(false) => {}
+        Err(e) => {
+            tracing::error!("{e:#}");
+            eprintln!("syndesktop: {e:#}");
+            std::process::exit(1);
+        }
     }
+}
+
+/// Переменные, которые композитор переписывает для детей; при перезапуске
+/// новому процессу нужны исходные (иначе вложенный режим смотрел бы сам на себя).
+struct InheritedEnv(Vec<(&'static str, Option<std::ffi::OsString>)>);
+
+impl InheritedEnv {
+    fn capture() -> Self {
+        Self(
+            ["WAYLAND_DISPLAY", "DISPLAY", "SYNDESKTOP_SOCKET", "XDG_CURRENT_DESKTOP"]
+                .into_iter()
+                .map(|k| (k, std::env::var_os(k)))
+                .collect(),
+        )
+    }
+}
+
+/// Заменить процесс свежим `syndesktop` с теми же аргументами.
+fn reexec(inherited: &InheritedEnv) {
+    use std::os::unix::process::CommandExt;
+    for (k, v) in &inherited.0 {
+        match v {
+            Some(v) => std::env::set_var(k, v),
+            None => std::env::remove_var(k),
+        }
+    }
+    // После обновления пакета /proc/self/exe указывает на удалённый файл
+    // («… (deleted)») — берём путь без этой пометки.
+    let exe = std::env::current_exe()
+        .ok()
+        .map(|p| std::path::PathBuf::from(p.to_string_lossy().trim_end_matches(" (deleted)").to_string()))
+        .filter(|p| p.is_file())
+        .unwrap_or_else(|| "syndesktop".into());
+    tracing::info!(exe = %exe.display(), "exec нового композитора");
+    let err = std::process::Command::new(&exe).args(std::env::args_os().skip(1)).exec();
+    tracing::error!(?err, "перезапуск не удался");
+    eprintln!("syndesktop: перезапуск не удался: {err}");
+    std::process::exit(1);
 }
 
 fn init_logging() {
@@ -85,7 +128,8 @@ fn init_logging() {
     }));
 }
 
-fn run(args: &[String]) -> anyhow::Result<()> {
+/// `Ok(true)` — запрошен перезапуск.
+fn run(args: &[String]) -> anyhow::Result<bool> {
     let nested = if args.iter().any(|a| a == "--tty") {
         false
     } else {
@@ -164,7 +208,11 @@ fn run(args: &[String]) -> anyhow::Result<()> {
 
     tracing::info!("завершение");
     state.core.shell.stop();
-    Ok(())
+    let restart = state.core.restart_requested;
+    // Освободить DRM, ввод, сокеты до exec.
+    drop(state);
+    drop(event_loop);
+    Ok(restart)
 }
 
 fn update_activation_environment(state: &State) {
@@ -207,7 +255,7 @@ impl State {
 fn msg(args: &[String]) -> i32 {
     use syndesktop_common::ipc::{Client, Request, Response, WindowOp};
     let Some(cmd) = args.first() else {
-        eprintln!("использование: syndesktop msg <version|windows|workspaces|outputs|layouts|events|action …|window ID ОПЕРАЦИЯ|reload>");
+        eprintln!("использование: syndesktop msg <version|windows|workspaces|outputs|layouts|events|action …|window ID ОПЕРАЦИЯ|reload|restart-shell|restart>");
         return 2;
     };
     let req = match cmd.as_str() {
@@ -234,6 +282,8 @@ fn msg(args: &[String]) -> i32 {
             };
         }
         "reload" => Request::Action { action: syndesktop_common::Action::ReloadConfig },
+        "restart-shell" => Request::Action { action: syndesktop_common::Action::RestartShell },
+        "restart" => Request::Action { action: syndesktop_common::Action::Restart },
         "action" => match args[1..].join(" ").parse() {
             Ok(action) => Request::Action { action },
             Err(e) => {

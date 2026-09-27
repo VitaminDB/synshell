@@ -29,6 +29,8 @@ syndesktop msg windows | workspaces | outputs | layouts | events
 syndesktop msg action "workspace 2"
 syndesktop msg action "spawn firefox"
 syndesktop msg window 5 minimize
+syndesktop msg restart-shell   # перезапустить панели и меню, окна остаются
+syndesktop msg restart         # перезапустить композитор (окна программ закроются)
 ```
 
 Основные сочетания клавиш (любое можно переопределить в `[keybindings]`):

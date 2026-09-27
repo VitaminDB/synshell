@@ -1096,6 +1096,8 @@ impl State {
             Action::ScreenshotWindow => self.screenshot(true),
             Action::Overview => self.toggle_overview(),
             Action::ReloadConfig => self.reload_config(),
+            Action::RestartShell => self.restart_shell(),
+            Action::Restart => self.restart(),
             Action::Quit => self.quit(),
             Action::Lock => self.lock_screen(),
             Action::Suspend => {
@@ -1135,6 +1137,15 @@ impl State {
         } else {
             crate::spawn::spawn_shell(&self.core, &cmd);
         }
+    }
+
+    /// Перезапуск композитора: цикл останавливается, после освобождения
+    /// устройств `main` заменяет процесс новым бинарником (тот же PID —
+    /// сеанс logind/seatd остаётся за нами).
+    pub fn restart(&mut self) {
+        tracing::info!("перезапуск композитора");
+        self.core.restart_requested = true;
+        self.quit();
     }
 
     pub fn quit(&mut self) {

@@ -214,6 +214,11 @@ pub enum Action {
     /// Обзор всех окон (как «Обзор» в Plasma).
     Overview,
     ReloadConfig,
+    /// Перезапустить оболочку (панели, меню) — окна не трогаются.
+    RestartShell,
+    /// Перезапустить композитор новым бинарником, не выходя из сеанса.
+    /// Окна программ при этом закрываются.
+    Restart,
     /// Выйти из сеанса.
     Quit,
     /// Заблокировать экран.
@@ -305,6 +310,8 @@ impl FromStr for Action {
             "screenshot-window" => Action::ScreenshotWindow,
             "overview" => Action::Overview,
             "reload-config" => Action::ReloadConfig,
+            "restart-shell" => Action::RestartShell,
+            "restart" => Action::Restart,
             "quit" | "logout" | "exit" => Action::Quit,
             "lock" => Action::Lock,
             "suspend" => Action::Suspend,
@@ -351,6 +358,8 @@ impl fmt::Display for Action {
             Action::ScreenshotWindow => f.write_str("screenshot-window"),
             Action::Overview => f.write_str("overview"),
             Action::ReloadConfig => f.write_str("reload-config"),
+            Action::RestartShell => f.write_str("restart-shell"),
+            Action::Restart => f.write_str("restart"),
             Action::Quit => f.write_str("quit"),
             Action::Lock => f.write_str("lock"),
             Action::Suspend => f.write_str("suspend"),

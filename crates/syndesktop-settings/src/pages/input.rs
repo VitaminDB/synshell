@@ -212,6 +212,8 @@ pub fn action_label(a: &Action) -> String {
         Action::ScreenshotWindow => "Снимок окна".into(),
         Action::Overview => "Обзор".into(),
         Action::ReloadConfig => "Перечитать настройки".into(),
+        Action::RestartShell => "Перезапустить оболочку".into(),
+        Action::Restart => "Перезапустить композитор".into(),
         Action::Quit => "Выйти из сеанса".into(),
         Action::Lock => "Заблокировать".into(),
         Action::Suspend => "Сон".into(),

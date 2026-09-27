@@ -215,6 +215,8 @@ pub struct Core {
     pub monitors_off: bool,
     pub ipc: IpcServer,
     pub shell: crate::spawn::ShellProcess,
+    /// После выхода из цикла — заменить процесс новым (`restart`).
+    pub restart_requested: bool,
     pub xwayland: Option<crate::xwayland::XwaylandState>,
     /// Нужно разослать изменения окон по IPC после текущего цикла.
     pub ipc_dirty: bool,
@@ -423,6 +425,7 @@ impl Core {
             gesture: Default::default(),
             last_title_click: None,
             last_kb_layout: None,
+            restart_requested: false,
         })
     }
 

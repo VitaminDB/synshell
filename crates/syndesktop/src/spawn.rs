@@ -128,6 +128,15 @@ impl ShellProcess {
 }
 
 impl State {
+    /// Перезапустить оболочку по запросу (свежий бинарник после обновления).
+    pub fn restart_shell(&mut self) {
+        tracing::info!("перезапуск оболочки");
+        self.core.shell.stop();
+        self.core.shell.stopping = false;
+        self.core.shell.restarts.clear();
+        self.start_shell();
+    }
+
     /// Запустить (или перезапустить) оболочку из `general.shell`.
     pub fn start_shell(&mut self) {
         let cmdline = self.core.config.general.shell.trim().to_string();
