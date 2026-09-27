@@ -31,6 +31,7 @@ pub struct InputArea {
     on_hover: Option<HoverCb>,
     absorb: bool,
     cursor: CursorIcon,
+    buttons: Option<&'static [MouseButton]>,
     classes: Vec<String>,
 }
 
@@ -44,8 +45,16 @@ impl InputArea {
             on_hover: None,
             absorb: false,
             cursor: CursorIcon::Default,
+            buttons: None,
             classes: Vec::new(),
         }
+    }
+
+    /// Нажимать только этими кнопками: остальные уходят родителю (правый
+    /// клик по кнопке апплета открывает меню панели, а не пропадает).
+    pub fn buttons(mut self, b: &'static [MouseButton]) -> Self {
+        self.buttons = Some(b);
+        self
     }
 
     /// Нажатие любой кнопки (срабатывает на отпускании внутри области):
@@ -102,6 +111,7 @@ impl Widget for InputArea {
             on_hover: self.on_hover.clone(),
             absorb: self.absorb,
             cursor: self.cursor,
+            buttons: self.buttons,
             child_id: None,
             classes: self.classes.clone(),
             dirty: DirtyFlags::LAYOUT | DirtyFlags::RENDER,
@@ -147,6 +157,7 @@ struct InputAreaElement {
     on_hover: Option<HoverCb>,
     absorb: bool,
     cursor: CursorIcon,
+    buttons: Option<&'static [MouseButton]>,
     child_id: Option<ElementId>,
     classes: Vec<String>,
     dirty: DirtyFlags,
@@ -170,6 +181,7 @@ impl Element for InputAreaElement {
             self.on_hover = w.on_hover.clone();
             self.absorb = w.absorb;
             self.cursor = w.cursor;
+            self.buttons = w.buttons;
         }
     }
 
@@ -189,6 +201,13 @@ impl Element for InputAreaElement {
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
         let absorbed = |inside: bool| if inside && (self.absorb) { EventResult::Handled } else { EventResult::Ignored };
+        if let (Some(allowed), Event::MouseDown { button, .. } | Event::MouseUp { button, .. } | Event::DoubleClick { button, .. }) =
+            (self.buttons, event)
+        {
+            if !allowed.contains(button) {
+                return EventResult::Ignored;
+            }
+        }
         match event {
             Event::MouseMove(pos) => {
                 let inside = self.bounds.contains(*pos);

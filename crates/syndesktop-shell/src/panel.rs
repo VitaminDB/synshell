@@ -340,6 +340,18 @@ fn view(panel: &Panel, pc: &PanelCtx, bg: Option<syngui::core::Color>, editing: 
         // открываются у его кнопки.
         let slot = pc.bounds_slot(&a.kind);
         let item_slot = pc.item_slot(ai);
+        // Правый клик по апплету, который сам его не обрабатывает, — меню
+        // этого апплета (убрать, настроить, изменить панель).
+        let w: Box<dyn Widget> = if editing || matches!(a.kind.as_str(), "taskbar" | "tray" | "app" | "group" | "folder") {
+            w
+        } else {
+            let pcm = pc.clone();
+            let slot = pc.item_slot(ai);
+            Box::new(crate::ui::InputArea::new(w).buttons(&[syngui::input::MouseButton::Right]).on_click(move |_, _, _| {
+                let r = *slot.lock().unwrap_or_else(|e| e.into_inner());
+                ShellCtx::get().open_popup(crate::ctx::PopupKind::ItemMenu { panel: pcm.index, index: ai }, pcm.anchor(r));
+            }))
+        };
         let w = crate::edit::item_frame(pc, ai, w, editing);
         flex = flex.child(
             EventHook::new()
@@ -374,10 +386,14 @@ fn view(panel: &Panel, pc: &PanelCtx, bg: Option<syngui::core::Color>, editing: 
     };
     // Правый клик по пустому месту — меню панели (добавить, изменить).
     let pc = pc.clone();
-    crate::ui::InputArea::new(b).on_click(move |btn, p, _| {
-        if btn == syngui::input::MouseButton::Right {
-            let r = Rect::new(p, syngui::core::Size::new(1.0, 1.0));
-            ShellCtx::get().open_popup(crate::ctx::PopupKind::PanelMenu(pc.index), pc.anchor(r));
-        }
+    // Якорь — точка клика вдоль панели и вся её толщина поперёк: меню
+    // встаёт рядом с панелью, а не поверх неё.
+    crate::ui::InputArea::new(b).buttons(&[syngui::input::MouseButton::Right]).on_click(move |_, p, bounds| {
+        let r = if pc.vertical {
+            Rect::new(syngui::core::Point::new(bounds.origin.x, p.y), syngui::core::Size::new(bounds.size.width, 1.0))
+        } else {
+            Rect::new(syngui::core::Point::new(p.x, bounds.origin.y), syngui::core::Size::new(1.0, bounds.size.height))
+        };
+        ShellCtx::get().open_popup(crate::ctx::PopupKind::PanelMenu(pc.index), pc.anchor(r));
     })
 }

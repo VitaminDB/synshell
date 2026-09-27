@@ -61,7 +61,7 @@ pub fn build(a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
                 col = col.child(r);
             }
             flex = flex.child(
-                InputArea::new(DecoratedBox::new().child(crate::ui::vcenter(col)).class(cls)).pointer().on_click(move |b, _, _| {
+                InputArea::new(DecoratedBox::new().child(crate::ui::vcenter(col)).class(cls)).pointer().buttons(&[MouseButton::Left]).on_click(move |b, _, _| {
                     if b == MouseButton::Left {
                         crate::actions::run(Action::Workspace(WorkspaceTarget::Index(idx + 1)));
                     }

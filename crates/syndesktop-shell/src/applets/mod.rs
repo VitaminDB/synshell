@@ -47,7 +47,9 @@ pub fn build(a: &Applet, pc: &PanelCtx, index: usize) -> Box<dyn Widget> {
 
 /// Кнопка апплета: область ввода + коробка `.applet .applet-<kind>`.
 pub fn applet_button<M>(kind: &str, content: impl syngui::widgets::IntoWidget<M>) -> InputArea {
-    InputArea::new(DecoratedBox::new().child(crate::ui::vcenter(content)).class(format!("applet applet-{kind}"))).pointer()
+    InputArea::new(DecoratedBox::new().child(crate::ui::vcenter(content)).class(format!("applet applet-{kind}")))
+        .pointer()
+        .buttons(&[MouseButton::Left, MouseButton::Middle])
 }
 
 fn simple_popup(pc: &PanelCtx, glyph: &str, kind: &str, popup: PopupKind) -> Box<dyn Widget> {
@@ -209,6 +211,7 @@ fn battery(a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
         Box::new(
             InputArea::new(DecoratedBox::new().child(row).class(if low { "applet applet-battery battery-low" } else { "applet applet-battery" }))
                 .pointer()
+                .buttons(&[MouseButton::Left])
                 .on_click(move |btn, _, r| {
                     if btn == MouseButton::Left {
                         ShellCtx::get().open_popup(PopupKind::Battery, pc.anchor(r));
@@ -359,6 +362,7 @@ fn layout(_pc: &PanelCtx) -> Box<dyn Widget> {
                 icon(g)
             }),
         )
+        .buttons(&[MouseButton::Left, MouseButton::Right])
         .on_click(|b, _, _| match b {
             MouseButton::Left => crate::actions::run(syndesktop_common::Action::CycleLayout),
             MouseButton::Right => crate::actions::run(syndesktop_common::Action::Layout(Default::default())),
