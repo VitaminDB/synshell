@@ -17,6 +17,8 @@ enum Opt {
     Text(&'static str, &'static str, &'static str),
     Bool(&'static str, &'static str, bool),
     Int(&'static str, &'static str, i64, i64, i64),
+    /// Ключ, подпись, значение по умолчанию, варианты (значение, подпись).
+    Choice(&'static str, &'static str, &'static str, &'static [(&'static str, &'static str)]),
 }
 
 /// Типы апплетов: (тип, название, описание, опции).
@@ -31,6 +33,12 @@ fn applet_types() -> Vec<(&'static str, &'static str, &'static str, Vec<Opt>)> {
             Bool("labels", "Подписи окон", true),
             Bool("group", "Группировать по приложению", false),
             Bool("all_workspaces", "Окна со всех столов", false),
+            Choice("title", "Длинный заголовок", "elide", &[
+                ("elide", "Обрезать в конце"),
+                ("middle", "Обрезать в середине"),
+                ("wrap", "Перенос на 2 строки мельче"),
+            ]),
+            Int("max_width", "Ширина кнопки, px", 220, 80, 600),
         ]),
         ("workspaces", "Рабочие столы", "Переключатель столов", vec![
             Bool("names", "Номера/имена столов", true),
@@ -145,6 +153,22 @@ fn applet_options(pi: usize, ai: usize, applet: &Applet) -> Vec<W> {
                     SpinBox::new().range(min as f64, max as f64).value(cur as f64).width(140.0).on_change(move |v| {
                         ensure();
                         set(&p, v.round() as i64)
+                    }),
+                )
+            }
+            Opt::Choice(key, label, def, options) => {
+                let cur = applet.str_or(key, def).to_string();
+                let p = op!["panel", pi, "applets", ai, key];
+                let mut dd = Dropdown::new().width(240.0);
+                for (v, l) in options {
+                    dd = dd.item(DropdownItem::new(v.to_string(), l.to_string()));
+                }
+                row(
+                    label,
+                    "",
+                    dd.selected(cur).on_change(move |v: &str| {
+                        ensure();
+                        set(&p, v.to_string())
                     }),
                 )
             }

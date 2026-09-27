@@ -404,3 +404,6 @@ TextField {
 .menu-disabled { opacity: 0.45; }
 .menu-img { width: 18px; height: 18px; }
 .menu-icon-space { width: 18px; height: 18px; }
+
+/* Заголовок задачи в две строки (опция taskbar title = "wrap"). */
+.task-title-wrap { font-size: 11px; line-height: 13px; }

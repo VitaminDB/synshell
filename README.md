@@ -22,10 +22,12 @@ Dracula, Kanagawa, Solarized, Синтвейв, Аврора, Сакура, Не
 ## Сборка и запуск
 
 ```sh
-cargo build --release
+cargo build --profile fast-release        # быстро, для работы (target/fast-release)
+cargo build --release                     # LTO, для публикации
 # вложенно в текущем сеансе (окно):
-target/release/syndesktop --nested
-# настоящий сеанс: makepkg -si, затем выбрать «syndesktop» в менеджере входа
+target/fast-release/syndesktop --nested
+# настоящий сеанс: makepkg -si (или SYNDESKTOP_PROFILE=fast-release makepkg -si),
+# затем выбрать «syndesktop» в менеджере входа
 ```
 
 ## Управление

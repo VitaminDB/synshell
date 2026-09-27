@@ -19,20 +19,24 @@ optdepends=('xorg-xwayland: X11-программы'
             'breeze-icons: тема значков по умолчанию')
 makedepends=('cargo' 'rust')
 
+# Профиль cargo: release (LTO) — для AUR/GitHub; локально быстрее
+# `SYNDESKTOP_PROFILE=fast-release makepkg -f`.
+_profile=${SYNDESKTOP_PROFILE:-release}
+
 build() {
     cd "$startdir"
-    cargo build --release -p syndesktop -p syndesktop-shell -p syndesktop-settings
+    cargo build --profile "$_profile" -p syndesktop -p syndesktop-shell -p syndesktop-settings
 }
 
 check() {
     cd "$startdir"
-    cargo test --release -p syndesktop-common -p syndesktop
+    cargo test --profile "$_profile" -p syndesktop-common -p syndesktop
 }
 
 package() {
     cd "$startdir"
     for b in syndesktop syndesktop-shell syndesktop-settings; do
-        install -Dm755 "target/release/$b" "$pkgdir/usr/bin/$b"
+        install -Dm755 "target/$_profile/$b" "$pkgdir/usr/bin/$b"
     done
     install -Dm755 data/syndesktop-session "$pkgdir/usr/bin/syndesktop-session"
     install -Dm644 data/syndesktop.desktop "$pkgdir/usr/share/wayland-sessions/syndesktop.desktop"

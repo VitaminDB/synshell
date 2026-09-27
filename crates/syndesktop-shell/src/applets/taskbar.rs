@@ -27,6 +27,7 @@ pub fn build(a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
     let all = a.bool_or("all_workspaces", false);
     let only_output = a.bool_or("only_output", false);
     let max_width = a.int_or("max_width", 220) as f32;
+    let title_mode = TitleMode::parse(a.str_or("title", "elide"));
     let pc = pc.clone();
     Box::new(crate::ui::rx(move || {
         let windows = ctx.windows.get();
@@ -38,7 +39,7 @@ pub fn build(a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
         let list: Vec<WindowInfo> =
             windows.iter().filter(|w| visible(w, ws, all, &pc.output, only_output)).cloned().collect();
         for w in list {
-            flex = flex.child(task(w, labels, max_width, pc.clone()));
+            flex = flex.child(task(w, labels, title_mode, max_width, pc.clone()));
         }
         Box::new(
             InputArea::new(DecoratedBox::new().child(flex).class("applet-taskbar")).on_wheel(move |dy| {
@@ -62,7 +63,28 @@ pub fn build(a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
     }))
 }
 
-fn task(w: WindowInfo, labels: bool, max_width: f32, pc: PanelCtx) -> impl Widget {
+/// Как показывать заголовок, который не помещается в кнопку.
+#[derive(Clone, Copy, PartialEq)]
+enum TitleMode {
+    /// Одна строка, многоточие в конце.
+    Elide,
+    /// Одна строка, многоточие в середине (видно начало и конец).
+    Middle,
+    /// До двух строк мелким шрифтом, дальше — многоточие.
+    Wrap,
+}
+
+impl TitleMode {
+    fn parse(s: &str) -> Self {
+        match s {
+            "middle" => Self::Middle,
+            "wrap" => Self::Wrap,
+            _ => Self::Elide,
+        }
+    }
+}
+
+fn task(w: WindowInfo, labels: bool, title_mode: TitleMode, max_width: f32, pc: PanelCtx) -> impl Widget {
     let mut cls = String::from("task");
     if w.focused {
         cls.push_str(" task-active");
@@ -85,7 +107,14 @@ fn task(w: WindowInfo, labels: bool, max_width: f32, pc: PanelCtx) -> impl Widge
     }
     if labels {
         let title = if w.title.is_empty() { w.app_id.clone() } else { w.title.clone() };
-        row = row.child(Text::new(title).max_lines(1).class("task-title"));
+        // `grow` отдаёт заголовку остаток ширины кнопки — без этого текст
+        // не знает своей ширины и не обрезается, а вылезает за кнопку.
+        let text = match title_mode {
+            TitleMode::Elide => Text::new(title).max_lines(1).class("task-title grow"),
+            TitleMode::Middle => Text::new(title).elide(Elide::Middle).class("task-title grow"),
+            TitleMode::Wrap => Text::new(title).max_lines(2).class("task-title task-title-wrap grow"),
+        };
+        row = row.child(text);
     }
     let id = w.id;
     let slot = std::sync::Arc::new(syngui::core::sync::Mutex::new(Rect::zero()));
