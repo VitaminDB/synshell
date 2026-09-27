@@ -316,7 +316,16 @@ fn root(panel: &Panel, st: &DockState, editing: bool, hidden: bool) -> impl Widg
         cls.push_str(" dock-editing");
     }
     let items = items_row(panel, st, editing);
-    let slide = DecoratedBox::new().child(EventHook::new().report_bounds(st.bar_slot.clone()).child(items)).class("dock-slide");
+    // Правый клик по полосе мимо значков (или по апплету без своего меню) —
+    // меню дока.
+    let st_menu = st.clone();
+    let bar = InputArea::new(EventHook::new().report_bounds(st.bar_slot.clone()).child(items))
+        .buttons(&[MouseButton::Right])
+        .on_click(move |_, _, _| {
+            let r = *st_menu.bar_slot.lock().unwrap_or_else(|e| e.into_inner());
+            ShellCtx::get().open_popup(PopupKind::PanelMenu(st_menu.pc.index), st_menu.pc.anchor(r));
+        });
+    let slide = DecoratedBox::new().child(bar).class("dock-slide");
     let gap = StyleValue::px(st.geo.gap);
     let area: Box<dyn Widget> = match st.edge {
         Edge::Bottom => Box::new(
@@ -445,7 +454,7 @@ fn items_row(panel: &Panel, st: &DockState, editing: bool) -> impl Widget {
                         "separator" => (separator(&env), String::new()),
                         "spacer" => (Box::new(DecoratedBox::new().class("dock-spacer")) as Box<dyn Widget>, String::new()),
                         "launcher" => (launcher_item(&env, slot, a), "Приложения".to_string()),
-                        _ => (applet_item(&env, a, ai), String::new()),
+                        _ => (applet_item(&env, slot, a, ai), String::new()),
                     };
                     slots.push(SlotInfo { name });
                     fe = fe.child(crate::edit::item_frame(&st2.pc, ai, w, editing));
@@ -674,7 +683,7 @@ fn separator(env: &ItemEnv) -> Box<dyn Widget> {
 }
 
 /// Прочие апплеты (часы, громкость, лоток…) — в квадрате значка.
-fn applet_item(env: &ItemEnv, a: &Applet, index: usize) -> Box<dyn Widget> {
+fn applet_item(env: &ItemEnv, slot: usize, a: &Applet, index: usize) -> Box<dyn Widget> {
     let g = env.st.geo;
     let (w, h) = match a.kind.as_str() {
         "clock" | "workspaces" | "tray" | "command" | "cpu" | "memory" if !env.st.edge.is_vertical() => (0.0, g.item),
@@ -687,7 +696,12 @@ fn applet_item(env: &ItemEnv, a: &Applet, index: usize) -> Box<dyn Widget> {
     if w > 0.0 {
         b = b.style("width", StyleValue::px(w));
     }
-    Box::new(b)
+    // Апплет сам правый клик не берёт — меню этого апплета на доке.
+    let st = env.st.clone();
+    let panel = env.st.pc.index;
+    Box::new(InputArea::new(b).buttons(&[MouseButton::Right]).on_click(move |_, _, r| {
+        ShellCtx::get().open_popup(PopupKind::ItemMenu { panel, index }, st.anchor_for(slot, r));
+    }))
 }
 
 /// Место апплета `taskbar` в режиме редактирования (сами окна — не
