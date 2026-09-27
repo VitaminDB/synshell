@@ -141,7 +141,7 @@ Text {
 .menu-item:hover { background-color: var(--hover); }
 .menu-icon { icon-size: 18px; icon-color: var(--muted); }
 .menu-label { font-size: 13px; }
-.menu-sep { height: 1px; background-color: var(--border); margin: 4px 0px; }
+.menu-sep { height: 1px; min-width: 180px; background-color: var(--border); }
 
 .round-btn {
     width: 34px;
@@ -388,3 +388,19 @@ TextField {
     caret-color: var(--accent);
     selection-color: var(--accent-soft);
 }
+
+/* ─── Системный лоток ────────────────────────────────────────────────────── */
+
+.applet-tray { padding: 0px; }
+.tray-item {
+    padding: 5px;
+    border-radius: var(--radius-sm);
+    background-color: #00000000;
+    transition: background-color 120ms ease-out;
+}
+.tray-item:hover { background-color: var(--hover); }
+.tray-attention { background-color: var(--accent-soft); }
+.tray-more .icon { icon-size: 16px; icon-color: var(--muted); }
+.menu-disabled { opacity: 0.45; }
+.menu-img { width: 18px; height: 18px; }
+.menu-icon-space { width: 18px; height: 18px; }

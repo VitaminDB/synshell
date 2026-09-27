@@ -206,7 +206,9 @@ applets = [
 # Другие апплеты: separator, show-desktop, layout, cpu, memory,
 # button (icon, label, action), command (command, interval, action),
 # clock (format = "%H:%M", date_format = "%a, %d %b", seconds = false),
-# taskbar (labels = true, group = false, all_workspaces = false).
+# taskbar (labels = true, group = false, all_workspaces = false),
+# tray (hide_passive = true, icon_size = 20, max_visible = 0 — сколько
+# значков на панели, остальные под стрелкой «скрытые значки»).
 
 [launcher]
 style = "menu"                 # menu | fullscreen

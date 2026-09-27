@@ -70,12 +70,19 @@ fn main() {
         // Отладка: выполнить команды оболочки после старта
         // (`SYNDESKTOP_SHELL_EXEC="launcher;volume +5"`).
         if let Ok(cmds) = std::env::var("SYNDESKTOP_SHELL_EXEC") {
-            syngui_layer::add_timer(Duration::from_millis(400), move || {
-                for c in cmds.split(';').filter(|c| !c.trim().is_empty()) {
-                    commands::handle(c.trim());
+            // `sleep МС` между командами — задержка.
+            let mut at = 400u64;
+            for c in cmds.split(';').map(str::trim).filter(|c| !c.is_empty()) {
+                if let Some(ms) = c.strip_prefix("sleep ").and_then(|v| v.trim().parse::<u64>().ok()) {
+                    at += ms;
+                    continue;
                 }
-                None
-            });
+                let c = c.to_string();
+                syngui_layer::add_timer(Duration::from_millis(at), move || {
+                    commands::handle(&c);
+                    None
+                });
+            }
         }
     });
     if let Err(e) = result {

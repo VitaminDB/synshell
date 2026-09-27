@@ -62,6 +62,16 @@ pub fn handle(cmd: &str) {
             Some(arg.trim().to_string()),
         ),
         "close-popup" => ctx.close_popup(),
+        // Меню значка лотка по номеру (с 0) — для клавиатуры и проверок.
+        "tray-activate" => crate::tray::activate_at(arg.trim().parse().unwrap_or(0)),
+        // Отладка: `tray-menu-event N ID` — пункт меню значка N.
+        "tray-menu-event" => {
+            let mut a = arg.split_whitespace().filter_map(|x| x.parse::<i64>().ok());
+            if let (Some(i), Some(id)) = (a.next(), a.next()) {
+                crate::tray::menu_event_at(i as usize, id as i32);
+            }
+        }
+        "tray-menu" => crate::tray::open_menu_at(arg.trim().parse().unwrap_or(0), at_applet("tray")),
         "lock" => lock(ctx),
         "dnd" => ctx.dnd.set(!ctx.dnd.get_untracked()),
         "clipboard" => {

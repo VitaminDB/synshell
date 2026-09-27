@@ -20,6 +20,10 @@ pub enum PopupKind {
     Power,
     Notifications,
     WindowMenu(u64),
+    /// Меню значка лотка (ключ элемента).
+    TrayMenu(String),
+    /// Спрятанные значки лотка.
+    TrayOverflow,
 }
 
 /// Где открыть всплывающее окно: вывод и прямоугольник-якорь (кнопка

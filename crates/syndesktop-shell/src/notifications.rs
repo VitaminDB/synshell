@@ -45,6 +45,11 @@ struct Server {
     ctx: ShellCtx,
 }
 
+/// Снять разметку (для других модулей).
+pub fn strip_markup_pub(s: &str) -> String {
+    strip_markup(s)
+}
+
 /// Грубое снятие разметки (`<b>`, `<a href>`…) и сущностей.
 fn strip_markup(s: &str) -> String {
     let mut out = String::with_capacity(s.len());

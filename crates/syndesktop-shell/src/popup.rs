@@ -41,6 +41,8 @@ fn width_of(kind: &PopupKind, ctx: &ShellCtx) -> f32 {
         PopupKind::Power => 360.0,
         PopupKind::Notifications => ctx.cfg().notifications.width as f32 + 20.0,
         PopupKind::WindowMenu(_) => 240.0,
+        PopupKind::TrayMenu(_) => 280.0,
+        PopupKind::TrayOverflow => 260.0,
     }
 }
 
@@ -167,6 +169,8 @@ fn content(kind: &PopupKind, ctx: ShellCtx) -> Box<dyn Widget> {
         PopupKind::Power => Box::new(power()),
         PopupKind::Notifications => Box::new(crate::notifications::center(ctx)),
         PopupKind::WindowMenu(id) => Box::new(window_menu(ctx, *id)),
+        PopupKind::TrayMenu(key) => Box::new(crate::tray::menu_view(ctx, key.clone())),
+        PopupKind::TrayOverflow => Box::new(crate::tray::overflow_view(ctx)),
     }
 }
 

@@ -34,7 +34,7 @@ pub fn build(a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
         "memory" => memory(pc),
         "layout" => layout(pc),
         "show-desktop" => show_desktop(),
-        "tray" => crate::tray::applet(pc),
+        "tray" => crate::tray::applet(a, pc),
         other => {
             log::warn!("неизвестный апплет «{other}»");
             Box::new(Text::new(format!("?{other}")).class("applet-label"))
