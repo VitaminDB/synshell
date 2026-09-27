@@ -31,7 +31,6 @@ Text {
 }
 .panel-floating {
     border-radius: var(--radius);
-    box-shadow: 0 4px 16px var(--shadow);
 }
 .panel-vertical { padding: 6px 4px; }
 
@@ -274,8 +273,9 @@ Text {
     background-color: var(--menu-bg);
     border-width: 1px;
     border-color: var(--border);
-    box-shadow: 0 6px 22px var(--shadow);
+    box-shadow: 0 2px 6px var(--shadow);
 }
+.notif-popups { padding: 8px; }
 .notif-in-center { box-shadow: none; background-color: var(--surface-alt); }
 .notif-critical { border-color: var(--danger); }
 .notif-low { opacity: 0.92; }

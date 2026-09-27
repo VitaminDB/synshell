@@ -23,6 +23,11 @@ pub fn session_env(core: &Core) -> Vec<(String, String)> {
         ("XCURSOR_THEME".to_string(), core.config.appearance.cursor_theme.clone()),
         ("XCURSOR_SIZE".to_string(), core.config.appearance.cursor_size.to_string()),
     ];
+    if std::env::var_os("QT_QPA_PLATFORMTHEME").is_none() {
+        if let Some(theme) = qt_platform_theme() {
+            env.push(("QT_QPA_PLATFORMTHEME".to_string(), theme.to_string()));
+        }
+    }
     if let Some(x) = core.xwayland.as_ref().and_then(|x| x.display) {
         env.push(("DISPLAY".to_string(), format!(":{x}")));
     }
@@ -30,6 +35,21 @@ pub fn session_env(core: &Core) -> Vec<(String, String)> {
         env.push((k.clone(), v.clone()));
     }
     env
+}
+
+/// Тема платформы Qt: без неё Qt-приложения не читают цвета и стиль из
+/// kdeglobals (у KDE-программ тёмный фон и тёмный текст). Плагин KDE
+/// подхватывается сам только при XDG_CURRENT_DESKTOP=KDE.
+fn qt_platform_theme() -> Option<&'static str> {
+    const DIRS: [&str; 4] = ["/usr/lib/qt6/plugins", "/usr/lib/qt/plugins", "/usr/lib64/qt6/plugins", "/usr/lib/x86_64-linux-gnu/qt6/plugins"];
+    let has = |file: &str| DIRS.iter().any(|d| std::path::Path::new(d).join("platformthemes").join(file).is_file());
+    if has("KDEPlasmaPlatformTheme6.so") {
+        Some("kde")
+    } else if has("libqt6ct.so") {
+        Some("qt6ct")
+    } else {
+        None
+    }
 }
 
 fn command(core: &Core, cmdline: &str) -> Command {

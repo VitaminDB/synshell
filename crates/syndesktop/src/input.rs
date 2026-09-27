@@ -220,7 +220,9 @@ impl State {
         let overview = self.core.wm.overview.as_ref().is_some_and(|o| !o.closing);
         let keyboard = self.core.keyboard.clone();
 
-        let action = keyboard.input::<KeyIntent, _>(self, keycode, state, serial, time, |st, mods, handle| {
+        // Состояние xkb обновляется один раз; пересылка клиенту — отдельно,
+        // чтобы изменения модификаторов и группы (grp:*_toggle) не терялись.
+        let (filtered, mods_changed) = keyboard.input_intercept::<FilterResult<KeyIntent>, _>(self, keycode, state, |st, mods, handle| {
             let sym = handle.modified_sym();
             let latin = handle.raw_latin_sym_or_raw_current_sym().unwrap_or(sym);
             if state == KeyState::Released {
@@ -264,6 +266,27 @@ impl State {
                 None => FilterResult::Forward,
             }
         });
+        let action = match filtered {
+            FilterResult::Forward => {
+                keyboard.input_forward(self, keycode, state, serial, time, mods_changed);
+                None
+            }
+            FilterResult::Intercept(KeyIntent::ModifierReleasedForward) => {
+                // Отпускание модификатора нужно и клиенту.
+                keyboard.input_forward(self, keycode, state, serial, time, mods_changed);
+                Some(KeyIntent::ModifierReleasedForward)
+            }
+            FilterResult::Intercept(intent) => {
+                if mods_changed {
+                    self.send_modifiers();
+                }
+                Some(intent)
+            }
+        };
+        if mods_changed {
+            // Группа могла смениться опцией xkb (grp:ctrl_shift_toggle и т.п.).
+            self.broadcast_keyboard_layout();
+        }
 
         match action {
             Some(KeyIntent::Action(a)) => self.do_action(a),
@@ -275,11 +298,6 @@ impl State {
                 if !still_held.alt && !still_held.logo && !still_held.ctrl {
                     self.end_cycle();
                 }
-                if matches!(action, Some(KeyIntent::ModifierReleasedForward)) {
-                    // Отпускание модификатора нужно и клиенту.
-                    let keyboard = self.core.keyboard.clone();
-                    keyboard.input::<(), _>(self, keycode, state, serial, time, |_, _, _| FilterResult::Forward);
-                }
             }
             _ => {}
         }
@@ -289,6 +307,17 @@ impl State {
             self.core.cursor_hidden = true;
             self.core.queue_redraw_all();
         }
+    }
+
+    /// Сообщить клиенту в фокусе текущие модификаторы и группу (когда само
+    /// нажатие перехвачено композитором).
+    fn send_modifiers(&mut self) {
+        use smithay::input::keyboard::KeyboardTarget;
+        let keyboard = self.core.keyboard.clone();
+        let Some(focus) = keyboard.current_focus() else { return };
+        let seat = self.core.seat.clone();
+        let mods = keyboard.modifier_state();
+        focus.modifiers(&seat, self, mods, SERIAL_COUNTER.next_serial());
     }
 
     pub fn set_keyboard_layout(&mut self, index: u32) {
@@ -326,8 +355,10 @@ impl State {
     }
 
     pub fn broadcast_keyboard_layout(&mut self) {
-        let kb = self.keyboard_layouts();
-        if self.core.last_kb_layout != Some(kb.current) {
+        let keyboard = self.core.keyboard.clone();
+        let current = keyboard.with_xkb_state(self, |ctx| ctx.xkb().lock().unwrap().active_layout().0);
+        if self.core.last_kb_layout != Some(current) {
+            let kb = self.keyboard_layouts();
             self.core.last_kb_layout = Some(kb.current);
             self.core.ipc.broadcast(&syndesktop_common::ipc::Event::KeyboardLayoutChanged { keyboard: kb });
         }

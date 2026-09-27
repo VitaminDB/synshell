@@ -307,8 +307,9 @@ pub fn install(ctx: ShellCtx) {
                 namespace: "syndesktop-notification".into(),
                 layer: Layer::Overlay,
                 anchor,
-                size: (n.width, 0),
-                margin: [8, 8, 8, 8],
+                // Поля внутри поверхности — место под тень карточек.
+                size: (n.width + 2 * NOTIF_PAD, 0),
+                margin: [0; 4],
                 exclusive_zone: 0,
                 keyboard: KeyboardInteractivity::None,
                 output: crate::manager::primary_output(&ctx),
@@ -321,8 +322,12 @@ pub fn install(ctx: ShellCtx) {
     });
 }
 
+/// Поля поверхности всплывающих уведомлений (вместо отступов layer-shell),
+/// чтобы тень карточек не обрезалась краем поверхности; = padding `.notif-popups`.
+const NOTIF_PAD: u32 = 8;
+
 fn popups(ctx: ShellCtx) -> impl Widget {
-    Column::new().gap(8.0).child(move || {
+    Column::new().gap(8.0).class("notif-popups").child(move || {
         let max = ctx.cfg().notifications.max_visible.max(1) as usize;
         let list = ctx.notifications.get();
         let mut col = Column::new().gap(8.0);
