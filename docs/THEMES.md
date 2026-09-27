@@ -101,8 +101,3 @@ glow = "#cba6f766"
 `text-transform`, `letter-spacing`, переходы. Примеры — во встроенных темах
 (`crates/syndesktop-common/themes/`): неон в `synthwave`, жёсткие тени в
 `brutal`, стекло в `aurora`.
-
-Шрифт темы (`[appearance] font`) проверяйте со значками: у некоторых текстовых
-шрифтов (например, Inter) есть свои глифы в приватной области Unicode, где
-лежат значки Material, и syngui берёт их раньше иконочного шрифта — значок
-подменяется. Моноширинные Hack, DejaVu Sans Mono, Liberation Mono безопасны.
