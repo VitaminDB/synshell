@@ -1,6 +1,6 @@
 # Maintainer: Alexeyev Vitaly
 pkgname=syndesktop
-pkgver=0.1.1
+pkgver=0.1.2
 pkgrel=1
 pkgdesc="Окружение рабочего стола для Wayland на Rust и syngui: композитор, оболочка, параметры"
 arch=('x86_64')

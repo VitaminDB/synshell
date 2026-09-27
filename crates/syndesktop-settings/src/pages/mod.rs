@@ -6,9 +6,11 @@ mod appearance;
 mod input;
 mod panels;
 mod system;
+mod themes;
 mod windows;
 
 pub use input::capture_hook;
+pub use themes::gallery_mss as themes_gallery_mss;
 
 pub struct PageDef {
     pub id: &'static str,
@@ -21,6 +23,14 @@ pub struct PageDef {
 }
 
 pub const PAGES: &[PageDef] = &[
+    PageDef {
+        id: "themes",
+        title: "Темы",
+        icon: icons::THEMES,
+        group: "Оформление",
+        keywords: "тема оформление стиль палитра nord catppuccin gruvbox dracula tokyo night synthwave неон стекло",
+        build: themes::themes,
+    },
     PageDef {
         id: "appearance",
         title: "Внешний вид",

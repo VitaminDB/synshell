@@ -14,6 +14,8 @@ pub fn build(a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
     let ctx = ShellCtx::get();
     let show_names = a.bool_or("names", true);
     let hide_empty = a.bool_or("hide_empty", false);
+    // Единственный стол переключать некуда — пейджер не показывается.
+    let show_single = a.bool_or("show_single", false);
     let vertical = pc.vertical;
     Box::new(crate::ui::rx(move || {
         let wss = ctx.workspaces.get();
@@ -24,6 +26,9 @@ pub fn build(a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
         } else {
             wss.iter().map(|w| (w.index, w.name.clone(), w.active, w.windows, w.urgent)).collect()
         };
+        if list.len() <= 1 && !show_single {
+            return Box::new(DecoratedBox::new()) as Box<dyn Widget>;
+        }
         let mut flex = Flex::new()
             .direction(if vertical { FlexDirection::Column } else { FlexDirection::Row })
             .gap(2.0)

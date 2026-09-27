@@ -8,7 +8,7 @@
 
 use std::cell::RefCell;
 
-use syndesktop_common::config::Appearance;
+use syndesktop_common::Config;
 use syngui::prelude::*;
 
 #[derive(Clone, Copy)]
@@ -35,7 +35,7 @@ pub fn init(start_page: &str) -> Ctx {
         page: use_signal(start_page.to_string()),
         rev: use_signal(0u64),
         tick: use_signal(0u64),
-        theme: use_signal(theme_mss(&crate::store::config().appearance)),
+        theme: use_signal(theme_mss(&crate::store::config())),
         error: use_signal(crate::store::error()),
         search: use_signal(String::new()),
         capture: use_signal(None),
@@ -54,11 +54,12 @@ fn try_ctx() -> Option<Ctx> {
 }
 
 /// Полная таблица стилей окна: палитра из `[appearance]` + свой MSS.
-pub fn theme_mss(a: &Appearance) -> String {
+pub fn theme_mss(c: &Config) -> String {
+    let a = &c.appearance;
     let mut s = a.mss_variables();
     // Цвета, которых нет в общей палитре, — производные для окна настроек.
     let p = a.palette();
-    let dark = a.color_scheme == syndesktop_common::config::ColorScheme::Dark;
+    let dark = a.is_dark();
     let sidebar = if dark { p.bg.mix(p.surface, 0.45) } else { p.surface_alt.mix(p.bg, 0.4) };
     let card = if dark { p.surface } else { p.surface };
     let input = if dark { p.bg.mix(p.surface, 0.35) } else { p.surface };
@@ -71,7 +72,12 @@ pub fn theme_mss(a: &Appearance) -> String {
         p.accent.mix(p.fg, 0.15).hex(),
         p.danger.with_alpha(0.16).hex(),
     ));
+    s.push_str(&a.theme_mss_variables());
     s.push_str(STYLES);
+    s.push_str(&crate::pages::themes_gallery_mss(a.color_scheme));
+    s.push_str(a.theme_mss(true));
+    // Фон превью обоев и рабочего стола на страницах оформления.
+    s.push_str(&format!("\n.desk-bg {{ background: {}; }}\n", a.wallpaper_background(&c.wallpaper)));
     if let Ok(user) = std::fs::read_to_string(syndesktop_common::paths::user_theme_file()) {
         // Пользовательская тема оболочки влияет и на настройки — один вид.
         s.push('\n');
@@ -90,7 +96,16 @@ pub fn notify_changed() {
     if ctx.error.get_untracked() != err {
         ctx.error.set(err);
     }
-    let mss = theme_mss(&crate::store::config().appearance);
+    let mss = theme_mss(&crate::store::config());
+    if ctx.theme.get_untracked() != mss {
+        ctx.theme.set(mss);
+    }
+}
+
+/// Пересобрать таблицу стилей окна (без ревизии значений).
+pub fn refresh_theme() {
+    let Some(ctx) = try_ctx() else { return };
+    let mss = theme_mss(&crate::store::config());
     if ctx.theme.get_untracked() != mss {
         ctx.theme.set(mss);
     }

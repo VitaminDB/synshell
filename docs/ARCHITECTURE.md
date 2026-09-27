@@ -24,7 +24,7 @@
 │  обои · панели с апплетами · меню запуска · уведомления (D-Bus) │   │ (syngui + winit)        │
 │  OSD громкости/яркости · меню питания · блокировка · Alt+Tab     │   │ правит config.toml      │
 └─────────────────────────────────────────────────────────────────┘   └─────────────────────────┘
-                 все читают ~/.config/syndesktop/config.toml (+ theme.mss) и следят за ним
+                 все читают ~/.config/syndesktop/config.toml (+ тема, theme.mss) и следят
 ```
 
 ## Крейты
@@ -45,11 +45,17 @@
 (`watch::FileWatcher`) и применяют изменения на лету. Настройки меняют файл через
 `toml_edit`, сохраняя комментарии пользователя.
 
-Тема оболочки: встроенный MSS + переменные палитры из `[appearance]`
-(`Appearance::mss_variables()`: `--bg --surface --surface-alt --panel-bg --menu-bg --fg
+Оформление: тема `appearance.theme` (`syndesktop-common/src/theme.rs`, встроенные — в
+`syndesktop-common/themes/<id>/`, свои — `~/.config/syndesktop/themes/<id>/`) даёт палитру
+вариантов `[dark]`/`[light]`, обои, цвета заголовков, свои переменные и MSS. Тема загружается
+в `Config::parse` (`Appearance::resolved`), поэтому `Appearance::palette()` у всех процессов
+уже с её цветами; поверх — `accent` и `[appearance.colors]`. Оболочка собирает MSS слоями:
+`Appearance::mss_variables()` (`--bg --surface --surface-alt --panel-bg --menu-bg --fg
 --muted --border --accent --accent-fg --accent-soft --hover --pressed --danger --success
---warning --radius --radius-sm --font-size`) + пользовательский `~/.config/syndesktop/theme.mss`
-поверх. Композитор берёт те же цвета из `Appearance::palette()` для рамок и заголовков.
+--warning --radius --radius-sm --font-size`) → `--shadow`/`--scrim` и `vars` темы →
+встроенный `shell.mss` → `shell.mss` темы → фон рабочего стола → `~/.config/syndesktop/theme.mss`.
+Композитор берёт `palette()`, `titlebar_colors()` и `wallpaper_color()` для рамок и фона.
+Композитор и оболочка следят и за файлами активной темы. Подробно — [THEMES.md](THEMES.md).
 
 ## IPC
 

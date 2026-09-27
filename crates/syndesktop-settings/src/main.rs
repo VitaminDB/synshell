@@ -40,6 +40,16 @@ fn parse_args() -> Args {
                 }
             }
             "--scale" => a.scale = it.next().and_then(|s| s.parse().ok()).unwrap_or(1.0),
+            "--list-themes" => {
+                for t in syndesktop_common::theme::list() {
+                    let src = match &t.source {
+                        syndesktop_common::theme::Source::Builtin => "встроенная".to_string(),
+                        syndesktop_common::theme::Source::Dir(d) => d.display().to_string(),
+                    };
+                    println!("{}\t{}\t{}", t.id, t.name, src);
+                }
+                std::process::exit(0);
+            }
             "--list-pages" => {
                 for p in pages::PAGES {
                     println!("{}\t{}", p.id, p.title);
@@ -47,7 +57,7 @@ fn parse_args() -> Args {
                 std::process::exit(0);
             }
             "-h" | "--help" => {
-                println!("syndesktop-settings [--page <id>] [--config <path>] [--list-pages]");
+                println!("syndesktop-settings [--page <id>] [--config <path>] [--list-pages] [--list-themes]");
                 std::process::exit(0);
             }
             // Страница без ключа: `syndesktop-settings keyboard`.

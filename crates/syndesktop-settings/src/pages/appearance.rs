@@ -1,6 +1,6 @@
 //! Внешний вид, обои, оформление окон, анимации.
 
-use syndesktop_common::config::{ColorScheme, Rgba};
+use syndesktop_common::config::Rgba;
 use syngui::prelude::*;
 
 use crate::op;
@@ -36,10 +36,9 @@ fn preview() -> W {
         let c = store::config();
         let p = c.appearance.palette();
         let r = c.appearance.corner_radius;
-        let wp = if c.wallpaper.color.is_empty() { p.bg.hex() } else { c.wallpaper.color.clone() };
         Stack::new()
             .fit(StackFit::Expand)
-            .child(DecoratedBox::new().class("preview-desktop").style("background", to_color(&wp)))
+            .child(DecoratedBox::new().class("preview-desktop desk-bg"))
             .child(
                 Column::new()
                     .class("preview-layer")
@@ -93,7 +92,7 @@ fn preview() -> W {
 pub fn appearance() -> W {
     let c = store::config();
     let a = &c.appearance;
-    let scheme_idx = if a.color_scheme == ColorScheme::Dark { 0 } else { 1 };
+    let scheme_idx = if a.is_dark() { 0 } else { 1 };
 
     // Образцы акцента: клик — записать цвет и перестроить страницу, чтобы
     // поле «свой цвет» показало новое значение.
@@ -173,7 +172,7 @@ pub fn appearance() -> W {
                         }),
                     ),
                     row_wide("Акцентный цвет", "Кнопки, выделение, активные элементы", swatches),
-                    row("Свой акцент", "", color_field(op!["appearance", "accent"], &a.accent, "#3d8bfd")),
+                    row("Свой акцент", "Пусто — акцент темы", color_field(op!["appearance", "accent"], &a.accent, "из темы")),
                 ],
             ),
             group(
@@ -280,16 +279,8 @@ fn wallpaper_preview() -> W {
         tick.get();
         let w = store::config().wallpaper;
         let path = syndesktop_common::paths::expand_tilde(&w.path);
-        // Градиент сверху вниз; без второго цвета — сплошной.
-        let c2 = if w.color2.is_empty() { &w.color } else { &w.color2 };
-        let grad = syngui::core::Gradient::Linear {
-            angle_deg: 180.0,
-            stops: vec![
-                syngui::core::ColorStop::new(to_color(&w.color), 0.0),
-                syngui::core::ColorStop::new(to_color(c2), 1.0),
-            ],
-        };
-        let bg = DecoratedBox::new().class("wall-fill").style("background", syngui::mss::StyleValue::Gradient(grad));
+        // Градиент из [wallpaper] или обои темы — правило `.desk-bg`.
+        let bg = DecoratedBox::new().class("wall-fill desk-bg");
         let mut st = Stack::new().fit(StackFit::Expand).clip(true).child(bg);
         let img = if path.is_file() {
             Some(path)
@@ -543,7 +534,7 @@ pub fn decorations() -> W {
     let c = store::config();
     let d = &c.decorations;
     let color_opts: &[(&str, &str)] =
-        &[("accent", "Акцент"), ("surface", "Поверхность"), ("bg", "Фон"), ("surface_alt", "Вторичная поверхность")];
+        &[("theme", "Из темы"), ("accent", "Акцент"), ("surface", "Поверхность"), ("bg", "Фон"), ("surface_alt", "Вторичная поверхность")];
     let color_row = |label: &str, key: &'static str, cur: &str| -> W {
         let is_named = color_opts.iter().any(|(v, _)| *v == cur);
         let named_val = if is_named { cur } else { "custom" };

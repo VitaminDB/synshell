@@ -1,15 +1,23 @@
 //! Перечитывание конфига на лету.
 
 use smithay::input::keyboard::XkbConfig;
-use syndesktop_common::{ipc::Event, Config};
+use syndesktop_common::{ipc::Event, watch::FileWatcher, Config};
 
 use crate::{bindings::Bindings, deco::DecoTheme, state::State};
 
+/// Конфиг и файлы активной темы.
+pub fn watched_files(config: &Config) -> Vec<std::path::PathBuf> {
+    let mut v = vec![syndesktop_common::paths::config_file()];
+    v.extend(config.appearance.theme_files());
+    v
+}
+
 impl State {
-    /// Раз в секунду: не изменился ли файл конфигурации.
+    /// Раз в секунду: не изменился ли файл конфигурации или темы.
     pub fn poll_config(&mut self) {
         if self.core.config_watcher.poll() {
             self.reload_config();
+            self.core.config_watcher = FileWatcher::new(watched_files(&self.core.config));
         }
     }
 

@@ -79,5 +79,33 @@ fn clicks_reach_config_file() {
         h.tree.get(id).map(|e| format!("{:?}", e.accessibility_info()).contains("\"F7\"")).unwrap_or(false)
     });
     assert!(caught, "сочетание F7 не показано на кнопке");
+
+    // «Темы»: клик по карточке Nord (вторая, после стандартной) применяет
+    // тему — сбрасывает свой акцент, цвета палитры и обоев, ставит форму темы.
+    store::set(&[store::Seg::K("appearance"), store::Seg::K("accent")], "#ff0000");
+    store::set(&[store::Seg::K("appearance"), store::Seg::K("colors"), store::Seg::K("bg")], "#000000");
+    let mut h = TestHarness::new((pages::find("themes").build)());
+    h.frame(None, 1100.0, 4000.0);
+    let cards = h.find_by_type_name("GestureDetector");
+    assert!(cards.len() >= 15, "карточек тем: {}", cards.len());
+    h.send_events(&click_at(center(&h, cards[1])));
+    let c = store::config();
+    assert_eq!(c.appearance.theme, "nord");
+    assert!(c.appearance.resolved.is_some());
+    assert_eq!(c.appearance.accent, "");
+    assert!(c.appearance.colors.is_empty(), "{:?}", c.appearance.colors);
+    assert_eq!(c.appearance.corner_radius, 12.0);
+    assert_eq!(c.appearance.palette().accent.hex(), "#88c0d0");
+    assert_eq!(c.decorations.active_color, "theme");
+    assert_eq!(c.wallpaper.color, "");
+    // Карточка «Стандартная» возвращает оформление по умолчанию.
+    let mut h = TestHarness::new((pages::find("themes").build)());
+    h.frame(None, 1100.0, 4000.0);
+    let cards = h.find_by_type_name("GestureDetector");
+    h.send_events(&click_at(center(&h, cards[0])));
+    let c = store::config();
+    assert_eq!(c.appearance.theme, "");
+    assert!(c.appearance.resolved.is_none());
+    assert_eq!(c.appearance.corner_radius, 10.0);
     let _ = std::fs::remove_dir_all(&dir);
 }

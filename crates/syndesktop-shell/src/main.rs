@@ -26,7 +26,7 @@ mod xdg;
 use std::sync::Arc;
 use std::time::Duration;
 use syndesktop_common::watch::FileWatcher;
-use syndesktop_common::{paths, Config};
+use syndesktop_common::Config;
 use syngui::prelude::*;
 
 use ctx::ShellCtx;
@@ -91,12 +91,14 @@ fn main() {
     }
 }
 
-/// Раз в секунду смотреть на config.toml и theme.mss.
+/// Раз в секунду смотреть на config.toml, theme.mss и файлы темы.
 fn watch_config() {
-    let mut w = FileWatcher::new([paths::config_file(), paths::user_theme_file()]);
+    let mut w = FileWatcher::new(theme::watched_files(&ShellCtx::get().config.get_untracked()));
     syngui_layer::add_timer(Duration::from_secs(1), move || {
         if w.poll() {
             reload_config();
+            // Тема могла смениться — следить за её файлами.
+            w = FileWatcher::new(theme::watched_files(&ShellCtx::get().config.get_untracked()));
         }
         Some(Duration::from_secs(1))
     });

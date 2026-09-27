@@ -1,0 +1,57 @@
+name = "Gruvbox"
+description = "Тёплое ретро: охра, ржавчина и пожелтевшая бумага. Жёсткие углы и крупные подписи."
+author = "syndesktop (палитра — morhetz/gruvbox)"
+
+[appearance]
+corner_radius = 4
+panel_opacity = 0.97
+
+[decorations]
+corner_radius = 4
+title_align = "left"
+
+[dark]
+bg = "#1d2021"
+surface = "#282828"
+surface_alt = "#3c3836"
+fg = "#ebdbb2"
+muted = "#a89984"
+border = "#504945"
+accent = "#fe8019"
+accent_fg = "#1d2021"
+danger = "#fb4934"
+success = "#b8bb26"
+warning = "#fabd2f"
+wallpaper = "linear-gradient(175deg, #1d2021 0%, #282828 45%, #3c3836 70%, #7c3a12 90%, #d65d0e 100%)"
+wallpaper_color = "#1d2021"
+titlebar = "#282828"
+titlebar_inactive = "#1d2021"
+shadow = "#00000099"
+
+[dark.vars]
+yellow = "#fabd2f"
+aqua = "#8ec07c"
+rust-soft = "#fe801926"
+
+[light]
+bg = "#ebdbb2"
+surface = "#fbf1c7"
+surface_alt = "#f2e5bc"
+fg = "#3c3836"
+muted = "#7c6f64"
+border = "#d5c4a1"
+accent = "#af3a03"
+accent_fg = "#fbf1c7"
+danger = "#9d0006"
+success = "#79740e"
+warning = "#b57614"
+wallpaper = "linear-gradient(175deg, #fbf1c7 0%, #f2e5bc 45%, #ebdbb2 70%, #d5c4a1 88%, #d79921 100%)"
+wallpaper_color = "#fbf1c7"
+titlebar = "#f2e5bc"
+titlebar_inactive = "#ebdbb2"
+shadow = "#3c383640"
+
+[light.vars]
+yellow = "#b57614"
+aqua = "#427b58"
+rust-soft = "#af3a0322"

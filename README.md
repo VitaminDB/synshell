@@ -10,6 +10,12 @@
 | `syndesktop-shell` | Оболочка на syngui (layer-shell): обои, панели с апплетами, меню запуска, уведомления (D-Bus), OSD, меню питания, переключатель окон, экран блокировки (ext-session-lock + PAM). |
 | `syndesktop-settings` | «Параметры системы»: 18 страниц. Правит `config.toml` через toml_edit, комментарии сохраняются. |
 
+Темы оформления — 14 встроенных (Nord, Catppuccin, Tokyo Night, Gruvbox, Rosé Pine, Everforest,
+Dracula, Kanagawa, Solarized, Синтвейв, Аврора, Сакура, Необрутализм, Терминал) и свои на MSS:
+[docs/THEMES.md](docs/THEMES.md).
+
+![Темы](docs/themes.jpg)
+
 Архитектура, IPC и контракт команд оболочки описаны в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 Полный пример конфига с комментариями: [crates/syndesktop-common/default-config.toml](crates/syndesktop-common/default-config.toml).
 

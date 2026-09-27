@@ -25,8 +25,13 @@ screenshot_dir = "~/Pictures/Screenshots"
 # QT_QPA_PLATFORMTHEME = "kde"
 
 [appearance]
-color_scheme = "dark"          # dark | light
-accent = "#3d8bfd"
+# Тема оформления: nord, catppuccin, tokyo-night, gruvbox, rose-pine,
+# everforest, dracula, kanagawa, solarized, synthwave, aurora, sakura,
+# brutal, terminal или своя из ~/.config/syndesktop/themes/<имя>/.
+# Пусто — стандартная.
+theme = ""
+color_scheme = "dark"          # dark | light (вариант темы)
+accent = ""                    # пусто — акцент темы, иначе #rrggbb
 font = ""                      # пусто — системный шрифт
 font_size = 13.0
 icon_theme = "breeze-dark"
@@ -37,7 +42,7 @@ panel_opacity = 0.92
 ui_scale = 1.0
 
 [appearance.colors]
-# Переопределение цветов палитры: bg, surface, surface_alt, fg, muted,
+# Переопределение цветов палитры поверх темы: bg, surface, surface_alt, fg, muted,
 # border, accent_fg, danger, success, warning.
 # bg = "#101010"
 
@@ -117,8 +122,8 @@ resize_border = 8
 shadow = true
 shadow_size = 22
 shadow_opacity = 0.45
-active_color = "surface"       # accent | surface | bg | #rrggbb
-inactive_color = "bg"
+active_color = "theme"         # theme | accent | surface | bg | #rrggbb
+inactive_color = "theme"
 
 [animations]
 enabled = true
@@ -171,8 +176,8 @@ back_and_forth = false
 [wallpaper]
 path = ""                      # картинка или каталог (слайд-шоу)
 mode = "fill"                  # fill | fit | stretch | center | tile
-color = "#1b2233"
-color2 = "#3a2a4a"             # градиент, если нет картинки
+color = ""                     # пусто — обои темы
+color2 = ""                    # второй цвет — градиент, если нет картинки
 slideshow_minutes = 0
 desktop_icons = false
 

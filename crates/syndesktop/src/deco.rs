@@ -72,17 +72,7 @@ pub struct DecoTheme {
 impl DecoTheme {
     pub fn from_config(deco: &Decorations, appearance: &Appearance, generation: u64) -> Self {
         let p = appearance.palette();
-        let pick = |s: &str, fallback: Rgba| -> Rgba {
-            match s {
-                "accent" => p.accent,
-                "surface" => p.surface,
-                "surface_alt" | "surface-alt" => p.surface_alt,
-                "bg" => p.bg,
-                other => Rgba::parse(other).unwrap_or(fallback),
-            }
-        };
-        let active_bg = pick(&deco.active_color, p.surface);
-        let inactive_bg = pick(&deco.inactive_color, p.bg);
+        let (active_bg, inactive_bg) = appearance.titlebar_colors(deco);
         let (left, right) = match deco.buttons.split_once(':') {
             Some((l, r)) => (l, r),
             None => ("", deco.buttons.as_str()),

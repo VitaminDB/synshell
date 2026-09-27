@@ -1,0 +1,57 @@
+name = "Everforest"
+description = "Лесная тишина: мох, хвоя и туман. Спокойная тема для долгой работы."
+author = "syndesktop (палитра — sainnhe/everforest)"
+
+[appearance]
+corner_radius = 10
+panel_opacity = 0.95
+
+[decorations]
+corner_radius = 10
+title_align = "center"
+
+[dark]
+bg = "#232a2e"
+surface = "#2d353b"
+surface_alt = "#343f44"
+fg = "#d3c6aa"
+muted = "#9da9a0"
+border = "#475258"
+accent = "#a7c080"
+accent_fg = "#232a2e"
+danger = "#e67e80"
+success = "#83c092"
+warning = "#dbbc7f"
+wallpaper = "linear-gradient(170deg, #1e2326 0%, #2d353b 40%, #34443a 70%, #4d6040 90%, #7a8f5a 100%)"
+wallpaper_color = "#232a2e"
+titlebar = "#2d353b"
+titlebar_inactive = "#232a2e"
+shadow = "#0f131599"
+
+[dark.vars]
+moss-soft = "#a7c08026"
+orange = "#e69875"
+aqua = "#83c092"
+
+[light]
+bg = "#efebd4"
+surface = "#fdf6e3"
+surface_alt = "#f4f0d9"
+fg = "#5c6a72"
+muted = "#829181"
+border = "#e0dcc7"
+accent = "#8da101"
+accent_fg = "#fdf6e3"
+danger = "#f85552"
+success = "#35a77c"
+warning = "#dfa000"
+wallpaper = "linear-gradient(170deg, #fdf6e3 0%, #f4f0d9 40%, #e3e8c6 75%, #b9c98a 100%)"
+wallpaper_color = "#fdf6e3"
+titlebar = "#f4f0d9"
+titlebar_inactive = "#efebd4"
+shadow = "#5c6a7233"
+
+[light.vars]
+moss-soft = "#8da1011f"
+orange = "#f57d26"
+aqua = "#35a77c"

@@ -1,0 +1,57 @@
+name = "Rosé Pine"
+description = "Приглушённая элегантность: сосна, роза и золото. Main — вечер, Dawn — рассвет."
+author = "syndesktop (палитра — Rosé Pine)"
+
+[appearance]
+corner_radius = 16
+panel_opacity = 0.92
+
+[decorations]
+corner_radius = 14
+title_align = "center"
+
+[dark]
+bg = "#191724"
+surface = "#1f1d2e"
+surface_alt = "#26233a"
+fg = "#e0def4"
+muted = "#908caa"
+border = "#403d52"
+accent = "#ebbcba"
+accent_fg = "#191724"
+danger = "#eb6f92"
+success = "#9ccfd8"
+warning = "#f6c177"
+wallpaper = "radial-gradient(ellipse at 80% 100%, #6e4a5e 0%, #3a2d44 30%, #26233a 55%, #191724 85%)"
+wallpaper_color = "#191724"
+titlebar = "#1f1d2e"
+titlebar_inactive = "#191724"
+shadow = "#0d0c1499"
+
+[dark.vars]
+iris = "#c4a7e7"
+gold = "#f6c177"
+rose-soft = "#ebbcba24"
+
+[light]
+bg = "#f2e9e1"
+surface = "#fffaf3"
+surface_alt = "#faf4ed"
+fg = "#575279"
+muted = "#797593"
+border = "#dfdad9"
+accent = "#d7827e"
+accent_fg = "#fffaf3"
+danger = "#b4637a"
+success = "#56949f"
+warning = "#ea9d34"
+wallpaper = "radial-gradient(ellipse at 80% 100%, #f0c6b8 0%, #f2e2d8 35%, #faf4ed 70%)"
+wallpaper_color = "#faf4ed"
+titlebar = "#fffaf3"
+titlebar_inactive = "#f2e9e1"
+shadow = "#57527933"
+
+[light.vars]
+iris = "#907aa9"
+gold = "#ea9d34"
+rose-soft = "#d7827e22"

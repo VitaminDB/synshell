@@ -64,6 +64,15 @@ pub fn unset(p: &[O]) {
 
 pub type W = Box<dyn Widget>;
 
+/// Путь с `~` вместо домашнего каталога.
+pub fn home_short(p: &std::path::Path) -> String {
+    let s = p.display().to_string();
+    match std::env::var("HOME") {
+        Ok(h) if !h.is_empty() && s.starts_with(&h) => format!("~{}", &s[h.len()..]),
+        _ => s,
+    }
+}
+
 pub fn boxed(w: impl Widget + 'static) -> W {
     Box::new(w)
 }
@@ -351,4 +360,6 @@ pub mod icons {
     pub const TUNE: &str = "\u{e429}";
     pub const WARNING: &str = "\u{e002}";
     pub const CLOSE: &str = "\u{e5cd}";
+    pub const CHECK: &str = "\u{e86c}";
+    pub const THEMES: &str = "\u{e3b7}";
 }

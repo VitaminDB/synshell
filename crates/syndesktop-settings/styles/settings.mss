@@ -459,3 +459,99 @@ Button.accent-swatch.selected {
 }
 
 .about-key { width: 150px; }
+
+/* ── Галерея тем ────────────────────────────────────────────────── */
+
+.theme-card {
+    width: 256px;
+    border-radius: var(--radius);
+    border: 2px solid var(--border);
+    background: var(--card-bg);
+    box-shadow: 0 1px 3px var(--shadow);
+    transition: border-color 120ms ease, box-shadow 160ms ease;
+    &:hover {
+        border-color: var(--accent-soft);
+        box-shadow: 0 6px 18px var(--shadow);
+    }
+}
+
+.theme-card.selected {
+    border-color: var(--accent);
+    &:hover { border-color: var(--accent); }
+}
+
+.theme-card-empty { width: 268px; }
+
+.theme-thumb {
+    height: 150px;
+    border-radius: 9px 9px 0px 0px;
+}
+
+.theme-wall { border-radius: 9px 9px 0px 0px; }
+
+.thumb-layer { padding: 14px 16px 8px 16px; }
+
+.thumb-window {
+    width: 170px;
+    height: 88px;
+    margin: 0px 0px 0px 30px;
+    box-shadow: 0 6px 16px #00000066;
+}
+
+.thumb-titlebar {
+    padding: 5px 7px;
+    border-radius: 6px 6px 0px 0px;
+}
+
+.thumb-btn { width: 7px; height: 7px; border-radius: 4px; }
+
+.thumb-content { padding: 6px 10px; }
+
+.thumb-line { height: 5px; width: 120px; border-radius: 3px; }
+.thumb-line.short { width: 80px; }
+
+.thumb-button { width: 46px; height: 13px; margin: 3px 0px 0px 0px; }
+
+.thumb-panel {
+    height: 22px;
+    padding: 0px 8px;
+}
+
+.thumb-launcher { width: 11px; height: 11px; border-radius: 6px; }
+.thumb-task { width: 30px; height: 12px; border-radius: 3px; }
+.thumb-clock { font-size: 9px; }
+
+.theme-meta { padding: 10px 12px 12px 12px; }
+
+.theme-name {
+    color: var(--fg);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.theme-variants {
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.theme-check {
+    color: var(--accent);
+    icon-size: 18px;
+    font-size: 18px;
+}
+
+.theme-desc {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 16px;
+    height: 32px;
+}
+
+.theme-swatches { padding: 4px 0px 0px 0px; }
+
+.theme-swatch {
+    width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+}

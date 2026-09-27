@@ -1,0 +1,57 @@
+name = "Сакура"
+description = "Весенний цвет вишни: розовая пастель днём и тёплая ночная версия."
+author = "syndesktop"
+
+[appearance]
+corner_radius = 16
+panel_opacity = 0.9
+
+[decorations]
+corner_radius = 16
+title_align = "center"
+
+[light]
+bg = "#fbeef2"
+surface = "#fffafb"
+surface_alt = "#f8e3ea"
+fg = "#4a2a36"
+muted = "#9a6f7e"
+border = "#f0ccd8"
+accent = "#e5739a"
+accent_fg = "#ffffff"
+danger = "#d64561"
+success = "#5fa37a"
+warning = "#d99a3e"
+wallpaper = "linear-gradient(165deg, #fff7f9 0%, #fde4ec 40%, #f8c9d8 70%, #eab4cf 88%, #cfa9d9 100%)"
+wallpaper_color = "#fde4ec"
+titlebar = "#fffafb"
+titlebar_inactive = "#fbeef2"
+shadow = "#c4577a33"
+
+[light.vars]
+petal = "#e5739a"
+petal-soft = "#e5739a24"
+leaf = "#7fb58f"
+
+[dark]
+bg = "#1f1419"
+surface = "#291a21"
+surface_alt = "#35222c"
+fg = "#f7e4ea"
+muted = "#c29dab"
+border = "#4a2f3b"
+accent = "#ff9ebb"
+accent_fg = "#2a1119"
+danger = "#ff6b81"
+success = "#8fd4a4"
+warning = "#ffc57a"
+wallpaper = "linear-gradient(170deg, #120a0e 0%, #1f1419 40%, #3a1a2a 70%, #6e2d4c 90%, #a8466f 100%)"
+wallpaper_color = "#1f1419"
+titlebar = "#291a21"
+titlebar_inactive = "#1f1419"
+shadow = "#00000088"
+
+[dark.vars]
+petal = "#ff9ebb"
+petal-soft = "#ff9ebb24"
+leaf = "#8fd4a4"

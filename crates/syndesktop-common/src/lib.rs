@@ -7,6 +7,7 @@ pub mod action;
 pub mod config;
 pub mod ipc;
 pub mod paths;
+pub mod theme;
 pub mod watch;
 
 pub use action::Action;

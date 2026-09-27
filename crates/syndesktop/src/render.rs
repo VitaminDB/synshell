@@ -117,8 +117,7 @@ where
     let scale_f = output.current_scale().fractional_scale();
     let scale = Scale::from(scale_f);
     let output_geo = core.space.output_geometry(output).unwrap_or_default();
-    let palette = core.config.appearance.palette();
-    let bg = Rgba::parse(&core.config.wallpaper.color).unwrap_or(palette.bg);
+    let bg = core.config.appearance.wallpaper_color(&core.config.wallpaper);
     let clear = color32(bg, 1.0);
     let mut out: Vec<OutputElement<R>> = Vec::new();
 
@@ -170,7 +169,7 @@ where
         let t = anim.value() as f32;
         if let Some(r) = rect.intersection(output_geo) {
             let r = Rectangle::new(r.loc - output_geo.loc, r.size);
-            let accent = palette.accent;
+            let accent = core.config.appearance.palette().accent;
             let pr = rect_phys(r, scale_f);
             let bw = (2.0 * scale_f).round() as i32;
             let ids = &core.frame_ids.snap;

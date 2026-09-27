@@ -32,7 +32,11 @@ fn applet_types() -> Vec<(&'static str, &'static str, &'static str, Vec<Opt>)> {
             Bool("group", "Группировать по приложению", false),
             Bool("all_workspaces", "Окна со всех столов", false),
         ]),
-        ("workspaces", "Рабочие столы", "Переключатель столов", vec![]),
+        ("workspaces", "Рабочие столы", "Переключатель столов", vec![
+            Bool("names", "Номера/имена столов", true),
+            Bool("hide_empty", "Скрывать пустые столы", false),
+            Bool("show_single", "Показывать, когда стол один", false),
+        ]),
         ("spacer", "Растяжка", "Заполняет свободное место", vec![]),
         ("separator", "Разделитель", "Тонкая линия", vec![]),
         ("clock", "Часы", "Время и календарь", vec![

@@ -358,9 +358,7 @@ impl Core {
             start_time: Instant::now(),
             socket_name,
             nested,
-            config_watcher: FileWatcher::new([
-                syndesktop_common::paths::config_file(),
-            ]),
+            config_watcher: FileWatcher::new(crate::config::watched_files(&config)),
             config,
             config_error,
             bindings,

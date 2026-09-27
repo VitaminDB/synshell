@@ -1,0 +1,57 @@
+name = "Kanagawa"
+description = "По мотивам «Большой волны» Хокусая: чернила, индиго и старая бумага."
+author = "syndesktop (палитра — rebelot/kanagawa.nvim)"
+
+[appearance]
+corner_radius = 6
+panel_opacity = 0.95
+
+[decorations]
+corner_radius = 6
+title_align = "center"
+
+[dark]
+bg = "#16161d"
+surface = "#1f1f28"
+surface_alt = "#2a2a37"
+fg = "#dcd7ba"
+muted = "#a09c86"
+border = "#363646"
+accent = "#7e9cd8"
+accent_fg = "#16161d"
+danger = "#e46876"
+success = "#98bb6c"
+warning = "#ff9e3b"
+wallpaper = "linear-gradient(180deg, #0f0f14 0%, #16161d 30%, #1f1f28 50%, #223249 75%, #2d4f67 92%, #6a9589 100%)"
+wallpaper_color = "#16161d"
+titlebar = "#1f1f28"
+titlebar_inactive = "#16161d"
+shadow = "#00000099"
+
+[dark.vars]
+sakura = "#d27e99"
+wave = "#223249"
+paper = "#c8c093"
+
+[light]
+bg = "#e7dba0"
+surface = "#f2ecbc"
+surface_alt = "#e5ddb0"
+fg = "#545464"
+muted = "#716e61"
+border = "#d5cea3"
+accent = "#4d699b"
+accent_fg = "#f2ecbc"
+danger = "#c84053"
+success = "#6f894e"
+warning = "#cc6d00"
+wallpaper = "linear-gradient(180deg, #f2ecbc 0%, #e5ddb0 45%, #c7d7e0 75%, #9fb5c9 92%, #4d699b 100%)"
+wallpaper_color = "#f2ecbc"
+titlebar = "#e5ddb0"
+titlebar_inactive = "#e7dba0"
+shadow = "#54546440"
+
+[light.vars]
+sakura = "#b35b79"
+wave = "#c7d7e0"
+paper = "#716e61"

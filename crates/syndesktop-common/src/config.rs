@@ -7,7 +7,10 @@
 use crate::action::{Action, KeyCombo, LayoutKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use crate::theme::{Theme, Variant};
 
 /// Встроенный конфиг по умолчанию с комментариями — пишется в
 /// `~/.config/syndesktop/config.toml` при первом запуске.
@@ -118,8 +121,10 @@ pub enum ColorScheme {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Appearance {
+    /// Тема оформления (каталог в `themes/` или встроенная). Пусто — стандартная.
+    pub theme: String,
     pub color_scheme: ColorScheme,
-    /// Цвет акцента: `#rrggbb`.
+    /// Цвет акцента: `#rrggbb`. Пусто — акцент темы.
     pub accent: String,
     /// Семейство шрифта интерфейса (пусто — системный по fontconfig).
     pub font: String,
@@ -136,13 +141,17 @@ pub struct Appearance {
     /// Переопределения цветов палитры: `bg`, `surface`, `fg`, `muted`,
     /// `border`, `danger`, `success`, `warning`.
     pub colors: BTreeMap<String, String>,
+    /// Загруженная тема `theme` (заполняется в [`Config::parse`]).
+    #[serde(skip)]
+    pub resolved: Option<Arc<Theme>>,
 }
 
 impl Default for Appearance {
     fn default() -> Self {
         Self {
+            theme: String::new(),
             color_scheme: ColorScheme::Dark,
-            accent: "#3d8bfd".into(),
+            accent: String::new(),
             font: String::new(),
             font_size: 13.0,
             icon_theme: "breeze-dark".into(),
@@ -152,9 +161,14 @@ impl Default for Appearance {
             panel_opacity: 0.92,
             ui_scale: 1.0,
             colors: BTreeMap::new(),
+            resolved: None,
         }
     }
 }
+
+/// Ключи цветов палитры (`[appearance.colors]` и вариантов темы).
+pub const COLOR_KEYS: &[&str] =
+    &["bg", "surface", "surface_alt", "fg", "muted", "border", "accent_fg", "danger", "success", "warning"];
 
 /// Готовая палитра — вычисляется из [`Appearance`].
 #[derive(Debug, Clone, PartialEq)]
@@ -172,10 +186,41 @@ pub struct Palette {
     pub warning: Rgba,
 }
 
+const DEFAULT_ACCENT: Rgba = Rgba::rgb(0x3d, 0x8b, 0xfd);
+
 impl Appearance {
+    /// Загрузить тему `theme` в `resolved`. Отсутствующая или сломанная
+    /// тема — предупреждение и стандартное оформление.
+    pub fn load_theme(&mut self) {
+        self.resolved = None;
+        if self.theme.trim().is_empty() {
+            return;
+        }
+        match Theme::find(&self.theme) {
+            Ok(t) => self.resolved = Some(Arc::new(t)),
+            Err(e) => tracing::warn!("{e}"),
+        }
+    }
+
+    /// Активный вариант темы и тёмный ли он.
+    pub fn theme_variant(&self) -> Option<(&Variant, bool)> {
+        let t = self.resolved.as_deref()?;
+        Some(t.variant(self.color_scheme == ColorScheme::Dark))
+    }
+
+    /// Тёмная ли итоговая схема: у темы с одним вариантом — его схема.
+    pub fn is_dark(&self) -> bool {
+        match self.theme_variant() {
+            Some((_, dark)) => dark,
+            None => self.color_scheme == ColorScheme::Dark,
+        }
+    }
+
     pub fn palette(&self) -> Palette {
-        let dark = self.color_scheme == ColorScheme::Dark;
-        let accent = Rgba::parse(&self.accent).unwrap_or(Rgba::rgb(0x3d, 0x8b, 0xfd));
+        let dark = self.is_dark();
+        let variant = self.theme_variant().map(|v| v.0);
+        let theme_color = |key: &str| variant.and_then(|v| v.color(key)).and_then(Rgba::parse);
+        let accent = Rgba::parse(&self.accent).or_else(|| theme_color("accent")).unwrap_or(DEFAULT_ACCENT);
         let base = if dark {
             Palette {
                 bg: Rgba::rgb(0x16, 0x18, 0x1d),
@@ -206,9 +251,15 @@ impl Appearance {
             }
         };
         let mut p = base;
-        for (k, v) in &self.colors {
-            let Some(c) = Rgba::parse(v) else { continue };
-            match k.as_str() {
+        // Сначала цвета темы, поверх — пользовательские `[appearance.colors]`.
+        // Текст на акценте из темы — только для её собственного акцента.
+        let theme_colors = COLOR_KEYS
+            .iter()
+            .filter(|k| **k != "accent_fg" || Rgba::parse(&self.accent).is_none())
+            .filter_map(|k| Some((*k, theme_color(k)?)));
+        let user_colors = self.colors.iter().filter_map(|(k, v)| Some((k.as_str(), Rgba::parse(v)?)));
+        for (k, c) in theme_colors.chain(user_colors) {
+            match k {
                 "bg" => p.bg = c,
                 "surface" => p.surface = c,
                 "surface_alt" | "surface-alt" => p.surface_alt = c,
@@ -223,6 +274,95 @@ impl Appearance {
             }
         }
         p
+    }
+
+    /// Цвет по имени из палитры (`accent`, `surface`, `surface_alt`, `bg`,
+    /// `fg`, …) или `#rrggbb`.
+    pub fn named_color(&self, name: &str, p: &Palette) -> Option<Rgba> {
+        Some(match name.trim() {
+            "accent" => p.accent,
+            "surface" => p.surface,
+            "surface_alt" | "surface-alt" => p.surface_alt,
+            "bg" => p.bg,
+            "fg" => p.fg,
+            "border" => p.border,
+            other => return Rgba::parse(other),
+        })
+    }
+
+    /// Цвета заголовков окон: `theme` (по умолчанию) берёт цвета темы,
+    /// без темы — `surface`/`bg`.
+    pub fn titlebar_colors(&self, deco: &Decorations) -> (Rgba, Rgba) {
+        let p = self.palette();
+        let variant = self.theme_variant().map(|v| v.0);
+        let resolve = |s: &str, theme_key: Option<&String>, fallback: Rgba| -> Rgba {
+            let name = if s.trim() == "theme" || s.trim().is_empty() {
+                match theme_key {
+                    Some(k) => k.as_str(),
+                    None => return fallback,
+                }
+            } else {
+                s
+            };
+            self.named_color(name, &p).unwrap_or(fallback)
+        };
+        (
+            resolve(&deco.active_color, variant.and_then(|v| v.titlebar.as_ref()), p.surface),
+            resolve(&deco.inactive_color, variant.and_then(|v| v.titlebar_inactive.as_ref()), p.bg),
+        )
+    }
+
+    /// Фон рабочего стола без картинки как значение MSS `background`:
+    /// цвета из `[wallpaper]`, иначе обои темы, иначе стандартный градиент.
+    pub fn wallpaper_background(&self, w: &Wallpaper) -> String {
+        if !w.color.trim().is_empty() {
+            let c1 = w.color.trim();
+            let c2 = if w.color2.trim().is_empty() { c1 } else { w.color2.trim() };
+            return format!("linear-gradient(to bottom, {c1}, {c2})");
+        }
+        if let Some(bg) = self.theme_variant().and_then(|v| v.0.wallpaper.clone()) {
+            return bg;
+        }
+        "linear-gradient(to bottom, #1b2233, #3a2a4a)".into()
+    }
+
+    /// Сплошной цвет под обоями (очистка кадра, превью).
+    pub fn wallpaper_color(&self, w: &Wallpaper) -> Rgba {
+        Rgba::parse(&w.color)
+            .or_else(|| self.theme_variant().and_then(|v| v.0.wallpaper_color.as_deref()).and_then(Rgba::parse))
+            .or_else(|| if self.resolved.is_some() { Some(self.palette().bg) } else { None })
+            .unwrap_or(Rgba::rgb(0x1b, 0x22, 0x33))
+    }
+
+    /// Переменные темы (`--shadow`, `--scrim`, свои `vars`) — дописываются
+    /// после базовых `:root`, поэтому могут их переопределять.
+    pub fn theme_mss_variables(&self) -> String {
+        let Some((v, _)) = self.theme_variant() else { return String::new() };
+        let mut out = String::from(":root {\n");
+        for (k, val) in [("shadow", &v.shadow), ("scrim", &v.scrim)] {
+            if let Some(val) = val {
+                out.push_str(&format!("  --{k}: {val};\n"));
+            }
+        }
+        for (k, val) in &v.vars {
+            out.push_str(&format!("  --{}: {val};\n", k.trim_start_matches('-')));
+        }
+        out.push_str("}\n");
+        out
+    }
+
+    /// Свой MSS темы для оболочки (`shell.mss`) или настроек (`settings.mss`).
+    pub fn theme_mss(&self, settings: bool) -> &str {
+        match self.resolved.as_deref() {
+            Some(t) if settings => &t.settings_mss,
+            Some(t) => &t.shell_mss,
+            None => "",
+        }
+    }
+
+    /// Файлы активной темы на диске (для слежения за изменениями).
+    pub fn theme_files(&self) -> Vec<PathBuf> {
+        self.resolved.as_deref().map(Theme::files).unwrap_or_default()
     }
 
     /// MSS-переменные палитры для `:root { ... }` оболочки и настроек.
@@ -607,7 +747,8 @@ pub struct Decorations {
     pub shadow_size: i32,
     /// Непрозрачность тени 0..1.
     pub shadow_opacity: f32,
-    /// Цвет заголовка активного окна: `accent`, `surface` или `#rrggbb`.
+    /// Цвет заголовка активного окна: `theme` (из темы), `accent`,
+    /// `surface`, `surface_alt`, `bg` или `#rrggbb`.
     pub active_color: String,
     pub inactive_color: String,
 }
@@ -624,8 +765,8 @@ impl Default for Decorations {
             shadow: true,
             shadow_size: 22,
             shadow_opacity: 0.45,
-            active_color: "surface".into(),
-            inactive_color: "bg".into(),
+            active_color: "theme".into(),
+            inactive_color: "theme".into(),
         }
     }
 }
@@ -741,6 +882,7 @@ pub struct Wallpaper {
     pub path: String,
     /// `fill`, `fit`, `stretch`, `center`, `tile`.
     pub mode: String,
+    /// Цвет фона без картинки. Пусто — обои темы.
     pub color: String,
     /// Второй цвет — вертикальный градиент.
     pub color2: String,
@@ -757,8 +899,8 @@ impl Default for Wallpaper {
         Self {
             path: String::new(),
             mode: "fill".into(),
-            color: "#1b2233".into(),
-            color2: "#3a2a4a".into(),
+            color: String::new(),
+            color2: String::new(),
             slideshow_minutes: 0,
             per_output: BTreeMap::new(),
             desktop_icons: false,
@@ -1124,7 +1266,9 @@ impl Config {
     }
 
     pub fn parse(text: &str) -> Result<Config, String> {
-        toml::from_str::<Config>(text).map_err(|e| e.to_string())
+        let mut c = toml::from_str::<Config>(text).map_err(|e| e.to_string())?;
+        c.appearance.load_theme();
+        Ok(c)
     }
 
     /// Создать файл конфигурации с комментариями, если его ещё нет.
@@ -1197,6 +1341,9 @@ mod tests {
         let d = Config::default();
         assert_eq!(c.general, d.general);
         assert_eq!(c.windows, d.windows);
+        assert_eq!(c.appearance, d.appearance);
+        assert_eq!(c.decorations, d.decorations);
+        assert_eq!(c.wallpaper, d.wallpaper);
         assert_eq!(c.panels.len(), 1);
     }
 
@@ -1242,5 +1389,52 @@ mod tests {
     fn palette_vars() {
         let v = Appearance::default().mss_variables();
         assert!(v.contains("--accent: #3d8bfd"));
+    }
+
+    #[test]
+    fn theme_palette_and_overrides() {
+        let c = Config::parse("[appearance]\ntheme = \"nord\"\n").unwrap();
+        let a = &c.appearance;
+        assert!(a.resolved.is_some());
+        let p = a.palette();
+        assert_eq!(p.bg.hex(), "#2e3440");
+        assert_eq!(p.accent.hex(), "#88c0d0");
+        assert_eq!(p.accent_fg.hex(), "#2e3440");
+        assert!(a.wallpaper_background(&c.wallpaper).contains("#5e81ac"));
+        assert!(a.theme_mss(false).contains(".panel"));
+        assert!(a.theme_mss_variables().contains("--frost:"));
+        // Акцент пользователя и `[appearance.colors]` — поверх темы.
+        let c = Config::parse(
+            "[appearance]\ntheme = \"nord\"\naccent = \"#ff0000\"\n[appearance.colors]\nbg = \"#000000\"\n",
+        )
+        .unwrap();
+        let p = c.appearance.palette();
+        assert_eq!(p.accent.hex(), "#ff0000");
+        assert_eq!(p.accent_fg.hex(), "#ffffff", "текст на своём акценте — по контрасту, не из темы");
+        assert_eq!(p.bg.hex(), "#000000");
+        assert_eq!(p.surface.hex(), "#3b4252");
+    }
+
+    #[test]
+    fn theme_variant_and_titlebar() {
+        // Тема с одним вариантом навязывает свою схему.
+        let c = Config::parse("[appearance]\ntheme = \"dracula\"\ncolor_scheme = \"light\"\n").unwrap();
+        assert!(c.appearance.is_dark());
+        let c = Config::parse("[appearance]\ntheme = \"nord\"\ncolor_scheme = \"light\"\n").unwrap();
+        assert!(!c.appearance.is_dark());
+        assert_eq!(c.appearance.palette().bg.hex(), "#e5e9f0");
+        let (active, inactive) = c.appearance.titlebar_colors(&c.decorations);
+        assert_eq!((active.hex().as_str(), inactive.hex().as_str()), ("#eceff4", "#e5e9f0"));
+        // Явный цвет заголовка сильнее темы.
+        let c = Config::parse("[appearance]\ntheme = \"nord\"\n[decorations]\nactive_color = \"accent\"\n").unwrap();
+        assert_eq!(c.appearance.titlebar_colors(&c.decorations).0.hex(), "#88c0d0");
+    }
+
+    #[test]
+    fn missing_theme_falls_back() {
+        let c = Config::parse("[appearance]\ntheme = \"no-such-theme\"\n").unwrap();
+        assert!(c.appearance.resolved.is_none());
+        assert_eq!(c.appearance.palette(), Appearance::default().palette());
+        assert!(c.appearance.wallpaper_background(&c.wallpaper).contains("#1b2233"));
     }
 }

@@ -95,7 +95,7 @@ fn footer(ctx: Ctx) -> W {
             .gap(10.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .class("footer")
-            .child(Text::new(store::path().display().to_string()).elide(Elide::Middle).class("row-hint grow"))
+            .child(Text::new(home_short(&store::path())).elide(Elide::Middle).class("row-hint grow"))
             .child(Reactive::new(move || -> Vec<W> {
                 let t = ctx.toast.get();
                 if t.is_empty() {
