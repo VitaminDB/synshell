@@ -6,6 +6,7 @@ members = [
     "crates/syngui-layer",
     "crates/syndesktop-shell",
     "crates/syndesktop-settings",
+    "crates/syndesktop-files",
 ]
 
 [workspace.package]

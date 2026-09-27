@@ -108,6 +108,8 @@ pub struct Theme {
     pub panel: toml::Table,
     pub shell_mss: String,
     pub settings_mss: String,
+    /// Свой MSS для проводника (`files.mss`, необязательный).
+    pub files_mss: String,
 }
 
 /// Какие ключи `[appearance]` тема может рекомендовать.
@@ -141,13 +143,16 @@ impl Theme {
             panel: keep(f.panel, PANEL_KEYS),
             shell_mss,
             settings_mss,
+            files_mss: String::new(),
         })
     }
 
     fn load_dir(id: &str, dir: &Path) -> Result<Theme, String> {
         let toml_text = std::fs::read_to_string(dir.join("theme.toml")).map_err(|e| format!("{}: {e}", dir.display()))?;
         let read = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap_or_default();
-        Self::from_parts(id, Source::Dir(dir.to_path_buf()), &toml_text, read("shell.mss"), read("settings.mss"))
+        let mut t = Self::from_parts(id, Source::Dir(dir.to_path_buf()), &toml_text, read("shell.mss"), read("settings.mss"))?;
+        t.files_mss = read("files.mss");
+        Ok(t)
     }
 
     fn builtin(id: &str) -> Option<Result<Theme, String>> {
@@ -191,7 +196,7 @@ impl Theme {
     pub fn files(&self) -> Vec<PathBuf> {
         match &self.source {
             Source::Builtin => Vec::new(),
-            Source::Dir(d) => ["theme.toml", "shell.mss", "settings.mss"].iter().map(|f| d.join(f)).collect(),
+            Source::Dir(d) => ["theme.toml", "shell.mss", "settings.mss", "files.mss"].iter().map(|f| d.join(f)).collect(),
         }
     }
 }

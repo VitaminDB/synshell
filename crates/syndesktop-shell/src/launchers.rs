@@ -257,17 +257,7 @@ pub fn cycle_windows(ctx: ShellCtx, app_id: &str, dy: f32) {
 
 /// Каталог пользователя по XDG (`DOWNLOAD`, `DOCUMENTS`, `DESKTOP`…).
 pub fn xdg_user_dir(kind: &str) -> Option<PathBuf> {
-    let home = syndesktop_common::paths::expand_tilde("~");
-    let conf = home.join(".config/user-dirs.dirs");
-    let key = format!("XDG_{kind}_DIR=");
-    let text = std::fs::read_to_string(conf).ok()?;
-    for line in text.lines() {
-        if let Some(v) = line.trim().strip_prefix(&key) {
-            let v = v.trim_matches('"').replace("$HOME", &home.to_string_lossy());
-            return Some(PathBuf::from(v));
-        }
-    }
-    None
+    syndesktop_common::paths::user_dir(kind)
 }
 
 pub fn trash_dir() -> PathBuf {

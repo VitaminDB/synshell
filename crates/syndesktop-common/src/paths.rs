@@ -2,7 +2,8 @@
 
 use std::path::PathBuf;
 
-fn home() -> PathBuf {
+/// Домашний каталог (`$HOME`).
+pub fn home() -> PathBuf {
     std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"))
 }
 
@@ -80,4 +81,40 @@ pub fn expand_tilde(path: &str) -> PathBuf {
     } else {
         PathBuf::from(path)
     }
+}
+
+/// Каталог пользователя по XDG (`DOWNLOAD`, `DOCUMENTS`, `DESKTOP`…) из
+/// `user-dirs.dirs`; `None`, если не задан.
+pub fn user_dir(kind: &str) -> Option<PathBuf> {
+    let home = home();
+    let conf = xdg_config_home().join("user-dirs.dirs");
+    let key = format!("XDG_{kind}_DIR=");
+    let text = std::fs::read_to_string(conf).ok()?;
+    for line in text.lines() {
+        if let Some(v) = line.trim().strip_prefix(&key) {
+            let v = v.trim_matches('"').replace("$HOME", &home.to_string_lossy());
+            let p = PathBuf::from(v);
+            // `XDG_DESKTOP_DIR="$HOME/"` — каталог не задан.
+            return (p != home).then_some(p);
+        }
+    }
+    None
+}
+
+/// Каталог пользователя по XDG или обычное английское имя в `~`.
+pub fn user_dir_or_default(kind: &str) -> PathBuf {
+    user_dir(kind).unwrap_or_else(|| {
+        let name = match kind {
+            "DOWNLOAD" => "Downloads",
+            "DOCUMENTS" => "Documents",
+            "PICTURES" => "Pictures",
+            "MUSIC" => "Music",
+            "VIDEOS" => "Videos",
+            "DESKTOP" => "Desktop",
+            "TEMPLATES" => "Templates",
+            "PUBLICSHARE" => "Public",
+            _ => "",
+        };
+        home().join(name)
+    })
 }

@@ -9,6 +9,7 @@
 | `syndesktop` | Композитор на smithay 0.7: DRM/KMS (несколько GPU, горячее подключение, DPMS) или вложенное окно. Серверные рамки, столы, раскладки floating/tile/columns/grid/monocle, прилипание к половинам экрана, обзор окон, Alt+Tab, правила окон, Xwayland, IPC. |
 | `syndesktop-shell` | Оболочка на syngui (layer-shell): обои, панели с апплетами, док, меню запуска, уведомления (D-Bus), OSD, меню питания, переключатель окон, экран блокировки (ext-session-lock + PAM). |
 | `syndesktop-settings` | «Параметры системы»: 18 страниц. Правит `config.toml` через toml_edit, комментарии сохраняются. |
+| `syndesktop-files` | Проводник в духе Windows 11: вкладки в заголовке, две панели, виды «значки / плитка / список / таблица», миниатюры, рамка выделения, перетаскивание, операции в фоне с паузой и отменой, Ctrl+Z, корзина, поиск. [docs/FILES.md](docs/FILES.md) |
 
 Темы оформления — 14 встроенных (Nord, Catppuccin, Tokyo Night, Gruvbox, Rosé Pine, Everforest,
 Dracula, Kanagawa, Solarized, Синтвейв, Аврора, Сакура, Необрутализм, Терминал) и свои на MSS:

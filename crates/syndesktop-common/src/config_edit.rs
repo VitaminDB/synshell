@@ -27,6 +27,29 @@ pub fn edit(f: impl FnOnce(&mut DocumentMut) -> bool) -> anyhow::Result<bool> {
     Ok(true)
 }
 
+/// Записать значение по пути таблиц (`["files", "view"]`), создавая
+/// недостающие таблицы. Одинаковое значение не переписывает файл.
+pub fn set_value(path: &[&str], value: Value) -> anyhow::Result<bool> {
+    let Some((key, tables)) = path.split_last() else { return Ok(false) };
+    edit(|doc| {
+        let mut t: &mut Table = doc.as_table_mut();
+        for name in tables {
+            if !t.contains_key(name) {
+                t.insert(name, Item::Table(Table::new()));
+            }
+            match t.get_mut(name).and_then(Item::as_table_mut) {
+                Some(next) => t = next,
+                None => return false,
+            }
+        }
+        if t.get(key).and_then(Item::as_value).map(|v| v.to_string().trim() == value.to_string().trim()).unwrap_or(false) {
+            return false;
+        }
+        t.insert(key, Item::Value(value));
+        true
+    })
+}
+
 /// Структура serde → таблица `toml_edit` (вложенное — inline).
 pub fn to_table<T: serde::Serialize>(v: &T) -> Table {
     let text = toml::to_string(v).unwrap_or_default();

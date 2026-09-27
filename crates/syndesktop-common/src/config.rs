@@ -37,6 +37,7 @@ pub struct Config {
     #[serde(rename = "panel")]
     pub panels: Vec<Panel>,
     pub launcher: Launcher,
+    pub files: Files,
     pub notifications: Notifications,
     pub lock: Lock,
     pub idle: Idle,
@@ -58,6 +59,7 @@ impl Default for Config {
             wallpaper: Wallpaper::default(),
             panels: vec![Panel::default()],
             launcher: Launcher::default(),
+            files: Files::default(),
             notifications: Notifications::default(),
             lock: Lock::default(),
             idle: Idle::default(),
@@ -94,7 +96,7 @@ impl Default for General {
     fn default() -> Self {
         Self {
             terminal: "konsole".into(),
-            file_manager: "dolphin".into(),
+            file_manager: "syndesktop-files".into(),
             browser: "xdg-open https://".into(),
             shell: "syndesktop-shell".into(),
             autostart: Vec::new(),
@@ -362,6 +364,11 @@ impl Appearance {
             Some(t) => &t.shell_mss,
             None => "",
         }
+    }
+
+    /// Свой MSS темы для проводника (`files.mss`).
+    pub fn theme_files_mss(&self) -> &str {
+        self.resolved.as_deref().map(|t| t.files_mss.as_str()).unwrap_or("")
     }
 
     /// Файлы активной темы на диске (для слежения за изменениями).
@@ -1157,6 +1164,57 @@ impl Applet {
             .and_then(|v| v.as_array())
             .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
             .unwrap_or_default()
+    }
+}
+
+// ─── files ──────────────────────────────────────────────────────────────────
+
+/// Проводник `syndesktop-files`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Files {
+    /// Вид по умолчанию: `details`, `list`, `tiles`, `icons`.
+    pub view: String,
+    /// Размер значков в виде `icons` (px).
+    pub icon_size: u32,
+    /// Сортировка: `name`, `modified`, `type`, `size`.
+    pub sort_by: String,
+    pub sort_descending: bool,
+    pub folders_first: bool,
+    pub show_hidden: bool,
+    /// Открывать одним щелчком (как в KDE), иначе — двойным.
+    pub single_click: bool,
+    /// Спрашивать перед удалением в корзину (безвозвратное — всегда).
+    pub confirm_trash: bool,
+    /// Панель просмотра справа.
+    pub preview_pane: bool,
+    /// Миниатюры картинок и видео.
+    pub thumbnails: bool,
+    /// Не делать миниатюры файлов больше этого размера (МБ).
+    pub thumbnail_max_mb: u64,
+    /// Закреплённые папки на боковой панели (`~/Projects`, `/mnt/data`).
+    pub pinned: Vec<String>,
+    /// Открывать вкладки прошлого сеанса.
+    pub restore_tabs: bool,
+}
+
+impl Default for Files {
+    fn default() -> Self {
+        Self {
+            view: "details".into(),
+            icon_size: 64,
+            sort_by: "name".into(),
+            sort_descending: false,
+            folders_first: true,
+            show_hidden: false,
+            single_click: false,
+            confirm_trash: false,
+            preview_pane: false,
+            thumbnails: true,
+            thumbnail_max_mb: 64,
+            pinned: Vec::new(),
+            restore_tabs: true,
+        }
     }
 }
 

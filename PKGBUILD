@@ -16,6 +16,8 @@ optdepends=('xorg-xwayland: X11-программы'
             'xdg-desktop-portal-wlr: демонстрация экрана (браузеры, OBS) и снимки через портал'
             'xdg-desktop-portal-kde: портал выбора файлов'
             'grim: снимки экрана из командной строки'
+            'shared-mime-info: типы файлов в проводнике'
+            'ffmpegthumbnailer: миниатюры видео в проводнике'
             'breeze-icons: тема значков по умолчанию')
 makedepends=('cargo' 'rust')
 
@@ -25,7 +27,7 @@ _profile=${SYNDESKTOP_PROFILE:-release}
 
 build() {
     cd "$startdir"
-    cargo build --profile "$_profile" -p syndesktop -p syndesktop-shell -p syndesktop-settings
+    cargo build --profile "$_profile" -p syndesktop -p syndesktop-shell -p syndesktop-settings -p syndesktop-files
 }
 
 check() {
@@ -35,7 +37,7 @@ check() {
 
 package() {
     cd "$startdir"
-    for b in syndesktop syndesktop-shell syndesktop-settings; do
+    for b in syndesktop syndesktop-shell syndesktop-settings syndesktop-files; do
         install -Dm755 "target/$_profile/$b" "$pkgdir/usr/bin/$b"
     done
     install -Dm755 data/syndesktop-session "$pkgdir/usr/bin/syndesktop-session"
@@ -44,6 +46,8 @@ package() {
     install -Dm644 data/syndesktop-portals.conf "$pkgdir/usr/share/xdg-desktop-portal/syndesktop-portals.conf"
     install -Dm644 crates/syndesktop-settings/data/syndesktop-settings.desktop \
         "$pkgdir/usr/share/applications/syndesktop-settings.desktop"
+    install -Dm644 crates/syndesktop-files/data/syndesktop-files.desktop \
+        "$pkgdir/usr/share/applications/syndesktop-files.desktop"
     install -Dm644 crates/syndesktop-shell/data/syndesktop-lock.pam "$pkgdir/etc/pam.d/syndesktop-lock"
     install -Dm644 crates/syndesktop-common/default-config.toml \
         "$pkgdir/usr/share/doc/syndesktop/config.toml.example"

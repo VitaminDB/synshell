@@ -31,11 +31,12 @@
 
 | Крейт | Что это |
 |---|---|
-| `syndesktop-common` | `Config` (весь `config.toml`), `Action` (строковые действия), `KeyCombo`, IPC-протокол и клиент, пути XDG, опрос изменений файлов |
+| `syndesktop-common` | `Config` (весь `config.toml`), `Action` (строковые действия), `KeyCombo`, IPC-протокол и клиент, пути XDG, опрос изменений файлов, `.desktop` и темы значков (`xdg`), типы файлов и программы для них (`mime`: shared-mime-info, `mimeapps.list`) |
 | `syndesktop` | композитор + CLI `syndesktop msg …` |
 | `syngui-layer` | хост syngui на layer-shell поверхностях (sctk 0.19 + wgpu-surface из `wl_surface`) — «winit для оболочки» |
 | `syndesktop-shell` | оболочка |
 | `syndesktop-settings` | «Параметры системы» |
+| `syndesktop-files` | проводник (syngui + winit): вкладки, две панели, поиск, корзина, операции в фоне — [FILES.md](FILES.md) |
 
 ## Конфигурация
 

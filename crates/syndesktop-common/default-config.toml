@@ -8,7 +8,7 @@
 
 [general]
 terminal = "konsole"
-file_manager = "dolphin"
+file_manager = "syndesktop-files"
 browser = "xdg-open https://"
 # Оболочка: панели, меню запуска, уведомления. Пусто — без оболочки
 # (например, если вы запускаете waybar через autostart).
@@ -273,6 +273,21 @@ height = 560
 search_keywords = true
 calculator = true
 run_commands = true
+
+[files]
+view = "details"               # details | list | tiles | icons
+icon_size = 64                 # значки в виде icons, px
+sort_by = "name"               # name | modified | type | size
+sort_descending = false
+folders_first = true
+show_hidden = false
+single_click = false           # открывать одним щелчком
+confirm_trash = false          # спрашивать перед удалением в корзину
+preview_pane = false           # панель просмотра справа
+thumbnails = true
+thumbnail_max_mb = 64
+pinned = []                    # закреплённые папки: ["~/Projects", "/mnt/data"]
+restore_tabs = true
 
 [notifications]
 enabled = true
