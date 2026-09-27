@@ -17,7 +17,7 @@ shell = "syndesktop-shell"
 autostart = []
 # Запускать ~/.config/autostart/*.desktop
 xdg_autostart = true
-# Xwayland для X11-программ (нужен xwayland-satellite).
+# Xwayland для X11-программ (нужен пакет xorg-xwayland).
 xwayland = true
 screenshot_dir = "~/Pictures/Screenshots"
 
