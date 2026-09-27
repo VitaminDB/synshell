@@ -19,7 +19,12 @@ enum Opt {
     Int(&'static str, &'static str, i64, i64, i64),
     /// Ключ, подпись, значение по умолчанию, варианты (значение, подпись).
     Choice(&'static str, &'static str, &'static str, &'static [(&'static str, &'static str)]),
+    /// Список строк через запятую (ключ, подпись, подсказка).
+    List(&'static str, &'static str, &'static str),
 }
+
+const STACK_VIEWS: &[(&str, &str)] = &[("grid", "Сетка"), ("list", "Список"), ("fan", "Веер (док снизу)")];
+const STACK_OPEN: &[(&str, &str)] = &[("click", "По клику"), ("hover", "Наведением")];
 
 /// Типы апплетов: (тип, название, описание, опции).
 fn applet_types() -> Vec<(&'static str, &'static str, &'static str, Vec<Opt>)> {
@@ -44,6 +49,27 @@ fn applet_types() -> Vec<(&'static str, &'static str, &'static str, Vec<Opt>)> {
             Bool("names", "Номера/имена столов", true),
             Bool("hide_empty", "Скрывать пустые столы", false),
             Bool("show_single", "Показывать, когда стол один", false),
+        ]),
+        ("app", "Значок приложения", "Запуск и окна приложения (быстрый запуск)", vec![
+            Text("app", "Приложение (id .desktop)", "firefox"),
+            Text("name", "Подпись", ""),
+            Text("icon", "Значок", ""),
+            Text("command", "Своя команда", ""),
+            Bool("label", "Подпись на панели", false),
+        ]),
+        ("group", "Раздел", "Группа значков во всплывающем окне", vec![
+            Text("name", "Название", "Разработка"),
+            Text("icon", "Значок (пусто — сетка значков)", ""),
+            List("items", "Приложения и пути", "org.kde.konsole, code, ~/Проекты"),
+            Choice("view", "Вид", "grid", STACK_VIEWS),
+            Choice("open", "Открывать", "click", STACK_OPEN),
+        ]),
+        ("folder", "Папка", "Содержимое каталога во всплывающем окне", vec![
+            Text("path", "Путь (xdg:DOWNLOAD, trash:)", "xdg:DOWNLOAD"),
+            Text("name", "Название", ""),
+            Text("icon", "Значок", ""),
+            Choice("view", "Вид", "grid", STACK_VIEWS),
+            Choice("open", "Открывать", "click", STACK_OPEN),
         ]),
         ("spacer", "Растяжка", "Заполняет свободное место", vec![]),
         ("separator", "Разделитель", "Тонкая линия", vec![]),
@@ -156,6 +182,22 @@ fn applet_options(pi: usize, ai: usize, applet: &Applet) -> Vec<W> {
                     }),
                 )
             }
+            Opt::List(key, label, hint) => {
+                let cur = applet.strings(key).join(", ");
+                let p = op!["panel", pi, "applets", ai, key];
+                row(
+                    label,
+                    "Через запятую",
+                    TextField::with_text(cur).placeholder(hint).width(320.0).on_change(move |s| {
+                        ensure();
+                        let mut arr = toml_edit::Array::new();
+                        for part in s.split(',').map(str::trim).filter(|x| !x.is_empty()) {
+                            arr.push(part);
+                        }
+                        set(&p, toml_edit::Value::Array(arr))
+                    }),
+                )
+            }
             Opt::Choice(key, label, def, options) => {
                 let cur = applet.str_or(key, def).to_string();
                 let p = op!["panel", pi, "applets", ai, key];
@@ -252,9 +294,86 @@ fn applets_editor(pi: usize, panel: &Panel) -> W {
     boxed(col)
 }
 
+fn dset(pi: usize, key: &str, v: impl Into<toml_edit::Value>) {
+    ensure();
+    set(&op!["panel", pi, "dock", key], v);
+}
+
+fn choice_row(pi: usize, key: &'static str, label: &str, hint: &str, cur: &str, options: &[(&str, &str)]) -> W {
+    let mut dd = Dropdown::new().width(220.0);
+    for (v, l) in options {
+        dd = dd.item(DropdownItem::new(v.to_string(), l.to_string()));
+    }
+    row(label, hint, dd.selected(cur.to_string()).on_change(move |v: &str| dset(pi, key, v.to_string())))
+}
+
+/// Параметры дока (`[panel.dock]`).
+fn dock_rows(pi: usize, d: &syndesktop_common::config::Dock) -> Vec<W> {
+    vec![
+        row("Размер значков", "Без увеличения, px", {
+            SpinBox::new().range(24.0, 128.0).value(d.icon_size as f64).width(140.0).on_change(move |v| dset(pi, "icon_size", v.round() as i64))
+        }),
+        row("Увеличение", "Во сколько раз растёт значок под курсором (1 — без увеличения)", {
+            Slider::new().range(1.0, 3.0).step(0.05).value(d.zoom).show_value(2).width(240.0).on_change(move |v| dset(pi, "zoom", round_to(v as f64, 2)))
+        }),
+        row("Радиус увеличения", "В значках", {
+            Slider::new().range(1.0, 5.0).step(0.1).value(d.zoom_range).show_value(1).width(240.0).on_change(move |v| dset(pi, "zoom_range", round_to(v as f64, 1)))
+        }),
+        choice_row(pi, "style", "Оформление", "Полка — 3D-подложка с отражениями", &d.style, &[
+            ("glass", "Стекло"),
+            ("shelf", "3D-полка"),
+            ("flat", "Плоское"),
+            ("neon", "Неон"),
+            ("none", "Только значки"),
+        ]),
+        choice_row(pi, "indicator", "Индикатор окон", "", &d.indicator, &[
+            ("dot", "Точка"),
+            ("dots", "Точка на окно"),
+            ("line", "Черта"),
+            ("glow", "Свечение"),
+            ("none", "Нет"),
+        ]),
+        choice_row(pi, "hover_effect", "При наведении", "3D-наклон и вращение — через MSS rotate-x/rotate-y", &d.hover_effect, &[
+            ("lift", "Приподнять"),
+            ("tilt", "3D-наклон"),
+            ("spin", "3D-вращение"),
+            ("glow", "Свечение"),
+            ("none", "Ничего"),
+        ]),
+        choice_row(pi, "hover_particles", "Частицы при наведении", "", &d.hover_particles, &[
+            ("none", "Нет"),
+            ("sparkle", "Искорки"),
+            ("magic", "Магия"),
+            ("embers", "Угольки"),
+            ("bubbles", "Пузыри"),
+            ("hearts", "Сердечки"),
+            ("snow", "Снег"),
+            ("trail", "След за курсором"),
+        ]),
+        choice_row(pi, "launch_animation", "Анимация запуска", "", &d.launch_animation, &[
+            ("bounce", "Прыжки"),
+            ("pulse", "Пульс"),
+            ("spin", "3D-вращение"),
+            ("none", "Нет"),
+        ]),
+        choice_row(pi, "launch_particles", "Частицы при запуске", "", &d.launch_particles, &[
+            ("stars", "Звёзды"),
+            ("sparkle", "Искорки"),
+            ("confetti", "Конфетти"),
+            ("fireworks", "Фейерверк"),
+            ("magic", "Магия"),
+            ("poof", "Облачко"),
+            ("none", "Нет"),
+        ]),
+        row("Подписи", "Имя приложения над значком при наведении", Toggle::with_state(d.labels).on_change(move |v| dset(pi, "labels", v))),
+        row("Умное скрытие", "Прятать, когда окно перекрывает док", Toggle::with_state(d.intellihide).on_change(move |v| dset(pi, "intellihide", v))),
+    ]
+}
+
 fn panel_card(pi: usize, p: &Panel, outputs: &[(String, String)]) -> W {
     let title = format!(
-        "Панель {} · {} · {}",
+        "{} {} · {} · {}",
+        if p.is_dock() { "Док" } else { "Панель" },
         pi + 1,
         match p.edge {
             syndesktop_common::config::Edge::Top => "сверху",
@@ -285,7 +404,17 @@ fn panel_card(pi: usize, p: &Panel, outputs: &[(String, String)]) -> W {
     let has_opacity = p.opacity.is_some();
     let opacity = p.opacity.unwrap_or(store::config().appearance.panel_opacity);
 
-    let settings = vec![
+    let mut settings = vec![
+        row("Вид", "Док — значки с увеличением под курсором, как в macOS", {
+            let mut dd = Dropdown::new().width(200.0);
+            for (v, l) in [("panel", "Панель"), ("dock", "Док")] {
+                dd = dd.item(DropdownItem::new(v, l));
+            }
+            dd.selected(if p.is_dock() { "dock" } else { "panel" }).on_change(move |v: &str| {
+                pset(pi, "mode", v.to_string());
+                state::bump();
+            })
+        }),
         row("Край экрана", "", {
             let mut dd = Dropdown::new().width(200.0);
             for (v, l) in [("top", "Сверху"), ("bottom", "Снизу"), ("left", "Слева"), ("right", "Справа")] {
@@ -341,6 +470,9 @@ fn panel_card(pi: usize, p: &Panel, outputs: &[(String, String)]) -> W {
                 })),
         ),
     ];
+    if p.is_dock() {
+        settings.extend(dock_rows(pi, &p.dock));
+    }
 
     let header = Row::new()
         .gap(8.0)
@@ -401,6 +533,14 @@ pub fn panels() -> W {
                 });
                 state::bump();
             }))
+            .child(button("Добавить док", || {
+                ensure();
+                store::edit(|d| {
+                    store::doc_push_table(d, "panel", store::to_table(&Panel::dock_default()));
+                    true
+                });
+                state::bump();
+            }))
             .child(button("Вернуть панель по умолчанию", || {
                 store::edit(|d| {
                     d.remove("panel");
@@ -413,5 +553,9 @@ pub fn panels() -> W {
                 state::bump();
             })),
     ));
-    page("Панели", "Панели на любом крае любого монитора, с набором апплетов.", body)
+    page(
+        "Панели и доки",
+        "Панели и доки на любом крае любого монитора. Значки, разделы и папки удобнее добавлять прямо на панели: правый клик → «Изменить».",
+        body,
+    )
 }

@@ -24,6 +24,28 @@ pub enum PopupKind {
     TrayMenu(String),
     /// Спрятанные значки лотка.
     TrayOverflow,
+    /// Раздел или папка на панели/доке: апплет `index` панели `panel`
+    /// (номер `[[panel]]`). `hover` — открыто наведением (закрывается,
+    /// когда указатель уходит).
+    Stack { panel: usize, index: usize, hover: bool },
+    /// Меню значка панели/дока (апплет `index`).
+    ItemMenu { panel: usize, index: usize },
+    /// Меню работающего приложения на доке (из апплета `taskbar`).
+    AppMenu { panel: usize, app: String },
+    /// Меню панели (правый клик по пустому месту).
+    PanelMenu(usize),
+    /// Добавить значок, раздел, папку или апплет на панель.
+    AddItem(usize),
+    /// Изменить значок/раздел/папку.
+    EditItem { panel: usize, index: usize },
+}
+
+impl PopupKind {
+    /// Окна режима редактирования: перечитывание конфига их не закрывает
+    /// (каждое добавление значка пишет файл).
+    pub fn survives_reload(&self) -> bool {
+        matches!(self, PopupKind::AddItem(_))
+    }
 }
 
 /// Где открыть всплывающее окно: вывод и прямоугольник-якорь (кнопка
@@ -82,6 +104,14 @@ pub struct ShellCtx {
     pub shown_desktop: RwSignal<Vec<u64>>,
     /// Лента Alt+Tab: выбранное окно и порядок окон (от композитора).
     pub switcher: RwSignal<Option<(u64, Vec<u64>)>>,
+    /// Панель (номер `[[panel]]`) в режиме редактирования.
+    pub editing: RwSignal<Option<usize>>,
+    /// Запускаемые приложения (id .desktop → момент запуска, мс): значок
+    /// «прыгает», пока не появится окно.
+    pub launching: RwSignal<Vec<(String, u64)>>,
+    /// Счётчики всплесков частиц по значкам (ключ — id приложения или
+    /// «панель:апплет»).
+    pub bursts: RwSignal<std::collections::HashMap<String, u32>>,
 }
 
 impl ShellCtx {
@@ -108,6 +138,9 @@ impl ShellCtx {
             generation: use_signal(0),
             shown_desktop: use_signal(Vec::new()),
             switcher: use_signal(None),
+            editing: use_signal(None),
+            launching: use_signal(Vec::new()),
+            bursts: use_signal(std::collections::HashMap::new()),
         }
     }
 
@@ -136,5 +169,12 @@ impl ShellCtx {
 
     pub fn close_popup(&self) {
         self.popup.set(None);
+    }
+
+    /// Всплеск частиц у значка `key`.
+    pub fn burst(&self, key: &str) {
+        let mut m = self.bursts.get_untracked();
+        *m.entry(key.to_string()).or_insert(0) += 1;
+        self.bursts.set(m);
     }
 }

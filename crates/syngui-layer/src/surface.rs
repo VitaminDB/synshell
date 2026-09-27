@@ -71,6 +71,8 @@ pub struct Surface {
     pub requested: (u32, u32),
     /// Физический размер буфера, под который настроены рендерер/поверхность.
     phys: (u32, u32),
+    /// Область ввода (`None` — вся поверхность).
+    pub input_region: Option<Vec<[i32; 4]>>,
 }
 
 impl Surface {
@@ -95,6 +97,7 @@ impl Surface {
             cursor: syngui::input::CursorIcon::Default,
             requested,
             phys: (0, 0),
+            input_region: None,
         }
     }
 
@@ -134,6 +137,21 @@ impl Surface {
         layer.set_margin(s.margin[0], s.margin[1], s.margin[2], s.margin[3]);
         layer.set_exclusive_zone(s.exclusive_zone);
         layer.set_keyboard_interactivity(s.keyboard);
+    }
+
+    /// Выставить область ввода на `wl_surface` (применится со следующим commit).
+    pub fn apply_input_region(&self, compositor: &smithay_client_toolkit::compositor::CompositorState) {
+        let Some(wl) = self.wl_surface() else { return };
+        match &self.input_region {
+            None => wl.set_input_region(None),
+            Some(rects) => {
+                let Ok(region) = smithay_client_toolkit::compositor::Region::new(compositor) else { return };
+                for r in rects {
+                    region.add(r[0], r[1], r[2].max(0), r[3].max(0));
+                }
+                wl.set_input_region(Some(region.wl_region()));
+            }
+        }
     }
 
     /// Разобрать поверхность Wayland (дерево остаётся) — перед пересозданием.

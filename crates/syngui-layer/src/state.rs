@@ -194,6 +194,27 @@ pub fn run(options: RunOptions, stylesheet: &str, init: Box<dyn FnOnce()>) -> an
 
     init();
 
+    // Отладка без экрана: сценарий указателя
+    // `SYNGUI_LAYER_SCRIPT="800 move syndesktop-dock 700,150; 1500 click …; 2500 leave …"`
+    // (мс от старта, действие, пространство имён поверхности, точка).
+    if let Ok(script) = std::env::var("SYNGUI_LAYER_SCRIPT") {
+        for step in script.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+            let parts: Vec<&str> = step.split_whitespace().collect();
+            let (Some(ms), Some(action), Some(ns)) = (parts.first().and_then(|v| v.parse::<u64>().ok()), parts.get(1), parts.get(2)) else {
+                log::warn!("SYNGUI_LAYER_SCRIPT: не понял шаг «{step}»");
+                continue;
+            };
+            let pos = parts.get(3).and_then(|p| p.split_once(',')).and_then(|(x, y)| Some((x.parse::<f32>().ok()?, y.parse::<f32>().ok()?)));
+            let (action, ns) = (action.to_string(), ns.to_string());
+            handle
+                .insert_source(Timer::from_duration(Duration::from_millis(ms)), move |_, _, st: &mut State| {
+                    st.script_step(&action, &ns, pos);
+                    TimeoutAction::Drop
+                })
+                .ok();
+        }
+    }
+
     while !state.exit {
         state.tick();
         if state.exit {
@@ -340,6 +361,17 @@ impl State {
                     self.realize(id);
                 }
             }
+            Command::InputRegion { id, rects } => {
+                let Some(s) = self.surfaces.get_mut(&id) else { return };
+                if s.input_region == rects {
+                    return;
+                }
+                s.input_region = rects;
+                if let (Some(comp), Some(layer)) = (&self.compositor, s.layer()) {
+                    s.apply_input_region(comp);
+                    layer.commit();
+                }
+            }
             Command::Close { id } => {
                 if let Some(mut s) = self.surfaces.remove(&id) {
                     s.teardown();
@@ -389,6 +421,42 @@ impl State {
             Command::Unlock => self.unlock(),
             Command::Quit => self.exit = true,
         }
+    }
+
+    /// Шаг отладочного сценария указателя (`SYNGUI_LAYER_SCRIPT`).
+    fn script_step(&mut self, action: &str, namespace: &str, pos: Option<(f32, f32)>) {
+        let Some(s) = self.surfaces.values_mut().find(|s| s.spec.namespace == namespace) else {
+            log::warn!("SYNGUI_LAYER_SCRIPT: нет поверхности {namespace}");
+            return;
+        };
+        let p = syngui::core::Point::new(pos.map(|p| p.0).unwrap_or(0.0), pos.map(|p| p.1).unwrap_or(0.0));
+        match action {
+            "move" => {
+                if let Some(h) = s.hooks.on_pointer.as_mut() {
+                    h(true);
+                }
+                s.view.pointer_motion(p);
+            }
+            "click" | "rclick" => {
+                s.view.pointer_motion(p);
+                let b = if action == "click" { syngui::input::MouseButton::Left } else { syngui::input::MouseButton::Right };
+                s.view.pointer_button(b, true);
+                s.view.pointer_button(b, false);
+            }
+            "down" | "up" => {
+                s.view.pointer_motion(p);
+                s.view.pointer_button(syngui::input::MouseButton::Left, action == "down");
+            }
+            "leave" => {
+                s.view.pointer_leave();
+                if let Some(h) = s.hooks.on_pointer.as_mut() {
+                    h(false);
+                }
+            }
+            other => log::warn!("SYNGUI_LAYER_SCRIPT: неизвестное действие {other}"),
+        }
+        s.needs_frame = true;
+        log::info!("SYNGUI_LAYER_SCRIPT: {action} {namespace} {pos:?}");
     }
 
     fn realize_pending(&mut self) {
@@ -461,6 +529,9 @@ impl State {
         let s = self.surfaces.get_mut(&id).unwrap();
         s.backend = Backend::Wayland { wsurf: None, viewport, fractional, role: crate::surface::Role::Layer(layer) };
         s.apply_spec();
+        if let Some(comp) = &self.compositor {
+            s.apply_input_region(comp);
+        }
         s.layer().unwrap().commit();
     }
 

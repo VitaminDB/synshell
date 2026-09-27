@@ -946,8 +946,111 @@ pub struct Panel {
     pub exclusive: bool,
     /// Своя непрозрачность (иначе из appearance).
     pub opacity: Option<f32>,
+    /// `panel` — обычная панель, `dock` — док: значки приложений с
+    /// увеличением под курсором, индикаторами окон и анимациями (как в
+    /// macOS, Latte Dock, Cairo-Dock).
+    pub mode: String,
+    /// Параметры дока (`mode = "dock"`).
+    pub dock: Dock,
     /// Апплеты слева направо (сверху вниз).
     pub applets: Vec<Applet>,
+}
+
+impl Panel {
+    pub fn is_dock(&self) -> bool {
+        self.mode == "dock"
+    }
+
+    /// Док по умолчанию: меню, закреплённые приложения, окна, разделы,
+    /// папка «Загрузки» и корзина.
+    pub fn dock_default() -> Self {
+        let app = |id: &str| {
+            let mut a = Applet::new("app");
+            a.options.insert("app".into(), toml::Value::String(id.into()));
+            a
+        };
+        let mut folder = Applet::new("folder");
+        folder.options.insert("path".into(), toml::Value::String("xdg:DOWNLOAD".into()));
+        folder.options.insert("name".into(), toml::Value::String("Загрузки".into()));
+        let mut trash = Applet::new("folder");
+        trash.options.insert("path".into(), toml::Value::String("trash:".into()));
+        trash.options.insert("name".into(), toml::Value::String("Корзина".into()));
+        Self {
+            edge: Edge::Bottom,
+            size: 64,
+            floating: true,
+            length: 1.0,
+            exclusive: false,
+            mode: "dock".into(),
+            applets: vec![
+                Applet::new("launcher"),
+                Applet::new("separator"),
+                app("org.kde.dolphin"),
+                app("firefox"),
+                app("org.kde.konsole"),
+                app("syndesktop-settings"),
+                Applet::new("taskbar"),
+                Applet::new("separator"),
+                folder,
+                trash,
+            ],
+            ..Default::default()
+        }
+    }
+}
+
+/// Док (`[panel.dock]`). Вид — классы `.dock*` в MSS (см. docs/DOCK.md).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Dock {
+    /// Размер значка без увеличения, px.
+    pub icon_size: u32,
+    /// Во сколько раз растёт значок под курсором (1 — без увеличения).
+    /// MSS `magnification` в `.dock-items` важнее.
+    pub zoom: f32,
+    /// Радиус увеличения — в значках.
+    pub zoom_range: f32,
+    /// Оформление: `glass` (стекло), `shelf` (3D-полка с отражениями, как
+    /// в Mac OS X Leopard), `flat`, `neon`, `none` (только значки) —
+    /// класс `.dock-style-<стиль>`.
+    pub style: String,
+    /// Подпись с именем над значком при наведении.
+    pub labels: bool,
+    /// Индикатор открытых окон: `dot`, `dots` (по точке на окно), `line`,
+    /// `glow`, `none`.
+    pub indicator: String,
+    /// Анимация запуска: `bounce`, `pulse`, `spin` (3D-вращение), `none`.
+    pub launch_animation: String,
+    /// Эффект значка при наведении: `lift`, `tilt` (3D-наклон), `spin`,
+    /// `glow`, `none`.
+    pub hover_effect: String,
+    /// Частицы при наведении: `sparkle`, `magic`, `embers`, `bubbles`,
+    /// `hearts`, `snow`, `none`.
+    pub hover_particles: String,
+    /// Частицы при запуске (клике): `stars`, `sparkle`, `confetti`,
+    /// `fireworks`, `magic`, `none`.
+    pub launch_particles: String,
+    /// Прятать док, когда его перекрывает окно (или всегда при
+    /// `autohide`), и показывать при подводе курсора к краю.
+    pub intellihide: bool,
+}
+
+impl Default for Dock {
+    fn default() -> Self {
+        Self {
+            icon_size: 48,
+            zoom: 1.7,
+            zoom_range: 2.5,
+            style: "glass".into(),
+            labels: true,
+            indicator: "dot".into(),
+            launch_animation: "bounce".into(),
+            hover_effect: "lift".into(),
+            hover_particles: "none".into(),
+            launch_particles: "stars".into(),
+            intellihide: false,
+        }
+    }
 }
 
 impl Default for Panel {
@@ -962,6 +1065,8 @@ impl Default for Panel {
             autohide: false,
             exclusive: true,
             opacity: None,
+            mode: "panel".into(),
+            dock: Dock::default(),
             applets: vec![
                 Applet::new("launcher"),
                 Applet::new("workspaces"),
@@ -986,7 +1091,12 @@ impl Default for Panel {
 /// `clock`, `keyboard`, `volume`, `battery`, `network`, `tray`,
 /// `notifications`, `power`, `button` (своя кнопка: `icon`, `label`,
 /// `action`), `command` (вывод команды: `command`, `interval`, `action`),
-/// `cpu`, `memory`, `layout` (раскладка окон стола), `show-desktop`.
+/// `cpu`, `memory`, `layout` (раскладка окон стола), `show-desktop`,
+/// `app` (значок запуска: `app` — id .desktop, `command`, `icon`, `name`),
+/// `group` (раздел со всплывающим окном: `name`, `icon`, `items` — id
+/// приложений или пути, `open` — `click`/`hover`, `view` — `grid`/`list`/`fan`),
+/// `folder` (содержимое каталога во всплывающем окне: `path` — путь или
+/// `trash:`, `name`, `icon`, `open`, `view`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Applet {
     #[serde(rename = "type")]

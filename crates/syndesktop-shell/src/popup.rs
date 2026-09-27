@@ -43,7 +43,19 @@ fn width_of(kind: &PopupKind, ctx: &ShellCtx) -> f32 {
         PopupKind::WindowMenu(_) => 240.0,
         PopupKind::TrayMenu(_) => 280.0,
         PopupKind::TrayOverflow => 260.0,
+        PopupKind::Stack { panel, index, .. } => crate::launchers::stack_width(ctx, *panel, *index),
+        PopupKind::ItemMenu { .. } | PopupKind::AppMenu { .. } | PopupKind::PanelMenu(_) => 280.0,
+        PopupKind::AddItem(_) => 480.0,
+        PopupKind::EditItem { .. } => 480.0,
     }
+}
+
+/// Стек-веер: без карточки, значки «висят» над доком.
+fn is_fan(kind: &PopupKind, ctx: &ShellCtx) -> bool {
+    let PopupKind::Stack { panel, index, .. } = kind else { return false };
+    let cfg = ctx.cfg();
+    let Some(p) = cfg.panels.get(*panel) else { return false };
+    p.applets.get(*index).is_some_and(|a| crate::launchers::stack_view_kind(a, p.edge) == "fan")
 }
 
 pub fn install(ctx: ShellCtx) {
@@ -97,19 +109,38 @@ pub fn install(ctx: ShellCtx) {
                 return Box::new(crate::launcher::fullscreen(ctx));
             }
             let out_size = crate::manager::output_size(output.as_deref());
-            Box::new(frame(&p, content(&p.kind, ctx), width_of(&p.kind, &ctx), out_size))
+            Box::new(frame(&p, content(&p.kind, ctx), width_of(&p.kind, &ctx), out_size, is_fan(&p.kind, &ctx)))
         });
         SURFACE.with(|s| s.set(Some(id)));
     });
 }
 
 /// Подложка (клик — закрыть) + карточка у якоря.
-fn frame(p: &Popup, card: Box<dyn Widget>, width: f32, out: (f32, f32)) -> impl Widget {
+fn frame(p: &Popup, card: Box<dyn Widget>, width: f32, out: (f32, f32), fan: bool) -> impl Widget {
     let backdrop = InputArea::new(DecoratedBox::new().class("popup-backdrop")).on_press(|_, _, _| ShellCtx::get().close_popup());
+    let hover_close = matches!(p.kind, PopupKind::Stack { hover: true, .. });
+    let leave_timer: std::sync::Arc<std::sync::Mutex<Option<u64>>> = Default::default();
+    if hover_close {
+        // Открыто наведением: закрыть, если указатель так и не дошёл до окна.
+        arm_leave(&leave_timer, 1400);
+    }
+    let card_class = if fan { "popup-card popup-card-fan" } else { "popup-card" };
     let card = InputArea::new(
-        DecoratedBox::new().child(card).class("popup-card").style("width", StyleValue::px(width)),
+        DecoratedBox::new().child(card).class(card_class).style("width", StyleValue::px(width)),
     )
-    .absorb();
+    .absorb()
+    .on_hover(move |inside| {
+        if !hover_close {
+            return;
+        }
+        if inside {
+            if let Some(t) = leave_timer.lock().unwrap().take() {
+                syngui_layer::cancel_timer(t);
+            }
+        } else {
+            arm_leave(&leave_timer, 450);
+        }
+    });
     let (ow, oh) = out;
     let placed: Box<dyn Widget> = match p.anchor.rect {
         None => Box::new(
@@ -158,6 +189,21 @@ fn frame(p: &Popup, card: Box<dyn Widget>, width: f32, out: (f32, f32)) -> impl 
     Stack::new().fit(StackFit::Expand).child(backdrop).child(placed)
 }
 
+/// Закрыть окно через `ms`, если указатель не вернётся.
+fn arm_leave(timer: &std::sync::Arc<std::sync::Mutex<Option<u64>>>, ms: u64) {
+    if let Some(t) = timer.lock().unwrap().take() {
+        syngui_layer::cancel_timer(t);
+    }
+    let t = syngui_layer::add_timer(std::time::Duration::from_millis(ms), || {
+        let ctx = ShellCtx::get();
+        if ctx.popup.get_untracked().is_some_and(|p| matches!(p.kind, PopupKind::Stack { hover: true, .. })) {
+            ctx.close_popup();
+        }
+        None
+    });
+    *timer.lock().unwrap() = Some(t);
+}
+
 fn content(kind: &PopupKind, ctx: ShellCtx) -> Box<dyn Widget> {
     match kind {
         PopupKind::Launcher => Box::new(crate::launcher::menu(ctx)),
@@ -171,6 +217,12 @@ fn content(kind: &PopupKind, ctx: ShellCtx) -> Box<dyn Widget> {
         PopupKind::WindowMenu(id) => Box::new(window_menu(ctx, *id)),
         PopupKind::TrayMenu(key) => Box::new(crate::tray::menu_view(ctx, key.clone())),
         PopupKind::TrayOverflow => Box::new(crate::tray::overflow_view(ctx)),
+        PopupKind::Stack { panel, index, .. } => crate::launchers::stack_view(ctx, *panel, *index),
+        PopupKind::ItemMenu { panel, index } => Box::new(crate::edit::item_menu(ctx, *panel, *index)),
+        PopupKind::AppMenu { panel, app } => Box::new(crate::edit::app_menu(ctx, *panel, app)),
+        PopupKind::PanelMenu(panel) => Box::new(crate::edit::panel_menu(ctx, *panel)),
+        PopupKind::AddItem(panel) => Box::new(crate::edit::add_view(ctx, *panel)),
+        PopupKind::EditItem { panel, index } => crate::edit::edit_view(ctx, *panel, *index),
     }
 }
 

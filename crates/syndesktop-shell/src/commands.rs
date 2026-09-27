@@ -62,6 +62,29 @@ pub fn handle(cmd: &str) {
             Some(arg.trim().to_string()),
         ),
         "close-popup" => ctx.close_popup(),
+        // Режим редактирования панели/дока N (по умолчанию — первого дока,
+        // иначе первой панели); повтор — выйти.
+        "edit-panel" | "edit-dock" => {
+            let cfg = ctx.cfg();
+            let n = arg.trim().parse::<usize>().ok().or_else(|| {
+                if name == "edit-dock" {
+                    cfg.panels.iter().position(|p| p.is_dock())
+                } else {
+                    Some(0)
+                }
+            });
+            match (n, ctx.editing.get_untracked()) {
+                (_, Some(_)) => crate::edit::stop_editing(),
+                (Some(n), None) if n < cfg.panels.len() => crate::edit::start_editing(n),
+                _ => {}
+            }
+        }
+        // Окно «Добавить» для панели N.
+        "panel-add" => {
+            let n = arg.trim().parse::<usize>().unwrap_or(0);
+            ctx.editing.set(Some(n));
+            ctx.open_popup(PopupKind::AddItem(n), centered());
+        }
         // Меню значка лотка по номеру (с 0) — для клавиатуры и проверок.
         "tray-activate" => crate::tray::activate_at(arg.trim().parse().unwrap_or(0)),
         // Отладка: `tray-menu-event N ID` — пункт меню значка N.

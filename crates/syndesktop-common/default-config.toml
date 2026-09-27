@@ -213,7 +213,42 @@ applets = [
 # clock (format = "%H:%M", date_format = "%a, %d %b", seconds = false),
 # taskbar (labels = true, group = false, all_workspaces = false),
 # tray (hide_passive = true, icon_size = 20, max_visible = 0 — сколько
-# значков на панели, остальные под стрелкой «скрытые значки»).
+# значков на панели, остальные под стрелкой «скрытые значки»),
+# app — значок запуска (app = "firefox", name, icon, command, label),
+# group — раздел со всплывающим окном (name, icon, items = ["code", "~/Проекты"],
+#   view = "grid" | "list" | "fan", open = "click" | "hover"),
+# folder — содержимое каталога (path = "xdg:DOWNLOAD" | "trash:" | "~/…", name, view, open).
+# Значки, разделы и папки удобнее добавлять мышью: правый клик по панели →
+# «Изменить панель» (перетаскивание, ×, +).
+
+# Док (как в macOS): mode = "dock". Подробно — docs/DOCK.md.
+# [[panel]]
+# mode = "dock"
+# edge = "bottom"
+# exclusive = false
+# applets = [
+#     { type = "launcher" },
+#     { type = "separator" },
+#     { type = "app", app = "org.kde.dolphin" },
+#     { type = "app", app = "firefox" },
+#     { type = "group", name = "Разработка", view = "fan", items = ["org.kde.konsole", "code"] },
+#     { type = "taskbar" },
+#     { type = "separator" },
+#     { type = "folder", path = "xdg:DOWNLOAD", name = "Загрузки" },
+#     { type = "folder", path = "trash:" },
+# ]
+# [panel.dock]
+# icon_size = 48
+# zoom = 1.7                  # увеличение под курсором (1 — нет)
+# zoom_range = 2.5
+# style = "glass"             # glass | shelf | flat | neon | none
+# labels = true
+# indicator = "dot"           # dot | dots | line | glow | none
+# hover_effect = "lift"       # lift | tilt | spin | glow | none
+# hover_particles = "none"    # sparkle | magic | embers | bubbles | hearts | snow | trail | none
+# launch_animation = "bounce" # bounce | pulse | spin | none
+# launch_particles = "stars"  # stars | sparkle | confetti | fireworks | magic | poof | none
+# intellihide = false         # прятать, когда окно перекрывает док
 
 [launcher]
 style = "menu"                 # menu | fullscreen

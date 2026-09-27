@@ -136,6 +136,12 @@ fn task(w: WindowInfo, labels: bool, title_mode: TitleMode, max_width: f32, pc: 
     syngui::widgets::EventHook::new().report_bounds(slot).child(area)
 }
 
+/// Сообщать композитору прямоугольник значка окна `id` (туда оно
+/// сворачивается анимацией) — для значков дока.
+pub fn track(id: u64, pc: &PanelCtx, slot: std::sync::Arc<syngui::core::sync::Mutex<Rect>>) {
+    TASKS.with(|t| t.borrow_mut().insert(id, (pc.clone(), slot)));
+}
+
 thread_local! {
     /// Кнопки окон на панелях: окно → (панель, границы кнопки).
     static TASKS: std::cell::RefCell<std::collections::HashMap<u64, (PanelCtx, std::sync::Arc<syngui::core::sync::Mutex<Rect>>)>> =

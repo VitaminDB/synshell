@@ -7,7 +7,7 @@
 | Бинарь | Что делает |
 |---|---|
 | `syndesktop` | Композитор на smithay 0.7: DRM/KMS (несколько GPU, горячее подключение, DPMS) или вложенное окно. Серверные рамки, столы, раскладки floating/tile/columns/grid/monocle, прилипание к половинам экрана, обзор окон, Alt+Tab, правила окон, Xwayland, IPC. |
-| `syndesktop-shell` | Оболочка на syngui (layer-shell): обои, панели с апплетами, меню запуска, уведомления (D-Bus), OSD, меню питания, переключатель окон, экран блокировки (ext-session-lock + PAM). |
+| `syndesktop-shell` | Оболочка на syngui (layer-shell): обои, панели с апплетами, док, меню запуска, уведомления (D-Bus), OSD, меню питания, переключатель окон, экран блокировки (ext-session-lock + PAM). |
 | `syndesktop-settings` | «Параметры системы»: 18 страниц. Правит `config.toml` через toml_edit, комментарии сохраняются. |
 
 Темы оформления — 14 встроенных (Nord, Catppuccin, Tokyo Night, Gruvbox, Rosé Pine, Everforest,
@@ -15,6 +15,12 @@ Dracula, Kanagawa, Solarized, Синтвейв, Аврора, Сакура, Не
 [docs/THEMES.md](docs/THEMES.md).
 
 ![Темы](docs/themes.jpg)
+
+**Док** в духе macOS / Latte Dock: значок под курсором вырастает над полосой, индикаторы окон,
+прыжки и частицы при запуске, 3D-наклон и вращение значков, 3D-полка с отражениями, разделы
+(группы значков во всплывающем окне — сетка, список или веер) и папки, автоскрытие и умное
+скрытие. Значки, разделы и папки есть и на обычных панелях; всё добавляется и переставляется
+мышью в режиме редактирования (правый клик по панели → «Изменить»). Подробно — [docs/DOCK.md](docs/DOCK.md).
 
 Архитектура, IPC и контракт команд оболочки описаны в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 Полный пример конфига с комментариями: [crates/syndesktop-common/default-config.toml](crates/syndesktop-common/default-config.toml).
@@ -37,6 +43,7 @@ syndesktop msg windows | workspaces | outputs | layouts | events
 syndesktop msg action "workspace 2"
 syndesktop msg action "spawn firefox"
 syndesktop msg window 5 minimize
+syndesktop msg action "shell edit-dock"   # режим редактирования дока (edit-panel N — панели)
 syndesktop msg restart-shell   # перезапустить панели и меню, окна остаются
 syndesktop msg restart         # перезапустить композитор (окна программ закроются)
 ```

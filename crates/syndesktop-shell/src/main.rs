@@ -8,8 +8,11 @@ mod applets;
 mod clock;
 mod commands;
 mod ctx;
+mod dock;
+mod edit;
 mod ipc;
 mod launcher;
+mod launchers;
 mod lock;
 mod manager;
 mod notifications;
@@ -96,6 +99,11 @@ fn watch_config() {
     let mut w = FileWatcher::new(theme::watched_files(&ShellCtx::get().config.get_untracked()));
     syngui_layer::add_timer(Duration::from_secs(1), move || {
         if w.poll() {
+            // Файл только что записала сама оболочка (режим редактирования)
+            // и уже перечитала — второй раз пересобирать панели незачем.
+            if SELF_WRITTEN.with(|f| f.replace(false)) && LOADED_MTIME.with(|m| m.get()).is_some_and(|t| Some(t) == config_mtime()) {
+                return Some(Duration::from_secs(1));
+            }
             reload_config();
             // Тема могла смениться — следить за её файлами.
             w = FileWatcher::new(theme::watched_files(&ShellCtx::get().config.get_untracked()));
@@ -104,8 +112,26 @@ fn watch_config() {
     });
 }
 
+thread_local! {
+    /// mtime config.toml, прочитанного последним `reload_config`.
+    static LOADED_MTIME: std::cell::Cell<Option<std::time::SystemTime>> = const { std::cell::Cell::new(None) };
+    /// Последнюю правку config.toml сделала сама оболочка.
+    static SELF_WRITTEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Перечитать конфиг сразу после собственной записи (режим редактирования).
+pub fn reload_after_write() {
+    SELF_WRITTEN.with(|f| f.set(true));
+    reload_config();
+}
+
+fn config_mtime() -> Option<std::time::SystemTime> {
+    std::fs::metadata(syndesktop_common::paths::config_file()).and_then(|m| m.modified()).ok()
+}
+
 /// Перечитать конфиг и тему, пересобрать поверхности.
 pub fn reload_config() {
+    LOADED_MTIME.with(|m| m.set(config_mtime()));
     let ctx = ShellCtx::get();
     let (cfg, err) = Config::load();
     if let Some(e) = err {
@@ -119,6 +145,8 @@ pub fn reload_config() {
     syngui_layer::set_stylesheet(theme::build(&cfg));
     ctx.dnd.set(cfg.notifications.do_not_disturb);
     ctx.config.set_always(Arc::new(cfg));
-    ctx.close_popup();
+    if !ctx.popup.get_untracked().is_some_and(|p| p.kind.survives_reload()) {
+        ctx.close_popup();
+    }
     ctx.generation.set(ctx.generation.get_untracked() + 1);
 }

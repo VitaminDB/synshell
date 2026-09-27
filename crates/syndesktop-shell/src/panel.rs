@@ -23,6 +23,8 @@ const HIDDEN_STRIP: u32 = 3;
 #[derive(Clone)]
 pub struct PanelCtx {
     pub key: u64,
+    /// Номер `[[panel]]` в конфиге (для правок из режима редактирования).
+    pub index: usize,
     pub output: String,
     pub edge: Edge,
     pub vertical: bool,
@@ -41,6 +43,28 @@ impl PanelCtx {
         }
     }
 
+    /// Границы апплета номер `index` (для якоря всплывающего окна,
+    /// открытого не кликом: наведением, из меню).
+    pub fn item_slot(&self, index: usize) -> Arc<Mutex<Rect>> {
+        let slot = Arc::new(Mutex::new(Rect::zero()));
+        PANELS.with(|p| {
+            if let Some(rt) = p.borrow_mut().get_mut(&self.key) {
+                rt.items.entry(index).or_insert_with(|| slot.clone()).clone()
+            } else {
+                slot
+            }
+        })
+    }
+
+    pub fn bounds_of(&self, index: usize) -> Option<Rect> {
+        PANELS.with(|p| {
+            let p = p.borrow();
+            let slot = p.get(&self.key)?.items.get(&index)?.clone();
+            let r = *slot.lock().unwrap_or_else(|e| e.into_inner());
+            (r.size.width > 0.0).then_some(r)
+        })
+    }
+
     /// Запомнить границы апплета (для открытия его окна с клавиатуры).
     pub fn bounds_slot(&self, kind: &str) -> Arc<Mutex<Rect>> {
         let slot = Arc::new(Mutex::new(Rect::zero()));
@@ -54,13 +78,56 @@ impl PanelCtx {
     }
 }
 
-struct PanelRt {
+pub(crate) struct PanelRt {
     output: String,
     edge: Edge,
     /// Положение поверхности на выводе (логическое).
     origin: (f32, f32),
     applets: HashMap<String, Arc<Mutex<Rect>>>,
+    /// Границы апплетов по номеру.
+    items: HashMap<usize, Arc<Mutex<Rect>>>,
     spec: SurfaceSpec,
+}
+
+/// Завести учёт панели (док ведёт его так же): якоря окон считаются от
+/// положения поверхности.
+pub(crate) fn register(key: u64, output: &str, edge: Edge, spec: &SurfaceSpec) {
+    PANELS.with(|p| {
+        p.borrow_mut().insert(
+            key,
+            PanelRt {
+                output: output.to_string(),
+                edge,
+                origin: (0.0, 0.0),
+                applets: HashMap::new(),
+                items: HashMap::new(),
+                spec: spec.clone(),
+            },
+        )
+    });
+}
+
+/// Поверхность получила размер — пересчитать её положение на выводе.
+pub(crate) fn resized(key: u64, out: &OutputInfo, w: u32, h: u32) {
+    PANELS.with(|p| {
+        if let Some(rt) = p.borrow_mut().get_mut(&key) {
+            rt.origin = origin_of(&rt.spec, out, w, h);
+        }
+    });
+}
+
+/// Положение поверхности панели на выводе.
+pub(crate) fn origin(key: u64) -> (f32, f32) {
+    PANELS.with(|p| p.borrow().get(&key).map(|p| p.origin).unwrap_or((0.0, 0.0)))
+}
+
+/// Панель (док) ещё существует — её не разобрали при пересборке.
+pub(crate) fn alive(key: u64) -> bool {
+    PANELS.with(|p| p.borrow().contains_key(&key))
+}
+
+pub(crate) fn next_key() -> u64 {
+    NEXT_KEY.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 thread_local! {
@@ -162,22 +229,21 @@ fn origin_of(spec: &SurfaceSpec, out: &OutputInfo, w: u32, h: u32) -> (f32, f32)
     (x, y)
 }
 
-/// Создать панель на выводе.
-pub fn create(ctx: ShellCtx, panel: &Panel, out: &OutputInfo) -> (SurfaceId, u64) {
-    let key = NEXT_KEY.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+/// Создать панель (или док) номер `index` на выводе.
+pub fn create(ctx: ShellCtx, index: usize, panel: &Panel, out: &OutputInfo) -> (SurfaceId, u64) {
+    if panel.is_dock() {
+        return crate::dock::create(ctx, index, panel, out);
+    }
+    let key = next_key();
     let spec = spec_for(panel, out, panel.autohide);
-    PANELS.with(|p| {
-        p.borrow_mut().insert(
-            key,
-            PanelRt { output: out.name.clone(), edge: panel.edge, origin: (0.0, 0.0), applets: HashMap::new(), spec: spec.clone() },
-        )
-    });
+    register(key, &out.name, panel.edge, &spec);
     let hidden = use_signal(panel.autohide);
     let hide_timer: Arc<std::sync::Mutex<Option<u64>>> = Arc::new(std::sync::Mutex::new(None));
     let id_cell: Arc<std::sync::Mutex<Option<SurfaceId>>> = Arc::new(std::sync::Mutex::new(None));
 
     let pc = PanelCtx {
         key,
+        index,
         output: out.name.clone(),
         edge: panel.edge,
         vertical: panel.edge.is_vertical(),
@@ -192,11 +258,7 @@ pub fn create(ctx: ShellCtx, panel: &Panel, out: &OutputInfo) -> (SurfaceId, u64
         let panel_hover = panel.clone();
         SurfaceHooks {
             on_resize: Some(Box::new(move |w, h| {
-                PANELS.with(|p| {
-                    if let Some(rt) = p.borrow_mut().get_mut(&key) {
-                        rt.origin = origin_of(&rt.spec, &out_resize, w, h);
-                    }
-                });
+                resized(key, &out_resize, w, h);
                 let _ = &panel_ptr;
             })),
             on_pointer: if panel.autohide {
@@ -259,24 +321,35 @@ pub fn create(ctx: ShellCtx, panel: &Panel, out: &OutputInfo) -> (SurfaceId, u64
             if hidden.get() {
                 return Box::new(DecoratedBox::new().class("panel-hidden")) as Box<dyn Widget>;
             }
-            Box::new(view(&panel_v, &pcc, bg))
+            let editing = ShellCtx::get().editing.get() == Some(pcc.index);
+            Box::new(view(&panel_v, &pcc, bg, editing))
         })))
     });
     *id_cell.lock().unwrap() = Some(id);
     (id, key)
 }
 
-fn view(panel: &Panel, pc: &PanelCtx, bg: Option<syngui::core::Color>) -> impl Widget {
+fn view(panel: &Panel, pc: &PanelCtx, bg: Option<syngui::core::Color>, editing: bool) -> impl Widget {
     let mut flex = Flex::new()
         .direction(if pc.vertical { FlexDirection::Column } else { FlexDirection::Row })
         .gap(4.0)
         .cross_axis_alignment(CrossAxisAlignment::Center);
-    for a in &panel.applets {
-        let w = crate::applets::build(a, pc);
+    for (ai, a) in panel.applets.iter().enumerate() {
+        let w = crate::applets::build(a, pc, ai);
         // Каждый апплет сообщает свои границы — окна по сочетаниям клавиш
         // открываются у его кнопки.
         let slot = pc.bounds_slot(&a.kind);
-        flex = flex.child(EventHook::new().report_bounds(slot).child(w).class(format!("applet-slot applet-slot-{}", a.kind)));
+        let item_slot = pc.item_slot(ai);
+        let w = crate::edit::item_frame(pc, ai, w, editing);
+        flex = flex.child(
+            EventHook::new()
+                .report_bounds(slot)
+                .child(EventHook::new().report_bounds(item_slot).child(w))
+                .class(format!("applet-slot applet-slot-{}", a.kind)),
+        );
+    }
+    if editing {
+        flex = flex.child(crate::edit::edit_controls(pc));
     }
     let edge = match panel.edge {
         Edge::Top => "top",
@@ -291,9 +364,20 @@ fn view(panel: &Panel, pc: &PanelCtx, bg: Option<syngui::core::Color>) -> impl W
     if pc.vertical {
         classes.push_str(" panel-vertical");
     }
+    if editing {
+        classes.push_str(" panel-editing");
+    }
     let b = DecoratedBox::new().child(flex.class("panel-content")).class(classes);
-    match bg {
+    let b = match bg {
         Some(c) => b.style("background-color", c),
         None => b,
-    }
+    };
+    // Правый клик по пустому месту — меню панели (добавить, изменить).
+    let pc = pc.clone();
+    crate::ui::InputArea::new(b).on_click(move |btn, p, _| {
+        if btn == syngui::input::MouseButton::Right {
+            let r = Rect::new(p, syngui::core::Size::new(1.0, 1.0));
+            ShellCtx::get().open_popup(crate::ctx::PopupKind::PanelMenu(pc.index), pc.anchor(r));
+        }
+    })
 }

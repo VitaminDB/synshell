@@ -373,8 +373,16 @@ fn load_theme(name: &str) -> Option<ThemeIndex> {
         for (sub, size, scalable) in &dirs {
             let d = b.join(sub);
             let Ok(rd) = std::fs::read_dir(&d) else { continue };
-            // Качество: масштабируемые и 48–64 px — лучшие для панели и меню.
-            let q = if *scalable { 0 } else { (*size as i32 - 48).unsigned_abs() + 1 };
+            // Качество: масштабируемые лучше всех; из растровых — 128 px и
+            // крупнее (док увеличивает значки, уменьшение сглаживают мипы),
+            // затем чем крупнее, тем лучше.
+            let q = if *scalable {
+                0
+            } else if *size >= 128 {
+                1 + (*size - 128) / 128
+            } else {
+                10 + (128 - *size)
+            };
             for e in rd.flatten() {
                 let p = e.path();
                 let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("");

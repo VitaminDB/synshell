@@ -117,6 +117,7 @@ type Factory = Box<dyn FnOnce() -> Box<dyn Widget>>;
 pub(crate) enum Command {
     Create { id: SurfaceId, spec: SurfaceSpec, factory: Factory, hooks: SurfaceHooks },
     Reconfigure { id: SurfaceId, spec: SurfaceSpec },
+    InputRegion { id: SurfaceId, rects: Option<Vec<[i32; 4]>> },
     Close { id: SurfaceId },
     Stylesheet(String),
     Timer { id: u64, after: Duration, f: Box<dyn FnMut() -> Option<Duration>> },
@@ -183,6 +184,14 @@ pub fn create_surface_with(
 /// Смена вывода пересоздаёт поверхность с тем же деревом.
 pub fn reconfigure_surface(id: SurfaceId, spec: SurfaceSpec) {
     push(Command::Reconfigure { id, spec });
+}
+
+/// Область ввода поверхности (логические [x, y, w, h]): вне её указатель
+/// проходит насквозь к окнам под поверхностью. `None` — вся поверхность.
+/// Док с запасом места над значками под увеличение ловит клики только
+/// своей полосой.
+pub fn set_input_region(id: SurfaceId, rects: Option<Vec<[i32; 4]>>) {
+    push(Command::InputRegion { id, rects });
 }
 
 pub fn close_surface(id: SurfaceId) {

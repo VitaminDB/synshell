@@ -14,8 +14,11 @@ use crate::ctx::{PopupKind, ShellCtx};
 use crate::panel::PanelCtx;
 use crate::ui::{icon, mi, InputArea};
 
-pub fn build(a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
+/// Виджет апплета `a` — номер `index` на панели `pc`.
+pub fn build(a: &Applet, pc: &PanelCtx, index: usize) -> Box<dyn Widget> {
     match a.kind.as_str() {
+        "app" => crate::launchers::app_applet(a, pc, index),
+        "group" | "folder" => crate::launchers::stack_applet(a, pc, index),
         "launcher" => launcher(a, pc),
         "taskbar" => taskbar::build(a, pc),
         "workspaces" | "pager" => workspaces::build(a, pc),

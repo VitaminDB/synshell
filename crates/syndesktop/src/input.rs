@@ -381,11 +381,15 @@ impl State {
         }
 
         let layers = layer_map_for_output(&output);
+        // Все поверхности слоя сверху вниз, а не только верхняя по рамке:
+        // у дока область ввода — полоса значков, над ней (запас под
+        // увеличение) указатель должен доходить до поверхностей и окон ниже.
         let layer_hit = |layer: Layer| -> Option<Under> {
-            let l = layers.layer_under(layer, rel)?;
-            let lg = layers.layer_geometry(l)?;
-            let (s, loc) = l.surface_under(rel - lg.loc.to_f64(), WindowSurfaceType::ALL)?;
-            Some(Under::Surface(FocusTarget(s), (loc + lg.loc + output_geo.loc).to_f64()))
+            layers.layers_on(layer).rev().find_map(|l| {
+                let lg = layers.layer_geometry(l)?;
+                let (s, loc) = l.surface_under(rel - lg.loc.to_f64(), WindowSurfaceType::ALL)?;
+                Some(Under::Surface(FocusTarget(s), (loc + lg.loc + output_geo.loc).to_f64()))
+            })
         };
         if let Some(u) = layer_hit(Layer::Overlay) {
             return u;

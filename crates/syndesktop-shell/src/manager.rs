@@ -78,13 +78,13 @@ pub fn install(ctx: ShellCtx) {
             let (id, timer) = wallpaper(ctx, out);
             made.push((id, None, timer));
         }
-        for panel in &cfg.panels {
+        for (index, panel) in cfg.panels.iter().enumerate() {
             for out in outputs.iter().filter(|o| match panel.output.as_str() {
                 "*" | "all" | "" => true,
                 "primary" => primary.as_deref() == Some(o.name.as_str()),
                 name => o.name == name || o.description.contains(name),
             }) {
-                let (id, key) = crate::panel::create(ctx, panel, out);
+                let (id, key) = crate::panel::create(ctx, index, panel, out);
                 made.push((id, Some(key), None));
             }
         }

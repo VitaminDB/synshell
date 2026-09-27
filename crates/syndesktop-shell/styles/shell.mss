@@ -407,3 +407,406 @@ TextField {
 
 /* Заголовок задачи в две строки (опция taskbar title = "wrap"). */
 .task-title-wrap { font-size: 11px; line-height: 13px; }
+
+/* ─── Значки запуска, разделы и папки на обычной панели ──────────────────── */
+
+.applet-app { padding: 5px 7px; }
+.applet-app-running { border-bottom-width: 2px; border-color: var(--muted); }
+.applet-app-active { background-color: var(--accent-soft); border-color: var(--accent); }
+.applet-app-launching { animation: applet-launch 0.9s ease-in-out infinite; }
+@keyframes applet-launch {
+    from { opacity: 1; }
+    50% { opacity: 0.45; }
+    to { opacity: 1; }
+}
+.applet-group, .applet-folder { padding: 5px 7px; }
+
+/* ─── Док ────────────────────────────────────────────────────────────────── *
+ * Корень: .dock-root.dock-<край>.dock-style-<стиль>.dock-ind-<индикатор>
+ *         .dock-hover-<эффект>.dock-launch-<анимация> (+ .dock-hidden,
+ *         .dock-editing, .dock-floating).
+ * Полоса — .dock-items (Fisheye): magnification, magnification-range,
+ * magnification-falloff, magnification-speed; подложка может наклоняться
+ * в 3D (background-rotate-x). Значок — .dock-item > .dock-icon.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+.dock-root { background-color: #00000000; }
+.dock-label-none { background-color: #00000000; }
+
+/* Появление и прятанье полосы. */
+.dock-slide {
+    background-color: #00000000;
+    transition: translate-y 320ms ease-out-cubic, translate-x 320ms ease-out-cubic, opacity 240ms ease-out;
+    animation: dock-appear 520ms ease-out-back;
+}
+@keyframes dock-appear {
+    from { opacity: 0; scale: 0.85; }
+    to { opacity: 1; scale: 1; }
+}
+.dock-bottom.dock-hidden .dock-slide { translate-y: 160px; opacity: 0; }
+.dock-top.dock-hidden .dock-slide { translate-y: -160px; opacity: 0; }
+.dock-left.dock-hidden .dock-slide { translate-x: -160px; opacity: 0; }
+.dock-right.dock-hidden .dock-slide { translate-x: 160px; opacity: 0; }
+
+/* Полоса. */
+.dock-items {
+    padding: 6px 8px;
+    gap: 4px;
+    border-radius: 20px;
+    magnification-falloff: cosine;
+    magnification-speed: 16;
+}
+.dock-left .dock-items, .dock-right .dock-items { padding: 8px 6px; }
+.dock-editing .dock-items { magnification: 1; }
+
+/* Стиль «стекло» (по умолчанию). */
+.dock-style-glass .dock-items {
+    background-color: var(--panel-bg);
+    border-width: 1px;
+    border-color: #ffffff26;
+    box-shadow: 0 10px 34px var(--shadow);
+}
+
+/* Стиль «полка»: наклонённая в 3D подложка и отражения значков, как в
+ * Mac OS X Leopard / Cairo-Dock. */
+.dock-style-shelf .dock-items {
+    background: linear-gradient(180deg, #ffffff40, #ffffff12);
+    border-width: 1px;
+    border-color: #ffffff55;
+    border-radius: 6px;
+    background-rotate-x: 56deg;
+    background-perspective: 420px;
+    transform-origin: center bottom;
+    box-shadow: 0 6px 18px var(--shadow);
+}
+.dock-style-shelf.dock-top .dock-items { background-rotate-x: -62deg; transform-origin: center top; }
+.dock-style-shelf.dock-left .dock-items { background-rotate-x: 0deg; background-rotate-y: -62deg; transform-origin: left center; }
+.dock-style-shelf.dock-right .dock-items { background-rotate-x: 0deg; background-rotate-y: 62deg; transform-origin: right center; }
+.dock-style-shelf.dock-bottom .dock-icon { box-reflect: below 3px 0.28 42%; }
+
+/* Стиль «плоский». */
+.dock-style-flat .dock-items {
+    background-color: var(--panel-bg);
+    border-radius: 12px;
+}
+
+/* Стиль «неон». */
+.dock-style-neon .dock-items {
+    background-color: #0b0b16e6;
+    border-width: 1px;
+    border-color: var(--accent);
+    border-radius: 18px;
+    glow: 0 0 22px var(--accent);
+}
+.dock-style-neon .dock-dot { background-color: var(--accent); glow: 0 0 8px var(--accent); }
+
+/* Без подложки — только значки. */
+.dock-style-none .dock-items { background-color: #00000000; }
+
+/* Значок. */
+.dock-item {
+    border-radius: 14px;
+    background-color: #00000000;
+    transition: translate-y 220ms ease-out-back, translate-x 220ms ease-out-back, rotate-y 700ms ease-out-cubic,
+        rotate-x 300ms ease-out-cubic, background-color 150ms ease-out, glow 200ms ease-out;
+}
+.dock-icon { background-color: #00000000; }
+.dock-icon-img-glyph { icon-color: var(--accent); }
+.dock-item-open { background-color: var(--hover); }
+
+/* Индикаторы окон. */
+.dock-dots { gap: 3px; padding: 1px; }
+.dock-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 3px;
+    background-color: var(--fg);
+    opacity: 0.75;
+}
+.dock-dot-active { background-color: var(--accent); opacity: 1; }
+.dock-ind-line .dock-dot { width: 16px; height: 3px; border-radius: 2px; }
+.dock-left.dock-ind-line .dock-dot, .dock-right.dock-ind-line .dock-dot { width: 3px; height: 16px; }
+.dock-ind-glow .dock-item-running { glow: 0 0 14px var(--accent-soft); background-color: #ffffff10; }
+.dock-ind-glow .dock-dot { opacity: 0; }
+.dock-item-minimized .dock-dot { opacity: 0.4; }
+
+/* Эффекты наведения. */
+.dock-bottom.dock-hover-lift .dock-item:hover { translate-y: -8px; }
+.dock-top.dock-hover-lift .dock-item:hover { translate-y: 8px; }
+.dock-left.dock-hover-lift .dock-item:hover { translate-x: 8px; }
+.dock-right.dock-hover-lift .dock-item:hover { translate-x: -8px; }
+.dock-hover-tilt .dock-item:hover { rotate-y: 24deg; rotate-x: 10deg; perspective: 220px; }
+.dock-hover-spin .dock-item:hover { rotate-y: 360deg; }
+.dock-hover-glow .dock-item:hover { glow: 0 0 20px var(--accent); }
+
+/* Запуск: значок «прыгает», пока не появится окно. */
+.dock-bottom.dock-launch-bounce .dock-item-launching { animation: dock-bounce-up 0.72s ease-in-out infinite; }
+.dock-top.dock-launch-bounce .dock-item-launching { animation: dock-bounce-down 0.72s ease-in-out infinite; }
+.dock-left.dock-launch-bounce .dock-item-launching { animation: dock-bounce-right 0.72s ease-in-out infinite; }
+.dock-right.dock-launch-bounce .dock-item-launching { animation: dock-bounce-left 0.72s ease-in-out infinite; }
+.dock-launch-pulse .dock-item-launching { animation: dock-pulse 0.8s ease-in-out infinite; }
+.dock-launch-spin .dock-item-launching { animation: dock-spin 1.1s ease-in-out infinite; }
+
+@keyframes dock-bounce-up {
+    from { translate-y: 0px; }
+    35% { translate-y: -22px; }
+    60% { translate-y: 0px; }
+    75% { translate-y: -6px; }
+    to { translate-y: 0px; }
+}
+@keyframes dock-bounce-down {
+    from { translate-y: 0px; }
+    35% { translate-y: 22px; }
+    60% { translate-y: 0px; }
+    75% { translate-y: 6px; }
+    to { translate-y: 0px; }
+}
+@keyframes dock-bounce-right {
+    from { translate-x: 0px; }
+    35% { translate-x: 22px; }
+    60% { translate-x: 0px; }
+    to { translate-x: 0px; }
+}
+@keyframes dock-bounce-left {
+    from { translate-x: 0px; }
+    35% { translate-x: -22px; }
+    60% { translate-x: 0px; }
+    to { translate-x: 0px; }
+}
+@keyframes dock-pulse {
+    from { scale: 1; opacity: 1; }
+    50% { scale: 0.86; opacity: 0.6; }
+    to { scale: 1; opacity: 1; }
+}
+@keyframes dock-spin {
+    from { rotate-y: 0deg; }
+    to { rotate-y: 360deg; }
+}
+
+/* Окно просит внимания. */
+.dock-item-urgent { animation: dock-attention 1.2s ease-in-out infinite; }
+@keyframes dock-attention {
+    from { rotate: 0; }
+    10% { rotate: -9; }
+    20% { rotate: 8; }
+    30% { rotate: -6; }
+    40% { rotate: 3; }
+    50% { rotate: 0; }
+    to { rotate: 0; }
+}
+
+/* Частицы: при наведении (.dock-fx-hover-<пресет>) и при запуске
+ * (.dock-fx-launch-<пресет>). Свои — particle-* в theme.mss. */
+.dock-fx-hover-sparkle { particle-preset: sparkle; particle-hover-rate: 14; }
+.dock-fx-hover-magic { particle-preset: magic; particle-hover-rate: 18; }
+.dock-fx-hover-embers { particle-preset: embers; particle-hover-rate: 16; }
+.dock-fx-hover-bubbles { particle-preset: bubbles; particle-hover-rate: 8; }
+.dock-fx-hover-hearts { particle-preset: hearts; particle-hover-rate: 6; }
+.dock-fx-hover-snow { particle-preset: snow; particle-hover-rate: 10; particle-emitter: line top; }
+.dock-fx-hover-trail { particle-preset: sparkle; particle-hover-rate: 40; particle-emitter: pointer; particle-lifetime: 0.35s 0.7s; }
+.dock-fx-launch-stars { particle-preset: stars; particle-burst: 26; particle-speed: 60 150; }
+.dock-fx-launch-sparkle { particle-preset: sparkle; particle-burst: 40; particle-speed: 30 110; }
+.dock-fx-launch-confetti { particle-preset: confetti; particle-burst: 60; particle-speed: 120 260; }
+.dock-fx-launch-fireworks { particle-preset: fireworks; particle-burst: 70; particle-speed: 80 200; }
+.dock-fx-launch-magic { particle-preset: magic; particle-burst: 40; particle-emitter: ring; }
+.dock-fx-launch-poof { particle-preset: poof; }
+.dock-top .dock-fx-launch, .dock-top .dock-fx-hover { particle-direction: 90deg; }
+.dock-left .dock-fx-launch, .dock-left .dock-fx-hover { particle-direction: 0deg; }
+.dock-right .dock-fx-launch, .dock-right .dock-fx-hover { particle-direction: 180deg; }
+
+/* Подпись над значком. */
+.dock-label {
+    padding: 4px 11px;
+    border-radius: 9px;
+    background-color: var(--menu-bg);
+    border-width: 1px;
+    border-color: var(--border);
+    box-shadow: 0 4px 14px var(--shadow);
+    animation: dock-label-in 160ms ease-out;
+}
+.dock-label-text { font-size: 13px; color: var(--fg); }
+@keyframes dock-label-in {
+    from { opacity: 0; translate-y: 4px; }
+    to { opacity: 1; translate-y: 0px; }
+}
+
+/* Разделитель и прочие апплеты на доке. */
+.dock-separator { background-color: #00000000; }
+.dock-separator-line { width: 1px; height: 36px; background-color: var(--border); }
+.dock-separator-line.dock-separator-h { width: 36px; height: 1px; }
+.dock-spacer { width: 12px; height: 12px; }
+.dock-applet { padding: 0px 4px; }
+.dock-placeholder {
+    border-width: 1px;
+    border-color: var(--border);
+    background-color: #ffffff0d;
+}
+.dock-placeholder-icon { icon-size: 20px; icon-color: var(--muted); }
+.dock-placeholder-label { font-size: 10px; color: var(--muted); }
+
+/* Значок раздела без своей картинки — сетка 2×2 (как папка на iOS). */
+.group-preview {
+    border-radius: 22%;
+    background-color: #ffffff1f;
+    border-width: 1px;
+    border-color: #ffffff2e;
+}
+.group-preview-empty { background-color: #00000000; }
+.group-preview-icon-glyph { icon-color: var(--fg); }
+
+/* ─── Режим редактирования панелей и дока ────────────────────────────────── */
+
+.edit-frame { background-color: #00000000; }
+.edit-item {
+    background-color: #00000000;
+    animation: edit-wiggle 0.34s ease-in-out infinite;
+}
+@keyframes edit-wiggle {
+    from { rotate: -2.2; }
+    50% { rotate: 2.2; }
+    to { rotate: -2.2; }
+}
+.edit-remove {
+    width: 18px;
+    height: 18px;
+    padding: 2px;
+    border-radius: 9px;
+    background-color: var(--danger);
+    box-shadow: 0 1px 4px var(--shadow);
+}
+.edit-remove .icon { icon-size: 14px; icon-color: #ffffff; }
+.edit-btn {
+    width: 34px;
+    height: 34px;
+    padding: 7px;
+    border-radius: 17px;
+    background-color: var(--surface-alt);
+    border-width: 1px;
+    border-color: var(--border);
+    transition: background-color 120ms ease-out;
+}
+.edit-btn:hover { background-color: var(--accent-soft); }
+.edit-add .icon { icon-color: var(--accent); }
+.edit-done { background-color: var(--accent); }
+.edit-done .icon { icon-color: var(--accent-fg); }
+.edit-controls { padding: 0px 6px; }
+.panel-editing { border-color: var(--accent); }
+
+/* Окно «Добавить» и формы. */
+.add-tabs { padding-bottom: 2px; }
+.add-tab {
+    padding: 6px 12px;
+    border-radius: 14px;
+    background-color: var(--surface-alt);
+    transition: background-color 120ms ease-out;
+}
+.add-tab:hover { background-color: var(--hover); }
+.add-tab-active { background-color: var(--accent); }
+.add-tab-active .add-tab-label { color: var(--accent-fg); }
+.add-tab-label { font-size: 13px; }
+.add-hint { font-size: 12px; color: var(--muted); }
+.add-scroll { flex-grow: 1; }
+.add-app-icon { width: 28px; height: 28px; }
+.add-app-hint { font-size: 11px; color: var(--muted); }
+.add-app-picked { background-color: var(--accent-soft); }
+.add-check { icon-size: 18px; icon-color: var(--muted); }
+.add-check-on { icon-color: var(--accent); }
+.add-applet {
+    width: 96px;
+    padding: 10px 4px;
+    border-radius: var(--radius-sm);
+    background-color: var(--surface-alt);
+    transition: background-color 120ms ease-out;
+}
+.add-applet:hover { background-color: var(--accent-soft); }
+.add-applet-icon { icon-size: 24px; icon-color: var(--accent); }
+.add-applet-label { font-size: 11px; }
+
+.form-label { font-size: 13px; color: var(--muted); min-width: 86px; }
+.form-field {
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    background-color: var(--surface-alt);
+    border-width: 1px;
+    border-color: var(--border);
+    font-size: 13px;
+}
+.form-app-icon { width: 48px; height: 48px; }
+.glyph-pick {
+    width: 30px;
+    height: 30px;
+    padding: 5px;
+    border-radius: 8px;
+    background-color: var(--surface-alt);
+}
+.glyph-pick:hover { background-color: var(--hover); }
+.glyph-pick-on { background-color: var(--accent-soft); border-width: 1px; border-color: var(--accent); }
+.glyph-pick .icon { icon-size: 18px; }
+.form-buttons { padding-top: 4px; }
+.btn {
+    padding: 7px 16px;
+    border-radius: var(--radius-sm);
+    background-color: var(--surface-alt);
+    transition: background-color 120ms ease-out;
+}
+.btn-primary { background-color: var(--accent); }
+.btn-primary .btn-label { color: var(--accent-fg); }
+.btn-danger .btn-label { color: var(--danger); }
+.btn-label { font-size: 13px; font-weight: 600; }
+
+/* ─── Стеки: раздел или папка во всплывающем окне ────────────────────────── */
+
+.stack-title { padding-bottom: 2px; }
+.stack-empty { font-size: 13px; color: var(--muted); padding: 12px 4px; }
+.stack-scroll { flex-grow: 1; }
+.stack-back {
+    padding: 4px;
+    border-radius: 14px;
+    background-color: var(--surface-alt);
+}
+.stack-back:hover { background-color: var(--hover); }
+.stack-foot { padding-top: 4px; }
+
+.stack-grid-item {
+    width: 90px;
+    padding: 10px 4px 8px 4px;
+    border-radius: var(--radius);
+    background-color: #00000000;
+    transition: background-color 120ms ease-out, scale 160ms ease-out-back;
+}
+.stack-grid-item:hover { background-color: var(--hover); scale: 1.06; }
+.stack-grid-label { font-size: 11px; text-align: center; }
+
+.stack-list-item {
+    padding: 6px 8px;
+    border-radius: var(--radius-sm);
+    background-color: #00000000;
+    transition: background-color 100ms ease-out;
+}
+.stack-list-item:hover { background-color: var(--hover); }
+.stack-list-icon { width: 28px; height: 28px; }
+.stack-list-label { font-size: 13px; }
+
+/* Веер: без карточки, подписи в «таблетках». */
+.popup-card.popup-card-fan {
+    background-color: #00000000;
+    border-width: 0px;
+    box-shadow: 0 0 0 #00000000;
+    padding: 0px;
+}
+.stack-fan-icon-box { padding: 2px; background-color: #00000000; }
+.stack-fan { padding: 4px; }
+.stack-fan-item {
+    padding: 2px;
+    background-color: #00000000;
+    transition: scale 140ms ease-out-back;
+}
+.stack-fan-item:hover { scale: 1.08; }
+.stack-fan-label-box {
+    padding: 3px 10px;
+    border-radius: 10px;
+    background-color: var(--menu-bg);
+    box-shadow: 0 2px 8px var(--shadow);
+}
+.stack-fan-label { font-size: 12px; }
+.stack-fan-icon { width: 44px; height: 44px; }

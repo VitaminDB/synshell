@@ -21,7 +21,7 @@
                │ wayland (layer-shell)         │ IPC (EventStream, Action, WindowAction)
 ┌──────────────┴───────────────────────────────┴─────────────────┐   ┌─────────────────────────┐
 │ syndesktop-shell (syngui через syngui-layer)                   │   │ syndesktop-settings     │
-│  обои · панели с апплетами · меню запуска · уведомления (D-Bus) │   │ (syngui + winit)        │
+│  обои · панели и доки · меню запуска · уведомления (D-Bus)      │   │ (syngui + winit)        │
 │  OSD громкости/яркости · меню питания · блокировка · Alt+Tab     │   │ правит config.toml      │
 └─────────────────────────────────────────────────────────────────┘   └─────────────────────────┘
                  все читают ~/.config/syndesktop/config.toml (+ тема, theme.mss) и следят
@@ -57,6 +57,16 @@
 Композитор берёт `palette()`, `titlebar_colors()` и `wallpaper_color()` для рамок и фона.
 Композитор и оболочка следят и за файлами активной темы. Подробно — [THEMES.md](THEMES.md).
 
+## Док и режим редактирования
+
+`[[panel]] mode = "dock"` — поверхность `syndesktop-dock` на всю длину края и с запасом
+над полосой (увеличение значков, подпись); область ввода (`syngui_layer::set_input_region`)
+— только полоса, клики над ней проходят к окнам (композитор ищет поверхность под курсором
+по всем layer-поверхностям слоя с учётом их input region). Ряд значков — `syngui::widgets::Fisheye`,
+частицы — `ParticleEmitter`, 3D — MSS `rotate-x/rotate-y`, `background-rotate-x`, `box-reflect`.
+Правки из режима редактирования оболочка пишет в `config.toml` сама
+(`syndesktop_common::config_edit`) и сразу перечитывает. Подробно — [DOCK.md](DOCK.md).
+
 ## IPC
 
 `syndesktop-common/src/ipc.rs`. Запрос-ответ одной JSON-строкой; `EventStream` переводит
@@ -67,7 +77,9 @@
 `Action::Shell(cmd)` композитор не исполняет, а пересылает оболочке событием
 `ShellCommand { command }`. Команды оболочки: `launcher`, `run`, `power-menu`,
 `notifications`, `clipboard`, `volume ±N`, `mute`, `mic-mute`, `brightness ±N`,
-`media play-pause|next|previous`, `lock`, `window-switcher next|prev|commit`.
+`media play-pause|next|previous`, `lock`, `window-switcher next|prev|commit`,
+`edit-panel [N]` / `edit-dock` (режим редактирования панели/дока), `panel-add N`
+(окно «Добавить»).
 
 Окружение детей композитора: `WAYLAND_DISPLAY`, `SYNDESKTOP_SOCKET`,
 `XDG_CURRENT_DESKTOP=syndesktop`, `XDG_SESSION_TYPE=wayland` и `[general.environment]`.
@@ -76,7 +88,7 @@
 
 Пространства имён layer-поверхностей (`namespace`), по ним композитор решает, как с ними
 обращаться (анимации, размытие, исключение из снимков):
-`syndesktop-wallpaper` (background), `syndesktop-panel` (top), `syndesktop-launcher`,
+`syndesktop-wallpaper` (background), `syndesktop-panel`, `syndesktop-dock` (top), `syndesktop-launcher`,
 `syndesktop-popup`, `syndesktop-notification`, `syndesktop-osd` (overlay),
 `syndesktop-lock` (через ext-session-lock).
 
