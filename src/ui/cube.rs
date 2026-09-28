@@ -268,16 +268,18 @@ fn draw_finish_overlay(list: &mut DisplayList, rect: Rect, base: Color, style: &
                 }
             }
             Anim::Sparkle => {
+                // редкие тонкие искры с мягким ореолом (не на каждом кубике сразу)
                 for k in 0..2u32 {
-                    let tw = ((style.time * (2.5 + k as f32) + hash01(style.seed, 3 + k) * 6.28).sin() * 0.5 + 0.5).powi(4);
-                    if tw < 0.05 {
+                    let tw = ((style.time * (1.6 + 0.7 * k as f32) + hash01(style.seed, 3 + k) * 6.28).sin() * 0.5 + 0.5).powi(8);
+                    if tw < 0.04 {
                         continue;
                     }
                     let sx = ix + iw * (0.15 + 0.7 * hash01(style.seed, 5 + k));
                     let sy = iy + ih * (0.15 + 0.7 * hash01(style.seed, 8 + k));
-                    let ss = iw * 0.11 * (0.5 + tw);
-                    list.push_rect(Rect::new(Point::new(sx - ss, sy - ss * 0.16), Size::new(ss * 2.0, ss * 0.32)), white.with_alpha(0.95 * tw), [ss; 4]);
-                    list.push_rect(Rect::new(Point::new(sx - ss * 0.16, sy - ss), Size::new(ss * 0.32, ss * 2.0)), white.with_alpha(0.95 * tw), [ss; 4]);
+                    let ss = iw * 0.10 * (0.4 + tw);
+                    list.push_rect(Rect::new(Point::new(sx - ss * 0.6, sy - ss * 0.6), Size::new(ss * 1.2, ss * 1.2)), white.with_alpha(0.25 * tw), [ss * 0.6; 4]);
+                    list.push_rect(Rect::new(Point::new(sx - ss, sy - ss * 0.08), Size::new(ss * 2.0, ss * 0.16)), white.with_alpha(0.9 * tw), [ss; 4]);
+                    list.push_rect(Rect::new(Point::new(sx - ss * 0.08, sy - ss), Size::new(ss * 0.16, ss * 2.0)), white.with_alpha(0.9 * tw), [ss; 4]);
                 }
             }
             Anim::Pulse => {

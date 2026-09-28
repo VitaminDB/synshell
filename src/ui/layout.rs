@@ -44,7 +44,7 @@ pub const SIDE: f32 = 16.0;
 pub const GAP_BOARD: f32 = 34.0;
 pub const GAP_TRAY: f32 = 18.0;
 pub const BOTTOM: f32 = 16.0;
-pub const ABIL_H: f32 = 62.0;
+pub const ABIL_H: f32 = 80.0;
 pub const MAX_COL: f32 = 560.0;
 
 pub fn compute(full: Rect) -> Geo {
@@ -99,18 +99,20 @@ pub fn compute(full: Rect) -> Geo {
         .min((slot_w - 12.0) / 5.0)
         .max(8.0);
 
+    // панель способностей: шкала энергии (сверху) и три кнопки-карточки
     let abil = Rect::new(Point::new(x0, tray_y + tray_h), Size::new(col, ABIL_H));
-    let bw = 100.0f32.min((col - 24.0) / 3.0);
-    let gap = 12.0;
+    let bw = 118.0f32.min((col - 20.0) / 3.0);
+    let gap = 10.0;
     let total_w = bw * 3.0 + gap * 2.0;
     let bx = x0 + (col - total_w) * 0.5;
-    let by = abil.origin.y + 14.0;
+    let by = abil.origin.y + 26.0;
+    let bh = 50.0;
     let abil_btns = [
-        Rect::new(Point::new(bx, by), Size::new(bw, 44.0)),
-        Rect::new(Point::new(bx + bw + gap, by), Size::new(bw, 44.0)),
-        Rect::new(Point::new(bx + (bw + gap) * 2.0, by), Size::new(bw, 44.0)),
+        Rect::new(Point::new(bx, by), Size::new(bw, bh)),
+        Rect::new(Point::new(bx + bw + gap, by), Size::new(bw, bh)),
+        Rect::new(Point::new(bx + (bw + gap) * 2.0, by), Size::new(bw, bh)),
     ];
-    let energy_bar = Rect::new(Point::new(bx, abil.origin.y + 3.0), Size::new(total_w, 6.0));
+    let energy_bar = Rect::new(Point::new(bx + 26.0, abil.origin.y + 5.0), Size::new(total_w - 26.0 - 38.0, 12.0));
     Geo { bounds: full, content: b, safe, col: Rect::new(Point::new(x0, y0), Size::new(col, total)), top, best, menu_btn, score, board, grid, cell, pad, tray, slots, tray_cell, abil, abil_btns, energy_bar }
 }
 

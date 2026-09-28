@@ -521,68 +521,129 @@ fn tray(v: &View, game: &Game, list: &mut DisplayList) {
 
 fn abilities(v: &View, game: &Game, list: &mut DisplayList) {
     let g = &v.geo;
+    let pal = v.palette();
     let gold = hex(theme::GOLD);
     let locked = v.input_locked_pub();
-    // энергия
+    let elv = v.variant.is_elvira();
+    let accent = if elv { hex("#d9b25a") } else { pal.accent };
+
+    // ── шкала энергии: сегменты по единицам, золотая заливка с бликом ──
     let bar = g.energy_bar;
-    list.push_rect(bar, Color::from_srgb(0, 0, 0, 0.35), [3.0; 4]);
-    let frac = (game.energy as f32 / MAX_ENERGY as f32).clamp(0.0, 1.0);
+    let energy = game.energy.min(MAX_ENERGY);
+    let frac = energy as f32 / MAX_ENERGY as f32;
+    let full = energy >= MAX_ENERGY;
+    let pulse = (v.now * 5.0).sin() * 0.5 + 0.5;
+    // значок молнии слева
+    let bolt = Rect::new(Point::new(bar.origin.x - 26.0, bar.origin.y - 5.0), Size::new(22.0, 22.0));
+    list.push_rect(bolt, gold.with_alpha(if energy > 0 { 0.22 } else { 0.10 }), [11.0; 4]);
+    icon(list, theme::ICON_BOLT, bolt, if energy > 0 { gold } else { Color::WHITE.with_alpha(0.45) }, 15.0);
+    // дорожка
+    let r = bar.height() * 0.5;
+    list.push_rect(offset(bar, 0.0, 1.5), Color::BLACK.with_alpha(0.25), [r; 4]);
+    list.push_rect(bar, Color::BLACK.with_alpha(0.38), [r; 4]);
+    list.push_outline(inset(bar, 0.5), Color::WHITE.with_alpha(0.10), 1.0, 0.0, [r; 4]);
+    if full {
+        list.push_glow_shadow(bar, gold.with_alpha(0.25 + 0.25 * pulse), 12.0, (0.0, 0.0), [r; 4]);
+    }
     if frac > 0.0 {
-        let fill = Rect::new(bar.origin, Size::new(bar.width() * frac, bar.height()));
+        let fill = Rect::new(bar.origin, Size::new((bar.width() * frac).max(bar.height()), bar.height()));
         list.push_gradient_rect(
             fill,
-            Gradient::Linear { angle_deg: 90.0, stops: vec![ColorStop::new(gold.darken(0.15), 0.0), ColorStop::new(gold.lighten(0.25), 1.0)] },
-            [3.0; 4],
+            Gradient::Linear { angle_deg: 180.0, stops: vec![ColorStop::new(hex("#ffe27a"), 0.0), ColorStop::new(gold, 0.55), ColorStop::new(hex("#d68f12"), 1.0)] },
+            [r; 4],
         );
-        if frac >= 1.0 {
-            let pulse = (v.now * 6.0).sin() * 0.5 + 0.5;
-            list.push_outline(bar, gold.with_alpha(0.3 + 0.4 * pulse), 1.5, 1.0, [4.0; 4]);
+        // глянец по верхней половине и бегущий блик
+        let gl = Rect::new(Point::new(fill.origin.x + 2.0, fill.origin.y + 1.5), Size::new((fill.width() - 4.0).max(1.0), fill.height() * 0.38));
+        list.push_rect(gl, Color::WHITE.with_alpha(0.28), [gl.height() * 0.5; 4]);
+        let ph = (v.now * 0.35) % 1.0;
+        let sx = fill.origin.x + fill.width() * ph;
+        let sw = (fill.width() * 0.12).clamp(6.0, 26.0);
+        if sx + sw <= fill.origin.x + fill.width() {
+            list.push_gradient_rect(
+                Rect::new(Point::new(sx, fill.origin.y), Size::new(sw, fill.height())),
+                Gradient::Linear { angle_deg: 90.0, stops: vec![ColorStop::new(Color::WHITE.with_alpha(0.0), 0.0), ColorStop::new(Color::WHITE.with_alpha(0.45), 0.5), ColorStop::new(Color::WHITE.with_alpha(0.0), 1.0)] },
+                [0.0; 4],
+            );
         }
     }
-    // деления по стоимости
+    // деления по единицам энергии
+    for k in 1..MAX_ENERGY {
+        let x = bar.origin.x + bar.width() * k as f32 / MAX_ENERGY as f32;
+        list.push_rect(Rect::new(Point::new(x - 0.5, bar.origin.y + 2.0), Size::new(1.0, bar.height() - 4.0)), Color::BLACK.with_alpha(0.28), [0.5; 4]);
+    }
+    // метки стоимости способностей — ромбики над шкалой
     for a in Ability::ALL {
         let x = bar.origin.x + bar.width() * a.cost() as f32 / MAX_ENERGY as f32;
-        list.push_rect(Rect::new(Point::new(x - 1.0, bar.origin.y - 2.0), Size::new(2.0, bar.height() + 4.0)), Color::WHITE.with_alpha(0.5), [1.0; 4]);
+        let can = energy >= a.cost();
+        let d = 3.2;
+        let col = if can { gold.lerp(&Color::WHITE, 0.3) } else { Color::WHITE.with_alpha(0.35) };
+        list.push_rect(Rect::new(Point::new(x - d, bar.origin.y - 2.0 - d * 0.35), Size::new(d * 2.0, d * 0.7)), col, [d; 4]);
+        list.push_rect(Rect::new(Point::new(x - d * 0.35, bar.origin.y - 2.0 - d), Size::new(d * 0.7, d * 2.0)), col, [d; 4]);
     }
+    // счётчик справа
+    let cnt = Rect::new(Point::new(bar.origin.x + bar.width() + 6.0, bar.origin.y - 4.0), Size::new(34.0, 20.0));
+    text_nowrap(list, &format!("{energy}/{MAX_ENERGY}"), cnt, if full { gold } else { hex(theme::TEXT_DIM) }, 11.5, 800, TextAlign::LEFT | TextAlign::VCENTER);
+
+    // ── кнопки-карточки ──
     for (i, a) in Ability::ALL.iter().enumerate() {
         let rect = g.abil_btns[i];
         let can = game.can_use(*a) && !locked;
         let hot = rect.contains(v.pointer) && can;
         let selected = v.targeting == Some(*a);
-        let bg = if selected {
-            gold.with_alpha(0.9)
-        } else if can {
-            hex(if hot { theme::BTN_HOVER } else { theme::BTN })
-        } else {
-            Color::from_srgb(20, 24, 70, 0.45)
-        };
         let r = offset(rect, 0.0, if hot && !selected { -2.0 } else { 0.0 });
+        let radius = [16.0; 4];
+        // тень и свечение доступной кнопки
         if can {
-            list.push_rect(offset(r, 0.0, 3.0), Color::from_srgb(0, 0, 0, 0.25), [14.0; 4]);
+            list.push_shadow(r, Color::from_srgb(0, 0, 0, 0.40), 12.0, (0.0, 5.0), radius);
+            let breathe = (v.now * 2.2 + i as f32 * 1.3).sin() * 0.5 + 0.5;
+            list.push_glow_shadow(r, accent.with_alpha(if selected { 0.35 } else { 0.08 + 0.10 * breathe }), 14.0, (0.0, 0.0), radius);
+        } else {
+            list.push_rect(offset(r, 0.0, 2.0), Color::BLACK.with_alpha(0.18), radius);
         }
-        list.push_gradient_rect(
-            r,
-            Gradient::Linear { angle_deg: 180.0, stops: vec![ColorStop::new(bg.lighten(0.12), 0.0), ColorStop::new(bg, 1.0)] },
-            [14.0; 4],
-        );
-        list.push_outline(inset(r, 1.0), Color::WHITE.with_alpha(if can { 0.22 } else { 0.08 }), 1.0, 0.0, [14.0; 4]);
+        // тело: градиент из палитры мира (выбранная — золото)
+        let (c0, c1, edge) = if selected {
+            (hex("#ffe27a"), hex("#e0a418"), Color::WHITE.with_alpha(0.7))
+        } else if can {
+            (pal.panel.lighten(0.32).lerp(&accent, 0.10), pal.panel.lighten(0.06), accent.with_alpha(0.55))
+        } else {
+            (pal.panel.lighten(0.10), pal.panel.darken(0.05), Color::WHITE.with_alpha(0.08))
+        };
+        list.push_gradient_rect(r, Gradient::Linear { angle_deg: 180.0, stops: vec![ColorStop::new(c0.lighten(if hot { 0.08 } else { 0.0 }), 0.0), ColorStop::new(c1, 1.0)] }, radius);
+        list.push_outline(inset(r, 0.75), edge, 1.2, 0.0, radius);
+        // глянцевая кромка сверху
+        let top = Rect::new(Point::new(r.origin.x + 10.0, r.origin.y + 1.0), Size::new(r.width() - 20.0, 1.0));
+        list.push_rect(top, Color::WHITE.with_alpha(if can { 0.35 } else { 0.10 }), [0.5; 4]);
         if selected {
-            let pulse = (v.now * 8.0).sin() * 0.5 + 0.5;
-            list.push_outline(inset(r, -3.0), gold.with_alpha(0.5 + 0.4 * pulse), 2.0, 0.0, [17.0; 4]);
+            let p2 = (v.now * 8.0).sin() * 0.5 + 0.5;
+            list.push_outline(inset(r, -3.0), gold.with_alpha(0.5 + 0.4 * p2), 2.0, 0.0, [19.0; 4]);
         }
-        let fg = if selected { hex(theme::PANEL) } else { Color::WHITE.with_alpha(if can { 1.0 } else { 0.35 }) };
+        // значок в круглом бейдже
+        let fg = if selected { hex("#3a2205") } else { Color::WHITE.with_alpha(if can { 1.0 } else { 0.38 }) };
+        let bd = 32.0;
+        let badge = Rect::new(Point::new(r.origin.x + 8.0, r.origin.y + (r.height() - bd) * 0.5), Size::new(bd, bd));
+        list.push_rect(badge, if selected { Color::WHITE.with_alpha(0.35) } else if can { accent.with_alpha(0.22) } else { Color::WHITE.with_alpha(0.06) }, [bd * 0.5; 4]);
+        list.push_outline(inset(badge, 0.5), if can { accent.with_alpha(0.55) } else { Color::WHITE.with_alpha(0.10) }, 1.0, 0.0, [bd * 0.5; 4]);
         let glyph = match a {
             Ability::Reroll => theme::ICON_REROLL,
             Ability::Hammer => theme::ICON_HAMMER,
             Ability::Bomb => theme::ICON_BOMB,
         };
-        let ir = Rect::new(Point::new(r.origin.x + 8.0, r.origin.y), Size::new(28.0, r.height()));
-        icon(list, glyph, ir, fg, 22.0);
-        let tr = Rect::new(Point::new(r.origin.x + 38.0, r.origin.y + 6.0), Size::new(r.width() - 42.0, 18.0));
-        text_nowrap(list, a.name(), tr, fg, 12.5, 800, TextAlign::LEFT | TextAlign::VCENTER);
-        let cr = Rect::new(Point::new(r.origin.x + 38.0, r.origin.y + 23.0), Size::new(r.width() - 42.0, 16.0));
-        let cost_col = if selected { hex(theme::PANEL) } else if can { gold } else { Color::WHITE.with_alpha(0.35) };
-        text_nowrap(list, &format!("{} {}", a.cost(), theme::ICON_BOLT), cr, cost_col, 11.5, 800, TextAlign::LEFT | TextAlign::VCENTER);
+        icon(list, glyph, badge, fg, 20.0);
+        // подпись и стоимость
+        let tx = r.origin.x + 8.0 + bd + 7.0;
+        let tw = r.width() - (8.0 + bd + 7.0) - 6.0;
+        let tr = Rect::new(Point::new(tx, r.origin.y + 8.0), Size::new(tw, 18.0));
+        text_nowrap(list, a.name(), tr, fg, 13.5, 800, TextAlign::LEFT | TextAlign::VCENTER);
+        let pill = Rect::new(Point::new(tx, r.origin.y + r.height() - 8.0 - 16.0), Size::new(38.0, 16.0));
+        let (pb, pf) = if selected {
+            (hex("#3a2205").with_alpha(0.25), hex("#3a2205"))
+        } else if can {
+            (gold.with_alpha(0.9), hex("#3a2205"))
+        } else {
+            (Color::WHITE.with_alpha(0.07), Color::WHITE.with_alpha(0.35))
+        };
+        list.push_rect(pill, pb, [8.0; 4]);
+        text_nowrap(list, &format!("{} {}", a.cost(), theme::ICON_BOLT), pill, pf, 11.0, 800, TextAlign::CENTER);
     }
 }
 
