@@ -18,6 +18,8 @@ optdepends=('xorg-xwayland: X11-программы'
             'grim: снимки экрана из командной строки'
             'shared-mime-info: типы файлов в проводнике'
             'ffmpegthumbnailer: миниатюры видео в проводнике'
+            'libheif: HEIC/HEIF/AVIF в просмотрщике и миниатюрах'
+            'imagemagick: редкие форматы картинок (JPEG XL, RAW…) в просмотрщике'
             'breeze-icons: тема значков по умолчанию')
 makedepends=('cargo' 'rust')
 
@@ -48,6 +50,8 @@ package() {
         "$pkgdir/usr/share/applications/syndesktop-settings.desktop"
     install -Dm644 crates/syndesktop-files/data/syndesktop-files.desktop \
         "$pkgdir/usr/share/applications/syndesktop-files.desktop"
+    install -Dm644 crates/syndesktop-files/data/syndesktop-viewer.desktop \
+        "$pkgdir/usr/share/applications/syndesktop-viewer.desktop"
     install -Dm644 crates/syndesktop-shell/data/syndesktop-lock.pam "$pkgdir/etc/pam.d/syndesktop-lock"
     install -Dm644 crates/syndesktop-common/default-config.toml \
         "$pkgdir/usr/share/doc/syndesktop/config.toml.example"

@@ -190,7 +190,7 @@ fn produce(key: &Key, mime: &str) -> Option<PathBuf> {
     } else if meta.len() > *shared().max_bytes.lock().unwrap() {
         return None;
     } else {
-        decode(&key.path)
+        decode(&key.path).or_else(|| heif_frame(&key.path, mime))
     };
     let Some(img) = img else {
         let _ = write_png(&fail, &image::DynamicImage::new_rgba8(1, 1), &uri, key.mtime, meta.len());
@@ -211,6 +211,27 @@ fn decode(path: &Path) -> Option<image::DynamicImage> {
         img.apply_orientation(o);
     }
     Some(img)
+}
+
+/// HEIC/HEIF/AVIF: крейт `image` их не читает — через `heif-convert`.
+fn heif_frame(path: &Path, mime: &str) -> Option<image::DynamicImage> {
+    if !matches!(mime, "image/heif" | "image/heic" | "image/avif" | "image/heif-sequence" | "image/heic-sequence") || !xdg::which("heif-convert") {
+        return None;
+    }
+    let tmp = std::env::temp_dir().join(format!("syndesktop-thumb-{}-{}.jpg", std::process::id(), hash(&path.to_string_lossy())));
+    let ok = std::process::Command::new("heif-convert")
+        .args(["-q", "85"])
+        .arg(path)
+        .arg(&tmp)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    let img = if ok { image::open(&tmp).ok() } else { None };
+    let _ = std::fs::remove_file(&tmp);
+    img
 }
 
 fn video_frame(path: &Path, size: u32) -> Option<image::DynamicImage> {

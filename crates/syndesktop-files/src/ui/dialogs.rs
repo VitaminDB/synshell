@@ -101,7 +101,7 @@ fn open_with(paths: Vec<PathBuf>, mime_type: String) -> W {
             let files = paths.clone();
             let mt = m2.clone();
             let icon: W = match xdg::lookup_icon(&a.icon) {
-                Some(p) => boxed(DecoratedBox::new().style("width", 24.0).style("height", 24.0).child(Image::new(p.to_string_lossy().to_string()))),
+                Some(p) => boxed(Image::new(p.to_string_lossy().to_string()).fit(ImageFit::Contain).style("width", 24.0).style("height", 24.0)),
                 None => boxed(Icon::new(icons::OPEN_WITH).class("icon")),
             };
             col = col.child(

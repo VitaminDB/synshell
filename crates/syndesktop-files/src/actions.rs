@@ -96,6 +96,14 @@ pub fn open_files(files: &[PathBuf], mime_type: &str) {
         }
         return;
     }
+    // Картинки — встроенным просмотрщиком (листает всю папку, поэтому
+    // хватает первой); другая программа — через «Открыть с помощью».
+    if crate::viewer::handles(mime_type) {
+        if let Some(f) = files.first() {
+            crate::viewer::open(f);
+        }
+        return;
+    }
     match mime::default_app(mime_type) {
         Some(app) => launch(&app, files),
         None => state::ctx().dialog.set(Some(Dialog::OpenWith { paths: files.to_vec(), mime: mime_type.to_string() })),
@@ -378,16 +386,44 @@ pub fn toggle_hidden() {
     state::toast(if v { "Скрытые файлы показаны" } else { "Скрытые файлы спрятаны" });
 }
 
+/// Ступени размера значков для Ctrl+±/колеса и кнопок строки состояния.
+pub const ZOOM_STEPS: [u32; 7] = [32, 48, 64, 96, 128, 192, 256];
+
 pub fn zoom(p: Pane, dir: i32) {
-    const STEPS: [u32; 7] = [32, 48, 64, 96, 128, 192, 256];
     let cur = p.icon_size.get_untracked();
-    let i = STEPS.iter().position(|&s| s >= cur).unwrap_or(STEPS.len() - 1) as i32;
-    let n = STEPS[(i + dir).clamp(0, STEPS.len() as i32 - 1) as usize];
-    p.icon_size.set(n);
+    let n = if dir > 0 {
+        ZOOM_STEPS.iter().copied().find(|&s| s > cur).unwrap_or(256)
+    } else {
+        ZOOM_STEPS.iter().rev().copied().find(|&s| s < cur).unwrap_or(32)
+    };
+    set_icon_size(p, n);
+    let ctx = state::ctx();
+    ctx.zoom_rev.update(|r| *r += 1);
+}
+
+/// Размер значков (ползунок строки состояния — любой, кратный 8). Вид
+/// переключается на «Значки»; в config.toml пишется с задержкой, чтобы
+/// перетаскивание ползунка не переписывало файл на каждом шаге.
+pub fn set_icon_size(p: Pane, n: u32) {
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    static PENDING: AtomicU32 = AtomicU32::new(0);
+    static SCHEDULED: AtomicBool = AtomicBool::new(false);
+    let n = n.clamp(32, 256);
+    if p.icon_size.get_untracked() != n {
+        p.icon_size.set(n);
+    }
     if p.view.get_untracked() != ViewMode::Icons {
         p.view.set(ViewMode::Icons);
+        save_setting("view", ViewMode::Icons.id());
     }
-    save_setting("icon_size", n as i64);
+    PENDING.store(n, Ordering::Relaxed);
+    if !SCHEDULED.swap(true, Ordering::AcqRel) {
+        std::thread::spawn(|| {
+            std::thread::sleep(std::time::Duration::from_millis(600));
+            SCHEDULED.store(false, Ordering::Release);
+            save_setting("icon_size", PENDING.load(Ordering::Relaxed) as i64);
+        });
+    }
 }
 
 pub fn select_all(p: Pane) {

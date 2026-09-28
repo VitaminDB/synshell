@@ -10,6 +10,7 @@ use anyhow::{anyhow, Context};
 use syngui::gpu::{GpuShared, Renderer};
 use syngui::mss::{cascade, parse_stylesheet_str, StyleEngine};
 use syngui::prelude::*;
+use syngui::IntoWidget;
 use syngui::render::DisplayList;
 use syngui::widget::context::TextMeasure;
 
@@ -22,9 +23,28 @@ pub fn screenshot(
     init: impl FnOnce() -> state::Ctx,
     script: &[String],
 ) -> anyhow::Result<()> {
+    let init = move || {
+        let ctx = init();
+        provide_context(ctx);
+        ctx.theme
+    };
+    screenshot_with(out, size, scale, init, crate::ui::app::root, state::busy, script)
+}
+
+/// Снимок любого корня: `init` создаёт состояние и отдаёт сигнал темы,
+/// `busy` — идёт ли ещё загрузка (шаги сценария ждут её конца).
+pub fn screenshot_with<R: IntoWidget<M>, M>(
+    out: &str,
+    size: (u32, u32),
+    scale: f64,
+    init: impl FnOnce() -> RwSignal<String>,
+    root_fn: impl FnOnce() -> R,
+    busy: fn() -> bool,
+    script: &[String],
+) -> anyhow::Result<()> {
     syngui::signal::init_main_thread();
     syngui::signal::allow_signal_reads_on_this_thread();
-    let ctx = init();
+    let theme = init();
 
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: wgpu::Backends::VULKAN | wgpu::Backends::GL,
@@ -58,11 +78,10 @@ pub fn screenshot(
     tree.text_measure = Some(renderer.font_atlas.clone() as Arc<dyn TextMeasure>);
     tree.image_store = Some(renderer.image_store.clone());
 
-    let sheet = parse_stylesheet_str(&ctx.theme.get_untracked()).map_err(|e| anyhow!("MSS: {e:?}"))?;
+    let sheet = parse_stylesheet_str(&theme.get_untracked()).map_err(|e| anyhow!("MSS: {e:?}"))?;
     let engine = StyleEngine::new(sheet);
 
-    provide_context(ctx);
-    let widget = crate::ui::app::root();
+    let widget: Box<dyn Widget> = root_fn().into_widget();
     let element = widget.create_element();
     let root = tree.insert_with_type_id(element, None, widget.as_any().type_id());
     widget.mount(&mut tree, root);
@@ -102,7 +121,7 @@ pub fn screenshot(
         list.set_scale_factor(scale as f32);
         tree.build_display_list(root, &mut list, Rect::new(Point::zero(), logical));
         // Шаг сценария — после того, как папка загрузилась.
-        let busy = state::busy();
+        let busy = busy();
         if frame >= 2 && !busy {
             if let Some(step) = script.pop_front() {
                 run_step(&mut tree, root, &step);

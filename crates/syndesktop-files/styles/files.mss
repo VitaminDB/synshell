@@ -17,6 +17,16 @@
     icon-size: 18px;
 }
 
+/* Бокс с заданным размером прижимает ребёнка к левому верхнему углу —
+   значки кнопок, картинки ячеек и строки панелей центрируем явно. */
+.icon-btn, .tab-close, .new-tab, .big-icon, .tile-icon, .row-icon {
+    justify-content: center;
+    align-items: center;
+}
+.address, .cmd-btn, .hcell, .status-bar, .tab, .crumb, .list-header {
+    align-items: center;
+}
+
 /* ── Заголовок с вкладками ─────────────────────────────────────── */
 
 .titlebar {
@@ -121,7 +131,8 @@ SystemWindowControls {
 .crumb-more { color: var(--muted); padding: 0px 4px; }
 
 .crumb {
-    padding: 4px 8px;
+    height: 26px;
+    padding: 0px 8px;
     border-radius: 5px;
     &:hover { background: var(--hover); }
 }
@@ -297,6 +308,15 @@ ItemView {
 }
 .status-text { font-size: 12px; color: var(--fg); }
 .status-text.dim { color: var(--muted); }
+
+Slider {
+    height: 4px;
+    background: var(--pressed);
+    color: var(--accent);
+    accent-color: var(--accent);
+    border-radius: 2px;
+}
+.zoom-label { width: 52px; height: 20px; align-items: center; }
 
 /* ── Меню, подсказки ───────────────────────────────────────────── */
 

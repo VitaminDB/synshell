@@ -446,15 +446,21 @@ fn load_theme(name: &str) -> Option<ThemeIndex> {
         for (sub, size, scalable) in &dirs {
             let d = b.join(sub);
             let Ok(rd) = std::fs::read_dir(&d) else { continue };
-            // Качество: масштабируемые лучше всех; из растровых — 128 px и
-            // крупнее (док увеличивает значки, уменьшение сглаживают мипы),
-            // затем чем крупнее, тем лучше.
-            let q = if *scalable {
-                0
+            // Качество (меньше — лучше): масштабируемые SVG, затем SVG из
+            // каталогов фиксированного размера — в обоих чем крупнее
+            // номинальный размер, тем лучше (в breeze «масштабируемы» и 22,
+            // и 64 px, но 22 — упрощённый рисунок без листа); растровые
+            // от 128 px (док увеличивает значки, уменьшение сглаживают мипы);
+            // мелкие растровые — последними. Равные по качеству решает
+            // первый найденный, а порядок каталогов из HashMap случаен —
+            // поэтому равенств почти нет.
+            let q_svg = 512u32.saturating_sub(*size) + if *scalable { 0 } else { 1000 };
+            let q_png = if *scalable {
+                2000
             } else if *size >= 128 {
-                1 + (*size - 128) / 128
+                2000 + (*size - 128)
             } else {
-                10 + (128 - *size)
+                3000 + (128 - *size)
             };
             for e in rd.flatten() {
                 let p = e.path();
@@ -463,7 +469,7 @@ fn load_theme(name: &str) -> Option<ThemeIndex> {
                     continue;
                 }
                 let Some(stem) = p.file_stem().and_then(|s| s.to_str()) else { continue };
-                let q = if ext == "png" { q } else { q.min(1) };
+                let q = if ext == "png" { q_png } else { q_svg };
                 match icons.get(stem) {
                     Some((_, old)) if *old <= q => {}
                     _ => {

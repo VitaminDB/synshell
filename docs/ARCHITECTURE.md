@@ -36,7 +36,7 @@
 | `syngui-layer` | хост syngui на layer-shell поверхностях (sctk 0.19 + wgpu-surface из `wl_surface`) — «winit для оболочки» |
 | `syndesktop-shell` | оболочка |
 | `syndesktop-settings` | «Параметры системы» |
-| `syndesktop-files` | проводник (syngui + winit): вкладки, две панели, поиск, корзина, операции в фоне — [FILES.md](FILES.md) |
+| `syndesktop-files` | проводник (syngui + winit): вкладки, две панели, поиск, корзина, операции в фоне; `--viewer` — просмотрщик картинок (модуль `viewer`, сцена из synthos) — [FILES.md](FILES.md) |
 
 ## Конфигурация
 

@@ -228,6 +228,7 @@ fn items_view(tab: Tab, idx: usize) -> W {
                 MouseButton::Forward => state::go_forward(p),
                 _ => {}
             })
+            .on_zoom(move |d| actions::zoom(p, d))
             .on_context_menu(move |(item, at)| {
                 set_active(tab, idx);
                 let items = actions::context_menu(p, item.is_some());

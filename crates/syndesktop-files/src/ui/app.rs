@@ -88,7 +88,7 @@ fn panes() -> W {
 }
 
 fn status_bar() -> W {
-    boxed(Reactive::new(move || -> Vec<W> {
+    let info = Reactive::new(move || -> Vec<W> {
         let p = state::tab_tracked().pane_tracked();
         let entries = p.entries.get();
         let sel = p.sel.get();
@@ -109,20 +109,67 @@ fn status_bar() -> W {
                 .unwrap_or_default(),
             _ => String::new(),
         };
-        let view = p.view.get();
-        let seg = |v: state::ViewMode, glyph: &str, tip: &str| -> W {
-            super::icon_button(glyph, tip, if view == v { "toggled small" } else { "small" }, true, move || crate::actions::set_view(p, v))
-        };
-        vec![bx(
-            "status-bar",
+        vec![boxed(
             Row::new()
                 .gap(8.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(Text::new(left).max_lines(1).class("status-text"))
                 .child(DecoratedBox::new().class("grow"))
-                .child(Text::new(right).max_lines(1).class("status-text dim"))
+                .child(Text::new(right).max_lines(1).class("status-text dim")),
+        )]
+    });
+    let views = Reactive::new(move || -> Vec<W> {
+        let p = state::tab_tracked().pane_tracked();
+        let view = p.view.get();
+        let seg = |v: state::ViewMode, glyph: &str, tip: &str| -> W {
+            super::icon_button(glyph, tip, if view == v { "toggled small" } else { "small" }, true, move || crate::actions::set_view(p, v))
+        };
+        vec![boxed(
+            Row::new()
+                .gap(2.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(seg(state::ViewMode::Details, icons::VIEW_DETAILS, "Таблица (Ctrl+4)"))
                 .child(seg(state::ViewMode::Icons, icons::VIEW_ICONS, "Значки (Ctrl+1)")),
+        )]
+    });
+    bx(
+        "status-bar",
+        Row::new()
+            .gap(12.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(DecoratedBox::new().class("grow").child(info))
+            .child(zoom_bar())
+            .child(views),
+    )
+}
+
+/// Масштаб значков: «−», ползунок, «+», размер в пикселях. Ползунок
+/// пересобирается при смене вкладки и при масштабе клавишами, но не от
+/// собственного перетаскивания (см. `Ctx::zoom_rev`).
+fn zoom_bar() -> W {
+    boxed(Reactive::new(move || -> Vec<W> {
+        let p = state::tab_tracked().pane_tracked();
+        let _ = state::ctx().zoom_rev.get();
+        let px = p.icon_size.get_untracked();
+        let label = Reactive::new(move || -> Vec<W> {
+            vec![boxed(Text::new(format!("{} px", p.icon_size.get())).max_lines(1).class("status-text dim zoom-value"))]
+        });
+        vec![boxed(
+            Row::new()
+                .gap(4.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(super::icon_button(icons::ZOOM_OUT, "Мельче (Ctrl+−)", "small", true, move || crate::actions::zoom(p, -1)))
+                .child(
+                    Slider::new()
+                        .range(32.0, 256.0)
+                        .step(8.0)
+                        .value(px as f32)
+                        .width(140.0)
+                        .on_change(move |v| crate::actions::set_icon_size(p, v.round() as u32))
+                        .class("zoom-slider"),
+                )
+                .child(super::icon_button(icons::ZOOM_IN, "Крупнее (Ctrl++)", "small", true, move || crate::actions::zoom(p, 1)))
+                .child(DecoratedBox::new().class("zoom-label").child(label)),
         )]
     }))
 }

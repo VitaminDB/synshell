@@ -135,6 +135,10 @@ pub struct Ctx {
     pub search: RwSignal<String>,
     /// Растёт, когда надо поставить фокус в поиск.
     pub search_focus: RwSignal<u64>,
+    /// Растёт, когда размер значков меняют не ползунком (клавиши, меню) —
+    /// ползунок строки состояния пересобирается только тогда, иначе
+    /// перестройка посреди перетаскивания обрывала бы его.
+    pub zoom_rev: RwSignal<u64>,
     /// Состояние окна (развёрнуто, в фокусе) — для кнопок заголовка.
     pub window: RwSignal<syngui::window::WindowState>,
 }
@@ -195,6 +199,7 @@ pub fn init(cfg: Config, start: Vec<Location>) -> Ctx {
         address_edit: use_signal(false),
         search: use_signal(String::new()),
         search_focus: use_signal(0u64),
+        zoom_rev: use_signal(0u64),
         window: use_signal(syngui::window::WindowState::default()),
     };
     CTX.with(|c| *c.borrow_mut() = Some(ctx));

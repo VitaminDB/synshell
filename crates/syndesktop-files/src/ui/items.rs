@@ -77,18 +77,24 @@ pub fn icon_path(e: &Entry) -> Option<PathBuf> {
     mime::icon_path(&e.mime)
 }
 
-/// Картинка записи: миниатюра, если есть, иначе значок типа.
+/// Картинка записи: миниатюра, если есть, иначе значок типа. Размер
+/// задан явно: `Contain` без него берёт натуральный размер файла, и
+/// 16-пиксельный значок темы садился в левый верхний угол ячейки.
 pub fn entry_image(e: &Entry, px: u32, thumbs: bool) -> W {
+    let img = |p: &Path, class: &str| -> W {
+        let s = px as f32;
+        boxed(Image::new(p.to_string_lossy().to_string()).fit(ImageFit::Contain).style("width", s).style("height", s).class(class.to_string()))
+    };
     if thumbs && !e.is_dir && px >= 32 {
         if e.mime == "image/svg+xml" && e.size < 2 << 20 {
-            return boxed(Image::new(e.path.to_string_lossy().to_string()).fit(ImageFit::Contain).class("thumb"));
+            return img(&e.path, "thumb");
         }
         if let Some(t) = crate::thumbs::get(&e.path, &e.mime, e.mtime, px.max(64)) {
-            return boxed(Image::new(t.to_string_lossy().to_string()).fit(ImageFit::Contain).class("thumb"));
+            return img(&t, "thumb");
         }
     }
     match icon_path(e) {
-        Some(p) => boxed(Image::new(p.to_string_lossy().to_string()).fit(ImageFit::Contain).class("file-icon")),
+        Some(p) => img(&p, "file-icon"),
         None => boxed(Icon::new(if e.is_dir { super::icons::FOLDER } else { super::icons::FILE }).class("icon glyph-icon")),
     }
 }

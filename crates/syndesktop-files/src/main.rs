@@ -4,6 +4,9 @@
 //! его папка с выделенным файлом). Без аргументов — вкладки прошлого сеанса
 //! или домашняя папка.
 //!
+//! `syndesktop-files --viewer ФАЙЛ` — просмотрщик картинок (листает
+//! картинки папки файла).
+//!
 //! Проверка без окна: `syndesktop-files --screenshot out.png [--size 1280x800]
 //! [--scale 1] [--script 'key:ctrl+a;click:300,200'] [ПУТЬ…]`.
 
@@ -18,6 +21,7 @@ mod state;
 mod thumbs;
 mod trash;
 mod ui;
+mod viewer;
 
 use std::path::PathBuf;
 
@@ -34,6 +38,7 @@ struct Args {
     script: Vec<String>,
     view: Option<String>,
     split: bool,
+    viewer: Option<PathBuf>,
 }
 
 fn parse_args() -> Args {
@@ -46,6 +51,7 @@ fn parse_args() -> Args {
         script: Vec::new(),
         view: None,
         split: false,
+        viewer: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -60,8 +66,14 @@ fn parse_args() -> Args {
             "--script" => a.script.extend(it.next().unwrap_or_default().split(';').map(|s| s.trim().to_string()).filter(|s| !s.is_empty())),
             "--view" => a.view = it.next(),
             "--split" => a.split = true,
+            "--viewer" => {
+                a.viewer = it.next().map(|s| match Location::parse(&s) {
+                    Some(Location::Dir(p)) => p,
+                    _ => PathBuf::from(s),
+                })
+            }
             "-h" | "--help" => {
-                println!("syndesktop-files [--view details|list|tiles|icons] [--split] [ПУТЬ|URI…]");
+                println!("syndesktop-files [--view details|list|tiles|icons] [--split] [ПУТЬ|URI…]\nsyndesktop-files --viewer КАРТИНКА");
                 std::process::exit(0);
             }
             // Совместимость с вызовами «как у Dolphin/Nautilus».
@@ -124,6 +136,18 @@ fn main() {
     let args = parse_args();
     let cfg = load_config();
     syndesktop_common::xdg::set_icon_theme(&cfg.appearance.icon_theme);
+
+    if let Some(file) = args.viewer.clone() {
+        if let Some(out) = args.screenshot.clone() {
+            if let Err(e) = viewer::screenshot(&out, args.size, args.scale, file, cfg, &args.script) {
+                eprintln!("снимок не удался: {e:#}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        viewer::run(file, cfg);
+        return;
+    }
     state::connect_background();
 
     if let Some(out) = args.screenshot.clone() {
