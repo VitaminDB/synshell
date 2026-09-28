@@ -47,6 +47,7 @@ pub fn draw(v: &View, list: &mut DisplayList) {
     abilities(v, &game, list);
     v.fx.particles.draw(list);
     floats(v, list);
+    over_hint(v, list);
     banner(v, list);
     for f in &v.fx.screen_flashes {
         let t = clamp01((v.now - f.born) / FLASH_DUR);
@@ -248,7 +249,8 @@ fn board(v: &View, game: &Game, list: &mut DisplayList, sx: f32, sy: f32) {
             if let Some(t0) = v.fx.over_at {
                 let k = clamp01((v.now - t0 - (r + c) as f32 * 0.04) / 0.3);
                 if k > 0.0 {
-                    style.blend = Some((grey, k * 0.85));
+                    // приглушить, но оставить цвета — видно, как легло поле
+                    style.blend = Some((grey, k * 0.45));
                 }
             } else {
                 style.flash += 0.32 * Fx::sheen(v.now, r, c);
@@ -418,9 +420,9 @@ fn tray(v: &View, game: &Game, list: &mut DisplayList) {
         if blend > 0.0 {
             style.blend = Some((bg, blend));
         }
-        if let Some(t0) = v.fx.over_at {
-            let k = clamp01((v.now - t0) / 0.5);
-            style.blend = Some((bg, 0.7 * k));
+        let over_k = v.fx.over_at.map(|t0| clamp01((v.now - t0) / 0.5)).unwrap_or(0.0);
+        if over_k > 0.0 {
+            style.blend = Some((bg, 0.25 * over_k));
         }
         if selected {
             let pr = g.piece_rect_in_slot(i, &p.shape);
@@ -434,6 +436,12 @@ fn tray(v: &View, game: &Game, list: &mut DisplayList) {
             list.push_rect(offset(inset(pr, -6.0), 0.0, 6.0 * hover), Color::from_srgb(0, 0, 0, 0.16 * hover), [12.0; 4]);
         }
         draw_piece(list, &p.shape, o, tc, gap, scale * (1.0 + 0.1 * sf), look.base, &style);
+        if over_k > 0.0 && !fits {
+            // фигура, которой некуда встать, — причина проигрыша
+            let pulse = (v.now * 4.0 + i as f32).sin() * 0.5 + 0.5;
+            let pr = inset(g.piece_rect_in_slot(i, &p.shape), -8.0);
+            list.push_outline(pr, hex(theme::DANGER).with_alpha((0.55 + 0.35 * pulse) * over_k), 2.0, 0.0, [12.0; 4]);
+        }
     }
 
     // перетаскиваемая фигура — поверх всего. Рисуется в оверлейном слое:
@@ -568,7 +576,7 @@ fn skin_chip(v: &View, list: &mut DisplayList) {
         return;
     }
     let g = &v.geo;
-    let w = 176.0;
+    let w = 214.0;
     let h = 26.0;
     let pop = anim::ease_out_back(clamp01((v.now - sk.born) / 0.45));
     let cx = g.board.origin.x + g.board.width() * 0.5;
@@ -582,7 +590,7 @@ fn skin_chip(v: &View, list: &mut DisplayList) {
     let mut style = CubeStyle::default().with_look(&look, 7, v.now);
     style.blend = Some((pal.panel, 1.0 - a));
     draw_cube(list, cube, look.base, &style);
-    let label = format!("{} · {} {}", world::skin_name(sk.material), sk.moves_left, moves_word(sk.moves_left));
+    let label = format!("{} +{} · {} {}", world::skin_name(sk.material), sk.material.mode_bonus(), sk.moves_left, moves_word(sk.moves_left));
     let tr = Rect::new(Point::new(rect.origin.x + 26.0, rect.origin.y), Size::new(rect.width() - 30.0, rect.height()));
     text_nowrap(list, &label, tr, Color::WHITE.with_alpha(a), 12.5, 800, TextAlign::CENTER);
 }
@@ -593,6 +601,22 @@ fn moves_word(n: u32) -> &'static str {
         (2..=4, x) if !(12..=14).contains(&x) => "хода",
         _ => "ходов",
     }
+}
+
+/// Подсказка после проигрыша, пока итоги не открыты.
+fn over_hint(v: &View, list: &mut DisplayList) {
+    if !v.over_waiting() {
+        return;
+    }
+    let g = &v.geo;
+    let t0 = v.fx.over_at.unwrap_or(0.0) + OVER_DELAY;
+    let a = clamp01((v.now - t0) / 0.4) * (0.75 + 0.25 * (v.now * 3.0).sin());
+    // закрывает весь ряд способностей (после проигрыша они не нужны)
+    let (l, r) = (g.abil_btns[0], g.abil_btns[2]);
+    let rect = inset(Rect::new(l.origin, Size::new(r.origin.x + r.width() - l.origin.x, l.height())), -3.0);
+    let pal = v.palette();
+    list.push_rect_bordered(rect, pal.panel.with_alpha(0.94), [rect.height() * 0.5; 4], Border { width: 1.5, color: Color::WHITE.with_alpha(0.35 * a) });
+    text_nowrap(list, "Коснитесь, чтобы увидеть итоги", rect, Color::WHITE.with_alpha(a), 15.0, 800, TextAlign::CENTER);
 }
 
 fn floats(v: &View, list: &mut DisplayList) {

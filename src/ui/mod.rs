@@ -114,6 +114,10 @@ pub struct View {
     pub frozen: bool,
     /// Звук конца игры уже сыгран для текущей партии.
     over_sound_played: bool,
+    /// Итоги партии показаны. Без касания они не появляются: после
+    /// проигрыша поле и фигуры остаются на виду — видно, почему ходов нет.
+    pub over_card: bool,
+    over_card_at: f32,
     /// Демо: отложенный ход `(время, слот, r, c)`.
     pub demo_move_at: Option<(f32, usize, i32, i32)>,
     pub prng: Rng,
@@ -157,6 +161,8 @@ impl View {
             },
             frozen: false,
             over_sound_played: false,
+            over_card: false,
+            over_card_at: -10.0,
             demo_move_at: None,
             prng: Rng::from_time(),
             stats_dirty: false,
@@ -173,6 +179,7 @@ impl View {
         v.fx.score_shown = g.scoring.score as f32;
         if g.over {
             v.fx.over_at = Some(0.0);
+            v.over_card = true;
         }
         demo::apply(&mut v);
         v
@@ -223,9 +230,20 @@ impl View {
             return Some(Overlay::Menu);
         }
         match self.fx.over_at {
-            Some(t) if self.now >= t + OVER_DELAY => Some(Overlay::Over),
+            Some(t) if self.over_card && self.now >= t + OVER_DELAY => Some(Overlay::Over),
             _ => None,
         }
+    }
+
+    /// Партия окончена, итоги ещё не открыты (поле на виду).
+    pub fn over_waiting(&self) -> bool {
+        !self.over_card && self.fx.over_at.map(|t| self.now >= t + OVER_DELAY).unwrap_or(false)
+    }
+
+    fn show_over_card(&mut self) {
+        self.over_card = true;
+        self.over_card_at = self.now;
+        audio::play(Sfx::Click);
     }
 
     /// Ввод по полю/трею заблокирован (оверлей или ожидание конца игры).
@@ -428,6 +446,19 @@ impl View {
                 };
                 audio::play(sfx);
             }
+            if let Some((m, count, pts)) = pl.mode_bonus {
+                let i = pl.material_bonus.len();
+                self.fx.floats.push(FloatText {
+                    text: format!("{} ×{}  +{}", world::skin_name(m), count, pts),
+                    pos: Point::new(cx, cy + self.geo.cell * (0.6 + 0.55 * i as f32)),
+                    born: now + 0.12 * (i as f32 + 1.0),
+                    life: 1.3,
+                    rise: 48.0,
+                    size: 17.0,
+                    color: theme::material_accent(m),
+                    weight: 800,
+                });
+            }
             for &r in &pl.clear.rows {
                 self.fx.flashes.push(LineFlash { is_row: true, idx: r, born: now });
                 self.fx.beams.push(Beam { is_row: true, idx: r, born: now, from: ac, color: base.lerp(&Color::WHITE, 0.6) });
@@ -532,6 +563,7 @@ impl View {
             audio::play(Sfx::Refill);
         }
         if pl.over {
+            self.fx.banner_queue.push(Banner { text: "НЕТ ХОДОВ".into(), sub: None, born: now, color: theme::hex(theme::DANGER).lerp(&Color::WHITE, 0.25) });
             let delay = if lines > 0 { VANISH_DUR + 0.45 } else { 0.2 };
             self.fx.over_at = Some(now + delay);
             self.finish_game(&game);
@@ -586,6 +618,7 @@ impl View {
             self.skin_prev = Some(old);
         }
         self.skin = Some(world::SkinMode::new(m, at));
+        self.set_game_mode(Some(m));
         let sfx = match m {
             Material::Wood => Sfx::Wood,
             Material::Crystal => Sfx::Crystal,
@@ -595,16 +628,27 @@ impl View {
         audio::play(sfx);
     }
 
+    /// Режим блоков в модели партии — от него зависит бонус очков.
+    fn set_game_mode(&mut self, m: Option<Material>) {
+        let mut g = self.game();
+        if g.mode != m {
+            g.mode = m;
+            self.ctx.game.set(g);
+        }
+    }
+
     /// Ход сделан: режим блоков тикает, иногда режим включается сам.
     fn skin_after_move(&mut self) {
         let now = self.now;
         let moves = self.game().scoring.moves;
         let roll = self.prng.below(100);
+        let mut ended = false;
         match self.skin.as_mut() {
             Some(s) if s.end_at.is_none() => {
                 s.moves_left = s.moves_left.saturating_sub(1);
                 if s.moves_left == 0 {
                     s.end_at = Some(now + 0.3);
+                    ended = true;
                 }
             }
             None if moves > 6 && roll < 4 => {
@@ -614,6 +658,9 @@ impl View {
                 }
             }
             _ => {}
+        }
+        if ended {
+            self.set_game_mode(None);
         }
     }
 
@@ -674,6 +721,7 @@ impl View {
         self.fx.score_shown = 0.0;
         self.best_announced = false;
         self.over_sound_played = false;
+        self.over_card = false;
         self.best_at_start = self.stats().best_by[difficulty.index()];
         self.menu_open = false;
         self.targeting = None;
@@ -848,6 +896,7 @@ impl View {
         audio::play(Sfx::Click);
         match a {
             Action::Resume => self.menu_open = false,
+            Action::ViewBoard => self.over_card = false,
             Action::NewGame => self.new_game(),
             Action::Difficulty(i) => {
                 let mut s = self.stats();
@@ -909,9 +958,24 @@ impl View {
 
     fn on_press(&mut self, pos: Point, touch: bool, touch_id: Option<u64>) -> EventResult {
         self.pointer = pos;
-        if let Some(_ov) = self.overlay() {
+        if let Some(ov) = self.overlay() {
+            // только что открытые итоги не ловят тот же тап («Играть снова»
+            // случайно под пальцем)
+            if ov == Overlay::Over && self.now - self.over_card_at < 0.4 {
+                return EventResult::Handled;
+            }
             if let Some(a) = self.card_action_at(pos) {
                 self.apply(a);
+            }
+            return EventResult::Handled;
+        }
+        if self.fx.over_at.is_some() && !self.over_card {
+            // партия окончена: меню доступно, любое другое касание — к итогам
+            if self.geo.menu_btn.contains(pos) {
+                self.menu_open = true;
+                audio::play(Sfx::Click);
+            } else if self.over_waiting() {
+                self.show_over_card();
             }
             return EventResult::Handled;
         }
@@ -963,7 +1027,9 @@ impl View {
     fn on_key(&mut self, key: Key) -> EventResult {
         match key {
             Key::Escape => {
-                if self.drag.is_some() {
+                if self.over_card && !self.menu_open {
+                    self.over_card = false;
+                } else if self.drag.is_some() {
                     self.cancel_drag();
                 } else if self.targeting.is_some() {
                     self.targeting = None;
@@ -988,6 +1054,8 @@ impl View {
                         Overlay::Menu => Action::Resume,
                         Overlay::Over => Action::NewGame,
                     });
+                } else if self.over_waiting() {
+                    self.show_over_card();
                 } else if !self.input_locked() {
                     if let (Some(a), Some(k)) = (self.targeting, self.kb) {
                         self.apply_ability(a, Some((k.r, k.c)));
@@ -1082,7 +1150,7 @@ impl View {
             }
         }
 
-        if self.overlay() == Some(Overlay::Over) && !self.over_sound_played {
+        if self.over_waiting() && !self.over_sound_played {
             self.over_sound_played = true;
             audio::play(Sfx::Over);
         }
@@ -1369,6 +1437,9 @@ impl Element for View {
             Event::BackPressed => {
                 if self.menu_open {
                     self.menu_open = false;
+                    EventResult::Handled
+                } else if self.over_card {
+                    self.over_card = false;
                     EventResult::Handled
                 } else {
                     EventResult::Ignored

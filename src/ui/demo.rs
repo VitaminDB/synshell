@@ -1,4 +1,4 @@
-//! Демо-состояния для скриншотов: `ELLE_DEMO=board|drag|over|menu`;
+//! Демо-состояния для скриншотов: `ELLE_DEMO=board|drag|over|lost|menu`;
 //! дополнительно `ELLE_WORLD=1..8` (мир/уровень) и `ELLE_SKIN=wood|crystal|gold|lava`.
 //! Не влияет на обычный запуск (переменная не задана).
 
@@ -84,7 +84,7 @@ pub fn apply(v: &mut View) {
             v.drag = Some(Drag { slot: 0, start: target, cur: target, active: true, touch: true, touch_id: None, grab: (0.5, 0.5), lift: 1.0 });
             v.pointer = target;
         }
-        "over" => {
+        "over" | "lost" => {
             for r in 0..SIZE {
                 for c in 0..SIZE {
                     if g.board.get(r, c) == 0 && (r * 3 + c) % 4 != 0 {
@@ -94,7 +94,8 @@ pub fn apply(v: &mut View) {
             }
             g.over = true;
             v.fx.over_at = Some(-10.0);
-            v.fx.overlay_t = 1.0;
+            v.over_card = mode == "over";
+            v.fx.overlay_t = if v.over_card { 1.0 } else { 0.0 };
         }
         "menu" => {
             v.menu_open = true;

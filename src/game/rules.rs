@@ -197,6 +197,8 @@ pub struct Placement {
     pub gain: Gain,
     /// Бонусы по материалам: (материал, очищенных клеток, очки).
     pub material_bonus: Vec<(Material, usize, i32)>,
+    /// Бонус режима блоков: (материал режима, обычных клеток, очки).
+    pub mode_bonus: Option<(Material, usize, i32)>,
     pub perfect: bool,
     pub refilled: bool,
     pub over: bool,
@@ -214,6 +216,9 @@ pub struct Game {
     /// Энергия способностей: +1 за каждую очищенную линию.
     pub energy: u32,
     pub abilities_used: u32,
+    /// Режим блоков: пока он действует, обычные кубики считаются этим
+    /// материалом и дают `Material::mode_bonus` за очищенную клетку.
+    pub mode: Option<Material>,
 }
 
 impl Game {
@@ -235,6 +240,7 @@ impl Game {
             difficulty,
             energy: 0,
             abilities_used: 0,
+            mode: None,
         }
     }
 
@@ -337,9 +343,15 @@ impl Game {
         let clear = self.board.clear_full_lines();
         let perfect = !clear.is_empty() && self.board.is_empty();
         let mut material_bonus: Vec<(Material, usize, i32)> = Vec::new();
+        let mut mode_bonus: Option<(Material, usize, i32)> = None;
         for &(_, _, cell) in &clear.cells {
             let m = cell_material(cell);
             if m == Material::Plain {
+                if let Some(mm) = self.mode.filter(|mm| *mm != Material::Plain) {
+                    let e = mode_bonus.get_or_insert((mm, 0, 0));
+                    e.1 += 1;
+                    e.2 += mm.mode_bonus();
+                }
                 continue;
             }
             match material_bonus.iter_mut().find(|e| e.0 == m) {
@@ -350,7 +362,7 @@ impl Game {
                 None => material_bonus.push((m, 1, m.bonus())),
             }
         }
-        let bonus_total: i32 = material_bonus.iter().map(|e| e.2).sum();
+        let bonus_total: i32 = material_bonus.iter().map(|e| e.2).sum::<i32>() + mode_bonus.map(|e| e.2).unwrap_or(0);
         let gain = self.scoring.apply_with_bonus(piece.len(), clear.lines(), perfect, bonus_total);
         self.tray[slot] = None;
         self.energy = (self.energy + clear.lines() as u32).min(MAX_ENERGY);
@@ -370,6 +382,7 @@ impl Game {
             clear,
             gain,
             material_bonus,
+            mode_bonus,
             perfect,
             refilled,
             over: self.over,
@@ -500,6 +513,28 @@ mod tests {
         let mut g2 = Game::new(6);
         g2.tray = [Some(Piece::of(Family::Mono).with_material(Material::Gold)), None, None];
         assert_eq!(g2.place(0, 0, 0).unwrap().gain.material, 0);
+    }
+
+    #[test]
+    fn mode_bonus_counts_plain_cells_only() {
+        let mut g = Game::new(7);
+        g.mode = Some(Material::Wood);
+        for c in 0..5 {
+            g.board.set(7, c, 3);
+        }
+        g.board.set(7, 5, crate::game::board::make_cell(2, Material::Gold));
+        g.tray = [Some(Piece::of(Family::I2)), None, None];
+        let pl = g.place(0, 7, 6).unwrap();
+        // 5 обычных на поле + 2 от фигуры; золото считается своим бонусом
+        assert_eq!(pl.mode_bonus, Some((Material::Wood, 7, 7 * Material::Wood.mode_bonus())));
+        assert_eq!(pl.gain.material, 7 * Material::Wood.mode_bonus() + Material::Gold.bonus());
+        // без режима бонуса нет
+        let mut g2 = Game::new(7);
+        for c in 0..6 {
+            g2.board.set(7, c, 3);
+        }
+        g2.tray = [Some(Piece::of(Family::I2)), None, None];
+        assert_eq!(g2.place(0, 7, 6).unwrap().mode_bonus, None);
     }
 
     #[test]

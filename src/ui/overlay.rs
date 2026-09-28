@@ -14,6 +14,8 @@ pub enum Action {
     TrackPrev,
     TrackNext,
     ToggleLoopAll,
+    /// Скрыть итоги и посмотреть поле, на котором кончились ходы.
+    ViewBoard,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -107,9 +109,9 @@ pub fn menu_card(geo: &Geo) -> Card {
 
 /// Карточка конца игры.
 pub fn over_card(geo: &Geo) -> Card {
-    use super::theme::ICON_REPLAY;
+    use super::theme::{ICON_REPLAY, ICON_VIEW};
     let title_h = 44.0;
     let body_h = 150.0;
     let height = 22.0 + title_h + 10.0 + body_h + 16.0 + BTN_H + 10.0 + 12.0;
-    layout(geo, height, title_h, body_h, &[&[(Action::NewGame, true, "Играть снова", ICON_REPLAY, 1.0)]])
+    layout(geo, height, title_h, body_h, &[&[(Action::ViewBoard, false, "Поле", ICON_VIEW, 0.8), (Action::NewGame, true, "Играть снова", ICON_REPLAY, 1.2)]])
 }

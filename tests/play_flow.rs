@@ -211,16 +211,29 @@ fn game_over_flow_shows_card_and_restarts_on_click() {
     ctx.game.set(g0.clone());
     drag(&mut h, grab_point(&geo, 0, &g0), drop_point(&geo, 0, 0));
     assert!(game(&ctx).over);
-    // ждём появления карточки
-    for _ in 0..90 {
-        h.animate(Duration::from_millis(16));
-    }
-    let _ = h.paint();
+    let frames = |h: &mut TestHarness, n: usize| {
+        for _ in 0..n {
+            h.animate(Duration::from_millis(16));
+        }
+        let _ = h.paint();
+    };
     let card = elle_block::ui::overlay::over_card(&geo);
-    let btn = card.buttons[0].rect;
+    let btn = card.buttons.iter().find(|b| b.action == elle_block::ui::overlay::Action::NewGame).unwrap().rect;
     let p = Point::new(btn.origin.x + btn.width() * 0.5, btn.origin.y + btn.height() * 0.5);
-    h.send_event(&Event::MouseDown { button: MouseButton::Left, position: p });
-    h.send_event(&Event::MouseUp { button: MouseButton::Left, position: p });
+    let click = |h: &mut TestHarness, p: Point| {
+        h.send_event(&Event::MouseDown { button: MouseButton::Left, position: p });
+        h.send_event(&Event::MouseUp { button: MouseButton::Left, position: p });
+    };
+    // итоги сами не появляются: поле остаётся на виду
+    frames(&mut h, 90);
+    // первое касание (даже по месту кнопки) только открывает итоги
+    click(&mut h, p);
+    assert!(game(&ctx).over, "касание после проигрыша не должно начинать новую партию");
+    // тот же тап сразу после открытия итогов тоже не срабатывает
+    click(&mut h, p);
+    assert!(game(&ctx).over);
+    frames(&mut h, 40);
+    click(&mut h, p);
     let g = game(&ctx);
     assert!(!g.over);
     assert_eq!(g.board.filled(), 0);

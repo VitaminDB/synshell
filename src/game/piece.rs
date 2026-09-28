@@ -316,6 +316,18 @@ impl Material {
         }
     }
 
+    /// Бонус за очищенную обычную клетку, пока действует режим блоков
+    /// этого материала (меньше, чем у настоящих особых кубиков).
+    pub fn mode_bonus(self) -> i32 {
+        match self {
+            Material::Plain => 0,
+            Material::Wood => 5,
+            Material::Crystal => 10,
+            Material::Gold => 15,
+            Material::Lava => 20,
+        }
+    }
+
     /// Бонус очков за каждую очищенную клетку этого материала.
     pub fn bonus(self) -> i32 {
         match self {

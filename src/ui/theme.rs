@@ -83,6 +83,7 @@ pub const ICON_SETTINGS: &str = "\u{E8B8}";
 pub const ICON_REPLAY: &str = "\u{E5D5}"; // refresh (E0xx заняты PUA-глифами Inter)
 pub const ICON_PLAY: &str = "\u{E5C8}"; // arrow_forward
 pub const ICON_CLOSE: &str = "\u{E5CD}";
+pub const ICON_VIEW: &str = "\u{E8F4}"; // visibility
 pub const ICON_BOLT: &str = "\u{EA0B}";
 pub const ICON_FIRE: &str = "\u{E80E}"; // whatshot
 pub const ICON_PREV: &str = "\u{E5CB}"; // chevron_left
