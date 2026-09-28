@@ -219,6 +219,8 @@ pub struct Game {
     /// Режим блоков: пока он действует, обычные кубики считаются этим
     /// материалом и дают `Material::mode_bonus` за очищенную клетку.
     pub mode: Option<Material>,
+    /// Сколько ходов режиму осталось (для сохранения партии).
+    pub mode_moves: u32,
 }
 
 impl Game {
@@ -241,6 +243,7 @@ impl Game {
             energy: 0,
             abilities_used: 0,
             mode: None,
+            mode_moves: 0,
         }
     }
 

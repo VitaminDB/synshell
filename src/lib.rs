@@ -21,7 +21,13 @@ pub const WINDOW_H: u32 = 820;
 fn build_ctx() -> GameCtx {
     let stats = persist::load();
     audio::init(stats.music, stats.sound, stats.track as usize, stats.loop_all);
-    GameCtx::new(Rng::from_time().state(), stats)
+    let ctx = GameCtx::new(Rng::from_time().state(), stats);
+    // незаконченная (или только что проигранная) партия переживает перезапуск
+    // и обновление приложения
+    if let Some(g) = persist::load_game() {
+        ctx.game.set(g);
+    }
+    ctx
 }
 
 pub fn run_desktop() {

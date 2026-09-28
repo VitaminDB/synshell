@@ -1,8 +1,9 @@
-//! Сохранение рекорда и статистики в простой текстовый файл.
+//! Сохранение рекорда, статистики и текущей партии в простые текстовые файлы.
 //!
-//! Путь: `$XDG_DATA_HOME/elle_block/stats.txt` или `~/.local/share/...`.
+//! Путь: `$XDG_DATA_HOME/elle_block/{stats,game}.txt` или `~/.local/share/...`.
 //! Без каталога данных (например, на Android без HOME) — работает в памяти.
 
+use crate::game::{Board, Difficulty, Family, Game, Material, Piece, Rng, Shape, SIZE};
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,14 +82,161 @@ impl Stats {
     }
 }
 
-pub fn path() -> Option<PathBuf> {
+fn data_dir() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("ELLE_BLOCK_DATA") {
-        return Some(PathBuf::from(p).join("stats.txt"));
+        return Some(PathBuf::from(p));
     }
     let base = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))?;
-    Some(base.join("elle_block").join("stats.txt"))
+    Some(base.join("elle_block"))
+}
+
+pub fn path() -> Option<PathBuf> {
+    data_dir().map(|d| d.join("stats.txt"))
+}
+
+pub fn game_path() -> Option<PathBuf> {
+    data_dir().map(|d| d.join("game.txt"))
+}
+
+// ── текущая партия ─────────────────────────────────────────────────────────
+
+fn family_name(f: Family) -> String {
+    format!("{f:?}")
+}
+
+fn family_by_name(name: &str) -> Option<Family> {
+    Family::ALL.iter().copied().find(|f| family_name(*f) == name)
+}
+
+/// Фигура: `семейство:цвет:материал:r.c;r.c;…` — по имени семейства, а не
+/// индексу, чтобы сохранение переживало изменения каталога фигур.
+fn piece_to_text(p: &Piece) -> String {
+    let cells: Vec<String> = p.shape.cells().iter().map(|(r, c)| format!("{r}.{c}")).collect();
+    format!("{}:{}:{}:{}", family_name(p.family), p.color, p.material.index(), cells.join(";"))
+}
+
+fn piece_from_text(s: &str) -> Option<Piece> {
+    let mut it = s.split(':');
+    let family = family_by_name(it.next()?)?;
+    let color: u8 = it.next()?.parse().ok()?;
+    let material = Material::from_index(it.next()?.parse().ok()?);
+    let cells: Vec<(u8, u8)> = it
+        .next()?
+        .split(';')
+        .map(|rc| {
+            let (r, c) = rc.split_once('.')?;
+            Some((r.parse().ok()?, c.parse().ok()?))
+        })
+        .collect::<Option<_>>()?;
+    if cells.is_empty() || cells.len() > crate::game::piece::MAX_CELLS || cells.iter().any(|&(r, c)| r as usize >= SIZE || c as usize >= SIZE) {
+        return None;
+    }
+    let mut p = Piece::new(family, Shape::from_cells(&cells)).with_material(material);
+    p.color = color.clamp(1, 7);
+    Some(p)
+}
+
+pub fn game_to_text(g: &Game) -> String {
+    let mut board = String::with_capacity(SIZE * SIZE * 2);
+    for r in 0..SIZE {
+        for c in 0..SIZE {
+            board.push_str(&format!("{:02x}", g.board.get(r, c)));
+        }
+    }
+    let tray: Vec<String> = g.tray.iter().map(|p| p.map(|p| piece_to_text(&p)).unwrap_or_else(|| "-".into())).collect();
+    let sc = &g.scoring;
+    format!(
+        "v=1\nseed={}\nrng={}\ndifficulty={}\nover={}\nenergy={}\nabilities_used={}\nmode={}\nmode_moves={}\n\
+         score={}\ncombo={}\nmisses={}\nbest_combo={}\nlines={}\nmoves={}\nperfects={}\ngrace={}\n\
+         board={}\ntray0={}\ntray1={}\ntray2={}\n",
+        g.seed,
+        g.rng.state(),
+        g.difficulty.index(),
+        g.over as u8,
+        g.energy,
+        g.abilities_used,
+        g.mode.map(|m| m.index() as i32).unwrap_or(-1),
+        g.mode_moves,
+        sc.score,
+        sc.combo,
+        sc.misses,
+        sc.best_combo,
+        sc.lines,
+        sc.moves,
+        sc.perfects,
+        sc.grace,
+        board,
+        tray[0],
+        tray[1],
+        tray[2],
+    )
+}
+
+/// Разбор сохранённой партии; `None`, если файл битый или чужой версии.
+pub fn game_from_text(text: &str) -> Option<Game> {
+    let kv: std::collections::HashMap<&str, &str> = text.lines().filter_map(|l| l.split_once('=')).map(|(k, v)| (k.trim(), v.trim())).collect();
+    if kv.get("v") != Some(&"1") {
+        return None;
+    }
+    let num = |k: &str| -> Option<i64> { kv.get(k)?.parse().ok() };
+    let seed = kv.get("seed")?.parse::<u64>().ok()?;
+    let mut g = Game::with_difficulty(seed, Difficulty::from_index(num("difficulty")? as usize));
+    g.rng = Rng::new(kv.get("rng")?.parse::<u64>().ok()?);
+    g.over = num("over")? != 0;
+    g.energy = num("energy")? as u32;
+    g.abilities_used = num("abilities_used")? as u32;
+    g.mode = match num("mode")? {
+        m if m < 0 => None,
+        m => Some(Material::from_index(m as u8)).filter(|m| *m != Material::Plain),
+    };
+    g.mode_moves = num("mode_moves").unwrap_or(0) as u32;
+    let sc = &mut g.scoring;
+    sc.score = num("score")? as i32;
+    sc.combo = num("combo")? as u32;
+    sc.misses = num("misses")? as u32;
+    sc.best_combo = num("best_combo")? as u32;
+    sc.lines = num("lines")? as u32;
+    sc.moves = num("moves")? as u32;
+    sc.perfects = num("perfects")? as u32;
+    sc.grace = num("grace")? as u32;
+    let hex = kv.get("board")?;
+    if hex.len() != SIZE * SIZE * 2 {
+        return None;
+    }
+    let mut board = Board::new();
+    for i in 0..SIZE * SIZE {
+        let v = u8::from_str_radix(hex.get(i * 2..i * 2 + 2)?, 16).ok()?;
+        board.set(i / SIZE, i % SIZE, v);
+    }
+    g.board = board;
+    for (i, key) in ["tray0", "tray1", "tray2"].iter().enumerate() {
+        let v = kv.get(key)?;
+        g.tray[i] = if *v == "-" { None } else { Some(piece_from_text(v)?) };
+    }
+    // трей не может быть пустым посреди партии
+    if !g.over && g.tray.iter().all(|p| p.is_none()) {
+        return None;
+    }
+    Some(g)
+}
+
+pub fn load_game() -> Option<Game> {
+    let text = std::fs::read_to_string(game_path()?).ok()?;
+    game_from_text(&text)
+}
+
+pub fn save_game(g: &Game) {
+    let Some(p) = game_path() else { return };
+    if let Some(dir) = p.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    // через временный файл: оборванная запись не испортит сохранение
+    let tmp = p.with_extension("tmp");
+    if std::fs::write(&tmp, game_to_text(g)).is_ok() {
+        let _ = std::fs::rename(&tmp, &p);
+    }
 }
 
 pub fn load() -> Stats {
@@ -115,5 +263,26 @@ mod tests {
         let s = Stats { best: 1234, games: 7, best_combo: 5, total_lines: 88, total_score: 9999, perfects: 2, sound: false, music: true, difficulty: 2, best_by: [10, 1234, 77], track: 3, loop_all: true };
         assert_eq!(Stats::from_text(&s.to_text()), s);
         assert_eq!(Stats::from_text("garbage\nbest=x\n"), Stats::default());
+    }
+
+    #[test]
+    fn game_roundtrip() {
+        let mut g = Game::with_difficulty(42, Difficulty::Hard);
+        g.board.set(3, 4, crate::game::make_cell(5, Material::Crystal));
+        g.board.set(7, 0, 2);
+        g.tray[1] = None;
+        g.tray[2] = Some(Piece::of(Family::D3).with_material(Material::Gold));
+        g.scoring.score = 4321;
+        g.scoring.combo = 3;
+        g.energy = 5;
+        g.mode = Some(Material::Wood);
+        g.mode_moves = 7;
+        let back = game_from_text(&game_to_text(&g)).expect("разбор");
+        assert_eq!(back, g);
+        // генератор продолжает ту же последовательность
+        let (mut a, mut b) = (g.clone(), back);
+        assert_eq!(a.rng.next_u64(), b.rng.next_u64());
+        assert!(game_from_text("v=1\nseed=1\n").is_none());
+        assert!(game_from_text("мусор").is_none());
     }
 }

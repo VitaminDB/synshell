@@ -333,3 +333,15 @@ fn difficulty_choice_applies_to_new_game() {
     assert_eq!(g.difficulty, elle_block::game::Difficulty::Hard);
     assert_eq!(g.scoring.grace, 1);
 }
+
+#[test]
+fn game_is_saved_after_move_and_restored() {
+    let (mut h, ctx, geo) = setup(21);
+    let g0 = game(&ctx);
+    drag(&mut h, grab_point(&geo, 1, &g0), drop_point(&geo, 3, 3));
+    h.animate(Duration::from_millis(16));
+    // папка данных общая для параллельных тестов процесса, поэтому здесь
+    // только «записано и читается»; точный формат — persist::tests::game_roundtrip
+    assert!(elle_block::persist::load_game().is_some(), "партия записана");
+    assert_eq!(game(&ctx).board.get(3, 3), Family::I2.color());
+}

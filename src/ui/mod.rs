@@ -123,6 +123,8 @@ pub struct View {
     pub prng: Rng,
     stats_dirty: bool,
     last_save: f32,
+    /// Партия изменилась — записать на диск в ближайшем кадре.
+    game_dirty: bool,
     /// Тап уже обработан на TouchStart: syngui на отпускании пальца ещё
     /// синтезирует MouseDown/MouseUp — их надо проглотить, иначе каждое
     /// нажатие срабатывает дважды.
@@ -167,6 +169,7 @@ impl View {
             prng: Rng::from_time(),
             stats_dirty: false,
             last_save: 0.0,
+            game_dirty: false,
             touch_pressed: false,
             seen_track: audio::current_track(),
             level: 1,
@@ -180,6 +183,15 @@ impl View {
         if g.over {
             v.fx.over_at = Some(0.0);
             v.over_card = true;
+        }
+        // восстановленная партия: её мир и режим блоков
+        v.level = world::level_for(g.scoring.score);
+        let wi = world::world_index(v.level);
+        v.world = world::WorldFade { from: wi, to: wi, born: -100.0 };
+        if let Some(m) = g.mode.filter(|_| !g.over && g.mode_moves > 0) {
+            let mut s = world::SkinMode::new(m, -100.0);
+            s.moves_left = g.mode_moves;
+            v.skin = Some(s);
         }
         demo::apply(&mut v);
         v
@@ -378,6 +390,7 @@ impl View {
 
     fn on_placed(&mut self, pl: &Placement) {
         let now = self.now;
+        self.game_dirty = true;
         let game = self.game();
         self.kb = None;
         self.fx.last_place_at = now;
@@ -631,9 +644,12 @@ impl View {
     /// Режим блоков в модели партии — от него зависит бонус очков.
     fn set_game_mode(&mut self, m: Option<Material>) {
         let mut g = self.game();
-        if g.mode != m {
+        let moves = self.skin.filter(|_| m.is_some()).map(|s| s.moves_left).unwrap_or(0);
+        if g.mode != m || g.mode_moves != moves {
             g.mode = m;
+            g.mode_moves = moves;
             self.ctx.game.set(g);
+            self.game_dirty = true;
         }
     }
 
@@ -661,6 +677,8 @@ impl View {
         }
         if ended {
             self.set_game_mode(None);
+        } else if let Some(s) = self.skin.filter(|s| s.end_at.is_none()) {
+            self.set_game_mode(Some(s.material));
         }
     }
 
@@ -714,6 +732,7 @@ impl View {
         let seed = Rng::from_time().state() ^ self.prng.next_u64();
         let difficulty = Difficulty::from_index(self.stats().difficulty as usize);
         self.ctx.game.set(Game::with_difficulty(seed, difficulty));
+        self.game_dirty = true;
         let particles = std::mem::take(&mut self.fx.particles);
         self.fx = Fx::new();
         self.fx.particles = particles;
@@ -832,6 +851,7 @@ impl View {
             return;
         };
         self.ctx.game.set(game.clone());
+        self.game_dirty = true;
         self.targeting = None;
         let now = self.now;
         let (mut cx, mut cy) = (0.0f32, 0.0f32);
@@ -1203,6 +1223,10 @@ impl View {
             self.ctx.stats.set(st);
             self.stats_dirty = true;
         }
+        if self.game_dirty && !self.frozen {
+            self.game_dirty = false;
+            persist::save_game(&self.game());
+        }
         if self.stats_dirty && now - self.last_save > 1.5 {
             persist::save(&self.stats());
             self.stats_dirty = false;
@@ -1447,6 +1471,10 @@ impl Element for View {
             }
             Event::AppSuspended => {
                 audio::suspend();
+                if !self.frozen {
+                    persist::save_game(&self.game());
+                    persist::save(&self.stats());
+                }
                 EventResult::Ignored
             }
             Event::AppResumed => {
