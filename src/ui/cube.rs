@@ -19,11 +19,13 @@ pub struct CubeStyle {
     pub seed: u32,
     /// Время для анимированных материалов (лава пульсирует, золото блестит).
     pub time: f32,
+    /// Цвет свечения узора (трещины магмы в режиме блоков); `None` — родной.
+    pub accent: Option<Color>,
 }
 
 impl Default for CubeStyle {
     fn default() -> Self {
-        CubeStyle { bevel: 0.17, blend: None, flash: 0.0, material: Material::Plain, seed: 0, time: 0.0 }
+        CubeStyle { bevel: 0.17, blend: None, flash: 0.0, material: Material::Plain, seed: 0, time: 0.0, accent: None }
     }
 }
 
@@ -33,6 +35,13 @@ impl CubeStyle {
         self.seed = seed;
         self.time = time;
         self
+    }
+
+    /// Материал, цвет и акцент из `Look` (режимы блоков).
+    pub fn with_look(self, look: &super::world::Look, seed: u32, time: f32) -> Self {
+        let mut s = self.with_material(look.material, seed, time);
+        s.accent = look.accent;
+        s
     }
 }
 
@@ -187,12 +196,31 @@ fn draw_material(list: &mut DisplayList, inner: Rect, base: Color, style: &CubeS
             }
             cv.flush(list);
             list.push_rect(Rect::new(Point::new(ix + iw * 0.12, iy + ih * 0.55), Size::new(iw * 0.76, (ih * 0.06).max(1.0))), tone(base, style, -0.3).with_alpha(0.35), [2.0; 4]);
+            if style.accent.is_some() {
+                // режим «металл»: шлифовка и заклёпки по углам
+                let lh = (ih * 0.025).max(0.7);
+                for k in 0..5 {
+                    let y = iy + ih * (0.12 + 0.18 * k as f32);
+                    let col = if k % 2 == 0 { Color::WHITE.with_alpha(0.16) } else { Color::BLACK.with_alpha(0.12) };
+                    list.push_rect(Rect::new(Point::new(ix + iw * 0.05, y), Size::new(iw * 0.9, lh)), col, [0.0; 4]);
+                }
+                let rr = (iw * 0.07).max(1.2);
+                for (fx, fy) in [(0.14, 0.14), (0.86, 0.14), (0.14, 0.86), (0.86, 0.86)] {
+                    let (x, y) = (ix + iw * fx, iy + ih * fy);
+                    list.push_rect(Rect::new(Point::new(x - rr, y - rr), Size::new(rr * 2.0, rr * 2.0)), tone(base, style, -0.45), [rr; 4]);
+                    list.push_rect(Rect::new(Point::new(x - rr * 0.7, y - rr * 0.8), Size::new(rr * 1.2, rr * 1.2)), tone(base, style, 0.55), [rr; 4]);
+                }
+            }
         }
         Material::Lava => {
             // трещины с пульсирующим свечением
             let pulse = ((style.time * 2.2 + hash01(style.seed, 2) * 6.28).sin() * 0.5 + 0.5) * 0.5 + 0.5;
-            let hot = Color::from_hex("#ff7a2f").lerp(&Color::from_hex("#ffd166"), pulse * 0.5).with_alpha(0.55 + 0.45 * pulse);
-            let glow = Color::from_hex("#ff5a1f").with_alpha(0.10 + 0.14 * pulse);
+            let (hot, glow0) = match style.accent {
+                Some(a) => (a.lerp(&Color::WHITE, pulse * 0.2), a),
+                None => (Color::from_hex("#ff7a2f").lerp(&Color::from_hex("#ffd166"), pulse * 0.5), Color::from_hex("#ff5a1f")),
+            };
+            let hot = hot.with_alpha(0.55 + 0.45 * pulse);
+            let glow = glow0.with_alpha(if style.accent.is_some() { 0.04 + 0.06 * pulse } else { 0.10 + 0.14 * pulse });
             list.push_rect(inner, glow, [3.0; 4]);
             let w = (iw * 0.06).max(1.2);
             let pts1 = vec![

@@ -1,12 +1,28 @@
-//! Демо-состояния для скриншотов: `ELLE_DEMO=board|drag|over|menu`.
+//! Демо-состояния для скриншотов: `ELLE_DEMO=board|drag|over|menu`;
+//! дополнительно `ELLE_WORLD=1..8` (мир/уровень) и `ELLE_SKIN=wood|crystal|gold|lava`.
 //! Не влияет на обычный запуск (переменная не задана).
 
 use super::{Drag, View};
 use crate::game::{make_cell, Board, Family, Game, Material, Piece, SIZE};
 use syngui::prelude::*;
 
+/// Переменная окружения; на Android окружения нет, поэтому значение можно
+/// «вшить» при сборке: `ELLE_DEMO=board ELLE_WORLD=3 ./run-phone.sh`.
+fn var(name: &str) -> Option<String> {
+    if let Ok(v) = std::env::var(name) {
+        return Some(v);
+    }
+    let built = match name {
+        "ELLE_DEMO" => option_env!("ELLE_DEMO"),
+        "ELLE_WORLD" => option_env!("ELLE_WORLD"),
+        "ELLE_SKIN" => option_env!("ELLE_SKIN"),
+        _ => None,
+    };
+    built.filter(|s| !s.is_empty()).map(str::to_string)
+}
+
 pub fn apply(v: &mut View) {
-    let Ok(mode) = std::env::var("ELLE_DEMO") else { return };
+    let Some(mode) = var("ELLE_DEMO") else { return };
     v.frozen = true;
     let mut g = Game::new(2027);
     g.board = Board::new();
@@ -38,6 +54,28 @@ pub fn apply(v: &mut View) {
     v.ctx.stats.set(stats);
     v.fx.score_shown = g.scoring.score as f32;
 
+    if let Some(l) = var("ELLE_WORLD").and_then(|s| s.parse::<u32>().ok()) {
+        let l = l.max(1);
+        v.level = l;
+        let wi = super::world::world_index(l);
+        v.world = super::world::WorldFade { from: wi, to: wi, born: -100.0 };
+        g.scoring.score = super::world::threshold(l) + 600;
+    }
+    if let Some(sk) = var("ELLE_SKIN") {
+        let m = match sk.as_str() {
+            "wood" => Some(Material::Wood),
+            "crystal" => Some(Material::Crystal),
+            "gold" => Some(Material::Gold),
+            "lava" => Some(Material::Lava),
+            _ => None,
+        };
+        if let Some(m) = m {
+            let mut s = super::world::SkinMode::new(m, -100.0);
+            s.moves_left = 9;
+            v.skin = Some(s);
+        }
+    }
+    v.fx.score_shown = g.scoring.score as f32;
     match mode.as_str() {
         "drag" => {
             // I2 над клетками (7,6)-(7,7): закроет ряд 7

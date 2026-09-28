@@ -11,13 +11,14 @@ pub mod layout;
 pub mod overlay;
 pub mod paint;
 pub mod theme;
+pub mod world;
 
 use std::any::Any;
 use std::time::Duration;
 
 use crate::anim::{self, FloatText, Particle, Shape as PShape};
 use crate::audio::{self, Sfx};
-use crate::game::{cell_color, cell_material, Ability, Difficulty, Game, Material, Placement, Rng, MAX_ENERGY, SIZE};
+use crate::game::{cell_color, cell_material, Ability, Difficulty, Game, Material, Piece, Placement, Rng, SIZE};
 use crate::persist::{self, Stats};
 use fx::*;
 use layout::Geo;
@@ -124,6 +125,12 @@ pub struct View {
     touch_pressed: bool,
     /// Последний трек, о котором сообщил микшер (см. режим «по кругу» в tick).
     seen_track: usize,
+    /// Уровень партии (из очков) и переход между мирами фона.
+    pub level: u32,
+    pub world: world::WorldFade,
+    /// Режим блоков («всё деревянное»…) и предыдущий — для волны смены.
+    pub skin: Option<world::SkinMode>,
+    pub skin_prev: Option<world::SkinMode>,
 }
 
 impl View {
@@ -156,6 +163,10 @@ impl View {
             last_save: 0.0,
             touch_pressed: false,
             seen_track: audio::current_track(),
+            level: 1,
+            world: world::WorldFade { from: 0, to: 0, born: -100.0 },
+            skin: None,
+            skin_prev: None,
         };
         v.fx.tray_born = [0.0, 0.06, 0.12];
         let g = v.game();
@@ -168,6 +179,35 @@ impl View {
     }
 
     // ── доступ к модели ────────────────────────────────────────────────
+
+    /// Палитра мира на текущий кадр.
+    pub fn palette(&self) -> world::Palette {
+        self.world.palette(self.now)
+    }
+
+    /// Материал режима для кубика с задержкой волны `delay` (если режим действует).
+    pub fn skin_for(&self, delay: f32) -> Option<Material> {
+        [self.skin, self.skin_prev]
+            .into_iter()
+            .flatten()
+            .find(|s| s.on(self.now, delay))
+            .map(|s| s.material)
+    }
+
+    /// Вспышка волны смены режима для кубика с задержкой `delay`.
+    pub fn skin_flash(&self, delay: f32) -> f32 {
+        [self.skin, self.skin_prev].into_iter().flatten().map(|s| s.flash(self.now, delay)).fold(0.0, f32::max)
+    }
+
+    /// Вид кубика поля `(r, c)` со значением клетки `val`.
+    pub fn cell_look(&self, val: u8, r: usize, c: usize) -> world::Look {
+        world::look(cell_material(val), cell_color(val), self.skin_for(world::cell_delay(r, c)))
+    }
+
+    /// Вид фигуры в трее / в руке.
+    pub fn piece_look(&self, p: &Piece) -> world::Look {
+        world::look(p.material, p.color, self.skin_for(world::TRAY_DELAY))
+    }
 
     pub fn game(&self) -> Game {
         self.ctx.game.get_untracked()
@@ -332,13 +372,14 @@ impl View {
             cx += cr.origin.x + cr.width() * 0.5;
             cy += cr.origin.y + cr.height() * 0.5;
             self.fx.pops.push(Pop { r, c, born: now });
+            self.fx.lands.push(Land { r, c, born: now });
         }
         let n = pl.cells.len().max(1) as f32;
         cx /= n;
         cy /= n;
 
         // пыль при установке
-        let base = theme::material_color(pl.piece.material, pl.piece.color);
+        let base = self.piece_look(&pl.piece).base;
         for &(r, c) in &pl.cells {
             let cr = self.geo.cell_rect(r, c);
             for _ in 0..2 {
@@ -389,9 +430,13 @@ impl View {
             }
             for &r in &pl.clear.rows {
                 self.fx.flashes.push(LineFlash { is_row: true, idx: r, born: now });
+                self.fx.beams.push(Beam { is_row: true, idx: r, born: now, from: ac, color: base.lerp(&Color::WHITE, 0.6) });
+                self.line_sparkles(true, r, base);
             }
             for &c in &pl.clear.cols {
                 self.fx.flashes.push(LineFlash { is_row: false, idx: c, born: now });
+                self.fx.beams.push(Beam { is_row: false, idx: c, born: now, from: ar, color: base.lerp(&Color::WHITE, 0.6) });
+                self.line_sparkles(false, c, base);
             }
             if lines >= 2 || pl.perfect {
                 self.fx.shake_born = now;
@@ -474,6 +519,14 @@ impl View {
             }
         }
 
+        // уровень: мир фона меняется, фейерверк, новый режим блоков
+        let lvl = world::level_for(game.scoring.score);
+        if lvl > self.level && !pl.over {
+            self.level_up(lvl);
+        } else if !pl.over {
+            self.skin_after_move();
+        }
+
         if pl.refilled {
             self.fx.tray_born = [now + 0.02, now + 0.09, now + 0.16];
             audio::play(Sfx::Refill);
@@ -483,6 +536,107 @@ impl View {
             self.fx.over_at = Some(now + delay);
             self.finish_game(&game);
         }
+    }
+
+    // ── уровни и режимы ─────────────────────────────────────────────────
+
+    /// Плавно перейти к миру `idx`.
+    fn set_world(&mut self, idx: usize) {
+        let now = self.now;
+        let cur = if self.world.t(now) >= 0.5 { self.world.to } else { self.world.from };
+        if cur == idx && self.world.to == idx {
+            return;
+        }
+        self.world = world::WorldFade { from: cur, to: idx, born: now };
+    }
+
+    fn level_up(&mut self, level: u32) {
+        let now = self.now;
+        self.level = level;
+        self.fx.level_born = now;
+        let wi = world::world_index(level);
+        self.set_world(wi);
+        let w = &world::WORLDS[wi];
+        let accent = theme::hex(w.accent);
+        self.fx.banner_queue.push(Banner { text: format!("УРОВЕНЬ {level}"), sub: Some(w.name.to_uppercase()), born: now, color: Color::WHITE });
+        self.fx.screen_flashes.push(Flash { born: now + 0.1, color: accent, strength: 0.16 });
+        // фейерверк: залпы над полем
+        let b = self.geo.board;
+        for i in 0..7 {
+            let pos = Point::new(
+                b.origin.x + b.width() * self.prng.range(0.1, 0.9),
+                b.origin.y + b.height() * self.prng.range(0.05, 0.6),
+            );
+            let color = if i % 2 == 0 { accent } else { theme::cell_color(1 + self.prng.index(7) as u8) };
+            self.fx.fireworks.push(Firework { at: now + 0.25 + 0.17 * i as f32 + self.prng.range(0.0, 0.08), pos, color });
+        }
+        audio::play(Sfx::Perfect);
+        self.start_skin(now + 0.5);
+    }
+
+    /// Включить случайный режим блоков (не повторяя текущий).
+    fn start_skin(&mut self, at: f32) {
+        let cur = self.skin.map(|s| s.material);
+        let choices: Vec<Material> = world::SKINS.iter().copied().filter(|m| Some(*m) != cur).collect();
+        let m = choices[self.prng.index(choices.len())];
+        if let Some(mut old) = self.skin.take() {
+            if old.end_at.is_none() {
+                old.end_at = Some(at);
+            }
+            self.skin_prev = Some(old);
+        }
+        self.skin = Some(world::SkinMode::new(m, at));
+        let sfx = match m {
+            Material::Wood => Sfx::Wood,
+            Material::Crystal => Sfx::Crystal,
+            Material::Gold => Sfx::Gold,
+            _ => Sfx::Lava,
+        };
+        audio::play(sfx);
+    }
+
+    /// Ход сделан: режим блоков тикает, иногда режим включается сам.
+    fn skin_after_move(&mut self) {
+        let now = self.now;
+        let moves = self.game().scoring.moves;
+        let roll = self.prng.below(100);
+        match self.skin.as_mut() {
+            Some(s) if s.end_at.is_none() => {
+                s.moves_left = s.moves_left.saturating_sub(1);
+                if s.moves_left == 0 {
+                    s.end_at = Some(now + 0.3);
+                }
+            }
+            None if moves > 6 && roll < 4 => {
+                self.start_skin(now + 0.3);
+                if let Some(s) = self.skin {
+                    self.fx.banner_queue.push(Banner { text: format!("РЕЖИМ: {}", world::skin_name(s.material)), sub: Some(format!("{} ходов", world::SKIN_MOVES)), born: now, color: Color::WHITE });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn launch_firework(&mut self, fw: Firework) {
+        let n = 30;
+        for i in 0..n {
+            let ang = i as f32 / n as f32 * std::f32::consts::TAU + self.prng.range(-0.1, 0.1);
+            let sp = self.prng.range(120.0, 240.0);
+            let white = i % 5 == 0;
+            self.fx.particles.push(Particle {
+                pos: fw.pos,
+                vel: (ang.cos() * sp, ang.sin() * sp),
+                size: self.prng.range(3.0, 5.5),
+                color: if white { Color::WHITE } else { fw.color.lighten(self.prng.range(0.0, 0.3)) }.with_alpha(0.95),
+                life: self.prng.range(0.8, 1.3),
+                gravity: 110.0,
+                drag: 2.2,
+                shape: if i % 3 == 0 { PShape::Spark } else { PShape::Round },
+                ..Default::default()
+            });
+        }
+        self.fx.shocks.push(Shockwave { center: fw.pos, born: self.now, color: fw.color, max_r: 46.0 });
+        audio::play_pitched(Sfx::Pick, self.prng.range(-3.0, 5.0));
     }
 
     /// Учёт завершённой (или брошенной) партии в статистике.
@@ -523,6 +677,12 @@ impl View {
         self.best_at_start = self.stats().best_by[difficulty.index()];
         self.menu_open = false;
         self.targeting = None;
+        self.level = 1;
+        self.set_world(0);
+        if let Some(mut s) = self.skin.take() {
+            s.end_at.get_or_insert(self.now);
+            self.skin_prev = Some(s);
+        }
         audio::play(Sfx::Refill);
         self.kb = None;
         self.drag = None;
@@ -928,15 +1088,29 @@ impl View {
         }
 
         // частицы исчезающих кубиков
-        let mut bursts: Vec<(Rect, u8)> = Vec::new();
-        for v in self.fx.vanish.iter_mut() {
+        let mut bursts: Vec<(Rect, world::Look)> = Vec::new();
+        for i in 0..self.fx.vanish.len() {
+            let v = self.fx.vanish[i];
             if !v.spawned && now >= v.born + v.delay {
-                v.spawned = true;
-                bursts.push((self.geo.cube_rect(v.r, v.c), v.color));
+                self.fx.vanish[i].spawned = true;
+                bursts.push((self.geo.cube_rect(v.r, v.c), self.cell_look(v.color, v.r, v.c)));
             }
         }
-        for (rect, cell) in bursts {
-            self.burst(rect, cell);
+        for (rect, look) in bursts {
+            self.burst(rect, look);
+        }
+        let due: Vec<Firework> = self.fx.fireworks.iter().copied().filter(|f| f.at <= now).collect();
+        if !due.is_empty() {
+            self.fx.fireworks.retain(|f| f.at > now);
+            for f in due {
+                self.launch_firework(f);
+            }
+        }
+        if self.skin.map(|s| s.finished(now)).unwrap_or(false) {
+            self.skin = None;
+        }
+        if self.skin_prev.map(|s| s.finished(now)).unwrap_or(false) {
+            self.skin_prev = None;
         }
         if game.scoring.combo >= 3 && !game.over && !self.menu_open {
             self.embers(dt);
@@ -1008,9 +1182,29 @@ impl View {
         }
     }
 
-    fn burst(&mut self, rect: Rect, cell: u8) {
-        let material = cell_material(cell);
-        let base = theme::material_color(material, cell_color(cell));
+    /// Искры вдоль очищенной линии.
+    fn line_sparkles(&mut self, is_row: bool, idx: usize, base: Color) {
+        for k in 0..SIZE {
+            let (r, c) = if is_row { (idx, k) } else { (k, idx) };
+            let cr = self.geo.cell_rect(r, c);
+            let (vx, vy) = if is_row { (self.prng.range(-30.0, 30.0), self.prng.range(-120.0, -40.0)) } else { (self.prng.range(-120.0, 120.0), self.prng.range(-40.0, 10.0)) };
+            self.fx.particles.push(Particle {
+                pos: Point::new(cr.origin.x + cr.width() * self.prng.range(0.2, 0.8), cr.origin.y + cr.height() * self.prng.range(0.2, 0.8)),
+                vel: (vx, vy),
+                size: self.prng.range(3.0, 6.0),
+                color: if k % 2 == 0 { Color::WHITE } else { base.lighten(0.5) }.with_alpha(0.95),
+                life: self.prng.range(0.4, 0.8),
+                gravity: 60.0,
+                drag: 2.5,
+                shape: PShape::Spark,
+                ..Default::default()
+            });
+        }
+    }
+
+    fn burst(&mut self, rect: Rect, look: world::Look) {
+        let material = look.material;
+        let base = look.base;
         let cx = rect.origin.x + rect.width() * 0.5;
         let cy = rect.origin.y + rect.height() * 0.5;
         match material {
@@ -1040,7 +1234,7 @@ impl View {
                         pos: Point::new(cx, cy),
                         vel: (ang.cos() * sp, ang.sin() * sp - 60.0),
                         size: self.prng.range(3.0, 7.0),
-                        color: if i % 3 == 0 { Color::WHITE } else { theme::material_accent(Material::Crystal) }.with_alpha(0.95),
+                        color: if i % 3 == 0 { Color::WHITE } else { theme::material_accent(Material::Crystal).lerp(&base, 0.55) }.with_alpha(0.95),
                         life: self.prng.range(0.5, 1.0),
                         gravity: 380.0,
                         drag: 1.4,
@@ -1058,7 +1252,7 @@ impl View {
                         pos: Point::new(cx, cy),
                         vel: (ang.cos() * sp, ang.sin() * sp),
                         size: self.prng.range(4.0, 7.0),
-                        color: theme::material_accent(Material::Gold).lerp(&theme::hex(theme::GOLD), self.prng.unit()).with_alpha(0.98),
+                        color: base.lighten(0.25).lerp(&Color::WHITE, self.prng.unit() * 0.5).with_alpha(0.98),
                         life: self.prng.range(0.7, 1.2),
                         gravity: 560.0,
                         drag: 0.8,
@@ -1077,7 +1271,11 @@ impl View {
                         pos: Point::new(cx, cy),
                         vel: (ang.cos() * sp, ang.sin() * sp - 90.0),
                         size: self.prng.range(3.0, 8.0),
-                        color: theme::hex("#ff5a1f").lerp(&theme::hex("#ffd166"), hot).with_alpha(0.95),
+                        color: match look.accent {
+                            Some(a) => a.lerp(&Color::WHITE, hot * 0.4),
+                            None => theme::hex("#ff5a1f").lerp(&theme::hex("#ffd166"), hot),
+                        }
+                        .with_alpha(0.95),
                         life: self.prng.range(0.5, 1.1),
                         gravity: -60.0,
                         drag: 1.8,

@@ -81,6 +81,35 @@ pub struct TrailPoint {
     pub born: f32,
 }
 
+/// Залп фейерверка (запланирован на момент `at`).
+#[derive(Clone, Copy, Debug)]
+pub struct Firework {
+    pub at: f32,
+    pub pos: Point,
+    pub color: Color,
+}
+
+/// Контур «приземления» вокруг только что поставленного кубика.
+#[derive(Clone, Copy, Debug)]
+pub struct Land {
+    pub r: usize,
+    pub c: usize,
+    pub born: f32,
+}
+
+/// Световой луч, пробегающий по очищенной линии.
+#[derive(Clone, Copy, Debug)]
+pub struct Beam {
+    pub is_row: bool,
+    pub idx: usize,
+    pub born: f32,
+    /// Откуда бежит луч: позиция якоря фигуры вдоль линии (в клетках).
+    pub from: f32,
+    pub color: Color,
+}
+
+pub const LAND_DUR: f32 = 0.4;
+pub const BEAM_DUR: f32 = 0.5;
 pub const RIPPLE_DUR: f32 = 0.7;
 pub const TRAIL_DUR: f32 = 0.22;
 pub const SHOCK_DUR: f32 = 0.75;
@@ -126,11 +155,18 @@ pub struct Fx {
     pub ripples: Vec<Ripple>,
     pub trail: Vec<TrailPoint>,
     pub last_trail_at: f32,
+    /// Баннеры, ждущие своей очереди (уровень после «КЛАСС!» и т. п.).
+    pub banner_queue: Vec<Banner>,
+    pub fireworks: Vec<Firework>,
+    pub lands: Vec<Land>,
+    pub beams: Vec<Beam>,
+    /// Момент последнего повышения уровня (пульс кольца уровня).
+    pub level_born: f32,
 }
 
 impl Fx {
     pub fn new() -> Self {
-        Fx { score_punch_born: -10.0, shake_born: -10.0, last_place_at: -10.0, ..Default::default() }
+        Fx { score_punch_born: -10.0, shake_born: -10.0, last_place_at: -10.0, level_born: -10.0, ..Default::default() }
     }
 
     pub fn prune(&mut self, now: f32) {
@@ -143,6 +179,13 @@ impl Fx {
                 self.banner = None;
             }
         }
+        if self.banner.is_none() && !self.banner_queue.is_empty() {
+            let mut b = self.banner_queue.remove(0);
+            b.born = now;
+            self.banner = Some(b);
+        }
+        self.lands.retain(|l| now - l.born < LAND_DUR);
+        self.beams.retain(|b| now - b.born < BEAM_DUR);
         if let Some(r) = &self.returning {
             if now - r.born > RETURN_DUR {
                 self.returning = None;

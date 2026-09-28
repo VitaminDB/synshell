@@ -34,7 +34,8 @@ pub struct Geo {
 
 pub const HUD_H: f32 = 104.0;
 pub const SIDE: f32 = 16.0;
-pub const GAP_BOARD: f32 = 12.0;
+/// Зазор HUD → поле; в нём живёт плашка режима блоков.
+pub const GAP_BOARD: f32 = 34.0;
 pub const GAP_TRAY: f32 = 18.0;
 pub const BOTTOM: f32 = 16.0;
 pub const ABIL_H: f32 = 62.0;
@@ -52,8 +53,9 @@ pub fn compute(b: Rect) -> Geo {
     let tray_h = (col * 0.42).max(100.0);
     let total = fixed + col + tray_h;
     let free = (h - total).max(0.0);
-    // Свободное место делим 38/62: на телефоне контент ближе к верху, трей — под большим пальцем.
-    let y0 = b.origin.y + free * 0.38;
+    // Свободное место почти целиком уходит вниз: HUD прижат к верху экрана,
+    // трей — ниже, под большим пальцем.
+    let y0 = b.origin.y + free * 0.1;
     let x0 = b.origin.x + (w - col) * 0.5;
 
     let top = Rect::new(Point::new(x0, y0 + 8.0), Size::new(col, 40.0));
