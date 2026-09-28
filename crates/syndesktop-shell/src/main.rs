@@ -4,6 +4,7 @@
 //! общается по IPC, а под другими композиторами работает без него.
 
 mod actions;
+mod anim;
 mod app_colors;
 mod appmenu;
 mod applets;
@@ -147,12 +148,30 @@ pub fn reload_config() {
     }
     log::info!("конфиг перечитан");
     xdg::set_icon_theme(&cfg.appearance.icon_theme);
-    syngui_layer::set_stylesheet(theme::build(&cfg));
+    // Сменилось только оформление (тема, обои, анимации) — поверхности
+    // остаются, цвета перетекают, картинка обоев растворяется. Всё прочее
+    // (панели, апплеты, разделы) пересобирает оболочку заново.
+    let old = ctx.config.get_untracked();
+    let structural = {
+        let mut probe = cfg.clone();
+        probe.appearance = old.appearance.clone();
+        probe.wallpaper = old.wallpaper.clone();
+        probe.animations = old.animations.clone();
+        probe != *old
+    };
+    let theme_ms = cfg.animations.theme_ms();
+    if theme_ms > 0 && !structural {
+        syngui_layer::set_stylesheet_with_transition(theme::build(&cfg), theme_ms);
+    } else {
+        syngui_layer::set_stylesheet(theme::build(&cfg));
+    }
     app_colors::sync(&cfg);
     ctx.dnd.set(cfg.notifications.do_not_disturb);
     ctx.config.set_always(Arc::new(cfg));
-    if !ctx.popup.get_untracked().is_some_and(|p| p.kind.survives_reload()) {
-        ctx.close_popup();
+    if structural {
+        if !ctx.popup.get_untracked().is_some_and(|p| p.kind.survives_reload()) {
+            ctx.close_popup();
+        }
+        ctx.generation.set(ctx.generation.get_untracked() + 1);
     }
-    ctx.generation.set(ctx.generation.get_untracked() + 1);
 }

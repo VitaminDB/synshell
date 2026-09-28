@@ -122,7 +122,7 @@ fn pick(path: &str, slot: u64) -> Option<PathBuf> {
 fn wallpaper(ctx: ShellCtx, out: &OutputInfo) -> (SurfaceId, Option<u64>) {
     let cfg = ctx.cfg();
     let w = cfg.wallpaper.clone();
-    let path = w.per_output.get(&out.name).cloned().unwrap_or_else(|| w.path.clone());
+    let out_name = out.name.clone();
     let slide = use_signal(0u64);
     let mut timer = None;
     if w.slideshow_minutes > 0 {
@@ -131,12 +131,6 @@ fn wallpaper(ctx: ShellCtx, out: &OutputInfo) -> (SurfaceId, Option<u64>) {
             Some(Duration::from_secs(w.slideshow_minutes as u64 * 60))
         }));
     }
-    let fit = match cfg.wallpaper.mode.as_str() {
-        "fit" => ImageFit::Contain,
-        "stretch" => ImageFit::Fill,
-        "center" | "tile" => ImageFit::None,
-        _ => ImageFit::Cover,
-    };
     let icons = cfg.wallpaper.desktop_icons;
     let id = syngui_layer::create_surface(
         SurfaceSpec {
@@ -153,13 +147,40 @@ fn wallpaper(ctx: ShellCtx, out: &OutputInfo) -> (SurfaceId, Option<u64>) {
         },
         move || {
             let mut stack = Stack::new().fit(StackFit::Expand).child(DecoratedBox::new().class("wallpaper-color"));
-            let path = path.clone();
             stack = stack.child(crate::ui::rx(move || {
+                // Путь и режим — из живого конфига: смена обоев не пересоздаёт
+                // поверхность, а растворяет старую картинку в новую.
                 let slot = slide.get();
-                match pick(&path, slot) {
-                    Some(p) => Box::new(Image::new(p.to_string_lossy()).fit(fit).placeholder(false).class("wallpaper-image")),
-                    None => Box::new(DecoratedBox::new()),
-                }
+                let cfg = ShellCtx::get().config.get();
+                let w = &cfg.wallpaper;
+                let path = w.per_output.get(&out_name).cloned().unwrap_or_else(|| w.path.clone());
+                let fit = match w.mode.as_str() {
+                    "fit" => ImageFit::Contain,
+                    "stretch" => ImageFit::Fill,
+                    "center" | "tile" => ImageFit::None,
+                    _ => ImageFit::Cover,
+                };
+                let picked = pick(&path, slot);
+                let key = {
+                    use std::hash::{Hash, Hasher};
+                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    picked.hash(&mut h);
+                    w.mode.hash(&mut h);
+                    h.finish()
+                };
+                let dur = cfg.animations.theme_ms();
+                Box::new(
+                    AnimatedSwitcher::new(key, move || match &picked {
+                        Some(p) => Box::new(Image::new(p.to_string_lossy()).fit(fit).placeholder(false).class("wallpaper-image")),
+                        None => Box::new(DecoratedBox::new()),
+                    })
+                    .exit_fade(false)
+                    .duration_ms(dur.max(1) * 2)
+                    .exit_duration_ms(dur.max(1) * 2)
+                    .easing(syngui::animation::Easing::EaseInOutSine)
+                    .animate_size(false)
+                    .directional(false),
+                )
             }));
             if icons {
                 stack = stack.child(desktop_icons());

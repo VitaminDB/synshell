@@ -119,7 +119,9 @@ pub(crate) enum Command {
     Reconfigure { id: SurfaceId, spec: SurfaceSpec },
     InputRegion { id: SurfaceId, rects: Option<Vec<[i32; 4]>> },
     Close { id: SurfaceId },
-    Stylesheet(String),
+    /// Новая таблица стилей; второе поле — длительность перетекания цветов
+    /// (мс), `None` — сменить скачком.
+    Stylesheet(String, Option<u32>),
     Timer { id: u64, after: Duration, f: Box<dyn FnMut() -> Option<Duration>> },
     CancelTimer(u64),
     Redraw(Option<SurfaceId>),
@@ -200,7 +202,13 @@ pub fn close_surface(id: SurfaceId) {
 
 /// Заменить таблицу стилей всех поверхностей (MSS-текст).
 pub fn set_stylesheet(mss: impl Into<String>) {
-    push(Command::Stylesheet(mss.into()));
+    push(Command::Stylesheet(mss.into(), None));
+}
+
+/// Заменить таблицу стилей так, чтобы изменившиеся цвета перетекли за
+/// `transition_ms` (плавная смена темы), а не сменились скачком.
+pub fn set_stylesheet_with_transition(mss: impl Into<String>, transition_ms: u32) {
+    push(Command::Stylesheet(mss.into(), Some(transition_ms)));
 }
 
 /// Перерисовать поверхность (или все) — для состояния вне сигналов.

@@ -7,6 +7,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use syngui::input::MouseButton;
 use syngui::prelude::*;
+use syngui::containers::Keyed;
 use syngui_layer::{Anchor, KeyboardInteractivity, Layer, SurfaceId, SurfaceSpec};
 use zbus::zvariant::OwnedValue;
 
@@ -275,11 +276,50 @@ pub fn local(ctx: ShellCtx, summary: &str, body: &str, open: Option<String>) {
 
 thread_local! {
     static SURFACE: std::cell::Cell<Option<SurfaceId>> = const { std::cell::Cell::new(None) };
+    /// Карточки на экране: активные и уходящие (`false`), пока не доиграла
+    /// анимация ухода. Новые встают в начало (сверху).
+    static SHOWN: std::cell::Cell<Option<RwSignal<Vec<(Notification, bool)>>>> = const { std::cell::Cell::new(None) };
+}
+
+fn shown() -> RwSignal<Vec<(Notification, bool)>> {
+    SHOWN.with(|s| match s.get() {
+        Some(sig) => sig,
+        None => {
+            let sig = use_signal(Vec::new());
+            s.set(Some(sig));
+            sig
+        }
+    })
 }
 
 pub fn install(ctx: ShellCtx) {
+    let shown = shown();
+    // Список активных → карточки на экране: пропавшие остаются уходящими.
     create_effect(move || {
-        let has = !ctx.notifications.get().is_empty();
+        let list = ctx.notifications.get();
+        let animate = crate::anim::on(&ctx);
+        shown.update(|v| {
+            for e in v.iter_mut() {
+                match list.iter().find(|n| n.id == e.0.id) {
+                    Some(n) => {
+                        e.0 = n.clone();
+                        e.1 = true;
+                    }
+                    None => e.1 = false,
+                }
+            }
+            if !animate {
+                v.retain(|e| e.1);
+            }
+            for n in list.iter().rev() {
+                if !v.iter().any(|e| e.0.id == n.id) {
+                    v.insert(0, (n.clone(), true));
+                }
+            }
+        });
+    });
+    create_effect(move || {
+        let has = !shown.get().is_empty();
         let generation = ctx.generation.get();
         let _ = generation;
         let cur = SURFACE.with(|s| s.get());
@@ -327,13 +367,33 @@ pub fn install(ctx: ShellCtx) {
 const NOTIF_PAD: u32 = 8;
 
 fn popups(ctx: ShellCtx) -> impl Widget {
+    let shown = shown();
     Column::new().gap(8.0).class("notif-popups").child(move || {
         let max = ctx.cfg().notifications.max_visible.max(1) as usize;
-        let list = ctx.notifications.get();
+        let list = shown.get();
+        let dur = crate::anim::ms(&ctx, 320);
         let mut col = Column::new().gap(8.0);
-        let skip = list.len().saturating_sub(max);
-        for n in list.into_iter().skip(skip).rev() {
-            col = col.child(card(ctx, n, false));
+        let mut alive_seen = 0usize;
+        for (n, alive) in list {
+            let visible = alive && {
+                alive_seen += 1;
+                alive_seen <= max
+            };
+            let id = n.id;
+            // Версия — содержимое и видимость: смена любого пересобирает
+            // карточку на месте, ключ переживает сдвиги соседей.
+            let version = (n.time as u64) ^ (n.summary.len() as u64) << 20 ^ (n.body.len() as u64) << 40 ^ (visible as u64) << 63;
+            col = col.child(Keyed::new(id as u64, version, move || {
+                let presence = Presence::new(visible, card(ctx, n.clone(), false))
+                    .enter(Motion::fade().slide(40.0, 0.0).scale(0.96))
+                    .exit(Motion::fade().slide(40.0, 0.0))
+                    .duration_ms(dur)
+                    .exit_duration_ms(dur * 2 / 3)
+                    .origin(TransformOrigin::Custom(1.0, 0.5))
+                    .initial(dur > 0)
+                    .on_exit_complete(move || shown.update(|v| v.retain(|e| e.0.id != id)));
+                Box::new(AnimatedPosition::new(presence))
+            }));
         }
         col
     })

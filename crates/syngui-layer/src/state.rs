@@ -383,10 +383,13 @@ impl State {
                     }
                 }
             }
-            Command::Stylesheet(mss) => {
+            Command::Stylesheet(mss, transition_ms) => {
                 self.engine = parse_stylesheet(&mss);
+                let transition = transition_ms.filter(|ms| *ms > 0).map(|ms| {
+                    (std::time::Duration::from_millis(ms as u64), syngui::animation::Easing::EMPHASIZED)
+                });
                 for s in self.surfaces.values_mut() {
-                    s.view.restyle_all(&self.engine);
+                    s.view.restyle_all_with_transition(&self.engine, transition);
                     s.needs_frame = true;
                 }
             }

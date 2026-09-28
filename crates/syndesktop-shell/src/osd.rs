@@ -12,6 +12,9 @@ use crate::ui::{boxed, icon};
 thread_local! {
     static SURFACE: Cell<Option<SurfaceId>> = const { Cell::new(None) };
     static TIMER: Cell<Option<u64>> = const { Cell::new(None) };
+    /// Видимость карточки: `false` — растворяется, по концу поверхность
+    /// закрывается.
+    static VISIBLE: Cell<Option<RwSignal<bool>>> = const { Cell::new(None) };
 }
 
 static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -27,10 +30,20 @@ pub fn install(ctx: ShellCtx) {
     create_effect(move || {
         let osd = ctx.osd.get();
         if osd.is_none() {
-            if let Some(id) = SURFACE.with(|s| s.take()) {
-                syngui_layer::close_surface(id);
+            match (SURFACE.with(|s| s.get()), VISIBLE.with(|v| v.get())) {
+                (Some(_), Some(visible)) if crate::anim::on(&ctx) => visible.set(false),
+                (Some(id), _) => {
+                    SURFACE.with(|s| s.set(None));
+                    VISIBLE.with(|v| v.set(None));
+                    syngui_layer::close_surface(id);
+                }
+                _ => {}
             }
             return;
+        }
+        if let Some(visible) = VISIBLE.with(|v| v.get()) {
+            // Новое значение во время ухода — вернуть карточку.
+            visible.set(true);
         }
         if let Some(t) = TIMER.with(|t| t.take()) {
             syngui_layer::cancel_timer(t);
@@ -41,6 +54,9 @@ pub fn install(ctx: ShellCtx) {
         });
         TIMER.with(|c| c.set(Some(t)));
         if SURFACE.with(|s| s.get()).is_none() {
+            let visible = use_signal(true);
+            let sid: std::sync::Arc<std::sync::Mutex<Option<SurfaceId>>> = Default::default();
+            let sid2 = sid.clone();
             let id = syngui_layer::create_surface(
                 SurfaceSpec {
                     namespace: "syndesktop-osd".into(),
@@ -52,9 +68,30 @@ pub fn install(ctx: ShellCtx) {
                     keyboard: KeyboardInteractivity::None,
                     ..Default::default()
                 },
-                move || Box::new(view(ctx)),
+                move || {
+                    let dur = crate::anim::ms(&ctx, 220);
+                    Box::new(
+                        Presence::signal(visible, move || Box::new(view(ctx)))
+                            .enter(Motion::fade().slide(0.0, 14.0).scale(0.96))
+                            .exit(Motion::fade().scale(0.97))
+                            .duration_ms(dur)
+                            .initial(dur > 0)
+                            .on_exit_complete(move || {
+                                if let Some(id) = *sid2.lock().unwrap() {
+                                    // Закрыть только если за это время не показали новое.
+                                    if SURFACE.with(|s| s.get()) == Some(id) && ShellCtx::get().osd.get_untracked().is_none() {
+                                        SURFACE.with(|s| s.set(None));
+                                        VISIBLE.with(|v| v.set(None));
+                                        syngui_layer::close_surface(id);
+                                    }
+                                }
+                            }),
+                    )
+                },
             );
+            *sid.lock().unwrap() = Some(id);
             SURFACE.with(|s| s.set(Some(id)));
+            VISIBLE.with(|v| v.set(Some(visible)));
         }
     });
 }

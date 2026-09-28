@@ -7,7 +7,7 @@ use syndesktop_common::config::Edge;
 
 /// Всплывающее окно по центру вывода с фокусом (из сочетания клавиш).
 fn centered() -> PopupAnchor {
-    PopupAnchor { output: None, rect: None, edge: Edge::Bottom }
+    PopupAnchor { output: None, rect: None, edge: Edge::Bottom, attached: false }
 }
 
 /// Якорь у кнопки апплета, если она есть на панели (меню запуска по
@@ -130,7 +130,7 @@ fn window_menu(ctx: ShellCtx, arg: &str) {
     };
     ctx.popup.set(Some(crate::ctx::Popup {
         kind: PopupKind::WindowMenu(id),
-        anchor: PopupAnchor { output, rect: Some([lx, ly, 0.0, 0.0]), edge: Edge::Top },
+        anchor: PopupAnchor { output, rect: Some([lx, ly, 0.0, 0.0]), edge: Edge::Top, attached: false },
     }));
 }
 

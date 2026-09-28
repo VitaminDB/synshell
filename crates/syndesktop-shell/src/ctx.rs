@@ -59,6 +59,9 @@ pub struct PopupAnchor {
     /// [x, y, w, h]; `None` — по центру вывода.
     pub rect: Option<[f32; 4]>,
     pub edge: syndesktop_common::config::Edge,
+    /// Панель прижата к краю без зазора: карточка примыкает к ней и
+    /// перетекает в неё (вогнутые углы), а не висит рядом.
+    pub attached: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

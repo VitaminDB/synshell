@@ -162,6 +162,32 @@ Text {
     box-shadow: 0 10px 32px var(--shadow);
 }
 
+/* Карточка, примыкающая к панели: перетекает в неё — угловые скругления у
+ * края панели вогнутые (`flow-edge`), рамка у этого края снята. */
+.popup-card.popup-flow-top {
+    border-top-left-radius: 0px; border-top-right-radius: 0px;
+    border-top-width: 0px;
+    flow-edge: top; flow-radius: var(--radius); flow-color: var(--panel-bg);
+}
+.popup-card.popup-flow-bottom {
+    border-bottom-left-radius: 0px; border-bottom-right-radius: 0px;
+    border-bottom-width: 0px;
+    flow-edge: bottom; flow-radius: var(--radius); flow-color: var(--panel-bg);
+}
+.popup-card.popup-flow-left {
+    border-top-left-radius: 0px; border-bottom-left-radius: 0px;
+    border-left-width: 0px;
+    flow-edge: left; flow-radius: var(--radius); flow-color: var(--panel-bg);
+}
+.popup-card.popup-flow-right {
+    border-top-right-radius: 0px; border-bottom-right-radius: 0px;
+    border-right-width: 0px;
+    flow-edge: right; flow-radius: var(--radius); flow-color: var(--panel-bg);
+}
+/* Содержимое всплывающих окон перетекает: высота списка результатов,
+ * смена раздела меню запуска. */
+.popup-morph { transition: size 320ms spring(420, 40); }
+
 .popup-title { font-size: 15px; font-weight: bold; color: var(--fg); }
 .popup-text { font-size: 13px; color: var(--fg); }
 .popup-value { font-size: 13px; color: var(--muted); min-width: 40px; }

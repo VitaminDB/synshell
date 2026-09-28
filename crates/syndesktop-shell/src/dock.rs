@@ -130,7 +130,7 @@ pub fn create(ctx: ShellCtx, index: usize, panel: &Panel, out: &OutputInfo) -> (
     let key = crate::panel::next_key();
     let geo = Geo::of(panel);
     let spec = spec_for(panel, out, &geo);
-    crate::panel::register(key, &out.name, panel.edge, &spec);
+    crate::panel::register(key, &out.name, panel.edge, &spec, false);
     let pc = PanelCtx {
         key,
         index,

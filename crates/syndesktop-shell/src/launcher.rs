@@ -321,6 +321,9 @@ struct State {
     selected: RwSignal<usize>,
     section: RwSignal<String>,
     items: RwSignal<Vec<Item>>,
+    /// Номер выдачи: растёт с каждым пересчётом `items` (версия содержимого
+    /// для перетекания списка).
+    items_version: RwSignal<u64>,
 }
 
 fn state(ctx: ShellCtx) -> State {
@@ -329,13 +332,15 @@ fn state(ctx: ShellCtx) -> State {
         selected: use_signal(0usize),
         section: use_signal(if ctx.cfg().launcher.favorites.is_empty() { "all".to_string() } else { "favorites".to_string() }),
         items: use_signal(Vec::new()),
+        items_version: use_signal(0u64),
     };
-    let (query, section, items, selected) = (st.query, st.section, st.items, st.selected);
+    let (query, section, items, selected, items_version) = (st.query, st.section, st.items, st.selected, st.items_version);
     create_effect(move || {
         let q = query.get();
         let s = section.get();
         let v = if q.trim().is_empty() { section_items(&ctx, &s) } else { search(&ctx, &q) };
         items.set(v);
+        items_version.set(items_version.get_untracked() + 1);
         selected.set(0);
     });
     // Стрелки и Enter — до поля ввода.
@@ -382,26 +387,51 @@ fn search_field(st: &State, placeholder: &str) -> impl Widget {
         .class("search-box")
 }
 
-fn list(st: &State, ctx: ShellCtx) -> impl Widget {
-    let (items, selected) = (st.items, st.selected);
-    ScrollView::new().vertical().child(move || {
-        let v = items.get();
-        let sel = selected.get();
-        let mut col = Column::new().gap(2.0);
-        if v.is_empty() {
-            col = col.child(Text::new("Ничего не найдено").class("launcher-empty"));
+/// Ключ раздела для перетекания списка: порядок разделов в боковой панели
+/// задаёт направление (вниз по списку — новое въезжает снизу).
+fn section_key(ctx: &ShellCtx, section: &str) -> u64 {
+    let mut i = 2u64;
+    for (key, _, _) in sidebar_entries(ctx) {
+        if key == section {
+            return i;
         }
-        for (i, it) in v.into_iter().enumerate() {
-            let _ = sel;
-            col = col.child(row(it, i, selected, ctx));
-        }
-        col
-    }).class("launcher-list")
+        i += 1;
+    }
+    1
 }
 
-fn sidebar(st: &State, ctx: ShellCtx) -> impl Widget {
-    let section = st.section;
-    let query = st.query;
+fn list(st: &State, ctx: ShellCtx) -> impl Widget {
+    let (items, selected, section, query, version) = (st.items, st.selected, st.section, st.query, st.items_version);
+    ScrollView::new()
+        .vertical()
+        .child(move || {
+            // Снимок выдачи: уходящий список не должен подхватывать новую.
+            let v = items.get();
+            let ver = version.get();
+            let key = if query.get().trim().is_empty() { section_key(&ctx, &section.get()) } else { u64::MAX };
+            AnimatedSwitcher::new(key, move || {
+                let sel = selected.get();
+                let mut col = Column::new().gap(2.0);
+                if v.is_empty() {
+                    col = col.child(Text::new("Ничего не найдено").class("launcher-empty"));
+                }
+                for (i, it) in v.iter().cloned().enumerate() {
+                    let _ = sel;
+                    col = col.child(row(it, i, selected, ctx));
+                }
+                Box::new(col)
+            })
+            .version(ver)
+            .slide(0.0, 22.0)
+            .duration_ms(crate::anim::ms(&ctx, 240))
+            .exit_duration_ms(crate::anim::ms(&ctx, 140))
+            .animate_size(false)
+        })
+        .class("launcher-list")
+}
+
+/// Разделы боковой панели: ключ, подпись, значок.
+fn sidebar_entries(ctx: &ShellCtx) -> Vec<(String, String, String)> {
     let cfg = ctx.cfg();
     let apps = xdg::apps();
     let mut entries: Vec<(String, String, String)> = Vec::new();
@@ -419,6 +449,13 @@ fn sidebar(st: &State, ctx: ShellCtx) -> impl Widget {
             }
         }
     }
+    entries
+}
+
+fn sidebar(st: &State, ctx: ShellCtx) -> impl Widget {
+    let section = st.section;
+    let query = st.query;
+    let entries = sidebar_entries(&ctx);
     ScrollView::new()
         .vertical()
         .child(move || {
@@ -479,7 +516,7 @@ fn footer(ctx: ShellCtx) -> impl Widget {
             let c = ShellCtx::get();
             c.popup.set(Some(crate::ctx::Popup {
                 kind: crate::ctx::PopupKind::Power,
-                anchor: crate::ctx::PopupAnchor { output: None, rect: None, edge: syndesktop_common::config::Edge::Bottom },
+                anchor: crate::ctx::PopupAnchor { output: None, rect: None, edge: syndesktop_common::config::Edge::Bottom, attached: false },
             }));
         }))
         .class("launcher-footer")
@@ -504,22 +541,41 @@ pub fn menu(ctx: ShellCtx) -> impl Widget {
         .child(footer(ctx))
 }
 
-/// Строка «Выполнить».
+/// Строка «Выполнить»: карточка перетекает по высоте вслед за выдачей.
 pub fn run_prompt(ctx: ShellCtx) -> impl Widget {
     let st = state(ctx);
     let items = st.items;
-    Column::new().gap(8.0).child(search_field(&st, "Команда или приложение…")).child(move || {
+    let results = crate::ui::rx(move || {
         let v = items.get();
         let mut col = Column::new().gap(2.0);
         for (i, it) in v.into_iter().take(6).enumerate() {
             col = col.child(row(it, i, st.selected, ctx));
         }
-        col
-    })
+        Box::new(col)
+    });
+    Column::new()
+        .gap(8.0)
+        .child(search_field(&st, "Команда или приложение…"))
+        .child(AnimatedSize::new(results).axis(AnimationAxis::Height).spring(420.0, 40.0).class("popup-morph"))
 }
 
-/// Сетка на весь экран.
-pub fn fullscreen(ctx: ShellCtx) -> impl Widget {
+/// Сетка на весь экран. Проявляется и уходит по сигналу `open`; после
+/// ухода закрывается поверхность `sid`.
+pub fn fullscreen(ctx: ShellCtx, open: RwSignal<bool>, sid: std::sync::Arc<std::sync::Mutex<Option<syngui_layer::SurfaceId>>>) -> impl Widget {
+    let dur = crate::anim::ms(&ctx, 260);
+    Presence::signal(open, move || Box::new(fullscreen_view(ctx)))
+        .enter(Motion::fade().scale(1.04))
+        .exit(Motion::fade().scale(1.02))
+        .duration_ms(dur)
+        .initial(dur > 0)
+        .on_exit_complete(move || {
+            if let Some(id) = *sid.lock().unwrap() {
+                syngui_layer::close_surface(id);
+            }
+        })
+}
+
+fn fullscreen_view(ctx: ShellCtx) -> impl Widget {
     let st = state(ctx);
     st.section.set("all".into());
     let cols = ctx.cfg().launcher.columns.max(2) as usize;

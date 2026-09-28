@@ -137,6 +137,8 @@ window_close = "zoom"
 workspace_switch = "slide"     # slide | slide-vertical | fade | none
 minimize = "zoom"
 layout_changes = true
+shell = true                   # всплывающие окна, меню запуска, уведомления, OSD
+theme_change = true            # плавная смена темы и обоев
 
 [workspaces]
 count = 4

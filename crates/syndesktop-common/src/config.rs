@@ -804,6 +804,12 @@ pub struct Animations {
     pub minimize: String,
     /// Плавное перемещение окон при смене плиточной раскладки.
     pub layout_changes: bool,
+    /// Анимации оболочки: всплывающие окна вырастают из панели, меню
+    /// запуска перетекает между разделами, уведомления въезжают и
+    /// сдвигаются, OSD растворяется.
+    pub shell: bool,
+    /// Плавная смена темы и обоев: цвета перетекают, картинка растворяется.
+    pub theme_change: bool,
 }
 
 impl Default for Animations {
@@ -816,6 +822,36 @@ impl Default for Animations {
             workspace_switch: "slide".into(),
             minimize: "zoom".into(),
             layout_changes: true,
+            shell: true,
+            theme_change: true,
+        }
+    }
+}
+
+impl Animations {
+    /// Длительность с учётом `enabled` и `speed`; 0 — без анимации.
+    pub fn ms(&self, base: u32) -> u32 {
+        if !self.enabled {
+            return 0;
+        }
+        (base as f32 * self.speed.clamp(0.1, 5.0)).round() as u32
+    }
+
+    /// Длительность анимаций оболочки (0 — выключены).
+    pub fn shell_ms(&self, base: u32) -> u32 {
+        if self.shell {
+            self.ms(base)
+        } else {
+            0
+        }
+    }
+
+    /// Длительность перетекания темы (0 — скачком).
+    pub fn theme_ms(&self) -> u32 {
+        if self.theme_change {
+            self.ms(450)
+        } else {
+            0
         }
     }
 }

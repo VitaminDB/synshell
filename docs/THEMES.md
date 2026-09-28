@@ -106,6 +106,15 @@ glow = "#cba6f766"
 (`crates/syndesktop-common/themes/`): неон в `synthwave`, жёсткие тени в
 `brutal`, стекло в `aurora`.
 
+Перетекания: карточка всплывающего окна у прижатой панели получает класс
+`.popup-flow-top|bottom|left|right` — встроенный стиль снимает у неё рамку и
+скругления со стороны панели и рисует вогнутые «ушки» (`flow-edge`,
+`flow-radius: var(--radius)`, `flow-color: var(--panel-bg)`); тема может
+переопределить радиус или цвет. `.popup-morph` задаёт пружину перетекания
+размера (`transition: size 320ms spring(420, 40)`). При смене темы цвета
+всех элементов перетекают за `[animations]`-длительность (≈450 мс × `speed`),
+если включено `theme_change`.
+
 Прилипшая к краю панель (`[[panel]] defloat`) получает класс
 `.panel-defloated` вместо `.panel-floating`; встроенный стиль убирает у неё
 рамку, скругления и тень (`.panel.panel-defloated`). Тема может вернуть,

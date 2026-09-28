@@ -37,12 +37,13 @@ pub struct PanelCtx {
 impl PanelCtx {
     /// Якорь всплывающего окна у прямоугольника апплета (координаты поверхности панели).
     pub fn anchor(&self, r: Rect) -> PopupAnchor {
-        let (ox, oy) = PANELS.with(|p| p.borrow().get(&self.key).map(|p| p.origin).unwrap_or((0.0, 0.0)));
-        PopupAnchor {
-            output: Some(self.output.clone()),
-            rect: Some([r.origin.x + ox, r.origin.y + oy, r.size.width, r.size.height]),
-            edge: self.edge,
-        }
+        let (rect, attached) = PANELS.with(|p| {
+            p.borrow()
+                .get(&self.key)
+                .map(|rt| (rt.anchor_rect(r), rt.attached))
+                .unwrap_or(([r.origin.x, r.origin.y, r.size.width, r.size.height], false))
+        });
+        PopupAnchor { output: Some(self.output.clone()), rect: Some(rect), edge: self.edge, attached }
     }
 
     /// Границы апплета номер `index` (для якоря всплывающего окна,
@@ -89,11 +90,13 @@ pub(crate) struct PanelRt {
     /// Границы апплетов по номеру.
     items: HashMap<usize, Arc<Mutex<Rect>>>,
     spec: SurfaceSpec,
+    /// Панель прижата к краю: всплывающие окна примыкают к ней.
+    attached: bool,
 }
 
 /// Завести учёт панели (док ведёт его так же): якоря окон считаются от
 /// положения поверхности.
-pub(crate) fn register(key: u64, output: &str, edge: Edge, spec: &SurfaceSpec) {
+pub(crate) fn register(key: u64, output: &str, edge: Edge, spec: &SurfaceSpec, attached: bool) {
     PANELS.with(|p| {
         p.borrow_mut().insert(
             key,
@@ -104,9 +107,27 @@ pub(crate) fn register(key: u64, output: &str, edge: Edge, spec: &SurfaceSpec) {
                 applets: HashMap::new(),
                 items: HashMap::new(),
                 spec: spec.clone(),
+                attached,
             },
         )
     });
+}
+
+impl PanelRt {
+    /// Прямоугольник-якорь в координатах вывода. У прижатой панели он
+    /// растянут до её края по толщине: карточка окна ляжет вплотную к
+    /// панели и перетечёт в неё, а не повиснет у кнопки апплета.
+    fn anchor_rect(&self, r: Rect) -> [f32; 4] {
+        let (ox, oy) = self.origin;
+        if !self.attached {
+            return [r.origin.x + ox, r.origin.y + oy, r.size.width, r.size.height];
+        }
+        let (w, h) = (self.spec.size.0 as f32, self.spec.size.1 as f32);
+        match self.edge {
+            Edge::Top | Edge::Bottom => [r.origin.x + ox, oy, r.size.width, h],
+            Edge::Left | Edge::Right => [ox, r.origin.y + oy, w, r.size.height],
+        }
+    }
 }
 
 /// Поверхность получила размер — пересчитать её положение на выводе.
@@ -151,8 +172,9 @@ pub fn applet_anchor(kind: &str) -> Option<PopupAnchor> {
                 if r.size.width > 0.0 {
                     return Some(PopupAnchor {
                         output: Some(rt.output.clone()),
-                        rect: Some([r.origin.x + rt.origin.0, r.origin.y + rt.origin.1, r.size.width, r.size.height]),
+                        rect: Some(rt.anchor_rect(r)),
                         edge: rt.edge,
+                        attached: rt.attached,
                     });
                 }
             }
@@ -292,7 +314,7 @@ pub fn create(ctx: ShellCtx, index: usize, panel: &Panel, out: &OutputInfo) -> (
     let key = next_key();
     let defloated = use_signal(want_defloat(panel, out));
     let spec = spec_for(panel, out, panel.autohide, defloated.get_untracked());
-    register(key, &out.name, panel.edge, &spec);
+    register(key, &out.name, panel.edge, &spec, !panel.floating || defloated.get_untracked());
     let hidden = use_signal(panel.autohide);
     let hide_timer: Arc<std::sync::Mutex<Option<u64>>> = Arc::new(std::sync::Mutex::new(None));
     let id_cell: Arc<std::sync::Mutex<Option<SurfaceId>>> = Arc::new(std::sync::Mutex::new(None));
@@ -363,20 +385,21 @@ pub fn create(ctx: ShellCtx, index: usize, panel: &Panel, out: &OutputInfo) -> (
     };
 
     let panel_c = panel.clone();
-    let cfg = ctx.cfg();
     let id = syngui_layer::create_surface_with(spec, hooks, move || {
         let opacity = panel_c.opacity;
-        let bg = opacity.map(|o| {
-            let p = cfg.appearance.palette();
-            let c = p.bg.with_alpha(o);
-            syngui::core::Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0)
-        });
         let pcc = pc.clone();
         let panel_v = panel_c.clone();
         Box::new(DecoratedBox::new().class("panel-root").child(crate::ui::rx(move || {
             if hidden.get() {
                 return Box::new(DecoratedBox::new().class("panel-hidden")) as Box<dyn Widget>;
             }
+            // Палитра — из живого конфига: смена оформления не пересоздаёт
+            // панель, а перекрашивает её.
+            let bg = opacity.map(|o| {
+                let p = ShellCtx::get().config.get().appearance.palette();
+                let c = p.bg.with_alpha(o);
+                syngui::core::Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0)
+            });
             let editing = ShellCtx::get().editing.get() == Some(pcc.index);
             Box::new(view(&panel_v, &pcc, bg, editing, defloated.get()))
         })))

@@ -4,6 +4,7 @@
 //! поверхностей, поэтому «мимо» — это та же поверхность).
 
 use std::cell::{Cell, RefCell};
+use std::sync::{Arc, Mutex};
 use syndesktop_common::action::WorkspaceTarget;
 use syndesktop_common::config::Edge;
 use syndesktop_common::ipc::WindowOp;
@@ -20,6 +21,9 @@ const GAP: f32 = 8.0;
 
 thread_local! {
     static SURFACE: Cell<Option<SurfaceId>> = const { Cell::new(None) };
+    /// Видимость карточки текущего окна: `false` запускает анимацию ухода,
+    /// по её концу поверхность закрывается.
+    static OPEN: Cell<Option<RwSignal<bool>>> = const { Cell::new(None) };
     static CURRENT: RefCell<Option<Popup>> = const { RefCell::new(None) };
     /// Перехватчик клавиш содержимого (меню запуска: стрелки, Enter).
     static KEY_HANDLER: RefCell<Option<Box<dyn FnMut(&KeyInfo) -> bool>>> = RefCell::new(None);
@@ -68,12 +72,22 @@ pub fn install(ctx: ShellCtx) {
         }
         CURRENT.with(|c| *c.borrow_mut() = p.clone());
         KEY_HANDLER.with(|k| k.borrow_mut().take());
+        let prev_open = OPEN.with(|o| o.take());
         if let Some(id) = SURFACE.with(|s| s.take()) {
-            syngui_layer::close_surface(id);
+            // Закрытие «в никуда» — с анимацией ухода, поверхность закроется
+            // по её концу; смена окна на другое — сразу: новому нужен
+            // монопольный ввод.
+            match prev_open {
+                Some(open) if p.is_none() && crate::anim::on(&ctx) => open.set(false),
+                _ => syngui_layer::close_surface(id),
+            }
         }
         let Some(p) = p else { return };
         let output = p.anchor.output.clone().or_else(|| crate::manager::focused_output(&ctx));
         let fullscreen_launcher = matches!(p.kind, PopupKind::Launcher) && ctx.cfg().launcher.style == "fullscreen";
+        let my_id: Arc<Mutex<Option<SurfaceId>>> = Arc::new(Mutex::new(None));
+        let hook_id = my_id.clone();
+        let open = use_signal(true);
         let hooks = SurfaceHooks {
             on_key: Some(Box::new(move |k: &KeyInfo| {
                 if k.pressed && k.key == Key::Escape {
@@ -83,8 +97,13 @@ pub fn install(ctx: ShellCtx) {
                 KEY_HANDLER.with(|h| h.borrow_mut().as_mut().map(|f| f(k)).unwrap_or(false))
             })),
             on_closed: Some(Box::new(move || {
-                SURFACE.with(|s| s.set(None));
-                ShellCtx::get().close_popup();
+                // Поверхность, доигравшую уход, композитор закрывает уже
+                // после того, как открылось следующее окно — его не трогаем.
+                if SURFACE.with(|s| s.get()) == *hook_id.lock().unwrap() {
+                    SURFACE.with(|s| s.set(None));
+                    OPEN.with(|o| o.take());
+                    ShellCtx::get().close_popup();
+                }
             })),
             ..Default::default()
         };
@@ -104,20 +123,25 @@ pub fn install(ctx: ShellCtx) {
             auto_size: false,
             clear_color: [0.0; 4],
         };
+        let sid = my_id.clone();
         let id = syngui_layer::create_surface_with(spec, hooks, move || {
             let ctx = ShellCtx::get();
             if fullscreen_launcher {
-                return Box::new(crate::launcher::fullscreen(ctx));
+                return Box::new(crate::launcher::fullscreen(ctx, open, sid));
             }
             let out_size = crate::manager::output_size(output.as_deref());
-            Box::new(frame(&p, content(&p.kind, ctx), width_of(&p.kind, &ctx), out_size, is_fan(&p.kind, &ctx)))
+            Box::new(frame(&p, width_of(&p.kind, &ctx), out_size, is_fan(&p.kind, &ctx), open, sid))
         });
+        *my_id.lock().unwrap() = Some(id);
         SURFACE.with(|s| s.set(Some(id)));
+        OPEN.with(|o| o.set(Some(open)));
     });
 }
 
-/// Подложка (клик — закрыть) + карточка у якоря.
-fn frame(p: &Popup, card: Box<dyn Widget>, width: f32, out: (f32, f32), fan: bool) -> impl Widget {
+/// Подложка (клик — закрыть) + карточка у якоря. Карточка вырастает из
+/// края панели и уходит обратно (`Presence` по сигналу `open`); когда уход
+/// доиграл, поверхность `sid` закрывается.
+fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>, sid: Arc<Mutex<Option<SurfaceId>>>) -> impl Widget {
     // Клик мимо окна закрывает его; по другому пункту строки глобального
     // меню — открывает его меню (как в строке меню программы).
     let backdrop = InputArea::new(DecoratedBox::new().class("popup-backdrop")).on_press(|_, p, _| {
@@ -131,23 +155,53 @@ fn frame(p: &Popup, card: Box<dyn Widget>, width: f32, out: (f32, f32), fan: boo
         // Открыто наведением: закрыть, если указатель так и не дошёл до окна.
         arm_leave(&leave_timer, 1400);
     }
-    let card_class = if fan { "popup-card popup-card-fan" } else { "popup-card" };
-    let card = InputArea::new(
-        DecoratedBox::new().child(card).class(card_class).style("width", StyleValue::px(width)),
-    )
-    .absorb()
-    .on_hover(move |inside| {
-        if !hover_close {
-            return;
-        }
-        if inside {
-            if let Some(t) = leave_timer.lock().unwrap().take() {
-                syngui_layer::cancel_timer(t);
-            }
-        } else {
-            arm_leave(&leave_timer, 450);
+    let attached = p.anchor.attached && p.anchor.rect.is_some() && !fan;
+    let edge_class = match p.anchor.edge {
+        Edge::Top => "popup-flow-top",
+        Edge::Bottom => "popup-flow-bottom",
+        Edge::Left => "popup-flow-left",
+        Edge::Right => "popup-flow-right",
+    };
+    let card_class = if fan {
+        "popup-card popup-card-fan".to_string()
+    } else if attached {
+        format!("popup-card {edge_class}")
+    } else {
+        "popup-card".to_string()
+    };
+    let ctx = ShellCtx::get();
+    let kind = p.kind.clone();
+    let card = crate::anim::popup_presence(&ctx, open, p.anchor.rect.map(|_| p.anchor.edge), attached, move || {
+        let leave_timer = leave_timer.clone();
+        Box::new(
+            InputArea::new(
+                DecoratedBox::new()
+                    .child(content(&kind, ShellCtx::get()))
+                    .class(&card_class)
+                    .style("width", StyleValue::px(width)),
+            )
+            .absorb()
+            .on_hover(move |inside| {
+                if !hover_close {
+                    return;
+                }
+                if inside {
+                    if let Some(t) = leave_timer.lock().unwrap().take() {
+                        syngui_layer::cancel_timer(t);
+                    }
+                } else {
+                    arm_leave(&leave_timer, 450);
+                }
+            }),
+        )
+    })
+    .on_exit_complete(move || {
+        if let Some(id) = *sid.lock().unwrap() {
+            syngui_layer::close_surface(id);
         }
     });
+    // Примыкающая карточка ложится вплотную к панели, остальные — с зазором.
+    let gap = if attached { 0.0 } else { GAP };
     let (ow, oh) = out;
     let placed: Box<dyn Widget> = match p.anchor.rect {
         None => Box::new(
@@ -168,12 +222,12 @@ fn frame(p: &Popup, card: Box<dyn Widget>, width: f32, out: (f32, f32), fan: boo
                         Column::new()
                             .main_axis_alignment(MainAxisAlignment::End)
                             .child(row)
-                            .style("padding-bottom", StyleValue::px((oh - y + GAP).max(GAP)))
+                            .style("padding-bottom", StyleValue::px((oh - y + gap).max(gap)))
                     } else {
                         Column::new()
                             .main_axis_alignment(MainAxisAlignment::Start)
                             .child(row)
-                            .style("padding-top", StyleValue::px(y + h + GAP))
+                            .style("padding-top", StyleValue::px(y + h + gap))
                     };
                     Box::new(col.class("popup-place"))
                 }
@@ -181,12 +235,12 @@ fn frame(p: &Popup, card: Box<dyn Widget>, width: f32, out: (f32, f32), fan: boo
                     let top = y.clamp(GAP, (oh - 200.0).max(GAP));
                     let col = Column::new().child(card).style("padding-top", StyleValue::px(top));
                     let row = if p.anchor.edge == Edge::Left {
-                        Row::new().main_axis_alignment(MainAxisAlignment::Start).child(col).style("padding-left", StyleValue::px(x + w + GAP))
+                        Row::new().main_axis_alignment(MainAxisAlignment::Start).child(col).style("padding-left", StyleValue::px(x + w + gap))
                     } else {
                         Row::new()
                             .main_axis_alignment(MainAxisAlignment::End)
                             .child(col)
-                            .style("padding-right", StyleValue::px((ow - x + GAP).max(GAP)))
+                            .style("padding-right", StyleValue::px((ow - x + gap).max(gap)))
                     };
                     Box::new(row.class("popup-place"))
                 }

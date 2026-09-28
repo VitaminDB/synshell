@@ -122,10 +122,39 @@ Activate), `syndesktop-shell/src/gtkmenu.rs`. GIMP 3 отдаёт меню та�
 ## Оболочка и layer-shell
 
 Пространства имён layer-поверхностей (`namespace`), по ним композитор решает, как с ними
-обращаться (анимации, размытие, исключение из снимков):
+обращаться (исключение из снимков):
 `syndesktop-wallpaper` (background), `syndesktop-panel`, `syndesktop-dock` (top), `syndesktop-launcher`,
 `syndesktop-popup`, `syndesktop-notification`, `syndesktop-osd` (overlay),
 `syndesktop-lock` (через ext-session-lock).
+
+### Анимации оболочки («перетекания»)
+
+Анимации рисует сама оболочка внутри своих поверхностей (композитор
+layer-поверхности не анимирует), на примитивах syngui `Presence`,
+`AnimatedSwitcher`, `AnimatedPosition`, `AnimatedSize` и перетекании темы
+(`docs/07-animation.md` в syngui). `[animations] shell` и `theme_change`
+включают их, `enabled`/`speed` задают темп (`crates/syndesktop-shell/src/anim.rs`).
+
+- Всплывающие окна (`popup.rs`): карточка — `Presence::signal(open, …)`; у прижатой
+  панели (`PopupAnchor::attached`: не плавающая или `defloat`) якорь растянут до её
+  края, зазор нулевой, карточка получает класс `popup-flow-<edge>` и раскрывается
+  от панели (`collapse`), а MSS `flow-edge` рисует вогнутые углы цветом панели —
+  карточка перетекает в панель. Закрытие «в никуда» играет уход, поверхность
+  закрывается по его концу (`on_exit_complete`); смена окна на другое — сразу.
+- Меню запуска (`launcher.rs`): список разделов — `AnimatedSwitcher` по номеру раздела
+  (снимок выдачи + `version`, чтобы уходящий список не подхватывал новую), строка
+  «Выполнить» — `AnimatedSize` с пружиной (`.popup-morph`), полноэкранное меню —
+  `Presence`.
+- Уведомления (`notifications.rs`): `SHOWN` — карточки на экране, в том числе уходящие;
+  `Keyed` по id, `Presence` (въезд справа, уход) внутри `AnimatedPosition` (соседи
+  съезжаются на пружине); поверхность закрывается, когда уходящих не осталось.
+- OSD (`osd.rs`): `Presence::signal`, поверхность живёт до конца ухода.
+- Смена оформления (`main.rs reload_config`): если изменились только `[appearance]`,
+  `[wallpaper]`, `[animations]`, поверхности не пересоздаются — таблица стилей
+  заменяется с перетеканием цветов (`set_stylesheet_with_transition`), обои
+  (`manager.rs`) читают путь из живого конфига и растворяются через
+  `AnimatedSwitcher` (`exit_fade(false)`), фон панели пересчитывается из палитры.
+  Прочие правки конфига по-прежнему пересобирают оболочку (`generation`).
 
 ## Сборка и запуск
 
