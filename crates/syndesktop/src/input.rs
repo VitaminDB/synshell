@@ -1098,6 +1098,7 @@ impl State {
             Action::KeyboardLayout(i) => self.set_keyboard_layout(i),
             Action::Screenshot => self.screenshot(false),
             Action::ScreenshotWindow => self.screenshot(true),
+            Action::ScreenshotInteractive => self.screenshot_interactive(),
             Action::Overview => self.toggle_overview(),
             Action::ReloadConfig => self.reload_config(),
             Action::RestartShell => self.restart_shell(),

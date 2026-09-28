@@ -12,7 +12,7 @@ optdepends=('xorg-xwayland: X11-программы'
             'brightnessctl: яркость'
             'networkmanager: апплет сети'
             'playerctl: мультимедийные клавиши'
-            'wl-clipboard: снимки в буфер обмена'
+            'wl-clipboard: снимки и пути к ним в буфер обмена'
             'xdg-desktop-portal-wlr: демонстрация экрана (браузеры, OBS) и снимки через портал'
             'xdg-desktop-portal-kde: портал выбора файлов'
             'grim: снимки экрана из командной строки'
@@ -29,17 +29,17 @@ _profile=${SYNDESKTOP_PROFILE:-release}
 
 build() {
     cd "$startdir"
-    cargo build --profile "$_profile" -p syndesktop -p syndesktop-shell -p syndesktop-settings -p syndesktop-files
+    cargo build --profile "$_profile" -p syndesktop -p syndesktop-shell -p syndesktop-settings -p syndesktop-files -p syndesktop-screenshot
 }
 
 check() {
     cd "$startdir"
-    cargo test --profile "$_profile" -p syndesktop-common -p syndesktop
+    cargo test --profile "$_profile" -p syndesktop-common -p syndesktop -p syndesktop-screenshot
 }
 
 package() {
     cd "$startdir"
-    for b in syndesktop syndesktop-shell syndesktop-settings syndesktop-files; do
+    for b in syndesktop syndesktop-shell syndesktop-settings syndesktop-files syndesktop-screenshot; do
         install -Dm755 "target/$_profile/$b" "$pkgdir/usr/bin/$b"
     done
     install -Dm755 data/syndesktop-session "$pkgdir/usr/bin/syndesktop-session"
@@ -52,6 +52,8 @@ package() {
         "$pkgdir/usr/share/applications/syndesktop-files.desktop"
     install -Dm644 crates/syndesktop-files/data/syndesktop-viewer.desktop \
         "$pkgdir/usr/share/applications/syndesktop-viewer.desktop"
+    install -Dm644 crates/syndesktop-screenshot/data/syndesktop-screenshot.desktop \
+        "$pkgdir/usr/share/applications/syndesktop-screenshot.desktop"
     install -Dm644 crates/syndesktop-shell/data/syndesktop-lock.pam "$pkgdir/etc/pam.d/syndesktop-lock"
     install -Dm644 crates/syndesktop-common/default-config.toml \
         "$pkgdir/usr/share/doc/syndesktop/config.toml.example"

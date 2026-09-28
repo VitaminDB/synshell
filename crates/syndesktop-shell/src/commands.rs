@@ -61,6 +61,14 @@ pub fn handle(cmd: &str) {
             &format!("Сохранён в {}", arg.trim()),
             Some(arg.trim().to_string()),
         ),
+        "screenshot-copied" => crate::notifications::local(ctx, "Снимок экрана", "Скопирован в буфер обмена", None),
+        "screenshot-path" => crate::notifications::local(
+            ctx,
+            "Снимок экрана",
+            &format!("Путь скопирован в буфер обмена: {}", arg.trim()),
+            Some(arg.trim().to_string()),
+        ),
+        "screenshot-failed" => crate::notifications::local(ctx, "Снимок не сделан", arg.trim(), None),
         "close-popup" => ctx.close_popup(),
         // Режим редактирования панели/дока N (по умолчанию — первого дока,
         // иначе первой панели); повтор — выйти.

@@ -3523,6 +3523,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "syndesktop-screenshot"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "libc",
+ "log",
+ "png 0.17.16",
+ "serde_json",
+ "syndesktop-common",
+ "syngui",
+ "syngui-layer",
+]
+
+[[package]]
 name = "syndesktop-settings"
 version = "0.1.3"
 dependencies = [

@@ -210,6 +210,7 @@ pub fn action_label(a: &Action) -> String {
         Action::KeyboardLayout(i) => format!("Раскладка клавиатуры {i}"),
         Action::Screenshot => "Снимок экрана".into(),
         Action::ScreenshotWindow => "Снимок окна".into(),
+        Action::ScreenshotInteractive => "Снимок с выбором области".into(),
         Action::Overview => "Обзор".into(),
         Action::ReloadConfig => "Перечитать настройки".into(),
         Action::RestartShell => "Перезапустить оболочку".into(),

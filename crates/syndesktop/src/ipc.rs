@@ -226,6 +226,11 @@ impl State {
                 }
                 Response::Ok
             }
+            Request::Capture if self.core.is_locked() => Response::Error { message: "экран заблокирован".into() },
+            Request::Capture => match self.capture_all() {
+                Ok(capture) => Response::Capture { capture },
+                Err(e) => Response::Error { message: format!("захват экрана: {e:#}") },
+            },
             Request::EventStream => Response::Ok,
         }
     }

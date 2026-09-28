@@ -172,6 +172,7 @@ back_and_forth = false
 # move-to-workspace-follow <…>, focus-output <dir>, move-to-output <dir>,
 # layout <kind>, cycle-layout, master-ratio <±x>, master-count <±n>,
 # keyboard-layout-next, keyboard-layout <n>, screenshot, screenshot-window,
+# screenshot-interactive (Print: выбор области, сохранить/копировать),
 # overview, reload-config, restart-shell, restart, quit, lock, suspend, reboot, poweroff,
 # monitors-off, shell <launcher|run|power-menu|notifications|volume ±n|…>
 [keybindings]

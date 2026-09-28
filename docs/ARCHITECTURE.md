@@ -37,6 +37,7 @@
 | `syndesktop-shell` | оболочка |
 | `syndesktop-settings` | «Параметры системы» |
 | `syndesktop-files` | проводник (syngui + winit): вкладки, две панели, поиск, корзина, операции в фоне; `--viewer` — просмотрщик картинок (модуль `viewer`, сцена из synthos) — [FILES.md](FILES.md) |
+| `syndesktop-screenshot` | снимок с выбором (syngui-layer, слой overlay на каждом выводе): кадры всех выводов, окна и указатель берутся у композитора одним IPC `capture` (по Print композитор снимает сразу и передаёт `--capture ФАЙЛ`), оверлей — свой элемент (затемнение, рамка, ручки, лупа), результат — PNG / wl-copy, уведомление через `shell screenshot-*` |
 
 ## Конфигурация
 

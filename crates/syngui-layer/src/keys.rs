@@ -117,6 +117,11 @@ pub fn map_cursor(c: syngui::input::CursorIcon) -> smithay_client_toolkit::seat:
         C::RowResize => S::RowResize,
         C::NwResize => S::NwResize,
         C::NeResize => S::NeResize,
-        _ => S::Default,
+        C::SeResize => S::SeResize,
+        C::SwResize => S::SwResize,
+        C::NResize => S::NResize,
+        C::EResize => S::EResize,
+        C::SResize => S::SResize,
+        C::WResize => S::WResize,
     }
 }

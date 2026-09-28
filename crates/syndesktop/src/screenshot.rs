@@ -1,10 +1,87 @@
-//! Снимки экрана: вывод под указателем или окно в фокусе → PNG.
+//! Снимки экрана: вывод под указателем или окно в фокусе → PNG; застывший
+//! экран для программы снимков (`syndesktop-screenshot`).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use syndesktop_common::ipc::{CaptureInfo, CapturedOutput, CapturedWindow};
 
 use crate::state::State;
 
+/// Каталог кадров в `$XDG_RUNTIME_DIR`.
+fn capture_dir() -> PathBuf {
+    syndesktop_common::paths::runtime_dir().join("syndesktop-capture")
+}
+
 impl State {
+    /// Снять все выводы разом (без указателя): кадры — сырой RGBA в
+    /// `$XDG_RUNTIME_DIR/syndesktop-capture`, плюс окна и указатель.
+    /// Кадры прошлого захвата, которые никто не забрал, удаляются.
+    pub fn capture_all(&mut self) -> anyhow::Result<CaptureInfo> {
+        let dir = capture_dir();
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir)?;
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+        let mut info = CaptureInfo::default();
+        let outputs: Vec<_> = self.core.space.outputs().cloned().collect();
+        for output in outputs {
+            let g = self.core.space.output_geometry(&output).unwrap_or_default();
+            let (w, h, mut data) = self.backend.screenshot(&mut self.core, &output)?;
+            for px in data.chunks_exact_mut(4) {
+                px[3] = 255;
+            }
+            let path = dir.join(format!("{}-{stamp}.rgba", output.name()));
+            write_private(&path, &data)?;
+            info.outputs.push(CapturedOutput {
+                name: output.name(),
+                geometry: [g.loc.x, g.loc.y, g.size.w, g.size.h],
+                scale: output.current_scale().fractional_scale(),
+                width: w,
+                height: h,
+                path: path.to_string_lossy().into_owned(),
+            });
+        }
+        let title_h = self.core.deco_theme.height;
+        for id in self.core.wm.visible_ids().into_iter().rev() {
+            let Some(m) = self.core.wm.get(id) else { continue };
+            let g = m.geometry();
+            let top = if m.has_titlebar() { title_h } else { 0 };
+            info.windows.push(CapturedWindow {
+                title: m.title(),
+                app_id: m.app_id(),
+                rect: [g.loc.x, g.loc.y - top, g.size.w, g.size.h + top],
+            });
+        }
+        let p = self.core.pointer.current_location();
+        info.pointer = [p.x, p.y];
+        Ok(info)
+    }
+
+    /// Print: экран застывает сразу по нажатию, затем запускается
+    /// программа снимков с этим кадром. Без неё — обычный снимок вывода.
+    pub fn screenshot_interactive(&mut self) {
+        if self.core.is_locked() {
+            return;
+        }
+        if !crate::spawn::which("syndesktop-screenshot") {
+            tracing::warn!("нет syndesktop-screenshot — снимок всего вывода");
+            self.screenshot(false);
+            return;
+        }
+        let info = match self.capture_all() {
+            Ok(i) => i,
+            Err(e) => {
+                tracing::warn!(?e, "захват экрана не удался");
+                return;
+            }
+        };
+        let json = capture_dir().join("capture.json");
+        if let Err(e) = serde_json::to_vec(&info).map_err(anyhow::Error::from).and_then(|b| Ok(write_private(&json, &b)?)) {
+            tracing::warn!(?e, "описание захвата не записано");
+            return;
+        }
+        crate::spawn::spawn_shell(&self.core, &format!("syndesktop-screenshot --capture '{}'", json.display()));
+    }
+
     pub fn screenshot(&mut self, window_only: bool) {
         let Some(output) = self.core.output_under_pointer() else { return };
         let (w, h, mut data) = match self.backend.screenshot(&mut self.core, &output) {
@@ -74,6 +151,14 @@ fn file_name() -> String {
         tm.tm_min,
         tm.tm_sec
     )
+}
+
+/// Файл только для владельца: на кадре может быть что угодно.
+fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path)?;
+    f.write_all(data)
 }
 
 pub fn write_png(path: &PathBuf, w: u32, h: u32, rgba: &[u8]) -> anyhow::Result<()> {

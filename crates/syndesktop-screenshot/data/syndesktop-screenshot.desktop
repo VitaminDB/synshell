@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Снимок экрана
+Name[en]=Screenshot
+GenericName=Снимок экрана
+Comment=Выделить область или окно и сохранить снимок
+Comment[en]=Select a region or window and save a screenshot
+Exec=syndesktop-screenshot
+Icon=accessories-screenshot-tool
+Terminal=false
+Categories=Utility;Graphics;
+Keywords=screenshot;screen;capture;снимок;скриншот;экран;
+StartupNotify=false

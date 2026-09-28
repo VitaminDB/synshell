@@ -211,6 +211,9 @@ pub enum Action {
     Screenshot,
     /// Снимок окна в фокусе.
     ScreenshotWindow,
+    /// Снимок с выбором: экран застывает, открывается `syndesktop-screenshot`
+    /// (выделить область или окно, сохранить, скопировать).
+    ScreenshotInteractive,
     /// Обзор всех окон (как «Обзор» в Plasma).
     Overview,
     ReloadConfig,
@@ -244,7 +247,7 @@ impl Action {
         "focus-next", "focus-prev", "workspace", "move-to-workspace", "move-to-workspace-follow",
         "focus-output", "move-to-output", "layout", "cycle-layout", "master-ratio",
         "master-count", "keyboard-layout-next", "keyboard-layout", "screenshot",
-        "screenshot-window", "overview", "reload-config", "quit", "lock", "suspend", "reboot",
+        "screenshot-window", "screenshot-interactive", "overview", "reload-config", "quit", "lock", "suspend", "reboot",
         "poweroff", "monitors-off", "shell", "none",
     ];
 }
@@ -308,6 +311,7 @@ impl FromStr for Action {
             ),
             "screenshot" => Action::Screenshot,
             "screenshot-window" => Action::ScreenshotWindow,
+            "screenshot-interactive" => Action::ScreenshotInteractive,
             "overview" => Action::Overview,
             "reload-config" => Action::ReloadConfig,
             "restart-shell" => Action::RestartShell,
@@ -356,6 +360,7 @@ impl fmt::Display for Action {
             Action::KeyboardLayout(i) => write!(f, "keyboard-layout {i}"),
             Action::Screenshot => f.write_str("screenshot"),
             Action::ScreenshotWindow => f.write_str("screenshot-window"),
+            Action::ScreenshotInteractive => f.write_str("screenshot-interactive"),
             Action::Overview => f.write_str("overview"),
             Action::ReloadConfig => f.write_str("reload-config"),
             Action::RestartShell => f.write_str("restart-shell"),

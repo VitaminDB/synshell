@@ -28,6 +28,9 @@ pub enum Request {
     EventStream,
     /// Сообщить геометрию значка окна на панели — сюда сворачивается окно.
     SetMinimizeRect { id: u64, output: String, rect: [i32; 4] },
+    /// Снять все выводы разом (без указателя) для программы снимков:
+    /// кадры — сырой RGBA в `$XDG_RUNTIME_DIR`, ответ — [`Response::Capture`].
+    Capture,
 }
 
 /// Операции над окном из панели задач.
@@ -63,6 +66,7 @@ pub enum Response {
     Workspaces { workspaces: Vec<WorkspaceInfo> },
     Outputs { outputs: Vec<OutputInfo> },
     KeyboardLayouts { layouts: KeyboardLayouts },
+    Capture { capture: CaptureInfo },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -170,6 +174,38 @@ pub struct ModeInfo {
     pub height: i32,
     pub refresh_mhz: i32,
     pub preferred: bool,
+}
+
+/// Застывший экран для программы снимков: кадры всех выводов, окна и
+/// указатель в один момент.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct CaptureInfo {
+    pub outputs: Vec<CapturedOutput>,
+    /// Видимые окна сверху вниз по стопке.
+    pub windows: Vec<CapturedWindow>,
+    /// Указатель в глобальных логических координатах.
+    pub pointer: [f64; 2],
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct CapturedOutput {
+    pub name: String,
+    /// Логическая геометрия [x, y, w, h].
+    pub geometry: [i32; 4],
+    pub scale: f64,
+    /// Размер кадра в пикселях.
+    pub width: u32,
+    pub height: u32,
+    /// Файл с кадром: RGBA построчно, без заголовка; читатель удаляет его.
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct CapturedWindow {
+    pub title: String,
+    pub app_id: String,
+    /// Окно вместе с заголовком рамки, глобально [x, y, w, h].
+    pub rect: [i32; 4],
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
