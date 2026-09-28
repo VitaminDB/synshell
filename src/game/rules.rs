@@ -4,7 +4,7 @@
 //! 4→1000), умноженные на комбо; «идеальная очистка» поля — +300.
 //! Комбо растёт с каждым ходом с очисткой и прощает до двух ходов без неё.
 
-use super::board::{cell_material, Board, Clear};
+use super::board::{cell_material, Board, Cell, Clear};
 use super::generator;
 use super::piece::{Material, Piece};
 use super::rng::Rng;
@@ -106,7 +106,7 @@ impl Ability {
 /// Результат применения способности.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AbilityOutcome {
-    pub removed: Vec<(usize, usize, u8)>,
+    pub removed: Vec<(usize, usize, Cell)>,
     pub rerolled: bool,
 }
 

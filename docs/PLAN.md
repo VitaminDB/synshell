@@ -64,6 +64,39 @@
   YuE2 через `synaptix song` (см. `assets/music/*.log`).
 * **Android-сборка**: `./run-phone.sh` собирает APK (arm64-v8a) и ставит на
   телефон по USB; каталог `android/` — gradle-проект с GameActivity.
+* **Стартовая страница** (`ui/start.rs`): логотип, две карточки видов игры и
+  переключатели «Звуки · Музыка · Голос». Вид игры (`persist::Variant`) —
+  одна логика, разная визуальная часть; у каждого вида своя сохранённая
+  партия (`game.txt` / `game_elvira.txt`) и свои рекорды
+  (`Stats::best_by[вид][сложность]`). Из меню паузы и итогов — «В начало»,
+  кнопка «Назад» на телефоне ведёт на стартовую страницу.
+* **Вид «Эльвира»**: каждая фигура выпадает из своей **отделки** — 24
+  материала (`ui/finish.rs`: золото, серебро, медь, бронза, стекло, хрусталь,
+  велюр, дуб, орех, мрамор, гранит, обсидиан, лава, лёд, нефрит, самоцвет,
+  перламутр, неон, кожа, джинса, фарфор, леденец, шоколад, голограмма).
+  Отделка живёт в модели (`Piece.finish`, старший байт `Cell = u16`,
+  `generator::assign_finishes` без продвижения ГСЧ), Стандарт её игнорирует.
+  Рисуется текстурой из атласа `assets/tex/atlas.jpg` (8×4 тайла по 256 px,
+  гаттеры 16 px; `push_image` с UV-окном по зерну кубика; красящиеся
+  отделки — серая текстура × цвет фигуры) под процедурными скосами, объёмом
+  (`push_canvas` с цветом на вершинах), бликами и анимацией (`cube.rs`:
+  бегущий блеск, искры, пульс, перелив). Поле, трей и рука рисуются в два
+  прохода (`draw_cubes`), чтобы текстурные квады шли одним батчем. Атлас
+  запрашивается в `Element::mount` через `tree.image_store`, готовность —
+  в `animate`; без атласа (тесты, сбой) отделки рисуются цветом.
+  Бонусные материалы (золото/хрусталь/дерево/лава) выглядят своей отделкой и
+  помечены искрой; режимы блоков работают как в Стандарте (волна даёт обычным
+  кубикам отделку режима). Свой мир «Бархат», золотая рамка поля с завитками,
+  свечение под фигурами трея, частицы по виду отделки (монеты, осколки, щепки,
+  пыль, угли, искры, ворсинки, посыпка), золотые лепестки на уровне.
+* **Голос и словарь** (`lang.rs`, `audio::Voice`): в «Эльвире» баннеры
+  двуязычные — английская реплика крупно, перевод и комбо ниже
+  («BEAUTIFUL!» / «красиво! · combo ×3»); реплики по силе хода
+  (Nice / Beautiful / Amazing / You're on fire / Perfect / New record / Game
+  over…) озвучены VoxCPM2 (`tools/gen_voice.sh`, один тембр через
+  `--reference`), играют отдельным каналом микшера (одна за раз, старшая по
+  рангу перебивает, музыка приглушается на −7 дБ), не чаще раза в 1.2 с.
+  Основа для обучения английскому: каждое слово — `en` + `ru` + клип.
 
 ## 2. Структура
 
@@ -72,9 +105,12 @@ src/
 ├── main.rs            fn main → elle_block::run_desktop()
 ├── lib.rs             App-билдер (desktop + android_main), GameCtx
 ├── anim.rs            easing, damp, частицы, всплывающие подписи
-├── persist.rs         Stats: load/save (XDG_DATA_HOME / ELLE_BLOCK_DATA), настройки звука
-├── audio.rs           Sfx, микшер (поток), init/play/play_pitched/set_music/suspend
+├── lang.rs            словарь en/ru: реплики похвалы по уровням, служебные слова
+├── persist.rs         Variant, Stats (рекорды вид×сложность), партии game.txt/game_elvira.txt (v=2)
+├── audio.rs           Sfx, Voice, микшер (поток): эффекты + музыка + голосовой канал
 assets/sfx/*.wav       эффекты 48 кГц (tools/gen_sfx.py)
+assets/voice/*.wav     реплики 24 кГц (tools/gen_voice.sh, VoxCPM2)
+assets/tex/atlas.jpg   атлас отделок 2048×1024 (tools/gen_textures.sh → tools/build_atlas.py)
 assets/music/bgm.wav   фоновый трек 24 кГц моно (вшивается include_bytes!)
 ├── game/              чистая модель, без UI (юнит-тесты внутри)
 │   ├── rng.rs         xorshift64*, weighted()
@@ -86,7 +122,9 @@ assets/music/bgm.wav   фоновый трек 24 кГц моно (вшивае�
     ├── mod.rs         GameView/View: ввод (мышь/тач/клавиши), drag, тик анимаций
     ├── layout.rs      Geo: колонка, HUD, поле, трей (всё из bounds)
     ├── theme.rs       палитра, шрифт, глифы Material Icons
-    ├── cube.rs        draw_cube (4 грани + глянец), draw_piece
+    ├── start.rs       стартовая страница: геометрия карточек, отрисовка, превью материалов
+    ├── finish.rs      24 отделки «Эльвиры»: имена en/ru, тайл атласа, характер бликов, частицы, звук
+    ├── cube.rs        draw_cube (4 грани + глянец), отделки (текстура + скосы), draw_cubes (2 прохода), draw_piece
     ├── fx.rs          Pop/Vanish/LineFlash/Banner/Return, длительности
     ├── overlay.rs     геометрия карточек меню и Game Over (общая для paint и hit-test)
     └── paint.rs       весь кадр: фон, HUD, поле, трей, частицы, оверлеи
@@ -109,9 +147,13 @@ tests/play_flow.rs     TestHarness: drag, snap, возврат, клавиату
 cargo test                 # модель + интеграционные тесты (без GPU)
 cargo run                  # окно 460×820
 ELLE_BLOCK_DATA=/tmp/x cargo run   # отдельный файл статистики
-ELLE_DEMO=drag|over|menu|board|clear cargo run # демо-состояния (clear — ход с очисткой через 3.6 с)
+ELLE_DEMO=drag|over|menu|board|clear|start|finishes cargo run # демо-состояния (clear — ход с очисткой через 3.6 с)
+ELLE_VARIANT=elvira ELLE_DEMO=finishes ./run-phone.sh        # витрина всех отделок на телефоне
 ./run-phone.sh             # APK → телефон (см. memory.md G24)
 python3 tools/gen_sfx.py   # пересинтезировать эффекты
+tools/gen_textures.sh [id] # текстуры отделок: synaptix imagine, FLUX.2 klein 9B (~17 с/шт)
+python3 tools/build_atlas.py # собрать assets/tex/atlas.jpg из assets/tex/raw
+tools/gen_voice.sh [id]    # реплики: synaptix speak (VoxCPM2) + ffmpeg
 synaptix song "instrumental, no vocals, ..." --lyrics "" --cot off --models ~/Storage/syn_models \
     -o assets/music/yue_x.wav --max-tokens 1600   # 25 токенов = 1 с; --cot off = без вокала
 timeout 120 synaptix transcribe ~/Storage/syn_models/whisper-large-v3-turbo.syn yue_x.wav  # пусто = нет слов

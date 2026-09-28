@@ -9,3 +9,6 @@
 /assets/music/yue_*
 /assets/music/bgm_*
 /assets/music/*.log
+# исходники текстур и озвучки (в игру вшиты atlas.jpg и assets/voice/*.wav)
+/assets/tex/raw
+/assets/voice/raw

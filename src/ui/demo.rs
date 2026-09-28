@@ -1,9 +1,10 @@
-//! Демо-состояния для скриншотов: `ELLE_DEMO=board|drag|over|lost|menu`;
-//! дополнительно `ELLE_WORLD=1..8` (мир/уровень) и `ELLE_SKIN=wood|crystal|gold|lava`.
-//! Не влияет на обычный запуск (переменная не задана).
+//! Демо-состояния для скриншотов: `ELLE_DEMO=start|board|drag|over|lost|menu|clear|finishes`;
+//! дополнительно `ELLE_WORLD=1..9` (мир/уровень), `ELLE_SKIN=wood|crystal|gold|lava`
+//! и `ELLE_VARIANT=elvira` (вид игры). Не влияет на обычный запуск.
 
-use super::{Drag, View};
-use crate::game::{make_cell, Board, Family, Game, Material, Piece, SIZE};
+use super::{Drag, Screen, View};
+use crate::game::{cell_color, make_cell, make_cell_full, Board, Cell, Family, Game, Material, Piece, FINISH_COUNT, SIZE};
+use crate::persist::Variant;
 use syngui::prelude::*;
 
 /// Переменная окружения; на Android окружения нет, поэтому значение можно
@@ -16,6 +17,7 @@ fn var(name: &str) -> Option<String> {
         "ELLE_DEMO" => option_env!("ELLE_DEMO"),
         "ELLE_WORLD" => option_env!("ELLE_WORLD"),
         "ELLE_SKIN" => option_env!("ELLE_SKIN"),
+        "ELLE_VARIANT" => option_env!("ELLE_VARIANT"),
         _ => None,
     };
     built.filter(|s| !s.is_empty()).map(str::to_string)
@@ -24,10 +26,21 @@ fn var(name: &str) -> Option<String> {
 pub fn apply(v: &mut View) {
     let Some(mode) = var("ELLE_DEMO") else { return };
     v.frozen = true;
+    let variant = if var("ELLE_VARIANT").as_deref() == Some("elvira") { Variant::Elvira } else { Variant::Standard };
+    v.variant = variant;
+    v.ctx.variant.set(variant);
+    if mode == "start" {
+        v.screen = Screen::Start;
+        v.ctx.screen.set(Screen::Start);
+        v.start_saved = [true, false];
+        return;
+    }
+    v.screen = Screen::Game;
+    v.ctx.screen.set(Screen::Game);
     let mut g = Game::new(2027);
     g.board = Board::new();
     // живописное поле: почти полный нижний ряд и колонка, россыпь кубиков
-    let fill: &[(usize, usize, u8)] = &[
+    let fill: &[(usize, usize, Cell)] = &[
         (7, 0, 5), (7, 1, 5), (7, 2, 5), (7, 3, 2), (7, 4, 2), (7, 5, 7),
         (6, 0, 4), (6, 1, 4), (6, 5, 7), (6, 6, 1), (6, 7, 1),
         (5, 0, 4), (5, 6, 1), (5, 7, 1),
@@ -40,9 +53,23 @@ pub fn apply(v: &mut View) {
     }
     // образцы материалов на поле
     for (r, c, m) in [(0, 3, Material::Wood), (0, 4, Material::Wood), (1, 3, Material::Crystal), (1, 4, Material::Crystal), (6, 6, Material::Gold), (6, 7, Material::Gold), (5, 6, Material::Lava), (5, 7, Material::Lava)] {
-        g.board.set(r, c, make_cell(g.board.get(r, c) & 0x0F, m));
+        g.board.set(r, c, make_cell(cell_color(g.board.get(r, c)), m));
     }
-    g.tray = [Some(Piece::of(Family::I2).with_material(Material::Gold)), Some(Piece::of(Family::T4).with_material(Material::Wood)), Some(Piece::of(Family::L4).with_material(Material::Lava))];
+    // отделки «Эльвиры»: каждой клетке своя, по диагоналям
+    for r in 0..SIZE {
+        for c in 0..SIZE {
+            let val = g.board.get(r, c);
+            if val != 0 {
+                let finish = 1 + ((r * 3 + c * 5) % FINISH_COUNT as usize) as u8;
+                g.board.set(r, c, make_cell_full(cell_color(val), crate::game::cell_material(val), finish));
+            }
+        }
+    }
+    g.tray = [
+        Some(Piece::of(Family::I2).with_material(Material::Gold).with_finish(1)),
+        Some(Piece::of(Family::T4).with_material(Material::Wood).with_finish(8)),
+        Some(Piece::of(Family::L4).with_material(Material::Lava).with_finish(13)),
+    ];
     g.scoring.score = 1480;
     g.scoring.combo = 3;
     g.scoring.lines = 9;
@@ -57,7 +84,7 @@ pub fn apply(v: &mut View) {
     if let Some(l) = var("ELLE_WORLD").and_then(|s| s.parse::<u32>().ok()) {
         let l = l.max(1);
         v.level = l;
-        let wi = super::world::world_index(l);
+        let wi = super::world::world_index_for(l, variant);
         v.world = super::world::WorldFade { from: wi, to: wi, born: -100.0 };
         g.scoring.score = super::world::threshold(l) + 600;
     }
@@ -88,7 +115,7 @@ pub fn apply(v: &mut View) {
             for r in 0..SIZE {
                 for c in 0..SIZE {
                     if g.board.get(r, c) == 0 && (r * 3 + c) % 4 != 0 {
-                        g.board.set(r, c, ((r + c) % 7 + 1) as u8);
+                        g.board.set(r, c, ((r + c) % 7 + 1) as Cell);
                     }
                 }
             }
@@ -107,6 +134,18 @@ pub fn apply(v: &mut View) {
             g.scoring.misses = 0;
             v.demo_move_at = Some((3.6, 0, 7, 6));
             v.frozen = false;
+        }
+        "finishes" => {
+            // витрина: все отделки по порядку, три ряда по восемь
+            g.board = Board::new();
+            for i in 0..FINISH_COUNT as usize {
+                g.board.set(i / 8, i % 8, make_cell_full(1 + (i % 7) as u8, Material::Plain, i as u8 + 1));
+            }
+            g.tray = [
+                Some(Piece::of(Family::O2).with_finish(7)),
+                Some(Piece::of(Family::L4).with_material(Material::Gold).with_finish(1)),
+                Some(Piece::of(Family::I3).with_finish(16)),
+            ];
         }
         _ => {}
     }

@@ -4,22 +4,33 @@ use super::piece::{Material, Piece, Shape};
 
 pub const SIZE: usize = 8;
 
-/// 0 — пусто; иначе младший ниббл — цвет (1..=7), старший — материал.
-pub type Cell = u8;
+/// 0 — пусто; иначе биты 0–3 — цвет (1..=7), 4–7 — материал (бонус),
+/// 8–15 — отделка (визуальный материал в виде игры «Эльвира», 0 — не задана).
+pub type Cell = u16;
 
 #[inline]
 pub fn make_cell(color: u8, material: Material) -> Cell {
-    (color & 0x0F) | (material.index() << 4)
+    make_cell_full(color, material, 0)
+}
+
+#[inline]
+pub fn make_cell_full(color: u8, material: Material, finish: u8) -> Cell {
+    (color as Cell & 0x0F) | ((material.index() as Cell) << 4) | ((finish as Cell) << 8)
 }
 
 #[inline]
 pub fn cell_color(cell: Cell) -> u8 {
-    cell & 0x0F
+    (cell & 0x0F) as u8
 }
 
 #[inline]
 pub fn cell_material(cell: Cell) -> Material {
-    Material::from_index(cell >> 4)
+    Material::from_index(((cell >> 4) & 0x0F) as u8)
+}
+
+#[inline]
+pub fn cell_finish(cell: Cell) -> u8 {
+    (cell >> 8) as u8
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,7 +102,7 @@ impl Board {
     /// Ставит фигуру (без проверки) и возвращает занятые клетки.
     pub fn place(&mut self, p: &Piece, r: i32, c: i32) -> Vec<(usize, usize)> {
         let mut out = Vec::with_capacity(p.len());
-        let v = make_cell(p.color, p.material);
+        let v = make_cell_full(p.color, p.material, p.finish);
         for &(dr, dc) in p.shape.cells() {
             let (rr, cc) = ((r + dr as i32) as usize, (c + dc as i32) as usize);
             self.cells[rr][cc] = v;
@@ -280,12 +291,29 @@ mod tests {
         let mut b = Board::new();
         let cells = b.place(&sq(), 3, 4);
         assert_eq!(cells, vec![(3, 4), (3, 5), (4, 4), (4, 5)]);
-        assert_eq!(b.get(4, 5), Family::O2.color());
+        assert_eq!(cell_color(b.get(4, 5)), Family::O2.color());
         assert_eq!(cell_material(b.get(4, 5)), Material::Plain);
-        let gold = sq().with_material(Material::Gold);
+        assert_eq!(cell_finish(b.get(4, 5)), 0);
+        let gold = sq().with_material(Material::Gold).with_finish(17);
         b.place(&gold, 0, 0);
         assert_eq!(cell_color(b.get(0, 0)), Family::O2.color());
         assert_eq!(cell_material(b.get(0, 0)), Material::Gold);
+        assert_eq!(cell_finish(b.get(0, 0)), 17);
         assert_ne!(b.get(0, 0), 0);
+    }
+
+    #[test]
+    fn cell_packing_roundtrips() {
+        for color in 1..=7u8 {
+            for m in Material::ALL {
+                for finish in [0u8, 1, 24, 255] {
+                    let v = make_cell_full(color, m, finish);
+                    assert_eq!(cell_color(v), color);
+                    assert_eq!(cell_material(v), m);
+                    assert_eq!(cell_finish(v), finish);
+                    assert_eq!(make_cell(color, m), make_cell_full(color, m, 0));
+                }
+            }
+        }
     }
 }

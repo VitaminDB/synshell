@@ -196,3 +196,41 @@ tt = t(0.5)
 whoomp = np.sin(2 * np.pi * (60 + 40 * np.exp(-tt * 6)) * tt) * env(len(tt), a=0.01, d=0.2, s=0.3, r=0.25)
 hiss = noise_burst(0.5, 1500, 9000, 6) * np.linspace(0.2, 1.0, len(tt)) * 0.35
 save("lava", reverb(mix(whoomp * 0.9, hiss), 0.4, 0.2))
+
+# ── отделки «Эльвиры» и новые интерфейсные звуки ──────────────────────────
+# металл (серебро, медь, бронза): звон с обертонами и быстрым затуханием
+rings = []
+for i, f in enumerate([1800, 2700, 3900]):
+    tt = t(0.35)
+    rings.append(at((np.sin(2 * np.pi * f * tt) + 0.5 * np.sin(2 * np.pi * f * 1.5 * tt) + 0.3 * np.sin(2 * np.pi * f * 2.9 * tt)) * np.exp(-tt * 14) * 0.4, 0.03 * i))
+save("metal", reverb(mix(*rings, noise_burst(0.05, 3000, 10000, 80) * 0.3), 0.5, 0.25))
+# камень (мрамор, гранит, нефрит): глухой удар + сухая крошка
+tt = t(0.3)
+thud = np.sin(2 * np.pi * (95 * np.exp(-tt * 9) + 55) * tt) * np.exp(-tt * 16)
+grit = [at(noise_burst(0.02, 1500, 6000, 200) * (0.3 + 0.4 * rng.uniform()), 0.02 * i + 0.01 * rng.uniform()) for i in range(6)]
+save("stone", mix(thud * 0.9, *grit))
+# велюр (ткань, кожа): мягкий «фух» — фильтрованный шум с округлой огибающей
+tt = t(0.28)
+puff = noise_burst(0.28, 300, 2500, 12) * env(len(tt), a=0.03, d=0.12, s=0.35, r=0.12)
+save("velvet", mix(puff * 0.9, np.sin(2 * np.pi * 220 * tt) * np.exp(-tt * 20) * 0.25))
+# стекло (стекло, обсидиан, фарфор, перламутр): звонкое дребезжание осколков
+glass = [at(note(midi(100 + rng.integers(0, 10)), 0.3, "bell", 0.3), 0.015 * i) for i in range(12)]
+save("glass", reverb(mix(*glass, noise_burst(0.12, 5000, 16000, 40) * 0.4), 0.6, 0.3))
+# лёд: треск + звон
+cracks = [at(noise_burst(0.025, 2500, 9000, 150) * (0.4 + 0.6 * rng.uniform()), 0.025 * i) for i in range(6)]
+save("ice", reverb(mix(*cracks, at(note(midi(103), 0.6, "bell", 0.5), 0.1), at(note(midi(110), 0.5, "bell", 0.3), 0.16)), 0.7, 0.35))
+# неон (неон, голограмма): электрический «зап» — быстрый свип с жужжанием
+tt = t(0.22)
+zap = np.sin(2 * np.pi * (3000 * np.exp(-tt * 18) + 300) * tt) * np.exp(-tt * 18)
+buzz = np.sign(np.sin(2 * np.pi * 110 * tt)) * np.exp(-tt * 12) * 0.25
+save("neon", mix(zap * 0.7, buzz, noise_burst(0.08, 4000, 12000, 60) * 0.3))
+# леденец (карамель, шоколад): весёлые «попы» по восходящей
+pops = []
+for i, n in enumerate([88, 92, 95, 100]):
+    tt = t(0.09)
+    pops.append(at(np.sin(2 * np.pi * midi(n) * tt) * env(len(tt), a=0.002, d=0.05, s=0.0, r=0.04) * 0.6, i * 0.05))
+save("candy", reverb(mix(*pops, noise_burst(0.04, 2000, 8000, 100) * 0.2), 0.3, 0.2))
+# стартовая страница: мягкий перезвон
+save("chime", reverb(mix(at(note(midi(84), 0.9, "bell", 0.6), 0.0), at(note(midi(91), 0.9, "bell", 0.5), 0.1), at(note(midi(96), 1.2, "bell", 0.6), 0.2)), 1.0, 0.35))
+# уровень в «Эльвире»: арфовое глиссандо
+save("harp", reverb(chord([67, 71, 74, 79, 83, 86, 91, 95], 0.05, 0.8, "pluck", 0.7), 0.9, 0.35))

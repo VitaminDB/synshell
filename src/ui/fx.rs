@@ -16,7 +16,8 @@ pub struct Pop {
 pub struct Vanish {
     pub r: usize,
     pub c: usize,
-    pub color: u8,
+    /// Полное значение клетки (цвет, материал, отделка).
+    pub color: crate::game::Cell,
     pub born: f32,
     pub delay: f32,
     pub spawned: bool,

@@ -11,8 +11,8 @@
 //!   чаще берётся та, что закрывает линию или плотно ложится в имеющуюся
 //!   выемку (`fit_score`), а не просто случайная.
 
-use super::board::{Board, SIZE};
-use super::piece::{catalog, Family, Material, Piece, Shape};
+use super::board::{Board, Cell, SIZE};
+use super::piece::{catalog, Family, Material, Piece, Shape, FINISH_COUNT};
 use std::sync::atomic::{AtomicBool, Ordering};
 use super::rng::Rng;
 use super::rules::Difficulty;
@@ -292,6 +292,40 @@ pub fn deal(rng: &mut Rng, board: &Board) -> [Piece; 3] {
 /// Раздача с учётом сложности: на «сложно» гарантируется лишь одна
 /// размещаемая фигура (как в оригинале), иначе — вся тройка.
 pub fn deal_for(rng: &mut Rng, board: &Board, d: Difficulty) -> [Piece; 3] {
+    let mut three = deal_core(rng, board, d);
+    assign_finishes(&mut three, rng.state());
+    three
+}
+
+/// Отделки тройки: бонусные фигуры — отделка своего материала, обычные —
+/// из хеша состояния ГСЧ и номера слота (сам `rng` не двигается, чтобы не
+/// менять последовательность раздачи), без повторов внутри тройки.
+pub fn assign_finishes(three: &mut [Piece; 3], salt: u64) {
+    let mut used: Vec<u8> = three.iter().filter(|p| p.material != Material::Plain).map(|p| p.material.finish()).collect();
+    for (i, p) in three.iter_mut().enumerate() {
+        if p.material != Material::Plain {
+            p.finish = p.material.finish();
+            continue;
+        }
+        let mut x = salt ^ (i as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        for _ in 0..8 {
+            x ^= x >> 31;
+            x = x.wrapping_mul(0xD6E8_FEB8_6659_FD93);
+            x ^= x >> 32;
+            let f = (x % FINISH_COUNT as u64) as u8 + 1;
+            if !used.contains(&f) {
+                p.finish = f;
+                used.push(f);
+                break;
+            }
+        }
+        if p.finish == 0 {
+            p.finish = (x % FINISH_COUNT as u64) as u8 + 1;
+        }
+    }
+}
+
+fn deal_core(rng: &mut Rng, board: &Board, d: Difficulty) -> [Piece; 3] {
     let fill = board.fill_ratio();
     // Иногда — раздача «под идеальную очистку»: поле почти пустое, и тройка
     // подобрана так, что при верных ходах поле собирается целиком.
@@ -489,7 +523,7 @@ mod tests {
             for r in 0..SIZE {
                 for c in 0..SIZE {
                     if rng.unit() < 0.62 {
-                        b.set(r, c, 1 + ((r + c + game) % 7) as u8);
+                        b.set(r, c, 1 + ((r + c + game) % 7) as Cell);
                     }
                 }
             }

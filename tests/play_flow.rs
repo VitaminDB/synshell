@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use elle_block::game::{Board, Family, Game, Piece, SIZE};
+use elle_block::game::{cell_color, Board, Family, Game, Piece, SIZE};
 use elle_block::persist::Stats;
 use elle_block::ui::layout::{self, Geo};
 use elle_block::{GameCtx, GameView};
@@ -69,8 +69,8 @@ fn drag_from_tray_places_piece() {
     let results = drag(&mut h, grab_point(&geo, 1, &g0), drop_point(&geo, 3, 2));
     assert!(results.iter().all(|r| r.is_handled()), "все события drag должны быть Handled: {results:?}");
     let g = game(&ctx);
-    assert_eq!(g.board.get(3, 2), Family::I2.color());
-    assert_eq!(g.board.get(3, 3), Family::I2.color());
+    assert_eq!(cell_color(g.board.get(3, 2)), Family::I2.color());
+    assert_eq!(cell_color(g.board.get(3, 3)), Family::I2.color());
     assert_eq!(g.board.filled(), 2);
     assert!(g.tray[1].is_none());
     assert_eq!(g.scoring.score, 20);
@@ -85,7 +85,7 @@ fn magnetic_snap_forgives_small_offset() {
     to.y -= geo.cell * 0.25;
     drag(&mut h, grab_point(&geo, 0, &g0), to);
     let g = game(&ctx);
-    assert_eq!(g.board.get(5, 5), Family::Mono.color(), "фигура должна прилипнуть к ближайшей клетке");
+    assert_eq!(cell_color(g.board.get(5, 5)), Family::Mono.color(), "фигура должна прилипнуть к ближайшей клетке");
 }
 
 #[test]
@@ -128,7 +128,7 @@ fn refill_after_all_three_and_line_clear_scores() {
     let g1 = game(&ctx);
     drag(&mut h, grab_point(&geo, 1, &g1), drop_point(&geo, 7, 5)); // I2
     let g2 = game(&ctx);
-    assert_eq!(g2.board.get(7, 6), Family::I2.color());
+    assert_eq!(cell_color(g2.board.get(7, 6)), Family::I2.color());
     drag(&mut h, grab_point(&geo, 0, &g2), drop_point(&geo, 7, 7)); // Mono закрывает ряд
     let g3 = game(&ctx);
     assert!(g3.board.rows()[7].iter().all(|&v| v == 0), "ряд 7 должен схлопнуться");
@@ -153,8 +153,8 @@ fn keyboard_mode_places_piece() {
     h.send_events(&press_key(Key::Down));
     h.send_events(&press_key(Key::Enter));
     let g = game(&ctx);
-    assert_eq!(g.board.get(1, 2), Family::I2.color());
-    assert_eq!(g.board.get(1, 3), Family::I2.color());
+    assert_eq!(cell_color(g.board.get(1, 2)), Family::I2.color());
+    assert_eq!(cell_color(g.board.get(1, 3)), Family::I2.color());
     assert!(g.tray[1].is_none());
     // курсор не выходит за границы: домино 2 в ширину → максимум колонка 6
     h.send_events(&press_key(Key::Num3)); // O2
@@ -164,8 +164,8 @@ fn keyboard_mode_places_piece() {
     }
     h.send_events(&press_key(Key::Enter));
     let g = game(&ctx);
-    assert_eq!(g.board.get(7, 7), Family::O2.color());
-    assert_eq!(g.board.get(6, 6), Family::O2.color());
+    assert_eq!(cell_color(g.board.get(7, 7)), Family::O2.color());
+    assert_eq!(cell_color(g.board.get(6, 6)), Family::O2.color());
 }
 
 #[test]
@@ -177,7 +177,7 @@ fn escape_opens_menu_and_blocks_board_input() {
     assert_eq!(game(&ctx).board.filled(), 0, "в меню ходы не принимаются");
     h.send_events(&press_key(Key::Escape));
     drag(&mut h, grab_point(&geo, 0, &g0), drop_point(&geo, 4, 4));
-    assert_eq!(game(&ctx).board.get(4, 4), Family::Mono.color());
+    assert_eq!(cell_color(game(&ctx).board.get(4, 4)), Family::Mono.color());
 }
 
 #[test]
@@ -251,7 +251,7 @@ fn touch_drag_places_piece() {
     h.send_event(&Event::TouchMove { id: 7, position: to });
     h.send_event(&Event::TouchEnd { id: 7, position: to });
     let g = game(&ctx);
-    assert_eq!(g.board.get(2, 2), Family::I2.color());
+    assert_eq!(cell_color(g.board.get(2, 2)), Family::I2.color());
 }
 
 #[test]
@@ -342,6 +342,6 @@ fn game_is_saved_after_move_and_restored() {
     h.animate(Duration::from_millis(16));
     // папка данных общая для параллельных тестов процесса, поэтому здесь
     // только «записано и читается»; точный формат — persist::tests::game_roundtrip
-    assert!(elle_block::persist::load_game().is_some(), "партия записана");
-    assert_eq!(game(&ctx).board.get(3, 3), Family::I2.color());
+    assert!(elle_block::persist::load_game(elle_block::Variant::Standard).is_some(), "партия записана");
+    assert_eq!(cell_color(game(&ctx).board.get(3, 3)), Family::I2.color());
 }

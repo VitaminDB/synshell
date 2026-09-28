@@ -75,6 +75,10 @@ pub enum Shape {
     BarV,
     /// Ромб (искра/кристалл): квадрат, повёрнутый визуально через два прямоугольника.
     Spark,
+    /// Монета: кружок, «вращается» сжатием ширины.
+    Coin,
+    /// Лепесток/ворсинка: вытянутый овал, покачивается.
+    Petal,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -160,6 +164,21 @@ impl Particles {
                     let b = Rect::new(Point::new(p.pos.x - s * 0.16, p.pos.y - s), Size::new(s * 0.32, s * 2.0));
                     list.push_rect(a, col, [s * 0.16; 4]);
                     list.push_rect(b, col, [s * 0.16; 4]);
+                }
+                Shape::Coin => {
+                    // вращение: ширина сжимается по синусу возраста, блик по краю
+                    let w = s * (0.15 + 0.85 * (p.age * 14.0 + p.pos.x * 0.1).sin().abs());
+                    let rect = Rect::new(Point::new(p.pos.x - w * 0.5, p.pos.y - s * 0.5), Size::new(w, s));
+                    list.push_rect(rect, col, [s * 0.5; 4]);
+                    let hl = Rect::new(Point::new(p.pos.x - w * 0.5, p.pos.y - s * 0.5), Size::new(w, s * 0.4));
+                    list.push_rect(hl, Color::WHITE.with_alpha(0.45 * alpha), [s * 0.5; 4]);
+                }
+                Shape::Petal => {
+                    let sway = (p.age * 6.0 + p.pos.y * 0.05).sin();
+                    let w = s * (0.45 + 0.55 * sway.abs());
+                    let h = s * 1.7;
+                    let rect = Rect::new(Point::new(p.pos.x - w * 0.5 + sway * s * 0.3, p.pos.y - h * 0.5), Size::new(w, h));
+                    list.push_rect(rect, col, [w.min(h) * 0.5; 4]);
                 }
                 _ => {
                     let rect = Rect::new(Point::new(p.pos.x - s * 0.5, p.pos.y - s * 0.5), Size::new(s, s));

@@ -6,6 +6,9 @@
 //! бинарник (`assets/sfx`, синтез — `tools/gen_sfx.py`), музыка — `assets/music/bgm.wav`
 //! (24 кГц моно, сгенерирована ACE-Step через `synaptix music`).
 //!
+//! Голосовые реплики (`Voice`, английский, VoxCPM2 через `tools/gen_voice.sh`)
+//! идут отдельным каналом: одна реплика за раз, музыка на это время приглушается.
+//!
 //! Доступ глобальный: `audio::init(..)` один раз, дальше `audio::play(Sfx::Place)`.
 //! Без `init` (тесты) все вызовы — no-op.
 
@@ -49,10 +52,19 @@ pub enum Sfx {
     Crystal,
     Gold,
     Lava,
+    Metal,
+    Stone,
+    Velvet,
+    Glass,
+    Ice,
+    Neon,
+    Candy,
+    Chime,
+    Harp,
 }
 
 impl Sfx {
-    pub const ALL: [Sfx; 18] = [
+    pub const ALL: [Sfx; 27] = [
         Sfx::Pick,
         Sfx::Place,
         Sfx::Back,
@@ -71,6 +83,15 @@ impl Sfx {
         Sfx::Crystal,
         Sfx::Gold,
         Sfx::Lava,
+        Sfx::Metal,
+        Sfx::Stone,
+        Sfx::Velvet,
+        Sfx::Glass,
+        Sfx::Ice,
+        Sfx::Neon,
+        Sfx::Candy,
+        Sfx::Chime,
+        Sfx::Harp,
     ];
 
     fn bytes(self) -> &'static [u8] {
@@ -93,6 +114,15 @@ impl Sfx {
             Sfx::Crystal => include_bytes!("../assets/sfx/crystal.wav"),
             Sfx::Gold => include_bytes!("../assets/sfx/gold.wav"),
             Sfx::Lava => include_bytes!("../assets/sfx/lava.wav"),
+            Sfx::Metal => include_bytes!("../assets/sfx/metal.wav"),
+            Sfx::Stone => include_bytes!("../assets/sfx/stone.wav"),
+            Sfx::Velvet => include_bytes!("../assets/sfx/velvet.wav"),
+            Sfx::Glass => include_bytes!("../assets/sfx/glass.wav"),
+            Sfx::Ice => include_bytes!("../assets/sfx/ice.wav"),
+            Sfx::Neon => include_bytes!("../assets/sfx/neon.wav"),
+            Sfx::Candy => include_bytes!("../assets/sfx/candy.wav"),
+            Sfx::Chime => include_bytes!("../assets/sfx/chime.wav"),
+            Sfx::Harp => include_bytes!("../assets/sfx/harp.wav"),
         }
     }
 
@@ -107,6 +137,8 @@ impl Sfx {
             Sfx::Refill => 0.55,
             Sfx::Combo => 0.7,
             Sfx::Wood | Sfx::Crystal | Sfx::Gold | Sfx::Lava => 0.75,
+            Sfx::Metal | Sfx::Stone | Sfx::Velvet | Sfx::Glass | Sfx::Ice | Sfx::Neon | Sfx::Candy => 0.7,
+            Sfx::Chime | Sfx::Harp => 0.8,
             _ => 1.0,
         }
     }
@@ -121,6 +153,84 @@ impl Sfx {
         }
     }
 }
+
+/// Голосовые реплики (английский; `assets/voice`, 24 кГц моно).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Voice {
+    Welcome,
+    Nice,
+    GoodOne,
+    Beautiful,
+    Wonderful,
+    Excellent,
+    Amazing,
+    Incredible,
+    Magnificent,
+    OnFire,
+    Unstoppable,
+    YouBeautiful,
+    Perfect,
+    Flawless,
+    NewRecord,
+    GameOver,
+}
+
+impl Voice {
+    pub const ALL: [Voice; 16] = [
+        Voice::Welcome,
+        Voice::Nice,
+        Voice::GoodOne,
+        Voice::Beautiful,
+        Voice::Wonderful,
+        Voice::Excellent,
+        Voice::Amazing,
+        Voice::Incredible,
+        Voice::Magnificent,
+        Voice::OnFire,
+        Voice::Unstoppable,
+        Voice::YouBeautiful,
+        Voice::Perfect,
+        Voice::Flawless,
+        Voice::NewRecord,
+        Voice::GameOver,
+    ];
+
+    fn bytes(self) -> &'static [u8] {
+        match self {
+            Voice::Welcome => include_bytes!("../assets/voice/welcome.wav"),
+            Voice::Nice => include_bytes!("../assets/voice/nice.wav"),
+            Voice::GoodOne => include_bytes!("../assets/voice/good_one.wav"),
+            Voice::Beautiful => include_bytes!("../assets/voice/beautiful.wav"),
+            Voice::Wonderful => include_bytes!("../assets/voice/wonderful.wav"),
+            Voice::Excellent => include_bytes!("../assets/voice/excellent.wav"),
+            Voice::Amazing => include_bytes!("../assets/voice/amazing.wav"),
+            Voice::Incredible => include_bytes!("../assets/voice/incredible.wav"),
+            Voice::Magnificent => include_bytes!("../assets/voice/magnificent.wav"),
+            Voice::OnFire => include_bytes!("../assets/voice/on_fire.wav"),
+            Voice::Unstoppable => include_bytes!("../assets/voice/unstoppable.wav"),
+            Voice::YouBeautiful => include_bytes!("../assets/voice/you_beautiful.wav"),
+            Voice::Perfect => include_bytes!("../assets/voice/perfect.wav"),
+            Voice::Flawless => include_bytes!("../assets/voice/flawless.wav"),
+            Voice::NewRecord => include_bytes!("../assets/voice/new_record.wav"),
+            Voice::GameOver => include_bytes!("../assets/voice/game_over.wav"),
+        }
+    }
+
+    /// Ранг реплики: новая реплика перебивает звучащую только при большем ранге.
+    pub fn rank(self) -> u8 {
+        match self {
+            Voice::Nice | Voice::GoodOne | Voice::Welcome => 1,
+            Voice::Beautiful | Voice::Wonderful | Voice::Excellent => 2,
+            Voice::Amazing | Voice::Incredible | Voice::Magnificent => 3,
+            Voice::OnFire | Voice::Unstoppable | Voice::YouBeautiful => 4,
+            Voice::Perfect | Voice::Flawless | Voice::NewRecord | Voice::GameOver => 5,
+        }
+    }
+}
+
+const VOICE_GAIN: f32 = 1.0;
+/// Приглушение музыки во время реплики (≈ −7 дБ).
+const DUCK_GAIN: f32 = 0.45;
 
 /// Фоновые треки (YuE2, 22.05 кГц моно): имя и данные.
 pub const TRACKS: &[(&str, &[u8])] = &[
@@ -148,6 +258,8 @@ pub fn track_name(i: usize) -> &'static str {
 
 enum Cmd {
     Play { sfx: Sfx, rate: f32 },
+    Say(Voice),
+    VoiceOn(bool),
     Music(bool),
     Track(usize),
     LoopAll(bool),
@@ -176,11 +288,15 @@ fn send(cmd: Cmd) {
 
 /// Запустить звук (один раз при старте приложения).
 pub fn init(music_on: bool, sfx_on: bool, track: usize, loop_all: bool) {
+    init_with_voice(music_on, sfx_on, true, track, loop_all);
+}
+
+pub fn init_with_voice(music_on: bool, sfx_on: bool, voice_on: bool, track: usize, loop_all: bool) {
     let (tx, rx) = mpsc::channel();
     CURRENT_TRACK.store(track % TRACKS.len(), Ordering::Relaxed);
     let spawned = thread::Builder::new()
         .name("elle-audio-mixer".into())
-        .spawn(move || Mixer::run(rx, music_on, sfx_on, track, loop_all));
+        .spawn(move || Mixer::run(rx, music_on, sfx_on, voice_on, track, loop_all));
     match spawned {
         Ok(_) => {
             if let Ok(mut g) = handle().lock() {
@@ -198,6 +314,15 @@ pub fn play(sfx: Sfx) {
 /// Эффект со сдвигом высоты в полутонах.
 pub fn play_pitched(sfx: Sfx, semitones: f32) {
     send(Cmd::Play { sfx, rate: 2f32.powf(semitones / 12.0) });
+}
+
+/// Голосовая реплика (одна за раз; перебивает звучащую только при большем ранге).
+pub fn say(v: Voice) {
+    send(Cmd::Say(v));
+}
+
+pub fn set_voice(on: bool) {
+    send(Cmd::VoiceOn(on));
 }
 
 pub fn set_music(on: bool) {
@@ -288,7 +413,7 @@ pub fn make_loop(x: &[f32], xfade: usize) -> Vec<f32> {
 
 // ── микшер ─────────────────────────────────────────────────────────────────
 
-struct Voice {
+struct SfxVoice {
     sfx: usize,
     pos: f32,
     rate: f32,
@@ -307,7 +432,14 @@ struct Mixer {
     music_on: bool,
     sfx_on: bool,
     music_gain: f32,
-    voices: Vec<Voice>,
+    voices: Vec<SfxVoice>,
+    /// Клипы реплик (декодируются при первом воспроизведении).
+    speech: Vec<Option<Vec<f32>>>,
+    /// Звучащая реплика: (индекс в `Voice::ALL`, позиция).
+    speaking: Option<(usize, usize)>,
+    voice_on: bool,
+    /// Текущее приглушение музыки (1 — нет, DUCK_GAIN — реплика).
+    duck: f32,
     out: Option<(AudioPlayer, Sender<Vec<f32>>)>,
     started: Instant,
     produced: u64,
@@ -321,7 +453,7 @@ impl Mixer {
             .unwrap_or_default()
     }
 
-    fn run(rx: Receiver<Cmd>, music_on: bool, sfx_on: bool, track: usize, loop_all: bool) {
+    fn run(rx: Receiver<Cmd>, music_on: bool, sfx_on: bool, voice_on: bool, track: usize, loop_all: bool) {
         let sfx: Vec<Vec<f32>> = Sfx::ALL.iter().map(|s| decode_wav(s.bytes()).unwrap_or_default()).collect();
         let track = track % TRACKS.len();
         let music = Self::load_track(track);
@@ -339,6 +471,10 @@ impl Mixer {
             sfx_on,
             music_gain: if music_on { 1.0 } else { 0.0 },
             voices: Vec::new(),
+            speech: vec![None; Voice::ALL.len()],
+            speaking: None,
+            voice_on,
+            duck: 1.0,
             out: None,
             started: Instant::now(),
             produced: 0,
@@ -388,7 +524,28 @@ impl Mixer {
                 if self.voices.len() >= 12 {
                     self.voices.remove(0);
                 }
-                self.voices.push(Voice { sfx: idx, pos: 0.0, rate, gain: sfx.gain() * SFX_GAIN });
+                self.voices.push(SfxVoice { sfx: idx, pos: 0.0, rate, gain: sfx.gain() * SFX_GAIN });
+            }
+            Cmd::Say(v) => {
+                if !self.voice_on || self.suspended {
+                    return;
+                }
+                let idx = Voice::ALL.iter().position(|x| *x == v).unwrap_or(0);
+                if let Some((cur, _)) = self.speaking {
+                    if Voice::ALL[cur].rank() >= v.rank() {
+                        return;
+                    }
+                }
+                if self.speech[idx].is_none() {
+                    self.speech[idx] = Some(decode_wav(v.bytes()).unwrap_or_default());
+                }
+                self.speaking = Some((idx, 0));
+            }
+            Cmd::VoiceOn(on) => {
+                self.voice_on = on;
+                if !on {
+                    self.speaking = None;
+                }
             }
             Cmd::Music(on) => self.music_on = on,
             Cmd::Track(i) => {
@@ -406,6 +563,7 @@ impl Mixer {
             Cmd::Suspend => {
                 self.suspended = true;
                 self.voices.clear();
+                self.speaking = None;
                 self.close();
             }
             Cmd::Resume => {
@@ -461,11 +619,13 @@ impl Mixer {
         // музыка с плавным включением/выключением
         let target_gain = if self.music_on && self.pending_track.is_none() { 1.0 } else { 0.0 };
         let rate = if self.pending_track.is_some() { 0.00025 } else { 0.00008 };
+        let duck_target = if self.speaking.is_some() { DUCK_GAIN } else { 1.0 };
         if !self.music.is_empty() {
             for s in buf.iter_mut() {
                 self.music_gain += (target_gain - self.music_gain) * rate;
+                self.duck += (duck_target - self.duck) * 0.0004;
                 if self.music_gain > 0.0005 {
-                    *s += self.music[self.music_pos] * MUSIC_GAIN * self.music_gain;
+                    *s += self.music[self.music_pos] * MUSIC_GAIN * self.music_gain * self.duck;
                 }
                 self.music_pos += 1;
                 if self.music_pos >= self.music.len() {
@@ -492,6 +652,19 @@ impl Mixer {
             }
         }
         self.voices.retain(|v| (v.pos as usize) + 1 < sfx[v.sfx].len());
+        // реплика
+        if let Some((idx, pos)) = self.speaking {
+            let clip = self.speech[idx].as_deref().unwrap_or(&[]);
+            let mut p = pos;
+            for s in buf.iter_mut() {
+                if p >= clip.len() {
+                    break;
+                }
+                *s += clip[p] * VOICE_GAIN;
+                p += 1;
+            }
+            self.speaking = if p >= clip.len() { None } else { Some((idx, p)) };
+        }
         // мягкое ограничение
         for s in buf.iter_mut() {
             if s.abs() > 0.8 {
@@ -541,8 +714,20 @@ mod tests {
     }
 
     #[test]
+    fn all_voice_clips_decode() {
+        for v in Voice::ALL {
+            let pcm = decode_wav(v.bytes()).expect("voice wav decodes");
+            assert!(pcm.len() > RATE as usize / 10, "{v:?} короче 0.1 с");
+            assert!(pcm.len() < RATE as usize * 4, "{v:?} длиннее 4 с");
+            assert!(v.rank() >= 1);
+        }
+    }
+
+    #[test]
     fn noop_without_init() {
         play(Sfx::Place);
+        say(Voice::Nice);
+        set_voice(false);
         set_music(false);
         suspend();
         resume();

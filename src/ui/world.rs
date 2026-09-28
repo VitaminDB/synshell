@@ -9,9 +9,11 @@
 //!   Особые кубики (золото из раздачи и т. п.) остаются собой — по ним
 //!   по-прежнему видно бонус.
 
+use super::finish::{self, Finish};
 use super::theme::{self, hex};
 use crate::anim::{clamp01, smoothstep};
 use crate::game::Material;
+use crate::persist::Variant;
 use syngui::prelude::*;
 
 // ── миры ───────────────────────────────────────────────────────────────────
@@ -42,7 +44,10 @@ pub struct World {
     pub ambient: Ambient,
 }
 
-pub const WORLDS: [World; 8] = [
+/// Мир «Бархат» — стартовый мир вида игры «Эльвира».
+pub const VELVET: usize = 8;
+
+pub const WORLDS: [World; 9] = [
     World { name: "Сумерки", top: theme::BG_TOP, bottom: theme::BG_BOTTOM, glow: theme::GLOW, panel: theme::PANEL, edge: theme::PANEL_EDGE, empty: theme::CELL_EMPTY, accent: "#c9d2ff", ambient: Ambient::Bokeh },
     World { name: "Океан", top: "#27b4d8", bottom: "#0b3474", glow: "#7fe7ff", panel: "#0a2243", edge: "#2a70a8", empty: "#12325a", accent: "#8ff0ff", ambient: Ambient::Bubbles },
     World { name: "Закат", top: "#ff9466", bottom: "#6e2a86", glow: "#ffc08a", panel: "#34143c", edge: "#a0467a", empty: "#47204f", accent: "#ffd0a0", ambient: Ambient::Petals },
@@ -51,6 +56,7 @@ pub const WORLDS: [World; 8] = [
     World { name: "Зима", top: "#94cffa", bottom: "#3559ad", glow: "#e6f6ff", panel: "#1a2c5a", edge: "#6d9ad8", empty: "#253f78", accent: "#ffffff", ambient: Ambient::Snow },
     World { name: "Вулкан", top: "#b3362a", bottom: "#24080f", glow: "#ff8a4a", panel: "#260d12", edge: "#9a3a2a", empty: "#381418", accent: "#ffb347", ambient: Ambient::Embers },
     World { name: "Сияние", top: "#1c5f6c", bottom: "#081430", glow: "#7affc8", panel: "#0b1d2c", edge: "#2a8a7a", empty: "#122c3c", accent: "#9affd8", ambient: Ambient::Aurora },
+    World { name: "Бархат", top: "#5a1f4c", bottom: "#1a0a1e", glow: "#ffd27a", panel: "#241028", edge: "#a8813a", empty: "#33193a", accent: "#ffd27a", ambient: Ambient::Bokeh },
 ];
 
 /// Длительность кроссфейда между мирами.
@@ -79,7 +85,17 @@ pub fn progress(score: i32) -> f32 {
 }
 
 pub fn world_index(level: u32) -> usize {
-    (level.max(1) as usize - 1) % WORLDS.len()
+    world_index_for(level, Variant::Standard)
+}
+
+/// Мир уровня для вида игры: «Эльвира» начинает с «Бархата» и дальше идёт
+/// по кругу тех же миров.
+pub fn world_index_for(level: u32, v: Variant) -> usize {
+    let start = match v {
+        Variant::Standard => 0,
+        Variant::Elvira => VELVET,
+    };
+    (start + level.max(1) as usize - 1) % WORLDS.len()
 }
 
 /// Цвета текущего кадра (во время смены мира — смесь двух).
@@ -390,12 +406,16 @@ pub fn skin_name(m: Material) -> &'static str {
     }
 }
 
-/// Как нарисовать кубик: материал узора, базовый цвет, акцент (свечение трещин).
+/// Как нарисовать кубик: материал узора, базовый цвет, акцент (свечение
+/// трещин); в «Эльвире» — отделка (текстура) и признак бонусной фигуры.
 #[derive(Clone, Copy, Debug)]
 pub struct Look {
     pub material: Material,
     pub base: Color,
     pub accent: Option<Color>,
+    pub finish: Option<&'static Finish>,
+    /// Фигура с бонусным материалом (в «Эльвире» помечается искрой).
+    pub bonus: bool,
 }
 
 /// Внешний вид кубика цвета `color_idx` из материала `own`; `skin` — режим,
@@ -403,7 +423,32 @@ pub struct Look {
 pub fn look(own: Material, color_idx: u8, skin: Option<Material>) -> Look {
     match (own, skin) {
         (Material::Plain, Some(m)) if m != Material::Plain => skin_look(m, color_idx),
-        _ => Look { material: own, base: theme::material_color(own, color_idx), accent: None },
+        _ => Look { material: own, base: theme::material_color(own, color_idx), accent: None, finish: None, bonus: false },
+    }
+}
+
+/// Внешний вид кубика в «Эльвире»: отделка `finish` (0 — по материалу/цвету);
+/// режим блоков временно даёт обычным кубикам отделку своего материала.
+pub fn look_elvira(own: Material, color_idx: u8, finish: u8, skin: Option<Material>) -> Look {
+    let id = match (own, skin) {
+        (Material::Plain, Some(m)) if m != Material::Plain => m.finish(),
+        _ => finish::resolve(finish, own, color_idx),
+    };
+    let f = finish::get(id);
+    Look {
+        material: own,
+        base: finish::base_color(f, theme::cell_color(color_idx)),
+        accent: Some(hex(f.accent)),
+        finish: Some(f),
+        bonus: own != Material::Plain,
+    }
+}
+
+/// Вид кубика по виду игры.
+pub fn look_for(v: Variant, own: Material, color_idx: u8, finish: u8, skin: Option<Material>) -> Look {
+    match v {
+        Variant::Standard => look(own, color_idx, skin),
+        Variant::Elvira => look_elvira(own, color_idx, finish, skin),
     }
 }
 
@@ -413,15 +458,15 @@ fn skin_look(m: Material, idx: u8) -> Look {
         Material::Wood => {
             // разные породы: от светлой берёзы до тёмного ореха, с оттенком цвета
             const WOOD: [&str; 8] = ["#b97a3e", "#7c5234", "#a8713d", "#c98c4e", "#6e4424", "#d9ae72", "#9c6b3f", "#8a4a2e"];
-            Look { material: m, base: hex(WOOD[idx as usize % 8]).lerp(&c, 0.24), accent: None }
+            Look { material: m, base: hex(WOOD[idx as usize % 8]).lerp(&c, 0.24), accent: None, finish: None, bonus: false }
         }
         // витраж: цвет остаётся ярким, чуть светлее — стекло
-        Material::Crystal => Look { material: m, base: c.lerp(&Color::WHITE, 0.28), accent: None },
+        Material::Crystal => Look { material: m, base: c.lerp(&Color::WHITE, 0.28), accent: None, finish: None, bonus: false },
         // металлик: цвет, приглушённый сталью
-        Material::Gold => Look { material: m, base: c.lerp(&hex("#8e97a8"), 0.45).darken(0.1), accent: Some(c) },
+        Material::Gold => Look { material: m, base: c.lerp(&hex("#8e97a8"), 0.45).darken(0.1), accent: Some(c), finish: None, bonus: false },
         // магма: тёмный камень, трещины светятся цветом фигуры
-        Material::Lava => Look { material: m, base: c.lerp(&hex("#1a141b"), 0.88), accent: Some(c.lighten(0.15)) },
-        Material::Plain => Look { material: m, base: c, accent: None },
+        Material::Lava => Look { material: m, base: c.lerp(&hex("#1a141b"), 0.88), accent: Some(c.lighten(0.15)), finish: None, bonus: false },
+        Material::Plain => Look { material: m, base: c, accent: None, finish: None, bonus: false },
     }
 }
 
@@ -442,7 +487,24 @@ mod tests {
             assert_eq!(level_for(threshold(l)), l);
         }
         assert_eq!(world_index(1), 0);
-        assert_eq!(world_index(9), 0);
+        assert_eq!(world_index(10), 0);
+        assert_eq!(world_index_for(1, Variant::Elvira), VELVET);
+        assert_eq!(world_index_for(2, Variant::Elvira), 0);
+    }
+
+    #[test]
+    fn elvira_look_uses_finish_and_skin() {
+        let l = look_elvira(Material::Plain, 3, 7, None);
+        assert_eq!(l.finish.unwrap().id, 7);
+        assert!(!l.bonus);
+        // режим блоков «дерево» даёт отделку дуба обычному кубику
+        assert_eq!(look_elvira(Material::Plain, 3, 7, Some(Material::Wood)).finish.unwrap().en, "Oak");
+        // бонусное золото остаётся золотом и помечено
+        let g = look_elvira(Material::Gold, 3, 7, Some(Material::Wood));
+        assert_eq!(g.finish.unwrap().en, "Gold");
+        assert!(g.bonus);
+        // старое сохранение без отделки — красящаяся отделка по цвету
+        assert!(look_elvira(Material::Plain, 2, 0, None).finish.unwrap().tint);
     }
 
     #[test]

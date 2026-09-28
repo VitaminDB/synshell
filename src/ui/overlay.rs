@@ -16,6 +16,9 @@ pub enum Action {
     ToggleLoopAll,
     /// Скрыть итоги и посмотреть поле, на котором кончились ходы.
     ViewBoard,
+    /// На стартовую страницу (партия сохраняется).
+    Home,
+    ToggleVoice,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -79,7 +82,7 @@ fn layout(geo: &Geo, height: f32, title_h: f32, body_h: f32, rows: &[&[Spec]]) -
 
 /// Карточка меню/паузы.
 pub fn menu_card(geo: &Geo) -> Card {
-    use super::theme::{ICON_CHECK_OFF, ICON_LOOP, ICON_NEXT, ICON_PLAY, ICON_PREV, ICON_REPLAY};
+    use super::theme::{ICON_CHECK_OFF, ICON_HOME, ICON_LOOP, ICON_NEXT, ICON_PLAY, ICON_PREV, ICON_REPLAY};
     let title_h = 40.0;
     let body_h = 3.0 * 26.0 + 26.0;
     let height = 20.0 + title_h + 8.0 + body_h + 12.0 + (BTN_H + 10.0) * 5.0 + 8.0;
@@ -90,7 +93,7 @@ pub fn menu_card(geo: &Geo) -> Card {
         body_h,
         &[
             &[(Action::Resume, true, "Продолжить", ICON_PLAY, 1.0)],
-            &[(Action::NewGame, false, "Новая игра", ICON_REPLAY, 1.0)],
+            &[(Action::NewGame, false, "Новая игра", ICON_REPLAY, 1.3), (Action::Home, false, "В начало", ICON_HOME, 1.0)],
             &[
                 (Action::Difficulty(0), false, "Легко", "", 1.0),
                 (Action::Difficulty(1), false, "Норма", "", 1.0),
@@ -102,7 +105,7 @@ pub fn menu_card(geo: &Geo) -> Card {
                 (Action::TrackNext, false, "", ICON_NEXT, 0.55),
                 (Action::ToggleLoopAll, false, "", ICON_LOOP, 0.55),
             ],
-            &[(Action::ToggleSound, false, "Звуки", ICON_CHECK_OFF, 1.0), (Action::ToggleMusic, false, "Музыка", ICON_CHECK_OFF, 1.0)],
+            &[(Action::ToggleSound, false, "Звуки", ICON_CHECK_OFF, 1.0), (Action::ToggleMusic, false, "Музыка", ICON_CHECK_OFF, 1.0), (Action::ToggleVoice, false, "Голос", ICON_CHECK_OFF, 1.0)],
         ],
     )
 }
@@ -112,6 +115,12 @@ pub fn over_card(geo: &Geo) -> Card {
     use super::theme::{ICON_REPLAY, ICON_VIEW};
     let title_h = 44.0;
     let body_h = 150.0;
-    let height = 22.0 + title_h + 10.0 + body_h + 16.0 + BTN_H + 10.0 + 12.0;
-    layout(geo, height, title_h, body_h, &[&[(Action::ViewBoard, false, "Поле", ICON_VIEW, 0.8), (Action::NewGame, true, "Играть снова", ICON_REPLAY, 1.2)]])
+    let height = 22.0 + title_h + 10.0 + body_h + 16.0 + (BTN_H + 10.0) * 2.0 + 12.0;
+    layout(
+        geo,
+        height,
+        title_h,
+        body_h,
+        &[&[(Action::ViewBoard, false, "Поле", ICON_VIEW, 0.8), (Action::NewGame, true, "Играть снова", ICON_REPLAY, 1.2)], &[(Action::Home, false, "В начало", super::theme::ICON_HOME, 1.0)]],
+    )
 }

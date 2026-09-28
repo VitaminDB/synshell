@@ -1,12 +1,12 @@
 //! Отрисовка кадра. Чистые функции от `View` — ничего не мутируют.
 
-use super::cube::{draw_cube, draw_piece, draw_piece_shadow, CubeStyle};
+use super::cube::{draw_cube, draw_cubes, draw_piece, draw_piece_shadow, CubeDraw, CubeStyle};
 use super::fx::*;
 use super::layout::{inset, offset, scaled_about_center};
 use super::overlay::{self, Card};
 use super::theme::{self, hex};
 use super::world;
-use super::{Overlay, View};
+use super::{Overlay, Screen, View};
 use crate::anim::{self, clamp01};
 use crate::game::{Ability, Game, MAX_ENERGY, SIZE};
 use syngui::mss::{TextAlign, TextDecoration};
@@ -37,6 +37,26 @@ pub fn icon(list: &mut DisplayList, glyph: &str, rect: Rect, color: Color, size:
 // ── кадр ───────────────────────────────────────────────────────────────────
 
 pub fn draw(v: &View, list: &mut DisplayList) {
+    let t = v.screen_t();
+    match v.screen {
+        Screen::Start => {
+            // игра под стартовой страницей ещё видна, пока та проявляется
+            if t < 1.0 {
+                draw_game(v, list);
+            }
+            super::start::draw(v, list, anim::ease_out_cubic(t), (1.0 - anim::ease_out_cubic(t)) * 30.0);
+        }
+        Screen::Game => {
+            draw_game(v, list);
+            if t < 1.0 {
+                let k = anim::ease_out_cubic(t);
+                super::start::draw(v, list, 1.0 - k, -k * 60.0);
+            }
+        }
+    }
+}
+
+fn draw_game(v: &View, list: &mut DisplayList) {
     let game = v.game();
     background(v, list);
     let (sx, sy) = v.fx.shake_offset(v.now);
@@ -81,7 +101,7 @@ fn background(v: &View, list: &mut DisplayList) {
 fn hud(v: &View, game: &Game, list: &mut DisplayList) {
     let g = &v.geo;
     let stats = v.stats();
-    let best = stats.best_by[game.difficulty.index()].max(game.scoring.score);
+    let best = stats.best_of(v.variant, game.difficulty).max(game.scoring.score);
 
     // рекорд
     let gold = hex(theme::GOLD);
@@ -130,6 +150,27 @@ fn cell_radius(cell: f32) -> [f32; 4] {
     [cell * 0.13; 4]
 }
 
+/// Рамка поля «Эльвиры»: золотая кромка, завитки по углам, виньетка.
+fn elvira_frame(v: &View, list: &mut DisplayList, panel: Rect, radius: [f32; 4]) {
+    let gold = hex("#d9b25a");
+    let pulse = (v.now * 0.8).sin() * 0.5 + 0.5;
+    list.push_outline(inset(panel, -3.0), gold.with_alpha(0.35 + 0.15 * pulse), 1.5, 0.0, [radius[0] + 3.0; 4]);
+    list.push_inner_shadow(panel, Color::from_srgb(0, 0, 0, 0.30), 40.0, (0.0, 0.0), radius);
+    // завитки по углам — короткие дуги
+    let (x0, y0, x1, y1) = (panel.origin.x, panel.origin.y, panel.origin.x + panel.width(), panel.origin.y + panel.height());
+    let r = 14.0;
+    for (cx, cy, sx, sy) in [(x0 + 12.0, y0 + 12.0, 1.0, 1.0), (x1 - 12.0, y0 + 12.0, -1.0, 1.0), (x0 + 12.0, y1 - 12.0, 1.0, -1.0), (x1 - 12.0, y1 - 12.0, -1.0, -1.0)] {
+        let pts: Vec<[f32; 2]> = (0..=10)
+            .map(|i| {
+                let u = i as f32 / 10.0 * std::f32::consts::FRAC_PI_2 * 1.5;
+                [cx + sx * (r * 0.4 + u.cos() * r * (1.0 - u * 0.25)), cy + sy * (r * 0.4 + u.sin() * r * (1.0 - u * 0.25))]
+            })
+            .collect();
+        list.push_line_strip(pts, gold.with_alpha(0.55), 1.6);
+        list.push_rect(Rect::new(Point::new(cx - 2.0, cy - 2.0), Size::new(4.0, 4.0)), gold.with_alpha(0.8), [2.0; 4]);
+    }
+}
+
 fn board(v: &View, game: &Game, list: &mut DisplayList, sx: f32, sy: f32) {
     let g = &v.geo;
     let panel = offset(g.board, sx, sy);
@@ -138,10 +179,14 @@ fn board(v: &View, game: &Game, list: &mut DisplayList, sx: f32, sy: f32) {
 
     // свечение и тень
     let pal = v.palette();
+    let elv = v.variant.is_elvira();
     list.push_shadow(panel, pal.glow.with_alpha(0.30), 42.0, (0.0, 0.0), radius);
     list.push_shadow(panel, Color::from_srgb(0, 0, 0, 0.42), 26.0, (0.0, 14.0), radius);
     list.push_rect_bordered(panel, pal.panel, radius, Border { width: 2.0, color: pal.edge.with_alpha(0.85) });
     list.push_inner_shadow(panel, Color::from_srgb(0, 0, 0, 0.35), 16.0, (0.0, 6.0), radius);
+    if elv {
+        elvira_frame(v, list, panel, radius);
+    }
     if game.scoring.combo >= 3 && !game.over {
         let pulse = (v.now * 5.0).sin() * 0.5 + 0.5;
         let gold = hex(theme::GOLD);
@@ -149,12 +194,15 @@ fn board(v: &View, game: &Game, list: &mut DisplayList, sx: f32, sy: f32) {
         list.push_outline(inset(panel, -4.0), gold.with_alpha(0.10 + 0.12 * pulse), 4.0, 0.0, [22.0; 4]);
     }
 
-    // пустые клетки
+    // пустые клетки («Эльвира» — с тонким светлым ободком)
     let empty = pal.empty;
     for r in 0..SIZE {
         for c in 0..SIZE {
             let rect = offset(g.cube_rect(r, c), sx, sy);
             list.push_rect(rect, empty, cell_radius(cell));
+            if elv {
+                list.push_outline(inset(rect, 0.5), Color::WHITE.with_alpha(0.05), 1.0, 0.0, cell_radius(cell));
+            }
         }
     }
 
@@ -218,9 +266,10 @@ fn board(v: &View, game: &Game, list: &mut DisplayList, sx: f32, sy: f32) {
         }
     }
 
-    // кубики поля
+    // кубики поля (пакетом: текстуры одним батчем, потом скосы и блики)
     let grey = hex("#5a5f80");
     let panel_col = pal.panel;
+    let mut draws: Vec<CubeDraw> = Vec::with_capacity(SIZE * SIZE);
     for r in 0..SIZE {
         for c in 0..SIZE {
             let val = game.board.get(r, c);
@@ -229,7 +278,7 @@ fn board(v: &View, game: &Game, list: &mut DisplayList, sx: f32, sy: f32) {
             }
             let mut rect = offset(g.cube_rect(r, c), sx, sy);
             let look = v.cell_look(val, r, c);
-            let mut style = CubeStyle::default().with_look(&look, (r * SIZE + c) as u32, v.now);
+            let mut style = v.cube_style(&look, (r * SIZE + c) as u32);
             let sf = v.skin_flash(world::cell_delay(r, c));
             if sf > 0.0 {
                 rect = scaled_about_center(rect, 1.0 + 0.12 * sf);
@@ -255,7 +304,7 @@ fn board(v: &View, game: &Game, list: &mut DisplayList, sx: f32, sy: f32) {
             } else {
                 style.flash += 0.32 * Fx::sheen(v.now, r, c);
             }
-            draw_cube(list, rect, look.base, &style);
+            draws.push(CubeDraw { rect, base: look.base, style });
         }
     }
 
@@ -268,15 +317,17 @@ fn board(v: &View, game: &Game, list: &mut DisplayList, sx: f32, sy: f32) {
         let seed = (vn.r * SIZE + vn.c) as u32;
         if t < 0.0 {
             let pre = clamp01(1.0 + t * 3.0);
-            draw_cube(list, rect, base, &CubeStyle::flash(0.65 * pre).with_look(&look, seed, v.now));
+            let style = CubeStyle { flash: 0.65 * pre, ..v.cube_style(&look, seed) };
+            draws.push(CubeDraw { rect, base, style });
         } else if t < 1.0 {
             let k = anim::ease_in_cubic(t);
             let s = (1.0 - k).max(0.02);
-            let mut style = CubeStyle::flash((1.0 - t) * 0.6).with_look(&look, seed, v.now);
+            let mut style = CubeStyle { flash: (1.0 - t) * 0.6, ..v.cube_style(&look, seed) };
             style.blend = Some((panel_col, k * 0.8));
-            draw_cube(list, scaled_about_center(rect, s), base, &style);
+            draws.push(CubeDraw { rect: scaled_about_center(rect, s), base, style });
         }
     }
+    draw_cubes(list, &draws);
 
     // вспышки линий
     for f in &v.fx.flashes {
@@ -389,7 +440,7 @@ fn tray(v: &View, game: &Game, list: &mut DisplayList) {
                 let o = Point::new(anim::lerp(ret.from.x, to.x, t), anim::lerp(ret.from.y, to.y, t));
                 let c = anim::lerp(ret.from_cell, tc, t);
                 let look = v.piece_look(p);
-                draw_piece(list, &p.shape, o, c, (c * 0.045).max(0.8), 1.0, look.base, &CubeStyle::default().with_look(&look, 100 + i as u32, v.now));
+                draw_piece(list, &p.shape, o, c, (c * 0.045).max(0.8), 1.0, look.base, &v.cube_style(&look, 100 + i as u32));
             }
             continue;
         }
@@ -410,7 +461,7 @@ fn tray(v: &View, game: &Game, list: &mut DisplayList) {
         let hover = v.fx.tray_hover[i];
         let selected = v.kb.map(|k| k.slot == i).unwrap_or(false);
         let look = v.piece_look(p);
-        let mut style = CubeStyle::default().with_look(&look, 100 + i as u32, v.now);
+        let mut style = v.cube_style(&look, 100 + i as u32);
         let sf = v.skin_flash(world::TRAY_DELAY + i as f32 * 0.06);
         style.flash += 0.6 * sf;
         let mut blend = 1.0 - anim::ease_out_cubic(t_in);
@@ -435,6 +486,12 @@ fn tray(v: &View, game: &Game, list: &mut DisplayList) {
             let pr = scaled_about_center(g.piece_rect_in_slot(i, &p.shape), scale);
             list.push_rect(offset(inset(pr, -6.0), 0.0, 6.0 * hover), Color::from_srgb(0, 0, 0, 0.16 * hover), [12.0; 4]);
         }
+        if v.variant.is_elvira() && fits && v.fx.over_at.is_none() {
+            // мягкое свечение под фигурой цветом её материала
+            let pr = g.piece_rect_in_slot(i, &p.shape);
+            let glow = look.accent.unwrap_or(look.base).lerp(&look.base, 0.5);
+            list.push_glow_shadow(offset(inset(pr, 2.0), 0.0, 4.0 + bob * 0.3), glow.with_alpha(0.10 + 0.05 * hover), 18.0, (0.0, 0.0), [10.0; 4]);
+        }
         draw_piece(list, &p.shape, o, tc, gap, scale * (1.0 + 0.1 * sf), look.base, &style);
         if over_k > 0.0 && !fits {
             // фигура, которой некуда встать, — причина проигрыша
@@ -455,7 +512,7 @@ fn tray(v: &View, game: &Game, list: &mut DisplayList) {
             draw_piece_shadow(list, &p.shape, origin, cell_now, gap_now, 0.30 + 0.15 * k, cell_now * 0.22 * k + 3.0);
             let valid = v.drag_target(game).is_some();
             let look = v.piece_look(p);
-            let style = if valid { CubeStyle::flash(0.08) } else { CubeStyle::default() }.with_look(&look, 200 + d.slot as u32, v.now);
+            let style = CubeStyle { flash: if valid { 0.08 } else { 0.0 }, ..v.cube_style(&look, 200 + d.slot as u32) };
             draw_piece(list, &p.shape, origin, cell_now, gap_now, 1.0, look.base, &style);
             list.end_overlay();
         }
@@ -585,12 +642,16 @@ fn skin_chip(v: &View, list: &mut DisplayList) {
     let rect = scaled_about_center(Rect::new(Point::new(cx - w * 0.5, y), Size::new(w, h)), 0.6 + 0.4 * pop.min(1.1));
     let pal = v.palette();
     list.push_rect_bordered(rect, pal.panel.with_alpha(0.92 * a), [h * 0.5; 4], Border { width: 1.5, color: pal.accent.with_alpha(0.7 * a) });
-    let look = world::look(crate::game::Material::Plain, 3 + (v.now * 0.8) as u8 % 5, Some(sk.material));
+    let look = world::look_for(v.variant, crate::game::Material::Plain, 3 + (v.now * 0.8) as u8 % 5, 0, Some(sk.material));
     let cube = Rect::new(Point::new(rect.origin.x + 7.0, rect.origin.y + (rect.height() - 16.0) * 0.5), Size::new(16.0, 16.0));
-    let mut style = CubeStyle::default().with_look(&look, 7, v.now);
+    let mut style = v.cube_style(&look, 7);
     style.blend = Some((pal.panel, 1.0 - a));
     draw_cube(list, cube, look.base, &style);
-    let label = format!("{} +{} · {} {}", world::skin_name(sk.material), sk.material.mode_bonus(), sk.moves_left, moves_word(sk.moves_left));
+    let name = match look.finish {
+        Some(f) => f.en.to_uppercase(),
+        None => world::skin_name(sk.material).to_string(),
+    };
+    let label = format!("{} +{} · {} {}", name, sk.material.mode_bonus(), sk.moves_left, moves_word(sk.moves_left));
     let tr = Rect::new(Point::new(rect.origin.x + 26.0, rect.origin.y), Size::new(rect.width() - 30.0, rect.height()));
     text_nowrap(list, &label, tr, Color::WHITE.with_alpha(a), 12.5, 800, TextAlign::CENTER);
 }
@@ -667,7 +728,8 @@ fn banner(v: &View, list: &mut DisplayList) {
     text_shadowed(list, &b.text, rect, b.color.with_alpha(a), size, 800, TextAlign::CENTER);
     if let Some(sub) = &b.sub {
         let sr = Rect::new(Point::new(rect.origin.x, cy + 26.0), Size::new(rect.width(), 34.0));
-        text_shadowed(list, sub, sr, hex(theme::GOLD).with_alpha(a), 22.0 * appear, 800, TextAlign::CENTER);
+        let (col, size, weight) = if v.variant.is_elvira() { (hex("#ffe9a8").with_alpha(a), 19.0 * appear, 700) } else { (hex(theme::GOLD).with_alpha(a), 22.0 * appear, 800) };
+        text_shadowed(list, sub, sr, col, size, weight, TextAlign::CENTER);
     }
 }
 
@@ -709,6 +771,7 @@ fn card_buttons(v: &View, list: &mut DisplayList, card: &Card, t: f32, dy: f32) 
         let (label, glyph): (&str, &str) = match b.action {
             overlay::Action::ToggleSound => (if stats.sound { "Звуки: вкл" } else { "Звуки: выкл" }, if stats.sound { theme::ICON_CHECK_ON } else { theme::ICON_CHECK_OFF }),
             overlay::Action::ToggleMusic => (if stats.music { "Музыка: вкл" } else { "Музыка: выкл" }, if stats.music { theme::ICON_CHECK_ON } else { theme::ICON_CHECK_OFF }),
+            overlay::Action::ToggleVoice => (if stats.voice { "Голос: вкл" } else { "Голос: выкл" }, if stats.voice { theme::ICON_CHECK_ON } else { theme::ICON_CHECK_OFF }),
             overlay::Action::TrackNext if !b.label.is_empty() => {
                 track_label = format!("{}/{}  {}", stats.track as usize + 1, crate::audio::track_count(), crate::audio::track_name(stats.track as usize));
                 (track_label.as_str(), "")
@@ -722,6 +785,8 @@ fn card_buttons(v: &View, list: &mut DisplayList, card: &Card, t: f32, dy: f32) 
         };
         let compact = rect.width() < 200.0;
         let narrow = rect.width() < 70.0;
+        // три переключателя в ряд: короткие подписи без «вкл/выкл» (галочка и так видна)
+        let label: &str = if compact && rect.width() < 130.0 { label.split(':').next().unwrap_or(label) } else { label };
         // Узкие кнопки-иконки — ровные круги: радиус 25 при ширине < 50
         // давал «лимончик» с острыми краями сверху и снизу.
         if narrow {
@@ -812,7 +877,8 @@ fn menu_card(v: &View, game: &Game, list: &mut DisplayList, card: &Card, t: f32,
     let x = body.origin.x;
     let w = body.width();
     let mut y = body.origin.y;
-    stat_row(list, y, x, w, "Рекорды Л · Н · С", &format!("{} · {} · {}", s.best_by[0], s.best_by[1], s.best_by[2]), t);
+    let b = &s.best_by[v.variant.index()];
+    stat_row(list, y, x, w, &format!("{}: рекорды Л · Н · С", v.variant.name()), &format!("{} · {} · {}", b[0], b[1], b[2]), t);
     y += 26.0;
     stat_row(list, y, x, w, "Сыграно партий", &s.games.to_string(), t);
     y += 26.0;

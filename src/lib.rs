@@ -2,15 +2,18 @@
 //!
 //! * `game` — чистая модель (поле, фигуры, правила, честный генератор);
 //! * `ui` — единственный элемент `GameView`: ввод, эффекты, отрисовка;
-//! * `anim` — easing и частицы; `persist` — рекорд и статистика.
+//! * `anim` — easing и частицы; `persist` — рекорд, статистика, партии по
+//!   видам игры (`Variant`); `lang` — игровой словарь en/ru и реплики.
 
 pub mod anim;
 pub mod audio;
 pub mod game;
+pub mod lang;
 pub mod persist;
 pub mod ui;
 
-pub use ui::{GameCtx, GameView};
+pub use persist::Variant;
+pub use ui::{GameCtx, GameView, Screen};
 
 use game::Rng;
 use syngui::prelude::*;
@@ -20,13 +23,12 @@ pub const WINDOW_H: u32 = 820;
 
 fn build_ctx() -> GameCtx {
     let stats = persist::load();
-    audio::init(stats.music, stats.sound, stats.track as usize, stats.loop_all);
+    audio::init_with_voice(stats.music, stats.sound, stats.voice, stats.track as usize, stats.loop_all);
     let ctx = GameCtx::new(Rng::from_time().state(), stats);
-    // незаконченная (или только что проигранная) партия переживает перезапуск
-    // и обновление приложения
-    if let Some(g) = persist::load_game() {
-        ctx.game.set(g);
-    }
+    // приложение открывается стартовой страницей; партия выбранного вида
+    // (незаконченная или только что проигранная) загружается при входе в игру
+    ctx.screen.set(Screen::Start);
+    ctx.variant.set(Variant::from_index(stats.variant as usize));
     ctx
 }
 

@@ -6,41 +6,67 @@
 
 pub mod cube;
 mod demo;
+pub mod finish;
 pub mod fx;
 pub mod layout;
 pub mod overlay;
 pub mod paint;
+pub mod start;
 pub mod theme;
 pub mod world;
 
 use std::any::Any;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::anim::{self, FloatText, Particle, Shape as PShape};
-use crate::audio::{self, Sfx};
-use crate::game::{cell_color, cell_material, Ability, Difficulty, Game, Material, Piece, Placement, Rng, SIZE};
-use crate::persist::{self, Stats};
+use crate::audio::{self, Sfx, Voice};
+use crate::game::{cell_color, cell_finish, cell_material, Ability, Cell, Difficulty, Game, Material, Piece, Placement, Rng, SIZE};
+use crate::lang;
+use crate::persist::{self, Stats, Variant};
+use finish::Burst;
 use fx::*;
 use layout::Geo;
 use overlay::Action;
-use syngui::prelude::*;
+use start::StartAction;
+use syngui::core::sync::Mutex;
+use syngui::gpu::{ImageHandle, ImageLoadState, ImageSource, ImageStore};
 use syngui::input::CursorIcon;
+use syngui::prelude::*;
+use syngui::render::TextureId;
 use syngui::{LayoutHint, StyledElement};
+
+/// Атлас текстур отделок (JPEG 2048×1024, 8×4 тайла), см. `tools/build_atlas.py`.
+const ATLAS_BYTES: &[u8] = include_bytes!("../../assets/tex/atlas.jpg");
+/// Длительность перехода между стартовой страницей и игрой.
+pub const SCREEN_FADE: f32 = 0.45;
 
 /// Порог (px), после которого нажатие на фигуру считается перетаскиванием.
 pub const DRAG_THRESHOLD: f32 = 3.0;
 /// Радиус «магнитного» прилипания фигуры к клетке (в долях клетки).
 pub const SNAP_RADIUS: f32 = 0.62;
 
+/// Экран приложения.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Screen {
+    Start,
+    Game,
+}
+
 #[derive(Clone, Copy)]
 pub struct GameCtx {
     pub game: RwSignal<Game>,
     pub stats: RwSignal<Stats>,
+    /// Экран при создании элемента (приложение — стартовая страница,
+    /// тесты — сразу игра) и текущий экран.
+    pub screen: RwSignal<Screen>,
+    /// Вид игры (стартовая страница переключает).
+    pub variant: RwSignal<Variant>,
 }
 
 impl GameCtx {
     pub fn new(seed: u64, stats: Stats) -> Self {
-        GameCtx { game: use_signal(Game::new(seed)), stats: use_signal(stats) }
+        GameCtx { game: use_signal(Game::new(seed)), stats: use_signal(stats), screen: use_signal(Screen::Game), variant: use_signal(Variant::Standard) }
     }
 }
 
@@ -137,6 +163,22 @@ pub struct View {
     /// Режим блоков («всё деревянное»…) и предыдущий — для волны смены.
     pub skin: Option<world::SkinMode>,
     pub skin_prev: Option<world::SkinMode>,
+    /// Вид игры и экран.
+    pub variant: Variant,
+    pub screen: Screen,
+    /// Момент смены экрана (переход-затухание).
+    pub screen_born: f32,
+    /// Нажатая карточка стартовой страницы (индекс, момент).
+    pub start_press: Option<(usize, f32)>,
+    /// Есть ли сохранённая партия у вида игры (подпись «Продолжить»).
+    pub start_saved: [bool; 2],
+    /// Хранилище картинок и атлас отделок (текстура готова — `atlas`).
+    image_store: Option<Arc<Mutex<ImageStore>>>,
+    atlas_handle: Option<ImageHandle>,
+    pub atlas: Option<TextureId>,
+    /// Последняя реплика и момент последней (чтобы не тараторить).
+    last_praise: Option<lang::Word>,
+    last_voice_at: f32,
 }
 
 impl View {
@@ -159,7 +201,7 @@ impl View {
             best_announced: false,
             best_at_start: {
                 let st = ctx.stats.get_untracked();
-                st.best_by[ctx.game.get_untracked().difficulty.index()]
+                st.best_of(ctx.variant.get_untracked(), ctx.game.get_untracked().difficulty)
             },
             frozen: false,
             over_sound_played: false,
@@ -176,25 +218,149 @@ impl View {
             world: world::WorldFade { from: 0, to: 0, born: -100.0 },
             skin: None,
             skin_prev: None,
+            variant: ctx.variant.get_untracked(),
+            screen: ctx.screen.get_untracked(),
+            screen_born: -100.0,
+            start_press: None,
+            start_saved: [false; 2],
+            image_store: None,
+            atlas_handle: None,
+            atlas: None,
+            last_praise: None,
+            last_voice_at: -100.0,
         };
         v.fx.tray_born = [0.0, 0.06, 0.12];
-        let g = v.game();
-        v.fx.score_shown = g.scoring.score as f32;
-        if g.over {
-            v.fx.over_at = Some(0.0);
-            v.over_card = true;
-        }
-        // восстановленная партия: её мир и режим блоков
-        v.level = world::level_for(g.scoring.score);
-        let wi = world::world_index(v.level);
-        v.world = world::WorldFade { from: wi, to: wi, born: -100.0 };
-        if let Some(m) = g.mode.filter(|_| !g.over && g.mode_moves > 0) {
-            let mut s = world::SkinMode::new(m, -100.0);
-            s.moves_left = g.mode_moves;
-            v.skin = Some(s);
+        match v.screen {
+            Screen::Game => v.sync_from_game(),
+            Screen::Start => v.refresh_saved(),
         }
         demo::apply(&mut v);
         v
+    }
+
+    /// Презентационное состояние по текущей партии (после загрузки/входа):
+    /// показанный счёт, итоги, уровень, мир, режим блоков.
+    fn sync_from_game(&mut self) {
+        let g = self.game();
+        self.fx.score_shown = g.scoring.score as f32;
+        self.best_at_start = self.stats().best_of(self.variant, g.difficulty);
+        self.best_announced = false;
+        self.over_sound_played = g.over;
+        if g.over {
+            self.fx.over_at = Some(self.now);
+            self.over_card = true;
+        } else {
+            self.fx.over_at = None;
+            self.over_card = false;
+        }
+        self.level = world::level_for(g.scoring.score);
+        let wi = world::world_index_for(self.level, self.variant);
+        self.world = world::WorldFade { from: wi, to: wi, born: -100.0 };
+        self.skin = None;
+        self.skin_prev = None;
+        if let Some(m) = g.mode.filter(|_| !g.over && g.mode_moves > 0) {
+            let mut s = world::SkinMode::new(m, -100.0);
+            s.moves_left = g.mode_moves;
+            self.skin = Some(s);
+        }
+    }
+
+    fn refresh_saved(&mut self) {
+        if self.frozen {
+            return;
+        }
+        for (i, v) in Variant::ALL.iter().enumerate() {
+            self.start_saved[i] = persist::load_game(*v).map(|g| !g.over).unwrap_or(false);
+        }
+    }
+
+    // ── экраны ──────────────────────────────────────────────────────────
+
+    /// Войти в игру выбранного вида: загрузить его партию (или начать новую).
+    pub fn enter_game(&mut self, variant: Variant) {
+        let now = self.now;
+        self.variant = variant;
+        self.ctx.variant.set(variant);
+        let mut st = self.stats();
+        if st.variant != variant.index() as u8 {
+            st.variant = variant.index() as u8;
+            self.ctx.stats.set(st);
+            persist::save(&st);
+        }
+        let game = if self.frozen { Some(self.game()) } else { persist::load_game(variant) };
+        let game = game.unwrap_or_else(|| {
+            let seed = Rng::from_time().state() ^ self.prng.next_u64();
+            Game::with_difficulty(seed, Difficulty::from_index(st.difficulty as usize))
+        });
+        self.ctx.game.set(game);
+        let particles = std::mem::take(&mut self.fx.particles);
+        self.fx = Fx::new();
+        self.fx.particles = particles;
+        self.fx.tray_born = [now + 0.25, now + 0.32, now + 0.39];
+        self.menu_open = false;
+        self.targeting = None;
+        self.kb = None;
+        self.drag = None;
+        self.sync_from_game();
+        self.screen = Screen::Game;
+        self.screen_born = now;
+        self.ctx.screen.set(Screen::Game);
+        self.game_dirty = true;
+        if variant.is_elvira() && !self.game().over {
+            self.fx.banner_queue.push(Banner { text: lang::WELCOME.en.to_uppercase(), sub: Some(lang::WELCOME.ru.to_string()), born: now, color: theme::hex(theme::GOLD) });
+            self.say(Voice::Welcome, now);
+        }
+    }
+
+    /// На стартовую страницу; партия сохраняется.
+    pub fn go_home(&mut self) {
+        if self.screen == Screen::Start {
+            return;
+        }
+        if !self.frozen {
+            persist::save_game(self.variant, &self.game());
+            persist::save(&self.stats());
+        }
+        self.cancel_drag();
+        self.menu_open = false;
+        self.targeting = None;
+        self.kb = None;
+        self.screen = Screen::Start;
+        self.screen_born = self.now;
+        self.ctx.screen.set(Screen::Start);
+        self.refresh_saved();
+        audio::play(Sfx::Chime);
+    }
+
+    /// Доля перехода между экранами (0 — только что сменился, 1 — завершён).
+    pub fn screen_t(&self) -> f32 {
+        anim::clamp01((self.now - self.screen_born) / SCREEN_FADE)
+    }
+
+    fn on_start_action(&mut self, a: StartAction) {
+        match a {
+            StartAction::Play(v) => {
+                let i = v.index();
+                self.start_press = Some((i, self.now));
+                audio::play(Sfx::Chime);
+                self.enter_game(v);
+            }
+            StartAction::ToggleSound => self.apply(Action::ToggleSound),
+            StartAction::ToggleMusic => self.apply(Action::ToggleMusic),
+            StartAction::ToggleVoice => self.apply(Action::ToggleVoice),
+        }
+    }
+
+    /// Реплика (только «Эльвира»): не чаще раза в 1.2 с, кроме важных.
+    fn say(&mut self, v: Voice, now: f32) {
+        if !self.variant.is_elvira() || !self.stats().voice {
+            return;
+        }
+        if v.rank() < 5 && now - self.last_voice_at < 1.2 {
+            return;
+        }
+        self.last_voice_at = now;
+        audio::say(v);
     }
 
     // ── доступ к модели ────────────────────────────────────────────────
@@ -219,13 +385,18 @@ impl View {
     }
 
     /// Вид кубика поля `(r, c)` со значением клетки `val`.
-    pub fn cell_look(&self, val: u8, r: usize, c: usize) -> world::Look {
-        world::look(cell_material(val), cell_color(val), self.skin_for(world::cell_delay(r, c)))
+    pub fn cell_look(&self, val: Cell, r: usize, c: usize) -> world::Look {
+        world::look_for(self.variant, cell_material(val), cell_color(val), cell_finish(val), self.skin_for(world::cell_delay(r, c)))
     }
 
     /// Вид фигуры в трее / в руке.
     pub fn piece_look(&self, p: &Piece) -> world::Look {
-        world::look(p.material, p.color, self.skin_for(world::TRAY_DELAY))
+        world::look_for(self.variant, p.material, p.color, p.finish, self.skin_for(world::TRAY_DELAY))
+    }
+
+    /// Стиль кубика по виду (текстура атласа — если загружена).
+    pub fn cube_style(&self, look: &world::Look, seed: u32) -> cube::CubeStyle {
+        cube::CubeStyle::default().with_look(look, seed, self.now).with_texture(self.atlas)
     }
 
     pub fn game(&self) -> Game {
@@ -258,9 +429,10 @@ impl View {
         audio::play(Sfx::Click);
     }
 
-    /// Ввод по полю/трею заблокирован (оверлей или ожидание конца игры).
+    /// Ввод по полю/трею заблокирован (оверлей, ожидание конца игры,
+    /// стартовая страница).
     fn input_locked(&self) -> bool {
-        self.menu_open || self.fx.over_at.is_some()
+        self.menu_open || self.fx.over_at.is_some() || self.screen != Screen::Game
     }
 
     pub fn input_locked_pub(&self) -> bool {
@@ -439,9 +611,17 @@ impl View {
             }
             self.fx.ripples.push(Ripple { origin: (ar, ac), born: now + 0.05 });
             // бонусы материалов: подпись и звук на каждый материал
+            // («Эльвира» — английское имя отделки с переводом)
+            let elv = self.variant.is_elvira();
             for (i, &(m, count, pts)) in pl.material_bonus.iter().enumerate() {
+                let name = if elv {
+                    let f = finish::get(m.finish());
+                    format!("{} · {}", f.en.to_uppercase(), f.ru)
+                } else {
+                    m.name().to_string()
+                };
                 self.fx.floats.push(FloatText {
-                    text: format!("{} ×{}  +{}", m.name(), count, pts),
+                    text: format!("{} ×{}  +{}", name, count, pts),
                     pos: Point::new(cx, cy + self.geo.cell * (0.6 + 0.55 * i as f32)),
                     born: now + 0.12 * (i as f32 + 1.0),
                     life: 1.3,
@@ -459,10 +639,30 @@ impl View {
                 };
                 audio::play(sfx);
             }
+            if elv {
+                // звук отделок очищенных обычных кубиков (не больше двух разных)
+                let mut played: Vec<Sfx> = Vec::new();
+                for &(_, _, cell) in &pl.clear.cells {
+                    if cell_material(cell) != Material::Plain {
+                        continue;
+                    }
+                    let f = finish::get(finish::resolve(cell_finish(cell), Material::Plain, cell_color(cell)));
+                    if !played.contains(&f.sfx) && played.len() < 2 {
+                        played.push(f.sfx);
+                        audio::play_pitched(f.sfx, self.prng.range(-1.0, 1.0));
+                    }
+                }
+            }
             if let Some((m, count, pts)) = pl.mode_bonus {
                 let i = pl.material_bonus.len();
+                let name = if elv {
+                    let f = finish::get(m.finish());
+                    format!("{} · {}", f.en.to_uppercase(), f.ru)
+                } else {
+                    world::skin_name(m).to_string()
+                };
                 self.fx.floats.push(FloatText {
-                    text: format!("{} ×{}  +{}", world::skin_name(m), count, pts),
+                    text: format!("{} ×{}  +{}", name, count, pts),
                     pos: Point::new(cx, cy + self.geo.cell * (0.6 + 0.55 * i as f32)),
                     born: now + 0.12 * (i as f32 + 1.0),
                     life: 1.3,
@@ -507,18 +707,39 @@ impl View {
             } else if combo >= 5 || lines >= 4 {
                 self.confetti(50);
             }
-            let combo_text = if combo >= 2 { Some(format!("КОМБО ×{combo}")) } else { None };
-            let (text, sub, color) = if pl.perfect {
-                ("ИДЕАЛЬНО!".to_string(), combo_text, theme::hex(theme::GOLD))
-            } else if let Some(p) = theme::praise(lines) {
-                (p.to_string(), combo_text, if combo >= 3 { theme::hex(theme::GOLD) } else { Color::WHITE })
-            } else if let Some(ct) = combo_text {
-                (ct, None, theme::hex(theme::GOLD))
+            let (text, sub, color) = if elv {
+                // «Эльвира»: английская реплика крупно, перевод и комбо ниже, голос
+                let word = lang::praise(&mut self.prng, lines, combo, pl.perfect, self.last_praise);
+                match word {
+                    Some(w) => {
+                        self.last_praise = Some(w);
+                        if let Some(v) = w.voice {
+                            self.say(v, now + 0.05);
+                        }
+                        let sub = if combo >= 2 { format!("{} · {} ×{combo}", w.ru, lang::COMBO.en.to_lowercase()) } else { w.ru.to_string() };
+                        let gold = combo >= 3 || lines >= 3 || pl.perfect;
+                        (w.en.to_uppercase(), Some(sub), if gold { theme::hex(theme::GOLD) } else { Color::WHITE })
+                    }
+                    None => (String::new(), None, Color::WHITE),
+                }
             } else {
-                (String::new(), None, Color::WHITE)
+                let combo_text = if combo >= 2 { Some(format!("КОМБО ×{combo}")) } else { None };
+                if pl.perfect {
+                    ("ИДЕАЛЬНО!".to_string(), combo_text, theme::hex(theme::GOLD))
+                } else if let Some(p) = theme::praise(lines) {
+                    (p.to_string(), combo_text, if combo >= 3 { theme::hex(theme::GOLD) } else { Color::WHITE })
+                } else if let Some(ct) = combo_text {
+                    (ct, None, theme::hex(theme::GOLD))
+                } else {
+                    (String::new(), None, Color::WHITE)
+                }
             };
             if !text.is_empty() {
                 self.fx.banner = Some(Banner { text, sub, born: now, color });
+            }
+            if elv && (combo >= 3 || lines >= 3) {
+                // блик-волна по всему полю
+                self.fx.ripples.push(Ripple { origin: (ar, ac), born: now + 0.25 });
             }
             self.fx.score_punch_born = now;
             // «лестница» комбо: каждая очистка подряд звучит выше
@@ -545,11 +766,11 @@ impl View {
             weight: 800,
         });
 
-        // рекорд (по сложности партии)
+        // рекорд (по виду игры и сложности партии)
         let mut stats = self.stats();
-        let di = game.difficulty.index();
-        if game.scoring.score > stats.best_by[di] {
-            stats.best_by[di] = game.scoring.score;
+        let (vi, di) = (self.variant.index(), game.difficulty.index());
+        if game.scoring.score > stats.best_by[vi][di] {
+            stats.best_by[vi][di] = game.scoring.score;
             stats.best = stats.best.max(game.scoring.score);
             self.ctx.stats.set(stats);
             self.stats_dirty = true;
@@ -557,8 +778,10 @@ impl View {
                 self.best_announced = true;
                 self.fx.best_flash_born = Some(now);
                 audio::play(Sfx::Best);
+                self.say(Voice::NewRecord, now);
                 if self.fx.banner.is_none() {
-                    self.fx.banner = Some(Banner { text: "НОВЫЙ РЕКОРД!".into(), sub: None, born: now, color: theme::hex(theme::GOLD) });
+                    let (text, sub) = if self.variant.is_elvira() { (lang::NEW_RECORD.en.to_uppercase(), Some(lang::NEW_RECORD.ru.to_string())) } else { ("НОВЫЙ РЕКОРД!".to_string(), None) };
+                    self.fx.banner = Some(Banner { text, sub, born: now, color: theme::hex(theme::GOLD) });
                 }
             }
         }
@@ -576,7 +799,8 @@ impl View {
             audio::play(Sfx::Refill);
         }
         if pl.over {
-            self.fx.banner_queue.push(Banner { text: "НЕТ ХОДОВ".into(), sub: None, born: now, color: theme::hex(theme::DANGER).lerp(&Color::WHITE, 0.25) });
+            let (text, sub) = if self.variant.is_elvira() { (lang::NO_MOVES.en.to_uppercase(), Some(lang::NO_MOVES.ru.to_string())) } else { ("НЕТ ХОДОВ".to_string(), None) };
+            self.fx.banner_queue.push(Banner { text, sub, born: now, color: theme::hex(theme::DANGER).lerp(&Color::WHITE, 0.25) });
             let delay = if lines > 0 { VANISH_DUR + 0.45 } else { 0.2 };
             self.fx.over_at = Some(now + delay);
             self.finish_game(&game);
@@ -599,11 +823,12 @@ impl View {
         let now = self.now;
         self.level = level;
         self.fx.level_born = now;
-        let wi = world::world_index(level);
+        let wi = world::world_index_for(level, self.variant);
         self.set_world(wi);
         let w = &world::WORLDS[wi];
         let accent = theme::hex(w.accent);
-        self.fx.banner_queue.push(Banner { text: format!("УРОВЕНЬ {level}"), sub: Some(w.name.to_uppercase()), born: now, color: Color::WHITE });
+        let title = if self.variant.is_elvira() { format!("{} {level}", lang::LEVEL.en.to_uppercase()) } else { format!("УРОВЕНЬ {level}") };
+        self.fx.banner_queue.push(Banner { text: title, sub: Some(w.name.to_uppercase()), born: now, color: Color::WHITE });
         self.fx.screen_flashes.push(Flash { born: now + 0.1, color: accent, strength: 0.16 });
         // фейерверк: залпы над полем
         let b = self.geo.board;
@@ -615,7 +840,7 @@ impl View {
             let color = if i % 2 == 0 { accent } else { theme::cell_color(1 + self.prng.index(7) as u8) };
             self.fx.fireworks.push(Firework { at: now + 0.25 + 0.17 * i as f32 + self.prng.range(0.0, 0.08), pos, color });
         }
-        audio::play(Sfx::Perfect);
+        audio::play(if self.variant.is_elvira() { Sfx::Harp } else { Sfx::Perfect });
         self.start_skin(now + 0.5);
     }
 
@@ -716,8 +941,8 @@ impl View {
         s.best_combo = s.best_combo.max(game.scoring.best_combo);
         s.perfects += game.scoring.perfects;
         s.best = s.best.max(game.scoring.score);
-        let di = game.difficulty.index();
-        s.best_by[di] = s.best_by[di].max(game.scoring.score);
+        let (vi, di) = (self.variant.index(), game.difficulty.index());
+        s.best_by[vi][di] = s.best_by[vi][di].max(game.scoring.score);
         self.ctx.stats.set(s);
         persist::save(&s);
         self.stats_dirty = false;
@@ -741,11 +966,11 @@ impl View {
         self.best_announced = false;
         self.over_sound_played = false;
         self.over_card = false;
-        self.best_at_start = self.stats().best_by[difficulty.index()];
+        self.best_at_start = self.stats().best_of(self.variant, difficulty);
         self.menu_open = false;
         self.targeting = None;
         self.level = 1;
-        self.set_world(0);
+        self.set_world(world::world_index_for(1, self.variant));
         if let Some(mut s) = self.skin.take() {
             s.end_at.get_or_insert(self.now);
             self.skin_prev = Some(s);
@@ -918,6 +1143,18 @@ impl View {
             Action::Resume => self.menu_open = false,
             Action::ViewBoard => self.over_card = false,
             Action::NewGame => self.new_game(),
+            Action::Home => self.go_home(),
+            Action::ToggleVoice => {
+                let mut s = self.stats();
+                s.voice = !s.voice;
+                self.ctx.stats.set(s);
+                persist::save(&s);
+                audio::set_voice(s.voice);
+                if s.voice {
+                    self.last_voice_at = -100.0;
+                    audio::say(Voice::Nice);
+                }
+            }
             Action::Difficulty(i) => {
                 let mut s = self.stats();
                 s.difficulty = i.min(2) as u8;
@@ -978,6 +1215,18 @@ impl View {
 
     fn on_press(&mut self, pos: Point, touch: bool, touch_id: Option<u64>) -> EventResult {
         self.pointer = pos;
+        if self.screen == Screen::Start {
+            if self.screen_t() < 0.6 {
+                return EventResult::Handled;
+            }
+            if let Some(a) = start::action_at(&start::layout(&self.geo), pos) {
+                self.on_start_action(a);
+            }
+            return EventResult::Handled;
+        }
+        if self.screen_t() < 0.5 {
+            return EventResult::Handled;
+        }
         if let Some(ov) = self.overlay() {
             // только что открытые итоги не ловят тот же тап («Играть снова»
             // случайно под пальцем)
@@ -1045,6 +1294,19 @@ impl View {
     }
 
     fn on_key(&mut self, key: Key) -> EventResult {
+        if self.screen == Screen::Start {
+            return match key {
+                Key::Enter | Key::Space | Key::Num1 => {
+                    self.on_start_action(StartAction::Play(Variant::Standard));
+                    EventResult::Handled
+                }
+                Key::Num2 => {
+                    self.on_start_action(StartAction::Play(Variant::Elvira));
+                    EventResult::Handled
+                }
+                _ => EventResult::Ignored,
+            };
+        }
         match key {
             Key::Escape => {
                 if self.over_card && !self.menu_open {
@@ -1135,6 +1397,23 @@ impl View {
 
     // ── кадр ────────────────────────────────────────────────────────────
 
+    /// Атлас загрузился — включить текстурную отрисовку отделок.
+    fn poll_atlas(&mut self) {
+        if self.atlas.is_some() {
+            return;
+        }
+        let (Some(store), Some(h)) = (&self.image_store, self.atlas_handle) else { return };
+        let state = store.lock().ok().and_then(|st| st.state_of(h));
+        match state {
+            Some(ImageLoadState::Ready) => self.atlas = Some(TextureId(h.0)),
+            Some(ImageLoadState::Failed) => {
+                log::warn!("атлас отделок не загрузился — отделки рисуются цветом");
+                self.atlas_handle = None;
+            }
+            _ => {}
+        }
+    }
+
     fn tick(&mut self, dt: f32) {
         self.now += dt;
         // safe area может прийти (или смениться) без изменения размера окна —
@@ -1155,7 +1434,7 @@ impl View {
         }
 
         // подсветка фигур под курсором
-        let hover_slot = if self.drag.is_none() && !self.input_locked() { self.geo.slot_at(self.pointer) } else { None };
+        let hover_slot = if self.drag.is_none() && !self.input_locked() && self.screen == Screen::Game { self.geo.slot_at(self.pointer) } else { None };
         for i in 0..3 {
             let want = if hover_slot == Some(i) && game.piece(i).is_some() { 1.0 } else { 0.0 };
             self.fx.tray_hover[i] = anim::damp(self.fx.tray_hover[i], want, 14.0, dt);
@@ -1173,6 +1452,7 @@ impl View {
         if self.over_waiting() && !self.over_sound_played {
             self.over_sound_played = true;
             audio::play(Sfx::Over);
+            self.say(Voice::GameOver, now);
         }
         let want_overlay = if self.overlay().is_some() { 1.0 } else { 0.0 };
         self.fx.overlay_t = anim::damp(self.fx.overlay_t, want_overlay, 11.0, dt);
@@ -1225,7 +1505,7 @@ impl View {
         }
         if self.game_dirty && !self.frozen {
             self.game_dirty = false;
-            persist::save_game(&self.game());
+            persist::save_game(self.variant, &self.game());
         }
         if self.stats_dirty && now - self.last_save > 1.5 {
             persist::save(&self.stats());
@@ -1234,11 +1514,12 @@ impl View {
         }
     }
 
-    /// Конфетти: цветные квадратики сыплются сверху поля.
+    /// Конфетти: цветные квадратики сыплются сверху поля («Эльвира» — золотые лепестки).
     fn confetti(&mut self, n: usize) {
         let g = self.geo;
+        let elv = self.variant.is_elvira();
         for i in 0..n {
-            let color = theme::cell_color(1 + (i % 7) as u8);
+            let color = if elv { theme::hex(theme::GOLD).lerp(&theme::hex("#ffe9a8"), self.prng.unit()) } else { theme::cell_color(1 + (i % 7) as u8) };
             let x = g.board.origin.x + self.prng.range(-0.05, 1.05) * g.board.width();
             let y = g.board.origin.y - self.prng.range(0.0, 60.0);
             self.fx.particles.push(Particle {
@@ -1247,9 +1528,10 @@ impl View {
                 size: self.prng.range(5.0, 10.0),
                 color: color.lighten(self.prng.range(0.0, 0.3)).with_alpha(0.95),
                 life: self.prng.range(1.6, 2.6),
-                gravity: 140.0,
-                drag: 1.2,
+                gravity: if elv { 90.0 } else { 140.0 },
+                drag: if elv { 1.8 } else { 1.2 },
                 round: i % 3 == 0,
+                shape: if elv { PShape::Petal } else { PShape::Square },
                 ..Default::default()
             });
         }
@@ -1299,11 +1581,88 @@ impl View {
         }
     }
 
+    /// Частицы очистки по виду отделки («Эльвира»).
+    fn burst_finish(&mut self, cx: f32, cy: f32, size: f32, base: Color, accent: Color, kind: Burst) {
+        use std::f32::consts::TAU;
+        let n = match kind {
+            Burst::Coins => 8,
+            Burst::Shards => 9,
+            Burst::Chips => 7,
+            Burst::Dust => 10,
+            Burst::Embers => 10,
+            Burst::Sparks => 12,
+            Burst::Fibres => 9,
+            Burst::Sprinkles => 10,
+        };
+        for i in 0..n {
+            let u = self.prng.unit();
+            let (vel, size_px, color, life, gravity, drag, shape, round) = match kind {
+                Burst::Coins => {
+                    let ang = self.prng.range(-2.6, -0.5);
+                    let sp = self.prng.range(120.0, 300.0);
+                    ((ang.cos() * sp, ang.sin() * sp), self.prng.range(4.0, 7.0), base.lighten(0.25).lerp(&accent, u * 0.6), self.prng.range(0.7, 1.2), 560.0, 0.8, PShape::Coin, false)
+                }
+                Burst::Shards => {
+                    let ang = self.prng.range(0.0, TAU);
+                    let sp = self.prng.range(80.0, 280.0);
+                    ((ang.cos() * sp, ang.sin() * sp - 60.0), self.prng.range(3.0, 7.0), if i % 3 == 0 { Color::WHITE } else { accent.lerp(&base, 0.5) }, self.prng.range(0.5, 1.0), 380.0, 1.4, if i % 3 == 0 { PShape::Spark } else { PShape::Square }, false)
+                }
+                Burst::Chips => {
+                    let ang = self.prng.range(0.0, TAU);
+                    let sp = self.prng.range(60.0, 220.0);
+                    ((ang.cos() * sp, ang.sin() * sp - 80.0), self.prng.range(3.0, 6.0), base.lerp(&accent, u * 0.6), self.prng.range(0.5, 0.9), 520.0, 1.2, if i % 2 == 0 { PShape::BarH } else { PShape::BarV }, false)
+                }
+                Burst::Dust => {
+                    let ang = self.prng.range(0.0, TAU);
+                    let sp = self.prng.range(30.0, 140.0);
+                    ((ang.cos() * sp, ang.sin() * sp - 30.0), self.prng.range(2.0, 5.0), base.lerp(&accent, u * 0.8).with_alpha(0.85), self.prng.range(0.4, 0.8), 200.0, 2.5, PShape::Round, true)
+                }
+                Burst::Embers => {
+                    let ang = self.prng.range(0.0, TAU);
+                    let sp = self.prng.range(40.0, 200.0);
+                    ((ang.cos() * sp, ang.sin() * sp - 90.0), self.prng.range(3.0, 8.0), accent.lerp(&Color::WHITE, u * 0.4), self.prng.range(0.5, 1.1), -60.0, 1.8, if i % 3 == 0 { PShape::Spark } else { PShape::Round }, true)
+                }
+                Burst::Sparks => {
+                    let ang = self.prng.range(0.0, TAU);
+                    let sp = self.prng.range(120.0, 320.0);
+                    ((ang.cos() * sp, ang.sin() * sp), self.prng.range(2.0, 5.0), if i % 2 == 0 { Color::WHITE } else { base.lighten(0.4) }, self.prng.range(0.3, 0.7), 80.0, 2.0, PShape::Spark, false)
+                }
+                Burst::Fibres => {
+                    let ang = self.prng.range(0.0, TAU);
+                    let sp = self.prng.range(30.0, 120.0);
+                    ((ang.cos() * sp, ang.sin() * sp - 40.0), self.prng.range(2.5, 5.0), base.lerp(&accent, u * 0.7), self.prng.range(0.7, 1.3), 90.0, 2.2, PShape::Petal, false)
+                }
+                Burst::Sprinkles => {
+                    let ang = self.prng.range(0.0, TAU);
+                    let sp = self.prng.range(70.0, 240.0);
+                    ((ang.cos() * sp, ang.sin() * sp - 70.0), self.prng.range(2.5, 5.0), theme::cell_color(1 + (i % 7) as u8).lighten(0.2), self.prng.range(0.5, 1.0), 420.0, 1.4, if i % 2 == 0 { PShape::BarH } else { PShape::Round }, i % 2 == 1)
+                }
+            };
+            let _ = size;
+            self.fx.particles.push(Particle {
+                pos: Point::new(cx, cy),
+                vel,
+                size: size_px,
+                color: color.with_alpha(color.a.min(0.95)),
+                life,
+                gravity,
+                drag,
+                round,
+                shape,
+                ..Default::default()
+            });
+        }
+    }
+
     fn burst(&mut self, rect: Rect, look: world::Look) {
         let material = look.material;
         let base = look.base;
         let cx = rect.origin.x + rect.width() * 0.5;
         let cy = rect.origin.y + rect.height() * 0.5;
+        if let Some(f) = look.finish {
+            self.burst_finish(cx, cy, rect.width(), base, theme::hex(f.accent), f.burst);
+            return;
+        }
         match material {
             Material::Wood => {
                 for i in 0..7 {
@@ -1459,20 +1818,23 @@ impl Element for View {
             }
             Event::KeyDown(k) => self.on_key(*k),
             Event::BackPressed => {
-                if self.menu_open {
+                if self.screen == Screen::Start {
+                    EventResult::Ignored
+                } else if self.menu_open {
                     self.menu_open = false;
                     EventResult::Handled
                 } else if self.over_card {
                     self.over_card = false;
                     EventResult::Handled
                 } else {
-                    EventResult::Ignored
+                    self.go_home();
+                    EventResult::Handled
                 }
             }
             Event::AppSuspended => {
                 audio::suspend();
-                if !self.frozen {
-                    persist::save_game(&self.game());
+                if !self.frozen && self.screen == Screen::Game {
+                    persist::save_game(self.variant, &self.game());
                     persist::save(&self.stats());
                 }
                 EventResult::Ignored
@@ -1485,6 +1847,7 @@ impl Element for View {
         };
         // курсор
         let hot = self.drag.is_some()
+            || (self.screen == Screen::Start && start::action_at(&start::layout(&self.geo), self.pointer).is_some())
             || self.geo.menu_btn.contains(self.pointer)
             || (!self.input_locked() && self.geo.ability_at(self.pointer).is_some())
             || (!self.input_locked() && self.geo.slot_at(self.pointer).map(|s| self.game().piece(s).is_some()).unwrap_or(false))
@@ -1506,6 +1869,7 @@ impl Element for View {
 
     fn animate(&mut self, dt: Duration) -> bool {
         self.tick(dt.as_secs_f32().min(0.1));
+        self.poll_atlas();
         self.dirty |= DirtyFlags::RENDER;
         true
     }
@@ -1539,7 +1903,16 @@ impl Element for View {
     fn set_id(&mut self, id: ElementId) {
         self.id = id;
     }
-    fn mount(&mut self, _tree: &mut ElementTree) {}
+    fn mount(&mut self, tree: &mut ElementTree) {
+        // атлас отделок: декодируется в фоне, готовность опрашивает `poll_atlas`
+        if let Some(store) = tree.image_store.clone() {
+            if let Ok(mut st) = store.lock() {
+                let (h, _) = st.request(&ImageSource::Bytes { key: "elle/atlas".into(), data: Arc::new(ATLAS_BYTES.to_vec()) });
+                self.atlas_handle = Some(h);
+            }
+            self.image_store = Some(store);
+        }
+    }
     fn element_type_name(&self) -> &str {
         "GameView"
     }

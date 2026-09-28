@@ -344,24 +344,52 @@ impl Material {
             Material::Lava => "ЛАВА",
         }
     }
+
+    /// Отделка (см. `FINISH_COUNT`), которой бонусный материал выглядит в
+    /// виде игры «Эльвира»: золото — золотом, хрусталь — хрусталём,
+    /// дерево — дубом, лава — лавой. У обычного материала отделки нет.
+    pub fn finish(self) -> u8 {
+        match self {
+            Material::Plain => 0,
+            Material::Gold => FINISH_GOLD,
+            Material::Crystal => FINISH_CRYSTAL,
+            Material::Wood => FINISH_OAK,
+            Material::Lava => FINISH_LAVA,
+        }
+    }
 }
 
-/// Фигура в трее: форма + семейство + цвет + материал.
+/// Число отделок (визуальных материалов «Эльвиры»); нумерация 1..=FINISH_COUNT,
+/// 0 — не задана. Таблица с именами и видом — `ui::finish`.
+pub const FINISH_COUNT: u8 = 24;
+pub const FINISH_GOLD: u8 = 1;
+pub const FINISH_CRYSTAL: u8 = 6;
+pub const FINISH_OAK: u8 = 8;
+pub const FINISH_LAVA: u8 = 13;
+
+/// Фигура в трее: форма + семейство + цвет + материал + отделка.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Piece {
     pub shape: Shape,
     pub family: Family,
     pub color: u8,
     pub material: Material,
+    /// Отделка кубиков (1..=FINISH_COUNT); 0 — не задана (старые сохранения).
+    pub finish: u8,
 }
 
 impl Piece {
     pub fn new(family: Family, shape: Shape) -> Self {
-        Piece { shape, family, color: family.color(), material: Material::Plain }
+        Piece { shape, family, color: family.color(), material: Material::Plain, finish: 0 }
     }
 
     pub fn with_material(mut self, material: Material) -> Self {
         self.material = material;
+        self
+    }
+
+    pub fn with_finish(mut self, finish: u8) -> Self {
+        self.finish = finish;
         self
     }
 
