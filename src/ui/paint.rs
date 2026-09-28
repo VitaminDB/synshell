@@ -570,7 +570,7 @@ fn card_frame(list: &mut DisplayList, card: &Card, t: f32, dy: f32) -> Rect {
 fn card_buttons(v: &View, list: &mut DisplayList, card: &Card, t: f32, dy: f32) {
     let stats = v.stats();
     for b in &card.buttons {
-        let rect = offset(b.rect, 0.0, dy);
+        let mut rect = offset(b.rect, 0.0, dy);
         let hot = b.rect.contains(v.pointer);
         let track_label;
         let (label, glyph): (&str, &str) = match b.action {
@@ -589,19 +589,35 @@ fn card_buttons(v: &View, list: &mut DisplayList, card: &Card, t: f32, dy: f32) 
         };
         let compact = rect.width() < 200.0;
         let narrow = rect.width() < 70.0;
+        // Узкие кнопки-иконки — ровные круги: радиус 25 при ширине < 50
+        // давал «лимончик» с острыми краями сверху и снизу.
+        if narrow {
+            let d = rect.width().min(rect.height());
+            rect = Rect::new(
+                Point::new(rect.origin.x + (rect.width() - d) * 0.5, rect.origin.y + (rect.height() - d) * 0.5),
+                Size::new(d, d),
+            );
+        }
+        let radius = [25.0f32.min(rect.width() * 0.5).min(rect.height() * 0.5); 4];
         let (bg, bg_hot) = if primary { (theme::BTN, theme::BTN_HOVER) } else { (theme::BTN_SECONDARY, theme::BTN_SECONDARY_HOVER) };
         let col = hex(if hot { bg_hot } else { bg }).with_alpha(t);
         if primary {
-            list.push_shadow(rect, hex(theme::BTN).with_alpha(0.45 * t), 18.0, (0.0, 6.0), [25.0; 4]);
+            list.push_shadow(rect, hex(theme::BTN).with_alpha(0.45 * t), 18.0, (0.0, 6.0), radius);
         }
         list.push_gradient_rect(
             rect,
             Gradient::Linear { angle_deg: 180.0, stops: vec![ColorStop::new(col.lighten(0.12), 0.0), ColorStop::new(col, 1.0)] },
-            [25.0; 4],
+            radius,
         );
-        list.push_outline(inset(rect, 1.0), Color::WHITE.with_alpha(0.18 * t), 1.0, 0.0, [25.0; 4]);
+        list.push_outline(inset(rect, 1.0), Color::WHITE.with_alpha(0.18 * t), 1.0, 0.0, radius);
         if narrow {
-            icon(list, glyph, rect, Color::WHITE.with_alpha(t), 24.0);
+            let fg = Color::WHITE.with_alpha(t);
+            match b.action {
+                overlay::Action::TrackPrev => skip_icon(list, rect, fg, -1.0),
+                overlay::Action::TrackNext => skip_icon(list, rect, fg, 1.0),
+                overlay::Action::ToggleLoopAll => infinity_icon(list, rect, fg),
+                _ => icon(list, glyph, rect, fg, 24.0),
+            }
         } else if glyph.is_empty() {
             text_nowrap(list, label, rect, Color::WHITE.with_alpha(t), if compact { 14.0 } else { 15.0 }, 800, TextAlign::CENTER);
         } else {
@@ -615,6 +631,37 @@ fn card_buttons(v: &View, list: &mut DisplayList, card: &Card, t: f32, dy: f32) 
             }
         }
     }
+}
+
+// Векторные иконки плеера: глифы Material Icons в мелком размере выходят
+// кривыми (разная посадка по вертикали, «сплющенная» бесконечность).
+
+/// «В начало / следующий»: шеврон + вертикальная черта; `dir` = −1 (назад) или +1.
+fn skip_icon(list: &mut DisplayList, rect: Rect, color: Color, dir: f32) {
+    let (cx, cy) = (rect.origin.x + rect.width() * 0.5, rect.origin.y + rect.height() * 0.5);
+    let s = 7.0;
+    let w = 3.0;
+    let tip = cx + dir * s * 0.55;
+    let back = tip - dir * s;
+    list.push_line_strip(vec![[back, cy - s], [tip, cy], [back, cy + s]], color, w);
+    let bar = tip + dir * 4.0;
+    list.push_line_strip(vec![[bar, cy - s], [bar, cy + s]], color, w);
+}
+
+/// Бесконечность (лемниската Бернулли) — «все треки по кругу».
+fn infinity_icon(list: &mut DisplayList, rect: Rect, color: Color) {
+    let (cx, cy) = (rect.origin.x + rect.width() * 0.5, rect.origin.y + rect.height() * 0.5);
+    let a = 11.0;
+    const N: usize = 64;
+    let pts: Vec<[f32; 2]> = (0..=N)
+        .map(|i| {
+            let t = i as f32 / N as f32 * std::f32::consts::TAU;
+            let (sn, cs) = t.sin_cos();
+            let d = 1.0 + sn * sn;
+            [cx + a * cs / d, cy + a * 1.15 * sn * cs / d]
+        })
+        .collect();
+    list.push_line_strip(pts, color, 2.4);
 }
 
 fn stat_row(list: &mut DisplayList, y: f32, x: f32, w: f32, label: &str, value: &str, t: f32) {

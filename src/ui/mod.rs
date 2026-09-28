@@ -118,6 +118,12 @@ pub struct View {
     pub prng: Rng,
     stats_dirty: bool,
     last_save: f32,
+    /// Тап уже обработан на TouchStart: syngui на отпускании пальца ещё
+    /// синтезирует MouseDown/MouseUp — их надо проглотить, иначе каждое
+    /// нажатие срабатывает дважды.
+    touch_pressed: bool,
+    /// Последний трек, о котором сообщил микшер (см. режим «по кругу» в tick).
+    seen_track: usize,
 }
 
 impl View {
@@ -148,6 +154,8 @@ impl View {
             prng: Rng::from_time(),
             stats_dirty: false,
             last_save: 0.0,
+            touch_pressed: false,
+            seen_track: audio::current_track(),
         };
         v.fx.tray_born = [0.0, 0.06, 0.12];
         let g = v.game();
@@ -936,10 +944,15 @@ impl View {
         self.fx.particles.update(dt);
 
         // режим «по кругу»: микшер сам перешёл к следующему треку
-        let cur = audio::current_track() as u8;
-        if cur != self.stats().track && self.stats().loop_all {
+        // Сверяемся только при смене трека у микшера: команда set_track
+        // доходит до аудиопотока не сразу, и сравнение «в лоб» откатывало бы
+        // только что выбранный кнопкой трек.
+        let cur = audio::current_track();
+        let mixer_switched = cur != self.seen_track;
+        self.seen_track = cur;
+        if mixer_switched && self.stats().loop_all && cur as u8 != self.stats().track {
             let mut st = self.stats();
-            st.track = cur;
+            st.track = cur as u8;
             self.ctx.stats.set(st);
             self.stats_dirty = true;
         }
@@ -1121,9 +1134,14 @@ impl Element for View {
         }
         let r = match e {
             Event::MouseMove(p) => self.on_move(*p),
+            Event::MouseDown { button: MouseButton::Left, .. } if self.touch_pressed => {
+                self.touch_pressed = false;
+                EventResult::Handled
+            }
             Event::MouseDown { button: MouseButton::Left, position } => self.on_press(*position, false, None),
             Event::MouseUp { button: MouseButton::Left, position } => self.on_release(*position),
             Event::TouchStart { id, position } => {
+                self.touch_pressed = true;
                 if self.drag.is_none() {
                     self.on_press(*position, true, Some(*id))
                 } else {
