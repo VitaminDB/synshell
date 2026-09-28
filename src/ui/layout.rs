@@ -4,11 +4,17 @@
 //! портретном окне, и в широком, и на телефоне.
 
 use crate::game::{Shape, SIZE};
+use syngui::core::EdgeInsets;
 use syngui::prelude::*;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Geo {
+    /// Всё окно (фон, вспышки, затемнение под оверлеями).
     pub bounds: Rect,
+    /// Область для содержимого: окно без safe area (вырез, жестовая панель).
+    pub content: Rect,
+    /// Safe area, из которой посчитана геометрия (сменилась — пересчитать).
+    pub safe: EdgeInsets,
     /// Колонка контента (ширина = сторона панели поля).
     pub col: Rect,
     /// Верхняя строка HUD: рекорд слева, меню справа.
@@ -41,7 +47,18 @@ pub const BOTTOM: f32 = 16.0;
 pub const ABIL_H: f32 = 62.0;
 pub const MAX_COL: f32 = 560.0;
 
-pub fn compute(b: Rect) -> Geo {
+pub fn compute(full: Rect) -> Geo {
+    // Приложение работает edge-to-edge (корень на всё окно), поэтому
+    // содержимое само отступает на safe area. Если корень уже отодвинут
+    // фреймворком, часть отступа учтена в его позиции — вычитаем её.
+    let safe = syngui::viewport::safe_area();
+    let origin = syngui::viewport::viewport_origin();
+    let (l, t) = ((safe.left - origin.x).max(0.0), (safe.top - origin.y).max(0.0));
+    let (r, bt) = if origin.x > 0.0 || origin.y > 0.0 { (0.0, 0.0) } else { (safe.right, safe.bottom) };
+    let b = Rect::new(
+        Point::new(full.origin.x + l, full.origin.y + t),
+        Size::new((full.width() - l - r).max(0.0), (full.height() - t - bt).max(0.0)),
+    );
     let w = b.width();
     let h = b.height();
     let fixed = HUD_H + GAP_BOARD + GAP_TRAY + BOTTOM + ABIL_H;
@@ -94,7 +111,7 @@ pub fn compute(b: Rect) -> Geo {
         Rect::new(Point::new(bx + (bw + gap) * 2.0, by), Size::new(bw, 44.0)),
     ];
     let energy_bar = Rect::new(Point::new(bx, abil.origin.y + 3.0), Size::new(total_w, 6.0));
-    Geo { bounds: b, col: Rect::new(Point::new(x0, y0), Size::new(col, total)), top, best, menu_btn, score, board, grid, cell, pad, tray, slots, tray_cell, abil, abil_btns, energy_bar }
+    Geo { bounds: full, content: b, safe, col: Rect::new(Point::new(x0, y0), Size::new(col, total)), top, best, menu_btn, score, board, grid, cell, pad, tray, slots, tray_cell, abil, abil_btns, energy_bar }
 }
 
 impl Geo {

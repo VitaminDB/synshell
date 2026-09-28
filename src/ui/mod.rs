@@ -1049,6 +1049,11 @@ impl View {
 
     fn tick(&mut self, dt: f32) {
         self.now += dt;
+        // safe area может прийти (или смениться) без изменения размера окна —
+        // тогда layout элемента не перезапускается, а отступы нужны новые
+        if self.geo.safe != syngui::viewport::safe_area() {
+            self.geo = layout::compute(self.bounds);
+        }
         let now = self.now;
         self.fx.prune(now);
         demo::tick(self);

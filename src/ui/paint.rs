@@ -59,12 +59,8 @@ pub fn draw(v: &View, list: &mut DisplayList) {
 }
 
 fn background(v: &View, list: &mut DisplayList) {
-    // Фон — на всё окно, включая safe area (вырез камеры, жестовая панель):
-    // syngui отодвигает корень на её размер, и без этого сверху оставалась
-    // полоса фонового цвета приложения, не совпадающая с миром.
-    let origin = syngui::viewport::viewport_origin();
-    let g = v.geo.bounds;
-    let b = Rect::new(Point::new(g.origin.x - origin.x, g.origin.y - origin.y), Size::new(g.width() + origin.x * 2.0, g.height() + origin.y + 80.0));
+    // Фон — на всё окно, включая safe area (приложение edge-to-edge).
+    let b = v.geo.bounds;
     let pal = v.palette();
     list.push_gradient_rect(
         b,

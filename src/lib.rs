@@ -60,6 +60,7 @@ fn android_main(app: syngui::app::AndroidApp) {
         .gpu_backend(GpuBackend::Gl)
         .gpu_power(GpuPowerPreference::LowPower)
         .with_android_app(app)
+        .edge_to_edge(true)
         .background(Color::from_hex(ui::theme::BG_BOTTOM))
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .run(move |_| {

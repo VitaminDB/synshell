@@ -40,7 +40,7 @@ fn card_rect(geo: &Geo, height: f32) -> Rect {
     let x = geo.board.origin.x + (geo.board.width() - w) * 0.5;
     // центр карточки — центр поля, но не выше HUD и не ниже окна
     let cy = geo.board.origin.y + geo.board.height() * 0.5;
-    let max_y = geo.bounds.origin.y + geo.bounds.height() - height - 8.0;
+    let max_y = geo.content.origin.y + geo.content.height() - height - 8.0;
     let y = (cy - height * 0.5).min(max_y).max(geo.top.origin.y + 4.0);
     Rect::new(Point::new(x, y), Size::new(w, height))
 }
