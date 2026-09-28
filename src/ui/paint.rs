@@ -98,52 +98,98 @@ fn background(v: &View, list: &mut DisplayList) {
     world::draw_ambient(list, to.ambient, b, v.now, if wf.from != wf.to { k } else { 1.0 }, hex(to.accent));
 }
 
+/// Стеклянная плашка в палитре мира: тень, заливка, кромка, глянец сверху.
+fn glass(list: &mut DisplayList, r: Rect, pal: &world::Palette, radius: f32, alpha: f32) {
+    let rad = [radius; 4];
+    list.push_rect(offset(r, 0.0, 2.0), Color::BLACK.with_alpha(0.18 * alpha), rad);
+    list.push_gradient_rect(
+        r,
+        Gradient::Linear { angle_deg: 180.0, stops: vec![ColorStop::new(pal.panel.lighten(0.22).with_alpha(0.55 * alpha), 0.0), ColorStop::new(pal.panel.with_alpha(0.62 * alpha), 1.0)] },
+        rad,
+    );
+    list.push_outline(inset(r, 0.75), Color::WHITE.with_alpha(0.16 * alpha), 1.0, 0.0, rad);
+    let top = Rect::new(Point::new(r.origin.x + radius * 0.7, r.origin.y + 1.0), Size::new((r.width() - radius * 1.4).max(1.0), 1.0));
+    list.push_rect(top, Color::WHITE.with_alpha(0.28 * alpha), [0.5; 4]);
+}
+
 fn hud(v: &View, game: &Game, list: &mut DisplayList) {
     let g = &v.geo;
+    let pal = v.palette();
     let stats = v.stats();
     let best = stats.best_of(v.variant, game.difficulty).max(game.scoring.score);
-
-    // рекорд
     let gold = hex(theme::GOLD);
-    let flash = v.fx.best_flash_born.map(|t| anim::punch(clamp01((v.now - t) / 0.8))).unwrap_or(0.0);
-    let icon_rect = Rect::new(g.best.origin, Size::new(36.0, g.best.height()));
-    icon(list, theme::ICON_TROPHY, icon_rect, gold.lerp(&Color::WHITE, flash * 0.6), 27.0 + flash * 6.0);
-    let num_rect = Rect::new(Point::new(g.best.origin.x + 40.0, g.best.origin.y), Size::new(g.best.width() - 40.0, g.best.height()));
-    text_shadowed(list, &best.to_string(), num_rect, gold.lerp(&Color::WHITE, flash * 0.5), 25.0 + flash * 5.0, 800, TextAlign::LEFT | TextAlign::VCENTER);
-    // метка сложности под рекордом
-    let dr = Rect::new(Point::new(g.best.origin.x + 42.0, g.best.origin.y + g.best.height() - 6.0), Size::new(120.0, 14.0));
-    text(list, game.difficulty.name(), dr, hex(theme::TEXT_DIM).with_alpha(0.85), 10.5, 800, TextAlign::LEFT | TextAlign::VCENTER);
+    let elv = v.variant.is_elvira();
+    let accent = if elv { hex("#d9b25a") } else { pal.accent };
 
-    // комбо-пилюля по центру верхней строки; с ×3 — «огонь»
+    // ── рекорд: плашка с золотым бейджем кубка и подписью сложности ──
+    let flash = v.fx.best_flash_born.map(|t| anim::punch(clamp01((v.now - t) / 0.8))).unwrap_or(0.0);
+    let best_text = best.to_string();
+    let bw = (52.0 + best_text.len() as f32 * 14.0 + 12.0).min(g.best.width() - 60.0);
+    let plate = Rect::new(g.best.origin, Size::new(bw, g.best.height()));
+    let plate = scaled_about_center(plate, 1.0 + 0.06 * flash);
+    glass(list, plate, &pal, 20.0, 1.0);
+    if flash > 0.01 {
+        list.push_glow_shadow(plate, gold.with_alpha(0.5 * flash), 16.0, (0.0, 0.0), [20.0; 4]);
+    }
+    let badge = Rect::new(Point::new(plate.origin.x + 5.0, plate.origin.y + 5.0), Size::new(30.0, 30.0));
+    list.push_rect(badge, gold.with_alpha(0.22 + 0.4 * flash), [15.0; 4]);
+    list.push_outline(inset(badge, 0.5), gold.with_alpha(0.55), 1.0, 0.0, [15.0; 4]);
+    icon(list, theme::ICON_TROPHY, badge, gold.lerp(&Color::WHITE, flash * 0.6), 18.0 + flash * 4.0);
+    let num_rect = Rect::new(Point::new(plate.origin.x + 42.0, plate.origin.y + 1.0), Size::new(plate.width() - 46.0, 24.0));
+    text_shadowed(list, &best_text, num_rect, gold.lerp(&Color::WHITE, flash * 0.5), 19.0 + flash * 4.0, 800, TextAlign::LEFT | TextAlign::VCENTER);
+    let dr = Rect::new(Point::new(plate.origin.x + 42.0, plate.origin.y + 22.0), Size::new(plate.width() - 46.0, 14.0));
+    text_nowrap(list, game.difficulty.name(), dr, hex(theme::TEXT_DIM).with_alpha(0.85), 9.5, 800, TextAlign::LEFT | TextAlign::VCENTER);
+
+    // ── комбо-пилюля по центру верхней строки; с ×3 — «огонь» ──
     if game.scoring.combo >= 2 && !game.over {
         let pill = g.combo_pill();
         let fire = game.scoring.combo >= 3;
-        let accent = if fire { gold.lerp(&hex("#ff7a2f"), 0.45) } else { gold };
+        let hot = if fire { gold.lerp(&hex("#ff7a2f"), 0.45) } else { gold };
         let pulse = ((v.now * (if fire { 9.0 } else { 5.0 })).sin() * 0.5 + 0.5) * if fire { 0.16 } else { 0.08 };
-        if fire {
-            list.push_rect(inset(pill, -5.0), accent.with_alpha(0.10 + pulse * 0.5), [19.0; 4]);
-        }
-        list.push_rect_bordered(pill, accent.with_alpha(0.16 + pulse), [14.0; 4], Border { width: 1.5, color: accent.with_alpha(0.8) });
+        list.push_glow_shadow(pill, hot.with_alpha(0.18 + pulse * 1.2), 14.0, (0.0, 0.0), [14.0; 4]);
+        list.push_gradient_rect(
+            pill,
+            Gradient::Linear { angle_deg: 180.0, stops: vec![ColorStop::new(hot.lighten(0.15).with_alpha(0.95), 0.0), ColorStop::new(hot.darken(0.15).with_alpha(0.95), 1.0)] },
+            [14.0; 4],
+        );
+        list.push_outline(inset(pill, 0.75), Color::WHITE.with_alpha(0.45), 1.0, 0.0, [14.0; 4]);
         let inner = Rect::new(Point::new(pill.origin.x + 8.0, pill.origin.y), Size::new(22.0, pill.height()));
-        icon(list, if fire { theme::ICON_FIRE } else { theme::ICON_BOLT }, inner, accent, 18.0 + pulse * 10.0);
+        icon(list, if fire { theme::ICON_FIRE } else { theme::ICON_BOLT }, inner, hex("#3a2205"), 18.0 + pulse * 10.0);
         let tr = Rect::new(Point::new(pill.origin.x + 30.0, pill.origin.y), Size::new(pill.width() - 34.0, pill.height()));
-        text(list, &format!("КОМБО ×{}", game.scoring.combo), tr, accent.lerp(&Color::WHITE, 0.2), 14.0, 800, TextAlign::CENTER);
+        let label = if elv { format!("COMBO ×{}", game.scoring.combo) } else { format!("КОМБО ×{}", game.scoring.combo) };
+        text_nowrap(list, &label, tr, hex("#3a2205"), 14.0, 800, TextAlign::CENTER);
     }
 
     level_ring(v, game, list);
 
-    // кнопка меню
+    // ── кнопка меню: стеклянный круг ──
     let hot = g.menu_btn.contains(v.pointer) && v.overlay().is_none();
-    list.push_rect(g.menu_btn, Color::WHITE.with_alpha(if hot { 0.24 } else { 0.12 }), [20.0; 4]);
-    icon(list, theme::ICON_SETTINGS, g.menu_btn, Color::WHITE.with_alpha(0.95), 23.0);
+    glass(list, g.menu_btn, &pal, 20.0, if hot { 1.4 } else { 1.0 });
+    icon(list, theme::ICON_SETTINGS, g.menu_btn, Color::WHITE.with_alpha(0.95), 22.0);
 
-    // счёт
+    // ── счёт: стеклянная плита с сиянием ──
     let punch = anim::punch(clamp01((v.now - v.fx.score_punch_born) / 0.5));
-    let size = 48.0 * (1.0 + 0.18 * punch);
+    let size = 44.0 * (1.0 + 0.16 * punch);
     let shown = v.fx.score_shown.round().max(0.0) as i64;
     let fire = if game.scoring.combo >= 3 && !game.over { 0.35 + 0.15 * (v.now * 6.0).sin() } else { 0.0 };
     let color = Color::WHITE.lerp(&gold, (punch * 0.7).max(fire));
-    text_shadowed(list, &shown.to_string(), g.score, color, size, 800, TextAlign::CENTER);
+    let pw = (g.score.width() * 0.56).max(180.0).min(g.score.width());
+    let plate = Rect::new(Point::new(g.score.origin.x + (g.score.width() - pw) * 0.5, g.score.origin.y + 2.0), Size::new(pw, g.score.height() - 6.0));
+    let plate = scaled_about_center(plate, 1.0 + 0.03 * punch);
+    list.push_glow_shadow(plate, accent.with_alpha(0.10 + 0.25 * punch + 0.15 * fire), 22.0, (0.0, 0.0), [24.0; 4]);
+    glass(list, plate, &pal, 24.0, 1.0);
+    // подчёркивание-«энергия» под числом: растёт с комбо
+    if game.scoring.combo >= 1 && !game.over {
+        let k = (game.scoring.combo as f32 / 5.0).min(1.0);
+        let uw = plate.width() * (0.25 + 0.55 * k);
+        let ur = Rect::new(Point::new(plate.origin.x + (plate.width() - uw) * 0.5, plate.origin.y + plate.height() - 6.0), Size::new(uw, 2.5));
+        list.push_gradient_rect(
+            ur,
+            Gradient::Linear { angle_deg: 90.0, stops: vec![ColorStop::new(gold.with_alpha(0.0), 0.0), ColorStop::new(gold.with_alpha(0.9), 0.5), ColorStop::new(gold.with_alpha(0.0), 1.0)] },
+            [1.25; 4],
+        );
+    }
+    text_shadowed(list, &shown.to_string(), plate, color, size, 800, TextAlign::CENTER);
 }
 
 fn cell_radius(cell: f32) -> [f32; 4] {
@@ -647,30 +693,40 @@ fn abilities(v: &View, game: &Game, list: &mut DisplayList) {
     }
 }
 
-/// Кольцо уровня слева от меню: номер уровня и дуга прогресса до следующего.
+/// Кольцо уровня слева от меню: стеклянный круг, дуга прогресса до
+/// следующего уровня цветом мира, номер уровня и подпись.
 fn level_ring(v: &View, game: &Game, list: &mut DisplayList) {
     let g = &v.geo;
     let pal = v.palette();
+    let accent = if v.variant.is_elvira() { hex("#d9b25a") } else { pal.accent };
     let punch = anim::punch(clamp01((v.now - v.fx.level_born) / 0.7));
     let size = 40.0;
     let rect = Rect::new(Point::new(g.menu_btn.origin.x - size - 10.0, g.menu_btn.origin.y), Size::new(size, size));
     let (cx, cy) = (rect.origin.x + size * 0.5, rect.origin.y + size * 0.5);
-    let rad = size * 0.5 - 2.5;
-    list.push_rect(rect, Color::BLACK.with_alpha(0.16), [size * 0.5; 4]);
-    arc(list, cx, cy, rad, 0.0, 1.0, Color::WHITE.with_alpha(0.14), 3.0);
+    let rad = size * 0.5 - 3.0;
+    glass(list, rect, &pal, size * 0.5, 1.0);
+    if punch > 0.01 {
+        list.push_glow_shadow(rect, accent.with_alpha(0.6 * punch), 16.0, (0.0, 0.0), [size * 0.5; 4]);
+    }
+    arc(list, cx, cy, rad, 0.0, 1.0, Color::WHITE.with_alpha(0.12), 3.0);
     // дуга догоняет настоящий прогресс вместе с показанным счётом
     let shown = v.fx.score_shown.round() as i32;
     let p = if world::level_for(shown) < v.level { 1.0 } else { world::progress(shown.min(game.scoring.score)) };
     if p > 0.005 {
-        arc(list, cx, cy, rad, 0.0, p, pal.accent.lerp(&Color::WHITE, punch), 3.0 + punch * 2.0);
+        arc(list, cx, cy, rad, 0.0, p, accent.lerp(&Color::WHITE, punch), 3.0 + punch * 2.0);
+        // светящаяся «головка» дуги
+        let u = p * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+        let (hx, hy) = (cx + rad * u.cos(), cy + rad * u.sin());
+        list.push_rect(Rect::new(Point::new(hx - 2.5, hy - 2.5), Size::new(5.0, 5.0)), Color::WHITE.with_alpha(0.9), [2.5; 4]);
     }
     if punch > 0.01 {
         let rr = rad + 4.0 + punch * 6.0;
-        list.push_outline(Rect::new(Point::new(cx - rr, cy - rr), Size::new(rr * 2.0, rr * 2.0)), pal.accent.with_alpha(0.6 * punch), 2.0, 0.0, [rr; 4]);
+        list.push_outline(Rect::new(Point::new(cx - rr, cy - rr), Size::new(rr * 2.0, rr * 2.0)), accent.with_alpha(0.6 * punch), 2.0, 0.0, [rr; 4]);
     }
     text_nowrap(list, &v.level.to_string(), offset(rect, 0.0, -1.0), Color::WHITE, 17.0 * (1.0 + 0.3 * punch), 800, TextAlign::CENTER);
-    let lr = Rect::new(Point::new(rect.origin.x - 10.0, rect.origin.y + size - 1.0), Size::new(size + 20.0, 13.0));
-    text_nowrap(list, "УРОВЕНЬ", lr, hex(theme::TEXT_DIM).with_alpha(0.8), 8.5, 800, TextAlign::CENTER);
+    let lr = Rect::new(Point::new(rect.origin.x - 10.0, rect.origin.y + size + 1.0), Size::new(size + 20.0, 13.0));
+    let label = if v.variant.is_elvira() { "LEVEL" } else { "УРОВЕНЬ" };
+    text_nowrap(list, label, lr, hex(theme::TEXT_DIM).with_alpha(0.8), 8.5, 800, TextAlign::CENTER);
 }
 
 /// Дуга окружности от доли `a` до `b` (0 — сверху, по часовой).
