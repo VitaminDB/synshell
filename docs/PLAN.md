@@ -76,12 +76,16 @@
   перламутр, неон, кожа, джинса, фарфор, леденец, шоколад, голограмма).
   Отделка живёт в модели (`Piece.finish`, старший байт `Cell = u16`,
   `generator::assign_finishes` без продвижения ГСЧ), Стандарт её игнорирует.
-  Рисуется текстурой из атласа `assets/tex/atlas.jpg` (8×4 тайла по 256 px,
-  гаттеры 16 px; `push_image` с UV-окном по зерну кубика; красящиеся
-  отделки — серая текстура × цвет фигуры) под процедурными скосами, объёмом
-  (`push_canvas` с цветом на вершинах), бликами и анимацией (`cube.rs`:
-  бегущий блеск, искры, пульс, перелив). Поле, трей и рука рисуются в два
-  прохода (`draw_cubes`), чтобы текстурные квады шли одним батчем. Атлас
+  Рисуется готовым **спрайтом блока** из атласа `assets/tex/atlas.png`
+  (`tools/build_atlas.py`: 8×8 тайлов по 192 px; у каждой отделки своя
+  форма — слиток, подушка, купол, огранка, плитка, плитка шоколада — карта
+  высот → свет по Блинну + фреснель + контактная тень, текстура из
+  `assets/tex/raw`; два варианта на отделку, у красящихся — серая база и
+  отдельный белый слой бликов поверх окрашенной базы). В игре блок — один
+  квад `push_image` (плюс квад бликов), без скосов; поверх только анимация
+  (`cube.rs`: бегущий блеск, искры, пульс, перелив), вспышка и искра бонуса.
+  Поле, трей и рука рисуются в два прохода (`draw_cubes`), чтобы спрайты
+  шли одним батчем. Атлас
   запрашивается в `Element::mount` через `tree.image_store`, готовность —
   в `animate`; без атласа (тесты, сбой) отделки рисуются цветом.
   Бонусные материалы (золото/хрусталь/дерево/лава) выглядят своей отделкой и
@@ -110,7 +114,7 @@ src/
 ├── audio.rs           Sfx, Voice, микшер (поток): эффекты + музыка + голосовой канал
 assets/sfx/*.wav       эффекты 48 кГц (tools/gen_sfx.py)
 assets/voice/*.wav     реплики 24 кГц (tools/gen_voice.sh, VoxCPM2)
-assets/tex/atlas.jpg   атлас отделок 2048×1024 (tools/gen_textures.sh → tools/build_atlas.py)
+assets/tex/atlas.png   атлас спрайтов блоков 1536×1536 (tools/gen_textures.sh → tools/build_atlas.py)
 assets/music/bgm.wav   фоновый трек 24 кГц моно (вшивается include_bytes!)
 ├── game/              чистая модель, без UI (юнит-тесты внутри)
 │   ├── rng.rs         xorshift64*, weighted()
@@ -152,7 +156,7 @@ ELLE_VARIANT=elvira ELLE_DEMO=finishes ./run-phone.sh        # витрина в
 ./run-phone.sh             # APK → телефон (см. memory.md G24)
 python3 tools/gen_sfx.py   # пересинтезировать эффекты
 tools/gen_textures.sh [id] # текстуры отделок: synaptix imagine, FLUX.2 klein 9B (~17 с/шт)
-python3 tools/build_atlas.py # собрать assets/tex/atlas.jpg из assets/tex/raw
+python3 tools/build_atlas.py --sheet /tmp/blocks.png # отрендерить блоки в assets/tex/atlas.png (+ контрольный лист)
 tools/gen_voice.sh [id]    # реплики: synaptix speak (VoxCPM2) + ffmpeg
 synaptix song "instrumental, no vocals, ..." --lyrics "" --cot off --models ~/Storage/syn_models \
     -o assets/music/yue_x.wav --max-tokens 1600   # 25 токенов = 1 с; --cot off = без вокала

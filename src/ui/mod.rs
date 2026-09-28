@@ -36,8 +36,8 @@ use syngui::prelude::*;
 use syngui::render::TextureId;
 use syngui::{LayoutHint, StyledElement};
 
-/// Атлас текстур отделок (JPEG 2048×1024, 8×4 тайла), см. `tools/build_atlas.py`.
-const ATLAS_BYTES: &[u8] = include_bytes!("../../assets/tex/atlas.jpg");
+/// Атлас спрайтов отделок (PNG 1536×1536, 8×8 тайлов), см. `tools/build_atlas.py`.
+const ATLAS_BYTES: &[u8] = include_bytes!("../../assets/tex/atlas.png");
 /// Длительность перехода между стартовой страницей и игрой.
 pub const SCREEN_FADE: f32 = 0.45;
 

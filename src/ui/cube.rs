@@ -1,16 +1,16 @@
 //! Кубик со скошенными гранями и фигура из кубиков.
 //!
 //! Два вида: **Стандарт** — цветные грани, узоры материалов (`draw_material`);
-//! **Эльвира** — отделка (`finish`): текстура из атласа под процедурными
-//! скосами, объёмом и бликами. Текстурные квады рисуются отдельным проходом
-//! (`draw_cubes`), чтобы батчер собрал их в один вызов.
+//! **Эльвира** — отделка (`finish`): готовый спрайт блока из атласа (форма,
+//! свет и тень запечены офлайн), поверх — анимация материала. Спрайты
+//! рисуются отдельным проходом (`draw_cubes`), чтобы батчер собрал их в один вызов.
 
 use super::finish::{Anim, Finish, Shade};
 use super::finish::hash01;
 use crate::game::{Material, Shape};
 use syngui::core::canvas::CanvasContext;
 use syngui::prelude::*;
-use syngui::render::{TextureId, Vertex};
+use syngui::render::TextureId;
 
 /// Внешний вид кубика.
 #[derive(Clone, Copy, Debug)]
@@ -194,32 +194,31 @@ fn draw_plain_cube(list: &mut DisplayList, rect: Rect, base: Color, style: &Cube
 }
 
 // ── отделки «Эльвиры» ──────────────────────────────────────────────────────
+//
+// Блок — готовый спрайт из атласа (форма, свет, тень запечены в
+// tools/build_atlas.py): один квад на кубик, у красящихся отделок — второй
+// квад с белыми бликами поверх окрашенной базы. Никаких скосов на лету;
+// поверх — только вспышка, приглушение, анимация материала и искра бонуса.
 
-/// Текстурный квад отделки (проход 1). Tint — цвет фигуры для красящихся
-/// отделок, белый для остальных; затемнение blend — через tint.
+/// Спрайт отделки (проход 1).
 fn draw_face_texture(list: &mut DisplayList, rect: Rect, base: Color, style: &CubeStyle) {
     let (Some(f), Some(tex)) = (style.finish, style.texture) else { return };
-    let mut tint = if f.tint { base.lerp(&Color::WHITE, 0.15) } else { Color::WHITE };
+    let mut tint = if f.tint { base.lerp(&Color::WHITE, 0.08) } else { Color::WHITE };
+    let mut gloss_a = 1.0;
     if let Some((bg, k)) = style.blend {
-        tint = tint.lerp(&bg, k * 0.7);
+        tint = tint.lerp(&bg, k * 0.75);
+        gloss_a *= 1.0 - k * 0.8;
     }
-    list.push_image(rect, tex, super::finish::uv(f, style.seed), tint);
+    let (uv_base, uv_gloss) = super::finish::uv(f, style.seed);
+    let sr = super::finish::sprite_rect(rect);
+    list.push_image(sr, tex, uv_base, tint);
+    if let Some(g) = uv_gloss {
+        list.push_image(sr, tex, g, Color::WHITE.with_alpha(gloss_a));
+    }
 }
 
-/// Квад с цветом на вершинах (объём: свет ↔ тень).
-fn shade_quad(list: &mut DisplayList, r: Rect, tl: Color, tr: Color, br: Color, bl: Color) {
-    let (x0, y0, x1, y1) = (r.origin.x, r.origin.y, r.origin.x + r.width(), r.origin.y + r.height());
-    let v = vec![
-        Vertex::new([x0, y0], [0.0, 0.0], tl.to_array(), [0.0; 4]),
-        Vertex::new([x1, y0], [0.0, 0.0], tr.to_array(), [0.0; 4]),
-        Vertex::new([x1, y1], [0.0, 0.0], br.to_array(), [0.0; 4]),
-        Vertex::new([x0, y1], [0.0, 0.0], bl.to_array(), [0.0; 4]),
-    ];
-    list.push_canvas(v, vec![0, 1, 2, 0, 2, 3]);
-}
-
-/// Скосы, объём, блики и анимация отделки (проход 2). При `textured == false`
-/// сначала заливается грань цветом отделки.
+/// Вспышка, приглушение, анимация и искра бонуса (проход 2). При
+/// `textured == false` (атласа нет) блок рисуется цветом отделки.
 fn draw_finish_overlay(list: &mut DisplayList, rect: Rect, base: Color, style: &CubeStyle, textured: bool) {
     let Some(f) = style.finish else { return };
     let w = rect.width();
@@ -227,109 +226,41 @@ fn draw_finish_overlay(list: &mut DisplayList, rect: Rect, base: Color, style: &
     if w < 1.0 || h < 1.0 {
         return;
     }
-    let b = (w.min(h) * style.bevel * 0.85).max(1.5);
-    let (x0, y0, x1, y1) = (rect.origin.x, rect.origin.y, rect.origin.x + w, rect.origin.y + h);
+    let radius = super::finish::corner(f, rect);
     let white = Color::WHITE;
     let black = Color::BLACK;
+    let (x0, y0) = (rect.origin.x, rect.origin.y);
 
     if !textured {
-        // без атласа: грань цветом отделки с лёгким градиентом
+        // без атласа: скруглённый блок с тенью, объёмом и бликом цветом отделки
+        list.push_rect(Rect::new(Point::new(x0, y0 + h * 0.06), rect.size), black.with_alpha(0.35), radius);
         list.push_gradient_rect(
             rect,
-            Gradient::Linear { angle_deg: 160.0, stops: vec![ColorStop::new(tone(base, style, 0.16), 0.0), ColorStop::new(tone(base, style, -0.12), 1.0)] },
-            [0.0; 4],
+            Gradient::Linear { angle_deg: 160.0, stops: vec![ColorStop::new(tone(base, style, 0.22), 0.0), ColorStop::new(tone(base, style, -0.18), 1.0)] },
+            radius,
         );
+        let hl = Rect::new(Point::new(x0 + w * 0.12, y0 + h * 0.08), Size::new(w * 0.5, (h * 0.16).max(1.0)));
+        list.push_rect(hl, white.with_alpha(match f.shade { Shade::Metal | Shade::Glass => 0.45, _ => 0.18 }), [hl.height() * 0.5; 4]);
+        list.push_outline(inset_rect(rect, 0.5), white.with_alpha(0.18), 1.0, 0.0, radius);
     }
 
-    // объём: свет слева-сверху, тень справа-снизу, сила по характеру
-    let (lt, dk) = match f.shade {
-        Shade::Metal => (0.34, 0.40),
-        Shade::Glass => (0.26, 0.14),
-        Shade::Soft => (0.10, 0.22),
-        Shade::Matte => (0.16, 0.20),
-        Shade::Glow => (0.06, 0.30),
-    };
-    shade_quad(list, rect, white.with_alpha(lt), white.with_alpha(lt * 0.25), black.with_alpha(dk), black.with_alpha(dk * 0.35));
-    if f.shade == Shade::Soft {
-        // ворс: края темнее, середина мягко светится
-        let e = (w * 0.22).max(2.0);
-        for (r, angle) in [
-            (Rect::new(Point::new(x0, y0), Size::new(w, e)), 0.0),
-            (Rect::new(Point::new(x0, y1 - e), Size::new(w, e)), 180.0),
-            (Rect::new(Point::new(x0, y0), Size::new(e, h)), 270.0),
-            (Rect::new(Point::new(x1 - e, y0), Size::new(e, h)), 90.0),
-        ] {
-            list.push_gradient_rect(r, Gradient::Linear { angle_deg: angle, stops: vec![ColorStop::new(black.with_alpha(0.28), 0.0), ColorStop::new(black.with_alpha(0.0), 1.0)] }, [0.0; 4]);
-        }
-        let mid = Rect::new(Point::new(x0 + w * 0.3, y0 + h * 0.25), Size::new(w * 0.4, h * 0.35));
-        list.push_rect(mid, white.with_alpha(0.07), [w * 0.2; 4]);
-    }
-    if f.shade == Shade::Glow {
-        let inner = Rect::new(Point::new(x0 + b * 1.6, y0 + b * 1.6), Size::new(w - b * 3.2, h - b * 3.2));
-        list.push_rect(inner, black.with_alpha(0.30), [b; 4]);
-    }
-
-    // скосы — полупрозрачные трапеции поверх текстуры
-    let (top_a, left_a, right_a, bottom_a) = match f.shade {
-        Shade::Metal => (0.55, 0.22, 0.35, 0.55),
-        Shade::Glass => (0.45, 0.20, 0.18, 0.30),
-        Shade::Soft => (0.18, 0.10, 0.22, 0.34),
-        Shade::Matte => (0.30, 0.14, 0.24, 0.40),
-        Shade::Glow => (0.20, 0.10, 0.20, 0.30),
-    };
-    let flash = style.flash;
-    let mut cv = CanvasContext::new(Point::new(0.0, 0.0), Size::new(w, h));
-    cv.set_anti_alias(0.8);
-    cv.set_color(white.with_alpha(top_a + flash * 0.3));
-    cv.fill_polygon(&[(x0, y0), (x1, y0), (x1 - b, y0 + b), (x0 + b, y0 + b)]);
-    cv.set_color(white.with_alpha(left_a + flash * 0.2));
-    cv.fill_polygon(&[(x0, y0), (x0 + b, y0 + b), (x0 + b, y1 - b), (x0, y1)]);
-    cv.set_color(black.with_alpha(right_a));
-    cv.fill_polygon(&[(x1, y0), (x1, y1), (x1 - b, y1 - b), (x1 - b, y0 + b)]);
-    cv.set_color(black.with_alpha(bottom_a));
-    cv.fill_polygon(&[(x0, y1), (x0 + b, y1 - b), (x1 - b, y1 - b), (x1, y1)]);
-    cv.flush(list);
-
-    let inner = Rect::new(Point::new(x0 + b, y0 + b), Size::new(w - b * 2.0, h - b * 2.0));
+    // область под анимацию — внутри скруглений
+    let ins = (radius[0] * 0.55).max(1.0);
+    let inner = Rect::new(Point::new(x0 + ins, y0 + ins), Size::new((w - ins * 2.0).max(1.0), (h - ins * 2.0).max(1.0)));
     let (ix, iy, iw, ih) = (inner.origin.x, inner.origin.y, inner.width(), inner.height());
     let accent = style.accent.unwrap_or(white);
 
     if w > 12.0 {
-        // характерный блик
-        match f.shade {
-            Shade::Metal => {
-                let mut cv = CanvasContext::new(Point::new(0.0, 0.0), Size::new(w, h));
-                cv.set_anti_alias(1.0);
-                cv.set_color(white.with_alpha(0.16));
-                cv.fill_polygon(&[(ix + iw * 0.15, iy), (ix + iw * 0.45, iy), (ix + iw * 0.05, iy + ih), (ix, iy + ih * 0.7)]);
-                cv.flush(list);
-            }
-            Shade::Glass => {
-                let mut cv = CanvasContext::new(Point::new(0.0, 0.0), Size::new(w, h));
-                cv.set_anti_alias(0.8);
-                cv.set_color(white.with_alpha(0.16));
-                cv.fill_polygon(&[(ix, iy), (ix + iw * 0.6, iy), (ix, iy + ih * 0.6)]);
-                cv.flush(list);
-                let hl = Rect::new(Point::new(ix + iw * 0.1, iy + ih * 0.08), Size::new(iw * 0.34, (ih * 0.14).max(1.0)));
-                list.push_rect(hl, white.with_alpha(0.55), [hl.height() * 0.5; 4]);
-            }
-            Shade::Glow => {
-                let pulse = ((style.time * 2.4 + hash01(style.seed, 2) * 6.28).sin() * 0.5 + 0.5) * 0.5 + 0.5;
-                list.push_outline(inner, accent.with_alpha(0.45 + 0.4 * pulse), (w * 0.05).max(1.0), 0.0, [2.0; 4]);
-                list.push_rect(inner, accent.with_alpha(0.06 + 0.08 * pulse), [2.0; 4]);
-            }
-            _ => {}
-        }
-        // анимация
         match f.anim {
             Anim::Sheen => {
-                let phase = (style.time * 0.3 + hash01(style.seed, 1)) % 1.0;
+                // бегущая полоса блеска
+                let phase = (style.time * 0.28 + hash01(style.seed, 1)) % 1.0;
                 let bx = ix - iw * 0.5 + iw * 2.0 * phase;
-                let bw = iw * 0.2;
+                let bw = iw * 0.18;
                 if bx > ix - bw && bx < ix + iw + iw * 0.4 {
                     let mut cv = CanvasContext::new(Point::new(0.0, 0.0), Size::new(w, h));
                     cv.set_anti_alias(1.0);
-                    cv.set_color(white.with_alpha(0.32));
+                    cv.set_color(white.with_alpha(0.28));
                     let pts = [(bx, iy), (bx + bw, iy), (bx + bw - iw * 0.4, iy + ih), (bx - iw * 0.4, iy + ih)];
                     let clipped: Vec<(f32, f32)> = pts.iter().map(|&(x, y)| (x.clamp(ix, ix + iw), y)).collect();
                     cv.fill_polygon(&clipped);
@@ -349,9 +280,12 @@ fn draw_finish_overlay(list: &mut DisplayList, rect: Rect, base: Color, style: &
                     list.push_rect(Rect::new(Point::new(sx - ss * 0.16, sy - ss), Size::new(ss * 0.32, ss * 2.0)), white.with_alpha(0.95 * tw), [ss; 4]);
                 }
             }
-            Anim::Pulse if f.shade != Shade::Glow => {
-                let pulse = ((style.time * 2.0 + hash01(style.seed, 2) * 6.28).sin() * 0.5 + 0.5) * 0.5;
-                list.push_rect(inner, accent.with_alpha(0.10 + 0.15 * pulse), [2.0; 4]);
+            Anim::Pulse => {
+                // пульс свечения: кромка и лёгкая заливка цветом акцента
+                let pulse = ((style.time * 2.2 + hash01(style.seed, 2) * 6.28).sin() * 0.5 + 0.5) * 0.5 + 0.5;
+                let strong = f.shade == Shade::Glow;
+                list.push_outline(inset_rect(rect, 1.0), accent.with_alpha((if strong { 0.35 } else { 0.15 }) + 0.35 * pulse), (w * 0.045).max(1.0), 0.0, radius);
+                list.push_rect(rect, accent.with_alpha((if strong { 0.04 } else { 0.03 }) + 0.08 * pulse), radius);
             }
             Anim::Iridescent => {
                 let t = style.time * 0.25 + hash01(style.seed, 4);
@@ -360,41 +294,42 @@ fn draw_finish_overlay(list: &mut DisplayList, rect: Rect, base: Color, style: &
                     Color::rgb(0.5 + 0.5 * a.sin(), 0.5 + 0.5 * (a + 2.09).sin(), 0.5 + 0.5 * (a + 4.19).sin())
                 };
                 list.push_gradient_rect(
-                    inner,
+                    rect,
                     Gradient::Linear {
                         angle_deg: 35.0 + 20.0 * (t * 3.0).sin(),
-                        stops: vec![ColorStop::new(hue(0.0).with_alpha(0.22), 0.0), ColorStop::new(hue(0.33).with_alpha(0.22), 0.5), ColorStop::new(hue(0.66).with_alpha(0.22), 1.0)],
+                        stops: vec![ColorStop::new(hue(0.0).with_alpha(0.20), 0.0), ColorStop::new(hue(0.33).with_alpha(0.20), 0.5), ColorStop::new(hue(0.66).with_alpha(0.20), 1.0)],
                     },
-                    [0.0; 4],
+                    radius,
                 );
             }
-            _ => {}
+            Anim::None => {}
         }
         // бонусная фигура: искра в углу
         if style.bonus {
             let tw = ((style.time * 3.0 + hash01(style.seed, 11) * 6.28).sin() * 0.5 + 0.5).powi(2);
-            let sx = ix + iw * 0.82;
-            let sy = iy + ih * 0.18;
+            let sx = ix + iw * 0.8;
+            let sy = iy + ih * 0.2;
             let ss = iw * 0.13 * (0.7 + 0.5 * tw);
             let gold = Color::from_hex("#ffe27a");
             list.push_rect(Rect::new(Point::new(sx - ss * 1.1, sy - ss * 1.1), Size::new(ss * 2.2, ss * 2.2)), gold.with_alpha(0.25 + 0.2 * tw), [ss * 1.1; 4]);
             list.push_rect(Rect::new(Point::new(sx - ss, sy - ss * 0.2), Size::new(ss * 2.0, ss * 0.4)), white.with_alpha(0.85 + 0.15 * tw), [ss; 4]);
             list.push_rect(Rect::new(Point::new(sx - ss * 0.2, sy - ss), Size::new(ss * 0.4, ss * 2.0)), white.with_alpha(0.85 + 0.15 * tw), [ss; 4]);
         }
-        // кромка сверху и тень снизу — объём
-        list.push_rect(Rect::new(Point::new(x0 + b, y0), Size::new(w - b * 2.0, 1.0)), white.with_alpha(0.55), [0.0; 4]);
-        list.push_rect(Rect::new(Point::new(x0 + b, y1 - 1.0), Size::new(w - b * 2.0, 1.0)), black.with_alpha(0.35), [0.0; 4]);
     }
 
-    // вспышка и приглушение
-    if flash > 0.001 {
-        list.push_rect(rect, white.with_alpha((flash * 0.7).min(1.0)), [0.0; 4]);
+    // вспышка и приглушение — по силуэту
+    if style.flash > 0.001 {
+        list.push_rect(rect, white.with_alpha((style.flash * 0.7).min(1.0)), radius);
     }
     if let Some((bg, k)) = style.blend {
-        if k > 0.001 {
-            list.push_rect(rect, bg.with_alpha((k * if textured { 0.5 } else { 0.9 }).min(1.0)), [0.0; 4]);
+        if k > 0.001 && !textured {
+            list.push_rect(rect, bg.with_alpha((k * 0.9).min(1.0)), radius);
         }
     }
+}
+
+fn inset_rect(r: Rect, d: f32) -> Rect {
+    Rect::new(Point::new(r.origin.x + d, r.origin.y + d), Size::new((r.width() - d * 2.0).max(0.0), (r.height() - d * 2.0).max(0.0)))
 }
 
 /// Узор материала поверх центральной грани («Стандарт»).
