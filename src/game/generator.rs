@@ -6,10 +6,14 @@
 //!   схлопывания линий между ходами) — проигрыш возможен только из-за
 //!   ошибки игрока, а не из-за раздачи;
 //! * чем полнее поле, тем реже крупные фигуры и чаще мелкие;
-//! * три одинаковые формы подряд не выпадают.
+//! * три одинаковые формы подряд не выпадают;
+//! * фигуры подбираются **под поле**: из нескольких случайных кандидатов
+//!   чаще берётся та, что закрывает линию или плотно ложится в имеющуюся
+//!   выемку (`fit_score`), а не просто случайная.
 
 use super::board::{Board, SIZE};
-use super::piece::{catalog, Family, Material, Piece};
+use super::piece::{catalog, Family, Material, Piece, Shape};
+use std::sync::atomic::{AtomicBool, Ordering};
 use super::rng::Rng;
 use super::rules::Difficulty;
 
@@ -58,6 +62,88 @@ pub fn pick_for(rng: &mut Rng, fill: f32, d: Difficulty) -> Piece {
     let variants = cat.variants_of(family);
     let v = cat.variants[variants[rng.index(variants.len())]];
     Piece::new(v.family, v.shape).with_material(pick_material(rng))
+}
+
+/// Насколько форма «к месту» на этом поле — лучшая из её позиций:
+/// очищенные линии, плотность прилегания (доля рёбер фигуры, упирающихся
+/// в кубики или край) и штраф за новые одиночные дыры. `None` — не встаёт.
+pub fn fit_score(board: &Board, shape: &Shape) -> Option<f32> {
+    let n = shape.len();
+    let mut best: Option<f32> = None;
+    for r in 0..=(SIZE as i32 - shape.h as i32) {
+        for c in 0..=(SIZE as i32 - shape.w as i32) {
+            if !board.can_place(shape, r, c) {
+                continue;
+            }
+            let mut tmp = *board;
+            for &(dr, dc) in shape.cells() {
+                tmp.set((r + dr as i32) as usize, (c + dc as i32) as usize, 1);
+            }
+            let lines = tmp.full_rows().len() + tmp.full_cols().len();
+            let mut contact = 0usize;
+            let mut pockets = 0usize;
+            for &(dr, dc) in shape.cells() {
+                let (pr, pc) = (r + dr as i32, c + dc as i32);
+                for (nr, nc) in [(pr - 1, pc), (pr + 1, pc), (pr, pc - 1), (pr, pc + 1)] {
+                    if !tmp.is_free(nr, nc) {
+                        // край или кубик (своя клетка тоже, но она
+                        // внутри фигуры — такие рёбра вычтем ниже)
+                        contact += 1;
+                    } else {
+                        // соседняя пустая клетка, которую фигура запирает
+                        let free_around = [(nr - 1, nc), (nr + 1, nc), (nr, nc - 1), (nr, nc + 1)]
+                            .iter()
+                            .filter(|&&(a, b)| tmp.is_free(a, b))
+                            .count();
+                        if free_around == 0 {
+                            pockets += 1;
+                        }
+                    }
+                }
+            }
+            // внутренние рёбра фигуры (между её клетками) — не прилегание
+            let inner = shape
+                .cells()
+                .iter()
+                .map(|&(a, b)| shape.cells().iter().filter(|&&(x, y)| a.abs_diff(x) + b.abs_diff(y) == 1).count())
+                .sum::<usize>();
+            let outer = (4 * n).saturating_sub(inner).max(1);
+            let ratio = contact.saturating_sub(inner) as f32 / outer as f32;
+            let s = lines as f32 * 2.0 + ratio * 1.5 - pockets as f32 * 0.4;
+            best = Some(best.map_or(s, |b: f32| b.max(s)));
+        }
+    }
+    best
+}
+
+/// Подбор фигур под поле включён (выключается только в бенчмарке для сравнения).
+static HELPFUL: AtomicBool = AtomicBool::new(true);
+
+pub fn set_helpful(on: bool) {
+    HELPFUL.store(on, Ordering::Relaxed);
+}
+
+/// Доля «умных» слотов раздачи и число кандидатов на слот по сложности:
+/// на лёгкой фигуры почти всегда к месту, на сложной — чаще случайные.
+fn helpfulness(d: Difficulty) -> (u32, usize) {
+    match d {
+        Difficulty::Easy => (85, 5),
+        Difficulty::Normal => (45, 3),
+        Difficulty::Hard => (35, 3),
+    }
+}
+
+/// Фигура «к месту»: из `samples` случайных кандидатов — самая полезная.
+pub fn pick_helpful(rng: &mut Rng, board: &Board, fill: f32, d: Difficulty, samples: usize) -> Piece {
+    let mut best: Option<(Piece, f32)> = None;
+    for _ in 0..samples.max(1) {
+        let p = pick_for(rng, fill, d);
+        let s = fit_score(board, &p.shape).unwrap_or(-10.0);
+        if best.map(|(_, b)| s > b).unwrap_or(true) {
+            best = Some((p, s));
+        }
+    }
+    best.map(|(p, _)| p).unwrap_or_else(|| pick_for(rng, fill, d))
 }
 
 /// Материал фигуры по весам (`Material::weight`).
@@ -216,8 +302,18 @@ pub fn deal_for(rng: &mut Rng, board: &Board, d: Difficulty) -> [Piece; 3] {
         }
     }
     let mut best: Option<([Piece; 3], usize)> = None;
+    let (smart_pct, samples) = helpfulness(d);
     for attempt in 0..DEAL_ATTEMPTS {
-        let three = [pick_for(rng, fill, d), pick_for(rng, fill, d), pick_for(rng, fill, d)];
+        // на пустом поле «подгонять» нечего — там фигуры просто случайные
+        let smart = filled > 0 && attempt < DEAL_ATTEMPTS / 2 && HELPFUL.load(Ordering::Relaxed);
+        let mut one = |rng: &mut Rng| {
+            if smart && rng.below(100) < smart_pct {
+                pick_helpful(rng, board, fill, d, samples)
+            } else {
+                pick_for(rng, fill, d)
+            }
+        };
+        let three = [one(rng), one(rng), one(rng)];
         if three[0].shape == three[1].shape && three[1].shape == three[2].shape {
             continue;
         }
@@ -435,6 +531,38 @@ mod tests {
             }
         }
         assert!(hits >= 30, "{hits}");
+    }
+
+    #[test]
+    fn fit_score_prefers_pieces_that_close_holes() {
+        // ряд 7 заполнен, кроме клетки (7,3): одиночка закрывает линию
+        let mut b = Board::new();
+        for c in 0..SIZE {
+            if c != 3 {
+                b.set(7, c, 1);
+            }
+        }
+        let mono = fit_score(&b, &Family::Mono.base()).unwrap();
+        let o2 = fit_score(&b, &Family::O2.base()).unwrap();
+        assert!(mono >= 2.0, "{mono}");
+        assert!(mono > o2, "{mono} vs {o2}");
+        assert!(fit_score(&Board::new(), &Family::O3.base()).is_some());
+        // из нескольких кандидатов «умный» выбор чаще закрывает дыру
+        let mut rng = Rng::new(4);
+        let hits = (0..300)
+            .filter(|_| {
+                let p = pick_helpful(&mut rng, &b, b.fill_ratio(), Difficulty::Normal, 4);
+                fit_score(&b, &p.shape).unwrap_or(0.0) >= 2.0
+            })
+            .count();
+        let mut rng = Rng::new(4);
+        let base = (0..300)
+            .filter(|_| {
+                let p = pick_for(&mut rng, b.fill_ratio(), Difficulty::Normal);
+                fit_score(&b, &p.shape).unwrap_or(0.0) >= 2.0
+            })
+            .count();
+        assert!(hits > base * 2, "умный {hits}, случайный {base}");
     }
 
     #[test]

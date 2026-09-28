@@ -111,7 +111,6 @@ pub enum Family {
     S4,
     Z4,
     V5,
-    T5,
     /// Диагональ из двух клеток (касаются углами).
     D2,
     /// Диагональ из трёх клеток.
@@ -119,7 +118,7 @@ pub enum Family {
 }
 
 impl Family {
-    pub const ALL: [Family; 18] = [
+    pub const ALL: [Family; 17] = [
         Family::Mono,
         Family::I2,
         Family::I3,
@@ -135,7 +134,6 @@ impl Family {
         Family::S4,
         Family::Z4,
         Family::V5,
-        Family::T5,
         Family::D2,
         Family::D3,
     ];
@@ -168,7 +166,6 @@ impl Family {
             S4 => Shape::from_cells(&[(0, 1), (0, 2), (1, 0), (1, 1)]),
             Z4 => Shape::from_cells(&[(0, 0), (0, 1), (1, 1), (1, 2)]),
             V5 => Shape::from_cells(&[(0, 0), (1, 0), (2, 0), (2, 1), (2, 2)]),
-            T5 => Shape::from_cells(&[(0, 0), (0, 1), (0, 2), (1, 1), (2, 1)]),
             D2 => Shape::from_cells(&[(0, 0), (1, 1)]),
             D3 => Shape::from_cells(&[(0, 0), (1, 1), (2, 2)]),
         }
@@ -193,7 +190,6 @@ impl Family {
             S4 => 4.0,
             Z4 => 4.0,
             V5 => 4.0,
-            T5 => 3.0,
             D2 => 4.0,
             D3 => 3.0,
         }
@@ -209,7 +205,7 @@ impl Family {
             I4 | I5 => 3,      // orange
             L3 | L4 | D2 => 4, // purple
             I2 | I3 => 5,      // yellow
-            Mono | T4 | T5 => 6, // cyan
+            Mono | T4 => 6, // cyan
             O2 | V5 => 7,      // red
         }
     }
@@ -449,11 +445,10 @@ mod tests {
         assert_eq!(cat.variants_of(Family::T4).len(), 4);
         assert_eq!(cat.variants_of(Family::V5).len(), 4);
         assert_eq!(cat.variants_of(Family::L3).len(), 4);
-        assert_eq!(cat.variants_of(Family::T5).len(), 4);
         assert_eq!(cat.variants_of(Family::D2).len(), 2);
         assert_eq!(cat.variants_of(Family::D3).len(), 2);
         // всего: 1+2+2+2+2+1+1+2+4+4+4+4+2+2+4+4 = 41
-        assert_eq!(cat.len(), 45);
+        assert_eq!(cat.len(), 41);
         // L и J — зеркальные семейства, а не повороты друг друга
         let l = Family::L4.base();
         let j = Family::J4.base();
