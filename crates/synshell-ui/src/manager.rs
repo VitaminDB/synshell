@@ -47,7 +47,16 @@ pub fn output_size(name: Option<&str>) -> (f32, f32) {
     o.map(|o| (o.size.0 as f32, o.size.1 as f32)).unwrap_or((1920.0, 1080.0))
 }
 
+/// Обои и панели по мониторам (рабочий стол).
 pub fn install(ctx: ShellCtx) {
+    install_with(ctx, true);
+}
+
+/// Панели и доки по мониторам; `wallpaper` — ещё и поверхности обоев
+/// (телефонная оболочка рисует обои в домашнем экране сама). Панели
+/// берутся только те, что показываются на форм-факторе оболочки
+/// (`[[panel]] form_factor`).
+pub fn install_with(ctx: ShellCtx, with_wallpaper: bool) {
     create_effect(move || {
         let outputs = syngui_layer::outputs().get();
         let _gen = ctx.generation.get();
@@ -74,11 +83,13 @@ pub fn install(ctx: ShellCtx) {
             }
         });
         let mut made = Vec::new();
-        for out in &outputs {
-            let (id, timer) = wallpaper(ctx, out);
-            made.push((id, None, timer));
+        if with_wallpaper {
+            for out in &outputs {
+                let (id, timer) = wallpaper(ctx, out);
+                made.push((id, None, timer));
+            }
         }
-        for (index, panel) in cfg.panels.iter().enumerate() {
+        for (index, panel) in cfg.panels.iter().enumerate().filter(|(_, p)| p.shows_on(ctx.form_factor)) {
             for out in outputs.iter().filter(|o| match panel.output.as_str() {
                 "*" | "all" | "" => true,
                 "primary" => primary.as_deref() == Some(o.name.as_str()),

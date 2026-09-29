@@ -42,6 +42,10 @@ pub struct Config {
     pub notifications: Notifications,
     pub lock: Lock,
     pub idle: Idle,
+    pub mobile: Mobile,
+    pub gestures: Gestures,
+    pub wifi: Wifi,
+    pub packages: Packages,
 }
 
 impl Default for Config {
@@ -65,6 +69,10 @@ impl Default for Config {
             notifications: Notifications::default(),
             lock: Lock::default(),
             idle: Idle::default(),
+            mobile: Mobile::default(),
+            gestures: Gestures::default(),
+            wifi: Wifi::default(),
+            packages: Packages::default(),
         }
     }
 }
@@ -610,6 +618,9 @@ pub struct OutputConfig {
     pub vrr: bool,
     /// Основной монитор: на нём панель по умолчанию и новые окна.
     pub primary: bool,
+    /// Яркость панели на максимуме подсветки, нит — для яркости в нитах
+    /// (ядро их не сообщает). Не задано — только проценты.
+    pub max_nits: Option<f32>,
 }
 
 impl Default for OutputConfig {
@@ -623,6 +634,7 @@ impl Default for OutputConfig {
             transform: "normal".into(),
             vrr: false,
             primary: false,
+            max_nits: None,
         }
     }
 }
@@ -812,6 +824,26 @@ pub struct Animations {
     pub shell: bool,
     /// Плавная смена темы и обоев: цвета перетекают, картинка растворяется.
     pub theme_change: bool,
+    /// Меньше движения: переходы сокращаются до растворения, без частиц и
+    /// пружин (как «Уменьшить движение» в системах).
+    pub reduce_motion: bool,
+    /// Группы анимаций оболочки (каждую можно выключить отдельно).
+    /// Домашний экран: листание страниц, появление и уход.
+    pub home: bool,
+    /// Меню запуска: появление, перетекание в «Все приложения».
+    pub menu: bool,
+    /// Шторка и быстрые настройки.
+    pub shade: bool,
+    /// Док и панели: увеличение значков, прыжки при запуске.
+    pub dock: bool,
+    /// Частицы (док, запуск приложений).
+    pub particles: bool,
+    /// Размытие под всплывающими окнами и меню (дорого на CPU-композиторе).
+    pub blur: bool,
+    /// Волна от точки нажатия.
+    pub ripple: bool,
+    /// Переключение страниц приложений и режимов окон (композитор).
+    pub pages: bool,
 }
 
 impl Default for Animations {
@@ -826,11 +858,51 @@ impl Default for Animations {
             layout_changes: true,
             shell: true,
             theme_change: true,
+            reduce_motion: false,
+            home: true,
+            menu: true,
+            shade: true,
+            dock: true,
+            particles: true,
+            blur: true,
+            ripple: true,
+            pages: true,
         }
     }
 }
 
 impl Animations {
+    /// Длительность анимации группы оболочки (`home`, `menu`, `shade`,
+    /// `dock`, `pages`); 0 — выключена. «Меньше движения» укорачивает вдвое.
+    pub fn group_ms(&self, group: &str, base: u32) -> u32 {
+        let on = match group {
+            "home" => self.home,
+            "menu" => self.menu,
+            "shade" => self.shade,
+            "dock" => self.dock,
+            "pages" => self.pages,
+            _ => true,
+        };
+        if !on {
+            return 0;
+        }
+        let ms = self.shell_ms(base);
+        if self.reduce_motion { ms / 2 } else { ms }
+    }
+
+    /// Включена ли декоративная группа (`particles`, `blur`, `ripple`).
+    pub fn effect(&self, name: &str) -> bool {
+        if !self.enabled || (self.reduce_motion && name != "blur") {
+            return false;
+        }
+        match name {
+            "particles" => self.particles,
+            "blur" => self.blur,
+            "ripple" => self.ripple,
+            _ => true,
+        }
+    }
+
     /// Длительность с учётом `enabled` и `speed`; 0 — без анимации.
     pub fn ms(&self, base: u32) -> u32 {
         if !self.enabled {
@@ -1015,11 +1087,23 @@ pub struct Panel {
     pub dock: Dock,
     /// Апплеты слева направо (сверху вниз).
     pub applets: Vec<Applet>,
+    /// Где показывать: `desktop` (по умолчанию — так старые конфиги не
+    /// выводят десктопную панель на телефон), `phone`, `any`.
+    pub form_factor: String,
 }
 
 impl Panel {
     pub fn is_dock(&self) -> bool {
         self.mode == "dock"
+    }
+
+    /// Показывать ли панель на этом форм-факторе.
+    pub fn shows_on(&self, ff: FormFactor) -> bool {
+        match self.form_factor.trim() {
+            "any" | "all" => true,
+            "phone" | "mobile" => ff == FormFactor::Phone,
+            _ => ff == FormFactor::Desktop,
+        }
     }
 
     /// Док по умолчанию: меню, закреплённые приложения, окна, разделы,
@@ -1130,6 +1214,7 @@ impl Default for Panel {
             opacity: None,
             mode: "panel".into(),
             dock: Dock::default(),
+            form_factor: "desktop".into(),
             applets: vec![
                 Applet::new("launcher"),
                 Applet::new("workspaces"),
@@ -1666,6 +1751,146 @@ impl Config {
     }
 }
 
+// ─── mobile ─────────────────────────────────────────────────────────────────
+
+/// Телефон (`[mobile]`): режим окон, домашний экран.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Mobile {
+    /// Режим окон: `pages` — каждое приложение во весь экран, листание
+    /// влево-вправо; `tiles` — окна друг под другом; `free` — свободные
+    /// окна на большом виртуальном столе (пан двумя пальцами).
+    pub mode: crate::action::MobileMode,
+    /// Виртуальный стол режима `free`: `2x2`, `3x3`, `infinite`.
+    pub desk: String,
+    /// Ручка окна в `free`: `server` (полоса композитора), `none`.
+    pub handle: String,
+    pub handle_height: u32,
+    /// Клавиша «назад» для окна: `XF86Back`, `Escape`, `Alt+Left`.
+    pub back_key: String,
+    /// Сколько плиток показывать в `tiles` (0 — все).
+    pub tiles_max: u32,
+    /// Щипок меняет масштаб виртуального стола (дорого на CPU).
+    pub pinch_zoom: bool,
+    /// Запоминать выбранный режим в config.toml.
+    pub remember_mode: bool,
+    /// Первая страница домашнего экрана — ресурсы (процессор, память,
+    /// питание, запущенные приложения).
+    pub resources_page: bool,
+    /// Приложения на домашнем экране (id .desktop); пусто — все по алфавиту.
+    pub home_apps: Vec<String>,
+    /// Колонок в сетке домашнего экрана.
+    pub home_columns: u32,
+}
+
+impl Default for Mobile {
+    fn default() -> Self {
+        Self {
+            mode: crate::action::MobileMode::Pages,
+            desk: "3x3".into(),
+            handle: "server".into(),
+            handle_height: 28,
+            back_key: "XF86Back".into(),
+            tiles_max: 0,
+            pinch_zoom: false,
+            remember_mode: true,
+            resources_page: true,
+            home_apps: Vec::new(),
+            home_columns: 4,
+        }
+    }
+}
+
+// ─── gestures ───────────────────────────────────────────────────────────────
+
+/// Сенсорные жесты композитора (`[gestures]`); действия — как в
+/// `[keybindings]`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Gestures {
+    pub enabled: bool,
+    /// Ширина зоны у края экрана, логические px.
+    pub edge_size: u32,
+    /// Путь пальца до распознавания жеста, px.
+    pub threshold: u32,
+    /// До этого сдвига — тап.
+    pub tap_slop: u32,
+    /// Долгое нажатие, мс (и в оболочке, и в композиторе).
+    pub long_press_ms: u32,
+    /// Скорость броска для перелистывания, px/мс.
+    pub velocity: f32,
+    pub edge_left: Action,
+    pub edge_right: Action,
+    pub edge_bottom: Action,
+    /// Свайп снизу с задержкой пальца.
+    pub edge_bottom_hold: Action,
+    pub edge_top: Action,
+    /// Пан двумя пальцами двигает виртуальный стол (`free`).
+    pub two_finger_pan: bool,
+    /// Долгое нажатие по окну: `none` или `move` (перетаскивание окна).
+    pub long_press_window: String,
+    /// Тачпад: свайп тремя пальцами вбок / вверх (десктоп).
+    pub touchpad_horizontal: Action,
+    pub touchpad_up: Action,
+}
+
+impl Default for Gestures {
+    fn default() -> Self {
+        let a = |s: &str| s.parse::<Action>().unwrap_or(Action::None);
+        Self {
+            enabled: true,
+            edge_size: 24,
+            threshold: 48,
+            tap_slop: 10,
+            long_press_ms: 450,
+            velocity: 0.5,
+            edge_left: a("back"),
+            edge_right: a("back"),
+            edge_bottom: a("shell home"),
+            edge_bottom_hold: a("shell recents"),
+            edge_top: a("shell shade"),
+            two_finger_pan: true,
+            long_press_window: "none".into(),
+            touchpad_horizontal: a("workspace next"),
+            touchpad_up: a("overview"),
+        }
+    }
+}
+
+// ─── wifi / packages ────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Wifi {
+    /// `auto` (кто есть на D-Bus), `iwd`, `networkmanager`.
+    pub backend: String,
+}
+
+impl Default for Wifi {
+    fn default() -> Self {
+        Self { backend: "auto".into() }
+    }
+}
+
+/// Установка программ (`synpkg`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Packages {
+    /// Искать и собирать пакеты из AUR.
+    pub aur: bool,
+    /// От чьего имени собирать AUR (makepkg не работает от root); пусто —
+    /// текущий пользователь.
+    pub build_user: String,
+    /// Проверять обновления раз в столько часов (0 — не проверять).
+    pub check_hours: u32,
+}
+
+impl Default for Packages {
+    fn default() -> Self {
+        Self { aur: true, build_user: String::new(), check_hours: 6 }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1680,6 +1905,35 @@ mod tests {
         assert_eq!(c.decorations, d.decorations);
         assert_eq!(c.wallpaper, d.wallpaper);
         assert_eq!(c.panels.len(), 1);
+    }
+
+    #[test]
+    fn mobile_sections_and_panel_form_factor() {
+        let c = Config::parse(
+            r#"
+            [mobile]
+            mode = "free"
+            desk = "2x2"
+            [gestures]
+            edge_left = "key Escape"
+            [[output]]
+            name = "DSI-1"
+            max_nits = 1000
+            [[panel]]
+            form_factor = "phone"
+            mode = "dock"
+            [[panel]]
+            "#,
+        )
+        .unwrap();
+        assert_eq!(c.mobile.mode, crate::action::MobileMode::Free);
+        assert_eq!(c.gestures.edge_left.to_string(), "key Escape");
+        assert_eq!(c.gestures.edge_right, Action::Back);
+        assert_eq!(c.outputs[0].max_nits, Some(1000.0));
+        assert!(c.panels[0].shows_on(FormFactor::Phone) && !c.panels[0].shows_on(FormFactor::Desktop));
+        // Панель без form_factor — десктопная (старые конфиги не выводят её на телефон).
+        assert!(!c.panels[1].shows_on(FormFactor::Phone) && c.panels[1].shows_on(FormFactor::Desktop));
+        assert_eq!(Config::default().animations.group_ms("home", 300), 300);
     }
 
     #[test]

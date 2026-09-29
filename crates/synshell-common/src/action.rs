@@ -64,6 +64,87 @@ impl FromStr for Direction {
     }
 }
 
+/// Режим окон на телефоне.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum MobileMode {
+    /// Окна друг под другом.
+    Tiles,
+    /// Свободные окна на большом виртуальном столе.
+    Free,
+    /// Каждое приложение во весь экран, листание влево-вправо.
+    #[default]
+    Pages,
+}
+
+impl MobileMode {
+    pub const ALL: [MobileMode; 3] = [MobileMode::Pages, MobileMode::Tiles, MobileMode::Free];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MobileMode::Tiles => "tiles",
+            MobileMode::Free => "free",
+            MobileMode::Pages => "pages",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        let i = Self::ALL.iter().position(|m| *m == self).unwrap_or(0);
+        Self::ALL[(i + 1) % Self::ALL.len()]
+    }
+}
+
+impl FromStr for MobileMode {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        Self::ALL.into_iter().find(|m| m.as_str() == s).ok_or_else(|| format!("неизвестный режим окон «{s}» (tiles, free, pages)"))
+    }
+}
+
+impl Serialize for MobileMode {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for MobileMode {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        String::deserialize(d)?.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+/// Куда листать страницы приложений (`page home|next|prev|N`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PageTarget {
+    /// Домашний экран (страница 0).
+    Home,
+    Next,
+    Prev,
+    Index(u32),
+}
+
+impl FromStr for PageTarget {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        Ok(match s {
+            "home" | "0" => PageTarget::Home,
+            "next" => PageTarget::Next,
+            "prev" | "previous" => PageTarget::Prev,
+            n => PageTarget::Index(n.parse().map_err(|_| format!("page: ожидалось home/next/prev/номер, а не «{n}»"))?),
+        })
+    }
+}
+
+impl fmt::Display for PageTarget {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PageTarget::Home => f.write_str("home"),
+            PageTarget::Next => f.write_str("next"),
+            PageTarget::Prev => f.write_str("prev"),
+            PageTarget::Index(i) => write!(f, "{i}"),
+        }
+    }
+}
+
 /// Раскладка окон на рабочем столе.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum LayoutKind {
@@ -78,15 +159,18 @@ pub enum LayoutKind {
     Grid,
     /// Одно окно на весь экран, остальные за ним.
     Monocle,
+    /// Полосы друг под другом: первая — мастер (телефон, режим «плитки»).
+    Rows,
 }
 
 impl LayoutKind {
-    pub const ALL: [LayoutKind; 5] = [
+    pub const ALL: [LayoutKind; 6] = [
         LayoutKind::Floating,
         LayoutKind::Tile,
         LayoutKind::Columns,
         LayoutKind::Grid,
         LayoutKind::Monocle,
+        LayoutKind::Rows,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -96,6 +180,7 @@ impl LayoutKind {
             LayoutKind::Columns => "columns",
             LayoutKind::Grid => "grid",
             LayoutKind::Monocle => "monocle",
+            LayoutKind::Rows => "rows",
         }
     }
 
@@ -235,6 +320,18 @@ pub enum Action {
     /// `notifications`, `volume +5`, `brightness -5`, `mute`… Композитор её
     /// не разбирает, а пересылает событием `ShellCommand`.
     Shell(String),
+    /// «Назад» (жест от края): закрыть оверлей оболочки, иначе окну —
+    /// клавиша `[mobile] back_key`.
+    Back,
+    /// Нажать клавишу в окне с фокусом: `key XF86Back`, `key Alt+Left`.
+    Key(KeyCombo),
+    /// Режим окон на телефоне.
+    MobileMode(MobileMode),
+    MobileModeCycle,
+    /// Страница приложений (режим `pages`).
+    Page(PageTarget),
+    /// Вернуть виртуальный стол (режим `free`) к началу.
+    CameraHome,
     /// Ничего не делать (снять сочетание по умолчанию).
     None,
 }
@@ -248,7 +345,8 @@ impl Action {
         "focus-output", "move-to-output", "layout", "cycle-layout", "master-ratio",
         "master-count", "keyboard-layout-next", "keyboard-layout", "screenshot",
         "screenshot-window", "screenshot-interactive", "overview", "reload-config", "quit", "lock", "suspend", "reboot",
-        "poweroff", "monitors-off", "shell", "none",
+        "poweroff", "monitors-off", "shell", "back", "key", "mobile-mode", "mobile-mode-cycle", "page",
+        "camera-home", "none",
     ];
 }
 
@@ -323,6 +421,12 @@ impl FromStr for Action {
             "poweroff" | "shutdown" => Action::PowerOff,
             "monitors-off" => Action::PowerOffMonitors,
             "shell" => Action::Shell(need("команда оболочки")?.to_string()),
+            "back" => Action::Back,
+            "key" => Action::Key(need("клавиша, например XF86Back или Alt+Left")?.parse()?),
+            "mobile-mode" => Action::MobileMode(need("tiles/free/pages")?.parse()?),
+            "mobile-mode-cycle" => Action::MobileModeCycle,
+            "page" => Action::Page(need("home/next/prev/номер")?.parse()?),
+            "camera-home" => Action::CameraHome,
             "none" | "" => Action::None,
             other => return Err(format!("неизвестное действие «{other}»")),
         })
@@ -372,6 +476,12 @@ impl fmt::Display for Action {
             Action::PowerOff => f.write_str("poweroff"),
             Action::PowerOffMonitors => f.write_str("monitors-off"),
             Action::Shell(c) => write!(f, "shell {c}"),
+            Action::Back => f.write_str("back"),
+            Action::Key(k) => write!(f, "key {k}"),
+            Action::MobileMode(m) => write!(f, "mobile-mode {}", m.as_str()),
+            Action::MobileModeCycle => f.write_str("mobile-mode-cycle"),
+            Action::Page(p) => write!(f, "page {p}"),
+            Action::CameraHome => f.write_str("camera-home"),
             Action::None => f.write_str("none"),
         }
     }
@@ -476,6 +586,15 @@ mod tests {
             "master-ratio +0.05",
             "shell volume +5",
             "close",
+            "back",
+            "key Alt+Left",
+            "key XF86Back",
+            "mobile-mode free",
+            "mobile-mode-cycle",
+            "page next",
+            "page 3",
+            "layout rows",
+            "camera-home",
         ] {
             let a: Action = s.parse().unwrap();
             assert_eq!(a.to_string(), s);

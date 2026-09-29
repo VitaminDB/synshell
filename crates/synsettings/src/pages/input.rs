@@ -222,6 +222,19 @@ pub fn action_label(a: &Action) -> String {
         Action::PowerOff => "Выключение".into(),
         Action::PowerOffMonitors => "Погасить мониторы".into(),
         Action::Shell(c) => format!("Оболочка: {c}"),
+        Action::Back => "Назад".into(),
+        Action::Key(k) => format!("Клавиша {k}"),
+        Action::MobileMode(m) => format!(
+            "Режим окон: {}",
+            match m {
+                synshell_common::action::MobileMode::Pages => "страницы",
+                synshell_common::action::MobileMode::Tiles => "плитки",
+                synshell_common::action::MobileMode::Free => "свободный",
+            }
+        ),
+        Action::MobileModeCycle => "Следующий режим окон".into(),
+        Action::Page(p) => format!("Страница приложений: {p}"),
+        Action::CameraHome => "Стол — к началу".into(),
         Action::None => "Ничего".into(),
     }
 }

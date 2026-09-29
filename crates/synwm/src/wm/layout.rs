@@ -26,6 +26,7 @@ pub fn arrange(kind: LayoutKind, area: Rect, n: usize, p: &Params) -> Vec<Rect> 
         LayoutKind::Tile => tile(area, n, p),
         LayoutKind::Columns => split(area, n, true, p.gaps_inner),
         LayoutKind::Grid => grid(area, n, p.gaps_inner),
+        LayoutKind::Rows => rows(area, n, p),
     }
 }
 
@@ -72,6 +73,24 @@ fn tile(area: Rect, n: usize, p: &Params) -> Vec<Rect> {
     );
     let mut out = split(master, m, false, p.gaps_inner);
     out.extend(split(stack, n - m, false, p.gaps_inner));
+    out
+}
+
+/// Полосы друг под другом (телефон): одно окно — вся область, два — по
+/// `master_ratio`, больше — мастер сверху, остальные поровну под ним.
+fn rows(area: Rect, n: usize, p: &Params) -> Vec<Rect> {
+    if n <= 1 {
+        return split(area, n, false, p.gaps_inner);
+    }
+    let ratio = p.master_ratio.clamp(0.1, 0.9);
+    let master_h = ((area.size.h - p.gaps_inner) as f32 * ratio).round() as i32;
+    let master = Rectangle::new(area.loc, (area.size.w, master_h).into());
+    let rest = Rectangle::new(
+        (area.loc.x, area.loc.y + master_h + p.gaps_inner).into(),
+        (area.size.w, (area.size.h - master_h - p.gaps_inner).max(1)).into(),
+    );
+    let mut out = vec![master];
+    out.extend(split(rest, n - 1, false, p.gaps_inner));
     out
 }
 
@@ -234,6 +253,17 @@ mod tests {
         let r = arrange(LayoutKind::Columns, area(), 3, &p());
         let total: i32 = r.iter().map(|r| r.size.w).sum::<i32>() + 20;
         assert_eq!(total, 1000);
+    }
+
+    #[test]
+    fn rows_stack_vertically() {
+        let a = Rectangle::new((0, 0).into(), (400, 800).into());
+        let r = arrange(LayoutKind::Rows, a, 3, &p());
+        assert_eq!(r[0].size.w, 400);
+        assert_eq!(r[0].size.h, 395);
+        assert_eq!(r[1].loc.y, 405);
+        assert_eq!(r[1].size.h + r[2].size.h + 10, 395);
+        assert_eq!(arrange(LayoutKind::Rows, a, 1, &p())[0], a);
     }
 
     #[test]

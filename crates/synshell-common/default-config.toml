@@ -101,6 +101,7 @@ middle_emulation = false
 # transform = "normal"         # normal | 90 | 180 | 270 | flipped | flipped-90 | ...
 # vrr = false
 # primary = true
+# max_nits = 1000              # яркость панели на максимуме — яркость в нитах в Параметрах
 
 [windows]
 focus_mode = "click"           # click | sloppy | follow-mouse
@@ -151,6 +152,15 @@ minimize = "zoom"
 layout_changes = true
 shell = true                   # всплывающие окна, меню запуска, уведомления, OSD
 theme_change = true            # плавная смена темы и обоев
+reduce_motion = false          # меньше движения: короче переходы, без частиц и волн
+home = true                    # домашний экран телефона: листание страниц, появление
+menu = true                    # меню запуска: появление, перетекание в «Все приложения»
+shade = true                   # шторка и быстрые настройки
+dock = true                    # док и панели: увеличение значков, прыжки при запуске
+particles = true               # частицы (док, запуск приложений)
+blur = true                    # размытие под меню (дорого на CPU-композиторе телефона)
+ripple = true                  # волна от точки нажатия
+pages = true                   # листание приложений и смена режима окон (телефон)
 
 [workspaces]
 count = 4
@@ -204,7 +214,10 @@ desktop_icons = false
 # "HDMI-A-1" = "~/Pictures/other.jpg"
 
 # Панели. Их может быть сколько угодно, на любом крае и мониторе.
+# form_factor: desktop (по умолчанию) | phone | any — на телефоне панелей по
+# умолчанию нет, их добавляют удержанием на рабочем столе.
 [[panel]]
+form_factor = "desktop"
 output = "*"                   # * | primary | имя монитора
 edge = "bottom"                # top | bottom | left | right
 size = 46
@@ -323,3 +336,46 @@ before_sleep = true
 dpms_after = 600               # секунды, 0 — никогда
 lock_after = 0
 suspend_after = 0
+
+# Телефон (form_factor = phone).
+[mobile]
+mode = "pages"                 # pages — приложения во весь экран, листание вбок
+                               # tiles — окна друг под другом
+                               # free — свободные окна на большом столе (пан двумя пальцами)
+desk = "3x3"                   # размер виртуального стола в free: 2x2 | 3x3 | infinite
+handle = "server"              # ручка окна в free: server | none
+handle_height = 28
+back_key = "XF86Back"          # клавиша «назад» для окна: XF86Back | Escape | Alt+Left
+tiles_max = 0                  # сколько плиток видно в tiles (0 — все)
+pinch_zoom = false             # щипок масштабирует стол в free
+remember_mode = true           # запоминать выбранный режим окон
+resources_page = true          # первая страница домашнего экрана — ресурсы
+home_apps = []                 # приложения на домашнем экране; пусто — все
+home_columns = 4
+
+# Сенсорные жесты (действия — как в [keybindings]).
+[gestures]
+enabled = true
+edge_size = 24                 # зона у края экрана, px
+threshold = 48                 # путь до распознавания жеста, px
+tap_slop = 10
+long_press_ms = 450            # удержание = правая кнопка
+velocity = 0.5                 # скорость броска для перелистывания, px/мс
+edge_left = "back"             # свайп от левого края
+edge_right = "back"
+edge_bottom = "shell home"     # свайп снизу вверх
+edge_bottom_hold = "shell recents"  # свайп снизу с задержкой пальца
+edge_top = "shell shade"       # свайп сверху — шторка
+two_finger_pan = true          # двумя пальцами двигать стол (free)
+long_press_window = "none"     # none | move — удержание по окну тащит его
+touchpad_horizontal = "workspace next"
+touchpad_up = "overview"
+
+[wifi]
+backend = "auto"               # auto | iwd | networkmanager
+
+# Установка программ (synpkg).
+[packages]
+aur = true
+build_user = ""                # от чьего имени собирать AUR (makepkg не работает от root)
+check_hours = 6                # проверять обновления раз в N часов (0 — нет)

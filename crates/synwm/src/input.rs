@@ -320,6 +320,85 @@ impl State {
         focus.modifiers(&seat, self, mods, SERIAL_COUNTER.next_serial());
     }
 
+    /// Нажать сочетание в окне с фокусом (жест «назад», `key Alt+Left`):
+    /// модификаторы, клавиша, отпускание в обратном порядке — через xkb
+    /// композитора, как будто нажали на клавиатуре.
+    pub fn send_key_combo(&mut self, combo: &synshell_common::action::KeyCombo) {
+        use synshell_common::action::Mods;
+        let Some(sym) = crate::bindings::keysym_from_name(&combo.key) else {
+            tracing::warn!(key = %combo.key, "key: неизвестная клавиша");
+            return;
+        };
+        let mut syms = Vec::new();
+        for (m, s) in [(Mods::CTRL, Keysym::Control_L), (Mods::ALT, Keysym::Alt_L), (Mods::SHIFT, Keysym::Shift_L), (Mods::SUPER, Keysym::Super_L)] {
+            if combo.mods.contains(m) {
+                syms.push(s);
+            }
+        }
+        syms.push(sym);
+        let keyboard = self.core.keyboard.clone();
+        // keysym → keycode по текущей раскладке (первый уровень любой группы).
+        let codes: Vec<Option<smithay::input::keyboard::Keycode>> = keyboard.with_xkb_state(self, |ctx| {
+            let xkb = ctx.xkb().lock().unwrap();
+            // SAFETY: keymap только читается, состояние xkb не меняется.
+            let keymap = unsafe { xkb.keymap() };
+            syms.iter()
+                .map(|want| {
+                    let mut found = None;
+                    keymap.key_for_each(|_, kc| {
+                        if found.is_some() {
+                            return;
+                        }
+                        for layout in 0..keymap.num_layouts_for_key(kc) {
+                            if keymap.key_get_syms_by_level(kc, layout, 0).contains(want) {
+                                found = Some(kc);
+                                return;
+                            }
+                        }
+                    });
+                    found
+                })
+                .collect()
+        });
+        if codes.iter().any(Option::is_none) {
+            tracing::warn!(%combo, "key: клавиши нет в раскладке");
+            return;
+        }
+        let codes: Vec<_> = codes.into_iter().flatten().collect();
+        let time = self.core.start_time.elapsed().as_millis() as u32;
+        for kc in &codes {
+            keyboard.input::<(), _>(self, *kc, KeyState::Pressed, SERIAL_COUNTER.next_serial(), time, |_, _, _| FilterResult::Forward);
+        }
+        for kc in codes.iter().rev() {
+            keyboard.input::<(), _>(self, *kc, KeyState::Released, SERIAL_COUNTER.next_serial(), time, |_, _, _| FilterResult::Forward);
+        }
+    }
+
+    /// «Назад» (жест от края): открыт оверлей оболочки с клавиатурой —
+    /// ему (`shell back`), иначе окну — клавиша `[mobile] back_key`.
+    pub fn go_back(&mut self) {
+        let on_layer = self
+            .core
+            .keyboard
+            .current_focus()
+            .is_some_and(|f| self.is_layer_surface(&f.0));
+        if on_layer || self.core.wm.focused.is_none() {
+            self.core.ipc.broadcast(&synshell_common::ipc::Event::ShellCommand { command: "back".into() });
+            return;
+        }
+        let key = self.core.config.mobile.back_key.trim().to_string();
+        if key == "close" {
+            if let Some(id) = self.core.wm.focused {
+                self.close_window(id);
+            }
+            return;
+        }
+        match key.parse::<synshell_common::action::KeyCombo>() {
+            Ok(combo) => self.send_key_combo(&combo),
+            Err(e) => tracing::warn!(key, e, "[mobile] back_key"),
+        }
+    }
+
     pub fn set_keyboard_layout(&mut self, index: u32) {
         let keyboard = self.core.keyboard.clone();
         keyboard.with_xkb_state(self, |mut ctx| {
@@ -1011,6 +1090,7 @@ impl State {
     /// Выполнить действие (сочетание клавиш, IPC, кнопка).
     pub fn do_action(&mut self, action: Action) {
         tracing::debug!(%action, "действие");
+        let action_name = action.to_string();
         let focused = self.core.wm.focused;
         match action {
             Action::None => {}
@@ -1116,6 +1196,16 @@ impl State {
             Action::PowerOffMonitors => self.set_monitors_power(false),
             Action::Shell(cmd) => {
                 self.core.ipc.broadcast(&synshell_common::ipc::Event::ShellCommand { command: cmd });
+            }
+            Action::Back => self.go_back(),
+            Action::Key(combo) => self.send_key_combo(&combo),
+            // Режимы окон телефона и страницы — этап режимов окон; пока
+            // оболочке сообщается команда, чтобы она могла ответить.
+            Action::MobileMode(m) => {
+                self.core.ipc.broadcast(&synshell_common::ipc::Event::ShellCommand { command: format!("mode {}", m.as_str()) });
+            }
+            Action::MobileModeCycle | Action::Page(_) | Action::CameraHome => {
+                tracing::debug!(%action_name, "действие режимов окон ещё не реализовано");
             }
         }
     }
