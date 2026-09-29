@@ -91,6 +91,11 @@ fn main() {
     }
 
     let ctx = state::init(&args.page);
+    // Страница из командной строки (`synsettings wifi`, кнопки оболочки) —
+    // в узком окне открыть сразу её, а не список разделов.
+    if args.page != "appearance" {
+        ctx.page_open.set(true);
+    }
     let theme = ctx.theme;
     let initial = theme.get_untracked();
 
