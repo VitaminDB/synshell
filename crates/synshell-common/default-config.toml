@@ -228,6 +228,7 @@ defloated_size = 0             # толщина прилипшей панели;
 length = 1.0
 align = "center"
 autohide = false
+autohide_delay = 1500          # мс до скрытия после ухода курсора (отрыва пальца)
 exclusive = true
 applets = [
     { type = "launcher" },

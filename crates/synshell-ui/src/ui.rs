@@ -439,6 +439,7 @@ pub mod mi {
     pub const LAYERS: &str = "\u{E53B}";
     pub const GRID: &str = "\u{E9B0}";
     pub const SETTINGS: &str = "\u{E8B8}";
+    pub const REFRESH: &str = "\u{E5D5}";
     pub const WALLPAPER: &str = "\u{E1BC}";
     pub const HOME: &str = "\u{E88A}";
     pub const CHEVRON_RIGHT: &str = "\u{E5CC}";

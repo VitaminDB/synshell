@@ -5,8 +5,9 @@ use crate::ctx::{PopupAnchor, PopupKind, ShellCtx};
 use crate::system;
 use synshell_common::config::Edge;
 
-/// Всплывающее окно по центру вывода с фокусом (из сочетания клавиш).
-fn centered() -> PopupAnchor {
+/// Всплывающее окно по центру вывода с фокусом (из сочетания клавиш; на
+/// телефоне — нижний лист).
+pub fn centered() -> PopupAnchor {
     PopupAnchor { output: None, rect: None, edge: Edge::Bottom, attached: false }
 }
 
@@ -24,6 +25,24 @@ thread_local! {
 /// аргументы)` вызывается первым, `true` — команда обработана.
 pub fn set_extra(f: impl Fn(&str, &str) -> bool + 'static) {
     EXTRA.with(|e| *e.borrow_mut() = Some(Box::new(f)));
+}
+
+/// Свайп от края `edge` с командой оболочке: если у этого края спрятан
+/// автоскрытием док или панель — показать их (как навигационная панель
+/// Android в полноэкранном режиме), иначе выполнить команду.
+pub fn edge_gesture(edge: &str, cmd: &str) {
+    let edge = match edge {
+        "top" => Some(Edge::Top),
+        "bottom" => Some(Edge::Bottom),
+        "left" => Some(Edge::Left),
+        "right" => Some(Edge::Right),
+        _ => None,
+    };
+    if edge.is_some() && crate::panel::reveal_hidden(edge) {
+        log::debug!("жест от края {edge:?}: показан спрятанный док");
+        return;
+    }
+    handle(cmd);
 }
 
 pub fn handle(cmd: &str) {
@@ -47,6 +66,7 @@ pub fn handle(cmd: &str) {
         "power-menu" | "power" => ctx.open_popup(PopupKind::Power, centered()),
         "notifications" => ctx.open_popup(PopupKind::Notifications, at_applet("notifications")),
         "calendar" => ctx.open_popup(PopupKind::Calendar, at_applet("clock")),
+        "network" | "wifi" => ctx.open_popup(PopupKind::Network, at_applet("network")),
         "volume" if arg.is_empty() => ctx.open_popup(PopupKind::Volume, at_applet("volume")),
         "volume" => {
             let d = if arg.starts_with('-') { arg.parse().unwrap_or(-5) } else { num(5) };
@@ -88,6 +108,18 @@ pub fn handle(cmd: &str) {
         ),
         "screenshot-failed" => crate::notifications::local(ctx, "Снимок не сделан", arg.trim(), None),
         "close-popup" => ctx.close_popup(),
+        // Показать спрятанные автоскрытием панели и доки (`reveal-panels
+        // bottom` — только у края); спрячутся сами через задержку.
+        "reveal-panels" | "show-dock" => {
+            let edge = match arg.trim() {
+                "top" => Some(Edge::Top),
+                "bottom" => Some(Edge::Bottom),
+                "left" => Some(Edge::Left),
+                "right" => Some(Edge::Right),
+                _ => None,
+            };
+            crate::panel::reveal_hidden(edge);
+        }
         // Жест «назад» при открытом оверлее: закрыть окно оболочки или
         // выйти из режима редактирования.
         "back" => {

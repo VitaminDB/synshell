@@ -193,6 +193,36 @@ Text {
 .popup-value { font-size: 13px; color: var(--muted); min-width: 40px; }
 .popup-big-icon { icon-size: 30px; icon-color: var(--accent); }
 
+/* Окно «Сеть»: Wi-Fi. */
+.net-note { font-size: 12px; color: var(--muted); }
+.net-section { font-size: 12px; font-weight: bold; color: var(--muted); }
+.net-row {
+    padding: 6px 8px;
+    border-radius: var(--radius-sm);
+    background-color: #00000000;
+    transition: background-color 100ms ease-out;
+}
+.net-row:hover { background-color: var(--hover); }
+.net-row-static:hover { background-color: #00000000; }
+.net-row-connected { background-color: var(--hover); }
+.net-icon { icon-size: 22px; icon-color: var(--muted); }
+.net-icon-on { icon-color: var(--accent); }
+.net-lock { icon-size: 13px; icon-color: var(--muted); }
+.net-ssid { font-size: 13px; color: var(--fg); }
+.net-hint { font-size: 11px; color: var(--muted); }
+.net-refresh { padding: 4px; border-radius: var(--radius-sm); background-color: #00000000; }
+.net-refresh:hover { background-color: var(--hover); }
+.net-refresh-icon { icon-size: 18px; icon-color: var(--muted); }
+.net-actions { padding: 2px 8px 6px 40px; }
+.net-btn { padding: 5px 12px; border-radius: var(--radius-sm); background-color: var(--hover); }
+.net-btn:hover { background-color: var(--accent); }
+.net-btn:hover .net-btn-label { color: var(--accent-fg); }
+.net-btn-label { font-size: 12px; color: var(--fg); }
+.net-pass { font-size: 13px; }
+.net-toast { font-size: 12px; color: var(--muted); }
+.net-toast-none { height: 0px; }
+.net-list { background-color: #00000000; }
+
 .menu-item {
     padding: 8px 10px;
     border-radius: var(--radius-sm);

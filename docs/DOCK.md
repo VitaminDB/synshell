@@ -31,6 +31,7 @@ edge = "bottom"          # top | bottom | left | right
 floating = true          # отступ от края экрана
 exclusive = false        # резервировать место под полосу
 autohide = false         # прятать всегда, показывать у края экрана
+autohide_delay = 1500    # через сколько мс прятаться после ухода курсора (отрыва пальца)
 applets = [
     { type = "launcher" },
     { type = "separator" },
@@ -56,6 +57,18 @@ launch_animation = "bounce" # bounce | pulse | spin | none
 launch_particles = "stars"  # stars | sparkle | confetti | fireworks | magic | poof | none
 intellihide = false      # прятать, когда полосу перекрывает окно
 ```
+
+### Автоскрытие
+
+Спрятанный док (`autohide`, а также `intellihide`, когда его перекрывает окно)
+показывается при подводе курсора к краю, а на телефоне — свайпом от этого края:
+жест композитора (`[gestures] edge_bottom` и другие с действием `shell …`)
+сначала показывает спрятанный док или панель у своего края и только следующим
+разом выполняет само действие («домой», шторка) — как навигационная панель
+Android в полноэкранном режиме. Спустя `autohide_delay` мс без курсора и пальца
+док прячется снова (пока открыто его окно — стек, меню — не прячется). Команда
+`synwm msg action "shell reveal-panels [bottom|top|left|right]"` показывает
+спрятанные панели и доки из сочетания клавиш или кнопки.
 
 ## Значки, разделы, папки
 

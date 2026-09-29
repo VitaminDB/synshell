@@ -34,6 +34,21 @@ pub fn set_key_handler(f: impl FnMut(&KeyInfo) -> bool + 'static) {
     KEY_HANDLER.with(|k| *k.borrow_mut() = Some(Box::new(f)));
 }
 
+thread_local! {
+    /// Содержимое окна вызвало экранную клавиатуру (поле пароля Wi-Fi) —
+    /// с закрытием окна она прячется.
+    static KEYBOARD: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Телефон: показать экранную клавиатуру для поля ввода в текущем окне
+/// (уйдёт вместе с окном).
+pub fn request_keyboard() {
+    if ShellCtx::get().is_phone() {
+        KEYBOARD.with(|k| k.set(true));
+        crate::actions::spawn("synkeyboard show");
+    }
+}
+
 /// Ширина карточки окна.
 fn width_of(kind: &PopupKind, ctx: &ShellCtx) -> f32 {
     match kind {
@@ -73,8 +88,13 @@ pub fn install(ctx: ShellCtx) {
         // «Пуск» на телефоне: клавиатура для поиска — с ним и уходит.
         let was_launcher = CURRENT.with(|c| c.borrow().as_ref().is_some_and(|x| matches!(x.kind, PopupKind::Launcher)));
         let is_launcher = p.as_ref().is_some_and(|x| matches!(x.kind, PopupKind::Launcher));
-        if ctx.is_phone() && was_launcher != is_launcher {
-            crate::actions::spawn(if is_launcher { "synkeyboard show" } else { "synkeyboard hide" });
+        let was_keyboard = was_launcher || KEYBOARD.with(|k| k.replace(false));
+        if ctx.is_phone() {
+            if is_launcher && !was_launcher {
+                crate::actions::spawn("synkeyboard show");
+            } else if was_keyboard && !is_launcher {
+                crate::actions::spawn("synkeyboard hide");
+            }
         }
         CURRENT.with(|c| *c.borrow_mut() = p.clone());
         KEY_HANDLER.with(|k| k.borrow_mut().take());
@@ -300,7 +320,7 @@ fn content(kind: &PopupKind, ctx: ShellCtx) -> Box<dyn Widget> {
         PopupKind::Run => Box::new(crate::launcher::run_prompt(ctx)),
         PopupKind::Calendar => Box::new(calendar(ctx)),
         PopupKind::Volume => Box::new(volume(ctx)),
-        PopupKind::Network => Box::new(network(ctx)),
+        PopupKind::Network => Box::new(crate::netmenu::view(ctx)),
         PopupKind::Battery => Box::new(battery(ctx)),
         PopupKind::Power => Box::new(power()),
         PopupKind::Notifications => Box::new(crate::notifications::center(ctx)),
@@ -407,37 +427,6 @@ fn volume(ctx: ShellCtx) -> impl Widget {
             } else {
                 crate::actions::spawn("synsettings audio");
             }
-        }))
-}
-
-fn network(ctx: ShellCtx) -> impl Widget {
-    Column::new()
-        .gap(8.0)
-        .child(title("Сеть"))
-        .child(move || {
-            let n = ctx.network.get();
-            let status = if n.online {
-                match n.signal {
-                    Some(s) => format!("{} — {s}%", n.connection),
-                    None => n.connection.clone(),
-                }
-            } else {
-                "Нет подключения".into()
-            };
-            Row::new()
-                .gap(10.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(icon(crate::applets::network_glyph(&n)).class("popup-big-icon"))
-                .child(Text::new(status).class("popup-text"))
-        })
-        .child(menu_item(mi::SETTINGS, "Параметры сети…", || {
-            for (bin, cmd) in [("nm-connection-editor", "nm-connection-editor"), ("kcmshell6", "kcmshell6 kcm_networkmanagement")] {
-                if crate::actions::which(bin) {
-                    crate::actions::spawn(cmd);
-                    return;
-                }
-            }
-            crate::actions::spawn("synsettings network");
         }))
 }
 

@@ -1073,8 +1073,12 @@ pub struct Panel {
     pub length: f32,
     /// Выравнивание при `length < 1`: `start`, `center`, `end`.
     pub align: String,
-    /// Автоскрытие: панель выезжает при подводе курсора к краю.
+    /// Автоскрытие: панель выезжает при подводе курсора к краю (на
+    /// телефоне — по свайпу от её края или касанию полоски у края).
     pub autohide: bool,
+    /// Сколько скрываемая панель (док) остаётся на экране после ухода
+    /// указателя или отрыва пальца, мс.
+    pub autohide_delay: u32,
     /// Резервировать место (окна не перекрывают панель).
     pub exclusive: bool,
     /// Своя непрозрачность (иначе из appearance).
@@ -1214,6 +1218,7 @@ impl Default for Panel {
             length: 1.0,
             align: "center".into(),
             autohide: false,
+            autohide_delay: 1500,
             exclusive: true,
             opacity: None,
             mode: "panel".into(),

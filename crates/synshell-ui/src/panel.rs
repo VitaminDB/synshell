@@ -6,6 +6,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 use synshell_common::config::{Edge, Panel};
@@ -92,6 +93,9 @@ pub(crate) struct PanelRt {
     spec: SurfaceSpec,
     /// Панель прижата к краю: всплывающие окна примыкают к ней.
     attached: bool,
+    /// Показать спрятанную автоскрытием панель (док) — по жесту от края
+    /// на телефоне или команде; `true` — была спрятана и показана.
+    reveal: Option<Rc<dyn Fn() -> bool>>,
 }
 
 /// Завести учёт панели (док ведёт его так же): якоря окон считаются от
@@ -108,9 +112,102 @@ pub(crate) fn register(key: u64, output: &str, edge: Edge, spec: &SurfaceSpec, a
                 items: HashMap::new(),
                 spec: spec.clone(),
                 attached,
+                reveal: None,
             },
         )
     });
+}
+
+/// Задать, как показать спрятанную панель (см. [`reveal_hidden`]).
+pub(crate) fn set_reveal(key: u64, f: Rc<dyn Fn() -> bool>) {
+    PANELS.with(|p| {
+        if let Some(rt) = p.borrow_mut().get_mut(&key) {
+            rt.reveal = Some(f);
+        }
+    });
+}
+
+/// Показать спрятанные автоскрытием панели и доки на краю `edge` (все —
+/// без края). Они спрячутся сами через `autohide_delay`. `true` — хоть
+/// одна была спрятана: жест от края потрачен на неё, а не на действие.
+pub fn reveal_hidden(edge: Option<Edge>) -> bool {
+    // Замыкания зовутся вне заимствования: они перенастраивают поверхность
+    // и правят PANELS сами.
+    let fs: Vec<Rc<dyn Fn() -> bool>> = PANELS.with(|p| {
+        p.borrow().values().filter(|rt| edge.is_none_or(|e| rt.edge == e)).filter_map(|rt| rt.reveal.clone()).collect()
+    });
+    let mut any = false;
+    for f in fs {
+        any |= f();
+    }
+    any
+}
+
+/// Автоскрытие панели: показ полной толщины и скрытие в полоску у края
+/// через `autohide_delay` после ухода указателя (отрыва пальца).
+#[derive(Clone)]
+struct AutoHide {
+    id: Arc<std::sync::Mutex<Option<SurfaceId>>>,
+    key: u64,
+    hidden: RwSignal<bool>,
+    defloated: RwSignal<bool>,
+    panel: Panel,
+    out: OutputInfo,
+    timer: Arc<std::sync::Mutex<Option<u64>>>,
+}
+
+impl AutoHide {
+    fn cancel(&self) {
+        if let Some(t) = self.timer.lock().unwrap().take() {
+            syngui_layer::cancel_timer(t);
+        }
+    }
+
+    fn apply(&self, hidden: bool) {
+        let Some(id) = *self.id.lock().unwrap() else { return };
+        self.hidden.set(hidden);
+        let s = spec_for(&self.panel, &self.out, hidden, self.defloated.get_untracked());
+        PANELS.with(|p| {
+            if let Some(rt) = p.borrow_mut().get_mut(&self.key) {
+                rt.spec = s.clone();
+            }
+        });
+        syngui_layer::reconfigure_surface(id, s);
+    }
+
+    fn show(&self) {
+        self.cancel();
+        if self.hidden.get_untracked() {
+            self.apply(false);
+        }
+    }
+
+    fn arm_hide(&self) {
+        self.cancel();
+        let me = self.clone();
+        let t = syngui_layer::add_timer(Duration::from_millis(self.panel.autohide_delay.max(100) as u64), move || {
+            if !alive(me.key) {
+                return None;
+            }
+            // Пока открыто окно апплета — не прятать.
+            if ShellCtx::get().popup.get_untracked().is_some() {
+                return Some(Duration::from_millis(500));
+            }
+            me.apply(true);
+            None
+        });
+        *self.timer.lock().unwrap() = Some(t);
+    }
+
+    /// Показать по жесту: без указателя над панелью она спрячется сама.
+    fn reveal(&self) -> bool {
+        if !self.hidden.get_untracked() {
+            return false;
+        }
+        self.show();
+        self.arm_hide();
+        true
+    }
 }
 
 impl PanelRt {
@@ -316,8 +413,16 @@ pub fn create(ctx: ShellCtx, index: usize, panel: &Panel, out: &OutputInfo) -> (
     let spec = spec_for(panel, out, panel.autohide, defloated.get_untracked());
     register(key, &out.name, panel.edge, &spec, !panel.floating || defloated.get_untracked());
     let hidden = use_signal(panel.autohide);
-    let hide_timer: Arc<std::sync::Mutex<Option<u64>>> = Arc::new(std::sync::Mutex::new(None));
     let id_cell: Arc<std::sync::Mutex<Option<SurfaceId>>> = Arc::new(std::sync::Mutex::new(None));
+    let autohide = panel.autohide.then(|| AutoHide {
+        id: id_cell.clone(),
+        key,
+        hidden,
+        defloated,
+        panel: panel.clone(),
+        out: out.clone(),
+        timer: Default::default(),
+    });
 
     let pc = PanelCtx {
         key,
@@ -331,55 +436,20 @@ pub fn create(ctx: ShellCtx, index: usize, panel: &Panel, out: &OutputInfo) -> (
     let hooks = {
         let out_resize = out.clone();
         let panel_ptr = panel.clone();
-        let out_hover = out.clone();
-        let id_hover = id_cell.clone();
-        let panel_hover = panel.clone();
         SurfaceHooks {
             on_resize: Some(Box::new(move |w, h| {
                 resized(key, &out_resize, w, h);
                 let _ = &panel_ptr;
             })),
-            on_pointer: if panel.autohide {
-                Some(Box::new(move |inside| {
-                    let Some(id) = *id_hover.lock().unwrap() else { return };
-                    if let Some(t) = hide_timer.lock().unwrap().take() {
-                        syngui_layer::cancel_timer(t);
-                    }
+            on_pointer: autohide.clone().map(|auto| {
+                Box::new(move |inside: bool| {
                     if inside {
-                        if hidden.get_untracked() {
-                            hidden.set(false);
-                            let s = spec_for(&panel_hover, &out_hover, false, defloated.get_untracked());
-                            PANELS.with(|p| {
-                                if let Some(rt) = p.borrow_mut().get_mut(&key) {
-                                    rt.spec = s.clone();
-                                }
-                            });
-                            syngui_layer::reconfigure_surface(id, s);
-                        }
+                        auto.show();
                     } else {
-                        let panel = panel_hover.clone();
-                        let out = out_hover.clone();
-                        let t = syngui_layer::add_timer(Duration::from_millis(700), move || {
-                            // Пока открыто окно апплета — не прятать.
-                            if ShellCtx::get().popup.get_untracked().is_some() {
-                                return Some(Duration::from_millis(500));
-                            }
-                            hidden.set(true);
-                            let s = spec_for(&panel, &out, true, defloated.get_untracked());
-                            PANELS.with(|p| {
-                                if let Some(rt) = p.borrow_mut().get_mut(&key) {
-                                    rt.spec = s.clone();
-                                }
-                            });
-                            syngui_layer::reconfigure_surface(id, s);
-                            None
-                        });
-                        *hide_timer.lock().unwrap() = Some(t);
+                        auto.arm_hide();
                     }
-                }))
-            } else {
-                None
-            },
+                }) as Box<dyn FnMut(bool)>
+            }),
             ..Default::default()
         }
     };
@@ -405,6 +475,9 @@ pub fn create(ctx: ShellCtx, index: usize, panel: &Panel, out: &OutputInfo) -> (
         })))
     });
     *id_cell.lock().unwrap() = Some(id);
+    if let Some(auto) = autohide {
+        set_reveal(key, Rc::new(move || auto.reveal()));
+    }
     if panel.floating && matches!(panel.defloat.as_str(), "maximized" | "touch") {
         start_defloat_timer(id, key, panel.clone(), out.clone(), hidden, defloated);
     }

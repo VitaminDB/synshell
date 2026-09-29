@@ -202,8 +202,9 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
         let mut grid = Grid::new(2).gap(8.0);
         grid = grid
             .child(tile(crate::applets::network_glyph(&net), "Сеть".into(), wifi_state, net.online, || {
+                // Окно сети: Wi-Fi, подключение, «Параметры сети…».
                 close();
-                crate::actions::spawn("synsettings wifi");
+                ShellCtx::get().open_popup(crate::ctx::PopupKind::Network, crate::commands::centered());
             }))
             .child(tile("\u{E1A7}", "Bluetooth".into(), "Параметры".into(), false, || {
                 close();

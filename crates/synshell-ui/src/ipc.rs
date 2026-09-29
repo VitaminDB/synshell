@@ -75,6 +75,9 @@ fn handle(ctx: ShellCtx, ev: Event) {
         Event::ShellCommand { command } => {
             syngui::async_runtime::run_on_main_thread(move || crate::commands::handle(&command));
         }
+        Event::EdgeGesture { edge, command } => {
+            syngui::async_runtime::run_on_main_thread(move || crate::commands::edge_gesture(&edge, &command));
+        }
         Event::ConfigReloaded { error } => {
             if let Some(e) = error {
                 log::warn!("композитор: ошибка конфига: {e}");

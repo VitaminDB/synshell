@@ -477,7 +477,10 @@ fn panel_card(pi: usize, p: &Panel, outputs: &[(String, String)]) -> W {
             }
             dd.selected(p.align.clone()).on_change(move |v: &str| pset(pi, "align", v.to_string()))
         }),
-        row("Автоскрытие", "Выезжает при подводе курсора к краю", Toggle::with_state(p.autohide).on_change(move |v| pset(pi, "autohide", v))),
+        row("Автоскрытие", "Выезжает при подводе курсора к краю; на телефоне — по свайпу от края", Toggle::with_state(p.autohide).on_change(move |v| pset(pi, "autohide", v))),
+        row("Задержка скрытия", "Через сколько миллисекунд прячется после ухода курсора или пальца", {
+            SpinBox::new().range(100.0, 10000.0).step(100.0).value(p.autohide_delay as f64).width(140.0).on_change(move |v| pset(pi, "autohide_delay", v.round() as i64))
+        }),
         row("Резервировать место", "Развёрнутые окна не заходят под панель", Toggle::with_state(p.exclusive).on_change(move |v| pset(pi, "exclusive", v))),
         row(
             "Своя непрозрачность",

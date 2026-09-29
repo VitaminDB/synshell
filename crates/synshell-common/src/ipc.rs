@@ -105,6 +105,11 @@ pub enum Event {
     KeyboardLayoutChanged { keyboard: KeyboardLayouts },
     /// Команда оболочке (`Action::Shell`).
     ShellCommand { command: String },
+    /// Команда оболочке от свайпа от края экрана (`[gestures] edge_*`
+    /// с действием `shell …`): `edge` — `top`, `bottom`, `left`, `right`.
+    /// Оболочка тратит жест на показ спрятанной автоскрытием панели (дока)
+    /// у этого края, если такая есть, иначе выполняет команду.
+    EdgeGesture { edge: String, command: String },
     /// Композитор перечитал конфиг.
     ConfigReloaded { error: Option<String> },
     /// Сеанс завершается — оболочке пора выйти.

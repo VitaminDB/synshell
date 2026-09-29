@@ -150,14 +150,18 @@ pub fn create(ctx: ShellCtx, index: usize, panel: &Panel, out: &OutputInfo) -> (
         bar_slot: Arc::new(Mutex::new(Rect::zero())),
     };
     let id_cell: Arc<StdMutex<Option<SurfaceId>>> = Arc::new(StdMutex::new(None));
-    let hide_timer: Arc<StdMutex<Option<u64>>> = Arc::new(StdMutex::new(None));
+    let hider = Hider {
+        st: st.clone(),
+        timer: Default::default(),
+        autohide: panel.autohide,
+        intellihide: panel.dock.intellihide,
+        delay: Duration::from_millis(panel.autohide_delay.max(100) as u64),
+    };
 
     let hooks = {
         let out_resize = out.clone();
         let st = st.clone();
-        let autohide = panel.autohide;
-        let intellihide = panel.dock.intellihide;
-        let hide_timer = hide_timer.clone();
+        let hider = hider.clone();
         SurfaceHooks {
             on_resize: Some(Box::new(move |w, h| crate::panel::resized(key, &out_resize, w, h))),
             on_pointer: Some(Box::new(move |inside| {
@@ -165,24 +169,11 @@ pub fn create(ctx: ShellCtx, index: usize, panel: &Panel, out: &OutputInfo) -> (
                 if !inside {
                     st.label.set(None);
                 }
-                if let Some(t) = hide_timer.lock().unwrap().take() {
-                    syngui_layer::cancel_timer(t);
-                }
+                hider.cancel();
                 if inside {
                     st.hidden.set(false);
-                } else if autohide || intellihide {
-                    let st = st.clone();
-                    let t = syngui_layer::add_timer(Duration::from_millis(700), move || {
-                        // Пока открыто окно дока (стек, меню) — не прятать.
-                        if ShellCtx::get().popup.get_untracked().is_some() || st.hovered.get_untracked() {
-                            return Some(Duration::from_millis(400));
-                        }
-                        if autohide || overlapped(&st) {
-                            st.hidden.set(true);
-                        }
-                        None
-                    });
-                    *hide_timer.lock().unwrap() = Some(t);
+                } else {
+                    hider.arm();
                 }
             })),
             ..Default::default()
@@ -202,9 +193,64 @@ pub fn create(ctx: ShellCtx, index: usize, panel: &Panel, out: &OutputInfo) -> (
         }))
     });
     *id_cell.lock().unwrap() = Some(id);
+    if hider.autohide || hider.intellihide {
+        let st = st.clone();
+        crate::panel::set_reveal(
+            key,
+            std::rc::Rc::new(move || {
+                let editing = ShellCtx::get().editing.get_untracked() == Some(st.pc.index);
+                if !st.hidden.get_untracked() || editing {
+                    return false;
+                }
+                hider.cancel();
+                st.hidden.set(false);
+                hider.arm();
+                true
+            }),
+        );
+    }
     start_region_timer(id, st, panel.autohide, panel.dock.intellihide);
     let _ = ctx;
     (id, key)
+}
+
+/// Скрытие дока через задержку после ухода указателя (отрыва пальца,
+/// показа по жесту): при автоскрытии — всегда, при умном — если полосу
+/// перекрывает окно.
+#[derive(Clone)]
+struct Hider {
+    st: DockState,
+    timer: Arc<StdMutex<Option<u64>>>,
+    autohide: bool,
+    intellihide: bool,
+    delay: Duration,
+}
+
+impl Hider {
+    fn cancel(&self) {
+        if let Some(t) = self.timer.lock().unwrap().take() {
+            syngui_layer::cancel_timer(t);
+        }
+    }
+
+    fn arm(&self) {
+        if !(self.autohide || self.intellihide) {
+            return;
+        }
+        self.cancel();
+        let (st, autohide) = (self.st.clone(), self.autohide);
+        let t = syngui_layer::add_timer(self.delay, move || {
+            // Пока открыто окно дока (стек, меню) или указатель вернулся — не прятать.
+            if ShellCtx::get().popup.get_untracked().is_some() || st.hovered.get_untracked() {
+                return Some(Duration::from_millis(400));
+            }
+            if autohide || overlapped(&st) {
+                st.hidden.set(true);
+            }
+            None
+        });
+        *self.timer.lock().unwrap() = Some(t);
+    }
 }
 
 /// Полоса дока перекрыта окном (умное скрытие).
@@ -406,6 +452,11 @@ fn items_row(panel: &Panel, st: &DockState, editing: bool) -> impl Widget {
             _ => CrossAxisAlignment::Start,
         };
         let mut slots: Vec<SlotInfo> = Vec::new();
+        // Длина ряда вдоль края (для решения о прокрутке): значки — квадрат
+        // `item`, разделитель — 12, распорка — 0, апплеты без своей ширины
+        // (часы, лоток…) — примерно полтора значка.
+        let mut want = 0.0f32;
+        let g = st2.geo;
         let mut fe = Fisheye::new()
             .vertical(vertical)
             .cross_axis_alignment(cross)
@@ -423,6 +474,7 @@ fn items_row(panel: &Panel, st: &DockState, editing: bool) -> impl Widget {
                         let w = placeholder_item(&env, "\u{F088}", "Открытые окна");
                         fe = fe.child(crate::edit::item_frame(&st2.pc, ai, w, true));
                         slots.push(SlotInfo { name: String::new() });
+                        want += g.item * 1.6;
                         continue;
                     }
                     for app in running_apps(&windows, &pinned, a.bool_or("all_workspaces", false)) {
@@ -440,6 +492,7 @@ fn items_row(panel: &Panel, st: &DockState, editing: bool) -> impl Widget {
                             },
                         };
                         slots.push(SlotInfo { name: l.name.clone() });
+                        want += g.item;
                         fe = fe.child(app_item(&env, slot, &l, ItemOrigin::Running(app.clone())));
                     }
                 }
@@ -455,6 +508,12 @@ fn items_row(panel: &Panel, st: &DockState, editing: bool) -> impl Widget {
                         "spacer" => (Box::new(DecoratedBox::new().class("dock-spacer")) as Box<dyn Widget>, String::new()),
                         "launcher" => (launcher_item(&env, slot, a), "Приложения".to_string()),
                         _ => (applet_item(&env, slot, a, ai), String::new()),
+                    };
+                    want += match kind {
+                        "separator" => 12.0,
+                        "spacer" => 0.0,
+                        _ if applet_auto_width(kind, vertical) => g.item * 1.5,
+                        _ => g.item,
                     };
                     slots.push(SlotInfo { name });
                     fe = fe.child(crate::edit::item_frame(&st2.pc, ai, w, editing));
@@ -475,10 +534,13 @@ fn items_row(panel: &Panel, st: &DockState, editing: bool) -> impl Widget {
             }
         });
         // Значков больше, чем помещается вдоль края: ряд в прокрутке
-        // (пальцем, колесом) — видимая часть не шире экрана.
+        // (пальцем, колесом) — видимая часть не шире экрана. Оценка длины
+        // ряда — по настоящим размерам значков (зазоры 4, поля полосы 8+8):
+        // завышенная оценка уводила бы ряд в прокрутку и прижимала к
+        // началу края, хотя он помещается целиком.
         let (ow, oh) = crate::manager::output_size(Some(&st2.pc.output));
         let avail = if vertical { oh } else { ow } - 2.0 * (st2.geo.gap + 8.0);
-        let want = count as f32 * (st2.geo.item + 4.0) + 24.0;
+        let want = want + 4.0 * count.saturating_sub(1) as f32 + 16.0;
         if dock.overflow == "scroll" && want > avail && !editing {
             let sv = if vertical { ScrollView::new().vertical() } else { ScrollView::new().horizontal() };
             let dim = if vertical { "height" } else { "width" };
@@ -694,12 +756,15 @@ fn separator(env: &ItemEnv) -> Box<dyn Widget> {
 }
 
 /// Прочие апплеты (часы, громкость, лоток…) — в квадрате значка.
+/// Апплет на горизонтальном доке сам решает свою ширину (часы, лоток…),
+/// остальные — квадрат значка.
+fn applet_auto_width(kind: &str, vertical: bool) -> bool {
+    matches!(kind, "clock" | "workspaces" | "tray" | "command" | "cpu" | "memory") && !vertical
+}
+
 fn applet_item(env: &ItemEnv, slot: usize, a: &Applet, index: usize) -> Box<dyn Widget> {
     let g = env.st.geo;
-    let (w, h) = match a.kind.as_str() {
-        "clock" | "workspaces" | "tray" | "command" | "cpu" | "memory" if !env.st.edge.is_vertical() => (0.0, g.item),
-        _ => (g.item, g.item),
-    };
+    let (w, h) = if applet_auto_width(&a.kind, env.st.edge.is_vertical()) { (0.0, g.item) } else { (g.item, g.item) };
     let mut b = DecoratedBox::new()
         .child(crate::ui::vcenter(crate::applets::build(a, &env.st.pc, index)))
         .class(format!("dock-item dock-applet dock-applet-{}", a.kind))

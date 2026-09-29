@@ -24,6 +24,7 @@ pub mod launcher;
 pub mod launchers;
 pub mod lock;
 pub mod manager;
+pub mod netmenu;
 pub mod notifications;
 pub mod osd;
 pub mod panel;

@@ -150,7 +150,7 @@ impl State {
                     }
                     Decision::Edge if p.edge == Edge::Top => {
                         let a = self.core.config.gestures.edge_top.clone();
-                        self.do_action(a);
+                        self.edge_action(Edge::Top, a);
                     }
                     _ => {}
                 }
@@ -203,10 +203,28 @@ impl State {
                 };
                 let _ = p.start_time;
                 if let Some(a) = action {
-                    self.do_action(a);
+                    self.edge_action(p.edge, a);
                 }
                 true
             }
+        }
+    }
+
+    /// Действие свайпа от края. Команду оболочке — с указанием края: у
+    /// спрятанного автоскрытием дока (панели) на этом краю жест сперва
+    /// показывает его, а не уводит «домой».
+    fn edge_action(&mut self, edge: Edge, action: Action) {
+        match action {
+            Action::Shell(command) => {
+                let edge = match edge {
+                    Edge::Left => "left",
+                    Edge::Right => "right",
+                    Edge::Top => "top",
+                    Edge::Bottom => "bottom",
+                };
+                self.core.ipc.broadcast(&synshell_common::ipc::Event::EdgeGesture { edge: edge.into(), command });
+            }
+            a => self.do_action(a),
         }
     }
 
