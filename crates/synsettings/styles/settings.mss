@@ -587,3 +587,11 @@ Button.accent-swatch.selected {
 
 .page-body-narrow { padding: 4px 12px 32px 12px; }
 .page-body-narrow .page-title { font-size: 20px; }
+
+/* ─── Оборудование ─────────────────────────────────────────────────────── */
+
+.hw-badge { padding: 7px; border-radius: 12px; background: var(--accent-soft); }
+.hw-icon { color: var(--accent); font-size: 20px; }
+.hw-title { font-size: 18px; font-weight: 600; color: var(--fg); }
+.row-value { font-size: 13px; color: var(--fg); }
+.row-value.big { font-size: 20px; font-weight: 600; }

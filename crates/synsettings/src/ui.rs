@@ -371,6 +371,11 @@ pub mod icons {
     pub const INFO: &str = "\u{e88e}";
     pub const SEARCH: &str = "\u{e8b6}";
     pub const CHEVRON_RIGHT: &str = "\u{e5cc}";
+    pub const PHONE: &str = "\u{e325}";
+    pub const GESTURE: &str = "\u{e155}";
+    pub const HARDWARE: &str = "\u{e30d}";
+    pub const BATTERY: &str = "\u{e1a4}";
+    pub const COPY: &str = "\u{e14d}";
     pub const BACK: &str = "\u{e5c4}";
     pub const ADD: &str = "\u{e145}";
     pub const DELETE: &str = "\u{e872}";

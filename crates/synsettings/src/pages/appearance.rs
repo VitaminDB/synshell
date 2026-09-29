@@ -705,8 +705,48 @@ pub fn animations() -> W {
                         op!["animations", "theme_change"],
                         a.theme_change,
                     ),
+                    switch_row("Меньше движения", "Короче переходы, без частиц и волн", op!["animations", "reduce_motion"], a.reduce_motion),
                 ],
             ),
+            group(
+                "Группы оболочки",
+                vec![
+                    switch_row("Домашний экран", "Листание страниц, появление и уход (телефон)", op!["animations", "home"], a.home),
+                    switch_row("«Пуск»", "Появление, перетекание в «Все приложения», меню значка", op!["animations", "menu"], a.menu),
+                    switch_row("Шторка", "Выезд сверху, затемнение (телефон)", op!["animations", "shade"], a.shade),
+                    switch_row("Док и панели", "Увеличение значков, прыжки при запуске", op!["animations", "dock"], a.dock),
+                    switch_row("Приложения и режимы окон", "Листание приложений, «Недавние», смена режима (телефон)", op!["animations", "pages"], a.pages),
+                ],
+            ),
+            group(
+                "Эффекты",
+                vec![
+                    switch_row("Частицы", "Искры и конфетти дока", op!["animations", "particles"], a.particles),
+                    switch_row("Размытие", "Под меню и всплывающими окнами; на CPU-композиторе телефона дорого", op!["animations", "blur"], a.blur),
+                    switch_row("Волна от нажатия", "", op!["animations", "ripple"], a.ripple),
+                ],
+            ),
+            group("Наборы", vec![row_inline("Быстро выставить", "", presets())]),
         ],
     )
+}
+
+/// Наборы: максимум, сбалансировано (телефон), экономия, выключено.
+fn presets() -> impl Widget {
+    fn apply(on: bool, speed: f64, particles: bool, blur: bool, reduce: bool) {
+        for k in ["enabled", "shell", "theme_change", "home", "menu", "shade", "dock", "pages", "ripple"] {
+            set(&op!["animations", k], on);
+        }
+        set(&op!["animations", "speed"], speed);
+        set(&op!["animations", "particles"], particles);
+        set(&op!["animations", "blur"], blur);
+        set(&op!["animations", "reduce_motion"], reduce);
+        crate::state::bump();
+    }
+    Row::new()
+        .gap(6.0)
+        .child(button("Максимум", || apply(true, 1.0, true, true, false)))
+        .child(button("Сбалансировано", || apply(true, 0.85, false, false, false)))
+        .child(button("Экономия", || apply(true, 0.6, false, false, true)))
+        .child(button("Выкл.", || apply(false, 1.0, false, false, true)))
 }

@@ -94,6 +94,18 @@ fn output_card(name: String, info: Option<&OutputInfo>, cfg: &OutputConfig) -> W
             })),
     ));
     let n = name.clone();
+    rows.push(row(
+        "Яркость на максимуме",
+        "Ниты панели при полной подсветке (паспорт); для яркости в нитах; 0 — не задано",
+        SpinBox::new().range(0.0, 10000.0).step(50.0).value(cfg.max_nits.unwrap_or(0.0) as f64).width(140.0).on_change(move |v| {
+            if v <= 0.0 {
+                crate::ui::unset(&crate::op!["output", output_index(&n), "max_nits"]);
+            } else {
+                oset(&n, "max_nits", v.round() as i64);
+            }
+        }),
+    ));
+    let n = name.clone();
     let n2 = name.clone();
     let pos = cfg.position;
     let (px, py) = pos.map(|p| (p[0], p[1])).unwrap_or((0, 0));
@@ -181,10 +193,43 @@ fn output_card(name: String, info: Option<&OutputInfo>, cfg: &OutputConfig) -> W
     boxed(Column::new().gap(8.0).child(header).child(group("", rows)))
 }
 
+/// Яркость подсветки: проценты и ниты (если у вывода задан `max_nits`).
+fn brightness_group(c: &synshell_common::Config) -> Option<W> {
+    let sysfs = synsystem::Sys::host();
+    let bl = synsystem::backlight::primary(&sysfs)?;
+    let nits = c.outputs.iter().find_map(|o| o.max_nits);
+    let pct = use_signal(bl.percent());
+    let label = Reactive::new(move || -> Vec<W> {
+        let p = pct.get();
+        let t = match nits {
+            Some(max) => format!("{:.0} нит · {p:.0}%", p / 100.0 * max),
+            None => format!("{p:.0}%"),
+        };
+        vec![boxed(Text::new(t).class("row-value"))]
+    });
+    let slider = Slider::new().range(1.0, 100.0).step(1.0).value(bl.percent()).width(220.0).on_change(move |v| {
+        pct.set(v);
+        std::thread::spawn(move || {
+            if let Err(e) = synsystem::backlight::set_percent(&synsystem::Sys::host(), v) {
+                syngui::async_runtime::run_on_main_thread(move || state::toast(format!("Яркость: {e}")));
+            }
+        });
+    });
+    let hint = if nits.is_some() {
+        format!("Подсветка {}", bl.name)
+    } else {
+        format!("Подсветка {} · ниты — задайте яркость панели на максимуме ниже", bl.name)
+    };
+    Some(group("Яркость", vec![row("Яркость экрана", &hint, Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(slider).child(label))]))
+}
+
 pub fn displays() -> W {
     let c = store::config();
     let live = sys::outputs();
     let mut body: Vec<W> = Vec::new();
+    if let Some(g) = brightness_group(&c) {
+        body.push(g);
+    }
     let mut names: Vec<String> = Vec::new();
     match &live {
         Some(outs) => {

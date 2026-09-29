@@ -302,10 +302,8 @@ pub fn about() -> About {
     let kernel = std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap_or_default().trim().to_string();
     let hostname = std::fs::read_to_string("/proc/sys/kernel/hostname").unwrap_or_default().trim().to_string();
     let cpuinfo = std::fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
-    let cpu = cpuinfo
-        .lines()
-        .find_map(|l| l.strip_prefix("model name").and_then(|r| r.split_once(':')).map(|(_, v)| v.trim().to_string()))
-        .unwrap_or_default();
+    // x86 — model name; ARM — Hardware или SoC из device tree.
+    let cpu = synsystem::cpu::model(&synsystem::Sys::host()).unwrap_or_default();
     let cores = cpuinfo.lines().filter(|l| l.starts_with("processor")).count();
     let meminfo = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
     let memory = meminfo
@@ -321,7 +319,14 @@ pub fn about() -> About {
         cpu,
         cores,
         memory,
-        gpus: gpus(),
+        gpus: {
+            let mut g = gpus();
+            // Qualcomm Adreno (KGSL) не виден в lspci и drm.
+            if g.is_empty() {
+                g.extend(synsystem::gpu::read(&synsystem::Sys::host()).and_then(|x| x.name));
+            }
+            g
+        },
         session: std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default(),
     }
 }

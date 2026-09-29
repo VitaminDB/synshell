@@ -10,6 +10,7 @@ pub mod backlight;
 pub mod battery;
 pub mod cpu;
 pub mod gpu;
+pub mod hwinfo;
 pub mod memory;
 pub mod network;
 pub mod procs;

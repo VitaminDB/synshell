@@ -3,8 +3,11 @@
 use crate::ui::{icons, W};
 
 mod appearance;
+mod hardware;
 mod input;
+mod mobile;
 mod panels;
+mod power;
 mod system;
 mod themes;
 mod windows;
@@ -140,8 +143,40 @@ pub const PAGES: &[PageDef] = &[
         title: "Мониторы",
         icon: icons::DISPLAY,
         group: "Устройства",
-        keywords: "экран разрешение частота масштаб поворот положение vrr основной",
+        keywords: "экран разрешение частота масштаб поворот положение vrr основной яркость ниты подсветка",
         build: system::displays,
+    },
+    PageDef {
+        id: "phone",
+        title: "Телефон",
+        icon: icons::PHONE,
+        group: "Устройства",
+        keywords: "режим окон страницы плитки свободный стол ручка назад домашний экран ресурсы мобильный",
+        build: mobile::phone,
+    },
+    PageDef {
+        id: "gestures",
+        title: "Жесты",
+        icon: icons::GESTURE,
+        group: "Устройства",
+        keywords: "свайп край назад домой шторка недавние удержание тачпад пальцы",
+        build: mobile::gestures,
+    },
+    PageDef {
+        id: "hardware",
+        title: "Оборудование",
+        icon: icons::HARDWARE,
+        group: "Устройства",
+        keywords: "процессор ядра частота память аккумулятор батарея датчики сенсоры температура диск usb камера звук видеокарта gpu",
+        build: hardware::hardware,
+    },
+    PageDef {
+        id: "power",
+        title: "Питание",
+        icon: icons::BATTERY,
+        group: "Система",
+        keywords: "батарея аккумулятор заряд регулятор частота governor сон гашение экрана",
+        build: power::power,
     },
     PageDef {
         id: "lock",
