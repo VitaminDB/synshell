@@ -8,6 +8,7 @@
 //! экран блокировки — следующие шаги (см. docs/MOBILE.md).
 
 mod home;
+mod ipc;
 mod navbar;
 mod statusbar;
 mod theme;
@@ -41,6 +42,7 @@ fn main() {
         statusbar::install(ctx);
         navbar::install(ctx);
         home::install(ctx);
+        ipc::start(ctx);
     });
     if let Err(e) = result {
         log::error!("synmobile-shell: {e:#}");

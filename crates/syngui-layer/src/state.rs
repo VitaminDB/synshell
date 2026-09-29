@@ -7,7 +7,7 @@ use crate::{Command, KeyInfo, OutputInfo, RunOptions, SurfaceId, SurfaceSpec};
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
     delegate_compositor, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer,
-    delegate_registry, delegate_seat, delegate_session_lock, delegate_shm,
+    delegate_registry, delegate_seat, delegate_session_lock, delegate_shm, delegate_touch,
     output::{OutputHandler, OutputState},
     reexports::{
         calloop::{
@@ -31,6 +31,7 @@ use smithay_client_toolkit::{
     seat::{
         keyboard::{KeyEvent, KeyboardHandler, Keysym, Modifiers},
         pointer::{PointerEvent, PointerEventKind, PointerHandler, ThemeSpec, ThemedPointer},
+        touch::TouchHandler,
         Capability, SeatHandler, SeatState,
     },
     shell::{
@@ -47,7 +48,7 @@ use syngui::input::MouseButton;
 use syngui::mss::StyleEngine;
 use wayland_client::{
     globals::{registry_queue_init, GlobalList},
-    protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_surface},
+    protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_surface, wl_touch},
     Connection, Dispatch, Proxy, QueueHandle,
 };
 
@@ -71,6 +72,10 @@ pub struct State {
     pointer: Option<ThemedPointer>,
     pointer_focus: Option<SurfaceId>,
     last_cursor: Option<syngui::input::CursorIcon>,
+    /// Тач (телефон): первое касание ведёт себя как левая кнопка указателя.
+    touch: Option<wl_touch::WlTouch>,
+    /// Активное касание: (id точки, поверхность).
+    touch_primary: Option<(i32, SurfaceId)>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
     kb_focus: Option<SurfaceId>,
     modifiers: syngui::input::Modifiers,
@@ -145,6 +150,8 @@ pub fn run(options: RunOptions, stylesheet: &str, init: Box<dyn FnOnce()>) -> an
         pointer: None,
         pointer_focus: None,
         last_cursor: None,
+        touch: None,
+        touch_primary: None,
         keyboard: None,
         kb_focus: None,
         modifiers: syngui::input::Modifiers::empty(),
@@ -842,6 +849,9 @@ impl SeatHandler for State {
             );
             self.keyboard = kb.ok();
         }
+        if cap == Capability::Touch && self.touch.is_none() {
+            self.touch = self.seat_state.as_mut().unwrap().get_touch(qh, &seat).ok();
+        }
         if cap == Capability::Pointer && self.pointer.is_none() {
             if let (Some(shm), Some(comp)) = (&self.shm, &self.compositor) {
                 let cursor_surface = comp.create_surface(qh);
@@ -862,6 +872,12 @@ impl SeatHandler for State {
         }
     }
     fn remove_capability(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat, cap: Capability) {
+        if cap == Capability::Touch {
+            if let Some(t) = self.touch.take() {
+                t.release();
+            }
+            self.touch_primary = None;
+        }
         if cap == Capability::Keyboard {
             if let Some(k) = self.keyboard.take() {
                 k.release();
@@ -995,6 +1011,62 @@ delegate_shm!(State);
 delegate_seat!(State);
 delegate_keyboard!(State);
 delegate_pointer!(State);
+delegate_touch!(State);
+
+/// Тач как указатель: первое касание — нажатие левой кнопки в точке, движение —
+/// перемещение, отпускание — отпускание кнопки и уход указателя. Мультитач и
+/// жесты — позже, на уровне syngui.
+impl TouchHandler for State {
+    fn down(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch, _serial: u32, _time: u32, surface: wl_surface::WlSurface, id: i32, position: (f64, f64)) {
+        if self.touch_primary.is_some() {
+            return;
+        }
+        let Some(sid) = self.surface_id_of(&surface) else { return };
+        let Some(s) = self.surfaces.get_mut(&sid) else { return };
+        let pos = Point::new(position.0 as f32, position.1 as f32);
+        self.touch_primary = Some((id, sid));
+        self.pointer_focus = Some(sid);
+        if let Some(h) = s.hooks.on_pointer.as_mut() {
+            h(true);
+        }
+        s.view.pointer_motion(pos);
+        s.view.pointer_button(MouseButton::Left, true);
+        s.needs_frame = true;
+    }
+    fn up(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch, _serial: u32, _time: u32, id: i32) {
+        let Some((pid, sid)) = self.touch_primary else { return };
+        if pid != id {
+            return;
+        }
+        self.touch_primary = None;
+        let Some(s) = self.surfaces.get_mut(&sid) else { return };
+        s.view.pointer_button(MouseButton::Left, false);
+        s.view.pointer_leave();
+        if let Some(h) = s.hooks.on_pointer.as_mut() {
+            h(false);
+        }
+        if self.pointer_focus == Some(sid) {
+            self.pointer_focus = None;
+        }
+        s.needs_frame = true;
+    }
+    fn motion(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch, _time: u32, id: i32, position: (f64, f64)) {
+        let Some((pid, sid)) = self.touch_primary else { return };
+        if pid != id {
+            return;
+        }
+        let Some(s) = self.surfaces.get_mut(&sid) else { return };
+        s.view.pointer_motion(Point::new(position.0 as f32, position.1 as f32));
+        s.needs_frame = true;
+    }
+    fn shape(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch, _id: i32, _major: f64, _minor: f64) {}
+    fn orientation(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch, _id: i32, _orientation: f64) {}
+    fn cancel(&mut self, conn: &Connection, qh: &QueueHandle<Self>, touch: &wl_touch::WlTouch) {
+        if let Some((id, _)) = self.touch_primary {
+            self.up(conn, qh, touch, 0, 0, id);
+        }
+    }
+}
 delegate_layer!(State);
 delegate_registry!(State);
 

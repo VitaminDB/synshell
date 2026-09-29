@@ -140,6 +140,13 @@ pub(crate) fn init_libinput(
         use smithay::backend::input::InputEvent;
         match &mut event {
             InputEvent::DeviceAdded { device } => {
+                tracing::info!(
+                    name = device.name(),
+                    touch = device.has_capability(DeviceCapability::Touch),
+                    keyboard = device.has_capability(DeviceCapability::Keyboard),
+                    pointer = device.has_capability(DeviceCapability::Pointer),
+                    "устройство ввода"
+                );
                 crate::libinput_config::apply(device, &state.core.config.input);
                 if device.has_capability(DeviceCapability::Keyboard) {
                     if let Some(leds) = state.core.seat.get_keyboard().map(|k| k.led_state()) {
