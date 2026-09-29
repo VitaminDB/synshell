@@ -60,3 +60,49 @@
 .menu-caption { font-size: 12px; color: var(--muted); padding: 8px 12px 2px 12px; }
 .menu-radio { border-radius: var(--radius-sm); }
 .menu-radio-on { background-color: var(--accent-soft); }
+
+/* ─── Экран ресурсов (страница 0) ────────────────────────────────────── */
+
+.res-page { padding: 18px 12px 24px 12px; }
+.res-clock { font-size: 40px; font-weight: 300; color: #ffffff; text-shadow: 0px 2px 8px #00000060; padding: 0px 10px 0px 4px; }
+.res-date { font-size: 14px; color: #ffffffc8; padding: 0px 0px 8px 0px; }
+.res-card {
+    padding: 14px;
+    border-radius: 22px;
+    background-color: var(--surface);
+    opacity: 0.95;
+    box-shadow: 0px 8px 24px #00000040;
+}
+.res-card-icon { icon-size: 18px; icon-color: var(--accent); }
+.res-card-title { font-size: 14px; font-weight: 600; color: var(--fg); }
+.res-ring-value { font-size: 20px; font-weight: 600; color: var(--fg); }
+.res-ring-sub { font-size: 11px; color: var(--muted); }
+.res-k { font-size: 12px; color: var(--muted); }
+.res-v { font-size: 12px; color: var(--fg); }
+.res-big { font-size: 28px; font-weight: 600; color: var(--fg); }
+.res-core-bg { width: 16px; border-radius: 5px; background-color: var(--surface-alt); }
+.res-core-fill { width: 16px; border-radius: 5px; transition: height 400ms ease-out; }
+.res-tier-0 { background-color: #4fc3f7; }
+.res-tier-1 { background-color: var(--accent); }
+.res-tier-2 { background-color: #ffb74d; }
+.res-tier-3 { background-color: #ef5350; }
+.res-core-mhz { font-size: 9px; color: var(--muted); }
+.res-section { font-size: 14px; font-weight: 600; color: #ffffff; text-shadow: 0px 1px 4px #00000080; padding: 6px 4px 0px 4px; }
+.res-empty { font-size: 13px; color: #ffffffb0; padding: 4px; }
+.res-rail-row { padding: 2px 2px 8px 2px; }
+.res-app {
+    width: 140px;
+    padding: 12px 8px;
+    border-radius: 20px;
+    background-color: var(--surface);
+    transition: scale 220ms spring(420, 26);
+}
+.res-app:active { scale: 0.95; }
+.res-app-icon { width: 44px; height: 44px; }
+.res-app-name { font-size: 12px; font-weight: 600; color: var(--fg); }
+.res-app-title { font-size: 10px; color: var(--muted); }
+.res-badge { padding: 2px 6px; border-radius: 999px; }
+.res-badge-text { font-size: 10px; font-weight: 700; color: #ffffff; }
+.res-badge-mem { background-color: #5c6bc0; }
+.res-badge-cpu { background-color: #26a69a; }
+.res-badge-hot { background-color: #ef5350; }

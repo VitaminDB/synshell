@@ -51,6 +51,18 @@ pub fn show_apps() {
 pub fn install(ctx: ShellCtx) {
     let page = page_signal();
     page.set(apps_page(&ctx));
+    // Ресурсы снимаются, только пока их страница на экране: домашний экран
+    // не закрыт окном (страница 0 режима страниц или окон не видно).
+    create_effect(move || {
+        let p = page.get();
+        let wins = ctx.windows.get();
+        let mobile = ctx.mobile.get();
+        let home_shown = match &mobile {
+            Some(m) if m.mode == synshell_common::action::MobileMode::Pages => m.page.is_none(),
+            _ => !wins.iter().any(|w| !w.minimized),
+        };
+        crate::resources::set_visible(ctx.cfg().mobile.resources_page && p == 0 && home_shown);
+    });
     create_effect(move || {
         let outputs = syngui_layer::outputs().get();
         let generation = ctx.generation.get();
@@ -88,7 +100,7 @@ fn view(ctx: ShellCtx, output: String) -> impl Widget {
     let cfg = ctx.cfg();
     let mut pages = Carousel::new().page_signal(page).show_arrows(false).show_indicators(true);
     if cfg.mobile.resources_page {
-        pages = pages.child(summary_page(ctx));
+        pages = pages.child(crate::resources::page(ctx));
     }
     let pages = pages.child(apps_page_view(ctx)).class("home-pages");
     let gestures = GestureDetector::new()
