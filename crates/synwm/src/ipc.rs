@@ -182,6 +182,13 @@ impl State {
                     out.push_str(&s);
                     out.push('\n');
                 }
+                // Телефон: режим окон и страница — сразу после снимка.
+                if self.core.wm.mobile.enabled {
+                    if let Ok(s) = serde_json::to_string(&Event::MobileChanged { mobile: self.mobile_info() }) {
+                        out.push_str(&s);
+                        out.push('\n');
+                    }
+                }
             }
             if let Some(c) = self.core.ipc.clients.get_mut(&id) {
                 c.wbuf.extend_from_slice(out.as_bytes());
@@ -198,6 +205,7 @@ impl State {
             Request::Version => Response::Version { version: env!("CARGO_PKG_VERSION").into() },
             Request::Windows => Response::Windows { windows: self.all_window_infos() },
             Request::Workspaces => Response::Workspaces { workspaces: self.workspace_infos() },
+            Request::Mobile => Response::Mobile { mobile: self.mobile_info() },
             Request::Outputs => Response::Outputs { outputs: output_infos(self) },
             Request::KeyboardLayouts => Response::KeyboardLayouts { layouts: self.keyboard_layouts() },
             Request::Action { action } => {

@@ -362,7 +362,7 @@ pub fn desktop_menu(ctx: ShellCtx) -> impl Widget {
     if ctx.is_phone() {
         use synshell_common::action::MobileMode;
         col = col.child(sep()).child(Text::new("Режим окон").class("menu-caption"));
-        let current = cfg.mobile.mode;
+        let current = ctx.mobile_mode();
         for (mode, icon, label) in [
             (MobileMode::Pages, "\u{E8EB}", "Страницы"),
             (MobileMode::Tiles, "\u{E871}", "Плитки"),

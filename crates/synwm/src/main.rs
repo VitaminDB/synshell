@@ -22,6 +22,7 @@ mod screencopy;
 mod screenshot;
 mod spawn;
 mod state;
+mod touch;
 mod wm;
 mod xwayland;
 
@@ -223,6 +224,7 @@ fn run(args: &[String]) -> anyhow::Result<bool> {
         Backend::KmsCpu(_) => backend::kms_cpu::init(&mut state, &event_loop)?,
     }
     state.outputs_changed();
+    state.init_mobile();
 
     tracing::info!(socket = state.core.socket_name, "WAYLAND_DISPLAY");
     std::env::set_var("WAYLAND_DISPLAY", &state.core.socket_name);

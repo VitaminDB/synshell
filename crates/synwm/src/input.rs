@@ -60,7 +60,7 @@ pub enum Under {
 }
 
 impl Under {
-    fn focus(&self) -> Option<(FocusTarget, Point<f64, Logical>)> {
+    pub(crate) fn focus(&self) -> Option<(FocusTarget, Point<f64, Logical>)> {
         match self {
             Under::Surface(s, p) => Some((s.clone(), *p)),
             _ => None,
@@ -174,6 +174,7 @@ impl State {
                 }
             }
             InputEvent::TouchCancel { .. } => {
+                self.core.touch_gestures.pending = None;
                 if let Some(touch) = self.core.seat.get_touch() {
                     touch.cancel(self);
                 }
@@ -848,7 +849,7 @@ impl State {
     }
 
     /// Клик по поверхности: фокус окну или слою.
-    fn click_focus(&mut self, surface: &WlSurface) {
+    pub(crate) fn click_focus(&mut self, surface: &WlSurface) {
         if let Some(id) = self.window_for_surface_tree(surface) {
             if self.core.wm.focused != Some(id) || self.core.keyboard.current_focus().map(|f| f.0) != self.core.wm.get(id).and_then(|m| m.surface()) {
                 self.focus_window(Some(id));
@@ -1040,6 +1041,9 @@ impl State {
     fn on_touch_down<B: InputBackend>(&mut self, evt: B::TouchDownEvent) {
         let Some(touch) = self.core.seat.get_touch() else { return };
         let pos = self.touch_location(&evt);
+        if self.gesture_touch_down(evt.slot(), pos, evt.time_msec()) {
+            return;
+        }
         let under = self.under(pos);
         if let Under::Surface(s, _) = &under {
             self.click_focus(&s.0.clone());
@@ -1052,6 +1056,9 @@ impl State {
     }
 
     fn on_touch_up<B: InputBackend>(&mut self, evt: B::TouchUpEvent) {
+        if self.gesture_touch_up(evt.slot(), evt.time_msec()) {
+            return;
+        }
         let Some(touch) = self.core.seat.get_touch() else { return };
         touch.up(self, &UpEvent { slot: evt.slot(), serial: SERIAL_COUNTER.next_serial(), time: evt.time_msec() });
     }
@@ -1059,6 +1066,9 @@ impl State {
     fn on_touch_motion<B: InputBackend>(&mut self, evt: B::TouchMotionEvent) {
         let Some(touch) = self.core.seat.get_touch() else { return };
         let pos = self.touch_location(&evt);
+        if self.gesture_touch_motion(evt.slot(), pos, evt.time_msec()) {
+            return;
+        }
         let under = self.under(pos);
         touch.motion(
             self,
@@ -1201,11 +1211,17 @@ impl State {
             Action::Key(combo) => self.send_key_combo(&combo),
             // Режимы окон телефона и страницы — этап режимов окон; пока
             // оболочке сообщается команда, чтобы она могла ответить.
-            Action::MobileMode(m) => {
-                self.core.ipc.broadcast(&synshell_common::ipc::Event::ShellCommand { command: format!("mode {}", m.as_str()) });
+            Action::MobileMode(m) => self.set_mobile_mode(m, true),
+            Action::MobileModeCycle => {
+                let next = self.core.wm.mobile.mode.next();
+                self.set_mobile_mode(next, true);
             }
-            Action::MobileModeCycle | Action::Page(_) | Action::CameraHome => {
-                tracing::debug!(%action_name, "действие режимов окон ещё не реализовано");
+            Action::Page(t) => self.page_action(t),
+            Action::CameraHome => {
+                self.core.wm.mobile.camera = smithay::utils::Point::from((0.0, 0.0));
+                let _ = &action_name;
+                self.relayout();
+                self.broadcast_mobile();
             }
         }
     }

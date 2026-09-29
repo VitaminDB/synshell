@@ -203,7 +203,29 @@ where
     layer_elements(renderer, output, Layer::Top, scale, &mut out);
 
     // ── окна ──
-    if overview.is_none() {
+    // Телефон, режим страниц: переход между страницами или палец тащит.
+    let page_tr = core.wm.mobile.transition.as_ref().map(|t| (t.from, t.to, t.dir, t.anim.value()));
+    let page_drag = core.wm.mobile.drag.as_ref().map(|d| (d.from, d.dx));
+    let paging = overview.is_none() && core.wm.mobile.pages_mode() && (page_tr.is_some() || page_drag.is_some());
+    if paging {
+        let span = output_geo.size.w as f64;
+        let mut draw = |core: &mut Core, page: Option<WindowId>, dx: f64, out: &mut Vec<OutputElement<R>>| {
+            for id in core.wm.ids_on_page(page).into_iter().rev() {
+                window_elements(core, renderer, output, id, Point::from((dx.round() as i32, 0)), 1.0, out);
+            }
+        };
+        if let Some((from, dx)) = page_drag {
+            draw(core, from, dx, &mut out);
+            if let Some(nb) = core.wm.page_neighbor_of(from, dx) {
+                let off = if dx < 0.0 { dx + span } else { dx - span };
+                draw(core, nb, off, &mut out);
+            }
+        } else if let Some((from, to, dir, t)) = page_tr {
+            draw(core, to, dir as f64 * span * (1.0 - t), &mut out);
+            draw(core, from, -(dir as f64) * span * t, &mut out);
+        }
+    }
+    if overview.is_none() && !paging {
         let switch = core.wm.switch.as_ref().map(|s| (s.from, s.to, s.dir, s.anim.value()));
         match switch {
             Some((from, to, dir, t)) if core.config.animations.workspace_switch != "fade" => {

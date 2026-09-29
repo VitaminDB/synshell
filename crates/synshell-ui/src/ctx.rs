@@ -110,6 +110,8 @@ pub struct ShellCtx {
     pub connected: RwSignal<bool>,
     pub windows: RwSignal<Vec<WindowInfo>>,
     pub workspaces: RwSignal<Vec<WorkspaceInfo>>,
+    /// Режим окон телефона и страница (от композитора).
+    pub mobile: RwSignal<Option<synshell_common::ipc::MobileInfo>>,
     pub comp_outputs: RwSignal<Vec<OutputInfo>>,
     pub keyboard: RwSignal<KeyboardLayouts>,
     pub focused: RwSignal<Option<u64>>,
@@ -147,6 +149,7 @@ impl ShellCtx {
     pub fn new(config: Config, form_factor: synshell_common::config::FormFactor) -> Self {
         Self {
             form_factor,
+            mobile: use_signal(None),
             config: use_signal(Arc::new(config.clone())),
             connected: use_signal(false),
             windows: use_signal(Vec::new()),
@@ -172,6 +175,11 @@ impl ShellCtx {
             launching: use_signal(Vec::new()),
             bursts: use_signal(std::collections::HashMap::new()),
         }
+    }
+
+    /// Текущий режим окон: от композитора, иначе из конфига.
+    pub fn mobile_mode(&self) -> synshell_common::action::MobileMode {
+        self.mobile.get().map(|m| m.mode).unwrap_or_else(|| self.cfg().mobile.mode)
     }
 
     pub fn is_phone(&self) -> bool {

@@ -195,7 +195,8 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
         let net = ctx.network.get();
         let dnd = ctx.dnd.get();
         let cfg = ctx.config.get();
-        let mode = cfg.mobile.mode;
+        let _ = &cfg;
+        let mode = ctx.mobile_mode();
         let wifi_state = if net.online { net.connection.clone() } else { "Нет подключения".into() };
         let torch = torch_state();
         let mut grid = Grid::new(2).gap(8.0);

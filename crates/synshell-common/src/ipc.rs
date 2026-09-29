@@ -31,6 +31,8 @@ pub enum Request {
     /// Снять все выводы разом (без указателя) для программы снимков:
     /// кадры — сырой RGBA в `$XDG_RUNTIME_DIR`, ответ — [`Response::Capture`].
     Capture,
+    /// Состояние режима окон телефона — [`Response::Mobile`].
+    Mobile,
 }
 
 /// Операции над окном из панели задач.
@@ -67,6 +69,20 @@ pub enum Response {
     Outputs { outputs: Vec<OutputInfo> },
     KeyboardLayouts { layouts: KeyboardLayouts },
     Capture { capture: CaptureInfo },
+    Mobile { mobile: MobileInfo },
+}
+
+/// Режим окон телефона для оболочки: какой режим, какая страница
+/// приложений показана, порядок страниц, положение виртуального стола.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct MobileInfo {
+    pub mode: crate::action::MobileMode,
+    /// Окно (корневое) показанной страницы; `None` — домашний экран.
+    pub page: Option<u64>,
+    /// Страницы по порядку — id корневых окон.
+    pub pages: Vec<u64>,
+    /// Сдвиг виртуального стола (режим `free`), логические px.
+    pub camera: [i32; 2],
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -93,6 +109,8 @@ pub enum Event {
     ConfigReloaded { error: Option<String> },
     /// Сеанс завершается — оболочке пора выйти.
     Exiting,
+    /// Режим окон телефона, страница или стол изменились.
+    MobileChanged { mobile: MobileInfo },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

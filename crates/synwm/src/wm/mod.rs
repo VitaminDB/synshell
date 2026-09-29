@@ -6,6 +6,7 @@
 //! окнами — в `ops.rs` (им нужен `&mut State` ради фокуса клавиатуры).
 
 pub mod layout;
+pub mod mobile;
 pub mod ops;
 pub mod rules;
 
@@ -306,6 +307,8 @@ pub struct Wm {
     pub snap_preview: Option<(Rectangle<i32, Logical>, Animation)>,
     /// Окно, которое тащат мышью (едет при смене стола).
     pub dragging: Option<WindowId>,
+    /// Режимы окон телефона.
+    pub mobile: mobile::MobileState,
     next_id: WindowId,
 }
 
@@ -324,6 +327,7 @@ impl Wm {
             overview: None,
             snap_preview: None,
             dragging: None,
+            mobile: mobile::MobileState::default(),
             next_id: 1,
         };
         wm.apply_config(config);
@@ -395,12 +399,16 @@ impl Wm {
     /// Видимые сейчас окна (активный стол + закреплённые, не свёрнутые)
     /// в порядке стопки снизу вверх.
     pub fn visible_ids(&self) -> Vec<WindowId> {
+        // Телефон, режим страниц: видна только текущая страница (и ни одного
+        // окна на домашнем экране).
+        let pages = self.mobile.pages_mode().then_some(self.mobile.page);
         self.stack
             .iter()
             .copied()
             .filter(|id| {
                 self.get(*id)
                     .is_some_and(|w| w.mapped && !w.minimized && w.on_workspace(self.active))
+                    && pages.is_none_or(|p| self.in_page(*id, p))
             })
             .collect()
     }
@@ -450,6 +458,7 @@ impl Wm {
     /// Есть анимации — нужны кадры.
     pub fn animating(&self) -> bool {
         self.switch.is_some()
+            || self.mobile.transition.is_some()
             || self.overview.is_some()
             || self.snap_preview.is_some()
             || self.windows.iter().any(|w| w.open_anim.is_some() || w.minimize_anim.is_some() || w.move_anim.is_some())
@@ -470,6 +479,9 @@ impl Wm {
         }
         if self.switch.as_ref().is_some_and(|s| s.anim.is_done()) {
             self.switch = None;
+        }
+        if self.mobile.transition.as_ref().is_some_and(|t| t.anim.is_done()) {
+            self.mobile.transition = None;
         }
         if self.overview.as_ref().is_some_and(|o| o.closing && o.anim.is_done()) {
             self.overview = None;

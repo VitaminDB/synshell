@@ -237,6 +237,7 @@ impl State {
         if !no_focus && ws == self.core.wm.active && !self.core.is_locked() {
             self.focus_window(Some(id));
         }
+        self.broadcast_mobile();
         self.core.ipc_dirty = true;
         self.core.queue_redraw_all();
     }
@@ -279,6 +280,7 @@ impl State {
             self.core.wm.focused = None;
             self.focus_after_close();
         }
+        self.mobile_fix_page();
         self.relayout();
         self.core.ipc_dirty = true;
         self.core.queue_redraw_all();
@@ -369,6 +371,7 @@ impl State {
         }
         let keyboard = self.core.keyboard.clone();
         keyboard.set_focus(self, target, SERIAL_COUNTER.next_serial());
+        self.mobile_focus_changed(id);
         self.sync_space();
         if prev != id {
             self.core.ipc.broadcast(&Event::WindowFocused { id });
@@ -584,7 +587,7 @@ impl State {
     }
 
     /// Вернуть плавающему окну его запомненную геометрию.
-    fn restore_float(&mut self, id: WindowId) {
+    pub(crate) fn restore_float(&mut self, id: WindowId) {
         let Some(m) = self.core.wm.get(id) else { return };
         let geo = m.float_geo.unwrap_or_else(|| m.geometry());
         let m = self.core.wm.get_mut(id).unwrap();
@@ -615,7 +618,7 @@ impl State {
     }
 
     /// Запомнить текущую геометрию как «плавающую» (перед развёртыванием и т.п.).
-    fn remember_float(&mut self, id: WindowId) {
+    pub(crate) fn remember_float(&mut self, id: WindowId) {
         let layout = self.core.wm.workspace(self.core.wm.active).layout;
         if let Some(m) = self.core.wm.get_mut(id) {
             if !m.maximized && !m.fullscreen && m.snap.is_none() && !m.is_tiled(layout) {

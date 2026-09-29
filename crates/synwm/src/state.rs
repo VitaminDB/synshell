@@ -226,6 +226,8 @@ pub struct Core {
     pub pending_copies: Vec<crate::screencopy::PendingCopy>,
     pub frame_ids: crate::render::FrameIds,
     pub gesture: crate::input::GestureState,
+    /// Жесты сенсорного экрана от краёв (телефон).
+    pub touch_gestures: crate::touch::TouchGestures,
     pub last_title_click: Option<crate::input::LastTitleClick>,
     pub last_kb_layout: Option<u32>,
 }
@@ -427,6 +429,7 @@ impl Core {
             pending_copies: Vec::new(),
             frame_ids: Default::default(),
             gesture: Default::default(),
+            touch_gestures: Default::default(),
             last_title_click: None,
             last_kb_layout: None,
             restart_requested: false,

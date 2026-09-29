@@ -39,7 +39,10 @@ fn command(name: &str, arg: &str) -> bool {
         // Домой: закрыть оверлеи, свернуть окна, показать сетку приложений.
         "home" => {
             ctx.close_popup();
-            synshell_ui::applets::show_desktop_now(&ctx);
+            synshell_ui::recents::close();
+            synshell_ui::shade::close();
+            // Композитор: в режиме страниц — к странице 0, иначе свернуть окна.
+            synshell_ui::actions::run(synshell_common::Action::Page(synshell_common::action::PageTarget::Home));
             home::show_apps();
         }
         "apps" => synshell_ui::commands::handle("launcher"),
