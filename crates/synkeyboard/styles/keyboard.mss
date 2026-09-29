@@ -18,12 +18,12 @@ Text { color: var(--fg); font-size: 18px; }
 .key:active { background-color: var(--accent); }
 .key-fill { flex-grow: 1; }
 .key-spacer { flex-grow: 1; background-color: #00000000; }
-.key-label { font-size: 19px; }
+.key-label { font-size: 19px; text-box-edge: text; }
 
 .key-special { background-color: #ffffff10; }
-.key-special .key-label { font-size: 15px; }
+.key-special .key-label { font-size: 15px; text-box-edge: ink; }
 .key-fn { background-color: #ffffff10; }
-.key-fn .key-label { font-size: 13px; }
+.key-fn .key-label { font-size: 13px; text-box-edge: ink; }
 .key-f .key-label { font-size: 12px; }
 
 .key-active { background-color: var(--accent); }
