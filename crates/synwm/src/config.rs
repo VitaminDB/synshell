@@ -22,7 +22,11 @@ impl State {
     }
 
     pub fn reload_config(&mut self) {
-        let (config, error) = Config::load();
+        let (mut config, error) = Config::load();
+        // Политика форм-фактора (телефон: monocle, без рамок, своя оболочка) —
+        // и после перечитывания, иначе правка config.toml возвращала бы
+        // десктопные умолчания.
+        config.apply_form_factor(self.core.form_factor);
         if let Some(e) = &error {
             tracing::warn!(error = e, "конфиг не разобран — остаётся прежний");
             self.core.config_error = Some(e.clone());

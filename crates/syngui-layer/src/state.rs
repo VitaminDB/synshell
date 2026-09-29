@@ -71,10 +71,11 @@ pub struct State {
     pointer: Option<ThemedPointer>,
     pointer_focus: Option<SurfaceId>,
     last_cursor: Option<syngui::input::CursorIcon>,
-    /// Тач (телефон): первое касание ведёт себя как левая кнопка указателя.
+    /// Тач (телефон): все касания уходят в `EmbedView::touch_*` — жесты,
+    /// прокрутка пальцем, долгое нажатие разбирает syngui.
     touch: Option<wl_touch::WlTouch>,
-    /// Активное касание: (id точки, поверхность).
-    touch_primary: Option<(i32, SurfaceId)>,
+    /// Активные касания: id точки → поверхность, где палец опустился.
+    touches: HashMap<i32, SurfaceId>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
     kb_focus: Option<SurfaceId>,
     /// Первый seat композитора — для виртуальной клавиатуры и input-method.
@@ -153,7 +154,7 @@ pub fn run(options: RunOptions, stylesheet: &str, init: Box<dyn FnOnce()>) -> an
         pointer_focus: None,
         last_cursor: None,
         touch: None,
-        touch_primary: None,
+        touches: HashMap::new(),
         seat: None,
         vk: crate::vkbd::Vkbd::default(),
         keyboard: None,
@@ -243,6 +244,11 @@ pub fn run(options: RunOptions, stylesheet: &str, init: Box<dyn FnOnce()>) -> an
         } else {
             None
         };
+        // Долгое нажатие пальцем: проснуться к сроку.
+        let timeout = match (timeout, state.touch_timeout()) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
         event_loop.dispatch(timeout, &mut state)?;
         // Ошибка протокола убивает соединение: дальше крутиться бессмысленно.
         if let Some(err) = state.conn.as_ref().and_then(|c| c.protocol_error()) {
@@ -330,7 +336,26 @@ impl State {
 
     /// Всё, что происходит между событиями: колбэки других потоков,
     /// команды, эффекты, кадры.
+    /// Через сколько проверить долгое нажатие на какой-нибудь поверхности.
+    fn touch_timeout(&self) -> Option<Duration> {
+        let now = std::time::Instant::now();
+        self.surfaces
+            .values()
+            .filter_map(|s| s.view.touch_deadline())
+            .map(|d| d.saturating_duration_since(now))
+            .min()
+    }
+
+    fn poll_touch(&mut self) {
+        for s in self.surfaces.values_mut() {
+            if s.view.touch_poll() {
+                s.needs_frame = true;
+            }
+        }
+    }
+
     fn tick(&mut self) {
+        self.poll_touch();
         for _ in 0..4 {
             syngui::async_runtime::drain_main_thread_callbacks();
             let cmds = crate::take_commands();
@@ -896,7 +921,7 @@ impl SeatHandler for State {
             if let Some(t) = self.touch.take() {
                 t.release();
             }
-            self.touch_primary = None;
+            self.touches.clear();
         }
         if cap == Capability::Keyboard {
             if let Some(k) = self.keyboard.take() {
@@ -1033,57 +1058,54 @@ delegate_keyboard!(State);
 delegate_pointer!(State);
 delegate_touch!(State);
 
-/// Тач как указатель: первое касание — нажатие левой кнопки в точке, движение —
-/// перемещение, отпускание — отпускание кнопки и уход указателя. Мультитач и
-/// жесты — позже, на уровне syngui.
+/// Тач: все касания — в syngui (`EmbedView::touch_*`), там синтезируются тап,
+/// долгое нажатие (= правая кнопка) и разбираются жесты. Палец принадлежит
+/// поверхности, где опустился (как у Wayland: `motion`/`up` без поверхности).
 impl TouchHandler for State {
     fn down(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch, _serial: u32, _time: u32, surface: wl_surface::WlSurface, id: i32, position: (f64, f64)) {
-        if self.touch_primary.is_some() {
-            return;
-        }
         let Some(sid) = self.surface_id_of(&surface) else { return };
+        let first_here = !self.touches.values().any(|s| *s == sid);
+        self.touches.insert(id, sid);
         let Some(s) = self.surfaces.get_mut(&sid) else { return };
-        let pos = Point::new(position.0 as f32, position.1 as f32);
-        self.touch_primary = Some((id, sid));
-        self.pointer_focus = Some(sid);
-        if let Some(h) = s.hooks.on_pointer.as_mut() {
-            h(true);
+        if first_here {
+            if let Some(h) = s.hooks.on_pointer.as_mut() {
+                h(true);
+            }
         }
-        s.view.pointer_motion(pos);
-        s.view.pointer_button(MouseButton::Left, true);
+        s.view.touch_down(id as u64, Point::new(position.0 as f32, position.1 as f32));
         s.needs_frame = true;
     }
     fn up(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch, _serial: u32, _time: u32, id: i32) {
-        let Some((pid, sid)) = self.touch_primary else { return };
-        if pid != id {
-            return;
-        }
-        self.touch_primary = None;
+        let Some(sid) = self.touches.remove(&id) else { return };
+        let last_here = !self.touches.values().any(|s| *s == sid);
         let Some(s) = self.surfaces.get_mut(&sid) else { return };
-        s.view.pointer_button(MouseButton::Left, false);
-        s.view.pointer_leave();
-        if let Some(h) = s.hooks.on_pointer.as_mut() {
-            h(false);
-        }
-        if self.pointer_focus == Some(sid) {
-            self.pointer_focus = None;
+        s.view.touch_up(id as u64, None);
+        if last_here {
+            if let Some(h) = s.hooks.on_pointer.as_mut() {
+                h(false);
+            }
         }
         s.needs_frame = true;
     }
     fn motion(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch, _time: u32, id: i32, position: (f64, f64)) {
-        let Some((pid, sid)) = self.touch_primary else { return };
-        if pid != id {
-            return;
-        }
+        let Some(sid) = self.touches.get(&id).copied() else { return };
         let Some(s) = self.surfaces.get_mut(&sid) else { return };
-        s.view.pointer_motion(Point::new(position.0 as f32, position.1 as f32));
+        s.view.touch_motion(id as u64, Point::new(position.0 as f32, position.1 as f32));
         s.needs_frame = true;
     }
     fn shape(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch, _id: i32, _major: f64, _minor: f64) {}
     fn orientation(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch, _id: i32, _orientation: f64) {}
-    fn cancel(&mut self, conn: &Connection, qh: &QueueHandle<Self>, touch: &wl_touch::WlTouch) {
-        if let Some((id, _)) = self.touch_primary {
-            self.up(conn, qh, touch, 0, 0, id);
+    /// Жест забрал композитор (свайп от края): всем пальцам — отмена.
+    fn cancel(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch) {
+        let sids: std::collections::BTreeSet<SurfaceId> = self.touches.drain().map(|(_, s)| s).collect();
+        for sid in sids {
+            if let Some(s) = self.surfaces.get_mut(&sid) {
+                s.view.touch_cancel();
+                if let Some(h) = s.hooks.on_pointer.as_mut() {
+                    h(false);
+                }
+                s.needs_frame = true;
+            }
         }
     }
 }

@@ -318,9 +318,10 @@ fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: 
     let mut gd = GestureDetector::new().child(body);
     match action {
         Action::Key { code, shift: with_shift, repeat: true, latin } => {
-            // Автоповтор: первый тап сразу, затем по таймеру до отпускания.
+            // Автоповтор: первый тап сразу при касании, затем по таймеру до
+            // отпускания.
             gd = gd
-                .on_mouse_down(move |_| {
+                .on_press(move |_| {
                     stop_repeat();
                     kb.tap(code, with_shift, latin);
                     let t = syngui_layer::add_timer(Duration::from_millis(400), move || {
@@ -329,7 +330,7 @@ fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: 
                     });
                     REPEAT.with(|r| r.set(Some(t)));
                 })
-                .on_mouse_up(move |_| {
+                .on_release(move |_| {
                     stop_repeat();
                     kb.release_oneshot();
                 });
@@ -339,7 +340,15 @@ fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: 
                 .on_click(move || kb.act(action))
                 .on_double_click(move || kb.shift.set(Shift::Lock));
         }
-        _ => gd = gd.on_click(move || kb.act(action)),
+        // Клавиша срабатывает на отпускании над ней — и после долгого
+        // удержания (тап после удержания не синтезируется).
+        _ => {
+            gd = gd.on_release(move |inside| {
+                if inside {
+                    kb.act(action);
+                }
+            })
+        }
     }
     Box::new(gd.style("flex-grow", width))
 }

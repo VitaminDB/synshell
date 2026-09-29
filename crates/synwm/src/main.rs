@@ -49,7 +49,7 @@ fn main() {
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
             "synwm {} — окружение рабочего стола для Wayland\n\n\
-             synwm [--nested | --tty] [--cpu | --gpu] [--no-shell] [--no-autostart]\n\
+             synwm [--nested [--nested-size ШxВ] | --tty] [--cpu | --gpu] [--no-shell] [--no-autostart]\n\
              synwm msg <version|windows|workspaces|outputs|layouts|events|action ДЕЙСТВИЕ|window ID ОПЕРАЦИЯ|reload|restart-shell|restart>\n",
             env!("CARGO_PKG_VERSION")
         );
@@ -137,6 +137,11 @@ fn run(args: &[String]) -> anyhow::Result<bool> {
     } else {
         args.iter().any(|a| a == "--nested") || std::env::var_os("WAYLAND_DISPLAY").is_some() || std::env::var_os("DISPLAY").is_some()
     };
+    if let Some(i) = args.iter().position(|a| a == "--nested-size") {
+        if let Some(v) = args.get(i + 1) {
+            std::env::set_var("SYNSHELL_NESTED_SIZE", v);
+        }
+    }
     let no_shell = args.iter().any(|a| a == "--no-shell");
     let no_autostart = args.iter().any(|a| a == "--no-autostart");
     tracing::info!(version = env!("CARGO_PKG_VERSION"), nested, "запуск synwm");

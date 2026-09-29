@@ -34,9 +34,15 @@ impl WinitBackend {
     /// Открыть окно и создать вывод. Возвращает бэкенд; источник событий
     /// winit регистрируется в цикле.
     pub fn new(event_loop: &EventLoop<'static, State>) -> anyhow::Result<Self> {
+        // Размер окна: SYNSHELL_NESTED_SIZE=ШxВ (или --nested-size) — например,
+        // 400x880 для отладки телефонной оболочки на десктопе.
+        let (w, h) = std::env::var("SYNSHELL_NESTED_SIZE")
+            .ok()
+            .and_then(|v| parse_size(&v))
+            .unwrap_or((1600.0, 960.0));
         let attrs = WinitWindow::default_attributes()
             .with_title("synwm (вложенный)")
-            .with_inner_size(LogicalSize::new(1600.0, 960.0))
+            .with_inner_size(LogicalSize::new(w, h))
             .with_visible(true);
         let (backend, winit_loop) = winit::init_from_attributes::<GlesRenderer>(attrs)
             .map_err(|e| anyhow::anyhow!("winit: {e}"))?;
@@ -199,5 +205,22 @@ impl WinitBackend {
             .filter(|s| *s > 0.0)
             .unwrap_or(1.0);
         self.output.change_current_state(None, None, Some(smithay::output::Scale::Fractional(scale)), None);
+    }
+}
+
+/// «ШxВ» → логический размер окна.
+fn parse_size(v: &str) -> Option<(f64, f64)> {
+    let (w, h) = v.trim().split_once(['x', 'X', '×'])?;
+    let (w, h) = (w.trim().parse::<f64>().ok()?, h.trim().parse::<f64>().ok()?);
+    (w >= 100.0 && h >= 100.0).then_some((w, h))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn nested_size() {
+        assert_eq!(super::parse_size("400x880"), Some((400.0, 880.0)));
+        assert_eq!(super::parse_size("400"), None);
+        assert_eq!(super::parse_size("10x10"), None);
     }
 }
