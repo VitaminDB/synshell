@@ -1,7 +1,6 @@
 //! Экранная клавиатура — отдельный демон `synkeyboard` (крейт synkeyboard).
-//! Оболочка запускает его рядом с собой, перезапускает при падении и
-//! переключает кнопкой панели навигации через его сокет
-//! (`synkeyboard toggle`).
+//! Оболочка запускает его рядом с собой и перезапускает при падении;
+//! показывается сама по text-input окна или командой `shell keyboard`.
 
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -20,7 +19,7 @@ pub fn start() {
                     }
                 }
                 Err(e) => {
-                    log::warn!("synkeyboard не запускается ({e}) — кнопка клавиатуры не будет работать");
+                    log::warn!("synkeyboard не запускается ({e})");
                     break;
                 }
             }
@@ -30,5 +29,5 @@ pub fn start() {
 }
 
 pub fn toggle() {
-    crate::spawn("synkeyboard toggle");
+    synshell_ui::actions::spawn("synkeyboard toggle");
 }

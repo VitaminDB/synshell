@@ -16,8 +16,26 @@ fn at_applet(kind: &str) -> PopupAnchor {
     crate::panel::applet_anchor(kind).unwrap_or_else(centered)
 }
 
+thread_local! {
+    static EXTRA: std::cell::RefCell<Option<Box<dyn Fn(&str, &str) -> bool>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Свои команды оболочки (телефон: `home`, `shade`, `recents`…): `f(имя,
+/// аргументы)` вызывается первым, `true` — команда обработана.
+pub fn set_extra(f: impl Fn(&str, &str) -> bool + 'static) {
+    EXTRA.with(|e| *e.borrow_mut() = Some(Box::new(f)));
+}
+
 pub fn handle(cmd: &str) {
     let ctx = ShellCtx::get();
+    {
+        let mut it = cmd.split_whitespace();
+        let name = it.next().unwrap_or("");
+        let arg = it.collect::<Vec<_>>().join(" ");
+        if EXTRA.with(|e| e.borrow().as_ref().is_some_and(|f| f(name, &arg))) {
+            return;
+        }
+    }
     let mut it = cmd.split_whitespace();
     let name = it.next().unwrap_or("");
     let arg = it.collect::<Vec<_>>().join(" ");
@@ -70,6 +88,18 @@ pub fn handle(cmd: &str) {
         ),
         "screenshot-failed" => crate::notifications::local(ctx, "Снимок не сделан", arg.trim(), None),
         "close-popup" => ctx.close_popup(),
+        // Жест «назад» при открытом оверлее: закрыть окно оболочки или
+        // выйти из режима редактирования.
+        "back" => {
+            if ctx.popup.get_untracked().is_some() {
+                ctx.close_popup();
+            } else if ctx.editing.get_untracked().is_some() {
+                crate::edit::stop_editing();
+            }
+        }
+        "desktop-menu" => crate::edit::open_desktop_menu(&ctx, None, syngui::core::Point::new(40.0, 120.0)),
+        "add-panel" => crate::edit::add_panel(false),
+        "add-dock" => crate::edit::add_panel(true),
         // Режим редактирования панели/дока N (по умолчанию — первого дока,
         // иначе первой панели); повтор — выйти.
         "edit-panel" | "edit-dock" => {

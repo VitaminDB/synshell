@@ -41,11 +41,31 @@ pub enum PopupKind {
     AddItem(usize),
     /// Изменить значок/раздел/папку.
     EditItem { panel: usize, index: usize },
+    /// Меню рабочего стола (правый клик по обоям, удержание на телефоне):
+    /// добавить панель или док, режим окон, обои, параметры.
+    DesktopMenu,
+    /// Меню значка приложения на домашнем экране (id .desktop).
+    HomeAppMenu(String),
 }
 
 impl PopupKind {
     /// Окна режима редактирования: перечитывание конфига их не закрывает
     /// (каждое добавление значка пишет файл).
+    /// Контекстное меню у точки нажатия (на телефоне — у пальца, а не
+    /// нижним листом).
+    pub fn is_context_menu(&self) -> bool {
+        matches!(
+            self,
+            PopupKind::DesktopMenu
+                | PopupKind::HomeAppMenu(_)
+                | PopupKind::ItemMenu { .. }
+                | PopupKind::AppMenu { .. }
+                | PopupKind::PanelMenu(_)
+                | PopupKind::WindowMenu(_)
+                | PopupKind::TrayMenu(_)
+        )
+    }
+
     pub fn survives_reload(&self) -> bool {
         matches!(self, PopupKind::AddItem(_))
     }

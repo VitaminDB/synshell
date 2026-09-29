@@ -497,6 +497,17 @@ impl State {
                 s.view.pointer_motion(p);
                 s.view.pointer_button(syngui::input::MouseButton::Left, action == "down");
             }
+            // Касания: tdown/tmove/tup — палец 1, tdown2/tmove2/tup2 — палец 2
+            // (свайп — несколько tmove с шагом по времени, удержание — пауза).
+            "tdown" | "tdown2" => {
+                s.view.touch_down(if action == "tdown" { 1 } else { 2 }, p);
+            }
+            "tmove" | "tmove2" => {
+                s.view.touch_motion(if action == "tmove" { 1 } else { 2 }, p);
+            }
+            "tup" | "tup2" => {
+                s.view.touch_up(if action == "tup" { 1 } else { 2 }, pos.map(|_| p));
+            }
             "leave" => {
                 s.view.pointer_leave();
                 if let Some(h) = s.hooks.on_pointer.as_mut() {

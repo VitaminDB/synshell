@@ -157,50 +157,62 @@ fn wallpaper(ctx: ShellCtx, out: &OutputInfo) -> (SurfaceId, Option<u64>) {
             clear_color: [0.0, 0.0, 0.0, 1.0],
         },
         move || {
-            let mut stack = Stack::new().fit(StackFit::Expand).child(DecoratedBox::new().class("wallpaper-color"));
-            stack = stack.child(crate::ui::rx(move || {
-                // Путь и режим — из живого конфига: смена обоев не пересоздаёт
-                // поверхность, а растворяет старую картинку в новую.
-                let slot = slide.get();
-                let cfg = ShellCtx::get().config.get();
-                let w = &cfg.wallpaper;
-                let path = w.per_output.get(&out_name).cloned().unwrap_or_else(|| w.path.clone());
-                let fit = match w.mode.as_str() {
-                    "fit" => ImageFit::Contain,
-                    "stretch" => ImageFit::Fill,
-                    "center" | "tile" => ImageFit::None,
-                    _ => ImageFit::Cover,
-                };
-                let picked = pick(&path, slot);
-                let key = {
-                    use std::hash::{Hash, Hasher};
-                    let mut h = std::collections::hash_map::DefaultHasher::new();
-                    picked.hash(&mut h);
-                    w.mode.hash(&mut h);
-                    h.finish()
-                };
-                let dur = cfg.animations.theme_ms();
-                Box::new(
-                    AnimatedSwitcher::new(key, move || match &picked {
-                        Some(p) => Box::new(Image::new(p.to_string_lossy()).fit(fit).placeholder(false).class("wallpaper-image")),
-                        None => Box::new(DecoratedBox::new()),
-                    })
-                    .exit_fade(false)
-                    .duration_ms(dur.max(1) * 2)
-                    .exit_duration_ms(dur.max(1) * 2)
-                    .easing(syngui::animation::Easing::EaseInOutSine)
-                    .animate_size(false)
-                    .directional(false),
-                )
-            }));
+            let menu_output = out_name.clone();
+            let mut stack = Stack::new().fit(StackFit::Expand).child(wallpaper_view(out_name.clone(), slide));
             if icons {
                 stack = stack.child(desktop_icons());
             }
-            // Клик по рабочему столу закрывает открытые окна оболочки.
-            Box::new(InputArea::new(stack).on_press(|_, _, _| ShellCtx::get().close_popup()))
+            // Клик по рабочему столу закрывает открытые окна оболочки, правый —
+            // меню рабочего стола.
+            Box::new(InputArea::new(stack).on_press(move |b, p, _| {
+                let ctx = ShellCtx::get();
+                if b == MouseButton::Right {
+                    crate::edit::open_desktop_menu(&ctx, Some(menu_output.clone()), p);
+                } else {
+                    ctx.close_popup();
+                }
+            }))
         },
     );
     (id, timer)
+}
+
+/// Обои вывода `out_name`: цвет, картинка из живого конфига (смена обоев
+/// растворяет старую картинку в новую), слайд-шоу по сигналу `slide`.
+pub fn wallpaper_view(out_name: String, slide: RwSignal<u64>) -> impl Widget {
+    Stack::new().fit(StackFit::Expand).child(DecoratedBox::new().class("wallpaper-color")).child(crate::ui::rx(move || {
+        let slot = slide.get();
+        let cfg = ShellCtx::get().config.get();
+        let w = &cfg.wallpaper;
+        let path = w.per_output.get(&out_name).cloned().unwrap_or_else(|| w.path.clone());
+        let fit = match w.mode.as_str() {
+            "fit" => ImageFit::Contain,
+            "stretch" => ImageFit::Fill,
+            "center" | "tile" => ImageFit::None,
+            _ => ImageFit::Cover,
+        };
+        let picked = pick(&path, slot);
+        let key = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            picked.hash(&mut h);
+            w.mode.hash(&mut h);
+            h.finish()
+        };
+        let dur = cfg.animations.theme_ms();
+        Box::new(
+            AnimatedSwitcher::new(key, move || match &picked {
+                Some(p) => Box::new(Image::new(p.to_string_lossy()).fit(fit).placeholder(false).class("wallpaper-image")),
+                None => Box::new(DecoratedBox::new()),
+            })
+            .exit_fade(false)
+            .duration_ms(dur.max(1) * 2)
+            .exit_duration_ms(dur.max(1) * 2)
+            .easing(syngui::animation::Easing::EaseInOutSine)
+            .animate_size(false)
+            .directional(false),
+        )
+    }))
 }
 
 // ─── Значки рабочего стола ───────────────────────────────────────────────────

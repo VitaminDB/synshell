@@ -381,26 +381,39 @@ fn show_desktop() -> Box<dyn Widget> {
         if b != MouseButton::Left {
             return;
         }
-        let ctx = ShellCtx::get();
-        let shown = ctx.shown_desktop.get_untracked();
-        if !shown.is_empty() {
-            for id in &shown {
-                crate::actions::window_op(*id, WindowOp::Activate);
-            }
-            ctx.shown_desktop.set(Vec::new());
-            return;
-        }
-        let ws = ctx.workspaces.get_untracked().iter().find(|w| w.active).map(|w| w.index);
-        let ids: Vec<u64> = ctx
-            .windows
-            .get_untracked()
-            .iter()
-            .filter(|w| !w.minimized && (Some(w.workspace) == ws || w.sticky))
-            .map(|w| w.id)
-            .collect();
-        for id in &ids {
-            crate::actions::window_op(*id, WindowOp::Minimize);
-        }
-        ctx.shown_desktop.set(ids);
+        toggle_show_desktop(&ShellCtx::get());
     }))
+}
+
+/// Свернуть окна текущего стола (показать рабочий стол); повторно —
+/// вернуть их. `true` — окна свёрнуты.
+pub fn toggle_show_desktop(ctx: &ShellCtx) -> bool {
+    let shown = ctx.shown_desktop.get_untracked();
+    if !shown.is_empty() {
+        for id in &shown {
+            crate::actions::window_op(*id, WindowOp::Activate);
+        }
+        ctx.shown_desktop.set(Vec::new());
+        return false;
+    }
+    show_desktop_now(ctx);
+    true
+}
+
+/// Свернуть все окна текущего стола (жест «домой»).
+pub fn show_desktop_now(ctx: &ShellCtx) {
+    let ws = ctx.workspaces.get_untracked().iter().find(|w| w.active).map(|w| w.index);
+    let ids: Vec<u64> = ctx
+        .windows
+        .get_untracked()
+        .iter()
+        .filter(|w| !w.minimized && (Some(w.workspace) == ws || w.sticky))
+        .map(|w| w.id)
+        .collect();
+    for id in &ids {
+        crate::actions::window_op(*id, WindowOp::Minimize);
+    }
+    if !ids.is_empty() {
+        ctx.shown_desktop.set(ids);
+    }
 }

@@ -1,51 +1,22 @@
-//! synmobile-shell — оболочка synshell для телефона: строка состояния сверху,
-//! домашний экран (сетка приложений) и панель навигации снизу. Рисуется
-//! syngui на layer-shell поверхностях (syngui-layer), с композитором synwm
-//! общается по IPC (`synshell_common::ipc`).
-//!
-//! Скелет: те же сервисы, что у syndesktop-shell (конфиг, темы, .desktop),
-//! но своя раскладка под палец. Экранная клавиатура — отдельный демон
-//! `synkeyboard`, оболочка его запускает и переключает кнопкой. Шторка
-//! уведомлений и экран блокировки — следующие шаги (см. docs/MOBILE.md).
+//! synmobile-shell — оболочка synshell для телефона поверх общей
+//! `synshell-ui`: те же панели и доки (добавляются удержанием на рабочем
+//! столе, встроенных строки состояния и навигации нет), меню, уведомления,
+//! блокировка; свои — домашний экран со страницами и команды жестов
+//! композитора (`home`, `shade`, `recents`, `back`).
 
 mod home;
-mod ipc;
 mod keyboard;
-mod navbar;
-mod statusbar;
-mod theme;
 
-use synshell_common::Config;
-use syngui::prelude::*;
+use synshell_common::config::FormFactor;
+use synshell_ui::ShellCtx;
 
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,wgpu_core=warn,wgpu_hal=warn,naga=warn,usvg=error"))
-        .format_timestamp_millis()
-        .init();
-    if std::env::args().any(|a| a == "--version" || a == "-V") {
-        println!("synmobile-shell {}", env!("CARGO_PKG_VERSION"));
-        return;
-    }
-    if let Err(e) = Config::ensure_file_exists() {
-        log::warn!("не удалось создать конфиг: {e}");
-    }
-    let (config, err) = Config::load();
-    if let Some(e) = err {
-        log::error!("ошибка в конфиге, взяты значения по умолчанию: {e}");
-    }
-    synshell_common::xdg::set_icon_theme(&config.appearance.icon_theme);
-    synshell_common::xdg::warm_up();
-    let mss = theme::build(&config);
-    let font = Some(config.appearance.font.trim().to_string()).filter(|f| !f.is_empty());
-
-    let result = syngui_layer::run(syngui_layer::RunOptions { font_family: font }, &mss, move || {
-        let ctx = Ctx::new(config);
-        provide_context(ctx);
-        statusbar::install(ctx);
-        navbar::install(ctx);
-        home::install(ctx);
-        ipc::start(ctx);
-        keyboard::start();
+    let result = synshell_ui::run(synshell_ui::Shell {
+        name: "synmobile-shell",
+        form_factor: FormFactor::Phone,
+        extra_mss: include_str!("../styles/mobile.mss"),
+        user_mss: Some("mobile.mss"),
+        install: Box::new(install),
     });
     if let Err(e) = result {
         log::error!("synmobile-shell: {e:#}");
@@ -53,51 +24,39 @@ fn main() {
     }
 }
 
-/// Общее состояние оболочки (копируется — внутри сигналы).
-#[derive(Clone, Copy)]
-pub struct Ctx {
-    pub config: RwSignal<Config>,
-    /// Домашний экран показан поверх окон.
-    pub home_visible: RwSignal<bool>,
-    /// Часы: минута, чтобы перерисовывать строку состояния раз в минуту.
-    pub clock: RwSignal<String>,
-    /// Батарея: проценты и «заряжается».
-    pub battery: RwSignal<Option<(u32, bool)>>,
+fn install(ctx: ShellCtx) {
+    // Панели и доки телефона; обои рисует домашний экран.
+    synshell_ui::manager::install_with(ctx, false);
+    home::install(ctx);
+    synshell_ui::commands::set_extra(command);
+    keyboard::start();
 }
 
-impl Ctx {
-    fn new(config: Config) -> Self {
-        Self {
-            config: use_signal(config),
-            home_visible: use_signal(true),
-            clock: use_signal(String::new()),
-            battery: use_signal(None),
+/// Команды жестов и кнопок (приходят от композитора `ShellCommand`).
+fn command(name: &str, arg: &str) -> bool {
+    let ctx = ShellCtx::get();
+    match name {
+        // Домой: закрыть оверлеи, свернуть окна, показать сетку приложений.
+        "home" => {
+            ctx.close_popup();
+            synshell_ui::applets::show_desktop_now(&ctx);
+            home::show_apps();
         }
+        "apps" => synshell_ui::commands::handle("launcher"),
+        // Шторка — пока центр уведомлений (быстрые настройки — следующий шаг).
+        "shade" => synshell_ui::commands::handle("notifications"),
+        "recents" => synshell_ui::commands::handle("window-switcher next"),
+        "keyboard" => keyboard::toggle(),
+        "mode" => {
+            let label = match arg.trim() {
+                "pages" => "Страницы",
+                "tiles" => "Плитки",
+                "free" => "Свободный стол",
+                other => other,
+            };
+            synshell_ui::osd::show(ctx, synshell_ui::ui::mi::WINDOW, None, format!("Режим окон: {label}"));
+        }
+        _ => return false,
     }
-    pub fn get() -> Self {
-        use_context::<Ctx>()
-    }
-}
-
-/// Действие композитору по IPC; ошибки только в лог — оболочка работает и
-/// под другими композиторами.
-pub fn action(a: synshell_common::Action) {
-    if let Err(e) = synshell_common::ipc::send_action(a) {
-        log::warn!("IPC: {e}");
-    }
-}
-
-/// Запустить команду (`sh -c`), не дожидаясь.
-pub fn spawn(cmd: &str) {
-    let cmd = cmd.to_string();
-    std::thread::spawn(move || {
-        let _ = std::process::Command::new("sh")
-            .arg("-c")
-            .arg(&cmd)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .map(|mut c| std::thread::spawn(move || { let _ = c.wait(); }));
-    });
+    true
 }

@@ -326,6 +326,155 @@ fn sep() -> impl Widget {
     DecoratedBox::new().class("menu-sep")
 }
 
+/// Открыть меню рабочего стола у точки `p` (логические координаты вывода).
+pub fn open_desktop_menu(ctx: &ShellCtx, output: Option<String>, p: Point) {
+    ctx.open_popup(
+        PopupKind::DesktopMenu,
+        crate::ctx::PopupAnchor { output, rect: Some([p.x, p.y, 0.0, 0.0]), edge: synshell_common::config::Edge::Top, attached: false },
+    );
+}
+
+/// Номера панелей, показанных на этом форм-факторе.
+fn own_panels(ctx: &ShellCtx) -> Vec<usize> {
+    ctx.cfg().panels.iter().enumerate().filter(|(_, p)| p.shows_on(ctx.form_factor)).map(|(i, _)| i).collect()
+}
+
+/// Меню рабочего стола: добавить панель или док, изменить панели, режим
+/// окон (телефон), обои, параметры.
+pub fn desktop_menu(ctx: ShellCtx) -> impl Widget {
+    let mut col = Column::new()
+        .gap(2.0)
+        .child(title("Рабочий стол"))
+        .child(menu_item("\u{E8F2}", "Добавить панель", || add_panel(false)))
+        .child(menu_item("\u{E30C}", "Добавить док", || add_panel(true)));
+    let cfg = ctx.cfg();
+    for i in own_panels(&ctx) {
+        let dock = cfg.panels[i].is_dock();
+        let edge = match cfg.panels[i].edge {
+            synshell_common::config::Edge::Top => "сверху",
+            synshell_common::config::Edge::Bottom => "снизу",
+            synshell_common::config::Edge::Left => "слева",
+            synshell_common::config::Edge::Right => "справа",
+        };
+        let label = format!("Изменить {} {edge}", if dock { "док" } else { "панель" });
+        col = col.child(menu_item("\u{E3C9}", label, move || start_editing(i)));
+    }
+    if ctx.is_phone() {
+        use synshell_common::action::MobileMode;
+        col = col.child(sep()).child(Text::new("Режим окон").class("menu-caption"));
+        let current = cfg.mobile.mode;
+        for (mode, icon, label) in [
+            (MobileMode::Pages, "\u{E8EB}", "Страницы"),
+            (MobileMode::Tiles, "\u{E871}", "Плитки"),
+            (MobileMode::Free, "\u{E89F}", "Свободный стол"),
+        ] {
+            let item = menu_item(icon, label, move || crate::actions::run(synshell_common::Action::MobileMode(mode)));
+            let class = if mode == current { "menu-radio menu-radio-on" } else { "menu-radio" };
+            col = col.child(DecoratedBox::new().child(item).class(class));
+        }
+    }
+    col.child(sep())
+        .child(menu_item(mi::WALLPAPER, "Обои и рабочий стол…", || crate::actions::spawn("synsettings wallpaper")))
+        .child(menu_item(mi::SETTINGS, "Параметры", || crate::actions::spawn("synsettings")))
+}
+
+/// Открыть контекстное меню у последнего нажатия (палец или мышь).
+pub fn open_at_press(ctx: &ShellCtx, kind: PopupKind) {
+    let p = syngui::input::last_press().unwrap_or(Point::new(40.0, 120.0));
+    ctx.open_popup(
+        kind,
+        crate::ctx::PopupAnchor { output: None, rect: Some([p.x, p.y, 0.0, 0.0]), edge: synshell_common::config::Edge::Top, attached: false },
+    );
+}
+
+/// Меню значка на домашнем экране: открыть, окна приложения, закрепить на
+/// доке телефона, убрать с домашнего экрана.
+pub fn home_app_menu(ctx: ShellCtx, app_id: &str) -> impl Widget {
+    let entry = crate::xdg::app_by_id(app_id);
+    let l = entry.as_ref().map(Launchable::from_entry);
+    let mut col = Column::new().gap(2.0).child(title(entry.as_ref().map(|e| e.name.clone()).unwrap_or_else(|| app_id.to_string())));
+    if let Some(l) = l {
+        let l2 = l.clone();
+        col = col.child(menu_item("\u{E89E}", "Открыть", move || {
+            ShellCtx::get().close_popup();
+            launchers::launch(ShellCtx::get(), &l2)
+        }));
+        col = window_items(ctx, col, &l.app_id);
+    }
+    let cfg = ctx.cfg();
+    let dock = cfg.panels.iter().enumerate().find(|(_, p)| p.is_dock() && p.shows_on(ctx.form_factor)).map(|(i, _)| i);
+    if let Some(panel) = dock {
+        let id = app_id.to_string();
+        col = col.child(sep()).child(menu_item(mi::PUSH_PIN, "Закрепить на доке", move || {
+            ShellCtx::get().close_popup();
+            pin_app(panel, &id);
+        }));
+    }
+    let id = app_id.to_string();
+    let pinned = cfg.mobile.home_apps.iter().any(|a| a == app_id);
+    if pinned {
+        col = col.child(menu_item(mi::CLOSE, "Убрать с домашнего экрана", move || {
+            let mut apps = ShellCtx::get().cfg().mobile.home_apps.clone();
+            apps.retain(|a| *a != id);
+            set_home_apps(apps);
+        }));
+    }
+    col
+}
+
+fn set_home_apps(apps: Vec<String>) {
+    let arr = toml_edit::Value::Array(apps.iter().map(|a| toml_edit::Value::from(a.as_str())).collect());
+    ShellCtx::get().close_popup();
+    if let Err(e) = synshell_common::config_edit::set_value(&["mobile", "home_apps"], arr) {
+        log::error!("домашний экран: {e:#}");
+    }
+    crate::reload_after_write();
+}
+
+/// Новая панель (или док) на этом форм-факторе — сразу в режиме
+/// редактирования, с открытым окном «Добавить».
+pub fn add_panel(dock: bool) {
+    use synshell_common::config::{Edge, Panel};
+    let ctx = ShellCtx::get();
+    let cfg = ctx.cfg();
+    let phone = ctx.is_phone();
+    let mut panel = if dock { Panel::dock_default() } else { Panel::default() };
+    // Не на тот же край, где уже есть панель.
+    let taken: Vec<Edge> = cfg.panels.iter().filter(|p| p.shows_on(ctx.form_factor)).map(|p| p.edge).collect();
+    if phone {
+        panel.form_factor = "phone".into();
+        panel.floating = dock;
+        if dock {
+            panel.dock.icon_size = 44;
+            panel.dock.zoom = 1.0;
+            panel.dock.labels = false;
+            panel.applets = vec![Applet::new("launcher"), Applet::new("separator"), Applet::new("taskbar")];
+        } else {
+            // Строка состояния: часы слева, значки справа.
+            panel.size = 30;
+            panel.edge = if taken.contains(&Edge::Top) { Edge::Bottom } else { Edge::Top };
+            panel.applets = ["clock", "spacer", "notifications", "network", "battery"].into_iter().map(Applet::new).collect();
+        }
+    } else {
+        panel.form_factor = "desktop".into();
+        if !dock {
+            panel.edge = [Edge::Bottom, Edge::Top, Edge::Left, Edge::Right].into_iter().find(|e| !taken.contains(e)).unwrap_or(Edge::Top);
+        }
+    }
+    if dock && taken.contains(&Edge::Bottom) {
+        panel.edge = [Edge::Left, Edge::Right, Edge::Top].into_iter().find(|e| !taken.contains(e)).unwrap_or(Edge::Bottom);
+    }
+    ctx.close_popup();
+    match synshell_common::config_edit::push_panel(&cfg.panels, &panel) {
+        Ok(_) => {
+            crate::reload_after_write();
+            let index = ShellCtx::get().cfg().panels.len().saturating_sub(1);
+            start_editing(index);
+        }
+        Err(e) => log::error!("не удалось добавить панель: {e:#}"),
+    }
+}
+
 /// Меню панели (правый клик по пустому месту).
 pub fn panel_menu(ctx: ShellCtx, panel: usize) -> impl Widget {
     let cfg = ctx.cfg();

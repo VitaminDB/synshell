@@ -49,7 +49,7 @@ fn width_of(kind: &PopupKind, ctx: &ShellCtx) -> f32 {
         PopupKind::TrayMenu(_) => 280.0,
         PopupKind::TrayOverflow => 260.0,
         PopupKind::Stack { panel, index, .. } => crate::launchers::stack_width(ctx, *panel, *index),
-        PopupKind::ItemMenu { .. } | PopupKind::AppMenu { .. } | PopupKind::PanelMenu(_) => 280.0,
+        PopupKind::ItemMenu { .. } | PopupKind::AppMenu { .. } | PopupKind::PanelMenu(_) | PopupKind::DesktopMenu | PopupKind::HomeAppMenu(_) => 280.0,
         PopupKind::AddItem(_) => 480.0,
         PopupKind::EditItem { .. } => 480.0,
     }
@@ -171,7 +171,13 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
     };
     let ctx = ShellCtx::get();
     let kind = p.kind.clone();
-    let card = crate::anim::popup_presence(&ctx, open, p.anchor.rect.map(|_| p.anchor.edge), attached, move || {
+    let (ow0, _) = out;
+    let is_sheet = ctx.is_phone() && !p.kind.is_context_menu();
+    // На узком экране карточка не шире вывода.
+    let width = if is_sheet { ow0 - 2.0 * GAP } else { width.min((ow0 - 2.0 * GAP).max(120.0)) };
+    let card_class = if is_sheet { "popup-card popup-sheet".to_string() } else { card_class };
+    let presence_edge = if is_sheet { Some(Edge::Bottom) } else { p.anchor.rect.map(|_| p.anchor.edge) };
+    let card = crate::anim::popup_presence(&ctx, open, presence_edge, attached, move || {
         let leave_timer = leave_timer.clone();
         Box::new(
             InputArea::new(
@@ -203,7 +209,18 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
     // Примыкающая карточка ложится вплотную к панели, остальные — с зазором.
     let gap = if attached { 0.0 } else { GAP };
     let (ow, oh) = out;
-    let placed: Box<dyn Widget> = match p.anchor.rect {
+    // Телефон: окна (громкость, сеть, «Добавить»…) — нижним листом во всю
+    // ширину; контекстные меню — у пальца.
+    let sheet = ctx.is_phone() && !p.kind.is_context_menu();
+    let placed: Box<dyn Widget> = if sheet {
+        Box::new(
+            Column::new()
+                .main_axis_alignment(MainAxisAlignment::End)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(card)
+                .class("popup-sheet-place"),
+        )
+    } else { match p.anchor.rect {
         None => Box::new(
             Column::new()
                 .main_axis_alignment(MainAxisAlignment::Center)
@@ -213,12 +230,15 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
         ),
         Some([x, y, w, h]) => {
             let clamp_x = |cx: f32| cx.clamp(GAP, (ow - width - GAP).max(GAP));
-            match p.anchor.edge {
+            // Точка (контекстное меню) в нижней части экрана — меню
+            // раскрывается вверх от неё, иначе ушло бы за край.
+            let edge = if w <= 0.0 && h <= 0.0 && p.anchor.edge == Edge::Top && y > oh * 0.55 { Edge::Bottom } else { p.anchor.edge };
+            match edge {
                 Edge::Bottom | Edge::Top => {
                     // Точка (меню окна) — от неё вправо, кнопка — по центру над ней.
                     let left = if w <= 0.0 { clamp_x(x) } else { clamp_x(x + w / 2.0 - width / 2.0) };
                     let row = Row::new().child(card).style("padding-left", StyleValue::px(left));
-                    let col = if p.anchor.edge == Edge::Bottom {
+                    let col = if edge == Edge::Bottom {
                         Column::new()
                             .main_axis_alignment(MainAxisAlignment::End)
                             .child(row)
@@ -246,7 +266,7 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
                 }
             }
         }
-    };
+    } };
     Stack::new().fit(StackFit::Expand).child(backdrop).child(placed)
 }
 
@@ -285,6 +305,8 @@ fn content(kind: &PopupKind, ctx: ShellCtx) -> Box<dyn Widget> {
         PopupKind::PanelMenu(panel) => Box::new(crate::edit::panel_menu(ctx, *panel)),
         PopupKind::AddItem(panel) => Box::new(crate::edit::add_view(ctx, *panel)),
         PopupKind::EditItem { panel, index } => crate::edit::edit_view(ctx, *panel, *index),
+        PopupKind::DesktopMenu => Box::new(crate::edit::desktop_menu(ctx)),
+        PopupKind::HomeAppMenu(app) => Box::new(crate::edit::home_app_menu(ctx, app)),
     }
 }
 
