@@ -25,6 +25,13 @@ Cargo-features `synwm`: `pixman` (CPU-бэкенд, включён по умол
 linux-dmabuf только с линейными форматами (`PixmanRenderer::dmabuf_formats`) и импортирует буферы через mmap.
 GPU-композитинг — следующий этап (свой рендерер на wgpu/Vulkan или zink+GBM поверх turnip).
 
+## Состояние на телефоне (Redmi K50 Ultra, 2026-09-29)
+- synwm с `--cpu` включает панель DSI-1 1220x2712 (smithay из форка `VitaminDB/smithay`, ветка `synshell`:
+  alpha плана масштабируется под диапазон драйвера — sde отдаёт 0..255).
+- Vulkan-клиенты (wgpu, turnip/KGSL) презентуют через `zwp_linux_dmabuf_v1` v3: turnip собран с
+  `freedreno-kmds=kgsl,msm` (нужен libdrm в WSI) и патчем KHR_display — см. `arch-mobile-port/docs/08`.
+- synmobile-shell стартует под synwm на телефоне.
+
 ## synmobile-shell (скелет)
 `crates/synmobile-shell`: строка состояния (часы, батарея из `/sys/class/power_supply`), панель навигации
 (назад = закрыть окно, домой, приложения), домашний экран — сетка `.desktop` (overlay-слой, прячется при
