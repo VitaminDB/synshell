@@ -6,6 +6,7 @@ mod appearance;
 mod hardware;
 mod input;
 mod mobile;
+mod net;
 mod panels;
 mod power;
 mod system;
@@ -145,6 +146,22 @@ pub const PAGES: &[PageDef] = &[
         group: "Устройства",
         keywords: "экран разрешение частота масштаб поворот положение vrr основной яркость ниты подсветка",
         build: system::displays,
+    },
+    PageDef {
+        id: "wifi",
+        title: "Wi-Fi",
+        icon: icons::WIFI,
+        group: "Устройства",
+        keywords: "беспроводная сеть интернет пароль подключение iwd networkmanager точка доступа",
+        build: net::wifi,
+    },
+    PageDef {
+        id: "bluetooth",
+        title: "Bluetooth",
+        icon: icons::BLUETOOTH,
+        group: "Устройства",
+        keywords: "наушники колонка сопряжение устройство клавиатура мышь bluez",
+        build: net::bluetooth,
     },
     PageDef {
         id: "phone",

@@ -595,3 +595,4 @@ Button.accent-swatch.selected {
 .hw-title { font-size: 18px; font-weight: 600; color: var(--fg); }
 .row-value { font-size: 13px; color: var(--fg); }
 .row-value.big { font-size: 20px; font-weight: 600; }
+.wifi-signal { color: var(--accent); font-size: 22px; }

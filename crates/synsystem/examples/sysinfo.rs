@@ -34,4 +34,18 @@ fn main() {
     p.sample(&[me, 1]);
     std::thread::sleep(std::time::Duration::from_millis(300));
     println!("Процессы: {:?}", p.sample(&[me, 1]));
+    for b in ["iwd", "networkmanager"] {
+        match wifi::backend(b) {
+            Some(w) => match w.state() {
+                Ok(st) => println!("Wi-Fi {}: включён {} подключено {:?} ip {:?} сетей {} (первая {:?})", w.name(), st.powered, st.connected, st.ip, st.networks.len(), st.networks.first()),
+                Err(e) => println!("Wi-Fi {}: {e}", w.name()),
+            },
+            None => println!("Wi-Fi {b}: нет"),
+        }
+    }
+    match bluetooth::Bluetooth::new().map(|b| b.state()) {
+        Some(Ok(st)) => println!("Bluetooth: {:?} включён {} устройств {} {:?}", st.adapter, st.powered, st.devices.len(), st.devices.iter().map(|d| (&d.name, d.paired, d.connected)).collect::<Vec<_>>()),
+        Some(Err(e)) => println!("Bluetooth: {e}"),
+        None => println!("Bluetooth: нет bluez"),
+    }
 }

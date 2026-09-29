@@ -8,6 +8,7 @@
 
 pub mod backlight;
 pub mod battery;
+pub mod bluetooth;
 pub mod cpu;
 pub mod gpu;
 pub mod hwinfo;
@@ -18,6 +19,7 @@ pub mod procs;
 pub mod thermal;
 pub mod util;
 pub mod volume;
+pub mod wifi;
 
 use std::path::{Path, PathBuf};
 
