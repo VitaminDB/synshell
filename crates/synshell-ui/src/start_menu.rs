@@ -113,9 +113,42 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
             _ => false,
         }
     });
-    let (w, h) = size(&ctx);
+    let (w, _) = size(&ctx);
+    let menu_layer = rx(move || match st.item_menu.get() {
+        Some((id, x, y)) => Box::new(item_menu(ctx, st, &id, x, y)),
+        None => Box::new(DecoratedBox::new()),
+    });
+    let phone = ctx.is_phone();
+    // Телефон: высота — по месту поверхности (между панелями и клавиатурой),
+    // с запасом сверху, и меняется, когда клавиатура выезжает.
+    let sized = rx(move || {
+        let (w, h) = if phone {
+            let vp = syngui::viewport::viewport_size().get();
+            (vp.width - 20.0, (vp.height * 0.86).max(300.0))
+        } else {
+            size(&ShellCtx::get())
+        };
+        let _ = w;
+        Box::new(
+            Column::new()
+                .gap(14.0)
+                .child(search(st))
+                .child(body_ref(st, ctx))
+                .child(footer(ShellCtx::get()))
+                .class("start")
+                .style("height", StyleValue::px(h))
+                .style("width", StyleValue::px(w - 24.0)),
+        )
+    });
+    let _ = w;
+    Stack::new().child(sized).child(menu_layer)
+}
+
+/// Середина меню: закреплённые, «Все приложения» или результаты поиска —
+/// перетекают друг в друга.
+fn body_ref(st: St, ctx: ShellCtx) -> impl Widget {
     let dur = crate::anim::group_ms(&ctx, "menu", 260);
-    let body = rx(move || {
+    rx(move || {
         let searching = !st.query.get().trim().is_empty();
         let v = st.view.get();
         // Ключ задаёт направление перетекания: дальше по списку — въезд справа.
@@ -137,20 +170,7 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
             .animate_size(false)
             .class("start-body"),
         )
-    });
-    let menu_layer = rx(move || match st.item_menu.get() {
-        Some((id, x, y)) => Box::new(item_menu(ctx, st, &id, x, y)),
-        None => Box::new(DecoratedBox::new()),
-    });
-    let column = Column::new()
-        .gap(14.0)
-        .child(search(st))
-        .child(body)
-        .child(footer(ctx))
-        .class("start")
-        .style("height", StyleValue::px(h))
-        .style("width", StyleValue::px(w - 24.0));
-    Stack::new().child(column).child(menu_layer)
+    })
 }
 
 // ─── Поиск ───────────────────────────────────────────────────────────────────

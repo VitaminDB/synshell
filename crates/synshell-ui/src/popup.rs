@@ -70,6 +70,12 @@ pub fn install(ctx: ShellCtx) {
         if same {
             return;
         }
+        // «Пуск» на телефоне: клавиатура для поиска — с ним и уходит.
+        let was_launcher = CURRENT.with(|c| c.borrow().as_ref().is_some_and(|x| matches!(x.kind, PopupKind::Launcher)));
+        let is_launcher = p.as_ref().is_some_and(|x| matches!(x.kind, PopupKind::Launcher));
+        if ctx.is_phone() && was_launcher != is_launcher {
+            crate::actions::spawn(if is_launcher { "synkeyboard show" } else { "synkeyboard hide" });
+        }
         CURRENT.with(|c| *c.borrow_mut() = p.clone());
         KEY_HANDLER.with(|k| k.borrow_mut().take());
         let prev_open = OPEN.with(|o| o.take());
@@ -117,7 +123,9 @@ pub fn install(ctx: ShellCtx) {
             anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
             size: (0, 0),
             margin: [0; 4],
-            exclusive_zone: -1,
+            // Телефон: учитывать зоны панелей и экранной клавиатуры — «Пуск» с
+            // поиском встаёт над клавиатурой, а не под неё.
+            exclusive_zone: if ctx.is_phone() { 0 } else { -1 },
             keyboard: KeyboardInteractivity::Exclusive,
             output: output.clone(),
             auto_size: false,
