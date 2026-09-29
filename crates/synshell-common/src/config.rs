@@ -1440,11 +1440,15 @@ pub struct Lock {
     pub command: String,
     /// Блокировать перед сном.
     pub before_sleep: bool,
+    /// Как снимать встроенную блокировку: `password` — пароль пользователя
+    /// (PAM), `swipe` — свайпом, без проверки (телефон по умолчанию: пароль
+    /// может быть не задан или неизвестен владельцу).
+    pub method: String,
 }
 
 impl Default for Lock {
     fn default() -> Self {
-        Self { command: String::new(), before_sleep: true }
+        Self { command: String::new(), before_sleep: true, method: "password".into() }
     }
 }
 
@@ -1525,6 +1529,9 @@ impl Config {
         }
         if self.general.xwayland == d.general.xwayland {
             self.general.xwayland = false;
+        }
+        if self.lock.method == d.lock.method {
+            self.lock.method = "swipe".into();
         }
     }
 

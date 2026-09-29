@@ -361,12 +361,16 @@ fn phone_view(ctx: ShellCtx, out: OutputInfo) -> impl Widget {
     let gestures = GestureDetector::new()
         .pan_axis(PanAxis::Vertical)
         .on_swipe(move |dir, _| match dir {
+            SwipeDirection::Up if stage.get_untracked() == Stage::Cover && swipe_unlocks() => {
+                log::info!("экран блокировки: снят свайпом ([lock] method = \"swipe\")");
+                syngui_layer::unlock_session();
+            }
             SwipeDirection::Up if stage.get_untracked() == Stage::Cover => stage.set(Stage::Pin),
             SwipeDirection::Down => stage.set(Stage::Cover),
             _ => {}
         })
         .on_click(move || {
-            if stage.get_untracked() == Stage::Cover {
+            if stage.get_untracked() == Stage::Cover && !swipe_unlocks() {
                 stage.set(Stage::Pin);
             }
         })
@@ -377,6 +381,19 @@ fn phone_view(ctx: ShellCtx, out: OutputInfo) -> impl Widget {
         .child(crate::manager::wallpaper_view(out.name.clone(), use_signal(0u64)))
         .child(DecoratedBox::new().class("lock-scrim"))
         .child(gestures)
+}
+
+/// Разблокировка свайпом: так настроено или у пользователя нет пароля
+/// (пустой или заблокированный в /etc/shadow — проверить нечем).
+fn swipe_unlocks() -> bool {
+    if ShellCtx::get().cfg().lock.method == "swipe" {
+        return true;
+    }
+    let user = user_name();
+    std::fs::read_to_string("/etc/shadow")
+        .ok()
+        .and_then(|s| s.lines().find(|l| l.split(':').next() == Some(user.as_str())).map(|l| l.split(':').nth(1).unwrap_or("").to_string()))
+        .is_some_and(|h| h.is_empty() || h.starts_with('!') || h.starts_with('*'))
 }
 
 fn cover(ctx: ShellCtx) -> impl Widget {

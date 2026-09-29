@@ -331,6 +331,7 @@ history_size = 100
 [lock]
 command = ""                   # пусто — встроенный экран блокировки; или "swaylock -f"
 before_sleep = true
+method = "password"             # password — пароль (PAM) | swipe — свайпом (на телефоне по умолчанию)
 
 [idle]
 dpms_after = 600               # секунды, 0 — никогда

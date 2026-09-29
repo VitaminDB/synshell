@@ -440,6 +440,13 @@ pub fn lock() -> W {
                 vec![
                     text_row("Внешний экран блокировки", "Пусто — встроенный", op!["lock", "command"], &l.command, "swaylock -f"),
                     switch_row("Блокировать перед сном", "", op!["lock", "before_sleep"], l.before_sleep),
+                    choice_row(
+                        "Снятие блокировки",
+                        "Свайп — без проверки (удобно, если пароль не задан)",
+                        op!["lock", "method"],
+                        &l.method,
+                        &[("password", "Паролем пользователя"), ("swipe", "Свайпом")],
+                    ),
                 ],
             ),
             group(
