@@ -56,8 +56,8 @@ pub fn launch(ctx: ShellCtx, e: &DesktopEntry) {
 fn recent_file() -> PathBuf {
     let base = std::env::var_os("XDG_STATE_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| syndesktop_common::paths::expand_tilde("~/.local/state"));
-    base.join("syndesktop/recent-apps.json")
+        .unwrap_or_else(|| synshell_common::paths::expand_tilde("~/.local/state"));
+    base.join("synshell/recent-apps.json")
 }
 
 pub fn recent() -> Vec<String> {
@@ -509,14 +509,14 @@ fn footer(ctx: ShellCtx) -> impl Widget {
         )
         .child(btn(mi::SETTINGS, "Параметры", || {
             ShellCtx::get().close_popup();
-            crate::actions::spawn("syndesktop-settings");
+            crate::actions::spawn("synsettings");
         }))
         .child(btn(mi::LOCK, "Блокировать", || crate::commands::handle("lock")))
         .child(btn(mi::POWER, "Питание", || {
             let c = ShellCtx::get();
             c.popup.set(Some(crate::ctx::Popup {
                 kind: crate::ctx::PopupKind::Power,
-                anchor: crate::ctx::PopupAnchor { output: None, rect: None, edge: syndesktop_common::config::Edge::Bottom, attached: false },
+                anchor: crate::ctx::PopupAnchor { output: None, rect: None, edge: synshell_common::config::Edge::Bottom, attached: false },
             }));
         }))
         .class("launcher-footer")

@@ -1,9 +1,9 @@
 //! Поток событий композитора → сигналы оболочки. Пока композитора
-//! syndesktop нет (оболочка под другим композитором) — переподключение
+//! synshell нет (оболочка под другим композитором) — переподключение
 //! раз в пару секунд, апплеты столов/задач пустые.
 
 use std::time::Duration;
-use syndesktop_common::ipc::{Client, Event};
+use synshell_common::ipc::{Client, Event};
 
 use crate::ctx::ShellCtx;
 

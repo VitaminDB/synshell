@@ -1,6 +1,6 @@
 [package]
 name = "syndesktop-shell"
-description = "Оболочка syndesktop: обои, панели, меню запуска, уведомления, OSD"
+description = "Оболочка synshell: обои, панели, меню запуска, уведомления, OSD"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -11,7 +11,7 @@ name = "syndesktop-shell"
 path = "src/main.rs"
 
 [dependencies]
-syndesktop-common.workspace = true
+synshell-common.workspace = true
 syngui-layer.workspace = true
 syngui = { workspace = true, features = ["winit", "clipboard", "msdf", "effects", "svg", "material-icons", "i18n"] }
 anyhow.workspace = true

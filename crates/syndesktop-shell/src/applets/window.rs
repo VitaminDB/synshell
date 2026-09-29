@@ -11,8 +11,8 @@
 
 use std::cell::RefCell;
 use std::sync::Arc;
-use syndesktop_common::config::Applet;
-use syndesktop_common::ipc::{WindowInfo, WindowOp};
+use synshell_common::config::Applet;
+use synshell_common::ipc::{WindowInfo, WindowOp};
 use syngui::core::sync::Mutex;
 use syngui::input::MouseButton;
 use syngui::mss::StyleValue;

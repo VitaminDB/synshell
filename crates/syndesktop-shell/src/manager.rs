@@ -106,7 +106,7 @@ fn pick(path: &str, slot: u64) -> Option<PathBuf> {
     if path.trim().is_empty() {
         return None;
     }
-    let p = syndesktop_common::paths::expand_tilde(path.trim());
+    let p = synshell_common::paths::expand_tilde(path.trim());
     if p.is_dir() {
         let mut files: Vec<PathBuf> = std::fs::read_dir(&p).ok()?.flatten().map(|e| e.path()).filter(|p| is_image(p)).collect();
         files.sort();
@@ -196,7 +196,7 @@ fn wallpaper(ctx: ShellCtx, out: &OutputInfo) -> (SurfaceId, Option<u64>) {
 
 fn desktop_dir() -> PathBuf {
     // XDG_DESKTOP_DIR из user-dirs.dirs, иначе ~/Desktop.
-    let home = syndesktop_common::paths::expand_tilde("~");
+    let home = synshell_common::paths::expand_tilde("~");
     let conf = home.join(".config/user-dirs.dirs");
     if let Ok(s) = std::fs::read_to_string(conf) {
         for line in s.lines() {

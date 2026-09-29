@@ -1,8 +1,8 @@
 //! Пейджер столов: кнопка на стол, активный подсвечен, точки — окна.
 
-use syndesktop_common::action::WorkspaceTarget;
-use syndesktop_common::config::Applet;
-use syndesktop_common::Action;
+use synshell_common::action::WorkspaceTarget;
+use synshell_common::config::Applet;
+use synshell_common::Action;
 use syngui::input::MouseButton;
 use syngui::prelude::*;
 

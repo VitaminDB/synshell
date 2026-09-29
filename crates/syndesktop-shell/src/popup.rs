@@ -5,10 +5,10 @@
 
 use std::cell::{Cell, RefCell};
 use std::sync::{Arc, Mutex};
-use syndesktop_common::action::WorkspaceTarget;
-use syndesktop_common::config::Edge;
-use syndesktop_common::ipc::WindowOp;
-use syndesktop_common::Action;
+use synshell_common::action::WorkspaceTarget;
+use synshell_common::config::Edge;
+use synshell_common::ipc::WindowOp;
+use synshell_common::Action;
 use syngui::input::{Key, MouseButton};
 use syngui::mss::StyleValue;
 use syngui::prelude::*;
@@ -374,7 +374,7 @@ fn volume(ctx: ShellCtx) -> impl Widget {
             if crate::actions::which("pavucontrol") {
                 crate::actions::spawn("pavucontrol");
             } else {
-                crate::actions::spawn("syndesktop-settings audio");
+                crate::actions::spawn("synsettings audio");
             }
         }))
 }
@@ -406,7 +406,7 @@ fn network(ctx: ShellCtx) -> impl Widget {
                     return;
                 }
             }
-            crate::actions::spawn("syndesktop-settings network");
+            crate::actions::spawn("synsettings network");
         }))
 }
 

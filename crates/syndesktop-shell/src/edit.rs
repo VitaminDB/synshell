@@ -1,14 +1,14 @@
 //! Режим редактирования панелей и дока: значки можно перетаскивать,
 //! удалять и настраивать, добавлять приложения, разделы (группы значков со
 //! всплывающим окном), папки и апплеты. Правки сразу пишутся в
-//! `config.toml` (`syndesktop_common::config_edit`) — оболочка
+//! `config.toml` (`synshell_common::config_edit`) — оболочка
 //! перечитывает его и пересобирает панели.
 //!
 //! Здесь же меню панели и значков (правый клик).
 
 use std::any::Any;
-use syndesktop_common::config::Applet;
-use syndesktop_common::ipc::WindowOp;
+use synshell_common::config::Applet;
+use synshell_common::ipc::WindowOp;
 use syngui::core::{Point, Rect, Size};
 use syngui::input::{Event, EventResult, MouseButton};
 use syngui::layout::Constraints;
@@ -35,7 +35,7 @@ fn applets_of(panel: usize) -> Vec<Applet> {
 
 fn save(panel: usize, applets: Vec<Applet>) {
     let cfg = ShellCtx::get().cfg();
-    match syndesktop_common::config_edit::set_panel_applets(panel, &cfg.panels, &applets) {
+    match synshell_common::config_edit::set_panel_applets(panel, &cfg.panels, &applets) {
         Ok(_) => crate::reload_after_write(),
         Err(e) => {
             log::error!("не удалось сохранить панель: {e:#}");
@@ -114,7 +114,7 @@ pub fn app_applet(app_id: &str) -> Applet {
 
 fn set_mode(panel: usize, mode: &str) {
     let cfg = ShellCtx::get().cfg();
-    let r = syndesktop_common::config_edit::set_panel_key(panel, &cfg.panels, "mode", mode);
+    let r = synshell_common::config_edit::set_panel_key(panel, &cfg.panels, "mode", mode);
     if let Err(e) = r {
         log::error!("не удалось сменить вид панели: {e:#}");
     }
@@ -358,7 +358,7 @@ pub fn panel_menu(ctx: ShellCtx, panel: usize) -> impl Widget {
         .child(menu_item(if dock { "\u{E8F2}" } else { "\u{E30C}" }, if dock { "Сделать обычной панелью" } else { "Сделать доком" }, move || {
             set_mode(panel, if dock { "panel" } else { "dock" });
         }))
-        .child(menu_item(mi::SETTINGS, "Параметры панелей…", || crate::actions::spawn("syndesktop-settings panels")))
+        .child(menu_item(mi::SETTINGS, "Параметры панелей…", || crate::actions::spawn("synsettings panels")))
 }
 
 /// Меню значка панели/дока.

@@ -17,8 +17,8 @@
 
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
-use syndesktop_common::config::{Applet, Edge, Panel};
-use syndesktop_common::ipc::WindowInfo;
+use synshell_common::config::{Applet, Edge, Panel};
+use synshell_common::ipc::WindowInfo;
 use syngui::core::sync::Mutex;
 use syngui::input::MouseButton;
 use syngui::mss::StyleValue;
@@ -504,7 +504,7 @@ struct ItemEnv<'a> {
     windows: &'a [WindowInfo],
     launching: &'a [(String, u64)],
     bursts: &'a std::collections::HashMap<String, u32>,
-    dock: &'a syndesktop_common::config::Dock,
+    dock: &'a synshell_common::config::Dock,
 }
 
 #[derive(Clone)]

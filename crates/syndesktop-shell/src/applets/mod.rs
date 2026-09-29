@@ -6,8 +6,8 @@ pub mod window;
 mod workspaces;
 
 use std::time::Duration;
-use syndesktop_common::config::Applet;
-use syndesktop_common::ipc::WindowOp;
+use synshell_common::config::Applet;
+use synshell_common::ipc::WindowOp;
 use syngui::input::MouseButton;
 use syngui::prelude::*;
 
@@ -136,10 +136,10 @@ fn keyboard(a: &Applet, _pc: &PanelCtx) -> Box<dyn Widget> {
         )
         .on_click(|b, _, _| {
             if b == MouseButton::Left {
-                crate::actions::run(syndesktop_common::Action::KeyboardLayoutNext);
+                crate::actions::run(synshell_common::Action::KeyboardLayoutNext);
             }
         })
-        .on_wheel(|_| crate::actions::run(syndesktop_common::Action::KeyboardLayoutNext)),
+        .on_wheel(|_| crate::actions::run(synshell_common::Action::KeyboardLayoutNext)),
     )
 }
 
@@ -359,8 +359,8 @@ fn layout(_pc: &PanelCtx) -> Box<dyn Widget> {
             Row::new().child(move || {
                 let l = ctx.workspaces.get().iter().find(|w| w.active).map(|w| w.layout).unwrap_or_default();
                 let g = match l {
-                    syndesktop_common::action::LayoutKind::Floating => mi::FLOAT,
-                    syndesktop_common::action::LayoutKind::Monocle => mi::FULLSCREEN,
+                    synshell_common::action::LayoutKind::Floating => mi::FLOAT,
+                    synshell_common::action::LayoutKind::Monocle => mi::FULLSCREEN,
                     _ => mi::TILE,
                 };
                 icon(g)
@@ -368,8 +368,8 @@ fn layout(_pc: &PanelCtx) -> Box<dyn Widget> {
         )
         .buttons(&[MouseButton::Left, MouseButton::Right])
         .on_click(|b, _, _| match b {
-            MouseButton::Left => crate::actions::run(syndesktop_common::Action::CycleLayout),
-            MouseButton::Right => crate::actions::run(syndesktop_common::Action::Layout(Default::default())),
+            MouseButton::Left => crate::actions::run(synshell_common::Action::CycleLayout),
+            MouseButton::Right => crate::actions::run(synshell_common::Action::Layout(Default::default())),
             _ => {}
         }),
     )

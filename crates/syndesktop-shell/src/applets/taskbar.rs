@@ -2,8 +2,8 @@
 //! заголовки. ЛКМ — свернуть/развернуть, СКМ — закрыть, ПКМ — меню окна,
 //! колесо — перебор окон.
 
-use syndesktop_common::config::Applet;
-use syndesktop_common::ipc::{WindowInfo, WindowOp};
+use synshell_common::config::Applet;
+use synshell_common::ipc::{WindowInfo, WindowOp};
 use syngui::input::MouseButton;
 use syngui::prelude::*;
 
@@ -173,7 +173,7 @@ pub fn start_minimize_rects() {
             let changed = SENT.with(|s| s.borrow().get(&id) != Some(&(pc.output.clone(), rect)));
             if changed {
                 SENT.with(|s| s.borrow_mut().insert(id, (pc.output.clone(), rect)));
-                crate::actions::send(syndesktop_common::ipc::Request::SetMinimizeRect { id, output: pc.output.clone(), rect });
+                crate::actions::send(synshell_common::ipc::Request::SetMinimizeRect { id, output: pc.output.clone(), rect });
             }
         }
         Some(std::time::Duration::from_secs(1))

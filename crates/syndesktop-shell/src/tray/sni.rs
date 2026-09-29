@@ -335,7 +335,7 @@ pub(crate) fn entry_from((id, props, kids): RawEntry) -> MenuEntry {
             // PNG — через файл во временном каталоге (Image грузит пути).
             let mut h = std::collections::hash_map::DefaultHasher::new();
             std::hash::Hash::hash(&png, &mut h);
-            let p = std::env::temp_dir().join(format!("syndesktop-tray-{:x}.png", std::hash::Hasher::finish(&h)));
+            let p = std::env::temp_dir().join(format!("synshell-tray-{:x}.png", std::hash::Hasher::finish(&h)));
             if !p.exists() {
                 let _ = std::fs::write(&p, &png);
             }

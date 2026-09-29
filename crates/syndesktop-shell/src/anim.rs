@@ -3,7 +3,7 @@
 //! всплывающее окно вырастает из панели, а содержимое переливается между
 //! состояниями, вместо мгновенных подмен.
 
-use syndesktop_common::config::Edge;
+use synshell_common::config::Edge;
 use syngui::animation::Easing;
 use syngui::prelude::*;
 use syngui::widgets::{AnimationAxis, Motion, Presence, TransformOrigin};

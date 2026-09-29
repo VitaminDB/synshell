@@ -1,0 +1,15 @@
+#!/bin/sh
+# Запуск сеанса synshell из менеджера входа (SDDM/GDM/greetd) или с TTY.
+export XDG_CURRENT_DESKTOP=synshell
+export XDG_SESSION_DESKTOP=synshell
+export XDG_SESSION_TYPE=wayland
+# Пользовательские переменные окружения сеанса.
+if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/synshell/env" ]; then
+    set -a
+    . "${XDG_CONFIG_HOME:-$HOME/.config}/synshell/env"
+    set +a
+fi
+if [ -z "$DBUS_SESSION_BUS_ADDRESS" ] && command -v dbus-run-session >/dev/null; then
+    exec dbus-run-session synwm --tty "$@"
+fi
+exec synwm --tty "$@"

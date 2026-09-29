@@ -16,20 +16,20 @@ accent = ""             # пусто — акцент темы
 Встроенные: `nord`, `catppuccin`, `tokyo-night`, `gruvbox`, `rose-pine`,
 `everforest`, `dracula`, `kanagawa`, `solarized`, `synthwave`, `aurora`,
 `sakura`, `brutal`, `terminal`. Список с источниками:
-`syndesktop-settings --list-themes`.
+`synsettings --list-themes`.
 
 ## Что откуда берётся
 
 Слои палитры (каждый следующий перекрывает предыдущий):
 
-1. стандартная тёмная/светлая палитра syndesktop;
+1. стандартная тёмная/светлая палитра synshell;
 2. вариант темы `[dark]` или `[light]` (если у темы один вариант, он
    используется при любой `color_scheme`);
 3. `appearance.accent`, если не пустой;
 4. `[appearance.colors]`.
 
 Слои стиля оболочки: переменные палитры → переменные темы → встроенный
-`shell.mss` → `shell.mss` темы → фон рабочего стола → `~/.config/syndesktop/theme.mss`.
+`shell.mss` → `shell.mss` темы → фон рабочего стола → `~/.config/synshell/theme.mss`.
 «Параметры системы» устроены так же, но со своим `settings.mss`.
 
 Обои темы видны, когда в `[wallpaper]` пусты `path` и `color`. Заголовки окон
@@ -43,8 +43,8 @@ accent = ""             # пусто — акцент темы
 
 ## Своя тема
 
-Каталог `~/.config/syndesktop/themes/<имя>/` (или
-`/usr/share/syndesktop/themes/<имя>/` для всех пользователей). Тема с именем
+Каталог `~/.config/synshell/themes/<имя>/` (или
+`/usr/share/synshell/themes/<имя>/` для всех пользователей). Тема с именем
 встроенной заменяет её. Композитор и оболочка следят за файлами активной темы
 и применяют правки на лету — удобно подбирать стиль, держа файл открытым.
 
@@ -103,7 +103,7 @@ glow = "#cba6f766"
 из `vars`. Работают градиенты (`linear-`, `radial-`, `conic-gradient`),
 `box-shadow` (несколько, `inset`), `glow`, `outline-*`, `text-shadow`,
 `text-transform`, `letter-spacing`, переходы. Примеры — во встроенных темах
-(`crates/syndesktop-common/themes/`): неон в `synthwave`, жёсткие тени в
+(`crates/synshell-common/themes/`): неон в `synthwave`, жёсткие тени в
 `brutal`, стекло в `aurora`.
 
 Перетекания: карточка всплывающего окна у прижатой панели получает класс
@@ -130,7 +130,7 @@ glow = "#cba6f766"
 | Что | Файл | Кто читает |
 |---|---|---|
 | GTK 3/4, тема Breeze | `~/.config/gtk-{3,4}.0/colors.css` (`*_breeze`) | GTK-тема Breeze |
-| GTK 4 libadwaita, GTK 3 adw-gtk3 | блок `/* syndesktop: … */` в `~/.config/gtk-{3,4}.0/gtk.css` | libadwaita (`--window-bg-color` …), adw-gtk3 |
+| GTK 4 libadwaita, GTK 3 adw-gtk3 | блок `/* synshell: … */` в `~/.config/gtk-{3,4}.0/gtk.css` | libadwaita (`--window-bg-color` …), adw-gtk3 |
 | тёмная/светлая схема | `settings.ini` (`gtk-application-prefer-dark-theme`), `gsettings … color-scheme` | GTK, порталы |
 | Qt/KDE | `[Colors:*]`, `[WM]` в `~/.config/kdeglobals`, схема `~/.local/share/color-schemes/Syndesktop.colors` | Qt с `QT_QPA_PLATFORMTHEME=kde`, kded6 |
 | GIMP 3 | блок в `~/.config/GIMP/<версия>/gimp.css` | стандартная тема GIMP |
@@ -141,7 +141,7 @@ glow = "#cba6f766"
 
 Файлы переписываются только при изменении; свои строки в `gtk.css`,
 `gimp.css` и остальные группы `kdeglobals` сохраняются, перед первой правкой
-`kdeglobals` сохраняется копия `kdeglobals.syndesktop-backup`. Программы Qt/KDE
+`kdeglobals` сохраняется копия `kdeglobals.synshell-backup`. Программы Qt/KDE
 перекрашиваются сразу (сигнал `KGlobalSettings.notifyChange`), GTK — у новых
 окон (открытые — при наличии `colorreload-gtk-module`), GIMP — после
 перезапуска. У GIMP должна быть выбрана тема «Default» (любой вариант).

@@ -3,8 +3,8 @@
 
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
-use syndesktop_common::ipc::{Client, Request, Response, WindowOp};
-use syndesktop_common::Action;
+use synshell_common::ipc::{Client, Request, Response, WindowOp};
+use synshell_common::Action;
 
 use crate::ctx::ShellCtx;
 
@@ -77,7 +77,7 @@ pub fn run(action: Action) {
         ),
         Action::Shell(cmd) => crate::commands::handle(&cmd),
         Action::None => {}
-        // Без композитора syndesktop — системные действия напрямую.
+        // Без композитора synshell — системные действия напрямую.
         Action::Suspend if !ctx.connected.get_untracked() => spawn("systemctl suspend"),
         Action::Reboot if !ctx.connected.get_untracked() => spawn("systemctl reboot"),
         Action::PowerOff if !ctx.connected.get_untracked() => spawn("systemctl poweroff"),

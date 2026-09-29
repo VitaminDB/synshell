@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
-use syndesktop_common::ipc::{GtkMenu, WindowInfo};
+use synshell_common::ipc::{GtkMenu, WindowInfo};
 use syngui::prelude::*;
 use zbus::blocking::{Connection, MessageIterator};
 use zbus::message::Header;

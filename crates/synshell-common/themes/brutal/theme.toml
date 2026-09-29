@@ -1,0 +1,63 @@
+name = "Необрутализм"
+description = "Толстые чёрные рамки, жёсткие тени без размытия, кричащие цвета и прямые углы."
+author = "synshell"
+
+[appearance]
+corner_radius = 0
+panel_opacity = 1.0
+
+[decorations]
+corner_radius = 0
+title_align = "left"
+shadow = false
+
+[panel]
+# Толщина плавающей панели и прилипшей к краю (defloat).
+size = 48
+defloated_size = 42
+
+[light]
+bg = "#fff4d6"
+surface = "#ffffff"
+surface_alt = "#fff0c2"
+fg = "#111111"
+muted = "#4a4a4a"
+border = "#111111"
+accent = "#4d61fc"
+accent_fg = "#ffffff"
+danger = "#ff3b3b"
+success = "#1fbf5b"
+warning = "#ffb800"
+wallpaper = "linear-gradient(135deg, #ffe45e 0%, #ffd23f 100%)"
+wallpaper_color = "#ffd23f"
+titlebar = "#ff90e8"
+titlebar_inactive = "#ffffff"
+shadow = "#111111"
+
+[light.vars]
+hard = "#111111"
+pop = "#ff90e8"
+pop2 = "#23d5ab"
+
+[dark]
+bg = "#111111"
+surface = "#1a1a1a"
+surface_alt = "#262626"
+fg = "#f5f5f5"
+muted = "#b5b5b5"
+border = "#f5f5f5"
+accent = "#c6ff3d"
+accent_fg = "#111111"
+danger = "#ff4d4d"
+success = "#3dff8b"
+warning = "#ffd23f"
+wallpaper = "linear-gradient(135deg, #1c1c1c 0%, #111111 100%)"
+wallpaper_color = "#111111"
+titlebar = "#c6ff3d"
+titlebar_inactive = "#1a1a1a"
+shadow = "#c6ff3d"
+
+[dark.vars]
+hard = "#c6ff3d"
+pop = "#ff5ecb"
+pop2 = "#3dd6ff"

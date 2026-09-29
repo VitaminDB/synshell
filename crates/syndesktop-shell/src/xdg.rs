@@ -1,3 +1,3 @@
-//! Приложения и значки — общий модуль `syndesktop_common::xdg`.
+//! Приложения и значки — общий модуль `synshell_common::xdg`.
 
-pub use syndesktop_common::xdg::*;
+pub use synshell_common::xdg::*;

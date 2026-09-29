@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use syndesktop_common::config::{Edge, Panel};
+use synshell_common::config::{Edge, Panel};
 use syngui::core::sync::Mutex;
 use syngui::prelude::*;
 use syngui::widgets::EventHook;

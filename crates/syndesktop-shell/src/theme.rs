@@ -4,9 +4,9 @@
 //! 3. встроенный `styles/shell.mss`;
 //! 4. `shell.mss` темы;
 //! 5. фон рабочего стола (`[wallpaper]` или обои темы);
-//! 6. пользовательский `~/.config/syndesktop/theme.mss`.
+//! 6. пользовательский `~/.config/synshell/theme.mss`.
 
-use syndesktop_common::{paths, Config};
+use synshell_common::{paths, Config};
 
 const BASE: &str = include_str!("../styles/shell.mss");
 
@@ -33,7 +33,7 @@ pub fn build(cfg: &Config) -> String {
     }
     out.push_str(&format!(".wallpaper-color {{ background: {}; }}\n", a.wallpaper_background(&cfg.wallpaper)));
     if let Ok(user) = std::fs::read_to_string(paths::user_theme_file()) {
-        out.push_str("\n/* ~/.config/syndesktop/theme.mss */\n");
+        out.push_str("\n/* ~/.config/synshell/theme.mss */\n");
         out.push_str(&user);
     }
     out

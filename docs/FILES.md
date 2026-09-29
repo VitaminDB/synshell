@@ -1,16 +1,16 @@
-# Проводник (`syndesktop-files`)
+# Проводник (`synfiles`)
 
-Файловый менеджер syndesktop. Внешне — как Проводник Windows 11 (вкладки в
+Файловый менеджер synshell. Внешне — как Проводник Windows 11 (вкладки в
 заголовке окна, адресная строка с хлебными крошками, командная панель, панель
 навигации), по возможностям — на уровне Dolphin и дальше.
 
 ```
-syndesktop-files [ПУТЬ|file://URI…]      # папки во вкладках; путь к файлу — его папка с выделенным файлом
-syndesktop-files --view icons --split ~   # вид и две панели при запуске
+synfiles [ПУТЬ|file://URI…]      # папки во вкладках; путь к файлу — его папка с выделенным файлом
+synfiles --view icons --split ~   # вид и две панели при запуске
 ```
 
 Без аргументов открываются вкладки прошлого сеанса
-(`~/.local/state/syndesktop/files-session.toml`, `[files] restore_tabs`).
+(`~/.local/state/synshell/files-session.toml`, `[files] restore_tabs`).
 
 ## Возможности
 
@@ -45,14 +45,14 @@ syndesktop-files --view icons --split ~   # вид и две панели при
 - **Поиск**: ввод в поле поиска сразу фильтрует текущую папку; Enter — поиск
   по имени во всех вложенных папках (сначала ближние результаты, шаблоны `*.rs`,
   несколько слов). Колонка «Папка» показывает, где найдено.
-- **Просмотрщик картинок** (`syndesktop-files --viewer ФАЙЛ`, «Просмотр
+- **Просмотрщик картинок** (`synfiles --viewer ФАЙЛ`, «Просмотр
   изображений» в меню программ) — картинки из проводника открываются в нём. Сцена
   из просмотрщика вложений synthos: размытая копия картинки вместо пустых полей,
   масштаб к курсору колесом, перетаскивание, полосы прокрутки, двойной щелчок —
   вписать ↔ 1:1, стрелки листания и лента миниатюр всех картинок папки, панель
   (масштаб, вписать, 1:1, заполнить, поворот, отражение, во весь экран). Поворот
   по EXIF; HEIC/HEIF/AVIF (libheif), TIFF, JPEG XL и RAW (imagemagick)
-  преобразуются в фоне в `~/.cache/syndesktop/viewer` (неоткрываемое 30 дней
+  преобразуются в фоне в `~/.cache/synshell/viewer` (неоткрываемое 30 дней
   удаляется), соседние картинки готовятся заранее. В заголовке — размер,
   номер в папке, «Сведения» (I), «Показать в папке», «Открыть с помощью»,
   «Копировать», «Удалить» (в корзину, дальше — следующая).
@@ -123,7 +123,7 @@ restore_tabs = true
 
 Вид, сортировка, скрытые файлы и закреплённые папки сохраняются сами, когда их
 меняют в окне. Программа для папок по умолчанию — `[general] file_manager`
-(Super+E) и `MimeType=inode/directory` в `syndesktop-files.desktop`.
+(Super+E) и `MimeType=inode/directory` в `synfiles.desktop`.
 
 ## Устройство
 
@@ -138,13 +138,13 @@ restore_tabs = true
 | `thumbs.rs` | пул миниатюр, кэш freedesktop |
 | `search.rs` | поиск по имени в ширину |
 | `places.rs` | места боковой панели, диски, gvfs |
-| `syndesktop_common::mime` | shared-mime-info (globs2, magic, subclasses), описания, значки, `mimeapps.list` |
-| `syndesktop_common::xdg` | .desktop (с `MimeType=`, подстановкой `%f/%F/%u/%U`), темы значков |
+| `synshell_common::mime` | shared-mime-info (globs2, magic, subclasses), описания, значки, `mimeapps.list` |
+| `synshell_common::xdg` | .desktop (с `MimeType=`, подстановкой `%f/%F/%u/%U`), темы значков |
 
 Проверка без экрана — снимок с шагами сценария:
 
 ```
-syndesktop-files --screenshot out.png --size 1280x800 --view tiles \
+synfiles --screenshot out.png --size 1280x800 --view tiles \
     --script 'key:end;key:f2' ~/Документы
 ```
 

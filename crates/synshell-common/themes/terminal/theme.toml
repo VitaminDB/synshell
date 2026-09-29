@@ -1,0 +1,43 @@
+name = "Терминал"
+description = "Зелёный люминофор старого монитора: моноширинный шрифт, свечение и прямые углы."
+author = "synshell"
+
+[appearance]
+corner_radius = 0
+panel_opacity = 0.97
+font = "Hack"
+
+[decorations]
+corner_radius = 0
+title_align = "left"
+shadow_opacity = 0.7
+
+[panel]
+# Толщина плавающей панели и прилипшей к краю (defloat).
+size = 36
+defloated_size = 32
+
+[dark]
+bg = "#030a05"
+surface = "#06120a"
+surface_alt = "#0b1f11"
+fg = "#9dffb0"
+muted = "#4fa865"
+border = "#1f5f2e"
+accent = "#39ff6a"
+accent_fg = "#021005"
+danger = "#ff5f56"
+success = "#39ff6a"
+warning = "#ffcc00"
+wallpaper = "radial-gradient(ellipse at 50% 45%, #0c2a14 0%, #06150a 45%, #020603 85%)"
+wallpaper_color = "#030a05"
+titlebar = "#06120a"
+titlebar_inactive = "#030a05"
+shadow = "#000000cc"
+scrim = "#000000aa"
+
+[dark.vars]
+phosphor = "#39ff6a"
+phosphor-glow = "#39ff6a88"
+phosphor-soft = "#39ff6a1f"
+amber = "#ffb000"

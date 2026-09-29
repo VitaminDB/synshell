@@ -10,7 +10,7 @@
 pub mod sni;
 
 use std::cell::OnceCell;
-use syndesktop_common::config::Applet;
+use synshell_common::config::Applet;
 use syngui::input::MouseButton;
 use syngui::mss::StyleValue;
 use syngui::prelude::*;

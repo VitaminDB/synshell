@@ -1,6 +1,6 @@
 //! syndesktop-shell — оболочка рабочего стола: обои, панели с апплетами,
 //! меню запуска, уведомления, экранные подсказки. Рисуется syngui на
-//! layer-shell поверхностях (крейт syngui-layer), с композитором syndesktop
+//! layer-shell поверхностях (крейт syngui-layer), с композитором synshell
 //! общается по IPC, а под другими композиторами работает без него.
 
 mod actions;
@@ -32,8 +32,8 @@ mod xdg;
 
 use std::sync::Arc;
 use std::time::Duration;
-use syndesktop_common::watch::FileWatcher;
-use syndesktop_common::Config;
+use synshell_common::watch::FileWatcher;
+use synshell_common::Config;
 use syngui::prelude::*;
 
 use ctx::ShellCtx;
@@ -77,8 +77,8 @@ fn main() {
         applets::taskbar::start_minimize_rects();
         watch_config();
         // Отладка: выполнить команды оболочки после старта
-        // (`SYNDESKTOP_SHELL_EXEC="launcher;volume +5"`).
-        if let Ok(cmds) = std::env::var("SYNDESKTOP_SHELL_EXEC") {
+        // (`SYNSHELL_SHELL_EXEC="launcher;volume +5"`).
+        if let Ok(cmds) = std::env::var("SYNSHELL_SHELL_EXEC") {
             // `sleep МС` между командами — задержка.
             let mut at = 400u64;
             for c in cmds.split(';').map(str::trim).filter(|c| !c.is_empty()) {
@@ -132,7 +132,7 @@ pub fn reload_after_write() {
 }
 
 fn config_mtime() -> Option<std::time::SystemTime> {
-    std::fs::metadata(syndesktop_common::paths::config_file()).and_then(|m| m.modified()).ok()
+    std::fs::metadata(synshell_common::paths::config_file()).and_then(|m| m.modified()).ok()
 }
 
 /// Перечитать конфиг и тему, пересобрать поверхности.

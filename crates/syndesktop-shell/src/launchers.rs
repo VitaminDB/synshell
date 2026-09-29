@@ -7,8 +7,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use syndesktop_common::config::Applet;
-use syndesktop_common::ipc::{WindowInfo, WindowOp};
+use synshell_common::config::Applet;
+use synshell_common::ipc::{WindowInfo, WindowOp};
 use syngui::animation::{Animation, Easing};
 use syngui::input::MouseButton;
 use syngui::mss::StyleValue;
@@ -257,11 +257,11 @@ pub fn cycle_windows(ctx: ShellCtx, app_id: &str, dy: f32) {
 
 /// Каталог пользователя по XDG (`DOWNLOAD`, `DOCUMENTS`, `DESKTOP`…).
 pub fn xdg_user_dir(kind: &str) -> Option<PathBuf> {
-    syndesktop_common::paths::user_dir(kind)
+    synshell_common::paths::user_dir(kind)
 }
 
 pub fn trash_dir() -> PathBuf {
-    syndesktop_common::paths::data_home().join("Trash/files")
+    synshell_common::paths::data_home().join("Trash/files")
 }
 
 /// Путь папки из конфига: `~`, `xdg:DOWNLOAD`, `trash:`.
@@ -283,9 +283,9 @@ pub fn resolve_path(p: &str) -> PathBuf {
             "DESKTOP" => "~/Desktop",
             _ => "~",
         };
-        return syndesktop_common::paths::expand_tilde(fallback);
+        return synshell_common::paths::expand_tilde(fallback);
     }
-    syndesktop_common::paths::expand_tilde(p)
+    synshell_common::paths::expand_tilde(p)
 }
 
 pub fn is_trash(p: &str) -> bool {
@@ -301,7 +301,7 @@ pub fn folder_icon_name(path: &Path, spec: &str) -> &'static str {
             "user-trash"
         };
     }
-    let home = syndesktop_common::paths::expand_tilde("~");
+    let home = synshell_common::paths::expand_tilde("~");
     if path == home {
         return "user-home";
     }
@@ -412,7 +412,7 @@ pub fn open_path(path: &Path) {
 
 /// Очистить корзину (файлы и сведения об удалении).
 pub fn empty_trash() {
-    let base = syndesktop_common::paths::data_home().join("Trash");
+    let base = synshell_common::paths::data_home().join("Trash");
     for sub in ["files", "info"] {
         if let Ok(rd) = std::fs::read_dir(base.join(sub)) {
             for e in rd.flatten() {
@@ -608,9 +608,9 @@ pub fn hover_open_stack(
 // ─── Всплывающий стек ───────────────────────────────────────────────────────
 
 /// Вид стека: `grid`, `list`, `fan` (веер над доком снизу).
-pub fn stack_view_kind(a: &Applet, edge: syndesktop_common::config::Edge) -> &'static str {
+pub fn stack_view_kind(a: &Applet, edge: synshell_common::config::Edge) -> &'static str {
     match a.str_or("view", "grid") {
-        "fan" if edge == syndesktop_common::config::Edge::Bottom => "fan",
+        "fan" if edge == synshell_common::config::Edge::Bottom => "fan",
         "list" | "fan" => "list",
         _ => "grid",
     }

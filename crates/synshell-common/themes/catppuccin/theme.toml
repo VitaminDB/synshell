@@ -1,0 +1,62 @@
+name = "Catppuccin"
+description = "Уютная пастель: Mocha ночью, Latte днём. Мягкие «таблетки» и лавандовый акцент."
+author = "synshell (палитра — Catppuccin)"
+
+[appearance]
+corner_radius = 14
+panel_opacity = 0.94
+
+[decorations]
+corner_radius = 14
+title_align = "center"
+
+[panel]
+# Толщина плавающей панели и прилипшей к краю (defloat).
+size = 44
+defloated_size = 38
+
+[dark]
+bg = "#181825"
+surface = "#1e1e2e"
+surface_alt = "#313244"
+fg = "#cdd6f4"
+muted = "#a6adc8"
+border = "#45475a"
+accent = "#cba6f7"
+accent_fg = "#1e1e2e"
+danger = "#f38ba8"
+success = "#a6e3a1"
+warning = "#f9e2af"
+wallpaper = "linear-gradient(160deg, #11111b 0%, #1e1e2e 45%, #313244 75%, #5b4a7a 100%)"
+wallpaper_color = "#1e1e2e"
+titlebar = "#1e1e2e"
+titlebar_inactive = "#181825"
+shadow = "#11111b99"
+
+[dark.vars]
+pink = "#f5c2e7"
+blue = "#89b4fa"
+lavender-soft = "#cba6f726"
+
+[light]
+bg = "#e6e9ef"
+surface = "#eff1f5"
+surface_alt = "#dce0e8"
+fg = "#4c4f69"
+muted = "#6c6f85"
+border = "#ccd0da"
+accent = "#8839ef"
+accent_fg = "#eff1f5"
+danger = "#d20f39"
+success = "#40a02b"
+warning = "#df8e1d"
+wallpaper = "linear-gradient(160deg, #eff1f5 0%, #e6e9ef 45%, #dcd0f5 80%, #c9b3f2 100%)"
+wallpaper_color = "#eff1f5"
+titlebar = "#eff1f5"
+titlebar_inactive = "#e6e9ef"
+shadow = "#4c4f6933"
+
+[light.vars]
+pink = "#ea76cb"
+blue = "#1e66f5"
+lavender-soft = "#8839ef1f"

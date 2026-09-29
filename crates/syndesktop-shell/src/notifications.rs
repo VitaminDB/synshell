@@ -140,7 +140,7 @@ impl Server {
     }
 
     fn get_server_information(&self) -> (String, String, String, String) {
-        ("syndesktop".into(), "syndesktop".into(), env!("CARGO_PKG_VERSION").into(), "1.2".into())
+        ("synshell".into(), "synshell".into(), env!("CARGO_PKG_VERSION").into(), "1.2".into())
     }
 }
 
@@ -256,7 +256,7 @@ pub fn local(ctx: ShellCtx, summary: &str, body: &str, open: Option<String>) {
         .or_else(|| crate::xdg::lookup_icon("preferences-desktop-notification").map(|p| p.to_string_lossy().into_owned()));
     let n = Notification {
         id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
-        app_name: "syndesktop".into(),
+        app_name: "synshell".into(),
         icon,
         image: None,
         summary: summary.into(),

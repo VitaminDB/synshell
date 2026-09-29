@@ -1,4 +1,4 @@
-# syndesktop — архитектура
+# synshell — архитектура
 
 Полноценное окружение рабочего стола для Wayland на Rust. Интерфейс оболочки
 и настроек — на фреймворке [syngui](../../syngui). Устроено как Plasma:
@@ -7,7 +7,7 @@
 композитор перезапускает её.
 
 ```
-┌─────────────────────────── syndesktop (композитор, smithay 0.7) ───────────────────────────┐
+┌─────────────────────────── synwm (композитор, smithay 0.7) ───────────────────────────┐
 │ backends: udev/DRM+libinput+libseat (сеанс) · winit (вложенное окно для разработки)       │
 │ протоколы: xdg-shell, xdg-decoration, wlr-layer-shell, xdg-output, dmabuf, viewporter,     │
 │  fractional-scale, presentation, data-device, primary-selection, wlr-data-control,         │
@@ -16,46 +16,46 @@
 │  text-input/input-method, virtual-keyboard, single-pixel-buffer, security-context          │
 │ оконный менеджер: столы, плавающие/плиточные раскладки, snap, правила окон, анимации,      │
 │  серверные рамки (свой растеризатор), тени, Alt+Tab, обзор                                 │
-│ IPC: $XDG_RUNTIME_DIR/syndesktop.$WAYLAND_DISPLAY.sock (JSON-строки)                        │
+│ IPC: $XDG_RUNTIME_DIR/synwm.$WAYLAND_DISPLAY.sock (JSON-строки)                        │
 └──────────────▲───────────────────────────────▲─────────────────────────────────────────────┘
                │ wayland (layer-shell)         │ IPC (EventStream, Action, WindowAction)
 ┌──────────────┴───────────────────────────────┴─────────────────┐   ┌─────────────────────────┐
-│ syndesktop-shell (syngui через syngui-layer)                   │   │ syndesktop-settings     │
+│ syndesktop-shell (syngui через syngui-layer)                   │   │ synsettings     │
 │  обои · панели и доки · меню запуска · уведомления (D-Bus)      │   │ (syngui + winit)        │
 │  OSD громкости/яркости · меню питания · блокировка · Alt+Tab     │   │ правит config.toml      │
 └─────────────────────────────────────────────────────────────────┘   └─────────────────────────┘
-                 все читают ~/.config/syndesktop/config.toml (+ тема, theme.mss) и следят
+                 все читают ~/.config/synshell/config.toml (+ тема, theme.mss) и следят
 ```
 
 ## Крейты
 
 | Крейт | Что это |
 |---|---|
-| `syndesktop-common` | `Config` (весь `config.toml`), `Action` (строковые действия), `KeyCombo`, IPC-протокол и клиент, пути XDG, опрос изменений файлов, `.desktop` и темы значков (`xdg`), типы файлов и программы для них (`mime`: shared-mime-info, `mimeapps.list`) |
-| `syndesktop` | композитор + CLI `syndesktop msg …` |
+| `synshell-common` | `Config` (весь `config.toml`), `Action` (строковые действия), `KeyCombo`, IPC-протокол и клиент, пути XDG, опрос изменений файлов, `.desktop` и темы значков (`xdg`), типы файлов и программы для них (`mime`: shared-mime-info, `mimeapps.list`) |
+| `synwm` | композитор + CLI `synwm msg …` |
 | `syngui-layer` | хост syngui на layer-shell поверхностях (sctk 0.19 + wgpu-surface из `wl_surface`) — «winit для оболочки» |
 | `syndesktop-shell` | оболочка |
-| `syndesktop-settings` | «Параметры системы» |
-| `syndesktop-files` | проводник (syngui + winit): вкладки, две панели, поиск, корзина, операции в фоне; `--viewer` — просмотрщик картинок (модуль `viewer`, сцена из synthos) — [FILES.md](FILES.md) |
-| `syndesktop-screenshot` | снимок с выбором (syngui-layer, слой overlay на каждом выводе): кадры всех выводов, окна и указатель берутся у композитора одним IPC `capture` (по Print композитор снимает сразу и передаёт `--capture ФАЙЛ`), оверлей — свой элемент (затемнение, рамка, ручки, лупа), результат — PNG / wl-copy, уведомление через `shell screenshot-*` |
+| `synsettings` | «Параметры системы» |
+| `synfiles` | проводник (syngui + winit): вкладки, две панели, поиск, корзина, операции в фоне; `--viewer` — просмотрщик картинок (модуль `viewer`, сцена из synthos) — [FILES.md](FILES.md) |
+| `synshot` | снимок с выбором (syngui-layer, слой overlay на каждом выводе): кадры всех выводов, окна и указатель берутся у композитора одним IPC `capture` (по Print композитор снимает сразу и передаёт `--capture ФАЙЛ`), оверлей — свой элемент (затемнение, рамка, ручки, лупа), результат — PNG / wl-copy, уведомление через `shell screenshot-*` |
 
 ## Конфигурация
 
-Один файл `~/.config/syndesktop/config.toml`, схема — `syndesktop-common/src/config.rs`,
-документированный пример — `syndesktop-common/default-config.toml` (пишется при первом
+Один файл `~/.config/synshell/config.toml`, схема — `synshell-common/src/config.rs`,
+документированный пример — `synshell-common/default-config.toml` (пишется при первом
 запуске). Все поля необязательны. Композитор и оболочка опрашивают mtime раз в секунду
 (`watch::FileWatcher`) и применяют изменения на лету. Настройки меняют файл через
 `toml_edit`, сохраняя комментарии пользователя.
 
-Оформление: тема `appearance.theme` (`syndesktop-common/src/theme.rs`, встроенные — в
-`syndesktop-common/themes/<id>/`, свои — `~/.config/syndesktop/themes/<id>/`) даёт палитру
+Оформление: тема `appearance.theme` (`synshell-common/src/theme.rs`, встроенные — в
+`synshell-common/themes/<id>/`, свои — `~/.config/synshell/themes/<id>/`) даёт палитру
 вариантов `[dark]`/`[light]`, обои, цвета заголовков, свои переменные и MSS. Тема загружается
 в `Config::parse` (`Appearance::resolved`), поэтому `Appearance::palette()` у всех процессов
 уже с её цветами; поверх — `accent` и `[appearance.colors]`. Оболочка собирает MSS слоями:
 `Appearance::mss_variables()` (`--bg --surface --surface-alt --panel-bg --menu-bg --fg
 --muted --border --accent --accent-fg --accent-soft --hover --pressed --danger --success
 --warning --radius --radius-sm --font-size`) → `--shadow`/`--scrim` и `vars` темы →
-встроенный `shell.mss` → `shell.mss` темы → фон рабочего стола → `~/.config/syndesktop/theme.mss`.
+встроенный `shell.mss` → `shell.mss` темы → фон рабочего стола → `~/.config/synshell/theme.mss`.
 Композитор берёт `palette()`, `titlebar_colors()` и `wallpaper_color()` для рамок и фона.
 Композитор и оболочка следят и за файлами активной темы. Подробно — [THEMES.md](THEMES.md).
 
@@ -67,7 +67,7 @@
 по всем layer-поверхностям слоя с учётом их input region). Ряд значков — `syngui::widgets::Fisheye`,
 частицы — `ParticleEmitter`, 3D — MSS `rotate-x/rotate-y`, `background-rotate-x`, `box-reflect`.
 Правки из режима редактирования оболочка пишет в `config.toml` сама
-(`syndesktop_common::config_edit`) и сразу перечитывает. Подробно — [DOCK.md](DOCK.md).
+(`synshell_common::config_edit`) и сразу перечитывает. Подробно — [DOCK.md](DOCK.md).
 
 ## Адаптивная панель и глобальное меню
 
@@ -77,7 +77,7 @@
 зона резервирования — толщина панели в текущем состоянии. Обе толщины рекомендует тема (`[panel]`
 в `theme.toml`).
 
-Цвета программ (`[appearance] app_colors`): `syndesktop-common/src/app_theme.rs` строит из палитры
+Цвета программ (`[appearance] app_colors`): `synshell-common/src/app_theme.rs` строит из палитры
 `colors.css`/`gtk.css` GTK, группы `kdeglobals` и `gimp.css`; оболочка (`app_colors.rs`) пишет их в
 фоне при загрузке конфига и оповещает Qt/KDE по D-Bus.
 
@@ -87,7 +87,7 @@
 (`Managed::has_titlebar`). Перетаскивание заголовка на панели — `WindowOp::StartMove`:
 композитор перехватывает указатель, пока кнопка ещё нажата.
 
-Глобальное меню: композитор реализует `org_kde_kwin_appmenu` (`syndesktop/src/appmenu.rs`) и
+Глобальное меню: композитор реализует `org_kde_kwin_appmenu` (`synwm/src/appmenu.rs`) и
 отдаёт адрес меню в `WindowInfo::appmenu`; окна X11 регистрируют меню у
 `com.canonical.AppMenu.Registrar` (`syndesktop-shell/src/appmenu.rs`, по `WindowInfo::x11_id`).
 Реестр на шине, только пока в конфиге есть апплет `appmenu`: по нему Qt решает, убирать ли
@@ -95,7 +95,7 @@
 Event `opened`/`clicked`/`closed`). Qt-программам нужна тема `QT_QPA_PLATFORMTHEME=kde`
 (plasma-integration).
 
-GTK3: композитор реализует `gtk_shell1` (`syndesktop/src/gtk_shell.rs`, протокол —
+GTK3: композитор реализует `gtk_shell1` (`synwm/src/gtk_shell.rs`, протокол —
 `protocols/gtk-shell.xml`) и, пока есть апплет `appmenu`, объявляет возможность
 `global_menu_bar` — GTK убирает строку меню из окна и сообщает `set_dbus_properties`
 (`WindowInfo::gtk_menu`). Оболочка читает модель `org.gtk.Menus` (Start по группам, разделы
@@ -105,7 +105,7 @@ Activate), `syndesktop-shell/src/gtkmenu.rs`. GIMP 3 отдаёт меню та�
 
 ## IPC
 
-`syndesktop-common/src/ipc.rs`. Запрос-ответ одной JSON-строкой; `EventStream` переводит
+`synshell-common/src/ipc.rs`. Запрос-ответ одной JSON-строкой; `EventStream` переводит
 соединение в поток событий: `Snapshot` → `WindowChanged`/`WindowClosed`/`WindowFocused`/
 `WorkspacesChanged`/`OutputsChanged`/`KeyboardLayoutChanged`/`ShellCommand`/
 `ConfigReloaded`/`Exiting`.
@@ -117,8 +117,8 @@ Activate), `syndesktop-shell/src/gtkmenu.rs`. GIMP 3 отдаёт меню та�
 `edit-panel [N]` / `edit-dock` (режим редактирования панели/дока), `panel-add N`
 (окно «Добавить»).
 
-Окружение детей композитора: `WAYLAND_DISPLAY`, `SYNDESKTOP_SOCKET`,
-`XDG_CURRENT_DESKTOP=syndesktop`, `XDG_SESSION_TYPE=wayland` и `[general.environment]`.
+Окружение детей композитора: `WAYLAND_DISPLAY`, `SYNSHELL_SOCKET`,
+`XDG_CURRENT_DESKTOP=synshell`, `XDG_SESSION_TYPE=wayland` и `[general.environment]`.
 
 ## Оболочка и layer-shell
 
@@ -162,6 +162,6 @@ layer-поверхности не анимирует), на примитивах
 ```sh
 cargo build --release
 # вложенно в текущий сеанс (окно winit):
-target/release/syndesktop --nested
-# настоящий сеанс: выбрать «syndesktop» в менеджере входа (data/syndesktop.desktop)
+target/release/synwm --nested
+# настоящий сеанс: выбрать «synshell» в менеджере входа (data/synshell.desktop)
 ```

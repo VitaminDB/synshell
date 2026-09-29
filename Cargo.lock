@@ -3465,43 +3465,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "syndesktop"
+name = "syndesktop-shell"
 version = "0.1.3"
 dependencies = [
  "anyhow",
- "bitflags 2.13.2",
- "fontdue",
+ "env_logger",
  "libc",
- "png 0.17.16",
- "regex",
+ "log",
  "serde",
  "serde_json",
- "smithay",
- "syndesktop-common",
- "tiny-skia",
- "tracing",
- "tracing-subscriber",
- "wayland-backend",
- "wayland-protocols-plasma",
- "wayland-scanner",
- "wayland-server",
- "xcursor",
-]
-
-[[package]]
-name = "syndesktop-common"
-version = "0.1.3"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
+ "syngui",
+ "syngui-layer",
+ "synshell-common",
  "toml",
- "toml_edit 0.23.10+spec-1.0.0",
- "tracing",
+ "zbus",
 ]
 
 [[package]]
-name = "syndesktop-files"
+name = "synfiles"
 version = "0.1.3"
 dependencies = [
  "anyhow",
@@ -3512,65 +3493,14 @@ dependencies = [
  "png 0.17.16",
  "pollster",
  "serde",
- "syndesktop-common",
  "syngui",
+ "synshell-common",
  "tempfile",
  "toml",
  "toml_edit 0.23.10+spec-1.0.0",
  "tracing",
  "tracing-subscriber",
  "wgpu",
-]
-
-[[package]]
-name = "syndesktop-screenshot"
-version = "0.1.3"
-dependencies = [
- "anyhow",
- "env_logger",
- "libc",
- "log",
- "png 0.17.16",
- "serde_json",
- "syndesktop-common",
- "syngui",
- "syngui-layer",
-]
-
-[[package]]
-name = "syndesktop-settings"
-version = "0.1.3"
-dependencies = [
- "anyhow",
- "libc",
- "png 0.17.16",
- "pollster",
- "serde",
- "serde_json",
- "syndesktop-common",
- "syngui",
- "toml",
- "toml_edit 0.23.10+spec-1.0.0",
- "tracing",
- "tracing-subscriber",
- "wgpu",
-]
-
-[[package]]
-name = "syndesktop-shell"
-version = "0.1.3"
-dependencies = [
- "anyhow",
- "env_logger",
- "libc",
- "log",
- "serde",
- "serde_json",
- "syndesktop-common",
- "syngui",
- "syngui-layer",
- "toml",
- "zbus",
 ]
 
 [[package]]
@@ -3627,6 +3557,76 @@ dependencies = [
  "wayland-backend",
  "wayland-client",
  "wgpu",
+]
+
+[[package]]
+name = "synsettings"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "libc",
+ "png 0.17.16",
+ "pollster",
+ "serde",
+ "serde_json",
+ "syngui",
+ "synshell-common",
+ "toml",
+ "toml_edit 0.23.10+spec-1.0.0",
+ "tracing",
+ "tracing-subscriber",
+ "wgpu",
+]
+
+[[package]]
+name = "synshell-common"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "toml",
+ "toml_edit 0.23.10+spec-1.0.0",
+ "tracing",
+]
+
+[[package]]
+name = "synshot"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "libc",
+ "log",
+ "png 0.17.16",
+ "serde_json",
+ "syngui",
+ "syngui-layer",
+ "synshell-common",
+]
+
+[[package]]
+name = "synwm"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "bitflags 2.13.2",
+ "fontdue",
+ "libc",
+ "png 0.17.16",
+ "regex",
+ "serde",
+ "serde_json",
+ "smithay",
+ "synshell-common",
+ "tiny-skia",
+ "tracing",
+ "tracing-subscriber",
+ "wayland-backend",
+ "wayland-protocols-plasma",
+ "wayland-scanner",
+ "wayland-server",
+ "xcursor",
 ]
 
 [[package]]

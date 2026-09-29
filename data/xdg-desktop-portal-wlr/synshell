@@ -1,0 +1,6 @@
+# xdg-desktop-portal-wlr для synshell: экран для демонстрации — монитор
+# под указателем (или используйте chooser_type=simple с slurp).
+[screencast]
+chooser_type=simple
+chooser_cmd=synwm msg focused-output
+max_fps=60

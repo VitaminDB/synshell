@@ -1,4 +1,4 @@
-# syndesktop
+# synshell
 
 [![Licence: MIT OR Apache-2.0](https://img.shields.io/badge/licence-MIT%20OR%20Apache--2.0-blue)](#licence)
 [![Platform: Linux (Wayland)](https://img.shields.io/badge/platform-Linux%20(Wayland)-informational)](#build-and-run)
@@ -10,11 +10,11 @@ plasmashell role) and a System Settings app — plus a file manager and a screen
 the UI is built with my own GUI framework, [syngui](https://github.com/VitaminDB/syngui); the
 compositor is built on [smithay](https://github.com/Smithay/smithay).
 
-Almost everything is configured in one file, `~/.config/syndesktop/config.toml`. The compositor
+Almost everything is configured in one file, `~/.config/synshell/config.toml`. The compositor
 and the shell watch it and apply changes live; System Settings edits the same file in place and
 keeps your comments.
 
-![syndesktop: the Synthwave theme, a floating top panel, the dock and the file manager](docs/screenshots/desktop.png)
+![synshell: the Synthwave theme, a floating top panel, the dock and the file manager](docs/screenshots/desktop.png)
 
 ## Status
 
@@ -31,11 +31,11 @@ tested.
 
 | Binary | What it does |
 |---|---|
-| `syndesktop` | Compositor on smithay 0.7: DRM/KMS (multiple GPUs, hotplug, DPMS) or a nested window for development. Server-side decorations, workspaces, floating / tile / columns / grid / monocle layouts, snapping to edges and halves, window overview, Alt+Tab, window rules, Xwayland, a JSON IPC socket and the `syndesktop msg` CLI. |
+| `synwm` | Compositor on smithay 0.7: DRM/KMS (multiple GPUs, hotplug, DPMS) or a nested window for development. Server-side decorations, workspaces, floating / tile / columns / grid / monocle layouts, snapping to edges and halves, window overview, Alt+Tab, window rules, Xwayland, a JSON IPC socket and the `synwm msg` CLI. |
 | `syndesktop-shell` | The shell (layer-shell surfaces): wallpaper, panels with applets, dock, launcher, notification server (D-Bus), OSD, power menu, window switcher, system tray (StatusNotifierItem), lock screen (ext-session-lock + PAM). If it crashes, the compositor restarts it and your windows stay. |
-| `syndesktop-settings` | System Settings: 18 pages. Edits `config.toml` through `toml_edit`, so comments and ordering survive. |
-| `syndesktop-files` | A file manager modelled on Windows 11 Explorer: tabs in the title bar, dual pane, icons / tiles / list / details views, thumbnails, rubber-band selection, drag and drop, background operations with pause and cancel, Ctrl+Z, freedesktop trash, search. `--viewer` is a built-in image viewer (zoom, EXIF rotation, HEIC, folder filmstrip). |
-| `syndesktop-screenshot` | Region / window / monitor screenshot on Print: the screen freezes, you drag a frame (handles, magnifier, arrow-key nudging) or click a window; copy, save, copy path or open. |
+| `synsettings` | System Settings: 18 pages. Edits `config.toml` through `toml_edit`, so comments and ordering survive. |
+| `synfiles` | A file manager modelled on Windows 11 Explorer: tabs in the title bar, dual pane, icons / tiles / list / details views, thumbnails, rubber-band selection, drag and drop, background operations with pause and cancel, Ctrl+Z, freedesktop trash, search. `--viewer` is a built-in image viewer (zoom, EXIF rotation, HEIC, folder filmstrip). |
+| `synshot` | Region / window / monitor screenshot on Print: the screen freezes, you drag a frame (handles, magnifier, arrow-key nudging) or click a window; copy, save, copy path or open. |
 
 ## Features
 
@@ -73,12 +73,12 @@ tested.
 
 ## Build and run
 
-syndesktop path-depends on syngui, so check both repositories out next to each other:
+synshell path-depends on syngui, so check both repositories out next to each other:
 
 ```sh
 git clone https://github.com/VitaminDB/syngui
-git clone https://github.com/VitaminDB/syndesktop
-cd syndesktop
+git clone https://github.com/VitaminDB/synshell
+cd synshell
 cargo build --profile fast-release        # quick local build → target/fast-release
 cargo build --release                     # LTO build → target/release
 ```
@@ -92,34 +92,34 @@ breeze-icons — are listed with their purpose in the [PKGBUILD](PKGBUILD).
 **Nested, inside your current Wayland or X11 session** (it runs in a window):
 
 ```sh
-PATH="$PWD/target/fast-release:$PATH" target/fast-release/syndesktop --nested
+PATH="$PWD/target/fast-release:$PATH" target/fast-release/synwm --nested
 ```
 
 The compositor starts `syndesktop-shell` from `PATH`, hence the `PATH` prefix. A nested
-instance reads the same `~/.config/syndesktop/config.toml` (written with defaults on first
+instance reads the same `~/.config/synshell/config.toml` (written with defaults on first
 start) and, with the defaults, starts `~/.config/autostart/*.desktop` and writes the theme
 colours into your GTK and KDE colour files (`app_colors`). To try it without touching your own
 setup, point it at a separate config directory (`app_colors` is skipped then) whose
 `config.toml` turns autostart off — every field is optional:
 
 ```sh
-mkdir -p /tmp/syndesktop-test
-printf '[general]\nxdg_autostart = false\n' > /tmp/syndesktop-test/config.toml
-SYNDESKTOP_CONFIG_DIR=/tmp/syndesktop-test PATH="$PWD/target/fast-release:$PATH" \
-    target/fast-release/syndesktop --nested
+mkdir -p /tmp/synshell-test
+printf '[general]\nxdg_autostart = false\n' > /tmp/synshell-test/config.toml
+SYNSHELL_CONFIG_DIR=/tmp/synshell-test PATH="$PWD/target/fast-release:$PATH" \
+    target/fast-release/synwm --nested
 ```
 
 **As a real session** on Arch Linux:
 
 ```sh
 makepkg -si                                   # release build
-SYNDESKTOP_PROFILE=fast-release makepkg -si   # faster local build
+SYNSHELL_PROFILE=fast-release makepkg -si   # faster local build
 ```
 
-then pick “syndesktop” in your display manager. The package installs the binaries, the session
+then pick “synshell” in your display manager. The package installs the binaries, the session
 file, a PAM file for the lock screen, portal configuration and the `.desktop` files.
 
-Logs go to `~/.local/state/syndesktop/` (`syndesktop.log`, `shell.log`).
+Logs go to `~/.local/state/synshell/` (`synwm.log`, `shell.log`).
 
 ## Controls
 
@@ -144,14 +144,14 @@ Main key bindings (any of them can be remapped in `[keybindings]`):
 Everything is also scriptable over IPC:
 
 ```sh
-syndesktop msg windows | workspaces | outputs | layouts | events
-syndesktop msg action "workspace 2"
-syndesktop msg action "layout tile"
-syndesktop msg action "spawn firefox"
-syndesktop msg action "shell launcher"      # any shell command: launcher, edit-dock, lock, …
-syndesktop msg window 5 minimize            # activate | close | maximize | floating | workspace N …
-syndesktop msg restart-shell                # restart panels and menus, windows stay
-syndesktop msg restart                      # restart the compositor (application windows close)
+synwm msg windows | workspaces | outputs | layouts | events
+synwm msg action "workspace 2"
+synwm msg action "layout tile"
+synwm msg action "spawn firefox"
+synwm msg action "shell launcher"      # any shell command: launcher, edit-dock, lock, …
+synwm msg window 5 minimize            # activate | close | maximize | floating | workspace N …
+synwm msg restart-shell                # restart panels and menus, windows stay
+synwm msg restart                      # restart the compositor (application windows close)
 ```
 
 ## Documentation
@@ -165,23 +165,23 @@ The documentation in [`docs/`](docs/) is **in Russian**:
 - [FILES.md](docs/FILES.md) — the file manager and image viewer.
 
 The fully commented default config is
-[crates/syndesktop-common/default-config.toml](crates/syndesktop-common/default-config.toml).
+[crates/synshell-common/default-config.toml](crates/synshell-common/default-config.toml).
 
 ## Related
 
 - [syngui](https://github.com/VitaminDB/syngui) — the Rust GUI framework (wgpu, MSS stylesheets,
   reactive signals) that every window and panel here is drawn with.
 - [synthos](https://github.com/VitaminDB/synthos) — a local AI desktop studio on the same
-  framework; it picks up the syndesktop theme and window buttons when running in a syndesktop
+  framework; it picks up the synshell theme and window buttons when running in a synshell
   session.
 
 ## How it is built
 
-This project is vibe-coded. Since spring 2026 I write all of my projects with [Claude Code](https://claude.com/claude-code): I decide what to build and how it fits together, describe each task, and review, run and test the result on my own machine — the model writes the code, the tests and most of the documentation. I use syndesktop as my own desktop session, so what is described here is what I run daily.
+This project is vibe-coded. Since spring 2026 I write all of my projects with [Claude Code](https://claude.com/claude-code): I decide what to build and how it fits together, describe each task, and review, run and test the result on my own machine — the model writes the code, the tests and most of the documentation. I use synshell as my own desktop session, so what is described here is what I run daily.
 
 ## Support
 
-syndesktop is free and open source, written by one person. If it is useful to you, you can support its development with a donation via [PayPal](https://paypal.me/vitamindbnfkz).
+synshell is free and open source, written by one person. If it is useful to you, you can support its development with a donation via [PayPal](https://paypal.me/vitamindbnfkz).
 
 ## Licence
 

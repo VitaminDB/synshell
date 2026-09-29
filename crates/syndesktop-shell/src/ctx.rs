@@ -1,8 +1,8 @@
 //! Общее состояние оболочки — сигналы, которые читают апплеты.
 
 use std::sync::Arc;
-use syndesktop_common::ipc::{KeyboardLayouts, OutputInfo, WindowInfo, WorkspaceInfo};
-use syndesktop_common::Config;
+use synshell_common::ipc::{KeyboardLayouts, OutputInfo, WindowInfo, WorkspaceInfo};
+use synshell_common::Config;
 use syngui::prelude::*;
 
 use crate::notifications::Notification;
@@ -58,7 +58,7 @@ pub struct PopupAnchor {
     pub output: Option<String>,
     /// [x, y, w, h]; `None` — по центру вывода.
     pub rect: Option<[f32; 4]>,
-    pub edge: syndesktop_common::config::Edge,
+    pub edge: synshell_common::config::Edge,
     /// Панель прижата к краю без зазора: карточка примыкает к ней и
     /// перетекает в неё (вогнутые углы), а не висит рядом.
     pub attached: bool,
@@ -83,7 +83,7 @@ pub struct Osd {
 #[derive(Clone, Copy)]
 pub struct ShellCtx {
     pub config: RwSignal<Arc<Config>>,
-    /// Композитор syndesktop на связи.
+    /// Композитор synshell на связи.
     pub connected: RwSignal<bool>,
     pub windows: RwSignal<Vec<WindowInfo>>,
     pub workspaces: RwSignal<Vec<WorkspaceInfo>>,

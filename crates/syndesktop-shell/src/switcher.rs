@@ -4,7 +4,7 @@
 //! показать/обновить, `window-switcher-end` — убрать.
 
 use std::cell::Cell;
-use syndesktop_common::ipc::WindowOp;
+use synshell_common::ipc::WindowOp;
 use syngui::input::MouseButton;
 use syngui::prelude::*;
 use syngui_layer::{Anchor, KeyboardInteractivity, Layer, SurfaceId, SurfaceSpec};
@@ -20,8 +20,8 @@ thread_local! {
 pub fn command(ctx: ShellCtx, arg: &str) {
     let mut it = arg.split_whitespace();
     match it.next() {
-        Some("next") => crate::actions::run(syndesktop_common::Action::FocusNext),
-        Some("prev") => crate::actions::run(syndesktop_common::Action::FocusPrev),
+        Some("next") => crate::actions::run(synshell_common::Action::FocusNext),
+        Some("prev") => crate::actions::run(synshell_common::Action::FocusPrev),
         Some(sel) => {
             let Ok(sel) = sel.parse::<u64>() else { return };
             let ids: Vec<u64> = it.next().unwrap_or("").split(',').filter_map(|s| s.trim().parse().ok()).collect();

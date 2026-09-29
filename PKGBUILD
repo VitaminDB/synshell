@@ -1,5 +1,5 @@
 # Maintainer: Alexeyev Vitaly
-pkgname=syndesktop
+pkgname=synshell
 pkgver=0.1.3
 pkgrel=1
 pkgdesc="Окружение рабочего стола для Wayland на Rust и syngui: композитор, оболочка, параметры"
@@ -24,37 +24,38 @@ optdepends=('xorg-xwayland: X11-программы'
 makedepends=('cargo' 'rust')
 
 # Профиль cargo: release (LTO) — для AUR/GitHub; локально быстрее
-# `SYNDESKTOP_PROFILE=fast-release makepkg -f`.
-_profile=${SYNDESKTOP_PROFILE:-release}
+# `SYNSHELL_PROFILE=fast-release makepkg -f`.
+_profile=${SYNSHELL_PROFILE:-release}
 
 build() {
     cd "$startdir"
-    cargo build --profile "$_profile" -p syndesktop -p syndesktop-shell -p syndesktop-settings -p syndesktop-files -p syndesktop-screenshot
+    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synsettings -p synfiles -p synshot
 }
 
 check() {
     cd "$startdir"
-    cargo test --profile "$_profile" -p syndesktop-common -p syndesktop -p syndesktop-screenshot
+    cargo test --profile "$_profile" -p synshell-common -p synwm -p synshot
 }
 
 package() {
     cd "$startdir"
-    for b in syndesktop syndesktop-shell syndesktop-settings syndesktop-files syndesktop-screenshot; do
+    for b in synwm syndesktop-shell synsettings synfiles synshot; do
         install -Dm755 "target/$_profile/$b" "$pkgdir/usr/bin/$b"
     done
-    install -Dm755 data/syndesktop-session "$pkgdir/usr/bin/syndesktop-session"
-    install -Dm644 data/syndesktop.desktop "$pkgdir/usr/share/wayland-sessions/syndesktop.desktop"
-    install -Dm644 data/xdg-desktop-portal-wlr/syndesktop "$pkgdir/etc/xdg/xdg-desktop-portal-wlr/syndesktop"
-    install -Dm644 data/syndesktop-portals.conf "$pkgdir/usr/share/xdg-desktop-portal/syndesktop-portals.conf"
-    install -Dm644 crates/syndesktop-settings/data/syndesktop-settings.desktop \
-        "$pkgdir/usr/share/applications/syndesktop-settings.desktop"
-    install -Dm644 crates/syndesktop-files/data/syndesktop-files.desktop \
-        "$pkgdir/usr/share/applications/syndesktop-files.desktop"
-    install -Dm644 crates/syndesktop-files/data/syndesktop-viewer.desktop \
-        "$pkgdir/usr/share/applications/syndesktop-viewer.desktop"
-    install -Dm644 crates/syndesktop-screenshot/data/syndesktop-screenshot.desktop \
-        "$pkgdir/usr/share/applications/syndesktop-screenshot.desktop"
+    install -Dm755 data/synshell-session "$pkgdir/usr/bin/synshell-session"
+    ln -s synwm "$pkgdir/usr/bin/syndesktop"   # совместимость: старое имя композитора
+    install -Dm644 data/synshell.desktop "$pkgdir/usr/share/wayland-sessions/synshell.desktop"
+    install -Dm644 data/xdg-desktop-portal-wlr/synshell "$pkgdir/etc/xdg/xdg-desktop-portal-wlr/synshell"
+    install -Dm644 data/synshell-portals.conf "$pkgdir/usr/share/xdg-desktop-portal/synshell-portals.conf"
+    install -Dm644 crates/synsettings/data/synsettings.desktop \
+        "$pkgdir/usr/share/applications/synsettings.desktop"
+    install -Dm644 crates/synfiles/data/synfiles.desktop \
+        "$pkgdir/usr/share/applications/synfiles.desktop"
+    install -Dm644 crates/synfiles/data/synfiles-viewer.desktop \
+        "$pkgdir/usr/share/applications/synfiles-viewer.desktop"
+    install -Dm644 crates/synshot/data/synshot.desktop \
+        "$pkgdir/usr/share/applications/synshot.desktop"
     install -Dm644 crates/syndesktop-shell/data/syndesktop-lock.pam "$pkgdir/etc/pam.d/syndesktop-lock"
-    install -Dm644 crates/syndesktop-common/default-config.toml \
-        "$pkgdir/usr/share/doc/syndesktop/config.toml.example"
+    install -Dm644 crates/synshell-common/default-config.toml \
+        "$pkgdir/usr/share/doc/synshell/config.toml.example"
 }

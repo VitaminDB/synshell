@@ -1,18 +1,18 @@
 //! Цвета программ под тему (`[appearance] app_colors`): файлы GTK, Qt/KDE и
-//! GIMP пишет `syndesktop_common::app_theme`, здесь — запуск в фоне и
+//! GIMP пишет `synshell_common::app_theme`, здесь — запуск в фоне и
 //! оповещение уже запущенных программ.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use syndesktop_common::{app_theme, Config};
+use synshell_common::{app_theme, Config};
 
 /// Одна запись за раз: перечитывания конфига могут идти подряд.
 static BUSY: Mutex<()> = Mutex::new(());
 
 pub fn sync(cfg: &Config) {
     // Отладочные запуски с отдельным конфигом не трогают настройки программ.
-    if !cfg.appearance.app_colors || std::env::var_os("SYNDESKTOP_CONFIG_DIR").is_some() {
+    if !cfg.appearance.app_colors || std::env::var_os("SYNSHELL_CONFIG_DIR").is_some() {
         return;
     }
     let cfg = cfg.clone();

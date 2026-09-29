@@ -1,0 +1,45 @@
+name = "Синтвейв"
+description = "Ретро-будущее 80-х: неоновое свечение, закат над сеткой и хромированный циан."
+author = "synshell (по мотивам Synthwave '84)"
+
+[appearance]
+corner_radius = 6
+panel_opacity = 0.86
+
+[decorations]
+corner_radius = 6
+title_align = "center"
+shadow_opacity = 0.6
+
+[panel]
+# Толщина плавающей панели и прилипшей к краю (defloat).
+size = 46
+defloated_size = 40
+
+[dark]
+bg = "#1a1028"
+surface = "#241b35"
+surface_alt = "#2f2347"
+fg = "#fbeaff"
+muted = "#b9a3d6"
+border = "#ff7edb55"
+accent = "#ff4fb8"
+accent_fg = "#1a1028"
+danger = "#fe4450"
+success = "#72f1b8"
+warning = "#fede5d"
+wallpaper = "linear-gradient(180deg, #0b0118 0%, #1a0b3b 32%, #3b0f63 50%, #8a1c7c 64%, #e0306f 76%, #ff7a45 88%, #ffd166 100%)"
+wallpaper_color = "#1a0b3b"
+titlebar = "#241b35"
+titlebar_inactive = "#1a1028"
+shadow = "#05000c99"
+scrim = "#1a0b3b88"
+
+[dark.vars]
+neon-pink = "#ff4fb8"
+neon-cyan = "#36f9f6"
+neon-yellow = "#fede5d"
+pink-glow = "#ff4fb8aa"
+cyan-glow = "#36f9f6aa"
+pink-soft = "#ff4fb833"
+cyan-soft = "#36f9f626"

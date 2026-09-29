@@ -7,7 +7,7 @@
 //! действие `app.имя` (по пути приложения) или `win.имя` (по пути окна).
 
 use std::collections::HashMap;
-use syndesktop_common::ipc::GtkMenu;
+use synshell_common::ipc::GtkMenu;
 use zbus::blocking::Connection;
 use zbus::zvariant::{OwnedValue, Signature, Value};
 

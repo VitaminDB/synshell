@@ -1,0 +1,60 @@
+name = "Nord"
+description = "Арктическая сдержанность: холодный синий, иней и полярное сияние."
+author = "synshell (палитра — Arctic Ice Studio)"
+
+[appearance]
+corner_radius = 12
+panel_opacity = 0.88
+
+[decorations]
+corner_radius = 12
+title_align = "center"
+
+[panel]
+# Толщина плавающей панели и прилипшей к краю (defloat).
+size = 44
+defloated_size = 38
+
+[dark]
+bg = "#2e3440"
+surface = "#3b4252"
+surface_alt = "#434c5e"
+fg = "#eceff4"
+muted = "#a0aabd"
+border = "#4c566a"
+accent = "#88c0d0"
+accent_fg = "#2e3440"
+danger = "#bf616a"
+success = "#a3be8c"
+warning = "#ebcb8b"
+wallpaper = "linear-gradient(170deg, #1f232b 0%, #2e3440 40%, #3b4a63 78%, #5e81ac 100%)"
+wallpaper_color = "#2e3440"
+titlebar = "#3b4252"
+titlebar_inactive = "#2e3440"
+shadow = "#0b0e1480"
+
+[dark.vars]
+frost = "#88c0d024"
+frost-line = "#88c0d055"
+
+[light]
+bg = "#e5e9f0"
+surface = "#eceff4"
+surface_alt = "#d8dee9"
+fg = "#2e3440"
+muted = "#5a6479"
+border = "#c5cddb"
+accent = "#5e81ac"
+accent_fg = "#eceff4"
+danger = "#bf616a"
+success = "#7e9d64"
+warning = "#c8894f"
+wallpaper = "linear-gradient(170deg, #f3f5f9 0%, #e5e9f0 45%, #b8c7dc 80%, #81a1c1 100%)"
+wallpaper_color = "#e5e9f0"
+titlebar = "#eceff4"
+titlebar_inactive = "#e5e9f0"
+shadow = "#2e344038"
+
+[light.vars]
+frost = "#5e81ac1f"
+frost-line = "#5e81ac55"

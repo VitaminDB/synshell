@@ -3,7 +3,7 @@
 
 use crate::ctx::{PopupAnchor, PopupKind, ShellCtx};
 use crate::system;
-use syndesktop_common::config::Edge;
+use synshell_common::config::Edge;
 
 /// Всплывающее окно по центру вывода с фокусом (из сочетания клавиш).
 fn centered() -> PopupAnchor {

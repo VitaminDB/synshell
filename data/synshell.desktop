@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=synshell
+Comment=Рабочий стол synshell (Wayland, Rust, syngui)
+Comment[en]=synshell Wayland desktop environment
+Exec=synshell-session
+TryExec=synwm
+Type=Application
+DesktopNames=synshell

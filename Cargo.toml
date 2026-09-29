@@ -1,13 +1,13 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/syndesktop-common",
-    "crates/syndesktop",
+    "crates/synshell-common",
+    "crates/synwm",
     "crates/syngui-layer",
     "crates/syndesktop-shell",
-    "crates/syndesktop-settings",
-    "crates/syndesktop-files",
-    "crates/syndesktop-screenshot",
+    "crates/synsettings",
+    "crates/synfiles",
+    "crates/synshot",
 ]
 
 [workspace.package]
@@ -18,7 +18,7 @@ authors = ["Alexeyev Vitaly"]
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
-syndesktop-common = { path = "crates/syndesktop-common" }
+synshell-common = { path = "crates/synshell-common" }
 syngui-layer = { path = "crates/syngui-layer" }
 syngui = { path = "../syngui/syngui", default-features = false }
 serde = { version = "1", features = ["derive"] }

@@ -1,8 +1,0 @@
-[Desktop Entry]
-Name=syndesktop
-Comment=Рабочий стол syndesktop (Wayland, Rust, syngui)
-Comment[en]=syndesktop Wayland desktop environment
-Exec=syndesktop-session
-TryExec=syndesktop
-Type=Application
-DesktopNames=syndesktop
