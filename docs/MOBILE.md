@@ -96,8 +96,10 @@ XF86Back), снизу — `edge_bottom` («домой», `page home`), сниз�
   или через pkexec; AUR — snapshot через curl (git не нужен), makepkg от `[packages] build_user` (на телефоне root —
   нужен обычный пользователь: `useradd -m builder`, `build_user = "builder"`). Сеть телефона — через прокси хоста
   (`http_proxy`).
-- Wi-Fi (`[wifi] backend`: iwd или NetworkManager) и Bluetooth (bluez) — страницы «Параметров»; на телефоне Wi-Fi
-  ждёт драйвера и прошивки (arch-mobile-port).
+- Wi-Fi (`[wifi] backend`: iwd или NetworkManager) и Bluetooth (bluez) — страницы «Параметров» и окно «Сеть»
+  оболочки. На телефоне Wi-Fi работает через NetworkManager (iwd на ядре GKI не стартует — нет AF_ALG):
+  драйвер qca6490/cnss2, прошивка из раздела modem, `wlan-cnss-ready.service` — см. arch-mobile-port
+  `docs/11-wifi.md`.
 
 ## Автозапуск на телефоне
 Через экран входа: `synlogin daemon -- --cpu` (см. ниже; на Redmi K50 Ultra — юнит устройства в
