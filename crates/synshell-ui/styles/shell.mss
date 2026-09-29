@@ -327,6 +327,30 @@ Text {
 .grid-icon-glyph { icon-size: 48px; icon-color: var(--accent); }
 .grid-name { font-size: 12px; }
 
+/* ─── «Недавние» (телефон) ─────────────────────────────────────────────── */
+
+.recents { padding: 48px 0px 36px 0px; background-color: #000000b0; }
+.recents-title { font-size: 20px; font-weight: 600; color: #ffffff; }
+.recents-empty { font-size: 15px; color: #ffffffa0; }
+.recents-row { padding: 0px 40px; }
+.recents-card {
+    width: 250px;
+    padding: 12px;
+    border-radius: 26px;
+    background-color: var(--surface);
+    box-shadow: 0 14px 40px #00000080;
+    transition: scale 220ms spring(420, 26);
+}
+.recents-card:active { scale: 0.96; }
+.recents-app-icon { width: 28px; height: 28px; }
+.recents-app-name { font-size: 14px; font-weight: 600; color: var(--fg); }
+.recents-preview { height: 420px; width: 226px; border-radius: 18px; background-color: var(--bg); padding: 16px; }
+.recents-big-icon { width: 72px; height: 72px; }
+.recents-window-title { font-size: 13px; color: var(--muted); text-align: center; }
+.recents-clear { padding: 10px 20px; border-radius: 999px; background-color: #ffffff22; }
+.recents-clear-icon { icon-size: 20px; icon-color: #ffffff; }
+.recents-clear-text { font-size: 14px; color: #ffffff; }
+
 /* ─── Экран блокировки телефона ─────────────────────────────────────────── */
 
 .lock-phone { padding: 56px 24px 28px 24px; }

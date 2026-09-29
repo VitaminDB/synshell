@@ -91,7 +91,9 @@ pub fn handle(cmd: &str) {
         // Жест «назад» при открытом оверлее: закрыть окно оболочки или
         // выйти из режима редактирования.
         "back" => {
-            if crate::shade::is_open() {
+            if crate::recents::is_open() {
+                crate::recents::close();
+            } else if crate::shade::is_open() {
                 crate::shade::close();
             } else if ctx.popup.get_untracked().is_some() {
                 ctx.close_popup();
@@ -100,6 +102,7 @@ pub fn handle(cmd: &str) {
             }
         }
         "shade" => crate::shade::toggle(),
+        "recents" => crate::recents::toggle(),
         "desktop-menu" => crate::edit::open_desktop_menu(&ctx, None, syngui::core::Point::new(40.0, 120.0)),
         "add-panel" => crate::edit::add_panel(false),
         "add-dock" => crate::edit::add_panel(true),
