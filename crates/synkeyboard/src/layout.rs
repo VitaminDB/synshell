@@ -62,8 +62,10 @@ pub enum Page {
 /// Что делает клавиша.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Action {
-    /// Обычная клавиша (evdev-код); `shift` — послать с Shift (символы вроде `!`).
-    Key { code: u32, shift: bool, repeat: bool },
+    /// Обычная клавиша (evdev-код); `shift` — послать с Shift (символы вроде `!`);
+    /// `latin` — символ US-раскладки: нажимается в группе 0 при любом языке,
+    /// иначе в RU код `.` дал бы «ю», а `/` — «.».
+    Key { code: u32, shift: bool, repeat: bool, latin: bool },
     Modifier(Modifier),
     Page(Page),
     /// Следующая раскладка (EN → RU → …).
@@ -88,19 +90,19 @@ pub struct Key {
 
 impl Key {
     fn plain(label: &str, code: u32) -> Self {
-        Self { label: label.into(), shifted: None, action: Action::Key { code, shift: false, repeat: false }, width: 1.0, class: "key" }
+        Self { label: label.into(), shifted: None, action: Action::Key { code, shift: false, repeat: false, latin: true }, width: 1.0, class: "key" }
     }
     fn letter(label: &str, upper: &str, code: u32) -> Self {
-        Self { label: label.into(), shifted: Some(upper.into()), action: Action::Key { code, shift: false, repeat: false }, width: 1.0, class: "key" }
+        Self { label: label.into(), shifted: Some(upper.into()), action: Action::Key { code, shift: false, repeat: false, latin: false }, width: 1.0, class: "key" }
     }
     fn shifted(label: &str, code: u32) -> Self {
-        Self { label: label.into(), shifted: None, action: Action::Key { code, shift: true, repeat: false }, width: 1.0, class: "key" }
+        Self { label: label.into(), shifted: None, action: Action::Key { code, shift: true, repeat: false, latin: true }, width: 1.0, class: "key" }
     }
     fn special(label: &str, action: Action, width: f32) -> Self {
         Self { label: label.into(), shifted: None, action, width, class: "key key-special" }
     }
     fn repeat(label: &str, code: u32, width: f32) -> Self {
-        Self { label: label.into(), shifted: None, action: Action::Key { code, shift: false, repeat: true }, width, class: "key key-special" }
+        Self { label: label.into(), shifted: None, action: Action::Key { code, shift: false, repeat: true, latin: false }, width, class: "key key-special" }
     }
 }
 
@@ -209,7 +211,7 @@ fn page_rows(page: Page, lang: &Lang) -> Vec<Vec<Key>> {
         }
         Page::Symbols => {
             out.push("1234567890".chars().map(|c| sym(&c.to_string())).collect());
-            out.push("@#$%&-+()".chars().map(|c| sym(&c.to_string())).collect());
+            out.push("@#$_&-+()/".chars().map(|c| sym(&c.to_string())).collect());
             let mut row: Vec<Key> = vec![Key::special("=\\<", Action::Page(Page::Symbols2), 1.5)];
             row.extend("*\"':;!?".chars().map(|c| sym(&c.to_string())));
             row.push(Key::repeat("⌫", KEY_BACKSPACE, 1.5));
@@ -233,9 +235,9 @@ fn page_rows(page: Page, lang: &Lang) -> Vec<Vec<Key>> {
         page_key,
         Key::special("⌨", Action::Fn, 1.0),
         Key::special(lang.name, Action::Layout, 1.0),
-        Key::special("", Action::Key { code: KEY_SPACE, shift: false, repeat: false }, 4.0),
+        Key::special("", Action::Key { code: KEY_SPACE, shift: false, repeat: false, latin: false }, 4.0),
         sym("."),
-        Key::special("⏎", Action::Key { code: KEY_ENTER, shift: false, repeat: false }, 1.5),
+        Key::special("⏎", Action::Key { code: KEY_ENTER, shift: false, repeat: false, latin: false }, 1.5),
     ]);
     out
 }
@@ -244,7 +246,7 @@ fn page_rows(page: Page, lang: &Lang) -> Vec<Vec<Key>> {
 /// F7–F12 со стрелками перевёрнутой «T» справа, как на клавиатуре.
 pub fn fn_rows() -> Vec<Vec<Key>> {
     fn k(label: &str, code: u32, width: f32, repeat: bool) -> Key {
-        Key { label: label.into(), shifted: None, action: Action::Key { code, shift: false, repeat }, width, class: "key key-fn" }
+        Key { label: label.into(), shifted: None, action: Action::Key { code, shift: false, repeat, latin: false }, width, class: "key key-fn" }
     }
     fn f(n: u32) -> Key {
         let code = match n {
@@ -252,7 +254,7 @@ pub fn fn_rows() -> Vec<Vec<Key>> {
             11 => KEY_F11,
             _ => KEY_F12,
         };
-        Key { label: format!("F{n}"), shifted: None, action: Action::Key { code, shift: false, repeat: false }, width: 1.0, class: "key key-fn key-f" }
+        Key { label: format!("F{n}"), shifted: None, action: Action::Key { code, shift: false, repeat: false, latin: false }, width: 1.0, class: "key key-fn key-f" }
     }
     fn m(label: &str, m: Modifier, width: f32) -> Key {
         Key { label: label.into(), shifted: None, action: Action::Modifier(m), width, class: "key key-fn" }

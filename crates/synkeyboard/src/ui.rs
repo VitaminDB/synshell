@@ -83,7 +83,12 @@ impl Keyboard {
     }
 
     /// Нажать и отпустить клавишу с учётом залипших модификаторов.
-    fn tap(&self, code: u32, with_shift: bool) {
+    fn tap(&self, code: u32, with_shift: bool, latin: bool) {
+        let group = LANGS[self.lang.get_untracked()].group;
+        let switch = latin && group != 0;
+        if switch {
+            syngui_layer::virtual_keyboard_group(0);
+        }
         let mut mods: Vec<Modifier> = Vec::new();
         if with_shift || self.shift.get_untracked() != Shift::Off {
             mods.push(Modifier::Shift);
@@ -98,6 +103,9 @@ impl Keyboard {
             mods.push(Modifier::Super);
         }
         tap_with(code, &mods);
+        if switch {
+            syngui_layer::virtual_keyboard_group(group);
+        }
     }
 
     /// Снять одноразовые модификаторы после клавиши.
@@ -118,8 +126,8 @@ impl Keyboard {
 
     pub fn act(&self, action: Action) {
         match action {
-            Action::Key { code, shift, .. } => {
-                self.tap(code, shift);
+            Action::Key { code, shift, latin, .. } => {
+                self.tap(code, shift, latin);
                 self.release_oneshot();
             }
             Action::Modifier(Modifier::Shift) => self.shift.set(match self.shift.get_untracked() {
@@ -142,11 +150,11 @@ impl Keyboard {
     }
 }
 
-/// Напечатать текст (символы US-раскладки; буквы — в текущей группе xkb).
+/// Напечатать текст (символы US-раскладки — в группе 0; буквы — в текущей группе xkb).
 pub fn type_text(kb: Keyboard, text: &str) {
     for ch in text.chars() {
         match layout::us_char(ch) {
-            Some((code, shift)) => kb.tap(code, shift),
+            Some((code, shift)) => kb.tap(code, shift, !ch.is_ascii_alphabetic()),
             None => log::warn!("нет клавиши для символа {ch:?}"),
         }
     }
@@ -309,14 +317,14 @@ fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: 
 
     let mut gd = GestureDetector::new().child(body);
     match action {
-        Action::Key { code, shift: with_shift, repeat: true } => {
+        Action::Key { code, shift: with_shift, repeat: true, latin } => {
             // Автоповтор: первый тап сразу, затем по таймеру до отпускания.
             gd = gd
                 .on_mouse_down(move |_| {
                     stop_repeat();
-                    kb.tap(code, with_shift);
+                    kb.tap(code, with_shift, latin);
                     let t = syngui_layer::add_timer(Duration::from_millis(400), move || {
-                        kb.tap(code, with_shift);
+                        kb.tap(code, with_shift, latin);
                         Some(Duration::from_millis(60))
                     });
                     REPEAT.with(|r| r.set(Some(t)));
