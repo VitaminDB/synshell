@@ -704,7 +704,16 @@ impl State {
             });
             m.minimize_anim = Some((Animation::new(0.0, 1.0, dur, Curve::EaseInCubic), target));
         }
-        if self.core.wm.focused == Some(id) {
+        // Телефон, страницы: свернуть — значит уйти на домашний экран, а не
+        // перелистнуть на другое приложение.
+        if self.core.wm.mobile.pages_mode() && self.core.wm.mobile.page == Some(self.core.wm.root_of(id)) {
+            self.core.wm.mobile.page = None;
+            self.core.wm.mobile.transition = None;
+            if self.core.wm.focused.is_some() {
+                self.focus_window(None);
+            }
+            self.broadcast_mobile();
+        } else if self.core.wm.focused == Some(id) {
             self.core.wm.focused = None;
             self.focus_after_close();
         }
