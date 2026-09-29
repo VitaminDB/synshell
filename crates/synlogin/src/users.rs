@@ -66,7 +66,8 @@ pub fn valid_login(name: &str) -> bool {
 }
 
 /// Создать пользователя (нужен root): домашний каталог, группы для экрана,
-/// ввода и звука, администратор — ещё `wheel`; пароль (пустой — без пароля).
+/// ввода, звука и сети (`network` — управление NetworkManager через polkit),
+/// администратор — ещё `wheel`; пароль (пустой — без пароля).
 pub fn create(login: &str, full_name: &str, password: &str, admin: bool) -> Result<(), String> {
     if !valid_login(login) {
         return Err("Логин: латинские строчные буквы, цифры, _ и -, начинается с буквы".into());
@@ -77,7 +78,7 @@ pub fn create(login: &str, full_name: &str, password: &str, admin: bool) -> Resu
     // Группы, которых нет в системе, useradd не примет — берём только существующие.
     let groups_file = std::fs::read_to_string("/etc/group").unwrap_or_default();
     let exists = |g: &str| groups_file.lines().any(|l| l.split(':').next() == Some(g));
-    let mut groups: Vec<&str> = ["video", "input", "audio", "render"].into_iter().filter(|g| exists(g)).collect();
+    let mut groups: Vec<&str> = ["video", "input", "audio", "render", "network"].into_iter().filter(|g| exists(g)).collect();
     if admin && exists("wheel") {
         groups.push("wheel");
     }
