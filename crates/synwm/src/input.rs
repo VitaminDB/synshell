@@ -1211,6 +1211,16 @@ impl State {
                 }
                 crate::spawn::spawn_shell(&self.core, "systemctl suspend");
             }
+            // Сеанс экрана входа synlogin: пользователь без logind-сеанса,
+            // polkit не пустит — просьба демону (root) и выход из сеанса.
+            Action::Reboot | Action::PowerOff if std::env::var_os("SYNLOGIN_REQUEST").is_some() => {
+                let path = std::env::var_os("SYNLOGIN_REQUEST").unwrap();
+                let req = if matches!(action, Action::Reboot) { "!reboot" } else { "!poweroff" };
+                match std::fs::write(&path, req) {
+                    Ok(()) => self.quit(),
+                    Err(e) => tracing::warn!(?path, "synlogin: не записать просьбу: {e}"),
+                }
+            }
             Action::Reboot => crate::spawn::spawn_shell(&self.core, "systemctl reboot"),
             Action::PowerOff => crate::spawn::spawn_shell(&self.core, "systemctl poweroff"),
             Action::PowerOffMonitors => self.set_monitors_power(false),

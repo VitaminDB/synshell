@@ -104,7 +104,8 @@ arch-mobile-port). Без экрана входа — `data/synshell-phone.servi
    /run/synlogin/session/UID` (не `/run/user`: его удаляет logind после выхода из ssh), узлы `/dev/dri`,
    `/dev/input`, `/dev/kgsl-3d0`, `/dev/dma_heap`, `/dev/snd`, яркость подсветки и светодиодов — во владение
    пользователю (logind-сеанса нет), после сеанса — обратно root и `pkill -u`;
-4. «Выйти» в меню питания завершает композитор — снова экран входа.
+4. «Выйти» в меню питания завершает композитор — снова экран входа; «Перезагрузка» и «Выключить» в сеансе
+   (`SYNLOGIN_REQUEST`) композитор передаёт демону файлом и выходит — демон выполняет их от root.
 
 Отладка без композитора: `SYNSHELL_FORM_FACTOR=phone SYNGUI_LAYER_HEADLESS=406x904 SYNGUI_LAYER_DUMP=dir
 synlogin greeter`. `SYNLOGIN_SYNWM` подменяет бинарник композитора.

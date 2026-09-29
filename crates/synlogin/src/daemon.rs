@@ -109,6 +109,9 @@ fn run_session(user: &users::User) {
     log::info!("сеанс {} (uid {})", user.name, user.uid);
     let (uid, gid) = (user.uid, user.gid);
     let name = std::ffi::CString::new(user.name.as_str()).unwrap();
+    // Перезагрузка/выключение из сеанса: композитор пишет сюда и выходит.
+    let request = format!("{rt}/synlogin-request");
+    let _ = std::fs::remove_file(&request);
     let mut cmd = Command::new("dbus-run-session");
     cmd.arg(synwm_bin())
         .args(synwm_args())
@@ -118,6 +121,7 @@ fn run_session(user: &users::User) {
         .env("LOGNAME", &user.name)
         .env("SHELL", &user.shell)
         .env("XDG_RUNTIME_DIR", &rt)
+        .env("SYNLOGIN_REQUEST", &request)
         .current_dir(&user.home);
     // SAFETY: между fork и exec — только async-signal-safe вызовы libc.
     unsafe {
@@ -136,6 +140,21 @@ fn run_session(user: &users::User) {
         let _ = Command::new("pkill").args(["-KILL", "-u", &user.uid.to_string()]).status();
         chown_all(&devices, 0, 0);
     }
+    let req = std::fs::read_to_string(&request).unwrap_or_default();
+    let _ = std::fs::remove_file(&request);
+    power_request(req.trim());
+}
+
+fn power_request(req: &str) {
+    match req {
+        "!poweroff" => {
+            let _ = Command::new("systemctl").arg("poweroff").status();
+        }
+        "!reboot" => {
+            let _ = Command::new("systemctl").arg("reboot").status();
+        }
+        _ => {}
+    }
 }
 
 pub fn run() -> ! {
@@ -153,12 +172,7 @@ pub fn run() -> ! {
                 // Экран входа упал или композитор не поднялся — не крутиться.
                 std::thread::sleep(Duration::from_secs(2));
             }
-            "!poweroff" => {
-                let _ = Command::new("systemctl").arg("poweroff").status();
-            }
-            "!reboot" => {
-                let _ = Command::new("systemctl").arg("reboot").status();
-            }
+            "!poweroff" | "!reboot" => power_request(req),
             name => match users::find(name) {
                 Some(u) => run_session(&u),
                 None => log::warn!("нет пользователя {name}"),
