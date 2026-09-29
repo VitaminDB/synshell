@@ -53,3 +53,9 @@ lto = false
 codegen-units = 256
 incremental = true
 debug = false
+
+# smithay с исправлением для downstream-драйверов (Qualcomm sde): свойство
+# alpha плана масштабируется под диапазон, который сообщает драйвер (0..255),
+# иначе любой atomic-тест отвергается. Ветка synshell = v0.7.0 + патч.
+[patch.crates-io]
+smithay = { git = "https://github.com/VitaminDB/smithay", branch = "synshell" }

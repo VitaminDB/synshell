@@ -50,7 +50,7 @@ use smithay::{
         wayland_server::backend::GlobalId,
     },
     utils::{DeviceFd, Rectangle, Size, Transform},
-    wayland::{dmabuf::DmabufFeedbackBuilder, presentation::Refresh},
+    wayland::presentation::Refresh,
 };
 
 use crate::{
@@ -177,24 +177,34 @@ pub fn init(state: &mut State, _event_loop: &EventLoop<'static, State>) -> anyho
         DrmEvent::Error(e) => tracing::error!(?e, "DRM"),
     })?;
     let allocator: Alloc = Arc::new(Mutex::new(DumbAllocator::new(fd.clone())));
-    let render_formats: FormatSet = b.renderer.dmabuf_formats();
+    // pixman отдаёт только Linear; DrmOutputManager без поддержки модификаторов у
+    // драйвера (или при откате на implicit) оставляет лишь Invalid — dumb-буферы
+    // и так линейные, поэтому добавляем те же форматы с Modifier::Invalid.
+    let linear_formats: FormatSet = b.renderer.dmabuf_formats();
+    let render_formats: FormatSet = linear_formats
+        .iter()
+        .flat_map(|f| [*f, smithay::backend::allocator::Format { code: f.code, modifier: smithay::backend::allocator::Modifier::Invalid }])
+        .collect();
     b.manager = Some(DrmOutputManager::new(
         drm,
         allocator,
         fd,
         None::<GbmDevice<DrmDeviceFd>>,
         COLOR_FORMATS.iter().copied(),
-        render_formats.clone(),
+        render_formats,
     ));
 
     // Глобалы: shm и linux-dmabuf (линейные форматы — клиенты на GPU отдают
-    // кадры, которые можно прочитать через mmap).
+    // кадры, которые можно прочитать через mmap). Версия 3, без feedback:
+    // с feedback Mesa WSI сравнивает «главное устройство» композитора с DRM-узлом
+    // Vulkan-драйвера, а у turnip/KGSL его нет — WSI уходит в prime-blit и падает.
+    // Без feedback same_gpu = true и клиент отдаёт свой линейный dma-buf напрямую.
     state.core.shm_state.update_formats(b.renderer.shm_formats());
-    let feedback = DmabufFeedbackBuilder::new(node.dev_id(), render_formats).build()?;
+    let _ = node;
     let global = state
         .core
         .dmabuf_state
-        .create_global_with_default_feedback::<State>(&state.core.display_handle, &feedback);
+        .create_global::<State>(&state.core.display_handle, linear_formats.iter().copied());
     state.core.dmabuf_global = Some(global);
 
     scan_connectors(state);
