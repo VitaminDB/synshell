@@ -88,8 +88,26 @@ XF86Back), снизу — `edge_bottom` («домой», `page home`), сниз�
   ждёт драйвера и прошивки (arch-mobile-port).
 
 ## Автозапуск на телефоне
-`data/synshell-phone.service` — systemd-юнит: `synwm --tty --cpu` под `dbus-run-session` с `LIBSEAT_BACKEND=noop`.
-Не включён по умолчанию: `install -Dm644 data/synshell-phone.service /etc/systemd/system/ && systemctl enable synshell-phone`.
+Через экран входа: `synlogin daemon -- --cpu` (см. ниже; на Redmi K50 Ultra — юнит устройства в
+arch-mobile-port). Без экрана входа — `data/synshell-phone.service`: `synwm --tty --cpu` под `dbus-run-session`
+с `LIBSEAT_BACKEND=noop`, сразу оболочка root.
+
+## Экран входа synlogin
+`synlogin daemon [-- аргументы synwm]` (root, юнит `crates/synlogin/data/synlogin.service`) по кругу:
+1. композитор synwm с экраном входа вместо оболочки (`SYNSHELL_SHELL="synlogin greeter"`, `XDG_RUNTIME_DIR=
+   /run/synlogin/greeter`): часы, карточки пользователей (UID 1000–59999 и root), пароль через PAM
+   (`syndesktop-lock`, иначе `login`; пустой пароль — вход без пароля), «Новый пользователь» (логин, имя,
+   пароль, администратор → `useradd -m -G video,input,audio,render[,wheel]`), перезагрузка и выключение,
+   своя экранная клавиатура (`OnScreenKeyboard::stretch`), на телефоне показана сразу;
+2. экран входа пишет имя в `/run/synlogin/request` и завершает композитор (`Action::Quit`);
+3. сеанс: `dbus-run-session synwm` от имени пользователя (initgroups/setgid/setuid), `XDG_RUNTIME_DIR=
+   /run/synlogin/session/UID` (не `/run/user`: его удаляет logind после выхода из ssh), узлы `/dev/dri`,
+   `/dev/input`, `/dev/kgsl-3d0`, `/dev/dma_heap`, `/dev/snd`, яркость подсветки и светодиодов — во владение
+   пользователю (logind-сеанса нет), после сеанса — обратно root и `pkill -u`;
+4. «Выйти» в меню питания завершает композитор — снова экран входа.
+
+Отладка без композитора: `SYNSHELL_FORM_FACTOR=phone SYNGUI_LAYER_HEADLESS=406x904 SYNGUI_LAYER_DUMP=dir
+synlogin greeter`. `SYNLOGIN_SYNWM` подменяет бинарник композитора.
 
 ## synkeyboard — экранная клавиатура
 `crates/synkeyboard`: отдельный демон на layer-shell (слой Top, снизу, exclusive zone = высота — окна

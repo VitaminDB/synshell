@@ -3585,6 +3585,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "synlogin"
+version = "0.1.3"
+dependencies = [
+ "env_logger",
+ "libc",
+ "log",
+ "syngui",
+ "syngui-layer",
+ "synshell-common",
+ "synshell-ui",
+]
+
+[[package]]
 name = "synmobile-shell"
 version = "0.1.3"
 dependencies = [
@@ -3679,6 +3692,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tracing",
+ "zbus",
 ]
 
 [[package]]

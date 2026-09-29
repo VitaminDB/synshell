@@ -1,0 +1,20 @@
+[package]
+name = "synlogin"
+description = "Экран входа synshell: выбор и создание пользователей, запуск сеанса, возврат после выхода"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "synlogin"
+path = "src/main.rs"
+
+[dependencies]
+synshell-common.workspace = true
+synshell-ui.workspace = true
+syngui-layer.workspace = true
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "image", "svg"] }
+libc.workspace = true
+log = "0.4"
+env_logger = "0.11"

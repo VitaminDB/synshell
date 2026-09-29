@@ -145,7 +145,9 @@ impl State {
 
     /// Запустить (или перезапустить) оболочку из `general.shell`.
     pub fn start_shell(&mut self) {
-        let cmdline = self.core.config.general.shell.trim().to_string();
+        // SYNSHELL_SHELL — своя «оболочка» вместо [general] shell (экран
+        // входа synlogin запускает композитор с `synlogin greeter`).
+        let cmdline = std::env::var("SYNSHELL_SHELL").ok().filter(|s| !s.trim().is_empty()).unwrap_or_else(|| self.core.config.general.shell.trim().to_string());
         if cmdline.is_empty() || self.core.shell.stopping {
             return;
         }

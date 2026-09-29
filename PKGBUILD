@@ -34,17 +34,17 @@ _profile=${SYNSHELL_PROFILE:-release}
 
 build() {
     cd "$startdir"
-    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg
+    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin
 }
 
 check() {
     cd "$startdir"
-    cargo test --profile "$_profile" -p synshell-common -p synwm -p synshot
+    cargo test --profile "$_profile" -p synshell-common -p synwm -p synshot -p synlogin
 }
 
 package() {
     cd "$startdir"
-    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg; do
+    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin; do
         install -Dm755 "target/$_profile/$b" "$pkgdir/usr/bin/$b"
     done
     install -Dm755 data/synshell-session "$pkgdir/usr/bin/synshell-session"
@@ -63,6 +63,7 @@ package() {
     install -Dm644 crates/synshot/data/synshot.desktop \
         "$pkgdir/usr/share/applications/synshot.desktop"
     install -Dm644 crates/synshell-ui/data/syndesktop-lock.pam "$pkgdir/etc/pam.d/syndesktop-lock"
+    install -Dm644 crates/synlogin/data/synlogin.service "$pkgdir/usr/lib/systemd/system/synlogin.service"
     install -Dm644 crates/synshell-common/default-config.toml \
         "$pkgdir/usr/share/doc/synshell/config.toml.example"
 }
