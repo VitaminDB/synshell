@@ -1,0 +1,29 @@
+# Автозапуск synshell на телефоне (Android-ядро без VT и logind-сеанса):
+# композитор на DRM-панели с CPU-рендерером. Установка:
+#   install -Dm644 data/synshell-phone.service /etc/systemd/system/
+#   systemctl enable synshell-phone
+# Отладка — journalctl -u synshell-phone. Держит только сторож
+# arch-mobile-port: при зависании телефон перезагрузится.
+[Unit]
+Description=synshell (телефон)
+After=systemd-user-sessions.service systemd-udevd.service dbus.service
+Wants=dbus.service
+ConditionPathExists=/dev/dri/card0
+
+[Service]
+Type=simple
+Environment=LIBSEAT_BACKEND=noop
+Environment=SYNSHELL_DRM_DEVICE=/dev/dri/card0
+Environment=XDG_RUNTIME_DIR=/run/weston
+Environment=SYNSHELL_FORM_FACTOR=phone
+# Прокси хоста для pacman и AUR в «Программах» (USB-сеть); убрать с Wi-Fi.
+Environment=http_proxy=http://172.16.42.2:3128
+Environment=https_proxy=http://172.16.42.2:3128
+ExecStartPre=/usr/bin/mkdir -p /run/weston
+ExecStartPre=/usr/bin/chmod 0700 /run/weston
+ExecStart=/usr/bin/dbus-run-session /usr/local/bin/synwm --tty --cpu
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

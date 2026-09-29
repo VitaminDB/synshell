@@ -35,8 +35,9 @@
 | `synwm` | композитор + CLI `synwm msg …` |
 | `syngui-layer` | хост syngui на layer-shell поверхностях (sctk 0.19 + wgpu-surface из `wl_surface`) — «winit для оболочки» |
 | `synshell-ui` | общая оболочка (библиотека): панели и доки с апплетами, меню запуска, всплывающие окна, уведомления (D-Bus), OSD, блокировка, Alt+Tab, трей, глобальное меню; `synshell_ui::run(Shell { form_factor, extra_mss, install, .. })` |
-| `synsystem` | системные бэкенды без UI: батареи, ядра CPU с частотами и кластерами, память, температуры, процессы (PSS/CPU), подсветка (ниты), сеть, GPU (KGSL/amdgpu/Intel), громкость; пример `sysinfo` |
+| `synsystem` | системные бэкенды без UI: Wi-Fi (iwd / NetworkManager), Bluetooth (bluez), пакеты (pacman/AUR), оборудование (`hwinfo`), батареи, ядра CPU с частотами и кластерами, память, температуры, процессы (PSS/CPU), подсветка (ниты), сеть, GPU (KGSL/amdgpu/Intel), громкость; пример `sysinfo` |
 | `syndesktop-shell` | оболочка рабочего стола: `synshell-ui` + обои и панели по мониторам (`manager`) |
+| `synpkg` | «Программы»: pacman и AUR (`synsystem::packages`), рабочий стол и телефон |
 | `synmobile-shell` | оболочка телефона: строка состояния, навигация, домашний экран — [MOBILE.md](MOBILE.md) |
 | `synkeyboard` | экранная клавиатура (layer-shell + `zwp_virtual_keyboard_v1`, автопоказ по `zwp_input_method_v2`) — [MOBILE.md](MOBILE.md) |
 | `synsettings` | «Параметры системы» |

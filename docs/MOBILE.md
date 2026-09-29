@@ -61,6 +61,36 @@ GPU-композитинг — следующий этап (свой ренде�
 
 Оболочка запускает и перезапускает демон `synkeyboard`.
 
+## Режимы окон и жесты (synwm)
+`[mobile] mode` (и плитка «Режим окон» в шторке, меню рабочего стола, `synwm msg action "mobile-mode free"`):
+
+| Режим | Как выглядит | Устройство |
+|---|---|---|
+| `pages` (по умолчанию) | каждое приложение во весь экран, листание вбок вдоль нижнего края, «страница 0» — домашний экран | `Wm::mobile` (`wm/mobile.rs`): видна только страница (окно с диалогами), переход — сдвиг, как у столов; «свернуть» — домой |
+| `tiles` | окна друг под другом (раскладка `rows`) | граница «верхнее окно / остальные» тянется пальцем (`master_ratio`) |
+| `free` | свободные окна на большом столе (`[mobile] desk` = 2x2 / 3x3 / infinite) | серверная рамка-ручка у всех окон (xdg-decoration → ServerSide), пан стола двумя пальцами — окна сдвигаются, камера в `MobileInfo` |
+
+Жесты (`[gestures]`, `touch.rs`): касание в зоне края (`edge_size`) задерживается до `threshold` — свайп слева/справа
+внутрь — `edge_left/right` («назад»: оверлею оболочки `shell back`, окну — клавиша `[mobile] back_key`, по умолчанию
+XF86Back), снизу — `edge_bottom` («домой», `page home`), снизу с задержкой пальца — `edge_bottom_hold` («Недавние»),
+сверху — `edge_top` (шторка); не жест — касание воспроизводится приложению. Пальцем по рамке окна: кнопки
+заголовка по тапу, заголовок тащит окно, край — размер. IPC: `Request::Mobile`, `Event::MobileChanged`.
+
+## Экран ресурсов, «Программы», Wi-Fi, Bluetooth
+- Первая страница домашнего экрана (`[mobile] resources_page`): процессор (кольцо, история, ядра с частотами и
+  классом LITTLE/big/prime), память, Adreno, температуры, питание (без драйвера батареи — напряжение с АЦП PMIC),
+  сеть; лента запущенных приложений с бейджами RAM/CPU (`synsystem::procs`).
+- `synpkg` («Программы»): поиск в репозиториях и AUR, установка/удаление/обновление с живым логом. Pacman — от root
+  или через pkexec; AUR — snapshot через curl (git не нужен), makepkg от `[packages] build_user` (на телефоне root —
+  нужен обычный пользователь: `useradd -m builder`, `build_user = "builder"`). Сеть телефона — через прокси хоста
+  (`http_proxy`).
+- Wi-Fi (`[wifi] backend`: iwd или NetworkManager) и Bluetooth (bluez) — страницы «Параметров»; на телефоне Wi-Fi
+  ждёт драйвера и прошивки (arch-mobile-port).
+
+## Автозапуск на телефоне
+`data/synshell-phone.service` — systemd-юнит: `synwm --tty --cpu` под `dbus-run-session` с `LIBSEAT_BACKEND=noop`.
+Не включён по умолчанию: `install -Dm644 data/synshell-phone.service /etc/systemd/system/ && systemctl enable synshell-phone`.
+
 ## synkeyboard — экранная клавиатура
 `crates/synkeyboard`: отдельный демон на layer-shell (слой Top, снизу, exclusive zone = высота — окна
 отодвигаются). Клавиши уходят композитору как evdev-коды через `zwp_virtual_keyboard_v1` (syngui-layer:
