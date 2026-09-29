@@ -3495,6 +3495,7 @@ dependencies = [
  "syngui",
  "syngui-layer",
  "synshell-common",
+ "synsystem",
  "toml",
  "zbus",
 ]
@@ -3651,6 +3652,15 @@ dependencies = [
  "syngui",
  "syngui-layer",
  "synshell-common",
+]
+
+[[package]]
+name = "synsystem"
+version = "0.1.3"
+dependencies = [
+ "libc",
+ "tempfile",
+ "tracing",
 ]
 
 [[package]]
