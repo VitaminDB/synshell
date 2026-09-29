@@ -157,11 +157,19 @@ fn sym(label: &str) -> Key {
     }
 }
 
-/// Ряды одинаковой ширины: короткие ряды получают пустые поля по краям,
-/// как у Gboard, чтобы буквы во всех рядах были одной ширины.
-fn pad_rows(rows: &mut [Vec<Key>]) {
-    let units = |row: &Vec<Key>| row.iter().map(|k| k.width).sum::<f32>();
-    let max = rows.iter().map(units).fold(0.0, f32::max);
+/// Число колонок языка (самый широкий ряд букв): каждая раскладка заполняет
+/// всю ширину, ряды внутри неё выровнены по самому длинному.
+fn columns(lang: &Lang) -> f32 {
+    lang.rows.iter().map(|r| r.chars().count() as f32).fold(10.0, f32::max)
+}
+
+fn units(row: &[Key]) -> f32 {
+    row.iter().map(|k| k.width).sum::<f32>()
+}
+
+/// Ряды одинаковой ширины `max`: короткие ряды получают пустые поля по краям,
+/// как у Gboard, чтобы клавиши во всех рядах были одной ширины.
+fn pad_rows(rows: &mut [Vec<Key>], max: f32) {
     for row in rows.iter_mut() {
         let extra = max - units(row);
         if extra > 0.05 {
@@ -175,7 +183,7 @@ fn pad_rows(rows: &mut [Vec<Key>]) {
 /// Ряды страницы для языка `lang`, с учётом Shift/Caps для подписей.
 pub fn rows(page: Page, lang: &Lang) -> Vec<Vec<Key>> {
     let mut out = page_rows(page, lang);
-    pad_rows(&mut out[..3]);
+    pad_rows(&mut out[..3], columns(lang));
     out
 }
 
@@ -190,8 +198,11 @@ fn page_rows(page: Page, lang: &Lang) -> Vec<Vec<Key>> {
                     .map(|(ch, code)| Key::letter(&ch.to_string(), &ch.to_uppercase().to_string(), *code))
                     .collect();
                 if r == 2 {
-                    row.insert(0, Key::special("⇧", Action::Modifier(Modifier::Shift), 1.5));
-                    row.push(Key::repeat("⌫", KEY_BACKSPACE, 1.5));
+                    // ⇧ и ⌫ добирают ширину ряда до верхних, но не шире их.
+                    let top = out.iter().map(|r| units(r)).fold(0.0, f32::max);
+                    let side = ((top - units(&row)) / 2.0).max(1.0);
+                    row.insert(0, Key::special("⇧", Action::Modifier(Modifier::Shift), side));
+                    row.push(Key::repeat("⌫", KEY_BACKSPACE, side));
                 }
                 out.push(row);
             }
