@@ -20,7 +20,7 @@ pub enum Item {
 }
 
 impl Item {
-    fn activate(&self, ctx: ShellCtx) {
+    pub fn activate(&self, ctx: ShellCtx) {
         match self {
             Item::App(e) => launch(ctx, e),
             Item::Calc { value, .. } => {
@@ -268,7 +268,7 @@ impl Parser<'_> {
 
 // ─── Вид ─────────────────────────────────────────────────────────────────────
 
-fn item_icon(item: &Item, class: &str) -> Box<dyn Widget> {
+pub fn item_icon(item: &Item, class: &str) -> Box<dyn Widget> {
     match item {
         Item::App(e) => match xdg::lookup_icon(&e.icon).or_else(|| xdg::lookup_icon("application-x-executable")) {
             Some(p) => Box::new(Image::new(p.to_string_lossy()).fit(ImageFit::Contain).placeholder(false).class(class.to_string())),
@@ -279,7 +279,7 @@ fn item_icon(item: &Item, class: &str) -> Box<dyn Widget> {
     }
 }
 
-fn item_text(item: &Item) -> (String, String) {
+pub fn item_text(item: &Item) -> (String, String) {
     match item {
         Item::App(e) => {
             let sub = if !e.generic_name.is_empty() && e.generic_name != e.name { e.generic_name.clone() } else { e.comment.clone() };

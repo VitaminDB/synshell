@@ -16,6 +16,11 @@ pub fn ms(ctx: &ShellCtx, base: u32) -> u32 {
 }
 
 /// Включены ли анимации оболочки.
+/// Длительность анимации группы (`[animations] home|menu|shade|dock|pages`).
+pub fn group_ms(ctx: &ShellCtx, group: &str, base: u32) -> u32 {
+    ctx.cfg().animations.group_ms(group, base)
+}
+
 pub fn on(ctx: &ShellCtx) -> bool {
     ms(ctx, 100) > 0
 }

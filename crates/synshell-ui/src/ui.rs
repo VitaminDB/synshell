@@ -441,6 +441,8 @@ pub mod mi {
     pub const SETTINGS: &str = "\u{E8B8}";
     pub const WALLPAPER: &str = "\u{E1BC}";
     pub const HOME: &str = "\u{E88A}";
+    pub const CHEVRON_RIGHT: &str = "\u{E5CC}";
+    pub const CHEVRON_LEFT: &str = "\u{E5CB}";
     pub const BACK: &str = "\u{E5C4}";
     pub const TERMINAL: &str = "\u{EB8E}";
     pub const CALC: &str = "\u{EA5F}";

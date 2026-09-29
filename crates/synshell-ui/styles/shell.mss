@@ -327,6 +327,94 @@ Text {
 .grid-icon-glyph { icon-size: 48px; icon-color: var(--accent); }
 .grid-name { font-size: 12px; }
 
+/* ─── «Пуск» в духе Windows 11 (style = "win11") ──────────────────────────── */
+
+.start { padding: 6px 4px 0px 4px; }
+.start-search {
+    padding: 9px 16px;
+    border-radius: 999px;
+    background-color: var(--surface-alt);
+    border-width: 1px;
+    border-color: var(--border);
+    transition: border-color 160ms ease-out;
+}
+.start-search-icon { icon-size: 20px; icon-color: var(--muted); }
+.start-search-field { background-color: #00000000; border-width: 0px; font-size: 15px; color: var(--fg); caret-color: var(--accent); }
+.start-body { flex-grow: 1; }
+.start-scroll { flex-grow: 1; }
+.start-heading { font-size: 14px; font-weight: 600; color: var(--fg); padding: 4px 6px; }
+.start-caption { font-size: 12px; color: var(--muted); padding: 2px 8px 6px 8px; }
+.start-empty { font-size: 13px; color: var(--muted); padding: 12px 8px; }
+
+.start-pill {
+    padding: 4px 10px 4px 12px;
+    border-radius: 999px;
+    background-color: var(--surface-alt);
+    transition: background-color 120ms ease-out, scale 200ms spring(420, 26);
+}
+.start-pill:hover { background-color: var(--hover); }
+.start-pill:active { scale: 0.95; }
+.start-pill-text { font-size: 12px; color: var(--fg); }
+.start-pill-icon { icon-size: 16px; icon-color: var(--fg); }
+
+.start-pinned { height: 300px; accent-color: var(--accent); border-color: var(--border); }
+.start-tile {
+    padding: 10px 2px 8px 2px;
+    border-radius: var(--radius-sm);
+    background-color: #00000000;
+    transition: background-color 120ms ease-out, scale 220ms spring(420, 26);
+}
+.start-tile:hover { background-color: var(--hover); }
+.start-tile:active { scale: 0.93; background-color: var(--pressed); }
+.start-tile-icon { width: 36px; height: 36px; }
+.start-tile-name { font-size: 12px; color: var(--fg); text-align: center; }
+
+.start-row {
+    padding: 7px 10px;
+    border-radius: var(--radius-sm);
+    background-color: #00000000;
+    transition: background-color 120ms ease-out;
+}
+.start-row:hover { background-color: var(--hover); }
+.start-row-body { padding: 7px 10px; }
+.start-row-selected { background-color: var(--accent-soft); }
+.start-row-icon { width: 32px; height: 32px; }
+.start-row-icon-glyph { icon-size: 26px; icon-color: var(--accent); }
+.start-row-name { font-size: 14px; color: var(--fg); }
+.start-row-sub { font-size: 12px; color: var(--muted); }
+
+.start-letter { font-size: 13px; font-weight: 700; color: var(--accent); padding: 12px 10px 4px 10px; }
+.start-rail { padding: 4px 2px; border-radius: 999px; background-color: var(--surface-alt); }
+.start-rail-letter {
+    height: 18px; width: 22px;
+    font-size: 11px; font-weight: 600; text-align: center;
+    color: var(--muted);
+    border-radius: 9px;
+    transition: color 120ms ease-out, background-color 120ms ease-out, scale 180ms spring(500, 24);
+}
+.start-rail-letter-on { color: var(--accent-fg); background-color: var(--accent); scale: 1.35; }
+
+.start-item-menu { padding: 8px; }
+.start-menu-scrim { background-color: #00000018; }
+
+.start-footer {
+    padding: 10px 6px 6px 6px;
+    border-top-width: 1px;
+    border-color: var(--border);
+}
+.start-avatar { width: 36px; height: 36px; border-radius: 18px; background-color: var(--accent); }
+.start-avatar-letter { font-size: 16px; font-weight: 700; color: var(--accent-fg); text-align: center; padding: 7px 0px; }
+.start-user { font-size: 14px; font-weight: 600; color: var(--fg); }
+.start-footer-btn {
+    padding: 8px;
+    border-radius: 999px;
+    background-color: #00000000;
+    transition: background-color 120ms ease-out, scale 200ms spring(420, 26);
+}
+.start-footer-btn:hover { background-color: var(--hover); }
+.start-footer-btn:active { scale: 0.9; }
+.start-footer-icon { icon-size: 20px; icon-color: var(--fg); }
+
 /* ─── Уведомления ────────────────────────────────────────────────────────── */
 
 .notif {

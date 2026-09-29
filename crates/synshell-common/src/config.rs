@@ -1346,7 +1346,9 @@ impl Default for Files {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Launcher {
-    /// `menu` — меню у кнопки (Kickoff), `fullscreen` — сетка на весь экран.
+    /// `win11` — «Пуск» как в Windows 11 (закреплённые, «Все приложения» с
+    /// алфавитным указателем, рекомендуемые), `menu` — меню с разделами
+    /// (Kickoff), `fullscreen` — сетка на весь экран.
     pub style: String,
     /// Избранное: имена .desktop без расширения (`org.kde.dolphin`).
     pub favorites: Vec<String>,
@@ -1368,7 +1370,7 @@ pub struct Launcher {
 impl Default for Launcher {
     fn default() -> Self {
         Self {
-            style: "menu".into(),
+            style: "win11".into(),
             favorites: vec![
                 "org.kde.konsole".into(),
                 "org.kde.dolphin".into(),

@@ -422,7 +422,7 @@ pub fn home_app_menu(ctx: ShellCtx, app_id: &str) -> impl Widget {
     col
 }
 
-fn set_home_apps(apps: Vec<String>) {
+pub fn set_home_apps(apps: Vec<String>) {
     let arr = toml_edit::Value::Array(apps.iter().map(|a| toml_edit::Value::from(a.as_str())).collect());
     ShellCtx::get().close_popup();
     if let Err(e) = synshell_common::config_edit::set_value(&["mobile", "home_apps"], arr) {

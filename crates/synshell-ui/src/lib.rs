@@ -28,6 +28,7 @@ pub mod notifications;
 pub mod osd;
 pub mod panel;
 pub mod popup;
+pub mod start_menu;
 pub mod switcher;
 pub mod system;
 pub mod theme;

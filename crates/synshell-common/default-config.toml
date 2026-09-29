@@ -291,7 +291,7 @@ applets = [
 # intellihide = false         # прятать, когда окно перекрывает док
 
 [launcher]
-style = "menu"                 # menu | fullscreen
+style = "win11"                # win11 — как Windows 11 | menu — с разделами | fullscreen — сетка
 favorites = ["org.kde.konsole", "org.kde.dolphin", "firefox", "synsettings"]
 show_categories = true
 show_recent = true
