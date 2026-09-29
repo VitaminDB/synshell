@@ -27,8 +27,6 @@ type WifiSig = RwSignal<Option<Result<WifiState, String>>>;
 
 thread_local! {
     static WIFI: Cell<Option<WifiSig>> = const { Cell::new(None) };
-    /// Сеть с раскрытым полем пароля.
-    static PASS_FOR: Cell<Option<RwSignal<Option<String>>>> = const { Cell::new(None) };
     /// Подключённая сеть с раскрытыми действиями (отключить, забыть).
     static OPEN_FOR: Cell<Option<RwSignal<Option<String>>>> = const { Cell::new(None) };
     /// Итог последнего действия.
@@ -53,9 +51,6 @@ fn sig<T: Clone + 'static>(cell: &'static std::thread::LocalKey<Cell<Option<RwSi
 
 fn wifi_sig() -> WifiSig {
     sig(&WIFI, || None)
-}
-fn pass_for() -> RwSignal<Option<String>> {
-    sig(&PASS_FOR, || None)
 }
 fn open_for() -> RwSignal<Option<String>> {
     sig(&OPEN_FOR, || None)
@@ -162,10 +157,7 @@ fn start_polling() {
                 a2.store(false, Ordering::Relaxed);
                 return;
             }
-            // Пока вводят пароль — не перестраивать список.
-            if pass_for().get_untracked().is_none() {
-                refresh();
-            }
+            refresh();
         });
         // Дать главному потоку ответить.
         std::thread::sleep(Duration::from_millis(200));
@@ -207,7 +199,6 @@ fn signal_icon(s: u8) -> &'static str {
 /// Содержимое окна «Сеть».
 pub fn view(ctx: ShellCtx) -> impl Widget {
     crate::system::start(ctx);
-    pass_for().set(None);
     open_for().set(None);
     toast_sig().set(None);
     refresh();
@@ -280,6 +271,8 @@ fn wifi_section(phone: bool) -> Box<dyn Widget> {
     // Wi-Fi: включить/выключить.
     let sub = match &st.connected {
         Some(n) => format!("Подключено к «{n}»{}", st.ip.as_ref().map(|i| format!(" · {i}")).unwrap_or_default()),
+        None if powered && st.status.contains("connecting") => "Подключение…".to_string(),
+        None if powered && st.status == "unavailable" => "Интерфейс недоступен".to_string(),
         None if powered => "Не подключено".to_string(),
         None => "Выключен".to_string(),
     };
@@ -312,9 +305,7 @@ fn wifi_section(phone: bool) -> Box<dyn Widget> {
                     }),
             ),
     );
-    let pass = pass_for();
     let open = open_for();
-    let pass_now = pass.get();
     let open_now = open.get();
     let mut list = Column::new().gap(2.0);
     if st.networks.is_empty() {
@@ -349,13 +340,8 @@ fn wifi_section(phone: bool) -> Box<dyn Widget> {
             if connected || known {
                 // Подключённая (сохранённая) сеть: раскрыть действия.
                 open.set(if open.get_untracked().as_deref() == Some(s.as_str()) { None } else { Some(s) });
-                pass.set(None);
             } else if secure {
-                pass.set(Some(s));
-                open.set(None);
-                if phone {
-                    crate::popup::request_keyboard();
-                }
+                ShellCtx::get().open_popup(PopupKind::WifiConnect { ssid: s }, crate::commands::centered());
             } else {
                 wifi_do("Подключение", move |b| b.connect(&s, None));
             }
@@ -372,6 +358,13 @@ fn wifi_section(phone: bool) -> Box<dyn Widget> {
                     wifi_do("Подключение", move |b| b.connect(&s, None));
                 }));
             }
+            if secure {
+                // Пароль изменился — ввести заново в окне подключения.
+                let s = ssid.clone();
+                actions = actions.child(action_button("Пароль…", move || {
+                    ShellCtx::get().open_popup(PopupKind::WifiConnect { ssid: s.clone() }, crate::commands::centered());
+                }));
+            }
             let s = ssid.clone();
             actions = actions.child(action_button("Забыть", move || {
                 let s = s.clone();
@@ -380,44 +373,173 @@ fn wifi_section(phone: bool) -> Box<dyn Widget> {
             }));
             list = list.child(actions);
         }
-        if pass_now.as_deref() == Some(ssid.as_str()) {
-            let text = use_signal(String::new());
-            let s = ssid.clone();
-            let connect = move || {
-                let p = text.get_untracked();
-                let s = s.clone();
-                pass_for().set(None);
-                wifi_do("Подключение", move |b| b.connect(&s, Some(&p)));
-            };
-            let c2 = connect.clone();
-            list = list.child(
+    }
+    // Длинный список — в прокрутке, чтобы окно не выросло выше экрана
+    // (высота — у обёртки: ScrollView сам её не задаёт).
+    let (_, oh) = crate::manager::output_size(None);
+    let max_h = if phone { (oh * 0.4).max(160.0) } else { 300.0 };
+    let approx = st.networks.len() as f32 * 46.0 + 60.0;
+    if approx > max_h {
+        col = col.child(DecoratedBox::new().child(ScrollView::new().vertical().child(list).class("net-list")).style("height", StyleValue::px(max_h)));
+    } else {
+        col = col.child(list);
+    }
+    Box::new(col)
+}
+
+// ─── Окно подключения ────────────────────────────────────────────────────────
+
+#[derive(Clone, PartialEq)]
+enum ConnState {
+    Idle,
+    Connecting,
+    Done(String),
+    Failed(String),
+}
+
+/// Понятное объяснение ошибки nmcli/iwctl.
+fn humanize(e: &str) -> String {
+    let l = e.to_lowercase();
+    if l.contains("secrets were required") || l.contains("wireless-security") || l.contains("invalid") || l.contains("psk") || l.contains("wrong") || l.contains("not authorized") {
+        "Неверный пароль (или сеть отклонила подключение)".into()
+    } else if l.contains("no network with ssid") || l.contains("not found") {
+        "Сеть не найдена — обновите список".into()
+    } else if l.contains("timeout") || l.contains("timed out") {
+        "Истекло время ожидания ответа сети".into()
+    } else {
+        e.trim().trim_start_matches("Error: ").to_string()
+    }
+}
+
+/// Окно подключения к сети: пароль (с показом), «Подключить», статус
+/// подключения и ошибка; по успеху — обратно к списку сетей.
+pub fn connect_view(ctx: ShellCtx, ssid: String) -> impl Widget {
+    let phone = ctx.is_phone();
+    if phone {
+        crate::popup::request_keyboard();
+    }
+    let pass = use_signal(String::new());
+    let show = use_signal(false);
+    let state = use_signal(ConnState::Idle);
+    let known = wifi_sig().get_untracked().and_then(|r| r.ok()).and_then(|st| st.networks.into_iter().find(|n| n.ssid == ssid));
+    let hint = match &known {
+        Some(n) if n.security == "8021x" => "Корпоративная сеть (802.1X) — имя пользователя запросит служба",
+        Some(n) if n.secure() => "Защищённая сеть — введите пароль",
+        Some(_) => "Открытая сеть",
+        None => "Введите пароль сети",
+    };
+    let ssid_c = ssid.clone();
+    // Неудачная попытка к новой сети не должна оставлять «сохранённую» сеть с
+    // неверным паролем (NetworkManager создаёт профиль до проверки).
+    let was_known = known.as_ref().is_some_and(|n| n.known);
+    let connect = {
+        let ssid = ssid.clone();
+        move || {
+            if state.get_untracked() == ConnState::Connecting {
+                return;
+            }
+            let p = pass.get_untracked();
+            state.set(ConnState::Connecting);
+            let choice = backend_choice();
+            let ssid = ssid.clone();
+            std::thread::spawn(move || {
+                let r = match wifi::backend(&choice) {
+                    Some(b) => {
+                        let r = b.connect(&ssid, Some(&p));
+                        if r.is_err() && !was_known {
+                            let _ = b.forget(&ssid);
+                        }
+                        r
+                    }
+                    None => Err("нет службы Wi-Fi".into()),
+                };
+                run_on_main_thread(move || {
+                    refresh();
+                    match r {
+                        Ok(()) => {
+                            state.set(ConnState::Done(format!("Подключено к «{ssid}»")));
+                            toast_sig().set(Some(format!("Подключено к «{ssid}»")));
+                            // Показать итог и вернуться к списку сетей.
+                            let ssid2 = ssid.clone();
+                            syngui_layer::add_timer(Duration::from_millis(1400), move || {
+                                let ctx = ShellCtx::get();
+                                let still = ctx.popup.get_untracked().is_some_and(|p| matches!(&p.kind, PopupKind::WifiConnect { ssid: s } if *s == ssid2));
+                                if still {
+                                    ctx.open_popup(PopupKind::Network, crate::commands::centered());
+                                }
+                                None
+                            });
+                        }
+                        Err(e) => state.set(ConnState::Failed(humanize(&e))),
+                    }
+                });
+            });
+        }
+    };
+    let connect_submit = connect.clone();
+    let connect_btn = connect.clone();
+    Column::new()
+        .gap(10.0)
+        .child(Text::new(format!("Wi-Fi: {ssid_c}")).max_lines(1).class("popup-title"))
+        .child(Text::new(hint).max_lines(2).class("net-note"))
+        .child(rx(move || {
+            let visible = show.get();
+            let busy = state.get() == ConnState::Connecting;
+            Box::new(
                 Row::new()
                     .gap(6.0)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
                     .child(
                         TextField::new()
-                            .obscure(true)
+                            .text(pass.get_untracked())
+                            .obscure(!visible)
+                            .disabled(busy)
                             .autofocus(true)
-                            .placeholder("Пароль сети")
-                            .on_change(move |t| text.set(t.to_string()))
-                            .on_submit(move |_| c2())
+                            .placeholder("Пароль")
+                            .on_change(move |t| pass.set(t.to_string()))
+                            .on_submit({
+                                let c = connect_submit.clone();
+                                move |_| c()
+                            })
                             .class("search-field grow net-pass"),
                     )
-                    .child(action_button("Подключить", connect))
-                    .class("net-actions"),
-            );
-        }
-    }
-    // Длинный список — в прокрутке, чтобы окно не выросло выше экрана.
-    let (_, oh) = crate::manager::output_size(None);
-    let max_h = if phone { (oh * 0.4).max(160.0) } else { 300.0 };
-    let approx = st.networks.len() as f32 * 46.0 + 60.0;
-    if approx > max_h {
-        col = col.child(ScrollView::new().vertical().child(list).style("height", StyleValue::px(max_h)).class("net-list"));
-    } else {
-        col = col.child(list);
-    }
-    Box::new(col)
+                    .child(
+                        InputArea::new(DecoratedBox::new().child(icon(if visible { "\u{E8F5}" } else { "\u{E8F4}" }).class("net-refresh-icon")).class("net-refresh"))
+                            .pointer()
+                            .on_click(move |b, _, _| {
+                                if b == MouseButton::Left {
+                                    show.set(!show.get_untracked());
+                                }
+                            }),
+                    ),
+            ) as Box<dyn Widget>
+        }))
+        .child(rx(move || match state.get() {
+            ConnState::Idle => Box::new(DecoratedBox::new().class("net-toast-none")) as Box<dyn Widget>,
+            ConnState::Connecting => Box::new(
+                Row::new()
+                    .gap(8.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(CircularProgress::new().indeterminate().size(18.0).stroke_width(2.0).class("net-spinner"))
+                    .child(Text::new("Подключение…").class("net-status")),
+            ),
+            // Текст — в растягиваемой колонке, иначе строка не переносится и уходит за край.
+            ConnState::Done(t) => Box::new(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon("\u{E86C}").class("net-ok-icon")).child(Column::new().child(Text::new(t).max_lines(2).class("net-ok")).class("grow"))),
+            ConnState::Failed(t) => Box::new(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon("\u{E000}").class("net-error-icon")).child(Column::new().child(Text::new(t).max_lines(4).class("net-error")).class("grow"))),
+        }))
+        .child(
+            Row::new()
+                .gap(8.0)
+                .main_axis_alignment(MainAxisAlignment::End)
+                .child(action_button("Отмена", || {
+                    ShellCtx::get().open_popup(PopupKind::Network, crate::commands::centered());
+                }))
+                .child(InputArea::new(DecoratedBox::new().child(Text::new("Подключить").class("net-btn-primary-label")).class("net-btn net-btn-primary")).pointer().on_click(move |b, _, _| {
+                    if b == MouseButton::Left {
+                        connect_btn();
+                    }
+                })),
+        )
 }
 
 fn action_button(label: &str, f: impl Fn() + Send + Sync + 'static) -> impl Widget {

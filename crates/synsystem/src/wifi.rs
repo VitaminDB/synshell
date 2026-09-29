@@ -298,6 +298,14 @@ fn ip_of(dev: &str) -> Option<String> {
     out.split_whitespace().skip_while(|w| *w != "inet").nth(1).map(|s| s.split('/').next().unwrap_or(s).to_string())
 }
 
+/// Беспроводной интерфейс по sysfs (`phy80211`/`wireless`), если есть.
+pub fn sysfs_wireless() -> Option<String> {
+    std::fs::read_dir("/sys/class/net").ok()?.flatten().find_map(|e| {
+        let p = e.path();
+        (p.join("phy80211").exists() || p.join("wireless").exists()).then(|| e.file_name().to_string_lossy().into_owned())
+    })
+}
+
 // ─── NetworkManager ─────────────────────────────────────────────────────────
 
 pub struct Nm;
@@ -340,6 +348,13 @@ impl WifiBackend for Nm {
             }
         }
         if !st.present {
+            // NetworkManager ещё не подхватил интерфейс (драйвер только что
+            // поднялся) — устройство всё равно есть, если ядро его показывает.
+            if let Some(dev) = sysfs_wireless() {
+                st.present = true;
+                st.status = "unavailable".into();
+                st.device = Some(dev);
+            }
             return Ok(st);
         }
         let known: Vec<String> = run("nmcli", &["-t", "-f", "NAME,TYPE", "connection", "show"])?

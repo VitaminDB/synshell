@@ -16,6 +16,8 @@ pub enum PopupKind {
     Calendar,
     Volume,
     Network,
+    /// Подключение к сети Wi-Fi `ssid`: пароль (с показом), статус, ошибки.
+    WifiConnect { ssid: String },
     Battery,
     Power,
     Notifications,

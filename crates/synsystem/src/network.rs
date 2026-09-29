@@ -30,7 +30,8 @@ pub fn read(sys: &Sys) -> Network {
                     return Network { kind: parts[0].into(), connection: parts[2..].join(":"), signal, online: true };
                 }
             }
-            return Network { kind: "none".into(), ..Default::default() };
+            // У NetworkManager нет подключений — но интерфейс может вести
+            // systemd-networkd (usb0 телефона как unmanaged): смотрим sysfs.
         }
     }
     for name in sys.list("/sys/class/net") {

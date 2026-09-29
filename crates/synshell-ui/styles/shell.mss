@@ -220,6 +220,14 @@ Text {
 .net-btn-label { font-size: 12px; color: var(--fg); }
 .net-pass { font-size: 13px; }
 .net-toast { font-size: 12px; color: var(--muted); }
+.net-status { font-size: 13px; color: var(--fg); }
+.net-ok { font-size: 13px; color: var(--success); }
+.net-ok-icon { icon-size: 20px; icon-color: var(--success); }
+.net-error { font-size: 13px; color: var(--danger); }
+.net-error-icon { icon-size: 20px; icon-color: var(--danger); }
+.net-spinner { width: 18px; height: 18px; color: var(--accent); }
+.net-btn-primary { background-color: var(--accent); }
+.net-btn-primary-label { font-size: 12px; color: var(--accent-fg); }
 .net-toast-none { height: 0px; }
 .net-list { background-color: #00000000; }
 

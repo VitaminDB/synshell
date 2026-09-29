@@ -67,6 +67,8 @@ pub fn handle(cmd: &str) {
         "notifications" => ctx.open_popup(PopupKind::Notifications, at_applet("notifications")),
         "calendar" => ctx.open_popup(PopupKind::Calendar, at_applet("clock")),
         "network" | "wifi" => ctx.open_popup(PopupKind::Network, at_applet("network")),
+        // Окно подключения к сети Wi-Fi (пароль, статус): `wifi-connect <SSID>`.
+        "wifi-connect" if !arg.trim().is_empty() => ctx.open_popup(PopupKind::WifiConnect { ssid: arg.trim().to_string() }, centered()),
         "volume" if arg.is_empty() => ctx.open_popup(PopupKind::Volume, at_applet("volume")),
         "volume" => {
             let d = if arg.starts_with('-') { arg.parse().unwrap_or(-5) } else { num(5) };
