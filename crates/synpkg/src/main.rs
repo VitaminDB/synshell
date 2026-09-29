@@ -6,10 +6,12 @@
 //! `synpkg [запрос]` — открыть поиск с запросом.
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use synshell_common::Config;
 use synsystem::packages::{self as pk, Details, JobEvent, Op, Pkg, Source, Update};
+use synsystem::polkit_agent::{self, AuthRequest, Prompter};
 use syngui::async_runtime::run_on_main_thread;
 use syngui::mss::StyleValue;
 use syngui::prelude::*;
@@ -55,6 +57,35 @@ struct JobView {
     done: Option<std::result::Result<(), String>>,
 }
 
+/// Открытое окно пароля polkit (агент — [`polkit_agent`]).
+#[derive(Clone)]
+struct AuthView(Arc<AuthRequest>);
+
+impl PartialEq for AuthView {
+    fn eq(&self, o: &Self) -> bool {
+        self.0.id == o.0.id
+    }
+}
+
+/// Окно пароля для pkexec: запросы агента приходят из его потока — в сигнал через главный поток.
+struct AuthPrompter(RwSignal<Option<AuthView>>);
+
+impl Prompter for AuthPrompter {
+    fn ask(&self, req: AuthRequest) {
+        let s = self.0;
+        let v = AuthView(Arc::new(req));
+        run_on_main_thread(move || s.set(Some(v)));
+    }
+    fn cancel(&self, id: u64) {
+        let s = self.0;
+        run_on_main_thread(move || {
+            if s.get_untracked().is_some_and(|a| a.0.id == id) {
+                s.set(None);
+            }
+        });
+    }
+}
+
 #[derive(Clone, Copy)]
 struct St {
     tab: RwSignal<Tab>,
@@ -70,6 +101,7 @@ struct St {
     jobs: RwSignal<Vec<JobView>>,
     toast: RwSignal<String>,
     cfg: RwSignal<Config>,
+    auth: RwSignal<Option<AuthView>>,
 }
 
 static SEARCH_GEN: AtomicU64 = AtomicU64::new(0);
@@ -101,7 +133,9 @@ fn main() {
                 jobs: use_signal(Vec::new()),
                 toast: use_signal(String::new()),
                 cfg: use_signal(cfg.clone()),
+                auth: use_signal(None),
             };
+            polkit_agent::set_prompter(AuthPrompter(st.auth));
             if !query.is_empty() {
                 search(st, query.clone());
             }
@@ -309,8 +343,52 @@ fn root(st: St) -> W {
                 } else {
                     false
                 }
-            }).child(Stack::new().fit(StackFit::Expand).child(DecoratedBox::new().child(body).class("root")).child(toast))),
+            }).child(Stack::new().fit(StackFit::Expand).child(DecoratedBox::new().child(body).class("root")).child(toast).child(auth_overlay(st)))),
     )
+}
+
+/// Окно «нужны права администратора» поверх всего: пароль уходит агенту polkit.
+fn auth_overlay(st: St) -> W {
+    Box::new(Reactive::new(move || -> Vec<W> {
+        let Some(AuthView(req)) = st.auth.get() else {
+            return vec![];
+        };
+        let pass = use_signal(String::new());
+        let (r1, r2, r3) = (req.clone(), req.clone(), req.clone());
+        let submit = move || {
+            r1.respond(Some(pass.get_untracked()));
+            st.auth.set(None);
+        };
+        let s2 = submit.clone();
+        let cancel = move || {
+            r2.respond(None);
+            st.auth.set(None);
+        };
+        let mut card = Column::new()
+            .gap(12.0)
+            .child(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new("\u{E897}").class("auth-icon")).child(Text::new("Нужны права администратора").class("auth-title grow")))
+            .child(Text::new(r3.message.clone()).class("desc"))
+            .child(Text::new(format!("Пароль пользователя {}", r3.user)).class("muted"));
+        if let Some(e) = &r3.error {
+            card = card.child(Text::new(e.clone()).class("auth-error"));
+        }
+        card = card
+            .child(TextField::new().obscure(r3.secret).autofocus(true).placeholder(if r3.prompt.is_empty() { "Пароль".to_string() } else { r3.prompt.trim_end_matches(':').to_string() }).on_change(move |t| pass.set(t.to_string())).on_submit(move |_| s2()))
+            .child(
+                Row::new()
+                    .gap(8.0)
+                    .main_axis_alignment(MainAxisAlignment::End)
+                    .child(Button::new("Отмена").class("btn").on_click(cancel))
+                    .child(Button::new("Подтвердить").class("btn primary").on_click(submit)),
+            );
+        vec![Box::new(
+            GestureDetector::new().on_click(|| {}).child(
+                DecoratedBox::new()
+                    .child(Column::new().main_axis_alignment(MainAxisAlignment::Center).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().child(card).class("auth-card")).class("grow"))
+                    .class("auth-scrim"),
+            ),
+        )]
+    }))
 }
 
 fn tab_content(st: St) -> W {

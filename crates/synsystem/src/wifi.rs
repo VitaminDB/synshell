@@ -125,6 +125,9 @@ pub fn service_control(unit: &str, start: bool) -> Result<(), String> {
     let mut c = if is_root() {
         Command::new("systemctl")
     } else if crate::util::which("pkexec") {
+        if let Err(e) = crate::polkit_agent::ensure() {
+            tracing::warn!("{e}");
+        }
         let mut c = Command::new("pkexec");
         c.arg("systemctl");
         c

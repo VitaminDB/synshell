@@ -3688,6 +3688,7 @@ dependencies = [
 name = "synsystem"
 version = "0.1.3"
 dependencies = [
+ "blocking",
  "libc",
  "serde_json",
  "tempfile",

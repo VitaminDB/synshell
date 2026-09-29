@@ -82,6 +82,13 @@ Text { color: var(--fg); font-size: 14px; }
 .toast { padding: 10px 16px; border-radius: 999px; background: var(--fg); box-shadow: 0 6px 20px var(--shadow); }
 .toast-text { font-size: 13px; color: var(--bg); }
 
+/* Окно пароля polkit */
+.auth-scrim { background: #00000099; padding: 16px; flex-grow: 1; }
+.auth-card { padding: 20px; border-radius: var(--radius); background: var(--surface); box-shadow: 0 10px 32px var(--shadow); max-width: 440px; }
+.auth-icon { font-size: 26px; color: var(--accent); }
+.auth-title { font-size: 17px; font-weight: 600; }
+.auth-error { font-size: 13px; color: var(--danger); }
+
 /* Телефон */
 .bar { padding: 8px; }
 .back { padding: 8px; border-radius: 999px; transition: background-color 120ms ease-out; }

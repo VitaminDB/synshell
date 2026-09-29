@@ -371,11 +371,15 @@ fn is_root() -> bool {
     unsafe { libc::geteuid() == 0 }
 }
 
-/// pacman с правами root: напрямую или через pkexec.
+/// pacman с правами root: напрямую или через pkexec (пароль спросит агент
+/// polkit приложения — [`crate::polkit_agent`], если приложение задало окно).
 fn pacman_cmd(args: &[&str]) -> Command {
     let mut c = if is_root() {
         Command::new("pacman")
     } else {
+        if let Err(e) = crate::polkit_agent::ensure() {
+            tracing::warn!("{e}");
+        }
         let mut c = Command::new("pkexec");
         c.arg("pacman");
         c

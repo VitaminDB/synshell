@@ -94,8 +94,14 @@ XF86Back), снизу — `edge_bottom` («домой», `page home`), сниз�
   сеть; лента запущенных приложений с бейджами RAM/CPU (`synsystem::procs`).
 - `synpkg` («Программы»): поиск в репозиториях и AUR, установка/удаление/обновление с живым логом. Pacman — от root
   или через pkexec; AUR — snapshot через curl (git не нужен), makepkg от `[packages] build_user` (на телефоне root —
-  нужен обычный пользователь: `useradd -m builder`, `build_user = "builder"`). Сеть телефона — через прокси хоста
-  (`http_proxy`).
+  нужен обычный пользователь: `useradd -m builder`, `build_user = "builder"`). Сеть — Wi-Fi (или прокси хоста
+  через `http_proxy`, если он задан).
+- Пароль для pkexec спрашивает само приложение: `synsystem::polkit_agent` регистрирует процесс агентом polkit
+  (субъект `unix-process`, как `pkttyagent --process`), окно ввода — `Prompter` приложения (в synpkg — поверх
+  интерфейса). Сеансовый агент без logind не работает: polkitd ищет агента по процессу или logind-сеансу, а сеансы
+  synlogin идут без logind. Проверка без интерфейса: `SYN_PASS=… cargo run -p synsystem --example polkit_agent`.
+  Помощник PAM — через `/run/polkit/agent-helper.socket`, а если сокет молчит (нет pidfd в ядре < 6.5), то setuid
+  `polkit-agent-helper-1`.
 - Wi-Fi (`[wifi] backend`: iwd или NetworkManager) и Bluetooth (bluez) — страницы «Параметров» и окно «Сеть»
   оболочки. На телефоне Wi-Fi работает через NetworkManager (iwd на ядре GKI не стартует — нет AF_ALG):
   драйвер qca6490/cnss2, прошивка из раздела modem, `wlan-cnss-ready.service` — см. arch-mobile-port
