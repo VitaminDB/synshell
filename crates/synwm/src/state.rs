@@ -228,6 +228,8 @@ pub struct Core {
     pub gesture: crate::input::GestureState,
     /// Жесты сенсорного экрана от краёв (телефон).
     pub touch_gestures: crate::touch::TouchGestures,
+    /// Пальцы по рамкам окон и пан стола.
+    pub fingers: crate::touch::FingerState,
     pub last_title_click: Option<crate::input::LastTitleClick>,
     pub last_kb_layout: Option<u32>,
 }
@@ -430,6 +432,7 @@ impl Core {
             frame_ids: Default::default(),
             gesture: Default::default(),
             touch_gestures: Default::default(),
+            fingers: Default::default(),
             last_title_click: None,
             last_kb_layout: None,
             restart_requested: false,
@@ -528,6 +531,11 @@ impl Core {
 
     /// Режим декораций для новых окон.
     pub fn default_decoration_mode(&self) -> zxdg_toplevel_decoration_v1::Mode {
+        // Свободный стол телефона: серверная рамка — ручка, за которую окно
+        // двигают пальцем.
+        if self.wm.mobile.enabled && self.wm.mobile.mode == synshell_common::action::MobileMode::Free {
+            return zxdg_toplevel_decoration_v1::Mode::ServerSide;
+        }
         match self.config.windows.decorations {
             synshell_common::config::DecorationMode::Server => zxdg_toplevel_decoration_v1::Mode::ServerSide,
             synshell_common::config::DecorationMode::Client => zxdg_toplevel_decoration_v1::Mode::ClientSide,

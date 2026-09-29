@@ -175,6 +175,7 @@ impl State {
             }
             InputEvent::TouchCancel { .. } => {
                 self.core.touch_gestures.pending = None;
+                self.fingers_cancel();
                 if let Some(touch) = self.core.seat.get_touch() {
                     touch.cancel(self);
                 }
@@ -918,7 +919,7 @@ impl State {
         }
     }
 
-    fn deco_button_action(&mut self, id: WindowId, b: Button, button: u32) {
+    pub(crate) fn deco_button_action(&mut self, id: WindowId, b: Button, button: u32) {
         match (b, button) {
             (Button::Close, BTN_LEFT) => self.close_window(id),
             (Button::Maximize, BTN_LEFT) => self.toggle_maximize(id),
@@ -1044,6 +1045,9 @@ impl State {
         if self.gesture_touch_down(evt.slot(), pos, evt.time_msec()) {
             return;
         }
+        if self.finger_down(evt.slot(), pos) {
+            return;
+        }
         let under = self.under(pos);
         if let Under::Surface(s, _) = &under {
             self.click_focus(&s.0.clone());
@@ -1059,6 +1063,9 @@ impl State {
         if self.gesture_touch_up(evt.slot(), evt.time_msec()) {
             return;
         }
+        if self.finger_up(evt.slot()) {
+            return;
+        }
         let Some(touch) = self.core.seat.get_touch() else { return };
         touch.up(self, &UpEvent { slot: evt.slot(), serial: SERIAL_COUNTER.next_serial(), time: evt.time_msec() });
     }
@@ -1067,6 +1074,9 @@ impl State {
         let Some(touch) = self.core.seat.get_touch() else { return };
         let pos = self.touch_location(&evt);
         if self.gesture_touch_motion(evt.slot(), pos, evt.time_msec()) {
+            return;
+        }
+        if self.finger_motion(evt.slot(), pos) {
             return;
         }
         let under = self.under(pos);

@@ -192,6 +192,9 @@ impl State {
             // Страница — окно в фокусе; без него — домашний экран.
             self.core.wm.mobile.page = self.core.wm.focused.map(|f| self.core.wm.root_of(f));
         }
+        if (prev == MobileMode::Free) != (mode == MobileMode::Free) {
+            self.apply_mode_decorations();
+        }
         tracing::info!(mode = mode.as_str(), "режим окон");
         self.relayout();
         self.core.ipc.broadcast(&Event::ShellCommand { command: format!("mode {}", mode.as_str()) });
@@ -204,6 +207,26 @@ impl State {
         self.broadcast_mobile();
         self.core.ipc_dirty = true;
         self.core.queue_redraw_all();
+    }
+
+    /// Рамки по режиму: в свободном — серверные (ручка для пальца), в
+    /// остальных — как настроено (`[windows] decorations`, правила окон).
+    fn apply_mode_decorations(&mut self) {
+        use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode;
+        let want_server = self.core.default_decoration_mode() == Mode::ServerSide;
+        let ids: Vec<WindowId> = self.core.wm.windows.iter().map(|m| m.id).collect();
+        for id in ids {
+            let Some(m) = self.core.wm.get_mut(id) else { continue };
+            let rule = None::<bool>;
+            let ssd = rule.unwrap_or(want_server);
+            m.ssd = ssd;
+            if let Some(t) = m.window.toplevel() {
+                t.with_pending_state(|s| s.decoration_mode = Some(if ssd { Mode::ServerSide } else { Mode::ClientSide }));
+                if t.is_initial_configure_sent() {
+                    t.send_pending_configure();
+                }
+            }
+        }
     }
 
     fn page_anim(&self) -> Duration {

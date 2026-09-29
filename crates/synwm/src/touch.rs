@@ -92,6 +92,11 @@ impl State {
             return false;
         }
         let Some((edge, width)) = self.edge_at(pos) else { return false };
+        // Кнопки и края рамки у самого края экрана (заголовок развёрнутого
+        // окна) — не жест.
+        if matches!(self.under(pos), crate::input::Under::Deco(_, crate::deco::DecoHit::Button(_)) | crate::input::Under::Resize(..)) {
+            return false;
+        }
         self.core.touch_gestures.pending = Some(Pending {
             slot,
             edge,
@@ -222,5 +227,238 @@ impl State {
             touch.motion(self, under.focus(), &MotionEvent { slot, location: last, time });
         }
         touch.frame(self);
+    }
+}
+
+// ─── Пальцем по окнам: рамка, кнопки, свободный стол ────────────────────────
+
+use crate::deco::{Button, DecoHit};
+use crate::wm::{ResizeEdge, WindowId};
+
+/// Что делает палец, которого не видят клиенты.
+pub enum Active {
+    /// Тащит окно за заголовок.
+    Move { id: WindowId, start: Point<f64, Logical>, loc0: Point<i32, Logical> },
+    /// Меняет размер за край рамки.
+    Resize { id: WindowId, edges: ResizeEdge, start: Point<f64, Logical>, loc0: Point<i32, Logical>, size0: smithay::utils::Size<i32, Logical>, last: Instant },
+    /// Нажал кнопку заголовка — сработает на отпускании над ней.
+    Button { id: WindowId, b: Button },
+    /// Двумя пальцами двигает виртуальный стол (свободный режим).
+    Pan { last: Point<f64, Logical> },
+}
+
+#[derive(Default)]
+pub struct FingerState {
+    /// Все пальцы на экране: слот → точка.
+    pub down: Vec<(TouchSlot, Point<f64, Logical>)>,
+    /// Пальцы, которыми управляет композитор (клиенты их не видят).
+    pub owned: Vec<TouchSlot>,
+    pub active: Option<Active>,
+}
+
+const BTN_LEFT: u32 = 0x110;
+
+impl State {
+    fn free_mode(&self) -> bool {
+        self.core.wm.mobile.enabled && self.core.wm.mobile.mode == synshell_common::action::MobileMode::Free
+    }
+
+    fn finger_pos(&mut self, slot: TouchSlot, pos: Point<f64, Logical>) {
+        let f = &mut self.core.fingers;
+        match f.down.iter_mut().find(|(s, _)| *s == slot) {
+            Some(e) => e.1 = pos,
+            None => f.down.push((slot, pos)),
+        }
+    }
+
+    fn centroid(&self) -> Option<Point<f64, Logical>> {
+        let d = &self.core.fingers.down;
+        if d.len() < 2 {
+            return None;
+        }
+        let (a, b) = (d[0].1, d[1].1);
+        Some(Point::from(((a.x + b.x) / 2.0, (a.y + b.y) / 2.0)))
+    }
+
+    /// Касание рамки окна или второй палец на свободном столе. `true` —
+    /// касание забрал композитор.
+    pub fn finger_down(&mut self, slot: TouchSlot, pos: Point<f64, Logical>) -> bool {
+        self.finger_pos(slot, pos);
+        // Второй палец в свободном режиме — пан стола: касание у клиентов
+        // отменяется.
+        if self.free_mode() && self.core.config.gestures.two_finger_pan && self.core.fingers.down.len() == 2 && !matches!(self.core.fingers.active, Some(Active::Move { .. } | Active::Resize { .. })) {
+            if let Some(touch) = self.core.seat.get_touch() {
+                touch.cancel(self);
+            }
+            let c = self.centroid().unwrap_or(pos);
+            let slots: Vec<TouchSlot> = self.core.fingers.down.iter().map(|(s, _)| *s).collect();
+            self.core.fingers.owned = slots;
+            self.core.fingers.active = Some(Active::Pan { last: c });
+            return true;
+        }
+        if self.core.fingers.active.is_some() {
+            // Уже что-то тащим — лишние пальцы не мешают.
+            self.core.fingers.owned.push(slot);
+            return true;
+        }
+        match self.under(pos) {
+            crate::input::Under::Deco(id, DecoHit::Title) => {
+                self.focus_window(Some(id));
+                let loc0 = self.core.wm.get(id).map(|m| m.loc).unwrap_or_default();
+                self.core.fingers.active = Some(Active::Move { id, start: pos, loc0 });
+            }
+            crate::input::Under::Deco(id, DecoHit::Button(b)) => {
+                self.focus_window(Some(id));
+                if let Some(m) = self.core.wm.get_mut(id) {
+                    m.pressed = Some(b);
+                }
+                self.core.fingers.active = Some(Active::Button { id, b });
+                self.core.queue_redraw_all();
+            }
+            crate::input::Under::Resize(id, edges) => {
+                self.focus_window(Some(id));
+                let (loc0, size0) = self.core.wm.get(id).map(|m| (m.loc, m.size())).unwrap_or_default();
+                self.core.fingers.active = Some(Active::Resize { id, edges, start: pos, loc0, size0, last: Instant::now() });
+            }
+            _ => return false,
+        }
+        self.core.fingers.owned.push(slot);
+        true
+    }
+
+    pub fn finger_motion(&mut self, slot: TouchSlot, pos: Point<f64, Logical>) -> bool {
+        self.finger_pos(slot, pos);
+        if !self.core.fingers.owned.contains(&slot) {
+            return false;
+        }
+        match self.core.fingers.active.take() {
+            Some(Active::Move { id, start, loc0 }) => {
+                let d = Point::<i32, Logical>::from(((pos.x - start.x).round() as i32, (pos.y - start.y).round() as i32));
+                // Развёрнутое окно сначала восстановить.
+                if self.core.wm.get(id).is_some_and(|m| m.maximized) {
+                    self.apply_maximized(id, false);
+                }
+                if let Some(m) = self.core.wm.get_mut(id) {
+                    m.loc = loc0 + d;
+                    m.floating = true;
+                }
+                self.sync_space();
+                self.core.queue_redraw_all();
+                self.core.fingers.active = Some(Active::Move { id, start, loc0 });
+            }
+            Some(Active::Resize { id, edges, start, loc0, size0, last }) => {
+                let (dx, dy) = ((pos.x - start.x).round() as i32, (pos.y - start.y).round() as i32);
+                let mut loc = loc0;
+                let mut w = size0.w;
+                let mut h = size0.h;
+                if edges.contains(ResizeEdge::RIGHT) {
+                    w += dx;
+                }
+                if edges.contains(ResizeEdge::BOTTOM) {
+                    h += dy;
+                }
+                if edges.contains(ResizeEdge::LEFT) {
+                    w -= dx;
+                    loc.x += dx;
+                }
+                if edges.contains(ResizeEdge::TOP) {
+                    h -= dy;
+                    loc.y += dy;
+                }
+                let (w, h) = (w.max(160), h.max(100));
+                let mut last = last;
+                // Клиенту — не чаще 30 раз в секунду.
+                if last.elapsed() > Duration::from_millis(33) {
+                    last = Instant::now();
+                    if let Some(m) = self.core.wm.get_mut(id) {
+                        m.floating = true;
+                    }
+                    self.configure_content(id, smithay::utils::Rectangle::new(loc, (w, h).into()), false);
+                    self.sync_space();
+                    self.core.queue_redraw_all();
+                }
+                self.core.fingers.active = Some(Active::Resize { id, edges, start, loc0, size0, last });
+            }
+            Some(Active::Pan { last }) => {
+                let c = self.centroid().unwrap_or(last);
+                self.shift_desk(c.x - last.x, c.y - last.y);
+                self.core.fingers.active = Some(Active::Pan { last: c });
+            }
+            other => self.core.fingers.active = other,
+        }
+        true
+    }
+
+    pub fn finger_up(&mut self, slot: TouchSlot) -> bool {
+        let pos = self.core.fingers.down.iter().find(|(s, _)| *s == slot).map(|(_, p)| *p);
+        self.core.fingers.down.retain(|(s, _)| *s != slot);
+        let owned = self.core.fingers.owned.contains(&slot);
+        self.core.fingers.owned.retain(|s| *s != slot);
+        if !owned {
+            return false;
+        }
+        match self.core.fingers.active.take() {
+            Some(Active::Button { id, b }) => {
+                if let Some(m) = self.core.wm.get_mut(id) {
+                    m.pressed = None;
+                }
+                let over = pos.is_some_and(|p| matches!(self.under(p), crate::input::Under::Deco(i, DecoHit::Button(bb)) if i == id && bb == b));
+                if over {
+                    self.deco_button_action(id, b, BTN_LEFT);
+                }
+                self.core.queue_redraw_all();
+            }
+            Some(Active::Move { id, .. }) | Some(Active::Resize { id, .. }) => {
+                self.remember_float(id);
+                self.core.ipc_dirty = true;
+            }
+            Some(Active::Pan { last }) => {
+                // Пан до отпускания последнего пальца.
+                if self.core.fingers.owned.is_empty() {
+                    self.broadcast_mobile();
+                } else {
+                    self.core.fingers.active = Some(Active::Pan { last });
+                }
+            }
+            None => {}
+        }
+        true
+    }
+
+    pub fn fingers_cancel(&mut self) {
+        self.core.fingers = FingerState::default();
+    }
+
+    /// Сдвинуть виртуальный стол: окна едут, камера — в границах
+    /// `[mobile] desk` (`3x3` — на экран в каждую сторону).
+    pub fn shift_desk(&mut self, dx: f64, dy: f64) {
+        let Some(out) = self.core.space.outputs().next().cloned() else { return };
+        let g = self.core.space.output_geometry(&out).unwrap_or_default();
+        let (bx, by) = match self.core.config.mobile.desk.as_str() {
+            "2x2" => (g.size.w as f64, g.size.h as f64),
+            "infinite" => (f64::INFINITY, f64::INFINITY),
+            _ => (g.size.w as f64 * 1.0, g.size.h as f64 * 1.0),
+        };
+        let (bx, by) = if self.core.config.mobile.desk == "2x2" { (bx / 2.0, by / 2.0) } else { (bx, by) };
+        let cam = self.core.wm.mobile.camera;
+        let nx = (cam.x - dx).clamp(-bx, bx);
+        let ny = (cam.y - dy).clamp(-by, by);
+        let (rdx, rdy) = (cam.x - nx, cam.y - ny);
+        if rdx.abs() < 0.5 && rdy.abs() < 0.5 {
+            return;
+        }
+        self.core.wm.mobile.camera = Point::from((nx, ny));
+        let d = Point::<i32, Logical>::from((rdx.round() as i32, rdy.round() as i32));
+        let active = self.core.wm.active;
+        for m in &mut self.core.wm.windows {
+            if m.mapped && m.workspace == active && !m.sticky && !m.fullscreen {
+                m.loc += d;
+                if let Some(f) = m.float_geo.as_mut() {
+                    f.loc += d;
+                }
+            }
+        }
+        self.sync_space();
+        self.core.queue_redraw_all();
     }
 }
