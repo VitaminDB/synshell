@@ -169,7 +169,14 @@ pub fn lock_now(ctx: ShellCtx) {
     st.error.set(String::new());
     st.checking.set(false);
     ctx.close_popup();
-    syngui_layer::lock_session(move |out: &OutputInfo| Box::new(view(ShellCtx::get(), out.clone())));
+    syngui_layer::lock_session(move |out: &OutputInfo| {
+        let ctx = ShellCtx::get();
+        if ctx.is_phone() {
+            Box::new(phone_view(ctx, out.clone()))
+        } else {
+            Box::new(view(ctx, out.clone()))
+        }
+    });
 }
 
 fn submit(password: String) {
@@ -270,4 +277,261 @@ fn view(ctx: ShellCtx, _out: OutputInfo) -> impl Widget {
                 .child(power)
                 .class("lock-root"),
         )
+}
+
+// ─── Телефон ─────────────────────────────────────────────────────────────────
+//
+// Обложка: обои, крупные часы, дата, уведомления; свайп вверх (или тап)
+// открывает ввод: цифровая панель для PIN (пароль PAM из цифр) или полная
+// клавиатура syngui («ABC») — экранная клавиатура synkeyboard при
+// блокировке сеанса не показывается.
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Stage {
+    Cover,
+    Pin,
+    Text,
+}
+
+thread_local! {
+    static PHONE: std::cell::OnceCell<(RwSignal<Stage>, RwSignal<String>)> = const { std::cell::OnceCell::new() };
+}
+
+fn phone_state() -> (RwSignal<Stage>, RwSignal<String>) {
+    PHONE.with(|p| *p.get_or_init(|| (use_signal(Stage::Cover), use_signal(String::new()))))
+}
+
+/// Отладка без блокировки сеанса: телефонный экран блокировки обычной
+/// поверхностью поверх всего (`shell lock-preview`).
+pub fn preview() {
+    use syngui_layer::{Anchor, KeyboardInteractivity, Layer, SurfaceSpec};
+    let outs = syngui_layer::outputs().get_untracked();
+    let Some(out) = outs.first().cloned() else { return };
+    let spec = SurfaceSpec {
+        namespace: "syndesktop-lock-preview".into(),
+        layer: Layer::Overlay,
+        anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
+        size: (0, 0),
+        margin: [0; 4],
+        exclusive_zone: -1,
+        keyboard: KeyboardInteractivity::OnDemand,
+        output: Some(out.name.clone()),
+        auto_size: false,
+        clear_color: [0.0, 0.0, 0.0, 1.0],
+    };
+    syngui_layer::create_surface(spec, move || Box::new(phone_view(ShellCtx::get(), out.clone())));
+}
+
+fn phone_view(ctx: ShellCtx, out: OutputInfo) -> impl Widget {
+    use syngui::widgets::{Motion, PanAxis, SwipeDirection};
+    use syngui::GestureDetector;
+    let (stage, pin) = phone_state();
+    stage.set(Stage::Cover);
+    pin.set(String::new());
+    let st = state();
+    let dur = crate::anim::group_ms(&ctx, "home", 280);
+    let body = crate::ui::rx(move || {
+        let s = stage.get();
+        let key = match s {
+            Stage::Cover => 1u64,
+            Stage::Pin => 2,
+            Stage::Text => 3,
+        };
+        Box::new(
+            AnimatedSwitcher::new(key, move || -> Box<dyn Widget> {
+                match s {
+                    Stage::Cover => Box::new(cover(ctx)),
+                    Stage::Pin => Box::new(pin_pad(ctx)),
+                    Stage::Text => Box::new(text_entry()),
+                }
+            })
+            .directional(true)
+            .slide(0.0, 60.0)
+            .duration_ms(dur)
+            .exit_duration_ms(dur * 2 / 3)
+            .animate_size(false)
+            .class("grow"),
+        )
+    });
+    // Ошибка пароля — снова пустой ввод.
+    create_effect(move || {
+        let _ = st.attempt.get();
+        pin.set(String::new());
+    });
+    let gestures = GestureDetector::new()
+        .pan_axis(PanAxis::Vertical)
+        .on_swipe(move |dir, _| match dir {
+            SwipeDirection::Up if stage.get_untracked() == Stage::Cover => stage.set(Stage::Pin),
+            SwipeDirection::Down => stage.set(Stage::Cover),
+            _ => {}
+        })
+        .on_click(move || {
+            if stage.get_untracked() == Stage::Cover {
+                stage.set(Stage::Pin);
+            }
+        })
+        .child(Column::new().child(body).class("lock-phone"));
+    let _ = Motion::fade();
+    Stack::new()
+        .fit(StackFit::Expand)
+        .child(crate::manager::wallpaper_view(out.name.clone(), use_signal(0u64)))
+        .child(DecoratedBox::new().class("lock-scrim"))
+        .child(gestures)
+}
+
+fn cover(ctx: ShellCtx) -> impl Widget {
+    let clock = crate::ui::rx(move || {
+        let now = ctx.now.get();
+        Box::new(
+            Column::new()
+                .gap(2.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(Text::new(crate::clock::format(now - now % 60, "%H:%M")).class("lock-phone-time"))
+                .child(Text::new(crate::clock::format(now, "%A, %e %B")).class("lock-date")),
+        )
+    });
+    let notes = crate::ui::rx(move || {
+        let list = ctx.history.get();
+        let mut col = Column::new().gap(8.0);
+        for n in list.iter().rev().take(4) {
+            col = col.child(
+                DecoratedBox::new()
+                    .child(
+                        Column::new()
+                            .gap(2.0)
+                            .child(Text::new(n.summary.clone()).max_lines(1).class("lock-note-title"))
+                            .child(Text::new(n.body.clone()).max_lines(2).class("lock-note-body")),
+                    )
+                    .class("lock-note"),
+            );
+        }
+        Box::new(col)
+    });
+    Column::new()
+        .main_axis_alignment(MainAxisAlignment::SpaceBetween)
+        .child(Column::new().gap(28.0).child(Row::new().main_axis_alignment(MainAxisAlignment::Center).child(clock)).child(notes))
+        .child(
+            Column::new()
+                .gap(6.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(icon(mi::LOCK).class("lock-phone-lock"))
+                .child(Text::new("Проведите вверх, чтобы разблокировать").class("lock-hint")),
+        )
+        .class("grow lock-cover")
+}
+
+fn pin_pad(ctx: ShellCtx) -> impl Widget {
+    use syngui::GestureDetector;
+    let (stage, pin) = phone_state();
+    let st = state();
+    let dots = crate::ui::rx(move || {
+        let n = pin.get().chars().count();
+        let checking = st.checking.get();
+        let mut row = Row::new().gap(14.0).main_axis_alignment(MainAxisAlignment::Center);
+        for i in 0..n.max(4) {
+            let class = if i < n { "lock-dot lock-dot-on" } else { "lock-dot" };
+            row = row.child(DecoratedBox::new().class(if checking { "lock-dot lock-dot-checking" } else { class }));
+        }
+        Box::new(row)
+    });
+    let error = crate::ui::rx(move || Box::new(Text::new(st.error.get()).class("lock-error")));
+    let key = move |label: &'static str, sub: &'static str| {
+        GestureDetector::new()
+            .on_press(move |_| {
+                if state().checking.get_untracked() {
+                    return;
+                }
+                let mut p = pin.get_untracked();
+                if p.len() < 32 {
+                    p.push_str(label);
+                    pin.set(p);
+                }
+            })
+            .child(
+                DecoratedBox::new()
+                    .child(
+                        Column::new()
+                            .gap(0.0)
+                            .cross_axis_alignment(CrossAxisAlignment::Center)
+                            .child(Text::new(label).class("lock-key-digit"))
+                            .child(Text::new(sub).class("lock-key-sub")),
+                    )
+                    .class("lock-key"),
+            )
+    };
+    let action = move |glyph: &'static str, f: Box<dyn Fn() + Send + Sync>| {
+        GestureDetector::new().on_press(move |_| f()).child(
+            DecoratedBox::new()
+                .child(crate::ui::vcenter(Row::new().main_axis_alignment(MainAxisAlignment::Center).child(icon(glyph).class("lock-key-icon"))))
+                .class("lock-key lock-key-action"),
+        )
+    };
+    let mut grid = Grid::new(3).gap(14.0);
+    for (d, sub) in [("1", ""), ("2", "ABC"), ("3", "DEF"), ("4", "GHI"), ("5", "JKL"), ("6", "MNO"), ("7", "PQRS"), ("8", "TUV"), ("9", "WXYZ")] {
+        grid = grid.child(key(d, sub));
+    }
+    grid = grid
+        .child(action("\u{E14A}", Box::new(move || {
+            let mut p = pin.get_untracked();
+            p.pop();
+            pin.set(p);
+        })))
+        .child(key("0", "+"))
+        .child(action("\u{E5CA}", Box::new(move || submit(pin.get_untracked()))));
+    let _ = ctx;
+    Column::new()
+        .gap(22.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .main_axis_alignment(MainAxisAlignment::End)
+        .child(Text::new(display_name()).class("lock-user"))
+        .child(Text::new("Введите PIN-код или пароль").class("lock-hint"))
+        .child(dots)
+        .child(error)
+        .child(grid.class("lock-pad"))
+        .child(
+            Row::new()
+                .gap(12.0)
+                .child(
+                    GestureDetector::new()
+                        .on_click(move || stage.set(Stage::Text))
+                        .child(DecoratedBox::new().child(Text::new("ABC").class("lock-pill-text")).class("lock-pill")),
+                )
+                .child(
+                    GestureDetector::new()
+                        .on_click(move || stage.set(Stage::Cover))
+                        .child(DecoratedBox::new().child(Text::new("Отмена").class("lock-pill-text")).class("lock-pill")),
+                ),
+        )
+        .class("grow lock-pin")
+}
+
+fn text_entry() -> impl Widget {
+    use syngui::widgets::input::on_screen_keyboard::{on_screen_keyboard, KeyboardLayout, KeyboardState};
+    use syngui::GestureDetector;
+    let (stage, pin) = phone_state();
+    let st = state();
+    let kb_state = KeyboardState::new("");
+    let dots = crate::ui::rx(move || {
+        let n = pin.get().chars().count();
+        Box::new(Text::new(if n == 0 { "Пароль".to_string() } else { "•".repeat(n) }).class("lock-text-dots"))
+    });
+    let error = crate::ui::rx(move || Box::new(Text::new(st.error.get()).class("lock-error")));
+    let kb = on_screen_keyboard(kb_state, KeyboardLayout::text_en_ru("Войти"))
+        .on_change(move |t| pin.set(t.to_string()))
+        .on_submit(|t| submit(t.to_string()))
+        .build();
+    Column::new()
+        .gap(16.0)
+        .main_axis_alignment(MainAxisAlignment::End)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(Text::new(display_name()).class("lock-user"))
+        .child(DecoratedBox::new().child(dots).class("lock-text-box"))
+        .child(error)
+        .child(DecoratedBox::new().child(kb).class("lock-osk"))
+        .child(
+            GestureDetector::new()
+                .on_click(move || stage.set(Stage::Pin))
+                .child(DecoratedBox::new().child(Text::new("123").class("lock-pill-text")).class("lock-pill")),
+        )
+        .class("grow lock-pin")
 }

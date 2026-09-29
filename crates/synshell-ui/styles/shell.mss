@@ -327,6 +327,42 @@ Text {
 .grid-icon-glyph { icon-size: 48px; icon-color: var(--accent); }
 .grid-name { font-size: 12px; }
 
+/* ─── Экран блокировки телефона ─────────────────────────────────────────── */
+
+.lock-phone { padding: 56px 24px 28px 24px; }
+.lock-phone-time { font-size: 84px; font-weight: 200; color: #ffffff; text-shadow: 0px 2px 12px #00000070; }
+.lock-cover .lock-date { color: #ffffffd8; }
+.lock-phone-lock { icon-size: 26px; icon-color: #ffffffc0; }
+.lock-hint { font-size: 13px; color: #ffffffb0; }
+.lock-note { padding: 12px 14px; border-radius: 18px; background-color: #00000055; }
+.lock-note-title { font-size: 14px; font-weight: 600; color: #ffffff; }
+.lock-note-body { font-size: 13px; color: #ffffffc0; }
+.lock-pin .lock-user { color: #ffffff; }
+.lock-dot {
+    width: 14px; height: 14px; border-radius: 7px;
+    border-width: 2px; border-color: #ffffffa0; background-color: #00000000;
+    transition: background-color 120ms ease-out, scale 220ms spring(520, 22);
+}
+.lock-dot-on { background-color: #ffffff; scale: 1.1; }
+.lock-dot-checking { background-color: var(--accent); border-color: var(--accent); animation: lock-pulse 700ms ease-in-out infinite; }
+@keyframes lock-pulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+.lock-pad { width: 276px; }
+.lock-key {
+    width: 80px; height: 80px; border-radius: 40px;
+    background-color: #ffffff1c;
+    transition: background-color 90ms ease-out, scale 200ms spring(520, 24);
+}
+.lock-key:active { background-color: #ffffff48; scale: 0.92; }
+.lock-key-action { background-color: #00000000; }
+.lock-key-digit { font-size: 30px; font-weight: 300; color: #ffffff; padding: 12px 0px 0px 0px; }
+.lock-key-sub { font-size: 9px; letter-spacing: 2px; color: #ffffffa0; }
+.lock-key-icon { icon-size: 28px; icon-color: #ffffff; }
+.lock-pill { padding: 8px 18px; border-radius: 999px; background-color: #ffffff1c; }
+.lock-pill-text { font-size: 13px; color: #ffffff; }
+.lock-text-box { padding: 12px 18px; border-radius: 16px; background-color: #00000055; width: 280px; }
+.lock-text-dots { font-size: 18px; color: #ffffff; letter-spacing: 4px; }
+.lock-osk { padding: 8px; border-radius: 18px; background-color: #000000a0; }
+
 /* ─── «Пуск» в духе Windows 11 (style = "win11") ──────────────────────────── */
 
 .start { padding: 6px 4px 0px 4px; }

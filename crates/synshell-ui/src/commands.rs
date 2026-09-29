@@ -137,6 +137,7 @@ pub fn handle(cmd: &str) {
         }
         "tray-menu" => crate::tray::open_menu_at(arg.trim().parse().unwrap_or(0), at_applet("tray")),
         "lock" => lock(ctx),
+        "lock-preview" => crate::lock::preview(),
         "dnd" => ctx.dnd.set(!ctx.dnd.get_untracked()),
         "clipboard" => {
             // История буфера обмена требует wlr-data-control-клиента —
