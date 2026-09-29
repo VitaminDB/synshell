@@ -1,6 +1,6 @@
 //! Демо-состояния для скриншотов: `ELLE_DEMO=start|board|drag|over|lost|menu|clear|finishes`;
 //! дополнительно `ELLE_WORLD=1..9` (мир/уровень), `ELLE_SKIN=wood|crystal|gold|lava`
-//! и `ELLE_VARIANT=elvira` (вид игры). Не влияет на обычный запуск.
+//! и `ELLE_VARIANT=deluxe` (вид игры). Не влияет на обычный запуск.
 
 use super::{Drag, Screen, View};
 use crate::game::{cell_color, make_cell, make_cell_full, Board, Cell, Family, Game, Material, Piece, FINISH_COUNT, SIZE};
@@ -26,7 +26,7 @@ fn var(name: &str) -> Option<String> {
 pub fn apply(v: &mut View) {
     let Some(mode) = var("ELLE_DEMO") else { return };
     v.frozen = true;
-    let variant = if var("ELLE_VARIANT").as_deref() == Some("elvira") { Variant::Elvira } else { Variant::Standard };
+    let variant = if var("ELLE_VARIANT").as_deref() == Some("deluxe") { Variant::Deluxe } else { Variant::Standard };
     v.variant = variant;
     v.ctx.variant.set(variant);
     if mode == "start" {
@@ -55,7 +55,7 @@ pub fn apply(v: &mut View) {
     for (r, c, m) in [(0, 3, Material::Wood), (0, 4, Material::Wood), (1, 3, Material::Crystal), (1, 4, Material::Crystal), (6, 6, Material::Gold), (6, 7, Material::Gold), (5, 6, Material::Lava), (5, 7, Material::Lava)] {
         g.board.set(r, c, make_cell(cell_color(g.board.get(r, c)), m));
     }
-    // отделки «Эльвиры»: каждой клетке своя, по диагоналям
+    // отделки «Люкса»: каждой клетке своя, по диагоналям
     for r in 0..SIZE {
         for c in 0..SIZE {
             let val = g.board.get(r, c);

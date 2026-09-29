@@ -50,10 +50,10 @@ fn start_page_opens_chosen_variant_and_home_returns() {
     let _ = h.paint();
     // переход только что начался — карточки ещё не ловят тапы
     frames(&mut h, 40);
-    // карточка «Эльвира»
+    // карточка «Люкс»
     click(&mut h, center(sg.cards[1]));
     assert_eq!(ctx.screen.get_untracked(), Screen::Game);
-    assert_eq!(ctx.variant.get_untracked(), Variant::Elvira);
+    assert_eq!(ctx.variant.get_untracked(), Variant::Deluxe);
     assert_eq!(ctx.stats.get_untracked().variant, 1, "выбор вида запоминается");
     let g = ctx.game.get_untracked();
     assert!(!g.over && g.tray.iter().all(|p| p.is_some()));
@@ -66,7 +66,7 @@ fn start_page_opens_chosen_variant_and_home_returns() {
     let home = card.buttons.iter().find(|b| b.action == Action::Home).unwrap().rect;
     click(&mut h, center(home));
     assert_eq!(ctx.screen.get_untracked(), Screen::Start);
-    assert!(persist::load_game(Variant::Elvira).is_some(), "партия Эльвиры сохранена");
+    assert!(persist::load_game(Variant::Deluxe).is_some(), "партия Люкса сохранена");
     assert!(persist::load_game(Variant::Standard).is_none(), "партии Стандарта ещё нет");
     frames(&mut h, 40);
     let _ = h.paint();
@@ -95,21 +95,21 @@ fn start_toggles_and_keyboard_shortcuts() {
     assert_ne!(ctx.stats.get_untracked().voice, voice_before);
     click(&mut h, center(sg.toggles[0]));
     assert!(!ctx.stats.get_untracked().sound);
-    // клавиша 2 — «Эльвира»
+    // клавиша 2 — «Люкс»
     h.send_events(&press_key(Key::Num2));
-    assert_eq!(ctx.variant.get_untracked(), Variant::Elvira);
+    assert_eq!(ctx.variant.get_untracked(), Variant::Deluxe);
     assert_eq!(ctx.screen.get_untracked(), Screen::Game);
 }
 
 #[test]
-fn elvira_paints_every_state_without_atlas() {
+fn deluxe_paints_every_state_without_atlas() {
     let (mut h, ctx) = setup("paint");
     let geo = layout::compute(Rect::new(Point::new(0.0, 0.0), Size::new(W, H)));
     let sg = start::layout(&geo);
     let _ = h.paint();
     frames(&mut h, 40);
     click(&mut h, center(sg.cards[1]));
-    // кадры перехода и игра «Эльвиры» (текстур в тестах нет — отделки цветом)
+    // кадры перехода и игра «Люкса» (текстур в тестах нет — отделки цветом)
     for _ in 0..6 {
         frames(&mut h, 5);
         let _ = h.paint();

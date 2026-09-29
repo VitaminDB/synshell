@@ -306,7 +306,7 @@ impl View {
         self.screen_born = now;
         self.ctx.screen.set(Screen::Game);
         self.game_dirty = true;
-        if variant.is_elvira() && !self.game().over {
+        if variant.is_deluxe() && !self.game().over {
             self.fx.banner_queue.push(Banner { text: lang::WELCOME.en.to_uppercase(), sub: Some(lang::WELCOME.ru.to_string()), born: now, color: theme::hex(theme::GOLD) });
             self.say(Voice::Welcome, now);
         }
@@ -351,9 +351,9 @@ impl View {
         }
     }
 
-    /// Реплика (только «Эльвира»): не чаще раза в 1.2 с, кроме важных.
+    /// Реплика (только «Люкс»): не чаще раза в 1.2 с, кроме важных.
     fn say(&mut self, v: Voice, now: f32) {
-        if !self.variant.is_elvira() || !self.stats().voice {
+        if !self.variant.is_deluxe() || !self.stats().voice {
             return;
         }
         if v.rank() < 5 && now - self.last_voice_at < 1.2 {
@@ -611,8 +611,8 @@ impl View {
             }
             self.fx.ripples.push(Ripple { origin: (ar, ac), born: now + 0.05 });
             // бонусы материалов: подпись и звук на каждый материал
-            // («Эльвира» — английское имя отделки с переводом)
-            let elv = self.variant.is_elvira();
+            // («Люкс» — английское имя отделки с переводом)
+            let elv = self.variant.is_deluxe();
             for (i, &(m, count, pts)) in pl.material_bonus.iter().enumerate() {
                 let name = if elv {
                     let f = finish::get(m.finish());
@@ -708,7 +708,7 @@ impl View {
                 self.confetti(50);
             }
             let (text, sub, color) = if elv {
-                // «Эльвира»: английская реплика крупно, перевод и комбо ниже, голос
+                // «Люкс»: английская реплика крупно, перевод и комбо ниже, голос
                 let word = lang::praise(&mut self.prng, lines, combo, pl.perfect, self.last_praise);
                 match word {
                     Some(w) => {
@@ -780,7 +780,7 @@ impl View {
                 audio::play(Sfx::Best);
                 self.say(Voice::NewRecord, now);
                 if self.fx.banner.is_none() {
-                    let (text, sub) = if self.variant.is_elvira() { (lang::NEW_RECORD.en.to_uppercase(), Some(lang::NEW_RECORD.ru.to_string())) } else { ("НОВЫЙ РЕКОРД!".to_string(), None) };
+                    let (text, sub) = if self.variant.is_deluxe() { (lang::NEW_RECORD.en.to_uppercase(), Some(lang::NEW_RECORD.ru.to_string())) } else { ("НОВЫЙ РЕКОРД!".to_string(), None) };
                     self.fx.banner = Some(Banner { text, sub, born: now, color: theme::hex(theme::GOLD) });
                 }
             }
@@ -799,7 +799,7 @@ impl View {
             audio::play(Sfx::Refill);
         }
         if pl.over {
-            let (text, sub) = if self.variant.is_elvira() { (lang::NO_MOVES.en.to_uppercase(), Some(lang::NO_MOVES.ru.to_string())) } else { ("НЕТ ХОДОВ".to_string(), None) };
+            let (text, sub) = if self.variant.is_deluxe() { (lang::NO_MOVES.en.to_uppercase(), Some(lang::NO_MOVES.ru.to_string())) } else { ("НЕТ ХОДОВ".to_string(), None) };
             self.fx.banner_queue.push(Banner { text, sub, born: now, color: theme::hex(theme::DANGER).lerp(&Color::WHITE, 0.25) });
             let delay = if lines > 0 { VANISH_DUR + 0.45 } else { 0.2 };
             self.fx.over_at = Some(now + delay);
@@ -827,7 +827,7 @@ impl View {
         self.set_world(wi);
         let w = &world::WORLDS[wi];
         let accent = theme::hex(w.accent);
-        let title = if self.variant.is_elvira() { format!("{} {level}", lang::LEVEL.en.to_uppercase()) } else { format!("УРОВЕНЬ {level}") };
+        let title = if self.variant.is_deluxe() { format!("{} {level}", lang::LEVEL.en.to_uppercase()) } else { format!("УРОВЕНЬ {level}") };
         self.fx.banner_queue.push(Banner { text: title, sub: Some(w.name.to_uppercase()), born: now, color: Color::WHITE });
         self.fx.screen_flashes.push(Flash { born: now + 0.1, color: accent, strength: 0.16 });
         // фейерверк: залпы над полем
@@ -840,7 +840,7 @@ impl View {
             let color = if i % 2 == 0 { accent } else { theme::cell_color(1 + self.prng.index(7) as u8) };
             self.fx.fireworks.push(Firework { at: now + 0.25 + 0.17 * i as f32 + self.prng.range(0.0, 0.08), pos, color });
         }
-        audio::play(if self.variant.is_elvira() { Sfx::Harp } else { Sfx::Perfect });
+        audio::play(if self.variant.is_deluxe() { Sfx::Harp } else { Sfx::Perfect });
         self.start_skin(now + 0.5);
     }
 
@@ -1301,7 +1301,7 @@ impl View {
                     EventResult::Handled
                 }
                 Key::Num2 => {
-                    self.on_start_action(StartAction::Play(Variant::Elvira));
+                    self.on_start_action(StartAction::Play(Variant::Deluxe));
                     EventResult::Handled
                 }
                 _ => EventResult::Ignored,
@@ -1514,10 +1514,10 @@ impl View {
         }
     }
 
-    /// Конфетти: цветные квадратики сыплются сверху поля («Эльвира» — золотые лепестки).
+    /// Конфетти: цветные квадратики сыплются сверху поля («Люкс» — золотые лепестки).
     fn confetti(&mut self, n: usize) {
         let g = self.geo;
-        let elv = self.variant.is_elvira();
+        let elv = self.variant.is_deluxe();
         for i in 0..n {
             let color = if elv { theme::hex(theme::GOLD).lerp(&theme::hex("#ffe9a8"), self.prng.unit()) } else { theme::cell_color(1 + (i % 7) as u8) };
             let x = g.board.origin.x + self.prng.range(-0.05, 1.05) * g.board.width();
@@ -1581,7 +1581,7 @@ impl View {
         }
     }
 
-    /// Частицы очистки по виду отделки («Эльвира»).
+    /// Частицы очистки по виду отделки («Люкс»).
     fn burst_finish(&mut self, cx: f32, cy: f32, size: f32, base: Color, accent: Color, kind: Burst) {
         use std::f32::consts::TAU;
         let n = match kind {

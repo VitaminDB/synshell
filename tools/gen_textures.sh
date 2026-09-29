@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Генерация исходных текстур отделок Эльвиры → assets/tex/raw/<id>.png.
+# Генерация исходных текстур отделок Люкса → assets/tex/raw/<id>.png.
 # Генератор: synaptix imagine, FLUX.2 klein 9B (~17 с на текстуру; Qwen-Image 2.1
 # даёт более тёмные картинки с виньеткой — запасной, MODEL=qwen-image-2.1.syn).
 # Уже существующие файлы пропускаются; далее tools/build_atlas.py собирает атлас.

@@ -1,5 +1,5 @@
 //! Стартовая страница: логотип, две карточки видов игры («Стандарт» и
-//! «Эльвира») и переключатели звука. Геометрия одна для отрисовки и
+//! «Люкс») и переключатели звука. Геометрия одна для отрисовки и
 //! хит-теста (как `overlay.rs`).
 
 use super::cube::{draw_cube, CubeStyle};
@@ -28,7 +28,7 @@ pub enum StartAction {
 pub struct StartGeo {
     pub title: Rect,
     pub subtitle: Rect,
-    /// Карточки: [Стандарт, Эльвира].
+    /// Карточки: [Стандарт, Люкс].
     pub cards: [Rect; 2],
     /// Переключатели: звуки, музыка, голос.
     pub toggles: [Rect; 3],
@@ -73,7 +73,7 @@ pub fn action_at(sg: &StartGeo, p: Point) -> Option<StartAction> {
         return Some(StartAction::Play(Variant::Standard));
     }
     if sg.cards[1].contains(p) {
-        return Some(StartAction::Play(Variant::Elvira));
+        return Some(StartAction::Play(Variant::Deluxe));
     }
     if sg.toggles[0].contains(p) {
         return Some(StartAction::ToggleSound);
@@ -127,7 +127,7 @@ pub fn draw(v: &View, list: &mut DisplayList, alpha: f32, dy: f32) {
         let scale = 1.0 + 0.015 * if hot { 1.0 } else { 0.0 } + 0.03 * anim::punch(1.0 - press);
         let rect = scaled_about_center(rect, scale);
         let radius = [22.0; 4];
-        let elv = variant.is_elvira();
+        let elv = variant.is_deluxe();
         // карточка
         let (c0, c1, edge) = if elv {
             (hex("#4a1f52"), hex("#2a1030"), hex("#d9b25a"))
@@ -200,7 +200,7 @@ pub fn draw(v: &View, list: &mut DisplayList, alpha: f32, dy: f32) {
     }
 }
 
-/// Превью вида игры: 2×2 кубика. «Стандарт» — цвета с покачиванием, «Эльвира» —
+/// Превью вида игры: 2×2 кубика. «Стандарт» — цвета с покачиванием, «Люкс» —
 /// материалы, которые по очереди переворачиваются в следующий.
 fn preview(v: &View, list: &mut DisplayList, area: Rect, variant: Variant, card: usize) {
     let t = v.now;
@@ -220,7 +220,7 @@ fn preview(v: &View, list: &mut DisplayList, area: Rect, variant: Variant, card:
                 let style = CubeStyle::default().with_material(Material::Plain, seed, t);
                 draw_cube(list, rect, color, &CubeStyle { flash: 0.15 * super::fx::Fx::sheen(t, r as usize, c as usize), ..style });
             }
-            Variant::Elvira => {
+            Variant::Deluxe => {
                 // переворот: каждые 2.6 с один из кубиков меняет материал
                 let period = 2.6;
                 let phase = (t / period + k as f32 * 0.25) % 1.0;

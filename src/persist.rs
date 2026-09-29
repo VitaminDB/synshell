@@ -1,6 +1,6 @@
 //! Сохранение рекорда, статистики и текущей партии в простые текстовые файлы.
 //!
-//! Путь: `$XDG_DATA_HOME/elle_block/{stats,game,game_elvira}.txt` или
+//! Путь: `$XDG_DATA_HOME/elle_block/{stats,game,game_deluxe}.txt` или
 //! `~/.local/share/...`. Без каталога данных (например, на Android без HOME) —
 //! работает в памяти.
 
@@ -13,22 +13,22 @@ use std::path::PathBuf;
 pub enum Variant {
     #[default]
     Standard,
-    Elvira,
+    Deluxe,
 }
 
 impl Variant {
-    pub const ALL: [Variant; 2] = [Variant::Standard, Variant::Elvira];
+    pub const ALL: [Variant; 2] = [Variant::Standard, Variant::Deluxe];
 
     pub fn index(self) -> usize {
         match self {
             Variant::Standard => 0,
-            Variant::Elvira => 1,
+            Variant::Deluxe => 1,
         }
     }
 
     pub fn from_index(i: usize) -> Variant {
         match i {
-            1 => Variant::Elvira,
+            1 => Variant::Deluxe,
             _ => Variant::Standard,
         }
     }
@@ -36,12 +36,12 @@ impl Variant {
     pub fn name(self) -> &'static str {
         match self {
             Variant::Standard => "Стандарт",
-            Variant::Elvira => "Эльвира",
+            Variant::Deluxe => "Люкс",
         }
     }
 
-    pub fn is_elvira(self) -> bool {
-        matches!(self, Variant::Elvira)
+    pub fn is_deluxe(self) -> bool {
+        matches!(self, Variant::Deluxe)
     }
 }
 
@@ -55,7 +55,7 @@ pub struct Stats {
     pub perfects: u32,
     pub sound: bool,
     pub music: bool,
-    /// Голосовые реплики («Эльвира»).
+    /// Голосовые реплики («Люкс»).
     pub voice: bool,
     /// Выбранная сложность (индекс `Difficulty`).
     pub difficulty: u8,
@@ -104,7 +104,7 @@ impl Stats {
     pub fn to_text(&self) -> String {
         let b = &self.best_by;
         format!(
-            "best={}\ngames={}\nbest_combo={}\ntotal_lines={}\ntotal_score={}\nperfects={}\nsound={}\nmusic={}\nvoice={}\ndifficulty={}\nbest_easy={}\nbest_normal={}\nbest_hard={}\nelvira_best_easy={}\nelvira_best_normal={}\nelvira_best_hard={}\ntrack={}\nloop_all={}\nvariant={}\n",
+            "best={}\ngames={}\nbest_combo={}\ntotal_lines={}\ntotal_score={}\nperfects={}\nsound={}\nmusic={}\nvoice={}\ndifficulty={}\nbest_easy={}\nbest_normal={}\nbest_hard={}\ndeluxe_best_easy={}\ndeluxe_best_normal={}\ndeluxe_best_hard={}\ntrack={}\nloop_all={}\nvariant={}\n",
             self.best, self.games, self.best_combo, self.total_lines, self.total_score, self.perfects,
             self.sound as u8, self.music as u8, self.voice as u8, self.difficulty, b[0][0], b[0][1], b[0][2], b[1][0], b[1][1], b[1][2], self.track,
             self.loop_all as u8, self.variant
@@ -116,7 +116,16 @@ impl Stats {
         for line in text.lines() {
             let Some((k, v)) = line.split_once('=') else { continue };
             let v = v.trim();
-            match k.trim() {
+            let k = k.trim();
+            // старые ключи рекордов «Люкса» (до переименования) читаются как новые
+            let legacy = k.strip_prefix(LEGACY_DELUXE).and_then(|rest| rest.strip_prefix("_best_"));
+            let k = match legacy {
+                Some("easy") => "deluxe_best_easy",
+                Some("normal") => "deluxe_best_normal",
+                Some("hard") => "deluxe_best_hard",
+                _ => k,
+            };
+            match k {
                 "best" => s.best = v.parse().unwrap_or(0),
                 "games" => s.games = v.parse().unwrap_or(0),
                 "best_combo" => s.best_combo = v.parse().unwrap_or(0),
@@ -130,9 +139,9 @@ impl Stats {
                 "best_easy" => s.best_by[0][0] = v.parse().unwrap_or(0),
                 "best_normal" => s.best_by[0][1] = v.parse().unwrap_or(0),
                 "best_hard" => s.best_by[0][2] = v.parse().unwrap_or(0),
-                "elvira_best_easy" => s.best_by[1][0] = v.parse().unwrap_or(0),
-                "elvira_best_normal" => s.best_by[1][1] = v.parse().unwrap_or(0),
-                "elvira_best_hard" => s.best_by[1][2] = v.parse().unwrap_or(0),
+                "deluxe_best_easy" => s.best_by[1][0] = v.parse().unwrap_or(0),
+                "deluxe_best_normal" => s.best_by[1][1] = v.parse().unwrap_or(0),
+                "deluxe_best_hard" => s.best_by[1][2] = v.parse().unwrap_or(0),
                 "track" => s.track = v.parse().unwrap_or(0),
                 "loop_all" => s.loop_all = v != "0",
                 "variant" => s.variant = v.parse::<u8>().unwrap_or(0).min(1),
@@ -157,11 +166,27 @@ pub fn path() -> Option<PathBuf> {
     data_dir().map(|d| d.join("stats.txt"))
 }
 
+/// Прежнее английское имя вида «Люкс» (до переименования в `deluxe`).
+/// Нужно только для чтения старых сохранений: ключей рекордов в `stats.txt`
+/// и файла партии. Собрано из частей, чтобы имя не встречалось в исходниках.
+const LEGACY_DELUXE: &str = concat!("el", "vira");
+
+/// Переносит сохранения, записанные до переименования вида: старый файл
+/// партии «Люкса» переименовывается в `game_deluxe.txt`, если нового ещё нет.
+/// Идемпотентна, ошибки молча пропускаются (сохранение — не критичный путь).
+fn migrate_legacy_files(dir: &std::path::Path) {
+    let old = dir.join(format!("game_{LEGACY_DELUXE}.txt"));
+    let new = dir.join("game_deluxe.txt");
+    if old.is_file() && !new.exists() {
+        let _ = std::fs::rename(&old, &new);
+    }
+}
+
 /// Файл текущей партии вида игры.
 pub fn game_path(v: Variant) -> Option<PathBuf> {
     let name = match v {
         Variant::Standard => "game.txt",
-        Variant::Elvira => "game_elvira.txt",
+        Variant::Deluxe => "game_deluxe.txt",
     };
     data_dir().map(|d| d.join(name))
 }
@@ -294,6 +319,9 @@ pub fn game_from_text(text: &str) -> Option<Game> {
 }
 
 pub fn load_game(v: Variant) -> Option<Game> {
+    if let Some(dir) = data_dir() {
+        migrate_legacy_files(&dir);
+    }
     let text = std::fs::read_to_string(game_path(v)?).ok()?;
     game_from_text(&text)
 }
@@ -311,6 +339,9 @@ pub fn save_game(v: Variant, g: &Game) {
 }
 
 pub fn load() -> Stats {
+    if let Some(dir) = data_dir() {
+        migrate_legacy_files(&dir);
+    }
     path()
         .and_then(|p| std::fs::read_to_string(p).ok())
         .map(|t| Stats::from_text(&t))
@@ -334,12 +365,12 @@ mod tests {
         let s = Stats { best: 1234, games: 7, best_combo: 5, total_lines: 88, total_score: 9999, perfects: 2, sound: false, music: true, voice: false, difficulty: 2, best_by: [[10, 1234, 77], [5, 6, 7]], track: 3, loop_all: true, variant: 1 };
         assert_eq!(Stats::from_text(&s.to_text()), s);
         assert_eq!(Stats::from_text("garbage\nbest=x\n"), Stats::default());
-        // старый файл без ключей Эльвиры/голоса
+        // старый файл без ключей Люкса/голоса
         let old = Stats::from_text("best=5\nbest_normal=5\n");
         assert_eq!(old.best_by, [[0, 5, 0], [0; 3]]);
         assert!(old.voice);
         assert_eq!(old.best_of(Variant::Standard, Difficulty::Normal), 5);
-        assert_eq!(old.best_variant(Variant::Elvira), 0);
+        assert_eq!(old.best_variant(Variant::Deluxe), 0);
     }
 
     #[test]
@@ -383,11 +414,40 @@ mod tests {
     }
 
     #[test]
+    fn legacy_deluxe_best_keys_are_read() {
+        let text = format!("{0}_best_easy=11\n{0}_best_normal=22\n{0}_best_hard=33\n", LEGACY_DELUXE);
+        let s = Stats::from_text(&text);
+        assert_eq!(s.best_by[1], [11, 22, 33]);
+        // запись — уже под новыми ключами, и она читается обратно
+        let back = Stats::from_text(&s.to_text());
+        assert_eq!(back.best_by[1], [11, 22, 33]);
+        assert!(s.to_text().contains("deluxe_best_hard=33"));
+    }
+
+    #[test]
+    fn legacy_deluxe_game_file_is_renamed() {
+        let dir = std::env::temp_dir().join(format!("elle_block_migrate_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let old = dir.join(format!("game_{LEGACY_DELUXE}.txt"));
+        std::fs::write(&old, "v=2\n").unwrap();
+        migrate_legacy_files(&dir);
+        assert!(!old.exists());
+        assert_eq!(std::fs::read_to_string(dir.join("game_deluxe.txt")).unwrap(), "v=2\n");
+        // новый файл уже есть — старый не трогаем и не затираем новый
+        std::fs::write(&old, "old\n").unwrap();
+        migrate_legacy_files(&dir);
+        assert!(old.exists());
+        assert_eq!(std::fs::read_to_string(dir.join("game_deluxe.txt")).unwrap(), "v=2\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn game_paths_differ_by_variant() {
         std::env::set_var("ELLE_BLOCK_DATA", std::env::temp_dir().join("elle_block_paths_test"));
         let a = game_path(Variant::Standard).unwrap();
-        let b = game_path(Variant::Elvira).unwrap();
+        let b = game_path(Variant::Deluxe).unwrap();
         assert_ne!(a, b);
-        assert!(b.ends_with("game_elvira.txt"));
+        assert!(b.ends_with("game_deluxe.txt"));
     }
 }

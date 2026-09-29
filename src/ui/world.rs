@@ -44,7 +44,7 @@ pub struct World {
     pub ambient: Ambient,
 }
 
-/// Мир «Бархат» — стартовый мир вида игры «Эльвира».
+/// Мир «Бархат» — стартовый мир вида игры «Люкс».
 pub const VELVET: usize = 8;
 
 pub const WORLDS: [World; 9] = [
@@ -88,12 +88,12 @@ pub fn world_index(level: u32) -> usize {
     world_index_for(level, Variant::Standard)
 }
 
-/// Мир уровня для вида игры: «Эльвира» начинает с «Бархата» и дальше идёт
+/// Мир уровня для вида игры: «Люкс» начинает с «Бархата» и дальше идёт
 /// по кругу тех же миров.
 pub fn world_index_for(level: u32, v: Variant) -> usize {
     let start = match v {
         Variant::Standard => 0,
-        Variant::Elvira => VELVET,
+        Variant::Deluxe => VELVET,
     };
     (start + level.max(1) as usize - 1) % WORLDS.len()
 }
@@ -407,14 +407,14 @@ pub fn skin_name(m: Material) -> &'static str {
 }
 
 /// Как нарисовать кубик: материал узора, базовый цвет, акцент (свечение
-/// трещин); в «Эльвире» — отделка (текстура) и признак бонусной фигуры.
+/// трещин); в «Люксе» — отделка (текстура) и признак бонусной фигуры.
 #[derive(Clone, Copy, Debug)]
 pub struct Look {
     pub material: Material,
     pub base: Color,
     pub accent: Option<Color>,
     pub finish: Option<&'static Finish>,
-    /// Фигура с бонусным материалом (в «Эльвире» помечается искрой).
+    /// Фигура с бонусным материалом (в «Люксе» помечается искрой).
     pub bonus: bool,
 }
 
@@ -427,9 +427,9 @@ pub fn look(own: Material, color_idx: u8, skin: Option<Material>) -> Look {
     }
 }
 
-/// Внешний вид кубика в «Эльвире»: отделка `finish` (0 — по материалу/цвету);
+/// Внешний вид кубика в «Люксе»: отделка `finish` (0 — по материалу/цвету);
 /// режим блоков временно даёт обычным кубикам отделку своего материала.
-pub fn look_elvira(own: Material, color_idx: u8, finish: u8, skin: Option<Material>) -> Look {
+pub fn look_deluxe(own: Material, color_idx: u8, finish: u8, skin: Option<Material>) -> Look {
     let id = match (own, skin) {
         (Material::Plain, Some(m)) if m != Material::Plain => m.finish(),
         _ => finish::resolve(finish, own, color_idx),
@@ -448,7 +448,7 @@ pub fn look_elvira(own: Material, color_idx: u8, finish: u8, skin: Option<Materi
 pub fn look_for(v: Variant, own: Material, color_idx: u8, finish: u8, skin: Option<Material>) -> Look {
     match v {
         Variant::Standard => look(own, color_idx, skin),
-        Variant::Elvira => look_elvira(own, color_idx, finish, skin),
+        Variant::Deluxe => look_deluxe(own, color_idx, finish, skin),
     }
 }
 
@@ -488,23 +488,23 @@ mod tests {
         }
         assert_eq!(world_index(1), 0);
         assert_eq!(world_index(10), 0);
-        assert_eq!(world_index_for(1, Variant::Elvira), VELVET);
-        assert_eq!(world_index_for(2, Variant::Elvira), 0);
+        assert_eq!(world_index_for(1, Variant::Deluxe), VELVET);
+        assert_eq!(world_index_for(2, Variant::Deluxe), 0);
     }
 
     #[test]
-    fn elvira_look_uses_finish_and_skin() {
-        let l = look_elvira(Material::Plain, 3, 7, None);
+    fn deluxe_look_uses_finish_and_skin() {
+        let l = look_deluxe(Material::Plain, 3, 7, None);
         assert_eq!(l.finish.unwrap().id, 7);
         assert!(!l.bonus);
         // режим блоков «дерево» даёт отделку дуба обычному кубику
-        assert_eq!(look_elvira(Material::Plain, 3, 7, Some(Material::Wood)).finish.unwrap().en, "Oak");
+        assert_eq!(look_deluxe(Material::Plain, 3, 7, Some(Material::Wood)).finish.unwrap().en, "Oak");
         // бонусное золото остаётся золотом и помечено
-        let g = look_elvira(Material::Gold, 3, 7, Some(Material::Wood));
+        let g = look_deluxe(Material::Gold, 3, 7, Some(Material::Wood));
         assert_eq!(g.finish.unwrap().en, "Gold");
         assert!(g.bonus);
         // старое сохранение без отделки — красящаяся отделка по цвету
-        assert!(look_elvira(Material::Plain, 2, 0, None).finish.unwrap().tint);
+        assert!(look_deluxe(Material::Plain, 2, 0, None).finish.unwrap().tint);
     }
 
     #[test]

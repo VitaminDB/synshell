@@ -118,7 +118,7 @@ fn hud(v: &View, game: &Game, list: &mut DisplayList) {
     let stats = v.stats();
     let best = stats.best_of(v.variant, game.difficulty).max(game.scoring.score);
     let gold = hex(theme::GOLD);
-    let elv = v.variant.is_elvira();
+    let elv = v.variant.is_deluxe();
     let accent = if elv { hex("#d9b25a") } else { pal.accent };
 
     // ── рекорд: плашка с золотым бейджем кубка и подписью сложности ──
@@ -196,8 +196,8 @@ fn cell_radius(cell: f32) -> [f32; 4] {
     [cell * 0.13; 4]
 }
 
-/// Рамка поля «Эльвиры»: золотая кромка, завитки по углам, виньетка.
-fn elvira_frame(v: &View, list: &mut DisplayList, panel: Rect, radius: [f32; 4]) {
+/// Рамка поля «Люкса»: золотая кромка, завитки по углам, виньетка.
+fn deluxe_frame(v: &View, list: &mut DisplayList, panel: Rect, radius: [f32; 4]) {
     let gold = hex("#d9b25a");
     let pulse = (v.now * 0.8).sin() * 0.5 + 0.5;
     list.push_outline(inset(panel, -3.0), gold.with_alpha(0.35 + 0.15 * pulse), 1.5, 0.0, [radius[0] + 3.0; 4]);
@@ -225,13 +225,13 @@ fn board(v: &View, game: &Game, list: &mut DisplayList, sx: f32, sy: f32) {
 
     // свечение и тень
     let pal = v.palette();
-    let elv = v.variant.is_elvira();
+    let elv = v.variant.is_deluxe();
     list.push_shadow(panel, pal.glow.with_alpha(0.30), 42.0, (0.0, 0.0), radius);
     list.push_shadow(panel, Color::from_srgb(0, 0, 0, 0.42), 26.0, (0.0, 14.0), radius);
     list.push_rect_bordered(panel, pal.panel, radius, Border { width: 2.0, color: pal.edge.with_alpha(0.85) });
     list.push_inner_shadow(panel, Color::from_srgb(0, 0, 0, 0.35), 16.0, (0.0, 6.0), radius);
     if elv {
-        elvira_frame(v, list, panel, radius);
+        deluxe_frame(v, list, panel, radius);
     }
     if game.scoring.combo >= 3 && !game.over {
         let pulse = (v.now * 5.0).sin() * 0.5 + 0.5;
@@ -240,7 +240,7 @@ fn board(v: &View, game: &Game, list: &mut DisplayList, sx: f32, sy: f32) {
         list.push_outline(inset(panel, -4.0), gold.with_alpha(0.10 + 0.12 * pulse), 4.0, 0.0, [22.0; 4]);
     }
 
-    // пустые клетки («Эльвира» — с тонким светлым ободком)
+    // пустые клетки («Люкс» — с тонким светлым ободком)
     let empty = pal.empty;
     for r in 0..SIZE {
         for c in 0..SIZE {
@@ -532,7 +532,7 @@ fn tray(v: &View, game: &Game, list: &mut DisplayList) {
             let pr = scaled_about_center(g.piece_rect_in_slot(i, &p.shape), scale);
             list.push_rect(offset(inset(pr, -6.0), 0.0, 6.0 * hover), Color::from_srgb(0, 0, 0, 0.16 * hover), [12.0; 4]);
         }
-        if v.variant.is_elvira() && fits && v.fx.over_at.is_none() {
+        if v.variant.is_deluxe() && fits && v.fx.over_at.is_none() {
             // мягкое свечение под фигурой цветом её материала
             let pr = g.piece_rect_in_slot(i, &p.shape);
             let glow = look.accent.unwrap_or(look.base).lerp(&look.base, 0.5);
@@ -570,7 +570,7 @@ fn abilities(v: &View, game: &Game, list: &mut DisplayList) {
     let pal = v.palette();
     let gold = hex(theme::GOLD);
     let locked = v.input_locked_pub();
-    let elv = v.variant.is_elvira();
+    let elv = v.variant.is_deluxe();
     let accent = if elv { hex("#d9b25a") } else { pal.accent };
 
     // ── шкала энергии: сегменты по единицам, золотая заливка с бликом ──
@@ -698,7 +698,7 @@ fn abilities(v: &View, game: &Game, list: &mut DisplayList) {
 fn level_ring(v: &View, game: &Game, list: &mut DisplayList) {
     let g = &v.geo;
     let pal = v.palette();
-    let accent = if v.variant.is_elvira() { hex("#d9b25a") } else { pal.accent };
+    let accent = if v.variant.is_deluxe() { hex("#d9b25a") } else { pal.accent };
     let punch = anim::punch(clamp01((v.now - v.fx.level_born) / 0.7));
     let size = 40.0;
     let rect = Rect::new(Point::new(g.menu_btn.origin.x - size - 10.0, g.menu_btn.origin.y), Size::new(size, size));
@@ -725,7 +725,7 @@ fn level_ring(v: &View, game: &Game, list: &mut DisplayList) {
     }
     text_nowrap(list, &v.level.to_string(), offset(rect, 0.0, -1.0), Color::WHITE, 17.0 * (1.0 + 0.3 * punch), 800, TextAlign::CENTER);
     let lr = Rect::new(Point::new(rect.origin.x - 10.0, rect.origin.y + size + 1.0), Size::new(size + 20.0, 13.0));
-    let label = if v.variant.is_elvira() { "LEVEL" } else { "УРОВЕНЬ" };
+    let label = if v.variant.is_deluxe() { "LEVEL" } else { "УРОВЕНЬ" };
     text_nowrap(list, label, lr, hex(theme::TEXT_DIM).with_alpha(0.8), 8.5, 800, TextAlign::CENTER);
 }
 
@@ -845,7 +845,7 @@ fn banner(v: &View, list: &mut DisplayList) {
     text_shadowed(list, &b.text, rect, b.color.with_alpha(a), size, 800, TextAlign::CENTER);
     if let Some(sub) = &b.sub {
         let sr = Rect::new(Point::new(rect.origin.x, cy + 26.0), Size::new(rect.width(), 34.0));
-        let (col, size, weight) = if v.variant.is_elvira() { (hex("#ffe9a8").with_alpha(a), 19.0 * appear, 700) } else { (hex(theme::GOLD).with_alpha(a), 22.0 * appear, 800) };
+        let (col, size, weight) = if v.variant.is_deluxe() { (hex("#ffe9a8").with_alpha(a), 19.0 * appear, 700) } else { (hex(theme::GOLD).with_alpha(a), 22.0 * appear, 800) };
         text_shadowed(list, sub, sr, col, size, weight, TextAlign::CENTER);
     }
 }
