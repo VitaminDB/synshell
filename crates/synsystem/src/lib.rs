@@ -13,6 +13,7 @@ pub mod gpu;
 pub mod hwinfo;
 pub mod memory;
 pub mod network;
+pub mod packages;
 pub mod procs;
 pub mod thermal;
 pub mod util;

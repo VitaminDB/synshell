@@ -37,6 +37,8 @@ pub struct Snap {
     pub gpu: Option<(Option<f32>, Option<u32>, Option<String>)>,
     pub battery: Option<synsystem::battery::Battery>,
     pub battery_info: Option<synsystem::battery::BatteryInfo>,
+    /// Напряжение из АЦП, если драйвера батареи нет.
+    pub adc_volt: Option<f32>,
     /// Байт/с принято, передано.
     pub net: (f64, f64),
     /// Приложения: окно, app_id, имя, память КБ, CPU %.
@@ -135,6 +137,7 @@ fn start_sampler(sig: RwSignal<Snap>) {
                     gpu: synsystem::gpu::read(&sys).map(|g| (g.busy_percent, g.cur_mhz, g.name)),
                     battery: synsystem::battery::read(&sys),
                     battery_info: synsystem::battery::batteries(&sys).into_iter().next(),
+                    adc_volt: synsystem::battery::adc_voltage(&sys),
                     net,
                     apps,
                 };
@@ -336,7 +339,7 @@ pub fn page(ctx: ShellCtx) -> impl Widget {
             )),
             None => Box::new(DecoratedBox::new()),
         };
-        Box::new(Row::new().gap(10.0).child(DecoratedBox::new().child(mem).class("grow")).child(DecoratedBox::new().child(gpu).class("grow")))
+        Box::new(Row::new().gap(10.0).child(DecoratedBox::new().child(mem).class("grow res-half")).child(DecoratedBox::new().child(gpu).class("grow res-half")))
     });
     let power = rx(move || {
         let s = sig.get();
@@ -369,17 +372,30 @@ pub fn page(ctx: ShellCtx) -> impl Widget {
                 }
                 Box::new(col)
             }
-            (None, _) => Box::new(Text::new("Драйвер аккумулятора не найден").class("res-v")),
+            (None, _) => match s.adc_volt {
+                // Драйвера батареи нет (телефон без ADSP) — напряжение с АЦП.
+                Some(v) => Box::new(
+                    Column::new()
+                        .gap(4.0)
+                        .child(Text::new(format!("{v:.2} В")).class("res-big"))
+                        .child(Text::new("напряжение аккумулятора").class("res-k")),
+                ),
+                None => Box::new(Text::new("Драйвер аккумулятора не найден").class("res-v")),
+            },
         };
-        Box::new(card("Питание", "\u{E1A4}", body))
-    });
-    let net = rx(move || {
-        let s = sig.get();
-        Box::new(card(
+        let net = card(
             "Сеть",
             "\u{E80D}",
-            Row::new().gap(12.0).child(kv("↓", human_rate(s.net.0))).child(kv("↑", human_rate(s.net.1))),
-        ))
+            Column::new().gap(6.0).child(kv("↓", human_rate(s.net.0))).child(kv("↑", human_rate(s.net.1))),
+        );
+        // Питание и сеть — одной строкой, поровну.
+        Box::new(
+            Row::new()
+                .gap(10.0)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(DecoratedBox::new().child(card("Питание", "\u{E1A4}", body)).class("grow res-half"))
+                .child(DecoratedBox::new().child(net).class("grow res-half")),
+        )
     });
     let apps = rx(move || {
         let s = sig.get();
@@ -403,7 +419,6 @@ pub fn page(ctx: ShellCtx) -> impl Widget {
             .child(cpu_card)
             .child(mem_gpu)
             .child(power)
-            .child(net)
             .child(Text::new("Запущенные приложения").class("res-section"))
             .child(apps)
             .class("home-page res-page"),

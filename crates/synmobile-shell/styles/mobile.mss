@@ -106,3 +106,6 @@
 .res-badge-mem { background-color: #5c6bc0; }
 .res-badge-cpu { background-color: #26a69a; }
 .res-badge-hot { background-color: #ef5350; }
+
+/* Половины строки — поровну, независимо от содержимого. */
+.res-half { flex-grow: 1; flex-basis: 0px; }

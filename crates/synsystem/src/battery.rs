@@ -89,6 +89,22 @@ pub fn batteries(sys: &Sys) -> Vec<BatteryInfo> {
         .collect()
 }
 
+/// Напряжение аккумулятора из АЦП PMIC (`vbat` в IIO), В — на телефонах,
+/// где драйвер батареи не поднят (нет ADSP).
+pub fn adc_voltage(sys: &Sys) -> Option<f32> {
+    for dev in sys.list("/sys/bus/iio/devices") {
+        let base = format!("/sys/bus/iio/devices/{dev}");
+        for f in sys.list(&base) {
+            if f.contains("vbat") && f.ends_with("_input") {
+                if let Some(uv) = sys.read_num::<f64>(format!("{base}/{f}")) {
+                    return Some((uv / 1e6) as f32);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Сводка: сумма по батареям.
 pub fn read(sys: &Sys) -> Option<Battery> {
     let mut total_now = 0f64;
