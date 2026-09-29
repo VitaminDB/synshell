@@ -466,6 +466,7 @@ fn items_row(panel: &Panel, st: &DockState, editing: bool) -> impl Widget {
             slots.push(SlotInfo { name: String::new() });
         }
         let st3 = st2.clone();
+        let count = slots.len();
         fe = fe.on_hover(move |h| {
             *st3.last_hover.lock().unwrap() = h;
             let label = h.and_then(|(i, r)| slots.get(i).filter(|s| !s.name.is_empty()).map(|s| (s.name.clone(), r)));
@@ -473,6 +474,16 @@ fn items_row(panel: &Panel, st: &DockState, editing: bool) -> impl Widget {
                 st3.label.set(label);
             }
         });
+        // Значков больше, чем помещается вдоль края: ряд в прокрутке
+        // (пальцем, колесом) — видимая часть не шире экрана.
+        let (ow, oh) = crate::manager::output_size(Some(&st2.pc.output));
+        let avail = if vertical { oh } else { ow } - 2.0 * (st2.geo.gap + 8.0);
+        let want = count as f32 * (st2.geo.item + 4.0) + 24.0;
+        if dock.overflow == "scroll" && want > avail && !editing {
+            let sv = if vertical { ScrollView::new().vertical() } else { ScrollView::new().horizontal() };
+            let dim = if vertical { "height" } else { "width" };
+            return Box::new(sv.child(fe).class("dock-scroll").style(dim, StyleValue::px(avail))) as Box<dyn Widget>;
+        }
         Box::new(fe) as Box<dyn Widget>
     })
 }

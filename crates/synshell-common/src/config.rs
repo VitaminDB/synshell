@@ -1178,6 +1178,9 @@ pub struct Dock {
     /// Прятать док, когда его перекрывает окно (или всегда при
     /// `autohide`), и показывать при подводе курсора к краю.
     pub intellihide: bool,
+    /// Значков больше, чем помещается по длине края: `scroll` — ряд
+    /// листается пальцем (колесом), `clip` — лишнее обрезается.
+    pub overflow: String,
 }
 
 impl Default for Dock {
@@ -1194,6 +1197,7 @@ impl Default for Dock {
             hover_particles: "none".into(),
             launch_particles: "stars".into(),
             intellihide: false,
+            overflow: "scroll".into(),
         }
     }
 }
