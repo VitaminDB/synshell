@@ -53,7 +53,7 @@ fn view(ctx: Ctx) -> impl Widget {
         let icon = synshell_common::xdg::lookup_icon(&app.icon);
         let icon_widget: Box<dyn Widget> = match icon {
             Some(path) => Box::new(Image::new(path.display().to_string()).class("app-icon")),
-            None => Box::new(Icon::new("apps").class("app-icon")),
+            None => Box::new(Icon::new(crate::navbar::mi::APPS).class("app-icon")),
         };
         let launch = move || {
             let term = ctx.config.get_untracked().general.terminal.clone();

@@ -250,6 +250,13 @@ pub fn transform_name(t: smithay::utils::Transform) -> &'static str {
 }
 
 /// Масштаб «по DPI», если в конфиге 0: как у Plasma — ступенями по 0.25.
+/// Масштаб для телефона: DRM-панели часто сообщают размер в неверных единицах,
+/// поэтому берём логическую ширину ≈ 400 (как 360–412 dp в Android).
+pub fn phone_scale(pixels: (i32, i32)) -> f64 {
+    let w = pixels.0.min(pixels.1).max(1) as f64;
+    (((w / 400.0) * 2.0).round() / 2.0).clamp(1.0, 4.0)
+}
+
 pub fn auto_scale(physical_mm: (i32, i32), pixels: (i32, i32)) -> f64 {
     let (mm_w, _) = physical_mm;
     if mm_w <= 0 || pixels.0 <= 0 {

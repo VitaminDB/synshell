@@ -7,6 +7,13 @@ use crate::Ctx;
 
 pub const HEIGHT: u32 = 56;
 
+/// Кодпоинты Material Icons (шрифт syngui `material-icons`).
+pub mod mi {
+    pub const ARROW_BACK: &str = "\u{E5C4}";
+    pub const HOME: &str = "\u{E88A}";
+    pub const APPS: &str = "\u{E5C3}";
+}
+
 pub fn install(ctx: Ctx) {
     syngui_layer::create_surface(
         SurfaceSpec {
@@ -32,9 +39,9 @@ fn view(ctx: Ctx) -> impl Widget {
         .child(
             Row::new()
                 .gap(8.0)
-                .child(nav("arrow_back", move || crate::action(synshell_common::Action::Close)))
-                .child(nav("home", move || ctx.home_visible.set(!ctx.home_visible.get_untracked())))
-                .child(nav("apps", move || ctx.home_visible.set(true))),
+                .child(nav(mi::ARROW_BACK, move || crate::action(synshell_common::Action::Close)))
+                .child(nav(mi::HOME, move || ctx.home_visible.set(!ctx.home_visible.get_untracked())))
+                .child(nav(mi::APPS, move || ctx.home_visible.set(true))),
         )
         .class("navbar")
 }

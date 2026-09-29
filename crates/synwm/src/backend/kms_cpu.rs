@@ -311,7 +311,13 @@ pub fn scan_connectors(state: &mut State) {
             .as_ref()
             .map(|c| c.scale)
             .filter(|s| *s > 0.0)
-            .unwrap_or_else(|| crate::backend::auto_scale((mm_w as i32, mm_h as i32), (wl_mode.size.w, wl_mode.size.h)));
+            .unwrap_or_else(|| {
+                if state.core.form_factor == synshell_common::config::FormFactor::Phone {
+                    crate::backend::phone_scale((wl_mode.size.w, wl_mode.size.h))
+                } else {
+                    crate::backend::auto_scale((mm_w as i32, mm_h as i32), (wl_mode.size.w, wl_mode.size.h))
+                }
+            });
         let transform = cfg.as_ref().map(|c| crate::backend::parse_transform(&c.transform)).unwrap_or(Transform::Normal);
         output.change_current_state(Some(wl_mode), Some(transform), Some(Scale::Fractional(scale)), None);
         output.user_data().insert_if_missing(|| crtc);
