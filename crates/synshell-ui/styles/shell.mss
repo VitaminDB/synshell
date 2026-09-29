@@ -415,6 +415,49 @@ Text {
 .start-footer-btn:active { scale: 0.9; }
 .start-footer-icon { icon-size: 20px; icon-color: var(--fg); }
 
+/* ─── Шторка (телефон) ─────────────────────────────────────────────────── */
+
+.shade-scrim { background-color: var(--scrim); }
+.shade {
+    padding: 18px 14px 10px 14px;
+    background-color: var(--menu-bg);
+    border-bottom-left-radius: 28px;
+    border-bottom-right-radius: 28px;
+    box-shadow: 0 12px 36px var(--shadow);
+}
+.shade-time { font-size: 38px; font-weight: 300; color: var(--fg); }
+.shade-date { font-size: 14px; color: var(--muted); }
+.shade-head-btn {
+    padding: 10px;
+    border-radius: 999px;
+    background-color: var(--surface-alt);
+    transition: background-color 120ms ease-out, scale 200ms spring(420, 26);
+}
+.shade-head-btn:active { scale: 0.9; }
+.shade-head-icon { icon-size: 22px; icon-color: var(--fg); }
+
+.shade-tile {
+    padding: 10px 12px;
+    border-radius: 22px;
+    background-color: var(--surface-alt);
+    transition: background-color 220ms ease-out, scale 220ms spring(420, 24);
+}
+.shade-tile:active { scale: 0.95; }
+.shade-tile-on { background-color: var(--accent); }
+.shade-tile-badge { padding: 6px; border-radius: 999px; background-color: #ffffff14; }
+.shade-tile-icon { icon-size: 20px; icon-color: var(--fg); }
+.shade-tile-on .shade-tile-icon { icon-color: var(--accent-fg); }
+.shade-tile-label { font-size: 13px; font-weight: 600; color: var(--fg); }
+.shade-tile-on .shade-tile-label { color: var(--accent-fg); }
+.shade-tile-state { font-size: 11px; color: var(--muted); }
+.shade-tile-on .shade-tile-state { color: var(--accent-fg); opacity: 0.8; }
+
+.shade-slider { padding: 8px 12px; border-radius: 22px; background-color: var(--surface-alt); }
+.shade-slider-icon { icon-size: 22px; icon-color: var(--fg); }
+.shade-slider-value { font-size: 12px; color: var(--muted); }
+.shade-notifications { max-height: 320px; }
+.shade-handle { width: 44px; height: 5px; border-radius: 3px; background-color: var(--border); }
+
 /* ─── Уведомления ────────────────────────────────────────────────────────── */
 
 .notif {

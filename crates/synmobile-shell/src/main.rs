@@ -43,8 +43,6 @@ fn command(name: &str, arg: &str) -> bool {
             home::show_apps();
         }
         "apps" => synshell_ui::commands::handle("launcher"),
-        // Шторка — пока центр уведомлений (быстрые настройки — следующий шаг).
-        "shade" => synshell_ui::commands::handle("notifications"),
         "recents" => synshell_ui::commands::handle("window-switcher next"),
         "keyboard" => keyboard::toggle(),
         "mode" => {
