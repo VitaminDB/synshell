@@ -20,6 +20,7 @@ pub const DEFAULT_CONFIG_TOML: &str = include_str!("../default-config.toml");
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub general: General,
+    pub platform: Platform,
     pub appearance: Appearance,
     pub input: Input,
     #[serde(rename = "output")]
@@ -47,6 +48,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             general: General::default(),
+            platform: Platform::default(),
             appearance: Appearance::default(),
             input: Input::default(),
             outputs: Vec::new(),
@@ -1355,6 +1357,116 @@ impl Default for Lock {
     }
 }
 
+/// Платформа: на чём и как работает композитор (десктоп / телефон).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Platform {
+    /// Рендерер сеанса DRM: `auto`, `gpu` (GLES через GBM/EGL) или `cpu`
+    /// (pixman + dumb-буферы — телефоны с downstream-ядром без GBM/EGL, где
+    /// GPU доступен только клиентам через Vulkan/KGSL).
+    pub renderer: String,
+    /// Форм-фактор: `auto`, `desktop` или `phone`. `auto` — телефон, если
+    /// единственный подключённый монитор — встроенная DSI-панель.
+    pub form_factor: String,
+    /// Выходы, которые никогда не включаются (шаблоны с `*`): writeback-коннекторы
+    /// downstream-драйверов вроде `Virtual-1` иначе получают CRTC панели.
+    pub ignore_outputs: Vec<String>,
+}
+
+impl Default for Platform {
+    fn default() -> Self {
+        Self { renderer: "auto".into(), form_factor: "auto".into(), ignore_outputs: vec!["Virtual-*".into()] }
+    }
+}
+
+/// Форм-фактор, к которому подстраиваются композитор и оболочка.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FormFactor {
+    #[default]
+    Desktop,
+    Phone,
+}
+
+impl FormFactor {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FormFactor::Desktop => "desktop",
+            FormFactor::Phone => "phone",
+        }
+    }
+}
+
+impl Config {
+    /// Разобрать `platform.form_factor`; `None` — `auto` (решает бэкенд по мониторам).
+    pub fn form_factor_setting(&self) -> Option<FormFactor> {
+        match self.platform.form_factor.trim() {
+            "phone" | "mobile" => Some(FormFactor::Phone),
+            "desktop" => Some(FormFactor::Desktop),
+            _ => None,
+        }
+    }
+
+    /// Подстроить значения по умолчанию под телефон: окна во весь экран
+    /// (monocle), без рамок и зазоров, оболочка `synmobile-shell`, без Xwayland.
+    /// Явно заданные в конфиге значения не трогаются.
+    pub fn apply_form_factor(&mut self, ff: FormFactor) {
+        if ff != FormFactor::Phone {
+            return;
+        }
+        let d = Config::default();
+        if self.windows.default_layout == d.windows.default_layout {
+            self.windows.default_layout = crate::action::LayoutKind::Monocle;
+        }
+        if self.windows.border_width == d.windows.border_width {
+            self.windows.border_width = 0;
+        }
+        if self.windows.gaps_inner == d.windows.gaps_inner {
+            self.windows.gaps_inner = 0;
+        }
+        if self.windows.gaps_outer == d.windows.gaps_outer {
+            self.windows.gaps_outer = 0;
+        }
+        if self.windows.decorations == d.windows.decorations {
+            self.windows.decorations = DecorationMode::Client;
+        }
+        if self.general.shell == d.general.shell {
+            self.general.shell = "synmobile-shell".into();
+        }
+        if self.general.xwayland == d.general.xwayland {
+            self.general.xwayland = false;
+        }
+    }
+
+    /// Совпадает ли имя выхода с одним из шаблонов `platform.ignore_outputs`.
+    pub fn output_ignored(&self, name: &str) -> bool {
+        self.platform.ignore_outputs.iter().any(|pat| glob_match(pat, name))
+    }
+}
+
+/// Простое сопоставление с `*` (любая подстрока).
+pub fn glob_match(pat: &str, s: &str) -> bool {
+    let parts: Vec<&str> = pat.split('*').collect();
+    if parts.len() == 1 {
+        return pat == s;
+    }
+    let mut pos = 0;
+    for (i, part) in parts.iter().enumerate() {
+        if part.is_empty() {
+            continue;
+        }
+        match s[pos..].find(part) {
+            Some(idx) => {
+                if i == 0 && idx != 0 {
+                    return false;
+                }
+                pos += idx + part.len();
+            }
+            None => return false,
+        }
+    }
+    pat.ends_with('*') || pos == s.len()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Idle {
@@ -1659,5 +1771,29 @@ mod tests {
         assert!(c.appearance.resolved.is_none());
         assert_eq!(c.appearance.palette(), Appearance::default().palette());
         assert!(c.appearance.wallpaper_background(&c.wallpaper).contains("#1b2233"));
+    }
+}
+
+#[cfg(test)]
+mod platform_tests {
+    use super::*;
+    #[test]
+    fn glob() {
+        assert!(glob_match("Virtual-*", "Virtual-1"));
+        assert!(!glob_match("Virtual-*", "DSI-1"));
+        assert!(glob_match("DSI-1", "DSI-1"));
+        assert!(glob_match("*-1", "DSI-1"));
+        assert!(!glob_match("*-2", "DSI-1"));
+    }
+    #[test]
+    fn phone_defaults() {
+        let mut c = Config::default();
+        c.apply_form_factor(FormFactor::Phone);
+        assert_eq!(c.general.shell, "synmobile-shell");
+        assert_eq!(c.windows.border_width, 0);
+        let mut c = Config::default();
+        c.general.shell = "my-shell".into();
+        c.apply_form_factor(FormFactor::Phone);
+        assert_eq!(c.general.shell, "my-shell");
     }
 }

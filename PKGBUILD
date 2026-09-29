@@ -29,7 +29,7 @@ _profile=${SYNSHELL_PROFILE:-release}
 
 build() {
     cd "$startdir"
-    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synsettings -p synfiles -p synshot
+    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synsettings -p synfiles -p synshot
 }
 
 check() {
@@ -39,7 +39,7 @@ check() {
 
 package() {
     cd "$startdir"
-    for b in synwm syndesktop-shell synsettings synfiles synshot; do
+    for b in synwm syndesktop-shell synmobile-shell synsettings synfiles synshot; do
         install -Dm755 "target/$_profile/$b" "$pkgdir/usr/bin/$b"
     done
     install -Dm755 data/synshell-session "$pkgdir/usr/bin/synshell-session"

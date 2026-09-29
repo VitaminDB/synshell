@@ -23,7 +23,6 @@ use smithay::{
             DrmDevice, DrmDeviceFd, DrmEvent, DrmEventMetadata, DrmEventTime, DrmNode, NodeType,
         },
         egl::{EGLDevice, EGLDisplay},
-        libinput::{LibinputInputBackend, LibinputSessionInterface},
         renderer::{
             damage::OutputDamageTracker,
             gles::{GlesRenderer, GlesTexture},
@@ -41,7 +40,7 @@ use smithay::{
             EventLoop, LoopHandle, RegistrationToken,
         },
         drm::control::{connector, crtc, property, Device as ControlDevice, ModeTypeFlags},
-        input::{DeviceCapability, Libinput},
+        input::Libinput,
         rustix::fs::OFlags,
         wayland_protocols::wp::presentation_time::server::wp_presentation_feedback,
         wayland_server::{backend::GlobalId, protocol::wl_surface::WlSurface},
@@ -113,30 +112,7 @@ impl TtyBackend {
         let gpus = GpuManager::new(GbmGlesBackend::with_context_priority(smithay::backend::egl::context::ContextPriority::High))
             .map_err(|e| anyhow::anyhow!("GpuManager: {e}"))?;
 
-        let mut libinput = Libinput::new_with_udev::<LibinputSessionInterface<LibSeatSession>>(session.clone().into());
-        libinput
-            .udev_assign_seat(&seat)
-            .map_err(|_| anyhow::anyhow!("libinput: не удалось назначить seat"))?;
-        let input_backend = LibinputInputBackend::new(libinput.clone());
-        event_loop.handle().insert_source(input_backend, |mut event, _, state| {
-            use smithay::backend::input::InputEvent;
-            match &mut event {
-                InputEvent::DeviceAdded { device } => {
-                    crate::libinput_config::apply(device, &state.core.config.input);
-                    if device.has_capability(DeviceCapability::Keyboard) {
-                        if let Some(leds) = state.core.seat.get_keyboard().map(|k| k.led_state()) {
-                            device.led_update(leds.into());
-                        }
-                    }
-                    state.core.input_devices.push(device.clone());
-                }
-                InputEvent::DeviceRemoved { device } => {
-                    state.core.input_devices.retain(|d| d != device);
-                }
-                _ => {}
-            }
-            state.process_input_event(event);
-        }).map_err(|e| anyhow::anyhow!("{}", e.error))?;
+        let libinput = super::init_libinput(event_loop, &session)?;
 
         event_loop.handle().insert_source(notifier, |event, _, state| match event {
             SessionEvent::PauseSession => {
@@ -389,6 +365,10 @@ pub fn scan_connectors(state: &mut State, node: DrmNode) {
             continue;
         }
         let name = format!("{}-{}", info.interface().as_str(), info.interface_id());
+        if state.core.config.output_ignored(&name) {
+            tracing::info!(name, "вывод пропущен (platform.ignore_outputs)");
+            continue;
+        }
         let cfg = state.core.config.outputs.iter().find(|o| o.name == name).cloned();
         if cfg.as_ref().is_some_and(|c| !c.enabled) {
             tracing::info!(name, "монитор выключен в конфиге");
@@ -512,7 +492,7 @@ pub fn scan_connectors(state: &mut State, node: DrmNode) {
     }
 }
 
-fn pick_mode(modes: &[smithay::reexports::drm::control::Mode], spec: &str) -> Option<smithay::reexports::drm::control::Mode> {
+pub(crate) fn pick_mode(modes: &[smithay::reexports::drm::control::Mode], spec: &str) -> Option<smithay::reexports::drm::control::Mode> {
     let spec = spec.trim();
     if spec.is_empty() {
         return None;
@@ -813,7 +793,7 @@ fn on_vblank(state: &mut State, node: DrmNode, crtc: crtc::Handle, meta: &mut Op
 }
 
 /// Кадр показан (или прошёл расчётный vblank): решить, рисовать ли дальше.
-fn after_frame(core: &mut Core, output: &Output) {
+pub(crate) fn after_frame(core: &mut Core, output: &Output) {
     let redraw_needed = match core.output_data.get(output).map(|d| d.redraw) {
         Some(RedrawState::WaitingForVBlank { redraw_needed }) | Some(RedrawState::WaitingForEstimatedVBlank { redraw_needed }) => {
             redraw_needed

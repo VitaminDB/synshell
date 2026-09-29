@@ -76,7 +76,7 @@ impl State {
         for d in &mut self.core.input_devices {
             crate::libinput_config::apply(d, &input);
         }
-        if let crate::backend::Backend::Tty(_) = &self.backend {
+        if !matches!(self.backend, crate::backend::Backend::Winit(_)) {
             // Указательные устройства не хранятся — настройки применятся к
             // новым; для уже подключённых перечисляем через libinput.
             self.reapply_pointer_config();

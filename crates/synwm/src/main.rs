@@ -49,7 +49,7 @@ fn main() {
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
             "synwm {} — окружение рабочего стола для Wayland\n\n\
-             synwm [--nested | --tty] [--no-shell] [--no-autostart]\n\
+             synwm [--nested | --tty] [--cpu | --gpu] [--no-shell] [--no-autostart]\n\
              synwm msg <version|windows|workspaces|outputs|layouts|events|action ДЕЙСТВИЕ|window ID ОПЕРАЦИЯ|reload|restart-shell|restart>\n",
             env!("CARGO_PKG_VERSION")
         );
@@ -149,16 +149,63 @@ fn run(args: &[String]) -> anyhow::Result<bool> {
         tracing::warn!(error = e, "ошибка конфига — используются значения по умолчанию");
     }
 
+    let mut config = config;
     let mut event_loop: EventLoop<'static, State> = EventLoop::try_new()?;
     let display: Display<State> = Display::new()?;
 
+    // Платформа: рендерер (GPU через GBM/EGL или CPU через pixman) и форм-фактор.
+    // Форм-фактор: SYNSHELL_FORM_FACTOR (отладка), [platform], иначе — по мониторам.
+    let mut form_factor = match std::env::var("SYNSHELL_FORM_FACTOR").as_deref() {
+        Ok("phone") | Ok("mobile") => Some(synshell_common::config::FormFactor::Phone),
+        Ok("desktop") => Some(synshell_common::config::FormFactor::Desktop),
+        _ => config.form_factor_setting(),
+    };
     let backend = if nested {
         Backend::Winit(backend::winit::WinitBackend::new(&event_loop)?)
     } else {
-        Backend::Tty(backend::tty::TtyBackend::new(&event_loop)?)
+        let renderer = if args.iter().any(|a| a == "--cpu") {
+            "cpu".to_string()
+        } else if args.iter().any(|a| a == "--gpu") {
+            "gpu".to_string()
+        } else {
+            std::env::var("SYNSHELL_RENDERER").unwrap_or_else(|_| config.platform.renderer.trim().to_string())
+        };
+        let device = backend::kms_cpu_device_path();
+        if form_factor.is_none() {
+            form_factor = device.as_deref().and_then(backend::probe_form_factor);
+        }
+        let cpu = match renderer.as_str() {
+            "cpu" | "pixman" => true,
+            "gpu" | "gles" => false,
+            _ => match device.as_deref() {
+                Some(p) => {
+                    let gpu = backend::probe_gpu(p);
+                    if !gpu {
+                        tracing::info!(path = %p.display(), "GPU-рендеринг недоступен — CPU (pixman)");
+                    }
+                    !gpu
+                }
+                None => false,
+            },
+        };
+        if cpu {
+            #[cfg(feature = "pixman")]
+            {
+                Backend::KmsCpu(backend::kms_cpu::KmsCpuBackend::new(&event_loop)?)
+            }
+            #[cfg(not(feature = "pixman"))]
+            {
+                anyhow::bail!("сборка без CPU-рендерера (feature pixman)");
+            }
+        } else {
+            Backend::Tty(backend::tty::TtyBackend::new(&event_loop)?)
+        }
     };
+    let form_factor = form_factor.unwrap_or_default();
+    config.apply_form_factor(form_factor);
+    tracing::info!(form_factor = form_factor.as_str(), "форм-фактор");
     let seat_name = backend.seat_name();
-    let core = Core::new(display, event_loop.handle(), event_loop.get_signal(), &seat_name, nested, config, config_error)?;
+    let core = Core::new(display, event_loop.handle(), event_loop.get_signal(), &seat_name, nested, form_factor, config, config_error)?;
     let mut state = State { backend, core };
 
     match &mut state.backend {
@@ -167,6 +214,8 @@ fn run(args: &[String]) -> anyhow::Result<bool> {
             w.apply_output_config(&mut state.core);
         }
         Backend::Tty(_) => backend::tty::init(&mut state, &event_loop)?,
+        #[cfg(feature = "pixman")]
+        Backend::KmsCpu(_) => backend::kms_cpu::init(&mut state, &event_loop)?,
     }
     state.outputs_changed();
 
@@ -174,6 +223,7 @@ fn run(args: &[String]) -> anyhow::Result<bool> {
     std::env::set_var("WAYLAND_DISPLAY", &state.core.socket_name);
     std::env::set_var("SYNSHELL_SOCKET", state.core.ipc.path());
     std::env::set_var("XDG_CURRENT_DESKTOP", "synshell");
+    std::env::set_var("SYNSHELL_FORM_FACTOR", state.core.form_factor.as_str());
 
     state.start_xwayland();
     if !nested {

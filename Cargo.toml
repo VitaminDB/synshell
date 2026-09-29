@@ -5,6 +5,7 @@ members = [
     "crates/synwm",
     "crates/syngui-layer",
     "crates/syndesktop-shell",
+    "crates/synmobile-shell",
     "crates/synsettings",
     "crates/synfiles",
     "crates/synshot",

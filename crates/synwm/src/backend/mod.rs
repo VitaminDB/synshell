@@ -1,5 +1,8 @@
-//! Бэкенды вывода: настоящий сеанс (DRM/KMS + libinput) и вложенное окно.
+//! Бэкенды вывода: сеанс DRM/KMS с GPU (`tty`), сеанс DRM/KMS на CPU
+//! (`kms_cpu`: телефоны без GBM/EGL) и вложенное окно (`winit`).
 
+#[cfg(feature = "pixman")]
+pub mod kms_cpu;
 pub mod tty;
 pub mod winit;
 
@@ -25,6 +28,8 @@ use crate::state::{Core, State};
 pub enum Backend {
     Winit(winit::WinitBackend),
     Tty(tty::TtyBackend),
+    #[cfg(feature = "pixman")]
+    KmsCpu(kms_cpu::KmsCpuBackend),
 }
 
 impl Backend {
@@ -32,6 +37,8 @@ impl Backend {
         match self {
             Backend::Winit(_) => "seat0".into(),
             Backend::Tty(t) => t.seat_name(),
+            #[cfg(feature = "pixman")]
+            Backend::KmsCpu(b) => b.seat_name(),
         }
     }
 
@@ -45,10 +52,17 @@ impl Backend {
         match self {
             Backend::Winit(w) => w.import_dmabuf(dmabuf),
             Backend::Tty(t) => t.import_dmabuf(dmabuf),
+            #[cfg(feature = "pixman")]
+            Backend::KmsCpu(b) => b.import_dmabuf(dmabuf),
         }
     }
 
     pub fn change_vt(&mut self, vt: i32) {
+        #[cfg(feature = "pixman")]
+        if let Backend::KmsCpu(b) = self {
+            b.change_vt(vt);
+            return;
+        }
         if let Backend::Tty(t) = self {
             t.change_vt(vt);
         }
@@ -59,10 +73,17 @@ impl Backend {
         match self {
             Backend::Winit(w) => w.render(core, output),
             Backend::Tty(t) => t.render(core, output),
+            #[cfg(feature = "pixman")]
+            Backend::KmsCpu(b) => b.render(core, output),
         }
     }
 
     pub fn set_monitors_power(&mut self, core: &mut Core, on: bool) {
+        #[cfg(feature = "pixman")]
+        if let Backend::KmsCpu(b) = self {
+            b.set_monitors_power(core, on);
+            return;
+        }
         if let Backend::Tty(t) = self {
             t.set_monitors_power(core, on);
         }
@@ -73,6 +94,8 @@ impl Backend {
         match self {
             Backend::Winit(w) => w.screenshot(core, output),
             Backend::Tty(t) => t.screenshot(core, output),
+            #[cfg(feature = "pixman")]
+            Backend::KmsCpu(b) => b.screenshot(core, output),
         }
     }
 
@@ -81,6 +104,8 @@ impl Backend {
         match self {
             Backend::Winit(w) => Some(f(w.gles())),
             Backend::Tty(t) => t.with_gles(f),
+            #[cfg(feature = "pixman")]
+            Backend::KmsCpu(_) => None,
         }
     }
 
@@ -89,11 +114,99 @@ impl Backend {
         match self {
             Backend::Winit(w) => w.apply_output_config(core),
             Backend::Tty(t) => t.apply_output_config(core),
+            #[cfg(feature = "pixman")]
+            Backend::KmsCpu(b) => b.apply_output_config(core),
         }
     }
 }
 
 /// Подходит ли вывод под имя из конфига: имя коннектора или описание.
+/// libinput через libseat: общий для DRM-бэкендов. События идут в
+/// `State::process_input_event`; настройки устройств — из `[input]`.
+pub(crate) fn init_libinput(
+    event_loop: &smithay::reexports::calloop::EventLoop<'static, State>,
+    session: &smithay::backend::session::libseat::LibSeatSession,
+) -> anyhow::Result<smithay::reexports::input::Libinput> {
+    use smithay::backend::libinput::{LibinputInputBackend, LibinputSessionInterface};
+    use smithay::backend::session::Session;
+    use smithay::reexports::input::{DeviceCapability, Libinput};
+    let seat = session.seat();
+    let mut libinput = Libinput::new_with_udev::<LibinputSessionInterface<_>>(session.clone().into());
+    libinput
+        .udev_assign_seat(&seat)
+        .map_err(|_| anyhow::anyhow!("libinput: не удалось назначить seat"))?;
+    let input_backend = LibinputInputBackend::new(libinput.clone());
+    event_loop.handle().insert_source(input_backend, |mut event, _, state| {
+        use smithay::backend::input::InputEvent;
+        match &mut event {
+            InputEvent::DeviceAdded { device } => {
+                crate::libinput_config::apply(device, &state.core.config.input);
+                if device.has_capability(DeviceCapability::Keyboard) {
+                    if let Some(leds) = state.core.seat.get_keyboard().map(|k| k.led_state()) {
+                        device.led_update(leds.into());
+                    }
+                }
+                state.core.input_devices.push(device.clone());
+            }
+            InputEvent::DeviceRemoved { device } => {
+                state.core.input_devices.retain(|d| d != device);
+            }
+            _ => {}
+        }
+        state.process_input_event(event);
+    }).map_err(|e| anyhow::anyhow!("{}", e.error))?;
+    Ok(libinput)
+}
+
+/// Путь к DRM-устройству сеанса: `SYNSHELL_DRM_DEVICE`, иначе основной GPU по udev
+/// (seat0 — до открытия сеанса libseat).
+pub fn kms_cpu_device_path() -> Option<std::path::PathBuf> {
+    if let Ok(p) = std::env::var("SYNSHELL_DRM_DEVICE") {
+        return Some(std::path::PathBuf::from(p));
+    }
+    let seat = std::env::var("XDG_SEAT").unwrap_or_else(|_| "seat0".into());
+    smithay::backend::udev::primary_gpu(&seat)
+        .ok()
+        .flatten()
+        .or_else(|| smithay::backend::udev::all_gpus(&seat).ok()?.into_iter().next())
+}
+
+/// Есть ли на устройстве GPU-рендеринг (EGL поверх GBM). Без него сеанс
+/// DRM возможен только на CPU (`kms_cpu`).
+pub fn probe_gpu(path: &std::path::Path) -> bool {
+    use smithay::backend::egl::{EGLDevice, EGLDisplay};
+    use smithay::reexports::gbm::Device as GbmDevice;
+    let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(path) else { return false };
+    let fd = smithay::backend::drm::DrmDeviceFd::new(smithay::utils::DeviceFd::from(std::os::fd::OwnedFd::from(file)));
+    let Ok(gbm) = GbmDevice::new(fd) else { return false };
+    let Ok(display) = (unsafe { EGLDisplay::new(gbm) }) else { return false };
+    EGLDevice::device_for_display(&display).map(|d| !d.is_software()).unwrap_or(false)
+}
+
+/// Форм-фактор по подключённым коннекторам: телефон/планшет, если единственный
+/// подключённый — встроенная DSI-панель.
+pub fn probe_form_factor(path: &std::path::Path) -> Option<synshell_common::config::FormFactor> {
+    use smithay::reexports::drm::control::{connector, Device as ControlDevice};
+    use synshell_common::config::FormFactor;
+    let file = std::fs::OpenOptions::new().read(true).write(true).open(path).ok()?;
+    let fd = smithay::backend::drm::DrmDeviceFd::new(smithay::utils::DeviceFd::from(std::os::fd::OwnedFd::from(file)));
+    let res = fd.resource_handles().ok()?;
+    let mut dsi = 0;
+    let mut other = 0;
+    for &c in res.connectors() {
+        let Ok(info) = fd.get_connector(c, false) else { continue };
+        if info.state() != connector::State::Connected {
+            continue;
+        }
+        match info.interface() {
+            connector::Interface::DSI => dsi += 1,
+            connector::Interface::Virtual | connector::Interface::Writeback => {}
+            _ => other += 1,
+        }
+    }
+    Some(if dsi > 0 && other == 0 { FormFactor::Phone } else { FormFactor::Desktop })
+}
+
 pub fn output_matches(output: &Output, name: &str) -> bool {
     let name = name.trim();
     if name.is_empty() {

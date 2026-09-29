@@ -14,6 +14,7 @@ pub fn session_env(core: &Core) -> Vec<(String, String)> {
         ("XDG_CURRENT_DESKTOP".to_string(), "synshell".to_string()),
         ("XDG_SESSION_DESKTOP".to_string(), "synshell".to_string()),
         ("XDG_SESSION_TYPE".to_string(), "wayland".to_string()),
+        ("SYNSHELL_FORM_FACTOR".to_string(), core.form_factor.as_str().to_string()),
         ("MOZ_ENABLE_WAYLAND".to_string(), "1".to_string()),
         ("QT_QPA_PLATFORM".to_string(), "wayland;xcb".to_string()),
         ("QT_WAYLAND_DISABLE_WINDOWDECORATION".to_string(), "1".to_string()),

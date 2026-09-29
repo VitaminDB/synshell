@@ -10,6 +10,11 @@ license.workspace = true
 name = "synwm"
 path = "src/main.rs"
 
+[features]
+default = ["pixman"]
+# CPU-рендер сеанса DRM (pixman + dumb-буферы) — телефоны без GBM/EGL.
+pixman = ["smithay/renderer_pixman"]
+
 [dependencies]
 synshell-common.workspace = true
 serde.workspace = true

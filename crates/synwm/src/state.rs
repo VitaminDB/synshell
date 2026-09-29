@@ -143,6 +143,8 @@ pub struct Core {
     pub start_time: Instant,
     pub socket_name: String,
     pub nested: bool,
+    /// Десктоп или телефон — см. `[platform]`.
+    pub form_factor: synshell_common::config::FormFactor,
 
     // ── конфигурация ──
     pub config: Config,
@@ -236,6 +238,7 @@ impl Core {
         loop_signal: LoopSignal,
         seat_name: &str,
         nested: bool,
+        form_factor: synshell_common::config::FormFactor,
         config: Config,
         config_error: Option<String>,
     ) -> anyhow::Result<Self> {
@@ -360,6 +363,7 @@ impl Core {
             start_time: Instant::now(),
             socket_name,
             nested,
+            form_factor,
             config_watcher: FileWatcher::new(crate::config::watched_files(&config)),
             config,
             config_error,

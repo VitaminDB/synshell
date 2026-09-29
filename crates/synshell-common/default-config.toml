@@ -24,6 +24,18 @@ screenshot_dir = "~/Pictures/Screenshots"
 [general.environment]
 # QT_QPA_PLATFORMTHEME = "kde"
 
+# Платформа: десктоп или телефон.
+[platform]
+# Рендерер сеанса DRM: "auto", "gpu" (GLES через GBM/EGL) или "cpu"
+# (pixman + dumb-буферы — телефоны с Android-ядром без GBM/EGL).
+renderer = "auto"
+# "auto", "desktop" или "phone": на телефоне окна во весь экран, без рамок,
+# оболочка synmobile-shell. auto — телефон, если единственный монитор — DSI-панель.
+form_factor = "auto"
+# Выходы, которые никогда не включаются (шаблоны с *): writeback-коннекторы
+# downstream-драйверов ("Virtual-1") иначе отбирают CRTC у панели.
+ignore_outputs = ["Virtual-*"]
+
 [appearance]
 # Тема оформления: nord, catppuccin, tokyo-night, gruvbox, rose-pine,
 # everforest, dracula, kanagawa, solarized, synthwave, aurora, sakura,
