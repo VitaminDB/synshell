@@ -85,7 +85,9 @@ fn clock(a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
     let seconds = a.bool_or("seconds", false);
     let fmt = a.str("format").map(String::from).unwrap_or_else(|| if seconds { "%H:%M:%S" } else { "%H:%M" }.into());
     let date_fmt = a.str("date_format").map(String::from).unwrap_or_else(|| if pc.vertical { "%d.%m".into() } else { "%a, %d %b".into() });
-    let show_date = a.bool_or("date", true);
+    // На тонкой панели (строка состояния телефона) дата под часами не
+    // помещается — по умолчанию только время.
+    let show_date = a.bool_or("date", pc.vertical || pc.size >= 40);
     let pc2 = pc.clone();
     let vertical = pc.vertical;
     Box::new(
