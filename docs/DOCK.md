@@ -143,7 +143,7 @@ intellihide = false      # прятать, когда полосу перекр�
 
 ## Как устроено
 
-- `syndesktop-shell/src/dock.rs` — поверхность дока (layer-shell `syndesktop-dock`,
+- `synshell-ui/src/dock.rs` — поверхность дока (layer-shell `syndesktop-dock`,
   на всю длину края и с запасом над полосой под увеличение и подпись), ряд значков,
   подпись, автоскрытие/умное скрытие, **область ввода** (`syngui_layer::set_input_region`):
   клики над полосой проходят к окнам;

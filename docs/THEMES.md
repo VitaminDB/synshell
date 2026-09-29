@@ -94,7 +94,7 @@ glow = "#cba6f766"
 ошибка (опечатка не пройдёт молча); тема с ошибкой пропускается, в логе будет
 причина.
 
-`shell.mss` — правила поверх встроенных (`crates/syndesktop-shell/styles/shell.mss`,
+`shell.mss` — правила поверх встроенных (`crates/synshell-ui/styles/shell.mss`,
 там же список классов: `.panel`, `.ws-active`, `.task-active`, `.popup-card`,
 `.notif`, `.launcher-row-selected`, `.clock-time`, `.lock-avatar`, …). Доступны
 переменные палитры (`--bg --surface --surface-alt --panel-bg --menu-bg --fg

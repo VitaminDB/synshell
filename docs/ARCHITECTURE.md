@@ -34,7 +34,9 @@
 | `synshell-common` | `Config` (весь `config.toml`), `Action` (строковые действия), `KeyCombo`, IPC-протокол и клиент, пути XDG, опрос изменений файлов, `.desktop` и темы значков (`xdg`), типы файлов и программы для них (`mime`: shared-mime-info, `mimeapps.list`) |
 | `synwm` | композитор + CLI `synwm msg …` |
 | `syngui-layer` | хост syngui на layer-shell поверхностях (sctk 0.19 + wgpu-surface из `wl_surface`) — «winit для оболочки» |
-| `syndesktop-shell` | оболочка рабочего стола |
+| `synshell-ui` | общая оболочка (библиотека): панели и доки с апплетами, меню запуска, всплывающие окна, уведомления (D-Bus), OSD, блокировка, Alt+Tab, трей, глобальное меню; `synshell_ui::run(Shell { form_factor, extra_mss, install, .. })` |
+| `synsystem` | системные бэкенды без UI: батареи, ядра CPU с частотами и кластерами, память, температуры, процессы (PSS/CPU), подсветка (ниты), сеть, GPU (KGSL/amdgpu/Intel), громкость; пример `sysinfo` |
+| `syndesktop-shell` | оболочка рабочего стола: `synshell-ui` + обои и панели по мониторам (`manager`) |
 | `synmobile-shell` | оболочка телефона: строка состояния, навигация, домашний экран — [MOBILE.md](MOBILE.md) |
 | `synkeyboard` | экранная клавиатура (layer-shell + `zwp_virtual_keyboard_v1`, автопоказ по `zwp_input_method_v2`) — [MOBILE.md](MOBILE.md) |
 | `synsettings` | «Параметры системы» |
@@ -84,14 +86,14 @@
 фоне при загрузке конфига и оповещает Qt/KDE по D-Bus.
 
 Панель-заголовок: апплеты `window-title`, `window-buttons`, `appmenu`
-(`syndesktop-shell/src/applets/window.rs`) показывают активное окно своего вывода;
+(`synshell-ui/src/applets/window.rs`) показывают активное окно своего вывода;
 `[windows] borderless_maximized` убирает у развёрнутых окон серверный заголовок
 (`Managed::has_titlebar`). Перетаскивание заголовка на панели — `WindowOp::StartMove`:
 композитор перехватывает указатель, пока кнопка ещё нажата.
 
 Глобальное меню: композитор реализует `org_kde_kwin_appmenu` (`synwm/src/appmenu.rs`) и
 отдаёт адрес меню в `WindowInfo::appmenu`; окна X11 регистрируют меню у
-`com.canonical.AppMenu.Registrar` (`syndesktop-shell/src/appmenu.rs`, по `WindowInfo::x11_id`).
+`com.canonical.AppMenu.Registrar` (`synshell-ui/src/appmenu.rs`, по `WindowInfo::x11_id`).
 Реестр на шине, только пока в конфиге есть апплет `appmenu`: по нему Qt решает, убирать ли
 строку меню из окна. Меню читается по `com.canonical.dbusmenu` (AboutToShow + GetLayout,
 Event `opened`/`clicked`/`closed`). Qt-программам нужна тема `QT_QPA_PLATFORMTHEME=kde`
@@ -102,7 +104,7 @@ GTK3: композитор реализует `gtk_shell1` (`synwm/src/gtk_shell
 `global_menu_bar` — GTK убирает строку меню из окна и сообщает `set_dbus_properties`
 (`WindowInfo::gtk_menu`). Оболочка читает модель `org.gtk.Menus` (Start по группам, разделы
 через черту) и действия `org.gtk.Actions` (DescribeAll — доступность, флажки, радио;
-Activate), `syndesktop-shell/src/gtkmenu.rs`. GIMP 3 отдаёт меню так только с
+Activate), `synshell-ui/src/gtkmenu.rs`. GIMP 3 отдаёт меню так только с
 `GIMP_GTK_MENUBAR=1` — композитор выставляет её детям, пока есть апплет `appmenu`.
 
 ## IPC
@@ -136,7 +138,7 @@ Activate), `syndesktop-shell/src/gtkmenu.rs`. GIMP 3 отдаёт меню та�
 layer-поверхности не анимирует), на примитивах syngui `Presence`,
 `AnimatedSwitcher`, `AnimatedPosition`, `AnimatedSize` и перетекании темы
 (`docs/07-animation.md` в syngui). `[animations] shell` и `theme_change`
-включают их, `enabled`/`speed` задают темп (`crates/syndesktop-shell/src/anim.rs`).
+включают их, `enabled`/`speed` задают темп (`crates/synshell-ui/src/anim.rs`).
 
 - Всплывающие окна (`popup.rs`): карточка — `Presence::signal(open, …)`; у прижатой
   панели (`PopupAnchor::attached`: не плавающая или `defloat`) якорь растянут до её

@@ -83,6 +83,9 @@ pub struct Osd {
 #[derive(Clone, Copy)]
 pub struct ShellCtx {
     pub config: RwSignal<Arc<Config>>,
+    /// Телефон или рабочий стол: раскладка всплывающих окон, какие панели
+    /// показывать (`[[panel]] form_factor`).
+    pub form_factor: synshell_common::config::FormFactor,
     /// Композитор synshell на связи.
     pub connected: RwSignal<bool>,
     pub windows: RwSignal<Vec<WindowInfo>>,
@@ -121,8 +124,9 @@ pub struct ShellCtx {
 }
 
 impl ShellCtx {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: Config, form_factor: synshell_common::config::FormFactor) -> Self {
         Self {
+            form_factor,
             config: use_signal(Arc::new(config.clone())),
             connected: use_signal(false),
             windows: use_signal(Vec::new()),
@@ -148,6 +152,10 @@ impl ShellCtx {
             launching: use_signal(Vec::new()),
             bursts: use_signal(std::collections::HashMap::new()),
         }
+    }
+
+    pub fn is_phone(&self) -> bool {
+        self.form_factor == synshell_common::config::FormFactor::Phone
     }
 
     pub fn get() -> Self {

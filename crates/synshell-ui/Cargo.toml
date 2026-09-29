@@ -1,0 +1,21 @@
+[package]
+name = "synshell-ui"
+description = "Shared shell of the synshell environment: panels, docks, launcher, notifications, OSD, lock screen — used by the desktop and phone shells"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+synshell-common.workspace = true
+syngui-layer.workspace = true
+synsystem.workspace = true
+syngui = { workspace = true, features = ["winit", "clipboard", "msdf", "effects", "svg", "material-icons", "i18n"] }
+anyhow.workspace = true
+libc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+log = "0.4"
+env_logger = "0.11"
+zbus = "5"

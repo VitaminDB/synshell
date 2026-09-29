@@ -55,7 +55,7 @@ package() {
         "$pkgdir/usr/share/applications/synfiles-viewer.desktop"
     install -Dm644 crates/synshot/data/synshot.desktop \
         "$pkgdir/usr/share/applications/synshot.desktop"
-    install -Dm644 crates/syndesktop-shell/data/syndesktop-lock.pam "$pkgdir/etc/pam.d/syndesktop-lock"
+    install -Dm644 crates/synshell-ui/data/syndesktop-lock.pam "$pkgdir/etc/pam.d/syndesktop-lock"
     install -Dm644 crates/synshell-common/default-config.toml \
         "$pkgdir/usr/share/doc/synshell/config.toml.example"
 }

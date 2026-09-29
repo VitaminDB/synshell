@@ -4,6 +4,7 @@ members = [
     "crates/synshell-common",
     "crates/synwm",
     "crates/syngui-layer",
+    "crates/synshell-ui",
     "crates/syndesktop-shell",
     "crates/synmobile-shell",
     "crates/synkeyboard",
@@ -24,6 +25,7 @@ license = "MIT OR Apache-2.0"
 synshell-common = { path = "crates/synshell-common" }
 syngui-layer = { path = "crates/syngui-layer" }
 synsystem = { path = "crates/synsystem" }
+synshell-ui = { path = "crates/synshell-ui" }
 syngui = { path = "../syngui/syngui", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
