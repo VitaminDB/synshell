@@ -64,6 +64,19 @@ pub fn unset(p: &[O]) {
 
 pub type W = Box<dyn Widget>;
 
+thread_local! {
+    static NARROW: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Узкое окно (телефон): строки складываются в столбец.
+pub fn narrow() -> bool {
+    NARROW.with(|n| n.get())
+}
+
+pub fn set_narrow(v: bool) {
+    NARROW.with(|n| n.set(v));
+}
+
 /// Путь с `~` вместо домашнего каталога.
 pub fn home_short(p: &std::path::Path) -> String {
     let s = p.display().to_string();
@@ -83,7 +96,7 @@ pub fn boxed(w: impl Widget + 'static) -> W {
 pub fn page(title: &str, subtitle: &str, body: Vec<W>) -> W {
     let mut col = Column::new()
         .gap(18.0)
-        .class("page-body")
+        .class(if narrow() { "page-body page-body-narrow" } else { "page-body" })
         .child(
             Column::new()
                 .gap(4.0)
@@ -118,8 +131,17 @@ pub fn note(text: &str) -> W {
     boxed(Text::new(text).class("note"))
 }
 
-/// Строка: подпись (+ подсказка) слева, элемент управления справа.
+/// Строка: подпись (+ подсказка) слева, элемент управления справа. В узком
+/// окне — элемент под подписью.
 pub fn row<M>(label: &str, hint: &str, control: impl IntoWidget<M>) -> W {
+    if narrow() {
+        return row_wide(label, hint, control);
+    }
+    row_inline(label, hint, control)
+}
+
+/// Строка «подпись — элемент» и в узком окне (переключатели, кнопки).
+pub fn row_inline<M>(label: &str, hint: &str, control: impl IntoWidget<M>) -> W {
     let mut left = Column::new().gap(2.0).class("row-text").child(Text::new(label).class("row-label"));
     if !hint.is_empty() {
         left = left.child(Text::new(hint).class("row-hint"));
@@ -150,7 +172,7 @@ pub fn switch(p: P, on: bool) -> impl Widget {
 }
 
 pub fn switch_row(label: &str, hint: &str, p: P, on: bool) -> W {
-    row(label, hint, switch(p, on))
+    row_inline(label, hint, switch(p, on))
 }
 
 pub fn text(p: P, value: &str, placeholder: &str, width: f32) -> impl Widget {
@@ -348,6 +370,8 @@ pub mod icons {
     pub const SETTINGS: &str = "\u{e8b8}";
     pub const INFO: &str = "\u{e88e}";
     pub const SEARCH: &str = "\u{e8b6}";
+    pub const CHEVRON_RIGHT: &str = "\u{e5cc}";
+    pub const BACK: &str = "\u{e5c4}";
     pub const ADD: &str = "\u{e145}";
     pub const DELETE: &str = "\u{e872}";
     pub const UP: &str = "\u{e5d8}";

@@ -23,6 +23,9 @@ pub struct Ctx {
     pub capture: RwSignal<Option<String>>,
     /// Сообщение внизу окна («Сохранено», ошибки внешних команд).
     pub toast: RwSignal<String>,
+    /// Узкое окно (телефон): вместо боковой панели — стек «список
+    /// разделов → страница»; `true` — открыта страница.
+    pub page_open: RwSignal<bool>,
 }
 
 thread_local! {
@@ -40,6 +43,7 @@ pub fn init(start_page: &str) -> Ctx {
         search: use_signal(String::new()),
         capture: use_signal(None),
         toast: use_signal(String::new()),
+        page_open: use_signal(false),
     };
     CTX.with(|c| *c.borrow_mut() = Some(ctx));
     ctx

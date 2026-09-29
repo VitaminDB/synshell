@@ -2,6 +2,8 @@
 //! состояния.
 
 use syngui::prelude::*;
+use syngui::widgets::{EventHook, KeyReply};
+use syngui::input::Key;
 
 use crate::pages::{self, PAGES};
 use crate::state::{self, Ctx};
@@ -127,7 +129,155 @@ fn footer(ctx: Ctx) -> W {
     )
 }
 
+/// Узкое окно: ширина меньше этой — телефонная раскладка.
+const NARROW_BELOW: f32 = 720.0;
+
 pub fn root(ctx: Ctx) -> W {
+    let narrow = syngui::viewport::viewport_below(NARROW_BELOW);
+    let body = Reactive::new(move || -> Vec<W> {
+        let n = narrow.get();
+        set_narrow(n);
+        vec![if n { phone_root(ctx) } else { desktop_root(ctx) }]
+    });
+    crate::pages::capture_hook(boxed(body))
+}
+
+// ─── Телефон: список разделов → страница ────────────────────────────────────
+
+fn go_back(ctx: Ctx) -> bool {
+    if ctx.page_open.get_untracked() {
+        ctx.page_open.set(false);
+        true
+    } else {
+        false
+    }
+}
+
+fn phone_list(ctx: Ctx) -> W {
+    let search = TextField::new()
+        .placeholder("Поиск настроек")
+        .prefix_icon(icons::SEARCH)
+        .on_change(move |s| ctx.search.set(s.to_string()))
+        .on_submit(move |s| {
+            if let Some(p) = PAGES.iter().find(|p| pages::matches(p, s)) {
+                ctx.page.set(p.id.to_string());
+                ctx.page_open.set(true);
+            }
+        })
+        .class("phone-search");
+    let list = Reactive::new(move || -> Vec<W> {
+        let q = ctx.search.get();
+        let mut out: Vec<W> = Vec::new();
+        let mut group: Option<(&str, Column)> = None;
+        let flush = |g: Option<(&str, Column)>, out: &mut Vec<W>| {
+            if let Some((title, col)) = g {
+                out.push(boxed(Column::new().gap(8.0).child(Text::new(title).class("group-title")).child(col)));
+            }
+        };
+        for p in PAGES.iter().filter(|p| q.trim().is_empty() || pages::matches(p, &q)) {
+            if group.as_ref().map(|g| g.0) != Some(p.group) {
+                flush(group.take(), &mut out);
+                group = Some((p.group, Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("group-card")));
+            }
+            let id = p.id;
+            let item = syngui::GestureDetector::new()
+                .on_click(move || {
+                    ctx.page.set(id.to_string());
+                    ctx.page_open.set(true);
+                })
+                .child(
+                    DecoratedBox::new().class("phone-nav-item").child(
+                        Row::new()
+                            .gap(14.0)
+                            .cross_axis_alignment(CrossAxisAlignment::Center)
+                            .child(DecoratedBox::new().class("phone-nav-badge").child(Icon::new(p.icon).class("phone-nav-icon")))
+                            .child(Text::new(p.title).class("phone-nav-label grow"))
+                            .child(Icon::new(icons::CHEVRON_RIGHT).class("phone-nav-chevron")),
+                    ),
+                );
+            if let Some((_, col)) = group.take() {
+                group = Some((p.group, col.child(item)));
+            }
+        }
+        flush(group.take(), &mut out);
+        if out.is_empty() {
+            out.push(boxed(Text::new("Ничего не найдено").class("nav-empty")));
+        }
+        let mut col = Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+        for w in out {
+            col = col.child(w);
+        }
+        vec![boxed(col)]
+    });
+    boxed(
+        Column::new()
+            .gap(14.0)
+            .class("phone-list")
+            .child(Text::new("Параметры").class("phone-title"))
+            .child(search)
+            .child(error_banner(ctx))
+            .child(ScrollView::new().vertical().class("grow").child(list)),
+    )
+}
+
+fn phone_page(ctx: Ctx) -> W {
+    let content = Reactive::new(move || -> Vec<W> {
+        ctx.rev.get();
+        let id = ctx.page.get();
+        if ctx.capture.get_untracked().is_some() {
+            ctx.capture.set(None);
+        }
+        vec![(pages::find(&id).build)()]
+    });
+    let title = Reactive::new(move || -> Vec<W> { vec![boxed(Text::new(pages::find(&ctx.page.get()).title).max_lines(1).class("phone-bar-title grow"))] });
+    let bar = Row::new()
+        .gap(6.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .class("phone-bar")
+        .child(syngui::GestureDetector::new().on_click(move || {
+            go_back(ctx);
+        }).child(DecoratedBox::new().class("phone-back").child(Icon::new(icons::BACK).class("phone-back-icon"))))
+        .child(title);
+    boxed(
+        Column::new()
+            .gap(0.0)
+            .class("grow phone-page")
+            .child(bar)
+            .child(error_banner(ctx))
+            .child(DecoratedBox::new().class("grow page-host").child(content)),
+    )
+}
+
+fn phone_root(ctx: Ctx) -> W {
+    let stack = Reactive::new(move || -> Vec<W> {
+        let open = ctx.page_open.get();
+        vec![boxed(
+            AnimatedSwitcher::new(if open { 2u64 } else { 1 }, move || if open { phone_page(ctx) } else { phone_list(ctx) })
+                .directional(true)
+                .slide(48.0, 0.0)
+                .duration_ms(260)
+                .exit_duration_ms(180)
+                .animate_size(false)
+                .class("grow"),
+        )]
+    });
+    // «Назад»: жест телефона (XF86Back), Escape, кнопка Android.
+    boxed(
+        EventHook::new()
+            .on_key_down(move |k, _| {
+                if matches!(k, Key::Escape) && ctx.capture.get_untracked().is_none() && go_back(ctx) {
+                    KeyReply::Handled
+                } else {
+                    KeyReply::Ignore
+                }
+            })
+            .child(syngui::GestureDetector::new().on_back(move || go_back(ctx)).child(Column::new().class("root phone-root").child(stack))),
+    )
+}
+
+// ─── Рабочий стол: боковая панель и страница ─────────────────────────────────
+
+fn desktop_root(ctx: Ctx) -> W {
     let content = Reactive::new(move || -> Vec<W> {
         ctx.rev.get();
         let id = ctx.page.get();
@@ -143,5 +293,5 @@ pub fn root(ctx: Ctx) -> W {
         .child(error_banner(ctx))
         .child(DecoratedBox::new().class("grow page-host").child(content))
         .child(footer(ctx));
-    crate::pages::capture_hook(boxed(Row::new().gap(0.0).class("root").child(sidebar(ctx)).child(main)))
+    boxed(Row::new().gap(0.0).class("root").child(sidebar(ctx)).child(main))
 }

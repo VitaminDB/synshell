@@ -111,7 +111,7 @@ fn main() {
         .title("Параметры системы — synshell")
         .app_id("synsettings")
         .size(args.size.0, args.size.1)
-        .min_size(820, 560)
+        .min_size(340, 480)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_styles_str(&initial)
         .with_dynamic_theme(theme)

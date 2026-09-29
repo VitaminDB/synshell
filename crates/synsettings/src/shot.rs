@@ -55,6 +55,11 @@ pub fn screenshot(out: &str, page: &str, size: (u32, u32), scale: f64) -> anyhow
     let engine = StyleEngine::new(sheet);
 
     provide_context(ctx);
+    // Размер окна известен заранее — раскладка (узкая/широкая) по нему.
+    syngui::viewport::viewport_size().set(Size::new(lw as f32, lh as f32));
+    if std::env::var_os("SYNSETTINGS_SHOT_OPEN").is_some() {
+        ctx.page_open.set(true);
+    }
     let widget = app::root(ctx);
     let element = widget.create_element();
     let root = tree.insert_with_type_id(element, None, widget.as_any().type_id());

@@ -555,3 +555,35 @@ Button.accent-swatch.selected {
     border-radius: 8px;
     border: 1px solid var(--border);
 }
+
+
+/* ─── Узкое окно (телефон): список разделов → страница ─────────────────── */
+
+.phone-root { background: var(--bg); }
+.phone-list { padding: 18px 14px 0px 14px; flex-grow: 1; }
+.phone-title { font-size: 30px; font-weight: 600; color: var(--fg); padding: 8px 4px 4px 4px; }
+.phone-search { border-radius: 999px; }
+.phone-nav-item {
+    padding: 12px 14px;
+    background-color: #00000000;
+    transition: background-color 120ms ease-out, scale 200ms spring(420, 26);
+}
+.phone-nav-item:active { background-color: var(--hover); scale: 0.98; }
+.phone-nav-badge { padding: 7px; border-radius: 12px; background: var(--accent-soft); }
+.phone-nav-icon { color: var(--accent); font-size: 20px; }
+.phone-nav-label { font-size: 16px; color: var(--fg); }
+.phone-nav-chevron { color: var(--muted); font-size: 20px; }
+
+.phone-page { background: var(--bg); }
+.phone-bar { padding: 10px 8px; }
+.phone-back {
+    padding: 8px;
+    border-radius: 999px;
+    transition: background-color 120ms ease-out, scale 200ms spring(420, 26);
+}
+.phone-back:active { background-color: var(--hover); scale: 0.9; }
+.phone-back-icon { color: var(--fg); font-size: 24px; }
+.phone-bar-title { font-size: 20px; font-weight: 600; color: var(--fg); }
+
+.page-body-narrow { padding: 4px 12px 32px 12px; }
+.page-body-narrow .page-title { font-size: 20px; }
