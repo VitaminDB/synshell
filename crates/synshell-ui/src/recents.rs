@@ -61,6 +61,8 @@ pub fn open() {
     let ctx = ShellCtx::get();
     ctx.close_popup();
     crate::shade::close();
+    // Экранная клавиатура поверх ленты/шторки не нужна.
+    crate::actions::spawn("synkeyboard hide");
     let open = use_signal(true);
     OPEN.with(|o| o.set(Some(open)));
     GONE.with(|g| {
