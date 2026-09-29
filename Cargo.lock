@@ -3588,15 +3588,21 @@ dependencies = [
 name = "synmobile-shell"
 version = "0.1.3"
 dependencies = [
- "anyhow",
- "env_logger",
- "libc",
  "log",
- "serde",
- "serde_json",
  "syngui",
  "syngui-layer",
  "synshell-common",
+ "synshell-ui",
+ "synsystem",
+]
+
+[[package]]
+name = "synpkg"
+version = "0.1.3"
+dependencies = [
+ "syngui",
+ "synshell-common",
+ "synsystem",
 ]
 
 [[package]]
@@ -3611,6 +3617,7 @@ dependencies = [
  "serde_json",
  "syngui",
  "synshell-common",
+ "synsystem",
  "toml",
  "toml_edit 0.23.10+spec-1.0.0",
  "tracing",
@@ -3645,6 +3652,7 @@ dependencies = [
  "synshell-common",
  "synsystem",
  "toml",
+ "toml_edit 0.23.10+spec-1.0.0",
  "zbus",
 ]
 
@@ -3668,6 +3676,7 @@ name = "synsystem"
 version = "0.1.3"
 dependencies = [
  "libc",
+ "serde_json",
  "tempfile",
  "tracing",
 ]
@@ -3687,6 +3696,7 @@ dependencies = [
  "smithay",
  "synshell-common",
  "tiny-skia",
+ "toml_edit 0.23.10+spec-1.0.0",
  "tracing",
  "tracing-subscriber",
  "wayland-backend",

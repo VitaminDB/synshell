@@ -20,7 +20,12 @@ optdepends=('xorg-xwayland: X11-программы'
             'ffmpegthumbnailer: миниатюры видео в проводнике'
             'libheif: HEIC/HEIF/AVIF в просмотрщике и миниатюрах'
             'imagemagick: редкие форматы картинок (JPEG XL, RAW…) в просмотрщике'
-            'breeze-icons: тема значков по умолчанию')
+            'breeze-icons: тема значков по умолчанию'
+            'polkit: установка программ (synpkg) без root'
+            'base-devel: сборка пакетов AUR в synpkg'
+            'pacman-contrib: проверка обновлений без root (checkupdates)'
+            'iwd: Wi-Fi (или networkmanager)'
+            'bluez: Bluetooth')
 makedepends=('cargo' 'rust')
 
 # Профиль cargo: release (LTO) — для AUR/GitHub; локально быстрее
@@ -29,7 +34,7 @@ _profile=${SYNSHELL_PROFILE:-release}
 
 build() {
     cd "$startdir"
-    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot
+    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg
 }
 
 check() {
@@ -39,7 +44,7 @@ check() {
 
 package() {
     cd "$startdir"
-    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot; do
+    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg; do
         install -Dm755 "target/$_profile/$b" "$pkgdir/usr/bin/$b"
     done
     install -Dm755 data/synshell-session "$pkgdir/usr/bin/synshell-session"
@@ -49,6 +54,8 @@ package() {
     install -Dm644 data/synshell-portals.conf "$pkgdir/usr/share/xdg-desktop-portal/synshell-portals.conf"
     install -Dm644 crates/synsettings/data/synsettings.desktop \
         "$pkgdir/usr/share/applications/synsettings.desktop"
+    install -Dm644 crates/synpkg/data/synpkg.desktop \
+        "$pkgdir/usr/share/applications/synpkg.desktop"
     install -Dm644 crates/synfiles/data/synfiles.desktop \
         "$pkgdir/usr/share/applications/synfiles.desktop"
     install -Dm644 crates/synfiles/data/synfiles-viewer.desktop \

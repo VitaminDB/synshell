@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Программы
+Name[en]=Software
+GenericName=Установка программ
+Comment=Поиск, установка и обновление программ из репозиториев и AUR
+Exec=synpkg
+Icon=system-software-install
+Categories=System;PackageManager;Settings;
+Keywords=pacman;aur;install;update;пакеты;установка;обновление;

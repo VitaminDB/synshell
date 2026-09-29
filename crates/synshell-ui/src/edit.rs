@@ -448,6 +448,8 @@ pub fn add_panel(dock: bool) {
             panel.dock.icon_size = 44;
             panel.dock.zoom = 1.0;
             panel.dock.labels = false;
+            // На телефоне окна во весь экран — док не должен их перекрывать.
+            panel.exclusive = true;
             panel.applets = vec![Applet::new("launcher"), Applet::new("separator"), Applet::new("taskbar")];
         } else {
             // Строка состояния: часы слева, значки справа.
