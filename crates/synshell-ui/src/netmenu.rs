@@ -33,6 +33,8 @@ thread_local! {
     static OPEN_FOR: Cell<Option<RwSignal<Option<String>>>> = const { Cell::new(None) };
     /// Итог последнего действия.
     static TOAST: Cell<Option<RwSignal<Option<String>>>> = const { Cell::new(None) };
+    /// Службы iwd и NetworkManager: установлены ли, запущены ли.
+    static SERVICES: Cell<Option<RwSignal<Vec<wifi::Service>>>> = const { Cell::new(None) };
 }
 
 /// Поколение опроса: новый показ окна останавливает поток прежнего.
@@ -61,6 +63,9 @@ fn open_for() -> RwSignal<Option<String>> {
 fn toast_sig() -> RwSignal<Option<String>> {
     sig(&TOAST, || None)
 }
+fn services_sig() -> RwSignal<Vec<wifi::Service>> {
+    sig(&SERVICES, Vec::new)
+}
 
 fn backend_choice() -> String {
     ShellCtx::get().cfg().wifi.backend.clone()
@@ -73,14 +78,73 @@ fn is_open() -> bool {
 
 fn refresh() {
     let s = wifi_sig();
+    let sv = services_sig();
     let choice = backend_choice();
     std::thread::spawn(move || {
         let r = match wifi::backend(&choice) {
             Some(b) => b.state(),
-            None => Err("Нет службы Wi-Fi: запустите iwd или NetworkManager".into()),
+            None => Err("Служба Wi-Fi не запущена".into()),
         };
-        run_on_main_thread(move || s.set(Some(r)));
+        let services = wifi::services();
+        run_on_main_thread(move || {
+            s.set(Some(r));
+            if sv.get_untracked() != services {
+                sv.set(services);
+            }
+        });
     });
+}
+
+/// Запустить (`systemctl enable --now`) или остановить службу — в фоне.
+fn service_do(unit: &'static str, name: &'static str, start: bool) {
+    let toast = toast_sig();
+    let label = if start { format!("Запуск {name}") } else { format!("Остановка {name}") };
+    toast.set(Some(format!("{label}…")));
+    std::thread::spawn(move || {
+        let r = wifi::service_control(unit, start);
+        // Службе нужно время подняться, прежде чем читать состояние.
+        std::thread::sleep(Duration::from_millis(if start { 1500 } else { 300 }));
+        run_on_main_thread(move || {
+            toast.set(Some(match r {
+                Ok(()) => format!("{label}: готово"),
+                Err(e) => format!("{label}: {e}"),
+            }));
+            refresh();
+        });
+    });
+}
+
+/// Службы Wi-Fi: `all` — все установленные (с кнопкой «Запустить» /
+/// «Остановить»), иначе только работающие (с «Остановить»).
+fn services_view(all: bool) -> Box<dyn Widget> {
+    let services = services_sig().get();
+    let shown: Vec<&wifi::Service> = services.iter().filter(|s| s.installed && (all || s.active)).collect();
+    if shown.is_empty() {
+        if all {
+            return Box::new(Text::new("Службы Wi-Fi не установлены: нужен пакет iwd или networkmanager").max_lines(2).class("net-note"));
+        }
+        return Box::new(DecoratedBox::new().class("net-toast-none"));
+    }
+    let mut col = Column::new().gap(2.0);
+    for s in shown {
+        let (unit, name, active) = (s.unit, s.name, s.active);
+        let hint = match (active, s.enabled) {
+            (true, true) => "Работает, включена при загрузке",
+            (true, false) => "Работает",
+            (false, true) => "Остановлена, включена при загрузке",
+            (false, false) => "Остановлена",
+        };
+        col = col.child(
+            Row::new()
+                .gap(10.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(icon(if active { mi::WIFI } else { mi::WIFI_OFF }).class(if active { "net-icon net-icon-on" } else { "net-icon" }))
+                .child(Column::new().gap(1.0).child(Text::new(format!("Служба {name}")).class("net-ssid")).child(Text::new(hint).class("net-hint")).class("grow"))
+                .child(action_button(if active { "Остановить" } else { "Запустить" }, move || service_do(unit, name, !active)))
+                .class("net-row net-row-static"),
+        );
+    }
+    Box::new(col)
 }
 
 /// Опрос, пока окно открыто.
@@ -200,13 +264,19 @@ fn wifi_section(phone: bool) -> Box<dyn Widget> {
     };
     let st = match r {
         Ok(st) => st,
-        Err(e) => return Box::new(Text::new(e).max_lines(3).class("net-note")),
+        // Ни iwd, ни NetworkManager не работают: предложить запустить.
+        Err(e) => return Box::new(Column::new().gap(6.0).child(Text::new(e).max_lines(3).class("net-note")).child(services_view(true))),
     };
     if !st.present {
-        return Box::new(Text::new(format!("Беспроводное устройство не найдено ({})", st.backend)).max_lines(2).class("net-note"));
+        return Box::new(
+            Column::new()
+                .gap(6.0)
+                .child(Text::new(format!("Беспроводное устройство не найдено ({})", st.backend)).max_lines(2).class("net-note"))
+                .child(services_view(false)),
+        );
     }
     let powered = st.powered;
-    let mut col = Column::new().gap(6.0);
+    let mut col = Column::new().gap(6.0).child(services_view(false));
     // Wi-Fi: включить/выключить.
     let sub = match &st.connected {
         Some(n) => format!("Подключено к «{n}»{}", st.ip.as_ref().map(|i| format!(" · {i}")).unwrap_or_default()),

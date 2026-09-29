@@ -73,6 +73,73 @@ pub fn backend(choice: &str) -> Option<Box<dyn WifiBackend>> {
     }
 }
 
+// ─── Службы ─────────────────────────────────────────────────────────────────
+
+/// Служба Wi-Fi (systemd-юнит) и её состояние.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Service {
+    pub unit: &'static str,
+    pub name: &'static str,
+    /// Юнит есть в системе (пакет установлен).
+    pub installed: bool,
+    pub active: bool,
+    pub enabled: bool,
+}
+
+const SERVICES: [(&str, &str); 2] = [("iwd.service", "iwd"), ("NetworkManager.service", "NetworkManager")];
+
+/// Состояние служб iwd и NetworkManager по `systemctl show`.
+pub fn services() -> Vec<Service> {
+    SERVICES
+        .iter()
+        .map(|(unit, name)| {
+            let out = Command::new("systemctl")
+                .args(["show", unit, "-p", "LoadState", "-p", "ActiveState", "-p", "UnitFileState"])
+                .env("LC_ALL", "C")
+                .stdin(Stdio::null())
+                .output()
+                .ok()
+                .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+                .unwrap_or_default();
+            let get = |k: &str| out.lines().find_map(|l| l.strip_prefix(k).and_then(|r| r.strip_prefix('='))).unwrap_or("").to_string();
+            Service {
+                unit,
+                name,
+                installed: get("LoadState") == "loaded",
+                active: get("ActiveState") == "active",
+                enabled: matches!(get("UnitFileState").as_str(), "enabled" | "static" | "alias"),
+            }
+        })
+        .collect()
+}
+
+fn is_root() -> bool {
+    // SAFETY: geteuid без побочных эффектов.
+    unsafe { libc::geteuid() == 0 }
+}
+
+/// Запустить службу (`systemctl enable --now`) или остановить (`stop`):
+/// от root напрямую, иначе через pkexec.
+pub fn service_control(unit: &str, start: bool) -> Result<(), String> {
+    let args: Vec<&str> = if start { vec!["enable", "--now", unit] } else { vec!["stop", unit] };
+    let mut c = if is_root() {
+        Command::new("systemctl")
+    } else if crate::util::which("pkexec") {
+        let mut c = Command::new("pkexec");
+        c.arg("systemctl");
+        c
+    } else {
+        return Err("нужны права root: pkexec не найден".into());
+    };
+    let out = c.args(&args).env("LC_ALL", "C").stdin(Stdio::null()).output().map_err(|e| format!("systemctl: {e}"))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        let e = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        Err(if e.is_empty() { format!("systemctl: код {}", out.status.code().unwrap_or(-1)) } else { e })
+    }
+}
+
 fn run(cmd: &str, args: &[&str]) -> Result<String, String> {
     let out = Command::new(cmd).args(args).env("LC_ALL", "C").stdin(Stdio::null()).output().map_err(|e| format!("{cmd}: {e}"))?;
     if out.status.success() {

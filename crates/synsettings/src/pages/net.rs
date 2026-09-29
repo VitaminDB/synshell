@@ -16,6 +16,19 @@ thread_local! {
     static BT: std::cell::Cell<Option<RwSignal<Option<Result<BtState, String>>>>> = const { std::cell::Cell::new(None) };
     /// Сеть, для которой раскрыто поле пароля.
     static PASS_FOR: std::cell::Cell<Option<RwSignal<Option<String>>>> = const { std::cell::Cell::new(None) };
+    /// Службы iwd и NetworkManager.
+    static SERVICES: std::cell::Cell<Option<RwSignal<Vec<wifi::Service>>>> = const { std::cell::Cell::new(None) };
+}
+
+fn services_sig() -> RwSignal<Vec<wifi::Service>> {
+    SERVICES.with(|c| match c.get() {
+        Some(s) => s,
+        None => {
+            let s = use_signal(Vec::new());
+            c.set(Some(s));
+            s
+        }
+    })
 }
 
 fn backend_choice() -> String {
@@ -24,13 +37,64 @@ fn backend_choice() -> String {
 
 fn refresh_wifi(sig: RwSignal<Option<Result<WifiState, String>>>) {
     let choice = backend_choice();
+    let sv = services_sig();
     std::thread::spawn(move || {
         let r = match wifi::backend(&choice) {
             Some(b) => b.state(),
-            None => Err("Нет службы Wi-Fi: запустите iwd или NetworkManager".into()),
+            None => Err("Служба Wi-Fi не запущена — запустите iwd или NetworkManager ниже".into()),
         };
-        run_on_main_thread(move || sig.set(Some(r)));
+        let services = wifi::services();
+        run_on_main_thread(move || {
+            sig.set(Some(r));
+            if sv.get_untracked() != services {
+                sv.set(services);
+            }
+        });
     });
+}
+
+/// Запустить (`systemctl enable --now`) или остановить службу — в фоне,
+/// затем перечитать состояние Wi-Fi.
+fn service_do(unit: &'static str, name: &'static str, start: bool) {
+    let sig = wifi_sig();
+    let label = if start { format!("Запуск {name}") } else { format!("Остановка {name}") };
+    state::toast(format!("{label}…"));
+    std::thread::spawn(move || {
+        let r = wifi::service_control(unit, start);
+        std::thread::sleep(std::time::Duration::from_millis(if start { 1500 } else { 300 }));
+        run_on_main_thread(move || {
+            state::toast(match r {
+                Ok(()) => format!("{label}: готово"),
+                Err(e) => format!("{label}: {e}"),
+            });
+            refresh_wifi(sig);
+        });
+    });
+}
+
+/// Строки служб: установленные — с кнопкой «Запустить» / «Остановить».
+fn service_rows() -> W {
+    let sv = services_sig();
+    boxed(Reactive::new(move || -> Vec<W> {
+        let services = sv.get();
+        let installed: Vec<&wifi::Service> = services.iter().filter(|s| s.installed).collect();
+        if installed.is_empty() {
+            return vec![note("Службы не установлены: нужен пакет iwd или networkmanager (см. «Программы»).")];
+        }
+        installed
+            .into_iter()
+            .map(|s| {
+                let (unit, name, active) = (s.unit, s.name, s.active);
+                let hint = match (active, s.enabled) {
+                    (true, true) => "Работает, включена при загрузке",
+                    (true, false) => "Работает",
+                    (false, true) => "Остановлена, включена при загрузке",
+                    (false, false) => "Остановлена (запуск — systemctl enable --now)",
+                };
+                row_inline(name, hint, button(if active { "Остановить" } else { "Запустить" }, move || service_do(unit, name, !active)))
+            })
+            .collect()
+    }))
 }
 
 fn wifi_sig() -> RwSignal<Option<Result<WifiState, String>>> {
@@ -205,13 +269,16 @@ pub fn wifi() -> W {
             boxed(body),
             group(
                 "Служба",
-                vec![choice_row(
-                    "Бэкенд",
-                    "auto — NetworkManager, если запущен, иначе iwd",
-                    crate::op!["wifi", "backend"],
-                    &c.wifi.backend,
-                    &[("auto", "Автоматически"), ("iwd", "iwd"), ("networkmanager", "NetworkManager")],
-                )],
+                vec![
+                    choice_row(
+                        "Бэкенд",
+                        "auto — NetworkManager, если запущен, иначе iwd",
+                        crate::op!["wifi", "backend"],
+                        &c.wifi.backend,
+                        &[("auto", "Автоматически"), ("iwd", "iwd"), ("networkmanager", "NetworkManager")],
+                    ),
+                    service_rows(),
+                ],
             ),
         ],
     )
