@@ -1,4 +1,5 @@
-//! Панель навигации снизу: «Назад» (закрыть окно), «Домой», «Окна».
+//! Панель навигации снизу: «Назад» (закрыть окно), «Домой», «Окна»,
+//! «Клавиатура» (показать/спрятать synkeyboard).
 
 use syngui::prelude::*;
 use syngui_layer::{Anchor, KeyboardInteractivity, Layer, SurfaceSpec};
@@ -12,6 +13,7 @@ pub mod mi {
     pub const ARROW_BACK: &str = "\u{E5C4}";
     pub const HOME: &str = "\u{E88A}";
     pub const APPS: &str = "\u{E5C3}";
+    pub const KEYBOARD: &str = "\u{E312}";
 }
 
 pub fn install(ctx: Ctx) {
@@ -41,7 +43,8 @@ fn view(ctx: Ctx) -> impl Widget {
                 .gap(8.0)
                 .child(nav(mi::ARROW_BACK, move || crate::action(synshell_common::Action::Close)))
                 .child(nav(mi::HOME, move || ctx.home_visible.set(!ctx.home_visible.get_untracked())))
-                .child(nav(mi::APPS, move || ctx.home_visible.set(true))),
+                .child(nav(mi::APPS, move || ctx.home_visible.set(true)))
+                .child(nav(mi::KEYBOARD, || crate::keyboard::toggle())),
         )
         .class("navbar")
 }

@@ -3567,6 +3567,7 @@ dependencies = [
  "calloop 0.13.0",
  "env_logger",
  "image",
+ "libc",
  "log",
  "pollster",
  "raw-window-handle",
@@ -3574,7 +3575,21 @@ dependencies = [
  "syngui",
  "wayland-backend",
  "wayland-client",
+ "wayland-protocols-misc",
  "wgpu",
+ "xkbcommon 0.8.0",
+]
+
+[[package]]
+name = "synkeyboard"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "log",
+ "syngui",
+ "syngui-layer",
+ "synshell-common",
 ]
 
 [[package]]
@@ -4242,6 +4257,7 @@ checksum = "6e9567599ef23e09b8dad6e429e5738d4509dfc46b3b21f32841a304d16b29c8"
 dependencies = [
  "bitflags 2.13.2",
  "wayland-backend",
+ "wayland-client",
  "wayland-protocols",
  "wayland-scanner",
  "wayland-server",

@@ -11,6 +11,10 @@ syngui = { workspace = true, features = ["winit", "clipboard", "msdf", "effects"
 smithay-client-toolkit = { version = "0.19", default-features = false, features = ["calloop", "xkbcommon"] }
 wayland-client = "0.31"
 wayland-backend = { version = "0.3", features = ["client_system"] }
+# zwp_virtual_keyboard_v1 и zwp_input_method_v2 — экранная клавиатура.
+wayland-protocols-misc = { version = "0.3", features = ["client"] }
+xkbcommon = "0.8"
+libc.workspace = true
 calloop = "0.13"
 raw-window-handle = "0.6"
 wgpu = "28.0.0"

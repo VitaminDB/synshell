@@ -19,6 +19,7 @@
 mod gpu;
 mod keys;
 mod state;
+mod vkbd;
 mod surface;
 
 use std::cell::RefCell;
@@ -128,6 +129,15 @@ pub(crate) enum Command {
     Lock(LockFactory),
     Unlock,
     Quit,
+    /// Виртуальная клавиатура: раскладка XKB (текст keymap).
+    VkKeymap(String),
+    /// Виртуальная клавиатура: клавиша (evdev-код) нажата/отпущена.
+    VkKey(u32, bool),
+    /// Виртуальная клавиатура: группа раскладки (0 — первая в keymap).
+    VkGroup(u32),
+    VkModifiers(u32, u32, u32),
+    /// Подписаться на активность полей ввода (zwp_input_method_v2).
+    ImEnable,
 }
 
 /// Виджет экрана блокировки для вывода.
@@ -230,6 +240,61 @@ pub fn cancel_timer(id: u64) {
 /// Завершить цикл.
 pub fn quit() {
     push(Command::Quit);
+}
+
+thread_local! {
+    static IM_ACTIVE: RefCell<Option<RwSignal<bool>>> = const { RefCell::new(None) };
+}
+
+/// Виртуальная клавиатура (`zwp_virtual_keyboard_v1`): задать раскладку XKB
+/// (текст keymap, см. [`xkb_keymap`]). Композитор выставит её всем клиентам.
+pub fn virtual_keyboard_keymap(keymap: String) {
+    push(Command::VkKeymap(keymap));
+}
+
+/// Виртуальная клавиатура: нажать/отпустить клавишу по evdev-коду (`KEY_A` = 30).
+/// Модификаторы — тоже клавиши (`KEY_LEFTCTRL` = 29): композитор сам считает
+/// состояние xkb, поэтому `Ctrl+C` — это нажатие 29, 46, отпускание 46, 29.
+pub fn virtual_keyboard_key(evdev_code: u32, pressed: bool) {
+    push(Command::VkKey(evdev_code, pressed));
+}
+
+/// Виртуальная клавиатура: переключить группу раскладки keymap (`us,ru` → 0/1).
+/// Состояние модификаторов (маски xkb: Shift=1, Lock=2, Control=4, Mod1/Alt=8,
+/// Mod4/Super=64). Композитор только по этому запросу сообщает клиентам
+/// модификаторы — нажатия самих клавиш Shift/Ctrl их не меняют.
+pub fn virtual_keyboard_modifiers(depressed: u32, latched: u32, locked: u32) {
+    push(Command::VkModifiers(depressed, latched, locked));
+}
+
+pub fn virtual_keyboard_group(group: u32) {
+    push(Command::VkGroup(group));
+}
+
+/// Активность поля ввода: `true`, когда окно с фокусом включило text-input
+/// (композитор передаёт это через `zwp_input_method_v2`). Первый вызов
+/// подписывается; без поддержки протокола сигнал остаётся `false`.
+pub fn input_method_active() -> RwSignal<bool> {
+    let sig = IM_ACTIVE.with(|o| *o.borrow_mut().get_or_insert_with(|| syngui::signal::use_signal(false)));
+    push(Command::ImEnable);
+    sig
+}
+
+pub(crate) fn set_input_method_active(active: bool) {
+    if let Some(sig) = IM_ACTIVE.with(|o| *o.borrow()) {
+        if sig.get_untracked() != active {
+            sig.set(active);
+        }
+    }
+}
+
+/// Текст XKB-keymap для раскладок вида `"us,ru"` (варианты и опции — как в
+/// setxkbmap). Нужны файлы xkeyboard-config (`/usr/share/X11/xkb`).
+pub fn xkb_keymap(layouts: &str, variants: &str, options: &str) -> Option<String> {
+    let ctx = xkbcommon::xkb::Context::new(xkbcommon::xkb::CONTEXT_NO_FLAGS);
+    let opts = if options.is_empty() { None } else { Some(options.to_string()) };
+    let keymap = xkbcommon::xkb::Keymap::new_from_names(&ctx, "", "", layouts, variants, opts, xkbcommon::xkb::KEYMAP_COMPILE_NO_FLAGS)?;
+    Some(keymap.get_as_string(xkbcommon::xkb::KEYMAP_FORMAT_TEXT_V1))
 }
 
 /// Выводы — сигнал: подписанный код пересоздаёт поверхности по мониторам.

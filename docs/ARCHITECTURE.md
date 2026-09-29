@@ -36,6 +36,7 @@
 | `syngui-layer` | хост syngui на layer-shell поверхностях (sctk 0.19 + wgpu-surface из `wl_surface`) — «winit для оболочки» |
 | `syndesktop-shell` | оболочка рабочего стола |
 | `synmobile-shell` | оболочка телефона: строка состояния, навигация, домашний экран — [MOBILE.md](MOBILE.md) |
+| `synkeyboard` | экранная клавиатура (layer-shell + `zwp_virtual_keyboard_v1`, автопоказ по `zwp_input_method_v2`) — [MOBILE.md](MOBILE.md) |
 | `synsettings` | «Параметры системы» |
 | `synfiles` | проводник (syngui + winit): вкладки, две панели, поиск, корзина, операции в фоне; `--viewer` — просмотрщик картинок (модуль `viewer`, сцена из synthos) — [FILES.md](FILES.md) |
 | `synshot` | снимок с выбором (syngui-layer, слой overlay на каждом выводе): кадры всех выводов, окна и указатель берутся у композитора одним IPC `capture` (по Print композитор снимает сразу и передаёт `--capture ФАЙЛ`), оверлей — свой элемент (затемнение, рамка, ручки, лупа), результат — PNG / wl-copy, уведомление через `shell screenshot-*` |

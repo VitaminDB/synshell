@@ -11,7 +11,6 @@ use smithay_client_toolkit::{
     output::{OutputHandler, OutputState},
     reexports::{
         calloop::{
-            self,
             ping::{make_ping, Ping},
             timer::{TimeoutAction, Timer},
             EventLoop, LoopHandle, RegistrationToken,
@@ -54,7 +53,7 @@ use wayland_client::{
 
 pub struct State {
     conn: Option<Connection>,
-    qh: Option<QueueHandle<State>>,
+    pub(crate) qh: Option<QueueHandle<State>>,
     registry: Option<RegistryState>,
     seat_state: Option<SeatState>,
     output_state: Option<OutputState>,
@@ -78,6 +77,9 @@ pub struct State {
     touch_primary: Option<(i32, SurfaceId)>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
     kb_focus: Option<SurfaceId>,
+    /// Первый seat композитора — для виртуальной клавиатуры и input-method.
+    pub(crate) seat: Option<wl_seat::WlSeat>,
+    pub(crate) vk: crate::vkbd::Vkbd,
     modifiers: syngui::input::Modifiers,
     handle: LoopHandle<'static, State>,
     timers: HashMap<u64, RegistrationToken>,
@@ -152,6 +154,8 @@ pub fn run(options: RunOptions, stylesheet: &str, init: Box<dyn FnOnce()>) -> an
         last_cursor: None,
         touch: None,
         touch_primary: None,
+        seat: None,
+        vk: crate::vkbd::Vkbd::default(),
         keyboard: None,
         kb_focus: None,
         modifiers: syngui::input::Modifiers::empty(),
@@ -178,7 +182,12 @@ pub fn run(options: RunOptions, stylesheet: &str, init: Box<dyn FnOnce()>) -> an
         let qh = event_queue.handle();
         state.bind_globals(&globals, &qh)?;
         state.conn = Some(conn.clone());
-        state.qh = Some(qh);
+        state.qh = Some(qh.clone());
+        // sctk не зовёт `new_seat` для seat, существовавших при запуске.
+        if let Some(seat) = state.seat_state.as_ref().and_then(|s| s.seats().next()) {
+            state.seat = Some(seat);
+            crate::vkbd::seat_ready(&mut state, &qh);
+        }
         WaylandSource::new(conn, event_queue)
             .insert(handle.clone())
             .map_err(|e| anyhow::anyhow!("wayland source: {e}"))?;
@@ -268,6 +277,7 @@ impl State {
         self.fractional = globals.bind::<WpFractionalScaleManagerV1, _, _>(qh, 1..=1, ()).ok();
         self.viewporter = globals.bind::<WpViewporter, _, _>(qh, 1..=1, ()).ok();
         self.lock_state = Some(SessionLockState::new(globals, qh));
+        self.vk.bind(globals, qh);
         Ok(())
     }
 
@@ -419,6 +429,11 @@ impl State {
                     self.handle.remove(tok);
                 }
             }
+            Command::VkKeymap(keymap) => crate::vkbd::set_keymap(self, keymap),
+            Command::VkKey(code, pressed) => crate::vkbd::key(self, code, pressed),
+            Command::VkGroup(group) => crate::vkbd::group(self, group),
+            Command::VkModifiers(d, l, k) => crate::vkbd::modifiers(self, d, l, k),
+            Command::ImEnable => crate::vkbd::im_enable(self),
             Command::Redraw(id) => {
                 for (sid, s) in self.surfaces.iter_mut() {
                     if id.is_none() || id == Some(*sid) {
@@ -836,7 +851,12 @@ impl SeatHandler for State {
     fn seat_state(&mut self) -> &mut SeatState {
         self.seat_state.as_mut().unwrap()
     }
-    fn new_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
+    fn new_seat(&mut self, _: &Connection, qh: &QueueHandle<Self>, seat: wl_seat::WlSeat) {
+        if self.seat.is_none() {
+            self.seat = Some(seat.clone());
+            crate::vkbd::seat_ready(self, qh);
+        }
+    }
     fn new_capability(&mut self, _: &Connection, qh: &QueueHandle<Self>, seat: wl_seat::WlSeat, cap: Capability) {
         if cap == Capability::Keyboard && self.keyboard.is_none() {
             let handle = self.handle.clone();

@@ -71,7 +71,13 @@ struct Surface {
     global: Option<GlobalId>,
     connector: connector::Handle,
     estimated_vblank: Option<RegistrationToken>,
+    /// Сторож потерянного page-flip: downstream-драйверы (sde) иногда не
+    /// присылают событие vblank, и без него кадры остановились бы навсегда.
+    flip_watchdog: Option<RegistrationToken>,
 }
+
+/// Сколько ждать vblank после отправки кадра, прежде чем считать событие потерянным.
+const FLIP_WATCHDOG: Duration = Duration::from_millis(250);
 
 pub struct KmsCpuBackend {
     session: LibSeatSession,
@@ -347,7 +353,14 @@ pub fn scan_connectors(state: &mut State) {
         let global = output.create_global::<State>(&state.core.display_handle);
         b.surfaces.insert(
             crtc,
-            Surface { output: output.clone(), drm_output, global: Some(global), connector: info.handle(), estimated_vblank: None },
+            Surface {
+                output: output.clone(),
+                drm_output,
+                global: Some(global),
+                connector: info.handle(),
+                estimated_vblank: None,
+                flip_watchdog: None,
+            },
         );
         let pos = cfg.as_ref().and_then(|c| c.position).map(|[x, y]| (x, y).into()).unwrap_or_else(|| {
             let x = state
@@ -416,6 +429,17 @@ impl KmsCpuBackend {
                     data.redraw = RedrawState::WaitingForVBlank { redraw_needed: false };
                     data.frames += 1;
                     data.last_frame = std::time::Instant::now();
+                    if let Some(t) = surface.flip_watchdog.take() {
+                        self.loop_handle.remove(t);
+                    }
+                    let o = output.clone();
+                    surface.flip_watchdog = self
+                        .loop_handle
+                        .insert_source(Timer::from_duration(FLIP_WATCHDOG), move |_, _, state| {
+                            flip_timeout(state, &o);
+                            TimeoutAction::Drop
+                        })
+                        .ok();
                 }
                 Err(e) => {
                     tracing::warn!(?e, "queue_frame");
@@ -514,10 +538,32 @@ impl KmsCpuBackend {
     }
 }
 
+/// vblank не пришёл вовремя: считаем кадр показанным, чтобы не зависнуть.
+fn flip_timeout(state: &mut State, output: &Output) {
+    let waiting = matches!(state.core.output_data.get(output).map(|d| d.redraw), Some(RedrawState::WaitingForVBlank { .. }));
+    let crate::backend::Backend::KmsCpu(b) = &mut state.backend else { return };
+    let Some(surface) = surface_of(b, output) else { return };
+    surface.flip_watchdog = None;
+    if !waiting {
+        return;
+    }
+    tracing::warn!(output = output.name(), "vblank не пришёл за {FLIP_WATCHDOG:?} — считаем кадр показанным");
+    match surface.drm_output.frame_submitted() {
+        Ok(Some(Some(mut feedback))) => feedback.discarded(),
+        Ok(_) => {}
+        Err(e) => tracing::warn!(?e, "frame_submitted"),
+    }
+    super::tty::after_frame(&mut state.core, output);
+}
+
 fn on_vblank(state: &mut State, crtc: crtc::Handle, meta: &mut Option<DrmEventMetadata>) {
     let crate::backend::Backend::KmsCpu(b) = &mut state.backend else { return };
     let Some(surface) = b.surfaces.get_mut(&crtc) else { return };
     let output = surface.output.clone();
+    if let Some(t) = surface.flip_watchdog.take() {
+        b.loop_handle.remove(t);
+    }
+    let Some(surface) = b.surfaces.get_mut(&crtc) else { return };
     let refresh = output.current_mode().map(|m| m.refresh).unwrap_or(60_000).max(1000);
     let frame_duration = Duration::from_micros(1_000_000_000 / refresh as u64);
     let (clock, flags) = match meta.as_ref().map(|m| m.time) {

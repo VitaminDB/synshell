@@ -4,11 +4,13 @@
 //! общается по IPC (`synshell_common::ipc`).
 //!
 //! Скелет: те же сервисы, что у syndesktop-shell (конфиг, темы, .desktop),
-//! но своя раскладка под палец. Экранная клавиатура, шторка уведомлений и
-//! экран блокировки — следующие шаги (см. docs/MOBILE.md).
+//! но своя раскладка под палец. Экранная клавиатура — отдельный демон
+//! `synkeyboard`, оболочка его запускает и переключает кнопкой. Шторка
+//! уведомлений и экран блокировки — следующие шаги (см. docs/MOBILE.md).
 
 mod home;
 mod ipc;
+mod keyboard;
 mod navbar;
 mod statusbar;
 mod theme;
@@ -43,6 +45,7 @@ fn main() {
         navbar::install(ctx);
         home::install(ctx);
         ipc::start(ctx);
+        keyboard::start();
     });
     if let Err(e) = result {
         log::error!("synmobile-shell: {e:#}");
