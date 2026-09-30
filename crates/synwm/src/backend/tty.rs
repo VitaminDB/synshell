@@ -682,7 +682,18 @@ impl TtyBackend {
         let (elements, clear) = crate::render::output_elements(core, &mut renderer, output, true);
         let res = surface.drm_output.render_frame(&mut renderer, &elements, clear, FrameFlags::DEFAULT);
         let (rendered, states) = match res {
-            Ok(r) => (!r.is_empty, r.states),
+            Ok(r) => {
+                // Нет явной синхронизации с KMS (у msm_drm/sde нет syncobj и
+                // IN_FENCE_FD), а неявной у turnip/KGSL на dma-buf нет: без
+                // ожидания панель показывает недорисованный кадр — артефакты,
+                // заметные под нагрузкой GPU (трансляция экрана, игры).
+                if !r.is_empty && r.needs_sync() {
+                    if let smithay::backend::drm::compositor::PrimaryPlaneElement::Swapchain(ref el) = r.primary_element {
+                        let _ = el.sync.wait();
+                    }
+                }
+                (!r.is_empty, r.states)
+            }
             Err(e) => {
                 tracing::warn!(?e, output = output.name(), "кадр не нарисован");
                 if let Some(d) = core.output_data.get_mut(output) {
