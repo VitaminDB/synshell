@@ -777,9 +777,18 @@ impl Daemon {
                 }
             }
             let ifaces = crate::netif::list();
-            let usb = crate::netif::usb_info(&ifaces);
+            let mut usb = crate::netif::usb_info(&ifaces);
             let changed = {
                 let mut st = self.st.lock().unwrap();
+                // Телефон без ADSP не узнаёт о выдернутом кабеле: UDC так и
+                // остаётся `configured`. Кабель есть, пока по USB идут анонсы
+                // или сеанс.
+                if self.hello_base.usb_gadget && usb.cable {
+                    let alive = st.sessions.values().any(|s| s.transport == Transport::Usb)
+                        || st.nearby.values().any(|n| n.transport == Transport::Usb && n.seen.elapsed() < Duration::from_secs(12));
+                    // Только что запустились — ещё никого не слышали: верим UDC.
+                    usb.cable = alive || n < 5;
+                }
                 let changed = st.usb != usb;
                 if st.usb.interface != usb.interface || st.usb.address != usb.address {
                     // Новый интерфейс — анонсироваться сразу.

@@ -43,7 +43,7 @@ impl RemoteFs {
     fn call(&self, req: FsReq) -> Result<FsResp, i32> {
         let Some((conn, _)) = self.d.conn(&self.id) else { return Err(libc::ENOTCONN) };
         let res = self.rt.block_on(async {
-            tokio::time::timeout(Duration::from_secs(30), crate::rpc::call(&conn, &Rpc::Fs(req))).await
+            tokio::time::timeout(Duration::from_secs(10), crate::rpc::call(&conn, &Rpc::Fs(req))).await
         });
         match res {
             Ok(Ok(Reply::Fs(FsResp::Err(e)))) => Err(e),
@@ -460,19 +460,30 @@ pub fn unmount(d: &crate::daemon::Daemon, id: &str) {
     let sess = SESSIONS.lock().unwrap().as_mut().and_then(|m| m.remove(id));
     let path = d.mount_of(id);
     if sess.is_some() || path.is_some() {
-        // Снять сразу (lazy), иначе зависшая операция держит сессию.
-        if let Some(p) = &path {
-            force_unmount(Path::new(p));
-            let _ = std::fs::remove_dir(p);
-        }
-        drop(sess);
         d.set_mount(id, None);
+        // Не в рабочем потоке tokio: `drop(BackgroundSession)` ждёт поток FUSE,
+        // а тот может висеть в операции по мёртвому соединению (Проводник,
+        // миниатюры) — рабочие потоки кончались, и демон переставал
+        // обслуживать сеть совсем. Снять (lazy) и дождаться — в своём потоке.
+        std::thread::spawn(move || {
+            if let Some(p) = &path {
+                force_unmount(Path::new(p));
+                let _ = std::fs::remove_dir(p);
+            }
+            drop(sess);
+        });
     }
 }
 
 pub fn unmount_all() {
     let all = SESSIONS.lock().unwrap().take();
     if let Some(m) = all {
+        let root = synshell_common::link::mount_root();
+        if let Ok(rd) = std::fs::read_dir(&root) {
+            for e in rd.flatten() {
+                force_unmount(&e.path());
+            }
+        }
         for (_, s) in m {
             drop(s);
         }

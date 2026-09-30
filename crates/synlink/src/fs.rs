@@ -42,6 +42,11 @@ fn check(p: &str) -> Result<&Path, i32> {
     if !path.is_absolute() || path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
         return Err(libc::EINVAL);
     }
+    // Свои точки монтирования synlink (файлы того же устройства, что
+    // спрашивает) — не отдаём: круг «телефон → ноутбук → телефон» зависает.
+    if path.starts_with(synshell_common::link::mount_root()) {
+        return Err(libc::EACCES);
+    }
     Ok(path)
 }
 
