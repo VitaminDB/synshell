@@ -290,10 +290,23 @@ impl State {
         } else {
             f.waiting = true;
         }
+        // Монитор погашен — кадры никто не рисует: разбудить цикл кадров без
+        // экрана (`headless_frame`), клиентам — frame callbacks.
+        if f.waiting && self.core.monitors_off {
+            if let Some(o) = self.core.output_by_name(&f.output) {
+                self.core.queue_redraw(&o);
+            }
+        }
         if let Some(c) = self.core.ipc.clients.get_mut(&id) {
             c.frame = fc;
         }
         resp
+    }
+
+    /// Есть ли на выводе потоки кадров.
+    pub fn has_frame_streams(&self, output: &smithay::output::Output) -> bool {
+        let name = output.name();
+        self.core.ipc.clients.values().any(|c| !c.dead && c.frame.as_ref().is_some_and(|f| f.output == name))
     }
 
     /// Вывод перерисован с изменениями: ждущим потокам — кадр, остальным —

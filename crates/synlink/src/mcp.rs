@@ -63,7 +63,8 @@ fn tools() -> Value {
          "inputSchema": schema(json!({}), &[])},
         {"name": "screenshot", "description": "Снимок экрана устройства (PNG). Координаты для жестов — пиксели этого снимка.",
          "inputSchema": schema(json!({"device": dev, "max_size": num("длинная сторона снимка, px (по умолчанию 1280; 0 — без уменьшения)"),
-             "output": {"type": "string", "description": "вывод (монитор), по умолчанию первый"}}), &["device"])},
+             "output": {"type": "string", "description": "вывод (монитор), по умолчанию первый"},
+             "wake": {"type": "boolean", "description": "разбудить погашенный экран перед снимком (по умолчанию да)"}}), &["device"])},
         {"name": "tap", "description": "Нажать (палец на телефоне, левая кнопка мыши на компьютере) в точке снимка.",
          "inputSchema": schema(json!({"device": dev, "x": num("X, px снимка"), "y": num("Y, px снимка")}), &["device", "x", "y"])},
         {"name": "long_press", "description": "Удержать палец/кнопку в точке (контекстные меню, выбор).",
@@ -184,6 +185,14 @@ impl Server {
                 Ok(text(serde_json::to_string_pretty(&status)?))
             }
             "screenshot" => {
+                // Разбудить экран (погашенный монитор — клиенты стоят на полпути
+                // анимаций): нулевое движение указателя = активность.
+                if a.get("wake").and_then(Value::as_bool).unwrap_or(true) {
+                    let ev = vec![synshell_common::ipc::InputEvent::MotionRelative { dx: 0.0, dy: 0.0 }];
+                    if gestures::req(&Request::Input { device: device.clone(), output: None, events: ev }).is_ok() {
+                        std::thread::sleep(std::time::Duration::from_millis(250));
+                    }
+                }
                 let max = a.get("max_size").and_then(Value::as_u64).unwrap_or(1280) as u32;
                 let output = a.get("output").and_then(Value::as_str).map(String::from);
                 let r = gestures::req(&Request::Screenshot { device: device.clone(), output: output.clone(), path: None, max_size: Some(max) })?;

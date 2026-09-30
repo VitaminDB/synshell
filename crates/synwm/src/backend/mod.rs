@@ -331,6 +331,29 @@ impl Core {
         }
     }
 
+    /// Кадр без экрана (монитор погашен, а вывод смотрят через поток кадров
+    /// synlink): frame callbacks всем поверхностям вывода — клиенты рисуют
+    /// дальше, анимации идут.
+    pub fn send_frames_headless(&mut self, output: &Output) {
+        let time = self.clock.now();
+        let throttle = Some(Duration::from_secs(1));
+        let geo = self.space.output_geometry(output).unwrap_or_default();
+        for w in self.space.elements() {
+            let on = self.space.element_geometry(w).is_some_and(|g| g.overlaps(geo));
+            if on {
+                w.send_frame(output, time, throttle, |_, _| Some(output.clone()));
+            }
+        }
+        let map = layer_map_for_output(output);
+        for layer in map.layers() {
+            layer.send_frame(output, time, throttle, |_, _| Some(output.clone()));
+        }
+        drop(map);
+        if let Some(ls) = self.lock_surfaces.get(output) {
+            send_frames_surface_tree(ls.wl_surface(), output, time);
+        }
+    }
+
     /// Обратная связь о показе кадра (presentation-time).
     pub fn take_presentation_feedback(&self, output: &Output, states: &RenderElementStates) -> OutputPresentationFeedback {
         let mut feedback = OutputPresentationFeedback::new(output);
@@ -385,7 +408,9 @@ impl State {
                 .output_data
                 .get(&o)
                 .is_some_and(|d| d.redraw == crate::state::RedrawState::Queued);
-            if queued {
+            if queued && self.core.monitors_off && self.has_frame_streams(&o) {
+                self.headless_frame(&o);
+            } else if queued {
                 self.backend.render(&mut self.core, &o);
                 let damaged = self.core.output_data.get(&o).is_some_and(|d| d.damaged);
                 if damaged {
@@ -394,6 +419,33 @@ impl State {
                 }
             }
         }
+    }
+
+    /// Кадр погашенного вывода для потока кадров: не чаще 60 раз в секунду
+    /// (раньше — таймер), клиентам — frame callbacks, потокам — изменения.
+    fn headless_frame(&mut self, o: &Output) {
+        const PERIOD: std::time::Duration = std::time::Duration::from_millis(16);
+        let last = self.core.output_data.get(o).map(|d| d.last_frame).unwrap_or_else(std::time::Instant::now);
+        let el = last.elapsed();
+        if el < PERIOD {
+            if !self.core.headless_timer {
+                self.core.headless_timer = true;
+                let _ = self.core.loop_handle.insert_source(
+                    smithay::reexports::calloop::timer::Timer::from_duration(PERIOD - el),
+                    |_, _, st: &mut State| {
+                        st.core.headless_timer = false;
+                        smithay::reexports::calloop::timer::TimeoutAction::Drop
+                    },
+                );
+            }
+            return;
+        }
+        if let Some(d) = self.core.output_data.get_mut(o) {
+            d.redraw = crate::state::RedrawState::Idle;
+            d.last_frame = std::time::Instant::now();
+        }
+        self.core.send_frames_headless(o);
+        self.frame_streams_damaged(o);
     }
 
     pub fn set_monitors_power(&mut self, on: bool) {

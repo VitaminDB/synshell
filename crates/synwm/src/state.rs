@@ -217,6 +217,8 @@ pub struct Core {
     pub monitors_off: bool,
     /// Вывод для абсолютных координат текущей пачки удалённого ввода.
     pub remote_output: Option<Output>,
+    /// Таймер кадра погашенного вывода (поток кадров synlink) взведён.
+    pub headless_timer: bool,
     pub ipc: IpcServer,
     pub shell: crate::spawn::ShellProcess,
     /// После выхода из цикла — заменить процесс новым (`restart`).
@@ -427,6 +429,7 @@ impl Core {
             last_activity: Instant::now(),
             monitors_off: false,
             remote_output: None,
+            headless_timer: false,
             ipc,
             shell: crate::spawn::ShellProcess::default(),
             xwayland: None,
