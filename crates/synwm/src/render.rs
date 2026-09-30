@@ -364,6 +364,8 @@ where
     let dim_inactive = core.config.windows.dim_inactive.clamp(0.0, 0.9);
     let border_w = core.config.windows.border_width.max(0);
     let palette = core.config.appearance.palette();
+    // Уменьшенный стол показывает и окна за краем экрана.
+    let desk_zoomed = core.wm.mobile.view.active() && core.wm.mobile.mode == synshell_common::action::MobileMode::Free;
     let Core { wm, deco_theme, title_font, .. } = core;
     let Some(m) = wm.get_mut(id) else { return Vec::new() };
     let alpha = alpha * m.opacity;
@@ -376,7 +378,7 @@ where
         (frame.loc.x - margin + offset.x, frame.loc.y - margin + offset.y).into(),
         (frame.size.w + 2 * margin, frame.size.h + 2 * margin).into(),
     );
-    if !reach.overlaps(output_geo) {
+    if !reach.overlaps(output_geo) && !desk_zoomed {
         return Vec::new();
     }
     let rel = |p: Point<i32, Logical>| p + offset - output_geo.loc;
@@ -564,20 +566,40 @@ where
         center = Point::from((center.x, center.y));
     }
 
+    // Свободный стол телефона, уменьшенный щипком: точка `w` (от вывода)
+    // видна в `w × zoom + shift`.
+    let desk = desk_view(core, id);
     let parts = window_parts(core, renderer, output, id, offset, alpha);
-    if scale == 1.0 && extra == Point::from((0, 0)) {
+    if scale == 1.0 && extra == Point::from((0, 0)) && desk.is_none() {
         out.extend(parts.into_iter().map(OutputElement::Window));
     } else {
-        let origin = to_phys(center + offset - output_geo.loc, scale_f);
-        let shift = to_phys(extra, scale_f);
+        // Масштаб `scale` вокруг `c` со сдвигом `extra`, затем вид стола:
+        // (p − c)·scale·z + c + (c·(z − 1) + extra·z + shift).
+        let (z, dshift) = desk.unwrap_or((1.0, Point::from((0.0, 0.0))));
+        let c = center + offset - output_geo.loc;
+        let origin = to_phys(c, scale_f);
+        let sx = c.x as f64 * (z - 1.0) + extra.x as f64 * z + dshift.x;
+        let sy = c.y as f64 * (z - 1.0) + extra.y as f64 * z + dshift.y;
+        let shift = Point::<f64, Logical>::from((sx, sy)).to_physical(scale_f).to_i32_round();
         out.extend(parts.into_iter().map(|p| {
             OutputElement::Transformed(RelocateRenderElement::from_element(
-                RescaleRenderElement::from_element(p, origin, scale),
+                RescaleRenderElement::from_element(p, origin, scale * z),
                 shift,
                 Relocate::Relative,
             ))
         }));
     }
+}
+
+/// Вид свободного стола для окна: `(масштаб, сдвиг)`, если стол сейчас не
+/// 1:1 и окно лежит на нём (не закреплённое и не во весь экран).
+fn desk_view(core: &Core, id: WindowId) -> Option<(f64, Point<f64, Logical>)> {
+    let mobile = &core.wm.mobile;
+    if !mobile.enabled || mobile.mode != synshell_common::action::MobileMode::Free || !mobile.view.active() {
+        return None;
+    }
+    let m = core.wm.get(id)?;
+    (!m.sticky && !m.fullscreen).then(|| mobile.view.current())
 }
 
 #[allow(clippy::too_many_arguments)]

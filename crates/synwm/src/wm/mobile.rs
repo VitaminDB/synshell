@@ -34,6 +34,63 @@ pub struct PageDrag {
     pub dx: f64,
 }
 
+/// Вид свободного стола при масштабе щипком: точка стола `w` (в координатах
+/// вывода) видна в `w × zoom + shift`. Окна при этом не двигаются — только
+/// рисуются уменьшенными; пока `zoom < 1`, касание окна не идёт клиенту, а
+/// возвращает масштаб 1:1 с этим окном по центру (как обзор). Вернулись к
+/// 1:1 — сдвиг «впекается» в положение окон (`State::bake_desk_view`).
+#[derive(Debug, Clone, Copy)]
+pub struct DeskView {
+    pub zoom: f64,
+    pub shift: Point<f64, Logical>,
+    /// Плавный переход к виду `to` (0→1).
+    pub anim: Option<(Animation, (f64, Point<f64, Logical>), (f64, Point<f64, Logical>))>,
+}
+
+impl Default for DeskView {
+    fn default() -> Self {
+        Self { zoom: 1.0, shift: Point::from((0.0, 0.0)), anim: None }
+    }
+}
+
+impl DeskView {
+    /// Текущий вид (с учётом перехода).
+    pub fn current(&self) -> (f64, Point<f64, Logical>) {
+        match &self.anim {
+            Some((a, (z0, s0), (z1, s1))) => {
+                let t = a.value();
+                (z0 + (z1 - z0) * t, Point::from((s0.x + (s1.x - s0.x) * t, s0.y + (s1.y - s0.y) * t)))
+            }
+            None => (self.zoom, self.shift),
+        }
+    }
+
+    /// Вид отличается от 1:1 — окна рисуются преобразованными.
+    pub fn active(&self) -> bool {
+        let (z, s) = self.current();
+        (z - 1.0).abs() > 1e-4 || s.x.abs() > 0.01 || s.y.abs() > 0.01
+    }
+
+    /// Стол уменьшен: окна не принимают ввод.
+    pub fn zoomed(&self) -> bool {
+        self.anim.is_some() || self.zoom < 0.9999
+    }
+
+    /// Точка экрана (относительно вывода) → точка стола.
+    pub fn to_desk(&self, p: Point<f64, Logical>) -> Point<f64, Logical> {
+        let (z, s) = self.current();
+        Point::from(((p.x - s.x) / z, (p.y - s.y) / z))
+    }
+
+    /// Перейти к виду плавно.
+    pub fn animate_to(&mut self, zoom: f64, shift: Point<f64, Logical>, ms: u64) {
+        let from = self.current();
+        self.zoom = zoom;
+        self.shift = shift;
+        self.anim = Some((Animation::new(0.0, 1.0, Duration::from_millis(ms), Curve::EaseOutCubic), from, (zoom, shift)));
+    }
+}
+
 #[derive(Default)]
 pub struct MobileState {
     /// Телефонный форм-фактор: режимы действуют.
@@ -45,6 +102,8 @@ pub struct MobileState {
     pub drag: Option<PageDrag>,
     /// Сдвиг виртуального стола (`free`), логические px.
     pub camera: Point<f64, Logical>,
+    /// Масштаб вида стола щипком (`free`, `[mobile] pinch_zoom`).
+    pub view: DeskView,
     /// Последнее разосланное состояние.
     pub last_sent: Option<MobileInfo>,
 }
@@ -171,6 +230,7 @@ impl State {
                 self.remember_float(*id);
             }
             self.core.wm.mobile.camera = Point::from((0.0, 0.0));
+            self.core.wm.mobile.view = DeskView::default();
         }
         let layout = Self::mode_layout(mode);
         for i in 0..self.core.wm.count() {

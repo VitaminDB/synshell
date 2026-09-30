@@ -459,6 +459,7 @@ impl Wm {
     pub fn animating(&self) -> bool {
         self.switch.is_some()
             || self.mobile.transition.is_some()
+            || self.mobile.view.anim.is_some()
             || self.overview.is_some()
             || self.snap_preview.is_some()
             || self.windows.iter().any(|w| w.open_anim.is_some() || w.minimize_anim.is_some() || w.move_anim.is_some())
@@ -482,6 +483,9 @@ impl Wm {
         }
         if self.mobile.transition.as_ref().is_some_and(|t| t.anim.is_done()) {
             self.mobile.transition = None;
+        }
+        if self.mobile.view.anim.as_ref().is_some_and(|(a, _, _)| a.is_done()) {
+            self.mobile.view.anim = None;
         }
         if self.overview.as_ref().is_some_and(|o| o.closing && o.anim.is_done()) {
             self.overview = None;

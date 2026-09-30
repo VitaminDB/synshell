@@ -60,7 +60,7 @@ pub fn phone() -> W {
                         &[("server", "Полоса композитора"), ("none", "Нет (удержание по окну)")],
                     ),
                     int_row("Высота ручки", "Логические пиксели", op!["mobile", "handle_height"], m.handle_height as i64, 16, 64, 2),
-                    switch_row("Масштаб стола щипком", "Дорого на CPU-композиторе", op!["mobile", "pinch_zoom"], m.pinch_zoom),
+                    switch_row("Масштаб стола щипком", "Свободный режим: щипок уменьшает стол, тап по окну — обратно 1:1", op!["mobile", "pinch_zoom"], m.pinch_zoom),
                     switch_row("Запоминать режим окон", "Выбранный режим сохраняется в config.toml", op!["mobile", "remember_mode"], m.remember_mode),
                 ],
             ),

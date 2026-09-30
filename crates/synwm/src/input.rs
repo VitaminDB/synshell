@@ -564,12 +564,17 @@ impl State {
             }
         }
 
-        // Окна сверху вниз.
+        // Окна сверху вниз. Уменьшенный стол (щипок) рисует окна не там, где
+        // они лежат, — касания окон забирает композитор (`touch.rs`).
+        let desk_zoomed = self.core.wm.mobile.mode == synshell_common::action::MobileMode::Free && self.core.wm.mobile.view.zoomed();
         let title_h = self.core.deco_theme.height;
         let resize_border = self.core.config.decorations.resize_border.max(0) as f64;
         let layout = self.core.wm.workspace(self.core.wm.active).layout;
         for id in self.core.wm.visible_ids().into_iter().rev() {
             let Some(m) = self.core.wm.get(id) else { continue };
+            if desk_zoomed && !m.sticky && !m.fullscreen {
+                continue;
+            }
             let geo = m.geometry();
             let origin = m.loc - m.window.geometry().loc;
             if let Some((s, loc)) = m.window.surface_under(pos - origin.to_f64(), WindowSurfaceType::ALL) {
@@ -1353,6 +1358,7 @@ impl State {
             Action::Page(t) => self.page_action(t),
             Action::CameraHome => {
                 self.core.wm.mobile.camera = smithay::utils::Point::from((0.0, 0.0));
+                self.core.wm.mobile.view = crate::wm::mobile::DeskView::default();
                 let _ = &action_name;
                 self.relayout();
                 self.broadcast_mobile();

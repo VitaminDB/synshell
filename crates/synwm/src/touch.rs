@@ -318,9 +318,22 @@ pub enum Active {
     Resize { id: WindowId, edges: ResizeEdge, start: Point<f64, Logical>, loc0: Point<i32, Logical>, size0: smithay::utils::Size<i32, Logical>, last: Instant },
     /// Нажал кнопку заголовка — сработает на отпускании над ней.
     Button { id: WindowId, b: Button },
-    /// Двумя пальцами двигает виртуальный стол (свободный режим).
-    Pan { last: Point<f64, Logical> },
+    /// Двумя пальцами двигает виртуальный стол (свободный режим); щипок —
+    /// масштаб вида (`[mobile] pinch_zoom`): `dist0` — расстояние между
+    /// пальцами в начале, `dist` — в прошлый раз, `zooming` — щипок начался.
+    Pan { last: Point<f64, Logical>, dist0: f64, dist: f64, zooming: bool },
+    /// Один палец на уменьшенном столе: тап — окно 1:1, движение — пан вида.
+    DeskTap { start: Point<f64, Logical>, last: Point<f64, Logical>, moved: bool },
 }
+
+/// Щипок начинается, когда расстояние между пальцами изменилось на эту долю
+/// (раньше — просто пан: пальцы всегда чуть расходятся).
+const PINCH_START: f64 = 0.08;
+/// Пан одним пальцем по уменьшенному столу — после такого сдвига, px.
+const TAP_SLOP: f64 = 12.0;
+/// Масштаб больше этого после щипка — вернуться к 1:1.
+const ZOOM_SNAP: f64 = 0.9;
+const ZOOM_MS: u64 = 260;
 
 #[derive(Default)]
 pub struct FingerState {
@@ -346,6 +359,102 @@ impl State {
         }
     }
 
+    fn pinch_dist(&self) -> Option<f64> {
+        let d = &self.core.fingers.down;
+        if d.len() < 2 {
+            return None;
+        }
+        let (a, b) = (d[0].1, d[1].1);
+        Some(((a.x - b.x).powi(2) + (a.y - b.y).powi(2)).sqrt().max(1.0))
+    }
+
+    fn desk_output_loc(&self) -> Point<f64, Logical> {
+        self.core.space.outputs().next().and_then(|o| self.core.space.output_geometry(o)).map(|g| g.loc.to_f64()).unwrap_or_default()
+    }
+
+    /// Самый мелкий масштаб: весь стол `[mobile] desk` на экране.
+    fn desk_zoom_min(&self) -> f64 {
+        match self.core.config.mobile.desk.as_str() {
+            "2x2" => 0.5,
+            "infinite" => 0.2,
+            _ => 1.0 / 3.0,
+        }
+    }
+
+    fn pinch_zoom_on(&self) -> bool {
+        self.free_mode() && self.core.config.mobile.pinch_zoom
+    }
+
+    /// Щипок: масштаб `ratio` вокруг `c` (прошлый центр пальцев — `last`),
+    /// одновременно пан на `c − last`.
+    fn pinch_desk(&mut self, last: Point<f64, Logical>, c: Point<f64, Logical>, ratio: f64) {
+        let o = self.desk_output_loc();
+        let zmin = self.desk_zoom_min();
+        let v = &mut self.core.wm.mobile.view;
+        let (z, sh) = v.current();
+        v.anim = None;
+        let z2 = (z * ratio).clamp(zmin, 1.0);
+        let (lx, ly) = (last.x - o.x, last.y - o.y);
+        let (wx, wy) = ((lx - sh.x) / z, (ly - sh.y) / z);
+        v.zoom = z2;
+        v.shift = Point::from((c.x - o.x - wx * z2, c.y - o.y - wy * z2));
+        self.core.queue_redraw_all();
+    }
+
+    /// Вернуть вид стола к 1:1 со сдвигом `target` (от текущего вида
+    /// плавно): сдвиг сразу переносится в положение окон (в границах стола),
+    /// а переход рисуется от прежней картинки.
+    fn desk_view_home(&mut self, target: Point<f64, Logical>) {
+        let (applied_x, applied_y) = self.shift_desk(target.x, target.y);
+        let v = &mut self.core.wm.mobile.view;
+        let (z, sh) = v.current();
+        // Окна сдвинуты на applied: та же картинка — со сдвигом вида меньше.
+        v.zoom = z;
+        v.shift = Point::from((sh.x - applied_x * z, sh.y - applied_y * z));
+        v.anim = None;
+        v.animate_to(1.0, Point::from((0.0, 0.0)), ZOOM_MS);
+        self.core.queue_redraw_all();
+    }
+
+    /// Окно стола в точке стола `p` (координаты вывода, без масштаба).
+    fn desk_window_at(&self, p: Point<f64, Logical>) -> Option<crate::wm::WindowId> {
+        let o = self.desk_output_loc();
+        let p = Point::<f64, Logical>::from((p.x + o.x, p.y + o.y));
+        let title_h = self.core.deco_theme.height;
+        self.core.wm.visible_ids().into_iter().rev().find(|id| {
+            self.core.wm.get(*id).is_some_and(|m| {
+                let g = m.geometry();
+                let top = if m.has_titlebar() { title_h } else { 0 };
+                smithay::utils::Rectangle::<i32, Logical>::new((g.loc.x, g.loc.y - top).into(), (g.size.w, g.size.h + top).into()).to_f64().contains(p)
+            })
+        })
+    }
+
+    /// Тап по уменьшенному столу в точке экрана `pos`: окно под пальцем — в
+    /// фокус и в центр экрана 1:1, мимо окон — 1:1 вокруг этой точки.
+    fn desk_tap(&mut self, pos: Point<f64, Logical>) {
+        let o = self.desk_output_loc();
+        let rel = Point::<f64, Logical>::from((pos.x - o.x, pos.y - o.y));
+        let w = self.core.wm.mobile.view.to_desk(rel);
+        let size = self.core.space.outputs().next().and_then(|out| self.core.space.output_geometry(out)).map(|g| g.size).unwrap_or_default();
+        let target = match self.desk_window_at(w) {
+            Some(id) => {
+                self.focus_window(Some(id));
+                let title_h = self.core.deco_theme.height;
+                let (g, top) = self.core.wm.get(id).map(|m| (m.geometry(), if m.has_titlebar() { title_h } else { 0 })).unwrap_or_default();
+                // Центр рамки — в центр экрана; окно больше экрана — его верх
+                // и левый край видны.
+                let (fx, fy) = ((g.loc.x as f64 - o.x), (g.loc.y - top) as f64 - o.y);
+                let (fw, fh) = (g.size.w as f64, (g.size.h + top) as f64);
+                let tx = if fw >= size.w as f64 { -fx } else { size.w as f64 / 2.0 - (fx + fw / 2.0) };
+                let ty = if fh >= size.h as f64 { -fy } else { size.h as f64 / 2.0 - (fy + fh / 2.0) };
+                Point::from((tx, ty))
+            }
+            None => Point::from((rel.x - w.x, rel.y - w.y)),
+        };
+        self.desk_view_home(target);
+    }
+
     fn centroid(&self) -> Option<Point<f64, Logical>> {
         let d = &self.core.fingers.down;
         if d.len() < 2 {
@@ -366,9 +475,18 @@ impl State {
                 touch.cancel(self);
             }
             let c = self.centroid().unwrap_or(pos);
+            let d = self.pinch_dist().unwrap_or(1.0);
             let slots: Vec<TouchSlot> = self.core.fingers.down.iter().map(|(s, _)| *s).collect();
             self.core.fingers.owned = slots;
-            self.core.fingers.active = Some(Active::Pan { last: c });
+            let zooming = self.core.wm.mobile.view.zoomed();
+            self.core.fingers.active = Some(Active::Pan { last: c, dist0: d, dist: d, zooming });
+            return true;
+        }
+        // Уменьшенный стол: окна не получают касаний — тап возвращает 1:1,
+        // движение пальцем двигает вид. Панели и оболочка — как обычно.
+        if self.free_mode() && self.core.fingers.active.is_none() && self.core.wm.mobile.view.zoomed() && !matches!(self.under(pos), crate::input::Under::Surface(..)) {
+            self.core.fingers.owned.push(slot);
+            self.core.fingers.active = Some(Active::DeskTap { start: pos, last: pos, moved: false });
             return true;
         }
         if self.core.fingers.active.is_some() {
@@ -454,10 +572,34 @@ impl State {
                 }
                 self.core.fingers.active = Some(Active::Resize { id, edges, start, loc0, size0, last });
             }
-            Some(Active::Pan { last }) => {
+            Some(Active::Pan { last, dist0, dist, zooming }) => {
                 let c = self.centroid().unwrap_or(last);
-                self.shift_desk(c.x - last.x, c.y - last.y);
-                self.core.fingers.active = Some(Active::Pan { last: c });
+                let d = self.pinch_dist();
+                let mut zooming = zooming;
+                if let (true, Some(d)) = (self.pinch_zoom_on(), d) {
+                    if !zooming && ((d / dist0) - 1.0).abs() > PINCH_START {
+                        zooming = true;
+                    }
+                }
+                if zooming || self.core.wm.mobile.view.zoomed() {
+                    let ratio = if self.pinch_zoom_on() { d.map(|d| d / dist).unwrap_or(1.0) } else { 1.0 };
+                    self.pinch_desk(last, c, ratio);
+                } else {
+                    self.shift_desk(c.x - last.x, c.y - last.y);
+                }
+                self.core.fingers.active = Some(Active::Pan { last: c, dist0, dist: d.unwrap_or(dist), zooming });
+            }
+            Some(Active::DeskTap { start, last, moved }) => {
+                let moved = moved || (pos.x - start.x).hypot(pos.y - start.y) > TAP_SLOP;
+                if moved {
+                    let v = &mut self.core.wm.mobile.view;
+                    let (z, sh) = v.current();
+                    v.anim = None;
+                    v.zoom = z;
+                    v.shift = Point::from((sh.x + pos.x - last.x, sh.y + pos.y - last.y));
+                    self.core.queue_redraw_all();
+                }
+                self.core.fingers.active = Some(Active::DeskTap { start, last: pos, moved });
             }
             other => self.core.fingers.active = other,
         }
@@ -487,12 +629,27 @@ impl State {
                 self.remember_float(id);
                 self.core.ipc_dirty = true;
             }
-            Some(Active::Pan { last }) => {
+            Some(Active::Pan { last, dist0, dist, zooming }) => {
                 // Пан до отпускания последнего пальца.
                 if self.core.fingers.owned.is_empty() {
+                    // Почти 1:1 — вернуться к 1:1 (окна снова принимают ввод).
+                    let (z, sh) = self.core.wm.mobile.view.current();
+                    if self.core.wm.mobile.view.active() && z > ZOOM_SNAP {
+                        self.desk_view_home(sh);
+                    }
                     self.broadcast_mobile();
                 } else {
-                    self.core.fingers.active = Some(Active::Pan { last });
+                    // Остался один палец — центр и расстояние считать заново.
+                    let last = self.core.fingers.down.first().map(|(_, p)| *p).unwrap_or(last);
+                    let _ = (dist0, dist);
+                    self.core.fingers.active = Some(Active::Pan { last, dist0: 1.0, dist: 1.0, zooming });
+                }
+            }
+            Some(Active::DeskTap { moved, .. }) => {
+                if !moved {
+                    if let Some(p) = pos {
+                        self.desk_tap(p);
+                    }
                 }
             }
             None => {}
@@ -506,8 +663,9 @@ impl State {
 
     /// Сдвинуть виртуальный стол: окна едут, камера — в границах
     /// `[mobile] desk` (`3x3` — на экран в каждую сторону).
-    pub fn shift_desk(&mut self, dx: f64, dy: f64) {
-        let Some(out) = self.core.space.outputs().next().cloned() else { return };
+    /// Возвращает, на сколько сдвинулись окна.
+    pub fn shift_desk(&mut self, dx: f64, dy: f64) -> (f64, f64) {
+        let Some(out) = self.core.space.outputs().next().cloned() else { return (0.0, 0.0) };
         let g = self.core.space.output_geometry(&out).unwrap_or_default();
         let (bx, by) = match self.core.config.mobile.desk.as_str() {
             "2x2" => (g.size.w as f64, g.size.h as f64),
@@ -520,7 +678,7 @@ impl State {
         let ny = (cam.y - dy).clamp(-by, by);
         let (rdx, rdy) = (cam.x - nx, cam.y - ny);
         if rdx.abs() < 0.5 && rdy.abs() < 0.5 {
-            return;
+            return (0.0, 0.0);
         }
         self.core.wm.mobile.camera = Point::from((nx, ny));
         let d = Point::<i32, Logical>::from((rdx.round() as i32, rdy.round() as i32));
@@ -535,5 +693,6 @@ impl State {
         }
         self.sync_space();
         self.core.queue_redraw_all();
+        (d.x as f64, d.y as f64)
     }
 }
