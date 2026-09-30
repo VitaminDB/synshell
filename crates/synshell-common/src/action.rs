@@ -394,6 +394,9 @@ pub enum Action {
     /// Повернуть встроенный экран (поверх `transform` из `[[output]]`);
     /// автоповорот по датчику — у оболочки (`[rotation]`).
     Rotate(Rotation),
+    /// Кнопка питания телефона: экран включён — заблокировать и погасить,
+    /// погашен — включить (на экран блокировки).
+    ScreenToggle,
     /// Ничего не делать (снять сочетание по умолчанию).
     None,
 }
@@ -408,7 +411,7 @@ impl Action {
         "master-count", "keyboard-layout-next", "keyboard-layout", "screenshot",
         "screenshot-window", "screenshot-interactive", "overview", "reload-config", "quit", "lock", "suspend", "reboot",
         "poweroff", "monitors-off", "shell", "back", "key", "mobile-mode", "mobile-mode-cycle", "page",
-        "camera-home", "rotate", "none",
+        "camera-home", "rotate", "screen-toggle", "none",
     ];
 }
 
@@ -483,6 +486,7 @@ impl FromStr for Action {
             "reboot" => Action::Reboot,
             "poweroff" | "shutdown" => Action::PowerOff,
             "monitors-off" => Action::PowerOffMonitors,
+            "screen-toggle" => Action::ScreenToggle,
             "shell" => Action::Shell(need("команда оболочки")?.to_string()),
             "back" => Action::Back,
             "key" => Action::Key(need("клавиша, например XF86Back или Alt+Left")?.parse()?),
@@ -540,6 +544,7 @@ impl fmt::Display for Action {
             Action::Reboot => f.write_str("reboot"),
             Action::PowerOff => f.write_str("poweroff"),
             Action::PowerOffMonitors => f.write_str("monitors-off"),
+            Action::ScreenToggle => f.write_str("screen-toggle"),
             Action::Shell(c) => write!(f, "shell {c}"),
             Action::Back => f.write_str("back"),
             Action::Key(k) => write!(f, "key {k}"),

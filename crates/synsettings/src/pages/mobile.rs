@@ -36,6 +36,7 @@ pub fn phone() -> W {
     let c = store::config();
     let m = &c.mobile;
     let rot = &c.rotation;
+    let pb = &c.power_button;
     page(
         "Телефон",
         "Режимы окон и домашний экран оболочки synmobile-shell.",
@@ -74,6 +75,63 @@ pub fn phone() -> W {
                         rot.suggest,
                     ),
                     switch_row("Вверх ногами", "Поворачивать и на 180°", op!["rotation", "upside_down"], rot.upside_down),
+                    int_row(
+                        "Задержка поворота, мс",
+                        "Сколько телефон должен пробыть в новом положении — случайный наклон не поворачивает экран",
+                        op!["rotation", "delay_ms"],
+                        rot.delay_ms as i64,
+                        0,
+                        5000,
+                        100,
+                    ),
+                    int_row(
+                        "Угол срабатывания, °",
+                        "Насколько наклонить телефон, чтобы экран повернулся; меньше — чувствительнее (по умолчанию 35)",
+                        op!["rotation", "threshold_deg"],
+                        rot.threshold_deg as i64,
+                        10,
+                        80,
+                        5,
+                    ),
+                    int_row(
+                        "Анимация поворота, мс",
+                        "0 — поворачивать сразу, без анимации",
+                        op!["rotation", "animation_ms"],
+                        rot.animation_ms as i64,
+                        0,
+                        1500,
+                        50,
+                    ),
+                ],
+            ),
+            group(
+                "Кнопка питания",
+                vec![
+                    choice_row(
+                        "Нажатие",
+                        "Как в Android: погасить экран и заблокировать, повторное нажатие — включить",
+                        op!["power_button", "short"],
+                        &pb.short,
+                        &[
+                            ("", "По умолчанию (погасить и заблокировать)"),
+                            ("screen-toggle", "Погасить и заблокировать"),
+                            ("shell power-menu", "Меню выключения"),
+                            ("none", "Ничего"),
+                        ],
+                    ),
+                    choice_row(
+                        "Удержание",
+                        "Срабатывает, пока кнопку держат",
+                        op!["power_button", "long"],
+                        &pb.long,
+                        &[
+                            ("", "По умолчанию (меню выключения)"),
+                            ("shell power-menu", "Меню выключения"),
+                            ("screen-toggle", "Погасить и заблокировать"),
+                            ("none", "Ничего"),
+                        ],
+                    ),
+                    int_row("Удержание, мс", "0 — 3000 мс", op!["power_button", "long_ms"], pb.long_ms as i64, 0, 10000, 250),
                 ],
             ),
             group(

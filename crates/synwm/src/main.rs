@@ -20,6 +20,7 @@ mod ipc;
 mod libinput_config;
 mod remote;
 mod render;
+mod rotate_anim;
 mod screencopy;
 mod screenshot;
 mod spawn;

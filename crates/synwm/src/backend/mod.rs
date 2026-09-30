@@ -99,6 +99,40 @@ impl Backend {
         }
     }
 
+    /// Картинка вывода в текстуре GLES (снимок для анимации поворота);
+    /// `None` — рендерер не GLES.
+    pub fn snapshot(
+        &mut self,
+        core: &mut Core,
+        output: &Output,
+    ) -> Option<anyhow::Result<(smithay::backend::renderer::gles::GlesTexture, smithay::utils::Size<i32, smithay::utils::Physical>)>> {
+        let gles = |core: &mut Core, r: &mut smithay::backend::renderer::gles::GlesRenderer| {
+            use smithay::backend::renderer::{damage::OutputDamageTracker, Bind, Offscreen};
+            let size = output.current_mode().map(|m| m.size).unwrap_or_default();
+            let transformed = output.current_transform().transform_size(size);
+            let buffer = smithay::utils::Size::from((transformed.w, transformed.h));
+            let mut tex: smithay::backend::renderer::gles::GlesTexture =
+                r.create_buffer(smithay::backend::allocator::Fourcc::Abgr8888, buffer)?;
+            let (elements, clear) = crate::render::output_elements(core, r, output, false);
+            {
+                let mut fb = r.bind(&mut tex)?;
+                let mut tracker = OutputDamageTracker::new(
+                    transformed,
+                    output.current_scale().fractional_scale(),
+                    smithay::utils::Transform::Normal,
+                );
+                tracker.render_output(r, &mut fb, 0, &elements, clear).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            }
+            Ok((tex, transformed))
+        };
+        match self {
+            Backend::Winit(w) => Some(gles(core, w.gles())),
+            Backend::Tty(t) => t.with_gles(|r| gles(core, r)),
+            #[cfg(feature = "pixman")]
+            Backend::KmsCpu(_) => None,
+        }
+    }
+
     /// Кадр потока synlink: дорисовать постоянный буфер по повреждениям.
     pub fn stream_frame(
         &mut self,
@@ -459,7 +493,17 @@ impl Core {
             CursorImageStatus::Named(icon) => self.cursor.is_animated(*icon),
             _ => false,
         };
-        anim || cursor_anim
+        // Анимация поворота кончилась — убрать снимок (ещё один кадр без него).
+        let rotating = match &self.rotate_anim {
+            Some(a) if a.done() => {
+                self.rotate_anim = None;
+                self.queue_redraw_all();
+                false
+            }
+            Some(_) => true,
+            None => false,
+        };
+        anim || cursor_anim || rotating
     }
 }
 
@@ -539,6 +583,18 @@ impl State {
             return;
         }
         tracing::info!(output = name, rotation = r.as_str(), "поворот экрана");
+        let old = self.core.rotation.get(&name).copied().unwrap_or_default();
+        let ms = self.core.config.rotation.animation_ms;
+        self.core.rotate_anim = None;
+        if ms > 0 {
+            // Снимок до поворота: только на GPU (на CPU поворот сразу).
+            let quarters = (r.quarters() + 4 - old.quarters()) % 4;
+            if let Some(Ok(anim)) = self.backend.snapshot(&mut self.core, &o).map(|s| {
+                s.map(|(tex, size)| crate::rotate_anim::RotateAnim::new(o.clone(), tex, size, quarters, std::time::Duration::from_millis(ms as u64)))
+            }) {
+                self.core.rotate_anim = Some(anim);
+            }
+        }
         self.core.rotation.insert(name, r);
         self.backend.apply_output_config(&mut self.core);
         self.outputs_changed();

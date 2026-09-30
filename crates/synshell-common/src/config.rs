@@ -46,6 +46,7 @@ pub struct Config {
     pub gestures: Gestures,
     pub haptics: Haptics,
     pub rotation: ScreenRotation,
+    pub power_button: PowerButton,
     pub sound: Sound,
     pub time: Time,
     pub link: Link,
@@ -78,6 +79,7 @@ impl Default for Config {
             gestures: Gestures::default(),
             haptics: Haptics::default(),
             rotation: ScreenRotation::default(),
+            power_button: PowerButton::default(),
             sound: Sound::default(),
             time: Time::default(),
             link: Link::default(),
@@ -2038,11 +2040,54 @@ pub struct ScreenRotation {
     pub suggest: bool,
     /// Поворачивать и «вверх ногами» (180°).
     pub upside_down: bool,
+    /// Сколько новая ориентация должна продержаться, прежде чем экран
+    /// повернётся (мс): случайный наклон на миг не поворачивает экран.
+    pub delay_ms: u32,
+    /// Анимация поворота (как в Android): старая картинка поворачивается
+    /// и растворяется в новой. Длительность, мс; 0 — без анимации.
+    pub animation_ms: u32,
+    /// Угол наклона (градусы, 10–80), после которого датчик считает, что
+    /// телефон повернули; меньше — чувствительнее. Нужна служба датчиков с
+    /// методом `SetOrientationThreshold` (патч arch-mobile-port), иначе — 35°.
+    pub threshold_deg: u32,
 }
 
 impl Default for ScreenRotation {
     fn default() -> Self {
-        Self { auto: true, suggest: true, upside_down: false }
+        Self { auto: true, suggest: true, upside_down: false, delay_ms: 1000, animation_ms: 300, threshold_deg: 35 }
+    }
+}
+
+/// Кнопка питания (`[power_button]`): короткое нажатие и удержание — разные
+/// действия, как в Android. Строки — действия (`screen-toggle`, `lock`,
+/// `shell power-menu`, `none`…); пусто — по форм-фактору: на телефоне
+/// короткое — `screen-toggle` (погасить и заблокировать / включить), удержание —
+/// меню выключения; на компьютере короткое — меню выключения.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct PowerButton {
+    pub short: String,
+    pub long: String,
+    /// Сколько держать для `long`, мс; 0 — по умолчанию (3000).
+    pub long_ms: u32,
+}
+
+impl PowerButton {
+    /// Действия (короткое, удержание) и порог удержания с учётом форм-фактора.
+    pub fn resolved(&self, ff: FormFactor) -> (String, String, u32) {
+        let phone = ff == FormFactor::Phone;
+        let pick = |v: &str, phone_default: &str, desktop_default: &str| {
+            if v.trim().is_empty() {
+                (if phone { phone_default } else { desktop_default }).to_string()
+            } else {
+                v.trim().to_string()
+            }
+        };
+        (
+            pick(&self.short, "screen-toggle", "shell power-menu"),
+            pick(&self.long, "shell power-menu", "none"),
+            if self.long_ms == 0 { 3000 } else { self.long_ms },
+        )
     }
 }
 

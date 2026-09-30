@@ -20,6 +20,8 @@ use smithay::{
 };
 use synshell_common::config::Rgba;
 
+use crate::rotate_anim::RotateDraw;
+
 use crate::{
     deco::TitleKey,
     state::Core,
@@ -36,12 +38,13 @@ smithay::backend::renderer::element::render_elements! {
 
 smithay::backend::renderer::element::render_elements! {
     /// Элементы кадра вывода.
-    pub OutputElement<R> where R: ImportAll + ImportMem;
+    pub OutputElement<R> where R: ImportAll + ImportMem + RotateDraw;
     Surface = WaylandSurfaceRenderElement<R>,
     Memory = MemoryRenderBufferRenderElement<R>,
     Solid = SolidColorRenderElement,
     Window = WinElement<R>,
     Transformed = RelocateRenderElement<RescaleRenderElement<WinElement<R>>>,
+    Rotate = crate::rotate_anim::RotateElement,
 }
 
 /// Стабильные id сплошных элементов окна — для трекера повреждений.
@@ -111,7 +114,7 @@ fn rect_phys(r: Rectangle<i32, Logical>, scale: f64) -> Rectangle<i32, Physical>
 /// Все элементы вывода спереди назад и цвет очистки.
 pub fn output_elements<R>(core: &mut Core, renderer: &mut R, output: &Output, include_cursor: bool) -> (Vec<OutputElement<R>>, Color32F)
 where
-    R: Renderer + ImportAll + ImportMem,
+    R: Renderer + ImportAll + ImportMem + RotateDraw,
     R::TextureId: Clone + Send + 'static,
 {
     let scale_f = output.current_scale().fractional_scale();
@@ -121,6 +124,12 @@ where
     let clear = color32(bg, 1.0);
     let mut out: Vec<OutputElement<R>> = Vec::new();
 
+    // Снимок поворота экрана — поверх всего, и курсора тоже.
+    if let Some(a) = core.rotate_anim.as_mut().filter(|a| &a.output == output) {
+        let mode = output.current_mode().map(|m| m.size).unwrap_or_default();
+        let size = output.current_transform().transform_size(mode);
+        out.push(OutputElement::Rotate(a.element(size)));
+    }
     if include_cursor {
         cursor_elements(core, renderer, output, &mut out);
     }
@@ -310,7 +319,7 @@ fn fullscreen_top(core: &Core, output: &Output) -> Option<WindowId> {
 
 fn layer_elements<R>(renderer: &mut R, output: &Output, layer: Layer, scale: Scale<f64>, out: &mut Vec<OutputElement<R>>)
 where
-    R: Renderer + ImportAll + ImportMem,
+    R: Renderer + ImportAll + ImportMem + RotateDraw,
     R::TextureId: Clone + Send + 'static,
 {
     let map = layer_map_for_output(output);
@@ -342,7 +351,7 @@ fn border_rects(r: Rectangle<i32, Physical>, bw: i32) -> [Rectangle<i32, Physica
 /// Элементы окна (без трансформаций) относительно вывода + смещение.
 fn window_parts<R>(core: &mut Core, renderer: &mut R, output: &Output, id: WindowId, offset: Point<i32, Logical>, alpha: f32) -> Vec<WinElement<R>>
 where
-    R: Renderer + ImportAll + ImportMem,
+    R: Renderer + ImportAll + ImportMem + RotateDraw,
     R::TextureId: Clone + Send + 'static,
 {
     let scale_f = output.current_scale().fractional_scale();
@@ -509,7 +518,7 @@ fn m_ids(m: &Managed) -> &WindowIds {
 /// Окно с учётом анимаций (появление, сворачивание, перемещение).
 fn window_elements<R>(core: &mut Core, renderer: &mut R, output: &Output, id: WindowId, offset: Point<i32, Logical>, alpha: f32, out: &mut Vec<OutputElement<R>>)
 where
-    R: Renderer + ImportAll + ImportMem,
+    R: Renderer + ImportAll + ImportMem + RotateDraw,
     R::TextureId: Clone + Send + 'static,
 {
     let scale_f = output.current_scale().fractional_scale();
@@ -582,7 +591,7 @@ fn overview_elements<R>(
     selected: usize,
     out: &mut Vec<OutputElement<R>>,
 ) where
-    R: Renderer + ImportAll + ImportMem,
+    R: Renderer + ImportAll + ImportMem + RotateDraw,
     R::TextureId: Clone + Send + 'static,
 {
     let scale_f = output.current_scale().fractional_scale();
@@ -648,7 +657,7 @@ fn overview_elements<R>(
 
 fn cursor_elements<R>(core: &mut Core, renderer: &mut R, output: &Output, out: &mut Vec<OutputElement<R>>)
 where
-    R: Renderer + ImportAll + ImportMem,
+    R: Renderer + ImportAll + ImportMem + RotateDraw,
     R::TextureId: Clone + Send + 'static,
 {
     let scale_f = output.current_scale().fractional_scale();

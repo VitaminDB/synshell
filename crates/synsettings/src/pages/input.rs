@@ -222,6 +222,7 @@ pub fn action_label(a: &Action) -> String {
         Action::Reboot => "Перезагрузка".into(),
         Action::PowerOff => "Выключение".into(),
         Action::PowerOffMonitors => "Погасить мониторы".into(),
+        Action::ScreenToggle => "Погасить и заблокировать / включить экран".into(),
         Action::Shell(c) => format!("Оболочка: {c}"),
         Action::Back => "Назад".into(),
         Action::Key(k) => format!("Клавиша {k}"),

@@ -28,6 +28,10 @@ thread_local! {
     /// Ориентация по датчику (`None` — не определена).
     static SENSOR: Cell<Option<Rotation>> = const { Cell::new(None) };
     static SUGGEST: Cell<Option<(SurfaceId, u64)>> = const { Cell::new(None) };
+    /// Таймер задержки: ориентация датчика ещё не продержалась `delay_ms`.
+    static PENDING: Cell<Option<u64>> = const { Cell::new(None) };
+    /// Ориентация, принятая после задержки (её и исполняет политика).
+    static STABLE: Cell<Option<Rotation>> = const { Cell::new(None) };
 }
 
 /// Слушать датчик в фоне; без iio-sensor-proxy или акселерометра — молча
@@ -37,6 +41,7 @@ pub fn start(ctx: ShellCtx) {
     // `rotate`, перезапуск композитора) — встать по датчику. Кнопку
     // «повернуть» показывает только сам поворот телефона.
     crate::on_reload(|ctx, _| {
+        send_threshold(ctx.cfg().rotation.threshold_deg);
         if ctx.cfg().rotation.auto {
             apply_policy(ctx);
         }
@@ -73,6 +78,7 @@ fn listen() -> zbus::Result<()> {
     }
     proxy.call_method("ClaimAccelerometer", &())?;
     log::info!("поворот экрана: акселерометр подключён");
+    set_threshold(&proxy, synshell_common::Config::load().0.rotation.threshold_deg);
     // Служба перезапустилась — захват был за прежним владельцем имени: занять заново.
     let (c2, p2) = (conn.clone(), proxy.clone());
     std::thread::Builder::new()
@@ -82,6 +88,7 @@ fn listen() -> zbus::Result<()> {
             let Ok(changes) = dbus.receive_name_owner_changed_with_args(&[(0, "net.hadess.SensorProxy")]) else { return };
             for c in changes {
                 if c.args().is_ok_and(|a| a.new_owner().is_some()) && p2.call_method("ClaimAccelerometer", &()).is_ok() {
+                    set_threshold(&p2, synshell_common::Config::load().0.rotation.threshold_deg);
                     log::info!("поворот экрана: служба датчиков перезапущена, акселерометр занят снова");
                     if let Ok(v) = p2.get_property::<String>("AccelerometerOrientation") {
                         deliver(&v);
@@ -101,6 +108,34 @@ fn listen() -> zbus::Result<()> {
     Err(zbus::Error::Failure("поток свойств закрыт".into()))
 }
 
+/// Угол срабатывания датчика — службе (метод есть только в нашей сборке
+/// iio-sensor-proxy; нет — остаётся её 35°).
+fn set_threshold(proxy: &zbus::blocking::Proxy<'_>, degrees: u32) {
+    match proxy.call_method("SetOrientationThreshold", &(degrees.clamp(10, 80),)) {
+        Ok(_) => log::info!("поворот экрана: угол срабатывания {degrees}°"),
+        Err(e) => log::debug!("поворот экрана: угол срабатывания не задать ({e})"),
+    }
+}
+
+/// То же из главного потока (смена настройки): вызов D-Bus — в фоне.
+fn send_threshold(degrees: u32) {
+    thread_local! {
+        static LAST: Cell<u32> = const { Cell::new(0) };
+    }
+    if LAST.with(|l| l.replace(degrees)) == degrees {
+        return;
+    }
+    std::thread::spawn(move || {
+        let Ok(conn) = zbus::blocking::Connection::system() else { return };
+        let Ok(proxy) =
+            zbus::blocking::Proxy::new(&conn, "net.hadess.SensorProxy", "/net/hadess/SensorProxy", "net.hadess.SensorProxy")
+        else {
+            return;
+        };
+        set_threshold(&proxy, degrees);
+    });
+}
+
 fn deliver(orientation: &str) {
     // Как в Mutter: левый край вверху — поворот 90°, правый — 270°.
     let r = match orientation {
@@ -111,8 +146,28 @@ fn deliver(orientation: &str) {
         _ => None,
     };
     run_on_main_thread(move || {
-        SENSOR.with(|s| s.set(r));
-        apply_policy(ShellCtx::get());
+        if SENSOR.with(|s| s.replace(r)) == r && PENDING.with(|p| p.get()).is_none() {
+            return;
+        }
+        // Новое положение — ждать `delay_ms`: вернули телефон раньше — таймер
+        // перезапускается, и мимолётный наклон ничего не поворачивает.
+        if let Some(t) = PENDING.with(|p| p.take()) {
+            syngui_layer::cancel_timer(t);
+        }
+        let ctx = ShellCtx::get();
+        let delay = ctx.cfg().rotation.delay_ms;
+        if delay == 0 || r.is_none() {
+            STABLE.with(|s| s.set(r));
+            apply_policy(ctx);
+            return;
+        }
+        let t = syngui_layer::add_timer(Duration::from_millis(delay as u64), move || {
+            PENDING.with(|p| p.set(None));
+            STABLE.with(|s| s.set(SENSOR.with(|s| s.get())));
+            apply_policy(ShellCtx::get());
+            None
+        });
+        PENDING.with(|p| p.set(Some(t)));
     });
 }
 
@@ -142,7 +197,7 @@ fn current(ctx: &ShellCtx) -> Rotation {
 /// Ориентация датчика, которую разрешено принять (без «вверх ногами», если
 /// оно не разрешено).
 fn wanted(ctx: &ShellCtx) -> Option<Rotation> {
-    let r = SENSOR.with(|s| s.get())?;
+    let r = STABLE.with(|s| s.get())?;
     (r != Rotation::R180 || ctx.cfg().rotation.upside_down).then_some(r)
 }
 

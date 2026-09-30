@@ -83,8 +83,19 @@ pub struct LastTitleClick {
     pub at: Instant,
 }
 
+
+/// `KEY_POWER` (evdev 116) в кодах xkb (+8).
+const KEY_POWER_XKB: u32 = 116 + 8;
+
 impl State {
     pub fn process_input_event<B: InputBackend>(&mut self, event: InputEvent<B>) {
+        // Кнопка питания — своя логика (короткое нажатие / удержание), до общей
+        // «активности»: та включила бы погашенный экран раньше, чем мы решим.
+        if let InputEvent::Keyboard { event } = &event {
+            if event.key_code().raw() == KEY_POWER_XKB && self.power_key(event.state()) {
+                return;
+            }
+        }
         // Любой ввод — активность: будим мониторы, сбрасываем таймер простоя.
         let is_activity = !matches!(event, InputEvent::DeviceAdded { .. } | InputEvent::DeviceRemoved { .. });
         if is_activity {
@@ -190,6 +201,62 @@ impl State {
         if device.has_capability(DeviceCapability::Touch) && self.core.seat.get_touch().is_none() {
             self.core.seat.add_touch();
         }
+    }
+
+    /// Кнопка питания: `true` — событие обработано здесь. Нажатие на погашенном
+    /// экране включает его сразу; отпустили раньше `long_ms` — короткое
+    /// действие, держат дольше — действие удержания (по таймеру, не дожидаясь
+    /// отпускания, как в Android).
+    fn power_key(&mut self, state: KeyState) -> bool {
+        let (short, long, long_ms) = self.core.config.power_button.resolved(self.core.form_factor);
+        if long == "none" && short == "shell power-menu" && self.core.form_factor != synshell_common::config::FormFactor::Phone {
+            // Компьютер по умолчанию — как раньше, через сочетание XF86PowerOff.
+            return false;
+        }
+        match state {
+            KeyState::Pressed => {
+                if self.core.power_key.is_some() {
+                    return true; // автоповтор
+                }
+                let woke = self.core.monitors_off;
+                self.note_activity();
+                self.core.power_key_seq += 1;
+                let seq = self.core.power_key_seq;
+                self.core.power_key = Some((seq, woke, false));
+                let _ = self.core.loop_handle.insert_source(
+                    smithay::reexports::calloop::timer::Timer::from_duration(std::time::Duration::from_millis(long_ms as u64)),
+                    move |_, _, st: &mut State| {
+                        if let Some((s, woke, fired)) = st.core.power_key.as_mut() {
+                            if *s == seq && !*fired {
+                                *fired = true;
+                                let _ = woke;
+                                let (_, long, _) = st.core.config.power_button.resolved(st.core.form_factor);
+                                if let Ok(a) = long.parse::<Action>() {
+                                    tracing::info!(action = %a, "кнопка питания: удержание");
+                                    st.do_action(a);
+                                }
+                            }
+                        }
+                        smithay::reexports::calloop::timer::TimeoutAction::Drop
+                    },
+                );
+            }
+            KeyState::Released => {
+                let Some((_, woke, fired)) = self.core.power_key.take() else { return true };
+                self.core.last_activity = Instant::now();
+                // Экран включили этим же нажатием — короткое действие не нужно.
+                if !fired && !woke {
+                    match short.parse::<Action>() {
+                        Ok(a) => {
+                            tracing::info!(action = %a, "кнопка питания");
+                            self.do_action(a);
+                        }
+                        Err(e) => tracing::warn!("[power_button] short: {e}"),
+                    }
+                }
+            }
+        }
+        true
     }
 
     pub fn note_activity(&mut self) {
@@ -1262,6 +1329,14 @@ impl State {
             Action::Reboot => crate::spawn::spawn_shell(&self.core, "systemctl reboot"),
             Action::PowerOff => crate::spawn::spawn_shell(&self.core, "systemctl poweroff"),
             Action::PowerOffMonitors => self.set_monitors_power(false),
+            Action::ScreenToggle => {
+                if self.core.monitors_off {
+                    self.set_monitors_power(true);
+                } else {
+                    self.lock_screen();
+                    self.set_monitors_power(false);
+                }
+            }
             Action::Rotate(r) => self.rotate(r),
             Action::Shell(cmd) => {
                 self.core.ipc.broadcast(&synshell_common::ipc::Event::ShellCommand { command: cmd });

@@ -91,7 +91,7 @@ pub fn render<R, B>(
     encode: Option<EncodeFn<'_, R, B>>,
 ) -> anyhow::Result<Rendered>
 where
-    R: Renderer + ImportAll + ImportMem + Bind<B> + ExportMem,
+    R: Renderer + ImportAll + ImportMem + Bind<B> + ExportMem + crate::rotate_anim::RotateDraw,
     R::TextureId: Texture + Clone + Send + 'static,
     R::Error: Send + Sync + 'static,
     B: 'static,

@@ -222,6 +222,12 @@ pub struct Core {
     /// Поворот выводов на лету (действие `rotate`, автоповорот оболочки)
     /// поверх `transform` из `[[output]]`; по имени вывода.
     pub rotation: HashMap<String, synshell_common::action::Rotation>,
+    /// Идущая анимация поворота встроенной панели.
+    pub rotate_anim: Option<crate::rotate_anim::RotateAnim>,
+    /// Кнопка питания зажата: (номер нажатия, экран был погашен и включён
+    /// этим нажатием, удержание уже сработало).
+    pub power_key: Option<(u64, bool, bool)>,
+    pub power_key_seq: u64,
     /// Таймер кадра погашенного вывода (поток кадров synlink) взведён.
     pub headless_timer: bool,
     pub ipc: IpcServer,
@@ -436,6 +442,9 @@ impl Core {
             remote_output: None,
             remote_input_active: false,
             rotation: HashMap::new(),
+            rotate_anim: None,
+            power_key: None,
+            power_key_seq: 0,
             headless_timer: false,
             ipc,
             shell: crate::spawn::ShellProcess::default(),
