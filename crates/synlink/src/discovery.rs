@@ -60,6 +60,9 @@ pub async fn run(d: Arc<Daemon>) {
         if a.synlink != crate::proto::PROTO || a.id == d.id.id {
             continue;
         }
+        if crate::netif::usb_disabled() && crate::netif::in_usb_subnet(from.ip()) {
+            continue;
+        }
         if a.query {
             announce(&d, &sock, port, false).await;
         }

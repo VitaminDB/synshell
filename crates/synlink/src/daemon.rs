@@ -195,10 +195,18 @@ impl Daemon {
             return Some(key.to_string());
         }
         let lower = key.to_lowercase();
-        st.nearby
-            .iter()
-            .find(|(id, n)| id.starts_with(key) || n.name.to_lowercase() == lower)
-            .map(|(id, _)| id.clone())
+        if let Some((id, _)) = st.nearby.iter().find(|(id, n)| id.starts_with(key) || n.name.to_lowercase() == lower) {
+            return Some(id.clone());
+        }
+        // phone / desktop / laptop / tablet — если такое рядом одно.
+        let kind: DeviceKind = serde_json::from_value(serde_json::Value::String(lower)).ok()?;
+        let mut it = st.nearby.iter().filter(|(_, n)| n.kind == kind);
+        let first = it.next().map(|(id, _)| id.clone());
+        if it.next().is_some() {
+            None
+        } else {
+            first
+        }
     }
 
     /// Соединение с устройством (спаренным и соединённым).
@@ -278,14 +286,14 @@ impl Daemon {
             let mut st = self.st.lock().unwrap();
             let fresh = st.nearby.get(&a.id).is_none_or(|n| n.seen.elapsed() > Duration::from_secs(20));
             // Уже видели по USB — Wi-Fi-анонс не перебивает транспорт.
-            let keep_usb = st
-                .nearby
-                .get(&a.id)
-                .is_some_and(|n| n.transport == Transport::Usb && transport == Transport::Wifi && n.seen.elapsed() < Duration::from_secs(10));
+            // (Пока кабель есть и USB-анонсы свежие; время не продлеваем —
+            // пропадут USB-анонсы, запись перейдёт на Wi-Fi.)
+            let cable = st.usb.cable;
+            let keep_usb = st.nearby.get(&a.id).is_some_and(|n| {
+                cable && n.transport == Transport::Usb && transport == Transport::Wifi && n.seen.elapsed() < Duration::from_secs(10)
+            });
             if !keep_usb {
                 st.nearby.insert(a.id.clone(), Nearby { name: a.name.clone(), kind: a.kind, addr, transport, seen: Instant::now() });
-            } else if let Some(n) = st.nearby.get_mut(&a.id) {
-                n.seen = Instant::now();
             }
             let trusted = st.peers.peers.contains_key(&a.id);
             let session = st.sessions.get(&a.id);
@@ -328,6 +336,10 @@ impl Daemon {
 
     pub async fn accept_loop(self: D) {
         while let Some(inc) = self.ep.accept().await {
+            if crate::netif::usb_disabled() && crate::netif::in_usb_subnet(inc.remote_address().ip()) {
+                inc.refuse();
+                continue;
+            }
             let d = self.clone();
             tokio::spawn(async move {
                 match inc.await {
@@ -436,12 +448,11 @@ impl Daemon {
             let mut st = self.st.lock().unwrap();
             st.gen += 1;
             let gen = st.gen;
+            // Новое соединение заменяет старое: его начинают, только когда
+            // старое для той стороны мёртво (выдернули кабель — она заметила
+            // раньше нас) или ради переезда на USB.
             if let Some(old) = st.sessions.get(&pid) {
-                let better = transport == Transport::Usb || old.transport == Transport::Wifi;
-                if !better {
-                    conn.close(0u32.into(), b"dup");
-                    bail!("уже соединено лучше ({})", old.transport.title());
-                }
+                tracing::info!(peer = %hello.name, from = old.transport.title(), to = transport.title(), "соединение заменено");
                 old.conn.close(0u32.into(), b"replaced");
             }
             if let Some(t) = st.peers.peers.get_mut(&pid) {
@@ -459,6 +470,8 @@ impl Daemon {
                 t.addrs.truncate(4);
             }
             st.peers.save();
+            // Сеанс есть — новое соединение (переезд на USB) больше не блокируется.
+            st.connecting.remove(&pid);
             st.sessions.insert(
                 pid.clone(),
                 Session { conn: conn.clone(), transport, addr: conn.remote_address(), hello: hello.clone(), ctl: ctl_tx.clone(), battery: None, gen },
@@ -770,6 +783,16 @@ impl Daemon {
                 let changed = st.usb != usb;
                 if st.usb.interface != usb.interface || st.usb.address != usb.address {
                     // Новый интерфейс — анонсироваться сразу.
+                    self.announce_now.notify_one();
+                }
+                // Кабель выдернули — сеанс по USB закрыть сразу, не ждать тайм-аута
+                // QUIC: переподключение по Wi-Fi пойдёт по ближайшему анонсу.
+                if st.usb.cable && !usb.cable {
+                    for s in st.sessions.values().filter(|s| s.transport == Transport::Usb) {
+                        tracing::info!(peer = %s.hello.name, "кабель USB отключён — соединение по USB закрыто");
+                        s.conn.close(0u32.into(), b"usb-gone");
+                    }
+                    // Анонс по Wi-Fi тут же — не ждать очередного.
                     self.announce_now.notify_one();
                 }
                 st.usb = usb;

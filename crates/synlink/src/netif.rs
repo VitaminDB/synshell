@@ -25,8 +25,29 @@ impl Iface {
     }
 }
 
+/// `SYNLINK_NO_USB=1` — не видеть USB-сеть (проверка работы по Wi-Fi с
+/// подключённым кабелем).
+pub fn usb_disabled() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var_os("SYNLINK_NO_USB").is_some())
+}
+
+/// Адрес из подсети USB-интерфейса (даже если USB отключён для проверки).
+pub fn in_usb_subnet(ip: std::net::IpAddr) -> bool {
+    let std::net::IpAddr::V4(v4) = ip else { return false };
+    list_all().iter().any(|i| i.usb && i.contains(v4))
+}
+
 /// Поднятые интерфейсы с IPv4 (без loopback).
 pub fn list() -> Vec<Iface> {
+    let mut v = list_all();
+    if usb_disabled() {
+        v.retain(|i| !i.usb);
+    }
+    v
+}
+
+fn list_all() -> Vec<Iface> {
     let mut out = Vec::new();
     let mut ifap: *mut libc::ifaddrs = std::ptr::null_mut();
     if unsafe { libc::getifaddrs(&mut ifap) } != 0 {

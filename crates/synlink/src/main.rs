@@ -107,7 +107,7 @@ fn run_daemon() -> Result<()> {
 }
 
 fn req(r: &Request) -> Result<Response> {
-    gestures::req(r).context("synlink")
+    gestures::req(r)
 }
 
 fn num(s: Option<&String>, what: &str) -> Result<f64> {
