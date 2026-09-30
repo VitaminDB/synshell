@@ -29,6 +29,12 @@ optdepends=('xorg-xwayland: X11-программы'
             'fuse3: файлы связанных устройств (synlink) в проводнике'
             'openssh: ssh на связанные устройства (synlink)')
 makedepends=('cargo' 'rust')
+# C-части крейтов (ring, zstd) с -flto из makepkg.conf не линкуются с Rust.
+options=('!lto')
+# Прежнее имя пакета.
+provides=('syndesktop')
+conflicts=('syndesktop')
+replaces=('syndesktop')
 
 # Профиль cargo: release (LTO) — для AUR/GitHub; локально быстрее
 # `SYNSHELL_PROFILE=fast-release makepkg -f`.
