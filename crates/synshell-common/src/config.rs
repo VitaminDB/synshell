@@ -46,6 +46,7 @@ pub struct Config {
     pub gestures: Gestures,
     pub haptics: Haptics,
     pub time: Time,
+    pub link: Link,
     pub wifi: Wifi,
     pub packages: Packages,
 }
@@ -75,6 +76,7 @@ impl Default for Config {
             gestures: Gestures::default(),
             haptics: Haptics::default(),
             time: Time::default(),
+            link: Link::default(),
             wifi: Wifi::default(),
             packages: Packages::default(),
         }
@@ -2012,6 +2014,33 @@ pub struct Time {
 impl Time {
     pub fn auto_timezone(&self, ff: FormFactor) -> bool {
         self.auto_timezone.unwrap_or(ff == FormFactor::Phone)
+    }
+}
+
+// ─── связь устройств ────────────────────────────────────────────────────────
+
+/// Связь с другими оболочками synshell (`[link]`, демон `synlink`):
+/// телефон ↔ компьютер по USB и Wi-Fi.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Link {
+    pub enabled: bool,
+    /// Имя этой машины для других устройств; пусто — имя хоста.
+    pub name: String,
+    /// Видна ли машина в сети (Wi-Fi) для спаривания; спаренные и USB
+    /// соединяются всегда.
+    pub discoverable: bool,
+    /// Пересылать уведомления на спаренные устройства и показывать их.
+    pub notifications: bool,
+    /// Монтировать файлы соединённых устройств (Проводник → Устройства).
+    pub auto_mount: bool,
+    /// Порт UDP (QUIC); поиск — на порту на единицу меньше.
+    pub port: u16,
+}
+
+impl Default for Link {
+    fn default() -> Self {
+        Self { enabled: true, name: String::new(), discoverable: true, notifications: true, auto_mount: true, port: 47471 }
     }
 }
 

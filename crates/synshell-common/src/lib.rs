@@ -9,6 +9,7 @@ pub mod config;
 pub mod config_edit;
 pub mod haptics;
 pub mod ipc;
+pub mod link;
 pub mod mime;
 pub mod paths;
 pub mod theme;

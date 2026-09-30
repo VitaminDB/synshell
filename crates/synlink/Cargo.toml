@@ -1,0 +1,27 @@
+[package]
+name = "synlink"
+description = "Link between synshell shells (phone and desktop): screen, input, files, notifications, ssh over USB and Wi-Fi"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+synshell-common.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+libc.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync", "process", "fs", "signal"] }
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring", "log"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "logging", "tls12"] }
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
+sha2 = "0.10"
+postcard = { version = "1", default-features = false, features = ["use-std"] }
+zstd = { version = "0.13", default-features = false }
+fuser = { version = "0.16", default-features = false }
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+png = "0.17"
+base64 = "0.22"

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=synlink
+Name[ru]=Связь устройств
+Comment=Link with other synshell devices (phone, computer)
+Comment[ru]=Связь с другими устройствами synshell (телефон, компьютер)
+Exec=synlink daemon
+Icon=phone
+NoDisplay=true
+X-GNOME-Autostart-Phase=Applications
