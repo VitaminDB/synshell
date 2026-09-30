@@ -1799,6 +1799,10 @@ pub struct Mobile {
     pub home_apps: Vec<String>,
     /// Колонок в сетке домашнего экрана.
     pub home_columns: u32,
+    /// Вид «Пуска» на телефоне: `pages` — все приложения значками по
+    /// страницам (листаются пальцем), `list` — закреплённые, рекомендуемые
+    /// и «Все» списком.
+    pub launcher: String,
 }
 
 impl Default for Mobile {
@@ -1815,6 +1819,7 @@ impl Default for Mobile {
             resources_page: true,
             home_apps: Vec::new(),
             home_columns: 4,
+            launcher: "pages".into(),
         }
     }
 }

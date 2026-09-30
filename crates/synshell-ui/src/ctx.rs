@@ -69,7 +69,7 @@ impl PopupKind {
     }
 
     pub fn survives_reload(&self) -> bool {
-        matches!(self, PopupKind::AddItem(_))
+        matches!(self, PopupKind::AddItem(_) | PopupKind::Launcher)
     }
 }
 

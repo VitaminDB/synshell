@@ -244,6 +244,21 @@ pub fn quit() {
 
 thread_local! {
     static IM_ACTIVE: RefCell<Option<RwSignal<bool>>> = const { RefCell::new(None) };
+    static VK_HANDLER: RefCell<Option<std::rc::Rc<dyn Fn(&str, bool)>>> = const { RefCell::new(None) };
+}
+
+/// Запросы экранной клавиатуры от виджетов поверхностей (поле ввода
+/// получило или потеряло фокус): `f(namespace, show)`. Сама библиотека
+/// клавиатуру не показывает — решает приложение (оболочка телефона).
+pub fn set_virtual_keyboard_handler(f: impl Fn(&str, bool) + 'static) {
+    VK_HANDLER.with(|h| *h.borrow_mut() = Some(std::rc::Rc::new(f)));
+}
+
+pub(crate) fn virtual_keyboard_request(namespace: &str, show: bool) {
+    let f = VK_HANDLER.with(|h| h.borrow().clone());
+    if let Some(f) = f {
+        f(namespace, show);
+    }
 }
 
 /// Виртуальная клавиатура (`zwp_virtual_keyboard_v1`): задать раскладку XKB

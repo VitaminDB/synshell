@@ -80,22 +80,24 @@ fn is_fan(kind: &PopupKind, ctx: &ShellCtx) -> bool {
 }
 
 pub fn install(ctx: ShellCtx) {
+    // Телефон: поле ввода в окне оболочки получило фокус (касание поиска
+    // «Пуска») — экранная клавиатура; уйдёт вместе с окном.
+    syngui_layer::set_virtual_keyboard_handler(|_, show| {
+        if show && ShellCtx::get().popup.get_untracked().is_some() {
+            request_keyboard();
+        }
+    });
     create_effect(move || {
         let p = ctx.popup.get();
         let same = CURRENT.with(|c| *c.borrow() == p);
         if same {
             return;
         }
-        // «Пуск» на телефоне: клавиатура для поиска — с ним и уходит.
-        let was_launcher = CURRENT.with(|c| c.borrow().as_ref().is_some_and(|x| matches!(x.kind, PopupKind::Launcher)));
-        let is_launcher = p.as_ref().is_some_and(|x| matches!(x.kind, PopupKind::Launcher));
-        let was_keyboard = was_launcher || KEYBOARD.with(|k| k.replace(false));
-        if ctx.is_phone() {
-            if is_launcher && !was_launcher {
-                crate::actions::spawn("synkeyboard show");
-            } else if was_keyboard && !is_launcher {
-                crate::actions::spawn("synkeyboard hide");
-            }
+        // Телефон: клавиатура, вызванная полем окна (поиск «Пуска», пароль
+        // Wi-Fi), уходит вместе с окном. Сама при открытии не показывается.
+        let was_keyboard = KEYBOARD.with(|k| k.replace(false));
+        if ctx.is_phone() && was_keyboard {
+            crate::actions::spawn("synkeyboard hide");
         }
         CURRENT.with(|c| *c.borrow_mut() = p.clone());
         KEY_HANDLER.with(|k| k.borrow_mut().take());

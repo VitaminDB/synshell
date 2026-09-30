@@ -11,6 +11,7 @@ name = "synmobile-shell"
 path = "src/main.rs"
 
 [dependencies]
+libc.workspace = true
 synshell-common.workspace = true
 synshell-ui.workspace = true
 syngui-layer.workspace = true

@@ -307,6 +307,9 @@ impl Surface {
             st.has_loading() || st.has_pending_uploads() || st.has_pending_frees()
         };
         let changed = self.view.frame(engine, Size::new(lw as f32, lh as f32), scale as f32, &mut self.display_list);
+        if let Some(show) = self.view.tree.virtual_keyboard_request.take() {
+            crate::virtual_keyboard_request(&self.spec.namespace, show);
+        }
         // Кадр мог запустить переходы (hover сменил класс) — нулевой тик
         // скажет, идёт ли анимация; иначе она замерла бы до следующего события.
         let started = self.view.animate(std::time::Duration::ZERO);

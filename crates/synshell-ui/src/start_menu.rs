@@ -9,6 +9,10 @@
 //! - «Рекомендуемые» — недавно запущенные;
 //! - внизу — пользователь, параметры, питание.
 //!
+//! На телефоне два вида (`[mobile] launcher`, кнопка внизу): `pages` — все
+//! приложения значками по страницам во всю высоту, `list` — как на
+//! рабочем столе.
+//!
 //! Правый щелчок или удержание по значку — меню значка прямо внутри
 //! «Пуска»: закрепить/открепить, на док, на домашний экран (телефон).
 //! На рабочем столе — карточка у кнопки, на телефоне — лист почти на весь
@@ -46,6 +50,22 @@ struct St {
     item_menu: RwSignal<Option<(String, f32, f32)>>,
     /// Страница закреплённых.
     page: RwSignal<usize>,
+    /// Телефон: все приложения значками по страницам (иначе — список).
+    pages: RwSignal<bool>,
+}
+
+/// Телефон: высота значка в сетке (отступы, значок, две строки подписи) и
+/// зазор между строками.
+const PHONE_TILE_H: f32 = 104.0;
+const PHONE_GRID_GAP: f32 = 2.0;
+/// Место под точки страниц карусели.
+const INDICATORS_H: f32 = 24.0;
+/// Высота «Пуска» без тела: поиск, низ и зазоры между ними.
+const CHROME_H: f32 = 58.0 + 57.0 + 2.0 * 14.0;
+
+/// Сколько строк значков помещается в `h`.
+fn phone_rows(h: f32) -> usize {
+    (((h + PHONE_GRID_GAP) / (PHONE_TILE_H + PHONE_GRID_GAP)).floor() as usize).max(1)
 }
 
 /// Размер: рабочий стол — из `[launcher]`, телефон — почти весь экран.
@@ -76,6 +96,7 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
         results: use_signal(Vec::new()),
         item_menu: use_signal(None),
         page: use_signal(0usize),
+        pages: use_signal(ctx.is_phone() && ctx.cfg().mobile.launcher != "list"),
     };
     create_effect(move || {
         let q = st.query.get();
@@ -123,8 +144,10 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
     // с запасом сверху, и меняется, когда клавиатура выезжает.
     let sized = rx(move || {
         let (w, h) = if phone {
+            // Лист `.popup-sheet` — не выше 86 % и с отступами 18 + 20 px:
+            // меню меньше на них, иначе низ (пользователь, питание) срезался.
             let vp = syngui::viewport::viewport_size().get();
-            (vp.width - 20.0, (vp.height * 0.86).max(300.0))
+            (vp.width - 20.0, (vp.height * 0.86 - 40.0).max(300.0))
         } else {
             size(&ShellCtx::get())
         };
@@ -133,8 +156,8 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
             Column::new()
                 .gap(14.0)
                 .child(search(st))
-                .child(body_ref(st, ctx))
-                .child(footer(ShellCtx::get()))
+                .child(body_ref(st, ctx, h - CHROME_H))
+                .child(footer(ShellCtx::get(), st))
                 .class("start")
                 .style("height", StyleValue::px(h))
                 .style("width", StyleValue::px(w - 24.0)),
@@ -146,30 +169,39 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
 
 /// Середина меню: закреплённые, «Все приложения» или результаты поиска —
 /// перетекают друг в друга.
-fn body_ref(st: St, ctx: ShellCtx) -> impl Widget {
+fn body_ref(st: St, ctx: ShellCtx, body_h: f32) -> impl Widget {
     let dur = crate::anim::group_ms(&ctx, "menu", 260);
     rx(move || {
         let searching = !st.query.get().trim().is_empty();
         let v = st.view.get();
+        let pages = st.pages.get();
         // Ключ задаёт направление перетекания: дальше по списку — въезд справа.
-        let key = if searching { 3 } else if v == View::All { 2 } else { 1 };
-        Box::new(
-            AnimatedSwitcher::new(key, move || -> Box<dyn Widget> {
-                if searching {
-                    Box::new(results(ctx, st))
-                } else if v == View::All {
-                    Box::new(all_apps(ctx, st))
-                } else {
-                    Box::new(home(ctx, st))
-                }
-            })
-            .directional(true)
-            .slide(36.0, 0.0)
-            .duration_ms(dur)
-            .exit_duration_ms(dur * 2 / 3)
-            .animate_size(false)
-            .class("start-body"),
-        )
+        let key = if searching { 3 } else if pages { 4 } else if v == View::All { 2 } else { 1 };
+        let sw = AnimatedSwitcher::new(key, move || -> Box<dyn Widget> {
+            if searching {
+                Box::new(results(ctx, st))
+            } else if pages {
+                Box::new(app_pages(ctx, st, body_h))
+            } else if v == View::All {
+                Box::new(all_apps(ctx, st, body_h))
+            } else {
+                Box::new(home(ctx, st, body_h))
+            }
+        })
+        .directional(true)
+        .slide(36.0, 0.0)
+        .duration_ms(dur)
+        .exit_duration_ms(dur * 2 / 3)
+        .animate_size(false)
+        .class("start-body");
+        // Телефон: тело — в колонке явной высоты (`flex-grow` не доходит
+        // сквозь `rx`, а переключатель высоту из стиля не берёт), иначе
+        // прокрутка занимала всё и выталкивала низ за край листа.
+        if ctx.is_phone() {
+            Box::new(Column::new().child(sw).style("height", StyleValue::px(body_h)))
+        } else {
+            Box::new(sw)
+        }
     })
 }
 
@@ -185,8 +217,10 @@ fn search(st: St) -> impl Widget {
                 .child(icon(mi::SEARCH).class("start-search-icon"))
                 .child(
                     TextField::new()
-                        .placeholder("Поиск приложений, настроек, вычислений")
-                        .autofocus(true)
+                        .placeholder(if ShellCtx::get().is_phone() { "Поиск приложений и настроек" } else { "Поиск приложений, настроек, вычислений" })
+                        // Телефон: клавиатура — по касанию поля, иначе
+                        // закрывала бы половину значков.
+                        .autofocus(!ShellCtx::get().is_phone())
                         .on_change(move |t| q.set(t.to_string()))
                         .class("start-search-field grow"),
                 ),
@@ -239,9 +273,11 @@ fn pinned_ids(ctx: &ShellCtx) -> Vec<String> {
     ctx.cfg().launcher.favorites.clone()
 }
 
-fn home(ctx: ShellCtx, st: St) -> impl Widget {
+fn home(ctx: ShellCtx, st: St, body_h: f32) -> impl Widget {
     let cols = columns(&ctx);
-    let rows = if ctx.is_phone() { 4 } else { 3 };
+    let phone = ctx.is_phone();
+    // Телефон: не больше половины тела, чтобы рекомендуемые были видны.
+    let rows = if phone { phone_rows(body_h * 0.5 - 40.0).min(4) } else { 3 };
     let per_page = cols * rows;
     let apps: Vec<DesktopEntry> = pinned_ids(&ctx).iter().filter_map(|id| xdg::app_by_id(id)).collect();
     let header = Row::new()
@@ -251,15 +287,30 @@ fn home(ctx: ShellCtx, st: St) -> impl Widget {
     let pinned: Box<dyn Widget> = if apps.is_empty() {
         Box::new(Text::new("Закрепите приложения из списка «Все» — правый щелчок или удержание по значку.").class("start-empty"))
     } else {
-        let mut pages = Carousel::new().page_signal(st.page).show_arrows(false).show_indicators(apps.len() > per_page);
+        let paged = apps.len() > per_page;
+        // Телефон: высота — по занятым строкам, без пустоты под одним рядом.
+        let phone_h = phone.then(|| {
+            let used = apps.len().div_ceil(cols).min(rows) as f32;
+            used * (PHONE_TILE_H + PHONE_GRID_GAP) + if paged { INDICATORS_H } else { 0.0 }
+        });
+        let mut pages = Carousel::new().page_signal(st.page).show_arrows(false).show_indicators(paged);
         for chunk in apps.chunks(per_page) {
             let mut grid = Grid::new(cols).gap(2.0);
             for e in chunk {
                 grid = grid.child(tile(ctx, st, e));
             }
-            pages = pages.child(Column::new().main_axis_alignment(MainAxisAlignment::Start).child(grid));
+            let page = Column::new().main_axis_alignment(MainAxisAlignment::Start).child(grid);
+            let page: Box<dyn Widget> = match phone_h {
+                Some(h) => Box::new(page.style("height", StyleValue::px(h))),
+                None => Box::new(page),
+            };
+            pages = pages.child(page);
         }
-        Box::new(pages.class("start-pinned"))
+        let pages = pages.class("start-pinned");
+        match phone_h {
+            Some(h) => Box::new(pages.style("height", StyleValue::px(h))),
+            None => Box::new(pages),
+        }
     };
     let recent: Vec<DesktopEntry> = launcher::recent().iter().filter_map(|id| xdg::app_by_id(id)).take(if ctx.is_phone() { 4 } else { 6 }).collect();
     let mut rec = Grid::new(if ctx.is_phone() { 1 } else { 2 }).gap(4.0);
@@ -271,6 +322,25 @@ fn home(ctx: ShellCtx, st: St) -> impl Widget {
         col = col.child(Text::new("Рекомендуемые").class("start-heading")).child(rec);
     }
     ScrollView::new().vertical().child(col).class("start-scroll")
+}
+
+/// Телефон, вид `pages`: все приложения по алфавиту значками, страницы
+/// во всю высоту тела листаются пальцем.
+fn app_pages(ctx: ShellCtx, st: St, body_h: f32) -> impl Widget {
+    let cols = columns(&ctx);
+    let mut apps: Vec<DesktopEntry> = xdg::apps().iter().filter(|e| !e.no_display).cloned().collect();
+    apps.sort_by_key(|a| a.name.to_lowercase());
+    let rows = phone_rows(body_h - INDICATORS_H);
+    let per_page = cols * rows;
+    let mut pages = Carousel::new().page_signal(st.page).show_arrows(false).show_indicators(apps.len() > per_page);
+    for chunk in apps.chunks(per_page) {
+        let mut grid = Grid::new(cols).gap(PHONE_GRID_GAP);
+        for e in chunk {
+            grid = grid.child(tile(ctx, st, e));
+        }
+        pages = pages.child(Column::new().main_axis_alignment(MainAxisAlignment::Start).child(grid).style("height", StyleValue::px(body_h)));
+    }
+    pages.class("start-pages").style("height", StyleValue::px(body_h))
 }
 
 fn pill(label: &str, glyph: &str, f: impl Fn() + Send + Sync + 'static) -> impl Widget {
@@ -362,7 +432,7 @@ fn letter_of(name: &str) -> String {
     }
 }
 
-fn all_apps(ctx: ShellCtx, st: St) -> impl Widget {
+fn all_apps(ctx: ShellCtx, st: St, body_h: f32) -> impl Widget {
     let mut groups: BTreeMap<(u8, String), Vec<DesktopEntry>> = BTreeMap::new();
     for e in xdg::apps().iter().filter(|e| !e.no_display) {
         let l = letter_of(&e.name);
@@ -403,7 +473,7 @@ fn all_apps(ctx: ShellCtx, st: St) -> impl Widget {
             Row::new()
                 .gap(6.0)
                 .child(ScrollView::new().vertical().child(list).class("start-scroll grow"))
-                .child(rail(ctx, letters))
+                .child(rail(ctx, letters, body_h))
                 .class("grow"),
         )
         .class("grow")
@@ -411,18 +481,18 @@ fn all_apps(ctx: ShellCtx, st: St) -> impl Widget {
 
 /// Высота строки буквы в icon rail: не больше 18 px, меньше — если букв
 /// много, чтобы весь алфавит помещался по высоте меню.
-fn rail_row(ctx: &ShellCtx, letters: usize) -> f32 {
-    let (_, h) = size(ctx);
-    let avail = (h - 190.0).max(120.0);
+fn rail_row(ctx: &ShellCtx, letters: usize, body_h: f32) -> f32 {
+    // Телефон: тело минус заголовок «Все приложения» и поля указателя.
+    let avail = if ctx.is_phone() { body_h - 50.0 } else { size(ctx).1 - 190.0 }.max(120.0);
     (avail / letters.max(1) as f32).clamp(9.0, 18.0)
 }
 
 /// Icon rail: буквы столбиком; тап — прокрутка к букве, ведение пальцем —
 /// прокрутка следом за пальцем, текущая буква подсвечивается.
-fn rail(ctx: ShellCtx, letters: Vec<String>) -> impl Widget {
+fn rail(ctx: ShellCtx, letters: Vec<String>, body_h: f32) -> impl Widget {
     let active = use_signal(None::<usize>);
     let n = letters.len().max(1);
-    let row = rail_row(&ctx, n);
+    let row = rail_row(&ctx, n, body_h);
     let ls = letters.clone();
     let jump = move |y: f32| {
         let i = (y / row).floor().clamp(0.0, (n - 1) as f32) as usize;
@@ -543,7 +613,18 @@ fn avatar_path() -> Option<std::path::PathBuf> {
     .find(|p| p.is_file())
 }
 
-fn footer(ctx: ShellCtx) -> impl Widget {
+/// Переключить вид «Пуска» на телефоне и запомнить в `[mobile] launcher`.
+fn set_pages(st: St, pages: bool) {
+    st.pages.set(pages);
+    st.page.set(0);
+    st.view.set(View::Home);
+    if let Err(e) = synshell_common::config_edit::set_value(&["mobile", "launcher"], toml_edit::Value::from(if pages { "pages" } else { "list" })) {
+        log::error!("«Пуск»: {e:#}");
+    }
+    crate::reload_after_write();
+}
+
+fn footer(ctx: ShellCtx, st: St) -> impl Widget {
     let user = std::env::var("USER").unwrap_or_else(|_| "user".into());
     let avatar: Box<dyn Widget> = match avatar_path() {
         Some(p) => Box::new(Image::new(p.to_string_lossy()).fit(ImageFit::Cover).class("start-avatar")),
@@ -556,12 +637,24 @@ fn footer(ctx: ShellCtx) -> impl Widget {
     let btn = |glyph: &'static str, f: fn()| {
         GestureDetector::new().on_click(f).child(DecoratedBox::new().child(icon(glyph).class("start-footer-icon")).class("start-footer-btn"))
     };
-    let _ = ctx;
-    Row::new()
+    let mut row = Row::new()
         .gap(8.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(avatar)
-        .child(Text::new(user).class("start-user grow"))
+        .child(Text::new(user).class("start-user grow"));
+    if ctx.is_phone() {
+        // Вид: значки по страницам ⇄ список.
+        let toggle = rx(move || {
+            let pages = st.pages.get();
+            Box::new(
+                GestureDetector::new()
+                    .on_click(move || set_pages(st, !pages))
+                    .child(DecoratedBox::new().child(icon(if pages { mi::LIST } else { mi::GRID }).class("start-footer-icon")).class("start-footer-btn")),
+            )
+        });
+        row = row.child(toggle);
+    }
+    row
         .child(btn(mi::SETTINGS, || {
             ShellCtx::get().close_popup();
             crate::actions::spawn("synsettings");

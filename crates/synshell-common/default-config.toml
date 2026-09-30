@@ -354,6 +354,7 @@ remember_mode = true           # запоминать выбранный реж�
 resources_page = true          # первая страница домашнего экрана — ресурсы
 home_apps = []                 # приложения на домашнем экране; пусто — все
 home_columns = 4
+launcher = "pages"             # «Пуск»: pages — значки по страницам, list — закреплённые и список
 
 # Сенсорные жесты (действия — как в [keybindings]).
 [gestures]
