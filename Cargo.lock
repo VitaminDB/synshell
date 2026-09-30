@@ -3601,6 +3601,7 @@ dependencies = [
 name = "synmobile-shell"
 version = "0.1.3"
 dependencies = [
+ "libc",
  "log",
  "syngui",
  "syngui-layer",
