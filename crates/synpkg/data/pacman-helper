@@ -1,0 +1,18 @@
+#!/bin/sh
+# synpkg: pacman от root через pkexec с возможностью отмены. Аргументы — pacman'у как есть; строка «cancel»
+# на stdin — SIGINT pacman'у: он прерывает транзакцию в безопасной точке и сам снимает блокировку базы.
+# Конец stdin (приложение закрылось) задание не прерывает.
+export LC_ALL=C
+# Без управления заданиями у фоновых процессов SIGINT игнорируется (POSIX) — отмена бы не дошла.
+set -m
+pacman "$@" </dev/null &
+p=$!
+# Фоновый список без управления заданиями читал бы /dev/null — stdin передаётся явно.
+exec 3<&0
+( while IFS= read -r l; do [ "$l" = cancel ] && kill -INT "$p"; done ) <&3 &
+w=$!
+exec 3<&-
+wait "$p"
+r=$?
+kill "$w" 2>/dev/null
+exit "$r"

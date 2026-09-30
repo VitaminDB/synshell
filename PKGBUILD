@@ -64,6 +64,10 @@ package() {
         "$pkgdir/usr/share/applications/synsettings.desktop"
     install -Dm644 crates/synpkg/data/synpkg.desktop \
         "$pkgdir/usr/share/applications/synpkg.desktop"
+    # «Программы»: pacman через pkexec с отменой задания и своё правило polkit.
+    install -Dm755 crates/synpkg/data/pacman-helper "$pkgdir/usr/lib/synpkg/pacman-helper"
+    install -Dm644 crates/synpkg/data/org.synshell.synpkg.policy \
+        "$pkgdir/usr/share/polkit-1/actions/org.synshell.synpkg.policy"
     install -Dm644 crates/synfiles/data/synfiles.desktop \
         "$pkgdir/usr/share/applications/synfiles.desktop"
     install -Dm644 crates/synfiles/data/synfiles-viewer.desktop \

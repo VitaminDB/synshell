@@ -55,6 +55,9 @@ struct JobView {
     stage: String,
     log: Vec<String>,
     done: Option<std::result::Result<(), String>>,
+    cancel: pk::JobCancel,
+    /// Нажата «Отменить», задание ещё не закончилось.
+    cancelling: bool,
 }
 
 /// Разделы каталога: ключ — главная категория freedesktop (и её синонимы).
@@ -300,12 +303,12 @@ fn show_pkgbuild(st: St, name: String) {
 /// Запустить операцию: задание появляется в «Задачах», лог идёт вживую.
 fn run_op(st: St, title: String, op: Op) {
     let id = JOB_ID.fetch_add(1, Ordering::SeqCst);
-    let mut jobs = st.jobs.get_untracked();
-    jobs.insert(0, JobView { id, title: title.clone(), stage: "Запуск…".into(), log: Vec::new(), done: None });
-    st.jobs.set(jobs);
-    st.toast.set(format!("{title} — в «Задачах»"));
     let build_user = st.cfg.get_untracked().packages.build_user.clone();
     let job = pk::start(op, build_user);
+    let mut jobs = st.jobs.get_untracked();
+    jobs.insert(0, JobView { id, title: title.clone(), stage: "Запуск…".into(), log: Vec::new(), done: None, cancel: job.cancel.clone(), cancelling: false });
+    st.jobs.set(jobs);
+    st.toast.set(format!("{title} — в «Задачах»"));
     std::thread::spawn(move || {
         let mut batch: Vec<JobEvent> = Vec::new();
         loop {
@@ -331,13 +334,21 @@ fn run_op(st: St, title: String, op: Op) {
                     for e in events {
                         match e {
                             JobEvent::Line(l) => j.log.push(l),
-                            JobEvent::Stage(s) => j.stage = s,
+                            JobEvent::Stage(s) if !j.cancelling => j.stage = s,
+                            JobEvent::Stage(_) => {}
                             JobEvent::Done(r) => {
+                                let cancelled = r.as_ref().is_err_and(|e| e == pk::CANCELLED);
                                 st.toast.set(match &r {
                                     Ok(()) => format!("Готово: {}", j.title),
+                                    Err(_) if cancelled => format!("Отменено: {}", j.title),
                                     Err(e) => format!("Ошибка: {} — {e}", j.title),
                                 });
-                                j.stage = if r.is_ok() { "Готово".into() } else { "Ошибка".into() };
+                                j.stage = match &r {
+                                    Ok(()) => "Готово".into(),
+                                    Err(_) if cancelled => "Отменено".into(),
+                                    Err(_) => "Ошибка".into(),
+                                };
+                                j.cancelling = false;
                                 j.done = Some(r);
                             }
                         }
@@ -795,6 +806,18 @@ fn updates_view(st: St) -> W {
     Box::new(Column::new().gap(10.0).child(ScrollView::new().vertical().child(list).class("grow")).class("pane"))
 }
 
+/// Отменить задание: процессу — SIGINT, следующие шаги не начнутся.
+fn cancel_job(st: St, id: u64, c: &pk::JobCancel) {
+    c.cancel();
+    let mut jobs = st.jobs.get_untracked();
+    if let Some(j) = jobs.iter_mut().find(|j| j.id == id && j.done.is_none()) {
+        j.cancelling = true;
+        j.stage = "Отмена…".into();
+        j.log.push("— отмена задания —".into());
+    }
+    st.jobs.set(jobs);
+}
+
 /// Задачи: лог открытого задания — на всю высоту, остальные — строками ниже.
 fn jobs_view(st: St) -> W {
     let body = Reactive::new(move || -> Vec<W> {
@@ -807,16 +830,26 @@ fn jobs_view(st: St) -> W {
         let mut has_others = false;
         let mut main: Option<W> = None;
         for j in jobs {
+            let cancelled = matches!(&j.done, Some(Err(e)) if e == pk::CANCELLED);
             let (icon, class) = match &j.done {
                 None => ("\u{E863}", "job-running"),
                 Some(Ok(())) => ("\u{E86C}", "job-ok"),
+                Some(Err(_)) if cancelled => ("\u{E5C9}", "job-cancelled"),
                 Some(Err(_)) => ("\u{E000}", "job-err"),
             };
-            let head = Row::new()
+            let mut head = Row::new()
                 .gap(8.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(Icon::new(icon).class(format!("job-icon {class}")))
                 .child(Column::new().gap(0.0).child(Text::new(j.title.clone()).max_lines(1).class("pkg-name")).child(Text::new(j.stage.clone()).max_lines(1).class("pkg-desc")).class("grow"));
+            if j.done.is_none() {
+                head = head.child(if j.cancelling {
+                    Button::new("Отмена…").class("small").disabled(true)
+                } else {
+                    let (id, c) = (j.id, j.cancel.clone());
+                    Button::new("Отменить").class("small").on_click(move || cancel_job(st, id, &c))
+                });
+            }
             if j.id != open {
                 let id = j.id;
                 has_others = true;
@@ -828,7 +861,9 @@ fn jobs_view(st: St) -> W {
                 card = card.child(ProgressBar::new().indeterminate());
             }
             if let Some(Err(e)) = &j.done {
-                card = card.child(Text::new(e.clone()).selectable(true).class("job-error"));
+                if !cancelled {
+                    card = card.child(Text::new(e.clone()).selectable(true).class("job-error"));
+                }
             }
             let text = if j.log.is_empty() { "…".to_string() } else { j.log.join("\n") };
             card = card.child(DecoratedBox::new().child(ScrollView::new().vertical().follow_end(true).child(Text::new(text).selectable(true).class("log-line")).class("grow")).class("log"));

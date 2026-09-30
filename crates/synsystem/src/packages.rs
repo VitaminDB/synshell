@@ -12,7 +12,8 @@ use std::collections::{BTreeSet, HashMap};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
 
 use crate::util::which;
 
@@ -565,6 +566,71 @@ pub enum Op {
 
 pub struct Job {
     pub rx: mpsc::Receiver<JobEvent>,
+    pub cancel: JobCancel,
+}
+
+/// Текст ошибки отменённого задания.
+pub const CANCELLED: &str = "отменено";
+
+/// Путь помощника pacman с отменой (`crates/synpkg/data/pacman-helper`); его же
+/// называет правило polkit `org.synshell.synpkg.pacman`.
+pub const PACMAN_HELPER: &str = "/usr/lib/synpkg/pacman-helper";
+
+/// Отмена задания: текущему процессу — SIGINT (pacman прерывает транзакцию в
+/// безопасной точке и снимает блокировку базы, makepkg и curl просто выходят),
+/// следующие шаги не начинаются. pacman от root через pkexec пользователю
+/// сигналом не достать — ему «cancel» передаёт [`PACMAN_HELPER`].
+#[derive(Clone, Default)]
+pub struct JobCancel(Arc<CancelState>);
+
+#[derive(Default)]
+struct CancelState {
+    cancelled: AtomicBool,
+    current: Mutex<Option<Running>>,
+}
+
+struct Running {
+    pid: u32,
+    /// stdin помощника pacman: команда отмены.
+    helper: Option<std::process::ChildStdin>,
+}
+
+impl PartialEq for JobCancel {
+    fn eq(&self, o: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &o.0)
+    }
+}
+
+impl JobCancel {
+    pub fn cancel(&self) {
+        self.0.cancelled.store(true, Ordering::SeqCst);
+        let mut cur = self.0.current.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(r) = cur.as_mut() else { return };
+        if let Some(w) = r.helper.as_mut() {
+            use std::io::Write;
+            let _ = writeln!(w, "cancel");
+            let _ = w.flush();
+            return;
+        }
+        let pid = r.pid as i32;
+        // Своя группа процессов (process_group(0) при запуске) — сигнал и детям (makepkg → gcc…).
+        // SAFETY: kill без побочных эффектов в этом процессе.
+        unsafe { libc::kill(-pid, libc::SIGINT) };
+        // Не вышел за 5 с (или сигнал игнорирует) — SIGTERM группе.
+        let st = self.0.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            let still = st.current.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|r| r.pid as i32 == pid);
+            if still {
+                // SAFETY: как выше.
+                unsafe { libc::kill(-pid, libc::SIGTERM) };
+            }
+        });
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.0.cancelled.load(Ordering::SeqCst)
+    }
 }
 
 fn is_root() -> bool {
@@ -574,6 +640,8 @@ fn is_root() -> bool {
 
 /// pacman с правами root: напрямую или через pkexec (пароль спросит агент
 /// polkit приложения — [`crate::polkit_agent`], если приложение задало окно).
+/// Через pkexec — помощником [`PACMAN_HELPER`], если он есть (отмена задания),
+/// иначе самим pacman.
 fn pacman_cmd(args: &[&str]) -> Command {
     let mut c = if is_root() {
         Command::new("pacman")
@@ -582,7 +650,7 @@ fn pacman_cmd(args: &[&str]) -> Command {
             tracing::warn!("{e}");
         }
         let mut c = Command::new("pkexec");
-        c.arg("pacman");
+        c.arg(if std::path::Path::new(PACMAN_HELPER).exists() { PACMAN_HELPER } else { "pacman" });
         c
     };
     c.args(args).env("LC_ALL", "C");
@@ -590,10 +658,27 @@ fn pacman_cmd(args: &[&str]) -> Command {
 }
 
 /// Запустить команду, передавая вывод построчно; `Ok` — код 0.
-fn run_streaming(mut cmd: Command, tx: &mpsc::Sender<JobEvent>) -> Result<(), String> {
+/// Отменённое задание новых команд не запускает.
+fn run_streaming(mut cmd: Command, tx: &mpsc::Sender<JobEvent>, cancel: &JobCancel) -> Result<(), String> {
+    use std::os::unix::process::CommandExt;
+    if cancel.is_cancelled() {
+        return Err(CANCELLED.into());
+    }
     let _ = tx.send(JobEvent::Line(format!("$ {:?}", cmd)));
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = cmd.spawn().map_err(|e| format!("не запустить: {e}"))?;
+    let helper = cmd.get_args().any(|a| a == PACMAN_HELPER);
+    let via_pkexec = cmd.get_program() == "pkexec";
+    cmd.stdin(if helper { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.process_group(0);
+    let mut child = {
+        // Запуск и запись под замком: отмена между ними не потеряется.
+        let mut cur = cancel.0.current.lock().unwrap_or_else(|e| e.into_inner());
+        if cancel.is_cancelled() {
+            return Err(CANCELLED.into());
+        }
+        let mut child = cmd.spawn().map_err(|e| format!("не запустить: {e}"))?;
+        *cur = Some(Running { pid: child.id(), helper: child.stdin.take() });
+        child
+    };
     let err = child.stderr.take();
     let tx2 = tx.clone();
     let t = std::thread::spawn(move || {
@@ -609,9 +694,18 @@ fn run_streaming(mut cmd: Command, tx: &mpsc::Sender<JobEvent>) -> Result<(), St
         }
     }
     let _ = t.join();
-    let st = child.wait().map_err(|e| e.to_string())?;
+    let st = child.wait().map_err(|e| e.to_string());
+    *cancel.0.current.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    let st = st?;
+    // Отмена не успела (pacman без помощника от root сигналу недоступен) — задание всё же выполнено.
+    if cancel.is_cancelled() && !st.success() {
+        return Err(CANCELLED.into());
+    }
     if st.success() {
         Ok(())
+    } else if via_pkexec && matches!(st.code(), Some(126 | 127)) {
+        // pkexec: 126 — окно пароля закрыто, 127 — не разрешено (отмена в окне агента или неверный пароль).
+        Err("права администратора не получены: окно пароля закрыто или пароль неверен".into())
     } else {
         Err(format!("завершилось с кодом {}", st.code().unwrap_or(-1)))
     }
@@ -680,14 +774,17 @@ fn aur_plan(names: &[String], tx: &mpsc::Sender<JobEvent>) -> Result<(Vec<String
 }
 
 /// Собрать и установить пакеты AUR.
-fn build_aur(names: &[String], build_user: &str, tx: &mpsc::Sender<JobEvent>) -> Result<(), String> {
+fn build_aur(names: &[String], build_user: &str, tx: &mpsc::Sender<JobEvent>, cancel: &JobCancel) -> Result<(), String> {
     let _ = tx.send(JobEvent::Stage("Разбор зависимостей AUR".into()));
     let (order, repo_deps) = aur_plan(names, tx)?;
+    if cancel.is_cancelled() {
+        return Err(CANCELLED.into());
+    }
     if !repo_deps.is_empty() {
         let _ = tx.send(JobEvent::Stage(format!("Зависимости из репозиториев: {}", repo_deps.len())));
         let mut args = vec!["-S", "--needed", "--noconfirm", "--asdeps"];
         args.extend(repo_deps.iter().map(|s| s.as_str()));
-        run_streaming(pacman_cmd(&args), tx)?;
+        run_streaming(pacman_cmd(&args), tx, cancel)?;
     }
     let root = is_root();
     let user = if build_user.trim().is_empty() {
@@ -709,10 +806,10 @@ fn build_aur(names: &[String], build_user: &str, tx: &mpsc::Sender<JobEvent>) ->
         let url = format!("https://aur.archlinux.org/cgit/aur.git/snapshot/{name}.tar.gz");
         let mut dl = Command::new("curl");
         dl.args(["-sfL", "--max-time", "120", "-o"]).arg(&tarball).arg(&url);
-        run_streaming(dl, tx)?;
+        run_streaming(dl, tx, cancel)?;
         let mut untar = Command::new("tar");
         untar.arg("-xzf").arg(&tarball).arg("-C").arg(&cache);
-        run_streaming(untar, tx)?;
+        run_streaming(untar, tx, cancel)?;
         let _ = std::fs::remove_file(&tarball);
         let mut mk = if root {
             // Каталог сборки — сборщику.
@@ -726,7 +823,7 @@ fn build_aur(names: &[String], build_user: &str, tx: &mpsc::Sender<JobEvent>) ->
             c
         };
         mk.current_dir(&dir).env("PKGDEST", &dir);
-        run_streaming(mk, tx)?;
+        run_streaming(mk, tx, cancel)?;
         let built: Vec<String> = std::fs::read_dir(&dir)
             .map_err(|e| e.to_string())?
             .flatten()
@@ -745,7 +842,7 @@ fn build_aur(names: &[String], build_user: &str, tx: &mpsc::Sender<JobEvent>) ->
             args.push("--asdeps");
         }
         args.extend(built.iter().map(|s| s.as_str()));
-        run_streaming(pacman_cmd(&args), tx)?;
+        run_streaming(pacman_cmd(&args), tx, cancel)?;
     }
     Ok(())
 }
@@ -753,6 +850,8 @@ fn build_aur(names: &[String], build_user: &str, tx: &mpsc::Sender<JobEvent>) ->
 /// Запустить операцию в фоне.
 pub fn start(op: Op, build_user: String) -> Job {
     let (tx, rx) = mpsc::channel();
+    let cancel = JobCancel::default();
+    let c = cancel.clone();
     std::thread::Builder::new()
         .name("synpkg-job".into())
         .spawn(move || {
@@ -761,26 +860,26 @@ pub fn start(op: Op, build_user: String) -> Job {
                     let _ = tx.send(JobEvent::Stage(format!("Установка: {}", p.join(", "))));
                     let mut a = vec!["-S", "--noconfirm", "--needed"];
                     a.extend(p.iter().map(|s| s.as_str()));
-                    run_streaming(pacman_cmd(&a), &tx)
+                    run_streaming(pacman_cmd(&a), &tx, &c)
                 }
                 Op::Remove(p) => {
                     let _ = tx.send(JobEvent::Stage(format!("Удаление: {}", p.join(", "))));
                     let mut a = vec!["-Rns", "--noconfirm"];
                     a.extend(p.iter().map(|s| s.as_str()));
-                    run_streaming(pacman_cmd(&a), &tx)
+                    run_streaming(pacman_cmd(&a), &tx, &c)
                 }
-                Op::InstallAur(p) => build_aur(p, &build_user, &tx),
+                Op::InstallAur(p) => build_aur(p, &build_user, &tx, &c),
                 Op::Refresh => {
                     let _ = tx.send(JobEvent::Stage("Обновление баз".into()));
-                    run_streaming(pacman_cmd(&["-Sy"]), &tx)
+                    run_streaming(pacman_cmd(&["-Sy"]), &tx, &c)
                 }
                 Op::Upgrade { aur } => {
                     let _ = tx.send(JobEvent::Stage("Обновление системы".into()));
-                    let mut r = run_streaming(pacman_cmd(&["-Syu", "--noconfirm"]), &tx);
+                    let mut r = run_streaming(pacman_cmd(&["-Syu", "--noconfirm"]), &tx, &c);
                     if r.is_ok() && *aur {
                         let ups: Vec<String> = updates(true).into_iter().filter(|u| u.aur).map(|u| u.name).collect();
                         if !ups.is_empty() {
-                            r = build_aur(&ups, &build_user, &tx);
+                            r = build_aur(&ups, &build_user, &tx, &c);
                         }
                     }
                     r
@@ -789,7 +888,7 @@ pub fn start(op: Op, build_user: String) -> Job {
             let _ = tx.send(JobEvent::Done(r));
         })
         .ok();
-    Job { rx }
+    Job { rx, cancel }
 }
 
 #[cfg(test)]
@@ -826,6 +925,30 @@ mod tests {
         assert_eq!(v[0].summary, "Editor & more");
         assert_eq!(v[0].icon.as_deref(), Some("acme"));
         assert_eq!(v[0].categories, vec!["Development", "TextEditor"]);
+    }
+
+    #[test]
+    fn cancel_interrupts_running_command() {
+        let (tx, rx) = mpsc::channel();
+        let cancel = JobCancel::default();
+        let c = cancel.clone();
+        let t = std::thread::spawn(move || {
+            let mut cmd = Command::new("sh");
+            cmd.args(["-c", "echo start; sleep 30; echo never"]);
+            run_streaming(cmd, &tx, &c)
+        });
+        // Дождаться запуска.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !matches!(rx.recv_timeout(std::time::Duration::from_secs(1)), Ok(JobEvent::Line(l)) if l == "start") {
+            assert!(std::time::Instant::now() < deadline, "команда не запустилась");
+        }
+        let t0 = std::time::Instant::now();
+        cancel.cancel();
+        assert_eq!(t.join().unwrap(), Err(CANCELLED.to_string()));
+        assert!(t0.elapsed() < std::time::Duration::from_secs(4), "sleep прерван SIGINT группе");
+        // Следующие шаги не запускаются.
+        let (tx2, _rx2) = mpsc::channel();
+        assert_eq!(run_streaming(Command::new("true"), &tx2, &cancel), Err(CANCELLED.to_string()));
     }
 
     #[test]

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>synshell</vendor>
+  <action id="org.synshell.synpkg.pacman">
+    <description>Install and remove software</description>
+    <description xml:lang="ru">Установка и удаление программ</description>
+    <message>Authentication is required to install, remove or update software</message>
+    <message xml:lang="ru">Для установки, удаления и обновления программ нужны права администратора</message>
+    <icon_name>system-software-install</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/synpkg/pacman-helper</annotate>
+  </action>
+</policyconfig>
