@@ -71,6 +71,8 @@ pub struct Surface {
     pub requested: (u32, u32),
     /// Физический размер буфера, под который настроены рендерер/поверхность.
     phys: (u32, u32),
+    /// Масштаб отрисовки (вывод × интерфейс), под который настроен рендерер.
+    rscale: f64,
     /// Область ввода (`None` — вся поверхность).
     pub input_region: Option<Vec<[i32; 4]>>,
 }
@@ -97,6 +99,7 @@ impl Surface {
             cursor: syngui::input::CursorIcon::Default,
             requested,
             phys: (0, 0),
+            rscale: 0.0,
             input_region: None,
         }
     }
@@ -123,6 +126,35 @@ impl Surface {
         self.scale120 as f64 / 120.0
     }
 
+    /// Масштаб интерфейса ([`crate::set_ui_zoom`]); без композитора — 1.
+    pub fn zoom(&self) -> f64 {
+        match self.backend {
+            Backend::Headless { .. } => 1.0,
+            _ => crate::ui_zoom() as f64,
+        }
+    }
+
+    /// Единицы интерфейса → логические композитора.
+    pub fn to_logical(&self, v: u32) -> u32 {
+        (v as f64 * self.zoom()).round() as u32
+    }
+
+    fn to_logical_i(&self, v: i32) -> i32 {
+        (v as f64 * self.zoom()).round() as i32
+    }
+
+    /// Размер поверхности в единицах интерфейса.
+    pub fn ui_size(&self) -> (u32, u32) {
+        let z = self.zoom();
+        ((self.logical.0 as f64 / z).round() as u32, (self.logical.1 as f64 / z).round() as u32)
+    }
+
+    /// Точка поверхности (логическая) → единицы интерфейса.
+    pub fn ui_point(&self, x: f64, y: f64) -> syngui::core::Point {
+        let z = self.zoom();
+        syngui::core::Point::new((x / z) as f32, (y / z) as f32)
+    }
+
     /// Применить параметры спецификации к layer-surface (без commit).
     pub fn apply_spec(&self) {
         let Some(layer) = self.layer() else { return };
@@ -131,11 +163,13 @@ impl Surface {
         // Ноль по оси без обоих якорей — ошибка протокола; до замера
         // содержимого (`auto_size`) просим 1.
         let (sx, sy) = self.stretched();
-        let w = if self.requested.0 == 0 && !sx { 1 } else { self.requested.0 };
-        let h = if self.requested.1 == 0 && !sy { 1 } else { self.requested.1 };
+        let w = if self.requested.0 == 0 && !sx { 1 } else { self.to_logical(self.requested.0) };
+        let h = if self.requested.1 == 0 && !sy { 1 } else { self.to_logical(self.requested.1) };
         layer.set_size(w, h);
-        layer.set_margin(s.margin[0], s.margin[1], s.margin[2], s.margin[3]);
-        layer.set_exclusive_zone(s.exclusive_zone);
+        let m = s.margin.map(|v| self.to_logical_i(v));
+        layer.set_margin(m[0], m[1], m[2], m[3]);
+        // -1 и 0 — особые значения, не длина.
+        layer.set_exclusive_zone(if s.exclusive_zone > 0 { self.to_logical_i(s.exclusive_zone).max(1) } else { s.exclusive_zone });
         layer.set_keyboard_interactivity(s.keyboard);
     }
 
@@ -147,6 +181,7 @@ impl Surface {
             Some(rects) => {
                 let Ok(region) = smithay_client_toolkit::compositor::Region::new(compositor) else { return };
                 for r in rects {
+                    let r = r.map(|v| self.to_logical_i(v));
                     region.add(r[0], r[1], r[2].max(0), r[3].max(0));
                 }
                 wl.set_input_region(Some(region.wl_region()));
@@ -196,8 +231,13 @@ impl Surface {
         if lw == 0 || lh == 0 {
             return Ok(false);
         }
-        let scale = self.scale();
-        let phys = ((lw as f64 * scale).round().max(1.0) as u32, (lh as f64 * scale).round().max(1.0) as u32);
+        let phys = ((lw as f64 * self.scale()).round().max(1.0) as u32, (lh as f64 * self.scale()).round().max(1.0) as u32);
+        // Раскладка — в единицах интерфейса, отрисовка — крупнее на масштаб
+        // интерфейса: физический буфер тот же.
+        let zoom = self.zoom();
+        let scale = self.scale() * zoom;
+        let (uw, uh) = (lw as f64 / zoom, lh as f64 / zoom);
+        let (uw_px, uh_px) = (uw.ceil().max(1.0) as u32, uh.ceil().max(1.0) as u32);
 
         // Поверхность wgpu и рендерер — лениво и при смене размера.
         let format = match &mut self.backend {
@@ -222,7 +262,7 @@ impl Surface {
         };
         let shared = gpu.shared.as_ref().unwrap();
         if self.renderer.is_none() {
-            let r = Renderer::new(shared, format, phys.0, phys.1, lw, lh, font_family);
+            let r = Renderer::new(shared, format, phys.0, phys.1, uw_px, uh_px, font_family);
             r.font_atlas
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -233,12 +273,14 @@ impl Surface {
             self.view.tree.image_store = Some(r.image_store.clone());
             self.renderer = Some(r);
             self.phys = phys;
+            self.rscale = scale;
             self.view.invalidate();
-        } else if self.phys != phys {
+        } else if self.phys != phys || self.rscale != scale {
             let r = self.renderer.as_mut().unwrap();
-            r.resize(&shared.device, phys.0, phys.1, lw, lh);
+            r.resize(&shared.device, phys.0, phys.1, uw_px, uh_px);
             r.font_atlas.lock().unwrap_or_else(|e| e.into_inner()).set_scale_factor(scale as f32);
             self.phys = phys;
+            self.rscale = scale;
             self.view.invalidate();
         }
 
@@ -264,10 +306,8 @@ impl Surface {
                     out.max(1) as f32
                 }
             };
-            let max = Size::new(
-                axis(sx, self.spec.size.0, self.logical.0, output_size.0),
-                axis(sy, self.spec.size.1, self.logical.1, output_size.1),
-            );
+            let (cw, ch) = self.ui_size();
+            let max = Size::new(axis(sx, self.spec.size.0, cw, output_size.0), axis(sy, self.spec.size.1, ch, output_size.1));
             let m = self.view.measure(engine, max);
             let want = (
                 if sx || self.spec.size.0 != 0 { self.spec.size.0 } else { m.width.ceil().max(1.0) as u32 },
@@ -278,7 +318,7 @@ impl Surface {
                 self.requested = want;
                 match &self.backend {
                     Backend::Wayland { role: Role::Layer(layer), .. } => {
-                        layer.set_size(want.0, want.1);
+                        layer.set_size((want.0 as f64 * zoom).round() as u32, (want.1 as f64 * zoom).round() as u32);
                         layer.commit();
                     }
                     Backend::Wayland { .. } => {}
@@ -306,7 +346,7 @@ impl Surface {
             let st = renderer.image_store.lock().unwrap_or_else(|e| e.into_inner());
             st.has_loading() || st.has_pending_uploads() || st.has_pending_frees()
         };
-        let changed = self.view.frame(engine, Size::new(lw as f32, lh as f32), scale as f32, &mut self.display_list);
+        let changed = self.view.frame(engine, Size::new(uw as f32, uh as f32), scale as f32, &mut self.display_list);
         if let Some(show) = self.view.tree.virtual_keyboard_request.take() {
             crate::virtual_keyboard_request(&self.spec.namespace, show);
         }

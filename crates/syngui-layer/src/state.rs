@@ -42,7 +42,6 @@ use smithay_client_toolkit::{
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::time::Duration;
-use syngui::core::Point;
 use syngui::input::MouseButton;
 use syngui::mss::StyleEngine;
 use wayland_client::{
@@ -301,6 +300,10 @@ impl State {
                         })
                     })
                     .unwrap_or((0, 0));
+                // Размер — в единицах интерфейса (`set_ui_zoom`); положение —
+                // в координатах композитора (им меряют окна и IPC).
+                let z = crate::ui_zoom();
+                let size = ((size.0 as f32 / z).round() as i32, (size.1 as f32 / z).round() as i32);
                 Some((
                     o.clone(),
                     OutputInfo {
@@ -459,6 +462,26 @@ impl State {
             Command::VkGroup(group) => crate::vkbd::group(self, group),
             Command::VkModifiers(d, l, k) => crate::vkbd::modifiers(self, d, l, k),
             Command::ImEnable => crate::vkbd::im_enable(self),
+            Command::Zoom => {
+                // Размеры, отступы, зоны и области ввода — заново в
+                // логических единицах; содержимое — перераскладка.
+                self.publish_outputs();
+                for s in self.surfaces.values_mut() {
+                    s.needs_frame = true;
+                    s.view.invalidate();
+                    if let Some(layer) = s.layer() {
+                        s.apply_spec();
+                        if let Some(comp) = &self.compositor {
+                            s.apply_input_region(comp);
+                        }
+                        layer.commit();
+                    }
+                    let (w, h) = s.ui_size();
+                    if let Some(cb) = s.hooks.on_resize.as_mut() {
+                        cb(w, h);
+                    }
+                }
+            }
             Command::Redraw(id) => {
                 for (sid, s) in self.surfaces.iter_mut() {
                     if id.is_none() || id == Some(*sid) {
@@ -866,8 +889,8 @@ impl LayerShellHandler for State {
     fn configure(&mut self, _: &Connection, _: &QueueHandle<Self>, layer: &LayerSurface, cfg: LayerSurfaceConfigure, _: u32) {
         let Some(id) = self.surface_id_of(layer.wl_surface()) else { return };
         let s = self.surfaces.get_mut(&id).unwrap();
-        let w = if cfg.new_size.0 == 0 { s.requested.0.max(1) } else { cfg.new_size.0 };
-        let h = if cfg.new_size.1 == 0 { s.requested.1.max(1) } else { cfg.new_size.1 };
+        let w = if cfg.new_size.0 == 0 { s.to_logical(s.requested.0).max(1) } else { cfg.new_size.0 };
+        let h = if cfg.new_size.1 == 0 { s.to_logical(s.requested.1).max(1) } else { cfg.new_size.1 };
         let changed = s.logical != (w, h);
         s.logical = (w, h);
         s.configured = true;
@@ -876,6 +899,7 @@ impl LayerShellHandler for State {
         s.frame_pending = false;
         if changed {
             s.view.invalidate();
+            let (w, h) = s.ui_size();
             if let Some(cb) = s.hooks.on_resize.as_mut() {
                 cb(w, h);
             }
@@ -995,8 +1019,8 @@ impl PointerHandler for State {
     fn pointer_frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_pointer::WlPointer, events: &[PointerEvent]) {
         for ev in events {
             let Some(id) = self.surface_id_of(&ev.surface) else { continue };
-            let pos = Point::new(ev.position.0 as f32, ev.position.1 as f32);
             let Some(s) = self.surfaces.get_mut(&id) else { continue };
+            let pos = s.ui_point(ev.position.0, ev.position.1);
             match ev.kind {
                 PointerEventKind::Enter { .. } => {
                     self.pointer_focus = Some(id);
@@ -1083,7 +1107,8 @@ impl TouchHandler for State {
                 h(true);
             }
         }
-        s.view.touch_down(id as u64, Point::new(position.0 as f32, position.1 as f32));
+        let p = s.ui_point(position.0, position.1);
+        s.view.touch_down(id as u64, p);
         s.needs_frame = true;
     }
     fn up(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch, _serial: u32, _time: u32, id: i32) {
@@ -1101,7 +1126,8 @@ impl TouchHandler for State {
     fn motion(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch, _time: u32, id: i32, position: (f64, f64)) {
         let Some(sid) = self.touches.get(&id).copied() else { return };
         let Some(s) = self.surfaces.get_mut(&sid) else { return };
-        s.view.touch_motion(id as u64, Point::new(position.0 as f32, position.1 as f32));
+        let p = s.ui_point(position.0, position.1);
+        s.view.touch_motion(id as u64, p);
         s.needs_frame = true;
     }
     fn shape(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_touch::WlTouch, _id: i32, _major: f64, _minor: f64) {}

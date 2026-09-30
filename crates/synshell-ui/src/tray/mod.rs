@@ -85,7 +85,8 @@ fn global_point(pc: &PanelCtx, r: Rect) -> (i32, i32) {
         .find(|o| Some(&o.name) == a.output.as_ref())
         .map(|o| o.position)
         .unwrap_or((0, 0));
-    ((x + w / 2.0) as i32 + pos.0, (y + h / 2.0) as i32 + pos.1)
+    let z = syngui_layer::ui_zoom();
+    (((x + w / 2.0) * z) as i32 + pos.0, ((y + h / 2.0) * z) as i32 + pos.1)
 }
 
 fn open_menu(item: &TrayItem, anchor: PopupAnchor, x: i32, y: i32) {

@@ -212,6 +212,9 @@ fn window_menu(ctx: ShellCtx, arg: &str) {
         Some(o) => (Some(o.name.clone()), x - o.geometry[0] as f32, y - o.geometry[1] as f32),
         None => (None, x, y),
     };
+    // Координаты композитора → единицы интерфейса оболочки.
+    let z = syngui_layer::ui_zoom();
+    let (lx, ly) = (lx / z, ly / z);
     ctx.popup.set(Some(crate::ctx::Popup {
         kind: PopupKind::WindowMenu(id),
         anchor: PopupAnchor { output, rect: Some([lx, ly, 0.0, 0.0]), edge: Edge::Top, attached: false },

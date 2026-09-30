@@ -98,6 +98,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         log::error!("ошибка в конфиге, взяты значения по умолчанию: {e}");
     }
     xdg::set_icon_theme(&config.appearance.icon_theme);
+    syngui_layer::set_ui_zoom(config.appearance.ui_scale);
     xdg::warm_up();
     // Виброотклик: удержание пальцем (меню, перенос значков), переключатели.
     synshell_common::haptics::set_config(&config.haptics);
@@ -251,8 +252,10 @@ pub fn reload_config() {
         probe.wallpaper = old.wallpaper.clone();
         probe.animations = old.animations.clone();
         probe.haptics = old.haptics.clone();
-        probe != *old
+        // Масштаб интерфейса меняет размеры панелей — пересобрать.
+        probe != *old || cfg.appearance.ui_scale != old.appearance.ui_scale
     };
+    syngui_layer::set_ui_zoom(cfg.appearance.ui_scale);
     let theme_ms = cfg.animations.theme_ms();
     if theme_ms > 0 && !structural {
         syngui_layer::set_stylesheet_with_transition(theme::build(&cfg), theme_ms);

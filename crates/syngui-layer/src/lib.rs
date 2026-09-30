@@ -109,13 +109,15 @@ pub struct SurfaceHooks {
     pub on_pointer: Option<Box<dyn FnMut(bool)>>,
     /// Композитор закрыл поверхность (исчез вывод и т.п.).
     pub on_closed: Option<Box<dyn FnOnce()>>,
-    /// Поверхность получила размер (логический) после configure.
+    /// Поверхность получила размер (в единицах интерфейса) после configure.
     pub on_resize: Option<Box<dyn FnMut(u32, u32)>>,
 }
 
 type Factory = Box<dyn FnOnce() -> Box<dyn Widget>>;
 
 pub(crate) enum Command {
+    /// Сменился масштаб интерфейса ([`set_ui_zoom`]).
+    Zoom,
     Create { id: SurfaceId, spec: SurfaceSpec, factory: Factory, hooks: SurfaceHooks },
     Reconfigure { id: SurfaceId, spec: SurfaceSpec },
     InputRegion { id: SurfaceId, rects: Option<Vec<[i32; 4]>> },
@@ -190,6 +192,27 @@ pub fn create_surface_with(
     let id = SurfaceId(next_id());
     push(Command::Create { id, spec, factory: Box::new(factory), hooks });
     id
+}
+
+static UI_ZOOM: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3f80_0000); // 1.0
+
+/// Масштаб интерфейса поверх масштаба вывода (`[appearance] ui_scale`).
+/// Всё, что видит программа, — в единицах интерфейса: размеры поверхностей
+/// и выводов, отступы, области ввода, координаты указателя и касаний;
+/// композитору уходит умноженное на масштаб. Координаты, которые программа
+/// сама шлёт композитору в обход (IPC), пересчитывает [`ui_zoom`].
+pub fn set_ui_zoom(zoom: f32) {
+    let z = if zoom.is_finite() { zoom.clamp(0.5, 3.0) } else { 1.0 };
+    if (ui_zoom() - z).abs() < 1e-4 {
+        return;
+    }
+    UI_ZOOM.store(z.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    push(Command::Zoom);
+}
+
+/// Текущий масштаб интерфейса ([`set_ui_zoom`]).
+pub fn ui_zoom() -> f32 {
+    f32::from_bits(UI_ZOOM.load(std::sync::atomic::Ordering::Relaxed))
 }
 
 /// Сменить параметры (якоря, размер, отступы, слой, клавиатуру).

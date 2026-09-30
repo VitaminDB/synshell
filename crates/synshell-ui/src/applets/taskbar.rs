@@ -169,7 +169,9 @@ pub fn start_minimize_rects() {
                 continue;
             }
             let Some([x, y, w, h]) = pc.anchor(r).rect else { continue };
-            let rect = [x.round() as i32, y.round() as i32, w.round() as i32, h.round() as i32];
+            // Композитору — в его единицах (масштаб интерфейса).
+            let z = syngui_layer::ui_zoom();
+            let rect = [(x * z).round() as i32, (y * z).round() as i32, (w * z).round() as i32, (h * z).round() as i32];
             let changed = SENT.with(|s| s.borrow().get(&id) != Some(&(pc.output.clone(), rect)));
             if changed {
                 SENT.with(|s| s.borrow_mut().insert(id, (pc.output.clone(), rect)));

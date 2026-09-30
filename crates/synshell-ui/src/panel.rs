@@ -395,10 +395,12 @@ fn want_defloat(panel: &Panel, out: &OutputInfo) -> bool {
         }
         let Some([zx0, zy0, zx1, zy1]) = zone else { return false };
         let [x, y, ww, hh] = w.geometry;
-        let (x0, y0) = ((x - offset.0) as f32, (y - offset.1) as f32);
+        // Окна — в координатах композитора, панель — в единицах интерфейса.
+        let z = syngui_layer::ui_zoom();
+        let (x0, y0) = ((x - offset.0) as f32 / z, (y - offset.1) as f32 / z);
         // Геометрия — без заголовка; он сверху, высотой из настроек рамок.
-        let y0 = y0 - title_h;
-        let (x1, y1) = (x0 + ww as f32, y0 + hh as f32 + title_h);
+        let y0 = y0 - title_h / z;
+        let (x1, y1) = (x0 + ww as f32 / z, y0 + (hh as f32 + title_h) / z);
         x0 < zx1 && x1 > zx0 && y0 < zy1 && y1 > zy0
     })
 }

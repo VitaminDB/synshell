@@ -275,8 +275,10 @@ fn overlapped(st: &DockState) -> bool {
             return false;
         }
         let [x, y, ww, hh] = w.geometry;
-        let (x0, y0) = ((x - out.geometry[0]) as f32, (y - out.geometry[1]) as f32);
-        let (x1, y1) = (x0 + ww as f32, y0 + hh as f32);
+        // Окна — в координатах композитора, док — в единицах интерфейса.
+        let z = syngui_layer::ui_zoom();
+        let (x0, y0) = ((x - out.geometry[0]) as f32 / z, (y - out.geometry[1]) as f32 / z);
+        let (x1, y1) = (x0 + ww as f32 / z, y0 + hh as f32 / z);
         // Касание краем (окно по центру рабочей области кончается у полосы)
         // — не перекрытие: нужно зайти на полосу глубже допуска.
         const SLOP: f32 = 8.0;
