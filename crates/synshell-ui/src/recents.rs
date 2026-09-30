@@ -140,6 +140,7 @@ fn view(ctx: ShellCtx, open: RwSignal<bool>) -> impl Widget {
                     .child(clear)
                     .class("recents")
                     // Presence меряет по содержимому — затемнение на весь экран.
+                    .style("width", syngui::viewport::viewport_size().get_untracked().width)
                     .style("height", syngui::viewport::viewport_size().get_untracked().height),
             ),
         )
