@@ -480,7 +480,7 @@ fn drawer_panel() -> W {
     boxed(
         GestureDetector::new()
             .cursor(CursorIcon::Default)
-            .child(DecoratedBox::new().style("width", w).style("height", vp.height).class("drawer-wrap").child(panel)),
+            .child(DecoratedBox::new().style("width", w).class("drawer-wrap").child(panel)),
     )
 }
 

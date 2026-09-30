@@ -561,6 +561,8 @@ ItemView.phone { padding: 6px 6px 92px 6px; scrollbar-width: 4px; }
 .fab .icon { color: var(--accent-fg); font-size: 26px; icon-size: 26px; }
 
 .drawer-wrap {
+    /* Высота — от окна (содержащего блока), не от снимка viewport_size при открытии. */
+    height: 100%;
     background: var(--sidebar);
     border-radius: 0px 20px 20px 0px;
     box-shadow: 0 0 32px var(--shadow);
