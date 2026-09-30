@@ -168,11 +168,12 @@ pub fn lock_now(ctx: ShellCtx) {
     let st = state();
     st.error.set(String::new());
     st.checking.set(false);
+    NO_PASSWORD.store(detect_no_password(), std::sync::atomic::Ordering::Relaxed);
     ctx.close_popup();
     syngui_layer::lock_session(move |out: &OutputInfo| {
         let ctx = ShellCtx::get();
         if ctx.is_phone() {
-            Box::new(phone_view(ctx, out.clone()))
+            Box::new(phone_view(ctx, out.clone(), Stage::Cover))
         } else {
             Box::new(view(ctx, out.clone()))
         }
@@ -181,7 +182,14 @@ pub fn lock_now(ctx: ShellCtx) {
 
 fn submit(password: String) {
     let st = state();
-    if st.checking.get_untracked() || password.is_empty() {
+    if st.checking.get_untracked() {
+        return;
+    }
+    if password.is_empty() {
+        // Пользователь без пароля — снять блокировку без проверки.
+        if no_password() {
+            syngui_layer::unlock_session();
+        }
         return;
     }
     st.checking.set(true);
@@ -302,11 +310,18 @@ fn phone_state() -> (RwSignal<Stage>, RwSignal<String>) {
 }
 
 /// Отладка без блокировки сеанса: телефонный экран блокировки обычной
-/// поверхностью поверх всего (`shell lock-preview`).
-pub fn preview() {
+/// поверхностью поверх всего (`shell lock-preview [pin|text]` — сразу
+/// цифровая панель или ввод пароля; убрать — `restart-shell`).
+pub fn preview(stage: &str) {
+    let stage = match stage {
+        "pin" => Stage::Pin,
+        "text" => Stage::Text,
+        _ => Stage::Cover,
+    };
     use syngui_layer::{Anchor, KeyboardInteractivity, Layer, SurfaceSpec};
     let outs = syngui_layer::outputs().get_untracked();
     let Some(out) = outs.first().cloned() else { return };
+    NO_PASSWORD.store(detect_no_password(), std::sync::atomic::Ordering::Relaxed);
     let spec = SurfaceSpec {
         namespace: "syndesktop-lock-preview".into(),
         layer: Layer::Overlay,
@@ -319,40 +334,48 @@ pub fn preview() {
         auto_size: false,
         clear_color: [0.0, 0.0, 0.0, 1.0],
     };
-    syngui_layer::create_surface(spec, move || Box::new(phone_view(ShellCtx::get(), out.clone())));
+    syngui_layer::create_surface(spec, move || Box::new(phone_view(ShellCtx::get(), out.clone(), stage)));
 }
 
-fn phone_view(ctx: ShellCtx, out: OutputInfo) -> impl Widget {
+fn phone_view(ctx: ShellCtx, out: OutputInfo, initial: Stage) -> impl Widget {
     use syngui::widgets::{Motion, PanAxis, SwipeDirection};
     use syngui::GestureDetector;
     let (stage, pin) = phone_state();
-    stage.set(Stage::Cover);
+    stage.set(initial);
     pin.set(String::new());
     let st = state();
     let dur = crate::anim::group_ms(&ctx, "home", 280);
-    let body = crate::ui::rx(move || {
-        let s = stage.get();
-        let key = match s {
-            Stage::Cover => 1u64,
-            Stage::Pin => 2,
-            Stage::Text => 3,
-        };
-        Box::new(
-            AnimatedSwitcher::new(key, move || -> Box<dyn Widget> {
-                match s {
-                    Stage::Cover => Box::new(cover(ctx)),
-                    Stage::Pin => Box::new(pin_pad(ctx)),
-                    Stage::Text => Box::new(text_entry()),
-                }
-            })
-            .directional(true)
-            .slide(0.0, 60.0)
-            .duration_ms(dur)
-            .exit_duration_ms(dur * 2 / 3)
-            .animate_size(false)
-            .class("grow"),
-        )
-    });
+    // Раскладка — снаружи реактивных узлов: Reactive/AnimatedSwitcher отдают
+    // детям свободные ограничения (натуральный размер, прижаты влево-вверх),
+    // и `grow`/выравнивание внутри них не работают. Поэтому слои на весь
+    // экран — здесь: верх (часы, уведомления) и низ (подсказка / цифры /
+    // клавиатура) раздельно, оба по центру.
+    let part = move |top: bool| {
+        crate::ui::rx(move || {
+            let s = stage.get();
+            let key = match s {
+                Stage::Cover => 1u64,
+                Stage::Pin => 2,
+                Stage::Text => 3,
+            };
+            Box::new(
+                AnimatedSwitcher::new(key, move || -> Box<dyn Widget> {
+                    match (s, top) {
+                        (Stage::Cover, true) => Box::new(cover_top(ctx)),
+                        (Stage::Cover, false) => Box::new(cover_bottom()),
+                        (_, true) => Box::new(Column::new()),
+                        (Stage::Pin, false) => Box::new(pin_pad(ctx)),
+                        (Stage::Text, false) => Box::new(text_entry()),
+                    }
+                })
+                .directional(true)
+                .slide(0.0, 60.0)
+                .duration_ms(dur)
+                .exit_duration_ms(dur * 2 / 3)
+                .animate_size(false),
+            )
+        })
+    };
     // Ошибка пароля — снова пустой ввод.
     create_effect(move || {
         let _ = st.attempt.get();
@@ -374,7 +397,20 @@ fn phone_view(ctx: ShellCtx, out: OutputInfo) -> impl Widget {
                 stage.set(Stage::Pin);
             }
         })
-        .child(Column::new().child(body).class("lock-phone"));
+        .child(
+            // Два слоя, а не одна колонка SpaceBetween: у цифровой панели
+            // верх пустой, и единственный блок встал бы в начало.
+            Stack::new()
+                .fit(StackFit::Expand)
+                .child(Column::new().cross_axis_alignment(CrossAxisAlignment::Center).child(part(true)).class("lock-phone"))
+                .child(
+                    Column::new()
+                        .main_axis_alignment(MainAxisAlignment::End)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(part(false))
+                        .class("lock-phone"),
+                ),
+        );
     let _ = Motion::fade();
     Stack::new()
         .fit(StackFit::Expand)
@@ -389,14 +425,36 @@ fn swipe_unlocks() -> bool {
     if ShellCtx::get().cfg().lock.method == "swipe" {
         return true;
     }
-    let user = user_name();
-    std::fs::read_to_string("/etc/shadow")
-        .ok()
-        .and_then(|s| s.lines().find(|l| l.split(':').next() == Some(user.as_str())).map(|l| l.split(':').nth(1).unwrap_or("").to_string()))
-        .is_some_and(|h| h.is_empty() || h.starts_with('!') || h.starts_with('*'))
+    no_password()
 }
 
-fn cover(ctx: ShellCtx) -> impl Widget {
+/// Пароля нет — посчитано при блокировке ([`lock_now`]).
+static NO_PASSWORD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn no_password() -> bool {
+    NO_PASSWORD.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Пароля у пользователя нет: пустой или заблокированный. `/etc/shadow`
+/// читается только root — иначе `passwd -S` о себе (NP — нет пароля, L — заблокирован).
+fn detect_no_password() -> bool {
+    let user = user_name();
+    if let Ok(s) = std::fs::read_to_string("/etc/shadow") {
+        return s
+            .lines()
+            .find(|l| l.split(':').next() == Some(user.as_str()))
+            .map(|l| l.split(':').nth(1).unwrap_or("").to_string())
+            .is_some_and(|h| h.is_empty() || h.starts_with('!') || h.starts_with('*'));
+    }
+    std::process::Command::new("passwd")
+        .args(["-S", &user])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .is_some_and(|o| matches!(String::from_utf8_lossy(&o.stdout).split_whitespace().nth(1), Some("NP" | "L" | "LK")))
+}
+
+fn cover_top(ctx: ShellCtx) -> impl Widget {
     let clock = crate::ui::rx(move || {
         let now = ctx.now.get();
         Box::new(
@@ -409,6 +467,9 @@ fn cover(ctx: ShellCtx) -> impl Widget {
     });
     let notes = crate::ui::rx(move || {
         let list = ctx.history.get();
+        // Ширина экрана без полей .lock-phone: в свободных ограничениях
+        // карточки иначе ужались бы до своего текста.
+        let w = (syngui::viewport::viewport_size().get().width - 48.0).max(0.0);
         let mut col = Column::new().gap(8.0);
         for n in list.iter().rev().take(4) {
             col = col.child(
@@ -419,22 +480,26 @@ fn cover(ctx: ShellCtx) -> impl Widget {
                             .child(Text::new(n.summary.clone()).max_lines(1).class("lock-note-title"))
                             .child(Text::new(n.body.clone()).max_lines(2).class("lock-note-body")),
                     )
-                    .class("lock-note"),
+                    .class("lock-note")
+                    .style("width", w),
             );
         }
         Box::new(col)
     });
     Column::new()
-        .main_axis_alignment(MainAxisAlignment::SpaceBetween)
-        .child(Column::new().gap(28.0).child(Row::new().main_axis_alignment(MainAxisAlignment::Center).child(clock)).child(notes))
-        .child(
-            Column::new()
-                .gap(6.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(icon(mi::LOCK).class("lock-phone-lock"))
-                .child(Text::new("Проведите вверх, чтобы разблокировать").class("lock-hint")),
-        )
-        .class("grow lock-cover")
+        .gap(28.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(clock)
+        .child(notes)
+        .class("lock-cover")
+}
+
+fn cover_bottom() -> impl Widget {
+    Column::new()
+        .gap(6.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(icon(mi::LOCK).class("lock-phone-lock"))
+        .child(Text::new("Проведите вверх, чтобы разблокировать").class("lock-hint"))
 }
 
 fn pin_pad(ctx: ShellCtx) -> impl Widget {
@@ -471,7 +536,8 @@ fn pin_pad(ctx: ShellCtx) -> impl Widget {
                             .gap(0.0)
                             .cross_axis_alignment(CrossAxisAlignment::Center)
                             .child(Text::new(label).class("lock-key-digit"))
-                            .child(Text::new(sub).class("lock-key-sub")),
+                            // Пустая подпись («1») — неразрывный пробел: цифра на одной высоте с остальными.
+                            .child(Text::new(if sub.is_empty() { "\u{a0}" } else { sub }).class("lock-key-sub")),
                     )
                     .class("lock-key"),
             )
@@ -519,7 +585,7 @@ fn pin_pad(ctx: ShellCtx) -> impl Widget {
                         .child(DecoratedBox::new().child(Text::new("Отмена").class("lock-pill-text")).class("lock-pill")),
                 ),
         )
-        .class("grow lock-pin")
+        .class("lock-pin")
 }
 
 fn text_entry() -> impl Widget {
@@ -534,6 +600,8 @@ fn text_entry() -> impl Widget {
     });
     let error = crate::ui::rx(move || Box::new(Text::new(st.error.get()).class("lock-error")));
     let kb = on_screen_keyboard(kb_state, KeyboardLayout::text_en_ru("Войти"))
+        .gap(5.0)
+        .stretch(44.0)
         .on_change(move |t| pin.set(t.to_string()))
         .on_submit(|t| submit(t.to_string()))
         .build();
@@ -544,11 +612,11 @@ fn text_entry() -> impl Widget {
         .child(Text::new(display_name()).class("lock-user"))
         .child(DecoratedBox::new().child(dots).class("lock-text-box"))
         .child(error)
-        .child(DecoratedBox::new().child(kb).class("lock-osk"))
+        .child(DecoratedBox::new().child(kb).class("lock-osk").style("width", (syngui::viewport::viewport_size().get_untracked().width - 48.0).clamp(280.0, 720.0)))
         .child(
             GestureDetector::new()
                 .on_click(move || stage.set(Stage::Pin))
                 .child(DecoratedBox::new().child(Text::new("123").class("lock-pill-text")).class("lock-pill")),
         )
-        .class("grow lock-pin")
+        .class("lock-pin")
 }

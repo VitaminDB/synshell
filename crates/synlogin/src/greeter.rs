@@ -233,7 +233,12 @@ fn view(st: St) -> impl Widget {
         )]
     });
     let keyboard = Reactive::new(move || -> Vec<Box<dyn Widget>> {
-        let show = st.osk.get() && st.stage.get() != Stage::Users;
+        let show = st.osk.get()
+            && match st.stage.get() {
+                Stage::Users => false,
+                Stage::Password(u) => !users::has_empty_password(&u.name),
+                Stage::Create => true,
+            };
         if !show {
             return vec![];
         }
@@ -297,7 +302,12 @@ fn users_view(st: St) -> impl Widget {
         let u2 = u.clone();
         row = row.child(GestureDetector::new().on_click(move || {
             reset_values(st);
-            st.stage.set(Stage::Password(u2.clone()));
+            // Без пароля — сразу вход, без экрана пароля.
+            if users::has_empty_password(&u2.name) {
+                login(st, u2.clone());
+            } else {
+                st.stage.set(Stage::Password(u2.clone()));
+            }
         }).child(
             DecoratedBox::new()
                 .child(Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(avatar(&u, "avatar")).child(Text::new(u.display()).max_lines(1).class("user-name")))
@@ -348,13 +358,17 @@ fn password_view(st: St, u: User) -> impl Widget {
         vec![Box::new(field(st, 0, "Пароль", true))]
     });
     let u2 = u.clone();
-    Column::new()
+    // Пользователь без пароля: поля нет, «Войти» входит сразу.
+    let no_password = users::has_empty_password(&u.name);
+    let mut col = Column::new()
         .gap(14.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(avatar(&u, "avatar big"))
-        .child(Text::new(u.display()).class("title"))
-        .child(DecoratedBox::new().child(pass).class("field-box"))
-        .child(err)
+        .child(Text::new(u.display()).class("title"));
+    if !no_password {
+        col = col.child(DecoratedBox::new().child(pass).class("field-box"));
+    }
+    col.child(err)
         .child(
             Row::new()
                 .gap(10.0)

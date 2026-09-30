@@ -175,7 +175,7 @@ CPU; на Redmi K50 Ultra — юнит устройства в arch-mobile-port 
 `synlogin daemon [-- аргументы synwm]` (root, юнит `crates/synlogin/data/synlogin.service`) по кругу:
 1. композитор synwm с экраном входа вместо оболочки (`SYNSHELL_SHELL="synlogin greeter"`, `XDG_RUNTIME_DIR=
    /run/synlogin/greeter`): часы, карточки пользователей (UID 1000–59999 и root), пароль через PAM
-   (`syndesktop-lock`, иначе `login`; пустой пароль — вход без пароля), «Новый пользователь» (логин, имя,
+   (`syndesktop-lock`, иначе `login`; у пользователя без пароля — вход по нажатию на карточку, без экрана пароля), «Новый пользователь» (логин, имя,
    пароль, администратор → `useradd -m -G video,input,audio,render[,wheel]`), перезагрузка и выключение,
    своя экранная клавиатура (`OnScreenKeyboard::stretch`), на телефоне показана сразу;
 2. экран входа пишет имя в `/run/synlogin/request` и завершает композитор (`Action::Quit`);
@@ -192,7 +192,12 @@ CPU; на Redmi K50 Ultra — юнит устройства в arch-mobile-port 
    (`SYNLOGIN_REQUEST`) композитор передаёт демону файлом и выходит — демон выполняет их от root.
 
 Отладка без композитора: `SYNSHELL_FORM_FACTOR=phone SYNGUI_LAYER_HEADLESS=406x904 SYNGUI_LAYER_DUMP=dir
-synlogin greeter`. `SYNLOGIN_SYNWM` подменяет бинарник композитора.
+synlogin greeter`. Рендер: композитор — GPU (auto, откат на CPU), экран входа — клиент syngui на wgpu (Vulkan).
+
+Экран блокировки телефона: свайп вверх снимает блокировку при `[lock] method = "swipe"` или если у пользователя
+нет пароля (`/etc/shadow` сеансу не root не читается — тогда `passwd -S` о себе: `NP`/`L`); иначе — цифровая
+панель или клавиатура. Отладка раскладки без блокировки сеанса: `synwm msg action "shell lock-preview [pin|text]"`
+(убрать — `restart-shell`), дерево элементов с размерами — `SYNGUI_LAYER_TREE=1` в окружении оболочки. `SYNLOGIN_SYNWM` подменяет бинарник композитора.
 
 ## synkeyboard — экранная клавиатура
 `crates/synkeyboard`: отдельный демон на layer-shell (слой Top, снизу, exclusive zone = высота — окна
