@@ -218,7 +218,17 @@ pub enum Request {
     /// Трансляция экрана: после `Ok` демон шлёт кадры [`ScreenPacket`]
     /// (u32 длина + данные), клиент подтверждает каждый `ScreenAck`
     /// (u32 длина + JSON).
-    Screen { device: String, output: Option<String>, #[serde(default)] cursor: bool },
+    ///
+    /// `video` — клиент умеет декодировать видео (`ScreenHeader::video`):
+    /// кодек и битрейт выбирает демон по `[link] screen_codec/screen_bitrate`.
+    Screen {
+        device: String,
+        output: Option<String>,
+        #[serde(default)]
+        cursor: bool,
+        #[serde(default)]
+        video: bool,
+    },
     /// Смонтировать или отмонтировать файлы устройства.
     Mount { device: String, mount: bool },
     /// Уведомления устройств (последние).
@@ -269,6 +279,9 @@ pub enum ExecFrame {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ScreenAck {
     pub seq: u64,
+    /// Следующий видеокадр — ключевой (декодер создан заново или ошибся).
+    #[serde(default)]
+    pub key: bool,
 }
 
 /// Заголовок кадра трансляции (JSON в начале пакета, дальше — данные
@@ -283,6 +296,24 @@ pub struct ScreenHeader {
     /// [x, y, w, h, длина сжатых данных].
     pub rects: Vec<[u32; 5]>,
     pub pointer: Option<[f64; 2]>,
+    /// Видеопакет — после данных прямоугольников. Накладывать сначала видео
+    /// (только в `video.rects`), потом прямоугольники без потерь.
+    #[serde(default)]
+    pub video: Option<ScreenVideo>,
+    /// Видео не будет (у той стороны нет кодера) — почему.
+    #[serde(default)]
+    pub video_error: Option<String>,
+}
+
+/// Видеопакет кадра трансляции.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct ScreenVideo {
+    /// `h264` или `hevc`.
+    pub codec: String,
+    pub key: bool,
+    pub len: u32,
+    /// [x, y, w, h] — где кадр изменился.
+    pub rects: Vec<[u32; 4]>,
 }
 
 /// Синхронный клиент (оболочка, настройки, CLI).

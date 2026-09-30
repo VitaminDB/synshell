@@ -33,7 +33,7 @@ pub fn input(output: Option<String>, events: Vec<InputEvent>) -> Result<()> {
 /// композитора — через `capture`.
 pub fn frame(output: Option<String>) -> Result<(String, u32, u32, Vec<u8>)> {
     let mut c = Client::connect().context("нет связи с композитором")?;
-    match c.request(&Request::FrameStream { output: output.clone(), cursor: false })? {
+    match c.request(&Request::FrameStream { output: output.clone(), cursor: false, video: None })? {
         Response::Frame { frame } => {
             let data = std::fs::read(&frame.path).context("файл кадра")?;
             let need = frame.width as usize * frame.height as usize * 4;

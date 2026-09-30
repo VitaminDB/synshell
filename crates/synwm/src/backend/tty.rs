@@ -793,12 +793,11 @@ impl TtyBackend {
         output: &Output,
         slot: &mut Option<Box<dyn std::any::Any>>,
         cursor: bool,
+        opts: &mut crate::stream::StreamOpts,
     ) -> anyhow::Result<crate::stream::Rendered> {
         let mut renderer = self.gpus.single_renderer(&self.primary_gpu)?;
         let gles: &mut GlesRenderer = renderer.as_mut();
-        crate::stream::render(core, gles, output, slot, cursor, |r, size| {
-            Ok(<GlesRenderer as Offscreen<GlesTexture>>::create_buffer(r, Fourcc::Abgr8888, size)?)
-        })
+        crate::encode::stream_render(core, gles, output, slot, cursor, opts)
     }
 
     /// Применить `[[output]]`: масштаб, поворот, положение, режим.

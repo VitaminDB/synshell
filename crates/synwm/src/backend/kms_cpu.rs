@@ -508,10 +508,11 @@ impl KmsCpuBackend {
         output: &Output,
         slot: &mut Option<Box<dyn std::any::Any>>,
         cursor: bool,
+        opts: &mut crate::stream::StreamOpts,
     ) -> anyhow::Result<crate::stream::Rendered> {
-        crate::stream::render(core, &mut self.renderer, output, slot, cursor, |r, size| {
+        crate::stream::render(core, &mut self.renderer, output, slot, cursor, opts, |r, size| {
             Ok(<PixmanRenderer as Offscreen<smithay::reexports::pixman::Image<'static, 'static>>>::create_buffer(r, Fourcc::Abgr8888, size)?)
-        })
+        }, None)
     }
 
     /// Применить `[[output]]`: масштаб, поворот, положение, режим.

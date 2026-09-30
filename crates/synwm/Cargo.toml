@@ -39,6 +39,10 @@ wayland-server = "0.31"
 wayland-backend = "0.3"
 wayland-scanner = "0.31"
 
+[build-dependencies]
+# Аппаратный видеокодер V4L2 для потока кадров (src/v4l2enc.c).
+cc = "1"
+
 [dependencies.smithay]
 version = "0.7"
 default-features = false

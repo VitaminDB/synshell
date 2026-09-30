@@ -10,7 +10,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWrite
 use tokio::net::{UnixListener, UnixStream};
 
 use crate::daemon::D;
-use crate::proto::{self, ExecIn, ExecOut, Reply, Rpc, ScreenAck, ScreenFrame};
+use crate::proto::{self, ExecIn, ExecOut, Reply, Rpc, ScreenAck, ScreenAckV2, ScreenFrame, ScreenFrameV2, VideoParams};
 
 pub async fn run(d: D) -> Result<()> {
     let path = link::socket_path();
@@ -154,7 +154,7 @@ async fn conn(d: D, s: UnixStream) -> Result<()> {
                 let _ = tokio::io::copy_bidirectional(&mut local, &mut quic).await;
                 return Ok(());
             }
-            Request::Screen { device, output, cursor } => {
+            Request::Screen { device, output, cursor, video } => {
                 let c = match target(&d, &device) {
                     Ok(Target::Remote(c)) => c,
                     Ok(Target::Local) => {
@@ -166,6 +166,15 @@ async fn conn(d: D, s: UnixStream) -> Result<()> {
                         continue;
                     }
                 };
+                // Устройство с proto ≥ 2 — трансляция с видео (если клиент его
+                // декодирует и `[link] screen_codec` не `lossless`).
+                let info = d.resolve(&device).and_then(|id| d.session_info(&id));
+                if let Some((_, transport)) = info.filter(|(p, _)| *p >= 2) {
+                    let params = if video { video_params(transport) } else { None };
+                    let (w, r) = crate::rpc::open(&c, &Rpc::ScreenV2 { output, cursor, video: params }).await?;
+                    write_line(&mut wr, &Response::Ok).await?;
+                    return bridge_screen_v2(rd, wr, w, r).await;
+                }
                 let (w, r) = crate::rpc::open(&c, &Rpc::Screen { output, cursor }).await?;
                 write_line(&mut wr, &Response::Ok).await?;
                 return bridge_screen(rd, wr, w, r).await;
@@ -242,6 +251,76 @@ where
     Ok(())
 }
 
+/// Видео трансляции по `[link] screen_codec` / `screen_bitrate`.
+fn video_params(transport: link::Transport) -> Option<VideoParams> {
+    let (cfg, _) = synshell_common::config::Config::load();
+    let l = cfg.link;
+    let codec = l.screen_codec.trim().to_lowercase();
+    let (codec, mixed) = match codec.as_str() {
+        "lossless" | "off" | "none" => return None,
+        "h264" | "hevc" => (codec, false),
+        _ => ("auto".to_string(), true),
+    };
+    let mbps = match (l.screen_bitrate, transport) {
+        (0, link::Transport::Usb) => 80,
+        (0, link::Transport::Wifi) => 30,
+        (m, _) => m.clamp(1, 400),
+    };
+    Some(VideoParams { codec, bitrate: mbps * 1_000_000, mixed })
+}
+
+async fn bridge_screen_v2<LR, LW>(mut lr: LR, mut lw: LW, mut w: quinn::SendStream, mut r: quinn::RecvStream) -> Result<()>
+where
+    LR: AsyncRead + Unpin + Send + 'static,
+    LW: AsyncWrite + Unpin + Send + 'static,
+{
+    let up = tokio::spawn(async move {
+        while let Ok(Some(f)) = read_frame(&mut lr).await {
+            let Ok(a) = serde_json::from_slice::<link::ScreenAck>(&f) else { continue };
+            if proto::send(&mut w, &ScreenAckV2 { seq: a.seq, key: a.key }).await.is_err() {
+                break;
+            }
+        }
+        let _ = w.finish();
+    });
+    let res = async {
+        while let Some(f) = proto::recv::<ScreenFrameV2>(&mut r).await? {
+            let header = ScreenHeader {
+                output: f.output,
+                width: f.width,
+                height: f.height,
+                scale: f.scale,
+                seq: f.seq,
+                rects: f.rects.iter().map(|(x, y, w, h, z)| [*x, *y, *w, *h, z.len() as u32]).collect(),
+                pointer: f.pointer,
+                video: f.video.as_ref().map(|v| link::ScreenVideo {
+                    codec: v.codec.clone(),
+                    key: v.key,
+                    len: v.data.len() as u32,
+                    rects: v.rects.clone(),
+                }),
+                video_error: f.video_error,
+            };
+            let hj = serde_json::to_vec(&header)?;
+            let data: usize = f.rects.iter().map(|r| r.4.len()).sum::<usize>() + f.video.as_ref().map_or(0, |v| v.data.len());
+            let mut pkt = Vec::with_capacity(4 + hj.len() + data);
+            pkt.extend_from_slice(&(hj.len() as u32).to_be_bytes());
+            pkt.extend_from_slice(&hj);
+            for (.., z) in &f.rects {
+                pkt.extend_from_slice(z);
+            }
+            if let Some(v) = &f.video {
+                pkt.extend_from_slice(&v.data);
+            }
+            write_frame(&mut lw, &pkt).await?;
+        }
+        Ok::<(), anyhow::Error>(())
+    }
+    .await;
+    up.abort();
+    res
+}
+
 async fn bridge_screen<LR, LW>(mut lr: LR, mut lw: LW, mut w: quinn::SendStream, mut r: quinn::RecvStream) -> Result<()>
 where
     LR: AsyncRead + Unpin + Send + 'static,
@@ -266,6 +345,8 @@ where
                 seq: f.seq,
                 rects: f.rects.iter().map(|(x, y, w, h, z)| [*x, *y, *w, *h, z.len() as u32]).collect(),
                 pointer: f.pointer,
+                video: None,
+                video_error: None,
             };
             let hj = serde_json::to_vec(&header)?;
             let mut pkt = Vec::with_capacity(4 + hj.len() + f.rects.iter().map(|r| r.4.len()).sum::<usize>());

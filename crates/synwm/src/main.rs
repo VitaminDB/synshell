@@ -10,6 +10,7 @@ mod bindings;
 mod config;
 mod cursor;
 mod deco;
+mod encode;
 mod focus;
 mod grabs;
 mod gtk_shell;

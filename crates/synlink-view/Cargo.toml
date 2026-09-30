@@ -14,6 +14,7 @@ path = "src/main.rs"
 synshell-common.workspace = true
 syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons"] }
 serde_json.workspace = true
+libc.workspace = true
 zstd = { version = "0.13", default-features = false }
 log = "0.4"
 env_logger = "0.11"

@@ -168,8 +168,8 @@ impl State {
             }
             let (response, subscribe) = match serde_json::from_str::<Request>(&line) {
                 Ok(Request::EventStream) => (Response::Ok, true),
-                Ok(Request::FrameStream { output, cursor }) => (self.frame_stream_start(id, output, cursor), false),
-                Ok(Request::FrameNext) => match self.frame_stream_next(id) {
+                Ok(Request::FrameStream { output, cursor, video }) => (self.frame_stream_start(id, output, cursor, video), false),
+                Ok(Request::FrameNext { key }) => match self.frame_stream_next(id, key) {
                     Some(r) => (r, false),
                     // Ответ придёт, когда вывод изменится.
                     None => continue,
@@ -251,16 +251,16 @@ impl State {
                 Ok(()) => Response::Ok,
                 Err(message) => Response::Error { message },
             },
-            Request::EventStream | Request::FrameStream { .. } | Request::FrameNext => Response::Ok,
+            Request::EventStream | Request::FrameStream { .. } | Request::FrameNext { .. } => Response::Ok,
         }
     }
 
     /// `frame-stream`: завести поток и сразу отдать полный кадр.
-    fn frame_stream_start(&mut self, id: u64, output: Option<String>, cursor: bool) -> Response {
+    fn frame_stream_start(&mut self, id: u64, output: Option<String>, cursor: bool, video: Option<synshell_common::ipc::VideoRequest>) -> Response {
         let name = output
             .or_else(|| self.core.space.outputs().next().map(|o| o.name()))
             .unwrap_or_default();
-        let mut fc = match crate::stream::FrameConn::new(id, name, cursor) {
+        let mut fc = match crate::stream::FrameConn::new(id, name, cursor, video) {
             Ok(f) => f,
             Err(e) => return Response::Error { message: format!("поток кадров: {e:#}") },
         };
@@ -275,20 +275,40 @@ impl State {
     }
 
     /// `frame-next`: изменения уже есть — кадр сразу, иначе ждать.
-    fn frame_stream_next(&mut self, id: u64) -> Option<Response> {
+    fn frame_stream_next(&mut self, id: u64, key: bool) -> Option<Response> {
         let mut fc = self.core.ipc.clients.get_mut(&id)?.frame.take();
         let Some(f) = fc.as_mut() else {
             return Some(Response::Error { message: "нет потока кадров (сначала frame-stream)".into() });
         };
+        if key {
+            f.opts.force_key = true;
+        }
         let mut resp = None;
         if f.dirty {
             match self.stream_capture(f) {
-                Ok(frame) if !frame.rects.is_empty() => resp = Some(Response::Frame { frame }),
+                Ok(frame) if !frame.rects.is_empty() || frame.video.is_some() => resp = Some(Response::Frame { frame }),
                 Ok(_) => f.waiting = true,
                 Err(message) => resp = Some(Response::Error { message }),
             }
         } else {
             f.waiting = true;
+        }
+        // Экран замер после видеокадров — дослать их места без потерь.
+        if f.waiting && !f.opts.lossy.is_empty() && !f.refine_timer {
+            f.refine_timer = true;
+            let delay = f
+                .opts
+                .last_video
+                .map(|t| crate::stream::REFINE_DELAY.saturating_sub(t.elapsed()))
+                .unwrap_or_default()
+                .max(std::time::Duration::from_millis(1));
+            let _ = self.core.loop_handle.insert_source(
+                smithay::reexports::calloop::timer::Timer::from_duration(delay),
+                move |_, _, st: &mut State| {
+                    st.frame_stream_refine(id);
+                    smithay::reexports::calloop::timer::TimeoutAction::Drop
+                },
+            );
         }
         // Монитор погашен — кадры никто не рисует: разбудить цикл кадров без
         // экрана (`headless_frame`), клиентам — frame callbacks.
@@ -301,6 +321,46 @@ impl State {
             c.frame = fc;
         }
         resp
+    }
+
+    /// Досылка без потерь: клиент ждёт, а после видеокадров экран не менялся.
+    fn frame_stream_refine(&mut self, id: u64) {
+        let Some(mut fc) = self.core.ipc.clients.get_mut(&id).and_then(|c| c.frame.take()) else { return };
+        fc.refine_timer = false;
+        let mut out = None;
+        let quiet = fc.opts.last_video.is_none_or(|t| t.elapsed() >= crate::stream::REFINE_DELAY);
+        if fc.waiting && !fc.dirty && !fc.opts.lossy.is_empty() {
+            if quiet {
+                fc.opts.refine = true;
+                match self.stream_capture(&mut fc) {
+                    Ok(frame) if frame.rects.is_empty() && frame.video.is_none() => fc.waiting = true,
+                    Ok(frame) => out = Some(Response::Frame { frame }),
+                    Err(message) => out = Some(Response::Error { message }),
+                }
+            }
+        }
+        let rearm = out.is_none() && fc.waiting && !fc.opts.lossy.is_empty();
+        if let Some(c) = self.core.ipc.clients.get_mut(&id) {
+            c.frame = Some(fc);
+            if let Some(r) = out {
+                let mut line = serde_json::to_string(&r).unwrap_or_default();
+                line.push('\n');
+                c.wbuf.extend_from_slice(line.as_bytes());
+                flush(c);
+            }
+        }
+        if rearm {
+            if let Some(f) = self.core.ipc.clients.get_mut(&id).and_then(|c| c.frame.as_mut()) {
+                f.refine_timer = true;
+            }
+            let _ = self.core.loop_handle.insert_source(
+                smithay::reexports::calloop::timer::Timer::from_duration(crate::stream::REFINE_DELAY),
+                move |_, _, st: &mut State| {
+                    st.frame_stream_refine(id);
+                    smithay::reexports::calloop::timer::TimeoutAction::Drop
+                },
+            );
+        }
     }
 
     /// Есть ли на выводе потоки кадров.
@@ -326,7 +386,7 @@ impl State {
             let mut out = None;
             if fc.waiting {
                 match self.stream_capture(&mut fc) {
-                    Ok(frame) if frame.rects.is_empty() => fc.waiting = true,
+                    Ok(frame) if frame.rects.is_empty() && frame.video.is_none() => fc.waiting = true,
                     Ok(frame) => out = Some(Response::Frame { frame }),
                     Err(message) => out = Some(Response::Error { message }),
                 }

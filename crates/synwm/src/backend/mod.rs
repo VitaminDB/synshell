@@ -106,12 +106,13 @@ impl Backend {
         output: &Output,
         slot: &mut Option<Box<dyn std::any::Any>>,
         cursor: bool,
+        opts: &mut crate::stream::StreamOpts,
     ) -> anyhow::Result<crate::stream::Rendered> {
         match self {
-            Backend::Winit(w) => w.stream_frame(core, output, slot, cursor),
-            Backend::Tty(t) => t.stream_frame(core, output, slot, cursor),
+            Backend::Winit(w) => w.stream_frame(core, output, slot, cursor, opts),
+            Backend::Tty(t) => t.stream_frame(core, output, slot, cursor, opts),
             #[cfg(feature = "pixman")]
-            Backend::KmsCpu(b) => b.stream_frame(core, output, slot, cursor),
+            Backend::KmsCpu(b) => b.stream_frame(core, output, slot, cursor, opts),
         }
     }
 

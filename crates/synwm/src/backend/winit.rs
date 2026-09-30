@@ -200,11 +200,10 @@ impl WinitBackend {
         output: &Output,
         slot: &mut Option<Box<dyn std::any::Any>>,
         cursor: bool,
+        opts: &mut crate::stream::StreamOpts,
     ) -> anyhow::Result<crate::stream::Rendered> {
         let renderer = self.backend.renderer();
-        crate::stream::render(core, renderer, output, slot, cursor, |r, size| {
-            Ok(<smithay::backend::renderer::gles::GlesRenderer as Offscreen<smithay::backend::renderer::gles::GlesTexture>>::create_buffer(r, Fourcc::Abgr8888, size)?)
-        })
+        crate::encode::stream_render(core, renderer, output, slot, cursor, opts)
     }
 
     pub fn apply_output_config(&mut self, core: &mut Core) {

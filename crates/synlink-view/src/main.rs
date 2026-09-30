@@ -1,8 +1,11 @@
 //! synlink-view — экран другого устройства synshell: трансляция и
 //! управление (демон synlink, `synshell_common::link`).
 //!
-//! Кадры приходят только изменившимися прямоугольниками (zstd), здесь
-//! накладываются на свой буфер и уходят в `LiveView`. Ввод: на телефон —
+//! Кадры приходят только изменившимися прямоугольниками (zstd) и, с видео,
+//! пакетами аппаратного кодера той стороны (`video.rs`): здесь сначала
+//! накладываются изменившиеся места декодированного видеокадра, потом куски
+//! без потерь, и буфер уходит в `LiveView`. Поворот экрана устройства —
+//! окно меняет ширину и высоту местами. Ввод: на телефон —
 //! мышь как палец (правая кнопка — «назад», средняя — «домой»), на
 //! компьютер — мышь и касания как мышь; клавиши и текст — как есть.
 
@@ -20,6 +23,8 @@ use synshell_common::ipc::{self, InputEvent};
 use synshell_common::link::{self, DeviceKind, PeerInfo, Request, Response, ScreenAck, ScreenHeader};
 
 const STYLES: &str = include_str!("../styles/view.mss");
+
+mod video;
 
 mod gl {
     pub const BACK: &str = "\u{E5C4}";
@@ -44,6 +49,8 @@ struct Stats {
     kbps: f32,
     size: (u32, u32),
     state: String,
+    /// Как идут кадры: `HEVC`, `H264` или «без потерь».
+    codec: String,
 }
 
 #[derive(Clone, Copy)]
@@ -69,13 +76,7 @@ fn main() {
     };
     // Окно под пропорции экрана устройства.
     let (w, h) = output_size(&peer.id).unwrap_or(if peer.kind.is_touch() { (1080, 2400) } else { (1920, 1080) });
-    let (win_w, win_h) = if h > w {
-        let hh = 860u32;
-        ((hh as f32 * w as f32 / h as f32) as u32 + 2, hh + 56)
-    } else {
-        let ww = 1280u32;
-        (ww, (ww as f32 * h as f32 / w as f32) as u32 + 56)
-    };
+    let (win_w, win_h) = window_size(w, h);
 
     let cfg = synshell_common::Config::load().0;
     let a = &cfg.appearance;
@@ -99,12 +100,24 @@ fn main() {
                 device,
                 peer,
                 frame_rev: use_signal(0u64),
-                stats: use_signal(Stats { fps: 0.0, kbps: 0.0, size: (0, 0), state: "Соединение…".into() }),
+                stats: use_signal(Stats { fps: 0.0, kbps: 0.0, size: (0, 0), state: "Соединение…".into(), codec: String::new() }),
             };
             start_stream(ctx, frame.clone());
             let input = start_input(device);
             Box::new(root(ctx, frame.clone(), input))
         });
+}
+
+/// Размер окна под кадр устройства `w`×`h`: высота 860 у вертикального
+/// экрана, ширина 1280 у горизонтального, плюс строка заголовка.
+fn window_size(w: u32, h: u32) -> (u32, u32) {
+    if h > w {
+        let hh = 860u32;
+        ((hh as f32 * w as f32 / h.max(1) as f32) as u32 + 2, hh + 56)
+    } else {
+        let ww = 1280u32;
+        (ww, (ww as f32 * h as f32 / w.max(1) as f32) as u32 + 56)
+    }
 }
 
 fn find_peer(device: &str) -> Result<PeerInfo, String> {
@@ -170,7 +183,8 @@ fn start_stream(ctx: Ctx, frame: Arc<LiveFrame>) {
 
 fn stream_once(device: &str, cursor: bool, frame: &LiveFrame, rev: RwSignal<u64>, stats: RwSignal<Stats>) -> Result<(), String> {
     let mut c = link::Client::connect().map_err(|e| format!("synlink: {e}"))?;
-    match c.request(&Request::Screen { device: device.into(), output: None, cursor }).map_err(|e| e.to_string())? {
+    let video_ok = video::available();
+    match c.request(&Request::Screen { device: device.into(), output: None, cursor, video: video_ok }).map_err(|e| e.to_string())? {
         Response::Ok => {}
         Response::Error { message } => return Err(message),
         other => return Err(format!("неожиданный ответ: {other:?}")),
@@ -181,6 +195,10 @@ fn stream_once(device: &str, cursor: bool, frame: &LiveFrame, rev: RwSignal<u64>
     let mut count = 0u32;
     let mut bytes = 0usize;
     let mut window = Instant::now();
+    let mut dec: Option<video::Decoder> = None;
+    // Ждём ключевой кадр (декодер новый или ошибся) — просим его в подтверждении.
+    let mut want_key = false;
+    let mut codec = String::new();
     // Показ отстаёт от приёма — перестраивать не чаще, чем главный поток успевает.
     let pending = Arc::new(AtomicU64::new(0));
     while let Some(pkt) = link::read_frame(&mut rd).map_err(|e| e.to_string())? {
@@ -191,15 +209,62 @@ fn stream_once(device: &str, cursor: bool, frame: &LiveFrame, rev: RwSignal<u64>
         let hlen = u32::from_be_bytes([pkt[0], pkt[1], pkt[2], pkt[3]]) as usize;
         let Ok(h) = serde_json::from_slice::<ScreenHeader>(&pkt[4..4 + hlen.min(pkt.len() - 4)]) else { continue };
         if (h.width, h.height) != (fw, fh) {
+            // Поворот экрана устройства (ширина и высота поменялись) — и окно.
+            let rotated = fw > 0 && (fw > fh) != (h.width > h.height);
             fw = h.width;
             fh = h.height;
             buf = vec![0u8; fw as usize * fh as usize * 4];
+            if rotated {
+                let (ww, wh) = window_size(fw, fh);
+                syngui::window::request_size(ww, wh);
+            }
         }
         let mut off = 4 + hlen;
-        for [x, y, w, hh, len] in h.rects.iter().copied() {
-            let z = &pkt[off..(off + len as usize).min(pkt.len())];
-            off += len as usize;
-            let Ok(raw) = zstd::bulk::decompress(z, (w * hh * 4) as usize) else { continue };
+        let lossless: Vec<([u32; 4], std::ops::Range<usize>)> = h
+            .rects
+            .iter()
+            .map(|&[x, y, w, hh, len]| {
+                let r = off..(off + len as usize).min(pkt.len());
+                off += len as usize;
+                ([x, y, w, hh], r)
+            })
+            .collect();
+        let mut ask_key = false;
+        if let Some(v) = &h.video {
+            codec = v.codec.clone();
+            let data = &pkt[off.min(pkt.len())..(off + v.len as usize).min(pkt.len())];
+            if dec.as_ref().is_none_or(|d| d.codec != v.codec) {
+                match video::Decoder::new(&v.codec) {
+                    Ok(d) => {
+                        dec = Some(d);
+                        want_key = true;
+                    }
+                    Err(e) => log::warn!("{e}"),
+                }
+            }
+            if let Some(d) = dec.as_mut() {
+                if want_key && !v.key {
+                    ask_key = true;
+                } else {
+                    want_key = false;
+                    let t0 = Instant::now();
+                    let res = d.decode(data, &v.rects, &mut buf, fw, fh);
+                    if std::env::var_os("SYNLINK_VIEW_TIMING").is_some() {
+                        eprintln!("декод+цвет {:.1} мс, {} байт", t0.elapsed().as_secs_f64() * 1e3, data.len());
+                    }
+                    match res {
+                        Ok(_) => {}
+                        Err(e) => {
+                            log::warn!("видео: {e}");
+                            dec = None;
+                            ask_key = true;
+                        }
+                    }
+                }
+            }
+        }
+        for ([x, y, w, hh], r) in lossless {
+            let Ok(raw) = zstd::bulk::decompress(&pkt[r], (w * hh * 4) as usize) else { continue };
             let row = w as usize * 4;
             for i in 0..hh as usize {
                 let dst = ((y as usize + i) * fw as usize + x as usize) * 4;
@@ -208,8 +273,12 @@ fn stream_once(device: &str, cursor: bool, frame: &LiveFrame, rev: RwSignal<u64>
                 }
             }
         }
+        let t1 = Instant::now();
         frame.set(fw, fh, Arc::from(buf.as_slice()));
-        let ack = serde_json::to_vec(&ScreenAck { seq: h.seq }).unwrap_or_default();
+        if std::env::var_os("SYNLINK_VIEW_TIMING").is_some() {
+            eprintln!("кадр в окно {:.1} мс", t1.elapsed().as_secs_f64() * 1e3);
+        }
+        let ack = serde_json::to_vec(&ScreenAck { seq: h.seq, key: ask_key }).unwrap_or_default();
         link::write_frame(&mut wr, &ack).map_err(|e| e.to_string())?;
         count += 1;
         if pending.fetch_add(1, Ordering::AcqRel) == 0 {
@@ -224,15 +293,30 @@ fn stream_once(device: &str, cursor: bool, frame: &LiveFrame, rev: RwSignal<u64>
             let fps = count as f32 / el.as_secs_f32().max(0.001);
             let kbps = bytes as f32 / 1024.0 / el.as_secs_f32().max(0.001);
             let size = (fw, fh);
-            run_on_main_thread(move || stats.set(Stats { fps, kbps, size, state: String::new() }));
+            let label = if codec.is_empty() { "без потерь".to_string() } else { codec.to_uppercase() };
+            run_on_main_thread(move || stats.set(Stats { fps, kbps, size, state: String::new(), codec: label }));
             if el >= Duration::from_millis(1000) {
                 count = 0;
                 bytes = 0;
                 window = Instant::now();
+                codec.clear();
             }
         }
     }
     Ok(())
+}
+
+/// Скопировать прямоугольник `r` из кадра `src` (ширина `sw`) в `dst` (ширина `dw`).
+pub(crate) fn blit(dst: &mut [u8], dw: u32, src: &[u8], sw: u32, [x, y, w, h]: [u32; 4]) {
+    let row = w as usize * 4;
+    for i in 0..h as usize {
+        let d = ((y as usize + i) * dw as usize + x as usize) * 4;
+        let s = ((y as usize + i) * sw as usize + x as usize) * 4;
+        if d + row <= dst.len() && s + row <= src.len() {
+            dst[d..d + row].copy_from_slice(&src[s..s + row]);
+            // Альфа в RGBA от swscale — 255.
+        }
+    }
 }
 
 // ─── ввод ────────────────────────────────────────────────────────────────────
@@ -449,7 +533,7 @@ fn root(ctx: Ctx, frame: Arc<LiveFrame>, input: mpsc::Sender<InputEvent>) -> imp
                     let line = if !s.state.is_empty() {
                         s.state.clone()
                     } else {
-                        format!("{} × {} · {:.0} к/с · {:.0} КБ/с", s.size.0, s.size.1, s.fps, s.kbps)
+                        format!("{} × {} · {:.0} к/с · {:.0} КБ/с · {}", s.size.0, s.size.1, s.fps, s.kbps, s.codec)
                     };
                     vec![Box::new(Text::new(line).max_lines(1).class("dev-state")) as Box<dyn Widget>]
                 }))

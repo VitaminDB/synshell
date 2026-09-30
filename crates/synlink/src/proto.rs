@@ -12,7 +12,8 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use synshell_common::link::DeviceKind;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-pub const PROTO: u32 = 1;
+/// 2 — трансляция с видео (`Rpc::ScreenV2`).
+pub const PROTO: u32 = 2;
 pub const ALPN: &[u8] = b"synlink/1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,6 +78,18 @@ pub enum Rpc {
     /// Трансляция: дальше `ScreenFrame` туда, `ScreenAck` обратно.
     Screen { output: Option<String>, cursor: bool },
     Fs(FsReq),
+    /// Трансляция с видео (proto ≥ 2): дальше `ScreenFrameV2` туда,
+    /// `ScreenAckV2` обратно. Новые варианты — только в конец (postcard).
+    ScreenV2 { output: Option<String>, cursor: bool, video: Option<VideoParams> },
+}
+
+/// Видео трансляции: как `ipc::VideoRequest` композитора.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoParams {
+    /// `auto` (HEVC, нет — H.264), `h264`, `hevc`.
+    pub codec: String,
+    pub bitrate: u32,
+    pub mixed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,6 +133,36 @@ pub struct ScreenFrame {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScreenAck {
     pub seq: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScreenFrameV2 {
+    pub output: String,
+    pub width: u32,
+    pub height: u32,
+    pub scale: f64,
+    pub seq: u64,
+    /// (x, y, w, h, RGBA сжатые zstd) — без потерь, поверх видео.
+    pub rects: Vec<(u32, u32, u32, u32, Vec<u8>)>,
+    pub pointer: Option<[f64; 2]>,
+    pub video: Option<VideoPacket>,
+    pub video_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoPacket {
+    pub codec: String,
+    pub key: bool,
+    pub data: Vec<u8>,
+    /// Где кадр изменился.
+    pub rects: Vec<[u32; 4]>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScreenAckV2 {
+    pub seq: u64,
+    /// Следующий видеокадр — ключевой.
+    pub key: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

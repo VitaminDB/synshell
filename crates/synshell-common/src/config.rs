@@ -2083,11 +2083,28 @@ pub struct Link {
     pub auto_mount: bool,
     /// Порт UDP (QUIC); поиск — на порту на единицу меньше.
     pub port: u16,
+    /// Трансляция экрана другого устройства: `auto` — видео аппаратным
+    /// кодером той стороны для крупных изменений (HEVC, нет — H.264), мелкие
+    /// и всё после остановки — без потерь; `lossless` — только без потерь
+    /// (zstd); `h264`, `hevc` — видео для всех изменений (в покое всё равно
+    /// досылается без потерь).
+    pub screen_codec: String,
+    /// Битрейт видео, Мбит/с; 0 — сам: по кабелю 80, по Wi-Fi 30.
+    pub screen_bitrate: u32,
 }
 
 impl Default for Link {
     fn default() -> Self {
-        Self { enabled: true, name: String::new(), discoverable: true, notifications: true, auto_mount: true, port: 47471 }
+        Self {
+            enabled: true,
+            name: String::new(),
+            discoverable: true,
+            notifications: true,
+            auto_mount: true,
+            port: 47471,
+            screen_codec: "auto".into(),
+            screen_bitrate: 0,
+        }
     }
 }
 

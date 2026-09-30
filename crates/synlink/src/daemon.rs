@@ -217,6 +217,12 @@ impl Daemon {
         Some((s.conn.clone(), t))
     }
 
+    /// Версия протокола и способ связи соединённого устройства.
+    pub fn session_info(&self, id: &str) -> Option<(u32, synshell_common::link::Transport)> {
+        let st = self.st.lock().unwrap();
+        st.sessions.get(id).map(|s| (s.hello.proto, s.transport))
+    }
+
     pub fn trusted(&self, id: &str) -> Option<Trusted> {
         self.st.lock().unwrap().peers.peers.get(id).cloned()
     }

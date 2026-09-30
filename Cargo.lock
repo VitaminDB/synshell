@@ -4046,6 +4046,7 @@ name = "synlink-view"
 version = "0.1.3"
 dependencies = [
  "env_logger",
+ "libc",
  "log",
  "serde_json",
  "syngui",
@@ -4188,6 +4189,7 @@ version = "0.1.3"
 dependencies = [
  "anyhow",
  "bitflags 2.13.2",
+ "cc",
  "fontdue",
  "libc",
  "png 0.17.16",
