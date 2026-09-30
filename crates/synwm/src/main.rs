@@ -46,6 +46,12 @@ use crate::{
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // Проба GPU в отдельном процессе (см. backend::probe_gpu): падение драйвера
+    // (например, SIGILL программного рендерера) не должно ронять композитор.
+    if args.first().map(String::as_str) == Some("--probe-gpu") {
+        let ok = args.get(1).is_some_and(|p| backend::probe_gpu_here(std::path::Path::new(p)));
+        std::process::exit(if ok { 0 } else { 1 });
+    }
     if args.first().map(String::as_str) == Some("msg") {
         std::process::exit(msg(&args[1..]));
     }
@@ -134,6 +140,18 @@ fn init_logging() {
 }
 
 /// `Ok(true)` — запрошен перезапуск.
+fn cpu_backend(event_loop: &EventLoop<'static, State>) -> anyhow::Result<Backend> {
+    #[cfg(feature = "pixman")]
+    {
+        Ok(Backend::KmsCpu(backend::kms_cpu::KmsCpuBackend::new(event_loop)?))
+    }
+    #[cfg(not(feature = "pixman"))]
+    {
+        let _ = event_loop;
+        anyhow::bail!("сборка без CPU-рендерера (feature pixman)");
+    }
+}
+
 fn run(args: &[String]) -> anyhow::Result<bool> {
     let nested = if args.iter().any(|a| a == "--tty") {
         false
@@ -198,16 +216,16 @@ fn run(args: &[String]) -> anyhow::Result<bool> {
             },
         };
         if cpu {
-            #[cfg(feature = "pixman")]
-            {
-                Backend::KmsCpu(backend::kms_cpu::KmsCpuBackend::new(&event_loop)?)
-            }
-            #[cfg(not(feature = "pixman"))]
-            {
-                anyhow::bail!("сборка без CPU-рендерера (feature pixman)");
-            }
+            cpu_backend(&event_loop)?
         } else {
-            Backend::Tty(backend::tty::TtyBackend::new(&event_loop)?)
+            match backend::tty::TtyBackend::new(&event_loop) {
+                Ok(t) => Backend::Tty(t),
+                Err(e) if cfg!(feature = "pixman") => {
+                    tracing::error!(?e, "GPU-бэкенд не поднялся — CPU (pixman)");
+                    cpu_backend(&event_loop)?
+                }
+                Err(e) => return Err(e),
+            }
         }
     };
     let form_factor = form_factor.unwrap_or_default();
@@ -222,7 +240,25 @@ fn run(args: &[String]) -> anyhow::Result<bool> {
             w.init_globals(&mut state.core);
             w.apply_output_config(&mut state.core);
         }
-        Backend::Tty(_) => backend::tty::init(&mut state, &event_loop)?,
+        Backend::Tty(_) => {
+            let res = backend::tty::init(&mut state, &event_loop);
+            let Backend::Tty(t) = &mut state.backend else { unreachable!() };
+            // Мониторы на GPU не включились (EGL отказал, нет общего формата,
+            // KMS отверг буфер) — тот же сеанс на CPU.
+            let failed = res.is_err() || (t.failed_outputs > 0 && state.core.space.outputs().next().is_none());
+            if failed && cfg!(feature = "pixman") {
+                tracing::error!(err = ?res.err(), failed = t.failed_outputs, "GPU-бэкенд: мониторы не включились — CPU (pixman)");
+                t.teardown();
+                if let Some(g) = state.core.dmabuf_global.take() {
+                    state.core.dmabuf_state.destroy_global::<State>(&state.core.display_handle, g);
+                }
+                state.backend = cpu_backend(&event_loop)?;
+                #[cfg(feature = "pixman")]
+                backend::kms_cpu::init(&mut state, &event_loop)?;
+            } else {
+                res?;
+            }
+        }
         #[cfg(feature = "pixman")]
         Backend::KmsCpu(_) => backend::kms_cpu::init(&mut state, &event_loop)?,
     }

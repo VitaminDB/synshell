@@ -109,7 +109,7 @@ impl KmsCpuBackend {
         let node = DrmNode::from_path(&path)?;
         tracing::info!(path = %path.display(), "DRM-устройство (CPU-рендер)");
         let renderer = PixmanRenderer::new().map_err(|e| anyhow::anyhow!("pixman: {e}"))?;
-        let libinput = super::init_libinput(event_loop, &session)?;
+        let (libinput, _) = super::init_libinput(event_loop, &session)?;
 
         event_loop.handle().insert_source(notifier, |event, _, state| match event {
             SessionEvent::PauseSession => {

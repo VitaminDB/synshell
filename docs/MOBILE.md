@@ -6,7 +6,7 @@
 ## Как организовано
 | Часть | Десктоп | Телефон | Где различие |
 |---|---|---|---|
-| Композитор `synwm` | GLES через GBM/EGL (`backend/tty.rs`) | pixman + dumb-буферы (`backend/kms_cpu.rs`) | бэкенд выбирается на старте: `[platform] renderer`, `--cpu/--gpu`, `SYNSHELL_RENDERER`, `auto` = есть ли EGL на устройстве |
+| Композитор `synwm` | GLES через GBM/EGL (`backend/tty.rs`) | тот же GLES/GBM — через zink поверх turnip/KGSL; запасной — pixman + dumb-буферы (`backend/kms_cpu.rs`) | бэкенд выбирается на старте: `[platform] renderer`, `--cpu/--gpu`, `SYNSHELL_RENDERER`, `auto` = проба EGL на устройстве (не программный рендер) |
 | Политика окон | как настроено | monocle, без рамок и зазоров, decorations=client, без Xwayland | `Config::apply_form_factor` — только значения, которые пользователь не задал явно |
 | Оболочка | `syndesktop-shell` | `synmobile-shell` | `general.shell` по умолчанию зависит от форм-фактора |
 | Параметры, файлы, снимки | те же крейты | те же крейты | адаптивная раскладка syngui (в работе) |
@@ -19,15 +19,33 @@
 Cargo-features `synwm`: `pixman` (CPU-бэкенд, включён по умолчанию). GLES/GBM пока не отключаются —
 на телефоне библиотеки есть в sysroot, а выбор идёт на старте.
 
-## Почему CPU-композитор
-На телефонах с Android-ядром (Qualcomm msm_drm/sde) нет GBM/EGL для KMS-устройства: Mesa не знает драйвер
-`msm_drm`, а GPU доступен только через Vulkan turnip с бэкендом KGSL. Поэтому композитор рисует pixman'ом
-в dumb-буфер, а клиенты рисуют на GPU и отдают dma-buf с **линейным** модификатором — компoзитор объявляет
-linux-dmabuf только с линейными форматами (`PixmanRenderer::dmabuf_formats`) и импортирует буферы через mmap.
-GPU-композитинг — следующий этап (свой рендерер на wgpu/Vulkan или zink+GBM поверх turnip).
+## GPU-композитинг на телефоне и запасной CPU-бэкенд
+На телефонах с Android-ядром (Qualcomm msm_drm/sde) своего GL-драйвера для GPU нет: GPU доступен только
+через Vulkan turnip с бэкендом KGSL (gallium-freedreno на KGSL из Mesa убран), а Mesa не знает дисплейный
+драйвер `msm_drm`. Поэтому GLES для композитора даёт **zink поверх turnip** (`MESA_LOADER_DRIVER_OVERRIDE=zink`),
+а GBM на `msm_drm` выделяет буферы через zink (dma-heap turnip), которые sde принимает для scanout.
+Чтобы zink выбрал turnip для DRM-устройства, turnip должен сообщать узлы `msm_drm` в
+`VK_EXT_physical_device_drm` — патч `TU_KGSL_DRM_NODE` (arch-mobile-port `tools/phone/patches`, docs/08, 8.6).
+Тот же узел в dmabuf-feedback композитора означает для Vulkan-клиентов «тот же GPU» — без prime-blit.
+
+Сам композитор — обычный `backend/tty.rs`; для sde там: только primary-план (overlay/курсор выключены),
+сторож потерянного page-flip (250 мс), узлы GPU приводятся к render-узлу (основной, EGL, устройство).
+
+Запасной путь — `backend/kms_cpu.rs`: pixman в dumb-буфер, linux-dmabuf v3 только с линейными форматами
+(`PixmanRenderer::dmabuf_formats`), клиентские буферы читаются через mmap. Откат на него:
+1. `renderer = "auto"` и проба не прошла: `synwm --probe-gpu УСТРОЙСТВО` в **отдельном процессе**
+   (Mesa без аппаратного драйвера берёт llvmpipe, а тот на ядрах без SVE падает с SIGILL; зависание > 20 с —
+   тоже «нет GPU»);
+2. GPU-бэкенд не поднялся или ни один монитор на нём не включился — тот же процесс снимает источники
+   событий GPU-бэкенда (`TtyBackend::teardown`, отпускает DRM-мастер) и запускает `kms_cpu`;
+3. композитор дважды подряд упал в первые 20 с — `synlogin daemon` запускает дальше с
+   `SYNSHELL_RENDERER=cpu` (до перезапуска демона).
+
+Замер на Redmi K50 Ultra (vkcube на весь экран, `arch-mobile-port/tools/phone/fps.sh`): GPU — 60 fps,
+synwm ≈3 % одного ядра; CPU — 30 fps, ≈54 %.
 
 ## Состояние на телефоне (Redmi K50 Ultra, 2026-09-29)
-- synwm с `--cpu` включает панель DSI-1 1220x2712 (smithay из форка `VitaminDB/smithay`, ветка `synshell`:
+- synwm включает панель DSI-1 1220x2712 (с 2026-09-30 — на GPU, см. выше) (smithay из форка `VitaminDB/smithay`, ветка `synshell`:
   alpha плана масштабируется под диапазон драйвера — sde отдаёт 0..255).
 - Vulkan-клиенты (wgpu, turnip/KGSL) презентуют через `zwp_linux_dmabuf_v1` v3: turnip собран с
   `freedreno-kmds=kgsl,msm` (нужен libdrm в WSI) и патчем KHR_display — см. `arch-mobile-port/docs/08`.
@@ -128,8 +146,8 @@ XF86Back), снизу — `edge_bottom` («домой», `page home`; или `mi
   `docs/11-wifi.md`.
 
 ## Автозапуск на телефоне
-Через экран входа: `synlogin daemon -- --cpu` (см. ниже; на Redmi K50 Ultra — юнит устройства в
-arch-mobile-port). Без экрана входа — `data/synshell-phone.service`: `synwm --tty --cpu` под `dbus-run-session`
+Через экран входа: `synlogin daemon` (рендерер — сам, см. выше; `synlogin daemon -- --cpu` — принудительно
+CPU; на Redmi K50 Ultra — юнит устройства в arch-mobile-port с окружением zink). Без экрана входа — `data/synshell-phone.service`: `synwm --tty --cpu` под `dbus-run-session`
 с `LIBSEAT_BACKEND=noop`, сразу оболочка root.
 
 ## Экран входа synlogin
@@ -179,7 +197,9 @@ synkeyboard key ctrl+shift+c       # сочетание; f1…f12, enter, tab, e
 # кросс-сборка с хоста (sysroot = rootfs телефона):
 PROFILE=fast-release ~/Projects/2027/arch-mobile-port/tools/cross-rust.sh ~/Projects/2027/synshell -p synwm -p synmobile-shell -p synkeyboard
 # на телефоне (Arch по USB):
-LIBSEAT_BACKEND=noop SYNSHELL_DRM_DEVICE=/dev/dri/card0 XDG_RUNTIME_DIR=/run/weston synwm --tty --cpu
+LIBSEAT_BACKEND=noop SYNSHELL_DRM_DEVICE=/dev/dri/card0 XDG_RUNTIME_DIR=/run/weston \
+  MESA_LOADER_DRIVER_OVERRIDE=zink TU_KGSL_DRM_NODE=/dev/dri/card0 \
+  VK_ICD_FILENAMES=/opt/turnip/share/vulkan/icd.d/freedreno_icd.aarch64.json synwm --tty   # или --cpu
 ```
 `Virtual-*` (writeback-коннектор) исключён через `platform.ignore_outputs`, иначе wlroots-подобная раздача
 CRTC отдаёт панели не тот CRTC. VT в ядре нет — только `LIBSEAT_BACKEND=noop`.

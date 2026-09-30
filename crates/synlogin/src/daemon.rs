@@ -32,6 +32,27 @@ fn synwm_args() -> Vec<String> {
     v
 }
 
+/// Падения композитора сразу после старта подряд. GPU-рендер (zink/turnip на
+/// телефоне) может падать в драйвере — после двух таких падений экран входа и
+/// сеансы запускаются на CPU (`SYNSHELL_RENDERER=cpu`) до перезапуска демона.
+static EARLY_CRASHES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+const EARLY_CRASH: Duration = Duration::from_secs(20);
+
+fn note_compositor_exit(st: &std::io::Result<std::process::ExitStatus>, started: std::time::Instant) {
+    use std::sync::atomic::Ordering;
+    let crashed = !matches!(st, Ok(s) if s.success()) && started.elapsed() < EARLY_CRASH;
+    if !crashed {
+        EARLY_CRASHES.store(0, Ordering::Relaxed);
+        return;
+    }
+    let n = EARLY_CRASHES.fetch_add(1, Ordering::Relaxed) + 1;
+    let renderer = std::env::var("SYNSHELL_RENDERER").unwrap_or_default();
+    if n >= 2 && renderer != "cpu" && !synwm_args().iter().any(|a| a == "--cpu" || a == "--gpu") {
+        log::warn!("композитор упал {n} раза подряд сразу после старта — дальше CPU-рендер (SYNSHELL_RENDERER=cpu)");
+        std::env::set_var("SYNSHELL_RENDERER", "cpu");
+    }
+}
+
 fn synwm_bin() -> String {
     std::env::var("SYNLOGIN_SYNWM").unwrap_or_else(|_| "synwm".into())
 }
@@ -82,6 +103,7 @@ fn run_greeter() {
     let _ = std::fs::create_dir_all(rt);
     let _ = std::fs::set_permissions(rt, std::os::unix::fs::PermissionsExt::from_mode(0o700));
     log::info!("экран входа");
+    let started = std::time::Instant::now();
     let st = Command::new("dbus-run-session")
         .arg(synwm_bin())
         .args(synwm_args())
@@ -91,6 +113,7 @@ fn run_greeter() {
         .env("HOME", "/root")
         .status();
     log::info!("экран входа завершён: {st:?}");
+    note_compositor_exit(&st, started);
 }
 
 fn run_session(user: &users::User) {
@@ -133,8 +156,10 @@ fn run_session(user: &users::User) {
             Ok(())
         });
     }
+    let started = std::time::Instant::now();
     let st = cmd.status();
     log::info!("сеанс {} завершён: {st:?}", user.name);
+    note_compositor_exit(&st, started);
     if user.uid != 0 {
         // Программы, пережившие композитор, не должны держать устройства.
         let _ = Command::new("pkill").args(["-KILL", "-u", &user.uid.to_string()]).status();

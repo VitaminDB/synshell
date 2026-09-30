@@ -77,7 +77,13 @@ struct Surface {
     render_node: DrmNode,
     /// Таймер «расчётного vblank» для кадров без повреждений.
     estimated_vblank: Option<RegistrationToken>,
+    /// Сторож потерянного page-flip: downstream-драйверы (sde) иногда не
+    /// присылают событие vblank, и без него кадры остановились бы навсегда.
+    flip_watchdog: Option<RegistrationToken>,
 }
+
+/// Сколько ждать vblank после отправки кадра, прежде чем считать событие потерянным.
+const FLIP_WATCHDOG: Duration = Duration::from_millis(250);
 
 struct Device {
     manager: Manager,
@@ -94,6 +100,16 @@ pub struct TtyBackend {
     devices: HashMap<DrmNode, Device>,
     loop_handle: LoopHandle<'static, State>,
     active: bool,
+    /// Источники событий бэкенда (libinput, сеанс, udev) — снимаются в `teardown`.
+    tokens: Vec<RegistrationToken>,
+    /// Сколько мониторов не удалось включить: все не включились — повод откатиться на CPU.
+    pub failed_outputs: usize,
+}
+
+/// Узел рендеринга DRM-устройства, если он есть: основной GPU, узел EGL и
+/// узлы устройств должны совпадать, чтобы `GpuManager` находил рендерер.
+fn render_node_of(node: DrmNode) -> DrmNode {
+    node.node_with_type(NodeType::Render).and_then(|n| n.ok()).unwrap_or(node)
 }
 
 impl TtyBackend {
@@ -101,7 +117,7 @@ impl TtyBackend {
         let (session, notifier) = LibSeatSession::new().map_err(|e| anyhow::anyhow!("libseat: {e}"))?;
         let seat = session.seat();
         let primary_gpu = if let Ok(p) = std::env::var("SYNSHELL_DRM_DEVICE") {
-            DrmNode::from_path(p)?
+            render_node_of(DrmNode::from_path(p)?)
         } else {
             primary_gpu(&seat)?
                 .and_then(|p| DrmNode::from_path(p).ok()?.node_with_type(NodeType::Render)?.ok())
@@ -112,9 +128,9 @@ impl TtyBackend {
         let gpus = GpuManager::new(GbmGlesBackend::with_context_priority(smithay::backend::egl::context::ContextPriority::High))
             .map_err(|e| anyhow::anyhow!("GpuManager: {e}"))?;
 
-        let libinput = super::init_libinput(event_loop, &session)?;
+        let (libinput, input_token) = super::init_libinput(event_loop, &session)?;
 
-        event_loop.handle().insert_source(notifier, |event, _, state| match event {
+        let session_token = event_loop.handle().insert_source(notifier, |event, _, state| match event {
             SessionEvent::PauseSession => {
                 tracing::info!("сеанс приостановлен (переключение VT)");
                 if let crate::backend::Backend::Tty(t) = &mut state.backend {
@@ -153,11 +169,31 @@ impl TtyBackend {
             devices: HashMap::new(),
             loop_handle: event_loop.handle(),
             active: true,
+            tokens: vec![input_token, session_token],
+            failed_outputs: 0,
         })
     }
 
     pub fn seat_name(&self) -> String {
         self.session.seat()
+    }
+
+    /// Снять все источники событий и отпустить устройства — перед откатом на
+    /// CPU-бэкенд в том же процессе (иначе fd DRM-мастера остался бы открыт в
+    /// нотификаторе, а libinput дублировал бы ввод).
+    pub fn teardown(&mut self) {
+        self.libinput.suspend();
+        for (_, d) in self.devices.drain() {
+            for s in d.surfaces.values() {
+                for t in [s.estimated_vblank, s.flip_watchdog].into_iter().flatten() {
+                    self.loop_handle.remove(t);
+                }
+            }
+            self.loop_handle.remove(d.token);
+        }
+        for t in self.tokens.drain(..) {
+            self.loop_handle.remove(t);
+        }
     }
 
     pub fn early_import(&mut self, surface: &WlSurface) {
@@ -222,7 +258,7 @@ pub fn init(state: &mut State, event_loop: &EventLoop<'static, State>) -> anyhow
         state.core.dmabuf_global = Some(global);
     }
 
-    event_loop.handle().insert_source(udev, |event, _, state| match event {
+    let udev_token = event_loop.handle().insert_source(udev, |event, _, state| match event {
         UdevEvent::Added { device_id, path } => {
             if let Ok(node) = DrmNode::from_dev_id(device_id) {
                 if let Err(e) = device_added(state, node, &path) {
@@ -241,6 +277,9 @@ pub fn init(state: &mut State, event_loop: &EventLoop<'static, State>) -> anyhow
             }
         }
     }).map_err(|e| anyhow::anyhow!("{}", e.error))?;
+    if let crate::backend::Backend::Tty(t) = &mut state.backend {
+        t.tokens.push(udev_token);
+    }
     Ok(())
 }
 
@@ -254,18 +293,13 @@ fn device_added(state: &mut State, node: DrmNode, path: &Path) -> anyhow::Result
     let (drm, notifier) = DrmDevice::new(fd.clone(), true)?;
     let gbm = GbmDevice::new(fd)?;
 
-    let token = t.loop_handle.insert_source(notifier, move |event, meta, state| match event {
-        DrmEvent::VBlank(crtc) => on_vblank(state, node, crtc, meta),
-        DrmEvent::Error(e) => tracing::error!(?e, "DRM"),
-    })?;
-
     let render_node = (|| -> anyhow::Result<DrmNode> {
         let display = unsafe { EGLDisplay::new(gbm.clone())? };
         let egl_device = EGLDevice::device_for_display(&display)?;
         if egl_device.is_software() {
             anyhow::bail!("программный рендер");
         }
-        let rn = egl_device.try_get_render_node().ok().flatten().unwrap_or(node);
+        let rn = render_node_of(egl_device.try_get_render_node().ok().flatten().unwrap_or(node));
         t.gpus.as_mut().add_node(rn, gbm.clone())?;
         Ok(rn)
     })()
@@ -292,6 +326,12 @@ fn device_added(state: &mut State, node: DrmNode, path: &Path) -> anyhow::Result
         .copied()
         .collect::<FormatSet>();
     let manager = DrmOutputManager::new(drm, allocator, exporter, Some(gbm), COLOR_FORMATS.iter().copied(), render_formats);
+    // Нотификатор держит fd устройства (и DRM-мастер) — регистрируем, только когда
+    // устройство точно принято: иначе после ошибки fd остался бы жить в цикле событий.
+    let token = t.loop_handle.insert_source(notifier, move |event, meta, state| match event {
+        DrmEvent::VBlank(crtc) => on_vblank(state, node, crtc, meta),
+        DrmEvent::Error(e) => tracing::error!(?e, "DRM"),
+    })?;
     t.devices.insert(node, Device { manager, render_node, surfaces: HashMap::new(), token });
     scan_connectors(state, node);
     Ok(())
@@ -445,13 +485,16 @@ pub fn scan_connectors(state: &mut State, node: DrmNode) {
             continue;
         };
         let mut planes = drm.planes(&crtc).ok();
-        let nvidia = drm
-            .get_driver()
-            .map(|d| d.name().to_string_lossy().to_lowercase().contains("nvidia"))
-            .unwrap_or(false);
-        if nvidia {
+        let driver = drm.get_driver().map(|d| d.name().to_string_lossy().to_lowercase()).unwrap_or_default();
+        // Android-драйвер дисплея Qualcomm (msm_drm/sde): прямой вывод клиентских
+        // буферов на overlay- и курсорные планы ненадёжен — всё в primary-кадр.
+        let downstream = driver == "msm_drm";
+        if driver.contains("nvidia") || downstream {
             if let Some(p) = planes.as_mut() {
                 p.overlay.clear();
+                if downstream {
+                    p.cursor.clear();
+                }
             }
         }
         let drm_output = match device.manager.initialize_output::<_, OutputElement<TtyRenderer<'_>>>(
@@ -466,6 +509,7 @@ pub fn scan_connectors(state: &mut State, node: DrmNode) {
             Ok(o) => o,
             Err(e) => {
                 tracing::warn!(name, ?e, "не удалось включить монитор");
+                t.failed_outputs += 1;
                 continue;
             }
         };
@@ -473,7 +517,15 @@ pub fn scan_connectors(state: &mut State, node: DrmNode) {
         let global = output.create_global::<State>(&state.core.display_handle);
         device.surfaces.insert(
             crtc,
-            Surface { output: output.clone(), drm_output, global: Some(global), connector: info.handle(), render_node, estimated_vblank: None },
+            Surface {
+                output: output.clone(),
+                drm_output,
+                global: Some(global),
+                connector: info.handle(),
+                render_node,
+                estimated_vblank: None,
+                flip_watchdog: None,
+            },
         );
         // Положение: из конфига или справа от остальных.
         let pos = cfg.as_ref().and_then(|c| c.position).map(|[x, y]| (x, y).into()).unwrap_or_else(|| {
@@ -653,6 +705,17 @@ impl TtyBackend {
                     data.redraw = RedrawState::WaitingForVBlank { redraw_needed: false };
                     data.frames += 1;
                     data.last_frame = std::time::Instant::now();
+                    if let Some(t) = surface.flip_watchdog.take() {
+                        self.loop_handle.remove(t);
+                    }
+                    let o = output.clone();
+                    surface.flip_watchdog = self
+                        .loop_handle
+                        .insert_source(Timer::from_duration(FLIP_WATCHDOG), move |_, _, state| {
+                            flip_timeout(state, &o);
+                            TimeoutAction::Drop
+                        })
+                        .ok();
                 }
                 Err(e) => {
                     tracing::warn!(?e, "queue_frame");
@@ -789,9 +852,13 @@ impl TtyBackend {
 
 fn on_vblank(state: &mut State, node: DrmNode, crtc: crtc::Handle, meta: &mut Option<DrmEventMetadata>) {
     let crate::backend::Backend::Tty(t) = &mut state.backend else { return };
+    let loop_handle = t.loop_handle.clone();
     let Some(device) = t.devices.get_mut(&node) else { return };
     let Some(surface) = device.surfaces.get_mut(&crtc) else { return };
     let output = surface.output.clone();
+    if let Some(token) = surface.flip_watchdog.take() {
+        loop_handle.remove(token);
+    }
     let refresh = output.current_mode().map(|m| m.refresh).unwrap_or(60_000).max(1000);
     let frame_duration = Duration::from_micros(1_000_000_000 / refresh as u64);
     let (clock, flags) = match meta.as_ref().map(|m| m.time) {
@@ -810,6 +877,24 @@ fn on_vblank(state: &mut State, node: DrmNode, crtc: crtc::Handle, meta: &mut Op
         Err(e) => tracing::warn!(?e, "frame_submitted"),
     }
     after_frame(&mut state.core, &output);
+}
+
+/// vblank не пришёл вовремя: считаем кадр показанным, чтобы не зависнуть.
+fn flip_timeout(state: &mut State, output: &Output) {
+    let waiting = matches!(state.core.output_data.get(output).map(|d| d.redraw), Some(RedrawState::WaitingForVBlank { .. }));
+    let crate::backend::Backend::Tty(t) = &mut state.backend else { return };
+    let Some((surface, _)) = find_surface(t, output) else { return };
+    surface.flip_watchdog = None;
+    if !waiting {
+        return;
+    }
+    tracing::warn!(output = output.name(), "vblank не пришёл за {FLIP_WATCHDOG:?} — считаем кадр показанным");
+    match surface.drm_output.frame_submitted() {
+        Ok(Some(Some(mut feedback))) => feedback.discarded(),
+        Ok(_) => {}
+        Err(e) => tracing::warn!(?e, "frame_submitted"),
+    }
+    after_frame(&mut state.core, output);
 }
 
 /// Кадр показан (или прошёл расчётный vblank): решить, рисовать ли дальше.

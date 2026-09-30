@@ -142,7 +142,7 @@ impl Backend {
 pub(crate) fn init_libinput(
     event_loop: &smithay::reexports::calloop::EventLoop<'static, State>,
     session: &smithay::backend::session::libseat::LibSeatSession,
-) -> anyhow::Result<smithay::reexports::input::Libinput> {
+) -> anyhow::Result<(smithay::reexports::input::Libinput, smithay::reexports::calloop::RegistrationToken)> {
     use smithay::backend::libinput::{LibinputInputBackend, LibinputSessionInterface};
     use smithay::backend::session::Session;
     use smithay::reexports::input::{DeviceCapability, Libinput};
@@ -152,7 +152,7 @@ pub(crate) fn init_libinput(
         .udev_assign_seat(&seat)
         .map_err(|_| anyhow::anyhow!("libinput: не удалось назначить seat"))?;
     let input_backend = LibinputInputBackend::new(libinput.clone());
-    event_loop.handle().insert_source(input_backend, |mut event, _, state| {
+    let token = event_loop.handle().insert_source(input_backend, |mut event, _, state| {
         use smithay::backend::input::InputEvent;
         match &mut event {
             InputEvent::DeviceAdded { device } => {
@@ -178,7 +178,7 @@ pub(crate) fn init_libinput(
         }
         state.process_input_event(event);
     }).map_err(|e| anyhow::anyhow!("{}", e.error))?;
-    Ok(libinput)
+    Ok((libinput, token))
 }
 
 /// Путь к DRM-устройству сеанса: `SYNSHELL_DRM_DEVICE`, иначе основной GPU по udev
@@ -196,7 +196,42 @@ pub fn kms_cpu_device_path() -> Option<std::path::PathBuf> {
 
 /// Есть ли на устройстве GPU-рендеринг (EGL поверх GBM). Без него сеанс
 /// DRM возможен только на CPU (`kms_cpu`).
+///
+/// Проба идёт в дочернем процессе (`synwm --probe-gpu ПУТЬ`): Mesa при
+/// отсутствии аппаратного драйвера откатывается на llvmpipe, а тот на
+/// Android-ядрах без SVE падает с SIGILL (arch-mobile-port docs/08); так же
+/// может упасть и недоделанный драйвер. Упал или завис дольше 20 с — GPU нет.
 pub fn probe_gpu(path: &std::path::Path) -> bool {
+    let Ok(exe) = std::env::current_exe() else { return probe_gpu_here(path) };
+    let child = std::process::Command::new(exe)
+        .arg("--probe-gpu")
+        .arg(path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .spawn();
+    let Ok(mut child) = child else { return probe_gpu_here(path) };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    loop {
+        match child.try_wait() {
+            Ok(Some(st)) => {
+                if !st.success() {
+                    tracing::info!(?st, path = %path.display(), "проба GPU: рендеринга на GPU нет");
+                }
+                return st.success();
+            }
+            Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(std::time::Duration::from_millis(20)),
+            _ => {
+                tracing::warn!(path = %path.display(), "проба GPU зависла — считаем, что GPU нет");
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
+    }
+}
+
+/// Проба GPU в текущем процессе (для `synwm --probe-gpu`).
+pub fn probe_gpu_here(path: &std::path::Path) -> bool {
     use smithay::backend::egl::{EGLDevice, EGLDisplay};
     use smithay::reexports::gbm::Device as GbmDevice;
     let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(path) else { return false };
