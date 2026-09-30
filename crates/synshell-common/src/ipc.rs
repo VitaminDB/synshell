@@ -33,6 +33,65 @@ pub enum Request {
     Capture,
     /// Состояние режима окон телефона — [`Response::Mobile`].
     Mobile,
+    /// Удалённый ввод (synlink): события проходят тот же путь, что и
+    /// настоящие устройства (жесты, сочетания). Координаты — доли 0..1
+    /// вывода `output` (по умолчанию первого).
+    Input { output: Option<String>, events: Vec<InputEvent> },
+    /// Перевести соединение в поток кадров вывода (synlink): ответ —
+    /// [`Response::Frame`] с полным кадром, дальше по [`Request::FrameNext`]
+    /// приходят только изменившиеся прямоугольники. Кадр лежит в файле
+    /// `FrameInfo::path` (RGBA построчно), композитор пишет в него только
+    /// между запросом и ответом — читать можно до следующего `FrameNext`.
+    FrameStream { output: Option<String>, cursor: bool },
+    /// Следующий кадр потока: ответ приходит, когда на выводе что-то
+    /// изменилось (или сразу, если изменения накопились).
+    FrameNext,
+}
+
+/// Событие удалённого ввода. `x`, `y` — доли ширины и высоты вывода.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum InputEvent {
+    /// Указатель в точку вывода.
+    Motion { x: f64, y: f64 },
+    /// Относительное движение, логические px.
+    MotionRelative { dx: f64, dy: f64 },
+    /// Кнопка мыши: код evdev (`BTN_LEFT` = 0x110).
+    Button { button: u32, pressed: bool },
+    /// Прокрутка, логические px; `discrete` — колесо (шаги по 15 px).
+    Axis { dx: f64, dy: f64, #[serde(default)] discrete: bool },
+    /// Клавиша: код evdev (`KEY_A` = 30).
+    Key { code: u32, pressed: bool },
+    /// Нажать сочетание, как `key Alt+Left` в действиях.
+    Combo { combo: String },
+    /// Набрать текст по текущей раскладке (символы, которых в ней нет,
+    /// пропускаются).
+    Text { text: String },
+    TouchDown { id: u32, x: f64, y: f64 },
+    TouchMotion { id: u32, x: f64, y: f64 },
+    TouchUp { id: u32 },
+    /// Конец пачки касаний (после down/motion/up).
+    TouchFrame,
+    TouchCancel,
+}
+
+/// Кадр потока вывода (synlink).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct FrameInfo {
+    pub output: String,
+    /// Размер кадра в пикселях.
+    pub width: u32,
+    pub height: u32,
+    pub scale: f64,
+    /// Номер кадра с начала потока (0 — первый, полный).
+    pub seq: u64,
+    /// Файл кадра: RGBA построчно (`width * 4` байт на строку).
+    pub path: String,
+    /// Изменившиеся прямоугольники [x, y, w, h] в пикселях кадра;
+    /// у полного кадра — весь кадр.
+    pub rects: Vec<[i32; 4]>,
+    /// Указатель в пикселях кадра, если он на этом выводе.
+    pub pointer: Option<[f64; 2]>,
 }
 
 /// Операции над окном из панели задач.
@@ -70,6 +129,7 @@ pub enum Response {
     KeyboardLayouts { layouts: KeyboardLayouts },
     Capture { capture: CaptureInfo },
     Mobile { mobile: MobileInfo },
+    Frame { frame: FrameInfo },
 }
 
 /// Режим окон телефона для оболочки: какой режим, какая страница

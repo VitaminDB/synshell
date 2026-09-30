@@ -194,6 +194,19 @@ impl WinitBackend {
         Ok((buffer_size.w as u32, buffer_size.h as u32, data))
     }
 
+    pub fn stream_frame(
+        &mut self,
+        core: &mut Core,
+        output: &Output,
+        slot: &mut Option<Box<dyn std::any::Any>>,
+        cursor: bool,
+    ) -> anyhow::Result<crate::stream::Rendered> {
+        let renderer = self.backend.renderer();
+        crate::stream::render(core, renderer, output, slot, cursor, |r, size| {
+            Ok(<smithay::backend::renderer::gles::GlesRenderer as Offscreen<smithay::backend::renderer::gles::GlesTexture>>::create_buffer(r, Fourcc::Abgr8888, size)?)
+        })
+    }
+
     pub fn apply_output_config(&mut self, core: &mut Core) {
         // У вложенного окна один вывод: из конфига берём только масштаб.
         let scale = core

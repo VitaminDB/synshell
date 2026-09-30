@@ -99,6 +99,22 @@ impl Backend {
         }
     }
 
+    /// Кадр потока synlink: дорисовать постоянный буфер по повреждениям.
+    pub fn stream_frame(
+        &mut self,
+        core: &mut Core,
+        output: &Output,
+        slot: &mut Option<Box<dyn std::any::Any>>,
+        cursor: bool,
+    ) -> anyhow::Result<crate::stream::Rendered> {
+        match self {
+            Backend::Winit(w) => w.stream_frame(core, output, slot, cursor),
+            Backend::Tty(t) => t.stream_frame(core, output, slot, cursor),
+            #[cfg(feature = "pixman")]
+            Backend::KmsCpu(b) => b.stream_frame(core, output, slot, cursor),
+        }
+    }
+
     /// Доступ к GLES-рендереру основного GPU (снимки, захват экрана).
     pub fn with_gles<T>(&mut self, f: impl FnOnce(&mut smithay::backend::renderer::gles::GlesRenderer) -> T) -> Option<T> {
         match self {
@@ -374,6 +390,7 @@ impl State {
                 let damaged = self.core.output_data.get(&o).is_some_and(|d| d.damaged);
                 if damaged {
                     self.flush_pending_copies(&o);
+                    self.frame_streams_damaged(&o);
                 }
             }
         }

@@ -502,6 +502,18 @@ impl KmsCpuBackend {
         Ok((buffer_size.w as u32, buffer_size.h as u32, data))
     }
 
+    pub fn stream_frame(
+        &mut self,
+        core: &mut Core,
+        output: &Output,
+        slot: &mut Option<Box<dyn std::any::Any>>,
+        cursor: bool,
+    ) -> anyhow::Result<crate::stream::Rendered> {
+        crate::stream::render(core, &mut self.renderer, output, slot, cursor, |r, size| {
+            Ok(<PixmanRenderer as Offscreen<smithay::reexports::pixman::Image<'static, 'static>>>::create_buffer(r, Fourcc::Abgr8888, size)?)
+        })
+    }
+
     /// Применить `[[output]]`: масштаб, поворот, положение, режим.
     pub fn apply_output_config(&mut self, core: &mut Core) {
         let Some(manager) = self.manager.as_mut() else { return };

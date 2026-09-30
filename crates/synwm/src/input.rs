@@ -631,7 +631,7 @@ impl State {
     fn on_pointer_motion_absolute<B: InputBackend>(&mut self, event: B::PointerMotionAbsoluteEvent) {
         // Абсолютные события — у вложенного окна и планшетов: в пределах
         // первого вывода (у вложенного режима он один).
-        let Some(output) = self.core.space.outputs().next().cloned() else { return };
+        let Some(output) = self.absolute_input_output() else { return };
         let geo = self.core.space.output_geometry(&output).unwrap_or_default();
         let pos = event.position_transformed(geo.size) + geo.loc.to_f64();
         let serial = SERIAL_COUNTER.next_serial();
@@ -1034,7 +1034,7 @@ impl State {
     // ─── сенсорный экран ────────────────────────────────────────────────────
 
     fn touch_location<B: InputBackend, E: AbsolutePositionEvent<B>>(&self, evt: &E) -> Point<f64, Logical> {
-        let output = self.core.space.outputs().next().cloned();
+        let output = self.absolute_input_output();
         let geo = output.and_then(|o| self.core.space.output_geometry(&o)).unwrap_or_default();
         evt.position_transformed(geo.size) + geo.loc.to_f64()
     }

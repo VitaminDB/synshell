@@ -215,6 +215,8 @@ pub struct Core {
     pub idle_inhibitors: HashSet<WlSurface>,
     pub last_activity: Instant,
     pub monitors_off: bool,
+    /// Вывод для абсолютных координат текущей пачки удалённого ввода.
+    pub remote_output: Option<Output>,
     pub ipc: IpcServer,
     pub shell: crate::spawn::ShellProcess,
     /// После выхода из цикла — заменить процесс новым (`restart`).
@@ -424,6 +426,7 @@ impl Core {
             idle_inhibitors: HashSet::new(),
             last_activity: Instant::now(),
             monitors_off: false,
+            remote_output: None,
             ipc,
             shell: crate::spawn::ShellProcess::default(),
             xwayland: None,

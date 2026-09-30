@@ -16,6 +16,8 @@ struct Conn {
     wbuf: Vec<u8>,
     subscribed: bool,
     dead: bool,
+    /// Поток кадров (synlink), если соединение в него переведено.
+    frame: Option<crate::stream::FrameConn>,
 }
 
 pub struct IpcServer {
@@ -114,7 +116,7 @@ impl State {
         let Ok(read_half) = stream.try_clone() else { return };
         let id = self.core.ipc.next;
         self.core.ipc.next += 1;
-        self.core.ipc.clients.insert(id, Conn { stream, rbuf: Vec::new(), wbuf: Vec::new(), subscribed: false, dead: false });
+        self.core.ipc.clients.insert(id, Conn { stream, rbuf: Vec::new(), wbuf: Vec::new(), subscribed: false, dead: false, frame: None });
         let res = self.core.loop_handle.insert_source(
             Generic::new(read_half, Interest::READ, Mode::Level),
             move |_, stream, state: &mut State| {
@@ -166,6 +168,12 @@ impl State {
             }
             let (response, subscribe) = match serde_json::from_str::<Request>(&line) {
                 Ok(Request::EventStream) => (Response::Ok, true),
+                Ok(Request::FrameStream { output, cursor }) => (self.frame_stream_start(id, output, cursor), false),
+                Ok(Request::FrameNext) => match self.frame_stream_next(id) {
+                    Some(r) => (r, false),
+                    // Ответ придёт, когда вывод изменится.
+                    None => continue,
+                },
                 Ok(req) => (self.handle_request(req), false),
                 Err(e) => (Response::Error { message: format!("неверный запрос: {e}") }, false),
             };
@@ -239,7 +247,88 @@ impl State {
                 Ok(capture) => Response::Capture { capture },
                 Err(e) => Response::Error { message: format!("захват экрана: {e:#}") },
             },
-            Request::EventStream => Response::Ok,
+            Request::Input { output, events } => match self.remote_input(output.as_deref(), events) {
+                Ok(()) => Response::Ok,
+                Err(message) => Response::Error { message },
+            },
+            Request::EventStream | Request::FrameStream { .. } | Request::FrameNext => Response::Ok,
+        }
+    }
+
+    /// `frame-stream`: завести поток и сразу отдать полный кадр.
+    fn frame_stream_start(&mut self, id: u64, output: Option<String>, cursor: bool) -> Response {
+        let name = output
+            .or_else(|| self.core.space.outputs().next().map(|o| o.name()))
+            .unwrap_or_default();
+        let mut fc = match crate::stream::FrameConn::new(id, name, cursor) {
+            Ok(f) => f,
+            Err(e) => return Response::Error { message: format!("поток кадров: {e:#}") },
+        };
+        let resp = match self.stream_capture(&mut fc) {
+            Ok(frame) => Response::Frame { frame },
+            Err(message) => return Response::Error { message },
+        };
+        if let Some(c) = self.core.ipc.clients.get_mut(&id) {
+            c.frame = Some(fc);
+        }
+        resp
+    }
+
+    /// `frame-next`: изменения уже есть — кадр сразу, иначе ждать.
+    fn frame_stream_next(&mut self, id: u64) -> Option<Response> {
+        let mut fc = self.core.ipc.clients.get_mut(&id)?.frame.take();
+        let Some(f) = fc.as_mut() else {
+            return Some(Response::Error { message: "нет потока кадров (сначала frame-stream)".into() });
+        };
+        let mut resp = None;
+        if f.dirty {
+            match self.stream_capture(f) {
+                Ok(frame) if !frame.rects.is_empty() => resp = Some(Response::Frame { frame }),
+                Ok(_) => f.waiting = true,
+                Err(message) => resp = Some(Response::Error { message }),
+            }
+        } else {
+            f.waiting = true;
+        }
+        if let Some(c) = self.core.ipc.clients.get_mut(&id) {
+            c.frame = fc;
+        }
+        resp
+    }
+
+    /// Вывод перерисован с изменениями: ждущим потокам — кадр, остальным —
+    /// отметка о накопленных изменениях.
+    pub fn frame_streams_damaged(&mut self, output: &smithay::output::Output) {
+        let name = output.name();
+        let ids: Vec<u64> = self
+            .core
+            .ipc
+            .clients
+            .iter()
+            .filter(|(_, c)| !c.dead && c.frame.as_ref().is_some_and(|f| f.output == name))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            let Some(mut fc) = self.core.ipc.clients.get_mut(&id).and_then(|c| c.frame.take()) else { continue };
+            let mut out = None;
+            if fc.waiting {
+                match self.stream_capture(&mut fc) {
+                    Ok(frame) if frame.rects.is_empty() => fc.waiting = true,
+                    Ok(frame) => out = Some(Response::Frame { frame }),
+                    Err(message) => out = Some(Response::Error { message }),
+                }
+            } else {
+                fc.dirty = true;
+            }
+            if let Some(c) = self.core.ipc.clients.get_mut(&id) {
+                c.frame = Some(fc);
+                if let Some(r) = out {
+                    let mut line = serde_json::to_string(&r).unwrap_or_default();
+                    line.push('\n');
+                    c.wbuf.extend_from_slice(line.as_bytes());
+                    flush(c);
+                }
+            }
         }
     }
 

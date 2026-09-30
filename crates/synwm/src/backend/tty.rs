@@ -724,6 +724,20 @@ impl TtyBackend {
         Ok((buffer_size.w as u32, buffer_size.h as u32, data))
     }
 
+    pub fn stream_frame(
+        &mut self,
+        core: &mut Core,
+        output: &Output,
+        slot: &mut Option<Box<dyn std::any::Any>>,
+        cursor: bool,
+    ) -> anyhow::Result<crate::stream::Rendered> {
+        let mut renderer = self.gpus.single_renderer(&self.primary_gpu)?;
+        let gles: &mut GlesRenderer = renderer.as_mut();
+        crate::stream::render(core, gles, output, slot, cursor, |r, size| {
+            Ok(<GlesRenderer as Offscreen<GlesTexture>>::create_buffer(r, Fourcc::Abgr8888, size)?)
+        })
+    }
+
     /// Применить `[[output]]`: масштаб, поворот, положение, режим.
     pub fn apply_output_config(&mut self, core: &mut Core) {
         let primary = self.primary_gpu;
