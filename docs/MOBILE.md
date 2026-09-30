@@ -168,8 +168,13 @@ CPU; на Redmi K50 Ultra — юнит устройства в arch-mobile-port 
    пароль, администратор → `useradd -m -G video,input,audio,render[,wheel]`), перезагрузка и выключение,
    своя экранная клавиатура (`OnScreenKeyboard::stretch`), на телефоне показана сразу;
 2. экран входа пишет имя в `/run/synlogin/request` и завершает композитор (`Action::Quit`);
-3. сеанс: `dbus-run-session synwm` от имени пользователя (initgroups/setgid/setuid), `XDG_RUNTIME_DIR=
-   /run/synlogin/session/UID` (не `/run/user`: его удаляет logind после выхода из ssh), узлы `/dev/dri`,
+3. сеанс: пользовательский systemd — `loginctl enable-linger` + `user@UID.service` (с linger logind не
+   удаляет `/run/user/UID` после выхода из ssh), `XDG_RUNTIME_DIR=/run/user/UID`, шина сеанса systemd
+   (`/run/user/UID/bus`), пользовательские юниты (PipeWire по сокетам, мост звука…), `systemctl --user`;
+   `/run/synlogin/session/UID` — ссылка на `/run/user/UID`. После сеанса linger снимается, `user@` (если
+   его запустили мы) останавливается. Без logind (или `SYNLOGIN_NO_SYSTEMD_USER=1`) — по-старому:
+   `dbus-run-session synwm`, свой каталог `/run/synlogin/session/UID`. Композитор — от имени пользователя
+   (initgroups/setgid/setuid), узлы `/dev/dri`,
    `/dev/input`, `/dev/kgsl-3d0`, `/dev/dma_heap`, `/dev/snd`, яркость подсветки и светодиодов — во владение
    пользователю (logind-сеанса нет), после сеанса — обратно root и `pkill -u`;
 4. «Выйти» в меню питания завершает композитор — снова экран входа; «Перезагрузка» и «Выключить» в сеансе

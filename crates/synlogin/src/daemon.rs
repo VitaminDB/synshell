@@ -3,7 +3,9 @@
 //!    "synlogin greeter"`); экран входа проверяет пароль, пишет выбранного
 //!    пользователя в [`REQUEST`] и завершает композитор;
 //! 2. сеанс пользователя: устройства (DRM, KGSL, ввод) — ему во владение,
-//!    `/run/synlogin/session/UID`, композитор от его имени (`dbus-run-session synwm`);
+//!    пользовательский systemd (linger → `user@UID`, `/run/user/UID`, шина
+//!    сеанса systemd), композитор от его имени; без logind — свой каталог
+//!    `/run/synlogin/session/UID` и `dbus-run-session synwm`;
 //! 3. «Выйти» в оболочке завершает сеанс — снова экран входа.
 //!
 //! Как `greetd`, но без VT и logind-сеанса: на телефоне с Android-ядром их
@@ -116,15 +118,82 @@ fn run_greeter() {
     note_compositor_exit(&st, started);
 }
 
+/// Пользовательский systemd сеанса: linger через logind поднимает `user@UID`
+/// (и `/run/user/UID`, который logind тогда не удаляет после выхода из ssh),
+/// у сеанса появляются `systemctl --user`, шина сеанса systemd (`/run/user/UID/bus`)
+/// и пользовательские юниты (PipeWire по сокетам и т. п.). Нет logind или user@
+/// не поднялся — `None`, сеанс по-старому: свой каталог и `dbus-run-session`.
+struct UserManager {
+    runtime_dir: String,
+    /// user@UID запустили мы (до входа не работал) — остановить после сеанса.
+    started: bool,
+}
+
+fn start_user_manager(user: &users::User) -> Option<UserManager> {
+    if std::env::var_os("SYNLOGIN_NO_SYSTEMD_USER").is_some() {
+        return None;
+    }
+    let unit = format!("user@{}.service", user.uid);
+    let active = |u: &str| Command::new("systemctl").args(["is-active", "--quiet", u]).status().is_ok_and(|s| s.success());
+    let was_active = active(&unit);
+    let ok = Command::new("loginctl").args(["enable-linger", &user.name]).status().is_ok_and(|s| s.success())
+        && Command::new("systemctl").args(["start", &unit]).status().is_ok_and(|s| s.success());
+    let runtime_dir = format!("/run/user/{}", user.uid);
+    // Шина сеанса (dbus.socket пользователя) появляется вместе с user@.
+    let bus = format!("{runtime_dir}/bus");
+    for _ in 0..50 {
+        if Path::new(&bus).exists() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    if !ok || !Path::new(&bus).exists() {
+        log::warn!("systemd --user для {} не поднялся — сеанс без него", user.name);
+        let _ = Command::new("loginctl").args(["disable-linger", &user.name]).status();
+        return None;
+    }
+    log::info!("systemd --user: {unit}");
+    Some(UserManager { runtime_dir, started: !was_active })
+}
+
+fn stop_user_manager(user: &users::User, m: &UserManager) {
+    let _ = Command::new("loginctl").args(["disable-linger", &user.name]).status();
+    if m.started {
+        let _ = Command::new("systemctl").args(["stop", &format!("user@{}.service", user.uid)]).status();
+    }
+}
+
 fn run_session(user: &users::User) {
-    // Не /run/user/UID: им управляет logind — после выхода из последнего
-    // ssh-сеанса пользователя он удаляет каталог вместе с сокетами
-    // композитора (сеанс synlogin для logind не существует).
     let _ = std::fs::create_dir_all(SESSIONS);
-    let rt = format!("{SESSIONS}/{}", user.uid);
-    let _ = std::fs::create_dir_all(&rt);
-    chown_all(&[rt.clone()], user.uid, user.gid);
-    let _ = std::fs::set_permissions(&rt, std::os::unix::fs::PermissionsExt::from_mode(0o700));
+    let link = format!("{SESSIONS}/{}", user.uid);
+    let manager = start_user_manager(user);
+    let rt = match &manager {
+        // /run/user/UID; /run/synlogin/session/UID — ссылка на него (там сокеты
+        // сеанса ищут скрипты и юнит устройства).
+        Some(m) => {
+            if let Ok(meta) = std::fs::symlink_metadata(&link) {
+                if meta.is_dir() {
+                    let _ = std::fs::remove_dir_all(&link);
+                } else {
+                    let _ = std::fs::remove_file(&link);
+                }
+            }
+            let _ = std::os::unix::fs::symlink(&m.runtime_dir, &link);
+            m.runtime_dir.clone()
+        }
+        // Не /run/user/UID: без linger им управляет logind — после выхода из
+        // последнего ssh-сеанса пользователя он удаляет каталог вместе с
+        // сокетами композитора (сеанс synlogin для logind не существует).
+        None => {
+            if std::fs::symlink_metadata(&link).is_ok_and(|m| m.file_type().is_symlink()) {
+                let _ = std::fs::remove_file(&link);
+            }
+            let _ = std::fs::create_dir_all(&link);
+            chown_all(&[link.clone()], user.uid, user.gid);
+            let _ = std::fs::set_permissions(&link, std::os::unix::fs::PermissionsExt::from_mode(0o700));
+            link.clone()
+        }
+    };
     let devices = device_nodes();
     if user.uid != 0 {
         chown_all(&devices, user.uid, user.gid);
@@ -135,9 +204,19 @@ fn run_session(user: &users::User) {
     // Перезагрузка/выключение из сеанса: композитор пишет сюда и выходит.
     let request = format!("{rt}/synlogin-request");
     let _ = std::fs::remove_file(&request);
-    let mut cmd = Command::new("dbus-run-session");
-    cmd.arg(synwm_bin())
-        .args(synwm_args())
+    let mut cmd = match &manager {
+        Some(_) => {
+            let mut c = Command::new(synwm_bin());
+            c.env("DBUS_SESSION_BUS_ADDRESS", format!("unix:path={rt}/bus"));
+            c
+        }
+        None => {
+            let mut c = Command::new("dbus-run-session");
+            c.arg(synwm_bin());
+            c
+        }
+    };
+    cmd.args(synwm_args())
         .env_remove("SYNSHELL_SHELL")
         .env("HOME", &user.home)
         .env("USER", &user.name)
@@ -160,6 +239,9 @@ fn run_session(user: &users::User) {
     let st = cmd.status();
     log::info!("сеанс {} завершён: {st:?}", user.name);
     note_compositor_exit(&st, started);
+    if let Some(m) = &manager {
+        stop_user_manager(user, m);
+    }
     if user.uid != 0 {
         // Программы, пережившие композитор, не должны держать устройства.
         let _ = Command::new("pkill").args(["-KILL", "-u", &user.uid.to_string()]).status();
