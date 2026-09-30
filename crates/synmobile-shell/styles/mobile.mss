@@ -16,6 +16,17 @@
 
 .home-page { padding: 24px 14px 12px 14px; }
 
+/* Рабочие столы: точки вверху, активный — вытянутый. */
+.home-ws { padding: 6px 10px; border-radius: 999px; background-color: #00000030; }
+.home-ws-hit { padding: 4px 2px; }
+.home-ws-dot {
+    width: 7px; height: 7px; border-radius: 4px;
+    background-color: #ffffff50;
+    transition: width 220ms spring(420, 28), background-color 160ms ease-out;
+}
+.home-ws-dot-busy { background-color: #ffffffa0; }
+.home-ws-dot-on { width: 20px; background-color: #ffffff; }
+
 .home-clock { font-size: 64px; font-weight: 300; color: #ffffff; text-shadow: 0px 2px 8px #00000060; }
 .home-date { font-size: 17px; color: #ffffffd0; text-shadow: 0px 1px 4px #00000060; }
 

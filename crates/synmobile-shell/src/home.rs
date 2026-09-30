@@ -2,11 +2,15 @@
 //! под окнами (слой Bottom, на CPU-композиторе без полноэкранного
 //! смешивания), в ней обои и страницы, листаемые пальцем:
 //!
-//! - «Сводка» (`[mobile] resources_page`): часы, процессор, память,
-//!   батарея — экран ресурсов развернётся на следующем этапе;
-//! - «Приложения»: сетка значков (`[mobile] home_apps` или все) — только
-//!   при `[wallpaper] desktop_icons` («Значки на рабочем столе»), иначе
+//! - первый стол — «Сводка» (`[mobile] resources_page`): часы, процессор,
+//!   память, питание, запущенные приложения;
+//! - остальные — сетка значков (`[mobile] home_apps` или все) при
+//!   `[wallpaper] desktop_icons` («Значки на рабочем столе»), иначе пусто:
 //!   приложения запускаются из «Пуска» и дока.
+//!
+//! Страницы — рабочие столы (`[workspaces] count`): листание пальцем
+//! переключает стол в композиторе, смена стола извне листает страницы;
+//! столы — точки вверху, касание — переход.
 //!
 //! Удержание на пустом месте — меню рабочего стола (добавить панель или
 //! док, режим окон, обои, параметры), на значке — меню приложения.
@@ -39,22 +43,30 @@ fn page_signal() -> RwSignal<usize> {
     })
 }
 
-/// Номер страницы приложений (после сводки, если она включена); без
-/// значков на рабочем столе — первая страница.
-fn apps_page(ctx: &ShellCtx) -> usize {
-    let cfg = ctx.cfg();
-    usize::from(cfg.mobile.resources_page && cfg.wallpaper.desktop_icons)
+/// Активный рабочий стол (с 0).
+fn active_workspace(ctx: &ShellCtx) -> usize {
+    ctx.workspaces.get_untracked().iter().find(|w| w.active).map(|w| w.index as usize).unwrap_or(0)
 }
 
-/// Показать страницу приложений (жест «домой»).
+/// Жест «домой»: страница домашнего экрана — активного стола.
 pub fn show_apps() {
     let ctx = ShellCtx::get();
-    page_signal().set(apps_page(&ctx));
+    page_signal().set(active_workspace(&ctx));
 }
 
 pub fn install(ctx: ShellCtx) {
     let page = page_signal();
-    page.set(apps_page(&ctx));
+    page.set(active_workspace(&ctx));
+    // Страница = рабочий стол: стол сменили извне (панель, клавиши,
+    // композитор) — домашний экран листается следом.
+    create_effect(move || {
+        let ws = ctx.workspaces.get();
+        if let Some(a) = ws.iter().find(|w| w.active) {
+            if page.get_untracked() != a.index as usize {
+                page.set(a.index as usize);
+            }
+        }
+    });
     // Ресурсы снимаются, только пока их страница на экране: домашний экран
     // не закрыт окном (страница 0 режима страниц или окон не видно).
     create_effect(move || {
@@ -102,14 +114,45 @@ fn view(ctx: ShellCtx, output: String) -> impl Widget {
     let page = page_signal();
     let slide = use_signal(0u64);
     let cfg = ctx.cfg();
-    let mut pages = Carousel::new().page_signal(page).show_arrows(false).show_indicators(true);
-    if cfg.mobile.resources_page {
-        pages = pages.child(crate::resources::page(ctx));
-    }
-    if cfg.wallpaper.desktop_icons {
-        pages = pages.child(apps_page_view(ctx));
-    }
-    let pages = pages.class("home-pages");
+    // Страница — рабочий стол (точки столов — вверху, свои у карусели не
+    // нужны): на первом — сводка ресурсов, на остальных — значки или пусто.
+    // Сигнал страницы карусель читает при пересборке — отсюда `rx`.
+    let count = cfg.workspaces.count.max(1) as usize;
+    let (resources, icons, wrap) = (cfg.mobile.resources_page, cfg.wallpaper.desktop_icons, cfg.workspaces.wrap);
+    let pages = rx(move || {
+        let _ = page.get();
+        let mut pages = Carousel::new().page_signal(page).show_arrows(false).show_indicators(false);
+        for i in 0..count {
+            let p: Box<dyn Widget> = if i == 0 && resources {
+                Box::new(crate::resources::page(ctx))
+            } else if icons {
+                Box::new(apps_page_view(ctx))
+            } else {
+                Box::new(DecoratedBox::new())
+            };
+            pages = pages.child(p);
+        }
+        Box::new(
+            pages
+                // Пролистали пальцем — стол в композиторе.
+                .on_page_change(|i| {
+                    let ctx = ShellCtx::get();
+                    if active_workspace(&ctx) != i {
+                        let t = synshell_common::action::WorkspaceTarget::Index(i as u32 + 1);
+                        synshell_ui::actions::run(synshell_common::Action::Workspace(t));
+                    }
+                })
+                // За последний стол — на первый и наоборот (`[workspaces] wrap`).
+                .on_overscroll(move |d| {
+                    if wrap {
+                        use synshell_common::action::WorkspaceTarget;
+                        let t = if d > 0 { WorkspaceTarget::Next } else { WorkspaceTarget::Prev };
+                        synshell_ui::actions::run(synshell_common::Action::Workspace(t));
+                    }
+                })
+                .class("home-pages"),
+        )
+    });
     let gestures = GestureDetector::new()
         .pan_axis(PanAxis::Vertical)
         .on_swipe(|dir, _| match dir {
@@ -132,6 +175,38 @@ fn view(ctx: ShellCtx, output: String) -> impl Widget {
         .child(synshell_ui::manager::wallpaper_view(output, slide))
         .child(DecoratedBox::new().class("home-scrim"))
         .child(gestures)
+        .child(Column::new().cross_axis_alignment(CrossAxisAlignment::Center).child(workspace_dots(ctx)))
+}
+
+/// Рабочие столы точками вверху домашнего экрана (домашний экран общий
+/// для всех столов — видно, на каком ты); касание — переход на стол.
+fn workspace_dots(ctx: ShellCtx) -> impl Widget {
+    rx(move || {
+        let list = ctx.workspaces.get();
+        if list.len() < 2 {
+            return Box::new(DecoratedBox::new());
+        }
+        let mut row = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        for w in &list {
+            let class = if w.active {
+                "home-ws-dot home-ws-dot-on"
+            } else if w.windows > 0 {
+                "home-ws-dot home-ws-dot-busy"
+            } else {
+                "home-ws-dot"
+            };
+            let n = w.index + 1;
+            row = row.child(
+                GestureDetector::new()
+                    .on_click(move || {
+                        let t = synshell_common::action::WorkspaceTarget::Index(n);
+                        synshell_ui::actions::run(synshell_common::Action::Workspace(t));
+                    })
+                    .child(DecoratedBox::new().child(DecoratedBox::new().class(class)).class("home-ws-hit")),
+            );
+        }
+        Box::new(DecoratedBox::new().child(row).class("home-ws"))
+    })
 }
 
 // ─── Сводка ──────────────────────────────────────────────────────────────────
