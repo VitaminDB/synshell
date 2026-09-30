@@ -104,12 +104,21 @@
 .res-rail-row { padding: 2px 2px 8px 2px; }
 .res-app {
     width: 140px;
-    padding: 12px 8px;
+    padding: 20px 8px 12px 8px;
     border-radius: 20px;
     background-color: var(--surface);
     transition: scale 220ms spring(420, 26);
 }
 .res-app:active { scale: 0.95; }
+.res-app-close-row { width: 140px; padding: 4px; }
+.res-app-close {
+    padding: 3px;
+    border-radius: 999px;
+    background-color: #00000040;
+    transition: background-color 120ms ease-out, scale 200ms spring(420, 26);
+}
+.res-app-close:active { background-color: #ef5350; scale: 0.9; }
+.res-app-close-icon { icon-size: 14px; icon-color: var(--fg); }
 .res-app-icon { width: 44px; height: 44px; }
 .res-app-name { font-size: 12px; font-weight: 600; color: var(--fg); }
 .res-app-title { font-size: 10px; color: var(--muted); }

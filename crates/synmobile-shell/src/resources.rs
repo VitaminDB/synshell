@@ -427,7 +427,7 @@ pub fn page(ctx: ShellCtx) -> impl Widget {
 }
 
 /// Карточка приложения в ленте: значок, слева бейдж памяти, справа —
-/// процессора; тап — к окну, свайп вверх — закрыть.
+/// процессора; тап — к окну, «×» в углу или свайп вверх — закрыть.
 fn app_card(a: &AppStat) -> impl Widget {
     let entry = synshell_common::xdg::app_for_window(&a.app_id);
     let icon_path = entry.as_ref().and_then(|e| synshell_common::xdg::lookup_icon(&e.icon)).or_else(|| synshell_common::xdg::window_icon(&a.app_id));
@@ -435,7 +435,10 @@ fn app_card(a: &AppStat) -> impl Widget {
     let mem = if a.mem_kb >= 1024 * 1024 { format!("{:.1}G", a.mem_kb as f64 / 1048576.0) } else { format!("{}M", a.mem_kb / 1024) };
     let cpu_class = if a.cpu >= 50.0 { "res-badge res-badge-cpu res-badge-hot" } else { "res-badge res-badge-cpu" };
     let id = a.window;
-    GestureDetector::new()
+    let close = GestureDetector::new()
+        .on_click(move || synshell_ui::actions::window_op(id, WindowOp::Close))
+        .child(DecoratedBox::new().child(synshell_ui::ui::icon(synshell_ui::ui::mi::CLOSE).class("res-app-close-icon")).class("res-app-close"));
+    let card = GestureDetector::new()
         .pan_axis(PanAxis::Vertical)
         .on_click(move || synshell_ui::actions::window_op(id, WindowOp::Activate))
         .on_swipe(move |d, _| {
@@ -461,5 +464,6 @@ fn app_card(a: &AppStat) -> impl Widget {
                         .child(Text::new(a.title.clone()).max_lines(1).class("res-app-title")),
                 )
                 .class("res-app"),
-        )
+        );
+    Stack::new().child(card).child(Row::new().main_axis_alignment(MainAxisAlignment::End).child(close).class("res-app-close-row"))
 }
