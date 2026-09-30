@@ -25,7 +25,7 @@ const HINT: &str = "x-synlink-device";
 
 pub fn start(d: D, mut incoming: mpsc::UnboundedReceiver<(String, Note)>) {
     let _ = DAEMON.set(d.clone());
-    if d.cfg.notifications {
+    {
         let d2 = d.clone();
         let rt = tokio::runtime::Handle::current();
         std::thread::Builder::new()
@@ -51,7 +51,7 @@ pub fn start(d: D, mut incoming: mpsc::UnboundedReceiver<(String, Note)>) {
                 urgency: n.urgency,
                 time: n.time,
             });
-            if !d.cfg.notifications {
+            if !d.notifications.load(std::sync::atomic::Ordering::Relaxed) {
                 continue;
             }
             let _ = tokio::task::spawn_blocking(move || show(&id, &name, &n)).await;
@@ -80,7 +80,7 @@ fn monitor(d: &D, _rt: &tokio::runtime::Handle) -> anyhow::Result<()> {
         let Ok((app, _replaces, icon, summary, body, _actions, hints, _timeout)) = msg.body().deserialize::<Args>() else {
             continue;
         };
-        if hints.contains_key(HINT) || app == "synlink" {
+        if hints.contains_key(HINT) || app == "synlink" || !d.notifications.load(std::sync::atomic::Ordering::Relaxed) {
             continue;
         }
         // Служебные мгновенные (громкость, яркость) не пересылаем.

@@ -72,6 +72,9 @@ pub struct Daemon {
     pub events: broadcast::Sender<Event>,
     pub announce_now: Notify,
     pub notes_tx: mpsc::UnboundedSender<(String, Note)>,
+    /// `[link] notifications` / `auto_mount` — меняются на лету (config.toml).
+    pub notifications: std::sync::atomic::AtomicBool,
+    pub auto_mount: std::sync::atomic::AtomicBool,
 }
 
 pub type D = Arc<Daemon>;
@@ -103,12 +106,14 @@ impl Daemon {
             port: link.port,
             ep,
             kind,
-            cfg: link,
+            cfg: link.clone(),
             hello_base,
             st: Mutex::new(st),
             events,
             announce_now: Notify::new(),
             notes_tx,
+            notifications: std::sync::atomic::AtomicBool::new(link.notifications),
+            auto_mount: std::sync::atomic::AtomicBool::new(link.auto_mount),
         });
         Ok((d, notes_rx))
     }
@@ -469,7 +474,7 @@ impl Daemon {
             self.emit(Event::Connected { device: info });
         }
         self.emit_status();
-        if self.cfg.auto_mount {
+        if self.auto_mount.load(std::sync::atomic::Ordering::Relaxed) {
             let d = self.clone();
             let id = pid.clone();
             tokio::spawn(async move {
@@ -741,7 +746,25 @@ impl Daemon {
     pub async fn ticker(self: D) {
         let mut n = 0u64;
         let mut last_battery = None;
+        let cfg_path = synshell_common::paths::config_file();
+        let mtime = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+        let mut cfg_mtime = mtime(&cfg_path);
         loop {
+            // config.toml изменился («Параметры → Связь с устройствами») — применить [link].
+            let m = mtime(&cfg_path);
+            if m != cfg_mtime {
+                cfg_mtime = m;
+                let (cfg, _) = synshell_common::config::Config::load();
+                let l = cfg.link;
+                use std::sync::atomic::Ordering::Relaxed;
+                self.notifications.store(l.notifications, Relaxed);
+                self.auto_mount.store(l.auto_mount, Relaxed);
+                let name = if l.name.trim().is_empty() { crate::identity::default_name() } else { l.name.trim().to_string() };
+                if name != self.self_info().name || l.discoverable != self.self_info().discoverable {
+                    tracing::info!(%name, discoverable = l.discoverable, "[link] изменён");
+                    self.configure(Some(name), Some(l.discoverable));
+                }
+            }
             let ifaces = crate::netif::list();
             let usb = crate::netif::usb_info(&ifaces);
             let changed = {

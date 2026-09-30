@@ -4,6 +4,7 @@ use crate::ui::{icons, W};
 
 mod appearance;
 mod datetime;
+mod devices;
 mod hardware;
 mod input;
 mod mobile;
@@ -165,6 +166,14 @@ pub const PAGES: &[PageDef] = &[
         group: "Устройства",
         keywords: "наушники колонка сопряжение устройство клавиатура мышь bluez",
         build: net::bluetooth,
+    },
+    PageDef {
+        id: "devices",
+        title: "Связь с устройствами",
+        icon: "\u{e326}",
+        group: "Устройства",
+        keywords: "телефон компьютер usb wi-fi synlink спаривание экран трансляция файлы уведомления ssh отладка mcp claude",
+        build: devices::devices,
     },
     PageDef {
         id: "phone",

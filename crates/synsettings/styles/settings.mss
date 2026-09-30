@@ -706,3 +706,11 @@ Button.accent-swatch.selected {
 .row-value { font-size: 13px; color: var(--fg); }
 .row-value.big { font-size: 20px; font-weight: 600; }
 .wifi-signal { color: var(--accent); font-size: 22px; }
+
+/* «Связь с устройствами» */
+.dev-card { padding: 12px; border-radius: 14px; background-color: var(--input-bg); }
+.dev-badge { padding: 9px; border-radius: 999px; background-color: var(--hover); }
+.dev-badge-on { background-color: var(--accent); }
+.dev-icon { icon-size: 22px; icon-color: var(--fg); }
+.dev-badge-on .dev-icon { icon-color: var(--accent-fg); }
+.mono { font-family: monospace; font-size: 12px; color: var(--fg); padding: 6px 10px; border-radius: 8px; background-color: var(--input-bg); }
