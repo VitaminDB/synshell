@@ -1150,6 +1150,15 @@ impl State {
                     self.minimize(id)
                 }
             }
+            Action::MinimizeAll => {
+                for id in self.core.wm.visible_ids() {
+                    self.minimize(id);
+                }
+                // Телефон, режим страниц: на домашнюю страницу.
+                if self.core.wm.mobile.pages_mode() {
+                    self.go_to_page(None, true);
+                }
+            }
             Action::ToggleSticky => {
                 if let Some(id) = focused {
                     self.toggle_sticky(id)

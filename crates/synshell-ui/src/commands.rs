@@ -38,7 +38,10 @@ pub fn edge_gesture(edge: &str, cmd: &str) {
         "right" => Some(Edge::Right),
         _ => None,
     };
-    if edge.is_some() && crate::panel::reveal_hidden(edge) {
+    // «Домой» спрятанный док не показывает, а выполняется: окна сворачиваются, и док с умным
+    // скрытием появляется сам. Иначе быстрый свайп снизу при открытом окне только выдвигал док.
+    let home = cmd.split_whitespace().next() == Some("home");
+    if edge.is_some() && !home && crate::panel::reveal_hidden(edge) {
         log::debug!("жест от края {edge:?}: показан спрятанный док");
         return;
     }

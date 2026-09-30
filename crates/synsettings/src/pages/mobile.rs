@@ -139,7 +139,8 @@ pub fn vibration() -> W {
 /// Действия для жестов (значение — строка действия как в `[keybindings]`).
 const GESTURE_ACTIONS: &[(&str, &str)] = &[
     ("back", "Назад"),
-    ("shell home", "Домой"),
+    ("shell home", "Домой (свернуть окна и открыть приложения)"),
+    ("minimize-all", "Свернуть все окна"),
     ("shell recents", "Недавние"),
     ("shell shade", "Шторка"),
     ("shell launcher", "«Пуск»"),

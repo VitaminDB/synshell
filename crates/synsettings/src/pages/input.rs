@@ -189,6 +189,7 @@ pub fn action_label(a: &Action) -> String {
         Action::ToggleFullscreen => "Во весь экран".into(),
         Action::ToggleMaximize => "Развернуть/восстановить".into(),
         Action::Minimize => "Свернуть".into(),
+        Action::MinimizeAll => "Свернуть все окна".into(),
         Action::ToggleSticky => "На всех столах".into(),
         Action::ToggleAlwaysOnTop => "Поверх других".into(),
         Action::Snap(d) => format!("Прилепить {}", dir(d)),

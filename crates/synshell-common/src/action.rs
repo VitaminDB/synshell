@@ -264,6 +264,8 @@ pub enum Action {
     ToggleFullscreen,
     ToggleMaximize,
     Minimize,
+    /// Свернуть все окна — рабочий стол (жест «домой» как в Android).
+    MinimizeAll,
     /// Прикрепить окно ко всем столам.
     ToggleSticky,
     /// Держать окно поверх остальных.
@@ -341,7 +343,7 @@ impl Action {
     /// Имена всех действий — для автодополнения в настройках.
     pub const NAMES: &'static [&'static str] = &[
         "spawn", "close", "kill", "toggle-floating", "toggle-fullscreen", "toggle-maximize",
-        "minimize", "toggle-sticky", "toggle-always-on-top", "snap", "center", "focus", "move",
+        "minimize", "minimize-all", "toggle-sticky", "toggle-always-on-top", "snap", "center", "focus", "move",
         "focus-next", "focus-prev", "workspace", "move-to-workspace", "move-to-workspace-follow",
         "focus-output", "move-to-output", "layout", "cycle-layout", "master-ratio",
         "master-count", "keyboard-layout-next", "keyboard-layout", "screenshot",
@@ -375,6 +377,7 @@ impl FromStr for Action {
             "toggle-fullscreen" | "fullscreen" => Action::ToggleFullscreen,
             "toggle-maximize" | "maximize" => Action::ToggleMaximize,
             "minimize" => Action::Minimize,
+            "minimize-all" | "show-desktop" => Action::MinimizeAll,
             "toggle-sticky" | "sticky" => Action::ToggleSticky,
             "toggle-always-on-top" | "always-on-top" => Action::ToggleAlwaysOnTop,
             "snap" => Action::Snap(need("left/right/up/down")?.parse()?),
@@ -444,6 +447,7 @@ impl fmt::Display for Action {
             Action::ToggleFullscreen => f.write_str("toggle-fullscreen"),
             Action::ToggleMaximize => f.write_str("toggle-maximize"),
             Action::Minimize => f.write_str("minimize"),
+            Action::MinimizeAll => f.write_str("minimize-all"),
             Action::ToggleSticky => f.write_str("toggle-sticky"),
             Action::ToggleAlwaysOnTop => f.write_str("toggle-always-on-top"),
             Action::Snap(d) => write!(f, "snap {}", d.as_str()),
