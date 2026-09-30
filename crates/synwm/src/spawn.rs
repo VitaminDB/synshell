@@ -197,6 +197,13 @@ impl State {
 
     /// Автозапуск: команды из конфига и `~/.config/autostart/*.desktop`.
     pub fn run_autostart(&mut self) {
+        // Каталоги пользователя (Изображения, Документы…) на языке сеанса:
+        // сеансу без systemd --user (synlogin на телефоне) их некому создать.
+        // Уже существующие не переименовываются. Экрану входа не нужно.
+        let greeter = std::env::var("SYNSHELL_SHELL").is_ok_and(|s| s.contains("greeter"));
+        if !greeter && which("xdg-user-dirs-update") {
+            spawn_shell(&self.core, "xdg-user-dirs-update");
+        }
         let cmds = self.core.config.general.autostart.clone();
         for c in cmds {
             spawn_shell(&self.core, &c);
