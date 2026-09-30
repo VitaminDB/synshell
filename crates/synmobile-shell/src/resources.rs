@@ -196,7 +196,7 @@ fn ring(value: f32, label: String, sub: &str, size: f32, color: Color) -> impl W
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .gap(0.0)
                 .child(Text::new(label).class("res-ring-value"))
-                .child(Text::new(sub.to_string()).class("res-ring-sub"))
+                .child(Text::new(sub.to_string()).class("res-ring-unit"))
                 .style("width", StyleValue::px(size))
                 .style("height", StyleValue::px(size)),
         )
@@ -268,6 +268,7 @@ fn card<M>(title: &str, glyph: &str, body: impl syngui::IntoWidget<M>) -> impl W
         .child(
             Column::new()
                 .gap(10.0)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
                 .child(
                     Row::new()
                         .gap(8.0)

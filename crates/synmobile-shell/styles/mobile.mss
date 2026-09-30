@@ -75,8 +75,9 @@
 }
 .res-card-icon { icon-size: 18px; icon-color: var(--accent); }
 .res-card-title { font-size: 14px; font-weight: 600; color: var(--fg); }
-.res-ring-value { font-size: 20px; font-weight: 600; color: var(--fg); }
+.res-ring-value { font-size: 19px; font-weight: 600; color: var(--fg); }
 .res-ring-sub { font-size: 11px; color: var(--muted); }
+.res-ring-unit { font-size: 10px; color: var(--muted); }
 .res-k { font-size: 12px; color: var(--muted); }
 .res-v { font-size: 12px; color: var(--fg); }
 .res-big { font-size: 28px; font-weight: 600; color: var(--fg); }
