@@ -244,7 +244,22 @@ impl State {
                 return FilterResult::Intercept(KeyIntent::Vt((vt - Keysym::XF86_Switch_VT_1.raw() + 1) as i32));
             }
             if locked {
-                return FilterResult::Forward;
+                // На заблокированном экране работают только звук и медиа (кнопки громкости телефона,
+                // клавиши гарнитуры); остальное — экрану блокировки.
+                let m = mods_from_state(mods);
+                let media = st
+                    .core
+                    .bindings
+                    .find(m, Trigger::Key(sym))
+                    .map(|b| b.action.clone())
+                    .filter(|a| matches!(a, Action::Shell(c) if is_media_shell_command(c)));
+                return match media {
+                    Some(action) => {
+                        st.core.suppressed_keys.insert(raw);
+                        FilterResult::Intercept(KeyIntent::Action(action))
+                    }
+                    None => FilterResult::Forward,
+                };
             }
             if overview {
                 st.core.suppressed_keys.insert(raw);
@@ -1473,4 +1488,10 @@ fn dir_name(d: Direction) -> &'static str {
 #[allow(dead_code)]
 fn mods_name(m: Mods) -> String {
     format!("{m:?}")
+}
+
+/// Команды оболочки, допустимые на заблокированном экране: громкость, микрофон, плеер.
+fn is_media_shell_command(cmd: &str) -> bool {
+    let w = cmd.split_whitespace().next().unwrap_or("");
+    matches!(w, "volume" | "mute" | "mic-mute" | "media")
 }

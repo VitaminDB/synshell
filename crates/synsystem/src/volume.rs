@@ -29,16 +29,18 @@ pub fn read() -> Option<Volume> {
     None
 }
 
-/// Изменить на `delta` процентов или выставить `set` (блокирует — звать из
-/// фонового потока).
-pub fn change(delta: i32, set: Option<u32>) {
+/// Изменить на `delta` процентов или выставить `set`, не выше `max` процентов (блокирует — звать из
+/// фонового потока). На телефоне предел 100: выше PipeWire усиливает s16 с клиппингом — хрип динамиков.
+pub fn change(delta: i32, set: Option<u32>, max: u32) {
+    let set = set.map(|v| v.min(max));
     if which("wpctl") {
+        let limit = format!("{:.2}", max as f32 / 100.0);
         let arg = match set {
             Some(v) => format!("{v}%"),
             None if delta >= 0 => format!("{delta}%+"),
             None => format!("{}%-", -delta),
         };
-        let _ = Command::new("wpctl").args(["set-volume", "-l", "1.5", "@DEFAULT_AUDIO_SINK@", &arg]).status();
+        let _ = Command::new("wpctl").args(["set-volume", "-l", &limit, "@DEFAULT_AUDIO_SINK@", &arg]).status();
         if delta > 0 {
             let _ = Command::new("wpctl").args(["set-mute", "@DEFAULT_AUDIO_SINK@", "0"]).status();
         }

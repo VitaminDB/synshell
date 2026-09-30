@@ -393,7 +393,7 @@ fn sliders(ctx: ShellCtx) -> impl Widget {
                         )
                         .child(
                             Slider::new()
-                                .range(0.0, 150.0)
+                                .range(0.0, ShellCtx::get().config.get().sound.max_volume() as f32)
                                 .step(1.0)
                                 .value(v.percent as f32)
                                 .on_change(|x| crate::system::change_volume(ShellCtx::get(), 0, Some(x.round() as u32)))

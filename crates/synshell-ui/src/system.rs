@@ -26,10 +26,15 @@ pub fn refresh_volume(ctx: ShellCtx) -> Option<Volume> {
     v
 }
 
+/// Предел громкости, %: 100, с `[sound] overamplify` — 150.
+pub fn max_volume(ctx: ShellCtx) -> u32 {
+    ctx.config.get_untracked().sound.max_volume()
+}
+
 /// Изменить громкость на `delta` процентов (или выставить при `set`).
 pub fn change_volume(ctx: ShellCtx, delta: i32, set: Option<u32>) {
     std::thread::spawn(move || {
-        synsystem::volume::change(delta, set);
+        synsystem::volume::change(delta, set, max_volume(ctx));
         if let Some(v) = refresh_volume(ctx) {
             if set.is_none() {
                 let icon = if v.muted || v.percent == 0 { crate::ui::mi::VOLUME_OFF } else { crate::ui::mi::VOLUME_UP };

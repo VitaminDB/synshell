@@ -3,6 +3,7 @@
 use crate::ui::{icons, W};
 
 mod appearance;
+mod audio;
 mod datetime;
 mod devices;
 mod hardware;
@@ -158,6 +159,14 @@ pub const PAGES: &[PageDef] = &[
         group: "Устройства",
         keywords: "беспроводная сеть интернет пароль подключение iwd networkmanager точка доступа",
         build: net::wifi,
+    },
+    PageDef {
+        id: "audio",
+        title: "Звук",
+        icon: "\u{e050}",
+        group: "Устройства",
+        keywords: "громкость динамик наушники гарнитура микрофон вывод ввод устройство программы dolby atmos профиль музыка кино pipewire",
+        build: audio::audio,
     },
     PageDef {
         id: "bluetooth",

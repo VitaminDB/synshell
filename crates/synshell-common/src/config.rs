@@ -45,6 +45,7 @@ pub struct Config {
     pub mobile: Mobile,
     pub gestures: Gestures,
     pub haptics: Haptics,
+    pub sound: Sound,
     pub time: Time,
     pub link: Link,
     pub wifi: Wifi,
@@ -75,6 +76,7 @@ impl Default for Config {
             mobile: Mobile::default(),
             gestures: Gestures::default(),
             haptics: Haptics::default(),
+            sound: Sound::default(),
             time: Time::default(),
             link: Link::default(),
             wifi: Wifi::default(),
@@ -1997,6 +1999,24 @@ pub struct Haptics {
 impl Default for Haptics {
     fn default() -> Self {
         Self { enabled: true, strength: 70, gestures: true, keyboard: true, touch: true, notifications: true }
+    }
+}
+
+// ─── звук ───────────────────────────────────────────────────────────────────
+
+/// Звук (`[sound]`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Sound {
+    /// Громкость выше 100 % (до 150 %, программное усиление PipeWire — как «Сверхусиление» GNOME):
+    /// для тихих записей; громкие звуки при этом искажаются.
+    pub overamplify: bool,
+}
+
+impl Sound {
+    /// Предел громкости, %.
+    pub fn max_volume(&self) -> u32 {
+        if self.overamplify { 150 } else { 100 }
     }
 }
 
