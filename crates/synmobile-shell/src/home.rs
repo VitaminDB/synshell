@@ -113,6 +113,8 @@ pub fn install(ctx: ShellCtx) {
 fn view(ctx: ShellCtx, output: String) -> impl Widget {
     let page = page_signal();
     let slide = use_signal(0u64);
+    // Положение листания столов (дробное) — обои-панорама едут за пальцем.
+    let scroll = use_signal(page.get_untracked() as f32);
     let cfg = ctx.cfg();
     // Страница — рабочий стол (точки столов — вверху, свои у карусели не
     // нужны): на первом — сводка ресурсов, на остальных — значки или пусто.
@@ -121,7 +123,7 @@ fn view(ctx: ShellCtx, output: String) -> impl Widget {
     let (resources, icons, wrap) = (cfg.mobile.resources_page, cfg.wallpaper.desktop_icons, cfg.workspaces.wrap);
     let pages = rx(move || {
         let _ = page.get();
-        let mut pages = Carousel::new().page_signal(page).show_arrows(false).show_indicators(false);
+        let mut pages = Carousel::new().page_signal(page).position_signal(scroll).show_arrows(false).show_indicators(false);
         for i in 0..count {
             let p: Box<dyn Widget> = if i == 0 && resources {
                 Box::new(crate::resources::page(ctx))
@@ -172,7 +174,7 @@ fn view(ctx: ShellCtx, output: String) -> impl Widget {
         .child(pages);
     Stack::new()
         .fit(StackFit::Expand)
-        .child(synshell_ui::manager::wallpaper_view(output, slide))
+        .child(synshell_ui::manager::wallpaper_view(output, slide, Some(scroll)))
         .child(DecoratedBox::new().class("home-scrim"))
         .child(gestures)
         .child(Column::new().cross_axis_alignment(CrossAxisAlignment::Center).child(workspace_dots(ctx)))

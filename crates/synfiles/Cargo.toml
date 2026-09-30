@@ -11,7 +11,7 @@ name = "synfiles"
 path = "src/main.rs"
 
 [dependencies]
-synshell-common.workspace = true
+synshell-common = { workspace = true, features = ["thumbs"] }
 syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "clipboard", "image", "svg"] }
 serde.workspace = true
 toml.workspace = true
@@ -22,7 +22,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 # Слежение за папками (inotify).
 notify = "8"
-# Миниатюры: декодирование и уменьшение; PNG с тегами Thumb::URI/MTime.
+# Декодирование картинок (просмотрщик, снимки); миниатюры — synshell-common/thumbs.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff", "ico"] }
 png = "0.17"
 md5 = "0.7"

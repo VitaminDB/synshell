@@ -107,5 +107,45 @@ fn clicks_reach_config_file() {
     assert_eq!(c.appearance.theme, "");
     assert!(c.appearance.resolved.is_none());
     assert_eq!(c.appearance.corner_radius, 10.0);
+
+    // «Обои», свои у каждого стола: касание миниатюры открывает редактор
+    // кадра, «Установить» пишет картинку с кадром в [wallpaper.workspace.1].
+    let pics = dir.join("pics");
+    std::fs::create_dir_all(&pics).unwrap();
+    for name in ["a.png", "b.png"] {
+        let f = std::fs::File::create(pics.join(name)).unwrap();
+        let mut enc = png::Encoder::new(std::io::BufWriter::new(f), 64, 32);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.write_header().unwrap().write_image_data(&[90u8; 64 * 32 * 4]).unwrap();
+    }
+    store::set(&[store::Seg::K("wallpaper"), store::Seg::K("path")], pics.join("a.png").display().to_string());
+    store::set(&[store::Seg::K("wallpaper"), store::Seg::K("layout")], "workspace");
+    let mut h = TestHarness::new((pages::find("wallpaper").build)());
+    h.frame(None, 1100.0, 4000.0);
+    let thumbs: Vec<_> = h
+        .find_by_type_name("GestureDetector")
+        .into_iter()
+        .filter(|id| h.tree.get(*id).and_then(|e| e.get_classes().first().cloned()).is_none())
+        .collect();
+    let find_button = |h: &TestHarness, label: &str| {
+        h.find_by_type_name("Button")
+            .into_iter()
+            .find(|id| h.tree.get(*id).map(|e| format!("{:?}", e.accessibility_info()).contains(label)).unwrap_or(false))
+    };
+    assert!(find_button(&h, "Установить").is_none());
+    // Миниатюры — последние касаемые элементы галереи (b.png — последняя).
+    let last = *thumbs.last().expect("нет миниатюр");
+    h.send_events(&click_at(center(&h, last)));
+    h.frame(None, 1100.0, 900.0);
+    assert!(!h.find_by_type_name("ImageViewport").is_empty(), "редактор кадра не открылся");
+    let set_btn = find_button(&h, "Установить").expect("кнопка «Установить» не найдена");
+    h.send_events(&click_at(center(&h, set_btn)));
+    let c = store::config();
+    let f = c.wallpaper.workspace.get("1").expect("нет [wallpaper.workspace.1]");
+    assert!(f.path.ends_with("b.png"), "{f:?}");
+    assert!(f.zoom >= 1.0);
+    assert_eq!(c.wallpaper.frame_for("X", 0).path, f.path);
+    assert!(c.wallpaper.frame_for("X", 1).path.ends_with("a.png"), "другие столы — общие обои");
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -11,10 +11,12 @@ mod panels;
 mod power;
 mod system;
 mod themes;
+mod wallpaper;
 mod windows;
 
 pub use input::capture_hook;
 pub use themes::gallery_mss as themes_gallery_mss;
+pub use wallpaper::{close_editor as close_wallpaper_editor, open_editor as open_wallpaper_editor};
 
 pub struct PageDef {
     pub id: &'static str,
@@ -48,8 +50,8 @@ pub const PAGES: &[PageDef] = &[
         title: "Обои",
         icon: icons::WALLPAPER,
         group: "Оформление",
-        keywords: "фон картинка изображение слайд-шоу градиент цвет рабочий стол значки",
-        build: appearance::wallpaper,
+        keywords: "фон картинка изображение фото слайд-шоу градиент цвет рабочий стол столы значки кадр масштаб панорама параллакс галерея каталог",
+        build: wallpaper::build,
     },
     PageDef {
         id: "panels",

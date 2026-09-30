@@ -210,6 +210,17 @@ color = ""                     # пусто — обои темы
 color2 = ""                    # второй цвет — градиент, если нет картинки
 slideshow_minutes = 0
 desktop_icons = false
+layout = "same"                # same — одни на всех столах | workspace — свои у каждого стола |
+                               # panorama — одна картинка на все столы, сдвигается при переключении
+zoom = 1.0                     # кадр: масштаб относительно «заполнить экран» (mode = "fill")
+center = [0.5, 0.5]            # кадр: точка картинки в центре экрана, доли ширины и высоты
+panorama_shift = 0.5           # панорама: сдвиг на один стол, доля ширины экрана
+
+# Свои обои стола при layout = "workspace" (номер стола с 1):
+# [wallpaper.workspace.2]
+# path = "~/Pictures/forest.jpg"
+# zoom = 1.3
+# center = [0.4, 0.5]
 
 [wallpaper.per_output]
 # "HDMI-A-1" = "~/Pictures/other.jpg"

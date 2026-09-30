@@ -12,6 +12,9 @@ pub mod ipc;
 pub mod mime;
 pub mod paths;
 pub mod theme;
+#[cfg(feature = "thumbs")]
+pub mod thumbs;
+pub mod wallpaper;
 pub mod watch;
 pub mod xdg;
 

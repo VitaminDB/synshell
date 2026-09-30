@@ -394,4 +394,9 @@ pub mod icons {
     pub const CLOSE: &str = "\u{e5cd}";
     pub const CHECK: &str = "\u{e86c}";
     pub const THEMES: &str = "\u{e3b7}";
+    pub const CROP: &str = "\u{e3be}";
+    pub const SLIDESHOW: &str = "\u{e41b}";
+    pub const ZOOM_IN: &str = "\u{e8ff}";
+    pub const ZOOM_OUT: &str = "\u{e900}";
+    pub const FIT: &str = "\u{ea10}";
 }

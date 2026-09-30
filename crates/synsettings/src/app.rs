@@ -145,6 +145,10 @@ pub fn root(ctx: Ctx) -> W {
 // ─── Телефон: список разделов → страница ────────────────────────────────────
 
 fn go_back(ctx: Ctx) -> bool {
+    // Сначала — открытый поверх страницы редактор кадра обоев.
+    if crate::pages::close_wallpaper_editor() {
+        return true;
+    }
     if ctx.page_open.get_untracked() {
         ctx.page_open.set(false);
         true

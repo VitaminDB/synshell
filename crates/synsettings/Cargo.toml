@@ -11,7 +11,7 @@ name = "synsettings"
 path = "src/main.rs"
 
 [dependencies]
-synshell-common.workspace = true
+synshell-common = { workspace = true, features = ["thumbs"] }
 synsystem.workspace = true
 syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "clipboard", "i18n", "image"] }
 toml.workspace = true

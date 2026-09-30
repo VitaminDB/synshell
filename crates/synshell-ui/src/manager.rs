@@ -105,30 +105,7 @@ pub fn install_with(ctx: ShellCtx, with_wallpaper: bool) {
 
 // ─── Обои ────────────────────────────────────────────────────────────────────
 
-fn is_image(p: &Path) -> bool {
-    matches!(
-        p.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref(),
-        Some("png" | "jpg" | "jpeg" | "webp" | "bmp" | "gif" | "svg")
-    )
-}
-
-/// Картинка для вывода: файл, либо очередная из каталога (слайд-шоу).
-fn pick(path: &str, slot: u64) -> Option<PathBuf> {
-    if path.trim().is_empty() {
-        return None;
-    }
-    let p = synshell_common::paths::expand_tilde(path.trim());
-    if p.is_dir() {
-        let mut files: Vec<PathBuf> = std::fs::read_dir(&p).ok()?.flatten().map(|e| e.path()).filter(|p| is_image(p)).collect();
-        files.sort();
-        if files.is_empty() {
-            return None;
-        }
-        let i = (slot as usize) % files.len();
-        return files.get(i).cloned();
-    }
-    p.exists().then_some(p)
-}
+use synshell_common::wallpaper::{is_image, pick};
 
 fn wallpaper(ctx: ShellCtx, out: &OutputInfo) -> (SurfaceId, Option<u64>) {
     let cfg = ctx.cfg();
@@ -158,7 +135,7 @@ fn wallpaper(ctx: ShellCtx, out: &OutputInfo) -> (SurfaceId, Option<u64>) {
         },
         move || {
             let menu_output = out_name.clone();
-            let mut stack = Stack::new().fit(StackFit::Expand).child(wallpaper_view(out_name.clone(), slide));
+            let mut stack = Stack::new().fit(StackFit::Expand).child(wallpaper_view(out_name.clone(), slide, None));
             if icons {
                 stack = stack.child(desktop_icons());
             }
@@ -177,31 +154,69 @@ fn wallpaper(ctx: ShellCtx, out: &OutputInfo) -> (SurfaceId, Option<u64>) {
     (id, timer)
 }
 
+thread_local! {
+    /// Размеры картинок обоев (по заголовку файла) — кадр считается каждый
+    /// кадр листания, файл читать каждый раз незачем.
+    static IMAGE_SIZES: RefCell<std::collections::HashMap<PathBuf, Option<(f32, f32)>>> = RefCell::new(Default::default());
+}
+
+fn image_size(p: &Path) -> Option<(f32, f32)> {
+    IMAGE_SIZES.with(|m| {
+        *m.borrow_mut()
+            .entry(p.to_path_buf())
+            .or_insert_with(|| syngui::gpu::image_file_size(&p.to_string_lossy()).map(|(w, h)| (w as f32, h as f32)))
+    })
+}
+
+/// На каком столе вывод: дробное положение листания (`pos`, телефон),
+/// иначе активный стол из композитора.
+fn workspace_pos(pos: Option<RwSignal<f32>>) -> f32 {
+    match pos {
+        Some(p) => p.get(),
+        None => ShellCtx::get().workspaces.get().iter().find(|w| w.active).map(|w| w.index as f32).unwrap_or(0.0),
+    }
+}
+
 /// Обои вывода `out_name`: цвет, картинка из живого конфига (смена обоев
 /// растворяет старую картинку в новую), слайд-шоу по сигналу `slide`.
-pub fn wallpaper_view(out_name: String, slide: RwSignal<u64>) -> impl Widget {
+/// Кадр (`zoom`/`center`) и панорама — при заполнении экрана; `pos` —
+/// дробный номер стола от листающей столы карусели (фон едет за пальцем),
+/// без него фон доезжает до активного стола анимацией.
+pub fn wallpaper_view(out_name: String, slide: RwSignal<u64>, pos: Option<RwSignal<f32>>) -> impl Widget {
     Stack::new().fit(StackFit::Expand).child(DecoratedBox::new().class("wallpaper-color")).child(crate::ui::rx(move || {
         let slot = slide.get();
         let cfg = ShellCtx::get().config.get();
         let w = &cfg.wallpaper;
-        let path = w.per_output.get(&out_name).cloned().unwrap_or_else(|| w.path.clone());
+        // Свои обои столов: картинка зависит от стола (при листании
+        // меняется на середине пути и растворяется).
+        let ws = if w.per_workspace() { workspace_pos(pos).round().max(0.0) as u32 } else { 0 };
+        let frame = w.frame_for(&out_name, ws);
+        let panorama = w.panorama();
+        let framed = w.mode == "fill" || panorama;
         let fit = match w.mode.as_str() {
             "fit" => ImageFit::Contain,
             "stretch" => ImageFit::Fill,
             "center" | "tile" => ImageFit::None,
             _ => ImageFit::Cover,
         };
-        let picked = pick(&path, slot);
+        let picked = pick(&frame.path, slot);
         let key = {
             use std::hash::{Hash, Hasher};
             let mut h = std::collections::hash_map::DefaultHasher::new();
             picked.hash(&mut h);
             w.mode.hash(&mut h);
+            framed.hash(&mut h);
             h.finish()
         };
         let dur = cfg.animations.theme_ms();
+        // Доводка кадра до нового стола — в такт переключению столов в
+        // композиторе; за пальцем — без задержки.
+        let follow_ms = if pos.is_some() || cfg.animations.workspace_switch == "none" { 0 } else { cfg.animations.ms(260) };
+        let pano = panorama.then_some((cfg.workspaces.count.max(1), w.panorama_shift));
+        let out = out_name.clone();
         Box::new(
             AnimatedSwitcher::new(key, move || match &picked {
+                Some(p) if framed => Box::new(framed_image(p.clone(), out.clone(), frame.zoom, frame.center, pano, pos, follow_ms)),
                 Some(p) => Box::new(Image::new(p.to_string_lossy()).fit(fit).placeholder(false).class("wallpaper-image")),
                 None => Box::new(DecoratedBox::new()),
             })
@@ -213,6 +228,22 @@ pub fn wallpaper_view(out_name: String, slide: RwSignal<u64>) -> impl Widget {
             .directional(false),
         )
     }))
+}
+
+/// Картинка с кадром: область под пропорции вывода, в панораме — окно
+/// стола на общем холсте.
+fn framed_image(path: PathBuf, out: String, zoom: f32, center: [f32; 2], pano: Option<(u32, f32)>, pos: Option<RwSignal<f32>>, follow_ms: u32) -> impl Widget {
+    let size = image_size(&path);
+    crate::ui::rx(move || {
+        let img = Image::new(path.to_string_lossy()).placeholder(false);
+        let Some(size) = size else {
+            return Box::new(img.fit(ImageFit::Cover).class("wallpaper-image"));
+        };
+        let view = output_size(Some(&out));
+        let pano = pano.map(|(n, shift)| (n, shift, workspace_pos(pos)));
+        let [x, y, w, h] = synshell_common::wallpaper::screen_uv(size, view, zoom, center, pano);
+        Box::new(img.fit(ImageFit::Fill).crop_uv(x, y, w, h).crop_transition_ms(follow_ms).class("wallpaper-image"))
+    })
 }
 
 // ─── Значки рабочего стола ───────────────────────────────────────────────────

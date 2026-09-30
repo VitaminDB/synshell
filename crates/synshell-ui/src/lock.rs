@@ -378,7 +378,7 @@ fn phone_view(ctx: ShellCtx, out: OutputInfo) -> impl Widget {
     let _ = Motion::fade();
     Stack::new()
         .fit(StackFit::Expand)
-        .child(crate::manager::wallpaper_view(out.name.clone(), use_signal(0u64)))
+        .child(crate::manager::wallpaper_view(out.name.clone(), use_signal(0u64), None))
         .child(DecoratedBox::new().class("lock-scrim"))
         .child(gestures)
 }

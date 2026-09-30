@@ -18,7 +18,7 @@ mod places;
 mod search;
 mod shot;
 mod state;
-mod thumbs;
+use synshell_common::thumbs;
 mod trash;
 mod ui;
 mod viewer;

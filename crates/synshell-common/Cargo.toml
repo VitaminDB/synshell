@@ -14,3 +14,13 @@ toml_edit.workspace = true
 tracing.workspace = true
 anyhow.workspace = true
 libc.workspace = true
+# Миниатюры freedesktop (`thumbs`): декодирование и уменьшение, PNG с тегами.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff", "ico"], optional = true }
+png = { version = "0.17", optional = true }
+md5 = { version = "0.7", optional = true }
+
+[features]
+thumbs = ["dep:image", "dep:png", "dep:md5"]
+
+[dev-dependencies]
+tempfile = "3"

@@ -60,6 +60,9 @@ pub fn screenshot(out: &str, page: &str, size: (u32, u32), scale: f64) -> anyhow
     if std::env::var_os("SYNSETTINGS_SHOT_OPEN").is_some() {
         ctx.page_open.set(true);
     }
+    if let Some(p) = std::env::var_os("SYNSETTINGS_SHOT_WALL_EDIT") {
+        crate::pages::open_wallpaper_editor(p.into());
+    }
     let widget = app::root(ctx);
     let element = widget.create_element();
     let root = tree.insert_with_type_id(element, None, widget.as_any().type_id());

@@ -10,7 +10,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 
-use synshell_common::xdg;
+use crate::xdg;
 
 /// Размер кэша: 128, 256 или 512.
 pub fn bucket(px: u32) -> (u32, &'static str) {
@@ -289,7 +289,7 @@ fn write_png(out: &Path, img: &image::DynamicImage, uri: &str, mtime: i64, size:
         let _ = enc.add_text_chunk("Thumb::URI".into(), uri.into());
         let _ = enc.add_text_chunk("Thumb::MTime".into(), mtime.to_string());
         let _ = enc.add_text_chunk("Thumb::Size".into(), size.to_string());
-        let _ = enc.add_text_chunk("Software".into(), "synfiles".into());
+        let _ = enc.add_text_chunk("Software".into(), "synshell".into());
         let mut w = enc.write_header().map_err(std::io::Error::other)?;
         w.write_image_data(&rgba).map_err(std::io::Error::other)?;
     }

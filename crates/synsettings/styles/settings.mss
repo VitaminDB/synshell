@@ -414,14 +414,124 @@ Button.accent-swatch.selected {
 
 .preview-clock { font-size: 11px; }
 
-.wall-preview {
-    height: 220px;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
+/* ── Обои ───────────────────────────────────────────────────────── */
+
+.wall-hero { padding: 16px; }
+.wall-hero-left { width: 420px; }
+
+/* Рамка экрана: монитор — тонкий корпус, телефон — скруглённый. */
+.wall-hero-frame {
+    padding: 6px;
+    border-radius: 14px;
+    background: #0d0f14;
+    box-shadow: 0 10px 28px var(--shadow);
+}
+.wall-hero-phone { padding: 5px; border-radius: 26px; }
+.wall-hero-phone .wall-fill, .wall-hero-phone .wall-image { border-radius: 21px; }
+.wall-fill { border-radius: 9px; }
+.wall-image { border-radius: 9px; }
+
+.wall-mock-bar {
+    width: 46%;
+    height: 7%;
+    min-height: 8px;
+    margin: 0px 0px 4% 0px;
+    border-radius: 6px;
+    background: #ffffff38;
+    border: 1px solid #ffffff30;
 }
 
-.wall-fill { border-radius: var(--radius); height: 218px; }
-.wall-image { height: 218px; }
+.wall-ws-row { padding: 2px 0px; }
+.wall-ws-chip {
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    transition: background-color 140ms ease, border-color 140ms ease, scale 200ms spring(420, 26);
+    &:hover { border-color: var(--accent-soft); }
+    &:active { scale: 0.94; }
+}
+.wall-ws-chip.selected {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-fg);
+}
+.wall-ws-label { font-size: 12px; font-weight: 600; }
+.wall-ws-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--accent);
+}
+.wall-ws-chip.selected .wall-ws-dot { background: var(--accent-fg); }
+
+.wall-controls-title { font-size: 15px; font-weight: 600; color: var(--fg); }
+.wall-current {
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--input-bg);
+}
+
+.wall-gallery-head { padding: 12px 14px 4px 14px; }
+.wall-gallery { padding: 8px 14px 14px 14px; }
+.wall-dir-chip {
+    padding: 6px 12px 6px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--card-bg);
+    transition: background-color 140ms ease, border-color 140ms ease;
+    &:hover { background: var(--hover); }
+}
+.wall-dir-chip.selected { border-color: var(--accent); background: var(--accent-soft); }
+.wall-dir-icon { icon-size: 16px; font-size: 16px; color: var(--muted); icon-color: var(--muted); }
+.wall-dir-chip.selected .wall-dir-icon { color: var(--accent); icon-color: var(--accent); }
+.wall-dir-label { font-size: 12px; }
+
+.wall-thumb {
+    border-radius: 10px;
+    border: 2px solid transparent;
+    padding: 2px;
+    transition: border-color 140ms ease, scale 220ms spring(380, 24), box-shadow 160ms ease;
+    &:hover { border-color: var(--accent-soft); box-shadow: 0 6px 16px var(--shadow); }
+    &:active { scale: 0.96; }
+}
+.wall-thumb.selected { border-color: var(--accent); }
+.wall-thumb-img { border-radius: 7px; }
+.wall-thumb-loading { border-radius: 7px; background: var(--input-bg); }
+.wall-thumb-check {
+    margin: 6px;
+    width: 22px;
+    height: 22px;
+    border-radius: 11px;
+    background: var(--accent);
+    justify-content: center;
+    align-items: center;
+}
+.wall-thumb-check-icon { icon-size: 16px; font-size: 16px; color: var(--accent-fg); icon-color: var(--accent-fg); }
+
+/* Редактор кадра — поверх страницы, тёмная «сцена». */
+.wall-editor { padding: 16px 24px 20px 24px; background: var(--bg); }
+.wall-editor-narrow { padding: 8px 12px 14px 12px; }
+.wall-editor-bar { padding: 0px 0px 2px 0px; }
+.wall-editor-title { font-size: 17px; font-weight: 600; color: var(--fg); }
+.wall-editor-stage {
+    width: 100%;
+    border-radius: var(--radius);
+    background: #0b0c10;
+    padding: 18px;
+    justify-content: center;
+    align-items: center;
+}
+.wall-editor-frame {
+    border-radius: 12px;
+    box-shadow: 0 12px 34px #000000aa;
+}
+.wall-editor-view { background: #000000; color: #ffffff; }
+.wall-pano-dim { background: #00000080; }
+.wall-pano-window { border: 2px solid #ffffffd0; border-radius: 6px; }
+.wall-editor-hint { text-align: center; }
+.wall-zoom-box { width: 48px; justify-content: center; align-items: center; }
+.wall-zoom-label { font-weight: 600; color: var(--fg); }
 
 /* ── Баннер ошибки и строка состояния ───────────────────────────── */
 

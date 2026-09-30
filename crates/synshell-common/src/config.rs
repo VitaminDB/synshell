@@ -1024,6 +1024,21 @@ pub struct Wallpaper {
     pub per_output: BTreeMap<String, String>,
     /// Показывать значки с `~/Desktop` на рабочем столе.
     pub desktop_icons: bool,
+    /// Обои и рабочие столы: `same` — одни на всех столах, `workspace` —
+    /// свои у каждого стола (`[wallpaper.workspace.N]`, у кого нет — общие),
+    /// `panorama` — одна картинка на все столы, при переключении столов она
+    /// сдвигается вбок (как домашний экран Android).
+    pub layout: String,
+    /// Кадр (при `mode = "fill"` и в панораме): масштаб относительно
+    /// «заполнить экран», 1 — без увеличения.
+    pub zoom: f32,
+    /// Точка картинки в центре кадра, доли ширины и высоты `[x, y]`.
+    pub center: [f32; 2],
+    /// Панорама: на сколько сдвигается картинка при переходе на соседний
+    /// стол, доля ширины экрана (0.05…1).
+    pub panorama_shift: f32,
+    /// Свои обои столов (`layout = "workspace"`), ключ — номер стола с 1.
+    pub workspace: BTreeMap<String, WallpaperFrame>,
 }
 
 impl Default for Wallpaper {
@@ -1036,6 +1051,62 @@ impl Default for Wallpaper {
             slideshow_minutes: 0,
             per_output: BTreeMap::new(),
             desktop_icons: false,
+            layout: "same".into(),
+            zoom: 1.0,
+            center: [0.5, 0.5],
+            panorama_shift: 0.5,
+            workspace: BTreeMap::new(),
+        }
+    }
+}
+
+/// Картинка с кадром: общие обои, обои стола.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct WallpaperFrame {
+    /// Картинка или каталог (слайд-шоу).
+    pub path: String,
+    pub zoom: f32,
+    pub center: [f32; 2],
+}
+
+impl Default for WallpaperFrame {
+    fn default() -> Self {
+        Self { path: String::new(), zoom: 1.0, center: [0.5, 0.5] }
+    }
+}
+
+impl Wallpaper {
+    pub fn panorama(&self) -> bool {
+        self.layout == "panorama"
+    }
+
+    pub fn per_workspace(&self) -> bool {
+        self.layout == "workspace"
+    }
+
+    /// Общие обои с кадром.
+    pub fn base_frame(&self) -> WallpaperFrame {
+        WallpaperFrame { path: self.path.clone(), zoom: self.zoom, center: self.center }
+    }
+
+    /// Свои обои стола `ws` (с 0), если заданы и включены.
+    pub fn workspace_frame(&self, ws: u32) -> Option<&WallpaperFrame> {
+        if !self.per_workspace() {
+            return None;
+        }
+        self.workspace.get(&(ws + 1).to_string()).filter(|f| !f.path.trim().is_empty())
+    }
+
+    /// Что показать на выводе `output` на столе `ws` (с 0): свои обои
+    /// стола, иначе монитора, иначе общие.
+    pub fn frame_for(&self, output: &str, ws: u32) -> WallpaperFrame {
+        if let Some(f) = self.workspace_frame(ws) {
+            return f.clone();
+        }
+        match self.per_output.get(output).filter(|p| !p.trim().is_empty()) {
+            Some(p) => WallpaperFrame { path: p.clone(), ..Default::default() },
+            None => self.base_frame(),
         }
     }
 }
