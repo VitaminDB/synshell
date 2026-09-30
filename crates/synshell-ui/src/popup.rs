@@ -333,6 +333,26 @@ fn arm_leave(timer: &std::sync::Arc<std::sync::Mutex<Option<u64>>>, ms: u64) {
 }
 
 fn content(kind: &PopupKind, ctx: ShellCtx) -> Box<dyn Widget> {
+    let w = content_inner(kind, ctx);
+    if !(ctx.is_phone() && matches!(kind, PopupKind::Launcher)) {
+        return w;
+    }
+    // Телефон: меню открывают смахиванием вверх со стола — закрывают вниз.
+    // Список, прокрученный не к началу, тянется сам: жест наружу отдаёт
+    // только упёршаяся в край прокрутка.
+    Box::new(
+        syngui::GestureDetector::new()
+            .pan_axis(syngui::widgets::PanAxis::Vertical)
+            .on_swipe(|dir, _| {
+                if dir == syngui::widgets::SwipeDirection::Down {
+                    ShellCtx::get().close_popup();
+                }
+            })
+            .child(w),
+    )
+}
+
+fn content_inner(kind: &PopupKind, ctx: ShellCtx) -> Box<dyn Widget> {
     match kind {
         PopupKind::Launcher if ctx.cfg().launcher.style == "win11" => Box::new(crate::start_menu::view(ctx)),
         PopupKind::Launcher => Box::new(crate::launcher::menu(ctx)),
