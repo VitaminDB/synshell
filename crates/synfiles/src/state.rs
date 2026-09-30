@@ -762,6 +762,7 @@ pub fn config_changed(cfg: Config) {
     }
     synshell_common::xdg::set_icon_theme(&cfg.appearance.icon_theme);
     crate::thumbs::set_max_mb(cfg.files.thumbnail_max_mb);
+    synshell_common::haptics::set_config(&cfg.haptics);
     let pinned_changed = ctx.cfg.get_untracked().files.pinned != cfg.files.pinned;
     ctx.cfg.set_always(Arc::new(cfg));
     if pinned_changed {

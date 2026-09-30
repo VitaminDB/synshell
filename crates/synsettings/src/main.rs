@@ -112,6 +112,14 @@ fn main() {
         }
     });
 
+    // Виброотклик касаний — по текущим (в том числе только что изменённым) настройкам.
+    syngui::input::set_haptic_handler(|h| {
+        synshell_common::haptics::set_config(&store::config().haptics);
+        synshell_common::haptics::play(match h {
+            syngui::input::Haptic::LongPress => synshell_common::haptics::Feedback::LongPress,
+            _ => synshell_common::haptics::Feedback::Tick,
+        });
+    });
     App::new()
         .title("Параметры системы — synshell")
         .app_id("synsettings")

@@ -44,6 +44,7 @@ pub struct Config {
     pub idle: Idle,
     pub mobile: Mobile,
     pub gestures: Gestures,
+    pub haptics: Haptics,
     pub wifi: Wifi,
     pub packages: Packages,
 }
@@ -71,6 +72,7 @@ impl Default for Config {
             idle: Idle::default(),
             mobile: Mobile::default(),
             gestures: Gestures::default(),
+            haptics: Haptics::default(),
             wifi: Wifi::default(),
             packages: Packages::default(),
         }
@@ -1879,6 +1881,32 @@ impl Default for Gestures {
             touchpad_horizontal: a("workspace next"),
             touchpad_up: a("overview"),
         }
+    }
+}
+
+// ─── вибрация ──────────────────────────────────────────────────────────────
+
+/// Виброотклик (`[haptics]`, телефон): общий выключатель, сила и что
+/// отзывается вибрацией.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Haptics {
+    pub enabled: bool,
+    /// Сила, % (0–100).
+    pub strength: u32,
+    /// Жесты от краёв экрана: «назад», «домой», «Недавние», шторка.
+    pub gestures: bool,
+    /// Экранная клавиатура.
+    pub keyboard: bool,
+    /// Касания в приложениях: удержание (выбор, меню).
+    pub touch: bool,
+    /// Уведомления (кроме «Не беспокоить»).
+    pub notifications: bool,
+}
+
+impl Default for Haptics {
+    fn default() -> Self {
+        Self { enabled: true, strength: 70, gestures: true, keyboard: true, touch: true, notifications: true }
     }
 }
 

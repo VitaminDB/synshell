@@ -2,6 +2,7 @@
 //! закрывается при скрытии (как домашний экран synmobile-shell); её высота —
 //! из числа рядов, exclusive zone той же высоты отодвигает окна.
 
+use synshell_common::haptics::{self, Feedback};
 use std::cell::Cell;
 use std::time::Duration;
 
@@ -322,6 +323,7 @@ fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: 
             // отпускания.
             gd = gd
                 .on_press(move |_| {
+                    haptics::play(Feedback::Key);
                     stop_repeat();
                     kb.tap(code, with_shift, latin);
                     let t = syngui_layer::add_timer(Duration::from_millis(400), move || {
@@ -349,6 +351,10 @@ fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: 
                 }
             })
         }
+    }
+    // Отклик — сразу при касании клавиши (у автоповтора — в его on_press).
+    if !matches!(action, Action::Key { repeat: true, .. }) {
+        gd = gd.on_press(|_| haptics::play(Feedback::Key));
     }
     Box::new(gd.style("flex-grow", width))
 }

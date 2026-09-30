@@ -7,6 +7,7 @@ pub mod action;
 pub mod app_theme;
 pub mod config;
 pub mod config_edit;
+pub mod haptics;
 pub mod ipc;
 pub mod mime;
 pub mod paths;

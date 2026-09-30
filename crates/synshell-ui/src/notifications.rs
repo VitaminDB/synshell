@@ -209,10 +209,15 @@ fn add(ctx: ShellCtx, n: Notification) {
     if ctx.dnd.get_untracked() && n.urgency < 2 {
         return;
     }
+    let fresh = !ctx.notifications.get_untracked().iter().any(|x| x.id == id);
     ctx.notifications.update(|list| match list.iter_mut().find(|x| x.id == id) {
         Some(x) => *x = n.clone(),
         None => list.push(n.clone()),
     });
+    // Новое (не обновлённое) уведомление — вибрацией; тихие (transient) — нет.
+    if fresh && !n.transient {
+        synshell_common::haptics::play(synshell_common::haptics::Feedback::Notification);
+    }
     if timeout > 0 {
         syngui_layer::add_timer(Duration::from_millis(timeout as u64), move || {
             // Истёк — карточка уходит, в истории остаётся.

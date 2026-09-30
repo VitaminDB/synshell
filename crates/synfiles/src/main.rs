@@ -129,12 +129,25 @@ fn make_state(args: &Args, cfg: synshell_common::Config) -> state::Ctx {
     ctx
 }
 
+/// Удержание пальцем, переключатели — виброотклик (`[haptics]`).
+fn install_haptics() {
+    use synshell_common::haptics::{play, Feedback};
+    syngui::input::set_haptic_handler(|h| {
+        play(match h {
+            syngui::input::Haptic::LongPress => Feedback::LongPress,
+            _ => Feedback::Tick,
+        })
+    });
+}
+
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()))
         .init();
     let args = parse_args();
     let cfg = load_config();
+    synshell_common::haptics::set_config(&cfg.haptics);
+    install_haptics();
     synshell_common::xdg::set_icon_theme(&cfg.appearance.icon_theme);
 
     if let Some(file) = args.viewer.clone() {

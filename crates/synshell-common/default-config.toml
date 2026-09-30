@@ -372,6 +372,15 @@ long_press_window = "none"     # none | move — удержание по окн�
 touchpad_horizontal = "workspace next"
 touchpad_up = "overview"
 
+# Виброотклик (телефон, вибромотор с force feedback).
+[haptics]
+enabled = true
+strength = 70                  # сила, %
+gestures = true                # жесты от краёв: назад, домой, шторка, «Недавние»
+keyboard = true                # экранная клавиатура
+touch = true                   # удержание пальцем (выбор, меню), переключатели
+notifications = true           # уведомления (кроме «Не беспокоить»)
+
 [wifi]
 backend = "auto"               # auto | iwd | networkmanager
 

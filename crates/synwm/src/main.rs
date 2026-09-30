@@ -151,6 +151,7 @@ fn run(args: &[String]) -> anyhow::Result<bool> {
         tracing::warn!(?e, "не удалось создать config.toml");
     }
     let (config, config_error) = Config::load();
+    synshell_common::haptics::set_config(&config.haptics);
     if let Some(e) = &config_error {
         tracing::warn!(error = e, "ошибка конфига — используются значения по умолчанию");
     }

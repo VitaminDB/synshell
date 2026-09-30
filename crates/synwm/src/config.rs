@@ -34,6 +34,7 @@ impl State {
             return;
         }
         tracing::info!("конфиг перечитан");
+        synshell_common::haptics::set_config(&config.haptics);
         let old = std::mem::replace(&mut self.core.config, config);
         let mut errors = Vec::new();
 

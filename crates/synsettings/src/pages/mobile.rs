@@ -91,6 +91,51 @@ pub fn phone() -> W {
     )
 }
 
+/// Виброотклик (`[haptics]`).
+pub fn vibration() -> W {
+    let c = store::config();
+    let h = c.haptics.clone();
+    let strength = h.strength;
+    let p = op!["haptics", "strength"];
+    let slider = Slider::new()
+        .range(10.0, 100.0)
+        .step(5.0)
+        .value(strength as f32)
+        .show_value(0)
+        .width(200.0)
+        .on_change(move |v| set(&p, v.round() as i64));
+    page(
+        "Вибрация",
+        "Виброотклик телефона: жесты, экранная клавиатура, касания в приложениях, уведомления.",
+        vec![
+            group(
+                "",
+                vec![
+                    switch_row("Вибрация", "Общий выключатель виброотклика", op!["haptics", "enabled"], h.enabled),
+                    row("Сила", "Насколько сильно вибрирует отклик", slider),
+                    row_inline(
+                        "Проверить",
+                        "Короткая вибрация с выбранной силой",
+                        button("Проверить", || {
+                            let s = store::config().haptics.strength;
+                            synshell_common::haptics::test(s);
+                        }),
+                    ),
+                ],
+            ),
+            group(
+                "Отклик на",
+                vec![
+                    switch_row("Жесты", "«Назад», «домой», шторка; «Недавние» удержанием — сильнее", op!["haptics", "gestures"], h.gestures),
+                    switch_row("Клавиатура", "Нажатия клавиш экранной клавиатуры", op!["haptics", "keyboard"], h.keyboard),
+                    switch_row("Касания", "Удержание пальцем (выбор, меню), переключатели", op!["haptics", "touch"], h.touch),
+                    switch_row("Уведомления", "Кроме режима «Не беспокоить»", op!["haptics", "notifications"], h.notifications),
+                ],
+            ),
+        ],
+    )
+}
+
 /// Действия для жестов (значение — строка действия как в `[keybindings]`).
 const GESTURE_ACTIONS: &[(&str, &str)] = &[
     ("back", "Назад"),

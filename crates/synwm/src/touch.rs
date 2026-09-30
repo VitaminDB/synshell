@@ -20,6 +20,7 @@ use smithay::backend::input::TouchSlot;
 use smithay::input::touch::{DownEvent, MotionEvent, UpEvent};
 use smithay::utils::{Logical, Point, SERIAL_COUNTER};
 use synshell_common::config::FormFactor;
+use synshell_common::haptics::{self, Feedback};
 use synshell_common::Action;
 
 use crate::state::State;
@@ -176,6 +177,7 @@ impl State {
                     }
                     Decision::Edge if p.edge == Edge::Top => {
                         let a = self.core.config.gestures.edge_top.clone();
+                        haptics::play(Feedback::Gesture);
                         self.edge_action(Edge::Top, a);
                     }
                     Decision::Edge if p.edge == Edge::Bottom => self.watch_bottom_hold(slot),
@@ -230,6 +232,7 @@ impl State {
                 };
                 let _ = p.start_time;
                 if let Some(a) = action {
+                    haptics::play(Feedback::Gesture);
                     self.edge_action(p.edge, a);
                 }
                 true
@@ -256,6 +259,8 @@ impl State {
                 return TimeoutAction::ToDuration(HOLD_POLL);
             }
             p.held = true;
+            // Палец ещё на экране — отклик говорит, что «Недавние» открылись.
+            haptics::play(Feedback::GestureHold);
             let a = state.core.config.gestures.edge_bottom_hold.clone();
             state.edge_action(Edge::Bottom, a);
             TimeoutAction::Drop

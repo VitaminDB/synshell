@@ -101,6 +101,15 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
     }
     xdg::set_icon_theme(&config.appearance.icon_theme);
     xdg::warm_up();
+    // Виброотклик: удержание пальцем (меню, перенос значков), переключатели.
+    synshell_common::haptics::set_config(&config.haptics);
+    syngui::input::set_haptic_handler(|h| {
+        use synshell_common::haptics::{play, Feedback};
+        play(match h {
+            syngui::input::Haptic::LongPress => Feedback::LongPress,
+            _ => Feedback::Tick,
+        })
+    });
     let mss = theme::build(&config);
     app_colors::sync(&config);
     let font = Some(config.appearance.font.trim().to_string()).filter(|f| !f.is_empty());
@@ -206,6 +215,7 @@ pub fn reload_config() {
         probe.appearance = old.appearance.clone();
         probe.wallpaper = old.wallpaper.clone();
         probe.animations = old.animations.clone();
+        probe.haptics = old.haptics.clone();
         probe != *old
     };
     let theme_ms = cfg.animations.theme_ms();
@@ -216,6 +226,7 @@ pub fn reload_config() {
     }
     app_colors::sync(&cfg);
     ctx.dnd.set(cfg.notifications.do_not_disturb);
+    synshell_common::haptics::set_config(&cfg.haptics);
     ctx.config.set_always(Arc::new(cfg));
     if structural {
         if !ctx.popup.get_untracked().is_some_and(|p| p.kind.survives_reload()) {

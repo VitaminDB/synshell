@@ -180,6 +180,14 @@ pub const PAGES: &[PageDef] = &[
         build: mobile::gestures,
     },
     PageDef {
+        id: "vibration",
+        title: "Вибрация",
+        icon: icons::VIBRATION,
+        group: "Устройства",
+        keywords: "вибро вибромотор виброотклик тактильный отклик haptics сила клавиатура уведомления",
+        build: mobile::vibration,
+    },
+    PageDef {
         id: "hardware",
         title: "Оборудование",
         icon: icons::HARDWARE,
