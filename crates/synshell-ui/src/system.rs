@@ -33,8 +33,10 @@ pub fn max_volume(ctx: ShellCtx) -> u32 {
 
 /// Изменить громкость на `delta` процентов (или выставить при `set`).
 pub fn change_volume(ctx: ShellCtx, delta: i32, set: Option<u32>) {
+    // сигналы читаются только в главном потоке — предел берём до запуска фонового
+    let max = max_volume(ctx);
     std::thread::spawn(move || {
-        synsystem::volume::change(delta, set, max_volume(ctx));
+        synsystem::volume::change(delta, set, max);
         if let Some(v) = refresh_volume(ctx) {
             if set.is_none() {
                 let icon = if v.muted || v.percent == 0 { crate::ui::mi::VOLUME_OFF } else { crate::ui::mi::VOLUME_UP };
