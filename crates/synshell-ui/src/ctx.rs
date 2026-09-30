@@ -137,6 +137,9 @@ pub struct ShellCtx {
     pub now: RwSignal<i64>,
     /// Счётчик перечитываний конфига (перестроить поверхности).
     pub generation: RwSignal<u64>,
+    /// Счётчик перечитываний базы приложений (поставили или удалили
+    /// программу — пересобрать меню и домашний экран).
+    pub apps_rev: RwSignal<u64>,
     /// Окна, свёрнутые кнопкой «показать рабочий стол».
     pub shown_desktop: RwSignal<Vec<u64>>,
     /// Лента Alt+Tab: выбранное окно и порядок окон (от композитора).
@@ -177,6 +180,7 @@ impl ShellCtx {
             memory: use_signal(0.0),
             now: use_signal(crate::clock::unix_now()),
             generation: use_signal(0),
+            apps_rev: use_signal(0),
             shown_desktop: use_signal(Vec::new()),
             switcher: use_signal(None),
             editing: use_signal(None),

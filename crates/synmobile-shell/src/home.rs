@@ -29,7 +29,7 @@ use syngui_layer::{Anchor, KeyboardInteractivity, Layer, SurfaceId, SurfaceSpec}
 thread_local! {
     static SURFACE: Cell<Option<SurfaceId>> = const { Cell::new(None) };
     static PAGE: Cell<Option<RwSignal<usize>>> = const { Cell::new(None) };
-    static BUILT: Cell<Option<(u64, usize)>> = const { Cell::new(None) };
+    static BUILT: Cell<Option<(u64, u64, usize)>> = const { Cell::new(None) };
 }
 
 fn page_signal() -> RwSignal<usize> {
@@ -82,8 +82,10 @@ pub fn install(ctx: ShellCtx) {
     create_effect(move || {
         let outputs = syngui_layer::outputs().get();
         let generation = ctx.generation.get();
-        // Пересобрать при смене конфига (страницы, приложения) и выводов.
-        let key = (generation, outputs.len());
+        let apps = ctx.apps_rev.get();
+        // Пересобрать при смене конфига (страницы, приложения), списка
+        // приложений и выводов.
+        let key = (generation, apps, outputs.len());
         if BUILT.with(|b| b.get()) == Some(key) {
             return;
         }

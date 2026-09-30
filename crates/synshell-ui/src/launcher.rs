@@ -338,6 +338,7 @@ fn state(ctx: ShellCtx) -> State {
     create_effect(move || {
         let q = query.get();
         let s = section.get();
+        let _ = ctx.apps_rev.get();
         let v = if q.trim().is_empty() { section_items(&ctx, &s) } else { search(&ctx, &q) };
         items.set(v);
         items_version.set(items_version.get_untracked() + 1);

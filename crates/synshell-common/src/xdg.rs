@@ -331,12 +331,50 @@ pub fn apps() -> Arc<Vec<DesktopEntry>> {
         .unwrap_or_default()
 }
 
+/// Перечитать приложения и сбросить индексы значков (новый пакет мог
+/// принести и значок). Тяжело (разбор тем значков) — звать не из потока UI.
 pub fn reload_apps() {
     let v = Arc::new(load_apps());
     let lock = APPS.get_or_init(|| RwLock::new(v.clone()));
     if let Ok(mut g) = lock.write() {
         *g = v;
     }
+    if let Some(m) = ICONS.get() {
+        if let Ok(mut m) = m.write() {
+            m.clear();
+        }
+    }
+    if let Some(c) = ICON_CACHE.get() {
+        if let Ok(mut c) = c.write() {
+            c.clear();
+        }
+    }
+    let _ = lookup_icon("application-x-executable");
+}
+
+/// Отпечаток каталогов `applications` (с подкаталогами): mtime каталога
+/// меняется, когда в нём появляется, пропадает или заменяется (пакетный
+/// менеджер пишет во временный файл и переименовывает) `.desktop`.
+/// Дёшево — `stat` нескольких каталогов.
+pub fn apps_stamp() -> Vec<(PathBuf, Option<std::time::SystemTime>)> {
+    fn add(dir: PathBuf, out: &mut Vec<(PathBuf, Option<std::time::SystemTime>)>) {
+        let m = std::fs::metadata(&dir).and_then(|m| m.modified()).ok();
+        if m.is_some() {
+            if let Ok(rd) = std::fs::read_dir(&dir) {
+                for e in rd.flatten() {
+                    if e.file_type().is_ok_and(|t| t.is_dir()) {
+                        add(e.path(), out);
+                    }
+                }
+            }
+        }
+        out.push((dir, m));
+    }
+    let mut v = Vec::new();
+    for d in paths::data_dirs() {
+        add(d.join("applications"), &mut v);
+    }
+    v
 }
 
 pub fn app_by_id(id: &str) -> Option<DesktopEntry> {

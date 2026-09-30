@@ -131,6 +131,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         switcher::install(ctx);
         applets::taskbar::start_minimize_rects();
         watch_config();
+        watch_apps();
         // Отладка: выполнить команды оболочки после старта
         // (`SYNSHELL_SHELL_EXEC="launcher;sleep 500;volume +5"`).
         if let Ok(cmds) = std::env::var("SYNSHELL_SHELL_EXEC") {
@@ -180,6 +181,40 @@ fn watch_config() {
             w = FileWatcher::new(theme::watched_files(&ShellCtx::get().config.get_untracked()));
         }
         Some(Duration::from_secs(1))
+    });
+}
+
+/// Раз в 2 с смотреть на каталоги `applications`: поставленная или
+/// удалённая программа сразу появляется в меню и на домашнем экране.
+/// Перечитывание — в фоне (темы значков разбираются десятки мс), затем
+/// `apps_rev` пересобирает списки.
+fn watch_apps() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let mut stamp = xdg::apps_stamp();
+    let done = Arc::new(AtomicBool::new(false));
+    let mut busy = false;
+    syngui_layer::add_timer(Duration::from_secs(2), move || {
+        if busy {
+            if done.swap(false, Ordering::AcqRel) {
+                busy = false;
+                log::info!("приложения перечитаны: {}", xdg::apps().len());
+                let ctx = ShellCtx::get();
+                ctx.apps_rev.set(ctx.apps_rev.get_untracked() + 1);
+            }
+            return Some(Duration::from_millis(200));
+        }
+        let now = xdg::apps_stamp();
+        if now != stamp {
+            stamp = now;
+            busy = true;
+            let done = done.clone();
+            std::thread::spawn(move || {
+                xdg::reload_apps();
+                done.store(true, Ordering::Release);
+            });
+            return Some(Duration::from_millis(200));
+        }
+        Some(Duration::from_secs(2))
     });
 }
 

@@ -175,6 +175,8 @@ fn body_ref(st: St, ctx: ShellCtx, body_h: f32) -> impl Widget {
         let searching = !st.query.get().trim().is_empty();
         let v = st.view.get();
         let pages = st.pages.get();
+        // Поставили или удалили программу — пересобрать списки.
+        let rev = ctx.apps_rev.get();
         // Ключ задаёт направление перетекания: дальше по списку — въезд справа.
         let key = if searching { 3 } else if pages { 4 } else if v == View::All { 2 } else { 1 };
         let sw = AnimatedSwitcher::new(key, move || -> Box<dyn Widget> {
@@ -188,6 +190,7 @@ fn body_ref(st: St, ctx: ShellCtx, body_h: f32) -> impl Widget {
                 Box::new(home(ctx, st, body_h))
             }
         })
+        .version(rev)
         .directional(true)
         .slide(36.0, 0.0)
         .duration_ms(dur)
