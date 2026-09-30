@@ -382,24 +382,26 @@ fn fab_layer() -> W {
 // ---------------------------------------------------------------- слои
 
 /// Затемнение под панелью; касание закрывает её. `Presence` меряет
-/// ребёнка по содержимому — размер задаём явно, по окну.
+/// ребёнка по содержимому, а `Reactive` сам нулевого размера — поэтому
+/// `Reactive` снаружи, а внутри `Presence` блок с явным размером окна.
 fn scrim(open: RwSignal<bool>) -> W {
-    boxed(
-        Presence::signal(open, move || {
-            boxed(Reactive::new(move || -> Vec<W> {
-                let vp = syngui::viewport::viewport_size().get();
-                vec![boxed(
-                    GestureDetector::new()
-                        .cursor(CursorIcon::Default)
-                        .on_click(move || open.set(false))
-                        .child(DecoratedBox::new().class("scrim").style("width", vp.width).style("height", vp.height)),
-                )]
-            }))
-        })
-        .enter(Motion::fade())
-        .exit(Motion::fade())
-        .duration_ms(200),
-    )
+    boxed(Reactive::new(move || -> Vec<W> {
+        let shown = open.get();
+        let vp = syngui::viewport::viewport_size().get();
+        vec![boxed(
+            Presence::new(
+                shown,
+                GestureDetector::new()
+                    .cursor(CursorIcon::Default)
+                    .on_click(move || open.set(false))
+                    .child(DecoratedBox::new().class("scrim").style("width", vp.width).style("height", vp.height)),
+            )
+            .enter(Motion::fade())
+            .exit(Motion::fade())
+            .duration_ms(200)
+            .initial(false),
+        )]
+    }))
 }
 
 fn drawer_tab(i: usize, t: state::Tab, current: bool, many: bool) -> W {
@@ -471,20 +473,30 @@ fn drawer_panel() -> W {
                     .child(super::sidebar::places_list()),
             ),
         );
-    let vw = syngui::viewport::viewport_size().get_untracked().width;
-    let w = (vw - 56.0).clamp(240.0, 340.0);
-    boxed(Row::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(GestureDetector::new().cursor(CursorIcon::Default).child(DecoratedBox::new().style("width", w).class("drawer-wrap").child(panel))))
+    // Размер явный: обёртка во всю ширину перехватывала бы касания мимо
+    // панели, и затемнение под ней не закрывало бы её.
+    let vp = syngui::viewport::viewport_size().get_untracked();
+    let w = (vp.width - 56.0).clamp(240.0, 340.0);
+    boxed(
+        GestureDetector::new()
+            .cursor(CursorIcon::Default)
+            .child(DecoratedBox::new().style("width", w).style("height", vp.height).class("drawer-wrap").child(panel)),
+    )
 }
 
 fn drawer_layer() -> W {
     let open = state::ctx().drawer;
     boxed(
         Stack::new().fit(StackFit::Expand).child(scrim(open)).child(
-            Presence::signal(open, drawer_panel)
-                .enter(Motion::none().slide(-340.0, 0.0))
-                .exit(Motion::none().slide(-340.0, 0.0))
-                .duration_ms(240)
-                .exit_duration_ms(180),
+            // В ряду: растянутый слоем `Presence` занял бы весь экран и ловил
+            // касания мимо панели.
+            Row::new().child(
+                Presence::signal(open, drawer_panel)
+                    .enter(Motion::none().slide(-340.0, 0.0))
+                    .exit(Motion::none().slide(-340.0, 0.0))
+                    .duration_ms(240)
+                    .exit_duration_ms(180),
+            ),
         ),
     )
 }

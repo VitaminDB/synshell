@@ -63,6 +63,7 @@ pub fn root() -> W {
         let full = v().window.get().fullscreen;
         let phone = narrow.get();
         crate::state::set_phone(phone);
+        run_on_main_thread(move || syngui::signal::set_decorations(phone));
         let mut col = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).class(if phone { "iv-window phone" } else { "iv-window" });
         if phone {
             col = col.child(phone_titlebar());
