@@ -193,6 +193,7 @@ pub fn create(ctx: ShellCtx, index: usize, panel: &Panel, out: &OutputInfo) -> (
         }))
     });
     *id_cell.lock().unwrap() = Some(id);
+    let hide_timer = hider.timer.clone();
     if hider.autohide || hider.intellihide {
         let st = st.clone();
         crate::panel::set_reveal(
@@ -209,7 +210,7 @@ pub fn create(ctx: ShellCtx, index: usize, panel: &Panel, out: &OutputInfo) -> (
             }),
         );
     }
-    start_region_timer(id, st, panel.autohide, panel.dock.intellihide);
+    start_region_timer(id, st, panel.autohide, panel.dock.intellihide, hide_timer);
     let _ = ctx;
     (id, key)
 }
@@ -239,6 +240,7 @@ impl Hider {
         }
         self.cancel();
         let (st, autohide) = (self.st.clone(), self.autohide);
+        let cell = self.timer.clone();
         let t = syngui_layer::add_timer(self.delay, move || {
             // Пока открыто окно дока (стек, меню) или указатель вернулся — не прятать.
             if ShellCtx::get().popup.get_untracked().is_some() || st.hovered.get_untracked() {
@@ -247,6 +249,8 @@ impl Hider {
             if autohide || overlapped(&st) {
                 st.hidden.set(true);
             }
+            // Отсчёт кончился — умное скрытие снова решает само.
+            *cell.lock().unwrap() = None;
             None
         });
         *self.timer.lock().unwrap() = Some(t);
@@ -278,7 +282,9 @@ fn overlapped(st: &DockState) -> bool {
 }
 
 /// Область ввода по состоянию дока и умное скрытие — раз в 120 мс.
-fn start_region_timer(id: SurfaceId, st: DockState, autohide: bool, intellihide: bool) {
+/// `hide_timer` — идёт отсчёт `autohide_delay` (док показан жестом или
+/// палец ушёл): умное скрытие ждёт его, а не прячет док сразу.
+fn start_region_timer(id: SurfaceId, st: DockState, autohide: bool, intellihide: bool, hide_timer: Arc<StdMutex<Option<u64>>>) {
     let last: Arc<StdMutex<Option<Vec<[i32; 4]>>>> = Arc::new(StdMutex::new(None));
     let mut tick = 0u32;
     syngui_layer::add_timer(Duration::from_millis(120), move || {
@@ -289,7 +295,7 @@ fn start_region_timer(id: SurfaceId, st: DockState, autohide: bool, intellihide:
         }
         tick += 1;
         if intellihide && !autohide && tick % 3 == 0 {
-            let busy = st.hovered.get_untracked() || ctx.popup.get_untracked().is_some();
+            let busy = st.hovered.get_untracked() || ctx.popup.get_untracked().is_some() || hide_timer.lock().unwrap().is_some();
             let over = overlapped(&st);
             if over && !busy && !st.hidden.get_untracked() {
                 st.hidden.set(true);
