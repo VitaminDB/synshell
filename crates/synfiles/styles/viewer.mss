@@ -148,3 +148,21 @@ Button.iv-tool-text {
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.40);
 }
 .iv-message-text { font-size: 13px; color: var(--fg); }
+
+/* ── Телефон ─────────────────────────────────────────────────── */
+
+.iv-pbar { padding: 6px 4px; }
+.iv-pbtn {
+    width: 44px;
+    height: 44px;
+    border-radius: 22px;
+    justify-content: center;
+    align-items: center;
+    transition: background 120ms ease;
+    &:pressed { background: var(--pressed); }
+}
+.iv-pbtn .icon { font-size: 22px; icon-size: 22px; color: var(--fg); }
+.iv-pbtn.toggled { background: var(--accent-soft); }
+.iv-pbtn.toggled .icon { color: var(--accent); }
+.phone .iv-name { font-size: 15px; }
+.phone ToolButton.iv-tool { width: 40px; height: 40px; }

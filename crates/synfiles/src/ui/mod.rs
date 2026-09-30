@@ -4,6 +4,7 @@ pub mod app;
 pub mod dialogs;
 pub mod items;
 pub mod jobs;
+pub mod phone;
 pub mod sidebar;
 pub mod toolbar;
 pub mod view;
@@ -116,4 +117,10 @@ pub mod icons {
     pub const TAB: &str = "\u{e8d8}";
     pub const COPY_PATH: &str = "\u{e157}";
     pub const EDIT: &str = "\u{e3c9}";
+    pub const MENU: &str = "\u{e5d2}";
+    pub const MORE_VERT: &str = "\u{e5d4}";
+    pub const CHECK_CIRCLE: &str = "\u{e86c}";
+    pub const UNCHECKED: &str = "\u{e836}";
+    pub const TUNE: &str = "\u{e429}";
+    pub const MOVE: &str = "\u{e2bf}";
 }

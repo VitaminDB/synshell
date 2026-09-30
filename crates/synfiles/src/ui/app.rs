@@ -174,8 +174,8 @@ fn zoom_bar() -> W {
     }))
 }
 
-fn toast_layer() -> W {
-    boxed(Reactive::new(move || -> Vec<W> {
+pub(super) fn toast_layer() -> W {
+    let toast = Reactive::new(move || -> Vec<W> {
         let Some(t) = state::ctx().toast.get() else { return vec![] };
         let mut row = Row::new()
             .gap(12.0)
@@ -193,17 +193,18 @@ fn toast_layer() -> W {
             );
         }
         let cls = if t.kind == ToastKind::Error { "toast error" } else { "toast" };
-        vec![boxed(
-            Column::new()
-                .main_axis_alignment(MainAxisAlignment::End)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .class("toast-wrap")
-                .child(DecoratedBox::new().class(cls).child(row)),
-        )]
-    }))
+        vec![boxed(DecoratedBox::new().class(cls).child(row))]
+    });
+    boxed(
+        Column::new()
+            .main_axis_alignment(MainAxisAlignment::End)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .class("toast-wrap")
+            .child(toast),
+    )
 }
 
-fn menu_layer() -> W {
+pub(super) fn menu_layer() -> W {
     let ctx = state::ctx();
     boxed(Reactive::new(move || -> Vec<W> {
         let items = ctx.menu.get();
@@ -223,7 +224,7 @@ fn menu_layer() -> W {
 }
 
 /// Правый нижний угол: задания.
-fn jobs_layer() -> W {
+pub(super) fn jobs_layer() -> W {
     boxed(
         Column::new()
             .main_axis_alignment(MainAxisAlignment::End)
@@ -233,7 +234,23 @@ fn jobs_layer() -> W {
     )
 }
 
+/// Узкое окно: ширина меньше этой — телефонная раскладка.
+const NARROW_BELOW: f32 = 720.0;
+
 pub fn root() -> W {
+    let narrow = syngui::viewport::viewport_below(NARROW_BELOW);
+    boxed(Reactive::new(move || -> Vec<W> {
+        let phone = narrow.get();
+        state::set_phone(phone);
+        let ctx = state::ctx();
+        ctx.drawer.set(false);
+        ctx.sheet.set(false);
+        ctx.phone_search.set(false);
+        vec![if phone { super::phone::root() } else { desktop_root() }]
+    }))
+}
+
+fn desktop_root() -> W {
     let body = Row::new()
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .class("grow body")
@@ -270,6 +287,7 @@ pub fn root() -> W {
         .on_char(|c| crate::actions::char_key(c, state::ctx_modifiers()))
         .child(
             Stack::new()
+                .fit(StackFit::Expand)
                 .child(main)
                 .child(jobs_layer())
                 .child(toast_layer())

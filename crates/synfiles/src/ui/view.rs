@@ -96,37 +96,44 @@ fn plain_header(title: &str, class: &str, width: f32) -> W {
     boxed(DecoratedBox::new().class(format!("hcell {class}")).style("width", width).child(Text::new(title).max_lines(1).class("htext")))
 }
 
-fn header(p: Pane, columns: Columns) -> W {
+fn header(p: Pane, columns: Columns, fit: items::ColumnsFit) -> W {
     let mut row = Row::new()
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(DecoratedBox::new().class("hcell-icon").style("width", 20.0))
         .child(DecoratedBox::new().class("grow").child(header_cell(p, SortKey::Name, "Имя", "name-cell", None)));
     match columns {
         Columns::Normal => {
-            row = row
-                .child(header_cell(p, SortKey::Modified, "Дата изменения", "col-date", Some(items::COL_DATE)))
-                .child(header_cell(p, SortKey::Type, "Тип", "col-type", Some(items::COL_TYPE)))
-                .child(header_cell(p, SortKey::Size, "Размер", "col-size", Some(items::COL_SIZE)));
+            if fit.date {
+                row = row.child(header_cell(p, SortKey::Modified, "Дата изменения", "col-date", Some(items::COL_DATE)));
+            }
+            if fit.kind {
+                row = row.child(header_cell(p, SortKey::Type, "Тип", "col-type", Some(items::COL_TYPE)));
+            }
         }
         Columns::Trash => {
-            row = row
-                .child(plain_header("Откуда удалено", "col-where", items::COL_WHERE))
-                .child(plain_header("Дата удаления", "col-date", items::COL_DATE))
-                .child(header_cell(p, SortKey::Size, "Размер", "col-size", Some(items::COL_SIZE)));
+            if fit.kind {
+                row = row.child(plain_header("Откуда удалено", "col-where", items::COL_WHERE));
+            }
+            if fit.date {
+                row = row.child(plain_header("Дата удаления", "col-date", items::COL_DATE));
+            }
         }
         Columns::Search => {
-            row = row
-                .child(plain_header("Папка", "col-where", items::COL_WHERE))
-                .child(header_cell(p, SortKey::Modified, "Дата изменения", "col-date", Some(items::COL_DATE)))
-                .child(header_cell(p, SortKey::Size, "Размер", "col-size", Some(items::COL_SIZE)));
+            if fit.kind {
+                row = row.child(plain_header("Папка", "col-where", items::COL_WHERE));
+            }
+            if fit.date {
+                row = row.child(header_cell(p, SortKey::Modified, "Дата изменения", "col-date", Some(items::COL_DATE)));
+            }
         }
     }
+    row = row.child(header_cell(p, SortKey::Size, "Размер", "col-size", Some(items::COL_SIZE)));
     bx("list-header", row)
 }
 
 /// Пустая папка, ошибка, «ищем…» — под элементами (не мешает щелчкам).
 fn backdrop(p: Pane) -> W {
-    boxed(Reactive::new(move || -> Vec<W> {
+    let content = Reactive::new(move || -> Vec<W> {
         let loading = p.loading.get();
         let err = p.error.get();
         let empty = p.entries.with(|e| e.is_empty());
@@ -145,16 +152,22 @@ fn backdrop(p: Pane) -> W {
                 Location::Dir(_) => (icons::FOLDER_OPEN, "Эта папка пуста".into()),
             }
         };
-        vec![bx(
-            "empty-state",
+        vec![boxed(
             Column::new()
                 .gap(10.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .main_axis_alignment(MainAxisAlignment::Center)
                 .child(Icon::new(glyph).class("empty-icon"))
                 .child(Text::new(text).class("empty-text")),
         )]
-    }))
+    });
+    // Колонка снаружи `Reactive` (он отдаёт свободные ограничения): иначе
+    // надпись прижималась к левому краю.
+    boxed(
+        Column::new()
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .class("empty-state")
+            .child(content),
+    )
 }
 
 fn set_active(tab: Tab, idx: usize) {
@@ -164,7 +177,7 @@ fn set_active(tab: Tab, idx: usize) {
 }
 
 /// Элементы панели (виртуализированный вид).
-fn items_view(tab: Tab, idx: usize) -> W {
+fn items_view(tab: Tab, idx: usize, fit: RwSignal<items::ColumnsFit>) -> W {
     let p = tab.panes[idx];
     boxed(Reactive::new(move || -> Vec<W> {
         let ctx = state::ctx();
@@ -185,11 +198,16 @@ fn items_view(tab: Tab, idx: usize) -> W {
             Location::Search { .. } => Columns::Search,
             Location::Dir(_) => Columns::Normal,
         };
-        let cx = ItemCtx { pane: p, mode, icon_px, cut, renaming, thumbs: cfg.files.thumbnails, columns };
-        let (w, h) = items::cell_size(mode, icon_px);
-        let layout = match mode {
-            ViewMode::Details => ItemLayout::Rows { row_height: h },
-            _ => ItemLayout::Grid { item_width: w, item_height: h, gap: if mode == ViewMode::Icons { 6.0 } else { 4.0 } },
+        let phone = state::is_phone();
+        let icon_px = if phone { icon_px.clamp(48, 96) } else { icon_px };
+        let selecting = phone && !sel.selected.is_empty();
+        let fit = fit.get();
+        let cx = ItemCtx { pane: p, mode, icon_px, cut, renaming, thumbs: cfg.files.thumbnails, columns, phone, selecting, fit };
+        let (w, h) = if phone { items::phone_cell_size(mode, icon_px) } else { items::cell_size(mode, icon_px) };
+        let layout = if w == 0.0 || (!phone && mode == ViewMode::Details) {
+            ItemLayout::Rows { row_height: h }
+        } else {
+            ItemLayout::Grid { item_width: w, item_height: h, gap: if mode == ViewMode::Icons { 6.0 } else { 4.0 } }
         };
         let labels = entries.clone();
         let for_drag = entries.clone();
@@ -203,8 +221,10 @@ fn items_view(tab: Tab, idx: usize) -> W {
             .layout(layout)
             .selection(sel)
             .keyboard_active(active)
+            .touch_mode(phone)
+            .stretch(phone)
             .reset_key(generation)
-            .class(format!("items {}", mode.id()))
+            .class(format!("items {}{}", mode.id(), if phone { " phone" } else { "" }))
             .item_label(move |i| labels.get(i).map(items::label).unwrap_or_default())
             .on_selection_change(move |s| {
                 set_active(tab, idx);
@@ -273,31 +293,51 @@ fn items_view(tab: Tab, idx: usize) -> W {
     }))
 }
 
-fn header_view(p: Pane) -> W {
+fn columns_of(loc: &Location) -> Columns {
+    match loc {
+        Location::Trash => Columns::Trash,
+        Location::Search { .. } => Columns::Search,
+        Location::Dir(_) => Columns::Normal,
+    }
+}
+
+/// Колонки таблицы по ширине панели. Сигнал меняется, только когда меняется
+/// набор колонок, — ресайз окна не пересобирает вид на каждом шаге.
+fn columns_fit(tab: Tab, p: Pane) -> RwSignal<items::ColumnsFit> {
+    let compute = move || {
+        let vw = syngui::viewport::viewport_size().get().width;
+        let vw = if vw > 0.0 { vw } else { 1280.0 };
+        let columns = p.loc.with(columns_of);
+        items::fit_columns(items::pane_width(vw, state::ctx().sidebar.get(), tab.split.get()), columns)
+    };
+    // Эффект сразу же вычислит настоящее значение (и не подпишет вызывающего).
+    let fit = use_signal(items::ColumnsFit { kind: true, date: true });
+    create_effect(move || fit.set(compute()));
+    fit
+}
+
+fn header_view(p: Pane, fit: RwSignal<items::ColumnsFit>) -> W {
     boxed(Reactive::new(move || -> Vec<W> {
-        if p.view.get() != ViewMode::Details {
+        if p.view.get() != ViewMode::Details || state::is_phone() {
             return vec![];
         }
-        let columns = match p.loc.get() {
-            Location::Trash => Columns::Trash,
-            Location::Search { .. } => Columns::Search,
-            Location::Dir(_) => Columns::Normal,
-        };
-        vec![header(p, columns)]
+        let columns = p.loc.with(columns_of);
+        vec![header(p, columns, fit.get())]
     }))
 }
 
 /// Панель целиком: заголовок таблицы (в виде «Таблица») и элементы.
 pub fn pane_view(tab: Tab, idx: usize) -> W {
     let p = tab.panes[idx];
+    let fit = columns_fit(tab, p);
     boxed(Reactive::new(move || -> Vec<W> {
         let cls = if tab.split.get() && tab.active.get() == idx { "pane active-pane" } else { "pane" };
         vec![boxed(
             DecoratedBox::new().class(cls).child(
                 Column::new()
                     .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                    .child(header_view(p))
-                    .child(Stack::new().child(backdrop(p)).child(items_view(tab, idx)).class("grow")),
+                    .child(header_view(p, fit))
+                    .child(Stack::new().fit(StackFit::Expand).child(backdrop(p)).child(items_view(tab, idx, fit)).class("grow")),
             ),
         )]
     }))

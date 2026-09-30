@@ -22,8 +22,14 @@ fn card(title: &str, body: W, buttons: Vec<W>) -> W {
     for b in buttons {
         row = row.child(b);
     }
+    // Телефон: карточка во всю ширину экрана с полями.
+    let mut card = DecoratedBox::new().class("dialog");
+    if state::is_phone() {
+        let vw = syngui::viewport::viewport_size().get_untracked().width;
+        card = card.style("width", (vw - 24.0).clamp(240.0, 480.0));
+    }
     boxed(
-        DecoratedBox::new().class("dialog").child(
+        card.child(
             Column::new()
                 .gap(14.0)
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
@@ -122,7 +128,7 @@ fn open_with(paths: Vec<PathBuf>, mime_type: String) -> W {
                                 .cross_axis_alignment(CrossAxisAlignment::Center)
                                 .child(icon)
                                 .child(Text::new(a.name.clone()).max_lines(1).class("grow"))
-                                .child(Text::new(a.comment.clone()).max_lines(1).class("meta")),
+                                .child(Text::new(if state::is_phone() { String::new() } else { a.comment.clone() }).max_lines(1).class("meta")),
                         ),
                     ),
             );
@@ -144,7 +150,7 @@ fn prop_row(k: &str, v: String) -> W {
         Row::new()
             .gap(12.0)
             .cross_axis_alignment(CrossAxisAlignment::Start)
-            .child(DecoratedBox::new().class("prop-key").style("width", 130.0).child(Text::new(k).class("meta")))
+            .child(DecoratedBox::new().class("prop-key").style("width", if state::is_phone() { 96.0 } else { 130.0 }).child(Text::new(k).class("meta")))
             .child(Text::new(v).selectable(true).class("prop-val grow")),
     )
 }
@@ -239,9 +245,23 @@ fn properties(paths: Vec<PathBuf>) -> W {
     )
 }
 
-/// Слой модальных окон (затемнение + карточка).
+/// Слой модальных окон (затемнение + карточка по центру). `Reactive`
+/// отдаёт детям свободные ограничения, поэтому растягивающий слой и
+/// центрирующая колонка — снаружи, а затемнению размер задан по окну.
 pub fn dialogs() -> W {
-    boxed(Reactive::new(move || -> Vec<W> {
+    let scrim = Reactive::new(move || -> Vec<W> {
+        if state::ctx().dialog.with(|d| d.is_none()) {
+            return vec![];
+        }
+        let vp = syngui::viewport::viewport_size().get();
+        vec![boxed(
+            GestureDetector::new()
+                .cursor(CursorIcon::Default)
+                .on_click(close)
+                .child(DecoratedBox::new().class("scrim").style("width", vp.width).style("height", vp.height)),
+        )]
+    });
+    let card = Reactive::new(move || -> Vec<W> {
         let Some(d) = state::ctx().dialog.get() else { return vec![] };
         let content = match d {
             Dialog::ConfirmDelete { paths } => confirm_delete(paths),
@@ -250,15 +270,14 @@ pub fn dialogs() -> W {
             Dialog::Properties { paths } if !paths.is_empty() => properties(paths),
             _ => return vec![],
         };
-        vec![boxed(
-            Stack::new()
-                .child(GestureDetector::new().cursor(CursorIcon::Default).on_click(close).child(DecoratedBox::new().class("scrim")))
-                .child(
-                    Column::new()
-                        .main_axis_alignment(MainAxisAlignment::Center)
-                        .cross_axis_alignment(CrossAxisAlignment::Center)
-                        .child(GestureDetector::new().cursor(CursorIcon::Default).child(content)),
-                ),
-        )]
-    }))
+        vec![boxed(GestureDetector::new().cursor(CursorIcon::Default).child(content))]
+    });
+    boxed(
+        Stack::new().fit(StackFit::Expand).child(scrim).child(
+            Column::new()
+                .main_axis_alignment(MainAxisAlignment::Center)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(card),
+        ),
+    )
 }

@@ -22,6 +22,15 @@ const INSET_NAV: f32 = 76.0;
 
 /// Сколько миниатюр видно в ленте разом: текущая держится в середине.
 const STRIP_WINDOW: usize = 11;
+/// Телефон: лента короче.
+const STRIP_WINDOW_PHONE: usize = 5;
+
+/// Узкое окно: ширина меньше этой — телефонная раскладка.
+const NARROW_BELOW: f32 = 720.0;
+
+fn phone() -> bool {
+    crate::state::is_phone()
+}
 
 mod glyph {
     pub const PREV: &str = "\u{e5cb}";
@@ -37,6 +46,8 @@ mod glyph {
     pub const FULLSCREEN: &str = "\u{e5d0}";
     pub const FULLSCREEN_EXIT: &str = "\u{e5d1}";
     pub const DELETE: &str = "\u{e872}";
+    pub const BACK: &str = "\u{e5c4}";
+    pub const MORE: &str = "\u{e5d4}";
     pub const FOLDER: &str = "\u{e2c8}";
     pub const COPY: &str = "\u{e14d}";
     pub const INFO: &str = "\u{e88e}";
@@ -47,10 +58,15 @@ mod glyph {
 }
 
 pub fn root() -> W {
+    let narrow = syngui::viewport::viewport_below(NARROW_BELOW);
     let main = Reactive::new(move || -> Vec<W> {
         let full = v().window.get().fullscreen;
-        let mut col = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).class("iv-window");
-        if !full {
+        let phone = narrow.get();
+        crate::state::set_phone(phone);
+        let mut col = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).class(if phone { "iv-window phone" } else { "iv-window" });
+        if phone {
+            col = col.child(phone_titlebar());
+        } else if !full {
             col = col.child(titlebar());
         }
         col = col.child(DecoratedBox::new().class("grow").child(stage()));
@@ -59,8 +75,83 @@ pub fn root() -> W {
     let hook = EventHook::new()
         .on_key_down(|k, m| if on_key(k, m) { KeyReply::Handled } else { KeyReply::Ignore })
         .on_char(on_char)
-        .child(Stack::new().fit(StackFit::Expand).child(main).child(menu_layer()));
+        .child(GestureDetector::new().on_back(back).child(Stack::new().fit(StackFit::Expand).child(main).child(menu_layer())));
     boxed(WindowResizeRegion::new().over_content(true).inset(5.0).child(hook))
+}
+
+/// «Назад» телефона: закрыть меню или сведения, иначе — просмотрщик.
+fn back() -> bool {
+    let v = v();
+    if v.menu_open.get_untracked() {
+        v.menu_open.set(false);
+    } else if v.show_info.get_untracked() {
+        v.show_info.set(false);
+    } else {
+        std::process::exit(0);
+    }
+    true
+}
+
+/// Телефон: «назад», имя с подписью, сведения и меню действий.
+fn phone_titlebar() -> W {
+    let pbtn = |glyph: &str, class: &str, on: fn()| -> W {
+        boxed(GestureDetector::new().on_click(on).child(DecoratedBox::new().class(format!("iv-pbtn {class}")).child(Icon::new(glyph).class("icon"))))
+    };
+    let info = Reactive::new(move || -> Vec<W> {
+        let v = v();
+        let Some(it) = v.current() else { return vec![boxed(Text::new("Просмотр").class("iv-name"))] };
+        let n = v.items.with(|i| i.len());
+        let idx = v.index.get();
+        let mut meta = vec![model::format_size(it.size)];
+        if n > 1 {
+            meta.push(format!("{} из {}", idx + 1, n));
+        }
+        vec![boxed(
+            Column::new()
+                .gap(1.0)
+                .child(Text::new(it.name).elide(Elide::Middle).max_lines(1).class("iv-name"))
+                .child(Text::new(meta.join(" · ")).max_lines(1).class("iv-meta")),
+        )]
+    });
+    let info_btn = Reactive::new(move || -> Vec<W> {
+        let on = v().show_info.get();
+        vec![pbtn(glyph::INFO, if on { "toggled" } else { "" }, || v().show_info.update(|s| *s = !*s))]
+    });
+    let more = GestureDetector::new()
+        .on_click_with_bounds(|_, r| {
+            let v = v();
+            let Some(it) = v.current_untracked() else { return };
+            let mut items = vec![
+                MenuItem::new("folder", "Показать в папке").icon(glyph::FOLDER),
+                MenuItem::new("copy", "Копировать").icon(glyph::COPY),
+                MenuItem::new("delete", "Удалить в корзину").icon(glyph::DELETE),
+            ];
+            let apps: Vec<MenuItem> = mime::apps_for(&it.mime)
+                .into_iter()
+                .filter(|a| a.id != "synfiles-viewer" && a.takes_files())
+                .take(6)
+                .map(|a| MenuItem::new(format!("app:{}", a.id), format!("Открыть в «{}»", a.name)).icon(glyph::OPEN_WITH))
+                .collect();
+            if !apps.is_empty() {
+                items.push(MenuItem::separator());
+                items.extend(apps);
+            }
+            v.menu.set_always(items);
+            v.menu_pos.set(Point::new(r.origin.x + r.size.width, r.origin.y + r.size.height));
+            v.menu_open.set(true);
+        })
+        .child(DecoratedBox::new().class("iv-pbtn").child(Icon::new(glyph::MORE).class("icon")));
+    boxed(
+        DecoratedBox::new().class("iv-titlebar iv-pbar").child(
+            Row::new()
+                .gap(4.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(pbtn(glyph::BACK, "", || std::process::exit(0)))
+                .child(DecoratedBox::new().class("grow").child(info))
+                .child(info_btn)
+                .child(more),
+        ),
+    )
 }
 
 // ─────────────────────────────────────────────────────────────── заголовок
@@ -173,6 +264,12 @@ fn menu_layer() -> W {
                 .min_width(220.0)
                 .on_select(move |id| {
                     v.menu_open.set(false);
+                    match id {
+                        "folder" => show_in_folder(),
+                        "copy" => copy_current(),
+                        "delete" => delete_current(),
+                        _ => {}
+                    }
                     if let Some(app_id) = id.strip_prefix("app:") {
                         if let (Some(app), Some(it)) = (xdg::app_by_id(app_id), v.current_untracked()) {
                             for cmd in app.commands_for(&[it.path.clone()]) {
@@ -201,7 +298,10 @@ fn stage() -> W {
         let prepared = prepare::get(&it);
         preload_neighbours(v);
 
+        let phone = phone();
         let (side, below) = if total > 1 { (INSET_NAV, INSET_TOOLBAR + INSET_STRIP) } else { (INSET_EDGE, INSET_TOOLBAR) };
+        // Телефон: стрелок нет (листают смахиванием), картинка шире.
+        let (top, side) = if phone { (0.0, 0.0) } else { (INSET_EDGE, side) };
         let mut stack = Stack::new().fit(StackFit::Expand);
         match &prepared {
             Some(p) if p.display.is_some() => {
@@ -211,7 +311,8 @@ fn stage() -> W {
                 stack = stack.child(
                     ImageViewport::new(display.to_string_lossy().to_string())
                         .natural_size(p.natural.0, p.natural.1)
-                        .insets(INSET_EDGE, side, below, side)
+                        .insets(top, side, below, side)
+                        .on_swipe(move |d| v.step(d as isize))
                         .command(seq, command)
                         .quarter_turns(turns)
                         .flip(flip_h, flip_v)
@@ -227,7 +328,7 @@ fn stage() -> W {
                 stack = stack.child(DecoratedBox::new().class("iv-scrim")).child(placeholder(glyph::HOURGLASS, "Открываю…"));
             }
         }
-        if total > 1 {
+        if total > 1 && !phone {
             stack = stack.child(nav_layer(-1)).child(nav_layer(1));
         }
         stack = stack.child(bottom_layer(v, total, full));
@@ -317,12 +418,16 @@ fn bottom_layer(v: Viewer, total: usize, full: bool) -> impl Widget {
 
 /// Окно ленты: до [`STRIP_WINDOW`] миниатюр вокруг текущей.
 fn strip_range(index: usize, total: usize) -> std::ops::Range<usize> {
-    if total <= STRIP_WINDOW {
+    strip_range_in(index, total, if phone() { STRIP_WINDOW_PHONE } else { STRIP_WINDOW })
+}
+
+fn strip_range_in(index: usize, total: usize, window: usize) -> std::ops::Range<usize> {
+    if total <= window {
         return 0..total;
     }
-    let half = STRIP_WINDOW / 2;
-    let start = index.saturating_sub(half).min(total - STRIP_WINDOW);
-    start..start + STRIP_WINDOW
+    let half = window / 2;
+    let start = index.saturating_sub(half).min(total - window);
+    start..start + window
 }
 
 fn filmstrip(v: Viewer) -> W {
@@ -355,7 +460,8 @@ fn thumb(it: &Item) -> Option<PathBuf> {
 }
 
 fn tool(icon: &'static str, tip: &str, on_click: impl Fn() + Send + Sync + 'static) -> W {
-    boxed(ToolButton::new(icon).tooltip(tip.to_string()).on_click(on_click).class("iv-tool"))
+    let b = ToolButton::new(icon).on_click(on_click);
+    boxed(if tip.is_empty() { b } else { b.tooltip(tip.to_string()) }.class("iv-tool"))
 }
 
 fn separator() -> W {
@@ -370,6 +476,20 @@ fn toolbar(v: Viewer, total: usize, full: bool) -> W {
     if total > 1 {
         items.push(boxed(Text::new(format!("{} / {}", v.index.get_untracked() + 1, total)).class("iv-counter")));
         items.push(separator());
+    }
+    if phone() {
+        // Телефон: масштаб — щипком, остальное в меню; на панели главное.
+        items.extend([
+            tool(glyph::ZOOM_OUT, "", send(C::ZoomOut)),
+            zoom_label(v),
+            tool(glyph::ZOOM_IN, "", send(C::ZoomIn)),
+            separator(),
+            tool(glyph::FIT, "", send(C::Fit)),
+            separator(),
+            tool(glyph::ROTATE_LEFT, "", orient(|o| o.turns -= 1)),
+            tool(glyph::ROTATE_RIGHT, "", orient(|o| o.turns += 1)),
+        ]);
+        return boxed(DecoratedBox::new().class("iv-toolbar").child(Row::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Center).children(items)));
     }
     items.extend([
         tool(glyph::ZOOM_OUT, "Уменьшить (−)", send(C::ZoomOut)),
@@ -549,9 +669,9 @@ mod tests {
 
     #[test]
     fn strip_keeps_current_in_window() {
-        assert_eq!(strip_range(0, 3), 0..3);
-        assert_eq!(strip_range(20, 40), 15..26);
-        assert_eq!(strip_range(39, 40), 29..40);
+        assert_eq!(strip_range_in(0, 3, 11), 0..3);
+        assert_eq!(strip_range_in(20, 40, 11), 15..26);
+        assert_eq!(strip_range_in(39, 40, 11), 29..40);
     }
 
     #[test]

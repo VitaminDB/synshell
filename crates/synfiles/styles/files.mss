@@ -445,3 +445,183 @@ ProgressBar {
     border-radius: 6px;
     &:hover { background: var(--row-hover); }
 }
+
+Toggle {
+    width: 40px;
+    height: 22px;
+    background: var(--pressed);
+    color: #ffffff;
+    accent-color: var(--accent);
+    border-radius: 11px;
+    transition: background-color 180ms ease-out;
+    &:checked { background: var(--accent); }
+}
+
+/* ── Телефон (узкое окно) ──────────────────────────────────────── */
+
+.window.phone { font-size: 14px; }
+
+.pbar {
+    height: 56px;
+    padding: 0px 4px;
+    background: var(--chrome);
+}
+.pbar.selecting { background: var(--accent-soft); }
+.pbar-title { font-size: 19px; font-weight: 600; color: var(--fg); padding: 0px 8px; }
+
+.pbtn {
+    width: 44px;
+    height: 44px;
+    border-radius: 22px;
+    justify-content: center;
+    align-items: center;
+    transition: background 120ms ease, scale 200ms spring(420, 26);
+    &:pressed { background: var(--pressed); scale: 0.92; }
+}
+.pbtn .icon { font-size: 22px; icon-size: 22px; }
+.pbtn.small { width: 36px; height: 36px; border-radius: 18px; }
+.pbtn.small .icon { font-size: 20px; icon-size: 20px; color: var(--muted); }
+
+.psearch {
+    height: 42px;
+    border-radius: 21px;
+    padding: 8px 14px;
+    font-size: 15px;
+}
+
+.ppath {
+    height: 38px;
+    padding: 0px 14px 0px 12px;
+    background: var(--chrome);
+    border-bottom: 1px solid var(--divider);
+    align-items: center;
+}
+.pcrumb-icon { color: var(--accent); font-size: 18px; icon-size: 18px; margin: 0px 2px 0px 0px; }
+.pcrumb {
+    height: 30px;
+    padding: 0px 6px;
+    border-radius: 6px;
+    align-items: center;
+    &:pressed { background: var(--pressed); }
+}
+.pcrumb.last .crumb-text { font-weight: 600; }
+
+/* Снизу место под кнопку «Создать»: последний файл не прячется под ней. */
+ItemView.phone { padding: 6px 6px 92px 6px; scrollbar-width: 4px; }
+
+.item.prow {
+    padding: 0px 10px 0px 12px;
+    border-radius: 12px;
+    &:pressed { background: var(--row-hover); }
+}
+.prow-icon { justify-content: center; align-items: center; border-radius: 8px; }
+.name.pname { font-size: 15px; }
+.item.pcell {
+    padding: 10px 4px 6px 4px;
+    border-radius: 14px;
+    &:pressed { background: var(--row-hover); }
+}
+.item.pcell .name.centered { font-size: 12px; }
+.pick { color: var(--muted); font-size: 22px; icon-size: 22px; }
+.pick.on { color: var(--accent); }
+
+.pbottom {
+    background: var(--chrome);
+    border-top: 1px solid var(--divider);
+    padding: 6px 4px 8px 4px;
+}
+.paction {
+    padding: 7px 2px 5px 2px;
+    border-radius: 14px;
+    align-items: center;
+    transition: background 120ms ease;
+    &:pressed { background: var(--pressed); }
+}
+.paction .icon { font-size: 22px; icon-size: 22px; }
+.paction-label { font-size: 11px; color: var(--fg); }
+.paction.disabled .icon { opacity: 0.35; }
+.paction.disabled .paction-label { opacity: 0.35; }
+
+.ppaste { padding: 10px 12px 10px 16px; }
+.ppaste-icon { color: var(--accent); font-size: 22px; icon-size: 22px; }
+.ppaste-title { font-size: 14px; font-weight: 600; color: var(--fg); }
+
+.fab-wrap { padding: 0px 18px 18px 0px; }
+.fab {
+    width: 56px;
+    height: 56px;
+    border-radius: 18px;
+    background: var(--accent);
+    justify-content: center;
+    align-items: center;
+    box-shadow: 0 6px 18px var(--shadow);
+    transition: scale 200ms spring(420, 26);
+    &:pressed { scale: 0.92; }
+}
+.fab .icon { color: var(--accent-fg); font-size: 26px; icon-size: 26px; }
+
+.drawer-wrap {
+    background: var(--sidebar);
+    border-radius: 0px 20px 20px 0px;
+    box-shadow: 0 0 32px var(--shadow);
+}
+.drawer { padding: 14px 10px 10px 10px; flex-grow: 1; }
+.drawer-head { padding: 6px 8px 10px 8px; }
+.drawer-logo {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    background: var(--accent-soft);
+    justify-content: center;
+    align-items: center;
+}
+.drawer-logo .icon { color: var(--accent); font-size: 22px; icon-size: 22px; }
+.drawer-title { font-size: 20px; font-weight: 600; color: var(--fg); }
+.drawer .place { padding: 11px 12px; border-radius: 12px; }
+.drawer .place-title { font-size: 15px; }
+.drawer .place-icon { font-size: 22px; icon-size: 22px; }
+.drawer .space-bar { margin: 4px 0px 0px 32px; }
+.drawer .space-text { margin: 2px 0px 0px 32px; font-size: 12px; }
+.drawer .side-title { font-size: 12px; padding: 10px 12px 4px 12px; }
+
+.sheet {
+    background: var(--surface);
+    border-radius: 22px 22px 0px 0px;
+    padding: 8px 14px 18px 14px;
+    box-shadow: 0 -8px 28px var(--shadow);
+}
+.sheet-handle {
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border);
+    margin: 2px 0px 4px 0px;
+}
+.sheet .side-title { font-size: 12px; padding: 10px 10px 4px 10px; }
+.sheet-row {
+    padding: 10px 10px;
+    border-radius: 12px;
+    &:pressed { background: var(--pressed); }
+}
+.sheet-row .icon { color: var(--muted); font-size: 20px; icon-size: 20px; }
+.sheet-row.on .icon { color: var(--accent); }
+.sheet-row.on .sheet-label { color: var(--accent); }
+.sheet-label { font-size: 15px; color: var(--fg); }
+.view-chips { padding: 2px 0px 4px 0px; }
+.view-chip {
+    height: 44px;
+    border-radius: 12px;
+    border: 1px solid var(--divider);
+    justify-content: center;
+    align-items: center;
+    &:pressed { background: var(--pressed); }
+}
+.view-chip .icon { color: var(--muted); font-size: 20px; icon-size: 20px; }
+.view-chip.on { background: var(--accent-soft); border-color: var(--accent); }
+.view-chip.on .icon { color: var(--accent); }
+.view-chip.on .sheet-label { color: var(--accent); }
+/* Сообщение — над кнопкой «Создать». */
+.phone .toast-wrap { padding: 0px 16px 92px 16px; }
+.phone .jobs-wrap { padding: 0px 12px 92px 12px; }
+.sheet .side-sep { margin: 6px 4px; }
+.phone .empty-state { padding: 120px 24px 0px 24px; }

@@ -74,6 +74,8 @@ pub fn screenshot_with<R: IntoWidget<M>, M>(
         atlas.set_scale_factor(scale as f32);
     }
 
+    // Размер окна — до сборки корня: раскладка (телефон/десктоп) по нему.
+    syngui::viewport::viewport_size().set(Size::new(lw as f32, lh as f32));
     let mut tree = ElementTree::new();
     tree.text_measure = Some(renderer.font_atlas.clone() as Arc<dyn TextMeasure>);
     tree.image_store = Some(renderer.image_store.clone());
@@ -91,6 +93,7 @@ pub fn screenshot_with<R: IntoWidget<M>, M>(
     let mut list = DisplayList::new();
     // Несколько кадров: эффекты, пересборки, загрузка картинок.
     let mut script: std::collections::VecDeque<String> = script.iter().cloned().collect();
+    let mut touch = syngui::input::TouchTracker::new();
     let mut idle = 0;
     for frame in 0..400 {
         // Фоновые декодеры картинок отдают результат через poll_bg —
@@ -124,7 +127,7 @@ pub fn screenshot_with<R: IntoWidget<M>, M>(
         let busy = busy();
         if frame >= 2 && !busy {
             if let Some(step) = script.pop_front() {
-                run_step(&mut tree, root, &step);
+                run_step(&mut tree, root, &mut touch, &step);
                 idle = 0;
                 std::thread::sleep(Duration::from_millis(60));
                 continue;
@@ -220,7 +223,11 @@ fn root_background(tree: &ElementTree, root: ElementId) -> Option<Color> {
 
 /// Шаг сценария: `key:ctrl+a`, `click:x,y`, `rclick:x,y`, `dclick:x,y`,
 /// `move:x,y`, `drag:x1,y1,x2,y2`, `type:текст`, `wait:мс`.
-fn run_step(tree: &mut ElementTree, root: ElementId, step: &str) {
+/// Шаги: `key:ctrl+a`, `click|rclick|dclick|mclick:x,y`, `move:x,y`,
+/// `drag:x1,y1,x2,y2` + `release:x,y`, `type:текст`, `wait:мс`; палец —
+/// `tap:x,y`, `hold:x,y` (долгое нажатие), `swipe:x1,y1,x2,y2`; `back` —
+/// «Назад» телефона.
+fn run_step(tree: &mut ElementTree, root: ElementId, touch: &mut syngui::input::TouchTracker, step: &str) {
     use syngui::input::{Event, Modifiers, MouseButton};
     let (cmd, arg) = step.split_once(':').unwrap_or((step, ""));
     let pt = |s: &str| -> Vec<f32> { s.split(',').filter_map(|v| v.trim().parse().ok()).collect() };
@@ -298,6 +305,47 @@ fn run_step(tree: &mut ElementTree, root: ElementId, step: &str) {
             }
         }
         "wait" => std::thread::sleep(Duration::from_millis(arg.parse().unwrap_or(200))),
+        "tap" | "hold" => {
+            let v = pt(arg);
+            if v.len() < 2 {
+                return;
+            }
+            let p = Point::new(v[0], v[1]);
+            let mut d = |e: &Event| {
+                let r = tree.handle_event(root, e);
+                syngui::signal::drain_and_run_effects();
+                r
+            };
+            touch.down(1, p, &mut d);
+            if cmd == "hold" {
+                std::thread::sleep(syngui::input::touch_config().long_press + Duration::from_millis(20));
+                touch.poll(&mut d);
+            }
+            touch.up(1, Some(p), &mut d);
+            syngui::async_runtime::drain_main_thread_callbacks();
+            // Следующий тап — не двойной.
+            std::thread::sleep(syngui::input::touch_config().double_tap);
+        }
+        "swipe" => {
+            let v = pt(arg);
+            if v.len() < 4 {
+                return;
+            }
+            let (a, b) = (Point::new(v[0], v[1]), Point::new(v[2], v[3]));
+            let mut d = |e: &Event| {
+                let r = tree.handle_event(root, e);
+                syngui::signal::drain_and_run_effects();
+                r
+            };
+            touch.down(1, a, &mut d);
+            for i in 1..=10 {
+                let t = i as f32 / 10.0;
+                std::thread::sleep(Duration::from_millis(8));
+                touch.motion(1, Point::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t), &mut d);
+            }
+            touch.up(1, Some(b), &mut d);
+        }
+        "back" => send(tree, root, Event::BackPressed),
         _ => eprintln!("неизвестный шаг сценария: {step}"),
     }
 }

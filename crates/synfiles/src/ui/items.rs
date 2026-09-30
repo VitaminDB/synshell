@@ -27,6 +27,38 @@ pub struct ItemCtx {
     pub thumbs: bool,
     /// Колонки «Откуда»/«Удалено» (корзина) или «Папка» (поиск).
     pub columns: Columns,
+    /// Телефонная раскладка: крупные строки и сетка под палец.
+    pub phone: bool,
+    /// Телефон: идёт выбор (выделение не пусто) — у элементов отметки.
+    pub selecting: bool,
+    /// Таблица: сколько колонок кроме имени помещается (см. [`fit_columns`]).
+    pub fit: ColumnsFit,
+}
+
+/// Какие колонки таблицы влезают в панель: узкой панели (половина окна,
+/// маленькое окно) не хватает места — сначала уходит «Тип» (или «Откуда»),
+/// потом дата. Размер остаётся всегда.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ColumnsFit {
+    pub kind: bool,
+    pub date: bool,
+}
+
+/// Колонки по ширине панели: имени остаётся не меньше ~200 px.
+pub fn fit_columns(pane_width: f32, columns: Columns) -> ColumnsFit {
+    let kind_w = if columns == Columns::Normal { COL_TYPE } else { COL_WHERE };
+    let base = 200.0 + COL_SIZE + 40.0;
+    ColumnsFit { date: pane_width >= base + COL_DATE, kind: pane_width >= base + COL_DATE + kind_w }
+}
+
+/// Ширина панели файлов: окно без боковой панели, пополам при разделении.
+pub fn pane_width(vw: f32, sidebar: bool, split: bool) -> f32 {
+    let w = vw - if sidebar { 236.0 } else { 0.0 };
+    if split {
+        w / 2.0
+    } else {
+        w
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -159,6 +191,9 @@ fn secondary(e: &Entry) -> String {
 
 pub fn build(cx: &ItemCtx, e: &Entry, st: ItemState) -> W {
     let renaming = cx.renaming.as_deref() == Some(e.path.as_path());
+    if cx.phone {
+        return if phone_grid(cx.mode) { phone_cell(cx, e, st, renaming) } else { phone_row(cx, e, st, renaming) };
+    }
     match cx.mode {
         ViewMode::Details => details_row(cx, e, st, renaming),
         ViewMode::List => list_row(cx, e, st, renaming),
@@ -178,12 +213,16 @@ fn details_row(cx: &ItemCtx, e: &Entry, st: ItemState, renaming: bool) -> W {
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(sized(20.0, entry_image(e, 20, false), "row-icon"))
         .child(DecoratedBox::new().class("cell name-cell grow").child(name));
+    let fit = cx.fit;
     match cx.columns {
         Columns::Normal => {
-            row = row
-                .child(cell(model::format_time(e.mtime), "col-date", COL_DATE))
-                .child(cell(e.description(), "col-type", COL_TYPE))
-                .child(cell(if e.is_dir { String::new() } else { model::format_size(e.size) }, "col-size", COL_SIZE));
+            if fit.date {
+                row = row.child(cell(model::format_time(e.mtime), "col-date", COL_DATE));
+            }
+            if fit.kind {
+                row = row.child(cell(e.description(), "col-type", COL_TYPE));
+            }
+            row = row.child(cell(if e.is_dir { String::new() } else { model::format_size(e.size) }, "col-size", COL_SIZE));
         }
         Columns::Trash => {
             let (from, when) = e
@@ -191,17 +230,23 @@ fn details_row(cx: &ItemCtx, e: &Entry, st: ItemState, renaming: bool) -> W {
                 .as_ref()
                 .map(|t| (t.original.parent().map(|p| p.display().to_string()).unwrap_or_default(), t.deleted.clone()))
                 .unwrap_or_default();
-            row = row
-                .child(cell(from, "col-where", COL_WHERE))
-                .child(cell(when, "col-date", COL_DATE))
-                .child(cell(secondary(e), "col-size", COL_SIZE));
+            if fit.kind {
+                row = row.child(cell(from, "col-where", COL_WHERE));
+            }
+            if fit.date {
+                row = row.child(cell(when, "col-date", COL_DATE));
+            }
+            row = row.child(cell(secondary(e), "col-size", COL_SIZE));
         }
         Columns::Search => {
             let folder = e.path.parent().map(|p| p.display().to_string()).unwrap_or_default();
-            row = row
-                .child(cell(folder, "col-where", COL_WHERE))
-                .child(cell(model::format_time(e.mtime), "col-date", COL_DATE))
-                .child(cell(if e.is_dir { String::new() } else { model::format_size(e.size) }, "col-size", COL_SIZE));
+            if fit.kind {
+                row = row.child(cell(folder, "col-where", COL_WHERE));
+            }
+            if fit.date {
+                row = row.child(cell(model::format_time(e.mtime), "col-date", COL_DATE));
+            }
+            row = row.child(cell(if e.is_dir { String::new() } else { model::format_size(e.size) }, "col-size", COL_SIZE));
         }
     }
     boxed(DecoratedBox::new().class(state_class("item row", st, e, cx)).child(row))
@@ -252,6 +297,97 @@ fn icon_cell(cx: &ItemCtx, e: &Entry, st: ItemState, renaming: bool) -> W {
                 .child(name),
         ),
     )
+}
+
+/// Телефон: вид «Значки» — сетка, остальные — список.
+pub fn phone_grid(mode: ViewMode) -> bool {
+    mode == ViewMode::Icons
+}
+
+/// Путь с `~` вместо домашней папки.
+pub fn short_path(p: &Path) -> String {
+    match p.strip_prefix(paths::home()) {
+        Ok(rest) if rest.as_os_str().is_empty() => "~".into(),
+        Ok(rest) => format!("~/{}", rest.display()),
+        Err(_) => p.display().to_string(),
+    }
+}
+
+/// Вторая строка телефонного списка.
+fn phone_meta(cx: &ItemCtx, e: &Entry) -> String {
+    let join = |a: String, b: String| match (a.is_empty(), b.is_empty()) {
+        (true, _) => b,
+        (_, true) => a,
+        _ => format!("{a} · {b}"),
+    };
+    match cx.columns {
+        Columns::Trash => {
+            let (from, when) = e
+                .trash
+                .as_ref()
+                .map(|t| (t.original.parent().map(short_path).unwrap_or_default(), t.deleted.clone()))
+                .unwrap_or_default();
+            join(from, when)
+        }
+        Columns::Search => join(e.path.parent().map(short_path).unwrap_or_default(), secondary(e)),
+        Columns::Normal => join(secondary(e), model::format_time(e.mtime)),
+    }
+}
+
+/// Отметка выбора (телефон, режим выбора).
+fn check_mark(selected: bool) -> W {
+    boxed(Icon::new(if selected { super::icons::CHECK_CIRCLE } else { super::icons::UNCHECKED }).class(if selected { "icon pick on" } else { "icon pick" }))
+}
+
+fn phone_class(base: &str, st: ItemState, e: &Entry, cx: &ItemCtx) -> String {
+    // Курсор клавиатуры на телефоне не рисуем.
+    state_class(base, ItemState { cursor: false, ..st }, e, cx)
+}
+
+fn phone_row(cx: &ItemCtx, e: &Entry, st: ItemState, renaming: bool) -> W {
+    let name: W = if renaming { rename_field(cx, e) } else { name_text(e, "name pname", 1) };
+    let mut row = Row::new()
+        .gap(14.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(sized(40.0, entry_image(e, 40, cx.thumbs), "prow-icon"))
+        .child(
+            Column::new()
+                .gap(2.0)
+                .class("grow")
+                .child(name)
+                .child(Text::new(phone_meta(cx, e)).elide(Elide::Middle).class("meta")),
+        );
+    if cx.selecting {
+        row = row.child(check_mark(st.selected));
+    }
+    boxed(DecoratedBox::new().class(phone_class("item prow", st, e, cx)).child(row))
+}
+
+fn phone_cell(cx: &ItemCtx, e: &Entry, st: ItemState, renaming: bool) -> W {
+    let px = cx.icon_px as f32;
+    let name: W = if renaming { rename_field(cx, e) } else { name_text(e, "name centered", 2) };
+    let body = Column::new()
+        .gap(6.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(sized(px, entry_image(e, cx.icon_px, cx.thumbs), "big-icon"))
+        .child(name);
+    let mut stack = Stack::new().child(body);
+    if cx.selecting {
+        stack = stack.child(
+            Row::new().main_axis_alignment(MainAxisAlignment::End).child(check_mark(st.selected)),
+        );
+    }
+    boxed(DecoratedBox::new().class(phone_class("item pcell", st, e, cx)).child(stack))
+}
+
+/// Телефон: (наименьшая ширина, высота) ячейки; ширина 0 — список.
+pub fn phone_cell_size(mode: ViewMode, icon_px: u32) -> (f32, f32) {
+    if phone_grid(mode) {
+        let px = icon_px as f32;
+        ((px + 30.0).max(96.0), px + 54.0)
+    } else {
+        (0.0, 64.0)
+    }
 }
 
 /// Раскладка вида: (ширина, высота) ячейки.

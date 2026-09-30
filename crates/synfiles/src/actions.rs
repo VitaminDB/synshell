@@ -713,6 +713,14 @@ pub fn run(p: Pane, id: &str) {
             }
         }
         "refresh" => state::load(p, Some(state::selected_paths(p))),
+        "new-tab" => {
+            state::new_tab(loc.clone(), true);
+        }
+        "sheet" => ctx.sheet.set(true),
+        "new-menu" => {
+            let at = syngui::input::last_press().unwrap_or_default();
+            popup(p, new_menu(), at);
+        }
         "back" => state::go_back(p),
         "forward" => state::go_forward(p),
         "up" => state::go_up(p),
@@ -746,7 +754,33 @@ pub fn run(p: Pane, id: &str) {
 
 /// Показать меню `items` в точке и выполнять выбранное для панели `p`.
 pub fn popup(p: Pane, items: Vec<MenuItem>, at: Point) {
+    let items = if state::is_phone() { phone_items(items) } else { items };
     state::show_menu(items, at, move |id| run(p, id));
+}
+
+/// Телефон: подменю у края узкого экрана неудобны — вид и сортировка
+/// уходят в нижний лист, «Создать» и «Открыть с помощью» — отдельным шагом,
+/// прочие подменю разворачиваются на месте. Сочетания клавиш не показываем.
+fn phone_items(items: Vec<MenuItem>) -> Vec<MenuItem> {
+    let mut v: Vec<MenuItem> = Vec::new();
+    for mut it in items {
+        it.shortcut = None;
+        if it.children.is_empty() {
+            v.push(it);
+            continue;
+        }
+        match it.id.as_str() {
+            "menu:view" | "menu:sort" => {
+                if !v.iter().any(|m| m.id == "sheet") {
+                    v.push(item("sheet", "Вид и сортировка", icons::TUNE));
+                }
+            }
+            "menu:new" => v.push(item("new-menu", "Создать…", icons::ADD)),
+            "menu:with" => v.push(item("with:other", "Открыть с помощью…", icons::OPEN_WITH)),
+            _ => v.extend(phone_items(it.children)),
+        }
+    }
+    v
 }
 
 // ---------------------------------------------------------------- клавиатура

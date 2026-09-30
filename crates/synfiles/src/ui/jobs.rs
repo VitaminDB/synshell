@@ -55,6 +55,21 @@ fn conflict_card(job: Arc<Job>, c: ops::Conflict) -> W {
     } else {
         format!("Файл «{name}» уже есть в «{}»", c.dst.parent().map(ops::name_of).unwrap_or_default())
     };
+    let replace = Button::new(if c.dir { "Объединить" } else { "Заменить" }).class("primary").on_click(move || j1.answer(Resolution::Replace, all.get_untracked()));
+    let both = Button::new("Оставить оба").on_click(move || j2.answer(Resolution::KeepBoth, all.get_untracked()));
+    let skip = Button::new("Пропустить").on_click(move || j3.answer(Resolution::Skip, all.get_untracked()));
+    let cancel = Button::new("Отмена").class("flat").on_click(move || j4.cancel());
+    // Телефон: четыре кнопки в строку не влезают — по две.
+    let buttons: W = if state::is_phone() {
+        boxed(
+            Column::new()
+                .gap(6.0)
+                .child(Row::new().gap(6.0).child(replace).child(both))
+                .child(Row::new().gap(6.0).child(skip).child(cancel)),
+        )
+    } else {
+        boxed(Row::new().gap(6.0).child(replace).child(both).child(skip).child(cancel))
+    };
     boxed(
         Column::new()
             .gap(8.0)
@@ -62,14 +77,7 @@ fn conflict_card(job: Arc<Job>, c: ops::Conflict) -> W {
             .child(Text::new(title).max_lines(2).class("conflict-title"))
             .child(Text::new(format!("Новый: {}", meta(&c.src))).class("meta"))
             .child(Text::new(format!("Имеющийся: {}", meta(&c.dst))).class("meta"))
-            .child(
-                Row::new()
-                    .gap(6.0)
-                    .child(Button::new(if c.dir { "Объединить" } else { "Заменить" }).class("primary").on_click(move || j1.answer(Resolution::Replace, all.get_untracked())))
-                    .child(Button::new("Оставить оба").on_click(move || j2.answer(Resolution::KeepBoth, all.get_untracked())))
-                    .child(Button::new("Пропустить").on_click(move || j3.answer(Resolution::Skip, all.get_untracked())))
-                    .child(Button::new("Отмена").class("flat").on_click(move || j4.cancel())),
-            )
+            .child(buttons)
             .child(Checkbox::new().label("Для всех совпадений").on_change(move |v| all.set(v))),
     )
 }
@@ -154,6 +162,11 @@ pub fn jobs_panel() -> W {
                     .child(DecoratedBox::new().class("link-btn").child(Text::new("Скрыть завершённые"))),
             );
         }
-        vec![bx("jobs", col)]
+        let mut jobs = DecoratedBox::new().class("jobs");
+        if state::is_phone() {
+            // Телефон: карточки во всю ширину экрана.
+            jobs = jobs.style("width", syngui::viewport::viewport_size().get_untracked().width - 24.0);
+        }
+        vec![boxed(jobs.child(col))]
     }))
 }

@@ -42,6 +42,9 @@ pub fn command_bar() -> W {
         let in_trash = matches!(loc, Location::Trash);
         let _ = state::ctx().clip.get();
         let has = sel_n > 0;
+        // Узкое окно: у «Сортировки» и «Вида» только значки.
+        let vw = syngui::viewport::viewport_size().get().width;
+        let narrow = vw > 0.0 && vw < 900.0;
         let mut row = Row::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Center);
         if in_trash {
             row = row
@@ -58,8 +61,8 @@ pub fn command_bar() -> W {
             .child(icon_button(icons::RENAME, "Переименовать (F2)", "", sel_n == 1 && !in_trash, move || actions::run(p, "rename")))
             .child(icon_button(icons::DELETE, "Удалить (Delete)", "", has, move || actions::run(p, "trash")))
             .child(sep())
-            .child(menu_button(icons::SORT, "Сортировка", "", move || actions::sort_menu(state::pane())))
-            .child(menu_button(view_glyph(p.view.get()), "Вид", "", move || actions::view_menu(state::pane())))
+            .child(menu_button(icons::SORT, if narrow { "" } else { "Сортировка" }, "", move || actions::sort_menu(state::pane())))
+            .child(menu_button(view_glyph(p.view.get()), if narrow { "" } else { "Вид" }, "", move || actions::view_menu(state::pane())))
             .child(menu_button(icons::MORE, "", "", more_menu))
             .child(DecoratedBox::new().class("grow"))
             .child(icon_button(
@@ -185,8 +188,19 @@ fn address() -> W {
 
 fn search_box() -> W {
     boxed(Reactive::new(move || -> Vec<W> {
+        // Окно поуже — поле поиска короче.
+        let vw = syngui::viewport::viewport_size().get().width;
+        let w = if vw > 0.0 && vw < 1000.0 { 220.0 } else { 300.0 };
+        vec![boxed(DecoratedBox::new().class("search").style("width", w).child(search_field(false)))]
+    }))
+}
+
+/// Поле поиска: пока печатают — фильтр папки, Enter — поиск вглубь.
+/// `phone` — поле сразу в фокусе (строка поиска открыта кнопкой).
+pub fn search_field(phone: bool) -> W {
+    boxed(Reactive::new(move || -> Vec<W> {
         let ctx = state::ctx();
-        let focus = ctx.search_focus.get();
+        let focus = ctx.search_focus.get() + phone as u64;
         let p = state::tab_tracked().pane_tracked();
         let loc = p.loc.get();
         let place = match &loc {
@@ -218,8 +232,8 @@ fn search_box() -> W {
                     actions::search(p, "");
                 }
             })
-            .class("search-field");
-        vec![bx("search", field)]
+            .class(if phone { "search-field psearch" } else { "search-field" });
+        vec![boxed(field)]
     }))
 }
 

@@ -118,12 +118,10 @@ fn place_row(pl: Place, current: &Location) -> W {
     )
 }
 
-pub fn sidebar() -> W {
+/// Места по разделам (боковая панель и выдвижная панель телефона).
+pub fn places_list() -> W {
     boxed(Reactive::new(move || -> Vec<W> {
         let ctx = state::ctx();
-        if !ctx.sidebar.get() {
-            return vec![];
-        }
         let _ = ctx.places_rev.get();
         let _ = ctx.jobs_rev.get();
         let cfg = ctx.cfg.get();
@@ -138,6 +136,15 @@ pub fn sidebar() -> W {
                 col = col.child(place_row(pl, &current));
             }
         }
-        vec![bx("sidebar", ScrollView::new().vertical().class("grow").child(col))]
+        vec![boxed(col)]
+    }))
+}
+
+pub fn sidebar() -> W {
+    boxed(Reactive::new(move || -> Vec<W> {
+        if !state::ctx().sidebar.get() {
+            return vec![];
+        }
+        vec![bx("sidebar", ScrollView::new().vertical().class("grow").child(places_list()))]
     }))
 }

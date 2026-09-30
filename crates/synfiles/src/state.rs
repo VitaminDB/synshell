@@ -141,9 +141,16 @@ pub struct Ctx {
     pub zoom_rev: RwSignal<u64>,
     /// Состояние окна (развёрнуто, в фокусе) — для кнопок заголовка.
     pub window: RwSignal<syngui::window::WindowState>,
+    /// Телефон: выдвижная панель мест и вкладок.
+    pub drawer: RwSignal<bool>,
+    /// Телефон: нижний лист «Вид и сортировка».
+    pub sheet: RwSignal<bool>,
+    /// Телефон: строка поиска вместо заголовка.
+    pub phone_search: RwSignal<bool>,
 }
 
 thread_local! {
+    static PHONE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static CTX: RefCell<Option<Ctx>> = const { RefCell::new(None) };
     /// Сырые записи панелей и наблюдатели — вне сигналов.
     static PANES: RefCell<HashMap<u64, PaneData>> = RefCell::new(HashMap::new());
@@ -171,6 +178,16 @@ pub fn ctx() -> Ctx {
 
 pub fn try_ctx() -> Option<Ctx> {
     CTX.with(|c| *c.borrow())
+}
+
+/// Телефонная раскладка (узкое окно): касания, одна панель, нижние панели.
+/// Меняется вместе с пересборкой всего окна, поэтому не сигнал.
+pub fn is_phone() -> bool {
+    PHONE.with(|p| p.get())
+}
+
+pub fn set_phone(v: bool) {
+    PHONE.with(|p| p.set(v));
 }
 
 pub fn default_sort(c: &Config) -> Sort {
@@ -201,6 +218,9 @@ pub fn init(cfg: Config, start: Vec<Location>) -> Ctx {
         search_focus: use_signal(0u64),
         zoom_rev: use_signal(0u64),
         window: use_signal(syngui::window::WindowState::default()),
+        drawer: use_signal(false),
+        sheet: use_signal(false),
+        phone_search: use_signal(false),
     };
     CTX.with(|c| *c.borrow_mut() = Some(ctx));
     crate::thumbs::set_max_mb(cfg.files.thumbnail_max_mb);
@@ -329,8 +349,11 @@ pub fn navigate(p: Pane, loc: Location, push_history: bool) {
     if let Some(ctx) = try_ctx() {
         if !matches!(loc, Location::Search { .. }) {
             ctx.search.set(String::new());
+            ctx.phone_search.set(false);
         }
         ctx.address_edit.set(false);
+        // Телефон: выбрали место в выдвижной панели — она закрывается.
+        ctx.drawer.set(false);
     }
     load(p, None);
 }
@@ -394,6 +417,11 @@ fn apply_pending_select(p: Pane) {
     }
     PENDING_SELECT.with(|m| m.borrow_mut().remove(&p.id));
     let first = idx[0];
+    if is_phone() {
+        // На телефоне выделение — режим выбора: только показать.
+        scroll_to(p, first);
+        return;
+    }
     p.sel.set(ItemSelection { selected: idx.into_iter().collect(), cursor: Some(first), anchor: Some(first) });
     scroll_to(p, first);
 }
