@@ -232,10 +232,11 @@ fn page_rows(page: Page, lang: &Lang) -> Vec<Vec<Key>> {
         _ => Key::special("ABC", Action::Page(Page::Letters), 1.5),
     };
     out.push(vec![
-        page_key,
+        Key::special("⌄", Action::Hide, 1.0),
+        Key { width: 1.3, ..page_key },
         Key::special("⌨", Action::Fn, 1.0),
         Key::special(lang.name, Action::Layout, 1.0),
-        Key::special("", Action::Key { code: KEY_SPACE, shift: false, repeat: false, latin: false }, 4.0),
+        Key::special("", Action::Key { code: KEY_SPACE, shift: false, repeat: false, latin: false }, 3.2),
         sym("."),
         Key::special("⏎", Action::Key { code: KEY_ENTER, shift: false, repeat: false, latin: false }, 1.5),
     ]);
@@ -267,9 +268,8 @@ pub fn fn_rows() -> Vec<Vec<Key>> {
         m("⌘", Modifier::Super, 0.8),
         k("Ins", KEY_INSERT, 0.9, false),
         k("Del", KEY_DELETE, 0.9, true),
-        k("PgUp", KEY_PAGEUP, 1.1, true),
-        k("PgDn", KEY_PAGEDOWN, 1.1, true),
-        Key { label: "⌄".into(), shifted: None, action: Action::Hide, width: 0.8, class: "key key-fn" },
+        k("PgUp", KEY_PAGEUP, 1.5, true),
+        k("PgDn", KEY_PAGEDOWN, 1.5, true),
     ];
     let mut row2: Vec<Key> = (1..=6).map(f).collect();
     row2.extend([k("Home", KEY_HOME, 1.0, false), k("↑", KEY_UP, 1.0, true), k("End", KEY_END, 1.0, false)]);

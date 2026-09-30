@@ -90,16 +90,38 @@ fn daemon() {
     let mss = build_mss(&config);
     let font = Some(config.appearance.font.trim().to_string()).filter(|f| !f.is_empty());
 
+    let scale = config.osk.scale;
     let result = syngui_layer::run(syngui_layer::RunOptions { font_family: font }, &mss, move || {
+        syngui_layer::set_ui_zoom(scale);
         let kb = ui::Keyboard::new();
         ui::install(kb);
         listen(kb);
+        watch_scale();
     });
     let _ = std::fs::remove_file(socket_path());
     if let Err(e) = result {
         log::error!("synkeyboard: {e:#}");
         std::process::exit(1);
     }
+}
+
+/// `[osk] scale` меняется на лету («Параметры → Клавиатура»): конфиг
+/// проверяется раз в 2 с.
+fn watch_scale() {
+    let path = synshell_common::paths::config_file();
+    let mtime = move || std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+    let mut last = mtime();
+    syngui_layer::add_timer(std::time::Duration::from_secs(2), move || {
+        let now = mtime();
+        if now != last {
+            last = now;
+            let (cfg, err) = Config::load();
+            if err.is_none() {
+                syngui_layer::set_ui_zoom(cfg.osk.scale);
+            }
+        }
+        Some(std::time::Duration::from_secs(2))
+    });
 }
 
 fn build_mss(config: &Config) -> String {

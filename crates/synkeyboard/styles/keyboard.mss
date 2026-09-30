@@ -26,5 +26,13 @@ Text { color: var(--fg); font-size: 18px; }
 .key-fn .key-label { font-size: 13px; text-box-edge: ink; }
 .key-f .key-label { font-size: 12px; }
 
+/* Дополнительные ряды (⌨): отдельный блок другого фона над основной клавиатурой. */
+.keyboard-fn {
+    background-color: #00000040;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: #ffffff18;
+}
+
 .key-active { background-color: var(--accent); }
 .key-lock { border-width: 2px; border-color: var(--fg); }

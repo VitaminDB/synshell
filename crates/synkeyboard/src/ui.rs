@@ -7,6 +7,7 @@ use std::cell::Cell;
 use std::time::Duration;
 
 use syngui::prelude::*;
+use syngui::StyleValue;
 use syngui::widget::WidgetExt;
 use syngui::GestureDetector;
 use syngui_layer::{Anchor, KeyboardInteractivity, Layer, SurfaceId, SurfaceSpec};
@@ -19,6 +20,10 @@ const KEY_H: u32 = 46;
 const FN_H: u32 = 34;
 const GAP: u32 = 5;
 const PAD: u32 = 6;
+/// Функциональные ряды — отдельным блоком: внутренний отступ и промежуток
+/// до основной клавиатуры.
+const FN_PAD: u32 = 4;
+const FN_SEP: u32 = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shift {
@@ -65,7 +70,8 @@ impl Keyboard {
     fn height(&self) -> u32 {
         let mut h = PAD * 2 + KEY_H * 4 + GAP * 3;
         if self.fn_rows.get_untracked() {
-            h += (FN_H + GAP) * layout::fn_rows().len() as u32;
+            let n = layout::fn_rows().len() as u32;
+            h += FN_H * n + GAP * (n - 1) + FN_PAD * 2 + FN_SEP;
         }
         h
     }
@@ -256,15 +262,23 @@ fn view(kb: Keyboard) -> impl Widget {
             let (ctrl, alt, sup) = (kb.ctrl.get(), kb.alt.get(), kb.sup.get());
             let fn_rows = kb.fn_rows.get();
 
-            let mut col = Column::new().gap(GAP as f32);
-            if fn_rows {
-                for row in layout::fn_rows() {
-                    col = col.child(row_widget(kb, row, shift, ctrl, alt, sup, FN_H as f32));
-                }
-            }
+            let mut main = Column::new().gap(GAP as f32);
             for row in layout::rows(page, lang) {
-                col = col.child(row_widget(kb, row, shift, ctrl, alt, sup, KEY_H as f32));
+                main = main.child(row_widget(kb, row, shift, ctrl, alt, sup, KEY_H as f32));
             }
+            let mut col = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+            if fn_rows {
+                // Дополнительные ряды — своим блоком другого фона, с просветом
+                // до основной клавиатуры.
+                let mut extra = Column::new().gap(GAP as f32);
+                for row in layout::fn_rows() {
+                    extra = extra.child(row_widget(kb, row, shift, ctrl, alt, sup, FN_H as f32));
+                }
+                col = col
+                    .child(DecoratedBox::new().child(extra).class("keyboard-fn").style("padding", StyleValue::px(FN_PAD as f32)))
+                    .child(DecoratedBox::new().style("height", StyleValue::px(FN_SEP as f32)));
+            }
+            col = col.child(main);
             vec![Box::new(col) as Box<dyn Widget>]
         }))
         .class("keyboard")

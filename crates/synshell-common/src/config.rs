@@ -47,6 +47,7 @@ pub struct Config {
     pub haptics: Haptics,
     pub rotation: ScreenRotation,
     pub power_button: PowerButton,
+    pub osk: Osk,
     pub sound: Sound,
     pub time: Time,
     pub link: Link,
@@ -80,6 +81,7 @@ impl Default for Config {
             haptics: Haptics::default(),
             rotation: ScreenRotation::default(),
             power_button: PowerButton::default(),
+            osk: Osk::default(),
             sound: Sound::default(),
             time: Time::default(),
             link: Link::default(),
@@ -2055,6 +2057,21 @@ pub struct ScreenRotation {
 impl Default for ScreenRotation {
     fn default() -> Self {
         Self { auto: true, suggest: true, upside_down: false, delay_ms: 1000, animation_ms: 300, threshold_deg: 35 }
+    }
+}
+
+/// Экранная клавиатура synkeyboard (`[osk]`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Osk {
+    /// Масштаб клавиатуры поверх масштаба вывода — отдельно от масштаба
+    /// оболочки (`[appearance] ui_scale`): высота клавиш, подписи, отступы.
+    pub scale: f32,
+}
+
+impl Default for Osk {
+    fn default() -> Self {
+        Self { scale: 1.0 }
     }
 }
 
