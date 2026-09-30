@@ -11,6 +11,7 @@ libc.workspace = true
 serde_json.workspace = true
 zbus = "5"
 blocking = "1"
+flate2 = "1"
 tracing.workspace = true
 
 [dev-dependencies]

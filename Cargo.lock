@@ -4176,6 +4176,7 @@ name = "synsystem"
 version = "0.1.3"
 dependencies = [
  "blocking",
+ "flate2",
  "libc",
  "serde_json",
  "tempfile",

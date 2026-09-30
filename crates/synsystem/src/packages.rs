@@ -285,6 +285,207 @@ pub fn details(p: &Pkg) -> Details {
     }
 }
 
+// ─── Каталог по категориям ──────────────────────────────────────────────────
+
+/// Программа каталога: пакет репозитория с названием и категориями из
+/// AppStream (`archlinux-appstream-data`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct CatalogApp {
+    pub pkg: Pkg,
+    /// Название программы (по-русски, если есть перевод).
+    pub title: String,
+    /// Категории freedesktop (`AudioVideo`, `Game`…).
+    pub categories: Vec<String>,
+    /// Имя значка из темы (`<icon type="stock">`).
+    pub icon: Option<String>,
+}
+
+/// Каталог AppStream: `/usr/share/swcatalog/xml/*.xml.gz` (и старый путь
+/// `/usr/share/app-info/xmls`). Только пакеты, которые есть в синхронизированных
+/// базах pacman этой архитектуры, — версия и репозиторий из `pacman -Sl`.
+/// Пусто, если данных AppStream нет.
+pub fn catalog() -> Vec<CatalogApp> {
+    let installed = installed_map();
+    let mut sync: HashMap<String, (String, String)> = HashMap::new();
+    for l in pacman(&["-Sl"]).unwrap_or_default().lines() {
+        let mut p = l.split_whitespace();
+        if let (Some(repo), Some(name), Some(ver)) = (p.next(), p.next(), p.next()) {
+            sync.entry(name.to_string()).or_insert((repo.to_string(), ver.to_string()));
+        }
+    }
+    let mut files: Vec<PathBuf> = ["/usr/share/swcatalog/xml", "/usr/share/app-info/xmls"]
+        .iter()
+        .filter_map(|d| std::fs::read_dir(d).ok())
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.to_string_lossy().ends_with(".xml.gz") || p.extension().is_some_and(|e| e == "xml"))
+        .collect();
+    files.sort();
+    let mut out: Vec<CatalogApp> = Vec::new();
+    let mut index: HashMap<String, usize> = HashMap::new();
+    for f in files {
+        let Ok(raw) = std::fs::read(&f) else { continue };
+        let text = if f.extension().is_some_and(|e| e == "gz") {
+            let mut s = String::new();
+            if std::io::Read::read_to_string(&mut flate2::read::GzDecoder::new(&raw[..]), &mut s).is_err() {
+                continue;
+            }
+            s
+        } else {
+            String::from_utf8_lossy(&raw).into_owned()
+        };
+        for c in parse_appstream(&text) {
+            let Some((repo, ver)) = sync.get(&c.pkgname) else { continue };
+            if let Some(&i) = index.get(&c.pkgname) {
+                // Несколько программ в одном пакете — один пункт, категории вместе.
+                for cat in c.categories {
+                    if !out[i].categories.contains(&cat) {
+                        out[i].categories.push(cat);
+                    }
+                }
+                continue;
+            }
+            index.insert(c.pkgname.clone(), out.len());
+            out.push(CatalogApp {
+                pkg: Pkg {
+                    installed: installed.get(&c.pkgname).cloned(),
+                    version: ver.clone(),
+                    description: c.summary,
+                    source: Source::Repo(repo.clone()),
+                    votes: None,
+                    popularity: None,
+                    out_of_date: false,
+                    name: c.pkgname,
+                },
+                title: c.name,
+                categories: c.categories,
+                icon: c.icon,
+            });
+        }
+    }
+    out.sort_by_cached_key(|a| a.title.to_lowercase());
+    out
+}
+
+/// Компонент AppStream (только нужные поля).
+#[derive(Debug, Default, PartialEq)]
+pub struct AppStreamComponent {
+    pub pkgname: String,
+    pub name: String,
+    pub summary: String,
+    pub categories: Vec<String>,
+    pub icon: Option<String>,
+}
+
+/// Разбор XML AppStream: компоненты `desktop-application`/`console-application`
+/// с `<pkgname>`. Название и описание — `xml:lang="ru"`, иначе без языка.
+/// Свой маленький разборщик тегов: формат плоский, вложенные `<name>`
+/// (`<developer>`) отсекаются по глубине.
+pub fn parse_appstream(xml: &str) -> Vec<AppStreamComponent> {
+    #[derive(Default)]
+    struct Cur {
+        c: AppStreamComponent,
+        app: bool,
+        name_ru: Option<String>,
+        summary_ru: Option<String>,
+    }
+    let mut out = Vec::new();
+    let mut cur: Option<Cur> = None;
+    // Глубина внутри компонента (1 — прямые дети) и открытый интересный тег.
+    let mut depth = 0usize;
+    let mut open: Option<(String, Option<String>, Option<String>)> = None; // (тег, xml:lang, type)
+    let mut text = String::new();
+    let mut rest = xml;
+    while let Some(lt) = rest.find('<') {
+        if open.is_some() {
+            text.push_str(&rest[..lt]);
+        }
+        rest = &rest[lt..];
+        if rest.starts_with("<!--") {
+            rest = rest.find("-->").map(|i| &rest[i + 3..]).unwrap_or("");
+            continue;
+        }
+        let Some(gt) = rest.find('>') else { break };
+        let tag = &rest[1..gt];
+        rest = &rest[gt + 1..];
+        if tag.starts_with('?') || tag.starts_with('!') {
+            continue;
+        }
+        if let Some(name) = tag.strip_prefix('/') {
+            let name = name.trim();
+            if name == "component" {
+                if let Some(c) = cur.take() {
+                    let mut comp = c.c;
+                    if let Some(n) = c.name_ru {
+                        comp.name = n;
+                    }
+                    if let Some(s) = c.summary_ru {
+                        comp.summary = s;
+                    }
+                    if c.app && !comp.pkgname.is_empty() && !comp.name.is_empty() {
+                        out.push(comp);
+                    }
+                }
+                continue;
+            }
+            if let (Some(c), Some((t, lang, ty))) = (cur.as_mut(), open.take()) {
+                let v = xml_unescape(text.trim());
+                text.clear();
+                match (t.as_str(), lang.as_deref()) {
+                    ("pkgname", None) => c.c.pkgname = v,
+                    ("name", None) => c.c.name = v,
+                    ("name", Some("ru")) => c.name_ru = Some(v),
+                    ("summary", None) => c.c.summary = v,
+                    ("summary", Some("ru")) => c.summary_ru = Some(v),
+                    ("category", _) if !v.is_empty() && !c.c.categories.contains(&v) => c.c.categories.push(v),
+                    ("icon", _) if ty.as_deref() == Some("stock") && c.c.icon.is_none() => c.c.icon = Some(v),
+                    _ => {}
+                }
+            }
+            depth = depth.saturating_sub(1);
+            continue;
+        }
+        let self_closing = tag.ends_with('/');
+        let tag = tag.trim_end_matches('/');
+        let (name, attrs) = tag.split_once(char::is_whitespace).unwrap_or((tag, ""));
+        if name == "component" {
+            let ty = xml_attr(attrs, "type").unwrap_or_default();
+            cur = Some(Cur { app: ty == "desktop-application" || ty == "console-application" || ty == "desktop", ..Default::default() });
+            depth = 0;
+            open = None;
+            continue;
+        }
+        if cur.is_none() || self_closing {
+            continue;
+        }
+        depth += 1;
+        // Прямые дети компонента и <category> внутри <categories>.
+        let wanted = match name {
+            "pkgname" | "name" | "summary" | "icon" => depth == 1,
+            "category" => depth == 2,
+            _ => false,
+        };
+        if wanted {
+            open = Some((name.to_string(), xml_attr(attrs, "xml:lang"), xml_attr(attrs, "type")));
+            text.clear();
+        }
+    }
+    out
+}
+
+fn xml_attr(attrs: &str, key: &str) -> Option<String> {
+    let i = attrs.find(&format!("{key}="))?;
+    let v = &attrs[i + key.len() + 1..];
+    let q = v.chars().next()?;
+    let v = &v[1..];
+    Some(v[..v.find(q)?].to_string())
+}
+
+fn xml_unescape(s: &str) -> String {
+    s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&")
+}
+
 /// Доступное обновление.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Update {
@@ -594,6 +795,38 @@ pub fn start(op: Op, build_user: String) -> Job {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_appstream_components() {
+        let xml = r#"<?xml version="1.0"?>
+<components>
+<component type="desktop-application">
+  <id>a.desktop</id>
+  <name>Acme</name>
+  <name xml:lang="ru">Акме</name>
+  <summary>Editor &amp; more</summary>
+  <developer id="x"><name>Someone</name></developer>
+  <pkgname>plan9port</pkgname>
+  <icon type="cached" width="64" height="64">p.jxl</icon>
+  <icon type="stock">acme</icon>
+  <categories>
+    <category>Development</category>
+    <category>TextEditor</category>
+  </categories>
+</component>
+<component type="font">
+  <name>Font</name>
+  <pkgname>ttf-x</pkgname>
+</component>
+</components>"#;
+        let v = parse_appstream(xml);
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].pkgname, "plan9port");
+        assert_eq!(v[0].name, "Акме");
+        assert_eq!(v[0].summary, "Editor & more");
+        assert_eq!(v[0].icon.as_deref(), Some("acme"));
+        assert_eq!(v[0].categories, vec!["Development", "TextEditor"]);
+    }
 
     #[test]
     fn parse_search() {

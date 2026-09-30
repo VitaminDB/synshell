@@ -16,9 +16,9 @@ Text { color: var(--fg); font-size: 14px; }
 .list-pane { padding: 0px; }
 .detail-pane { width: 420px; border-left-width: 1px; border-color: var(--border); background: var(--surface); }
 .pane { padding: 16px; flex-grow: 1; }
+.detail-empty { padding: 180px 16px 16px 16px; width: 100%; justify-content: center; }
 .empty-icon { font-size: 48px; color: var(--muted); }
 
-.search { border-radius: 999px; }
 
 .pkg-row {
     padding: 10px 12px;
@@ -64,10 +64,6 @@ Text { color: var(--fg); font-size: 14px; }
 .code-box { padding: 10px; border-radius: var(--radius-sm); background: #00000040; max-height: 360px; }
 .code { font-family: monospace; font-size: 11px; }
 
-.btn { border-radius: 999px; }
-.btn.primary { background-color: var(--accent); color: var(--accent-fg); }
-.btn.danger { background-color: var(--danger); color: #ffffff; }
-.btn.small { font-size: 12px; }
 
 .job { padding: 12px; border-radius: var(--radius); background: var(--surface); }
 .job-icon { font-size: 22px; }
@@ -75,15 +71,15 @@ Text { color: var(--fg); font-size: 14px; }
 .job-ok { color: #43a047; }
 .job-err { color: var(--danger); }
 .job-error { font-size: 12px; color: var(--danger); }
-.log { padding: 8px; border-radius: var(--radius-sm); background: #00000040; height: 180px; }
-.log-line { font-family: monospace; font-size: 10px; color: var(--muted); }
+.log { padding: 8px; border-radius: var(--radius-sm); background: #00000040; flex-grow: 1; min-height: 160px; }
+.log-line { font-family: monospace; font-size: 11px; color: var(--muted); }
 
-.toast-place { padding: 0px 0px 84px 0px; }
+.toast-place { padding: 0px 16px 84px 16px; }
 .toast { padding: 10px 16px; border-radius: 999px; background: var(--fg); box-shadow: 0 6px 20px var(--shadow); }
 .toast-text { font-size: 13px; color: var(--bg); }
 
 /* Окно пароля polkit */
-.auth-scrim { background: #00000099; padding: 16px; flex-grow: 1; }
+.auth-scrim { background: #00000099; padding: 16px; width: 100%; height: 100%; justify-content: center; align-items: center; }
 .auth-card { padding: 20px; border-radius: var(--radius); background: var(--surface); box-shadow: 0 10px 32px var(--shadow); max-width: 440px; }
 .auth-icon { font-size: 26px; color: var(--accent); }
 .auth-title { font-size: 17px; font-weight: 600; }
@@ -102,3 +98,72 @@ Text { color: var(--fg); font-size: 14px; }
 .nb-icon { font-size: 22px; color: var(--fg); }
 .nb-label { font-size: 11px; }
 .nb-dot { width: 6px; height: 6px; border-radius: 3px; background: var(--accent); }
+
+/* Поля и кнопки — в цветах темы (как в «Параметрах») */
+TextField {
+    background: var(--input-bg);
+    color: var(--fg);
+    accent-color: var(--accent);
+    caret-color: var(--accent);
+    selection-color: var(--accent-soft);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 7px 12px;
+    font-size: 14px;
+    icon-color: var(--muted);
+    &:focus { border-color: var(--accent); }
+}
+TextField.search { border-radius: 999px; padding: 9px 16px; }
+Button {
+    background: var(--surface-alt);
+    color: var(--fg);
+    accent-color: var(--accent);
+    border-radius: 999px;
+    padding: 7px 16px;
+    font-size: 13px;
+    transition: background 120ms ease;
+    &:hover { background: var(--pressed); }
+    &:pressed { background: var(--hover); }
+}
+Button.primary {
+    background: var(--accent);
+    color: var(--accent-fg);
+    &:hover { background: var(--accent-hover); }
+}
+Button.danger {
+    background: var(--danger);
+    color: #ffffff;
+    &:hover { background: var(--danger); }
+}
+Button.small { padding: 5px 12px; font-size: 12px; }
+ProgressBar {
+    height: 4px;
+    background: var(--pressed);
+    color: var(--accent);
+    accent-color: var(--accent);
+    border-radius: 2px;
+}
+CircularProgress { color: var(--accent); accent-color: var(--accent); }
+
+/* Каталог по категориям */
+.cat-tile {
+    padding: 12px 10px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border-width: 1px;
+    border-color: var(--border);
+    transition: background-color 120ms ease-out, scale 200ms spring(420, 26);
+}
+.cat-tile:hover { background-color: var(--hover); }
+.cat-tile:active { scale: 0.97; }
+.cat-icon-box { padding: 8px; border-radius: 12px; background: var(--accent-soft); }
+.cat-icon { font-size: 24px; color: var(--accent); }
+.cat-label { font-size: 15px; font-weight: 600; }
+.cat-head-icon { font-size: 22px; color: var(--accent); }
+
+/* Задачи: лог открытого задания — на всю высоту */
+.job-open { flex-grow: 1; }
+.job-row { padding: 10px 12px; transition: background-color 120ms ease-out; }
+.job-row:hover { background-color: var(--hover); }
+.job-expand { font-size: 22px; color: var(--muted); }
+.job-others { max-height: 200px; }

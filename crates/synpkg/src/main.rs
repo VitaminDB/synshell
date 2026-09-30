@@ -10,13 +10,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use synshell_common::Config;
-use synsystem::packages::{self as pk, Details, JobEvent, Op, Pkg, Source, Update};
+use synsystem::packages::{self as pk, CatalogApp, Details, JobEvent, Op, Pkg, Source, Update};
 use synsystem::polkit_agent::{self, AuthRequest, Prompter};
 use syngui::async_runtime::run_on_main_thread;
 use syngui::mss::StyleValue;
 use syngui::prelude::*;
 use syngui::widgets::{EventHook, KeyReply};
-use syngui::GestureDetector;
+use syngui::{GestureDetector, ShowIf};
 
 type W = Box<dyn Widget>;
 
@@ -55,6 +55,36 @@ struct JobView {
     stage: String,
     log: Vec<String>,
     done: Option<std::result::Result<(), String>>,
+}
+
+/// Разделы каталога: ключ — главная категория freedesktop (и её синонимы).
+struct Category {
+    key: &'static str,
+    also: &'static [&'static str],
+    label: &'static str,
+    icon: &'static str,
+}
+
+const CATEGORIES: &[Category] = &[
+    Category { key: "Network", also: &[], label: "Интернет", icon: "\u{E80B}" },
+    Category { key: "Office", also: &[], label: "Офис", icon: "\u{E873}" },
+    Category { key: "Graphics", also: &[], label: "Графика", icon: "\u{E3F4}" },
+    Category { key: "AudioVideo", also: &["Audio", "Video"], label: "Мультимедиа", icon: "\u{E02C}" },
+    Category { key: "Game", also: &[], label: "Игры", icon: "\u{EA28}" },
+    Category { key: "Development", also: &[], label: "Разработка", icon: "\u{E86F}" },
+    Category { key: "Education", also: &[], label: "Образование", icon: "\u{E80C}" },
+    Category { key: "Science", also: &[], label: "Наука", icon: "\u{EA4B}" },
+    Category { key: "System", also: &["Settings"], label: "Система", icon: "\u{E8B8}" },
+    Category { key: "Utility", also: &[], label: "Утилиты", icon: "\u{E869}" },
+];
+
+impl Category {
+    fn by_key(key: &str) -> Option<&'static Category> {
+        CATEGORIES.iter().find(|c| c.key == key)
+    }
+    fn contains(&self, a: &CatalogApp) -> bool {
+        a.categories.iter().any(|c| c == self.key || self.also.contains(&c.as_str()))
+    }
 }
 
 /// Открытое окно пароля polkit (агент — [`polkit_agent`]).
@@ -99,6 +129,12 @@ struct St {
     details: RwSignal<Option<Details>>,
     pkgbuild: RwSignal<Option<String>>,
     jobs: RwSignal<Vec<JobView>>,
+    /// Задание, чей лог развёрнут в «Задачах» (`None` — последнее).
+    job_open: RwSignal<Option<u64>>,
+    /// Каталог AppStream (`None` — ещё загружается).
+    catalog: RwSignal<Option<Vec<CatalogApp>>>,
+    /// Открытая категория каталога (ключ [`Category`]).
+    category: RwSignal<Option<&'static str>>,
     toast: RwSignal<String>,
     cfg: RwSignal<Config>,
     auth: RwSignal<Option<AuthView>>,
@@ -131,6 +167,9 @@ fn main() {
                 details: use_signal(None),
                 pkgbuild: use_signal(None),
                 jobs: use_signal(Vec::new()),
+                job_open: use_signal(None),
+                catalog: use_signal(None),
+                category: use_signal(None),
                 toast: use_signal(String::new()),
                 cfg: use_signal(cfg.clone()),
                 auth: use_signal(None),
@@ -140,6 +179,7 @@ fn main() {
                 search(st, query.clone());
             }
             load_installed(st);
+            load_catalog(st);
             root(st)
         });
 }
@@ -147,6 +187,15 @@ fn main() {
 fn theme(cfg: &Config) -> String {
     let a = &cfg.appearance;
     let mut s = a.mss_variables();
+    // Производные цвета полей и кнопок — как в «Параметрах», чтобы окна были одного вида.
+    let p = a.palette();
+    let dark = a.is_dark();
+    s.push_str(&format!(
+        ":root {{\n  --input-bg: {};\n  --accent-hover: {};\n  --danger-soft: {};\n}}\n",
+        if dark { p.bg.mix(p.surface, 0.35) } else { p.surface }.hex(),
+        p.accent.mix(p.fg, 0.15).hex(),
+        p.danger.with_alpha(0.16).hex(),
+    ));
     s.push_str(&a.theme_mss_variables());
     s.push_str(include_str!("../styles/synpkg.mss"));
     if !a.font.trim().is_empty() {
@@ -186,6 +235,28 @@ fn load_installed(st: St) {
     std::thread::spawn(move || {
         let v = pk::installed();
         run_on_main_thread(move || st.installed.set(v));
+    });
+}
+
+fn load_catalog(st: St) {
+    std::thread::spawn(move || {
+        let v = pk::catalog();
+        run_on_main_thread(move || st.catalog.set(Some(v)));
+    });
+}
+
+/// Пометки «установлен» в каталоге после изменений.
+fn refresh_catalog_installed(st: St) {
+    std::thread::spawn(move || {
+        let map = pk::installed_map();
+        run_on_main_thread(move || {
+            if let Some(mut v) = st.catalog.get_untracked() {
+                for a in &mut v {
+                    a.pkg.installed = map.get(&a.pkg.name).cloned();
+                }
+                st.catalog.set(Some(v));
+            }
+        });
     });
 }
 
@@ -279,6 +350,7 @@ fn run_op(st: St, title: String, op: Op) {
                 st.jobs.set(jobs);
                 if finished {
                     load_installed(st);
+                    refresh_catalog_installed(st);
                     let q = st.query.get_untracked();
                     if !q.is_empty() {
                         search(st, q);
@@ -305,13 +377,20 @@ fn run_op(st: St, title: String, op: Op) {
 fn root(st: St) -> W {
     let narrow = syngui::viewport::viewport_below(720.0);
     let body = Reactive::new(move || -> Vec<W> { vec![if narrow.get() { phone(st) } else { desktop(st) }] });
-    let toast = Reactive::new(move || -> Vec<W> {
-        let t = st.toast.get();
-        if t.is_empty() {
-            return vec![];
-        }
-        vec![Box::new(Column::new().main_axis_alignment(MainAxisAlignment::End).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().child(Text::new(t).max_lines(2).class("toast-text")).class("toast")).class("toast-place"))]
-    });
+    // Слои поверх окна выравниваются снаружи Reactive: он отдаёт детям
+    // свободные ограничения, и слой внутри него ужимается в угол.
+    // Column пропускает касания мимо подсказки.
+    let toast = Column::new()
+        .main_axis_alignment(MainAxisAlignment::End)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(Reactive::new(move || -> Vec<W> {
+            let t = st.toast.get();
+            if t.is_empty() {
+                return vec![];
+            }
+            vec![Box::new(DecoratedBox::new().child(Text::new(t).max_lines(2).class("toast-text")).class("toast"))]
+        }))
+        .class("toast-place");
     // Подсказка гаснет через 4 с.
     create_effect(move || {
         let t = st.toast.get();
@@ -329,27 +408,34 @@ fn root(st: St) -> W {
     Box::new(
         EventHook::new()
             .on_key_down(move |k, _| {
-                if matches!(k, syngui::input::Key::Escape) && st.selected.get_untracked().is_some() {
-                    st.selected.set(None);
+                if matches!(k, syngui::input::Key::Escape) && go_back(st) {
                     KeyReply::Handled
                 } else {
                     KeyReply::Ignore
                 }
             })
-            .child(GestureDetector::new().on_back(move || {
-                if st.selected.get_untracked().is_some() {
-                    st.selected.set(None);
-                    true
-                } else {
-                    false
-                }
-            }).child(Stack::new().fit(StackFit::Expand).child(DecoratedBox::new().child(body).class("root")).child(toast).child(auth_overlay(st)))),
+            .child(GestureDetector::new().on_back(move || go_back(st)).child(Stack::new().fit(StackFit::Expand).child(DecoratedBox::new().child(body).class("root")).child(toast).child(auth_overlay(st)))),
     )
+}
+
+/// «Назад»: закрыть пакет, затем категорию каталога.
+fn go_back(st: St) -> bool {
+    if st.selected.get_untracked().is_some() {
+        st.selected.set(None);
+        true
+    } else if st.tab.get_untracked() == Tab::Search && st.category.get_untracked().is_some() {
+        st.category.set(None);
+        true
+    } else {
+        false
+    }
 }
 
 /// Окно «нужны права администратора» поверх всего: пароль уходит агенту polkit.
 fn auth_overlay(st: St) -> W {
-    Box::new(Reactive::new(move || -> Vec<W> {
+    let shown = use_signal(0usize);
+    create_effect(move || shown.set(usize::from(st.auth.get().is_some())));
+    let card = Reactive::new(move || -> Vec<W> {
         let Some(AuthView(req)) = st.auth.get() else {
             return vec![];
         };
@@ -378,17 +464,12 @@ fn auth_overlay(st: St) -> W {
                 Row::new()
                     .gap(8.0)
                     .main_axis_alignment(MainAxisAlignment::End)
-                    .child(Button::new("Отмена").class("btn").on_click(cancel))
-                    .child(Button::new("Подтвердить").class("btn primary").on_click(submit)),
+                    .child(Button::new("Отмена").on_click(cancel))
+                    .child(Button::new("Подтвердить").class("primary").on_click(submit)),
             );
-        vec![Box::new(
-            GestureDetector::new().on_click(|| {}).child(
-                DecoratedBox::new()
-                    .child(Column::new().main_axis_alignment(MainAxisAlignment::Center).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().child(card).class("auth-card")).class("grow"))
-                    .class("auth-scrim"),
-            ),
-        )]
-    }))
+        vec![Box::new(DecoratedBox::new().child(card).class("auth-card"))]
+    });
+    Box::new(ShowIf::new(1, shown).child(GestureDetector::new().on_click(|| {}).child(DecoratedBox::new().child(card).class("auth-scrim"))))
 }
 
 fn tab_content(st: St) -> W {
@@ -425,11 +506,12 @@ fn desktop(st: St) -> W {
     let detail = Reactive::new(move || -> Vec<W> {
         vec![match st.selected.get() {
             Some(p) => details_view(st, p),
-            None => Box::new(Column::new().main_axis_alignment(MainAxisAlignment::Center).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new("\u{E8F4}").class("empty-icon")).child(Text::new("Выберите пакет").class("muted")).class("grow")),
+            None => Box::new(DecoratedBox::new().child(Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new("\u{E8F4}").class("empty-icon")).child(Text::new("Выберите пакет").class("muted"))).class("detail-empty")),
         }]
     });
     Box::new(
         Row::new()
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .child(DecoratedBox::new().child(nav).class("sidebar"))
             .child(DecoratedBox::new().child(tab_content(st)).class("grow list-pane"))
             .child(DecoratedBox::new().child(detail).class("detail-pane")),
@@ -506,16 +588,30 @@ fn source_chip(p: &Pkg) -> impl Widget {
 
 /// Значок программы, если у пакета есть .desktop с таким именем.
 fn pkg_icon(name: &str) -> W {
-    match synshell_common::xdg::lookup_icon(name) {
+    app_icon(None, name)
+}
+
+/// Значок из темы по имени AppStream, иначе по имени пакета, иначе глиф.
+fn app_icon(icon: Option<&str>, name: &str) -> W {
+    match icon.and_then(synshell_common::xdg::lookup_icon).or_else(|| synshell_common::xdg::lookup_icon(name)) {
         Some(p) => Box::new(Image::new(p.to_string_lossy()).fit(ImageFit::Contain).placeholder(false).class("pkg-icon")),
         None => Box::new(DecoratedBox::new().child(Icon::new("\u{E1BD}").class("pkg-glyph")).class("pkg-glyph-box")),
     }
 }
 
 fn pkg_row(st: St, p: Pkg) -> W {
+    pkg_row_titled(st, p, None, None)
+}
+
+/// Строка пакета; у программы каталога — её название, имя пакета — в строке сведений.
+fn pkg_row_titled(st: St, p: Pkg, title: Option<String>, icon: Option<String>) -> W {
     let sel = st.selected.get_untracked().is_some_and(|s| s.name == p.name && s.source == p.source);
     let p2 = p.clone();
-    let mut meta = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(p.version.clone()).class("pkg-ver")).child(source_chip(&p));
+    let mut meta = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center);
+    if title.is_some() {
+        meta = meta.child(Text::new(p.name.clone()).max_lines(1).class("pkg-ver"));
+    }
+    meta = meta.child(Text::new(p.version.clone()).max_lines(1).class("pkg-ver")).child(source_chip(&p));
     if p.installed.is_some() {
         meta = meta.child(chip("установлен".into(), "chip-ok"));
     }
@@ -531,11 +627,11 @@ fn pkg_row(st: St, p: Pkg) -> W {
                 Row::new()
                     .gap(12.0)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(pkg_icon(&p.name))
+                    .child(app_icon(icon.as_deref(), &p.name))
                     .child(
                         Column::new()
                             .gap(3.0)
-                            .child(Text::new(p.name.clone()).max_lines(1).class("pkg-name"))
+                            .child(Text::new(title.unwrap_or_else(|| p.name.clone())).max_lines(1).class("pkg-name"))
                             .child(Text::new(p.description.clone()).max_lines(2).class("pkg-desc"))
                             .child(meta)
                             .class("grow"),
@@ -557,13 +653,16 @@ fn search_view(st: St) -> W {
     let list = Reactive::new(move || -> Vec<W> {
         let busy = st.searching.get();
         let res = st.results.get();
-        let q = st.query.get_untracked();
+        let q = st.query.get();
+        // Пустой запрос — каталог по категориям.
+        if q.trim().len() < 2 {
+            return vec![catalog_view(st)];
+        }
         let mut col = Column::new().gap(4.0);
         if busy {
             col = col.child(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(CircularProgress::new().indeterminate().size(20.0)).child(Text::new("Поиск…").class("muted")));
         } else if res.is_empty() {
-            let msg = if q.trim().len() < 2 { "Введите название или слово из описания: «браузер», «gimp», «office»" } else { "Ничего не найдено" };
-            col = col.child(Text::new(msg).class("muted empty"));
+            col = col.child(Text::new("Ничего не найдено").class("muted empty"));
         }
         for p in res {
             col = col.child(pkg_row(st, p));
@@ -571,6 +670,77 @@ fn search_view(st: St) -> W {
         vec![Box::new(col)]
     });
     Box::new(Column::new().gap(10.0).child(field).child(ScrollView::new().vertical().child(list).class("grow")).class("pane"))
+}
+
+/// «1 программа», «3 программы», «5 программ».
+fn programs(n: usize) -> String {
+    let w = match (n % 10, n % 100) {
+        (1, r) if r != 11 => "программа",
+        (2..=4, r) if !(12..=14).contains(&r) => "программы",
+        _ => "программ",
+    };
+    format!("{n} {w}")
+}
+
+/// Каталог: плитки категорий или программы открытой категории.
+fn catalog_view(st: St) -> W {
+    let Some(apps) = st.catalog.get() else {
+        return Box::new(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(CircularProgress::new().indeterminate().size(20.0)).child(Text::new("Загрузка каталога…").class("muted")).class("empty"));
+    };
+    if apps.is_empty() {
+        let mut col = Column::new()
+            .gap(10.0)
+            .child(Text::new("Введите название или слово из описания: «браузер», «gimp», «office»").class("muted"))
+            .child(Text::new("Чтобы смотреть программы по категориям, нужен каталог AppStream — пакет archlinux-appstream-data.").class("desc"));
+        let has_pkg = st.installed.get().iter().any(|p| p.name == "archlinux-appstream-data");
+        if !has_pkg {
+            col = col.child(Row::new().child(Button::new("Установить каталог").class("primary").on_click(move || run_op(st, "Установка каталога программ".into(), Op::Install(vec!["archlinux-appstream-data".into()])))));
+        }
+        return Box::new(col.class("empty"));
+    }
+    let cat = st.category.get().and_then(Category::by_key);
+    let Some(cat) = cat else {
+        // Колонок столько, сколько плиток ~220 px помещается в список (на телефоне — две).
+        let w = syngui::viewport::viewport_size().get().width;
+        let list_w = if w < 720.0 { w - 32.0 } else { w - 220.0 - 420.0 - 32.0 };
+        let cols = ((list_w + 10.0) / 230.0).floor().max(2.0) as usize;
+        let mut grid = Grid::new(cols).gap(10.0);
+        for c in CATEGORIES {
+            let n = apps.iter().filter(|a| c.contains(a)).count();
+            if n == 0 {
+                continue;
+            }
+            let key = c.key;
+            grid = grid.child(GestureDetector::new().on_click(move || st.category.set(Some(key))).child(
+                DecoratedBox::new()
+                    .child(
+                        Row::new()
+                            .gap(12.0)
+                            .cross_axis_alignment(CrossAxisAlignment::Center)
+                            .child(DecoratedBox::new().child(Icon::new(c.icon).class("cat-icon")).class("cat-icon-box"))
+                            .child(Column::new().gap(2.0).child(Text::new(c.label).max_lines(1).class("cat-label")).child(Text::new(programs(n)).class("pkg-ver")).class("grow")),
+                    )
+                    .class("cat-tile"),
+            ));
+        }
+        return Box::new(Column::new().gap(12.0).child(Text::new("Категории").class("h2")).child(grid).child(Text::new(format!("В каталоге {}. Поиск находит и пакеты вне каталога, и AUR.", programs(apps.len()))).class("muted")));
+    };
+    let mut v: Vec<CatalogApp> = apps.into_iter().filter(|a| cat.contains(a)).collect();
+    // Установленные — ниже: каталог для поиска нового.
+    v.sort_by_key(|a| a.pkg.installed.is_some());
+    let mut col = Column::new().gap(4.0).child(
+        Row::new()
+            .gap(6.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(GestureDetector::new().on_click(move || st.category.set(None)).child(DecoratedBox::new().child(Icon::new("\u{E5C4}").class("back-icon")).class("back")))
+            .child(Icon::new(cat.icon).class("cat-head-icon"))
+            .child(Text::new(cat.label).max_lines(1).class("h2 grow"))
+            .child(Text::new(format!("{}", v.len())).class("muted")),
+    );
+    for a in v {
+        col = col.child(pkg_row_titled(st, a.pkg, Some(a.title), a.icon));
+    }
+    Box::new(col)
 }
 
 fn installed_view(st: St) -> W {
@@ -601,10 +771,10 @@ fn updates_view(st: St) -> W {
             .gap(8.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .child(Text::new(if ups.is_empty() { "Система обновлена".to_string() } else { format!("Доступно обновлений: {}", ups.len()) }).class("h2 grow"))
-            .child(Button::new("Проверить").class("btn").on_click(move || check_updates(st)));
+            .child(Button::new("Проверить").on_click(move || check_updates(st)));
         col = col.child(head);
         if !ups.is_empty() {
-            col = col.child(Button::new("Обновить всё").class("btn primary").on_click(move || run_op(st, "Обновление системы".into(), Op::Upgrade { aur })));
+            col = col.child(Button::new("Обновить всё").class("primary").on_click(move || run_op(st, "Обновление системы".into(), Op::Upgrade { aur })));
         }
         for u in ups {
             col = col.child(
@@ -625,38 +795,55 @@ fn updates_view(st: St) -> W {
     Box::new(Column::new().gap(10.0).child(ScrollView::new().vertical().child(list).class("grow")).class("pane"))
 }
 
+/// Задачи: лог открытого задания — на всю высоту, остальные — строками ниже.
 fn jobs_view(st: St) -> W {
-    let list = Reactive::new(move || -> Vec<W> {
+    let body = Reactive::new(move || -> Vec<W> {
         let jobs = st.jobs.get();
-        let mut col = Column::new().gap(10.0);
         if jobs.is_empty() {
-            col = col.child(Text::new("Установки и обновления появятся здесь").class("muted empty"));
+            return vec![Box::new(Text::new("Установки и обновления появятся здесь").class("muted empty"))];
         }
+        let open = st.job_open.get().filter(|id| jobs.iter().any(|j| j.id == *id)).unwrap_or(jobs[0].id);
+        let mut others = Column::new().gap(6.0);
+        let mut has_others = false;
+        let mut main: Option<W> = None;
         for j in jobs {
             let (icon, class) = match &j.done {
                 None => ("\u{E863}", "job-running"),
                 Some(Ok(())) => ("\u{E86C}", "job-ok"),
                 Some(Err(_)) => ("\u{E000}", "job-err"),
             };
-            let mut log = Column::new().gap(0.0);
-            for l in j.log.iter().rev().take(60).collect::<Vec<_>>().into_iter().rev() {
-                log = log.child(Text::new(l.clone()).selectable(true).class("log-line"));
-            }
-            let mut card = Column::new()
+            let head = Row::new()
                 .gap(8.0)
-                .child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(icon).class(format!("job-icon {class}"))).child(Column::new().gap(0.0).child(Text::new(j.title.clone()).class("pkg-name")).child(Text::new(j.stage.clone()).class("pkg-desc")).class("grow")));
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(Icon::new(icon).class(format!("job-icon {class}")))
+                .child(Column::new().gap(0.0).child(Text::new(j.title.clone()).max_lines(1).class("pkg-name")).child(Text::new(j.stage.clone()).max_lines(1).class("pkg-desc")).class("grow"));
+            if j.id != open {
+                let id = j.id;
+                has_others = true;
+                others = others.child(GestureDetector::new().on_click(move || st.job_open.set(Some(id))).child(DecoratedBox::new().child(head.child(Icon::new("\u{E5CF}").class("job-expand"))).class("job job-row")));
+                continue;
+            }
+            let mut card = Column::new().gap(8.0).child(head);
             if j.done.is_none() {
                 card = card.child(ProgressBar::new().indeterminate());
             }
             if let Some(Err(e)) = &j.done {
                 card = card.child(Text::new(e.clone()).selectable(true).class("job-error"));
             }
-            card = card.child(DecoratedBox::new().child(ScrollView::new().vertical().follow_end(true).child(log)).class("log"));
-            col = col.child(DecoratedBox::new().child(card).class("job"));
+            let text = if j.log.is_empty() { "…".to_string() } else { j.log.join("\n") };
+            card = card.child(DecoratedBox::new().child(ScrollView::new().vertical().follow_end(true).child(Text::new(text).selectable(true).class("log-line")).class("grow")).class("log"));
+            main = Some(Box::new(DecoratedBox::new().child(card.class("grow")).class("job job-open")));
         }
-        vec![Box::new(col)]
+        let mut col = Column::new().gap(10.0);
+        if let Some(m) = main {
+            col = col.child(m);
+        }
+        if has_others {
+            col = col.child(Text::new("Другие задачи").class("muted")).child(ScrollView::new().vertical().child(others).class("job-others"));
+        }
+        vec![Box::new(col.class("grow"))]
     });
-    Box::new(Column::new().child(ScrollView::new().vertical().child(list).class("grow")).class("pane"))
+    Box::new(Column::new().child(body).class("pane"))
 }
 
 fn details_view(st: St, p: Pkg) -> W {
@@ -666,17 +853,17 @@ fn details_view(st: St, p: Pkg) -> W {
     let mut actions = Row::new().gap(8.0);
     if installed {
         let n = name.clone();
-        actions = actions.child(Button::new("Удалить").class("btn danger").on_click(move || run_op(st, format!("Удаление {n}"), Op::Remove(vec![n.clone()]))));
+        actions = actions.child(Button::new("Удалить").class("danger").on_click(move || run_op(st, format!("Удаление {n}"), Op::Remove(vec![n.clone()]))));
         if let Some(e) = synshell_common::xdg::app_by_id(&name) {
             let cmd = e.command();
-            actions = actions.child(Button::new("Открыть").class("btn").on_click(move || {
+            actions = actions.child(Button::new("Открыть").on_click(move || {
                 let _ = std::process::Command::new("sh").arg("-c").arg(&cmd).spawn();
             }));
         }
     } else {
         let n = name.clone();
         let op = if aur { Op::InstallAur(vec![n.clone()]) } else { Op::Install(vec![n.clone()]) };
-        actions = actions.child(Button::new("Установить").class("btn primary").on_click(move || run_op(st, format!("Установка {n}"), op.clone())));
+        actions = actions.child(Button::new("Установить").class("primary").on_click(move || run_op(st, format!("Установка {n}"), op.clone())));
     }
     let head = Row::new()
         .gap(14.0)
@@ -692,7 +879,7 @@ fn details_view(st: St, p: Pkg) -> W {
                     Column::new()
                         .gap(6.0)
                         .child(Text::new("Пакет из AUR собирают пользователи, а не Arch Linux. Проверьте PKGBUILD перед установкой.").class("warn-text"))
-                        .child(Button::new("Показать PKGBUILD").class("btn small").on_click(move || show_pkgbuild(st, n.clone()))),
+                        .child(Button::new("Показать PKGBUILD").class("small").on_click(move || show_pkgbuild(st, n.clone()))),
                 )
                 .class("warn"),
         );
@@ -717,7 +904,7 @@ fn details_view(st: St, p: Pkg) -> W {
                 }
                 out = out.child(DecoratedBox::new().child(table).class("card"));
                 if !d.depends.is_empty() {
-                    let mut deps = Flex::new().gap(6.0);
+                    let mut deps = Flex::new().wrap().gap(6.0);
                     for dep in &d.depends {
                         deps = deps.child(chip(dep.clone(), "chip-dep"));
                     }
