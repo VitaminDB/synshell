@@ -8,6 +8,7 @@
 use std::cell::Cell;
 use std::sync::{Arc, Mutex};
 use synshell_common::action::MobileMode;
+use synshell_common::ipc::WindowOp;
 use synshell_common::Action;
 use syngui::mss::StyleValue;
 use syngui::prelude::*;
@@ -125,6 +126,7 @@ fn content(ctx: ShellCtx) -> impl Widget {
         .child(header(ctx))
         .child(tiles(ctx))
         .child(sliders(ctx))
+        .child(open_apps(ctx))
         .child(DecoratedBox::new().child(crate::notifications::center(ctx)).class("shade-notifications"))
         .child(Row::new().main_axis_alignment(MainAxisAlignment::Center).child(DecoratedBox::new().class("shade-handle")))
         .class("shade")
@@ -235,11 +237,76 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
                     None
                 });
             }))
+            .child(tile(mi::LAYERS, "Недавние".into(), "Приложения".into(), false, || {
+                close();
+                crate::recents::open();
+            }))
             .child(tile(mi::LOCK, "Блокировка".into(), "Экрана".into(), false, || {
                 close();
                 crate::commands::handle("lock");
             }));
         Box::new(grid)
+    })
+}
+
+// ─── Открытые приложения ─────────────────────────────────────────────────────
+
+/// Открытые окна лентой: тап — перейти, «×» — закрыть, «Все» — «Недавние».
+/// Нет окон — раздела нет.
+fn open_apps(ctx: ShellCtx) -> impl Widget {
+    rx(move || {
+        let list = crate::recents::visible_windows(&ctx);
+        if list.is_empty() {
+            return Box::new(DecoratedBox::new()) as Box<dyn Widget>;
+        }
+        let mut row = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        for w in list {
+            let entry = crate::xdg::app_for_window(&w.app_id);
+            let name = entry.as_ref().map(|e| e.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| {
+                if w.title.is_empty() { w.app_id.clone() } else { w.title.clone() }
+            });
+            let icon_path = entry.as_ref().and_then(|e| crate::xdg::lookup_icon(&e.icon)).or_else(|| crate::xdg::window_icon(&w.app_id));
+            let id = w.id;
+            let close_btn = GestureDetector::new()
+                .on_click(move || crate::actions::window_op(id, WindowOp::Close))
+                .child(DecoratedBox::new().child(icon(mi::CLOSE).class("shade-app-close-icon")).class("shade-app-close"));
+            row = row.child(
+                GestureDetector::new()
+                    .on_click(move || {
+                        crate::actions::window_op(id, WindowOp::Activate);
+                        close();
+                    })
+                    .child(
+                        DecoratedBox::new()
+                            .child(
+                                Row::new()
+                                    .gap(8.0)
+                                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                                    .child(crate::launchers::icon_widget(&icon_path, &None, "shade-app-icon", 24.0))
+                                    .child(Text::new(name).max_lines(1).class("shade-app-name"))
+                                    .child(close_btn),
+                            )
+                            .class(if w.focused { "shade-app shade-app-focused" } else { "shade-app" }),
+                    ),
+            );
+        }
+        let all = GestureDetector::new()
+            .on_click(|| {
+                close();
+                crate::recents::open();
+            })
+            .child(DecoratedBox::new().child(Text::new("Все").class("shade-apps-all-text")).class("shade-apps-all"));
+        Box::new(
+            Column::new()
+                .gap(6.0)
+                .child(
+                    Row::new()
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(Text::new("Открытые приложения").class("shade-section grow"))
+                        .child(all),
+                )
+                .child(ScrollView::new().horizontal().child(row)),
+        )
     })
 }
 

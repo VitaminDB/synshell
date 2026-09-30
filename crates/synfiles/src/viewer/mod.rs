@@ -265,7 +265,7 @@ pub fn run(file: PathBuf, cfg: synshell_common::Config) {
         .title(format!("{title} — Просмотр"))
         .app_id("synfiles-viewer")
         .size(1280, 860)
-        .min_size(480, 360)
+        .min_size(340, 360)
         .frameless()
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_styles_str(&initial)

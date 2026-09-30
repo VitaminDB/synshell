@@ -174,7 +174,7 @@ fn main() {
         .title("Проводник")
         .app_id("synfiles")
         .size(args.size.0, args.size.1)
-        .min_size(640, 420)
+        .min_size(340, 420)
         .frameless()
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_styles_str(&initial)

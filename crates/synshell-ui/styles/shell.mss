@@ -1101,3 +1101,24 @@ TextField {
 }
 .stack-fan-label { font-size: 12px; }
 .stack-fan-icon { width: 44px; height: 44px; }
+
+/* Шторка: открытые приложения */
+.shade-section { font-size: 13px; font-weight: 600; color: var(--muted); }
+.shade-apps-all { padding: 4px 10px; border-radius: 999px; }
+.shade-apps-all:active { background-color: var(--pressed); }
+.shade-apps-all-text { font-size: 13px; color: var(--accent); }
+.shade-app {
+    padding: 6px 6px 6px 10px;
+    border-radius: 18px;
+    background-color: var(--surface-alt);
+    transition: scale 200ms spring(420, 26);
+}
+.shade-app:active { scale: 0.95; }
+.shade-app-focused { border: 1px solid var(--accent); }
+.shade-app-icon { width: 24px; height: 24px; }
+.shade-app-name { font-size: 13px; color: var(--fg); max-width: 140px; }
+.shade-app-close { padding: 4px; border-radius: 999px; }
+.shade-app-close:active { background-color: var(--pressed); }
+.shade-app-close-icon { icon-size: 16px; icon-color: var(--muted); }
+.recents-empty-box { height: 200px; }
+.recents-scroll { height: 500px; width: 100%; }

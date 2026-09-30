@@ -3,8 +3,10 @@
 //!
 //! - свайп от левого/правого края внутрь — `edge_left`/`edge_right`
 //!   («назад»), по отпусканию;
-//! - свайп снизу вверх — `edge_bottom` («домой»), с задержкой пальца перед
-//!   отпусканием — `edge_bottom_hold` («Недавние»);
+//! - свайп снизу вверх — `edge_bottom` («домой»); поднять палец выше
+//!   [`HOLD_RISE`] высоты экрана и задержать ([`HOLD_TIME`], дрожание до
+//!   [`HOLD_SLOP`] px не в счёт) — `edge_bottom_hold` («Недавние»), как в
+//!   Android: срабатывает по таймеру, не дожидаясь отпускания;
 //! - вдоль нижнего края в режиме страниц — листание приложений пальцем;
 //! - свайп сверху вниз — `edge_top` (шторка), сразу по порогу;
 //! - не жест (тап у края, движение вдоль края) — касание воспроизводится
@@ -21,6 +23,15 @@ use synshell_common::config::FormFactor;
 use synshell_common::Action;
 
 use crate::state::State;
+
+/// Жест снизу с удержанием: насколько (доля высоты экрана) поднять палец.
+const HOLD_RISE: f64 = 0.18;
+/// Сколько держать палец почти на месте.
+const HOLD_TIME: Duration = Duration::from_millis(220);
+/// Дрожание пальца, которое удержанию не мешает (сенсор шумит).
+const HOLD_SLOP: f64 = 14.0;
+/// Шаг проверки удержания таймером (пока палец стоит, событий нет).
+const HOLD_POLL: Duration = Duration::from_millis(40);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Edge {
@@ -53,6 +64,13 @@ pub struct Pending {
     samples: Vec<(Instant, f64)>,
     /// Ширина вывода — для порога листания.
     width: f64,
+    /// Высота вывода — для порога удержания снизу.
+    height: f64,
+    /// Удержание: где палец остановился и с какого момента.
+    hold_at: Point<f64, Logical>,
+    hold_since: Instant,
+    /// «Недавние» уже открыты удержанием — отпускание ничего не делает.
+    held: bool,
 }
 
 #[derive(Default)]
@@ -65,7 +83,7 @@ impl State {
         self.core.form_factor == FormFactor::Phone && self.core.config.gestures.enabled && !self.core.is_locked()
     }
 
-    fn edge_at(&self, pos: Point<f64, Logical>) -> Option<(Edge, f64)> {
+    fn edge_at(&self, pos: Point<f64, Logical>) -> Option<(Edge, f64, f64)> {
         let output = self.core.space.outputs().find(|o| {
             self.core.space.output_geometry(o).is_some_and(|g| g.to_f64().contains(pos))
         })?;
@@ -83,7 +101,7 @@ impl State {
         } else {
             return None;
         };
-        Some((edge, g.size.w))
+        Some((edge, g.size.w, g.size.h))
     }
 
     /// Палец коснулся. `true` — касание задержано жестом.
@@ -91,7 +109,7 @@ impl State {
         if !self.gestures_on() || self.core.touch_gestures.pending.is_some() {
             return false;
         }
-        let Some((edge, width)) = self.edge_at(pos) else { return false };
+        let Some((edge, width, height)) = self.edge_at(pos) else { return false };
         // Кнопки и края рамки у самого края экрана (заголовок развёрнутого
         // окна) — не жест.
         if matches!(self.under(pos), crate::input::Under::Deco(_, crate::deco::DecoHit::Button(_)) | crate::input::Under::Resize(..)) {
@@ -107,6 +125,10 @@ impl State {
             decision: Decision::Undecided,
             samples: vec![(Instant::now(), pos.x)],
             width,
+            height,
+            hold_at: pos,
+            hold_since: Instant::now(),
+            held: false,
         });
         true
     }
@@ -118,6 +140,10 @@ impl State {
         let Some(p) = self.core.touch_gestures.pending.as_mut().filter(|p| p.slot == slot) else { return false };
         if (pos.x - p.last.x).abs() + (pos.y - p.last.y).abs() > 2.0 {
             p.last_move = Instant::now();
+        }
+        if (pos.x - p.hold_at.x).abs().max((pos.y - p.hold_at.y).abs()) > HOLD_SLOP {
+            p.hold_at = pos;
+            p.hold_since = Instant::now();
         }
         p.last = pos;
         let now = Instant::now();
@@ -152,6 +178,7 @@ impl State {
                         let a = self.core.config.gestures.edge_top.clone();
                         self.edge_action(Edge::Top, a);
                     }
+                    Decision::Edge if p.edge == Edge::Bottom => self.watch_bottom_hold(slot),
                     _ => {}
                 }
                 true
@@ -194,11 +221,11 @@ impl State {
                 let action: Option<Action> = match p.edge {
                     Edge::Left => Some(g.edge_left.clone()),
                     Edge::Right => Some(g.edge_right.clone()),
-                    Edge::Bottom => {
-                        // Задержал палец перед отпусканием — «Недавние».
-                        let held = p.last_move.elapsed() > Duration::from_millis(250);
-                        Some(if held { g.edge_bottom_hold.clone() } else { g.edge_bottom.clone() })
-                    }
+                    // «Недавние» уже открыты удержанием.
+                    Edge::Bottom if p.held => None,
+                    // Таймер мог не успеть: задержка видна и по отпусканию.
+                    Edge::Bottom if Self::bottom_held(&p) => Some(g.edge_bottom_hold.clone()),
+                    Edge::Bottom => Some(g.edge_bottom.clone()),
                     Edge::Top => None,
                 };
                 let _ = p.start_time;
@@ -208,6 +235,31 @@ impl State {
                 true
             }
         }
+    }
+
+    /// Палец снизу поднят достаточно высоко и стоит.
+    fn bottom_held(p: &Pending) -> bool {
+        p.start.y - p.last.y >= p.height * HOLD_RISE && p.hold_since.elapsed() >= HOLD_TIME
+    }
+
+    /// Пока идёт жест снизу — проверять удержание таймером: стоящий палец
+    /// событий не шлёт, а «Недавние» должны открыться, не дожидаясь
+    /// отпускания.
+    fn watch_bottom_hold(&mut self, slot: TouchSlot) {
+        use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+        let _ = self.core.loop_handle.insert_source(Timer::from_duration(HOLD_POLL), move |_, _, state| {
+            let Some(p) = state.core.touch_gestures.pending.as_mut() else { return TimeoutAction::Drop };
+            if p.slot != slot || p.edge != Edge::Bottom || p.decision != Decision::Edge || p.held {
+                return TimeoutAction::Drop;
+            }
+            if !Self::bottom_held(p) {
+                return TimeoutAction::ToDuration(HOLD_POLL);
+            }
+            p.held = true;
+            let a = state.core.config.gestures.edge_bottom_hold.clone();
+            state.edge_action(Edge::Bottom, a);
+            TimeoutAction::Drop
+        });
     }
 
     /// Действие свайпа от края. Команду оболочке — с указанием края: у

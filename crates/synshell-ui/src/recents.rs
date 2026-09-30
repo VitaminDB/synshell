@@ -50,7 +50,7 @@ fn close_now() {
     OPEN.with(|o| o.set(None));
 }
 
-fn visible_windows(ctx: &ShellCtx) -> Vec<WindowInfo> {
+pub(crate) fn visible_windows(ctx: &ShellCtx) -> Vec<WindowInfo> {
     ctx.windows.get().into_iter().filter(|w| !w.skip_taskbar && !w.app_id.is_empty() || !w.title.is_empty()).collect()
 }
 
@@ -103,14 +103,18 @@ fn view(ctx: ShellCtx, open: RwSignal<bool>) -> impl Widget {
                         .main_axis_alignment(MainAxisAlignment::Center)
                         .cross_axis_alignment(CrossAxisAlignment::Center)
                         .child(Text::new("Нет открытых приложений").class("recents-empty"))
-                        .class("grow"),
+                        .class("recents-empty-box"),
                 ) as Box<dyn Widget>;
             }
             let mut row = Row::new().gap(16.0).cross_axis_alignment(CrossAxisAlignment::Center);
             for w in list {
                 row = row.child(Keyed::new(w.id, 0, move || Box::new(AnimatedPosition::new(card(w.clone())))));
             }
-            Box::new(ScrollView::new().horizontal().child(row.class("recents-row")).class("grow"))
+            // Высота ленты — по карточкам: растянутая лента выталкивала
+            // «Закрыть все» за нижний край.
+            // ScrollView в колонке забирает всю высоту — держим его в блоке
+            // высотой с карточку.
+            Box::new(DecoratedBox::new().child(ScrollView::new().horizontal().child(row.class("recents-row"))).class("recents-scroll"))
         });
         let clear = GestureDetector::new()
             .on_click(|| {
@@ -129,11 +133,14 @@ fn view(ctx: ShellCtx, open: RwSignal<bool>) -> impl Widget {
             GestureDetector::new().on_click(close).child(
                 Column::new()
                     .gap(18.0)
+                    .main_axis_alignment(MainAxisAlignment::Center)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
                     .child(Text::new("Недавние").class("recents-title"))
                     .child(cards)
                     .child(clear)
-                    .class("recents"),
+                    .class("recents")
+                    // Presence меряет по содержимому — затемнение на весь экран.
+                    .style("height", syngui::viewport::viewport_size().get_untracked().height),
             ),
         )
     })
