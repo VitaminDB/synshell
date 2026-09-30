@@ -71,6 +71,10 @@ pub fn socket_path() -> PathBuf {
     if let Some(p) = std::env::var_os("SYNSHELL_SOCKET") {
         return PathBuf::from(p);
     }
+    // Сеанс композитора до переименования (syndesktop) — своя переменная.
+    if let Some(p) = std::env::var_os("SYNDESKTOP_SOCKET") {
+        return PathBuf::from(p);
+    }
     let display = std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-0".into());
     socket_path_for(&display)
 }

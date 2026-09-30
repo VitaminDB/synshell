@@ -59,7 +59,11 @@ fn main() {
             println!("{USAGE}");
             Ok(())
         }
-        Some(_) => cli(&args),
+        Some(_) => {
+            // CLI в конвейере (`synlink status | head`): закрытый вывод — выход, не паника.
+            unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
+            cli(&args)
+        }
     };
     if let Err(e) = res {
         eprintln!("synlink: {e:#}");

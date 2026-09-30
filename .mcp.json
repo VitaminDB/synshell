@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "synlink": {
+      "type": "stdio",
+      "command": "synlink",
+      "args": ["mcp"]
+    }
+  }
+}

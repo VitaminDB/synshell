@@ -25,7 +25,9 @@ optdepends=('xorg-xwayland: X11-программы'
             'base-devel: сборка пакетов AUR в synpkg'
             'pacman-contrib: проверка обновлений без root (checkupdates)'
             'iwd: Wi-Fi (или networkmanager)'
-            'bluez: Bluetooth')
+            'bluez: Bluetooth'
+            'fuse3: файлы связанных устройств (synlink) в проводнике'
+            'openssh: ssh на связанные устройства (synlink)')
 makedepends=('cargo' 'rust')
 
 # Профиль cargo: release (LTO) — для AUR/GitHub; локально быстрее
@@ -34,7 +36,7 @@ _profile=${SYNSHELL_PROFILE:-release}
 
 build() {
     cd "$startdir"
-    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin
+    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view
 }
 
 check() {
@@ -44,7 +46,7 @@ check() {
 
 package() {
     cd "$startdir"
-    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin; do
+    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view; do
         install -Dm755 "target/$_profile/$b" "$pkgdir/usr/bin/$b"
     done
     install -Dm755 data/synshell-session "$pkgdir/usr/bin/synshell-session"
@@ -62,6 +64,10 @@ package() {
         "$pkgdir/usr/share/applications/synfiles-viewer.desktop"
     install -Dm644 crates/synshot/data/synshot.desktop \
         "$pkgdir/usr/share/applications/synshot.desktop"
+    install -Dm644 crates/synlink-view/data/synlink-view.desktop \
+        "$pkgdir/usr/share/applications/synlink-view.desktop"
+    # Связь устройств: демон стартует с сеансом (synwm читает /etc/xdg/autostart).
+    install -Dm644 crates/synlink/autostart/synlink.desktop "$pkgdir/etc/xdg/autostart/synlink.desktop"
     install -Dm644 crates/synshell-ui/data/syndesktop-lock.pam "$pkgdir/etc/pam.d/syndesktop-lock"
     install -Dm644 crates/synlogin/data/synlogin.service "$pkgdir/usr/lib/systemd/system/synlogin.service"
     install -Dm644 crates/synshell-common/default-config.toml \
