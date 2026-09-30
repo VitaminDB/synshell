@@ -37,6 +37,8 @@ tested.
 | `synkeyboard` | Gboard-like on-screen keyboard: EN/RU, symbols, F1–F12, arrows, sticky Ctrl/Alt/Super, auto-show via input-method; `synkeyboard type/key` CLI. |
 | `synsettings` | System Settings: 18 pages. Edits `config.toml` through `toml_edit`, so comments and ordering survive. |
 | `synfiles` | A file manager modelled on Windows 11 Explorer: tabs in the title bar, dual pane, icons / tiles / list / details views, thumbnails, rubber-band selection, drag and drop, background operations with pause and cancel, Ctrl+Z, freedesktop trash, search. `--viewer` is a built-in image viewer (zoom, EXIF rotation, HEIC, folder filmstrip). |
+| `synlink` | Links synshell devices (phone ↔ computer) over USB and Wi-Fi: QUIC with pinned keys, pairing (one tap over USB, code over Wi-Fi), screen, remote input, files (FUSE), notifications, `ssh phone` without knowing addresses, a CLI and an MCP server for Claude Code. See `docs/LINK.md`. |
+| `synlink-view` | Shows and controls the screen of a linked device (damage-only frames, mouse as a finger on the phone). |
 | `synshot` | Region / window / monitor screenshot on Print: the screen freezes, you drag a frame (handles, magnifier, arrow-key nudging) or click a window; copy, save, copy path or open. |
 
 ## Features
@@ -165,6 +167,7 @@ The documentation in [`docs/`](docs/) is **in Russian**:
 - [DOCK.md](docs/DOCK.md) — dock and panel icons, groups, folders, edit mode.
 - [THEMES.md](docs/THEMES.md) — theme format, MSS variables, writing your own theme.
 - [FILES.md](docs/FILES.md) — the file manager and image viewer.
+- [LINK.md](docs/LINK.md) — linking the phone and the computer: screen, input, files, notifications, ssh, MCP.
 
 The fully commented default config is
 [crates/synshell-common/default-config.toml](crates/synshell-common/default-config.toml).
