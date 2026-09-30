@@ -144,6 +144,16 @@ impl CompositorHandler for State {
                 window.on_commit();
                 if &root == surface {
                     self.toplevel_commit(id, surface);
+                    // Клиент принял новый размер (развернули, разместили) —
+                    // разослать геометрию: иначе оболочка (умное скрытие
+                    // дока) видела окно на шаг позже.
+                    if let Some(m) = self.core.wm.get(id) {
+                        let g = m.geometry();
+                        let geo = [g.loc.x, g.loc.y, g.size.w, g.size.h];
+                        if m.mapped && m.last_info.as_ref().is_some_and(|i| i.geometry != geo) {
+                            self.core.ipc_dirty = true;
+                        }
+                    }
                 }
             }
         }

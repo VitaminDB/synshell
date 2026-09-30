@@ -277,7 +277,10 @@ fn overlapped(st: &DockState) -> bool {
         let [x, y, ww, hh] = w.geometry;
         let (x0, y0) = ((x - out.geometry[0]) as f32, (y - out.geometry[1]) as f32);
         let (x1, y1) = (x0 + ww as f32, y0 + hh as f32);
-        x0 < bx1 && x1 > bx0 && y0 < by1 && y1 > by0
+        // Касание краем (окно по центру рабочей области кончается у полосы)
+        // — не перекрытие: нужно зайти на полосу глубже допуска.
+        const SLOP: f32 = 8.0;
+        x0 < bx1 - SLOP && x1 > bx0 + SLOP && y0 < by1 - SLOP && y1 > by0 + SLOP
     })
 }
 
