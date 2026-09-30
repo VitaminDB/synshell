@@ -35,6 +35,7 @@ fn mode_row(current: MobileMode) -> W {
 pub fn phone() -> W {
     let c = store::config();
     let m = &c.mobile;
+    let rot = &c.rotation;
     page(
         "Телефон",
         "Режимы окон и домашний экран оболочки synmobile-shell.",
@@ -60,6 +61,19 @@ pub fn phone() -> W {
                     int_row("Высота ручки", "Логические пиксели", op!["mobile", "handle_height"], m.handle_height as i64, 16, 64, 2),
                     switch_row("Масштаб стола щипком", "Дорого на CPU-композиторе", op!["mobile", "pinch_zoom"], m.pinch_zoom),
                     switch_row("Запоминать режим окон", "Выбранный режим сохраняется в config.toml", op!["mobile", "remember_mode"], m.remember_mode),
+                ],
+            ),
+            group(
+                "Поворот экрана",
+                vec![
+                    switch_row("Автоповорот", "Экран поворачивается за телефоном (акселерометр)", op!["rotation", "auto"], rot.auto),
+                    switch_row(
+                        "Кнопка «повернуть»",
+                        "Когда ориентация зафиксирована, а телефон повернули, — кнопка в углу на несколько секунд",
+                        op!["rotation", "suggest"],
+                        rot.suggest,
+                    ),
+                    switch_row("Вверх ногами", "Поворачивать и на 180°", op!["rotation", "upside_down"], rot.upside_down),
                 ],
             ),
             group(

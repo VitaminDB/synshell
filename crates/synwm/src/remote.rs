@@ -249,7 +249,9 @@ impl State {
                     continue;
                 }
             };
+            self.core.remote_input_active = true;
             self.process_input_event(event);
+            self.core.remote_input_active = false;
         }
         self.core.remote_output = None;
         Ok(())

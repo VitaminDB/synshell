@@ -113,6 +113,62 @@ impl<'de> Deserialize<'de> for MobileMode {
     }
 }
 
+/// Поворот встроенного экрана относительно его естественной ориентации
+/// (`rotate normal|90|180|270`; по часовой стрелке, как `transform` вывода).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum Rotation {
+    #[default]
+    #[serde(rename = "normal")]
+    Normal,
+    #[serde(rename = "90")]
+    R90,
+    #[serde(rename = "180")]
+    R180,
+    #[serde(rename = "270")]
+    R270,
+}
+
+impl Rotation {
+    pub const ALL: [Rotation; 4] = [Rotation::Normal, Rotation::R90, Rotation::R180, Rotation::R270];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Rotation::Normal => "normal",
+            Rotation::R90 => "90",
+            Rotation::R180 => "180",
+            Rotation::R270 => "270",
+        }
+    }
+
+    /// Четверти оборота по часовой стрелке.
+    pub fn quarters(self) -> u8 {
+        self as u8
+    }
+
+    pub fn from_quarters(q: u8) -> Self {
+        Self::ALL[(q % 4) as usize]
+    }
+}
+
+impl FromStr for Rotation {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        Ok(match s.trim() {
+            "normal" | "0" => Rotation::Normal,
+            "90" => Rotation::R90,
+            "180" => Rotation::R180,
+            "270" => Rotation::R270,
+            o => return Err(format!("rotate: ожидалось normal/90/180/270, а не «{o}»")),
+        })
+    }
+}
+
+impl fmt::Display for Rotation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Куда листать страницы приложений (`page home|next|prev|N`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PageTarget {
@@ -335,6 +391,9 @@ pub enum Action {
     Page(PageTarget),
     /// Вернуть виртуальный стол (режим `free`) к началу.
     CameraHome,
+    /// Повернуть встроенный экран (поверх `transform` из `[[output]]`);
+    /// автоповорот по датчику — у оболочки (`[rotation]`).
+    Rotate(Rotation),
     /// Ничего не делать (снять сочетание по умолчанию).
     None,
 }
@@ -349,7 +408,7 @@ impl Action {
         "master-count", "keyboard-layout-next", "keyboard-layout", "screenshot",
         "screenshot-window", "screenshot-interactive", "overview", "reload-config", "quit", "lock", "suspend", "reboot",
         "poweroff", "monitors-off", "shell", "back", "key", "mobile-mode", "mobile-mode-cycle", "page",
-        "camera-home", "none",
+        "camera-home", "rotate", "none",
     ];
 }
 
@@ -431,6 +490,7 @@ impl FromStr for Action {
             "mobile-mode-cycle" => Action::MobileModeCycle,
             "page" => Action::Page(need("home/next/prev/номер")?.parse()?),
             "camera-home" => Action::CameraHome,
+            "rotate" => Action::Rotate(need("normal/90/180/270")?.parse()?),
             "none" | "" => Action::None,
             other => return Err(format!("неизвестное действие «{other}»")),
         })
@@ -487,6 +547,7 @@ impl fmt::Display for Action {
             Action::MobileModeCycle => f.write_str("mobile-mode-cycle"),
             Action::Page(p) => write!(f, "page {p}"),
             Action::CameraHome => f.write_str("camera-home"),
+            Action::Rotate(r) => write!(f, "rotate {r}"),
             Action::None => f.write_str("none"),
         }
     }

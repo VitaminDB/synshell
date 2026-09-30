@@ -292,6 +292,18 @@ Text {
 .osd-value { font-size: 14px; font-weight: bold; min-width: 34px; }
 .osd-label { font-size: 14px; }
 
+/* Кнопка «повернуть» при зафиксированной ориентации (как в Android). */
+.rotate-suggest {
+    flex-grow: 1;
+    border-radius: 999px;
+    background-color: var(--menu-bg);
+    border-width: 1px;
+    border-color: var(--border);
+    align-items: center;
+    justify-content: center;
+}
+.rotate-suggest-icon { icon-size: 26px; icon-color: var(--accent); }
+
 /* ─── Меню запуска ───────────────────────────────────────────────────────── */
 
 .search-box {

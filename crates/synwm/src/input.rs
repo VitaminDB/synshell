@@ -1050,8 +1050,17 @@ impl State {
 
     fn touch_location<B: InputBackend, E: AbsolutePositionEvent<B>>(&self, evt: &E) -> Point<f64, Logical> {
         let output = self.absolute_input_output();
-        let geo = output.and_then(|o| self.core.space.output_geometry(&o)).unwrap_or_default();
-        evt.position_transformed(geo.size) + geo.loc.to_f64()
+        let geo = output.as_ref().and_then(|o| self.core.space.output_geometry(o)).unwrap_or_default();
+        // Сенсор привязан к панели, а не к повёрнутому изображению: точку
+        // панели — в логические координаты поворотом вывода. Удалённый ввод
+        // уже в координатах изображения (снимка).
+        let t = output.as_ref().map(|o| o.current_transform()).unwrap_or_default();
+        if self.core.remote_input_active || t == smithay::utils::Transform::Normal {
+            return evt.position_transformed(geo.size) + geo.loc.to_f64();
+        }
+        let panel = t.invert().transform_size(geo.size);
+        let p = evt.position_transformed(panel);
+        t.transform_point_in(p, &panel.to_f64()) + geo.loc.to_f64()
     }
 
     fn on_touch_down<B: InputBackend>(&mut self, evt: B::TouchDownEvent) {
@@ -1253,6 +1262,7 @@ impl State {
             Action::Reboot => crate::spawn::spawn_shell(&self.core, "systemctl reboot"),
             Action::PowerOff => crate::spawn::spawn_shell(&self.core, "systemctl poweroff"),
             Action::PowerOffMonitors => self.set_monitors_power(false),
+            Action::Rotate(r) => self.rotate(r),
             Action::Shell(cmd) => {
                 self.core.ipc.broadcast(&synshell_common::ipc::Event::ShellCommand { command: cmd });
             }

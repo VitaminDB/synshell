@@ -45,6 +45,7 @@ pub struct Config {
     pub mobile: Mobile,
     pub gestures: Gestures,
     pub haptics: Haptics,
+    pub rotation: ScreenRotation,
     pub sound: Sound,
     pub time: Time,
     pub link: Link,
@@ -76,6 +77,7 @@ impl Default for Config {
             mobile: Mobile::default(),
             gestures: Gestures::default(),
             haptics: Haptics::default(),
+            rotation: ScreenRotation::default(),
             sound: Sound::default(),
             time: Time::default(),
             link: Link::default(),
@@ -2017,6 +2019,30 @@ impl Sound {
     /// Предел громкости, %.
     pub fn max_volume(&self) -> u32 {
         if self.overamplify { 150 } else { 100 }
+    }
+}
+
+// ─── поворот экрана ─────────────────────────────────────────────────────────
+
+/// Поворот встроенного экрана по акселерометру (`[rotation]`, как в
+/// Android). Датчик — iio-sensor-proxy (D-Bus `net.hadess.SensorProxy`);
+/// поворачивает оболочка действием `rotate`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct ScreenRotation {
+    /// Автоповорот: экран поворачивается за телефоном. Выключен —
+    /// ориентация зафиксирована.
+    pub auto: bool,
+    /// При зафиксированной ориентации, когда телефон повернули, показать
+    /// кнопку «повернуть» (как в Android).
+    pub suggest: bool,
+    /// Поворачивать и «вверх ногами» (180°).
+    pub upside_down: bool,
+}
+
+impl Default for ScreenRotation {
+    fn default() -> Self {
+        Self { auto: true, suggest: true, upside_down: false }
     }
 }
 

@@ -278,6 +278,51 @@ pub fn output_matches(output: &Output, name: &str) -> bool {
     desc.eq_ignore_ascii_case(name) || p.model.eq_ignore_ascii_case(name)
 }
 
+/// Действующий поворот вывода: `transform` из `[[output]]` и поверх —
+/// поворот на лету (`rotate`).
+pub fn output_transform(core: &Core, output: &Output) -> smithay::utils::Transform {
+    let base = core
+        .config
+        .outputs
+        .iter()
+        .find(|o| output_matches(output, &o.name))
+        .map(|c| parse_transform(&c.transform))
+        .unwrap_or(smithay::utils::Transform::Normal);
+    let q = core.rotation.get(&output.name()).map(|r| r.quarters()).unwrap_or(0);
+    rotate_transform(base, q)
+}
+
+/// Довернуть `t` на `q` четвертей по часовой стрелке (отражение сохраняется).
+pub fn rotate_transform(t: smithay::utils::Transform, q: u8) -> smithay::utils::Transform {
+    use smithay::utils::Transform as T;
+    let (flipped, base) = match t {
+        T::Normal => (false, 0),
+        T::_90 => (false, 1),
+        T::_180 => (false, 2),
+        T::_270 => (false, 3),
+        T::Flipped => (true, 0),
+        T::Flipped90 => (true, 1),
+        T::Flipped180 => (true, 2),
+        T::Flipped270 => (true, 3),
+    };
+    match ((base + q) % 4, flipped) {
+        (0, false) => T::Normal,
+        (1, false) => T::_90,
+        (2, false) => T::_180,
+        (3, false) => T::_270,
+        (0, true) => T::Flipped,
+        (1, true) => T::Flipped90,
+        (2, true) => T::Flipped180,
+        _ => T::Flipped270,
+    }
+}
+
+/// Встроенная панель (телефон, ноутбук) — её поворачивает `rotate`.
+pub fn is_internal(output: &Output) -> bool {
+    let n = output.name();
+    ["DSI", "eDP", "LVDS"].iter().any(|p| n.starts_with(p))
+}
+
 /// Разбор `transform` из конфига.
 pub fn parse_transform(s: &str) -> smithay::utils::Transform {
     use smithay::utils::Transform as T;
@@ -481,6 +526,22 @@ impl State {
         }
         self.core.send_frames_headless(o);
         self.frame_streams_damaged(o);
+    }
+
+    /// Действие `rotate`: повернуть встроенную панель (нет её — вывод в
+    /// фокусе) поверх `transform` из конфига.
+    pub fn rotate(&mut self, r: synshell_common::action::Rotation) {
+        let outs: Vec<Output> = self.core.space.outputs().cloned().collect();
+        let Some(o) = outs.iter().find(|o| is_internal(o)).cloned().or_else(|| self.core.primary_output()) else { return };
+        let name = o.name();
+        if self.core.rotation.get(&name).copied().unwrap_or_default() == r {
+            return;
+        }
+        tracing::info!(output = name, rotation = r.as_str(), "поворот экрана");
+        self.core.rotation.insert(name, r);
+        self.backend.apply_output_config(&mut self.core);
+        self.outputs_changed();
+        self.core.queue_redraw_all();
     }
 
     pub fn set_monitors_power(&mut self, on: bool) {

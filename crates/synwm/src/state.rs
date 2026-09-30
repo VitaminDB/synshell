@@ -217,6 +217,11 @@ pub struct Core {
     pub monitors_off: bool,
     /// Вывод для абсолютных координат текущей пачки удалённого ввода.
     pub remote_output: Option<Output>,
+    /// Идёт событие удалённого ввода (координаты — уже изображения).
+    pub remote_input_active: bool,
+    /// Поворот выводов на лету (действие `rotate`, автоповорот оболочки)
+    /// поверх `transform` из `[[output]]`; по имени вывода.
+    pub rotation: HashMap<String, synshell_common::action::Rotation>,
     /// Таймер кадра погашенного вывода (поток кадров synlink) взведён.
     pub headless_timer: bool,
     pub ipc: IpcServer,
@@ -429,6 +434,8 @@ impl Core {
             last_activity: Instant::now(),
             monitors_off: false,
             remote_output: None,
+            remote_input_active: false,
+            rotation: HashMap::new(),
             headless_timer: false,
             ipc,
             shell: crate::spawn::ShellProcess::default(),

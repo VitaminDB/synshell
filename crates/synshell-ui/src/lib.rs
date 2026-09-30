@@ -32,6 +32,7 @@ pub mod osd;
 pub mod panel;
 pub mod popup;
 pub mod recents;
+pub mod rotation;
 pub mod shade;
 pub mod start_menu;
 pub mod switcher;
@@ -121,6 +122,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         clock::start(ctx);
         system::start(ctx);
         datetime::start(ctx);
+        rotation::start(ctx);
         ipc::start(ctx);
         appmenu::install(ctx);
         notifications::start(ctx);

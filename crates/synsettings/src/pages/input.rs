@@ -235,6 +235,7 @@ pub fn action_label(a: &Action) -> String {
         Action::MobileModeCycle => "Следующий режим окон".into(),
         Action::Page(p) => format!("Страница приложений: {p}"),
         Action::CameraHome => "Стол — к началу".into(),
+        Action::Rotate(r) => format!("Повернуть экран: {}", if *r == synshell_common::action::Rotation::Normal { "как обычно".to_string() } else { format!("{r}°") }),
         Action::None => "Ничего".into(),
     }
 }

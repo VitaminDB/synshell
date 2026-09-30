@@ -218,7 +218,13 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
             }))
             .child(tile(mi::WINDOW, "Режим окон".into(), mode_label(mode).into(), true, move || {
                 crate::actions::run(Action::MobileModeCycle);
-            }));
+            }))
+            .child({
+                // Автоповорот: выключен — ориентация зафиксирована.
+                let auto = cfg.rotation.auto;
+                let (glyph, state) = if auto { ("\u{E1C1}", "Включён") } else { ("\u{E1C0}", "Фиксация") };
+                tile(glyph, "Автоповорот".into(), state.into(), auto, move || crate::rotation::set_auto(!auto))
+            });
         if let Some(on) = torch {
             grid = grid.child(tile("\u{E3E7}", "Фонарик".into(), if on { "Включён" } else { "Выключен" }.into(), on, move || {
                 set_torch(!torch_state().unwrap_or(false));

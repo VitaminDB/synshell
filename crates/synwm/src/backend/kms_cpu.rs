@@ -519,13 +519,13 @@ impl KmsCpuBackend {
         let Some(manager) = self.manager.as_mut() else { return };
         for s in self.surfaces.values_mut() {
             let name = s.output.name();
+            s.output.change_current_state(None, Some(crate::backend::output_transform(core, &s.output)), None, None);
             let Some(cfg) = core.config.outputs.iter().find(|o| crate::backend::output_matches(&s.output, &o.name)) else {
                 continue;
             };
             if cfg.scale > 0.0 {
                 s.output.change_current_state(None, None, Some(Scale::Fractional(cfg.scale)), None);
             }
-            s.output.change_current_state(None, Some(crate::backend::parse_transform(&cfg.transform)), None, None);
             if let Some([x, y]) = cfg.position {
                 s.output.change_current_state(None, None, None, Some((x, y).into()));
                 core.space.map_output(&s.output, (x, y));
