@@ -4042,6 +4042,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "synlink-view"
+version = "0.1.3"
+dependencies = [
+ "env_logger",
+ "log",
+ "serde_json",
+ "syngui",
+ "synshell-common",
+ "zstd",
+]
+
+[[package]]
 name = "synlogin"
 version = "0.1.3"
 dependencies = [

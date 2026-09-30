@@ -329,6 +329,20 @@ pub fn request(req: &Request) -> std::io::Result<Response> {
     Client::connect()?.request(req)
 }
 
+/// Состояние демона с тайм-аутом (для кода в главном потоке UI: демон
+/// занят или завис — не ждать). `None` — демона нет или не ответил.
+pub fn status_quick(timeout: std::time::Duration) -> Option<Status> {
+    let stream = UnixStream::connect(socket_path()).ok()?;
+    stream.set_read_timeout(Some(timeout)).ok()?;
+    stream.set_write_timeout(Some(timeout)).ok()?;
+    let writer = stream.try_clone().ok()?;
+    let mut c = Client { reader: BufReader::new(stream), writer };
+    match c.request(&Request::Status).ok()? {
+        Response::Status { status } => Some(status),
+        _ => None,
+    }
+}
+
 pub struct Events {
     reader: BufReader<UnixStream>,
 }

@@ -722,6 +722,7 @@ impl Daemon {
     }
 
     fn drop_prompt(&self, id: &str) {
+        crate::notify::close_prompt(id);
         let changed = {
             let mut st = self.st.lock().unwrap();
             let n = st.prompts.len();

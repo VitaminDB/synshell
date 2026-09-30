@@ -23,6 +23,7 @@ pub mod gtkmenu;
 pub mod ipc;
 pub mod launcher;
 pub mod launchers;
+pub mod link;
 pub mod lock;
 pub mod manager;
 pub mod netmenu;
@@ -122,6 +123,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         ipc::start(ctx);
         appmenu::install(ctx);
         notifications::start(ctx);
+        link::start(ctx);
         install(ctx);
         popup::install(ctx);
         osd::install(ctx);

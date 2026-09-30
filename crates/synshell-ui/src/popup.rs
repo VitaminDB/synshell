@@ -68,6 +68,8 @@ fn width_of(kind: &PopupKind, ctx: &ShellCtx) -> f32 {
         PopupKind::ItemMenu { .. } | PopupKind::AppMenu { .. } | PopupKind::PanelMenu(_) | PopupKind::DesktopMenu | PopupKind::HomeAppMenu(_) => 280.0,
         PopupKind::AddItem(_) => 480.0,
         PopupKind::EditItem { .. } => 480.0,
+        PopupKind::Link => 380.0,
+        PopupKind::LinkPair(_) => 360.0,
     }
 }
 
@@ -338,6 +340,8 @@ fn content(kind: &PopupKind, ctx: ShellCtx) -> Box<dyn Widget> {
         PopupKind::Calendar => Box::new(calendar(ctx)),
         PopupKind::Volume => Box::new(volume(ctx)),
         PopupKind::Network => Box::new(crate::netmenu::view(ctx)),
+        PopupKind::Link => Box::new(crate::link::view(ctx)),
+        PopupKind::LinkPair(id) => Box::new(crate::link::pair_view(ctx, id.clone())),
         PopupKind::WifiConnect { ssid } => Box::new(crate::netmenu::connect_view(ctx, ssid.clone())),
         PopupKind::Battery => Box::new(battery(ctx)),
         PopupKind::Power => Box::new(power()),

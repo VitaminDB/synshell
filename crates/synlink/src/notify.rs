@@ -18,6 +18,8 @@ use crate::daemon::D;
 use crate::proto::{Ctl, Note};
 
 static DAEMON: OnceLock<D> = OnceLock::new();
+/// Уведомления-запросы спаривания: устройство → id уведомления.
+static PROMPTS: std::sync::Mutex<Option<HashMap<String, u32>>> = std::sync::Mutex::new(None);
 
 const HINT: &str = "x-synlink-device";
 
@@ -160,6 +162,7 @@ pub fn pair_prompt(p: &PairPrompt) {
                 None => format!("{} «{}» подключён по {}. Разрешить доступ?", p.kind.title(), p.name, p.transport.title()),
             };
             let nid = post("Спаривание устройств", &body, "phone", &["accept", "Принять", "reject", "Отклонить"], Some(&conn))?;
+            PROMPTS.lock().unwrap().get_or_insert_with(HashMap::new).insert(p.id.clone(), nid);
             let rule = zbus::MatchRule::builder()
                 .msg_type(zbus::message::Type::Signal)
                 .interface("org.freedesktop.Notifications")?
@@ -191,6 +194,23 @@ pub fn pair_prompt(p: &PairPrompt) {
         })();
         if let Err(e) = res {
             tracing::debug!("уведомление спаривания: {e:#}");
+        }
+    });
+}
+
+/// Запрос спаривания решён (здесь, в оболочке или той стороной) —
+/// убрать его уведомление.
+pub fn close_prompt(id: &str) {
+    let Some(nid) = PROMPTS.lock().unwrap().as_mut().and_then(|m| m.remove(id)) else { return };
+    std::thread::spawn(move || {
+        if let Ok(conn) = zbus::blocking::Connection::session() {
+            let _ = conn.call_method(
+                Some("org.freedesktop.Notifications"),
+                "/org/freedesktop/Notifications",
+                Some("org.freedesktop.Notifications"),
+                "CloseNotification",
+                &(nid,),
+            );
         }
     });
 }

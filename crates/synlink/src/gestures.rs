@@ -48,12 +48,13 @@ pub fn screen(device: &str, output: Option<&str>) -> Result<Screen> {
         }
         _ => false,
     };
-    Ok(Screen {
-        output: o.name.clone(),
-        w: (o.geometry[2] as f64 * o.scale).round().max(1.0),
-        h: (o.geometry[3] as f64 * o.scale).round().max(1.0),
-        touch,
-    })
+    // Пиксели кадра — текущий режим (с поворотом), логика×масштаб округляется иначе.
+    let (w, h) = match o.current_mode.and_then(|i| o.modes.get(i)) {
+        Some(m) if o.transform.contains("90") || o.transform.contains("270") => (m.height as f64, m.width as f64),
+        Some(m) => (m.width as f64, m.height as f64),
+        None => (o.geometry[2] as f64 * o.scale, o.geometry[3] as f64 * o.scale),
+    };
+    Ok(Screen { output: o.name.clone(), w: w.round().max(1.0), h: h.round().max(1.0), touch })
 }
 
 impl Screen {

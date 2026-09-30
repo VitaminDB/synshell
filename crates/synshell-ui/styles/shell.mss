@@ -1122,3 +1122,93 @@ TextField {
 .shade-app-close-icon { icon-size: 16px; icon-color: var(--muted); }
 .recents-empty-box { height: 200px; }
 .recents-scroll { height: 500px; width: 100%; }
+
+/* ─── Устройства (synlink): окно, карточка шторки, диалог спаривания ─────── */
+
+.link-card {
+    padding: 12px;
+    border-radius: 20px;
+    background-color: var(--surface-alt);
+    border-width: 1px;
+    border-color: var(--border);
+    transition: background-color 240ms ease-out, border-color 240ms ease-out;
+}
+.link-card-on {
+    background-color: var(--accent-soft);
+    border-color: var(--accent-soft);
+}
+.link-card-slim { padding: 10px 12px; border-radius: 18px; }
+.link-card-slim:active { scale: 0.97; }
+
+.link-avatar { padding: 9px; border-radius: 999px; background-color: var(--hover); }
+.link-avatar-on {
+    background-color: var(--accent);
+    box-shadow: 0 4px 16px var(--accent-soft);
+}
+.link-avatar-big { padding: 20px; }
+.link-avatar-icon { icon-size: 22px; icon-color: var(--fg); }
+.link-avatar-on .link-avatar-icon { icon-color: var(--accent-fg); }
+.link-avatar-icon-big { icon-size: 44px; }
+
+.link-name { font-size: 14px; font-weight: 600; color: var(--fg); }
+.link-state { font-size: 12px; color: var(--muted); }
+.link-state-on { color: var(--fg); opacity: 0.75; }
+
+.link-chip { padding: 3px 9px 3px 7px; border-radius: 999px; background-color: var(--hover); }
+.link-chip-icon { icon-size: 14px; icon-color: var(--fg); }
+.link-chip-text { font-size: 11px; font-weight: 600; color: var(--fg); }
+.link-chip-usb { background-color: var(--accent); }
+.link-chip-usb .link-chip-icon { icon-color: var(--accent-fg); }
+.link-chip-usb .link-chip-text { color: var(--accent-fg); }
+.link-chip-wifi { background-color: var(--success); }
+.link-chip-wifi .link-chip-icon { icon-color: #ffffff; }
+.link-chip-wifi .link-chip-text { color: #ffffff; }
+
+.link-action {
+    flex-grow: 1;
+    min-width: 62px;
+    padding: 9px 4px 7px 4px;
+    border-radius: 14px;
+    background-color: var(--menu-bg);
+    transition: background-color 160ms ease-out, scale 120ms ease-out;
+}
+.link-action:hover { background-color: var(--hover); }
+.link-action:active { scale: 0.94; background-color: var(--pressed); }
+.link-action-icon { icon-size: 21px; icon-color: var(--accent); }
+.link-action-text { font-size: 11px; color: var(--fg); }
+
+.link-btn { padding: 8px 16px; border-radius: 999px; background-color: var(--hover); transition: scale 120ms ease-out; }
+.link-btn:hover { background-color: var(--pressed); }
+.link-btn:active { scale: 0.95; }
+.link-btn-primary { background-color: var(--accent); }
+.link-btn-primary:hover { background-color: var(--accent); opacity: 0.9; }
+.link-btn-text { font-size: 13px; font-weight: 600; color: var(--fg); }
+.link-btn-primary .link-btn-text { color: var(--accent-fg); }
+
+.link-icon-btn { padding: 5px; border-radius: var(--radius-sm); background-color: #00000000; }
+.link-icon-btn:hover { background-color: var(--hover); }
+.link-icon-btn-icon { icon-size: 18px; icon-color: var(--muted); }
+
+.link-dot { width: 8px; height: 8px; border-radius: 999px; background-color: var(--muted); }
+.link-dot-on { background-color: var(--success); box-shadow: 0 0 8px var(--success); }
+.link-dot-wait { background-color: var(--warning); animation: link-pulse 1100ms ease-in-out infinite; }
+@keyframes link-pulse { 0% { opacity: 1; } 50% { opacity: 0.25; } 100% { opacity: 1; } }
+.link-usb-icon { icon-size: 18px; icon-color: var(--muted); }
+.link-usb-icon-on { icon-color: var(--accent); }
+.link-usb-text { font-size: 12px; color: var(--fg); }
+
+.link-note { font-size: 12px; color: var(--muted); }
+.link-center { text-align: center; }
+.link-section { font-size: 12px; font-weight: bold; color: var(--muted); }
+.link-empty { padding: 18px 14px; border-radius: 18px; background-color: var(--surface-alt); }
+.link-empty-icon { icon-size: 36px; icon-color: var(--muted); }
+
+.link-pair-title { font-size: 18px; font-weight: bold; color: var(--fg); }
+.link-pair-text { font-size: 13px; color: var(--muted); text-align: center; }
+.link-code-box { padding: 10px 22px; border-radius: 18px; background-color: var(--surface-alt); border-width: 1px; border-color: var(--accent-soft); }
+.link-code { font-size: 34px; font-weight: bold; letter-spacing: 4px; font-family: monospace; color: var(--accent); }
+.link-shield { icon-size: 14px; icon-color: var(--success); }
+
+.link-applet-on { icon-color: var(--accent); }
+.link-applet-usb { icon-size: 14px; icon-color: var(--accent); }
+.link-applet-battery { font-size: 11px; color: var(--muted); }

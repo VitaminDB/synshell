@@ -70,6 +70,8 @@ pub fn handle(cmd: &str) {
         "notifications" => ctx.open_popup(PopupKind::Notifications, at_applet("notifications")),
         "calendar" => ctx.open_popup(PopupKind::Calendar, at_applet("clock")),
         "network" | "wifi" => ctx.open_popup(PopupKind::Network, at_applet("network")),
+        // Связанные устройства (synlink): у апплета `link` или в лотке, иначе по центру.
+        "link" | "devices" => ctx.open_popup(PopupKind::Link, crate::panel::applet_anchor("link").or_else(|| crate::panel::applet_anchor("tray")).unwrap_or_else(centered)),
         // Окно подключения к сети Wi-Fi (пароль, статус): `wifi-connect <SSID>`.
         "wifi-connect" if !arg.trim().is_empty() => ctx.open_popup(PopupKind::WifiConnect { ssid: arg.trim().to_string() }, centered()),
         "volume" if arg.is_empty() => ctx.open_popup(PopupKind::Volume, at_applet("volume")),

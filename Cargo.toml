@@ -15,6 +15,7 @@ members = [
     "crates/synpkg",
     "crates/synlogin",
     "crates/synlink",
+    "crates/synlink-view",
 ]
 
 [workspace.package]

@@ -1,0 +1,19 @@
+[package]
+name = "synlink-view"
+description = "Экран другого устройства synshell (synlink): трансляция и управление"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "synlink-view"
+path = "src/main.rs"
+
+[dependencies]
+synshell-common.workspace = true
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons"] }
+serde_json.workspace = true
+zstd = { version = "0.13", default-features = false }
+log = "0.4"
+env_logger = "0.11"

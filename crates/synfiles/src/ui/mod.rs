@@ -92,6 +92,9 @@ pub mod icons {
     pub const DRIVE: &str = "\u{e1db}";
     pub const USB: &str = "\u{e1e0}";
     pub const NETWORK: &str = "\u{eb2f}";
+    pub const PHONE: &str = "\u{e32c}";
+    pub const COMPUTER: &str = "\u{e30a}";
+    pub const LAPTOP: &str = "\u{e31e}";
     pub const TRASH: &str = "\u{e872}";
     pub const RESTORE: &str = "\u{e938}";
     pub const UNDO: &str = "\u{e166}";

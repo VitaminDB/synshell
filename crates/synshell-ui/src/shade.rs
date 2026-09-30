@@ -124,6 +124,7 @@ fn content(ctx: ShellCtx) -> impl Widget {
     Column::new()
         .gap(14.0)
         .child(header(ctx))
+        .child(crate::link::shade_card(ctx))
         .child(tiles(ctx))
         .child(sliders(ctx))
         .child(open_apps(ctx))

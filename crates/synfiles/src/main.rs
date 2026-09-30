@@ -199,6 +199,7 @@ fn main() {
         })
         .run(move |_| {
             provide_context(ctx);
+            places::watch_mounts();
             ui::app::root()
         });
     state::save_session();

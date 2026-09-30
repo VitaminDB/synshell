@@ -166,6 +166,11 @@ pub fn applet(a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
                     }),
             );
         }
+        // Связь с устройством: значок в лотке, если своего апплета `link` на
+        // панелях нет (конфиг до synlink) и что-то соединено или ждёт ответа.
+        if let Some(w) = crate::link::tray_item(&pc) {
+            flex = flex.child(w);
+        }
         for it in shown {
             flex = flex.child(item_button(it, size, pc.clone()));
         }

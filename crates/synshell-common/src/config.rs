@@ -1313,6 +1313,7 @@ impl Default for Panel {
                 Applet::new("tray"),
                 Applet::new("keyboard"),
                 Applet::new("volume"),
+                Applet::new("link"),
                 Applet::new("network"),
                 Applet::new("battery"),
                 Applet::new("notifications"),

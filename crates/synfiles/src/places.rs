@@ -99,6 +99,10 @@ fn mounts() -> Vec<Mount> {
         let (Some(dev), Some(mp), Some(fs)) = (it.next(), it.next(), it.next()) else { continue };
         let mp = PathBuf::from(mp.replace("\\040", " "));
         let user_visible = mp.starts_with("/run/media") || mp.starts_with("/media") || mp.starts_with("/mnt");
+        // Файлы связанных устройств (synlink) — отдельно, ниже: с именем и домашним каталогом.
+        if fs == "fuse.synlink" {
+            continue;
+        }
         let network = matches!(fs, "nfs" | "nfs4" | "cifs" | "smb3" | "sshfs" | "fuse.sshfs" | "fuse.rclone");
         if !(dev.starts_with("/dev/") && user_visible) && !(network && mp != Path::new("/")) {
             continue;
@@ -115,6 +119,20 @@ fn mounts() -> Vec<Mount> {
             crate::ui::icons::DRIVE
         };
         out.push(Mount { path: mp, title, icon });
+    }
+    // Связанные устройства (synlink): телефон ↔ компьютер, открываются в домашнем
+    // каталоге устройства. Демон не ответил за 150 мс — без них.
+    if let Some(st) = synshell_common::link::status_quick(std::time::Duration::from_millis(150)) {
+        use synshell_common::link::DeviceKind;
+        for p in st.peers.iter().filter(|p| p.connected) {
+            let Some(path) = p.files_path() else { continue };
+            let icon = match p.kind {
+                DeviceKind::Phone | DeviceKind::Tablet => crate::ui::icons::PHONE,
+                DeviceKind::Laptop => crate::ui::icons::LAPTOP,
+                DeviceKind::Desktop => crate::ui::icons::COMPUTER,
+            };
+            out.push(Mount { path: PathBuf::from(path), title: p.name.clone(), icon });
+        }
     }
     // Сетевые ресурсы, подключённые через gvfs (Nautilus, gio mount).
     if let Ok(rd) = std::fs::read_dir(&gvfs) {
@@ -143,6 +161,42 @@ fn gvfs_title(name: &str) -> String {
     let who = if user.is_empty() { host.to_string() } else { format!("{user}@{host}") };
     let what = if share.is_empty() { who } else { format!("{share} на {who}") };
     format!("{what} ({})", scheme.to_uppercase())
+}
+
+/// Следить за монтированием (флешки, сетевые ресурсы, файлы связанных
+/// устройств synlink): `/proc/self/mounts` будит `poll` с `POLLPRI` при
+/// каждом изменении — тогда перестроить боковую панель.
+pub fn watch_mounts() {
+    static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    std::thread::Builder::new()
+        .name("files-mounts".into())
+        .spawn(|| {
+            use std::os::fd::AsRawFd;
+            let Ok(f) = std::fs::File::open("/proc/self/mounts") else { return };
+            loop {
+                let mut p = libc::pollfd { fd: f.as_raw_fd(), events: libc::POLLPRI | libc::POLLERR, revents: 0 };
+                let r = unsafe { libc::poll(&mut p, 1, -1) };
+                if r < 0 {
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    continue;
+                }
+                // Файл надо перечитать, иначе poll сработает снова сразу.
+                use std::io::{Read, Seek};
+                let mut g = &f;
+                let _ = g.seek(std::io::SeekFrom::Start(0));
+                let mut sink = String::new();
+                let _ = g.read_to_string(&mut sink);
+                syngui::async_runtime::run_on_main_thread(|| {
+                    if let Some(ctx) = crate::state::try_ctx() {
+                        ctx.places_rev.update(|r| *r += 1);
+                    }
+                });
+            }
+        })
+        .ok();
 }
 
 /// Свободно и всего на разделе.

@@ -250,12 +250,14 @@ applets = [
     { type = "tray" },
     { type = "keyboard" },
     { type = "volume" },
+    { type = "link" },
     { type = "network" },
     { type = "battery" },
     { type = "notifications" },
     { type = "clock" },
     { type = "power" },
 ]
+# link — связанные устройства (synlink): телефон по USB/Wi-Fi, экран, файлы, снимок, ssh.
 # Другие апплеты: separator, show-desktop, layout, cpu, memory,
 # button (icon, label, action), command (command, interval, action),
 # clock (format = "%H:%M", date_format = "%a, %d %b", seconds = false),

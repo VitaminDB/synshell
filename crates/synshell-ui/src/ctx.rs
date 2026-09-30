@@ -48,6 +48,10 @@ pub enum PopupKind {
     DesktopMenu,
     /// Меню значка приложения на домашнем экране (id .desktop).
     HomeAppMenu(String),
+    /// Устройства (synlink): соединённые, спаренные, рядом.
+    Link,
+    /// Запрос спаривания с устройством (id).
+    LinkPair(String),
 }
 
 impl PopupKind {
@@ -145,6 +149,8 @@ pub struct ShellCtx {
     /// Счётчики всплесков частиц по значкам (ключ — id приложения или
     /// «панель:апплет»).
     pub bursts: RwSignal<std::collections::HashMap<String, u32>>,
+    /// Связь с устройствами (демон synlink); `None` — демона нет.
+    pub link: RwSignal<Option<synshell_common::link::Status>>,
 }
 
 impl ShellCtx {
@@ -176,6 +182,7 @@ impl ShellCtx {
             editing: use_signal(None),
             launching: use_signal(Vec::new()),
             bursts: use_signal(std::collections::HashMap::new()),
+            link: use_signal(None),
         }
     }
 

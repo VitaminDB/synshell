@@ -30,6 +30,7 @@ pub fn build(a: &Applet, pc: &PanelCtx, index: usize) -> Box<dyn Widget> {
         "volume" => volume(a, pc),
         "battery" => battery(a, pc),
         "network" => network(a, pc),
+        "link" => crate::link::applet(pc),
         "notifications" => notifications(a, pc),
         "power" => simple_popup(pc, a.str_or("icon", mi::POWER), "power", PopupKind::Power),
         "button" => button(a),

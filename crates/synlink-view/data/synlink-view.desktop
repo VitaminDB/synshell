@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Screen of device
+Name[ru]=Экран устройства
+Comment=Show and control the screen of a linked synshell device
+Comment[ru]=Трансляция и управление экраном связанного устройства synshell
+Exec=synlink-view %U
+Icon=phone
+Categories=Utility;System;
+NoDisplay=true
