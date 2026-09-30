@@ -342,6 +342,9 @@ pub struct FingerState {
     /// Пальцы, которыми управляет композитор (клиенты их не видят).
     pub owned: Vec<TouchSlot>,
     pub active: Option<Active>,
+    /// Первый палец жеста коснулся окна приложения: второй палец — тоже
+    /// приложению (щипок в кадрировании, картах), стол — тремя пальцами.
+    pub on_window: bool,
 }
 
 const BTN_LEFT: u32 = 0x110;
@@ -468,9 +471,15 @@ impl State {
     /// касание забрал композитор.
     pub fn finger_down(&mut self, slot: TouchSlot, pos: Point<f64, Logical>) -> bool {
         self.finger_pos(slot, pos);
-        // Второй палец в свободном режиме — пан стола: касание у клиентов
-        // отменяется.
-        if self.free_mode() && self.core.config.gestures.two_finger_pan && self.core.fingers.down.len() == 2 && !matches!(self.core.fingers.active, Some(Active::Move { .. } | Active::Resize { .. })) {
+        let n = self.core.fingers.down.len();
+        if n == 1 {
+            self.core.fingers.on_window = matches!(self.under(pos), crate::input::Under::Surface(s, _) if self.window_for_surface_tree(&s.0).is_some());
+        }
+        // Пан и щипок стола в свободном режиме: второй палец, если жест начат
+        // не на окне (над окном два пальца — приложению), или третий палец
+        // где угодно. Касания у клиентов отменяются.
+        let desk_fingers = (n == 2 && (!self.core.fingers.on_window || self.core.wm.mobile.view.zoomed())) || n == 3;
+        if self.free_mode() && self.core.config.gestures.two_finger_pan && desk_fingers && !matches!(self.core.fingers.active, Some(Active::Move { .. } | Active::Resize { .. } | Active::Pan { .. })) {
             if let Some(touch) = self.core.seat.get_touch() {
                 touch.cancel(self);
             }

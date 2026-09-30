@@ -34,7 +34,7 @@ synlink events                         события демона (JSON)
 synlink pair УСТР | pair accept|reject УСТР   спаривание
 synlink unpair УСТР | disconnect УСТР
 synlink shot УСТР [-o ФАЙЛ] [--max N] [--output ВЫВОД]   снимок экрана (PNG)
-synlink tap УСТР X Y | hold УСТР X Y [МС] | swipe УСТР X1 Y1 X2 Y2 [МС]
+synlink tap УСТР X Y | hold УСТР X Y [МС] | swipe УСТР X1 Y1 X2 Y2 [МС] | pinch УСТР X Y ОТ ДО [МС]
 synlink scroll УСТР X Y ШАГИ           колесо (вниз — положительные)
 synlink type УСТР ТЕКСТ | key УСТР СОЧЕТАНИЕ | action УСТР ДЕЙСТВИЕ
 synlink windows УСТР | outputs УСТР | wm УСТР JSON
@@ -250,6 +250,13 @@ fn cli(args: &[String]) -> Result<()> {
             let a = (num(args.get(2), "X1")?, num(args.get(3), "Y1")?);
             let b = (num(args.get(4), "X2")?, num(args.get(5), "Y2")?);
             gestures::swipe(&device, &s, a, b, args.get(6).and_then(|m| m.parse().ok()).unwrap_or(300))?;
+        }
+        "pinch" => {
+            let device = dev(args)?;
+            let s = gestures::screen(&device, None)?;
+            let c = (num(args.get(2), "X")?, num(args.get(3), "Y")?);
+            let (d0, d1) = (num(args.get(4), "ОТ")?, num(args.get(5), "ДО")?);
+            gestures::pinch(&device, &s, c, d0, d1, args.get(6).and_then(|m| m.parse().ok()).unwrap_or(400))?;
         }
         "scroll" => {
             let device = dev(args)?;

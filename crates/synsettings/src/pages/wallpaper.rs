@@ -210,10 +210,16 @@ fn thumb_of(p: &Path, px: u32) -> Option<PathBuf> {
 /// преобразование запущено, по готовности перерисуются миниатюры и превью
 /// (`s.thumbs`).
 fn shown(p: &Path) -> Option<PathBuf> {
+    shown_notify(p, sig().thumbs)
+}
+
+/// То же, но по готовности растёт `ready` (у редактора кадра — свой сигнал:
+/// общий `thumbs` растёт на каждую миниатюру галереи, и область кадра
+/// пересоздавалась бы посреди жеста).
+fn shown_notify(p: &Path, ready: RwSignal<u64>) -> Option<PathBuf> {
     let r = wg::displayable(p);
     if r.is_none() {
-        let t = sig().thumbs;
-        wg::prepare(p, move || run_on_main_thread(move || t.set(t.get_untracked() + 1)));
+        wg::prepare(p, move || run_on_main_thread(move || ready.set(ready.get_untracked() + 1)));
     }
     r
 }
@@ -673,11 +679,12 @@ fn editor(e: Edit, scr: (f32, f32), s: Sig) -> W {
     let cmd = use_signal((0u64, ImageViewCommand::Fill));
     let send = move |c: ImageViewCommand| cmd.set((cmd.get_untracked().0 + 1, c));
     let src = e.path.clone();
+    let converted = use_signal(0u64);
     let viewport = Reactive::new(move || -> Vec<W> {
         let (seq, c) = cmd.get();
         // HEIC/AVIF: пока готовится JPEG-копия — заглушка.
-        s.thumbs.get();
-        let Some(path) = shown(&src) else {
+        converted.get();
+        let Some(path) = shown_notify(&src, converted) else {
             return vec![boxed(DecoratedBox::new().class("wall-thumb-loading wall-editor-view"))];
         };
         vec![boxed(

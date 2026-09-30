@@ -72,6 +72,9 @@ fn tools() -> Value {
         {"name": "swipe", "description": "Провести из точки в точку (прокрутка списков, жесты от краёв, перетаскивание).",
          "inputSchema": schema(json!({"device": dev, "x1": num("X начала"), "y1": num("Y начала"), "x2": num("X конца"), "y2": num("Y конца"),
              "ms": num("длительность, мс (300)")}), &["device", "x1", "y1", "x2", "y2"])},
+        {"name": "pinch", "description": "Щипок двумя пальцами вокруг точки: расстояние между пальцами from → to (px снимка; больше — увеличить). На компьютере — Ctrl+колесо.",
+         "inputSchema": schema(json!({"device": dev, "x": num("X центра"), "y": num("Y центра"), "from": num("начальное расстояние, px"), "to": num("конечное расстояние, px"),
+             "ms": num("длительность, мс (400)")}), &["device", "x", "y", "from", "to"])},
         {"name": "scroll", "description": "Прокрутить колесом мыши в точке (компьютер). steps > 0 — вниз.",
          "inputSchema": schema(json!({"device": dev, "x": num("X"), "y": num("Y"), "steps": num("шаги колеса")}), &["device", "x", "y", "steps"])},
         {"name": "type_text", "description": "Набрать текст в поле с фокусом (раскладка переключается сама; \\n — Enter).",
@@ -221,6 +224,15 @@ impl Server {
                 let p1 = self.scale(&device, &s, arg_num(a, "x1")?, arg_num(a, "y1")?);
                 let p2 = self.scale(&device, &s, arg_num(a, "x2")?, arg_num(a, "y2")?);
                 gestures::swipe(&device, &s, p1, p2, a.get("ms").and_then(Value::as_u64).unwrap_or(300))?;
+                Ok(text("готово"))
+            }
+            "pinch" => {
+                let s = gestures::screen(&device, None)?;
+                let c = self.scale(&device, &s, arg_num(a, "x")?, arg_num(a, "y")?);
+                // Расстояния — в px снимка, как точки: тот же пересчёт.
+                let k = self.scale(&device, &s, 1000.0, 0.0).0 / 1000.0;
+                let (d0, d1) = (arg_num(a, "from")? * k, arg_num(a, "to")? * k);
+                gestures::pinch(&device, &s, c, d0, d1, a.get("ms").and_then(Value::as_u64).unwrap_or(400))?;
                 Ok(text("готово"))
             }
             "scroll" => {

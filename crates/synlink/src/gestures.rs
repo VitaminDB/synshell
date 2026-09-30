@@ -37,6 +37,10 @@ pub fn screen(device: &str, output: Option<&str>) -> Result<Screen> {
         Response::Status { status } => {
             if matches!(device, "local" | "self" | "") {
                 status.me.kind.is_touch()
+            } else if let Ok(kind) = serde_json::from_value::<synshell_common::link::DeviceKind>(serde_json::Value::String(device.to_lowercase())) {
+                // Псевдоним по виду (phone, desktop…) — демон сам найдёт
+                // единственное такое устройство; ввод — по виду.
+                kind.is_touch()
             } else {
                 status
                     .peers
@@ -117,6 +121,37 @@ pub fn swipe(device: &str, s: &Screen, a: (f64, f64), b: (f64, f64), ms: u64) ->
     } else {
         send(device, s, vec![InputEvent::Button { button: BTN_LEFT, pressed: false }])
     }
+}
+
+/// Щипок двумя пальцами вокруг `c`: расстояние между пальцами от `d0` до
+/// `d1` (px снимка, по горизонтали). Без сенсора (компьютер) — Ctrl+колесо.
+pub fn pinch(device: &str, s: &Screen, c: (f64, f64), d0: f64, d1: f64, ms: u64) -> Result<()> {
+    if !s.touch {
+        let (fx, fy) = s.frac(c.0, c.1);
+        let steps = if d1 > d0 { -3.0 } else { 3.0 };
+        return send(
+            device,
+            s,
+            vec![
+                InputEvent::Motion { x: fx, y: fy },
+                InputEvent::Key { code: 29, pressed: true },
+                InputEvent::Axis { dx: 0.0, dy: steps * 15.0, discrete: true },
+                InputEvent::Key { code: 29, pressed: false },
+            ],
+        );
+    }
+    let at = |d: f64, side: f64| s.frac(c.0 + side * d / 2.0, c.1);
+    let steps = (ms / 16).clamp(4, 120);
+    let dt = Duration::from_millis(ms / steps);
+    let ((ax, ay), (bx, by)) = (at(d0, -1.0), at(d0, 1.0));
+    send(device, s, vec![InputEvent::TouchDown { id: 0, x: ax, y: ay }, InputEvent::TouchDown { id: 1, x: bx, y: by }, InputEvent::TouchFrame])?;
+    for i in 1..=steps {
+        let d = d0 + (d1 - d0) * i as f64 / steps as f64;
+        let ((ax, ay), (bx, by)) = (at(d, -1.0), at(d, 1.0));
+        std::thread::sleep(dt);
+        send(device, s, vec![InputEvent::TouchMotion { id: 0, x: ax, y: ay }, InputEvent::TouchMotion { id: 1, x: bx, y: by }, InputEvent::TouchFrame])?;
+    }
+    send(device, s, vec![InputEvent::TouchUp { id: 0 }, InputEvent::TouchUp { id: 1 }, InputEvent::TouchFrame])
 }
 
 /// Прокрутка колесом в точке (шаги; вниз — положительные).
