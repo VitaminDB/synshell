@@ -228,6 +228,8 @@ pub struct Core {
     /// этим нажатием, удержание уже сработало).
     pub power_key: Option<(u64, bool, bool)>,
     pub power_key_seq: u64,
+    /// Последние разосланные высоты экранной клавиатуры по выводам.
+    pub osk_heights: Vec<(String, i32)>,
     /// Таймер кадра погашенного вывода (поток кадров synlink) взведён.
     pub headless_timer: bool,
     pub ipc: IpcServer,
@@ -445,6 +447,7 @@ impl Core {
             rotate_anim: None,
             power_key: None,
             power_key_seq: 0,
+            osk_heights: Vec::new(),
             headless_timer: false,
             ipc,
             shell: crate::spawn::ShellProcess::default(),

@@ -297,6 +297,11 @@ pub struct OutputInfo {
     pub transform: String,
     pub primary: bool,
     pub focused: bool,
+    /// Высота экранной клавиатуры на выводе (логические пиксели), 0 — её нет.
+    /// Док с автоскрытием прячется, пока она открыта: иначе композитор ставит
+    /// его над клавиатурой, и окна его не перекрывают.
+    #[serde(default)]
+    pub keyboard: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

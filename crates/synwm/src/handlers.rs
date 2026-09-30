@@ -220,8 +220,12 @@ impl State {
                 .map(|d| d.lock().unwrap().initial_configure_sent)
                 .unwrap_or(true)
         });
+        let mut osk = false;
         let changed = {
             let mut map = layer_map_for_output(&output);
+            osk = map
+                .layer_for_surface(surface, WindowSurfaceType::TOPLEVEL)
+                .is_some_and(|l| crate::ipc::is_osk_namespace(l.namespace()));
             let before = map.non_exclusive_zone();
             map.arrange();
             if !initial_configure_sent {
@@ -234,6 +238,10 @@ impl State {
         // Панель поменяла резервируемую зону — переложить развёрнутые и плитку.
         if changed {
             self.relayout();
+        }
+        // Экранная клавиатура появилась, изменилась или ушла — оболочке (док).
+        if osk {
+            self.broadcast_outputs_if_keyboard_changed();
         }
         // Слой с эксклюзивной клавиатурой получил фокус.
         self.update_layer_keyboard_focus();
@@ -658,6 +666,9 @@ impl WlrLayerShellHandler for State {
             drop(map);
             self.relayout();
             self.core.queue_redraw(&output);
+            if crate::ipc::is_osk_namespace(layer.namespace()) {
+                self.broadcast_outputs_if_keyboard_changed();
+            }
         }
         // Фокус был на этом слое — вернуть окну.
         let current = self.core.keyboard.current_focus().map(|f| f.0);

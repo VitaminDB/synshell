@@ -445,6 +445,37 @@ impl State {
     }
 }
 
+/// Слой экранной клавиатуры (synkeyboard, squeekboard и подобные).
+pub fn is_osk_namespace(ns: &str) -> bool {
+    let ns = ns.to_ascii_lowercase();
+    ns == "synkeyboard" || ns == "osk" || ns.contains("keyboard")
+}
+
+/// Высота открытой экранной клавиатуры на выводе, 0 — её нет.
+fn keyboard_height(o: &smithay::output::Output) -> i32 {
+    let map = smithay::desktop::layer_map_for_output(o);
+    map.layers()
+        .filter(|l| is_osk_namespace(l.namespace()))
+        .filter_map(|l| map.layer_geometry(l))
+        .map(|g| g.size.h)
+        .max()
+        .unwrap_or(0)
+}
+
+impl State {
+    /// Разослать сведения о выводах, если на каком-то сменилась высота
+    /// экранной клавиатуры (открылась, закрылась, другой размер).
+    pub fn broadcast_outputs_if_keyboard_changed(&mut self) {
+        let outputs = output_infos(self);
+        let now: Vec<(String, i32)> = outputs.iter().map(|o| (o.name.clone(), o.keyboard)).collect();
+        if now == self.core.osk_heights {
+            return;
+        }
+        self.core.osk_heights = now;
+        self.core.ipc.broadcast(&synshell_common::ipc::Event::OutputsChanged { outputs });
+    }
+}
+
 pub fn output_infos(state: &State) -> Vec<OutputInfo> {
     let focused = state.core.output_under_pointer();
     let primary = state.core.primary_output();
@@ -477,6 +508,7 @@ pub fn output_infos(state: &State) -> Vec<OutputInfo> {
                 transform: crate::backend::transform_name(o.current_transform()).into(),
                 primary: primary.as_ref() == Some(o),
                 focused: focused.as_ref() == Some(o),
+                keyboard: keyboard_height(o),
             }
         })
         .collect()

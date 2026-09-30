@@ -257,7 +257,9 @@ impl Hider {
     }
 }
 
-/// Полоса дока перекрыта окном (умное скрытие).
+/// Полоса дока перекрыта окном (умное скрытие) — или открыта экранная
+/// клавиатура: композитор ставит нижний док над ней, окна его там не
+/// перекрывают, и без этой проверки док висел бы над клавиатурой.
 fn overlapped(st: &DockState) -> bool {
     let ctx = ShellCtx::get();
     let bar = *st.bar_slot.lock().unwrap_or_else(|e| e.into_inner());
@@ -266,6 +268,9 @@ fn overlapped(st: &DockState) -> bool {
     }
     let (ox, oy) = crate::panel::origin(st.pc.key);
     let Some(out) = ctx.comp_outputs.get_untracked().into_iter().find(|o| o.name == st.pc.output) else { return false };
+    if st.edge == Edge::Bottom && out.keyboard > 0 {
+        return true;
+    }
     let ws = ctx.workspaces.get_untracked().iter().find(|w| w.active).map(|w| w.index);
     let bx0 = bar.origin.x + ox;
     let by0 = bar.origin.y + oy;
