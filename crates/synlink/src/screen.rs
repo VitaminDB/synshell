@@ -91,7 +91,7 @@ impl Wm {
         }
         match serde_json::from_str::<Response>(&line)? {
             Response::Frame { frame } => Ok(Some(frame)),
-            Response::Error { message } => bail!("{message}"),
+            Response::Error { message } => bail!("{}", crate::services::old_wm(&message).map(String::from).unwrap_or(message)),
             other => bail!("неожиданный ответ: {other:?}"),
         }
     }

@@ -13,10 +13,17 @@ pub fn wm(req: Request) -> Result<Response> {
     Ok(c.request(&req)?)
 }
 
+/// Ошибка старого композитора (до synlink) — понятным текстом.
+pub fn old_wm(message: &str) -> Option<&'static str> {
+    message
+        .contains("unknown variant")
+        .then_some("композитор этой машины старый (без удалённого ввода и потока кадров) — обновите synshell (synwm) и перезайдите")
+}
+
 pub fn input(output: Option<String>, events: Vec<InputEvent>) -> Result<()> {
     match wm(Request::Input { output, events })? {
         Response::Ok => Ok(()),
-        Response::Error { message } => bail!("{message}"),
+        Response::Error { message } => bail!("{}", old_wm(&message).map(String::from).unwrap_or(message)),
         other => bail!("неожиданный ответ: {other:?}"),
     }
 }
