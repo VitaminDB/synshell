@@ -69,7 +69,102 @@ pub fn screen_uv(img: (f32, f32), view: (f32, f32), zoom: f32, center: [f32; 2],
 }
 
 fn is_image_ext(ext: &str) -> bool {
-    matches!(ext.to_ascii_lowercase().as_str(), "png" | "jpg" | "jpeg" | "webp" | "bmp" | "gif")
+    matches!(ext.to_ascii_lowercase().as_str(), "png" | "jpg" | "jpeg" | "webp" | "bmp" | "gif") || is_heif_ext(ext)
+}
+
+/// HEIC/HEIF/AVIF (фото с телефона): крейт `image` их не читает — для показа
+/// они преобразуются в JPEG ([`displayable`], [`prepare`]).
+fn is_heif_ext(ext: &str) -> bool {
+    matches!(ext.to_ascii_lowercase().as_str(), "heic" | "heif" | "hif" | "avif")
+}
+
+fn needs_convert(p: &std::path::Path) -> bool {
+    p.extension().and_then(|e| e.to_str()).is_some_and(is_heif_ext)
+}
+
+/// JPEG-копия картинки в кэше: `~/.cache/synshell/wallpapers/<хэш пути,
+/// размера и времени изменения>.jpg` — новая после правки файла.
+fn converted_path(p: &std::path::Path) -> Option<std::path::PathBuf> {
+    use std::hash::{Hash, Hasher};
+    use std::os::unix::fs::MetadataExt;
+    let m = std::fs::metadata(p).ok()?;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    p.hash(&mut h);
+    m.len().hash(&mut h);
+    m.mtime().hash(&mut h);
+    let cache = std::env::var_os("XDG_CACHE_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| crate::paths::home().join(".cache"));
+    Some(cache.join("synshell/wallpapers").join(format!("{:016x}.jpg", h.finish())))
+}
+
+/// Файл, который можно показать сразу: сама картинка или её готовая
+/// JPEG-копия (HEIC/AVIF). `None` — копии ещё нет: [`prepare`].
+pub fn displayable(p: &std::path::Path) -> Option<std::path::PathBuf> {
+    if !needs_convert(p) {
+        return Some(p.to_path_buf());
+    }
+    converted_path(p).filter(|c| c.is_file())
+}
+
+/// Преобразовать HEIC/AVIF в JPEG-копию в фоне (`heif-convert`, иначе
+/// `magick`); `done` — по окончании (и при неудаче), из фонового потока.
+/// Повторный вызов для того же файла, пока идёт преобразование, — no-op.
+pub fn prepare(p: &std::path::Path, done: impl FnOnce() + Send + 'static) {
+    static BUSY: std::sync::Mutex<Vec<std::path::PathBuf>> = std::sync::Mutex::new(Vec::new());
+    let Some(out) = converted_path(p) else { return };
+    {
+        let mut busy = BUSY.lock().unwrap_or_else(|e| e.into_inner());
+        if busy.contains(&out) {
+            return;
+        }
+        busy.push(out.clone());
+    }
+    let src = p.to_path_buf();
+    std::thread::spawn(move || {
+        if let Err(e) = convert(&src, &out) {
+            tracing::warn!("обои: не преобразовать {}: {e}", src.display());
+        }
+        BUSY.lock().unwrap_or_else(|e| e.into_inner()).retain(|b| b != &out);
+        done();
+    });
+}
+
+fn convert(src: &std::path::Path, out: &std::path::Path) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+    let dir = out.parent().ok_or("нет каталога кэша")?;
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    // Во временный файл и переименованием — показ не увидит недописанный.
+    let stem = format!(".{}-{:?}.tmp", std::process::id(), std::thread::current().id()).replace(['(', ')'], "");
+    let tmp = dir.join(format!("{stem}.jpg"));
+    // heif-convert пишет рядом вспомогательные картинки (глубина, альфа):
+    // `<имя>-urn:….jpg` — убрать.
+    let cleanup = || {
+        if let Ok(rd) = std::fs::read_dir(dir) {
+            for e in rd.flatten() {
+                if e.file_name().to_string_lossy().starts_with(&stem) {
+                    let _ = std::fs::remove_file(e.path());
+                }
+            }
+        }
+    };
+    let tools: [(&str, Vec<std::ffi::OsString>); 2] = [
+        ("heif-convert", vec!["-q".into(), "92".into(), src.into(), tmp.clone().into()]),
+        ("magick", vec![src.into(), "-auto-orient".into(), "-quality".into(), "92".into(), tmp.clone().into()]),
+    ];
+    for (tool, args) in tools {
+        if !crate::xdg::which(tool) {
+            continue;
+        }
+        let ok = Command::new(tool).args(&args).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success());
+        if ok && tmp.is_file() {
+            let r = std::fs::rename(&tmp, out).map_err(|e| e.to_string());
+            cleanup();
+            return r;
+        }
+        cleanup();
+    }
+    Err("нужен пакет libheif (heif-convert) или imagemagick".into())
 }
 
 /// Картинка ли это (по расширению) — годится ли в обои.

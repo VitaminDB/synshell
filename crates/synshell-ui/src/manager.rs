@@ -183,8 +183,11 @@ fn workspace_pos(pos: Option<RwSignal<f32>>) -> f32 {
 /// дробный номер стола от листающей столы карусели (фон едет за пальцем),
 /// без него фон доезжает до активного стола анимацией.
 pub fn wallpaper_view(out_name: String, slide: RwSignal<u64>, pos: Option<RwSignal<f32>>) -> impl Widget {
+    // Готова JPEG-копия HEIC/AVIF — перестроить.
+    let converted = use_signal(0u64);
     Stack::new().fit(StackFit::Expand).child(DecoratedBox::new().class("wallpaper-color")).child(crate::ui::rx(move || {
         let slot = slide.get();
+        let _ = converted.get();
         let cfg = ShellCtx::get().config.get();
         let w = &cfg.wallpaper;
         // Свои обои столов: картинка зависит от стола (при листании
@@ -199,7 +202,16 @@ pub fn wallpaper_view(out_name: String, slide: RwSignal<u64>, pos: Option<RwSign
             "center" | "tile" => ImageFit::None,
             _ => ImageFit::Cover,
         };
-        let picked = pick(&frame.path, slot);
+        // HEIC/AVIF — через JPEG-копию; пока её нет — цвет фона.
+        let picked = pick(&frame.path, slot).and_then(|p| {
+            let shown = synshell_common::wallpaper::displayable(&p);
+            if shown.is_none() {
+                synshell_common::wallpaper::prepare(&p, move || {
+                    syngui::async_runtime::run_on_main_thread(move || converted.set(converted.get_untracked() + 1));
+                });
+            }
+            shown
+        });
         let key = {
             use std::hash::{Hash, Hasher};
             let mut h = std::collections::hash_map::DefaultHasher::new();

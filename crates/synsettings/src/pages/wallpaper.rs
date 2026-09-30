@@ -206,6 +206,18 @@ fn thumb_of(p: &Path, px: u32) -> Option<PathBuf> {
     synshell_common::thumbs::get(p, &mime_of(p), m.mtime(), px)
 }
 
+/// Файл для показа: HEIC/AVIF — через JPEG-копию; её ещё нет — `None`,
+/// преобразование запущено, по готовности перерисуются миниатюры и превью
+/// (`s.thumbs`).
+fn shown(p: &Path) -> Option<PathBuf> {
+    let r = wg::displayable(p);
+    if r.is_none() {
+        let t = sig().thumbs;
+        wg::prepare(p, move || run_on_main_thread(move || t.set(t.get_untracked() + 1)));
+    }
+    r
+}
+
 fn img_size(p: &Path) -> Option<(f32, f32)> {
     syngui::gpu::image_file_size(&p.to_string_lossy()).map(|(w, h)| (w as f32, h as f32))
 }
@@ -214,7 +226,7 @@ fn img_size(p: &Path) -> Option<(f32, f32)> {
 /// сдвиг, стол): окно панорамы; кадр меняется плавно (`ms`).
 fn screen_image(frame: &WallpaperFrame, mode: &str, scr: (f32, f32), pano: Option<(u32, f32, f32)>, ms: u32) -> W {
     let mut st = Stack::new().fit(StackFit::Expand).clip(true).child(DecoratedBox::new().class("wall-fill desk-bg"));
-    if let Some(p) = wg::pick(&frame.path, 0) {
+    if let Some(p) = wg::pick(&frame.path, 0).and_then(|p| shown(&p)) {
         let img = Image::new(p.to_string_lossy()).placeholder(false);
         let framed = mode == "fill" || pano.is_some();
         let img = match (framed, img_size(&p)) {
@@ -267,6 +279,8 @@ fn preview(scr: (f32, f32), s: Sig) -> W {
         DecoratedBox::new().class(if desktop { "wall-hero-frame" } else { "wall-hero-frame wall-hero-phone" }).child(
             AspectRatio::new(scr.0 / scr.1).max_height(max_h).child(move || {
                 state::ctx().tick.get();
+                // Готова JPEG-копия HEIC/AVIF.
+                s.thumbs.get();
                 let ws = s.ws.get();
                 let c = store::config();
                 let w = &c.wallpaper;
@@ -488,7 +502,7 @@ fn gallery(scr: (f32, f32), s: Sig) -> W {
         let current = expand_tilde(target_frame(w, t).path.trim());
         let files = wg::gallery(&dir);
         if files.is_empty() {
-            return vec![note("В этом каталоге нет картинок (PNG, JPEG, WebP, BMP, GIF).")];
+            return vec![note("В этом каталоге нет картинок (PNG, JPEG, WebP, HEIC, AVIF, BMP, GIF).")];
         }
         // Высокий экран (телефон) — миниатюры пониже, чтобы влезало больше.
         let ratio = (scr.0 / scr.1).max(0.62);
@@ -658,11 +672,16 @@ fn editor(e: Edit, scr: (f32, f32), s: Sig) -> W {
     let info = use_signal(ImageViewInfo::default());
     let cmd = use_signal((0u64, ImageViewCommand::Fill));
     let send = move |c: ImageViewCommand| cmd.set((cmd.get_untracked().0 + 1, c));
-    let path = e.path.to_string_lossy().to_string();
+    let src = e.path.clone();
     let viewport = Reactive::new(move || -> Vec<W> {
         let (seq, c) = cmd.get();
+        // HEIC/AVIF: пока готовится JPEG-копия — заглушка.
+        s.thumbs.get();
+        let Some(path) = shown(&src) else {
+            return vec![boxed(DecoratedBox::new().class("wall-thumb-loading wall-editor-view"))];
+        };
         vec![boxed(
-            ImageViewport::new(path.clone())
+            ImageViewport::new(path.to_string_lossy().to_string())
                 .crop_mode(true)
                 .max_scale(8.0)
                 .crop(zoom, center[0], center[1])
