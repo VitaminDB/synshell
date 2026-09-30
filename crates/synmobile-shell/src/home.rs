@@ -4,7 +4,9 @@
 //!
 //! - «Сводка» (`[mobile] resources_page`): часы, процессор, память,
 //!   батарея — экран ресурсов развернётся на следующем этапе;
-//! - «Приложения»: сетка значков (`[mobile] home_apps` или все).
+//! - «Приложения»: сетка значков (`[mobile] home_apps` или все) — только
+//!   при `[wallpaper] desktop_icons` («Значки на рабочем столе»), иначе
+//!   приложения запускаются из «Пуска» и дока.
 //!
 //! Удержание на пустом месте — меню рабочего стола (добавить панель или
 //! док, режим окон, обои, параметры), на значке — меню приложения.
@@ -37,9 +39,11 @@ fn page_signal() -> RwSignal<usize> {
     })
 }
 
-/// Номер страницы приложений (после сводки, если она включена).
+/// Номер страницы приложений (после сводки, если она включена); без
+/// значков на рабочем столе — первая страница.
 fn apps_page(ctx: &ShellCtx) -> usize {
-    usize::from(ctx.cfg().mobile.resources_page)
+    let cfg = ctx.cfg();
+    usize::from(cfg.mobile.resources_page && cfg.wallpaper.desktop_icons)
 }
 
 /// Показать страницу приложений (жест «домой»).
@@ -102,7 +106,10 @@ fn view(ctx: ShellCtx, output: String) -> impl Widget {
     if cfg.mobile.resources_page {
         pages = pages.child(crate::resources::page(ctx));
     }
-    let pages = pages.child(apps_page_view(ctx)).class("home-pages");
+    if cfg.wallpaper.desktop_icons {
+        pages = pages.child(apps_page_view(ctx));
+    }
+    let pages = pages.class("home-pages");
     let gestures = GestureDetector::new()
         .pan_axis(PanAxis::Vertical)
         .on_swipe(|dir, _| match dir {

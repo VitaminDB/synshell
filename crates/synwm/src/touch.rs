@@ -263,8 +263,6 @@ pub enum Active {
     Button { id: WindowId, b: Button },
     /// Двумя пальцами двигает виртуальный стол (свободный режим).
     Pan { last: Point<f64, Logical> },
-    /// Тянет границу между верхней плиткой и остальными (режим плиток).
-    TileSplit { start_y: f64, ratio0: f32, area_h: f64, last: Instant },
 }
 
 #[derive(Default)]
@@ -318,13 +316,6 @@ impl State {
         }
         if self.core.fingers.active.is_some() {
             // Уже что-то тащим — лишние пальцы не мешают.
-            self.core.fingers.owned.push(slot);
-            return true;
-        }
-        if let Some((area_h, _)) = self.tile_boundary_at(pos) {
-            let ws = self.core.wm.active;
-            let ratio0 = self.core.wm.workspace(ws).master_ratio;
-            self.core.fingers.active = Some(Active::TileSplit { start_y: pos.y, ratio0, area_h, last: Instant::now() });
             self.core.fingers.owned.push(slot);
             return true;
         }
@@ -406,17 +397,6 @@ impl State {
                 }
                 self.core.fingers.active = Some(Active::Resize { id, edges, start, loc0, size0, last });
             }
-            Some(Active::TileSplit { start_y, ratio0, area_h, last }) => {
-                let mut last = last;
-                if last.elapsed() > Duration::from_millis(33) {
-                    last = Instant::now();
-                    let r = (ratio0 + ((pos.y - start_y) / area_h.max(1.0)) as f32).clamp(0.15, 0.85);
-                    let ws = self.core.wm.active;
-                    self.core.wm.workspace_mut(ws).master_ratio = r;
-                    self.relayout();
-                }
-                self.core.fingers.active = Some(Active::TileSplit { start_y, ratio0, area_h, last });
-            }
             Some(Active::Pan { last }) => {
                 let c = self.centroid().unwrap_or(last);
                 self.shift_desk(c.x - last.x, c.y - last.y);
@@ -446,7 +426,6 @@ impl State {
                 }
                 self.core.queue_redraw_all();
             }
-            Some(Active::TileSplit { .. }) => self.relayout(),
             Some(Active::Move { id, .. }) | Some(Active::Resize { id, .. }) => {
                 self.remember_float(id);
                 self.core.ipc_dirty = true;
@@ -462,25 +441,6 @@ impl State {
             None => {}
         }
         true
-    }
-
-    /// Граница «верхняя плитка / остальные» в режиме плиток под пальцем:
-    /// высота рабочей области и y границы.
-    fn tile_boundary_at(&self, pos: Point<f64, Logical>) -> Option<(f64, f64)> {
-        if !(self.core.wm.mobile.enabled && self.core.wm.mobile.mode == synshell_common::action::MobileMode::Tiles) {
-            return None;
-        }
-        let layout = self.core.wm.workspace(self.core.wm.active).layout;
-        let mut tiled: Vec<WindowId> = self.core.wm.visible_ids().into_iter().filter(|id| self.core.wm.get(*id).is_some_and(|m| m.is_tiled(layout))).collect();
-        if tiled.len() < 2 {
-            return None;
-        }
-        tiled.sort_by_key(|id| self.core.wm.tile_order_key(*id));
-        let first = self.core.wm.get(tiled[0])?;
-        let y = (first.loc.y + first.size().h) as f64;
-        let out = self.core.space.outputs().next()?;
-        let area = self.core.work_area(out);
-        ((pos.y - y).abs() < 22.0).then_some((area.size.h as f64, y))
     }
 
     pub fn fingers_cancel(&mut self) {

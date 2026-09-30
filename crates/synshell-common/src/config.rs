@@ -1776,8 +1776,8 @@ impl Config {
 #[serde(default, deny_unknown_fields)]
 pub struct Mobile {
     /// Режим окон: `pages` — каждое приложение во весь экран, листание
-    /// влево-вправо; `tiles` — окна друг под другом; `free` — свободные
-    /// окна на большом виртуальном столе (пан двумя пальцами).
+    /// влево-вправо; `free` — свободные окна на большом виртуальном столе
+    /// (пан двумя пальцами).
     pub mode: crate::action::MobileMode,
     /// Виртуальный стол режима `free`: `2x2`, `3x3`, `infinite`.
     pub desk: String,
@@ -1786,7 +1786,9 @@ pub struct Mobile {
     pub handle_height: u32,
     /// Клавиша «назад» для окна: `XF86Back`, `Escape`, `Alt+Left`.
     pub back_key: String,
-    /// Сколько плиток показывать в `tiles` (0 — все).
+    /// Устарело: режим плиток убран; поле читается, чтобы старые
+    /// config.toml не давали ошибку.
+    #[serde(skip_serializing)]
     pub tiles_max: u32,
     /// Щипок меняет масштаб виртуального стола (дорого на CPU).
     pub pinch_zoom: bool,

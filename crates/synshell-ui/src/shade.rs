@@ -182,7 +182,6 @@ fn tile(glyph: &str, label: String, state: String, on: bool, f: impl Fn() + Send
 fn mode_label(m: MobileMode) -> &'static str {
     match m {
         MobileMode::Pages => "Страницы",
-        MobileMode::Tiles => "Плитки",
         MobileMode::Free => "Свободный стол",
     }
 }

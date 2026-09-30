@@ -228,7 +228,6 @@ pub fn action_label(a: &Action) -> String {
             "Режим окон: {}",
             match m {
                 synshell_common::action::MobileMode::Pages => "страницы",
-                synshell_common::action::MobileMode::Tiles => "плитки",
                 synshell_common::action::MobileMode::Free => "свободный",
             }
         ),

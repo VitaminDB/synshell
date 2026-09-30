@@ -433,7 +433,7 @@ pub fn wallpaper() -> W {
                 "Рабочий стол",
                 vec![switch_row(
                     "Значки на рабочем столе",
-                    "Файлы из ~/Desktop",
+                    "Файлы из ~/Desktop; на телефоне — сетка приложений на домашнем экране",
                     op!["wallpaper", "desktop_icons"],
                     w.desktop_icons,
                 )],

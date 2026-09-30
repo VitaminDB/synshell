@@ -365,7 +365,6 @@ pub fn desktop_menu(ctx: ShellCtx) -> impl Widget {
         let current = ctx.mobile_mode();
         for (mode, icon, label) in [
             (MobileMode::Pages, "\u{E8EB}", "Страницы"),
-            (MobileMode::Tiles, "\u{E871}", "Плитки"),
             (MobileMode::Free, "\u{E89F}", "Свободный стол"),
         ] {
             let item = menu_item(icon, label, move || crate::actions::run(synshell_common::Action::MobileMode(mode)));

@@ -342,13 +342,11 @@ suspend_after = 0
 # Телефон (form_factor = phone).
 [mobile]
 mode = "pages"                 # pages — приложения во весь экран, листание вбок
-                               # tiles — окна друг под другом
                                # free — свободные окна на большом столе (пан двумя пальцами)
 desk = "3x3"                   # размер виртуального стола в free: 2x2 | 3x3 | infinite
 handle = "server"              # ручка окна в free: server | none
 handle_height = 28
 back_key = "XF86Back"          # клавиша «назад» для окна: XF86Back | Escape | Alt+Left
-tiles_max = 0                  # сколько плиток видно в tiles (0 — все)
 pinch_zoom = false             # щипок масштабирует стол в free
 remember_mode = true           # запоминать выбранный режим окон
 resources_page = true          # первая страница домашнего экрана — ресурсы

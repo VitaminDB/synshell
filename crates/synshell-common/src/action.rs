@@ -67,8 +67,6 @@ impl FromStr for Direction {
 /// Режим окон на телефоне.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum MobileMode {
-    /// Окна друг под другом.
-    Tiles,
     /// Свободные окна на большом виртуальном столе.
     Free,
     /// Каждое приложение во весь экран, листание влево-вправо.
@@ -77,11 +75,10 @@ pub enum MobileMode {
 }
 
 impl MobileMode {
-    pub const ALL: [MobileMode; 3] = [MobileMode::Pages, MobileMode::Tiles, MobileMode::Free];
+    pub const ALL: [MobileMode; 2] = [MobileMode::Pages, MobileMode::Free];
 
     pub fn as_str(self) -> &'static str {
         match self {
-            MobileMode::Tiles => "tiles",
             MobileMode::Free => "free",
             MobileMode::Pages => "pages",
         }
@@ -96,7 +93,11 @@ impl MobileMode {
 impl FromStr for MobileMode {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, String> {
-        Self::ALL.into_iter().find(|m| m.as_str() == s).ok_or_else(|| format!("неизвестный режим окон «{s}» (tiles, free, pages)"))
+        // `tiles` (режим плиток убран) — старые конфиги открываются страницами.
+        if s == "tiles" {
+            return Ok(MobileMode::Pages);
+        }
+        Self::ALL.into_iter().find(|m| m.as_str() == s).ok_or_else(|| format!("неизвестный режим окон «{s}» (pages, free)"))
     }
 }
 
@@ -159,7 +160,7 @@ pub enum LayoutKind {
     Grid,
     /// Одно окно на весь экран, остальные за ним.
     Monocle,
-    /// Полосы друг под другом: первая — мастер (телефон, режим «плитки»).
+    /// Полосы друг под другом: первая — мастер.
     Rows,
 }
 
@@ -423,7 +424,7 @@ impl FromStr for Action {
             "shell" => Action::Shell(need("команда оболочки")?.to_string()),
             "back" => Action::Back,
             "key" => Action::Key(need("клавиша, например XF86Back или Alt+Left")?.parse()?),
-            "mobile-mode" => Action::MobileMode(need("tiles/free/pages")?.parse()?),
+            "mobile-mode" => Action::MobileMode(need("pages/free")?.parse()?),
             "mobile-mode-cycle" => Action::MobileModeCycle,
             "page" => Action::Page(need("home/next/prev/номер")?.parse()?),
             "camera-home" => Action::CameraHome,

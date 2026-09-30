@@ -51,7 +51,6 @@ fn command(name: &str, arg: &str) -> bool {
         "mode" => {
             let label = match arg.trim() {
                 "pages" => "Страницы",
-                "tiles" => "Плитки",
                 "free" => "Свободный стол",
                 other => other,
             };

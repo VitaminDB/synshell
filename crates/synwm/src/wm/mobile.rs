@@ -1,7 +1,6 @@
 //! Режимы окон телефона (`[mobile] mode`): `pages` — каждое приложение во
 //! весь экран, листание вбок, «страница 0» — домашний экран оболочки;
-//! `tiles` — окна друг под другом (раскладка `rows`); `free` — свободные
-//! окна (виртуальный стол — `camera`).
+//! `free` — свободные окна (виртуальный стол — `camera`).
 //!
 //! Страница — корневое окно приложения вместе с его диалогами
 //! (transient-дети остаются на странице родителя). Порядок страниц —
@@ -142,7 +141,8 @@ impl State {
         self.core.wm.mobile.enabled = enabled;
         if enabled {
             let mode = self.core.config.mobile.mode;
-            self.core.wm.mobile.mode = MobileMode::Tiles; // любой отличный — чтобы применить
+            // Любой отличный режим — чтобы применить.
+            self.core.wm.mobile.mode = if mode == MobileMode::Pages { MobileMode::Free } else { MobileMode::Pages };
             self.set_mobile_mode(mode, false);
         }
     }
@@ -150,7 +150,6 @@ impl State {
     fn mode_layout(mode: MobileMode) -> LayoutKind {
         match mode {
             MobileMode::Pages => LayoutKind::Monocle,
-            MobileMode::Tiles => LayoutKind::Rows,
             MobileMode::Free => LayoutKind::Floating,
         }
     }
