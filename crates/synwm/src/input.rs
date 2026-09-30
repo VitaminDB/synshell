@@ -1041,6 +1041,11 @@ impl State {
 
     fn on_touch_down<B: InputBackend>(&mut self, evt: B::TouchDownEvent) {
         let Some(touch) = self.core.seat.get_touch() else { return };
+        // Пальцем курсор не нужен: прячется до следующего движения мыши.
+        if self.core.config.appearance.cursor_hide == "touch" && !self.core.cursor_hidden {
+            self.core.cursor_hidden = true;
+            self.core.queue_redraw_all();
+        }
         let pos = self.touch_location(&evt);
         if self.gesture_touch_down(evt.slot(), pos, evt.time_msec()) {
             return;

@@ -49,6 +49,7 @@ font_size = 13.0
 icon_theme = "breeze-dark"
 cursor_theme = "breeze_cursors"
 cursor_size = 24
+cursor_hide = "touch"            # never | touch (при касании экрана) | always (телефон/планшет)
 corner_radius = 10.0
 panel_opacity = 0.92
 ui_scale = 1.0

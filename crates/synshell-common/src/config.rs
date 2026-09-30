@@ -146,6 +146,9 @@ pub struct Appearance {
     pub icon_theme: String,
     pub cursor_theme: String,
     pub cursor_size: u32,
+    /// Когда прятать курсор мыши: `never`, `touch` (при касании экрана;
+    /// движение мыши его возвращает), `always` (телефон, планшет без мыши).
+    pub cursor_hide: String,
     /// Скругление углов панелей/меню/окон (логические px).
     pub corner_radius: f32,
     /// Непрозрачность фона панелей и меню (0..1).
@@ -174,6 +177,7 @@ impl Default for Appearance {
             icon_theme: "breeze-dark".into(),
             cursor_theme: "breeze_cursors".into(),
             cursor_size: 24,
+            cursor_hide: "touch".into(),
             corner_radius: 10.0,
             panel_opacity: 0.92,
             ui_scale: 1.0,

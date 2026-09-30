@@ -655,7 +655,7 @@ where
     let scale = Scale::from(scale_f);
     let output_geo = core.space.output_geometry(output).unwrap_or_default();
     let pos = core.pointer.current_location();
-    if !output_geo.to_f64().contains(pos) || core.cursor_hidden {
+    if !output_geo.to_f64().contains(pos) || core.cursor_hidden || core.config.appearance.cursor_hide == "always" {
         return;
     }
     let rel = pos - output_geo.loc.to_f64();
