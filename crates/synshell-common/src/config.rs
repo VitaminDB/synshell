@@ -45,6 +45,7 @@ pub struct Config {
     pub mobile: Mobile,
     pub gestures: Gestures,
     pub haptics: Haptics,
+    pub time: Time,
     pub wifi: Wifi,
     pub packages: Packages,
 }
@@ -73,6 +74,7 @@ impl Default for Config {
             mobile: Mobile::default(),
             gestures: Gestures::default(),
             haptics: Haptics::default(),
+            time: Time::default(),
             wifi: Wifi::default(),
             packages: Packages::default(),
         }
@@ -1586,6 +1588,16 @@ impl Config {
     /// Подстроить значения по умолчанию под телефон: окна во весь экран
     /// (monocle), без рамок и зазоров, оболочка `synmobile-shell`, без Xwayland.
     /// Явно заданные в конфиге значения не трогаются.
+    /// Форм-фактор процесса: `SYNSHELL_FORM_FACTOR` (его выставляет
+    /// композитор детям), иначе `[platform] form_factor`, иначе рабочий стол.
+    pub fn process_form_factor(&self) -> FormFactor {
+        match std::env::var("SYNSHELL_FORM_FACTOR").as_deref() {
+            Ok("phone") | Ok("mobile") => FormFactor::Phone,
+            Ok("desktop") => FormFactor::Desktop,
+            _ => self.form_factor_setting().unwrap_or_default(),
+        }
+    }
+
     pub fn apply_form_factor(&mut self, ff: FormFactor) {
         if ff != FormFactor::Phone {
             return;
@@ -1982,6 +1994,24 @@ pub struct Haptics {
 impl Default for Haptics {
     fn default() -> Self {
         Self { enabled: true, strength: 70, gestures: true, keyboard: true, touch: true, notifications: true }
+    }
+}
+
+// ─── дата и время ───────────────────────────────────────────────────────────
+
+/// Дата и время (`[time]`). Пояс и синхронизация по сети — настройки
+/// системы (systemd-timedated), здесь — что делает оболочка.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Time {
+    /// Определять часовой пояс по сети (по внешнему IP) и ставить его
+    /// системе. Не задано — на телефоне да, на десктопе нет.
+    pub auto_timezone: Option<bool>,
+}
+
+impl Time {
+    pub fn auto_timezone(&self, ff: FormFactor) -> bool {
+        self.auto_timezone.unwrap_or(ff == FormFactor::Phone)
     }
 }
 

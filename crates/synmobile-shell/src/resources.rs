@@ -2,7 +2,8 @@
 //! resources_page`): загрузка процессора (кольцо, ядра столбиками с частотой
 //! и цветом класса ядра — LITTLE/big/prime, история за минуту), память,
 //! графика, температуры, питание, сеть и внизу — лента запущенных
-//! приложений с бейджами памяти (слева) и процессора (справа).
+//! приложений с бейджами памяти (слева) и процессора (справа). Тап по
+//! часам — календарь и быстрые настройки даты и времени.
 //!
 //! Снимки — в фоновом потоке раз в секунду и только пока страница видна.
 
@@ -298,6 +299,10 @@ pub fn page(ctx: ShellCtx) -> impl Widget {
                 .child(Text::new(synshell_ui::clock::format(now, "%a, %d %b")).class("res-date grow")),
         )
     });
+    // Тап по часам — календарь и быстрые настройки времени (пояс, «автоматически»).
+    let clock = GestureDetector::new()
+        .on_click(move || ctx.open_popup(synshell_ui::ctx::PopupKind::Calendar, synshell_ui::commands::centered()))
+        .child(clock);
     let cpu_card = rx(move || {
         let s = sig.get();
         let temp = s.cpu_temp.map(|t| format!("{t:.0} °C")).unwrap_or_default();

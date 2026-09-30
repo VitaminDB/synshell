@@ -18,6 +18,7 @@ pub mod packages;
 pub mod polkit_agent;
 pub mod procs;
 pub mod thermal;
+pub mod time;
 pub mod util;
 pub mod volume;
 pub mod wifi;

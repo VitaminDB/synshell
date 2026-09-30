@@ -203,11 +203,19 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
     let ctx = ShellCtx::get();
     let kind = p.kind.clone();
     let (ow0, _) = out;
-    let is_sheet = ctx.is_phone() && !p.kind.is_context_menu();
+    let is_sheet = ctx.is_phone() && !p.kind.is_context_menu() && !centered_on_phone(&p.kind);
+    // Телефон: окно по центру экрана (часы) — во всю ширину, как лист.
+    let full = is_sheet || (ctx.is_phone() && centered_on_phone(&p.kind));
     // На узком экране карточка не шире вывода.
-    let width = if is_sheet { ow0 - 2.0 * GAP } else { width.min((ow0 - 2.0 * GAP).max(120.0)) };
+    let width = if full { ow0 - 2.0 * GAP } else { width.min((ow0 - 2.0 * GAP).max(120.0)) };
     let card_class = if is_sheet { "popup-card popup-sheet".to_string() } else { card_class };
-    let presence_edge = if is_sheet { Some(Edge::Bottom) } else { p.anchor.rect.map(|_| p.anchor.edge) };
+    let presence_edge = if is_sheet {
+        Some(Edge::Bottom)
+    } else if full {
+        None
+    } else {
+        p.anchor.rect.map(|_| p.anchor.edge)
+    };
     let card = crate::anim::popup_presence(&ctx, open, presence_edge, attached, move || {
         let leave_timer = leave_timer.clone();
         Box::new(
@@ -242,7 +250,8 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
     let (ow, oh) = out;
     // Телефон: окна (громкость, сеть, «Добавить»…) — нижним листом во всю
     // ширину; контекстные меню — у пальца.
-    let sheet = ctx.is_phone() && !p.kind.is_context_menu();
+    let sheet = is_sheet;
+    let rect = if ctx.is_phone() && centered_on_phone(&p.kind) { None } else { p.anchor.rect };
     let placed: Box<dyn Widget> = if sheet {
         Box::new(
             Column::new()
@@ -251,7 +260,7 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
                 .child(card)
                 .class("popup-sheet-place"),
         )
-    } else { match p.anchor.rect {
+    } else { match rect {
         None => Box::new(
             Column::new()
                 .main_axis_alignment(MainAxisAlignment::Center)
@@ -299,6 +308,11 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
         }
     } };
     Stack::new().fit(StackFit::Expand).child(backdrop).child(placed)
+}
+
+/// Телефон: окно по центру экрана, а не нижним листом (календарь часов).
+fn centered_on_phone(kind: &PopupKind) -> bool {
+    matches!(kind, PopupKind::Calendar)
 }
 
 /// Закрыть окно через `ms`, если указатель не вернётся.
@@ -374,6 +388,7 @@ fn calendar(ctx: ShellCtx) -> impl Widget {
     let (y, m, d) = crate::clock::ymd(now);
     Column::new()
         .gap(8.0)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(move || {
             let now = ctx.now.get();
             Column::new()
@@ -381,7 +396,8 @@ fn calendar(ctx: ShellCtx) -> impl Widget {
                 .child(Text::new(crate::clock::format(now, "%H:%M:%S")).class("cal-time"))
                 .child(Text::new(crate::clock::format(now, "%A, %e %B %Y")).class("cal-date"))
         })
-        .child(Calendar::new().selected(Date::new(y, m, d)).show_week_numbers(true).class("cal"))
+        .child(Calendar::new().selected(Date::new(y, m, d)).show_week_numbers(true).fill_width(ctx.is_phone()).class("cal"))
+        .child(crate::datetime::quick(ctx))
 }
 
 fn volume(ctx: ShellCtx) -> impl Widget {

@@ -1,5 +1,6 @@
 //! Время: `strftime` из libc (локаль и часовой пояс системы) и тикающий
-//! сигнал `ShellCtx::now`.
+//! сигнал `ShellCtx::now`. Пояс перечитывается (`tzset`) при каждом
+//! форматировании: его меняют на ходу («Дата и время», автоопределение).
 
 use std::ffi::CString;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -13,13 +14,9 @@ pub fn unix_now() -> i64 {
 /// Локальное время в формате strftime (`%H:%M`, `%a, %d %b`).
 pub fn format(ts: i64, fmt: &str) -> String {
     let Ok(cfmt) = CString::new(fmt) else { return String::new() };
-    // SAFETY: localtime_r/strftime с корректными буферами.
+    let Some(tm) = local(ts) else { return String::new() };
+    // SAFETY: strftime с корректными буферами.
     unsafe {
-        let t: libc::time_t = ts as libc::time_t;
-        let mut tm: libc::tm = std::mem::zeroed();
-        if libc::localtime_r(&t, &mut tm).is_null() {
-            return String::new();
-        }
         let mut buf = vec![0u8; 256];
         let n = libc::strftime(buf.as_mut_ptr() as *mut libc::c_char, buf.len(), cfmt.as_ptr(), &tm);
         buf.truncate(n);
@@ -27,15 +24,30 @@ pub fn format(ts: i64, fmt: &str) -> String {
     }
 }
 
-/// Год, месяц (1..12), день — для календаря.
-pub fn ymd(ts: i64) -> (i32, u32, u32) {
-    // SAFETY: см. `format`.
+/// Разбить время в текущем поясе системы. `localtime_r` сам пояс не
+/// перечитывает — `tzset` сверяет `/etc/localtime` (дёшево: stat).
+fn local(ts: i64) -> Option<libc::tm> {
+    extern "C" {
+        fn tzset();
+    }
+    // SAFETY: tzset/localtime_r с корректным буфером.
     unsafe {
+        tzset();
         let t: libc::time_t = ts as libc::time_t;
         let mut tm: libc::tm = std::mem::zeroed();
-        libc::localtime_r(&t, &mut tm);
-        (tm.tm_year + 1900, (tm.tm_mon + 1) as u32, tm.tm_mday as u32)
+        (!libc::localtime_r(&t, &mut tm).is_null()).then_some(tm)
     }
+}
+
+/// Год, месяц (1..12), день — для календаря.
+pub fn ymd(ts: i64) -> (i32, u32, u32) {
+    let tm = local(ts).unwrap_or_else(|| unsafe { std::mem::zeroed() });
+    (tm.tm_year + 1900, (tm.tm_mon + 1) as u32, tm.tm_mday as u32)
+}
+
+/// Смещение текущего пояса от UTC в момент `ts`, секунды к востоку.
+pub fn utc_offset(ts: i64) -> i32 {
+    local(ts).map(|tm| tm.tm_gmtoff as i32).unwrap_or(0)
 }
 
 /// Тикать `now` на границе каждой секунды.

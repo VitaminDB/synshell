@@ -16,6 +16,7 @@ pub mod appmenu;
 pub mod clock;
 pub mod commands;
 pub mod ctx;
+pub mod datetime;
 pub mod dock;
 pub mod edit;
 pub mod gtkmenu;
@@ -67,11 +68,7 @@ pub struct Shell {
 /// Форм-фактор процесса: `SYNSHELL_FORM_FACTOR` (его выставляет композитор
 /// детям), иначе `[platform] form_factor`, иначе рабочий стол.
 pub fn detect_form_factor(cfg: &Config) -> FormFactor {
-    match std::env::var("SYNSHELL_FORM_FACTOR").as_deref() {
-        Ok("phone") | Ok("mobile") => FormFactor::Phone,
-        Ok("desktop") => FormFactor::Desktop,
-        _ => cfg.form_factor_setting().unwrap_or_default(),
-    }
+    cfg.process_form_factor()
 }
 
 /// Загрузить конфиг с политикой форм-фактора (как у композитора).
@@ -121,6 +118,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         provide_context(ctx);
         clock::start(ctx);
         system::start(ctx);
+        datetime::start(ctx);
         ipc::start(ctx);
         appmenu::install(ctx);
         notifications::start(ctx);

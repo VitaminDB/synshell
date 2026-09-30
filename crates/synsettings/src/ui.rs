@@ -369,6 +369,7 @@ pub mod icons {
     pub const AUTOSTART: &str = "\u{e037}";
     pub const SETTINGS: &str = "\u{e8b8}";
     pub const INFO: &str = "\u{e88e}";
+    pub const SCHEDULE: &str = "\u{e8b5}";
     pub const SEARCH: &str = "\u{e8b6}";
     pub const CHEVRON_RIGHT: &str = "\u{e5cc}";
     pub const PHONE: &str = "\u{e325}";

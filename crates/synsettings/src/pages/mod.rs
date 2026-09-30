@@ -3,6 +3,7 @@
 use crate::ui::{icons, W};
 
 mod appearance;
+mod datetime;
 mod hardware;
 mod input;
 mod mobile;
@@ -204,6 +205,14 @@ pub const PAGES: &[PageDef] = &[
         group: "Система",
         keywords: "батарея аккумулятор заряд регулятор частота governor сон гашение экрана",
         build: power::power,
+    },
+    PageDef {
+        id: "datetime",
+        title: "Дата и время",
+        icon: icons::SCHEDULE,
+        group: "Система",
+        keywords: "часы время дата часовой пояс таймзона timezone ntp синхронизация автоматически utc",
+        build: datetime::datetime,
     },
     PageDef {
         id: "lock",

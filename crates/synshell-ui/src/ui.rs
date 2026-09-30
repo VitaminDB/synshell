@@ -462,6 +462,8 @@ pub mod mi {
     pub const FLOAT: &str = "\u{E069}";
     pub const WINDOW: &str = "\u{F088}";
     pub const INFO: &str = "\u{E88E}";
+    pub const PUBLIC: &str = "\u{E80B}";
+    pub const SCHEDULE: &str = "\u{E8B5}";
     pub const PLAY_ARROW: &str = "\u{E037}";
     pub const RUN: &str = "\u{E5C8}";
 }
