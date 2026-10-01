@@ -116,12 +116,13 @@ fn start_sampler(sig: RwSignal<Snap>) {
                 };
                 last_net = Some((rx, tx));
                 let wins = windows_slot().lock().map(|w| w.clone()).unwrap_or_default();
-                let pids: Vec<i32> = wins.iter().map(|w| w.3).collect();
-                let stats = procs.sample(&pids);
+                let groups: Vec<(u64, synsystem::procs::Source)> =
+                    wins.iter().map(|(id, app, _, pid)| (*id, usage_source(&sys, app, *pid))).collect();
+                let stats = procs.sample_groups(&groups);
                 let mut apps: Vec<AppStat> = wins
                     .iter()
-                    .map(|(id, app, title, pid)| {
-                        let s = stats.get(pid).copied().unwrap_or_default();
+                    .map(|(id, app, title, _)| {
+                        let s = stats.get(id).copied().unwrap_or_default();
                         AppStat { window: *id, app_id: app.clone(), title: title.clone(), mem_kb: s.memory_kb, cpu: s.cpu_percent }
                     })
                     .collect();
@@ -431,12 +432,36 @@ pub fn page(ctx: ShellCtx) -> impl Widget {
     )
 }
 
-/// Карточка приложения в ленте: значок, слева бейдж памяти, справа —
+/// Что считать за приложение окна. Окна Android рисует один процесс hwcomposer контейнера
+/// syndroid, его собственная память — не память Android: окно всего Android (app_id
+/// `Waydroid`) — весь контейнер (cgroup syndroid), окно приложения (`waydroid.<пакет>`) — процессы
+/// Android с именем пакета.
+fn usage_source(sys: &synsystem::Sys, app_id: &str, pid: i32) -> synsystem::procs::Source {
+    use synsystem::procs::Source;
+    const ANDROID_CGROUP: &str = "/sys/fs/cgroup/syndroid";
+    if app_id == "Waydroid" {
+        return Source::Cgroup(ANDROID_CGROUP.into());
+    }
+    if let Some(pkg) = app_id.strip_prefix("waydroid.") {
+        let pids = synsystem::procs::find_by_name(sys, pkg);
+        if !pids.is_empty() {
+            return Source::Pids(pids);
+        }
+    }
+    Source::Pids(vec![pid])
+}
+
+/// Карточка приложения в ленте: значок, имя и подпись (с переносом), внизу — бейджи памяти и
 /// процессора; тап — к окну, «×» в углу или свайп вверх — закрыть.
 fn app_card(a: &AppStat) -> impl Widget {
     let entry = synshell_common::xdg::app_for_window(&a.app_id);
     let icon_path = entry.as_ref().and_then(|e| synshell_common::xdg::lookup_icon(&e.icon)).or_else(|| synshell_common::xdg::window_icon(&a.app_id));
     let name = entry.as_ref().map(|e| e.name.clone()).unwrap_or_else(|| a.app_id.clone());
+    // У Android «Android» и экземпляр — разными строками: имя образа не рвётся посередине
+    let mut subtitle = synshell_common::xdg::window_subtitle(entry.as_ref(), &a.title);
+    if entry.as_ref().is_some_and(|e| e.android.is_some()) {
+        subtitle = subtitle.replacen(" · ", "\n", 1);
+    }
     let mem = if a.mem_kb >= 1024 * 1024 { format!("{:.1}G", a.mem_kb as f64 / 1048576.0) } else { format!("{}M", a.mem_kb / 1024) };
     let cpu_class = if a.cpu >= 50.0 { "res-badge res-badge-cpu res-badge-hot" } else { "res-badge res-badge-cpu" };
     let id = a.window;
@@ -455,18 +480,19 @@ fn app_card(a: &AppStat) -> impl Widget {
             DecoratedBox::new()
                 .child(
                     Column::new()
-                        .gap(6.0)
+                        .gap(4.0)
                         .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(launchers::icon_widget(&icon_path, &None, "res-app-icon", 44.0))
+                        .child(Text::new(name).max_lines(2).class("res-app-name"))
+                        .child(Text::new(subtitle).max_lines(3).class("res-app-title"))
                         .child(
                             Row::new()
                                 .gap(4.0)
                                 .cross_axis_alignment(CrossAxisAlignment::Center)
                                 .child(DecoratedBox::new().child(Text::new(mem).class("res-badge-text")).class("res-badge res-badge-mem"))
-                                .child(launchers::icon_widget(&icon_path, &None, "res-app-icon", 44.0))
-                                .child(DecoratedBox::new().child(Text::new(format!("{:.0}%", a.cpu)).class("res-badge-text")).class(cpu_class)),
-                        )
-                        .child(Text::new(name).max_lines(1).class("res-app-name"))
-                        .child(Text::new(synshell_common::xdg::window_subtitle(entry.as_ref(), &a.title)).max_lines(1).class("res-app-title")),
+                                .child(DecoratedBox::new().child(Text::new(format!("{:.0}%", a.cpu)).class("res-badge-text")).class(cpu_class))
+                                .class("res-app-badges"),
+                        ),
                 )
                 .class("res-app"),
         );

@@ -60,7 +60,7 @@ fn total_ticks(sys: &Sys) -> Option<u64> {
 #[derive(Debug, Default)]
 pub struct ProcSampler {
     sys: Sys,
-    last: HashMap<i32, u64>,
+    last: HashMap<u64, u64>,
     last_total: Option<u64>,
     cores: usize,
 }
@@ -74,6 +74,13 @@ impl ProcSampler {
 
     /// Для каждого pid — процесс вместе с потомками.
     pub fn sample(&mut self, pids: &[i32]) -> HashMap<i32, ProcStat> {
+        let groups: Vec<(u64, Source)> = pids.iter().map(|&p| (p as u64, Source::Pids(vec![p]))).collect();
+        self.sample_groups(&groups).into_iter().map(|(k, v)| (k as i32, v)).collect()
+    }
+
+    /// Для каждого ключа (окна) — сумма по его источнику; загрузка — разность с прошлым
+    /// снимком того же ключа.
+    pub fn sample_groups(&mut self, groups: &[(u64, Source)]) -> HashMap<u64, ProcStat> {
         let total = total_ticks(&self.sys);
         let dt_total = match (total, self.last_total) {
             (Some(t), Some(l)) if t > l => Some((t - l) as f32),
@@ -81,36 +88,82 @@ impl ProcSampler {
         };
         let mut out = HashMap::new();
         let mut seen = HashMap::new();
-        for &pid in pids {
-            // Процесс и потомки до трёх поколений (браузер: zygote → вкладки).
-            let mut group = vec![pid];
-            let mut frontier = vec![pid];
-            for _ in 0..3 {
-                let next: Vec<i32> = frontier.iter().flat_map(|p| children_of(&self.sys, *p)).collect();
-                if next.is_empty() {
-                    break;
-                }
-                group.extend(&next);
-                frontier = next;
-            }
-            let mut mem = 0;
-            let mut ticks = 0;
-            for p in &group {
-                mem += memory_kb(&self.sys, *p).unwrap_or(0);
-                ticks += cpu_ticks(&self.sys, *p).unwrap_or(0);
-            }
-            let cpu = match (dt_total, self.last.get(&pid)) {
+        for (key, src) in groups {
+            let (mem, ticks) = match src {
+                Source::Pids(roots) => self.pids_usage(roots),
+                Source::Cgroup(dir) => cgroup_usage(&self.sys, dir),
+            };
+            let cpu = match (dt_total, self.last.get(key)) {
                 // Тики /proc/stat — сумма по всем ядрам.
                 (Some(dt), Some(&prev)) => ticks.saturating_sub(prev) as f32 / dt * 100.0 * self.cores as f32,
                 _ => 0.0,
             };
-            seen.insert(pid, ticks);
-            out.insert(pid, ProcStat { memory_kb: mem, cpu_percent: cpu });
+            seen.insert(*key, ticks);
+            out.insert(*key, ProcStat { memory_kb: mem, cpu_percent: cpu });
         }
         self.last = seen;
         self.last_total = total;
         out
     }
+
+    /// Процессы и потомки до трёх поколений (браузер: zygote → вкладки): память КБ, тики.
+    fn pids_usage(&self, roots: &[i32]) -> (u64, u64) {
+        let mut group = roots.to_vec();
+        let mut frontier = roots.to_vec();
+        for _ in 0..3 {
+            let next: Vec<i32> = frontier.iter().flat_map(|p| children_of(&self.sys, *p)).collect();
+            if next.is_empty() {
+                break;
+            }
+            group.extend(&next);
+            frontier = next;
+        }
+        group.sort_unstable();
+        group.dedup();
+        let mut mem = 0;
+        let mut ticks = 0;
+        for p in &group {
+            mem += memory_kb(&self.sys, *p).unwrap_or(0);
+            ticks += cpu_ticks(&self.sys, *p).unwrap_or(0);
+        }
+        (mem, ticks)
+    }
+}
+
+/// Что считать за приложение окна.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Source {
+    /// Процессы с потомками.
+    Pids(Vec<i32>),
+    /// Вся cgroup v2 (каталог в /sys/fs/cgroup) — контейнер целиком.
+    Cgroup(String),
+}
+
+/// Память (`memory.current`) и процессор (`cpu.stat` usage_usec → тики) cgroup.
+fn cgroup_usage(sys: &Sys, dir: &str) -> (u64, u64) {
+    let mem = sys.read_num::<u64>(format!("{dir}/memory.current")).unwrap_or(0) / 1024;
+    let usec: u64 = sys
+        .read(format!("{dir}/cpu.stat"))
+        .and_then(|s| s.lines().find_map(|l| l.strip_prefix("usage_usec ")?.trim().parse().ok()))
+        .unwrap_or(0);
+    // SAFETY: sysconf без побочных эффектов.
+    let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1) as u64;
+    (mem, usec * hz / 1_000_000)
+}
+
+/// Процессы, чьё имя (первое слово cmdline) — `name` или `name:…` (служебные процессы
+/// Android-приложения: `org.app:remote`).
+pub fn find_by_name(sys: &Sys, name: &str) -> Vec<i32> {
+    sys.list("/proc")
+        .iter()
+        .filter_map(|p| p.parse::<i32>().ok())
+        .filter(|p| {
+            sys.read(format!("/proc/{p}/cmdline")).is_some_and(|c| {
+                let arg0 = c.split('\0').next().unwrap_or("");
+                arg0 == name || arg0.strip_prefix(name).is_some_and(|r| r.starts_with(':'))
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -128,5 +181,25 @@ mod tests {
         let sys = Sys::at(dir.path());
         assert_eq!(cpu_ticks(&sys, 42), Some(100));
         assert_eq!(memory_kb(&sys, 42), Some(1500));
+    }
+
+    #[test]
+    fn cgroup_and_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let cg = dir.path().join("sys/fs/cgroup/box");
+        fs::create_dir_all(&cg).unwrap();
+        fs::write(cg.join("memory.current"), "2097152\n").unwrap();
+        fs::write(cg.join("cpu.stat"), "usage_usec 3000000\nuser_usec 1\n").unwrap();
+        for (pid, cmd) in [(7, "org.app\0"), (8, "org.app:remote\0"), (9, "org.apple\0")] {
+            let p = dir.path().join(format!("proc/{pid}"));
+            fs::create_dir_all(&p).unwrap();
+            fs::write(p.join("cmdline"), cmd).unwrap();
+        }
+        let sys = Sys::at(dir.path());
+        let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as u64;
+        assert_eq!(cgroup_usage(&sys, "/sys/fs/cgroup/box"), (2048, 3 * hz));
+        let mut v = find_by_name(&sys, "org.app");
+        v.sort();
+        assert_eq!(v, vec![7, 8]);
     }
 }
