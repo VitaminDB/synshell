@@ -92,6 +92,9 @@ struct State {
     child: Option<Child>,
     /// Набор, с которым запущен источник.
     running: Vec<&'static str>,
+    /// Контейнер заморожен (демон: SIGUSR1/SIGUSR2): источник остановлен — замороженный Android датчики
+    /// выключить не может, а данные SLPI будят телефон и не дают ему уснуть.
+    paused: bool,
 }
 
 pub struct Sensors {
@@ -103,7 +106,11 @@ pub struct Sensors {
 impl Sensors {
     /// (Пере)запустить источник под набор включённых датчиков.
     fn reconcile(self: &Arc<Self>, st: &mut State) {
-        let mut want: Vec<&'static str> = st.available.iter().filter(|d| st.active.contains_key(&d.handle)).map(|d| d.key).collect();
+        let mut want: Vec<&'static str> = if st.paused {
+            Vec::new()
+        } else {
+            st.available.iter().filter(|d| st.active.contains_key(&d.handle)).map(|d| d.key).collect()
+        };
         want.sort();
         if want == st.running {
             return;
@@ -137,6 +144,15 @@ impl Sensors {
                     s.on_line(&line);
                 }
             });
+        }
+    }
+
+    fn pause(self: &Arc<Self>, on: bool) {
+        let mut st = self.st.lock().unwrap();
+        if st.paused != on {
+            st.paused = on;
+            tracing::info!("датчики: {}", if on { "контейнер заморожен — источник остановлен" } else { "контейнер разморожен" });
+            self.reconcile(&mut st);
         }
     }
 
@@ -320,6 +336,15 @@ fn available() -> Vec<&'static Def> {
 /// `syndroidd __sensors <узел hwbinder>`
 pub fn sensors_main(args: &[String]) -> ! {
     let dev = args.first().cloned().unwrap_or_default();
+    // SIGUSR1 — пауза (контейнер заморожен), SIGUSR2 — продолжить; ждёт их отдельный поток, у остальных
+    // потоков сигналы заблокированы (маска наследуется — блокировать до запуска потоков).
+    let mut set: libc::sigset_t = unsafe { std::mem::zeroed() };
+    unsafe {
+        libc::sigemptyset(&mut set);
+        libc::sigaddset(&mut set, libc::SIGUSR1);
+        libc::sigaddset(&mut set, libc::SIGUSR2);
+        libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
+    }
     let r = (|| -> Result<()> {
         let avail = available();
         if avail.is_empty() {
@@ -327,11 +352,18 @@ pub fn sensors_main(args: &[String]) -> ! {
         }
         tracing::info!("датчики Android: {}", avail.iter().map(|d| d.key).collect::<Vec<_>>().join(" "));
         let s = Arc::new(Sensors {
-            st: Mutex::new(State { available: avail, active: HashMap::new(), last: HashMap::new(), child: None, running: Vec::new() }),
+            st: Mutex::new(State { available: avail, active: HashMap::new(), last: HashMap::new(), child: None, running: Vec::new(), paused: false }),
             events: Arc::new(EventQueue::default()),
             me: Mutex::new(None),
         });
         *s.me.lock().unwrap() = Some(Arc::downgrade(&s));
+        let s2 = s.clone();
+        std::thread::spawn(move || loop {
+            let mut sig = 0;
+            if unsafe { libc::sigwait(&set, &mut sig) } == 0 {
+                s2.pause(sig == libc::SIGUSR1);
+            }
+        });
         hwbinder::serve(&dev, "default", s).context("ISensors")
     })();
     if let Err(e) = r {

@@ -232,14 +232,23 @@ impl Daemon {
         Ok(())
     }
 
+    /// Процессу датчиков: SIGUSR1 — контейнер заморожен (остановить источник), SIGUSR2 — разморожен.
+    fn signal_sensors(&self, sig: i32) {
+        if let Some(c) = self.inner.lock().unwrap().sensors.as_ref() {
+            unsafe { libc::kill(c.id() as i32, sig) };
+        }
+    }
+
     fn freeze(&self, on: bool) -> Result<()> {
         let s = self.state();
         match (on, s) {
             (true, State::Running | State::Starting) => {
                 container::freeze(true)?;
+                self.signal_sensors(libc::SIGUSR1);
                 self.set_state(State::Frozen);
             }
             (false, State::Frozen) => {
+                self.signal_sensors(libc::SIGUSR2);
                 container::freeze(false)?;
                 let booted = self.inner.lock().unwrap().android_version.is_some();
                 self.set_state(if booted { State::Running } else { State::Starting });

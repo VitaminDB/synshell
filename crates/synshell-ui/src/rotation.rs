@@ -34,6 +34,27 @@ thread_local! {
     static STABLE: Cell<Option<Rotation>> = const { Cell::new(None) };
 }
 
+/// Прокси, через который занят акселерометр: отпускать и занимать снова надо с того же
+/// соединения D-Bus (захват — по отправителю).
+static PROXY: std::sync::Mutex<Option<zbus::blocking::Proxy<'static>>> = std::sync::Mutex::new(None);
+/// Экран горит; погашен — акселерометр отпущен (SLPI не будит телефон данными).
+static SCREEN_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+fn screen_power(on: bool) {
+    SCREEN_ON.store(on, std::sync::atomic::Ordering::SeqCst);
+    let Some(p) = PROXY.lock().unwrap().clone() else { return };
+    std::thread::spawn(move || {
+        let m = if on { "ClaimAccelerometer" } else { "ReleaseAccelerometer" };
+        if let Err(e) = p.call_method(m, &()) {
+            log::warn!("поворот экрана: {m}: {e}");
+        } else if on {
+            if let Ok(v) = p.get_property::<String>("AccelerometerOrientation") {
+                deliver(&v);
+            }
+        }
+    });
+}
+
 /// Слушать датчик в фоне; без iio-sensor-proxy или акселерометра — молча
 /// ничего не делать (проверка раз в минуту: служба может появиться позже).
 pub fn start(ctx: ShellCtx) {
@@ -46,6 +67,7 @@ pub fn start(ctx: ShellCtx) {
             apply_policy(ctx);
         }
     });
+    create_effect(move || screen_power(ctx.screen_on.get()));
     create_effect(move || {
         let _ = ctx.comp_outputs.get();
         if ctx.cfg().rotation.auto {
@@ -76,7 +98,10 @@ fn listen() -> zbus::Result<()> {
     if !has {
         return Err(zbus::Error::Failure("нет акселерометра".into()));
     }
-    proxy.call_method("ClaimAccelerometer", &())?;
+    if SCREEN_ON.load(std::sync::atomic::Ordering::SeqCst) {
+        proxy.call_method("ClaimAccelerometer", &())?;
+    }
+    *PROXY.lock().unwrap() = Some(proxy.clone());
     log::info!("поворот экрана: акселерометр подключён");
     set_threshold(&proxy, synshell_common::Config::load().0.rotation.threshold_deg);
     // Служба перезапустилась — захват был за прежним владельцем имени: занять заново.
@@ -87,7 +112,10 @@ fn listen() -> zbus::Result<()> {
             let Ok(dbus) = zbus::blocking::fdo::DBusProxy::new(&c2) else { return };
             let Ok(changes) = dbus.receive_name_owner_changed_with_args(&[(0, "net.hadess.SensorProxy")]) else { return };
             for c in changes {
-                if c.args().is_ok_and(|a| a.new_owner().is_some()) && p2.call_method("ClaimAccelerometer", &()).is_ok() {
+                if c.args().is_ok_and(|a| a.new_owner().is_some())
+                    && SCREEN_ON.load(std::sync::atomic::Ordering::SeqCst)
+                    && p2.call_method("ClaimAccelerometer", &()).is_ok()
+                {
                     set_threshold(&p2, synshell_common::Config::load().0.rotation.threshold_deg);
                     log::info!("поворот экрана: служба датчиков перезапущена, акселерометр занят снова");
                     if let Ok(v) = p2.get_property::<String>("AccelerometerOrientation") {

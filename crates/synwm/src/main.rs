@@ -23,6 +23,7 @@ mod render;
 mod rotate_anim;
 mod screencopy;
 mod screenshot;
+mod sleep;
 mod spawn;
 mod state;
 mod stream;
@@ -57,6 +58,8 @@ fn main() {
     if args.first().map(String::as_str) == Some("msg") {
         std::process::exit(msg(&args[1..]));
     }
+    // экран при запуске горит: флаг сна мог остаться от упавшего прежнего композитора
+    sleep::screen_power(true);
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
             "synwm {} — окружение рабочего стола для Wayland\n\n\

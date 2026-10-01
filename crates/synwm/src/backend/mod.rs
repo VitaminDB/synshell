@@ -610,5 +610,7 @@ impl State {
         if on {
             self.core.queue_redraw_all();
         }
+        crate::sleep::screen_power(on);
+        self.core.ipc.broadcast(&synshell_common::ipc::Event::ScreenPower { on });
     }
 }

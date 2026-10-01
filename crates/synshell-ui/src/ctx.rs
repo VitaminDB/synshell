@@ -131,6 +131,8 @@ pub struct ShellCtx {
     pub volume: RwSignal<Option<Volume>>,
     /// Яркость подсветки, % (ползунок шторки, автояркость); `None` — ещё не читали.
     pub brightness: RwSignal<Option<f32>>,
+    /// Экраны горят (композитор: событие `screen-power`); погашены — датчики отпущены.
+    pub screen_on: RwSignal<bool>,
     pub battery: RwSignal<Option<Battery>>,
     pub network: RwSignal<Network>,
     pub cpu: RwSignal<f32>,
@@ -177,6 +179,7 @@ impl ShellCtx {
             dnd: use_signal(config.notifications.do_not_disturb),
             volume: use_signal(None),
             brightness: use_signal(None),
+            screen_on: use_signal(true),
             battery: use_signal(None),
             network: use_signal(Network::default()),
             cpu: use_signal(0.0),

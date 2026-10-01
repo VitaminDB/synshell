@@ -224,6 +224,9 @@ pub enum Event {
     Exiting,
     /// Режим окон телефона, страница или стол изменились.
     MobileChanged { mobile: MobileInfo },
+    /// Экраны погашены (`on: false`) или включены: оболочка отпускает датчики,
+    /// пока экран не горит.
+    ScreenPower { on: bool },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

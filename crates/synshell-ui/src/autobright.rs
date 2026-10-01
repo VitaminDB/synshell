@@ -12,6 +12,7 @@ use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use syngui::prelude::create_effect;
 use synshell_common::config::Brightness;
 
 use crate::ctx::ShellCtx;
@@ -71,11 +72,40 @@ enum Msg {
     Lux(f32),
 }
 
+/// Прокси, через который занят датчик (отпускать — с того же соединения D-Bus).
+static PROXY: Mutex<Option<zbus::blocking::Proxy<'static>>> = Mutex::new(None);
+/// Экран горит; погашен — датчик отпущен и яркость не трогается.
+static SCREEN_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+fn screen_power(on: bool, tx: std::sync::mpsc::Sender<Msg>) {
+    SCREEN_ON.store(on, std::sync::atomic::Ordering::SeqCst);
+    let Some(p) = PROXY.lock().unwrap().clone() else { return };
+    std::thread::spawn(move || {
+        let m = if on { "ClaimLight" } else { "ReleaseLight" };
+        if let Err(e) = p.call_method(m, &()) {
+            log::warn!("автояркость: {m}: {e}");
+        } else if on {
+            if let Ok(v) = p.get_property::<f64>("LightLevel") {
+                let _ = tx.send(Msg::Lux(v as f32));
+            }
+        }
+    });
+}
+
 pub fn start(ctx: ShellCtx) {
     let cfg = Arc::new(Mutex::new(ctx.cfg().brightness.clone()));
     let c2 = cfg.clone();
     crate::on_reload(move |ctx, _| *c2.lock().unwrap() = ctx.cfg().brightness.clone());
     let (tx, rx) = channel();
+    let tx2 = tx.clone();
+    create_effect(move || {
+        let on = ctx.screen_on.get();
+        if cfg_auto(&ctx) {
+            screen_power(on, tx2.clone());
+        } else {
+            SCREEN_ON.store(on, std::sync::atomic::Ordering::SeqCst);
+        }
+    });
     let c3 = cfg.clone();
     std::thread::Builder::new()
         .name("autobright".into())
@@ -99,13 +129,20 @@ pub fn start(ctx: ShellCtx) {
     std::thread::Builder::new().name("autobright-apply".into()).spawn(move || apply_loop(rx, cfg)).ok();
 }
 
+fn cfg_auto(ctx: &ShellCtx) -> bool {
+    ctx.cfg().brightness.auto
+}
+
 fn listen(tx: &std::sync::mpsc::Sender<Msg>, cfg: &Arc<Mutex<Brightness>>) -> zbus::Result<()> {
     let conn = zbus::blocking::Connection::system()?;
     let proxy = zbus::blocking::Proxy::new(&conn, "net.hadess.SensorProxy", "/net/hadess/SensorProxy", "net.hadess.SensorProxy")?;
     if !proxy.get_property::<bool>("HasAmbientLight")? {
         return Err(zbus::Error::Failure("нет датчика освещённости".into()));
     }
-    proxy.call_method("ClaimLight", &())?;
+    if SCREEN_ON.load(std::sync::atomic::Ordering::SeqCst) {
+        proxy.call_method("ClaimLight", &())?;
+    }
+    *PROXY.lock().unwrap() = Some(proxy.clone());
     log::info!("автояркость: датчик освещённости подключён");
     let changes = proxy.receive_property_changed::<f64>("LightLevel");
     let _ = tx.send(Msg::Lux(proxy.get_property::<f64>("LightLevel")? as f32));
@@ -113,6 +150,7 @@ fn listen(tx: &std::sync::mpsc::Sender<Msg>, cfg: &Arc<Mutex<Brightness>>) -> zb
         if !cfg.lock().unwrap().auto {
             // выключили — отдать датчик (выход из потока свойств закроет соединение)
             let _ = proxy.call_method("ReleaseLight", &());
+            *PROXY.lock().unwrap() = None;
             return Ok(());
         }
         if let Ok(v) = c.get() {
@@ -162,6 +200,9 @@ fn apply_loop(rx: Receiver<Msg>, cfg: Arc<Mutex<Brightness>>) {
             continue;
         }
         was_auto = true;
+        if !SCREEN_ON.load(std::sync::atomic::Ordering::SeqCst) {
+            continue;
+        }
         let (Some(l), Some(bl)) = (lux, synsystem::backlight::primary(&sys)) else { continue };
         let now_pct = bl.percent();
         if written.is_some_and(|w| w.abs_diff(bl.brightness) > 1) {
