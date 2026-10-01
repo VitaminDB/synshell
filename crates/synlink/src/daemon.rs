@@ -81,6 +81,22 @@ pub struct Daemon {
 }
 
 const SLEEP_FLAG: &str = "/run/syn-sleep/screen-off";
+const SLEEP_INHIBIT: &str = "/run/syn-sleep/inhibit.d";
+
+/// Телефон вот-вот уснёт — те же условия, что у syn-sleepd: экран погашен (флаг), прошла задержка «Глубокий сон
+/// после блокировки» (вторая строка флага, с; не меньше 3 с) и нет запретов в `inhibit.d`. Сам флаг ещё не сон:
+/// с задержкой в час связь по Wi-Fi рвалась сразу при блокировке.
+fn sleep_due() -> bool {
+    let Ok(meta) = std::fs::metadata(SLEEP_FLAG) else { return false };
+    let delay = std::fs::read_to_string(SLEEP_FLAG)
+        .ok()
+        .and_then(|t| t.lines().nth(1).and_then(|l| l.trim().parse::<u64>().ok()))
+        .unwrap_or(0)
+        .max(3);
+    let age = meta.modified().ok().and_then(|t| t.elapsed().ok()).unwrap_or_default();
+    let inhibited = std::fs::read_dir(SLEEP_INHIBIT).is_ok_and(|mut d| d.next().is_some());
+    age >= Duration::from_secs(delay) && !inhibited
+}
 
 pub type D = Arc<Daemon>;
 
@@ -795,8 +811,8 @@ impl Daemon {
                     self.configure(Some(name), Some(l.discoverable));
                 }
             }
-            // Экран телефона погашен — спим: сеансы по Wi-Fi закрыть, анонсы прекратить; включили — анонс сразу.
-            let sleeping = std::path::Path::new(SLEEP_FLAG).exists();
+            // Телефон засыпает — сеансы по Wi-Fi закрыть, анонсы прекратить; проснулся — анонс сразу.
+            let sleeping = sleep_due();
             if self.sleeping.swap(sleeping, std::sync::atomic::Ordering::Relaxed) != sleeping {
                 if sleeping {
                     let st = self.st.lock().unwrap();
