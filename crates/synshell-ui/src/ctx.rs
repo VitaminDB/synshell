@@ -52,6 +52,8 @@ pub enum PopupKind {
     Link,
     /// Запрос спаривания с устройством (id).
     LinkPair(String),
+    /// Программа запрашивает местоположение (вопрос агента GeoClue, id).
+    LocationAsk(u64),
 }
 
 impl PopupKind {

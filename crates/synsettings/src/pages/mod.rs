@@ -8,6 +8,7 @@ mod datetime;
 mod devices;
 mod hardware;
 mod input;
+mod location;
 mod mobile;
 mod modem;
 mod vpn;
@@ -257,6 +258,14 @@ pub const PAGES: &[PageDef] = &[
         group: "Система",
         keywords: "батарея аккумулятор заряд регулятор частота governor сон гашение экрана",
         build: power::power,
+    },
+    PageDef {
+        id: "location",
+        title: "Местоположение",
+        icon: "\u{e0c8}",
+        group: "Система",
+        keywords: "местоположение геолокация gps gnss спутники координаты geoclue карты навигация разрешения конфиденциальность",
+        build: location::location,
     },
     PageDef {
         id: "datetime",

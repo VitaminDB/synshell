@@ -24,6 +24,7 @@ pub mod ipc;
 pub mod launcher;
 pub mod launchers;
 pub mod link;
+pub mod location;
 pub mod lock;
 pub mod manager;
 pub mod modem;
@@ -131,6 +132,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         notifications::start(ctx);
         link::start(ctx);
         modem::start(ctx);
+        location::start(ctx);
         install(ctx);
         popup::install(ctx);
         osd::install(ctx);

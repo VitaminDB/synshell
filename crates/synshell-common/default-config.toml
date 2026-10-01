@@ -436,6 +436,15 @@ notifications = true
 auto_mount = true
 # UDP-порт QUIC; поиск устройств — на порту на единицу меньше.
 port = 47471
+
+[location]
+# Местоположение для программ (GeoClue; на телефоне — спутники модема).
+# Выключено — не получает никто. Остальных оболочка спрашивает при первом
+# запросе; «Разрешить»/«Запретить» запоминаются здесь (id .desktop).
+enabled = true
+allowed = []
+denied = []
+
 [wifi]
 backend = "auto"               # auto | iwd | networkmanager
 

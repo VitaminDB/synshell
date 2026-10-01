@@ -1196,6 +1196,7 @@ TextField {
     box-shadow: 0 4px 16px var(--accent-soft);
 }
 .link-avatar-big { padding: 20px; }
+.location-app-icon { width: 72px; height: 72px; }
 .link-avatar-icon { icon-size: 22px; icon-color: var(--fg); }
 .link-avatar-on .link-avatar-icon { icon-color: var(--accent-fg); }
 .link-avatar-icon-big { icon-size: 44px; }

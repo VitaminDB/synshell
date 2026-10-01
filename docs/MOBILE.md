@@ -193,7 +193,14 @@ docs/15-sensors.md), политика — `synshell-ui/src/rotation.rs`. Ком�
 - **GNSS** (`gnss.rs`, служба QMI LOC): приёмник работает, пока есть читатели — `GnssWatch` (поток `Fix` раз
   в секунду, `synmodem gnss [nmea]`) или сокет NMEA `/run/synmodem/gnss.nmea` для GeoClue; `status.gnss` —
   приёмник включён. Перед сеансом — время системы и XTRA (Inject XTRA Data 0xA7, файл раз в сутки); пока
-  работает — запрет сна `inhibit.d/gnss`. Агента GeoClue (разрешения программам) в оболочке пока нет.
+  работает — запрет сна `inhibit.d/gnss`.
+- **Местоположение для программ** — GeoClue (NMEA-сокет synmodemd); оболочка — его агент
+  (`synsystem::geoclue_agent`, `synshell-ui/src/location.rs`, id `synshell` в `[agent] whitelist` GeoClue).
+  GeoClue спрашивает агента только о программах из песочницы (Flatpak): обычные программы он не может
+  опознать и пускает, пока агент разрешает (`MaxAccuracyLevel`). Отсюда: `[location] enabled` — общий
+  выключатель (плитка «Местоположение» в шторке, «Параметры → Местоположение»); программам Flatpak —
+  диалог «Запретить / Только сейчас / Разрешить», ответы — в `[location] allowed/denied`. Пока приёмник
+  работает (`status.gnss`), у значка сети — значок местоположения, плитка — «Используется».
 - Оболочка (`synshell-ui/src/modem.rs`): `ctx.modem`, карточка «Сеть» экрана ресурсов (Wi-Fi + мобильная связь
   с полосками `signal_bars`), плитка «Мобильная связь» в шторке (радио вкл/выкл), уведомления о SMS
   (`synsms --chat`) и пропущенных (`synphone --log`), на входящий звонок поднимает/запускает «Телефон».

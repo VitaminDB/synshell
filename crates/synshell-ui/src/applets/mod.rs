@@ -242,7 +242,12 @@ fn network(_a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
     Box::new(
         applet_button("network", Row::new().child(move || {
             let n = ctx.network.get();
-            icon(network_glyph(&n)).class(if n.online { "" } else { "muted" })
+            let mut row = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center);
+            // Приёмник GNSS работает — кто-то читает местоположение
+            if ctx.modem.get().is_some_and(|m| m.gnss) {
+                row = row.child(icon(crate::location::GLYPH));
+            }
+            row.child(icon(network_glyph(&n)).class(if n.online { "" } else { "muted" }))
         }))
         .on_click(move |b, _, r| {
             if b == MouseButton::Left {

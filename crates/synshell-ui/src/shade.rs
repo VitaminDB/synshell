@@ -242,6 +242,22 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
                 });
             }));
         }
+        // Местоположение для программ (агент GeoClue): тап — выключатель [location] enabled
+        {
+            let on = cfg.location.enabled;
+            let state = if !on {
+                "Выключено".to_string()
+            } else if ctx.modem.get().is_some_and(|m| m.gnss) {
+                "Используется".into()
+            } else {
+                "Включено".into()
+            };
+            grid = grid.child(tile(crate::location::GLYPH, "Местоположение".into(), state, on, move || {
+                if let Err(e) = synshell_common::config_edit::set_value(&["location", "enabled"], toml_edit::Value::from(!on)) {
+                    log::warn!("[location] enabled: {e:#}");
+                }
+            }));
+        }
         grid = grid
             .child(tile("\u{E1A7}", "Bluetooth".into(), "Параметры".into(), false, || {
                 close();

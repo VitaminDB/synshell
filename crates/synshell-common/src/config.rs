@@ -52,6 +52,7 @@ pub struct Config {
     pub sound: Sound,
     pub time: Time,
     pub link: Link,
+    pub location: Location,
     pub wifi: Wifi,
     pub packages: Packages,
 }
@@ -87,6 +88,7 @@ impl Default for Config {
             sound: Sound::default(),
             time: Time::default(),
             link: Link::default(),
+            location: Location::default(),
             wifi: Wifi::default(),
             packages: Packages::default(),
         }
@@ -2224,6 +2226,27 @@ impl Default for Link {
             screen_codec: "auto".into(),
             screen_bitrate: 0,
         }
+    }
+}
+
+// ─── местоположение ─────────────────────────────────────────────────────────
+
+/// Местоположение для программ (`[location]`, GeoClue): оболочка — агент GeoClue
+/// и решает, кому его отдавать.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Location {
+    /// Выключено — местоположение не получает никто.
+    pub enabled: bool,
+    /// Программы (id .desktop без `.desktop`), которым разрешено и запрещено
+    /// навсегда; остальных оболочка спрашивает при первом запросе.
+    pub allowed: Vec<String>,
+    pub denied: Vec<String>,
+}
+
+impl Default for Location {
+    fn default() -> Self {
+        Self { enabled: true, allowed: Vec::new(), denied: Vec::new() }
     }
 }
 

@@ -10,6 +10,7 @@ pub mod backlight;
 pub mod battery;
 pub mod bluetooth;
 pub mod cpu;
+pub mod geoclue_agent;
 pub mod gpu;
 pub mod hwinfo;
 pub mod memory;
