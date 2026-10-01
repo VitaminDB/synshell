@@ -178,6 +178,26 @@ docs/15-sensors.md), политика — `synshell-ui/src/rotation.rs`. Ком�
   драйвер qca6490/cnss2, прошивка из раздела modem, `wlan-cnss-ready.service` — см. arch-mobile-port
   `docs/11-wifi.md`.
 
+## Модем: сеть, SMS, звонки (synmodem, synsms, synphone)
+
+- **synmodemd** (крейт `synmodem`, root, `synmodem.service`) — свой демон модема Qualcomm: QMI поверх QRTR
+  без libqmi (`qrtr.rs`, `qmi.rs`), службы DMS/NAS/UIM/WMS/Voice. Поднимает подписку SIM (карта не в
+  логическом слоте 1 — переназначает; USIM застряла в «detected» — перезапуск питания карты), держит
+  состояние сети по индикациям, принимает SMS через память модема (store-and-notify → своё хранилище
+  `/var/lib/synmodem/state.json` → удаление из модема), склеивает части, отправляет (`pdu.rs`: GSM-7 с
+  расширением, UCS-2, UDH), ведёт звонки и журнал. Звук разговора — хук платформы
+  `/usr/lib/synmodem/call-audio start|stop` (маршрут голоса зависит от устройства).
+- Протокол — `api.rs`: unix-сокет `/run/synmodem/synmodemd.sock`, JSON по строке, `Subscribe` — поток событий.
+  Состояние сети — всем; SMS, звонки, управление и события — root и группам `wheel`/`network`.
+- CLI `synmodem status | watch | radio on|off | sms [send НОМЕР ТЕКСТ] | dial | answer | hangup | dtmf | calls`.
+- Оболочка (`synshell-ui/src/modem.rs`): `ctx.modem`, карточка «Сеть» экрана ресурсов (Wi-Fi + мобильная связь
+  с полосками `signal_bars`), плитка «Мобильная связь» в шторке (радио вкл/выкл), уведомления о SMS
+  (`synsms --chat`) и пропущенных (`synphone --log`), на входящий звонок поднимает/запускает «Телефон».
+- **synsms** «Сообщения» и **synphone** «Телефон» — приложения syngui; на телефоне стек экранов, на компьютере
+  synsms — две колонки. Экран разговора synphone занимает окно, пока есть звонки.
+- Грабля syngui: Reactive отдаёт детям свободные ограничения — экраны во всю высоту переключать `ShowIf` по
+  сигналу-индексу, а не Reactive; текст с `flex-grow` в строке внутри Reactive растягивался на всю высоту.
+
 ## Автозапуск на телефоне
 Через экран входа: `synlogin daemon` (рендерер — сам, см. выше; `synlogin daemon -- --cpu` — принудительно
 CPU; на Redmi K50 Ultra — юнит устройства в arch-mobile-port с окружением zink). Без экрана входа — `data/synshell-phone.service`: `synwm --tty --cpu` под `dbus-run-session`
