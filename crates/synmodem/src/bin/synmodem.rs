@@ -3,7 +3,7 @@
 use anyhow::{bail, Result};
 use synmodem::api::{self, Request, Response};
 
-const USAGE: &str = "synmodem status | watch | radio on|off | sms [list] | sms send НОМЕР ТЕКСТ… | sms read НОМЕР
+const USAGE: &str = "synmodem status | watch | radio on|off | data on|off | sms [list] | sms send НОМЕР ТЕКСТ… | sms read НОМЕР
          | dial НОМЕР | answer ID | hangup ID | dtmf ID ЦИФРА | calls";
 
 fn main() {
@@ -27,6 +27,7 @@ fn run() -> Result<()> {
             true
         })?,
         ["radio", v @ ("on" | "off")] => ok(&Request::SetRadio { on: *v == "on" })?,
+        ["data", v @ ("on" | "off")] => ok(&Request::SetData { on: *v == "on" })?,
         ["sms"] | ["sms", "list"] => {
             for m in api::sms_list()? {
                 let dir = if m.incoming { "←" } else { "→" };

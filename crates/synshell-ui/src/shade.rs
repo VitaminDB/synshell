@@ -221,6 +221,27 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
                 });
             }));
         }
+        // Мобильный интернет (передача данных по сотовой сети), отдельно от режима полёта
+        if let Some(m) = ctx.modem.get().filter(|m| m.present) {
+            use synmodem::api::DataState;
+            let on = m.data.enabled;
+            let state = match m.data.state {
+                DataState::Off => "Выключен".to_string(),
+                DataState::Waiting if !m.radio => "Режим полёта".into(),
+                DataState::Waiting => "Нет сети".into(),
+                DataState::Connecting => "Подключение…".into(),
+                DataState::Connected if m.roaming => format!("{} · роуминг", if m.technology.is_empty() { "Подключён" } else { m.technology.as_str() }),
+                DataState::Connected => if m.technology.is_empty() { "Подключён".into() } else { m.technology.clone() },
+                DataState::Error => "Ошибка".into(),
+            };
+            grid = grid.child(tile("\u{E8D5}", "Моб. интернет".into(), state, on, move || {
+                std::thread::spawn(move || {
+                    if let Err(e) = synmodem::api::request(&synmodem::api::Request::SetData { on: !on }) {
+                        log::warn!("передача данных: {e:#}");
+                    }
+                });
+            }));
+        }
         grid = grid
             .child(tile("\u{E1A7}", "Bluetooth".into(), "Параметры".into(), false, || {
                 close();

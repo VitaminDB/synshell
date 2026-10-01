@@ -19,6 +19,8 @@ pub mod svc {
     pub const WMS: u32 = 5;
     pub const VOICE: u32 = 9;
     pub const UIM: u32 = 11;
+    pub const WDA: u32 = 26;
+    pub const DPM: u32 = 47;
 }
 
 const TYPE_REQUEST: u8 = 0;
@@ -202,6 +204,14 @@ pub struct Client {
     addr: Addr,
     txn: AtomicU16,
     pending: Pending,
+    /// Клиент удалён — поток чтения выходит, сокет закрывается (модем закрывает сеансы клиента).
+    closed: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        self.closed.store(true, Ordering::Relaxed);
+    }
 }
 
 /// Индикация службы: (номер службы, сообщение). `None` в сообщении не бывает — уход службы
@@ -218,12 +228,27 @@ impl Client {
         // Подписка на службу имён этим же сокетом: уход службы (DEL_SERVER) увидит поток чтения
         sock.lookup(service)?;
         let pending: Pending = Arc::default();
-        let c = Arc::new(Self { service, sock: sock.clone(), addr: srv.addr, txn: AtomicU16::new(1), pending: pending.clone() });
+        let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let c = Arc::new(Self {
+            service,
+            sock: sock.clone(),
+            addr: srv.addr,
+            txn: AtomicU16::new(1),
+            pending: pending.clone(),
+            closed: closed.clone(),
+        });
         let addr = srv.addr;
         std::thread::Builder::new().name(format!("qmi-{service}")).spawn(move || {
             let mut buf = vec![0u8; 65536];
             loop {
-                let Ok(Some((n, from))) = sock.recv(&mut buf, None) else { break };
+                if closed.load(Ordering::Relaxed) {
+                    break;
+                }
+                let (n, from) = match sock.recv(&mut buf, Some(Duration::from_secs(1))) {
+                    Ok(Some(r)) => r,
+                    Ok(None) => continue,
+                    Err(_) => break,
+                };
                 if from.port == qrtr::PORT_CTRL {
                     if let Some(qrtr::Ctrl::DelServer(s)) = qrtr::parse_ctrl(&buf[..n]) {
                         if s.addr == addr {

@@ -36,6 +36,31 @@ pub struct Status {
     pub reject_cause: Option<u8>,
     pub unread_sms: u32,
     pub calls: Vec<Call>,
+    pub data: Data,
+}
+
+/// Мобильная передача данных.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Data {
+    /// Пользователь включил передачу данных (запоминается).
+    pub enabled: bool,
+    pub state: DataState,
+    /// Адрес IPv4 сеанса.
+    pub address: String,
+    /// Почему не подключились (последняя ошибка).
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum DataState {
+    #[default]
+    Off,
+    /// Ждёт сети (включено, но нет регистрации или радио выключено).
+    Waiting,
+    Connecting,
+    Connected,
+    Error,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -160,6 +185,8 @@ pub enum Request {
     Status,
     /// Радио вкл/выкл (режим полёта), запоминается.
     SetRadio { on: bool },
+    /// Мобильная передача данных вкл/выкл, запоминается.
+    SetData { on: bool },
     SmsList,
     SmsSend { number: String, text: String },
     /// Отметить прочитанными все сообщения переписки с номером.

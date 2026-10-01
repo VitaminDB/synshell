@@ -13,9 +13,10 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail, Context, Result};
 
 use crate::api::{
-    self, Call, CallKind, CallRecord, CallState, Event, Registration, Request, Response, SimState, Sms,
+    self, Call, CallKind, CallRecord, CallState, DataState, Event, Registration, Request, Response, SimState, Sms,
     SmsStatus, Status,
 };
+use crate::data;
 use crate::pdu;
 use crate::qmi::{svc, Client, Indication, Message, SERVICE_GONE};
 use crate::store::{Part, Store};
@@ -56,6 +57,14 @@ pub struct Daemon {
     subs: Mutex<Vec<Sender<Event>>>,
     /// Номер склейки исходящих длинных SMS.
     sms_ref: std::sync::atomic::AtomicU8,
+    /// Сеанс передачи данных.
+    data: Mutex<Option<data::Session>>,
+    /// Идёт подключение данных.
+    data_busy: std::sync::atomic::AtomicBool,
+    /// Каналы IPA и формат модема настроены (на этот запуск модема).
+    data_ready: std::sync::atomic::AtomicBool,
+    /// Канал индикаций текущего запуска модема (для клиентов сеанса данных).
+    ind_tx: Mutex<Option<Sender<Indication>>>,
 }
 
 impl Daemon {
@@ -622,9 +631,116 @@ impl Daemon {
         }
     }
 
+    // ── Передача данных ─────────────────────────────────────────────────────────────────────────
+
+    /// Привести сеанс данных к желаемому: включено и есть сеть — подключиться, иначе — отключиться.
+    fn data_kick(self: &Arc<Self>) {
+        use std::sync::atomic::Ordering::SeqCst;
+        let enabled = self.store.lock().unwrap().data_on;
+        let can = {
+            let i = self.inner.lock().unwrap();
+            i.status.present && i.status.radio && i.status.registration.registered()
+        };
+        if !enabled || !can {
+            let s = self.data.lock().unwrap().take();
+            if s.is_some() {
+                tracing::info!("данные: отключение");
+                data::disconnect(s.as_ref());
+            }
+            if !self.data_busy.load(SeqCst) {
+                let state = if enabled { DataState::Waiting } else { DataState::Off };
+                self.update(|st| {
+                    st.data.state = state;
+                    st.data.address.clear();
+                    if !enabled {
+                        st.data.error.clear();
+                    }
+                });
+            }
+            return;
+        }
+        if self.data.lock().unwrap().is_some() || self.data_busy.swap(true, SeqCst) {
+            return;
+        }
+        let d = self.clone();
+        std::thread::spawn(move || {
+            d.update(|st| st.data.state = DataState::Connecting);
+            let r = d.data_connect();
+            d.data_busy.store(false, SeqCst);
+            match r {
+                Ok(s) => {
+                    let addr = s.settings.address.map(|a| a.to_string()).unwrap_or_default();
+                    tracing::info!("данные: подключено, {addr}, DNS {:?}", s.settings.dns);
+                    *d.data.lock().unwrap() = Some(s);
+                    d.update(|st| {
+                        st.data.state = DataState::Connected;
+                        st.data.address = addr;
+                        st.data.error.clear();
+                    });
+                    // Пока подключались, могли выключить
+                    d.data_kick();
+                }
+                Err(e) => {
+                    tracing::warn!("данные: {e:#}");
+                    data::deconfigure();
+                    d.update(|st| {
+                        st.data.state = DataState::Error;
+                        st.data.error = format!("{e:#}");
+                    });
+                    d.data_retry(Duration::from_secs(30));
+                }
+            }
+        });
+    }
+
+    fn data_connect(&self) -> Result<data::Session> {
+        use std::sync::atomic::Ordering::SeqCst;
+        let tx = self.ind_tx.lock().unwrap().clone().ok_or_else(|| anyhow!("модем не запущен"))?;
+        if !self.data_ready.load(SeqCst) {
+            let pair = data::setup_kernel()?;
+            data::setup_modem(&tx, pair)?;
+            self.data_ready.store(true, SeqCst);
+        }
+        let s = data::connect(&tx)?;
+        if let Err(e) = data::configure(&s.settings) {
+            data::disconnect(Some(&s));
+            return Err(e);
+        }
+        Ok(s)
+    }
+
+    fn data_retry(self: &Arc<Self>, after: Duration) {
+        let d = self.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(after);
+            if d.store.lock().unwrap().data_on && d.data.lock().unwrap().is_none() {
+                d.data_kick();
+            }
+        });
+    }
+
+    /// Сеанс оборвал модем (сеть, оператор): снять настройки и переподключиться.
+    fn data_lost(self: &Arc<Self>, msg: &Message) {
+        let status = msg.get(0x01).and_then(|b| b.first().copied());
+        if status != Some(1) {
+            return;
+        }
+        let reason = msg.reader(0x11).and_then(|mut rd| Some((rd.u16()?, rd.i16()?)));
+        tracing::info!("данные: сеанс закрыт модемом {reason:?}");
+        // Клиент WDS закрывать не нужно — сеанс уже закрыт
+        let s = self.data.lock().unwrap().take();
+        drop(s);
+        data::deconfigure();
+        self.update(|st| {
+            st.data.state = DataState::Waiting;
+            st.data.address.clear();
+        });
+        self.data_retry(Duration::from_secs(5));
+    }
+
     // ── Индикации ───────────────────────────────────────────────────────────────────────────────
 
-    fn indication(&self, m: &Modem, service: u32, msg: Message) {
+    fn indication(self: &Arc<Self>, m: &Modem, service: u32, msg: Message) {
         match (service, msg.id) {
             (svc::NAS, 0x24) => self.apply_serving_system(m, &msg, true),
             (svc::NAS, 0x51) => self.apply_signal(&msg),
@@ -660,6 +776,7 @@ impl Daemon {
                 }
             }
             (svc::VOICE, 0x2E) => self.apply_calls(&msg, 0x01, 0x10),
+            (svc::WDS, 0x22) => self.data_lost(&msg),
             (svc::DMS, 0x01) => {
                 if let Some(mode) = msg.get(0x14).and_then(|b| b.first()) {
                     self.update(|s| s.radio = *mode == 0);
@@ -673,15 +790,22 @@ impl Daemon {
     fn modem_session(self: &Arc<Self>) -> Result<()> {
         let (tx, rx): (Sender<Indication>, Receiver<Indication>) = mpsc::channel();
         let m = Arc::new(self.connect(&tx)?);
-        drop(tx);
+        *self.ind_tx.lock().unwrap() = Some(tx);
         tracing::info!("модем: службы QMI подключены");
         *self.modem.lock().unwrap() = Some(m.clone());
         self.update(|s| s.present = true);
         self.setup(&m);
+        self.data_kick();
         loop {
             match rx.recv_timeout(Duration::from_secs(600)) {
                 Ok((_, msg)) if msg.id == SERVICE_GONE => break,
-                Ok((service, msg)) => self.indication(&m, service, msg),
+                Ok((service, msg)) => {
+                    self.indication(&m, service, msg);
+                    // Регистрация, радио — сеанс данных к желаемому состоянию
+                    if service != svc::WDS {
+                        self.data_kick();
+                    }
+                }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
                     // Склейка, которая не дождалась частей
                     let expired = self.store.lock().unwrap().expired_parts(now());
@@ -694,10 +818,16 @@ impl Daemon {
         }
         tracing::warn!("модем: служба ушла (остановлен или перезапускается)");
         *self.modem.lock().unwrap() = None;
+        *self.ind_tx.lock().unwrap() = None;
+        drop(self.data.lock().unwrap().take());
+        data::deconfigure();
+        self.data_ready.store(false, std::sync::atomic::Ordering::SeqCst);
         self.set_calls(Vec::new());
         self.update(|s| {
-            let keep = (s.radio, s.unread_sms, s.imei.clone());
+            let keep = (s.radio, s.unread_sms, s.imei.clone(), s.data.enabled);
             *s = Status { radio: keep.0, unread_sms: keep.1, imei: keep.2, ..Status::default() };
+            s.data.enabled = keep.3;
+            s.data.state = if keep.3 { DataState::Waiting } else { DataState::Off };
         });
         Ok(())
     }
@@ -719,6 +849,16 @@ impl Daemon {
                     st.save();
                 }
                 self.update(|s| s.radio = on);
+                Response::Ok
+            }
+            Request::SetData { on } => {
+                {
+                    let mut st = self.store.lock().unwrap();
+                    st.data_on = on;
+                    st.save();
+                }
+                self.update(|s| s.data.enabled = on);
+                self.data_kick();
                 Response::Ok
             }
             Request::SmsList => Response::SmsList { messages: self.store.lock().unwrap().sms.clone() },
@@ -1012,8 +1152,19 @@ pub fn run() -> Result<()> {
         store: Mutex::new(Store::load()),
         subs: Mutex::default(),
         sms_ref: std::sync::atomic::AtomicU8::new((now() & 0xFF) as u8),
+        data: Mutex::default(),
+        data_busy: Default::default(),
+        data_ready: Default::default(),
+        ind_tx: Mutex::default(),
     });
     d.refresh_unread();
+    {
+        let on = d.store.lock().unwrap().data_on;
+        d.update(|s| {
+            s.data.enabled = on;
+            s.data.state = if on { DataState::Waiting } else { DataState::Off };
+        });
+    }
     {
         let d = d.clone();
         std::thread::Builder::new().name("modem".into()).spawn(move || loop {

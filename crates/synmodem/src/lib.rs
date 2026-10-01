@@ -5,6 +5,7 @@ pub mod pdu;
 pub mod qmi;
 pub mod qrtr;
 pub mod api;
+pub mod data;
 pub mod daemon;
 pub mod store;
 pub mod time;
