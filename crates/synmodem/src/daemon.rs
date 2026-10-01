@@ -17,6 +17,8 @@ use crate::api::{
     SmsStatus, Status,
 };
 use crate::data;
+use crate::euicc;
+use crate::manage;
 use crate::pdu;
 use crate::qmi::{svc, Client, Indication, Message, SERVICE_GONE};
 use crate::store::{Part, Store};
@@ -139,7 +141,7 @@ impl Daemon {
             }
         }
         self.setup_sms(m);
-        let _ = m.voice.call(Message::new(0x03).u8(0x13, 1), T);
+        let _ = m.voice.call(Message::new(0x03).u8(0x13, 1).u8(0x16, 1), T);
         self.present_physical_slot(m);
         self.ensure_sim(m);
         self.refresh_network(m);
@@ -238,9 +240,16 @@ impl Daemon {
     fn apply_card_status(&self, cs: &CardStatus) {
         let state = cs.sim_state();
         let pin = cs.primary_app().map(|a| a.pin1_retries);
+        // Состояние PIN1: 1/2 — включён (не введён/введён), 3 — выключен
+        let pin_on = cs.primary_app().and_then(|a| match a.pin1_state {
+            1 | 2 | 4 | 5 => Some(true),
+            3 => Some(false),
+            _ => None,
+        });
         self.update(|s| {
             s.sim.state = state;
             s.sim.pin_retries = pin;
+            s.sim.pin_enabled = pin_on;
         });
     }
 
@@ -631,15 +640,43 @@ impl Daemon {
         }
     }
 
+    /// Логический слот карты-eUICC (у diting — eSIM, переназначенная в логический 1).
+    fn euicc_slot(&self, m: &Modem) -> Result<u8> {
+        let (slots, _) = manage::slots(&m.uim);
+        slots
+            .iter()
+            .find(|s| s.euicc && s.card && s.active)
+            .map(|s| s.logical)
+            .ok_or_else(|| anyhow!("eSIM (eUICC) не найдена"))
+    }
+
+    /// Профиль eSIM сменился: карта перезапускается — заново поднять подписку и сеть.
+    fn after_profile_switch(self: &Arc<Self>) {
+        let d = self.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(5));
+            if let Ok(m) = d.modem() {
+                d.ensure_sim(&m);
+                d.refresh_network(&m);
+            }
+        });
+    }
+
     // ── Передача данных ─────────────────────────────────────────────────────────────────────────
 
     /// Привести сеанс данных к желаемому: включено и есть сеть — подключиться, иначе — отключиться.
     fn data_kick(self: &Arc<Self>) {
         use std::sync::atomic::Ordering::SeqCst;
-        let enabled = self.store.lock().unwrap().data_on;
+        let (enabled, roaming_ok) = {
+            let st = self.store.lock().unwrap();
+            (st.data_on, st.data_roaming)
+        };
         let can = {
             let i = self.inner.lock().unwrap();
-            i.status.present && i.status.radio && i.status.registration.registered()
+            i.status.present
+                && i.status.radio
+                && i.status.registration.registered()
+                && (roaming_ok || i.status.registration != Registration::Roaming)
         };
         if !enabled || !can {
             let s = self.data.lock().unwrap().take();
@@ -649,11 +686,14 @@ impl Daemon {
             }
             if !self.data_busy.load(SeqCst) {
                 let state = if enabled { DataState::Waiting } else { DataState::Off };
+                let roam_block = enabled && !roaming_ok && self.inner.lock().unwrap().status.registration == Registration::Roaming;
                 self.update(|st| {
                     st.data.state = state;
                     st.data.address.clear();
                     if !enabled {
                         st.data.error.clear();
+                    } else if roam_block {
+                        st.data.error = "Роуминг: передача данных в роуминге выключена".into();
                     }
                 });
             }
@@ -707,6 +747,38 @@ impl Daemon {
             return Err(e);
         }
         Ok(s)
+    }
+
+    /// Раз в 30 с — прирост байтов `rmnet_data0` в счётчики трафика.
+    fn usage_loop(self: &Arc<Self>) {
+        let d = self.clone();
+        std::thread::spawn(move || {
+            let read = |f: &str| -> Option<u64> {
+                std::fs::read_to_string(format!("/sys/class/net/{}/statistics/{f}", data::IFACE)).ok()?.trim().parse().ok()
+            };
+            let mut last: Option<(u64, u64)> = None;
+            let mut dirty = 0u32;
+            loop {
+                std::thread::sleep(Duration::from_secs(30));
+                let cur = read("rx_bytes").zip(read("tx_bytes"));
+                if let (Some((rx, tx)), Some((lrx, ltx))) = (cur, last) {
+                    // Счётчики интерфейса сбросились (пересоздан) — прирост с нуля
+                    let drx = if rx >= lrx { rx - lrx } else { rx };
+                    let dtx = if tx >= ltx { tx - ltx } else { tx };
+                    if drx + dtx > 0 {
+                        let mut st = d.store.lock().unwrap();
+                        st.add_usage(drx, dtx, now());
+                        dirty += 1;
+                        // На диск — раз в 5 минут
+                        if dirty >= 10 {
+                            st.save();
+                            dirty = 0;
+                        }
+                    }
+                }
+                last = cur;
+            }
+        });
     }
 
     fn data_retry(self: &Arc<Self>, after: Duration) {
@@ -777,6 +849,18 @@ impl Daemon {
             }
             (svc::VOICE, 0x2E) => self.apply_calls(&msg, 0x01, 0x10),
             (svc::WDS, 0x22) => self.data_lost(&msg),
+            (svc::VOICE, 0x43) => {
+                let text = manage::ussd_text(&msg, 0x12, 0x14);
+                let err = msg.get(0x10).is_some() || msg.get(0x11).is_some();
+                let text = text.unwrap_or_else(|| if err { "Запрос не выполнен".into() } else { String::new() });
+                self.emit(Event::Ussd { text, reply: !err, done: err });
+            }
+            (svc::VOICE, 0x3E) => {
+                let reply = msg.get(0x01).and_then(|b| b.first()).is_some_and(|v| *v == 2);
+                let text = manage::ussd_text(&msg, 0x10, 0x11).unwrap_or_default();
+                self.emit(Event::Ussd { text, reply, done: !reply });
+            }
+            (svc::VOICE, 0x3D) => self.emit(Event::Ussd { text: String::new(), reply: false, done: true }),
             (svc::DMS, 0x01) => {
                 if let Some(mode) = msg.get(0x14).and_then(|b| b.first()) {
                     self.update(|s| s.radio = *mode == 0);
@@ -891,6 +975,8 @@ impl Daemon {
                     bail!("пустой номер");
                 }
                 let m = self.modem()?;
+                let clir = self.store.lock().unwrap().clir.clone();
+                let number = manage::with_clir(&number, &clir);
                 let r = m.voice.call(Message::new(0x20).tlv(0x01, number.into_bytes()), Duration::from_secs(30))?;
                 let id = r.get(0x10).and_then(|b| b.first().copied()).unwrap_or(0);
                 Response::CallId { id }
@@ -931,6 +1017,159 @@ impl Daemon {
                 Response::Ok
             }
             Request::Subscribe => bail!("Subscribe обрабатывается соединением"),
+            Request::Info => {
+                let m = self.modem()?;
+                Response::Info { info: manage::info(&m.dms, &m.uim) }
+            }
+            Request::Cell => {
+                let m = self.modem()?;
+                let (tech, plmn) = {
+                    let i = self.inner.lock().unwrap();
+                    (i.status.technology.clone(), i.status.plmn.clone())
+                };
+                Response::Cell { cell: manage::cell(&m.nas, &tech, &plmn) }
+            }
+            Request::EsimProfiles => {
+                let m = self.modem()?;
+                let ch = euicc::Channel::open(&m.uim, self.euicc_slot(&m)?)?;
+                Response::EsimProfiles { profiles: euicc::profiles(&ch)? }
+            }
+            Request::EsimEnable { iccid } => {
+                let m = self.modem()?;
+                {
+                    let ch = euicc::Channel::open(&m.uim, self.euicc_slot(&m)?)?;
+                    euicc::enable(&ch, &iccid)?;
+                }
+                tracing::info!("eSIM: включён профиль {}…", &iccid[..iccid.len().min(6)]);
+                self.after_profile_switch();
+                Response::Ok
+            }
+            Request::EsimDisable { iccid } => {
+                let m = self.modem()?;
+                {
+                    let ch = euicc::Channel::open(&m.uim, self.euicc_slot(&m)?)?;
+                    euicc::disable(&ch, &iccid)?;
+                }
+                self.after_profile_switch();
+                Response::Ok
+            }
+            Request::EsimDelete { iccid } => {
+                let m = self.modem()?;
+                let ch = euicc::Channel::open(&m.uim, self.euicc_slot(&m)?)?;
+                euicc::delete(&ch, &iccid)?;
+                Response::Ok
+            }
+            Request::EsimNickname { iccid, name } => {
+                let m = self.modem()?;
+                let ch = euicc::Channel::open(&m.uim, self.euicc_slot(&m)?)?;
+                euicc::set_nickname(&ch, &iccid, &name)?;
+                Response::Ok
+            }
+            Request::NetworkScan => Response::Networks { networks: manage::scan(&self.modem()?.nas)? },
+            Request::NetworkSelect { plmn } => {
+                manage::select(&self.modem()?.nas, plmn)?;
+                Response::Ok
+            }
+            Request::Modes => {
+                let mut modes = manage::modes(&self.modem()?.nas)?;
+                modes.data_roaming = self.store.lock().unwrap().data_roaming;
+                Response::Modes { modes }
+            }
+            Request::SetModes { allowed } => {
+                manage::set_modes(&self.modem()?.nas, &allowed)?;
+                Response::Ok
+            }
+            Request::SetDataRoaming { on } => {
+                {
+                    let mut st = self.store.lock().unwrap();
+                    st.data_roaming = on;
+                    st.save();
+                }
+                self.data_kick();
+                Response::Ok
+            }
+            Request::ApnList => {
+                let _m = self.modem()?;
+                let wds = manage::temp_client(svc::WDS)?;
+                Response::ApnList { apns: manage::apns(&wds)? }
+            }
+            Request::ApnSave { apn } => {
+                let _m = self.modem()?;
+                let wds = manage::temp_client(svc::WDS)?;
+                manage::save_apn(&wds, &apn)?;
+                Response::Ok
+            }
+            Request::ApnDelete { index } => {
+                let _m = self.modem()?;
+                let wds = manage::temp_client(svc::WDS)?;
+                manage::delete_apn(&wds, index)?;
+                Response::Ok
+            }
+            Request::PinEnable { on, pin } => {
+                manage::pin_enable(&self.modem()?.uim, on, &pin)?;
+                Response::Ok
+            }
+            Request::PinChange { old, new } => {
+                manage::pin_change(&self.modem()?.uim, &old, &new)?;
+                Response::Ok
+            }
+            Request::PinVerify { pin } => {
+                manage::pin_verify(&self.modem()?.uim, &pin)?;
+                Response::Ok
+            }
+            Request::PinUnblock { puk, new } => {
+                manage::pin_unblock(&self.modem()?.uim, &puk, &new)?;
+                Response::Ok
+            }
+            Request::Smsc => Response::Text { text: manage::smsc(&self.modem()?.wms)? },
+            Request::SetSmsc { number } => {
+                manage::set_smsc(&self.modem()?.wms, &number)?;
+                Response::Ok
+            }
+            Request::Ussd { code } => {
+                manage::ussd_start(&self.modem()?.voice, &code)?;
+                Response::Ok
+            }
+            Request::UssdReply { text } => {
+                manage::ussd_answer(&self.modem()?.voice, &text)?;
+                Response::Ok
+            }
+            Request::UssdCancel => {
+                manage::ussd_cancel(&self.modem()?.voice)?;
+                Response::Ok
+            }
+            Request::CallServices => {
+                let mut services = manage::call_services(&self.modem()?.voice);
+                let clir = self.store.lock().unwrap().clir.clone();
+                services.clir = if clir.is_empty() { "network".into() } else { clir };
+                Response::CallServices { services }
+            }
+            Request::SetCallWaiting { on } => {
+                manage::set_call_waiting(&self.modem()?.voice, on)?;
+                Response::Ok
+            }
+            Request::SetClir { mode } => {
+                if !matches!(mode.as_str(), "network" | "hide" | "show") {
+                    bail!("неизвестный режим {mode}");
+                }
+                let mut st = self.store.lock().unwrap();
+                st.clir = mode;
+                st.save();
+                Response::Ok
+            }
+            Request::SetForward { reason, number, timer } => {
+                manage::set_forward(&self.modem()?.voice, &reason, &number, timer)?;
+                Response::Ok
+            }
+            Request::Usage => Response::Usage { usage: self.store.lock().unwrap().usage.clone() },
+            Request::UsageReset => {
+                let mut st = self.store.lock().unwrap();
+                st.usage.total_rx = 0;
+                st.usage.total_tx = 0;
+                st.usage.since = now();
+                st.save();
+                Response::Ok
+            }
         })
     }
 }
@@ -1158,6 +1397,7 @@ pub fn run() -> Result<()> {
         ind_tx: Mutex::default(),
     });
     d.refresh_unread();
+    d.usage_loop();
     {
         let on = d.store.lock().unwrap().data_on;
         d.update(|s| {

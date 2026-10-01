@@ -38,6 +38,35 @@ pub struct Store {
     /// Мобильная передача данных включена (по умолчанию выключена: роуминг стоит денег).
     #[serde(default)]
     pub data_on: bool,
+    /// Передача данных в роуминге разрешена.
+    #[serde(default)]
+    pub data_roaming: bool,
+    /// Скрытие своего номера: «network», «hide», «show».
+    #[serde(default)]
+    pub clir: String,
+    #[serde(default)]
+    pub usage: crate::api::Usage,
+}
+
+impl Store {
+    /// Учесть прирост трафика (`rx`, `tx` — байты с прошлого замера) в месяце и в общем счётчике.
+    pub fn add_usage(&mut self, rx: u64, tx: u64, now: i64) {
+        let l = crate::time::local(now);
+        let month = format!("{:04}-{:02}", l.year, l.month);
+        let u = &mut self.usage;
+        if u.month != month {
+            u.month = month;
+            u.rx = 0;
+            u.tx = 0;
+        }
+        if u.since == 0 {
+            u.since = now;
+        }
+        u.rx += rx;
+        u.tx += tx;
+        u.total_rx += rx;
+        u.total_tx += tx;
+    }
 }
 
 /// Через сколько недостающие части перестают ждать (сообщение показывается как есть).

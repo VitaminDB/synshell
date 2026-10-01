@@ -7,5 +7,7 @@ pub mod qrtr;
 pub mod api;
 pub mod data;
 pub mod daemon;
+pub mod euicc;
+pub mod manage;
 pub mod store;
 pub mod time;

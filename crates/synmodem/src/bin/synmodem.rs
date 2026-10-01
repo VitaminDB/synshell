@@ -4,13 +4,19 @@ use anyhow::{bail, Result};
 use synmodem::api::{self, Request, Response};
 
 const USAGE: &str = "synmodem status | watch | radio on|off | data on|off | sms [list] | sms send НОМЕР ТЕКСТ… | sms read НОМЕР
-         | dial НОМЕР | answer ID | hangup ID | dtmf ID ЦИФРА | calls";
+         | dial НОМЕР | answer ID | hangup ID | dtmf ID ЦИФРА | calls | info | cell | esim | apn
+         | req JSON (любой запрос протокола, например {\"request\":\"modes\"}; ответ — JSON)";
 
 fn main() {
     if let Err(e) = run() {
         eprintln!("synmodem: {e:#}");
         std::process::exit(1);
     }
+}
+
+fn print_resp(r: &Request) -> Result<()> {
+    println!("{}", serde_json::to_string_pretty(&api::request(r)?)?);
+    Ok(())
 }
 
 fn ok(r: &Request) -> Result<()> {
@@ -50,6 +56,11 @@ fn run() -> Result<()> {
         ["dtmf", id, d] if d.chars().count() == 1 => {
             ok(&Request::Dtmf { id: id.parse()?, digit: d.chars().next().unwrap() })?
         }
+        ["info"] => print_resp(&Request::Info)?,
+        ["cell"] => print_resp(&Request::Cell)?,
+        ["esim"] => print_resp(&Request::EsimProfiles)?,
+        ["apn"] => print_resp(&Request::ApnList)?,
+        ["req", json] => print_resp(&serde_json::from_str(json)?)?,
         ["calls"] => {
             for c in api::call_log()? {
                 println!("{} {:?} {} {} с, {}", c.id, c.kind, c.number, c.duration, c.time);

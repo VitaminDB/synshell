@@ -9,6 +9,7 @@ mod devices;
 mod hardware;
 mod input;
 mod mobile;
+mod modem;
 mod net;
 mod panels;
 mod power;
@@ -175,6 +176,30 @@ pub const PAGES: &[PageDef] = &[
         group: "Устройства",
         keywords: "наушники колонка сопряжение устройство клавиатура мышь bluez",
         build: net::bluetooth,
+    },
+    PageDef {
+        id: "mobile-network",
+        title: "Мобильная сеть",
+        icon: "\u{E1C8}",
+        group: "Устройства",
+        keywords: "сотовая связь sim сим-карта esim есим профиль оператор роуминг мобильный интернет передача данных apn точка доступа 5g 4g lte 3g 2g поиск сети регистрация pin пин puk трафик режим полёта",
+        build: modem::mobile_network,
+    },
+    PageDef {
+        id: "calls-sms",
+        title: "Вызовы и SMS",
+        icon: "\u{E0B0}",
+        group: "Устройства",
+        keywords: "звонки ожидание вызова переадресация скрыть номер аон clir ussd баланс sms смс центр smsc",
+        build: modem::calls_sms,
+    },
+    PageDef {
+        id: "modem-info",
+        title: "О модеме",
+        icon: "\u{E88E}",
+        group: "Устройства",
+        keywords: "imei imsi iccid eid прошивка модема baseband диапазоны band сота rsrp rsrq sinr earfcn",
+        build: modem::modem_info,
     },
     PageDef {
         id: "devices",

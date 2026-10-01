@@ -136,6 +136,7 @@ impl std::fmt::Display for QmiError {
             0x34 => "DeviceUnsupported",
             0x4A => "InformationUnavailable",
             0x52 => "InvalidOperation",
+            0x5C => "SupsFailure (сеть отказала в услуге)",
             0x5E => "NotSupported",
             _ => "",
         };

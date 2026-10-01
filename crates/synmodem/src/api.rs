@@ -63,6 +63,134 @@ pub enum DataState {
     Error,
 }
 
+
+/// Сведения о модеме и SIM (раздел «Мобильная сеть → О модеме и SIM»).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Info {
+    pub imei: String,
+    pub imei_sv: String,
+    pub meid: String,
+    /// Прошивка модема (MPSS).
+    pub revision: String,
+    pub hw_revision: String,
+    pub sw_version: String,
+    /// Номер телефона с SIM (если оператор его записал).
+    pub msisdn: String,
+    pub iccid: String,
+    pub imsi: String,
+    /// Имя оператора с SIM (EF_SPN).
+    pub spn: String,
+    pub eid: String,
+    pub slots: Vec<Slot>,
+    /// Поддерживаемые диапазоны LTE и 5G NR.
+    pub lte_bands: Vec<u16>,
+    pub nr_bands: Vec<u16>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Slot {
+    /// Физический слот (с 1).
+    pub physical: u8,
+    pub card: bool,
+    pub active: bool,
+    pub logical: u8,
+    pub iccid: String,
+    pub euicc: bool,
+}
+
+/// Текущая сота и радио.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct Cell {
+    pub technology: String,
+    pub plmn: String,
+    pub lac: Option<u32>,
+    pub tac: Option<u32>,
+    pub cell_id: Option<u32>,
+    /// «B3», «n78», «GSM 900»…
+    pub band: String,
+    pub channel: Option<u32>,
+    pub bandwidth_mhz: Option<f32>,
+    pub rssi: Option<i32>,
+    pub rsrp: Option<i32>,
+    pub rsrq: Option<i32>,
+    pub snr: Option<f32>,
+}
+
+/// Сеть из поиска.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Network {
+    pub mcc: u16,
+    pub mnc: u16,
+    pub name: String,
+    pub technologies: Vec<String>,
+    pub current: bool,
+    pub forbidden: bool,
+    pub home: bool,
+}
+
+/// Выбор сети и технологий.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Modes {
+    /// Разрешённые технологии: «5g», «4g», «3g», «2g».
+    pub allowed: Vec<String>,
+    /// Ручной выбор сети: MCC/MNC; `None` — автоматически.
+    pub manual: Option<(u16, u16)>,
+    /// Передача данных в роуминге разрешена.
+    pub data_roaming: bool,
+}
+
+/// Точка доступа (профиль WDS модема).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Apn {
+    /// Номер профиля в модеме (0 — новый).
+    pub index: u8,
+    pub name: String,
+    pub apn: String,
+    pub user: String,
+    pub password: String,
+    /// «none», «pap», «chap», «pap-chap».
+    pub auth: String,
+    /// «ipv4», «ipv6», «ipv4v6».
+    pub ip: String,
+    /// Профиль для мобильного интернета.
+    pub default: bool,
+    pub roaming_disallowed: bool,
+}
+
+/// Услуги вызовов.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CallServices {
+    /// Ожидание вызова (`None` — сеть не ответила).
+    pub waiting: Option<bool>,
+    /// Скрывать свой номер: «network» (по умолчанию сети), «hide», «show».
+    pub clir: String,
+    pub forwards: Vec<Forward>,
+    /// Почему сеть не дала настройки (если не дала).
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Forward {
+    /// «always», «busy», «no-reply», «unreachable».
+    pub reason: String,
+    pub active: bool,
+    pub number: String,
+    pub timer: Option<u8>,
+}
+
+/// Расход мобильного трафика.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Usage {
+    /// Месяц «2026-10».
+    pub month: String,
+    pub rx: u64,
+    pub tx: u64,
+    /// С начала подсчёта (сброс вручную).
+    pub total_rx: u64,
+    pub total_tx: u64,
+    pub since: i64,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Sim {
     pub state: SimState,
@@ -71,6 +199,8 @@ pub struct Sim {
     /// Оператор SIM (домашняя сеть).
     pub home_operator: String,
     pub pin_retries: Option<u8>,
+    /// Запрос PIN при включении (`None` — неизвестно).
+    pub pin_enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -203,6 +333,41 @@ pub enum Request {
     CallLogDelete { ids: Vec<u64> },
     /// Поток событий до закрытия соединения.
     Subscribe,
+    Info,
+    Cell,
+    EsimProfiles,
+    EsimEnable { iccid: String },
+    EsimDisable { iccid: String },
+    EsimDelete { iccid: String },
+    EsimNickname { iccid: String, name: String },
+    /// Поиск сетей (до нескольких минут).
+    NetworkScan,
+    /// Регистрация: `None` — автоматически, иначе MCC/MNC.
+    NetworkSelect { plmn: Option<(u16, u16)> },
+    Modes,
+    SetModes { allowed: Vec<String> },
+    SetDataRoaming { on: bool },
+    ApnList,
+    ApnSave { apn: Apn },
+    ApnDelete { index: u8 },
+    /// PIN: включить/выключить запрос, сменить, ввести, разблокировать PUK.
+    PinEnable { on: bool, pin: String },
+    PinChange { old: String, new: String },
+    PinVerify { pin: String },
+    PinUnblock { puk: String, new: String },
+    Smsc,
+    SetSmsc { number: String },
+    /// USSD-запрос («*100#»); ответ — событием `Ussd`.
+    Ussd { code: String },
+    UssdReply { text: String },
+    UssdCancel,
+    CallServices,
+    SetCallWaiting { on: bool },
+    SetClir { mode: String },
+    /// Переадресация: пустой номер — выключить.
+    SetForward { reason: String, number: String, timer: Option<u8> },
+    Usage,
+    UsageReset,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -215,6 +380,15 @@ pub enum Response {
     Sms { message: Sms },
     CallId { id: u8 },
     CallLog { calls: Vec<CallRecord> },
+    Info { info: Info },
+    Cell { cell: Cell },
+    EsimProfiles { profiles: Vec<crate::euicc::Profile> },
+    Networks { networks: Vec<Network> },
+    Modes { modes: Modes },
+    ApnList { apns: Vec<Apn> },
+    Text { text: String },
+    CallServices { services: CallServices },
+    Usage { usage: Usage },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -226,6 +400,8 @@ pub enum Event {
     /// Хранилище SMS изменилось целиком (удаление, прочтение).
     SmsChanged,
     CallLog,
+    /// Ответ сети на USSD; `reply` — сеть ждёт ответа пользователя.
+    Ussd { text: String, reply: bool, done: bool },
 }
 
 /// Один запрос к демону.
