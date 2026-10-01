@@ -17,6 +17,7 @@ members = [
     "crates/synlink",
     "crates/synlink-view",
     "crates/syndroid",
+    "crates/synmodem",
 ]
 
 [workspace.package]

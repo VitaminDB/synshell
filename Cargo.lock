@@ -4514,6 +4514,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "synmodem"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "libc",
+ "serde",
+ "serde_json",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "synpkg"
 version = "0.1.3"
 dependencies = [
