@@ -8,8 +8,8 @@ use std::collections::HashMap;
 pub struct ProcStat {
     /// Память процесса, КБ: PSS (честная доля разделяемой), иначе RSS.
     pub memory_kb: u64,
-    /// Загрузка процессора с прошлого снимка, % одного ядра × ядра (как top:
-    /// 200% — два ядра целиком).
+    /// Загрузка процессора с прошлого снимка, % всего процессора (как общий счётчик:
+    /// 100% — все ядра целиком, а не одно, как в top).
     pub cpu_percent: f32,
 }
 
@@ -62,14 +62,11 @@ pub struct ProcSampler {
     sys: Sys,
     last: HashMap<u64, u64>,
     last_total: Option<u64>,
-    cores: usize,
 }
 
 impl ProcSampler {
     pub fn new(sys: Sys) -> Self {
-        // SAFETY: sysconf без побочных эффектов.
-        let n = unsafe { libc::sysconf(libc::_SC_NPROCESSORS_CONF) };
-        Self { sys, last: HashMap::new(), last_total: None, cores: n.max(1) as usize }
+        Self { sys, last: HashMap::new(), last_total: None }
     }
 
     /// Для каждого pid — процесс вместе с потомками.
@@ -94,8 +91,8 @@ impl ProcSampler {
                 Source::Cgroup(dir) => cgroup_usage(&self.sys, dir),
             };
             let cpu = match (dt_total, self.last.get(key)) {
-                // Тики /proc/stat — сумма по всем ядрам.
-                (Some(dt), Some(&prev)) => ticks.saturating_sub(prev) as f32 / dt * 100.0 * self.cores as f32,
+                // Тики /proc/stat — сумма по всем ядрам: доля от всего процессора.
+                (Some(dt), Some(&prev)) => (ticks.saturating_sub(prev) as f32 / dt * 100.0).min(100.0),
                 _ => 0.0,
             };
             seen.insert(*key, ticks);

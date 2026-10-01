@@ -18,6 +18,7 @@ const HELP: &str = "syndroid — Android-приложения в synshell
   syndroid session                    из автозапуска сеанса: запустить Android, если autostart = true
   syndroid app list                   приложения
   syndroid app launch [--instance ЭКЗ] ПАКЕТ | stop ПАКЕТ
+  syndroid app install ФАЙЛ.apk…      установить APK в активный экземпляр
   syndroid image list                 наборы образов
   syndroid image check                свежие сборки в OTA-каналах
   syndroid image fetch                скачать последний набор (system + vendor)
@@ -198,6 +199,15 @@ fn main() -> Result<()> {
         ["app", "launch", "--instance", inst, pkg] => {
             ensure_running(Some(inst))?;
             ok(api::call(&Request::LaunchApp { package: pkg.to_string() })?)
+        }
+        ["app", "install", files @ ..] if !files.is_empty() => {
+            ensure_running(None)?;
+            for f in files {
+                let path = std::fs::canonicalize(f).with_context(|| f.to_string())?.display().to_string();
+                if let Response::Job { id } = api::call(&Request::InstallApk { path })? {
+                    follow(id)?;
+                }
+            }
         }
         ["app", "stop", pkg] => ok(api::call(&Request::StopApp { package: pkg.to_string() })?),
         ["image"] | ["image", "list"] => {

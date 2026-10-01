@@ -463,7 +463,7 @@ fn app_card(a: &AppStat) -> impl Widget {
         subtitle = subtitle.replacen(" · ", "\n", 1);
     }
     let mem = if a.mem_kb >= 1024 * 1024 { format!("{:.1}G", a.mem_kb as f64 / 1048576.0) } else { format!("{}M", a.mem_kb / 1024) };
-    let cpu_class = if a.cpu >= 50.0 { "res-badge res-badge-cpu res-badge-hot" } else { "res-badge res-badge-cpu" };
+    let cpu_class = if a.cpu >= 25.0 { "res-badge res-badge-cpu res-badge-hot" } else { "res-badge res-badge-cpu" };
     let id = a.window;
     let close = GestureDetector::new()
         .on_click(move || synshell_ui::actions::window_op(id, WindowOp::Close))
