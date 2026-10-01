@@ -159,9 +159,37 @@ fn now() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
+/// Прямая ссылка на файл SourceForge: `sourceforge.net/projects/P/files/ПУТЬ/download` →
+/// `downloads.sourceforge.net/project/P/ПУТЬ`. Страница `/download` при сбоях SourceForge («Disaster
+/// Recovery») отдаёт вместо файла HTML со сценарием выбора зеркала, а прямая ссылка ведёт на зеркало сразу.
+fn direct_url(url: &str) -> String {
+    let Some(rest) = url.strip_prefix("https://sourceforge.net/projects/") else { return url.to_string() };
+    let Some(rest) = rest.strip_suffix("/download") else { return url.to_string() };
+    match rest.split_once("/files/") {
+        Some((proj, path)) => format!("https://downloads.sourceforge.net/project/{proj}/{path}"),
+        None => url.to_string(),
+    }
+}
+
 /// Скачать URL в файл, считая sha256; `expect` — ожидаемая сумма (hex).
 fn download(url: &str, to: &Path, expect: &str, what: &str, progress: Progress) -> Result<()> {
-    let mut r = agent().get(url).call().with_context(|| format!("загрузка {url}"))?;
+    let url = &direct_url(url);
+    let host = url.split('/').nth(2).unwrap_or(url);
+    let mut r = match agent().get(url).call() {
+        Ok(r) => r,
+        Err(ureq::Error::StatusCode(code)) if code >= 500 => {
+            bail!("{what}: сервер {host} недоступен (HTTP {code}) — попробуйте позже ({url})")
+        }
+        Err(e) => return Err(e).with_context(|| format!("{what}: сервер {host} не отдал файл ({url})")),
+    };
+    let html = r
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("text/html"));
+    if html {
+        bail!("{what}: {host} вернул веб-страницу вместо файла — сайт, видимо, недоступен, попробуйте позже ({url})");
+    }
     let total = r
         .headers()
         .get("content-length")
