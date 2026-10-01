@@ -44,7 +44,7 @@ pub enum Origin {
 }
 
 /// `images/<имя>/info.toml`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ImageSet {
     pub name: String,
     pub system: Origin,

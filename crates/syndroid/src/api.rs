@@ -57,7 +57,7 @@ pub enum State {
 }
 
 /// Фоновое задание (загрузка/импорт образов).
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct Job {
     pub id: u64,
     pub title: String,
@@ -69,7 +69,7 @@ pub struct Job {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Status {
     pub state: State,
     pub image: Option<String>,
@@ -83,6 +83,9 @@ pub struct Status {
     pub uptime: Option<u64>,
     pub android_version: Option<String>,
     pub jobs: Vec<Job>,
+    /// Память контейнера (cgroup `memory.current`), байт.
+    #[serde(default)]
+    pub memory: Option<u64>,
     /// Последняя ошибка запуска.
     pub error: Option<String>,
 }
@@ -100,8 +103,24 @@ pub enum Request {
     Images,
     /// Свежие сборки OTA-каналов (без загрузки).
     CheckUpdates,
-    /// Скачать последний набор из OTA (фоновое задание).
-    FetchImages,
+    /// Скачать последний набор из OTA (фоновое задание); `system_type` — VANILLA или GAPPS (по умолчанию —
+    /// из настроек).
+    FetchImages {
+        #[serde(default)]
+        system_type: Option<String>,
+    },
+    /// Экземпляры Android: наборы образов, размер данных.
+    Instances,
+    /// Удалить данные экземпляра (Android этого экземпляра должен быть остановлен).
+    ResetData { instance: String },
+    /// Удалить экземпляр целиком: все его наборы образов и данные.
+    RemoveInstance { instance: String },
+    /// Установить APK (путь на хосте; фоновое задание).
+    InstallApk { path: String },
+    UninstallApp { package: String },
+    ClearAppData { package: String },
+    /// Последние строки журнала Android.
+    Logcat { lines: u32 },
     /// Набор из локальных файлов (zip из OTA или .img).
     ImportImages { system: String, vendor: String, name: Option<String> },
     UseImages { name: String },
@@ -127,6 +146,21 @@ pub enum Response {
     Job { id: u64 },
     Config { config: Config },
     Apps { apps: Vec<crate::android::App> },
+    Instances { instances: Vec<Instance> },
+    Log { text: String },
+}
+
+/// Экземпляр Android (линейка образов) — для окна управления.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Instance {
+    pub id: String,
+    pub title: String,
+    /// Наборы образов, свежие первыми.
+    pub sets: Vec<ImageSet>,
+    /// Размер /data, байт.
+    pub data_size: u64,
+    /// Этот экземпляр выбран (его запускает `syndroid start`).
+    pub active: bool,
 }
 
 /// Запрос к демону.

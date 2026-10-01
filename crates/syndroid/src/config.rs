@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::paths;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Config {
     /// Активный набор образов (каталог в `images/`).

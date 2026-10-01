@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Управление Android
+GenericName=Android: запуск, приложения, образы
+Comment=Запуск и остановка Android, приложения, образы LineageOS, настройки
+Exec=syndroid
+Icon=smartphone
+Categories=System;Settings;
+Keywords=android;lineageos;waydroid;apk;
+StartupWMClass=syndroid

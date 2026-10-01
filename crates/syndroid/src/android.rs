@@ -111,6 +111,35 @@ pub fn launch(pid: i32, package: &str, multi: bool) -> Result<()> {
     Ok(())
 }
 
+pub fn uninstall(pid: i32, package: &str) -> Result<()> {
+    let out = run(pid, &["/system/bin/pm", "uninstall", package])?;
+    if !out.contains("Success") {
+        bail!("{}", out.trim());
+    }
+    Ok(())
+}
+
+pub fn clear_data(pid: i32, package: &str) -> Result<()> {
+    let out = run(pid, &["/system/bin/pm", "clear", package])?;
+    if !out.contains("Success") {
+        bail!("{}", out.trim());
+    }
+    Ok(())
+}
+
+/// Установить APK, уже лежащий в /data контейнера.
+pub fn install(pid: i32, path_in_android: &str) -> Result<()> {
+    let out = run(pid, &["/system/bin/pm", "install", "-r", "-g", path_in_android])?;
+    if !out.contains("Success") {
+        bail!("{}", out.trim());
+    }
+    Ok(())
+}
+
+pub fn logcat(pid: i32, lines: u32) -> Result<String> {
+    run(pid, &["/system/bin/logcat", "-d", "-v", "time", "-t", &lines.to_string()])
+}
+
 pub fn force_stop(pid: i32, package: &str) -> Result<()> {
     run(pid, &["/system/bin/am", "force-stop", package]).map(drop)
 }

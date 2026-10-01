@@ -8,6 +8,7 @@ pub mod bridge;
 pub mod config;
 pub mod container;
 pub mod daemon;
+pub mod gui;
 pub mod images;
 pub mod net;
 pub mod paths;

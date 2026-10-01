@@ -4347,6 +4347,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "syngui",
+ "synshell-common",
  "toml",
  "tracing",
  "tracing-subscriber",

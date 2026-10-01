@@ -52,6 +52,7 @@ impl Daemon {
             uptime: i.init_pid.and_then(container::uptime_of),
             android_version: i.android_version.clone(),
             jobs: i.jobs.clone(),
+            memory: i.init_pid.and(container::memory()),
             error: i.error.clone(),
         }
     }
@@ -200,6 +201,15 @@ impl Daemon {
         Ok(())
     }
 
+    /// Android этого экземпляра не запущен (его данные можно трогать).
+    fn ensure_not_running(&self, instance: &str) -> Result<()> {
+        let active = Config::load().active.map(|a| images::instance_of(&a));
+        if self.state() != State::Stopped && active.as_deref() == Some(instance) {
+            bail!("этот Android запущен — сначала остановите его");
+        }
+        Ok(())
+    }
+
     /// PID init загруженного Android (замороженный — разморозить).
     fn android_pid(&self) -> Result<i32> {
         if self.state() == State::Frozen {
@@ -245,7 +255,10 @@ impl Daemon {
     }
 
     fn handle(self: &Arc<Self>, req: Request, peer: Peer) -> Result<Response> {
-        let read_only = matches!(req, Request::Status | Request::Images | Request::GetConfig | Request::CheckUpdates | Request::Apps);
+        let read_only = matches!(
+            req,
+            Request::Status | Request::Images | Request::GetConfig | Request::CheckUpdates | Request::Apps | Request::Instances | Request::Logcat { .. }
+        );
         // Окна и приложения — ещё и владельцу сеанса, для которого запущен Android
         let session_owner = self.inner.lock().unwrap().session.as_ref().is_some_and(|s| s.uid == peer.uid);
         let app_op = matches!(
@@ -294,10 +307,14 @@ impl Daemon {
                 let installed = images::exists(&images::set_name(&system.filename));
                 Response::Updates { system, vendor, installed }
             }
-            Request::FetchImages => {
-                let id = self.job("Загрузка образов Android", |p| {
+            Request::FetchImages { system_type } => {
+                let id = self.job("Загрузка образов Android", move |p| {
                     let mut c = Config::load();
-                    let set = images::fetch(&c, None, p)?;
+                    let mut fc = c.clone();
+                    if let Some(t) = system_type {
+                        fc.system_type = t;
+                    }
+                    let set = images::fetch(&fc, None, p)?;
                     if c.active.is_none() {
                         c.active = Some(set.name);
                         c.save()?;
@@ -339,6 +356,81 @@ impl Daemon {
                 images::remove(&name)?;
                 Response::Ok
             }
+            Request::Instances => {
+                let active = Config::load().active.map(|a| images::instance_of(&a));
+                let mut by: std::collections::BTreeMap<String, Vec<images::ImageSet>> = Default::default();
+                for s in images::list() {
+                    by.entry(images::instance_of(&s.name)).or_default().push(s);
+                }
+                // Экземпляры без образов, но с данными — тоже (их можно удалить)
+                for e in std::fs::read_dir(std::path::Path::new(paths::STATE).join("data")).into_iter().flatten().flatten() {
+                    by.entry(e.file_name().to_string_lossy().into_owned()).or_default();
+                }
+                let instances = by
+                    .into_iter()
+                    .map(|(id, sets)| crate::api::Instance {
+                        title: images::instance_title(&id),
+                        data_size: container::dir_size(&paths::data(&id)),
+                        active: active.as_deref() == Some(id.as_str()),
+                        sets,
+                        id,
+                    })
+                    .collect();
+                Response::Instances { instances }
+            }
+            Request::ResetData { instance } => {
+                self.ensure_not_running(&instance)?;
+                if instance.is_empty() || instance.contains('/') {
+                    bail!("неверный экземпляр");
+                }
+                let d = paths::data(&instance);
+                if d.exists() {
+                    std::fs::remove_dir_all(&d)?;
+                }
+                Response::Ok
+            }
+            Request::RemoveInstance { instance } => {
+                self.ensure_not_running(&instance)?;
+                for s in images::list().into_iter().filter(|s| images::instance_of(&s.name) == instance) {
+                    images::remove(&s.name)?;
+                }
+                let d = paths::data(&instance);
+                if !instance.is_empty() && !instance.contains('/') && d.exists() {
+                    std::fs::remove_dir_all(&d)?;
+                }
+                let mut c = Config::load();
+                if c.active.as_deref().map(images::instance_of).as_deref() == Some(instance.as_str()) {
+                    c.active = images::list().first().map(|s| s.name.clone());
+                    c.save()?;
+                }
+                Response::Ok
+            }
+            Request::InstallApk { path } => {
+                let pid = self.android_pid()?;
+                let instance = images::instance_of(Config::load().active.as_deref().unwrap_or(""));
+                let id = self.job("Установка APK", move |p| {
+                    p("копирование", 0, 0);
+                    // Через /data экземпляра: файл виден Android как /data/local/tmp/…
+                    let dir = paths::data(&instance).join("local/tmp");
+                    std::fs::create_dir_all(&dir)?;
+                    let name = format!("syndroid-{}.apk", std::process::id());
+                    std::fs::copy(&path, dir.join(&name)).with_context(|| path.clone())?;
+                    p("установка", 0, 0);
+                    let r = android::install(pid, &format!("/data/local/tmp/{name}"));
+                    let _ = std::fs::remove_file(dir.join(&name));
+                    r
+                });
+                Response::Job { id }
+            }
+            Request::UninstallApp { package } => {
+                android::uninstall(self.android_pid()?, &package)?;
+                Response::Ok
+            }
+            Request::ClearAppData { package } => {
+                android::clear_data(self.android_pid()?, &package)?;
+                Response::Ok
+            }
+            Request::Logcat { lines } => Response::Log { text: android::logcat(self.android_pid()?, lines.min(5000))? },
             Request::ShowFullUi => {
                 android::show_full_ui(self.android_pid()?)?;
                 Response::Ok

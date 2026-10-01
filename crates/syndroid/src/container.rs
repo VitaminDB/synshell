@@ -195,6 +195,24 @@ fn rmdir_tree(p: &Path) {
     let _ = fs::remove_dir(p);
 }
 
+/// Память контейнера, байт.
+pub fn memory() -> Option<u64> {
+    fs::read_to_string(Path::new(paths::CGROUP).join("memory.current")).ok()?.trim().parse().ok()
+}
+
+/// Размер каталога (без перехода по ссылкам), байт.
+pub fn dir_size(p: &Path) -> u64 {
+    let Ok(m) = fs::symlink_metadata(p) else { return 0 };
+    if m.is_dir() {
+        fs::read_dir(p).into_iter().flatten().flatten().map(|e| dir_size(&e.path())).sum()
+    } else if m.is_file() {
+        use std::os::unix::fs::MetadataExt;
+        m.blocks() * 512
+    } else {
+        0
+    }
+}
+
 pub fn freeze(on: bool) -> Result<()> {
     fs::write(Path::new(paths::CGROUP).join("cgroup.freeze"), if on { "1" } else { "0" }).context("cgroup.freeze")
 }

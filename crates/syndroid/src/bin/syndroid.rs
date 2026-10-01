@@ -10,6 +10,7 @@ use syndroid::container;
 
 const HELP: &str = "syndroid — Android-приложения в synshell
 
+  syndroid                            окно управления
   syndroid status                     состояние Android
   syndroid start | stop | restart     запуск (для текущего сеанса), остановка, перезапуск
   syndroid freeze | unfreeze          заморозить / разморозить
@@ -132,7 +133,8 @@ fn main() -> Result<()> {
     }
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
     match a.as_slice() {
-        [] | ["help"] | ["-h"] | ["--help"] => println!("{HELP}"),
+        [] => syndroid::gui::run(),
+        ["help"] | ["-h"] | ["--help"] => println!("{HELP}"),
         ["status"] => {
             let s = status()?;
             println!("Android: {:?}", s.state);
@@ -217,7 +219,7 @@ fn main() -> Result<()> {
             }
         }
         ["image", "fetch"] => {
-            if let Response::Job { id } = api::call(&Request::FetchImages)? {
+            if let Response::Job { id } = api::call(&Request::FetchImages { system_type: None })? {
                 follow(id)?;
             }
         }
