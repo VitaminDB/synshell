@@ -73,6 +73,9 @@ pub struct Job {
 pub struct Status {
     pub state: State,
     pub image: Option<String>,
+    /// Экземпляр Android активного набора и его название.
+    pub instance: Option<String>,
+    pub instance_title: Option<String>,
     /// PID init Android (в пространстве имён хоста).
     pub init_pid: Option<i32>,
     pub session: Option<Session>,

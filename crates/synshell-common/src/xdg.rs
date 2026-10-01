@@ -25,6 +25,18 @@ pub struct DesktopEntry {
     pub workdir: String,
     /// Типы файлов, которые открывает программа (`MimeType=`).
     pub mime_types: Vec<String>,
+    /// Приложение Android (syndroid): из какого Android. Такие ярлыки лежат отдельно от программ Linux
+    /// (`$XDG_DATA_HOME/syndroid/applications/<экземпляр>/`), и меню показывает их своим разделом.
+    pub android: Option<AndroidOrigin>,
+}
+
+/// Экземпляр Android, которому принадлежит приложение.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub struct AndroidOrigin {
+    /// Идентификатор экземпляра (`lineage-20.0-VANILLA`).
+    pub instance: String,
+    /// Название для людей («LineageOS 20.0»).
+    pub title: String,
 }
 
 impl DesktopEntry {
@@ -280,7 +292,25 @@ pub fn parse_desktop_file(path: &Path, id: String, locales: &[String]) -> Option
         path: path.to_path_buf(),
         workdir: kv.get("Path").cloned().unwrap_or_default(),
         mime_types: list(kv.get("MimeType").cloned()),
+        android: kv.get("X-Syndroid-Instance").map(|i| AndroidOrigin {
+            instance: i.clone(),
+            title: kv.get("X-Syndroid-Title").cloned().unwrap_or_else(|| i.clone()),
+        }),
     })
+}
+
+/// Каталог ярлыков приложений Android (syndroid): `<экземпляр>/<пакет>.desktop`. Не входит в
+/// `$XDG_DATA_DIRS/applications`, чтобы приложения Android не смешивались с программами Linux.
+pub fn android_apps_dir() -> PathBuf {
+    paths::data_home().join("syndroid/applications")
+}
+
+/// Экземпляры Android, у которых есть приложения: (id, название), по названию.
+pub fn android_instances(apps: &[DesktopEntry]) -> Vec<AndroidOrigin> {
+    let mut v: Vec<AndroidOrigin> = apps.iter().filter(|e| !e.no_display).filter_map(|e| e.android.clone()).collect();
+    v.sort_by(|a, b| a.title.cmp(&b.title).then_with(|| a.instance.cmp(&b.instance)));
+    v.dedup();
+    v
 }
 
 /// Все приложения из `$XDG_DATA_DIRS/applications`.
@@ -301,6 +331,14 @@ pub fn load_apps() -> Vec<DesktopEntry> {
             }
         });
     }
+    // Приложения Android: id с экземпляром — у разных Android пакет может совпадать
+    let root = android_apps_dir();
+    walk(&root, &root, &mut |path, id| {
+        let id = format!("android-{id}");
+        if let Some(e) = parse_desktop_file(path, id.clone(), &locales).filter(|e| e.android.is_some()) {
+            by_id.insert(id, e);
+        }
+    });
     let mut v: Vec<DesktopEntry> = by_id.into_values().filter(|e| !e.name.is_empty()).collect();
     v.sort_by_key(|a| a.name.to_lowercase());
     v
@@ -374,6 +412,7 @@ pub fn apps_stamp() -> Vec<(PathBuf, Option<std::time::SystemTime>)> {
     for d in paths::data_dirs() {
         add(d.join("applications"), &mut v);
     }
+    add(android_apps_dir(), &mut v);
     v
 }
 

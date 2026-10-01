@@ -148,11 +148,16 @@ pub fn search(ctx: &ShellCtx, query: &str) -> Vec<Item> {
 /// Приложения раздела меню: `favorites`, `recent`, `all` или категория.
 fn section_items(ctx: &ShellCtx, key: &str) -> Vec<Item> {
     let apps = xdg::apps();
-    let visible = || apps.iter().filter(|e| !e.no_display);
+    // Программы Linux; приложения Android — только в разделах своих экземпляров (`android:<экземпляр>`)
+    let visible = || apps.iter().filter(|e| !e.no_display && e.android.is_none());
     let v: Vec<DesktopEntry> = match key {
         "favorites" => ctx.cfg().launcher.favorites.iter().filter_map(|id| xdg::app_by_id(id)).collect(),
         "recent" => recent().iter().filter_map(|id| xdg::app_by_id(id)).collect(),
         "all" => visible().cloned().collect(),
+        k if k.starts_with("android:") => {
+            let inst = &k["android:".len()..];
+            apps.iter().filter(|e| !e.no_display && e.android.as_ref().is_some_and(|a| a.instance == inst)).cloned().collect()
+        }
         cat => visible().filter(|e| e.main_category() == cat).cloned().collect(),
     };
     v.into_iter().map(Item::App).collect()
@@ -282,7 +287,14 @@ pub fn item_icon(item: &Item, class: &str) -> Box<dyn Widget> {
 pub fn item_text(item: &Item) -> (String, String) {
     match item {
         Item::App(e) => {
-            let sub = if !e.generic_name.is_empty() && e.generic_name != e.name { e.generic_name.clone() } else { e.comment.clone() };
+            // Приложение Android — всегда с подписью, из какого Android (не путать с программами Linux)
+            let sub = if let Some(a) = &e.android {
+                format!("Android · {}", a.title)
+            } else if !e.generic_name.is_empty() && e.generic_name != e.name {
+                e.generic_name.clone()
+            } else {
+                e.comment.clone()
+            };
             (e.name.clone(), sub)
         }
         Item::Calc { expr, value } => (format!("= {value}"), format!("{expr} · Enter — скопировать")),
@@ -445,10 +457,17 @@ fn sidebar_entries(ctx: &ShellCtx) -> Vec<(String, String, String)> {
     entries.push(("all".into(), "Все приложения".into(), mi::APPS.into()));
     if cfg.launcher.show_categories {
         for (key, label, glyph) in xdg::CATEGORIES {
-            if apps.iter().any(|e| !e.no_display && e.main_category() == *key) {
+            if apps.iter().any(|e| !e.no_display && e.android.is_none() && e.main_category() == *key) {
                 entries.push((key.to_string(), label.to_string(), glyph.to_string()));
             }
         }
+    }
+    // Android — свои разделы, по экземпляру
+    let instances = xdg::android_instances(&apps);
+    let many = instances.len() > 1;
+    for i in instances {
+        let label = if many { format!("Android · {}", i.title) } else { "Android".into() };
+        entries.push((format!("android:{}", i.instance), label, mi::ANDROID.into()));
     }
     entries
 }

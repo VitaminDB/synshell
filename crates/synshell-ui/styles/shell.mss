@@ -467,6 +467,31 @@ Text {
 .start-pill-text { font-size: 12px; color: var(--fg); }
 .start-pill-icon { icon-size: 16px; icon-color: var(--fg); }
 
+/* Источники меню: Linux / Android (по экземпляру) */
+.start-chips { height: 34px; }
+.start-chip {
+    padding: 6px 14px 6px 10px;
+    border-radius: 999px;
+    background-color: var(--surface-alt);
+    border-width: 1px;
+    border-color: #00000000;
+    transition: background-color 120ms ease-out, border-color 120ms ease-out, scale 200ms spring(420, 26);
+}
+.start-chip:hover { background-color: var(--hover); }
+.start-chip:active { scale: 0.95; }
+.start-chip-on { background-color: var(--accent); }
+.start-chip-on:hover { background-color: var(--accent); }
+.start-chip-text { font-size: 13px; color: var(--fg); }
+.start-chip-icon { icon-size: 18px; icon-color: var(--fg); }
+.start-chip-on .start-chip-text { color: var(--accent-fg); }
+.start-chip-on .start-chip-icon { icon-color: var(--accent-fg); }
+/* Android — фирменный зелёный значок и рамка (выбранный — как все, в цвете акцента) */
+.start-chip-android { border-color: #3DDC8466; }
+.start-chip-android .start-chip-icon { icon-color: #3DDC84; }
+.start-chip-on .start-chip-icon { icon-color: var(--accent-fg); }
+.start-android-badge { padding: 2px; border-radius: 999px; background-color: #3DDC84; }
+.start-android-badge-icon { icon-size: 12px; icon-color: #10251a; }
+
 .start-pinned { height: 300px; accent-color: var(--accent); border-color: var(--border); }
 .start-tile {
     padding: 10px 2px 8px 2px;

@@ -13,6 +13,11 @@
 //! приложения значками по страницам во всю высоту, `list` — как на
 //! рабочем столе.
 //!
+//! Приложения Android (syndroid) — отдельно от программ Linux: под поиском чипы «Linux» и «Android»
+//! (по чипу на каждый экземпляр Android, если их несколько); «Все приложения» и страницы телефона
+//! показывают выбранный источник, в смешанных местах (закреплённые, рекомендуемые) у значка Android —
+//! метка, в поиске — подпись «Android · LineageOS 20.0».
+//!
 //! Правый щелчок или удержание по значку — меню значка прямо внутри
 //! «Пуска»: закрепить/открепить, на док, на домашний экран (телефон).
 //! На рабочем столе — карточка у кнопки, на телефоне — лист почти на весь
@@ -22,6 +27,7 @@ use std::collections::BTreeMap;
 use syngui::input::Key;
 use syngui::mss::StyleValue;
 use syngui::prelude::*;
+use syngui::containers::Positioned;
 use syngui::widgets::containers::scroll_to_named;
 use syngui::widgets::{Carousel, PanAxis};
 use syngui::{GestureDetector, Named};
@@ -32,6 +38,31 @@ use crate::launcher::{self, Item};
 use crate::launchers::Launchable;
 use crate::ui::{icon, mi, rx, InputArea};
 use crate::xdg::{self, DesktopEntry};
+
+/// Чьи приложения показывает меню: программы Linux или экземпляр Android (`xdg::AndroidOrigin::instance`).
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum Source {
+    Linux,
+    Android(String),
+}
+
+impl Source {
+    fn matches(&self, e: &DesktopEntry) -> bool {
+        match (self, &e.android) {
+            (Source::Linux, None) => true,
+            (Source::Android(i), Some(a)) => a.instance == *i,
+            _ => false,
+        }
+    }
+}
+
+/// Видимые приложения источника.
+fn source_apps(source: &Source) -> Vec<DesktopEntry> {
+    xdg::apps().iter().filter(|e| !e.no_display && source.matches(e)).cloned().collect()
+}
+
+/// Высота ряда чипов источников.
+const CHIPS_H: f32 = 40.0;
 
 /// Вид меню: закреплённые или все приложения (поиск — поверх обоих).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -52,6 +83,8 @@ struct St {
     page: RwSignal<usize>,
     /// Телефон: все приложения значками по страницам (иначе — список).
     pages: RwSignal<bool>,
+    /// Linux или экземпляр Android.
+    source: RwSignal<Source>,
 }
 
 /// Телефон: высота значка в сетке (отступы, значок, две строки подписи) и
@@ -97,7 +130,9 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
         item_menu: use_signal(None),
         page: use_signal(0usize),
         pages: use_signal(ctx.is_phone() && ctx.cfg().mobile.launcher != "list"),
+        source: use_signal(Source::Linux),
     };
+    let instances = xdg::android_instances(&xdg::apps());
     create_effect(move || {
         let q = st.query.get();
         st.results.set(launcher::search(&ctx, &q));
@@ -152,11 +187,14 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
             size(&ShellCtx::get())
         };
         let _ = w;
+        let chips_h = if instances.is_empty() { 0.0 } else { CHIPS_H };
+        let mut col = Column::new().gap(14.0).child(search(st));
+        if !instances.is_empty() {
+            col = col.child(chips(st, instances.clone()));
+        }
         Box::new(
-            Column::new()
-                .gap(14.0)
-                .child(search(st))
-                .child(body_ref(st, ctx, h - CHROME_H))
+            col
+                .child(body_ref(st, ctx, h - CHROME_H - chips_h))
                 .child(footer(ShellCtx::get(), st))
                 .class("start")
                 .style("height", StyleValue::px(h))
@@ -175,10 +213,13 @@ fn body_ref(st: St, ctx: ShellCtx, body_h: f32) -> impl Widget {
         let searching = !st.query.get().trim().is_empty();
         let v = st.view.get();
         let pages = st.pages.get();
+        let source = st.source.get();
         // Поставили или удалили программу — пересобрать списки.
         let rev = ctx.apps_rev.get();
         // Ключ задаёт направление перетекания: дальше по списку — въезд справа.
         let key = if searching { 3 } else if pages { 4 } else if v == View::All { 2 } else { 1 };
+        // Смена источника — тоже перетекание
+        let key = key + 10 * source_key(&source);
         let sw = AnimatedSwitcher::new(key, move || -> Box<dyn Widget> {
             if searching {
                 Box::new(results(ctx, st))
@@ -206,6 +247,80 @@ fn body_ref(st: St, ctx: ShellCtx, body_h: f32) -> impl Widget {
             Box::new(sw)
         }
     })
+}
+
+/// Номер источника для ключа перетекания: Linux — 0, Android — по экземпляру.
+fn source_key(s: &Source) -> u64 {
+    match s {
+        Source::Linux => 0,
+        Source::Android(i) => 1 + i.bytes().fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64)) % 1000,
+    }
+}
+
+/// Чипы источников под поиском: «Linux», «Android» (несколько экземпляров — по названию каждого).
+fn chips(st: St, instances: Vec<xdg::AndroidOrigin>) -> impl Widget {
+    rx(move || {
+        let cur = st.source.get();
+        let searching = !st.query.get().trim().is_empty();
+        let many = instances.len() > 1;
+        let mut items: Vec<(Source, String, &'static str)> = vec![(Source::Linux, "Linux".into(), mi::COMPUTER)];
+        for i in &instances {
+            let label = if many { i.title.clone() } else { "Android".into() };
+            items.push((Source::Android(i.instance.clone()), label, mi::ANDROID));
+        }
+        let mut row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        for (src, label, glyph) in items {
+            let on = cur == src && !searching;
+            let android = matches!(src, Source::Android(_));
+            let class = match (on, android) {
+                (true, true) => "start-chip start-chip-android start-chip-on",
+                (true, false) => "start-chip start-chip-on",
+                (false, true) => "start-chip start-chip-android",
+                (false, false) => "start-chip",
+            };
+            row = row.child(
+                GestureDetector::new()
+                    .on_click(move || {
+                        st.source.set(src.clone());
+                        st.page.set(0);
+                        // Из закреплённых — сразу в список источника
+                        if st.view.get_untracked() == View::Home {
+                            st.view.set(View::All);
+                        }
+                    })
+                    .child(
+                        DecoratedBox::new()
+                            .child(
+                                Row::new()
+                                    .gap(6.0)
+                                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                                    .child(icon(glyph).class("start-chip-icon"))
+                                    .child(Text::new(label).max_lines(1).class("start-chip-text")),
+                            )
+                            .class(class),
+                    ),
+            );
+        }
+        Box::new(row.class("start-chips"))
+    })
+}
+
+/// Значок приложения; `badge` — у приложений Android метка Android в углу (там, где они рядом с
+/// программами Linux: закреплённые, рекомендуемые).
+fn app_icon(e: &DesktopEntry, class: &str, size: f32, badge: bool) -> Box<dyn Widget> {
+    let l = Launchable::from_entry(e);
+    let ic = crate::launchers::icon_widget(&l.icon, &None, class, size);
+    if e.android.is_none() || !badge {
+        return ic;
+    }
+    let b = (size * 0.42).round();
+    Box::new(
+        Stack::new()
+            .child(ic)
+            .child(Positioned::new(DecoratedBox::new().child(icon(mi::ANDROID).class("start-android-badge-icon")).class("start-android-badge")).at(size - b * 0.8, size - b * 0.8))
+            .style("width", StyleValue::px(size))
+            .style("height", StyleValue::px(size)),
+    )
 }
 
 // ─── Поиск ───────────────────────────────────────────────────────────────────
@@ -300,7 +415,7 @@ fn home(ctx: ShellCtx, st: St, body_h: f32) -> impl Widget {
         for chunk in apps.chunks(per_page) {
             let mut grid = Grid::new(cols).gap(2.0);
             for e in chunk {
-                grid = grid.child(tile(ctx, st, e));
+                grid = grid.child(tile(ctx, st, e, true));
             }
             let page = Column::new().main_axis_alignment(MainAxisAlignment::Start).child(grid);
             let page: Box<dyn Widget> = match phone_h {
@@ -318,7 +433,7 @@ fn home(ctx: ShellCtx, st: St, body_h: f32) -> impl Widget {
     let recent: Vec<DesktopEntry> = launcher::recent().iter().filter_map(|id| xdg::app_by_id(id)).take(if ctx.is_phone() { 4 } else { 6 }).collect();
     let mut rec = Grid::new(if ctx.is_phone() { 1 } else { 2 }).gap(4.0);
     for e in &recent {
-        rec = rec.child(recent_row(ctx, st, e));
+        rec = rec.child(recent_row(ctx, st, e, true));
     }
     let mut col = Column::new().gap(10.0).child(header).child(pinned);
     if !recent.is_empty() && ctx.cfg().launcher.show_recent {
@@ -331,7 +446,7 @@ fn home(ctx: ShellCtx, st: St, body_h: f32) -> impl Widget {
 /// во всю высоту тела листаются пальцем.
 fn app_pages(ctx: ShellCtx, st: St, body_h: f32) -> impl Widget {
     let cols = columns(&ctx);
-    let mut apps: Vec<DesktopEntry> = xdg::apps().iter().filter(|e| !e.no_display).cloned().collect();
+    let mut apps = source_apps(&st.source.get_untracked());
     apps.sort_by_key(|a| a.name.to_lowercase());
     let rows = phone_rows(body_h - INDICATORS_H);
     let per_page = cols * rows;
@@ -339,7 +454,7 @@ fn app_pages(ctx: ShellCtx, st: St, body_h: f32) -> impl Widget {
     for chunk in apps.chunks(per_page) {
         let mut grid = Grid::new(cols).gap(PHONE_GRID_GAP);
         for e in chunk {
-            grid = grid.child(tile(ctx, st, e));
+            grid = grid.child(tile(ctx, st, e, false));
         }
         pages = pages.child(Column::new().main_axis_alignment(MainAxisAlignment::Start).child(grid).style("height", StyleValue::px(body_h)));
     }
@@ -367,8 +482,7 @@ fn open_menu(st: St, id: String) {
 }
 
 /// Значок в сетке закреплённых.
-fn tile(ctx: ShellCtx, st: St, e: &DesktopEntry) -> impl Widget {
-    let l = Launchable::from_entry(e);
+fn tile(ctx: ShellCtx, st: St, e: &DesktopEntry, mixed: bool) -> impl Widget {
     let e2 = e.clone();
     let (id, id2) = (e.id.clone(), e.id.clone());
     GestureDetector::new()
@@ -385,18 +499,17 @@ fn tile(ctx: ShellCtx, st: St, e: &DesktopEntry) -> impl Widget {
                     Column::new()
                         .gap(6.0)
                         .cross_axis_alignment(CrossAxisAlignment::Center)
-                        .child(crate::launchers::icon_widget(&l.icon, &None, "start-tile-icon", if ctx.is_phone() { 48.0 } else { 36.0 }))
+                        .child(app_icon(e, "start-tile-icon", if ctx.is_phone() { 48.0 } else { 36.0 }, mixed))
                         .child(Text::new(e.name.clone()).max_lines(2).class("start-tile-name")),
                 )
                 .class("start-tile"),
         )
 }
 
-fn recent_row(ctx: ShellCtx, st: St, e: &DesktopEntry) -> impl Widget {
-    let l = Launchable::from_entry(e);
+fn recent_row(ctx: ShellCtx, st: St, e: &DesktopEntry, mixed: bool) -> impl Widget {
     let e2 = e.clone();
     let (id, id2) = (e.id.clone(), e.id.clone());
-    let sub = if !e.generic_name.is_empty() && e.generic_name != e.name { e.generic_name.clone() } else { e.comment.clone() };
+    let (_, sub) = launcher::item_text(&Item::App(e.clone()));
     let _ = ctx;
     GestureDetector::new()
         .on_click(move || {
@@ -412,7 +525,7 @@ fn recent_row(ctx: ShellCtx, st: St, e: &DesktopEntry) -> impl Widget {
                     Row::new()
                         .gap(12.0)
                         .cross_axis_alignment(CrossAxisAlignment::Center)
-                        .child(crate::launchers::icon_widget(&l.icon, &None, "start-row-icon", 32.0))
+                        .child(app_icon(e, "start-row-icon", 32.0, mixed))
                         .child(
                             Column::new()
                                 .gap(0.0)
@@ -437,7 +550,15 @@ fn letter_of(name: &str) -> String {
 
 fn all_apps(ctx: ShellCtx, st: St, body_h: f32) -> impl Widget {
     let mut groups: BTreeMap<(u8, String), Vec<DesktopEntry>> = BTreeMap::new();
-    for e in xdg::apps().iter().filter(|e| !e.no_display) {
+    let source = st.source.get_untracked();
+    let title = match &source {
+        Source::Linux => "Все приложения".to_string(),
+        Source::Android(i) => {
+            let t = xdg::android_instances(&xdg::apps()).into_iter().find(|a| a.instance == *i).map(|a| a.title).unwrap_or_default();
+            format!("Android · {t}")
+        }
+    };
+    for e in source_apps(&source).iter() {
         let l = letter_of(&e.name);
         // Порядок: «#», латиница, кириллица, остальное.
         let rank = match l.chars().next() {
@@ -454,7 +575,7 @@ fn all_apps(ctx: ShellCtx, st: St, body_h: f32) -> impl Widget {
         apps.sort_by_key(|a| a.name.to_lowercase());
         list = list.child(Named::new(format!("start-letter-{letter}"), Text::new(letter.clone()).class("start-letter")));
         for e in &apps {
-            list = list.child(recent_row(ctx, st, e));
+            list = list.child(recent_row(ctx, st, e, false));
         }
         letters.push(letter);
     }
@@ -468,7 +589,7 @@ fn all_apps(ctx: ShellCtx, st: St, body_h: f32) -> impl Widget {
                     .class("start-pill"),
             ),
         )
-        .child(Text::new("Все приложения").class("start-heading grow"));
+        .child(Text::new(title).class("start-heading grow"));
     Column::new()
         .gap(8.0)
         .child(header)

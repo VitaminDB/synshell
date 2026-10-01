@@ -403,6 +403,8 @@ pub fn boxed<M>(class: &str, child: impl IntoWidget<M>) -> syngui::widget::Style
 /// Коды Material Icons, которыми рисуются апплеты.
 pub mod mi {
     pub const APPS: &str = "\u{E5C3}";
+    pub const ANDROID: &str = "\u{E859}";
+    pub const COMPUTER: &str = "\u{E30A}";
     pub const SEARCH: &str = "\u{E8B6}";
     pub const POWER: &str = "\u{E8AC}";
     pub const LOCK: &str = "\u{E897}";

@@ -13,10 +13,10 @@ const HELP: &str = "syndroid — Android-приложения в synshell
   syndroid status                     состояние Android
   syndroid start | stop | restart     запуск (для текущего сеанса), остановка, перезапуск
   syndroid freeze | unfreeze          заморозить / разморозить
-  syndroid show                       весь Android одним окном (запустит Android, если нужно)
+  syndroid show [--instance ЭКЗ]      весь Android одним окном (запустит/переключит Android, если нужно)
   syndroid session                    из автозапуска сеанса: запустить Android, если autostart = true
   syndroid app list                   приложения
-  syndroid app launch ПАКЕТ | stop ПАКЕТ
+  syndroid app launch [--instance ЭКЗ] ПАКЕТ | stop ПАКЕТ
   syndroid image list                 наборы образов
   syndroid image check                свежие сборки в OTA-каналах
   syndroid image fetch                скачать последний набор (system + vendor)
@@ -78,10 +78,23 @@ fn follow(id: u64) -> Result<()> {
     }
 }
 
-/// Android запущен и загружен (если остановлен — запустить для текущего сеанса и дождаться).
-fn ensure_running() -> Result<()> {
+/// Нужный экземпляр Android запущен и загружен: другой — переключить (свежий набор этого экземпляра,
+/// перезапуск), остановленный — запустить для текущего сеанса; дождаться загрузки.
+fn ensure_running(instance: Option<&str>) -> Result<()> {
     use syndroid::api::State;
-    let s = status()?;
+    let mut s = status()?;
+    if let Some(inst) = instance {
+        if s.instance.as_deref() != Some(inst) {
+            let set = syndroid::images::latest_of(inst).with_context(|| format!("нет образов Android «{inst}»"))?;
+            eprintln!("Переключение на {}…", syndroid::images::instance_title(inst));
+            api::call(&Request::UseImages { name: set.name })?;
+            if s.state != State::Stopped {
+                api::call(&Request::Restart)?;
+                eprintln!("Android перезапускается…");
+            }
+            s = status()?;
+        }
+    }
     match s.state {
         State::Running | State::Frozen => return Ok(()),
         State::Stopped => {
@@ -123,6 +136,9 @@ fn main() -> Result<()> {
         ["status"] => {
             let s = status()?;
             println!("Android: {:?}", s.state);
+            if let Some(t) = &s.instance_title {
+                println!("экземпляр: {t} ({})", s.instance.as_deref().unwrap_or(""));
+            }
             if let Some(i) = &s.image {
                 println!("образы: {i}");
             }
@@ -151,7 +167,11 @@ fn main() -> Result<()> {
         ["freeze"] => ok(api::call(&Request::Freeze)?),
         ["unfreeze"] => ok(api::call(&Request::Unfreeze)?),
         ["show"] => {
-            ensure_running()?;
+            ensure_running(None)?;
+            ok(api::call(&Request::ShowFullUi)?)
+        }
+        ["show", "--instance", inst] => {
+            ensure_running(Some(inst))?;
             ok(api::call(&Request::ShowFullUi)?)
         }
         // Из автозапуска сеанса: запустить Android, если так настроено
@@ -170,7 +190,11 @@ fn main() -> Result<()> {
             }
         }
         ["app", "launch", pkg] => {
-            ensure_running()?;
+            ensure_running(None)?;
+            ok(api::call(&Request::LaunchApp { package: pkg.to_string() })?)
+        }
+        ["app", "launch", "--instance", inst, pkg] => {
+            ensure_running(Some(inst))?;
             ok(api::call(&Request::LaunchApp { package: pkg.to_string() })?)
         }
         ["app", "stop", pkg] => ok(api::call(&Request::StopApp { package: pkg.to_string() })?),

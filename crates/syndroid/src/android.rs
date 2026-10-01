@@ -89,18 +89,19 @@ pub fn launch(pid: i32, package: &str, multi: bool) -> Result<()> {
     if package.is_empty() || package.contains(['/', ' ']) {
         bail!("неверное имя пакета «{package}»");
     }
-    let act = run(
-        pid,
-        &[
-            "/system/bin/cmd",
-            "package",
-            "resolve-activity",
-            "--brief",
-            "-c",
-            "android.intent.category.LAUNCHER",
-            package,
-        ],
-    )?;
+    // Пока Android перезапускает system_server (например, после перезапуска композитора hwcomposer теряет
+    // экран, и SurfaceFlinger тянет за собой zygote), сервиса пакетов нет — подождать
+    let resolve = || {
+        run(pid, &["/system/bin/cmd", "package", "resolve-activity", "--brief", "-c", "android.intent.category.LAUNCHER", package])
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(40);
+    let act = loop {
+        match resolve() {
+            Ok(out) if out.contains('/') || std::time::Instant::now() > deadline => break out,
+            Err(e) if std::time::Instant::now() > deadline => return Err(e),
+            _ => std::thread::sleep(std::time::Duration::from_secs(1)),
+        }
+    };
     let component = act.lines().map(str::trim).rfind(|l| l.contains('/')).map(str::to_string);
     let Some(component) = component else { bail!("у {package} нет активности для запуска") };
     setprop(pid, "waydroid.active_apps", package)?;

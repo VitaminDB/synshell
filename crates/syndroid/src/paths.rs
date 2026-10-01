@@ -25,9 +25,9 @@ pub fn config() -> PathBuf {
 pub fn images() -> PathBuf {
     state("images")
 }
-/// `/data` Android.
-pub fn data() -> PathBuf {
-    state("data")
+/// `/data` экземпляра Android (у каждого — свой: приложения LineageOS 18 и 20 не смешиваются).
+pub fn data(instance: &str) -> PathBuf {
+    state("data").join(instance)
 }
 /// Свои файлы поверх образов (нижний слой overlay): `overlay/{system,vendor}`.
 pub fn overlay(part: &str) -> PathBuf {

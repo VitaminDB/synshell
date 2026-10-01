@@ -40,9 +40,13 @@ impl Daemon {
 
     fn status(&self) -> Status {
         let i = self.inner.lock().unwrap();
+        let image = Config::load().active;
+        let instance = image.as_deref().map(images::instance_of);
         Status {
             state: i.state.unwrap_or(State::Stopped),
-            image: Config::load().active,
+            instance_title: instance.as_deref().map(images::instance_title),
+            instance,
+            image,
             init_pid: i.init_pid,
             session: i.session.clone(),
             uptime: i.init_pid.and_then(container::uptime_of),
@@ -89,7 +93,7 @@ impl Daemon {
         tracing::info!("контейнер запущен, init = {}", running.init_pid);
         let session = self.inner.lock().unwrap().session.clone();
         if let Some(s) = session {
-            match spawn_bridge(running.init_pid, &s) {
+            match spawn_bridge(&crate::images::instance_of(cfg.active.as_deref().unwrap_or("")), &s) {
                 Ok(b) => self.inner.lock().unwrap().bridge = Some(b),
                 Err(e) => tracing::warn!("мост binder: {e:#}"),
             }
@@ -358,7 +362,7 @@ impl Daemon {
 }
 
 /// Мост binder от имени владельца сеанса (его ярлыки, его D-Bus); вывод — в журнал службы.
-fn spawn_bridge(init_pid: i32, s: &Session) -> Result<std::process::Child> {
+fn spawn_bridge(instance: &str, s: &Session) -> Result<std::process::Child> {
     use std::os::unix::process::CommandExt;
     let home = std::fs::read_to_string("/etc/passwd")
         .ok()
@@ -366,7 +370,7 @@ fn spawn_bridge(init_pid: i32, s: &Session) -> Result<std::process::Child> {
         .context("домашний каталог владельца сеанса")?;
     std::process::Command::new(std::env::current_exe()?)
         .arg("__bridge")
-        .arg(init_pid.to_string())
+        .arg(instance)
         .env_clear()
         .env("HOME", home)
         .env("USER", &s.user)

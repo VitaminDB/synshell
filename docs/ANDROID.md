@@ -78,12 +78,31 @@ import SYSTEM VENDOR [ИМЯ] | use ИМЯ | remove ИМЯ`, `sudo syndroid shel
 2. ✅ (2026-10-01) Окна: `syndroid show` (весь Android одним окном), `syndroid app list|launch|stop`; запуск
    приложения сам поднимает Android и ждёт загрузки; автозапуск с сеансом (`autostart`, `syndroid session`).
 
+## Экземпляры Android и меню
+- **Экземпляр** — линейка образов без даты сборки: `lineage-20.0-20260927-VANILLA` → `lineage-20.0-VANILLA`
+  («LineageOS 20.0»; GAPPS — «LineageOS 20.0 · GApps»). Обновление образа той же линейки — тот же экземпляр;
+  разные версии/варианты — разные экземпляры. У каждого свой `/data` (`/var/lib/syndroid/data/<экземпляр>`;
+  прежний общий `/data` переносится в экземпляр, который запустится первым) и свои ярлыки.
+- `syndroid app launch|show --instance <экз>`: если запущен другой Android — переключить на свежий набор этого
+  экземпляра и перезапустить.
+- **Меню** (`start_menu.rs`, телефон и рабочий стол): под поиском чипы «Linux» и «Android» (значок Android;
+  несколько экземпляров — по чипу на каждый с названием). «Все приложения» и страницы телефона показывают
+  выбранный источник; в смешанных местах (закреплённые, рекомендуемые) у значка Android-приложения — зелёная
+  метка Android; в поиске — подпись «Android · LineageOS 20.0». Классическое меню (`launcher.rs`) — свои
+  разделы «Android» по экземплярам, в «Все приложения» и категориях — только Linux. Страница приложений
+  домашнего экрана телефона — только Linux.
+
 ## Окна Android (как это устроено)
 - Окна создаёт hwcomposer образа (Wayland-клиент synwm; работает под uid владельца сеанса — сокет доступен).
   Что показывать, он берёт из свойства `waydroid.active_apps`: `Waydroid` — весь Android, имя пакета — окно
   этого приложения (`app_id` = `waydroid.<пакет>`, заголовок — имя приложения), `none` — ничего. Окна
   пересоздаются на следующем кадре: для «показать всё» syndroid дёргает шторку (`cmd statusbar`), как Waydroid.
 - Ввод — каналы `/dev/input/wl_*_events`, их hwcomposer создаёт сам, поэтому /dev контейнера — tmpfs 1777.
+- Сокеты сеанса — **ссылками** на каталог `XDG_RUNTIME_DIR` пользователя, привязанный целиком
+  (`/run/xdg-host`, 0700 — внутри доступен только uid владельца сеанса): привязка файла сокета держит старый
+  инод, и после перезапуска композитора hwcomposer не мог переподключиться — Android терял экран. Теперь
+  hwcomposer падает при обрыве, init его перезапускает, и он подключается к новому сокету; Android при этом
+  перезапускает system_server (~20 с) — `app launch` ждёт сервис пакетов до 40 с.
 - Размер «экрана» Android — из первого configure окна (`waydroid.display_width/height`, `display_scale`).
 - `multi_windows = true` — каждое приложение своим окном freeform: размеры окон задаёт Android, а не композитор,
   поэтому на телефоне по умолчанию выключено (приложение на весь экран Android в своём окне synwm).
@@ -109,10 +128,14 @@ import SYSTEM VENDOR [ИМЯ] | use ИМЯ | remove ИМЯ`, `sudo syndroid shel
   `waydroidusermonitor`, `waydroidhardware`, `waydroidnotifications` один раз; если какого-то нет — исключение,
   и ни пакеты, ни уведомления не подключаются до следующей загрузки. Поэтому мост стартует сразу с
   контейнером и ждёт только servicemanager (`checkService("manager")`).
-- Ярлыки: `~/.local/share/applications/waydroid.<пакет>.desktop` (маркер `X-Syndroid=true`, чужие не трогаем),
-  `Exec=syndroid app launch <пакет>`, `StartupWMClass=waydroid.<пакет>` (окно получает значок),
-  значки — копии из `/data/icons` в `~/.local/share/syndroid/icons/` (Android перезаписывает их на каждой
-  загрузке; копируется только целый PNG — с IEND).
+- Ярлыки — **отдельно от программ Linux** (у Waydroid они смешаны, и это путает):
+  `~/.local/share/syndroid/applications/<экземпляр>/<пакет>.desktop` — вне `$XDG_DATA_DIRS/applications`,
+  другие среды их не видят; synshell читает их отдельно (`xdg::android_apps_dir`, поле
+  `DesktopEntry::android`). Ключи `X-Syndroid-Instance`, `X-Syndroid-Title`, маркер `X-Syndroid=true`;
+  `Exec=syndroid app launch --instance <экз> <пакет>`, `StartupWMClass=waydroid.<пакет>` (окно получает
+  значок); плюс «Весь Android» (`syndroid show --instance <экз>`). Значки — копии из `/data/icons` в
+  `~/.local/share/syndroid/icons/<экземпляр>/` (Android перезаписывает их на каждой загрузке; копируется только
+  целый PNG — с IEND).
 - Уведомления → `org.freedesktop.Notifications` (hint `desktop-entry` = `waydroid.<пакет>`); служебные
   уведомления пакетов `android` и `com.android.systemui` (USB, зарядка) не пересылаются.
 4. Окно управления: Состояние → Приложения → Образы → Настройки → Данные.

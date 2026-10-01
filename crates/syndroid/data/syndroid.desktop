@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Android
-Comment=Весь Android одним окном
-Exec=syndroid show
-Icon=smartphone
-Categories=System;Emulator;
-Keywords=android;lineageos;waydroid;

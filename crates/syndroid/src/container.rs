@@ -64,6 +64,8 @@ fn shared_nodes(c: &Config) -> Vec<PathBuf> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Spec {
     pub set: String,
+    /// Экземпляр Android (`images::instance_of`): чей `/data`.
+    pub instance: String,
     pub session: Session,
     pub network: bool,
     pub drm_node: Option<String>,
@@ -90,13 +92,15 @@ pub fn start(c: &Config, session: &Session) -> Result<Running> {
     if !session.wayland_socket().exists() {
         bail!("нет Wayland-сокета {}", session.wayland_socket().display());
     }
+    let instance = images::instance_of(&set);
+    migrate_shared_data(&instance);
     let names: Vec<&str> = BINDER_NODES.iter().map(|(n, _)| *n).collect();
     sys::binderfs_nodes(paths::BINDERFS, &names)?;
     for n in shared_nodes(c) {
         chmod(&n, 0o666);
     }
     for d in [
-        paths::data(),
+        paths::data(&instance),
         paths::overlay("system"),
         paths::overlay("vendor"),
         paths::overlay_rw(&set, "system"),
@@ -114,7 +118,7 @@ pub fn start(c: &Config, session: &Session) -> Result<Running> {
     chmod(&paths::props(), 0o644);
 
     let dnsmasq = if c.network { net::up()? } else { None };
-    let spec = Spec { set, session: session.clone(), network: c.network, drm_node: props::drm_node(c) };
+    let spec = Spec { set, instance, session: session.clone(), network: c.network, drm_node: props::drm_node(c) };
     let log = fs::File::create(paths::container_log())?;
     let mut cmd = Command::new(std::env::current_exe()?);
     cmd.arg("__container")
@@ -152,6 +156,23 @@ pub fn start(c: &Config, session: &Session) -> Result<Running> {
             cleanup(dnsmasq, c.network);
             Err(e)
         }
+    }
+}
+
+/// Раньше `/data` был один на всех (`/var/lib/syndroid/data` — сам корень данных Android): перенести его
+/// в каталог экземпляра, который запускается первым.
+fn migrate_shared_data(instance: &str) {
+    let data = PathBuf::from(paths::STATE).join("data");
+    if !data.join("system").is_dir() || paths::data(instance).exists() {
+        return;
+    }
+    let tmp = PathBuf::from(paths::STATE).join("data.migrate");
+    let r = fs::rename(&data, &tmp)
+        .and_then(|_| fs::create_dir_all(&data))
+        .and_then(|_| fs::rename(&tmp, paths::data(instance)));
+    match r {
+        Ok(()) => tracing::info!("данные Android перенесены в {}", paths::data(instance).display()),
+        Err(e) => tracing::warn!("перенос данных Android: {e}"),
     }
 }
 
@@ -266,7 +287,7 @@ fn setup_root(spec: &Spec) -> Result<()> {
     let prop = r.join("vendor/waydroid.prop");
     sys::touch(&prop)?;
     sys::bind(paths::props(), &prop, false)?;
-    sys::bind(paths::data(), r.join("data"), false)?;
+    sys::bind(paths::data(&spec.instance), r.join("data"), false)?;
 
     // /dev
     let dev = r.join("dev");
@@ -314,22 +335,30 @@ fn setup_root(spec: &Spec) -> Result<()> {
         sys::mount("tmpfs", &p, "tmpfs", libc::MS_NODEV, "mode=0755")?;
     }
 
-    // Сеанс: Wayland и PulseAudio
+    // Сеанс: Wayland и PulseAudio. Каталог XDG_RUNTIME_DIR пользователя — целиком (/run/xdg-host), а сокеты в
+    // /run/xdg — ссылки на него: путь разрешается при каждом подключении, и после перезапуска композитора
+    // (новый сокет по тому же пути) hwcomposer подключается заново. Привязка самого файла сокета держала бы
+    // старый инод — Android терял экран до своего перезапуска. Каталог 0700: внутри его видит только uid
+    // владельца сеанса (hwcomposer, звук), приложения Android — нет.
     let xdg = r.join(paths::CONTAINER_XDG_RUNTIME_DIR.trim_start_matches('/'));
     fs::create_dir_all(&xdg)?;
     sys::mount("tmpfs", &xdg, "tmpfs", libc::MS_NODEV, "mode=0755")?;
-    let wl = xdg.join(paths::CONTAINER_WAYLAND_DISPLAY);
-    sys::touch(&wl)?;
-    sys::bind(spec.session.wayland_socket(), &wl, false).context("Wayland-сокет")?;
+    let host = r.join("run/xdg-host");
+    fs::create_dir_all(&host)?;
+    sys::bind(&spec.session.xdg_runtime_dir, &host, false).context("XDG_RUNTIME_DIR сеанса")?;
+    let rel = |p: &Path| -> Result<PathBuf> {
+        let p = p.strip_prefix(&spec.session.xdg_runtime_dir).map_err(|_| anyhow::anyhow!("{} вне XDG_RUNTIME_DIR", p.display()))?;
+        Ok(PathBuf::from("/run/xdg-host").join(p))
+    };
+    std::os::unix::fs::symlink(rel(&spec.session.wayland_socket())?, xdg.join(paths::CONTAINER_WAYLAND_DISPLAY))?;
     let pulse_dir = if spec.session.pulse_runtime_path.is_empty() {
         Path::new(&spec.session.xdg_runtime_dir).join("pulse")
     } else {
         PathBuf::from(&spec.session.pulse_runtime_path)
     };
-    if pulse_dir.join("native").exists() {
-        let t = xdg.join("pulse/native");
-        sys::touch(&t)?;
-        sys::bind(pulse_dir.join("native"), &t, false).context("сокет PulseAudio")?;
+    if let Ok(target) = rel(&pulse_dir.join("native")) {
+        fs::create_dir_all(xdg.join("pulse"))?;
+        std::os::unix::fs::symlink(target, xdg.join("pulse/native"))?;
     }
 
     sys::sethostname("syndroid")?;

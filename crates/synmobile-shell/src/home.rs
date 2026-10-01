@@ -264,7 +264,8 @@ fn stat_row(glyph: &str, label: &str, percent: u32) -> impl Widget {
 fn apps_page_view(ctx: ShellCtx) -> impl Widget {
     let cfg = ctx.cfg();
     let entries: Vec<xdg::DesktopEntry> = if cfg.mobile.home_apps.is_empty() {
-        let mut v: Vec<_> = xdg::apps().iter().filter(|a| !a.no_display).cloned().collect();
+        // Программы Linux; приложения Android — в меню, своим разделом (закреплённые вручную — остаются)
+        let mut v: Vec<_> = xdg::apps().iter().filter(|a| !a.no_display && a.android.is_none()).cloned().collect();
         v.sort_by_key(|a| a.name.to_lowercase());
         v
     } else {

@@ -52,7 +52,7 @@ pub fn build(c: &Config, s: &Session) -> String {
     set("waydroid.host.user", &s.user);
     set("waydroid.host.uid", &s.uid.to_string());
     set("waydroid.host.gid", &s.gid.to_string());
-    set("waydroid.host_data_path", &paths::data().to_string_lossy());
+    set("waydroid.host_data_path", &paths::data(&crate::images::instance_of(c.active.as_deref().unwrap_or(""))).to_string_lossy());
     set("waydroid.background_start", "true");
     set("waydroid.xdg_runtime_dir", paths::CONTAINER_XDG_RUNTIME_DIR);
     set("waydroid.pulse_runtime_path", &format!("{}/pulse", paths::CONTAINER_XDG_RUNTIME_DIR));

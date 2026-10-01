@@ -1,4 +1,4 @@
-//! Мост binder между Android и сеансом synshell — `syndroidd __bridge <pid init>`.
+//! Мост binder между Android и сеансом synshell — `syndroidd __bridge <экземпляр>`.
 //!
 //! Демон запускает его на каждый запуск контейнера от имени владельца сеанса (ярлыки — в его
 //! `~/.local/share/applications`, уведомления — в его D-Bus). Мост открывает binder-устройство контейнера
@@ -7,7 +7,8 @@
 //!   удалены), `waydroidhardware` (выключение, перезагрузка, сон из Android), `waydroidnotifications`
 //!   (уведомления Android → `org.freedesktop.Notifications`, нажатия — обратно);
 //! - у `waydroidplatform` (system_server) берёт список приложений: имена, категории → ярлыки
-//!   `waydroid.<пакет>.desktop` (значки Android сам кладёт в /data/icons).
+//!   `~/.local/share/syndroid/applications/<экземпляр>/<пакет>.desktop` — отдельно от программ Linux
+//!   (значки Android сам кладёт в /data/icons).
 //!
 //! Посылки описаны вручную: `AppInfo` и др. — старые Java-Parcelable без префикса размера, а servicemanager —
 //! протокол Android 13 (`checkService` = 2, `addService` = 3), тогда как `rsbinder::hub` на Linux знает только
@@ -26,7 +27,7 @@ use rsbinder::{
 };
 
 use crate::api::{self, Request};
-use crate::{container, paths};
+use crate::{container, images, paths};
 
 const SM: &str = "android.os.IServiceManager";
 const PLATFORM: &str = "lineageos.waydroid.IPlatform";
@@ -371,24 +372,49 @@ fn xdg_categories(cats: &[String]) -> String {
     out.iter().map(|c| format!("{c};")).collect()
 }
 
-fn applications_dir() -> PathBuf {
+fn data_home() -> PathBuf {
     std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".local/share"))
-        .join("applications")
 }
 
-fn write_desktop_files(apps: &[AppInfo]) -> Result<()> {
-    let dir = applications_dir();
+/// Ярлыки приложений экземпляра — отдельно от программ Linux (не в `applications/`): меню synshell
+/// показывает их своим разделом, другие среды их не видят.
+fn applications_dir(instance: &str) -> PathBuf {
+    data_home().join("syndroid/applications").join(instance)
+}
+
+/// Записать файл, только если содержимое другое (меню перечитывает ярлыки по mtime каталога).
+fn write_if_changed(path: &std::path::Path, text: &str) -> Result<()> {
+    if std::fs::read_to_string(path).ok().as_deref() != Some(text) {
+        std::fs::write(path, text)?;
+    }
+    Ok(())
+}
+
+fn write_desktop_files(instance: &str, apps: &[AppInfo]) -> Result<()> {
+    let dir = applications_dir(instance);
     std::fs::create_dir_all(&dir)?;
-    let icons = paths::data().join("icons");
+    let title = images::instance_title(instance);
+    let icons = paths::data(instance).join("icons");
     // Свои копии значков: Android перезаписывает /data/icons при каждой загрузке — оболочка, читающая значок
     // в этот момент, получала бы недописанный файл
-    let my_icons = dir.parent().unwrap_or(&dir).join("syndroid/icons");
+    let my_icons = data_home().join("syndroid/icons").join(instance);
     std::fs::create_dir_all(&my_icons)?;
+    let head = |name: &str, comment: &str, exec: &str, icon: &str| {
+        format!(
+            "[Desktop Entry]\nType=Application\nName={}\nComment={comment}\nExec={exec}\nIcon={icon}\n\
+             X-Syndroid-Instance={instance}\nX-Syndroid-Title={title}\n{DESKTOP_MARK}\n",
+            name.replace('\n', " ")
+        )
+    };
     let mut keep = HashSet::new();
+    // Весь Android одним окном — тоже в разделе этого экземпляра
+    let full = head("Весь Android", &format!("{title} одним окном"), &format!("syndroid show --instance {instance}"), "smartphone");
+    write_if_changed(&dir.join("android.desktop"), &format!("{full}Categories=System;\n"))?;
+    keep.insert("android.desktop".to_string());
     for a in apps {
-        let file = format!("waydroid.{}.desktop", a.package);
+        let file = format!("{}.desktop", a.package);
         let src = icons.join(format!("{}.png", a.package));
         let dst = my_icons.join(format!("{}.png", a.package));
         if let Ok(png) = std::fs::read(&src) {
@@ -401,25 +427,19 @@ fn write_desktop_files(apps: &[AppInfo]) -> Result<()> {
         }
         let icon = if dst.exists() { dst.display().to_string() } else { "smartphone".into() };
         let text = format!(
-            "[Desktop Entry]\nType=Application\nName={}\nComment=Приложение Android\nExec=syndroid app launch {}\n\
-             Icon={icon}\nCategories={}\nStartupWMClass=waydroid.{}\nX-Android-Package={}\n{DESKTOP_MARK}\n",
-            a.name.replace('\n', " "),
-            a.package,
+            "{}Categories={}\nStartupWMClass=waydroid.{}\nX-Android-Package={}\n",
+            head(&a.name, &format!("Android · {title}"), &format!("syndroid app launch --instance {instance} {}", a.package), &icon),
             xdg_categories(&a.categories),
             a.package,
             a.package,
         );
-        let path = dir.join(&file);
-        if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
-            std::fs::write(&path, text)?;
-        }
+        write_if_changed(&dir.join(&file), &text)?;
         keep.insert(file);
     }
     // Удалённые из Android — убрать (только наши)
     for e in std::fs::read_dir(&dir)?.flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
-        if name.starts_with("waydroid.")
-            && name.ends_with(".desktop")
+        if name.ends_with(".desktop")
             && !keep.contains(&name)
             && std::fs::read_to_string(e.path()).is_ok_and(|t| t.contains(DESKTOP_MARK))
         {
@@ -429,10 +449,26 @@ fn write_desktop_files(apps: &[AppInfo]) -> Result<()> {
     Ok(())
 }
 
-fn sync_apps() -> Result<usize> {
+/// Ярлыки прежних версий syndroid лежали среди программ Linux (`applications/waydroid.*.desktop`) — убрать.
+fn remove_legacy_entries() {
+    let dir = data_home().join("applications");
+    for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if name.starts_with("waydroid.") && std::fs::read_to_string(e.path()).is_ok_and(|t| t.contains(DESKTOP_MARK)) {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+    for e in std::fs::read_dir(data_home().join("syndroid/icons")).into_iter().flatten().flatten() {
+        if e.path().extension().is_some_and(|x| x == "png") {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+}
+
+fn sync_apps(instance: &str) -> Result<usize> {
     let platform = check_service("waydroidplatform")?.context("нет waydroidplatform")?;
     let apps = apps_info(&platform)?;
-    write_desktop_files(&apps)?;
+    write_desktop_files(instance, &apps)?;
     Ok(apps.len())
 }
 
@@ -450,7 +486,7 @@ fn wait_for<T>(what: &str, timeout: Duration, mut f: impl FnMut() -> Result<Opti
     }
 }
 
-fn run(init_pid: i32) -> Result<()> {
+fn run(instance: &str) -> Result<()> {
     let node = PathBuf::from(paths::BINDERFS).join(container::BINDER_NODES[0].0);
     ProcessState::init(&node.to_string_lossy(), 4).map_err(|e| anyhow!("{}: {e}", node.display()))?;
     ProcessState::start_thread_pool();
@@ -476,12 +512,12 @@ fn run(init_pid: i32) -> Result<()> {
 
     // system_server поднял waydroidplatform — первый список приложений
     wait_for("waydroidplatform", Duration::from_secs(180), || check_service("waydroidplatform"))?;
-    match sync_apps() {
+    remove_legacy_entries();
+    match sync_apps(instance) {
         Ok(n) => tracing::info!("мост: ярлыков приложений Android: {n}"),
         Err(e) => tracing::warn!("мост: приложения: {e:#}"),
     }
 
-    let _ = init_pid;
     loop {
         let ev = rx.recv()?;
         match ev {
@@ -489,7 +525,7 @@ fn run(init_pid: i32) -> Result<()> {
                 // Пакеты меняются пачками — подождать, пока утихнет
                 std::thread::sleep(Duration::from_millis(800));
                 while rx.try_recv().is_ok_and(|e| matches!(e, Event::AppsChanged)) {}
-                if let Err(e) = sync_apps() {
+                if let Err(e) = sync_apps(instance) {
                     tracing::warn!("мост: приложения: {e:#}");
                 }
             }
@@ -501,10 +537,10 @@ fn run(init_pid: i32) -> Result<()> {
     }
 }
 
-/// `syndroidd __bridge <pid init>`
+/// `syndroidd __bridge <экземпляр>`
 pub fn bridge_main(args: &[String]) -> ! {
-    let pid = args.first().and_then(|p| p.parse().ok()).unwrap_or(0);
-    match run(pid) {
+    let instance = args.first().cloned().unwrap_or_default();
+    match run(&instance) {
         Ok(()) => std::process::exit(0),
         Err(e) => {
             eprintln!("syndroid: мост: {e:#}");

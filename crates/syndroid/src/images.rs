@@ -95,6 +95,31 @@ pub fn set_name(system_file: &str) -> String {
     }
 }
 
+/// Экземпляр Android, которому принадлежит набор: имя без даты сборки (`lineage-20.0-20260927-VANILLA` →
+/// `lineage-20.0-VANILLA`). Обновления одной линейки — тот же экземпляр (те же данные и приложения), разные
+/// версии и VANILLA/GAPPS — разные.
+pub fn instance_of(set: &str) -> String {
+    let parts: Vec<&str> = set.split('-').filter(|p| !(p.len() == 8 && p.chars().all(|c| c.is_ascii_digit()))).collect();
+    parts.join("-")
+}
+
+/// Название экземпляра для людей: «LineageOS 20.0», «LineageOS 20.0 · GApps».
+pub fn instance_title(instance: &str) -> String {
+    let mut it = instance.split('-');
+    match (it.next(), it.next()) {
+        (Some("lineage"), Some(ver)) => {
+            let gapps = it.any(|r| r.eq_ignore_ascii_case("GAPPS"));
+            format!("LineageOS {ver}{}", if gapps { " · GApps" } else { "" })
+        }
+        _ => instance.to_string(),
+    }
+}
+
+/// Самый свежий установленный набор экземпляра.
+pub fn latest_of(instance: &str) -> Option<ImageSet> {
+    list().into_iter().filter(|s| instance_of(&s.name) == instance).max_by_key(|s| s.installed)
+}
+
 pub fn list() -> Vec<ImageSet> {
     let mut v: Vec<ImageSet> = fs::read_dir(paths::images())
         .into_iter()
