@@ -530,6 +530,20 @@ impl State {
     // ─── указатель ──────────────────────────────────────────────────────────
 
     /// Что под точкой (глобальные логические координаты).
+    /// В точке — поверхность верхних слоёв оболочки (Overlay, Top: панели,
+    /// шторка, меню), а не домашний экран и обои под окнами.
+    pub fn top_layer_at(&self, pos: Point<f64, Logical>) -> bool {
+        let Some(output) = self.core.output_at(pos) else { return false };
+        let output_geo = self.core.space.output_geometry(&output).unwrap_or_default();
+        let rel = pos - output_geo.loc.to_f64();
+        let layers = layer_map_for_output(&output);
+        [Layer::Overlay, Layer::Top].into_iter().any(|layer| {
+            layers.layers_on(layer).any(|l| {
+                layers.layer_geometry(l).is_some_and(|lg| l.surface_under(rel - lg.loc.to_f64(), WindowSurfaceType::ALL).is_some())
+            })
+        })
+    }
+
     pub fn under(&self, pos: Point<f64, Logical>) -> Under {
         let Some(output) = self.core.output_at(pos) else { return Under::Nothing };
         let output_geo = self.core.space.output_geometry(&output).unwrap_or_default();

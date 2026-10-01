@@ -492,8 +492,12 @@ impl State {
             return true;
         }
         // Уменьшенный стол: окна не получают касаний — тап возвращает 1:1,
-        // движение пальцем двигает вид. Панели и оболочка — как обычно.
-        if self.free_mode() && self.core.fingers.active.is_none() && self.core.wm.mobile.view.zoomed() && !matches!(self.under(pos), crate::input::Under::Surface(..)) {
+        // движение пальцем двигает вид. Верхние слои оболочки (панели,
+        // шторка) и закреплённые окна — как обычно; домашний экран под
+        // окнами — нет (иначе касания уходили ему, и вернуться к 1:1 было
+        // нечем).
+        let to_client = || self.top_layer_at(pos) || matches!(self.under(pos), crate::input::Under::Surface(s, _) if self.window_for_surface_tree(&s.0).is_some());
+        if self.free_mode() && self.core.fingers.active.is_none() && self.core.wm.mobile.view.zoomed() && !to_client() {
             self.core.fingers.owned.push(slot);
             self.core.fingers.active = Some(Active::DeskTap { start: pos, last: pos, moved: false });
             return true;
