@@ -23,6 +23,8 @@ struct Inner {
     /// Номер запуска: фоновые потоки старого запуска не трогают новый.
     generation: u64,
     jobs: Vec<Job>,
+    /// Мост binder (`__bridge`) текущего запуска.
+    bridge: Option<std::process::Child>,
 }
 
 pub struct Daemon {
@@ -85,6 +87,13 @@ impl Daemon {
             i.generation
         };
         tracing::info!("контейнер запущен, init = {}", running.init_pid);
+        let session = self.inner.lock().unwrap().session.clone();
+        if let Some(s) = session {
+            match spawn_bridge(running.init_pid, &s) {
+                Ok(b) => self.inner.lock().unwrap().bridge = Some(b),
+                Err(e) => tracing::warn!("мост binder: {e:#}"),
+            }
+        }
         // Ожидание выхода контейнера → уборка
         let me = self.clone();
         let network = cfg.network;
@@ -94,6 +103,12 @@ impl Daemon {
             tracing::info!("контейнер завершился: {st:?}");
             container::cleanup(dnsmasq, network);
             let mut i = me.inner.lock().unwrap();
+            if i.generation == gen {
+                if let Some(mut b) = i.bridge.take() {
+                    let _ = b.kill();
+                    let _ = b.wait();
+                }
+            }
             if i.generation == gen {
                 if i.state == Some(State::Starting) {
                     i.error = Some("Android завершился во время загрузки (см. /run/syndroid/container.log, dmesg)".into());
@@ -229,7 +244,16 @@ impl Daemon {
         let read_only = matches!(req, Request::Status | Request::Images | Request::GetConfig | Request::CheckUpdates | Request::Apps);
         // Окна и приложения — ещё и владельцу сеанса, для которого запущен Android
         let session_owner = self.inner.lock().unwrap().session.as_ref().is_some_and(|s| s.uid == peer.uid);
-        let app_op = matches!(req, Request::ShowFullUi | Request::LaunchApp { .. } | Request::StopApp { .. });
+        let app_op = matches!(
+            req,
+            Request::ShowFullUi
+                | Request::LaunchApp { .. }
+                | Request::StopApp { .. }
+                | Request::Stop
+                | Request::Restart
+                | Request::Freeze
+                | Request::Unfreeze
+        );
         if !read_only && !peer.admin && !(app_op && session_owner) {
             bail!("нет прав: нужен root или группа wheel/android");
         }
@@ -331,6 +355,30 @@ impl Daemon {
             }
         })
     }
+}
+
+/// Мост binder от имени владельца сеанса (его ярлыки, его D-Bus); вывод — в журнал службы.
+fn spawn_bridge(init_pid: i32, s: &Session) -> Result<std::process::Child> {
+    use std::os::unix::process::CommandExt;
+    let home = std::fs::read_to_string("/etc/passwd")
+        .ok()
+        .and_then(|p| p.lines().find(|l| l.split(':').nth(2) == Some(&s.uid.to_string())).and_then(|l| l.split(':').nth(5).map(str::to_string)))
+        .context("домашний каталог владельца сеанса")?;
+    std::process::Command::new(std::env::current_exe()?)
+        .arg("__bridge")
+        .arg(init_pid.to_string())
+        .env_clear()
+        .env("HOME", home)
+        .env("USER", &s.user)
+        .env("XDG_RUNTIME_DIR", &s.xdg_runtime_dir)
+        .env("DBUS_SESSION_BUS_ADDRESS", format!("unix:path={}/bus", s.xdg_runtime_dir))
+        .env("PATH", "/usr/local/bin:/usr/bin")
+        .env("RUST_LOG", std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()))
+        .uid(s.uid)
+        .gid(s.gid)
+        .stdin(std::process::Stdio::null())
+        .spawn()
+        .context("__bridge")
 }
 
 #[derive(Clone, Copy)]

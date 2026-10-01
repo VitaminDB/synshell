@@ -91,7 +91,30 @@ import SYSTEM VENDOR [ИМЯ] | use ИМЯ | remove ИМЯ`, `sudo syndroid shel
   при старте); демон выравнивает его с настройкой после каждой загрузки.
 - Значки приложений Android сам кладёт в `/data/icons/<пакет>.png` — на хосте это
   `/var/lib/syndroid/data/icons/` (для ярлыков в «Программах», этап 3).
-3. Binder-сервисы: приложения в «Программах», запуск из оболочки, уведомления, буфер обмена.
+3. ✅ (2026-10-01) Binder: приложения Android в «Программах» (имена, значки, категории; обновляются при
+   установке/удалении), уведомления Android в шторке synshell (нажатие — обратно в Android), выключение/
+   перезагрузка/сон из Android управляют контейнером. Буфер обмена делает сам hwcomposer образа (Wayland
+   data-device) — отдельного сервиса не нужно.
+
+## Мост binder (`bridge.rs`)
+- Отдельный процесс `syndroidd __bridge` на каждый запуск контейнера, от имени владельца сеанса (env: HOME,
+  XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS); демон убивает его вместе с контейнером. Отдельный процесс —
+  потому что `rsbinder::ProcessState` один на процесс и привязан к одному binder-устройству.
+- Открывает `/dev/binderfs/syndroid-binder` прямо с хоста (binder не смотрит на пространства имён).
+  servicemanager Android 13 — вручную (`checkService` = 2, `addService` = 3 по handle 0): `rsbinder::hub`
+  на Linux собирает только протокол Android 16. Токен интерфейса — как у libbinder (strict mode, work source,
+  'SYST', имя). Посылки `lineageos.waydroid.*` — тоже вручную: `AppInfo`, `Action`, `ImageData` — старые
+  Java-Parcelable без префикса размера, AIDL-кодогенерация для них не годится.
+- **Сервисы хоста надо зарегистрировать до старта system_server**: `WayDroidService.onStart` берёт
+  `waydroidusermonitor`, `waydroidhardware`, `waydroidnotifications` один раз; если какого-то нет — исключение,
+  и ни пакеты, ни уведомления не подключаются до следующей загрузки. Поэтому мост стартует сразу с
+  контейнером и ждёт только servicemanager (`checkService("manager")`).
+- Ярлыки: `~/.local/share/applications/waydroid.<пакет>.desktop` (маркер `X-Syndroid=true`, чужие не трогаем),
+  `Exec=syndroid app launch <пакет>`, `StartupWMClass=waydroid.<пакет>` (окно получает значок),
+  значки — копии из `/data/icons` в `~/.local/share/syndroid/icons/` (Android перезаписывает их на каждой
+  загрузке; копируется только целый PNG — с IEND).
+- Уведомления → `org.freedesktop.Notifications` (hint `desktop-entry` = `waydroid.<пакет>`); служебные
+  уведомления пакетов `android` и `com.android.systemui` (USB, зарядка) не пересылаются.
 4. Окно управления: Состояние → Приложения → Образы → Настройки → Данные.
 5. Звук через PipeWire-pulse; поворот и датчики; общие папки. (GPU — zink на turnip-KGSL из слоя платформы —
    сделан на этапе 1.)
