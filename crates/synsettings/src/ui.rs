@@ -210,6 +210,23 @@ pub fn choice_row(label: &str, hint: &str, p: P, current: &str, options: &[(&str
     row(label, hint, choice(p, current, options, 220.0))
 }
 
+/// Выпадающий список целых значений: `(значение, подпись)`; в конфиг пишется число.
+pub fn choice_int(p: P, current: i64, options: &[(i64, &str)], width: f32) -> impl Widget {
+    let mut dd = Dropdown::new().width(width);
+    for (v, l) in options {
+        dd = dd.item(DropdownItem::new(v.to_string(), *l));
+    }
+    dd.selected(current.to_string()).on_change(move |v: &str| {
+        if let Ok(n) = v.parse::<i64>() {
+            set(&p, n)
+        }
+    })
+}
+
+pub fn choice_int_row(label: &str, hint: &str, p: P, current: i64, options: &[(i64, &str)]) -> W {
+    row(label, hint, choice_int(p, current, options, 220.0))
+}
+
 /// Выпадающий список из динамических значений.
 pub fn choice_owned(p: P, current: &str, options: Vec<(String, String)>, width: f32) -> impl Widget {
     let mut dd = Dropdown::new().width(width).max_height(320.0);

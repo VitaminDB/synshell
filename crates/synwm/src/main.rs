@@ -59,7 +59,7 @@ fn main() {
         std::process::exit(msg(&args[1..]));
     }
     // экран при запуске горит: флаг сна мог остаться от упавшего прежнего композитора
-    sleep::screen_power(true);
+    sleep::screen_power(true, 0);
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
             "synwm {} — окружение рабочего стола для Wayland\n\n\

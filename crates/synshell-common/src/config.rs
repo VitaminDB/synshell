@@ -1707,11 +1707,15 @@ pub struct Idle {
     pub lock_after: u32,
     /// Уснуть через N секунд.
     pub suspend_after: u32,
+    /// Телефон: глубокий сон через N секунд после гашения экрана (кнопкой или
+    /// по простою); 0 — сразу. Композитор пишет это в `/run/syn-sleep/screen-off`
+    /// вместе со своим pid, усыпляет служба платформы `syn-sleepd`.
+    pub sleep_delay: u32,
 }
 
 impl Default for Idle {
     fn default() -> Self {
-        Self { dpms_after: 600, lock_after: 0, suspend_after: 0 }
+        Self { dpms_after: 600, lock_after: 0, suspend_after: 0, sleep_delay: 0 }
     }
 }
 

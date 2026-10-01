@@ -8,6 +8,20 @@ use crate::state;
 use crate::store;
 use crate::ui::*;
 
+/// Задержка глубокого сна после гашения экрана (телефон, `[idle] sleep_delay`), секунды.
+const SLEEP_DELAYS: &[(i64, &str)] = &[
+    (0, "Сразу"),
+    (15, "15 секунд"),
+    (30, "30 секунд"),
+    (60, "1 минута"),
+    (120, "2 минуты"),
+    (300, "5 минут"),
+    (600, "10 минут"),
+    (900, "15 минут"),
+    (1800, "30 минут"),
+    (3600, "1 час"),
+];
+
 /// Записать регулятор частоты всех политик кластера (нужны права root).
 fn set_governor(policy: &str, gov: &str) {
     let path = format!("/sys/devices/system/cpu/cpufreq/{policy}/scaling_governor");
@@ -88,14 +102,23 @@ pub fn power() -> W {
         }
     }
 
-    body.push(group(
-        "Экран и сон",
-        vec![
-            int_row("Гасить экран через", "Секунды без действий; 0 — никогда", op!["idle", "dpms_after"], c.idle.dpms_after as i64, 0, 7200, 30),
-            int_row("Блокировать через", "Секунды; 0 — не блокировать", op!["idle", "lock_after"], c.idle.lock_after as i64, 0, 7200, 30),
-            int_row("Засыпать через", "Секунды; 0 — никогда", op!["idle", "suspend_after"], c.idle.suspend_after as i64, 0, 14400, 60),
-            switch_row("Блокировать перед сном", "", op!["lock", "before_sleep"], c.lock.before_sleep),
-        ],
-    ));
+    let mut screen: Vec<W> = vec![
+        int_row("Гасить экран через", "Секунды без действий; 0 — никогда", op!["idle", "dpms_after"], c.idle.dpms_after as i64, 0, 7200, 30),
+        int_row("Блокировать через", "Секунды; 0 — не блокировать", op!["idle", "lock_after"], c.idle.lock_after as i64, 0, 7200, 30),
+    ];
+    if c.process_form_factor() == synshell_common::config::FormFactor::Phone {
+        // Телефон: усыпляет служба платформы syn-sleepd по флагу композитора; задержка — от гашения экрана
+        screen.push(choice_int_row(
+            "Глубокий сон после блокировки",
+            "Через сколько после гашения экрана (кнопкой или по простою) телефон засыпает: сеть и Bluetooth во сне остаются, но сам он недоступен до пробуждения",
+            op!["idle", "sleep_delay"],
+            c.idle.sleep_delay as i64,
+            SLEEP_DELAYS,
+        ));
+    } else {
+        screen.push(int_row("Засыпать через", "Секунды; 0 — никогда", op!["idle", "suspend_after"], c.idle.suspend_after as i64, 0, 14400, 60));
+    }
+    screen.push(switch_row("Блокировать перед сном", "", op!["lock", "before_sleep"], c.lock.before_sleep));
+    body.push(group("Экран и сон", screen));
     page("Питание", "Аккумулятор, частота процессора, гашение экрана и сон.", body)
 }
