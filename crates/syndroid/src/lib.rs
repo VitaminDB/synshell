@@ -2,6 +2,7 @@
 //! рантаймом на Rust. Демон `syndroidd` (root) — образы, контейнер, сеть; `syndroid` — управление.
 //! Устройство и этапы — `docs/ANDROID.md`.
 
+pub mod android;
 pub mod api;
 pub mod config;
 pub mod container;

@@ -58,6 +58,8 @@ pub fn build(c: &Config, s: &Session) -> String {
     set("waydroid.pulse_runtime_path", &format!("{}/pulse", paths::CONTAINER_XDG_RUNTIME_DIR));
     set("waydroid.wayland_display", paths::CONTAINER_WAYLAND_DISPLAY);
     set("waydroid.stub_sensors_hal", "1");
+    // persist-свойство: значение из /data перекрывает это; при загрузке демон его выравнивает (android::apply_window_mode)
+    set("persist.waydroid.multi_windows", if c.multi_windows { "true" } else { "false" });
     if c.dpi > 0 {
         set("ro.sf.lcd_density", &c.dpi.to_string());
     }

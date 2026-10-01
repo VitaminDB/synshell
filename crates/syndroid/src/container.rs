@@ -271,7 +271,9 @@ fn setup_root(spec: &Spec) -> Result<()> {
     // /dev
     let dev = r.join("dev");
     fs::create_dir_all(&dev)?;
-    sys::mount("tmpfs", &dev, "tmpfs", libc::MS_NOSUID, "mode=0755")?;
+    // 1777, как tmpfs по умолчанию у LXC: hwcomposer (uid «host», без привилегий) сам создаёт /dev/input с
+    // каналами ввода (wl_touch_events и др.) — при 0755 ввод в Android не доходит
+    sys::mount("tmpfs", &dev, "tmpfs", libc::MS_NOSUID, "mode=1777")?;
     let mut nodes: Vec<(PathBuf, String)> =
         DEV_NODES.iter().map(|(h, c)| (PathBuf::from(h), c.to_string())).collect();
     // Все узлы DRM: gralloc (gbm) открывает drm_node, turnip-KGSL сверяет с ними своё устройство (stat)

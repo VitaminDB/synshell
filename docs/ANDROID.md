@@ -75,7 +75,22 @@ import SYSTEM VENDOR [ИМЯ] | use ИМЯ | remove ИМЯ`, `sudo syndroid shel
 ## Этапы
 1. ✅ (2026-10-01) Демон: образы (загрузка/импорт/проверка sha256) + рантайм контейнера; Android 13 загружается
    до `sys.boot_completed` (~30 с на Redmi K50 Ultra), GPU — zink на turnip-KGSL, сеть по DHCP.
-2. Сессия: Wayland-сокет → окна Android в synwm (сначала одним окном, затем multi-window).
+2. ✅ (2026-10-01) Окна: `syndroid show` (весь Android одним окном), `syndroid app list|launch|stop`; запуск
+   приложения сам поднимает Android и ждёт загрузки; автозапуск с сеансом (`autostart`, `syndroid session`).
+
+## Окна Android (как это устроено)
+- Окна создаёт hwcomposer образа (Wayland-клиент synwm; работает под uid владельца сеанса — сокет доступен).
+  Что показывать, он берёт из свойства `waydroid.active_apps`: `Waydroid` — весь Android, имя пакета — окно
+  этого приложения (`app_id` = `waydroid.<пакет>`, заголовок — имя приложения), `none` — ничего. Окна
+  пересоздаются на следующем кадре: для «показать всё» syndroid дёргает шторку (`cmd statusbar`), как Waydroid.
+- Ввод — каналы `/dev/input/wl_*_events`, их hwcomposer создаёт сам, поэтому /dev контейнера — tmpfs 1777.
+- Размер «экрана» Android — из первого configure окна (`waydroid.display_width/height`, `display_scale`).
+- `multi_windows = true` — каждое приложение своим окном freeform: размеры окон задаёт Android, а не композитор,
+  поэтому на телефоне по умолчанию выключено (приложение на весь экран Android в своём окне synwm).
+  Свойство `persist.waydroid.multi_windows` действует со следующей загрузки Android (init.rc включает freeform
+  при старте); демон выравнивает его с настройкой после каждой загрузки.
+- Значки приложений Android сам кладёт в `/data/icons/<пакет>.png` — на хосте это
+  `/var/lib/syndroid/data/icons/` (для ярлыков в «Программах», этап 3).
 3. Binder-сервисы: приложения в «Программах», запуск из оболочки, уведомления, буфер обмена.
 4. Окно управления: Состояние → Приложения → Образы → Настройки → Данные.
 5. Звук через PipeWire-pulse; поворот и датчики; общие папки. (GPU — zink на turnip-KGSL из слоя платформы —

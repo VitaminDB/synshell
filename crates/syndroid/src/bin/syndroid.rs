@@ -13,6 +13,10 @@ const HELP: &str = "syndroid — Android-приложения в synshell
   syndroid status                     состояние Android
   syndroid start | stop | restart     запуск (для текущего сеанса), остановка, перезапуск
   syndroid freeze | unfreeze          заморозить / разморозить
+  syndroid show                       весь Android одним окном (запустит Android, если нужно)
+  syndroid session                    из автозапуска сеанса: запустить Android, если autostart = true
+  syndroid app list                   приложения
+  syndroid app launch ПАКЕТ | stop ПАКЕТ
   syndroid image list                 наборы образов
   syndroid image check                свежие сборки в OTA-каналах
   syndroid image fetch                скачать последний набор (system + vendor)
@@ -74,6 +78,31 @@ fn follow(id: u64) -> Result<()> {
     }
 }
 
+/// Android запущен и загружен (если остановлен — запустить для текущего сеанса и дождаться).
+fn ensure_running() -> Result<()> {
+    use syndroid::api::State;
+    let s = status()?;
+    match s.state {
+        State::Running | State::Frozen => return Ok(()),
+        State::Stopped => {
+            api::call(&Request::Start { session: Session::from_env()? })?;
+            eprintln!("Android запускается…");
+        }
+        State::Starting | State::Stopping => {}
+    }
+    let deadline = std::time::Instant::now() + Duration::from_secs(180);
+    loop {
+        std::thread::sleep(Duration::from_secs(1));
+        let s = status()?;
+        match s.state {
+            State::Running | State::Frozen => return Ok(()),
+            State::Stopped => bail!("Android не запустился: {}", s.error.unwrap_or_default()),
+            _ if std::time::Instant::now() > deadline => bail!("Android не загрузился за 3 минуты"),
+            _ => {}
+        }
+    }
+}
+
 fn in_container(argv: Vec<String>) -> Result<()> {
     if unsafe { libc::getuid() } != 0 {
         bail!("нужен root: sudo syndroid {}", std::env::args().skip(1).collect::<Vec<_>>().join(" "));
@@ -121,6 +150,30 @@ fn main() -> Result<()> {
         ["restart"] => ok(api::call(&Request::Restart)?),
         ["freeze"] => ok(api::call(&Request::Freeze)?),
         ["unfreeze"] => ok(api::call(&Request::Unfreeze)?),
+        ["show"] => {
+            ensure_running()?;
+            ok(api::call(&Request::ShowFullUi)?)
+        }
+        // Из автозапуска сеанса: запустить Android, если так настроено
+        ["session"] => {
+            if let Response::Config { config } = api::call(&Request::GetConfig)? {
+                if config.autostart && status()?.state == syndroid::api::State::Stopped {
+                    api::call(&Request::Start { session: Session::from_env()? })?;
+                }
+            }
+        }
+        ["app"] | ["app", "list"] => {
+            if let Response::Apps { apps } = api::call(&Request::Apps)? {
+                for a in apps {
+                    println!("{}", a.package);
+                }
+            }
+        }
+        ["app", "launch", pkg] => {
+            ensure_running()?;
+            ok(api::call(&Request::LaunchApp { package: pkg.to_string() })?)
+        }
+        ["app", "stop", pkg] => ok(api::call(&Request::StopApp { package: pkg.to_string() })?),
         ["image"] | ["image", "list"] => {
             if let Response::Images { sets, active } = api::call(&Request::Images)? {
                 if sets.is_empty() {

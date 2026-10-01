@@ -105,6 +105,12 @@ pub enum Request {
     RemoveImages { name: String },
     GetConfig,
     SetConfig { config: Config },
+    /// Весь Android одним окном.
+    ShowFullUi,
+    /// Запускаемые приложения.
+    Apps,
+    LaunchApp { package: String },
+    StopApp { package: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,6 +123,7 @@ pub enum Response {
     Updates { system: crate::images::OtaEntry, vendor: crate::images::OtaEntry, installed: bool },
     Job { id: u64 },
     Config { config: Config },
+    Apps { apps: Vec<crate::android::App> },
 }
 
 /// Запрос к демону.

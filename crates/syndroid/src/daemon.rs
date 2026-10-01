@@ -11,7 +11,7 @@ use anyhow::{bail, Context, Result};
 
 use crate::api::{Job, Request, Response, Session, State, Status};
 use crate::config::Config;
-use crate::{container, images, paths};
+use crate::{android, container, images, paths};
 
 #[derive(Default)]
 struct Inner {
@@ -123,6 +123,10 @@ impl Daemon {
                 }
                 drop(i);
                 me.changed.notify_all();
+                if let Err(e) = android::apply_window_mode(pid, Config::load().multi_windows) {
+                    tracing::warn!("режим окон: {e:#}");
+                }
+                me.changed.notify_all();
                 break;
             }
         });
@@ -177,6 +181,19 @@ impl Daemon {
         Ok(())
     }
 
+    /// PID init загруженного Android (замороженный — разморозить).
+    fn android_pid(&self) -> Result<i32> {
+        if self.state() == State::Frozen {
+            self.freeze(false)?;
+        }
+        let i = self.inner.lock().unwrap();
+        match (i.state.unwrap_or(State::Stopped), i.init_pid) {
+            (State::Running, Some(pid)) => Ok(pid),
+            (State::Starting, _) => bail!("Android ещё загружается"),
+            (s, _) => bail!("Android не запущен ({s:?})"),
+        }
+    }
+
     /// Фоновое задание с ходом выполнения в `Status::jobs`.
     fn job(self: &Arc<Self>, title: &str, f: impl FnOnce(images::Progress) -> Result<()> + Send + 'static) -> u64 {
         let id = self.next_job.fetch_add(1, Ordering::Relaxed) + 1;
@@ -209,8 +226,11 @@ impl Daemon {
     }
 
     fn handle(self: &Arc<Self>, req: Request, peer: Peer) -> Result<Response> {
-        let mutating = !matches!(req, Request::Status | Request::Images | Request::GetConfig | Request::CheckUpdates);
-        if mutating && !peer.admin {
+        let read_only = matches!(req, Request::Status | Request::Images | Request::GetConfig | Request::CheckUpdates | Request::Apps);
+        // Окна и приложения — ещё и владельцу сеанса, для которого запущен Android
+        let session_owner = self.inner.lock().unwrap().session.as_ref().is_some_and(|s| s.uid == peer.uid);
+        let app_op = matches!(req, Request::ShowFullUi | Request::LaunchApp { .. } | Request::StopApp { .. });
+        if !read_only && !peer.admin && !(app_op && session_owner) {
             bail!("нет прав: нужен root или группа wheel/android");
         }
         Ok(match req {
@@ -289,6 +309,19 @@ impl Daemon {
                     c.save()?;
                 }
                 images::remove(&name)?;
+                Response::Ok
+            }
+            Request::ShowFullUi => {
+                android::show_full_ui(self.android_pid()?)?;
+                Response::Ok
+            }
+            Request::Apps => Response::Apps { apps: android::launchable(self.android_pid()?)? },
+            Request::LaunchApp { package } => {
+                android::launch(self.android_pid()?, &package, Config::load().multi_windows)?;
+                Response::Ok
+            }
+            Request::StopApp { package } => {
+                android::force_stop(self.android_pid()?, &package)?;
                 Response::Ok
             }
             Request::GetConfig => Response::Config { config: Config::load() },

@@ -23,10 +23,13 @@ pub struct Config {
     pub arch: String,
     /// Плотность экрана Android (`ro.sf.lcd_density`), 0 — по умолчанию Android.
     pub dpi: u32,
-    /// Каждое приложение — своим окном.
+    /// Каждое приложение — своим окном freeform (рабочий стол). Выключено — приложение на весь «экран» Android
+    /// в окне synwm (телефон: freeform Android раскладывает по своим размерам, не по окну композитора).
     pub multi_windows: bool,
     /// Сеть (мост, NAT, DHCP).
     pub network: bool,
+    /// Запускать Android при входе в сеанс (`syndroid session` из автозапуска).
+    pub autostart: bool,
     /// Узел DRM для gralloc (gbm); пусто — первый `renderD*`.
     pub drm_node: String,
     /// Дополнительные/переопределённые свойства Android.
@@ -44,8 +47,9 @@ impl Default for Config {
             vendor_type: "MAINLINE".into(),
             arch: "arm64".into(),
             dpi: 0,
-            multi_windows: true,
+            multi_windows: false,
             network: true,
+            autostart: false,
             drm_node: String::new(),
             properties: BTreeMap::new(),
         }
