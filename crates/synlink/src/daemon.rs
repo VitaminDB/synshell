@@ -74,7 +74,13 @@ pub struct Daemon {
     /// `[link] notifications` / `auto_mount` — меняются на лету (config.toml).
     pub notifications: std::sync::atomic::AtomicBool,
     pub auto_mount: std::sync::atomic::AtomicBool,
+    /// Телефон с погашенным экраном засыпает (`/run/syn-sleep/screen-off`, arch-mobile-port syn-sleepd):
+    /// по Wi-Fi не анонсируемся и сеансов не держим — иначе keepalive QUIC с компьютера будил его
+    /// каждые 3 с, а каждый анонс после самопробуждения приводил к новому соединению и повторам.
+    pub sleeping: std::sync::atomic::AtomicBool,
 }
+
+const SLEEP_FLAG: &str = "/run/syn-sleep/screen-off";
 
 pub type D = Arc<Daemon>;
 
@@ -112,6 +118,7 @@ impl Daemon {
             notes_tx,
             notifications: std::sync::atomic::AtomicBool::new(link.notifications),
             auto_mount: std::sync::atomic::AtomicBool::new(link.auto_mount),
+            sleeping: std::sync::atomic::AtomicBool::new(false),
         });
         Ok((d, notes_rx))
     }
@@ -309,7 +316,8 @@ impl Daemon {
             };
             let initiator = self.id.id < a.id;
             let cooling = st.backoff.get(&a.id).is_some_and(|t| t.elapsed() < Duration::from_secs(60));
-            (want && initiator && !cooling && !st.connecting.contains(&a.id), fresh)
+            let asleep = transport == Transport::Wifi && self.sleeping.load(std::sync::atomic::Ordering::Relaxed);
+            (want && initiator && !cooling && !asleep && !st.connecting.contains(&a.id), fresh)
         };
         if fresh {
             self.emit_status();
@@ -343,6 +351,11 @@ impl Daemon {
     pub async fn accept_loop(self: D) {
         while let Some(inc) = self.ep.accept().await {
             if crate::netif::usb_disabled() && crate::netif::in_usb_subnet(inc.remote_address().ip()) {
+                inc.refuse();
+                continue;
+            }
+            // Спим (экран погашен): по Wi-Fi никого не принимаем — иначе компьютер будит нас повторами
+            if self.sleeping.load(std::sync::atomic::Ordering::Relaxed) && !crate::netif::in_usb_subnet(inc.remote_address().ip()) {
                 inc.refuse();
                 continue;
             }
@@ -780,6 +793,19 @@ impl Daemon {
                 if name != self.self_info().name || l.discoverable != self.self_info().discoverable {
                     tracing::info!(%name, discoverable = l.discoverable, "[link] изменён");
                     self.configure(Some(name), Some(l.discoverable));
+                }
+            }
+            // Экран телефона погашен — спим: сеансы по Wi-Fi закрыть, анонсы прекратить; включили — анонс сразу.
+            let sleeping = std::path::Path::new(SLEEP_FLAG).exists();
+            if self.sleeping.swap(sleeping, std::sync::atomic::Ordering::Relaxed) != sleeping {
+                if sleeping {
+                    let st = self.st.lock().unwrap();
+                    for s in st.sessions.values().filter(|s| s.transport == Transport::Wifi) {
+                        tracing::info!(peer = %s.hello.name, "экран погашен — соединение по Wi-Fi закрыто на время сна");
+                        s.conn.close(0u32.into(), b"sleep");
+                    }
+                } else {
+                    self.announce_now.notify_one();
                 }
             }
             let ifaces = crate::netif::list();

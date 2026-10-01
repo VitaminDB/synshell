@@ -81,9 +81,10 @@ async fn announce(d: &Daemon, sock: &UdpSocket, port: u16, query: bool) {
     let me = d.self_info();
     let a = Announce { synlink: crate::proto::PROTO, id: me.id, name: me.name, kind: me.kind, port: d.port, query };
     let Ok(data) = serde_json::to_vec(&a) else { return };
+    let sleeping = d.sleeping.load(std::sync::atomic::Ordering::Relaxed);
     for i in crate::netif::list() {
-        // Невидимая машина анонсирует себя только по кабелю.
-        if !me.discoverable && !i.usb {
+        // Невидимая машина анонсирует себя только по кабелю; спящий телефон — тоже.
+        if (!me.discoverable || sleeping) && !i.usb {
             continue;
         }
         let _ = sock.send_to(&data, SocketAddr::from((i.broadcast(), port))).await;
