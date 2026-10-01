@@ -403,7 +403,12 @@ fn sliders(ctx: ShellCtx) -> impl Widget {
                         .child(
                             GestureDetector::new()
                                 .on_click(|| crate::system::toggle_mute(ShellCtx::get(), false))
-                                .child(icon(if v.muted { mi::VOLUME_OFF } else { mi::VOLUME_UP }).class("shade-slider-icon")),
+                                // в кружке той же высоты, что кнопка автояркости, — строки ползунков ровные
+                                .child(
+                                    DecoratedBox::new()
+                                        .child(icon(if v.muted { mi::VOLUME_OFF } else { mi::VOLUME_UP }).class("shade-slider-icon"))
+                                        .class("shade-auto"),
+                                ),
                         )
                         .child(
                             Slider::new()

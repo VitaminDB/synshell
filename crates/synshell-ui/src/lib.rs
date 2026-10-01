@@ -250,6 +250,22 @@ pub fn reload_config() {
     // остаются, цвета перетекают, картинка обоев растворяется. Всё прочее
     // (панели, апплеты, разделы) пересобирает оболочку заново.
     let old = ctx.config.get_untracked();
+    // Сменились только настройки поведения, которые читаются на лету (автояркость: кнопка «А» в шторке,
+    // сохранение поправки), — ни пересборки, ни темы: иначе оболочка перемаргивает на каждое нажатие.
+    let behavior_only = {
+        let mut probe = cfg.clone();
+        probe.brightness = old.brightness.clone();
+        probe == *old
+    };
+    if behavior_only {
+        ctx.config.set_always(Arc::new(cfg));
+        RELOAD_HOOKS.with(|h| {
+            for f in h.borrow().iter() {
+                f(ctx, false);
+            }
+        });
+        return;
+    }
     let structural = {
         let mut probe = cfg.clone();
         probe.appearance = old.appearance.clone();
