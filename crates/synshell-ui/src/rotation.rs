@@ -21,7 +21,7 @@ use crate::ui::icon;
 /// Сколько висит кнопка «повернуть».
 const SUGGEST_FOR: Duration = Duration::from_secs(6);
 /// Кнопка «повернуть»: сторона и отступ от углов.
-const BUTTON: u32 = 56;
+const BUTTON: u32 = 68;
 const BUTTON_MARGIN: i32 = 20;
 
 thread_local! {
@@ -252,6 +252,13 @@ fn show_suggestion(ctx: ShellCtx, r: Rotation) {
     SUGGEST.with(|s| s.set(Some((id, timer))));
 }
 
+/// Отладка вида: показать кнопку «повернуть» (`shell rotate-suggest-preview`);
+/// нажатие поворачивает экран в текущую ориентацию — то есть ничего не меняет.
+pub fn preview(ctx: ShellCtx) {
+    let r = current(&ctx);
+    show_suggestion(ctx, r);
+}
+
 fn hide_suggestion() {
     if let Some((id, timer)) = SUGGEST.with(|s| s.take()) {
         syngui_layer::cancel_timer(timer);
@@ -265,5 +272,11 @@ fn button(r: Rotation) -> impl Widget {
             hide_suggestion();
             crate::actions::run(Action::Rotate(r));
         })
-        .child(DecoratedBox::new().child(icon("\u{E1C1}").class("rotate-suggest-icon")).class("rotate-suggest"))
+        // Центр — колонкой и рядом во весь круг (выравнивание MSS у бокса
+        // без явного размера оставляло значок со смещением).
+        .child(
+            DecoratedBox::new()
+                .child(crate::ui::vcenter(Row::new().main_axis_alignment(MainAxisAlignment::Center).child(icon("\u{E1C1}").class("rotate-suggest-icon"))))
+                .class("rotate-suggest"),
+        )
 }

@@ -294,15 +294,15 @@ Text {
 
 /* Кнопка «повернуть» при зафиксированной ориентации (как в Android). */
 .rotate-suggest {
-    flex-grow: 1;
+    width: 100%;
+    height: 100%;
     border-radius: 999px;
-    background-color: var(--menu-bg);
-    border-width: 1px;
-    border-color: var(--border);
-    align-items: center;
-    justify-content: center;
+    background-color: var(--accent);
+    border-width: 2px;
+    border-color: #ffffff50;
 }
-.rotate-suggest-icon { icon-size: 26px; icon-color: var(--accent); }
+.rotate-suggest:active { scale: 0.92; }
+.rotate-suggest-icon { icon-size: 36px; icon-color: var(--accent-fg); }
 
 /* ─── Меню запуска ───────────────────────────────────────────────────────── */
 
