@@ -166,6 +166,24 @@ import SYSTEM VENDOR [ИМЯ] | use ИМЯ | remove ИМЯ`, `sudo syndroid shel
   уведомления пакетов `android` и `com.android.systemui` (USB, зарядка) не пересылаются.
 4. ✅ (2026-10-01) Окно управления (`syndroid` без аргументов, ярлык «Управление Android» — системная
    программа Linux, не Android): «Обзор», «Приложения», «Образы», «Настройки», «Журнал» (см. ниже).
-5. Звук через PipeWire-pulse; поворот и датчики; общие папки. (GPU — zink на turnip-KGSL из слоя платформы —
-   сделан на этапе 1.)
+5. ✅ (2026-10-01) Звук, поворот, общие папки (см. ниже). Не сделано: датчики для приложений Android
+   (акселерометр и др.) — у образа заглушка HAL (`waydroid.stub_sensors_hal=1`); настоящие данные Waydroid даёт
+   HIDL-сервисом `android.hardware.sensors@1.0` по hwbinder (`waydroid-sensord`), а в rsbinder HIDL нет.
+
+## Звук, поворот, общие папки
+- **Звук**: аудио-HAL образа — клиент PulseAudio (`/run/xdg/pulse/native` → ссылка в каталог сеанса), у нас —
+  PipeWire-pulse; поток Android в PipeWire зовётся «Waydroid» (зашито в HAL), идёт на устройство по умолчанию.
+- **Поворот**: датчики Android не нужны — поворачивает synshell, окно Android получает новый configure,
+  hwcomposer меняет размер «экрана», приложение перестраивается на ходу.
+- **Общие папки** (`shared_folders`, по умолчанию включено): папки пользователя из `~/.config/user-dirs.dirs`
+  → `/data/media/0/{Download,Pictures,Music,Movies,Documents}`. Права: Android открывает хранилище через
+  группу `media_rw` (1023), файлы создаёт от uid MediaProvider; idmapped mounts нет (ядро 5.10) — поэтому
+  ACL на каталогах папок: `g:1023:rwx` и по умолчанию `g:1023`, `u:<владелец сеанса>` (файлы Android
+  пользователь читает и меняет). FUSE MediaProvider читает не /data/media, а `/mnt/pass_through/0/emulated`
+  (привязка vold без MS_REC — вложенные монтирования туда не попадают), поэтому после загрузки демон
+  привязывает папки и туда (`android::share_folders`; корень Android — rshared, MediaProvider их видит).
+  Удалять файлы общих папок в обход Android можно, но MediaProvider помнит запись: создать файл с тем же
+  именем из Android сразу не выйдет (ENOENT) до пересканирования.
+- Свой бинарник для помощников — `/proc/self/exe`: после обновления файла на диске `current_exe()` указывает на
+  удалённый путь, и `__exec`/`__bridge` не запускались.
 6. Сборка образа телефона: пакеты, юнит, группа `android`, (по желанию) предзагруженные образы.

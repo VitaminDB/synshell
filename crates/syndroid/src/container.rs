@@ -69,6 +69,9 @@ pub struct Spec {
     pub session: Session,
     pub network: bool,
     pub drm_node: Option<String>,
+    /// Общие папки: (каталог хоста, имя в /data/media/0).
+    #[serde(default)]
+    pub shared: Vec<(String, String)>,
 }
 
 /// Запущенный контейнер (со стороны демона).
@@ -76,6 +79,8 @@ pub struct Running {
     pub starter: Child,
     pub init_pid: i32,
     pub dnsmasq: Option<Child>,
+    /// Имена общих папок в /data/media/0 (после загрузки — ещё и в хранилище, `android::share_folders`).
+    pub shared: Vec<String>,
 }
 
 fn chmod(p: &Path, mode: u32) {
@@ -118,9 +123,11 @@ pub fn start(c: &Config, session: &Session) -> Result<Running> {
     chmod(&paths::props(), 0o644);
 
     let dnsmasq = if c.network { net::up()? } else { None };
-    let spec = Spec { set, instance, session: session.clone(), network: c.network, drm_node: props::drm_node(c) };
+    let shared = if c.shared_folders { shared_folders(session) } else { Vec::new() };
+    let shared_names: Vec<String> = shared.iter().map(|(_, n)| n.clone()).collect();
+    let spec = Spec { set, instance, session: session.clone(), network: c.network, drm_node: props::drm_node(c), shared };
     let log = fs::File::create(paths::container_log())?;
-    let mut cmd = Command::new(std::env::current_exe()?);
+    let mut cmd = Command::new(paths::SELF_EXE);
     cmd.arg("__container")
         .arg(serde_json::to_string(&spec)?)
         .stdin(Stdio::piped())
@@ -149,7 +156,7 @@ pub fn start(c: &Config, session: &Session) -> Result<Running> {
         line.trim().parse::<i32>().ok().context("контейнер не запустился (см. /run/syndroid/container.log)")
     })();
     match r {
-        Ok(init_pid) => Ok(Running { starter, init_pid, dnsmasq }),
+        Ok(init_pid) => Ok(Running { starter, init_pid, dnsmasq, shared: shared_names }),
         Err(e) => {
             let _ = starter.kill();
             let _ = starter.wait();
@@ -157,6 +164,58 @@ pub fn start(c: &Config, session: &Session) -> Result<Running> {
             Err(e)
         }
     }
+}
+
+/// Папки пользователя (`~/.config/user-dirs.dirs`) → папки хранилища Android, с правами для Android: группе
+/// `media_rw` (1023; через неё хранилище открывают MediaProvider и приложения) — запись, а файлам, которые
+/// создаст Android (владелец — его uid), — доступ пользователю по ACL по умолчанию. Сопоставление uid
+/// (idmapped mounts) появилось в ядре 5.12 — на GKI 5.10 его нет.
+fn shared_folders(s: &Session) -> Vec<(String, String)> {
+    let Some(home) = home_of(s.uid) else { return Vec::new() };
+    let dirs = fs::read_to_string(Path::new(&home).join(".config/user-dirs.dirs")).unwrap_or_default();
+    let get = |key: &str, default: &str| -> PathBuf {
+        dirs.lines()
+            .find_map(|l| l.strip_prefix(&format!("{key}=")))
+            .map(|v| v.trim().trim_matches('"').replace("$HOME", &home))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| Path::new(&home).join(default))
+    };
+    let map = [
+        ("XDG_DOWNLOAD_DIR", "Downloads", "Download"),
+        ("XDG_PICTURES_DIR", "Pictures", "Pictures"),
+        ("XDG_MUSIC_DIR", "Music", "Music"),
+        ("XDG_VIDEOS_DIR", "Videos", "Movies"),
+        ("XDG_DOCUMENTS_DIR", "Documents", "Documents"),
+    ];
+    let mut out = Vec::new();
+    for (key, default, name) in map {
+        let p = get(key, default);
+        // Домашний каталог целиком делиться не должен (XDG_*_DIR=$HOME — «нет такой папки»)
+        if !p.is_dir() || p == Path::new(&home) {
+            continue;
+        }
+        let acl = format!("g:1023:rwx,d:g:1023:rwx,d:u:{}:rwx,d:m:rwx", s.uid);
+        let ok = Command::new("find")
+            .arg(&p)
+            .args(["-xdev", "-type", "d", "-exec", "setfacl", "-m", &acl, "{}", "+"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|st| st.success());
+        if !ok {
+            tracing::warn!("общая папка {}: не удалось выдать права (setfacl)", p.display());
+        }
+        out.push((p.display().to_string(), name.to_string()));
+    }
+    out
+}
+
+pub fn home_of(uid: u32) -> Option<String> {
+    fs::read_to_string("/etc/passwd")
+        .ok()?
+        .lines()
+        .find(|l| l.split(':').nth(2) == Some(&uid.to_string()))
+        .and_then(|l| l.split(':').nth(5).map(str::to_string))
 }
 
 /// Раньше `/data` был один на всех (`/var/lib/syndroid/data` — сам корень данных Android): перенести его
@@ -306,6 +365,16 @@ fn setup_root(spec: &Spec) -> Result<()> {
     sys::touch(&prop)?;
     sys::bind(paths::props(), &prop, false)?;
     sys::bind(paths::data(&spec.instance), r.join("data"), false)?;
+    // Общие папки — поверх папок хранилища Android (их создаёт сам Android при первой загрузке; до того — без них)
+    let media = r.join("data/media/0");
+    for (host, name) in &spec.shared {
+        let t = media.join(name);
+        if t.is_dir() && Path::new(host).is_dir() {
+            if let Err(e) = sys::bind(host, &t, false) {
+                eprintln!("syndroid: общая папка {host}: {e:#}");
+            }
+        }
+    }
 
     // /dev
     let dev = r.join("dev");
@@ -424,7 +493,7 @@ pub fn command_in(init_pid: i32, argv: &[String]) -> Result<Command> {
     if argv.is_empty() {
         bail!("пустая команда");
     }
-    let mut cmd = Command::new(std::env::current_exe()?);
+    let mut cmd = Command::new(paths::SELF_EXE);
     cmd.arg("__exec").arg(init_pid.to_string()).args(argv);
     Ok(cmd)
 }

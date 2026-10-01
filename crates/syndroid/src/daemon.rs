@@ -126,6 +126,7 @@ impl Daemon {
         });
         // Ожидание загрузки Android
         let me = self.clone();
+        let shared = running.shared.clone();
         std::thread::spawn(move || loop {
             std::thread::sleep(Duration::from_secs(2));
             let (pid, alive) = {
@@ -145,6 +146,9 @@ impl Daemon {
                 me.changed.notify_all();
                 if let Err(e) = android::apply_window_mode(pid, Config::load().multi_windows) {
                     tracing::warn!("режим окон: {e:#}");
+                }
+                if let Err(e) = android::share_folders(pid, &shared) {
+                    tracing::warn!("общие папки: {e:#}");
                 }
                 me.changed.notify_all();
                 break;
@@ -460,7 +464,7 @@ fn spawn_bridge(instance: &str, s: &Session) -> Result<std::process::Child> {
         .ok()
         .and_then(|p| p.lines().find(|l| l.split(':').nth(2) == Some(&s.uid.to_string())).and_then(|l| l.split(':').nth(5).map(str::to_string)))
         .context("домашний каталог владельца сеанса")?;
-    std::process::Command::new(std::env::current_exe()?)
+    std::process::Command::new(paths::SELF_EXE)
         .arg("__bridge")
         .arg(instance)
         .env_clear()

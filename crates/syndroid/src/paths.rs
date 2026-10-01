@@ -9,6 +9,9 @@ pub const SOCKET: &str = "/run/syndroid/syndroidd.sock";
 /// cgroup контейнера (v2): заморозка — `cgroup.freeze`.
 pub const CGROUP: &str = "/sys/fs/cgroup/syndroid";
 pub const BINDERFS: &str = "/dev/binderfs";
+/// Своя программа для помощников (`__container`, `__exec`, `__bridge`): `/proc/self/exe` работает и после
+/// замены файла на диске при обновлении (`current_exe()` тогда указывает на удалённый путь).
+pub const SELF_EXE: &str = "/proc/self/exe";
 
 /// Пути внутри контейнера (как у Waydroid — их ждут свойства и HAL образа).
 pub const CONTAINER_XDG_RUNTIME_DIR: &str = "/run/xdg";

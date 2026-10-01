@@ -1021,6 +1021,12 @@ fn settings_view(st: St) -> W {
                     |c, v| c.multi_windows = v,
                 ))
                 .child(toggle("Сеть", "Доступ Android в интернет через телефон или компьютер.", c.network, |c, v| c.network = v))
+                .child(toggle(
+                    "Общие папки",
+                    "Загрузки, Изображения, Музыка, Видео и Документы — те же, что в Android (Download, Pictures…). Действует после перезапуска Android.",
+                    c.shared_folders,
+                    |c, v| c.shared_folders = v,
+                ))
                 .child(
                     Row::new()
                         .gap(12.0)

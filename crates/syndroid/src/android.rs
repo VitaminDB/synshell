@@ -140,6 +140,18 @@ pub fn logcat(pid: i32, lines: u32) -> Result<String> {
     run(pid, &["/system/bin/logcat", "-d", "-v", "time", "-t", &lines.to_string()])
 }
 
+/// Общие папки — ещё и в виде хранилища для MediaProvider. Его FUSE читает не /data/media, а
+/// `/mnt/pass_through/0/emulated` — привязку /data/media, которую vold делает без MS_REC, и наши привязки
+/// папок хоста в /data/media/0 туда не попадают (Android писал бы в свою папку). Корень у Android — rshared,
+/// так что привязки после загрузки доходят и до пространства имён MediaProvider.
+pub fn share_folders(pid: i32, names: &[String]) -> Result<()> {
+    for n in names {
+        let (src, dst) = (format!("/data/media/0/{n}"), format!("/mnt/pass_through/0/emulated/0/{n}"));
+        run(pid, &["/system/bin/mount", "--bind", &src, &dst])?;
+    }
+    Ok(())
+}
+
 pub fn force_stop(pid: i32, package: &str) -> Result<()> {
     run(pid, &["/system/bin/am", "force-stop", package]).map(drop)
 }

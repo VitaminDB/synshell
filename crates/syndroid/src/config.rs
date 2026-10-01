@@ -30,6 +30,8 @@ pub struct Config {
     pub network: bool,
     /// Запускать Android при входе в сеанс (`syndroid session` из автозапуска).
     pub autostart: bool,
+    /// Папки пользователя (Загрузки, Изображения, Музыка, Видео, Документы) — в хранилище Android.
+    pub shared_folders: bool,
     /// Узел DRM для gralloc (gbm); пусто — первый `renderD*`.
     pub drm_node: String,
     /// Дополнительные/переопределённые свойства Android.
@@ -50,6 +52,7 @@ impl Default for Config {
             multi_windows: false,
             network: true,
             autostart: false,
+            shared_folders: true,
             drm_node: String::new(),
             properties: BTreeMap::new(),
         }
