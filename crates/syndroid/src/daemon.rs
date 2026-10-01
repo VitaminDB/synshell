@@ -275,7 +275,9 @@ impl Daemon {
                 | Request::Freeze
                 | Request::Unfreeze
         );
-        if !read_only && !peer.admin && !(app_op && session_owner) {
+        // Запустить Android для своего сеанса может любой пользователь (Start сам сверяет uid сеанса)
+        let own_start = matches!(&req, Request::Start { session } if session.uid == peer.uid);
+        if !read_only && !peer.admin && !(app_op && session_owner) && !own_start {
             bail!("нет прав: нужен root или группа wheel/android");
         }
         Ok(match req {
