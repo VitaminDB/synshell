@@ -18,6 +18,7 @@ use crate::api::{
 };
 use crate::data;
 use crate::euicc;
+use crate::gnss;
 use crate::manage;
 use crate::pdu;
 use crate::qmi::{svc, Client, Indication, Message, SERVICE_GONE};
@@ -67,6 +68,8 @@ pub struct Daemon {
     data_ready: std::sync::atomic::AtomicBool,
     /// Канал индикаций текущего запуска модема (для клиентов сеанса данных).
     ind_tx: Mutex<Option<Sender<Indication>>>,
+    /// Приёмник GNSS (служба LOC, свой клиент — работает, пока есть читатели).
+    gnss: std::sync::OnceLock<Arc<gnss::Engine>>,
 }
 
 impl Daemon {
@@ -908,8 +911,8 @@ impl Daemon {
         self.data_ready.store(false, std::sync::atomic::Ordering::SeqCst);
         self.set_calls(Vec::new());
         self.update(|s| {
-            let keep = (s.radio, s.unread_sms, s.imei.clone(), s.data.enabled);
-            *s = Status { radio: keep.0, unread_sms: keep.1, imei: keep.2, ..Status::default() };
+            let keep = (s.radio, s.unread_sms, s.imei.clone(), s.data.enabled, s.gnss);
+            *s = Status { radio: keep.0, unread_sms: keep.1, imei: keep.2, gnss: keep.4, ..Status::default() };
             s.data.enabled = keep.3;
             s.data.state = if keep.3 { DataState::Waiting } else { DataState::Off };
         });
@@ -1016,7 +1019,7 @@ impl Daemon {
                 self.emit(Event::CallLog);
                 Response::Ok
             }
-            Request::Subscribe => bail!("Subscribe обрабатывается соединением"),
+            Request::Subscribe | Request::GnssWatch => bail!("поток обрабатывается соединением"),
             Request::Info => {
                 let m = self.modem()?;
                 Response::Info { info: manage::info(&m.dms, &m.uim) }
@@ -1350,6 +1353,20 @@ fn serve(d: Arc<Daemon>, s: UnixStream) {
                 }
                 return;
             }
+            Ok(Request::GnssWatch) => {
+                if !peer.trusted {
+                    send(&mut w, &Response::Error { message: "нет доступа к местоположению".into() });
+                    return;
+                }
+                let Some(g) = d.gnss.get() else { return };
+                let watch = g.watch();
+                for fix in watch.rx.iter() {
+                    if !send(&mut w, &fix) {
+                        return;
+                    }
+                }
+                return;
+            }
             Ok(req) => {
                 let resp = d.handle(req, peer).unwrap_or_else(|e| Response::Error { message: format!("{e:#}") });
                 if !send(&mut w, &resp) {
@@ -1395,7 +1412,17 @@ pub fn run() -> Result<()> {
         data_busy: Default::default(),
         data_ready: Default::default(),
         ind_tx: Mutex::default(),
+        gnss: Default::default(),
     });
+    {
+        let weak = Arc::downgrade(&d);
+        let g = gnss::Engine::start(move |on| {
+            if let Some(d) = weak.upgrade() {
+                d.update(|s| s.gnss = on);
+            }
+        });
+        let _ = d.gnss.set(g);
+    }
     d.refresh_unread();
     d.usage_loop();
     {

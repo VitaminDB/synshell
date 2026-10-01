@@ -190,6 +190,10 @@ docs/15-sensors.md), политика — `synshell-ui/src/rotation.rs`. Ком�
 - Протокол — `api.rs`: unix-сокет `/run/synmodem/synmodemd.sock`, JSON по строке, `Subscribe` — поток событий.
   Состояние сети — всем; SMS, звонки, управление и события — root и группам `wheel`/`network`.
 - CLI `synmodem status | watch | radio on|off | sms [send НОМЕР ТЕКСТ] | dial | answer | hangup | dtmf | calls`.
+- **GNSS** (`gnss.rs`, служба QMI LOC): приёмник работает, пока есть читатели — `GnssWatch` (поток `Fix` раз
+  в секунду, `synmodem gnss [nmea]`) или сокет NMEA `/run/synmodem/gnss.nmea` для GeoClue; `status.gnss` —
+  приёмник включён. Перед сеансом — время системы и XTRA (Inject XTRA Data 0xA7, файл раз в сутки); пока
+  работает — запрет сна `inhibit.d/gnss`. Агента GeoClue (разрешения программам) в оболочке пока нет.
 - Оболочка (`synshell-ui/src/modem.rs`): `ctx.modem`, карточка «Сеть» экрана ресурсов (Wi-Fi + мобильная связь
   с полосками `signal_bars`), плитка «Мобильная связь» в шторке (радио вкл/выкл), уведомления о SMS
   (`synsms --chat`) и пропущенных (`synphone --log`), на входящий звонок поднимает/запускает «Телефон».

@@ -37,6 +37,51 @@ pub struct Status {
     pub unread_sms: u32,
     pub calls: Vec<Call>,
     pub data: Data,
+    /// Приёмник GNSS работает (кто-то читает местоположение).
+    #[serde(default)]
+    pub gnss: bool,
+}
+
+/// Местоположение от приёмника GNSS (поток `GnssWatch`, раз в секунду).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct Fix {
+    /// Есть свежее решение (координаты ниже — его); `false` — ещё ищет спутники.
+    pub valid: bool,
+    pub latitude: f64,
+    pub longitude: f64,
+    /// Высота над уровнем моря, м.
+    pub altitude: Option<f32>,
+    /// Высота над эллипсоидом WGS-84, м.
+    pub altitude_ellipsoid: Option<f32>,
+    /// Горизонтальная погрешность (радиус), м.
+    pub accuracy: Option<f32>,
+    pub vertical_accuracy: Option<f32>,
+    /// Скорость, м/с.
+    pub speed: Option<f32>,
+    /// Курс, градусы от севера.
+    pub heading: Option<f32>,
+    pub hdop: Option<f32>,
+    pub pdop: Option<f32>,
+    pub vdop: Option<f32>,
+    /// Время решения UTC, мс от эпохи.
+    pub time_ms: i64,
+    /// Спутники, участвующие в решении, и видимые (с сигналом).
+    pub satellites_used: u32,
+    pub satellites_visible: u32,
+    /// Видимые спутники.
+    pub satellites: Vec<Satellite>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct Satellite {
+    /// «GPS», «ГЛОНАСС», «Galileo», «BeiDou», «QZSS», «SBAS», «NavIC».
+    pub system: String,
+    pub id: u16,
+    pub elevation: f32,
+    pub azimuth: f32,
+    /// Сигнал/шум, дБ·Гц.
+    pub snr: f32,
+    pub used: bool,
 }
 
 /// Мобильная передача данных.
@@ -313,6 +358,8 @@ pub struct CallRecord {
 #[serde(tag = "request", rename_all = "kebab-case")]
 pub enum Request {
     Status,
+    /// Включить приёмник GNSS на время соединения: оно становится потоком [`Fix`] (по строке в секунду).
+    GnssWatch,
     /// Радио вкл/выкл (режим полёта), запоминается.
     SetRadio { on: bool },
     /// Мобильная передача данных вкл/выкл, запоминается.
@@ -457,6 +504,31 @@ pub fn subscribe(mut f: impl FnMut(Event) -> bool) -> Result<()> {
         match serde_json::from_str::<Event>(&l) {
             Ok(ev) => {
                 if !f(ev) {
+                    break;
+                }
+            }
+            Err(_) => {
+                if let Ok(Response::Error { message }) = serde_json::from_str::<Response>(&l) {
+                    bail!("{message}");
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Поток местоположения: приёмник работает, пока `f` возвращает `true`.
+pub fn gnss_watch(mut f: impl FnMut(Fix) -> bool) -> Result<()> {
+    let s = UnixStream::connect(SOCKET).with_context(|| format!("synmodemd не запущен ({SOCKET})"))?;
+    let mut w = s.try_clone()?;
+    let mut line = serde_json::to_string(&Request::GnssWatch)?;
+    line.push('\n');
+    w.write_all(line.as_bytes())?;
+    for l in BufReader::new(s).lines() {
+        let l = l?;
+        match serde_json::from_str::<Fix>(&l) {
+            Ok(fix) => {
+                if !f(fix) {
                     break;
                 }
             }

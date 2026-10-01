@@ -19,6 +19,7 @@ pub mod svc {
     pub const WMS: u32 = 5;
     pub const VOICE: u32 = 9;
     pub const UIM: u32 = 11;
+    pub const LOC: u32 = 16;
     pub const WDA: u32 = 26;
     pub const DPM: u32 = 47;
 }
@@ -119,6 +120,7 @@ pub struct QmiError(pub u16);
 impl QmiError {
     pub const NO_EFFECT: u16 = 0x1A;
     pub const INFO_UNAVAILABLE: u16 = 0x4A;
+    pub const NOT_SUPPORTED: u16 = 0x5E;
 }
 
 impl std::fmt::Display for QmiError {

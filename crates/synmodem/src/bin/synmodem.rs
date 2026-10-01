@@ -5,6 +5,7 @@ use synmodem::api::{self, Request, Response};
 
 const USAGE: &str = "synmodem status | watch | radio on|off | data on|off | sms [list] | sms send НОМЕР ТЕКСТ… | sms read НОМЕР
          | dial НОМЕР | answer ID | hangup ID | dtmf ID ЦИФРА | calls | info | cell | esim | apn
+         | gnss [nmea] (местоположение раз в секунду; приёмник работает, пока команда идёт)
          | req JSON (любой запрос протокола, например {\"request\":\"modes\"}; ответ — JSON)";
 
 fn main() {
@@ -56,6 +57,33 @@ fn run() -> Result<()> {
         ["dtmf", id, d] if d.chars().count() == 1 => {
             ok(&Request::Dtmf { id: id.parse()?, digit: d.chars().next().unwrap() })?
         }
+        ["gnss"] => api::gnss_watch(|f| {
+            let pos = if f.valid {
+                format!(
+                    "{:.6} {:.6} ±{} м, высота {} м, {} км/ч",
+                    f.latitude,
+                    f.longitude,
+                    f.accuracy.map(|a| format!("{a:.0}")).unwrap_or("?".into()),
+                    f.altitude.map(|a| format!("{a:.0}")).unwrap_or("?".into()),
+                    f.speed.map(|v| format!("{:.1}", v * 3.6)).unwrap_or("?".into()),
+                )
+            } else {
+                "нет решения".into()
+            };
+            let mut sats = f.satellites.clone();
+            sats.sort_by(|a, b| b.snr.total_cmp(&a.snr));
+            let best: Vec<String> = sats
+                .iter()
+                .take(6)
+                .map(|s| format!("{}{}:{:.0}{}", s.system, s.id, s.snr, if s.used { "*" } else { "" }))
+                .collect();
+            println!("{pos}; спутники {}/{} [{}]", f.satellites_used, f.satellites_visible, best.join(" "));
+            true
+        })?,
+        ["gnss", "nmea"] => api::gnss_watch(|f| {
+            print!("{}", synmodem::gnss::nmea(&f));
+            true
+        })?,
         ["info"] => print_resp(&Request::Info)?,
         ["cell"] => print_resp(&Request::Cell)?,
         ["esim"] => print_resp(&Request::EsimProfiles)?,
