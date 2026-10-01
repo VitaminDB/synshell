@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Телефон
+Name[en]=Phone
+GenericName=Звонки
+Comment=Набор номера и журнал звонков
+Exec=synphone
+Icon=call-start
+Categories=Network;Telephony;
+Keywords=phone;call;dialer;телефон;звонок;набор;

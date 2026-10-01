@@ -1,0 +1,16 @@
+[package]
+name = "synsms"
+description = "Сообщения synshell: SMS через демон модема synmodemd, для телефона и рабочего стола"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "synsms"
+path = "src/main.rs"
+
+[dependencies]
+synshell-common.workspace = true
+synmodem.workspace = true
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "clipboard", "i18n"] }

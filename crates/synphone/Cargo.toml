@@ -1,0 +1,16 @@
+[package]
+name = "synphone"
+description = "Телефон synshell: набор номера, журнал звонков и экран разговора через демон модема synmodemd"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "synphone"
+path = "src/main.rs"
+
+[dependencies]
+synshell-common.workspace = true
+synmodem.workspace = true
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "clipboard", "i18n"] }

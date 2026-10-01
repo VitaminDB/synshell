@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Сообщения
+Name[en]=Messages
+GenericName=SMS
+Comment=Переписка по SMS через модем телефона
+Exec=synsms
+Icon=internet-mail
+Categories=Network;Telephony;
+Keywords=sms;смс;сообщения;messages;
