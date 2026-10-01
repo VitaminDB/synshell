@@ -4555,6 +4555,7 @@ dependencies = [
  "serde",
  "serde_json",
  "syngui",
+ "synmodem",
  "synshell-common",
  "synsystem",
  "toml",
