@@ -168,9 +168,7 @@ import SYSTEM VENDOR [ИМЯ] | use ИМЯ | remove ИМЯ`, `sudo syndroid shel
   уведомления пакетов `android` и `com.android.systemui` (USB, зарядка) не пересылаются.
 4. ✅ (2026-10-01) Окно управления (`syndroid` без аргументов, ярлык «Управление Android» — системная
    программа Linux, не Android): «Обзор», «Приложения», «Образы», «Настройки», «Журнал» (см. ниже).
-5. ✅ (2026-10-01) Звук, поворот, общие папки (см. ниже). Не сделано: датчики для приложений Android
-   (акселерометр и др.) — у образа заглушка HAL (`waydroid.stub_sensors_hal=1`); настоящие данные Waydroid даёт
-   HIDL-сервисом `android.hardware.sensors@1.0` по hwbinder (`waydroid-sensord`), а в rsbinder HIDL нет.
+5. ✅ (2026-10-01) Звук, поворот, общие папки, датчики (см. ниже).
 
 ## Звук, поворот, общие папки
 - **Звук**: аудио-HAL образа — клиент PulseAudio (`/run/xdg/pulse/native` → ссылка в каталог сеанса), у нас —
@@ -186,6 +184,19 @@ import SYSTEM VENDOR [ИМЯ] | use ИМЯ | remove ИМЯ`, `sudo syndroid shel
   привязывает папки и туда (`android::share_folders`; корень Android — rshared, MediaProvider их видит).
   Удалять файлы общих папок в обход Android можно, но MediaProvider помнит запись: создать файл с тем же
   именем из Android сразу не выйдет (ENOENT) до пересканирования.
+- **Датчики** (`sensors.rs`, `hwbinder.rs`): процесс `syndroidd __sensors` (root, на каждый запуск контейнера)
+  отдаёт Android HIDL-сервис `android.hardware.sensors@1.0::ISensors/default` по hwbinder контейнера — его
+  объявляет VINTF vendor-образа (как у Waydroid с `waydroid-sensord`); заглушку образа выключает
+  `waydroid.stub_sensors_hal=0`. HIDL в rsbinder нет — свой минимальный hwbinder на ioctl: scatter-gather буферы
+  (`BC_TRANSACTION_SG`/`BC_REPLY_SG`) для `hidl_vec`/`hidl_string`, методы IBase для hwservicemanager,
+  регистрация `IServiceManager::add`. Раскладки HIDL: `SensorInfo` 112 байт, `Event` 80 байт.
+  Данные — от **источника платформы** `/usr/lib/syndroid/sensors-source` (строки `A x y z`, `G`, `M`, `L lux`,
+  `P 0|1`; `--list` — набор): syndroid запускает его только для включённых Android датчиков; нет источника —
+  остаётся заглушка. Источник для Qualcomm SSC — arch-mobile-port `sensors/syndroid-ssc-sensors.c`.
+  Грабли: SensorService вызывает `poll` и синхронно при инициализации (поток `system-server-init`) — блок «до
+  первого события» вешал system_server (сторож через 60 с), поэтому `poll` ждёт не дольше 0,5 с. Автоповорот
+  Android демон после загрузки выключает (`accelerometer_rotation=0`): поворачивает synshell, иначе содержимое
+  повернулось бы ещё раз внутри окна.
 - Свой бинарник для помощников — `/proc/self/exe`: после обновления файла на диске `current_exe()` указывает на
   удалённый путь, и `__exec`/`__bridge` не запускались.
 6. ✅ (2026-10-01) Сборка образа телефона: всё syndroid попадает в образ без ручных шагов (программы, юнит,

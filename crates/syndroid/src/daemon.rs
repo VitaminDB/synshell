@@ -23,8 +23,9 @@ struct Inner {
     /// Номер запуска: фоновые потоки старого запуска не трогают новый.
     generation: u64,
     jobs: Vec<Job>,
-    /// Мост binder (`__bridge`) текущего запуска.
+    /// Мост binder (`__bridge`) и датчики (`__sensors`) текущего запуска.
     bridge: Option<std::process::Child>,
+    sensors: Option<std::process::Child>,
 }
 
 pub struct Daemon {
@@ -92,6 +93,13 @@ impl Daemon {
             i.generation
         };
         tracing::info!("контейнер запущен, init = {}", running.init_pid);
+        if std::path::Path::new(crate::sensors::SOURCE).exists() {
+            let node = std::path::Path::new(paths::BINDERFS).join(container::BINDER_NODES[2].0);
+            match std::process::Command::new(paths::SELF_EXE).arg("__sensors").arg(&node).stdin(std::process::Stdio::null()).spawn() {
+                Ok(c) => self.inner.lock().unwrap().sensors = Some(c),
+                Err(e) => tracing::warn!("датчики: {e}"),
+            }
+        }
         let session = self.inner.lock().unwrap().session.clone();
         if let Some(s) = session {
             match spawn_bridge(&crate::images::instance_of(cfg.active.as_deref().unwrap_or("")), &s) {
@@ -109,9 +117,9 @@ impl Daemon {
             container::cleanup(dnsmasq, network);
             let mut i = me.inner.lock().unwrap();
             if i.generation == gen {
-                if let Some(mut b) = i.bridge.take() {
-                    let _ = b.kill();
-                    let _ = b.wait();
+                for mut c in [i.bridge.take(), i.sensors.take()].into_iter().flatten() {
+                    let _ = c.kill();
+                    let _ = c.wait();
                 }
             }
             if i.generation == gen {
@@ -146,6 +154,9 @@ impl Daemon {
                 me.changed.notify_all();
                 if let Err(e) = android::apply_window_mode(pid, Config::load().multi_windows) {
                     tracing::warn!("режим окон: {e:#}");
+                }
+                if let Err(e) = android::lock_rotation(pid) {
+                    tracing::warn!("автоповорот Android: {e:#}");
                 }
                 if let Err(e) = android::share_folders(pid, &shared) {
                     tracing::warn!("общие папки: {e:#}");

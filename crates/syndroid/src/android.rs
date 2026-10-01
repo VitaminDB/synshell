@@ -44,6 +44,13 @@ pub fn apply_window_mode(pid: i32, multi: bool) -> Result<()> {
     setprop(pid, "persist.waydroid.multi_windows", if multi { "true" } else { "false" })
 }
 
+/// Автоповорот Android — выключен: экран поворачивает synshell, а окно Android получает новый размер; иначе
+/// (с акселерометром от syndroid) Android развернул бы содержимое ещё раз внутри окна.
+pub fn lock_rotation(pid: i32) -> Result<()> {
+    run(pid, &["/system/bin/settings", "put", "system", "accelerometer_rotation", "0"])?;
+    run(pid, &["/system/bin/settings", "put", "system", "user_rotation", "0"]).map(drop)
+}
+
 /// Весь Android одним окном.
 pub fn show_full_ui(pid: i32) -> Result<()> {
     setprop(pid, "waydroid.active_apps", "Waydroid")?;

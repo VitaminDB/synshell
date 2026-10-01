@@ -57,7 +57,8 @@ pub fn build(c: &Config, s: &Session) -> String {
     set("waydroid.xdg_runtime_dir", paths::CONTAINER_XDG_RUNTIME_DIR);
     set("waydroid.pulse_runtime_path", &format!("{}/pulse", paths::CONTAINER_XDG_RUNTIME_DIR));
     set("waydroid.wayland_display", paths::CONTAINER_WAYLAND_DISPLAY);
-    set("waydroid.stub_sensors_hal", "1");
+    // Есть источник датчиков платформы — настоящий HAL отдаёт syndroid (`sensors.rs`), заглушку образа выключить
+    set("waydroid.stub_sensors_hal", if Path::new(crate::sensors::SOURCE).exists() { "0" } else { "1" });
     // persist-свойство: значение из /data перекрывает это; при загрузке демон его выравнивает (android::apply_window_mode)
     set("persist.waydroid.multi_windows", if c.multi_windows { "true" } else { "false" });
     if c.dpi > 0 {
