@@ -14,7 +14,7 @@ vendor MAINLINE), с хостом они общаются по протокол�
 
 | Бинарник | Кто запускает | Что делает |
 |---|---|---|
-| `syndroidd` | systemd (`syndroid.service`), root | контейнер, образы, сеть, binder; API по unix-сокету `/run/syndroid.sock` |
+| `syndroidd` | systemd (`syndroid.service`), root | контейнер, образы, сеть, binder; API по unix-сокету `/run/syndroid/syndroidd.sock` (JSON построчно, `api.rs`) |
 | `syndroid` | пользователь | окно управления (syngui) **и** CLI: `syndroid status|start|stop|restart|app …|image …|prop …|shell|logcat` |
 | сессионная часть | synwm-сессия (`syndroid session`) | сокеты Wayland/PipeWire пользователя → контейнер, .desktop-файлы, уведомления, буфер обмена |
 
@@ -40,11 +40,13 @@ vendor MAINLINE), с хостом они общаются по протокол�
 
 ## Демон: устройство
 1. **Образы** (`/var/lib/syndroid/images/<набор>/{system,vendor}.img`): загрузка по OTA JSON (`url`, `id` = sha256),
-   распаковка zip, проверка; активный набор — ссылка `current`.
-2. **Корень**: `system.img` (loop, ro) как `/`, `vendor.img` (loop, ro) в `/vendor`; поверх — overlay для
-   своих файлов (Mesa с KGSL, `waydroid.prop`); `/data` — `/var/lib/syndroid/data` (bind).
-3. **Контейнер** — свой рантайм вместо LXC: `clone(NEWPID|NEWNS|NEWNET|NEWUTS|NEWCGROUP)` (IPC не отделяется —
-   в ядре нет `IPC_NS`), `/dev` на tmpfs с нужными узлами (binder из binderfs, `kgsl-3d0`, `dri/*`, `ashmem`,
+   распаковка zip, проверка; активный набор — `active` в `/var/lib/syndroid/config.toml`.
+2. **Корень**: `system.img` и `vendor.img` (loop ro, autoclear) под overlay: свои файлы → слой платформы → образ,
+   верхний слой — изменения Android (`overlay_rw/<набор>/`); `waydroid.prop` — bind из `/run/syndroid`;
+   `/data` — `/var/lib/syndroid/data` (bind).
+3. **Контейнер** — свой рантайм вместо LXC (`container.rs`): стартер `syndroidd __container` в новых
+   NEWNS/NEWUTS/NEWNET/NEWPID (IPC не отделяется — в ядре нет `IPC_NS`), после «go» от демона (cgroup, veth) —
+   NEWCGROUP и fork PID 1, `/dev` на tmpfs с нужными узлами (binder из binderfs, `kgsl-3d0`, `dri/*`, `ashmem`,
    `fuse`, `tun`, `uhid`, `sw_sync`, `dma_heap/*`), `pivot_root`, сокращение capabilities, seccomp, cgroup v2,
    `exec /init`. Заморозка — `cgroup.freeze`.
 4. **Binder**: `binderfs` в `/dev/binderfs`, свои узлы `syndroid-{binder,vndbinder,hwbinder}` → `/dev/{binder,…}`
@@ -52,7 +54,7 @@ vendor MAINLINE), с хостом они общаются по протокол�
    `waydroidusermonitor`, `waydroidclipboard`, `waydroidhardware`, `waydroidnotifications` и вызывает
    `waydroidplatform` (список приложений, запуск, установка, `settings`, свойства).
 5. **Сеть**: veth + мост `syndroid0` + NAT через `iptables-legacy` (в GKI нет nf_tables) + DHCP/DNS (свой
-   минимальный DHCP или dnsmasq).
+   dnsmasq).
 6. **Свойства**: `waydroid.prop` — gralloc `gbm`, EGL `mesa`, Vulkan `freedreno`, сокеты Wayland/PulseAudio,
    размер окна и DPI, `persist.waydroid.multi_windows`.
 
@@ -76,6 +78,6 @@ import SYSTEM VENDOR [ИМЯ] | use ИМЯ | remove ИМЯ`, `sudo syndroid shel
 2. Сессия: Wayland-сокет → окна Android в synwm (сначала одним окном, затем multi-window).
 3. Binder-сервисы: приложения в «Программах», запуск из оболочки, уведомления, буфер обмена.
 4. Окно управления: Состояние → Приложения → Образы → Настройки → Данные.
-5. GPU: Mesa под Android с KGSL (turnip + zink) в overlay vendor; звук через PipeWire-pulse; поворот и
-   датчики; сеть и общие папки.
+5. Звук через PipeWire-pulse; поворот и датчики; общие папки. (GPU — zink на turnip-KGSL из слоя платформы —
+   сделан на этапе 1.)
 6. Сборка образа телефона: пакеты, юнит, группа `android`, (по желанию) предзагруженные образы.
