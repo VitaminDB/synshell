@@ -5,8 +5,13 @@
 //! сами; устройства, требующие ввода PIN, — через `bluetoothctl`.
 //!
 //! Вызовы блокирующие — из фонового потока.
+//!
+//! Соединение с шиной одно на процесс: bluez привязывает поиск устройств и
+//! агента к клиенту и снимает их, когда его соединение закрывается, — с
+//! соединением на каждый вызов поиск останавливался сразу после включения.
 
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use zbus::blocking::Connection;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
@@ -63,9 +68,20 @@ impl Agent {
 
 const AGENT_PATH: &str = "/org/synshell/bt_agent";
 
+static CONN: Mutex<Option<Connection>> = Mutex::new(None);
+
+/// Общее соединение процесса с системной шиной (zbus `Connection` — разделяемая ссылка).
+fn shared_conn() -> Option<Connection> {
+    let mut g = CONN.lock().unwrap_or_else(|e| e.into_inner());
+    if g.is_none() {
+        *g = Some(Connection::system().ok()?);
+    }
+    g.clone()
+}
+
 impl Bluetooth {
     pub fn new() -> Option<Self> {
-        let conn = Connection::system().ok()?;
+        let conn = shared_conn()?;
         crate::wifi::has_name(&conn, "org.bluez").then_some(Self { conn })
     }
 
@@ -128,12 +144,19 @@ impl Bluetooth {
     }
 
     pub fn set_discoverable(&self, on: bool) -> Result<(), String> {
+        // видимым нас могут начать сопрягать с другого устройства — агент нужен заранее
+        if on {
+            self.ensure_agent();
+        }
         self.set_adapter("Discoverable", on)
     }
 
     pub fn discovery(&self, on: bool) -> Result<(), String> {
         let objs = self.objects()?;
         let ap = self.adapter(&objs).ok_or("нет адаптера Bluetooth")?;
+        if on {
+            self.ensure_agent();
+        }
         let m = if on { "StartDiscovery" } else { "StopDiscovery" };
         match self.conn.call_method(Some("org.bluez"), ap.as_str(), Some("org.bluez.Adapter1"), m, &()) {
             Ok(_) => Ok(()),
@@ -173,13 +196,12 @@ impl Bluetooth {
         self.conn.call_method(Some("org.bluez"), ap.as_str(), Some("org.bluez.Adapter1"), "RemoveDevice", &(dev,)).map(|_| ()).map_err(|e| e.to_string())
     }
 
-    /// Зарегистрировать агента (один раз на соединение).
+    /// Зарегистрировать агента. Объект на соединении — один раз; регистрация в bluez — при каждом
+    /// сопряжении (после перезапуска bluetoothd прежняя теряется; повтор даёт AlreadyExists — не ошибка).
     fn ensure_agent(&self) {
-        let server = self.conn.object_server();
-        if server.at(AGENT_PATH, Agent).unwrap_or(false) {
-            let path = OwnedObjectPath::try_from(AGENT_PATH.to_string()).unwrap();
-            let _ = self.conn.call_method(Some("org.bluez"), "/org/bluez", Some("org.bluez.AgentManager1"), "RegisterAgent", &(path.clone(), "NoInputNoOutput"));
-            let _ = self.conn.call_method(Some("org.bluez"), "/org/bluez", Some("org.bluez.AgentManager1"), "RequestDefaultAgent", &(path,));
-        }
+        let _ = self.conn.object_server().at(AGENT_PATH, Agent);
+        let path = OwnedObjectPath::try_from(AGENT_PATH.to_string()).unwrap();
+        let _ = self.conn.call_method(Some("org.bluez"), "/org/bluez", Some("org.bluez.AgentManager1"), "RegisterAgent", &(path.clone(), "NoInputNoOutput"));
+        let _ = self.conn.call_method(Some("org.bluez"), "/org/bluez", Some("org.bluez.AgentManager1"), "RequestDefaultAgent", &(path,));
     }
 }
