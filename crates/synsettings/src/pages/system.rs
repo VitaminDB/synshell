@@ -220,7 +220,21 @@ fn brightness_group(c: &synshell_common::Config) -> Option<W> {
     } else {
         format!("Подсветка {} · ниты — задайте яркость панели на максимуме ниже", bl.name)
     };
-    Some(group("Яркость", vec![row("Яркость экрана", &hint, Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(slider).child(label))]))
+    let b = &c.brightness;
+    Some(group(
+        "Яркость",
+        vec![
+            row("Яркость экрана", &hint, Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(slider).child(label)),
+            switch_row(
+                "Автояркость",
+                "По датчику освещённости; сдвиг ползунка запоминается как поправка",
+                op!["brightness", "auto"],
+                b.auto,
+            ),
+            int_row("Минимум автояркости, %", "В темноте", op!["brightness", "min_pct"], b.min_pct as i64, 1, 50, 1),
+            int_row("Максимум автояркости, %", "На солнце", op!["brightness", "max_pct"], b.max_pct as i64, 20, 100, 5),
+        ],
+    ))
 }
 
 pub fn displays() -> W {

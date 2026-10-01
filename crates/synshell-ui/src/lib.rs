@@ -33,6 +33,7 @@ pub mod panel;
 pub mod popup;
 pub mod recents;
 pub mod rotation;
+pub mod autobright;
 pub mod shade;
 pub mod start_menu;
 pub mod switcher;
@@ -123,6 +124,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         system::start(ctx);
         datetime::start(ctx);
         rotation::start(ctx);
+        autobright::start(ctx);
         ipc::start(ctx);
         appmenu::install(ctx);
         notifications::start(ctx);

@@ -46,6 +46,7 @@ pub struct Config {
     pub gestures: Gestures,
     pub haptics: Haptics,
     pub rotation: ScreenRotation,
+    pub brightness: Brightness,
     pub power_button: PowerButton,
     pub osk: Osk,
     pub sound: Sound,
@@ -80,6 +81,7 @@ impl Default for Config {
             gestures: Gestures::default(),
             haptics: Haptics::default(),
             rotation: ScreenRotation::default(),
+            brightness: Brightness::default(),
             power_button: PowerButton::default(),
             osk: Osk::default(),
             sound: Sound::default(),
@@ -2083,6 +2085,28 @@ pub struct ScreenRotation {
 impl Default for ScreenRotation {
     fn default() -> Self {
         Self { auto: true, suggest: true, upside_down: false, delay_ms: 1000, animation_ms: 300, threshold_deg: 35 }
+    }
+}
+
+/// Яркость экрана (`[brightness]`): автояркость по датчику освещённости
+/// (iio-sensor-proxy, как адаптивная яркость Android). Без датчика — ничего
+/// не делает.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Brightness {
+    /// Автояркость: подсветка следует за освещённостью. Сдвиг ползунка при
+    /// включённой автояркости запоминается как поправка к кривой.
+    pub auto: bool,
+    /// Нижняя и верхняя граница автояркости, %.
+    pub min_pct: u32,
+    pub max_pct: u32,
+    /// Время перехода к новой яркости, мс (темнее — втрое медленнее).
+    pub smooth_ms: u32,
+}
+
+impl Default for Brightness {
+    fn default() -> Self {
+        Self { auto: false, min_pct: 2, max_pct: 100, smooth_ms: 800 }
     }
 }
 
