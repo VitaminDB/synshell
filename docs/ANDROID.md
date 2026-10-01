@@ -56,9 +56,23 @@ vendor MAINLINE), с хостом они общаются по протокол�
 6. **Свойства**: `waydroid.prop` — gralloc `gbm`, EGL `mesa`, Vulkan `freedreno`, сокеты Wayland/PulseAudio,
    размер окна и DPI, `persist.waydroid.multi_windows`.
 
+## Слой платформы
+Устройство-специфичное syndroid не знает: его ставит сборка ОС устройства (arch-mobile-port —
+`tools/install-android.sh`).
+- `/usr/share/syndroid/overlay/{system,vendor}` — файлы поверх образов (средний слой overlay: свои
+  `overlay/` → платформа → образ), например turnip с KGSL под Android;
+- `/etc/syndroid/*.prop` — свойства Android (Mesa: `vendor.mesa.loader.driver.override=zink` и т. п.);
+  `[properties]` из `config.toml` — поверх них.
+
+## CLI (этап 1)
+`syndroid status | start | stop | restart | freeze | unfreeze`, `syndroid image list | check | fetch |
+import SYSTEM VENDOR [ИМЯ] | use ИМЯ | remove ИМЯ`, `sudo syndroid shell [команда]`, `sudo syndroid logcat`,
+`syndroid config`. Вход в контейнер — помощник `__exec` (setns + fork: команда оказывается и в пространстве PID
+контейнера). Изменения — участники групп wheel/android и root; `start` — только для своего сеанса.
+
 ## Этапы
-1. Демон: образы (загрузка/проверка) + рантайм контейнера; Android загружается до `sys.boot_completed`
-   (проверка — `syndroid shell getprop`).
+1. ✅ (2026-10-01) Демон: образы (загрузка/импорт/проверка sha256) + рантайм контейнера; Android 13 загружается
+   до `sys.boot_completed` (~30 с на Redmi K50 Ultra), GPU — zink на turnip-KGSL, сеть по DHCP.
 2. Сессия: Wayland-сокет → окна Android в synwm (сначала одним окном, затем multi-window).
 3. Binder-сервисы: приложения в «Программах», запуск из оболочки, уведомления, буфер обмена.
 4. Окно управления: Состояние → Приложения → Образы → Настройки → Данные.

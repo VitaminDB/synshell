@@ -1,0 +1,27 @@
+[package]
+name = "syndroid"
+description = "Android-приложения в synshell: контейнер LineageOS (образы Waydroid), демон и управление"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "syndroidd"
+path = "src/bin/syndroidd.rs"
+
+[[bin]]
+name = "syndroid"
+path = "src/bin/syndroid.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+libc.workspace = true
+ureq = "3"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+sha2 = "0.10"

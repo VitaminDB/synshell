@@ -1,0 +1,13 @@
+[Unit]
+Description=syndroid: контейнер Android (LineageOS) для synshell
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/syndroidd
+# Контейнер живёт в своей cgroup (/sys/fs/cgroup/syndroid); по SIGTERM демон останавливает Android сам
+KillMode=mixed
+TimeoutStopSec=30
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
