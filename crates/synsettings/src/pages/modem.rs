@@ -165,6 +165,10 @@ fn col(items: Vec<W>) -> W {
 
 fn kv(label: &str, value: impl Into<String>) -> W {
     let v: String = value.into();
+    // Длинное значение (прошивка, список диапазонов) — под подписью с переносом
+    if v.chars().count() > 22 {
+        return row_wide(label, "", Text::new(v).max_lines(4).class("row-value"));
+    }
     row_inline(label, "", Text::new(if v.is_empty() { "—".to_string() } else { v }).class("row-value"))
 }
 

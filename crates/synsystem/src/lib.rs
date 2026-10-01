@@ -22,6 +22,7 @@ pub mod thermal;
 pub mod time;
 pub mod util;
 pub mod volume;
+pub mod vpn;
 pub mod wifi;
 
 use std::path::{Path, PathBuf};

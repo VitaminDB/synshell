@@ -10,6 +10,7 @@ mod hardware;
 mod input;
 mod mobile;
 mod modem;
+mod vpn;
 mod net;
 mod panels;
 mod power;
@@ -200,6 +201,14 @@ pub const PAGES: &[PageDef] = &[
         group: "Устройства",
         keywords: "imei imsi iccid eid прошивка модема baseband диапазоны band сота rsrp rsrq sinr earfcn",
         build: modem::modem_info,
+    },
+    PageDef {
+        id: "vpn",
+        title: "VPN",
+        icon: "\u{E897}",
+        group: "Устройства",
+        keywords: "впн vpn wireguard openvpn туннель частная сеть networkmanager импорт ключ",
+        build: vpn::vpn_page,
     },
     PageDef {
         id: "devices",
