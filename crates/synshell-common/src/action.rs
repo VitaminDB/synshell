@@ -397,6 +397,12 @@ pub enum Action {
     /// Кнопка питания телефона: экран включён — заблокировать и погасить,
     /// погашен — включить (на экран блокировки).
     ScreenToggle,
+    /// Явно погасить экран с блокировкой (как кнопка питания при горящем экране);
+    /// уже погашен — ничего. Для скриптов и удалённого управления, где
+    /// переключатель опасен: не знаешь, в каком состоянии экран.
+    ScreenOff,
+    /// Явно включить экран (на экран блокировки, если заблокирован); горит — ничего.
+    ScreenOn,
     /// Ничего не делать (снять сочетание по умолчанию).
     None,
 }
@@ -411,7 +417,7 @@ impl Action {
         "master-count", "keyboard-layout-next", "keyboard-layout", "screenshot",
         "screenshot-window", "screenshot-interactive", "overview", "reload-config", "quit", "lock", "suspend", "reboot",
         "poweroff", "monitors-off", "shell", "back", "key", "mobile-mode", "mobile-mode-cycle", "page",
-        "camera-home", "rotate", "screen-toggle", "none",
+        "camera-home", "rotate", "screen-toggle", "screen-off", "screen-on", "none",
     ];
 }
 
@@ -487,6 +493,8 @@ impl FromStr for Action {
             "poweroff" | "shutdown" => Action::PowerOff,
             "monitors-off" => Action::PowerOffMonitors,
             "screen-toggle" => Action::ScreenToggle,
+            "screen-off" => Action::ScreenOff,
+            "screen-on" => Action::ScreenOn,
             "shell" => Action::Shell(need("команда оболочки")?.to_string()),
             "back" => Action::Back,
             "key" => Action::Key(need("клавиша, например XF86Back или Alt+Left")?.parse()?),
@@ -545,6 +553,8 @@ impl fmt::Display for Action {
             Action::PowerOff => f.write_str("poweroff"),
             Action::PowerOffMonitors => f.write_str("monitors-off"),
             Action::ScreenToggle => f.write_str("screen-toggle"),
+            Action::ScreenOff => f.write_str("screen-off"),
+            Action::ScreenOn => f.write_str("screen-on"),
             Action::Shell(c) => write!(f, "shell {c}"),
             Action::Back => f.write_str("back"),
             Action::Key(k) => write!(f, "key {k}"),

@@ -1382,6 +1382,13 @@ impl State {
                     self.set_monitors_power(false);
                 }
             }
+            Action::ScreenOff => {
+                if !self.core.monitors_off {
+                    self.lock_screen();
+                    self.set_monitors_power(false);
+                }
+            }
+            Action::ScreenOn => self.set_monitors_power(true),
             Action::Rotate(r) => self.rotate(r),
             Action::Shell(cmd) => {
                 self.core.ipc.broadcast(&synshell_common::ipc::Event::ShellCommand { command: cmd });
