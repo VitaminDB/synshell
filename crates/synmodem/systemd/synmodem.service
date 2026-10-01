@@ -1,0 +1,13 @@
+[Unit]
+Description=synmodem: модем телефона (сеть, SIM, SMS, звонки)
+# Только на машинах с сопроцессорами Qualcomm; модем поднимает платформа (syn-modem.service), демон его дождётся
+ConditionPathIsDirectory=/sys/class/remoteproc
+After=syn-modem.service
+
+[Service]
+ExecStart=/usr/local/bin/synmodemd
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
