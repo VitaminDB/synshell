@@ -2100,13 +2100,16 @@ pub struct Brightness {
     /// Нижняя и верхняя граница автояркости, %.
     pub min_pct: u32,
     pub max_pct: u32,
-    /// Время перехода к новой яркости, мс (темнее — втрое медленнее).
+    /// Время перехода к новой яркости, мс (темнее — вдвое медленнее).
     pub smooth_ms: u32,
+    /// Поправка к кривой, % (−50…50): её задаёт сдвиг ползунка при включённой
+    /// автояркости, оболочка сохраняет сама.
+    pub offset: f32,
 }
 
 impl Default for Brightness {
     fn default() -> Self {
-        Self { auto: false, min_pct: 2, max_pct: 100, smooth_ms: 800 }
+        Self { auto: false, min_pct: 2, max_pct: 100, smooth_ms: 800, offset: 0.0 }
     }
 }
 

@@ -129,6 +129,8 @@ pub struct ShellCtx {
     pub history: RwSignal<Vec<Notification>>,
     pub dnd: RwSignal<bool>,
     pub volume: RwSignal<Option<Volume>>,
+    /// Яркость подсветки, % (ползунок шторки, автояркость); `None` — ещё не читали.
+    pub brightness: RwSignal<Option<f32>>,
     pub battery: RwSignal<Option<Battery>>,
     pub network: RwSignal<Network>,
     pub cpu: RwSignal<f32>,
@@ -174,6 +176,7 @@ impl ShellCtx {
             history: use_signal(Vec::new()),
             dnd: use_signal(config.notifications.do_not_disturb),
             volume: use_signal(None),
+            brightness: use_signal(None),
             battery: use_signal(None),
             network: use_signal(Network::default()),
             cpu: use_signal(0.0),

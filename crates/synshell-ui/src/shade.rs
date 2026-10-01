@@ -335,53 +335,61 @@ fn sliders(ctx: ShellCtx) -> impl Widget {
     let sys = synsystem::Sys::host();
     let bl = synsystem::backlight::primary(&sys);
     let nits = max_nits(&ctx);
-    let bright = use_signal(bl.as_ref().map(|b| b.percent()).unwrap_or(50.0));
+    // Общая с автояркостью: ползунок идёт за ней, а её поправку задаёт ползунок.
+    let bright = ctx.brightness;
+    if let Some(b) = bl.as_ref() {
+        bright.set(Some(b.percent()));
+    }
     // Запись в sysfs — в фоне, последнее значение побеждает.
     let pending: Arc<Mutex<Option<f32>>> = Arc::new(Mutex::new(None));
     let mut col = Column::new().gap(12.0);
     if bl.is_some() {
-        let p2 = pending.clone();
-        let label = rx(move || {
-            let pct = bright.get();
+        // Вся строка — реактивная, как у громкости: ползунок идёт за автояркостью. Пересборка не рвёт
+        // перетаскивание — элемент ползунка не трогает значение, пока его тянут.
+        let row = rx(move || {
+            // внутри rx: смена `[brightness] auto` (кнопка «А», Параметры) перерисовывает строку
+            let auto = ctx.config.get().brightness.auto;
+            let pct = bright.get().unwrap_or(50.0);
             let text = match nits {
                 Some(max) => format!("{:.0} нит · {pct:.0}%", pct / 100.0 * max),
                 None => format!("{pct:.0}%"),
             };
-            Box::new(Text::new(text).class("shade-slider-value"))
+            let p2 = pending.clone();
+            let slider = Slider::new().range(1.0, 100.0).step(1.0).value(pct).on_change(move |v| {
+                bright.set(Some(v));
+                let first = p2.lock().unwrap().replace(v).is_none();
+                if first {
+                    let p3 = p2.clone();
+                    std::thread::spawn(move || {
+                        let sys = synsystem::Sys::host();
+                        while let Some(v) = p3.lock().unwrap().take() {
+                            if let Err(e) = synsystem::backlight::set_percent(&sys, v) {
+                                log::warn!("яркость: {e}");
+                            }
+                        }
+                    });
+                }
+            });
+            // Кнопка автояркости (как в Android): включена — акцентный кружок «А», выключена — значок яркости.
+            let badge: Box<dyn Widget> = if auto {
+                Box::new(DecoratedBox::new().child(Text::new("А").class("shade-auto-badge")).class("shade-auto shade-auto-on"))
+            } else {
+                Box::new(DecoratedBox::new().child(icon(mi::BRIGHTNESS).class("shade-slider-icon")).class("shade-auto"))
+            };
+            Box::new(
+                DecoratedBox::new()
+                    .child(
+                        Row::new()
+                            .gap(10.0)
+                            .cross_axis_alignment(CrossAxisAlignment::Center)
+                            .child(GestureDetector::new().on_click(move || crate::autobright::set_auto(!auto)).child(badge))
+                            .child(slider.class("grow"))
+                            .child(Text::new(text).class("shade-slider-value")),
+                    )
+                    .class("shade-slider"),
+            )
         });
-        col = col.child(
-            DecoratedBox::new()
-                .child(
-                    Row::new()
-                        .gap(10.0)
-                        .cross_axis_alignment(CrossAxisAlignment::Center)
-                        .child(icon(mi::BRIGHTNESS).class("shade-slider-icon"))
-                        .child(
-                            Slider::new()
-                                .range(1.0, 100.0)
-                                .step(1.0)
-                                .value(bright.get_untracked())
-                                .on_change(move |v| {
-                                    bright.set(v);
-                                    let first = p2.lock().unwrap().replace(v).is_none();
-                                    if first {
-                                        let p3 = p2.clone();
-                                        std::thread::spawn(move || {
-                                            let sys = synsystem::Sys::host();
-                                            while let Some(v) = p3.lock().unwrap().take() {
-                                                if let Err(e) = synsystem::backlight::set_percent(&sys, v) {
-                                                    log::warn!("яркость: {e}");
-                                                }
-                                            }
-                                        });
-                                    }
-                                })
-                                .class("grow"),
-                        )
-                        .child(label),
-                )
-                .class("shade-slider"),
-        );
+        col = col.child(row);
     }
     let vol = rx(move || {
         let v = ctx.volume.get();
