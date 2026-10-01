@@ -224,14 +224,22 @@ pub fn wallpaper_view(out_name: String, slide: RwSignal<u64>, pos: Option<RwSign
         // Доводка кадра до нового стола — в такт переключению столов в
         // композиторе; за пальцем — без задержки.
         let follow_ms = if pos.is_some() || cfg.animations.workspace_switch == "none" { 0 } else { cfg.animations.ms(260) };
-        let pano = panorama.then_some((cfg.workspaces.count.max(1), w.panorama_shift));
+        let pano = panorama.then_some((cfg.workspaces.count.max(1), w.panorama_shift, w.panorama_desks(cfg.workspaces.count.max(1))));
+        // Кадр и участки панорамы меняются без перехода — версия, не ключ.
+        let version = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            format!("{:?} {:?} {:?}", frame.zoom, frame.center, pano).hash(&mut h);
+            h.finish()
+        };
         let out = out_name.clone();
         Box::new(
             AnimatedSwitcher::new(key, move || match &picked {
-                Some(p) if framed => Box::new(framed_image(p.clone(), out.clone(), frame.zoom, frame.center, pano, pos, follow_ms)),
+                Some(p) if framed => Box::new(framed_image(p.clone(), out.clone(), frame.zoom, frame.center, pano.clone(), pos, follow_ms)),
                 Some(p) => Box::new(Image::new(p.to_string_lossy()).fit(fit).placeholder(false).class("wallpaper-image")),
                 None => Box::new(DecoratedBox::new()),
             })
+            .version(version)
             .exit_fade(false)
             .duration_ms(dur.max(1) * 2)
             .exit_duration_ms(dur.max(1) * 2)
@@ -244,7 +252,8 @@ pub fn wallpaper_view(out_name: String, slide: RwSignal<u64>, pos: Option<RwSign
 
 /// Картинка с кадром: область под пропорции вывода, в панораме — окно
 /// стола на общем холсте.
-fn framed_image(path: PathBuf, out: String, zoom: f32, center: [f32; 2], pano: Option<(u32, f32)>, pos: Option<RwSignal<f32>>, follow_ms: u32) -> impl Widget {
+#[allow(clippy::type_complexity)]
+fn framed_image(path: PathBuf, out: String, zoom: f32, center: [f32; 2], pano: Option<(u32, f32, Vec<Option<(f32, [f32; 2])>>)>, pos: Option<RwSignal<f32>>, follow_ms: u32) -> impl Widget {
     let size = image_size(&path);
     crate::ui::rx(move || {
         let img = Image::new(path.to_string_lossy()).placeholder(false);
@@ -252,8 +261,9 @@ fn framed_image(path: PathBuf, out: String, zoom: f32, center: [f32; 2], pano: O
             return Box::new(img.fit(ImageFit::Cover).class("wallpaper-image"));
         };
         let view = output_size(Some(&out));
-        let pano = pano.map(|(n, shift)| (n, shift, workspace_pos(pos)));
-        let [x, y, w, h] = synshell_common::wallpaper::screen_uv(size, view, zoom, center, pano);
+        let desks = pano.as_ref().map(|p| p.2.clone()).unwrap_or_default();
+        let pano = pano.as_ref().map(|(n, shift, _)| (*n, *shift, workspace_pos(pos)));
+        let [x, y, w, h] = synshell_common::wallpaper::screen_uv_desks(size, view, zoom, center, pano, &desks);
         Box::new(img.fit(ImageFit::Fill).crop_uv(x, y, w, h).crop_transition_ms(follow_ms).class("wallpaper-image"))
     })
 }

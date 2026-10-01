@@ -41,7 +41,13 @@ enum Target {
 struct Edit {
     path: PathBuf,
     target: Target,
+    /// Панорама: `None` — вся панорама, `Some(i)` — участок стола `i`.
+    desk: Option<u32>,
 }
+
+/// Несохранённые кадры редактора панорамы: ключ −1 — вся панорама, `i` —
+/// участок стола `i` (`None` — сбросить участок).
+type PanoPending = std::collections::BTreeMap<i64, Option<(f32, [f32; 2])>>;
 
 #[derive(Clone, Copy)]
 struct Sig {
@@ -52,6 +58,9 @@ struct Sig {
     edit: RwSignal<Option<Edit>>,
     /// Готовы новые миниатюры.
     thumbs: RwSignal<u64>,
+    /// Редактор панорамы: картинка и несохранённые кадры (переживают
+    /// пересборку редактора при выборе стола).
+    pano: RwSignal<(PathBuf, PanoPending)>,
 }
 
 thread_local! {
@@ -68,6 +77,7 @@ fn sig() -> Sig {
                 dir: use_signal(initial_dir(&store::config().wallpaper)),
                 edit: use_signal(None),
                 thumbs: use_signal(0u64),
+                pano: use_signal((PathBuf::new(), PanoPending::new())),
             };
             let t = s.thumbs;
             // Миниатюры делаются в фоновых потоках; пачку готовых — одной
@@ -230,14 +240,14 @@ fn img_size(p: &Path) -> Option<(f32, f32)> {
 
 /// Экран с обоями `frame`: фон, картинка с кадром. `pano` — (столов,
 /// сдвиг, стол): окно панорамы; кадр меняется плавно (`ms`).
-fn screen_image(frame: &WallpaperFrame, mode: &str, scr: (f32, f32), pano: Option<(u32, f32, f32)>, ms: u32) -> W {
+fn screen_image(frame: &WallpaperFrame, mode: &str, scr: (f32, f32), pano: Option<(u32, f32, f32)>, desks: &[Option<(f32, [f32; 2])>], ms: u32) -> W {
     let mut st = Stack::new().fit(StackFit::Expand).clip(true).child(DecoratedBox::new().class("wall-fill desk-bg"));
     if let Some(p) = wg::pick(&frame.path, 0).and_then(|p| shown(&p)) {
         let img = Image::new(p.to_string_lossy()).placeholder(false);
         let framed = mode == "fill" || pano.is_some();
         let img = match (framed, img_size(&p)) {
             (true, Some(size)) => {
-                let [x, y, w, h] = wg::screen_uv(size, scr, frame.zoom, frame.center, pano);
+                let [x, y, w, h] = wg::screen_uv_desks(size, scr, frame.zoom, frame.center, pano, desks);
                 img.fit(ImageFit::Fill).crop_uv(x, y, w, h).crop_transition_ms(ms)
             }
             _ => img.fit(match mode {
@@ -252,10 +262,10 @@ fn screen_image(frame: &WallpaperFrame, mode: &str, scr: (f32, f32), pano: Optio
 }
 
 /// Открыть редактор кадра для картинки (снимок интерфейса, тесты).
-pub fn open_editor(path: PathBuf) {
+pub fn open_editor(path: PathBuf, desk: Option<u32>) {
     let s = sig();
     let w = store::config().wallpaper;
-    OPEN_ON_BUILD.with(|o| *o.borrow_mut() = Some(Edit { path, target: target_of(&w, s.ws.get_untracked()) }));
+    OPEN_ON_BUILD.with(|o| *o.borrow_mut() = Some(Edit { path, target: target_of(&w, s.ws.get_untracked()), desk }));
 }
 
 thread_local! {
@@ -292,7 +302,7 @@ fn preview(scr: (f32, f32), s: Sig) -> W {
                 let w = &c.wallpaper;
                 let frame = target_frame(w, target_of(w, ws));
                 let pano = w.panorama().then_some((c.workspaces.count.max(1), w.panorama_shift, ws as f32));
-                let mut st = Stack::new().fit(StackFit::Expand).clip(true).child(screen_image(&frame, &w.mode, scr, pano, 420));
+                let mut st = Stack::new().fit(StackFit::Expand).clip(true).child(screen_image(&frame, &w.mode, scr, pano, &w.panorama_desks(c.workspaces.count.max(1)), 420));
                 if desktop {
                     // Намёк на панель задач — видно, что это рабочий стол.
                     st = st.child(
@@ -390,7 +400,7 @@ fn controls(s: Sig) -> W {
         if path.is_file() {
             let p = path.clone();
             buttons = buttons.child(Button::new("Настроить кадр").icon(icons::CROP).class("btn primary").on_click(move || {
-                s.edit.set(Some(Edit { path: p.clone(), target: t }));
+                s.edit.set(Some(Edit { path: p.clone(), target: t, desk: None }));
             }));
         } else if path.is_dir() {
             out.push(boxed(Text::new("Каталог: картинки сменяются слайд-шоу").class("row-hint")));
@@ -400,7 +410,7 @@ fn controls(s: Sig) -> W {
                 let start = s.dir.get_untracked().display().to_string();
                 std::thread::spawn(move || {
                     if let Some(p) = sys::pick_path(false, &start) {
-                        run_on_main_thread(move || s.edit.set(Some(Edit { path: PathBuf::from(p), target: t })));
+                        run_on_main_thread(move || s.edit.set(Some(Edit { path: PathBuf::from(p), target: t, desk: None })));
                     }
                 });
             }));
@@ -531,7 +541,7 @@ fn gallery(scr: (f32, f32), s: Sig) -> W {
             let pp = p.clone();
             grid = grid.child(
                 GestureDetector::new()
-                    .on_click(move || s.edit.set(Some(Edit { path: pp.clone(), target: t })))
+                    .on_click(move || s.edit.set(Some(Edit { path: pp.clone(), target: t, desk: None })))
                     .child(DecoratedBox::new().class(class).style("width", cell).child(AspectRatio::new(ratio).child(st))),
             );
         }
@@ -673,7 +683,36 @@ fn editor(e: Edit, scr: (f32, f32), s: Sig) -> W {
     let view = if pano { wg::panorama_canvas(scr, n, shift) } else { scr };
     let frame = target_frame(w, e.target);
     let same = expand_tilde(frame.path.trim()) == e.path;
-    let (zoom, center) = if same { (frame.zoom, frame.center) } else { (1.0, [0.5, 0.5]) };
+    let whole_cfg = if same { (frame.zoom, frame.center) } else { (1.0, [0.5, 0.5]) };
+
+    // Панорама: правки переживают пересборку редактора (выбор стола);
+    // другая картинка — с чистого листа.
+    if pano && s.pano.get_untracked().0 != e.path {
+        s.pano.set((e.path.clone(), PanoPending::new()));
+    }
+    let desk = if pano { e.desk.filter(|i| *i < n) } else { None };
+    let pend = s.pano.get_untracked().1;
+    let whole = pend.get(&-1).copied().flatten().unwrap_or(whole_cfg);
+    let (zoom, center) = match desk {
+        None => whole,
+        Some(i) => {
+            // Участок по умолчанию — доля общей полосы под нынешним кадром.
+            let default = || {
+                shown(&e.path).and_then(|p| img_size(&p)).map(|img| {
+                    let canvas = wg::crop_uv(img, view, whole.0, whole.1);
+                    wg::uv_to_frame(img, scr, wg::panorama_window(canvas, n, shift, i as f32))
+                })
+                .unwrap_or(whole)
+            };
+            match pend.get(&(i as i64)) {
+                Some(Some(v)) => *v,
+                Some(None) => default(),
+                None => w.panorama_desks(n).get(i as usize).copied().flatten().unwrap_or_else(default),
+            }
+        }
+    };
+    // Участок стола кадрируется под экран, вся панорама — под холст.
+    let view = if desk.is_some() { scr } else { view };
 
     let info = use_signal(ImageViewInfo::default());
     let cmd = use_signal((0u64, ImageViewCommand::Fill));
@@ -700,7 +739,7 @@ fn editor(e: Edit, scr: (f32, f32), s: Sig) -> W {
 
     // Панорама: окно выбранного стола на холсте, остальное притемнено.
     let overlay = Reactive::new(move || -> Vec<W> {
-        if !pano || n < 2 {
+        if !pano || n < 2 || desk.is_some() {
             return vec![];
         }
         let ws = s.ws.get().min(n - 1) as f32;
@@ -730,9 +769,10 @@ fn editor(e: Edit, scr: (f32, f32), s: Sig) -> W {
     );
 
     let target = e.target;
-    let title = match (pano, target) {
-        (true, _) => format!("Панорама на {n} столов"),
-        (false, t) => target_label(t),
+    let title = match (pano, desk, target) {
+        (true, Some(i), _) => format!("Панорама · участок: {}", ws_name(i)),
+        (true, None, _) => format!("Панорама на {n} столов"),
+        (false, _, t) => target_label(t),
     };
     let mut header = Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).class("wall-editor-bar");
     // На телефоне «назад» уже есть в строке заголовка окна.
@@ -760,10 +800,29 @@ fn editor(e: Edit, scr: (f32, f32), s: Sig) -> W {
     let actions = Row::new()
         .gap(8.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(Button::new("Отмена").class("btn").on_click(move || s.edit.set(None)))
+        .child(Button::new("Отмена").class("btn").on_click(move || {
+            s.pano.set((PathBuf::new(), PanoPending::new()));
+            s.edit.set(None);
+        }))
         .child(Button::new("Установить").icon(icons::CHECK).class("btn primary").on_click(move || {
-            let i = info.get_untracked();
-            apply(target, &apply_path, if i.ready { i.zoom } else { zoom }, if i.ready { i.center } else { (center[0], center[1]) });
+            if pano {
+                // Вся панорама и поправленные участки столов — разом.
+                stash_pano(s, info, desk);
+                let pend = s.pano.get_untracked().1;
+                let (wz, wc) = pend.get(&-1).copied().flatten().unwrap_or(whole_cfg);
+                apply(target, &apply_path, wz, (wc[0], wc[1]));
+                for (k, v) in pend.iter().filter(|(k, _)| **k >= 0) {
+                    let base = op!["wallpaper", "panorama_desk", (k + 1).to_string()];
+                    match v {
+                        Some((z, c)) => set_frame(&base, *z, (c[0], c[1])),
+                        None => unset(&base),
+                    }
+                }
+                s.pano.set((PathBuf::new(), PanoPending::new()));
+            } else {
+                let i = info.get_untracked();
+                apply(target, &apply_path, if i.ready { i.zoom } else { zoom }, if i.ready { i.center } else { (center[0], center[1]) });
+            }
             s.edit.set(None);
             state::bump();
             state::toast(match target {
@@ -785,7 +844,9 @@ fn editor(e: Edit, scr: (f32, f32), s: Sig) -> W {
         boxed(Row::new().gap(12.0).class("wall-editor-footer").cross_axis_alignment(CrossAxisAlignment::Center).child(zoom_row).child(DecoratedBox::new().class("grow")).child(actions))
     };
 
-    let hint = if narrow() {
+    let hint = if desk.is_some() {
+        "Что видно на этом столе: двигайте и масштабируйте; между столами картинка плавно переходит от участка к участку"
+    } else if narrow() {
         "Двигайте картинку пальцем, масштаб — двумя пальцами, двойное касание — ×2"
     } else {
         "Двигайте картинку мышью, масштаб — колесом или двумя пальцами, двойной щелчок — ×2"
@@ -797,7 +858,7 @@ fn editor(e: Edit, scr: (f32, f32), s: Sig) -> W {
         .child(header)
         .child(stage);
     if pano {
-        col = col.child(Row::new().main_axis_alignment(MainAxisAlignment::Center).child(ws_chips_pano(s, n)));
+        col = col.child(Row::new().main_axis_alignment(MainAxisAlignment::Center).child(pano_chips(s, n, e.clone(), info, desk)));
     }
     col = col.child(Text::new(hint).class("row-hint wall-editor-hint")).child(footer);
     boxed(EventHook::new()
@@ -812,15 +873,67 @@ fn editor(e: Edit, scr: (f32, f32), s: Sig) -> W {
         .child(col))
 }
 
-/// Столы под холстом панорамы: какое окно подсветить.
-fn ws_chips_pano(s: Sig, n: u32) -> W {
-    boxed(Reactive::new(move || -> Vec<W> {
-        let cur = s.ws.get();
-        let mut row = Flex::new().wrap().gap(6.0);
-        for i in 0..n {
-            let class = if i == cur { "wall-ws-chip selected" } else { "wall-ws-chip" };
-            row = row.child(GestureDetector::new().on_click(move || s.ws.set(i)).child(DecoratedBox::new().class(class).child(Text::new(ws_name(i)).class("wall-ws-label"))));
+/// Запомнить кадр, который сейчас правится в редакторе панорамы.
+fn stash_pano(s: Sig, info: RwSignal<ImageViewInfo>, desk: Option<u32>) {
+    let i = info.get_untracked();
+    if !i.ready {
+        return;
+    }
+    let (path, mut pend) = s.pano.get_untracked();
+    pend.insert(desk.map(|d| d as i64).unwrap_or(-1), Some((i.zoom, [i.center.0, i.center.1])));
+    s.pano.set((path, pend));
+}
+
+/// Записать кадр `zoom`/`center` в таблицу `base`.
+fn set_frame(base: &P, zoom: f32, center: (f32, f32)) {
+    let round = |v: f32| (v as f64 * 1000.0).round() / 1000.0;
+    set(&at(base, "zoom"), round(zoom.max(1.0)));
+    let mut arr = toml_edit::Array::new();
+    arr.push(round(center.0));
+    arr.push(round(center.1));
+    set(&at(base, "center"), toml_edit::Value::Array(arr));
+}
+
+/// Панорама: «Вся панорама» и участки столов; выбор пересобирает редактор
+/// (кадр и пропорции сцены свои), правки копятся до «Установить».
+fn pano_chips(s: Sig, n: u32, e: Edit, info: RwSignal<ImageViewInfo>, desk: Option<u32>) -> W {
+    let has_own = |i: u32| {
+        let pend = s.pano.get_untracked().1;
+        match pend.get(&(i as i64)) {
+            Some(v) => v.is_some(),
+            None => store::config().wallpaper.panorama_desks(n).get(i as usize).copied().flatten().is_some(),
         }
-        vec![boxed(row)]
-    }))
+    };
+    let mut row = Flex::new().wrap().gap(6.0);
+    for k in std::iter::once(None).chain((0..n).map(Some)) {
+        let label = match k {
+            None => "Вся панорама".to_string(),
+            Some(i) if has_own(i) => format!("{} ●", ws_name(i)),
+            Some(i) => ws_name(i),
+        };
+        let class = if k == desk { "wall-ws-chip selected" } else { "wall-ws-chip" };
+        let e = e.clone();
+        row = row.child(GestureDetector::new().on_click(move || {
+            if k == desk {
+                return;
+            }
+            stash_pano(s, info, desk);
+            if let Some(i) = k {
+                s.ws.set(i);
+            }
+            s.edit.set(Some(Edit { desk: k, ..e.clone() }));
+        }).child(DecoratedBox::new().class(class).child(Text::new(label).class("wall-ws-label"))));
+    }
+    // Свой участок стола — можно вернуть долю общей полосы.
+    if let Some(i) = desk.filter(|i| has_own(*i)) {
+        row = row.child(Button::new("Сбросить участок").class("btn small").on_click(move || {
+            let (path, mut pend) = s.pano.get_untracked();
+            pend.insert(i as i64, None);
+            s.pano.set((path, pend));
+            let cur = s.edit.get_untracked();
+            s.edit.set(None);
+            s.edit.set(cur);
+        }));
+    }
+    boxed(row)
 }

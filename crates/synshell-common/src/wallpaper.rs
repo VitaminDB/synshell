@@ -68,6 +68,38 @@ pub fn screen_uv(img: (f32, f32), view: (f32, f32), zoom: f32, center: [f32; 2],
     }
 }
 
+/// Как [`screen_uv`], но в панораме у столов могут быть свои участки
+/// (`desks[i]` — `(zoom, center)` кадра под экран на той же картинке, `None`
+/// — доля общей полосы); между столами (дробный `pos`) область плавно
+/// переходит от одного окна к другому, вместе с размером.
+pub fn screen_uv_desks(img: (f32, f32), view: (f32, f32), zoom: f32, center: [f32; 2], panorama: Option<(u32, f32, f32)>, desks: &[Option<(f32, [f32; 2])>]) -> [f32; 4] {
+    let Some((n, shift, pos)) = panorama else { return crop_uv(img, view, zoom, center) };
+    let n = n.max(1);
+    let canvas = crop_uv(img, panorama_canvas(view, n, shift), zoom, center);
+    let window = |i: u32| match desks.get(i as usize).copied().flatten() {
+        Some((z, c)) => crop_uv(img, view, z, c),
+        None => panorama_window(canvas, n, shift, i as f32),
+    };
+    let pos = if pos.is_finite() { pos.clamp(0.0, (n - 1) as f32) } else { 0.0 };
+    let i0 = pos.floor() as u32;
+    let i1 = (i0 + 1).min(n - 1);
+    let t = pos - i0 as f32;
+    let (a, b) = (window(i0), window(i1));
+    [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t]
+}
+
+/// Кадр `(zoom, center)` под экран `view`, показывающий область `uv` картинки
+/// `img` (обратное к [`crop_uv`] для областей нужных пропорций).
+pub fn uv_to_frame(img: (f32, f32), view: (f32, f32), uv: [f32; 4]) -> (f32, [f32; 2]) {
+    let ((iw, ih), (vw, vh)) = (img, view);
+    if iw <= 0.0 || ih <= 0.0 || vw <= 0.0 || vh <= 0.0 || uv[2] <= 0.0 {
+        return (1.0, [0.5, 0.5]);
+    }
+    let base = (vw / iw).max(vh / ih);
+    let s = vw / (uv[2] * iw);
+    ((s / base).max(1.0), [uv[0] + uv[2] * 0.5, uv[1] + uv[3] * 0.5])
+}
+
 fn is_image_ext(ext: &str) -> bool {
     matches!(ext.to_ascii_lowercase().as_str(), "png" | "jpg" | "jpeg" | "webp" | "bmp" | "gif") || is_heif_ext(ext)
 }
@@ -286,6 +318,33 @@ mod tests {
         assert!(close(uv, [0.0, 0.5, 0.5, 0.5]), "{uv:?}");
         // Меньше «заполнить» не бывает.
         assert!(close(crop_uv((100.0, 100.0), (10.0, 10.0), 0.3, [0.5, 0.5]), [0.0, 0.0, 1.0, 1.0]));
+    }
+
+    #[test]
+    fn panorama_desks_override_and_blend() {
+        let (img, view) = ((400.0, 100.0), (50.0, 100.0));
+        let pano = |pos| Some((4, 0.5, pos));
+        // Без участков — как обычная панорама.
+        let plain = screen_uv((400.0, 100.0), view, 1.0, [0.5, 0.5], pano(1.0));
+        assert!(close(screen_uv_desks(img, view, 1.0, [0.5, 0.5], pano(1.0), &[]), plain));
+        // Свой участок стола 2 — его кадр под экран.
+        let desks = [None, Some((2.0, [0.9, 0.5])), None, None];
+        let own = crop_uv(img, view, 2.0, [0.9, 0.5]);
+        assert!(close(screen_uv_desks(img, view, 1.0, [0.5, 0.5], pano(1.0), &desks), own));
+        // Между столами 1 и 2 — середина пути.
+        let a = screen_uv_desks(img, view, 1.0, [0.5, 0.5], pano(0.0), &desks);
+        let mid = screen_uv_desks(img, view, 1.0, [0.5, 0.5], pano(0.5), &desks);
+        for k in 0..4 {
+            assert!((mid[k] - (a[k] + own[k]) / 2.0).abs() < 1e-4, "{mid:?}");
+        }
+    }
+
+    #[test]
+    fn frame_round_trip() {
+        let (img, view) = ((400.0, 300.0), (90.0, 200.0));
+        let uv = crop_uv(img, view, 1.7, [0.3, 0.6]);
+        let (z, c) = uv_to_frame(img, view, uv);
+        assert!(close(crop_uv(img, view, z, c), uv), "{z} {c:?}");
     }
 
     #[test]

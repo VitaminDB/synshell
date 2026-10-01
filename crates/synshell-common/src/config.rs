@@ -1051,6 +1051,25 @@ pub struct Wallpaper {
     pub panorama_shift: f32,
     /// Свои обои столов (`layout = "workspace"`), ключ — номер стола с 1.
     pub workspace: BTreeMap<String, WallpaperFrame>,
+    /// Панорама: свой участок картинки для стола (`[wallpaper.panorama_desk.N]`,
+    /// номер с 1) — кадр под экран (`zoom`, `center`) на той же картинке; у
+    /// кого нет — своя доля общей полосы. При листании столов видимая
+    /// область плавно переходит от участка к участку.
+    pub panorama_desk: BTreeMap<String, PanoramaDesk>,
+}
+
+/// Участок панорамы для стола.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct PanoramaDesk {
+    pub zoom: f32,
+    pub center: [f32; 2],
+}
+
+impl Default for PanoramaDesk {
+    fn default() -> Self {
+        Self { zoom: 1.0, center: [0.5, 0.5] }
+    }
 }
 
 impl Default for Wallpaper {
@@ -1068,6 +1087,7 @@ impl Default for Wallpaper {
             center: [0.5, 0.5],
             panorama_shift: 0.5,
             workspace: BTreeMap::new(),
+            panorama_desk: BTreeMap::new(),
         }
     }
 }
@@ -1095,6 +1115,12 @@ impl Wallpaper {
 
     pub fn per_workspace(&self) -> bool {
         self.layout == "workspace"
+    }
+
+    /// Участки панорамы столов `0..n`: `(zoom, center)` или `None` — доля
+    /// общей полосы.
+    pub fn panorama_desks(&self, n: u32) -> Vec<Option<(f32, [f32; 2])>> {
+        (0..n).map(|i| self.panorama_desk.get(&(i + 1).to_string()).map(|d| (d.zoom, d.center))).collect()
     }
 
     /// Общие обои с кадром.

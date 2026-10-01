@@ -61,7 +61,9 @@ pub fn screenshot(out: &str, page: &str, size: (u32, u32), scale: f64) -> anyhow
         ctx.page_open.set(true);
     }
     if let Some(p) = std::env::var_os("SYNSETTINGS_SHOT_WALL_EDIT") {
-        crate::pages::open_wallpaper_editor(p.into());
+        // SYNSETTINGS_SHOT_WALL_DESK=N — участок стола N (с 1) в панораме.
+        let desk = std::env::var("SYNSETTINGS_SHOT_WALL_DESK").ok().and_then(|v| v.parse::<u32>().ok()).and_then(|v| v.checked_sub(1));
+        crate::pages::open_wallpaper_editor(p.into(), desk);
     }
     let widget = app::root(ctx);
     let element = widget.create_element();
