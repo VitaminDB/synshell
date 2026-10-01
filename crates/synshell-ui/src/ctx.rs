@@ -135,6 +135,8 @@ pub struct ShellCtx {
     pub screen_on: RwSignal<bool>,
     pub battery: RwSignal<Option<Battery>>,
     pub network: RwSignal<Network>,
+    /// Модем телефона (synmodemd); `None` — демона нет (компьютер или модем не поднят).
+    pub modem: RwSignal<Option<synmodem::api::Status>>,
     pub cpu: RwSignal<f32>,
     pub memory: RwSignal<f32>,
     /// Текущее локальное время, секунды Unix (обновляется таймером).
@@ -182,6 +184,7 @@ impl ShellCtx {
             screen_on: use_signal(true),
             battery: use_signal(None),
             network: use_signal(Network::default()),
+            modem: use_signal(None),
             cpu: use_signal(0.0),
             memory: use_signal(0.0),
             now: use_signal(crate::clock::unix_now()),

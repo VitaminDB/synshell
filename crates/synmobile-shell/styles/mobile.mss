@@ -90,6 +90,8 @@
 .res-ring-sub { font-size: 11px; color: var(--muted); }
 .res-ring-unit { font-size: 10px; color: var(--muted); }
 .res-k { font-size: 12px; color: var(--muted); }
+.res-net-lead { width: 20px; }
+.res-net-icon { font-size: 18px; icon-color: var(--fg); }
 .res-v { font-size: 12px; color: var(--fg); }
 .res-big { font-size: 28px; font-weight: 600; color: var(--fg); }
 .res-core-bg { width: 16px; border-radius: 5px; background-color: var(--surface-alt); }

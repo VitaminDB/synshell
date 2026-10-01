@@ -270,6 +270,15 @@ Text {
 .meter-fill { height: 6px; border-radius: 3px; background-color: var(--accent); }
 .meter-rest { height: 6px; border-radius: 3px; background-color: var(--pressed); }
 
+/* Полоски сигнала мобильной связи (modem::signal_bars) */
+.sigbar { width: 3px; border-radius: 1px; }
+.sigbar-1 { height: 4px; }
+.sigbar-2 { height: 7px; }
+.sigbar-3 { height: 10px; }
+.sigbar-4 { height: 13px; }
+.sigbar-on { background-color: var(--fg); }
+.sigbar-off { background-color: var(--pressed); }
+
 .chip {
     padding: 4px 10px;
     border-radius: 14px;

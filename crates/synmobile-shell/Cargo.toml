@@ -16,5 +16,6 @@ synshell-common.workspace = true
 synshell-ui.workspace = true
 syngui-layer.workspace = true
 synsystem.workspace = true
+synmodem.workspace = true
 syngui = { workspace = true, features = ["winit", "msdf", "effects", "svg", "material-icons", "i18n"] }
 log = "0.4"

@@ -10,6 +10,7 @@ license.workspace = true
 synshell-common.workspace = true
 syngui-layer.workspace = true
 synsystem.workspace = true
+synmodem.workspace = true
 syngui = { workspace = true, features = ["winit", "clipboard", "msdf", "effects", "svg", "material-icons", "i18n"] }
 anyhow.workspace = true
 libc.workspace = true

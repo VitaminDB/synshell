@@ -287,6 +287,47 @@ fn kv(k: &str, v: String) -> impl Widget {
     Row::new().child(Text::new(k.to_string()).class("res-k grow")).child(Text::new(v).class("res-v"))
 }
 
+/// Строка подключения: значок или полоски слева, имя и подробности.
+fn net_line(lead: Box<dyn Widget>, title: String, sub: String) -> impl Widget {
+    let mut col = Column::new().gap(0.0).child(Text::new(title).max_lines(1).class("res-v"));
+    if !sub.is_empty() {
+        col = col.child(Text::new(sub).max_lines(1).class("res-k"));
+    }
+    Row::new()
+        .gap(8.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(DecoratedBox::new().child(lead).class("res-net-lead"))
+        .child(col.class("grow"))
+}
+
+/// Карточка «Сеть»: Wi-Fi, мобильная связь (если есть модем) и скорость.
+fn net_body(n: &synsystem::network::Network, modem: Option<&synmodem::api::Status>, rate: (f64, f64)) -> impl Widget {
+    let (glyph, title, sub) = match n.kind.as_str() {
+        "wifi" if n.online => (
+            synshell_ui::ui::mi::WIFI,
+            n.connection.clone(),
+            n.signal.map(|v| format!("Wi-Fi · {v} %")).unwrap_or_else(|| "Wi-Fi".into()),
+        ),
+        "ethernet" if n.online => (synshell_ui::ui::mi::ETHERNET, n.connection.clone(), "Проводная сеть".into()),
+        _ => (synshell_ui::ui::mi::WIFI_OFF, "Нет Wi-Fi".into(), String::new()),
+    };
+    let mut col = Column::new()
+        .gap(8.0)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(net_line(Box::new(synshell_ui::ui::icon(glyph).class("res-net-icon")), title, sub));
+    if let Some(m) = modem.filter(|m| m.present) {
+        let (title, sub) = synshell_ui::modem::summary(m);
+        let bars = if m.radio { m.bars } else { None };
+        col = col.child(net_line(Box::new(synshell_ui::modem::signal_bars(bars)), title, sub));
+    }
+    col.child(
+        Row::new()
+            .gap(10.0)
+            .child(Text::new(format!("↓ {}", human_rate(rate.0))).class("res-k grow"))
+            .child(Text::new(format!("↑ {}", human_rate(rate.1))).class("res-k")),
+    )
+}
+
 pub fn page(ctx: ShellCtx) -> impl Widget {
     let sig = snap_signal();
     track_windows(ctx);
@@ -390,11 +431,7 @@ pub fn page(ctx: ShellCtx) -> impl Widget {
                 None => Box::new(Text::new("Драйвер аккумулятора не найден").class("res-v")),
             },
         };
-        let net = card(
-            "Сеть",
-            "\u{E80D}",
-            Column::new().gap(6.0).child(kv("↓", human_rate(s.net.0))).child(kv("↑", human_rate(s.net.1))),
-        );
+        let net = card("Сеть", "\u{E80D}", net_body(&ctx.network.get(), ctx.modem.get().as_ref(), s.net));
         // Питание и сеть — одной строкой, поровну.
         Box::new(
             Row::new()

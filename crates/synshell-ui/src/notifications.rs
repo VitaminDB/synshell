@@ -34,6 +34,8 @@ pub struct Notification {
     pub resident: bool,
     /// Своё уведомление оболочки: по клику открыть этот файл.
     pub open_path: Option<String>,
+    /// Своё уведомление оболочки: по клику выполнить команду (открыть приложение на нужном месте).
+    pub open_command: Option<String>,
     /// Полоса хода, как в Android (подсказка `value`): 0–100 %, меньше 0 — неопределённый ход.
     pub progress: Option<i32>,
 }
@@ -136,6 +138,7 @@ impl Server {
             transient: bool_hint("transient"),
             resident: bool_hint("resident"),
             open_path: None,
+            open_command: None,
             progress: progress.map(|p| p.min(100)),
         };
         let n = Notification { timeout_ms: if expire_timeout < 0 { u32::MAX } else { expire_timeout as u32 }, ..n };
@@ -283,6 +286,11 @@ pub fn close(ctx: ShellCtx, id: u32, reason: u32) {
 }
 
 fn invoke(ctx: ShellCtx, n: &Notification, key: &str) {
+    if let Some(c) = &n.open_command {
+        crate::actions::spawn(c);
+        close(ctx, n.id, 2);
+        return;
+    }
     if let Some(p) = &n.open_path {
         crate::actions::spawn(&format!("xdg-open '{}'", p.replace('\'', "'\\''")));
         close(ctx, n.id, 2);
@@ -316,6 +324,35 @@ pub fn local(ctx: ShellCtx, summary: &str, body: &str, open: Option<String>) {
         transient: false,
         resident: false,
         open_path: open,
+        open_command: None,
+        progress: None,
+    };
+    add(ctx, n, false);
+}
+
+/// Уведомление оболочки с командой по клику: `icon` — имя значка темы, `key` — заменить прежнее с тем же
+/// ключом (новое SMS той же переписки), а не копить карточки.
+pub fn local_command(ctx: ShellCtx, key: &str, summary: &str, body: &str, icon: &str, command: String) {
+    let app = format!("synshell:{key}");
+    let old: Vec<u32> = ctx.notifications.get_untracked().iter().filter(|n| n.app_name == app).map(|n| n.id).collect();
+    for id in old {
+        close(ctx, id, 3);
+    }
+    let n = Notification {
+        id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+        app_name: app,
+        icon: crate::xdg::lookup_icon(icon).map(|p| p.to_string_lossy().into_owned()),
+        image: None,
+        summary: summary.into(),
+        body: body.into(),
+        actions: vec![("default".into(), "Открыть".into())],
+        urgency: 1,
+        timeout_ms: u32::MAX,
+        time: crate::clock::unix_now(),
+        transient: false,
+        resident: false,
+        open_path: None,
+        open_command: Some(command),
         progress: None,
     };
     add(ctx, n, false);

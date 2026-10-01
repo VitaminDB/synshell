@@ -26,6 +26,7 @@ pub mod launchers;
 pub mod link;
 pub mod lock;
 pub mod manager;
+pub mod modem;
 pub mod netmenu;
 pub mod notifications;
 pub mod osd;
@@ -129,6 +130,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         appmenu::install(ctx);
         notifications::start(ctx);
         link::start(ctx);
+        modem::start(ctx);
         install(ctx);
         popup::install(ctx);
         osd::install(ctx);

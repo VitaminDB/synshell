@@ -202,12 +202,26 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
         let wifi_state = if net.online { net.connection.clone() } else { "Нет подключения".into() };
         let torch = torch_state();
         let mut grid = Grid::new(2).gap(8.0);
+        grid = grid.child(tile(crate::applets::network_glyph(&net), "Сеть".into(), wifi_state, net.online, || {
+            // Окно сети: Wi-Fi, подключение, «Параметры сети…».
+            close();
+            ShellCtx::get().open_popup(crate::ctx::PopupKind::Network, crate::commands::centered());
+        }));
+        // Мобильная связь (есть модем): тап — радио модема вкл/выкл
+        if let Some(m) = ctx.modem.get().filter(|m| m.present) {
+            let (title, sub) = crate::modem::summary(&m);
+            let on = m.radio;
+            let glyph = if !on { "\u{E195}" } else if m.registration.registered() { "\u{E1C8}" } else { "\u{E1D0}" };
+            let state = if sub.is_empty() { title.clone() } else if on { format!("{title} · {sub}") } else { sub };
+            grid = grid.child(tile(glyph, "Мобильная связь".into(), state, on, move || {
+                std::thread::spawn(move || {
+                    if let Err(e) = synmodem::api::request(&synmodem::api::Request::SetRadio { on: !on }) {
+                        log::warn!("радио модема: {e:#}");
+                    }
+                });
+            }));
+        }
         grid = grid
-            .child(tile(crate::applets::network_glyph(&net), "Сеть".into(), wifi_state, net.online, || {
-                // Окно сети: Wi-Fi, подключение, «Параметры сети…».
-                close();
-                ShellCtx::get().open_popup(crate::ctx::PopupKind::Network, crate::commands::centered());
-            }))
             .child(tile("\u{E1A7}", "Bluetooth".into(), "Параметры".into(), false, || {
                 close();
                 crate::actions::spawn("synsettings bluetooth");

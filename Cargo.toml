@@ -31,6 +31,7 @@ license = "MIT OR Apache-2.0"
 synshell-common = { path = "crates/synshell-common" }
 syngui-layer = { path = "crates/syngui-layer" }
 synsystem = { path = "crates/synsystem" }
+synmodem = { path = "crates/synmodem" }
 synshell-ui = { path = "crates/synshell-ui" }
 syngui = { path = "../syngui/syngui", default-features = false }
 serde = { version = "1", features = ["derive"] }
