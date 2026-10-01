@@ -305,6 +305,15 @@ pub fn android_apps_dir() -> PathBuf {
     paths::data_home().join("syndroid/applications")
 }
 
+/// Вторая строка карточки окна: у окон приложений Android — из какого Android (их заголовки от hwcomposer
+/// образа бывают служебными, «Waydroid»), у остальных — заголовок окна.
+pub fn window_subtitle(entry: Option<&DesktopEntry>, title: &str) -> String {
+    match entry.and_then(|e| e.android.as_ref()) {
+        Some(a) => format!("Android · {}", a.title),
+        None => title.to_string(),
+    }
+}
+
 /// Экземпляры Android, у которых есть приложения: (id, название), по названию.
 pub fn android_instances(apps: &[DesktopEntry]) -> Vec<AndroidOrigin> {
     let mut v: Vec<AndroidOrigin> = apps.iter().filter(|e| !e.no_display).filter_map(|e| e.android.clone()).collect();

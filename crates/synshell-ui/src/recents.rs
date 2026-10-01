@@ -159,7 +159,7 @@ fn card(w: WindowInfo) -> impl Widget {
     let id = w.id;
     let leaving = use_signal(true);
     let dur = crate::anim::group_ms(&ShellCtx::get(), "pages", 240);
-    let title = w.title.clone();
+    let title = crate::xdg::window_subtitle(entry.as_ref(), &w.title);
     let body = move || -> Box<dyn Widget> {
         Box::new(
             DecoratedBox::new()

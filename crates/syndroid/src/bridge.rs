@@ -410,8 +410,10 @@ fn write_desktop_files(instance: &str, apps: &[AppInfo]) -> Result<()> {
     };
     let mut keep = HashSet::new();
     // Весь Android одним окном — тоже в разделе этого экземпляра
-    let full = head("Весь Android", &format!("{title} одним окном"), &format!("syndroid show --instance {instance}"), "smartphone");
-    write_if_changed(&dir.join("android.desktop"), &format!("{full}Categories=System;\n"))?;
+    // Окно всего Android hwcomposer образа называет «Waydroid» (app_id и заголовок зашиты в HAL) — по
+    // StartupWMClass оно сопоставляется с этим ярлыком: значок и имя syndroid
+    let full = head("Весь Android", &format!("{title} одним окном"), &format!("syndroid show --instance {instance}"), "syndroid");
+    write_if_changed(&dir.join("android.desktop"), &format!("{full}Categories=System;\nStartupWMClass=Waydroid\n"))?;
     keep.insert("android.desktop".to_string());
     for a in apps {
         let file = format!("{}.desktop", a.package);
@@ -425,7 +427,7 @@ fn write_desktop_files(instance: &str, apps: &[AppInfo]) -> Result<()> {
                 std::fs::rename(&tmp, &dst)?;
             }
         }
-        let icon = if dst.exists() { dst.display().to_string() } else { "smartphone".into() };
+        let icon = if dst.exists() { dst.display().to_string() } else { "syndroid".into() };
         let text = format!(
             "{}Categories={}\nStartupWMClass=waydroid.{}\nX-Android-Package={}\n",
             head(&a.name, &format!("Android · {title}"), &format!("syndroid app launch --instance {instance} {}", a.package), &icon),

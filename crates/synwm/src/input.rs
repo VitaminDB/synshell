@@ -259,6 +259,23 @@ impl State {
         true
     }
 
+    /// Повтор действия, пока клавишу держат: через 400 мс, затем каждые 90 мс (как автоповтор клавиатуры, но
+    /// для действий композитора — физические кнопки громкости телефона сами не повторяются).
+    fn start_key_repeat(&mut self, raw: u32, action: Action) {
+        use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+        self.core.key_repeat_seq += 1;
+        let seq = self.core.key_repeat_seq;
+        self.core.key_repeat = Some((raw, seq));
+        let _ = self.core.loop_handle.insert_source(Timer::from_duration(Duration::from_millis(400)), move |_, _, st: &mut State| {
+            if st.core.key_repeat.is_some_and(|(_, s)| s == seq) {
+                st.do_action(action.clone());
+                TimeoutAction::ToDuration(Duration::from_millis(90))
+            } else {
+                TimeoutAction::Drop
+            }
+        });
+    }
+
     pub fn note_activity(&mut self) {
         self.core.last_activity = Instant::now();
         let seat = self.core.seat.clone();
@@ -372,8 +389,17 @@ impl State {
             self.broadcast_keyboard_layout();
         }
 
+        // Отпустили клавишу с повтором — повтор кончился
+        if state == KeyState::Released && self.core.key_repeat.is_some_and(|(k, _)| k == raw) {
+            self.core.key_repeat = None;
+        }
         match action {
-            Some(KeyIntent::Action(a)) => self.do_action(a),
+            Some(KeyIntent::Action(a)) => {
+                if state == KeyState::Pressed && is_repeatable(&a) {
+                    self.start_key_repeat(raw, a.clone());
+                }
+                self.do_action(a)
+            }
             Some(KeyIntent::Vt(n)) => self.backend.change_vt(n),
             Some(KeyIntent::Overview(sym)) => self.overview_key(sym),
             Some(KeyIntent::ModifierReleased) | Some(KeyIntent::ModifierReleasedForward) => {
@@ -1596,6 +1622,14 @@ fn mods_name(m: Mods) -> String {
 }
 
 /// Команды оболочки, допустимые на заблокированном экране: громкость, микрофон, плеер.
+/// Действия, которые повторяются, пока держат клавишу: громкость и яркость шагами («volume +5»,
+/// «brightness -10»). Остальное (окна, снимки, запуск) по удержанию не повторяется.
+fn is_repeatable(a: &Action) -> bool {
+    let Action::Shell(cmd) = a else { return false };
+    let mut w = cmd.split_whitespace();
+    matches!(w.next(), Some("volume" | "brightness")) && w.next().is_some_and(|s| s.starts_with(['+', '-']))
+}
+
 fn is_media_shell_command(cmd: &str) -> bool {
     let w = cmd.split_whitespace().next().unwrap_or("");
     matches!(w, "volume" | "mute" | "mic-mute" | "media")

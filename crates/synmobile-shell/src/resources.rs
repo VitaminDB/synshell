@@ -436,7 +436,7 @@ pub fn page(ctx: ShellCtx) -> impl Widget {
 fn app_card(a: &AppStat) -> impl Widget {
     let entry = synshell_common::xdg::app_for_window(&a.app_id);
     let icon_path = entry.as_ref().and_then(|e| synshell_common::xdg::lookup_icon(&e.icon)).or_else(|| synshell_common::xdg::window_icon(&a.app_id));
-    let name = entry.map(|e| e.name).unwrap_or_else(|| a.app_id.clone());
+    let name = entry.as_ref().map(|e| e.name.clone()).unwrap_or_else(|| a.app_id.clone());
     let mem = if a.mem_kb >= 1024 * 1024 { format!("{:.1}G", a.mem_kb as f64 / 1048576.0) } else { format!("{}M", a.mem_kb / 1024) };
     let cpu_class = if a.cpu >= 50.0 { "res-badge res-badge-cpu res-badge-hot" } else { "res-badge res-badge-cpu" };
     let id = a.window;
@@ -466,7 +466,7 @@ fn app_card(a: &AppStat) -> impl Widget {
                                 .child(DecoratedBox::new().child(Text::new(format!("{:.0}%", a.cpu)).class("res-badge-text")).class(cpu_class)),
                         )
                         .child(Text::new(name).max_lines(1).class("res-app-name"))
-                        .child(Text::new(a.title.clone()).max_lines(1).class("res-app-title")),
+                        .child(Text::new(synshell_common::xdg::window_subtitle(entry.as_ref(), &a.title)).max_lines(1).class("res-app-title")),
                 )
                 .class("res-app"),
         );

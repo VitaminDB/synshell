@@ -161,7 +161,10 @@ import SYSTEM VENDOR [ИМЯ] | use ИМЯ | remove ИМЯ`, `sudo syndroid shel
   другие среды их не видят; synshell читает их отдельно (`xdg::android_apps_dir`, поле
   `DesktopEntry::android`). Ключи `X-Syndroid-Instance`, `X-Syndroid-Title`, маркер `X-Syndroid=true`;
   `Exec=syndroid app launch --instance <экз> <пакет>`, `StartupWMClass=waydroid.<пакет>` (окно получает
-  значок); плюс «Весь Android» (`syndroid show --instance <экз>`). Значки — копии из `/data/icons` в
+  значок); плюс «Весь Android» (`syndroid show --instance <экз>`, `Icon=syndroid`,
+  `StartupWMClass=Waydroid` — у окна всего Android hwcomposer образа жёстко ставит app_id и заголовок
+  «Waydroid»; по этому ключу оболочка показывает наше имя и значок, подпись «Android · <экземпляр>» —
+  `xdg::window_subtitle`). Значок пакета — `data/icons/syndroid.svg` (ставится в hicolor). Значки — копии из `/data/icons` в
   `~/.local/share/syndroid/icons/<экземпляр>/` (Android перезаписывает их на каждой загрузке; копируется только
   целый PNG — с IEND).
 - Уведомления → `org.freedesktop.Notifications` (hint `desktop-entry` = `waydroid.<пакет>`); служебные
