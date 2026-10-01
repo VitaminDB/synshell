@@ -12,6 +12,7 @@ pub mod gui;
 pub mod hwbinder;
 pub mod images;
 pub mod net;
+pub mod notify;
 pub mod paths;
 pub mod props;
 pub mod sensors;

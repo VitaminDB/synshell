@@ -134,7 +134,8 @@ fn main() -> Result<()> {
     }
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
     match a.as_slice() {
-        [] => syndroid::gui::run(),
+        [] => syndroid::gui::run(false),
+        ["--images"] => syndroid::gui::run(true),
         ["help"] | ["-h"] | ["--help"] => println!("{HELP}"),
         ["status"] => {
             let s = status()?;
@@ -229,7 +230,7 @@ fn main() -> Result<()> {
             }
         }
         ["image", "fetch"] => {
-            if let Response::Job { id } = api::call(&Request::FetchImages { system_type: None })? {
+            if let Response::Job { id } = api::call(&Request::FetchImages { system_type: None, session: api::Session::from_env().ok() })? {
                 follow(id)?;
             }
         }

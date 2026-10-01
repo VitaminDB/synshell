@@ -77,9 +77,14 @@ fn monitor(d: &D, _rt: &tokio::runtime::Handle) -> anyhow::Result<()> {
             continue;
         }
         type Args = (String, u32, String, String, String, Vec<String>, HashMap<String, OwnedValue>, i32);
-        let Ok((app, _replaces, icon, summary, body, _actions, hints, _timeout)) = msg.body().deserialize::<Args>() else {
+        let Ok((app, replaces, icon, summary, body, _actions, hints, _timeout)) = msg.body().deserialize::<Args>() else {
             continue;
         };
+        // Обновления уже показанного (ход загрузки раз в секунду) и уведомления с полосой хода не пересылаем:
+        // на той стороне каждое стало бы новым уведомлением. Итог («скачано») приходит отдельным — его перешлём.
+        if replaces != 0 || hints.contains_key("value") {
+            continue;
+        }
         if hints.contains_key(HINT) || app == "synlink" || !d.notifications.load(std::sync::atomic::Ordering::Relaxed) {
             continue;
         }

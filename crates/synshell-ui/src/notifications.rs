@@ -34,6 +34,8 @@ pub struct Notification {
     pub resident: bool,
     /// Своё уведомление оболочки: по клику открыть этот файл.
     pub open_path: Option<String>,
+    /// Полоса хода, как в Android (подсказка `value`): 0–100 %, меньше 0 — неопределённый ход.
+    pub progress: Option<i32>,
 }
 
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
@@ -113,6 +115,13 @@ impl Server {
             .or_else(|| desktop.and_then(|d| crate::xdg::app_by_id(&d)).map(|e| e.icon));
         let icon = icon_name.and_then(|n| crate::xdg::lookup_icon(&n)).map(|p| p.to_string_lossy().into_owned());
         let bool_hint = |k: &str| hints.get(k).and_then(|v| bool::try_from(v).ok()).unwrap_or(false);
+        // `value` — int32 по спецификации, но некоторые шлют uint32/int64
+        let progress = hints.get("value").and_then(|v| {
+            i32::try_from(v)
+                .ok()
+                .or_else(|| u32::try_from(v).ok().map(|x| x.min(100) as i32))
+                .or_else(|| i64::try_from(v).ok().map(|x| x.clamp(-1, 100) as i32))
+        });
         let n = Notification {
             id,
             app_name,
@@ -127,10 +136,11 @@ impl Server {
             transient: bool_hint("transient"),
             resident: bool_hint("resident"),
             open_path: None,
+            progress: progress.map(|p| p.min(100)),
         };
         let n = Notification { timeout_ms: if expire_timeout < 0 { u32::MAX } else { expire_timeout as u32 }, ..n };
         let ctx = self.ctx;
-        syngui::async_runtime::run_on_main_thread(move || add(ctx, n));
+        syngui::async_runtime::run_on_main_thread(move || add(ctx, n, replaces_id != 0));
         id
     }
 
@@ -189,9 +199,40 @@ enum SignalArg {
     Action(String),
 }
 
-fn add(ctx: ShellCtx, n: Notification) {
+/// `replace` — обновление уже показанного (`replaces_id`), например хода загрузки: как в Android, карточка
+/// меняется на месте, не всплывает заново и не продлевает показ; убранное с экрана обновляется только в
+/// истории, а закрытое пользователем больше не появляется.
+fn add(ctx: ShellCtx, n: Notification, replace: bool) {
     log::debug!("уведомление #{} от «{}»: {} (срочность {})", n.id, n.app_name, n.summary, n.urgency);
     let cfg = ctx.cfg();
+    if replace {
+        let id = n.id;
+        let on_screen = ctx.notifications.get_untracked().iter().find(|x| x.id == id).map(|x| x.time);
+        let in_history = ctx.history.get_untracked().iter().find(|x| x.id == id).map(|x| x.time);
+        if let Some(time) = on_screen.or(in_history) {
+            // Время — первого показа: по нему же истекает показ на экране
+            let n = Notification { time, ..n };
+            if cfg.notifications.history && !n.transient {
+                ctx.history.update(|h| {
+                    if let Some(x) = h.iter_mut().find(|x| x.id == id) {
+                        *x = n.clone();
+                    }
+                });
+            }
+            if on_screen.is_some() {
+                ctx.notifications.update(|list| {
+                    if let Some(x) = list.iter_mut().find(|x| x.id == id) {
+                        *x = n;
+                    }
+                });
+            }
+            return;
+        }
+        if cfg.notifications.history && id < NEXT_ID.load(Ordering::Relaxed) {
+            // Было, но закрыто пользователем
+            return;
+        }
+    }
     let timeout = match n.timeout_ms {
         u32::MAX | 0 if n.urgency >= 2 => cfg.notifications.critical_timeout,
         u32::MAX => cfg.notifications.timeout,
@@ -230,11 +271,13 @@ fn add(ctx: ShellCtx, n: Notification) {
 }
 
 /// Закрыть карточку. Причины: 1 — истекло, 2 — закрыл пользователь,
-/// 3 — CloseNotification.
+/// 3 — CloseNotification (приложение убрало его само — и из истории, даже `resident`).
 pub fn close(ctx: ShellCtx, id: u32, reason: u32) {
     ctx.notifications.update(|l| l.retain(|x| x.id != id));
-    if reason != 1 {
-        ctx.history.update(|h| h.retain(|x| x.id != id || x.resident));
+    match reason {
+        1 => {}
+        3 => ctx.history.update(|h| h.retain(|x| x.id != id)),
+        _ => ctx.history.update(|h| h.retain(|x| x.id != id || x.resident)),
     }
     emit("NotificationClosed", id, SignalArg::Reason(reason));
 }
@@ -273,8 +316,9 @@ pub fn local(ctx: ShellCtx, summary: &str, body: &str, open: Option<String>) {
         transient: false,
         resident: false,
         open_path: open,
+        progress: None,
     };
-    add(ctx, n);
+    add(ctx, n, false);
 }
 
 // ─── Вид ─────────────────────────────────────────────────────────────────────
@@ -387,7 +431,12 @@ fn popups(ctx: ShellCtx) -> impl Widget {
             let id = n.id;
             // Версия — содержимое и видимость: смена любого пересобирает
             // карточку на месте, ключ переживает сдвиги соседей.
-            let version = (n.time as u64) ^ (n.summary.len() as u64) << 20 ^ (n.body.len() as u64) << 40 ^ (visible as u64) << 63;
+            let version = {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                (n.time, &n.summary, &n.body, n.progress, &n.actions, visible).hash(&mut h);
+                h.finish()
+            };
             col = col.child(Keyed::new(id as u64, version, move || {
                 let presence = Presence::new(visible, card(ctx, n.clone(), false))
                     .enter(Motion::fade().slide(40.0, 0.0).scale(0.96))
@@ -441,6 +490,11 @@ fn card(ctx: ShellCtx, n: Notification, in_center: bool) -> impl Widget {
         }),
     );
     let mut col = Column::new().gap(8.0).child(head);
+    match n.progress {
+        Some(p) if p >= 0 => col = col.child(ProgressBar::with_value(p as f32 / 100.0).class("notif-progress")),
+        Some(_) => col = col.child(ProgressBar::new().indeterminate().class("notif-progress")),
+        None => {}
+    }
     let buttons: Vec<(String, String)> = n.actions.iter().filter(|(k, _)| k != "default").cloned().collect();
     if !buttons.is_empty() {
         let mut row = Row::new().gap(6.0);

@@ -114,7 +114,8 @@ struct St {
 
 static CONFIRM_ID: AtomicU64 = AtomicU64::new(1);
 
-pub fn run() {
+/// Окно управления; `images` — сразу на «Образах» (из уведомления о загрузке).
+pub fn run(images: bool) {
     let (scfg, _) = ShellConfig::load();
     let mss = theme(&scfg);
     App::new()
@@ -126,7 +127,7 @@ pub fn run() {
         .with_styles_str(&mss)
         .run(move |_| {
             let st = St {
-                tab: use_signal(Tab::Overview),
+                tab: use_signal(if images { Tab::Images } else { Tab::Overview }),
                 status: use_signal(None),
                 apps: use_signal(None),
                 app_filter: use_signal(String::new()),
@@ -350,14 +351,7 @@ fn ask(st: St, title: &str, text: &str, button: &str, action: impl Fn() + Send +
 
 // ─── Общее ───────────────────────────────────────────────────────────────────
 
-fn human(b: u64) -> String {
-    let mb = b as f64 / 1048576.0;
-    if mb >= 1024.0 {
-        format!("{:.1} ГБ", mb / 1024.0)
-    } else {
-        format!("{mb:.0} МБ")
-    }
-}
+use crate::notify::human;
 
 fn uptime(s: u64) -> String {
     if s >= 3600 {
@@ -696,14 +690,14 @@ fn overview(st: St) -> W {
             out.push(Box::new(DecoratedBox::new().child(Text::new(e.clone()).class("warn-text")).class("warn")));
         }
         for j in s.jobs.iter().filter(|j| !j.finished || j.error.is_some()) {
-            out.push(job_card(j));
+            out.push(job_card(st, j));
         }
         vec![Box::new(Column::new().gap(14.0).children(out))]
     });
     pane(st, "Обзор", body)
 }
 
-fn job_card(j: &api::Job) -> W {
+fn job_card(st: St, j: &api::Job) -> W {
     let mut col = Column::new().gap(8.0).child(
         Row::new()
             .gap(10.0)
@@ -713,16 +707,24 @@ fn job_card(j: &api::Job) -> W {
     );
     if let Some(e) = &j.error {
         col = col.child(Text::new(e.clone()).class("job-error"));
+    } else if j.retry_at.is_some() {
+        // Ждёт повтора: последняя ошибка и время следующей попытки
+        if let Some(e) = &j.last_error {
+            col = col.child(Text::new(e.clone()).class("job-error"));
+        }
+        col = col.child(Text::new(crate::notify::job_line(j)).class("muted"));
     } else {
-        let line = if j.total > 0 {
-            format!("{}: {} из {}", j.step, human(j.done), human(j.total))
-        } else if j.done > 0 {
-            format!("{}: {}", j.step, human(j.done))
-        } else {
-            j.step.clone()
-        };
-        col = col.child(Text::new(line).class("muted"));
+        col = col.child(Text::new(crate::notify::job_line(j)).class("muted"));
         col = col.child(if j.total > 0 { ProgressBar::with_value(j.done as f32 / j.total as f32) } else { ProgressBar::new().indeterminate() });
+    }
+    if j.cancellable && !j.finished {
+        let id = j.id;
+        let mut row = Flex::new().wrap().gap(8.0);
+        if j.retry_at.is_some() {
+            row = row.child(Button::new("Повторить сейчас").class("primary").on_click(move || act(st, Request::RetryJobNow { id }, "")));
+        }
+        row = row.child(Button::new("Отменить").on_click(move || act(st, Request::CancelJob { id }, "Загрузка отменена")));
+        col = col.child(row);
     }
     Box::new(DecoratedBox::new().child(col).class("job"))
 }
@@ -786,7 +788,7 @@ fn apps_view(st: St) -> W {
             vec![Box::new(Column::new().gap(2.0).children(rows))]
         });
         let jobs = Reactive::new(move || -> Vec<W> {
-            let v: Vec<W> = st.status.get().map(|s| s.jobs.iter().filter(|j| !j.finished || j.error.is_some()).map(job_card).collect()).unwrap_or_default();
+            let v: Vec<W> = st.status.get().map(|s| s.jobs.iter().filter(|j| !j.finished || j.error.is_some()).map(|j| job_card(st, j)).collect()).unwrap_or_default();
             vec![Box::new(Column::new().gap(12.0).children(v))]
         });
         vec![Box::new(Column::new().gap(12.0).child(card(Column::new().gap(8.0).child(Text::new("Установить APK").class("h2")).child(install))).child(jobs).child(filter).child(Column::new().gap(2.0).child(list)))]
@@ -855,7 +857,7 @@ fn images_view(st: St) -> W {
                     .gap(8.0)
                     .child(Button::new("Скачать").class("primary").on_click(move || {
                         let t = if st.variant.get_untracked() == 1 { "GAPPS" } else { "VANILLA" };
-                        act(st, Request::FetchImages { system_type: Some(t.into()) }, "Загрузка началась — ход виден здесь и в «Обзоре»");
+                        act(st, Request::FetchImages { system_type: Some(t.into()), session: Session::from_env().ok() }, "Загрузка началась — ход в уведомлении, здесь и в «Обзоре»; окно можно закрыть");
                     }))
                     .child(Button::new("Проверить обновления").on_click(move || {
                         let t = if st.variant.get_untracked() == 1 { "GAPPS" } else { "VANILLA" };
@@ -903,7 +905,7 @@ fn images_view(st: St) -> W {
     let list = Reactive::new(move || -> Vec<W> {
         let _ = st.rev.get();
         let status = st.status.get();
-        let jobs: Vec<W> = status.as_ref().map(|s| s.jobs.iter().filter(|j| !j.finished || j.error.is_some()).map(job_card).collect()).unwrap_or_default();
+        let jobs: Vec<W> = status.as_ref().map(|s| s.jobs.iter().filter(|j| !j.finished || j.error.is_some()).map(|j| job_card(st, j)).collect()).unwrap_or_default();
         let mut out: Vec<W> = jobs;
         out.push(Box::new(Text::new("Установленные").class("h2")));
         match st.instances.get() {
@@ -1098,15 +1100,53 @@ fn settings_view(st: St) -> W {
                     set(Box::new(move |c| c.vendor_channel = t.clone()));
                 })),
         );
+        let num = |label: &str, note: &str, v: u32, f: fn(&mut Config, u32)| -> W {
+            Box::new(
+                Row::new()
+                    .gap(12.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(Column::new().gap(2.0).child(Text::new(label.to_string()).class("opt-label")).child(Text::new(note.to_string()).class("pkg-desc")).class("grow"))
+                    .child(TextField::with_text(v.to_string()).on_change(move |t| {
+                        if let Ok(v) = t.trim().parse::<u32>() {
+                            set(Box::new(move |c| f(c, v)));
+                        }
+                    }).class("num"))
+                    .class("opt"),
+            )
+        };
+        let (rmin, rmax) = (*crate::config::RETRY_MINUTES.start(), *crate::config::RETRY_MINUTES.end());
+        let (tmin, tmax) = (*crate::config::TIMEOUT_SECONDS.start(), *crate::config::TIMEOUT_SECONDS.end());
+        let download = card(
+            Column::new()
+                .gap(4.0)
+                .child(Text::new("Загрузка образов").class("h2"))
+                .child(toggle(
+                    "Повторять при сбое",
+                    "Нет сети или сервер недоступен — загрузка ждёт и пробует снова сама, в фоне (окно можно закрыть); начатое докачивается.",
+                    c.retry,
+                    |c, v| c.retry = v,
+                ))
+                .child(num("Пауза между попытками, мин", &format!("От {rmin} до {rmax}."), c.retry_minutes, |c, v| c.retry_minutes = v))
+                .child(num("Тайм-аут соединения, с", &format!("Сколько ждать ответа сервера ({tmin}–{tmax})."), c.connect_timeout, |c, v| c.connect_timeout = v))
+                .child(num(
+                    "Тайм-аут простоя, с",
+                    &format!("Загрузка без единого байта дольше этого считается оборванной ({tmin}–{tmax})."),
+                    c.stall_timeout,
+                    |c, v| c.stall_timeout = v,
+                )),
+        );
         let save = Row::new()
             .gap(8.0)
             .child(Button::new("Сохранить").class("primary").on_click(move || {
                 if let Some(c) = st.cfg.get_untracked() {
+                    let c = c.clamped();
+                    st.cfg.set(Some(c.clone()));
+                    st.cfg_rev.set(st.cfg_rev.get_untracked() + 1);
                     act(st, Request::SetConfig { config: c }, "Сохранено — часть настроек действует со следующего запуска Android");
                 }
             }))
             .child(Button::new("Отменить изменения").on_click(move || load_config(st)));
-        vec![Box::new(Column::new().gap(14.0).child(general).child(props).child(ota).child(save))]
+        vec![Box::new(Column::new().gap(14.0).child(general).child(download).child(props).child(ota).child(save))]
     });
     pane(st, "Настройки", body)
 }

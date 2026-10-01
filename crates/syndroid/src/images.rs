@@ -7,6 +7,7 @@
 use std::fs::{self, File};
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -58,6 +59,20 @@ pub struct ImageSet {
 
 /// Ход длинной операции: (что делается, сделано, всего) — байты.
 pub type Progress<'a> = &'a (dyn Fn(&str, u64, u64) + Sync);
+/// Операцию отменили — прервать.
+pub type Cancel<'a> = &'a (dyn Fn() -> bool + Sync);
+
+/// Загрузку отменил пользователь.
+#[derive(Debug)]
+pub struct Cancelled;
+
+impl std::fmt::Display for Cancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("отменено")
+    }
+}
+
+impl std::error::Error for Cancelled {}
 
 pub fn system_ota_url(c: &Config) -> String {
     format!("{}/{}/waydroid_{}/{}.json", c.system_channel, c.rom_type, c.arch, c.system_type)
@@ -66,18 +81,66 @@ pub fn vendor_ota_url(c: &Config) -> String {
     format!("{}/waydroid_{}/{}.json", c.vendor_channel, c.arch, c.vendor_type)
 }
 
-fn agent() -> ureq::Agent {
-    ureq::Agent::config_builder()
+/// Временная ошибка сети или сервера (нет связи, 5xx, оборванная или зависшая загрузка, страница вместо файла):
+/// загрузку стоит повторить позже. Остальные ошибки (404, нет места…) повтором не лечатся.
+#[derive(Debug)]
+pub struct Transient(pub String);
+
+impl std::fmt::Display for Transient {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Transient {}
+
+/// Ошибка временная — см. [`Transient`].
+pub fn is_transient(e: &anyhow::Error) -> bool {
+    e.chain().any(|c| c.is::<Transient>())
+}
+
+/// Ошибка запроса ureq → понятный текст; сетевые сбои и 5xx/408/429 — [`Transient`].
+fn http_error(what: &str, host: &str, url: &str, e: ureq::Error) -> anyhow::Error {
+    use ureq::Error as E;
+    match e {
+        E::StatusCode(code) if code >= 500 || code == 408 || code == 429 => {
+            Transient(format!("{what}: сервер {host} недоступен (HTTP {code}) — попробуйте позже ({url})")).into()
+        }
+        E::StatusCode(code) => anyhow::anyhow!("{what}: сервер {host} ответил HTTP {code} ({url})"),
+        E::Timeout(t) => Transient(format!("{what}: сервер {host} не ответил вовремя ({t}) ({url})")).into(),
+        E::HostNotFound => Transient(format!("{what}: не найден сервер {host} — нет сети? ({url})")).into(),
+        e @ (E::Io(_) | E::ConnectionFailed | E::Tls(_) | E::Protocol(_) | E::TooManyRedirects | E::RedirectFailed) => {
+            Transient(format!("{what}: связь с {host} не удалась: {e} ({url})")).into()
+        }
+        e => anyhow::anyhow!("{what}: {host}: {e} ({url})"),
+    }
+}
+
+fn host_of(url: &str) -> &str {
+    url.split('/').nth(2).unwrap_or(url)
+}
+
+/// Тайм-ауты из настроек: соединение и ожидание ответа — `connect_timeout`, у запросов OTA (маленький JSON) —
+/// ещё и весь запрос.
+fn agent(c: &Config, whole: bool) -> ureq::Agent {
+    let t = Duration::from_secs(c.connect_timeout.max(1) as u64);
+    let mut b = ureq::Agent::config_builder()
         .user_agent(concat!("syndroid/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .into()
+        .timeout_connect(Some(t))
+        .timeout_recv_response(Some(t));
+    if whole {
+        b = b.timeout_global(Some(t * 2));
+    }
+    b.build().into()
 }
 
 /// Последние сборки каналов (system, vendor).
 pub fn ota_latest(c: &Config) -> Result<(OtaEntry, OtaEntry)> {
     let get = |url: &str| -> Result<OtaEntry> {
-        let mut r = agent().get(url).call().with_context(|| format!("OTA {url}"))?;
-        let body: OtaResponse = serde_json::from_reader(r.body_mut().as_reader())?;
+        let host = host_of(url);
+        let mut r = agent(c, true).get(url).call().map_err(|e| http_error("OTA-канал", host, url, e))?;
+        let body: OtaResponse = serde_json::from_reader(r.body_mut().as_reader())
+            .map_err(|e| Transient(format!("OTA-канал {host}: не JSON ({e}) ({url})")))?;
         body.response.into_iter().max_by_key(|e| e.datetime).with_context(|| format!("пустой канал {url}"))
     };
     Ok((get(&system_ota_url(c))?, get(&vendor_ota_url(c))?))
@@ -171,50 +234,124 @@ fn direct_url(url: &str) -> String {
     }
 }
 
-/// Скачать URL в файл, считая sha256; `expect` — ожидаемая сумма (hex).
-fn download(url: &str, to: &Path, expect: &str, what: &str, progress: Progress) -> Result<()> {
+/// Скачать URL в файл, считая sha256; `expect` — ожидаемая сумма (hex), `size` — ожидаемый размер (0 — неизвестен).
+/// Уже скачанная часть файла докачивается (Range); если за `stall_timeout` не пришло ни байта — обрыв
+/// ([`Transient`]), повтор продолжит с того же места.
+fn download(c: &Config, url: &str, to: &Path, expect: &str, size: u64, what: &str, progress: Progress, cancel: Cancel) -> Result<()> {
     let url = &direct_url(url);
-    let host = url.split('/').nth(2).unwrap_or(url);
-    let mut r = match agent().get(url).call() {
-        Ok(r) => r,
-        Err(ureq::Error::StatusCode(code)) if code >= 500 => {
-            bail!("{what}: сервер {host} недоступен (HTTP {code}) — попробуйте позже ({url})")
-        }
-        Err(e) => return Err(e).with_context(|| format!("{what}: сервер {host} не отдал файл ({url})")),
-    };
-    let html = r
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("text/html"));
-    if html {
-        bail!("{what}: {host} вернул веб-страницу вместо файла — сайт, видимо, недоступен, попробуйте позже ({url})");
+    let host = host_of(url);
+    let mut have = fs::metadata(to).map(|m| m.len()).unwrap_or(0);
+    if size > 0 && have > size {
+        fs::remove_file(to)?;
+        have = 0;
     }
-    let total = r
-        .headers()
-        .get("content-length")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0);
-    let mut src = r.body_mut().as_reader();
-    let mut out = File::create(to)?;
     let mut hash = Sha256::new();
-    let mut buf = vec![0u8; 1 << 20];
-    let mut done = 0u64;
-    loop {
-        let n = src.read(&mut buf)?;
-        if n == 0 {
-            break;
+    let mut total = size;
+    let mut body = None;
+    if size == 0 || have < size {
+        let mut req = agent(c, false).get(url);
+        if have > 0 {
+            req = req.header("Range", format!("bytes={have}-"));
         }
-        hash.update(&buf[..n]);
-        out.write_all(&buf[..n])?;
-        done += n as u64;
+        let r = req.call().map_err(|e| http_error(what, host, url, e))?;
+        let html = r
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.starts_with("text/html"));
+        if html {
+            return Err(Transient(format!(
+                "{what}: {host} вернул веб-страницу вместо файла — сайт, видимо, недоступен, попробуйте позже ({url})"
+            ))
+            .into());
+        }
+        let len: u64 = r.headers().get("content-length").and_then(|v| v.to_str().ok()).and_then(|v| v.parse().ok()).unwrap_or(0);
+        if have > 0 && r.status().as_u16() != 206 {
+            // Сервер не умеет докачку — сначала
+            have = 0;
+        }
+        if total == 0 {
+            total = have + len;
+        }
+        body = Some(r.into_body().into_reader());
+    }
+    // Уже скачанное — в сумму
+    let mut out = fs::OpenOptions::new().create(true).write(true).truncate(have == 0).open(to)?;
+    if have > 0 {
+        let mut f = File::open(to)?;
+        let mut buf = vec![0u8; 1 << 20];
+        let mut done = 0u64;
+        while done < have {
+            let n = f.read(&mut buf[..((have - done).min(1 << 20)) as usize])?;
+            if n == 0 {
+                break;
+            }
+            hash.update(&buf[..n]);
+            done += n as u64;
+            progress("проверка скачанного", done, have);
+        }
+        out.set_len(have)?;
+        use std::io::Seek;
+        out.seek(std::io::SeekFrom::Start(have))?;
+    }
+    let mut done = have;
+    if let Some(mut src) = body {
+        // Чтение — в отдельном потоке: зависшее соединение блокирует read() без срока, а мы ждём данные не
+        // дольше stall_timeout. Брошенный поток доживает до ошибки сокета.
+        let (tx, rx) = std::sync::mpsc::sync_channel::<std::io::Result<Vec<u8>>>(8);
+        std::thread::spawn(move || loop {
+            let mut buf = vec![0u8; 256 << 10];
+            match src.read(&mut buf) {
+                Ok(n) => {
+                    buf.truncate(n);
+                    if tx.send(Ok(buf)).is_err() || n == 0 {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(Err(e));
+                    break;
+                }
+            }
+        });
+        let stall = Duration::from_secs(c.stall_timeout.max(5) as u64);
         progress(what, done, total);
+        let mut last = std::time::Instant::now();
+        loop {
+            if cancel() {
+                return Err(Cancelled.into());
+            }
+            let chunk = match rx.recv_timeout(Duration::from_millis(500)) {
+                Ok(Ok(b)) => b,
+                Ok(Err(e)) => {
+                    out.sync_all()?;
+                    return Err(Transient(format!("{what}: связь с {host} оборвалась: {e}")).into());
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) if last.elapsed() < stall => continue,
+                Err(_) => {
+                    out.sync_all()?;
+                    return Err(Transient(format!("{what}: от {host} нет данных {} с — связь зависла", stall.as_secs())).into());
+                }
+            };
+            last = std::time::Instant::now();
+            if chunk.is_empty() {
+                break;
+            }
+            hash.update(&chunk);
+            out.write_all(&chunk)?;
+            done += chunk.len() as u64;
+            progress(what, done, total);
+        }
     }
     out.sync_all()?;
+    if size > 0 && done < size {
+        return Err(Transient(format!("{what}: {host} отдал {done} байт из {size} — повтор докачает")).into());
+    }
     let got = format!("{:x}", hash.finalize());
     if !expect.is_empty() && !got.eq_ignore_ascii_case(expect) {
-        bail!("{what}: sha256 {got} ≠ {expect}");
+        // Испорчено при передаче (или подменено) — заново
+        let _ = fs::remove_file(to);
+        return Err(Transient(format!("{what}: файл повреждён (sha256 {got} ≠ {expect}) — будет скачан заново")).into());
     }
     Ok(())
 }
@@ -283,27 +420,52 @@ fn staging(name: &str) -> Result<PathBuf> {
 }
 
 /// Скачать набор из OTA (последние сборки каналов, если `entries` не заданы).
-pub fn fetch(c: &Config, entries: Option<(OtaEntry, OtaEntry)>, progress: Progress) -> Result<ImageSet> {
+pub fn fetch(c: &Config, entries: Option<(OtaEntry, OtaEntry)>, progress: Progress, cancel: Cancel) -> Result<ImageSet> {
     progress("запрос OTA-каналов", 0, 0);
     let (sys, ven) = match entries {
         Some(e) => e,
         None => ota_latest(c)?,
     };
     let name = set_name(&sys.filename);
-    let st = staging(&name)?;
+    // Каталог сборки не чистится: после обрыва повтор докачивает начатое и не трогает готовые .img
+    check_name(&name)?;
+    let st = paths::images().join(format!(".{name}.part"));
+    fs::create_dir_all(&st)?;
+    for e in fs::read_dir(paths::images())?.flatten() {
+        let n = e.file_name();
+        let n = n.to_string_lossy();
+        if n.starts_with('.') && n.ends_with(".part") && e.path() != st {
+            let _ = fs::remove_dir_all(e.path());
+        }
+    }
     let r = (|| {
         for (e, part) in [(&sys, "system"), (&ven, "vendor")] {
+            let img = st.join(format!("{part}.img"));
+            if img.is_file() {
+                continue;
+            }
             let zip = st.join(&e.filename);
-            download(&e.url, &zip, &e.id, &format!("загрузка {part}"), progress)?;
-            unpack(&zip, part, &st.join(format!("{part}.img")), progress)?;
+            download(c, &e.url, &zip, &e.id, e.size, &format!("загрузка {part}"), progress, cancel)?;
+            unpack(&zip, part, &img, progress)?;
             fs::remove_file(&zip)?;
         }
         finish(&name, &st, Origin::Ota(sys.clone()), Origin::Ota(ven.clone()))
     })();
-    if r.is_err() {
+    if r.as_ref().is_err_and(|e| !is_transient(e) || cancel()) {
         let _ = fs::remove_dir_all(&st);
     }
     r
+}
+
+/// Бросить начатую загрузку: недокачанные файлы.
+pub fn drop_partial() {
+    for e in fs::read_dir(paths::images()).into_iter().flatten().flatten() {
+        let n = e.file_name();
+        let n = n.to_string_lossy();
+        if n.starts_with('.') && n.ends_with(".part") {
+            let _ = fs::remove_dir_all(e.path());
+        }
+    }
 }
 
 /// Набор из локальных файлов: zip из OTA или голые .img.

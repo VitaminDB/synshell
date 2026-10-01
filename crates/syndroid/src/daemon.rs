@@ -13,6 +13,9 @@ use crate::api::{Job, Request, Response, Session, State, Status};
 use crate::config::Config;
 use crate::{android, container, images, paths};
 
+/// Название задания загрузки образов.
+pub const FETCH_TITLE: &str = "Загрузка образов Android";
+
 #[derive(Default)]
 struct Inner {
     state: Option<State>,
@@ -26,6 +29,36 @@ struct Inner {
     /// Мост binder (`__bridge`) и датчики (`__sensors`) текущего запуска.
     bridge: Option<std::process::Child>,
     sensors: Option<std::process::Child>,
+    /// Управление заданиями: (отменить, повторить сейчас).
+    ctl: std::collections::HashMap<u64, (bool, bool)>,
+}
+
+/// Начатая загрузка образов (`/var/lib/syndroid/pending-fetch.json`): после перезапуска демона или телефона
+/// продолжается сама.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct PendingFetch {
+    system_type: Option<String>,
+    session: Option<Session>,
+}
+
+impl PendingFetch {
+    fn path() -> std::path::PathBuf {
+        std::path::Path::new(paths::STATE).join("pending-fetch.json")
+    }
+    fn load() -> Option<Self> {
+        serde_json::from_str(&std::fs::read_to_string(Self::path()).ok()?).ok()
+    }
+    fn save(&self) {
+        let _ = std::fs::create_dir_all(paths::STATE);
+        let _ = std::fs::write(Self::path(), serde_json::to_string(self).unwrap_or_default());
+    }
+    fn clear() {
+        let _ = std::fs::remove_file(Self::path());
+    }
+}
+
+fn now() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
 pub struct Daemon {
@@ -238,35 +271,154 @@ impl Daemon {
         }
     }
 
-    /// Фоновое задание с ходом выполнения в `Status::jobs`.
-    fn job(self: &Arc<Self>, title: &str, f: impl FnOnce(images::Progress) -> Result<()> + Send + 'static) -> u64 {
+    /// Фоновое задание с ходом выполнения в `Status::jobs`; `f` получает номер задания.
+    fn job(self: &Arc<Self>, title: &str, f: impl FnOnce(u64, images::Progress) -> Result<()> + Send + 'static) -> u64 {
+        self.job_with(title, Job::default(), f)
+    }
+
+    fn job_with(
+        self: &Arc<Self>,
+        title: &str,
+        init: Job,
+        f: impl FnOnce(u64, images::Progress) -> Result<()> + Send + 'static,
+    ) -> u64 {
         let id = self.next_job.fetch_add(1, Ordering::Relaxed) + 1;
         {
             let mut i = self.inner.lock().unwrap();
             i.jobs.retain(|j| !j.finished);
-            i.jobs.push(Job { id, title: title.into(), ..Default::default() });
+            i.jobs.push(Job { id, title: title.into(), ..init });
         }
         let me = self.clone();
         std::thread::spawn(move || {
             let upd = |step: &str, done: u64, total: u64| {
-                let mut i = me.inner.lock().unwrap();
-                if let Some(j) = i.jobs.iter_mut().find(|j| j.id == id) {
+                me.update_job(id, |j| {
                     j.step = step.into();
                     j.done = done;
                     j.total = total;
-                }
+                });
             };
-            let r = f(&upd);
+            let r = f(id, &upd);
             let mut i = me.inner.lock().unwrap();
+            i.ctl.remove(&id);
             if let Some(j) = i.jobs.iter_mut().find(|j| j.id == id) {
                 j.finished = true;
-                j.error = r.err().map(|e| format!("{e:#}"));
-                if let Some(e) = &j.error {
-                    tracing::warn!("задание «{}»: {e}", j.title);
+                j.retry_at = None;
+                match r {
+                    Err(e) if e.chain().any(|c| c.is::<images::Cancelled>()) => j.cancelled = true,
+                    Err(e) => {
+                        let e = format!("{e:#}");
+                        tracing::warn!("задание «{}»: {e}", j.title);
+                        j.error = Some(e);
+                    }
+                    Ok(()) => {}
                 }
             }
+            me.changed.notify_all();
         });
         id
+    }
+
+    fn update_job(&self, id: u64, f: impl FnOnce(&mut Job)) {
+        let mut i = self.inner.lock().unwrap();
+        if let Some(j) = i.jobs.iter_mut().find(|j| j.id == id) {
+            f(j);
+        }
+    }
+
+    fn cancelled(&self, id: u64) -> bool {
+        self.inner.lock().unwrap().ctl.get(&id).is_some_and(|c| c.0)
+    }
+
+    /// Загрузка образов с автоповтором; ход — в задании и (если известен сеанс) в уведомлении.
+    fn fetch(self: &Arc<Self>, pend: PendingFetch) -> Result<u64> {
+        if self.inner.lock().unwrap().jobs.iter().any(|j| !j.finished && j.title == FETCH_TITLE) {
+            bail!("загрузка образов уже идёт");
+        }
+        pend.save();
+        let ty = pend.system_type.clone().unwrap_or_else(|| Config::load().system_type);
+        let subject = if ty.eq_ignore_ascii_case("GAPPS") { "LineageOS + GApps" } else { "LineageOS" };
+        let session = pend.session.clone().or_else(|| self.inner.lock().unwrap().session.clone());
+        let me = self.clone();
+        let init = Job { cancellable: true, subject: subject.into(), ..Default::default() };
+        let id = self.job_with(FETCH_TITLE, init, move |id, p| {
+            let r = me.fetch_loop(id, &pend, p);
+            if r.is_err() {
+                // Отменено или неустранимо — начатое не продолжать
+                PendingFetch::clear();
+                if me.cancelled(id) {
+                    images::drop_partial();
+                }
+            }
+            r
+        });
+        self.inner.lock().unwrap().ctl.insert(id, (false, false));
+        if let Some(s) = session {
+            match spawn_as(&s, &["__notify".to_string(), id.to_string()]) {
+                Ok(mut c) => drop(std::thread::spawn(move || c.wait())),
+                Err(e) => tracing::warn!("уведомления о загрузке: {e:#}"),
+            }
+        }
+        Ok(id)
+    }
+
+    fn fetch_loop(&self, id: u64, pend: &PendingFetch, p: images::Progress) -> Result<()> {
+        let cancel = || self.cancelled(id);
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            self.update_job(id, |j| {
+                j.attempt = attempt;
+                j.retry_at = None;
+            });
+            let mut c = Config::load();
+            let mut fc = c.clone();
+            if let Some(t) = &pend.system_type {
+                fc.system_type = t.clone();
+            }
+            match images::fetch(&fc, None, p, &cancel) {
+                Ok(set) => {
+                    if c.active.is_none() {
+                        c.active = Some(set.name.clone());
+                        c.save()?;
+                    }
+                    PendingFetch::clear();
+                    self.update_job(id, |j| j.result = Some(set.name));
+                    return Ok(());
+                }
+                Err(e) if images::is_transient(&e) && !cancel() && Config::load().retry => {
+                    let msg = format!("{e:#}");
+                    tracing::warn!("загрузка образов, попытка {attempt}: {msg}");
+                    self.update_job(id, |j| j.last_error = Some(msg));
+                    self.wait_retry(id)?;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    /// Пауза до повтора (`retry_minutes` из настроек — меняется на ходу); раньше — по `RetryJobNow`.
+    fn wait_retry(&self, id: u64) -> Result<()> {
+        let failed = now();
+        let mut i = self.inner.lock().unwrap();
+        loop {
+            let c = Config::load();
+            if !c.retry {
+                let e = i.jobs.iter().find(|j| j.id == id).and_then(|j| j.last_error.clone()).unwrap_or_default();
+                bail!("{e}");
+            }
+            let at = failed + c.retry_minutes as i64 * 60;
+            if let Some(j) = i.jobs.iter_mut().find(|j| j.id == id) {
+                j.retry_at = Some(at);
+            }
+            let ctl = i.ctl.entry(id).or_default();
+            if ctl.0 {
+                return Err(images::Cancelled.into());
+            }
+            if std::mem::take(&mut ctl.1) || now() >= at {
+                return Ok(());
+            }
+            i = self.changed.wait_timeout(i, Duration::from_secs(1)).unwrap().0;
+        }
     }
 
     fn handle(self: &Arc<Self>, req: Request, peer: Peer) -> Result<Response> {
@@ -324,24 +476,26 @@ impl Daemon {
                 let installed = images::exists(&images::set_name(&system.filename));
                 Response::Updates { system, vendor, installed }
             }
-            Request::FetchImages { system_type } => {
-                let id = self.job("Загрузка образов Android", move |p| {
-                    let mut c = Config::load();
-                    let mut fc = c.clone();
-                    if let Some(t) = system_type {
-                        fc.system_type = t;
+            Request::FetchImages { system_type, session } => {
+                if let Some(se) = &session {
+                    if peer.uid != 0 && peer.uid != se.uid {
+                        bail!("уведомления — только своему сеансу");
                     }
-                    let set = images::fetch(&fc, None, p)?;
-                    if c.active.is_none() {
-                        c.active = Some(set.name);
-                        c.save()?;
-                    }
-                    Ok(())
-                });
-                Response::Job { id }
+                }
+                Response::Job { id: self.fetch(PendingFetch { system_type, session })? }
+            }
+            Request::CancelJob { id } => {
+                self.inner.lock().unwrap().ctl.get_mut(&id).context("задание нельзя отменить")?.0 = true;
+                self.changed.notify_all();
+                Response::Ok
+            }
+            Request::RetryJobNow { id } => {
+                self.inner.lock().unwrap().ctl.get_mut(&id).context("задание не ждёт повтора")?.1 = true;
+                self.changed.notify_all();
+                Response::Ok
             }
             Request::ImportImages { system, vendor, name } => {
-                let id = self.job("Импорт образов Android", move |p| {
+                let id = self.job("Импорт образов Android", move |_, p| {
                     let set = images::import(system.as_ref(), vendor.as_ref(), name.as_deref(), p)?;
                     let mut c = Config::load();
                     if c.active.is_none() {
@@ -425,7 +579,7 @@ impl Daemon {
             Request::InstallApk { path } => {
                 let pid = self.android_pid()?;
                 let instance = images::instance_of(Config::load().active.as_deref().unwrap_or(""));
-                let id = self.job("Установка APK", move |p| {
+                let id = self.job("Установка APK", move |_, p| {
                     p("копирование", 0, 0);
                     // Через /data экземпляра: файл виден Android как /data/local/tmp/…
                     let dir = paths::data(&instance).join("local/tmp");
@@ -463,7 +617,8 @@ impl Daemon {
             }
             Request::GetConfig => Response::Config { config: Config::load() },
             Request::SetConfig { config } => {
-                config.save()?;
+                config.clamped().save()?;
+                self.changed.notify_all();
                 Response::Ok
             }
         })
@@ -472,18 +627,23 @@ impl Daemon {
 
 /// Мост binder от имени владельца сеанса (его ярлыки, его D-Bus); вывод — в журнал службы.
 fn spawn_bridge(instance: &str, s: &Session) -> Result<std::process::Child> {
+    spawn_as(s, &["__bridge".to_string(), instance.to_string()]).context("__bridge")
+}
+
+/// `syndroidd <args>` от имени владельца сеанса, с его D-Bus.
+fn spawn_as(s: &Session, args: &[String]) -> Result<std::process::Child> {
     use std::os::unix::process::CommandExt;
     let home = std::fs::read_to_string("/etc/passwd")
         .ok()
         .and_then(|p| p.lines().find(|l| l.split(':').nth(2) == Some(&s.uid.to_string())).and_then(|l| l.split(':').nth(5).map(str::to_string)))
         .context("домашний каталог владельца сеанса")?;
     std::process::Command::new(paths::SELF_EXE)
-        .arg("__bridge")
-        .arg(instance)
+        .args(args)
         .env_clear()
         .env("HOME", home)
         .env("USER", &s.user)
         .env("XDG_RUNTIME_DIR", &s.xdg_runtime_dir)
+        .env("WAYLAND_DISPLAY", &s.wayland_display)
         .env("DBUS_SESSION_BUS_ADDRESS", format!("unix:path={}/bus", s.xdg_runtime_dir))
         .env("PATH", "/usr/local/bin:/usr/bin")
         .env("RUST_LOG", std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()))
@@ -491,7 +651,7 @@ fn spawn_bridge(instance: &str, s: &Session) -> Result<std::process::Child> {
         .gid(s.gid)
         .stdin(std::process::Stdio::null())
         .spawn()
-        .context("__bridge")
+        .with_context(|| args.join(" "))
 }
 
 #[derive(Clone, Copy)]
@@ -586,6 +746,16 @@ pub fn run() -> Result<()> {
             let _ = d.stop();
             let _ = std::fs::remove_file(paths::SOCKET);
             std::process::exit(0);
+        });
+    }
+    // Начатая до перезапуска загрузка — продолжить (докачка)
+    if let Some(p) = PendingFetch::load() {
+        tracing::info!("продолжение начатой загрузки образов");
+        let d = d.clone();
+        std::thread::spawn(move || {
+            if let Err(e) = d.fetch(p) {
+                tracing::warn!("продолжение загрузки: {e:#}");
+            }
         });
     }
     tracing::info!("syndroidd слушает {}", paths::SOCKET);

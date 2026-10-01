@@ -67,6 +67,27 @@ pub struct Job {
     pub total: u64,
     pub finished: bool,
     pub error: Option<String>,
+    /// Задание можно отменить (`CancelJob`).
+    #[serde(default)]
+    pub cancellable: bool,
+    /// Отменено пользователем (завершено без ошибки и без результата).
+    #[serde(default)]
+    pub cancelled: bool,
+    /// Номер попытки (загрузка с автоповтором), с 1.
+    #[serde(default)]
+    pub attempt: u32,
+    /// Ждёт повтора: unix-время следующей попытки (`RetryJobNow` — сразу).
+    #[serde(default)]
+    pub retry_at: Option<i64>,
+    /// Ошибка последней попытки (при ожидании повтора).
+    #[serde(default)]
+    pub last_error: Option<String>,
+    /// Итог успешного задания (имя скачанного набора образов).
+    #[serde(default)]
+    pub result: Option<String>,
+    /// Что качается — для уведомлений («LineageOS + GApps»).
+    #[serde(default)]
+    pub subject: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -108,7 +129,14 @@ pub enum Request {
     FetchImages {
         #[serde(default)]
         system_type: Option<String>,
+        /// Сеанс, которому показывать уведомления о ходе загрузки (по умолчанию — сеанс запущенного Android).
+        #[serde(default)]
+        session: Option<Session>,
     },
+    /// Отменить фоновое задание (загрузку образов).
+    CancelJob { id: u64 },
+    /// Задание ждёт повтора — повторить сейчас.
+    RetryJobNow { id: u64 },
     /// Экземпляры Android: наборы образов, размер данных.
     Instances,
     /// Удалить данные экземпляра (Android этого экземпляра должен быть остановлен).

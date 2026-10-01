@@ -36,7 +36,20 @@ pub struct Config {
     pub drm_node: String,
     /// Дополнительные/переопределённые свойства Android.
     pub properties: BTreeMap<String, String>,
+    /// Загрузка образов: при сбое сети или сервера повторять сама, в фоне.
+    pub retry: bool,
+    /// Пауза между повторами, минут ([`RETRY_MINUTES`]).
+    pub retry_minutes: u32,
+    /// Тайм-аут соединения и ответа сервера, с.
+    pub connect_timeout: u32,
+    /// Загрузка считается зависшей, если столько секунд не пришло ни байта.
+    pub stall_timeout: u32,
 }
+
+/// Допустимая пауза между повторами загрузки, минут.
+pub const RETRY_MINUTES: std::ops::RangeInclusive<u32> = 3..=120;
+/// Допустимые тайм-ауты, с.
+pub const TIMEOUT_SECONDS: std::ops::RangeInclusive<u32> = 5..=600;
 
 impl Default for Config {
     fn default() -> Self {
@@ -55,6 +68,10 @@ impl Default for Config {
             shared_folders: true,
             drm_node: String::new(),
             properties: BTreeMap::new(),
+            retry: true,
+            retry_minutes: 10,
+            connect_timeout: 30,
+            stall_timeout: 60,
         }
     }
 }
@@ -63,8 +80,17 @@ impl Config {
     pub fn load() -> Self {
         std::fs::read_to_string(paths::config())
             .ok()
-            .and_then(|s| toml::from_str(&s).ok())
+            .and_then(|s| toml::from_str::<Self>(&s).ok())
             .unwrap_or_default()
+            .clamped()
+    }
+
+    /// Значения в допустимых пределах.
+    pub fn clamped(mut self) -> Self {
+        self.retry_minutes = self.retry_minutes.clamp(*RETRY_MINUTES.start(), *RETRY_MINUTES.end());
+        self.connect_timeout = self.connect_timeout.clamp(*TIMEOUT_SECONDS.start(), *TIMEOUT_SECONDS.end());
+        self.stall_timeout = self.stall_timeout.clamp(*TIMEOUT_SECONDS.start(), *TIMEOUT_SECONDS.end());
+        self
     }
 
     pub fn save(&self) -> Result<()> {
