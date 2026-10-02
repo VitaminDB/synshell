@@ -6,7 +6,7 @@ Text { color: #ffffff; font-size: 14px; }
 
 /* верх и низ */
 .topbar { padding: 0px 8px; }
-.ib { width: 44px; height: 44px; border-radius: 22px; padding: 10px; transition: background-color 120ms ease-out, scale 160ms spring(500, 28); }
+.ib { width: 44px; height: 44px; border-radius: 22px; padding: 0px; transition: background-color 120ms ease-out, scale 160ms spring(500, 28); }
 .ib:active { background-color: #ffffff33; scale: 0.92; }
 .ib-icon { font-size: 24px; color: #ffffff; }
 .ib-on .ib-icon { color: #ffd54f; }
@@ -53,7 +53,7 @@ Text { color: #ffffff; font-size: 14px; }
 .mode-text { font-size: 14px; color: #ffffffb3; }
 .mode-on { color: #ffd54f; font-weight: 600; }
 .shutter-row { width: 100%; padding: 6px 12px; }
-.side-btn { width: 56px; height: 56px; border-radius: 28px; padding: 14px; background: #ffffff26; }
+.side-btn { width: 56px; height: 56px; border-radius: 28px; padding: 0px; background: #ffffff26; }
 .shutter { width: 78px; height: 78px; border-radius: 39px; border-width: 4px; border-color: #ffffff; padding: 5px; transition: scale 140ms spring(520, 26); }
 .shutter:active { scale: 0.9; }
 .shutter-busy { border-color: #ffffff66; }
@@ -81,7 +81,7 @@ Text { color: #ffffff; font-size: 14px; }
 
 /* настройки */
 .scrim { background: #00000099; width: 100%; height: 100%; }
-.sheet { background: #1c1c1e; border-radius: 24px 24px 0px 0px; padding: 12px 18px 24px 18px; max-height: 640px; }
+.sheet { background: #1c1c1e; border-radius: 24px 24px 0px 0px; padding: 12px 18px 0px 18px; }
 .sheet-title { font-size: 20px; font-weight: 600; }
 .set-head { font-size: 13px; font-weight: 600; color: #ffd54f; padding: 14px 0px 4px 0px; }
 .set-row { padding: 8px 0px; }
@@ -119,5 +119,29 @@ Text { color: #ffffff; font-size: 14px; }
 .hint-night { padding: 8px 14px; }
 .hint-icon { font-size: 20px; color: #ffd54f; }
 .hint-text { font-size: 13px; color: #ffffff; max-width: 170px; }
-.hint-btn { width: 36px; height: 36px; padding: 7px; border-radius: 18px; }
+.hint-btn { width: 36px; height: 36px; padding: 0px; border-radius: 18px; }
 .hint-btn .ib-icon { font-size: 20px; }
+
+/* выбор задней камеры */
+.lens-pill { padding: 0px 10px 0px 8px; border-radius: 18px; background: #000000a6; border-width: 1px; border-color: #ffffff2e; transition: background-color 140ms ease-out, scale 160ms spring(500, 28); }
+.lens-pill:active { scale: 0.95; }
+.lens-pill-open { background: #2c2c2ef2; border-color: #ffd54f99; }
+.lens-icon { font-size: 18px; color: #ffd54f; }
+.lens-title { font-size: 13px; font-weight: 600; color: #ffffff; }
+.lens-chevron { font-size: 20px; color: #ffffffb3; }
+.lens-menu { padding: 12px 8px 8px 8px; border-radius: 22px; background: #1f1f21f5; border-width: 1px; border-color: #ffffff1f; box-shadow: 0 10px 30px #00000099; }
+.lens-head { font-size: 12px; font-weight: 600; color: #ffffff80; padding: 0px 10px 6px 10px; }
+.lens-row { padding: 8px 10px; border-radius: 16px; transition: background-color 120ms ease-out; }
+.lens-row:active { background-color: #ffffff14; }
+.lens-row-sel { background: #ffd54f1f; }
+.lens-badge { width: 40px; height: 40px; border-radius: 20px; background: #ffffff1a; }
+.lens-badge-off { background: #ffffff0a; }
+.lens-row-icon { font-size: 22px; color: #ffffff; }
+.lens-row-sel .lens-row-icon { color: #ffd54f; }
+.lens-badge-off .lens-row-icon { color: #ffffff4d; }
+.lens-row-title { font-size: 15px; font-weight: 600; color: #ffffff; }
+.lens-off { color: #ffffff59; }
+.lens-row-sub { font-size: 12px; color: #ffffff99; }
+.lens-fault { color: #ff8a80; }
+.lens-check { font-size: 22px; color: #ffd54f; }
+.lens-block { font-size: 20px; color: #ffffff4d; }

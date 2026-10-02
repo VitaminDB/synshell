@@ -27,6 +27,10 @@ pub struct Prefs {
     pub timelapse: u32,
     pub front: bool,
     pub mode: u32,
+    /// Задний объектив последнего сеанса: 0 — основная, 1 — широкоугольная, 2 — макро.
+    pub lens: u32,
+    /// Камера при запуске: 0 — как в прошлый раз, 1 — основная, 2 — широкоугольная, 3 — фронтальная.
+    pub start_cam: u32,
 }
 
 impl Default for Prefs {
@@ -45,6 +49,8 @@ impl Default for Prefs {
             timelapse: 10,
             front: false,
             mode: 2,
+            lens: 0,
+            start_cam: 1,
         }
     }
 }
@@ -69,13 +75,15 @@ impl Prefs {
         p.timelapse = num("timelapse", p.timelapse).clamp(2, 120);
         p.front = flag("front", p.front);
         p.mode = num("mode", p.mode).min(4);
+        p.lens = num("lens", p.lens).min(2);
+        p.start_cam = num("start_camera", p.start_cam).min(3);
         p
     }
 
     pub fn save(&self) {
         let b = |v: bool| if v { "1" } else { "0" };
         let s = format!(
-            "# «Камера» synshell\nflash = {}\ntimer = {}\ngrid = {}\naspect = {}\nfull_res = {}\nvideo_quality = {}\nhevc = {}\nmic = {}\nstabilization = {}\nsound = {}\ntimelapse = {}\nfront = {}\nmode = {}\n",
+            "# «Камера» synshell\nflash = {}\ntimer = {}\ngrid = {}\naspect = {}\nfull_res = {}\nvideo_quality = {}\nhevc = {}\nmic = {}\nstabilization = {}\nsound = {}\ntimelapse = {}\nfront = {}\nmode = {}\nlens = {}\nstart_camera = {}\n",
             self.flash,
             self.timer,
             b(self.grid),
@@ -89,6 +97,8 @@ impl Prefs {
             self.timelapse,
             b(self.front),
             self.mode,
+            self.lens,
+            self.start_cam,
         );
         let p = path();
         if let Some(d) = p.parent() {

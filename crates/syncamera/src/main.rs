@@ -9,6 +9,7 @@
 mod convert;
 mod engine;
 mod media;
+mod modules;
 mod night;
 mod orientation;
 mod prefs;
@@ -59,6 +60,24 @@ impl Mode {
 pub enum Lens {
     Main,
     Wide,
+    Macro,
+}
+
+impl Lens {
+    fn index(self) -> u32 {
+        match self {
+            Lens::Main => 0,
+            Lens::Wide => 1,
+            Lens::Macro => 2,
+        }
+    }
+    fn from_index(i: u32) -> Lens {
+        match i {
+            1 => Lens::Wide,
+            2 => Lens::Macro,
+            _ => Lens::Main,
+        }
+    }
 }
 
 /// Поле ручного режима, которое сейчас крутится ползунком.
@@ -140,6 +159,11 @@ pub struct St {
     pub items: RwSignal<Vec<media::Item>>,
     pub viewer: RwSignal<Option<usize>>,
     pub settings: RwSignal<bool>,
+    /// Выпадающий список задних камер открыт.
+    pub lens_menu: RwSignal<bool>,
+    /// Задние модули по пробе платформы (исправность).
+    pub modules: RwSignal<Vec<modules::Module>>,
+    pub start_cam: RwSignal<u32>,
     pub toast: RwSignal<String>,
     /// Долгий снимок идёт: подпись над кадром (ночь, полное разрешение).
     pub progress: RwSignal<String>,
@@ -167,12 +191,19 @@ fn main() {
         .with_styles_str(&mss)
         .run(move |_| {
             let p = Prefs::load();
+            // камера при запуске
+            let (front, lens) = match p.start_cam {
+                1 => (false, Lens::Main),
+                2 => (false, Lens::Wide),
+                3 => (true, Lens::Main),
+                _ => (p.front, Lens::from_index(p.lens)),
+            };
             let st = St {
                 engine: use_signal(None),
                 cams: use_signal(Vec::new()),
                 mode: use_signal(Mode::from_index(p.mode)),
-                front: use_signal(p.front),
-                lens: use_signal(Lens::Main),
+                front: use_signal(front),
+                lens: use_signal(lens),
                 status: use_signal("Включаю камеру…".to_string()),
                 frame_rev: use_signal(0),
                 stream_size: use_signal((0, 0)),
@@ -188,7 +219,7 @@ fn main() {
                 sound: use_signal(p.sound),
                 timelapse: use_signal(p.timelapse),
                 torch: use_signal(false),
-                zoom: use_signal(1.0),
+                zoom: use_signal(if !front && lens == Lens::Wide { 0.6 } else { 1.0 }),
                 zooming: use_signal(false),
                 focus_pt: use_signal(None),
                 focus_seq: use_signal(0),
@@ -209,6 +240,9 @@ fn main() {
                 items: use_signal(Vec::new()),
                 viewer: use_signal(None),
                 settings: use_signal(false),
+                lens_menu: use_signal(false),
+                modules: use_signal(modules::back_modules()),
+                start_cam: use_signal(p.start_cam),
                 toast: use_signal(String::new()),
                 progress: use_signal(String::new()),
                 qr: use_signal(None),
@@ -332,6 +366,8 @@ fn start(st: St) {
             timelapse: st.timelapse.get(),
             front: st.front.get(),
             mode: st.mode.get().index(),
+            lens: st.lens.get().index(),
+            start_cam: st.start_cam.get(),
         };
         p.save();
     });
@@ -415,10 +451,44 @@ pub fn pick_cam(cams: &[Camera], front: bool, lens: Lens) -> Option<Camera> {
     }
     let back: Vec<&Camera> = phys.filter(|c| !c.front()).collect();
     let main = back.iter().max_by_key(|c| (c.focal_um, std::cmp::Reverse(c.id))).copied().copied();
+    let wide = back.iter().filter(|c| Some(c.id) != main.map(|m| m.id)).min_by_key(|c| c.focal_um).copied().copied();
     match lens {
         Lens::Main => main,
-        Lens::Wide => back.iter().filter(|c| Some(c.id) != main.map(|m| m.id)).min_by_key(|c| c.focal_um).copied().copied().or(main),
+        Lens::Wide => wide.or(main),
+        // макро — третий задний модуль, если он есть в HAL (неисправный в HAL не попадает)
+        Lens::Macro => back
+            .iter()
+            .find(|c| Some(c.id) != main.map(|m| m.id) && Some(c.id) != wide.map(|m| m.id))
+            .copied()
+            .copied()
+            .or(main),
     }
+}
+
+/// Есть ли в HAL камера для объектива (макро — третья задняя).
+pub fn lens_available(st: St, lens: Lens) -> bool {
+    let cams = st.cams.get_untracked();
+    let main = pick_cam(&cams, false, Lens::Main).map(|c| c.id);
+    let wide = pick_cam(&cams, false, Lens::Wide).map(|c| c.id);
+    match lens {
+        Lens::Main => main.is_some(),
+        Lens::Wide => wide.is_some() && wide != main,
+        Lens::Macro => {
+            let m = pick_cam(&cams, false, Lens::Macro).map(|c| c.id);
+            m.is_some() && m != main && m != wide
+        }
+    }
+}
+
+/// Выбрать задний объектив из списка.
+pub fn choose_lens(st: St, lens: Lens) {
+    st.lens_menu.set(false);
+    if st.rec.get_untracked() != Rec::Idle || !lens_available(st, lens) {
+        return;
+    }
+    st.front.set(false);
+    st.zoom.set(if lens == Lens::Wide { 0.6 } else { 1.0 });
+    st.lens.set(lens);
 }
 
 /// Есть ли широкоугольная задняя.

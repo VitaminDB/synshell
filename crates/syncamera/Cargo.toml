@@ -22,6 +22,7 @@ ffmpeg-next = { version = "9.0", default-features = false, features = ["codec", 
 cpal = "0.15"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 rqrr = "0.11"
+serde_json.workspace = true
 
 [build-dependencies]
 cc = "1"

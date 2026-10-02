@@ -4693,6 +4693,7 @@ dependencies = [
  "libc",
  "qrcode",
  "rqrr",
+ "serde_json",
  "syngui",
  "synshell-common",
  "tracing",

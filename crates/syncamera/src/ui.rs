@@ -7,7 +7,13 @@ use syngui::containers::Positioned;
 use syngui::widgets::{LiveView, PinchUpdate, SwipeDirection};
 use syngui::{GestureDetector, ShowIf};
 
+use crate::modules::Role;
 use crate::{media, proto, viewer, Lens, Mode, ProField, Rec, St, MODES};
+
+thread_local! {
+    /// Где нарисована кнопка выбора камеры (левый нижний угол) — под ней раскрывается список.
+    static LENS_ANCHOR: std::cell::Cell<(f32, f32)> = const { std::cell::Cell::new((12.0, 120.0)) };
+}
 
 pub type W = Box<dyn Widget>;
 
@@ -40,6 +46,12 @@ pub mod gl {
     pub const INFO: &str = "\u{E88E}";
     pub const NIGHT: &str = "\u{EA46}";
     pub const QR: &str = "\u{EF6B}";
+    pub const LENS_MAIN: &str = "\u{E3FA}";
+    pub const LENS_WIDE: &str = "\u{E40F}";
+    pub const LENS_MACRO: &str = "\u{E545}";
+    pub const EXPAND: &str = "\u{E5CF}";
+    pub const CHECK: &str = "\u{E5CA}";
+    pub const BLOCK: &str = "\u{E14B}";
     pub const COPY: &str = "\u{E14D}";
     pub const CHEVRON_L: &str = "\u{E5CB}";
     pub const CHEVRON_R: &str = "\u{E5CC}";
@@ -53,7 +65,31 @@ fn icon_btn(glyph: &'static str, class: &str, f: impl Fn() + Send + Sync + 'stat
                 crate::haptic();
                 f()
             })
-            .child(DecoratedBox::new().child(Icon::new(glyph).class("ib-icon")).class(format!("ib {class}"))),
+            .child(DecoratedBox::new().child(centered(glyph, "ib-icon", btn_size(class))).class(format!("ib {class}"))),
+    )
+}
+
+/// Сторона круглой кнопки по классу (размер — в MSS, а центр значка задаётся здесь: отступы шрифта значков
+/// неровные, и padding сдвигал глиф вверх-влево).
+fn btn_size(class: &str) -> f32 {
+    if class.contains("side-btn") {
+        56.0
+    } else if class.contains("hint-btn") {
+        36.0
+    } else {
+        44.0
+    }
+}
+
+/// Значок точно по центру квадрата `size`.
+pub fn centered(glyph: &'static str, class: &'static str, size: f32) -> W {
+    Box::new(
+        Column::new()
+            .width(size)
+            .height(size)
+            .main_axis_alignment(MainAxisAlignment::Center)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(Icon::new(glyph).class(class)),
     )
 }
 
@@ -107,6 +143,7 @@ pub fn root(st: St) -> W {
                     .fit(StackFit::Expand)
                     .child(fill("root"))
                     .child(body)
+                    .child(lens_menu(st))
                     .child(settings_sheet(st))
                     .child(overlay_view)
                     .child(toast),
@@ -158,6 +195,7 @@ fn portrait(st: St, vp: Size, stream: (u32, u32)) -> W {
             .fit(StackFit::Expand)
             .child(Positioned::new(preview(st, pw, ph, px, py)).at(px, py))
             .child(Positioned::new(rec_badge(st, w)).at(0.0, py + 8.0))
+            .child(Positioned::new(lens_pill(st, 12.0, py.max(TOP) + 10.0)).at(12.0, py.max(TOP) + 10.0))
             .child(Positioned::new(top).at(0.0, 0.0))
             .child(Positioned::new(bottom).at(0.0, h - BOTTOM - 120.0)),
     )
@@ -193,6 +231,7 @@ fn landscape(st: St, vp: Size, stream: (u32, u32)) -> W {
             .fit(StackFit::Expand)
             .child(Positioned::new(preview(st, pw, ph, px, py)).at(px, py))
             .child(Positioned::new(rec_badge(st, pw)).at(px, py + 8.0))
+            .child(Positioned::new(lens_pill(st, px + 12.0, 12.0)).at(px + 12.0, 12.0))
             .child(Positioned::new(pro).at(px, -8.0))
             .child(Positioned::new(zoom).at(px + pw - 62.0, 0.0))
             .child(Positioned::new(left).at(0.0, 0.0))
@@ -515,6 +554,144 @@ fn ev_bar(st: St, pw: f32, ph: f32) -> impl Widget {
     })
 }
 
+// ─── Выбор камеры ───────────────────────────────────────────────────────────
+
+/// Пункт списка задних камер.
+struct LensItem {
+    lens: Lens,
+    icon: &'static str,
+    title: &'static str,
+    sub: String,
+    ok: bool,
+}
+
+fn lens_items(st: St) -> Vec<LensItem> {
+    let mods = st.modules.get_untracked();
+    let cams = st.cams.get_untracked();
+    let mut v = Vec::new();
+    for (lens, role, icon, title, zoom) in [
+        (Lens::Main, Role::Main, gl::LENS_MAIN, "Основная", "1×"),
+        (Lens::Wide, Role::Wide, gl::LENS_WIDE, "Широкоугольная", "0,6×"),
+        (Lens::Macro, Role::Macro, gl::LENS_MACRO, "Макро", "вблизи"),
+    ] {
+        let module = mods.iter().find(|m| m.role == role);
+        let avail = crate::lens_available(st, lens) && module.is_none_or(|m| m.ok);
+        if module.is_none() && !avail {
+            continue;
+        }
+        let sub = if avail {
+            let mp = crate::pick_cam(&cams, false, lens)
+                .map(|c| {
+                    let px = if c.full_width > 0 { c.full_width as u64 * c.full_height as u64 } else { c.photo_width as u64 * c.photo_height as u64 };
+                    // как в описании телефона: 200 Мп, а не 201
+                    let mp = (px + 500_000) / 1_000_000;
+                    format!("{} Мп · ", if mp >= 50 { (mp + 5) / 10 * 10 } else { mp })
+                })
+                .unwrap_or_default();
+            format!("{mp}{zoom}")
+        } else {
+            module.map(|m| m.fault.clone()).filter(|f| !f.is_empty()).unwrap_or_else(|| "Недоступна".into())
+        };
+        v.push(LensItem { lens, icon, title, sub, ok: avail });
+    }
+    v
+}
+
+/// Кнопка выбора задней камеры (над кадром слева).
+fn lens_pill(st: St, x: f32, y: f32) -> impl Widget {
+    LENS_ANCHOR.with(|a| a.set((x, y + 40.0)));
+    Reactive::new(move || -> Vec<W> {
+        let (front, lens, rec, _) = (st.front.get(), st.lens.get(), st.rec.get(), st.cams.get());
+        if front || rec != Rec::Idle || lens_items(st).len() < 2 {
+            return vec![];
+        }
+        let (icon, title) = match lens {
+            Lens::Main => (gl::LENS_MAIN, "Основная"),
+            Lens::Wide => (gl::LENS_WIDE, "Широкоугольная"),
+            Lens::Macro => (gl::LENS_MACRO, "Макро"),
+        };
+        let open = st.lens_menu.get();
+        vec![Box::new(
+            GestureDetector::new()
+                .on_click(move || {
+                    crate::haptic();
+                    st.lens_menu.set(!st.lens_menu.get_untracked())
+                })
+                .child(
+                    DecoratedBox::new()
+                        .child(
+                            Row::new()
+                                .gap(6.0)
+                                .cross_axis_alignment(CrossAxisAlignment::Center)
+                                .child(centered(icon, "lens-icon", 22.0))
+                                .child(Text::new(title).max_lines(1).class("lens-title"))
+                                .child(centered(gl::EXPAND, "lens-chevron", 20.0))
+                                .height(36.0),
+                        )
+                        .class(if open { "lens-pill lens-pill-open" } else { "lens-pill" }),
+                ),
+        )]
+    })
+}
+
+/// Раскрытый список задних камер: неисправная — серая, с причиной, не выбирается.
+fn lens_menu(st: St) -> impl Widget {
+    Reactive::new(move || -> Vec<W> {
+        if !st.lens_menu.get() {
+            return vec![];
+        }
+        let cur = st.lens.get();
+        let (ax, ay) = LENS_ANCHOR.with(|a| a.get());
+        let mut col = Column::new().gap(2.0);
+        for it in lens_items(st) {
+            let sel = it.lens == cur;
+            let lens = it.lens;
+            let row = Row::new()
+                .gap(12.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(DecoratedBox::new().child(centered(it.icon, "lens-row-icon", 40.0)).class(if it.ok { "lens-badge" } else { "lens-badge lens-badge-off" }))
+                .child(
+                    Column::new()
+                        .gap(2.0)
+                        .child(Text::new(it.title).class(if it.ok { "lens-row-title" } else { "lens-row-title lens-off" }))
+                        .child(Text::new(it.sub).max_lines(2).class(if it.ok { "lens-row-sub" } else { "lens-row-sub lens-fault" }))
+                        .width(170.0),
+                )
+                .child(if sel {
+                    centered(gl::CHECK, "lens-check", 24.0)
+                } else if !it.ok {
+                    centered(gl::BLOCK, "lens-block", 24.0)
+                } else {
+                    Box::new(Column::new().width(24.0)) as W
+                });
+            let class = match (sel, it.ok) {
+                (true, _) => "lens-row lens-row-sel",
+                (_, false) => "lens-row lens-row-off",
+                _ => "lens-row",
+            };
+            let item = DecoratedBox::new().child(row).class(class);
+            col = col.child(if it.ok {
+                Box::new(GestureDetector::new().on_click(move || {
+                    crate::haptic();
+                    crate::choose_lens(st, lens)
+                }).child(item)) as W
+            } else {
+                Box::new(item) as W
+            });
+        }
+        let card = Animated::new(DecoratedBox::new().child(Column::new().gap(4.0).child(Text::new("Задняя камера").class("lens-head")).child(col)).class("lens-menu"))
+            .opacity(Animation::tween(Easing::EaseOutQuad).from(0.0).to(1.0).duration_ms(140).build())
+            .translate_y(Animation::tween(Easing::EaseOutCubic).from(-8.0).to(0.0).duration_ms(180).build());
+        let vp = viewport_size().get_untracked();
+        vec![Box::new(
+            Stack::new()
+                .fit(StackFit::Expand)
+                .child(GestureDetector::new().on_click(move || st.lens_menu.set(false)).child(Column::new().width(vp.width).height(vp.height)))
+                .child(Positioned::new(card).at(ax, ay + 6.0)),
+        )]
+    })
+}
+
 /// Подсказки над низом кадра: QR-код (открыть, копировать) и «Ночь» в темноте.
 fn hints(st: St, pw: f32, ph: f32) -> impl Widget {
     Reactive::new(move || -> Vec<W> {
@@ -685,12 +862,12 @@ fn shutter_row(st: St, vertical: bool) -> impl Widget {
                         .fit(StackFit::Expand)
                         .child(Image::from_rgba(format!("thumb:{}:{}", t.key, t.w), t.w, t.h, t.rgba.to_vec()).fit(ImageFit::Cover).class("thumb-img"))
                         .child(if t.video {
-                            Box::new(Column::new().center().child(Icon::new(gl::PLAY).class("thumb-play"))) as W
+                            centered(gl::PLAY, "thumb-play", 52.0)
                         } else {
                             Box::new(Column::new()) as W
                         }),
                 ),
-                None => Box::new(Column::new().center().child(Icon::new(gl::PHOTO).class("thumb-empty"))),
+                None => centered(gl::PHOTO, "thumb-empty", 52.0),
             };
             Box::new(
                 GestureDetector::new()
@@ -999,6 +1176,8 @@ fn settings_sheet(st: St) -> impl Widget {
                     .child(Text::new("Настройки камеры").class("sheet-title grow"))
                     .child(icon_btn(gl::CLOSE, "", move || st.settings.set(false))),
             )
+            .child(Text::new("Камера").class("set-head"))
+            .child(setting_choice("Камера при запуске", st.start_cam, &[(1, "Основная"), (2, "Широкая"), (3, "Фронтальная"), (0, "Последняя")]))
             .child(Text::new("Фото").class("set-head"))
             .child(setting_choice("Соотношение сторон", st.aspect, &[(0, "4:3"), (1, "16:9"), (2, "1:1")]))
             .child(setting_toggle("Полное разрешение", "Основная камера 200 Мп, фронтальная 20 Мп (4:3); снимок — около 15 секунд", st.full_res))
@@ -1013,18 +1192,30 @@ fn settings_sheet(st: St) -> impl Widget {
             .child(setting_choice("Ускорение таймлапса", st.timelapse, &[(5, "×5"), (10, "×10"), (30, "×30"), (60, "×60")]))
             .child(Text::new("Хранение").class("set-head"))
             .child(Text::new(format!("Снимки — {}\nВидео — {}", pics.display(), vids.display())).max_lines(4).class("set-sub set-row"));
+        let vp = viewport_size().get_untracked();
+        let sheet_h = (vp.height * 0.8).min(720.0);
         vec![Box::new(
             Stack::new()
                 .fit(StackFit::Expand)
                 .child(GestureDetector::new().on_click(move || st.settings.set(false)).child(scrim()))
                 .child(
-                    Column::new()
-                        .main_axis_alignment(MainAxisAlignment::End)
-                        .child(
-                            Animated::new(DecoratedBox::new().child(ScrollView::new().vertical().child(body)).class("sheet"))
-                                .translate_y(Animation::tween(Easing::EaseOutCubic).from(80.0).to(0.0).duration_ms(220).build())
-                                .opacity(Animation::tween(Easing::EaseOutQuad).from(0.0).to(1.0).duration_ms(160).build()),
-                        ),
+                    Positioned::new(
+                        Animated::new(
+                            DecoratedBox::new()
+                                .child(
+                                    // высота задана явно (иначе низ уходил за экран и прокрутки не было); внизу —
+                                    // запас под скруглённые углы экрана
+                                    Column::new()
+                                        .width(vp.width - 36.0)
+                                        .height(sheet_h - 12.0)
+                                        .child(ScrollView::new().vertical().child(Column::new().child(body).child(Column::new().height(64.0))).class("grow")),
+                                )
+                                .class("sheet"),
+                        )
+                        .translate_y(Animation::tween(Easing::EaseOutCubic).from(80.0).to(0.0).duration_ms(220).build())
+                        .opacity(Animation::tween(Easing::EaseOutQuad).from(0.0).to(1.0).duration_ms(160).build()),
+                    )
+                    .at(0.0, vp.height - sheet_h),
                 ),
         )]
     })

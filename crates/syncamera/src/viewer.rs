@@ -222,7 +222,7 @@ pub fn view(st: St) -> W {
 }
 
 fn ib(glyph: &'static str, f: impl Fn() + Send + Sync + 'static) -> W {
-    Box::new(GestureDetector::new().on_click(f).child(DecoratedBox::new().child(Icon::new(glyph).class("ib-icon")).class("ib")))
+    Box::new(GestureDetector::new().on_click(f).child(DecoratedBox::new().child(crate::ui::centered(glyph, "ib-icon", 44.0)).class("ib")))
 }
 
 fn btn(label: &'static str, class: &'static str, f: impl Fn() + Send + Sync + 'static) -> W {
