@@ -477,7 +477,7 @@ Text {
 .start-pill-icon { icon-size: 16px; icon-color: var(--fg); }
 
 /* Источники меню: Linux / Android (по экземпляру) */
-.start-chips { height: 34px; }
+.start-chips { min-height: 34px; }
 .start-chip {
     padding: 6px 14px 6px 10px;
     border-radius: 999px;

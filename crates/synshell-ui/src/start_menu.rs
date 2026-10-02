@@ -63,6 +63,35 @@ fn source_apps(source: &Source) -> Vec<DesktopEntry> {
 
 /// Высота ряда чипов источников.
 const CHIPS_H: f32 = 40.0;
+/// Строка чипов (высота чипа) и зазор между строками, когда они переносятся.
+const CHIP_ROW_H: f32 = 34.0;
+const CHIP_GAP: f32 = 6.0;
+
+/// Подписи чипов источников: «Linux» и Android (несколько экземпляров — по названию каждого).
+fn chip_labels(instances: &[xdg::AndroidOrigin]) -> Vec<String> {
+    let mut v = vec!["Linux".to_string()];
+    for i in instances {
+        v.push(if instances.len() > 1 { i.title.clone() } else { "Android".into() });
+    }
+    v
+}
+
+/// Сколько строк займут чипы в ширине `avail`. Ширина подписи — по числу знаков с запасом (шрифт 13 px):
+/// ошибка в большую сторону даёт лишь зазор, в меньшую — низ меню уехал бы за край.
+fn chip_rows(labels: &[String], avail: f32) -> usize {
+    let (mut rows, mut x) = (1, 0.0f32);
+    for l in labels {
+        // поля 10 + 14, значок 18, зазор 6, рамка 2
+        let w = 50.0 + 7.8 * l.chars().count() as f32;
+        if x > 0.0 && x + CHIP_GAP + w > avail {
+            rows += 1;
+            x = w;
+        } else {
+            x += if x > 0.0 { CHIP_GAP + w } else { w };
+        }
+    }
+    rows
+}
 
 /// Вид меню: закреплённые или все приложения (поиск — поверх обоих).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -187,7 +216,13 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
             size(&ShellCtx::get())
         };
         let _ = w;
-        let chips_h = if instances.is_empty() { 0.0 } else { CHIPS_H };
+        let chips_h = if instances.is_empty() {
+            0.0
+        } else {
+            // меню: ширина листа минус поля `.start`
+            let rows = chip_rows(&chip_labels(&instances), w - 24.0 - 8.0);
+            CHIPS_H + (rows - 1) as f32 * (CHIP_ROW_H + CHIP_GAP)
+        };
         let mut col = Column::new().gap(14.0).child(search(st));
         if !instances.is_empty() {
             col = col.child(chips(st, instances.clone()));
@@ -262,13 +297,13 @@ fn chips(st: St, instances: Vec<xdg::AndroidOrigin>) -> impl Widget {
     rx(move || {
         let cur = st.source.get();
         let searching = !st.query.get().trim().is_empty();
-        let many = instances.len() > 1;
-        let mut items: Vec<(Source, String, &'static str)> = vec![(Source::Linux, "Linux".into(), mi::COMPUTER)];
-        for i in &instances {
-            let label = if many { i.title.clone() } else { "Android".into() };
+        let labels = chip_labels(&instances);
+        let mut items: Vec<(Source, String, &'static str)> = vec![(Source::Linux, labels[0].clone(), mi::COMPUTER)];
+        for (i, label) in instances.iter().zip(labels.into_iter().skip(1)) {
             items.push((Source::Android(i.instance.clone()), label, mi::ANDROID));
         }
-        let mut row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        // Не влезли в ширину меню (несколько экземпляров Android с длинными названиями) — переносятся
+        let mut row = Flex::row().gap(CHIP_GAP).wrap().cross_axis_alignment(CrossAxisAlignment::Center);
         for (src, label, glyph) in items {
             let on = cur == src && !searching;
             let android = matches!(src, Source::Android(_));
