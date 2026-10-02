@@ -209,6 +209,7 @@ struct Snapshot {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 struct Photo {
     ty: u32,
     size: u32,
@@ -569,10 +570,3 @@ pub fn snapshot(camera: u32, flash: u32, size: Option<(u32, u32)>, rotation: i32
     }
     Ok(out)
 }
-
-impl Clone for Photo {
-    fn clone(&self) -> Self {
-        Photo { ty: self.ty, size: self.size, width: self.width, height: self.height }
-    }
-}
-impl Copy for Photo {}

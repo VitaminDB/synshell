@@ -157,7 +157,7 @@ impl Mux {
             (*p).format = ffi::AVPixelFormat::AV_PIX_FMT_YUVJ420P as c_int;
             (*p).color_range = ffi::AVColorRange::AVCOL_RANGE_JPEG;
             (*st).time_base = ffi::AVRational { num: 1, den: 90000 };
-            if rot % 360 != 0 {
+            if !rot.is_multiple_of(360) {
                 // матрица отображения (tkhd)
                 let sd = ffi::av_packet_side_data_new(
                     &mut (*p).coded_side_data,
@@ -380,7 +380,7 @@ impl Recorder {
             return false;
         }
         self.count += 1;
-        if (self.count - 1) % self.every != 0 {
+        if !(self.count - 1).is_multiple_of(self.every) {
             return false;
         }
         match self.tx.try_send(Job::Frame(f)) {

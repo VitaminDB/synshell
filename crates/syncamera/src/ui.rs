@@ -131,7 +131,7 @@ fn portrait(st: St, vp: Size, stream: (u32, u32)) -> W {
     let (w, h) = (vp.width, vp.height);
     let (pw, ph) = preview_size(st, stream, w, h);
     // 4:3 и квадрат — под верхней панелью; высокое 16:9 — от верха, если не помещается
-    let py = if ph + TOP + BOTTOM <= h { TOP } else { ((h - BOTTOM - ph) / 2.0).max(0.0).min(TOP) };
+    let py = if ph + TOP + BOTTOM <= h { TOP } else { ((h - BOTTOM - ph) / 2.0).clamp(0.0, TOP) };
     let px = (w - pw) / 2.0;
     let top = Row::new()
         .main_axis_alignment(MainAxisAlignment::SpaceAround)
