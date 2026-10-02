@@ -54,7 +54,12 @@ impl State {
                 return;
             }
         };
-        self.core.xwayland = Some(XwaylandState { wm: None, display: None, shell_state });
+        // Номер дисплея известен сразу (сокет уже слушается): оболочка и
+        // окружение активации запускаются раньше Ready и должны получить DISPLAY,
+        // иначе X11-программы, запущенные из оболочки, не находят Xwayland.
+        let display_number = xwayland.display_number();
+        std::env::set_var("DISPLAY", format!(":{display_number}"));
+        self.core.xwayland = Some(XwaylandState { wm: None, display: Some(display_number), shell_state });
         let res = self.core.loop_handle.insert_source(xwayland, move |event, _, state| match event {
             XWaylandEvent::Ready { x11_socket, display_number } => {
                 match X11Wm::start_wm(state.core.loop_handle.clone(), x11_socket, client.clone()) {
@@ -64,9 +69,7 @@ impl State {
                         }
                         if let Some(x) = &mut state.core.xwayland {
                             x.wm = Some(wm);
-                            x.display = Some(display_number);
                         }
-                        std::env::set_var("DISPLAY", format!(":{display_number}"));
                         tracing::info!(display_number, "Xwayland готов");
                     }
                     Err(e) => tracing::warn!(?e, "X11Wm не запущен"),
