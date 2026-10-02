@@ -143,6 +143,9 @@ pub struct St {
     pub toast: RwSignal<String>,
     /// Долгий снимок идёт: подпись над кадром (ночь, полное разрешение).
     pub progress: RwSignal<String>,
+    /// QR-код в кадре и счётчик его появлений (подсказка гаснет, когда код ушёл из кадра).
+    pub qr: RwSignal<Option<String>>,
+    pub qr_seen: RwSignal<u64>,
     /// Поворот телефона по часовой (акселерометр).
     pub dev_rot: RwSignal<u32>,
     pub auto_rotate: bool,
@@ -208,10 +211,23 @@ fn main() {
                 settings: use_signal(false),
                 toast: use_signal(String::new()),
                 progress: use_signal(String::new()),
+                qr: use_signal(None),
+                qr_seen: use_signal(0),
                 dev_rot: use_signal(0),
                 auto_rotate,
             };
             start(st);
+            // отладка вида подсказки без камеры: SYNCAMERA_DEMO_QR=текст
+            if let Ok(t) = std::env::var("SYNCAMERA_DEMO_QR") {
+                std::thread::spawn(move || loop {
+                    let t = t.clone();
+                    run_on_main_thread(move || {
+                        st.qr.set(Some(t));
+                        st.qr_seen.set(st.qr_seen.get_untracked() + 1);
+                    });
+                    std::thread::sleep(Duration::from_secs(1));
+                });
+            }
             ui::root(st)
         });
 }
@@ -251,6 +267,12 @@ fn start(st: St) {
         }),
         Note::Started(w, h) => run_on_main_thread(move || st.stream_size.set((w, h))),
         Note::Status(s) => run_on_main_thread(move || st.status.set(s)),
+        Note::Qr(s) => run_on_main_thread(move || {
+            if st.qr.get_untracked().as_deref() != Some(s.as_str()) {
+                st.qr.set(Some(s));
+            }
+            st.qr_seen.set(st.qr_seen.get_untracked() + 1);
+        }),
     });
     st.engine.set(Some(eng));
     orientation::start(move |d| run_on_main_thread(move || st.dev_rot.set(d)));
@@ -334,6 +356,25 @@ fn start(st: St) {
             run_on_main_thread(move || {
                 if st.focus_seq.get_untracked() == seq && !st.locked.get_untracked() {
                     reset_focus(st);
+                }
+            });
+        });
+    });
+    // QR — только в «Фото»; подсказка гаснет через 3 с после последнего распознавания
+    create_effect(move || {
+        let on = st.mode.get() == Mode::Photo && st.engine.get().is_some();
+        with_engine(st, |e| e.set_qr(on));
+        if !on {
+            st.qr.set(None);
+        }
+    });
+    create_effect(move || {
+        let seq = st.qr_seen.get();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(3));
+            run_on_main_thread(move || {
+                if st.qr_seen.get_untracked() == seq {
+                    st.qr.set(None);
                 }
             });
         });

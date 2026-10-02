@@ -115,3 +115,9 @@ Text { color: #ffffff; font-size: 14px; }
 .shutter-col { padding: 12px 6px; }
 .vbar .chip { padding: 5px 7px; }
 .vbar .chip-text { font-size: 11px; }
+.hint { padding: 6px 8px 6px 12px; border-radius: 20px; background: #000000b3; max-width: 360px; }
+.hint-night { padding: 8px 14px; }
+.hint-icon { font-size: 20px; color: #ffd54f; }
+.hint-text { font-size: 13px; color: #ffffff; max-width: 170px; }
+.hint-btn { width: 36px; height: 36px; padding: 7px; border-radius: 18px; }
+.hint-btn .ib-icon { font-size: 20px; }

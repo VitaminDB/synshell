@@ -36,6 +36,8 @@ pub enum Note {
     Started(u32, u32),
     /// Состояние: занята, ошибка (текст), пусто — всё хорошо.
     Status(String),
+    /// В кадре QR-код (содержимое).
+    Qr(String),
 }
 
 type NoteFn = Arc<dyn Fn(Note) + Send + Sync>;
@@ -57,6 +59,9 @@ struct Inner {
     last: Mutex<Option<(u32, u32, Arc<[u8]>)>>,
     /// Серия кадров полного размера («Ночь»): сколько нужно, собранные, куда отдать.
     burst: Mutex<Option<Burst>>,
+    /// Искать QR-коды в кадре (режим «Фото»).
+    qr: AtomicBool,
+    qr_tx: Mutex<Option<std::sync::mpsc::SyncSender<(Vec<u8>, usize, usize)>>>,
 }
 
 struct Burst {
@@ -91,7 +96,30 @@ impl Engine {
                 pending: AtomicU32::new(0),
                 last: Mutex::new(None),
                 burst: Mutex::new(None),
+                qr: AtomicBool::new(false),
+                qr_tx: Mutex::new(None),
             }),
+        }
+    }
+
+    /// Искать QR-коды (фоновый поток распознаёт уменьшенную яркость раз в ~0,3 с).
+    pub fn set_qr(&self, on: bool) {
+        self.inner.qr.store(on, Ordering::Relaxed);
+        let mut tx = self.inner.qr_tx.lock().unwrap();
+        if on && tx.is_none() {
+            let (t, rx) = std::sync::mpsc::sync_channel::<(Vec<u8>, usize, usize)>(1);
+            *tx = Some(t);
+            let note = self.inner.note.clone();
+            std::thread::Builder::new()
+                .name("qr".into())
+                .spawn(move || {
+                    while let Ok((y, w, h)) = rx.recv() {
+                        if let Some(s) = detect_qr(&y, w, h) {
+                            note(Note::Qr(s));
+                        }
+                    }
+                })
+                .ok();
         }
     }
 
@@ -193,6 +221,36 @@ impl Engine {
     }
 }
 
+/// Содержимое первого читаемого QR-кода в яркости `w × h`.
+pub fn detect_qr(y: &[u8], w: usize, h: usize) -> Option<String> {
+    let mut img = rqrr::PreparedImage::prepare_from_greyscale(w, h, |x, yy| y[yy * w + x]);
+    img.detect_grids().into_iter().find_map(|g| g.decode().ok().map(|(_, s)| s))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn qr_from_luma() {
+        let code = qrcode::QrCode::new(b"https://example.org/syncamera").unwrap();
+        let n = code.width();
+        let colors = code.to_colors();
+        // код 6 px на модуль с полями, по центру серого кадра 720×540
+        let (w, h, k, off) = (720usize, 540usize, 6usize, 120usize);
+        let mut y = vec![150u8; w * h];
+        for (i, c) in colors.iter().enumerate() {
+            let (mx, my) = (i % n, i / n);
+            let v = if *c == qrcode::Color::Dark { 20 } else { 235 };
+            for dy in 0..k {
+                for dx in 0..k {
+                    y[(off + my * k + dy) * w + off + mx * k + dx] = v;
+                }
+            }
+        }
+        // поле вокруг кода — светлое
+        assert_eq!(super::detect_qr(&y, w, h).as_deref(), Some("https://example.org/syncamera"));
+    }
+}
+
 fn session(inner: Arc<Inner>, gen: u64, spec: OpenSpec) {
     let alive = || inner.gen.load(Ordering::SeqCst) == gen;
     let mut busy_said = false;
@@ -244,6 +302,7 @@ fn session(inner: Arc<Inner>, gen: u64, spec: OpenSpec) {
 fn run(inner: &Inner, stream: &Arc<Stream>, gen: u64) {
     let info = stream.info;
     let mut pool: Vec<Arc<[u8]>> = Vec::new();
+    let mut qr_tick = 0u32;
     loop {
         let ev = match stream.next() {
             Ok(e) => e,
@@ -316,6 +375,25 @@ fn run(inner: &Inner, stream: &Arc<Stream>, gen: u64) {
                     let bu = b.take().unwrap();
                     let _ = bu.tx.send((bu.frames, info.format == proto::FMT_NV21));
                 }
+            }
+        }
+        // QR: уменьшенная яркость (до ~720 по ширине) — фоновому потоку, если он свободен
+        qr_tick += 1;
+        if inner.qr.load(Ordering::Relaxed) && qr_tick % 10 == 0 {
+            if let Some(tx) = inner.qr_tx.lock().unwrap().as_ref() {
+                let k = (info.width as usize).div_ceil(720).max(1);
+                let (w, h) = (info.width as usize / k, info.height as usize / k);
+                let mut y = vec![0u8; w * h];
+                stream.begin(f.buf);
+                let d = stream.data(f.buf);
+                for r in 0..h {
+                    let row = &d[r * k * info.stride as usize..];
+                    for c in 0..w {
+                        y[r * w + c] = row[c * k];
+                    }
+                }
+                stream.end(f.buf);
+                let _ = tx.try_send((y, w, h));
             }
         }
         let taken = inner.recorder.lock().unwrap().as_mut().is_some_and(|r| r.push(f));

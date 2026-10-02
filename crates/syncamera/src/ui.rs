@@ -39,6 +39,8 @@ pub mod gl {
     pub const OPEN: &str = "\u{E89E}";
     pub const INFO: &str = "\u{E88E}";
     pub const NIGHT: &str = "\u{EA46}";
+    pub const QR: &str = "\u{EF6B}";
+    pub const COPY: &str = "\u{E14D}";
     pub const CHEVRON_L: &str = "\u{E5CB}";
     pub const CHEVRON_R: &str = "\u{E5CC}";
     pub const WB: [&str; 5] = ["\u{E42C}", "\u{E42E}", "\u{E436}", "\u{E430}", "\u{E42D}"];
@@ -356,7 +358,8 @@ fn preview(st: St, pw: f32, ph: f32, px: f32, py: f32) -> W {
                 .child(blink(st, pw, ph))
                 .child(switch_dim(st, pw, ph))
                 .child(center_overlay(st))
-                .child(ev_bar(st, pw, ph)),
+                .child(ev_bar(st, pw, ph))
+                .child(hints(st, pw, ph)),
         );
     Box::new(Column::new().width(pw).height(ph).clip(true).child(Stack::new().fit(StackFit::Expand).child(gest)).class("preview"))
 }
@@ -509,6 +512,69 @@ fn ev_bar(st: St, pw: f32, ph: f32) -> impl Widget {
             .width(w)
             .class("ev-bar");
         vec![Box::new(Stack::new().fit(StackFit::Expand).child(Positioned::new(bar).at((pw - w) / 2.0, ph - 64.0)))]
+    })
+}
+
+/// Подсказки над низом кадра: QR-код (открыть, копировать) и «Ночь» в темноте.
+fn hints(st: St, pw: f32, ph: f32) -> impl Widget {
+    Reactive::new(move || -> Vec<W> {
+        let mode = st.mode.get();
+        let qr = st.qr.get();
+        let meta = st.meta.get();
+        let focus = st.focus_pt.get().is_some();
+        let mut col = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        let mut any = false;
+        if let Some(text) = qr {
+            let url = text.starts_with("http://") || text.starts_with("https://");
+            let t1 = text.clone();
+            let t2 = text.clone();
+            let mut row = Row::new()
+                .gap(8.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(Icon::new(gl::QR).class("hint-icon"))
+                .child(Column::new().width(if url { pw - 170.0 } else { pw - 120.0 }.clamp(60.0, 260.0)).clip(true).child(Text::new(text.clone()).max_lines(1).class("hint-text")));
+            if url {
+                row = row.child(icon_btn(gl::OPEN, "hint-btn", move || {
+                    let _ = std::process::Command::new("xdg-open").arg(&t1).spawn();
+                }));
+            }
+            row = row.child(icon_btn(gl::COPY, "hint-btn", move || {
+                use std::io::Write;
+                if let Ok(mut c) = std::process::Command::new("wl-copy").stdin(std::process::Stdio::piped()).spawn() {
+                    if let Some(i) = c.stdin.as_mut() {
+                        let _ = i.write_all(t2.as_bytes());
+                    }
+                    let _ = c.wait();
+                }
+                st.toast.set("Скопировано".into());
+            }));
+            col = col.child(DecoratedBox::new().child(row).class("hint"));
+            any = true;
+        }
+        // темно: ISO высокий и выдержка длинная — предложить «Ночь», как Pixel
+        if mode == Mode::Photo && meta.iso >= 1600 && meta.exposure_ns >= 30_000_000 {
+            col = col.child(
+                GestureDetector::new().on_click(move || st.mode.set(Mode::Night)).child(
+                    DecoratedBox::new()
+                        .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(gl::NIGHT).class("hint-icon")).child(Text::new("Темно — включить «Ночь»").class("hint-text")))
+                        .class("hint hint-night"),
+                ),
+            );
+            any = true;
+        }
+        if !any {
+            return vec![];
+        }
+        let bottom = if focus { 76.0 } else { 16.0 };
+        vec![Box::new(
+            Column::new()
+                .main_axis_alignment(MainAxisAlignment::End)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(Column::new().width(pw).cross_axis_alignment(CrossAxisAlignment::Center).child(col))
+                .child(Column::new().width(1.0).height(bottom))
+                .width(pw)
+                .height(ph),
+        )]
     })
 }
 
