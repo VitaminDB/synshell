@@ -31,6 +31,9 @@ struct St {
     tick: RwSignal<i64>,
     /// Клавиатура тонов на экране разговора.
     dtmf_open: RwSignal<bool>,
+    /// Громкая связь и выключенный микрофон (голос разговора — palaudiod).
+    speaker: RwSignal<bool>,
+    muted: RwSignal<bool>,
     /// Индексы для ShowIf (Reactive отдаёт детям свободные ограничения — экраны во всю высоту через ShowIf):
     /// 0 — обычный экран, 1 — разговор; вкладка 0 — набор, 1 — журнал.
     mode: RwSignal<usize>,
@@ -59,12 +62,19 @@ fn main() {
                 toast: use_signal(String::new()),
                 tick: use_signal(tm::now()),
                 dtmf_open: use_signal(false),
+                speaker: use_signal(false),
+                muted: use_signal(false),
                 mode: use_signal(0),
                 page: use_signal(usize::from(log)),
             };
             create_effect(move || {
                 let calls = st.status.get().is_some_and(|s| !s.calls.is_empty());
                 st.mode.set(usize::from(calls));
+                // Звонок кончился — palaudiod сбрасывает громкую связь и микрофон
+                if !calls {
+                    st.speaker.set(false);
+                    st.muted.set(false);
+                }
             });
             create_effect(move || st.page.set(if st.tab.get() == Tab::Log { 1 } else { 0 }));
             watch(st);
@@ -463,6 +473,29 @@ fn dtmf(st: St, c: char) {
     act(st, Request::Dtmf { id, digit: c });
 }
 
+/// Команда голосу разговора в palaudiod (сокет управления, группа audio); в фоне.
+fn voice_cmd(st: St, cmd: String) {
+    std::thread::spawn(move || {
+        use std::io::{BufRead, BufReader, Write};
+        let r = (|| -> std::io::Result<String> {
+            let mut s = std::os::unix::net::UnixStream::connect("/run/palaudio/control")?;
+            s.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
+            s.write_all(format!("{cmd}\n").as_bytes())?;
+            let mut line = String::new();
+            BufReader::new(s).read_line(&mut line)?;
+            Ok(line)
+        })();
+        let err = match r {
+            Ok(l) if l.contains("\"error\"") => Some(l),
+            Ok(_) => None,
+            Err(e) => Some(e.to_string()),
+        };
+        if let Some(e) = err {
+            syngui::async_runtime::run_on_main_thread(move || st.toast.set(format!("Звук разговора: {}", e.trim())));
+        }
+    });
+}
+
 fn state_text(c: &Call, now: i64) -> String {
     match c.state {
         CallState::Dialing => "Вызов…".into(),
@@ -515,14 +548,32 @@ fn in_call(st: St) -> W {
             )];
         }
         let open = st.dtmf_open.get();
+        let speaker = st.speaker.get();
+        let muted = st.muted.get();
         let mut col = Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Center);
         if open {
             col = col.child(keypad(move |c| dtmf(st, c), false));
         }
+        let soft = |on: bool| if on { "round-soft round-soft-on" } else { "round-soft" };
         col = col.child(
             Row::new()
                 .main_axis_alignment(MainAxisAlignment::SpaceAround)
-                .child(round("\u{E0BC}", if open { "round-soft round-soft-on" } else { "round-soft" }, "Клавиши", move || st.dtmf_open.set(!st.dtmf_open.get_untracked())))
+                .child(round(if muted { "\u{E02B}" } else { "\u{E029}" }, soft(muted), if muted { "Микрофон выкл." } else { "Микрофон" }, move || {
+                    let on = !st.muted.get_untracked();
+                    st.muted.set(on);
+                    voice_cmd(st, format!("voice-mute {}", if on { "on" } else { "off" }));
+                }))
+                .child(round("\u{E050}", soft(speaker), "Динамик", move || {
+                    let on = !st.speaker.get_untracked();
+                    st.speaker.set(on);
+                    voice_cmd(st, format!("voice-route {}", if on { "speaker" } else { "auto" }));
+                }))
+                .child(round("\u{E0BC}", soft(open), "Клавиши", move || st.dtmf_open.set(!st.dtmf_open.get_untracked())))
+                .class("call-buttons"),
+        );
+        col = col.child(
+            Row::new()
+                .main_axis_alignment(MainAxisAlignment::SpaceAround)
                 .child(round("\u{E0B1}", "round-red", "Завершить", move || {
                     for id in active.clone() {
                         act(st, Request::Hangup { id });
