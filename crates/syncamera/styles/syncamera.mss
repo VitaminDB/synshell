@@ -111,3 +111,4 @@ Text { color: #ffffff; font-size: 14px; }
 .toast-place { padding: 0px 16px 260px 16px; width: 100%; height: 100%; }
 .toast { padding: 10px 16px; border-radius: 999px; background: #ffffffee; }
 .toast-text { font-size: 13px; color: #000000; }
+.switch-dim { background: #000000b3; }

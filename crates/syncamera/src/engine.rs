@@ -11,6 +11,7 @@ use anyhow::{anyhow, Result};
 use syngui::widgets::LiveFrame;
 
 use crate::convert::{self, Src};
+use crate::night;
 use crate::proto::{self, Camera, Control, Meta, Stream};
 use crate::recorder::{self, Recorder};
 
@@ -54,6 +55,14 @@ struct Inner {
     pending: AtomicU32,
     /// Последний кадр превью (миниатюра снимка).
     last: Mutex<Option<(u32, u32, Arc<[u8]>)>>,
+    /// Серия кадров полного размера («Ночь»): сколько нужно, собранные, куда отдать.
+    burst: Mutex<Option<Burst>>,
+}
+
+struct Burst {
+    want: usize,
+    frames: Vec<night::Frame>,
+    tx: std::sync::mpsc::Sender<(Vec<night::Frame>, bool)>,
 }
 
 #[derive(Clone)]
@@ -81,6 +90,7 @@ impl Engine {
                 mirror: AtomicBool::new(false),
                 pending: AtomicU32::new(0),
                 last: Mutex::new(None),
+                burst: Mutex::new(None),
             }),
         }
     }
@@ -144,6 +154,13 @@ impl Engine {
 
     pub fn ctl(&self) -> Control {
         *self.inner.ctl.lock().unwrap()
+    }
+
+    /// Собрать `n` следующих кадров потока целиком; ответ — кадры и «пары цветности V,U» (NV21).
+    pub fn burst(&self, n: usize) -> std::sync::mpsc::Receiver<(Vec<night::Frame>, bool)> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        *self.inner.burst.lock().unwrap() = Some(Burst { want: n.max(1), frames: Vec::new(), tx });
+        rx
     }
 
     pub fn recording(&self) -> bool {
@@ -282,6 +299,24 @@ fn run(inner: &Inner, stream: &Arc<Stream>, gen: u64) {
             pool.truncate(4);
             inner.pending.store(1, Ordering::Release);
             (inner.note)(Note::Frame);
+        }
+        {
+            let mut b = inner.burst.lock().unwrap();
+            if let Some(bu) = b.as_mut() {
+                stream.begin(f.buf);
+                bu.frames.push(night::Frame::copy_from(
+                    stream.data(f.buf),
+                    info.width as usize,
+                    info.height as usize,
+                    info.stride as usize,
+                    info.scanlines as usize,
+                ));
+                stream.end(f.buf);
+                if bu.frames.len() >= bu.want {
+                    let bu = b.take().unwrap();
+                    let _ = bu.tx.send((bu.frames, info.format == proto::FMT_NV21));
+                }
+            }
         }
         let taken = inner.recorder.lock().unwrap().as_mut().is_some_and(|r| r.push(f));
         if !taken {

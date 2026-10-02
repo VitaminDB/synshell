@@ -30,8 +30,9 @@ pub mod gl {
     pub const BACK: &str = "\u{E5C4}";
     pub const MIC: &str = "\u{E029}";
     pub const MIC_OFF: &str = "\u{E02B}";
-    pub const TORCH_ON: &str = "\u{F00A}";
-    pub const TORCH_OFF: &str = "\u{F009}";
+    // фонарик — значки вспышки (flashlight_* в этом шрифте рисуются иначе)
+    pub const TORCH_ON: &str = "\u{E3E7}";
+    pub const TORCH_OFF: &str = "\u{E3E6}";
     pub const SUN: &str = "\u{E3AB}";
     pub const LOCK: &str = "\u{E897}";
     pub const PHOTO: &str = "\u{E412}";
@@ -350,6 +351,7 @@ fn preview(st: St, pw: f32, ph: f32, px: f32, py: f32) -> W {
                 .child(grid(st, pw, ph))
                 .child(focus_overlay(st, pw, ph))
                 .child(blink(st, pw, ph))
+                .child(switch_dim(st, pw, ph))
                 .child(center_overlay(st))
                 .child(ev_bar(st, pw, ph)),
         );
@@ -408,11 +410,25 @@ fn blink(st: St, pw: f32, ph: f32) -> impl Widget {
     })
 }
 
+/// Камера переключается (кадров нового сеанса ещё нет) — старый кадр притушить.
+fn switch_dim(st: St, pw: f32, ph: f32) -> impl Widget {
+    Reactive::new(move || -> Vec<W> {
+        if st.stream_size.get() != (0, 0) {
+            return vec![];
+        }
+        vec![Box::new(
+            Animated::new(Column::new().width(pw).height(ph).class("switch-dim"))
+                .opacity(Animation::tween(Easing::EaseOutQuad).from(0.0).to(1.0).duration_ms(180).build()),
+        )]
+    })
+}
+
 /// Отсчёт таймера, состояние камеры, зум при щипке.
 fn center_overlay(st: St) -> impl Widget {
     Reactive::new(move || -> Vec<W> {
         let n = st.countdown.get();
         let status = st.status.get();
+        let progress = st.progress.get();
         let zooming = st.zooming.get();
         let mut col = Column::new().main_axis_alignment(MainAxisAlignment::Center).cross_axis_alignment(CrossAxisAlignment::Center).gap(10.0);
         let mut any = false;
@@ -422,6 +438,21 @@ fn center_overlay(st: St) -> impl Widget {
         }
         if !status.is_empty() {
             col = col.child(DecoratedBox::new().child(Text::new(status).max_lines(3).class("status-text")).class("status"));
+            any = true;
+        }
+        if !progress.is_empty() {
+            col = col.child(
+                DecoratedBox::new()
+                    .child(
+                        Row::new()
+                            .gap(10.0)
+                            .cross_axis_alignment(CrossAxisAlignment::Center)
+                            .child(Column::new().width(22.0).height(22.0).child(CircularProgress::new().indeterminate().size(22.0).stroke_width(2.5)))
+                            .child(Text::new(progress).max_lines(2).class("status-text"))
+                            .height(40.0),
+                    )
+                    .class("status"),
+            );
             any = true;
         }
         if zooming {

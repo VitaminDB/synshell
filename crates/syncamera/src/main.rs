@@ -9,6 +9,7 @@
 mod convert;
 mod engine;
 mod media;
+mod night;
 mod orientation;
 mod prefs;
 mod proto;
@@ -140,6 +141,8 @@ pub struct St {
     pub viewer: RwSignal<Option<usize>>,
     pub settings: RwSignal<bool>,
     pub toast: RwSignal<String>,
+    /// Долгий снимок идёт: подпись над кадром (ночь, полное разрешение).
+    pub progress: RwSignal<String>,
     /// Поворот телефона по часовой (акселерометр).
     pub dev_rot: RwSignal<u32>,
     pub auto_rotate: bool,
@@ -204,6 +207,7 @@ fn main() {
                 viewer: use_signal(None),
                 settings: use_signal(false),
                 toast: use_signal(String::new()),
+                progress: use_signal(String::new()),
                 dev_rot: use_signal(0),
                 auto_rotate,
             };
@@ -417,7 +421,12 @@ fn reopen(st: St) {
     }
     let Some(cam) = current_cam(st) else { return };
     let mode = st.mode.get_untracked();
-    let spec = if mode.video() {
+    let spec = if mode == Mode::Night {
+        // серия кадров полного размера: снимок собирается из них (night.rs)
+        let (aw, ah) = aspect_ratio(st.aspect.get_untracked());
+        let (w, h) = cam.yuv_for(aw, ah, 4096).or_else(|| cam.yuv_for(4, 3, 4096)).unwrap_or((1920, 1440));
+        OpenSpec { cam, width: w, height: h, fps: 30, video: false, jpeg: None }
+    } else if mode.video() {
         let (w, h) = video_size(st.video_q.get_untracked());
         let ok = cam.sizes().iter().any(|s| s.width == w && s.height == h);
         let (w, h) = if ok { (w, h) } else { cam.yuv_for(16, 9, 1920).unwrap_or((1280, 720)) };
@@ -688,9 +697,73 @@ fn grab_thumb(st: St, video: bool) -> Option<(u32, u32, Vec<u8>)> {
     Some(t)
 }
 
+/// Поворот снимка для EXIF: датчик и телефон (у фронтальной — в обратную сторону).
+fn photo_rot(st: St, cam: &Camera) -> u32 {
+    record_rot(st, cam)
+}
+
+/// «Ночь»: серия кадров с потока → слияние → JPEG.
+fn night_shot(st: St, cam: Camera) {
+    let Some(e) = st.engine.get_untracked() else { return };
+    st.busy.set(true);
+    if st.sound.get_untracked() {
+        sound::play(sound::Sound::Shutter);
+    }
+    haptic();
+    let thumb = grab_thumb(st, false);
+    // кадров: чем длиннее выдержка, тем меньше (серия ~1–1,5 с)
+    let exp = st.meta.get_untracked().exposure_ns;
+    let n = if exp >= 100_000_000 {
+        5
+    } else if exp >= 50_000_000 {
+        7
+    } else {
+        10
+    };
+    let rot = photo_rot(st, &cam);
+    st.progress.set("Съёмка — держите телефон неподвижно".into());
+    let rx = e.burst(n);
+    std::thread::spawn(move || {
+        let r = (|| -> anyhow::Result<std::path::PathBuf> {
+            let (frames, vu) = rx.recv_timeout(Duration::from_secs(15)).map_err(|_| anyhow::anyhow!("кадры серии не пришли"))?;
+            run_on_main_thread(move || {
+                st.blink.set(st.blink.get_untracked() + 1);
+                st.progress.set("Обработка ночного снимка…".into());
+            });
+            let t = std::time::Instant::now();
+            let mut m = night::merge(frames);
+            night::tone(&mut m);
+            let jpeg = night::to_jpeg(&m, vu, 95)?;
+            let jpeg = night::add_exif(&jpeg, night::exif_orientation(rot));
+            tracing::info!("ночь: {n} кадров {}×{} за {:.1} с", m.w, m.h, t.elapsed().as_secs_f32());
+            let path = media::new_path(Kind::Photo);
+            std::fs::write(&path, &jpeg)?;
+            if let Some((w, h, rgba)) = &thumb {
+                media::save_thumb(&path, *w, *h, rgba);
+            }
+            Ok(path)
+        })();
+        run_on_main_thread(move || {
+            st.busy.set(false);
+            st.progress.set(String::new());
+            match r {
+                Ok(p) => {
+                    tracing::info!("снимок: {}", p.display());
+                    reload_items(st, false);
+                }
+                Err(e) => st.toast.set(format!("Ночной снимок не получился: {e:#}")),
+            }
+        });
+    });
+}
+
 pub fn take_photo(st: St) {
     let Some(cam) = current_cam(st) else { return };
     let mode = st.mode.get_untracked();
+    if mode == Mode::Night && st.rec.get_untracked() == Rec::Idle {
+        night_shot(st, cam);
+        return;
+    }
     st.busy.set(true);
     if st.sound.get_untracked() {
         sound::play(sound::Sound::Shutter);
@@ -707,9 +780,7 @@ pub fn take_photo(st: St) {
     let flags = if manual_focus || recording { proto::SNAP_NO_AF } else { 0 };
     let rot = st.dev_rot.get_untracked() as i32;
     if full {
-        st.toast.set("Съёмка в полном разрешении — около 15 секунд…".into());
-    } else if mode == Mode::Night {
-        st.toast.set("Ночь: держите телефон неподвижно…".into());
+        st.progress.set("Полное разрешение — около 15 секунд…".into());
     }
     std::thread::spawn(move || {
         let r = proto::snapshot(cam.id, flash, size, rot, flags).and_then(|jpeg| {
@@ -722,6 +793,7 @@ pub fn take_photo(st: St) {
         });
         run_on_main_thread(move || {
             st.busy.set(false);
+            st.progress.set(String::new());
             match r {
                 Ok(p) => {
                     tracing::info!("снимок: {}", p.display());

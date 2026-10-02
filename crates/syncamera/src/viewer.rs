@@ -234,7 +234,9 @@ fn video_view(pl: Arc<Mutex<VideoPlayer>>, pos: RwSignal<f32>, paused: RwSignal<
     let video = VideoView::new(pl.clone()).position_signal(pos).fit(ImageFit::Contain).class("viewer-video");
     let p2 = pl.clone();
     let play = Reactive::new(move || -> Vec<W> {
-        let is_paused = paused.get();
+        // позиция — чтобы заметить конец ролика
+        let _ = (paused.get(), pos.get());
+        let is_paused = p2.lock().map(|p| p.is_paused() || p.is_ended()).unwrap_or(true);
         let p = p2.clone();
         vec![ib(if is_paused { gl::PLAY } else { gl::PAUSE }, move || {
             if let Ok(mut p) = p.lock() {
