@@ -20,6 +20,11 @@ thread_local! {
     static VISIBLE: Cell<Option<RwSignal<bool>>> = const { Cell::new(None) };
 }
 
+/// Поля поверхности вокруг карточки под её тень (`box-shadow` тем — до
+/// `0 20px 50px`); = padding `.osd-surface`.
+const PAD: u32 = 48;
+const PAD_BOTTOM: u32 = 72;
+
 static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 /// Показать (из любого потока).
@@ -81,15 +86,18 @@ pub fn install(ctx: ShellCtx) {
                     namespace: "syndesktop-osd".into(),
                     layer: Layer::Overlay,
                     anchor: Anchor::BOTTOM,
-                    size: (if busy { 380 } else { 300 }, 64),
-                    margin: [0, 0, 120, 0],
+                    // Поля внутри поверхности — место под тень карточки (иначе
+                    // край поверхности обрезает её в тёмный прямоугольник).
+                    size: (if busy { 380 } else { 300 } + 2 * PAD, 64 + PAD + PAD_BOTTOM),
+                    margin: [0, 0, 120 - PAD_BOTTOM as i32, 0],
                     exclusive_zone: -1,
                     keyboard: KeyboardInteractivity::None,
                     ..Default::default()
                 },
                 move || {
                     let dur = crate::anim::ms(&ctx, 220);
-                    Box::new(
+                    Box::new(boxed(
+                        "osd-surface",
                         Presence::signal(visible, move || Box::new(view(ctx)))
                             .enter(Motion::fade().slide(0.0, 14.0).scale(0.96))
                             .exit(Motion::fade().scale(0.97))
@@ -105,10 +113,12 @@ pub fn install(ctx: ShellCtx) {
                                     }
                                 }
                             }),
-                    )
+                    ))
                 },
             );
             *sid.lock().unwrap() = Some(id);
+            // Поля под тень пропускают указатель к окнам под ними.
+            syngui_layer::set_input_region(id, Some(Vec::new()));
             SURFACE.with(|s| s.set(Some(id)));
             VISIBLE.with(|v| v.set(Some(visible)));
         }

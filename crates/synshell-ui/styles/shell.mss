@@ -289,6 +289,8 @@ Text {
 
 /* ─── OSD ────────────────────────────────────────────────────────────────── */
 
+/* Поля поверхности под тень карточки; = PAD/PAD_BOTTOM в osd.rs. */
+.osd-surface { flex-grow: 1; padding: 48px 48px 72px 48px; }
 .osd {
     flex-grow: 1;
     padding: 14px 20px;
