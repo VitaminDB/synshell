@@ -270,6 +270,21 @@ fn start(st: St) {
         let _ = (st.cams.get(), st.mode.get(), st.front.get(), st.lens.get(), st.aspect.get(), st.video_q.get(), st.full_res.get());
         reopen(st);
     });
+    // просмотр снятого открыт — камера выключена (не греет телефон под просмотром)
+    let was_open = std::cell::Cell::new(false);
+    create_effect(move || {
+        let open = st.viewer.get().is_some();
+        if open == was_open.replace(open) {
+            return;
+        }
+        if open {
+            if st.rec.get_untracked() == Rec::Idle {
+                with_engine(st, |e| e.close());
+            }
+        } else {
+            reopen(st);
+        }
+    });
     // поворот превью: окно, ориентация телефона, камера
     create_effect(move || {
         let _ = (st.dev_rot.get(), st.front.get(), st.lens.get(), st.cams.get(), viewport_size().get());
@@ -437,6 +452,10 @@ fn reopen(st: St) {
     st.focus_pt.set(None);
     st.locked.set(false);
     st.stream_size.set((0, 0));
+    if mode != Mode::Pro {
+        st.ev.set(0);
+        c.ev = 0;
+    }
     with_engine(st, |e| {
         e.set_rotation(preview_rot(st, &cam), cam.front());
         e.open(spec, c);
@@ -555,14 +574,22 @@ pub fn tap_focus(st: St, u: f32, v: f32, lock: bool) {
     }
 }
 
+/// Точку фокуса сбросить (непрерывный автофокус); яркость — к нулю, кроме ручного режима.
 pub fn reset_focus(st: St) {
     st.focus_pt.set(None);
     st.locked.set(false);
+    let keep_ev = st.mode.get_untracked() == Mode::Pro;
+    if !keep_ev {
+        st.ev.set(0);
+    }
     with_engine(st, |e| {
-        e.control(proto::CTL_POINT | proto::CTL_AE_LOCK, |c| {
+        e.control(proto::CTL_POINT | proto::CTL_AE_LOCK | if keep_ev { 0 } else { proto::CTL_EV }, |c| {
             c.x = -1.0;
             c.y = -1.0;
             c.ae_lock = 0;
+            if !keep_ev {
+                c.ev = 0;
+            }
         })
     });
 }

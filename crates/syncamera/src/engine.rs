@@ -250,7 +250,9 @@ fn run(inner: &Inner, stream: &Arc<Stream>, gen: u64) {
         if inner.pending.load(Ordering::Acquire) == 0 {
             let rot = inner.rot.load(Ordering::Relaxed);
             let mirror = inner.mirror.load(Ordering::Relaxed);
-            let step = if info.width.max(info.height) > 2000 { 2 } else { 1 };
+            // превью не больше ~2,2 Мп: 1080p и 1440×1080 — как есть, 1:1 и 4K — через пиксель
+            let px = info.width as usize * info.height as usize;
+            let step = (1..4).find(|k| px / (k * k) <= 2_200_000).unwrap_or(4);
             let (ow, oh) = convert::out_size(info.width as usize, info.height as usize, rot, step);
             let need = ow * oh * 4;
             // буфер из пула, который никто больше не держит
@@ -268,8 +270,12 @@ fn run(inner: &Inner, stream: &Arc<Stream>, gen: u64) {
                 scanlines: info.scanlines as usize,
                 vu: info.format == proto::FMT_NV21,
             };
+            let t = std::time::Instant::now();
             convert::to_rgba(&src, rot, mirror, step, data);
             stream.end(f.buf);
+            if std::env::var_os("SYNCAMERA_TIMING").is_some() {
+                eprintln!("превью {}×{} шаг {step}: {:.1} мс", ow, oh, t.elapsed().as_secs_f64() * 1e3);
+            }
             inner.preview.set(ow as u32, oh as u32, buf.clone());
             *inner.last.lock().unwrap() = Some((ow as u32, oh as u32, buf.clone()));
             pool.push(buf);

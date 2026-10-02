@@ -1,6 +1,8 @@
-//! Запись видео: кадры камеры → NV12 с поворотом → аппаратный кодер V4L2 (`venc.c`, H.264/HEVC) → MP4
-//! (libavformat); звук — микрофон (cpal → PipeWire) → AAC (кодер FFmpeg).
+//! Запись видео: кадры камеры → NV12 → аппаратный кодер V4L2 (`venc.c`, H.264/HEVC, несколько кадров в
+//! работе) → MP4 (libavformat); звук — микрофон (cpal → PipeWire) → AAC (кодер FFmpeg).
 //!
+//! Кадры кодируются как их отдаёт датчик, поворот под ориентацию телефона — матрицей отображения потока
+//! (`tkhd` в MP4, как у камер телефонов): без поворота пикселей 4K30 успевает.
 //! Кадр камеры копируется в буфер кодера в потоке кодера и сразу возвращается syncamd. Метки времени
 //! видео — время экспозиции кадров (CLOCK_BOOTTIME), паузы вырезаются; звук идёт непрерывным счётчиком
 //! отсчётов от первого кадра (паузы отбрасывают его отсчёты). Таймлапс — каждый N-й кадр с шагом 1/fps,
@@ -54,14 +56,15 @@ extern "C" {
     fn venc_close(e: *mut Venc);
     fn venc_in_fd(e: *mut Venc, i: u32) -> c_int;
     fn venc_free_input(e: *mut Venc) -> c_int;
-    fn venc_encode(e: *mut Venc, i: u32, force_key: c_int, ts_us: u64, timeout_ms: c_int, out: *mut *const u8, key: *mut c_int) -> c_long;
+    fn venc_queue(e: *mut Venc, i: u32, force_key: c_int, ts_us: u64) -> c_int;
+    fn venc_dequeue(e: *mut Venc, timeout_ms: c_int, out: *mut *const u8, ts_us: *mut u64, key: *mut c_int) -> c_long;
 }
 
 /// Параметры записи.
 #[derive(Clone, Debug)]
 pub struct Settings {
     pub path: PathBuf,
-    /// Поворот кадра по часовой (градусы) — видео пишется уже повёрнутым.
+    /// Поворот показа по часовой (градусы) — в матрицу отображения MP4.
     pub rot: u32,
     pub fps: u32,
     pub bitrate: u32,
@@ -80,6 +83,10 @@ pub struct Shared {
     pub duration_us: AtomicU64,
     pub bytes: AtomicU64,
     pub error: Mutex<Option<String>>,
+    /// Кадров записано / пропущено: очередь к кодеру полна, кодер занят.
+    frames: AtomicU64,
+    drop_queue: AtomicU64,
+    drop_enc: AtomicU64,
 }
 
 enum Job {
@@ -125,7 +132,7 @@ struct Mux {
 unsafe impl Send for Mux {}
 
 impl Mux {
-    fn new(path: &Path, w: u32, h: u32, hevc: bool) -> Result<Mux> {
+    fn new(path: &Path, w: u32, h: u32, hevc: bool, rot: u32) -> Result<Mux> {
         let cpath = CString::new(path.to_string_lossy().as_bytes())?;
         let mut ctx: *mut ffi::AVFormatContext = std::ptr::null_mut();
         // SAFETY: FFI FFmpeg; ошибки проверяются, ресурсы освобождает Drop
@@ -150,6 +157,20 @@ impl Mux {
             (*p).format = ffi::AVPixelFormat::AV_PIX_FMT_YUVJ420P as c_int;
             (*p).color_range = ffi::AVColorRange::AVCOL_RANGE_JPEG;
             (*st).time_base = ffi::AVRational { num: 1, den: 90000 };
+            if rot % 360 != 0 {
+                // матрица отображения (tkhd)
+                let sd = ffi::av_packet_side_data_new(
+                    &mut (*p).coded_side_data,
+                    &mut (*p).nb_coded_side_data,
+                    ffi::AVPacketSideDataType::AV_PKT_DATA_DISPLAYMATRIX,
+                    9 * 4,
+                    0,
+                );
+                if !sd.is_null() {
+                    // set — по часовой (get отдаёт против часовой)
+                    ffi::av_display_rotation_set((*sd).data as *mut i32, rot as f64);
+                }
+            }
             m.vst = (*st).index;
             let r = ffi::avio_open(&mut (*ctx).pb, cpath.as_ptr(), ffi::AVIO_FLAG_WRITE);
             if r < 0 {
@@ -303,8 +324,7 @@ impl Recorder {
     /// Начать запись кадров потока `stream`.
     pub fn start(stream: Arc<Stream>, s: Settings) -> Result<Recorder> {
         let info = stream.info;
-        let (w, h) = convert::out_size(info.width as usize, info.height as usize, s.rot, 1);
-        let (w, h) = (w as u32 & !1, h as u32 & !1);
+        let (w, h) = (info.width & !1, info.height & !1);
         let mut vi = VencInfo::default();
         let mut err = [0 as c_char; 160];
         // SAFETY: FFI кодера; указатель живёт в потоке кодера и закрывается им
@@ -313,7 +333,7 @@ impl Recorder {
             let e = unsafe { std::ffi::CStr::from_ptr(err.as_ptr()) }.to_string_lossy().into_owned();
             bail!("видеокодер: {e}");
         }
-        let mux = match Mux::new(&s.path, w, h, s.hevc) {
+        let mux = match Mux::new(&s.path, w, h, s.hevc, s.rot) {
             Ok(m) => m,
             Err(e) => {
                 unsafe { venc_close(enc) };
@@ -342,7 +362,7 @@ impl Recorder {
             .name("video-enc".into())
             .spawn(move || {
                 let enc = enc;
-                let r = encode_loop(enc.0, vi, &stream, rx, &mux, &sh, &s, w, h, &t0, audio);
+                let r = encode_loop(enc.0, vi, &stream, rx, &mux, &sh, &s, &t0, audio);
                 // SAFETY: кодер из venc_open
                 unsafe { venc_close(enc.0) };
                 if let Err(e) = &r {
@@ -365,7 +385,10 @@ impl Recorder {
         }
         match self.tx.try_send(Job::Frame(f)) {
             Ok(()) => true,
-            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => false,
+            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                self.shared.drop_queue.fetch_add(1, Ordering::Relaxed);
+                false
+            }
         }
     }
 
@@ -399,6 +422,85 @@ impl Drop for Recorder {
     }
 }
 
+/// Пакет потока из буферов кодера: параметры (SPS/PPS) могут прийти отдельным буфером — копятся до
+/// первого буфера с кадром (VCL NAL).
+fn has_vcl(data: &[u8], hevc: bool) -> bool {
+    let mut i = 0;
+    while i + 3 < data.len() {
+        if data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1 {
+            let h = data[i + 3];
+            if if hevc { ((h >> 1) & 0x3F) < 32 } else { (1..=5).contains(&(h & 0x1F)) } {
+                return true;
+            }
+            i += 3;
+        } else {
+            i += 1;
+        }
+    }
+    false
+}
+
+struct Writer<'a> {
+    mux: &'a Mutex<Mux>,
+    sh: &'a Shared,
+    hevc: bool,
+    frame_us: i64,
+    started: bool,
+    pending: Vec<u8>,
+    pending_key: bool,
+}
+
+impl Writer<'_> {
+    /// Буфер выхода кодера → MP4.
+    fn put(&mut self, data: &[u8], ts_us: u64, key: bool) -> Result<()> {
+        if data.is_empty() {
+            return Ok(());
+        }
+        self.pending.extend_from_slice(data);
+        self.pending_key |= key;
+        if !has_vcl(&self.pending, self.hevc) {
+            return Ok(());
+        }
+        let pkt = std::mem::take(&mut self.pending);
+        let key = std::mem::take(&mut self.pending_key);
+        let mut m = self.mux.lock().unwrap();
+        if !self.started {
+            m.start(&pkt, self.hevc)?;
+            self.started = true;
+        }
+        let vst = m.vst;
+        m.write(vst, &pkt, ts_us as i64, ffi::AVRational { num: 1, den: 1_000_000 }, key, self.frame_us)?;
+        drop(m);
+        self.sh.duration_us.store(ts_us, Ordering::Relaxed);
+        self.sh.bytes.fetch_add(pkt.len() as u64, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
+/// Забрать готовые пакеты кодера (ждать не дольше `wait_ms` первого).
+fn drain(enc: *mut Venc, w: &mut Writer, wait_ms: c_int, in_flight: &mut u32) -> Result<()> {
+    let mut wait = wait_ms;
+    loop {
+        let mut out: *const u8 = std::ptr::null();
+        let (mut ts, mut key) = (0u64, 0 as c_int);
+        // SAFETY: FFI кодера; данные действительны до следующего вызова
+        let n = unsafe { venc_dequeue(enc, wait, &mut out, &mut ts, &mut key) };
+        if n < 0 {
+            bail!("видеокодер: {}", std::io::Error::from_raw_os_error(-n as i32));
+        }
+        if n == 0 {
+            return Ok(());
+        }
+        wait = 0;
+        let data = unsafe { std::slice::from_raw_parts(out, n as usize) };
+        let had_vcl = has_vcl(data, w.hevc);
+        w.put(data, ts, key != 0)?;
+        if had_vcl {
+            *in_flight = in_flight.saturating_sub(1);
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn encode_loop(
     enc: *mut Venc,
@@ -408,8 +510,6 @@ fn encode_loop(
     mux: &Mutex<Mux>,
     sh: &Shared,
     s: &Settings,
-    w: u32,
-    h: u32,
     t0: &AtomicU64,
     audio: Option<Audio>,
 ) -> Result<()> {
@@ -417,12 +517,39 @@ fn encode_loop(
     let mut maps: Vec<Option<(*mut u8, usize)>> = vec![None; vi.in_count as usize];
     let frame_ns = 1_000_000_000 / s.fps.max(1) as u64;
     let (mut first_ts, mut last_ts, mut paused_ns, mut n) = (0u64, 0u64, 0u64, 0u64);
-    let mut started = false;
+    let mut w = Writer { mux, sh, hevc: s.hevc, frame_us: (frame_ns / 1000) as i64, started: false, pending: Vec::new(), pending_key: false };
+    let mut in_flight = 0u32;
+    let max_flight = vi.in_count.saturating_sub(1).max(1);
     let mut result = Ok(());
-    while let Ok(Job::Frame(f)) = rx.recv() {
+    loop {
+        let job = match rx.recv_timeout(Duration::from_millis(10)) {
+            Ok(j) => Some(j),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
+            Err(_) => break,
+        };
+        // готовое — сразу в файл
+        if let Err(e) = drain(enc, &mut w, 0, &mut in_flight) {
+            result = Err(e);
+            break;
+        }
+        let f = match job {
+            Some(Job::Frame(f)) => f,
+            Some(Job::Stop) => break,
+            None => continue,
+        };
+        // буфер входа: кодер занят всеми — дождаться пакета
         // SAFETY: FFI кодера
-        let idx = unsafe { venc_free_input(enc) };
+        let mut idx = if in_flight < max_flight { unsafe { venc_free_input(enc) } } else { -1 };
         if idx < 0 {
+            if let Err(e) = drain(enc, &mut w, 40, &mut in_flight) {
+                stream.release(f.buf);
+                result = Err(e);
+                break;
+            }
+            idx = unsafe { venc_free_input(enc) };
+        }
+        if idx < 0 {
+            sh.drop_enc.fetch_add(1, Ordering::Relaxed);
             stream.release(f.buf);
             continue;
         }
@@ -450,13 +577,17 @@ fn encode_loop(
             scanlines: info.scanlines as usize,
             vu: info.format == proto::FMT_NV21,
         };
+        let t = std::time::Instant::now();
         proto::dma_sync(fd, true, true);
-        convert::to_nv12(&src, s.rot, dst, vi.stride as usize, vi.y_scanlines as usize);
+        convert::to_nv12(&src, 0, dst, vi.stride as usize, vi.y_scanlines as usize);
         proto::dma_sync(fd, false, true);
         stream.end(f.buf);
         stream.release(f.buf);
+        if std::env::var_os("SYNCAMERA_TIMING").is_some() {
+            eprintln!("в кодер: {:.1} мс, в работе {in_flight}", t.elapsed().as_secs_f64() * 1e3);
+        }
         // метка времени: время экспозиции без пауз; таймлапс — ровный шаг
-        if !started {
+        if n == 0 {
             first_ts = f.ts_ns;
             last_ts = f.ts_ns;
             t0.store(boottime_ns().max(1), Ordering::SeqCst);
@@ -466,36 +597,22 @@ fn encode_loop(
         }
         let pts_us = if s.timelapse > 1 { n * frame_ns / 1000 } else { f.ts_ns.saturating_sub(first_ts + paused_ns) / 1000 };
         last_ts = f.ts_ns;
-        let mut out: *const u8 = std::ptr::null();
-        let mut key: c_int = 0;
-        // SAFETY: FFI кодера; пакет действителен до следующего вызова
-        let len = unsafe { venc_encode(enc, idx as u32, (!started) as c_int, pts_us, 2000, &mut out, &mut key) };
-        if len < 0 {
-            result = Err(anyhow!("видеокодер: {}", std::io::Error::from_raw_os_error(-len as i32)));
+        // SAFETY: FFI кодера
+        let r = unsafe { venc_queue(enc, idx as u32, (n == 0) as c_int, pts_us) };
+        if r < 0 {
+            result = Err(anyhow!("видеокодер: {}", std::io::Error::from_raw_os_error(-r)));
             break;
         }
-        if len == 0 {
-            continue;
-        }
-        let pkt = unsafe { std::slice::from_raw_parts(out, len as usize) };
-        let mut m = mux.lock().unwrap();
-        if !started {
-            if let Err(e) = m.start(pkt, s.hevc) {
-                result = Err(e);
-                break;
-            }
-            started = true;
-        }
-        let us = ffi::AVRational { num: 1, den: 1_000_000 };
-        let vst = m.vst;
-        if let Err(e) = m.write(vst, pkt, pts_us as i64, us, key != 0, (frame_ns / 1000) as i64) {
-            result = Err(e);
-            break;
-        }
-        drop(m);
+        in_flight += 1;
         n += 1;
-        sh.duration_us.store(pts_us, Ordering::Relaxed);
-        sh.bytes.fetch_add(len as u64, Ordering::Relaxed);
+        sh.frames.store(n, Ordering::Relaxed);
+    }
+    // дописать кадры, ещё идущие в кодере
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while result.is_ok() && in_flight > 0 && std::time::Instant::now() < deadline {
+        if let Err(e) = drain(enc, &mut w, 50, &mut in_flight) {
+            result = Err(e);
+        }
     }
     // кадры, оставшиеся в очереди, — вернуть
     while let Ok(j) = rx.try_recv() {
@@ -511,11 +628,16 @@ fn encode_loop(
         a.stop();
     }
     let mut m = mux.lock().unwrap();
-    if !started && result.is_ok() {
+    if !w.started && result.is_ok() {
         result = Err(anyhow!("не записано ни одного кадра"));
     }
     let fin = m.finish();
-    let _ = (w, h);
+    tracing::info!(
+        "запись: кадров {}, пропущено — очередь {}, кодер {}",
+        sh.frames.load(Ordering::Relaxed),
+        sh.drop_queue.load(Ordering::Relaxed),
+        sh.drop_enc.load(Ordering::Relaxed)
+    );
     result.and(fin)
 }
 

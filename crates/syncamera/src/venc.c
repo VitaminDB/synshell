@@ -223,6 +223,49 @@ void venc_set_bitrate(struct venc *e, uint32_t bitrate) {
     ctrl(e->fd, V4L2_CID_MPEG_VIDEO_BITRATE_PEAK, (int32_t)(bitrate + bitrate / 2));
 }
 
+// Асинхронно: отдать входной буфер `i` кодеру (кадр в нём уже лежит), метка времени ts_us.
+int venc_queue(struct venc *e, uint32_t i, int force_key, uint64_t ts_us) {
+    if (force_key) ctrl(e->fd, V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME, 1);
+    struct v4l2_plane pl = {.m.fd = e->in_fd[i], .length = e->info.in_size, .bytesused = e->info.in_size};
+    struct v4l2_buffer b = {.index = i, .type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE, .memory = V4L2_MEMORY_DMABUF,
+                            .length = 1, .m.planes = &pl};
+    b.timestamp.tv_sec = ts_us / 1000000;
+    b.timestamp.tv_usec = ts_us % 1000000;
+    if (ioctl(e->fd, VIDIOC_QBUF, &b) < 0) return -errno;
+    e->in_busy[i] = 1;
+    return 0;
+}
+
+// Асинхронно: один готовый буфер выхода (ждать не дольше timeout_ms). Ответ — длина (данные в *out до
+// следующего вызова), 0 — пусто, <0 — ошибка (-errno); *ts_us — метка кадра, *key — ключевой.
+long venc_dequeue(struct venc *e, int timeout_ms, const uint8_t **out, uint64_t *ts_us, int *key) {
+    for (;;) {
+        struct v4l2_plane cp = {0};
+        struct v4l2_buffer cb = {.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE, .memory = V4L2_MEMORY_DMABUF, .length = 1, .m.planes = &cp};
+        if (ioctl(e->fd, VIDIOC_DQBUF, &cb) < 0) {
+            if (errno != EAGAIN) return -errno;
+            if (timeout_ms <= 0) return 0;
+            struct pollfd pfd = {.fd = e->fd, .events = POLLIN};
+            int r = poll(&pfd, 1, timeout_ms);
+            if (r < 0 && errno != EINTR) return -errno;
+            if (r == 0) return 0;
+            timeout_ms = 0;  // одно ожидание; дальше — что есть
+            continue;
+        }
+        uint32_t n = cp.bytesused > cp.data_offset ? cp.bytesused - cp.data_offset : 0;
+        if (n > e->out_cap) {
+            e->out_cap = n * 2;
+            e->out = realloc(e->out, e->out_cap);
+        }
+        memcpy(e->out, e->cap_map[cb.index] + cp.data_offset, n);
+        *key = !!(cb.flags & V4L2_BUF_FLAG_KEYFRAME);
+        *ts_us = (uint64_t)cb.timestamp.tv_sec * 1000000 + cb.timestamp.tv_usec;
+        queue_cap(e, cb.index);
+        *out = e->out;
+        return (long)n;
+    }
+}
+
 // Закодировать входной буфер `i` (кадр в нём уже нарисован). Ответ — длина пакета
 // (данные в *out до следующего вызова), <0 — ошибка (-errno).
 long venc_encode(struct venc *e, uint32_t i, int force_key, uint64_t ts_us, int timeout_ms, const uint8_t **out, int *key) {

@@ -102,7 +102,7 @@ pub fn root(st: St) -> W {
             .child(
                 Stack::new()
                     .fit(StackFit::Expand)
-                    .child(DecoratedBox::new().class("root"))
+                    .child(fill("root"))
                     .child(body)
                     .child(settings_sheet(st))
                     .child(overlay_view)
@@ -349,7 +349,7 @@ fn preview(st: St, pw: f32, ph: f32, px: f32, py: f32) -> W {
                 .child(live)
                 .child(grid(st, pw, ph))
                 .child(focus_overlay(st, pw, ph))
-                .child(blink(st))
+                .child(blink(st, pw, ph))
                 .child(center_overlay(st))
                 .child(ev_bar(st, pw, ph)),
         );
@@ -395,14 +395,14 @@ fn focus_overlay(st: St, pw: f32, ph: f32) -> impl Widget {
     })
 }
 
-fn blink(st: St) -> impl Widget {
+fn blink(st: St, pw: f32, ph: f32) -> impl Widget {
     Reactive::new(move || -> Vec<W> {
         let k = st.blink.get();
         if k == 0 {
             return vec![];
         }
         vec![Box::new(
-            Animated::new(DecoratedBox::new().class("blink"))
+            Animated::new(Column::new().width(pw).height(ph).class("blink"))
                 .opacity(Animation::tween(Easing::EaseOutQuad).from(0.85).to(0.0).duration_ms(260).build()),
         )]
     })
@@ -456,7 +456,8 @@ fn ev_bar(st: St, pw: f32, ph: f32) -> impl Widget {
         }
         let ev = st.ev.get_untracked();
         let step = cam.ev_step();
-        let label = format!("{:+.1}", ev as f32 * step).replace('.', ",");
+        // подпись — отдельно: пересборка ползунка во время перетаскивания сорвала бы жест
+        let label = Reactive::new(move || -> Vec<W> { vec![Box::new(Text::new(format!("{:+.1}", st.ev.get() as f32 * step).replace('.', ",")).class("ev-text"))] });
         let w = (pw - 48.0).min(320.0);
         let bar = Row::new()
             .gap(8.0)
@@ -470,7 +471,7 @@ fn ev_bar(st: St, pw: f32, ph: f32) -> impl Widget {
                     .width(w - 90.0)
                     .on_change(move |v: f32| crate::set_ev(st, v.round() as i32)),
             )
-            .child(Text::new(label).class("ev-text"))
+            .child(label)
             .width(w)
             .class("ev-bar");
         vec![Box::new(Stack::new().fit(StackFit::Expand).child(Positioned::new(bar).at((pw - w) / 2.0, ph - 64.0)))]
@@ -817,6 +818,20 @@ fn pro_slider(st: St, f: ProField, cam: &proto::Camera, iso: i32, sh: i64, fd: f
 
 // ─── Настройки ──────────────────────────────────────────────────────────────
 
+/// Фон на весь экран (пустой DecoratedBox размера не имеет).
+pub fn fill(class: &'static str) -> W {
+    Box::new(Reactive::new(move || -> Vec<W> {
+        let vp = viewport_size().get();
+        vec![Box::new(Column::new().width(vp.width).height(vp.height).class(class))]
+    }))
+}
+
+/// Затемнение под панелью — на весь экран.
+pub fn scrim() -> W {
+    let vp = viewport_size().get_untracked();
+    Box::new(Column::new().width(vp.width).height(vp.height).class("scrim"))
+}
+
 fn setting_toggle(label: &'static str, sub: &'static str, sig: RwSignal<bool>) -> W {
     Box::new(
         GestureDetector::new().on_click(move || sig.set(!sig.get_untracked())).child(
@@ -879,7 +894,7 @@ fn settings_sheet(st: St) -> impl Widget {
         vec![Box::new(
             Stack::new()
                 .fit(StackFit::Expand)
-                .child(GestureDetector::new().on_click(move || st.settings.set(false)).child(DecoratedBox::new().class("scrim")))
+                .child(GestureDetector::new().on_click(move || st.settings.set(false)).child(scrim()))
                 .child(
                     Column::new()
                         .main_axis_alignment(MainAxisAlignment::End)

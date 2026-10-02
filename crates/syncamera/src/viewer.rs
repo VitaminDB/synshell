@@ -206,14 +206,14 @@ pub fn view(st: St) -> W {
         vec![Box::new(
             Stack::new()
                 .fit(StackFit::Expand)
-                .child(GestureDetector::new().on_click(move || confirm.set(false)).child(DecoratedBox::new().class("scrim")))
+                .child(GestureDetector::new().on_click(move || confirm.set(false)).child(crate::ui::scrim()))
                 .child(Column::new().center().child(card)),
         )]
     });
     Box::new(
         Stack::new()
             .fit(StackFit::Expand)
-            .child(DecoratedBox::new().class("viewer-bg"))
+            .child(crate::ui::fill("viewer-bg"))
             .child(content)
             .child(Column::new().main_axis_alignment(MainAxisAlignment::Center).child(arrows))
             .child(Column::new().child(top).child(info_card))
@@ -264,13 +264,13 @@ fn video_view(pl: Arc<Mutex<VideoPlayer>>, pos: RwSignal<f32>, paused: RwSignal<
                     Slider::new()
                         .range(0.0, duration.max(0.1))
                         .value(v.min(duration.max(0.1)))
+                        .width((viewport_size().get_untracked().width - 170.0).max(80.0))
                         .on_change(move |s| {
                             if let Ok(mut p) = p.lock() {
                                 let _ = p.seek(s as f64);
                             }
                             pos.set(s);
-                        })
-                        .class("grow"),
+                        }),
                 )
                 .child(Text::new(t(duration)).class("viewer-time"))
                 .class("grow"),
