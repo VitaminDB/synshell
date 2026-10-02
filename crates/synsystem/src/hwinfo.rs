@@ -90,6 +90,29 @@ pub fn report(sections: &[Section]) -> String {
     s
 }
 
+/// Состояния sysfs по-русски (DRM-коннектор, сеть, USB-контроллер); незнакомое — как есть.
+fn ru_state(v: &str) -> String {
+    match v.trim() {
+        "enabled" => "да",
+        "disabled" => "нет",
+        "up" => "подключено",
+        "down" => "отключено",
+        "dormant" => "ожидание",
+        "unknown" | "UNKNOWN" => "неизвестно",
+        "configured" => "подключён к компьютеру",
+        "not attached" => "не подключён",
+        "attached" | "powered" | "default" | "addressed" => "подключается",
+        "suspended" => "сон",
+        "high-speed" => "USB 2.0 (480 Мбит/с)",
+        "full-speed" => "USB 1.1 (12 Мбит/с)",
+        "low-speed" => "USB 1.0 (1,5 Мбит/с)",
+        "super-speed" => "USB 3 (5 Гбит/с)",
+        "super-speed-plus" => "USB 3 (10 Гбит/с)",
+        o => return o.to_string(),
+    }
+    .to_string()
+}
+
 fn mhz(v: Option<u32>) -> Option<String> {
     v.map(|m| format!("{m} МГц"))
 }
@@ -212,7 +235,7 @@ fn display_devices(sys: &Sys) -> Vec<Device> {
         }
         let modes = sys.read(format!("{base}/modes")).unwrap_or_default();
         let name = conn.split_once('-').map(|(_, n)| n.to_string()).unwrap_or(conn.clone());
-        v.push(Device::new(name).prop("Режимы", modes.lines().take(4).collect::<Vec<_>>().join(", ")).opt("Включён", sys.read(format!("{base}/enabled"))));
+        v.push(Device::new(name).prop("Режимы", modes.lines().take(4).collect::<Vec<_>>().join(", ")).opt("Включён", sys.read(format!("{base}/enabled")).map(|v| ru_state(&v))));
     }
     for b in backlight::list(sys) {
         v.push(Device::new(format!("Подсветка {}", b.name)).prop("Яркость", format!("{} из {} ({:.0}%)", b.brightness, b.max, b.percent())).prop("Тип", b.kind));
@@ -356,7 +379,7 @@ fn net_devices(sys: &Sys) -> Vec<Device> {
         v.push(
             Device::new(n.clone())
                 .prop("Тип", if wifi { "Wi-Fi" } else if n.starts_with("usb") || n.starts_with("rndis") { "USB-сеть" } else { "Сеть" })
-                .opt("Состояние", sys.read(format!("{base}/operstate")))
+                .opt("Состояние", sys.read(format!("{base}/operstate")).map(|v| ru_state(&v)))
                 .opt("MAC", sys.read(format!("{base}/address")))
                 .opt("Скорость", sys.read_num::<i64>(format!("{base}/speed")).filter(|s| *s > 0).map(|s| format!("{s} Мбит/с")))
                 .opt("Драйвер", driver),
@@ -379,7 +402,7 @@ fn usb_devices(sys: &Sys) -> Vec<Device> {
     }
     // Режим USB-контроллера телефона (device — гаджет USB-сети).
     for udc in sys.list("/sys/class/udc") {
-        v.push(Device::new(format!("Контроллер {udc}")).opt("Состояние", sys.read(format!("/sys/class/udc/{udc}/state"))).opt("Скорость", sys.read(format!("/sys/class/udc/{udc}/current_speed"))));
+        v.push(Device::new(format!("Контроллер {udc}")).opt("Состояние", sys.read(format!("/sys/class/udc/{udc}/state")).map(|v| ru_state(&v))).opt("Скорость", sys.read(format!("/sys/class/udc/{udc}/current_speed")).map(|v| ru_state(&v))));
     }
     v
 }

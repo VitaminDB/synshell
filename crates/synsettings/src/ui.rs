@@ -98,10 +98,14 @@ pub fn page(title: &str, subtitle: &str, body: Vec<W>) -> W {
         .gap(18.0)
         .class(if narrow() { "page-body page-body-narrow" } else { "page-body" })
         .child(
-            Column::new()
-                .gap(4.0)
-                .child(Text::new(title).class("page-title"))
-                .child(Text::new(subtitle).class("page-subtitle")),
+            {
+                let head = Column::new().gap(4.0).child(Text::new(title).class("page-title"));
+                if subtitle.is_empty() {
+                    head
+                } else {
+                    head.child(Text::new(subtitle).class("page-subtitle"))
+                }
+            },
         );
     for w in body {
         col = col.child(w);

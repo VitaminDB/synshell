@@ -702,6 +702,11 @@ Button.accent-swatch.selected {
 
 .hw-badge { padding: 7px; border-radius: 12px; background: var(--accent-soft); }
 .hw-icon { color: var(--accent); font-size: 20px; }
+.hw-badge-fault { background: var(--danger-soft); }
+.hw-icon-fault { color: var(--danger); }
+/* сводка раздела в меню «Оборудования» */
+.hw-sum { font-size: 13px; color: var(--muted); }
+.hw-sum-fault { color: var(--danger); }
 .hw-title { font-size: 18px; font-weight: 600; color: var(--fg); }
 .row-value { font-size: 13px; color: var(--fg); }
 .row-value.big { font-size: 20px; font-weight: 600; }

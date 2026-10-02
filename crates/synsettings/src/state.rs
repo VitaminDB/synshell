@@ -26,6 +26,9 @@ pub struct Ctx {
     /// Узкое окно (телефон): вместо боковой панели — стек «список
     /// разделов → страница»; `true` — открыта страница.
     pub page_open: RwSignal<bool>,
+    /// Подстраница внутри страницы (раздел «Оборудования»): ключ и заголовок
+    /// для шапки. «Назад» сначала закрывает её; смена страницы — сбрасывает.
+    pub sub: RwSignal<Option<(String, String)>>,
 }
 
 thread_local! {
@@ -44,6 +47,7 @@ pub fn init(start_page: &str) -> Ctx {
         capture: use_signal(None),
         toast: use_signal(String::new()),
         page_open: use_signal(false),
+        sub: use_signal(None),
     };
     CTX.with(|c| *c.borrow_mut() = Some(ctx));
     ctx
@@ -125,4 +129,12 @@ pub fn toast(msg: impl Into<String>) {
     if let Some(ctx) = try_ctx() {
         ctx.toast.set(msg.into());
     }
+}
+
+/// Открыть страницу `id` (подстраница сбрасывается).
+pub fn open_page(ctx: Ctx, id: &str) {
+    if ctx.sub.get_untracked().is_some() {
+        ctx.sub.set(None);
+    }
+    ctx.page.set(id.to_string());
 }

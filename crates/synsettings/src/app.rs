@@ -19,7 +19,7 @@ fn sidebar(ctx: Ctx) -> W {
         .on_submit(move |s| {
             // Enter — открыть первую найденную страницу.
             if let Some(p) = PAGES.iter().find(|p| pages::matches(p, s)) {
-                ctx.page.set(p.id.to_string());
+                state::open_page(ctx, p.id);
             }
         });
     let nav = Reactive::new(move || -> Vec<W> {
@@ -37,7 +37,7 @@ fn sidebar(ctx: Ctx) -> W {
             let id = p.id;
             // Кнопка syngui центрирует подпись — пункт меню собран вручную.
             col = col.child(
-                syngui::GestureDetector::new().on_click(move || ctx.page.set(id.to_string())).child(
+                syngui::GestureDetector::new().on_click(move || state::open_page(ctx, id)).child(
                     DecoratedBox::new().class(if cur == id { "nav-item active" } else { "nav-item" }).child(
                         Row::new()
                             .gap(12.0)
@@ -149,6 +149,11 @@ fn go_back(ctx: Ctx) -> bool {
     if crate::pages::close_wallpaper_editor() {
         return true;
     }
+    // Подстраница (раздел «Оборудования») — обратно на страницу.
+    if ctx.sub.get_untracked().is_some() {
+        ctx.sub.set(None);
+        return true;
+    }
     if ctx.page_open.get_untracked() {
         ctx.page_open.set(false);
         true
@@ -164,7 +169,7 @@ fn phone_list(ctx: Ctx) -> W {
         .on_change(move |s| ctx.search.set(s.to_string()))
         .on_submit(move |s| {
             if let Some(p) = PAGES.iter().find(|p| pages::matches(p, s)) {
-                ctx.page.set(p.id.to_string());
+                state::open_page(ctx, p.id);
                 ctx.page_open.set(true);
             }
         })
@@ -186,7 +191,7 @@ fn phone_list(ctx: Ctx) -> W {
             let id = p.id;
             let item = syngui::GestureDetector::new()
                 .on_click(move || {
-                    ctx.page.set(id.to_string());
+                    state::open_page(ctx, id);
                     ctx.page_open.set(true);
                 })
                 .child(
@@ -233,7 +238,13 @@ fn phone_page(ctx: Ctx) -> W {
         }
         vec![(pages::find(&id).build)()]
     });
-    let title = Reactive::new(move || -> Vec<W> { vec![boxed(Text::new(pages::find(&ctx.page.get()).title).max_lines(1).class("phone-bar-title grow"))] });
+    let title = Reactive::new(move || -> Vec<W> {
+        let t = match ctx.sub.get() {
+            Some((_, t)) => t,
+            None => pages::find(&ctx.page.get()).title.to_string(),
+        };
+        vec![boxed(Text::new(t).max_lines(1).class("phone-bar-title grow"))]
+    });
     let bar = Row::new()
         .gap(6.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
