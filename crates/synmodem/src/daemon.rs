@@ -634,6 +634,14 @@ impl Daemon {
             }
             i.call_audio = on;
         }
+        // Пока идёт звонок, системе спать нельзя (экран гасят кнопкой или датчик приближения у уха)
+        const INHIBIT: &str = "/run/syn-sleep/inhibit.d/call";
+        if on {
+            let _ = std::fs::create_dir_all("/run/syn-sleep/inhibit.d");
+            let _ = std::fs::write(INHIBIT, b"");
+        } else {
+            let _ = std::fs::remove_file(INHIBIT);
+        }
         if std::path::Path::new(CALL_AUDIO_HOOK).exists() {
             let arg = if on { "start" } else { "stop" };
             match std::process::Command::new(CALL_AUDIO_HOOK).arg(arg).status() {

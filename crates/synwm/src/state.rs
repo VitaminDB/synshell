@@ -215,6 +215,8 @@ pub struct Core {
     pub idle_inhibitors: HashSet<WlSurface>,
     pub last_activity: Instant,
     pub monitors_off: bool,
+    /// Экран погасил датчик приближения (разговор у уха): касания отбрасываются, флаг сна не ставится.
+    pub proximity_blank: bool,
     /// Вывод для абсолютных координат текущей пачки удалённого ввода.
     pub remote_output: Option<Output>,
     /// Идёт событие удалённого ввода (координаты — уже изображения).
@@ -444,6 +446,7 @@ impl Core {
             idle_inhibitors: HashSet::new(),
             last_activity: Instant::now(),
             monitors_off: false,
+            proximity_blank: false,
             remote_output: None,
             remote_input_active: false,
             rotation: HashMap::new(),

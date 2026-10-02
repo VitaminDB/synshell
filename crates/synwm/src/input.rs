@@ -96,6 +96,19 @@ impl State {
                 return;
             }
         }
+        // Экран погашен датчиком приближения (у уха): касания щекой не будят и не доходят до окон
+        if self.core.proximity_blank
+            && matches!(
+                event,
+                InputEvent::TouchDown { .. }
+                    | InputEvent::TouchUp { .. }
+                    | InputEvent::TouchMotion { .. }
+                    | InputEvent::TouchFrame { .. }
+                    | InputEvent::TouchCancel { .. }
+            )
+        {
+            return;
+        }
         // Любой ввод — активность: будим мониторы, сбрасываем таймер простоя.
         let is_activity = !matches!(event, InputEvent::DeviceAdded { .. } | InputEvent::DeviceRemoved { .. });
         if is_activity {
@@ -1389,6 +1402,17 @@ impl State {
                 }
             }
             Action::ScreenOn => self.set_monitors_power(true),
+            Action::ProximityBlank(true) => {
+                if !self.core.monitors_off {
+                    self.core.proximity_blank = true;
+                    self.set_monitors_power(false);
+                }
+            }
+            Action::ProximityBlank(false) => {
+                if self.core.proximity_blank {
+                    self.set_monitors_power(true);
+                }
+            }
             Action::Rotate(r) => self.rotate(r),
             Action::Shell(cmd) => {
                 self.core.ipc.broadcast(&synshell_common::ipc::Event::ShellCommand { command: cmd });

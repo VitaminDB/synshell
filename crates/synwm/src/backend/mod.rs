@@ -609,8 +609,12 @@ impl State {
         self.backend.set_monitors_power(&mut self.core, on);
         if on {
             self.core.queue_redraw_all();
+            self.core.proximity_blank = false;
         }
-        crate::sleep::screen_power(on, self.core.config.idle.sleep_delay);
+        // Погасил датчик приближения — идёт разговор, системе спать нельзя
+        if on || !self.core.proximity_blank {
+            crate::sleep::screen_power(on, self.core.config.idle.sleep_delay);
+        }
         self.core.ipc.broadcast(&synshell_common::ipc::Event::ScreenPower { on });
     }
 }

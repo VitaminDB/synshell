@@ -403,6 +403,9 @@ pub enum Action {
     ScreenOff,
     /// Явно включить экран (на экран блокировки, если заблокирован); горит — ничего.
     ScreenOn,
+    /// Погасить экран датчиком приближения (телефон у уха во время разговора): без блокировки и без сна системы,
+    /// касания не будят и не доходят до окон; `false` — включить обратно (если гасил именно датчик).
+    ProximityBlank(bool),
     /// Ничего не делать (снять сочетание по умолчанию).
     None,
 }
@@ -417,7 +420,7 @@ impl Action {
         "master-count", "keyboard-layout-next", "keyboard-layout", "screenshot",
         "screenshot-window", "screenshot-interactive", "overview", "reload-config", "quit", "lock", "suspend", "reboot",
         "poweroff", "monitors-off", "shell", "back", "key", "mobile-mode", "mobile-mode-cycle", "page",
-        "camera-home", "rotate", "screen-toggle", "screen-off", "screen-on", "none",
+        "camera-home", "rotate", "screen-toggle", "screen-off", "screen-on", "proximity-blank", "none",
     ];
 }
 
@@ -495,6 +498,11 @@ impl FromStr for Action {
             "screen-toggle" => Action::ScreenToggle,
             "screen-off" => Action::ScreenOff,
             "screen-on" => Action::ScreenOn,
+            "proximity-blank" => Action::ProximityBlank(match need("on или off")? {
+                "on" => true,
+                "off" => false,
+                v => return Err(format!("proximity-blank: «{v}» — нужно on или off")),
+            }),
             "shell" => Action::Shell(need("команда оболочки")?.to_string()),
             "back" => Action::Back,
             "key" => Action::Key(need("клавиша, например XF86Back или Alt+Left")?.parse()?),
@@ -555,6 +563,7 @@ impl fmt::Display for Action {
             Action::ScreenToggle => f.write_str("screen-toggle"),
             Action::ScreenOff => f.write_str("screen-off"),
             Action::ScreenOn => f.write_str("screen-on"),
+            Action::ProximityBlank(on) => write!(f, "proximity-blank {}", if *on { "on" } else { "off" }),
             Action::Shell(c) => write!(f, "shell {c}"),
             Action::Back => f.write_str("back"),
             Action::Key(k) => write!(f, "key {k}"),

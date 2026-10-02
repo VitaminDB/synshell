@@ -15,6 +15,7 @@ pub mod app_colors;
 pub mod applets;
 pub mod appmenu;
 pub mod clock;
+pub mod incall;
 pub mod commands;
 pub mod ctx;
 pub mod datetime;
@@ -133,6 +134,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         notifications::start(ctx);
         link::start(ctx);
         modem::start(ctx);
+        incall::start(ctx);
         location::start(ctx);
         install(ctx);
         popup::install(ctx);
