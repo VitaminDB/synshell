@@ -97,13 +97,32 @@ pub fn centered(glyph: &'static str, class: &'static str, size: f32) -> W {
 
 /// Верхняя панель высотой, логические px.
 const TOP: f32 = 56.0;
+/// Запас под вырез экрана (камеру) в полноэкранном режиме — высота панели оболочки, в которую вырез
+/// помещается в обычном режиме.
+const CUTOUT: f32 = 32.0;
+
+/// Отступ под вырез: (сверху в портрете, слева, справа в альбомном). Вырез — у верхнего края телефона;
+/// повёрнутый на 90° по часовой («левая сторона вверху») держит его справа, на 270° — слева.
+fn cutout(st: St, landscape: bool) -> (f32, f32, f32) {
+    if !st.fullscreen.get() {
+        return (0.0, 0.0, 0.0);
+    }
+    if !landscape {
+        return (CUTOUT, 0.0, 0.0);
+    }
+    match st.dev_rot.get() {
+        270 => (0.0, CUTOUT, 0.0),
+        _ => (0.0, 0.0, CUTOUT),
+    }
+}
+
 /// Нижние панели (зум, режимы, затвор).
 const BOTTOM: f32 = 236.0;
 
 pub fn root(st: St) -> W {
     let body = Reactive::new(move || -> Vec<W> {
         let vp = viewport_size().get();
-        let _ = (st.aspect.get(), st.mode.get());
+        let _ = (st.aspect.get(), st.mode.get(), st.fullscreen.get(), st.dev_rot.get());
         let (sw, sh) = st.stream_size.get();
         if vp.width > vp.height {
             vec![landscape(st, vp, (sw, sh))]
@@ -170,9 +189,10 @@ fn preview_size(st: St, stream: (u32, u32), avail_w: f32, avail_h: f32) -> (f32,
 
 fn portrait(st: St, vp: Size, stream: (u32, u32)) -> W {
     let (w, h) = (vp.width, vp.height);
+    let (cut, _, _) = cutout(st, false);
     let (pw, ph) = preview_size(st, stream, w, h);
     // 4:3 и квадрат — под верхней панелью; высокое 16:9 — от верха, если не помещается
-    let py = if ph + TOP + BOTTOM <= h { TOP } else { ((h - BOTTOM - ph) / 2.0).clamp(0.0, TOP) };
+    let py = if ph + cut + TOP + BOTTOM <= h { cut + TOP } else { ((h - BOTTOM - ph) / 2.0).clamp(0.0, cut + TOP) };
     let px = (w - pw) / 2.0;
     let top = Row::new()
         .main_axis_alignment(MainAxisAlignment::SpaceAround)
@@ -197,8 +217,8 @@ fn portrait(st: St, vp: Size, stream: (u32, u32)) -> W {
             .fit(StackFit::Expand)
             .child(Positioned::new(preview(st, pw, ph, px, py)).at(px, py))
             .child(Positioned::new(rec_badge(st, w)).at(0.0, py + 8.0))
-            .child(Positioned::new(lens_pill(st, 12.0, py.max(TOP) + 10.0)).at(12.0, py.max(TOP) + 10.0))
-            .child(Positioned::new(top).at(0.0, 0.0))
+            .child(Positioned::new(lens_pill(st, 12.0, py.max(cut + TOP) + 10.0)).at(12.0, py.max(cut + TOP) + 10.0))
+            .child(Positioned::new(top).at(0.0, cut))
             .child(Positioned::new(bottom).at(0.0, h - BOTTOM - 120.0)),
     )
 }
@@ -206,9 +226,10 @@ fn portrait(st: St, vp: Size, stream: (u32, u32)) -> W {
 fn landscape(st: St, vp: Size, stream: (u32, u32)) -> W {
     let (w, h) = (vp.width, vp.height);
     // слева — переключатели, справа — режимы и затвор столбиками; зум — столбиком у правого края кадра
+    let (_, cl, cr) = cutout(st, true);
     let (lw, side) = (76.0, 210.0);
-    let (pw, ph) = preview_size(st, stream, w - side - lw, h);
-    let px = lw + ((w - side - lw - pw) / 2.0).max(0.0);
+    let (pw, ph) = preview_size(st, stream, w - side - lw - cl - cr, h);
+    let px = cl + lw + ((w - side - lw - cl - cr - pw) / 2.0).max(0.0);
     let py = (h - ph) / 2.0;
     let left = Column::new()
         .main_axis_alignment(MainAxisAlignment::SpaceAround)
@@ -236,8 +257,8 @@ fn landscape(st: St, vp: Size, stream: (u32, u32)) -> W {
             .child(Positioned::new(lens_pill(st, px + 12.0, 12.0)).at(px + 12.0, 12.0))
             .child(Positioned::new(pro).at(px, -8.0))
             .child(Positioned::new(zoom).at(px + pw - 62.0, 0.0))
-            .child(Positioned::new(left).at(0.0, 0.0))
-            .child(Positioned::new(right).at(w - side, 0.0)),
+            .child(Positioned::new(left).at(cl, 0.0))
+            .child(Positioned::new(right).at(w - side - cr, 0.0)),
     )
 }
 
