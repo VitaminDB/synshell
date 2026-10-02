@@ -21,7 +21,7 @@ use crate::euicc;
 use crate::gnss;
 use crate::manage;
 use crate::pdu;
-use crate::qmi::{svc, Client, Indication, Message, SERVICE_GONE};
+use crate::qmi::{svc, Client, Indication, Message, QmiError, SERVICE_GONE};
 use crate::store::{Part, Store};
 
 const T: Duration = Duration::from_secs(10);
@@ -936,6 +936,8 @@ impl Daemon {
                     st.save();
                 }
                 self.update(|s| s.radio = on);
+                // Звонки сверить с модемом (в режиме полёта их нет)
+                self.refresh_calls(&m);
                 Response::Ok
             }
             Request::SetData { on } => {
@@ -978,6 +980,18 @@ impl Daemon {
                     bail!("пустой номер");
                 }
                 let m = self.modem()?;
+                // Без радио или сети модем отвечает DeviceNotReady, а звонок застревал в «Вызов…»
+                let (radio, registered) = {
+                    let i = self.inner.lock().unwrap();
+                    (i.status.radio, i.status.registration.registered())
+                };
+                let emergency = matches!(number.as_str(), "112" | "911" | "101" | "102" | "103" | "104" | "01" | "02" | "03");
+                if !radio {
+                    bail!("мобильная связь выключена — включите её (плитка «Мобильная связь» в шторке)");
+                }
+                if !registered && !emergency {
+                    bail!("нет сети — звонок невозможен");
+                }
                 let clir = self.store.lock().unwrap().clir.clone();
                 let number = manage::with_clir(&number, &clir);
                 let r = m.voice.call(Message::new(0x20).tlv(0x01, number.into_bytes()), Duration::from_secs(30))?;
@@ -990,7 +1004,26 @@ impl Daemon {
             }
             Request::Hangup { id } => {
                 self.inner.lock().unwrap().rejected.insert(id);
-                self.modem()?.voice.call(Message::new(0x21).u8(0x01, id), T)?;
+                let m = self.modem()?;
+                if let Err(e) = m.voice.call(Message::new(0x21).u8(0x01, id), T) {
+                    // Модем такого звонка не знает (не готов, нет звонка) — убрать зависший из состояния
+                    let gone = e.downcast_ref::<QmiError>().is_some_and(|q| matches!(q.0, 0x29 | 0x30 | 0x1A));
+                    if !gone {
+                        return Err(e);
+                    }
+                    tracing::warn!("отбой звонка {id}: {e:#} — убираю из состояния");
+                    let rest: Vec<(u8, CallState, bool, String)> = self
+                        .inner
+                        .lock()
+                        .unwrap()
+                        .status
+                        .calls
+                        .iter()
+                        .filter(|c| c.id != id)
+                        .map(|c| (c.id, c.state, c.incoming, c.number.clone()))
+                        .collect();
+                    self.set_calls(rest);
+                }
                 Response::Ok
             }
             Request::Dtmf { id, digit } => {
