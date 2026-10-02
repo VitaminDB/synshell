@@ -227,7 +227,7 @@ pub fn write_config(peers: &[Trusted]) {
 fn write_config_inner(peers: &[Trusted]) -> Result<()> {
     let dir = ssh_dir();
     std::fs::create_dir_all(&dir)?;
-    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("synlink"));
+    let exe = crate::self_exe();
     let key = dir.join("id_ed25519");
     let known = dir.join("known_hosts");
     let mut cfg = String::from("# Спаренные устройства synlink — файл пишет демон, правки затрутся.\n");

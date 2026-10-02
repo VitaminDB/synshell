@@ -357,7 +357,7 @@ fn cli(args: &[String]) -> Result<()> {
         }
         "view" => {
             let device = dev(args)?;
-            let exe = std::env::current_exe()?.with_file_name("synlink-view");
+            let exe = self_exe().with_file_name("synlink-view");
             let err = std::os::unix::process::CommandExt::exec(std::process::Command::new(exe).arg(device));
             bail!("synlink-view: {err}");
         }
@@ -502,4 +502,15 @@ fn proxy(device: &str, port: u16) -> Result<()> {
     std::mem::forget(stdout);
     drop(t);
     Ok(())
+}
+
+/// Путь к своему исполняемому файлу. После обновления пакета работающий демон видит
+/// `/usr/bin/synlink (deleted)` — новый файл лежит по тому же пути, суффикс отбрасывается
+/// (иначе ProxyCommand в ssh-конфиге указывает в никуда).
+pub(crate) fn self_exe() -> std::path::PathBuf {
+    let Ok(p) = std::env::current_exe() else { return "synlink".into() };
+    match p.to_str().and_then(|s| s.strip_suffix(" (deleted)")) {
+        Some(s) => s.into(),
+        None => p,
+    }
 }
