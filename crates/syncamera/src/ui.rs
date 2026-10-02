@@ -540,7 +540,7 @@ fn zoom_label(z: f32) -> String {
     if (z - z.round()).abs() < 0.05 {
         format!("{}×", z.round() as i32)
     } else {
-        format!("{:.1}×", z).replace('.', ",")
+        format!("{:.1}×", z)
     }
 }
 
@@ -596,7 +596,7 @@ fn lens_items(st: St) -> Vec<LensItem> {
     let mut v = Vec::new();
     for (lens, role, icon, title, zoom) in [
         (Lens::Main, Role::Main, gl::LENS_MAIN, "Основная", "1×"),
-        (Lens::Wide, Role::Wide, gl::LENS_WIDE, "Широкоугольная", "0,6×"),
+        (Lens::Wide, Role::Wide, gl::LENS_WIDE, "Широкоугольная", "0.6×"),
         (Lens::Macro, Role::Macro, gl::LENS_MACRO, "Макро", "вблизи"),
     ] {
         let module = mods.iter().find(|m| m.role == role);
@@ -831,7 +831,7 @@ fn zoom_row(st: St, vertical: bool) -> impl Widget {
         let mut items: Vec<W> = Vec::new();
         for (i, s) in stops.iter().copied().enumerate() {
             let on = i == active;
-            let label = if on { zoom_label(z) } else if s < 1.0 { ",6".into() } else { format!("{}", s as i32) };
+            let label = if on { zoom_label(z) } else if s < 1.0 { "0.6".into() } else { format!("{}", s as i32) };
             items.push(Box::new(
                 GestureDetector::new()
                     .on_click(move || {
