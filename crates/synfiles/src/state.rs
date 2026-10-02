@@ -743,7 +743,7 @@ pub fn theme_mss(c: &Config) -> String {
         p.accent.with_alpha(if dark { 0.36 } else { 0.26 }).hex(),
         if dark { p.bg.mix(p.surface, 0.8).hex() } else { p.surface.hex() },
         if dark { "#00000080" } else { "#1a203024" },
-        p.border.with_alpha(0.7).hex(),
+        p.border.fade(0.7).hex(),
     ));
     s.push_str(&a.theme_mss_variables());
     s.push_str(STYLES);

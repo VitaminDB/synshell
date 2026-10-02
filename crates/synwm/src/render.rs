@@ -465,10 +465,13 @@ where
         }
     }
 
-    // Тень (позади всего).
-    let shadow_on = deco_theme.shadow && m.ssd && !m.fullscreen && !m.maximized && !tiled && deco_theme.shadow_size > 0;
+    // Тень (позади всего). Окну со своей рамкой (CSD) — тоже, если оно не
+    // рисует тень само: буфер совпадает с геометрией окна (у GTK с тенью
+    // геометрия меньше буфера на поля под неё). Его углы — прямые.
+    let csd_plain = !m.ssd && m.window.bbox() == m.window.geometry();
+    let shadow_on = deco_theme.shadow && (m.ssd || csd_plain) && !m.fullscreen && !m.maximized && !tiled && deco_theme.shadow_size > 0;
     if shadow_on {
-        let radius = deco_theme.radius.round() as i32;
+        let radius = if m.ssd { deco_theme.radius.round() as i32 } else { 0 };
         m.shadow.update(deco_theme, radius, int_scale);
         if let Some(buf) = m.shadow.buffer.clone() {
             let s = m.shadow.size;

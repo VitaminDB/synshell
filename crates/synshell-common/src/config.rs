@@ -469,6 +469,13 @@ impl Rgba {
         Self { a: (a.clamp(0.0, 1.0) * 255.0).round() as u8, ..self }
     }
 
+    /// Прозрачнее в `k` раз: умножает свою альфу (у полупрозрачного цвета
+    /// темы, например `border = "#ffffff26"`, [`Self::with_alpha`] её бы
+    /// заменила и сделала цвет плотнее).
+    pub fn fade(self, k: f32) -> Self {
+        self.with_alpha(self.a as f32 / 255.0 * k)
+    }
+
     pub fn hex(self) -> String {
         if self.a == 255 {
             format!("#{:02x}{:02x}{:02x}", self.r, self.g, self.b)
