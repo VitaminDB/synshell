@@ -17,7 +17,8 @@ pub struct Prefs {
     pub grid: bool,
     /// 0 — 4:3, 1 — 16:9, 2 — 1:1
     pub aspect: u32,
-    pub full_res: bool,
+    /// Разрешение фото 4:3, Мп (0 — обычное 12 Мп; 50, 108, 200 — полное, Quad-CFA).
+    pub photo_mp: u32,
     /// 0 — 720p, 1 — 1080p, 2 — 4K
     pub video_q: u32,
     pub hevc: bool,
@@ -45,7 +46,7 @@ impl Default for Prefs {
             timer: 0,
             grid: false,
             aspect: 0,
-            full_res: false,
+            photo_mp: 0,
             video_q: 1,
             hevc: false,
             mic: true,
@@ -74,7 +75,8 @@ impl Prefs {
         p.timer = num("timer", p.timer);
         p.grid = flag("grid", p.grid);
         p.aspect = num("aspect", p.aspect).min(2);
-        p.full_res = flag("full_res", p.full_res);
+        // прежний ключ full_res = 1 — наибольшее
+        p.photo_mp = kv.get("photo_mp").and_then(|v| v.parse().ok()).unwrap_or(if flag("full_res", false) { 200 } else { 0 });
         p.video_q = num("video_quality", p.video_q).min(2);
         p.hevc = flag("hevc", p.hevc);
         p.mic = flag("mic", p.mic);
@@ -94,12 +96,12 @@ impl Prefs {
     pub fn save(&self) {
         let b = |v: bool| if v { "1" } else { "0" };
         let s = format!(
-            "# «Камера» synshell\nflash = {}\ntimer = {}\ngrid = {}\naspect = {}\nfull_res = {}\nvideo_quality = {}\nhevc = {}\nmic = {}\nstabilization = {}\nsound = {}\ntimelapse = {}\nfront = {}\nmode = {}\nlens = {}\nstart_camera = {}\nphoto_dir = {}\nvideo_dir = {}\nfullscreen = {}\n",
+            "# «Камера» synshell\nflash = {}\ntimer = {}\ngrid = {}\naspect = {}\nphoto_mp = {}\nvideo_quality = {}\nhevc = {}\nmic = {}\nstabilization = {}\nsound = {}\ntimelapse = {}\nfront = {}\nmode = {}\nlens = {}\nstart_camera = {}\nphoto_dir = {}\nvideo_dir = {}\nfullscreen = {}\n",
             self.flash,
             self.timer,
             b(self.grid),
             self.aspect,
-            b(self.full_res),
+            self.photo_mp,
             self.video_q,
             b(self.hevc),
             b(self.mic),

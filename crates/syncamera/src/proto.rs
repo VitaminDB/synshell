@@ -10,7 +10,7 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 
 pub const SOCKET: &str = "/run/syncam/syncam.sock";
 const MAGIC: u32 = 0x6d61_6373;
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 const MAX_CAMS: usize = 8;
 const MAX_SIZES: usize = 32;
 
@@ -95,6 +95,8 @@ pub struct Camera {
     pub exposure_max: i64,
     pub min_focus: f32,
     pub scenes: u32,
+    pub nfull: u32,
+    pub full: [[u32; 2]; 8],
 }
 
 impl Camera {
@@ -122,6 +124,27 @@ impl Camera {
     /// Наибольший JPEG с соотношением сторон `aw:ah`.
     pub fn jpeg_for(&self, aw: u32, ah: u32) -> Option<(u32, u32)> {
         self.jpegs().filter(|(w, h)| *w as u64 * ah as u64 == *h as u64 * aw as u64).max_by_key(|(w, h)| *w as u64 * *h as u64)
+    }
+
+    /// Размеры фото 4:3 от меньшего к большему: обычный JPEG и все полного разрешения (50, 108, 200 Мп…).
+    pub fn photo_sizes(&self) -> Vec<(u32, u32)> {
+        let mut v: Vec<(u32, u32)> = self.jpeg_for(4, 3).into_iter().collect();
+        for f in self.full[..(self.nfull as usize).min(8)].iter().rev() {
+            if !v.contains(&(f[0], f[1])) {
+                v.push((f[0], f[1]));
+            }
+        }
+        v.sort_by_key(|(w, h)| *w as u64 * *h as u64);
+        v
+    }
+
+    /// Размер фото 4:3 для выбора в мегапикселях (0 — обычный); ближайший из доступных.
+    pub fn photo_size_for(&self, mp: u32) -> Option<(u32, u32)> {
+        let v = self.photo_sizes();
+        if mp == 0 {
+            return v.first().copied();
+        }
+        v.into_iter().min_by_key(|s| (megapixels(*s) as i64 - mp as i64).abs())
     }
 
     pub fn ev_step(&self) -> f32 {
@@ -257,6 +280,21 @@ impl Default for Control {
             focus: -1.0,
             stabilization: 0,
         }
+    }
+}
+
+/// Мегапиксели «как в описании телефона»: 16384×12288 — 200, а не 201; 12000×9000 — 108; 4096×3072 — 12.
+pub fn megapixels((w, h): (u32, u32)) -> u32 {
+    let px = w as u64 * h as u64;
+    if px < 50_000_000 {
+        return (px / 1_000_000) as u32;
+    }
+    let mp = ((px + 500_000) / 1_000_000) as u32;
+    let r10 = (mp + 5) / 10 * 10;
+    if mp >= 50 && (mp as i64 - r10 as i64).abs() * 100 <= r10 as i64 {
+        r10
+    } else {
+        mp
     }
 }
 
@@ -569,4 +607,16 @@ pub fn snapshot(camera: u32, flash: u32, size: Option<(u32, u32)>, rotation: i32
         off += r as usize;
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn megapixels_like_spec() {
+        assert_eq!(super::megapixels((16384, 12288)), 200);
+        assert_eq!(super::megapixels((12000, 9000)), 108);
+        assert_eq!(super::megapixels((8192, 6144)), 50);
+        assert_eq!(super::megapixels((4096, 3072)), 12);
+        assert_eq!(super::megapixels((5184, 3904)), 20);
+    }
 }

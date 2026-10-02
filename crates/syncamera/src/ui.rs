@@ -321,13 +321,19 @@ fn top_controls(st: St, vertical: bool) -> impl Widget {
             }));
             let a = st.aspect.get();
             items.push(chip_btn(["4:3", "16:9", "1:1"][a as usize % 3], move || st.aspect.set((st.aspect.get_untracked() + 1) % 3)));
-            let full = st.full_res.get();
-            if cam.is_some_and(|c| c.full_width > 0) && a == 0 && mode != Mode::Night {
-                let mp = cam.map(|c| (c.full_width as u64 * c.full_height as u64 + 500_000) / 1_000_000).unwrap_or(0);
-                // как в описании телефона: 200 Мп, а не 201
-                let mp = if mp >= 50 { (mp + 5) / 10 * 10 } else { mp };
-                let normal = cam.map(|c| (c.photo_width as u64 * c.photo_height as u64) / 1_000_000).unwrap_or(0);
-                items.push(chip_btn_on(&format!("{} Мп", if full { mp } else { normal }), full, move || st.full_res.set(!st.full_res.get_untracked())));
+            // разрешение фото 4:3: 12 → 50 → 108 → 200 Мп → 12 (касанием по кругу)
+            if let Some(c) = cam.filter(|c| c.nfull > 0 && a == 0 && mode != Mode::Night) {
+                let sizes = c.photo_sizes();
+                let want = st.photo_mp.get();
+                let cur = c.photo_size_for(want).unwrap_or((0, 0));
+                let i = sizes.iter().position(|s| *s == cur).unwrap_or(0);
+                let full = i > 0;
+                let next: Vec<u32> = sizes.iter().map(|s| proto::megapixels(*s)).collect();
+                let n = next.len();
+                items.push(chip_btn_on(&format!("{} Мп", proto::megapixels(cur)), full, move || {
+                    let j = (i + 1) % n;
+                    st.photo_mp.set(if j == 0 { 0 } else { next[j] });
+                }));
             }
         }
         let g = st.grid.get();
@@ -607,10 +613,8 @@ fn lens_items(st: St) -> Vec<LensItem> {
         let sub = if avail {
             let mp = crate::pick_cam(&cams, false, lens)
                 .map(|c| {
-                    let px = if c.full_width > 0 { c.full_width as u64 * c.full_height as u64 } else { c.photo_width as u64 * c.photo_height as u64 };
-                    // как в описании телефона: 200 Мп, а не 201
-                    let mp = (px + 500_000) / 1_000_000;
-                    format!("{} Мп · ", if mp >= 50 { (mp + 5) / 10 * 10 } else { mp })
+                    let big = c.photo_sizes().last().copied().unwrap_or((c.photo_width, c.photo_height));
+                    format!("{} Мп · ", proto::megapixels(big))
                 })
                 .unwrap_or_default();
             format!("{mp}{zoom}")
@@ -1195,6 +1199,31 @@ fn setting_choice(label: &'static str, sig: RwSignal<u32>, opts: &'static [(u32,
     )
 }
 
+/// Разрешение фото 4:3 для текущей камеры: обычное и все полного разрешения (у основной 50, 108, 200 Мп).
+fn resolution_choice(st: St) -> W {
+    Box::new(
+        Column::new()
+            .gap(8.0)
+            .child(Text::new("Разрешение фото (4:3)").class("set-label"))
+            .child(Reactive::new(move || -> Vec<W> {
+                let _ = (st.cams.get(), st.front.get(), st.lens.get());
+                let want = st.photo_mp.get();
+                let Some(c) = crate::current_cam(st) else { return vec![] };
+                let sizes = c.photo_sizes();
+                let cur = c.photo_size_for(want);
+                let mut row = Row::new().gap(6.0);
+                for (i, s) in sizes.iter().copied().enumerate() {
+                    let mp = proto::megapixels(s);
+                    let v = if i == 0 { 0 } else { mp };
+                    row = row.child(chip_btn_on(&format!("{mp} Мп"), cur == Some(s), move || st.photo_mp.set(v)));
+                }
+                vec![Box::new(row)]
+            }))
+            .child(Text::new("Больше 12 Мп — полное разрешение датчика: снимок до 15 секунд, без «Ночи»").max_lines(2).class("set-sub"))
+            .class("set-row"),
+    )
+}
+
 /// Папка снимков или видео: путь, «Изменить» (окно выбора папки портала), «По умолчанию».
 fn storage_row(st: St, video: bool) -> W {
     let sig = if video { st.video_dir } else { st.photo_dir };
@@ -1249,7 +1278,7 @@ fn settings_sheet(st: St) -> impl Widget {
             .child(setting_toggle("Полноэкранный режим", "Окно во весь экран — без заголовка и панели состояния", st.fullscreen))
             .child(Text::new("Фото").class("set-head"))
             .child(setting_choice("Соотношение сторон", st.aspect, &[(0, "4:3"), (1, "16:9"), (2, "1:1")]))
-            .child(setting_toggle("Полное разрешение", "Основная камера 200 Мп, фронтальная 20 Мп (4:3); снимок — около 15 секунд", st.full_res))
+            .child(resolution_choice(st))
             .child(setting_choice("Таймер", st.timer, &[(0, "Выкл."), (3, "3 с"), (10, "10 с")]))
             .child(setting_toggle("Сетка", "Линии третей поверх кадра", st.grid))
             .child(setting_toggle("Звук затвора", "Щелчок при съёмке и сигналы записи", st.sound))

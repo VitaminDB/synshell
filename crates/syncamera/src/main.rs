@@ -128,7 +128,7 @@ pub struct St {
     pub timer: RwSignal<u32>,
     pub grid: RwSignal<bool>,
     pub aspect: RwSignal<u32>,
-    pub full_res: RwSignal<bool>,
+    pub photo_mp: RwSignal<u32>,
     pub video_q: RwSignal<u32>,
     pub hevc: RwSignal<bool>,
     pub mic: RwSignal<bool>,
@@ -215,7 +215,7 @@ fn main() {
                 timer: use_signal(p.timer),
                 grid: use_signal(p.grid),
                 aspect: use_signal(p.aspect),
-                full_res: use_signal(p.full_res),
+                photo_mp: use_signal(p.photo_mp),
                 video_q: use_signal(p.video_q),
                 hevc: use_signal(p.hevc),
                 mic: use_signal(p.mic),
@@ -334,7 +334,7 @@ fn start(st: St) {
     });
     // переоткрыть камеру при смене режима, камеры, объектива, соотношения, качества видео
     create_effect(move || {
-        let _ = (st.cams.get(), st.mode.get(), st.front.get(), st.lens.get(), st.aspect.get(), st.video_q.get(), st.full_res.get());
+        let _ = (st.cams.get(), st.mode.get(), st.front.get(), st.lens.get(), st.aspect.get(), st.video_q.get(), st.photo_mp.get());
         reopen(st);
     });
     // просмотр снятого открыт — камера выключена (не греет телефон под просмотром)
@@ -364,7 +364,7 @@ fn start(st: St) {
             timer: st.timer.get(),
             grid: st.grid.get(),
             aspect: st.aspect.get(),
-            full_res: st.full_res.get(),
+            photo_mp: st.photo_mp.get(),
             video_q: st.video_q.get(),
             hevc: st.hevc.get(),
             mic: st.mic.get(),
@@ -933,14 +933,21 @@ pub fn take_photo(st: St) {
     st.blink.set(st.blink.get_untracked() + 1);
     let recording = st.rec.get_untracked() != Rec::Idle;
     let (aw, ah) = if recording { (16, 9) } else { aspect_ratio(st.aspect.get_untracked()) };
-    let full = !recording && st.full_res.get_untracked() && (aw, ah) == (4, 3) && cam.full_width > 0 && mode != Mode::Night;
-    let size = if full { Some((cam.full_width, cam.full_height)) } else { cam.jpeg_for(aw, ah) };
+    let pick = if !recording && st.photo_mp.get_untracked() > 0 && (aw, ah) == (4, 3) && mode != Mode::Night {
+        cam.photo_size_for(st.photo_mp.get_untracked())
+    } else {
+        None
+    };
+    // полное разрешение — размер не из обычных JPEG (ремозаика Quad-CFA)
+    let full = pick.is_some_and(|s| !cam.jpegs().any(|j| j == s));
+    let size = if full { pick } else { cam.jpeg_for(aw, ah) };
     let flash = if recording || mode == Mode::Night || mode == Mode::Pro || cam.flash == 0 { proto::FLASH_OFF } else { st.flash.get_untracked() };
     let manual_focus = mode == Mode::Pro && st.focus_d.get_untracked() >= 0.0;
     let flags = if manual_focus || recording { proto::SNAP_NO_AF } else { 0 };
     let rot = st.dev_rot.get_untracked() as i32;
     if full {
-        st.progress.set("Полное разрешение — около 15 секунд…".into());
+        let mp = size.map(proto::megapixels).unwrap_or(0);
+        st.progress.set(format!("{mp} Мп — снимок займёт до 15 секунд…"));
     }
     std::thread::spawn(move || {
         let r = proto::snapshot(cam.id, flash, size, rot, flags).and_then(|jpeg| {
