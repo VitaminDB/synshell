@@ -405,10 +405,16 @@ fn which(cmd: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Диалог выбора файла/каталога через kdialog или zenity (блокирующий —
-/// звать из отдельного потока). `None` — отменили или диалога нет.
+/// Диалог выбора файла/каталога: системный портал (в synshell — окно Проводника), без портала — kdialog
+/// или zenity (блокирующий — звать из отдельного потока). `None` — отменили или диалога нет.
 pub fn pick_path(directory: bool, start: &str) -> Option<String> {
     let start = if start.is_empty() { paths::expand_tilde("~").display().to_string() } else { start.to_string() };
+    let filters = [synsystem::portal_files::PickFilter { name: "Изображения", patterns: &["image/*"] }];
+    let title = if directory { "Папка с обоями" } else { "Картинка для обоев" };
+    match synsystem::portal_files::pick(title, directory, Path::new(&start), if directory { &[] } else { &filters }) {
+        Ok(p) => return p.map(|p| p.display().to_string()),
+        Err(e) => tracing::info!("портал выбора файлов: {e} — kdialog/zenity"),
+    }
     let out = if which("kdialog") {
         let mut c = std::process::Command::new("kdialog");
         if directory {
@@ -439,8 +445,9 @@ pub fn pick_path(directory: bool, start: &str) -> Option<String> {
     (!s.is_empty()).then_some(s)
 }
 
+/// Есть ли чем выбрать файл: портал (xdg-desktop-portal на шине) или kdialog/zenity.
 pub fn has_file_dialog() -> bool {
-    which("kdialog") || which("zenity")
+    which("kdialog") || which("zenity") || std::path::Path::new("/usr/lib/xdg-desktop-portal").exists()
 }
 
 /// Открыть файл в редакторе пользователя.

@@ -12,7 +12,6 @@ mod media;
 mod modules;
 mod night;
 mod orientation;
-mod portal;
 mod prefs;
 mod proto;
 mod recorder;
@@ -454,7 +453,7 @@ pub fn choose_dir(st: St, video: bool) {
     let start = if video { media::videos_dir() } else { media::pictures_dir() };
     let title = if video { "Папка для видео" } else { "Папка для снимков" };
     std::thread::spawn(move || {
-        let r = portal::choose_folder(title, &start);
+        let r = synsystem::portal_files::pick(title, true, &start, &[]);
         run_on_main_thread(move || match r {
             Ok(Some(dir)) => {
                 if !media::writable(&dir) {

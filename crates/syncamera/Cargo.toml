@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 synshell-common.workspace = true
+synsystem.workspace = true
 syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "ffmpeg", "image"] }
 libc.workspace = true
 anyhow.workspace = true

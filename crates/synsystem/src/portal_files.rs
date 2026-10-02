@@ -241,3 +241,79 @@ impl FileChooser {
         self.run(server, handle, app_id, "save_files", title, options).await
     }
 }
+
+// --- клиент: выбрать файл или папку через портал (любая программа synshell) ---------------------------------
+
+/// Фильтр окна выбора: подпись и маски имени (`*.png`) или типы (`image/*` — с «/»).
+pub struct PickFilter<'a> {
+    pub name: &'a str,
+    pub patterns: &'a [&'a str],
+}
+
+/// Блокирующий: окно выбора системного портала (`org.freedesktop.portal.FileChooser.OpenFile`), ответ —
+/// сигнал `Response` запроса. `directory` — папка. `Ok(None)` — отменили; ошибка — портала нет.
+pub fn pick(title: &str, directory: bool, start: &std::path::Path, filters: &[PickFilter]) -> Result<Option<std::path::PathBuf>, String> {
+    use zbus::zvariant::Value as V;
+    let conn = zbus::blocking::Connection::session().map_err(|e| e.to_string())?;
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
+    let token = format!("synshell{}_{nanos}", std::process::id());
+    let sender = conn.unique_name().map(|n| n.trim_start_matches(':').replace('.', "_")).unwrap_or_default();
+    let path = format!("/org/freedesktop/portal/desktop/request/{sender}/{token}");
+    // подписка — до вызова: ответ может прийти раньше, чем вернётся путь запроса
+    let req = zbus::blocking::Proxy::new(&conn, "org.freedesktop.portal.Desktop", path.as_str(), "org.freedesktop.portal.Request")
+        .map_err(|e| e.to_string())?;
+    let mut responses = req.receive_signal("Response").map_err(|e| e.to_string())?;
+    let mut folder = start.to_string_lossy().as_bytes().to_vec();
+    folder.push(0);
+    let mut opts: HashMap<&str, V> = HashMap::new();
+    opts.insert("handle_token", V::from(token.as_str()));
+    opts.insert("directory", V::from(directory));
+    if directory {
+        opts.insert("accept_label", V::from("Выбрать"));
+    }
+    opts.insert("current_folder", V::from(folder));
+    if !filters.is_empty() {
+        let list: Vec<(String, Vec<(u32, String)>)> = filters
+            .iter()
+            .map(|f| (f.name.to_string(), f.patterns.iter().map(|p| (u32::from(p.contains('/')), p.to_string())).collect()))
+            .collect();
+        opts.insert("filters", V::from(list));
+    }
+    let fc = zbus::blocking::Proxy::new(&conn, "org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop", "org.freedesktop.portal.FileChooser")
+        .map_err(|e| e.to_string())?;
+    let _: OwnedObjectPath = fc.call("OpenFile", &("", title, opts)).map_err(|e| format!("портал выбора файлов: {e}"))?;
+    let Some(msg) = responses.next() else { return Ok(None) };
+    let (code, results): (u32, HashMap<String, OwnedValue>) = msg.body().deserialize().map_err(|e| e.to_string())?;
+    if code != 0 {
+        return Ok(None);
+    }
+    let uris: Vec<String> = results.get("uris").and_then(|v| v.try_clone().ok()).and_then(|v| Vec::<String>::try_from(v).ok()).unwrap_or_default();
+    Ok(uris.first().and_then(|u| uri_path(u)))
+}
+
+/// `file:///…%D0%98…` → путь.
+pub fn uri_path(u: &str) -> Option<std::path::PathBuf> {
+    let b = u.strip_prefix("file://")?.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let Some(v) = std::str::from_utf8(&b[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    Some(std::path::PathBuf::from(String::from_utf8_lossy(&out).into_owned()))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn uri_decodes() {
+        assert_eq!(super::uri_path("file:///home/u/%D0%92%D0%B8%D0%B4%D0%B5%D0%BE/a%20b").unwrap(), std::path::PathBuf::from("/home/u/Видео/a b"));
+    }
+}
