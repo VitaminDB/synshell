@@ -454,7 +454,7 @@ fn camera_modules(v: &serde_json::Value) -> Vec<Device> {
     let empty = Vec::new();
     let cams = v["cameras"].as_array().unwrap_or(&empty);
     let mods = v["modules"].as_array().unwrap_or(&empty);
-    // Камеры HAL нумеруются по слотам рабочих модулей.
+    // Камеры HAL: сначала физические по слотам рабочих модулей, за ними логические (мультикамера).
     let mut next_cam = cams.iter();
     let mut out = Vec::new();
     for m in mods {
@@ -468,7 +468,7 @@ fn camera_modules(v: &serde_json::Value) -> Vec<Device> {
                 if let Some(c) = next_cam.next() {
                     let (w, h) = (c["width"].as_u64().unwrap_or(0), c["height"].as_u64().unwrap_or(0));
                     if w > 0 {
-                        d = d.prop("Матрица", format!("{w}×{h} ({:.1} Мп)", (w * h) as f64 / 1e6));
+                        d = d.prop("Наибольший кадр", format!("{w}×{h} ({:.1} Мп)", (w * h) as f64 / 1e6));
                     }
                     if c["flash"].as_bool() == Some(true) {
                         d = d.prop("Вспышка", "есть");
@@ -479,7 +479,7 @@ fn camera_modules(v: &serde_json::Value) -> Vec<Device> {
             "mismatch" => {
                 let (r, e) = (hex("read_id").unwrap_or_default(), hex("expected_id").unwrap_or_default());
                 d = d.prop("Состояние", "не опознана");
-                d.fault = Some(format!("датчик отвечает id {r} вместо {e}: другой модуль без описания или неисправность"));
+                d.fault = Some(format!("датчик отвечает id {r} вместо {e}: стоит другой модуль, его описания нет в прошивке"));
             }
             _ => {
                 d = d.prop("Состояние", "неисправна");
