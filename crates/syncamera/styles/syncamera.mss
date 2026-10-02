@@ -112,3 +112,6 @@ Text { color: #ffffff; font-size: 14px; }
 .toast { padding: 10px 16px; border-radius: 999px; background: #ffffffee; }
 .toast-text { font-size: 13px; color: #000000; }
 .switch-dim { background: #000000b3; }
+.shutter-col { padding: 12px 6px; }
+.vbar .chip { padding: 5px 7px; }
+.vbar .chip-text { font-size: 11px; }

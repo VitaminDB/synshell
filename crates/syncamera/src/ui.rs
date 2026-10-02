@@ -145,9 +145,9 @@ fn portrait(st: St, vp: Size, stream: (u32, u32)) -> W {
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .gap(6.0)
         .child(pro_panel(st))
-        .child(zoom_row(st))
-        .child(modes_row(st))
-        .child(shutter_row(st))
+        .child(zoom_row(st, false))
+        .child(modes_row(st, false))
+        .child(shutter_row(st, false))
         .width(w)
         .height(BOTTOM + 120.0)
         .class("bottombar");
@@ -163,33 +163,36 @@ fn portrait(st: St, vp: Size, stream: (u32, u32)) -> W {
 
 fn landscape(st: St, vp: Size, stream: (u32, u32)) -> W {
     let (w, h) = (vp.width, vp.height);
-    let side = 176.0;
-    let (pw, ph) = preview_size(st, stream, w - side - TOP, h);
-    let px = TOP + ((w - side - TOP - pw) / 2.0).max(0.0);
+    // слева — переключатели, справа — режимы и затвор столбиками; зум — столбиком у правого края кадра
+    let (lw, side) = (76.0, 210.0);
+    let (pw, ph) = preview_size(st, stream, w - side - lw, h);
+    let px = lw + ((w - side - lw - pw) / 2.0).max(0.0);
     let py = (h - ph) / 2.0;
     let left = Column::new()
         .main_axis_alignment(MainAxisAlignment::SpaceAround)
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(top_controls(st, true))
-        .width(TOP)
+        .width(lw)
         .height(h)
         .class("topbar");
-    let right = Column::new()
-        .main_axis_alignment(MainAxisAlignment::Center)
+    let right = Row::new()
+        .main_axis_alignment(MainAxisAlignment::End)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .gap(8.0)
-        .child(zoom_row(st))
-        .child(modes_row(st))
-        .child(shutter_row(st))
-        .child(pro_panel(st))
+        .gap(6.0)
+        .child(modes_row(st, true))
+        .child(shutter_row(st, true))
         .width(side)
         .height(h)
         .class("bottombar");
+    let zoom = Column::new().main_axis_alignment(MainAxisAlignment::Center).child(zoom_row(st, true)).height(h);
+    let pro = Column::new().main_axis_alignment(MainAxisAlignment::End).child(pro_panel(st)).width(pw).height(h);
     Box::new(
         Stack::new()
             .fit(StackFit::Expand)
             .child(Positioned::new(preview(st, pw, ph, px, py)).at(px, py))
             .child(Positioned::new(rec_badge(st, pw)).at(px, py + 8.0))
+            .child(Positioned::new(pro).at(px, -8.0))
+            .child(Positioned::new(zoom).at(px + pw - 62.0, 0.0))
             .child(Positioned::new(left).at(0.0, 0.0))
             .child(Positioned::new(right).at(w - side, 0.0)),
     )
@@ -267,7 +270,7 @@ fn top_controls(st: St, vertical: bool) -> impl Widget {
             items.push(icon_btn(gl::SETTINGS, "", move || st.settings.set(true)));
         }
         if vertical {
-            vec![Box::new(Column::new().main_axis_alignment(MainAxisAlignment::SpaceAround).cross_axis_alignment(CrossAxisAlignment::Center).gap(10.0).children(items))]
+            vec![Box::new(Column::new().main_axis_alignment(MainAxisAlignment::SpaceAround).cross_axis_alignment(CrossAxisAlignment::Center).gap(10.0).children(items).class("vbar"))]
         } else {
             vec![Box::new(Row::new().main_axis_alignment(MainAxisAlignment::SpaceAround).cross_axis_alignment(CrossAxisAlignment::Center).gap(14.0).children(items))]
         }
@@ -285,7 +288,7 @@ fn chip_btn_on(label: &str, on: bool, f: impl Fn() + Send + Sync + 'static) -> W
                 crate::haptic();
                 f()
             })
-            .child(DecoratedBox::new().child(Text::new(label.to_string()).class("chip-text")).class(if on { "chip chip-on" } else { "chip" })),
+            .child(DecoratedBox::new().child(Text::new(label.to_string()).max_lines(1).class("chip-text")).class(if on { "chip chip-on" } else { "chip" })),
     )
 }
 
@@ -533,7 +536,16 @@ fn rec_badge(st: St, w: f32) -> impl Widget {
 
 // ─── Нижняя панель ──────────────────────────────────────────────────────────
 
-fn zoom_row(st: St) -> impl Widget {
+/// Ряд или столбик (альбомное окно).
+fn line(vertical: bool, gap: f32, items: Vec<W>) -> W {
+    if vertical {
+        Box::new(Column::new().gap(gap).cross_axis_alignment(CrossAxisAlignment::Center).children(items))
+    } else {
+        Box::new(Row::new().gap(gap).cross_axis_alignment(CrossAxisAlignment::Center).children(items))
+    }
+}
+
+fn zoom_row(st: St, vertical: bool) -> impl Widget {
     Reactive::new(move || -> Vec<W> {
         let _ = (st.cams.get(), st.front.get(), st.lens.get());
         let z = st.zoom.get();
@@ -548,33 +560,33 @@ fn zoom_row(st: St) -> impl Widget {
         }
         // активная кнопка — ближайшая снизу; на ней — точное значение
         let active = stops.iter().rposition(|s| z + 0.01 >= *s).unwrap_or(0);
-        let mut row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        let mut items: Vec<W> = Vec::new();
         for (i, s) in stops.iter().copied().enumerate() {
             let on = i == active;
             let label = if on { zoom_label(z) } else if s < 1.0 { ",6".into() } else { format!("{}", s as i32) };
-            row = row.child(
+            items.push(Box::new(
                 GestureDetector::new()
                     .on_click(move || {
                         crate::haptic();
                         crate::set_zoom(st, s)
                     })
                     .child(DecoratedBox::new().child(Text::new(label).class("zoom-text")).class(if on { "zoom-btn zoom-on" } else { "zoom-btn" })),
-            );
+            ));
         }
-        vec![Box::new(DecoratedBox::new().child(row).class("zoom-row"))]
+        vec![Box::new(DecoratedBox::new().child(line(vertical, 6.0, items)).class("zoom-row"))]
     })
 }
 
-fn modes_row(st: St) -> impl Widget {
+fn modes_row(st: St, vertical: bool) -> impl Widget {
     Reactive::new(move || -> Vec<W> {
         let cur = st.mode.get();
         let rec = st.rec.get() != Rec::Idle;
-        let mut row = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        let mut items: Vec<W> = Vec::new();
         for (m, name) in MODES {
             if rec && m != cur {
                 continue;
             }
-            row = row.child(
+            items.push(Box::new(
                 GestureDetector::new()
                     .on_click(move || {
                         if st.rec.get_untracked() == Rec::Idle && st.mode.get_untracked() != m {
@@ -583,13 +595,13 @@ fn modes_row(st: St) -> impl Widget {
                         }
                     })
                     .child(DecoratedBox::new().child(Text::new(name).class(if m == cur { "mode-text mode-on" } else { "mode-text" })).class(if m == cur { "mode mode-sel" } else { "mode" })),
-            );
+            ));
         }
-        vec![Box::new(row)]
+        vec![line(vertical, 4.0, items)]
     })
 }
 
-fn shutter_row(st: St) -> impl Widget {
+fn shutter_row(st: St, vertical: bool) -> impl Widget {
     Reactive::new(move || -> Vec<W> {
         let mode = st.mode.get();
         let rec = st.rec.get();
@@ -658,6 +670,19 @@ fn shutter_row(st: St) -> impl Widget {
                 Box::new(Column::new().width(56.0).height(56.0))
             }
         };
+        if vertical {
+            // столбик: смена камеры сверху, миниатюра снизу
+            return vec![Box::new(
+                Column::new()
+                    .main_axis_alignment(MainAxisAlignment::SpaceAround)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(right)
+                    .child(shutter)
+                    .child(left)
+                    .height(viewport_size().get_untracked().height)
+                    .class("shutter-col"),
+            )];
+        }
         vec![Box::new(
             Row::new()
                 .main_axis_alignment(MainAxisAlignment::SpaceAround)
