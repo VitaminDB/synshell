@@ -12,6 +12,7 @@ mod media;
 mod modules;
 mod night;
 mod orientation;
+mod portal;
 mod prefs;
 mod proto;
 mod recorder;
@@ -164,6 +165,9 @@ pub struct St {
     /// Задние модули по пробе платформы (исправность).
     pub modules: RwSignal<Vec<modules::Module>>,
     pub start_cam: RwSignal<u32>,
+    /// Папки снимков и видео (пусто — XDG).
+    pub photo_dir: RwSignal<String>,
+    pub video_dir: RwSignal<String>,
     pub toast: RwSignal<String>,
     /// Долгий снимок идёт: подпись над кадром (ночь, полное разрешение).
     pub progress: RwSignal<String>,
@@ -243,6 +247,8 @@ fn main() {
                 lens_menu: use_signal(false),
                 modules: use_signal(modules::back_modules()),
                 start_cam: use_signal(p.start_cam),
+                photo_dir: use_signal(p.photo_dir.clone()),
+                video_dir: use_signal(p.video_dir.clone()),
                 toast: use_signal(String::new()),
                 progress: use_signal(String::new()),
                 qr: use_signal(None),
@@ -368,6 +374,8 @@ fn start(st: St) {
             mode: st.mode.get().index(),
             lens: st.lens.get().index(),
             start_cam: st.start_cam.get(),
+            photo_dir: st.photo_dir.get(),
+            video_dir: st.video_dir.get(),
         };
         p.save();
     });
@@ -429,7 +437,41 @@ fn start(st: St) {
             });
         }
     });
+    // папки хранения — в media; сменились — снятое и миниатюра из новых папок
+    let first = std::cell::Cell::new(true);
+    create_effect(move || {
+        let some = |s: String| (!s.trim().is_empty()).then(|| std::path::PathBuf::from(s.trim()));
+        media::set_dirs(some(st.photo_dir.get()), some(st.video_dir.get()));
+        if !first.replace(false) {
+            refresh_thumb(st);
+        }
+    });
     reload_items(st, true);
+}
+
+/// Выбрать папку снимков (`video` — видео) окном портала.
+pub fn choose_dir(st: St, video: bool) {
+    let start = if video { media::videos_dir() } else { media::pictures_dir() };
+    let title = if video { "Папка для видео" } else { "Папка для снимков" };
+    std::thread::spawn(move || {
+        let r = portal::choose_folder(title, &start);
+        run_on_main_thread(move || match r {
+            Ok(Some(dir)) => {
+                if !media::writable(&dir) {
+                    st.toast.set(format!("В папку «{}» нельзя записывать", dir.display()));
+                    return;
+                }
+                let s = dir.to_string_lossy().into_owned();
+                if video {
+                    st.video_dir.set(s);
+                } else {
+                    st.photo_dir.set(s);
+                }
+            }
+            Ok(None) => {}
+            Err(e) => st.toast.set(format!("Выбор папки: {e}")),
+        });
+    });
 }
 
 pub fn with_engine(st: St, f: impl FnOnce(&Engine)) {

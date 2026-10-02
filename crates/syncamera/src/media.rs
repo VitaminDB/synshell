@@ -42,12 +42,39 @@ fn user_dir(key: &str, fallback: &str) -> PathBuf {
     home().join(fallback)
 }
 
-pub fn pictures_dir() -> PathBuf {
+/// Папки, выбранные в настройках (`None` — XDG пользователя).
+static DIRS: std::sync::RwLock<(Option<PathBuf>, Option<PathBuf>)> = std::sync::RwLock::new((None, None));
+
+pub fn set_dirs(photo: Option<PathBuf>, video: Option<PathBuf>) {
+    *DIRS.write().unwrap() = (photo, video);
+}
+
+/// «Изображения» пользователя по XDG (папка по умолчанию).
+pub fn default_pictures_dir() -> PathBuf {
     user_dir("XDG_PICTURES_DIR", "Изображения")
 }
 
-pub fn videos_dir() -> PathBuf {
+pub fn default_videos_dir() -> PathBuf {
     user_dir("XDG_VIDEOS_DIR", "Видео")
+}
+
+pub fn pictures_dir() -> PathBuf {
+    DIRS.read().unwrap().0.clone().unwrap_or_else(default_pictures_dir)
+}
+
+pub fn videos_dir() -> PathBuf {
+    DIRS.read().unwrap().1.clone().unwrap_or_else(default_videos_dir)
+}
+
+/// Можно ли писать в папку (создаётся, если её нет).
+pub fn writable(dir: &Path) -> bool {
+    if std::fs::create_dir_all(dir).is_err() {
+        return false;
+    }
+    let probe = dir.join(".syncamera-probe");
+    let ok = std::fs::write(&probe, b"").is_ok();
+    let _ = std::fs::remove_file(&probe);
+    ok
 }
 
 fn cache_dir() -> PathBuf {

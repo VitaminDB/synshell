@@ -54,9 +54,10 @@ Text { color: #ffffff; font-size: 14px; }
 .mode-on { color: #ffd54f; font-weight: 600; }
 .shutter-row { width: 100%; padding: 6px 12px; }
 .side-btn { width: 56px; height: 56px; border-radius: 28px; padding: 0px; background: #ffffff26; }
-.shutter { width: 78px; height: 78px; border-radius: 39px; border-width: 4px; border-color: #ffffff; padding: 5px; transition: scale 140ms spring(520, 26); }
+.shutter { width: 78px; height: 78px; transition: scale 140ms spring(520, 26); }
+.shutter-ring { border-radius: 39px; border-width: 4px; border-color: #ffffff; }
 .shutter:active { scale: 0.9; }
-.shutter-busy { border-color: #ffffff66; }
+.shutter-busy .shutter-ring { border-color: #ffffff66; }
 .shutter-in { width: 60px; height: 60px; border-radius: 30px; background: #ffffff; transition: background-color 160ms ease-out; }
 .shutter-in:active { background-color: #dddddd; }
 .shutter-rec { background: #ff3b30; }
@@ -145,3 +146,4 @@ Text { color: #ffffff; font-size: 14px; }
 .lens-fault { color: #ff8a80; }
 .lens-check { font-size: 22px; color: #ffd54f; }
 .lens-block { font-size: 20px; color: #ffffff4d; }
+.set-icon { font-size: 22px; color: #ffd54f; }

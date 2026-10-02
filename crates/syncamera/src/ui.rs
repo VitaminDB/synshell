@@ -53,6 +53,8 @@ pub mod gl {
     pub const CHECK: &str = "\u{E5CA}";
     pub const BLOCK: &str = "\u{E14B}";
     pub const COPY: &str = "\u{E14D}";
+    pub const PHOTO_FOLDER: &str = "\u{E413}";
+    pub const VIDEO_FOLDER: &str = "\u{E04A}";
     pub const CHEVRON_L: &str = "\u{E5CB}";
     pub const CHEVRON_R: &str = "\u{E5CC}";
     pub const WB: [&str; 5] = ["\u{E42C}", "\u{E42E}", "\u{E436}", "\u{E430}", "\u{E42D}"];
@@ -300,7 +302,9 @@ fn top_controls(st: St, vertical: bool) -> impl Widget {
             items.push(chip_btn(["4:3", "16:9", "1:1"][a as usize % 3], move || st.aspect.set((st.aspect.get_untracked() + 1) % 3)));
             let full = st.full_res.get();
             if cam.is_some_and(|c| c.full_width > 0) && a == 0 && mode != Mode::Night {
-                let mp = cam.map(|c| (c.full_width as u64 * c.full_height as u64) / 1_000_000).unwrap_or(0);
+                let mp = cam.map(|c| (c.full_width as u64 * c.full_height as u64 + 500_000) / 1_000_000).unwrap_or(0);
+                // как в описании телефона: 200 Мп, а не 201
+                let mp = if mp >= 50 { (mp + 5) / 10 * 10 } else { mp };
                 let normal = cam.map(|c| (c.photo_width as u64 * c.photo_height as u64) / 1_000_000).unwrap_or(0);
                 items.push(chip_btn_on(&format!("{} Мп", if full { mp } else { normal }), full, move || st.full_res.set(!st.full_res.get_untracked())));
             }
@@ -887,13 +891,22 @@ fn shutter_row(st: St, vertical: bool) -> impl Widget {
             (false, _) if mode == Mode::Night => ("shutter", "shutter-in shutter-night"),
             _ => ("shutter", "shutter-in"),
         };
-        let mut shutter_inner = DecoratedBox::new().class(inner.to_string());
-        if mode == Mode::Night && rec == Rec::Idle {
-            shutter_inner = DecoratedBox::new().child(Column::new().center().child(Icon::new(gl::NIGHT).class("night-icon"))).class(inner.to_string());
-        }
-        let shutter = GestureDetector::new()
-            .on_click(move || crate::shutter(st))
-            .child(DecoratedBox::new().child(Column::new().center().child(shutter_inner)).class(outer.to_string()));
+        // кольцо и кружок — слои в стопке 78×78, кружок по координатам (отступы и рамка в MSS центр не держали)
+        let d = if inner.contains("shutter-stop") { 30.0 } else { 60.0 };
+        let disc: W = if mode == Mode::Night && rec == Rec::Idle {
+            Box::new(DecoratedBox::new().child(centered(gl::NIGHT, "night-icon", d)).class(inner.to_string()))
+        } else {
+            Box::new(Column::new().width(d).height(d).class(inner.to_string()))
+        };
+        let shutter = GestureDetector::new().on_click(move || crate::shutter(st)).child(
+            DecoratedBox::new()
+                .child(
+                    Stack::new()
+                        .child(Column::new().width(78.0).height(78.0).class("shutter-ring"))
+                        .child(Positioned::new(disc).at((78.0 - d) / 2.0, (78.0 - d) / 2.0)),
+                )
+                .class(outer.to_string()),
+        );
         // справа: смена камеры или снимок во время записи
         let right: W = if rec != Rec::Idle {
             icon_btn(gl::PHOTO, "side-btn", move || {
@@ -1161,13 +1174,47 @@ fn setting_choice(label: &'static str, sig: RwSignal<u32>, opts: &'static [(u32,
     )
 }
 
+/// Папка снимков или видео: путь, «Изменить» (окно выбора папки портала), «По умолчанию».
+fn storage_row(st: St, video: bool) -> W {
+    let sig = if video { st.video_dir } else { st.photo_dir };
+    Box::new(Reactive::new(move || -> Vec<W> {
+        let custom = !sig.get().trim().is_empty();
+        let path = if video { media::videos_dir() } else { media::pictures_dir() };
+        let home = std::env::var("HOME").unwrap_or_default();
+        let shown = match path.strip_prefix(&home) {
+            Ok(rest) if !home.is_empty() => format!("~/{}", rest.display()),
+            _ => path.display().to_string(),
+        };
+        let mut buttons = Row::new().gap(6.0).child(chip_btn("Изменить", move || crate::choose_dir(st, video)));
+        if custom {
+            buttons = buttons.child(chip_btn("По умолчанию", move || sig.set(String::new())));
+        }
+        vec![Box::new(
+            Column::new()
+                .gap(6.0)
+                .child(
+                    Row::new()
+                        .gap(10.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(centered(if video { gl::VIDEO_FOLDER } else { gl::PHOTO_FOLDER }, "set-icon", 28.0))
+                        .child(
+                            Column::new()
+                                .gap(2.0)
+                                .child(Text::new(if video { "Видео" } else { "Снимки" }).class("set-label"))
+                                .child(Text::new(shown).max_lines(2).class("set-sub")),
+                        ),
+                )
+                .child(buttons)
+                .class("set-row"),
+        )]
+    }))
+}
+
 fn settings_sheet(st: St) -> impl Widget {
     Reactive::new(move || -> Vec<W> {
         if !st.settings.get() {
             return vec![];
         }
-        let pics = media::pictures_dir();
-        let vids = media::videos_dir();
         let body = Column::new()
             .gap(4.0)
             .child(
@@ -1191,7 +1238,8 @@ fn settings_sheet(st: St) -> impl Widget {
             .child(setting_toggle("Стабилизация", "Цифровая стабилизация видео", st.stab))
             .child(setting_choice("Ускорение таймлапса", st.timelapse, &[(5, "×5"), (10, "×10"), (30, "×30"), (60, "×60")]))
             .child(Text::new("Хранение").class("set-head"))
-            .child(Text::new(format!("Снимки — {}\nВидео — {}", pics.display(), vids.display())).max_lines(4).class("set-sub set-row"));
+            .child(storage_row(st, false))
+            .child(storage_row(st, true));
         let vp = viewport_size().get_untracked();
         let sheet_h = (vp.height * 0.8).min(720.0);
         vec![Box::new(

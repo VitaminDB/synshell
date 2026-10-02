@@ -31,6 +31,9 @@ pub struct Prefs {
     pub lens: u32,
     /// Камера при запуске: 0 — как в прошлый раз, 1 — основная, 2 — широкоугольная, 3 — фронтальная.
     pub start_cam: u32,
+    /// Папки снимков и видео; пусто — «Изображения» и «Видео» пользователя (XDG).
+    pub photo_dir: String,
+    pub video_dir: String,
 }
 
 impl Default for Prefs {
@@ -51,6 +54,8 @@ impl Default for Prefs {
             mode: 2,
             lens: 0,
             start_cam: 1,
+            photo_dir: String::new(),
+            video_dir: String::new(),
         }
     }
 }
@@ -77,13 +82,15 @@ impl Prefs {
         p.mode = num("mode", p.mode).min(4);
         p.lens = num("lens", p.lens).min(2);
         p.start_cam = num("start_camera", p.start_cam).min(3);
+        p.photo_dir = kv.get("photo_dir").map(|s| s.to_string()).unwrap_or_default();
+        p.video_dir = kv.get("video_dir").map(|s| s.to_string()).unwrap_or_default();
         p
     }
 
     pub fn save(&self) {
         let b = |v: bool| if v { "1" } else { "0" };
         let s = format!(
-            "# «Камера» synshell\nflash = {}\ntimer = {}\ngrid = {}\naspect = {}\nfull_res = {}\nvideo_quality = {}\nhevc = {}\nmic = {}\nstabilization = {}\nsound = {}\ntimelapse = {}\nfront = {}\nmode = {}\nlens = {}\nstart_camera = {}\n",
+            "# «Камера» synshell\nflash = {}\ntimer = {}\ngrid = {}\naspect = {}\nfull_res = {}\nvideo_quality = {}\nhevc = {}\nmic = {}\nstabilization = {}\nsound = {}\ntimelapse = {}\nfront = {}\nmode = {}\nlens = {}\nstart_camera = {}\nphoto_dir = {}\nvideo_dir = {}\n",
             self.flash,
             self.timer,
             b(self.grid),
@@ -99,6 +106,8 @@ impl Prefs {
             self.mode,
             self.lens,
             self.start_cam,
+            self.photo_dir,
+            self.video_dir,
         );
         let p = path();
         if let Some(d) = p.parent() {
