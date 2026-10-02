@@ -20,6 +20,7 @@ members = [
     "crates/synmodem",
     "crates/synsms",
     "crates/synphone",
+    "crates/syncamera",
 ]
 
 [workspace.package]

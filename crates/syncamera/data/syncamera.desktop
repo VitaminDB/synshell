@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Камера
+Name[en]=Camera
+GenericName=Фото и видео
+Comment=Снимки, видео, ночная съёмка, таймлапс и ручной режим
+Exec=syncamera
+Icon=syncamera
+Categories=AudioVideo;Video;Photography;Graphics;
+Keywords=camera;photo;video;selfie;камера;фото;видео;съёмка;
+StartupNotify=true
