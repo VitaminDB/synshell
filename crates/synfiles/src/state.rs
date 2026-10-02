@@ -733,7 +733,7 @@ pub fn theme_mss(c: &Config) -> String {
     let content = if dark { p.bg.mix(p.surface, 0.2) } else { p.bg.mix(p.surface, 0.35) };
     let sidebar = if dark { p.bg.mix(p.surface, 0.2) } else { p.bg.mix(p.surface, 0.35) };
     s.push_str(&format!(
-        ":root {{\n  --titlebar: {};\n  --chrome: {};\n  --content: {};\n  --sidebar: {};\n  --row-hover: {};\n  --row-selected: {};\n  --row-selected-hover: {};\n  --field: {};\n  --shadow: {};\n  --divider: {};\n}}\n",
+        ":root {{\n  --titlebar: {};\n  --chrome: {};\n  --content: {};\n  --sidebar: {};\n  --row-hover: {};\n  --row-selected: {};\n  --row-selected-hover: {};\n  --field: {};\n  --shadow: {};\n  --divider: {};\n  --window-radius: {}px;\n}}\n",
         titlebar.hex(),
         chrome.hex(),
         content.hex(),
@@ -744,6 +744,7 @@ pub fn theme_mss(c: &Config) -> String {
         if dark { p.bg.mix(p.surface, 0.8).hex() } else { p.surface.hex() },
         if dark { "#00000080" } else { "#1a203024" },
         p.border.fade(0.7).hex(),
+        c.decorations.corner_radius.max(0.0),
     ));
     s.push_str(&a.theme_mss_variables());
     s.push_str(STYLES);

@@ -299,5 +299,8 @@ fn desktop_root() -> W {
                 .child(super::dialogs::dialogs())
                 .child(menu_layer()),
         );
-    boxed(WindowResizeRegion::new().over_content(true).inset(5.0).child(hook))
+    // Своя рамка окна (CSD): скругление и обводка как у окон композитора,
+    // тень под окном рисует он сам. Окно прозрачное — углы за скруглением пустые.
+    let frame = DecoratedBox::new().class("window-frame").clip(true).child(hook);
+    boxed(WindowResizeRegion::new().over_content(true).inset(5.0).child(frame))
 }

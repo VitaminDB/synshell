@@ -11,6 +11,17 @@
     font-size: 13px;
 }
 
+/* Своя рамка окна: радиус — [decorations] corner_radius, как у окон
+   композитора; развёрнутое и полноэкранное — без скругления и обводки. */
+.window-frame {
+    border-radius: var(--window-radius);
+    border: 1px solid var(--border);
+}
+.window-frame:window-maximized, .window-frame:window-fullscreen {
+    border-radius: 0px;
+    border-width: 0px;
+}
+
 .icon {
     color: var(--fg);
     font-size: 18px;

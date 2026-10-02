@@ -207,6 +207,9 @@ fn main() {
         .size(args.size.0, args.size.1)
         .min_size(340, 420)
         .frameless()
+        // Углы за скруглением рамки (`.window-frame`) — прозрачные.
+        .transparent(true)
+        .background(Color::from_srgb(0, 0, 0, 0.0))
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_styles_str(&initial)
         .with_dynamic_theme(theme)
