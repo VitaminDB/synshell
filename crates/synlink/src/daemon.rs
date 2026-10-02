@@ -324,6 +324,21 @@ impl Daemon {
             if !keep_usb {
                 st.nearby.insert(a.id.clone(), Nearby { name: a.name.clone(), kind: a.kind, addr, transport, seen: Instant::now() });
             }
+            // Устройство переименовалось (Параметры, имя модели при загрузке) — имя в анонсе новее, чем в
+            // приветствии открытого сеанса и в списке спаренных.
+            let mut renamed = false;
+            if let Some(t) = st.peers.peers.get_mut(&a.id).filter(|t| t.name != a.name) {
+                t.name = a.name.clone();
+                renamed = true;
+            }
+            if renamed {
+                st.peers.save();
+            }
+            if let Some(s) = st.sessions.get_mut(&a.id).filter(|s| s.hello.name != a.name) {
+                s.hello.name = a.name.clone();
+                renamed = true;
+            }
+            let fresh = fresh || renamed;
             let trusted = st.peers.peers.contains_key(&a.id);
             let session = st.sessions.get(&a.id);
             let want = match session {
