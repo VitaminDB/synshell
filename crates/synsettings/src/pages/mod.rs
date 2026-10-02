@@ -4,6 +4,7 @@ use crate::ui::{icons, W};
 
 mod appearance;
 mod audio;
+mod camera;
 mod datetime;
 mod devices;
 mod hardware;
@@ -266,6 +267,14 @@ pub const PAGES: &[PageDef] = &[
         group: "Система",
         keywords: "местоположение геолокация gps gnss спутники координаты geoclue карты навигация разрешения конфиденциальность",
         build: location::location,
+    },
+    PageDef {
+        id: "camera",
+        title: "Камера",
+        icon: "\u{e04b}",
+        group: "Система",
+        keywords: "камера веб-камера видео видеозвонок портал разрешения конфиденциальность браузер pipewire",
+        build: camera::camera,
     },
     PageDef {
         id: "datetime",

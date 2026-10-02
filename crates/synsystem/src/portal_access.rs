@@ -131,3 +131,41 @@ pub fn start(prompter: impl Prompter + 'static) -> Result<Connection, String> {
         .and_then(|b| b.build())
         .map_err(|e| e.to_string())
 }
+
+// --- решения порталов (хранилище разрешений xdg-desktop-portal) -------------------------------------------
+
+const STORE: &str = "org.freedesktop.impl.portal.PermissionStore";
+const STORE_PATH: &str = "/org/freedesktop/impl/portal/PermissionStore";
+
+macro_rules! store_call {
+    ($method:expr, $body:expr) => {
+        Connection::session().and_then(|c| c.call_method(Some(STORE), STORE_PATH, Some(STORE), $method, $body))
+    };
+}
+
+/// Решения портала Camera: (id программы, разрешено). Пустой id — программы вне песочницы (одно решение на
+/// всех). Нет таблицы — пустой список.
+pub fn camera_permissions() -> Result<Vec<(String, bool)>, String> {
+    match store_call!("Lookup", &("devices", "camera")) {
+        Ok(m) => {
+            let (perms, _data): (HashMap<String, Vec<String>>, OwnedValue) = m.body().deserialize().map_err(|e| e.to_string())?;
+            let mut v: Vec<(String, bool)> = perms.into_iter().map(|(app, p)| (app, p.iter().any(|x| x == "yes"))).collect();
+            v.sort();
+            Ok(v)
+        }
+        // «No entry for camera» — ещё никто не спрашивал
+        Err(zbus::Error::MethodError(_, _, _)) => Ok(Vec::new()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Разрешить или запретить программе камеру (WirePlumber применяет сразу — следит за хранилищем).
+pub fn set_camera_permission(app_id: &str, allow: bool) -> Result<(), String> {
+    let perm: Vec<&str> = vec![if allow { "yes" } else { "no" }];
+    store_call!("SetPermission", &("devices", true, "camera", app_id, perm)).map(|_| ()).map_err(|e| e.to_string())
+}
+
+/// Забыть решение: при следующем запросе портал спросит снова.
+pub fn forget_camera_permission(app_id: &str) -> Result<(), String> {
+    store_call!("DeletePermission", &("devices", "camera", app_id)).map(|_| ()).map_err(|e| e.to_string())
+}

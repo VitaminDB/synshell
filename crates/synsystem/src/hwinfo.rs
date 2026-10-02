@@ -441,7 +441,7 @@ fn sound_devices(sys: &Sys) -> Vec<Device> {
 }
 
 /// Состояние камер от пробы платформы (`/run/camera/status.json`, служба
-/// syn-camera-probe): камеры HAL и модули по слотам с итогом пробы датчика.
+/// syncamd при старте): камеры HAL и модули по слотам с итогом пробы датчика.
 /// Без файла — узлы video4linux.
 fn camera_devices(sys: &Sys) -> Vec<Device> {
     if let Some(v) = sys.read("/run/camera/status.json").and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()) {
