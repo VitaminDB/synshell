@@ -34,6 +34,8 @@ pub struct Prefs {
     /// Папки снимков и видео; пусто — «Изображения» и «Видео» пользователя (XDG).
     pub photo_dir: String,
     pub video_dir: String,
+    /// Окно во весь экран (без заголовка и панелей).
+    pub fullscreen: bool,
 }
 
 impl Default for Prefs {
@@ -56,6 +58,7 @@ impl Default for Prefs {
             start_cam: 1,
             photo_dir: String::new(),
             video_dir: String::new(),
+            fullscreen: false,
         }
     }
 }
@@ -84,13 +87,14 @@ impl Prefs {
         p.start_cam = num("start_camera", p.start_cam).min(3);
         p.photo_dir = kv.get("photo_dir").map(|s| s.to_string()).unwrap_or_default();
         p.video_dir = kv.get("video_dir").map(|s| s.to_string()).unwrap_or_default();
+        p.fullscreen = flag("fullscreen", p.fullscreen);
         p
     }
 
     pub fn save(&self) {
         let b = |v: bool| if v { "1" } else { "0" };
         let s = format!(
-            "# «Камера» synshell\nflash = {}\ntimer = {}\ngrid = {}\naspect = {}\nfull_res = {}\nvideo_quality = {}\nhevc = {}\nmic = {}\nstabilization = {}\nsound = {}\ntimelapse = {}\nfront = {}\nmode = {}\nlens = {}\nstart_camera = {}\nphoto_dir = {}\nvideo_dir = {}\n",
+            "# «Камера» synshell\nflash = {}\ntimer = {}\ngrid = {}\naspect = {}\nfull_res = {}\nvideo_quality = {}\nhevc = {}\nmic = {}\nstabilization = {}\nsound = {}\ntimelapse = {}\nfront = {}\nmode = {}\nlens = {}\nstart_camera = {}\nphoto_dir = {}\nvideo_dir = {}\nfullscreen = {}\n",
             self.flash,
             self.timer,
             b(self.grid),
@@ -108,6 +112,7 @@ impl Prefs {
             self.start_cam,
             self.photo_dir,
             self.video_dir,
+            b(self.fullscreen),
         );
         let p = path();
         if let Some(d) = p.parent() {

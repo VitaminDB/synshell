@@ -167,6 +167,7 @@ pub struct St {
     /// Папки снимков и видео (пусто — XDG).
     pub photo_dir: RwSignal<String>,
     pub video_dir: RwSignal<String>,
+    pub fullscreen: RwSignal<bool>,
     pub toast: RwSignal<String>,
     /// Долгий снимок идёт: подпись над кадром (ночь, полное разрешение).
     pub progress: RwSignal<String>,
@@ -248,6 +249,7 @@ fn main() {
                 start_cam: use_signal(p.start_cam),
                 photo_dir: use_signal(p.photo_dir.clone()),
                 video_dir: use_signal(p.video_dir.clone()),
+                fullscreen: use_signal(p.fullscreen),
                 toast: use_signal(String::new()),
                 progress: use_signal(String::new()),
                 qr: use_signal(None),
@@ -375,6 +377,7 @@ fn start(st: St) {
             start_cam: st.start_cam.get(),
             photo_dir: st.photo_dir.get(),
             video_dir: st.video_dir.get(),
+            fullscreen: st.fullscreen.get(),
         };
         p.save();
     });
@@ -435,6 +438,11 @@ fn start(st: St) {
                 });
             });
         }
+    });
+    // полноэкранное окно: окна при сборке интерфейса ещё нет — применить из цикла событий
+    create_effect(move || {
+        let on = st.fullscreen.get();
+        run_on_main_thread(move || syngui::signal::set_fullscreen(on));
     });
     // папки хранения — в media; сменились — снятое и миниатюра из новых папок
     let first = std::cell::Cell::new(true);

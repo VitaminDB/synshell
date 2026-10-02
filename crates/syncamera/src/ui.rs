@@ -1225,6 +1225,7 @@ fn settings_sheet(st: St) -> impl Widget {
             )
             .child(Text::new("Камера").class("set-head"))
             .child(setting_choice("Камера при запуске", st.start_cam, &[(1, "Основная"), (2, "Широкая"), (3, "Фронтальная"), (0, "Последняя")]))
+            .child(setting_toggle("Полноэкранный режим", "Окно во весь экран — без заголовка и панели состояния", st.fullscreen))
             .child(Text::new("Фото").class("set-head"))
             .child(setting_choice("Соотношение сторон", st.aspect, &[(0, "4:3"), (1, "16:9"), (2, "1:1")]))
             .child(setting_toggle("Полное разрешение", "Основная камера 200 Мп, фронтальная 20 Мп (4:3); снимок — около 15 секунд", st.full_res))
