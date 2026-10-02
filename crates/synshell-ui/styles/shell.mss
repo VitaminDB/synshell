@@ -298,6 +298,7 @@ Text {
     border-color: var(--border);
 }
 .osd-icon { icon-size: 24px; icon-color: var(--accent); }
+.osd-busy-icon { icon-size: 20px; icon-color: #3DDC84; }
 .osd-value { font-size: 14px; font-weight: bold; min-width: 34px; }
 .osd-label { font-size: 14px; }
 

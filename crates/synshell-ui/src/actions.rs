@@ -16,6 +16,9 @@ pub fn spawn(cmd: &str) {
         return;
     }
     log::info!("запуск: {cmd}");
+    if crate::android_boot::is_android_command(&cmd) {
+        crate::android_boot::watch();
+    }
     let mut c = Command::new("sh");
     c.arg("-c").arg(&cmd).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     // SAFETY: setsid() безопасен между fork и exec.

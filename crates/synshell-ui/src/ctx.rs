@@ -106,6 +106,8 @@ pub struct Osd {
     pub value: Option<u32>,
     pub label: String,
     pub serial: u64,
+    /// Долгое действие: кольцо-индикатор вокруг значка, карточка держится до [`crate::osd::done`].
+    pub busy: bool,
 }
 
 #[derive(Clone, Copy)]

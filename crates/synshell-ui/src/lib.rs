@@ -9,6 +9,7 @@
 //! ([`ctx::ShellCtx::form_factor`]).
 
 pub mod actions;
+pub mod android_boot;
 pub mod anim;
 pub mod app_colors;
 pub mod applets;

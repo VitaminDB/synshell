@@ -1,9 +1,12 @@
 //! Экранная подсказка громкости/яркости: карточка внизу по центру,
-//! гаснет через полторы секунды после последнего изменения.
+//! гаснет через полторы секунды после последнего изменения. Долгое действие
+//! ([`busy`], например запуск Android) — карточка с вращающимся кольцом, пока
+//! его не закончат ([`done`]).
 
 use std::cell::Cell;
 use std::time::Duration;
 use syngui::prelude::*;
+use syngui::StyleValue;
 use syngui_layer::{Anchor, KeyboardInteractivity, Layer, SurfaceId, SurfaceSpec};
 
 use crate::ctx::{Osd, ShellCtx};
@@ -22,7 +25,20 @@ static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(
 /// Показать (из любого потока).
 pub fn show(ctx: ShellCtx, icon: &'static str, value: Option<u32>, label: String) {
     let serial = SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    ctx.osd.set(Some(Osd { icon, value, label, serial }));
+    ctx.osd.set(Some(Osd { icon, value, label, serial, busy: false }));
+}
+
+/// Долгое действие: кольцо-индикатор вокруг значка, без тайм-аута (из любого потока).
+pub fn busy(ctx: ShellCtx, icon: &'static str, label: String) {
+    let serial = SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    ctx.osd.set(Some(Osd { icon, value: None, label, serial, busy: true }));
+}
+
+/// Долгое действие закончилось — убрать его карточку (обычную подсказку не трогает).
+pub fn done(ctx: ShellCtx) {
+    if ctx.osd.get_untracked().is_some_and(|o| o.busy) {
+        ctx.osd.set(None);
+    }
 }
 
 /// Эффект: поверхность живёт, пока есть что показывать.
@@ -48,11 +64,14 @@ pub fn install(ctx: ShellCtx) {
         if let Some(t) = TIMER.with(|t| t.take()) {
             syngui_layer::cancel_timer(t);
         }
-        let t = syngui_layer::add_timer(Duration::from_millis(1500), move || {
-            ctx.osd.set(None);
-            None
-        });
-        TIMER.with(|c| c.set(Some(t)));
+        let busy = osd.as_ref().is_some_and(|o| o.busy);
+        if !busy {
+            let t = syngui_layer::add_timer(Duration::from_millis(1500), move || {
+                ctx.osd.set(None);
+                None
+            });
+            TIMER.with(|c| c.set(Some(t)));
+        }
         if SURFACE.with(|s| s.get()).is_none() {
             let visible = use_signal(true);
             let sid: std::sync::Arc<std::sync::Mutex<Option<SurfaceId>>> = Default::default();
@@ -62,7 +81,7 @@ pub fn install(ctx: ShellCtx) {
                     namespace: "syndesktop-osd".into(),
                     layer: Layer::Overlay,
                     anchor: Anchor::BOTTOM,
-                    size: (300, 64),
+                    size: (if busy { 380 } else { 300 }, 64),
                     margin: [0, 0, 120, 0],
                     exclusive_zone: -1,
                     keyboard: KeyboardInteractivity::None,
@@ -99,6 +118,25 @@ pub fn install(ctx: ShellCtx) {
 fn view(ctx: ShellCtx) -> impl Widget {
     boxed("osd", crate::ui::rx(move || {
         let Some(o) = ctx.osd.get() else { return Box::new(Row::new()) as Box<dyn Widget> };
+        if o.busy {
+            let ring = Stack::new()
+                .child(CircularProgress::new().indeterminate().size(36.0).stroke_width(3.0))
+                .child(
+                    Column::new()
+                        .main_axis_alignment(MainAxisAlignment::Center)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(icon(o.icon).class("osd-busy-icon"))
+                        .style("width", StyleValue::px(36.0))
+                        .style("height", StyleValue::px(36.0)),
+                );
+            return Box::new(
+                Row::new()
+                    .gap(14.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(ring)
+                    .child(Text::new(o.label).max_lines(2).class("osd-label grow")),
+            );
+        }
         let mut row = Row::new().gap(14.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(o.icon).class("osd-icon"));
         if let Some(v) = o.value {
             row = row
