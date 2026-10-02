@@ -337,7 +337,7 @@ restore_tabs = true
 
 [notifications]
 enabled = true
-position = "top-right"         # top-right | top-left | bottom-right | bottom-left | top | bottom
+position = "auto"              # auto (телефон — top, компьютер — top-right) | top-left | top | top-right | bottom-left | bottom | bottom-right
 timeout = 6000
 critical_timeout = 0
 max_visible = 5

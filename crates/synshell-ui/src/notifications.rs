@@ -8,6 +8,7 @@ use std::time::Duration;
 use syngui::input::MouseButton;
 use syngui::prelude::*;
 use syngui::containers::Keyed;
+use syngui::widgets::{GestureDetector, SwipeDirection};
 use syngui_layer::{Anchor, KeyboardInteractivity, Layer, SurfaceId, SurfaceSpec};
 use zbus::zvariant::OwnedValue;
 
@@ -362,9 +363,36 @@ pub fn local_command(ctx: ShellCtx, key: &str, summary: &str, body: &str, icon: 
 
 thread_local! {
     static SURFACE: std::cell::Cell<Option<SurfaceId>> = const { std::cell::Cell::new(None) };
+    /// Место и ширина, с которыми создана поверхность: сменили в настройках — пересоздать.
+    static PLACED: std::cell::Cell<Option<(Place, u32)>> = const { std::cell::Cell::new(None) };
     /// Карточки на экране: активные и уходящие (`false`), пока не доиграла
     /// анимация ухода. Новые встают в начало (сверху).
     static SHOWN: std::cell::Cell<Option<RwSignal<Vec<(Notification, bool)>>>> = const { std::cell::Cell::new(None) };
+}
+
+/// Где всплывают уведомления: край экрана и положение вдоль него.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Place {
+    pub bottom: bool,
+    /// -1 — слева, 0 — по центру, 1 — справа.
+    pub side: i8,
+}
+
+/// `[notifications] position`: `auto` — на телефоне сверху по центру, на компьютере сверху справа.
+pub fn place(ctx: &ShellCtx) -> Place {
+    let cfg = ctx.cfg();
+    let p = cfg.notifications.position.trim();
+    let p = if p.is_empty() || p == "auto" { if ctx.is_phone() { "top" } else { "top-right" } } else { p };
+    Place {
+        bottom: p.starts_with("bottom"),
+        side: if p.ends_with("left") {
+            -1
+        } else if p.ends_with("right") {
+            1
+        } else {
+            0
+        },
+    }
 }
 
 fn shown() -> RwSignal<Vec<(Notification, bool)>> {
@@ -408,6 +436,14 @@ pub fn install(ctx: ShellCtx) {
         let has = !shown.get().is_empty();
         let generation = ctx.generation.get();
         let _ = generation;
+        let pl = place(&ctx);
+        let width = card_width(&ctx);
+        if SURFACE.with(|s| s.get()).is_some() && PLACED.with(|p| p.get()) != Some((pl, width)) {
+            // Место или ширину сменили в настройках — поверхность заново
+            if let Some(id) = SURFACE.with(|s| s.take()) {
+                syngui_layer::close_surface(id);
+            }
+        }
         let cur = SURFACE.with(|s| s.get());
         if !has {
             if let Some(id) = SURFACE.with(|s| s.take()) {
@@ -418,15 +454,11 @@ pub fn install(ctx: ShellCtx) {
         if cur.is_some() {
             return;
         }
-        let cfg = ctx.cfg();
-        let n = &cfg.notifications;
-        let anchor = match n.position.as_str() {
-            "top-left" => Anchor::TOP | Anchor::LEFT,
-            "bottom-right" => Anchor::BOTTOM | Anchor::RIGHT,
-            "bottom-left" => Anchor::BOTTOM | Anchor::LEFT,
-            "top" => Anchor::TOP,
-            "bottom" => Anchor::BOTTOM,
-            _ => Anchor::TOP | Anchor::RIGHT,
+        let edge = if pl.bottom { Anchor::BOTTOM } else { Anchor::TOP };
+        let anchor = match pl.side {
+            -1 => edge | Anchor::LEFT,
+            1 => edge | Anchor::RIGHT,
+            _ => edge,
         };
         let id = syngui_layer::create_surface(
             SurfaceSpec {
@@ -434,7 +466,7 @@ pub fn install(ctx: ShellCtx) {
                 layer: Layer::Overlay,
                 anchor,
                 // Поля внутри поверхности — место под тень карточек.
-                size: (n.width + 2 * NOTIF_PAD, 0),
+                size: (width + 2 * NOTIF_PAD, 0),
                 margin: [0; 4],
                 exclusive_zone: 0,
                 keyboard: KeyboardInteractivity::None,
@@ -445,26 +477,56 @@ pub fn install(ctx: ShellCtx) {
             move || Box::new(popups(ctx)),
         );
         SURFACE.with(|s| s.set(Some(id)));
+        PLACED.with(|p| p.set(Some((pl, width))));
     });
+}
+
+/// Ширина карточки: на компьютере — `[notifications] width`, на телефоне — почти во всю ширину экрана.
+fn card_width(ctx: &ShellCtx) -> u32 {
+    let w = ctx.cfg().notifications.width;
+    if ctx.is_phone() {
+        let (ow, _) = crate::manager::output_size(None);
+        ((ow as u32).saturating_sub(2 * NOTIF_PAD + 8)).max(240)
+    } else {
+        w
+    }
 }
 
 /// Поля поверхности всплывающих уведомлений (вместо отступов layer-shell),
 /// чтобы тень карточек не обрезалась краем поверхности; = padding `.notif-popups`.
-const NOTIF_PAD: u32 = 8;
+const NOTIF_PAD: u32 = 12;
 
 fn popups(ctx: ShellCtx) -> impl Widget {
     let shown = shown();
     Column::new().gap(8.0).class("notif-popups").child(move || {
         let max = ctx.cfg().notifications.max_visible.max(1) as usize;
         let list = shown.get();
-        let dur = crate::anim::ms(&ctx, 320);
-        let mut col = Column::new().gap(8.0);
+        let dur = crate::anim::ms(&ctx, 380);
+        let pl = place(&ctx);
+        // Въезд и уход — от своего края: сбоку — вбок, по центру — сверху/снизу
+        let (dx, dy, ox, oy) = match (pl.side, pl.bottom) {
+            (-1, _) => (-48.0, 0.0, 0.0, 0.5),
+            (1, _) => (48.0, 0.0, 1.0, 0.5),
+            (_, false) => (0.0, -36.0, 0.5, 0.0),
+            (_, true) => (0.0, 36.0, 0.5, 1.0),
+        };
+        let mut col = Column::new().gap(10.0);
         let mut alive_seen = 0usize;
-        for (n, alive) in list {
-            let visible = alive && {
-                alive_seen += 1;
-                alive_seen <= max
-            };
+        // Новые — у края экрана: сверху — первыми, снизу — последними
+        let mut items: Vec<(Notification, bool)> = list
+            .into_iter()
+            .map(|(n, alive)| {
+                let visible = alive && {
+                    alive_seen += 1;
+                    alive_seen <= max
+                };
+                (n, visible)
+            })
+            .collect();
+        if pl.bottom {
+            items.reverse();
+        }
+        for (n, visible) in items {
             let id = n.id;
             // Версия — содержимое и видимость: смена любого пересобирает
             // карточку на месте, ключ переживает сдвиги соседей.
@@ -475,12 +537,21 @@ fn popups(ctx: ShellCtx) -> impl Widget {
                 h.finish()
             };
             col = col.child(Keyed::new(id as u64, version, move || {
-                let presence = Presence::new(visible, card(ctx, n.clone(), false))
-                    .enter(Motion::fade().slide(40.0, 0.0).scale(0.96))
-                    .exit(Motion::fade().slide(40.0, 0.0))
+                // Смахнуть вбок — закрыть (на телефоне)
+                let swipe = GestureDetector::new()
+                    .on_swipe(move |dir, _| {
+                        if matches!(dir, SwipeDirection::Left | SwipeDirection::Right) {
+                            close(ShellCtx::get(), id, 2);
+                        }
+                    })
+                    .child(card(ctx, n.clone(), false));
+                let presence = Presence::new(visible, swipe)
+                    .enter(Motion::fade().slide(dx, dy).scale(0.94))
+                    .exit(Motion::fade().slide(dx, dy).scale(0.96))
+                    .collapse(AnimationAxis::Height)
                     .duration_ms(dur)
-                    .exit_duration_ms(dur * 2 / 3)
-                    .origin(TransformOrigin::Custom(1.0, 0.5))
+                    .exit_duration_ms(dur * 3 / 4)
+                    .origin(TransformOrigin::Custom(ox, oy))
                     .initial(dur > 0)
                     .on_exit_complete(move || shown.update(|v| v.retain(|e| e.0.id != id)));
                 Box::new(AnimatedPosition::new(presence))
@@ -491,7 +562,7 @@ fn popups(ctx: ShellCtx) -> impl Widget {
 }
 
 fn card(ctx: ShellCtx, n: Notification, in_center: bool) -> impl Widget {
-    let mut head = Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Start);
+    let mut head = Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Start);
     if let Some((w, h, rgba)) = &n.image {
         head = head.child(
             Image::from_rgba(format!("notif-img-{}-{}", n.id, n.time), *w, *h, rgba.as_ref().clone())
@@ -500,9 +571,11 @@ fn card(ctx: ShellCtx, n: Notification, in_center: bool) -> impl Widget {
                 .class("notif-image"),
         );
     } else if let Some(p) = &n.icon {
-        head = head.child(Image::new(p.clone()).fit(ImageFit::Contain).placeholder(false).class("notif-icon"));
+        head = head.child(
+            DecoratedBox::new().child(Image::new(p.clone()).fit(ImageFit::Contain).placeholder(false).class("notif-icon")).class("notif-plate"),
+        );
     } else {
-        head = head.child(icon(mi::BELL).class("notif-glyph"));
+        head = head.child(DecoratedBox::new().child(icon(mi::BELL).class("notif-glyph")).class("notif-plate"));
     }
     let mut text = Column::new().gap(2.0).child(
         Row::new()

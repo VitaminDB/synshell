@@ -610,24 +610,28 @@ Text {
 /* ─── Уведомления ────────────────────────────────────────────────────────── */
 
 .notif {
-    padding: 12px 14px;
-    border-radius: var(--radius);
-    background-color: var(--menu-bg);
+    padding: 14px 16px;
+    border-radius: 22px;
+    /* непрозрачный: всплывает поверх всего, текст под ним не должен просвечивать */
+    background-color: var(--surface);
     border-width: 1px;
     border-color: var(--border);
-    box-shadow: 0 2px 6px var(--shadow);
+    box-shadow: 0 8px 24px var(--shadow);
 }
-.notif-popups { padding: 8px; }
-.notif-in-center { box-shadow: none; background-color: var(--surface-alt); }
-.notif-critical { border-color: var(--danger); }
+.notif-popups { padding: 12px; }
+.notif-in-center { box-shadow: none; background-color: var(--surface-alt); border-radius: var(--radius); }
+.notif-critical { border-color: var(--danger); border-width: 2px; }
 .notif-low { opacity: 0.92; }
-.notif-image { width: 48px; height: 48px; border-radius: 8px; }
-.notif-icon { width: 36px; height: 36px; }
-.notif-glyph { icon-size: 30px; icon-color: var(--accent); }
-.notif-app { font-size: 11px; color: var(--muted); }
-.notif-time { font-size: 11px; color: var(--muted); }
-.notif-summary { font-size: 14px; font-weight: bold; }
-.notif-body { font-size: 13px; color: var(--fg); }
+/* Значок приложения — в плашке акцента */
+.notif-plate { padding: 8px; border-radius: 14px; background-color: var(--accent-soft); }
+.notif-critical .notif-plate { background-color: var(--danger); }
+.notif-image { width: 52px; height: 52px; border-radius: 14px; }
+.notif-icon { width: 26px; height: 26px; }
+.notif-glyph { icon-size: 26px; icon-color: var(--accent); }
+.notif-app { font-size: 12px; font-weight: 600; color: var(--muted); }
+.notif-time { font-size: 12px; color: var(--muted); }
+.notif-summary { font-size: 15px; font-weight: bold; }
+.notif-body { font-size: 13px; color: var(--fg); opacity: 0.85; }
 .notif-close {
     padding: 2px;
     border-radius: 10px;

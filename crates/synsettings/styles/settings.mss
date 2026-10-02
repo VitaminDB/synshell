@@ -714,3 +714,16 @@ Button.accent-swatch.selected {
 .dev-icon { icon-size: 22px; icon-color: var(--fg); }
 .dev-badge-on .dev-icon { icon-color: var(--accent-fg); }
 .mono { font-family: monospace; font-size: 12px; color: var(--fg); padding: 6px 10px; border-radius: 8px; background-color: var(--input-bg); }
+
+/* Положение уведомлений: мини-экран с точками */
+.pos-screen {
+    padding: 10px;
+    border-radius: 14px;
+    border: 2px solid var(--border);
+    background: var(--surface-alt);
+}
+.pos-screen-phone { width: 96px; height: 160px; }
+.pos-screen-desk { width: 180px; height: 112px; }
+.pos-dot { width: 18px; height: 18px; border-radius: 9px; background: var(--border); }
+.pos-dot:hover { background: var(--muted); }
+.pos-dot-on { background: var(--accent); }

@@ -4,6 +4,7 @@
 use synshell_common::config::OutputConfig;
 use synshell_common::ipc::OutputInfo;
 use syngui::prelude::*;
+use syngui::widgets::GestureDetector;
 use toml_edit::{Array, Table, Value};
 
 use crate::op;
@@ -396,9 +397,57 @@ pub fn launcher() -> W {
 
 // ─── Уведомления ────────────────────────────────────────────────────────────
 
+/// Места уведомлений: (значение, подпись).
+const POSITIONS: [(&str, &str); 6] = [
+    ("top-left", "Сверху слева"),
+    ("top", "Сверху по центру"),
+    ("top-right", "Сверху справа"),
+    ("bottom-left", "Снизу слева"),
+    ("bottom", "Снизу по центру"),
+    ("bottom-right", "Снизу справа"),
+];
+
+/// Мини-экран с шестью точками (три сверху, три снизу): где всплывают уведомления.
+fn position_picker(current: &str, phone: bool) -> W {
+    let auto = current.trim().is_empty() || current == "auto";
+    let effective = if auto { if phone { "top" } else { "top-right" } } else { current };
+    let sel = use_signal(effective.to_string());
+    let dot = move |key: &'static str| {
+        GestureDetector::new()
+            .on_click(move || {
+                sel.set(key.to_string());
+                set(&op!["notifications", "position"], key);
+            })
+            .child(Reactive::new(move || -> Vec<W> {
+                let on = sel.get() == key;
+                vec![boxed(DecoratedBox::new().class(if on { "pos-dot pos-dot-on" } else { "pos-dot" }))]
+            }))
+    };
+    let line = move |keys: &[&'static str]| {
+        let mut r = Row::new().main_axis_alignment(MainAxisAlignment::SpaceBetween);
+        for k in keys {
+            r = r.child(dot(k));
+        }
+        r
+    };
+    // Телефон — вертикальный экран, компьютер — горизонтальный
+    let screen = Column::new()
+        .main_axis_alignment(MainAxisAlignment::SpaceBetween)
+        .child(line(&["top-left", "top", "top-right"]))
+        .child(line(&["bottom-left", "bottom", "bottom-right"]))
+        .class(if phone { "pos-screen pos-screen-phone" } else { "pos-screen pos-screen-desk" });
+    let caption = Reactive::new(move || -> Vec<W> {
+        let k = sel.get();
+        let name = POSITIONS.iter().find(|(v, _)| *v == k).map(|(_, l)| *l).unwrap_or("");
+        vec![boxed(Text::new(name.to_string()).class("row-hint"))]
+    });
+    boxed(Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Start).child(screen).child(caption))
+}
+
 pub fn notifications() -> W {
     let c = store::config();
     let n = &c.notifications;
+    let phone = c.process_form_factor() == synshell_common::config::FormFactor::Phone;
     page(
         "Уведомления",
         "Всплывающие уведомления и центр уведомлений (org.freedesktop.Notifications).",
@@ -408,20 +457,7 @@ pub fn notifications() -> W {
                 vec![
                     switch_row("Сервер уведомлений", "Выключите, если используете mako/dunst", op!["notifications", "enabled"], n.enabled),
                     switch_row("Не беспокоить", "Показывать только критичные", op!["notifications", "do_not_disturb"], n.do_not_disturb),
-                    choice_row(
-                        "Положение",
-                        "",
-                        op!["notifications", "position"],
-                        &n.position,
-                        &[
-                            ("top-right", "Сверху справа"),
-                            ("top-left", "Сверху слева"),
-                            ("top", "Сверху по центру"),
-                            ("bottom-right", "Снизу справа"),
-                            ("bottom-left", "Снизу слева"),
-                            ("bottom", "Снизу по центру"),
-                        ],
-                    ),
+                    row_wide("Положение", "Нажмите точку — оттуда будут появляться уведомления", position_picker(&n.position, phone)),
                     int_row("Время показа", "мс", op!["notifications", "timeout"], n.timeout as i64, 1000, 60000, 500),
                     int_row("Критичные", "мс, 0 — пока не закроют", op!["notifications", "critical_timeout"], n.critical_timeout as i64, 0, 600000, 1000),
                     int_row("Одновременно на экране", "", op!["notifications", "max_visible"], n.max_visible as i64, 1, 20, 1),

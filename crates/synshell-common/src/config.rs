@@ -1525,7 +1525,8 @@ impl Default for Launcher {
 pub struct Notifications {
     /// Быть сервером org.freedesktop.Notifications.
     pub enabled: bool,
-    /// `top-right`, `top-left`, `bottom-right`, `bottom-left`, `top`, `bottom`.
+    /// Где всплывают: `top-left`, `top` (по центру), `top-right`, `bottom-left`, `bottom`, `bottom-right`;
+    /// `auto` — на телефоне сверху по центру, на компьютере сверху справа.
     pub position: String,
     /// Время показа по умолчанию, мс.
     pub timeout: u32,
@@ -1543,7 +1544,7 @@ impl Default for Notifications {
     fn default() -> Self {
         Self {
             enabled: true,
-            position: "top-right".into(),
+            position: "auto".into(),
             timeout: 6000,
             critical_timeout: 0,
             max_visible: 5,
