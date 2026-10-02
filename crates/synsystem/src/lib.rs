@@ -23,6 +23,7 @@ pub mod procs;
 pub mod sound;
 pub mod thermal;
 pub mod time;
+pub mod torch;
 pub mod util;
 pub mod volume;
 pub mod vpn;

@@ -606,6 +606,10 @@ Text {
 .shade-auto { width: 36px; height: 36px; border-radius: 18px; align-items: center; justify-content: center; }
 .shade-auto-on { background-color: var(--accent); }
 .shade-auto-badge { font-size: 15px; font-weight: bold; color: var(--accent-fg); }
+/* фонарик: кнопка выключения (значок на акценте), кнопки оттенка «Т»/«Х» выключенные — обводкой */
+.shade-auto-badge-icon { icon-size: 20px; icon-color: var(--accent-fg); }
+.shade-auto-off { border: 1px solid var(--muted); }
+.shade-auto-off .shade-auto-badge { color: var(--fg); }
 .shade-notifications { max-height: 320px; }
 .shade-handle { width: 44px; height: 5px; border-radius: 3px; background-color: var(--border); }
 

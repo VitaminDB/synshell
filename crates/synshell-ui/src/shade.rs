@@ -199,7 +199,9 @@ fn mode_label(m: MobileMode) -> &'static str {
 }
 
 fn tiles(ctx: ShellCtx) -> impl Widget {
-    // Состояния вне сигналов (фонарик) — пересобрать плитки по счётчику.
+    // не из построения вида: запись сигнала посреди реактивного построения вешает оболочку
+    syngui::async_runtime::run_on_main_thread(move || torch_refresh(ctx));
+    // Состояния вне сигналов — пересобрать плитки по счётчику.
     let rev = use_signal(0u32);
     rx(move || {
         let _ = rev.get();
@@ -209,7 +211,7 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
         let _ = &cfg;
         let mode = ctx.mobile_mode();
         let wifi_state = if net.online { net.connection.clone() } else { "Нет подключения".into() };
-        let torch = torch_state();
+        let torch = ctx.torch.get();
         let mut grid = Grid::new(2).gap(8.0);
         grid = grid.child(tile(crate::applets::network_glyph(&net), "Сеть".into(), wifi_state, net.online, || {
             // Окно сети: Wi-Fi, подключение, «Параметры сети…».
@@ -285,9 +287,11 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
                 let (glyph, state) = if auto { ("\u{E1C1}", "Включён") } else { ("\u{E1C0}", "Фиксация") };
                 tile(glyph, "Автоповорот".into(), state.into(), auto, move || crate::rotation::set_auto(!auto))
             });
-        if let Some(on) = torch {
-            grid = grid.child(tile("\u{E3E7}", "Фонарик".into(), if on { "Включён" } else { "Выключен" }.into(), on, move || {
-                set_torch(!torch_state().unwrap_or(false));
+        if let Some(t) = torch {
+            let on = t.on;
+            let state = if on { format!("Включён · {:.0}%", t.level * 100.0) } else { "Выключен".into() };
+            grid = grid.child(tile(GLYPH_TORCH, "Фонарик".into(), state, on, move || {
+                torch_toggle(ShellCtx::get());
                 rev.set(rev.get_untracked() + 1);
             }));
         }
@@ -483,31 +487,86 @@ fn sliders(ctx: ShellCtx) -> impl Widget {
                 .class("shade-slider"),
         )
     });
-    col.child(vol).style("padding", StyleValue::px(0.0))
+    col.child(vol).child(torch_row(ctx)).style("padding", StyleValue::px(0.0))
 }
 
 // ─── Фонарик ─────────────────────────────────────────────────────────────────
+// Светодиоды вспышки (synsystem::torch, описание — /etc/syn-torch.conf платформы). Включённый фонарик —
+// строка в ползунках шторки: кнопка выключения, яркость, у двухтоновой вспышки — кнопки «Т» и «Х».
 
-/// Светодиод вспышки (`/sys/class/leds/*flash*` или `*torch*`).
-fn torch_led() -> Option<std::path::PathBuf> {
-    std::fs::read_dir("/sys/class/leds")
-        .ok()?
-        .flatten()
-        .map(|e| e.path())
-        .find(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.contains("torch") || n.contains("flash")))
+/// Последняя яркость (доля наибольшего тока): с ней фонарик включается снова.
+static TORCH_LEVEL: Mutex<f32> = Mutex::new(0.3);
+
+fn torch_refresh(ctx: ShellCtx) {
+    let st = synsystem::torch::Torch::find().map(|t| t.state());
+    if let Some(s) = st.filter(|s| s.on) {
+        *TORCH_LEVEL.lock().unwrap() = s.level;
+    }
+    ctx.torch.set(st);
 }
 
-fn torch_state() -> Option<bool> {
-    let led = torch_led()?;
-    let v: u32 = std::fs::read_to_string(led.join("brightness")).ok()?.trim().parse().ok()?;
-    Some(v > 0)
-}
-
-fn set_torch(on: bool) {
-    let Some(led) = torch_led() else { return };
-    let max = std::fs::read_to_string(led.join("max_brightness")).ok().and_then(|s| s.trim().parse::<u32>().ok()).unwrap_or(1);
-    let v = if on { max.min(100).max(1) } else { 0 };
-    if let Err(e) = std::fs::write(led.join("brightness"), v.to_string()) {
-        log::warn!("фонарик: {e}");
+/// Записать состояние (в фоне; последнее побеждает) и показать его сразу.
+fn torch_set(ctx: ShellCtx, st: synsystem::torch::State) {
+    static PENDING: Mutex<Option<synsystem::torch::State>> = Mutex::new(None);
+    if st.on {
+        *TORCH_LEVEL.lock().unwrap() = st.level;
+    }
+    ctx.torch.set(Some(st));
+    let first = PENDING.lock().unwrap().replace(st).is_none();
+    if first {
+        std::thread::spawn(|| {
+            let Some(t) = synsystem::torch::Torch::find() else { return };
+            while let Some(st) = PENDING.lock().unwrap().take() {
+                if let Err(e) = t.set(st) {
+                    log::warn!("фонарик: {e}");
+                }
+            }
+        });
     }
 }
+
+fn torch_toggle(ctx: ShellCtx) {
+    let cur = ctx.torch.get_untracked().unwrap_or(synsystem::torch::State { on: false, level: 0.0, warm: false, cold: false });
+    let level = *TORCH_LEVEL.lock().unwrap();  // отдельно: torch_set берёт тот же мьютекс
+    torch_set(ctx, synsystem::torch::State { on: !cur.on, level, ..cur });
+}
+
+/// Строка включённого фонарика в ползунках шторки.
+fn torch_row(ctx: ShellCtx) -> impl Widget {
+    let two_tone = synsystem::torch::Torch::find().is_some_and(|t| t.two_tone());
+    rx(move || {
+        let Some(st) = ctx.torch.get().filter(|s| s.on) else { return Box::new(DecoratedBox::new()) as Box<dyn Widget> };
+        let pct = (st.level * 100.0).round().clamp(1.0, 100.0);
+        let badge = |text: &'static str, on: bool, f: Box<dyn Fn() + Send + Sync>| {
+            GestureDetector::new().on_click(move || f()).child(
+                DecoratedBox::new()
+                    .child(Text::new(text).class("shade-auto-badge"))
+                    .class(if on { "shade-auto shade-auto-on" } else { "shade-auto shade-auto-off" }),
+            )
+        };
+        let mut row = Row::new()
+            .gap(10.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(GestureDetector::new().on_click(move || torch_toggle(ShellCtx::get())).child(
+                DecoratedBox::new().child(icon(GLYPH_TORCH).class("shade-auto-badge-icon")).class("shade-auto shade-auto-on"),
+            ))
+            .child(
+                Slider::new()
+                    .range(1.0, 100.0)
+                    .step(1.0)
+                    .value(pct)
+                    .on_change(move |v| torch_set(ShellCtx::get(), synsystem::torch::State { level: v / 100.0, ..st }))
+                    .class("grow"),
+            )
+            .child(Text::new(format!("{pct:.0}%")).class("shade-slider-value"));
+        if two_tone {
+            // оба выключены — горят оба; «Т»/«Х» — только тёплый/холодный, оба включены — смесь
+            row = row
+                .child(badge("Т", st.warm, Box::new(move || torch_set(ShellCtx::get(), synsystem::torch::State { warm: !st.warm, ..st }))))
+                .child(badge("Х", st.cold, Box::new(move || torch_set(ShellCtx::get(), synsystem::torch::State { cold: !st.cold, ..st }))));
+        }
+        Box::new(DecoratedBox::new().child(row).class("shade-slider"))
+    })
+}
+
+const GLYPH_TORCH: &str = "\u{E3E7}";

@@ -145,6 +145,8 @@ pub struct ShellCtx {
     pub modem: RwSignal<Option<synmodem::api::Status>>,
     /// Включённая камера телефона (id HAL, syncamd); `None` — выключена или камер нет.
     pub camera: RwSignal<Option<u32>>,
+    /// Фонарик (`synsystem::torch`): состояние перечитывается при открытии шторки; `None` — фонарика нет.
+    pub torch: RwSignal<Option<synsystem::torch::State>>,
     pub cpu: RwSignal<f32>,
     pub memory: RwSignal<f32>,
     /// Текущее локальное время, секунды Unix (обновляется таймером).
@@ -194,6 +196,7 @@ impl ShellCtx {
             network: use_signal(Network::default()),
             modem: use_signal(None),
             camera: use_signal(None),
+            torch: use_signal(None),
             cpu: use_signal(0.0),
             memory: use_signal(0.0),
             now: use_signal(crate::clock::unix_now()),
