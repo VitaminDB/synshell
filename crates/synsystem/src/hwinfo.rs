@@ -10,11 +10,14 @@ use crate::{backlight, battery, cpu, gpu, memory, thermal, Sys};
 pub struct Device {
     pub name: String,
     pub props: Vec<(String, String)>,
+    /// Неисправность (устройство есть, но не работает) — показывается
+    /// предупреждением.
+    pub fault: Option<String>,
 }
 
 impl Device {
     fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into(), props: Vec::new() }
+        Self { name: name.into(), props: Vec::new(), fault: None }
     }
 
     fn prop(mut self, k: &str, v: impl Into<String>) -> Self {
@@ -75,6 +78,9 @@ pub fn report(sections: &[Section]) -> String {
         s += &format!("## {}\n", sec.title);
         for d in &sec.devices {
             s += &format!("- {}\n", d.name);
+            if let Some(f) = &d.fault {
+                s += &format!("    НЕИСПРАВНОСТЬ: {f}\n");
+            }
             for (k, v) in &d.props {
                 s += &format!("    {k}: {v}\n");
             }
@@ -411,7 +417,13 @@ fn sound_devices(sys: &Sys) -> Vec<Device> {
         .collect()
 }
 
+/// Состояние камер от пробы платформы (`/run/camera/status.json`, служба
+/// syn-camera-probe): камеры HAL и модули по слотам с итогом пробы датчика.
+/// Без файла — узлы video4linux.
 fn camera_devices(sys: &Sys) -> Vec<Device> {
+    if let Some(v) = sys.read("/run/camera/status.json").and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()) {
+        return camera_modules(&v);
+    }
     sys.list("/sys/class/video4linux")
         .into_iter()
         .filter_map(|v| {
@@ -419,6 +431,64 @@ fn camera_devices(sys: &Sys) -> Vec<Device> {
             Some(Device::new(name).prop("Устройство", format!("/dev/{v}")))
         })
         .collect()
+}
+
+/// Роль модуля по имени (`diting_sunny_s5khm6_wide` → основная, датчик s5khm6).
+fn camera_role(name: &str) -> (&'static str, Option<&str>) {
+    let role = match name.rsplit('_').next().unwrap_or("") {
+        "wide" | "main" | "rear" => "Основная камера",
+        "front" => "Фронтальная камера",
+        "ultra" | "uw" | "ultrawide" => "Широкоугольная камера",
+        "macro" => "Макрокамера",
+        "tele" | "telephoto" => "Телекамера",
+        "depth" => "Камера глубины",
+        _ => "Камера",
+    };
+    let parts: Vec<&str> = name.split('_').collect();
+    // <устройство>_<производитель модуля>_<датчик>_<роль>
+    let sensor = (parts.len() >= 4).then(|| parts[parts.len() - 2]);
+    (role, sensor)
+}
+
+fn camera_modules(v: &serde_json::Value) -> Vec<Device> {
+    let empty = Vec::new();
+    let cams = v["cameras"].as_array().unwrap_or(&empty);
+    let mods = v["modules"].as_array().unwrap_or(&empty);
+    // Камеры HAL нумеруются по слотам рабочих модулей.
+    let mut next_cam = cams.iter();
+    let mut out = Vec::new();
+    for m in mods {
+        let name = m["name"].as_str().unwrap_or("");
+        let (role, sensor) = camera_role(name);
+        let mut d = Device::new(role).opt("Датчик", sensor.map(str::to_uppercase)).prop("Слот", m["slot"].to_string());
+        let hex = |k: &str| m[k].as_u64().map(|x| format!("0x{x:X}"));
+        match m["status"].as_str().unwrap_or("") {
+            "ok" => {
+                d = d.prop("Состояние", "работает");
+                if let Some(c) = next_cam.next() {
+                    let (w, h) = (c["width"].as_u64().unwrap_or(0), c["height"].as_u64().unwrap_or(0));
+                    if w > 0 {
+                        d = d.prop("Матрица", format!("{w}×{h} ({:.1} Мп)", (w * h) as f64 / 1e6));
+                    }
+                    if c["flash"].as_bool() == Some(true) {
+                        d = d.prop("Вспышка", "есть");
+                    }
+                    d = d.prop("Камера", c["id"].to_string());
+                }
+            }
+            "mismatch" => {
+                let (r, e) = (hex("read_id").unwrap_or_default(), hex("expected_id").unwrap_or_default());
+                d = d.prop("Состояние", "не опознана");
+                d.fault = Some(format!("датчик отвечает id {r} вместо {e}: другой модуль без описания или неисправность"));
+            }
+            _ => {
+                d = d.prop("Состояние", "неисправна");
+                d.fault = Some("датчик не отвечает (нет ответа по шине камеры)".into());
+            }
+        }
+        out.push(d);
+    }
+    out
 }
 
 fn led_devices(sys: &Sys) -> Vec<Device> {
@@ -461,5 +531,18 @@ mod tests {
         assert_eq!(input.devices[0].props[0].1, "Сенсорный экран");
         assert_eq!(input.devices[1].props[0].1, "Вибромотор");
         assert!(report(&s).contains("## Датчики"));
+    }
+
+    #[test]
+    fn camera_status() {
+        let v: serde_json::Value = serde_json::from_str(r#"{"cameras":[{"id":0,"facing":"front","orientation":270,"width":2592,"height":1952,"flash":false},{"id":1,"facing":"back","orientation":90,"width":3264,"height":2448,"flash":true}],"modules":[{"slot":0,"name":"diting_sunny_s5khm6_wide","status":"mismatch","read_id":7025,"expected_id":6870},{"slot":1,"name":"diting_sunny_imx596_front","status":"ok"},{"slot":2,"name":"diting_sunny_s5k4h7_ultra","status":"ok"},{"slot":3,"name":"diting_ofilm_gc02m1_macro","status":"no_response","read_id":0,"expected_id":736}]}"#).unwrap();
+        let d = camera_modules(&v);
+        assert_eq!(d[0].name, "Основная камера");
+        assert!(d[0].fault.as_deref().unwrap().contains("0x1B71 вместо 0x1AD6"));
+        assert_eq!(d[1].name, "Фронтальная камера");
+        assert!(d[1].fault.is_none() && d[1].props.iter().any(|(k, v)| k == "Камера" && v == "0"));
+        assert!(d[2].props.iter().any(|(k, v)| k == "Вспышка" && v == "есть"));
+        assert_eq!(d[3].name, "Макрокамера");
+        assert!(d[3].fault.is_some());
     }
 }

@@ -705,6 +705,10 @@ Button.accent-swatch.selected {
 .hw-title { font-size: 18px; font-weight: 600; color: var(--fg); }
 .row-value { font-size: 13px; color: var(--fg); }
 .row-value.big { font-size: 20px; font-weight: 600; }
+/* неисправность устройства — первой строкой карточки */
+.hw-fault { padding: 12px 16px; background: var(--danger-soft); }
+.hw-fault-icon { color: var(--danger); font-size: 20px; }
+.hw-fault-text { flex-grow: 1; font-size: 13px; color: var(--danger); }
 .wifi-signal { color: var(--accent); font-size: 22px; }
 
 /* «Связь с устройствами» */

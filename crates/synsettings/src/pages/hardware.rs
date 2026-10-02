@@ -34,12 +34,20 @@ fn ticker() -> RwSignal<u64> {
     })
 }
 
+/// Карточка устройства; неисправность — первой строкой с предупреждением.
 fn device_card(d: &synsystem::hwinfo::Device) -> W {
-    let rows: Vec<W> = d
-        .props
-        .iter()
-        .map(|(k, v)| row_inline(k, "", Text::new(v.clone()).selectable(true).class("row-value")))
-        .collect();
+    let mut rows: Vec<W> = Vec::new();
+    if let Some(f) = &d.fault {
+        rows.push(boxed(
+            Row::new()
+                .gap(10.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(Icon::new("\u{E002}").class("hw-fault-icon"))
+                .child(Text::new(f.clone()).max_lines(3).class("hw-fault-text"))
+                .class("hw-fault"),
+        ));
+    }
+    rows.extend(d.props.iter().map(|(k, v)| row_inline(k, "", Text::new(v.clone()).selectable(true).class("row-value"))));
     group(&d.name, rows)
 }
 
