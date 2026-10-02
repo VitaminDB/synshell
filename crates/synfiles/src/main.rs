@@ -11,6 +11,7 @@
 //! [--scale 1] [--script 'key:ctrl+a;click:300,200'] [ПУТЬ…]`.
 
 mod actions;
+mod chooser;
 mod loc;
 mod model;
 mod ops;
@@ -39,6 +40,8 @@ struct Args {
     view: Option<String>,
     split: bool,
     viewer: Option<PathBuf>,
+    /// Окно выбора файлов портала (JSON запроса).
+    choose: Option<String>,
 }
 
 fn parse_args() -> Args {
@@ -52,6 +55,7 @@ fn parse_args() -> Args {
         view: None,
         split: false,
         viewer: None,
+        choose: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -65,6 +69,7 @@ fn parse_args() -> Args {
             "--scale" => a.scale = it.next().and_then(|s| s.parse().ok()).unwrap_or(1.0),
             "--script" => a.script.extend(it.next().unwrap_or_default().split(';').map(|s| s.trim().to_string()).filter(|s| !s.is_empty())),
             "--view" => a.view = it.next(),
+            "--choose" => a.choose = it.next(),
             "--split" => a.split = true,
             "--viewer" => {
                 a.viewer = it.next().map(|s| match Location::parse(&s) {
@@ -104,7 +109,10 @@ fn load_config() -> synshell_common::Config {
 
 /// Создать состояние: вкладки из аргументов или прошлого сеанса.
 fn make_state(args: &Args, cfg: synshell_common::Config) -> state::Ctx {
-    let (locs, cur) = if !args.locations.is_empty() {
+    let (locs, cur) = if let Some(d) = chooser::start_dir() {
+        // окно выбора — с папки запроса, без вкладок прошлого сеанса
+        (vec![Location::Dir(d)], 0)
+    } else if !args.locations.is_empty() {
         (args.locations.clone(), 0)
     } else if cfg.files.restore_tabs && args.screenshot.is_none() {
         state::load_session().unwrap_or((Vec::new(), 0))
@@ -143,8 +151,17 @@ fn install_haptics() {
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()))
+        // stdout — ответ окна выбора (--choose)
+        .with_writer(std::io::stderr)
         .init();
     let args = parse_args();
+    if let Some(j) = &args.choose {
+        if let Err(e) = chooser::init(j) {
+            eprintln!("{e}");
+            chooser::cancel();
+        }
+    }
+    let choosing = chooser::active().is_some();
     let cfg = load_config();
     synshell_common::haptics::set_config(&cfg.haptics);
     install_haptics();
@@ -183,9 +200,10 @@ fn main() {
     let initial = theme.get_untracked();
     watch_config();
 
+    let title = if choosing { chooser::title() } else { "Проводник".to_string() };
     App::new()
-        .title("Проводник")
-        .app_id("synfiles")
+        .title(&title)
+        .app_id(if choosing { "synfiles-chooser" } else { "synfiles" })
         .size(args.size.0, args.size.1)
         .min_size(340, 420)
         .frameless()
@@ -193,7 +211,10 @@ fn main() {
         .with_styles_str(&initial)
         .with_dynamic_theme(theme)
         .with_window_state(ctx.window)
-        .on_close_request(|| {
+        .on_close_request(move || {
+            if choosing {
+                chooser::cancel();
+            }
             state::save_session();
             true
         })
@@ -202,6 +223,9 @@ fn main() {
             places::watch_mounts();
             ui::app::root()
         });
+    if choosing {
+        chooser::cancel();
+    }
     state::save_session();
 }
 

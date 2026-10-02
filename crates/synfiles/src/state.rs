@@ -585,6 +585,13 @@ pub fn selected_paths(p: Pane) -> Vec<PathBuf> {
     sel.selected.iter().filter_map(|&i| entries.get(i).map(|e| e.path.clone())).collect()
 }
 
+/// Выделенные записи с подпиской на выделение и список (для Reactive).
+pub fn selected_entries_tracked(p: Pane) -> Vec<Entry> {
+    let sel = p.sel.get();
+    let entries = p.entries.get();
+    sel.selected.iter().filter_map(|&i| entries.get(i).cloned()).collect()
+}
+
 pub fn selected_entries(p: Pane) -> Vec<Entry> {
     let sel = p.sel.get_untracked();
     let entries = p.entries.get_untracked();

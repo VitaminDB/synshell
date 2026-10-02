@@ -267,7 +267,8 @@ fn desktop_root() -> W {
         .child(super::toolbar::nav_bar())
         .child(super::toolbar::command_bar())
         .child(body)
-        .child(status_bar());
+        .child(status_bar())
+        .child(crate::chooser::bar());
     let hook = EventHook::new()
         .on_key_down(|k, m| {
             state::set_modifiers(m);

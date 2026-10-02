@@ -195,3 +195,26 @@ synfiles --screenshot out.png --size 1280x800 --view tiles \
   поиск по содержимому, сравнение папок;
 - сетевые расположения и съёмные диски через gvfs/udisks2 с постепенным переходом
   на собственную реализацию на Rust.
+
+## Окно выбора файлов (портал)
+
+Оболочка — бэкенд `org.freedesktop.impl.portal.FileChooser` (OpenFile, SaveFile, SaveFiles;
+`synsystem::portal_files`, то же имя шины `org.freedesktop.impl.portal.desktop.synshell`, что и у
+бэкенда доступа; `data/synshell.portal`, `FileChooser=synshell;kde;gtk;` в `synshell-portals.conf`).
+Программы, которые выбирают файлы через портал (Firefox, Chromium, GTK/Qt/Flatpak, syngui), получают
+окно Проводника в режиме выбора:
+
+```
+synfiles --choose '{"mode":"open"|"save"|"save_files","title","accept_label","multiple","directory",
+                    "filters":[{"name","patterns":[[0,"*.png"],[1,"image/*"]]}],"current_filter",
+                    "current_name","current_folder","files":[имена]}'
+```
+
+- раскладка телефона или компьютера — по ширине окна; внизу — панель выбора: фильтры типов (чипы),
+  имя файла (сохранение), «Отмена» и главная кнопка (`accept_label` портала);
+- открыть один файл — касание файла; несколько — касания отмечают, «Открыть»; папку — «Выбрать»
+  (текущая или выделенная); сохранить — имя в поле или касание существующего файла, замена — повторное
+  нажатие; панель файловых операций в этом режиме скрыта, вкладки прошлого сеанса не открываются;
+- ответ — строка JSON в stdout (`{"response":0,"uris":[…],"current_filter":N}`, отмена — `{"response":1}`),
+  журнал — в stderr; программа закрыла запрос (`Request.Close`) — окно убивается.
+  `SYNSHELL_FILE_CHOOSER` — другая программа окна выбора.

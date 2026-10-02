@@ -627,3 +627,17 @@ ItemView.phone { padding: 6px 6px 92px 6px; scrollbar-width: 4px; }
 .phone .jobs-wrap { padding: 0px 12px 92px 12px; }
 .sheet .side-sep { margin: 6px 4px; }
 .phone .empty-state { padding: 120px 24px 0px 24px; }
+
+/* окно выбора файлов портала (synfiles --choose) */
+.chooser-bar { padding: 10px 12px 14px 12px; background: var(--surface); border-top-width: 1px; border-color: var(--border); }
+.ch-info { font-size: 13px; color: var(--muted); }
+.ch-name { width: 100%; }
+.ch-chip { padding: 5px 12px; border-radius: 14px; border-width: 1px; border-color: var(--border); }
+.ch-chip-on { background: var(--accent-soft); border-color: var(--accent); }
+.ch-chip-text { font-size: 12px; color: var(--fg); }
+.ch-btn { padding: 9px 16px; border-radius: 20px; background: var(--surface-alt); transition: background-color 120ms ease-out, scale 140ms spring(500, 28); }
+.ch-btn:active { scale: 0.95; }
+.ch-btn-main { background: var(--accent); }
+.ch-btn-text { font-size: 14px; font-weight: 600; color: var(--fg); }
+.ch-btn-main .ch-btn-text { color: #ffffff; }
+.ch-btn-icon { font-size: 18px; color: #ffffff; }

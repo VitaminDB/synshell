@@ -240,6 +240,7 @@ pub fn visible(raw: &[Entry], sort: Sort, show_hidden: bool, filter: &str) -> Ar
         .iter()
         .filter(|e| show_hidden || !e.hidden)
         .filter(|e| f.is_empty() || e.name.to_lowercase().contains(&f))
+        .filter(|e| crate::chooser::visible(e))
         .cloned()
         .collect();
     sort_entries(&mut v, sort);

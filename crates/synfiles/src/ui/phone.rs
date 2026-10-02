@@ -334,6 +334,10 @@ fn paste_bar(p: Pane, clip: state::Clip) -> W {
 
 fn bottom_bar() -> W {
     boxed(Reactive::new(move || -> Vec<W> {
+        // окно выбора файлов: вместо операций — панель выбора (chooser::bar)
+        if crate::chooser::active().is_some() {
+            return vec![];
+        }
         let ctx = state::ctx();
         let p = state::tab_tracked().pane_tracked();
         let n = p.sel.with(|s| s.selected.len());
@@ -641,7 +645,8 @@ pub fn root() -> W {
         .child(top_bar())
         .child(path_bar())
         .child(content)
-        .child(bottom_bar());
+        .child(bottom_bar())
+        .child(crate::chooser::bar());
     let layers = Stack::new()
         .fit(StackFit::Expand)
         .child(main)

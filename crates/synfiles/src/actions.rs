@@ -60,6 +60,10 @@ pub fn open_terminal(dir: &Path) {
 
 /// Открыть запись: папку — в панели (или новой вкладке), файл — программой.
 pub fn open_entry(p: Pane, e: &Entry, new_tab: bool) {
+    // окно выбора портала: файл не открывается, а выбирается
+    if crate::chooser::activate(p, e) {
+        return;
+    }
     if e.is_dir {
         let loc = Location::Dir(e.path.clone());
         if new_tab {
