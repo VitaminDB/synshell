@@ -115,6 +115,12 @@ impl MobileState {
 }
 
 impl Wm {
+    /// Телефон, режим страниц, окно-страница (не диалог): всегда во весь экран — без перемещения,
+    /// изменения размера, «плавающего» состояния, разворачивания и сворачивания.
+    pub fn page_locked(&self, id: WindowId) -> bool {
+        self.mobile.pages_mode() && self.root_of(id) == id
+    }
+
     /// Корневое окно: поднимаемся по родителям xdg (диалоги — к окну).
     pub fn root_of(&self, id: WindowId) -> WindowId {
         let mut cur = id;

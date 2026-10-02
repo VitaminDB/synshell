@@ -510,6 +510,11 @@ impl State {
         match self.under(pos) {
             crate::input::Under::Deco(id, DecoHit::Title) => {
                 self.focus_window(Some(id));
+                // страница не таскается (иначе становилась плавающей и меньше экрана)
+                if self.core.wm.page_locked(id) {
+                    self.core.fingers.owned.push(slot);
+                    return true;
+                }
                 let loc0 = self.core.wm.get(id).map(|m| m.loc).unwrap_or_default();
                 self.core.fingers.active = Some(Active::Move { id, start: pos, loc0 });
             }

@@ -416,7 +416,7 @@ impl State {
     /// Начать перемещение окна (из запроса клиента, заголовка или Super+ЛКМ).
     pub fn start_move(&mut self, id: WindowId, start: GrabStartData<State>, serial: Serial) {
         let Some(m) = self.core.wm.get(id) else { return };
-        if m.fullscreen {
+        if m.fullscreen || self.core.wm.page_locked(id) {
             return;
         }
         let layout = self.core.wm.workspace(self.core.wm.active).layout;
@@ -439,7 +439,7 @@ impl State {
     /// Начать изменение размера.
     pub fn start_resize(&mut self, id: WindowId, edges: ResizeEdge, start: GrabStartData<State>, serial: Serial) {
         let Some(m) = self.core.wm.get(id) else { return };
-        if m.fullscreen || m.maximized || edges.is_empty() {
+        if m.fullscreen || m.maximized || edges.is_empty() || self.core.wm.page_locked(id) {
             return;
         }
         let layout = self.core.wm.workspace(self.core.wm.active).layout;

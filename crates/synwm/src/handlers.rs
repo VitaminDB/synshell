@@ -480,7 +480,9 @@ impl XdgShellHandler for State {
 
     fn minimize_request(&mut self, surface: ToplevelSurface) {
         if let Some(id) = self.core.wm.id_by_surface(surface.wl_surface()) {
-            self.minimize(id);
+            if !self.core.wm.page_locked(id) {
+                self.minimize(id);
+            }
         }
     }
 

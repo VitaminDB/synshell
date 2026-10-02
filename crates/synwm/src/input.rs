@@ -639,14 +639,14 @@ impl State {
                 let local = Point::from((pos.x - frame.loc.x as f64, pos.y - frame.loc.y as f64));
                 if let Some(hit) = self.core.deco_theme.hit(frame.size.w, local) {
                     // Кромка сверху заголовка тоже тянет размер.
-                    let resizable = !m.maximized && !m.fullscreen && !m.is_tiled(layout);
+                    let resizable = !m.maximized && !m.fullscreen && !m.is_tiled(layout) && !self.core.wm.page_locked(id);
                     if resizable && local.y < 4.0 && matches!(hit, DecoHit::Title) {
                         return Under::Resize(id, edge_for(frame, pos, 4.0) | ResizeEdge::TOP);
                     }
                     return Under::Deco(id, hit);
                 }
             }
-            let resizable = !m.maximized && !m.fullscreen;
+            let resizable = !m.maximized && !m.fullscreen && !self.core.wm.page_locked(id);
             if resizable && resize_border > 0.0 {
                 let outer = Rectangle::new(
                     (frame.loc.x as f64 - resize_border, frame.loc.y as f64 - resize_border).into(),
@@ -1062,6 +1062,8 @@ impl State {
     pub(crate) fn deco_button_action(&mut self, id: WindowId, b: Button, button: u32) {
         match (b, button) {
             (Button::Close, BTN_LEFT) => self.close_window(id),
+            // страница во весь экран: разворачивать и сворачивать нечего
+            (Button::Maximize | Button::Minimize, _) if self.core.wm.page_locked(id) => {}
             (Button::Maximize, BTN_LEFT) => self.toggle_maximize(id),
             (Button::Maximize, BTN_MIDDLE) => self.set_snap(id, Some(crate::wm::layout::SnapZone::Top)),
             (Button::Minimize, BTN_LEFT) => self.minimize(id),

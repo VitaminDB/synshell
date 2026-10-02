@@ -462,6 +462,18 @@ impl State {
         if outputs.is_empty() {
             return;
         }
+        // режим страниц: страница всегда во весь экран — «плавающей» она быть не может (могла стать в
+        // свободном режиме, правилом или прежним жестом)
+        if self.core.wm.mobile.pages_mode() {
+            let ids: Vec<WindowId> = self.core.wm.windows.iter().filter(|m| m.floating).map(|m| m.id).collect();
+            for id in ids {
+                if self.core.wm.page_locked(id) {
+                    if let Some(m) = self.core.wm.get_mut(id) {
+                        m.floating = false;
+                    }
+                }
+            }
+        }
         let active = self.core.wm.active;
         let ws = self.core.wm.workspace(active);
         let layout = ws.layout;
@@ -743,6 +755,9 @@ impl State {
     }
 
     pub fn toggle_floating(&mut self, id: WindowId) {
+        if self.core.wm.page_locked(id) {
+            return;
+        }
         let layout = self.core.wm.workspace(self.core.wm.active).layout;
         let Some(m) = self.core.wm.get(id) else { return };
         let was_tiled = m.is_tiled(layout);
