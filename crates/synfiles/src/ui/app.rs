@@ -126,7 +126,7 @@ fn status_bar() -> W {
         };
         vec![boxed(
             Row::new()
-                .gap(2.0)
+                .gap(4.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(seg(state::ViewMode::Details, icons::VIEW_DETAILS, "Таблица (Ctrl+4)"))
                 .child(seg(state::ViewMode::Icons, icons::VIEW_ICONS, "Значки (Ctrl+1)")),

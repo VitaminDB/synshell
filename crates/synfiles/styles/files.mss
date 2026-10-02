@@ -312,9 +312,9 @@ ItemView {
 /* ── Строка состояния ──────────────────────────────────────────── */
 
 .status-bar {
-    height: 30px;
+    height: 36px;
     background: var(--content);
-    padding: 0px 10px 0px 14px;
+    padding: 0px 14px 0px 14px;
     border-top: 1px solid var(--divider);
 }
 .status-text { font-size: 12px; color: var(--fg); }
