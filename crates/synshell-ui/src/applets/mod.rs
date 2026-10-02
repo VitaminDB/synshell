@@ -243,6 +243,10 @@ fn network(_a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
         applet_button("network", Row::new().child(move || {
             let n = ctx.network.get();
             let mut row = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center);
+            // Камера включена — кто-то снимает
+            if ctx.camera.get().is_some() {
+                row = row.child(icon(mi::CAMERA));
+            }
             // Приёмник GNSS работает — кто-то читает местоположение
             if ctx.modem.get().is_some_and(|m| m.gnss) {
                 row = row.child(icon(crate::location::GLYPH));

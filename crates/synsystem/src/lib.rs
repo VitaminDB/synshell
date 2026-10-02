@@ -9,6 +9,7 @@
 pub mod backlight;
 pub mod battery;
 pub mod bluetooth;
+pub mod camera;
 pub mod cpu;
 pub mod geoclue_agent;
 pub mod gpu;
@@ -17,6 +18,7 @@ pub mod memory;
 pub mod network;
 pub mod packages;
 pub mod polkit_agent;
+pub mod portal_access;
 pub mod procs;
 pub mod sound;
 pub mod thermal;

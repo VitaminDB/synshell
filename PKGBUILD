@@ -60,6 +60,7 @@ package() {
     install -Dm644 data/synshell.desktop "$pkgdir/usr/share/wayland-sessions/synshell.desktop"
     install -Dm644 data/xdg-desktop-portal-wlr/synshell "$pkgdir/etc/xdg/xdg-desktop-portal-wlr/synshell"
     install -Dm644 data/synshell-portals.conf "$pkgdir/usr/share/xdg-desktop-portal/synshell-portals.conf"
+    install -Dm644 data/synshell.portal "$pkgdir/usr/share/xdg-desktop-portal/portals/synshell.portal"
     install -Dm644 crates/synsettings/data/synsettings.desktop \
         "$pkgdir/usr/share/applications/synsettings.desktop"
     install -Dm644 crates/synpkg/data/synpkg.desktop \

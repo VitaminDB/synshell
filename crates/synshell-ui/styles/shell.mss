@@ -580,6 +580,8 @@ Text {
 }
 .shade-head-btn:active { scale: 0.9; }
 .shade-head-icon { icon-size: 22px; icon-color: var(--fg); }
+/* камера включена (значок «используется»): зелёный, как индикатор записи */
+.shade-head-active { background-color: #2e7d32; }
 
 .shade-tile {
     padding: 10px 12px;

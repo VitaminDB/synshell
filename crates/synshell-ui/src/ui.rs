@@ -417,6 +417,8 @@ pub mod mi {
     pub const VOLUME_OFF: &str = "\u{E04F}";
     pub const MIC: &str = "\u{E029}";
     pub const MIC_OFF: &str = "\u{E02B}";
+    /// videocam — камера включена.
+    pub const CAMERA: &str = "\u{E04B}";
     pub const BRIGHTNESS: &str = "\u{E1AE}";
     pub const BELL: &str = "\u{E7F4}";
     pub const BELL_OFF: &str = "\u{E7F6}";

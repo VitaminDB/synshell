@@ -8,6 +8,7 @@
 //! жесты и те же панели/доки под телефонный форм-фактор
 //! ([`ctx::ShellCtx::form_factor`]).
 
+pub mod access;
 pub mod actions;
 pub mod android_boot;
 pub mod anim;
@@ -38,6 +39,7 @@ pub mod popup;
 pub mod recents;
 pub mod rotation;
 pub mod autobright;
+pub mod camera;
 pub mod shade;
 pub mod start_menu;
 pub mod switcher;
@@ -136,6 +138,8 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         modem::start(ctx);
         incall::start(ctx);
         location::start(ctx);
+        access::start(ctx);
+        camera::start(ctx);
         install(ctx);
         popup::install(ctx);
         osd::install(ctx);

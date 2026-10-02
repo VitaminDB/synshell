@@ -146,10 +146,19 @@ fn header(ctx: ShellCtx) -> impl Widget {
     let btn = |glyph: &'static str, f: fn()| {
         GestureDetector::new().on_click(f).child(DecoratedBox::new().child(icon(glyph).class("shade-head-icon")).class("shade-head-btn"))
     };
+    // камера включена — значок «используется» (строки состояния на телефоне нет)
+    let camera = rx(move || -> Box<dyn Widget> {
+        if ctx.camera.get().is_some() {
+            Box::new(DecoratedBox::new().child(icon(mi::CAMERA).class("shade-head-icon")).class("shade-head-btn shade-head-active"))
+        } else {
+            Box::new(DecoratedBox::new())
+        }
+    });
     Row::new()
         .gap(8.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(DecoratedBox::new().child(time).class("grow"))
+        .child(camera)
         .child(btn(mi::SETTINGS, || {
             close();
             crate::actions::spawn("synsettings");
