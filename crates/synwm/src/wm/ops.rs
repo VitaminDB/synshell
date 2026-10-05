@@ -865,12 +865,18 @@ impl State {
         }
     }
 
+    /// PID программы окна. У X11-окон — из _NET_WM_PID: их Wayland-клиент — Xwayland.
+    fn window_pid(&self, m: &Managed) -> Option<i32> {
+        if let Some(x) = m.window.x11_surface() {
+            return x.pid().map(|p| p as i32);
+        }
+        let client = m.window.wl_surface()?.client()?;
+        client.get_credentials(&self.core.display_handle).ok().map(|c| c.pid)
+    }
+
     pub fn kill_window(&mut self, id: WindowId) {
         let Some(m) = self.core.wm.get(id) else { return };
-        let pid = m.window.wl_surface().and_then(|s| {
-            let client = s.client()?;
-            client.get_credentials(&self.core.display_handle).ok().map(|c| c.pid)
-        });
+        let pid = self.window_pid(m);
         if let Some(pid) = pid {
             if pid > 1 && pid != std::process::id() as i32 {
                 unsafe {
@@ -1243,10 +1249,7 @@ impl State {
 
     pub fn window_info(&self, m: &Managed) -> WindowInfo {
         let g = m.geometry();
-        let pid = m.window.wl_surface().and_then(|s| {
-            let client = s.client()?;
-            client.get_credentials(&self.core.display_handle).ok().map(|c| c.pid)
-        });
+        let pid = self.window_pid(m);
         let layout = self.core.wm.workspace(m.workspace).layout;
         WindowInfo {
             id: m.id,
@@ -1365,6 +1368,7 @@ impl State {
 
     /// Выводы изменились (добавлен/убран/режим/масштаб): переложить окна.
     pub fn outputs_changed(&mut self) {
+        self.update_xwayland_scale();
         let outputs: Vec<Output> = self.core.space.outputs().cloned().collect();
         for o in &outputs {
             layer_map_for_output(o).arrange();

@@ -84,8 +84,9 @@ impl CursorManager {
     }
 
     /// Первый кадр курсора по умолчанию: (RGBA, ширина, высота, xhot, yhot) — для Xwayland.
-    pub fn default_image(&mut self) -> Option<(Vec<u8>, u32, u32, u32, u32)> {
-        let size = self.size;
+    /// `scale` — масштаб X11-клиентов: их курсор задаётся в физических пикселях.
+    pub fn default_image(&mut self, scale: f64) -> Option<(Vec<u8>, u32, u32, u32, u32)> {
+        let size = (self.size as f64 * scale).round() as u32;
         let images = self.load(CursorIcon::Default)?.clone();
         let (_, f) = frame(0, size, &images);
         Some((f.pixels_rgba.clone(), f.width, f.height, f.xhot, f.yhot))

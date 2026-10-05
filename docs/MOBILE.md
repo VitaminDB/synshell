@@ -7,7 +7,7 @@
 | Часть | Десктоп | Телефон | Где различие |
 |---|---|---|---|
 | Композитор `synwm` | GLES через GBM/EGL (`backend/tty.rs`) | тот же GLES/GBM — через zink поверх turnip/KGSL; запасной — pixman + dumb-буферы (`backend/kms_cpu.rs`) | бэкенд выбирается на старте: `[platform] renderer`, `--cpu/--gpu`, `SYNSHELL_RENDERER`, `auto` = проба EGL на устройстве (не программный рендер) |
-| Политика окон | как настроено | monocle, без рамок и зазоров, decorations=client, без Xwayland | `Config::apply_form_factor` — только значения, которые пользователь не задал явно |
+| Политика окон | как настроено | monocle, без рамок и зазоров, decorations=client | `Config::apply_form_factor` — только значения, которые пользователь не задал явно |
 | Оболочка | `syndesktop-shell` | `synmobile-shell` | `general.shell` по умолчанию зависит от форм-фактора |
 | Параметры, файлы, снимки | те же крейты | те же крейты | адаптивная раскладка syngui (в работе) |
 | Системные данные | `synsystem` | `synsystem` | батарея, ядра и частоты, температуры, процессы, подсветка (ниты), GPU (KGSL) |
@@ -18,6 +18,16 @@
 
 Cargo-features `synwm`: `pixman` (CPU-бэкенд, включён по умолчанию). GLES/GBM пока не отключаются —
 на телефоне библиотеки есть в sysroot, а выбор идёт на старте.
+
+## Xwayland и масштаб
+
+X11-программы идут через Xwayland композитора на обоих форм-факторах (`[general] xwayland`). X11 о масштабе не
+знает, поэтому Xwayland получает экран в физических пикселях (`set_client_scale` = наибольший масштаб
+мониторов, `State::update_xwayland_scale`) — окна чёткие, а размер интерфейса программы берут из DPI:
+XSETTINGS `Xft/DPI`, `Gdk/WindowScalingFactor`, `Gdk/UnscaledDPI` и ресурс `Xft.dpi` (через `xrdb`, если
+установлен). Xwayland наследует от композитора переменные выбора графического драйвера (`MESA_*`, `VK_*`,
+`TU_*`, `LIBGL_*`, `GBM_*`, `EGL_*`) — smithay запускает его с чистым окружением, и на телефоне (zink поверх
+turnip) без них не было бы glamor/DRI3. Особенности телефона — arch-mobile-port `docs/23-x11.md`.
 
 ## GPU-композитинг на телефоне и запасной CPU-бэкенд
 На телефонах с Android-ядром (Qualcomm msm_drm/sde) своего GL-драйвера для GPU нет: GPU доступен только

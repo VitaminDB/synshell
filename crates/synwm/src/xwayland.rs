@@ -6,7 +6,7 @@ use std::process::Stdio;
 use smithay::{
     delegate_xwayland_keyboard_grab, delegate_xwayland_shell,
     desktop::Window,
-    reexports::wayland_server::protocol::wl_surface::WlSurface,
+    reexports::wayland_server::{protocol::wl_surface::WlSurface, Client},
     utils::{Logical, Rectangle, SERIAL_COUNTER},
     wayland::{
         compositor::CompositorHandler,
@@ -20,7 +20,7 @@ use smithay::{
     },
     xwayland::{
         xwm::{Reorder, ResizeEdge as X11ResizeEdge, XwmId},
-        X11Surface, X11Wm, XWayland, XWaylandEvent, XwmHandler,
+        X11Surface, X11Wm, XWayland, XWaylandClientData, XWaylandEvent, XwmHandler,
     },
 };
 
@@ -30,6 +30,9 @@ pub struct XwaylandState {
     pub wm: Option<X11Wm>,
     pub display: Option<u32>,
     pub shell_state: XWaylandShellState,
+    client: Client,
+    /// Масштаб, уже сообщённый X11-клиентам (0 — ещё никакой).
+    scale: f64,
 }
 
 impl State {
@@ -42,7 +45,11 @@ impl State {
         let (xwayland, client) = match XWayland::spawn(
             &self.core.display_handle,
             None,
-            std::iter::empty::<(String, String)>(),
+            // smithay запускает Xwayland с чистым окружением. Выбор графического
+            // драйвера ему нужен тот же, что композитору: без него на телефоне
+            // (zink поверх turnip) glamor не поднимается — нет DRI3, X11-программы
+            // остаются без GPU.
+            std::env::vars().filter(|(k, _)| ["MESA_", "VK_", "TU_", "LIBGL_", "GBM_", "EGL_", "__GLX_", "__EGL_"].iter().any(|p| k.starts_with(p))),
             true,
             Stdio::null(),
             Stdio::null(),
@@ -59,17 +66,18 @@ impl State {
         // иначе X11-программы, запущенные из оболочки, не находят Xwayland.
         let display_number = xwayland.display_number();
         std::env::set_var("DISPLAY", format!(":{display_number}"));
-        self.core.xwayland = Some(XwaylandState { wm: None, display: Some(display_number), shell_state });
+        self.core.xwayland = Some(XwaylandState { wm: None, display: Some(display_number), shell_state, client: client.clone(), scale: 0.0 });
+        // До первого wl_output: Xwayland сразу получит экран в физических пикселях.
+        self.update_xwayland_scale();
         let res = self.core.loop_handle.insert_source(xwayland, move |event, _, state| match event {
             XWaylandEvent::Ready { x11_socket, display_number } => {
                 match X11Wm::start_wm(state.core.loop_handle.clone(), x11_socket, client.clone()) {
-                    Ok(mut wm) => {
-                        if let Some((px, w, h, xh, yh)) = state.core.cursor.default_image() {
-                            let _ = wm.set_cursor(&px, (w as u16, h as u16).into(), (xh as u16, yh as u16).into());
-                        }
+                    Ok(wm) => {
                         if let Some(x) = &mut state.core.xwayland {
                             x.wm = Some(wm);
+                            x.scale = 0.0;
                         }
+                        state.update_xwayland_scale();
                         tracing::info!(display_number, "Xwayland готов");
                     }
                     Err(e) => tracing::warn!(?e, "X11Wm не запущен"),
@@ -80,6 +88,60 @@ impl State {
         if let Err(e) = res {
             tracing::warn!(?e, "источник Xwayland");
         }
+    }
+
+    /// Масштаб X11-клиентов — наибольший масштаб мониторов. X11 не знает о
+    /// масштабе: Xwayland получает экран в физических пикселях (окна чёткие, а
+    /// не растянутые), размер интерфейса программы берут из DPI (XSETTINGS и
+    /// Xft.dpi).
+    pub fn update_xwayland_scale(&mut self) {
+        let scale = self
+            .core
+            .space
+            .outputs()
+            .map(|o| o.current_scale().fractional_scale())
+            .fold(1.0, f64::max);
+        let Some(x) = self.core.xwayland.as_mut() else { return };
+        if x.scale == scale {
+            return;
+        }
+        x.scale = scale;
+        if let Some(data) = x.client.get_data::<XWaylandClientData>() {
+            data.compositor_state.set_client_scale(scale);
+        }
+        let display = x.display;
+        let ready = if let Some(wm) = x.wm.as_mut() {
+            let dpi = scale * 96.0 * 1024.0;
+            let int = scale.round().max(1.0);
+            let settings = [
+                ("Xft/DPI".to_string(), (dpi.round() as i32).into()),
+                ("Gdk/UnscaledDPI".to_string(), ((dpi / int).round() as i32).into()),
+                ("Gdk/WindowScalingFactor".to_string(), (int as i32).into()),
+            ];
+            if let Err(e) = wm.set_xsettings(settings.into_iter()) {
+                tracing::warn!(?e, "XSETTINGS");
+            }
+            if let Some((px, w, h, xh, yh)) = self.core.cursor.default_image(scale) {
+                let _ = wm.set_cursor(&px, (w as u16, h as u16).into(), (xh as u16, yh as u16).into());
+            }
+            true
+        } else {
+            false
+        };
+        // Новый размер экрана — Xwayland узнаёт его из wl_output/xdg_output.
+        for output in self.core.space.outputs() {
+            output.change_current_state(None, None, None, None);
+        }
+        if !ready {
+            return;
+        }
+        // Xft.dpi читают Qt, Tk, Chromium и всё, что не слушает XSETTINGS.
+        if let (Some(display), true) = (display, crate::spawn::which("xrdb")) {
+            let dpi = (scale * 96.0).round() as i32;
+            crate::spawn::spawn_shell(&self.core, &format!("echo 'Xft.dpi: {dpi}' | DISPLAY=:{display} xrdb -merge"));
+        }
+        tracing::info!(scale, "масштаб Xwayland");
+        self.relayout();
     }
 
     fn x11_id(&self, window: &X11Surface) -> Option<crate::wm::WindowId> {
@@ -105,10 +167,12 @@ impl XwmHandler for State {
             tracing::warn!(?e, "X11 map");
             return;
         }
+        let ssd = self.core.default_decoration_mode()
+            == smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode::ServerSide;
         let id = self.add_window(Window::new_x11_window(window.clone()));
         if let Some(m) = self.core.wm.get_mut(id) {
-            // Окна без своих рамок получают наши.
-            m.ssd = !window.is_decorated();
+            // Окна без своих рамок получают наши (если рамки вообще рисуем мы).
+            m.ssd = ssd && !window.is_decorated();
             m.rules_applied = false;
         }
         self.map_x11(id, false);

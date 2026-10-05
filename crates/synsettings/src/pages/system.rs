@@ -667,7 +667,7 @@ pub fn general() -> W {
                 "Сеанс",
                 vec![
                     text_row("Оболочка", "Пусто — без оболочки (например, waybar)", op!["general", "shell"], &g.shell, "syndesktop-shell"),
-                    switch_row("Xwayland", "X11-программы через xwayland-satellite", op!["general", "xwayland"], g.xwayland),
+                    switch_row("Xwayland", "X11-программы (нужен пакет xorg-xwayland)", op!["general", "xwayland"], g.xwayland),
                     text_row("Каталог снимков экрана", "", op!["general", "screenshot_dir"], &g.screenshot_dir, "~/Pictures/Screenshots"),
                 ],
             ),

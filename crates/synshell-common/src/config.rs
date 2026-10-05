@@ -114,7 +114,7 @@ pub struct General {
     pub xdg_autostart: bool,
     /// Переменные окружения для всех запускаемых программ.
     pub environment: BTreeMap<String, String>,
-    /// Xwayland для X11-программ (через `xwayland-satellite`, если есть).
+    /// Xwayland для X11-программ (нужен пакет xorg-xwayland).
     pub xwayland: bool,
     /// Каталог снимков экрана.
     pub screenshot_dir: String,
@@ -1635,7 +1635,7 @@ impl Config {
     }
 
     /// Подстроить значения по умолчанию под телефон: окна во весь экран
-    /// (monocle), без рамок и зазоров, оболочка `synmobile-shell`, без Xwayland.
+    /// (monocle), без рамок и зазоров, оболочка `synmobile-shell`.
     /// Явно заданные в конфиге значения не трогаются.
     /// Форм-фактор процесса: `SYNSHELL_FORM_FACTOR` (его выставляет
     /// композитор детям), иначе `[platform] form_factor`, иначе рабочий стол.
@@ -1669,9 +1669,6 @@ impl Config {
         }
         if self.general.shell == d.general.shell {
             self.general.shell = "synmobile-shell".into();
-        }
-        if self.general.xwayland == d.general.xwayland {
-            self.general.xwayland = false;
         }
         if self.lock.method == d.lock.method {
             self.lock.method = "swipe".into();

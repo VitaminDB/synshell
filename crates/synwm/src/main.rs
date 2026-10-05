@@ -117,6 +117,10 @@ fn reexec(inherited: &InheritedEnv) {
         .map(|p| std::path::PathBuf::from(p.to_string_lossy().trim_end_matches(" (deleted)").to_string()))
         .filter(|p| p.is_file())
         .unwrap_or_else(|| "synwm".into());
+    // Xwayland и оболочка только что остановлены: забрать их до exec, иначе
+    // у нового композитора (тот же PID) они останутся зомби навсегда.
+    std::thread::sleep(Duration::from_millis(150));
+    while unsafe { libc::waitpid(-1, std::ptr::null_mut(), libc::WNOHANG) } > 0 {}
     tracing::info!(exe = %exe.display(), "exec нового композитора");
     let err = std::process::Command::new(&exe).args(std::env::args_os().skip(1)).exec();
     tracing::error!(?err, "перезапуск не удался");
@@ -312,9 +316,17 @@ fn run(args: &[String]) -> anyhow::Result<bool> {
     tracing::info!("завершение");
     state.core.shell.stop();
     let restart = state.core.restart_requested;
+    let x_display = state.core.xwayland.as_ref().and_then(|x| x.display);
     // Освободить DRM, ввод, сокеты до exec.
     drop(state);
     drop(event_loop);
+    // Перед exec Xwayland уже убит, но его замок и сокет остались бы: новый
+    // композитор счёл бы дисплей занятым (PID замка — наш ребёнок-зомби) и
+    // взял следующий номер.
+    if let Some(n) = x_display {
+        let _ = std::fs::remove_file(format!("/tmp/.X{n}-lock"));
+        let _ = std::fs::remove_file(format!("/tmp/.X11-unix/X{n}"));
+    }
     Ok(restart)
 }
 
