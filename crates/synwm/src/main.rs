@@ -119,13 +119,38 @@ fn reexec(inherited: &InheritedEnv) {
         .unwrap_or_else(|| "synwm".into());
     // Xwayland и оболочка только что остановлены: забрать их до exec, иначе
     // у нового композитора (тот же PID) они останутся зомби навсегда.
-    std::thread::sleep(Duration::from_millis(150));
-    while unsafe { libc::waitpid(-1, std::ptr::null_mut(), libc::WNOHANG) } > 0 {}
+    // Xwayland держит унаследованный сокет до самого exec и умер бы уже у
+    // нового композитора (тот же PID) — зомби навсегда. Завершаем и забираем его здесь.
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    let mut asked = false;
+    loop {
+        while unsafe { libc::waitpid(-1, std::ptr::null_mut(), libc::WNOHANG) } > 0 {}
+        let Some(pid) = child_pid("Xwayland") else { break };
+        if std::time::Instant::now() >= deadline {
+            break;
+        }
+        if !asked {
+            unsafe { libc::kill(pid, libc::SIGTERM) };
+            asked = true;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
     tracing::info!(exe = %exe.display(), "exec нового композитора");
     let err = std::process::Command::new(&exe).args(std::env::args_os().skip(1)).exec();
     tracing::error!(?err, "перезапуск не удался");
     eprintln!("synwm: перезапуск не удался: {err}");
     std::process::exit(1);
+}
+
+/// PID ребёнка композитора с таким именем (зомби тоже считается).
+fn child_pid(comm: &str) -> Option<i32> {
+    let me = std::process::id().to_string();
+    std::fs::read_dir("/proc").ok()?.flatten().find_map(|e| {
+        let stat = std::fs::read_to_string(e.path().join("stat")).ok()?;
+        // «pid (comm) state ppid …» — comm может содержать пробелы и скобки.
+        let (l, r) = (stat.find('(')?, stat.rfind(')')?);
+        (&stat[l + 1..r] == comm && stat[r + 1..].split_whitespace().nth(1) == Some(me.as_str())).then(|| stat[..l].trim().parse().ok())?
+    })
 }
 
 fn init_logging() {

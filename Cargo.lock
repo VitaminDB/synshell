@@ -3324,7 +3324,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.45.0",
 ]
 
 [[package]]
@@ -4481,7 +4481,7 @@ checksum = "f9395f0f0eee849a9b707b2f06bb92a6a422090e2123bb2ef8e87a0e61892a8e"
 [[package]]
 name = "smithay"
 version = "0.7.0"
-source = "git+https://github.com/VitaminDB/smithay?branch=synshell#dea8e67acea7fed252efa41248819d8bfdc32e12"
+source = "git+https://github.com/VitaminDB/smithay?branch=synshell#462ee13432ee1f252422de198f1534b32fca3212"
 dependencies = [
  "aliasable",
  "appendlist",

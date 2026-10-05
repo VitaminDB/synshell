@@ -5,8 +5,9 @@ use std::process::Stdio;
 
 use smithay::{
     delegate_xwayland_keyboard_grab, delegate_xwayland_shell,
-    desktop::Window,
+    desktop::{Space, Window},
     reexports::wayland_server::{protocol::wl_surface::WlSurface, Client},
+    output::Output,
     utils::{Logical, Rectangle, SERIAL_COUNTER},
     wayland::{
         compositor::CompositorHandler,
@@ -154,6 +155,42 @@ impl State {
     }
 }
 
+/// Задать X11-окну геометрию. При дробном масштабе логический размер не
+/// выражает размер монитора в пикселях X11 точно (2712 px при 2.35 — это
+/// 1154.04, окно 1155 получило бы 2714 px и вылезло за экран X11): край
+/// окна, совпавший с краем монитора, ставится ровно на его пиксельный край.
+pub fn x11_configure(space: &Space<Window>, xwayland: &Option<XwaylandState>, x: &X11Surface, rect: Rectangle<i32, Logical>) {
+    let scale = xwayland.as_ref().map(|x| x.scale).filter(|s| *s > 0.0).unwrap_or(1.0);
+    let mut w = (rect.size.w as f64 * scale).round() as i32;
+    let mut h = (rect.size.h as f64 * scale).round() as i32;
+    // Монитор под окном; окно может быть и за экраном (страница в листании) —
+    // тогда любой монитор с этим масштабом: важен размер.
+    let same_scale = |o: &&Output| o.current_scale().fractional_scale() == scale;
+    let output = space
+        .outputs()
+        .filter(same_scale)
+        .find(|o| space.output_geometry(o).is_some_and(|g| g.contains(rect.loc)))
+        .or_else(|| space.outputs().find(same_scale));
+    if let Some((o, g)) = output.and_then(|o| Some((o, space.output_geometry(o)?))) {
+        if let Some(mode) = o.current_mode() {
+            let px = o.current_transform().transform_size(mode.size);
+            let left = ((rect.loc.x - g.loc.x) as f64 * scale).round() as i32;
+            let top = ((rect.loc.y - g.loc.y) as f64 * scale).round() as i32;
+            if rect.size.w == g.size.w {
+                w = px.w;
+            } else if (rect.loc.x + rect.size.w - g.loc.x - g.size.w).abs() <= 1 {
+                w = (px.w - left).max(1);
+            }
+            if rect.size.h == g.size.h {
+                h = px.h;
+            } else if (rect.loc.y + rect.size.h - g.loc.y - g.size.h).abs() <= 1 {
+                h = (px.h - top).max(1);
+            }
+        }
+    }
+    let _ = x.configure_with_client_size(rect, (w, h));
+}
+
 impl XwmHandler for State {
     fn xwm_state(&mut self, _xwm: XwmId) -> &mut X11Wm {
         self.core.xwayland.as_mut().and_then(|x| x.wm.as_mut()).expect("xwm")
@@ -212,7 +249,7 @@ impl XwmHandler for State {
         let layout = self.core.wm.workspace(self.core.wm.active).layout;
         if managed.is_some_and(|m| m.is_tiled(layout) || m.maximized || m.fullscreen) {
             // Плитка/развёрнутое — размер задаём мы.
-            let _ = window.configure(geo);
+            x11_configure(&self.core.space, &self.core.xwayland, &window, geo);
             return;
         }
         if let Some(w) = w {
@@ -229,7 +266,7 @@ impl XwmHandler for State {
                 geo.loc.y = y;
             }
         }
-        let _ = window.configure(geo);
+        x11_configure(&self.core.space, &self.core.xwayland, &window, geo);
     }
 
     fn configure_notify(&mut self, _xwm: XwmId, window: X11Surface, geometry: Rectangle<i32, Logical>, _above: Option<u32>) {
@@ -374,7 +411,7 @@ impl State {
         // Сообщить X11-окну его геометрию.
         if let Some(m) = self.core.wm.get(id) {
             if let Some(x) = m.window.x11_surface() {
-                let _ = x.configure(Rectangle::new(m.loc, m.window.geometry().size));
+                x11_configure(&self.core.space, &self.core.xwayland, x, Rectangle::new(m.loc, m.window.geometry().size));
             }
         }
     }

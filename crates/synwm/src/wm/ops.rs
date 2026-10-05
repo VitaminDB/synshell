@@ -586,9 +586,7 @@ impl State {
                     t.send_pending_configure();
                 }
             }
-            WindowSurface::X11(x) => {
-                let _ = x.configure(content);
-            }
+            WindowSurface::X11(x) => crate::xwayland::x11_configure(&self.core.space, &self.core.xwayland, x, content),
         }
         let w = m.window.clone();
         let loc = m.loc;
@@ -623,9 +621,7 @@ impl State {
                     t.send_pending_configure();
                 }
             }
-            WindowSurface::X11(x) => {
-                let _ = x.configure(geo);
-            }
+            WindowSurface::X11(x) => crate::xwayland::x11_configure(&self.core.space, &self.core.xwayland, x, geo),
         }
     }
 
