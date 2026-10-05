@@ -1,3 +1,6 @@
 #%PAM-1.0
-# Экран блокировки syndesktop. Устанавливается в /etc/pam.d/syndesktop-lock.
-auth include login
+# Экран блокировки syndesktop и экран входа synlogin. Устанавливается в /etc/pam.d/syndesktop-lock.
+# account нужен: authenticate() после пароля вызывает pam_acct_mgmt, а с пустым стеком
+# account PAM всегда отказывает («неверный пароль» при верном).
+auth    include login
+account include login
