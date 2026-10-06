@@ -21,6 +21,7 @@ mod shot;
 mod state;
 use synshell_common::thumbs;
 mod trash;
+mod udisks;
 mod ui;
 mod viewer;
 
@@ -224,6 +225,7 @@ fn main() {
         .run(move |_| {
             provide_context(ctx);
             places::watch_mounts();
+            udisks::watch();
             ui::app::root()
         });
     if choosing {

@@ -23,6 +23,8 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 # Слежение за папками (inotify).
 notify = "8"
+# Съёмные накопители: udisks2 по системной шине (монтирование, извлечение).
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
 # Декодирование картинок (просмотрщик, снимки); миниатюры — synshell-common/thumbs.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff", "ico"] }
 png = "0.17"

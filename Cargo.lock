@@ -4765,6 +4765,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "wgpu",
+ "zbus",
 ]
 
 [[package]]

@@ -7,17 +7,86 @@ use syngui::DragData;
 use super::{boxed, bx, icons, W};
 use crate::actions;
 use crate::loc::Location;
-use crate::places::{self, Place};
+use crate::places::{self, Place, Target};
 use crate::state;
+use crate::udisks::{self, Volume};
 use crate::ui::view;
 
+/// Безопасно извлечь диск в фоне: отмонтировать разделы и выключить диск.
+fn eject(vol: Volume) {
+    std::thread::spawn(move || {
+        let r = udisks::eject(&vol.drive);
+        syngui::async_runtime::run_on_main_thread(move || match r {
+            Ok(()) => {
+                // Панель стояла внутри извлечённого диска — уйти домой, иначе она покажет пустоту.
+                let p = state::pane();
+                let cur = p.loc.get_untracked();
+                if cur.dir().is_some_and(|d| vol.mounts.iter().any(|m| d.starts_with(m))) {
+                    state::navigate(p, Location::Dir(synshell_common::paths::home()), true);
+                }
+                state::toast(format!("«{}» можно извлекать", vol.title));
+            }
+            Err(e) => state::toast_error(format!("Не удалось извлечь «{}»: {e}", vol.title)),
+        });
+    });
+}
+
+/// Монтирует раздел в фоне и открывает его в текущей панели.
+fn mount_and_open(block: String, title: String) {
+    std::thread::spawn(move || match udisks::mount(&block) {
+        Ok(path) => syngui::async_runtime::run_on_main_thread(move || {
+            state::navigate(state::pane(), Location::Dir(path), true);
+        }),
+        Err(e) => syngui::async_runtime::run_on_main_thread(move || {
+            state::toast_error(format!("Не удалось смонтировать «{title}»: {e}"));
+        }),
+    });
+}
+
+/// Съёмный раздел, который ещё не смонтирован: щелчок монтирует и открывает.
+fn volume_row(vol: Volume) -> W {
+    let block = vol.block.clone();
+    let title = vol.title.clone();
+    let menu_vol = vol.clone();
+    let mut col = Column::new().gap(3.0).child(
+        Row::new()
+            .gap(10.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(Icon::new(icons::USB).class("icon place-icon"))
+            .child(Text::new(vol.title.clone()).max_lines(1).class("place-title grow")),
+    );
+    col = col.child(Text::new(format!("Не смонтирован · {}", crate::model::format_size(vol.size))).class("space-text"));
+    let row = GestureDetector::new()
+        .on_click(move || mount_and_open(block.clone(), title.clone()))
+        .on_secondary_click(move |at| {
+            let items = vec![
+                MenuItem::new("mount", "Смонтировать").icon(icons::OPEN),
+                MenuItem::separator(),
+                MenuItem::new("eject", "Безопасно извлечь").icon(icons::EJECT),
+            ];
+            let v = menu_vol.clone();
+            state::show_menu(items, at, move |id| match id {
+                "mount" => mount_and_open(v.block.clone(), v.title.clone()),
+                "eject" => eject(v.clone()),
+                _ => {}
+            });
+        })
+        .child(DecoratedBox::new().class("place").child(col));
+    boxed(row)
+}
+
 fn place_row(pl: Place, current: &Location) -> W {
-    let active = &pl.loc == current;
-    let loc = pl.loc.clone();
-    let loc_mid = pl.loc.clone();
-    let loc_menu = pl.loc.clone();
-    let loc_drop = pl.loc.clone();
+    let loc_src = match &pl.target {
+        Target::Dir(loc) => loc.clone(),
+        Target::Volume(vol) => return volume_row(vol.clone()),
+    };
+    let active = &loc_src == current;
+    let loc = loc_src.clone();
+    let loc_mid = loc_src.clone();
+    let loc_menu = loc_src.clone();
+    let loc_drop = loc_src;
     let pinned = pl.pinned;
+    let device = pl.device.clone();
     let mut col = Column::new().gap(3.0).child(
         Row::new()
             .gap(10.0)
@@ -63,37 +132,23 @@ fn place_row(pl: Place, current: &Location) -> W {
                 items.push(MenuItem::separator());
                 items.push(MenuItem::new("props", "Свойства").icon(icons::INFO));
             }
+            if let Some(dev) = device.clone() {
+                items.push(MenuItem::separator());
+                items.push(MenuItem::new("eject", "Безопасно извлечь").icon(icons::EJECT));
+                let target = loc_menu.clone();
+                state::show_menu(items, at, move |id| {
+                    let p = state::pane();
+                    match id {
+                        "eject" => eject(dev.clone()),
+                        _ => menu_action(id, &target, p),
+                    }
+                });
+                return;
+            }
             let target = loc_menu.clone();
             state::show_menu(items, at, move |id| {
                 let p = state::pane();
-                match id {
-                    "open" => state::navigate(p, target.clone(), true),
-                    "open-tab" => {
-                        state::new_tab(target.clone(), true);
-                    }
-                    "terminal" => {
-                        if let Some(d) = target.dir() {
-                            actions::open_terminal(d);
-                        }
-                    }
-                    "copy-path" => {
-                        if let Some(d) = target.dir() {
-                            actions::copy_paths_text(&[d.to_path_buf()]);
-                        }
-                    }
-                    "unpin" => {
-                        if let Some(d) = target.dir() {
-                            actions::toggle_pin(d);
-                        }
-                    }
-                    "empty" => state::ctx().dialog.set(Some(state::Dialog::ConfirmEmptyTrash)),
-                    "props" => {
-                        if let Some(d) = target.dir() {
-                            state::ctx().dialog.set(Some(state::Dialog::Properties { paths: vec![d.to_path_buf()] }));
-                        }
-                    }
-                    _ => {}
-                }
+                menu_action(id, &target, p);
             });
         })
         .child(DecoratedBox::new().class(if active { "place active" } else { "place" }).child(col));
@@ -116,6 +171,38 @@ fn place_row(pl: Place, current: &Location) -> W {
             })
             .child(row),
     )
+}
+
+/// Действие пункта меню места (кроме извлечения).
+fn menu_action(id: &str, target: &Location, p: state::Pane) {
+    match id {
+        "open" => state::navigate(p, target.clone(), true),
+        "open-tab" => {
+            state::new_tab(target.clone(), true);
+        }
+        "terminal" => {
+            if let Some(d) = target.dir() {
+                actions::open_terminal(d);
+            }
+        }
+        "copy-path" => {
+            if let Some(d) = target.dir() {
+                actions::copy_paths_text(&[d.to_path_buf()]);
+            }
+        }
+        "unpin" => {
+            if let Some(d) = target.dir() {
+                actions::toggle_pin(d);
+            }
+        }
+        "empty" => state::ctx().dialog.set(Some(state::Dialog::ConfirmEmptyTrash)),
+        "props" => {
+            if let Some(d) = target.dir() {
+                state::ctx().dialog.set(Some(state::Dialog::Properties { paths: vec![d.to_path_buf()] }));
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Места по разделам (боковая панель и выдвижная панель телефона).

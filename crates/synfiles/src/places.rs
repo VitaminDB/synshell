@@ -5,16 +5,26 @@ use std::path::{Path, PathBuf};
 use synshell_common::paths;
 
 use crate::loc::Location;
+use crate::udisks::Volume;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Target {
+    Dir(Location),
+    /// Съёмный раздел, который ещё не смонтирован: щелчок монтирует его.
+    Volume(Volume),
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Place {
     pub title: String,
     pub icon: &'static str,
-    pub loc: Location,
+    pub target: Target,
     /// Закреплена пользователем (можно открепить).
     pub pinned: bool,
     /// Для дисков: (свободно, всего) байт.
     pub space: Option<(u64, u64)>,
+    /// Съёмный диск, которому принадлежит место: для «Безопасно извлечь».
+    pub device: Option<Volume>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -24,7 +34,7 @@ pub struct Section {
 }
 
 fn place(title: impl Into<String>, icon: &'static str, loc: Location) -> Place {
-    Place { title: title.into(), icon, loc, pinned: false, space: None }
+    Place { title: title.into(), icon, target: Target::Dir(loc), pinned: false, space: None, device: None }
 }
 
 /// Папки пользователя: (ключ XDG, подпись, глиф Material).
@@ -74,10 +84,23 @@ pub fn sections(pinned: &[String]) -> Vec<Section> {
         p.space = space(Path::new("/"));
         p
     }];
+    let removable = crate::udisks::removable();
     for m in mounts() {
         let mut p = place(m.title, m.icon, Location::Dir(m.path.clone()));
         p.space = space(&m.path);
+        p.device = removable.iter().find(|v| v.mounts.contains(&m.path)).cloned();
         drives.push(p);
+    }
+    // Съёмные разделы, которые ещё никто не смонтировал: щелчок монтирует их.
+    for v in removable.into_iter().filter(|v| v.mounts.is_empty()) {
+        drives.push(Place {
+            title: v.title.clone(),
+            icon: crate::ui::icons::USB,
+            target: Target::Volume(v.clone()),
+            pinned: false,
+            space: None,
+            device: Some(v),
+        });
     }
     vec![Section { title: "Быстрый доступ", places: quick }, Section { title: "Устройства", places: drives }]
 }

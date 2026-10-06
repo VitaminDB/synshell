@@ -91,6 +91,7 @@ pub mod icons {
     pub const PIN: &str = "\u{f10d}";
     pub const DRIVE: &str = "\u{e1db}";
     pub const USB: &str = "\u{e1e0}";
+    pub const EJECT: &str = "\u{e8fb}";
     pub const NETWORK: &str = "\u{eb2f}";
     pub const PHONE: &str = "\u{e32c}";
     pub const COMPUTER: &str = "\u{e30a}";
