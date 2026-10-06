@@ -6,7 +6,7 @@ pkgdesc="Окружение рабочего стола для Wayland на Rust
 arch=('x86_64')
 license=('MIT OR Apache-2.0')
 depends=('mesa' 'libinput' 'seatd' 'systemd-libs' 'libxkbcommon' 'libdrm' 'vulkan-icd-loader'
-         'fontconfig' 'freetype2' 'dbus')
+         'fontconfig' 'freetype2' 'dbus' 'ffmpeg')
 optdepends=('xorg-xwayland: X11-программы'
             'wireplumber: громкость (wpctl)'
             'brightnessctl: яркость'
@@ -27,7 +27,10 @@ optdepends=('xorg-xwayland: X11-программы'
             'iwd: Wi-Fi (или networkmanager)'
             'bluez: Bluetooth'
             'fuse3: файлы связанных устройств (synlink) в проводнике'
-            'openssh: ssh на связанные устройства (synlink)')
+            'openssh: ssh на связанные устройства (synlink)'
+            'intel-media-driver: аппаратное видео на Intel (трансляция экрана, «Видео»)'
+            'libva-mesa-driver: аппаратное видео на AMD'
+            'nvidia-utils: кодер NVENC для трансляции экрана')
 makedepends=('cargo' 'rust')
 # C-части крейтов (ring, zstd) с -flto из makepkg.conf не линкуются с Rust.
 options=('!lto')
@@ -42,7 +45,7 @@ _profile=${SYNSHELL_PROFILE:-release}
 
 build() {
     cd "$startdir"
-    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view
+    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player
 }
 
 check() {
@@ -52,7 +55,7 @@ check() {
 
 package() {
     cd "$startdir"
-    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view; do
+    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player; do
         install -Dm755 "target/$_profile/$b" "$pkgdir/usr/bin/$b"
     done
     install -Dm755 data/synshell-session "$pkgdir/usr/bin/synshell-session"
@@ -77,6 +80,13 @@ package() {
         "$pkgdir/usr/share/applications/synshot.desktop"
     install -Dm644 crates/synlink-view/data/synlink-view.desktop \
         "$pkgdir/usr/share/applications/synlink-view.desktop"
+    install -Dm644 crates/syn-video-player/data/syn-video-player.desktop \
+        "$pkgdir/usr/share/applications/syn-video-player.desktop"
+    install -Dm644 crates/syn-video-player/data/icons/syn-video-player.svg \
+        "$pkgdir/usr/share/icons/hicolor/scalable/apps/syn-video-player.svg"
+    # Программы по умолчанию для типов файлов (XDG_CURRENT_DESKTOP=synshell).
+    { echo "[Default Applications]"; cat crates/*/data/defaults.mimeapps | grep -v '^#' | grep '='; } \
+        | install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/synshell-mimeapps.list"
     # Связь устройств: демон стартует с сеансом (synwm читает /etc/xdg/autostart).
     install -Dm644 crates/synlink/autostart/synlink.desktop "$pkgdir/etc/xdg/autostart/synlink.desktop"
     install -Dm644 crates/synshell-ui/data/syndesktop-lock.pam "$pkgdir/etc/pam.d/syndesktop-lock"

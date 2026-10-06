@@ -2360,6 +2360,10 @@ pub struct Link {
     pub screen_codec: String,
     /// Битрейт видео, Мбит/с; 0 — сам: по кабелю 80, по Wi-Fi 30.
     pub screen_bitrate: u32,
+    /// Аппаратный кодер экрана этой машины, когда её экран смотрят:
+    /// `auto` (телефон — V4L2; компьютер — VAAPI, потом NVENC), `vaapi`
+    /// (Intel/AMD), `nvenc` (NVIDIA), `v4l2`. Не открылся — пробуются остальные.
+    pub screen_encoder: String,
 }
 
 impl Default for Link {
@@ -2373,6 +2377,7 @@ impl Default for Link {
             port: 47471,
             screen_codec: "auto".into(),
             screen_bitrate: 0,
+            screen_encoder: "auto".into(),
         }
     }
 }
