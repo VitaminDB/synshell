@@ -429,7 +429,15 @@ impl XWaylandShellHandler for State {
         &mut self.core.xwayland.as_mut().expect("xwayland").shell_state
     }
 
-    fn surface_associated(&mut self, _xwm: XwmId, _wl_surface: WlSurface, _surface: X11Surface) {
+    fn surface_associated(&mut self, _xwm: XwmId, _wl_surface: WlSurface, surface: X11Surface) {
+        // X11-окно получает фокус при появлении, но его wl_surface связывается
+        // позже — тогда фокус клавиатуры ушёл в никуда, и клавиши (в том числе
+        // экранной клавиатуры) окну не доходили, пока по нему не коснуться.
+        if let Some(id) = self.x11_id(&surface) {
+            if self.core.wm.focused == Some(id) && self.core.keyboard.current_focus().is_none() {
+                self.focus_window(Some(id));
+            }
+        }
         self.core.queue_redraw_all();
     }
 }
