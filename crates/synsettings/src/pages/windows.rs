@@ -391,6 +391,7 @@ fn rule_card(i: usize, n: usize, r: &WindowRule) -> W {
         row("Рамки композитора", "", tri(op!["rule", i, "decorations"], r.decorations)),
         row("Не давать фокус", "", tri(op!["rule", i, "no_focus"], r.no_focus)),
         row("Скрыть с панели задач", "", tri(op!["rule", i, "skip_taskbar"], r.skip_taskbar)),
+        row("Касания как мышь", "Для программ без поддержки тача (Wine под X11 — по умолчанию)", tri(op!["rule", i, "touch_as_mouse"], r.touch_as_mouse)),
         row(
             "Непрозрачность",
             "",

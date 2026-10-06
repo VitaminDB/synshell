@@ -122,6 +122,7 @@ impl State {
         m.above |= r.always_on_top;
         m.no_focus |= r.no_focus;
         m.skip_taskbar |= r.skip_taskbar;
+        m.touch_as_mouse = r.touch_as_mouse;
         if let Some(o) = r.opacity {
             m.opacity = o.clamp(0.05, 1.0);
         }
@@ -1266,6 +1267,7 @@ impl State {
             geometry: [g.loc.x, g.loc.y, g.size.w, g.size.h],
             appmenu: m.window.toplevel().and_then(|t| crate::appmenu::address(t.wl_surface())),
             x11_id: m.window.x11_surface().map(|x| x.window_id()),
+            touch_as_mouse: m.touch_as_mouse(),
             gtk_menu: m.window.toplevel().and_then(|t| crate::gtk_shell::menu(t.wl_surface())),
         }
     }

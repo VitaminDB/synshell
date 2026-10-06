@@ -1207,6 +1207,9 @@ impl State {
         let under = self.under(pos);
         if let Under::Surface(s, _) = &under {
             self.click_focus(&s.0.clone());
+            if self.touch_mouse_down(evt.slot(), &s.0.clone(), pos, evt.time_msec()) {
+                return;
+            }
         }
         touch.down(
             self,
@@ -1222,6 +1225,9 @@ impl State {
         if self.finger_up(evt.slot()) {
             return;
         }
+        if self.touch_mouse_up(evt.slot(), evt.time_msec()) {
+            return;
+        }
         let Some(touch) = self.core.seat.get_touch() else { return };
         touch.up(self, &UpEvent { slot: evt.slot(), serial: SERIAL_COUNTER.next_serial(), time: evt.time_msec() });
     }
@@ -1235,12 +1241,60 @@ impl State {
         if self.finger_motion(evt.slot(), pos) {
             return;
         }
+        if self.touch_mouse_motion(evt.slot(), pos, evt.time_msec()) {
+            return;
+        }
         let under = self.under(pos);
         touch.motion(
             self,
             under.focus(),
             &smithay::input::touch::MotionEvent { slot: evt.slot(), location: pos, time: evt.time_msec() },
         );
+    }
+
+    // ─── касания как мышь ───────────────────────────────────────────────────
+    // Окно с `touch_as_mouse` (Wine под X11: касания XI2 уходят играм как
+    // WM_POINTER, а они ждут мышь): первый палец двигает указатель и держит
+    // левую кнопку, остальные пальцы окну не передаются.
+
+    fn touch_mouse_down(&mut self, slot: smithay::backend::input::TouchSlot, surface: &WlSurface, pos: Point<f64, Logical>, time: u32) -> bool {
+        if self.core.touch_mouse_slot.is_some() {
+            return false;
+        }
+        let wants = self.window_for_surface_tree(surface).and_then(|id| self.core.wm.get(id)).is_some_and(|m| m.touch_as_mouse());
+        tracing::debug!(wants, "касание: мышь?");
+        if !wants {
+            return false;
+        }
+        self.core.touch_mouse_slot = Some(slot);
+        let pointer = self.core.pointer.clone();
+        let under = self.under(pos);
+        pointer.motion(self, under.focus(), &MotionEvent { location: pos, serial: SERIAL_COUNTER.next_serial(), time });
+        pointer.button(self, &ButtonEvent { button: BTN_LEFT, state: ButtonState::Pressed.into(), serial: SERIAL_COUNTER.next_serial(), time });
+        pointer.frame(self);
+        true
+    }
+
+    fn touch_mouse_motion(&mut self, slot: smithay::backend::input::TouchSlot, pos: Point<f64, Logical>, time: u32) -> bool {
+        if self.core.touch_mouse_slot != Some(slot) {
+            return self.core.touch_mouse_slot.is_some();
+        }
+        let pointer = self.core.pointer.clone();
+        let under = self.under(pos);
+        pointer.motion(self, under.focus(), &MotionEvent { location: pos, serial: SERIAL_COUNTER.next_serial(), time });
+        pointer.frame(self);
+        true
+    }
+
+    fn touch_mouse_up(&mut self, slot: smithay::backend::input::TouchSlot, time: u32) -> bool {
+        if self.core.touch_mouse_slot != Some(slot) {
+            return self.core.touch_mouse_slot.is_some();
+        }
+        self.core.touch_mouse_slot = None;
+        let pointer = self.core.pointer.clone();
+        pointer.button(self, &ButtonEvent { button: BTN_LEFT, state: ButtonState::Released.into(), serial: SERIAL_COUNTER.next_serial(), time });
+        pointer.frame(self);
+        true
     }
 
     // ─── действия ───────────────────────────────────────────────────────────

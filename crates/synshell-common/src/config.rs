@@ -1026,6 +1026,10 @@ pub struct WindowRule {
     pub skip_taskbar: Option<bool>,
     pub min_size: Option<[i32; 2]>,
     pub max_size: Option<[i32; 2]>,
+    /// Касания как мышь (`true`): палец двигает указатель и жмёт левую кнопку.
+    /// Для программ, которые не умеют тач (X11-драйвер Wine переводит касания
+    /// в WM_POINTER, игры ждут мышь). По умолчанию — у X11-окон Wine (класс `*.exe`).
+    pub touch_as_mouse: Option<bool>,
 }
 
 // ─── wallpaper ──────────────────────────────────────────────────────────────

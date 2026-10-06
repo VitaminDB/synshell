@@ -47,6 +47,7 @@ pub struct Resolved {
     pub decorations: Option<bool>,
     pub no_focus: bool,
     pub skip_taskbar: bool,
+    pub touch_as_mouse: Option<bool>,
     pub min_size: Option<[i32; 2]>,
     pub max_size: Option<[i32; 2]>,
 }
@@ -88,6 +89,9 @@ pub fn resolve(rules: &[CompiledRule], app_id: &str, title: &str) -> Resolved {
         }
         if let Some(v) = w.skip_taskbar {
             r.skip_taskbar = v;
+        }
+        if let Some(v) = w.touch_as_mouse {
+            r.touch_as_mouse = Some(v);
         }
     }
     r

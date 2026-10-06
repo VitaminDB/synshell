@@ -257,6 +257,9 @@ pub struct WindowInfo {
     /// `com.canonical.AppMenu.Registrar`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub x11_id: Option<u32>,
+    /// Касания окну идут как мышь (правило `touch_as_mouse`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub touch_as_mouse: bool,
     /// Меню GTK-программы (`gtk_shell1.set_dbus_properties`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gtk_menu: Option<GtkMenu>,

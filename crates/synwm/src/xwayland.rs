@@ -161,8 +161,8 @@ impl State {
 /// окна, совпавший с краем монитора, ставится ровно на его пиксельный край.
 pub fn x11_configure(space: &Space<Window>, xwayland: &Option<XwaylandState>, x: &X11Surface, rect: Rectangle<i32, Logical>) {
     let scale = xwayland.as_ref().map(|x| x.scale).filter(|s| *s > 0.0).unwrap_or(1.0);
-    let mut w = (rect.size.w as f64 * scale).round() as i32;
-    let mut h = (rect.size.h as f64 * scale).round() as i32;
+    let round = |v: i32| (v as f64 * scale).round() as i32;
+    let (mut w, mut h) = (round(rect.size.w), round(rect.size.h));
     // Монитор под окном; окно может быть и за экраном (страница в листании) —
     // тогда любой монитор с этим масштабом: важен размер.
     let same_scale = |o: &&Output| o.current_scale().fractional_scale() == scale;
@@ -174,20 +174,26 @@ pub fn x11_configure(space: &Space<Window>, xwayland: &Option<XwaylandState>, x:
     if let Some((o, g)) = output.and_then(|o| Some((o, space.output_geometry(o)?))) {
         if let Some(mode) = o.current_mode() {
             let px = o.current_transform().transform_size(mode.size);
-            let left = ((rect.loc.x - g.loc.x) as f64 * scale).round() as i32;
-            let top = ((rect.loc.y - g.loc.y) as f64 * scale).round() as i32;
+            // Поправка — только на ошибку округления (пара пикселей), иначе
+            // геометрия вывода не та, что мы думаем (другой вывод, поворот на лету).
+            let fix = |v: &mut i32, exact: i32| {
+                if (exact - *v).abs() <= 2 && exact > 0 {
+                    *v = exact;
+                }
+            };
             if rect.size.w == g.size.w {
-                w = px.w;
+                fix(&mut w, px.w);
             } else if (rect.loc.x + rect.size.w - g.loc.x - g.size.w).abs() <= 1 {
-                w = (px.w - left).max(1);
+                fix(&mut w, px.w - round(rect.loc.x - g.loc.x));
             }
             if rect.size.h == g.size.h {
-                h = px.h;
+                fix(&mut h, px.h);
             } else if (rect.loc.y + rect.size.h - g.loc.y - g.size.h).abs() <= 1 {
-                h = (px.h - top).max(1);
+                fix(&mut h, px.h - round(rect.loc.y - g.loc.y));
             }
         }
     }
+    tracing::debug!(id = x.window_id(), ?rect, w, h, "X11 configure");
     let _ = x.configure_with_client_size(rect, (w, h));
 }
 
@@ -229,6 +235,7 @@ impl XwmHandler for State {
     }
 
     fn unmapped_window(&mut self, _xwm: XwmId, window: X11Surface) {
+        tracing::debug!(id = window.window_id(), title = window.title(), "X11 unmap");
         if let Some(id) = self.x11_id(&window) {
             self.unmap_window(id, true);
         }

@@ -186,6 +186,11 @@ back_and_forth = false
 # title = "Picture-in-Picture"
 # always_on_top = true
 # sticky = true
+#
+# Касания как мышь (программа не умеет тач; по умолчанию — у X11-окон Wine, класс *.exe):
+# [[rule]]
+# app_id = "\\.exe$"
+# touch_as_mouse = true
 
 # Сочетания клавиш. Дополняют встроенные; "none" снимает встроенное.
 # Действия: spawn <cmd>, close, kill, toggle-floating, toggle-fullscreen,

@@ -115,6 +115,8 @@ pub struct Managed {
     pub ssd: bool,
     pub opacity: f32,
     pub skip_taskbar: bool,
+    /// Касания окну идут как мышь (правило `touch_as_mouse`); None — по умолчанию.
+    pub touch_as_mouse: Option<bool>,
     pub no_focus: bool,
     /// Получен первый буфер — окно показано.
     pub mapped: bool,
@@ -168,6 +170,7 @@ impl Managed {
             ssd: true,
             opacity: 1.0,
             skip_taskbar: false,
+            touch_as_mouse: None,
             no_focus: false,
             mapped: false,
             rules_applied: false,
@@ -208,6 +211,14 @@ impl Managed {
             })
             .or_else(|| self.window.x11_surface().map(|x| x.title()))
             .unwrap_or_default()
+    }
+
+    /// Касания окну идут как мышь: правило, иначе — у X11-окон Wine (класс
+    /// `*.exe`: его x11drv переводит касания в WM_POINTER, игры ждут мышь).
+    /// Считается при касании — класс X11-окна известен не сразу.
+    pub fn touch_as_mouse(&self) -> bool {
+        self.touch_as_mouse
+            .unwrap_or_else(|| self.window.is_x11() && self.app_id().to_ascii_lowercase().ends_with(".exe"))
     }
 
     pub fn app_id(&self) -> String {
