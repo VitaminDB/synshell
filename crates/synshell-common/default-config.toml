@@ -375,6 +375,8 @@ resources_page = true          # первая страница домашнег�
 home_apps = []                 # приложения на домашнем экране; пусто — все
 home_columns = 4
 launcher = "pages"             # «Пуск»: pages — значки по страницам, list — закреплённые и список
+double_tap_wake = true         # двойной стук по погашенному экрану включает его (датчики SLPI)
+raise_to_wake = false          # поднять телефон — экран включается
 
 # Сенсорные жесты (действия — как в [keybindings]).
 [gestures]

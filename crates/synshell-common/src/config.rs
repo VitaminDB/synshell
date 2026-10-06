@@ -1955,6 +1955,11 @@ pub struct Mobile {
     /// страницам (листаются пальцем), `list` — закреплённые, рекомендуемые
     /// и «Все» списком.
     pub launcher: String,
+    /// Двойной стук по погашенному экрану включает его (алгоритм `dbtap`
+    /// датчиков SLPI, `/usr/lib/syn-sensors/ssc-events`).
+    pub double_tap_wake: bool,
+    /// Поднять телефон — экран включается (`pickup` SLPI).
+    pub raise_to_wake: bool,
 }
 
 impl Default for Mobile {
@@ -1972,6 +1977,8 @@ impl Default for Mobile {
             home_apps: Vec::new(),
             home_columns: 4,
             launcher: "pages".into(),
+            double_tap_wake: true,
+            raise_to_wake: false,
         }
     }
 }

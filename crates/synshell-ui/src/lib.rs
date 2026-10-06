@@ -40,6 +40,7 @@ pub mod popup;
 pub mod recents;
 pub mod rotation;
 pub mod autobright;
+pub mod wake_gestures;
 pub mod camera;
 pub mod shade;
 pub mod start_menu;
@@ -132,6 +133,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         datetime::start(ctx);
         rotation::start(ctx);
         autobright::start(ctx);
+        wake_gestures::start(ctx);
         ipc::start(ctx);
         appmenu::install(ctx);
         notifications::start(ctx);

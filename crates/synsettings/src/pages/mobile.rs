@@ -65,6 +65,13 @@ pub fn phone() -> W {
                 ],
             ),
             group(
+                "Пробуждение",
+                vec![
+                    switch_row("Двойной стук", "Два касания по погашенному экрану включают его", op!["mobile", "double_tap_wake"], m.double_tap_wake),
+                    switch_row("Поднять, чтобы разбудить", "Экран включается, когда телефон берут в руки", op!["mobile", "raise_to_wake"], m.raise_to_wake),
+                ],
+            ),
+            group(
                 "Поворот экрана",
                 vec![
                     switch_row("Автоповорот", "Экран поворачивается за телефоном (акселерометр)", op!["rotation", "auto"], rot.auto),
