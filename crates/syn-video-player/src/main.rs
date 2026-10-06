@@ -20,6 +20,8 @@ pub struct Args {
     pub file: Option<String>,
     pub hw: HwAccel,
     pub bench: bool,
+    /// `--bench --yuv`: кадры в YUV (перевод цвета на GPU), как при показе.
+    pub yuv: bool,
 }
 
 fn parse_hw(s: &str) -> Option<HwAccel> {
@@ -61,11 +63,12 @@ fn percent_decode(s: &str) -> String {
 }
 
 fn parse_args() -> Args {
-    let mut a = Args { file: None, hw: HwAccel::Auto, bench: false };
+    let mut a = Args { file: None, hw: HwAccel::Auto, bench: false, yuv: false };
     let mut it = std::env::args().skip(1);
     while let Some(s) = it.next() {
         match s.as_str() {
             "--bench" => a.bench = true,
+            "--yuv" => a.yuv = true,
             "--hw" => {
                 let v = it.next().unwrap_or_default();
                 a.hw = parse_hw(&v).unwrap_or_else(|| {
@@ -74,7 +77,7 @@ fn parse_args() -> Args {
                 });
             }
             "-h" | "--help" => {
-                println!("syn-video-player [--hw auto|none|v4l2|vaapi|nvdec|vulkan] [--bench] [ФАЙЛ|URI]");
+                println!("syn-video-player [--hw auto|none|v4l2|vaapi|nvdec|vulkan] [--bench [--yuv]] [ФАЙЛ|URI]");
                 std::process::exit(0)
             }
             _ if a.file.is_none() => a.file = Some(input_of(&s)),
@@ -94,7 +97,7 @@ fn main() {
             eprintln!("--bench: нужен файл");
             std::process::exit(2)
         };
-        std::process::exit(bench::run(file, args.hw));
+        std::process::exit(bench::run(file, args.hw, args.yuv));
     }
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);

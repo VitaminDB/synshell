@@ -1,11 +1,12 @@
-//! `--bench`: декодирование файла полным ходом (с переводом в RGBA, как при показе) без окна и звука —
+//! `--bench`: декодирование файла полным ходом (кадры в RGBA, с `--yuv` — в YUV, как при показе) без окна и звука —
 //! проверка аппаратного декодера и его скорости.
 
 use std::time::{Duration, Instant};
 
 use syngui::video::{HwAccel, VideoDecoder};
 
-pub fn run(file: &str, hw: HwAccel) -> i32 {
+/// `yuv` — кадры в YUV для шейдера (как при показе в окне), иначе swscale в RGBA.
+pub fn run(file: &str, hw: HwAccel, yuv: bool) -> i32 {
     let t0 = Instant::now();
     let mut dec = match VideoDecoder::open_with_hwaccel(file, hw) {
         Ok(d) => d,
@@ -16,6 +17,7 @@ pub fn run(file: &str, hw: HwAccel) -> i32 {
     };
     // звук не нужен — канал забираем и бросаем, чтобы декодер не ждал его
     drop(dec.take_audio_rx());
+    dec.set_yuv_frames(yuv);
     let meta = dec.meta().clone();
     println!("{file}: {}x{} {:.1} с", meta.width, meta.height, meta.duration_sec);
     let cpu0 = cpu_time();
