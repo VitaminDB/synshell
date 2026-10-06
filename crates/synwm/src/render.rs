@@ -6,7 +6,7 @@ use smithay::{
             memory::MemoryRenderBufferRenderElement,
             solid::SolidColorRenderElement,
             surface::{render_elements_from_surface_tree, WaylandSurfaceRenderElement},
-            utils::{Relocate, RelocateRenderElement, RescaleRenderElement},
+            utils::{CropRenderElement, Relocate, RelocateRenderElement, RescaleRenderElement},
             AsRenderElements, Id, Kind,
         },
         utils::CommitCounter,
@@ -43,6 +43,9 @@ smithay::backend::renderer::element::render_elements! {
     Memory = MemoryRenderBufferRenderElement<R>,
     Solid = SolidColorRenderElement,
     Window = WinElement<R>,
+    /// Окно, обрезанное по выводу: буфер полноэкранного окна бывает на пиксель-два больше панели
+    /// (дробный логический размер, 1220 / 3), а план дисплея не берёт буфер за краем экрана.
+    Cropped = CropRenderElement<WinElement<R>>,
     Transformed = RelocateRenderElement<RescaleRenderElement<WinElement<R>>>,
     Rotate = crate::rotate_anim::RotateElement,
 }
@@ -576,7 +579,9 @@ where
     let desk = desk_view(core, id);
     let parts = window_parts(core, renderer, output, id, offset, alpha);
     if scale == 1.0 && extra == Point::from((0, 0)) && desk.is_none() {
-        out.extend(parts.into_iter().map(OutputElement::Window));
+        let mode = output.current_mode().map(|m| m.size).unwrap_or_default();
+        let screen = Rectangle::from_size(output.current_transform().transform_size(mode));
+        out.extend(parts.into_iter().filter_map(|p| CropRenderElement::from_element(p, Scale::from(scale_f), screen).map(OutputElement::Cropped)));
     } else {
         // Масштаб `scale` вокруг `c` со сдвигом `extra`, затем вид стола:
         // (p − c)·scale·z + c + (c·(z − 1) + extra·z + shift).

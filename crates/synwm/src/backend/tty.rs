@@ -80,6 +80,10 @@ struct Surface {
     /// Сторож потерянного page-flip: downstream-драйверы (sde) иногда не
     /// присылают событие vblank, и без него кадры остановились бы навсегда.
     flip_watchdog: Option<RegistrationToken>,
+    /// Последний кадр — буфер клиента прямо на primary-плане (без композитинга).
+    direct: bool,
+    /// Обратная связь dmabuf для поверхностей этого вывода.
+    feedback: Option<crate::backend::OutputFeedback>,
 }
 
 /// Сколько ждать vblank после отправки кадра, прежде чем считать событие потерянным.
@@ -514,6 +518,7 @@ pub fn scan_connectors(state: &mut State, node: DrmNode) {
             }
         };
         tracing::info!(name, make, model, mode = ?wl_mode, scale, "монитор подключён");
+        let feedback = output_feedback(t.primary_gpu, &mut t.gpus, &drm_output);
         let global = output.create_global::<State>(&state.core.display_handle);
         device.surfaces.insert(
             crtc,
@@ -525,6 +530,8 @@ pub fn scan_connectors(state: &mut State, node: DrmNode) {
                 render_node,
                 estimated_vblank: None,
                 flip_watchdog: None,
+                direct: false,
+                feedback,
             },
         );
         // Положение: из конфига или справа от остальных.
@@ -644,6 +651,41 @@ fn parse_edid(d: &[u8]) -> Option<(String, String, String)> {
     Some((make, model, serial))
 }
 
+/// Обратная связь dmabuf вывода: для отрисовки — форматы основного GPU; для
+/// вывода на план — сначала форматы primary-плана, которые мы и нарисовать
+/// сумеем (запасной путь, если план всё же не примет буфер). Так клиент не
+/// выберет то, чего дисплей не умеет (у Qualcomm sde: UBWC для XRGB8888).
+fn output_feedback(primary: DrmNode, gpus: &mut GpuManager<GbmGlesBackend<GlesRenderer, DrmDeviceFd>>, drm_output: &Out) -> Option<crate::backend::OutputFeedback> {
+    use smithay::reexports::wayland_protocols::wp::linux_dmabuf::zv1::server::zwp_linux_dmabuf_feedback_v1::TrancheFlags;
+    let render_formats = gpus.single_renderer(&primary).ok()?.dmabuf_formats();
+    let (plane_formats, scanout_dev) = drm_output.with_compositor(|c| {
+        let s = c.surface();
+        (s.plane_info().formats.clone(), s.device_fd().dev_id().ok())
+    });
+    // План без IN_FORMATS (msm_drm/sde) сообщает только «неявный» модификатор — Mesa такой
+    // группой не пользуется и берёт общий список (с UBWC). Явно: те же форматы в LINEAR,
+    // его дисплей принимает всегда.
+    let scanout: FormatSet = plane_formats
+        .iter()
+        .flat_map(|f| {
+            let linear = (f.modifier == Modifier::Invalid).then_some(smithay::backend::allocator::Format { code: f.code, modifier: Modifier::Linear });
+            [Some(*f), linear]
+        })
+        .flatten()
+        .filter(|f| render_formats.contains(f))
+        .collect();
+    tracing::info!(
+        форматов_плана = plane_formats.iter().count(),
+        для_плана = scanout.iter().count(),
+        "обратная связь dmabuf: {}",
+        scanout.iter().map(|f| format!("{:?}/{:#x}", f.code, u64::from(f.modifier))).collect::<Vec<_>>().join(" ")
+    );
+    let builder = DmabufFeedbackBuilder::new(primary.dev_id(), render_formats);
+    let render = builder.clone().build().ok()?;
+    let scanout = builder.add_preference_tranche(scanout_dev?, Some(TrancheFlags::Scanout), scanout).build().ok()?;
+    Some(crate::backend::OutputFeedback { render, scanout })
+}
+
 fn find_surface<'a>(t: &'a mut TtyBackend, output: &Output) -> Option<(&'a mut Surface, DrmNode)> {
     let id = *output.user_data().get::<OutputId>()?;
     let d = t.devices.get_mut(&id.node)?;
@@ -680,7 +722,10 @@ impl TtyBackend {
             }
         };
         let (elements, clear) = crate::render::output_elements(core, &mut renderer, output, true);
-        let res = surface.drm_output.render_frame(&mut renderer, &elements, clear, FrameFlags::DEFAULT);
+        // Полноэкранный клиент — прямо на primary-план (без композитинга), формат его буфера может отличаться от
+        // формата swapchain (Vulkan-клиенты рисуют в ABGR8888): годность плана проверяет тестовый коммит.
+        let flags = FrameFlags::DEFAULT | FrameFlags::ALLOW_PRIMARY_PLANE_SCANOUT_ANY;
+        let res = surface.drm_output.render_frame(&mut renderer, &elements, clear, flags);
         let (rendered, states) = match res {
             Ok(r) => {
                 // Нет явной синхронизации с KMS (у msm_drm/sde нет syncobj и
@@ -691,6 +736,11 @@ impl TtyBackend {
                     if let smithay::backend::drm::compositor::PrimaryPlaneElement::Swapchain(ref el) = r.primary_element {
                         let _ = el.sync.wait();
                     }
+                }
+                let direct = matches!(r.primary_element, smithay::backend::drm::compositor::PrimaryPlaneElement::Element(_));
+                if direct != surface.direct {
+                    surface.direct = direct;
+                    tracing::info!(output = output.name(), "{}", if direct { "прямой вывод клиента на план" } else { "композитинг" });
                 }
                 (!r.is_empty, r.states)
             }
@@ -705,6 +755,9 @@ impl TtyBackend {
         drop(elements);
         drop(renderer);
         core.post_repaint(output, &states);
+        if let Some(fb) = surface.feedback.as_ref() {
+            core.send_dmabuf_feedback(output, fb, &states);
+        }
 
         let data = core.output_data.entry(output.clone()).or_default();
         data.damaged = rendered;

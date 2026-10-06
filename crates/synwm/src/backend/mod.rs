@@ -417,7 +417,33 @@ pub fn auto_scale(physical_mm: (i32, i32), pixels: (i32, i32)) -> f64 {
     ((raw * 4.0).round() / 4.0).clamp(1.0, 3.0)
 }
 
+/// Обратная связь linux-dmabuf вывода: для отрисовки композитором и для
+/// вывода буфера прямо на план (первым — форматы плана с флагом scanout).
+pub struct OutputFeedback {
+    pub render: smithay::wayland::dmabuf::DmabufFeedback,
+    pub scanout: smithay::wayland::dmabuf::DmabufFeedback,
+}
+
 impl Core {
+    /// Поверхностям вывода — подходящая обратная связь dmabuf: попавшей (или
+    /// почти попавшей) на план — с форматами плана, остальным — для отрисовки.
+    /// Клиент (Mesa WSI) перевыбирает формат и модификатор буферов; smithay
+    /// шлёт обратную связь, только когда она у поверхности сменилась.
+    pub fn send_dmabuf_feedback(&self, output: &Output, fb: &OutputFeedback, states: &RenderElementStates) {
+        use smithay::backend::renderer::element::utils::select_dmabuf_feedback;
+        for w in self.space.elements() {
+            w.send_dmabuf_feedback(output, surface_primary_scanout_output, |surface, _| {
+                select_dmabuf_feedback(surface, states, &fb.render, &fb.scanout)
+            });
+        }
+        let map = layer_map_for_output(output);
+        for layer in map.layers() {
+            layer.send_dmabuf_feedback(output, surface_primary_scanout_output, |surface, _| {
+                select_dmabuf_feedback(surface, states, &fb.render, &fb.scanout)
+            });
+        }
+    }
+
     /// После кадра: основной вывод поверхностей, frame callbacks,
     /// дробный масштаб.
     pub fn post_repaint(&mut self, output: &Output, states: &RenderElementStates) {
