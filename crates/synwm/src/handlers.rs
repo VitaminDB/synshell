@@ -941,6 +941,8 @@ impl SessionLockHandler for State {
 
     fn lock(&mut self, confirmation: SessionLocker) {
         tracing::info!("блокировка экрана");
+        // палец, изображавший мышь в игре, — отпустить: экран блокировки должен получать касания
+        self.touch_mouse_release();
         if self.core.space.outputs().next().is_none() {
             confirmation.lock();
             self.core.lock = LockState::Locked;

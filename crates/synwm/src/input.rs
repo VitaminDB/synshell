@@ -198,6 +198,7 @@ impl State {
                 }
             }
             InputEvent::TouchCancel { .. } => {
+                self.touch_mouse_release();
                 self.core.touch_gestures.pending = None;
                 self.fingers_cancel();
                 if let Some(touch) = self.core.seat.get_touch() {
@@ -1219,13 +1220,16 @@ impl State {
     }
 
     fn on_touch_up<B: InputBackend>(&mut self, evt: B::TouchUpEvent) {
+        // Палец-мышь отпускаем всегда первым: иначе, если отпускание заберёт жест
+        // (свернули игру свайпом), кнопка мыши и палец оставались «зажатыми», и
+        // касания дальше не доходили никому (не разблокировать экран).
+        if self.touch_mouse_up(evt.slot(), evt.time_msec()) {
+            return;
+        }
         if self.gesture_touch_up(evt.slot(), evt.time_msec()) {
             return;
         }
         if self.finger_up(evt.slot()) {
-            return;
-        }
-        if self.touch_mouse_up(evt.slot(), evt.time_msec()) {
             return;
         }
         let Some(touch) = self.core.seat.get_touch() else { return };
@@ -1258,6 +1262,9 @@ impl State {
     // левую кнопку, остальные пальцы окну не передаются.
 
     fn touch_mouse_down(&mut self, slot: smithay::backend::input::TouchSlot, surface: &WlSurface, pos: Point<f64, Logical>, time: u32) -> bool {
+        if self.core.is_locked() {
+            return false;
+        }
         if self.core.touch_mouse_slot.is_some() {
             return false;
         }
@@ -1277,7 +1284,7 @@ impl State {
 
     fn touch_mouse_motion(&mut self, slot: smithay::backend::input::TouchSlot, pos: Point<f64, Logical>, time: u32) -> bool {
         if self.core.touch_mouse_slot != Some(slot) {
-            return self.core.touch_mouse_slot.is_some();
+            return false;
         }
         let pointer = self.core.pointer.clone();
         let under = self.under(pos);
@@ -1286,9 +1293,17 @@ impl State {
         true
     }
 
+    /// Отпустить палец-мышь (отмена касаний, блокировка экрана).
+    pub fn touch_mouse_release(&mut self) {
+        if let Some(slot) = self.core.touch_mouse_slot {
+            let time = self.core.clock.now().as_millis();
+            self.touch_mouse_up(slot, time);
+        }
+    }
+
     fn touch_mouse_up(&mut self, slot: smithay::backend::input::TouchSlot, time: u32) -> bool {
         if self.core.touch_mouse_slot != Some(slot) {
-            return self.core.touch_mouse_slot.is_some();
+            return false;
         }
         self.core.touch_mouse_slot = None;
         let pointer = self.core.pointer.clone();
