@@ -724,6 +724,41 @@ Text {
 .lock-error { font-size: 13px; color: var(--danger); }
 .lock-layout { font-size: 12px; color: #ffffffaa; }
 
+/* Окно пароля polkit (auth.rs) */
+.auth-scrim { background-color: var(--scrim); }
+.auth-card {
+    min-width: 340px;
+    padding: 20px;
+    background-color: var(--menu-bg);
+    border-width: 1px;
+    border-color: var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 10px 32px var(--shadow);
+}
+.auth-icon { icon-size: 28px; icon-color: var(--accent); }
+.auth-title { font-size: 15px; font-weight: bold; color: var(--fg); }
+.auth-sub { font-size: 12px; color: var(--muted); }
+.auth-field {
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    background-color: var(--surface-alt);
+    border-width: 1px;
+    border-color: var(--border);
+    color: var(--fg);
+    font-size: 14px;
+    caret-color: var(--fg);
+}
+.auth-error { font-size: 13px; color: var(--danger); }
+.auth-btn {
+    padding: 8px 16px;
+    border-radius: var(--radius-sm);
+    background-color: var(--surface-alt);
+    border-width: 1px;
+    border-color: var(--border);
+    color: var(--fg);
+    font-size: 13px;
+}
+
 /* Календарь во всплывающем окне часов */
 .cal {
     background-color: var(--menu-bg);

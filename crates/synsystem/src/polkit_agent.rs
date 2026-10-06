@@ -67,6 +67,7 @@ pub trait Prompter: Send + Sync {
 
 static PROMPTER: OnceLock<Arc<dyn Prompter>> = OnceLock::new();
 static AGENT: OnceLock<Result<zbus::blocking::Connection, String>> = OnceLock::new();
+static SESSION_AGENT: OnceLock<Result<zbus::blocking::Connection, String>> = OnceLock::new();
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 /// Помощник за сокетом закрыл соединение, ничего не ответив (нет pidfd в ядре).
 static SOCKET_BROKEN: AtomicBool = AtomicBool::new(false);
@@ -88,26 +89,53 @@ pub fn ensure() -> Result<(), String> {
     AGENT.get_or_init(register).as_ref().map(|_| ()).map_err(Clone::clone)
 }
 
+/// Зарегистрировать сеансовым агентом (субъект `unix-session`): пароль спрашивают
+/// все программы сеанса, которым нужен pkexec и которые не регистрируют свой агент —
+/// например, GParted, запущенный из меню. Нужен [`set_prompter`]; вызывать один раз
+/// из оболочки сеанса (повторные вызовы — результат первого). Сеанс берётся из
+/// `XDG_SESSION_ID` (logind выставляет его при входе).
+pub fn ensure_session() -> Result<(), String> {
+    if PROMPTER.get().is_none() {
+        return Err("polkit-агент сеанса: нет окна ввода пароля".into());
+    }
+    SESSION_AGENT.get_or_init(register_session).as_ref().map(|_| ()).map_err(Clone::clone)
+}
+
 fn register() -> Result<zbus::blocking::Connection, String> {
-    let conn = zbus::blocking::connection::Builder::system()
-        .and_then(|b| b.serve_at(AGENT_PATH, Agent))
-        .and_then(|b| b.build())
-        .map_err(|e| format!("polkit-агент: системная шина: {e}"))?;
     let pid = std::process::id();
     let start = process_start_time(pid).ok_or("polkit-агент: нет start-time процесса")?;
     let mut details: HashMap<&str, Value> = HashMap::new();
     details.insert("pid", Value::U32(pid));
     details.insert("start-time", Value::U64(start));
+    let conn = register_subject(("unix-process", details))?;
+    tracing::info!(pid, "polkit-агент процесса зарегистрирован");
+    Ok(conn)
+}
+
+fn register_session() -> Result<zbus::blocking::Connection, String> {
+    let session = std::env::var("XDG_SESSION_ID").map_err(|_| "polkit-агент сеанса: нет XDG_SESSION_ID")?;
+    let mut details: HashMap<&str, Value> = HashMap::new();
+    details.insert("session-id", Value::new(session.as_str()));
+    let conn = register_subject(("unix-session", details))?;
+    tracing::info!(session = %session, "polkit-агент сеанса зарегистрирован");
+    Ok(conn)
+}
+
+/// Общая часть: своя системная шина с объектом агента и вызов `RegisterAuthenticationAgent`.
+fn register_subject(subject: (&str, HashMap<&str, Value>)) -> Result<zbus::blocking::Connection, String> {
+    let conn = zbus::blocking::connection::Builder::system()
+        .and_then(|b| b.serve_at(AGENT_PATH, Agent))
+        .and_then(|b| b.build())
+        .map_err(|e| format!("polkit-агент: системная шина: {e}"))?;
     let locale = std::env::var("LC_ALL").or_else(|_| std::env::var("LANG")).unwrap_or_else(|_| "C".into());
     conn.call_method(
         Some("org.freedesktop.PolicyKit1"),
         "/org/freedesktop/PolicyKit1/Authority",
         Some("org.freedesktop.PolicyKit1.Authority"),
         "RegisterAuthenticationAgent",
-        &(("unix-process", details), locale.as_str(), AGENT_PATH),
+        &(subject, locale.as_str(), AGENT_PATH),
     )
     .map_err(|e| format!("polkit-агент: регистрация: {e}"))?;
-    tracing::info!(pid, "polkit-агент процесса зарегистрирован");
     Ok(conn)
 }
 

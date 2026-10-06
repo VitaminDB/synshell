@@ -9,6 +9,7 @@
 //! ([`ctx::ShellCtx::form_factor`]).
 
 pub mod access;
+pub mod auth;
 pub mod actions;
 pub mod android_boot;
 pub mod anim;
@@ -144,6 +145,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         popup::install(ctx);
         osd::install(ctx);
         notifications::install(ctx);
+        auth::start(ctx);
         switcher::install(ctx);
         applets::taskbar::start_minimize_rects();
         watch_config();
