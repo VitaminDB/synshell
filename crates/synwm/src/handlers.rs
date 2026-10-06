@@ -727,8 +727,21 @@ impl SelectionHandler for State {
     type SelectionUserData = ();
 
     fn new_selection(&mut self, ty: SelectionTarget, source: Option<SelectionSource>, _seat: Seat<Self>) {
-        if let Some(xwm) = self.core.xwayland.as_mut().and_then(|x| x.wm.as_mut()) {
-            if let Err(e) = xwm.new_selection(ty, source.map(|s| s.mime_types())) {
+        // Буфер завела Wayland-программа — X11-владельца больше нет. Без источника
+        // буфер наш: его завела программа одного из Xwayland — остальным передаём её типы.
+        let owner = if source.is_some() {
+            *self.core.x11_selection.get_mut(ty) = None;
+            None
+        } else {
+            self.core.x11_selection.get(ty).clone()
+        };
+        let mimes = source.map(|s| s.mime_types());
+        for xwm in self.core.xwayland.iter_mut().filter_map(|x| x.wm.as_mut()) {
+            let types = match &owner {
+                Some((id, types)) if *id != xwm.id() => Some(types.clone()),
+                _ => mimes.clone(),
+            };
+            if let Err(e) = xwm.new_selection(ty, types) {
                 tracing::warn!(?e, "буфер обмена не передан в Xwayland");
             }
         }
@@ -736,7 +749,14 @@ impl SelectionHandler for State {
 
     fn send_selection(&mut self, ty: SelectionTarget, mime_type: String, fd: OwnedFd, _seat: Seat<Self>, _user_data: &()) {
         let handle = self.core.loop_handle.clone();
-        if let Some(xwm) = self.core.xwayland.as_mut().and_then(|x| x.wm.as_mut()) {
+        let owner = self.core.x11_selection.get(ty).as_ref().map(|(id, _)| *id);
+        let xwm = self
+            .core
+            .xwayland
+            .iter_mut()
+            .filter_map(|x| x.wm.as_mut())
+            .find(|w| owner.is_none_or(|o| o == w.id()));
+        if let Some(xwm) = xwm {
             if let Err(e) = xwm.send_selection(ty, mime_type, fd, handle) {
                 tracing::warn!(?e, "буфер обмена не получен из Xwayland");
             }

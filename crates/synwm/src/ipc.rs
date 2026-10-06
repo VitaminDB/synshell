@@ -214,6 +214,10 @@ impl State {
             Request::Windows => Response::Windows { windows: self.all_window_infos() },
             Request::Workspaces => Response::Workspaces { workspaces: self.workspace_infos() },
             Request::Mobile => Response::Mobile { mobile: self.mobile_info() },
+            Request::X11Display { keys } => match self.x11_display_for(&keys) {
+                Ok((d, resolution)) => Response::X11Display { display: format!(":{d}"), resolution },
+                Err(message) => Response::Error { message },
+            },
             Request::Outputs => Response::Outputs { outputs: output_infos(self) },
             Request::KeyboardLayouts => Response::KeyboardLayouts { layouts: self.keyboard_layouts() },
             Request::Action { action } => {

@@ -34,7 +34,7 @@ pub fn session_env(core: &Core) -> Vec<(String, String)> {
     if core.config.panels.iter().any(|p| p.applets.iter().any(|a| a.kind == "appmenu")) {
         env.push(("GIMP_GTK_MENUBAR".to_string(), "1".to_string()));
     }
-    if let Some(x) = core.xwayland.as_ref().and_then(|x| x.display) {
+    if let Some(x) = core.xwayland.first().and_then(|x| x.display) {
         env.push(("DISPLAY".to_string(), format!(":{x}")));
     }
     for (k, v) in &core.config.general.environment {

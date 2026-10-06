@@ -122,16 +122,18 @@ fn reexec(inherited: &InheritedEnv) {
     // Xwayland держит унаследованный сокет до самого exec и умер бы уже у
     // нового композитора (тот же PID) — зомби навсегда. Завершаем и забираем его здесь.
     let deadline = std::time::Instant::now() + Duration::from_secs(3);
-    let mut asked = false;
+    let mut asked: Vec<i32> = Vec::new();
     loop {
         while unsafe { libc::waitpid(-1, std::ptr::null_mut(), libc::WNOHANG) } > 0 {}
-        let Some(pid) = child_pid("Xwayland") else { break };
-        if std::time::Instant::now() >= deadline {
+        let pids = child_pids("Xwayland");
+        if pids.is_empty() || std::time::Instant::now() >= deadline {
             break;
         }
-        if !asked {
-            unsafe { libc::kill(pid, libc::SIGTERM) };
-            asked = true;
+        for pid in pids {
+            if !asked.contains(&pid) {
+                unsafe { libc::kill(pid, libc::SIGTERM) };
+                asked.push(pid);
+            }
         }
         std::thread::sleep(Duration::from_millis(20));
     }
@@ -142,15 +144,20 @@ fn reexec(inherited: &InheritedEnv) {
     std::process::exit(1);
 }
 
-/// PID ребёнка композитора с таким именем (зомби тоже считается).
-fn child_pid(comm: &str) -> Option<i32> {
+/// PID детей композитора с таким именем (зомби тоже считаются): все
+/// Xwayland — общий и для программ со своим разрешением.
+fn child_pids(comm: &str) -> Vec<i32> {
     let me = std::process::id().to_string();
-    std::fs::read_dir("/proc").ok()?.flatten().find_map(|e| {
-        let stat = std::fs::read_to_string(e.path().join("stat")).ok()?;
-        // «pid (comm) state ppid …» — comm может содержать пробелы и скобки.
-        let (l, r) = (stat.find('(')?, stat.rfind(')')?);
-        (&stat[l + 1..r] == comm && stat[r + 1..].split_whitespace().nth(1) == Some(me.as_str())).then(|| stat[..l].trim().parse().ok())?
-    })
+    let Ok(dir) = std::fs::read_dir("/proc") else { return Vec::new() };
+    dir.flatten()
+        .filter_map(|e| {
+            let stat = std::fs::read_to_string(e.path().join("stat")).ok()?;
+            // «pid (comm) state ppid …» — comm может содержать пробелы и скобки.
+            let (l, r) = (stat.find('(')?, stat.rfind(')')?);
+            (&stat[l + 1..r] == comm && stat[r + 1..].split_whitespace().nth(1) == Some(me.as_str()))
+                .then(|| stat[..l].trim().parse().ok())?
+        })
+        .collect()
 }
 
 fn init_logging() {
@@ -341,14 +348,14 @@ fn run(args: &[String]) -> anyhow::Result<bool> {
     tracing::info!("завершение");
     state.core.shell.stop();
     let restart = state.core.restart_requested;
-    let x_display = state.core.xwayland.as_ref().and_then(|x| x.display);
+    let x_displays: Vec<u32> = state.core.xwayland.iter().filter_map(|x| x.display).collect();
     // Освободить DRM, ввод, сокеты до exec.
     drop(state);
     drop(event_loop);
     // Перед exec Xwayland уже убит, но его замок и сокет остались бы: новый
     // композитор счёл бы дисплей занятым (PID замка — наш ребёнок-зомби) и
     // взял следующий номер.
-    if let Some(n) = x_display {
+    for n in x_displays {
         let _ = std::fs::remove_file(format!("/tmp/.X{n}-lock"));
         let _ = std::fs::remove_file(format!("/tmp/.X11-unix/X{n}"));
     }
@@ -395,7 +402,7 @@ impl State {
 fn msg(args: &[String]) -> i32 {
     use synshell_common::ipc::{Client, Request, Response, WindowOp};
     let Some(cmd) = args.first() else {
-        eprintln!("использование: synwm msg <version|windows|workspaces|outputs|layouts|events|action …|window ID ОПЕРАЦИЯ|reload|restart-shell|restart>");
+        eprintln!("использование: synwm msg <version|windows|workspaces|outputs|layouts|events|action …|window ID ОПЕРАЦИЯ|x11-display ИМЯ…|reload|restart-shell|restart>");
         return 2;
     };
     let req = match cmd.as_str() {
@@ -419,6 +426,25 @@ fn msg(args: &[String]) -> i32 {
                     }
                 }
                 _ => 1,
+            };
+        }
+        // DISPLAY для X11-программы с её разрешением ([[x11_app]]): имена — exe, steam:<AppId>…
+        "x11-display" => {
+            let keys: Vec<String> = args[1..].to_vec();
+            return match Client::connect().and_then(|mut c| c.request(&Request::X11Display { keys })) {
+                Ok(Response::X11Display { display, .. }) => {
+                    println!("{display}");
+                    0
+                }
+                Ok(Response::Error { message }) => {
+                    eprintln!("{message}");
+                    1
+                }
+                Ok(_) => 1,
+                Err(e) => {
+                    eprintln!("нет связи с композитором: {e}");
+                    1
+                }
             };
         }
         "reload" => Request::Action { action: synshell_common::Action::ReloadConfig },

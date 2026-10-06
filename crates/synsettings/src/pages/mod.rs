@@ -305,7 +305,7 @@ pub const PAGES: &[PageDef] = &[
         title: "Сеанс",
         icon: icons::SETTINGS,
         group: "Система",
-        keywords: "терминал файловый менеджер браузер оболочка переменные окружения xwayland снимки",
+        keywords: "терминал файловый менеджер браузер оболочка переменные окружения xwayland x11 разрешение wine игры мелкий интерфейс снимки",
         build: system::general,
     },
     PageDef {

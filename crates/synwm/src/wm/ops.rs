@@ -366,7 +366,7 @@ impl State {
             .and_then(|m| m.window.wl_surface().map(|s| FocusTarget(s.into_owned())));
         if let (Some(i), Some(x11)) = (id, id.and_then(|i| self.core.wm.get(i)).and_then(|m| m.window.x11_surface().cloned())) {
             let _ = i;
-            if let Some(xw) = self.core.xwayland.as_mut().and_then(|x| x.wm.as_mut()) {
+            if let Some(xw) = self.core.xwayland.iter_mut().filter_map(|x| x.wm.as_mut()).find(|w| Some(w.id()) == x11.xwm_id()) {
                 let _ = xw.raise_window(&x11);
             }
         }
@@ -587,7 +587,13 @@ impl State {
                     t.send_pending_configure();
                 }
             }
-            WindowSurface::X11(x) => crate::xwayland::x11_configure(&self.core.space, &self.core.xwayland, x, content),
+            WindowSurface::X11(x) => match m.x11_mode.filter(|_| fullscreen) {
+                // режим экрана, выбранный игрой, — Xwayland растягивает окно сам
+                Some(size) => {
+                    let _ = x.configure_with_client_size(content, size);
+                }
+                None => crate::xwayland::x11_configure(&self.core.space, &self.core.xwayland, x, content),
+            },
         }
         let w = m.window.clone();
         let loc = m.loc;
@@ -677,6 +683,9 @@ impl State {
         }
         let Some(m) = self.core.wm.get_mut(id) else { return };
         m.fullscreen = on;
+        if !on {
+            m.x11_mode = None;
+        }
         if let Some(o) = output {
             m.output = Some(o.name());
         }

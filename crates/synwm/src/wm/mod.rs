@@ -117,6 +117,9 @@ pub struct Managed {
     pub skip_taskbar: bool,
     /// Касания окну идут как мышь (правило `touch_as_mouse`); None — по умолчанию.
     pub touch_as_mouse: Option<bool>,
+    /// Размер (пиксели X11), который полноэкранная X11-игра выбрала режимом
+    /// экрана: Xwayland растягивает такое окно на экран (wp_viewporter).
+    pub x11_mode: Option<(i32, i32)>,
     pub no_focus: bool,
     /// Получен первый буфер — окно показано.
     pub mapped: bool,
@@ -171,6 +174,7 @@ impl Managed {
             opacity: 1.0,
             skip_taskbar: false,
             touch_as_mouse: None,
+            x11_mode: None,
             no_focus: false,
             mapped: false,
             rules_applied: false,

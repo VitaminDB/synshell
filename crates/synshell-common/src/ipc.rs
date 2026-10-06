@@ -59,6 +59,10 @@ pub enum Request {
         #[serde(default)]
         key: bool,
     },
+    /// Дисплей X11 для программы с именами `keys` (имя exe, `steam:<AppId>`…):
+    /// с её разрешением из `[[x11_app]]`, иначе общий. Отдельный Xwayland
+    /// запускается при первом запросе — ответ [`Response::X11Display`].
+    X11Display { keys: Vec<String> },
 }
 
 /// Видео в потоке кадров.
@@ -178,6 +182,8 @@ pub enum Response {
     Capture { capture: CaptureInfo },
     Mobile { mobile: MobileInfo },
     Frame { frame: FrameInfo },
+    /// `display` — значение DISPLAY (`:1`), `resolution` — разрешение этого Xwayland.
+    X11Display { display: String, resolution: String },
 }
 
 /// Режим окон телефона для оболочки: какой режим, какая страница

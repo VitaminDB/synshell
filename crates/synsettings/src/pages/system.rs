@@ -616,6 +616,157 @@ pub fn autostart() -> W {
 
 // ─── Сеанс ──────────────────────────────────────────────────────────────────
 
+/// Готовые разрешения экрана X11 (`[x11] resolution`, `[[x11_app]]`).
+const X11_RESOLUTIONS: &[(&str, &str)] = &[
+    ("native", "Как у экрана — чётко, мелко"),
+    ("1440p", "1440p"),
+    ("1080p", "1080p"),
+    ("900p", "900p"),
+    ("720p", "720p — крупно"),
+    ("540p", "540p — очень крупно"),
+    ("logical", "Как у Wayland-программ"),
+];
+
+/// Выбор разрешения X11: готовые варианты и текущее значение, если оно своё.
+fn x11_resolution_choice(p: crate::ui::P, current: &str) -> impl Widget {
+    let cur = if current.trim().is_empty() { "native" } else { current.trim() };
+    let mut opts: Vec<(String, String)> = X11_RESOLUTIONS.iter().map(|(v, l)| (v.to_string(), l.to_string())).collect();
+    if !opts.iter().any(|(v, _)| v.eq_ignore_ascii_case(cur)) {
+        opts.push((cur.to_string(), cur.to_string()));
+    }
+    choice_owned(p, cur, opts, 240.0)
+}
+
+/// Записать список режимов X11 целиком.
+fn set_x11_modes(modes: &[String]) {
+    let mut a = Array::new();
+    for m in modes {
+        a.push(m.as_str());
+    }
+    set(&op!["x11", "modes"], a);
+    state::bump();
+}
+
+/// «Разрешения для игр»: режимы экрана, которые видят Wine-игры.
+fn x11_modes_group(c: &synshell_common::config::Config) -> W {
+    let modes = c.x11.modes.clone();
+    let mut rows: Vec<W> = vec![note(
+        "Wine-игры видят эти разрешения как режимы экрана и выбирают их в своих настройках; выбранное \
+         растягивается на весь экран. Чем меньше — тем крупнее интерфейс игры и выше частота кадров. \
+         720p — короткая сторона 720 точек в пропорциях экрана (без полос); можно и 1600x720 или 50%. \
+         Игра видит новый список после перезапуска.",
+    )];
+    for (i, m) in modes.iter().enumerate() {
+        let all = modes.clone();
+        rows.push(row(
+            &format!("Разрешение {}", i + 1),
+            "",
+            Row::new()
+                .gap(8.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(TextField::with_text(m).placeholder("720p").width(160.0).on_change({
+                    let all = all.clone();
+                    move |v| {
+                        let mut list = all.clone();
+                        if let Some(e) = list.get_mut(i) {
+                            *e = v.trim().to_string();
+                        }
+                        let mut a = Array::new();
+                        for m in &list {
+                            a.push(m.as_str());
+                        }
+                        set(&op!["x11", "modes"], a);
+                    }
+                }))
+                .child(danger_icon_button(icons::DELETE, move || {
+                    let mut list = all.clone();
+                    if i < list.len() {
+                        list.remove(i);
+                    }
+                    set_x11_modes(&list);
+                })),
+        ));
+    }
+    let add = use_signal(String::new());
+    rows.push(row(
+        "Добавить",
+        "1080p, 720p, 1600x720, 50%",
+        Row::new()
+            .gap(8.0)
+            .child(TextField::new().placeholder("720p").width(160.0).on_change(move |v| add.set(v.trim().to_string())))
+            .child(icon_button(icons::ADD, {
+                let modes = modes.clone();
+                move || {
+                    let v = add.get_untracked();
+                    if !v.is_empty() {
+                        let mut list = modes.clone();
+                        list.push(v);
+                        set_x11_modes(&list);
+                    }
+                }
+            })),
+    ));
+    rows.push(row(
+        "DPI программ",
+        "GTK, Qt, Steam; 0 — по разрешению. Игры его не замечают",
+        int_spin(op!["x11", "dpi"], c.x11.dpi as i64, 0, 600, 8),
+    ));
+    group("Разрешения для игр", rows)
+}
+
+fn add_x11_app(name: &str) {
+    let mut t = Table::new();
+    t.insert("name", toml_edit::value(name));
+    t.insert("resolution", toml_edit::value("720p"));
+    store::edit(|d| {
+        store::doc_push_table(d, "x11_app", t.clone());
+        true
+    });
+    state::bump();
+}
+
+/// «X11-программы»: общее разрешение и своё для отдельных программ.
+fn x11_group(c: &synshell_common::config::Config) -> W {
+    let mut rows: Vec<W> = vec![
+        note(
+            "X11-программы (Wine-игры, Steam) видят экран с этим разрешением. Меньше пикселей — крупнее интерфейс \
+             (и быстрее игры): окна растягиваются на экран. Своё значение: 1920x864, 720p, 50%.",
+        ),
+        row("Для всех", "Применяется сразу", x11_resolution_choice(op!["x11", "resolution"], &c.x11.resolution)),
+        row(
+            "Своё значение",
+            "Ширина×высота, 720p или 50%",
+            opt_text(op!["x11", "resolution"], &c.x11.resolution, "native", 200.0),
+        ),
+    ];
+    for (i, a) in c.x11_apps.iter().enumerate() {
+        rows.push(row(
+            "Программа",
+            "Имя exe или steam:AppId; * — любые символы",
+            Row::new()
+                .gap(8.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(opt_text(op!["x11_app", i, "name"], &a.name, "Game.exe", 180.0))
+                .child(x11_resolution_choice(op!["x11_app", i, "resolution"], &a.resolution))
+                .child(danger_icon_button(icons::DELETE, move || {
+                    unset(&op!["x11_app", i]);
+                    state::bump();
+                })),
+        ));
+    }
+    let mut actions = Column::new().gap(6.0).child(button("Добавить программу", || add_x11_app("")));
+    // X11-окна, открытые сейчас: класс окна Wine — имя exe.
+    if let Some(ws) = sys::windows() {
+        for w in ws.into_iter().filter(|w| w.x11_id.is_some() && !w.app_id.is_empty()).take(4) {
+            let name = w.app_id.clone();
+            actions = actions.child(button(&format!("Добавить открытую: {name}"), move || add_x11_app(&name)));
+        }
+    }
+    rows.push(boxed(actions));
+    rows.push(note("Своё разрешение действует со следующего запуска программы; Wine-игры в Steam подхватывают его сами."));
+    group("X11-программы", rows)
+}
+
 pub fn general() -> W {
     let c = store::config();
     let g = &c.general;
@@ -671,6 +822,8 @@ pub fn general() -> W {
                     text_row("Каталог снимков экрана", "", op!["general", "screenshot_dir"], &g.screenshot_dir, "~/Pictures/Screenshots"),
                 ],
             ),
+            x11_modes_group(&c),
+            x11_group(&c),
             group("Переменные окружения", env_rows),
         ],
     )

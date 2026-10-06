@@ -55,6 +55,11 @@ pub struct Config {
     pub location: Location,
     pub wifi: Wifi,
     pub packages: Packages,
+    /// Разрешение экрана X11-программ (`[x11]`).
+    pub x11: X11,
+    /// Своё разрешение для отдельных X11-программ (`[[x11_app]]`).
+    #[serde(rename = "x11_app")]
+    pub x11_apps: Vec<X11App>,
 }
 
 impl Default for Config {
@@ -91,6 +96,8 @@ impl Default for Config {
             location: Location::default(),
             wifi: Wifi::default(),
             packages: Packages::default(),
+            x11: X11::default(),
+            x11_apps: Vec::new(),
         }
     }
 }
@@ -2125,6 +2132,138 @@ pub struct Brightness {
 impl Default for Brightness {
     fn default() -> Self {
         Self { auto: false, min_pct: 2, max_pct: 100, smooth_ms: 800, offset: 0.0 }
+    }
+}
+
+/// X11-программы (`[x11]`): какой экран видят программы под Xwayland.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct X11 {
+    /// Разрешение экрана X11 для всех программ — см. [`X11Resolution`]:
+    /// `native` (пиксели экрана, по умолчанию), `logical` (как у Wayland-программ),
+    /// `1920x864`, `720p` (короткая сторона), `50%` (доля от пикселей экрана).
+    /// Меньше пикселей — крупнее интерфейс программы (и быстрее игры):
+    /// композитор растягивает её окна на экран.
+    pub resolution: String,
+    /// Разрешения, которые X11-программы (Wine-игры) видят как режимы экрана и
+    /// могут выбрать в своих настройках; выбранное растягивается на экран.
+    /// Значения — как у `resolution` (`720p`, `1600x720`, `50%`); `720p` даёт
+    /// ширину в пропорциях экрана — без полос и искажений.
+    pub modes: Vec<String>,
+    /// DPI для программ, которые его читают (GTK, Qt, Steam — Xft.dpi и
+    /// XSETTINGS); 0 — по разрешению (96 × масштаб). Игры его не замечают.
+    pub dpi: u32,
+}
+
+impl Default for X11 {
+    fn default() -> Self {
+        Self {
+            resolution: "native".into(),
+            modes: ["1080p", "900p", "720p", "600p", "540p", "480p"].map(String::from).to_vec(),
+            dpi: 0,
+        }
+    }
+}
+
+/// Своё разрешение X11 для программы (`[[x11_app]]`). Такие программы получают
+/// отдельный Xwayland — композитор отдаёт его дисплей по
+/// `synwm msg x11-display ИМЯ…` (так делают запускалки, например Wine в Steam).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct X11App {
+    /// Имя программы без учёта регистра, `*` — любые символы: имя exe
+    /// (`HeroesOldenEra.exe`), `steam:3105440` (AppId Steam) и т.п.
+    pub name: String,
+    /// Разрешение — как в `[x11] resolution`.
+    pub resolution: String,
+}
+
+/// Разрешение экрана X11-программ.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum X11Resolution {
+    /// Пиксели экрана: всё чётко, интерфейс по DPI программы.
+    Native,
+    /// Логический размер вывода — как у Wayland-программ с масштабом.
+    Logical,
+    /// Ширина × высота; ориентация не важна — длинная сторона экрана получает
+    /// большее число, пропорции экрана сохраняются.
+    Size(u32, u32),
+    /// Короткая сторона экрана в пикселях (`720p`).
+    Short(u32),
+    /// Доля пикселей экрана по каждой стороне, %.
+    Percent(f64),
+}
+
+impl X11Resolution {
+    /// Пусто — `native`; неразборчивое — `None`.
+    pub fn parse(s: &str) -> Option<Self> {
+        let s = s.trim().to_ascii_lowercase();
+        Some(match s.as_str() {
+            "" | "native" => Self::Native,
+            "logical" => Self::Logical,
+            _ => {
+                if let Some(p) = s.strip_suffix('%') {
+                    let p: f64 = p.trim().parse().ok()?;
+                    (p > 0.0 && p <= 400.0).then_some(Self::Percent(p))?
+                } else if let Some(p) = s.strip_suffix('p') {
+                    let p: u32 = p.trim().parse().ok()?;
+                    (p >= 120).then_some(Self::Short(p))?
+                } else {
+                    let (w, h) = s.split_once(['x', '×', '*'])?;
+                    let (w, h): (u32, u32) = (w.trim().parse().ok()?, h.trim().parse().ok()?);
+                    (w >= 160 && h >= 120).then_some(Self::Size(w, h))?
+                }
+            }
+        })
+    }
+
+    /// Масштаб клиента Xwayland (пикселей X11 на логический пиксель) для
+    /// вывода с масштабом `output_scale` и логическим размером `logical`.
+    /// `logical` — дробный (пиксели / масштаб), чтобы `720p` дал ровно 720.
+    pub fn client_scale(self, output_scale: f64, logical: (f64, f64)) -> f64 {
+        let long = logical.0.max(logical.1).max(1.0);
+        let short = logical.0.min(logical.1).max(1.0);
+        let s = match self {
+            Self::Native => output_scale,
+            Self::Logical => 1.0,
+            Self::Size(w, h) => w.max(h) as f64 / long,
+            Self::Short(p) => p as f64 / short,
+            Self::Percent(p) => output_scale * p / 100.0,
+        };
+        s.clamp(0.1, output_scale.max(1.0) * 4.0)
+    }
+}
+
+impl X11Resolution {
+    /// Размер в пикселях X11 (длинная сторона, короткая) на экране X11 размером
+    /// `screen` (длинная, короткая) пикселей при масштабе клиента `client_scale`
+    /// и масштабе вывода `output_scale`.
+    pub fn mode_size(self, screen: (f64, f64), client_scale: f64, output_scale: f64) -> (u32, u32) {
+        let aspect = screen.0 / screen.1.max(1.0);
+        let even = |v: f64| ((v / 2.0).round() * 2.0).max(2.0) as u32;
+        match self {
+            Self::Native => (even(screen.0 / client_scale * output_scale), even(screen.1 / client_scale * output_scale)),
+            Self::Logical => (even(screen.0 / client_scale), even(screen.1 / client_scale)),
+            Self::Size(w, h) => (w.max(h), w.min(h)),
+            Self::Short(p) => (even(p as f64 * aspect), p),
+            Self::Percent(p) => (even(screen.0 * p / 100.0), even(screen.1 * p / 100.0)),
+        }
+    }
+}
+
+impl Config {
+    /// Разрешение X11 для программы: первое `[[x11_app]]`, имя которого
+    /// подходит к одному из `keys`, иначе общее `[x11] resolution`.
+    pub fn x11_resolution_for(&self, keys: &[String]) -> &str {
+        let keys: Vec<String> = keys.iter().map(|k| k.to_lowercase()).collect();
+        self.x11_apps
+            .iter()
+            .find(|a| {
+                let pat = a.name.trim().to_lowercase();
+                !pat.is_empty() && keys.iter().any(|k| glob_match(&pat, k))
+            })
+            .map(|a| a.resolution.as_str())
+            .unwrap_or(&self.x11.resolution)
     }
 }
 

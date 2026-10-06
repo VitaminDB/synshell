@@ -243,7 +243,10 @@ pub struct Core {
     pub shell: crate::spawn::ShellProcess,
     /// После выхода из цикла — заменить процесс новым (`restart`).
     pub restart_requested: bool,
-    pub xwayland: Option<crate::xwayland::XwaylandState>,
+    /// Xwayland: первый — общий, дальше — для программ со своим разрешением.
+    pub xwayland: Vec<crate::xwayland::XwaylandState>,
+    pub xwayland_shell: Option<smithay::wayland::xwayland_shell::XWaylandShellState>,
+    pub x11_selection: crate::xwayland::X11Selection,
     /// Нужно разослать изменения окон по IPC после текущего цикла.
     pub ipc_dirty: bool,
     /// Захваты экрана, ждущие кадра с изменениями.
@@ -461,7 +464,9 @@ impl Core {
             headless_timer: false,
             ipc,
             shell: crate::spawn::ShellProcess::default(),
-            xwayland: None,
+            xwayland: Vec::new(),
+            xwayland_shell: None,
+            x11_selection: Default::default(),
             ipc_dirty: false,
             pending_copies: Vec::new(),
             frame_ids: Default::default(),
