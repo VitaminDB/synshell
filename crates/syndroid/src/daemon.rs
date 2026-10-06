@@ -29,6 +29,8 @@ struct Inner {
     /// Мост binder (`__bridge`) и датчики (`__sensors`) текущего запуска.
     bridge: Option<std::process::Child>,
     sensors: Option<std::process::Child>,
+    /// ИК-передатчик (`__ir`), если у платформы есть `ir::TRANSMIT`.
+    ir: Option<std::process::Child>,
     /// Управление заданиями: (отменить, повторить сейчас).
     ctl: std::collections::HashMap<u64, (bool, bool)>,
 }
@@ -133,6 +135,13 @@ impl Daemon {
                 Err(e) => tracing::warn!("датчики: {e}"),
             }
         }
+        if std::path::Path::new(crate::ir::TRANSMIT).exists() {
+            let node = std::path::Path::new(paths::BINDERFS).join(container::BINDER_NODES[2].0);
+            match std::process::Command::new(paths::SELF_EXE).arg("__ir").arg(&node).stdin(std::process::Stdio::null()).spawn() {
+                Ok(c) => self.inner.lock().unwrap().ir = Some(c),
+                Err(e) => tracing::warn!("ИК: {e}"),
+            }
+        }
         let session = self.inner.lock().unwrap().session.clone();
         if let Some(s) = session {
             match spawn_bridge(&crate::images::instance_of(cfg.active.as_deref().unwrap_or("")), &s) {
@@ -150,7 +159,7 @@ impl Daemon {
             container::cleanup(dnsmasq, network);
             let mut i = me.inner.lock().unwrap();
             if i.generation == gen {
-                for mut c in [i.bridge.take(), i.sensors.take()].into_iter().flatten() {
+                for mut c in [i.bridge.take(), i.sensors.take(), i.ir.take()].into_iter().flatten() {
                     let _ = c.kill();
                     let _ = c.wait();
                 }

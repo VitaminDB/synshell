@@ -2,7 +2,7 @@
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if matches!(args.first().map(String::as_str), Some("__bridge" | "__sensors" | "__notify")) {
+    if matches!(args.first().map(String::as_str), Some("__bridge" | "__sensors" | "__ir" | "__notify")) {
         tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
             .without_time()
@@ -13,6 +13,7 @@ fn main() {
         Some("__exec") => syndroid::container::exec_main(&args[1..]),
         Some("__bridge") => syndroid::bridge::bridge_main(&args[1..]),
         Some("__sensors") => syndroid::sensors::sensors_main(&args[1..]),
+        Some("__ir") => syndroid::ir::ir_main(&args[1..]),
         Some("__notify") => syndroid::notify::job_main(&args[1..]),
         _ => {}
     }

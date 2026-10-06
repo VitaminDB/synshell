@@ -11,6 +11,7 @@ pub mod daemon;
 pub mod gui;
 pub mod hwbinder;
 pub mod images;
+pub mod ir;
 pub mod net;
 pub mod notify;
 pub mod paths;

@@ -271,6 +271,33 @@ impl<'a> HwReader<'a> {
     pub fn bool(&mut self) -> Result<bool> {
         Ok(self.i32()? & 0xff != 0)
     }
+    /// Объект `BINDER_TYPE_PTR` (буфер scatter-gather): адрес копии в нашем отображении binder и длина.
+    fn ptr_object(&mut self) -> Result<(u64, u64)> {
+        while !self.pos.is_multiple_of(4) {
+            self.pos += 1;
+        }
+        let o = self.take(40)?;
+        let kind = u32::from_le_bytes(o[0..4].try_into()?);
+        if kind != BINDER_TYPE_PTR {
+            bail!("ожидался буфер, а не объект {kind:#x}");
+        }
+        // binder_buffer_object: тип, флаги, buffer @8, length @16, parent @24, parent_offset @32
+        Ok((u64::from_le_bytes(o[8..16].try_into()?), u64::from_le_bytes(o[16..24].try_into()?)))
+    }
+
+    /// `hidl_vec<int32>` аргумента: буфер заголовка, затем буфер элементов. Их адреса ядро уже перевело в наше
+    /// отображение; читать можно, пока буфер транзакции не освобождён (до ответа — `process`).
+    pub fn vec_i32(&mut self) -> Result<Vec<i32>> {
+        let _header = self.ptr_object()?;
+        let (addr, len) = self.ptr_object()?;
+        if addr == 0 || len == 0 {
+            return Ok(Vec::new());
+        }
+        // SAFETY: буфер транзакции в отображении binder жив до BC_FREE_BUFFER после dispatch.
+        let bytes = unsafe { std::slice::from_raw_parts(addr as *const u8, len as usize) };
+        Ok(bytes.chunks_exact(4).map(|c| i32::from_le_bytes(c.try_into().unwrap())).collect())
+    }
+
     pub fn cstr(&mut self) -> Result<String> {
         let rest = &self.data[self.pos..];
         let end = rest.iter().position(|&b| b == 0).context("нет конца строки")?;
