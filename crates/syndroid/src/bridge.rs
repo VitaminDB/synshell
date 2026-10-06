@@ -451,6 +451,24 @@ fn write_desktop_files(instance: &str, apps: &[AppInfo]) -> Result<()> {
     Ok(())
 }
 
+/// Убрать ярлыки и значки экземпляров, у которых больше нет образов (удалены набор или весь
+/// экземпляр): демон работает под root и в домашний каталог не пишет — чистит процесс пользователя
+/// (окно syndroid после удаления, `syndroid session`). Данные экземпляра не трогаются: при новых
+/// образах мост снова напишет ярлыки. Демон недоступен — ничего не делать.
+pub fn prune_entries() {
+    let Ok(crate::api::Response::Instances { instances }) = crate::api::call(&crate::api::Request::Instances) else { return };
+    let live: HashSet<String> = instances.into_iter().filter(|i| !i.sets.is_empty()).map(|i| i.id).collect();
+    for sub in ["syndroid/applications", "syndroid/icons"] {
+        for e in std::fs::read_dir(data_home().join(sub)).into_iter().flatten().flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if e.path().is_dir() && !live.contains(&name) {
+                tracing::info!("ярлыки экземпляра {name} без образов — удалены");
+                let _ = std::fs::remove_dir_all(e.path());
+            }
+        }
+    }
+}
+
 /// Ярлыки прежних версий syndroid лежали среди программ Linux (`applications/waydroid.*.desktop`) — убрать.
 fn remove_legacy_entries() {
     let dir = data_home().join("applications");

@@ -207,7 +207,15 @@ fn bg<T: Send + 'static>(f: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
 
 /// Запрос к демону с подсказкой об успехе или ошибке; после — обновить состояние.
 fn act(st: St, req: Request, ok: &'static str) {
-    bg(move || api::call(&req), move |r| {
+    let removes = matches!(req, Request::RemoveImages { .. } | Request::RemoveInstance { .. });
+    bg(move || {
+        let r = api::call(&req);
+        // Удалённые образы — убрать их приложения из меню
+        if removes && r.is_ok() {
+            crate::bridge::prune_entries();
+        }
+        r
+    }, move |r| {
         match r {
             Ok(Response::Job { .. }) => {
                 st.toast.set(ok.to_string());

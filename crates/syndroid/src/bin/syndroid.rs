@@ -180,6 +180,7 @@ fn main() -> Result<()> {
         }
         // Из автозапуска сеанса: запустить Android, если так настроено
         ["session"] => {
+            syndroid::bridge::prune_entries();
             if let Response::Config { config } = api::call(&Request::GetConfig)? {
                 if config.autostart && status()?.state == syndroid::api::State::Stopped {
                     api::call(&Request::Start { session: Session::from_env()? })?;
@@ -242,7 +243,10 @@ fn main() -> Result<()> {
             }
         }
         ["image", "use", name] => ok(api::call(&Request::UseImages { name: name.to_string() })?),
-        ["image", "remove", name] => ok(api::call(&Request::RemoveImages { name: name.to_string() })?),
+        ["image", "remove", name] => {
+            ok(api::call(&Request::RemoveImages { name: name.to_string() })?);
+            syndroid::bridge::prune_entries();
+        }
         ["shell"] => in_container(vec!["/system/bin/sh".into()])?,
         ["shell", cmd @ ..] => in_container(cmd.iter().map(|s| s.to_string()).collect())?,
         ["logcat", rest @ ..] => {
