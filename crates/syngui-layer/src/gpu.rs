@@ -71,7 +71,7 @@ impl Gpu {
 /// frame callbacks Wayland.
 pub fn configure_surface(gpu: &GpuShared, surface: wgpu::Surface<'static>, w: u32, h: u32) -> WindowSurface {
     let caps = surface.get_capabilities(&gpu.adapter);
-    let format = caps.formats.iter().copied().find(|f| f.is_srgb()).unwrap_or(caps.formats[0]);
+    let format = syngui::gpu::preferred_surface_format(&caps, &gpu.adapter);
     let alpha_mode = [wgpu::CompositeAlphaMode::PreMultiplied, wgpu::CompositeAlphaMode::PostMultiplied]
         .into_iter()
         .find(|m| caps.alpha_modes.contains(m))

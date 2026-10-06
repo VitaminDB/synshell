@@ -518,7 +518,7 @@ pub fn scan_connectors(state: &mut State, node: DrmNode) {
             }
         };
         tracing::info!(name, make, model, mode = ?wl_mode, scale, "монитор подключён");
-        let feedback = output_feedback(t.primary_gpu, &mut t.gpus, &drm_output);
+        let feedback = output_feedback(t.primary_gpu, &mut t.gpus, &drm_output, downstream);
         let global = output.create_global::<State>(&state.core.display_handle);
         device.surfaces.insert(
             crtc,
@@ -655,7 +655,10 @@ fn parse_edid(d: &[u8]) -> Option<(String, String, String)> {
 /// вывода на план — сначала форматы primary-плана, которые мы и нарисовать
 /// сумеем (запасной путь, если план всё же не примет буфер). Так клиент не
 /// выберет то, чего дисплей не умеет (у Qualcomm sde: UBWC для XRGB8888).
-fn output_feedback(primary: DrmNode, gpus: &mut GpuManager<GbmGlesBackend<GlesRenderer, DrmDeviceFd>>, drm_output: &Out) -> Option<crate::backend::OutputFeedback> {
+/// Сжатие UBWC Qualcomm (`DRM_FORMAT_MOD_QCOM_COMPRESSED`).
+const MOD_QCOM_COMPRESSED: u64 = 0x0500_0000_0000_0001;
+
+fn output_feedback(primary: DrmNode, gpus: &mut GpuManager<GbmGlesBackend<GlesRenderer, DrmDeviceFd>>, drm_output: &Out, qcom: bool) -> Option<crate::backend::OutputFeedback> {
     use smithay::reexports::wayland_protocols::wp::linux_dmabuf::zv1::server::zwp_linux_dmabuf_feedback_v1::TrancheFlags;
     let render_formats = gpus.single_renderer(&primary).ok()?.dmabuf_formats();
     let (plane_formats, scanout_dev) = drm_output.with_compositor(|c| {
@@ -670,6 +673,14 @@ fn output_feedback(primary: DrmNode, gpus: &mut GpuManager<GbmGlesBackend<GlesRe
         .flat_map(|f| {
             let linear = (f.modifier == Modifier::Invalid).then_some(smithay::backend::allocator::Format { code: f.code, modifier: Modifier::Linear });
             [Some(*f), linear]
+        })
+        .flatten()
+        // Дисплей Qualcomm (sde) берёт UBWC для ABGR/XBGR8888 (не для ARGB/XRGB): кадр со сжатием — меньше
+        // трафика памяти и у GPU, рисующего его, и у дисплея, читающего его 120 раз в секунду. Первым в группе.
+        .flat_map(|f| {
+            let ubwc = (qcom && f.modifier == Modifier::Invalid && matches!(f.code, Fourcc::Abgr8888 | Fourcc::Xbgr8888))
+                .then_some(smithay::backend::allocator::Format { code: f.code, modifier: Modifier::from(MOD_QCOM_COMPRESSED) });
+            [ubwc, Some(f)]
         })
         .flatten()
         .filter(|f| render_formats.contains(f))
