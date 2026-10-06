@@ -49,6 +49,8 @@ synlink view УСТР                      окно трансляции (synlin
 synlink audio УСТР on|off [--no-mic]   звук трансляции: звук устройства здесь,
                                        микрофон отсюда — там («synlink-mic»)
 synlink mcp                            MCP-сервер (stdio) для Claude Code
+synlink session                        демон для автозапуска сеанса: юнитом
+                                       systemd --user (synlink.service), иначе сам
 
 X Y — пиксели снимка экрана устройства или доли 0..1. УСТР — имя, id,
 phone/desktop или local (эта машина). ssh: `ssh phone` / `ssh <имя>`.";
@@ -57,6 +59,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let res = match args.first().map(String::as_str) {
         Some("daemon") => run_daemon(),
+        Some("session") => run_session(),
         Some("mcp") => mcp::run(),
         Some("-h" | "--help" | "help") | None => {
             println!("{USAGE}");
@@ -74,6 +77,59 @@ fn main() {
     }
 }
 
+/// Запуск из автозапуска сеанса: при `systemd --user` — временным юнитом
+/// `synlink.service` с окружением сеанса (перезапуск при падении, журнал
+/// `journalctl --user -u synlink`), иначе — демон в этом процессе. Юнит
+/// прошлого сеанса останавливается: у него старые сокеты композитора.
+fn run_session() -> Result<()> {
+    let user_manager = std::env::var_os("XDG_RUNTIME_DIR").is_some_and(|d| std::path::Path::new(&d).join("systemd/private").exists());
+    if user_manager {
+        let _ = std::process::Command::new("systemctl").args(["--user", "stop", "synlink.service"]).status();
+        let _ = std::process::Command::new("systemctl").args(["--user", "reset-failed", "synlink.service"]).status();
+        // Служебное окружение процесса и самого systemd не переносим.
+        const SKIP: &[&str] = &["INVOCATION_ID", "JOURNAL_STREAM", "NOTIFY_SOCKET", "MANAGER_PID", "SYSTEMD_EXEC_PID", "LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES", "WATCHDOG_PID", "WATCHDOG_USEC", "MEMORY_PRESSURE_WATCH", "MEMORY_PRESSURE_WRITE", "SHLVL", "_", "OLDPWD", "PWD"];
+        let mut cmd = std::process::Command::new("systemd-run");
+        cmd.args(["--user", "--quiet", "--collect", "--unit=synlink", "--description=synlink — связь устройств synshell"]);
+        cmd.args(["--property=Restart=on-failure", "--property=RestartSec=2"]);
+        for (k, v) in std::env::vars() {
+            if !SKIP.contains(&k.as_str()) {
+                cmd.arg(format!("--setenv={k}={v}"));
+            }
+        }
+        let exe = std::env::current_exe().unwrap_or_else(|_| "synlink".into());
+        cmd.arg(exe).arg("daemon");
+        match cmd.status() {
+            Ok(st) if st.success() => return Ok(()),
+            Ok(st) => eprintln!("synlink: systemd-run: {st} — демон без юнита"),
+            Err(e) => eprintln!("synlink: systemd-run: {e} — демон без юнита"),
+        }
+    }
+    use std::os::unix::process::CommandExt;
+    Err(std::process::Command::new(std::env::current_exe()?).arg("daemon").exec().into())
+}
+
+/// Демон юнита переживает сеанс — выйти, когда композитор сеанса
+/// (`SYNSHELL_SOCKET`) больше не принимает подключений: сеанс закончился или
+/// композитор перезапущен (новый сеанс запустит новый демон). Файл сокета
+/// после выхода композитора остаётся — проверяется подключением.
+fn watch_session_socket() {
+    let Some(sock) = std::env::var_os("SYNSHELL_SOCKET").map(std::path::PathBuf::from) else { return };
+    let alive = |p: &std::path::Path| std::os::unix::net::UnixStream::connect(p).is_ok();
+    if !alive(&sock) {
+        return;
+    }
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        if !alive(&sock) {
+            tracing::info!(sock = %sock.display(), "композитор сеанса ушёл — выход");
+            fuse::unmount_all();
+            ssh::stop_user_sshd();
+            let _ = std::fs::remove_file(link::socket_path());
+            std::process::exit(0);
+        }
+    });
+}
+
 fn run_daemon() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::try_from_env("SYNLINK_LOG").unwrap_or_else(|_| "info,quinn=warn,zbus=warn".into()))
@@ -87,6 +143,7 @@ fn run_daemon() -> Result<()> {
         tracing::info!("[link] enabled = false — выход");
         return Ok(());
     }
+    watch_session_socket();
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().worker_threads(4).build()?;
     rt.block_on(async move {
         let id = identity::Identity::load_or_create()?;
