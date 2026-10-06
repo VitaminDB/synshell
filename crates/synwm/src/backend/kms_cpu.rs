@@ -484,6 +484,10 @@ impl KmsCpuBackend {
         }
     }
 
+    pub fn thumbnail(&mut self, core: &mut Core, id: crate::wm::WindowId, max: (i32, i32)) -> anyhow::Result<Option<(u32, u32, Vec<u8>)>> {
+        crate::render::thumbnail::<_, smithay::reexports::pixman::Image<'static, 'static>>(core, &mut self.renderer, id, max)
+    }
+
     pub fn screenshot(&mut self, core: &mut Core, output: &Output) -> anyhow::Result<(u32, u32, Vec<u8>)> {
         let size = output.current_mode().map(|m| m.size).unwrap_or_default();
         let transformed = output.current_transform().transform_size(size);

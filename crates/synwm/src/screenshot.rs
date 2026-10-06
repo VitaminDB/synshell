@@ -56,6 +56,30 @@ impl State {
         Ok(info)
     }
 
+    /// Миниатюры окон для «Недавних»: RGBA в
+    /// `$XDG_RUNTIME_DIR/syndesktop-thumbs/<id>-<метка>.rgba`. Окна без
+    /// кадра пропускаются; старые файлы, которые никто не забрал, удаляются.
+    pub fn thumbnails(&mut self, ids: &[u64], max: [u32; 2]) -> anyhow::Result<Vec<synshell_common::ipc::Thumbnail>> {
+        let dir = synshell_common::paths::runtime_dir().join("syndesktop-thumbs");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir)?;
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+        let max = (max[0].min(4096) as i32, max[1].min(4096) as i32);
+        let mut out = Vec::new();
+        for &id in ids {
+            match self.backend.thumbnail(&mut self.core, id, max) {
+                Ok(Some((width, height, data))) => {
+                    let path = dir.join(format!("{id}-{stamp}.rgba"));
+                    write_private(&path, &data)?;
+                    out.push(synshell_common::ipc::Thumbnail { id, width, height, path: path.to_string_lossy().into_owned() });
+                }
+                Ok(None) => {}
+                Err(e) => tracing::warn!(id, "миниатюра окна: {e:#}"),
+            }
+        }
+        Ok(out)
+    }
+
     /// Print: экран застывает сразу по нажатию, затем запускается
     /// программа снимков с этим кадром. Без неё — обычный снимок вывода.
     pub fn screenshot_interactive(&mut self) {

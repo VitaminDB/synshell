@@ -99,6 +99,17 @@ impl Backend {
         }
     }
 
+    /// Миниатюра окна: (ширина, высота, RGBA), см. [`crate::render::thumbnail`].
+    pub fn thumbnail(&mut self, core: &mut Core, id: crate::wm::WindowId, max: (i32, i32)) -> anyhow::Result<Option<(u32, u32, Vec<u8>)>> {
+        use smithay::backend::renderer::gles::GlesTexture;
+        match self {
+            Backend::Winit(w) => crate::render::thumbnail::<_, GlesTexture>(core, w.gles(), id, max),
+            Backend::Tty(t) => t.with_gles(|r| crate::render::thumbnail::<_, GlesTexture>(core, r, id, max)).unwrap_or(Ok(None)),
+            #[cfg(feature = "pixman")]
+            Backend::KmsCpu(b) => b.thumbnail(core, id, max),
+        }
+    }
+
     /// Картинка вывода в текстуре GLES (снимок для анимации поворота);
     /// `None` — рендерер не GLES.
     pub fn snapshot(

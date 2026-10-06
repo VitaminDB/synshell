@@ -407,6 +407,7 @@ Text {
 .recents-app-icon { width: 28px; height: 28px; }
 .recents-app-name { font-size: 14px; font-weight: 600; color: var(--fg); }
 .recents-preview { height: 420px; width: 226px; border-radius: 18px; background-color: var(--bg); padding: 16px; }
+.recents-thumb { border-radius: 18px; overflow: hidden; background-color: var(--bg); }
 .recents-big-icon { width: 72px; height: 72px; }
 .recents-window-title { font-size: 13px; color: var(--muted); text-align: center; }
 .recents-clear { padding: 10px 20px; border-radius: 999px; background-color: #ffffff22; }

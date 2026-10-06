@@ -251,6 +251,11 @@ impl State {
                 Ok(capture) => Response::Capture { capture },
                 Err(e) => Response::Error { message: format!("захват экрана: {e:#}") },
             },
+            Request::Thumbnails { .. } if self.core.is_locked() => Response::Error { message: "экран заблокирован".into() },
+            Request::Thumbnails { ids, max } => match self.thumbnails(&ids, max) {
+                Ok(thumbs) => Response::Thumbnails { thumbs },
+                Err(e) => Response::Error { message: format!("миниатюры окон: {e:#}") },
+            },
             Request::Input { output, events } => match self.remote_input(output.as_deref(), events) {
                 Ok(()) => Response::Ok,
                 Err(message) => Response::Error { message },

@@ -741,3 +741,38 @@ where
 }
 
 use smithay::utils::IsAlive;
+
+/// Миниатюра окна («Недавние» телефона): последний кадр клиента со
+/// всплывающими меню, без рамки и заголовка, вписанный в `max` физических
+/// px. Окно может быть скрыто (монокль) — буферы клиента остаются у
+/// поверхности. `None` — окна нет или у него ещё нет размера.
+pub fn thumbnail<R, T>(core: &Core, renderer: &mut R, id: WindowId, max: (i32, i32)) -> anyhow::Result<Option<(u32, u32, Vec<u8>)>>
+where
+    R: Renderer + ImportAll + ImportMem + smithay::backend::renderer::Offscreen<T> + smithay::backend::renderer::Bind<T> + smithay::backend::renderer::ExportMem,
+    R::TextureId: Clone + Send + 'static,
+    R::Error: Send + Sync + 'static,
+{
+    use smithay::backend::{allocator::Fourcc, renderer::damage::OutputDamageTracker};
+    let Some(m) = core.wm.get(id) else { return Ok(None) };
+    let geo = m.window.geometry();
+    if geo.size.w <= 0 || geo.size.h <= 0 || max.0 <= 0 || max.1 <= 0 {
+        return Ok(None);
+    }
+    let s = (max.0 as f64 / geo.size.w as f64).min(max.1 as f64 / geo.size.h as f64).min(4.0);
+    let size: Size<i32, Physical> = geo.size.to_f64().to_physical(s).to_i32_round();
+    let size = Size::from((size.w.max(1), size.h.max(1)));
+    let elements: Vec<WaylandSurfaceRenderElement<R>> =
+        AsRenderElements::<R>::render_elements(&m.window, renderer, to_phys(Point::from((0, 0)) - geo.loc, s), Scale::from(s), 1.0);
+    let mut buf: T = renderer.create_buffer(Fourcc::Abgr8888, Size::from((size.w, size.h)))?;
+    {
+        let mut fb = renderer.bind(&mut buf)?;
+        let mut tracker = OutputDamageTracker::new(size, 1.0, smithay::utils::Transform::Normal);
+        tracker
+            .render_output(renderer, &mut fb, 0, &elements, Color32F::new(0.0, 0.0, 0.0, 0.0))
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    }
+    let fb = renderer.bind(&mut buf)?;
+    let mapping = renderer.copy_framebuffer(&fb, Rectangle::from_size(Size::from((size.w, size.h))), Fourcc::Abgr8888)?;
+    let data = renderer.map_texture(&mapping)?.to_vec();
+    Ok(Some((size.w as u32, size.h as u32, data)))
+}

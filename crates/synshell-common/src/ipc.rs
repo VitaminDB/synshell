@@ -63,6 +63,10 @@ pub enum Request {
     /// с её разрешением из `[[x11_app]]`, иначе общий. Отдельный Xwayland
     /// запускается при первом запросе — ответ [`Response::X11Display`].
     X11Display { keys: Vec<String> },
+    /// Миниатюры окон («Недавние» телефона): каждое окно рисуется вне
+    /// экрана с последним кадром клиента, вписанным в `max` (физические px),
+    /// кадр — сырой RGBA в `$XDG_RUNTIME_DIR`; ответ — [`Response::Thumbnails`].
+    Thumbnails { ids: Vec<u64>, max: [u32; 2] },
 }
 
 /// Видео в потоке кадров.
@@ -184,6 +188,17 @@ pub enum Response {
     Frame { frame: FrameInfo },
     /// `display` — значение DISPLAY (`:1`), `resolution` — разрешение этого Xwayland.
     X11Display { display: String, resolution: String },
+    Thumbnails { thumbs: Vec<Thumbnail> },
+}
+
+/// Миниатюра окна: RGBA построчно в файле `path` (файл забирает и
+/// удаляет оболочка).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Thumbnail {
+    pub id: u64,
+    pub width: u32,
+    pub height: u32,
+    pub path: String,
 }
 
 /// Режим окон телефона для оболочки: какой режим, какая страница
