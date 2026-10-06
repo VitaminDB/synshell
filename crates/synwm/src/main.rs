@@ -28,6 +28,7 @@ mod spawn;
 mod state;
 mod stream;
 mod touch;
+mod virtual_pointer;
 mod wm;
 mod xwayland;
 

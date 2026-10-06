@@ -336,6 +336,7 @@ impl Core {
         let single_pixel_buffer_state = SinglePixelBufferState::new::<State>(&dh);
         let tablet_manager_state = TabletManagerState::new::<State>(&dh);
         crate::screencopy::init(&dh);
+        crate::virtual_pointer::init(&dh);
         TextInputManagerState::new::<State>(&dh);
         InputMethodManagerState::new::<State, _>(&dh, |_| true);
         VirtualKeyboardManagerState::new::<State, _>(&dh, |_| true);
