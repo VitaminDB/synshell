@@ -12,8 +12,8 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use synshell_common::link::DeviceKind;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-/// 2 — трансляция с видео (`Rpc::ScreenV2`).
-pub const PROTO: u32 = 2;
+/// 2 — трансляция с видео (`Rpc::ScreenV2`), 3 — звук трансляции (`Rpc::Audio`).
+pub const PROTO: u32 = 3;
 pub const ALPN: &[u8] = b"synlink/1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,6 +81,20 @@ pub enum Rpc {
     /// Трансляция с видео (proto ≥ 2): дальше `ScreenFrameV2` туда,
     /// `ScreenAckV2` обратно. Новые варианты — только в конец (postcard).
     ScreenV2 { output: Option<String>, cursor: bool, video: Option<VideoParams> },
+    /// Звук трансляции (proto ≥ 3): ответ `Done`/`Err`, дальше [`AudioMsg`]
+    /// в обе стороны — туда звук этой стороны (монитор выхода по умолчанию),
+    /// обратно микрофон зрителя (если `mic`) для виртуального источника.
+    Audio { mic: bool },
+}
+
+/// Кадр звука трансляции. PCM s16le, 48 кГц, стерео, кусками по 10 мс.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AudioMsg {
+    Pcm(Vec<u8>),
+    /// Столько байт тишины.
+    Silence(u32),
+    /// Звук этой стороны прервался — почему.
+    Error(String),
 }
 
 /// Видео трансляции: как `ipc::VideoRequest` композитора.

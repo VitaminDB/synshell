@@ -57,6 +57,7 @@ pub async fn serve(d: D, peer: String, mut w: quinn::SendStream, mut r: quinn::R
         }
         Rpc::Screen { output, cursor } => crate::screen::serve(w, r, output, cursor).await?,
         Rpc::ScreenV2 { output, cursor, video } => crate::screen::serve_v2(w, r, output, cursor, video).await?,
+        Rpc::Audio { mic } => crate::audio::serve(d, peer, w, r, mic).await?,
         Rpc::Fs(req) => {
             let resp = tokio::task::spawn_blocking(move || crate::fs::handle(req)).await?;
             proto::send(&mut w, &Reply::Fs(resp)).await?;

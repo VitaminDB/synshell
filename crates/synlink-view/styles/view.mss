@@ -37,6 +37,22 @@ Text { color: var(--fg); font-size: 13px; }
 .tool:hover { background-color: var(--hover); }
 .tool:active { scale: 0.92; background-color: var(--accent-soft); }
 .tool-icon { icon-size: 19px; icon-color: var(--fg); }
+.tool-on { background-color: var(--accent); }
+.tool-on:hover { background-color: var(--accent); }
+.tool-on .tool-icon { icon-color: var(--accent-fg); }
+.tool-wait { background-color: var(--accent-soft); }
+
+/* Во весь экран: выход в углу, поверх кадра. */
+.fs-corner { padding: 14px; }
+.fs-exit {
+    padding: 10px;
+    border-radius: 999px;
+    background-color: rgba(0, 0, 0, 0.45);
+    transition: background-color 140ms ease-out, scale 120ms ease-out;
+}
+.fs-exit:hover { background-color: rgba(0, 0, 0, 0.65); }
+.fs-exit:active { scale: 0.92; }
+.fs-exit-icon { icon-size: 24px; icon-color: #ffffff; }
 
 .stage { background-color: #05070b; }
 .screen { background-color: #05070b; }

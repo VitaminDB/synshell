@@ -2,6 +2,7 @@
 //! трансляция экрана и управление, снимки, файлы друг друга, уведомления,
 //! ssh и отладка (CLI и MCP-сервер для Claude Code).
 
+mod audio;
 mod control;
 mod daemon;
 mod discovery;
@@ -45,6 +46,8 @@ synlink proxy УСТР [ПОРТ]              stdin/stdout ↔ 127.0.0.1:ПОР
 synlink mount УСТР | umount УСТР       файлы устройства (FUSE)
 synlink notifications [УСТР]           уведомления с устройств
 synlink view УСТР                      окно трансляции (synlink-view)
+synlink audio УСТР on|off [--no-mic]   звук трансляции: звук устройства здесь,
+                                       микрофон отсюда — там («synlink-mic»)
 synlink mcp                            MCP-сервер (stdio) для Claude Code
 
 X Y — пиксели снимка экрана устройства или доли 0..1. УСТР — имя, id,
@@ -90,6 +93,7 @@ fn run_daemon() -> Result<()> {
         let (d, notes_rx) = daemon::Daemon::new(id, cfg)?;
         tracing::info!(id = %d.id.id, name = %d.self_info().name, kind = ?d.kind, port = d.port, "synlink");
         ssh::write_config(&d.trusted_all());
+        std::thread::spawn(audio::cleanup_stale);
         notify::start(d.clone(), notes_rx);
         tokio::spawn(discovery::run(d.clone()));
         tokio::spawn(d.clone().accept_loop());
@@ -353,6 +357,20 @@ fn cli(args: &[String]) -> Result<()> {
             };
             for n in notifications {
                 println!("[{}] {} — {}: {}", n.device, n.app, n.summary, n.body);
+            }
+        }
+        "audio" => {
+            let device = dev(args)?;
+            let on = match args.get(2).map(String::as_str) {
+                Some("on") => true,
+                Some("off") => false,
+                _ => bail!("synlink audio УСТР on|off [--no-mic]"),
+            };
+            let mic = !args.iter().any(|a| a == "--no-mic");
+            match req(&Request::Audio { device, on, mic, hold: false })? {
+                Response::Ok => {}
+                Response::Error { message } => bail!("{message}"),
+                other => bail!("неожиданный ответ: {other:?}"),
             }
         }
         "view" => {

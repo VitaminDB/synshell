@@ -4,7 +4,8 @@
 //! одна строка-[`Request`] → одна строка-[`Response`]. После
 //! `Request::Subscribe` приходят строки-[`Event`]. Запросы-потоки
 //! (`Exec`, `Tcp`, `Screen`) после ответа `Ok` переводят соединение в
-//! двоичный режим — см. описание каждого.
+//! двоичный режим — см. описание каждого; `Audio { hold: true }` держит
+//! звук, пока соединение открыто.
 //!
 //! Устройство в запросах — `id`, имя или `local` (эта машина: снимки,
 //! ввод и команды без сети — удобно для отладки самого себя).
@@ -121,6 +122,9 @@ pub struct PeerInfo {
     pub ssh_host: Option<String>,
     /// Последнее соединение, секунды UNIX.
     pub last_seen: Option<i64>,
+    /// Идёт звук трансляции с этим устройством (`Request::Audio`).
+    #[serde(default)]
+    pub audio: bool,
 }
 
 impl PeerInfo {
@@ -229,10 +233,30 @@ pub enum Request {
         #[serde(default)]
         video: bool,
     },
+    /// Звук трансляции с устройством: его звук (монитор выхода по
+    /// умолчанию PipeWire) играет здесь, микрофон этой машины (`mic`)
+    /// появляется там виртуальным источником `synlink-mic` (на время звука —
+    /// источник по умолчанию). PCM s16, 48 кГц, стерео; всё делает демон.
+    ///
+    /// `on = false` — выключить. `hold = true` — звук живёт, пока открыто это
+    /// соединение (окно трансляции): после `Ok` демон молчит, а если звук
+    /// оборвался — пишет строку `Response::Error` и закрывает соединение.
+    Audio {
+        device: String,
+        on: bool,
+        #[serde(default = "yes")]
+        mic: bool,
+        #[serde(default)]
+        hold: bool,
+    },
     /// Смонтировать или отмонтировать файлы устройства.
     Mount { device: String, mount: bool },
     /// Уведомления устройств (последние).
     Notifications { device: Option<String> },
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

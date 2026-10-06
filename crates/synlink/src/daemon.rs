@@ -78,6 +78,8 @@ pub struct Daemon {
     /// по Wi-Fi не анонсируемся и сеансов не держим — иначе keepalive QUIC с компьютера будил его
     /// каждые 3 с, а каждый анонс после самопробуждения приводил к новому соединению и повторам.
     pub sleeping: std::sync::atomic::AtomicBool,
+    /// Звук трансляции, включённый отсюда (`audio.rs`).
+    pub audio: crate::audio::Sessions,
 }
 
 const SLEEP_FLAG: &str = "/run/syn-sleep/screen-off";
@@ -135,6 +137,7 @@ impl Daemon {
             notifications: std::sync::atomic::AtomicBool::new(link.notifications),
             auto_mount: std::sync::atomic::AtomicBool::new(link.auto_mount),
             sleeping: std::sync::atomic::AtomicBool::new(false),
+            audio: Default::default(),
         });
         Ok((d, notes_rx))
     }
@@ -153,6 +156,7 @@ impl Daemon {
     // ─── состояние ─────────────────────────────────────────────────────
 
     pub fn status(&self) -> Status {
+        let audio: HashSet<String> = self.audio.lock().unwrap().keys().cloned().collect();
         let st = self.st.lock().unwrap();
         let mut peers: Vec<PeerInfo> = Vec::new();
         for t in st.peers.peers.values() {
@@ -173,6 +177,7 @@ impl Daemon {
                 mount: st.mounts.get(&t.id).cloned(),
                 ssh_host: Some(crate::ssh::host_alias(t)),
                 last_seen: t.last_seen,
+                audio: audio.contains(&t.id),
             });
         }
         for (id, n) in &st.nearby {

@@ -179,6 +179,48 @@ async fn conn(d: D, s: UnixStream) -> Result<()> {
                 write_line(&mut wr, &Response::Ok).await?;
                 return bridge_screen(rd, wr, w, r).await;
             }
+            Request::Audio { device, on, mic, hold } => {
+                if !on {
+                    let resp = match d.resolve(&device) {
+                        Some(id) => {
+                            crate::audio::stop(&d, &id);
+                            Response::Ok
+                        }
+                        None => Response::Error { message: format!("нет устройства «{device}»") },
+                    };
+                    write_line(&mut wr, &resp).await?;
+                    continue;
+                }
+                let (id, gen, done) = match crate::audio::start(&d, &device, mic).await {
+                    Ok(x) => x,
+                    Err(e) => {
+                        write_line(&mut wr, &Response::Error { message: format!("{e:#}") }).await?;
+                        continue;
+                    }
+                };
+                write_line(&mut wr, &Response::Ok).await?;
+                if !hold {
+                    continue;
+                }
+                // Звук живёт, пока клиент держит соединение; оборвался — сказать ему.
+                let closed = async {
+                    let mut l = String::new();
+                    loop {
+                        l.clear();
+                        if matches!(rd.read_line(&mut l).await, Ok(0) | Err(_)) {
+                            break;
+                        }
+                    }
+                };
+                tokio::select! {
+                    _ = closed => crate::audio::stop_gen(&d, &id, gen),
+                    m = done => {
+                        let message = m.unwrap_or_else(|_| "звук выключен".into());
+                        write_line(&mut wr, &Response::Error { message }).await?;
+                    }
+                }
+                return Ok(());
+            }
             other => {
                 let resp = match handle(&d, other).await {
                     Ok(r) => r,
@@ -457,6 +499,8 @@ async fn handle(d: &D, req: Request) -> Result<Response> {
             let id = device.and_then(|x| d.resolve(&x));
             Response::Notifications { notifications: d.notes(id.as_deref()) }
         }
-        Request::Subscribe | Request::Tcp { .. } | Request::Screen { .. } => Response::Error { message: "не здесь".into() },
+        Request::Subscribe | Request::Tcp { .. } | Request::Screen { .. } | Request::Audio { .. } => {
+            Response::Error { message: "не здесь".into() }
+        }
     })
 }
