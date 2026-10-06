@@ -84,8 +84,9 @@ fn main() {
 fn run_session() -> Result<()> {
     let user_manager = std::env::var_os("XDG_RUNTIME_DIR").is_some_and(|d| std::path::Path::new(&d).join("systemd/private").exists());
     if user_manager {
-        let _ = std::process::Command::new("systemctl").args(["--user", "stop", "synlink.service"]).status();
-        let _ = std::process::Command::new("systemctl").args(["--user", "reset-failed", "synlink.service"]).status();
+        for verb in ["stop", "reset-failed"] {
+            let _ = std::process::Command::new("systemctl").args(["--user", verb, "synlink.service"]).stderr(std::process::Stdio::null()).status();
+        }
         // Служебное окружение процесса и самого systemd не переносим.
         const SKIP: &[&str] = &["INVOCATION_ID", "JOURNAL_STREAM", "NOTIFY_SOCKET", "MANAGER_PID", "SYSTEMD_EXEC_PID", "LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES", "WATCHDOG_PID", "WATCHDOG_USEC", "MEMORY_PRESSURE_WATCH", "MEMORY_PRESSURE_WRITE", "SHLVL", "_", "OLDPWD", "PWD"];
         let mut cmd = std::process::Command::new("systemd-run");
@@ -114,18 +115,32 @@ fn run_session() -> Result<()> {
 /// после выхода композитора остаётся — проверяется подключением.
 fn watch_session_socket() {
     let Some(sock) = std::env::var_os("SYNSHELL_SOCKET").map(std::path::PathBuf::from) else { return };
-    let alive = |p: &std::path::Path| std::os::unix::net::UnixStream::connect(p).is_ok();
-    if !alive(&sock) {
+    use std::io::ErrorKind;
+    // Ушёл — только «никто не слушает» или «нет файла», и трижды подряд: занятый композитор (экран погашен,
+    // тяжёлый кадр) иначе выглядел ушедшим, и демон выходил посреди сеанса.
+    let gone = |p: &std::path::Path| match std::os::unix::net::UnixStream::connect(p) {
+        Ok(_) => false,
+        Err(e) if matches!(e.kind(), ErrorKind::ConnectionRefused | ErrorKind::NotFound) => true,
+        Err(e) => {
+            tracing::debug!(sock = %p.display(), "проверка композитора: {e}");
+            false
+        }
+    };
+    if gone(&sock) {
         return;
     }
-    std::thread::spawn(move || loop {
-        std::thread::sleep(std::time::Duration::from_secs(5));
-        if !alive(&sock) {
-            tracing::info!(sock = %sock.display(), "композитор сеанса ушёл — выход");
-            fuse::unmount_all();
-            ssh::stop_user_sshd();
-            let _ = std::fs::remove_file(link::socket_path());
-            std::process::exit(0);
+    std::thread::spawn(move || {
+        let mut misses = 0;
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            misses = if gone(&sock) { misses + 1 } else { 0 };
+            if misses >= 3 {
+                tracing::info!(sock = %sock.display(), "композитор сеанса ушёл — выход");
+                fuse::unmount_all();
+                ssh::stop_user_sshd();
+                let _ = std::fs::remove_file(link::socket_path());
+                std::process::exit(0);
+            }
         }
     });
 }
