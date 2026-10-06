@@ -4682,6 +4682,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-video-player"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "image",
+ "libc",
+ "syngui",
+ "synshell-common",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "syncamera"
 version = "0.1.3"
 dependencies = [

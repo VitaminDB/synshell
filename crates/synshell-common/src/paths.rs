@@ -54,6 +54,13 @@ pub fn data_home() -> PathBuf {
         .unwrap_or_else(|| home().join(".local/share"))
 }
 
+/// `$XDG_CACHE_HOME` (по умолчанию `~/.cache`).
+pub fn cache_home() -> PathBuf {
+    std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home().join(".cache"))
+}
+
 /// Все каталоги данных: `$XDG_DATA_HOME` + `$XDG_DATA_DIRS`.
 pub fn data_dirs() -> Vec<PathBuf> {
     let mut dirs = vec![data_home()];

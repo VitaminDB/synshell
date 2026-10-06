@@ -1,0 +1,20 @@
+[package]
+name = "syn-video-player"
+description = "Видеоплеер synshell на ffmpeg и syngui: аппаратное декодирование (V4L2 на телефонах, VAAPI/NVDEC на компьютерах)"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "syn-video-player"
+path = "src/main.rs"
+
+[dependencies]
+synshell-common.workspace = true
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "ffmpeg"] }
+anyhow.workspace = true
+libc.workspace = true
+image = { version = "0.25", default-features = false, features = ["png"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true

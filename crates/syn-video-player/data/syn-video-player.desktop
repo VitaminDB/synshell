@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Видео
+Name[en]=Videos
+GenericName=Видеоплеер
+GenericName[en]=Video Player
+Comment=Просмотр видео с аппаратным декодированием
+Exec=syn-video-player %U
+Icon=syn-video-player
+Categories=AudioVideo;Video;Player;
+Keywords=video;player;movie;film;видео;плеер;фильм;кино;
+MimeType=video/mp4;video/x-m4v;video/mp4v-es;video/mpeg;video/x-mpeg;video/x-mpeg2;video/mpeg-system;video/x-mpeg-system;video/mp2t;video/vnd.mpegurl;video/x-matroska;video/x-matroska-3d;application/x-matroska;video/webm;video/quicktime;video/x-quicktime;video/x-msvideo;video/avi;video/vnd.avi;video/msvideo;video/divx;video/vnd.divx;video/x-ms-wmv;video/x-ms-asf;video/x-ms-asx;video/x-ms-wvx;video/x-ms-wmx;application/vnd.ms-asf;video/x-flv;video/flv;video/x-flic;video/fli;video/ogg;video/x-ogg;video/x-ogm+ogg;video/x-theora+ogg;video/x-theora;video/3gpp;video/3gpp2;video/3gp;video/dv;video/x-nsv;video/vnd.rn-realvideo;application/vnd.rn-realmedia;application/vnd.rn-realmedia-vbr;video/x-anim;video/mj2;video/x-mjpeg;video/x-mng;video/x-sgi-movie;video/vnd.vivo;video/x-avi;video/x-ms-vob;video/x-nut;video/x-mxf;application/mxf;video/x-y4m;video/h264;video/h265;video/hevc;video/av1;video/x-ivf;video/x-m2ts;video/x-ms-wm;video/x-ogm;video/vnd.radgamettools.bink;video/x-bink;video/x-smv;
+StartupNotify=true

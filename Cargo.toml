@@ -21,6 +21,7 @@ members = [
     "crates/synsms",
     "crates/synphone",
     "crates/syncamera",
+    "crates/syn-video-player",
 ]
 
 [workspace.package]
