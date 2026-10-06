@@ -34,5 +34,15 @@ Text { color: var(--fg); font-size: 18px; }
     border-color: #ffffff18;
 }
 
+/* Буква над нажатой клавишей (как в Gboard). */
+.key-pop {
+    border-radius: 12px;
+    background-color: var(--surface);
+    border-width: 1px;
+    border-color: #ffffff22;
+    box-shadow: 0 4px 14px #00000070;
+}
+.key-pop-label { font-size: 30px; text-box-edge: text; }
+
 .key-active { background-color: var(--accent); }
 .key-lock { border-width: 2px; border-color: var(--fg); }

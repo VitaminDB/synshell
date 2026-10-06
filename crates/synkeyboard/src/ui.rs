@@ -10,6 +10,7 @@ use syngui::prelude::*;
 use syngui::StyleValue;
 use syngui::widget::WidgetExt;
 use syngui::GestureDetector;
+use syngui::containers::Positioned;
 use syngui_layer::{Anchor, KeyboardInteractivity, Layer, SurfaceId, SurfaceSpec};
 
 pub use crate::layout::Action;
@@ -24,6 +25,14 @@ const PAD: u32 = 6;
 /// до основной клавиатуры.
 const FN_PAD: u32 = 4;
 const FN_SEP: u32 = 8;
+/// Прозрачный запас над клавиатурой под всплывающую букву нажатой клавиши
+/// (как в Gboard): поверхность выше на него, но окна он не отодвигает и
+/// касания пропускает насквозь (input region — только клавиатура).
+const HEADROOM: u32 = 64;
+/// Всплывающая буква: высота, наезд на клавишу снизу, наименьшая ширина.
+const POP_H: f32 = 62.0;
+const POP_OVERLAP: f32 = 6.0;
+const POP_MIN_W: f32 = 46.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shift {
@@ -46,6 +55,9 @@ pub struct Keyboard {
     pub sup: RwSignal<bool>,
     /// Показаны ряды Esc/Tab/стрелки и F1–F12.
     pub fn_rows: RwSignal<bool>,
+    /// Буква над нажатой клавишей: подпись и прямоугольник клавиши
+    /// (x, y, ширина, высота) в координатах поверхности.
+    pub popup: RwSignal<Option<(String, [f32; 4])>>,
 }
 
 thread_local! {
@@ -64,6 +76,7 @@ impl Keyboard {
             alt: use_signal(false),
             sup: use_signal(false),
             fn_rows: use_signal(false),
+            popup: use_signal(None),
         }
     }
 
@@ -82,11 +95,16 @@ impl Keyboard {
             namespace: "synkeyboard".into(),
             layer: Layer::Top,
             anchor: Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
-            size: (0, h),
+            size: (0, h + HEADROOM),
             exclusive_zone: h as i32,
             keyboard: KeyboardInteractivity::None,
             ..Default::default()
         }
+    }
+
+    /// Где поверхность принимает касания: без запаса [`HEADROOM`] сверху.
+    fn input_rect(&self) -> [i32; 4] {
+        [0, HEADROOM as i32, 1 << 16, self.height() as i32]
     }
 
     /// Нажать и отпустить клавишу с учётом залипших модификаторов.
@@ -234,12 +252,17 @@ pub fn install(kb: Keyboard) {
         match (visible, current) {
             (true, None) => {
                 let id = syngui_layer::create_surface(kb.spec(), move || Box::new(view(kb)));
+                syngui_layer::set_input_region(id, Some(vec![kb.input_rect()]));
                 SURFACE.with(|s| s.set(Some(id)));
             }
-            (true, Some(id)) => syngui_layer::reconfigure_surface(id, kb.spec()),
+            (true, Some(id)) => {
+                syngui_layer::reconfigure_surface(id, kb.spec());
+                syngui_layer::set_input_region(id, Some(vec![kb.input_rect()]));
+            }
             (false, Some(id)) => {
                 SURFACE.with(|s| s.set(None));
                 stop_repeat();
+                kb.popup.set(None);
                 syngui_layer::close_surface(id);
             }
             (false, None) => {}
@@ -254,6 +277,35 @@ fn stop_repeat() {
 }
 
 fn view(kb: Keyboard) -> impl Widget {
+    Stack::new()
+        .child(
+            Column::new()
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(DecoratedBox::new().style("height", StyleValue::px(HEADROOM as f32)))
+                .child(keys_view(kb)),
+        )
+        .child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+            let Some((label, [x, y, w, _h])) = kb.popup.get() else { return Vec::new() };
+            let pw = (w * 1.2).max(POP_MIN_W);
+            let width = syngui::viewport::viewport_size().get_untracked().width;
+            let left = (x + w / 2.0 - pw / 2.0).clamp(2.0, (width - pw - 2.0).max(2.0));
+            let top = (y - POP_H + POP_OVERLAP).max(0.0);
+            let bubble = DecoratedBox::new()
+                .child(
+                    Row::new()
+                        .main_axis_alignment(MainAxisAlignment::Center)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(Text::new(label).class("key-pop-label"))
+                        .class("key-fill"),
+                )
+                .class("key-pop")
+                .style("width", StyleValue::px(pw))
+                .style("height", StyleValue::px(POP_H));
+            vec![Box::new(Positioned::new(bubble).at(left, top))]
+        }))
+}
+
+fn keys_view(kb: Keyboard) -> impl Widget {
     DecoratedBox::new()
         .child(Reactive::new(move || {
             let page = kb.page.get();
@@ -319,6 +371,7 @@ fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: 
     if action == Action::Spacer {
         return Box::new(DecoratedBox::new().class("key-spacer").style("flex-grow", width));
     }
+    let label_shown = label.clone();
     let text = Text::new(label).class("key-label");
     let body = DecoratedBox::new()
         .child(
@@ -360,6 +413,7 @@ fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: 
         // удержания (тап после удержания не синтезируется).
         _ => {
             gd = gd.on_release(move |inside| {
+                kb.popup.set(None);
                 if inside {
                     kb.act(action);
                 }
@@ -367,8 +421,15 @@ fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: 
         }
     }
     // Отклик — сразу при касании клавиши (у автоповтора — в его on_press).
+    // Буква над пальцем — у символьных клавиш (не у служебных и Fn).
     if !matches!(action, Action::Key { repeat: true, .. }) {
-        gd = gd.on_press(|_| haptics::play(Feedback::Key));
+        let popup = (key.class == "key" && matches!(action, Action::Key { .. })).then_some(label_shown);
+        gd = gd.on_press_with_bounds(move |_, r| {
+            haptics::play(Feedback::Key);
+            if let Some(l) = &popup {
+                kb.popup.set(Some((l.clone(), [r.origin.x, r.origin.y, r.size.width, r.size.height])));
+            }
+        });
     }
     Box::new(gd.style("flex-grow", width))
 }
