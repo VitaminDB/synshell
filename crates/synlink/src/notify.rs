@@ -2,8 +2,9 @@
 //! показываем у себя (через обычный `org.freedesktop.Notifications` —
 //! попадают в центр уведомлений оболочки).
 //!
-//! Свои перехватываются мониторингом шины сеанса (`BecomeMonitor`):
-//! сервер уведомлений — сама оболочка, отдельного сигнала «появилось
+//! Свои: сервер уведомлений synshell сообщает о каждом сигналом
+//! `org.synshell.Notifications.Added`. Под чужим сервером (другое окружение)
+//! — мониторинг шины сеанса (`BecomeMonitor`): своего сигнала «появилось
 //! уведомление» у протокола нет. Пересланные помечены подсказкой
 //! `x-synlink-device` и обратно не уходят.
 
@@ -31,8 +32,14 @@ pub fn start(d: D, mut incoming: mpsc::UnboundedReceiver<(String, Note)>) {
         std::thread::Builder::new()
             .name("synlink-notify-mon".into())
             .spawn(move || loop {
-                if let Err(e) = monitor(&d2, &rt) {
-                    tracing::warn!("мониторинг уведомлений: {e:#}");
+                let r = match server_name() {
+                    Some(n) if n == "synshell" => listen_synshell(&d2),
+                    Some(_) => monitor(&d2, &rt),
+                    // Сервера ещё нет (оболочка запускается) — подождать.
+                    None => Ok(()),
+                };
+                if let Err(e) = r {
+                    tracing::warn!("уведомления сеанса: {e:#}");
                 }
                 std::thread::sleep(std::time::Duration::from_secs(10));
             })
@@ -59,6 +66,56 @@ pub fn start(d: D, mut incoming: mpsc::UnboundedReceiver<(String, Note)>) {
     });
 }
 
+/// Имя сервера уведомлений сеанса (`GetServerInformation`), `None` — его нет.
+fn server_name() -> Option<String> {
+    let conn = zbus::blocking::Connection::session().ok()?;
+    let reply = conn
+        .call_method(
+            Some("org.freedesktop.Notifications"),
+            "/org/freedesktop/Notifications",
+            Some("org.freedesktop.Notifications"),
+            "GetServerInformation",
+            &(),
+        )
+        .ok()?;
+    let (name, ..): (String, String, String, String) = reply.body().deserialize().ok()?;
+    Some(name)
+}
+
+/// Уведомление этого устройства — переслать спаренным, если оно того стоит.
+fn forward(d: &D, app: String, summary: String, body: String, icon: String, urgency: u8) {
+    if app == "synlink" || !d.notifications.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let note = Note { app, summary, body, icon, urgency, time: crate::identity::now() };
+    d.broadcast_ctl(Ctl::Notification(note));
+}
+
+/// Сигналы `org.synshell.Notifications.Added` сервера synshell.
+fn listen_synshell(d: &D) -> anyhow::Result<()> {
+    let conn = zbus::blocking::Connection::session()?;
+    let rule = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface("org.synshell.Notifications")?
+        .member("Added")?
+        .build();
+    let it = zbus::blocking::MessageIterator::for_match_rule(rule, &conn, None)?;
+    tracing::info!("слежу за уведомлениями synshell");
+    for msg in it {
+        let msg = msg?;
+        type Args = (String, u32, String, String, String, u8, bool, bool, bool);
+        let Ok((app, replaces, icon, summary, body, urgency, transient, progress, forwarded)) = msg.body().deserialize::<Args>() else {
+            continue;
+        };
+        // Обновления показанного, ход загрузки, служебные мгновенные и пришедшие извне — не пересылать.
+        if replaces != 0 || progress || transient || forwarded {
+            continue;
+        }
+        forward(d, app, summary, body, icon, urgency);
+    }
+    Ok(())
+}
+
 fn monitor(d: &D, _rt: &tokio::runtime::Handle) -> anyhow::Result<()> {
     let conn = zbus::blocking::Connection::session()?;
     let rules = vec!["type='method_call',interface='org.freedesktop.Notifications',member='Notify'"];
@@ -69,7 +126,7 @@ fn monitor(d: &D, _rt: &tokio::runtime::Handle) -> anyhow::Result<()> {
         "BecomeMonitor",
         &(rules, 0u32),
     )?;
-    tracing::info!("слежу за уведомлениями сеанса");
+    tracing::info!("слежу за уведомлениями сеанса (мониторинг шины)");
     for msg in zbus::blocking::MessageIterator::from(&conn) {
         let msg = msg?;
         let h = msg.header();
@@ -85,7 +142,7 @@ fn monitor(d: &D, _rt: &tokio::runtime::Handle) -> anyhow::Result<()> {
         if replaces != 0 || hints.contains_key("value") {
             continue;
         }
-        if hints.contains_key(HINT) || app == "synlink" || !d.notifications.load(std::sync::atomic::Ordering::Relaxed) {
+        if hints.contains_key(HINT) {
             continue;
         }
         // Служебные мгновенные (громкость, яркость) не пересылаем.
@@ -95,8 +152,7 @@ fn monitor(d: &D, _rt: &tokio::runtime::Handle) -> anyhow::Result<()> {
             continue;
         }
         let urgency = hints.get("urgency").and_then(|v| u8::try_from(v).ok()).unwrap_or(1);
-        let note = Note { app, summary, body, icon, urgency, time: crate::identity::now() };
-        d.broadcast_ctl(Ctl::Notification(note));
+        forward(d, app, summary, body, icon, urgency);
     }
     Ok(())
 }

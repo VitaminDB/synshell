@@ -88,6 +88,27 @@ fn image_from_hint(v: &OwnedValue) -> Option<(u32, u32, Arc<Vec<u8>>)> {
     Some((w as u32, h as u32, Arc::new(rgba)))
 }
 
+/// Интерфейс сигнала о новом уведомлении (`Added`) — для synlink: у протокола
+/// уведомлений своего сигнала нет, а мониторинг шины — режим отладки.
+pub const MIRROR_IFACE: &str = "org.synshell.Notifications";
+
+/// Аргументы `org.synshell.Notifications.Added` (тип `(susssybbb)`).
+#[derive(serde::Serialize, zbus::zvariant::Type)]
+struct Added {
+    app: String,
+    replaces: u32,
+    icon: String,
+    summary: String,
+    body: String,
+    urgency: u8,
+    /// Мгновенное служебное (громкость, яркость).
+    transient: bool,
+    /// С полосой хода (загрузка) — обновляется, пересылать незачем.
+    progress: bool,
+    /// Само пришло с другого устройства (подсказка `x-synlink-device`).
+    forwarded: bool,
+}
+
 #[zbus::interface(name = "org.freedesktop.Notifications")]
 impl Server {
     fn get_capabilities(&self) -> Vec<String> {
@@ -143,6 +164,25 @@ impl Server {
             progress: progress.map(|p| p.min(100)),
         };
         let n = Notification { timeout_ms: if expire_timeout < 0 { u32::MAX } else { expire_timeout as u32 }, ..n };
+        // Для synlink (пересылка на спаренные устройства) — без мониторинга шины.
+        let added = Added {
+            app: n.app_name.clone(),
+            replaces: replaces_id,
+            icon: app_icon,
+            summary: n.summary.clone(),
+            body: n.body.clone(),
+            urgency,
+            transient: n.transient || hints.contains_key("x-canonical-private-synchronous"),
+            progress: progress.is_some(),
+            forwarded: hints.contains_key("x-synlink-device"),
+        };
+        std::thread::spawn(move || {
+            if let Some(conn) = CONN.get() {
+                if let Err(e) = conn.emit_signal(None::<&str>, PATH, MIRROR_IFACE, "Added", &added) {
+                    log::debug!("уведомления: сигнал Added: {e}");
+                }
+            }
+        });
         let ctx = self.ctx;
         syngui::async_runtime::run_on_main_thread(move || add(ctx, n, replaces_id != 0));
         id
