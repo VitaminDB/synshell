@@ -289,11 +289,11 @@ Text {
 
 /* ─── OSD ────────────────────────────────────────────────────────────────── */
 
-/* Поля поверхности под тень карточки; = PAD/PAD_BOTTOM в osd.rs. */
+/* Поля поверхности под тень карточки; низ = PAD_BOTTOM в osd.rs. */
 .osd-surface { flex-grow: 1; padding: 48px 48px 72px 48px; }
 .osd {
-    flex-grow: 1;
     padding: 14px 20px;
+    max-width: 460px;
     border-radius: 18px;
     background-color: var(--menu-bg);
     border-width: 1px;
@@ -302,7 +302,12 @@ Text {
 .osd-icon { icon-size: 24px; icon-color: var(--accent); }
 .osd-busy-icon { icon-size: 20px; icon-color: #3DDC84; }
 .osd-value { font-size: 14px; font-weight: bold; min-width: 34px; }
-.osd-label { font-size: 14px; }
+/* Ширина карточки — по содержимому, но не уже прежней (300/380 px вместе с
+   полями 20+20); длинная подпись сжимается и переносится. */
+.osd-row { min-width: 260px; min-height: 36px; }
+.osd-row-busy { min-width: 340px; }
+.osd-meter { width: 184px; }
+.osd-label { font-size: 14px; flex-shrink: 1; }
 
 /* Кнопка «повернуть» при зафиксированной ориентации (как в Android). */
 .rotate-suggest {

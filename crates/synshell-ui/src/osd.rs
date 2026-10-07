@@ -20,9 +20,8 @@ thread_local! {
     static VISIBLE: Cell<Option<RwSignal<bool>>> = const { Cell::new(None) };
 }
 
-/// Поля поверхности вокруг карточки под её тень (`box-shadow` тем — до
-/// `0 20px 50px`); = padding `.osd-surface`.
-const PAD: u32 = 48;
+/// Нижнее поле поверхности под тень карточки (`box-shadow` тем — до
+/// `0 20px 50px`); = padding-bottom `.osd-surface`.
 const PAD_BOTTOM: u32 = 72;
 
 static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -86,9 +85,12 @@ pub fn install(ctx: ShellCtx) {
                     namespace: "syndesktop-osd".into(),
                     layer: Layer::Overlay,
                     anchor: Anchor::BOTTOM,
-                    // Поля внутри поверхности — место под тень карточки (иначе
-                    // край поверхности обрезает её в тёмный прямоугольник).
-                    size: (if busy { 380 } else { 300 } + 2 * PAD, 64 + PAD + PAD_BOTTOM),
+                    // Размер — по карточке (длинная подпись переносится, на узком
+                    // экране карточка не шире вывода). Поля внутри поверхности —
+                    // место под тень карточки (иначе край поверхности обрезает её
+                    // в тёмный прямоугольник).
+                    size: (0, 0),
+                    auto_size: true,
                     margin: [0, 0, 120 - PAD_BOTTOM as i32, 0],
                     exclusive_zone: -1,
                     keyboard: KeyboardInteractivity::None,
@@ -98,7 +100,11 @@ pub fn install(ctx: ShellCtx) {
                     let dur = crate::anim::ms(&ctx, 220);
                     Box::new(boxed(
                         "osd-surface",
-                        Presence::signal(visible, move || Box::new(view(ctx)))
+                        // По центру: пока поверхность догоняет новый размер
+                        // карточки, та не прилипает к левому краю.
+                        Presence::signal(visible, move || {
+                            Box::new(Column::new().cross_axis_alignment(CrossAxisAlignment::Center).child(view(ctx)))
+                        })
                             .enter(Motion::fade().slide(0.0, 14.0).scale(0.96))
                             .exit(Motion::fade().scale(0.97))
                             .duration_ms(dur)
@@ -126,8 +132,15 @@ pub fn install(ctx: ShellCtx) {
 }
 
 fn view(ctx: ShellCtx) -> impl Widget {
+    // Пока карточка растворяется, в ней остаётся последнее содержимое: иначе
+    // она на время анимации пустеет и поверхность сжимается под пустую.
+    let last = std::sync::Mutex::new(None::<Osd>);
     boxed("osd", crate::ui::rx(move || {
-        let Some(o) = ctx.osd.get() else { return Box::new(Row::new()) as Box<dyn Widget> };
+        let cur = ctx.osd.get();
+        if cur.is_some() {
+            *last.lock().unwrap() = cur;
+        }
+        let Some(o) = last.lock().unwrap().clone() else { return Box::new(Row::new()) as Box<dyn Widget> };
         if o.busy {
             let ring = Stack::new()
                 .child(CircularProgress::new().indeterminate().size(36.0).stroke_width(3.0))
@@ -143,14 +156,19 @@ fn view(ctx: ShellCtx) -> impl Widget {
                 Row::new()
                     .gap(14.0)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .class("osd-row-busy")
                     .child(ring)
-                    .child(Text::new(o.label).max_lines(2).class("osd-label grow")),
+                    .child(Text::new(o.label).max_lines(2).class("osd-label")),
             );
         }
-        let mut row = Row::new().gap(14.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(o.icon).class("osd-icon"));
+        let mut row = Row::new()
+            .gap(14.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .class("osd-row")
+            .child(icon(o.icon).class("osd-icon"));
         if let Some(v) = o.value {
             row = row
-                .child(crate::ui::meter(v).class("grow"))
+                .child(crate::ui::meter(v).class("osd-meter"))
                 .child(Text::new(format!("{v}")).class("osd-value"));
         }
         if !o.label.is_empty() {
