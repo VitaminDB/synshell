@@ -61,6 +61,9 @@ type Manager = DrmOutputManager<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporte
 type Out = DrmOutput<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, Option<OutputPresentationFeedback>, DrmDeviceFd>;
 
 const COLOR_FORMATS: &[Fourcc] = &[Fourcc::Argb8888, Fourcc::Abgr8888, Fourcc::Xrgb8888, Fourcc::Xbgr8888];
+/// Дисплей Qualcomm (msm_drm/sde) показывает сжатые (UBWC) кадры только в ABGR/XBGR8888 — они первыми: кадр
+/// композитора (интерфейс, Firefox, игры) идёт на дисплей сжатым.
+const COLOR_FORMATS_QCOM: &[Fourcc] = &[Fourcc::Xbgr8888, Fourcc::Abgr8888, Fourcc::Argb8888, Fourcc::Xrgb8888];
 
 /// Привязка вывода к устройству и CRTC.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -327,9 +330,13 @@ fn device_added(state: &mut State, node: DrmNode, path: &Path) -> anyhow::Result
         .dmabuf_render_formats()
         .iter()
         .filter(|f| render_node.is_some() || f.modifier == Modifier::Linear)
+        // `SYNSHELL_NO_UBWC=1` — кадр композитора без сжатия (сравнение, отладка дисплея).
+        .filter(|f| std::env::var_os("SYNSHELL_NO_UBWC").is_none() || matches!(f.modifier, Modifier::Linear | Modifier::Invalid))
         .copied()
         .collect::<FormatSet>();
-    let manager = DrmOutputManager::new(drm, allocator, exporter, Some(gbm), COLOR_FORMATS.iter().copied(), render_formats);
+    let qcom = drm.get_driver().is_ok_and(|d| d.name().to_string_lossy().eq_ignore_ascii_case("msm_drm"));
+    let color_formats = if qcom { COLOR_FORMATS_QCOM } else { COLOR_FORMATS };
+    let manager = DrmOutputManager::new(drm, allocator, exporter, Some(gbm), color_formats.iter().copied(), render_formats);
     // Нотификатор держит fd устройства (и DRM-мастер) — регистрируем, только когда
     // устройство точно принято: иначе после ошибки fd остался бы жить в цикле событий.
     let token = t.loop_handle.insert_source(notifier, move |event, meta, state| match event {
@@ -684,6 +691,11 @@ fn output_feedback(primary: DrmNode, gpus: &mut GpuManager<GbmGlesBackend<GlesRe
         })
         .flatten()
         .filter(|f| render_formats.contains(f))
+        // BGRA-клиентам (XRGB/ARGB: Firefox, игры через Xwayland) на Qualcomm группу плана не даём: дисплей
+        // берёт их только несжатыми, и прямой вывод заставил бы клиента рисовать без UBWC. Сжатый буфер
+        // клиента + проход композитора в сжатый кадр дешевле: 4K-видео — GPU 75 % на 222 МГц против 77 % на
+        // 297 МГц (docs/08, 8.8). `SYNSHELL_SCANOUT_BGRA=1` — прямой вывод и для них.
+        .filter(|f| !(qcom && !std::env::var("SYNSHELL_SCANOUT_BGRA").is_ok_and(|v| v == "1") && matches!(f.code, Fourcc::Argb8888 | Fourcc::Xrgb8888)))
         .collect();
     tracing::info!(
         форматов_плана = plane_formats.iter().count(),
