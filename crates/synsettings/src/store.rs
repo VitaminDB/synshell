@@ -402,7 +402,7 @@ pub fn init(path: &Path) {
 fn load(path: &Path) -> Store {
     let text = match std::fs::read_to_string(path) {
         Ok(t) => t,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => DEFAULT_CONFIG_TOML.to_string(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Config::default_config_text(),
         Err(e) => {
             return Store {
                 path: path.to_path_buf(),

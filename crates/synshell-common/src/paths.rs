@@ -35,6 +35,13 @@ pub fn config_file() -> PathBuf {
     config_dir().join("config.toml")
 }
 
+/// Системный конфиг по умолчанию для этого устройства (`/etc/synshell/config.toml`): его кладёт образ
+/// (synmobile: `devices/<имя>/rootfs/synshell-config.toml` — тема, док, панели, экран, как настроено на телефоне).
+/// Пока у пользователя нет своего файла, читается он; при создании своего — копируется он, а не встроенный.
+pub fn system_config_file() -> PathBuf {
+    std::env::var_os("SYNSHELL_SYSTEM_CONFIG").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/etc/synshell/config.toml"))
+}
+
 /// Пользовательская MSS-тема, дописывается поверх встроенной.
 pub fn user_theme_file() -> PathBuf {
     config_dir().join("theme.mss")

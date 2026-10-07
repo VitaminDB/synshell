@@ -1839,7 +1839,20 @@ impl Config {
     /// Ошибка разбора возвращается вместе с конфигом по умолчанию, чтобы
     /// сеанс не падал из-за опечатки.
     pub fn load() -> (Config, Option<String>) {
-        Self::load_from(&crate::paths::config_file())
+        let user = crate::paths::config_file();
+        if !user.exists() {
+            // нет своего — системный по умолчанию (/etc/synshell/config.toml), если образ его положил
+            let sys = crate::paths::system_config_file();
+            if sys.exists() {
+                return Self::load_from(&sys);
+            }
+        }
+        Self::load_from(&user)
+    }
+
+    /// Текст конфигурации «по умолчанию» для нового пользователя: системный файл устройства, иначе встроенный.
+    pub fn default_config_text() -> String {
+        std::fs::read_to_string(crate::paths::system_config_file()).unwrap_or_else(|_| DEFAULT_CONFIG_TOML.to_string())
     }
 
     pub fn load_from(path: &Path) -> (Config, Option<String>) {
@@ -1868,7 +1881,7 @@ impl Config {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        std::fs::write(path, DEFAULT_CONFIG_TOML)
+        std::fs::write(path, Self::default_config_text())
     }
 
     /// Итоговые сочетания: встроенные + пользовательские (перекрывают).
@@ -2592,6 +2605,24 @@ mod platform_tests {
         assert!(glob_match("*-1", "DSI-1"));
         assert!(!glob_match("*-2", "DSI-1"));
     }
+    #[test]
+    fn system_default_config_is_used_without_user_file() {
+        // нет пользовательского файла — читается системный /etc/synshell/config.toml (здесь — временный)
+        let dir = std::env::temp_dir().join(format!("synshell-sysconf-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sys = dir.join("system.toml");
+        std::fs::write(&sys, "[appearance]\ntheme = \"dracula\"\n").unwrap();
+        std::env::set_var("SYNSHELL_CONFIG_DIR", dir.join("none"));
+        std::env::set_var("SYNSHELL_SYSTEM_CONFIG", &sys);
+        let (c, err) = Config::load();
+        assert!(err.is_none(), "{err:?}");
+        assert_eq!(c.appearance.theme, "dracula");
+        assert!(Config::default_config_text().contains("dracula"));
+        std::env::remove_var("SYNSHELL_CONFIG_DIR");
+        std::env::remove_var("SYNSHELL_SYSTEM_CONFIG");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn phone_defaults() {
         let mut c = Config::default();
