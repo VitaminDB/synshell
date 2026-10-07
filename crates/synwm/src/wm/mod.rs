@@ -336,6 +336,9 @@ pub struct Wm {
     pub snap_preview: Option<(Rectangle<i32, Logical>, Animation)>,
     /// Закрывающиеся окна (анимация `window_close`).
     pub closing: Vec<Closing>,
+    /// Снимки окон, которым композитор отправил «закрыть» (окно, снимок, когда): клиент часто сперва отцепляет
+    /// буфер (пустой коммит) — снимать в `unmap_window` уже нечего; через 3 с без закрытия — выбрасываются.
+    pub close_snapshots: Vec<(WindowId, Closing, std::time::Instant)>,
     /// Волны от касаний (`[animations] ripple`): точка (глобальные координаты) и анимация 0 → 1.
     pub ripples: Vec<(Point<f64, Logical>, Animation)>,
     /// Окно, которое тащат мышью (едет при смене стола).
@@ -361,6 +364,7 @@ impl Wm {
             snap_preview: None,
             closing: Vec::new(),
             ripples: Vec::new(),
+            close_snapshots: Vec::new(),
             dragging: None,
             mobile: mobile::MobileState::default(),
             next_id: 1,

@@ -244,18 +244,17 @@ impl State {
     }
 
     /// Окно убрало буфер или уничтожено.
-    /// Анимация закрытия (`[animations] window_close`): снимок последнего кадра видимого окна — до того, как
-    /// клиент отпустит буферы; гаснет в рендере (`render::closing_elements`).
-    fn start_close_anim(&mut self, id: WindowId) {
+    /// Снимок видимого окна для анимации закрытия (`[animations] window_close`), если она включена.
+    fn close_snapshot(&mut self, id: WindowId) -> Option<crate::wm::Closing> {
         let cfg = &self.core.config.animations;
         let style = anim::motion_style(cfg, &cfg.window_close);
         let dur = anim::duration(cfg, 200);
         if style == "none" || dur.is_zero() {
-            return;
+            return None;
         }
-        let Some(m) = self.core.wm.get(id) else { return };
+        let m = self.core.wm.get(id)?;
         if !m.mapped || m.minimized || !m.on_workspace(self.core.wm.active) {
-            return;
+            return None;
         }
         let rect = m.geometry();
         let (workspace, sticky, out_name) = (m.workspace, m.sticky, m.output.clone());
@@ -267,15 +266,18 @@ impl State {
             .map(|o| o.current_scale().fractional_scale())
             .unwrap_or(1.0);
         let max = ((rect.size.w as f64 * scale).ceil() as i32, (rect.size.h as f64 * scale).ceil() as i32);
-        let shot = match self.backend.thumbnail(&mut self.core, id, max) {
+        let (w, h, rgba) = match self.backend.thumbnail(&mut self.core, id, max) {
             Ok(Some(s)) => s,
-            Ok(None) => return,
+            Ok(None) => return None,
             Err(e) => {
                 tracing::debug!(?e, "снимок закрывающегося окна");
-                return;
+                return None;
             }
         };
-        let (w, h, rgba) = shot;
+        // пустой кадр (буфер уже отцеплен) — не годится
+        if rgba.chunks_exact(4).all(|p| p[3] == 0) {
+            return None;
+        }
         let buffer = smithay::backend::renderer::element::memory::MemoryRenderBuffer::from_slice(
             &rgba,
             smithay::backend::allocator::Fourcc::Abgr8888,
@@ -284,7 +286,7 @@ impl State {
             smithay::utils::Transform::Normal,
             None,
         );
-        self.core.wm.closing.push(crate::wm::Closing {
+        Some(crate::wm::Closing {
             buffer,
             rect,
             workspace,
@@ -292,7 +294,32 @@ impl State {
             output: out_name,
             style,
             anim: anim::Animation::new(0.0, 1.0, dur, anim::Curve::EaseInCubic),
-        });
+        })
+    }
+
+    /// Окно исчезает: снимок, сделанный при запросе «закрыть», или снятый сейчас — гаснет в рендере
+    /// (`render::closing_elements`).
+    fn start_close_anim(&mut self, id: WindowId) {
+        let now = std::time::Instant::now();
+        self.core.wm.close_snapshots.retain(|(_, _, t)| now.duration_since(*t) < std::time::Duration::from_secs(3));
+        let pending = self.core.wm.close_snapshots.iter().position(|(w, _, _)| *w == id).map(|i| self.core.wm.close_snapshots.remove(i).1);
+        let from_request = pending.is_some();
+        let shot = match pending {
+            Some(c) => Some(c),
+            None => self.close_snapshot(id),
+        };
+        if let Some(mut c) = shot {
+            tracing::info!(
+                style = %c.style,
+                rect = ?c.rect,
+                from_request,
+                "анимация закрытия окна"
+            );
+            // отсчёт — с момента исчезновения
+            let dur = anim::duration(&self.core.config.animations, 200);
+            c.anim = anim::Animation::new(0.0, 1.0, dur, anim::Curve::EaseInCubic);
+            self.core.wm.closing.push(c);
+        }
     }
 
     pub fn unmap_window(&mut self, id: WindowId, destroyed: bool) {
@@ -914,6 +941,11 @@ impl State {
     }
 
     pub fn close_window(&mut self, id: WindowId) {
+        // снимок до просьбы закрыться: потом клиент может первым делом отцепить буфер
+        if let Some(c) = self.close_snapshot(id) {
+            self.core.wm.close_snapshots.retain(|(w, _, _)| *w != id);
+            self.core.wm.close_snapshots.push((id, c, std::time::Instant::now()));
+        }
         let Some(m) = self.core.wm.get(id) else { return };
         match m.window.underlying_surface() {
             WindowSurface::Wayland(t) => t.send_close(),
