@@ -51,7 +51,7 @@ turnip) без них не было бы glamor/DRI3. Особенности т�
 3. композитор дважды подряд упал в первые 20 с — `synlogin daemon` запускает дальше с
    `SYNSHELL_RENDERER=cpu` (до перезапуска демона).
 
-Замер на Redmi K50 Ultra (vkcube на весь экран, `arch-mobile-port/tools/phone/fps.sh`): GPU — 60 fps,
+Замер на Redmi K50 Ultra (vkcube на весь экран, `arch-mobile-port/hw/gpu/fps.sh`): GPU — 60 fps,
 synwm ≈3 % одного ядра; CPU — 30 fps, ≈54 %.
 
 ## Состояние на телефоне (Redmi K50 Ultra, 2026-09-29)
