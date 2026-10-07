@@ -7,7 +7,7 @@ vendor MAINLINE), с хостом они общаются по протокол�
 свойства `waydroid.*`). Код Waydroid (GPL-3.0) не переносится — только совместимость по протоколу;
 лицензия syndroid — как у всего synshell (MIT OR Apache-2.0).
 
-Платформенная часть (ядро с `PID_NS`, сборка образа, GPU) — `arch-mobile-port/docs/16-android.md`.
+Платформенная часть (ядро с `PID_NS`, сборка образа, GPU) — `synmobile/docs/16-android.md`.
 
 ## Состав
 Один крейт `crates/syndroid`, бинарники:
@@ -87,7 +87,7 @@ Android (запуск приложения, APK, logcat) демон начина
    размер окна и DPI, `persist.waydroid.multi_windows`.
 
 ## Слой платформы
-Устройство-специфичное syndroid не знает: его ставит сборка ОС устройства (arch-mobile-port —
+Устройство-специфичное syndroid не знает: его ставит сборка ОС устройства (synmobile —
 `tools/install-android.sh`).
 - `/usr/share/syndroid/overlay/{system,vendor}` — файлы поверх образов (средний слой overlay: свои
   `overlay/` → платформа → образ), например turnip с KGSL под Android;
@@ -213,7 +213,7 @@ import SYSTEM VENDOR [ИМЯ] | use ИМЯ | remove ИМЯ`, `sudo syndroid shel
   регистрация `IServiceManager::add`. Раскладки HIDL: `SensorInfo` 112 байт, `Event` 80 байт.
   Данные — от **источника платформы** `/usr/lib/syndroid/sensors-source` (строки `A x y z`, `G`, `M`, `L lux`,
   `P 0|1`; `--list` — набор): syndroid запускает его только для включённых Android датчиков; нет источника —
-  остаётся заглушка. Источник для Qualcomm SSC — arch-mobile-port `sensors/syndroid-ssc-sensors.c`.
+  остаётся заглушка. Источник для Qualcomm SSC — synmobile `sensors/syndroid-ssc-sensors.c`.
   Грабли: SensorService вызывает `poll` и синхронно при инициализации (поток `system-server-init`) — блок «до
   первого события» вешал system_server (сторож через 60 с), поэтому `poll` ждёт не дольше 0,5 с. Автоповорот
   Android демон после загрузки выключает (`accelerometer_rotation=0`): поворачивает synshell, иначе содержимое
@@ -222,6 +222,6 @@ import SYSTEM VENDOR [ИМЯ] | use ИМЯ | remove ИМЯ`, `sudo syndroid shel
   удалённый путь, и `__exec`/`__bridge` не запускались.
 6. ✅ (2026-10-01) Сборка образа телефона: всё syndroid попадает в образ без ручных шагов (программы, юнит,
    автозапуск, ярлык — `install-synshell.sh`; dnsmasq, turnip под Android и свойства устройства —
-   arch-mobile-port). Проверено чистой сборкой rootfs рядом с sysroot (`ROOTFS_DIR=…`). Образы LineageOS в
+   synmobile). Проверено чистой сборкой rootfs рядом с sysroot (`ROOTFS_DIR=…`). Образы LineageOS в
    rootfs не входят (около 2,3 ГБ) — скачиваются из окна «Управление Android». Отдельная группа не нужна:
    свой Android запускает любой пользователь, управление образами — администраторы (wheel).

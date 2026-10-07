@@ -2107,7 +2107,7 @@ pub struct ScreenRotation {
     pub animation_ms: u32,
     /// Угол наклона (градусы, 10–80), после которого датчик считает, что
     /// телефон повернули; меньше — чувствительнее. Нужна служба датчиков с
-    /// методом `SetOrientationThreshold` (патч arch-mobile-port), иначе — 35°.
+    /// методом `SetOrientationThreshold` (патч synmobile), иначе — 35°.
     pub threshold_deg: u32,
 }
 

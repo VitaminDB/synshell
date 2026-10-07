@@ -1,7 +1,7 @@
 # Камера (`syncamera`)
 
 Программа «Камера» synshell для телефона: по возможностям — как камера Google Pixel, внешне — тоже.
-Кадры, снимки и управление даёт служба камеры платформы **syncamd** (arch-mobile-port,
+Кадры, снимки и управление даёт служба камеры платформы **syncamd** (synmobile,
 `camera/syncam.h`, протокол v3, docs/22-camera.md): сокет `/run/syncam/syncam.sock`, группа `video`.
 
 ```

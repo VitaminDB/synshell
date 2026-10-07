@@ -1,5 +1,5 @@
 //! Камера телефона: какая включена — подписка на службу камеры syncamd
-//! платформы (arch-mobile-port, `camera/syncam.h`): сокет
+//! платформы (synmobile, `camera/syncam.h`): сокет
 //! `/run/syncam/syncam.sock` (SOCK_SEQPACKET, группа video), сообщение
 //! WATCH → STATE сразу и при каждом включении/выключении камеры. Для значка
 //! «камера используется».
