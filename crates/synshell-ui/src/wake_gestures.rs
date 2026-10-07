@@ -1,12 +1,14 @@
 //! Пробуждение жестами (телефон): двойной стук по погашенному экрану и
 //! «поднять, чтобы разбудить» (`[mobile] double_tap_wake`, `raise_to_wake`).
 //!
-//! Жесты распознаёт DSP датчиков (SLPI, алгоритмы `dbtap` и `pickup`);
-//! события приходят строками от `/usr/lib/syn-sensors/ssc-events`
-//! (arch-mobile-port, docs/15). Программа работает только пока экран
-//! погашен: датчики опрашиваются по необходимости, а стук по включённому
-//! экрану ничего не делает. Клиент SSC будящий — жест поднимает телефон из
-//! сна, а `--inhibit` запрещает сон на пару секунд, пока экран включается.
+//! Двойной тап по экрану распознаёт сам тачскрин при погашенной панели и
+//! присылает клавишу KEY_WAKEUP (композитор будит экран любым вводом) —
+//! режим включает программа платформы `/usr/lib/syn-sensors/touch-gesture`
+//! (тачскрины Xiaomi). Без неё — алгоритм `dbtap` DSP датчиков (стук по
+//! корпусу). «Поднять» — алгоритм `pickup` SLPI: события строками от
+//! `/usr/lib/syn-sensors/ssc-events` (arch-mobile-port, docs/15), только пока
+//! экран погашен. Клиент SSC будящий — жест поднимает телефон из сна, а
+//! `--inhibit` запрещает сон на пару секунд, пока экран включается.
 
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
@@ -19,20 +21,28 @@ use synshell_common::Action;
 use crate::ctx::ShellCtx;
 
 const PROGRAM: &str = "/usr/lib/syn-sensors/ssc-events";
+const TOUCH: &str = "/usr/lib/syn-sensors/touch-gesture";
+
+/// Последнее, что передано тачскрину (двойной тап вкл/выкл).
+static TOUCH_STATE: Mutex<Option<bool>> = Mutex::new(None);
 
 /// Запущенная программа и её набор жестов.
 static RUNNING: Mutex<Option<(Vec<&'static str>, Child)>> = Mutex::new(None);
 
 pub fn start(ctx: ShellCtx) {
-    if !std::path::Path::new(PROGRAM).exists() {
+    let touch = std::path::Path::new(TOUCH).exists();
+    if !touch && !std::path::Path::new(PROGRAM).exists() {
         return;
     }
     create_effect(move || {
         let off = !ctx.screen_on.get();
         let cfg = ctx.config.get();
         let m = &cfg.mobile;
+        if touch {
+            set_touch(m.double_tap_wake);
+        }
         let mut types = Vec::new();
-        if m.double_tap_wake {
+        if m.double_tap_wake && !touch {
             types.push("dbtap");
         }
         if m.raise_to_wake {
@@ -40,6 +50,22 @@ pub fn start(ctx: ShellCtx) {
         }
         set(if off { types } else { Vec::new() });
     });
+}
+
+/// Двойной тап тачскрина: включить или выключить (только при смене).
+fn set_touch(on: bool) {
+    let mut last = TOUCH_STATE.lock().unwrap();
+    if *last == Some(on) {
+        return;
+    }
+    match Command::new(TOUCH).args(["doubletap", if on { "1" } else { "0" }]).status() {
+        Ok(st) if st.success() => {
+            log::info!("двойной тап тачскрина: {}", if on { "включён" } else { "выключен" });
+            *last = Some(on);
+        }
+        Ok(st) => log::warn!("{TOUCH}: {st}"),
+        Err(e) => log::warn!("{TOUCH}: {e}"),
+    }
 }
 
 fn set(types: Vec<&'static str>) {
