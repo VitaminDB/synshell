@@ -1,5 +1,7 @@
 //! Графический процессор: частота и загрузка. Qualcomm KGSL
-//! (`/sys/class/kgsl/kgsl-3d0`), AMD (`gpu_busy_percent`), Intel (`gt_cur_freq_mhz`).
+//! (`/sys/class/kgsl/kgsl-3d0`), AMD (`gpu_busy_percent`), Intel (`gt_cur_freq_mhz`),
+//! mainline-GPU через devfreq (`/sys/class/devfreq/<…gpu>`: drm/msm Adreno, panfrost Mali; нагрузка — атрибут `load`
+//! из патча ядра synmobile, без него — только частота).
 
 use crate::Sys;
 
@@ -37,7 +39,36 @@ pub fn read(sys: &Sys) -> Option<Gpu> {
             return Some(Gpu { name: Some("Intel".into()), busy_percent: None, cur_mhz: Some(cur), max_mhz: sys.read_num(format!("{g}/gt_max_freq_mhz")) });
         }
     }
-    None
+    devfreq_gpu(sys)
+}
+
+/// GPU с devfreq (mainline): узел `/sys/class/devfreq/<имя>`, имя которого содержит «gpu».
+fn devfreq_gpu(sys: &Sys) -> Option<Gpu> {
+    let base = "/sys/class/devfreq";
+    let dev = sys.list(base).into_iter().find(|n| n.contains("gpu"))?;
+    let d = format!("{base}/{dev}");
+    let mhz = |f: &str| sys.read_num::<u64>(format!("{d}/{f}")).map(|v| (v / 1_000_000) as u32);
+    Some(Gpu {
+        name: gpu_name(sys.read(format!("{d}/device/of_node/compatible")).as_deref()),
+        busy_percent: sys.read_num::<f32>(format!("{d}/load")),
+        cur_mhz: mhz("cur_freq"),
+        max_mhz: mhz("max_freq"),
+    })
+}
+
+/// Имя по первой строке compatible: «qcom,adreno-505.0» → «Adreno 505», «arm,mali-bifrost» → «Mali Bifrost».
+fn gpu_name(compatible: Option<&str>) -> Option<String> {
+    let first = compatible?.split('\0').next()?.trim();
+    let model = first.split_once(',').map_or(first, |(_, m)| m);
+    if let Some(n) = model.strip_prefix("adreno-") {
+        return Some(format!("Adreno {}", n.split('.').next().unwrap_or(n)));
+    }
+    if let Some(n) = model.strip_prefix("mali-") {
+        let mut c = n.chars();
+        let n = c.next().map(|f| f.to_uppercase().chain(c).collect::<String>()).unwrap_or_default();
+        return Some(format!("Mali {n}"));
+    }
+    (!model.is_empty()).then(|| model.to_string())
 }
 
 #[cfg(test)]
@@ -57,5 +88,20 @@ mod tests {
         assert_eq!(g.busy_percent, Some(3.0));
         assert_eq!(g.cur_mhz, Some(285));
         assert_eq!(g.max_mhz, Some(900));
+    }
+
+    #[test]
+    fn devfreq_adreno() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path().join("sys/class/devfreq/1c00000.gpu");
+        std::fs::create_dir_all(d.join("device/of_node")).unwrap();
+        std::fs::write(d.join("device/of_node/compatible"), "qcom,adreno-505.0\0qcom,adreno\0").unwrap();
+        std::fs::write(d.join("cur_freq"), "400000000\n").unwrap();
+        std::fs::write(d.join("max_freq"), "450000000\n").unwrap();
+        std::fs::write(d.join("load"), "37\n").unwrap();
+        let g = read(&Sys::at(dir.path())).unwrap();
+        assert_eq!(g.name.as_deref(), Some("Adreno 505"));
+        assert_eq!(g.busy_percent, Some(37.0));
+        assert_eq!((g.cur_mhz, g.max_mhz), (Some(400), Some(450)));
     }
 }
