@@ -287,6 +287,23 @@ pub fn probe_gpu_here(path: &std::path::Path) -> bool {
     EGLDevice::device_for_display(&display).map(|d| !d.is_software()).unwrap_or(false)
 }
 
+/// Render-узел GPU, который реально рисует для устройства вывода `path`, — через EGL.
+/// Нужен для устройств без своего render-узла (simpledrm/дисплейный KMS), за которыми
+/// Mesa (kmsro) подставляет отдельный GPU: SM-T295 — simpledrm card0 + Adreno renderD128.
+pub fn egl_render_node(path: &std::path::Path) -> Option<smithay::backend::drm::DrmNode> {
+    use smithay::backend::egl::{EGLDevice, EGLDisplay};
+    use smithay::reexports::gbm::Device as GbmDevice;
+    let file = std::fs::OpenOptions::new().read(true).write(true).open(path).ok()?;
+    let fd = smithay::backend::drm::DrmDeviceFd::new(smithay::utils::DeviceFd::from(std::os::fd::OwnedFd::from(file)));
+    let gbm = GbmDevice::new(fd).ok()?;
+    let display = unsafe { EGLDisplay::new(gbm) }.ok()?;
+    let dev = EGLDevice::device_for_display(&display).ok()?;
+    if dev.is_software() {
+        return None;
+    }
+    dev.try_get_render_node().ok().flatten()
+}
+
 /// Форм-фактор по подключённым коннекторам: телефон/планшет, если единственный
 /// подключённый — встроенная DSI-панель.
 pub fn probe_form_factor(path: &std::path::Path) -> Option<synshell_common::config::FormFactor> {

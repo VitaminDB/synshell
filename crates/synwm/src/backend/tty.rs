@@ -115,8 +115,15 @@ pub struct TtyBackend {
 
 /// Узел рендеринга DRM-устройства, если он есть: основной GPU, узел EGL и
 /// узлы устройств должны совпадать, чтобы `GpuManager` находил рендерер.
+/// Устройство без своего render-узла (simpledrm за kmsro) — узел GPU, который за ним рисует (через EGL).
 fn render_node_of(node: DrmNode) -> DrmNode {
-    node.node_with_type(NodeType::Render).and_then(|n| n.ok()).unwrap_or(node)
+    if let Some(Ok(rn)) = node.node_with_type(NodeType::Render) {
+        return rn;
+    }
+    node.dev_path()
+        .and_then(|p| super::egl_render_node(&p))
+        .inspect(|rn| tracing::info!(%node, %rn, "рендер для устройства без render-узла — через EGL"))
+        .unwrap_or(node)
 }
 
 impl TtyBackend {
@@ -127,7 +134,9 @@ impl TtyBackend {
             render_node_of(DrmNode::from_path(p)?)
         } else {
             primary_gpu(&seat)?
-                .and_then(|p| DrmNode::from_path(p).ok()?.node_with_type(NodeType::Render)?.ok())
+                .and_then(|p| DrmNode::from_path(p).ok())
+                .map(render_node_of)
+                .filter(|n| n.ty() == NodeType::Render)
                 .or_else(|| all_gpus(&seat).ok()?.into_iter().find_map(|p| DrmNode::from_path(p).ok()))
                 .ok_or_else(|| anyhow::anyhow!("нет GPU"))?
         };

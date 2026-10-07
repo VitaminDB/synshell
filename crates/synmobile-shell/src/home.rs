@@ -73,6 +73,8 @@ pub fn install(ctx: ShellCtx) {
         let p = page.get();
         let wins = ctx.windows.get();
         let mobile = ctx.mobile.get();
+        // смена конфига (resources_page включили на лету) — пересчитать: ctx.cfg() не отслеживается
+        let _ = ctx.generation.get();
         let home_shown = match &mobile {
             Some(m) if m.mode == synshell_common::action::MobileMode::Pages => m.page.is_none(),
             _ => !wins.iter().any(|w| !w.minimized),
