@@ -476,6 +476,10 @@ impl KmsCpuBackend {
         for s in self.surfaces.values_mut() {
             if !on {
                 let _ = s.drm_output.with_compositor(|c| c.clear());
+            } else {
+                // первый кадр после включения — целиком: simpledrm при выключении залил экран чёрным, а копирует
+                // только damage кадра (SM-T295: после пробуждения чёрный экран, docs/27 §27.9)
+                s.drm_output.with_compositor(|c| c.reset_buffers());
             }
             if let Some(data) = core.output_data.get_mut(&s.output) {
                 data.redraw = if on { RedrawState::Queued } else { RedrawState::Idle };
