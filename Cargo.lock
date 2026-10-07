@@ -4682,6 +4682,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-audio-player"
+version = "0.1.4"
+dependencies = [
+ "syngui",
+ "synshell-common",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "syn-video-player"
 version = "0.1.4"
 dependencies = [

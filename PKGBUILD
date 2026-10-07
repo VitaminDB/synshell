@@ -45,7 +45,7 @@ _profile=${SYNSHELL_PROFILE:-release}
 
 build() {
     cd "$startdir"
-    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player
+    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player
 }
 
 check() {
@@ -55,7 +55,7 @@ check() {
 
 package() {
     cd "$startdir"
-    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player; do
+    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player; do
         install -Dm755 "target/$_profile/$b" "$pkgdir/usr/bin/$b"
     done
     install -Dm755 data/synshell-session "$pkgdir/usr/bin/synshell-session"
@@ -84,6 +84,10 @@ package() {
         "$pkgdir/usr/share/applications/syn-video-player.desktop"
     install -Dm644 crates/syn-video-player/data/icons/syn-video-player.svg \
         "$pkgdir/usr/share/icons/hicolor/scalable/apps/syn-video-player.svg"
+    install -Dm644 crates/syn-audio-player/data/syn-audio-player.desktop \
+        "$pkgdir/usr/share/applications/syn-audio-player.desktop"
+    install -Dm644 crates/syn-audio-player/data/icons/syn-audio-player.svg \
+        "$pkgdir/usr/share/icons/hicolor/scalable/apps/syn-audio-player.svg"
     # Программы по умолчанию для типов файлов (XDG_CURRENT_DESKTOP=synshell).
     { echo "[Default Applications]"; cat crates/*/data/defaults.mimeapps | grep -v '^#' | grep '='; } \
         | install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/synshell-mimeapps.list"

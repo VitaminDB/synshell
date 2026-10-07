@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Музыка
+Name[en]=Music
+GenericName=Аудиоплеер
+GenericName[en]=Audio Player
+Comment=Музыка и аудиофайлы: библиотека, очередь, обложки
+Exec=syn-audio-player %U
+Icon=syn-audio-player
+Categories=AudioVideo;Audio;Player;Music;
+Keywords=music;audio;player;mp3;flac;музыка;аудио;плеер;песни;
+MimeType=audio/mpeg;audio/mp3;audio/x-mp3;audio/x-mpeg;audio/mpeg3;audio/x-mpeg-3;audio/mpg;audio/x-mpg;audio/x-mp2;audio/mp2;audio/flac;audio/x-flac;audio/ogg;audio/x-ogg;audio/vorbis;audio/x-vorbis;audio/x-vorbis+ogg;audio/opus;audio/x-opus+ogg;audio/x-speex;audio/x-speex+ogg;audio/x-flac+ogg;audio/mp4;audio/x-m4a;audio/m4a;audio/x-m4b;audio/x-m4p;audio/aac;audio/x-aac;audio/aacp;audio/x-hx-aac-adts;audio/3gpp;audio/3gpp2;audio/AMR;audio/amr;audio/amr-wb;audio/x-amr;audio/wav;audio/x-wav;audio/wave;audio/vnd.wave;audio/x-pn-wav;audio/x-aiff;audio/aiff;audio/x-aifc;audio/x-caf;audio/basic;audio/x-au;audio/x-snd;audio/x-ms-wma;audio/x-ms-asx;audio/x-ms-wax;audio/x-ape;audio/ape;audio/x-wavpack;audio/x-musepack;audio/x-mpc;audio/x-tta;audio/x-tak;audio/x-shorten;audio/webm;audio/x-matroska;audio/x-mka;audio/ac3;audio/x-ac3;audio/eac3;audio/vnd.dts;audio/vnd.dts.hd;audio/x-dts;audio/x-truehd;audio/true-hd;audio/midi;audio/x-midi;audio/x-mod;audio/x-s3m;audio/x-xm;audio/x-it;audio/x-voc;audio/x-gsm;audio/x-adpcm;audio/x-dsf;audio/x-dff;audio/dsd;audio/x-realaudio;audio/vnd.rn-realaudio;audio/x-pn-realaudio;
+StartupNotify=true

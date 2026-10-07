@@ -1,0 +1,17 @@
+[package]
+name = "syn-audio-player"
+description = "Музыкальный плеер synshell на ffmpeg и syngui: библиотека из «Музыки», очередь, обложки и теги, стерео"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "syn-audio-player"
+path = "src/main.rs"
+
+[dependencies]
+synshell-common.workspace = true
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "ffmpeg"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
