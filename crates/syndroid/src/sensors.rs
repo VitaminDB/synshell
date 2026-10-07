@@ -1,4 +1,5 @@
 //! Датчики для Android — `syndroidd __sensors`: HIDL-сервис `android.hardware.sensors@1.0::ISensors/default`
+//! (акселерометр, гироскоп, магнитометр, свет, приближение; шагомер, детектор шага и значимое движение — алгоритмы SLPI)
 //! по hwbinder контейнера (его объявляет VINTF vendor-образа Waydroid; заглушку HAL в образе выключает свойство
 //! `waydroid.stub_sensors_hal=0`). Данные — от источника платформы `/usr/lib/syndroid/sensors-source`
 //! (строки `A x y z`, `G …`, `M …`, `L lux`, `P 0|1`; `--list` — какие датчики есть). Источник запускается
@@ -24,6 +25,10 @@ const TYPE_META_DATA: i32 = 0;
 const META_FLUSH_COMPLETE: i32 = 1;
 const FLAG_WAKE_UP: u32 = 1;
 const FLAG_ON_CHANGE: u32 = 2;
+/// Режимы отчёта (биты 1–3 флагов): однократный и особый.
+const FLAG_ONE_SHOT: u32 = 4;
+const FLAG_SPECIAL: u32 = 6;
+const HANDLE_SIG_MOTION: i32 = 8;
 const STATUS_ACCURACY_HIGH: u8 = 3;
 const RESULT_OK: i32 = 0;
 const RESULT_BAD_VALUE: i32 = -22;
@@ -49,6 +54,10 @@ const DEFS: &[Def] = &[
     Def { key: "gyro", handle: 2, kind: 4, name: "Gyroscope", type_str: "android.sensor.gyroscope", max_range: 34.906586, resolution: 0.0011, power: 0.5, min_delay_us: 5000, max_delay_us: 1_000_000, flags: 0 },
     Def { key: "mag", handle: 3, kind: 2, name: "Magnetometer", type_str: "android.sensor.magnetic_field", max_range: 4912.0, resolution: 0.15, power: 0.6, min_delay_us: 20000, max_delay_us: 1_000_000, flags: 0 },
     Def { key: "light", handle: 4, kind: 5, name: "Ambient Light", type_str: "android.sensor.light", max_range: 65535.0, resolution: 1.0, power: 0.1, min_delay_us: 0, max_delay_us: 0, flags: FLAG_ON_CHANGE },
+    // Алгоритмы SLPI: шагомер, детектор шага, значимое движение (Android: TYPE 19, 18, 17)
+    Def { key: "steps", handle: 6, kind: 19, name: "Step Counter", type_str: "android.sensor.step_counter", max_range: 4.0e9, resolution: 1.0, power: 0.05, min_delay_us: 0, max_delay_us: 0, flags: FLAG_ON_CHANGE },
+    Def { key: "stepdet", handle: 7, kind: 18, name: "Step Detector", type_str: "android.sensor.step_detector", max_range: 1.0, resolution: 1.0, power: 0.05, min_delay_us: 0, max_delay_us: 0, flags: FLAG_SPECIAL },
+    Def { key: "sigmotion", handle: HANDLE_SIG_MOTION, kind: 17, name: "Significant Motion", type_str: "android.sensor.significant_motion", max_range: 1.0, resolution: 1.0, power: 0.05, min_delay_us: -1, max_delay_us: 0, flags: FLAG_ONE_SHOT | FLAG_WAKE_UP },
     Def { key: "prox", handle: 5, kind: 8, name: "Proximity", type_str: "android.sensor.proximity", max_range: 5.0, resolution: 5.0, power: 0.1, min_delay_us: 0, max_delay_us: 0, flags: FLAG_ON_CHANGE | FLAG_WAKE_UP },
 ];
 
@@ -95,6 +104,9 @@ struct State {
     /// Контейнер заморожен (демон: SIGUSR1/SIGUSR2): источник остановлен — замороженный Android датчики
     /// выключить не может, а данные SLPI будят телефон и не дают ему уснуть.
     paused: bool,
+    /// Шагомер: SLPI считает с включения источника, Android ждёт счётчик с загрузки — прошлые запуски копятся.
+    steps_base: u64,
+    steps_last: u64,
 }
 
 pub struct Sensors {
@@ -167,6 +179,18 @@ impl Sensors {
             ("L", [lux]) => ("light", lux.to_le_bytes().to_vec()),
             // Приближение — расстояние, см: близко — 0, далеко — максимум
             ("P", [near]) => ("prox", (if *near != 0.0 { 0.0f32 } else { 5.0f32 }).to_le_bytes().to_vec()),
+            ("S", [n]) => {
+                let raw = n.max(0.0) as u64;
+                let mut st = self.st.lock().unwrap();
+                // Источник перезапущен — его счёт начался заново
+                if raw < st.steps_last {
+                    st.steps_base += st.steps_last;
+                }
+                st.steps_last = raw;
+                ("steps", (st.steps_base + raw).to_le_bytes().to_vec())
+            }
+            ("D", _) => ("stepdet", 1.0f32.to_le_bytes().to_vec()),
+            ("N", _) => ("sigmotion", 1.0f32.to_le_bytes().to_vec()),
             _ => return,
         };
         let Some(d) = DEFS.iter().find(|d| d.key == key) else { return };
@@ -185,6 +209,14 @@ impl Sensors {
             st.last.insert(d.handle, ts);
         }
         self.events.push(event(d.handle, d.kind, ts, &payload));
+        // Однократный датчик после события выключается сам (так требует HAL)
+        if d.handle == HANDLE_SIG_MOTION {
+            if let Some(me) = self.arc() {
+                let mut st = me.st.lock().unwrap();
+                st.active.remove(&HANDLE_SIG_MOTION);
+                me.reconcile(&mut st);
+            }
+        }
     }
 
     fn arc(&self) -> Option<Arc<Sensors>> {
@@ -352,7 +384,7 @@ pub fn sensors_main(args: &[String]) -> ! {
         }
         tracing::info!("датчики Android: {}", avail.iter().map(|d| d.key).collect::<Vec<_>>().join(" "));
         let s = Arc::new(Sensors {
-            st: Mutex::new(State { available: avail, active: HashMap::new(), last: HashMap::new(), child: None, running: Vec::new(), paused: false }),
+            st: Mutex::new(State { available: avail, active: HashMap::new(), last: HashMap::new(), child: None, running: Vec::new(), paused: false, steps_base: 0, steps_last: 0 }),
             events: Arc::new(EventQueue::default()),
             me: Mutex::new(None),
         });

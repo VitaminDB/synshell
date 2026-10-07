@@ -128,6 +128,8 @@ fn in_container(argv: Vec<String>) -> Result<()> {
 }
 
 fn main() -> Result<()> {
+    // В конвейере (`syndroid shell … | head`) закрытый вывод — выход, а не паника.
+    unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("__exec") {
         container::exec_main(&args[1..]);
