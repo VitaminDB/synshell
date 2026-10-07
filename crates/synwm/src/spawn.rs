@@ -23,6 +23,8 @@ pub fn session_env(core: &Core) -> Vec<(String, String)> {
         ("ELECTRON_OZONE_PLATFORM_HINT".to_string(), "auto".to_string()),
         ("XCURSOR_THEME".to_string(), core.config.appearance.cursor_theme.clone()),
         ("XCURSOR_SIZE".to_string(), core.config.appearance.cursor_size.to_string()),
+        // «Анимации» в «Параметрах» — для всех программ на syngui (syngui::animation::enabled)
+        ("SYNGUI_ANIMATIONS".to_string(), if core.config.animations.enabled { "1" } else { "0" }.to_string()),
     ];
     if std::env::var_os("QT_QPA_PLATFORMTHEME").is_none() {
         if let Some(theme) = qt_platform_theme() {

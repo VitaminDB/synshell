@@ -104,6 +104,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
     theme::set_layer(shell.extra_mss, shell.user_mss);
     FORM_FACTOR.with(|f| f.set(shell.form_factor));
     let (config, err) = load_config(shell.form_factor);
+    apply_animations(&config);
     if let Some(e) = err {
         log::error!("ошибка в конфиге, взяты значения по умолчанию: {e}");
     }
@@ -249,6 +250,13 @@ fn config_mtime() -> Option<std::time::SystemTime> {
 }
 
 /// Перечитать конфиг и тему, пересобрать поверхности.
+/// «Анимации» из `[animations] enabled` — для всего syngui в этом процессе (переходы MSS, Presence, пружины) и для
+/// программ, которые оболочка запускает сама (`SYNGUI_ANIMATIONS`; запуск через synwm — то же из его конфига).
+pub fn apply_animations(cfg: &synshell_common::Config) {
+    syngui::animation::set_enabled(cfg.animations.enabled);
+    std::env::set_var("SYNGUI_ANIMATIONS", if cfg.animations.enabled { "1" } else { "0" });
+}
+
 pub fn reload_config() {
     LOADED_MTIME.with(|m| m.set(config_mtime()));
     let ctx = ShellCtx::get();
@@ -260,6 +268,7 @@ pub fn reload_config() {
         return;
     }
     log::info!("конфиг перечитан");
+    apply_animations(&cfg);
     xdg::set_icon_theme(&cfg.appearance.icon_theme);
     // Сменилось только оформление (тема, обои, анимации) — поверхности
     // остаются, цвета перетекают, картинка обоев растворяется. Всё прочее
