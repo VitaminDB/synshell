@@ -27,7 +27,7 @@ X11-программы идут через Xwayland композитора на 
 XSETTINGS `Xft/DPI`, `Gdk/WindowScalingFactor`, `Gdk/UnscaledDPI` и ресурс `Xft.dpi` (через `xrdb`, если
 установлен). Xwayland наследует от композитора переменные выбора графического драйвера (`MESA_*`, `VK_*`,
 `TU_*`, `LIBGL_*`, `GBM_*`, `EGL_*`) — smithay запускает его с чистым окружением, и на телефоне (zink поверх
-turnip) без них не было бы glamor/DRI3. Особенности телефона — arch-mobile-port `docs/23-x11.md`.
+turnip) без них не было бы glamor/DRI3. Особенности телефона — synmobile `docs/23-x11.md`.
 
 ## GPU-композитинг на телефоне и запасной CPU-бэкенд
 На телефонах с Android-ядром (Qualcomm msm_drm/sde) своего GL-драйвера для GPU нет: GPU доступен только
@@ -35,7 +35,7 @@ turnip) без них не было бы glamor/DRI3. Особенности т�
 драйвер `msm_drm`. Поэтому GLES для композитора даёт **zink поверх turnip** (`MESA_LOADER_DRIVER_OVERRIDE=zink`),
 а GBM на `msm_drm` выделяет буферы через zink (dma-heap turnip), которые sde принимает для scanout.
 Чтобы zink выбрал turnip для DRM-устройства, turnip должен сообщать узлы `msm_drm` в
-`VK_EXT_physical_device_drm` — патч `TU_KGSL_DRM_NODE` (arch-mobile-port `tools/phone/patches`, docs/08, 8.6).
+`VK_EXT_physical_device_drm` — патч `TU_KGSL_DRM_NODE` (synmobile `tools/phone/patches`, docs/08, 8.6).
 Тот же узел в dmabuf-feedback композитора означает для Vulkan-клиентов «тот же GPU» — без prime-blit.
 
 Сам композитор — обычный `backend/tty.rs`; для sde там: только primary-план (overlay/курсор выключены),
@@ -51,14 +51,14 @@ turnip) без них не было бы glamor/DRI3. Особенности т�
 3. композитор дважды подряд упал в первые 20 с — `synlogin daemon` запускает дальше с
    `SYNSHELL_RENDERER=cpu` (до перезапуска демона).
 
-Замер на Redmi K50 Ultra (vkcube на весь экран, `arch-mobile-port/hw/gpu/fps.sh`): GPU — 60 fps,
+Замер на Redmi K50 Ultra (vkcube на весь экран, `synmobile/hw/gpu/fps.sh`): GPU — 60 fps,
 synwm ≈3 % одного ядра; CPU — 30 fps, ≈54 %.
 
 ## Состояние на телефоне (Redmi K50 Ultra, 2026-09-29)
 - synwm включает панель DSI-1 1220x2712 (с 2026-09-30 — на GPU, см. выше) (smithay из форка `VitaminDB/smithay`, ветка `synshell`:
   alpha плана масштабируется под диапазон драйвера — sde отдаёт 0..255).
 - Vulkan-клиенты (wgpu, turnip/KGSL) презентуют через `zwp_linux_dmabuf_v1` v3: turnip собран с
-  `freedreno-kmds=kgsl,msm` (нужен libdrm в WSI) и патчем KHR_display — см. `arch-mobile-port/docs/08`.
+  `freedreno-kmds=kgsl,msm` (нужен libdrm в WSI) и патчем KHR_display — см. `synmobile/docs/08`.
 - synmobile-shell стартует под synwm на телефоне; synkeyboard печатает в foot (буквы, заглавные, Ctrl+C,
   F-клавиши, EN/RU).
 
@@ -107,7 +107,7 @@ synwm ≈3 % одного ядра; CPU — 30 fps, ≈54 %.
   IP (`curl`: ip-api.com, ipwho.is, ipapi.co) при входе, при появлении сети и раз в 3 часа. Часы оболочки
   перечитывают пояс сами (`tzset`). Тап по часам экрана ресурсов (и апплет часов) — календарь с быстрыми
   настройками; на телефоне окно по центру экрана. Без logind-сеанса polkit нужно правило для группы wheel
-  (в arch-mobile-port — `50-synmobile-timedate.rules`).
+  (в synmobile — `50-synmobile-timedate.rules`).
 - **«Недавние»** (`shell recents`): карточки окон, свайп вверх закрывает.
   Ещё из шторки: плитка «Недавние» и лента «Открытые приложения» (тап — перейти, «×» — закрыть, «Все» — «Недавние»).
 - **Блокировка**: обложка с часами и уведомлениями, свайп вверх — PIN-панель или полная клавиатура «ABC».
@@ -140,7 +140,7 @@ XF86Back), снизу — `edge_bottom` («домой», `page home`; или `mi
 `[rotation]`: `auto` — автоповорот по акселерометру; выключен — ориентация зафиксирована, и когда телефон
 повернули, в углу на 6 с появляется кнопка «повернуть» (`suggest`, как в Android); `upside_down` — и на 180°.
 Плитка «Автоповорот» в шторке, «Параметры → Телефон → Поворот экрана». Датчик — iio-sensor-proxy
-(`net.hadess.SensorProxy`, `AccelerometerOrientation`; на телефоне Qualcomm — через libssc, arch-mobile-port
+(`net.hadess.SensorProxy`, `AccelerometerOrientation`; на телефоне Qualcomm — через libssc, synmobile
 docs/15-sensors.md), политика — `synshell-ui/src/rotation.rs`. Композитор: действие `rotate normal|90|180|270`
 поворачивает встроенную панель (DSI/eDP/LVDS) поверх `transform` из `[[output]]`, в файл не пишет
 (`Core::rotation`, `backend::output_transform`); касания сенсора переводятся в повёрнутые координаты, удалённый
@@ -154,7 +154,7 @@ docs/15-sensors.md), политика — `synshell-ui/src/rotation.rs`. Ком�
 
 Сон: гася экран (кнопка питания, `screen-off`, простой `dpms_after`), композитор пишет `/run/syn-sleep/screen-off`
 (`synwm/src/sleep.rs`: первая строка — его pid, вторая — `[idle] sleep_delay`, секунды) и шлёт оболочке IPC
-`ScreenPower`; усыпляет телефон служба платформы `syn-sleepd` (arch-mobile-port docs/20-suspend.md), отсчитывая
+`ScreenPower`; усыпляет телефон служба платформы `syn-sleepd` (synmobile docs/20-suspend.md), отсчитывая
 задержку от времени файла. «Параметры → Питание → Глубокий сон после блокировки»: от «Сразу» до часа (на телефоне
 вместо десктопного «Засыпать через»). Включение экрана снимает файл.
 
@@ -185,7 +185,7 @@ docs/15-sensors.md), политика — `synshell-ui/src/rotation.rs`. Ком�
   `polkit-agent-helper-1`.
 - Wi-Fi (`[wifi] backend`: iwd или NetworkManager) и Bluetooth (bluez) — страницы «Параметров» и окно «Сеть»
   оболочки. На телефоне Wi-Fi работает через NetworkManager (iwd на ядре GKI не стартует — нет AF_ALG):
-  драйвер qca6490/cnss2, прошивка из раздела modem, `wlan-cnss-ready.service` — см. arch-mobile-port
+  драйвер qca6490/cnss2, прошивка из раздела modem, `wlan-cnss-ready.service` — см. synmobile
   `docs/11-wifi.md`.
 
 ## Модем: сеть, SMS, звонки (synmodem, synsms, synphone)
@@ -227,7 +227,7 @@ docs/15-sensors.md), политика — `synshell-ui/src/rotation.rs`. Ком�
 
 ## Автозапуск на телефоне
 Через экран входа: `synlogin daemon` (рендерер — сам, см. выше; `synlogin daemon -- --cpu` — принудительно
-CPU; на Redmi K50 Ultra — юнит устройства в arch-mobile-port с окружением zink). Без экрана входа — `data/synshell-phone.service`: `synwm --tty --cpu` под `dbus-run-session`
+CPU; на Redmi K50 Ultra — юнит устройства в synmobile с окружением zink). Без экрана входа — `data/synshell-phone.service`: `synwm --tty --cpu` под `dbus-run-session`
 с `LIBSEAT_BACKEND=noop`, сразу оболочка root.
 
 ## Экран входа synlogin
@@ -285,10 +285,10 @@ synkeyboard key ctrl+shift+c       # сочетание; f1…f12, enter, tab, e
 ```
 Стили: `styles/keyboard.mss` + `~/.config/synshell/keyboard.mss` (переменные палитры из `[appearance]`).
 
-## Запуск на телефоне (Redmi K50 Ultra, см. arch-mobile-port)
+## Запуск на телефоне (Redmi K50 Ultra, см. synmobile)
 ```
 # кросс-сборка с хоста (sysroot = rootfs телефона):
-PROFILE=fast-release ~/Projects/2027/arch-mobile-port/tools/cross-rust.sh ~/Projects/2027/synshell -p synwm -p synmobile-shell -p synkeyboard
+PROFILE=fast-release ~/Projects/2027/synmobile/tools/synport/target/fast-release/synport cross ~/Projects/2027/synshell -p synwm -p synmobile-shell -p synkeyboard
 # на телефоне (Arch по USB):
 LIBSEAT_BACKEND=noop SYNSHELL_DRM_DEVICE=/dev/dri/card0 XDG_RUNTIME_DIR=/run/weston \
   MESA_LOADER_DRIVER_OVERRIDE=zink TU_KGSL_DRM_NODE=/dev/dri/card0 \

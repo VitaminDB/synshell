@@ -6,7 +6,7 @@
 //! режим включает программа платформы `/usr/lib/syn-sensors/touch-gesture`
 //! (тачскрины Xiaomi). Без неё — алгоритм `dbtap` DSP датчиков (стук по
 //! корпусу). «Поднять» — алгоритм `pickup` SLPI: события строками от
-//! `/usr/lib/syn-sensors/ssc-events` (arch-mobile-port, docs/15), только пока
+//! `/usr/lib/syn-sensors/ssc-events` (synmobile, docs/15), только пока
 //! экран погашен. Клиент SSC будящий — жест поднимает телефон из сна, а
 //! `--inhibit` запрещает сон на пару секунд, пока экран включается.
 

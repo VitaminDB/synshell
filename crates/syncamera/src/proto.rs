@@ -1,4 +1,4 @@
-//! Протокол службы камеры syncamd платформы (arch-mobile-port `camera/syncam.h`, v3): сокет
+//! Протокол службы камеры syncamd платформы (synmobile `camera/syncam.h`, v3): сокет
 //! `/run/syncam/syncam.sock` (SOCK_SEQPACKET, группа video), одно сообщение — одна структура C.
 //!
 //! Поток кадров: HELLO → CAMERAS, OPEN → STARTED + dma-buf буферов (SCM_RIGHTS), дальше FRAME/RELEASE

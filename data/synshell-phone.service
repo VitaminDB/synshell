@@ -3,7 +3,7 @@
 #   install -Dm644 data/synshell-phone.service /etc/systemd/system/
 #   systemctl enable synshell-phone
 # Отладка — journalctl -u synshell-phone. Держит только сторож
-# arch-mobile-port: при зависании телефон перезагрузится.
+# synmobile: при зависании телефон перезагрузится.
 [Unit]
 Description=synshell (телефон)
 After=systemd-user-sessions.service systemd-udevd.service dbus.service

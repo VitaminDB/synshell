@@ -74,7 +74,7 @@ pub struct Daemon {
     /// `[link] notifications` / `auto_mount` — меняются на лету (config.toml).
     pub notifications: std::sync::atomic::AtomicBool,
     pub auto_mount: std::sync::atomic::AtomicBool,
-    /// Телефон с погашенным экраном засыпает (`/run/syn-sleep/screen-off`, arch-mobile-port syn-sleepd):
+    /// Телефон с погашенным экраном засыпает (`/run/syn-sleep/screen-off`, synmobile syn-sleepd):
     /// по Wi-Fi не анонсируемся и сеансов не держим — иначе keepalive QUIC с компьютера будил его
     /// каждые 3 с, а каждый анонс после самопробуждения приводил к новому соединению и повторам.
     pub sleeping: std::sync::atomic::AtomicBool,

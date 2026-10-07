@@ -1,5 +1,5 @@
 //! Звук: выходы и входы PipeWire (выбор по умолчанию, громкость, без звука), громкость программ и функции
-//! телефона через palaudiod (arch-mobile-port, docs/14-audio.md): динамик/наушники и Dolby Atmos с профилями.
+//! телефона через palaudiod (synmobile, docs/14-audio.md): динамик/наушники и Dolby Atmos с профилями.
 //! Данные — `synsystem::sound`; перечитываются раз в 2 с, пока страница открыта.
 
 use syngui::async_runtime::run_on_main_thread;

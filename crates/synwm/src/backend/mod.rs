@@ -245,7 +245,7 @@ pub fn kms_cpu_device_path() -> Option<std::path::PathBuf> {
 ///
 /// Проба идёт в дочернем процессе (`synwm --probe-gpu ПУТЬ`): Mesa при
 /// отсутствии аппаратного драйвера откатывается на llvmpipe, а тот на
-/// Android-ядрах без SVE падает с SIGILL (arch-mobile-port docs/08); так же
+/// Android-ядрах без SVE падает с SIGILL (synmobile docs/08); так же
 /// может упасть и недоделанный драйвер. Упал или завис дольше 20 с — GPU нет.
 pub fn probe_gpu(path: &std::path::Path) -> bool {
     let Ok(exe) = std::env::current_exe() else { return probe_gpu_here(path) };

@@ -1,6 +1,6 @@
 //! Фонарик: светодиоды вспышки камеры в режиме постоянного света.
 //!
-//! Описание даёт платформа — `/etc/syn-torch.conf` (arch-mobile-port: device.conf `TORCH_*`):
+//! Описание даёт платформа — `/etc/syn-torch.conf` (synmobile: device.conf `TORCH_*`):
 //!
 //! ```text
 //! leds = led:torch_0          # каналы без оттенка (или)
