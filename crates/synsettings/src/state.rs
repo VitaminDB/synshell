@@ -65,6 +65,7 @@ fn try_ctx() -> Option<Ctx> {
 pub fn theme_mss(c: &Config) -> String {
     // «Анимации» сразу и в самом окне настроек (переключатель на странице анимаций)
     syngui::animation::set_enabled(c.animations.enabled);
+    syngui::animation::set_speed(c.animations.speed);
     let a = &c.appearance;
     let mut s = a.mss_variables();
     // Цвета, которых нет в общей палитре, — производные для окна настроек.

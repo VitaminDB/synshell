@@ -910,6 +910,9 @@ impl State {
         let pos = pointer.current_location();
         let mods = mods_from_state(&self.core.keyboard.modifier_state());
 
+        if state == ButtonState::Pressed {
+            self.start_ripple(pos);
+        }
         if self.core.wm.overview.is_some() && !self.core.is_locked() {
             if state == ButtonState::Pressed {
                 self.overview_click(pos, button);
@@ -1191,6 +1194,19 @@ impl State {
         t.transform_point_in(p, &panel.to_f64()) + geo.loc.to_f64()
     }
 
+    /// Волна от точки нажатия (`[animations] ripple`; «Анимации» и «Меньше движения» её выключают).
+    fn start_ripple(&mut self, pos: Point<f64, Logical>) {
+        if !self.core.config.animations.effect("ripple") {
+            return;
+        }
+        let dur = crate::anim::duration(&self.core.config.animations, 420);
+        if dur.is_zero() {
+            return;
+        }
+        self.core.wm.ripples.push((pos, crate::anim::Animation::new(0.0, 1.0, dur, crate::anim::Curve::EaseOutCubic)));
+        self.core.queue_redraw_all();
+    }
+
     fn on_touch_down<B: InputBackend>(&mut self, evt: B::TouchDownEvent) {
         let Some(touch) = self.core.seat.get_touch() else { return };
         // Пальцем курсор не нужен: прячется до следующего движения мыши.
@@ -1199,6 +1215,7 @@ impl State {
             self.core.queue_redraw_all();
         }
         let pos = self.touch_location(&evt);
+        self.start_ripple(pos);
         if self.gesture_touch_down(evt.slot(), pos, evt.time_msec()) {
             return;
         }

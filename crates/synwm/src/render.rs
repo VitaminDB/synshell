@@ -136,6 +136,7 @@ where
     if include_cursor {
         cursor_elements(core, renderer, output, &mut out);
     }
+    ripple_elements(core, renderer, output, &mut out);
 
     // ── блокировка ──
     if core.is_locked() {
@@ -214,6 +215,11 @@ where
     // ── слои top ──
     layer_elements(renderer, output, Layer::Top, scale, &mut out);
 
+    // ── закрывающиеся окна (поверх окон) ──
+    if overview.is_none() {
+        closing_elements(core, renderer, output, &mut out);
+    }
+
     // ── окна ──
     // Телефон, режим страниц: переход между страницами или палец тащит.
     let page_tr = core.wm.mobile.transition.as_ref().map(|t| (t.from, t.to, t.dir, t.anim.value()));
@@ -240,7 +246,7 @@ where
     if overview.is_none() && !paging {
         let switch = core.wm.switch.as_ref().map(|s| (s.from, s.to, s.dir, s.anim.value()));
         match switch {
-            Some((from, to, dir, t)) if core.config.animations.workspace_switch != "fade" => {
+            Some((from, to, dir, t)) if crate::anim::motion_style(&core.config.animations, &core.config.animations.workspace_switch) != "fade" => {
                 let vertical = core.config.animations.workspace_switch == "slide-vertical";
                 let span = if vertical { output_geo.size.h } else { output_geo.size.w } as f64;
                 let off_new = (dir as f64 * span * (1.0 - t)).round() as i32;
@@ -525,6 +531,103 @@ fn m_ids(m: &Managed) -> &WindowIds {
     m.window.user_data().get::<WindowIds>().unwrap()
 }
 
+thread_local! {
+    /// Текстура волны: мягкий белый круг с более яркой кромкой (128×128, готовится один раз).
+    static RIPPLE: smithay::backend::renderer::element::memory::MemoryRenderBuffer = {
+        const N: usize = 128;
+        let mut px = vec![0u8; N * N * 4];
+        for y in 0..N {
+            for x in 0..N {
+                let dx = (x as f32 + 0.5) / N as f32 * 2.0 - 1.0;
+                let dy = (y as f32 + 0.5) / N as f32 * 2.0 - 1.0;
+                let d = (dx * dx + dy * dy).sqrt();
+                let edge = (1.0 - ((d - 0.86).abs() / 0.12)).clamp(0.0, 1.0);
+                let fill = if d < 0.86 { 0.35 } else { 0.0 };
+                let soft = (1.0 - ((d - 0.98) / 0.02).clamp(0.0, 1.0)).clamp(0.0, 1.0);
+                let a = (edge.max(fill) * soft * 255.0) as u8;
+                let i = (y * N + x) * 4;
+                // ABGR8888 с предумножением: белый
+                px[i] = a;
+                px[i + 1] = a;
+                px[i + 2] = a;
+                px[i + 3] = a;
+            }
+        }
+        smithay::backend::renderer::element::memory::MemoryRenderBuffer::from_slice(&px, smithay::backend::allocator::Fourcc::Abgr8888, (N as i32, N as i32), 1, smithay::utils::Transform::Normal, None)
+    };
+}
+
+/// Волны от касаний (`[animations] ripple`): круг расширяется от точки нажатия и гаснет; поверх окон, под курсором.
+fn ripple_elements<R>(core: &mut Core, renderer: &mut R, output: &Output, out: &mut Vec<OutputElement<R>>)
+where
+    R: Renderer + ImportAll + ImportMem + RotateDraw,
+    R::TextureId: Clone + Send + 'static,
+{
+    if core.wm.ripples.is_empty() {
+        return;
+    }
+    let scale_f = output.current_scale().fractional_scale();
+    let output_geo = core.space.output_geometry(output).unwrap_or_default();
+    for (pos, a) in core.wm.ripples.iter().rev() {
+        if !output_geo.to_f64().contains(*pos) {
+            continue;
+        }
+        let t = a.value().clamp(0.0, 1.0);
+        let r = 12.0 + 44.0 * t;
+        let alpha = (0.45 * (1.0 - t)) as f32;
+        let loc = Point::<f64, Logical>::from((pos.x - output_geo.loc.x as f64 - r, pos.y - output_geo.loc.y as f64 - r));
+        let size = Size::<i32, Logical>::from(((r * 2.0).round() as i32, (r * 2.0).round() as i32));
+        let elem = RIPPLE.with(|b| {
+            MemoryRenderBufferRenderElement::from_buffer(renderer, loc.to_physical(scale_f), b, Some(alpha), None, Some(size), Kind::Unspecified)
+        });
+        if let Ok(e) = elem {
+            out.push(OutputElement::Memory(e));
+        }
+    }
+}
+
+/// Снимки закрывающихся окон (`[animations] window_close`): гаснут, `zoom` — с уменьшением, `slide` — уезжая вниз.
+fn closing_elements<R>(core: &mut Core, renderer: &mut R, output: &Output, out: &mut Vec<OutputElement<R>>)
+where
+    R: Renderer + ImportAll + ImportMem + RotateDraw,
+    R::TextureId: Clone + Send + 'static,
+{
+    let scale_f = output.current_scale().fractional_scale();
+    let output_geo = core.space.output_geometry(output).unwrap_or_default();
+    let name = output.name();
+    let active = core.wm.active;
+    for c in core.wm.closing.iter().rev() {
+        if !(c.sticky || c.workspace == active) || c.output.as_deref().is_some_and(|o| o != name) {
+            continue;
+        }
+        let t = c.anim.value().clamp(0.0, 1.0);
+        let alpha = (1.0 - t) as f32;
+        let (scale, dy) = match c.style.as_str() {
+            "zoom" => (1.0 - 0.14 * t, 0),
+            "slide" => (1.0, (t * 40.0) as i32),
+            _ => (1.0, 0),
+        };
+        let loc = c.rect.loc - output_geo.loc + Point::from((0, dy));
+        let Ok(e) = MemoryRenderBufferRenderElement::from_buffer(
+            renderer,
+            loc.to_f64().to_physical(scale_f),
+            &c.buffer,
+            Some(alpha),
+            None,
+            Some(c.rect.size),
+            Kind::Unspecified,
+        ) else {
+            continue;
+        };
+        let center = c.rect.loc - output_geo.loc + Point::from((c.rect.size.w / 2, c.rect.size.h / 2 + dy));
+        out.push(OutputElement::Transformed(RelocateRenderElement::from_element(
+            RescaleRenderElement::from_element(WinElement::Memory(e), to_phys(center, scale_f), scale),
+            Point::from((0, 0)),
+            Relocate::Relative,
+        )));
+    }
+}
+
 /// Окно с учётом анимаций (появление, сворачивание, перемещение).
 fn window_elements<R>(core: &mut Core, renderer: &mut R, output: &Output, id: WindowId, offset: Point<i32, Logical>, alpha: f32, out: &mut Vec<OutputElement<R>>)
 where
@@ -534,7 +637,7 @@ where
     let scale_f = output.current_scale().fractional_scale();
     let output_geo = core.space.output_geometry(output).unwrap_or_default();
     let title_h = core.deco_theme.height;
-    let open_style = core.config.animations.window_open.clone();
+    let open_style = crate::anim::motion_style(&core.config.animations, &core.config.animations.window_open);
     let Some(m) = core.wm.get(id) else { return };
     let geo = m.geometry();
     let top = if m.has_titlebar() { title_h } else { 0 };

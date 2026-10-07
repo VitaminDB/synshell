@@ -359,6 +359,16 @@ fn surface_size(st: &DockState) -> (i32, i32) {
     }
 }
 
+/// Анимации дока по `[animations]`: «Док и панели» (группа `dock`) — увеличение значков, эффект наведения, прыжок
+/// при запуске; «Частицы» — искры наведения и запуска. Общий выключатель и «меньше движения» действуют через них.
+fn dock_anim_on() -> bool {
+    crate::anim::group_ms(&ShellCtx::get(), "dock", 100) > 0
+}
+
+fn dock_particles_on() -> bool {
+    ShellCtx::get().cfg().animations.effect("particles")
+}
+
 // ─── Виджеты ────────────────────────────────────────────────────────────────
 
 fn root(panel: &Panel, st: &DockState, editing: bool, hidden: bool) -> impl Widget {
@@ -366,7 +376,10 @@ fn root(panel: &Panel, st: &DockState, editing: bool, hidden: bool) -> impl Widg
     let edge = edge_name(st.edge);
     let mut cls = format!(
         "dock-root dock-{edge} dock-style-{} dock-ind-{} dock-hover-{} dock-launch-{}",
-        d.style, d.indicator, d.hover_effect, d.launch_animation
+        d.style,
+        d.indicator,
+        if dock_anim_on() { d.hover_effect.as_str() } else { "none" },
+        if dock_anim_on() { d.launch_animation.as_str() } else { "none" }
     );
     if panel.floating {
         cls.push_str(" dock-floating");
@@ -477,7 +490,7 @@ fn items_row(panel: &Panel, st: &DockState, editing: bool) -> impl Widget {
             .vertical(vertical)
             .cross_axis_alignment(cross)
             .overflow(true)
-            .zoom(if editing { 1.0 } else { dock.zoom })
+            .zoom(if editing || !dock_anim_on() { 1.0 } else { dock.zoom })
             .range(dock.zoom_range)
             .gap(4.0)
             .class(if editing { "dock-items dock-items-editing" } else { "dock-items" });
@@ -609,12 +622,14 @@ enum ItemOrigin {
 fn item_box(env: &ItemEnv, kind: &str, state: &str, icon_w: Box<dyn Widget>, windows: usize, active: bool, burst_key: &str) -> impl Widget {
     let g = env.st.geo;
     let token = env.bursts.get(burst_key).copied().unwrap_or(0);
+    let particles = dock_particles_on();
     let hover_fx = ParticleEmitter::new()
-        .class(format!("dock-fx dock-fx-hover dock-fx-hover-{}", env.dock.hover_particles))
+        .class(format!("dock-fx dock-fx-hover dock-fx-hover-{}", if particles { env.dock.hover_particles.as_str() } else { "none" }))
         .child(DecoratedBox::new().child(icon_w).class("dock-icon"));
+    // без частиц — без всплеска (у излучателя по умолчанию burst = 30)
     let launch_fx = ParticleEmitter::new()
-        .burst_token(token)
-        .class(format!("dock-fx dock-fx-launch dock-fx-launch-{}", env.dock.launch_particles))
+        .burst_token(if particles { token } else { 0 })
+        .class(format!("dock-fx dock-fx-launch dock-fx-launch-{}", if particles { env.dock.launch_particles.as_str() } else { "none" }))
         .child(hover_fx);
     let dots = match env.dock.indicator.as_str() {
         "none" => 0,

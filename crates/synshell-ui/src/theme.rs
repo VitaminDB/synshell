@@ -56,7 +56,30 @@ pub fn build(cfg: &Config) -> String {
             out.push_str(&user);
         }
     }
+    out.push_str(&animation_overrides(cfg));
     out
+}
+
+/// Выключенные группы `[animations]` — переходы и ключевые кадры их стилей тоже (длительности в коде групп уже 0):
+/// «Док и панели» — выезд, наклоны и прыжки значков, подпись, «внимание»; «Оболочка» — перетекание размеров
+/// всплывающих окон. Общий выключатель гасит всё через `syngui::animation`.
+fn animation_overrides(cfg: &Config) -> String {
+    let an = &cfg.animations;
+    let mut s = String::new();
+    if an.group_ms("dock", 100) == 0 {
+        s.push_str(
+            "\n/* [animations] dock = false */\n.dock-slide, .dock-item, .dock-label, .dock-item-urgent, .dock-item-launching { transition: none; animation: none; }\n",
+        );
+    }
+    if an.group_ms("home", 100) == 0 {
+        s.push_str(
+            "\n/* [animations] home = false */\n.home-ws-dot, .home-app, .home-app-launching { transition: none; animation: none; }\n",
+        );
+    }
+    if an.shell_ms(100) == 0 {
+        s.push_str("\n/* [animations] shell = false */\n.popup-morph { transition: none; }\n");
+    }
+    s
 }
 
 /// Файлы, при изменении которых тема пересобирается.

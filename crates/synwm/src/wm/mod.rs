@@ -305,6 +305,20 @@ pub struct Overview {
     pub selected: usize,
 }
 
+/// Закрывающееся окно (`[animations] window_close`): последний кадр, снятый при закрытии, гаснет на месте окна.
+pub struct Closing {
+    pub buffer: smithay::backend::renderer::element::memory::MemoryRenderBuffer,
+    /// Прямоугольник содержимого окна (глобальные координаты).
+    pub rect: Rectangle<i32, Logical>,
+    pub workspace: u32,
+    pub sticky: bool,
+    pub output: Option<String>,
+    /// `zoom`, `fade` или `slide` (с учётом «меньше движения»).
+    pub style: String,
+    /// 0 → 1: от окна к пустоте.
+    pub anim: Animation,
+}
+
 pub struct Wm {
     pub windows: Vec<Managed>,
     /// Порядок стопки снизу вверх (все окна всех столов).
@@ -320,6 +334,10 @@ pub struct Wm {
     pub overview: Option<Overview>,
     /// Подсветка зоны прилипания при перетаскивании.
     pub snap_preview: Option<(Rectangle<i32, Logical>, Animation)>,
+    /// Закрывающиеся окна (анимация `window_close`).
+    pub closing: Vec<Closing>,
+    /// Волны от касаний (`[animations] ripple`): точка (глобальные координаты) и анимация 0 → 1.
+    pub ripples: Vec<(Point<f64, Logical>, Animation)>,
     /// Окно, которое тащат мышью (едет при смене стола).
     pub dragging: Option<WindowId>,
     /// Режимы окон телефона.
@@ -341,6 +359,8 @@ impl Wm {
             switcher: None,
             overview: None,
             snap_preview: None,
+            closing: Vec::new(),
+            ripples: Vec::new(),
             dragging: None,
             mobile: mobile::MobileState::default(),
             next_id: 1,
@@ -477,6 +497,8 @@ impl Wm {
             || self.mobile.view.anim.is_some()
             || self.overview.is_some()
             || self.snap_preview.is_some()
+            || !self.closing.is_empty()
+            || !self.ripples.is_empty()
             || self.windows.iter().any(|w| w.open_anim.is_some() || w.minimize_anim.is_some() || w.move_anim.is_some())
     }
 
@@ -493,6 +515,8 @@ impl Wm {
                 w.minimize_anim = None;
             }
         }
+        self.closing.retain(|c| !c.anim.is_done());
+        self.ripples.retain(|(_, a)| !a.is_done());
         if self.switch.as_ref().is_some_and(|s| s.anim.is_done()) {
             self.switch = None;
         }

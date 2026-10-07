@@ -169,7 +169,7 @@ impl State {
             .collect();
         let cascade_n = others.len() as i32;
         let anim_dur = anim::duration(&self.core.config.animations, 220);
-        let open_style = self.core.config.animations.window_open.clone();
+        let open_style = anim::motion_style(&self.core.config.animations, &self.core.config.animations.window_open);
         {
             let m = self.core.wm.get_mut(id).unwrap();
             m.mapped = true;
@@ -244,7 +244,59 @@ impl State {
     }
 
     /// Окно убрало буфер или уничтожено.
+    /// Анимация закрытия (`[animations] window_close`): снимок последнего кадра видимого окна — до того, как
+    /// клиент отпустит буферы; гаснет в рендере (`render::closing_elements`).
+    fn start_close_anim(&mut self, id: WindowId) {
+        let cfg = &self.core.config.animations;
+        let style = anim::motion_style(cfg, &cfg.window_close);
+        let dur = anim::duration(cfg, 200);
+        if style == "none" || dur.is_zero() {
+            return;
+        }
+        let Some(m) = self.core.wm.get(id) else { return };
+        if !m.mapped || m.minimized || !m.on_workspace(self.core.wm.active) {
+            return;
+        }
+        let rect = m.geometry();
+        let (workspace, sticky, out_name) = (m.workspace, m.sticky, m.output.clone());
+        let scale = self
+            .core
+            .space
+            .outputs()
+            .find(|o| Some(o.name()) == out_name)
+            .map(|o| o.current_scale().fractional_scale())
+            .unwrap_or(1.0);
+        let max = ((rect.size.w as f64 * scale).ceil() as i32, (rect.size.h as f64 * scale).ceil() as i32);
+        let shot = match self.backend.thumbnail(&mut self.core, id, max) {
+            Ok(Some(s)) => s,
+            Ok(None) => return,
+            Err(e) => {
+                tracing::debug!(?e, "снимок закрывающегося окна");
+                return;
+            }
+        };
+        let (w, h, rgba) = shot;
+        let buffer = smithay::backend::renderer::element::memory::MemoryRenderBuffer::from_slice(
+            &rgba,
+            smithay::backend::allocator::Fourcc::Abgr8888,
+            (w as i32, h as i32),
+            1,
+            smithay::utils::Transform::Normal,
+            None,
+        );
+        self.core.wm.closing.push(crate::wm::Closing {
+            buffer,
+            rect,
+            workspace,
+            sticky,
+            output: out_name,
+            style,
+            anim: anim::Animation::new(0.0, 1.0, dur, anim::Curve::EaseInCubic),
+        });
+    }
+
     pub fn unmap_window(&mut self, id: WindowId, destroyed: bool) {
+        self.start_close_anim(id);
         let was_focused = self.core.wm.focused == Some(id);
         if let Some(m) = self.core.wm.get(id) {
             let w = m.window.clone();
@@ -712,7 +764,7 @@ impl State {
             return;
         }
         let dur = anim::duration(&self.core.config.animations, 200);
-        let style = self.core.config.animations.minimize.clone();
+        let style = anim::motion_style(&self.core.config.animations, &self.core.config.animations.minimize);
         let m = self.core.wm.get_mut(id).unwrap();
         m.minimized = true;
         if style != "none" && !dur.is_zero() {
@@ -746,7 +798,7 @@ impl State {
         }
         m.minimized = false;
         let dur = anim::duration(&self.core.config.animations, 200);
-        let style = self.core.config.animations.minimize.clone();
+        let style = anim::motion_style(&self.core.config.animations, &self.core.config.animations.minimize);
         let m = self.core.wm.get_mut(id).unwrap();
         if style != "none" && !dur.is_zero() {
             let target = m.minimize_rect.unwrap_or_else(|| {
@@ -932,7 +984,7 @@ impl State {
             return;
         }
         let dur = anim::duration(&self.core.config.animations, 260);
-        let style = self.core.config.animations.workspace_switch.clone();
+        let style = anim::motion_style(&self.core.config.animations, &self.core.config.animations.workspace_switch);
         if style != "none" && !dur.is_zero() {
             let dir = if ws > cur { 1 } else { -1 };
             self.core.wm.switch = Some(WorkspaceSwitch {

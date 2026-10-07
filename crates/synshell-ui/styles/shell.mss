@@ -1005,6 +1005,9 @@ TextField {
 .dock-fx-launch-fireworks { particle-preset: fireworks; particle-burst: 70; particle-speed: 80 200; }
 .dock-fx-launch-magic { particle-preset: magic; particle-burst: 40; particle-emitter: ring; }
 .dock-fx-launch-poof { particle-preset: poof; }
+/* «нет» (и выключенные «Частицы» в [animations]): у излучателя по умолчанию всплеск 30 частиц */
+.dock-fx-hover-none { particle-hover-rate: 0; particle-rate: 0; }
+.dock-fx-launch-none { particle-burst: 0; particle-rate: 0; }
 .dock-top .dock-fx-launch, .dock-top .dock-fx-hover { particle-direction: 90deg; }
 .dock-left .dock-fx-launch, .dock-left .dock-fx-hover { particle-direction: 0deg; }
 .dock-right .dock-fx-launch, .dock-right .dock-fx-hover { particle-direction: 180deg; }

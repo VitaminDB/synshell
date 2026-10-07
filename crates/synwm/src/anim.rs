@@ -74,5 +74,16 @@ pub fn duration(config: &synshell_common::config::Animations, base_ms: u64) -> D
     if !config.enabled || config.speed <= 0.0 {
         return Duration::ZERO;
     }
-    Duration::from_secs_f64(base_ms as f64 / 1000.0 * config.speed as f64)
+    // «Меньше движения» — вдвое короче (как группы оболочки)
+    let k = if config.reduce_motion { 0.5 } else { 1.0 };
+    Duration::from_secs_f64(base_ms as f64 / 1000.0 * config.speed as f64 * k)
+}
+
+/// Стиль перехода с учётом «Меньше движения»: всё, кроме `none`, — растворение (без выезда, масштаба и сдвига стола).
+pub fn motion_style(config: &synshell_common::config::Animations, style: &str) -> String {
+    if config.reduce_motion && style != "none" {
+        "fade".to_string()
+    } else {
+        style.to_string()
+    }
 }
