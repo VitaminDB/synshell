@@ -9,6 +9,7 @@ use syngui::async_runtime::run_on_main_thread;
 use syngui::mss::StyleValue;
 use syngui::prelude::*;
 use syngui::widgets::{EventHook, KeyReply, MenuItem, PopupMenu};
+use syngui::overlay::WindowResizeRegion;
 use syngui::{GestureDetector, ShowIf};
 
 use crate::*;
@@ -25,7 +26,12 @@ const CHECK_OFF: &str = "\u{E835}";
 
 pub fn root(st: St) -> W {
     let narrow = syngui::viewport::viewport_below(720.0);
-    let body = Reactive::new(move || -> Vec<W> { vec![if narrow.get() { phone(st) } else { desktop(st) }] });
+    let body = Reactive::new(move || -> Vec<W> {
+        let phone_ui = narrow.get();
+        // Телефон: рамку (закрыть, свернуть) рисует композитор; рабочий стол — свой заголовок.
+        run_on_main_thread(move || syngui::signal::set_decorations(phone_ui));
+        vec![if phone_ui { phone(st) } else { crate::desk::desktop(st) }]
+    });
     // Слои поверх окна выравниваются снаружи Reactive: он отдаёт детям
     // свободные ограничения, и слой внутри него ужимается в угол.
     // Column пропускает касания мимо подсказки.
@@ -61,8 +67,7 @@ pub fn root(st: St) -> W {
             crate::menu_selected(id);
         }))]
     });
-    Box::new(
-        EventHook::new()
+    let hook = EventHook::new()
             .on_key_down(move |k, _| {
                 if matches!(k, syngui::input::Key::Escape) && go_back(st) {
                     KeyReply::Handled
@@ -81,12 +86,15 @@ pub fn root(st: St) -> W {
                         .child(auth_overlay(st))
                         .child(menu),
                 ),
-            ),
-    )
+            );
+    // Своя рамка окна: скругление и обводка как у окон композитора; развёрнутое — без них
+    // (телефон: окно на весь экран, рамку рисует композитор).
+    let frame = DecoratedBox::new().class("window-frame").clip(true).child(hook);
+    Box::new(WindowResizeRegion::new().over_content(true).inset(5.0).child(frame))
 }
 
 /// «Назад»: снимок, окно удаления, пакет, категория каталога.
-fn go_back(st: St) -> bool {
+pub fn go_back(st: St) -> bool {
     if st.menu_open.get_untracked() {
         st.menu_open.set(false);
         true
@@ -107,7 +115,7 @@ fn go_back(st: St) -> bool {
     }
 }
 
-fn open_tab(st: St, t: Tab) {
+pub fn open_tab(st: St, t: Tab) {
     st.tab.set(t);
     if t == Tab::Updates && st.updates.get_untracked().is_none() {
         check_updates(st);
@@ -118,14 +126,14 @@ fn open_tab(st: St, t: Tab) {
 }
 
 /// Слой поверх окна, видимый, пока `on` — `true`.
-fn overlay(on: impl Fn() -> bool + Send + Sync + 'static, child: impl Widget + 'static) -> W {
+pub fn overlay(on: impl Fn() -> bool + Send + Sync + 'static, child: impl Widget + 'static) -> W {
     let shown = use_signal(0usize);
     create_effect(move || shown.set(usize::from(on())));
     Box::new(ShowIf::new(1, shown).child(child))
 }
 
 /// Окно «нужны права администратора» поверх всего: пароль уходит агенту polkit.
-fn auth_overlay(st: St) -> W {
+pub fn auth_overlay(st: St) -> W {
     let card = Reactive::new(move || -> Vec<W> {
         let Some(AuthView(req)) = st.auth.get() else {
             return vec![];
@@ -164,7 +172,7 @@ fn auth_overlay(st: St) -> W {
 }
 
 /// Удаление упёрлось в зависимости: удалить каскадом, принудительно или отменить.
-fn remove_dialog(st: St) -> W {
+pub fn remove_dialog(st: St) -> W {
     let card = Reactive::new(move || -> Vec<W> {
         let Some(ask) = st.remove_ask.get() else {
             return vec![];
@@ -204,7 +212,7 @@ fn remove_dialog(st: St) -> W {
 }
 
 /// Снимок экрана на всё окно: стрелки — соседние, клик мимо — закрыть.
-fn shot_viewer(st: St) -> W {
+pub fn shot_viewer(st: St) -> W {
     let body = Reactive::new(move || -> Vec<W> {
         let (Some(i), Some(m)) = (st.shot.get(), st.media.get()) else {
             return vec![];
@@ -219,7 +227,13 @@ fn shot_viewer(st: St) -> W {
             }
             Box::new(GestureDetector::new().on_click(move || st.shot.set(Some(to))).child(DecoratedBox::new().child(Icon::new(glyph).class("viewer-nav-icon")).class("viewer-nav")))
         };
-        let img = Image::new(path.to_string_lossy()).fit(ImageFit::Contain).class("viewer-img grow");
+        // Размер — от окна: в ряду со стрелками картинка иначе берёт свой собственный.
+        let vp = syngui::viewport::viewport_size().get();
+        let (iw, ih) = ((vp.width - 220.0).max(100.0), (vp.height - 110.0).max(100.0));
+        let img = DecoratedBox::new()
+            .child(Image::new(path.to_string_lossy()).fit(ImageFit::Contain).style("width", StyleValue::px(iw)).style("height", StyleValue::px(ih)))
+            .style("width", StyleValue::px(iw))
+            .style("height", StyleValue::px(ih));
         vec![Box::new(
             Column::new()
                 .gap(10.0)
@@ -235,7 +249,7 @@ fn shot_viewer(st: St) -> W {
                         .gap(10.0)
                         .cross_axis_alignment(CrossAxisAlignment::Center)
                         .child(nav("\u{E5CB}", i.saturating_sub(1), i > 0))
-                        .child(GestureDetector::new().on_click(|| {}).child(img).class("grow"))
+                        .child(GestureDetector::new().on_click(|| {}).child(img))
                         .child(nav("\u{E5CC}", i + 1, i + 1 < n))
                         .class("grow"),
                 )
@@ -245,7 +259,7 @@ fn shot_viewer(st: St) -> W {
     overlay(move || st.shot.get().is_some(), GestureDetector::new().on_click(move || st.shot.set(None)).child(DecoratedBox::new().child(body).class("viewer")))
 }
 
-fn tab_content(st: St) -> W {
+pub fn tab_content(st: St) -> W {
     Box::new(Reactive::new(move || -> Vec<W> {
         vec![match st.tab.get() {
             Tab::Explore => explore_view(st),
@@ -258,7 +272,7 @@ fn tab_content(st: St) -> W {
 }
 
 /// Счётчик у раздела: задачи в работе и очередь, доступные обновления.
-fn tab_badge(st: St, t: Tab) -> Option<String> {
+pub fn tab_badge(st: St, t: Tab) -> Option<String> {
     match t {
         Tab::Jobs => {
             let running = st.jobs.get().iter().filter(|j| j.done.is_none()).count();
@@ -271,41 +285,7 @@ fn tab_badge(st: St, t: Tab) -> Option<String> {
     }
 }
 
-fn desktop(st: St) -> W {
-    let nav = Reactive::new(move || -> Vec<W> {
-        let cur = st.tab.get();
-        let mut col = Column::new()
-            .gap(4.0)
-            .child(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().child(Icon::new("\u{EA12}").class("brand-icon")).class("brand-icon-box")).child(Text::new("Программы").class("brand")).class("brand-row"));
-        for t in Tab::ALL {
-            let mut row = Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(t.icon()).class("nav-icon")).child(Text::new(t.label()).class("nav-label grow"));
-            if let Some(b) = tab_badge(st, t) {
-                row = row.child(DecoratedBox::new().child(Text::new(b).class("badge-text")).class("badge"));
-            }
-            col = col.child(GestureDetector::new().on_click(move || open_tab(st, t)).child(DecoratedBox::new().child(row).class(if cur == t { "nav-item active" } else { "nav-item" })));
-        }
-        vec![Box::new(col)]
-    });
-    let detail = Reactive::new(move || -> Vec<W> {
-        vec![match st.selected.get() {
-            Some(p) => details_view(st, p),
-            None => Box::new(
-                DecoratedBox::new()
-                    .child(Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new("\u{EA12}").class("empty-icon")).child(Text::new("Выберите программу").class("muted")).child(Text::new("Правый щелчок по строке — действия, флажок — в очередь").class("muted")))
-                    .class("detail-empty"),
-            ),
-        }]
-    });
-    Box::new(
-        Row::new()
-            .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(DecoratedBox::new().child(nav).class("sidebar"))
-            .child(DecoratedBox::new().child(Column::new().child(DecoratedBox::new().child(tab_content(st)).class("grow")).child(queue_bar(st))).class("grow list-pane"))
-            .child(DecoratedBox::new().child(detail).class("detail-pane")),
-    )
-}
-
-fn phone(st: St) -> W {
+pub fn phone(st: St) -> W {
     let body = Reactive::new(move || -> Vec<W> {
         let sel = st.selected.get();
         let open = sel.is_some();
@@ -357,7 +337,7 @@ fn phone(st: St) -> W {
 }
 
 /// Полоса очереди внизу списка: что отмечено и «Применить».
-fn queue_bar(st: St) -> W {
+pub fn queue_bar(st: St) -> W {
     Box::new(Reactive::new(move || -> Vec<W> {
         let q = st.queue.get();
         if q.is_empty() {
@@ -401,7 +381,7 @@ pub fn chip(label: impl Into<String>, class: &str) -> syngui::widget::StyledWidg
     DecoratedBox::new().child(Text::new(label.into()).class("chip-text")).class(format!("chip {class}"))
 }
 
-fn source_chip(p: &Pkg) -> syngui::widget::StyledWidget<DecoratedBox> {
+pub fn source_chip(p: &Pkg) -> syngui::widget::StyledWidget<DecoratedBox> {
     match &p.source {
         Source::Aur => chip("AUR", "chip-aur"),
         Source::Local => chip("не из репозитория", "chip-local"),
@@ -411,12 +391,12 @@ fn source_chip(p: &Pkg) -> syngui::widget::StyledWidget<DecoratedBox> {
 }
 
 /// Название программы из каталога, иначе имя пакета.
-fn title_of(p: &Pkg) -> String {
+pub fn title_of(p: &Pkg) -> String {
     app_meta(&p.name).map(|m| m.title).unwrap_or_else(|| p.name.clone())
 }
 
 /// Значок: из темы по имени AppStream или пакета, иначе кэш каталога, иначе глиф.
-fn app_icon(name: &str, class: &str) -> W {
+pub fn app_icon(name: &str, class: &str) -> W {
     let meta = app_meta(name);
     let path = meta
         .as_ref()
@@ -432,7 +412,7 @@ fn app_icon(name: &str, class: &str) -> W {
 
 /// Флажок очереди. Щелчок по строке открывает пакет; по флажку — ставит в
 /// очередь: флажок ловит щелчок сам (внутренний детектор жестов).
-fn check_icon(on: bool) -> W {
+pub fn check_icon(on: bool) -> W {
     Box::new(DecoratedBox::new().child(Icon::new(if on { CHECK_ON } else { CHECK_OFF }).class(if on { "check check-on" } else { "check" })).class("check-box"))
 }
 
@@ -521,13 +501,13 @@ pub fn pkg_menu(st: St, p: Pkg, at: syngui::core::Point, update: bool) {
     });
 }
 
-fn pkg_row(st: St, p: Pkg) -> W {
+pub fn pkg_row(st: St, p: Pkg) -> W {
     pkg_row_titled(st, p, None)
 }
 
 /// Строка пакета: флажок очереди, значок, название (из каталога), описание, метки.
 /// Подсветка (выбран, в очереди) — пересборкой строки по сигналам.
-fn pkg_row_titled(st: St, p: Pkg, title: Option<String>) -> W {
+pub fn pkg_row_titled(st: St, p: Pkg, title: Option<String>) -> W {
     let title = title.or_else(|| app_meta(&p.name).map(|m| m.title)).filter(|t| *t != p.name);
     let (p2, p3) = (p.clone(), p.clone());
     let row = Reactive::new(move || -> Vec<W> {
@@ -584,15 +564,29 @@ fn pkg_row_titled(st: St, p: Pkg, title: Option<String>) -> W {
     )
 }
 
-fn search_box(value: String, placeholder: &str, on_change: impl Fn(String) + Send + Sync + 'static) -> impl Widget {
+/// Рабочий стол: окно шире телефонного (поиск — в заголовке окна, подробности — страницей).
+pub fn is_desk() -> bool {
+    syngui::viewport::viewport_size().get_untracked().width >= 720.0
+}
+
+/// Поле поиска вида — только на телефоне: на рабочем столе оно в заголовке окна.
+pub fn with_field(field: impl Widget + 'static, col: Column) -> Column {
+    if is_desk() {
+        col
+    } else {
+        col.child(field)
+    }
+}
+
+pub fn search_box(value: String, placeholder: &str, on_change: impl Fn(String) + Send + Sync + 'static) -> impl Widget {
     TextField::with_text(value).placeholder(placeholder).prefix_icon("\u{E8B6}").on_change(move |t| on_change(t.to_string())).class("search")
 }
 
-fn busy_row(text: &str) -> W {
+pub fn busy_row(text: &str) -> W {
     Box::new(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(CircularProgress::new().indeterminate().size(20.0)).child(Text::new(text.to_string()).class("muted")).class("empty"))
 }
 
-fn explore_view(st: St) -> W {
+pub fn explore_view(st: St) -> W {
     let field = search_box(st.query.get_untracked(), "Найти программу в репозиториях и AUR", move |t| {
         st.query.set(t.clone());
         search(st, t);
@@ -619,11 +613,11 @@ fn explore_view(st: St) -> W {
         }
         vec![Box::new(col)]
     });
-    Box::new(Column::new().gap(12.0).child(field).child(ScrollView::new().vertical().child(list).class("grow")).class("pane"))
+    Box::new(with_field(field, Column::new().gap(12.0)).child(ScrollView::new().vertical().child(list).class("grow")).class("pane"))
 }
 
 /// «Найдено: 12 · Выбрать все»: отметить показанные пакеты.
-fn select_all_row(st: St, v: &[Pkg], label: &str) -> W {
+pub fn select_all_row(st: St, v: &[Pkg], label: &str) -> W {
     let all: Vec<QItem> = v.iter().take(400).map(|p| QItem { name: p.name.clone(), act: default_act(p) }).collect();
     let names: Vec<String> = all.iter().map(|q| q.name.clone()).collect();
     let n = v.len();
@@ -651,7 +645,7 @@ fn select_all_row(st: St, v: &[Pkg], label: &str) -> W {
 }
 
 /// «1 программа», «3 программы», «5 программ».
-fn programs(n: usize) -> String {
+pub fn programs(n: usize) -> String {
     let w = match (n % 10, n % 100) {
         (1, r) if r != 11 => "программа",
         (2..=4, r) if !(12..=14).contains(&r) => "программы",
@@ -661,14 +655,14 @@ fn programs(n: usize) -> String {
 }
 
 /// Колонок плиток шириной ~`tile` в списке.
-fn grid_cols(tile: f32) -> usize {
+pub fn grid_cols(tile: f32) -> usize {
     let w = syngui::viewport::viewport_size().get().width;
     let list_w = if w < 720.0 { w - 32.0 } else { w - 230.0 - 480.0 - 40.0 };
     ((list_w + 12.0) / (tile + 12.0)).floor().max(if w < 720.0 { 1.0 } else { 2.0 }) as usize
 }
 
 /// Карточка витрины: крупный значок, название, сводка, кнопка очереди.
-fn app_card(st: St, a: CatalogApp) -> W {
+pub fn app_card(st: St, a: CatalogApp) -> W {
     let p = a.pkg.clone();
     let (p2, p3, p4) = (p.clone(), p.clone(), p.clone());
     let name = p.name.clone();
@@ -677,7 +671,7 @@ fn app_card(st: St, a: CatalogApp) -> W {
         let p = p4.clone();
         let b = match (q, p.installed.is_some()) {
             (Some(_), _) => Button::new("✓ В очереди").class("small queued").on_click(move || toggle_queue(st, &p)),
-            (None, true) => Button::new("Установлено").class("small").on_click(move || select(st, p.clone())),
+            (None, true) => Button::new("Удалить").class("small").on_click(move || toggle_queue(st, &p)),
             (None, false) => Button::new("Установить").class("small primary").on_click(move || toggle_queue(st, &p)),
         };
         vec![Box::new(b)]
@@ -697,12 +691,12 @@ fn app_card(st: St, a: CatalogApp) -> W {
     )
 }
 
-fn category_label(a: &CatalogApp) -> String {
+pub fn category_label(a: &CatalogApp) -> String {
     CATEGORIES.iter().find(|c| c.contains(a)).map(|c| c.label.to_string()).unwrap_or_default()
 }
 
 /// Каталог: витрина и плитки категорий или программы открытой категории.
-fn catalog_view(st: St) -> W {
+pub fn catalog_view(st: St) -> W {
     let Some(apps) = st.catalog.get() else {
         return busy_row("Загрузка каталога…");
     };
@@ -718,6 +712,12 @@ fn catalog_view(st: St) -> W {
         return Box::new(col.class("empty"));
     }
     let cat = st.category.get().and_then(Category::by_key);
+    if is_desk() {
+        return match cat {
+            Some(c) => crate::desk::category_page(st, c, apps),
+            None => crate::desk::home(st, apps),
+        };
+    }
     let Some(cat) = cat else {
         let mut col = Column::new().gap(14.0);
         // Витрина: известные программы, которых ещё нет.
@@ -771,7 +771,7 @@ fn catalog_view(st: St) -> W {
     Box::new(col)
 }
 
-fn aur_view(st: St) -> W {
+pub fn aur_view(st: St) -> W {
     let field = search_box(st.aur_query.get_untracked(), "Искать в AUR", move |t| {
         st.aur_query.set(t.clone());
         search_aur(st, t);
@@ -811,11 +811,11 @@ fn aur_view(st: St) -> W {
         }
         vec![Box::new(col)]
     });
-    Box::new(Column::new().gap(12.0).child(warn).child(field).child(ScrollView::new().vertical().child(list).class("grow")).class("pane"))
+    Box::new(with_field(field, Column::new().gap(12.0).child(warn)).child(ScrollView::new().vertical().child(list).class("grow")).class("pane"))
 }
 
 /// «Обновления AUR»: флажки, «Обновить выбранные» — пересборка из AUR.
-fn aur_updates_block(st: St) -> W {
+pub fn aur_updates_block(st: St) -> W {
     let mut col = Column::new().gap(4.0);
     let checking = st.aur_checking.get();
     let ups = st.aur_updates.get();
@@ -850,7 +850,7 @@ fn aur_updates_block(st: St) -> W {
     Box::new(col)
 }
 
-fn installed_view(st: St) -> W {
+pub fn installed_view(st: St) -> W {
     let field = search_box(st.filter.get_untracked(), "Фильтр установленных", move |t| st.filter.set(t));
     let chips = Reactive::new(move || -> Vec<W> {
         let cur = st.inst_filter.get();
@@ -888,11 +888,11 @@ fn installed_view(st: St) -> W {
         }
         vec![Box::new(col)]
     });
-    Box::new(Column::new().gap(10.0).child(field).child(chips).child(ScrollView::new().vertical().child(list).class("grow")).class("pane"))
+    Box::new(with_field(field, Column::new().gap(10.0)).child(chips).child(ScrollView::new().vertical().child(list).class("grow")).class("pane"))
 }
 
 /// Строка обновления: флажок «обновлять», значок, версии, метки; правый щелчок — меню.
-fn update_row(st: St, u: Update, skip: &[String], ignore: &[String]) -> W {
+pub fn update_row(st: St, u: Update, skip: &[String], ignore: &[String]) -> W {
     let ignored = ignore.contains(&u.name);
     let on = !ignored && !skip.contains(&u.name);
     let name = u.name.clone();
@@ -936,7 +936,7 @@ fn update_row(st: St, u: Update, skip: &[String], ignore: &[String]) -> W {
     )
 }
 
-fn updates_view(st: St) -> W {
+pub fn updates_view(st: St) -> W {
     let list = Reactive::new(move || -> Vec<W> {
         let _ = st.icons_rev.get();
         let Some(ups) = st.updates.get() else {
@@ -985,7 +985,7 @@ fn updates_view(st: St) -> W {
 }
 
 /// Очередь в «Задачах»: пункты с крестиком и «Применить».
-fn queue_section(st: St) -> W {
+pub fn queue_section(st: St) -> W {
     Box::new(Reactive::new(move || -> Vec<W> {
         let q = st.queue.get();
         if q.is_empty() {
@@ -1027,7 +1027,7 @@ fn queue_section(st: St) -> W {
 }
 
 /// Задачи: очередь, лог открытого задания — на всю высоту, остальные — строками ниже.
-fn jobs_view(st: St) -> W {
+pub fn jobs_view(st: St) -> W {
     let body = Reactive::new(move || -> Vec<W> {
         let jobs = st.jobs.get();
         if jobs.is_empty() {
@@ -1090,7 +1090,7 @@ fn jobs_view(st: St) -> W {
 }
 
 /// Кнопки действий в подробностях: очередь, «сейчас», «Открыть».
-fn detail_actions(st: St, p: Pkg) -> W {
+pub fn detail_actions(st: St, p: Pkg) -> W {
     let name = p.name.clone();
     Box::new(Reactive::new(move || -> Vec<W> {
         let q = st.queue.get().iter().find(|x| x.name == name).map(|x| x.act);
@@ -1136,7 +1136,7 @@ fn detail_actions(st: St, p: Pkg) -> W {
     }))
 }
 
-fn details_view(st: St, p: Pkg) -> W {
+pub fn details_view(st: St, p: Pkg) -> W {
     let name = p.name.clone();
     let aur = p.source == Source::Aur;
     let app = st.catalog.get_untracked().and_then(|c| c.into_iter().find(|a| a.pkg.name == name));
@@ -1162,7 +1162,7 @@ fn details_view(st: St, p: Pkg) -> W {
         .child(DecoratedBox::new().child(big_icon).class("hero-icon-box"))
         .child(Column::new().gap(6.0).child(Text::new(title).max_lines(2).class("h1")).child(chips).class("grow"));
     let mut col = Column::new().gap(16.0).child(head).child(Text::new(summary).class("desc-lead")).child(detail_actions(st, p.clone()));
-    col = col.child(screenshots(st, name.clone()));
+    col = col.child(screenshots(st, name.clone(), SHOT_W, SHOT_H));
     // Полное описание: AppStream, иначе Flathub.
     let desc_local = app.as_ref().map(|a| a.description.clone()).unwrap_or_default();
     let n3 = name.clone();
@@ -1238,7 +1238,7 @@ fn details_view(st: St, p: Pkg) -> W {
 }
 
 /// Лента снимков экрана; щелчок — на всё окно.
-fn screenshots(st: St, name: String) -> W {
+pub fn screenshots(st: St, name: String, sw: f32, sh: f32) -> W {
     Box::new(Reactive::new(move || -> Vec<W> {
         let Some(m) = st.media.get().filter(|m| m.name == name) else {
             return vec![Box::new(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(CircularProgress::new().indeterminate().size(16.0)).child(Text::new("Поиск снимков экрана…").class("muted")))];
@@ -1250,10 +1250,10 @@ fn screenshots(st: St, name: String) -> W {
         for (i, path) in m.shots.iter().enumerate() {
             row = row.child(GestureDetector::new().on_click(move || st.shot.set(Some(i))).child(
                 DecoratedBox::new()
-                    .child(Image::new(path.to_string_lossy()).fit(ImageFit::Cover).class("shot-img").style("width", StyleValue::px(SHOT_W)).style("height", StyleValue::px(SHOT_H)))
+                    .child(Image::new(path.to_string_lossy()).fit(ImageFit::Cover).class("shot-img").style("width", StyleValue::px(sw)).style("height", StyleValue::px(sh)))
                     .class("shot")
-                    .style("width", StyleValue::px(SHOT_W))
-                    .style("height", StyleValue::px(SHOT_H)),
+                    .style("width", StyleValue::px(sw))
+                    .style("height", StyleValue::px(sh)),
             ));
         }
         if m.loading {

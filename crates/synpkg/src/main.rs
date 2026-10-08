@@ -11,6 +11,7 @@
 //!
 //! `synpkg [запрос]` — открыть поиск с запросом.
 
+mod desk;
 mod media;
 mod ui;
 
@@ -214,6 +215,12 @@ pub struct St {
     pub menu_pos: RwSignal<syngui::core::Point>,
     /// Растёт, когда перекодированы значки каталога.
     pub icons_rev: RwSignal<u64>,
+    /// Состояние окна (развёрнуто, в фокусе) — для своего заголовка.
+    pub window: RwSignal<syngui::window::WindowState>,
+    /// Растёт, когда поле поиска в заголовке надо пересоздать (запрос сброшен из кода).
+    pub search_rev: RwSignal<u64>,
+    /// Подробности: список файлов развёрнут.
+    pub files_open: RwSignal<bool>,
 }
 
 static SEARCH_GEN: AtomicU64 = AtomicU64::new(0);
@@ -258,11 +265,17 @@ fn main() {
     let query = std::env::args().skip(1).find(|a| !a.starts_with('-')).unwrap_or_default();
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);
+    let window = use_signal(syngui::window::WindowState::default());
     App::new()
         .title("Программы")
         .app_id("synpkg")
-        .size(1240, 800)
+        .size(1240, 820)
         .min_size(340, 480)
+        .frameless()
+        // Углы за скруглением рамки (`.window-frame`) — прозрачные.
+        .transparent(true)
+        .background(syngui::core::Color::from_srgb(0, 0, 0, 0.0))
+        .with_window_state(window)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_styles_str(&mss)
         .run(move |_| {
@@ -299,6 +312,9 @@ fn main() {
                 menu_open: use_signal(false),
                 menu_pos: use_signal(syngui::core::Point::zero()),
                 icons_rev: use_signal(0),
+                window,
+                search_rev: use_signal(0),
+                files_open: use_signal(false),
             };
             polkit_agent::set_prompter(AuthPrompter(st.auth));
             if !query.is_empty() {
@@ -317,10 +333,14 @@ fn theme(cfg: &Config) -> String {
     let p = a.palette();
     let dark = a.is_dark();
     s.push_str(&format!(
-        ":root {{\n  --input-bg: {};\n  --accent-hover: {};\n  --danger-soft: {};\n}}\n",
+        ":root {{\n  --input-bg: {};\n  --accent-hover: {};\n  --danger-soft: {};\n  --titlebar: {};\n  --sidebar: {};\n  --content: {};\n  --window-radius: {}px;\n}}\n",
         if dark { p.bg.mix(p.surface, 0.35) } else { p.surface }.hex(),
         p.accent.mix(p.fg, 0.15).hex(),
         p.danger.with_alpha(0.16).hex(),
+        if dark { p.bg.mix(synshell_common::config::Rgba::rgb(0, 0, 0), 0.25) } else { p.surface_alt.mix(p.bg, 0.5) }.hex(),
+        if dark { p.bg.mix(synshell_common::config::Rgba::rgb(0, 0, 0), 0.12) } else { p.surface_alt.mix(p.bg, 0.7) }.hex(),
+        if dark { p.bg.mix(p.surface, 0.2) } else { p.bg.mix(p.surface, 0.35) }.hex(),
+        cfg.decorations.corner_radius.max(0.0),
     ));
     s.push_str(&a.theme_mss_variables());
     s.push_str(include_str!("../styles/synpkg.mss"));
@@ -452,6 +472,7 @@ pub fn select(st: St, p: Pkg) {
     st.details.set(None);
     st.pkgbuild.set(None);
     st.shot.set(None);
+    st.files_open.set(false);
     let same = st.media.get_untracked().is_some_and(|m| m.name == p.name);
     if !same {
         st.media.set(None);

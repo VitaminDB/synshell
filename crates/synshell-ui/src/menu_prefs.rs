@@ -33,9 +33,19 @@ pub fn take_reopen_settings() -> bool {
     REOPEN_SETTINGS.with(|r| r.replace(false))
 }
 
+/// Меньше этого вид меню не помещается: «Пуск» (поиск, закреплённые, рекомендуемые, низ) — 560×600.
+pub fn min_size() -> (f32, f32) {
+    if ShellCtx::get().cfg().launcher.style == "win11" {
+        (560.0, 600.0)
+    } else {
+        (MIN_W, MIN_H)
+    }
+}
+
 fn clamp(w: f32, h: f32) -> (f32, f32) {
     let (ow, oh) = crate::manager::output_size(None);
-    (w.clamp(MIN_W, (ow - 16.0).max(MIN_W)), h.clamp(MIN_H, (oh - 80.0).max(MIN_H)))
+    let (mw, mh) = min_size();
+    (w.clamp(mw, (ow - 16.0).max(mw)), h.clamp(mh, (oh - 80.0).max(mh)))
 }
 
 /// Размер открытого меню из `[launcher]` (сигнал живёт, пока открыто меню).
@@ -77,6 +87,19 @@ pub fn grip(ctx: ShellCtx, size: RwSignal<(f32, f32)>) -> impl Widget {
             .child(DecoratedBox::new().child(icon("\u{E8D6}").class("menu-grip-icon")).class("menu-grip")),
     )
     .cursor(cursor)
+}
+
+/// Уголок слоем поверх меню: элемент живёт всё перетаскивание (внутри
+/// пересобираемого по размеру `rx` он терял бы жест), сдвигается сигналом.
+/// `inset` — на сколько содержимое уже ширины меню.
+pub fn grip_layer(ctx: ShellCtx, size: RwSignal<(f32, f32)>, inset: f32) -> impl Widget {
+    let top = menu_edge(&ctx) == Edge::Top;
+    let pos = use_signal(syngui::core::Point::zero());
+    create_effect(move || {
+        let (w, h) = size.get();
+        pos.set(syngui::core::Point::new(w - inset - 20.0, if top { h - inset - 20.0 } else { -6.0 }));
+    });
+    syngui::containers::Positioned::new(grip(ctx, size)).offset_signal(pos)
 }
 
 /// Записать значение `[launcher] key`.

@@ -549,8 +549,7 @@ pub fn menu(ctx: ShellCtx) -> impl Widget {
     let st = state(ctx);
     let size = crate::menu_prefs::size_signal(&ctx);
     let settings = use_signal(crate::menu_prefs::take_reopen_settings());
-    let top = ctx.popup.get_untracked().is_some_and(|p| p.anchor.edge == synshell_common::config::Edge::Top);
-    crate::ui::rx(move || {
+    let body = crate::ui::rx(move || {
         let (w, h) = size.get();
         let inner: Box<dyn Widget> = if settings.get() {
             Box::new(crate::menu_prefs::view(ctx, size, move || settings.set(false)).style("height", StyleValue::px(h - 30.0)))
@@ -569,13 +568,9 @@ pub fn menu(ctx: ShellCtx) -> impl Widget {
                     .child(footer(ctx, settings)),
             )
         };
-        let gy = if top { h - 52.0 } else { -6.0 };
-        Box::new(
-            Stack::new()
-                .child(Column::new().child(inner).style("width", StyleValue::px(w - 30.0)))
-                .child(syngui::containers::Positioned::new(crate::menu_prefs::grip(ctx, size)).at(w - 30.0 - 16.0, gy)),
-        )
-    })
+        Box::new(Column::new().child(inner).style("width", StyleValue::px(w - 30.0)))
+    });
+    Stack::new().child(body).child(crate::menu_prefs::grip_layer(ctx, size, 30.0))
 }
 
 /// Строка «Выполнить»: карточка перетекает по высоте вслед за выдачей.

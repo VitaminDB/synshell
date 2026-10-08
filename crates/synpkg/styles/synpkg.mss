@@ -6,7 +6,7 @@ Text { color: var(--fg); font-size: 14px; }
 .muted { color: var(--muted); font-size: 13px; }
 .empty { padding: 24px 8px; }
 
-.sidebar { width: 220px; padding: 18px 12px; background: var(--surface-alt); }
+.sidebar { width: 220px; padding: 10px 12px 14px 12px; background: var(--sidebar); }
 .brand { font-size: 19px; font-weight: 700; }
 .brand-row { padding: 2px 6px 16px 6px; }
 .brand-icon-box { padding: 7px; border-radius: 12px; background: var(--accent); }
@@ -228,7 +228,8 @@ Button.queued { background: var(--accent-soft); color: var(--fg); }
 .card-icon { width: 52px; height: 52px; }
 .card-icon-glyph { width: 52px; height: 52px; padding: 12px; }
 .card-title { font-size: 15px; font-weight: 600; }
-.card-desc { min-height: 32px; }
+.card-desc { height: 34px; }
+.app-card { height: 128px; }
 
 /* Подробности */
 .hero-icon { width: 80px; height: 80px; }
@@ -255,3 +256,46 @@ Button.queued { background: var(--accent-soft); color: var(--fg); }
 .dlg-icon { font-size: 26px; color: var(--danger); }
 .dlg-box { padding: 10px 12px; border-radius: var(--radius-sm); background: #00000030; max-height: 160px; }
 .dlg-line { font-size: 13px; }
+
+/* Своё окно (рабочий стол) */
+.window-frame { border-radius: var(--window-radius); border: 1px solid var(--border); background: var(--bg); }
+.window-frame:window-maximized, .window-frame:window-fullscreen { border-radius: 0px; border-width: 0px; }
+.window { background: var(--content); flex-grow: 1; }
+.titlebar { height: 52px; background: var(--titlebar); padding: 0px 0px 0px 0px; }
+.tb-brand { padding: 0px 18px; height: 52px; justify-content: center; }
+.tb-back { padding: 6px; border-radius: 999px; transition: background-color 120ms ease-out; }
+.tb-back:hover { background-color: var(--hover); }
+.tb-back-icon { font-size: 22px; color: var(--fg); }
+.tb-back-off { width: 34px; }
+.tb-search { width: 520px; padding: 0px 12px; }
+.tb-drag { height: 52px; }
+.tb-drag-space { flex-grow: 1; height: 52px; min-width: 40px; }
+.window-controls { padding: 0px 6px 0px 8px; }
+.content { background: var(--content); }
+.nav-section { font-size: 12px; font-weight: 600; color: var(--muted); padding: 14px 12px 6px 12px; }
+.nav-sep { height: 1px; background: var(--border); margin: 8px 6px; }
+
+/* Обзор и категории */
+.page { padding: 22px 28px 28px 28px; }
+.hero {
+    padding: 22px 24px;
+    border-radius: var(--radius);
+    background: var(--accent-soft);
+    border-width: 1px;
+    border-color: var(--border);
+}
+.hero-title { font-size: 24px; font-weight: 700; }
+.hero-sub { font-size: 14px; color: var(--muted); }
+.shelf-head { padding-top: 10px; }
+.more { padding: 4px 6px 4px 12px; border-radius: 999px; transition: background-color 120ms ease-out; }
+.more:hover { background-color: var(--hover); }
+.more-text { font-size: 13px; color: var(--accent); }
+.more-icon { font-size: 18px; color: var(--accent); }
+
+/* Страница программы */
+.page-icon { width: 104px; height: 104px; }
+.page-icon-glyph { width: 104px; height: 104px; padding: 28px; }
+.page-icon-box { padding: 4px; }
+.page-title { font-size: 28px; font-weight: 700; }
+.page-right { width: 360px; }
+.page-left { min-width: 300px; }

@@ -139,7 +139,8 @@ fn size(ctx: &ShellCtx) -> (f32, f32) {
     if ctx.is_phone() {
         (ow - 20.0, (oh * 0.9).max(420.0))
     } else {
-        ((cfg.launcher.width as f32).max(crate::menu_prefs::MIN_W), (cfg.launcher.height as f32).max(crate::menu_prefs::MIN_H).min(oh - 80.0))
+        let (mw, mh) = crate::menu_prefs::min_size();
+        ((cfg.launcher.width as f32).max(mw), (cfg.launcher.height as f32).max(mh).min(oh - 80.0))
     }
 }
 
@@ -222,12 +223,7 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
         };
         if !phone && st.settings.get() {
             let close = move || st.settings.set(false);
-            return Box::new(with_grip(
-                ctx,
-                msize,
-                (w, h),
-                Box::new(Column::new().child(crate::menu_prefs::view(ctx, msize, close)).class("start").style("height", StyleValue::px(h)).style("width", StyleValue::px(w - 24.0))),
-            ));
+            return Box::new(Column::new().child(crate::menu_prefs::view(ctx, msize, close)).class("start").style("height", StyleValue::px(h)).style("width", StyleValue::px(w - 24.0)));
         }
         let chips_h = if instances.is_empty() {
             0.0
@@ -248,22 +244,14 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
                 .style("height", StyleValue::px(h))
                 .style("width", StyleValue::px(w - 24.0)),
         );
-        if phone {
-            menu
-        } else {
-            Box::new(with_grip(ctx, msize, (w, h), menu))
-        }
+        menu
     });
     let _ = w;
-    Stack::new().child(sized).child(menu_layer)
-}
-
-/// Меню с уголком изменения размера (со стороны, противоположной панели).
-fn with_grip(ctx: ShellCtx, msize: RwSignal<(f32, f32)>, (w, h): (f32, f32), menu: Box<dyn Widget>) -> impl Widget {
-    let top = ctx.popup.get_untracked().is_some_and(|p| p.anchor.edge == synshell_common::config::Edge::Top);
-    let gx = w - 24.0 - 22.0;
-    let gy = if top { h - 22.0 } else { -6.0 };
-    Stack::new().child(menu).child(Positioned::new(crate::menu_prefs::grip(ctx, msize)).at(gx + 6.0, gy))
+    let mut stack = Stack::new().child(sized);
+    if !phone {
+        stack = stack.child(crate::menu_prefs::grip_layer(ctx, msize, 24.0));
+    }
+    stack.child(menu_layer)
 }
 
 /// Середина меню: закреплённые, «Все приложения» или результаты поиска —
@@ -304,11 +292,8 @@ fn body_ref(st: St, ctx: ShellCtx, body_h: f32) -> impl Widget {
         // Телефон: тело — в колонке явной высоты (`flex-grow` не доходит
         // сквозь `rx`, а переключатель высоту из стиля не берёт), иначе
         // прокрутка занимала всё и выталкивала низ за край листа.
-        if ctx.is_phone() {
-            Box::new(Column::new().child(sw).style("height", StyleValue::px(body_h)))
-        } else {
-            Box::new(sw)
-        }
+        // На рабочем столе так же: иначе тело вылезало за карточку меню.
+        Box::new(Column::new().child(sw).style("height", StyleValue::px(body_h)))
     })
 }
 
