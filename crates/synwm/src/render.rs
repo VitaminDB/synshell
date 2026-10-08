@@ -577,8 +577,10 @@ where
         let alpha = (0.45 * (1.0 - t)) as f32;
         let loc = Point::<f64, Logical>::from((pos.x - output_geo.loc.x as f64 - r, pos.y - output_geo.loc.y as f64 - r));
         let size = Size::<i32, Logical>::from(((r * 2.0).round() as i32, (r * 2.0).round() as i32));
+        // src — вся текстура: без него smithay берёт src = (0,0,size) и вырезает угол 128×128 вместо масштабирования
+        let src = Rectangle::<f64, Logical>::from_size((128.0, 128.0).into());
         let elem = RIPPLE.with(|b| {
-            MemoryRenderBufferRenderElement::from_buffer(renderer, loc.to_physical(scale_f), b, Some(alpha), None, Some(size), Kind::Unspecified)
+            MemoryRenderBufferRenderElement::from_buffer(renderer, loc.to_physical(scale_f), b, Some(alpha), Some(src), Some(size), Kind::Unspecified)
         });
         if let Ok(e) = elem {
             out.push(OutputElement::Memory(e));

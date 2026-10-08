@@ -632,7 +632,7 @@ Text {
     border-color: var(--border);
     box-shadow: 0 8px 24px var(--shadow);
 }
-.notif-popups { padding: 12px; }
+.notif-popups { padding: 56px; } /* = NOTIF_PAD в notifications.rs: место под тень */
 .notif-in-center { box-shadow: none; background-color: var(--surface-alt); border-radius: var(--radius); }
 .notif-critical { border-color: var(--danger); border-width: 2px; }
 .notif-low { opacity: 0.92; }

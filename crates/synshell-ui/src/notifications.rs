@@ -8,7 +8,7 @@ use std::time::Duration;
 use syngui::input::MouseButton;
 use syngui::prelude::*;
 use syngui::containers::Keyed;
-use syngui::widgets::{GestureDetector, SwipeDirection};
+use syngui::widgets::{EventHook, GestureDetector, SwipeDirection};
 use syngui_layer::{Anchor, KeyboardInteractivity, Layer, SurfaceId, SurfaceSpec};
 use zbus::zvariant::OwnedValue;
 
@@ -500,22 +500,47 @@ pub fn install(ctx: ShellCtx) {
             1 => edge | Anchor::RIGHT,
             _ => edge,
         };
+        // Поля внутри поверхности — место под тень карточек; отрицательный отступ
+        // от прижатых краёв возвращает карточку на NOTIF_GAP от края экрана.
+        let m = NOTIF_GAP - NOTIF_PAD as i32;
+        let (mv, mh) = (m, if pl.side == 0 { 0 } else { m });
+        let margin = [
+            if pl.bottom { 0 } else { mv },
+            if pl.side == 1 { mh } else { 0 },
+            if pl.bottom { mv } else { 0 },
+            if pl.side == -1 { mh } else { 0 },
+        ];
+        let bounds = Arc::new(syngui::core::sync::Mutex::new(Rect::zero()));
+        let slot = bounds.clone();
         let id = syngui_layer::create_surface(
             SurfaceSpec {
                 namespace: "syndesktop-notification".into(),
                 layer: Layer::Overlay,
                 anchor,
-                // Поля внутри поверхности — место под тень карточек.
                 size: (width + 2 * NOTIF_PAD, 0),
-                margin: [0; 4],
+                margin,
                 exclusive_zone: 0,
                 keyboard: KeyboardInteractivity::None,
                 output: crate::manager::primary_output(&ctx),
                 auto_size: true,
                 clear_color: [0.0; 4],
             },
-            move || Box::new(popups(ctx)),
+            move || Box::new(popups(ctx, slot)),
         );
+        // Ввод — только по карточкам: поля под тень не должны перехватывать клики.
+        let mut last: Option<Vec<[i32; 4]>> = None;
+        syngui_layer::add_timer(Duration::ZERO, move || {
+            if SURFACE.with(|s| s.get()) != Some(id) {
+                return None;
+            }
+            let r = *bounds.lock().unwrap_or_else(|e| e.into_inner());
+            let region = vec![[r.origin.x, r.origin.y, r.size.width, r.size.height].map(|v| v.round() as i32)];
+            if last.as_ref() != Some(&region) {
+                syngui_layer::set_input_region(id, Some(region.clone()));
+                last = Some(region);
+            }
+            Some(Duration::from_millis(100))
+        });
         SURFACE.with(|s| s.set(Some(id)));
         PLACED.with(|p| p.set(Some((pl, width))));
     });
@@ -526,19 +551,21 @@ fn card_width(ctx: &ShellCtx) -> u32 {
     let w = ctx.cfg().notifications.width;
     if ctx.is_phone() {
         let (ow, _) = crate::manager::output_size(None);
-        ((ow as u32).saturating_sub(2 * NOTIF_PAD + 8)).max(240)
+        ((ow as u32).saturating_sub(2 * NOTIF_GAP as u32 + 8)).max(240)
     } else {
         w
     }
 }
 
-/// Поля поверхности всплывающих уведомлений (вместо отступов layer-shell),
-/// чтобы тень карточек не обрезалась краем поверхности; = padding `.notif-popups`.
-const NOTIF_PAD: u32 = 12;
+/// Поля поверхности всплывающих уведомлений — место под тень карточек (в темах
+/// до `0 20px 50px`), чтобы она не обрезалась краем поверхности; = padding `.notif-popups`.
+const NOTIF_PAD: u32 = 56;
+/// Расстояние от карточки до края экрана.
+const NOTIF_GAP: i32 = 12;
 
-fn popups(ctx: ShellCtx) -> impl Widget {
+fn popups(ctx: ShellCtx, bounds: Arc<syngui::core::sync::Mutex<Rect>>) -> impl Widget {
     let shown = shown();
-    Column::new().gap(8.0).class("notif-popups").child(move || {
+    let list = Column::new().gap(8.0).child(move || {
         let max = ctx.cfg().notifications.max_visible.max(1) as usize;
         let list = shown.get();
         let dur = crate::anim::ms(&ctx, 380);
@@ -598,7 +625,8 @@ fn popups(ctx: ShellCtx) -> impl Widget {
             }));
         }
         col
-    })
+    });
+    Column::new().class("notif-popups").child(EventHook::new().report_bounds(bounds).child(list))
 }
 
 fn card(ctx: ShellCtx, n: Notification, in_center: bool) -> impl Widget {
