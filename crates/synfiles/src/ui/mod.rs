@@ -94,6 +94,7 @@ pub mod icons {
     pub const EJECT: &str = "\u{e8fb}";
     pub const NETWORK: &str = "\u{eb2f}";
     pub const PHONE: &str = "\u{e32c}";
+    pub const CAMERA: &str = "\u{e412}";
     pub const COMPUTER: &str = "\u{e30a}";
     pub const LAPTOP: &str = "\u{e31e}";
     pub const TRASH: &str = "\u{e872}";

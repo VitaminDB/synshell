@@ -18,9 +18,12 @@ libc.workspace = true
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff", "ico"], optional = true }
 png = { version = "0.17", optional = true }
 md5 = { version = "0.7", optional = true }
+# Накопители (`drives`): udisks2 и мониторы gvfs по D-Bus.
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"], optional = true }
 
 [features]
 thumbs = ["dep:image", "dep:png", "dep:md5"]
+drives = ["dep:zbus"]
 
 [dev-dependencies]
 tempfile = "3"

@@ -21,6 +21,7 @@ pub mod incall;
 pub mod commands;
 pub mod ctx;
 pub mod datetime;
+pub mod devices;
 pub mod dock;
 pub mod edit;
 pub mod gtkmenu;
@@ -141,6 +142,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         ipc::start(ctx);
         appmenu::install(ctx);
         notifications::start(ctx);
+        devices::start(ctx);
         link::start(ctx);
         modem::start(ctx);
         incall::start(ctx);

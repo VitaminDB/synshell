@@ -11,7 +11,7 @@ name = "synfiles"
 path = "src/main.rs"
 
 [dependencies]
-synshell-common = { workspace = true, features = ["thumbs"] }
+synshell-common = { workspace = true, features = ["thumbs", "drives"] }
 syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "clipboard", "image", "svg"] }
 serde.workspace = true
 serde_json.workspace = true

@@ -318,6 +318,9 @@ fn add(ctx: ShellCtx, n: Notification, replace: bool) {
 /// 3 — CloseNotification (приложение убрало его само — и из истории, даже `resident`).
 pub fn close(ctx: ShellCtx, id: u32, reason: u32) {
     ctx.notifications.update(|l| l.retain(|x| x.id != id));
+    if reason != 1 {
+        HANDLERS.with(|h| h.borrow_mut().remove(&id));
+    }
     match reason {
         1 => {}
         3 => ctx.history.update(|h| h.retain(|x| x.id != id)),
@@ -327,6 +330,11 @@ pub fn close(ctx: ShellCtx, id: u32, reason: u32) {
 }
 
 fn invoke(ctx: ShellCtx, n: &Notification, key: &str) {
+    if let Some(h) = HANDLERS.with(|h| h.borrow().get(&n.id).cloned()) {
+        close(ctx, n.id, 2);
+        h(key);
+        return;
+    }
     if let Some(c) = &n.open_command {
         crate::actions::spawn(c);
         close(ctx, n.id, 2);
@@ -369,6 +377,64 @@ pub fn local(ctx: ShellCtx, summary: &str, body: &str, open: Option<String>) {
         progress: None,
     };
     add(ctx, n, false);
+}
+
+thread_local! {
+    /// Обработчики кнопок своих уведомлений оболочки (`local_actions`) по номеру уведомления.
+    static HANDLERS: std::cell::RefCell<HashMap<u32, std::rc::Rc<dyn Fn(&str)>>> = std::cell::RefCell::new(HashMap::new());
+}
+
+/// Убрать свои уведомления с ключом `key` (с экрана и из истории).
+pub fn close_local(ctx: ShellCtx, key: &str) {
+    let app = format!("synshell:{key}");
+    let mut ids: Vec<u32> = ctx.notifications.get_untracked().iter().filter(|n| n.app_name == app).map(|n| n.id).collect();
+    ids.extend(ctx.history.get_untracked().iter().filter(|n| n.app_name == app).map(|n| n.id));
+    for id in ids {
+        close(ctx, id, 3);
+    }
+}
+
+/// Уведомление оболочки с кнопками: `actions` — (ключ, подпись), `default` — щелчок по карточке;
+/// нажатое уходит в `handler` (уведомление закрывается). `key` — как у `local_command`.
+pub fn local_actions(
+    ctx: ShellCtx,
+    key: &str,
+    summary: &str,
+    body: &str,
+    icon: &str,
+    actions: &[(&str, &str)],
+    handler: impl Fn(&str) + 'static,
+) {
+    let n = local_note(ctx, key, summary, body, icon, actions, None);
+    HANDLERS.with(|h| h.borrow_mut().insert(n.id, std::rc::Rc::new(handler)));
+    add(ctx, n, false);
+}
+
+/// Уведомление оболочки «идёт работа» (полоса без конца) — до замены другим с тем же `key`.
+pub fn local_busy(ctx: ShellCtx, key: &str, summary: &str, body: &str, icon: &str) {
+    let n = local_note(ctx, key, summary, body, icon, &[], Some(-1));
+    add(ctx, n, false);
+}
+
+fn local_note(ctx: ShellCtx, key: &str, summary: &str, body: &str, icon: &str, actions: &[(&str, &str)], progress: Option<i32>) -> Notification {
+    close_local(ctx, key);
+    Notification {
+        id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+        app_name: format!("synshell:{key}"),
+        icon: crate::xdg::lookup_icon(icon).map(|p| p.to_string_lossy().into_owned()),
+        image: None,
+        summary: summary.into(),
+        body: body.into(),
+        actions: actions.iter().map(|(k, l)| (k.to_string(), l.to_string())).collect(),
+        urgency: 1,
+        timeout_ms: if progress.is_some() { 0 } else { u32::MAX },
+        time: crate::clock::unix_now(),
+        transient: false,
+        resident: false,
+        open_path: None,
+        open_command: None,
+        progress,
+    }
 }
 
 /// Уведомление оболочки с командой по клику: `icon` — имя значка темы, `key` — заменить прежнее с тем же
@@ -629,6 +695,15 @@ fn popups(ctx: ShellCtx, bounds: Arc<syngui::core::sync::Mutex<Rect>>) -> impl W
     Column::new().class("notif-popups").child(EventHook::new().report_bounds(bounds).child(list))
 }
 
+/// Подпись отправителя: у своих уведомлений оболочки (`synshell:КЛЮЧ`) — без ключа.
+fn app_title(app: &str) -> String {
+    match app.strip_prefix("synshell:") {
+        Some(k) if k.starts_with("device:") => "Устройства".into(),
+        Some(_) => "synshell".into(),
+        None => app.to_string(),
+    }
+}
+
 fn card(ctx: ShellCtx, n: Notification, in_center: bool) -> impl Widget {
     let mut head = Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Start);
     if let Some((w, h, rgba)) = &n.image {
@@ -648,7 +723,7 @@ fn card(ctx: ShellCtx, n: Notification, in_center: bool) -> impl Widget {
     let mut text = Column::new().gap(2.0).child(
         Row::new()
             .gap(6.0)
-            .child(Text::new(n.app_name.clone()).max_lines(1).class("notif-app grow"))
+            .child(Text::new(app_title(&n.app_name)).max_lines(1).class("notif-app grow"))
             .child(Text::new(crate::clock::format(n.time, "%H:%M")).class("notif-time")),
     );
     if !n.summary.is_empty() {

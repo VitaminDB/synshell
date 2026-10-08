@@ -6,70 +6,78 @@ use syngui::DragData;
 
 use super::{boxed, icons, W};
 use crate::actions;
+use crate::drives::{Device, Kind};
 use crate::loc::Location;
 use crate::places::{self, Place, Target};
 use crate::state;
-use crate::udisks::{self, Volume};
 use crate::ui::view;
 
-/// Безопасно извлечь диск в фоне: отмонтировать разделы и выключить диск.
-fn eject(vol: Volume) {
+/// Безопасно извлечь в фоне: диск — отмонтировать разделы и выключить,
+/// телефон — отключить.
+fn eject(dev: Device) {
     std::thread::spawn(move || {
-        let r = udisks::eject(&vol.drive);
+        let r = dev.eject();
         syngui::async_runtime::run_on_main_thread(move || match r {
             Ok(()) => {
-                // Панель стояла внутри извлечённого диска — уйти домой, иначе она покажет пустоту.
+                // Панель стояла внутри извлечённого — уйти домой, иначе она покажет пустоту.
                 let p = state::pane();
                 let cur = p.loc.get_untracked();
-                if cur.dir().is_some_and(|d| vol.mounts.iter().any(|m| d.starts_with(m))) {
-                    state::navigate(p, Location::Dir(synshell_common::paths::home()), true);
+                if let (Some(d), Some(m)) = (cur.dir(), dev.mount_point()) {
+                    if d.starts_with(m) {
+                        state::navigate(p, Location::Dir(synshell_common::paths::home()), true);
+                    }
                 }
-                state::toast(format!("«{}» можно извлекать", vol.title));
+                state::toast(format!("«{}» можно отключать", dev.title()));
             }
-            Err(e) => state::toast_error(format!("Не удалось извлечь «{}»: {e}", vol.title)),
+            Err(e) => state::toast_error(format!("Не удалось извлечь «{}»: {e}", dev.title())),
         });
     });
 }
 
-/// Монтирует раздел в фоне и открывает его в текущей панели.
-fn mount_and_open(block: String, title: String) {
-    std::thread::spawn(move || match udisks::mount(&block) {
+/// Монтирует устройство в фоне и открывает его в текущей панели.
+fn mount_and_open(dev: Device) {
+    std::thread::spawn(move || match dev.mount() {
         Ok(path) => syngui::async_runtime::run_on_main_thread(move || {
             state::navigate(state::pane(), Location::Dir(path), true);
         }),
         Err(e) => syngui::async_runtime::run_on_main_thread(move || {
-            state::toast_error(format!("Не удалось смонтировать «{title}»: {e}"));
+            state::toast_error(format!("Не удалось открыть «{}»: {e}", dev.title()));
         }),
     });
 }
 
-/// Раздел, который ещё не смонтирован: щелчок монтирует и открывает.
-/// Встроенный диск извлекать нечего — в меню только «Смонтировать».
-fn volume_row(vol: Volume) -> W {
-    let glyph = if vol.removable { icons::USB } else { icons::DRIVE };
-    let block = vol.block.clone();
-    let title = vol.title.clone();
-    let menu_vol = vol.clone();
-    let mut col = Column::new().gap(3.0).child(
-        Row::new()
-            .gap(10.0)
-            .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(Icon::new(glyph).class("icon place-icon"))
-            .child(Text::new(vol.title.clone()).max_lines(1).class("place-title grow")),
-    );
-    col = col.child(Text::new(format!("Не смонтирован · {}", crate::model::format_size(vol.size))).class("space-text"));
+/// Устройство, которое ещё не смонтировано: щелчок монтирует и открывает.
+/// Встроенный диск и несмонтированный телефон извлекать нечего — в меню
+/// только «Открыть».
+fn volume_row(dev: Device) -> W {
+    let glyph = places::kind_icon(dev.kind());
+    let sub = match &dev {
+        Device::Disk(v) => format!("Не смонтирован · {}", crate::drives::format_size(v.size)),
+        Device::Gadget(_) => format!("{} · нажмите, чтобы открыть", dev.kind_name()),
+    };
+    let col = Column::new()
+        .gap(3.0)
+        .child(
+            Row::new()
+                .gap(10.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(Icon::new(glyph).class("icon place-icon"))
+                .child(Text::new(dev.title().to_string()).max_lines(1).class("place-title grow")),
+        )
+        .child(Text::new(sub).class("space-text"));
+    let click = dev.clone();
     let row = GestureDetector::new()
-        .on_click(move || mount_and_open(block.clone(), title.clone()))
+        .on_click(move || mount_and_open(click.clone()))
         .on_secondary_click(move |at| {
-            let mut items = vec![MenuItem::new("mount", "Смонтировать").icon(icons::OPEN)];
-            if menu_vol.removable {
+            let mut items = vec![MenuItem::new("mount", "Открыть").icon(icons::OPEN)];
+            if matches!(dev.kind(), Kind::Usb) {
                 items.push(MenuItem::separator());
                 items.push(MenuItem::new("eject", "Безопасно извлечь").icon(icons::EJECT));
             }
-            let v = menu_vol.clone();
+            let d = dev.clone();
             state::show_menu(items, at, move |id| match id {
-                "mount" => mount_and_open(v.block.clone(), v.title.clone()),
-                "eject" => eject(v.clone()),
+                "mount" => mount_and_open(d.clone()),
+                "eject" => eject(d.clone()),
                 _ => {}
             });
         })
@@ -80,7 +88,7 @@ fn volume_row(vol: Volume) -> W {
 fn place_row(pl: Place, current: &Location) -> W {
     let loc_src = match &pl.target {
         Target::Dir(loc) => loc.clone(),
-        Target::Volume(vol) => return volume_row(vol.clone()),
+        Target::Device(dev) => return volume_row(dev.clone()),
     };
     let active = &loc_src == current;
     let loc = loc_src.clone();

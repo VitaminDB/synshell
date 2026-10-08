@@ -7,7 +7,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-synshell-common.workspace = true
+synshell-common = { workspace = true, features = ["drives"] }
 syngui-layer.workspace = true
 synsystem.workspace = true
 synmodem.workspace = true

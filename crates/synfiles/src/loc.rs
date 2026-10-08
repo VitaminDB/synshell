@@ -95,7 +95,12 @@ impl Location {
             }
             Location::Dir(p) => {
                 let home = paths::home();
-                let (mut out, rest, mut acc) = if p.starts_with(&home) {
+                // Телефон в gvfs — от его имени, а не `/ › run › user › 1000 › gvfs › mtp:host=…`.
+                let gadget = crate::places::gadget_root(p);
+                let (mut out, rest, mut acc) = if let Some((root, title, _)) = gadget {
+                    let rest = p.strip_prefix(&root).unwrap();
+                    (vec![(title, Location::Dir(root.clone()))], rest, root)
+                } else if p.starts_with(&home) {
                     (vec![("Домашняя папка".to_string(), Location::Dir(home.clone()))], p.strip_prefix(&home).unwrap(), home)
                 } else {
                     (vec![("/".to_string(), Location::Dir(PathBuf::from("/")))], p.strip_prefix("/").unwrap_or(p), PathBuf::from("/"))

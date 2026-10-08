@@ -5,14 +5,14 @@ use std::path::{Path, PathBuf};
 use synshell_common::paths;
 
 use crate::loc::Location;
-use crate::udisks::Volume;
+use crate::drives::{Device, Kind};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Target {
     Dir(Location),
-    /// Раздел (съёмный или встроенного диска), который ещё не смонтирован:
-    /// щелчок монтирует его.
-    Volume(Volume),
+    /// Устройство, которое ещё не смонтировано (флешка, раздел встроенного
+    /// диска, телефон): щелчок монтирует его.
+    Device(Device),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -24,8 +24,8 @@ pub struct Place {
     pub pinned: bool,
     /// Для дисков: (свободно, всего) байт.
     pub space: Option<(u64, u64)>,
-    /// Съёмный диск, которому принадлежит место: для «Безопасно извлечь».
-    pub device: Option<Volume>,
+    /// Съёмное устройство, которому принадлежит место: для «Безопасно извлечь».
+    pub device: Option<Device>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -56,6 +56,11 @@ pub fn known(path: &Path) -> Option<(&'static str, String)> {
     if path == Path::new("/") {
         return Some((crate::ui::icons::DRIVE, "Корень системы".into()));
     }
+    if let Some((root, title, icon)) = gadget_root(path) {
+        if root == path {
+            return Some((icon, title));
+        }
+    }
     for (k, title, icon) in USER_DIRS {
         if paths::user_dir(k).as_deref() == Some(path) {
             return Some((icon, title.into()));
@@ -85,26 +90,73 @@ pub fn sections(pinned: &[String]) -> Vec<Section> {
         p.space = space(Path::new("/"));
         p
     }];
-    let volumes = crate::udisks::volumes();
+    let devices = crate::drives::devices();
+    let mut gadgets = Vec::new();
     for m in mounts() {
-        let mut p = place(m.title, m.icon, Location::Dir(m.path.clone()));
+        let device = devices.iter().find(|d| d.removable() && d.mounted_at(&m.path)).cloned();
+        // Телефон в gvfs — с его именем и значком, а не «mtp:host=…».
+        let (title, icon) = match &device {
+            Some(d @ Device::Gadget(_)) => (d.title().to_string(), kind_icon(d.kind())),
+            _ => (m.title, m.icon),
+        };
+        if matches!(device, Some(Device::Gadget(_))) {
+            gadgets.push((m.path.clone(), title.clone(), icon));
+        }
+        let mut p = place(title, icon, Location::Dir(m.path.clone()));
         p.space = space(&m.path);
-        p.device = volumes.iter().find(|v| v.removable && v.mounts.contains(&m.path)).cloned();
+        p.device = device;
         drives.push(p);
     }
-    // Разделы, которые ещё никто не смонтировал (флешки, второй диск, NTFS
-    // с Windows): щелчок монтирует их.
-    for v in volumes.into_iter().filter(|v| v.mounts.is_empty()) {
+    // Что ещё никто не смонтировал (флешки, второй диск, NTFS с Windows,
+    // телефоны): щелчок монтирует.
+    for d in devices.into_iter().filter(|d| d.mount_point().is_none()) {
         drives.push(Place {
-            title: v.title.clone(),
-            icon: if v.removable { crate::ui::icons::USB } else { crate::ui::icons::DRIVE },
-            target: Target::Volume(v.clone()),
+            title: d.title().to_string(),
+            icon: kind_icon(d.kind()),
+            target: Target::Device(d.clone()),
             pinned: false,
             space: None,
-            device: Some(v),
+            device: Some(d),
         });
     }
+    *GADGETS.lock().unwrap_or_else(|e| e.into_inner()) = gadgets;
+    GADGETS_ASKED.store(false, std::sync::atomic::Ordering::Relaxed);
     vec![Section { title: "Быстрый доступ", places: quick }, Section { title: "Устройства", places: drives }]
+}
+
+/// Смонтированные телефоны и камеры (папка gvfs, имя, значок) — запоминаются
+/// при построении боковой панели: заголовки и крошки спрашивают часто, D-Bus
+/// для них не годится.
+static GADGETS: std::sync::Mutex<Vec<(PathBuf, String, &'static str)>> = std::sync::Mutex::new(Vec::new());
+
+/// Телефон или камера, внутри которых `path`: (папка gvfs, имя, значок).
+/// Путь в gvfs, которого нет в запомненных (окно открыто прямо на телефоне,
+/// панель ещё не строилась), — спросить gvfs, но один раз до следующей
+/// перестройки панели.
+pub fn gadget_root(path: &Path) -> Option<(PathBuf, String, &'static str)> {
+    use std::sync::atomic::Ordering;
+    let find = |g: &[(PathBuf, String, &'static str)]| g.iter().find(|(r, _, _)| path.starts_with(r)).cloned();
+    let mut g = GADGETS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(hit) = find(&g) {
+        return Some(hit);
+    }
+    let gvfs = PathBuf::from(format!("/run/user/{}/gvfs", unsafe { libc::getuid() }));
+    if !path.starts_with(&gvfs) || GADGETS_ASKED.swap(true, Ordering::Relaxed) {
+        return None;
+    }
+    *g = crate::drives::gadgets().into_iter().filter_map(|d| Some((d.mount?, d.title, kind_icon(d.kind)))).collect();
+    find(&g)
+}
+
+static GADGETS_ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn kind_icon(k: Kind) -> &'static str {
+    match k {
+        Kind::Disk => crate::ui::icons::DRIVE,
+        Kind::Usb => crate::ui::icons::USB,
+        Kind::Phone => crate::ui::icons::PHONE,
+        Kind::Camera => crate::ui::icons::CAMERA,
+    }
 }
 
 struct Mount {
