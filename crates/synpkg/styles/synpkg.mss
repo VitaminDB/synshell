@@ -198,6 +198,7 @@ CircularProgress { color: var(--accent); accent-color: var(--accent); }
 .qbar-title { font-size: 14px; font-weight: 600; }
 .qbar-sub { font-size: 12px; color: var(--muted); max-width: 420px; }
 .q-row { padding: 6px 8px; border-radius: var(--radius-sm); }
+.q-group { padding: 8px 0px 2px 4px; font-size: 12px; }
 .pkg-icon-sm { width: 28px; height: 28px; }
 .pkg-icon-sm-glyph { width: 28px; height: 28px; padding: 4px; }
 .x-btn { padding: 4px; border-radius: 999px; transition: background-color 120ms ease-out; }
@@ -228,6 +229,10 @@ Button.queued { background: var(--accent-soft); color: var(--fg); }
 .card-icon-glyph { width: 52px; height: 52px; padding: 12px; }
 .card-title { font-size: 15px; font-weight: 600; }
 .card-desc { height: 34px; }
+/* Карточки обновлений: к обновлению, к удалению, не обновляется */
+.app-card-q { border-color: var(--accent); background-color: var(--accent-soft); }
+.app-card-rm { background-color: var(--danger-soft); }
+.app-card-off { opacity: 0.6; }
 
 /* Подробности */
 .hero-icon { width: 80px; height: 80px; }

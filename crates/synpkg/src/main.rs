@@ -4,16 +4,21 @@
 //! подробности) и телефона (стек «список → пакет» с нижней навигацией).
 //! Бэкенд — `synsystem::packages`.
 //!
-//! Изменения не выполняются сразу: «Установить», «Удалить» и флажки в
-//! строках собирают очередь, «Применить» выполняет её одним заданием
-//! (удаление → репозитории → AUR). Мешают зависимости при удалении —
-//! спрашивается, удалить ли каскадом или принудительно.
+//! Изменения не выполняются сразу: «Установить», «Удалить», «Обновить» и
+//! флажки собирают очередь ([`queue`]: задачи сливаются, противоположные
+//! гасят друг друга), «Применить» выполняет её одним заданием (удаление →
+//! транзакция pacman → AUR). Мешают зависимости при удалении — спрашивается,
+//! удалить ли каскадом или принудительно.
 //!
 //! `synpkg [запрос]` — открыть поиск с запросом.
 
 mod desk;
 mod media;
+mod queue;
+mod shot;
 mod ui;
+#[cfg(test)]
+mod ui_tests;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -74,19 +79,7 @@ pub struct JobView {
     pub cancelling: bool,
 }
 
-/// Что сделать с пакетом из очереди.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum QAct {
-    Install,
-    InstallAur,
-    Remove,
-}
-
-#[derive(Clone, PartialEq, Debug)]
-pub struct QItem {
-    pub name: String,
-    pub act: QAct,
-}
+pub use queue::{Merged, Plan, QAct, QItem};
 
 /// Удаление упёрлось в зависимости: что спросить и что выполнить потом.
 #[derive(Clone, PartialEq)]
@@ -96,8 +89,8 @@ pub struct RemoveAsk {
     /// Остальные шаги (установка из очереди) — после удаления.
     pub then: Vec<Op>,
     pub title: String,
-    /// Удаление из очереди: после запуска очередь очищается.
-    pub from_queue: bool,
+    /// Задачи очереди, которые выполнит задание: после запуска снимаются с очереди.
+    pub from_queue: Vec<QItem>,
 }
 
 /// Разделы каталога: ключ — главная категория freedesktop (и её синонимы).
@@ -190,8 +183,6 @@ pub struct St {
     pub filter: RwSignal<String>,
     pub inst_filter: RwSignal<InstFilter>,
     pub updates: RwSignal<Option<Vec<Update>>>,
-    /// Пропустить в ближайшем обновлении (до перезапуска).
-    pub skip: RwSignal<Vec<String>>,
     pub selected: RwSignal<Option<Pkg>>,
     pub details: RwSignal<Option<Details>>,
     pub media: RwSignal<Option<Media>>,
@@ -261,7 +252,61 @@ pub fn menu_selected(id: &str) {
     }
 }
 
+/// Значение ключа командной строки (`--size 1240x820`).
+pub fn arg_value(key: &str) -> Option<String> {
+    let mut it = std::env::args().skip_while(|a| a != key);
+    it.next()?;
+    it.next()
+}
+
+/// Состояние приложения (сигналы) — для окна и снимка без окна.
+pub fn new_state(cfg: Config, query: String, window: RwSignal<syngui::window::WindowState>) -> St {
+    St {
+        tab: use_signal(Tab::Explore),
+        query: use_signal(query),
+        results: use_signal(Vec::new()),
+        searching: use_signal(false),
+        aur_query: use_signal(String::new()),
+        aur_results: use_signal(Vec::new()),
+        aur_searching: use_signal(false),
+        aur_updates: use_signal(None),
+        aur_checking: use_signal(false),
+        installed: use_signal(Vec::new()),
+        filter: use_signal(String::new()),
+        inst_filter: use_signal(InstFilter::All),
+        updates: use_signal(None),
+        selected: use_signal(None),
+        details: use_signal(None),
+        media: use_signal(None),
+        shot: use_signal(None),
+        pkgbuild: use_signal(None),
+        jobs: use_signal(Vec::new()),
+        job_open: use_signal(None),
+        catalog: use_signal(None),
+        category: use_signal(None),
+        toast: use_signal(String::new()),
+        cfg: use_signal(cfg),
+        auth: use_signal(None),
+        queue: use_signal(Vec::new()),
+        remove_ask: use_signal(None),
+        menu_items: use_signal(Vec::new()),
+        menu_open: use_signal(false),
+        menu_pos: use_signal(syngui::core::Point::zero()),
+        icons_rev: use_signal(0),
+        window,
+        search_rev: use_signal(0),
+        files_open: use_signal(false),
+    }
+}
+
 fn main() {
+    if let Some(out) = arg_value("--screenshot") {
+        if let Err(e) = shot::screenshot(&out) {
+            eprintln!("synpkg: снимок: {e:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let query = std::env::args().skip(1).find(|a| !a.starts_with('-')).unwrap_or_default();
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);
@@ -279,43 +324,7 @@ fn main() {
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_styles_str(&mss)
         .run(move |_| {
-            let st = St {
-                tab: use_signal(Tab::Explore),
-                query: use_signal(query.clone()),
-                results: use_signal(Vec::new()),
-                searching: use_signal(false),
-                aur_query: use_signal(String::new()),
-                aur_results: use_signal(Vec::new()),
-                aur_searching: use_signal(false),
-                aur_updates: use_signal(None),
-                aur_checking: use_signal(false),
-                installed: use_signal(Vec::new()),
-                filter: use_signal(String::new()),
-                inst_filter: use_signal(InstFilter::All),
-                updates: use_signal(None),
-                skip: use_signal(Vec::new()),
-                selected: use_signal(None),
-                details: use_signal(None),
-                media: use_signal(None),
-                shot: use_signal(None),
-                pkgbuild: use_signal(None),
-                jobs: use_signal(Vec::new()),
-                job_open: use_signal(None),
-                catalog: use_signal(None),
-                category: use_signal(None),
-                toast: use_signal(String::new()),
-                cfg: use_signal(cfg.clone()),
-                auth: use_signal(None),
-                queue: use_signal(Vec::new()),
-                remove_ask: use_signal(None),
-                menu_items: use_signal(Vec::new()),
-                menu_open: use_signal(false),
-                menu_pos: use_signal(syngui::core::Point::zero()),
-                icons_rev: use_signal(0),
-                window,
-                search_rev: use_signal(0),
-                files_open: use_signal(false),
-            };
+            let st = new_state(cfg.clone(), query.clone(), window);
             polkit_agent::set_prompter(AuthPrompter(st.auth));
             if !query.is_empty() {
                 search(st, query.clone());
@@ -326,7 +335,7 @@ fn main() {
         });
 }
 
-fn theme(cfg: &Config) -> String {
+pub fn theme(cfg: &Config) -> String {
     let a = &cfg.appearance;
     let mut s = a.mss_variables();
     // Производные цвета полей и кнопок — как в «Параметрах», чтобы окна были одного вида.
@@ -410,24 +419,24 @@ pub fn load_installed(st: St) {
 fn load_catalog(st: St) {
     std::thread::spawn(move || {
         let v = pk::catalog();
-        run_on_main_thread(move || {
-            CAT_INDEX.with(|m| {
-                let mut m = m.borrow_mut();
-                for a in &v {
-                    m.insert(
-                        a.pkg.name.clone(),
-                        AppMeta { title: a.title.clone(), icon: a.icon.clone(), icon64: a.cached_icon(64).cloned(), icon128: a.cached_icon(128).cloned() },
-                    );
-                }
-            });
-            st.catalog.set(Some(v));
-            st.icons_rev.set(st.icons_rev.get_untracked() + 1);
-        });
+        run_on_main_thread(move || set_catalog(st, v));
         // Значки каталога (JPEG XL) — в PNG; готово — строки перерисуются со значками.
         if media::convert_catalog_icons() {
             run_on_main_thread(move || st.icons_rev.set(st.icons_rev.get_untracked() + 1));
         }
     });
+}
+
+/// Каталог загружен: сведения по именам для строк и карточек.
+pub fn set_catalog(st: St, v: Vec<CatalogApp>) {
+    CAT_INDEX.with(|m| {
+        let mut m = m.borrow_mut();
+        for a in &v {
+            m.insert(a.pkg.name.clone(), AppMeta { title: a.title.clone(), icon: a.icon.clone(), icon64: a.cached_icon(64).cloned(), icon128: a.cached_icon(128).cloned() });
+        }
+    });
+    st.catalog.set(Some(v));
+    st.icons_rev.set(st.icons_rev.get_untracked() + 1);
 }
 
 /// Пометки «установлен» в каталоге после изменений.
@@ -544,27 +553,47 @@ pub fn default_act(p: &Pkg) -> QAct {
     }
 }
 
+/// Задача обновления: из репозитория или пересборка из AUR.
+pub fn upgrade_act(u: &Update) -> QAct {
+    if u.source == Source::Aur {
+        QAct::UpgradeAur
+    } else {
+        QAct::Upgrade
+    }
+}
+
 pub fn queued(st: St, name: &str) -> Option<QAct> {
     st.queue.get_untracked().iter().find(|q| q.name == name).map(|q| q.act)
 }
 
+/// Добавить задачу (слияние — [`queue::merge`]).
+pub fn enqueue(st: St, it: QItem) -> Merged {
+    let mut q = st.queue.get_untracked();
+    let r = queue::merge(&mut q, it);
+    if r != Merged::Same {
+        st.queue.set(q);
+    }
+    r
+}
+
+/// Флажок: пакет в очереди — снять, иначе поставить с действием `act`.
+pub fn toggle_act(st: St, name: &str, act: QAct) {
+    if queued(st, name).is_some() {
+        unqueue(st, name);
+    } else {
+        enqueue(st, QItem::new(name, act));
+    }
+}
+
 /// Поставить пакет в очередь или убрать из неё.
 pub fn toggle_queue(st: St, p: &Pkg) {
-    let mut q = st.queue.get_untracked();
-    if let Some(i) = q.iter().position(|x| x.name == p.name) {
-        q.remove(i);
-    } else {
-        q.push(QItem { name: p.name.clone(), act: default_act(p) });
-    }
-    st.queue.set(q);
+    toggle_act(st, &p.name, default_act(p));
 }
 
 pub fn set_queued(st: St, items: impl IntoIterator<Item = QItem>) {
     let mut q = st.queue.get_untracked();
     for it in items {
-        if !q.iter().any(|x| x.name == it.name) {
-            q.push(it);
-        }
+        queue::merge(&mut q, it);
     }
     st.queue.set(q);
 }
@@ -572,6 +601,13 @@ pub fn set_queued(st: St, items: impl IntoIterator<Item = QItem>) {
 pub fn unqueue(st: St, name: &str) {
     let mut q = st.queue.get_untracked();
     q.retain(|x| x.name != name);
+    st.queue.set(q);
+}
+
+/// Снять с очереди выполненные задачи (добавленные после запуска остаются).
+fn take_from_queue(st: St, done: &[QItem]) {
+    let mut q = st.queue.get_untracked();
+    q.retain(|x| !done.contains(x));
     st.queue.set(q);
 }
 
@@ -585,40 +621,34 @@ pub fn packages_word(n: usize) -> String {
     format!("{n} {w}")
 }
 
-/// Выполнить очередь: удаление (с проверкой зависимостей), затем установка.
+/// Выполнить очередь одним заданием: удаление (с проверкой зависимостей),
+/// транзакция pacman, проход AUR ([`Plan::steps`]). Задачи, добавленные, пока
+/// задание идёт, ждут следующего «Применить».
 pub fn apply_queue(st: St) {
     let q = st.queue.get_untracked();
-    if q.is_empty() {
+    let plan = Plan::of(&q);
+    if plan.is_empty() {
         return;
     }
-    let pick = |a: QAct| q.iter().filter(|x| x.act == a).map(|x| x.name.clone()).collect::<Vec<_>>();
-    let (rm, inst, aur) = (pick(QAct::Remove), pick(QAct::Install), pick(QAct::InstallAur));
-    let mut then = Vec::new();
-    if !inst.is_empty() {
-        then.push(Op::Install(inst.clone()));
+    // pacman — одна транзакция за раз: очередь ждёт, пока идёт задание.
+    if let Some(j) = st.jobs.get_untracked().iter().find(|j| j.done.is_none()) {
+        st.toast.set(format!("Идёт «{}» — очередь ждёт, примените её после окончания", j.title));
+        return;
     }
-    if !aur.is_empty() {
-        then.push(Op::InstallAur(aur.clone()));
-    }
-    let mut parts = Vec::new();
-    if !inst.is_empty() || !aur.is_empty() {
-        parts.push(format!("установка {}", packages_word(inst.len() + aur.len())));
-    }
-    if !rm.is_empty() {
-        parts.push(format!("удаление {}", packages_word(rm.len())));
-    }
-    let title = format!("Очередь: {}", parts.join(", "));
-    if rm.is_empty() {
-        st.queue.set(Vec::new());
+    let updates: Vec<String> = st.updates.get_untracked().unwrap_or_default().into_iter().filter(|u| u.source != Source::Aur).map(|u| u.name).collect();
+    let then = plan.steps(&updates, &st.cfg.get_untracked().packages.ignore);
+    let title = plan.title();
+    if plan.remove.is_empty() {
+        take_from_queue(st, &q);
         start_ops(st, title, then);
         return;
     }
-    remove_checked(st, rm, then, title, true);
+    remove_checked(st, plan.remove, then, title, q);
 }
 
 /// Удалить `names` (и потом выполнить `then`): сначала проверка, нужны ли
 /// они другим пакетам; если да — окно выбора (каскадом / принудительно).
-pub fn remove_checked(st: St, names: Vec<String>, then: Vec<Op>, title: String, from_queue: bool) {
+pub fn remove_checked(st: St, names: Vec<String>, then: Vec<Op>, title: String, from_queue: Vec<QItem>) {
     st.toast.set("Проверка зависимостей…".into());
     std::thread::spawn(move || {
         let check = pk::remove_check(&names);
@@ -638,9 +668,7 @@ pub fn remove_checked(st: St, names: Vec<String>, then: Vec<Op>, title: String, 
 pub fn run_remove(st: St, ask: RemoveAsk, mode: RemoveMode) {
     let mut ops = vec![Op::Remove { names: ask.names.clone(), mode }];
     ops.extend(ask.then);
-    if ask.from_queue {
-        st.queue.set(Vec::new());
-    }
+    take_from_queue(st, &ask.from_queue);
     st.remove_ask.set(None);
     start_ops(st, ask.title, ops);
 }

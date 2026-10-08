@@ -92,6 +92,19 @@ pub fn foreign() -> HashMap<String, String> {
         .collect()
 }
 
+/// Синхронизированные базы: имя → (репозиторий, версия) из `pacman -Sl`;
+/// пакет в нескольких репозиториях — по первому (порядок pacman.conf, как у pacman).
+pub fn sync_index() -> HashMap<String, (String, String)> {
+    let mut sync = HashMap::new();
+    for l in pacman(&["-Sl"]).unwrap_or_default().lines() {
+        let mut p = l.split_whitespace();
+        if let (Some(repo), Some(name), Some(ver)) = (p.next(), p.next(), p.next()) {
+            sync.entry(name.to_string()).or_insert((repo.to_string(), ver.to_string()));
+        }
+    }
+    sync
+}
+
 /// Разбор `pacman -Ss`: `repo/name version [installed]` + строка описания.
 pub fn parse_ss(text: &str, installed: &HashMap<String, String>) -> Vec<Pkg> {
     let mut out = Vec::new();
@@ -192,9 +205,11 @@ fn urlencode(s: &str) -> String {
         .collect()
 }
 
-/// Все установленные с описаниями (`pacman -Qi`, один вызов).
+/// Все установленные с описаниями (`pacman -Qi`, один вызов); репозиторий —
+/// из [`sync_index`].
 pub fn installed() -> Vec<Pkg> {
     let foreign = foreign();
+    let sync = sync_index();
     let text = pacman(&["-Qi"]).unwrap_or_default();
     let mut out = Vec::new();
     for block in text.split("\n\n") {
@@ -206,7 +221,7 @@ pub fn installed() -> Vec<Pkg> {
         }
         let version = get("Version");
         out.push(Pkg {
-            source: if foreign.contains_key(&name) { Source::Local } else { Source::Repo(String::new()) },
+            source: if foreign.contains_key(&name) { Source::Local } else { Source::Repo(sync.get(&name).map(|(r, _)| r.clone()).unwrap_or_default()) },
             installed: Some(version.clone()),
             description: get("Description"),
             votes: None,
@@ -337,13 +352,7 @@ impl CatalogApp {
 /// Пусто, если данных AppStream нет.
 pub fn catalog() -> Vec<CatalogApp> {
     let installed = installed_map();
-    let mut sync: HashMap<String, (String, String)> = HashMap::new();
-    for l in pacman(&["-Sl"]).unwrap_or_default().lines() {
-        let mut p = l.split_whitespace();
-        if let (Some(repo), Some(name), Some(ver)) = (p.next(), p.next(), p.next()) {
-            sync.entry(name.to_string()).or_insert((repo.to_string(), ver.to_string()));
-        }
-    }
+    let sync = sync_index();
     let mut files: Vec<PathBuf> = ["/usr/share/swcatalog/xml", "/usr/share/app-info/xmls"]
         .iter()
         .filter_map(|d| std::fs::read_dir(d).ok())
@@ -594,11 +603,13 @@ pub struct Update {
     pub name: String,
     pub old: String,
     pub new: String,
-    pub aur: bool,
+    /// Откуда новая версия: репозиторий pacman или AUR.
+    pub source: Source,
 }
 
 /// Обновления: `checkupdates` (своя копия базы, без root) или `pacman -Qu`
-/// по имеющейся базе; AUR — версии RPC против установленных.
+/// по имеющейся базе; репозиторий — из [`sync_index`]; AUR — версии RPC
+/// против установленных.
 pub fn updates(aur: bool) -> Vec<Update> {
     let text = if which("checkupdates") {
         Command::new("checkupdates").env("LC_ALL", "C").stderr(Stdio::null()).output().ok().map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
@@ -606,11 +617,12 @@ pub fn updates(aur: bool) -> Vec<Update> {
         pacman(&["-Qu"])
     }
     .unwrap_or_default();
+    let sync = sync_index();
     let mut out: Vec<Update> = text
         .lines()
         .filter_map(|l| {
             let p: Vec<&str> = l.split_whitespace().collect();
-            (p.len() >= 4 && p[2] == "->").then(|| Update { name: p[0].into(), old: p[1].into(), new: p[3].into(), aur: false })
+            (p.len() >= 4 && p[2] == "->").then(|| Update { name: p[0].into(), old: p[1].into(), new: p[3].into(), source: Source::Repo(sync.get(p[0]).map(|(r, _)| r.clone()).unwrap_or_default()) })
         })
         .collect();
     if aur {
@@ -633,7 +645,7 @@ pub fn aur_updates() -> Vec<Update> {
             let (Some(n), Some(new)) = (v.get("Name").and_then(|x| x.as_str()), v.get("Version").and_then(|x| x.as_str())) else { continue };
             if let Some(old) = foreign.get(n) {
                 if vercmp(new, old) == std::cmp::Ordering::Greater {
-                    out.push(Update { name: n.into(), old: old.clone(), new: new.into(), aur: true });
+                    out.push(Update { name: n.into(), old: old.clone(), new: new.into(), source: Source::Aur });
                 }
             }
         }
@@ -681,8 +693,9 @@ pub enum Op {
     Install(Vec<String>),
     InstallAur(Vec<String>),
     Remove { names: Vec<String>, mode: RemoveMode },
-    /// Обновить систему (и, если `aur`, пакеты AUR); `ignore` — пропустить эти пакеты.
-    Upgrade { aur: bool, ignore: Vec<String> },
+    /// Обновить систему (и, если `aur`, пакеты AUR); `ignore` — пропустить эти пакеты,
+    /// `install` — доустановить в той же транзакции (`pacman -Syu a b`).
+    Upgrade { aur: bool, ignore: Vec<String>, install: Vec<String> },
     /// Обновить базы репозиториев.
     Refresh,
     /// Несколько операций по очереди (очередь synpkg); первая ошибка останавливает.
@@ -1049,16 +1062,17 @@ fn run_op(op: &Op, build_user: &str, tx: &mpsc::Sender<JobEvent>, c: &JobCancel)
             let _ = tx.send(JobEvent::Stage("Обновление баз".into()));
             run_streaming(pacman_cmd(&["-Sy"]), tx, c)
         }
-        Op::Upgrade { aur, ignore } => {
+        Op::Upgrade { aur, ignore, install } => {
             let _ = tx.send(JobEvent::Stage("Обновление системы".into()));
             let list = ignore.join(",");
-            let mut a = vec!["-Syu", "--noconfirm"];
+            let mut a = vec!["-Syu", "--noconfirm", "--needed"];
             if !ignore.is_empty() {
                 a.extend(["--ignore", list.as_str()]);
             }
+            a.extend(install.iter().map(|s| s.as_str()));
             let mut r = run_streaming(pacman_cmd(&a), tx, c);
             if r.is_ok() && *aur {
-                let ups: Vec<String> = updates(true).into_iter().filter(|u| u.aur && !ignore.contains(&u.name)).map(|u| u.name).collect();
+                let ups: Vec<String> = updates(true).into_iter().filter(|u| u.source == Source::Aur && !ignore.contains(&u.name)).map(|u| u.name).collect();
                 if !ups.is_empty() {
                     r = build_aur(&ups, build_user, tx, c);
                 }

@@ -200,7 +200,7 @@ fn sidebar(st: St) -> W {
 }
 
 /// Колонок карточек шириной ~`tile` в области содержимого.
-fn cols(tile: f32) -> usize {
+pub fn cols(tile: f32) -> usize {
     let w = syngui::viewport::viewport_size().get().width;
     let avail = w - SIDEBAR_W - 56.0;
     ((avail + 14.0) / (tile + 14.0)).floor().max(1.0) as usize

@@ -4948,11 +4948,15 @@ dependencies = [
 name = "synpkg"
 version = "0.1.41"
 dependencies = [
+ "anyhow",
+ "png 0.17.16",
+ "pollster",
  "serde_json",
  "syngui",
  "synshell-common",
  "synsystem",
  "toml_edit 0.23.10+spec-1.0.0",
+ "wgpu",
 ]
 
 [[package]]

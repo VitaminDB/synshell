@@ -2,6 +2,7 @@
 //! стек «список → пакет» с нижней навигацией. Поверх — очередь, окно
 //! удаления с зависимостями, просмотр снимков, контекстное меню, пароль.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use synsystem::packages::{self as pk, CatalogApp, Op, Pkg, RemoveMode, Source, Update};
@@ -16,6 +17,9 @@ use crate::*;
 use crate::Tab;
 
 pub type W = Box<dyn Widget>;
+
+/// Карточек обновлений сразу — не больше.
+const UPDATES_SHOWN: usize = 300;
 
 /// Миниатюра снимка экрана в ленте.
 const SHOT_W: f32 = 300.0;
@@ -343,14 +347,12 @@ pub fn queue_bar(st: St) -> W {
         if q.is_empty() {
             return vec![];
         }
-        let inst = q.iter().filter(|x| x.act != QAct::Remove).count();
-        let rm = q.len() - inst;
+        let plan = Plan::of(&q);
         let mut parts = Vec::new();
-        if inst > 0 {
-            parts.push(format!("установить {inst}"));
-        }
-        if rm > 0 {
-            parts.push(format!("удалить {rm}"));
+        for (n, w) in [(plan.install.len() + plan.aur_install.len(), "установить"), (plan.upgrade.len() + plan.aur_upgrade.len(), "обновить"), (plan.remove.len(), "удалить")] {
+            if n > 0 {
+                parts.push(format!("{w} {n}"));
+            }
         }
         let names: Vec<String> = q.iter().map(|x| x.name.clone()).collect();
         vec![Box::new(
@@ -416,16 +418,21 @@ pub fn check_icon(on: bool) -> W {
     Box::new(DecoratedBox::new().child(Icon::new(if on { CHECK_ON } else { CHECK_OFF }).class(if on { "check check-on" } else { "check" })).class("check-box"))
 }
 
-/// Пункты контекстного меню пакета. `update` — строка из «Обновлений».
+/// Пункты контекстного меню пакета. `update` — карточка из «Обновлений».
 pub fn pkg_menu(st: St, p: Pkg, at: syngui::core::Point, update: bool) {
     let mut items = vec![MenuItem::new("details", "Подробности").icon("\u{E88E}")];
     let q = queued(st, &p.name);
     let installed = p.installed.is_some();
+    let up_act = if p.source == Source::Aur { QAct::UpgradeAur } else { QAct::Upgrade };
     if q.is_some() {
         items.push(MenuItem::new("unqueue", "Убрать из очереди").icon("\u{E15C}"));
-    } else if installed {
-        items.push(MenuItem::new("q", "Удалить (в очередь)").icon("\u{E872}"));
-    } else {
+    }
+    if update && q != Some(up_act) {
+        items.push(MenuItem::new("q-up", "Обновить (в очередь)").icon("\u{E923}"));
+    }
+    if installed && q != Some(QAct::Remove) {
+        items.push(MenuItem::new("q-rm", "Удалить (в очередь)").icon("\u{E872}"));
+    } else if !installed && q.is_none() {
         items.push(MenuItem::new("q", "Установить (в очередь)").icon("\u{E03B}"));
     }
     if installed {
@@ -439,10 +446,6 @@ pub fn pkg_menu(st: St, p: Pkg, at: syngui::core::Point, update: bool) {
     }
     if installed {
         items.push(MenuItem::separator());
-        if update {
-            let skipped = st.skip.get_untracked().contains(&p.name);
-            items.push(MenuItem::new("skip", if skipped { "Обновить в этот раз" } else { "Пропустить в этот раз" }).icon("\u{E044}"));
-        }
         let ignored = st.cfg.get_untracked().packages.ignore.contains(&p.name);
         items.push(MenuItem::new("ignore", if ignored { "Снова обновлять" } else { "Не обновлять никогда" }).icon("\u{E14B}"));
     }
@@ -457,28 +460,18 @@ pub fn pkg_menu(st: St, p: Pkg, at: syngui::core::Point, update: bool) {
         match id {
             "details" => select(st, p.clone()),
             "unqueue" => unqueue(st, &name),
-            "q" => {
-                toggle_queue(st, &p);
-                st.toast.set(format!("{name} — в очереди, «Применить» внизу"));
-            }
+            "q" => queue_toast(st, &name, enqueue(st, QItem::new(name.clone(), default_act(&p)))),
+            "q-up" => queue_toast(st, &name, enqueue(st, QItem::new(name.clone(), up_act))),
+            "q-rm" => queue_toast(st, &name, enqueue(st, QItem::new(name.clone(), QAct::Remove))),
             "install-now" => {
                 let op = if p.source == Source::Aur { Op::InstallAur(vec![name.clone()]) } else { Op::Install(vec![name.clone()]) };
                 run_op(st, format!("Установка {name}"), op);
             }
-            "remove-now" => remove_checked(st, vec![name.clone()], Vec::new(), format!("Удаление {name}"), false),
+            "remove-now" => remove_checked(st, vec![name.clone()], Vec::new(), format!("Удаление {name}"), Vec::new()),
             "open" => {
                 if let Some(e) = synshell_common::xdg::app_by_id(&name) {
                     let _ = std::process::Command::new("sh").arg("-c").arg(e.command()).spawn();
                 }
-            }
-            "skip" => {
-                let mut s = st.skip.get_untracked();
-                if s.contains(&name) {
-                    s.retain(|n| *n != name);
-                } else {
-                    s.push(name.clone());
-                }
-                st.skip.set(s);
             }
             "ignore" => {
                 let ignored = st.cfg.get_untracked().packages.ignore.contains(&name);
@@ -498,6 +491,15 @@ pub fn pkg_menu(st: St, p: Pkg, at: syngui::core::Point, update: bool) {
             "copy" => syngui::clipboard::copy(&name),
             _ => {}
         }
+    });
+}
+
+/// Подсказка, что стало с задачей в очереди.
+pub fn queue_toast(st: St, name: &str, r: Merged) {
+    st.toast.set(match r {
+        Merged::Added | Merged::Replaced => format!("{name} — в очереди, «Применить» внизу"),
+        Merged::Same => format!("{name} — уже в очереди"),
+        Merged::Cancelled => format!("{name} — задачи погасили друг друга, пакет снят с очереди"),
     });
 }
 
@@ -527,10 +529,9 @@ pub fn pkg_row_titled(st: St, p: Pkg, title: Option<String>) -> W {
         if p.installed.is_some() {
             meta = meta.child(chip("установлен", "chip-ok"));
         }
-        match q {
-            Some(QAct::Remove) => meta = meta.child(chip("к удалению", "chip-rm")),
-            Some(_) => meta = meta.child(chip("к установке", "chip-q")),
-            None => {}
+        if let Some(a) = q {
+            let (label, class) = a.chip();
+            meta = meta.child(chip(label, class));
         }
         if p.out_of_date {
             meta = meta.child(chip("устарел", "chip-warn"));
@@ -661,10 +662,39 @@ pub fn grid_cols(tile: f32) -> usize {
     ((list_w + 12.0) / (tile + 12.0)).floor().max(if w < 720.0 { 1.0 } else { 2.0 }) as usize
 }
 
+/// Карточка пакета (витрина, обновления): значок, название и строка под ним
+/// (`head`), уголок (флажок), описание, низ — кнопка или метки. Щелчок —
+/// подробности, правый щелчок (на телефоне — удержание) — меню пакета.
+pub fn pkg_card(st: St, p: Pkg, update: bool, head: (String, String), corner: Option<W>, footer: W, class: &str) -> W {
+    let (p2, p3) = (p.clone(), p.clone());
+    let mut top = Row::new()
+        .gap(12.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(app_icon(&p.name, "card-icon"))
+        .child(Column::new().gap(2.0).child(Text::new(head.0).max_lines(1).class("card-title")).child(Text::new(head.1).max_lines(1).class("pkg-ver")).class("grow"));
+    if let Some(c) = corner {
+        top = top.child(c);
+    }
+    Box::new(
+        GestureDetector::new().on_click(move || select(st, p2.clone())).on_secondary_click(move |at| pkg_menu(st, p3.clone(), at, update)).child(
+            DecoratedBox::new()
+                .child(
+                    Column::new()
+                        .gap(8.0)
+                        .child(top)
+                        .child(Text::new(p.description.clone()).max_lines(2).class("pkg-desc card-desc"))
+                        // Высота явно: кнопка в Reactive при обмере сетки ещё пуста — карточка выходила ниже кнопки.
+                        .child(DecoratedBox::new().child(footer).style("height", StyleValue::px(30.0))),
+                )
+                .class(class.to_string()),
+        ),
+    )
+}
+
 /// Карточка витрины: крупный значок, название, сводка, кнопка очереди.
 pub fn app_card(st: St, a: CatalogApp) -> W {
     let p = a.pkg.clone();
-    let (p2, p3, p4) = (p.clone(), p.clone(), p.clone());
+    let p4 = p.clone();
     let name = p.name.clone();
     let button = Reactive::new(move || -> Vec<W> {
         let q = st.queue.get().iter().find(|x| x.name == name).map(|x| x.act);
@@ -676,20 +706,8 @@ pub fn app_card(st: St, a: CatalogApp) -> W {
         };
         vec![Box::new(b)]
     });
-    Box::new(
-        GestureDetector::new().on_click(move || select(st, p2.clone())).on_secondary_click(move |at| pkg_menu(st, p3.clone(), at, false)).child(
-            DecoratedBox::new()
-                .child(
-                    Column::new()
-                        .gap(8.0)
-                        .child(Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(app_icon(&p.name, "card-icon")).child(Column::new().gap(2.0).child(Text::new(a.title.clone()).max_lines(1).class("card-title")).child(Text::new(category_label(&a)).max_lines(1).class("pkg-ver")).class("grow")))
-                        .child(Text::new(p.description.clone()).max_lines(2).class("pkg-desc card-desc"))
-                        // Высота явно: кнопка в Reactive при обмере сетки ещё пуста — карточка выходила ниже кнопки.
-                        .child(Row::new().cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class("grow")).child(button).style("height", StyleValue::px(30.0))),
-                )
-                .class("app-card"),
-        ),
-    )
+    let footer = Row::new().cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class("grow")).child(button);
+    pkg_card(st, p, false, (a.title.clone(), category_label(&a)), None, Box::new(footer), "app-card")
 }
 
 pub fn category_label(a: &CatalogApp) -> String {
@@ -829,24 +847,7 @@ pub fn aur_updates_block(st: St) -> W {
     match ups {
         None => col = col.child(Text::new(if checking { "Проверка версий в AUR…" } else { "Не проверялись" }).class("muted")),
         Some(v) if v.is_empty() => col = col.child(Text::new("Все пакеты AUR свежие").class("muted")),
-        Some(v) => {
-            let ignore = st.cfg.get().packages.ignore.clone();
-            let skip = st.skip.get();
-            let chosen: Vec<String> = v.iter().filter(|u| !skip.contains(&u.name) && !ignore.contains(&u.name)).map(|u| u.name.clone()).collect();
-            let n = chosen.len();
-            let total = v.len();
-            col = col.child(
-                Row::new().child(
-                    Button::new(format!("Обновить выбранные ({n} из {total})"))
-                        .class("primary")
-                        .disabled(n == 0)
-                        .on_click(move || run_op(st, format!("Обновление AUR: {}", packages_word(chosen.len())), Op::InstallAur(chosen.clone()))),
-                ),
-            );
-            for u in v {
-                col = col.child(update_row(st, u, &skip, &ignore));
-            }
-        }
+        Some(v) => col = col.child(updates_actions(st, &v, "Обновить все из AUR")).child(updates_grid(st, v)),
     }
     Box::new(col)
 }
@@ -892,49 +893,97 @@ pub fn installed_view(st: St) -> W {
     Box::new(with_field(field, Column::new().gap(10.0)).child(chips).child(ScrollView::new().vertical().child(list).class("grow")).class("pane"))
 }
 
-/// Строка обновления: флажок «обновлять», значок, версии, метки; правый щелчок — меню.
-pub fn update_row(st: St, u: Update, skip: &[String], ignore: &[String]) -> W {
-    let ignored = ignore.contains(&u.name);
-    let on = !ignored && !skip.contains(&u.name);
-    let name = u.name.clone();
-    let check = GestureDetector::new()
-        .on_click(move || {
-            if ignored {
-                set_ignored(st, &name, false);
-                return;
-            }
-            let mut s = st.skip.get_untracked();
-            if s.contains(&name) {
-                s.retain(|n| *n != name);
-            } else {
-                s.push(name.clone());
-            }
-            st.skip.set(s);
-        })
-        .child(check_icon(on));
-    let mut meta = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(chip(if u.aur { "AUR" } else { "репозиторий" }, if u.aur { "chip-aur" } else { "chip-repo" }));
-    if ignored {
-        meta = meta.child(chip("не обновляется", "chip-warn"));
-    } else if !on {
-        meta = meta.child(chip("пропуск", "chip-local"));
+/// Карточка обновления: флажок «обновить» (задача очереди), версии, источник
+/// и метки; правый щелчок или удержание — меню пакета. `description` — из
+/// установленных.
+pub fn update_card(st: St, u: Update, description: String) -> W {
+    Box::new(Reactive::new(move || -> Vec<W> {
+        let ignored = st.cfg.get().packages.ignore.contains(&u.name);
+        let q = st.queue.get().iter().find(|x| x.name == u.name).map(|x| x.act);
+        let act = upgrade_act(&u);
+        let on = q == Some(act);
+        let name = u.name.clone();
+        let check = GestureDetector::new()
+            .on_click(move || {
+                if ignored {
+                    set_ignored(st, &name, false);
+                } else {
+                    toggle_act(st, &name, act);
+                }
+            })
+            .child(check_icon(on));
+        let pkg = Pkg { name: u.name.clone(), version: u.new.clone(), description: description.clone(), source: u.source.clone(), installed: Some(u.old.clone()), votes: None, popularity: None, out_of_date: false };
+        let mut meta = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(source_chip(&pkg));
+        if ignored {
+            meta = meta.child(chip("не обновляется", "chip-warn"));
+        } else if let Some(a) = q {
+            let (label, class) = a.chip();
+            meta = meta.child(chip(label, class));
+        }
+        let class = match q {
+            Some(QAct::Remove) => "app-card app-card-rm",
+            _ if on => "app-card app-card-q",
+            _ if ignored => "app-card app-card-off",
+            _ => "app-card",
+        };
+        vec![pkg_card(st, pkg.clone(), true, (title_of(&pkg), format!("{} → {}", u.old, u.new)), Some(Box::new(check)), Box::new(meta), class)]
+    }))
+}
+
+/// Сетка карточек обновлений (сотни сразу — тяжело: первые [`UPDATES_SHOWN`]).
+pub fn updates_grid(st: St, ups: Vec<Update>) -> W {
+    let desc: HashMap<String, String> = st.installed.get_untracked().into_iter().map(|p| (p.name, p.description)).collect();
+    let n = ups.len();
+    let mut grid = Grid::new(if is_desk() { crate::desk::cols(240.0) } else { grid_cols(250.0) }).gap(14.0);
+    for u in ups.into_iter().take(UPDATES_SHOWN) {
+        let d = desc.get(&u.name).cloned().unwrap_or_default();
+        grid = grid.child(update_card(st, u, d));
     }
-    let pkg = Pkg { name: u.name.clone(), version: u.new.clone(), description: String::new(), source: if u.aur { Source::Aur } else { Source::Repo(String::new()) }, installed: Some(u.old.clone()), votes: None, popularity: None, out_of_date: false };
-    let (p2, p3) = (pkg.clone(), pkg.clone());
-    Box::new(
-        GestureDetector::new().on_click(move || select(st, p2.clone())).on_secondary_click(move |at| pkg_menu(st, p3.clone(), at, true)).child(
-            DecoratedBox::new()
-                .child(
-                    Row::new()
-                        .gap(12.0)
-                        .cross_axis_alignment(CrossAxisAlignment::Center)
-                        .child(check)
-                        .child(app_icon(&u.name, "pkg-icon"))
-                        .child(Column::new().gap(3.0).child(Text::new(title_of(&pkg)).max_lines(1).class("pkg-name")).child(Text::new(format!("{} → {}", u.old, u.new)).class("pkg-desc")).class("grow"))
-                        .child(meta),
-                )
-                .class(if on { "pkg-row" } else { "pkg-row pkg-row-off" }),
-        ),
-    )
+    let mut col = Column::new().gap(10.0).child(grid);
+    if n > UPDATES_SHOWN {
+        col = col.child(Text::new(format!("Показаны первые {UPDATES_SHOWN} из {n} — «Обновить всё» обновит и остальные")).class("muted"));
+    }
+    Box::new(col)
+}
+
+/// Шапка списка обновлений: «Обновить всё» (в очередь и сразу применить),
+/// «Выбрать все» / «Снять», предупреждение о частичном обновлении.
+pub fn updates_actions(st: St, ups: &[Update], all_label: &str) -> W {
+    let ups = ups.to_vec();
+    let all_label = all_label.to_string();
+    Box::new(Reactive::new(move || -> Vec<W> {
+        let ignore = st.cfg.get().packages.ignore.clone();
+        let q = st.queue.get();
+        let items: Vec<QItem> = ups.iter().filter(|u| !ignore.contains(&u.name)).map(|u| QItem::new(u.name.clone(), upgrade_act(u))).collect();
+        let chosen = items.iter().filter(|it| q.contains(it)).count();
+        let total = items.len();
+        let names: Vec<String> = items.iter().map(|i| i.name.clone()).collect();
+        let (all, all2) = (items.clone(), items.clone());
+        // Переносом: на телефоне кнопки не помещаются в ряд.
+        let mut row = Flex::new().wrap().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(
+            Button::new(format!("{all_label} ({total})")).class("primary").disabled(total == 0).on_click(move || {
+                set_queued(st, all.clone());
+                apply_queue(st);
+            }),
+        );
+        if chosen < total {
+            row = row.child(Button::new("Выбрать все").on_click(move || set_queued(st, all2.clone())));
+        }
+        if chosen > 0 {
+            row = row.child(Button::new("Снять").on_click(move || {
+                let mut q = st.queue.get_untracked();
+                q.retain(|x| !(names.contains(&x.name) && x.act.upgrades()));
+                st.queue.set(q);
+            }));
+            row = row.child(Text::new(format!("выбрано {chosen} из {total} — «Применить» внизу")).max_lines(1).class("muted"));
+        }
+        let mut col = Column::new().gap(6.0).child(row);
+        // Частичное обновление опасно только для репозиториев: AUR собирается по пакету.
+        if chosen > 0 && chosen < total && items.iter().any(|it| it.act == QAct::Upgrade) {
+            col = col.child(Text::new("Обновление части пакетов — частичное: если от невыбранных зависят обновляемые, pacman откажется. Правый щелчок — «Не обновлять никогда», «Удалить».").class("muted"));
+        }
+        vec![Box::new(col)]
+    }))
 }
 
 pub fn updates_view(st: St) -> W {
@@ -943,86 +992,96 @@ pub fn updates_view(st: St) -> W {
         let Some(ups) = st.updates.get() else {
             return vec![busy_row("Проверка обновлений…")];
         };
-        let cfg = st.cfg.get();
-        let ignore = cfg.packages.ignore.clone();
-        let skip = st.skip.get();
-        let mut col = Column::new().gap(4.0);
         let head = Row::new()
             .gap(8.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .child(Text::new(if ups.is_empty() { "Система обновлена".to_string() } else { format!("Доступно обновлений: {}", ups.len()) }).class("h2 grow"))
             .child(Button::new("Проверить").on_click(move || check_updates(st)));
-        col = col.child(head);
+        let mut col = Column::new().gap(10.0).child(head);
         if !ups.is_empty() {
-            let left: Vec<String> = ups.iter().filter(|u| skip.contains(&u.name) || ignore.contains(&u.name)).map(|u| u.name.clone()).collect();
-            let n = ups.len() - left.len();
-            let mut ign = left.clone();
-            for i in &ignore {
-                if !ign.contains(i) {
-                    ign.push(i.clone());
-                }
-            }
-            let aur = cfg.packages.aur;
-            let mut actions = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(
-                Button::new(if left.is_empty() { "Обновить всё".to_string() } else { format!("Обновить выбранные ({n} из {})", ups.len()) })
-                    .class("primary")
-                    .disabled(n == 0)
-                    .on_click(move || run_op(st, "Обновление системы".into(), Op::Upgrade { aur, ignore: ign.clone() })),
-            );
-            if !left.is_empty() {
-                actions = actions.child(Text::new(format!("Пропускаются: {}", left.join(", "))).max_lines(1).class("muted grow"));
-            }
-            col = col.child(actions);
-            if !left.is_empty() {
-                col = col.child(Text::new("Пропуск пакетов — частичное обновление: если от пропущенного зависят обновляемые, pacman откажется. Правый щелчок — «Не обновлять никогда», «Удалить».").class("muted"));
-            }
+            col = col.child(updates_actions(st, &ups, "Обновить всё")).child(updates_grid(st, ups));
         }
-        for u in ups {
-            col = col.child(update_row(st, u, &skip, &ignore));
-        }
-        vec![Box::new(col)]
+        vec![Box::new(col.class("page"))]
     });
     Box::new(Column::new().gap(10.0).child(ScrollView::new().vertical().child(list).class("grow")).class("pane"))
 }
 
-/// Очередь в «Задачах»: пункты с крестиком и «Применить».
+/// Очередь в «Задачах»: итоговый план по видам изменений (каждый пункт можно
+/// убрать крестиком), шаги задания и «Применить».
 pub fn queue_section(st: St) -> W {
     Box::new(Reactive::new(move || -> Vec<W> {
         let q = st.queue.get();
         if q.is_empty() {
             return vec![];
         }
+        let plan = Plan::of(&q);
         let mut col = Column::new()
             .gap(4.0)
             .child(
                 Row::new()
                     .gap(8.0)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(Text::new(format!("Очередь — {}", packages_word(q.len()))).class("h2 grow"))
+                    .child(Text::new(format!("Очередь — {}", packages_word(plan.len()))).class("h2 grow"))
                     .child(Button::new("Очистить").class("small").on_click(move || st.queue.set(Vec::new())))
                     .child(Button::new("Применить").class("primary").on_click(move || apply_queue(st))),
             );
-        for it in q {
-            let name = it.name.clone();
-            let (label, class) = match it.act {
-                QAct::Install => ("установить", "chip-ok"),
-                QAct::InstallAur => ("собрать из AUR", "chip-aur"),
-                QAct::Remove => ("удалить", "chip-rm"),
-            };
-            col = col.child(
-                DecoratedBox::new()
-                    .child(
-                        Row::new()
-                            .gap(10.0)
-                            .cross_axis_alignment(CrossAxisAlignment::Center)
-                            .child(app_icon(&it.name, "pkg-icon-sm"))
-                            .child(Text::new(it.name.clone()).max_lines(1).class("pkg-name grow"))
-                            .child(chip(label, class))
-                            .child(GestureDetector::new().on_click(move || unqueue(st, &name)).child(DecoratedBox::new().child(Icon::new("\u{E5CD}").class("x-icon")).class("x-btn"))),
-                    )
-                    .class("q-row"),
-            );
+        let groups: [(&str, &[String], &str, &str); 5] = [
+            ("Удалится", &plan.remove, "удалить", "chip-rm"),
+            ("Установится", &plan.install, "репозиторий", "chip-repo"),
+            ("Обновится", &plan.upgrade, "репозиторий", "chip-repo"),
+            ("Соберётся из AUR", &plan.aur_install, "AUR", "chip-aur"),
+            ("Обновится из AUR", &plan.aur_upgrade, "AUR", "chip-aur"),
+        ];
+        for (title, names, label, class) in groups {
+            if names.is_empty() {
+                continue;
+            }
+            col = col.child(Text::new(format!("{title} — {}", names.len())).class("muted q-group"));
+            for n in names {
+                let name = n.clone();
+                col = col.child(
+                    DecoratedBox::new()
+                        .child(
+                            Row::new()
+                                .gap(10.0)
+                                .cross_axis_alignment(CrossAxisAlignment::Center)
+                                .child(app_icon(n, "pkg-icon-sm"))
+                                .child(Text::new(n.clone()).max_lines(1).class("pkg-name grow"))
+                                .child(chip(label, class))
+                                .child(GestureDetector::new().on_click(move || unqueue(st, &name)).child(DecoratedBox::new().child(Icon::new("\u{E5CD}").class("x-icon")).class("x-btn"))),
+                        )
+                        .class("q-row"),
+                );
+            }
         }
+        // Шаги задания — как их выполнит pacman.
+        let updates: Vec<String> = st.updates.get().unwrap_or_default().into_iter().filter(|u| u.source != Source::Aur).map(|u| u.name).collect();
+        let mut steps: Vec<String> = Vec::new();
+        if !plan.remove.is_empty() {
+            steps.push(format!("pacman -Rns {}", plan.remove.join(" ")));
+        }
+        for op in plan.steps(&updates, &st.cfg.get().packages.ignore) {
+            steps.push(match op {
+                Op::Upgrade { ignore, install, .. } => {
+                    let mut s = "pacman -Syu".to_string();
+                    for n in install {
+                        s += &format!(" {n}");
+                    }
+                    if !ignore.is_empty() {
+                        s += &format!(" (пропускаются: {})", packages_word(ignore.len()));
+                    }
+                    s
+                }
+                Op::Install(v) => format!("pacman -S {}", v.join(" ")),
+                Op::InstallAur(v) => format!("сборка из AUR: {}", v.join(" ")),
+                _ => continue,
+            });
+        }
+        let mut list = Column::new().gap(2.0);
+        for (i, s) in steps.iter().enumerate() {
+            list = list.child(Text::new(format!("{}. {s}", i + 1)).max_lines(2).class("log-line"));
+        }
+        col = col.child(Text::new("Одно задание").class("muted q-group")).child(list);
         vec![Box::new(DecoratedBox::new().child(col).class("job"))]
     }))
 }
@@ -1032,6 +1091,9 @@ pub fn jobs_view(st: St) -> W {
     let body = Reactive::new(move || -> Vec<W> {
         let jobs = st.jobs.get();
         if jobs.is_empty() {
+            if !st.queue.get().is_empty() {
+                return vec![];
+            }
             return vec![Box::new(Text::new("Отметьте программы флажками или нажмите «Установить» / «Удалить» — они встанут в очередь, «Применить» выполнит её здесь.").class("muted empty"))];
         }
         let open = st.job_open.get().filter(|id| jobs.iter().any(|j| j.id == *id)).unwrap_or(jobs[0].id);
@@ -1100,7 +1162,11 @@ pub fn detail_actions(st: St, p: Pkg) -> W {
         let (p1, p2) = (p.clone(), p.clone());
         match q {
             Some(act) => {
-                row = row.child(Button::new(if act == QAct::Remove { "✓ В очереди на удаление" } else { "✓ В очереди на установку" }).class("queued").on_click(move || toggle_queue(st, &p1)));
+                row = row.child(Button::new(match act {
+                    QAct::Remove => "✓ В очереди на удаление",
+                    QAct::Upgrade | QAct::UpgradeAur => "✓ В очереди на обновление",
+                    _ => "✓ В очереди на установку",
+                }).class("queued").on_click(move || toggle_queue(st, &p1)));
                 row = row.child(Button::new("Применить").class("primary").on_click(move || apply_queue(st)));
             }
             None if installed => {
@@ -1119,7 +1185,7 @@ pub fn detail_actions(st: St, p: Pkg) -> W {
         if q.is_none() {
             let n = p2.name.clone();
             row = row.child(if installed {
-                Button::new("Удалить сейчас").class("small").on_click(move || remove_checked(st, vec![n.clone()], Vec::new(), format!("Удаление {n}"), false))
+                Button::new("Удалить сейчас").class("small").on_click(move || remove_checked(st, vec![n.clone()], Vec::new(), format!("Удаление {n}"), Vec::new()))
             } else {
                 let op = if p2.source == Source::Aur { Op::InstallAur(vec![n.clone()]) } else { Op::Install(vec![n.clone()]) };
                 Button::new("Сейчас").class("small").on_click(move || run_op(st, format!("Установка {n}"), op.clone()))
