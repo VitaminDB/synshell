@@ -18,3 +18,6 @@ libc.workspace = true
 image = { version = "0.25", default-features = false, features = ["png"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true

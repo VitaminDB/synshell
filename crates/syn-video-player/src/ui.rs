@@ -7,10 +7,11 @@ use std::sync::Arc;
 use syngui::async_runtime::run_on_main_thread;
 use syngui::core::sync::Mutex;
 use syngui::prelude::*;
-use syngui::video::{HwAccel, VideoPlayer};
+use syngui::video::{DecodeInfo, HwAccel, VideoPlayer};
 use syngui::widgets::*;
 
 use crate::library::{self, Item};
+use crate::settings::{self, Settings};
 
 type W = Box<dyn Widget>;
 
@@ -50,7 +51,12 @@ impl PartialEq for Playing {
 
 #[derive(Clone, Copy)]
 pub struct St {
-    pub hw: HwAccel,
+    /// Ускорение из командной строки (`--hw`); `None` — по настройкам.
+    pub hw: Option<HwAccel>,
+    pub settings: RwSignal<Settings>,
+    /// Как идёт воспроизведение открытого ролика (чип в шапке).
+    pub info: RwSignal<Option<DecodeInfo>>,
+    pub settings_open: RwSignal<bool>,
     pub cards: RwSignal<Vec<Card>>,
     pub scanning: RwSignal<bool>,
     pub playing: RwSignal<Option<Playing>>,
@@ -86,15 +92,45 @@ pub fn back(st: St) -> bool {
     false
 }
 
+/// Ускорение по командной строке или настройкам.
+fn hw_of(st: St) -> HwAccel {
+    st.hw.unwrap_or(if st.settings.get_untracked().hardware { HwAccel::Auto } else { HwAccel::None })
+}
+
 pub fn open(st: St, path: PathBuf) {
-    close(st);
+    let start = if st.settings.get_untracked().resume { settings::saved_position(&path) } else { None };
+    open_at(st, path, start, false);
+}
+
+/// Открыть заново тот же ролик с того же места (сменилось декодирование).
+pub fn reopen(st: St) {
+    let Some(p) = st.playing.get_untracked() else { return };
+    let pos = p.player.lock().map(|pl| pl.position_sec()).unwrap_or(0.0);
+    open_at(st, p.path.clone(), Some(pos), true);
+}
+
+/// `keep_old`: старый плеер закрывается в потоке открытия до нового — у аппаратного
+/// кодека общий лимит сессий (Venus: две сессии 1080p уже не помещаются).
+fn open_at(st: St, path: PathBuf, start: Option<f64>, keep_old: bool) {
+    let old = if keep_old { st.playing.get_untracked() } else { None };
+    if keep_old {
+        st.playing.set(None);
+        st.opening.set(None);
+    } else {
+        close(st);
+    }
     st.error.set(None);
+    st.info.set(None);
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     st.opening.set(Some(name));
-    let hw = st.hw;
+    let hw = hw_of(st);
     std::thread::Builder::new()
         .name("svp-open".into())
         .spawn(move || {
+            if let Some(o) = old {
+                save_progress(&o);
+                drop(o);
+            }
             let r = VideoPlayer::open_with_hwaccel(&path.to_string_lossy(), hw);
             run_on_main_thread(move || {
                 // пока открывали, пользователь ушёл назад
@@ -105,8 +141,13 @@ pub fn open(st: St, path: PathBuf) {
                 match r {
                     Ok(p) => {
                         let mut p = p;
+                        if let Some(t) = start.filter(|t| *t > 1.0 && *t < p.duration_sec() - 1.0) {
+                            let _ = p.seek(t);
+                        }
                         p.play();
-                        st.playing.set(Some(Playing { path, player: Arc::new(Mutex::new(p)) }));
+                        let playing = Playing { path, player: Arc::new(Mutex::new(p)) };
+                        watch(st, &playing);
+                        st.playing.set(Some(playing));
                     }
                     Err(e) => {
                         tracing::warn!("{}: {e}", path.display());
@@ -120,15 +161,77 @@ pub fn open(st: St, path: PathBuf) {
 
 pub fn close(st: St) {
     st.opening.set(None);
+    st.settings_open.set(false);
+    st.info.set(None);
     if let Some(p) = st.playing.get_untracked() {
         st.playing.set(None);
         // остановка декодера ждёт его потоки — не в главном потоке
-        std::thread::spawn(move || drop(p));
+        std::thread::spawn(move || {
+            save_progress(&p);
+            drop(p)
+        });
     }
     if st.fullscreen.get_untracked() {
         st.fullscreen.set(false);
         syngui::signal::set_fullscreen(false);
     }
+}
+
+/// Запомнить, где остановились (если включено «продолжать с места остановки»).
+fn save_progress(p: &Playing) {
+    let (pos, dur) = match p.player.lock() {
+        Ok(pl) => (pl.position_sec(), pl.duration_sec()),
+        Err(_) => return,
+    };
+    // ролик досмотрен — забыть
+    let pos = if p.player.lock().is_ok_and(|pl| pl.is_ended()) { dur } else { pos };
+    settings::save_position(&p.path, pos, dur);
+}
+
+/// Пока ролик открыт: сводка декодирования для чипа, повтор, место остановки раз в 5 с.
+/// Плеер — по слабой ссылке: закрыли — наблюдатель заканчивается сам.
+fn watch(st: St, playing: &Playing) {
+    let weak = Arc::downgrade(&playing.player);
+    let path = playing.path.clone();
+    std::thread::Builder::new()
+        .name("svp-watch".into())
+        .spawn(move || {
+            let mut last: Option<DecodeInfo> = None;
+            let mut tick = 0u32;
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                let Some(player) = weak.upgrade() else { break };
+                let s = st_settings(st);
+                let (info, ended, pos, dur) = match player.lock() {
+                    Ok(p) => (p.decode_info(), p.is_ended(), p.position_sec(), p.duration_sec()),
+                    Err(_) => break,
+                };
+                if last.as_ref() != Some(&info) {
+                    last = Some(info.clone());
+                    run_on_main_thread(move || st.info.set(Some(info)));
+                }
+                if ended && s.repeat {
+                    if let Ok(mut p) = player.lock() {
+                        let _ = p.seek(0.0);
+                        p.play();
+                    }
+                }
+                tick += 1;
+                if s.resume && tick % 10 == 0 {
+                    settings::save_position(&path, pos, dur);
+                }
+            }
+        })
+        .ok();
+}
+
+/// Настройки из фонового потока (сигнал читается в главном).
+fn st_settings(st: St) -> Settings {
+    let (tx, rx) = std::sync::mpsc::channel();
+    run_on_main_thread(move || {
+        let _ = tx.send(st.settings.get_untracked());
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(1)).unwrap_or_default()
 }
 
 // ─── библиотека ─────────────────────────────────────────────────────────────
@@ -275,4 +378,17 @@ pub mod icons {
     pub const VIDEO_LIBRARY: &str = "\u{E04A}";
     pub const MOVIE: &str = "\u{E02C}";
     pub const ARROW_BACK: &str = "\u{E5C4}";
+    pub const SETTINGS: &str = "\u{E8B8}";
+    pub const CLOSE: &str = "\u{E5CD}";
+    /// chip: аппаратный кодек
+    pub const MEMORY: &str = "\u{E322}";
+    /// developer_board: процессор
+    pub const CPU: &str = "\u{E30D}";
+    pub const HOURGLASS: &str = "\u{E88B}";
+    pub const ASPECT: &str = "\u{E85B}";
+    pub const FIT: &str = "\u{E3C2}";
+    pub const FILL: &str = "\u{E56B}";
+    pub const FAST_FORWARD: &str = "\u{E01F}";
+    pub const PLAY_CIRCLE: &str = "\u{E1C4}";
+    pub const INFO: &str = "\u{E88E}";
 }

@@ -10,6 +10,7 @@
 mod bench;
 mod library;
 mod player;
+mod settings;
 mod ui;
 
 use syngui::prelude::*;
@@ -18,7 +19,8 @@ use synshell_common::Config;
 
 pub struct Args {
     pub file: Option<String>,
-    pub hw: HwAccel,
+    /// `--hw`; без него — по настройкам программы.
+    pub hw: Option<HwAccel>,
     pub bench: bool,
     /// `--bench --yuv`: кадры в YUV (перевод цвета на GPU), как при показе.
     pub yuv: bool,
@@ -63,7 +65,7 @@ fn percent_decode(s: &str) -> String {
 }
 
 fn parse_args() -> Args {
-    let mut a = Args { file: None, hw: HwAccel::Auto, bench: false, yuv: false };
+    let mut a = Args { file: None, hw: None, bench: false, yuv: false };
     let mut it = std::env::args().skip(1);
     while let Some(s) = it.next() {
         match s.as_str() {
@@ -71,10 +73,10 @@ fn parse_args() -> Args {
             "--yuv" => a.yuv = true,
             "--hw" => {
                 let v = it.next().unwrap_or_default();
-                a.hw = parse_hw(&v).unwrap_or_else(|| {
+                a.hw = Some(parse_hw(&v).unwrap_or_else(|| {
                     eprintln!("неизвестное ускорение «{v}» (auto|none|v4l2|vaapi|nvdec|vulkan)");
                     std::process::exit(2)
-                });
+                }));
             }
             "-h" | "--help" => {
                 println!("syn-video-player [--hw auto|none|v4l2|vaapi|nvdec|vulkan] [--bench [--yuv]] [ФАЙЛ|URI]");
@@ -97,7 +99,7 @@ fn main() {
             eprintln!("--bench: нужен файл");
             std::process::exit(2)
         };
-        std::process::exit(bench::run(file, args.hw, args.yuv));
+        std::process::exit(bench::run(file, args.hw.unwrap_or(HwAccel::Auto), args.yuv));
     }
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);
@@ -111,6 +113,9 @@ fn main() {
         .run(move |_| {
             let st = ui::St {
                 hw: args.hw,
+                settings: use_signal(settings::Settings::load()),
+                info: use_signal(None),
+                settings_open: use_signal(false),
                 cards: use_signal(Vec::new()),
                 scanning: use_signal(true),
                 playing: use_signal(None),

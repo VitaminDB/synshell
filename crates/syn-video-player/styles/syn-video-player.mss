@@ -35,3 +35,26 @@ Text { color: var(--fg); font-size: 14px; }
 .player-center { flex-grow: 1; }
 .player-error-text { color: #ffffff; text-align: center; padding: 0px 24px; }
 .player-title { font-size: 16px; font-weight: 600; color: #ffffff; flex-shrink: 1; }
+
+/* чип «как идёт воспроизведение» */
+.info-chip { padding: 4px 4px 4px 12px; border-radius: 999px; background: #000000a6; border: 1px solid #ffffff26; }
+.chip-what { font-size: 12px; font-weight: 600; color: #ffffffe6; }
+.chip-mode { padding: 3px 10px 3px 8px; border-radius: 999px; }
+.chip-mode-hw { background: #2e7d32; }
+.chip-mode-sw { background: #ef6c00; }
+.chip-mode-wait { background: #ffffff33; }
+.chip-mode-icon { font-size: 14px; color: #ffffff; }
+.chip-mode-text { font-size: 12px; font-weight: 700; color: #ffffff; }
+
+/* настройки */
+.set-scrim { background: #00000080; }
+.set-panel { width: 380px; max-width: 92%; background: var(--bg); border-radius: 18px 0px 0px 18px; box-shadow: -6px 0px 24px #00000066; }
+.set-head { padding: 14px 8px 8px 20px; }
+.set-title { font-size: 20px; font-weight: 600; }
+.set-close { color: var(--fg); }
+.set-body { padding: 4px 14px 24px 14px; }
+.set-card { padding: 14px; border-radius: 14px; background: var(--surface); }
+.set-sec-icon { font-size: 20px; color: var(--accent); }
+.set-sec-title { font-size: 15px; font-weight: 600; }
+.set-row-title { font-size: 14px; }
+.set-hint { font-size: 12px; color: var(--muted); }
