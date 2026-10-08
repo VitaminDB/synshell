@@ -275,7 +275,7 @@ pub fn category_page(st: St, cat: &'static Category, apps: Vec<CatalogApp>) -> W
         .child(Column::new().gap(2.0).child(Text::new(cat.label).class("h1")).child(Text::new(programs(v.len())).class("muted")).class("grow"));
     // Сотни карточек сразу — тяжело: первые 240, остальное находит поиск.
     let shown: Vec<CatalogApp> = v.into_iter().take(240).collect();
-    Box::new(Column::new().gap(14.0).child(head).child(select_all_row(st, &pkgs, "Программ")).child(card_grid(st, shown, n)).class("page"))
+    Box::new(Column::new().gap(14.0).child(head).child(select_all_row(st, &pkgs, "Программ", false)).child(card_grid(st, shown, n)).class("page"))
 }
 
 /// Страница программы: шапка с действиями, снимки, описание и сведения.

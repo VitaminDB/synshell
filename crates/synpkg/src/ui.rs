@@ -506,16 +506,55 @@ pub fn queue_toast(st: St, name: &str, r: Merged) {
     });
 }
 
-pub fn pkg_row(st: St, p: Pkg) -> W {
-    pkg_row_titled(st, p, None)
+/// Метки пакета: источник, «установлен», задача очереди, «устарел», голоса.
+pub fn pkg_chips(mut row: Row, p: &Pkg, q: Option<QAct>) -> Row {
+    row = row.child(source_chip(p));
+    if p.installed.is_some() {
+        row = row.child(chip("установлен", "chip-ok"));
+    }
+    if let Some(a) = q {
+        let (label, class) = a.chip();
+        row = row.child(chip(label, class));
+    }
+    if p.out_of_date {
+        row = row.child(chip("устарел", "chip-warn"));
+    }
+    if let Some(v) = p.votes {
+        row = row.child(Text::new(format!("★ {v}")).class("pkg-ver"));
+    }
+    row
+}
+
+/// Строка пакета (списки, обновления): флажок, значок, название, описание,
+/// `meta` — версия и метки. Щелчок — подробности, правый щелчок — меню.
+pub fn pkg_line(st: St, p: Pkg, update: bool, title: String, check: W, meta: Row, class: &str) -> W {
+    let (p2, p3) = (p.clone(), p.clone());
+    let content = Row::new()
+        .gap(12.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(check)
+        .child(app_icon(&p.name, "pkg-icon"))
+        .child(
+            Column::new()
+                .gap(3.0)
+                .child(Text::new(title).max_lines(1).class("pkg-name"))
+                .child(Text::new(p.description.clone()).max_lines(2).class("pkg-desc"))
+                .child(meta)
+                .class("grow"),
+        );
+    Box::new(
+        GestureDetector::new()
+            .on_click(move || select(st, p2.clone()))
+            .on_secondary_click(move |at| pkg_menu(st, p3.clone(), at, update))
+            .child(DecoratedBox::new().child(content).class(class.to_string())),
+    )
 }
 
 /// Строка пакета: флажок очереди, значок, название (из каталога), описание, метки.
 /// Подсветка (выбран, в очереди) — пересборкой строки по сигналам.
 pub fn pkg_row_titled(st: St, p: Pkg, title: Option<String>) -> W {
     let title = title.or_else(|| app_meta(&p.name).map(|m| m.title)).filter(|t| *t != p.name);
-    let (p2, p3) = (p.clone(), p.clone());
-    let row = Reactive::new(move || -> Vec<W> {
+    Box::new(Reactive::new(move || -> Vec<W> {
         let sel = st.selected.get().is_some_and(|s| s.name == p.name && s.source == p.source);
         let q = st.queue.get().iter().find(|x| x.name == p.name).map(|x| x.act);
         let class = match (sel, q) {
@@ -528,44 +567,83 @@ pub fn pkg_row_titled(st: St, p: Pkg, title: Option<String>) -> W {
         if title.is_some() {
             meta = meta.child(Text::new(p.name.clone()).max_lines(1).class("pkg-ver"));
         }
-        meta = meta.child(Text::new(p.version.clone()).max_lines(1).class("pkg-ver")).child(source_chip(&p));
-        if p.installed.is_some() {
-            meta = meta.child(chip("установлен", "chip-ok"));
+        meta = pkg_chips(meta.child(Text::new(p.version.clone()).max_lines(1).class("pkg-ver")), &p, q);
+        let pq = p.clone();
+        // Флажок ловит щелчок сам (внутренний детектор жестов) — строка не открывается.
+        let check = GestureDetector::new().on_click(move || toggle_queue(st, &pq)).child(check_icon(q.is_some()));
+        vec![pkg_line(st, p.clone(), false, title.clone().unwrap_or_else(|| p.name.clone()), Box::new(check), meta, class)]
+    }))
+}
+
+/// Карточка пакета в списке: флажок очереди, версия, источник и метки.
+pub fn pkg_tile(st: St, p: Pkg, title: Option<String>) -> W {
+    let title = title.or_else(|| app_meta(&p.name).map(|m| m.title)).filter(|t| *t != p.name);
+    Box::new(Reactive::new(move || -> Vec<W> {
+        let q = st.queue.get().iter().find(|x| x.name == p.name).map(|x| x.act);
+        let class = match q {
+            Some(QAct::Remove) => "app-card app-card-rm",
+            Some(_) => "app-card app-card-q",
+            None => "app-card",
+        };
+        let sub = if title.is_some() { format!("{} · {}", p.name, p.version) } else { p.version.clone() };
+        let pq = p.clone();
+        let check = GestureDetector::new().on_click(move || toggle_queue(st, &pq)).child(check_icon(q.is_some()));
+        let footer = pkg_chips(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center), &p, q);
+        vec![pkg_card(st, p.clone(), false, (title.clone().unwrap_or_else(|| p.name.clone()), sub), Some(Box::new(check)), Box::new(footer), class)]
+    }))
+}
+
+/// Колонок карточек в списке пакетов.
+pub fn card_cols() -> usize {
+    if is_desk() {
+        crate::desk::cols(240.0)
+    } else {
+        grid_cols(250.0)
+    }
+}
+
+/// Пакеты карточками или строками — по [`St::cards`] (читается с
+/// отслеживанием: вызывать из `Reactive`). Второе в паре — название из каталога.
+pub fn pkg_list(st: St, items: Vec<(Pkg, Option<String>)>) -> W {
+    if st.cards.get() {
+        let mut grid = Grid::new(card_cols()).gap(14.0);
+        for (p, t) in items {
+            grid = grid.child(pkg_tile(st, p, t));
         }
-        if let Some(a) = q {
-            let (label, class) = a.chip();
-            meta = meta.child(chip(label, class));
+        Box::new(grid)
+    } else {
+        let mut col = Column::new().gap(4.0);
+        for (p, t) in items {
+            col = col.child(pkg_row_titled(st, p, t));
         }
-        if p.out_of_date {
-            meta = meta.child(chip("устарел", "chip-warn"));
-        }
-        if let Some(v) = p.votes {
-            meta = meta.child(Text::new(format!("★ {v}")).class("pkg-ver"));
-        }
-        let content = Row::new()
-            .gap(12.0)
-            .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child({
-                let pq = p.clone();
-                GestureDetector::new().on_click(move || toggle_queue(st, &pq)).child(check_icon(q.is_some()))
-            })
-            .child(app_icon(&p.name, "pkg-icon"))
-            .child(
-                Column::new()
-                    .gap(3.0)
-                    .child(Text::new(title.clone().unwrap_or_else(|| p.name.clone())).max_lines(1).class("pkg-name"))
-                    .child(Text::new(p.description.clone()).max_lines(2).class("pkg-desc"))
-                    .child(meta)
-                    .class("grow"),
+        Box::new(col)
+    }
+}
+
+/// Без названий из каталога.
+pub fn pkgs(v: Vec<Pkg>) -> Vec<(Pkg, Option<String>)> {
+    v.into_iter().map(|p| (p, None)).collect()
+}
+
+/// Переключатель вида списков пакетов: карточки / строки.
+pub fn view_toggle(st: St) -> W {
+    Box::new(Reactive::new(move || -> Vec<W> {
+        let cards = st.cards.get();
+        let mut row = Row::new().class("seg");
+        for (val, icon) in [(true, "\u{E9B0}"), (false, "\u{E8EF}")] {
+            let on = cards == val;
+            row = row.child(
+                GestureDetector::new()
+                    .on_click(move || {
+                        if st.cards.get_untracked() != val {
+                            set_cards(st, val);
+                        }
+                    })
+                    .child(DecoratedBox::new().child(Icon::new(icon).class(if on { "seg-icon seg-icon-on" } else { "seg-icon" })).class(if on { "seg-btn seg-on" } else { "seg-btn" })),
             );
-        vec![Box::new(DecoratedBox::new().child(content).class(class))]
-    });
-    Box::new(
-        GestureDetector::new()
-            .on_click(move || select(st, p2.clone()))
-            .on_secondary_click(move |at| pkg_menu(st, p3.clone(), at, false))
-            .child(row),
-    )
+        }
+        vec![Box::new(row)]
+    }))
 }
 
 /// Рабочий стол: окно шире телефонного (поиск — в заголовке окна, подробности — страницей).
@@ -610,18 +688,17 @@ pub fn explore_view(st: St) -> W {
         } else if res.is_empty() {
             col = col.child(Text::new("Ничего не найдено").class("muted empty"));
         } else {
-            col = col.child(select_all_row(st, &res, "Найдено"));
+            col = col.child(select_all_row(st, &res, "Найдено", true));
         }
-        for p in res {
-            col = col.child(pkg_row(st, p));
-        }
+        col = col.child(pkg_list(st, pkgs(res)));
         vec![Box::new(col)]
     });
     Box::new(with_field(field, Column::new().gap(12.0)).child(ScrollView::new().vertical().child(list).class("grow")).class("pane"))
 }
 
 /// «Найдено: 12 · Выбрать все»: отметить показанные пакеты.
-pub fn select_all_row(st: St, v: &[Pkg], label: &str) -> W {
+/// `toggle` — с переключателем вида (карточки / строки).
+pub fn select_all_row(st: St, v: &[Pkg], label: &str, toggle: bool) -> W {
     let all: Vec<QItem> = v.iter().take(400).map(|p| QItem { name: p.name.clone(), act: default_act(p) }).collect();
     let names: Vec<String> = all.iter().map(|q| q.name.clone()).collect();
     let n = v.len();
@@ -643,6 +720,9 @@ pub fn select_all_row(st: St, v: &[Pkg], label: &str) -> W {
         let removal = all.iter().any(|q| q.act == QAct::Remove);
         if marked < names.len() && (!removal || n <= 100) {
             row = row.child(Button::new("Выбрать все").class("small").on_click(move || set_queued(st, all.clone())));
+        }
+        if toggle {
+            row = row.child(view_toggle(st));
         }
         vec![Box::new(row.class("list-head"))]
     }))
@@ -776,7 +856,7 @@ pub fn catalog_view(st: St) -> W {
     // Установленные — ниже: каталог для поиска нового.
     v.sort_by_key(|a| a.pkg.installed.is_some());
     let pkgs: Vec<Pkg> = v.iter().map(|a| a.pkg.clone()).collect();
-    let mut col = Column::new()
+    let col = Column::new()
         .gap(4.0)
         .child(
             Row::new()
@@ -786,10 +866,8 @@ pub fn catalog_view(st: St) -> W {
                 .child(Icon::new(cat.icon).class("cat-head-icon"))
                 .child(Text::new(cat.label).max_lines(1).class("h2 grow")),
         )
-        .child(select_all_row(st, &pkgs, "Программ"));
-    for a in v {
-        col = col.child(pkg_row_titled(st, a.pkg, Some(a.title)));
-    }
+        .child(select_all_row(st, &pkgs, "Программ", true))
+        .child(pkg_list(st, v.into_iter().map(|a| (a.pkg, Some(a.title))).collect()));
     Box::new(col)
 }
 
@@ -812,11 +890,9 @@ pub fn aur_view(st: St) -> W {
             } else if res.is_empty() {
                 col = col.child(Text::new("В AUR ничего не найдено").class("muted empty"));
             } else {
-                col = col.child(select_all_row(st, &res, "Найдено в AUR"));
+                col = col.child(select_all_row(st, &res, "Найдено в AUR", true));
             }
-            for p in res {
-                col = col.child(pkg_row(st, p));
-            }
+            col = col.child(pkg_list(st, pkgs(res)));
             return vec![Box::new(col)];
         }
         // Без запроса: обновления AUR и установленное не из репозиториев.
@@ -826,11 +902,10 @@ pub fn aur_view(st: St) -> W {
         if foreign.is_empty() {
             col = col.child(Text::new("Пакетов из AUR пока нет").class("muted"));
         } else {
-            col = col.child(select_all_row(st, &foreign, "Пакетов"));
+            // Переключатель вида — в шапке «Обновлений AUR» выше.
+            col = col.child(select_all_row(st, &foreign, "Пакетов", false));
         }
-        for p in foreign {
-            col = col.child(pkg_row(st, p));
-        }
+        col = col.child(pkg_list(st, pkgs(foreign)));
         vec![Box::new(col)]
     });
     Box::new(with_field(field, Column::new().gap(12.0).child(warn)).child(ScrollView::new().vertical().child(list).class("grow")).class("pane"))
@@ -838,14 +913,14 @@ pub fn aur_view(st: St) -> W {
 
 /// «Обновления AUR»: флажки, «Обновить выбранные» — пересборка из AUR.
 pub fn aur_updates_block(st: St) -> W {
-    let mut col = Column::new().gap(4.0);
+    let mut col = Column::new().gap(10.0);
     let checking = st.aur_checking.get();
     let ups = st.aur_updates.get();
     let mut head = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new("Обновления AUR").class("h2 grow"));
     if checking {
         head = head.child(CircularProgress::new().indeterminate().size(18.0));
     }
-    head = head.child(Button::new("Проверить").class("small").disabled(checking).on_click(move || check_aur_updates(st)));
+    head = head.child(Button::new("Проверить").class("small").disabled(checking).on_click(move || check_aur_updates(st))).child(view_toggle(st));
     col = col.child(head);
     match ups {
         None => col = col.child(Text::new(if checking { "Проверка версий в AUR…" } else { "Не проверялись" }).class("muted")),
@@ -884,10 +959,8 @@ pub fn installed_view(st: St) -> W {
             .collect();
         let n = v.len();
         // Длинный список — первые 400 (фильтр сужает).
-        let mut col = Column::new().gap(4.0).child(select_all_row(st, &v, "Пакетов"));
-        for p in v.into_iter().take(400) {
-            col = col.child(pkg_row(st, p));
-        }
+        let mut col = Column::new().gap(4.0).child(select_all_row(st, &v, "Пакетов", true));
+        col = col.child(pkg_list(st, pkgs(v.into_iter().take(400).collect())));
         if n > 400 {
             col = col.child(Text::new(format!("Показаны первые 400 из {n} — уточните фильтр")).class("muted empty"));
         }
@@ -899,7 +972,7 @@ pub fn installed_view(st: St) -> W {
 /// Карточка обновления: флажок «обновить» (задача очереди), версии, источник
 /// и метки; правый щелчок или удержание — меню пакета. `description` — из
 /// установленных.
-pub fn update_card(st: St, u: Update, description: String) -> W {
+pub fn update_card(st: St, u: Update, description: String, cards: bool) -> W {
     Box::new(Reactive::new(move || -> Vec<W> {
         let ignored = st.cfg.get().packages.ignore.contains(&u.name);
         let q = st.queue.get().iter().find(|x| x.name == u.name).map(|x| x.act);
@@ -923,26 +996,49 @@ pub fn update_card(st: St, u: Update, description: String) -> W {
             let (label, class) = a.chip();
             meta = meta.child(chip(label, class));
         }
+        let versions = format!("{} → {}", u.old, u.new);
+        if !cards {
+            let class = match q {
+                Some(QAct::Remove) => "pkg-row pkg-row-rm",
+                _ if on => "pkg-row pkg-row-q",
+                _ if ignored => "pkg-row pkg-row-off",
+                _ => "pkg-row",
+            };
+            let line = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(versions).max_lines(1).class("pkg-ver")).child(meta);
+            return vec![pkg_line(st, pkg.clone(), true, title_of(&pkg), Box::new(check), line, class)];
+        }
         let class = match q {
             Some(QAct::Remove) => "app-card app-card-rm",
             _ if on => "app-card app-card-q",
             _ if ignored => "app-card app-card-off",
             _ => "app-card",
         };
-        vec![pkg_card(st, pkg.clone(), true, (title_of(&pkg), format!("{} → {}", u.old, u.new)), Some(Box::new(check)), Box::new(meta), class)]
+        vec![pkg_card(st, pkg.clone(), true, (title_of(&pkg), versions), Some(Box::new(check)), Box::new(meta), class)]
     }))
 }
 
-/// Сетка карточек обновлений (сотни сразу — тяжело: первые [`UPDATES_SHOWN`]).
+/// Обновления карточками или строками (по [`St::cards`]); сотни сразу —
+/// тяжело: первые [`UPDATES_SHOWN`].
 pub fn updates_grid(st: St, ups: Vec<Update>) -> W {
     let desc: HashMap<String, String> = st.installed.get_untracked().into_iter().map(|p| (p.name, p.description)).collect();
     let n = ups.len();
-    let mut grid = Grid::new(if is_desk() { crate::desk::cols(240.0) } else { grid_cols(250.0) }).gap(14.0);
-    for u in ups.into_iter().take(UPDATES_SHOWN) {
-        let d = desc.get(&u.name).cloned().unwrap_or_default();
-        grid = grid.child(update_card(st, u, d));
-    }
-    let mut col = Column::new().gap(10.0).child(grid);
+    let cards = st.cards.get();
+    let list: W = if cards {
+        let mut grid = Grid::new(card_cols()).gap(14.0);
+        for u in ups.into_iter().take(UPDATES_SHOWN) {
+            let d = desc.get(&u.name).cloned().unwrap_or_default();
+            grid = grid.child(update_card(st, u, d, true));
+        }
+        Box::new(grid)
+    } else {
+        let mut col = Column::new().gap(4.0);
+        for u in ups.into_iter().take(UPDATES_SHOWN) {
+            let d = desc.get(&u.name).cloned().unwrap_or_default();
+            col = col.child(update_card(st, u, d, false));
+        }
+        Box::new(col)
+    };
+    let mut col = Column::new().gap(10.0).child(list);
     if n > UPDATES_SHOWN {
         col = col.child(Text::new(format!("Показаны первые {UPDATES_SHOWN} из {n} — «Обновить всё» обновит и остальные")).class("muted"));
     }
@@ -999,7 +1095,8 @@ pub fn updates_view(st: St) -> W {
             .gap(8.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .child(Text::new(if ups.is_empty() { "Система обновлена".to_string() } else { format!("Доступно обновлений: {}", ups.len()) }).class("h2 grow"))
-            .child(Button::new("Проверить").on_click(move || check_updates(st)));
+            .child(Button::new("Проверить").on_click(move || check_updates(st)))
+            .child(view_toggle(st));
         let mut col = Column::new().gap(10.0).child(head);
         if !ups.is_empty() {
             col = col.child(updates_actions(st, &ups, "Обновить всё")).child(updates_grid(st, ups));

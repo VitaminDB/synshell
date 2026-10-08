@@ -2459,11 +2459,13 @@ pub struct Packages {
     pub check_hours: u32,
     /// Не обновлять эти пакеты (`pacman --ignore`, и для AUR).
     pub ignore: Vec<String>,
+    /// Вид списков пакетов: `cards` (карточки) или `list` (строки).
+    pub view: String,
 }
 
 impl Default for Packages {
     fn default() -> Self {
-        Self { aur: true, build_user: String::new(), check_hours: 6, ignore: Vec::new() }
+        Self { aur: true, build_user: String::new(), check_hours: 6, ignore: Vec::new(), view: "cards".into() }
     }
 }
 

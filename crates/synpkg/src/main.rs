@@ -212,6 +212,8 @@ pub struct St {
     pub search_rev: RwSignal<u64>,
     /// Подробности: список файлов развёрнут.
     pub files_open: RwSignal<bool>,
+    /// Списки пакетов карточками (иначе строками) — `packages.view`.
+    pub cards: RwSignal<bool>,
 }
 
 static SEARCH_GEN: AtomicU64 = AtomicU64::new(0);
@@ -261,6 +263,7 @@ pub fn arg_value(key: &str) -> Option<String> {
 
 /// Состояние приложения (сигналы) — для окна и снимка без окна.
 pub fn new_state(cfg: Config, query: String, window: RwSignal<syngui::window::WindowState>) -> St {
+    let cards = cfg.packages.view != "list";
     St {
         tab: use_signal(Tab::Explore),
         query: use_signal(query),
@@ -296,6 +299,7 @@ pub fn new_state(cfg: Config, query: String, window: RwSignal<syngui::window::Wi
         window,
         search_rev: use_signal(0),
         files_open: use_signal(false),
+        cards: use_signal(cards),
     }
 }
 
@@ -679,6 +683,20 @@ fn start_ops(st: St, title: String, mut ops: Vec<Op>) {
 }
 
 /// Не обновлять пакет никогда (`[packages] ignore`) или снова обновлять.
+/// Вид списков пакетов (карточки или строки) — сразу и в конфиг.
+pub fn set_cards(st: St, cards: bool) {
+    st.cards.set(cards);
+    let view = if cards { "cards" } else { "list" };
+    match synshell_common::config_edit::set_value(&["packages", "view"], toml_edit::Value::from(view)) {
+        Ok(_) => {
+            let mut cfg = st.cfg.get_untracked();
+            cfg.packages.view = view.into();
+            st.cfg.set(cfg);
+        }
+        Err(e) => st.toast.set(format!("Не удалось сохранить вид: {e}")),
+    }
+}
+
 pub fn set_ignored(st: St, name: &str, ignore: bool) {
     let mut list = st.cfg.get_untracked().packages.ignore.clone();
     list.retain(|n| n != name);

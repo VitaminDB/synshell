@@ -11,7 +11,7 @@ use crate::{new_state, ui, St};
 fn card() -> (St, TestHarness, Point) {
     let st = new_state(Config::default(), String::new(), use_signal(syngui::window::WindowState::default()));
     let u = Update { name: "zzz-test".into(), old: "1-1".into(), new: "2-1".into(), source: Source::Repo("extra".into()) };
-    let mut h = TestHarness::new(ui::update_card(st, u, "описание".into()));
+    let mut h = TestHarness::new(ui::update_card(st, u, "описание".into(), true));
     h.frame(None, 400.0, 300.0);
     let b = h.element_bounds(h.find_by_class("app-card")[0]);
     // Описание: мимо флажка в углу.

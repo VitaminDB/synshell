@@ -1,5 +1,5 @@
 //! Снимок интерфейса без окна (`synpkg --screenshot out.png [--tab updates]
-//! [--size 1240x820] [--scale 1] [--queue имя:действие,…]`): данные читаются
+//! [--size 1240x820] [--scale 1] [--view cards|list] [--queue имя:действие,…]`): данные читаются
 //! сразу (установленные, каталог, обновления), дерево syngui раскладывается и
 //! рисуется в текстуру wgpu, текстура — в PNG. Для проверки вёрстки без
 //! графического сеанса. Действие очереди: install, aur, remove, upgrade,
@@ -36,6 +36,9 @@ pub fn screenshot(out: &str) -> anyhow::Result<()> {
     let aur = cfg.packages.aur;
     let st = crate::new_state(cfg, String::new(), use_signal(syngui::window::WindowState::default()));
     st.tab.set(tab);
+    if let Some(v) = arg_value("--view") {
+        st.cards.set(v != "list");
+    }
     st.installed.set(pk::installed());
     crate::set_catalog(st, pk::catalog());
     if matches!(tab, Tab::Updates | Tab::Jobs) {

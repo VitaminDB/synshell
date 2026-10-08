@@ -303,3 +303,11 @@ Button.queued { background: var(--accent-soft); color: var(--fg); }
 .page-title { font-size: 28px; font-weight: 700; }
 .page-right { width: 360px; }
 .page-left { min-width: 300px; }
+
+/* Вид списков: карточки / строки */
+.seg { padding: 2px; border-radius: 999px; border-width: 1px; border-color: var(--border); }
+.seg-btn { padding: 4px 10px; border-radius: 999px; transition: background-color 120ms ease-out; }
+.seg-btn:hover { background-color: var(--hover); }
+.seg-on { background: var(--accent-soft); }
+.seg-icon { font-size: 18px; color: var(--muted); }
+.seg-icon-on { color: var(--accent); }
