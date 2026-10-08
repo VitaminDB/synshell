@@ -329,6 +329,9 @@ pub struct OutputInfo {
     /// его над клавиатурой, и окна его не перекрывают.
     #[serde(default)]
     pub keyboard: i32,
+    /// Встроенный экран (панель телефона/планшета/ноутбука) — его поворачивает автоповорот.
+    #[serde(default)]
+    pub internal: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

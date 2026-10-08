@@ -526,6 +526,7 @@ pub fn output_infos(state: &State) -> Vec<OutputInfo> {
                 primary: primary.as_ref() == Some(o),
                 focused: focused.as_ref() == Some(o),
                 keyboard: keyboard_height(o),
+                internal: crate::backend::is_internal(o),
             }
         })
         .collect()

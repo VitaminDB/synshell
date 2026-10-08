@@ -209,7 +209,7 @@ fn current(ctx: &ShellCtx) -> Rotation {
         _ => 0,
     };
     let outs = ctx.comp_outputs.get_untracked();
-    let Some(o) = outs.iter().find(|o| ["DSI", "eDP", "LVDS"].iter().any(|p| o.name.starts_with(p))) else {
+    let Some(o) = outs.iter().find(|o| o.internal) else {
         return Rotation::Normal;
     };
     let cfg = ctx.cfg();

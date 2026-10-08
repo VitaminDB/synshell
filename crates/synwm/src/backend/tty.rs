@@ -907,7 +907,13 @@ impl TtyBackend {
             let render_node = d.render_node.unwrap_or(primary);
             for s in d.surfaces.values_mut() {
                 let name = s.output.name();
-                s.output.change_current_state(None, Some(crate::backend::output_transform(core, &s.output)), None, None);
+                let transform = crate::backend::output_transform(core, &s.output);
+            // Поворот — первый кадр целиком: simpledrm копирует на панель только damage кадра, и после поворота на
+            // экране оставались куски прошлой ориентации (SM-T295)
+            if s.output.current_transform() != transform {
+                let _ = s.drm_output.with_compositor(|c| c.reset_buffers());
+            }
+            s.output.change_current_state(None, Some(transform), None, None);
                 let Some(cfg) = core.config.outputs.iter().find(|o| crate::backend::output_matches(&s.output, &o.name)) else {
                     continue;
                 };

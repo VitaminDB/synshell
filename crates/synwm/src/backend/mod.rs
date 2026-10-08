@@ -383,7 +383,8 @@ pub fn rotate_transform(t: smithay::utils::Transform, q: u8) -> smithay::utils::
 /// Встроенная панель (телефон, ноутбук) — её поворачивает `rotate`.
 pub fn is_internal(output: &Output) -> bool {
     let n = output.name();
-    ["DSI", "eDP", "LVDS"].iter().any(|p| n.starts_with(p))
+    // Unknown — коннектор simpledrm/efidrm: экран, который включил загрузчик (планшет без дисплейного драйвера, SM-T295)
+    ["DSI", "eDP", "LVDS", "DPI", "Unknown"].iter().any(|p| n.starts_with(p))
 }
 
 /// Разбор `transform` из конфига.
