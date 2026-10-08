@@ -755,3 +755,5 @@ Button.accent-swatch.selected {
 .da-icon-fallback { color: var(--muted); icon-color: var(--muted); }
 .da-check { color: var(--accent); icon-size: 22px; font-size: 22px; }
 .da-radio { color: var(--border); icon-size: 22px; font-size: 22px; }
+/* подсветка строки при наведении — в границах скругления карточки */
+.da-card { overflow: hidden; }

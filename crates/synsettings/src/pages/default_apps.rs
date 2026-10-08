@@ -225,7 +225,7 @@ fn item(content: impl Widget + 'static, on_click: impl Fn() + Send + 'static) ->
 }
 
 fn card(rows: Vec<W>) -> W {
-    let mut col = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("group-card");
+    let mut col = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
     let n = rows.len();
     for (i, r) in rows.into_iter().enumerate() {
         col = col.child(r);
@@ -233,7 +233,9 @@ fn card(rows: Vec<W>) -> W {
             col = col.child(DecoratedBox::new().class("row-sep"));
         }
     }
-    boxed(col)
+    // overflow обрезает по скруглению только DecoratedBox: иначе подсветка
+    // крайней строки при наведении вылезала за углы карточки.
+    boxed(DecoratedBox::new().class("group-card da-card").child(col))
 }
 
 fn titled(title: &str, w: W) -> W {
