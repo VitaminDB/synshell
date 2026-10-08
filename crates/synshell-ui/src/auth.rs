@@ -7,11 +7,12 @@ use std::sync::Arc;
 
 use syngui::async_runtime::run_on_main_thread;
 use syngui::prelude::*;
+use syngui::GestureDetector;
 use syngui_layer::{Anchor, KeyInfo, KeyboardInteractivity, Layer, SurfaceHooks, SurfaceId, SurfaceSpec};
 use synsystem::polkit_agent::{self, AuthRequest, Prompter};
 
 use crate::ctx::ShellCtx;
-use crate::ui::{icon, mi, InputArea};
+use crate::ui::{icon, mi, rx};
 
 /// Открытый запрос пароля.
 #[derive(Clone)]
@@ -105,45 +106,214 @@ fn respond(view: RwSignal<Option<AuthView>>, pw: Option<String>) {
     }
 }
 
+/// Кто спрашивает — по действию polkit: значок и понятное название.
+fn source(action: &str) -> (&'static str, &'static str) {
+    let pre = |p: &str| action.starts_with(p);
+    if pre("org.freedesktop.policykit.exec") {
+        ("\u{E86F}", "Запуск программы от имени администратора")
+    } else if pre("org.freedesktop.udisks2.") {
+        ("\u{E1DB}", "Диски и разделы")
+    } else if pre("org.synshell.synpkg") || pre("org.archlinux.pacman") {
+        ("\u{E1A1}", "Установка и удаление программ")
+    } else if pre("org.freedesktop.NetworkManager.") || pre("net.connman.") {
+        ("\u{E63E}", "Сеть")
+    } else if pre("org.freedesktop.login1.") {
+        ("\u{E8AC}", "Питание и сеансы")
+    } else if pre("org.freedesktop.timedate1.") {
+        ("\u{E192}", "Дата и время")
+    } else if pre("org.freedesktop.systemd1.") {
+        ("\u{E8B8}", "Системные службы")
+    } else if pre("org.bluez.") {
+        ("\u{E1A7}", "Bluetooth")
+    } else if pre("org.freedesktop.packagekit.") || pre("org.freedesktop.fwupd.") {
+        ("\u{E923}", "Обновление системы")
+    } else {
+        ("\u{EF3D}", "Системное действие")
+    }
+}
+
+/// Полное имя пользователя из `/etc/passwd` (поле GECOS до запятой).
+fn real_name(user: &str) -> Option<String> {
+    let passwd = std::fs::read_to_string("/etc/passwd").ok()?;
+    let line = passwd.lines().find(|l| l.split(':').next() == Some(user))?;
+    let gecos = line.split(':').nth(4)?.split(',').next()?.trim();
+    (!gecos.is_empty() && gecos != user).then(|| gecos.to_string())
+}
+
+fn avatar_path(user: &str) -> Option<std::path::PathBuf> {
+    let home = std::fs::read_to_string("/etc/passwd")
+        .ok()
+        .and_then(|p| p.lines().find(|l| l.split(':').next() == Some(user)).and_then(|l| l.split(':').nth(5).map(std::path::PathBuf::from)));
+    home.iter()
+        .flat_map(|h| [h.join(".face"), h.join(".face.icon")])
+        .chain(std::iter::once(std::path::PathBuf::from(format!("/var/lib/AccountsService/icons/{user}"))))
+        .find(|p| p.is_file())
+}
+
+fn avatar(user: &str) -> Box<dyn Widget> {
+    match avatar_path(user) {
+        Some(p) => Box::new(Image::new(p.to_string_lossy()).fit(ImageFit::Cover).class("auth-avatar")),
+        None => Box::new(
+            DecoratedBox::new()
+                .child(Text::new(user.chars().next().map(|c| c.to_uppercase().collect::<String>()).unwrap_or_default()).class("auth-avatar-letter"))
+                .class("auth-avatar"),
+        ),
+    }
+}
+
+/// Кнопка по размеру содержимого (`InputArea` занял бы всю высоту окна).
+fn button(label: impl Into<String>, class: &'static str, on: impl FnMut() + Send + 'static) -> impl Widget {
+    GestureDetector::new().on_click(on).child(DecoratedBox::new().child(Text::new(label.into()).class("auth-btn-label")).class(class))
+}
+
 fn card(view: RwSignal<Option<AuthView>>) -> impl Widget {
-    let header = move || {
-        let v = view.get();
-        let msg = v.as_ref().map(|v| v.0.message.clone()).unwrap_or_default();
-        let user = v.as_ref().map(|v| v.0.user.clone()).unwrap_or_default();
-        Column::new()
-            .gap(4.0)
-            .child(Text::new(msg).class("auth-title"))
-            .child(Text::new(format!("Пароль пользователя «{user}»")).class("auth-sub"))
-    };
-    let status = move || {
-        let e = view.get().and_then(|v| v.0.error.clone()).unwrap_or_default();
-        Text::new(e).class("auth-error")
-    };
-    let field = move || {
-        // Новый запрос — новое поле: после неверного пароля оно очищается.
+    // Введённое (для кнопки «Подтвердить»), показ пароля, ожидание ответа PAM, подробности.
+    let pw = use_signal(String::new());
+    let show = use_signal(false);
+    let busy = use_signal(false);
+    let details = use_signal(false);
+    // Новый запрос (в том числе после неверного пароля) — поле с нуля, ожидание снято.
+    create_effect(move || {
         let _ = view.get();
-        TextField::new()
-            .obscure(true)
-            .autofocus(true)
-            .placeholder("Пароль")
-            .on_submit(move |t| respond(view, Some(t.to_string())))
-            .class("auth-field")
+        pw.set(String::new());
+        busy.set(false);
+    });
+    let submit = move || {
+        if busy.get_untracked() {
+            return;
+        }
+        busy.set(true);
+        respond(view, Some(pw.get_untracked()));
     };
-    let cancel = InputArea::new(DecoratedBox::new().child(Text::new("Отмена")).class("auth-btn"))
-        .pointer()
-        .on_click(move |_, _, _| respond(view, None));
-    let body = Column::new()
-        .gap(14.0)
-        .child(
-            Row::new()
-                .gap(12.0)
+
+    let head = rx(move || {
+        let v = view.get();
+        let (msg, action) = v.as_ref().map(|v| (v.0.message.clone(), v.0.action_id.clone())).unwrap_or_default();
+        let (glyph, what) = source(&action);
+        Box::new(
+            Column::new()
+                .gap(10.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(icon(mi::LOCK).class("auth-icon"))
-                .child(header),
+                .child(
+                    DecoratedBox::new()
+                        .child(
+                            Column::new()
+                                .main_axis_alignment(MainAxisAlignment::Center)
+                                .cross_axis_alignment(CrossAxisAlignment::Center)
+                                .child(icon("\u{EF3D}").class("auth-badge-icon")),
+                        )
+                        .class("auth-badge"),
+                )
+                .child(Text::new("Требуется подтверждение").class("auth-title"))
+                .child(Text::new(msg).max_lines(4).class("auth-message"))
+                .child(
+                    DecoratedBox::new()
+                        .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(glyph).class("auth-chip-icon")).child(Text::new(what).class("auth-chip-label")))
+                        .class("auth-chip"),
+                ),
         )
-        .child(field)
-        .child(status)
-        .child(Row::new().gap(8.0).main_axis_alignment(MainAxisAlignment::End).child(cancel));
+    });
+
+    let who = rx(move || {
+        let user = view.get().map(|v| v.0.user.clone()).unwrap_or_default();
+        let me = std::env::var("USER").unwrap_or_default();
+        let name = real_name(&user).unwrap_or_else(|| user.clone());
+        let hint = if user == "root" {
+            "Пароль суперпользователя (root)".to_string()
+        } else if user == me {
+            format!("{user} · ваш пароль")
+        } else {
+            format!("{user} · пароль администратора")
+        };
+        Box::new(
+            DecoratedBox::new()
+                .child(
+                    Row::new()
+                        .gap(12.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(avatar(&user))
+                        .child(Column::new().gap(2.0).child(Text::new(name).class("auth-user")).child(Text::new(hint).class("auth-user-hint"))),
+                )
+                .class("auth-who"),
+        )
+    });
+
+    let field = rx(move || {
+        let v = view.get();
+        let shown = show.get();
+        let wait = busy.get();
+        let had_error = v.as_ref().is_some_and(|v| v.0.error.is_some());
+        let prompt = v.as_ref().map(|v| v.0.prompt.trim_end_matches(':').trim().to_string()).filter(|p| !p.is_empty() && !p.eq_ignore_ascii_case("password")).unwrap_or_else(|| "Пароль".into());
+        let f = TextField::with_text(pw.get_untracked())
+            .obscure(!shown)
+            .autofocus(true)
+            .disabled(wait)
+            .placeholder(prompt)
+            .prefix_icon(mi::LOCK)
+            .suffix_icon(if shown { "\u{E8F5}" } else { "\u{E8F4}" })
+            .on_suffix_click(move || show.set(!show.get_untracked()))
+            .on_change(move |t| pw.set(t.to_string()))
+            .on_submit(move |_| submit())
+            .class("auth-field");
+        // После неверного пароля поле «встряхивается».
+        Box::new(DecoratedBox::new().child(f).class(if had_error && !wait { "auth-field-box auth-shake" } else { "auth-field-box" }))
+    });
+
+    let status = rx(move || {
+        let e = view.get().and_then(|v| v.0.error.clone()).filter(|e| !e.trim().is_empty());
+        match e {
+            Some(e) if !busy.get() => Box::new(
+                Row::new()
+                    .gap(6.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(icon("\u{E000}").class("auth-error-icon"))
+                    .child(Text::new(e).class("auth-error")),
+            ),
+            _ => Box::new(DecoratedBox::new()),
+        }
+    });
+
+    let more = rx(move || {
+        let open = details.get();
+        let action = view.get().map(|v| v.0.action_id.clone()).unwrap_or_default();
+        let toggle = GestureDetector::new().on_click(move || details.set(!details.get_untracked())).child(
+            Row::new()
+                .gap(2.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(Text::new("Подробности").class("auth-link"))
+                .child(icon(if open { "\u{E5CE}" } else { "\u{E5CF}" }).class("auth-link-icon")),
+        );
+        let mut col = Column::new().gap(6.0).child(toggle);
+        if open {
+            col = col.child(Text::new(format!("Действие: {action}")).selectable(true).class("auth-details"));
+        }
+        Box::new(col)
+    });
+
+    let actions = rx(move || {
+        let wait = busy.get();
+        let ok: Box<dyn Widget> = if wait {
+            Box::new(button("Проверка…", "auth-btn auth-btn-primary auth-btn-busy", || {}))
+        } else {
+            Box::new(button("Подтвердить", "auth-btn auth-btn-primary", submit))
+        };
+        Box::new(
+            Row::new()
+                .gap(10.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(button("Отмена", "auth-btn", move || respond(view, None)))
+                .child(ok),
+        )
+    });
+
+    let body = Column::new()
+        .gap(16.0)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(head)
+        .child(who)
+        .child(Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(field).child(status))
+        .child(more)
+        .child(actions);
     Stack::new()
         .fit(StackFit::Expand)
         .child(DecoratedBox::new().class("auth-scrim"))

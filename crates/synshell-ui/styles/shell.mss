@@ -733,37 +733,91 @@ Text {
 /* Окно пароля polkit (auth.rs) */
 .auth-scrim { background-color: var(--scrim); }
 .auth-card {
-    min-width: 340px;
-    padding: 20px;
+    width: 400px;
+    padding: 28px 28px 22px 28px;
     background-color: var(--menu-bg);
     border-width: 1px;
     border-color: var(--border);
-    border-radius: var(--radius);
-    box-shadow: 0 10px 32px var(--shadow);
+    border-radius: 20px;
+    box-shadow: 0 24px 64px var(--shadow);
+    animation: auth-appear 260ms ease-out-back;
 }
-.auth-icon { icon-size: 28px; icon-color: var(--accent); }
-.auth-title { font-size: 15px; font-weight: bold; color: var(--fg); }
-.auth-sub { font-size: 12px; color: var(--muted); }
+@keyframes auth-appear {
+    from { opacity: 0; scale: 0.92; }
+    to { opacity: 1; scale: 1; }
+}
+.auth-badge {
+    width: 64px; height: 64px; border-radius: 32px;
+    background-color: var(--accent-soft);
+    border-width: 1px; border-color: var(--accent);
+}
+.auth-badge-icon { icon-size: 34px; icon-color: var(--accent); color: var(--accent); }
+.auth-title { font-size: 19px; font-weight: bold; color: var(--fg); }
+.auth-message { font-size: 13px; color: var(--muted); text-align: center; line-height: 19px; }
+.auth-chip { padding: 4px 10px; border-radius: 999px; background-color: var(--surface-alt); }
+.auth-chip-icon { icon-size: 14px; icon-color: var(--muted); color: var(--muted); }
+.auth-chip-label { font-size: 11px; color: var(--muted); }
+.auth-who {
+    width: 344px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    background-color: var(--surface-alt);
+}
+.auth-avatar { width: 40px; height: 40px; border-radius: 20px; background-color: var(--accent); }
+.auth-avatar-letter { font-size: 18px; font-weight: bold; color: var(--accent-fg); text-align: center; margin: 9px 0px 0px 0px; }
+.auth-user { font-size: 14px; font-weight: 600; color: var(--fg); }
+.auth-user-hint { font-size: 12px; color: var(--muted); }
 .auth-field {
-    padding: 8px 12px;
-    border-radius: var(--radius-sm);
-    background-color: var(--surface-alt);
+    padding: 10px 12px;
+    border-radius: 12px;
+    background-color: var(--surface);
     border-width: 1px;
     border-color: var(--border);
     color: var(--fg);
-    font-size: 14px;
-    caret-color: var(--fg);
+    font-size: 15px;
+    caret-color: var(--accent);
+    icon-color: var(--muted);
+    transition: border-color 140ms ease;
+    &:focus { border-color: var(--accent); }
 }
+.auth-shake .auth-field { border-color: var(--danger); }
+.auth-shake { animation: auth-shake 380ms ease-out; }
+@keyframes auth-shake {
+    from { translate-x: 0px; }
+    20% { translate-x: -9px; }
+    40% { translate-x: 8px; }
+    60% { translate-x: -5px; }
+    80% { translate-x: 3px; }
+    to { translate-x: 0px; }
+}
+.auth-error-icon { icon-size: 16px; icon-color: var(--danger); color: var(--danger); }
 .auth-error { font-size: 13px; color: var(--danger); }
+.auth-link { font-size: 12px; color: var(--muted); }
+.auth-link-icon { icon-size: 16px; icon-color: var(--muted); color: var(--muted); }
+.auth-details { font-size: 11px; color: var(--muted); }
+/* две кнопки поровну во всю ширину карточки: (400 − 2·28 − 10) / 2 */
 .auth-btn {
-    padding: 8px 16px;
-    border-radius: var(--radius-sm);
+    width: 167px;
+    height: 42px;
+    padding: 11px 16px;
+    border-radius: 12px;
     background-color: var(--surface-alt);
     border-width: 1px;
     border-color: var(--border);
     color: var(--fg);
-    font-size: 13px;
+    text-align: center;
+    transition: background-color 120ms ease, scale 180ms spring(420, 26);
+    &:hover { background-color: var(--hover); }
+    &:active { scale: 0.97; }
 }
+.auth-btn-label { font-size: 14px; font-weight: 600; color: inherit; text-align: center; }
+.auth-btn-primary {
+    background-color: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-fg);
+    &:hover { background-color: var(--accent); opacity: 0.9; }
+}
+.auth-btn-busy { animation: lock-pulse 900ms ease-in-out infinite; }
 
 /* Календарь во всплывающем окне часов */
 .cal {
