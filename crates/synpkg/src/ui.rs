@@ -684,7 +684,8 @@ pub fn app_card(st: St, a: CatalogApp) -> W {
                         .gap(8.0)
                         .child(Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(app_icon(&p.name, "card-icon")).child(Column::new().gap(2.0).child(Text::new(a.title.clone()).max_lines(1).class("card-title")).child(Text::new(category_label(&a)).max_lines(1).class("pkg-ver")).class("grow")))
                         .child(Text::new(p.description.clone()).max_lines(2).class("pkg-desc card-desc"))
-                        .child(Row::new().child(DecoratedBox::new().class("grow")).child(button)),
+                        // Высота явно: кнопка в Reactive при обмере сетки ещё пуста — карточка выходила ниже кнопки.
+                        .child(Row::new().cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class("grow")).child(button).style("height", StyleValue::px(30.0))),
                 )
                 .class("app-card"),
         ),

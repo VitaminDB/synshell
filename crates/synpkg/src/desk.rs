@@ -16,6 +16,8 @@ use crate::*;
 
 /// Ширина сайдбара (и области названия в заголовке над ним).
 const SIDEBAR_W: f32 = 248.0;
+/// Высота заголовка окна (как `.titlebar` в MSS).
+const TITLEBAR_H: f32 = 52.0;
 /// Поле поиска в заголовке.
 const SEARCH_W: f32 = 520.0;
 /// Снимок экрана на странице программы.
@@ -116,11 +118,14 @@ fn titlebar(st: St) -> W {
         let w = st.window.get();
         vec![Box::new(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused))]
     });
+    // Колонка высотой с заголовок, ряд — по её центру: значок и название ровно посередине.
     let brand = WindowDragRegion::new().child(
-        DecoratedBox::new()
+        Column::new()
+            .main_axis_alignment(MainAxisAlignment::Center)
             .child(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().child(Icon::new("\u{EA12}").class("brand-icon")).class("brand-icon-box")).child(Text::new("Программы").class("brand")))
             .class("tb-brand")
-            .style("width", StyleValue::px(SIDEBAR_W)),
+            .style("width", StyleValue::px(SIDEBAR_W))
+            .style("height", StyleValue::px(TITLEBAR_H)),
     );
     Box::new(
         DecoratedBox::new()

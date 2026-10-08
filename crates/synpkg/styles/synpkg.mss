@@ -8,7 +8,6 @@ Text { color: var(--fg); font-size: 14px; }
 
 .sidebar { width: 220px; padding: 10px 12px 14px 12px; background: var(--sidebar); }
 .brand { font-size: 19px; font-weight: 700; }
-.brand-row { padding: 2px 6px 16px 6px; }
 .brand-icon-box { padding: 7px; border-radius: 12px; background: var(--accent); }
 .brand-icon { font-size: 20px; color: var(--accent-fg); }
 .badge { padding: 1px 8px; border-radius: 999px; background: var(--accent); }
@@ -229,7 +228,6 @@ Button.queued { background: var(--accent-soft); color: var(--fg); }
 .card-icon-glyph { width: 52px; height: 52px; padding: 12px; }
 .card-title { font-size: 15px; font-weight: 600; }
 .card-desc { height: 34px; }
-.app-card { height: 128px; }
 
 /* Подробности */
 .hero-icon { width: 80px; height: 80px; }
@@ -262,7 +260,7 @@ Button.queued { background: var(--accent-soft); color: var(--fg); }
 .window-frame:window-maximized, .window-frame:window-fullscreen { border-radius: 0px; border-width: 0px; }
 .window { background: var(--content); flex-grow: 1; }
 .titlebar { height: 52px; background: var(--titlebar); padding: 0px 0px 0px 0px; }
-.tb-brand { padding: 0px 18px; height: 52px; justify-content: center; }
+.tb-brand { padding: 0px 18px; }
 .tb-back { padding: 6px; border-radius: 999px; transition: background-color 120ms ease-out; }
 .tb-back:hover { background-color: var(--hover); }
 .tb-back-icon { font-size: 22px; color: var(--fg); }

@@ -205,8 +205,16 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
         }
     });
     let (w, _) = size(&ctx);
+    // Меню значка — слоем ровно в размер «Пуска» (иначе слой растягивал карточку),
+    // точка нажатия — в координатах меню (по его границам на поверхности).
+    let bounds: std::sync::Arc<syngui::core::sync::Mutex<syngui::core::Rect>> = Default::default();
+    let b2 = bounds.clone();
     let menu_layer = rx(move || match st.item_menu.get() {
-        Some((id, x, y)) => Box::new(item_menu(ctx, st, &id, x, y)),
+        Some((id, x, y)) => {
+            let o = b2.lock().map(|r| r.origin).unwrap_or_default();
+            let (w, h) = if ctx.is_phone() { size(&ctx) } else { msize.get_untracked() };
+            Box::new(item_menu(ctx, st, &id, x - o.x, y - o.y).style("width", StyleValue::px(w - 24.0)).style("height", StyleValue::px(h)))
+        }
         None => Box::new(DecoratedBox::new()),
     });
     let phone = ctx.is_phone();
@@ -251,7 +259,7 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
     if !phone {
         stack = stack.child(crate::menu_prefs::grip_layer(ctx, msize, 24.0));
     }
-    stack.child(menu_layer)
+    syngui::widgets::EventHook::new().report_bounds(bounds).child(stack.child(menu_layer))
 }
 
 /// Середина меню: закреплённые, «Все приложения» или результаты поиска —
@@ -700,7 +708,7 @@ fn rail(ctx: ShellCtx, letters: Vec<String>, body_h: f32) -> impl Widget {
 
 // ─── Меню значка ─────────────────────────────────────────────────────────────
 
-fn item_menu(ctx: ShellCtx, st: St, id: &str, x: f32, y: f32) -> impl Widget {
+fn item_menu(ctx: ShellCtx, st: St, id: &str, x: f32, y: f32) -> DecoratedBox {
     let cfg = ctx.cfg();
     let pinned = cfg.launcher.favorites.iter().any(|f| f == id);
     let entry = xdg::app_by_id(id);
@@ -752,11 +760,11 @@ fn item_menu(ctx: ShellCtx, st: St, id: &str, x: f32, y: f32) -> impl Widget {
     .duration_ms(dur)
     .initial(dur > 0);
     let backdrop = InputArea::new(DecoratedBox::new().class("start-menu-scrim")).on_press(move |_, _, _| st.item_menu.set(None));
-    Stack::new().fit(StackFit::Expand).child(backdrop).child(
+    DecoratedBox::new().child(Stack::new().fit(StackFit::Expand).child(backdrop).child(
         Column::new()
             .child(Row::new().child(menu).style("padding-left", StyleValue::px(left)))
             .style("padding-top", StyleValue::px((y - 8.0).max(8.0))),
-    )
+    ))
 }
 
 fn set_pinned(id: &str, pin: bool) {
