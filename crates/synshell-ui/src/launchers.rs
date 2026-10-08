@@ -405,9 +405,17 @@ pub fn list_dir(dir: &Path) -> Vec<StackEntry> {
 }
 
 /// Открыть файл или каталог программой по умолчанию.
+/// Своими ассоциациями (те же, что в проводнике и «Параметрах»), а не
+/// `xdg-open`: тот без своего окружения выбирает программу сам.
 pub fn open_path(path: &Path) {
-    let q = path.to_string_lossy().replace('\'', "'\\''");
-    crate::actions::spawn(&format!("xdg-open '{q}'"));
+    let cmds = synshell_common::mime::open_commands(path);
+    if cmds.is_empty() {
+        let q = path.to_string_lossy().replace('\'', "'\\''");
+        crate::actions::spawn(&format!("xdg-open '{q}'"));
+    }
+    for c in cmds {
+        crate::actions::spawn(&c);
+    }
 }
 
 /// Очистить корзину (файлы и сведения об удалении).

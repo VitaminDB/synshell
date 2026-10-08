@@ -13,7 +13,10 @@ use crate::store::{self, doc_remove, doc_set, Seg};
 use crate::sys;
 use crate::ui::*;
 
-const COLUMNS: usize = 3;
+/// Ширина карточки темы с промежутком (`.theme-card` + gap сетки).
+const CARD_STEP: f32 = 270.0;
+/// Боковая панель и поля страницы в широком окне: остаток — под сетку.
+const DESKTOP_CHROME: f32 = 330.0 + 72.0;
 
 thread_local! {
     /// Список тем и правила их миниатюр: читаются с диска при открытии
@@ -127,7 +130,8 @@ fn thumbnail(a: &Appearance, p: &Palette, radius: f32, opacity: f32) -> impl Wid
     )
 }
 
-fn card(t: Option<&Arc<Theme>>, scheme: ColorScheme, selected: bool) -> W {
+/// `width` — ширина карточки по ширине экрана (телефон: одна во всю строку).
+fn card(t: Option<&Arc<Theme>>, scheme: ColorScheme, selected: bool, width: Option<f32>) -> W {
     let a = preview_appearance(t, scheme);
     let p = a.palette();
     let num = |key: &str, default: f64| {
@@ -152,7 +156,7 @@ fn card(t: Option<&Arc<Theme>>, scheme: ColorScheme, selected: bool) -> W {
     let t2 = t.cloned();
     boxed(
         syngui::GestureDetector::new().on_click(move || apply(t2.as_deref())).child(
-            DecoratedBox::new().class(if selected { "theme-card selected" } else { "theme-card" }).child(
+            width.into_iter().fold(DecoratedBox::new().class(if selected { "theme-card selected" } else { "theme-card" }), |b, w| b.style("width", w)).child(
                 Column::new()
                     .gap(0.0)
                     .cross_axis_alignment(CrossAxisAlignment::Stretch)
@@ -286,20 +290,34 @@ pub fn themes() -> W {
     let current = a.resolved.as_ref().map(|t| t.id.clone()).unwrap_or_default();
     let missing = !a.theme.trim().is_empty() && a.resolved.is_none();
 
-    let mut cards: Vec<W> = vec![card(None, a.color_scheme, current.is_empty() && !missing)];
-    cards.extend(list.iter().map(|t| card(Some(t), a.color_scheme, t.id == current)));
-    let mut grid = Column::new().gap(14.0);
-    let mut it = cards.into_iter().peekable();
-    while it.peek().is_some() {
-        let mut row = Row::new().gap(14.0);
-        for _ in 0..COLUMNS {
-            match it.next() {
-                Some(w) => row = row.child(w),
-                None => row = row.child(DecoratedBox::new().class("theme-card-empty")),
+    // Столбцов — сколько влезает по ширине окна; на телефоне одна карточка
+    // во всю ширину (фиксированные 256 px в два столбца уходили за экран).
+    let scheme = a.color_scheme;
+    let vp = syngui::viewport::viewport_size();
+    let grid = Reactive::new(move || -> Vec<W> {
+        let vw = vp.get().width;
+        let (cols, width) = if narrow() {
+            (1, Some((vw - 24.0 - 4.0).max(240.0)))
+        } else {
+            ((((vw - DESKTOP_CHROME + 14.0) / CARD_STEP).floor() as usize).clamp(1, 4), None)
+        };
+        let mut cards: Vec<W> = vec![card(None, scheme, current.is_empty() && !missing, width)];
+        cards.extend(list.iter().map(|t| card(Some(t), scheme, t.id == current, width)));
+        let mut grid = Column::new().gap(14.0);
+        let mut it = cards.into_iter().peekable();
+        while it.peek().is_some() {
+            let mut row = Row::new().gap(14.0);
+            for _ in 0..cols {
+                match it.next() {
+                    Some(w) => row = row.child(w),
+                    None if cols > 1 => row = row.child(DecoratedBox::new().class("theme-card-empty")),
+                    None => {}
+                }
             }
+            grid = grid.child(row);
         }
-        grid = grid.child(row);
-    }
+        vec![boxed(grid)]
+    });
 
     let scheme_idx = if a.is_dark() { 0 } else { 1 };
     let single = a.resolved.as_ref().is_some_and(|t| !t.has_both_variants());

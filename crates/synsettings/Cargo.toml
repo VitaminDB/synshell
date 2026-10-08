@@ -14,7 +14,7 @@ path = "src/main.rs"
 synshell-common = { workspace = true, features = ["thumbs"] }
 synsystem.workspace = true
 synmodem.workspace = true
-syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "clipboard", "i18n", "image"] }
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "clipboard", "i18n", "image", "svg"] }
 toml.workspace = true
 toml_edit.workspace = true
 serde.workspace = true

@@ -285,6 +285,16 @@ fn desktop_dir() -> PathBuf {
     home.join("Desktop")
 }
 
+/// Команда открытия файла рабочего стола программой по умолчанию.
+fn open_command(p: &std::path::Path) -> String {
+    let cmds = synshell_common::mime::open_commands(p);
+    if cmds.is_empty() {
+        format!("xdg-open '{}'", p.to_string_lossy().replace('\'', "'\\''"))
+    } else {
+        cmds.join(" & ")
+    }
+}
+
 fn desktop_icons() -> impl Widget {
     let dir = desktop_dir();
     let mut items: Vec<(String, Option<PathBuf>, String)> = Vec::new(); // (подпись, значок, команда)
@@ -301,7 +311,7 @@ fn desktop_icons() -> impl Widget {
             }
             let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let icon = if p.is_dir() { "folder" } else if is_image(&p) { "image-x-generic" } else { "text-x-generic" };
-            items.push((name, crate::xdg::lookup_icon(icon), format!("xdg-open '{}'", p.to_string_lossy().replace('\'', "'\\''"))));
+            items.push((name, crate::xdg::lookup_icon(icon), open_command(&p)));
         }
     }
     let mut col = Flex::new().direction(FlexDirection::Column).wrap().gap(6.0);

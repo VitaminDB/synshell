@@ -6,6 +6,7 @@ mod appearance;
 mod audio;
 mod camera;
 mod datetime;
+mod default_apps;
 mod devices;
 mod hardware;
 mod input;
@@ -301,11 +302,19 @@ pub const PAGES: &[PageDef] = &[
         build: system::autostart,
     },
     PageDef {
+        id: "default-apps",
+        title: "Программы по умолчанию",
+        icon: "\u{e89f}",
+        group: "Система",
+        keywords: "ассоциации типы файлов открывать с помощью браузер почта терминал проводник файловый менеджер видео музыка плеер изображения картинки текст редактор pdf архивы mime mimeapps",
+        build: default_apps::default_apps,
+    },
+    PageDef {
         id: "general",
         title: "Сеанс",
         icon: icons::SETTINGS,
         group: "Система",
-        keywords: "терминал файловый менеджер браузер оболочка переменные окружения xwayland x11 разрешение wine игры мелкий интерфейс снимки",
+        keywords: "оболочка переменные окружения xwayland x11 разрешение wine игры мелкий интерфейс снимки",
         build: system::general,
     },
     PageDef {

@@ -1872,6 +1872,10 @@ impl Config {
 
     pub fn parse(text: &str) -> Result<Config, String> {
         let mut c = toml::from_str::<Config>(text).map_err(|e| e.to_string())?;
+        // Проводник syndesktop-files переименован в synfiles: старое имя не запускается.
+        if c.general.file_manager.trim() == "syndesktop-files" {
+            c.general.file_manager = "synfiles".into();
+        }
         c.appearance.load_theme();
         Ok(c)
     }

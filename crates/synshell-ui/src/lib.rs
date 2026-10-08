@@ -112,6 +112,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
     xdg::set_icon_theme(&config.appearance.icon_theme);
     syngui_layer::set_ui_zoom(config.appearance.ui_scale);
     xdg::warm_up();
+    synshell_common::mime::migrate_legacy_ids();
     // Виброотклик: удержание пальцем (меню, перенос значков), переключатели.
     synshell_common::haptics::set_config(&config.haptics);
     syngui::input::set_haptic_handler(|h| {

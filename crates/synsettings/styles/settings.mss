@@ -736,3 +736,22 @@ Button.accent-swatch.selected {
 .pos-dot { width: 18px; height: 18px; border-radius: 9px; background: var(--border); }
 .pos-dot:hover { background: var(--muted); }
 .pos-dot-on { background: var(--accent); }
+
+/* Программы по умолчанию */
+.da-item {
+    padding: 12px 16px;
+    background-color: #00000000;
+    transition: background-color 120ms ease-out, scale 200ms spring(420, 26);
+}
+.da-item:hover { background-color: var(--hover); }
+.da-item:active { background-color: var(--hover); scale: 0.99; }
+.da-title { font-size: 14px; color: var(--fg); }
+.da-app-name { font-size: 13px; color: var(--muted); }
+.da-app-name.da-own { color: var(--accent); }
+.da-none { font-style: italic; }
+.da-app-icon { width: 36px; height: 36px; icon-size: 32px; font-size: 32px; }
+.da-app-icon-sm { width: 20px; height: 20px; icon-size: 18px; font-size: 18px; }
+.da-type-icon { width: 30px; height: 30px; icon-size: 26px; font-size: 26px; }
+.da-icon-fallback { color: var(--muted); icon-color: var(--muted); }
+.da-check { color: var(--accent); icon-size: 22px; font-size: 22px; }
+.da-radio { color: var(--border); icon-size: 22px; font-size: 22px; }

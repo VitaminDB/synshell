@@ -653,8 +653,35 @@ fn assoc() -> Assoc {
     a
 }
 
+/// Прежние имена программ synshell → нынешние (записи в `mimeapps.list`
+/// остались от syndesktop: без замены тип уходил первой попавшейся программе).
+const LEGACY_IDS: &[(&str, &str)] = &[("syndesktop-files", "synfiles")];
+
 fn strip_desktop(id: &str) -> &str {
-    id.strip_suffix(".desktop").unwrap_or(id)
+    let id = id.strip_suffix(".desktop").unwrap_or(id);
+    LEGACY_IDS.iter().find(|(old, _)| *old == id).map(|(_, new)| *new).unwrap_or(id)
+}
+
+/// Заменить прежние имена программ synshell в `~/.config/mimeapps.list` —
+/// его читают и сторонние программы (`xdg-open`), которым замена в
+/// [`strip_desktop`] не видна.
+pub fn migrate_legacy_ids() {
+    let path = paths::xdg_config_home().join("mimeapps.list");
+    let Ok(text) = std::fs::read_to_string(&path) else { return };
+    let mut out = text.clone();
+    for (old, new) in LEGACY_IDS {
+        out = out.replace(&format!("{old}.desktop"), &format!("{new}.desktop"));
+    }
+    if out != text && std::fs::write(&path, out).is_ok() {
+        reload_assoc();
+    }
+}
+
+/// Команды, которыми файл или каталог открывается программой по умолчанию.
+/// Пусто — подходящей программы нет.
+pub fn open_commands(path: &Path) -> Vec<String> {
+    let mime = detect(path);
+    default_app(&mime).map(|e| e.commands_for(&[path.to_path_buf()])).unwrap_or_default()
 }
 
 /// Программы для типа: сначала по умолчанию, затем остальные подходящие
@@ -697,45 +724,115 @@ pub fn default_app(mime: &str) -> Option<DesktopEntry> {
 
 /// Сделать программу умолчанием для типа (`~/.config/mimeapps.list`).
 pub fn set_default_app(mime: &str, app_id: &str) -> std::io::Result<()> {
-    let path = paths::xdg_config_home().join("mimeapps.list");
-    let text = std::fs::read_to_string(&path).unwrap_or_default();
-    let entry = format!("{mime}={app_id}.desktop;");
-    let mut out = String::new();
+    set_default_apps(&[(mime.to_string(), Some(app_id.to_string()))])
+}
+
+/// Программа по умолчанию, выбранная пользователем (`~/.config/mimeapps.list`),
+/// а не пришедшая из системных списков.
+pub fn user_default(mime: &str) -> Option<String> {
+    let text = std::fs::read_to_string(paths::xdg_config_home().join("mimeapps.list")).ok()?;
     let mut in_default = false;
-    let mut done = false;
     for line in text.lines() {
         let t = line.trim();
         if t.starts_with('[') {
-            if in_default && !done {
-                out.push_str(&entry);
-                out.push('\n');
-                done = true;
-            }
             in_default = t == "[Default Applications]";
-        } else if in_default && t.split_once('=').map(|(k, _)| k.trim() == mime).unwrap_or(false) {
-            if !done {
-                out.push_str(&entry);
-                out.push('\n');
-                done = true;
+        } else if in_default {
+            if let Some((k, v)) = t.split_once('=') {
+                if k.trim() == mime {
+                    return v.split(';').map(str::trim).find(|s| !s.is_empty()).map(|s| strip_desktop(s).to_string());
+                }
             }
-            continue;
         }
-        out.push_str(line);
-        out.push('\n');
     }
-    if !done {
-        if !in_default {
-            if !out.is_empty() && !out.ends_with("\n\n") {
-                out.push('\n');
-            }
-            out.push_str("[Default Applications]\n");
-        }
-        out.push_str(&entry);
-        out.push('\n');
+    None
+}
+
+/// Записать умолчания для нескольких типов одним проходом: `Some(id)` —
+/// программа, `None` — убрать свою запись (снова решают системные списки).
+pub fn set_default_apps(entries: &[(String, Option<String>)]) -> std::io::Result<()> {
+    let path = paths::xdg_config_home().join("mimeapps.list");
+    let out = rewrite_defaults(&std::fs::read_to_string(&path).unwrap_or_default(), entries);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
     }
     std::fs::write(&path, out)?;
     reload_assoc();
     Ok(())
+}
+
+/// Текст `mimeapps.list` с заменёнными строками `[Default Applications]`.
+fn rewrite_defaults(text: &str, entries: &[(String, Option<String>)]) -> String {
+    let line_for = |mime: &str| -> Option<String> {
+        entries.iter().rev().find(|(m, _)| m == mime).and_then(|(m, id)| id.as_ref().map(|id| format!("{m}={id}.desktop;")))
+    };
+    let mut written: HashSet<String> = HashSet::new();
+    let mut out = String::new();
+    let mut in_default = false;
+    let mut seen_default = false;
+    let flush_new = |out: &mut String, written: &mut HashSet<String>| {
+        for (m, _) in entries {
+            if written.insert(m.clone()) {
+                if let Some(l) = line_for(m) {
+                    out.push_str(&l);
+                    out.push('\n');
+                }
+            }
+        }
+    };
+    for line in text.lines() {
+        let t = line.trim();
+        if t.starts_with('[') {
+            if in_default {
+                // Новые строки — перед пустыми строками, отделяющими секции.
+                let mut blanks = 0;
+                while out.ends_with("\n\n") {
+                    out.pop();
+                    blanks += 1;
+                }
+                flush_new(&mut out, &mut written);
+                out.push_str(&"\n".repeat(blanks));
+            }
+            in_default = t == "[Default Applications]";
+            seen_default |= in_default;
+        } else if in_default {
+            if let Some((k, _)) = t.split_once('=') {
+                if let Some((m, _)) = entries.iter().find(|(m, _)| m == k.trim()) {
+                    if written.insert(m.clone()) {
+                        if let Some(l) = line_for(m) {
+                            out.push_str(&l);
+                            out.push('\n');
+                        }
+                    }
+                    continue;
+                }
+            }
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    if in_default {
+        flush_new(&mut out, &mut written);
+    } else if !seen_default && entries.iter().any(|(_, id)| id.is_some()) {
+        // Секции умолчаний ещё нет (если была — новые строки дописаны при выходе из неё).
+        if !out.is_empty() && !out.ends_with("\n\n") {
+            out.push('\n');
+        }
+        out.push_str("[Default Applications]\n");
+        flush_new(&mut out, &mut written);
+    }
+    out
+}
+
+/// Все типы, которые знают установленные программы или списки умолчаний.
+pub fn known_types() -> Vec<String> {
+    let a = assoc();
+    let mut set: HashSet<String> = a.defaults.keys().cloned().collect();
+    for e in xdg::apps().iter() {
+        set.extend(e.mime_types.iter().filter(|m| m.contains('/')).cloned());
+    }
+    let mut v: Vec<String> = set.into_iter().collect();
+    v.sort();
+    v
 }
 
 /// Перечитать `mimeapps.list` (после внешней правки).
@@ -748,6 +845,18 @@ pub fn reload_assoc() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rewrite_defaults_keeps_other_lines() {
+        let e = |m: &str, id: Option<&str>| (m.to_string(), id.map(String::from));
+        let text = "[Default Applications]\ninode/directory=org.kde.filelight.desktop;\ntext/plain=kate.desktop;\n\n[Added Associations]\nimage/png=gwenview.desktop;\n";
+        let out = rewrite_defaults(text, &[e("inode/directory", Some("synfiles")), e("text/plain", None), e("video/mp4", Some("mpv"))]);
+        assert_eq!(
+            out,
+            "[Default Applications]\ninode/directory=synfiles.desktop;\nvideo/mp4=mpv.desktop;\n\n[Added Associations]\nimage/png=gwenview.desktop;\n"
+        );
+        assert_eq!(rewrite_defaults("", &[e("a/b", Some("x"))]), "[Default Applications]\na/b=x.desktop;\n");
+    }
 
     #[test]
     fn globs() {

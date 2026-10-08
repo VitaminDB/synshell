@@ -333,7 +333,7 @@ fn invoke(ctx: ShellCtx, n: &Notification, key: &str) {
         return;
     }
     if let Some(p) = &n.open_path {
-        crate::actions::spawn(&format!("xdg-open '{}'", p.replace('\'', "'\\''")));
+        crate::launchers::open_path(std::path::Path::new(p));
         close(ctx, n.id, 2);
         return;
     }

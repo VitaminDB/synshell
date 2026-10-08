@@ -804,16 +804,8 @@ pub fn general() -> W {
     ));
     page(
         "Сеанс",
-        "Программы по умолчанию, оболочка и окружение.",
+        "Оболочка, Xwayland и окружение. Терминал, проводник и браузер — на странице «Программы по умолчанию».",
         vec![
-            group(
-                "Программы по умолчанию",
-                vec![
-                    text_row("Терминал", "Super+Return, Ctrl+Alt+T", op!["general", "terminal"], &g.terminal, "konsole"),
-                    text_row("Файловый менеджер", "Super+E", op!["general", "file_manager"], &g.file_manager, "dolphin"),
-                    text_row("Браузер", "", op!["general", "browser"], &g.browser, "firefox"),
-                ],
-            ),
             group(
                 "Сеанс",
                 vec![
