@@ -4943,9 +4943,11 @@ dependencies = [
 name = "synpkg"
 version = "0.1.4"
 dependencies = [
+ "serde_json",
  "syngui",
  "synshell-common",
  "synsystem",
+ "toml_edit 0.23.10+spec-1.0.0",
 ]
 
 [[package]]

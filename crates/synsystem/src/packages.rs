@@ -145,18 +145,32 @@ pub fn search(query: &str, aur: bool) -> Vec<Pkg> {
     let installed = installed_map();
     let mut out = parse_ss(&pacman(&["-Ss", q]).unwrap_or_default(), &installed);
     if aur {
-        let url = format!("https://aur.archlinux.org/rpc/v5/search/{}?by=name-desc", urlencode(q));
-        if let Some(j) = curl_json(&url) {
-            let repo_names: BTreeSet<String> = out.iter().map(|p| p.name.clone()).collect();
-            for v in j.get("results").and_then(|r| r.as_array()).into_iter().flatten() {
-                if let Some(p) = aur_pkg(v, &installed) {
-                    if !repo_names.contains(&p.name) {
-                        out.push(p);
-                    }
-                }
-            }
-        }
+        let repo_names: BTreeSet<String> = out.iter().map(|p| p.name.clone()).collect();
+        out.extend(aur_query(q, &installed).into_iter().filter(|p| !repo_names.contains(&p.name)));
     }
+    sort_found(&mut out, q);
+    out
+}
+
+/// Поиск только в AUR (имя и описание), по той же сортировке.
+pub fn search_aur(query: &str) -> Vec<Pkg> {
+    let q = query.trim();
+    if q.len() < 2 {
+        return Vec::new();
+    }
+    let mut out = aur_query(q, &installed_map());
+    sort_found(&mut out, q);
+    out
+}
+
+fn aur_query(q: &str, installed: &HashMap<String, String>) -> Vec<Pkg> {
+    let url = format!("https://aur.archlinux.org/rpc/v5/search/{}?by=name-desc", urlencode(q));
+    let Some(j) = curl_json(&url) else { return Vec::new() };
+    j.get("results").and_then(|r| r.as_array()).into_iter().flatten().filter_map(|v| aur_pkg(v, installed)).collect()
+}
+
+/// Сначала точные совпадения имени, затем начинающиеся с запроса, установленные, популярные.
+fn sort_found(out: &mut Vec<Pkg>, q: &str) {
     let ql = q.to_lowercase();
     out.sort_by(|a, b| {
         let key = |p: &Pkg| {
@@ -167,7 +181,6 @@ pub fn search(query: &str, aur: bool) -> Vec<Pkg> {
         key(a).cmp(&key(b)).then_with(|| a.name.cmp(&b.name))
     });
     out.truncate(200);
-    out
 }
 
 fn urlencode(s: &str) -> String {
@@ -299,6 +312,23 @@ pub struct CatalogApp {
     pub categories: Vec<String>,
     /// Имя значка из темы (`<icon type="stock">`).
     pub icon: Option<String>,
+    /// Идентификатор AppStream (`org.gimp.GIMP`).
+    pub id: String,
+    /// Абзацы полного описания.
+    pub description: Vec<String>,
+    /// Адреса снимков экрана.
+    pub screenshots: Vec<String>,
+    /// Значки из кэша каталога (JPEG XL): (ширина, путь).
+    pub cached_icons: Vec<(u32, PathBuf)>,
+}
+
+impl CatalogApp {
+    /// Кэшированный значок ближайшего к `size` размера (не меньше, если есть).
+    pub fn cached_icon(&self, size: u32) -> Option<&PathBuf> {
+        let mut v: Vec<&(u32, PathBuf)> = self.cached_icons.iter().collect();
+        v.sort_by_key(|(w, _)| (*w < size, w.abs_diff(size)));
+        v.first().map(|(_, p)| p)
+    }
 }
 
 /// Каталог AppStream: `/usr/share/swcatalog/xml/*.xml.gz` (и старый путь
@@ -336,14 +366,21 @@ pub fn catalog() -> Vec<CatalogApp> {
         } else {
             String::from_utf8_lossy(&raw).into_owned()
         };
+        // Значки лежат в /usr/share/swcatalog/icons/archlinux-arch-<репозиторий>/<W>x<W>/.
+        let stem = f.file_name().map(|n| n.to_string_lossy().split('.').next().unwrap_or("").to_string()).unwrap_or_default();
+        let icon_dir = PathBuf::from(format!("/usr/share/swcatalog/icons/archlinux-arch-{stem}"));
         for c in parse_appstream(&text) {
             let Some((repo, ver)) = sync.get(&c.pkgname) else { continue };
+            let cached_icons: Vec<(u32, PathBuf)> = c.cached_icons.iter().map(|(w, n)| (*w, icon_dir.join(format!("{w}x{w}")).join(n))).collect();
             if let Some(&i) = index.get(&c.pkgname) {
                 // Несколько программ в одном пакете — один пункт, категории вместе.
                 for cat in c.categories {
                     if !out[i].categories.contains(&cat) {
                         out[i].categories.push(cat);
                     }
+                }
+                if out[i].screenshots.is_empty() {
+                    out[i].screenshots = c.screenshots;
                 }
                 continue;
             }
@@ -362,6 +399,10 @@ pub fn catalog() -> Vec<CatalogApp> {
                 title: c.name,
                 categories: c.categories,
                 icon: c.icon,
+                id: c.id,
+                description: c.description,
+                screenshots: c.screenshots,
+                cached_icons,
             });
         }
     }
@@ -372,17 +413,25 @@ pub fn catalog() -> Vec<CatalogApp> {
 /// Компонент AppStream (только нужные поля).
 #[derive(Debug, Default, PartialEq)]
 pub struct AppStreamComponent {
+    pub id: String,
     pub pkgname: String,
     pub name: String,
     pub summary: String,
+    /// Абзацы описания (`<p>`, пункты `<li>` — с «• »).
+    pub description: Vec<String>,
     pub categories: Vec<String>,
     pub icon: Option<String>,
+    /// Значки из кэша каталога: (ширина, имя файла).
+    pub cached_icons: Vec<(u32, String)>,
+    /// Адреса снимков экрана (`<image type="source">`), основной — первым.
+    pub screenshots: Vec<String>,
 }
 
 /// Разбор XML AppStream: компоненты `desktop-application`/`console-application`
-/// с `<pkgname>`. Название и описание — `xml:lang="ru"`, иначе без языка.
+/// с `<pkgname>`. Название, описание и сводка — `xml:lang="ru"`, иначе без языка.
 /// Свой маленький разборщик тегов: формат плоский, вложенные `<name>`
-/// (`<developer>`) отсекаются по глубине.
+/// (`<developer>`) отсекаются по глубине, разметка внутри абзацев (`<em>`,
+/// `<code>`) — просто текст абзаца.
 pub fn parse_appstream(xml: &str) -> Vec<AppStreamComponent> {
     #[derive(Default)]
     struct Cur {
@@ -390,12 +439,18 @@ pub fn parse_appstream(xml: &str) -> Vec<AppStreamComponent> {
         app: bool,
         name_ru: Option<String>,
         summary_ru: Option<String>,
+        desc_ru: Vec<String>,
+        /// Язык открытого `<description>`: `Some(None)` — без языка, `Some(Some("ru"))`, иначе пропуск.
+        desc_lang: Option<Option<String>>,
+        /// Открытый `<screenshot>` — основной (`type="default"`).
+        shot_default: bool,
     }
     let mut out = Vec::new();
     let mut cur: Option<Cur> = None;
     // Глубина внутри компонента (1 — прямые дети) и открытый интересный тег.
     let mut depth = 0usize;
-    let mut open: Option<(String, Option<String>, Option<String>)> = None; // (тег, xml:lang, type)
+    // (тег, глубина, xml:lang, type, width)
+    let mut open: Option<(String, usize, Option<String>, Option<String>, Option<String>)> = None;
     let mut text = String::new();
     let mut rest = xml;
     while let Some(lt) = rest.find('<') {
@@ -424,25 +479,52 @@ pub fn parse_appstream(xml: &str) -> Vec<AppStreamComponent> {
                     if let Some(s) = c.summary_ru {
                         comp.summary = s;
                     }
+                    if !c.desc_ru.is_empty() {
+                        comp.description = c.desc_ru;
+                    }
                     if c.app && !comp.pkgname.is_empty() && !comp.name.is_empty() {
                         out.push(comp);
                     }
                 }
                 continue;
             }
-            if let (Some(c), Some((t, lang, ty))) = (cur.as_mut(), open.take()) {
-                let v = xml_unescape(text.trim());
+            let Some(c) = cur.as_mut() else { continue };
+            if open.as_ref().is_some_and(|o| o.0 == name && o.1 == depth) {
+                let (t, _, lang, ty, width) = open.take().unwrap();
+                let v = xml_unescape(&text.split_whitespace().collect::<Vec<_>>().join(" "));
                 text.clear();
                 match (t.as_str(), lang.as_deref()) {
+                    ("id", _) => c.c.id = v,
                     ("pkgname", None) => c.c.pkgname = v,
                     ("name", None) => c.c.name = v,
                     ("name", Some("ru")) => c.name_ru = Some(v),
                     ("summary", None) => c.c.summary = v,
                     ("summary", Some("ru")) => c.summary_ru = Some(v),
+                    ("p" | "li", _) if !v.is_empty() => {
+                        let v = if t == "li" { format!("• {v}") } else { v };
+                        match c.desc_lang.as_ref() {
+                            Some(None) => c.c.description.push(v),
+                            Some(Some(l)) if l == "ru" => c.desc_ru.push(v),
+                            _ => {}
+                        }
+                    }
                     ("category", _) if !v.is_empty() && !c.c.categories.contains(&v) => c.c.categories.push(v),
                     ("icon", _) if ty.as_deref() == Some("stock") && c.c.icon.is_none() => c.c.icon = Some(v),
+                    ("icon", _) if ty.as_deref() == Some("cached") && !v.is_empty() => {
+                        c.c.cached_icons.push((width.and_then(|w| w.parse().ok()).unwrap_or(64), v));
+                    }
+                    ("image", _) if ty.as_deref() == Some("source") && v.starts_with("http") && !c.c.screenshots.contains(&v) => {
+                        if c.shot_default {
+                            c.c.screenshots.insert(0, v);
+                        } else {
+                            c.c.screenshots.push(v);
+                        }
+                    }
                     _ => {}
                 }
+            }
+            if name == "description" && depth == 1 {
+                c.desc_lang = None;
             }
             depth = depth.saturating_sub(1);
             continue;
@@ -457,18 +539,37 @@ pub fn parse_appstream(xml: &str) -> Vec<AppStreamComponent> {
             open = None;
             continue;
         }
-        if cur.is_none() || self_closing {
+        let Some(c) = cur.as_mut() else { continue };
+        if self_closing {
             continue;
         }
         depth += 1;
-        // Прямые дети компонента и <category> внутри <categories>.
+        if open.is_some() {
+            // Разметка внутри абзаца — текст копится дальше.
+            continue;
+        }
+        match (name, depth) {
+            ("description", 1) => {
+                c.desc_lang = match xml_attr(attrs, "xml:lang") {
+                    None => Some(None),
+                    Some(l) if l == "ru" => Some(Some(l)),
+                    Some(_) => Some(Some(String::new())),
+                };
+            }
+            ("screenshot", 2) => c.shot_default = xml_attr(attrs, "type").as_deref() == Some("default"),
+            _ => {}
+        }
+        // Прямые дети компонента, <category> внутри <categories>, абзацы описания, картинки снимков.
         let wanted = match name {
-            "pkgname" | "name" | "summary" | "icon" => depth == 1,
+            "id" | "pkgname" | "name" | "summary" | "icon" => depth == 1,
             "category" => depth == 2,
+            "p" => depth == 2 && c.desc_lang.is_some(),
+            "li" => depth == 3 && c.desc_lang.is_some(),
+            "image" => depth == 3,
             _ => false,
         };
         if wanted {
-            open = Some((name.to_string(), xml_attr(attrs, "xml:lang"), xml_attr(attrs, "type")));
+            open = Some((name.to_string(), depth, xml_attr(attrs, "xml:lang"), xml_attr(attrs, "type"), xml_attr(attrs, "width")));
             text.clear();
         }
     }
@@ -513,21 +614,31 @@ pub fn updates(aur: bool) -> Vec<Update> {
         })
         .collect();
     if aur {
-        let foreign = foreign();
-        if !foreign.is_empty() {
-            let args: String = foreign.keys().map(|n| format!("arg[]={}", urlencode(n))).collect::<Vec<_>>().join("&");
-            if let Some(j) = curl_json(&format!("https://aur.archlinux.org/rpc/v5/info?{args}")) {
-                for v in j.get("results").and_then(|r| r.as_array()).into_iter().flatten() {
-                    let (Some(n), Some(new)) = (v.get("Name").and_then(|x| x.as_str()), v.get("Version").and_then(|x| x.as_str())) else { continue };
-                    if let Some(old) = foreign.get(n) {
-                        if vercmp(new, old) == std::cmp::Ordering::Greater {
-                            out.push(Update { name: n.into(), old: old.clone(), new: new.into(), aur: true });
-                        }
-                    }
+        out.extend(aur_updates());
+    }
+    out
+}
+
+/// Обновления пакетов AUR: версии RPC против установленных не из репозиториев
+/// (собранные вручную и отсутствующие в AUR не попадают).
+pub fn aur_updates() -> Vec<Update> {
+    let foreign = foreign();
+    let mut out = Vec::new();
+    let names: Vec<&String> = foreign.keys().collect();
+    // Запрос RPC — порциями: длина адреса ограничена.
+    for chunk in names.chunks(150) {
+        let args: String = chunk.iter().map(|n| format!("arg[]={}", urlencode(n))).collect::<Vec<_>>().join("&");
+        let Some(j) = curl_json(&format!("https://aur.archlinux.org/rpc/v5/info?{args}")) else { continue };
+        for v in j.get("results").and_then(|r| r.as_array()).into_iter().flatten() {
+            let (Some(n), Some(new)) = (v.get("Name").and_then(|x| x.as_str()), v.get("Version").and_then(|x| x.as_str())) else { continue };
+            if let Some(old) = foreign.get(n) {
+                if vercmp(new, old) == std::cmp::Ordering::Greater {
+                    out.push(Update { name: n.into(), old: old.clone(), new: new.into(), aur: true });
                 }
             }
         }
     }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
     out
 }
 
@@ -552,16 +663,81 @@ pub enum JobEvent {
     Done(Result<(), String>),
 }
 
+/// Как удалять пакеты, нужные другим.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RemoveMode {
+    /// `-Rns`: с ненужными больше зависимостями; пакет, нужный другим, не удаляется.
+    #[default]
+    Normal,
+    /// `-Rcns`: вместе со всеми, кто от него зависит.
+    Cascade,
+    /// `-Rdd`: без проверки зависимостей (зависящие останутся и могут не запуститься).
+    Force,
+}
+
 /// Что сделать.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Op {
     Install(Vec<String>),
     InstallAur(Vec<String>),
-    Remove(Vec<String>),
-    /// Обновить систему (и, если `aur`, пакеты AUR).
-    Upgrade { aur: bool },
+    Remove { names: Vec<String>, mode: RemoveMode },
+    /// Обновить систему (и, если `aur`, пакеты AUR); `ignore` — пропустить эти пакеты.
+    Upgrade { aur: bool, ignore: Vec<String> },
     /// Обновить базы репозиториев.
     Refresh,
+    /// Несколько операций по очереди (очередь synpkg); первая ошибка останавливает.
+    Batch(Vec<Op>),
+}
+
+/// Что выйдет из удаления `names` (проверка без root: `pacman -Rp`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct RemoveCheck {
+    /// Обычное удаление: пакеты (вместе с ненужными больше зависимостями).
+    pub removed: Vec<String>,
+    /// Мешающие зависимости: (удаляемый, кому он нужен).
+    pub blockers: Vec<(String, String)>,
+    /// Каскадное удаление: всё, что уйдёт вместе с зависящими.
+    pub cascade: Vec<String>,
+}
+
+/// Проверить удаление: кому нужны пакеты и что уйдёт каскадом.
+pub fn remove_check(names: &[String]) -> RemoveCheck {
+    let run = |flags: &str| -> (bool, String, String) {
+        let mut c = Command::new("pacman");
+        c.arg(flags).args(["--print-format", "%n"]).args(names).env("LC_ALL", "C").stdin(Stdio::null());
+        match c.output() {
+            Ok(o) => (o.status.success(), String::from_utf8_lossy(&o.stdout).into_owned(), String::from_utf8_lossy(&o.stderr).into_owned()),
+            Err(_) => (false, String::new(), String::new()),
+        }
+    };
+    let list = |t: &str| t.lines().map(str::trim).filter(|l| !l.is_empty() && !l.contains(' ')).map(String::from).collect::<Vec<_>>();
+    let (ok, out, err) = run("-Rsp");
+    let mut check = RemoveCheck::default();
+    if ok {
+        check.removed = list(&out);
+        return check;
+    }
+    check.blockers = parse_breaks(&format!("{out}\n{err}"));
+    let (ok, out, _) = run("-Rcsp");
+    if ok {
+        check.cascade = list(&out);
+    }
+    check
+}
+
+/// Строки pacman «:: removing aha breaks dependency 'aha' required by kinfocenter».
+pub fn parse_breaks(text: &str) -> Vec<(String, String)> {
+    let mut v: Vec<(String, String)> = Vec::new();
+    for l in text.lines() {
+        let Some(rest) = l.trim().trim_start_matches(":: ").strip_prefix("removing ") else { continue };
+        let Some((pkg, tail)) = rest.split_once(" breaks dependency ") else { continue };
+        let Some((_, by)) = tail.rsplit_once(" required by ") else { continue };
+        let e = (pkg.trim().to_string(), by.trim().to_string());
+        if !v.contains(&e) {
+            v.push(e);
+        }
+    }
+    v
 }
 
 pub struct Job {
@@ -847,6 +1023,58 @@ fn build_aur(names: &[String], build_user: &str, tx: &mpsc::Sender<JobEvent>, ca
     Ok(())
 }
 
+fn run_op(op: &Op, build_user: &str, tx: &mpsc::Sender<JobEvent>, c: &JobCancel) -> Result<(), String> {
+    match op {
+        Op::Install(p) => {
+            let _ = tx.send(JobEvent::Stage(format!("Установка: {}", p.join(", "))));
+            let mut a = vec!["-S", "--noconfirm", "--needed"];
+            a.extend(p.iter().map(|s| s.as_str()));
+            run_streaming(pacman_cmd(&a), tx, c)
+        }
+        Op::Remove { names, mode } => {
+            let _ = tx.send(JobEvent::Stage(format!("Удаление: {}", names.join(", "))));
+            let mut a = vec![
+                match mode {
+                    RemoveMode::Normal => "-Rns",
+                    RemoveMode::Cascade => "-Rcns",
+                    RemoveMode::Force => "-Rdd",
+                },
+                "--noconfirm",
+            ];
+            a.extend(names.iter().map(|s| s.as_str()));
+            run_streaming(pacman_cmd(&a), tx, c)
+        }
+        Op::InstallAur(p) => build_aur(p, build_user, tx, c),
+        Op::Refresh => {
+            let _ = tx.send(JobEvent::Stage("Обновление баз".into()));
+            run_streaming(pacman_cmd(&["-Sy"]), tx, c)
+        }
+        Op::Upgrade { aur, ignore } => {
+            let _ = tx.send(JobEvent::Stage("Обновление системы".into()));
+            let list = ignore.join(",");
+            let mut a = vec!["-Syu", "--noconfirm"];
+            if !ignore.is_empty() {
+                a.extend(["--ignore", list.as_str()]);
+            }
+            let mut r = run_streaming(pacman_cmd(&a), tx, c);
+            if r.is_ok() && *aur {
+                let ups: Vec<String> = updates(true).into_iter().filter(|u| u.aur && !ignore.contains(&u.name)).map(|u| u.name).collect();
+                if !ups.is_empty() {
+                    r = build_aur(&ups, build_user, tx, c);
+                }
+            }
+            r
+        }
+        Op::Batch(ops) => {
+            for (i, o) in ops.iter().enumerate() {
+                let _ = tx.send(JobEvent::Line(format!("— шаг {} из {} —", i + 1, ops.len())));
+                run_op(o, build_user, tx, c)?;
+            }
+            Ok(())
+        }
+    }
+}
+
 /// Запустить операцию в фоне.
 pub fn start(op: Op, build_user: String) -> Job {
     let (tx, rx) = mpsc::channel();
@@ -855,36 +1083,7 @@ pub fn start(op: Op, build_user: String) -> Job {
     std::thread::Builder::new()
         .name("synpkg-job".into())
         .spawn(move || {
-            let r = match &op {
-                Op::Install(p) => {
-                    let _ = tx.send(JobEvent::Stage(format!("Установка: {}", p.join(", "))));
-                    let mut a = vec!["-S", "--noconfirm", "--needed"];
-                    a.extend(p.iter().map(|s| s.as_str()));
-                    run_streaming(pacman_cmd(&a), &tx, &c)
-                }
-                Op::Remove(p) => {
-                    let _ = tx.send(JobEvent::Stage(format!("Удаление: {}", p.join(", "))));
-                    let mut a = vec!["-Rns", "--noconfirm"];
-                    a.extend(p.iter().map(|s| s.as_str()));
-                    run_streaming(pacman_cmd(&a), &tx, &c)
-                }
-                Op::InstallAur(p) => build_aur(p, &build_user, &tx, &c),
-                Op::Refresh => {
-                    let _ = tx.send(JobEvent::Stage("Обновление баз".into()));
-                    run_streaming(pacman_cmd(&["-Sy"]), &tx, &c)
-                }
-                Op::Upgrade { aur } => {
-                    let _ = tx.send(JobEvent::Stage("Обновление системы".into()));
-                    let mut r = run_streaming(pacman_cmd(&["-Syu", "--noconfirm"]), &tx, &c);
-                    if r.is_ok() && *aur {
-                        let ups: Vec<String> = updates(true).into_iter().filter(|u| u.aur).map(|u| u.name).collect();
-                        if !ups.is_empty() {
-                            r = build_aur(&ups, &build_user, &tx, &c);
-                        }
-                    }
-                    r
-                }
-            };
+            let r = run_op(&op, &build_user, &tx, &c);
             let _ = tx.send(JobEvent::Done(r));
         })
         .ok();
@@ -912,6 +1111,16 @@ mod tests {
     <category>Development</category>
     <category>TextEditor</category>
   </categories>
+  <description>
+    <p>Acme is <em>an</em>
+      editor.</p>
+    <ul><li>Fast</li></ul>
+  </description>
+  <description xml:lang="de"><p>Editor</p></description>
+  <screenshots>
+    <screenshot><image type="source">https://x/2.png</image></screenshot>
+    <screenshot type="default"><caption>Main</caption><image type="thumbnail">https://x/t.png</image><image type="source">https://x/1.png</image></screenshot>
+  </screenshots>
 </component>
 <component type="font">
   <name>Font</name>
@@ -925,6 +1134,10 @@ mod tests {
         assert_eq!(v[0].summary, "Editor & more");
         assert_eq!(v[0].icon.as_deref(), Some("acme"));
         assert_eq!(v[0].categories, vec!["Development", "TextEditor"]);
+        assert_eq!(v[0].id, "a.desktop");
+        assert_eq!(v[0].description, vec!["Acme is an editor.", "• Fast"]);
+        assert_eq!(v[0].screenshots, vec!["https://x/1.png", "https://x/2.png"]);
+        assert_eq!(v[0].cached_icons, vec![(64, "p.jxl".to_string())]);
     }
 
     #[test]
@@ -960,6 +1173,12 @@ mod tests {
         assert_eq!(v[0].source, Source::Repo("extra".into()));
         assert_eq!(v[0].installed.as_deref(), Some("156.0-1"));
         assert_eq!(v[1].description, "Russian language pack");
+    }
+
+    #[test]
+    fn breaks() {
+        let v = parse_breaks("error: failed to prepare transaction (could not satisfy dependencies)\n:: removing aha breaks dependency 'aha' required by kinfocenter\n:: removing aha breaks dependency 'aha' required by plasma-disks\n");
+        assert_eq!(v, vec![("aha".to_string(), "kinfocenter".to_string()), ("aha".to_string(), "plasma-disks".to_string())]);
     }
 
     #[test]

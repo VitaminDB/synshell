@@ -14,3 +14,5 @@ path = "src/main.rs"
 synshell-common.workspace = true
 synsystem.workspace = true
 syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "clipboard", "i18n", "image", "svg"] }
+serde_json.workspace = true
+toml_edit.workspace = true

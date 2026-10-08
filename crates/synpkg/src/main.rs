@@ -1,46 +1,59 @@
-//! synpkg — «Программы»: поиск, установка, удаление и обновление программ
-//! из репозиториев pacman и AUR. Одна программа для рабочего стола (три
-//! колонки: разделы, список, подробности) и телефона (стек «список →
-//! пакет» с нижней навигацией). Бэкенд — `synsystem::packages`.
+//! synpkg — «Программы»: каталог (обзор, категории, снимки экрана), поиск,
+//! AUR, установка, удаление и обновление программ из репозиториев pacman и
+//! AUR. Одна программа для рабочего стола (три колонки: разделы, список,
+//! подробности) и телефона (стек «список → пакет» с нижней навигацией).
+//! Бэкенд — `synsystem::packages`.
+//!
+//! Изменения не выполняются сразу: «Установить», «Удалить» и флажки в
+//! строках собирают очередь, «Применить» выполняет её одним заданием
+//! (удаление → репозитории → AUR). Мешают зависимости при удалении —
+//! спрашивается, удалить ли каскадом или принудительно.
 //!
 //! `synpkg [запрос]` — открыть поиск с запросом.
 
+mod media;
+mod ui;
+
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use synshell_common::Config;
-use synsystem::packages::{self as pk, CatalogApp, Details, JobEvent, Op, Pkg, Source, Update};
+use synsystem::packages::{self as pk, CatalogApp, Details, JobEvent, Op, Pkg, RemoveCheck, RemoveMode, Source, Update};
 use synsystem::polkit_agent::{self, AuthRequest, Prompter};
 use syngui::async_runtime::run_on_main_thread;
-use syngui::mss::StyleValue;
 use syngui::prelude::*;
-use syngui::widgets::{EventHook, KeyReply};
-use syngui::{GestureDetector, ShowIf};
+use syngui::widgets::MenuItem;
 
-type W = Box<dyn Widget>;
+use media::Media;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Tab {
-    Search,
+pub enum Tab {
+    Explore,
+    Aur,
     Installed,
     Updates,
     Jobs,
 }
 
 impl Tab {
-    const ALL: [Tab; 4] = [Tab::Search, Tab::Installed, Tab::Updates, Tab::Jobs];
-    fn label(self) -> &'static str {
+    pub const ALL: [Tab; 5] = [Tab::Explore, Tab::Aur, Tab::Installed, Tab::Updates, Tab::Jobs];
+    pub fn label(self) -> &'static str {
         match self {
-            Tab::Search => "Поиск",
+            Tab::Explore => "Обзор",
+            Tab::Aur => "AUR",
             Tab::Installed => "Установленные",
             Tab::Updates => "Обновления",
             Tab::Jobs => "Задачи",
         }
     }
-    fn icon(self) -> &'static str {
+    pub fn icon(self) -> &'static str {
         match self {
-            Tab::Search => "\u{E8B6}",
+            Tab::Explore => "\u{E87A}",
+            Tab::Aur => "\u{E869}",
             Tab::Installed => "\u{E1DB}",
             Tab::Updates => "\u{E923}",
             Tab::Jobs => "\u{E8B5}",
@@ -49,26 +62,52 @@ impl Tab {
 }
 
 #[derive(Clone, PartialEq)]
-struct JobView {
-    id: u64,
-    title: String,
-    stage: String,
-    log: Vec<String>,
-    done: Option<std::result::Result<(), String>>,
-    cancel: pk::JobCancel,
+pub struct JobView {
+    pub id: u64,
+    pub title: String,
+    pub stage: String,
+    pub log: Vec<String>,
+    pub done: Option<std::result::Result<(), String>>,
+    pub cancel: pk::JobCancel,
     /// Нажата «Отменить», задание ещё не закончилось.
-    cancelling: bool,
+    pub cancelling: bool,
+}
+
+/// Что сделать с пакетом из очереди.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum QAct {
+    Install,
+    InstallAur,
+    Remove,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct QItem {
+    pub name: String,
+    pub act: QAct,
+}
+
+/// Удаление упёрлось в зависимости: что спросить и что выполнить потом.
+#[derive(Clone, PartialEq)]
+pub struct RemoveAsk {
+    pub names: Vec<String>,
+    pub check: RemoveCheck,
+    /// Остальные шаги (установка из очереди) — после удаления.
+    pub then: Vec<Op>,
+    pub title: String,
+    /// Удаление из очереди: после запуска очередь очищается.
+    pub from_queue: bool,
 }
 
 /// Разделы каталога: ключ — главная категория freedesktop (и её синонимы).
-struct Category {
-    key: &'static str,
-    also: &'static [&'static str],
-    label: &'static str,
-    icon: &'static str,
+pub struct Category {
+    pub key: &'static str,
+    pub also: &'static [&'static str],
+    pub label: &'static str,
+    pub icon: &'static str,
 }
 
-const CATEGORIES: &[Category] = &[
+pub const CATEGORIES: &[Category] = &[
     Category { key: "Network", also: &[], label: "Интернет", icon: "\u{E80B}" },
     Category { key: "Office", also: &[], label: "Офис", icon: "\u{E873}" },
     Category { key: "Graphics", also: &[], label: "Графика", icon: "\u{E3F4}" },
@@ -82,17 +121,24 @@ const CATEGORIES: &[Category] = &[
 ];
 
 impl Category {
-    fn by_key(key: &str) -> Option<&'static Category> {
+    pub fn by_key(key: &str) -> Option<&'static Category> {
         CATEGORIES.iter().find(|c| c.key == key)
     }
-    fn contains(&self, a: &CatalogApp) -> bool {
+    pub fn contains(&self, a: &CatalogApp) -> bool {
         a.categories.iter().any(|c| c == self.key || self.also.contains(&c.as_str()))
     }
 }
 
+/// Известные программы для витрины «Обзора» (показываются те, что есть в каталоге).
+pub const FEATURED: &[&str] = &[
+    "firefox", "thunderbird", "libreoffice-fresh", "gimp", "inkscape", "krita", "blender", "obs-studio", "kdenlive", "vlc", "mpv",
+    "audacity", "telegram-desktop", "steam", "keepassxc", "qbittorrent", "chromium", "darktable", "shotcut", "okular", "gwenview",
+    "kate", "freecad", "signal-desktop", "element-desktop", "transmission-qt", "digikam", "handbrake", "ardour", "godot",
+];
+
 /// Открытое окно пароля polkit (агент — [`polkit_agent`]).
 #[derive(Clone)]
-struct AuthView(Arc<AuthRequest>);
+pub struct AuthView(pub Arc<AuthRequest>);
 
 impl PartialEq for AuthView {
     fn eq(&self, o: &Self) -> bool {
@@ -119,32 +165,94 @@ impl Prompter for AuthPrompter {
     }
 }
 
+/// Фильтр «Установленных».
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum InstFilter {
+    All,
+    Apps,
+    Foreign,
+}
+
 #[derive(Clone, Copy)]
-struct St {
-    tab: RwSignal<Tab>,
-    query: RwSignal<String>,
-    results: RwSignal<Vec<Pkg>>,
-    searching: RwSignal<bool>,
-    installed: RwSignal<Vec<Pkg>>,
-    filter: RwSignal<String>,
-    updates: RwSignal<Option<Vec<Update>>>,
-    selected: RwSignal<Option<Pkg>>,
-    details: RwSignal<Option<Details>>,
-    pkgbuild: RwSignal<Option<String>>,
-    jobs: RwSignal<Vec<JobView>>,
+pub struct St {
+    pub tab: RwSignal<Tab>,
+    pub query: RwSignal<String>,
+    pub results: RwSignal<Vec<Pkg>>,
+    pub searching: RwSignal<bool>,
+    pub aur_query: RwSignal<String>,
+    pub aur_results: RwSignal<Vec<Pkg>>,
+    pub aur_searching: RwSignal<bool>,
+    /// Обновления пакетов AUR (`None` — не проверялись или проверяются).
+    pub aur_updates: RwSignal<Option<Vec<Update>>>,
+    pub aur_checking: RwSignal<bool>,
+    pub installed: RwSignal<Vec<Pkg>>,
+    pub filter: RwSignal<String>,
+    pub inst_filter: RwSignal<InstFilter>,
+    pub updates: RwSignal<Option<Vec<Update>>>,
+    /// Пропустить в ближайшем обновлении (до перезапуска).
+    pub skip: RwSignal<Vec<String>>,
+    pub selected: RwSignal<Option<Pkg>>,
+    pub details: RwSignal<Option<Details>>,
+    pub media: RwSignal<Option<Media>>,
+    /// Открытый на весь экран снимок.
+    pub shot: RwSignal<Option<usize>>,
+    pub pkgbuild: RwSignal<Option<String>>,
+    pub jobs: RwSignal<Vec<JobView>>,
     /// Задание, чей лог развёрнут в «Задачах» (`None` — последнее).
-    job_open: RwSignal<Option<u64>>,
+    pub job_open: RwSignal<Option<u64>>,
     /// Каталог AppStream (`None` — ещё загружается).
-    catalog: RwSignal<Option<Vec<CatalogApp>>>,
+    pub catalog: RwSignal<Option<Vec<CatalogApp>>>,
     /// Открытая категория каталога (ключ [`Category`]).
-    category: RwSignal<Option<&'static str>>,
-    toast: RwSignal<String>,
-    cfg: RwSignal<Config>,
-    auth: RwSignal<Option<AuthView>>,
+    pub category: RwSignal<Option<&'static str>>,
+    pub toast: RwSignal<String>,
+    pub cfg: RwSignal<Config>,
+    pub auth: RwSignal<Option<AuthView>>,
+    pub queue: RwSignal<Vec<QItem>>,
+    pub remove_ask: RwSignal<Option<RemoveAsk>>,
+    pub menu_items: RwSignal<Vec<MenuItem>>,
+    pub menu_open: RwSignal<bool>,
+    pub menu_pos: RwSignal<syngui::core::Point>,
+    /// Растёт, когда перекодированы значки каталога.
+    pub icons_rev: RwSignal<u64>,
 }
 
 static SEARCH_GEN: AtomicU64 = AtomicU64::new(0);
+static AUR_GEN: AtomicU64 = AtomicU64::new(0);
 static JOB_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Сведения каталога по имени пакета: название, значок — для строк любого списка.
+#[derive(Clone)]
+pub struct AppMeta {
+    pub title: String,
+    pub icon: Option<String>,
+    pub icon64: Option<PathBuf>,
+    pub icon128: Option<PathBuf>,
+}
+
+thread_local! {
+    static CAT_INDEX: RefCell<HashMap<String, AppMeta>> = RefCell::new(HashMap::new());
+    /// Действие выбранного пункта контекстного меню.
+    static MENU_ACTION: RefCell<Option<Box<dyn Fn(&str)>>> = const { RefCell::new(None) };
+}
+
+pub fn app_meta(name: &str) -> Option<AppMeta> {
+    CAT_INDEX.with(|m| m.borrow().get(name).cloned())
+}
+
+/// Открыть контекстное меню в точке окна; `f` получит id пункта.
+pub fn show_menu(st: St, items: Vec<MenuItem>, at: syngui::core::Point, f: impl Fn(&str) + 'static) {
+    MENU_ACTION.with(|m| *m.borrow_mut() = Some(Box::new(f)));
+    st.menu_items.set_always(items);
+    st.menu_pos.set(at);
+    st.menu_open.set(true);
+}
+
+pub fn menu_selected(id: &str) {
+    let f = MENU_ACTION.with(|m| m.borrow_mut().take());
+    if let Some(f) = f {
+        f(id);
+    }
+}
 
 fn main() {
     let query = std::env::args().skip(1).find(|a| !a.starts_with('-')).unwrap_or_default();
@@ -153,21 +261,30 @@ fn main() {
     App::new()
         .title("Программы")
         .app_id("synpkg")
-        .size(1100, 720)
+        .size(1240, 800)
         .min_size(340, 480)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_styles_str(&mss)
         .run(move |_| {
             let st = St {
-                tab: use_signal(Tab::Search),
+                tab: use_signal(Tab::Explore),
                 query: use_signal(query.clone()),
                 results: use_signal(Vec::new()),
                 searching: use_signal(false),
+                aur_query: use_signal(String::new()),
+                aur_results: use_signal(Vec::new()),
+                aur_searching: use_signal(false),
+                aur_updates: use_signal(None),
+                aur_checking: use_signal(false),
                 installed: use_signal(Vec::new()),
                 filter: use_signal(String::new()),
+                inst_filter: use_signal(InstFilter::All),
                 updates: use_signal(None),
+                skip: use_signal(Vec::new()),
                 selected: use_signal(None),
                 details: use_signal(None),
+                media: use_signal(None),
+                shot: use_signal(None),
                 pkgbuild: use_signal(None),
                 jobs: use_signal(Vec::new()),
                 job_open: use_signal(None),
@@ -176,6 +293,12 @@ fn main() {
                 toast: use_signal(String::new()),
                 cfg: use_signal(cfg.clone()),
                 auth: use_signal(None),
+                queue: use_signal(Vec::new()),
+                remove_ask: use_signal(None),
+                menu_items: use_signal(Vec::new()),
+                menu_open: use_signal(false),
+                menu_pos: use_signal(syngui::core::Point::zero()),
+                icons_rev: use_signal(0),
             };
             polkit_agent::set_prompter(AuthPrompter(st.auth));
             if !query.is_empty() {
@@ -183,7 +306,7 @@ fn main() {
             }
             load_installed(st);
             load_catalog(st);
-            root(st)
+            ui::root(st)
         });
 }
 
@@ -209,7 +332,7 @@ fn theme(cfg: &Config) -> String {
 
 // ─── Фоновые запросы ─────────────────────────────────────────────────────────
 
-fn search(st: St, q: String) {
+pub fn search(st: St, q: String) {
     let gen = SEARCH_GEN.fetch_add(1, Ordering::SeqCst) + 1;
     let aur = st.cfg.get_untracked().packages.aur;
     if q.trim().len() < 2 {
@@ -234,7 +357,30 @@ fn search(st: St, q: String) {
     });
 }
 
-fn load_installed(st: St) {
+pub fn search_aur(st: St, q: String) {
+    let gen = AUR_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    if q.trim().len() < 2 {
+        st.aur_results.set(Vec::new());
+        st.aur_searching.set(false);
+        return;
+    }
+    st.aur_searching.set(true);
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(350));
+        if AUR_GEN.load(Ordering::SeqCst) != gen {
+            return;
+        }
+        let r = pk::search_aur(&q);
+        run_on_main_thread(move || {
+            if AUR_GEN.load(Ordering::SeqCst) == gen {
+                st.aur_results.set(r);
+                st.aur_searching.set(false);
+            }
+        });
+    });
+}
+
+pub fn load_installed(st: St) {
     std::thread::spawn(move || {
         let v = pk::installed();
         run_on_main_thread(move || st.installed.set(v));
@@ -244,7 +390,23 @@ fn load_installed(st: St) {
 fn load_catalog(st: St) {
     std::thread::spawn(move || {
         let v = pk::catalog();
-        run_on_main_thread(move || st.catalog.set(Some(v)));
+        run_on_main_thread(move || {
+            CAT_INDEX.with(|m| {
+                let mut m = m.borrow_mut();
+                for a in &v {
+                    m.insert(
+                        a.pkg.name.clone(),
+                        AppMeta { title: a.title.clone(), icon: a.icon.clone(), icon64: a.cached_icon(64).cloned(), icon128: a.cached_icon(128).cloned() },
+                    );
+                }
+            });
+            st.catalog.set(Some(v));
+            st.icons_rev.set(st.icons_rev.get_untracked() + 1);
+        });
+        // Значки каталога (JPEG XL) — в PNG; готово — строки перерисуются со значками.
+        if media::convert_catalog_icons() {
+            run_on_main_thread(move || st.icons_rev.set(st.icons_rev.get_untracked() + 1));
+        }
     });
 }
 
@@ -263,7 +425,7 @@ fn refresh_catalog_installed(st: St) {
     });
 }
 
-fn check_updates(st: St) {
+pub fn check_updates(st: St) {
     st.updates.set(None);
     let aur = st.cfg.get_untracked().packages.aur;
     std::thread::spawn(move || {
@@ -272,21 +434,69 @@ fn check_updates(st: St) {
     });
 }
 
-fn select(st: St, p: Pkg) {
-    st.details.set(None);
-    st.pkgbuild.set(None);
-    st.selected.set(Some(p.clone()));
+pub fn check_aur_updates(st: St) {
+    if st.aur_checking.get_untracked() {
+        return;
+    }
+    st.aur_checking.set(true);
     std::thread::spawn(move || {
-        let d = pk::details(&p);
+        let v = pk::aur_updates();
         run_on_main_thread(move || {
-            if st.selected.get_untracked().is_some_and(|s| s.name == p.name) {
-                st.details.set(Some(d));
-            }
+            st.aur_updates.set(Some(v));
+            st.aur_checking.set(false);
         });
     });
 }
 
-fn show_pkgbuild(st: St, name: String) {
+pub fn select(st: St, p: Pkg) {
+    st.details.set(None);
+    st.pkgbuild.set(None);
+    st.shot.set(None);
+    let same = st.media.get_untracked().is_some_and(|m| m.name == p.name);
+    if !same {
+        st.media.set(None);
+    }
+    st.selected.set(Some(p.clone()));
+    let p2 = p.clone();
+    std::thread::spawn(move || {
+        let d = pk::details(&p2);
+        run_on_main_thread(move || {
+            if st.selected.get_untracked().is_some_and(|s| s.name == p2.name) {
+                st.details.set(Some(d));
+            }
+        });
+    });
+    if same {
+        return;
+    }
+    // Снимки экрана и описание: каталог AppStream, иначе Flathub.
+    let app = st.catalog.get_untracked().and_then(|c| c.into_iter().find(|a| a.pkg.name == p.name));
+    let known = media::Known {
+        name: p.name.clone(),
+        title: app.as_ref().map(|a| a.title.clone()).unwrap_or_else(|| p.name.clone()),
+        appstream_id: app.as_ref().map(|a| a.id.clone()).unwrap_or_default(),
+        screenshots: app.as_ref().map(|a| a.screenshots.clone()).unwrap_or_default(),
+        has_description: app.as_ref().is_some_and(|a| !a.description.is_empty()),
+    };
+    let icon128 = app_meta(&p.name).and_then(|m| m.icon128);
+    std::thread::spawn(move || {
+        let big = icon128.and_then(|j| media::icon_png_now(&j));
+        let name = p.name.clone();
+        media::load(known, move |mut m| {
+            if m.icon.is_none() {
+                m.icon = big.clone();
+            }
+            let name = name.clone();
+            run_on_main_thread(move || {
+                if st.selected.get_untracked().is_some_and(|s| s.name == name) {
+                    st.media.set(Some(m));
+                }
+            });
+        });
+    });
+}
+
+pub fn show_pkgbuild(st: St, name: String) {
     std::thread::spawn(move || {
         let url = format!("https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h={name}");
         let text = std::process::Command::new("curl")
@@ -300,14 +510,153 @@ fn show_pkgbuild(st: St, name: String) {
     });
 }
 
+// ─── Очередь ─────────────────────────────────────────────────────────────────
+
+/// Действие очереди для пакета: установленный — удалить, иначе установить.
+pub fn default_act(p: &Pkg) -> QAct {
+    if p.installed.is_some() {
+        QAct::Remove
+    } else if p.source == Source::Aur {
+        QAct::InstallAur
+    } else {
+        QAct::Install
+    }
+}
+
+pub fn queued(st: St, name: &str) -> Option<QAct> {
+    st.queue.get_untracked().iter().find(|q| q.name == name).map(|q| q.act)
+}
+
+/// Поставить пакет в очередь или убрать из неё.
+pub fn toggle_queue(st: St, p: &Pkg) {
+    let mut q = st.queue.get_untracked();
+    if let Some(i) = q.iter().position(|x| x.name == p.name) {
+        q.remove(i);
+    } else {
+        q.push(QItem { name: p.name.clone(), act: default_act(p) });
+    }
+    st.queue.set(q);
+}
+
+pub fn set_queued(st: St, items: impl IntoIterator<Item = QItem>) {
+    let mut q = st.queue.get_untracked();
+    for it in items {
+        if !q.iter().any(|x| x.name == it.name) {
+            q.push(it);
+        }
+    }
+    st.queue.set(q);
+}
+
+pub fn unqueue(st: St, name: &str) {
+    let mut q = st.queue.get_untracked();
+    q.retain(|x| x.name != name);
+    st.queue.set(q);
+}
+
+/// «1 пакет», «3 пакета», «5 пакетов».
+pub fn packages_word(n: usize) -> String {
+    let w = match (n % 10, n % 100) {
+        (1, r) if r != 11 => "пакет",
+        (2..=4, r) if !(12..=14).contains(&r) => "пакета",
+        _ => "пакетов",
+    };
+    format!("{n} {w}")
+}
+
+/// Выполнить очередь: удаление (с проверкой зависимостей), затем установка.
+pub fn apply_queue(st: St) {
+    let q = st.queue.get_untracked();
+    if q.is_empty() {
+        return;
+    }
+    let pick = |a: QAct| q.iter().filter(|x| x.act == a).map(|x| x.name.clone()).collect::<Vec<_>>();
+    let (rm, inst, aur) = (pick(QAct::Remove), pick(QAct::Install), pick(QAct::InstallAur));
+    let mut then = Vec::new();
+    if !inst.is_empty() {
+        then.push(Op::Install(inst.clone()));
+    }
+    if !aur.is_empty() {
+        then.push(Op::InstallAur(aur.clone()));
+    }
+    let mut parts = Vec::new();
+    if !inst.is_empty() || !aur.is_empty() {
+        parts.push(format!("установка {}", packages_word(inst.len() + aur.len())));
+    }
+    if !rm.is_empty() {
+        parts.push(format!("удаление {}", packages_word(rm.len())));
+    }
+    let title = format!("Очередь: {}", parts.join(", "));
+    if rm.is_empty() {
+        st.queue.set(Vec::new());
+        start_ops(st, title, then);
+        return;
+    }
+    remove_checked(st, rm, then, title, true);
+}
+
+/// Удалить `names` (и потом выполнить `then`): сначала проверка, нужны ли
+/// они другим пакетам; если да — окно выбора (каскадом / принудительно).
+pub fn remove_checked(st: St, names: Vec<String>, then: Vec<Op>, title: String, from_queue: bool) {
+    st.toast.set("Проверка зависимостей…".into());
+    std::thread::spawn(move || {
+        let check = pk::remove_check(&names);
+        run_on_main_thread(move || {
+            if check.blockers.is_empty() {
+                st.toast.set(String::new());
+                run_remove(st, RemoveAsk { names, check, then, title, from_queue }, RemoveMode::Normal);
+            } else {
+                st.toast.set(String::new());
+                st.remove_ask.set(Some(RemoveAsk { names, check, then, title, from_queue }));
+            }
+        });
+    });
+}
+
+/// Запустить удаление выбранным способом (и шаги после него).
+pub fn run_remove(st: St, ask: RemoveAsk, mode: RemoveMode) {
+    let mut ops = vec![Op::Remove { names: ask.names.clone(), mode }];
+    ops.extend(ask.then);
+    if ask.from_queue {
+        st.queue.set(Vec::new());
+    }
+    st.remove_ask.set(None);
+    start_ops(st, ask.title, ops);
+}
+
+fn start_ops(st: St, title: String, mut ops: Vec<Op>) {
+    let op = if ops.len() == 1 { ops.remove(0) } else { Op::Batch(ops) };
+    run_op(st, title, op);
+}
+
+/// Не обновлять пакет никогда (`[packages] ignore`) или снова обновлять.
+pub fn set_ignored(st: St, name: &str, ignore: bool) {
+    let mut list = st.cfg.get_untracked().packages.ignore.clone();
+    list.retain(|n| n != name);
+    if ignore {
+        list.push(name.to_string());
+    }
+    let arr = toml_edit::Value::Array(list.iter().map(|a| toml_edit::Value::from(a.as_str())).collect());
+    match synshell_common::config_edit::set_value(&["packages", "ignore"], arr) {
+        Ok(_) => {
+            let mut cfg = st.cfg.get_untracked();
+            cfg.packages.ignore = list;
+            st.cfg.set(cfg);
+            st.toast.set(if ignore { format!("{name} больше не обновляется") } else { format!("{name} снова обновляется") });
+        }
+        Err(e) => st.toast.set(format!("Не удалось сохранить: {e}")),
+    }
+}
+
 /// Запустить операцию: задание появляется в «Задачах», лог идёт вживую.
-fn run_op(st: St, title: String, op: Op) {
+pub fn run_op(st: St, title: String, op: Op) {
     let id = JOB_ID.fetch_add(1, Ordering::SeqCst);
     let build_user = st.cfg.get_untracked().packages.build_user.clone();
     let job = pk::start(op, build_user);
     let mut jobs = st.jobs.get_untracked();
     jobs.insert(0, JobView { id, title: title.clone(), stage: "Запуск…".into(), log: Vec::new(), done: None, cancel: job.cancel.clone(), cancelling: false });
     st.jobs.set(jobs);
+    st.job_open.set(Some(id));
     st.toast.set(format!("{title} — в «Задачах»"));
     std::thread::spawn(move || {
         let mut batch: Vec<JobEvent> = Vec::new();
@@ -354,8 +703,8 @@ fn run_op(st: St, title: String, op: Op) {
                         }
                     }
                     let n = j.log.len();
-                    if n > 400 {
-                        j.log.drain(..n - 400);
+                    if n > 600 {
+                        j.log.drain(..n - 600);
                     }
                 }
                 st.jobs.set(jobs);
@@ -366,6 +715,10 @@ fn run_op(st: St, title: String, op: Op) {
                     if !q.is_empty() {
                         search(st, q);
                     }
+                    let q = st.aur_query.get_untracked();
+                    if !q.is_empty() {
+                        search_aur(st, q);
+                    }
                     if let Some(p) = st.selected.get_untracked() {
                         let mut p = p;
                         p.installed = pk::installed_map().get(&p.name).cloned();
@@ -373,6 +726,9 @@ fn run_op(st: St, title: String, op: Op) {
                     }
                     if st.updates.get_untracked().is_some() {
                         check_updates(st);
+                    }
+                    if st.aur_updates.get_untracked().is_some() {
+                        check_aur_updates(st);
                     }
                 }
             });
@@ -383,431 +739,8 @@ fn run_op(st: St, title: String, op: Op) {
     });
 }
 
-// ─── Интерфейс ───────────────────────────────────────────────────────────────
-
-fn root(st: St) -> W {
-    let narrow = syngui::viewport::viewport_below(720.0);
-    let body = Reactive::new(move || -> Vec<W> { vec![if narrow.get() { phone(st) } else { desktop(st) }] });
-    // Слои поверх окна выравниваются снаружи Reactive: он отдаёт детям
-    // свободные ограничения, и слой внутри него ужимается в угол.
-    // Column пропускает касания мимо подсказки.
-    let toast = Column::new()
-        .main_axis_alignment(MainAxisAlignment::End)
-        .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(Reactive::new(move || -> Vec<W> {
-            let t = st.toast.get();
-            if t.is_empty() {
-                return vec![];
-            }
-            vec![Box::new(DecoratedBox::new().child(Text::new(t).max_lines(2).class("toast-text")).class("toast"))]
-        }))
-        .class("toast-place");
-    // Подсказка гаснет через 4 с.
-    create_effect(move || {
-        let t = st.toast.get();
-        if !t.is_empty() {
-            std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_secs(4));
-                run_on_main_thread(move || {
-                    if st.toast.get_untracked() == t {
-                        st.toast.set(String::new());
-                    }
-                });
-            });
-        }
-    });
-    Box::new(
-        EventHook::new()
-            .on_key_down(move |k, _| {
-                if matches!(k, syngui::input::Key::Escape) && go_back(st) {
-                    KeyReply::Handled
-                } else {
-                    KeyReply::Ignore
-                }
-            })
-            .child(GestureDetector::new().on_back(move || go_back(st)).child(Stack::new().fit(StackFit::Expand).child(DecoratedBox::new().child(body).class("root")).child(toast).child(auth_overlay(st)))),
-    )
-}
-
-/// «Назад»: закрыть пакет, затем категорию каталога.
-fn go_back(st: St) -> bool {
-    if st.selected.get_untracked().is_some() {
-        st.selected.set(None);
-        true
-    } else if st.tab.get_untracked() == Tab::Search && st.category.get_untracked().is_some() {
-        st.category.set(None);
-        true
-    } else {
-        false
-    }
-}
-
-/// Окно «нужны права администратора» поверх всего: пароль уходит агенту polkit.
-fn auth_overlay(st: St) -> W {
-    let shown = use_signal(0usize);
-    create_effect(move || shown.set(usize::from(st.auth.get().is_some())));
-    let card = Reactive::new(move || -> Vec<W> {
-        let Some(AuthView(req)) = st.auth.get() else {
-            return vec![];
-        };
-        let pass = use_signal(String::new());
-        let (r1, r2, r3) = (req.clone(), req.clone(), req.clone());
-        let submit = move || {
-            r1.respond(Some(pass.get_untracked()));
-            st.auth.set(None);
-        };
-        let s2 = submit.clone();
-        let cancel = move || {
-            r2.respond(None);
-            st.auth.set(None);
-        };
-        let mut card = Column::new()
-            .gap(12.0)
-            .child(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new("\u{E897}").class("auth-icon")).child(Text::new("Нужны права администратора").class("auth-title grow")))
-            .child(Text::new(r3.message.clone()).class("desc"))
-            .child(Text::new(format!("Пароль пользователя {}", r3.user)).class("muted"));
-        if let Some(e) = &r3.error {
-            card = card.child(Text::new(e.clone()).class("auth-error"));
-        }
-        card = card
-            .child(TextField::new().obscure(r3.secret).autofocus(true).placeholder(if r3.prompt.is_empty() { "Пароль".to_string() } else { r3.prompt.trim_end_matches(':').to_string() }).on_change(move |t| pass.set(t.to_string())).on_submit(move |_| s2()))
-            .child(
-                Row::new()
-                    .gap(8.0)
-                    .main_axis_alignment(MainAxisAlignment::End)
-                    .child(Button::new("Отмена").on_click(cancel))
-                    .child(Button::new("Подтвердить").class("primary").on_click(submit)),
-            );
-        vec![Box::new(DecoratedBox::new().child(card).class("auth-card"))]
-    });
-    Box::new(ShowIf::new(1, shown).child(GestureDetector::new().on_click(|| {}).child(DecoratedBox::new().child(card).class("auth-scrim"))))
-}
-
-fn tab_content(st: St) -> W {
-    Box::new(Reactive::new(move || -> Vec<W> {
-        vec![match st.tab.get() {
-            Tab::Search => search_view(st),
-            Tab::Installed => installed_view(st),
-            Tab::Updates => updates_view(st),
-            Tab::Jobs => jobs_view(st),
-        }]
-    }))
-}
-
-fn desktop(st: St) -> W {
-    let nav = Reactive::new(move || -> Vec<W> {
-        let cur = st.tab.get();
-        let jobs = st.jobs.get().iter().filter(|j| j.done.is_none()).count();
-        let mut col = Column::new().gap(4.0).child(Text::new("Программы").class("brand"));
-        for t in Tab::ALL {
-            let label = if t == Tab::Jobs && jobs > 0 { format!("{} · {jobs}", t.label()) } else { t.label().to_string() };
-            col = col.child(GestureDetector::new().on_click(move || {
-                st.tab.set(t);
-                if t == Tab::Updates && st.updates.get_untracked().is_none() {
-                    check_updates(st);
-                }
-            }).child(
-                DecoratedBox::new()
-                    .child(Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(t.icon()).class("nav-icon")).child(Text::new(label).class("nav-label")))
-                    .class(if cur == t { "nav-item active" } else { "nav-item" }),
-            ));
-        }
-        vec![Box::new(col)]
-    });
-    let detail = Reactive::new(move || -> Vec<W> {
-        vec![match st.selected.get() {
-            Some(p) => details_view(st, p),
-            None => Box::new(DecoratedBox::new().child(Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new("\u{E8F4}").class("empty-icon")).child(Text::new("Выберите пакет").class("muted"))).class("detail-empty")),
-        }]
-    });
-    Box::new(
-        Row::new()
-            .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(DecoratedBox::new().child(nav).class("sidebar"))
-            .child(DecoratedBox::new().child(tab_content(st)).class("grow list-pane"))
-            .child(DecoratedBox::new().child(detail).class("detail-pane")),
-    )
-}
-
-fn phone(st: St) -> W {
-    let body = Reactive::new(move || -> Vec<W> {
-        let sel = st.selected.get();
-        let open = sel.is_some();
-        vec![Box::new(
-            AnimatedSwitcher::new(if open { 2u64 } else { 1 }, move || -> Box<dyn Widget> {
-                match st.selected.get_untracked() {
-                    Some(p) => Box::new(
-                        Column::new()
-                            .child(
-                                Row::new()
-                                    .gap(6.0)
-                                    .cross_axis_alignment(CrossAxisAlignment::Center)
-                                    .child(GestureDetector::new().on_click(move || st.selected.set(None)).child(DecoratedBox::new().child(Icon::new("\u{E5C4}").class("back-icon")).class("back")))
-                                    .child(Text::new(p.name.clone()).max_lines(1).class("bar-title grow"))
-                                    .class("bar"),
-                            )
-                            .child(DecoratedBox::new().child(details_view(st, p)).class("grow")),
-                    ),
-                    None => tab_content(st),
-                }
-            })
-            .directional(true)
-            .slide(48.0, 0.0)
-            .duration_ms(240)
-            .animate_size(false)
-            .class("grow"),
-        )]
-    });
-    let navbar = Reactive::new(move || -> Vec<W> {
-        let cur = st.tab.get();
-        let jobs = st.jobs.get().iter().filter(|j| j.done.is_none()).count();
-        let mut row = Row::new().main_axis_alignment(MainAxisAlignment::SpaceAround);
-        for t in Tab::ALL {
-            let mut item = Column::new()
-                .gap(2.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(DecoratedBox::new().child(Icon::new(t.icon()).class("nb-icon")).class(if cur == t { "nb-pill nb-pill-on" } else { "nb-pill" }))
-                .child(Text::new(t.label()).max_lines(1).class("nb-label"));
-            if t == Tab::Jobs && jobs > 0 {
-                item = item.child(DecoratedBox::new().class("nb-dot"));
-            }
-            row = row.child(GestureDetector::new().on_click(move || {
-                st.selected.set(None);
-                st.tab.set(t);
-                if t == Tab::Updates && st.updates.get_untracked().is_none() {
-                    check_updates(st);
-                }
-            }).child(DecoratedBox::new().child(item).class("nb-item")));
-        }
-        vec![Box::new(row.class("navbar"))]
-    });
-    Box::new(Column::new().child(DecoratedBox::new().child(body).class("grow")).child(navbar))
-}
-
-fn chip(label: String, class: &str) -> impl Widget {
-    DecoratedBox::new().child(Text::new(label).class("chip-text")).class(format!("chip {class}"))
-}
-
-fn source_chip(p: &Pkg) -> impl Widget {
-    match &p.source {
-        Source::Aur => chip("AUR".into(), "chip-aur"),
-        Source::Local => chip("локальный".into(), "chip-local"),
-        Source::Repo(r) if r.is_empty() => chip("репозиторий".into(), "chip-repo"),
-        Source::Repo(r) => chip(r.clone(), "chip-repo"),
-    }
-}
-
-/// Значок программы, если у пакета есть .desktop с таким именем.
-fn pkg_icon(name: &str) -> W {
-    app_icon(None, name)
-}
-
-/// Значок из темы по имени AppStream, иначе по имени пакета, иначе глиф.
-fn app_icon(icon: Option<&str>, name: &str) -> W {
-    match icon.and_then(synshell_common::xdg::lookup_icon).or_else(|| synshell_common::xdg::lookup_icon(name)) {
-        Some(p) => Box::new(Image::new(p.to_string_lossy()).fit(ImageFit::Contain).placeholder(false).class("pkg-icon")),
-        None => Box::new(DecoratedBox::new().child(Icon::new("\u{E1BD}").class("pkg-glyph")).class("pkg-glyph-box")),
-    }
-}
-
-fn pkg_row(st: St, p: Pkg) -> W {
-    pkg_row_titled(st, p, None, None)
-}
-
-/// Строка пакета; у программы каталога — её название, имя пакета — в строке сведений.
-fn pkg_row_titled(st: St, p: Pkg, title: Option<String>, icon: Option<String>) -> W {
-    let sel = st.selected.get_untracked().is_some_and(|s| s.name == p.name && s.source == p.source);
-    let p2 = p.clone();
-    let mut meta = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center);
-    if title.is_some() {
-        meta = meta.child(Text::new(p.name.clone()).max_lines(1).class("pkg-ver"));
-    }
-    meta = meta.child(Text::new(p.version.clone()).max_lines(1).class("pkg-ver")).child(source_chip(&p));
-    if p.installed.is_some() {
-        meta = meta.child(chip("установлен".into(), "chip-ok"));
-    }
-    if p.out_of_date {
-        meta = meta.child(chip("устарел".into(), "chip-warn"));
-    }
-    if let Some(v) = p.votes {
-        meta = meta.child(Text::new(format!("★ {v}")).class("pkg-ver"));
-    }
-    Box::new(GestureDetector::new().on_click(move || select(st, p2.clone())).child(
-        DecoratedBox::new()
-            .child(
-                Row::new()
-                    .gap(12.0)
-                    .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(app_icon(icon.as_deref(), &p.name))
-                    .child(
-                        Column::new()
-                            .gap(3.0)
-                            .child(Text::new(title.unwrap_or_else(|| p.name.clone())).max_lines(1).class("pkg-name"))
-                            .child(Text::new(p.description.clone()).max_lines(2).class("pkg-desc"))
-                            .child(meta)
-                            .class("grow"),
-                    ),
-            )
-            .class(if sel { "pkg-row pkg-row-on" } else { "pkg-row" }),
-    ))
-}
-
-fn search_box(value: String, placeholder: &str, on_change: impl Fn(String) + Send + Sync + 'static) -> impl Widget {
-    TextField::with_text(value).placeholder(placeholder).prefix_icon("\u{E8B6}").on_change(move |t| on_change(t.to_string())).class("search")
-}
-
-fn search_view(st: St) -> W {
-    let field = search_box(st.query.get_untracked(), "Найти программу", move |t| {
-        st.query.set(t.clone());
-        search(st, t);
-    });
-    let list = Reactive::new(move || -> Vec<W> {
-        let busy = st.searching.get();
-        let res = st.results.get();
-        let q = st.query.get();
-        // Пустой запрос — каталог по категориям.
-        if q.trim().len() < 2 {
-            return vec![catalog_view(st)];
-        }
-        let mut col = Column::new().gap(4.0);
-        if busy {
-            col = col.child(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(CircularProgress::new().indeterminate().size(20.0)).child(Text::new("Поиск…").class("muted")));
-        } else if res.is_empty() {
-            col = col.child(Text::new("Ничего не найдено").class("muted empty"));
-        }
-        for p in res {
-            col = col.child(pkg_row(st, p));
-        }
-        vec![Box::new(col)]
-    });
-    Box::new(Column::new().gap(10.0).child(field).child(ScrollView::new().vertical().child(list).class("grow")).class("pane"))
-}
-
-/// «1 программа», «3 программы», «5 программ».
-fn programs(n: usize) -> String {
-    let w = match (n % 10, n % 100) {
-        (1, r) if r != 11 => "программа",
-        (2..=4, r) if !(12..=14).contains(&r) => "программы",
-        _ => "программ",
-    };
-    format!("{n} {w}")
-}
-
-/// Каталог: плитки категорий или программы открытой категории.
-fn catalog_view(st: St) -> W {
-    let Some(apps) = st.catalog.get() else {
-        return Box::new(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(CircularProgress::new().indeterminate().size(20.0)).child(Text::new("Загрузка каталога…").class("muted")).class("empty"));
-    };
-    if apps.is_empty() {
-        let mut col = Column::new()
-            .gap(10.0)
-            .child(Text::new("Введите название или слово из описания: «браузер», «gimp», «office»").class("muted"))
-            .child(Text::new("Чтобы смотреть программы по категориям, нужен каталог AppStream — пакет archlinux-appstream-data.").class("desc"));
-        let has_pkg = st.installed.get().iter().any(|p| p.name == "archlinux-appstream-data");
-        if !has_pkg {
-            col = col.child(Row::new().child(Button::new("Установить каталог").class("primary").on_click(move || run_op(st, "Установка каталога программ".into(), Op::Install(vec!["archlinux-appstream-data".into()])))));
-        }
-        return Box::new(col.class("empty"));
-    }
-    let cat = st.category.get().and_then(Category::by_key);
-    let Some(cat) = cat else {
-        // Колонок столько, сколько плиток ~220 px помещается в список (на телефоне — две).
-        let w = syngui::viewport::viewport_size().get().width;
-        let list_w = if w < 720.0 { w - 32.0 } else { w - 220.0 - 420.0 - 32.0 };
-        let cols = ((list_w + 10.0) / 230.0).floor().max(2.0) as usize;
-        let mut grid = Grid::new(cols).gap(10.0);
-        for c in CATEGORIES {
-            let n = apps.iter().filter(|a| c.contains(a)).count();
-            if n == 0 {
-                continue;
-            }
-            let key = c.key;
-            grid = grid.child(GestureDetector::new().on_click(move || st.category.set(Some(key))).child(
-                DecoratedBox::new()
-                    .child(
-                        Row::new()
-                            .gap(12.0)
-                            .cross_axis_alignment(CrossAxisAlignment::Center)
-                            .child(DecoratedBox::new().child(Icon::new(c.icon).class("cat-icon")).class("cat-icon-box"))
-                            .child(Column::new().gap(2.0).child(Text::new(c.label).max_lines(1).class("cat-label")).child(Text::new(programs(n)).class("pkg-ver")).class("grow")),
-                    )
-                    .class("cat-tile"),
-            ));
-        }
-        return Box::new(Column::new().gap(12.0).child(Text::new("Категории").class("h2")).child(grid).child(Text::new(format!("В каталоге {}. Поиск находит и пакеты вне каталога, и AUR.", programs(apps.len()))).class("muted")));
-    };
-    let mut v: Vec<CatalogApp> = apps.into_iter().filter(|a| cat.contains(a)).collect();
-    // Установленные — ниже: каталог для поиска нового.
-    v.sort_by_key(|a| a.pkg.installed.is_some());
-    let mut col = Column::new().gap(4.0).child(
-        Row::new()
-            .gap(6.0)
-            .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(GestureDetector::new().on_click(move || st.category.set(None)).child(DecoratedBox::new().child(Icon::new("\u{E5C4}").class("back-icon")).class("back")))
-            .child(Icon::new(cat.icon).class("cat-head-icon"))
-            .child(Text::new(cat.label).max_lines(1).class("h2 grow"))
-            .child(Text::new(format!("{}", v.len())).class("muted")),
-    );
-    for a in v {
-        col = col.child(pkg_row_titled(st, a.pkg, Some(a.title), a.icon));
-    }
-    Box::new(col)
-}
-
-fn installed_view(st: St) -> W {
-    let field = search_box(st.filter.get_untracked(), "Фильтр установленных", move |t| st.filter.set(t));
-    let list = Reactive::new(move || -> Vec<W> {
-        let f = st.filter.get().to_lowercase();
-        let all = st.installed.get();
-        let v: Vec<Pkg> = all.into_iter().filter(|p| f.is_empty() || p.name.contains(&f) || p.description.to_lowercase().contains(&f)).collect();
-        let n = v.len();
-        // Длинный список — первые 300 (фильтр сужает).
-        let mut col = Column::new().gap(4.0).child(Text::new(format!("Пакетов: {n}")).class("muted"));
-        for p in v.into_iter().take(300) {
-            col = col.child(pkg_row(st, p));
-        }
-        vec![Box::new(col)]
-    });
-    Box::new(Column::new().gap(10.0).child(field).child(ScrollView::new().vertical().child(list).class("grow")).class("pane"))
-}
-
-fn updates_view(st: St) -> W {
-    let list = Reactive::new(move || -> Vec<W> {
-        let Some(ups) = st.updates.get() else {
-            return vec![Box::new(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(CircularProgress::new().indeterminate().size(20.0)).child(Text::new("Проверка обновлений…").class("muted")))];
-        };
-        let aur = ups.iter().any(|u| u.aur);
-        let mut col = Column::new().gap(4.0);
-        let head = Row::new()
-            .gap(8.0)
-            .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(Text::new(if ups.is_empty() { "Система обновлена".to_string() } else { format!("Доступно обновлений: {}", ups.len()) }).class("h2 grow"))
-            .child(Button::new("Проверить").on_click(move || check_updates(st)));
-        col = col.child(head);
-        if !ups.is_empty() {
-            col = col.child(Button::new("Обновить всё").class("primary").on_click(move || run_op(st, "Обновление системы".into(), Op::Upgrade { aur })));
-        }
-        for u in ups {
-            col = col.child(
-                DecoratedBox::new()
-                    .child(
-                        Row::new()
-                            .gap(10.0)
-                            .cross_axis_alignment(CrossAxisAlignment::Center)
-                            .child(pkg_icon(&u.name))
-                            .child(Column::new().gap(2.0).child(Text::new(u.name.clone()).class("pkg-name")).child(Text::new(format!("{} → {}", u.old, u.new)).class("pkg-desc")).class("grow"))
-                            .child(chip(if u.aur { "AUR".into() } else { "репозиторий".into() }, if u.aur { "chip-aur" } else { "chip-repo" })),
-                    )
-                    .class("pkg-row"),
-            );
-        }
-        vec![Box::new(col)]
-    });
-    Box::new(Column::new().gap(10.0).child(ScrollView::new().vertical().child(list).class("grow")).class("pane"))
-}
-
 /// Отменить задание: процессу — SIGINT, следующие шаги не начнутся.
-fn cancel_job(st: St, id: u64, c: &pk::JobCancel) {
+pub fn cancel_job(st: St, id: u64, c: &pk::JobCancel) {
     c.cancel();
     let mut jobs = st.jobs.get_untracked();
     if let Some(j) = jobs.iter_mut().find(|j| j.id == id && j.done.is_none()) {
@@ -816,157 +749,4 @@ fn cancel_job(st: St, id: u64, c: &pk::JobCancel) {
         j.log.push("— отмена задания —".into());
     }
     st.jobs.set(jobs);
-}
-
-/// Задачи: лог открытого задания — на всю высоту, остальные — строками ниже.
-fn jobs_view(st: St) -> W {
-    let body = Reactive::new(move || -> Vec<W> {
-        let jobs = st.jobs.get();
-        if jobs.is_empty() {
-            return vec![Box::new(Text::new("Установки и обновления появятся здесь").class("muted empty"))];
-        }
-        let open = st.job_open.get().filter(|id| jobs.iter().any(|j| j.id == *id)).unwrap_or(jobs[0].id);
-        let mut others = Column::new().gap(6.0);
-        let mut has_others = false;
-        let mut main: Option<W> = None;
-        for j in jobs {
-            let cancelled = matches!(&j.done, Some(Err(e)) if e == pk::CANCELLED);
-            let (icon, class) = match &j.done {
-                None => ("\u{E863}", "job-running"),
-                Some(Ok(())) => ("\u{E86C}", "job-ok"),
-                Some(Err(_)) if cancelled => ("\u{E5C9}", "job-cancelled"),
-                Some(Err(_)) => ("\u{E000}", "job-err"),
-            };
-            let mut head = Row::new()
-                .gap(8.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(Icon::new(icon).class(format!("job-icon {class}")))
-                .child(Column::new().gap(0.0).child(Text::new(j.title.clone()).max_lines(1).class("pkg-name")).child(Text::new(j.stage.clone()).max_lines(1).class("pkg-desc")).class("grow"));
-            if j.done.is_none() {
-                head = head.child(if j.cancelling {
-                    Button::new("Отмена…").class("small").disabled(true)
-                } else {
-                    let (id, c) = (j.id, j.cancel.clone());
-                    Button::new("Отменить").class("small").on_click(move || cancel_job(st, id, &c))
-                });
-            }
-            if j.id != open {
-                let id = j.id;
-                has_others = true;
-                others = others.child(GestureDetector::new().on_click(move || st.job_open.set(Some(id))).child(DecoratedBox::new().child(head.child(Icon::new("\u{E5CF}").class("job-expand"))).class("job job-row")));
-                continue;
-            }
-            let mut card = Column::new().gap(8.0).child(head);
-            if j.done.is_none() {
-                card = card.child(ProgressBar::new().indeterminate());
-            }
-            if let Some(Err(e)) = &j.done {
-                if !cancelled {
-                    card = card.child(Text::new(e.clone()).selectable(true).class("job-error"));
-                }
-            }
-            let text = if j.log.is_empty() { "…".to_string() } else { j.log.join("\n") };
-            card = card.child(DecoratedBox::new().child(ScrollView::new().vertical().follow_end(true).child(Text::new(text).selectable(true).class("log-line")).class("grow")).class("log"));
-            main = Some(Box::new(DecoratedBox::new().child(card.class("grow")).class("job job-open")));
-        }
-        let mut col = Column::new().gap(10.0);
-        if let Some(m) = main {
-            col = col.child(m);
-        }
-        if has_others {
-            col = col.child(Text::new("Другие задачи").class("muted")).child(ScrollView::new().vertical().child(others).class("job-others"));
-        }
-        vec![Box::new(col.class("grow"))]
-    });
-    Box::new(Column::new().child(body).class("pane"))
-}
-
-fn details_view(st: St, p: Pkg) -> W {
-    let name = p.name.clone();
-    let installed = p.installed.is_some();
-    let aur = p.source == Source::Aur;
-    let mut actions = Row::new().gap(8.0);
-    if installed {
-        let n = name.clone();
-        actions = actions.child(Button::new("Удалить").class("danger").on_click(move || run_op(st, format!("Удаление {n}"), Op::Remove(vec![n.clone()]))));
-        if let Some(e) = synshell_common::xdg::app_by_id(&name) {
-            let cmd = e.command();
-            actions = actions.child(Button::new("Открыть").on_click(move || {
-                let _ = std::process::Command::new("sh").arg("-c").arg(&cmd).spawn();
-            }));
-        }
-    } else {
-        let n = name.clone();
-        let op = if aur { Op::InstallAur(vec![n.clone()]) } else { Op::Install(vec![n.clone()]) };
-        actions = actions.child(Button::new("Установить").class("primary").on_click(move || run_op(st, format!("Установка {n}"), op.clone())));
-    }
-    let head = Row::new()
-        .gap(14.0)
-        .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(DecoratedBox::new().child(pkg_icon(&name)).class("big-icon"))
-        .child(Column::new().gap(4.0).child(Text::new(name.clone()).class("h1")).child(Row::new().gap(6.0).child(Text::new(p.version.clone()).class("pkg-ver")).child(source_chip(&p))).class("grow"));
-    let mut col = Column::new().gap(14.0).child(head).child(Text::new(p.description.clone()).class("desc")).child(actions);
-    if aur {
-        let n = name.clone();
-        col = col.child(
-            DecoratedBox::new()
-                .child(
-                    Column::new()
-                        .gap(6.0)
-                        .child(Text::new("Пакет из AUR собирают пользователи, а не Arch Linux. Проверьте PKGBUILD перед установкой.").class("warn-text"))
-                        .child(Button::new("Показать PKGBUILD").class("small").on_click(move || show_pkgbuild(st, n.clone()))),
-                )
-                .class("warn"),
-        );
-    }
-    let info = Reactive::new(move || -> Vec<W> {
-        let mut out = Column::new().gap(12.0);
-        if let Some(pb) = st.pkgbuild.get() {
-            out = out.child(DecoratedBox::new().child(ScrollView::new().both().child(Text::new(pb).selectable(true).class("code"))).class("code-box"));
-        }
-        match st.details.get() {
-            None => out = out.child(CircularProgress::new().indeterminate().size(22.0)),
-            Some(d) => {
-                let mut table = Column::new().gap(0.0);
-                for (k, v) in &d.fields {
-                    table = table.child(Row::new().gap(10.0).child(Text::new(k.clone()).class("k")).child(Text::new(v.clone()).selectable(true).class("v grow")).class("kv"));
-                }
-                if let Some(u) = &d.url {
-                    let u2 = u.clone();
-                    table = table.child(Row::new().gap(10.0).child(Text::new("Сайт").class("k")).child(GestureDetector::new().on_click(move || {
-                        let _ = std::process::Command::new("xdg-open").arg(&u2).spawn();
-                    }).child(Text::new(u.clone()).class("v link"))).class("kv"));
-                }
-                out = out.child(DecoratedBox::new().child(table).class("card"));
-                if !d.depends.is_empty() {
-                    let mut deps = Flex::new().wrap().gap(6.0);
-                    for dep in &d.depends {
-                        deps = deps.child(chip(dep.clone(), "chip-dep"));
-                    }
-                    out = out.child(Text::new("Зависимости").class("h2")).child(deps);
-                }
-                if !d.optional.is_empty() {
-                    let mut col = Column::new().gap(2.0);
-                    for o in &d.optional {
-                        col = col.child(Text::new(o.clone()).class("pkg-desc"));
-                    }
-                    out = out.child(Text::new("Дополнительно").class("h2")).child(col);
-                }
-                if !d.files.is_empty() {
-                    let mut col = Column::new().gap(0.0);
-                    for f in d.files.iter().take(200) {
-                        col = col.child(Text::new(f.clone()).class("log-line"));
-                    }
-                    out = out.child(Text::new(format!("Файлы ({})", d.files.len())).class("h2")).child(DecoratedBox::new().child(col).class("code-box"));
-                }
-            }
-        }
-        vec![Box::new(out)]
-    });
-    Box::new(ScrollView::new().vertical().child(col.child(info).class("detail")))
-}
-
-#[allow(dead_code)]
-fn _px(v: f32) -> StyleValue {
-    StyleValue::px(v)
 }

@@ -1503,9 +1503,12 @@ pub struct Launcher {
     pub show_recent: bool,
     /// Колонок в сетке.
     pub columns: u32,
-    /// Ширина/высота меню (логические px).
+    /// Ширина/высота меню (логические px); меняются и перетаскиванием угла меню.
     pub width: u32,
     pub height: u32,
+    /// Где меню у панели: `icon` — по центру кнопки, `center` — по центру
+    /// панели (дока), `start` — у начала панели, `end` — у её конца.
+    pub align: String,
     /// Искать также по команде `Exec` и ключевым словам.
     pub search_keywords: bool,
     /// Вычислять выражения в строке поиска (`2+2*3`).
@@ -1529,6 +1532,7 @@ impl Default for Launcher {
             columns: 5,
             width: 640,
             height: 560,
+            align: "icon".into(),
             search_keywords: true,
             calculator: true,
             run_commands: true,
@@ -2449,11 +2453,13 @@ pub struct Packages {
     pub build_user: String,
     /// Проверять обновления раз в столько часов (0 — не проверять).
     pub check_hours: u32,
+    /// Не обновлять эти пакеты (`pacman --ignore`, и для AUR).
+    pub ignore: Vec<String>,
 }
 
 impl Default for Packages {
     fn default() -> Self {
-        Self { aur: true, build_user: String::new(), check_hours: 6 }
+        Self { aur: true, build_user: String::new(), check_hours: 6, ignore: Vec::new() }
     }
 }
 
