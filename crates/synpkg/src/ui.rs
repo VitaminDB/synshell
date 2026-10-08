@@ -355,27 +355,30 @@ pub fn queue_bar(st: St) -> W {
             }
         }
         let names: Vec<String> = q.iter().map(|x| x.name.clone()).collect();
-        vec![Box::new(
-            DecoratedBox::new()
-                .child(
-                    Row::new()
-                        .gap(10.0)
-                        .cross_axis_alignment(CrossAxisAlignment::Center)
-                        .child(Icon::new("\u{E03C}").class("qbar-icon"))
-                        .child(
-                            GestureDetector::new().on_click(move || open_tab(st, Tab::Jobs)).child(
-                                Column::new()
-                                    .gap(1.0)
-                                    .child(Text::new(format!("Очередь: {}", parts.join(", "))).max_lines(1).class("qbar-title"))
-                                    .child(Text::new(names.join(", ")).max_lines(1).class("qbar-sub")),
-                            ),
-                        )
-                        .child(DecoratedBox::new().class("grow"))
-                        .child(Button::new("Очистить").class("small").on_click(move || st.queue.set(Vec::new())))
-                        .child(Button::new("Применить").class("primary").on_click(move || apply_queue(st))),
-                )
-                .class("qbar"),
-        )]
+        // Текст забирает остаток ряда и обрезается многоточием — кнопки не выталкиваются.
+        let text = DecoratedBox::new()
+            .child(
+                GestureDetector::new().on_click(move || open_tab(st, Tab::Jobs)).child(
+                    Column::new()
+                        .gap(1.0)
+                        .child(Text::new(format!("Очередь: {}", parts.join(", "))).max_lines(1).class("qbar-title"))
+                        .child(Text::new(names.join(", ")).max_lines(1).class("qbar-sub")),
+                ),
+            )
+            .class("grow qbar-text");
+        let head = Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new("\u{E03C}").class("qbar-icon")).child(text);
+        let buttons = Row::new()
+            .gap(8.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(Button::new("Очистить").class("small").on_click(move || st.queue.set(Vec::new())))
+            .child(Button::new("Применить").class("primary").on_click(move || apply_queue(st)));
+        // Телефон: кнопки — строкой под текстом, справа.
+        let body: W = if is_desk() {
+            Box::new(head.child(buttons))
+        } else {
+            Box::new(Column::new().gap(8.0).child(head).child(Row::new().child(DecoratedBox::new().class("grow")).child(buttons)))
+        };
+        vec![Box::new(DecoratedBox::new().child(body).class("qbar"))]
     }))
 }
 

@@ -197,6 +197,7 @@ CircularProgress { color: var(--accent); accent-color: var(--accent); }
 .qbar-icon { font-size: 24px; color: var(--accent); }
 .qbar-title { font-size: 14px; font-weight: 600; }
 .qbar-sub { font-size: 12px; color: var(--muted); max-width: 420px; }
+.qbar-text { min-width: 0px; }
 .q-row { padding: 6px 8px; border-radius: var(--radius-sm); }
 .q-group { padding: 8px 0px 2px 4px; font-size: 12px; }
 .pkg-icon-sm { width: 28px; height: 28px; }
