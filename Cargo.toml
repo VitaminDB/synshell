@@ -19,6 +19,7 @@ members = [
     "crates/syndroid",
     "crates/synmodem",
     "crates/synsms",
+    "crates/synpass",
     "crates/synphone",
     "crates/syncamera",
     "crates/syn-video-player",

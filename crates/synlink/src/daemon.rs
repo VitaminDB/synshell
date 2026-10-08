@@ -74,6 +74,10 @@ pub struct Daemon {
     /// `[link] notifications` / `auto_mount` — меняются на лету (config.toml).
     pub notifications: std::sync::atomic::AtomicBool,
     pub auto_mount: std::sync::atomic::AtomicBool,
+    /// `[link] clipboard` — общий буфер обмена.
+    pub clipboard: std::sync::atomic::AtomicBool,
+    /// Поток буфера обмена этой машины (`clipboard.rs`).
+    pub clip: std::sync::OnceLock<crate::clipboard::Handle>,
     /// Телефон с погашенным экраном засыпает (`/run/syn-sleep/screen-off`, synmobile syn-sleepd):
     /// по Wi-Fi не анонсируемся и сеансов не держим — иначе keepalive QUIC с компьютера будил его
     /// каждые 3 с, а каждый анонс после самопробуждения приводил к новому соединению и повторам.
@@ -136,6 +140,8 @@ impl Daemon {
             notes_tx,
             notifications: std::sync::atomic::AtomicBool::new(link.notifications),
             auto_mount: std::sync::atomic::AtomicBool::new(link.auto_mount),
+            clipboard: std::sync::atomic::AtomicBool::new(link.clipboard),
+            clip: std::sync::OnceLock::new(),
             sleeping: std::sync::atomic::AtomicBool::new(false),
             audio: Default::default(),
         });
@@ -305,6 +311,19 @@ impl Daemon {
         for s in st.sessions.values() {
             if st.peers.peers.contains_key(&s.hello.id) {
                 let _ = s.ctl.send(msg.clone());
+            }
+        }
+    }
+
+    /// Текст буфера обмена — всем соединённым, кто его понимает (кроме `except`).
+    pub fn share_clipboard(&self, text: String, secret: bool, except: Option<&str>) {
+        if !self.clipboard.load(std::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
+        let st = self.st.lock().unwrap();
+        for s in st.sessions.values() {
+            if s.hello.proto >= proto::PROTO_CLIPBOARD && st.peers.peers.contains_key(&s.hello.id) && Some(s.hello.id.as_str()) != except {
+                let _ = s.ctl.send(Ctl::Clipboard { text: text.clone(), secret });
             }
         }
     }
@@ -591,6 +610,16 @@ impl Daemon {
                 Ctl::Ping(x) => {
                     let _ = ctl_tx.send(Ctl::Pong(x));
                 }
+                Ctl::Clipboard { text, secret } => {
+                    if self.clipboard.load(std::sync::atomic::Ordering::Relaxed) {
+                        tracing::debug!(peer = %hello.name, len = text.len(), secret, "буфер обмена с устройства");
+                        if let Some(c) = self.clip.get() {
+                            c.set(text.clone(), secret);
+                        }
+                        // Третьим устройствам — тоже (они могут быть не соединены с той стороной).
+                        self.share_clipboard(text, secret, Some(&pid));
+                    }
+                }
                 Ctl::Forget => {
                     tracing::info!(peer = %hello.name, "устройство забыло нас");
                     let removed = self.st.lock().unwrap().peers.peers.remove(&pid).is_some();
@@ -825,6 +854,7 @@ impl Daemon {
                 use std::sync::atomic::Ordering::Relaxed;
                 self.notifications.store(l.notifications, Relaxed);
                 self.auto_mount.store(l.auto_mount, Relaxed);
+                self.clipboard.store(l.clipboard, Relaxed);
                 let name = if l.name.trim().is_empty() { crate::identity::default_name() } else { l.name.trim().to_string() };
                 if name != self.self_info().name || l.discoverable != self.self_info().discoverable {
                     tracing::info!(%name, discoverable = l.discoverable, "[link] изменён");

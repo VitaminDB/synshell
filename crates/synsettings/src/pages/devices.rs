@@ -203,6 +203,7 @@ pub fn devices() -> W {
             text_row("Имя этой машины", "Пусто — модель устройства", op!["link", "name"], &l.name, "по модели"),
             switch_row("Видна в Wi-Fi", "Можно спарить по сети; по кабелю — всегда", op!["link", "discoverable"], l.discoverable),
             switch_row("Уведомления", "Пересылать на связанные устройства и показывать их уведомления", op!["link", "notifications"], l.notifications),
+            switch_row("Общий буфер обмена", "Скопированный текст сразу вставляется на связанных устройствах", op!["link", "clipboard"], l.clipboard),
             switch_row("Файлы устройств", "Монтировать в Проводник → Устройства", op!["link", "auto_mount"], l.auto_mount),
         ],
     ));

@@ -3,6 +3,7 @@
 //! ssh и отладка (CLI и MCP-сервер для Claude Code).
 
 mod audio;
+mod clipboard;
 mod control;
 mod daemon;
 mod discovery;
@@ -61,6 +62,7 @@ fn main() {
         Some("daemon") => run_daemon(),
         Some("session") => run_session(),
         Some("mcp") => mcp::run(),
+        Some("clipboard-watch") => clipboard_watch(),
         Some("-h" | "--help" | "help") | None => {
             println!("{USAGE}");
             Ok(())
@@ -145,6 +147,26 @@ fn watch_session_socket() {
     });
 }
 
+/// Отладка общего буфера без демона: печатает, что копируется здесь;
+/// строка из stdin кладётся в буфер как «пришедшая с устройства»
+/// (`!` в начале — секрет, пустая — очистить секрет).
+fn clipboard_watch() -> Result<()> {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let h = clipboard::start(tx)?;
+    std::thread::spawn(move || {
+        for line in std::io::stdin().lines().map_while(Result::ok) {
+            match line.strip_prefix('!') {
+                Some(s) => h.set(s.to_string(), true),
+                None => h.set(line, false),
+            }
+        }
+    });
+    while let Some(c) = rx.blocking_recv() {
+        println!("{} {:?}", if c.secret { "секрет" } else { "текст" }, c.text);
+    }
+    Ok(())
+}
+
 fn run_daemon() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::try_from_env("SYNLINK_LOG").unwrap_or_else(|_| "info,quinn=warn,zbus=warn".into()))
@@ -167,6 +189,21 @@ fn run_daemon() -> Result<()> {
         ssh::write_config(&d.trusted_all());
         std::thread::spawn(audio::cleanup_stale);
         notify::start(d.clone(), notes_rx);
+        {
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<clipboard::Local>();
+            match clipboard::start(tx) {
+                Ok(h) => {
+                    let _ = d.clip.set(h);
+                    let d = d.clone();
+                    tokio::spawn(async move {
+                        while let Some(c) = rx.recv().await {
+                            d.share_clipboard(c.text, c.secret, None);
+                        }
+                    });
+                }
+                Err(e) => tracing::warn!("общий буфер обмена: {e:#}"),
+            }
+        }
         tokio::spawn(discovery::run(d.clone()));
         tokio::spawn(d.clone().accept_loop());
         tokio::spawn(d.clone().ticker());

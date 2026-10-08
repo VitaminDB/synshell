@@ -12,8 +12,12 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use synshell_common::link::DeviceKind;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-/// 2 — трансляция с видео (`Rpc::ScreenV2`), 3 — звук трансляции (`Rpc::Audio`).
-pub const PROTO: u32 = 3;
+/// 2 — трансляция с видео (`Rpc::ScreenV2`), 3 — звук трансляции (`Rpc::Audio`),
+/// 4 — общий буфер обмена (`Ctl::Clipboard`).
+pub const PROTO: u32 = 4;
+/// С какой версии устройство понимает `Ctl::Clipboard` (старое на
+/// незнакомом сообщении рвёт управляющий поток).
+pub const PROTO_CLIPBOARD: u32 = 4;
 pub const ALPN: &[u8] = b"synlink/1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,6 +55,9 @@ pub enum Ctl {
     Forget,
     Ping(u64),
     Pong(u64),
+    /// Общий буфер обмена (proto ≥ 4): текст скопирован на той стороне;
+    /// пустой — там очистили секрет. Новые варианты — только в конец.
+    Clipboard { text: String, secret: bool },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

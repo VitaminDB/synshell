@@ -2378,6 +2378,9 @@ pub struct Link {
     pub notifications: bool,
     /// Монтировать файлы соединённых устройств (Проводник → Устройства).
     pub auto_mount: bool,
+    /// Общий буфер обмена: скопированный текст сразу доступен на
+    /// соединённых устройствах.
+    pub clipboard: bool,
     /// Порт UDP (QUIC); поиск — на порту на единицу меньше.
     pub port: u16,
     /// Трансляция экрана другого устройства: `auto` — видео аппаратным
@@ -2402,6 +2405,7 @@ impl Default for Link {
             discoverable: true,
             notifications: true,
             auto_mount: true,
+            clipboard: true,
             port: 47471,
             screen_codec: "auto".into(),
             screen_bitrate: 0,

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Пароли
+Name[en]=Passwords
+GenericName=Менеджер паролей
+GenericName[en]=Password Manager
+Comment=Пароли под мастер-паролем: копирование, крупный просмотр, синхронизация с телефоном и компьютером
+Exec=synpass
+Icon=synpass
+Categories=Utility;Security;
+Keywords=password;passwords;пароль;пароли;keepass;логин;вход;secret;
