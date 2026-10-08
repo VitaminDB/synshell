@@ -1,6 +1,8 @@
-//! Съёмные накопители через udisks2 (D-Bus, без sudo — права даёт polkit
+//! Накопители через udisks2 (D-Bus, без sudo — права даёт polkit
 //! активному сеансу): что подключено, монтирование по щелчку и безопасное
-//! извлечение. Все вызовы блокирующие — не из главного потока, кроме чтения
+//! извлечение. Кроме съёмных — несмонтированные разделы встроенных дисков
+//! с данными (второй диск, раздел NTFS с Windows): для них polkit спросит
+//! пароль администратора. Все вызовы блокирующие — не из главного потока, кроме чтения
 //! списка в боковой панели (короткий таймаут).
 
 use std::collections::HashMap;
@@ -16,11 +18,28 @@ const ROOT: &str = "/org/freedesktop/UDisks2";
 const BLOCK: &str = "org.freedesktop.UDisks2.Block";
 const FILESYSTEM: &str = "org.freedesktop.UDisks2.Filesystem";
 const DRIVE: &str = "org.freedesktop.UDisks2.Drive";
+const PARTITION: &str = "org.freedesktop.UDisks2.Partition";
+
+/// Служебные разделы, которые в боковой панели не нужны: GPT-типы (EFI,
+/// Microsoft Reserved, среда восстановления Windows, BIOS boot, служебные
+/// Lenovo/Dell) и MBR-типы (EFI, восстановление Windows, диагностика).
+const SERVICE_PARTS: [&str; 9] = [
+    "c12a7328-f81f-11d2-ba4b-00a0c93ec93b",
+    "e3c9e316-0b5c-4db8-817d-f92df00215ae",
+    "de94bba4-06d1-4d40-a16a-bfd50179d6ac",
+    "21686148-6449-6e6f-744e-656564454649",
+    "bfbfafe7-a34f-448a-9a5b-6213eb736c22",
+    "0xef",
+    "0x27",
+    "0x12",
+    "0x84",
+];
 
 type Props = HashMap<String, OwnedValue>;
 type Objects = HashMap<OwnedObjectPath, HashMap<String, Props>>;
 
-/// Раздел с файловой системой на съёмном диске.
+/// Раздел с файловой системой: на съёмном диске или несмонтированный на
+/// встроенном.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Volume {
     /// Объект блочного устройства раздела — по нему монтируем.
@@ -31,11 +50,21 @@ pub struct Volume {
     pub size: u64,
     /// Точки монтирования; пусто — раздел не смонтирован.
     pub mounts: Vec<PathBuf>,
+    /// Съёмный диск (флешка, карта): можно «Безопасно извлечь».
+    pub removable: bool,
 }
 
 fn bus() -> Option<&'static Connection> {
     static BUS: OnceLock<Option<Connection>> = OnceLock::new();
     BUS.get_or_init(|| connection::Builder::system().ok()?.method_timeout(Duration::from_secs(2)).build().ok()).as_ref()
+}
+
+/// Шина для монтирования и извлечения: polkit может спросить пароль
+/// (раздел встроенного диска), и вызов ждёт, пока его вводят — двух секунд
+/// `bus()` на это не хватит.
+fn slow_bus() -> Option<&'static Connection> {
+    static BUS: OnceLock<Option<Connection>> = OnceLock::new();
+    BUS.get_or_init(|| connection::Builder::system().ok()?.method_timeout(Duration::from_secs(300)).build().ok()).as_ref()
 }
 
 fn objects() -> Option<Objects> {
@@ -74,31 +103,56 @@ fn mount_points(p: &Props) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Все съёмные разделы с файловой системой: смонтированные и нет.
-/// Системные (`HintSystem`, `HintIgnore`) и несъёмные диски пропускаются.
-pub fn removable() -> Vec<Volume> {
+/// Служебный раздел (EFI, MSR, восстановление Windows…) по типу и флагам
+/// таблицы разделов.
+fn service_partition(part: &Props) -> bool {
+    let ty = text(part, "Type").to_ascii_lowercase();
+    if SERVICE_PARTS.contains(&ty.as_str()) {
+        return true;
+    }
+    // GPT-атрибуты: бит 0 — «нужен платформе», бит 62 — «скрытый» (так
+    // помечены разделы восстановления производителей). У MBR во флагах
+    // только «загрузочный» (0x80) — его не смотрим.
+    let gpt = !ty.starts_with("0x");
+    gpt && num(part, "Flags") & (1 | 1 << 62) != 0
+}
+
+/// Разделы с файловой системой для боковой панели: на съёмных дисках — все
+/// (смонтированные и нет), на встроенных — только несмонтированные с
+/// данными; смонтированные встроенные (корень, /home, /boot) показывает
+/// сама панель по `/proc/self/mounts`. Пропускаются `HintIgnore` (udev
+/// просит не показывать) и служебные разделы. `HintSystem` не помеха: udisks
+/// ставит его всем разделам несъёмных дисков, в том числе диску с данными.
+pub fn volumes() -> Vec<Volume> {
     let Some(objs) = objects() else { return Vec::new() };
     let mut out = Vec::new();
     for (path, ifs) in &objs {
         let (Some(blk), Some(fs)) = (ifs.get(BLOCK), ifs.get(FILESYSTEM)) else { continue };
-        if flag(blk, "HintIgnore") || flag(blk, "HintSystem") || text(blk, "IdUsage") != "filesystem" {
+        if flag(blk, "HintIgnore") || text(blk, "IdUsage") != "filesystem" {
+            continue;
+        }
+        if ifs.get(PARTITION).is_some_and(service_partition) {
             continue;
         }
         let drive = object_path(blk, "Drive");
         let Some(drv) = objs.iter().find(|(p, _)| p.as_str() == drive).and_then(|(_, i)| i.get(DRIVE)) else { continue };
-        if !flag(drv, "Removable") && !flag(drv, "MediaRemovable") {
+        let removable = flag(drv, "Removable") || flag(drv, "MediaRemovable");
+        let mounts = mount_points(fs);
+        if !removable && !mounts.is_empty() {
             continue;
         }
         let label = text(blk, "IdLabel");
         let model = format!("{} {}", text(drv, "Vendor"), text(drv, "Model")).trim().to_string();
         let title = if !label.is_empty() {
             label
-        } else if !model.is_empty() {
+        } else if removable && !model.is_empty() {
             model
-        } else {
+        } else if removable {
             "Съёмный диск".into()
+        } else {
+            format!("Локальный диск {}", crate::model::format_size(num(blk, "Size")))
         };
-        out.push(Volume { block: path.to_string(), drive, title, size: num(blk, "Size"), mounts: mount_points(fs) });
+        out.push(Volume { block: path.to_string(), drive, title, size: num(blk, "Size"), mounts, removable });
     }
     out.sort_by(|a, b| a.block.cmp(&b.block));
     out
@@ -106,7 +160,7 @@ pub fn removable() -> Vec<Volume> {
 
 /// Смонтировать раздел (точка выбирается udisks); вернуть её.
 pub fn mount(block: &str) -> Result<PathBuf, String> {
-    let bus = bus().ok_or("нет системной шины D-Bus")?;
+    let bus = slow_bus().ok_or("нет системной шины D-Bus")?;
     let m = bus
         .call_method(Some(SERVICE), block, Some(FILESYSTEM), "Mount", &(HashMap::<String, Value>::new(),))
         .map_err(explain)?;
@@ -117,7 +171,7 @@ pub fn mount(block: &str) -> Result<PathBuf, String> {
 /// Безопасно извлечь диск: отмонтировать все его смонтированные разделы и
 /// выключить диск (`PowerOff`), после чего его можно вынимать.
 pub fn eject(drive: &str) -> Result<(), String> {
-    let bus = bus().ok_or("нет системной шины D-Bus")?;
+    let bus = slow_bus().ok_or("нет системной шины D-Bus")?;
     let objs = objects().ok_or("udisks2 не отвечает")?;
     for (path, ifs) in &objs {
         let Some(blk) = ifs.get(BLOCK) else { continue };
@@ -139,7 +193,9 @@ fn explain(e: zbus::Error) -> String {
     match e {
         zbus::Error::MethodError(name, msg, _) => {
             let n = name.as_str();
-            if n.contains("NotAuthorized") {
+            if n.ends_with("NotAuthorizedDismissed") {
+                "пароль не введён".into()
+            } else if n.contains("NotAuthorized") {
                 "нет прав на это действие (polkit)".into()
             } else if n.ends_with("DeviceBusy") {
                 "устройство занято: закройте программы, открытые с него".into()

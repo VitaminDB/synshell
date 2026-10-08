@@ -254,12 +254,30 @@ pub fn root() -> W {
     }))
 }
 
+/// Боковая панель и панели файлов. Между ними — разделитель: ширина
+/// боковой панели меняется перетаскиванием (`Ctx::sidebar_width`), при
+/// изменении размера окна меняются только панели файлов.
+fn body() -> W {
+    boxed(Reactive::new(move || -> Vec<W> {
+        let ctx = state::ctx();
+        let content = DecoratedBox::new().class("content grow").child(panes());
+        if !ctx.sidebar.get() {
+            return vec![boxed(content)];
+        }
+        vec![boxed(
+            SplitView::new(super::sidebar::sidebar(), content)
+                .first_size_signal(ctx.sidebar_width)
+                .first_size_range(state::SIDEBAR_MIN, state::SIDEBAR_MAX)
+                .min_size(300.0)
+                .class("side-split"),
+        )]
+    }))
+}
+
 fn desktop_root() -> W {
-    let body = Row::new()
-        .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .class("grow body")
-        .child(super::sidebar::sidebar())
-        .child(DecoratedBox::new().class("content grow").child(panes()));
+    // Разделителю нужна конечная ширина и высота: их даёт растянутая коробка
+    // (`Reactive` прямо в строке или столбце мерится по содержимому).
+    let body = bx("grow body", body());
     let main = Column::new()
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .class("window")

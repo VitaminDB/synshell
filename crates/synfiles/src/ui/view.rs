@@ -308,11 +308,20 @@ fn columns_fit(tab: Tab, p: Pane) -> RwSignal<items::ColumnsFit> {
         let vw = syngui::viewport::viewport_size().get().width;
         let vw = if vw > 0.0 { vw } else { 1280.0 };
         let columns = p.loc.with(columns_of);
-        items::fit_columns(items::pane_width(vw, state::ctx().sidebar.get(), tab.split.get()), columns)
+        let ctx = state::ctx();
+        let sidebar = if ctx.sidebar.get() { ctx.sidebar_width.get() } else { 0.0 };
+        items::fit_columns(items::pane_width(vw, sidebar, tab.split.get()), columns)
     };
     // Эффект сразу же вычислит настоящее значение (и не подпишет вызывающего).
+    // Перетаскивание разделителя боковой панели пересчитывает его на каждом
+    // шаге — сигнал меняем, только когда набор колонок другой.
     let fit = use_signal(items::ColumnsFit { kind: true, date: true });
-    create_effect(move || fit.set(compute()));
+    create_effect(move || {
+        let v = compute();
+        if fit.get_untracked() != v {
+            fit.set(v);
+        }
+    });
     fit
 }
 

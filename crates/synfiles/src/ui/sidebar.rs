@@ -4,7 +4,7 @@ use syngui::prelude::*;
 use syngui::widgets::*;
 use syngui::DragData;
 
-use super::{boxed, bx, icons, W};
+use super::{boxed, icons, W};
 use crate::actions;
 use crate::loc::Location;
 use crate::places::{self, Place, Target};
@@ -43,8 +43,10 @@ fn mount_and_open(block: String, title: String) {
     });
 }
 
-/// Съёмный раздел, который ещё не смонтирован: щелчок монтирует и открывает.
+/// Раздел, который ещё не смонтирован: щелчок монтирует и открывает.
+/// Встроенный диск извлекать нечего — в меню только «Смонтировать».
 fn volume_row(vol: Volume) -> W {
+    let glyph = if vol.removable { icons::USB } else { icons::DRIVE };
     let block = vol.block.clone();
     let title = vol.title.clone();
     let menu_vol = vol.clone();
@@ -52,18 +54,18 @@ fn volume_row(vol: Volume) -> W {
         Row::new()
             .gap(10.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(Icon::new(icons::USB).class("icon place-icon"))
+            .child(Icon::new(glyph).class("icon place-icon"))
             .child(Text::new(vol.title.clone()).max_lines(1).class("place-title grow")),
     );
     col = col.child(Text::new(format!("Не смонтирован · {}", crate::model::format_size(vol.size))).class("space-text"));
     let row = GestureDetector::new()
         .on_click(move || mount_and_open(block.clone(), title.clone()))
         .on_secondary_click(move |at| {
-            let items = vec![
-                MenuItem::new("mount", "Смонтировать").icon(icons::OPEN),
-                MenuItem::separator(),
-                MenuItem::new("eject", "Безопасно извлечь").icon(icons::EJECT),
-            ];
+            let mut items = vec![MenuItem::new("mount", "Смонтировать").icon(icons::OPEN)];
+            if menu_vol.removable {
+                items.push(MenuItem::separator());
+                items.push(MenuItem::new("eject", "Безопасно извлечь").icon(icons::EJECT));
+            }
             let v = menu_vol.clone();
             state::show_menu(items, at, move |id| match id {
                 "mount" => mount_and_open(v.block.clone(), v.title.clone()),
@@ -227,11 +229,7 @@ pub fn places_list() -> W {
     }))
 }
 
-pub fn sidebar() -> W {
-    boxed(Reactive::new(move || -> Vec<W> {
-        if !state::ctx().sidebar.get() {
-            return vec![];
-        }
-        vec![bx("sidebar", ScrollView::new().vertical().class("grow").child(places_list()))]
-    }))
+/// Боковая панель окна; ширину и показ задаёт `app::body` (разделитель).
+pub fn sidebar() -> impl Widget + 'static {
+    DecoratedBox::new().class("sidebar").child(ScrollView::new().vertical().class("grow").child(places_list()))
 }

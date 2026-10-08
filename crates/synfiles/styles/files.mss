@@ -182,11 +182,19 @@ SystemWindowControls {
 
 .body { background: var(--content); }
 
+/* Ширину задаёт разделитель `.side-split` (перетаскивается, хранится в
+   сеансе); его линия — вместо правой границы. */
 .sidebar {
-    width: 236px;
     background: var(--sidebar);
-    border-right: 1px solid var(--divider);
     padding: 8px 6px 8px 8px;
+}
+
+/* Разделители: линия как у остальных границ, при наведении и
+   перетаскивании — акцент (зона захвата шире линии). */
+.side-split, .split {
+    border-color: var(--divider);
+    accent-color: var(--accent);
+    divider-thickness: 1px;
 }
 
 .side-title {

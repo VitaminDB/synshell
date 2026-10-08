@@ -120,6 +120,9 @@ pub struct Ctx {
     pub cur: RwSignal<usize>,
     pub show_hidden: RwSignal<bool>,
     pub sidebar: RwSignal<bool>,
+    /// Ширина боковой панели, px: меняется перетаскиванием разделителя,
+    /// сохраняется в файле сеанса.
+    pub sidebar_width: RwSignal<f32>,
     pub clip: RwSignal<Option<Clip>>,
     pub jobs_rev: RwSignal<u64>,
     pub thumbs_rev: RwSignal<u64>,
@@ -204,6 +207,7 @@ pub fn init(cfg: Config, start: Vec<Location>) -> Ctx {
         tabs: use_signal(Vec::new()),
         cur: use_signal(0usize),
         sidebar: use_signal(true),
+        sidebar_width: use_signal(load_sidebar_width()),
         clip: use_signal(None),
         jobs_rev: use_signal(0u64),
         thumbs_rev: use_signal(0u64),
@@ -791,6 +795,25 @@ fn session_file() -> PathBuf {
 struct Session {
     tabs: Vec<String>,
     current: usize,
+    /// Ширина боковой панели; нет — по умолчанию.
+    #[serde(default)]
+    sidebar_width: Option<f32>,
+}
+
+/// Боковая панель: ширина по умолчанию и пределы перетаскивания, px.
+pub const SIDEBAR_WIDTH: f32 = 236.0;
+pub const SIDEBAR_MIN: f32 = 160.0;
+pub const SIDEBAR_MAX: f32 = 480.0;
+
+/// Ширина боковой панели из прошлого сеанса (сохраняется и без
+/// восстановления вкладок).
+fn load_sidebar_width() -> f32 {
+    std::fs::read_to_string(session_file())
+        .ok()
+        .and_then(|t| toml::from_str::<Session>(&t).ok())
+        .and_then(|s| s.sidebar_width)
+        .filter(|w| w.is_finite())
+        .map_or(SIDEBAR_WIDTH, |w| w.clamp(SIDEBAR_MIN, SIDEBAR_MAX))
 }
 
 pub fn save_session() {
@@ -805,7 +828,7 @@ pub fn save_session() {
             Location::Search { root, .. } => Some(root.display().to_string()),
         })
         .collect();
-    let s = Session { tabs, current: ctx.cur.get_untracked() };
+    let s = Session { tabs, current: ctx.cur.get_untracked(), sidebar_width: Some(ctx.sidebar_width.get_untracked().round()) };
     let f = session_file();
     if let Some(d) = f.parent() {
         let _ = std::fs::create_dir_all(d);

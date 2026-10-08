@@ -10,7 +10,8 @@ use crate::udisks::Volume;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Target {
     Dir(Location),
-    /// Съёмный раздел, который ещё не смонтирован: щелчок монтирует его.
+    /// Раздел (съёмный или встроенного диска), который ещё не смонтирован:
+    /// щелчок монтирует его.
     Volume(Volume),
 }
 
@@ -84,18 +85,19 @@ pub fn sections(pinned: &[String]) -> Vec<Section> {
         p.space = space(Path::new("/"));
         p
     }];
-    let removable = crate::udisks::removable();
+    let volumes = crate::udisks::volumes();
     for m in mounts() {
         let mut p = place(m.title, m.icon, Location::Dir(m.path.clone()));
         p.space = space(&m.path);
-        p.device = removable.iter().find(|v| v.mounts.contains(&m.path)).cloned();
+        p.device = volumes.iter().find(|v| v.removable && v.mounts.contains(&m.path)).cloned();
         drives.push(p);
     }
-    // Съёмные разделы, которые ещё никто не смонтировал: щелчок монтирует их.
-    for v in removable.into_iter().filter(|v| v.mounts.is_empty()) {
+    // Разделы, которые ещё никто не смонтировал (флешки, второй диск, NTFS
+    // с Windows): щелчок монтирует их.
+    for v in volumes.into_iter().filter(|v| v.mounts.is_empty()) {
         drives.push(Place {
             title: v.title.clone(),
-            icon: crate::ui::icons::USB,
+            icon: if v.removable { crate::ui::icons::USB } else { crate::ui::icons::DRIVE },
             target: Target::Volume(v.clone()),
             pinned: false,
             space: None,

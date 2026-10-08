@@ -51,9 +51,10 @@ pub fn fit_columns(pane_width: f32, columns: Columns) -> ColumnsFit {
     ColumnsFit { date: pane_width >= base + COL_DATE, kind: pane_width >= base + COL_DATE + kind_w }
 }
 
-/// Ширина панели файлов: окно без боковой панели, пополам при разделении.
-pub fn pane_width(vw: f32, sidebar: bool, split: bool) -> f32 {
-    let w = vw - if sidebar { 236.0 } else { 0.0 };
+/// Ширина панели файлов: окно без боковой панели (`sidebar` — её ширина,
+/// 0 — скрыта), пополам при разделении.
+pub fn pane_width(vw: f32, sidebar: f32, split: bool) -> f32 {
+    let w = vw - sidebar;
     if split {
         w / 2.0
     } else {
