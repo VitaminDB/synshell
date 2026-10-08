@@ -95,7 +95,8 @@
 .res-v { font-size: 12px; color: var(--fg); }
 .res-big { font-size: 28px; font-weight: 600; color: var(--fg); }
 .res-core-bg { width: 16px; border-radius: 5px; background-color: var(--surface-alt); }
-.res-core-fill { width: 16px; border-radius: 5px; transition: height 400ms ease-out; }
+/* без перехода высоты: данные раз в секунду, а переход 400 мс перерисовывал страницу почти непрерывно (SM-T295) */
+.res-core-fill { width: 16px; border-radius: 5px; }
 .res-tier-0 { background-color: #4fc3f7; }
 .res-tier-1 { background-color: var(--accent); }
 .res-tier-2 { background-color: #ffb74d; }
