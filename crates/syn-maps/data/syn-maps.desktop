@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Карты
+Name[en]=Maps
+GenericName=Карты и маршруты
+GenericName[en]=Maps and Directions
+Comment=Карты OpenStreetMap, поиск мест и маршруты
+Comment[en]=OpenStreetMap maps, place search and directions
+Exec=syn-maps %u
+Icon=syn-maps
+Categories=Utility;Maps;
+Keywords=map;maps;navigation;route;gps;osm;карта;карты;навигация;маршрут;навигатор;
+MimeType=x-scheme-handler/geo;
+StartupNotify=true

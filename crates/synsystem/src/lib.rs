@@ -12,6 +12,7 @@ pub mod bluetooth;
 pub mod camera;
 pub mod cpu;
 pub mod geoclue_agent;
+pub mod geoclue_client;
 pub mod gpu;
 pub mod hwinfo;
 pub mod memory;

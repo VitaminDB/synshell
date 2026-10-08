@@ -1,0 +1,22 @@
+[package]
+name = "syn-maps"
+description = "Карты synshell: OpenStreetMap, местоположение GeoClue, поиск Nominatim, маршруты OSRM"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "syn-maps"
+path = "src/main.rs"
+
+[dependencies]
+synshell-common.workspace = true
+synsystem.workspace = true
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "map-native"] }
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+ureq = { version = "3", features = ["json"] }
