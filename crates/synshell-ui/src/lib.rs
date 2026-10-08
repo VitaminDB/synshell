@@ -112,6 +112,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
     xdg::set_icon_theme(&config.appearance.icon_theme);
     syngui_layer::set_ui_zoom(config.appearance.ui_scale);
     xdg::warm_up();
+    preload_app_icons();
     synshell_common::mime::migrate_legacy_ids();
     // Виброотклик: удержание пальцем (меню, перенос значков), переключатели.
     synshell_common::haptics::set_config(&config.haptics);
@@ -211,6 +212,22 @@ fn watch_config() {
 /// удалённая программа сразу появляется в меню и на домашнем экране.
 /// Перечитывание — в фоне (темы значков разбираются десятки мс), затем
 /// `apps_rev` пересобирает списки.
+/// Растеризовать значки приложений заранее, в фоне: меню приложений и
+/// «Пуск» — отдельные поверхности со своим хранилищем картинок, и без
+/// общего кэша syngui значки при открытии появлялись вразнобой по мере
+/// декодирования.
+fn preload_app_icons() {
+    std::thread::spawn(|| {
+        let mut paths: Vec<String> = xdg::apps()
+            .iter()
+            .filter_map(|e| xdg::lookup_icon(&e.icon).or_else(|| xdg::lookup_icon("application-x-executable")))
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        paths.dedup();
+        syngui::gpu::image_store::preload_paths(paths);
+    });
+}
+
 fn watch_apps() {
     use std::sync::atomic::{AtomicBool, Ordering};
     let mut stamp = xdg::apps_stamp();
@@ -234,6 +251,7 @@ fn watch_apps() {
             std::thread::spawn(move || {
                 xdg::reload_apps();
                 done.store(true, Ordering::Release);
+                preload_app_icons();
             });
             return Some(Duration::from_millis(200));
         }
