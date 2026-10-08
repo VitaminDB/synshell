@@ -570,7 +570,7 @@ pub fn menu(ctx: ShellCtx) -> impl Widget {
         };
         Box::new(Column::new().child(inner).style("width", StyleValue::px(w - 30.0)))
     });
-    Stack::new().child(body).child(crate::menu_prefs::grip_layer(ctx, size, 30.0))
+    crate::menu_prefs::with_grip(ctx, size, 30.0, body)
 }
 
 /// Строка «Выполнить»: карточка перетекает по высоте вслед за выдачей.

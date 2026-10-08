@@ -89,17 +89,23 @@ pub fn grip(ctx: ShellCtx, size: RwSignal<(f32, f32)>) -> impl Widget {
     .cursor(cursor)
 }
 
-/// Уголок слоем поверх меню: элемент живёт всё перетаскивание (внутри
-/// пересобираемого по размеру `rx` он терял бы жест), сдвигается сигналом.
+/// Полоса под уголок со стороны, противоположной панели (справа и сверху/снизу).
+const GRIP_BAND: f32 = 12.0;
+
+/// Меню с уголком: содержимое `menu` с полосой под уголок и сам уголок слоем
+/// поверх. Уголок — отдельный элемент, живущий всё перетаскивание (внутри
+/// пересобираемого по размеру `rx` он терял бы жест), сдвигается сигналом и
+/// целиком лежит в границах слоя (за ними hit-test событий не даёт).
 /// `inset` — на сколько содержимое уже ширины меню.
-pub fn grip_layer(ctx: ShellCtx, size: RwSignal<(f32, f32)>, inset: f32) -> impl Widget {
+pub fn with_grip(ctx: ShellCtx, size: RwSignal<(f32, f32)>, inset: f32, menu: impl Widget + 'static) -> Stack {
     let top = menu_edge(&ctx) == Edge::Top;
     let pos = use_signal(syngui::core::Point::zero());
     create_effect(move || {
         let (w, h) = size.get();
-        pos.set(syngui::core::Point::new(w - inset - 20.0, if top { h - inset - 20.0 } else { -6.0 }));
+        pos.set(syngui::core::Point::new(w - inset - 6.0, if top { h - 6.0 } else { 0.0 }));
     });
-    syngui::containers::Positioned::new(grip(ctx, size)).offset_signal(pos)
+    let padded = Column::new().child(menu).style("padding-right", syngui::mss::StyleValue::px(GRIP_BAND)).style(if top { "padding-bottom" } else { "padding-top" }, syngui::mss::StyleValue::px(GRIP_BAND));
+    Stack::new().child(padded).child(syngui::containers::Positioned::new(grip(ctx, size)).offset_signal(pos))
 }
 
 /// Записать значение `[launcher] key`.

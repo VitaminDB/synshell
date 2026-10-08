@@ -386,7 +386,7 @@ fn content(kind: &PopupKind, ctx: ShellCtx) -> Box<dyn Widget> {
 
 fn content_inner(kind: &PopupKind, ctx: ShellCtx) -> Box<dyn Widget> {
     match kind {
-        PopupKind::Launcher if ctx.cfg().launcher.style == "win11" => Box::new(crate::start_menu::view(ctx)),
+        PopupKind::Launcher if ctx.cfg().launcher.style == "win11" => crate::start_menu::view(ctx),
         PopupKind::Launcher => Box::new(crate::launcher::menu(ctx)),
         PopupKind::Run => Box::new(crate::launcher::run_prompt(ctx)),
         PopupKind::Calendar => Box::new(calendar(ctx)),

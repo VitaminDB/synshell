@@ -121,6 +121,8 @@ struct St {
 /// Телефон: высота значка в сетке (отступы, значок, две строки подписи) и
 /// зазор между строками.
 const PHONE_TILE_H: f32 = 104.0;
+/// Рабочий стол: значок 36 и две строки подписи с полями `.start-tile`.
+const DESK_TILE_H: f32 = 92.0;
 const PHONE_GRID_GAP: f32 = 2.0;
 /// Место под точки страниц карусели.
 const INDICATORS_H: f32 = 24.0;
@@ -153,7 +155,7 @@ fn columns(ctx: &ShellCtx) -> usize {
     }
 }
 
-pub fn view(ctx: ShellCtx) -> impl Widget {
+pub fn view(ctx: ShellCtx) -> Box<dyn Widget> {
     let st = St {
         query: use_signal(String::new()),
         view: use_signal(View::Home),
@@ -255,11 +257,14 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
         menu
     });
     let _ = w;
-    let mut stack = Stack::new().child(sized);
-    if !phone {
-        stack = stack.child(crate::menu_prefs::grip_layer(ctx, msize, 24.0));
+    // Меню значка — поверх «Пуска» внутри его границ; уголок — последним слоем, иначе
+    // слой меню значка (на всю площадь) забирал бы его нажатия.
+    let body = syngui::widgets::EventHook::new().report_bounds(bounds).child(Stack::new().child(sized).child(menu_layer));
+    if phone {
+        Box::new(body) as Box<dyn Widget>
+    } else {
+        Box::new(crate::menu_prefs::with_grip(ctx, msize, 24.0, body))
     }
-    syngui::widgets::EventHook::new().report_bounds(bounds).child(stack.child(menu_layer))
 }
 
 /// Середина меню: закреплённые, «Все приложения» или результаты поиска —
@@ -462,10 +467,12 @@ fn home(ctx: ShellCtx, st: St, body_h: f32) -> impl Widget {
         Box::new(Text::new("Закрепите приложения из списка «Все» — правый щелчок или удержание по значку.").class("start-empty"))
     } else {
         let paged = apps.len() > per_page;
-        // Телефон: высота — по занятым строкам, без пустоты под одним рядом.
-        let phone_h = phone.then(|| {
+        // Высота — по занятым строкам, без пустоты под одним рядом (и на рабочем столе:
+        // раньше там было 300 px при любом числе значков).
+        let tile_h = if phone { PHONE_TILE_H } else { DESK_TILE_H };
+        let pinned_h = Some({
             let used = apps.len().div_ceil(cols).min(rows) as f32;
-            used * (PHONE_TILE_H + PHONE_GRID_GAP) + if paged { INDICATORS_H } else { 0.0 }
+            used * (tile_h + PHONE_GRID_GAP) + if paged { INDICATORS_H } else { 0.0 }
         });
         let mut pages = Carousel::new().page_signal(st.page).show_arrows(false).show_indicators(paged);
         for chunk in apps.chunks(per_page) {
@@ -474,14 +481,14 @@ fn home(ctx: ShellCtx, st: St, body_h: f32) -> impl Widget {
                 grid = grid.child(tile(ctx, st, e, true));
             }
             let page = Column::new().main_axis_alignment(MainAxisAlignment::Start).child(grid);
-            let page: Box<dyn Widget> = match phone_h {
+            let page: Box<dyn Widget> = match pinned_h {
                 Some(h) => Box::new(page.style("height", StyleValue::px(h))),
                 None => Box::new(page),
             };
             pages = pages.child(page);
         }
         let pages = pages.class("start-pinned");
-        match phone_h {
+        match pinned_h {
             Some(h) => Box::new(pages.style("height", StyleValue::px(h))),
             None => Box::new(pages),
         }

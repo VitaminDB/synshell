@@ -510,7 +510,7 @@ Text {
 .start-android-badge { padding: 2px; border-radius: 999px; background-color: #3DDC84; }
 .start-android-badge-icon { icon-size: 12px; icon-color: #10251a; }
 
-.start-pinned { height: 300px; accent-color: var(--accent); border-color: var(--border); }
+.start-pinned { accent-color: var(--accent); border-color: var(--border); }
 .start-tile {
     padding: 10px 2px 8px 2px;
     border-radius: var(--radius-sm);
@@ -1322,9 +1322,9 @@ TextField {
 .link-applet-battery { font-size: 11px; color: var(--muted); }
 
 /* Меню запуска: уголок размера и настройки в меню (menu_prefs.rs) */
-.menu-grip { padding: 4px; border-radius: 8px; opacity: 0.55; transition: opacity 120ms ease-out, background-color 120ms ease-out; }
+.menu-grip { padding: 2px; border-radius: 6px; opacity: 0.55; transition: opacity 120ms ease-out, background-color 120ms ease-out; }
 .menu-grip:hover { opacity: 1; background-color: var(--hover); }
-.menu-grip-icon { font-size: 16px; color: var(--muted); }
+.menu-grip-icon { font-size: 14px; color: var(--muted); }
 .mp { padding: 2px; }
 .mp-back { padding: 6px; border-radius: 999px; transition: background-color 120ms ease-out; }
 .mp-back:hover { background-color: var(--hover); }
