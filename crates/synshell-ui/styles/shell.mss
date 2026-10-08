@@ -1320,3 +1320,23 @@ TextField {
 .link-applet-on { icon-color: var(--accent); }
 .link-applet-usb { icon-size: 14px; icon-color: var(--accent); }
 .link-applet-battery { font-size: 11px; color: var(--muted); }
+
+/* Меню запуска: уголок размера и настройки в меню (menu_prefs.rs) */
+.menu-grip { padding: 4px; border-radius: 8px; opacity: 0.55; transition: opacity 120ms ease-out, background-color 120ms ease-out; }
+.menu-grip:hover { opacity: 1; background-color: var(--hover); }
+.menu-grip-icon { font-size: 16px; color: var(--muted); }
+.mp { padding: 2px; }
+.mp-back { padding: 6px; border-radius: 999px; transition: background-color 120ms ease-out; }
+.mp-back:hover { background-color: var(--hover); }
+.mp-back-icon { font-size: 22px; color: var(--fg); }
+.mp-title { font-size: 17px; font-weight: 600; color: var(--fg); }
+.mp-section { font-size: 12px; font-weight: 600; color: var(--muted); padding-top: 6px; }
+.mp-choice { padding: 7px 12px; border-radius: 999px; border-width: 1px; border-color: var(--border); transition: background-color 120ms ease-out; }
+.mp-choice:hover { background-color: var(--hover); }
+.mp-choice-on { background-color: var(--accent-soft); border-color: var(--accent); }
+.mp-choice-icon { font-size: 18px; color: var(--fg); }
+.mp-choice-text { font-size: 13px; color: var(--fg); }
+.mp-row { padding: 4px 0px; }
+.mp-label { font-size: 14px; color: var(--fg); }
+.mp-hint { font-size: 12px; color: var(--muted); }
+.mp-btn { padding: 5px 12px; font-size: 13px; }

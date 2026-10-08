@@ -69,6 +69,15 @@ impl PanelCtx {
         })
     }
 
+    /// Границы видимой полосы (док): по ним меню встаёт «по центру дока».
+    pub fn set_bar_slot(&self, slot: Arc<Mutex<Rect>>) {
+        PANELS.with(|p| {
+            if let Some(rt) = p.borrow_mut().get_mut(&self.key) {
+                rt.bar = Some(slot);
+            }
+        });
+    }
+
     /// Запомнить границы апплета (для открытия его окна с клавиатуры).
     pub fn bounds_slot(&self, kind: &str) -> Arc<Mutex<Rect>> {
         let slot = Arc::new(Mutex::new(Rect::zero()));
@@ -93,6 +102,8 @@ pub(crate) struct PanelRt {
     spec: SurfaceSpec,
     /// Панель прижата к краю: всплывающие окна примыкают к ней.
     attached: bool,
+    /// Границы видимой части (док — его полоса значков), иначе — по апплетам.
+    bar: Option<Arc<Mutex<Rect>>>,
     /// Показать спрятанную автоскрытием панель (док) — по жесту от края
     /// на телефоне или команде; `true` — была спрятана и показана.
     reveal: Option<Rc<dyn Fn() -> bool>>,
@@ -112,6 +123,7 @@ pub(crate) fn register(key: u64, output: &str, edge: Edge, spec: &SurfaceSpec, a
                 items: HashMap::new(),
                 spec: spec.clone(),
                 attached,
+                bar: None,
                 reveal: None,
             },
         )
@@ -274,6 +286,41 @@ pub fn applet_anchor(kind: &str) -> Option<PopupAnchor> {
                         attached: rt.attached,
                     });
                 }
+            }
+        }
+        None
+    })
+}
+
+/// Полоса панели (дока), на которой лежит кнопка `rect` (координаты вывода
+/// `output`): границы всех её апплетов — [x, y, w, h]. Для меню «по центру
+/// дока», «в начале» и «в конце панели».
+pub fn span_at(output: Option<&str>, rect: [f32; 4]) -> Option<[f32; 4]> {
+    let (cx, cy) = (rect[0] + rect[2] / 2.0, rect[1] + rect[3] / 2.0);
+    PANELS.with(|p| {
+        for rt in p.borrow().values() {
+            if output.is_some_and(|o| o != rt.output) {
+                continue;
+            }
+            let (ox, oy) = rt.origin;
+            let mut u: Option<[f32; 4]> = None;
+            let bar = rt.bar.iter().cloned().collect::<Vec<_>>();
+            let slots: Vec<&Arc<Mutex<Rect>>> = if bar.is_empty() { rt.items.values().collect() } else { bar.iter().collect() };
+            for r in slots {
+                let r = *r.lock().unwrap_or_else(|e| e.into_inner());
+                if r.size.width <= 0.0 {
+                    continue;
+                }
+                let (x0, y0, x1, y1) = (r.origin.x + ox, r.origin.y + oy, r.origin.x + ox + r.size.width, r.origin.y + oy + r.size.height);
+                u = Some(match u {
+                    None => [x0, y0, x1, y1],
+                    Some([a, b, c, d]) => [a.min(x0), b.min(y0), c.max(x1), d.max(y1)],
+                });
+            }
+            let Some([x0, y0, x1, y1]) = u else { continue };
+            let inside = if rt.edge.is_vertical() { cy >= y0 - 1.0 && cy <= y1 + 1.0 && (cx - (x0 + x1) / 2.0).abs() < 200.0 } else { cx >= x0 - 1.0 && cx <= x1 + 1.0 && (cy - (y0 + y1) / 2.0).abs() < 200.0 };
+            if inside {
+                return Some([x0, y0, x1 - x0, y1 - y0]);
             }
         }
         None

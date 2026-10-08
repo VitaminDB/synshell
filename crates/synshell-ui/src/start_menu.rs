@@ -114,6 +114,8 @@ struct St {
     pages: RwSignal<bool>,
     /// Linux или экземпляр Android.
     source: RwSignal<Source>,
+    /// Рабочий стол: открыты настройки меню.
+    settings: RwSignal<bool>,
 }
 
 /// Телефон: высота значка в сетке (отступы, значок, две строки подписи) и
@@ -137,7 +139,7 @@ fn size(ctx: &ShellCtx) -> (f32, f32) {
     if ctx.is_phone() {
         (ow - 20.0, (oh * 0.9).max(420.0))
     } else {
-        ((cfg.launcher.width as f32).max(560.0), (cfg.launcher.height as f32).max(600.0).min(oh - 80.0))
+        ((cfg.launcher.width as f32).max(crate::menu_prefs::MIN_W), (cfg.launcher.height as f32).max(crate::menu_prefs::MIN_H).min(oh - 80.0))
     }
 }
 
@@ -146,7 +148,7 @@ fn columns(ctx: &ShellCtx) -> usize {
     if ctx.is_phone() {
         4
     } else {
-        6
+        ctx.cfg().launcher.columns.clamp(3, 10) as usize
     }
 }
 
@@ -160,7 +162,10 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
         page: use_signal(0usize),
         pages: use_signal(ctx.is_phone() && ctx.cfg().mobile.launcher != "list"),
         source: use_signal(Source::Linux),
+        settings: use_signal(!ctx.is_phone() && crate::menu_prefs::take_reopen_settings()),
     };
+    // Рабочий стол: размер меню — уголком, живьём.
+    let msize = crate::menu_prefs::size_signal(&ctx);
     let instances = xdg::android_instances(&xdg::apps());
     create_effect(move || {
         let q = st.query.get();
@@ -213,9 +218,17 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
             let vp = syngui::viewport::viewport_size().get();
             (vp.width - 20.0, (vp.height * 0.86 - 40.0).max(300.0))
         } else {
-            size(&ShellCtx::get())
+            msize.get()
         };
-        let _ = w;
+        if !phone && st.settings.get() {
+            let close = move || st.settings.set(false);
+            return Box::new(with_grip(
+                ctx,
+                msize,
+                (w, h),
+                Box::new(Column::new().child(crate::menu_prefs::view(ctx, msize, close)).class("start").style("height", StyleValue::px(h)).style("width", StyleValue::px(w - 24.0))),
+            ));
+        }
         let chips_h = if instances.is_empty() {
             0.0
         } else {
@@ -227,17 +240,30 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
         if !instances.is_empty() {
             col = col.child(chips(st, instances.clone()));
         }
-        Box::new(
+        let menu: Box<dyn Widget> = Box::new(
             col
                 .child(body_ref(st, ctx, h - CHROME_H - chips_h))
                 .child(footer(ShellCtx::get(), st))
                 .class("start")
                 .style("height", StyleValue::px(h))
                 .style("width", StyleValue::px(w - 24.0)),
-        )
+        );
+        if phone {
+            menu
+        } else {
+            Box::new(with_grip(ctx, msize, (w, h), menu))
+        }
     });
     let _ = w;
     Stack::new().child(sized).child(menu_layer)
+}
+
+/// Меню с уголком изменения размера (со стороны, противоположной панели).
+fn with_grip(ctx: ShellCtx, msize: RwSignal<(f32, f32)>, (w, h): (f32, f32), menu: Box<dyn Widget>) -> impl Widget {
+    let top = ctx.popup.get_untracked().is_some_and(|p| p.anchor.edge == synshell_common::config::Edge::Top);
+    let gx = w - 24.0 - 22.0;
+    let gy = if top { h - 22.0 } else { -6.0 };
+    Stack::new().child(menu).child(Positioned::new(crate::menu_prefs::grip(ctx, msize)).at(gx + 6.0, gy))
 }
 
 /// Середина меню: закреплённые, «Все приложения» или результаты поиска —
@@ -251,6 +277,8 @@ fn body_ref(st: St, ctx: ShellCtx, body_h: f32) -> impl Widget {
         let source = st.source.get();
         // Поставили или удалили программу — пересобрать списки.
         let rev = ctx.apps_rev.get();
+        // Закрепили, открепили, сменили колонки — [launcher] перечитан на лету.
+        let _ = ctx.config.get();
         // Ключ задаёт направление перетекания: дальше по списку — въезд справа.
         let key = if searching { 3 } else if pages { 4 } else if v == View::All { 2 } else { 1 };
         // Смена источника — тоже перетекание
@@ -812,6 +840,9 @@ fn footer(ctx: ShellCtx, st: St) -> impl Widget {
             )
         });
         row = row.child(toggle);
+    }
+    if !ctx.is_phone() {
+        row = row.child(crate::menu_prefs::button(st.settings, "start-footer-btn", "start-footer-icon"));
     }
     row
         .child(btn(mi::SETTINGS, || {

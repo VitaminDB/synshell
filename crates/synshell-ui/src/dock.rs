@@ -149,6 +149,7 @@ pub fn create(ctx: ShellCtx, index: usize, panel: &Panel, out: &OutputInfo) -> (
         last_hover: Arc::new(StdMutex::new(None)),
         bar_slot: Arc::new(Mutex::new(Rect::zero())),
     };
+    st.pc.set_bar_slot(st.bar_slot.clone());
     let id_cell: Arc<StdMutex<Option<SurfaceId>>> = Arc::new(StdMutex::new(None));
     let hider = Hider {
         st: st.clone(),

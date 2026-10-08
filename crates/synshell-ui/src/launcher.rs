@@ -328,6 +328,7 @@ fn row(item: Item, index: usize, selected: RwSignal<usize>, ctx: ShellCtx) -> im
     })
 }
 
+#[derive(Clone, Copy)]
 struct State {
     query: RwSignal<String>,
     selected: RwSignal<usize>,
@@ -395,7 +396,7 @@ fn search_field(st: &State, placeholder: &str) -> impl Widget {
                 .gap(8.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(icon(mi::SEARCH).class("search-icon"))
-                .child(TextField::new().placeholder(placeholder).autofocus(true).on_change(move |t| q.set(t.to_string())).class("search-field grow")),
+                .child(TextField::with_text(q.get_untracked()).placeholder(placeholder).autofocus(true).on_change(move |t| q.set(t.to_string())).class("search-field grow")),
         )
         .class("search-box")
 }
@@ -505,7 +506,7 @@ fn sidebar(st: &State, ctx: ShellCtx) -> impl Widget {
         .class("launcher-sidebar")
 }
 
-fn footer(ctx: ShellCtx) -> impl Widget {
+fn footer(ctx: ShellCtx, settings: RwSignal<bool>) -> impl Widget {
     let user = std::env::var("USER").unwrap_or_default();
     let host = std::fs::read_to_string("/etc/hostname").map(|s| s.trim().to_string()).unwrap_or_default();
     let btn = |glyph: &'static str, tip: &'static str, f: fn()| {
@@ -527,6 +528,7 @@ fn footer(ctx: ShellCtx) -> impl Widget {
                 .child(Text::new(host).class("launcher-sub"))
                 .class("grow"),
         )
+        .child(crate::menu_prefs::button(settings, "footer-btn", ""))
         .child(btn(mi::SETTINGS, "Параметры", || {
             ShellCtx::get().close_popup();
             crate::actions::spawn("synsettings");
@@ -542,23 +544,38 @@ fn footer(ctx: ShellCtx) -> impl Widget {
         .class("launcher-footer")
 }
 
-/// Меню у кнопки.
+/// Меню у кнопки. Размер — уголком (живьём, запоминается), настройки — кнопкой внизу.
 pub fn menu(ctx: ShellCtx) -> impl Widget {
     let st = state(ctx);
-    let h = ctx.cfg().launcher.height as f32;
-    let sb = sidebar(&st, ctx);
-    let ls = list(&st, ctx);
-    Column::new()
-        .gap(10.0)
-        .child(search_field(&st, "Поиск приложений, команд, вычислений…"))
-        .child(
-            Row::new()
-                .gap(8.0)
-                .child(DecoratedBox::new().child(sb).class("launcher-side-wrap"))
-                .child(ls)
-                .style("height", StyleValue::px((h - 130.0).max(200.0))),
+    let size = crate::menu_prefs::size_signal(&ctx);
+    let settings = use_signal(crate::menu_prefs::take_reopen_settings());
+    let top = ctx.popup.get_untracked().is_some_and(|p| p.anchor.edge == synshell_common::config::Edge::Top);
+    crate::ui::rx(move || {
+        let (w, h) = size.get();
+        let inner: Box<dyn Widget> = if settings.get() {
+            Box::new(crate::menu_prefs::view(ctx, size, move || settings.set(false)).style("height", StyleValue::px(h - 30.0)))
+        } else {
+            Box::new(
+                Column::new()
+                    .gap(10.0)
+                    .child(search_field(&st, "Поиск приложений, команд, вычислений…"))
+                    .child(
+                        Row::new()
+                            .gap(8.0)
+                            .child(DecoratedBox::new().child(sidebar(&st, ctx)).class("launcher-side-wrap"))
+                            .child(list(&st, ctx))
+                            .style("height", StyleValue::px((h - 130.0).max(200.0))),
+                    )
+                    .child(footer(ctx, settings)),
+            )
+        };
+        let gy = if top { h - 52.0 } else { -6.0 };
+        Box::new(
+            Stack::new()
+                .child(Column::new().child(inner).style("width", StyleValue::px(w - 30.0)))
+                .child(syngui::containers::Positioned::new(crate::menu_prefs::grip(ctx, size)).at(w - 30.0 - 16.0, gy)),
         )
-        .child(footer(ctx))
+    })
 }
 
 /// Строка «Выполнить»: карточка перетекает по высоте вслед за выдачей.

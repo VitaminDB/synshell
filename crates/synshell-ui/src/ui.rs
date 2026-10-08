@@ -109,6 +109,12 @@ impl InputArea {
         self
     }
 
+    /// Курсор над областью (уголок изменения размера — `NeResize`…).
+    pub fn cursor(mut self, c: CursorIcon) -> Self {
+        self.cursor = c;
+        self
+    }
+
     pub fn pointer(mut self) -> Self {
         self.cursor = CursorIcon::Pointer;
         self

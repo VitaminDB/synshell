@@ -27,6 +27,7 @@ pub mod gtkmenu;
 pub mod ipc;
 pub mod launcher;
 pub mod launchers;
+pub mod menu_prefs;
 pub mod link;
 pub mod location;
 pub mod lock;
@@ -281,6 +282,9 @@ pub fn reload_config() {
     let behavior_only = {
         let mut probe = cfg.clone();
         probe.brightness = old.brightness.clone();
+        // Меню запуска читает [launcher] при открытии и на лету (вид, размер, положение, закреплённые) —
+        // настройка из самого меню не должна пересобирать оболочку и закрывать его.
+        probe.launcher = old.launcher.clone();
         probe == *old
     };
     if behavior_only {

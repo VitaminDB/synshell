@@ -176,6 +176,7 @@ pub fn install(ctx: ShellCtx) {
 /// края панели и уходит обратно (`Presence` по сигналу `open`); когда уход
 /// доиграл, поверхность `sid` закрывается.
 fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>, sid: Arc<Mutex<Option<SurfaceId>>>) -> impl Widget {
+    let output_name = p.anchor.output.clone();
     // Клик мимо окна закрывает его; по другому пункту строки глобального
     // меню — открывает его меню (как в строке меню программы).
     let backdrop = InputArea::new(DecoratedBox::new().class("popup-backdrop")).on_press(|_, p, _| {
@@ -219,15 +220,16 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
     } else {
         p.anchor.rect.map(|_| p.anchor.edge)
     };
+    // Меню запуска на рабочем столе само задаёт ширину (уголок меняет её живьём).
+    let launcher_desk = matches!(p.kind, PopupKind::Launcher) && !ctx.is_phone();
     let card = crate::anim::popup_presence(&ctx, open, presence_edge, attached, move || {
         let leave_timer = leave_timer.clone();
+        let mut card = DecoratedBox::new().child(content(&kind, ShellCtx::get())).class(&card_class);
+        if !launcher_desk {
+            card = card.style("width", StyleValue::px(width));
+        }
         Box::new(
-            InputArea::new(
-                DecoratedBox::new()
-                    .child(content(&kind, ShellCtx::get()))
-                    .class(&card_class)
-                    .style("width", StyleValue::px(width)),
-            )
+            InputArea::new(card)
             .absorb()
             .on_hover(move |inside| {
                 if !hover_close {
@@ -278,8 +280,15 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
             let edge = if w <= 0.0 && h <= 0.0 && p.anchor.edge == Edge::Top && y > oh * 0.55 { Edge::Bottom } else { p.anchor.edge };
             match edge {
                 Edge::Bottom | Edge::Top => {
-                    // Точка (меню окна) — от неё вправо, кнопка — по центру над ней.
-                    let left = if w <= 0.0 { clamp_x(x) } else { clamp_x(x + w / 2.0 - width / 2.0) };
+                    // Точка (меню окна) — от неё вправо, кнопка — по центру над ней;
+                    // меню запуска — как задано в `[launcher] align`.
+                    let left = if w <= 0.0 {
+                        clamp_x(x)
+                    } else if let Some((a, len)) = launcher_desk.then(|| launcher_span(&ctx, output_name.as_deref(), [x, y, w, h], false)).flatten() {
+                        clamp_x(align_in(&ctx, a, len, width))
+                    } else {
+                        clamp_x(x + w / 2.0 - width / 2.0)
+                    };
                     let row = Row::new().child(card).style("padding-left", StyleValue::px(left));
                     let col = if edge == Edge::Bottom {
                         Column::new()
@@ -295,6 +304,11 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
                     Box::new(col.class("popup-place"))
                 }
                 Edge::Left | Edge::Right => {
+                    let menu_h = ctx.cfg().launcher.height as f32;
+                    let y = match launcher_desk.then(|| launcher_span(&ctx, output_name.as_deref(), [x, y, w, h], true)).flatten() {
+                        Some((a, len)) => align_in(&ctx, a, len, menu_h),
+                        None => y,
+                    };
                     let top = y.clamp(GAP, (oh - 200.0).max(GAP));
                     let col = Column::new().child(card).style("padding-top", StyleValue::px(top));
                     let row = if p.anchor.edge == Edge::Left {
@@ -311,6 +325,23 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
         }
     } };
     Stack::new().fit(StackFit::Expand).child(backdrop).child(placed)
+}
+
+/// Отрезок, вдоль которого ставится меню запуска: кнопка (`icon`) или полоса
+/// панели (`center`, `start`, `end`) — начало и длина по оси панели.
+fn launcher_span(ctx: &ShellCtx, output: Option<&str>, rect: [f32; 4], vertical: bool) -> Option<(f32, f32)> {
+    let align = ctx.cfg().launcher.align.clone();
+    let r = if align == "icon" || align.is_empty() { rect } else { crate::panel::span_at(output, rect).unwrap_or(rect) };
+    Some(if vertical { (r[1], r[3]) } else { (r[0], r[2]) })
+}
+
+/// Начало меню размера `size` на отрезке (`a`, `len`) по `[launcher] align`.
+fn align_in(ctx: &ShellCtx, a: f32, len: f32, size: f32) -> f32 {
+    match ctx.cfg().launcher.align.as_str() {
+        "start" => a,
+        "end" => a + len - size,
+        _ => a + len / 2.0 - size / 2.0,
+    }
 }
 
 /// Телефон: окно по центру экрана, а не нижним листом (календарь часов).
