@@ -83,6 +83,8 @@ pub struct State {
     modifiers: syngui::input::Modifiers,
     handle: LoopHandle<'static, State>,
     timers: HashMap<u64, RegistrationToken>,
+    /// Запасной рендерер уже заказан ([`Self::schedule_prewarm`]).
+    prewarm_scheduled: bool,
     headless: Option<(u32, u32)>,
     dump_dir: Option<PathBuf>,
     options: RunOptions,
@@ -161,6 +163,7 @@ pub fn run(options: RunOptions, stylesheet: &str, init: Box<dyn FnOnce()>) -> an
         modifiers: syngui::input::Modifiers::empty(),
         handle: handle.clone(),
         timers: HashMap::new(),
+        prewarm_scheduled: false,
         headless,
         dump_dir,
         options,
@@ -420,6 +423,9 @@ impl State {
             Command::Close { id } => {
                 if let Some(mut s) = self.surfaces.remove(&id) {
                     s.teardown();
+                    if let Some(r) = s.renderer.take() {
+                        self.gpu.recycle(r, s.font_family.take());
+                    }
                     if self.pointer_focus == Some(id) {
                         self.pointer_focus = None;
                     }
@@ -642,6 +648,29 @@ impl State {
             }
         }
         self.update_cursor();
+        self.schedule_prewarm();
+    }
+
+    /// Через несколько секунд после первых кадров, в простое, — запасной
+    /// рендерер, чтобы и первое всплывающее окно (меню приложений) открылось
+    /// без компиляции конвейеров ([`Gpu::recycle`]).
+    fn schedule_prewarm(&mut self) {
+        if self.prewarm_scheduled || self.gpu.format.is_none() {
+            return;
+        }
+        self.prewarm_scheduled = true;
+        let mut tries = 0;
+        let _ = self.handle.insert_source(Timer::from_duration(Duration::from_secs(4)), move |_, _, st: &mut State| {
+            // Идёт анимация — не мешать кадрам, попробовать позже; но не
+            // бесконечно: на главном экране может всё время жить график.
+            tries += 1;
+            if tries < 4 && st.surfaces.values().any(|s| s.needs_frame || s.frame_pending) {
+                return TimeoutAction::ToDuration(Duration::from_secs(1));
+            }
+            let font = st.options.font_family.clone();
+            st.gpu.prewarm(font);
+            TimeoutAction::Drop
+        });
     }
 
     fn surface_id_of(&self, wl: &wl_surface::WlSurface) -> Option<SurfaceId> {
@@ -664,6 +693,9 @@ impl State {
     fn closed_by_compositor(&mut self, id: SurfaceId) {
         if let Some(mut s) = self.surfaces.remove(&id) {
             s.teardown();
+            if let Some(r) = s.renderer.take() {
+                self.gpu.recycle(r, s.font_family.take());
+            }
             if let Some(cb) = s.hooks.on_closed.take() {
                 cb();
             }

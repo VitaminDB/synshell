@@ -75,12 +75,15 @@ pub struct Surface {
     rscale: f64,
     /// Область ввода (`None` — вся поверхность).
     pub input_region: Option<Vec<[i32; 4]>>,
+    /// Семейство шрифта, с которым создан рендерер (для [`crate::gpu::Gpu::recycle`]).
+    pub font_family: Option<String>,
 }
 
 impl Surface {
     pub fn new(id: SurfaceId, spec: SurfaceSpec, hooks: SurfaceHooks, factory: Factory) -> Self {
         let requested = spec.size;
         Self {
+            font_family: None,
             id,
             spec,
             hooks,
@@ -260,13 +263,23 @@ impl Surface {
             }
             Backend::Pending => return Ok(false),
         };
+        // Рендерер новой поверхности — из запаса закрытых, иначе новый.
+        let fresh = if self.renderer.is_none() {
+            gpu.format = Some(format);
+            Some(match gpu.take_pooled(format, &font_family) {
+                Some(mut r) => {
+                    r.resize(&gpu.shared.as_ref().unwrap().device, phys.0, phys.1, uw_px, uh_px);
+                    r
+                }
+                None => gpu.new_renderer(format, (phys.0, phys.1, uw_px, uh_px), font_family.clone()),
+            })
+        } else {
+            None
+        };
         let shared = gpu.shared.as_ref().unwrap();
         if self.renderer.is_none() {
-            let r = Renderer::new(shared, format, phys.0, phys.1, uw_px, uh_px, font_family);
-            r.font_atlas
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .set_icon_font_data(syngui::text::icon_fonts::material::FONT_DATA.to_vec());
+            let r = fresh.unwrap();
+            self.font_family = font_family;
             r.font_atlas.lock().unwrap_or_else(|e| e.into_inner()).set_scale_factor(scale as f32);
             self.view.tree.text_measure =
                 Some(r.font_atlas.clone() as std::sync::Arc<dyn syngui::widget::context::TextMeasure>);

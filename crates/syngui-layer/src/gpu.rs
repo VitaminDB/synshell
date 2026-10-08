@@ -3,15 +3,64 @@
 
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle, WaylandDisplayHandle, WaylandWindowHandle};
 use std::ptr::NonNull;
-use syngui::gpu::{GpuShared, WindowSurface};
+use syngui::gpu::{GpuShared, Renderer, WindowSurface};
 use wayland_client::{protocol::wl_surface::WlSurface, Proxy};
 
 pub struct Gpu {
     pub instance: wgpu::Instance,
     pub shared: Option<GpuShared>,
+    /// Рендереры закрытых поверхностей (с семейством шрифта), см. [`Gpu::recycle`].
+    pool: Vec<(Renderer, Option<String>)>,
+    /// Формат поверхностей (известен после первого рендерера).
+    pub format: Option<wgpu::TextureFormat>,
 }
 
+/// Сколько рендереров закрытых поверхностей держать про запас.
+const POOL: usize = 2;
+
 impl Gpu {
+    /// Сохранить рендерер закрытой поверхности для следующей. Новый
+    /// рендерер — это компиляция всех конвейеров и загрузка шрифтов (на
+    /// слабом телефоне ~0,4 с), а всплывающие окна (меню приложений,
+    /// «Пуск», громкость) создаются при каждом открытии. С рендерером
+    /// переходят и его атлас глифов, и залитые в GPU картинки — значки
+    /// меню рисуются сразу.
+    pub fn recycle(&mut self, renderer: Renderer, font_family: Option<String>) {
+        if self.pool.len() >= POOL {
+            self.pool.remove(0);
+        }
+        self.pool.push((renderer, font_family));
+    }
+
+    /// Новый рендерер (с иконочным шрифтом) — дорого: конвейеры, шрифты.
+    pub fn new_renderer(&self, format: wgpu::TextureFormat, size: (u32, u32, u32, u32), font_family: Option<String>) -> Renderer {
+        let shared = self.shared.as_ref().expect("GPU ещё не создан");
+        let r = Renderer::new(shared, format, size.0, size.1, size.2, size.3, font_family);
+        r.font_atlas
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .set_icon_font_data(syngui::text::icon_fonts::material::FONT_DATA.to_vec());
+        r
+    }
+
+    /// Положить в запас рендерер, если запас пуст.
+    pub fn prewarm(&mut self, font_family: Option<String>) {
+        let Some(format) = self.format else { return };
+        if self.shared.is_none() || self.pool.iter().any(|(r, f)| r.surface_format() == format && *f == font_family) {
+            return;
+        }
+        let t = std::time::Instant::now();
+        let r = self.new_renderer(format, (1, 1, 1, 1), font_family.clone());
+        log::debug!("syngui-layer: запасной рендерер за {:?}", t.elapsed());
+        self.recycle(r, font_family);
+    }
+
+    /// Рендерер из запаса под этот формат и шрифт.
+    pub fn take_pooled(&mut self, format: wgpu::TextureFormat, font_family: &Option<String>) -> Option<Renderer> {
+        let i = self.pool.iter().rposition(|(r, f)| r.surface_format() == format && f == font_family)?;
+        Some(self.pool.remove(i).0)
+    }
+
     pub fn new() -> Self {
         // Как у winit-приложений syngui: Vulkan, иначе GL.
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
@@ -19,7 +68,7 @@ impl Gpu {
             flags: syngui::gpu::instance_flags(),
             ..Default::default()
         });
-        Self { instance, shared: None }
+        Self { instance, shared: None, pool: Vec::new(), format: None }
     }
 
     /// Устройство, совместимое с `surface` (или без поверхности — headless).
