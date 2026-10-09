@@ -125,6 +125,12 @@ pub struct PeerInfo {
     /// Идёт звук трансляции с этим устройством (`Request::Audio`).
     #[serde(default)]
     pub audio: bool,
+    /// Сколько секунд назад слышали анонс устройства (диагностика поиска).
+    #[serde(default)]
+    pub heard_ago: Option<u32>,
+    /// Почему не соединено: идёт попытка, последняя ошибка, пауза после неудачного спаривания.
+    #[serde(default)]
+    pub link_note: Option<String>,
 }
 
 impl PeerInfo {

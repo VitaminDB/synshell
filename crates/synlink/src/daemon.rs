@@ -37,6 +37,8 @@ struct Nearby {
     addr: SocketAddr,
     transport: Transport,
     seen: Instant,
+    /// С какого момента слышно без перерыва (дольше 20 с).
+    since: Instant,
 }
 
 #[derive(Default)]
@@ -48,7 +50,11 @@ struct St {
     waiters: HashMap<String, oneshot::Sender<bool>>,
     /// Спаривание начал пользователь (`synlink pair`).
     intents: HashSet<String>,
-    connecting: HashSet<String>,
+    /// Идёт исходящее соединение: когда начато и номер попытки (снимает запись только своя попытка).
+    connecting: HashMap<String, (Instant, u64)>,
+    connect_seq: u64,
+    /// Последняя ошибка исходящего соединения — в журнал пишется только новая, видна в `synlink status`.
+    connect_err: HashMap<String, String>,
     /// Спаривание идёт (второе соединение ждёт или отбрасывается).
     pairing: HashSet<String>,
     /// Неудачное спаривание: сами не соединяемся какое-то время.
@@ -85,6 +91,9 @@ pub struct Daemon {
     /// Звук трансляции, включённый отсюда (`audio.rs`).
     pub audio: crate::audio::Sessions,
 }
+
+/// Исходящая попытка без сеанса дольше этого считается зависшей.
+const CONNECT_STALE: Duration = Duration::from_secs(30);
 
 const SLEEP_FLAG: &str = "/run/syn-sleep/screen-off";
 const SLEEP_INHIBIT: &str = "/run/syn-sleep/inhibit.d";
@@ -184,6 +193,8 @@ impl Daemon {
                 ssh_host: Some(crate::ssh::host_alias(t)),
                 last_seen: t.last_seen,
                 audio: audio.contains(&t.id),
+                heard_ago: n.map(|n| n.seen.elapsed().as_secs() as u32),
+                link_note: if s.is_some() { None } else { Self::link_note(&st, &t.id) },
             });
         }
         for (id, n) in &st.nearby {
@@ -205,6 +216,19 @@ impl Daemon {
         // Соединённые — первыми, потом спаренные, потом рядом.
         peers.sort_by_key(|p| (!p.connected, !p.paired, p.name.to_lowercase()));
         Status { me: SelfInfo { id: self.id.id.clone(), name: st.name.clone(), kind: self.kind, discoverable: st.discoverable }, usb: st.usb.clone(), peers, prompts: st.prompts.clone() }
+    }
+
+    fn link_note(st: &St, id: &str) -> Option<String> {
+        if st.pairing.contains(id) {
+            return Some("идёт спаривание".into());
+        }
+        if let Some((t, _)) = st.connecting.get(id) {
+            return Some(format!("соединяюсь {} с", t.elapsed().as_secs()));
+        }
+        if let Some(t) = st.backoff.get(id).filter(|t| t.elapsed() < Duration::from_secs(60)) {
+            return Some(format!("пауза после неудачного спаривания ещё {} с", 60 - t.elapsed().as_secs()));
+        }
+        st.connect_err.get(id).cloned()
     }
 
     pub fn emit(&self, e: Event) {
@@ -346,7 +370,8 @@ impl Daemon {
                 cable && n.transport == Transport::Usb && transport == Transport::Wifi && n.seen.elapsed() < Duration::from_secs(10)
             });
             if !keep_usb {
-                st.nearby.insert(a.id.clone(), Nearby { name: a.name.clone(), kind: a.kind, addr, transport, seen: Instant::now() });
+                let since = st.nearby.get(&a.id).filter(|_| !fresh).map_or_else(Instant::now, |n| n.since);
+                st.nearby.insert(a.id.clone(), Nearby { name: a.name.clone(), kind: a.kind, addr, transport, seen: Instant::now(), since });
             }
             // Устройство переименовалось (Параметры, имя модели при загрузке) — имя в анонсе новее, чем в
             // приветствии открытого сеанса и в списке спаренных.
@@ -369,12 +394,17 @@ impl Daemon {
                 Some(s) => s.transport == Transport::Wifi && transport == Transport::Usb,
                 None => trusted || transport == Transport::Usb,
             };
-            let initiator = self.id.id < a.id;
+            // Начинает сторона с меньшим id; если та молчит (слышим давно, сеанса нет) — начинаем сами.
+            let initiator = self.id.id < a.id || trusted && st.nearby.get(&a.id).is_some_and(|n| n.since.elapsed() > Duration::from_secs(20));
             let cooling = st.backoff.get(&a.id).is_some_and(|t| t.elapsed() < Duration::from_secs(60));
             let asleep = transport == Transport::Wifi && self.sleeping.load(std::sync::atomic::Ordering::Relaxed);
-            (want && initiator && !cooling && !asleep && !st.connecting.contains(&a.id), fresh)
+            // Попытка дольше CONNECT_STALE без сеанса — зависла (не должна: все шаги до сеанса с тайм-аутами), но
+            // раньше такая запись навсегда запирала соединение до перезапуска демона. Спаривание ждёт человека — не трогаем.
+            let busy = st.connecting.get(&a.id).is_some_and(|(t, _)| t.elapsed() < CONNECT_STALE) || st.pairing.contains(&a.id);
+            (want && initiator && !cooling && !asleep && !busy, fresh)
         };
         if fresh {
+            tracing::info!(peer = %a.name, id = %a.id, %addr, transport = transport.title(), "устройство слышно");
             self.emit_status();
         }
         if connect {
@@ -383,9 +413,19 @@ impl Daemon {
     }
 
     pub async fn connect(self: D, id: String, addr: SocketAddr) {
-        if !self.st.lock().unwrap().connecting.insert(id.clone()) {
-            return;
-        }
+        let seq = {
+            let mut st = self.st.lock().unwrap();
+            if st.connecting.get(&id).is_some_and(|(t, _)| t.elapsed() < CONNECT_STALE) || st.pairing.contains(&id) {
+                return;
+            }
+            if let Some((t, _)) = st.connecting.get(&id) {
+                tracing::warn!(id, secs = t.elapsed().as_secs(), "прежняя попытка соединения зависла — начинаю новую");
+            }
+            st.connect_seq += 1;
+            let seq = st.connect_seq;
+            st.connecting.insert(id.clone(), (Instant::now(), seq));
+            seq
+        };
         let res = async {
             let conn = self.ep.connect(addr, "synlink")?;
             let conn = tokio::time::timeout(Duration::from_secs(6), conn).await.context("тайм-аут")??;
@@ -396,11 +436,24 @@ impl Daemon {
             Ok(conn) => {
                 if let Err(e) = self.clone().run_session(conn, true).await {
                     tracing::info!(%addr, "сеанс: {e:#}");
+                    self.connect_failed(&id, format!("сеанс: {e:#}"));
                 }
             }
-            Err(e) => tracing::debug!(%addr, "соединение: {e:#}"),
+            Err(e) => self.connect_failed(&id, format!("соединение с {addr}: {e:#}")),
         }
-        self.st.lock().unwrap().connecting.remove(&id);
+        let mut st = self.st.lock().unwrap();
+        if st.connecting.get(&id).is_some_and(|(_, s)| *s == seq) {
+            st.connecting.remove(&id);
+        }
+    }
+
+    /// Неудачная попытка: в журнал — только когда ошибка сменилась (анонсы идут каждые 4 с).
+    fn connect_failed(&self, id: &str, err: String) {
+        let mut st = self.st.lock().unwrap();
+        if st.connect_err.get(id) != Some(&err) {
+            tracing::info!(id, "не соединилось: {err}");
+            st.connect_err.insert(id.to_string(), err);
+        }
     }
 
     pub async fn accept_loop(self: D) {
@@ -546,6 +599,7 @@ impl Daemon {
             st.peers.save();
             // Сеанс есть — новое соединение (переезд на USB) больше не блокируется.
             st.connecting.remove(&pid);
+            st.connect_err.remove(&pid);
             st.sessions.insert(
                 pid.clone(),
                 Session { conn: conn.clone(), transport, addr: conn.remote_address(), hello: hello.clone(), ctl: ctl_tx.clone(), battery: None, gen },

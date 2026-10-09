@@ -272,6 +272,14 @@ fn cli(args: &[String]) -> Result<()> {
                 if let Some(m) = p.files_path() {
                     extra.push(format!("файлы {m}"));
                 }
+                if !p.connected {
+                    if let Some(s) = p.heard_ago {
+                        extra.push(format!("слышно {s} с назад ({})", p.address.as_deref().unwrap_or("?")));
+                    }
+                    if let Some(n) = &p.link_note {
+                        extra.push(n.clone());
+                    }
+                }
                 if let (true, Some(h)) = (p.paired, &p.ssh_host) {
                     extra.push(format!("ssh {h}"));
                 }
