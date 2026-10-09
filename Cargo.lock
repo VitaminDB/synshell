@@ -4940,6 +4940,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-nfc"
+version = "0.1.41"
+dependencies = [
+ "serde",
+ "serde_json",
+ "syngui",
+ "synnfc",
+ "synshell-common",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "syn-video-player"
 version = "0.1.41"
 dependencies = [
@@ -5200,6 +5213,20 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "synshell-tr",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "synnfc"
+version = "0.1.41"
+dependencies = [
+ "anyhow",
+ "libc",
+ "serde",
+ "serde_json",
+ "synshell-common",
  "synshell-tr",
  "tracing",
  "tracing-subscriber",

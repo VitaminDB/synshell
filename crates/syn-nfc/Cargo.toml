@@ -1,0 +1,20 @@
+[package]
+name = "syn-nfc"
+description = "NFC synshell: чтение меток, сохранение, запись на метки и эмуляция (служба synnfcd)"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "syn-nfc"
+path = "src/main.rs"
+
+[dependencies]
+synshell-common = { workspace = true, features = ["i18n"] }
+synnfc = { path = "../synnfc" }
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "clipboard", "i18n", "image"] }
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

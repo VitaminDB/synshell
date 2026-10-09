@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=NFC
+GenericName=Метки NFC
+GenericName[en]=NFC Tags
+Comment=Чтение, сохранение, запись и эмуляция меток NFC
+Comment[en]=Read, save, write and emulate NFC tags
+Exec=syn-nfc
+Icon=syn-nfc
+Categories=Utility;
+Keywords=nfc;tag;ntag;ndef;rfid;метка;метки;бесконтакт;
+StartupNotify=true
