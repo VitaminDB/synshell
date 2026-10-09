@@ -686,6 +686,12 @@ pub fn explore_view(st: St) -> W {
             return vec![catalog_view(st)];
         }
         let mut col = Column::new().gap(4.0);
+        // Группы pacman (`plasma`, `gnome`) пакетами не ищутся — показать отдельно.
+        let inst = installed_versions(st);
+        let groups = matching_groups(st, &q, false, &inst);
+        if !groups.is_empty() {
+            col = col.child(groups_block(st, "Группы пакетов", groups.into_iter().take(20).collect(), inst)).child(DecoratedBox::new().class("section-gap"));
+        }
         if busy {
             col = col.child(busy_row("Поиск…"));
         } else if res.is_empty() {
@@ -964,6 +970,36 @@ pub fn meta_view(st: St) -> W {
     Box::new(col.child(list).class(if desk { "page" } else { "" }))
 }
 
+/// Установленные: имя → версия (для строк групп).
+pub fn installed_versions(st: St) -> HashMap<String, String> {
+    st.installed.get().into_iter().map(|p| (p.name, p.version)).collect()
+}
+
+/// Группы pacman, чьё имя содержит `q` (поиск, фильтр); `only_installed` — с
+/// установленными пакетами. Известные — первыми.
+pub fn matching_groups(st: St, q: &str, only_installed: bool, inst: &HashMap<String, String>) -> Vec<pk::Group> {
+    let q = q.trim().to_lowercase();
+    let mut v: Vec<pk::Group> = st
+        .groups
+        .get()
+        .into_iter()
+        .filter(|g| q.is_empty() || g.name.contains(&q) || GROUP_INFO.iter().any(|(n, d)| *n == g.name && d.to_lowercase().contains(&q)))
+        .filter(|g| !only_installed || g.members.iter().any(|m| inst.contains_key(m)))
+        .collect();
+    v.sort_by_key(|g| (GROUP_INFO.iter().position(|(n, _)| *n == g.name).unwrap_or(usize::MAX), g.name != q));
+    v
+}
+
+/// Заголовок и строки групп.
+pub fn groups_block(st: St, title: &str, groups: Vec<pk::Group>, inst: HashMap<String, String>) -> Column {
+    let inst = std::sync::Arc::new(inst);
+    let mut col = Column::new().gap(4.0).child(Text::new(format!("{title}: {}", groups.len())).class("muted list-head"));
+    for g in groups {
+        col = col.child(group_row(st, g, inst.clone()));
+    }
+    col
+}
+
 /// Строка группы: название, сколько установлено, кнопки очереди; щелчок —
 /// состав (пакеты метками, установленные — зелёные; щелчок по метке — пакет).
 fn group_row(st: St, g: pk::Group, inst: std::sync::Arc<HashMap<String, String>>) -> W {
@@ -1142,8 +1178,19 @@ pub fn installed_view(st: St) -> W {
             })
             .collect();
         let n = v.len();
+        let mut col = Column::new().gap(4.0);
+        // Метапакеты: и группы, из которых что-то установлено (`plasma`, `gnome`…) — удалить разом.
+        if kind == InstFilter::Meta {
+            let inst = installed_versions(st);
+            let mut groups = matching_groups(st, &f, true, &inst);
+            // Установленные почти целиком (`plasma`) — выше тех, где лишь общие зависимости.
+            groups.sort_by_key(|g| std::cmp::Reverse(g.members.iter().filter(|m| inst.contains_key(*m)).count() * 100 / g.members.len().max(1)));
+            if !groups.is_empty() {
+                col = col.child(groups_block(st, "Группы с установленными пакетами", groups, inst)).child(DecoratedBox::new().class("section-gap"));
+            }
+        }
         // Длинный список — первые 400 (фильтр сужает).
-        let mut col = Column::new().gap(4.0).child(select_all_row(st, &v, "Пакетов", true));
+        col = col.child(select_all_row(st, &v, if kind == InstFilter::Meta { "Метапакетов" } else { "Пакетов" }, true));
         col = col.child(pkg_list(st, pkgs(v.into_iter().take(400).collect())));
         if n > 400 {
             col = col.child(Text::new(format!("Показаны первые 400 из {n} — уточните фильтр")).class("muted empty"));
