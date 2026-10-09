@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Компас
+Name[en]=Compass
+GenericName=Компас и уровень
+GenericName[en]=Compass and Level
+Comment=Стороны света по магнитометру, калибровка, уровень и координаты
+Comment[en]=Cardinal directions from the magnetometer, calibration, level and coordinates
+Exec=syn-compass
+Icon=syn-compass
+Categories=Utility;
+Keywords=compass;heading;north;level;magnetometer;компас;север;азимут;уровень;магнитометр;
+StartupNotify=true

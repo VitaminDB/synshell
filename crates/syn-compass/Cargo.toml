@@ -1,0 +1,20 @@
+[package]
+name = "syn-compass"
+description = "Компас synshell: курс по магнитометру и акселерометру (SLPI), калибровка «восьмёркой», уровень, координаты"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "syn-compass"
+path = "src/main.rs"
+
+[dependencies]
+synshell-common = { workspace = true, features = ["i18n"] }
+synsystem.workspace = true
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "image"] }
+serde.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

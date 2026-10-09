@@ -50,7 +50,7 @@ _profile=${SYNSHELL_PROFILE:-release}
 
 build() {
     cd "$startdir"
-    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player -p syn-maps -p syngamepad -p synpass
+    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player -p syn-maps -p syn-compass -p syngamepad -p synpass
 }
 
 check() {
@@ -60,7 +60,7 @@ check() {
 
 package() {
     cd "$startdir"
-    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player syn-maps syngamepad synpass; do
+    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player syn-maps syn-compass syngamepad synpass; do
         install -Dm755 "target/$_profile/$b" "$pkgdir/usr/bin/$b"
     done
     install -Dm755 data/synshell-session "$pkgdir/usr/bin/synshell-session"
@@ -97,6 +97,10 @@ package() {
         "$pkgdir/usr/share/applications/syn-maps.desktop"
     install -Dm644 crates/syn-maps/data/icons/syn-maps.svg \
         "$pkgdir/usr/share/icons/hicolor/scalable/apps/syn-maps.svg"
+    install -Dm644 crates/syn-compass/data/syn-compass.desktop \
+        "$pkgdir/usr/share/applications/syn-compass.desktop"
+    install -Dm644 crates/syn-compass/data/icons/syn-compass.svg \
+        "$pkgdir/usr/share/icons/hicolor/scalable/apps/syn-compass.svg"
     install -Dm644 crates/synpass/data/synpass.desktop \
         "$pkgdir/usr/share/applications/synpass.desktop"
     install -Dm644 crates/synpass/data/icons/synpass.svg \

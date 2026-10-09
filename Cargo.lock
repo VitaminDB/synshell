@@ -4912,6 +4912,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-compass"
+version = "0.1.41"
+dependencies = [
+ "serde",
+ "syngui",
+ "synshell-common",
+ "synsystem",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "syn-maps"
 version = "0.1.41"
 dependencies = [

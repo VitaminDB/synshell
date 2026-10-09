@@ -26,6 +26,7 @@ members = [
     "crates/syn-video-player",
     "crates/syn-audio-player",
     "crates/syn-maps",
+    "crates/syn-compass",
     "crates/syngamepad",
 ]
 
