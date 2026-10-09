@@ -262,6 +262,8 @@ pub struct St {
     pub group_open: RwSignal<Option<String>>,
     /// «Метапакеты и группы»: показаны группы (иначе метапакеты).
     pub show_groups: RwSignal<bool>,
+    /// «Задачи»: доля высоты очереди над логом задания (разделитель).
+    pub jobs_split: RwSignal<f32>,
 }
 
 static SEARCH_GEN: AtomicU64 = AtomicU64::new(0);
@@ -352,6 +354,7 @@ pub fn new_state(cfg: Config, query: String, window: RwSignal<syngui::window::Wi
         groups: use_signal(Vec::new()),
         group_open: use_signal(None),
         show_groups: use_signal(false),
+        jobs_split: use_signal(0.4),
     }
 }
 

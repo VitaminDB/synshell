@@ -1,5 +1,5 @@
 //! Снимок интерфейса без окна (`synpkg --screenshot out.png [--tab updates]
-//! [--meta] [--groups открытая-группа] [--size 1240x820] [--scale 1] [--view cards|list] [--queue имя:действие,…]`): данные читаются
+//! [--meta] [--groups открытая-группа] [--job строк-лога] [--size 1240x820] [--scale 1] [--view cards|list] [--queue имя:действие,…]`): данные читаются
 //! сразу (установленные, каталог, обновления), дерево syngui раскладывается и
 //! рисуется в текстуру wgpu, текстура — в PNG. Для проверки вёрстки без
 //! графического сеанса. Действие очереди: install, aur, remove, upgrade,
@@ -65,6 +65,17 @@ pub fn screenshot(out: &str) -> anyhow::Result<()> {
     if std::env::args().any(|a| a == "--meta") {
         st.category.set(Some(crate::META_KEY));
         st.inst_filter.set(crate::InstFilter::Meta);
+    }
+    if let Some(n) = arg_value("--job").and_then(|n| n.parse::<usize>().ok()) {
+        st.jobs.set(vec![crate::JobView {
+            id: 1,
+            title: "Обновление системы".into(),
+            stage: "pacman -Syu".into(),
+            log: (1..=n).map(|i| format!("строка лога {i}")).collect(),
+            done: None,
+            cancel: pk::JobCancel::default(),
+            cancelling: false,
+        }]);
     }
     if let Some(g) = arg_value("--groups") {
         st.category.set(Some(crate::META_KEY));

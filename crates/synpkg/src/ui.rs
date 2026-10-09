@@ -11,7 +11,7 @@ use syngui::mss::StyleValue;
 use syngui::prelude::*;
 use syngui::widgets::{EventHook, KeyReply, MenuItem, PopupMenu};
 use syngui::overlay::WindowResizeRegion;
-use syngui::{GestureDetector, ShowIf};
+use syngui::{GestureDetector, ShowIf, SplitDirection, SplitView};
 
 use crate::*;
 use crate::Tab;
@@ -1417,8 +1417,8 @@ pub fn queue_section(st: St) -> W {
     }))
 }
 
-/// Задачи: очередь, лог открытого задания — на всю высоту, остальные — строками ниже.
-pub fn jobs_view(st: St) -> W {
+/// Лог открытого задания и строки остальных.
+fn body_of(st: St) -> W {
     let body = Reactive::new(move || -> Vec<W> {
         let jobs = st.jobs.get();
         if jobs.is_empty() {
@@ -1480,7 +1480,42 @@ pub fn jobs_view(st: St) -> W {
         }
         vec![Box::new(col.class("grow"))]
     });
-    Box::new(Column::new().gap(10.0).child(queue_section(st)).child(body).class("pane"))
+    Box::new(body)
+}
+
+/// Задачи: очередь, лог открытого задания — на всю высоту, остальные — строками ниже.
+pub fn jobs_view(st: St) -> W {
+    // Очередь и задания вместе — разделителем: у каждой панели своя высота и
+    // прокрутка (иначе длинная очередь выталкивала конец лога за край окна).
+    // Раскладка пересобирается, только когда появляется или пропадает одна из частей.
+    let parts = use_signal((false, false));
+    create_effect(move || {
+        let p = (!st.queue.get().is_empty(), !st.jobs.get().is_empty());
+        if parts.get_untracked() != p {
+            parts.set(p);
+        }
+    });
+    let layout = Reactive::new(move || -> Vec<W> {
+        let (queue, jobs) = parts.get();
+        let body = DecoratedBox::new().child(body_of(st)).class("grow");
+        let w: W = if queue && jobs {
+            Box::new(
+                SplitView::new(ScrollView::new().vertical().child(queue_section(st)), body)
+                    .direction(SplitDirection::Vertical)
+                    .ratio_signal(st.jobs_split)
+                    .initial_ratio(st.jobs_split.get_untracked())
+                    .min_size(160.0)
+                    .divider_width(10.0)
+                    .class("grow"),
+            )
+        } else if queue {
+            Box::new(ScrollView::new().vertical().child(queue_section(st)).class("grow"))
+        } else {
+            Box::new(body)
+        };
+        vec![w]
+    });
+    Box::new(Column::new().child(DecoratedBox::new().child(layout).class("grow")).class("pane"))
 }
 
 /// Кнопки действий в подробностях: очередь, «сейчас», «Открыть».

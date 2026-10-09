@@ -76,7 +76,7 @@ Text { color: var(--fg); font-size: 14px; }
 .job-err { color: var(--danger); }
 .job-cancelled { color: var(--muted); }
 .job-error { font-size: 12px; color: var(--danger); }
-.log { padding: 8px; border-radius: var(--radius-sm); background: #00000040; flex-grow: 1; min-height: 160px; }
+.log { padding: 8px; border-radius: var(--radius-sm); background: #00000040; flex-grow: 1; min-height: 60px; }
 .log-line { font-family: monospace; font-size: 11px; color: var(--muted); }
 
 .toast-place { padding: 0px 16px 84px 16px; }
