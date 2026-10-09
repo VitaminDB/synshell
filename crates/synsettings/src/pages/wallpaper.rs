@@ -659,12 +659,18 @@ fn main_page(scr: (f32, f32), s: Sig) -> W {
             ),
             group(
                 &t!("Рабочий стол"),
-                vec![switch_row(
-                    t!("Значки на рабочем столе"),
-                    t!("Файлы из ~/Desktop; на телефоне — сетка приложений на домашнем экране"),
-                    op!["wallpaper", "desktop_icons"],
-                    w.desktop_icons,
-                )],
+                {
+                    let mut rows = vec![switch_row(
+                        t!("Значки на рабочем столе"),
+                        t!("Файлы из ~/Desktop; на телефоне — сетка приложений на домашнем экране"),
+                        op!["wallpaper", "desktop_icons"],
+                        w.desktop_icons,
+                    )];
+                    if c.widgets.is_some() {
+                        rows.push(widget_reset_row());
+                    }
+                    rows
+                },
             ),
             group(&t!("Свои обои для мониторов"), per_output),
         ],

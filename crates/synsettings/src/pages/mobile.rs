@@ -168,7 +168,11 @@ pub fn phone() -> W {
             group(
                 &t!("Домашний экран"),
                 vec![
-                    switch_row(t!("Страница ресурсов"), t!("Первая страница: процессор, память, питание, запущенные приложения"), op!["mobile", "resources_page"], m.resources_page),
+                    if c.widgets.is_some() {
+                        widget_reset_row()
+                    } else {
+                        switch_row(t!("Страница ресурсов"), t!("Первая страница: процессор, память, питание, запущенные приложения"), op!["mobile", "resources_page"], m.resources_page)
+                    },
                     int_row(&t!("Колонок в сетке"), "", op!["mobile", "home_columns"], m.home_columns as i64, 2, 8, 1),
                     choice_row(
                         t!("Вид «Пуска»"),

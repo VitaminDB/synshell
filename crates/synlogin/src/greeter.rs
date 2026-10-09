@@ -48,9 +48,10 @@ fn phone() -> bool {
 
 pub fn run() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,wgpu_core=warn,wgpu_hal=warn,naga=warn")).init();
-    // Язык экрана входа: как и тема — из конфига root (обычно его нет) или
-    // системного /etc/synshell/config.toml ([general] language), иначе LANG.
+    // Язык экрана входа — системный: /etc/synshell/config.toml ([general] language), иначе LANG;
+    // выбрали пользователя — его язык (см. user_language).
     synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::i18n::apply(&system_config());
     let (cfg, _) = synshell_common::Config::load();
     let mut mss = cfg.appearance.mss_variables();
     mss.push_str(&cfg.appearance.theme_mss_variables());
@@ -78,6 +79,14 @@ pub fn run() {
             st.now.set(synshell_ui::clock::unix_now());
             Some(std::time::Duration::from_secs(5))
         });
+        // Язык: у выбранного пользователя — его, иначе системный.
+        create_effect(move || {
+            let cfg = match st.stage.get() {
+                Stage::Password(u) => user_config(&u).unwrap_or_else(system_config),
+                _ => system_config(),
+            };
+            synshell_common::i18n::apply(&cfg);
+        });
         // Один пользователь — сразу к паролю.
         let us = st.users.get_untracked();
         if us.len() == 1 {
@@ -104,6 +113,19 @@ pub fn run() {
         log::error!("экран входа: {e:#}");
         std::process::exit(1);
     }
+}
+
+/// Системный конфиг оболочки (`/etc/synshell/config.toml`; нет — умолчания).
+fn system_config() -> synshell_common::Config {
+    synshell_common::Config::load_from(&synshell_common::paths::system_config_file()).0
+}
+
+/// Конфиг пользователя (`~/.config/synshell/config.toml`), если в нём задан язык.
+fn user_config(u: &User) -> Option<synshell_common::Config> {
+    let home = std::path::Path::new(&u.home);
+    let path = ["synshell", "syndesktop"].iter().map(|d| home.join(".config").join(d).join("config.toml")).find(|p| p.exists())?;
+    let (cfg, err) = synshell_common::Config::load_from(&path);
+    (err.is_none() && !cfg.general.language.trim().is_empty()).then_some(cfg)
 }
 
 fn set_value(st: St, i: usize, v: String) {
@@ -206,6 +228,7 @@ fn avatar(u: &User, class: &str) -> Box<dyn Widget> {
 fn view(st: St) -> impl Widget {
     let clock = Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let now = st.now.get();
+        syngui::i18n::subscribe();
         vec![Box::new(
             Column::new()
                 .gap(2.0)
@@ -216,11 +239,15 @@ fn view(st: St) -> impl Widget {
     });
     let body = Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let s = st.stage.get();
-        let key = match &s {
-            Stage::Users => 1u64,
-            Stage::Password(_) => 2,
-            Stage::Create => 3,
-        };
+        // смена языка (выбрали пользователя) — тоже пересборка: язык в ключе
+        let lang = syngui::i18n::language();
+        let lang_key = lang.tag().bytes().fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64)) << 8;
+        let key = lang_key
+            | match &s {
+                Stage::Users => 1u64,
+                Stage::Password(_) => 2,
+                Stage::Create => 3,
+            };
         vec![Box::new(
             AnimatedSwitcher::new(key, move || -> Box<dyn Widget> {
                 match st.stage.get_untracked() {
