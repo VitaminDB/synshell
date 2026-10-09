@@ -465,6 +465,9 @@
 "Открытая сеть" = "Open network"
 "Введите пароль сети" = "Enter the network password"
 "Подключено к «{ssid}»" = "Connected to “{ssid}”"
+"Включение DHCP в iwd" = "Enabling DHCP in iwd"
+"Работает, но адрес не получает: DHCP выключен" = "Running, but gets no address: DHCP is off"
+"Включить DHCP" = "Enable DHCP"
 
 # src/notifications.rs
 "Не беспокоить" = "Do not disturb"

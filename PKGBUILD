@@ -43,6 +43,7 @@ options=('!lto')
 provides=('syndesktop')
 conflicts=('syndesktop')
 replaces=('syndesktop')
+install=synshell.install
 
 # Профиль cargo: release (LTO) — для AUR/GitHub; локально быстрее
 # `SYNSHELL_PROFILE=fast-release makepkg -f`.
@@ -119,6 +120,7 @@ package() {
     install -Dm644 crates/synlink/autostart/synlink.desktop "$pkgdir/etc/xdg/autostart/synlink.desktop"
     install -Dm644 crates/synshell-ui/data/syndesktop-lock.pam "$pkgdir/etc/pam.d/syndesktop-lock"
     install -Dm644 crates/synlogin/data/synlogin.service "$pkgdir/usr/lib/systemd/system/synlogin.service"
+    install -Dm644 crates/synlogin/data/synlogin.pam "$pkgdir/etc/pam.d/synlogin"
     install -Dm644 crates/synshell-common/default-config.toml \
         "$pkgdir/usr/share/doc/synshell/config.toml.example"
 }

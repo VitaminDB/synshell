@@ -66,7 +66,7 @@ app_colors = true
 [input.keyboard]
 layouts = "us,ru"
 variants = ""
-options = "grp:alt_shift_toggle"
+options = "grp:ctrl_shift_toggle"
 model = ""
 repeat_delay = 400
 repeat_rate = 30

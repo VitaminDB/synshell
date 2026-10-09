@@ -1,9 +1,12 @@
 # Экран входа synshell. Установка: install -Dm644 data/synlogin.service
-# /etc/systemd/system/ && systemctl enable synlogin (вместо display-manager).
+# /etc/systemd/system/ && systemctl enable synlogin (вместо display-manager;
+# пакет synshell включает его сам, если другой экран входа не выбран).
+# На десктопе экран входа и сеансы — logind-сеансы на VT 1 (PAM-сервис
+# /etc/pam.d/synlogin); на телефоне юнит задаёт LIBSEAT_BACKEND=noop.
 # Аргументы композитора — после `--` (телефон: --cpu).
 [Unit]
 Description=synlogin — экран входа synshell
-After=systemd-user-sessions.service dbus.service
+After=systemd-user-sessions.service systemd-logind.service dbus.service
 Conflicts=getty@tty1.service
 
 [Service]

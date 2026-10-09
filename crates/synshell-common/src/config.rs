@@ -569,7 +569,7 @@ impl Default for Keyboard {
         Self {
             layouts: "us,ru".into(),
             variants: String::new(),
-            options: "grp:alt_shift_toggle".into(),
+            options: "grp:ctrl_shift_toggle".into(),
             model: String::new(),
             repeat_delay: 400,
             repeat_rate: 30,

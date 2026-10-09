@@ -4,6 +4,7 @@
 
 mod daemon;
 mod greeter;
+mod pam_session;
 mod users;
 
 fn main() {
@@ -14,6 +15,10 @@ fn main() {
             daemon::run()
         }
         Some("greeter") => greeter::run(),
+        Some("session-worker") => {
+            env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+            pam_session::worker(&args.collect::<Vec<_>>())
+        }
         _ => {
             eprintln!("synlogin daemon [-- аргументы synwm] | synlogin greeter");
             std::process::exit(2);

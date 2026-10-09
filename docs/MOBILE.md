@@ -270,7 +270,15 @@ CPU; на Redmi K50 Ultra — юнит устройства в synmobile с ок
    `dbus-run-session synwm`, свой каталог `/run/synlogin/session/UID`. Композитор — от имени пользователя
    (initgroups/setgid/setuid), узлы `/dev/dri`,
    `/dev/input`, `/dev/kgsl-3d0`, `/dev/dma_heap`, `/dev/snd`, яркость подсветки и светодиодов — во владение
-   пользователю (logind-сеанса нет), после сеанса — обратно root и `pkill -u`;
+   пользователю (logind-сеанса нет), после сеанса — прежним владельцам и `pkill -u`;
+Десктоп (в ядре есть VT, logind ведёт seat0, `LIBSEAT_BACKEND` не задан; `SYNLOGIN_NO_LOGIND=1` — выключить):
+экран входа и сеанс запускаются через работника `synlogin session-worker КЛАСС ПОЛЬЗОВАТЕЛЬ -- программа`
+(root): переключает на VT 1 (`SYNLOGIN_VT`), открывает сеанс PAM `/etc/pam.d/synlogin` (иначе `login`) —
+pam_systemd регистрирует logind-сеанс (класс greeter/user, seat0, `XDG_SESSION_TYPE=wayland`), libseat
+композитора берёт устройства у logind; программа — от имени пользователя, после неё сеанс закрывается.
+linger, `pkill -u` не нужны; устройства по-прежнему отдаются пользователю, после сеанса — прежним
+владельцам (группы video/input/render). Без этого libseat падал «Failed to open session: Function not
+implemented», демон перезапускал экран входа каждые 2 с. Откат на CPU — только при падении сигналом.
 4. «Выйти» в меню питания завершает композитор — снова экран входа; «Перезагрузка» и «Выключить» в сеансе
    (`SYNLOGIN_REQUEST`) композитор передаёт демону файлом и выходит — демон выполняет их от root.
 

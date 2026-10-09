@@ -884,6 +884,9 @@
 "Доступные" = "Available"
 "Включите «Поиск устройств» и переведите устройство в режим сопряжения." = "Turn on “Device discovery” and put the device in pairing mode."
 "Наушники, колонки, клавиатуры и другие устройства." = "Headphones, speakers, keyboards and other devices."
+"Включение DHCP в iwd" = "Enabling DHCP in iwd"
+"Работает, но адрес не получает: DHCP выключен" = "Running, but gets no address: DHCP is off"
+"Включить DHCP" = "Enable DHCP"
 
 # src/pages/panels.rs
 "Сетка" = "Grid"

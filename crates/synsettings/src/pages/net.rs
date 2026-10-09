@@ -72,6 +72,24 @@ fn service_do(unit: &'static str, name: &'static str, start: bool) {
     });
 }
 
+/// Включить DHCP в iwd — в фоне, затем перечитать состояние Wi-Fi.
+fn iwd_dhcp_do() {
+    let sig = wifi_sig();
+    let label = t!("Включение DHCP в iwd");
+    state::toast(format!("{label}…"));
+    std::thread::spawn(move || {
+        let r = wifi::enable_iwd_dhcp();
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        run_on_main_thread(move || {
+            state::toast(match r {
+                Ok(()) => t!("{label}: готово", label = label),
+                Err(e) => format!("{label}: {e}"),
+            });
+            refresh_wifi(sig);
+        });
+    });
+}
+
 /// Строки служб: установленные — с кнопкой «Запустить» / «Остановить».
 fn service_rows() -> W {
     let sv = services_sig();
@@ -85,6 +103,9 @@ fn service_rows() -> W {
             .into_iter()
             .map(|s| {
                 let (unit, name, active) = (s.unit, s.name, s.active);
+                if s.no_dhcp {
+                    return row_inline(name, t!("Работает, но адрес не получает: DHCP выключен"), button(t!("Включить DHCP"), iwd_dhcp_do));
+                }
                 let hint = match (active, s.enabled) {
                     (true, true) => t!("Работает, включена при загрузке"),
                     (true, false) => t!("Работает"),

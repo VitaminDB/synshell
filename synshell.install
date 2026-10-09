@@ -1,0 +1,8 @@
+# Экран входа synlogin включается при установке, если другой экран входа
+# (display-manager.service) не выбран. Перезагрузка — и вход через synlogin.
+post_install() {
+    if [ ! -e /etc/systemd/system/display-manager.service ]; then
+        systemctl enable synlogin.service >/dev/null 2>&1 \
+            && echo ":: экран входа synlogin включён (systemctl disable synlogin — выключить)"
+    fi
+}

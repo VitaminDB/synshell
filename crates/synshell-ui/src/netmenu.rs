@@ -109,6 +109,24 @@ fn service_do(unit: &'static str, name: &'static str, start: bool) {
     });
 }
 
+/// Включить DHCP в iwd — в фоне.
+fn iwd_dhcp_do() {
+    let toast = toast_sig();
+    let label = t!("Включение DHCP в iwd");
+    toast.set(Some(format!("{label}…")));
+    std::thread::spawn(move || {
+        let r = wifi::enable_iwd_dhcp();
+        std::thread::sleep(Duration::from_millis(1500));
+        run_on_main_thread(move || {
+            toast.set(Some(match r {
+                Ok(()) => t!("{label}: готово", label = label),
+                Err(e) => format!("{label}: {e}"),
+            }));
+            refresh();
+        });
+    });
+}
+
 /// Службы Wi-Fi: `all` — все установленные (с кнопкой «Запустить» /
 /// «Остановить»), иначе только работающие (с «Остановить»).
 fn services_view(all: bool) -> Box<dyn Widget> {
@@ -122,8 +140,9 @@ fn services_view(all: bool) -> Box<dyn Widget> {
     }
     let mut col = Column::new().gap(2.0);
     for s in shown {
-        let (unit, name, active) = (s.unit, s.name, s.active);
+        let (unit, name, active, no_dhcp) = (s.unit, s.name, s.active, s.no_dhcp);
         let hint = match (active, s.enabled) {
+            _ if no_dhcp => t!("Работает, но адрес не получает: DHCP выключен"),
             (true, true) => t!("Работает, включена при загрузке"),
             (true, false) => t!("Работает"),
             (false, true) => t!("Остановлена, включена при загрузке"),
@@ -135,7 +154,11 @@ fn services_view(all: bool) -> Box<dyn Widget> {
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(icon(if active { mi::WIFI } else { mi::WIFI_OFF }).class(if active { "net-icon net-icon-on" } else { "net-icon" }))
                 .child(Column::new().gap(1.0).child(Text::new(t!("Служба {name}", name = name)).class("net-ssid")).child(Text::new(hint).class("net-hint")).class("grow"))
-                .child(action_button(if active { n_!("Остановить") } else { n_!("Запустить") }, move || service_do(unit, name, !active)))
+                .child(if no_dhcp {
+                    Box::new(action_button(n_!("Включить DHCP"), iwd_dhcp_do)) as Box<dyn Widget>
+                } else {
+                    Box::new(action_button(if active { n_!("Остановить") } else { n_!("Запустить") }, move || service_do(unit, name, !active)))
+                })
                 .class("net-row net-row-static"),
         );
     }

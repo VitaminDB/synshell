@@ -8,15 +8,18 @@
 //!    `/run/synlogin/session/UID` и `dbus-run-session synwm`;
 //! 3. «Выйти» в оболочке завершает сеанс — снова экран входа.
 //!
-//! Как `greetd`, но без VT и logind-сеанса: на телефоне с Android-ядром их
-//! нет (LIBSEAT_BACKEND=noop), поэтому доступ к устройствам выдаётся
-//! владельцем файлов и возвращается root после сеанса.
+//! На десктопе (VT есть, logind работает) экран входа и сеанс — настоящие
+//! logind-сеансы на VT 1 через PAM, как у `greetd` ([`pam_session`]): иначе
+//! libseat композитора не открывает seat. На телефоне с Android-ядром VT и
+//! logind-сеанса нет (LIBSEAT_BACKEND=noop) — доступ к устройствам выдаётся
+//! владельцем файлов и возвращается прежним владельцам после сеанса.
 
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
+use crate::pam_session;
 use crate::users;
 
 /// Запрос экрана входа: имя пользователя (или `!poweroff`, `!reboot`).
@@ -37,12 +40,17 @@ fn synwm_args() -> Vec<String> {
 /// Падения композитора сразу после старта подряд. GPU-рендер (zink/turnip на
 /// телефоне) может падать в драйвере — после двух таких падений экран входа и
 /// сеансы запускаются на CPU (`SYNSHELL_RENDERER=cpu`) до перезапуска демона.
+/// Падение — только сигнал (SIGSEGV/SIGBUS/SIGABRT в драйвере; через
+/// работника сеанса — код 128+сигнал): обычная ошибка запуска (нет seat'а и
+/// т. п.) на CPU не лечится, а CPU-рендер на большом экране тормозит всё.
 static EARLY_CRASHES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 const EARLY_CRASH: Duration = Duration::from_secs(20);
 
 fn note_compositor_exit(st: &std::io::Result<std::process::ExitStatus>, started: std::time::Instant) {
     use std::sync::atomic::Ordering;
-    let crashed = !matches!(st, Ok(s) if s.success()) && started.elapsed() < EARLY_CRASH;
+    use std::os::unix::process::ExitStatusExt;
+    let signaled = matches!(st, Ok(s) if s.signal().is_some() || s.code().is_some_and(|c| c > 128));
+    let crashed = signaled && started.elapsed() < EARLY_CRASH;
     if !crashed {
         EARLY_CRASHES.store(0, Ordering::Relaxed);
         return;
@@ -90,12 +98,26 @@ fn device_nodes() -> Vec<String> {
 
 fn chown_all(paths: &[String], uid: u32, gid: u32) {
     for p in paths {
-        let c = std::ffi::CString::new(p.as_str()).unwrap();
-        // SAFETY: путь — нуль-терминированная строка.
-        unsafe {
-            libc::chown(c.as_ptr(), uid, gid);
-        }
+        chown(p, uid, gid);
     }
+}
+
+fn chown(path: &str, uid: u32, gid: u32) {
+    let c = std::ffi::CString::new(path).unwrap();
+    // SAFETY: путь — нуль-терминированная строка.
+    unsafe {
+        libc::chown(c.as_ptr(), uid, gid);
+    }
+}
+
+/// Отдать узлы пользователю, запомнив прежних владельцев (группы video,
+/// input, render — udev; root:root после сеанса отнимал их у всех).
+fn take_devices(paths: &[String], uid: u32, gid: u32) -> Vec<(String, u32, u32)> {
+    use std::os::unix::fs::MetadataExt;
+    let owners: Vec<(String, u32, u32)> =
+        paths.iter().filter_map(|p| std::fs::metadata(p).ok().map(|m| (p.clone(), m.uid(), m.gid()))).collect();
+    chown_all(paths, uid, gid);
+    owners
 }
 
 fn run_greeter() {
@@ -106,7 +128,12 @@ fn run_greeter() {
     let _ = std::fs::set_permissions(rt, std::os::unix::fs::PermissionsExt::from_mode(0o700));
     log::info!("экран входа");
     let started = std::time::Instant::now();
-    let st = Command::new("dbus-run-session")
+    let mut cmd = if pam_session::available() {
+        pam_session::worker_command("greeter", "root", "dbus-run-session")
+    } else {
+        Command::new("dbus-run-session")
+    };
+    let st = cmd
         .arg(synwm_bin())
         .args(synwm_args())
         .arg("--no-autostart")
@@ -166,7 +193,13 @@ fn stop_user_manager(user: &users::User, m: &UserManager) {
 fn run_session(user: &users::User) {
     let _ = std::fs::create_dir_all(SESSIONS);
     let link = format!("{SESSIONS}/{}", user.uid);
-    let manager = start_user_manager(user);
+    let logind = pam_session::available();
+    // С logind-сеансом user@UID и /run/user/UID поднимает pam_systemd.
+    let manager = if logind {
+        Some(UserManager { runtime_dir: format!("/run/user/{}", user.uid), started: false })
+    } else {
+        start_user_manager(user)
+    };
     let rt = match &manager {
         // /run/user/UID; /run/synlogin/session/UID — ссылка на него (там сокеты
         // сеанса ищут скрипты и юнит устройства).
@@ -195,9 +228,7 @@ fn run_session(user: &users::User) {
         }
     };
     let devices = device_nodes();
-    if user.uid != 0 {
-        chown_all(&devices, user.uid, user.gid);
-    }
+    let owners = if user.uid != 0 { take_devices(&devices, user.uid, user.gid) } else { Vec::new() };
     log::info!("сеанс {} (uid {})", user.name, user.uid);
     let (uid, gid) = (user.uid, user.gid);
     let name = std::ffi::CString::new(user.name.as_str()).unwrap();
@@ -205,6 +236,11 @@ fn run_session(user: &users::User) {
     let request = format!("{rt}/synlogin-request");
     let _ = std::fs::remove_file(&request);
     let mut cmd = match &manager {
+        Some(_) if logind => {
+            let mut c = pam_session::worker_command("user", &user.name, &synwm_bin());
+            c.env("DBUS_SESSION_BUS_ADDRESS", format!("unix:path={rt}/bus"));
+            c
+        }
         Some(_) => {
             let mut c = Command::new(synwm_bin());
             c.env("DBUS_SESSION_BUS_ADDRESS", format!("unix:path={rt}/bus"));
@@ -226,26 +262,37 @@ fn run_session(user: &users::User) {
         .env("SYNLOGIN_REQUEST", &request)
         .current_dir(&user.home);
     // SAFETY: между fork и exec — только async-signal-safe вызовы libc.
-    unsafe {
-        cmd.pre_exec(move || {
-            if libc::initgroups(name.as_ptr(), gid) != 0 || libc::setgid(gid) != 0 || libc::setuid(uid) != 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            libc::setsid();
-            Ok(())
-        });
+    // С logind пользователя назначает работник сеанса (после pam_open_session).
+    if !logind {
+        unsafe {
+            cmd.pre_exec(move || {
+                if libc::initgroups(name.as_ptr(), gid) != 0 || libc::setgid(gid) != 0 || libc::setuid(uid) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                libc::setsid();
+                Ok(())
+            });
+        }
     }
     let started = std::time::Instant::now();
     let st = cmd.status();
     log::info!("сеанс {} завершён: {st:?}", user.name);
     note_compositor_exit(&st, started);
-    if let Some(m) = &manager {
-        stop_user_manager(user, m);
+    if !logind {
+        if let Some(m) = &manager {
+            stop_user_manager(user, m);
+        }
     }
     if user.uid != 0 {
-        // Программы, пережившие композитор, не должны держать устройства.
-        let _ = Command::new("pkill").args(["-KILL", "-u", &user.uid.to_string()]).status();
-        chown_all(&devices, 0, 0);
+        // Программы, пережившие композитор, не должны держать устройства. С
+        // logind доступ к DRM и вводу отзывает он сам, а pkill -u убил бы и
+        // ssh-сеансы пользователя.
+        if !logind {
+            let _ = Command::new("pkill").args(["-KILL", "-u", &user.uid.to_string()]).status();
+        }
+        for (p, uid, gid) in &owners {
+            chown(p, *uid, *gid);
+        }
     }
     let req = std::fs::read_to_string(&request).unwrap_or_default();
     let _ = std::fs::remove_file(&request);

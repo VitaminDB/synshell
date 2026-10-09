@@ -85,6 +85,9 @@ pub struct Service {
     pub installed: bool,
     pub active: bool,
     pub enabled: bool,
+    /// iwd работает, но адреса не получает: своя настройка сети выключена и
+    /// другого DHCP-клиента нет (см. [`iwd_needs_dhcp`]).
+    pub no_dhcp: bool,
 }
 
 const SERVICES: [(&str, &str); 2] = [("iwd.service", "iwd"), ("NetworkManager.service", "NetworkManager")];
@@ -103,15 +106,91 @@ pub fn services() -> Vec<Service> {
                 .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
                 .unwrap_or_default();
             let get = |k: &str| out.lines().find_map(|l| l.strip_prefix(k).and_then(|r| r.strip_prefix('='))).unwrap_or("").to_string();
+            let active = get("ActiveState") == "active";
             Service {
                 unit,
                 name,
                 installed: get("LoadState") == "loaded",
-                active: get("ActiveState") == "active",
+                active,
                 enabled: matches!(get("UnitFileState").as_str(), "enabled" | "static" | "alias"),
+                no_dhcp: active && *unit == "iwd.service" && iwd_needs_dhcp(),
             }
         })
         .collect()
+}
+
+const IWD_CONF: &str = "/etc/iwd/main.conf";
+
+/// Кто-то, кроме iwd, раздаёт адреса (DHCP-клиент или менеджер сети).
+fn other_dhcp_running() -> bool {
+    const NAMES: [&str; 5] = ["dhcpcd", "dhclient", "systemd-network", "NetworkManager", "connmand"];
+    std::fs::read_dir("/proc").into_iter().flatten().flatten().any(|e| {
+        std::fs::read_to_string(e.path().join("comm")).is_ok_and(|c| NAMES.contains(&c.trim()))
+    })
+}
+
+fn iwd_dhcp_enabled(conf: &str) -> bool {
+    conf.lines().any(|l| {
+        let l: String = l.chars().filter(|c| !c.is_whitespace()).collect();
+        l.eq_ignore_ascii_case("EnableNetworkConfiguration=true")
+    })
+}
+
+/// iwd без `EnableNetworkConfiguration=true` только подключается к точке —
+/// адрес (DHCP) не получает. Свежая установка Arch: `/etc/iwd/main.conf` нет.
+pub fn iwd_needs_dhcp() -> bool {
+    !iwd_dhcp_enabled(&std::fs::read_to_string(IWD_CONF).unwrap_or_default()) && !other_dhcp_running()
+}
+
+/// `main.conf` с `EnableNetworkConfiguration=true` в `[General]`
+/// (прежнее значение ключа убирается, остальное сохраняется).
+fn iwd_conf_with_dhcp(conf: &str) -> String {
+    let mut out = String::new();
+    let mut done = false;
+    for l in conf.lines() {
+        let key = l.split('=').next().unwrap_or("").trim();
+        if key.eq_ignore_ascii_case("EnableNetworkConfiguration") {
+            continue;
+        }
+        out.push_str(l);
+        out.push('\n');
+        if !done && l.trim().eq_ignore_ascii_case("[General]") {
+            out.push_str("EnableNetworkConfiguration=true\n");
+            done = true;
+        }
+    }
+    if !done {
+        if !out.is_empty() && !out.ends_with("\n\n") {
+            out.push('\n');
+        }
+        out.push_str("[General]\nEnableNetworkConfiguration=true\n");
+    }
+    out
+}
+
+/// Включить получение адресов в iwd (`/etc/iwd/main.conf`) и перезапустить
+/// его (`restart`) либо включить и запустить (`enable --now`).
+fn iwd_dhcp_script(start: bool) -> Result<(), String> {
+    let conf = iwd_conf_with_dhcp(&std::fs::read_to_string(IWD_CONF).unwrap_or_default());
+    let systemctl = if start { "systemctl enable --now iwd.service" } else { "systemctl restart iwd.service" };
+    let script = format!("mkdir -p /etc/iwd && printf '%s' \"$1\" > {IWD_CONF} && {systemctl}");
+    let out = root_command("sh")?
+        .args(["-c", &script, "sh", &conf])
+        .env("LC_ALL", "C")
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("sh: {e}"))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        let e = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        Err(if e.is_empty() { t!("{cmd}: код {v}", cmd = "sh", v = out.status.code().unwrap_or(-1)) } else { e })
+    }
+}
+
+/// Включить DHCP в работающем iwd (кнопка у службы с [`Service::no_dhcp`]).
+pub fn enable_iwd_dhcp() -> Result<(), String> {
+    iwd_dhcp_script(false)
 }
 
 fn is_root() -> bool {
@@ -121,27 +200,36 @@ fn is_root() -> bool {
 
 /// Запустить службу (`systemctl enable --now`) или остановить (`stop`):
 /// от root напрямую, иначе через pkexec.
+/// iwd запускается с DHCP, если адреса больше никто не раздаёт.
 pub fn service_control(unit: &str, start: bool) -> Result<(), String> {
+    if start && unit == "iwd.service" && iwd_needs_dhcp() {
+        return iwd_dhcp_script(true);
+    }
     let args: Vec<&str> = if start { vec!["enable", "--now", unit] } else { vec!["stop", unit] };
-    let mut c = if is_root() {
-        Command::new("systemctl")
-    } else if crate::util::which("pkexec") {
-        if let Err(e) = crate::polkit_agent::ensure() {
-            tracing::warn!("{e}");
-        }
-        let mut c = Command::new("pkexec");
-        c.arg("systemctl");
-        c
-    } else {
-        return Err(t!("нужны права root: pkexec не найден").into());
-    };
-    let out = c.args(&args).env("LC_ALL", "C").stdin(Stdio::null()).output().map_err(|e| format!("systemctl: {e}"))?;
+    let out = root_command("systemctl")?
+        .args(&args).env("LC_ALL", "C").stdin(Stdio::null()).output().map_err(|e| format!("systemctl: {e}"))?;
     if out.status.success() {
         Ok(())
     } else {
         let e = String::from_utf8_lossy(&out.stderr).trim().to_string();
         Err(if e.is_empty() { t!("systemctl: код {v}", v = out.status.code().unwrap_or(-1)) } else { e })
     }
+}
+
+/// Команда от root: напрямую, иначе через pkexec.
+fn root_command(program: &str) -> Result<Command, String> {
+    if is_root() {
+        return Ok(Command::new(program));
+    }
+    if !crate::util::which("pkexec") {
+        return Err(t!("нужны права root: pkexec не найден").into());
+    }
+    if let Err(e) = crate::polkit_agent::ensure() {
+        tracing::warn!("{e}");
+    }
+    let mut c = Command::new("pkexec");
+    c.arg(program);
+    Ok(c)
 }
 
 fn run(cmd: &str, args: &[&str]) -> Result<String, String> {
@@ -428,5 +516,21 @@ mod tests {
     #[test]
     fn nmcli_split() {
         assert_eq!(super::nm_split("*:My\\:Net:80:WPA2"), ["*", "My:Net", "80", "WPA2"]);
+    }
+}
+
+#[cfg(test)]
+mod iwd_conf_tests {
+    use super::*;
+
+    #[test]
+    fn dhcp_in_general() {
+        assert_eq!(iwd_conf_with_dhcp(""), "[General]\nEnableNetworkConfiguration=true\n");
+        assert_eq!(
+            iwd_conf_with_dhcp("[General]\nEnableNetworkConfiguration=false\nAddressRandomization=once\n"),
+            "[General]\nEnableNetworkConfiguration=true\nAddressRandomization=once\n"
+        );
+        assert_eq!(iwd_conf_with_dhcp("[Network]\nNameResolvingService=resolvconf\n"), "[Network]\nNameResolvingService=resolvconf\n\n[General]\nEnableNetworkConfiguration=true\n");
+        assert!(iwd_dhcp_enabled("[General]\nEnableNetworkConfiguration = true\n"));
     }
 }

@@ -1,0 +1,8 @@
+#%PAM-1.0
+# Сеансы экрана входа synlogin (экран входа и сеанс пользователя) на десктопе:
+# pam_systemd из стека login регистрирует их в logind (seat0, VT). Пароль
+# проверяет экран входа (syndesktop-lock). Устанавливается в /etc/pam.d/synlogin.
+auth     include login
+account  include login
+password include login
+session  include login
