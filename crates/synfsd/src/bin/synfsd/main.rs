@@ -7,6 +7,7 @@
 //! срок хранения; список программ меняется и через сокет (root, `wheel`).
 
 mod fan;
+mod mounts;
 mod procmon;
 mod store;
 
@@ -285,7 +286,37 @@ fn handle(sh: &Shared, uid: u32, req: Request) -> anyhow::Result<Response> {
                 let home = user(uid).map(|(_, h, _)| h.to_string_lossy().into_owned()).unwrap_or_else(|| "/nonexistent".into());
                 Some((uid, home))
             };
-            let items = sh.store.lock().unwrap().history(&path, children, limit, only)?;
+            // Раздел смонтирован в нескольких местах — искать под всеми путями.
+            // У файла — и по прежним именам (цепочка переименований: кто
+            // создал «Новый документ.txt», ставший «3654.txt»).
+            let mut items: Vec<Record> = Vec::new();
+            {
+                let store = sh.store.lock().unwrap();
+                let mut todo = vec![path.clone()];
+                let mut seen = Vec::new();
+                while let Some(asked) = todo.pop() {
+                    if seen.contains(&asked) || seen.len() > 8 {
+                        continue;
+                    }
+                    seen.push(asked.clone());
+                    for alias in mounts::aliases(&asked) {
+                        for mut r in store.history(&alias, children, limit, only.clone())? {
+                            r.path = mounts::translate(&r.path, &alias, &asked);
+                            r.old_path = r.old_path.map(|o| mounts::translate(&o, &alias, &asked));
+                            if !children && r.kind == synfsd::Kind::Renamed && r.path == asked {
+                                if let Some(o) = &r.old_path {
+                                    todo.push(o.clone());
+                                }
+                            }
+                            if !items.contains(&r) {
+                                items.push(r);
+                            }
+                        }
+                    }
+                }
+            }
+            items.sort_by(|a: &Record, b: &Record| b.last.cmp(&a.last));
+            items.truncate(limit);
             Response { ok: true, items, ..Default::default() }
         }
         Request::Status => {

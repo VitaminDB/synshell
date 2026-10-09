@@ -358,3 +358,4 @@
 "Менять список могут администраторы (группа wheel)." = "Only administrators (wheel group) can change the list."
 "Служба synfsd записывает, какая программа создала, изменила, удалила или переименовала файл. Имя — как у процесса (journalctl) или полный путь программы. История — в «Свойствах» файла или папки." = "The synfsd service logs which program created, modified, deleted or renamed a file. Name — as the process (journalctl) or the program’s full path. History is in the file or folder Properties."
 "Журнал изменений" = "Change log"
+"сохранила" = "saved"

@@ -23,7 +23,22 @@ fn unavailable(e: &std::io::Error) -> String {
     }
 }
 
+/// Переименование временного файла поверх настоящего — так сохраняют
+/// редакторы (`a.txt.1301621731`, `.a.txt.swp`, `a.txt~` → `a.txt`).
+fn is_save(r: &Record) -> bool {
+    let name = |p: &str| Path::new(p).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let (Kind::Renamed, Some(old_path)) = (r.kind, &r.old_path) else { return false };
+    let (new, old) = (name(&r.path), name(old_path));
+    Path::new(&r.path).parent() == Path::new(old_path).parent()
+        && !new.is_empty()
+        && old != new
+        && old.trim_start_matches('.').starts_with(&new)
+}
+
 fn kind_text(r: &Record) -> String {
+    if is_save(r) {
+        return t!("сохранила");
+    }
     match r.kind {
         Kind::Created => t!("создала"),
         Kind::Modified => t!("изменила"),
@@ -80,7 +95,7 @@ fn history_row(base: &Path, r: &Record, rev: RwSignal<u64>) -> W {
         what.push_str(&format!(" ×{}", r.count));
     }
     let mut target = relative(base, &r.path);
-    if let (Kind::Renamed, Some(old)) = (r.kind, &r.old_path) {
+    if let (Kind::Renamed, Some(old), false) = (r.kind, &r.old_path, is_save(r)) {
         target = t!("{new}, было «{old}»", new = target, old = relative(base, old));
     }
     let when = model::format_time(r.last / 1000);
@@ -88,7 +103,11 @@ fn history_row(base: &Path, r: &Record, rev: RwSignal<u64>) -> W {
     let mut row = Row::new()
         .gap(10.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(DecoratedBox::new().class(format!("hist-badge {}", kind_class(r.kind))).child(Icon::new(kind_icon(r.kind)).class("icon")))
+        .child(
+            DecoratedBox::new()
+                .class(format!("hist-badge {}", kind_class(r.kind)))
+                .child(Icon::new(if is_save(r) { icons::EDIT } else { kind_icon(r.kind) }).class("icon")),
+        )
         .child(
             Column::new()
                 .gap(1.0)

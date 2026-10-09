@@ -82,7 +82,7 @@ fn disk_mounts() -> Vec<PathBuf> {
     out
 }
 
-fn unescape(s: &str) -> String {
+pub fn unescape(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
