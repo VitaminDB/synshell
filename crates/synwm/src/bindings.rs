@@ -5,6 +5,7 @@
 //! русской раскладке, а `Super+Shift+1` — это «1» с Shift, а не «!».
 
 use smithay::input::keyboard::{xkb, Keysym, ModifiersState};
+use synshell_tr::t;
 use synshell_common::{
     action::{Action, KeyCombo, Mods},
     Config,
@@ -47,7 +48,7 @@ impl Bindings {
                     action,
                     combo: combo.to_string(),
                 }),
-                None => errors.push(format!("неизвестная клавиша «{}» в «{combo}»", combo.key)),
+                None => errors.push(t!("неизвестная клавиша «{key}» в «{combo}»", key = combo.key, combo = combo)),
             }
         }
         let mod_key = Mods::parse(&config.windows.mod_key).unwrap_or(Mods::SUPER);

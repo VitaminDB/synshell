@@ -12,21 +12,21 @@ use crate::sys;
 use crate::ui::*;
 
 const LAYOUTS: &[(&str, &str)] = &[
-    ("floating", "Свободные окна"),
-    ("tile", "Мастер и стопка"),
-    ("columns", "Колонки"),
-    ("grid", "Сетка"),
-    ("monocle", "Одно окно"),
+    ("floating", n_!("Свободные окна")),
+    ("tile", n_!("Мастер и стопка")),
+    ("columns", n_!("Колонки")),
+    ("grid", n_!("Сетка")),
+    ("monocle", n_!("Одно окно")),
 ];
 
 const TITLEBAR_ACTIONS: &[(&str, &str)] = &[
-    ("toggle-maximize", "Развернуть/восстановить"),
-    ("minimize", "Свернуть"),
-    ("toggle-fullscreen", "Во весь экран"),
-    ("toggle-sticky", "На всех столах"),
-    ("toggle-always-on-top", "Поверх других"),
-    ("close", "Закрыть"),
-    ("none", "Ничего"),
+    ("toggle-maximize", n_!("Развернуть/восстановить")),
+    ("minimize", n_!("Свернуть")),
+    ("toggle-fullscreen", n_!("Во весь экран")),
+    ("toggle-sticky", n_!("На всех столах")),
+    ("toggle-always-on-top", n_!("Поверх других")),
+    ("close", n_!("Закрыть")),
+    ("none", n_!("Ничего")),
 ];
 
 pub fn windows() -> W {
@@ -50,27 +50,27 @@ pub fn windows() -> W {
     let dbl = w.titlebar_double_click.to_string();
     let mid = w.titlebar_middle_click.to_string();
     page(
-        "Поведение окон",
-        "Фокус, размещение, рамки, прилипание и плиточные раскладки.",
+        t!("Поведение окон"),
+        t!("Фокус, размещение, рамки, прилипание и плиточные раскладки."),
         vec![
             group(
-                "Фокус",
+                &t!("Фокус"),
                 vec![
                     choice_row(
-                        "Фокус окна",
+                        &t!("Фокус окна"),
                         "",
                         op!["windows", "focus_mode"],
                         focus,
                         &[
-                            ("click", "По щелчку"),
-                            ("sloppy", "За курсором (не терять над столом)"),
-                            ("follow-mouse", "Строго под курсором"),
+                            ("click", n_!("По щелчку")),
+                            ("sloppy", n_!("За курсором (не терять над столом)")),
+                            ("follow-mouse", n_!("Строго под курсором")),
                         ],
                     ),
-                    switch_row("Поднимать окно при фокусе", "", op!["windows", "raise_on_focus"], w.raise_on_focus),
+                    switch_row(&t!("Поднимать окно при фокусе"), "", op!["windows", "raise_on_focus"], w.raise_on_focus),
                     int_row(
-                        "Задержка поднятия",
-                        "При фокусе за курсором, мс",
+                        t!("Задержка поднятия"),
+                        t!("При фокусе за курсором, мс"),
                         op!["windows", "autoraise_delay"],
                         w.autoraise_delay as i64,
                         0,
@@ -78,52 +78,52 @@ pub fn windows() -> W {
                         50,
                     ),
                     switch_row(
-                        "Разрешить окнам забирать фокус",
-                        "Иначе окно, попросившее фокус, только помечается «требует внимания»",
+                        t!("Разрешить окнам забирать фокус"),
+                        t!("Иначе окно, попросившее фокус, только помечается «требует внимания»"),
                         op!["windows", "focus_stealing"],
                         w.focus_stealing,
                     ),
                 ],
             ),
             group(
-                "Размещение и рамки",
+                &t!("Размещение и рамки"),
                 vec![
                     choice_row(
-                        "Новые окна",
+                        &t!("Новые окна"),
                         "",
                         op!["windows", "placement"],
                         placement,
                         &[
-                            ("center", "По центру"),
-                            ("cascade", "Каскадом"),
-                            ("under-mouse", "Под курсором"),
-                            ("smart", "Где меньше перекрытие"),
+                            ("center", n_!("По центру")),
+                            ("cascade", n_!("Каскадом")),
+                            ("under-mouse", n_!("Под курсором")),
+                            ("smart", n_!("Где меньше перекрытие")),
                         ],
                     ),
                     choice_row(
-                        "Рамки окон",
+                        &t!("Рамки окон"),
                         "",
                         op!["windows", "decorations"],
                         deco,
-                        &[("server", "Рисует композитор"), ("client", "Рисует приложение")],
+                        &[("server", n_!("Рисует композитор")), ("client", n_!("Рисует приложение"))],
                     ),
                     switch_row(
-                        "Развёрнутые окна без заголовка",
-                        "Заголовок, кнопки и меню развёрнутого окна показывает панель (апплеты «Заголовок окна», «Кнопки окна», «Глобальное меню»)",
+                        t!("Развёрнутые окна без заголовка"),
+                        t!("Заголовок, кнопки и меню развёрнутого окна показывает панель (апплеты «Заголовок окна», «Кнопки окна», «Глобальное меню»)"),
                         op!["windows", "borderless_maximized"],
                         w.borderless_maximized,
                     ),
-                    int_row("Толщина рамки", "px", op!["windows", "border_width"], w.border_width as i64, 0, 16, 1),
+                    int_row(&t!("Толщина рамки"), "px", op!["windows", "border_width"], w.border_width as i64, 0, 16, 1),
                     choice_row(
-                        "Клавиша-модификатор",
-                        "С ней: ЛКМ — перетащить окно, ПКМ — изменить размер",
+                        t!("Клавиша-модификатор"),
+                        t!("С ней: ЛКМ — перетащить окно, ПКМ — изменить размер"),
                         op!["windows", "mod_key"],
                         &w.mod_key,
                         &[("Super", "Super (Win)"), ("Alt", "Alt"), ("Ctrl", "Ctrl")],
                     ),
                     slider_row(
-                        "Затемнять неактивные окна",
-                        "0 — не затемнять",
+                        t!("Затемнять неактивные окна"),
+                        t!("0 — не затемнять"),
                         op!["windows", "dim_inactive"],
                         w.dim_inactive as f64,
                         0.0,
@@ -132,8 +132,8 @@ pub fn windows() -> W {
                         2,
                     ),
                     int_row(
-                        "Прятать курсор",
-                        "Через N мс без движения (0 — никогда)",
+                        t!("Прятать курсор"),
+                        t!("Через N мс без движения (0 — никогда)"),
                         op!["windows", "hide_cursor_after"],
                         w.hide_cursor_after as i64,
                         0,
@@ -143,32 +143,32 @@ pub fn windows() -> W {
                 ],
             ),
             group(
-                "Прилипание",
+                &t!("Прилипание"),
                 vec![
-                    switch_row("Прилипать к краям и окнам", "", op!["windows", "snap"], w.snap),
-                    int_row("Расстояние прилипания", "px", op!["windows", "snap_distance"], w.snap_distance as i64, 0, 64, 1),
+                    switch_row(&t!("Прилипать к краям и окнам"), "", op!["windows", "snap"], w.snap),
+                    int_row(&t!("Расстояние прилипания"), "px", op!["windows", "snap_distance"], w.snap_distance as i64, 0, 64, 1),
                     switch_row(
-                        "Половина экрана у края",
-                        "Перетащите окно к краю — оно займёт половину (как Aero Snap)",
+                        t!("Половина экрана у края"),
+                        t!("Перетащите окно к краю — оно займёт половину (как Aero Snap)"),
                         op!["windows", "edge_tiling"],
                         w.edge_tiling,
                     ),
                 ],
             ),
             group(
-                "Плиточная раскладка",
+                &t!("Плиточная раскладка"),
                 vec![
                     choice_row(
-                        "Раскладка по умолчанию",
-                        "Для новых столов",
+                        t!("Раскладка по умолчанию"),
+                        t!("Для новых столов"),
                         op!["windows", "default_layout"],
                         w.default_layout.as_str(),
                         LAYOUTS,
                     ),
-                    int_row("Зазор между окнами", "px", op!["windows", "gaps_inner"], w.gaps_inner as i64, 0, 64, 1),
-                    int_row("Отступ от краёв экрана", "px", op!["windows", "gaps_outer"], w.gaps_outer as i64, 0, 64, 1),
+                    int_row(&t!("Зазор между окнами"), "px", op!["windows", "gaps_inner"], w.gaps_inner as i64, 0, 64, 1),
+                    int_row(&t!("Отступ от краёв экрана"), "px", op!["windows", "gaps_outer"], w.gaps_outer as i64, 0, 64, 1),
                     slider_row(
-                        "Доля мастер-области",
+                        &t!("Доля мастер-области"),
                         "",
                         op!["windows", "master_ratio"],
                         w.master_ratio as f64,
@@ -177,9 +177,9 @@ pub fn windows() -> W {
                         0.01,
                         2,
                     ),
-                    int_row("Окон в мастер-области", "", op!["windows", "master_count"], w.master_count as i64, 1, 8, 1),
+                    int_row(&t!("Окон в мастер-области"), "", op!["windows", "master_count"], w.master_count as i64, 1, 8, 1),
                     switch_row(
-                        "Новое окно становится мастером",
+                        &t!("Новое окно становится мастером"),
                         "",
                         op!["windows", "new_is_master"],
                         w.new_is_master,
@@ -187,16 +187,16 @@ pub fn windows() -> W {
                 ],
             ),
             group(
-                "Заголовок окна",
+                &t!("Заголовок окна"),
                 vec![
-                    choice_row("Двойной щелчок", "", op!["windows", "titlebar_double_click"], &dbl, TITLEBAR_ACTIONS),
-                    choice_row("Средняя кнопка", "", op!["windows", "titlebar_middle_click"], &mid, TITLEBAR_ACTIONS),
+                    choice_row(&t!("Двойной щелчок"), "", op!["windows", "titlebar_double_click"], &dbl, TITLEBAR_ACTIONS),
+                    choice_row(&t!("Средняя кнопка"), "", op!["windows", "titlebar_middle_click"], &mid, TITLEBAR_ACTIONS),
                     choice_row(
-                        "Колесо мыши",
+                        &t!("Колесо мыши"),
                         "",
                         op!["windows", "titlebar_wheel"],
                         &w.titlebar_wheel,
-                        &[("none", "Ничего"), ("opacity", "Прозрачность окна")],
+                        &[("none", n_!("Ничего")), ("opacity", n_!("Прозрачность окна"))],
                     ),
                 ],
             ),
@@ -217,9 +217,9 @@ pub fn workspaces() -> W {
         let key = (i + 1).to_string();
         let key2 = key.clone();
         let idx = i as usize;
-        let mut dd = Dropdown::new().width(190.0).item(DropdownItem::new("default", "Как по умолчанию"));
+        let mut dd = Dropdown::new().width(190.0).item(DropdownItem::new("default", t!("Как по умолчанию")));
         for (v, l) in LAYOUTS {
-            dd = dd.item(DropdownItem::new(*v, *l));
+            dd = dd.item(DropdownItem::new(*v, tl(l)));
         }
         let dd = dd.selected(if has_own { layout.as_str() } else { "default" }).on_change(move |v: &str| {
             if v == "default" {
@@ -230,7 +230,7 @@ pub fn workspaces() -> W {
         });
         let _ = key;
         per.push(row(
-            &format!("Стол {}", i + 1),
+            &t!("Стол {v}", v = i + 1),
             "",
             Row::new()
                 .gap(8.0)
@@ -241,30 +241,30 @@ pub fn workspaces() -> W {
         ));
     }
     page(
-        "Рабочие столы",
-        "Виртуальные рабочие столы: сколько их, как называются, какая раскладка окон на каждом.",
+        t!("Рабочие столы"),
+        t!("Виртуальные рабочие столы: сколько их, как называются, какая раскладка окон на каждом."),
         vec![
             group(
                 "",
                 vec![
                     row(
-                        "Количество столов",
+                        &t!("Количество столов"),
                         "",
                         SpinBox::new().range(1.0, 20.0).value(ws.count as f64).width(140.0).on_change(|v| {
                             set(&op!["workspaces", "count"], v.round() as i64);
                             state::bump();
                         }),
                     ),
-                    switch_row("По кругу", "С последнего стола — на первый", op!["workspaces", "wrap"], ws.wrap),
+                    switch_row(t!("По кругу"), t!("С последнего стола — на первый"), op!["workspaces", "wrap"], ws.wrap),
                     switch_row(
-                        "Туда и обратно",
-                        "Повторное «стол N» на активном столе возвращает на прошлый",
+                        t!("Туда и обратно"),
+                        t!("Повторное «стол N» на активном столе возвращает на прошлый"),
                         op!["workspaces", "back_and_forth"],
                         ws.back_and_forth,
                     ),
                 ],
             ),
-            group("Имена и раскладки", per),
+            group(&t!("Имена и раскладки"), per),
         ],
     )
 }
@@ -294,16 +294,17 @@ fn rule_title(r: &WindowRule) -> String {
         parts.push(format!("app_id ~ {a}"));
     }
     if let Some(t) = &r.title {
-        parts.push(format!("заголовок ~ {t}"));
+        parts.push(t!("заголовок ~ {t}", t = t));
     }
     if parts.is_empty() {
-        "Все окна".into()
+        t!("Все окна").into()
     } else {
         parts.join(", ")
     }
 }
 
-fn pair_field(p: P, value: Option<[i32; 2]>, a: &str, b: &str) -> impl Widget {
+fn pair_field(p: P, value: Option<[i32; 2]>, a: impl AsRef<str>, b: impl AsRef<str>) -> impl Widget {
+    let (a, b) = (tl(a), tl(b));
     let cur = use_signal(value.map(|v| (v[0].to_string(), v[1].to_string())).unwrap_or_default());
     let write = move |p: &P| {
         let (x, y) = cur.get_untracked();
@@ -363,12 +364,12 @@ fn rule_card(i: usize, n: usize, r: &WindowRule) -> W {
         }));
     let opacity_on = r.opacity.is_some();
     let rows = vec![
-        row("app_id", "Регулярное выражение", opt_text(op!["rule", i, "app_id"], r.app_id.as_deref().unwrap_or(""), "^org\\.kde\\.kcalc$", 260.0)),
-        row("Заголовок", "Регулярное выражение", opt_text(op!["rule", i, "title"], r.title.as_deref().unwrap_or(""), "Picture-in-Picture", 260.0)),
-        row("Плавающее", "", tri(op!["rule", i, "floating"], r.floating)),
+        row("app_id", &t!("Регулярное выражение"), opt_text(op!["rule", i, "app_id"], r.app_id.as_deref().unwrap_or(""), "^org\\.kde\\.kcalc$", 260.0)),
+        row(t!("Заголовок"), t!("Регулярное выражение"), opt_text(op!["rule", i, "title"], r.title.as_deref().unwrap_or(""), "Picture-in-Picture", 260.0)),
+        row(&t!("Плавающее"), "", tri(op!["rule", i, "floating"], r.floating)),
         row(
-            "Рабочий стол",
-            "0 — не менять",
+            t!("Рабочий стол"),
+            t!("0 — не менять"),
             SpinBox::new().range(0.0, 20.0).value(r.workspace.unwrap_or(0) as f64).width(140.0).on_change(move |v| {
                 let v = v.round() as i64;
                 if v <= 0 {
@@ -378,22 +379,22 @@ fn rule_card(i: usize, n: usize, r: &WindowRule) -> W {
                 }
             }),
         ),
-        row("Монитор", "Имя вывода", opt_text(op!["rule", i, "output"], r.output.as_deref().unwrap_or(""), "HDMI-A-1", 200.0)),
-        row("Размер", "Ширина × высота", pair_field(op!["rule", i, "size"], r.size, "ширина", "высота")),
-        row("Положение", "x × y", pair_field(op!["rule", i, "position"], r.position, "x", "y")),
-        row("Мин. размер", "", pair_field(op!["rule", i, "min_size"], r.min_size, "ширина", "высота")),
-        row("Макс. размер", "", pair_field(op!["rule", i, "max_size"], r.max_size, "ширина", "высота")),
-        row("По центру", "", tri(op!["rule", i, "center"], r.center)),
-        row("Развёрнуто", "", tri(op!["rule", i, "maximized"], r.maximized)),
-        row("Во весь экран", "", tri(op!["rule", i, "fullscreen"], r.fullscreen)),
-        row("На всех столах", "", tri(op!["rule", i, "sticky"], r.sticky)),
-        row("Поверх других", "", tri(op!["rule", i, "always_on_top"], r.always_on_top)),
-        row("Рамки композитора", "", tri(op!["rule", i, "decorations"], r.decorations)),
-        row("Не давать фокус", "", tri(op!["rule", i, "no_focus"], r.no_focus)),
-        row("Скрыть с панели задач", "", tri(op!["rule", i, "skip_taskbar"], r.skip_taskbar)),
-        row("Касания как мышь", "Для программ без поддержки тача (Wine под X11 — по умолчанию)", tri(op!["rule", i, "touch_as_mouse"], r.touch_as_mouse)),
+        row(t!("Монитор"), t!("Имя вывода"), opt_text(op!["rule", i, "output"], r.output.as_deref().unwrap_or(""), "HDMI-A-1", 200.0)),
+        row(t!("Размер"), t!("Ширина × высота"), pair_field(op!["rule", i, "size"], r.size, t!("ширина"), t!("высота"))),
+        row(&t!("Положение"), "x × y", pair_field(op!["rule", i, "position"], r.position, "x", "y")),
+        row(&t!("Мин. размер"), "", pair_field(op!["rule", i, "min_size"], r.min_size, t!("ширина"), t!("высота"))),
+        row(&t!("Макс. размер"), "", pair_field(op!["rule", i, "max_size"], r.max_size, t!("ширина"), t!("высота"))),
+        row(&t!("По центру"), "", tri(op!["rule", i, "center"], r.center)),
+        row(&t!("Развёрнуто"), "", tri(op!["rule", i, "maximized"], r.maximized)),
+        row(&t!("Во весь экран"), "", tri(op!["rule", i, "fullscreen"], r.fullscreen)),
+        row(&t!("На всех столах"), "", tri(op!["rule", i, "sticky"], r.sticky)),
+        row(&t!("Поверх других"), "", tri(op!["rule", i, "always_on_top"], r.always_on_top)),
+        row(&t!("Рамки композитора"), "", tri(op!["rule", i, "decorations"], r.decorations)),
+        row(&t!("Не давать фокус"), "", tri(op!["rule", i, "no_focus"], r.no_focus)),
+        row(&t!("Скрыть с панели задач"), "", tri(op!["rule", i, "skip_taskbar"], r.skip_taskbar)),
+        row(t!("Касания как мышь"), t!("Для программ без поддержки тача (Wine под X11 — по умолчанию)"), tri(op!["rule", i, "touch_as_mouse"], r.touch_as_mouse)),
         row(
-            "Непрозрачность",
+            &t!("Непрозрачность"),
             "",
             Row::new()
                 .gap(12.0)
@@ -444,14 +445,14 @@ pub fn rules() -> W {
     let c = store::config();
     let n = c.rules.len();
     let mut body: Vec<W> = vec![note(
-        "Условия — регулярные выражения по app_id и заголовку; все заданные должны совпасть. Правила применяются сверху вниз.",
+        &t!("Условия — регулярные выражения по app_id и заголовку; все заданные должны совпасть. Правила применяются сверху вниз."),
     )];
     // Открытые окна — из композитора; без него кнопки нет.
     let from_window = use_signal(false);
     let windows = sys::windows();
-    let mut actions = Row::new().gap(8.0).child(primary_button("Новое правило", || add_rule(None, None)));
+    let mut actions = Row::new().gap(8.0).child(primary_button(&t!("Новое правило"), || add_rule(None, None)));
     if windows.is_some() {
-        actions = actions.child(button("Взять из открытого окна…", move || from_window.set(!from_window.get_untracked())));
+        actions = actions.child(button(&t!("Взять из открытого окна…"), move || from_window.set(!from_window.get_untracked())));
     }
     body.push(boxed(actions));
     if let Some(ws) = windows {
@@ -461,7 +462,7 @@ pub fn rules() -> W {
             }
             let mut col = Column::new().gap(4.0).class("group-card pad");
             if ws.is_empty() {
-                col = col.child(Text::new("Открытых окон нет").class("row-hint"));
+                col = col.child(Text::new(t!("Открытых окон нет")).class("row-hint"));
             }
             for w in &ws {
                 let app = w.app_id.clone();
@@ -481,5 +482,5 @@ pub fn rules() -> W {
         body.push(rule_card(i, n, r));
     }
     let _ = LayoutKind::Floating;
-    page("Правила окон", "Особое поведение для выбранных приложений.", body)
+    page(t!("Правила окон"), t!("Особое поведение для выбранных приложений."), body)
 }

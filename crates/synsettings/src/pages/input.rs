@@ -49,7 +49,7 @@ pub fn keyboard() -> W {
     for (i, (layout, variant)) in current.iter().enumerate() {
         let desc = data.layouts.iter().find(|l| l.name == *layout);
         let title = desc.map(|d| d.description.clone()).unwrap_or_else(|| layout.clone());
-        let mut vdd = Dropdown::new().width(260.0).max_height(360.0).item(DropdownItem::new("", "Стандартный"));
+        let mut vdd = Dropdown::new().width(260.0).max_height(360.0).item(DropdownItem::new("", t!("Стандартный")));
         if let Some(d) = desc {
             for (vn, vd) in &d.variants {
                 vdd = vdd.item(DropdownItem::new(vn.clone(), vd.clone()));
@@ -97,12 +97,12 @@ pub fn keyboard() -> W {
     }
     let cur_for_add = current.clone();
     rows.push(row(
-        "Добавить раскладку",
+        &t!("Добавить раскладку"),
         "",
         Row::new()
             .gap(8.0)
             .child(add.selected("de").on_change(move |v: &str| pick.set(v.to_string())))
-            .child(primary_button("Добавить", move || {
+            .child(primary_button(&t!("Добавить"), move || {
                 let mut l = cur_for_add.clone();
                 let name = pick.get_untracked();
                 if !l.iter().any(|(x, v)| *x == name && v.is_empty()) {
@@ -115,7 +115,7 @@ pub fn keyboard() -> W {
     // Переключение раскладок — одна опция grp:*, остальные опции не трогаем.
     let opts = split_list(&k.options);
     let grp = opts.iter().find(|o| o.starts_with("grp:")).cloned().unwrap_or_default();
-    let mut sw = Dropdown::new().width(320.0).max_height(400.0).item(DropdownItem::new("", "Не назначено"));
+    let mut sw = Dropdown::new().width(320.0).max_height(400.0).item(DropdownItem::new("", t!("Не назначено")));
     for (n, d) in &data.switch_options {
         sw = sw.item(DropdownItem::new(n.clone(), d.clone()));
     }
@@ -130,34 +130,34 @@ pub fn keyboard() -> W {
     });
 
     page(
-        "Клавиатура",
-        "Раскладки XKB, их переключение и автоповтор.",
+        t!("Клавиатура"),
+        t!("Раскладки XKB, их переключение и автоповтор."),
         vec![
-            group("Раскладки", rows),
+            group(&t!("Раскладки"), rows),
             group(
-                "Переключение",
+                &t!("Переключение"),
                 vec![
-                    row("Сочетание для смены раскладки", "", sw),
+                    row(&t!("Сочетание для смены раскладки"), "", sw),
                     switch_row(
-                        "Раскладка для каждого окна",
-                        "Окно помнит свою раскладку",
+                        t!("Раскладка для каждого окна"),
+                        t!("Окно помнит свою раскладку"),
                         op!["input", "keyboard", "per_window_layout"],
                         k.per_window_layout,
                     ),
                     row_wide(
-                        "Все опции XKB",
-                        "Через запятую: grp:alt_shift_toggle,caps:escape,compose:ralt",
+                        t!("Все опции XKB"),
+                        t!("Через запятую: grp:alt_shift_toggle,caps:escape,compose:ralt"),
                         text(op!["input", "keyboard", "options"], &k.options, "", 520.0),
                     ),
-                    text_row("Модель клавиатуры", "Обычно пусто", op!["input", "keyboard", "model"], &k.model, "pc105"),
+                    text_row(t!("Модель клавиатуры"), t!("Обычно пусто"), op!["input", "keyboard", "model"], &k.model, "pc105"),
                 ],
             ),
             group(
-                "Набор",
+                &t!("Набор"),
                 vec![
-                    int_row("Задержка автоповтора", "мс", op!["input", "keyboard", "repeat_delay"], k.repeat_delay as i64, 100, 2000, 25),
-                    int_row("Скорость автоповтора", "нажатий в секунду", op!["input", "keyboard", "repeat_rate"], k.repeat_rate as i64, 1, 100, 1),
-                    switch_row("NumLock при входе", "", op!["input", "keyboard", "numlock"], k.numlock),
+                    int_row(t!("Задержка автоповтора"), t!("мс"), op!["input", "keyboard", "repeat_delay"], k.repeat_delay as i64, 100, 2000, 25),
+                    int_row(t!("Скорость автоповтора"), t!("нажатий в секунду"), op!["input", "keyboard", "repeat_rate"], k.repeat_rate as i64, 1, 100, 1),
+                    switch_row(&t!("NumLock при входе"), "", op!["input", "keyboard", "numlock"], k.numlock),
                 ],
             ),
         ],
@@ -170,78 +170,75 @@ pub fn keyboard() -> W {
 pub fn action_label(a: &Action) -> String {
     use synshell_common::action::{Direction, WorkspaceTarget};
     let dir = |d: &Direction| match d {
-        Direction::Left => "влево",
-        Direction::Right => "вправо",
-        Direction::Up => "вверх",
-        Direction::Down => "вниз",
+        Direction::Left => t!("влево"),
+        Direction::Right => t!("вправо"),
+        Direction::Up => t!("вверх"),
+        Direction::Down => t!("вниз"),
     };
     let ws = |t: &WorkspaceTarget| match t {
         WorkspaceTarget::Index(n) => format!("{n}"),
-        WorkspaceTarget::Next => "следующий".into(),
-        WorkspaceTarget::Prev => "предыдущий".into(),
-        WorkspaceTarget::Last => "прошлый".into(),
+        WorkspaceTarget::Next => t!("следующий").into(),
+        WorkspaceTarget::Prev => t!("предыдущий").into(),
+        WorkspaceTarget::Last => t!("прошлый").into(),
     };
     match a {
-        Action::Spawn(c) => format!("Запустить: {c}"),
-        Action::Close => "Закрыть окно".into(),
-        Action::Kill => "Убить процесс окна".into(),
-        Action::ToggleFloating => "Плавающее/плиточное".into(),
-        Action::ToggleFullscreen => "Во весь экран".into(),
-        Action::ToggleMaximize => "Развернуть/восстановить".into(),
-        Action::Minimize => "Свернуть".into(),
-        Action::MinimizeAll => "Свернуть все окна".into(),
-        Action::ToggleSticky => "На всех столах".into(),
-        Action::ToggleAlwaysOnTop => "Поверх других".into(),
-        Action::Snap(d) => format!("Прилепить {}", dir(d)),
-        Action::Center => "По центру".into(),
-        Action::Focus(d) => format!("Фокус {}", dir(d)),
-        Action::Move(d) => format!("Сдвинуть окно {}", dir(d)),
-        Action::FocusNext => "Следующее окно".into(),
-        Action::FocusPrev => "Предыдущее окно".into(),
-        Action::Workspace(t) => format!("Стол {}", ws(t)),
-        Action::MoveToWorkspace(t) => format!("Окно на стол {}", ws(t)),
-        Action::MoveToWorkspaceFollow(t) => format!("Окно на стол {} и перейти", ws(t)),
-        Action::FocusOutput(d) => format!("Монитор {}", dir(d)),
-        Action::MoveToOutput(d) => format!("Окно на монитор {}", dir(d)),
-        Action::Layout(l) => format!("Раскладка: {}", l.as_str()),
-        Action::CycleLayout => "Следующая раскладка окон".into(),
-        Action::MasterRatio(r) => format!("Мастер-область {r:+}"),
-        Action::MasterCount(c) => format!("Окон в мастере {c:+}"),
-        Action::KeyboardLayoutNext => "Следующая раскладка клавиатуры".into(),
-        Action::KeyboardLayout(i) => format!("Раскладка клавиатуры {i}"),
-        Action::Screenshot => "Снимок экрана".into(),
-        Action::ScreenshotWindow => "Снимок окна".into(),
-        Action::ScreenshotInteractive => "Снимок с выбором области".into(),
-        Action::Overview => "Обзор".into(),
-        Action::ReloadConfig => "Перечитать настройки".into(),
-        Action::RestartShell => "Перезапустить оболочку".into(),
-        Action::Restart => "Перезапустить композитор".into(),
-        Action::Quit => "Выйти из сеанса".into(),
-        Action::Lock => "Заблокировать".into(),
-        Action::Suspend => "Сон".into(),
-        Action::Reboot => "Перезагрузка".into(),
-        Action::PowerOff => "Выключение".into(),
-        Action::PowerOffMonitors => "Погасить мониторы".into(),
-        Action::ScreenToggle => "Погасить и заблокировать / включить экран".into(),
-        Action::ScreenOff => "Погасить экран и заблокировать".into(),
-        Action::ScreenOn => "Включить экран".into(),
-        Action::ProximityBlank(true) => "Погасить экран (у уха)".into(),
-        Action::ProximityBlank(false) => "Включить экран после «у уха»".into(),
-        Action::Shell(c) => format!("Оболочка: {c}"),
-        Action::Back => "Назад".into(),
-        Action::Key(k) => format!("Клавиша {k}"),
-        Action::MobileMode(m) => format!(
-            "Режим окон: {}",
-            match m {
-                synshell_common::action::MobileMode::Pages => "страницы",
-                synshell_common::action::MobileMode::Free => "свободный",
-            }
-        ),
-        Action::MobileModeCycle => "Следующий режим окон".into(),
-        Action::Page(p) => format!("Страница приложений: {p}"),
-        Action::CameraHome => "Стол — к началу".into(),
-        Action::Rotate(r) => format!("Повернуть экран: {}", if *r == synshell_common::action::Rotation::Normal { "как обычно".to_string() } else { format!("{r}°") }),
-        Action::None => "Ничего".into(),
+        Action::Spawn(c) => t!("Запустить: {c}", c = c),
+        Action::Close => t!("Закрыть окно").into(),
+        Action::Kill => t!("Убить процесс окна").into(),
+        Action::ToggleFloating => t!("Плавающее/плиточное").into(),
+        Action::ToggleFullscreen => t!("Во весь экран").into(),
+        Action::ToggleMaximize => t!("Развернуть/восстановить").into(),
+        Action::Minimize => t!("Свернуть").into(),
+        Action::MinimizeAll => t!("Свернуть все окна").into(),
+        Action::ToggleSticky => t!("На всех столах").into(),
+        Action::ToggleAlwaysOnTop => t!("Поверх других").into(),
+        Action::Snap(d) => t!("Прилепить {v}", v = dir(d)),
+        Action::Center => t!("По центру").into(),
+        Action::Focus(d) => t!("Фокус {v}", v = dir(d)),
+        Action::Move(d) => t!("Сдвинуть окно {v}", v = dir(d)),
+        Action::FocusNext => t!("Следующее окно").into(),
+        Action::FocusPrev => t!("Предыдущее окно").into(),
+        Action::Workspace(t) => t!("Стол {v}", v = ws(t)),
+        Action::MoveToWorkspace(t) => t!("Окно на стол {v}", v = ws(t)),
+        Action::MoveToWorkspaceFollow(t) => t!("Окно на стол {v} и перейти", v = ws(t)),
+        Action::FocusOutput(d) => t!("Монитор {v}", v = dir(d)),
+        Action::MoveToOutput(d) => t!("Окно на монитор {v}", v = dir(d)),
+        Action::Layout(l) => t!("Раскладка: {l}", l = l.as_str()),
+        Action::CycleLayout => t!("Следующая раскладка окон").into(),
+        Action::MasterRatio(r) => t!("Мастер-область {r}", r = format!("{:+}", r)),
+        Action::MasterCount(c) => t!("Окон в мастере {c}", c = format!("{:+}", c)),
+        Action::KeyboardLayoutNext => t!("Следующая раскладка клавиатуры").into(),
+        Action::KeyboardLayout(i) => t!("Раскладка клавиатуры {i}", i = i),
+        Action::Screenshot => t!("Снимок экрана").into(),
+        Action::ScreenshotWindow => t!("Снимок окна").into(),
+        Action::ScreenshotInteractive => t!("Снимок с выбором области").into(),
+        Action::Overview => t!("Обзор").into(),
+        Action::ReloadConfig => t!("Перечитать настройки").into(),
+        Action::RestartShell => t!("Перезапустить оболочку").into(),
+        Action::Restart => t!("Перезапустить композитор").into(),
+        Action::Quit => t!("Выйти из сеанса").into(),
+        Action::Lock => t!("Заблокировать").into(),
+        Action::Suspend => t!("Сон").into(),
+        Action::Reboot => t!("Перезагрузка").into(),
+        Action::PowerOff => t!("Выключение").into(),
+        Action::PowerOffMonitors => t!("Погасить мониторы").into(),
+        Action::ScreenToggle => t!("Погасить и заблокировать / включить экран").into(),
+        Action::ScreenOff => t!("Погасить экран и заблокировать").into(),
+        Action::ScreenOn => t!("Включить экран").into(),
+        Action::ProximityBlank(true) => t!("Погасить экран (у уха)").into(),
+        Action::ProximityBlank(false) => t!("Включить экран после «у уха»").into(),
+        Action::Shell(c) => t!("Оболочка: {c}", c = c),
+        Action::Back => t!("Назад").into(),
+        Action::Key(k) => t!("Клавиша {k}", k = k),
+        Action::MobileMode(m) => t!("Режим окон: {v}", v = match m {
+                synshell_common::action::MobileMode::Pages => t!("страницы"),
+                synshell_common::action::MobileMode::Free => t!("свободный"),
+            }),
+        Action::MobileModeCycle => t!("Следующий режим окон").into(),
+        Action::Page(p) => t!("Страница приложений: {p}", p = p),
+        Action::CameraHome => t!("Стол — к началу").into(),
+        Action::Rotate(r) => t!("Повернуть экран: {v}", v = if *r == synshell_common::action::Rotation::Normal { t!("как обычно") } else { format!("{r}°") }),
+        Action::None => t!("Ничего").into(),
     }
 }
 
@@ -381,7 +378,7 @@ fn combo_button(label: String, target: String) -> impl Widget {
         let listening = cap.get().as_deref() == Some(t2.as_str());
         let t = t2.clone();
         vec![boxed(
-            Button::new(if listening { "Нажмите сочетание…".to_string() } else { label.clone() })
+            Button::new(if listening { t!("Нажмите сочетание…").to_string() } else { label.clone() })
                 .class(if listening { "btn combo listening" } else { "btn combo" })
                 .on_click(move || {
                     cap.set(if cap.get_untracked().as_deref() == Some(t.as_str()) { None } else { Some(t.clone()) })
@@ -432,11 +429,11 @@ pub fn shortcuts() -> W {
                     Column::new()
                         .gap(2.0)
                         .class("grow")
-                        .child(Text::new(if disabled { "Отключено".to_string() } else { human }).class("row-label"))
-                        .child(Text::new(if builtin && !changed { "встроенное".to_string() } else if builtin { "встроенное, изменено".to_string() } else { "своё".to_string() }).class("row-hint")),
+                        .child(Text::new(if disabled { t!("Отключено").to_string() } else { human }).class("row-label"))
+                        .child(Text::new(if builtin && !changed { t!("встроенное").to_string() } else if builtin { t!("встроенное, изменено").to_string() } else { t!("своё").to_string() }).class("row-hint")),
                 )
                 .child(
-                    TextField::with_text(action.clone()).width(260.0).placeholder("действие").on_change(move |s| {
+                    TextField::with_text(action.clone()).width(260.0).placeholder(t!("действие")).on_change(move |s| {
                         if s.parse::<Action>().is_ok() {
                             set(&op!["keybindings", combo2.as_str()], s.to_string());
                         }
@@ -468,7 +465,7 @@ pub fn shortcuts() -> W {
             col = col.child(r);
         }
         if shown == 0 {
-            col = col.child(Text::new("Ничего не найдено").class("row-hint pad"));
+            col = col.child(Text::new(t!("Ничего не найдено")).class("row-hint pad"));
         }
         vec![boxed(col)]
     });
@@ -479,39 +476,39 @@ pub fn shortcuts() -> W {
         .gap(8.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(combo_button_new(new_combo))
-        .child(TextField::new().placeholder("или впишите: Super+Shift+X").width(200.0).on_change(move |s| new_combo.set(s.to_string())))
+        .child(TextField::new().placeholder(t!("или впишите: Super+Shift+X")).width(200.0).on_change(move |s| new_combo.set(s.to_string())))
         .child(TextField::new().placeholder("spawn firefox").width(240.0).on_change(move |s| new_action.set(s.to_string())))
-        .child(primary_button("Добавить", move || {
+        .child(primary_button(&t!("Добавить"), move || {
             let combo = new_combo.get_untracked();
             let action = new_action.get_untracked();
             match (combo.parse::<KeyCombo>(), action.parse::<Action>()) {
                 (Ok(_), Ok(_)) => {
                     set(&op!["keybindings", combo.as_str()], action);
                     rev.set(rev.get_untracked() + 1);
-                    state::toast("Сочетание добавлено");
+                    state::toast(t!("Сочетание добавлено"));
                 }
-                (Err(e), _) | (_, Err(e)) => state::toast(format!("Ошибка: {e}")),
+                (Err(e), _) | (_, Err(e)) => state::toast(t!("Ошибка: {e}", e = e)),
             }
         }));
 
     let mut body: Vec<W> = vec![
         boxed(
             TextField::new()
-                .placeholder("Поиск по сочетанию или действию")
+                .placeholder(t!("Поиск по сочетанию или действию"))
                 .prefix_icon(icons::SEARCH)
                 .width(420.0)
                 .on_change(move |s| search.set(s.to_string())),
         ),
-        group("Новое сочетание", vec![boxed(Column::new().gap(8.0).class("setting-row-wide").child(add_row).child(Text::new(format!("Действия: {names}")).class("row-hint")))]),
+        group(&t!("Новое сочетание"), vec![boxed(Column::new().gap(8.0).class("setting-row-wide").child(add_row).child(Text::new(t!("Действия: {names}", names = names)).class("row-hint")))]),
     ];
     if !errors.is_empty() {
-        body.push(boxed(Text::new(format!("Ошибки: {}", errors.join("; "))).class("error-text")));
+        body.push(boxed(Text::new(t!("Ошибки: {v}", v = errors.join("; "))).class("error-text")));
     }
     body.push(boxed(list));
     body.push(note(
-        "Щёлкните по сочетанию и нажмите новое (Esc — отмена). Клавиши, которых нет на кнопке захвата (Print, XF86…), впишите в поле «Новое сочетание». Сочетание композитора работает, пока окно настроек не в фокусе.",
+        &t!("Щёлкните по сочетанию и нажмите новое (Esc — отмена). Клавиши, которых нет на кнопке захвата (Print, XF86…), впишите в поле «Новое сочетание». Сочетание композитора работает, пока окно настроек не в фокусе."),
     ));
-    page("Комбинации клавиш", "Встроенные и свои сочетания. Изменения применяются сразу.", body)
+    page(t!("Комбинации клавиш"), t!("Встроенные и свои сочетания. Изменения применяются сразу."), body)
 }
 
 fn combo_button_new(new_combo: RwSignal<String>) -> impl Widget {
@@ -520,9 +517,9 @@ fn combo_button_new(new_combo: RwSignal<String>) -> impl Widget {
         let listening = cap.get().as_deref() == Some("+new");
         let cur = new_combo.get();
         let label = if listening {
-            "Нажмите сочетание…".to_string()
+            t!("Нажмите сочетание…").to_string()
         } else if cur.is_empty() {
-            "Записать сочетание".to_string()
+            t!("Записать сочетание").to_string()
         } else {
             cur
         };
@@ -545,48 +542,48 @@ pub fn mouse() -> W {
     let c = store::config();
     let m = &c.input.mouse;
     let t = &c.input.touchpad;
-    let prof: &[(&str, &str)] = &[("adaptive", "Адаптивное"), ("flat", "Без ускорения")];
+    let prof: &[(&str, &str)] = &[("adaptive", n_!("Адаптивное")), ("flat", n_!("Без ускорения"))];
     page(
-        "Мышь и тачпад",
-        "Скорость указателя, прокрутка, касания.",
+        t!("Мышь и тачпад"),
+        t!("Скорость указателя, прокрутка, касания."),
         vec![
             group(
-                "Мышь",
+                &t!("Мышь"),
                 vec![
-                    slider_row("Скорость указателя", "−1 … 1", op!["input", "mouse", "accel_speed"], m.accel_speed, -1.0, 1.0, 0.05, 2),
-                    choice_row("Ускорение", "", op!["input", "mouse", "accel_profile"], profile(m.accel_profile), prof),
-                    switch_row("Естественная прокрутка", "Содержимое движется за пальцем", op!["input", "mouse", "natural_scroll"], m.natural_scroll),
-                    slider_row("Скорость прокрутки", "", op!["input", "mouse", "scroll_factor"], m.scroll_factor, 0.1, 5.0, 0.1, 1),
-                    switch_row("Для левой руки", "Поменять кнопки местами", op!["input", "mouse", "left_handed"], m.left_handed),
-                    switch_row("Эмуляция средней кнопки", "Нажатие обеих кнопок", op!["input", "mouse", "middle_emulation"], m.middle_emulation),
+                    slider_row(&t!("Скорость указателя"), "−1 … 1", op!["input", "mouse", "accel_speed"], m.accel_speed, -1.0, 1.0, 0.05, 2),
+                    choice_row(&t!("Ускорение"), "", op!["input", "mouse", "accel_profile"], profile(m.accel_profile), prof),
+                    switch_row(t!("Естественная прокрутка"), t!("Содержимое движется за пальцем"), op!["input", "mouse", "natural_scroll"], m.natural_scroll),
+                    slider_row(&t!("Скорость прокрутки"), "", op!["input", "mouse", "scroll_factor"], m.scroll_factor, 0.1, 5.0, 0.1, 1),
+                    switch_row(t!("Для левой руки"), t!("Поменять кнопки местами"), op!["input", "mouse", "left_handed"], m.left_handed),
+                    switch_row(t!("Эмуляция средней кнопки"), t!("Нажатие обеих кнопок"), op!["input", "mouse", "middle_emulation"], m.middle_emulation),
                 ],
             ),
             group(
-                "Тачпад",
+                &t!("Тачпад"),
                 vec![
-                    switch_row("Касание — щелчок", "", op!["input", "touchpad", "tap"], t.tap),
-                    switch_row("Перетаскивание касанием", "", op!["input", "touchpad", "tap_drag"], t.tap_drag),
-                    switch_row("Естественная прокрутка", "", op!["input", "touchpad", "natural_scroll"], t.natural_scroll),
-                    switch_row("Отключать при наборе", "", op!["input", "touchpad", "disable_while_typing"], t.disable_while_typing),
-                    slider_row("Скорость указателя", "", op!["input", "touchpad", "accel_speed"], t.accel_speed, -1.0, 1.0, 0.05, 2),
-                    choice_row("Ускорение", "", op!["input", "touchpad", "accel_profile"], profile(t.accel_profile), prof),
-                    slider_row("Скорость прокрутки", "", op!["input", "touchpad", "scroll_factor"], t.scroll_factor, 0.1, 5.0, 0.1, 1),
+                    switch_row(&t!("Касание — щелчок"), "", op!["input", "touchpad", "tap"], t.tap),
+                    switch_row(&t!("Перетаскивание касанием"), "", op!["input", "touchpad", "tap_drag"], t.tap_drag),
+                    switch_row(&t!("Естественная прокрутка"), "", op!["input", "touchpad", "natural_scroll"], t.natural_scroll),
+                    switch_row(&t!("Отключать при наборе"), "", op!["input", "touchpad", "disable_while_typing"], t.disable_while_typing),
+                    slider_row(&t!("Скорость указателя"), "", op!["input", "touchpad", "accel_speed"], t.accel_speed, -1.0, 1.0, 0.05, 2),
+                    choice_row(&t!("Ускорение"), "", op!["input", "touchpad", "accel_profile"], profile(t.accel_profile), prof),
+                    slider_row(&t!("Скорость прокрутки"), "", op!["input", "touchpad", "scroll_factor"], t.scroll_factor, 0.1, 5.0, 0.1, 1),
                     choice_row(
-                        "Прокрутка",
+                        &t!("Прокрутка"),
                         "",
                         op!["input", "touchpad", "scroll_method"],
                         &t.scroll_method,
-                        &[("two-finger", "Двумя пальцами"), ("edge", "У края"), ("none", "Нет")],
+                        &[("two-finger", n_!("Двумя пальцами")), ("edge", n_!("У края")), ("none", n_!("Нет"))],
                     ),
                     choice_row(
-                        "Правый щелчок",
+                        &t!("Правый щелчок"),
                         "",
                         op!["input", "touchpad", "click_method"],
                         &t.click_method,
-                        &[("clickfinger", "Двумя пальцами"), ("button-areas", "Правый нижний угол")],
+                        &[("clickfinger", n_!("Двумя пальцами")), ("button-areas", n_!("Правый нижний угол"))],
                     ),
-                    switch_row("Для левой руки", "", op!["input", "touchpad", "left_handed"], t.left_handed),
-                    switch_row("Эмуляция средней кнопки", "", op!["input", "touchpad", "middle_emulation"], t.middle_emulation),
+                    switch_row(&t!("Для левой руки"), "", op!["input", "touchpad", "left_handed"], t.left_handed),
+                    switch_row(&t!("Эмуляция средней кнопки"), "", op!["input", "touchpad", "middle_emulation"], t.middle_emulation),
                 ],
             ),
         ],

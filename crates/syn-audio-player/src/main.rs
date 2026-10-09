@@ -42,11 +42,12 @@ fn percent_decode(s: &str) -> String {
 fn main() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "syn_audio_player=info".into());
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
+    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
     let mut files: Vec<PathBuf> = Vec::new();
     for a in std::env::args().skip(1) {
         match a.as_str() {
             "-h" | "--help" => {
-                println!("syn-audio-player [ФАЙЛ|URI …]");
+                println!("{}", t!("syn-audio-player [ФАЙЛ|URI …]"));
                 return;
             }
             _ => files.push(input_of(&a)),
@@ -55,7 +56,7 @@ fn main() {
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);
     App::new()
-        .title("Музыка")
+        .title(t!("Музыка"))
         .app_id("syn-audio-player")
         .size(420, 720)
         .min_size(320, 420)

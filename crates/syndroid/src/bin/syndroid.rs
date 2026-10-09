@@ -5,10 +5,11 @@ use std::os::unix::process::CommandExt;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
+use syngui::{n_, t};
 use syndroid::api::{self, Request, Response, Session};
 use syndroid::container;
 
-const HELP: &str = "syndroid — Android-приложения в synshell
+const HELP: &str = n_!("syndroid — Android-приложения в synshell
 
   syndroid                            окно управления
   syndroid status                     состояние Android
@@ -26,7 +27,7 @@ const HELP: &str = "syndroid — Android-приложения в synshell
   syndroid image use ИМЯ | remove ИМЯ
   syndroid shell [КОМАНДА…]           оболочка Android (root)
   syndroid logcat [АРГУМЕНТЫ…]
-  syndroid config                     настройки (TOML)";
+  syndroid config                     настройки (TOML)");
 
 fn ok(r: Response) {
     if let Response::Error { message } = r {
@@ -44,9 +45,9 @@ fn status() -> Result<syndroid::api::Status> {
 fn human(b: u64) -> String {
     let mb = b as f64 / 1048576.0;
     if mb >= 1024.0 {
-        format!("{:.2} ГБ", mb / 1024.0)
+        t!("{v} ГБ", v = format!("{:.2}", mb / 1024.0))
     } else {
-        format!("{mb:.0} МБ")
+        t!("{mb} МБ", mb = format!("{:.0}", mb))
     }
 }
 
@@ -57,11 +58,11 @@ fn follow(id: u64) -> Result<()> {
         let s = status()?;
         let Some(j) = s.jobs.iter().find(|j| j.id == id) else { bail!("задание пропало") };
         let line = if j.total > 0 {
-            format!("{}: {} из {} ({}%)", j.step, human(j.done), human(j.total), j.done * 100 / j.total)
+            t!("{step}: {v} из {v2} ({v3}%)", step = syngui::i18n::t(&j.step), v = human(j.done), v2 = human(j.total), v3 = j.done * 100 / j.total)
         } else if j.done > 0 {
-            format!("{}: {}", j.step, human(j.done))
+            format!("{}: {}", syngui::i18n::t(&j.step), human(j.done))
         } else {
-            j.step.clone()
+            syngui::i18n::t(&j.step)
         };
         if line != last {
             print!("\r\x1b[K{line}");
@@ -73,7 +74,7 @@ fn follow(id: u64) -> Result<()> {
             if let Some(e) = &j.error {
                 bail!("{e}");
             }
-            println!("готово");
+            println!("{}", t!("готово"));
             return Ok(());
         }
         std::thread::sleep(Duration::from_millis(500));
@@ -88,11 +89,11 @@ fn ensure_running(instance: Option<&str>) -> Result<()> {
     if let Some(inst) = instance {
         if s.instance.as_deref() != Some(inst) {
             let set = syndroid::images::latest_of(inst).with_context(|| format!("нет образов Android «{inst}»"))?;
-            eprintln!("Переключение на {}…", syndroid::images::instance_title(inst));
+            eprintln!("{}", t!("Переключение на {v}…", v = syndroid::images::instance_title(inst)));
             api::call(&Request::UseImages { name: set.name })?;
             if s.state != State::Stopped {
                 api::call(&Request::Restart)?;
-                eprintln!("Android перезапускается…");
+                eprintln!("{}", t!("Android перезапускается…"));
             }
             s = status()?;
         }
@@ -101,7 +102,7 @@ fn ensure_running(instance: Option<&str>) -> Result<()> {
         State::Running | State::Frozen => return Ok(()),
         State::Stopped => {
             api::call(&Request::Start { session: Session::from_env()? })?;
-            eprintln!("Android запускается…");
+            eprintln!("{}", t!("Android запускается…"));
         }
         State::Starting | State::Stopping => {}
     }
@@ -134,39 +135,40 @@ fn main() -> Result<()> {
     if args.first().map(String::as_str) == Some("__exec") {
         container::exec_main(&args[1..]);
     }
+    syndroid::i18n_init();
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
     match a.as_slice() {
         [] => syndroid::gui::run(false),
         ["--images"] => syndroid::gui::run(true),
-        ["help"] | ["-h"] | ["--help"] => println!("{HELP}"),
+        ["help"] | ["-h"] | ["--help"] => println!("{}", syngui::i18n::t(HELP)),
         ["status"] => {
             let s = status()?;
             println!("Android: {:?}", s.state);
             if let Some(t) = &s.instance_title {
-                println!("экземпляр: {t} ({})", s.instance.as_deref().unwrap_or(""));
+                println!("{}", t!("экземпляр: {t} ({v})", t = t, v = s.instance.as_deref().unwrap_or("")));
             }
             if let Some(i) = &s.image {
-                println!("образы: {i}");
+                println!("{}", t!("образы: {i}", i = i));
             }
             if let Some(v) = &s.android_version {
-                println!("версия Android: {v}");
+                println!("{}", t!("версия Android: {v}", v = v));
             }
             if let Some(u) = s.uptime {
-                println!("работает: {} мин {} с", u / 60, u % 60);
+                println!("{}", t!("работает: {v} мин {v2} с", v = u / 60, v2 = u % 60));
             }
             if let Some(p) = s.init_pid {
                 println!("init: PID {p}");
             }
             if let Some(e) = &s.error {
-                println!("ошибка: {e}");
+                println!("{}", t!("ошибка: {e}", e = e));
             }
             for j in s.jobs.iter().filter(|j| !j.finished) {
-                println!("задание {}: {} — {}", j.id, j.title, j.step);
+                println!("{}", t!("задание {id}: {title} — {step}", id = j.id, title = syngui::i18n::t(&j.title), step = syngui::i18n::t(&j.step)));
             }
         }
         ["start"] => {
             ok(api::call(&Request::Start { session: Session::from_env()? })?);
-            println!("Android запускается (syndroid status)");
+            println!("{}", t!("Android запускается (syndroid status)"));
         }
         ["stop"] => ok(api::call(&Request::Stop)?),
         ["restart"] => ok(api::call(&Request::Restart)?),
@@ -217,7 +219,7 @@ fn main() -> Result<()> {
         ["image"] | ["image", "list"] => {
             if let Response::Images { sets, active } = api::call(&Request::Images)? {
                 if sets.is_empty() {
-                    println!("образов нет: syndroid image fetch");
+                    println!("{}", t!("образов нет: syndroid image fetch"));
                 }
                 for s in sets {
                     let mark = if active.as_deref() == Some(&s.name) { "*" } else { " " };
@@ -229,7 +231,7 @@ fn main() -> Result<()> {
             if let Response::Updates { system, vendor, installed } = api::call(&Request::CheckUpdates)? {
                 println!("system: {} ({})", system.filename, human(system.size));
                 println!("vendor: {} ({})", vendor.filename, human(vendor.size));
-                println!("{}", if installed { "уже установлен" } else { "новый набор: syndroid image fetch" });
+                println!("{}", if installed { t!("уже установлен") } else { t!("новый набор: syndroid image fetch") });
             }
         }
         ["image", "fetch"] => {
@@ -262,7 +264,7 @@ fn main() -> Result<()> {
             }
         }
         _ => {
-            eprintln!("{HELP}");
+            eprintln!("{}", syngui::i18n::t(HELP));
             std::process::exit(2);
         }
     }

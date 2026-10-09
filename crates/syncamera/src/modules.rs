@@ -2,6 +2,7 @@
 //! есть и исправны. Неисправный модуль (датчик не ответил по CCI) в HAL не попадает — в выборе камеры он
 //! виден, но недоступен.
 
+use syngui::t;
 /// Задний объектив по роли в имени модуля (`…_wide` — основная, `_ultra` — широкоугольная, `_macro`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Module {
@@ -38,9 +39,9 @@ pub fn back_modules() -> Vec<Module> {
         let status = m["status"].as_str().unwrap_or_default();
         let fault = match status {
             "ok" => String::new(),
-            "no_response" => "Неисправна: датчик не отвечает".into(),
-            "mismatch" => "Неисправна: отвечает другой датчик".into(),
-            other => format!("Недоступна ({other})"),
+            "no_response" => t!("Неисправна: датчик не отвечает").into(),
+            "mismatch" => t!("Неисправна: отвечает другой датчик").into(),
+            other => t!("Недоступна ({other})", other = other),
         };
         out.push(Module { role, name, ok: status == "ok", fault });
     }

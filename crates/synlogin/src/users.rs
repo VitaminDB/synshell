@@ -2,6 +2,7 @@
 
 use std::io::Write;
 use std::process::{Command, Stdio};
+use syngui::t;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct User {
@@ -71,10 +72,10 @@ pub fn valid_login(name: &str) -> bool {
 /// ACL на телефоне его иначе не прочитать: `synlink logs`); пароль (пустой — без пароля).
 pub fn create(login: &str, full_name: &str, password: &str, admin: bool) -> Result<(), String> {
     if !valid_login(login) {
-        return Err("Логин: латинские строчные буквы, цифры, _ и -, начинается с буквы".into());
+        return Err(t!("Логин: латинские строчные буквы, цифры, _ и -, начинается с буквы").into());
     }
     if find(login).is_some() {
-        return Err("Такой пользователь уже есть".into());
+        return Err(t!("Такой пользователь уже есть").into());
     }
     // Группы, которых нет в системе, useradd не примет — берём только существующие.
     let groups_file = std::fs::read_to_string("/etc/group").unwrap_or_default();
@@ -103,7 +104,7 @@ pub fn create(login: &str, full_name: &str, password: &str, admin: bool) -> Resu
 pub fn set_password(login: &str, password: &str) -> Result<(), String> {
     if password.is_empty() {
         let st = Command::new("passwd").args(["-d", login]).status().map_err(|e| e.to_string())?;
-        return if st.success() { Ok(()) } else { Err("passwd -d не удался".into()) };
+        return if st.success() { Ok(()) } else { Err(t!("passwd -d не удался").into()) };
     }
     let mut child = Command::new("chpasswd").stdin(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("chpasswd: {e}"))?;
     if let Some(mut stdin) = child.stdin.take() {

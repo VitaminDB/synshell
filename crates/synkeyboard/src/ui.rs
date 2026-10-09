@@ -199,10 +199,10 @@ pub fn press_combo(kb: Keyboard, combo: &str) -> std::result::Result<(), String>
             "shift" => mods.push(Modifier::Shift),
             "alt" => mods.push(Modifier::Alt),
             "super" | "meta" | "win" => mods.push(Modifier::Super),
-            name => key = Some(layout::key_by_name(name).ok_or_else(|| format!("неизвестная клавиша «{part}»"))?),
+            name => key = Some(layout::key_by_name(name).ok_or_else(|| t!("неизвестная клавиша «{part}»", part = part))?),
         }
     }
-    let code = key.ok_or("нет клавиши в сочетании")?;
+    let code = key.ok_or_else(|| t!("нет клавиши в сочетании"))?;
     tap_with(code, &mods);
     let _ = kb;
     Ok(())

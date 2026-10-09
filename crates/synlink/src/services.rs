@@ -7,6 +7,7 @@
 
 use anyhow::{bail, Context, Result};
 use synshell_common::ipc::{Client, InputEvent, Request, Response};
+use synshell_tr::t;
 
 pub fn wm(req: Request) -> Result<Response> {
     let mut c = Client::connect().context("нет связи с композитором")?;
@@ -14,10 +15,10 @@ pub fn wm(req: Request) -> Result<Response> {
 }
 
 /// Ошибка старого композитора (до synlink) — понятным текстом.
-pub fn old_wm(message: &str) -> Option<&'static str> {
+pub fn old_wm(message: &str) -> Option<String> {
     message
         .contains("unknown variant")
-        .then_some("композитор этой машины старый (без удалённого ввода и потока кадров) — обновите synshell (synwm) и перезайдите")
+        .then(|| t!("композитор этой машины старый (без удалённого ввода и потока кадров) — обновите synshell (synwm) и перезайдите"))
 }
 
 pub fn input(output: Option<String>, events: Vec<InputEvent>) -> Result<()> {

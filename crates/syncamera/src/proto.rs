@@ -7,6 +7,7 @@
 
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use syngui::t;
 
 pub const SOCKET: &str = "/run/syncam/syncam.sock";
 const MAGIC: u32 = 0x6d61_6373;
@@ -331,7 +332,7 @@ fn connect() -> io::Result<OwnedFd> {
         }
         let len = std::mem::size_of::<libc::sockaddr_un>() as libc::socklen_t;
         if libc::connect(fd.as_raw_fd(), &addr as *const _ as *const libc::sockaddr, len) < 0 {
-            return Err(io::Error::other(format!("служба камеры недоступна: {}", io::Error::last_os_error())));
+            return Err(io::Error::other(t!("служба камеры недоступна: {v}", v = io::Error::last_os_error())));
         }
         Ok(fd)
     }
@@ -395,7 +396,7 @@ fn error_text(buf: &[u8], n: usize) -> (u32, String) {
         let end = e.text.iter().position(|&c| c == 0).unwrap_or(e.text.len());
         (e.code, String::from_utf8_lossy(&e.text[..end]).into_owned())
     } else {
-        (0, "ошибка службы камеры".into())
+        (0, t!("ошибка службы камеры").into())
     }
 }
 
@@ -405,10 +406,10 @@ fn hello(fd: RawFd) -> io::Result<Vec<Camera>> {
     let mut fds = Vec::new();
     let n = recv(fd, &mut buf, &mut fds)?;
     if n == 0 {
-        return Err(io::Error::other("служба камеры другой версии (обновите syncamd)"));
+        return Err(io::Error::other(t!("служба камеры другой версии (обновите syncamd)")));
     }
     if n < std::mem::size_of::<Cameras>() || u32::from_ne_bytes(buf[..4].try_into().unwrap()) != SC_CAMERAS {
-        return Err(io::Error::other("неожиданный ответ службы камеры"));
+        return Err(io::Error::other(t!("неожиданный ответ службы камеры")));
     }
     // SAFETY: длина проверена
     let list: Box<Cameras> = unsafe {
@@ -493,18 +494,18 @@ impl Stream {
             return Err(OpenError { busy: code == ERR_BUSY, text });
         }
         if ty != SC_STARTED || n < std::mem::size_of::<Started>() {
-            return Err(OpenError { busy: false, text: "камера не включилась".into() });
+            return Err(OpenError { busy: false, text: t!("камера не включилась").into() });
         }
         let info: Started = read_struct(&buf);
         if info.format != FMT_NV21 && info.format != 2 {
-            return Err(OpenError { busy: false, text: format!("формат кадров {} не поддерживается", info.format) });
+            return Err(OpenError { busy: false, text: t!("формат кадров {format} не поддерживается", format = info.format) });
         }
         let mut maps = Vec::new();
         for f in fds {
             // SAFETY: отображение dma-buf только для чтения на размер буфера из STARTED
             let p = unsafe { libc::mmap(std::ptr::null_mut(), info.size as usize, libc::PROT_READ, libc::MAP_SHARED, f.as_raw_fd(), 0) };
             if p == libc::MAP_FAILED {
-                return Err(OpenError { busy: false, text: format!("mmap буфера: {}", io::Error::last_os_error()) });
+                return Err(OpenError { busy: false, text: t!("mmap буфера: {v}", v = io::Error::last_os_error()) });
             }
             maps.push((p as *mut u8, info.size as usize, f));
         }
@@ -592,7 +593,7 @@ pub fn snapshot(camera: u32, flash: u32, size: Option<(u32, u32)>, rotation: i32
         return Err(io::Error::other(error_text(&buf, n).1));
     }
     if ty != SC_PHOTO || n < std::mem::size_of::<Photo>() || fds.is_empty() {
-        return Err(io::Error::other("снимок не получен"));
+        return Err(io::Error::other(t!("снимок не получен")));
     }
     let ph: Photo = read_struct(&buf);
     let mfd = &fds[0];
@@ -602,7 +603,7 @@ pub fn snapshot(camera: u32, flash: u32, size: Option<(u32, u32)>, rotation: i32
         // SAFETY: pread в живой буфер
         let r = unsafe { libc::pread(mfd.as_raw_fd(), out[off..].as_mut_ptr().cast(), out.len() - off, off as libc::off_t) };
         if r <= 0 {
-            return Err(io::Error::other("снимок: чтение memfd"));
+            return Err(io::Error::other(t!("снимок: чтение memfd")));
         }
         off += r as usize;
     }

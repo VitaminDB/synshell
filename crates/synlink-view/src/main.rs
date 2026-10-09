@@ -90,8 +90,9 @@ struct Ctx {
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn,wgpu_core=warn,wgpu_hal=warn,naga=warn")).init();
+    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
     let Some(device) = std::env::args().nth(1).filter(|a| !a.starts_with('-')) else {
-        eprintln!("synlink-view УСТРОЙСТВО — экран связанного устройства (имя, id или phone)");
+        eprintln!("{}", t!("synlink-view УСТРОЙСТВО — экран связанного устройства (имя, id или phone)"));
         std::process::exit(2);
     };
     let peer = match find_peer(&device) {
@@ -114,7 +115,7 @@ fn main() {
     let device: &'static str = Box::leak(peer.id.clone().into_boxed_str());
     let peer: &'static PeerInfo = Box::leak(Box::new(peer));
     let frame = LiveFrame::new();
-    let title = format!("{} — экран", peer.name);
+    let title = t!("{name} — экран", name = peer.name);
     let win = use_signal(WindowState::default());
     App::new()
         .title(&title)
@@ -129,7 +130,7 @@ fn main() {
                 device,
                 peer,
                 frame_rev: use_signal(0u64),
-                stats: use_signal(Stats { fps: 0.0, kbps: 0.0, size: (0, 0), state: "Соединение…".into(), codec: String::new() }),
+                stats: use_signal(Stats { fps: 0.0, kbps: 0.0, size: (0, 0), state: t!("Соединение…").into(), codec: String::new() }),
                 win,
                 sound: use_signal(Sound::Off),
                 note: use_signal(String::new()),
@@ -174,11 +175,11 @@ fn find_peer(device: &str) -> Result<PeerInfo, String> {
                         || (d == "phone" && p.kind.is_touch())
                         || (d == "desktop" && !p.kind.is_touch())
                 })
-                .ok_or_else(|| format!("нет спаренного устройства «{device}»"))
+                .ok_or_else(|| t!("нет спаренного устройства «{device}»", device = device))
         }
         Ok(Response::Error { message }) => Err(message),
-        Ok(_) => Err("неожиданный ответ synlink".into()),
-        Err(e) => Err(format!("synlink не запущен: {e}")),
+        Ok(_) => Err(t!("неожиданный ответ synlink").into()),
+        Err(e) => Err(t!("synlink не запущен: {e}", e = e)),
     }
 }
 
@@ -205,8 +206,8 @@ fn start_stream(ctx: Ctx, frame: Arc<LiveFrame>) {
         .spawn(move || loop {
             let err = stream_once(&device, cursor, &frame, rev, stats);
             let msg = match err {
-                Ok(()) => "Трансляция остановлена — переподключение…".to_string(),
-                Err(e) => format!("{e} — переподключение…"),
+                Ok(()) => t!("Трансляция остановлена — переподключение…").to_string(),
+                Err(e) => t!("{e} — переподключение…", e = e),
             };
             run_on_main_thread(move || {
                 let mut s = stats.get_untracked();
@@ -225,7 +226,7 @@ fn stream_once(device: &str, cursor: bool, frame: &LiveFrame, rev: RwSignal<u64>
     match c.request(&Request::Screen { device: device.into(), output: None, cursor, video: video_ok }).map_err(|e| e.to_string())? {
         Response::Ok => {}
         Response::Error { message } => return Err(message),
-        other => return Err(format!("неожиданный ответ: {other:?}")),
+        other => return Err(t!("неожиданный ответ: {other}", other = format!("{:?}", other))),
     }
     let (mut rd, mut wr) = c.into_parts();
     let mut buf: Vec<u8> = Vec::new();
@@ -331,7 +332,7 @@ fn stream_once(device: &str, cursor: bool, frame: &LiveFrame, rev: RwSignal<u64>
             let fps = count as f32 / el.as_secs_f32().max(0.001);
             let kbps = bytes as f32 / 1024.0 / el.as_secs_f32().max(0.001);
             let size = (fw, fh);
-            let label = if codec.is_empty() { "без потерь".to_string() } else { codec.to_uppercase() };
+            let label = if codec.is_empty() { t!("без потерь").to_string() } else { codec.to_uppercase() };
             run_on_main_thread(move || stats.set(Stats { fps, kbps, size, state: String::new(), codec: label }));
             if el >= Duration::from_millis(1000) {
                 count = 0;
@@ -597,7 +598,7 @@ fn root(ctx: Ctx, frame: Arc<LiveFrame>, input: mpsc::Sender<InputEvent>) -> imp
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .gap(10.0)
                 .child(icon(gl::SYNC).class("wait-icon"))
-                .child(Text::new(if s.state.is_empty() { "Соединение…".to_string() } else { s.state }).max_lines(3).class("wait-text")),
+                .child(Text::new(if s.state.is_empty() { t!("Соединение…").to_string() } else { s.state }).max_lines(3).class("wait-text")),
         ) as Box<dyn Widget>]
     });
     // Во весь экран: кнопка выхода в углу, пока недавно трогали.
@@ -673,7 +674,7 @@ fn bar(ctx: Ctx) -> impl Widget {
                     } else if !s.state.is_empty() {
                         s.state.clone()
                     } else {
-                        format!("{} × {} · {:.0} к/с · {:.0} КБ/с · {}", s.size.0, s.size.1, s.fps, s.kbps, s.codec)
+                        t!("{v} × {v2} · {fps} к/с · {kbps} КБ/с · {codec}", v = s.size.0, v2 = s.size.1, fps = format!("{:.0}", s.fps), kbps = format!("{:.0}", s.kbps), codec = s.codec)
                     };
                     vec![Box::new(Text::new(line).max_lines(1).class("dev-state")) as Box<dyn Widget>]
                 }))
@@ -698,11 +699,11 @@ fn bar(ctx: Ctx) -> impl Widget {
     let mut tools = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center);
     if touch {
         tools = tools
-            .child(tool(gl::BACK, "Назад", || action("back")))
-            .child(tool(gl::HOME, "Домой", || action("shell home")))
-            .child(tool(gl::RECENTS, "Недавние", || action("shell recents")))
-            .child(tool(gl::SHADE, "Шторка", || action("shell shade")))
-            .child(tool(gl::KEYBOARD, "Клавиатура", || action("spawn synkeyboard toggle")));
+            .child(tool(gl::BACK, &t!("Назад"), || action("back")))
+            .child(tool(gl::HOME, &t!("Домой"), || action("shell home")))
+            .child(tool(gl::RECENTS, &t!("Недавние"), || action("shell recents")))
+            .child(tool(gl::SHADE, &t!("Шторка"), || action("shell shade")))
+            .child(tool(gl::KEYBOARD, &t!("Клавиатура"), || action("spawn synkeyboard toggle")));
     }
     let sound = Reactive::new(move || {
         let s = ctx.sound.get();
@@ -720,17 +721,17 @@ fn bar(ctx: Ctx) -> impl Widget {
     tools = tools
         .child(DecoratedBox::new().class("grow"))
         .child(sound)
-        .child(tool(gl::FULLSCREEN, "Во весь экран", || syngui::signal::set_fullscreen(true)))
-        .child(tool(gl::LOCK, "Блокировка", || action("lock")))
-        .child(tool(gl::SHOT, "Снимок", move || screenshot(dev)))
-        .child(tool(gl::FOLDER, "Файлы", move || open_files(dev)));
+        .child(tool(gl::FULLSCREEN, &t!("Во весь экран"), || syngui::signal::set_fullscreen(true)))
+        .child(tool(gl::LOCK, &t!("Блокировка"), || action("lock")))
+        .child(tool(gl::SHOT, &t!("Снимок"), move || screenshot(dev)))
+        .child(tool(gl::FOLDER, &t!("Файлы"), move || open_files(dev)));
 
     DecoratedBox::new().child(Column::new().gap(8.0).child(header).child(tools)).class("bar")
 }
 
 fn screenshot(device: &'static str) {
     std::thread::spawn(move || {
-        let dir = synshell_common::paths::user_dir_or_default("PICTURES").join("Снимки экрана");
+        let dir = synshell_common::paths::user_dir_or_default("PICTURES").join(t!("Снимки экрана"));
         let _ = std::fs::create_dir_all(&dir);
         let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         let path = dir.join(format!("synlink-{device}-{stamp}.png"));
@@ -791,7 +792,7 @@ fn toggle_sound(ctx: Ctx) {
                         match c.request(&req).map_err(|e| e.to_string())? {
                             Response::Ok => Ok(c),
                             Response::Error { message } => Err(message),
-                            other => Err(format!("неожиданный ответ: {other:?}")),
+                            other => Err(t!("неожиданный ответ: {other}", other = format!("{:?}", other))),
                         }
                     })();
                     let c = match started {
@@ -799,7 +800,7 @@ fn toggle_sound(ctx: Ctx) {
                         Err(e) => {
                             run_on_main_thread(move || {
                                 sound.set(Sound::Off);
-                                show_note(note, format!("Звук: {e}"));
+                                show_note(note, t!("Звук: {e}", e = e));
                             });
                             return;
                         }
@@ -824,11 +825,11 @@ fn toggle_sound(ctx: Ctx) {
                     }
                     let msg = match serde_json::from_str::<Response>(&line) {
                         Ok(Response::Error { message }) => message,
-                        _ => "соединение прервалось".to_string(),
+                        _ => t!("соединение прервалось").to_string(),
                     };
                     run_on_main_thread(move || {
                         sound.set(Sound::Off);
-                        show_note(note, format!("Звук выключен: {msg}"));
+                        show_note(note, t!("Звук выключен: {msg}", msg = msg));
                     });
                 })
                 .ok();

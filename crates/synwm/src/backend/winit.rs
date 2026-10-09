@@ -23,6 +23,7 @@ use smithay::{
 };
 
 use crate::state::{Core, RedrawState, State};
+use synshell_tr::t;
 
 pub struct WinitBackend {
     backend: WinitGraphicsBackend<GlesRenderer>,
@@ -41,7 +42,7 @@ impl WinitBackend {
             .and_then(|v| parse_size(&v))
             .unwrap_or((1600.0, 960.0));
         let attrs = WinitWindow::default_attributes()
-            .with_title("synwm (вложенный)")
+            .with_title(t!("synwm (вложенный)"))
             .with_inner_size(LogicalSize::new(w, h))
             .with_visible(true);
         let (backend, winit_loop) = winit::init_from_attributes::<GlesRenderer>(attrs)

@@ -1,0 +1,46 @@
+@tag = "en"
+@name = "English"
+
+# src/backend/winit.rs
+"synwm (вложенный)" = "synwm (nested)"
+
+# src/bindings.rs
+"неизвестная клавиша «{key}» в «{combo}»" = "unknown key “{key}” in “{combo}”"
+
+# src/config.rs
+"раскладка клавиатуры: {e}" = "keyboard layout: {e}"
+
+# src/ipc.rs
+"нет окна {id}" = "no window {id}"
+"экран заблокирован" = "the screen is locked"
+"захват экрана: {e}" = "screen capture: {e}"
+"миниатюры окон: {e}" = "window thumbnails: {e}"
+"поток кадров: {e}" = "frame stream: {e}"
+"нет потока кадров (сначала frame-stream)" = "no frame stream (call frame-stream first)"
+
+# src/main.rs
+"synwm {v} — окружение рабочего стола для Wayland\n\nsynwm [--nested [--nested-size ШxВ] | --tty] [--cpu | --gpu] [--no-shell] [--no-autostart]\nsynwm msg <version|windows|workspaces|outputs|layouts|events|action ДЕЙСТВИЕ|window ID ОПЕРАЦИЯ|reload|restart-shell|restart>\n" = "synwm {v} — desktop environment for Wayland\n\nsynwm [--nested [--nested-size WxH] | --tty] [--cpu | --gpu] [--no-shell] [--no-autostart]\nsynwm msg <version|windows|workspaces|outputs|layouts|events|action ACTION|window ID OPERATION|reload|restart-shell|restart>\n"
+"использование: synwm msg <version|windows|workspaces|outputs|layouts|events|action …|window ID ОПЕРАЦИЯ|x11-display ИМЯ…|reload|restart-shell|restart>" = "usage: synwm msg <version|windows|workspaces|outputs|layouts|events|action …|window ID OPERATION|x11-display NAME…|reload|restart-shell|restart>"
+"нет связи с композитором: {e}" = "cannot connect to the compositor: {e}"
+"использование: synwm msg window ID activate|minimize|close|kill|maximize|fullscreen|floating|sticky|above|workspace N" = "usage: synwm msg window ID activate|minimize|close|kill|maximize|fullscreen|floating|sticky|above|workspace N"
+"неизвестная операция «{other}»" = "unknown operation “{other}”"
+"неизвестная команда «{other}»" = "unknown command “{other}”"
+"нет связи с композитором ({v}): {e}" = "cannot connect to the compositor ({v}): {e}"
+
+# src/remote.rs
+"нет вывода {name}" = "no output {name}"
+"сочетание {combo}: {e}" = "key combination {combo}: {e}"
+
+# src/stream.rs
+"нет выводов" = "no outputs"
+"кадр потока: {e}" = "stream frame: {e}"
+"файл кадра: {e}" = "frame file: {e}"
+
+# src/wm/rules.rs
+"правило #{v}: {what}: {e}" = "rule #{v}: {what}: {e}"
+
+# src/xwayland.rs
+"Xwayland выключен ([general] xwayland)" = "Xwayland is disabled ([general] xwayland)"
+"непонятное разрешение «{wanted}»" = "unrecognized resolution “{wanted}”"
+"Xwayland без дисплея" = "Xwayland has no display"
+"Xwayland не запущен" = "Xwayland is not running"

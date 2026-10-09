@@ -31,6 +31,7 @@ use smithay::{
 use synshell_common::ipc::{FrameInfo, FrameVideo, VideoRequest};
 
 use crate::state::{Core, State};
+use synshell_tr::t;
 
 /// Через сколько после последнего видеокадра дослать его места без потерь.
 pub const REFINE_DELAY: Duration = Duration::from_millis(150);
@@ -348,7 +349,7 @@ impl State {
             .core
             .output_by_name(&fc.output)
             .or_else(|| self.core.space.outputs().next().cloned())
-            .ok_or("нет выводов")?;
+            .ok_or(t!("нет выводов"))?;
         if output.name() != fc.output {
             fc.output = output.name();
             fc.target = None;
@@ -356,8 +357,8 @@ impl State {
         let rendered = self
             .backend
             .stream_frame(&mut self.core, &output, &mut fc.target, fc.cursor, &mut fc.opts)
-            .map_err(|e| format!("кадр потока: {e:#}"))?;
-        let video_offset = fc.write(&rendered).map_err(|e| format!("файл кадра: {e}"))?;
+            .map_err(|e| t!("кадр потока: {e}", e = format!("{:#}", e)))?;
+        let video_offset = fc.write(&rendered).map_err(|e| t!("файл кадра: {e}", e = e))?;
         if rendered.full {
             fc.seq = 0;
         } else {

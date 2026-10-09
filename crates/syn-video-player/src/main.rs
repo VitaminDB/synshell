@@ -74,12 +74,12 @@ fn parse_args() -> Args {
             "--hw" => {
                 let v = it.next().unwrap_or_default();
                 a.hw = Some(parse_hw(&v).unwrap_or_else(|| {
-                    eprintln!("неизвестное ускорение «{v}» (auto|none|v4l2|vaapi|nvdec|vulkan)");
+                    eprintln!("{}", t!("неизвестное ускорение «{v}» (auto|none|v4l2|vaapi|nvdec|vulkan)", v = v));
                     std::process::exit(2)
                 }));
             }
             "-h" | "--help" => {
-                println!("syn-video-player [--hw auto|none|v4l2|vaapi|nvdec|vulkan] [--bench [--yuv]] [ФАЙЛ|URI]");
+                println!("{}", t!("syn-video-player [--hw auto|none|v4l2|vaapi|nvdec|vulkan] [--bench [--yuv]] [ФАЙЛ|URI]"));
                 std::process::exit(0)
             }
             _ if a.file.is_none() => a.file = Some(input_of(&s)),
@@ -93,10 +93,11 @@ fn main() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "syn_video_player=info,syngui::video=info".into());
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
+    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
     let args = parse_args();
     if args.bench {
         let Some(file) = args.file.as_deref() else {
-            eprintln!("--bench: нужен файл");
+            eprintln!("{}", t!("--bench: нужен файл"));
             std::process::exit(2)
         };
         std::process::exit(bench::run(file, args.hw.unwrap_or(HwAccel::Auto), args.yuv));
@@ -104,7 +105,7 @@ fn main() {
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);
     App::new()
-        .title("Видео")
+        .title(t!("Видео"))
         .app_id("syn-video-player")
         .size(960, 640)
         .min_size(320, 400)

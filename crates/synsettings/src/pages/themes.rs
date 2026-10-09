@@ -141,13 +141,13 @@ fn card(t: Option<&Arc<Theme>>, scheme: ColorScheme, selected: bool, width: Opti
     let opacity = num("panel_opacity", 0.92) as f32;
     let (name, desc) = match t {
         Some(t) => (t.name.clone(), t.description.clone()),
-        None => ("Стандартная".to_string(), "Сдержанная палитра synshell: графит и синий акцент.".to_string()),
+        None => (t!("Стандартная").to_string(), t!("Сдержанная палитра synshell: графит и синий акцент.").to_string()),
     };
     let variants = match t {
-        Some(t) if t.has_both_variants() => "тёмная · светлая",
-        Some(t) if t.dark.is_some() => "тёмная",
-        Some(_) => "светлая",
-        None => "тёмная · светлая",
+        Some(t) if t.has_both_variants() => t!("тёмная · светлая"),
+        Some(t) if t.dark.is_some() => t!("тёмная"),
+        Some(_) => t!("светлая"),
+        None => t!("тёмная · светлая"),
     };
     let mut swatches = Row::new().gap(4.0).class("theme-swatches");
     for c in [p.bg, p.surface, p.accent, p.fg, p.success, p.warning, p.danger] {
@@ -275,8 +275,8 @@ pub fn apply(t: Option<&Theme>) {
         ch
     });
     state::toast(match t {
-        Some(t) => format!("Тема «{}» применена", t.name),
-        None => "Стандартная тема применена".to_string(),
+        Some(t) => t!("Тема «{name}» применена", name = t.name),
+        None => t!("Стандартная тема применена").to_string(),
     });
     state::bump();
 }
@@ -325,17 +325,17 @@ pub fn themes() -> W {
         "",
         vec![
             row(
-                "Вариант",
-                if single { "У этой темы один вариант" } else { "Тёмный или светлый вариант темы" },
-                SegmentedButton::new(vec!["Тёмный", "Светлый"]).selected(scheme_idx).on_change(|i| {
+                &t!("Вариант"),
+                if single { t!("У этой темы один вариант") } else { t!("Тёмный или светлый вариант темы") },
+                SegmentedButton::new(vec![t!("Тёмный"), t!("Светлый")]).selected(scheme_idx).on_change(|i| {
                     set(&op!["appearance", "color_scheme"], if i == 0 { "dark" } else { "light" });
                     state::bump();
                 }),
             ),
             row(
-                "Свои темы",
-                &format!("{}/<имя>/theme.toml + shell.mss", home_short(&theme::user_dir())),
-                button("Открыть папку", || {
+                &t!("Свои темы"),
+                &t!("{v}/<имя>/theme.toml + shell.mss", v = home_short(&theme::user_dir())),
+                button(&t!("Открыть папку"), || {
                     let dir = theme::user_dir();
                     let _ = std::fs::create_dir_all(&dir);
                     if let Err(e) = std::process::Command::new("xdg-open").arg(&dir).spawn() {
@@ -346,12 +346,12 @@ pub fn themes() -> W {
         ],
     )];
     if missing {
-        body.push(note(&format!("Тема «{}» не найдена — используется стандартная.", a.theme)));
+        body.push(note(&t!("Тема «{theme}» не найдена — используется стандартная.", theme = a.theme)));
     }
     body.push(boxed(grid));
     body.push(note(
-        "Тема задаёт палитру, обои без картинки, стиль панелей, меню и окна настроек. \
-         Акцент и отдельные цвета можно переопределить на странице «Внешний вид» поверх темы.",
+        &t!("Тема задаёт палитру, обои без картинки, стиль панелей, меню и окна настроек. \
+         Акцент и отдельные цвета можно переопределить на странице «Внешний вид» поверх темы."),
     ));
-    page("Темы", "Готовые оформления рабочего стола: панели, меню, уведомления, рамки окон.", body)
+    page(t!("Темы"), t!("Готовые оформления рабочего стола: панели, меню, уведомления, рамки окон."), body)
 }

@@ -97,7 +97,7 @@ fn button(glyph: &str, label: &str, tip: &str, class: &str, choice: Choice) -> W
 }
 
 fn close_button() -> W {
-    boxed(ToolButton::new(glyph::CLOSE).tooltip("Отмена (Esc)").on_click(sel::cancel).class("shot-close"))
+    boxed(ToolButton::new(glyph::CLOSE).tooltip(t!("Отмена (Esc)")).on_click(sel::cancel).class("shot-close"))
 }
 
 fn separator() -> W {
@@ -118,13 +118,13 @@ fn hint_layer(i: usize) -> Vec<W> {
         .child(
             Column::new()
                 .gap(1.0)
-                .child(Text::new("Выделите область или щёлкните по окну").max_lines(1).class("shot-hint-text"))
-                .child(Text::new("Enter — весь экран · Ctrl+C — копировать · Esc — отмена").max_lines(1).class("shot-hint-keys")),
+                .child(Text::new(t!("Выделите область или щёлкните по окну")).max_lines(1).class("shot-hint-text"))
+                .child(Text::new(t!("Enter — весь экран · Ctrl+C — копировать · Esc — отмена")).max_lines(1).class("shot-hint-keys")),
         )
         .child(separator())
-        .child(Button::new("Весь экран").leading_icon(glyph::SCREEN).on_click(sel::select_output).class("shot-btn"));
+        .child(Button::new(t!("Весь экран")).leading_icon(glyph::SCREEN).on_click(sel::select_output).class("shot-btn"));
     if many {
-        row = row.child(Button::new("Все экраны").leading_icon(glyph::ALL).on_click(sel::select_all).class("shot-btn"));
+        row = row.child(Button::new(t!("Все экраны")).leading_icon(glyph::ALL).on_click(sel::select_all).class("shot-btn"));
     }
     row = row.child(close_button());
     let width = sel::shot().frames[i].geo.w as f32;
@@ -149,10 +149,10 @@ fn toolbar_layer(i: usize) -> Vec<W> {
         Row::new()
             .gap(2.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(button(glyph::COPY, "Копировать", "Копировать снимок в буфер обмена (Ctrl+C)", "", Choice::Copy))
-            .child(button(glyph::SAVE, "Сохранить", "Сохранить в папку снимков (Enter, Ctrl+S)", "primary", Choice::Save))
-            .child(button(glyph::LINK, "Копировать путь", "Сохранить и скопировать путь к файлу (Ctrl+Shift+C)", "", Choice::CopyPath))
-            .child(button(glyph::OPEN, "Открыть", "Сохранить и открыть (Ctrl+O)", "", Choice::Open))
+            .child(button(glyph::COPY, &t!("Копировать"), &t!("Копировать снимок в буфер обмена (Ctrl+C)"), "", Choice::Copy))
+            .child(button(glyph::SAVE, &t!("Сохранить"), &t!("Сохранить в папку снимков (Enter, Ctrl+S)"), "primary", Choice::Save))
+            .child(button(glyph::LINK, &t!("Копировать путь"), &t!("Сохранить и скопировать путь к файлу (Ctrl+Shift+C)"), "", Choice::CopyPath))
+            .child(button(glyph::OPEN, &t!("Открыть"), &t!("Сохранить и открыть (Ctrl+O)"), "", Choice::Open))
             .child(separator())
             .child(close_button()),
     );

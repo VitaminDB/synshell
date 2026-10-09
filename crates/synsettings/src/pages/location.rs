@@ -7,6 +7,7 @@ use crate::op;
 use crate::state;
 use crate::store;
 use crate::ui::*;
+use syngui::t;
 
 fn write(key: &'static str, v: &[String]) {
     let mut a = Array::new();
@@ -20,15 +21,15 @@ fn write(key: &'static str, v: &[String]) {
 pub fn location() -> W {
     let l = store::config().location.clone();
     let mut body = vec![group(
-        "Доступ",
+        &t!("Доступ"),
         vec![switch_row(
-            "Местоположение для программ",
-            "Спутники (GNSS модема), Wi-Fi и сеть через GeoClue; выключено — не получает никто",
+            t!("Местоположение для программ"),
+            t!("Спутники (GNSS модема), Wi-Fi и сеть через GeoClue; выключено — не получает никто"),
             op!["location", "enabled"],
             l.enabled,
         )],
     )];
-    for (title, key, list) in [("Разрешено", "allowed", &l.allowed), ("Запрещено", "denied", &l.denied)] {
+    for (title, key, list) in [(t!("Разрешено"), "allowed", &l.allowed), (t!("Запрещено"), "denied", &l.denied)] {
         if list.is_empty() {
             continue;
         }
@@ -52,9 +53,9 @@ pub fn location() -> W {
         body.push(group(title, rows));
     }
     body.push(note(
-        "Обычные программы получают местоположение, пока доступ включён: GeoClue не может проверить, кто они. \
+        &t!("Обычные программы получают местоположение, пока доступ включён: GeoClue не может проверить, кто они. \
          Программы из песочницы (Flatpak) оболочка спрашивает при первом запросе; ответы «Разрешить» и «Запретить» \
-         запоминаются здесь, «Только сейчас» — до перезапуска оболочки.",
+         запоминаются здесь, «Только сейчас» — до перезапуска оболочки."),
     ));
-    page("Местоположение", "Кому доступно местоположение телефона", body)
+    page(t!("Местоположение"), t!("Кому доступно местоположение телефона"), body)
 }

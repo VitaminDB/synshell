@@ -10,17 +10,17 @@ use crate::store;
 use crate::sys;
 use crate::ui::*;
 
-const MODES: &[(&str, &str)] = &[("pages", "Страницы"), ("free", "Свободный стол")];
+const MODES: &[(&str, &str)] = &[("pages", n_!("Страницы")), ("free", n_!("Свободный стол"))];
 
 /// Режим окон: в конфиг и сразу композитору (без перезапуска).
 fn mode_row(current: MobileMode) -> W {
     let mut dd = Dropdown::new().width(220.0);
     for (v, l) in MODES {
-        dd = dd.item(DropdownItem::new(*v, *l));
+        dd = dd.item(DropdownItem::new(*v, tl(l)));
     }
     row(
-        "Режим окон",
-        "Страницы — приложения во весь экран, листание вбок; плитки — окна друг под другом; свободный — окна двигаются по большому столу. Меняется и удержанием на рабочем столе",
+        t!("Режим окон"),
+        t!("Страницы — приложения во весь экран, листание вбок; плитки — окна друг под другом; свободный — окна двигаются по большому столу. Меняется и удержанием на рабочем столе"),
         dd.selected(current.as_str().to_string()).on_change(|v: &str| {
             set(&op!["mobile", "mode"], v.to_string());
             if let Ok(m) = v.parse::<MobileMode>() {
@@ -38,53 +38,53 @@ pub fn phone() -> W {
     let rot = &c.rotation;
     let pb = &c.power_button;
     page(
-        "Телефон",
-        "Режимы окон и домашний экран оболочки synmobile-shell.",
+        t!("Телефон"),
+        t!("Режимы окон и домашний экран оболочки synmobile-shell."),
         vec![
             group(
-                "Окна",
+                &t!("Окна"),
                 vec![
                     mode_row(m.mode),
                     choice_row(
-                        "Виртуальный стол",
-                        "Размер стола в свободном режиме; двигается двумя пальцами",
+                        t!("Виртуальный стол"),
+                        t!("Размер стола в свободном режиме; двигается двумя пальцами"),
                         op!["mobile", "desk"],
                         &m.desk,
-                        &[("2x2", "2 × 2 экрана"), ("3x3", "3 × 3 экрана"), ("infinite", "Бесконечный")],
+                        &[("2x2", n_!("2 × 2 экрана")), ("3x3", n_!("3 × 3 экрана")), ("infinite", n_!("Бесконечный"))],
                     ),
                     choice_row(
-                        "Ручка окна",
-                        "За неё окно двигают и меняют размер в свободном режиме",
+                        t!("Ручка окна"),
+                        t!("За неё окно двигают и меняют размер в свободном режиме"),
                         op!["mobile", "handle"],
                         &m.handle,
-                        &[("server", "Полоса композитора"), ("none", "Нет (удержание по окну)")],
+                        &[("server", n_!("Полоса композитора")), ("none", n_!("Нет (удержание по окну)"))],
                     ),
-                    int_row("Высота ручки", "Логические пиксели", op!["mobile", "handle_height"], m.handle_height as i64, 16, 64, 2),
-                    switch_row("Масштаб стола щипком", "Свободный режим: щипок уменьшает стол, тап по окну — обратно 1:1", op!["mobile", "pinch_zoom"], m.pinch_zoom),
-                    switch_row("Запоминать режим окон", "Выбранный режим сохраняется в config.toml", op!["mobile", "remember_mode"], m.remember_mode),
+                    int_row(t!("Высота ручки"), t!("Логические пиксели"), op!["mobile", "handle_height"], m.handle_height as i64, 16, 64, 2),
+                    switch_row(t!("Масштаб стола щипком"), t!("Свободный режим: щипок уменьшает стол, тап по окну — обратно 1:1"), op!["mobile", "pinch_zoom"], m.pinch_zoom),
+                    switch_row(t!("Запоминать режим окон"), t!("Выбранный режим сохраняется в config.toml"), op!["mobile", "remember_mode"], m.remember_mode),
                 ],
             ),
             group(
-                "Пробуждение",
+                &t!("Пробуждение"),
                 vec![
-                    switch_row("Двойной стук", "Два касания по погашенному экрану включают его", op!["mobile", "double_tap_wake"], m.double_tap_wake),
-                    switch_row("Поднять, чтобы разбудить", "Экран включается, когда телефон берут в руки", op!["mobile", "raise_to_wake"], m.raise_to_wake),
+                    switch_row(t!("Двойной стук"), t!("Два касания по погашенному экрану включают его"), op!["mobile", "double_tap_wake"], m.double_tap_wake),
+                    switch_row(t!("Поднять, чтобы разбудить"), t!("Экран включается, когда телефон берут в руки"), op!["mobile", "raise_to_wake"], m.raise_to_wake),
                 ],
             ),
             group(
-                "Поворот экрана",
+                &t!("Поворот экрана"),
                 vec![
-                    switch_row("Автоповорот", "Экран поворачивается за телефоном (акселерометр)", op!["rotation", "auto"], rot.auto),
+                    switch_row(t!("Автоповорот"), t!("Экран поворачивается за телефоном (акселерометр)"), op!["rotation", "auto"], rot.auto),
                     switch_row(
-                        "Кнопка «повернуть»",
-                        "Когда ориентация зафиксирована, а телефон повернули, — кнопка в углу на несколько секунд",
+                        t!("Кнопка «повернуть»"),
+                        t!("Когда ориентация зафиксирована, а телефон повернули, — кнопка в углу на несколько секунд"),
                         op!["rotation", "suggest"],
                         rot.suggest,
                     ),
-                    switch_row("Вверх ногами", "Поворачивать и на 180°", op!["rotation", "upside_down"], rot.upside_down),
+                    switch_row(t!("Вверх ногами"), t!("Поворачивать и на 180°"), op!["rotation", "upside_down"], rot.upside_down),
                     int_row(
-                        "Задержка поворота, мс",
-                        "Сколько телефон должен пробыть в новом положении — случайный наклон не поворачивает экран",
+                        t!("Задержка поворота, мс"),
+                        t!("Сколько телефон должен пробыть в новом положении — случайный наклон не поворачивает экран"),
                         op!["rotation", "delay_ms"],
                         rot.delay_ms as i64,
                         0,
@@ -92,8 +92,8 @@ pub fn phone() -> W {
                         100,
                     ),
                     int_row(
-                        "Угол срабатывания, °",
-                        "Насколько наклонить телефон, чтобы экран повернулся; меньше — чувствительнее (по умолчанию 35)",
+                        t!("Угол срабатывания, °"),
+                        t!("Насколько наклонить телефон, чтобы экран повернулся; меньше — чувствительнее (по умолчанию 35)"),
                         op!["rotation", "threshold_deg"],
                         rot.threshold_deg as i64,
                         10,
@@ -101,8 +101,8 @@ pub fn phone() -> W {
                         5,
                     ),
                     int_row(
-                        "Анимация поворота, мс",
-                        "0 — поворачивать сразу, без анимации",
+                        t!("Анимация поворота, мс"),
+                        t!("0 — поворачивать сразу, без анимации"),
                         op!["rotation", "animation_ms"],
                         rot.animation_ms as i64,
                         0,
@@ -112,10 +112,10 @@ pub fn phone() -> W {
                 ],
             ),
             group(
-                "Экранная клавиатура",
+                &t!("Экранная клавиатура"),
                 vec![slider_row(
-                    "Масштаб клавиатуры",
-                    "Отдельно от масштаба оболочки: высота клавиш и подписи; меняется сразу",
+                    t!("Масштаб клавиатуры"),
+                    t!("Отдельно от масштаба оболочки: высота клавиш и подписи; меняется сразу"),
                     op!["osk", "scale"],
                     c.osk.scale as f64,
                     0.5,
@@ -125,60 +125,60 @@ pub fn phone() -> W {
                 )],
             ),
             group(
-                "Кнопка питания",
+                &t!("Кнопка питания"),
                 vec![
                     choice_row(
-                        "Нажатие",
-                        "Как в Android: погасить экран и заблокировать, повторное нажатие — включить",
+                        t!("Нажатие"),
+                        t!("Как в Android: погасить экран и заблокировать, повторное нажатие — включить"),
                         op!["power_button", "short"],
                         &pb.short,
                         &[
-                            ("", "По умолчанию (погасить и заблокировать)"),
-                            ("screen-toggle", "Погасить и заблокировать"),
-                            ("shell power-menu", "Меню выключения"),
-                            ("none", "Ничего"),
+                            ("", n_!("По умолчанию (погасить и заблокировать)")),
+                            ("screen-toggle", n_!("Погасить и заблокировать")),
+                            ("shell power-menu", n_!("Меню выключения")),
+                            ("none", n_!("Ничего")),
                         ],
                     ),
                     choice_row(
-                        "Удержание",
-                        "Срабатывает, пока кнопку держат",
+                        t!("Удержание"),
+                        t!("Срабатывает, пока кнопку держат"),
                         op!["power_button", "long"],
                         &pb.long,
                         &[
-                            ("", "По умолчанию (меню выключения)"),
-                            ("shell power-menu", "Меню выключения"),
-                            ("screen-toggle", "Погасить и заблокировать"),
-                            ("none", "Ничего"),
+                            ("", n_!("По умолчанию (меню выключения)")),
+                            ("shell power-menu", n_!("Меню выключения")),
+                            ("screen-toggle", n_!("Погасить и заблокировать")),
+                            ("none", n_!("Ничего")),
                         ],
                     ),
-                    int_row("Удержание, мс", "0 — 3000 мс", op!["power_button", "long_ms"], pb.long_ms as i64, 0, 10000, 250),
+                    int_row(t!("Удержание, мс"), t!("0 — 3000 мс"), op!["power_button", "long_ms"], pb.long_ms as i64, 0, 10000, 250),
                 ],
             ),
             group(
-                "Назад",
+                &t!("Назад"),
                 vec![choice_row(
-                    "Клавиша «назад» для окна",
-                    "Её получает приложение по жесту «назад», если поверх нет окна оболочки",
+                    t!("Клавиша «назад» для окна"),
+                    t!("Её получает приложение по жесту «назад», если поверх нет окна оболочки"),
                     op!["mobile", "back_key"],
                     &m.back_key,
-                    &[("XF86Back", "XF86Back (браузеры, GTK4, Qt)"), ("Escape", "Escape"), ("Alt+Left", "Alt+←"), ("close", "Закрыть окно")],
+                    &[("XF86Back", n_!("XF86Back (браузеры, GTK4, Qt)")), ("Escape", "Escape"), ("Alt+Left", "Alt+←"), ("close", n_!("Закрыть окно"))],
                 )],
             ),
             group(
-                "Домашний экран",
+                &t!("Домашний экран"),
                 vec![
-                    switch_row("Страница ресурсов", "Первая страница: процессор, память, питание, запущенные приложения", op!["mobile", "resources_page"], m.resources_page),
-                    int_row("Колонок в сетке", "", op!["mobile", "home_columns"], m.home_columns as i64, 2, 8, 1),
+                    switch_row(t!("Страница ресурсов"), t!("Первая страница: процессор, память, питание, запущенные приложения"), op!["mobile", "resources_page"], m.resources_page),
+                    int_row(&t!("Колонок в сетке"), "", op!["mobile", "home_columns"], m.home_columns as i64, 2, 8, 1),
                     choice_row(
-                        "Вид «Пуска»",
-                        "Переключается и кнопкой внизу «Пуска»",
+                        t!("Вид «Пуска»"),
+                        t!("Переключается и кнопкой внизу «Пуска»"),
                         op!["mobile", "launcher"],
                         &m.launcher,
-                        &[("pages", "Значки по страницам"), ("list", "Список")],
+                        &[("pages", n_!("Значки по страницам")), ("list", n_!("Список"))],
                     ),
                 ],
             ),
-            note("Приложения на домашнем экране: удержание по значку в «Пуске» → «На домашний экран»; пустой список — все приложения по алфавиту. Сетка видна, если включены «Значки на рабочем столе» (Оформление → Обои)."),
+            note(&t!("Приложения на домашнем экране: удержание по значку в «Пуске» → «На домашний экран»; пустой список — все приложения по алфавиту. Сетка видна, если включены «Значки на рабочем столе» (Оформление → Обои).")),
         ],
     )
 }
@@ -197,18 +197,18 @@ pub fn vibration() -> W {
         .width(200.0)
         .on_change(move |v| set(&p, v.round() as i64));
     page(
-        "Вибрация",
-        "Виброотклик телефона: жесты, экранная клавиатура, касания в приложениях, уведомления.",
+        t!("Вибрация"),
+        t!("Виброотклик телефона: жесты, экранная клавиатура, касания в приложениях, уведомления."),
         vec![
             group(
                 "",
                 vec![
-                    switch_row("Вибрация", "Общий выключатель виброотклика", op!["haptics", "enabled"], h.enabled),
-                    row("Сила", "Насколько сильно вибрирует отклик", slider),
+                    switch_row(t!("Вибрация"), t!("Общий выключатель виброотклика"), op!["haptics", "enabled"], h.enabled),
+                    row(t!("Сила"), t!("Насколько сильно вибрирует отклик"), slider),
                     row_inline(
-                        "Проверить",
-                        "Короткая вибрация с выбранной силой",
-                        button("Проверить", || {
+                        t!("Проверить"),
+                        t!("Короткая вибрация с выбранной силой"),
+                        button(&t!("Проверить"), || {
                             let s = store::config().haptics.strength;
                             synshell_common::haptics::test(s);
                         }),
@@ -216,12 +216,12 @@ pub fn vibration() -> W {
                 ],
             ),
             group(
-                "Отклик на",
+                &t!("Отклик на"),
                 vec![
-                    switch_row("Жесты", "«Назад», «домой», шторка; «Недавние» удержанием — сильнее", op!["haptics", "gestures"], h.gestures),
-                    switch_row("Клавиатура", "Нажатия клавиш экранной клавиатуры", op!["haptics", "keyboard"], h.keyboard),
-                    switch_row("Касания", "Удержание пальцем (выбор, меню), переключатели", op!["haptics", "touch"], h.touch),
-                    switch_row("Уведомления", "Кроме режима «Не беспокоить»", op!["haptics", "notifications"], h.notifications),
+                    switch_row(t!("Жесты"), t!("«Назад», «домой», шторка; «Недавние» удержанием — сильнее"), op!["haptics", "gestures"], h.gestures),
+                    switch_row(t!("Клавиатура"), t!("Нажатия клавиш экранной клавиатуры"), op!["haptics", "keyboard"], h.keyboard),
+                    switch_row(t!("Касания"), t!("Удержание пальцем (выбор, меню), переключатели"), op!["haptics", "touch"], h.touch),
+                    switch_row(t!("Уведомления"), t!("Кроме режима «Не беспокоить»"), op!["haptics", "notifications"], h.notifications),
                 ],
             ),
         ],
@@ -230,27 +230,27 @@ pub fn vibration() -> W {
 
 /// Действия для жестов (значение — строка действия как в `[keybindings]`).
 const GESTURE_ACTIONS: &[(&str, &str)] = &[
-    ("back", "Назад"),
-    ("shell home", "Домой (свернуть окна и открыть приложения)"),
-    ("minimize-all", "Свернуть все окна"),
-    ("shell recents", "Недавние"),
-    ("shell shade", "Шторка"),
-    ("shell launcher", "«Пуск»"),
-    ("page next", "Следующее приложение"),
-    ("page prev", "Предыдущее приложение"),
-    ("mobile-mode-cycle", "Следующий режим окон"),
-    ("overview", "Обзор окон"),
-    ("close", "Закрыть окно"),
-    ("key Escape", "Клавиша Escape"),
-    ("shell keyboard", "Экранная клавиатура"),
-    ("none", "Ничего"),
+    ("back", n_!("Назад")),
+    ("shell home", n_!("Домой (свернуть окна и открыть приложения)")),
+    ("minimize-all", n_!("Свернуть все окна")),
+    ("shell recents", n_!("Недавние")),
+    ("shell shade", n_!("Шторка")),
+    ("shell launcher", n_!("«Пуск»")),
+    ("page next", n_!("Следующее приложение")),
+    ("page prev", n_!("Предыдущее приложение")),
+    ("mobile-mode-cycle", n_!("Следующий режим окон")),
+    ("overview", n_!("Обзор окон")),
+    ("close", n_!("Закрыть окно")),
+    ("key Escape", n_!("Клавиша Escape")),
+    ("shell keyboard", n_!("Экранная клавиатура")),
+    ("none", n_!("Ничего")),
 ];
 
-fn action_row(label: &str, hint: &str, key: &str, current: &Action) -> W {
+fn action_row(label: impl AsRef<str>, hint: impl AsRef<str>, key: &str, current: &Action) -> W {
     let cur = current.to_string();
-    let mut opts: Vec<(String, String)> = GESTURE_ACTIONS.iter().map(|(v, l)| (v.to_string(), l.to_string())).collect();
+    let mut opts: Vec<(String, String)> = GESTURE_ACTIONS.iter().map(|(v, l)| (v.to_string(), tl(l))).collect();
     if !opts.iter().any(|(v, _)| *v == cur) {
-        opts.push((cur.clone(), format!("Своё: {cur}")));
+        opts.push((cur.clone(), t!("Своё: {cur}", cur = cur)));
     }
     row(label, hint, choice_owned(op!["gestures", key.to_string()], &cur, opts, 240.0))
 }
@@ -259,46 +259,46 @@ pub fn gestures() -> W {
     let c = store::config();
     let g = &c.gestures;
     page(
-        "Жесты",
-        "Жесты сенсорного экрана и тачпада. Действия — те же, что у сочетаний клавиш.",
+        t!("Жесты"),
+        t!("Жесты сенсорного экрана и тачпада. Действия — те же, что у сочетаний клавиш."),
         vec![
             group(
                 "",
                 vec![
-                    switch_row("Жесты включены", "Выключено — касания уходят приложениям как есть", op!["gestures", "enabled"], g.enabled),
-                    int_row("Зона у края", "Ширина полосы у края экрана, в которой начинается жест, px", op!["gestures", "edge_size"], g.edge_size as i64, 8, 64, 2),
-                    int_row("Порог жеста", "Путь пальца до распознавания, px", op!["gestures", "threshold"], g.threshold as i64, 16, 160, 4),
-                    int_row("Долгое нажатие", "Удержание = правая кнопка, мс", op!["gestures", "long_press_ms"], g.long_press_ms as i64, 200, 1500, 50),
+                    switch_row(t!("Жесты включены"), t!("Выключено — касания уходят приложениям как есть"), op!["gestures", "enabled"], g.enabled),
+                    int_row(t!("Зона у края"), t!("Ширина полосы у края экрана, в которой начинается жест, px"), op!["gestures", "edge_size"], g.edge_size as i64, 8, 64, 2),
+                    int_row(t!("Порог жеста"), t!("Путь пальца до распознавания, px"), op!["gestures", "threshold"], g.threshold as i64, 16, 160, 4),
+                    int_row(t!("Долгое нажатие"), t!("Удержание = правая кнопка, мс"), op!["gestures", "long_press_ms"], g.long_press_ms as i64, 200, 1500, 50),
                 ],
             ),
             group(
-                "От краёв экрана",
+                &t!("От краёв экрана"),
                 vec![
-                    action_row("Свайп от левого края", "", "edge_left", &g.edge_left),
-                    action_row("Свайп от правого края", "", "edge_right", &g.edge_right),
-                    action_row("Свайп снизу вверх", "", "edge_bottom", &g.edge_bottom),
-                    action_row("Свайп снизу с задержкой", "Провести вверх и задержать палец", "edge_bottom_hold", &g.edge_bottom_hold),
-                    action_row("Свайп сверху вниз", "", "edge_top", &g.edge_top),
+                    action_row(&t!("Свайп от левого края"), "", "edge_left", &g.edge_left),
+                    action_row(&t!("Свайп от правого края"), "", "edge_right", &g.edge_right),
+                    action_row(&t!("Свайп снизу вверх"), "", "edge_bottom", &g.edge_bottom),
+                    action_row(t!("Свайп снизу с задержкой"), t!("Провести вверх и задержать палец"), "edge_bottom_hold", &g.edge_bottom_hold),
+                    action_row(&t!("Свайп сверху вниз"), "", "edge_top", &g.edge_top),
                 ],
             ),
             group(
-                "Пальцы",
+                &t!("Пальцы"),
                 vec![
-                    switch_row("Двумя пальцами — стол", "В свободном режиме двигать виртуальный стол", op!["gestures", "two_finger_pan"], g.two_finger_pan),
+                    switch_row(t!("Двумя пальцами — стол"), t!("В свободном режиме двигать виртуальный стол"), op!["gestures", "two_finger_pan"], g.two_finger_pan),
                     choice_row(
-                        "Удержание по окну",
+                        &t!("Удержание по окну"),
                         "",
                         op!["gestures", "long_press_window"],
                         &g.long_press_window,
-                        &[("none", "Передать приложению"), ("move", "Перетащить окно")],
+                        &[("none", n_!("Передать приложению")), ("move", n_!("Перетащить окно"))],
                     ),
                 ],
             ),
             group(
-                "Тачпад",
+                &t!("Тачпад"),
                 vec![
-                    action_row("Три пальца вбок", "", "touchpad_horizontal", &g.touchpad_horizontal),
-                    action_row("Три пальца вверх", "", "touchpad_up", &g.touchpad_up),
+                    action_row(&t!("Три пальца вбок"), "", "touchpad_horizontal", &g.touchpad_horizontal),
+                    action_row(&t!("Три пальца вверх"), "", "touchpad_up", &g.touchpad_up),
                 ],
             ),
         ],

@@ -41,7 +41,7 @@ pub enum Mode {
 }
 
 pub const MODES: [(Mode, &str); 5] =
-    [(Mode::Night, "Ночь"), (Mode::Pro, "Профи"), (Mode::Photo, "Фото"), (Mode::Video, "Видео"), (Mode::Timelapse, "Таймлапс")];
+    [(Mode::Night, n_!("Ночь")), (Mode::Pro, n_!("Профи")), (Mode::Photo, n_!("Фото")), (Mode::Video, n_!("Видео")), (Mode::Timelapse, n_!("Таймлапс"))];
 
 impl Mode {
     fn from_index(i: u32) -> Mode {
@@ -182,12 +182,13 @@ pub struct St {
 fn main() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "syncamera=info".into());
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
+    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
     let (cfg, _) = Config::load();
     synshell_common::haptics::set_config(&cfg.haptics);
     let auto_rotate = cfg.rotation.auto;
     let mss = theme(&cfg);
     App::new()
-        .title("Камера")
+        .title(t!("Камера"))
         .app_id("syncamera")
         .size(420, 860)
         .min_size(320, 520)
@@ -208,7 +209,7 @@ fn main() {
                 mode: use_signal(Mode::from_index(p.mode)),
                 front: use_signal(front),
                 lens: use_signal(lens),
-                status: use_signal("Включаю камеру…".to_string()),
+                status: use_signal(t!("Включаю камеру…").to_string()),
                 frame_rev: use_signal(0),
                 stream_size: use_signal((0, 0)),
                 flash: use_signal(p.flash),
@@ -324,7 +325,7 @@ fn start(st: St) {
                 run_on_main_thread(move || st.cams.set(c));
                 break;
             }
-            Ok(_) => run_on_main_thread(move || st.status.set("Камер нет".into())),
+            Ok(_) => run_on_main_thread(move || st.status.set(t!("Камер нет").into())),
             Err(e) => {
                 let m = e.to_string();
                 run_on_main_thread(move || st.status.set(m));
@@ -459,13 +460,13 @@ fn start(st: St) {
 /// Выбрать папку снимков (`video` — видео) окном портала.
 pub fn choose_dir(st: St, video: bool) {
     let start = if video { media::videos_dir() } else { media::pictures_dir() };
-    let title = if video { "Папка для видео" } else { "Папка для снимков" };
+    let title = if video { t!("Папка для видео") } else { t!("Папка для снимков") };
     std::thread::spawn(move || {
-        let r = synsystem::portal_files::pick(title, true, &start, &[]);
+        let r = synsystem::portal_files::pick(&title, true, &start, &[]);
         run_on_main_thread(move || match r {
             Ok(Some(dir)) => {
                 if !media::writable(&dir) {
-                    st.toast.set(format!("В папку «{}» нельзя записывать", dir.display()));
+                    st.toast.set(t!("В папку «{dir}» нельзя записывать", dir = dir.display()));
                     return;
                 }
                 let s = dir.to_string_lossy().into_owned();
@@ -476,7 +477,7 @@ pub fn choose_dir(st: St, video: bool) {
                 }
             }
             Ok(None) => {}
-            Err(e) => st.toast.set(format!("Выбор папки: {e}")),
+            Err(e) => st.toast.set(t!("Выбор папки: {e}", e = e)),
         });
     });
 }
@@ -739,7 +740,7 @@ pub fn tap_focus(st: St, u: f32, v: f32, lock: bool) {
         })
     });
     if lock {
-        st.toast.set("Блокировка экспозиции и фокуса".into());
+        st.toast.set(t!("Блокировка экспозиции и фокуса").into());
     }
 }
 
@@ -881,14 +882,14 @@ fn night_shot(st: St, cam: Camera) {
         10
     };
     let rot = photo_rot(st, &cam);
-    st.progress.set("Съёмка — держите телефон неподвижно".into());
+    st.progress.set(t!("Съёмка — держите телефон неподвижно").into());
     let rx = e.burst(n);
     std::thread::spawn(move || {
         let r = (|| -> anyhow::Result<std::path::PathBuf> {
             let (frames, vu) = rx.recv_timeout(Duration::from_secs(15)).map_err(|_| anyhow::anyhow!("кадры серии не пришли"))?;
             run_on_main_thread(move || {
                 st.blink.set(st.blink.get_untracked() + 1);
-                st.progress.set("Обработка ночного снимка…".into());
+                st.progress.set(t!("Обработка ночного снимка…").into());
             });
             let t = std::time::Instant::now();
             let mut m = night::merge(frames);
@@ -911,7 +912,7 @@ fn night_shot(st: St, cam: Camera) {
                     tracing::info!("снимок: {}", p.display());
                     reload_items(st, false);
                 }
-                Err(e) => st.toast.set(format!("Ночной снимок не получился: {e:#}")),
+                Err(e) => st.toast.set(t!("Ночной снимок не получился: {e}", e = format!("{:#}", e))),
             }
         });
     });
@@ -947,7 +948,7 @@ pub fn take_photo(st: St) {
     let rot = st.dev_rot.get_untracked() as i32;
     if full {
         let mp = size.map(proto::megapixels).unwrap_or(0);
-        st.progress.set(format!("{mp} Мп — снимок займёт до 15 секунд…"));
+        st.progress.set(t!("{mp} Мп — снимок займёт до 15 секунд…", mp = mp));
     }
     std::thread::spawn(move || {
         let r = proto::snapshot(cam.id, flash, size, rot, flags).and_then(|jpeg| {
@@ -966,7 +967,7 @@ pub fn take_photo(st: St) {
                     tracing::info!("снимок: {}", p.display());
                     reload_items(st, false);
                 }
-                Err(e) => st.toast.set(format!("Снимок не получился: {e}")),
+                Err(e) => st.toast.set(t!("Снимок не получился: {e}", e = e)),
             }
         });
     });
@@ -1002,7 +1003,7 @@ pub fn start_recording(st: St) {
         timelapse: if mode == Mode::Timelapse { st.timelapse.get_untracked() } else { 1 },
     };
     if let Err(err) = e.start_recording(s) {
-        st.toast.set(format!("Запись не началась: {err:#}"));
+        st.toast.set(t!("Запись не началась: {err}", err = format!("{:#}", err)));
         return;
     }
     if st.sound.get_untracked() {
@@ -1028,7 +1029,7 @@ pub fn start_recording(st: St) {
             if let Some((us, _, err)) = stats {
                 st.rec_us.set(us);
                 if let Some(err) = err {
-                    st.toast.set(format!("Запись прервана: {err}"));
+                    st.toast.set(t!("Запись прервана: {err}", err = err));
                     stop_recording(st);
                 }
             }
@@ -1065,10 +1066,10 @@ pub fn stop_recording(st: St) {
             match r {
                 Ok(p) => {
                     tracing::info!("видео: {}", p.display());
-                    st.toast.set("Видео сохранено".into());
+                    st.toast.set(t!("Видео сохранено").into());
                     reload_items(st, false);
                 }
-                Err(e) => st.toast.set(format!("Видео не сохранено: {e:#}")),
+                Err(e) => st.toast.set(t!("Видео не сохранено: {e}", e = format!("{:#}", e))),
             }
             // объектив могли сменить во время записи — открыть как надо
             reopen(st);

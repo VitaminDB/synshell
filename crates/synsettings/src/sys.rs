@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use synshell_common::ipc::{Client, OutputInfo, Request, Response, WindowInfo};
 use synshell_common::paths;
+use syngui::t;
 
 // ─── Темы ───────────────────────────────────────────────────────────────────
 
@@ -310,7 +311,7 @@ pub fn about() -> About {
         .lines()
         .find_map(|l| l.strip_prefix("MemTotal:"))
         .and_then(|v| v.trim().trim_end_matches("kB").trim().parse::<f64>().ok())
-        .map(|kb| format!("{:.1} ГиБ", kb / 1024.0 / 1024.0))
+        .map(|kb| t!("{v} ГиБ", v = format!("{:.1}", kb / 1024.0 / 1024.0)))
         .unwrap_or_default();
     About {
         os,
@@ -409,9 +410,9 @@ fn which(cmd: &str) -> bool {
 /// или zenity (блокирующий — звать из отдельного потока). `None` — отменили или диалога нет.
 pub fn pick_path(directory: bool, start: &str) -> Option<String> {
     let start = if start.is_empty() { paths::expand_tilde("~").display().to_string() } else { start.to_string() };
-    let filters = [synsystem::portal_files::PickFilter { name: "Изображения", patterns: &["image/*"] }];
-    let title = if directory { "Папка с обоями" } else { "Картинка для обоев" };
-    match synsystem::portal_files::pick(title, directory, Path::new(&start), if directory { &[] } else { &filters }) {
+    let filters = [synsystem::portal_files::PickFilter { name: &t!("Изображения"), patterns: &["image/*"] }];
+    let title = if directory { t!("Папка с обоями") } else { t!("Картинка для обоев") };
+    match synsystem::portal_files::pick(&title, directory, Path::new(&start), if directory { &[] } else { &filters }) {
         Ok(p) => return p.map(|p| p.display().to_string()),
         Err(e) => tracing::info!("портал выбора файлов: {e} — kdialog/zenity"),
     }
@@ -420,11 +421,9 @@ pub fn pick_path(directory: bool, start: &str) -> Option<String> {
         if directory {
             c.args(["--getexistingdirectory", &start]);
         } else {
-            c.args([
-                "--getopenfilename",
-                &start,
-                "Изображения (*.png *.jpg *.jpeg *.webp *.bmp *.gif)",
-            ]);
+            // Фильтр kdialog: подпись — на языке интерфейса, маски — как есть.
+            let filter = format!("{} (*.png *.jpg *.jpeg *.webp *.bmp *.gif)", t!("Изображения"));
+            c.args(["--getopenfilename", &start, &filter]);
         }
         c.output().ok()?
     } else if which("zenity") {

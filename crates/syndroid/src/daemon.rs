@@ -12,9 +12,10 @@ use anyhow::{bail, Context, Result};
 use crate::api::{Job, Request, Response, Session, State, Status};
 use crate::config::Config;
 use crate::{android, container, images, paths};
+use syngui::{n_, t};
 
 /// Название задания загрузки образов.
-pub const FETCH_TITLE: &str = "Загрузка образов Android";
+pub const FETCH_TITLE: &str = n_!("Загрузка образов Android");
 
 #[derive(Default)]
 struct Inner {
@@ -174,7 +175,7 @@ impl Daemon {
             }
             if i.generation == gen {
                 if i.state == Some(State::Starting) {
-                    i.error = Some("Android завершился во время загрузки (см. /run/syndroid/container.log, dmesg)".into());
+                    i.error = Some(t!("Android завершился во время загрузки (см. /run/syndroid/container.log, dmesg)"));
                 }
                 i.state = Some(State::Stopped);
                 i.init_pid = None;
@@ -521,7 +522,7 @@ impl Daemon {
                 Response::Ok
             }
             Request::ImportImages { system, vendor, name } => {
-                let id = self.job("Импорт образов Android", move |_, p| {
+                let id = self.job(n_!("Импорт образов Android"), move |_, p| {
                     let set = images::import(system.as_ref(), vendor.as_ref(), name.as_deref(), p)?;
                     let mut c = Config::load();
                     if c.active.is_none() {
@@ -605,14 +606,14 @@ impl Daemon {
             Request::InstallApk { path } => {
                 let pid = self.android_pid()?;
                 let instance = images::instance_of(Config::load().active.as_deref().unwrap_or(""));
-                let id = self.job("Установка APK", move |_, p| {
-                    p("копирование", 0, 0);
+                let id = self.job(n_!("Установка APK"), move |_, p| {
+                    p(n_!("копирование"), 0, 0);
                     // Через /data экземпляра: файл виден Android как /data/local/tmp/…
                     let dir = paths::data(&instance).join("local/tmp");
                     std::fs::create_dir_all(&dir)?;
                     let name = format!("syndroid-{}.apk", std::process::id());
                     std::fs::copy(&path, dir.join(&name)).with_context(|| path.clone())?;
-                    p("установка", 0, 0);
+                    p(n_!("установка"), 0, 0);
                     let r = android::install(pid, &format!("/data/local/tmp/{name}"));
                     let _ = std::fs::remove_file(dir.join(&name));
                     r
@@ -728,7 +729,7 @@ fn serve(d: Arc<Daemon>, s: UnixStream) {
         }
         let resp = match serde_json::from_str::<Request>(&line) {
             Ok(req) => d.handle(req, peer).unwrap_or_else(|e| Response::Error { message: format!("{e:#}") }),
-            Err(e) => Response::Error { message: format!("запрос: {e}") },
+            Err(e) => Response::Error { message: t!("запрос: {e}", e = e) },
         };
         let mut out = serde_json::to_string(&resp).unwrap_or_default();
         out.push('\n');

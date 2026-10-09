@@ -49,13 +49,14 @@ fn sig() -> Sig {
 
 /// Команда демону в фоне, итог — всплывающей строкой.
 fn send(label: &'static str, req: Request) {
+    let label = tl(label);
     state::toast(format!("{label}…"));
     let s = sig();
     std::thread::spawn(move || {
         let msg = match link::request(&req) {
             Ok(Response::Error { message }) => format!("{label}: {message}"),
-            Err(e) => format!("{label}: synlink не отвечает ({e})"),
-            _ => format!("{label}: готово"),
+            Err(e) => t!("{label}: synlink не отвечает ({e})", label = label, e = e),
+            _ => t!("{label}: готово", label = label),
         };
         run_on_main_thread(move || {
             state::toast(msg);
@@ -75,17 +76,17 @@ fn kind_icon(k: DeviceKind) -> &'static str {
 fn state_text(p: &PeerInfo) -> String {
     let mut parts: Vec<String> = Vec::new();
     if p.connected {
-        parts.push(format!("Соединено по {}", p.transport.map(Transport::title).unwrap_or("?")));
+        parts.push(t!("Соединено по {v}", v = p.transport.map(Transport::title).unwrap_or("?")));
         if let Some(r) = p.rtt_ms {
-            parts.push(format!("{} мс", r.round().max(1.0) as u32));
+            parts.push(t!("{v} мс", v = r.round().max(1.0) as u32));
         }
     } else if p.paired {
-        parts.push("Не в сети".into());
+        parts.push(t!("Не в сети").into());
     } else {
-        parts.push(format!("Рядом по {}", p.transport.map(Transport::title).unwrap_or("сети")));
+        parts.push(t!("Рядом по {v}", v = p.transport.map(|t| t.title().to_string()).unwrap_or_else(|| t!("сети"))));
     }
     if let Some(b) = &p.battery {
-        parts.push(format!("батарея {}%{}", b.percent, if b.charging { ", заряжается" } else { "" }));
+        parts.push(t!("батарея {percent}%{v}", percent = b.percent, v = if b.charging { t!(", заряжается") } else { String::new() }));
     }
     if let Some(a) = &p.address {
         parts.push(a.clone());
@@ -110,10 +111,10 @@ fn device_row(p: &PeerInfo) -> W {
     if p.connected {
         let (a, b, c) = (id.clone(), id.clone(), id.clone());
         actions = actions
-            .child(button("Экран", move || {
+            .child(button(&t!("Экран"), move || {
                 let _ = std::process::Command::new("synlink-view").arg(&a).spawn();
             }))
-            .child(button("Файлы", move || {
+            .child(button(&t!("Файлы"), move || {
                 let b = b.clone();
                 std::thread::spawn(move || {
                     let path = match link::request(&Request::Mount { device: b, mount: true }) {
@@ -127,14 +128,14 @@ fn device_row(p: &PeerInfo) -> W {
                     }
                 });
             }))
-            .child(button("Отключить", move || send("Отключение", Request::Disconnect { device: c.clone() })));
+            .child(button(&t!("Отключить"), move || send(n_!("Отключение"), Request::Disconnect { device: c.clone() })));
     }
     if p.paired {
         let d = id.clone();
-        actions = actions.child(danger_icon_button("\u{e872}", move || send("Забыть устройство", Request::Unpair { device: d.clone() })));
+        actions = actions.child(danger_icon_button("\u{e872}", move || send(n_!("Забыть устройство"), Request::Unpair { device: d.clone() })));
     } else {
         let d = id.clone();
-        actions = actions.child(primary_button("Спарить", move || send("Спаривание", Request::Pair { device: d.clone() })));
+        actions = actions.child(primary_button(&t!("Спарить"), move || send(n_!("Спаривание"), Request::Pair { device: d.clone() })));
     }
     boxed(Column::new().gap(10.0).child(head).child(actions).class("dev-card"))
 }
@@ -146,35 +147,35 @@ pub fn devices() -> W {
     refresh(sig);
     let mut body: Vec<W> = Vec::new();
     let live = Reactive::new(move || -> Vec<W> {
-        let Some(st) = sig.get() else { return vec![note("Чтение состояния…")] };
+        let Some(st) = sig.get() else { return vec![note(&t!("Чтение состояния…"))] };
         let Some(st) = st else {
             return vec![note(
-                "Служба связи устройств (synlink) не запущена. Она стартует вместе с сеансом; вручную — synlink daemon.",
+                &t!("Служба связи устройств (synlink) не запущена. Она стартует вместе с сеансом; вручную — synlink daemon."),
             )];
         };
         let mut out: Vec<W> = Vec::new();
         let usb = if st.peers.iter().any(|p| p.connected && p.transport == Some(Transport::Usb)) {
-            "Кабель подключён · оболочки соединены"
+            t!("Кабель подключён · оболочки соединены")
         } else if st.usb.cable {
-            "Кабель подключён · на том конце нет synshell"
+            t!("Кабель подключён · на том конце нет synshell")
         } else {
-            "Кабель не подключён"
+            t!("Кабель не подключён")
         };
         out.push(group(
-            "Эта машина",
+            &t!("Эта машина"),
             vec![
-                row_inline("Имя для других устройств", &format!("{} · {}", st.me.kind.title(), st.me.id), Text::new(st.me.name.clone()).class("row-value")),
+                row_inline(&t!("Имя для других устройств"), &format!("{} · {}", st.me.kind.title(), st.me.id), Text::new(st.me.name.clone()).class("row-value")),
                 row_inline("USB", st.usb.interface.as_deref().unwrap_or(""), Text::new(usb).class("row-value")),
             ],
         ));
         let (paired, nearby): (Vec<&PeerInfo>, Vec<&PeerInfo>) = st.peers.iter().partition(|p| p.paired);
         if paired.is_empty() {
-            out.push(group("Связанные устройства", vec![note("Пока нет. Подключите телефон кабелем USB — спаривание начнётся само (подтвердите на телефоне), или спарьте устройство из списка «Рядом».")]));
+            out.push(group(&t!("Связанные устройства"), vec![note(&t!("Пока нет. Подключите телефон кабелем USB — спаривание начнётся само (подтвердите на телефоне), или спарьте устройство из списка «Рядом»."))]));
         } else {
-            out.push(group("Связанные устройства", paired.into_iter().map(device_row).collect()));
+            out.push(group(&t!("Связанные устройства"), paired.into_iter().map(device_row).collect()));
         }
         if !nearby.is_empty() {
-            out.push(group("Рядом", nearby.into_iter().map(device_row).collect()));
+            out.push(group(&t!("Рядом"), nearby.into_iter().map(device_row).collect()));
         }
         let hosts: Vec<W> = st
             .peers
@@ -186,9 +187,9 @@ pub fn devices() -> W {
             out.push(group("ssh", hosts));
         }
         out.push(note(
-            "ssh идёт внутри соединения synlink (USB или Wi-Fi — какое есть), адрес знать не нужно. Ключи прописываются при спаривании и удаляются, если устройство забыть.",
+            &t!("ssh идёт внутри соединения synlink (USB или Wi-Fi — какое есть), адрес знать не нужно. Ключи прописываются при спаривании и удаляются, если устройство забыть."),
         ));
-        out.push(note("Claude Code и другие агенты: claude mcp add synlink -- synlink mcp — снимки экрана, касания, текст, команды и журнал устройств."));
+        out.push(note(&t!("Claude Code и другие агенты: claude mcp add synlink -- synlink mcp — снимки экрана, касания, текст, команды и журнал устройств.")));
         let mut col = Column::new().gap(18.0);
         for w in out {
             col = col.child(w);
@@ -197,45 +198,45 @@ pub fn devices() -> W {
     });
     body.push(boxed(live));
     body.push(group(
-        "Настройки",
+        &t!("Настройки"),
         vec![
-            switch_row("Связь с устройствами", "Служба synlink в сеансе (после перезахода)", op!["link", "enabled"], l.enabled),
-            text_row("Имя этой машины", "Пусто — модель устройства", op!["link", "name"], &l.name, "по модели"),
-            switch_row("Видна в Wi-Fi", "Можно спарить по сети; по кабелю — всегда", op!["link", "discoverable"], l.discoverable),
-            switch_row("Уведомления", "Пересылать на связанные устройства и показывать их уведомления", op!["link", "notifications"], l.notifications),
-            switch_row("Общий буфер обмена", "Скопированный текст сразу вставляется на связанных устройствах", op!["link", "clipboard"], l.clipboard),
-            switch_row("Файлы устройств", "Монтировать в Проводник → Устройства", op!["link", "auto_mount"], l.auto_mount),
+            switch_row(t!("Связь с устройствами"), t!("Служба synlink в сеансе (после перезахода)"), op!["link", "enabled"], l.enabled),
+            text_row(t!("Имя этой машины"), t!("Пусто — модель устройства"), op!["link", "name"], &l.name, t!("по модели")),
+            switch_row(t!("Видна в Wi-Fi"), t!("Можно спарить по сети; по кабелю — всегда"), op!["link", "discoverable"], l.discoverable),
+            switch_row(t!("Уведомления"), t!("Пересылать на связанные устройства и показывать их уведомления"), op!["link", "notifications"], l.notifications),
+            switch_row(t!("Общий буфер обмена"), t!("Скопированный текст сразу вставляется на связанных устройствах"), op!["link", "clipboard"], l.clipboard),
+            switch_row(t!("Файлы устройств"), t!("Монтировать в Проводник → Устройства"), op!["link", "auto_mount"], l.auto_mount),
         ],
     ));
     body.push(group(
-        "Трансляция экрана",
+        &t!("Трансляция экрана"),
         vec![
             choice_row(
-                "Кодирование",
-                "Видео — аппаратным кодером того устройства, чей экран смотрим; в покое картинка досылается без потерь",
+                t!("Кодирование"),
+                t!("Видео — аппаратным кодером того устройства, чей экран смотрим; в покое картинка досылается без потерь"),
                 op!["link", "screen_codec"],
                 &l.screen_codec,
                 &[
-                    ("auto", "Авто: видео при движении"),
-                    ("lossless", "Без потерь"),
-                    ("hevc", "Видео HEVC"),
-                    ("h264", "Видео H.264"),
+                    ("auto", n_!("Авто: видео при движении")),
+                    ("lossless", n_!("Без потерь")),
+                    ("hevc", n_!("Видео HEVC")),
+                    ("h264", n_!("Видео H.264")),
                 ],
             ),
             choice_row(
-                "Кодер этого устройства",
-                "Чем кодируется экран этой машины, когда его смотрят с другого устройства",
+                t!("Кодер этого устройства"),
+                t!("Чем кодируется экран этой машины, когда его смотрят с другого устройства"),
                 op!["link", "screen_encoder"],
                 &l.screen_encoder,
                 &[
-                    ("auto", "Авто: телефон — свой кодер, компьютер — Intel, потом NVIDIA"),
+                    ("auto", n_!("Авто: телефон — свой кодер, компьютер — Intel, потом NVIDIA")),
                     ("vaapi", "Intel / AMD (VAAPI)"),
                     ("nvenc", "NVIDIA (NVENC)"),
                 ],
             ),
             int_row(
-                "Битрейт видео, Мбит/с",
-                "0 — сам: по кабелю 80, по Wi-Fi 30",
+                t!("Битрейт видео, Мбит/с"),
+                t!("0 — сам: по кабелю 80, по Wi-Fi 30"),
                 op!["link", "screen_bitrate"],
                 l.screen_bitrate as i64,
                 0,
@@ -245,8 +246,8 @@ pub fn devices() -> W {
         ],
     ));
     page(
-        "Связь с устройствами",
-        "Телефон и компьютер с synshell: экран и управление, файлы, уведомления, ssh — по USB и Wi-Fi.",
+        t!("Связь с устройствами"),
+        t!("Телефон и компьютер с synshell: экран и управление, файлы, уведомления, ssh — по USB и Wi-Fi."),
         body,
     )
 }

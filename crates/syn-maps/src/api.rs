@@ -5,6 +5,7 @@
 use std::time::Duration;
 
 use serde::Deserialize;
+use syngui::t;
 
 pub const USER_AGENT: &str = concat!("syn-maps/", env!("CARGO_PKG_VERSION"), " (synshell; +https://github.com/VitaminDB/synshell)");
 
@@ -60,10 +61,20 @@ fn enc(s: &str) -> String {
     o
 }
 
+/// Языки ответа геокодера: язык интерфейса, затем английский.
+fn accept_language() -> String {
+    let lang = syngui::i18n::language();
+    match lang.base() {
+        "en" => "en".into(),
+        b => format!("{b},en"),
+    }
+}
+
 fn search_url(query: &str, near: Option<(f64, f64, f64)>, bounded: bool) -> String {
     let mut url = format!(
-        "https://nominatim.openstreetmap.org/search?q={}&format=jsonv2&limit=12&accept-language=ru,en",
-        enc(query)
+        "https://nominatim.openstreetmap.org/search?q={}&format=jsonv2&limit=12&accept-language={}",
+        enc(query),
+        accept_language()
     );
     if let Some((lat, lon, span)) = near {
         url.push_str(&format!("&viewbox={},{},{},{}", lon - span, lat + span, lon + span, lat - span));
@@ -75,8 +86,8 @@ fn search_url(query: &str, near: Option<(f64, f64, f64)>, bounded: bool) -> Stri
 }
 
 fn fetch(url: &str) -> Result<Vec<Place>, String> {
-    let mut r = agent().get(url).call().map_err(|e| format!("поиск: {e}"))?;
-    let items: Vec<NomItem> = serde_json::from_reader(r.body_mut().as_reader()).map_err(|e| format!("поиск: {e}"))?;
+    let mut r = agent().get(url).call().map_err(|e| t!("поиск: {e}", e = e))?;
+    let items: Vec<NomItem> = serde_json::from_reader(r.body_mut().as_reader()).map_err(|e| t!("поиск: {e}", e = e))?;
     Ok(items.into_iter().filter_map(place_of).collect())
 }
 
@@ -101,10 +112,10 @@ pub fn search(query: &str, near: Option<(f64, f64, f64)>) -> Result<Vec<Place>, 
 
 /// Адрес точки (обратное геокодирование).
 pub fn reverse(lat: f64, lon: f64) -> Result<Place, String> {
-    let url = format!("https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=jsonv2&zoom=18&accept-language=ru,en");
-    let mut r = agent().get(&url).call().map_err(|e| format!("адрес: {e}"))?;
-    let it: NomItem = serde_json::from_reader(r.body_mut().as_reader()).map_err(|e| format!("адрес: {e}"))?;
-    let mut p = place_of(it).ok_or("адрес: пустой ответ")?;
+    let url = format!("https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=jsonv2&zoom=18&accept-language={}", accept_language());
+    let mut r = agent().get(&url).call().map_err(|e| t!("адрес: {e}", e = e))?;
+    let it: NomItem = serde_json::from_reader(r.body_mut().as_reader()).map_err(|e| t!("адрес: {e}", e = e))?;
+    let mut p = place_of(it).ok_or(t!("адрес: пустой ответ"))?;
     // сама точка, а не центр найденного здания
     p.lat = lat;
     p.lon = lon;
@@ -127,11 +138,11 @@ impl Profile {
             Profile::Bike => "routed-bike",
         }
     }
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            Profile::Car => "На машине",
-            Profile::Foot => "Пешком",
-            Profile::Bike => "На велосипеде",
+            Profile::Car => t!("На машине"),
+            Profile::Foot => t!("Пешком"),
+            Profile::Bike => t!("На велосипеде"),
         }
     }
 }
@@ -207,15 +218,15 @@ pub fn route(profile: Profile, from: (f64, f64), to: (f64, f64)) -> Result<Route
         to.1,
         to.0
     );
-    let mut r = agent().get(&url).call().map_err(|e| format!("маршрут: {e}"))?;
-    let resp: OsrmResp = serde_json::from_reader(r.body_mut().as_reader()).map_err(|e| format!("маршрут: {e}"))?;
+    let mut r = agent().get(&url).call().map_err(|e| t!("маршрут: {e}", e = e))?;
+    let resp: OsrmResp = serde_json::from_reader(r.body_mut().as_reader()).map_err(|e| t!("маршрут: {e}", e = e))?;
     if resp.code != "Ok" {
         return Err(match resp.code.as_str() {
-            "NoRoute" => "маршрут не найден".into(),
-            _ => format!("маршрут: {}", resp.message.unwrap_or(resp.code)),
+            "NoRoute" => t!("маршрут не найден").into(),
+            _ => t!("маршрут: {v}", v = resp.message.unwrap_or(resp.code)),
         });
     }
-    let rt = resp.routes.into_iter().next().ok_or("маршрут не найден")?;
+    let rt = resp.routes.into_iter().next().ok_or(t!("маршрут не найден"))?;
     let steps = rt
         .legs
         .iter()
@@ -237,44 +248,44 @@ pub fn route(profile: Profile, from: (f64, f64), to: (f64, f64)) -> Result<Route
     })
 }
 
-fn direction(m: Option<&str>) -> &'static str {
+fn direction(m: Option<&str>) -> String {
     match m.unwrap_or("") {
-        "left" => "налево",
-        "right" => "направо",
-        "slight left" => "плавно налево",
-        "slight right" => "плавно направо",
-        "sharp left" => "резко налево",
-        "sharp right" => "резко направо",
-        "uturn" => "с разворотом",
-        _ => "прямо",
+        "left" => t!("налево"),
+        "right" => t!("направо"),
+        "slight left" => t!("плавно налево"),
+        "slight right" => t!("плавно направо"),
+        "sharp left" => t!("резко налево"),
+        "sharp right" => t!("резко направо"),
+        "uturn" => t!("с разворотом"),
+        _ => t!("прямо"),
     }
 }
 
 fn maneuver_text(m: &OsrmManeuver, name: &str) -> String {
     let dir = direction(m.modifier.as_deref());
     let base = match m.kind.as_str() {
-        "depart" => "Начните движение".to_string(),
-        "arrive" => return "Вы на месте".into(),
-        "turn" | "end of road" if m.modifier.as_deref() == Some("uturn") => "Развернитесь".to_string(),
-        "turn" => format!("Поверните {dir}"),
-        "end of road" => format!("В конце дороги — {dir}"),
+        "depart" => t!("Начните движение").to_string(),
+        "arrive" => return t!("Вы на месте").into(),
+        "turn" | "end of road" if m.modifier.as_deref() == Some("uturn") => t!("Развернитесь").to_string(),
+        "turn" => t!("Поверните {dir}", dir = dir),
+        "end of road" => t!("В конце дороги — {dir}", dir = dir),
         "new name" | "continue" => {
             if dir == "прямо" {
-                "Продолжайте прямо".to_string()
+                t!("Продолжайте прямо").to_string()
             } else {
-                format!("Держитесь {dir}")
+                t!("Держитесь {dir}", dir = dir)
             }
         }
-        "fork" => format!("На развилке — {dir}"),
-        "merge" => format!("Перестройтесь {dir}"),
-        "on ramp" => format!("Въезд {dir}"),
-        "off ramp" => format!("Съезд {dir}"),
+        "fork" => t!("На развилке — {dir}", dir = dir),
+        "merge" => t!("Перестройтесь {dir}", dir = dir),
+        "on ramp" => t!("Въезд {dir}", dir = dir),
+        "off ramp" => t!("Съезд {dir}", dir = dir),
         "roundabout" | "rotary" => match m.exit {
-            Some(n) => format!("На круге — {n}-й съезд"),
-            None => "Въезжайте на круг".to_string(),
+            Some(n) => t!("На круге — {n}-й съезд", n = n),
+            None => t!("Въезжайте на круг").to_string(),
         },
-        "exit roundabout" | "exit rotary" => "Съезжайте с круга".to_string(),
-        _ => format!("Двигайтесь {dir}"),
+        "exit roundabout" | "exit rotary" => t!("Съезжайте с круга").to_string(),
+        _ => t!("Двигайтесь {dir}", dir = dir),
     };
     if name.is_empty() {
         base
@@ -313,11 +324,11 @@ fn maneuver_icon(m: &OsrmManeuver) -> &'static str {
 /// «350 м», «12,4 км», «120 км».
 pub fn fmt_distance(m: f64) -> String {
     if m < 1000.0 {
-        format!("{} м", ((m / 10.0).round() * 10.0) as i64)
+        t!("{v} м", v = ((m / 10.0).round() * 10.0) as i64)
     } else if m < 100_000.0 {
-        format!("{:.1} км", m / 1000.0).replace('.', ",")
+        t!("{v} км", v = format!("{:.1}", m / 1000.0)).replace('.', ",")
     } else {
-        format!("{} км", (m / 1000.0).round() as i64)
+        t!("{v} км", v = (m / 1000.0).round() as i64)
     }
 }
 
@@ -325,9 +336,9 @@ pub fn fmt_distance(m: f64) -> String {
 pub fn fmt_duration(s: f64) -> String {
     let min = (s / 60.0).round() as i64;
     if min < 60 {
-        format!("{} мин", min.max(1))
+        t!("{v} мин", v = min.max(1))
     } else {
-        format!("{} ч {:02} мин", min / 60, min % 60)
+        t!("{v} ч {v2} мин", v = min / 60, v2 = format!("{:02}", min % 60))
     }
 }
 

@@ -48,6 +48,9 @@ fn phone() -> bool {
 
 pub fn run() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,wgpu_core=warn,wgpu_hal=warn,naga=warn")).init();
+    // Язык экрана входа: как и тема — из конфига root (обычно его нет) или
+    // системного /etc/synshell/config.toml ([general] language), иначе LANG.
+    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
     let (cfg, _) = synshell_common::Config::load();
     let mut mss = cfg.appearance.mss_variables();
     mss.push_str(&cfg.appearance.theme_mss_variables());
@@ -134,7 +137,7 @@ fn login(st: St, user: User) {
         let ok = if pass.is_empty() && users::has_empty_password(&user.name) {
             Ok(())
         } else {
-            synshell_ui::lock::authenticate(&user.name, &pass).map_err(|_| "Неверный пароль".to_string())
+            synshell_ui::lock::authenticate(&user.name, &pass).map_err(|_| t!("Неверный пароль"))
         };
         run_on_main_thread(move || {
             st.busy.set(false);
@@ -165,7 +168,7 @@ fn create(st: St) {
     let v = st.values.get_untracked();
     let (login_name, full, p1, p2) = (v[0].trim().to_string(), v[1].trim().to_string(), v[2].clone(), v[3].clone());
     if p1 != p2 {
-        st.error.set("Пароли не совпадают".into());
+        st.error.set(t!("Пароли не совпадают").into());
         return;
     }
     let admin = st.admin.get_untracked();
@@ -317,11 +320,11 @@ fn users_view(st: St) -> impl Widget {
     let add = GestureDetector::new().on_click(move || {
         reset_values(st);
         st.stage.set(Stage::Create);
-    }).child(DecoratedBox::new().child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new("\u{E7FE}").class("pill-icon")).child(Text::new("Новый пользователь").class("pill-text"))).class("pill"));
+    }).child(DecoratedBox::new().child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new("\u{E7FE}").class("pill-icon")).child(Text::new(t!("Новый пользователь")).class("pill-text"))).class("pill"));
     Column::new()
         .gap(22.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(Text::new("Кто входит?").class("title"))
+        .child(Text::new(t!("Кто входит?")).class("title"))
         .child(if n <= 3 { Box::new(row.class("users-row")) as Box<dyn Widget> } else { Box::new(ScrollView::new().horizontal().child(row.class("users-row"))) })
         .child(add)
 }
@@ -350,12 +353,12 @@ fn password_view(st: St, u: User) -> impl Widget {
     let err = Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let e = st.error.get();
         let busy = st.busy.get();
-        vec![Box::new(Text::new(if busy { "Проверка…".to_string() } else { e }).class("error"))]
+        vec![Box::new(Text::new(if busy { t!("Проверка…").to_string() } else { e }).class("error"))]
     });
     // Экранная клавиатура пишет в значения — поле перестраивается следом.
     let pass = Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let _ = st.osk_rev.get();
-        vec![Box::new(field(st, 0, "Пароль", true))]
+        vec![Box::new(field(st, 0, &t!("Пароль"), true))]
     });
     let u2 = u.clone();
     // Пользователь без пароля: поля нет, «Войти» входит сразу.
@@ -375,8 +378,8 @@ fn password_view(st: St, u: User) -> impl Widget {
                 .child(GestureDetector::new().on_click(move || {
                     reset_values(st);
                     st.stage.set(Stage::Users);
-                }).child(DecoratedBox::new().child(Text::new("Другой пользователь").class("pill-text")).class("pill")))
-                .child(GestureDetector::new().on_click(move || login(st, u2.clone())).child(DecoratedBox::new().child(Text::new("Войти").class("pill-text")).class("pill pill-primary"))),
+                }).child(DecoratedBox::new().child(Text::new(t!("Другой пользователь")).class("pill-text")).class("pill")))
+                .child(GestureDetector::new().on_click(move || login(st, u2.clone())).child(DecoratedBox::new().child(Text::new(t!("Войти")).class("pill-text")).class("pill pill-primary"))),
         )
 }
 
@@ -386,10 +389,10 @@ fn create_view(st: St) -> impl Widget {
         vec![Box::new(
             Column::new()
                 .gap(10.0)
-                .child(field(st, 0, "Логин (латиницей)", false))
-                .child(field(st, 1, "Полное имя", false))
-                .child(field(st, 2, "Пароль (можно пустой)", true))
-                .child(field(st, 3, "Повтор пароля", true)),
+                .child(field(st, 0, &t!("Логин (латиницей)"), false))
+                .child(field(st, 1, &t!("Полное имя"), false))
+                .child(field(st, 2, &t!("Пароль (можно пустой)"), true))
+                .child(field(st, 3, &t!("Повтор пароля"), true)),
         )]
     });
     let err = Reactive::new(move || -> Vec<Box<dyn Widget>> { vec![Box::new(Text::new(st.error.get()).class("error"))] });
@@ -400,13 +403,13 @@ fn create_view(st: St) -> impl Widget {
                 .gap(10.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(Toggle::with_state(on).on_change(move |v| st.admin.set(v)))
-                .child(Text::new("Администратор (sudo, установка программ)").class("hint")),
+                .child(Text::new(t!("Администратор (sudo, установка программ)")).class("hint")),
         )]
     });
     Column::new()
         .gap(14.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(Text::new("Новый пользователь").class("title"))
+        .child(Text::new(t!("Новый пользователь")).class("title"))
         .child(DecoratedBox::new().child(fields).class("field-box"))
         .child(admin)
         .child(err)
@@ -416,7 +419,7 @@ fn create_view(st: St) -> impl Widget {
                 .child(GestureDetector::new().on_click(move || {
                     reset_values(st);
                     st.stage.set(Stage::Users);
-                }).child(DecoratedBox::new().child(Text::new("Отмена").class("pill-text")).class("pill")))
-                .child(GestureDetector::new().on_click(move || create(st)).child(DecoratedBox::new().child(Text::new("Создать").class("pill-text")).class("pill pill-primary"))),
+                }).child(DecoratedBox::new().child(Text::new(t!("Отмена")).class("pill-text")).class("pill")))
+                .child(GestureDetector::new().on_click(move || create(st)).child(DecoratedBox::new().child(Text::new(t!("Создать")).class("pill-text")).class("pill pill-primary"))),
         )
 }

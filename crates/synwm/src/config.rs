@@ -4,6 +4,7 @@ use smithay::input::keyboard::XkbConfig;
 use synshell_common::{ipc::Event, watch::FileWatcher, Config};
 
 use crate::{bindings::Bindings, deco::DecoTheme, state::State};
+use synshell_tr::t;
 
 /// Конфиг и файлы активной темы.
 pub fn watched_files(config: &Config) -> Vec<std::path::PathBuf> {
@@ -70,7 +71,7 @@ impl State {
                 },
             );
             if let Err(e) = res {
-                errors.push(format!("раскладка клавиатуры: {e:?}"));
+                errors.push(t!("раскладка клавиатуры: {e}", e = format!("{:?}", e)));
             }
             keyboard.change_repeat_info(kb.repeat_rate, kb.repeat_delay);
             self.core.last_kb_layout = None;

@@ -151,7 +151,7 @@ fn open_at(st: St, path: PathBuf, start: Option<f64>, keep_old: bool) {
                     }
                     Err(e) => {
                         tracing::warn!("{}: {e}", path.display());
-                        st.error.set(Some(format!("Не удалось открыть «{}»: {e}", path.display())));
+                        st.error.set(Some(t!("Не удалось открыть «{path}»: {e}", path = path.display(), e = e)));
                     }
                 }
             });
@@ -280,19 +280,19 @@ fn library_view(st: St) -> W {
     let header = Row::new()
         .gap(8.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(Text::new("Видео").class("title"))
+        .child(Text::new(t!("Видео")).class("title"))
         .child(DecoratedBox::new().class("grow"))
-        .child(icon_button(icons::REFRESH, "Обновить", move || rescan(st)))
+        .child(icon_button(icons::REFRESH, &t!("Обновить"), move || rescan(st)))
         .class("header");
     let grid = Reactive::new(move || -> Vec<W> {
         let cards = st.cards.get();
         let vp = viewport_size().get();
         if cards.is_empty() {
             let text = if st.scanning.get() {
-                "Ищу видео…".to_string()
+                t!("Ищу видео…").to_string()
             } else {
                 let dirs: Vec<String> = library::roots().iter().map(|d| d.display().to_string()).collect();
-                format!("Видео не найдено.\nПрограмма ищет в: {}", dirs.join(", "))
+                t!("Видео не найдено.\nПрограмма ищет в: {v}", v = dirs.join(", "))
             };
             return vec![Box::new(
                 Column::new()

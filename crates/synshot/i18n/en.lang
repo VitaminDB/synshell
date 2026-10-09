@@ -1,0 +1,20 @@
+@tag = "en"
+@name = "English"
+
+# src/main.rs
+"synshot [--capture ФАЙЛ]\n\nВыделить область или окно и сохранить снимок экрана." = "synshot [--capture FILE]\n\nSelect an area or a window and save a screenshot."
+
+# src/ui.rs
+"Отмена (Esc)" = "Cancel (Esc)"
+"Выделите область или щёлкните по окну" = "Select an area or click a window"
+"Enter — весь экран · Ctrl+C — копировать · Esc — отмена" = "Enter — full screen · Ctrl+C — copy · Esc — cancel"
+"Весь экран" = "Full screen"
+"Все экраны" = "All screens"
+"Копировать" = "Copy"
+"Копировать снимок в буфер обмена (Ctrl+C)" = "Copy the screenshot to the clipboard (Ctrl+C)"
+"Сохранить" = "Save"
+"Сохранить в папку снимков (Enter, Ctrl+S)" = "Save to the screenshots folder (Enter, Ctrl+S)"
+"Копировать путь" = "Copy path"
+"Сохранить и скопировать путь к файлу (Ctrl+Shift+C)" = "Save and copy the file path (Ctrl+Shift+C)"
+"Открыть" = "Open"
+"Сохранить и открыть (Ctrl+O)" = "Save and open (Ctrl+O)"

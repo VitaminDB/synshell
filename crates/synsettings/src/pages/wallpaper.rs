@@ -163,12 +163,12 @@ fn at(base: &P, key: &str) -> P {
 
 fn ws_name(ws: u32) -> String {
     let c = store::config();
-    c.workspaces.names.get(ws as usize).filter(|n| !n.trim().is_empty()).cloned().unwrap_or_else(|| format!("Стол {}", ws + 1))
+    c.workspaces.names.get(ws as usize).filter(|n| !n.trim().is_empty()).cloned().unwrap_or_else(|| t!("Стол {v}", v = ws + 1))
 }
 
 fn target_label(t: Target) -> String {
     match t {
-        Target::All => "Все рабочие столы".into(),
+        Target::All => t!("Все рабочие столы").into(),
         Target::Workspace(i) => ws_name(i),
     }
 }
@@ -344,16 +344,16 @@ fn ws_chips(s: Sig) -> W {
 }
 
 const LAYOUTS: &[(&str, &str, &str)] = &[
-    ("same", "Одни на все", "Одна картинка на всех рабочих столах."),
-    ("workspace", "Свои у каждого", "У каждого стола своя картинка: выберите стол под предпросмотром и картинку ниже. Столы без своей картинки показывают общую."),
-    ("panorama", "Панорама", "Одна широкая картинка на все столы: при переключении столов она плавно сдвигается вбок, как на домашнем экране телефона."),
+    ("same", n_!("Одни на все"), n_!("Одна картинка на всех рабочих столах.")),
+    ("workspace", n_!("Свои у каждого"), n_!("У каждого стола своя картинка: выберите стол под предпросмотром и картинку ниже. Столы без своей картинки показывают общую.")),
+    ("panorama", n_!("Панорама"), n_!("Одна широкая картинка на все столы: при переключении столов она плавно сдвигается вбок, как на домашнем экране телефона.")),
 ];
 
 fn controls(s: Sig) -> W {
     let c = store::config();
     let w = &c.wallpaper;
     let idx = LAYOUTS.iter().position(|(id, ..)| *id == w.layout).unwrap_or(0);
-    let modes = SegmentedButton::new(LAYOUTS.iter().map(|(_, l, _)| *l).collect::<Vec<_>>()).selected(idx).on_change(|i| {
+    let modes = SegmentedButton::new(LAYOUTS.iter().map(|(_, l, _)| tl(l)).collect::<Vec<_>>()).selected(idx).on_change(|i| {
         let (id, ..) = LAYOUTS[i.min(LAYOUTS.len() - 1)];
         set(&op!["wallpaper", "layout"], id);
         if id == "panorama" && store::config().wallpaper.mode != "fill" {
@@ -364,9 +364,9 @@ fn controls(s: Sig) -> W {
     let mut col = Column::new()
         .gap(10.0)
         .class("wall-controls")
-        .child(Text::new("Обои и рабочие столы").class("wall-controls-title"))
+        .child(Text::new(t!("Обои и рабочие столы")).class("wall-controls-title"))
         .child(modes)
-        .child(Text::new(LAYOUTS[idx].2).class("row-hint"));
+        .child(Text::new(tl(LAYOUTS[idx].2)).class("row-hint"));
 
     // Что правится сейчас и действия с ним.
     col = col.child(Reactive::new(move || -> Vec<W> {
@@ -379,15 +379,15 @@ fn controls(s: Sig) -> W {
         let path = expand_tilde(frame.path.trim());
         let mut out: Vec<W> = Vec::new();
         let name = if frame.path.trim().is_empty() {
-            "Градиент (картинка не выбрана)".to_string()
+            t!("Градиент (картинка не выбрана)").to_string()
         } else {
             path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| frame.path.clone())
         };
         let own = matches!(t, Target::Workspace(i) if w.workspace_frame(i).is_some());
         let whose = match t {
-            Target::All => "Сейчас".to_string(),
-            Target::Workspace(i) if own => format!("{}: своя картинка", ws_name(i)),
-            Target::Workspace(i) => format!("{}: общая картинка", ws_name(i)),
+            Target::All => t!("Сейчас").to_string(),
+            Target::Workspace(i) if own => t!("{v}: своя картинка", v = ws_name(i)),
+            Target::Workspace(i) => t!("{v}: общая картинка", v = ws_name(i)),
         };
         out.push(boxed(
             Column::new()
@@ -399,14 +399,14 @@ fn controls(s: Sig) -> W {
         let mut buttons = Flex::new().wrap().gap(8.0);
         if path.is_file() {
             let p = path.clone();
-            buttons = buttons.child(Button::new("Настроить кадр").icon(icons::CROP).class("btn primary").on_click(move || {
+            buttons = buttons.child(Button::new(t!("Настроить кадр")).icon(icons::CROP).class("btn primary").on_click(move || {
                 s.edit.set(Some(Edit { path: p.clone(), target: t, desk: None }));
             }));
         } else if path.is_dir() {
-            out.push(boxed(Text::new("Каталог: картинки сменяются слайд-шоу").class("row-hint")));
+            out.push(boxed(Text::new(t!("Каталог: картинки сменяются слайд-шоу")).class("row-hint")));
         }
         if sys::has_file_dialog() {
-            buttons = buttons.child(Button::new("Файл…").icon(icons::FILE).class("btn").on_click(move || {
+            buttons = buttons.child(Button::new(t!("Файл…")).icon(icons::FILE).class("btn").on_click(move || {
                 let start = s.dir.get_untracked().display().to_string();
                 std::thread::spawn(move || {
                     if let Some(p) = sys::pick_path(false, &start) {
@@ -416,7 +416,7 @@ fn controls(s: Sig) -> W {
             }));
         }
         if own {
-            buttons = buttons.child(Button::new("Как на других столах").icon(icons::UNDO).class("btn").on_click(move || {
+            buttons = buttons.child(Button::new(t!("Как на других столах")).icon(icons::UNDO).class("btn").on_click(move || {
                 if let Target::Workspace(i) = t {
                     unset(&op!["wallpaper", "workspace", (i + 1).to_string()]);
                     state::bump();
@@ -432,8 +432,8 @@ fn controls(s: Sig) -> W {
     }));
     if w.panorama() {
         col = col.child(row_wide(
-            "Сдвиг на один стол",
-            "Доля ширины экрана, на которую уезжает картинка при переходе на соседний стол",
+            t!("Сдвиг на один стол"),
+            t!("Доля ширины экрана, на которую уезжает картинка при переходе на соседний стол"),
             slider(op!["wallpaper", "panorama_shift"], w.panorama_shift.clamp(0.05, 1.0) as f64, 0.1, 1.0, 0.05, 2),
         ));
     }
@@ -468,9 +468,9 @@ fn dir_chips(s: Sig) -> W {
         let mut row = Flex::new().wrap().gap(6.0);
         for d in dirs {
             let label = if d == wg::xdg_pictures_dir(&home) {
-                "Изображения".to_string()
+                t!("Изображения").to_string()
             } else if d.starts_with("/usr/share") {
-                format!("Системные: {}", d.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())
+                t!("Системные: {v}", v = d.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())
             } else {
                 d.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| d.display().to_string())
             };
@@ -489,7 +489,7 @@ fn dir_chips(s: Sig) -> W {
             );
         }
         if sys::has_file_dialog() {
-            row = row.child(Button::new("Другой каталог…").icon(icons::ADD).class("btn small").on_click(move || {
+            row = row.child(Button::new(t!("Другой каталог…")).icon(icons::ADD).class("btn small").on_click(move || {
                 let start = s.dir.get_untracked().display().to_string();
                 std::thread::spawn(move || {
                     if let Some(p) = sys::pick_path(true, &start) {
@@ -518,7 +518,7 @@ fn gallery(scr: (f32, f32), s: Sig) -> W {
         let current = expand_tilde(target_frame(w, t).path.trim());
         let files = wg::gallery(&dir);
         if files.is_empty() {
-            return vec![note("В этом каталоге нет картинок (PNG, JPEG, WebP, HEIC, AVIF, BMP, GIF).")];
+            return vec![note(&t!("В этом каталоге нет картинок (PNG, JPEG, WebP, HEIC, AVIF, BMP, GIF)."))];
         }
         // Высокий экран (телефон) — миниатюры пониже, чтобы влезало больше.
         let ratio = (scr.0 / scr.1).max(0.62);
@@ -555,13 +555,13 @@ fn main_page(scr: (f32, f32), s: Sig) -> W {
     let ws = s.ws.get_untracked().min(c.workspaces.count.max(1) - 1);
     let t = target_of(w, ws);
 
-    let slideshow_dir = Button::new("Слайд-шоу из этого каталога").icon(icons::SLIDESHOW).class("btn small").on_click(move || {
+    let slideshow_dir = Button::new(t!("Слайд-шоу из этого каталога")).icon(icons::SLIDESHOW).class("btn small").on_click(move || {
         let t = target_of(&store::config().wallpaper, s.ws.get_untracked());
         set_path(t, &home_short(&s.dir.get_untracked()));
         state::bump();
     });
     let pictures = group(
-        "Картинки",
+        &t!("Картинки"),
         vec![
             boxed(Column::new().gap(10.0).class("wall-gallery-head").child(dir_chips(s)).child({
                 let dir_label = move || Text::new(home_short(&s.dir.get())).elide(Elide::Middle).class("row-hint grow");
@@ -577,7 +577,7 @@ fn main_page(scr: (f32, f32), s: Sig) -> W {
     );
 
     let path_field = TextField::with_text(target_frame(w, t).path)
-        .placeholder("Путь к картинке или каталогу")
+        .placeholder(t!("Путь к картинке или каталогу"))
         .width(if narrow() { 260.0 } else { 380.0 })
         .on_change(move |v| set_path(t, v));
 
@@ -591,7 +591,7 @@ fn main_page(scr: (f32, f32), s: Sig) -> W {
                 "",
                 Row::new()
                     .gap(8.0)
-                    .child(text(op!["wallpaper", "per_output", out.as_str()], path, "Путь", 260.0))
+                    .child(text(op!["wallpaper", "per_output", out.as_str()], path, &t!("Путь"), 260.0))
                     .child(danger_icon_button(icons::DELETE, move || {
                         unset(&op!["wallpaper", "per_output", out_s.as_str()]);
                         state::bump();
@@ -601,8 +601,8 @@ fn main_page(scr: (f32, f32), s: Sig) -> W {
         .collect();
     let new_out = use_signal(String::new());
     per_output.push(row(
-        "Добавить монитор",
-        "Имя вывода: eDP-1, HDMI-A-1…",
+        t!("Добавить монитор"),
+        t!("Имя вывода: eDP-1, HDMI-A-1…"),
         Row::new()
             .gap(8.0)
             .child(TextField::new().placeholder("HDMI-A-1").width(160.0).on_change(move |s| new_out.set(s.to_string())))
@@ -617,25 +617,25 @@ fn main_page(scr: (f32, f32), s: Sig) -> W {
 
     let mut image_rows = vec![row_wide(
         match t {
-            Target::All => "Картинка или каталог".to_string(),
-            Target::Workspace(_) => format!("Картинка или каталог — {}", ws_name(ws)),
+            Target::All => t!("Картинка или каталог").to_string(),
+            Target::Workspace(_) => t!("Картинка или каталог — {v}", v = ws_name(ws)),
         }
         .as_str(),
-        "Каталог — слайд-шоу; пусто — градиент из цветов ниже",
+        &t!("Каталог — слайд-шоу; пусто — градиент из цветов ниже"),
         path_field,
     )];
     if !w.panorama() {
         image_rows.push(choice_row(
-            "Заполнение",
-            "Кадр настраивается при «Заполнить»",
+            t!("Заполнение"),
+            t!("Кадр настраивается при «Заполнить»"),
             op!["wallpaper", "mode"],
             &w.mode,
-            &[("fill", "Заполнить (кадр)"), ("fit", "Вписать"), ("stretch", "Растянуть"), ("center", "По центру"), ("tile", "Мозаика")],
+            &[("fill", n_!("Заполнить (кадр)")), ("fit", n_!("Вписать")), ("stretch", n_!("Растянуть")), ("center", n_!("По центру")), ("tile", n_!("Мозаика"))],
         ));
     }
     image_rows.push(int_row(
-        "Слайд-шоу",
-        "Смена картинки из каталога, минут (0 — выкл.)",
+        t!("Слайд-шоу"),
+        t!("Смена картинки из каталога, минут (0 — выкл.)"),
         op!["wallpaper", "slideshow_minutes"],
         w.slideshow_minutes as i64,
         0,
@@ -644,29 +644,29 @@ fn main_page(scr: (f32, f32), s: Sig) -> W {
     ));
 
     page(
-        "Обои",
-        "Фон рабочих столов: картинка с кадром, свои обои для каждого стола или панорама.",
+        t!("Обои"),
+        t!("Фон рабочих столов: картинка с кадром, свои обои для каждого стола или панорама."),
         vec![
             hero(scr, s),
             pictures,
-            group("Изображение", image_rows),
+            group(&t!("Изображение"), image_rows),
             group(
-                "Цвет",
+                &t!("Цвет"),
                 vec![
-                    row("Основной цвет", "", color_field(op!["wallpaper", "color"], &w.color, "#1b2233")),
-                    row("Второй цвет", "Пусто — сплошной цвет", color_field(op!["wallpaper", "color2"], &w.color2, "")),
+                    row(&t!("Основной цвет"), "", color_field(op!["wallpaper", "color"], &w.color, "#1b2233")),
+                    row(t!("Второй цвет"), t!("Пусто — сплошной цвет"), color_field(op!["wallpaper", "color2"], &w.color2, "")),
                 ],
             ),
             group(
-                "Рабочий стол",
+                &t!("Рабочий стол"),
                 vec![switch_row(
-                    "Значки на рабочем столе",
-                    "Файлы из ~/Desktop; на телефоне — сетка приложений на домашнем экране",
+                    t!("Значки на рабочем столе"),
+                    t!("Файлы из ~/Desktop; на телефоне — сетка приложений на домашнем экране"),
                     op!["wallpaper", "desktop_icons"],
                     w.desktop_icons,
                 )],
             ),
-            group("Свои обои для мониторов", per_output),
+            group(&t!("Свои обои для мониторов"), per_output),
         ],
     )
 }
@@ -770,8 +770,8 @@ fn editor(e: Edit, scr: (f32, f32), s: Sig) -> W {
 
     let target = e.target;
     let title = match (pano, desk, target) {
-        (true, Some(i), _) => format!("Панорама · участок: {}", ws_name(i)),
-        (true, None, _) => format!("Панорама на {n} столов"),
+        (true, Some(i), _) => t!("Панорама · участок: {v}", v = ws_name(i)),
+        (true, None, _) => t!("Панорама на {n} столов", n = n),
         (false, _, t) => target_label(t),
     };
     let mut header = Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).class("wall-editor-bar");
@@ -783,7 +783,7 @@ fn editor(e: Edit, scr: (f32, f32), s: Sig) -> W {
             Column::new()
                 .gap(2.0)
                 .class("grow")
-                .child(Text::new("Кадр обоев").class("wall-editor-title"))
+                .child(Text::new(t!("Кадр обоев")).class("wall-editor-title"))
                 .child(Text::new(format!("{title} · {}", e.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())).max_lines(1).elide(Elide::Middle).class("row-hint")),
         );
 
@@ -794,17 +794,17 @@ fn editor(e: Edit, scr: (f32, f32), s: Sig) -> W {
         .child(Button::new("").icon(icons::ZOOM_OUT).class("icon-btn").on_click(move || send(ImageViewCommand::ZoomOut)))
         .child(zoom_label)
         .child(Button::new("").icon(icons::ZOOM_IN).class("icon-btn").on_click(move || send(ImageViewCommand::ZoomIn)))
-        .child(Button::new("Заполнить").icon(icons::FIT).class("btn small").on_click(move || send(ImageViewCommand::Fill)));
+        .child(Button::new(t!("Заполнить")).icon(icons::FIT).class("btn small").on_click(move || send(ImageViewCommand::Fill)));
 
     let apply_path = e.path.clone();
     let actions = Row::new()
         .gap(8.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(Button::new("Отмена").class("btn").on_click(move || {
+        .child(Button::new(t!("Отмена")).class("btn").on_click(move || {
             s.pano.set((PathBuf::new(), PanoPending::new()));
             s.edit.set(None);
         }))
-        .child(Button::new("Установить").icon(icons::CHECK).class("btn primary").on_click(move || {
+        .child(Button::new(t!("Установить")).icon(icons::CHECK).class("btn primary").on_click(move || {
             if pano {
                 // Вся панорама и поправленные участки столов — разом.
                 stash_pano(s, info, desk);
@@ -826,8 +826,8 @@ fn editor(e: Edit, scr: (f32, f32), s: Sig) -> W {
             s.edit.set(None);
             state::bump();
             state::toast(match target {
-                Target::All => "Обои установлены".to_string(),
-                Target::Workspace(ws) => format!("Обои установлены: {}", ws_name(ws)),
+                Target::All => t!("Обои установлены").to_string(),
+                Target::Workspace(ws) => t!("Обои установлены: {v}", v = ws_name(ws)),
             });
         }));
 
@@ -845,11 +845,11 @@ fn editor(e: Edit, scr: (f32, f32), s: Sig) -> W {
     };
 
     let hint = if desk.is_some() {
-        "Что видно на этом столе: двигайте и масштабируйте; между столами картинка плавно переходит от участка к участку"
+        t!("Что видно на этом столе: двигайте и масштабируйте; между столами картинка плавно переходит от участка к участку")
     } else if narrow() {
-        "Двигайте картинку пальцем, масштаб — двумя пальцами, двойное касание — ×2"
+        t!("Двигайте картинку пальцем, масштаб — двумя пальцами, двойное касание — ×2")
     } else {
-        "Двигайте картинку мышью, масштаб — колесом или двумя пальцами, двойной щелчок — ×2"
+        t!("Двигайте картинку мышью, масштаб — колесом или двумя пальцами, двойной щелчок — ×2")
     };
     let mut col = Column::new()
         .gap(12.0)
@@ -907,7 +907,7 @@ fn pano_chips(s: Sig, n: u32, e: Edit, info: RwSignal<ImageViewInfo>, desk: Opti
     let mut row = Flex::new().wrap().gap(6.0);
     for k in std::iter::once(None).chain((0..n).map(Some)) {
         let label = match k {
-            None => "Вся панорама".to_string(),
+            None => t!("Вся панорама").to_string(),
             Some(i) if has_own(i) => format!("{} ●", ws_name(i)),
             Some(i) => ws_name(i),
         };
@@ -926,7 +926,7 @@ fn pano_chips(s: Sig, n: u32, e: Edit, info: RwSignal<ImageViewInfo>, desk: Opti
     }
     // Свой участок стола — можно вернуть долю общей полосы.
     if let Some(i) = desk.filter(|i| has_own(*i)) {
-        row = row.child(Button::new("Сбросить участок").class("btn small").on_click(move || {
+        row = row.child(Button::new(t!("Сбросить участок")).class("btn small").on_click(move || {
             let (path, mut pend) = s.pano.get_untracked();
             pend.insert(i as i64, None);
             s.pano.set((path, pend));

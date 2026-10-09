@@ -15,7 +15,7 @@ name = "syndroid"
 path = "src/bin/syndroid.rs"
 
 [dependencies]
-synshell-common.workspace = true
+synshell-common = { workspace = true, features = ["i18n"] }
 syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "clipboard", "i18n", "image", "svg"] }
 serde.workspace = true
 serde_json.workspace = true

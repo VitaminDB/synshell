@@ -11,8 +11,8 @@ name = "synlink-view"
 path = "src/main.rs"
 
 [dependencies]
-synshell-common.workspace = true
-syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons"] }
+synshell-common = { workspace = true, features = ["i18n"] }
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n"] }
 serde_json.workspace = true
 libc.workspace = true
 zstd = { version = "0.13", default-features = false }

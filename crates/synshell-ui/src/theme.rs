@@ -7,7 +7,6 @@
 //! 6. пользовательский `~/.config/synshell/theme.mss`.
 
 use synshell_common::{paths, Config};
-use syngui::t;
 
 const BASE: &str = include_str!("../styles/shell.mss");
 

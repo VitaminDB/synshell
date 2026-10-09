@@ -7,6 +7,7 @@
 
 use std::ffi::{c_char, c_int, c_void, CString};
 use std::sync::OnceLock;
+use syngui::t;
 
 type P = *mut c_void;
 
@@ -134,7 +135,7 @@ impl Drop for Decoder {
 
 impl Decoder {
     pub fn new(codec: &str) -> Result<Self, String> {
-        let l = lib().ok_or("нет ffmpeg (libavcodec)")?;
+        let l = lib().ok_or(t!("нет ffmpeg (libavcodec)"))?;
         let name = CString::new(match codec {
             "hevc" => "hevc",
             _ => "h264",
@@ -143,7 +144,7 @@ impl Decoder {
         unsafe {
             let c = (l.find_decoder_by_name)(name.as_ptr());
             if c.is_null() {
-                return Err(format!("нет декодера {codec}"));
+                return Err(t!("нет декодера {codec}", codec = codec));
             }
             let ctx = (l.alloc_context3)(c);
             let set = |k: &str, v: &str| {
@@ -156,7 +157,7 @@ impl Decoder {
             if (l.open2)(ctx, c, std::ptr::null_mut()) < 0 {
                 let mut ctx = ctx;
                 (l.free_context)(&mut ctx);
-                return Err(format!("декодер {codec} не открылся"));
+                return Err(t!("декодер {codec} не открылся", codec = codec));
             }
             Ok(Self {
                 l,
@@ -180,13 +181,13 @@ impl Decoder {
         unsafe {
             let buf = (l.malloc)(data.len() + AV_INPUT_BUFFER_PADDING_SIZE);
             if buf.is_null() {
-                return Err("нет памяти".into());
+                return Err(t!("нет памяти").into());
             }
             std::ptr::copy_nonoverlapping(data.as_ptr(), buf, data.len());
             std::ptr::write_bytes(buf.add(data.len()), 0, AV_INPUT_BUFFER_PADDING_SIZE);
             // Пакет забирает буфер себе.
             if (l.packet_from_data)(self.pkt, buf, data.len() as c_int) < 0 {
-                return Err("пакет".into());
+                return Err(t!("пакет").into());
             }
             let t = std::time::Instant::now();
             let r = (l.send_packet)(self.ctx, self.pkt);
@@ -217,7 +218,7 @@ impl Decoder {
         let h = f.add(FRAME_HEIGHT).cast::<c_int>().read();
         let fmt = f.add(FRAME_FORMAT).cast::<c_int>().read();
         if w <= 0 || h <= 0 {
-            return Err("пустой кадр".into());
+            return Err(t!("пустой кадр").into());
         }
         self.size = (w as u32, h as u32);
         if self.size != (dw, dh) {
@@ -267,7 +268,7 @@ impl Decoder {
                 std::ptr::null(),
             );
             if self.sws.is_null() {
-                return Err(format!("swscale для формата {fmt}"));
+                return Err(t!("swscale для формата {fmt}", fmt = fmt));
             }
             let coefs = (l.sws_get_coefficients)(SWS_CS_ITU709);
             (l.sws_set_colorspace_details)(self.sws, coefs, 1, coefs, 1, 0, 1 << 16, 1 << 16);

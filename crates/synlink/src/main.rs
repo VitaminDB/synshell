@@ -26,8 +26,9 @@ use std::io::{Read, Write};
 
 use anyhow::{bail, Context, Result};
 use synshell_common::link::{self, ExecFrame, Request, Response};
+use synshell_tr::{n_, t};
 
-const USAGE: &str = "\
+const USAGE: &str = n_!("\
 synlink — связь оболочек synshell (телефон ↔ компьютер) по USB и Wi-Fi
 
 synlink daemon                         демон (запускается сеансом сам)
@@ -54,17 +55,18 @@ synlink session                        демон для автозапуска 
                                        systemd --user (synlink.service), иначе сам
 
 X Y — пиксели снимка экрана устройства или доли 0..1. УСТР — имя, id,
-phone/desktop или local (эта машина). ssh: `ssh phone` / `ssh <имя>`.";
+phone/desktop или local (эта машина). ssh: `ssh phone` / `ssh <имя>`.");
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    synshell_common::tr_init(&[include_str!("../i18n/en.lang")]);
     let res = match args.first().map(String::as_str) {
         Some("daemon") => run_daemon(),
         Some("session") => run_session(),
         Some("mcp") => mcp::run(),
         Some("clipboard-watch") => clipboard_watch(),
         Some("-h" | "--help" | "help") | None => {
-            println!("{USAGE}");
+            println!("{}", synshell_tr::t(USAGE));
             Ok(())
         }
         Some(_) => {
@@ -103,8 +105,8 @@ fn run_session() -> Result<()> {
         cmd.arg(exe).arg("daemon");
         match cmd.status() {
             Ok(st) if st.success() => return Ok(()),
-            Ok(st) => eprintln!("synlink: systemd-run: {st} — демон без юнита"),
-            Err(e) => eprintln!("synlink: systemd-run: {e} — демон без юнита"),
+            Ok(st) => eprintln!("{}", t!("synlink: systemd-run: {st} — демон без юнита", st = st)),
+            Err(e) => eprintln!("{}", t!("synlink: systemd-run: {e} — демон без юнита", e = e)),
         }
     }
     use std::os::unix::process::CommandExt;
@@ -162,7 +164,7 @@ fn clipboard_watch() -> Result<()> {
         }
     });
     while let Some(c) = rx.blocking_recv() {
-        println!("{} {:?}", if c.secret { "секрет" } else { "текст" }, c.text);
+        println!("{} {:?}", if c.secret { t!("секрет") } else { t!("текст") }, c.text);
     }
     Ok(())
 }
@@ -248,33 +250,33 @@ fn cli(args: &[String]) -> Result<()> {
             let u = &status.usb;
             println!(
                 "USB: {}{}",
-                if u.cable { "кабель подключён" } else { "нет кабеля" },
+                if u.cable { t!("кабель подключён") } else { t!("нет кабеля") },
                 u.interface.as_ref().map(|i| format!(" ({i} {})", u.address.clone().unwrap_or_default())).unwrap_or_default()
             );
             if status.peers.is_empty() {
-                println!("устройств нет");
+                println!("{}", t!("устройств нет"));
             }
             for p in &status.peers {
                 let state = if p.connected {
-                    format!("соединено по {}", p.transport.map(|t| t.title()).unwrap_or("?"))
+                    t!("соединено по {v}", v = p.transport.map(|t| t.title()).unwrap_or("?"))
                 } else if p.paired {
-                    "спарено, не в сети".into()
+                    t!("спарено, не в сети").into()
                 } else {
-                    format!("рядом ({}), не спарено", p.transport.map(|t| t.title()).unwrap_or("?"))
+                    t!("рядом ({v}), не спарено", v = p.transport.map(|t| t.title()).unwrap_or("?"))
                 };
                 let mut extra = Vec::new();
                 if let Some(r) = p.rtt_ms {
-                    extra.push(format!("{r:.1} мс"));
+                    extra.push(t!("{r} мс", r = format!("{:.1}", r)));
                 }
                 if let Some(b) = &p.battery {
-                    extra.push(format!("батарея {}%{}", b.percent, if b.charging { "⚡" } else { "" }));
+                    extra.push(t!("батарея {percent}%{v}", percent = b.percent, v = if b.charging { "⚡" } else { "" }));
                 }
                 if let Some(m) = p.files_path() {
-                    extra.push(format!("файлы {m}"));
+                    extra.push(t!("файлы {m}", m = m));
                 }
                 if !p.connected {
                     if let Some(s) = p.heard_ago {
-                        extra.push(format!("слышно {s} с назад ({})", p.address.as_deref().unwrap_or("?")));
+                        extra.push(t!("слышно {s} с назад ({v})", s = s, v = p.address.as_deref().unwrap_or("?")));
                     }
                     if let Some(n) = &p.link_note {
                         extra.push(n.clone());
@@ -292,13 +294,7 @@ fn cli(args: &[String]) -> Result<()> {
                 );
             }
             for pr in &status.prompts {
-                println!(
-                    "  ожидает спаривания: «{}» по {}{} — synlink pair accept {}",
-                    pr.name,
-                    pr.transport.title(),
-                    pr.code.as_ref().map(|c| format!(", код {c}")).unwrap_or_default(),
-                    &pr.id[..8]
-                );
+                println!("{}", t!("  ожидает спаривания: «{name}» по {title}{v} — synlink pair accept {v2}", name = pr.name, title = pr.transport.title(), v = pr.code.as_ref().map(|c| t!(", код {c}", c = c)).unwrap_or_default(), v2 = &pr.id[..8]));
             }
         }
         "events" => {
@@ -313,7 +309,7 @@ fn cli(args: &[String]) -> Result<()> {
             }
             _ => {
                 req(&Request::Pair { device: dev(args)? })?;
-                println!("запрос отправлен — подтвердите на устройстве (сверьте код)");
+                println!("{}", t!("запрос отправлен — подтвердите на устройстве (сверьте код)"));
             }
         },
         "unpair" => {
@@ -376,13 +372,13 @@ fn cli(args: &[String]) -> Result<()> {
             let device = dev(args)?;
             let s = gestures::screen(&device, None)?;
             let c = (num(args.get(2), "X")?, num(args.get(3), "Y")?);
-            let (d0, d1) = (num(args.get(4), "ОТ")?, num(args.get(5), "ДО")?);
+            let (d0, d1) = (num(args.get(4), &t!("ОТ"))?, num(args.get(5), &t!("ДО"))?);
             gestures::pinch(&device, &s, c, d0, d1, args.get(6).and_then(|m| m.parse().ok()).unwrap_or(400))?;
         }
         "scroll" => {
             let device = dev(args)?;
             let s = gestures::screen(&device, None)?;
-            gestures::scroll(&device, &s, num(args.get(2), "X")?, num(args.get(3), "Y")?, num(args.get(4), "ШАГИ")?, 0.0)?;
+            gestures::scroll(&device, &s, num(args.get(2), "X")?, num(args.get(3), "Y")?, num(args.get(4), &t!("ШАГИ"))?, 0.0)?;
         }
         "type" => gestures::text(&dev(args)?, &args[2..].join(" "))?,
         "key" => gestures::combo(&dev(args)?, args.get(2).context("нужно сочетание, например Alt+Tab")?)?,

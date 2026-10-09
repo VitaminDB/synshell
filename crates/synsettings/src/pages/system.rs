@@ -16,14 +16,14 @@ use crate::ui::*;
 // ─── Мониторы ───────────────────────────────────────────────────────────────
 
 const TRANSFORMS: &[(&str, &str)] = &[
-    ("normal", "Без поворота"),
+    ("normal", n_!("Без поворота")),
     ("90", "90°"),
     ("180", "180°"),
     ("270", "270°"),
-    ("flipped", "Отражение"),
-    ("flipped-90", "Отражение + 90°"),
-    ("flipped-180", "Отражение + 180°"),
-    ("flipped-270", "Отражение + 270°"),
+    ("flipped", n_!("Отражение")),
+    ("flipped-90", n_!("Отражение + 90°")),
+    ("flipped-180", n_!("Отражение + 180°")),
+    ("flipped-270", n_!("Отражение + 270°")),
 ];
 
 /// Индекс записи `[[output]]` для монитора `name`; создаёт запись при нужде.
@@ -50,13 +50,13 @@ fn oset(name: &str, key: &str, v: impl Into<Value>) {
 fn output_card(name: String, info: Option<&OutputInfo>, cfg: &OutputConfig) -> W {
     let mut rows: Vec<W> = Vec::new();
     let n = name.clone();
-    rows.push(row("Включён", "", Toggle::with_state(cfg.enabled).on_change(move |v| oset(&n, "enabled", v))));
+    rows.push(row(&t!("Включён"), "", Toggle::with_state(cfg.enabled).on_change(move |v| oset(&n, "enabled", v))));
 
     // Режимы — из композитора, иначе поле ввода.
     let n = name.clone();
     match info.filter(|i| !i.modes.is_empty()) {
         Some(i) => {
-            let mut dd = Dropdown::new().width(260.0).max_height(360.0).item(DropdownItem::new("", "Предпочтительный"));
+            let mut dd = Dropdown::new().width(260.0).max_height(360.0).item(DropdownItem::new("", t!("Предпочтительный")));
             let mut seen = std::collections::BTreeSet::new();
             for m in &i.modes {
                 let hz = (m.refresh_mhz as f64 / 1000.0).round() as i64;
@@ -64,14 +64,14 @@ fn output_card(name: String, info: Option<&OutputInfo>, cfg: &OutputConfig) -> W
                 if !seen.insert(v.clone()) {
                     continue;
                 }
-                let label = format!("{} × {} · {} Гц{}", m.width, m.height, hz, if m.preferred { " ★" } else { "" });
+                let label = t!("{width} × {height} · {hz} Гц{v}", width = m.width, height = m.height, hz = hz, v = if m.preferred { " ★" } else { "" });
                 dd = dd.item(DropdownItem::new(v, label));
             }
-            rows.push(row("Режим", "", dd.selected(cfg.mode.clone()).on_change(move |v: &str| oset(&n, "mode", v.to_string()))));
+            rows.push(row(&t!("Режим"), "", dd.selected(cfg.mode.clone()).on_change(move |v: &str| oset(&n, "mode", v.to_string()))));
         }
         None => rows.push(row(
-            "Режим",
-            "Например 1920x1080@60; пусто — предпочтительный",
+            t!("Режим"),
+            t!("Например 1920x1080@60; пусто — предпочтительный"),
             TextField::with_text(cfg.mode.clone()).placeholder("1920x1080@60").width(200.0).on_change(move |s| oset(&n, "mode", s.to_string())),
         )),
     }
@@ -80,15 +80,15 @@ fn output_card(name: String, info: Option<&OutputInfo>, cfg: &OutputConfig) -> W
     let cur_scale = if auto { info.map(|i| i.scale).unwrap_or(1.0) } else { cfg.scale };
     let n2 = name.clone();
     rows.push(row(
-        "Масштаб",
-        "Выключите «авто», чтобы задать вручную",
+        t!("Масштаб"),
+        t!("Выключите «авто», чтобы задать вручную"),
         Row::new()
             .gap(12.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .child(Slider::new().range(0.5, 3.0).step(0.05).value(cur_scale as f32).show_value(2).width(200.0).on_change(move |v| {
                 oset(&n, "scale", round_to(v as f64, 2))
             }))
-            .child(Text::new("авто").class("row-hint"))
+            .child(Text::new(t!("авто")).class("row-hint"))
             .child(Toggle::with_state(auto).on_change(move |v| {
                 oset(&n2, "scale", if v { 0.0 } else { round_to(cur_scale, 2) });
                 state::bump();
@@ -96,8 +96,8 @@ fn output_card(name: String, info: Option<&OutputInfo>, cfg: &OutputConfig) -> W
     ));
     let n = name.clone();
     rows.push(row(
-        "Яркость на максимуме",
-        "Ниты панели при полной подсветке (паспорт); для яркости в нитах; 0 — не задано",
+        t!("Яркость на максимуме"),
+        t!("Ниты панели при полной подсветке (паспорт); для яркости в нитах; 0 — не задано"),
         SpinBox::new().range(0.0, 10000.0).step(50.0).value(cfg.max_nits.unwrap_or(0.0) as f64).width(140.0).on_change(move |v| {
             if v <= 0.0 {
                 crate::ui::unset(&crate::op!["output", output_index(&n), "max_nits"]);
@@ -119,8 +119,8 @@ fn output_card(name: String, info: Option<&OutputInfo>, cfg: &OutputConfig) -> W
         oset(nm, "position", Value::Array(a));
     };
     rows.push(row(
-        "Положение",
-        "Логические px; пусто — справа от предыдущего",
+        t!("Положение"),
+        t!("Логические px; пусто — справа от предыдущего"),
         Row::new()
             .gap(6.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
@@ -135,22 +135,22 @@ fn output_card(name: String, info: Option<&OutputInfo>, cfg: &OutputConfig) -> W
     ));
     let n = name.clone();
     rows.push(row(
-        "Поворот",
+        &t!("Поворот"),
         "",
         {
             let mut dd = Dropdown::new().width(200.0);
             for (v, l) in TRANSFORMS {
-                dd = dd.item(DropdownItem::new(*v, *l));
+                dd = dd.item(DropdownItem::new(*v, tl(l)));
             }
             dd.selected(cfg.transform.clone()).on_change(move |v: &str| oset(&n, "transform", v.to_string()))
         },
     ));
     let n = name.clone();
-    rows.push(row("Переменная частота (VRR)", "", Toggle::with_state(cfg.vrr).on_change(move |v| oset(&n, "vrr", v))));
+    rows.push(row(&t!("Переменная частота (VRR)"), "", Toggle::with_state(cfg.vrr).on_change(move |v| oset(&n, "vrr", v))));
     let n = name.clone();
     rows.push(row(
-        "Основной монитор",
-        "Панель по умолчанию и новые окна",
+        t!("Основной монитор"),
+        t!("Панель по умолчанию и новые окна"),
         Toggle::with_state(cfg.primary).on_change(move |v| {
             // Основной — только один.
             if v {
@@ -178,7 +178,7 @@ fn output_card(name: String, info: Option<&OutputInfo>, cfg: &OutputConfig) -> W
             }
             parts.join(" · ")
         }
-        None => "Не подключён или композитор не запущен".into(),
+        None => t!("Не подключён или композитор не запущен").into(),
     };
     let in_config = store::config().outputs.iter().position(|o| o.name == name);
     let mut header = Row::new()
@@ -186,7 +186,7 @@ fn output_card(name: String, info: Option<&OutputInfo>, cfg: &OutputConfig) -> W
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(Column::new().class("grow").gap(2.0).child(Text::new(name.clone()).class("group-title")).child(Text::new(subtitle).class("row-hint")));
     if let Some(i) = in_config {
-        header = header.child(Button::new("Сбросить").class("btn small").icon(icons::UNDO).on_click(move || {
+        header = header.child(Button::new(t!("Сбросить")).class("btn small").icon(icons::UNDO).on_click(move || {
             unset(&op!["output", i]);
             state::bump();
         }));
@@ -203,7 +203,7 @@ fn brightness_group(c: &synshell_common::Config) -> Option<W> {
     let label = Reactive::new(move || -> Vec<W> {
         let p = pct.get();
         let t = match nits {
-            Some(max) => format!("{:.0} нит · {p:.0}%", p / 100.0 * max),
+            Some(max) => t!("{v} нит · {p}%", v = format!("{:.0}", p / 100.0 * max), p = format!("{:.0}", p)),
             None => format!("{p:.0}%"),
         };
         vec![boxed(Text::new(t).class("row-value"))]
@@ -212,28 +212,28 @@ fn brightness_group(c: &synshell_common::Config) -> Option<W> {
         pct.set(v);
         std::thread::spawn(move || {
             if let Err(e) = synsystem::backlight::set_percent(&synsystem::Sys::host(), v) {
-                syngui::async_runtime::run_on_main_thread(move || state::toast(format!("Яркость: {e}")));
+                syngui::async_runtime::run_on_main_thread(move || state::toast(t!("Яркость: {e}", e = e)));
             }
         });
     });
     let hint = if nits.is_some() {
-        format!("Подсветка {}", bl.name)
+        t!("Подсветка {name}", name = bl.name)
     } else {
-        format!("Подсветка {} · ниты — задайте яркость панели на максимуме ниже", bl.name)
+        t!("Подсветка {name} · ниты — задайте яркость панели на максимуме ниже", name = bl.name)
     };
     let b = &c.brightness;
     Some(group(
-        "Яркость",
+        &t!("Яркость"),
         vec![
-            row("Яркость экрана", &hint, Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(slider).child(label)),
+            row(&t!("Яркость экрана"), &hint, Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(slider).child(label)),
             switch_row(
-                "Автояркость",
-                "По датчику освещённости; сдвиг ползунка запоминается как поправка",
+                t!("Автояркость"),
+                t!("По датчику освещённости; сдвиг ползунка запоминается как поправка"),
                 op!["brightness", "auto"],
                 b.auto,
             ),
-            int_row("Минимум автояркости, %", "В темноте", op!["brightness", "min_pct"], b.min_pct as i64, 1, 50, 1),
-            int_row("Максимум автояркости, %", "На солнце", op!["brightness", "max_pct"], b.max_pct as i64, 20, 100, 5),
+            int_row(t!("Минимум автояркости, %"), t!("В темноте"), op!["brightness", "min_pct"], b.min_pct as i64, 1, 50, 1),
+            int_row(t!("Максимум автояркости, %"), t!("На солнце"), op!["brightness", "max_pct"], b.max_pct as i64, 20, 100, 5),
         ],
     ))
 }
@@ -253,7 +253,7 @@ pub fn displays() -> W {
             }
         }
         None => body.push(note(
-            "Композитор synshell не запущен — показаны записи из config.toml. Режимы можно вписать вручную.",
+            &t!("Композитор synshell не запущен — показаны записи из config.toml. Режимы можно вписать вручную."),
         )),
     }
     for o in &c.outputs {
@@ -268,14 +268,14 @@ pub fn displays() -> W {
     }
     let new_name = use_signal(String::new());
     body.push(group(
-        "Добавить запись монитора",
+        &t!("Добавить запись монитора"),
         vec![row(
-            "Имя вывода или описание",
+            &t!("Имя вывода или описание"),
             "eDP-1, HDMI-A-1, «Dell U2720Q»",
             Row::new()
                 .gap(8.0)
                 .child(TextField::new().placeholder("HDMI-A-1").width(200.0).on_change(move |s| new_name.set(s.to_string())))
-                .child(primary_button("Добавить", move || {
+                .child(primary_button(&t!("Добавить"), move || {
                     let n = new_name.get_untracked().trim().to_string();
                     if !n.is_empty() {
                         output_index(&n);
@@ -284,7 +284,7 @@ pub fn displays() -> W {
                 })),
         )],
     ));
-    page("Мониторы", "Разрешение, частота, масштаб, расположение и поворот.", body)
+    page(t!("Мониторы"), t!("Разрешение, частота, масштаб, расположение и поворот."), body)
 }
 
 // ─── Меню запуска ───────────────────────────────────────────────────────────
@@ -336,7 +336,7 @@ fn favorites_editor(favs: Vec<String>) -> W {
         Row::new()
             .gap(8.0)
             .child(Autocomplete::new(apps).placeholder("org.kde.dolphin").width(280.0).on_change(move |s| new.set(s.to_string())).on_select(move |s| new.set(s.to_string())))
-            .child(primary_button("Добавить", move || {
+            .child(primary_button(&t!("Добавить"), move || {
                 let s = new.get_untracked().trim().trim_end_matches(".desktop").to_string();
                 if !s.is_empty() && !favs2.contains(&s) {
                     let mut v = favs2.clone();
@@ -368,29 +368,29 @@ pub fn launcher() -> W {
     let c = store::config();
     let l = &c.launcher;
     page(
-        "Меню запуска",
-        "Меню приложений на панели и по Super+D.",
+        t!("Меню запуска"),
+        t!("Меню приложений на панели и по Super+D."),
         vec![
             group(
-                "Вид",
+                &t!("Вид"),
                 vec![
-                    choice_row("Стиль", "", op!["launcher", "style"], &l.style, &[("menu", "Меню у кнопки"), ("fullscreen", "На весь экран")]),
-                    int_row("Колонок в сетке", "", op!["launcher", "columns"], l.columns as i64, 2, 12, 1),
-                    int_row("Ширина меню", "px", op!["launcher", "width"], l.width as i64, 320, 1600, 10),
-                    int_row("Высота меню", "px", op!["launcher", "height"], l.height as i64, 240, 1200, 10),
-                    switch_row("Категории", "", op!["launcher", "show_categories"], l.show_categories),
-                    switch_row("Недавние", "", op!["launcher", "show_recent"], l.show_recent),
+                    choice_row(&t!("Стиль"), "", op!["launcher", "style"], &l.style, &[("menu", n_!("Меню у кнопки")), ("fullscreen", n_!("На весь экран"))]),
+                    int_row(&t!("Колонок в сетке"), "", op!["launcher", "columns"], l.columns as i64, 2, 12, 1),
+                    int_row(&t!("Ширина меню"), "px", op!["launcher", "width"], l.width as i64, 320, 1600, 10),
+                    int_row(&t!("Высота меню"), "px", op!["launcher", "height"], l.height as i64, 240, 1200, 10),
+                    switch_row(&t!("Категории"), "", op!["launcher", "show_categories"], l.show_categories),
+                    switch_row(&t!("Недавние"), "", op!["launcher", "show_recent"], l.show_recent),
                 ],
             ),
             group(
-                "Поиск",
+                &t!("Поиск"),
                 vec![
-                    switch_row("Искать по ключевым словам и команде", "", op!["launcher", "search_keywords"], l.search_keywords),
-                    switch_row("Калькулятор", "Выражения вроде 2+2*3 прямо в поиске", op!["launcher", "calculator"], l.calculator),
-                    switch_row("Запуск команд", "Enter запускает введённое, если ничего не найдено", op!["launcher", "run_commands"], l.run_commands),
+                    switch_row(&t!("Искать по ключевым словам и команде"), "", op!["launcher", "search_keywords"], l.search_keywords),
+                    switch_row(t!("Калькулятор"), t!("Выражения вроде 2+2*3 прямо в поиске"), op!["launcher", "calculator"], l.calculator),
+                    switch_row(t!("Запуск команд"), t!("Enter запускает введённое, если ничего не найдено"), op!["launcher", "run_commands"], l.run_commands),
                 ],
             ),
-            group("Избранное", vec![row_wide("", "Имена .desktop без расширения", favorites_editor(l.favorites.clone()))]),
+            group(&t!("Избранное"), vec![row_wide("", &t!("Имена .desktop без расширения"), favorites_editor(l.favorites.clone()))]),
         ],
     )
 }
@@ -399,12 +399,12 @@ pub fn launcher() -> W {
 
 /// Места уведомлений: (значение, подпись).
 const POSITIONS: [(&str, &str); 6] = [
-    ("top-left", "Сверху слева"),
-    ("top", "Сверху по центру"),
-    ("top-right", "Сверху справа"),
-    ("bottom-left", "Снизу слева"),
-    ("bottom", "Снизу по центру"),
-    ("bottom-right", "Снизу справа"),
+    ("top-left", n_!("Сверху слева")),
+    ("top", n_!("Сверху по центру")),
+    ("top-right", n_!("Сверху справа")),
+    ("bottom-left", n_!("Снизу слева")),
+    ("bottom", n_!("Снизу по центру")),
+    ("bottom-right", n_!("Снизу справа")),
 ];
 
 /// Мини-экран с шестью точками (три сверху, три снизу): где всплывают уведомления.
@@ -438,8 +438,8 @@ fn position_picker(current: &str, phone: bool) -> W {
         .class(if phone { "pos-screen pos-screen-phone" } else { "pos-screen pos-screen-desk" });
     let caption = Reactive::new(move || -> Vec<W> {
         let k = sel.get();
-        let name = POSITIONS.iter().find(|(v, _)| *v == k).map(|(_, l)| *l).unwrap_or("");
-        vec![boxed(Text::new(name.to_string()).class("row-hint"))]
+        let name = POSITIONS.iter().find(|(v, _)| *v == k).map(|(_, l)| tl(l)).unwrap_or_default();
+        vec![boxed(Text::new(name).class("row-hint"))]
     });
     boxed(Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Start).child(screen).child(caption))
 }
@@ -449,26 +449,26 @@ pub fn notifications() -> W {
     let n = &c.notifications;
     let phone = c.process_form_factor() == synshell_common::config::FormFactor::Phone;
     page(
-        "Уведомления",
-        "Всплывающие уведомления и центр уведомлений (org.freedesktop.Notifications).",
+        t!("Уведомления"),
+        t!("Всплывающие уведомления и центр уведомлений (org.freedesktop.Notifications)."),
         vec![
             group(
                 "",
                 vec![
-                    switch_row("Сервер уведомлений", "Выключите, если используете mako/dunst", op!["notifications", "enabled"], n.enabled),
-                    switch_row("Не беспокоить", "Показывать только критичные", op!["notifications", "do_not_disturb"], n.do_not_disturb),
-                    row_wide("Положение", "Нажмите точку — оттуда будут появляться уведомления", position_picker(&n.position, phone)),
-                    int_row("Время показа", "мс", op!["notifications", "timeout"], n.timeout as i64, 1000, 60000, 500),
-                    int_row("Критичные", "мс, 0 — пока не закроют", op!["notifications", "critical_timeout"], n.critical_timeout as i64, 0, 600000, 1000),
-                    int_row("Одновременно на экране", "", op!["notifications", "max_visible"], n.max_visible as i64, 1, 20, 1),
-                    int_row("Ширина", "px", op!["notifications", "width"], n.width as i64, 240, 800, 10),
+                    switch_row(t!("Сервер уведомлений"), t!("Выключите, если используете mako/dunst"), op!["notifications", "enabled"], n.enabled),
+                    switch_row(t!("Не беспокоить"), t!("Показывать только критичные"), op!["notifications", "do_not_disturb"], n.do_not_disturb),
+                    row_wide(t!("Положение"), t!("Нажмите точку — оттуда будут появляться уведомления"), position_picker(&n.position, phone)),
+                    int_row(t!("Время показа"), t!("мс"), op!["notifications", "timeout"], n.timeout as i64, 1000, 60000, 500),
+                    int_row(t!("Критичные"), t!("мс, 0 — пока не закроют"), op!["notifications", "critical_timeout"], n.critical_timeout as i64, 0, 600000, 1000),
+                    int_row(&t!("Одновременно на экране"), "", op!["notifications", "max_visible"], n.max_visible as i64, 1, 20, 1),
+                    int_row(&t!("Ширина"), "px", op!["notifications", "width"], n.width as i64, 240, 800, 10),
                 ],
             ),
             group(
-                "История",
+                &t!("История"),
                 vec![
-                    switch_row("Хранить историю", "", op!["notifications", "history"], n.history),
-                    int_row("Размер истории", "", op!["notifications", "history_size"], n.history_size as i64, 10, 1000, 10),
+                    switch_row(&t!("Хранить историю"), "", op!["notifications", "history"], n.history),
+                    int_row(&t!("Размер истории"), "", op!["notifications", "history_size"], n.history_size as i64, 10, 1000, 10),
                 ],
             ),
         ],
@@ -482,29 +482,29 @@ pub fn lock() -> W {
     let l = &c.lock;
     let i = &c.idle;
     page(
-        "Блокировка и простой",
-        "Что делать, когда компьютер не используется.",
+        t!("Блокировка и простой"),
+        t!("Что делать, когда компьютер не используется."),
         vec![
             group(
-                "Блокировка экрана",
+                &t!("Блокировка экрана"),
                 vec![
-                    text_row("Внешний экран блокировки", "Пусто — встроенный", op!["lock", "command"], &l.command, "swaylock -f"),
-                    switch_row("Блокировать перед сном", "", op!["lock", "before_sleep"], l.before_sleep),
+                    text_row(t!("Внешний экран блокировки"), t!("Пусто — встроенный"), op!["lock", "command"], &l.command, "swaylock -f"),
+                    switch_row(&t!("Блокировать перед сном"), "", op!["lock", "before_sleep"], l.before_sleep),
                     choice_row(
-                        "Снятие блокировки",
-                        "Свайп — без проверки (удобно, если пароль не задан)",
+                        t!("Снятие блокировки"),
+                        t!("Свайп — без проверки (удобно, если пароль не задан)"),
                         op!["lock", "method"],
                         &l.method,
-                        &[("password", "Паролем пользователя"), ("swipe", "Свайпом")],
+                        &[("password", n_!("Паролем пользователя")), ("swipe", n_!("Свайпом"))],
                     ),
                 ],
             ),
             group(
-                "Простой",
+                &t!("Простой"),
                 vec![
-                    int_row("Погасить мониторы через", "секунды, 0 — никогда", op!["idle", "dpms_after"], i.dpms_after as i64, 0, 86400, 30),
-                    int_row("Заблокировать через", "секунды, 0 — никогда", op!["idle", "lock_after"], i.lock_after as i64, 0, 86400, 30),
-                    int_row("Уснуть через", "секунды, 0 — никогда", op!["idle", "suspend_after"], i.suspend_after as i64, 0, 86400, 60),
+                    int_row(t!("Погасить мониторы через"), t!("секунды, 0 — никогда"), op!["idle", "dpms_after"], i.dpms_after as i64, 0, 86400, 30),
+                    int_row(t!("Заблокировать через"), t!("секунды, 0 — никогда"), op!["idle", "lock_after"], i.lock_after as i64, 0, 86400, 30),
+                    int_row(t!("Уснуть через"), t!("секунды, 0 — никогда"), op!["idle", "suspend_after"], i.suspend_after as i64, 0, 86400, 60),
                 ],
             ),
         ],
@@ -558,7 +558,7 @@ pub fn autostart() -> W {
             .gap(8.0)
             .class("setting-row")
             .child(TextField::new().placeholder("nm-applet --indicator").width(460.0).on_change(move |s| new.set(s.to_string())))
-            .child(primary_button("Добавить", move || {
+            .child(primary_button(&t!("Добавить"), move || {
                 let s = new.get_untracked().trim().to_string();
                 if !s.is_empty() {
                     let mut v = all.clone();
@@ -573,38 +573,38 @@ pub fn autostart() -> W {
     for e in entries {
         let file = e.file.clone();
         let file2 = e.file.clone();
-        let hint = if e.only_in.is_empty() { e.exec.clone() } else { format!("{} · только в {}", e.exec, e.only_in) };
+        let hint = if e.only_in.is_empty() { e.exec.clone() } else { t!("{exec} · только в {only_in}", exec = e.exec, only_in = e.only_in) };
         let mut r = Row::new()
             .gap(8.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .child(Toggle::with_state(e.enabled).on_change(move |v| {
                 if let Err(err) = sys::set_autostart_enabled(&file, v) {
-                    state::toast(format!("Не удалось: {err}"));
+                    state::toast(t!("Не удалось: {err}", err = err));
                 }
             }));
         if e.user {
             r = r.child(danger_icon_button(icons::DELETE, move || {
                 match sys::remove_user_autostart(&file2) {
                     Ok(()) => state::bump(),
-                    Err(err) => state::toast(format!("Не удалось: {err}")),
+                    Err(err) => state::toast(t!("Не удалось: {err}", err = err)),
                 }
             }));
         }
         xdg_rows.push(row(&e.name, &hint, r));
     }
     if xdg_rows.is_empty() {
-        xdg_rows.push(note("Записей нет."));
+        xdg_rows.push(note(&t!("Записей нет.")));
     }
     page(
-        "Автозапуск",
-        "Программы, которые запускаются при входе в сеанс.",
+        t!("Автозапуск"),
+        t!("Программы, которые запускаются при входе в сеанс."),
         vec![
-            group("Команды synshell", cmd_rows),
+            group(&t!("Команды synshell"), cmd_rows),
             group(
                 "",
                 vec![switch_row(
-                    "Запускать XDG Autostart",
-                    "~/.config/autostart и /etc/xdg/autostart",
+                    t!("Запускать XDG Autostart"),
+                    t!("~/.config/autostart и /etc/xdg/autostart"),
                     op!["general", "xdg_autostart"],
                     c.general.xdg_autostart,
                 )],
@@ -618,19 +618,19 @@ pub fn autostart() -> W {
 
 /// Готовые разрешения экрана X11 (`[x11] resolution`, `[[x11_app]]`).
 const X11_RESOLUTIONS: &[(&str, &str)] = &[
-    ("native", "Как у экрана — чётко, мелко"),
+    ("native", n_!("Как у экрана — чётко, мелко")),
     ("1440p", "1440p"),
     ("1080p", "1080p"),
     ("900p", "900p"),
-    ("720p", "720p — крупно"),
-    ("540p", "540p — очень крупно"),
-    ("logical", "Как у Wayland-программ"),
+    ("720p", n_!("720p — крупно")),
+    ("540p", n_!("540p — очень крупно")),
+    ("logical", n_!("Как у Wayland-программ")),
 ];
 
 /// Выбор разрешения X11: готовые варианты и текущее значение, если оно своё.
 fn x11_resolution_choice(p: crate::ui::P, current: &str) -> impl Widget {
     let cur = if current.trim().is_empty() { "native" } else { current.trim() };
-    let mut opts: Vec<(String, String)> = X11_RESOLUTIONS.iter().map(|(v, l)| (v.to_string(), l.to_string())).collect();
+    let mut opts: Vec<(String, String)> = X11_RESOLUTIONS.iter().map(|(v, l)| (v.to_string(), tl(l))).collect();
     if !opts.iter().any(|(v, _)| v.eq_ignore_ascii_case(cur)) {
         opts.push((cur.to_string(), cur.to_string()));
     }
@@ -651,15 +651,15 @@ fn set_x11_modes(modes: &[String]) {
 fn x11_modes_group(c: &synshell_common::config::Config) -> W {
     let modes = c.x11.modes.clone();
     let mut rows: Vec<W> = vec![note(
-        "Wine-игры видят эти разрешения как режимы экрана и выбирают их в своих настройках; выбранное \
+        &t!("Wine-игры видят эти разрешения как режимы экрана и выбирают их в своих настройках; выбранное \
          растягивается на весь экран. Чем меньше — тем крупнее интерфейс игры и выше частота кадров. \
          720p — короткая сторона 720 точек в пропорциях экрана (без полос); можно и 1600x720 или 50%. \
-         Игра видит новый список после перезапуска.",
+         Игра видит новый список после перезапуска."),
     )];
     for (i, m) in modes.iter().enumerate() {
         let all = modes.clone();
         rows.push(row(
-            &format!("Разрешение {}", i + 1),
+            &t!("Разрешение {v}", v = i + 1),
             "",
             Row::new()
                 .gap(8.0)
@@ -689,7 +689,7 @@ fn x11_modes_group(c: &synshell_common::config::Config) -> W {
     }
     let add = use_signal(String::new());
     rows.push(row(
-        "Добавить",
+        &t!("Добавить"),
         "1080p, 720p, 1600x720, 50%",
         Row::new()
             .gap(8.0)
@@ -707,11 +707,11 @@ fn x11_modes_group(c: &synshell_common::config::Config) -> W {
             })),
     ));
     rows.push(row(
-        "DPI программ",
-        "GTK, Qt, Steam; 0 — по разрешению. Игры его не замечают",
+        t!("DPI программ"),
+        t!("GTK, Qt, Steam; 0 — по разрешению. Игры его не замечают"),
         int_spin(op!["x11", "dpi"], c.x11.dpi as i64, 0, 600, 8),
     ));
-    group("Разрешения для игр", rows)
+    group(&t!("Разрешения для игр"), rows)
 }
 
 fn add_x11_app(name: &str) {
@@ -729,20 +729,20 @@ fn add_x11_app(name: &str) {
 fn x11_group(c: &synshell_common::config::Config) -> W {
     let mut rows: Vec<W> = vec![
         note(
-            "X11-программы (Wine-игры, Steam) видят экран с этим разрешением. Меньше пикселей — крупнее интерфейс \
-             (и быстрее игры): окна растягиваются на экран. Своё значение: 1920x864, 720p, 50%.",
+            &t!("X11-программы (Wine-игры, Steam) видят экран с этим разрешением. Меньше пикселей — крупнее интерфейс \
+             (и быстрее игры): окна растягиваются на экран. Своё значение: 1920x864, 720p, 50%."),
         ),
-        row("Для всех", "Применяется сразу", x11_resolution_choice(op!["x11", "resolution"], &c.x11.resolution)),
+        row(t!("Для всех"), t!("Применяется сразу"), x11_resolution_choice(op!["x11", "resolution"], &c.x11.resolution)),
         row(
-            "Своё значение",
-            "Ширина×высота, 720p или 50%",
+            t!("Своё значение"),
+            t!("Ширина×высота, 720p или 50%"),
             opt_text(op!["x11", "resolution"], &c.x11.resolution, "native", 200.0),
         ),
     ];
     for (i, a) in c.x11_apps.iter().enumerate() {
         rows.push(row(
-            "Программа",
-            "Имя exe или steam:AppId; * — любые символы",
+            t!("Программа"),
+            t!("Имя exe или steam:AppId; * — любые символы"),
             Row::new()
                 .gap(8.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
@@ -754,17 +754,17 @@ fn x11_group(c: &synshell_common::config::Config) -> W {
                 })),
         ));
     }
-    let mut actions = Column::new().gap(6.0).child(button("Добавить программу", || add_x11_app("")));
+    let mut actions = Column::new().gap(6.0).child(button(&t!("Добавить программу"), || add_x11_app("")));
     // X11-окна, открытые сейчас: класс окна Wine — имя exe.
     if let Some(ws) = sys::windows() {
         for w in ws.into_iter().filter(|w| w.x11_id.is_some() && !w.app_id.is_empty()).take(4) {
             let name = w.app_id.clone();
-            actions = actions.child(button(&format!("Добавить открытую: {name}"), move || add_x11_app(&name)));
+            actions = actions.child(button(&t!("Добавить открытую: {name}", name = name), move || add_x11_app(&name)));
         }
     }
     rows.push(boxed(actions));
-    rows.push(note("Своё разрешение действует со следующего запуска программы; Wine-игры в Steam подхватывают его сами."));
-    group("X11-программы", rows)
+    rows.push(note(&t!("Своё разрешение действует со следующего запуска программы; Wine-игры в Steam подхватывают его сами.")));
+    group(&t!("X11-программы"), rows)
 }
 
 pub fn general() -> W {
@@ -788,7 +788,7 @@ pub fn general() -> W {
     let nk = use_signal(String::new());
     let nv = use_signal(String::new());
     env_rows.push(row(
-        "Новая переменная",
+        &t!("Новая переменная"),
         "",
         Row::new()
             .gap(8.0)
@@ -803,20 +803,20 @@ pub fn general() -> W {
             })),
     ));
     page(
-        "Сеанс",
-        "Оболочка, Xwayland и окружение. Терминал, проводник и браузер — на странице «Программы по умолчанию».",
+        t!("Сеанс"),
+        t!("Оболочка, Xwayland и окружение. Терминал, проводник и браузер — на странице «Программы по умолчанию»."),
         vec![
             group(
-                "Сеанс",
+                &t!("Сеанс"),
                 vec![
-                    text_row("Оболочка", "Пусто — без оболочки (например, waybar)", op!["general", "shell"], &g.shell, "syndesktop-shell"),
-                    switch_row("Xwayland", "X11-программы (нужен пакет xorg-xwayland)", op!["general", "xwayland"], g.xwayland),
-                    text_row("Каталог снимков экрана", "", op!["general", "screenshot_dir"], &g.screenshot_dir, "~/Pictures/Screenshots"),
+                    text_row(t!("Оболочка"), t!("Пусто — без оболочки (например, waybar)"), op!["general", "shell"], &g.shell, "syndesktop-shell"),
+                    switch_row("Xwayland", &t!("X11-программы (нужен пакет xorg-xwayland)"), op!["general", "xwayland"], g.xwayland),
+                    text_row(&t!("Каталог снимков экрана"), "", op!["general", "screenshot_dir"], &g.screenshot_dir, "~/Pictures/Screenshots"),
                 ],
             ),
             x11_modes_group(&c),
             x11_group(&c),
-            group("Переменные окружения", env_rows),
+            group(&t!("Переменные окружения"), env_rows),
         ],
     )
 }
@@ -826,8 +826,8 @@ pub fn general() -> W {
 pub fn about() -> W {
     let a = sys::about();
     let compositor = match sys::ipc(synshell_common::ipc::Request::Version) {
-        Some(synshell_common::ipc::Response::Version { version }) => format!("запущен, {version}"),
-        _ => "не запущен".into(),
+        Some(synshell_common::ipc::Response::Version { version }) => t!("запущен, {version}", version = version),
+        _ => t!("не запущен").into(),
     };
     let kv = |k: &str, v: String| -> W {
         boxed(
@@ -839,23 +839,23 @@ pub fn about() -> W {
         )
     };
     let mut rows = vec![
-        kv("Окружение", format!("synshell {}", env!("CARGO_PKG_VERSION"))),
-        kv("Композитор", compositor),
-        kv("Система", a.os),
-        kv("Ядро", a.kernel),
-        kv("Компьютер", a.hostname),
-        kv("Процессор", format!("{} ({} потоков)", a.cpu, a.cores)),
-        kv("Память", a.memory),
+        kv(&t!("Окружение"), format!("synshell {}", env!("CARGO_PKG_VERSION"))),
+        kv(&t!("Композитор"), compositor),
+        kv(&t!("Система"), a.os),
+        kv(&t!("Ядро"), a.kernel),
+        kv(&t!("Компьютер"), a.hostname),
+        kv(&t!("Процессор"), tn!(a.cores, "{cpu} ({n} поток)", "{cpu} ({n} потока)", "{cpu} ({n} потоков)"; cpu = a.cpu)),
+        kv(&t!("Память"), a.memory),
     ];
     for g in a.gpus {
-        rows.push(kv("Видеокарта", g));
+        rows.push(kv(&t!("Видеокарта"), g));
     }
     if !a.session.is_empty() {
-        rows.push(kv("Текущий сеанс", a.session));
+        rows.push(kv(&t!("Текущий сеанс"), a.session));
     }
-    rows.push(kv("Файл настроек", store::path().display().to_string()));
+    rows.push(kv(&t!("Файл настроек"), store::path().display().to_string()));
     page(
-        "О системе",
+        &t!("О системе"),
         "",
         vec![
             boxed(
@@ -863,7 +863,7 @@ pub fn about() -> W {
                     .gap(4.0)
                     .class("about-hero")
                     .child(Text::new("synshell").class("about-title"))
-                    .child(Text::new("Рабочий стол для Wayland на Rust и syngui").class("row-hint")),
+                    .child(Text::new(t!("Рабочий стол для Wayland на Rust и syngui")).class("row-hint")),
             ),
             group("", rows),
         ],

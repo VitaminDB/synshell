@@ -122,7 +122,7 @@ pub fn play_path(st: St, path: PathBuf) {
                     }
                     Err(e) => {
                         tracing::warn!("{}: {e}", path.display());
-                        st.error.set(Some(format!("Не удалось открыть «{}»: {e}", path.display())));
+                        st.error.set(Some(t!("Не удалось открыть «{path}»: {e}", path = path.display(), e = e)));
                     }
                 }
             });
@@ -298,19 +298,19 @@ fn library_view(st: St) -> W {
     let header = Row::new()
         .gap(8.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(Text::new(if st.direct { "Очередь" } else { "Музыка" }).class("title"))
+        .child(Text::new(if st.direct { t!("Очередь") } else { t!("Музыка") }).class("title"))
         .child(DecoratedBox::new().class("grow"))
-        .child(icon_button(icons::REFRESH, "Обновить", move || rescan(st)))
+        .child(icon_button(icons::REFRESH, &t!("Обновить"), move || rescan(st)))
         .class("header");
     let list = Reactive::new(move || -> Vec<W> {
         let tracks = st.tracks.get();
         let cur = st.current.get();
         if tracks.is_empty() {
             let text = if st.scanning.get() {
-                "Ищу музыку…".to_string()
+                t!("Ищу музыку…").to_string()
             } else {
                 let dirs: Vec<String> = library::roots().iter().map(|d| d.display().to_string()).collect();
-                format!("Музыка не найдена.\nПрограмма ищет в: {}", dirs.join(", "))
+                t!("Музыка не найдена.\nПрограмма ищет в: {v}", v = dirs.join(", "))
             };
             return vec![Box::new(
                 Column::new()
@@ -423,7 +423,7 @@ fn mini_bar(st: St) -> W {
     });
     let play = Reactive::new(move || -> Vec<W> {
         let icon = if st.opening.get() { icons::HOURGLASS } else if st.paused.get() || st.player.get().is_none() { icons::PLAY } else { icons::PAUSE };
-        vec![icon_button(icon, "Играть / пауза", move || toggle(st))]
+        vec![icon_button(icon, &t!("Играть / пауза"), move || toggle(st))]
     });
     let progress = Reactive::new(move || -> Vec<W> {
         let d = st.dur.get();
@@ -442,7 +442,7 @@ fn mini_bar(st: St) -> W {
                         .child(cover_widget(st, "bar-cover", "bar-cover-icon"))
                         .child(DecoratedBox::new().child(info).class("grow"))
                         .child(play)
-                        .child(icon_button(icons::NEXT, "Следующий", move || next(st, false)))
+                        .child(icon_button(icons::NEXT, &t!("Следующий"), move || next(st, false)))
                         .class("bar"),
                 ),
             )
@@ -454,8 +454,8 @@ fn player_view(st: St) -> W {
     let header = Row::new()
         .gap(8.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(icon_button(icons::EXPAND_MORE, "К списку", move || st.full.set(false)))
-        .child(Text::new("Сейчас играет").class("now"))
+        .child(icon_button(icons::EXPAND_MORE, &t!("К списку"), move || st.full.set(false)))
+        .child(Text::new(t!("Сейчас играет")).class("now"))
         .child(DecoratedBox::new().class("grow"))
         .class("header");
     let info = Reactive::new(move || -> Vec<W> {
@@ -503,16 +503,16 @@ fn player_view(st: St) -> W {
             Row::new()
                 .main_axis_alignment(MainAxisAlignment::SpaceEvenly)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(ctl_button(rep_icon, rep_class, "ctl", "Повтор", move || {
+                .child(ctl_button(rep_icon, rep_class, "ctl", &t!("Повтор"), move || {
                     st.repeat.set(match st.repeat.get_untracked() {
                         Repeat::Off => Repeat::All,
                         Repeat::All => Repeat::One,
                         Repeat::One => Repeat::Off,
                     })
                 }))
-                .child(ctl_button(icons::PREV, "ctl-icon", "ctl", "Предыдущий", move || prev(st)))
-                .child(ctl_button(main_icon, "ctl-main-icon", "ctl-main", "Играть / пауза", move || toggle(st)))
-                .child(ctl_button(icons::NEXT, "ctl-icon", "ctl", "Следующий", move || next(st, false)))
+                .child(ctl_button(icons::PREV, "ctl-icon", "ctl", &t!("Предыдущий"), move || prev(st)))
+                .child(ctl_button(main_icon, "ctl-main-icon", "ctl-main", &t!("Играть / пауза"), move || toggle(st)))
+                .child(ctl_button(icons::NEXT, "ctl-icon", "ctl", &t!("Следующий"), move || next(st, false)))
                 .child(DecoratedBox::new().class("ctl")),
         )]
     });

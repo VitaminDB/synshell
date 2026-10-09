@@ -13,6 +13,7 @@ use zbus::blocking::Connection;
 use zbus::zvariant::Value;
 
 use crate::api::{self, Job, Request, Response};
+use syngui::t;
 
 const DEST: &str = "org.freedesktop.Notifications";
 const PATH: &str = "/org/freedesktop/Notifications";
@@ -21,9 +22,9 @@ const PATH: &str = "/org/freedesktop/Notifications";
 pub fn human(b: u64) -> String {
     let mb = b as f64 / 1048576.0;
     if mb >= 1024.0 {
-        format!("{:.1} ГБ", mb / 1024.0)
+        t!("{v} ГБ", v = format!("{:.1}", mb / 1024.0))
     } else {
-        format!("{mb:.0} МБ")
+        t!("{mb} МБ", mb = format!("{:.0}", mb))
     }
 }
 
@@ -38,14 +39,14 @@ pub fn clock(ts: i64) -> String {
 /// Строка о ходе задания: «загрузка system: 512 МБ из 1.3 ГБ» или «Повтор в 11:20 (попытка 2)».
 pub fn job_line(j: &Job) -> String {
     if let Some(at) = j.retry_at {
-        return format!("Повтор в {} (попытка {})", clock(at), j.attempt + 1);
+        return t!("Повтор в {v} (попытка {v2})", v = clock(at), v2 = j.attempt + 1);
     }
     if j.total > 0 {
-        format!("{}: {} из {}", j.step, human(j.done), human(j.total))
+        t!("{step}: {v} из {v2}", step = syngui::i18n::t(&j.step), v = human(j.done), v2 = human(j.total))
     } else if j.done > 0 {
-        format!("{}: {}", j.step, human(j.done))
+        format!("{}: {}", syngui::i18n::t(&j.step), human(j.done))
     } else {
-        j.step.clone()
+        syngui::i18n::t(&j.step)
     }
 }
 
@@ -129,7 +130,7 @@ fn find_job(id: u64) -> Option<Job> {
 
 pub fn job_main(args: &[String]) -> ! {
     let Some(job) = args.first().and_then(|a| a.parse::<u64>().ok()) else {
-        eprintln!("использование: syndroidd __notify <номер задания>");
+        eprintln!("{}", t!("использование: syndroidd __notify <номер задания>"));
         std::process::exit(2);
     };
     // D-Bus сеанса может ещё не быть (загрузка продолжена при старте системы, до входа)
@@ -152,33 +153,33 @@ pub fn job_main(args: &[String]) -> ! {
             n.close();
             std::process::exit(0);
         };
-        let summary = format!("Загрузка Android · {}", if j.subject.is_empty() { "LineageOS" } else { &j.subject });
+        let summary = t!("Загрузка Android · {v}", v = if j.subject.is_empty() { "LineageOS" } else { &j.subject });
         if j.finished {
             n.close();
             let r = if j.cancelled {
                 Ok(0)
             } else if let Some(e) = &j.error {
-                n.notify(0, "Android не скачан", &short_error(e), &["default", "Открыть"], hints(None, 1))
+                n.notify(0, &t!("Android не скачан"), &short_error(e), &["default", &t!("Открыть")], hints(None, 1))
             } else {
                 let what = j.result.as_deref().map(|r| format!("{} · {r}", crate::images::instance_title(&crate::images::instance_of(r))));
-                n.notify(0, "Android скачан", what.as_deref().unwrap_or(&j.subject), &["default", "Открыть"], hints(None, 1))
+                n.notify(0, &t!("Android скачан"), what.as_deref().unwrap_or(&j.subject), &["default", &t!("Открыть")], hints(None, 1))
             };
             if let Err(e) = r {
                 tracing::warn!("уведомление: {e:#}");
             }
             std::process::exit(0);
         }
-        let (body, progress, actions): (String, Option<i32>, Vec<&str>) = if j.retry_at.is_some() {
+        let (body, progress, actions): (String, Option<i32>, Vec<String>) = if j.retry_at.is_some() {
             let err = j.last_error.as_deref().map(short_error).unwrap_or_default();
-            (format!("{}\n{err}", job_line(&j)), None, vec!["default", "Открыть", "retry", "Повторить сейчас", "cancel", "Отмена"])
+            (format!("{}\n{err}", job_line(&j)), None, vec!["default".into(), t!("Открыть"), "retry".into(), t!("Повторить сейчас"), "cancel".into(), t!("Отмена")])
         } else {
             let pct = (j.total > 0).then(|| (j.done.saturating_mul(100) / j.total).min(100) as i32).unwrap_or(-1);
             let line = if j.total > 0 { format!("{} · {pct}%", job_line(&j)) } else { job_line(&j) };
-            (line, Some(pct), vec!["default", "Открыть", "cancel", "Отмена"])
+            (line, Some(pct), vec!["default".into(), t!("Открыть"), "cancel".into(), t!("Отмена")])
         };
         let key = format!("{summary}|{body}|{progress:?}|{}", actions.len());
         if key != last {
-            match n.notify(n.id.load(Ordering::Relaxed), &summary, &body, &actions, hints(progress, 0)) {
+            match n.notify(n.id.load(Ordering::Relaxed), &summary, &body, &actions.iter().map(String::as_str).collect::<Vec<_>>(), hints(progress, 0)) {
                 Ok(id) => {
                     n.id.store(id, Ordering::Relaxed);
                     last = key;

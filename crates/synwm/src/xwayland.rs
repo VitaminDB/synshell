@@ -28,6 +28,7 @@ use smithay::{
 use synshell_common::config::X11Resolution;
 
 use crate::{focus::FocusTarget, state::State, wm::ResizeEdge};
+use synshell_tr::t;
 
 /// Один Xwayland. Первый в [`crate::state::Core::xwayland`] — общий
 /// (разрешение `[x11] resolution`, его DISPLAY получают все программы
@@ -166,17 +167,17 @@ impl State {
     /// один Xwayland; нового нет — запускается.
     pub fn x11_display_for(&mut self, keys: &[String]) -> Result<(u32, String), String> {
         if self.core.xwayland.is_empty() {
-            return Err("Xwayland выключен ([general] xwayland)".into());
+            return Err(t!("Xwayland выключен ([general] xwayland)").into());
         }
         let wanted = self.core.config.x11_resolution_for(keys).to_string();
-        let parsed = X11Resolution::parse(&wanted).ok_or_else(|| format!("непонятное разрешение «{wanted}»"))?;
+        let parsed = X11Resolution::parse(&wanted).ok_or_else(|| t!("непонятное разрешение «{wanted}»", wanted = wanted))?;
         let same = |r: &str| X11Resolution::parse(r) == Some(parsed);
         // Общий подходит, если разрешение совпадает.
         if let Some(i) = self.core.xwayland.iter().position(|x| same(&x.resolution)) {
             let x = &self.core.xwayland[i];
-            return x.display.map(|d| (d, x.resolution.clone())).ok_or_else(|| "Xwayland без дисплея".into());
+            return x.display.map(|d| (d, x.resolution.clone())).ok_or_else(|| t!("Xwayland без дисплея").into());
         }
-        let d = self.spawn_xwayland(wanted.clone()).ok_or("Xwayland не запущен")?;
+        let d = self.spawn_xwayland(wanted.clone()).ok_or(t!("Xwayland не запущен"))?;
         tracing::info!(display = d, resolution = %wanted, ?keys, "отдельный Xwayland");
         Ok((d, wanted))
     }

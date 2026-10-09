@@ -43,7 +43,7 @@ fn parse_args() -> Args {
             "--list-themes" => {
                 for t in synshell_common::theme::list() {
                     let src = match &t.source {
-                        synshell_common::theme::Source::Builtin => "встроенная".to_string(),
+                        synshell_common::theme::Source::Builtin => t!("встроенная").to_string(),
                         synshell_common::theme::Source::Dir(d) => d.display().to_string(),
                     };
                     println!("{}\t{}\t{}", t.id, t.name, src);
@@ -52,7 +52,7 @@ fn parse_args() -> Args {
             }
             "--list-pages" => {
                 for p in pages::PAGES {
-                    println!("{}\t{}", p.id, p.title);
+                    println!("{}\t{}", p.id, crate::ui::tl(p.title));
                 }
                 std::process::exit(0);
             }
@@ -74,6 +74,7 @@ fn main() {
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()),
         )
         .init();
+    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
     let args = parse_args();
     let path = args
         .config
@@ -84,7 +85,7 @@ fn main() {
 
     if let Some(out) = &args.screenshot {
         if let Err(e) = shot::screenshot(out, &args.page, args.size, args.scale) {
-            eprintln!("снимок не удался: {e:#}");
+            eprintln!("{}", t!("снимок не удался: {e}", e = format!("{:#}", e)));
             std::process::exit(1);
         }
         return;
@@ -105,9 +106,10 @@ fn main() {
         if store::external_change() {
             run_on_main_thread(|| {
                 store::reload();
+                synshell_common::i18n::apply(&store::config());
                 state::notify_changed();
                 state::bump();
-                state::toast("config.toml изменён снаружи — перечитан");
+                state::toast(t!("config.toml изменён снаружи — перечитан"));
             });
         }
     });
@@ -121,7 +123,7 @@ fn main() {
         });
     });
     App::new()
-        .title("Параметры системы — synshell")
+        .title(t!("Параметры системы — synshell"))
         .app_id("synsettings")
         .size(args.size.0, args.size.1)
         .min_size(340, 480)

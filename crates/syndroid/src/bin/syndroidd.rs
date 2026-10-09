@@ -8,6 +8,7 @@ fn main() {
             .without_time()
             .init();
     }
+    syndroid::i18n_init();
     match args.first().map(String::as_str) {
         Some("__container") => syndroid::container::starter_main(args.get(1).map_or("", String::as_str)),
         Some("__exec") => syndroid::container::exec_main(&args[1..]),

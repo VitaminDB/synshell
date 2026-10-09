@@ -15,6 +15,7 @@ use sha2::{Digest, Sha256};
 
 use crate::config::Config;
 use crate::paths;
+use syngui::{n_, t};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OtaEntry {
@@ -68,7 +69,7 @@ pub struct Cancelled;
 
 impl std::fmt::Display for Cancelled {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.write_str("отменено")
+        f.write_str(&t!("отменено"))
     }
 }
 
@@ -104,13 +105,13 @@ fn http_error(what: &str, host: &str, url: &str, e: ureq::Error) -> anyhow::Erro
     use ureq::Error as E;
     match e {
         E::StatusCode(code) if code >= 500 || code == 408 || code == 429 => {
-            Transient(format!("{what}: сервер {host} недоступен (HTTP {code}) — попробуйте позже ({url})")).into()
+            Transient(t!("{what}: сервер {host} недоступен (HTTP {code}) — попробуйте позже ({url})", what = what, host = host, code = code, url = url)).into()
         }
         E::StatusCode(code) => anyhow::anyhow!("{what}: сервер {host} ответил HTTP {code} ({url})"),
-        E::Timeout(t) => Transient(format!("{what}: сервер {host} не ответил вовремя ({t}) ({url})")).into(),
-        E::HostNotFound => Transient(format!("{what}: не найден сервер {host} — нет сети? ({url})")).into(),
+        E::Timeout(t) => Transient(t!("{what}: сервер {host} не ответил вовремя ({t}) ({url})", what = what, host = host, t = t, url = url)).into(),
+        E::HostNotFound => Transient(t!("{what}: не найден сервер {host} — нет сети? ({url})", what = what, host = host, url = url)).into(),
         e @ (E::Io(_) | E::ConnectionFailed | E::Tls(_) | E::Protocol(_) | E::TooManyRedirects | E::RedirectFailed) => {
-            Transient(format!("{what}: связь с {host} не удалась: {e} ({url})")).into()
+            Transient(t!("{what}: связь с {host} не удалась: {e} ({url})", what = what, host = host, e = e, url = url)).into()
         }
         e => anyhow::anyhow!("{what}: {host}: {e} ({url})"),
     }
@@ -138,9 +139,9 @@ fn agent(c: &Config, whole: bool) -> ureq::Agent {
 pub fn ota_latest(c: &Config) -> Result<(OtaEntry, OtaEntry)> {
     let get = |url: &str| -> Result<OtaEntry> {
         let host = host_of(url);
-        let mut r = agent(c, true).get(url).call().map_err(|e| http_error("OTA-канал", host, url, e))?;
+        let mut r = agent(c, true).get(url).call().map_err(|e| http_error(&t!("OTA-канал"), host, url, e))?;
         let body: OtaResponse = serde_json::from_reader(r.body_mut().as_reader())
-            .map_err(|e| Transient(format!("OTA-канал {host}: не JSON ({e}) ({url})")))?;
+            .map_err(|e| Transient(t!("OTA-канал {host}: не JSON ({e}) ({url})", host = host, e = e, url = url)))?;
         body.response.into_iter().max_by_key(|e| e.datetime).with_context(|| format!("пустой канал {url}"))
     };
     Ok((get(&system_ota_url(c))?, get(&vendor_ota_url(c))?))
@@ -260,9 +261,7 @@ fn download(c: &Config, url: &str, to: &Path, expect: &str, size: u64, what: &st
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.starts_with("text/html"));
         if html {
-            return Err(Transient(format!(
-                "{what}: {host} вернул веб-страницу вместо файла — сайт, видимо, недоступен, попробуйте позже ({url})"
-            ))
+            return Err(Transient(t!("{what}: {host} вернул веб-страницу вместо файла — сайт, видимо, недоступен, попробуйте позже ({url})", what = what, host = host, url = url))
             .into());
         }
         let len: u64 = r.headers().get("content-length").and_then(|v| v.to_str().ok()).and_then(|v| v.parse().ok()).unwrap_or(0);
@@ -288,7 +287,7 @@ fn download(c: &Config, url: &str, to: &Path, expect: &str, size: u64, what: &st
             }
             hash.update(&buf[..n]);
             done += n as u64;
-            progress("проверка скачанного", done, have);
+            progress(n_!("проверка скачанного"), done, have);
         }
         out.set_len(have)?;
         use std::io::Seek;
@@ -325,12 +324,12 @@ fn download(c: &Config, url: &str, to: &Path, expect: &str, size: u64, what: &st
                 Ok(Ok(b)) => b,
                 Ok(Err(e)) => {
                     out.sync_all()?;
-                    return Err(Transient(format!("{what}: связь с {host} оборвалась: {e}")).into());
+                    return Err(Transient(t!("{what}: связь с {host} оборвалась: {e}", what = what, host = host, e = e)).into());
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) if last.elapsed() < stall => continue,
                 Err(_) => {
                     out.sync_all()?;
-                    return Err(Transient(format!("{what}: от {host} нет данных {} с — связь зависла", stall.as_secs())).into());
+                    return Err(Transient(t!("{what}: от {host} нет данных {as_secs} с — связь зависла", what = what, host = host, as_secs = stall.as_secs())).into());
                 }
             };
             last = std::time::Instant::now();
@@ -345,20 +344,20 @@ fn download(c: &Config, url: &str, to: &Path, expect: &str, size: u64, what: &st
     }
     out.sync_all()?;
     if size > 0 && done < size {
-        return Err(Transient(format!("{what}: {host} отдал {done} байт из {size} — повтор докачает")).into());
+        return Err(Transient(t!("{what}: {host} отдал {done} байт из {size} — повтор докачает", what = what, host = host, done = done, size = size)).into());
     }
     let got = format!("{:x}", hash.finalize());
     if !expect.is_empty() && !got.eq_ignore_ascii_case(expect) {
         // Испорчено при передаче (или подменено) — заново
         let _ = fs::remove_file(to);
-        return Err(Transient(format!("{what}: файл повреждён (sha256 {got} ≠ {expect}) — будет скачан заново")).into());
+        return Err(Transient(t!("{what}: файл повреждён (sha256 {got} ≠ {expect}) — будет скачан заново", what = what, got = got, expect = expect)).into());
     }
     Ok(())
 }
 
 /// Достать `<part>.img` из zip (или скопировать, если это уже .img).
 fn unpack(src: &Path, part: &str, to: &Path, progress: Progress) -> Result<()> {
-    let what = format!("распаковка {part}.img");
+    let what = t!("распаковка {part}.img", part = part);
     let mut f = File::open(src)?;
     let mut magic = [0u8; 4];
     f.read_exact(&mut magic)?;
@@ -421,7 +420,7 @@ fn staging(name: &str) -> Result<PathBuf> {
 
 /// Скачать набор из OTA (последние сборки каналов, если `entries` не заданы).
 pub fn fetch(c: &Config, entries: Option<(OtaEntry, OtaEntry)>, progress: Progress, cancel: Cancel) -> Result<ImageSet> {
-    progress("запрос OTA-каналов", 0, 0);
+    progress(n_!("запрос OTA-каналов"), 0, 0);
     let (sys, ven) = match entries {
         Some(e) => e,
         None => ota_latest(c)?,
@@ -445,7 +444,7 @@ pub fn fetch(c: &Config, entries: Option<(OtaEntry, OtaEntry)>, progress: Progre
                 continue;
             }
             let zip = st.join(&e.filename);
-            download(c, &e.url, &zip, &e.id, e.size, &format!("загрузка {part}"), progress, cancel)?;
+            download(c, &e.url, &zip, &e.id, e.size, &t!("загрузка {part}", part = part), progress, cancel)?;
             unpack(&zip, part, &img, progress)?;
             fs::remove_file(&zip)?;
         }

@@ -13,6 +13,7 @@ use std::time::{Duration, SystemTime};
 
 use synshell_common::config::{Config, DEFAULT_CONFIG_TOML};
 use toml_edit::{Array, ArrayOfTables, DocumentMut, InlineTable, Item, Table, Value};
+use syngui::t;
 
 /// Сегмент пути в документе: ключ таблицы или индекс массива.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -416,7 +417,7 @@ fn load(path: &Path) -> Store {
     };
     let (doc, read_only, mut error) = match text.parse::<DocumentMut>() {
         Ok(d) => (d, false, None),
-        Err(e) => (DocumentMut::new(), true, Some(format!("Файл не разобран как TOML: {e}"))),
+        Err(e) => (DocumentMut::new(), true, Some(t!("Файл не разобран как TOML: {e}", e = e))),
     };
     let config = match Config::parse(&doc.to_string()) {
         Ok(c) => c,

@@ -122,7 +122,7 @@ fn summary(s: &Section) -> (String, bool) {
     }
     let first = s.devices.first().map(|d| d.name.clone()).unwrap_or_default();
     let n = s.devices.len();
-    (if n > 1 { format!("{first} и ещё {}", n - 1) } else { first }, false)
+    (if n > 1 { t!("{first} и ещё {v}", first = first, v = n - 1) } else { first }, false)
 }
 
 fn menu_item(ctx: state::Ctx, s: &Section) -> W {
@@ -130,7 +130,7 @@ fn menu_item(ctx: state::Ctx, s: &Section) -> W {
     let (id, title) = (s.id, s.title);
     boxed(
         syngui::GestureDetector::new()
-            .on_click(move || ctx.sub.set(Some((format!("{SUB}{id}"), title.to_string()))))
+            .on_click(move || ctx.sub.set(Some((format!("{SUB}{id}"), tl(title)))))
             .child(
                 DecoratedBox::new().class("phone-nav-item").child(
                     Row::new()
@@ -145,7 +145,7 @@ fn menu_item(ctx: state::Ctx, s: &Section) -> W {
                             Column::new()
                                 .gap(2.0)
                                 .class("grow")
-                                .child(Text::new(title).class("phone-nav-label"))
+                                .child(Text::new(tl(title)).class("phone-nav-label"))
                                 .child(Text::new(text).max_lines(1).class(if fault { "hw-sum hw-sum-fault" } else { "hw-sum" })),
                         )
                         .child(Icon::new(icons::CHEVRON_RIGHT).class("phone-nav-chevron")),
@@ -158,18 +158,18 @@ fn menu_item(ctx: state::Ctx, s: &Section) -> W {
 fn section_page(ctx: state::Ctx, id: &'static str) -> W {
     let sig = section_signal(id);
     let body = Reactive::new(move || -> Vec<W> {
-        let Some(s) = sig.get() else { return vec![boxed(Text::new("Нет данных").class("row-hint"))] };
+        let Some(s) = sig.get() else { return vec![boxed(Text::new(t!("Нет данных")).class("row-hint"))] };
         let mut col = Column::new().gap(10.0);
         for d in &s.devices {
             col = col.child(device_card(d));
         }
         vec![boxed(col)]
     });
-    let title = sig.get_untracked().map(|s| s.title).unwrap_or("Оборудование");
+    let title = sig.get_untracked().map(|s| s.title).unwrap_or(n_!("Оборудование"));
     let mut parts: Vec<W> = Vec::new();
     if !narrow() {
         // На телефоне «назад» — в шапке; в окне — кнопка над разделом.
-        parts.push(boxed(Row::new().child(button("‹ Оборудование", move || ctx.sub.set(None)))));
+        parts.push(boxed(Row::new().child(button(&t!("‹ Оборудование"), move || ctx.sub.set(None)))));
     }
     parts.push(boxed(body));
     page(title, "", parts)
@@ -214,11 +214,11 @@ fn menu(ctx: state::Ctx, live: Live) -> W {
     });
     let actions = Row::new()
         .gap(8.0)
-        .child(button("Скопировать отчёт", || {
+        .child(button(&t!("Скопировать отчёт"), || {
             let text = synsystem::hwinfo::report(&synsystem::hwinfo::collect(&synsystem::Sys::host()));
             syngui::clipboard::copy(&text);
-            state::toast("Отчёт об оборудовании скопирован");
+            state::toast(t!("Отчёт об оборудовании скопирован"));
         }))
-        .child(button("Обновить", move || apply(live, synsystem::hwinfo::collect(&synsystem::Sys::host()))));
-    page("Оборудование", "Всё, что видит система: процессор, память, питание, датчики, устройства.", vec![boxed(actions), boxed(body)])
+        .child(button(&t!("Обновить"), move || apply(live, synsystem::hwinfo::collect(&synsystem::Sys::host()))));
+    page(t!("Оборудование"), t!("Всё, что видит система: процессор, память, питание, датчики, устройства."), vec![boxed(actions), boxed(body)])
 }

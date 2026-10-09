@@ -18,7 +18,7 @@ use crate::icons;
 type W = Box<dyn Widget>;
 
 /// Слои: название, значок, источник.
-pub const LAYERS: [(&str, &str); 4] = [("Схема", icons::MAP), ("Светлая", icons::MAP), ("Тёмная", icons::DARK), ("Спутник", icons::SATELLITE)];
+pub const LAYERS: [(&str, &str); 4] = [(n_!("Схема"), icons::MAP), (n_!("Светлая"), icons::MAP), (n_!("Тёмная"), icons::DARK), (n_!("Спутник"), icons::SATELLITE)];
 
 fn provider(i: usize) -> TileProvider {
     match i {
@@ -75,7 +75,7 @@ impl St {
             error: use_signal(None),
         };
         if explicit {
-            st.place.set(Some(Place { name: "Точка".into(), address: format!("{lat:.5}, {lon:.5}"), lat, lon }));
+            st.place.set(Some(Place { name: t!("Точка").into(), address: format!("{lat:.5}, {lon:.5}"), lat, lon }));
             lookup_address(st, lat, lon);
         }
         st
@@ -127,7 +127,7 @@ fn my_location(st: St) {
         }
         None => {
             st.follow.set(true);
-            let msg = st.loc_error.get_untracked().unwrap_or_else(|| "Определяем местоположение…".into());
+            let msg = st.loc_error.get_untracked().unwrap_or_else(|| t!("Определяем местоположение…").into());
             st.error.set(Some(msg));
         }
     }
@@ -160,7 +160,7 @@ fn search(st: St) {
             }
             st.searching.set(false);
             match r {
-                Ok(list) if list.is_empty() => st.error.set(Some("Ничего не найдено".into())),
+                Ok(list) if list.is_empty() => st.error.set(Some(t!("Ничего не найдено").into())),
                 Ok(list) => st.results.set(list),
                 Err(e) => st.error.set(Some(e)),
             }
@@ -198,7 +198,7 @@ fn drop_pin(st: St, lat: f64, lon: f64) {
     st.results.set(Vec::new());
     st.route.set(None);
     st.navigating.set(false);
-    st.place.set(Some(Place { name: "Точка на карте".into(), address: format!("{lat:.5}, {lon:.5}"), lat, lon }));
+    st.place.set(Some(Place { name: t!("Точка на карте").into(), address: format!("{lat:.5}, {lon:.5}"), lat, lon }));
     lookup_address(st, lat, lon);
 }
 
@@ -211,7 +211,7 @@ fn build_route(st: St) {
         Some(f) => (f.lat, f.lon),
         None => {
             let v = st.view.get_untracked();
-            st.error.set(Some("Местоположение ещё не известно — маршрут от центра карты".into()));
+            st.error.set(Some(t!("Местоположение ещё не известно — маршрут от центра карты").into()));
             (v.center_lat, v.center_lng)
         }
     };
@@ -390,7 +390,7 @@ fn top_bar(st: St, phone: bool) -> W {
         }
         let field = TextField::new()
             .text(st.query.get_untracked())
-            .placeholder("Поиск мест и адресов")
+            .placeholder(t!("Поиск мест и адресов"))
             .on_change(move |t| st.query.set(t.to_string()))
             .on_submit(move |_| search(st))
             .class("search-field");
@@ -433,7 +433,7 @@ fn result_row(st: St, p: Place) -> W {
 
 fn nav_banner(st: St) -> W {
     let (Some(r), Some(f)) = (st.route.get(), st.fix.get()) else {
-        return Box::new(DecoratedBox::new().child(Text::new("Ждём местоположение…").class("nav-text")).class("card nav"));
+        return Box::new(DecoratedBox::new().child(Text::new(t!("Ждём местоположение…")).class("nav-text")).class("card nav"));
     };
     let Some((i, d)) = next_step(&r, (f.lat, f.lon)) else {
         return Box::new(DecoratedBox::new().class("card nav"));
@@ -474,7 +474,7 @@ fn fabs(st: St) -> W {
                         .cursor(syngui::CursorIcon::Pointer)
                         .child(
                             DecoratedBox::new()
-                                .child(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(*icon).class(if active { "row-icon active" } else { "row-icon" })).child(Text::new(*name).class(if active { "row-title active" } else { "row-title" })))
+                                .child(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(*icon).class(if active { "row-icon active" } else { "row-icon" })).child(Text::new(syngui::i18n::t(name)).class(if active { "row-title active" } else { "row-title" })))
                                 .class("row"),
                         ),
                 );
@@ -518,7 +518,7 @@ fn sheet(st: St, phone: bool) -> W {
                     .child(DecoratedBox::new().class("grow"))
                     .child(GestureDetector::new().on_click(move || build_route(st)).cursor(syngui::CursorIcon::Pointer).child(
                         DecoratedBox::new()
-                            .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(icons::DIRECTIONS).class("btn-icon")).child(Text::new(if routing { "Строим…" } else { "Маршрут" }).class("btn-text")))
+                            .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(icons::DIRECTIONS).class("btn-icon")).child(Text::new(if routing { t!("Строим…") } else { t!("Маршрут") }).class("btn-text")))
                             .class("btn"),
                     )),
             );
@@ -579,7 +579,7 @@ fn route_card(st: St, r: Route) -> W {
                 .cursor(syngui::CursorIcon::Pointer)
                 .child(
                     DecoratedBox::new()
-                        .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(icons::NAVIGATION).class("btn-icon")).child(Text::new("В путь").class("btn-text")))
+                        .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(icons::NAVIGATION).class("btn-icon")).child(Text::new(t!("В путь")).class("btn-text")))
                         .class("btn"),
                 )),
         );

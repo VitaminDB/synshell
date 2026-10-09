@@ -42,6 +42,7 @@ use smithay::reexports::{
     wayland_server::Display,
 };
 use synshell_common::Config;
+use synshell_tr::t;
 
 use crate::{
     backend::Backend,
@@ -50,6 +51,7 @@ use crate::{
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    synshell_common::tr_init(&[include_str!("../i18n/en.lang")]);
     // Проба GPU в отдельном процессе (см. backend::probe_gpu): падение драйвера
     // (например, SIGILL программного рендерера) не должно ронять композитор.
     if args.first().map(String::as_str) == Some("--probe-gpu") {
@@ -62,12 +64,9 @@ fn main() {
     // экран при запуске горит: флаг сна мог остаться от упавшего прежнего композитора
     sleep::screen_power(true, 0);
     if args.iter().any(|a| a == "--help" || a == "-h") {
-        println!(
-            "synwm {} — окружение рабочего стола для Wayland\n\n\
+        println!("{}", t!("synwm {v} — окружение рабочего стола для Wayland\n\n\
              synwm [--nested [--nested-size ШxВ] | --tty] [--cpu | --gpu] [--no-shell] [--no-autostart]\n\
-             synwm msg <version|windows|workspaces|outputs|layouts|events|action ДЕЙСТВИЕ|window ID ОПЕРАЦИЯ|reload|restart-shell|restart>\n",
-            env!("CARGO_PKG_VERSION")
-        );
+             synwm msg <version|windows|workspaces|outputs|layouts|events|action ДЕЙСТВИЕ|window ID ОПЕРАЦИЯ|reload|restart-shell|restart>\n", v = env!("CARGO_PKG_VERSION")));
         return;
     }
     if args.iter().any(|a| a == "--version" || a == "-V") {
@@ -403,7 +402,7 @@ impl State {
 fn msg(args: &[String]) -> i32 {
     use synshell_common::ipc::{Client, Request, Response, WindowOp};
     let Some(cmd) = args.first() else {
-        eprintln!("использование: synwm msg <version|windows|workspaces|outputs|layouts|events|action …|window ID ОПЕРАЦИЯ|x11-display ИМЯ…|reload|restart-shell|restart>");
+        eprintln!("{}", t!("использование: synwm msg <version|windows|workspaces|outputs|layouts|events|action …|window ID ОПЕРАЦИЯ|x11-display ИМЯ…|reload|restart-shell|restart>"));
         return 2;
     };
     let req = match cmd.as_str() {
@@ -443,7 +442,7 @@ fn msg(args: &[String]) -> i32 {
                 }
                 Ok(_) => 1,
                 Err(e) => {
-                    eprintln!("нет связи с композитором: {e}");
+                    eprintln!("{}", t!("нет связи с композитором: {e}", e = e));
                     1
                 }
             };
@@ -460,7 +459,7 @@ fn msg(args: &[String]) -> i32 {
         },
         "window" => {
             let (Some(id), Some(op)) = (args.get(1).and_then(|s| s.parse().ok()), args.get(2)) else {
-                eprintln!("использование: synwm msg window ID activate|minimize|close|kill|maximize|fullscreen|floating|sticky|above|workspace N");
+                eprintln!("{}", t!("использование: synwm msg window ID activate|minimize|close|kill|maximize|fullscreen|floating|sticky|above|workspace N"));
                 return 2;
             };
             let op = match op.as_str() {
@@ -476,7 +475,7 @@ fn msg(args: &[String]) -> i32 {
                 "above" => WindowOp::ToggleAlwaysOnTop,
                 "workspace" => WindowOp::MoveToWorkspace(args.get(3).and_then(|s| s.parse::<u32>().ok()).unwrap_or(1).saturating_sub(1)),
                 other => {
-                    eprintln!("неизвестная операция «{other}»");
+                    eprintln!("{}", t!("неизвестная операция «{other}»", other = other));
                     return 2;
                 }
             };
@@ -486,7 +485,7 @@ fn msg(args: &[String]) -> i32 {
             let client = match Client::connect() {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("нет связи с композитором: {e}");
+                    eprintln!("{}", t!("нет связи с композитором: {e}", e = e));
                     return 1;
                 }
             };
@@ -510,14 +509,14 @@ fn msg(args: &[String]) -> i32 {
             }
         }
         other => {
-            eprintln!("неизвестная команда «{other}»");
+            eprintln!("{}", t!("неизвестная команда «{other}»", other = other));
             return 2;
         }
     };
     let mut client = match Client::connect() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("нет связи с композитором ({}): {e}", synshell_common::paths::socket_path().display());
+            eprintln!("{}", t!("нет связи с композитором ({v}): {e}", v = synshell_common::paths::socket_path().display(), e = e));
             return 1;
         }
     };

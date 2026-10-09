@@ -1,0 +1,74 @@
+@tag = "en"
+@name = "English"
+
+# src/audio.rs
+"запись звука прервалась (pw-cat)" = "audio capture stopped (pw-cat)"
+"устройства" = "device"
+"Звук для «{n}»" = "Sound for “{n}”"
+"Микрофон {n}" = "{n} microphone"
+"Звук {n}" = "{n} sound"
+"Звук «{n}»" = "“{n}” sound"
+"Микрофон для «{n}»" = "Microphone for “{n}”"
+"«{name}» закончило звук" = "“{name}” stopped sound"
+"звук «{name}»: {e}" = "“{name}” sound: {e}"
+
+# src/control.rs
+"неверный запрос: {e}" = "invalid request: {e}"
+"туннель к себе не нужен" = "no tunnel to self is needed"
+"нет ответа" = "no response"
+"трансляция своего экрана не нужна" = "no need to stream your own screen"
+"нет устройства «{device}»" = "no device “{device}”"
+"звук выключен" = "sound is off"
+"не здесь" = "not here"
+
+# src/daemon.rs
+"идёт спаривание" = "pairing"
+"соединяюсь {v} с" = "connecting for {v} s"
+"пауза после неудачного спаривания ещё {v} с" = "pause after failed pairing, {v} s left"
+"сеанс: {e}" = "session: {e}"
+"соединение с {addr}: {e}" = "connection to {addr}: {e}"
+"машина скрыта" = "this machine is hidden"
+"пользователь отказал" = "the user declined"
+"отклонено здесь" = "declined here"
+
+# src/exec.rs
+"пустая команда" = "empty command"
+"\n[synlink: тайм-аут {as_secs} с — процесс остановлен]\n" = "\n[synlink: timeout {as_secs} s — process stopped]\n"
+
+# src/main.rs
+"synlink — связь оболочек synshell (телефон ↔ компьютер) по USB и Wi-Fi\n\nsynlink daemon                         демон (запускается сеансом сам)\nsynlink status [--json]                эта машина, кабель, устройства\nsynlink events                         события демона (JSON)\nsynlink pair УСТР | pair accept|reject УСТР   спаривание\nsynlink unpair УСТР | disconnect УСТР\nsynlink shot УСТР [-o ФАЙЛ] [--max N] [--output ВЫВОД]   снимок экрана (PNG)\nsynlink tap УСТР X Y | hold УСТР X Y [МС] | swipe УСТР X1 Y1 X2 Y2 [МС] | pinch УСТР X Y ОТ ДО [МС]\nsynlink scroll УСТР X Y ШАГИ           колесо (вниз — положительные)\nsynlink type УСТР ТЕКСТ | key УСТР СОЧЕТАНИЕ | action УСТР ДЕЙСТВИЕ\nsynlink windows УСТР | outputs УСТР | wm УСТР JSON\nsynlink exec УСТР [--cwd К] -- КОМАНДА...   команда (вывод потоком, код выхода)\nsynlink shell УСТР                     терминал на устройстве\nsynlink logs УСТР [-f] [-n N] [-u ЮНИТ] [--grep Ш]   журнал systemd\nsynlink proxy УСТР [ПОРТ]              stdin/stdout ↔ 127.0.0.1:ПОРТ (по умолч. sshd)\nsynlink mount УСТР | umount УСТР       файлы устройства (FUSE)\nsynlink notifications [УСТР]           уведомления с устройств\nsynlink view УСТР                      окно трансляции (synlink-view)\nsynlink audio УСТР on|off [--no-mic]   звук трансляции: звук устройства здесь,\n                                       микрофон отсюда — там («synlink-mic»)\nsynlink mcp                            MCP-сервер (stdio) для Claude Code\nsynlink session                        демон для автозапуска сеанса: юнитом\n                                       systemd --user (synlink.service), иначе сам\n\nX Y — пиксели снимка экрана устройства или доли 0..1. УСТР — имя, id,\nphone/desktop или local (эта машина). ssh: `ssh phone` / `ssh <имя>`." = "synlink — link between synshell shells (phone ↔ computer) over USB and Wi-Fi\n\nsynlink daemon                         daemon (started by the session)\nsynlink status [--json]                this machine, cable, devices\nsynlink events                         daemon events (JSON)\nsynlink pair DEV | pair accept|reject DEV   pairing\nsynlink unpair DEV | disconnect DEV\nsynlink shot DEV [-o FILE] [--max N] [--output OUTPUT]   screenshot (PNG)\nsynlink tap DEV X Y | hold DEV X Y [MS] | swipe DEV X1 Y1 X2 Y2 [MS] | pinch DEV X Y FROM TO [MS]\nsynlink scroll DEV X Y STEPS           wheel (positive is down)\nsynlink type DEV TEXT | key DEV COMBO | action DEV ACTION\nsynlink windows DEV | outputs DEV | wm DEV JSON\nsynlink exec DEV [--cwd DIR] -- COMMAND...   command (streamed output, exit code)\nsynlink shell DEV                      terminal on the device\nsynlink logs DEV [-f] [-n N] [-u UNIT] [--grep PAT]   systemd journal\nsynlink proxy DEV [PORT]               stdin/stdout ↔ 127.0.0.1:PORT (sshd by default)\nsynlink mount DEV | umount DEV         device files (FUSE)\nsynlink notifications [DEV]            notifications from devices\nsynlink view DEV                       streaming window (synlink-view)\nsynlink audio DEV on|off [--no-mic]    stream sound: device sound here,\n                                       microphone from here — there (“synlink-mic”)\nsynlink mcp                            MCP server (stdio) for Claude Code\nsynlink session                        daemon for session autostart: as a\n                                       systemd --user unit (synlink.service), otherwise directly\n\nX Y — pixels of the device screenshot or fractions 0..1. DEV — name, id,\nphone/desktop or local (this machine). ssh: `ssh phone` / `ssh <name>`."
+"synlink: systemd-run: {st} — демон без юнита" = "synlink: systemd-run: {st} — running the daemon without a unit"
+"synlink: systemd-run: {e} — демон без юнита" = "synlink: systemd-run: {e} — running the daemon without a unit"
+"секрет" = "secret"
+"текст" = "text"
+"кабель подключён" = "cable connected"
+"нет кабеля" = "no cable"
+"устройств нет" = "no devices"
+"соединено по {v}" = "connected via {v}"
+"спарено, не в сети" = "paired, offline"
+"рядом ({v}), не спарено" = "nearby ({v}), not paired"
+"{r} мс" = "{r} ms"
+"батарея {percent}%{v}" = "battery {percent}%{v}"
+"файлы {m}" = "files {m}"
+"слышно {s} с назад ({v})" = "seen {s} s ago ({v})"
+"  ожидает спаривания: «{name}» по {title}{v} — synlink pair accept {v2}" = "  waiting for pairing: “{name}” via {title}{v} — synlink pair accept {v2}"
+", код {c}" = ", code {c}"
+"запрос отправлен — подтвердите на устройстве (сверьте код)" = "request sent — confirm on the device (check the code)"
+"ОТ" = "FROM"
+"ДО" = "TO"
+"ШАГИ" = "STEPS"
+
+# src/notify.rs
+"{title} «{name}» по {title2} хочет соединиться. Код: {c}" = "{title} “{name}” wants to connect via {title2}. Code: {c}"
+"{title} «{name}» подключён по {title2}. Разрешить доступ?" = "{title} “{name}” is connected via {title2}. Allow access?"
+"Спаривание устройств" = "Device pairing"
+"Принять" = "Accept"
+"Отклонить" = "Decline"
+
+# src/rpc.rs
+"не спарено" = "not paired"
+"события: {e}" = "events: {e}"
+"запрос: {e}" = "request: {e}"
+
+# src/services.rs
+"композитор этой машины старый (без удалённого ввода и потока кадров) — обновите synshell (synwm) и перезайдите" = "the compositor on this machine is outdated (no remote input or frame stream) — update synshell (synwm) and log in again"

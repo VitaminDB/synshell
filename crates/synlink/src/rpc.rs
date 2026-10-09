@@ -6,11 +6,12 @@ use synshell_common::ipc::InputEvent;
 
 use crate::daemon::D;
 use crate::proto::{self, Reply, Rpc};
+use synshell_tr::t;
 
 pub async fn serve(d: D, peer: String, mut w: quinn::SendStream, mut r: quinn::RecvStream) -> Result<()> {
     // Вызовы — только от спаренных.
     if d.trusted(&peer).is_none() {
-        proto::send(&mut w, &Reply::Err("не спарено".into())).await?;
+        proto::send(&mut w, &Reply::Err(t!("не спарено").into())).await?;
         return Ok(());
     }
     let Some(req) = proto::recv::<Rpc>(&mut r).await? else { return Ok(()) };
@@ -29,7 +30,7 @@ pub async fn serve(d: D, peer: String, mut w: quinn::SendStream, mut r: quinn::R
                     Ok(()) => Reply::Done,
                     Err(e) => Reply::Err(format!("{e:#}")),
                 },
-                Err(e) => Reply::Err(format!("события: {e}")),
+                Err(e) => Reply::Err(t!("события: {e}", e = e)),
             };
             proto::send(&mut w, &reply).await?;
         }
@@ -39,7 +40,7 @@ pub async fn serve(d: D, peer: String, mut w: quinn::SendStream, mut r: quinn::R
                     Ok(resp) => Reply::Json(serde_json::to_string(&resp)?),
                     Err(e) => Reply::Err(format!("{e:#}")),
                 },
-                Err(e) => Reply::Err(format!("запрос: {e}")),
+                Err(e) => Reply::Err(t!("запрос: {e}", e = e)),
             };
             proto::send(&mut w, &reply).await?;
         }

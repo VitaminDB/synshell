@@ -13,7 +13,7 @@ use crate::ui::*;
 
 fn sidebar(ctx: Ctx) -> W {
     let search = TextField::new()
-        .placeholder("Поиск настроек")
+        .placeholder(t!("Поиск настроек"))
         .prefix_icon(icons::SEARCH)
         .on_change(move |s| ctx.search.set(s.to_string()))
         .on_submit(move |s| {
@@ -32,7 +32,7 @@ fn sidebar(ctx: Ctx) -> W {
             any = true;
             if p.group != last_group {
                 last_group = p.group;
-                col = col.child(Text::new(p.group).class("nav-group"));
+                col = col.child(Text::new(tl(p.group)).class("nav-group"));
             }
             let id = p.id;
             // Кнопка syngui центрирует подпись — пункт меню собран вручную.
@@ -43,13 +43,13 @@ fn sidebar(ctx: Ctx) -> W {
                             .gap(12.0)
                             .cross_axis_alignment(CrossAxisAlignment::Center)
                             .child(Icon::new(p.icon).class("nav-icon"))
-                            .child(Text::new(p.title).class("nav-label")),
+                            .child(Text::new(tl(p.title)).class("nav-label")),
                     ),
                 ),
             );
         }
         if !any {
-            col = col.child(Text::new("Ничего не найдено").class("nav-empty"));
+            col = col.child(Text::new(t!("Ничего не найдено")).class("nav-empty"));
         }
         vec![boxed(col)]
     });
@@ -63,7 +63,7 @@ fn sidebar(ctx: Ctx) -> W {
                     .cross_axis_alignment(CrossAxisAlignment::Center)
                     .class("brand")
                     .child(DecoratedBox::new().class("brand-logo").child(Icon::new(icons::SETTINGS).class("brand-icon")))
-                    .child(Text::new("Параметры").class("brand-title")),
+                    .child(Text::new(t!("Параметры")).class("brand-title")),
             )
             .child(search)
             .child(ScrollView::new().vertical().class("grow nav-scroll").child(nav)),
@@ -83,10 +83,10 @@ fn error_banner(ctx: Ctx) -> W {
                     Column::new()
                         .gap(2.0)
                         .class("grow")
-                        .child(Text::new("Ошибка в config.toml — пока она не исправлена, композитор и оболочка работают со старыми настройками").class("row-label"))
+                        .child(Text::new(t!("Ошибка в config.toml — пока она не исправлена, композитор и оболочка работают со старыми настройками")).class("row-label"))
                         .child(Text::new(err).selectable(true).class("row-hint")),
                 )
-                .child(button("Открыть файл", || sys::open_in_editor(&store::path()))),
+                .child(button(&t!("Открыть файл"), || sys::open_in_editor(&store::path()))),
         )]
     }))
 }
@@ -107,18 +107,19 @@ fn footer(ctx: Ctx) -> W {
                 }
             }))
             .child(
-                Button::new("Перечитать")
+                Button::new(t!("Перечитать"))
                     .icon(icons::REFRESH)
                     .class("btn small")
                     .on_click(move || {
                         store::reload();
+                        synshell_common::i18n::apply(&store::config());
                         state::notify_changed();
                         state::bump();
-                        state::toast("Файл перечитан");
+                        state::toast(t!("Файл перечитан"));
                     }),
             )
             .child(
-                Button::new("Открыть config.toml")
+                Button::new(t!("Открыть config.toml"))
                     .icon(icons::OPEN)
                     .class("btn small")
                     .on_click(|| {
@@ -135,6 +136,8 @@ const NARROW_BELOW: f32 = 720.0;
 pub fn root(ctx: Ctx) -> W {
     let narrow = syngui::viewport::viewport_below(NARROW_BELOW);
     let body = Reactive::new(move || -> Vec<W> {
+        // Смена языка (страница «Язык», перечитанный конфиг) — перестроить всё окно.
+        syngui::i18n::subscribe();
         let n = narrow.get();
         set_narrow(n);
         vec![if n { phone_root(ctx) } else { desktop_root(ctx) }]
@@ -164,7 +167,7 @@ fn go_back(ctx: Ctx) -> bool {
 
 fn phone_list(ctx: Ctx) -> W {
     let search = TextField::new()
-        .placeholder("Поиск настроек")
+        .placeholder(t!("Поиск настроек"))
         .prefix_icon(icons::SEARCH)
         .on_change(move |s| ctx.search.set(s.to_string()))
         .on_submit(move |s| {
@@ -180,7 +183,7 @@ fn phone_list(ctx: Ctx) -> W {
         let mut group: Option<(&str, Column)> = None;
         let flush = |g: Option<(&str, Column)>, out: &mut Vec<W>| {
             if let Some((title, col)) = g {
-                out.push(boxed(Column::new().gap(8.0).child(Text::new(title).class("group-title")).child(col)));
+                out.push(boxed(Column::new().gap(8.0).child(Text::new(tl(title)).class("group-title")).child(col)));
             }
         };
         for p in PAGES.iter().filter(|p| q.trim().is_empty() || pages::matches(p, &q)) {
@@ -200,7 +203,7 @@ fn phone_list(ctx: Ctx) -> W {
                             .gap(14.0)
                             .cross_axis_alignment(CrossAxisAlignment::Center)
                             .child(DecoratedBox::new().class("phone-nav-badge").child(Icon::new(p.icon).class("phone-nav-icon")))
-                            .child(Text::new(p.title).class("phone-nav-label grow"))
+                            .child(Text::new(tl(p.title)).class("phone-nav-label grow"))
                             .child(Icon::new(icons::CHEVRON_RIGHT).class("phone-nav-chevron")),
                     ),
                 );
@@ -210,7 +213,7 @@ fn phone_list(ctx: Ctx) -> W {
         }
         flush(group.take(), &mut out);
         if out.is_empty() {
-            out.push(boxed(Text::new("Ничего не найдено").class("nav-empty")));
+            out.push(boxed(Text::new(t!("Ничего не найдено")).class("nav-empty")));
         }
         let mut col = Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
         for w in out {
@@ -222,7 +225,7 @@ fn phone_list(ctx: Ctx) -> W {
         Column::new()
             .gap(14.0)
             .class("phone-list")
-            .child(Text::new("Параметры").class("phone-title"))
+            .child(Text::new(t!("Параметры")).class("phone-title"))
             .child(search)
             .child(error_banner(ctx))
             .child(ScrollView::new().vertical().class("grow").child(list)),
@@ -241,7 +244,7 @@ fn phone_page(ctx: Ctx) -> W {
     let title = Reactive::new(move || -> Vec<W> {
         let t = match ctx.sub.get() {
             Some((_, t)) => t,
-            None => pages::find(&ctx.page.get()).title.to_string(),
+            None => tl(pages::find(&ctx.page.get()).title),
         };
         vec![boxed(Text::new(t).max_lines(1).class("phone-bar-title grow"))]
     });

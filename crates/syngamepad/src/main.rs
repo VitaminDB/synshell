@@ -28,6 +28,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use synshell_common::Config;
+use syngui::t;
 
 const BUILTIN_MSS: &str = include_str!("../styles/gamepad.mss");
 
@@ -49,11 +50,12 @@ fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,wgpu_core=warn,wgpu_hal=warn,naga=warn,usvg=error"))
         .format_timestamp_millis()
         .init();
+    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("--version" | "-V") => println!("syngamepad {}", env!("CARGO_PKG_VERSION")),
         Some("--help" | "-h") => {
-            println!("syngamepad [show|hide|toggle|fold|edit|status|layouts | layout <id>]\n  без аргументов — демон экранного контроллера")
+            println!("{}", t!("syngamepad [show|hide|toggle|fold|edit|status|layouts | layout <id>]\n  без аргументов — демон экранного контроллера"))
         }
         Some("layouts") => {
             for (id, name) in layout::list() {
@@ -64,12 +66,12 @@ fn main() {
         Some("layout") => match args.get(1) {
             Some(id) => client(&format!("layout {id}")),
             None => {
-                eprintln!("syngamepad layout: нужен id раскладки (syngamepad layouts)");
+                eprintln!("{}", t!("syngamepad layout: нужен id раскладки (syngamepad layouts)"));
                 std::process::exit(2);
             }
         },
         Some(other) => {
-            eprintln!("syngamepad: неизвестная команда «{other}»");
+            eprintln!("{}", t!("syngamepad: неизвестная команда «{other}»", other = other));
             std::process::exit(2);
         }
         None => daemon(),
@@ -194,14 +196,14 @@ fn listen(pad: ui::Pad) {
                             ok()
                         }
                         "status" => Ok(format!("{} {} {}", pad.shown.get_untracked(), pad.folded.get_untracked(), pad.layout_id.get_untracked())),
-                        other => Err(format!("команда не поддерживается: {other}")),
+                        other => Err(t!("команда не поддерживается: {other}", other = other)),
                     };
                     let _ = tx.send(r);
                 });
                 let reply = match rx.recv_timeout(Duration::from_secs(5)) {
                     Ok(Ok(s)) => format!("{s}\n"),
                     Ok(Err(e)) => format!("error {e}\n"),
-                    Err(_) => "error нет ответа от главного потока\n".to_string(),
+                    Err(_) => format!("error {}\n", t!("нет ответа от главного потока")),
                 };
                 let _ = (&stream).write_all(reply.as_bytes());
             }

@@ -42,14 +42,15 @@ fn reload(s: Sigs) {
     });
 }
 
-fn act(label: &'static str, f: impl FnOnce() -> std::result::Result<(), String> + Send + 'static) {
+fn act(label: impl AsRef<str>, f: impl FnOnce() -> std::result::Result<(), String> + Send + 'static) {
     let s = sigs();
+    let label = tl(label);
     state::toast(format!("{label}…"));
     std::thread::spawn(move || {
         let r = f();
         run_on_main_thread(move || {
             state::toast(match r {
-                Ok(()) => format!("{label}: готово"),
+                Ok(()) => t!("{label}: готово", label = label),
                 Err(e) => format!("{label}: {e}"),
             });
             reload(s);
@@ -63,32 +64,32 @@ pub fn vpn_page() -> W {
     let list = Reactive::new(move || -> Vec<W> {
         let mut rows: Vec<W> = Vec::new();
         match s.list.get() {
-            None => rows.push(note("Чтение соединений…")),
-            Some(Err(e)) => rows.push(note(&format!("NetworkManager недоступен: {e}"))),
-            Some(Ok(l)) if l.is_empty() => rows.push(note("VPN-соединений нет. Импортируйте файл от провайдера или создайте WireGuard.")),
+            None => rows.push(note(&t!("Чтение соединений…"))),
+            Some(Err(e)) => rows.push(note(&t!("NetworkManager недоступен: {e}", e = e))),
+            Some(Ok(l)) if l.is_empty() => rows.push(note(&t!("VPN-соединений нет. Импортируйте файл от провайдера или создайте WireGuard."))),
             Some(Ok(l)) => {
                 for v in l {
                     rows.push(vpn_row(s, v));
                 }
             }
         }
-        vec![group("Соединения", rows)]
+        vec![group(&t!("Соединения"), rows)]
     });
     let file = use_signal(String::new());
     let import = group(
-        "Импорт",
+        &t!("Импорт"),
         vec![row(
-            "Файл конфигурации",
-            "WireGuard — .conf, OpenVPN — .ovpn (полный путь к файлу)",
+            t!("Файл конфигурации"),
+            t!("WireGuard — .conf, OpenVPN — .ovpn (полный путь к файлу)"),
             Row::new()
                 .gap(6.0)
-                .child(TextField::new().placeholder("~/Загрузки/vpn.conf").on_change(move |t| file.set(t.to_string())).class("grow"))
-                .child(button("Импорт", move || {
+                .child(TextField::new().placeholder(t!("~/Загрузки/vpn.conf")).on_change(move |t| file.set(t.to_string())).class("grow"))
+                .child(button(&t!("Импорт"), move || {
                     let mut p = file.get_untracked();
                     if let Some(rest) = p.strip_prefix("~/") {
                         p = format!("{}/{rest}", std::env::var("HOME").unwrap_or_default());
                     }
-                    act("Импорт VPN", move || vpn::import(&p));
+                    act(&t!("Импорт VPN"), move || vpn::import(&p));
                 })),
         )],
     );
@@ -96,29 +97,29 @@ pub fn vpn_page() -> W {
         if !s.adding.get() {
             return vec![group(
                 "WireGuard",
-                vec![row_inline("Новое соединение", "Ключи, адрес и сервер — от администратора VPN", button("Создать", move || s.adding.set(true)))],
+                vec![row_inline(t!("Новое соединение"), t!("Ключи, адрес и сервер — от администратора VPN"), button(&t!("Создать"), move || s.adding.set(true)))],
             )];
         }
         vec![wireguard_form(s)]
     });
     page(
         "VPN",
-        "Виртуальные частные сети через NetworkManager: WireGuard, OpenVPN и другие плагины.",
+        &t!("Виртуальные частные сети через NetworkManager: WireGuard, OpenVPN и другие плагины."),
         vec![boxed(list), boxed(add), import],
     )
 }
 
 fn vpn_row(s: Sigs, v: Vpn) -> W {
-    let kind = if v.kind == "wireguard" { "WireGuard" } else { "VPN (плагин)" };
+    let kind = if v.kind == "wireguard" { "WireGuard".to_string() } else { t!("VPN (плагин)") };
     if s.delete.get().as_deref() == Some(v.uuid.as_str()) {
         let u = v.uuid.clone();
         return row_inline(
-            &format!("Удалить «{}»?", v.name),
+            &t!("Удалить «{name}»?", name = v.name),
             "",
-            Row::new().gap(6.0).child(button("Отмена", move || s.delete.set(None))).child(primary_button("Удалить", move || {
+            Row::new().gap(6.0).child(button(&t!("Отмена"), move || s.delete.set(None))).child(primary_button(&t!("Удалить"), move || {
                 s.delete.set(None);
                 let u = u.clone();
-                act("Удаление VPN", move || vpn::delete(&u));
+                act(n_!("Удаление VPN"), move || vpn::delete(&u));
             })),
         );
     }
@@ -126,16 +127,16 @@ fn vpn_row(s: Sigs, v: Vpn) -> W {
     let auto = v.autoconnect;
     row_inline(
         &v.name,
-        &format!("{kind} · {}{}", if v.active { "подключено" } else { "отключено" }, if auto { " · автоподключение" } else { "" }),
+        &format!("{kind} · {}{}", if v.active { t!("подключено") } else { t!("отключено") }, if auto { t!(" · автоподключение") } else { "".to_string() }),
         Row::new()
             .gap(6.0)
             .child(Toggle::with_state(v.active).on_change(move |on| {
                 let u = u1.clone();
-                act(if on { "Подключение VPN" } else { "Отключение VPN" }, move || if on { vpn::up(&u) } else { vpn::down(&u) });
+                act(if on { n_!("Подключение VPN") } else { n_!("Отключение VPN") }, move || if on { vpn::up(&u) } else { vpn::down(&u) });
             }))
-            .child(button(if auto { "Не автоматически" } else { "Автоматически" }, move || {
+            .child(button(if auto { n_!("Не автоматически") } else { n_!("Автоматически") }, move || {
                 let u = u2.clone();
-                act("Автоподключение", move || vpn::set_autoconnect(&u, !auto));
+                act(n_!("Автоподключение"), move || vpn::set_autoconnect(&u, !auto));
             }))
             .child(icon_button(icons::DELETE, move || s.delete.set(Some(u3.clone())))),
     )
@@ -149,7 +150,7 @@ fn wireguard_form(s: Sigs) -> W {
     };
     let gen = Reactive::new(move || -> Vec<W> {
         let p = pubkey.get();
-        let label = if p.is_empty() { "Создать ключи".to_string() } else { "Создать заново".to_string() };
+        let label = if p.is_empty() { t!("Создать ключи").to_string() } else { t!("Создать заново").to_string() };
         let mut r = Column::new().gap(6.0).child(button(&label, move || {
             std::thread::spawn(move || {
                 let r = vpn::wireguard_keys();
@@ -163,33 +164,33 @@ fn wireguard_form(s: Sigs) -> W {
             });
         }));
         if !p.is_empty() {
-            r = r.child(Text::new(format!("Открытый ключ (отдайте администратору сервера): {p}")).max_lines(3).class("row-hint"));
+            r = r.child(Text::new(t!("Открытый ключ (отдайте администратору сервера): {p}", p = p)).max_lines(3).class("row-hint"));
         }
         vec![boxed(r)]
     });
     group(
-        "Новое соединение WireGuard",
+        &t!("Новое соединение WireGuard"),
         vec![
-            field("Имя", "Латиницей, до 15 символов (имя интерфейса)", "wg-home", name),
-            row("Закрытый ключ", "Или создайте пару ключей и отдайте открытый администратору сервера", boxed(Column::new().gap(6.0).child(
+            field(&t!("Имя"), &t!("Латиницей, до 15 символов (имя интерфейса)"), "wg-home", name),
+            row(t!("Закрытый ключ"), t!("Или создайте пару ключей и отдайте открытый администратору сервера"), boxed(Column::new().gap(6.0).child(
                 Reactive::new(move || -> Vec<W> {
                     let v = private.get();
                     vec![boxed(TextField::new().text(v).obscure(true).placeholder("PrivateKey").on_change(move |t| private.set(t.to_string())).class("grow"))]
                 }),
             ).child(gen))),
-            field("Адрес", "Адрес этого устройства в VPN", "10.0.0.2/32", address),
-            field("DNS", "Необязательно", "10.0.0.1", dns),
-            field("Открытый ключ сервера", "", "PublicKey", peer),
-            field("Сервер", "Адрес и порт", "vpn.example.com:51820", endpoint),
-            field("Маршрутизировать", "Сети через VPN; пусто — весь трафик", "0.0.0.0/0, ::/0", allowed),
-            field("Общий ключ", "Необязательно (PresharedKey)", "", psk),
+            field(&t!("Адрес"), &t!("Адрес этого устройства в VPN"), "10.0.0.2/32", address),
+            field("DNS", &t!("Необязательно"), "10.0.0.1", dns),
+            field(&t!("Открытый ключ сервера"), "", "PublicKey", peer),
+            field(&t!("Сервер"), &t!("Адрес и порт"), "vpn.example.com:51820", endpoint),
+            field(&t!("Маршрутизировать"), &t!("Сети через VPN; пусто — весь трафик"), "0.0.0.0/0, ::/0", allowed),
+            field(&t!("Общий ключ"), &t!("Необязательно (PresharedKey)"), "", psk),
             boxed(
                 Row::new()
                     .gap(8.0)
                     .class("setting-row")
                     .child(DecoratedBox::new().class("grow"))
-                    .child(button("Отмена", move || s.adding.set(false)))
-                    .child(primary_button("Сохранить", move || {
+                    .child(button(&t!("Отмена"), move || s.adding.set(false)))
+                    .child(primary_button(&t!("Сохранить"), move || {
                         let w = WireGuard {
                             name: name.get_untracked(),
                             private_key: private.get_untracked(),
@@ -201,7 +202,7 @@ fn wireguard_form(s: Sigs) -> W {
                             preshared_key: psk.get_untracked(),
                         };
                         s.adding.set(false);
-                        act("Новое WireGuard", move || vpn::add_wireguard(&w));
+                        act(&t!("Новое WireGuard"), move || vpn::add_wireguard(&w));
                     })),
             ),
         ],

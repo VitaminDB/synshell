@@ -21,6 +21,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::uinput::PadButton;
+use syngui::t;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -183,7 +184,7 @@ fn wide(mut e: Element, aspect: f32) -> Element {
 pub fn standard() -> Layout {
     use Kind::*;
     Layout {
-        name: "Стандартная".into(),
+        name: t!("Стандартная").into(),
         opacity: 0.55,
         haptics: true,
         elements: vec![

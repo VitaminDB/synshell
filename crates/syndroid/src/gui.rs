@@ -40,11 +40,11 @@ impl Tab {
     const ALL: [Tab; 5] = [Tab::Overview, Tab::Apps, Tab::Images, Tab::Settings, Tab::Log];
     fn label(self) -> &'static str {
         match self {
-            Tab::Overview => "Обзор",
-            Tab::Apps => "Приложения",
-            Tab::Images => "Образы",
-            Tab::Settings => "Настройки",
-            Tab::Log => "Журнал",
+            Tab::Overview => n_!("Обзор"),
+            Tab::Apps => n_!("Приложения"),
+            Tab::Images => n_!("Образы"),
+            Tab::Settings => n_!("Настройки"),
+            Tab::Log => n_!("Журнал"),
         }
     }
     fn icon(self) -> &'static str {
@@ -218,12 +218,12 @@ fn act(st: St, req: Request, ok: &'static str) {
     }, move |r| {
         match r {
             Ok(Response::Job { .. }) => {
-                st.toast.set(ok.to_string());
+                st.toast.set(syngui::i18n::t(ok));
                 st.tab.set(st.tab.get_untracked());
             }
             Ok(_) => {
                 if !ok.is_empty() {
-                    st.toast.set(ok.to_string());
+                    st.toast.set(syngui::i18n::t(ok));
                 }
             }
             Err(e) => st.toast.set(format!("{e:#}")),
@@ -363,11 +363,11 @@ use crate::notify::human;
 
 fn uptime(s: u64) -> String {
     if s >= 3600 {
-        format!("{} ч {} мин", s / 3600, s % 3600 / 60)
+        t!("{v} ч {v2} мин", v = s / 3600, v2 = s % 3600 / 60)
     } else if s >= 60 {
-        format!("{} мин {} с", s / 60, s % 60)
+        t!("{v} мин {v2} с", v = s / 60, v2 = s % 60)
     } else {
-        format!("{s} с")
+        t!("{s} с", s = s)
     }
 }
 
@@ -392,11 +392,11 @@ fn chip(label: impl Into<String>, class: &str) -> impl Widget {
 
 fn state_chip(s: State) -> impl Widget {
     match s {
-        State::Running => chip("работает", "chip-ok"),
-        State::Starting => chip("загружается", "chip-busy"),
-        State::Frozen => chip("заморожен", "chip-frozen"),
-        State::Stopping => chip("останавливается", "chip-busy"),
-        State::Stopped => chip("остановлен", "chip-off"),
+        State::Running => chip(t!("работает"), "chip-ok"),
+        State::Starting => chip(t!("загружается"), "chip-busy"),
+        State::Frozen => chip(t!("заморожен"), "chip-frozen"),
+        State::Stopping => chip(t!("останавливается"), "chip-busy"),
+        State::Stopped => chip(t!("остановлен"), "chip-off"),
     }
 }
 
@@ -502,7 +502,7 @@ fn confirm_overlay(st: St) -> W {
                 Row::new()
                     .gap(8.0)
                     .main_axis_alignment(MainAxisAlignment::End)
-                    .child(Button::new("Отмена").on_click(move || st.confirm.set(None)))
+                    .child(Button::new(t!("Отмена")).on_click(move || st.confirm.set(None)))
                     .child(Button::new(c.button.clone()).class("danger").on_click(move || {
                         st.confirm.set(None);
                         action();
@@ -549,7 +549,7 @@ fn desktop(st: St) -> W {
         for t in Tab::ALL {
             col = col.child(GestureDetector::new().on_click(move || select_tab(st, t)).child(
                 DecoratedBox::new()
-                    .child(Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(t.icon()).class("nav-icon")).child(Text::new(t.label()).class("nav-label")))
+                    .child(Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(t.icon()).class("nav-icon")).child(Text::new(syngui::i18n::t(t.label())).class("nav-label")))
                     .class(if cur == t { "nav-item active" } else { "nav-item" }),
             ));
         }
@@ -563,7 +563,7 @@ fn desktop(st: St) -> W {
             DecoratedBox::new()
                 .child(match st.selected.get() {
                     Some(a) => app_details(st, a),
-                    None => Box::new(empty("\u{E859}", "Выберите приложение")),
+                    None => Box::new(empty("\u{E859}", &t!("Выберите приложение"))),
                 })
                 .class("detail-pane"),
         )]
@@ -613,7 +613,7 @@ fn phone(st: St) -> W {
                 .gap(2.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(DecoratedBox::new().child(Icon::new(t.icon()).class("nb-icon")).class(if cur == t { "nb-pill nb-pill-on" } else { "nb-pill" }))
-                .child(Text::new(t.label()).max_lines(1).class("nb-label"));
+                .child(Text::new(syngui::i18n::t(t.label())).max_lines(1).class("nb-label"));
             row = row.child(GestureDetector::new().on_click(move || select_tab(st, t)).child(DecoratedBox::new().child(item).class("nb-item")));
         }
         vec![Box::new(row.class("navbar"))]
@@ -629,13 +629,13 @@ fn overview(st: St) -> W {
             return vec![Box::new(card(
                 Column::new()
                     .gap(8.0)
-                    .child(Text::new("Нет связи со службой syndroid").class("h2"))
-                    .child(Text::new("Служба syndroid.service не запущена: sudo systemctl enable --now syndroid").class("muted")),
+                    .child(Text::new(t!("Нет связи со службой syndroid")).class("h2"))
+                    .child(Text::new(t!("Служба syndroid.service не запущена: sudo systemctl enable --now syndroid")).class("muted")),
             ))];
         };
         let mut out: Vec<W> = Vec::new();
         // Карточка Android
-        let title = s.instance_title.clone().unwrap_or_else(|| "Android не установлен".into());
+        let title = s.instance_title.clone().unwrap_or_else(|| t!("Android не установлен").into());
         let head = Row::new()
             .gap(14.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
@@ -643,40 +643,40 @@ fn overview(st: St) -> W {
             .child(Column::new().gap(4.0).child(Text::new(title).class("h1")).child(Row::new().gap(6.0).child(state_chip(s.state))).class("grow"));
         let mut info = Column::new().gap(0.0);
         if let Some(i) = &s.image {
-            info = info.child(kv("Образы", i.clone()));
+            info = info.child(kv(&t!("Образы"), i.clone()));
         }
         if let Some(v) = &s.android_version {
             info = info.child(kv("Android", v.clone()));
         }
         if let Some(u) = s.uptime {
-            info = info.child(kv("Работает", uptime(u)));
+            info = info.child(kv(&t!("Работает"), uptime(u)));
         }
         if let Some(m) = s.memory {
-            info = info.child(kv("Память", human(m)));
+            info = info.child(kv(&t!("Память"), human(m)));
         }
         let mut buttons = Flex::new().wrap().gap(8.0);
         let has_images = s.image.is_some();
         match s.state {
             State::Stopped => {
-                buttons = buttons.child(Button::new("Запустить").class("primary").disabled(!has_images).on_click(move || match Session::from_env() {
-                    Ok(session) => act(st, Request::Start { session }, "Android запускается"),
+                buttons = buttons.child(Button::new(t!("Запустить")).class("primary").disabled(!has_images).on_click(move || match Session::from_env() {
+                    Ok(session) => act(st, Request::Start { session }, n_!("Android запускается")),
                     Err(e) => st.toast.set(format!("{e:#}")),
                 }));
             }
             State::Running => {
                 buttons = buttons
-                    .child(Button::new("Показать Android").class("primary").on_click(move || act(st, Request::ShowFullUi, "")))
-                    .child(Button::new("Перезапустить").on_click(move || act(st, Request::Restart, "Android перезапускается")))
-                    .child(Button::new("Заморозить").on_click(move || act(st, Request::Freeze, "Android заморожен")))
-                    .child(Button::new("Остановить").class("danger").on_click(move || act(st, Request::Stop, "Android остановлен")));
+                    .child(Button::new(t!("Показать Android")).class("primary").on_click(move || act(st, Request::ShowFullUi, "")))
+                    .child(Button::new(t!("Перезапустить")).on_click(move || act(st, Request::Restart, n_!("Android перезапускается"))))
+                    .child(Button::new(t!("Заморозить")).on_click(move || act(st, Request::Freeze, n_!("Android заморожен"))))
+                    .child(Button::new(t!("Остановить")).class("danger").on_click(move || act(st, Request::Stop, n_!("Android остановлен"))));
             }
             State::Frozen => {
                 buttons = buttons
-                    .child(Button::new("Разморозить").class("primary").on_click(move || act(st, Request::Unfreeze, "")))
-                    .child(Button::new("Остановить").class("danger").on_click(move || act(st, Request::Stop, "Android остановлен")));
+                    .child(Button::new(t!("Разморозить")).class("primary").on_click(move || act(st, Request::Unfreeze, "")))
+                    .child(Button::new(t!("Остановить")).class("danger").on_click(move || act(st, Request::Stop, n_!("Android остановлен"))));
             }
             State::Starting | State::Stopping => {
-                buttons = buttons.child(Button::new("Остановить").class("danger").on_click(move || act(st, Request::Stop, "Android остановлен")));
+                buttons = buttons.child(Button::new(t!("Остановить")).class("danger").on_click(move || act(st, Request::Stop, n_!("Android остановлен"))));
             }
         }
         let mut col = Column::new().gap(14.0).child(head);
@@ -689,9 +689,9 @@ fn overview(st: St) -> W {
             out.push(Box::new(card(
                 Column::new()
                     .gap(10.0)
-                    .child(Text::new("Образов Android ещё нет").class("h2"))
-                    .child(Text::new("Скачайте LineageOS — около 1 ГБ — в разделе «Образы».").class("muted"))
-                    .child(Button::new("К образам").class("primary").on_click(move || select_tab(st, Tab::Images))),
+                    .child(Text::new(t!("Образов Android ещё нет")).class("h2"))
+                    .child(Text::new(t!("Скачайте LineageOS — около 1 ГБ — в разделе «Образы».")).class("muted"))
+                    .child(Button::new(t!("К образам")).class("primary").on_click(move || select_tab(st, Tab::Images))),
             )));
         }
         if let Some(e) = &s.error {
@@ -702,7 +702,7 @@ fn overview(st: St) -> W {
         }
         vec![Box::new(Column::new().gap(14.0).children(out))]
     });
-    pane(st, "Обзор", body)
+    pane(st, &t!("Обзор"), body)
 }
 
 fn job_card(st: St, j: &api::Job) -> W {
@@ -711,7 +711,7 @@ fn job_card(st: St, j: &api::Job) -> W {
             .gap(10.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .child(Icon::new(if j.error.is_some() { "\u{E000}" } else { "\u{E2C4}" }).class(if j.error.is_some() { "job-icon job-err" } else { "job-icon job-running" }))
-            .child(Text::new(j.title.clone()).class("h2 grow")),
+            .child(Text::new(syngui::i18n::t(&j.title)).class("h2 grow")),
     );
     if let Some(e) = &j.error {
         col = col.child(Text::new(e.clone()).class("job-error"));
@@ -729,9 +729,9 @@ fn job_card(st: St, j: &api::Job) -> W {
         let id = j.id;
         let mut row = Flex::new().wrap().gap(8.0);
         if j.retry_at.is_some() {
-            row = row.child(Button::new("Повторить сейчас").class("primary").on_click(move || act(st, Request::RetryJobNow { id }, "")));
+            row = row.child(Button::new(t!("Повторить сейчас")).class("primary").on_click(move || act(st, Request::RetryJobNow { id }, "")));
         }
-        row = row.child(Button::new("Отменить").on_click(move || act(st, Request::CancelJob { id }, "Загрузка отменена")));
+        row = row.child(Button::new(t!("Отменить")).on_click(move || act(st, Request::CancelJob { id }, n_!("Загрузка отменена"))));
         col = col.child(row);
     }
     Box::new(DecoratedBox::new().child(col).class("job"))
@@ -744,9 +744,9 @@ fn apps_view(st: St) -> W {
         let running = st.running.get();
         if !running {
             return vec![Box::new(
-                Column::new().gap(10.0).child(empty("\u{E859}", "Android не запущен")).child(
-                    Row::new().main_axis_alignment(MainAxisAlignment::Center).child(Button::new("Запустить").class("primary").on_click(move || match Session::from_env() {
-                        Ok(session) => act(st, Request::Start { session }, "Android запускается"),
+                Column::new().gap(10.0).child(empty("\u{E859}", &t!("Android не запущен"))).child(
+                    Row::new().main_axis_alignment(MainAxisAlignment::Center).child(Button::new(t!("Запустить")).class("primary").on_click(move || match Session::from_env() {
+                        Ok(session) => act(st, Request::Start { session }, n_!("Android запускается")),
                         Err(e) => st.toast.set(format!("{e:#}")),
                     })),
                 ),
@@ -755,18 +755,18 @@ fn apps_view(st: St) -> W {
         let install = Row::new()
             .gap(8.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(TextField::with_text(st.apk.get_untracked()).placeholder("Путь к файлу .apk").prefix_icon("\u{E2C4}").on_change(move |t| st.apk.set(t.to_string())).class("grow"))
-            .child(Button::new("Установить").class("primary").on_click(move || {
+            .child(TextField::with_text(st.apk.get_untracked()).placeholder(t!("Путь к файлу .apk")).prefix_icon("\u{E2C4}").on_change(move |t| st.apk.set(t.to_string())).class("grow"))
+            .child(Button::new(t!("Установить")).class("primary").on_click(move || {
                 let p = st.apk.get_untracked().trim().to_string();
                 let p = synshell_common::paths::expand_tilde(&p);
                 if !p.is_file() {
-                    st.toast.set("Нет такого файла".into());
+                    st.toast.set(t!("Нет такого файла").into());
                     return;
                 }
                 let p = std::fs::canonicalize(&p).unwrap_or(p);
-                act(st, Request::InstallApk { path: p.display().to_string() }, "Установка APK началась");
+                act(st, Request::InstallApk { path: p.display().to_string() }, n_!("Установка APK началась"));
             }));
-        let filter = TextField::with_text(st.app_filter.get_untracked()).placeholder("Найти приложение").prefix_icon("\u{E8B6}").on_change(move |t| st.app_filter.set(t.to_string())).class("search");
+        let filter = TextField::with_text(st.app_filter.get_untracked()).placeholder(t!("Найти приложение")).prefix_icon("\u{E8B6}").on_change(move |t| st.app_filter.set(t.to_string())).class("search");
         let list = Reactive::new(move || -> Vec<W> {
             let q = st.app_filter.get().to_lowercase();
             let sel = st.selected.get().map(|a| a.package);
@@ -799,9 +799,9 @@ fn apps_view(st: St) -> W {
             let v: Vec<W> = st.status.get().map(|s| s.jobs.iter().filter(|j| !j.finished || j.error.is_some()).map(|j| job_card(st, j)).collect()).unwrap_or_default();
             vec![Box::new(Column::new().gap(12.0).children(v))]
         });
-        vec![Box::new(Column::new().gap(12.0).child(card(Column::new().gap(8.0).child(Text::new("Установить APK").class("h2")).child(install))).child(jobs).child(filter).child(Column::new().gap(2.0).child(list)))]
+        vec![Box::new(Column::new().gap(12.0).child(card(Column::new().gap(8.0).child(Text::new(t!("Установить APK")).class("h2")).child(install))).child(jobs).child(filter).child(Column::new().gap(2.0).child(list)))]
     });
-    pane(st, "Приложения", body)
+    pane(st, &t!("Приложения"), body)
 }
 
 fn app_details(st: St, a: AppRow) -> W {
@@ -811,17 +811,17 @@ fn app_details(st: St, a: AppRow) -> W {
     let actions = Flex::new()
         .wrap()
         .gap(8.0)
-        .child(Button::new("Открыть").class("primary").on_click(move || act(st, Request::LaunchApp { package: p1.clone() }, "")))
-        .child(Button::new("Остановить").on_click(move || act(st, Request::StopApp { package: p2.clone() }, "Приложение остановлено")))
-        .child(Button::new("Очистить данные").on_click(move || {
+        .child(Button::new(t!("Открыть")).class("primary").on_click(move || act(st, Request::LaunchApp { package: p1.clone() }, "")))
+        .child(Button::new(t!("Остановить")).on_click(move || act(st, Request::StopApp { package: p2.clone() }, n_!("Приложение остановлено"))))
+        .child(Button::new(t!("Очистить данные")).on_click(move || {
             let p = p3.clone();
-            ask(st, "Очистить данные?", &format!("Все данные «{name}» (вход, настройки, файлы приложения) будут удалены."), "Очистить", move || act(st, Request::ClearAppData { package: p.clone() }, "Данные очищены"))
+            ask(st, &t!("Очистить данные?"), &t!("Все данные «{name}» (вход, настройки, файлы приложения) будут удалены.", name = name), &t!("Очистить"), move || act(st, Request::ClearAppData { package: p.clone() }, n_!("Данные очищены")))
         }))
-        .child(Button::new("Удалить").class("danger").on_click(move || {
+        .child(Button::new(t!("Удалить")).class("danger").on_click(move || {
             let p = p4.clone();
-            ask(st, "Удалить приложение?", &format!("«{name2}» будет удалено из Android вместе с его данными."), "Удалить", move || {
+            ask(st, &t!("Удалить приложение?"), &t!("«{name2}» будет удалено из Android вместе с его данными.", name2 = name2), &t!("Удалить"), move || {
                 st.selected.set(None);
-                act(st, Request::UninstallApp { package: p.clone() }, "Приложение удалено");
+                act(st, Request::UninstallApp { package: p.clone() }, n_!("Приложение удалено"));
                 let st2 = st;
                 std::thread::spawn(move || {
                     std::thread::sleep(Duration::from_secs(2));
@@ -840,7 +840,7 @@ fn app_details(st: St, a: AppRow) -> W {
             .gap(14.0)
             .child(head)
             .child(actions)
-            .child(card(Column::new().gap(0.0).child(kv("Пакет", a.package.clone())).child(kv("Android", instance))))
+            .child(card(Column::new().gap(0.0).child(kv(&t!("Пакет"), a.package.clone())).child(kv("Android", instance))))
             .class("detail"),
     ))
 }
@@ -853,8 +853,8 @@ fn images_view(st: St) -> W {
         let upd = st.updates.get();
         let mut col = Column::new()
             .gap(10.0)
-            .child(Text::new("Скачать Android").class("h2"))
-            .child(Text::new("Свежая сборка LineageOS из OTA-канала Waydroid (около 1 ГБ). Вариант с GApps — с сервисами Google; это отдельный Android со своими приложениями и данными.").class("muted"))
+            .child(Text::new(t!("Скачать Android")).class("h2"))
+            .child(Text::new(t!("Свежая сборка LineageOS из OTA-канала Waydroid (около 1 ГБ). Вариант с GApps — с сервисами Google; это отдельный Android со своими приложениями и данными.")).class("muted"))
             .child(SegmentedButton::new(vec!["LineageOS", "LineageOS + GApps"]).selected(v).on_change(move |i| {
                 st.variant.set(i);
                 st.updates.set(String::new());
@@ -863,13 +863,13 @@ fn images_view(st: St) -> W {
                 Flex::new()
                     .wrap()
                     .gap(8.0)
-                    .child(Button::new("Скачать").class("primary").on_click(move || {
+                    .child(Button::new(t!("Скачать")).class("primary").on_click(move || {
                         let t = if st.variant.get_untracked() == 1 { "GAPPS" } else { "VANILLA" };
-                        act(st, Request::FetchImages { system_type: Some(t.into()), session: Session::from_env().ok() }, "Загрузка началась — ход в уведомлении, здесь и в «Обзоре»; окно можно закрыть");
+                        act(st, Request::FetchImages { system_type: Some(t.into()), session: Session::from_env().ok() }, n_!("Загрузка началась — ход в уведомлении, здесь и в «Обзоре»; окно можно закрыть"));
                     }))
-                    .child(Button::new("Проверить обновления").on_click(move || {
+                    .child(Button::new(t!("Проверить обновления")).on_click(move || {
                         let t = if st.variant.get_untracked() == 1 { "GAPPS" } else { "VANILLA" };
-                        st.updates.set("Проверка…".into());
+                        st.updates.set(t!("Проверка…").into());
                         bg(
                             move || {
                                 let Response::Config { config: mut c } = api::call(&Request::GetConfig)? else { anyhow::bail!("ответ") };
@@ -877,14 +877,7 @@ fn images_view(st: St) -> W {
                                 let (s, ven) = images::ota_latest(&c)?;
                                 let name = images::set_name(&s.filename);
                                 let have = images::exists(&name);
-                                Ok(format!(
-                                    "Последняя сборка: {} от {} ({} + {}){}",
-                                    images::instance_title(&images::instance_of(&name)),
-                                    date(s.datetime),
-                                    human(s.size),
-                                    human(ven.size),
-                                    if have { " — уже установлена" } else { " — можно скачать" }
-                                ))
+                                Ok(t!("Последняя сборка: {v} от {v2} ({v3} + {v4}){v5}", v = images::instance_title(&images::instance_of(&name)), v2 = date(s.datetime), v3 = human(s.size), v4 = human(ven.size), v5 = if have { t!(" — уже установлена") } else { t!(" — можно скачать") }))
                             },
                             move |r| st.updates.set(r.unwrap_or_else(|e| format!("{e:#}"))),
                         );
@@ -898,15 +891,15 @@ fn images_view(st: St) -> W {
     let import = card(
         Column::new()
             .gap(8.0)
-            .child(Text::new("Импорт из файлов").class("h2"))
-            .child(Text::new("Архивы OTA (.zip) или образы (.img) system и vendor.").class("muted"))
-            .child(TextField::with_text(st.import_system.get_untracked()).placeholder("system: путь к .zip или .img").on_change(move |t| st.import_system.set(t.to_string())))
-            .child(TextField::with_text(st.import_vendor.get_untracked()).placeholder("vendor: путь к .zip или .img").on_change(move |t| st.import_vendor.set(t.to_string())))
-            .child(Row::new().child(Button::new("Импортировать").on_click(move || {
+            .child(Text::new(t!("Импорт из файлов")).class("h2"))
+            .child(Text::new(t!("Архивы OTA (.zip) или образы (.img) system и vendor.")).class("muted"))
+            .child(TextField::with_text(st.import_system.get_untracked()).placeholder(t!("system: путь к .zip или .img")).on_change(move |t| st.import_system.set(t.to_string())))
+            .child(TextField::with_text(st.import_vendor.get_untracked()).placeholder(t!("vendor: путь к .zip или .img")).on_change(move |t| st.import_vendor.set(t.to_string())))
+            .child(Row::new().child(Button::new(t!("Импортировать")).on_click(move || {
                 let abs = |s: String| std::fs::canonicalize(synshell_common::paths::expand_tilde(s.trim())).map(|p| p.display().to_string());
                 match (abs(st.import_system.get_untracked()), abs(st.import_vendor.get_untracked())) {
-                    (Ok(system), Ok(vendor)) => act(st, Request::ImportImages { system, vendor, name: None }, "Импорт начался"),
-                    _ => st.toast.set("Нет такого файла".into()),
+                    (Ok(system), Ok(vendor)) => act(st, Request::ImportImages { system, vendor, name: None }, n_!("Импорт начался")),
+                    _ => st.toast.set(t!("Нет такого файла").into()),
                 }
             }))),
     );
@@ -915,10 +908,10 @@ fn images_view(st: St) -> W {
         let status = st.status.get();
         let jobs: Vec<W> = status.as_ref().map(|s| s.jobs.iter().filter(|j| !j.finished || j.error.is_some()).map(|j| job_card(st, j)).collect()).unwrap_or_default();
         let mut out: Vec<W> = jobs;
-        out.push(Box::new(Text::new("Установленные").class("h2")));
+        out.push(Box::new(Text::new(t!("Установленные")).class("h2")));
         match st.instances.get() {
             None => out.push(Box::new(CircularProgress::new().indeterminate().size(22.0))),
-            Some(v) if v.is_empty() => out.push(Box::new(Text::new("Образов Android нет.").class("muted"))),
+            Some(v) if v.is_empty() => out.push(Box::new(Text::new(t!("Образов Android нет.")).class("muted"))),
             Some(v) => {
                 let active_set = status.as_ref().and_then(|s| s.image.clone());
                 for i in v {
@@ -928,7 +921,7 @@ fn images_view(st: St) -> W {
         }
         vec![Box::new(Column::new().gap(12.0).children(out))]
     });
-    pane(st, "Образы", Column::new().gap(14.0).child(fetch).child(list).child(import))
+    pane(st, &t!("Образы"), Column::new().gap(14.0).child(fetch).child(list).child(import))
 }
 
 fn instance_card(st: St, i: Instance, active_set: Option<String>, state: State) -> W {
@@ -937,13 +930,13 @@ fn instance_card(st: St, i: Instance, active_set: Option<String>, state: State) 
         .gap(10.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(Icon::new("\u{E859}").class("inst-icon"))
-        .child(Column::new().gap(2.0).child(Text::new(i.title.clone()).class("h2")).child(Text::new(format!("данные: {}", human(i.data_size))).class("pkg-ver")).class("grow"));
+        .child(Column::new().gap(2.0).child(Text::new(i.title.clone()).class("h2")).child(Text::new(t!("данные: {v}", v = human(i.data_size))).class("pkg-ver")).class("grow"));
     if i.active {
-        head = head.child(chip(if running_here { "запущен" } else { "выбран" }, "chip-ok"));
+        head = head.child(chip(if running_here { t!("запущен") } else { t!("выбран") }, "chip-ok"));
     }
     let mut col = Column::new().gap(10.0).child(head);
     if i.sets.is_empty() {
-        col = col.child(Text::new("Образов нет — остались только данные.").class("muted"));
+        col = col.child(Text::new(t!("Образов нет — остались только данные.")).class("muted"));
     }
     for s in &i.sets {
         let used = active_set.as_deref() == Some(s.name.as_str());
@@ -951,16 +944,16 @@ fn instance_card(st: St, i: Instance, active_set: Option<String>, state: State) 
         let mut row = Row::new()
             .gap(8.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(Column::new().gap(1.0).child(Text::new(s.name.clone()).max_lines(1).class("set-name")).child(Text::new(format!("{} · установлен {}", human(s.size), date(s.installed))).class("pkg-ver")).class("grow"));
+            .child(Column::new().gap(1.0).child(Text::new(s.name.clone()).max_lines(1).class("set-name")).child(Text::new(t!("{v} · установлен {v2}", v = human(s.size), v2 = date(s.installed))).class("pkg-ver")).class("grow"));
         if used {
-            row = row.child(chip("используется", "chip-repo"));
+            row = row.child(chip(t!("используется"), "chip-repo"));
         } else {
-            row = row.child(Button::new("Использовать").class("small").on_click(move || {
-                act(st, Request::UseImages { name: n1.clone() }, "Выбрано — подействует при следующем запуске Android");
+            row = row.child(Button::new(t!("Использовать")).class("small").on_click(move || {
+                act(st, Request::UseImages { name: n1.clone() }, n_!("Выбрано — подействует при следующем запуске Android"));
             }));
-            row = row.child(Button::new("Удалить").class("small danger").on_click(move || {
+            row = row.child(Button::new(t!("Удалить")).class("small danger").on_click(move || {
                 let n = n2.clone();
-                ask(st, "Удалить образы?", &format!("Набор {n} будет удалён с диска. Данные Android останутся."), "Удалить", move || act(st, Request::RemoveImages { name: n.clone() }, "Образы удалены"));
+                ask(st, &t!("Удалить образы?"), &t!("Набор {n} будет удалён с диска. Данные Android останутся.", n = n), &t!("Удалить"), move || act(st, Request::RemoveImages { name: n.clone() }, n_!("Образы удалены")));
             }));
         }
         col = col.child(DecoratedBox::new().child(row).class("set-row"));
@@ -970,20 +963,20 @@ fn instance_card(st: St, i: Instance, active_set: Option<String>, state: State) 
     let mut actions = Flex::new().wrap().gap(8.0);
     if !i.active {
         if let Some(latest) = i.sets.first().map(|s| s.name.clone()) {
-            actions = actions.child(Button::new("Выбрать этот Android").on_click(move || {
+            actions = actions.child(Button::new(t!("Выбрать этот Android")).on_click(move || {
                 let _ = &id1;
-                act(st, Request::UseImages { name: latest.clone() }, "Выбрано — подействует при следующем запуске Android");
+                act(st, Request::UseImages { name: latest.clone() }, n_!("Выбрано — подействует при следующем запуске Android"));
             }));
         }
     }
     actions = actions
-        .child(Button::new("Сбросить данные").class("small").disabled(running_here).on_click(move || {
+        .child(Button::new(t!("Сбросить данные")).class("small").disabled(running_here).on_click(move || {
             let id = id2.clone();
-            ask(st, "Сбросить данные?", &format!("Все приложения и данные «{t2}» будут удалены; образы останутся. Android запустится как новый."), "Сбросить", move || act(st, Request::ResetData { instance: id.clone() }, "Данные сброшены"));
+            ask(st, &t!("Сбросить данные?"), &t!("Все приложения и данные «{t2}» будут удалены; образы останутся. Android запустится как новый.", t2 = t2), &t!("Сбросить"), move || act(st, Request::ResetData { instance: id.clone() }, n_!("Данные сброшены")));
         }))
-        .child(Button::new("Удалить Android").class("small danger").disabled(running_here).on_click(move || {
+        .child(Button::new(t!("Удалить Android")).class("small danger").disabled(running_here).on_click(move || {
             let id = id3.clone();
-            ask(st, "Удалить этот Android?", &format!("«{t3}» будет удалён целиком: образы, приложения и данные."), "Удалить", move || act(st, Request::RemoveInstance { instance: id.clone() }, "Android удалён"));
+            ask(st, &t!("Удалить этот Android?"), &t!("«{t3}» будет удалён целиком: образы, приложения и данные.", t3 = t3), &t!("Удалить"), move || act(st, Request::RemoveInstance { instance: id.clone() }, n_!("Android удалён")));
         }));
     col = col.child(actions);
     Box::new(card(col))
@@ -1023,17 +1016,17 @@ fn settings_view(st: St) -> W {
         let general = card(
             Column::new()
                 .gap(4.0)
-                .child(toggle("Запускать при входе", "Android стартует вместе с сеансом (около 1 ГБ памяти).", c.autostart, |c, v| c.autostart = v))
+                .child(toggle(&t!("Запускать при входе"), &t!("Android стартует вместе с сеансом (около 1 ГБ памяти)."), c.autostart, |c, v| c.autostart = v))
                 .child(toggle(
-                    "Каждое приложение — своим окном",
-                    "Окна freeform для рабочего стола. На телефоне лучше выключить: приложение на весь экран. Действует после перезапуска Android.",
+                    &t!("Каждое приложение — своим окном"),
+                    &t!("Окна freeform для рабочего стола. На телефоне лучше выключить: приложение на весь экран. Действует после перезапуска Android."),
                     c.multi_windows,
                     |c, v| c.multi_windows = v,
                 ))
-                .child(toggle("Сеть", "Доступ Android в интернет через телефон или компьютер.", c.network, |c, v| c.network = v))
+                .child(toggle(&t!("Сеть"), &t!("Доступ Android в интернет через телефон или компьютер."), c.network, |c, v| c.network = v))
                 .child(toggle(
-                    "Общие папки",
-                    "Загрузки, Изображения, Музыка, Видео и Документы — те же, что в Android (Download, Pictures…). Действует после перезапуска Android.",
+                    &t!("Общие папки"),
+                    &t!("Загрузки, Изображения, Музыка, Видео и Документы — те же, что в Android (Download, Pictures…). Действует после перезапуска Android."),
                     c.shared_folders,
                     |c, v| c.shared_folders = v,
                 ))
@@ -1041,7 +1034,7 @@ fn settings_view(st: St) -> W {
                     Row::new()
                         .gap(12.0)
                         .cross_axis_alignment(CrossAxisAlignment::Center)
-                        .child(Column::new().gap(2.0).child(Text::new("Плотность экрана (dpi)").class("opt-label")).child(Text::new("0 — как решит Android; больше — крупнее интерфейс.").class("pkg-desc")).class("grow"))
+                        .child(Column::new().gap(2.0).child(Text::new(t!("Плотность экрана (dpi)")).class("opt-label")).child(Text::new(t!("0 — как решит Android; больше — крупнее интерфейс.")).class("pkg-desc")).class("grow"))
                         .child(TextField::with_text(c.dpi.to_string()).on_change(move |t| {
                             let v = t.trim().parse().unwrap_or(0);
                             set(Box::new(move |c| c.dpi = v));
@@ -1078,8 +1071,8 @@ fn settings_view(st: St) -> W {
             Row::new()
                 .gap(6.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(TextField::new().placeholder("новое свойство, например persist.sys.timezone").on_change(move |t| new_key.set(t.to_string())).class("grow"))
-                .child(Button::new("Добавить").class("small").on_click(move || {
+                .child(TextField::new().placeholder(t!("новое свойство, например persist.sys.timezone")).on_change(move |t| new_key.set(t.to_string())).class("grow"))
+                .child(Button::new(t!("Добавить")).class("small").on_click(move || {
                     let k = new_key.get_untracked().trim().to_string();
                     if !k.is_empty() && !k.contains(['=', ' ']) {
                         reshape(Box::new(move |c| {
@@ -1091,14 +1084,14 @@ fn settings_view(st: St) -> W {
         let props = card(
             Column::new()
                 .gap(8.0)
-                .child(Text::new("Свойства Android").class("h2"))
-                .child(Text::new("Добавляются к свойствам образа (vendor/waydroid.prop) при запуске Android; перекрывают и настройки устройства.").class("muted"))
+                .child(Text::new(t!("Свойства Android")).class("h2"))
+                .child(Text::new(t!("Добавляются к свойствам образа (vendor/waydroid.prop) при запуске Android; перекрывают и настройки устройства.")).class("muted"))
                 .child(props),
         );
         let ota = card(
             Column::new()
                 .gap(8.0)
-                .child(Text::new("OTA-каналы").class("h2"))
+                .child(Text::new(t!("OTA-каналы")).class("h2"))
                 .child(TextField::with_text(c.system_channel.clone()).placeholder("system").on_change(move |t| {
                     let t = t.to_string();
                     set(Box::new(move |c| c.system_channel = t.clone()));
@@ -1127,36 +1120,36 @@ fn settings_view(st: St) -> W {
         let download = card(
             Column::new()
                 .gap(4.0)
-                .child(Text::new("Загрузка образов").class("h2"))
+                .child(Text::new(t!("Загрузка образов")).class("h2"))
                 .child(toggle(
-                    "Повторять при сбое",
-                    "Нет сети или сервер недоступен — загрузка ждёт и пробует снова сама, в фоне (окно можно закрыть); начатое докачивается.",
+                    &t!("Повторять при сбое"),
+                    &t!("Нет сети или сервер недоступен — загрузка ждёт и пробует снова сама, в фоне (окно можно закрыть); начатое докачивается."),
                     c.retry,
                     |c, v| c.retry = v,
                 ))
-                .child(num("Пауза между попытками, мин", &format!("От {rmin} до {rmax}."), c.retry_minutes, |c, v| c.retry_minutes = v))
-                .child(num("Тайм-аут соединения, с", &format!("Сколько ждать ответа сервера ({tmin}–{tmax})."), c.connect_timeout, |c, v| c.connect_timeout = v))
+                .child(num(&t!("Пауза между попытками, мин"), &t!("От {rmin} до {rmax}.", rmin = rmin, rmax = rmax), c.retry_minutes, |c, v| c.retry_minutes = v))
+                .child(num(&t!("Тайм-аут соединения, с"), &t!("Сколько ждать ответа сервера ({tmin}–{tmax}).", tmin = tmin, tmax = tmax), c.connect_timeout, |c, v| c.connect_timeout = v))
                 .child(num(
-                    "Тайм-аут простоя, с",
-                    &format!("Загрузка без единого байта дольше этого считается оборванной ({tmin}–{tmax})."),
+                    &t!("Тайм-аут простоя, с"),
+                    &t!("Загрузка без единого байта дольше этого считается оборванной ({tmin}–{tmax}).", tmin = tmin, tmax = tmax),
                     c.stall_timeout,
                     |c, v| c.stall_timeout = v,
                 )),
         );
         let save = Row::new()
             .gap(8.0)
-            .child(Button::new("Сохранить").class("primary").on_click(move || {
+            .child(Button::new(t!("Сохранить")).class("primary").on_click(move || {
                 if let Some(c) = st.cfg.get_untracked() {
                     let c = c.clamped();
                     st.cfg.set(Some(c.clone()));
                     st.cfg_rev.set(st.cfg_rev.get_untracked() + 1);
-                    act(st, Request::SetConfig { config: c }, "Сохранено — часть настроек действует со следующего запуска Android");
+                    act(st, Request::SetConfig { config: c }, n_!("Сохранено — часть настроек действует со следующего запуска Android"));
                 }
             }))
-            .child(Button::new("Отменить изменения").on_click(move || load_config(st)));
+            .child(Button::new(t!("Отменить изменения")).on_click(move || load_config(st)));
         vec![Box::new(Column::new().gap(14.0).child(general).child(download).child(props).child(ota).child(save))]
     });
-    pane(st, "Настройки", body)
+    pane(st, &t!("Настройки"), body)
 }
 
 // ─── Журнал ──────────────────────────────────────────────────────────────────
@@ -1165,13 +1158,13 @@ fn log_view(st: St) -> W {
     let top = Row::new()
         .gap(8.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(TextField::with_text(st.log_filter.get_untracked()).placeholder("Фильтр").prefix_icon("\u{E8B6}").on_change(move |t| st.log_filter.set(t.to_string())).class("grow search"))
-        .child(Button::new("Обновить").on_click(move || load_log(st)));
+        .child(TextField::with_text(st.log_filter.get_untracked()).placeholder(t!("Фильтр")).prefix_icon("\u{E8B6}").on_change(move |t| st.log_filter.set(t.to_string())).class("grow search"))
+        .child(Button::new(t!("Обновить")).on_click(move || load_log(st)));
     let lines = Reactive::new(move || -> Vec<W> {
         let q = st.log_filter.get().to_lowercase();
         let text = st.log.get();
         if text.is_empty() {
-            return vec![Box::new(Text::new("Журнал пуст или Android не запущен").class("muted"))];
+            return vec![Box::new(Text::new(t!("Журнал пуст или Android не запущен")).class("muted"))];
         }
         let v: Vec<&str> = text.lines().filter(|l| q.is_empty() || l.to_lowercase().contains(&q)).collect();
         let mut col = Column::new().gap(0.0);
@@ -1182,5 +1175,5 @@ fn log_view(st: St) -> W {
         }
         vec![Box::new(col)]
     });
-    pane(st, "Журнал Android", Column::new().gap(10.0).child(top).child(DecoratedBox::new().child(lines).class("log")))
+    pane(st, &t!("Журнал Android"), Column::new().gap(10.0).child(top).child(DecoratedBox::new().child(lines).class("log")))
 }

@@ -73,7 +73,7 @@ fn header(st: St, title: String) -> W {
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(
             ToolButton::new(icons::ARROW_BACK)
-                .tooltip("Назад")
+                .tooltip(t!("Назад"))
                 .on_click(move || {
                     back(st);
                 })
@@ -83,7 +83,7 @@ fn header(st: St, title: String) -> W {
         .child(DecoratedBox::new().class("grow"))
         .child(
             ToolButton::new(icons::SETTINGS)
-                .tooltip("Настройки")
+                .tooltip(t!("Настройки"))
                 .on_click(move || st.settings_open.set(true))
                 .class("vp-btn"),
         );
@@ -105,10 +105,10 @@ fn info_chip(i: &DecodeInfo) -> W {
         None => format!("{} · {res}", i.codec),
     };
     let (icon, mode, class) = match (&i.hardware, i.known) {
-        (_, false) => (icons::HOURGLASS, "Определяю…".to_string(), "chip-mode chip-mode-wait"),
-        (Some(hw), true) if i.zero_copy => (icons::MEMORY, format!("Аппаратно · {hw} · без копий"), "chip-mode chip-mode-hw"),
-        (Some(hw), true) => (icons::MEMORY, format!("Аппаратно · {hw}"), "chip-mode chip-mode-hw"),
-        (None, true) => (icons::CPU, "Программно".to_string(), "chip-mode chip-mode-sw"),
+        (_, false) => (icons::HOURGLASS, t!("Определяю…").to_string(), "chip-mode chip-mode-wait"),
+        (Some(hw), true) if i.zero_copy => (icons::MEMORY, t!("Аппаратно · {hw} · без копий", hw = hw), "chip-mode chip-mode-hw"),
+        (Some(hw), true) => (icons::MEMORY, t!("Аппаратно · {hw}", hw = hw), "chip-mode chip-mode-hw"),
+        (None, true) => (icons::CPU, t!("Программно").to_string(), "chip-mode chip-mode-sw"),
     };
     Box::new(
         DecoratedBox::new()
@@ -162,12 +162,12 @@ fn settings_panel(st: St) -> W {
 
     let decoding = section(
         icons::MEMORY,
-        "Декодирование",
+        &t!("Декодирование"),
         vec![
             Box::new(
                 SegmentedButton::new(vec![
-                    Segment::with_icon("Аппаратно", icons::MEMORY),
-                    Segment::with_icon("Программно", icons::CPU),
+                    Segment::with_icon(t!("Аппаратно"), icons::MEMORY),
+                    Segment::with_icon(t!("Программно"), icons::CPU),
                 ])
                 .selected(if s.hardware { 0 } else { 1 })
                 .on_change(move |i| {
@@ -183,12 +183,12 @@ fn settings_panel(st: St) -> W {
                 let text = match st.info.get() {
                     Some(i) if i.known => match &i.hardware {
                         Some(hw) if i.zero_copy => {
-                            format!("Сейчас: {} через {hw}, кадры идут на экран прямо из памяти декодера.", i.codec)
+                            t!("Сейчас: {codec} через {hw}, кадры идут на экран прямо из памяти декодера.", codec = i.codec, hw = hw)
                         }
-                        Some(hw) => format!("Сейчас: {} через {hw}.", i.codec),
-                        None => format!("Сейчас: {} декодирует процессор.", i.codec),
+                        Some(hw) => t!("Сейчас: {codec} через {hw}.", codec = i.codec, hw = hw),
+                        None => t!("Сейчас: {codec} декодирует процессор.", codec = i.codec),
                     },
-                    _ => "Аппаратный кодек экономит процессор и батарею; если с ним что-то не так — включите программный.".into(),
+                    _ => t!("Аппаратный кодек экономит процессор и батарею; если с ним что-то не так — включите программный.").into(),
                 };
                 vec![Box::new(Text::new(text).max_lines(4).class("set-hint"))]
             })),
@@ -197,50 +197,50 @@ fn settings_panel(st: St) -> W {
 
     let picture = section(
         icons::ASPECT,
-        "Изображение",
+        &t!("Изображение"),
         vec![
             Box::new(
                 SegmentedButton::new(vec![
-                    Segment::with_icon("Вписать", icons::FIT),
-                    Segment::with_icon("Заполнить", icons::FILL),
+                    Segment::with_icon(t!("Вписать"), icons::FIT),
+                    Segment::with_icon(t!("Заполнить"), icons::FILL),
                 ])
                 .selected(if s.fill { 1 } else { 0 })
                 .on_change(move |i| update(st, |s| s.fill = i == 1)),
             ),
-            hint("«Заполнить» — без чёрных полос, края кадра обрезаются."),
+            hint(&t!("«Заполнить» — без чёрных полос, края кадра обрезаются.")),
         ],
     );
 
     let seek = section(
         icons::FAST_FORWARD,
-        "Перемотка",
+        &t!("Перемотка"),
         vec![
             Box::new(
-                SegmentedButton::new(SEEK_STEPS.iter().map(|s| format!("{s} с")).collect::<Vec<_>>())
+                SegmentedButton::new(SEEK_STEPS.iter().map(|s| t!("{s} с", s = s)).collect::<Vec<_>>())
                     .selected(SEEK_STEPS.iter().position(|v| *v == s.seek_step).unwrap_or(1))
                     .on_change(move |i| update(st, |s| s.seek_step = SEEK_STEPS[i.min(SEEK_STEPS.len() - 1)])),
             ),
-            hint("Двойной тап по левому или правому краю кадра, кнопки и клавиши J / L."),
+            hint(&t!("Двойной тап по левому или правому краю кадра, кнопки и клавиши J / L.")),
         ],
     );
 
     let playback = section(
         icons::PLAY_CIRCLE,
-        "Воспроизведение",
+        &t!("Воспроизведение"),
         vec![
-            toggle_row("Продолжать с места остановки", "Ролик откроется там, где вы его закрыли.", s.resume, move |on| {
+            toggle_row(&t!("Продолжать с места остановки"), &t!("Ролик откроется там, где вы его закрыли."), s.resume, move |on| {
                 update(st, |s| s.resume = on)
             }),
-            toggle_row("Повторять ролик", "Дошёл до конца — сначала.", s.repeat, move |on| update(st, |s| s.repeat = on)),
+            toggle_row(&t!("Повторять ролик"), &t!("Дошёл до конца — сначала."), s.repeat, move |on| update(st, |s| s.repeat = on)),
         ],
     );
 
     let view = section(
         icons::INFO,
-        "Интерфейс",
+        &t!("Интерфейс"),
         vec![toggle_row(
-            "Показывать способ воспроизведения",
-            "Чип вверху: кодек, размер, аппаратно или программно.",
+            &t!("Показывать способ воспроизведения"),
+            &t!("Чип вверху: кодек, размер, аппаратно или программно."),
             s.show_info,
             move |on| update(st, |s| s.show_info = on),
         )],
@@ -252,9 +252,9 @@ fn settings_panel(st: St) -> W {
             Row::new()
                 .gap(8.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(Text::new("Настройки").class("set-title"))
+                .child(Text::new(t!("Настройки")).class("set-title"))
                 .child(DecoratedBox::new().class("grow"))
-                .child(ToolButton::new(icons::CLOSE).tooltip("Закрыть").on_click(close).class("set-close"))
+                .child(ToolButton::new(icons::CLOSE).tooltip(t!("Закрыть")).on_click(close).class("set-close"))
                 .class("set-head"),
         )
         .child(

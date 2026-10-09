@@ -17,6 +17,7 @@ use zbus::zvariant::{OwnedValue, Value};
 
 use crate::daemon::D;
 use crate::proto::{Ctl, Note};
+use synshell_tr::t;
 
 static DAEMON: OnceLock<D> = OnceLock::new();
 /// Уведомления-запросы спаривания: устройство → id уведомления.
@@ -219,10 +220,10 @@ pub fn pair_prompt(p: &PairPrompt) {
         let res = (|| -> anyhow::Result<()> {
             let conn = zbus::blocking::Connection::session()?;
             let body = match &p.code {
-                Some(c) => format!("{} «{}» по {} хочет соединиться. Код: {c}", p.kind.title(), p.name, p.transport.title()),
-                None => format!("{} «{}» подключён по {}. Разрешить доступ?", p.kind.title(), p.name, p.transport.title()),
+                Some(c) => t!("{title} «{name}» по {title2} хочет соединиться. Код: {c}", title = p.kind.title(), name = p.name, title2 = p.transport.title(), c = c),
+                None => t!("{title} «{name}» подключён по {title2}. Разрешить доступ?", title = p.kind.title(), name = p.name, title2 = p.transport.title()),
             };
-            let nid = post("Спаривание устройств", &body, "phone", &["accept", "Принять", "reject", "Отклонить"], Some(&conn))?;
+            let nid = post(&t!("Спаривание устройств"), &body, "phone", &["accept", &t!("Принять"), "reject", &t!("Отклонить")], Some(&conn))?;
             PROMPTS.lock().unwrap().get_or_insert_with(HashMap::new).insert(p.id.clone(), nid);
             let rule = zbus::MatchRule::builder()
                 .msg_type(zbus::message::Type::Signal)

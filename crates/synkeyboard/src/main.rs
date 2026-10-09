@@ -25,6 +25,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use synshell_common::Config;
+use syngui::t;
 
 const BUILTIN_MSS: &str = include_str!("../styles/keyboard.mss");
 
@@ -39,26 +40,26 @@ fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,wgpu_core=warn,wgpu_hal=warn,naga=warn,usvg=error"))
         .format_timestamp_millis()
         .init();
+    // Подписи клавиш — данные раскладок и не переводятся; переводятся сообщения команд.
+    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("--version" | "-V") => {
             println!("synkeyboard {}", env!("CARGO_PKG_VERSION"));
         }
         Some("--help" | "-h") => {
-            println!(
-                "synkeyboard [show|hide|toggle|fn|lang | type <текст> | key <сочетание> | auto on|off]\n  без аргументов — запустить демон экранной клавиатуры"
-            );
+            println!("{}", t!("synkeyboard [show|hide|toggle|fn|lang | type <текст> | key <сочетание> | auto on|off]\n  без аргументов — запустить демон экранной клавиатуры"));
         }
         Some(cmd @ ("show" | "hide" | "toggle" | "fn" | "lang")) => client(cmd.to_string()),
         Some(cmd @ ("type" | "key" | "auto")) => {
             let Some(arg) = args.get(1) else {
-                eprintln!("synkeyboard {cmd}: нужен аргумент");
+                eprintln!("{}", t!("synkeyboard {cmd}: нужен аргумент", cmd = cmd));
                 std::process::exit(2);
             };
             client(format!("{cmd} {arg}"));
         }
         Some(other) => {
-            eprintln!("synkeyboard: неизвестная команда «{other}»");
+            eprintln!("{}", t!("synkeyboard: неизвестная команда «{other}»", other = other));
             std::process::exit(2);
         }
         None => daemon(),
@@ -176,14 +177,14 @@ fn listen(kb: ui::Keyboard) {
                         },
                         "type" => Ok(ui::type_text(kb, arg)),
                         "key" => ui::press_combo(kb, arg),
-                        other => Err(format!("команда не поддерживается: {other}")),
+                        other => Err(t!("команда не поддерживается: {other}", other = other)),
                     };
                     let _ = tx.send(r);
                 });
                 let reply = match rx.recv_timeout(Duration::from_secs(5)) {
                     Ok(Ok(())) => "ok\n".to_string(),
                     Ok(Err(e)) => format!("error {e}\n"),
-                    Err(_) => "error нет ответа от главного потока\n".to_string(),
+                    Err(_) => format!("error {}\n", t!("нет ответа от главного потока")),
                 };
                 let _ = (&stream).write_all(reply.as_bytes());
             }

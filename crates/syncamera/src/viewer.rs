@@ -72,15 +72,15 @@ fn date_text(it: &Item) -> String {
         libc::localtime_r(&t, &mut tm);
         tm
     };
-    const MONTHS: [&str; 12] = ["янв.", "февр.", "марта", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."];
-    format!("{} {} {}, {:02}:{:02}", tm.tm_mday, MONTHS[tm.tm_mon.clamp(0, 11) as usize], tm.tm_year + 1900, tm.tm_hour, tm.tm_min)
+    const MONTHS: [&str; 12] = [n_!("янв."), n_!("февр."), n_!("марта"), n_!("апр."), n_!("мая"), n_!("июня"), n_!("июля"), n_!("авг."), n_!("сент."), n_!("окт."), n_!("нояб."), n_!("дек.")];
+    format!("{} {} {}, {:02}:{:02}", tm.tm_mday, syngui::i18n::t(MONTHS[tm.tm_mon.clamp(0, 11) as usize]), tm.tm_year + 1900, tm.tm_hour, tm.tm_min)
 }
 
 fn size_text(b: u64) -> String {
     if b >= 1 << 20 {
-        format!("{:.1} МБ", b as f64 / (1u64 << 20) as f64).replace('.', ",")
+        t!("{v} МБ", v = format!("{:.1}", b as f64 / (1u64 << 20) as f64)).replace('.', ",")
     } else {
-        format!("{} КБ", b.div_ceil(1024))
+        t!("{v} КБ", v = b.div_ceil(1024))
     }
 }
 
@@ -103,7 +103,7 @@ pub fn view(st: St) -> W {
             Kind::Photo => Box::new(ImageViewport::new(path).insets(64.0, 0.0, 72.0, 0.0).class("viewer-img")),
             Kind::Video => match player_for(&path) {
                 Some(pl) => video_view(pl, pos, paused),
-                None => Box::new(Column::new().center().child(Text::new("Видео не открывается").class("viewer-note"))),
+                None => Box::new(Column::new().center().child(Text::new(t!("Видео не открывается")).class("viewer-note"))),
             },
         };
         vec![Box::new(
@@ -129,7 +129,7 @@ pub fn view(st: St) -> W {
                 .child(
                     Column::new()
                         .child(Text::new(date_text(&it)).max_lines(1).class("viewer-title"))
-                        .child(Text::new(format!("{} из {}", i + 1, items.len())).class("viewer-sub"))
+                        .child(Text::new(t!("{v} из {n}", v = i + 1, n = items.len())).class("viewer-sub"))
                         .class("grow"),
                 )
                 .child(ib(gl::INFO, move || info.set(!info.get_untracked())))
@@ -156,7 +156,7 @@ pub fn view(st: St) -> W {
         let name = it.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let dims = if it.kind == Kind::Photo {
             image::ImageReader::open(&it.path).ok().and_then(|r| r.with_guessed_format().ok()).and_then(|r| r.into_dimensions().ok()).map(|(w, h)| {
-                format!("{w} × {h} ({:.1} Мп)", w as f64 * h as f64 / 1e6).replace('.', ",")
+                t!("{w} × {h} ({v} Мп)", w = w, h = h, v = format!("{:.1}", w as f64 * h as f64 / 1e6)).replace('.', ",")
             })
         } else {
             None
@@ -177,21 +177,21 @@ pub fn view(st: St) -> W {
         }
         let (Some(i), items) = (st.viewer.get_untracked(), st.items.get_untracked()) else { return vec![] };
         let Some(it) = items.get(i).cloned() else { return vec![] };
-        let what = if it.kind == Kind::Photo { "снимок" } else { "видео" };
+        let what = if it.kind == Kind::Photo { t!("снимок") } else { t!("видео") };
         let card = Column::new()
             .gap(14.0)
-            .child(Text::new(format!("Удалить {what}?")).class("dlg-title"))
-            .child(Text::new("Файл будет удалён без возможности восстановления").max_lines(3).class("dlg-text"))
+            .child(Text::new(t!("Удалить {what}?", what = what)).class("dlg-title"))
+            .child(Text::new(t!("Файл будет удалён без возможности восстановления")).max_lines(3).class("dlg-text"))
             .child(
                 Row::new()
                     .gap(10.0)
                     .main_axis_alignment(MainAxisAlignment::End)
-                    .child(btn("Отмена", "dlg-btn", move || confirm.set(false)))
-                    .child(btn("Удалить", "dlg-btn dlg-danger", move || {
+                    .child(btn(n_!("Отмена"), "dlg-btn", move || confirm.set(false)))
+                    .child(btn(n_!("Удалить"), "dlg-btn dlg-danger", move || {
                         confirm.set(false);
                         PLAYER.with(|p| *p.borrow_mut() = None);
                         if let Err(e) = media::delete(&it.path) {
-                            st.toast.set(format!("Не удалось удалить: {e}"));
+                            st.toast.set(t!("Не удалось удалить: {e}", e = e));
                             return;
                         }
                         let mut items = st.items.get_untracked();
@@ -226,7 +226,7 @@ fn ib(glyph: &'static str, f: impl Fn() + Send + Sync + 'static) -> W {
 }
 
 fn btn(label: &'static str, class: &'static str, f: impl Fn() + Send + Sync + 'static) -> W {
-    Box::new(GestureDetector::new().on_click(f).child(DecoratedBox::new().child(Text::new(label).class("dlg-btn-text")).class(class)))
+    Box::new(GestureDetector::new().on_click(f).child(DecoratedBox::new().child(Text::new(syngui::i18n::t(label)).class("dlg-btn-text")).class(class)))
 }
 
 fn video_view(pl: Arc<Mutex<VideoPlayer>>, pos: RwSignal<f32>, paused: RwSignal<bool>) -> W {

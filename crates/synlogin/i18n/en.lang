@@ -1,0 +1,24 @@
+@tag = "en"
+@name = "English"
+
+# src/greeter.rs
+"Неверный пароль" = "Wrong password"
+"Пароли не совпадают" = "Passwords do not match"
+"Новый пользователь" = "New user"
+"Кто входит?" = "Who’s signing in?"
+"Проверка…" = "Checking…"
+"Пароль" = "Password"
+"Другой пользователь" = "Other user"
+"Войти" = "Sign in"
+"Логин (латиницей)" = "Username (Latin letters)"
+"Полное имя" = "Full name"
+"Пароль (можно пустой)" = "Password (may be empty)"
+"Повтор пароля" = "Confirm password"
+"Администратор (sudo, установка программ)" = "Administrator (sudo, installing software)"
+"Отмена" = "Cancel"
+"Создать" = "Create"
+
+# src/users.rs
+"Логин: латинские строчные буквы, цифры, _ и -, начинается с буквы" = "Username: lowercase Latin letters, digits, _ and -, starting with a letter"
+"Такой пользователь уже есть" = "This user already exists"
+"passwd -d не удался" = "passwd -d failed"

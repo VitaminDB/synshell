@@ -28,6 +28,7 @@ use rsbinder::{
 
 use crate::api::{self, Request};
 use crate::{container, images, paths};
+use syngui::t;
 
 const SM: &str = "android.os.IServiceManager";
 const PLATFORM: &str = "lineageos.waydroid.IPlatform";
@@ -412,7 +413,7 @@ fn write_desktop_files(instance: &str, apps: &[AppInfo]) -> Result<()> {
     // Весь Android одним окном — тоже в разделе этого экземпляра
     // Окно всего Android hwcomposer образа называет «Waydroid» (app_id и заголовок зашиты в HAL) — по
     // StartupWMClass оно сопоставляется с этим ярлыком: значок и имя syndroid
-    let full = head("Весь Android", &format!("{title} одним окном"), &format!("syndroid show --instance {instance}"), "syndroid");
+    let full = head(&t!("Весь Android"), &t!("{title} одним окном", title = title), &format!("syndroid show --instance {instance}"), "syndroid");
     write_if_changed(&dir.join("android.desktop"), &format!("{full}Categories=System;\nStartupWMClass=Waydroid\n"))?;
     keep.insert("android.desktop".to_string());
     for a in apps {

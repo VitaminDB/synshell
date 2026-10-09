@@ -64,6 +64,13 @@ pub fn unset(p: &[O]) {
 
 pub type W = Box<dyn Widget>;
 
+/// Перевод строки интерфейса на месте показа: подписи из констант (`n_!`)
+/// и уже переведённые (`t!`) — повторный перевод возвращает её же.
+pub fn tl(s: impl AsRef<str>) -> String {
+    let s = s.as_ref();
+    if s.is_empty() { String::new() } else { syngui::i18n::t(s) }
+}
+
 thread_local! {
     static NARROW: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
@@ -93,7 +100,8 @@ pub fn boxed(w: impl Widget + 'static) -> W {
 // ─── Раскладка страницы ─────────────────────────────────────────────────────
 
 /// Страница: заголовок, подзаголовок и группы, с прокруткой.
-pub fn page(title: &str, subtitle: &str, body: Vec<W>) -> W {
+pub fn page(title: impl AsRef<str>, subtitle: impl AsRef<str>, body: Vec<W>) -> W {
+    let (title, subtitle) = (tl(title), tl(subtitle));
     let mut col = Column::new()
         .gap(18.0)
         .class(if narrow() { "page-body page-body-narrow" } else { "page-body" })
@@ -114,7 +122,8 @@ pub fn page(title: &str, subtitle: &str, body: Vec<W>) -> W {
 }
 
 /// Карточка с заголовком и строками, разделёнными тонкими линиями.
-pub fn group(title: &str, rows: Vec<W>) -> W {
+pub fn group(title: impl AsRef<str>, rows: Vec<W>) -> W {
+    let title = tl(title);
     let mut inner = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("group-card");
     let n = rows.len();
     for (i, r) in rows.into_iter().enumerate() {
@@ -131,13 +140,13 @@ pub fn group(title: &str, rows: Vec<W>) -> W {
 }
 
 /// Пояснение под группой или внутри страницы.
-pub fn note(text: &str) -> W {
-    boxed(Text::new(text).class("note"))
+pub fn note(text: impl AsRef<str>) -> W {
+    boxed(Text::new(tl(text)).class("note"))
 }
 
 /// Строка: подпись (+ подсказка) слева, элемент управления справа. В узком
 /// окне — элемент под подписью.
-pub fn row<M>(label: &str, hint: &str, control: impl IntoWidget<M>) -> W {
+pub fn row<M>(label: impl AsRef<str>, hint: impl AsRef<str>, control: impl IntoWidget<M>) -> W {
     if narrow() {
         return row_wide(label, hint, control);
     }
@@ -145,7 +154,8 @@ pub fn row<M>(label: &str, hint: &str, control: impl IntoWidget<M>) -> W {
 }
 
 /// Строка «подпись — элемент» и в узком окне (переключатели, кнопки).
-pub fn row_inline<M>(label: &str, hint: &str, control: impl IntoWidget<M>) -> W {
+pub fn row_inline<M>(label: impl AsRef<str>, hint: impl AsRef<str>, control: impl IntoWidget<M>) -> W {
+    let (label, hint) = (tl(label), tl(hint));
     let mut left = Column::new().gap(2.0).class("row-text").child(Text::new(label).class("row-label"));
     if !hint.is_empty() {
         left = left.child(Text::new(hint).class("row-hint"));
@@ -161,7 +171,8 @@ pub fn row_inline<M>(label: &str, hint: &str, control: impl IntoWidget<M>) -> W 
 }
 
 /// Строка, у которой элемент управления под подписью (длинные поля).
-pub fn row_wide<M>(label: &str, hint: &str, control: impl IntoWidget<M>) -> W {
+pub fn row_wide<M>(label: impl AsRef<str>, hint: impl AsRef<str>, control: impl IntoWidget<M>) -> W {
+    let (label, hint) = (tl(label), tl(hint));
     let mut col = Column::new().gap(6.0).class("setting-row-wide").child(Text::new(label).class("row-label"));
     if !hint.is_empty() {
         col = col.child(Text::new(hint).class("row-hint"));
@@ -175,24 +186,24 @@ pub fn switch(p: P, on: bool) -> impl Widget {
     Toggle::with_state(on).on_change(move |v| set(&p, v))
 }
 
-pub fn switch_row(label: &str, hint: &str, p: P, on: bool) -> W {
+pub fn switch_row(label: impl AsRef<str>, hint: impl AsRef<str>, p: P, on: bool) -> W {
     row_inline(label, hint, switch(p, on))
 }
 
-pub fn text(p: P, value: &str, placeholder: &str, width: f32) -> impl Widget {
+pub fn text(p: P, value: &str, placeholder: impl AsRef<str>, width: f32) -> impl Widget {
     TextField::with_text(value)
-        .placeholder(placeholder)
+        .placeholder(tl(placeholder))
         .width(width)
         .on_change(move |s| set(&p, s.to_string()))
 }
 
-pub fn text_row(label: &str, hint: &str, p: P, value: &str, placeholder: &str) -> W {
+pub fn text_row(label: impl AsRef<str>, hint: impl AsRef<str>, p: P, value: &str, placeholder: impl AsRef<str>) -> W {
     row(label, hint, text(p, value, placeholder, 260.0))
 }
 
 /// Текстовое поле, где пустое значение удаляет ключ (необязательные поля правил).
-pub fn opt_text(p: P, value: &str, placeholder: &str, width: f32) -> impl Widget {
-    TextField::with_text(value).placeholder(placeholder).width(width).on_change(move |s| {
+pub fn opt_text(p: P, value: &str, placeholder: impl AsRef<str>, width: f32) -> impl Widget {
+    TextField::with_text(value).placeholder(tl(placeholder)).width(width).on_change(move |s| {
         if s.is_empty() {
             unset(&p)
         } else {
@@ -202,23 +213,23 @@ pub fn opt_text(p: P, value: &str, placeholder: &str, width: f32) -> impl Widget
 }
 
 /// Выпадающий список строковых значений: `(значение, подпись)`.
-pub fn choice(p: P, current: &str, options: &[(&str, &str)], width: f32) -> impl Widget {
+pub fn choice<L: AsRef<str>>(p: P, current: &str, options: &[(&str, L)], width: f32) -> impl Widget {
     let mut dd = Dropdown::new().width(width);
     for (v, l) in options {
-        dd = dd.item(DropdownItem::new(*v, *l));
+        dd = dd.item(DropdownItem::new(*v, tl(l)));
     }
     dd.selected(current).on_change(move |v: &str| set(&p, v.to_string()))
 }
 
-pub fn choice_row(label: &str, hint: &str, p: P, current: &str, options: &[(&str, &str)]) -> W {
+pub fn choice_row<L: AsRef<str>>(label: impl AsRef<str>, hint: impl AsRef<str>, p: P, current: &str, options: &[(&str, L)]) -> W {
     row(label, hint, choice(p, current, options, 220.0))
 }
 
 /// Выпадающий список целых значений: `(значение, подпись)`; в конфиг пишется число.
-pub fn choice_int(p: P, current: i64, options: &[(i64, &str)], width: f32) -> impl Widget {
+pub fn choice_int<L: AsRef<str>>(p: P, current: i64, options: &[(i64, L)], width: f32) -> impl Widget {
     let mut dd = Dropdown::new().width(width);
     for (v, l) in options {
-        dd = dd.item(DropdownItem::new(v.to_string(), *l));
+        dd = dd.item(DropdownItem::new(v.to_string(), tl(l)));
     }
     dd.selected(current.to_string()).on_change(move |v: &str| {
         if let Ok(n) = v.parse::<i64>() {
@@ -227,7 +238,7 @@ pub fn choice_int(p: P, current: i64, options: &[(i64, &str)], width: f32) -> im
     })
 }
 
-pub fn choice_int_row(label: &str, hint: &str, p: P, current: i64, options: &[(i64, &str)]) -> W {
+pub fn choice_int_row<L: AsRef<str>>(label: impl AsRef<str>, hint: impl AsRef<str>, p: P, current: i64, options: &[(i64, L)]) -> W {
     row(label, hint, choice_int(p, current, options, 220.0))
 }
 
@@ -249,7 +260,7 @@ pub fn int_spin(p: P, value: i64, min: i64, max: i64, step: i64) -> impl Widget 
         .on_change(move |v| set(&p, v.round() as i64))
 }
 
-pub fn int_row(label: &str, hint: &str, p: P, value: i64, min: i64, max: i64, step: i64) -> W {
+pub fn int_row(label: impl AsRef<str>, hint: impl AsRef<str>, p: P, value: i64, min: i64, max: i64, step: i64) -> W {
     row(label, hint, int_spin(p, value, min, max, step))
 }
 
@@ -279,7 +290,7 @@ pub fn slider(p: P, value: f64, min: f64, max: f64, step: f64, decimals: u8) -> 
         .on_change(move |v| set(&p, round_to(v as f64, decimals.max(2))))
 }
 
-pub fn slider_row(label: &str, hint: &str, p: P, value: f64, min: f64, max: f64, step: f64, decimals: u8) -> W {
+pub fn slider_row(label: impl AsRef<str>, hint: impl AsRef<str>, p: P, value: f64, min: f64, max: f64, step: f64, decimals: u8) -> W {
     row(label, hint, slider(p, value, min, max, step, decimals))
 }
 
@@ -292,9 +303,9 @@ pub fn tri(p: P, value: Option<bool>) -> impl Widget {
     };
     Dropdown::new()
         .width(150.0)
-        .item(DropdownItem::new("-", "Не менять"))
-        .item(DropdownItem::new("yes", "Да"))
-        .item(DropdownItem::new("no", "Нет"))
+        .item(DropdownItem::new("-", t!("Не менять")))
+        .item(DropdownItem::new("yes", t!("Да")))
+        .item(DropdownItem::new("no", t!("Нет")))
         .selected(cur)
         .on_change(move |v: &str| match v {
             "yes" => set(&p, true),
@@ -304,7 +315,8 @@ pub fn tri(p: P, value: Option<bool>) -> impl Widget {
 }
 
 /// Цвет `#rrggbb`: образец + поле ввода + палитра по кнопке.
-pub fn color_field(p: P, value: &str, placeholder: &str) -> impl Widget {
+pub fn color_field(p: P, value: &str, placeholder: impl AsRef<str>) -> impl Widget {
+    let placeholder = tl(placeholder);
     let shown = use_signal(false);
     let current = use_signal(value.to_string());
     let p2 = p.clone();
@@ -354,12 +366,12 @@ pub fn color_field(p: P, value: &str, placeholder: &str) -> impl Widget {
         }))
 }
 
-pub fn button(label: &str, on_click: impl FnMut() + Send + 'static) -> impl Widget {
-    Button::new(label).class("btn").on_click(on_click)
+pub fn button(label: impl AsRef<str>, on_click: impl FnMut() + Send + 'static) -> impl Widget {
+    Button::new(tl(label)).class("btn").on_click(on_click)
 }
 
-pub fn primary_button(label: &str, on_click: impl FnMut() + Send + 'static) -> impl Widget {
-    Button::new(label).class("btn primary").on_click(on_click)
+pub fn primary_button(label: impl AsRef<str>, on_click: impl FnMut() + Send + 'static) -> impl Widget {
+    Button::new(tl(label)).class("btn primary").on_click(on_click)
 }
 
 pub fn icon_button(icon: &str, on_click: impl FnMut() + Send + 'static) -> impl Widget {

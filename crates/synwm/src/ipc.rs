@@ -9,6 +9,7 @@ use smithay::reexports::calloop::{generic::Generic, Interest, LoopHandle, Mode, 
 use synshell_common::ipc::{Event, ModeInfo, OutputInfo, Request, Response, WindowOp};
 
 use crate::state::State;
+use synshell_tr::t;
 
 struct Conn {
     stream: UnixStream,
@@ -226,7 +227,7 @@ impl State {
             }
             Request::WindowAction { id, op } => {
                 if self.core.wm.get(id).is_none() {
-                    return Response::Error { message: format!("нет окна {id}") };
+                    return Response::Error { message: t!("нет окна {id}", id = id) };
                 }
                 self.window_op(id, op);
                 Response::Ok
@@ -246,15 +247,15 @@ impl State {
                 }
                 Response::Ok
             }
-            Request::Capture if self.core.is_locked() => Response::Error { message: "экран заблокирован".into() },
+            Request::Capture if self.core.is_locked() => Response::Error { message: t!("экран заблокирован").into() },
             Request::Capture => match self.capture_all() {
                 Ok(capture) => Response::Capture { capture },
-                Err(e) => Response::Error { message: format!("захват экрана: {e:#}") },
+                Err(e) => Response::Error { message: t!("захват экрана: {e}", e = format!("{:#}", e)) },
             },
-            Request::Thumbnails { .. } if self.core.is_locked() => Response::Error { message: "экран заблокирован".into() },
+            Request::Thumbnails { .. } if self.core.is_locked() => Response::Error { message: t!("экран заблокирован").into() },
             Request::Thumbnails { ids, max } => match self.thumbnails(&ids, max) {
                 Ok(thumbs) => Response::Thumbnails { thumbs },
-                Err(e) => Response::Error { message: format!("миниатюры окон: {e:#}") },
+                Err(e) => Response::Error { message: t!("миниатюры окон: {e}", e = format!("{:#}", e)) },
             },
             Request::Input { output, events } => match self.remote_input(output.as_deref(), events) {
                 Ok(()) => Response::Ok,
@@ -271,7 +272,7 @@ impl State {
             .unwrap_or_default();
         let mut fc = match crate::stream::FrameConn::new(id, name, cursor, video) {
             Ok(f) => f,
-            Err(e) => return Response::Error { message: format!("поток кадров: {e:#}") },
+            Err(e) => return Response::Error { message: t!("поток кадров: {e}", e = format!("{:#}", e)) },
         };
         let resp = match self.stream_capture(&mut fc) {
             Ok(frame) => Response::Frame { frame },
@@ -287,7 +288,7 @@ impl State {
     fn frame_stream_next(&mut self, id: u64, key: bool) -> Option<Response> {
         let mut fc = self.core.ipc.clients.get_mut(&id)?.frame.take();
         let Some(f) = fc.as_mut() else {
-            return Some(Response::Error { message: "нет потока кадров (сначала frame-stream)".into() });
+            return Some(Response::Error { message: t!("нет потока кадров (сначала frame-stream)").into() });
         };
         if key {
             f.opts.force_key = true;

@@ -3,6 +3,7 @@
 
 use regex::Regex;
 use synshell_common::config::WindowRule;
+use synshell_tr::t;
 
 pub struct CompiledRule {
     pub app_id: Option<Regex>,
@@ -18,7 +19,7 @@ pub fn compile(rules: &[WindowRule]) -> (Vec<CompiledRule>, Vec<String>) {
             match s {
                 None => Ok(None),
                 Some(p) => Regex::new(p).map(Some).map_err(|e| {
-                    errors.push(format!("правило #{}: {what}: {e}", i + 1));
+                    errors.push(t!("правило #{v}: {what}: {e}", v = i + 1, what = what, e = e));
                 }),
             }
         };

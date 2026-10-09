@@ -15,6 +15,7 @@ use smithay::utils::SERIAL_COUNTER;
 use synshell_common::ipc::InputEvent as Remote;
 
 use crate::state::State;
+use synshell_tr::t;
 
 #[derive(Debug)]
 pub struct RemoteInput;
@@ -212,7 +213,7 @@ impl State {
     /// IPC `input`: выполнить пачку событий удалённого ввода.
     pub fn remote_input(&mut self, output: Option<&str>, events: Vec<Remote>) -> Result<(), String> {
         let out = match output {
-            Some(name) => Some(self.core.output_by_name(name).ok_or_else(|| format!("нет вывода {name}"))?),
+            Some(name) => Some(self.core.output_by_name(name).ok_or_else(|| t!("нет вывода {name}", name = name))?),
             None => None,
         };
         self.core.remote_output = out;
@@ -239,7 +240,7 @@ impl State {
                             self.note_activity();
                             self.send_key_combo(&c);
                         }
-                        Err(e) => return Err(format!("сочетание {combo}: {e}")),
+                        Err(e) => return Err(t!("сочетание {combo}: {e}", combo = combo, e = e)),
                     }
                     continue;
                 }

@@ -25,11 +25,12 @@ fn geo_uri(s: &str) -> Option<(f64, f64, Option<f64>)> {
 fn main() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "syn_maps=info".into());
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
+    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
     let mut start: Option<(f64, f64, Option<f64>)> = None;
     for a in std::env::args().skip(1) {
         match a.as_str() {
             "-h" | "--help" => {
-                println!("syn-maps [geo:ШИРОТА,ДОЛГОТА[?z=МАСШТАБ]]");
+                println!("{}", t!("syn-maps [geo:ШИРОТА,ДОЛГОТА[?z=МАСШТАБ]]"));
                 return;
             }
             _ => start = geo_uri(&a).or(start),
@@ -40,7 +41,7 @@ fn main() {
     let mss = theme(&cfg);
     let set = settings::Settings::load();
     App::new()
-        .title("Карты")
+        .title(t!("Карты"))
         .app_id("syn-maps")
         .size(960, 720)
         .min_size(320, 420)

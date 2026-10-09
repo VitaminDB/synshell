@@ -8,6 +8,7 @@ license.workspace = true
 
 [dependencies]
 synshell-common.workspace = true
+synshell-tr.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true

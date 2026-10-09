@@ -10,6 +10,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc;
 
 use crate::proto::{self, ExecIn, ExecOut};
+use synshell_tr::t;
 
 /// Выполнить команду и гонять кадры `ExecIn`/`ExecOut` по потокам.
 pub async fn serve<W, R>(mut w: W, mut r: R, argv: Vec<String>, cwd: Option<String>, pty: Option<(u16, u16)>) -> Result<()>
@@ -18,7 +19,7 @@ where
     R: AsyncRead + Unpin + Send + 'static,
 {
     if argv.is_empty() {
-        proto::send(&mut w, &ExecOut::Error("пустая команда".into())).await?;
+        proto::send(&mut w, &ExecOut::Error(t!("пустая команда").into())).await?;
         return Ok(());
     }
     let (out_tx, mut out_rx) = mpsc::channel::<ExecOut>(64);
@@ -221,7 +222,7 @@ where
         match tokio::time::timeout_at(deadline, proto::recv::<ExecOut>(&mut r)).await {
             Err(_) => {
                 let _ = proto::send(&mut w, &ExecIn::Kill).await;
-                err.extend_from_slice(format!("\n[synlink: тайм-аут {} с — процесс остановлен]\n", timeout.as_secs()).as_bytes());
+                err.extend_from_slice(t!("\n[synlink: тайм-аут {as_secs} с — процесс остановлен]\n", as_secs = timeout.as_secs()).as_bytes());
                 break 124;
             }
             Ok(res) => match res? {

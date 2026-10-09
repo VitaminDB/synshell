@@ -14,6 +14,7 @@ use crate::convert::{self, Src};
 use crate::night;
 use crate::proto::{self, Camera, Control, Meta, Stream};
 use crate::recorder::{self, Recorder};
+use syngui::t;
 
 /// Что открыть.
 #[derive(Clone, Debug)]
@@ -267,7 +268,7 @@ fn session(inner: Arc<Inner>, gen: u64, spec: OpenSpec) {
             Ok(s) => Arc::new(s),
             Err(e) => {
                 if !busy_said || !e.busy {
-                    (inner.note)(Note::Status(if e.busy { "Камера занята другой программой".into() } else { e.text }));
+                    (inner.note)(Note::Status(if e.busy { t!("Камера занята другой программой").into() } else { e.text }));
                     busy_said = true;
                 }
                 std::thread::sleep(Duration::from_secs(1));
@@ -293,7 +294,7 @@ fn session(inner: Arc<Inner>, gen: u64, spec: OpenSpec) {
         }
         drop(cur);
         if alive() {
-            (inner.note)(Note::Status("Камера остановилась — включаю снова…".into()));
+            (inner.note)(Note::Status(t!("Камера остановилась — включаю снова…").into()));
             std::thread::sleep(Duration::from_millis(500));
         }
     }

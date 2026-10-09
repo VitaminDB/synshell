@@ -67,13 +67,14 @@ fn conversations(msgs: &[Sms]) -> Vec<Conv> {
 }
 
 fn main() {
+    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
     let args: Vec<String> = std::env::args().skip(1).collect();
     let chat = args.iter().position(|a| a == "--chat").and_then(|i| args.get(i + 1)).cloned();
     let new = args.iter().any(|a| a == "--new");
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);
     App::new()
-        .title("Сообщения")
+        .title(t!("Сообщения"))
         .app_id("synsms")
         .size(960, 680)
         .min_size(340, 480)
@@ -158,7 +159,7 @@ fn watch(st: St) {
             true
         });
         let msg = match r {
-            Ok(()) => "synmodemd остановлен".to_string(),
+            Ok(()) => t!("synmodemd остановлен").to_string(),
             Err(e) => format!("{e:#}"),
         };
         run_on_main_thread(move || {
@@ -202,7 +203,7 @@ fn send(st: St, number: String) {
         return;
     }
     if number.is_empty() {
-        st.toast.set("Укажите номер".into());
+        st.toast.set(t!("Укажите номер").into());
         return;
     }
     st.draft.set(String::new());
@@ -213,7 +214,7 @@ fn send(st: St, number: String) {
     }
     std::thread::spawn(move || {
         if let Err(e) = api::request(&Request::SmsSend { number, text }) {
-            let m = format!("Не отправлено: {e:#}");
+            let m = t!("Не отправлено: {error}", error = format!("{e:#}"));
             run_on_main_thread(move || st.toast.set(m));
         }
     });
@@ -226,7 +227,7 @@ fn delete_chat(st: St, number: &str) {
     st.chat.set(None);
     std::thread::spawn(move || {
         if let Err(e) = api::request(&Request::SmsDelete { ids }) {
-            let m = format!("Не удалено: {e:#}");
+            let m = t!("Не удалено: {error}", error = format!("{e:#}"));
             run_on_main_thread(move || st.toast.set(m));
         }
     });
@@ -334,7 +335,7 @@ fn desktop(st: St) -> W {
                     .cross_axis_alignment(CrossAxisAlignment::Center)
                     .gap(8.0)
                     .child(Icon::new("\u{E0B7}").class("empty-icon"))
-                    .child(Text::new("Выберите переписку").class("muted"))
+                    .child(Text::new(t!("Выберите переписку")).class("muted"))
                     .class("grow"),
             )
         };
@@ -356,15 +357,15 @@ fn icon_btn(glyph: &str, f: impl Fn() + Send + Sync + 'static) -> impl Widget {
 fn network_note(st: St) -> impl Widget {
     Reactive::new(move || -> Vec<W> {
         let text = if let Some(e) = st.offline.get() {
-            Some(format!("Модем недоступен: {e}"))
+            Some(t!("Модем недоступен: {error}", error = e))
         } else {
             st.status.get().and_then(|s| {
                 if !s.present {
-                    Some("Модем не запущен".into())
+                    Some(t!("Модем не запущен").into())
                 } else if !s.radio {
-                    Some("Режим полёта: отправка недоступна".into())
+                    Some(t!("Режим полёта: отправка недоступна").into())
                 } else if !s.registration.registered() {
-                    Some("Нет сети: сообщения уйдут, когда она появится".into())
+                    Some(t!("Нет сети: сообщения уйдут, когда она появится").into())
                 } else {
                     None
                 }
@@ -399,7 +400,7 @@ fn list_view(st: St) -> W {
                     .gap(8.0)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
                     .child(Icon::new("\u{E0B7}").class("empty-icon"))
-                    .child(Text::new("Сообщений пока нет").class("muted"))
+                    .child(Text::new(t!("Сообщений пока нет")).class("muted"))
                     .class("empty"),
             )];
         }
@@ -408,7 +409,8 @@ fn list_view(st: St) -> W {
             .map(|c| -> W {
                 let number = c.number.clone();
                 let on = open.as_deref() == Some(key(&c.number).as_str());
-                let prefix = if c.last.incoming { "" } else { "Вы: " };
+                let last = c.last.text.replace('\n', " ");
+                let last = if c.last.incoming { last } else { t!("Вы: {text}", text = last) };
                 let mut right = Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::End).child(Text::new(tm::short(c.last.time)).class("conv-time"));
                 if c.unread > 0 {
                     right = right.child(DecoratedBox::new().child(Text::new(c.unread.to_string()).class("badge-text")).class("badge"));
@@ -431,7 +433,7 @@ fn list_view(st: St) -> W {
                                             Column::new()
                                                 .gap(2.0)
                                                 .child(Text::new(c.number.clone()).max_lines(1).class(if c.unread > 0 { "conv-name conv-unread" } else { "conv-name" }))
-                                                .child(Text::new(format!("{prefix}{}", c.last.text.replace('\n', " "))).max_lines(1).class("conv-last"))
+                                                .child(Text::new(last).max_lines(1).class("conv-last"))
                                                 .class("grow"),
                                         )
                                         .child(right),
@@ -458,7 +460,7 @@ fn list_view(st: St) -> W {
             .fit(StackFit::Expand)
             .child(
                 Column::new()
-                    .child(Row::new().cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new("Сообщения").class("title grow")).class("bar"))
+                    .child(Row::new().cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(t!("Сообщения")).class("title grow")).class("bar"))
                     .child(network_note(st))
                     .child(ScrollView::new().vertical().child(Column::new().gap(2.0).child(list).class("list")).class("grow")),
             )
@@ -476,7 +478,7 @@ fn composer(st: St, number: impl Fn() -> String + Send + Sync + Clone + 'static)
             vec![Box::new(
                 TextField::new()
                     .text(st.draft.get())
-                    .placeholder("Сообщение")
+                    .placeholder(t!("Сообщение"))
                     .on_change(move |t| st.draft.set(t.to_string()))
                     .on_submit(move |_| send(st, number()))
                     .class("input grow"),
@@ -505,9 +507,9 @@ fn chat_view(st: St, number: String, phone: bool) -> W {
                 Row::new()
                     .gap(8.0)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(Text::new("Удалить переписку?").class("bar-title grow"))
-                    .child(GestureDetector::new().on_click(move || st.confirm_delete.set(false)).child(DecoratedBox::new().child(Text::new("Отмена").class("btn-text")).class("btn")))
-                    .child(GestureDetector::new().on_click(move || delete_chat(st, &n)).child(DecoratedBox::new().child(Text::new("Удалить").class("btn-text btn-danger-text")).class("btn btn-danger")))
+                    .child(Text::new(t!("Удалить переписку?")).class("bar-title grow"))
+                    .child(GestureDetector::new().on_click(move || st.confirm_delete.set(false)).child(DecoratedBox::new().child(Text::new(t!("Отмена")).class("btn-text")).class("btn")))
+                    .child(GestureDetector::new().on_click(move || delete_chat(st, &n)).child(DecoratedBox::new().child(Text::new(t!("Удалить")).class("btn-text btn-danger-text")).class("btn btn-danger")))
                     .class("bar"),
             )];
         }
@@ -559,9 +561,9 @@ fn chat_view(st: St, number: String, phone: bool) -> W {
 
 fn bubble(m: &Sms) -> W {
     let status = match m.status {
-        SmsStatus::Sending => " · отправка…",
-        SmsStatus::Failed => " · не отправлено",
-        _ => "",
+        SmsStatus::Sending => format!(" · {}", t!("отправка…")),
+        SmsStatus::Failed => format!(" · {}", t!("не отправлено")),
+        _ => String::new(),
     };
     let body = Column::new()
         .gap(4.0)
@@ -584,12 +586,12 @@ fn new_view(st: St, phone: bool) -> W {
     if phone {
         bar = bar.child(icon_btn("\u{E5C4}", move || st.composing.set(false)));
     }
-    let bar = bar.child(Text::new("Новое сообщение").class("bar-title grow")).class("bar");
+    let bar = bar.child(Text::new(t!("Новое сообщение")).class("bar-title grow")).class("bar");
     let number = Reactive::new(move || -> Vec<W> {
         vec![Box::new(
             TextField::new()
                 .text(st.new_number.get())
-                .placeholder("Номер телефона")
+                .placeholder(t!("Номер телефона"))
                 .prefix_icon("\u{E0CD}")
                 .autofocus(true)
                 .input_filter(|c| c.is_ascii_digit() || matches!(c, '+' | ' ' | '-' | '(' | ')'))

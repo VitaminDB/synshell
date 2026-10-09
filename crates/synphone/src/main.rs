@@ -41,13 +41,14 @@ struct St {
 }
 
 fn main() {
+    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
     let args: Vec<String> = std::env::args().skip(1).collect();
     let log = args.iter().any(|a| a == "--log");
     let number = args.iter().find(|a| !a.starts_with("--")).cloned().unwrap_or_default();
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);
     App::new()
-        .title("Телефон")
+        .title(t!("Телефон"))
         .app_id("synphone")
         .size(420, 760)
         .min_size(320, 520)
@@ -126,12 +127,12 @@ fn watch(st: St) {
             true
         });
         let msg = match r {
-            Ok(()) => "synmodemd остановлен".to_string(),
+            Ok(()) => t!("synmodemd остановлен").to_string(),
             Err(e) => format!("{e:#}"),
         };
         run_on_main_thread(move || {
             st.status.set(None);
-            st.toast.set(format!("Модем недоступен: {msg}"));
+            st.toast.set(t!("Модем недоступен: {msg}", msg = msg));
         });
         std::thread::sleep(Duration::from_secs(5));
     });
@@ -262,7 +263,7 @@ fn main_view(st: St) -> W {
         let cur = st.tab.get();
         let missed = st.log.get().iter().filter(|c| c.new).count();
         let mut row = Row::new().main_axis_alignment(MainAxisAlignment::SpaceAround);
-        for (t, glyph, label) in [(Tab::Dial, "\u{E0BC}", "Набор"), (Tab::Log, "\u{E889}", "Журнал")] {
+        for (t, glyph, label) in [(Tab::Dial, "\u{E0BC}", t!("Набор")), (Tab::Log, "\u{E889}", t!("Журнал"))] {
             let mut item = Column::new()
                 .gap(2.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
@@ -287,17 +288,17 @@ fn main_view(st: St) -> W {
 fn network_note(st: St) -> impl Widget {
     Reactive::new(move || -> Vec<W> {
         let text = match st.status.get() {
-            None => Some("Модем недоступен".to_string()),
-            Some(s) if !s.present => Some("Модем не запущен".into()),
-            Some(s) if !s.radio => Some("Режим полёта".into()),
-            Some(s) if !s.registration.registered() => Some("Нет сети".into()),
+            None => Some(t!("Модем недоступен").to_string()),
+            Some(s) if !s.present => Some(t!("Модем не запущен").into()),
+            Some(s) if !s.radio => Some(t!("Режим полёта").into()),
+            Some(s) if !s.registration.registered() => Some(t!("Нет сети").into()),
             Some(s) => {
                 let op = if s.operator.is_empty() { s.plmn.clone() } else { s.operator.clone() };
                 return vec![Box::new(
                     Row::new()
                         .gap(6.0)
                         .main_axis_alignment(MainAxisAlignment::Center)
-                        .child(Text::new(format!("{op}{}", if s.roaming { " · роуминг" } else { "" })).class("net-ok"))
+                        .child(Text::new(if s.roaming { t!("{op} · роуминг", op = op) } else { op }).class("net-ok"))
                         .class("net"),
                 )];
             }
@@ -410,7 +411,7 @@ fn log_view(st: St) -> W {
                     .gap(8.0)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
                     .child(Icon::new("\u{E889}").class("empty-icon"))
-                    .child(Text::new("Звонков пока не было").class("muted"))
+                    .child(Text::new(t!("Звонков пока не было")).class("muted"))
                     .class("empty"),
             )];
         }
@@ -418,10 +419,10 @@ fn log_view(st: St) -> W {
             .map(|c| -> W {
                 let (glyph, class) = kind_icon(c.kind);
                 let sub = match c.kind {
-                    CallKind::Missed => "пропущенный".to_string(),
-                    CallKind::Rejected => "отклонён".to_string(),
+                    CallKind::Missed => t!("пропущенный").to_string(),
+                    CallKind::Rejected => t!("отклонён").to_string(),
                     _ if c.duration > 0 => tm::duration(c.duration),
-                    CallKind::Outgoing => "не ответили".to_string(),
+                    CallKind::Outgoing => t!("не ответили").to_string(),
                     CallKind::Incoming => String::new(),
                 };
                 let n1 = c.number.clone();
@@ -443,7 +444,7 @@ fn log_view(st: St) -> W {
                                         .child(
                                             Column::new()
                                                 .gap(2.0)
-                                                .child(Text::new(if c.number.is_empty() { "Скрытый номер".into() } else { c.number.clone() }).max_lines(1).class(if c.kind == CallKind::Missed { "log-name log-name-missed" } else { "log-name" }))
+                                                .child(Text::new(if c.number.is_empty() { t!("Скрытый номер").into() } else { c.number.clone() }).max_lines(1).class(if c.kind == CallKind::Missed { "log-name log-name-missed" } else { "log-name" }))
                                                 .child(Text::new(format!("{}{}", tm::short(c.time), if sub.is_empty() { String::new() } else { format!(" · {sub}") })).class("log-sub"))
                                                 .class("grow"),
                                         )
@@ -461,7 +462,7 @@ fn log_view(st: St) -> W {
     });
     Box::new(
         Column::new()
-            .child(Text::new("Журнал").class("title"))
+            .child(Text::new(t!("Журнал")).class("title"))
             .child(ScrollView::new().vertical().child(Column::new().gap(2.0).child(list).class("list")).class("grow")),
     )
 }
@@ -491,20 +492,20 @@ fn voice_cmd(st: St, cmd: String) {
             Err(e) => Some(e.to_string()),
         };
         if let Some(e) = err {
-            syngui::async_runtime::run_on_main_thread(move || st.toast.set(format!("Звук разговора: {}", e.trim())));
+            syngui::async_runtime::run_on_main_thread(move || st.toast.set(t!("Звук разговора: {error}", error = e.trim())));
         }
     });
 }
 
 fn state_text(c: &Call, now: i64) -> String {
     match c.state {
-        CallState::Dialing => "Вызов…".into(),
-        CallState::Alerting => "Гудки…".into(),
-        CallState::Incoming => "Входящий вызов".into(),
-        CallState::Waiting => "Второй вызов".into(),
+        CallState::Dialing => t!("Вызов…").into(),
+        CallState::Alerting => t!("Гудки…").into(),
+        CallState::Incoming => t!("Входящий вызов").into(),
+        CallState::Waiting => t!("Второй вызов").into(),
         CallState::Active => tm::duration(c.answered_at.map(|a| (now - a).max(0) as u32).unwrap_or(0)),
-        CallState::Held => "На удержании".into(),
-        CallState::Ended => "Завершён".into(),
+        CallState::Held => t!("На удержании").into(),
+        CallState::Ended => t!("Завершён").into(),
     }
 }
 
@@ -513,7 +514,7 @@ fn round(glyph: &str, class: &str, label: &str, f: impl Fn() + Send + Sync + 'st
         .gap(6.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(GestureDetector::new().on_click(f).child(DecoratedBox::new().child(Icon::new(glyph).class("round-icon")).class(format!("round {class}"))))
-        .child(Text::new(label.to_string()).class("round-label"))
+        .child(Text::new(syngui::i18n::t(label)).class("round-label"))
 }
 
 fn in_call(st: St) -> W {
@@ -529,7 +530,7 @@ fn in_call(st: St) -> W {
                 .gap(10.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(DecoratedBox::new().child(Column::new().main_axis_alignment(MainAxisAlignment::Center).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new("\u{E7FD}").class("big-avatar-icon")).class("grow")).class("big-avatar"))
-                .child(Text::new(if c.number.is_empty() { "Скрытый номер".into() } else { c.number.clone() }).max_lines(1).class("call-number"))
+                .child(Text::new(if c.number.is_empty() { t!("Скрытый номер").into() } else { c.number.clone() }).max_lines(1).class("call-number"))
                 .child(Text::new(state_text(&c, now)).class("call-state"))
                 .class("call-info"),
         )]
@@ -542,8 +543,8 @@ fn in_call(st: St) -> W {
             return vec![Box::new(
                 Row::new()
                     .main_axis_alignment(MainAxisAlignment::SpaceAround)
-                    .child(round("\u{E0B1}", "round-red", "Отклонить", move || act(st, Request::Hangup { id })))
-                    .child(round("\u{E0B0}", "round-green", "Ответить", move || act(st, Request::Answer { id })))
+                    .child(round("\u{E0B1}", "round-red", n_!("Отклонить"), move || act(st, Request::Hangup { id })))
+                    .child(round("\u{E0B0}", "round-green", n_!("Ответить"), move || act(st, Request::Answer { id })))
                     .class("call-buttons"),
             )];
         }
@@ -558,23 +559,23 @@ fn in_call(st: St) -> W {
         col = col.child(
             Row::new()
                 .main_axis_alignment(MainAxisAlignment::SpaceAround)
-                .child(round(if muted { "\u{E02B}" } else { "\u{E029}" }, soft(muted), if muted { "Микрофон выкл." } else { "Микрофон" }, move || {
+                .child(round(if muted { "\u{E02B}" } else { "\u{E029}" }, soft(muted), if muted { n_!("Микрофон выкл.") } else { n_!("Микрофон") }, move || {
                     let on = !st.muted.get_untracked();
                     st.muted.set(on);
                     voice_cmd(st, format!("voice-mute {}", if on { "on" } else { "off" }));
                 }))
-                .child(round("\u{E050}", soft(speaker), "Динамик", move || {
+                .child(round("\u{E050}", soft(speaker), n_!("Динамик"), move || {
                     let on = !st.speaker.get_untracked();
                     st.speaker.set(on);
                     voice_cmd(st, format!("voice-route {}", if on { "speaker" } else { "auto" }));
                 }))
-                .child(round("\u{E0BC}", soft(open), "Клавиши", move || st.dtmf_open.set(!st.dtmf_open.get_untracked())))
+                .child(round("\u{E0BC}", soft(open), n_!("Клавиши"), move || st.dtmf_open.set(!st.dtmf_open.get_untracked())))
                 .class("call-buttons"),
         );
         col = col.child(
             Row::new()
                 .main_axis_alignment(MainAxisAlignment::SpaceAround)
-                .child(round("\u{E0B1}", "round-red", "Завершить", move || {
+                .child(round("\u{E0B1}", "round-red", n_!("Завершить"), move || {
                     for id in active.clone() {
                         act(st, Request::Hangup { id });
                     }

@@ -1,0 +1,13 @@
+@tag = "en"
+@name = "English"
+
+# src/main.rs
+"synkeyboard [show|hide|toggle|fn|lang | type <текст> | key <сочетание> | auto on|off]\n  без аргументов — запустить демон экранной клавиатуры" = "synkeyboard [show|hide|toggle|fn|lang | type <text> | key <combo> | auto on|off]\n  without arguments — start the on-screen keyboard daemon"
+"synkeyboard {cmd}: нужен аргумент" = "synkeyboard {cmd}: argument required"
+"synkeyboard: неизвестная команда «{other}»" = "synkeyboard: unknown command “{other}”"
+"команда не поддерживается: {other}" = "unsupported command: {other}"
+"нет ответа от главного потока" = "no response from the main thread"
+
+# src/ui.rs
+"неизвестная клавиша «{part}»" = "unknown key “{part}”"
+"нет клавиши в сочетании" = "no key in the combination"

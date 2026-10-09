@@ -156,16 +156,16 @@ fn element_preview(e: &Element, w: f32, h: f32, selected: bool) -> Box<dyn Widge
         Kind::Stick => match e.bind.as_str() {
             "right" => "R".to_string(),
             "wasd" => "WASD".into(),
-            "arrows" => "Стрелки".into(),
-            "mouse" => "Мышь".into(),
+            "arrows" => t!("Стрелки").into(),
+            "mouse" => t!("Мышь").into(),
             _ => "L".into(),
         },
         Kind::Dpad => match e.bind.as_str() {
             "wasd" => "WASD".into(),
-            "arrows" => "Стрелки".into(),
+            "arrows" => t!("Стрелки").into(),
             _ => "✚".into(),
         },
-        Kind::Trackpad => "Тачпад".into(),
+        Kind::Trackpad => t!("Тачпад").into(),
         Kind::Button => e.label.clone(),
     };
     let radius = if e.kind == Kind::Trackpad { 18.0 } else { eh / 2.0 };
@@ -244,7 +244,7 @@ fn toolbar(pad: Pad, draft: &Layout, selected: Option<usize>) -> impl Widget {
         boxed(btn("◀", move || switch_layout(pad, -1))),
         boxed(Text::new(format!("{name} · {:.0}%", draft.opacity * 100.0)).class("gp-tool-title").style("flex-grow", 3.0_f32)),
         boxed(btn("▶", move || switch_layout(pad, 1))),
-        boxed(btn("Новая", move || new_layout(pad))),
+        boxed(btn(t!("Новая"), move || new_layout(pad))),
     ]));
     match sel {
         Some(e) => {
@@ -258,16 +258,16 @@ fn toolbar(pad: Pad, draft: &Layout, selected: Option<usize>) -> impl Widget {
             }
             if e.kind == Kind::Stick {
                 let floating = e.floating;
-                items.push(boxed(btn(if floating { "Плавающий ✓" } else { "Плавающий" }, move || edit_selected(pad, |e| e.floating = !e.floating))));
+                items.push(boxed(btn(if floating { t!("Плавающий ✓") } else { t!("Плавающий") }, move || edit_selected(pad, |e| e.floating = !e.floating))));
             }
             if e.kind == Kind::Button {
                 let toggle = e.toggle;
-                items.push(boxed(btn(if toggle { "Залипает ✓" } else { "Залипает" }, move || edit_selected(pad, |e| e.toggle = !e.toggle))));
+                items.push(boxed(btn(if toggle { t!("Залипает ✓") } else { t!("Залипает") }, move || edit_selected(pad, |e| e.toggle = !e.toggle))));
             }
             col = col.child(row(items));
             col = col.child(row(vec![
-                boxed(btn(format!("Назначение: {}", bind_title(&e)), move || pad.ed.picker.set(true))),
-                boxed(btn("Удалить", move || {
+                boxed(btn(t!("Назначение: {v}", v = bind_title(&e)), move || pad.ed.picker.set(true))),
+                boxed(btn(t!("Удалить"), move || {
                     if let Some(i) = pad.ed.selected.get_untracked() {
                         pad.ed.selected.set(None);
                         pad.ed.draft.update(|l| {
@@ -281,17 +281,17 @@ fn toolbar(pad: Pad, draft: &Layout, selected: Option<usize>) -> impl Widget {
         }
         None => {
             col = col.child(row(vec![
-                boxed(btn("+ Кнопка", move || add(pad, Element { label: "A".into(), bind: "pad:a".into(), ..Default::default() }))),
-                boxed(btn("+ Стик", move || add(pad, Element { kind: Kind::Stick, size: 0.3, bind: "left".into(), ..Default::default() }))),
-                boxed(btn("+ Крестовина", move || add(pad, Element { kind: Kind::Dpad, size: 0.26, bind: "pad".into(), ..Default::default() }))),
-                boxed(btn("+ Тачпад", move || {
+                boxed(btn(t!("+ Кнопка"), move || add(pad, Element { label: "A".into(), bind: "pad:a".into(), ..Default::default() }))),
+                boxed(btn(t!("+ Стик"), move || add(pad, Element { kind: Kind::Stick, size: 0.3, bind: "left".into(), ..Default::default() }))),
+                boxed(btn(t!("+ Крестовина"), move || add(pad, Element { kind: Kind::Dpad, size: 0.26, bind: "pad".into(), ..Default::default() }))),
+                boxed(btn(t!("+ Тачпад"), move || {
                     add(pad, Element { kind: Kind::Trackpad, size: 0.3, aspect: 1.6, bind: "mouse:left".into(), ..Default::default() })
                 })),
             ]));
             col = col.child(row(vec![
-                boxed(btn("Прозрачнее", move || pad.ed.draft.update(|l| l.opacity = (l.opacity - OPACITY_STEP).max(0.15)))),
-                boxed(btn("Плотнее", move || pad.ed.draft.update(|l| l.opacity = (l.opacity + OPACITY_STEP).min(1.0)))),
-                boxed(btn("Сбросить", move || {
+                boxed(btn(t!("Прозрачнее"), move || pad.ed.draft.update(|l| l.opacity = (l.opacity - OPACITY_STEP).max(0.15)))),
+                boxed(btn(t!("Плотнее"), move || pad.ed.draft.update(|l| l.opacity = (l.opacity + OPACITY_STEP).min(1.0)))),
+                boxed(btn(t!("Сбросить"), move || {
                     pad.ed.draft.set(crate::layout::standard());
                     pad.ed.selected.set(None);
                 })),
@@ -299,11 +299,11 @@ fn toolbar(pad: Pad, draft: &Layout, selected: Option<usize>) -> impl Widget {
         }
     }
     col.child(row(vec![
-        boxed(btn(if pad.ed.bar_top.get_untracked() { "Панель вниз" } else { "Панель вверх" }, move || {
+        boxed(btn(if pad.ed.bar_top.get_untracked() { t!("Панель вниз") } else { t!("Панель вверх") }, move || {
             pad.ed.bar_top.set(!pad.ed.bar_top.get_untracked())
         })),
-        boxed(btn("Отмена", move || close(pad, false))),
-        boxed(btn("Готово", move || close(pad, true))),
+        boxed(btn(t!("Отмена"), move || close(pad, false))),
+        boxed(btn(t!("Готово"), move || close(pad, true))),
     ]))
     .style("padding", 8.0_f32)
 }
@@ -311,21 +311,21 @@ fn toolbar(pad: Pad, draft: &Layout, selected: Option<usize>) -> impl Widget {
 /// Подпись назначения элемента.
 fn bind_title(e: &Element) -> String {
     let opts = options(e.kind);
-    opts.iter().find(|o| o.1 == e.bind).map(|o| o.0.to_string()).unwrap_or_else(|| e.bind.clone())
+    opts.iter().find(|o| o.1 == e.bind).map(|o| syngui::i18n::t(o.0)).unwrap_or_else(|| e.bind.clone())
 }
 
 /// Варианты назначения: (подпись в списке, назначение, подпись на кнопке).
 fn options(kind: Kind) -> Vec<(&'static str, &'static str, &'static str)> {
     match kind {
         Kind::Stick => vec![
-            ("Левый стик", "left", ""),
-            ("Правый стик", "right", ""),
+            (n_!("Левый стик"), "left", ""),
+            (n_!("Правый стик"), "right", ""),
             ("WASD", "wasd", ""),
-            ("Стрелки", "arrows", ""),
-            ("Мышь", "mouse", ""),
+            (n_!("Стрелки"), "arrows", ""),
+            (n_!("Мышь"), "mouse", ""),
         ],
-        Kind::Dpad => vec![("Крестовина", "pad", ""), ("Стрелки", "arrows", ""), ("WASD", "wasd", "")],
-        Kind::Trackpad => vec![("Тап — левая", "mouse:left", ""), ("Тап — правая", "mouse:right", "")],
+        Kind::Dpad => vec![(n_!("Крестовина"), "pad", ""), (n_!("Стрелки"), "arrows", ""), ("WASD", "wasd", "")],
+        Kind::Trackpad => vec![(n_!("Тап — левая"), "mouse:left", ""), (n_!("Тап — правая"), "mouse:right", "")],
         Kind::Button => vec![
             ("A", "pad:a", "A"),
             ("B", "pad:b", "B"),
@@ -340,12 +340,12 @@ fn options(kind: Kind) -> Vec<(&'static str, &'static str, &'static str)> {
             ("Guide", "pad:guide", "\u{E338}"),
             ("L3", "pad:l3", "L3"),
             ("R3", "pad:r3", "R3"),
-            ("ЛКМ", "mouse:left", "ЛКМ"),
-            ("ПКМ", "mouse:right", "ПКМ"),
-            ("СКМ", "mouse:middle", "СКМ"),
-            ("Колесо ↑", "mouse:wheelup", "\u{E5CE}"),
-            ("Колесо ↓", "mouse:wheeldown", "\u{E5CF}"),
-            ("Пробел", "key:space", "Space"),
+            (n_!("ЛКМ"), "mouse:left", n_!("ЛКМ")),
+            (n_!("ПКМ"), "mouse:right", n_!("ПКМ")),
+            (n_!("СКМ"), "mouse:middle", n_!("СКМ")),
+            (n_!("Колесо ↑"), "mouse:wheelup", "\u{E5CE}"),
+            (n_!("Колесо ↓"), "mouse:wheeldown", "\u{E5CF}"),
+            (n_!("Пробел"), "key:space", "Space"),
             ("Enter", "key:enter", "\u{E31B}"),
             ("Esc", "key:esc", "Esc"),
             ("Tab", "key:tab", "Tab"),
@@ -378,11 +378,11 @@ fn picker_view(pad: Pad, selected: Option<usize>) -> impl Widget {
     let kind = selected.and_then(|i| pad.ed.draft.get_untracked().elements.get(i).map(|e| e.kind)).unwrap_or_default();
     let mut grid = Grid::new(6).gap(6.0);
     for (title, bind, label) in options(kind) {
-        grid = grid.child(btn_h(title, 36.0, move || {
+        grid = grid.child(btn_h(&syngui::i18n::t(title), 36.0, move || {
             edit_selected(pad, |e| {
                 e.bind = bind.to_string();
                 if e.kind == Kind::Button {
-                    e.label = label.to_string();
+                    e.label = syngui::i18n::t(label);
                 }
             });
             pad.ed.picker.set(false);
@@ -392,8 +392,8 @@ fn picker_view(pad: Pad, selected: Option<usize>) -> impl Widget {
         .gap(8.0)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(row(vec![
-            boxed(Text::new("Назначение").class("gp-tool-title").style("flex-grow", 3.0_f32)),
-            boxed(btn("Назад", move || pad.ed.picker.set(false))),
+            boxed(Text::new(t!("Назначение")).class("gp-tool-title").style("flex-grow", 3.0_f32)),
+            boxed(btn(t!("Назад"), move || pad.ed.picker.set(false))),
         ]))
         .child(ScrollView::new().vertical().child(grid).style("flex-grow", 1.0_f32))
         .style("padding", 8.0_f32)
@@ -432,7 +432,7 @@ fn new_layout(pad: Pad) {
     let n = (1..).find(|n| !taken.contains(&format!("custom-{n}"))).unwrap_or(1);
     let id = format!("custom-{n}");
     let mut l = pad.ed.draft.get_untracked();
-    l.name = format!("Раскладка {n}");
+    l.name = t!("Раскладка {n}", n = n);
     if let Err(e) = crate::layout::save(&id, &l) {
         log::error!("раскладка {id}: {e:#}");
         return;

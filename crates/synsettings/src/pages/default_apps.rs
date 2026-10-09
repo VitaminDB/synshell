@@ -34,7 +34,7 @@ const TERMINAL: &str = "terminal";
 const CATEGORIES: &[Category] = &[
     Category {
         id: "browser",
-        title: "Браузер",
+        title: n_!("Браузер"),
         icon: "\u{e80b}",
         main: "x-scheme-handler/https",
         mimes: &["x-scheme-handler/http", "x-scheme-handler/https", "text/html", "application/xhtml+xml"],
@@ -42,16 +42,16 @@ const CATEGORIES: &[Category] = &[
     },
     Category {
         id: "mail",
-        title: "Почта",
+        title: n_!("Почта"),
         icon: "\u{e158}",
         main: "x-scheme-handler/mailto",
         mimes: &["x-scheme-handler/mailto", "message/rfc822"],
         config: None,
     },
-    Category { id: TERMINAL, title: "Терминал", icon: "\u{eb8e}", main: "", mimes: &[], config: Some("terminal") },
+    Category { id: TERMINAL, title: n_!("Терминал"), icon: "\u{eb8e}", main: "", mimes: &[], config: Some("terminal") },
     Category {
         id: "files",
-        title: "Проводник",
+        title: n_!("Проводник"),
         icon: "\u{e2c7}",
         main: mime::DIRECTORY,
         mimes: &[mime::DIRECTORY],
@@ -59,7 +59,7 @@ const CATEGORIES: &[Category] = &[
     },
     Category {
         id: "video",
-        title: "Видео",
+        title: n_!("Видео"),
         icon: "\u{e02c}",
         main: "video/mp4",
         mimes: &[
@@ -70,7 +70,7 @@ const CATEGORIES: &[Category] = &[
     },
     Category {
         id: "music",
-        title: "Музыка",
+        title: n_!("Музыка"),
         icon: "\u{e405}",
         main: "audio/mpeg",
         mimes: &[
@@ -81,7 +81,7 @@ const CATEGORIES: &[Category] = &[
     },
     Category {
         id: "images",
-        title: "Изображения",
+        title: n_!("Изображения"),
         icon: "\u{e3f4}",
         main: "image/png",
         mimes: &[
@@ -92,7 +92,7 @@ const CATEGORIES: &[Category] = &[
     },
     Category {
         id: "text",
-        title: "Текст",
+        title: n_!("Текст"),
         icon: "\u{e873}",
         main: "text/plain",
         mimes: &["text/plain", "text/markdown", "text/x-log", "application/json", "application/x-yaml", "application/toml"],
@@ -100,7 +100,7 @@ const CATEGORIES: &[Category] = &[
     },
     Category {
         id: "pdf",
-        title: "Документы PDF",
+        title: n_!("Документы PDF"),
         icon: "\u{e415}",
         main: "application/pdf",
         mimes: &["application/pdf", "image/vnd.djvu", "application/epub+zip"],
@@ -108,7 +108,7 @@ const CATEGORIES: &[Category] = &[
     },
     Category {
         id: "archives",
-        title: "Архивы",
+        title: n_!("Архивы"),
         icon: "\u{e149}",
         main: "application/zip",
         mimes: &[
@@ -183,24 +183,24 @@ fn assign_category(c: &Category, e: &DesktopEntry) {
     if !c.mimes.is_empty() {
         let entries: Vec<(String, Option<String>)> = c.mimes.iter().map(|m| (m.to_string(), Some(e.id.clone()))).collect();
         if let Err(err) = mime::set_default_apps(&entries) {
-            state::toast(format!("Не удалось записать mimeapps.list: {err}"));
+            state::toast(t!("Не удалось записать mimeapps.list: {err}", err = err));
             return;
         }
     }
     if let Some(key) = c.config {
         set(&op!["general", key], e.command());
     }
-    state::toast(format!("{}: {}", c.title, e.name));
+    state::toast(format!("{}: {}", tl(c.title), e.name));
     state::bump();
 }
 
 fn assign_mime(m: &str, id: Option<&str>) {
     match mime::set_default_apps(&[(m.to_string(), id.map(String::from))]) {
         Ok(()) => state::toast(match id {
-            Some(_) => format!("{}: программа выбрана", mime::description(m)),
-            None => format!("{}: как в системе", mime::description(m)),
+            Some(_) => t!("{v}: программа выбрана", v = mime::description(m)),
+            None => t!("{v}: как в системе", v = mime::description(m)),
         }),
-        Err(err) => state::toast(format!("Не удалось записать mimeapps.list: {err}")),
+        Err(err) => state::toast(t!("Не удалось записать mimeapps.list: {err}", err = err)),
     }
     state::bump();
 }
@@ -247,7 +247,7 @@ fn category_row(ctx: state::Ctx, c: &'static Category) -> W {
     let name = match (&cur, c.id) {
         (Some(e), _) => e.name.clone(),
         (None, TERMINAL) => store::config().general.terminal.clone(),
-        (None, _) => "Не выбрана".into(),
+        (None, _) => t!("Не выбрана").into(),
     };
     let app = Row::new()
         .gap(8.0)
@@ -259,9 +259,9 @@ fn category_row(ctx: state::Ctx, c: &'static Category) -> W {
             .gap(14.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .child(badge(c.icon))
-            .child(Column::new().gap(4.0).class("grow").child(Text::new(c.title).class("da-title")).child(app))
+            .child(Column::new().gap(4.0).class("grow").child(Text::new(tl(c.title)).class("da-title")).child(app))
             .child(Icon::new(icons::CHEVRON_RIGHT).class("phone-nav-chevron")),
-        move || ctx.sub.set(Some((format!("{SUB_CAT}{}", c.id), c.title.to_string()))),
+        move || ctx.sub.set(Some((format!("{SUB_CAT}{}", c.id), tl(c.title)))),
     )
 }
 
@@ -321,7 +321,7 @@ fn picker(ctx: state::Ctx, title: String, subtitle: String, main: String, termin
     let fit_ids: Vec<String> = fit.iter().map(|e| e.id.clone()).collect();
     let mut parts: Vec<W> = Vec::new();
     if !narrow() {
-        parts.push(boxed(Row::new().child(button("‹ Программы по умолчанию", move || ctx.sub.set(None)))));
+        parts.push(boxed(Row::new().child(button(&t!("‹ Программы по умолчанию"), move || ctx.sub.set(None)))));
     }
     parts.extend(top);
     let cur = current_id.clone();
@@ -332,10 +332,10 @@ fn picker(ctx: state::Ctx, title: String, subtitle: String, main: String, termin
             choice_row(e, cur.as_deref() == Some(e.id.as_str()), move || p(e2.clone()))
         })
         .collect();
-    parts.push(titled("Подходящие программы", if rows.is_empty() { note("Установленных программ для этого типа нет — можно выбрать из всех.") } else { card(rows) }));
+    parts.push(titled(&t!("Подходящие программы"), if rows.is_empty() { note(&t!("Установленных программ для этого типа нет — можно выбрать из всех.")) } else { card(rows) }));
     let rest = Reactive::new(move || -> Vec<W> {
         if !show_all.get() {
-            return vec![boxed(Row::new().child(button("Показать все программы", move || show_all.set(true))))];
+            return vec![boxed(Row::new().child(button(&t!("Показать все программы"), move || show_all.set(true))))];
         }
         let rows: Vec<W> = all_apps()
             .into_iter()
@@ -347,7 +347,7 @@ fn picker(ctx: state::Ctx, title: String, subtitle: String, main: String, termin
                 choice_row(&e, sel, move || p(e2.clone()))
             })
             .collect();
-        vec![titled("Другие программы", card(rows))]
+        vec![titled(&t!("Другие программы"), card(rows))]
     });
     parts.push(boxed(rest));
     page(&title, &subtitle, parts)
@@ -356,11 +356,11 @@ fn picker(ctx: state::Ctx, title: String, subtitle: String, main: String, termin
 fn category_page(ctx: state::Ctx, c: &'static Category) -> W {
     let cur = current(c).map(|e| e.id);
     let subtitle = match c.id {
-        TERMINAL => "Открывается по Super+Return и Ctrl+Alt+T.".to_string(),
-        "files" => "Открывает папки и запускается по Super+E.".to_string(),
-        _ => format!("Типы: {}.", c.mimes.iter().map(|m| mime::description(m)).collect::<Vec<_>>().join(", ")),
+        TERMINAL => t!("Открывается по Super+Return и Ctrl+Alt+T.").to_string(),
+        "files" => t!("Открывает папки и запускается по Super+E.").to_string(),
+        _ => t!("Типы: {v}.", v = c.mimes.iter().map(|m| mime::description(m)).collect::<Vec<_>>().join(", ")),
     };
-    picker(ctx, c.title.to_string(), subtitle, c.main.to_string(), c.id == TERMINAL, cur, Vec::new(), move |e| assign_category(c, &e))
+    picker(ctx, tl(c.title), subtitle, c.main.to_string(), c.id == TERMINAL, cur, Vec::new(), move |e| assign_category(c, &e))
 }
 
 fn mime_page(ctx: state::Ctx, m: String) -> W {
@@ -370,9 +370,9 @@ fn mime_page(ctx: state::Ctx, m: String) -> W {
     if own {
         let m2 = m.clone();
         top.push(card(vec![row_inline(
-            "Выбрано вами",
-            "Вернуть программу, которую назначает система",
-            button("Как в системе", move || assign_mime(&m2, None)),
+            t!("Выбрано вами"),
+            t!("Вернуть программу, которую назначает система"),
+            button(&t!("Как в системе"), move || assign_mime(&m2, None)),
         )]));
     }
     let m3 = m.clone();
@@ -384,7 +384,7 @@ fn mime_page(ctx: state::Ctx, m: String) -> W {
 fn types_group(ctx: state::Ctx) -> W {
     let query = use_signal(TYPE_QUERY.with(|q| q.borrow().clone()));
     let search = TextField::with_text(query.get_untracked())
-        .placeholder("Найти тип: pdf, mp4, markdown…")
+        .placeholder(t!("Найти тип: pdf, mp4, markdown…"))
         .prefix_icon(icons::SEARCH)
         .on_change(move |s| {
             TYPE_QUERY.with(|q| *q.borrow_mut() = s.to_string());
@@ -404,21 +404,21 @@ fn types_group(ctx: state::Ctx) -> W {
         };
         let found: Vec<&String> = types.iter().filter(|m| matches(m)).collect();
         if found.is_empty() {
-            return vec![note(if words.is_empty() { "Своих назначений для отдельных типов пока нет — найдите тип поиском." } else { "Ничего не найдено." })];
+            return vec![note(if words.is_empty() { n_!("Своих назначений для отдельных типов пока нет — найдите тип поиском.") } else { n_!("Ничего не найдено.") })];
         }
         let total = found.len();
         let rows: Vec<W> = found.into_iter().take(TYPES_SHOWN).map(|m| mime_row(ctx, m.clone())).collect();
         let mut out = vec![card(rows)];
         if total > TYPES_SHOWN {
-            out.push(note(&format!("Показано {TYPES_SHOWN} из {total} — уточните поиск.")));
+            out.push(note(&t!("Показано {TYPES_SHOWN} из {total} — уточните поиск.", TYPES_SHOWN = TYPES_SHOWN, total = total)));
         }
         out
     });
-    let hint = if narrow() { "" } else { "Без поиска — типы, для которых программа выбрана вами." };
+    let hint = if narrow() { String::new() } else { t!("Без поиска — типы, для которых программа выбрана вами.") };
     boxed(
         Column::new()
             .gap(8.0)
-            .child(Text::new("Типы файлов").class("group-title"))
+            .child(Text::new(t!("Типы файлов")).class("group-title"))
             .child(search)
             .child(if hint.is_empty() { boxed(DecoratedBox::new()) } else { note(hint) })
             .child(list),
@@ -428,9 +428,9 @@ fn types_group(ctx: state::Ctx) -> W {
 fn overview(ctx: state::Ctx) -> W {
     let rows: Vec<W> = CATEGORIES.iter().map(|c| category_row(ctx, c)).collect();
     page(
-        "Программы по умолчанию",
-        "Чем открывать ссылки, папки и файлы. Действует в проводнике, оболочке и других программах (mimeapps.list).",
-        vec![titled("Основные", card(rows)), types_group(ctx)],
+        t!("Программы по умолчанию"),
+        t!("Чем открывать ссылки, папки и файлы. Действует в проводнике, оболочке и других программах (mimeapps.list)."),
+        vec![titled(&t!("Основные"), card(rows)), types_group(ctx)],
     )
 }
 

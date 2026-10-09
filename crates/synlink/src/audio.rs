@@ -29,6 +29,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::daemon::D;
 use crate::proto::{self, AudioMsg, Reply, Rpc};
+use synshell_tr::t;
 
 /// s16 × 2 канала.
 const FRAME: usize = 4;
@@ -254,8 +255,8 @@ async fn pump(mut w: quinn::SendStream, mut r: quinn::RecvStream, cap: Option<Ca
             let m = if b.iter().all(|&x| x == 0) { AudioMsg::Silence(b.len() as u32) } else { AudioMsg::Pcm(b) };
             proto::send(&mut w, &m).await?;
         }
-        let why = "запись звука прервалась (pw-cat)";
-        let _ = proto::send(&mut w, &AudioMsg::Error(why.into())).await;
+        let why = t!("запись звука прервалась (pw-cat)");
+        let _ = proto::send(&mut w, &AudioMsg::Error(why.clone())).await;
         bail!(why)
     };
     tokio::select! {
@@ -320,14 +321,14 @@ pub fn cleanup_stale() {
 /// `Rpc::Audio` от зрителя `peer`: монитор выхода → туда, его микрофон →
 /// виртуальный источник.
 pub async fn serve(d: D, peer: String, mut w: quinn::SendStream, r: quinn::RecvStream, mic: bool) -> Result<()> {
-    let name = d.peer_info(&peer).map(|p| p.name).unwrap_or_else(|| "устройства".into());
+    let name = d.peer_info(&peer).map(|p| p.name).unwrap_or_else(|| t!("устройства").into());
     let n = name.clone();
     let started = tokio::task::spawn_blocking(move || -> Result<(Capture, Option<Player>, Option<DefaultMic>)> {
         let cap = Capture::start(json!({
             "stream.capture.sink": true,
             "node.name": "synlink-monitor",
-            "node.description": format!("Звук для «{n}»"),
-            "media.name": format!("Звук для «{n}»"),
+            "node.description": t!("Звук для «{n}»", n = n),
+            "media.name": t!("Звук для «{n}»", n = n),
             "application.name": "synlink",
         }))?;
         let (play, default) = if mic {
@@ -336,8 +337,8 @@ pub async fn serve(d: D, peer: String, mut w: quinn::SendStream, r: quinn::RecvS
                 json!({
                     "media.class": "Audio/Source",
                     "node.name": MIC_NODE,
-                    "node.description": format!("Микрофон {n}"),
-                    "media.name": format!("Микрофон {n}"),
+                    "node.description": t!("Микрофон {n}", n = n),
+                    "media.name": t!("Микрофон {n}", n = n),
                     "application.name": "synlink",
                 }),
             )?;
@@ -394,16 +395,16 @@ pub async fn start(d: &D, device: &str, mic: bool) -> Result<(String, u64, onesh
             None,
             json!({
                 "node.name": "synlink-audio",
-                "node.description": format!("Звук {n}"),
-                "media.name": format!("Звук «{n}»"),
+                "node.description": t!("Звук {n}", n = n),
+                "media.name": t!("Звук «{n}»", n = n),
                 "application.name": "synlink",
             }),
         )?;
         let cap = if mic {
             Some(Capture::start(json!({
                 "node.name": "synlink-mic-capture",
-                "node.description": format!("Микрофон для «{n}»"),
-                "media.name": format!("Микрофон для «{n}»"),
+                "node.description": t!("Микрофон для «{n}»", n = n),
+                "media.name": t!("Микрофон для «{n}»", n = n),
                 "application.name": "synlink",
             }))?)
         } else {
@@ -425,8 +426,8 @@ pub async fn start(d: &D, device: &str, mic: bool) -> Result<(String, u64, onesh
         let task = tokio::spawn(async move {
             let res = pump(w, r, cap, Some(play)).await;
             let msg = match res {
-                Ok(()) => format!("«{name}» закончило звук"),
-                Err(e) => format!("звук «{name}»: {e:#}"),
+                Ok(()) => t!("«{name}» закончило звук", name = name),
+                Err(e) => t!("звук «{name}»: {e}", name = name, e = format!("{:#}", e)),
             };
             tracing::info!("{msg}");
             let removed = {

@@ -11,6 +11,7 @@ use tokio::net::{UnixListener, UnixStream};
 
 use crate::daemon::D;
 use crate::proto::{self, ExecIn, ExecOut, Reply, Rpc, ScreenAck, ScreenAckV2, ScreenFrame, ScreenFrameV2, VideoParams};
+use synshell_tr::t;
 
 pub async fn run(d: D) -> Result<()> {
     let path = link::socket_path();
@@ -95,7 +96,8 @@ async fn conn(d: D, s: UnixStream) -> Result<()> {
         let req: Request = match serde_json::from_str(&line) {
             Ok(r) => r,
             Err(e) => {
-                write_line(&mut wr, &Response::Error { message: format!("неверный запрос: {e}") }).await?;
+                let message = t!("неверный запрос: {e}", e = e);
+                write_line(&mut wr, &Response::Error { message }).await?;
                 continue;
             }
         };
@@ -133,7 +135,7 @@ async fn conn(d: D, s: UnixStream) -> Result<()> {
                         continue;
                     }
                 }) else {
-                    write_line(&mut wr, &Response::Error { message: "туннель к себе не нужен".into() }).await?;
+                    write_line(&mut wr, &Response::Error { message: t!("туннель к себе не нужен").into() }).await?;
                     continue;
                 };
                 let (w, mut r) = crate::rpc::open(&c, &Rpc::Tcp { port }).await?;
@@ -144,7 +146,7 @@ async fn conn(d: D, s: UnixStream) -> Result<()> {
                         continue;
                     }
                     _ => {
-                        write_line(&mut wr, &Response::Error { message: "нет ответа".into() }).await?;
+                        write_line(&mut wr, &Response::Error { message: t!("нет ответа").into() }).await?;
                         continue;
                     }
                 }
@@ -158,7 +160,7 @@ async fn conn(d: D, s: UnixStream) -> Result<()> {
                 let c = match target(&d, &device) {
                     Ok(Target::Remote(c)) => c,
                     Ok(Target::Local) => {
-                        write_line(&mut wr, &Response::Error { message: "трансляция своего экрана не нужна".into() }).await?;
+                        write_line(&mut wr, &Response::Error { message: t!("трансляция своего экрана не нужна").into() }).await?;
                         continue;
                     }
                     Err(e) => {
@@ -186,7 +188,10 @@ async fn conn(d: D, s: UnixStream) -> Result<()> {
                             crate::audio::stop(&d, &id);
                             Response::Ok
                         }
-                        None => Response::Error { message: format!("нет устройства «{device}»") },
+                        None => {
+                            let message = t!("нет устройства «{device}»", device = device);
+                            Response::Error { message }
+                        }
                     };
                     write_line(&mut wr, &resp).await?;
                     continue;
@@ -215,7 +220,7 @@ async fn conn(d: D, s: UnixStream) -> Result<()> {
                 tokio::select! {
                     _ = closed => crate::audio::stop_gen(&d, &id, gen),
                     m = done => {
-                        let message = m.unwrap_or_else(|_| "звук выключен".into());
+                        let message = m.unwrap_or_else(|_| t!("звук выключен"));
                         write_line(&mut wr, &Response::Error { message }).await?;
                     }
                 }
@@ -500,7 +505,7 @@ async fn handle(d: &D, req: Request) -> Result<Response> {
             Response::Notifications { notifications: d.notes(id.as_deref()) }
         }
         Request::Subscribe | Request::Tcp { .. } | Request::Screen { .. } | Request::Audio { .. } => {
-            Response::Error { message: "не здесь".into() }
+            Response::Error { message: t!("не здесь").into() }
         }
     })
 }

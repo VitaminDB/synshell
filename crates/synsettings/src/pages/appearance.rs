@@ -10,15 +10,15 @@ use crate::sys;
 use crate::ui::*;
 
 const ACCENTS: &[(&str, &str)] = &[
-    ("#3d8bfd", "Синий"),
-    ("#7c5cff", "Фиолетовый"),
-    ("#d946ef", "Пурпурный"),
-    ("#ef4466", "Красный"),
-    ("#f97316", "Оранжевый"),
-    ("#eab308", "Жёлтый"),
-    ("#22c55e", "Зелёный"),
-    ("#14b8a6", "Бирюзовый"),
-    ("#64748b", "Графит"),
+    ("#3d8bfd", n_!("Синий")),
+    ("#7c5cff", n_!("Фиолетовый")),
+    ("#d946ef", n_!("Пурпурный")),
+    ("#ef4466", n_!("Красный")),
+    ("#f97316", n_!("Оранжевый")),
+    ("#eab308", n_!("Жёлтый")),
+    ("#22c55e", n_!("Зелёный")),
+    ("#14b8a6", n_!("Бирюзовый")),
+    ("#64748b", n_!("Графит")),
 ];
 
 fn to_color(hex: &str) -> Color {
@@ -50,7 +50,7 @@ fn preview() -> W {
                                     .gap(6.0)
                                     .class("preview-titlebar")
                                     .cross_axis_alignment(CrossAxisAlignment::Center)
-                                    .child(Text::new("Окно").class("preview-title").style("color", to_color(&p.fg.hex())))
+                                    .child(Text::new(t!("Окно")).class("preview-title").style("color", to_color(&p.fg.hex())))
                                     .child(DecoratedBox::new().class("grow"))
                                     .child(DecoratedBox::new().class("preview-dot").style("background", to_color(&p.muted.hex())))
                                     .child(DecoratedBox::new().class("preview-dot").style("background", to_color(&p.danger.hex()))),
@@ -116,25 +116,25 @@ pub fn appearance() -> W {
     let cursor_themes: Vec<(String, String)> = sys::cursor_themes();
     let mut icon_opts = icon_themes.clone();
     if !icon_opts.iter().any(|(id, _)| *id == a.icon_theme) {
-        icon_opts.insert(0, (a.icon_theme.clone(), format!("{} (не найдена)", a.icon_theme)));
+        icon_opts.insert(0, (a.icon_theme.clone(), t!("{icon_theme} (не найдена)", icon_theme = a.icon_theme)));
     }
     let mut cursor_opts = cursor_themes.clone();
     if !cursor_opts.iter().any(|(id, _)| *id == a.cursor_theme) {
-        cursor_opts.insert(0, (a.cursor_theme.clone(), format!("{} (не найдена)", a.cursor_theme)));
+        cursor_opts.insert(0, (a.cursor_theme.clone(), t!("{cursor_theme} (не найдена)", cursor_theme = a.cursor_theme)));
     }
     let fonts = sys::font_families();
 
     let colors_rows: Vec<W> = [
-        ("bg", "Фон"),
-        ("surface", "Поверхности"),
-        ("surface_alt", "Поверхности (вторичные)"),
-        ("fg", "Текст"),
-        ("muted", "Приглушённый текст"),
-        ("border", "Границы"),
-        ("accent_fg", "Текст на акценте"),
-        ("danger", "Опасность"),
-        ("success", "Успех"),
-        ("warning", "Предупреждение"),
+        ("bg", t!("Фон")),
+        ("surface", t!("Поверхности")),
+        ("surface_alt", t!("Поверхности (вторичные)")),
+        ("fg", t!("Текст")),
+        ("muted", t!("Приглушённый текст")),
+        ("border", t!("Границы")),
+        ("accent_fg", t!("Текст на акценте")),
+        ("danger", t!("Опасность")),
+        ("success", t!("Успех")),
+        ("warning", t!("Предупреждение")),
     ]
     .iter()
     .map(|(key, label)| {
@@ -157,54 +157,54 @@ pub fn appearance() -> W {
     .collect();
 
     page(
-        "Внешний вид",
-        "Цвета, шрифты и темы — общие для панелей, меню, рамок окон и этого окна.",
+        t!("Внешний вид"),
+        t!("Цвета, шрифты и темы — общие для панелей, меню, рамок окон и этого окна."),
         vec![
             preview(),
             group(
-                "Цвета",
+                &t!("Цвета"),
                 vec![
                     row(
-                        "Цветовая схема",
+                        &t!("Цветовая схема"),
                         "",
-                        SegmentedButton::new(vec!["Тёмная", "Светлая"]).selected(scheme_idx).on_change(|i| {
+                        SegmentedButton::new(vec![t!("Тёмная"), t!("Светлая")]).selected(scheme_idx).on_change(|i| {
                             set(&op!["appearance", "color_scheme"], if i == 0 { "dark" } else { "light" });
                         }),
                     ),
-                    row_wide("Акцентный цвет", "Кнопки, выделение, активные элементы", swatches),
-                    row("Свой акцент", "Пусто — акцент темы", color_field(op!["appearance", "accent"], &a.accent, "из темы")),
+                    row_wide(t!("Акцентный цвет"), t!("Кнопки, выделение, активные элементы"), swatches),
+                    row(t!("Свой акцент"), t!("Пусто — акцент темы"), color_field(op!["appearance", "accent"], &a.accent, n_!("из темы"))),
                 ],
             ),
             group(
-                "Шрифты",
+                &t!("Шрифты"),
                 vec![
                     row(
-                        "Шрифт интерфейса",
-                        "Пусто — системный (fontconfig)",
+                        t!("Шрифт интерфейса"),
+                        t!("Пусто — системный (fontconfig)"),
                         {
                             let p = op!["appearance", "font"];
                             let p2 = p.clone();
                             Autocomplete::new(fonts)
                                 .text(a.font.clone())
-                                .placeholder("Системный")
+                                .placeholder(t!("Системный"))
                                 .width(260.0)
                                 .on_change(move |s| set(&p, s.to_string()))
                                 .on_select(move |s| set(&p2, s.to_string()))
                         },
                     ),
                     row(
-                        "Размер шрифта",
+                        &t!("Размер шрифта"),
                         "",
                         float_spin(op!["appearance", "font_size"], a.font_size as f64, 8.0, 24.0, 0.5, 1),
                     ),
                 ],
             ),
             group(
-                "Форма и масштаб",
+                &t!("Форма и масштаб"),
                 vec![
                     slider_row(
-                        "Скругление углов",
-                        "Панели, меню и окна",
+                        t!("Скругление углов"),
+                        t!("Панели, меню и окна"),
                         op!["appearance", "corner_radius"],
                         a.corner_radius as f64,
                         0.0,
@@ -213,7 +213,7 @@ pub fn appearance() -> W {
                         0,
                     ),
                     slider_row(
-                        "Непрозрачность панелей",
+                        &t!("Непрозрачность панелей"),
                         "",
                         op!["appearance", "panel_opacity"],
                         a.panel_opacity as f64,
@@ -223,8 +223,8 @@ pub fn appearance() -> W {
                         2,
                     ),
                     slider_row(
-                        "Масштаб оболочки",
-                        "Дополнительно к масштабу монитора",
+                        t!("Масштаб оболочки"),
+                        t!("Дополнительно к масштабу монитора"),
                         op!["appearance", "ui_scale"],
                         a.ui_scale as f64,
                         0.75,
@@ -235,16 +235,16 @@ pub fn appearance() -> W {
                 ],
             ),
             group(
-                "Темы",
+                &t!("Темы"),
                 vec![
-                    row("Значки", "", choice_owned(op!["appearance", "icon_theme"], &a.icon_theme, icon_opts, 260.0)),
+                    row(&t!("Значки"), "", choice_owned(op!["appearance", "icon_theme"], &a.icon_theme, icon_opts, 260.0)),
                     row(
-                        "Курсор",
+                        &t!("Курсор"),
                         "",
                         choice_owned(op!["appearance", "cursor_theme"], &a.cursor_theme, cursor_opts, 260.0),
                     ),
                     row(
-                        "Размер курсора",
+                        &t!("Размер курсора"),
                         "",
                         {
                             let mut dd = Dropdown::new().width(140.0);
@@ -264,25 +264,25 @@ pub fn appearance() -> W {
                         },
                     ),
                     choice_row(
-                        "Скрывать курсор",
-                        "Для телефонов и планшетов: при касании экрана курсор прячется до движения мыши или не показывается вовсе",
+                        t!("Скрывать курсор"),
+                        t!("Для телефонов и планшетов: при касании экрана курсор прячется до движения мыши или не показывается вовсе"),
                         op!["appearance", "cursor_hide"],
                         &a.cursor_hide,
-                        &[("never", "Никогда"), ("touch", "При касании экрана"), ("always", "Всегда")],
+                        &[("never", n_!("Никогда")), ("touch", n_!("При касании экрана")), ("always", n_!("Всегда"))],
                     ),
                 ],
             ),
             group(
-                "Программы",
+                &t!("Программы"),
                 vec![switch_row(
-                    "Цвета программ по теме",
-                    "GTK (Breeze, libadwaita), Qt/KDE и GIMP; открытые окна GTK — после перезапуска",
+                    t!("Цвета программ по теме"),
+                    t!("GTK (Breeze, libadwaita), Qt/KDE и GIMP; открытые окна GTK — после перезапуска"),
                     op!["appearance", "app_colors"],
                     a.app_colors,
                 )],
             ),
-            group("Палитра", colors_rows),
-            note("Пустое поле — цвет схемы. Тонкая настройка стилей — в ~/.config/synshell/theme.mss (MSS поверх встроенной темы)."),
+            group(&t!("Палитра"), colors_rows),
+            note(&t!("Пустое поле — цвет схемы. Тонкая настройка стилей — в ~/.config/synshell/theme.mss (MSS поверх встроенной темы).")),
         ],
     )
 }
@@ -290,12 +290,12 @@ pub fn appearance() -> W {
 // ─── Оформление окон ────────────────────────────────────────────────────────
 
 const BUTTON_NAMES: &[(&str, &str)] = &[
-    ("icon", "Значок (меню окна)"),
-    ("sticky", "На всех столах"),
-    ("above", "Поверх других"),
-    ("minimize", "Свернуть"),
-    ("maximize", "Развернуть"),
-    ("close", "Закрыть"),
+    ("icon", n_!("Значок (меню окна)")),
+    ("sticky", n_!("На всех столах")),
+    ("above", n_!("Поверх других")),
+    ("minimize", n_!("Свернуть")),
+    ("maximize", n_!("Развернуть")),
+    ("close", n_!("Закрыть")),
 ];
 
 /// Редактор раскладки кнопок заголовка: две колонки (слева/справа) с
@@ -314,7 +314,7 @@ fn buttons_editor(layout: &str) -> W {
     let side = |title: &str, items: Vec<String>, is_left: bool, left: Vec<String>, right: Vec<String>| -> W {
         let mut col = Column::new().gap(6.0).class("btn-side").child(Text::new(title).class("row-hint"));
         for (i, name) in items.iter().enumerate() {
-            let label = BUTTON_NAMES.iter().find(|(n, _)| n == name).map(|(_, l)| *l).unwrap_or(name.as_str());
+            let label = BUTTON_NAMES.iter().find(|(n, _)| n == name).map(|(_, l)| tl(l)).unwrap_or_else(|| name.clone());
             let (l1, r1, l2, r2, l3, r3) =
                 (left.clone(), right.clone(), left.clone(), right.clone(), left.clone(), right.clone());
             col = col.child(
@@ -364,7 +364,7 @@ fn buttons_editor(layout: &str) -> W {
         }
         let (l, r) = (left.clone(), right.clone());
         let n = name.to_string();
-        add = add.child(Button::new(format!("+ {label}")).class("btn small").on_click(move || {
+        add = add.child(Button::new(format!("+ {}", tl(label))).class("btn small").on_click(move || {
             let mut r = r.clone();
             r.insert(0, n.clone());
             write(&l, &r);
@@ -376,8 +376,8 @@ fn buttons_editor(layout: &str) -> W {
             .child(
                 Row::new()
                     .gap(16.0)
-                    .child(side("Слева", left.clone(), true, left.clone(), right.clone()))
-                    .child(side("Справа", right.clone(), false, left.clone(), right.clone())),
+                    .child(side(&t!("Слева"), left.clone(), true, left.clone(), right.clone()))
+                    .child(side(&t!("Справа"), right.clone(), false, left.clone(), right.clone())),
             )
             .child(add),
     )
@@ -387,12 +387,12 @@ pub fn decorations() -> W {
     let c = store::config();
     let d = &c.decorations;
     let color_opts: &[(&str, &str)] =
-        &[("theme", "Из темы"), ("accent", "Акцент"), ("surface", "Поверхность"), ("bg", "Фон"), ("surface_alt", "Вторичная поверхность")];
+        &[("theme", n_!("Из темы")), ("accent", n_!("Акцент")), ("surface", n_!("Поверхность")), ("bg", n_!("Фон")), ("surface_alt", n_!("Вторичная поверхность"))];
     let color_row = |label: &str, key: &'static str, cur: &str| -> W {
         let is_named = color_opts.iter().any(|(v, _)| *v == cur);
         let named_val = if is_named { cur } else { "custom" };
-        let mut opts: Vec<(String, String)> = color_opts.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect();
-        opts.push(("custom".into(), "Свой цвет".into()));
+        let mut opts: Vec<(String, String)> = color_opts.iter().map(|(a, b)| (a.to_string(), tl(b))).collect();
+        opts.push(("custom".into(), t!("Свой цвет").into()));
         let mut dd = Dropdown::new().width(190.0);
         for (v, l) in &opts {
             dd = dd.item(DropdownItem::new(v.clone(), l.clone()));
@@ -412,35 +412,35 @@ pub fn decorations() -> W {
         row(label, "", r)
     };
     page(
-        "Оформление окон",
-        "Серверные рамки и заголовки, которые рисует композитор (если в «Поведении окон» выбраны рамки композитора).",
+        t!("Оформление окон"),
+        t!("Серверные рамки и заголовки, которые рисует композитор (если в «Поведении окон» выбраны рамки композитора)."),
         vec![
             group(
-                "Заголовок",
+                &t!("Заголовок"),
                 vec![
-                    int_row("Высота заголовка", "", op!["decorations", "title_height"], d.title_height as i64, 16, 64, 1),
+                    int_row(&t!("Высота заголовка"), "", op!["decorations", "title_height"], d.title_height as i64, 16, 64, 1),
                     row(
-                        "Размер шрифта",
+                        &t!("Размер шрифта"),
                         "",
                         float_spin(op!["decorations", "font_size"], d.font_size as f64, 8.0, 24.0, 0.5, 1),
                     ),
                     choice_row(
-                        "Выравнивание заголовка",
+                        &t!("Выравнивание заголовка"),
                         "",
                         op!["decorations", "title_align"],
                         &d.title_align,
-                        &[("left", "Слева"), ("center", "По центру")],
+                        &[("left", n_!("Слева")), ("center", n_!("По центру"))],
                     ),
-                    color_row("Цвет активного окна", "active_color", &d.active_color),
-                    color_row("Цвет неактивного окна", "inactive_color", &d.inactive_color),
+                    color_row(&t!("Цвет активного окна"), "active_color", &d.active_color),
+                    color_row(&t!("Цвет неактивного окна"), "inactive_color", &d.inactive_color),
                 ],
             ),
-            group("Кнопки заголовка", vec![row_wide("Расположение", "", buttons_editor(&d.buttons))]),
+            group(&t!("Кнопки заголовка"), vec![row_wide(&t!("Расположение"), "", buttons_editor(&d.buttons))]),
             group(
-                "Форма и тень",
+                &t!("Форма и тень"),
                 vec![
                     slider_row(
-                        "Скругление углов окна",
+                        &t!("Скругление углов окна"),
                         "",
                         op!["decorations", "corner_radius"],
                         d.corner_radius as f64,
@@ -450,18 +450,18 @@ pub fn decorations() -> W {
                         0,
                     ),
                     int_row(
-                        "Зона изменения размера",
-                        "Невидимая полоса вокруг окна, px",
+                        t!("Зона изменения размера"),
+                        t!("Невидимая полоса вокруг окна, px"),
                         op!["decorations", "resize_border"],
                         d.resize_border as i64,
                         0,
                         32,
                         1,
                     ),
-                    switch_row("Тень", "", op!["decorations", "shadow"], d.shadow),
-                    int_row("Размер тени", "", op!["decorations", "shadow_size"], d.shadow_size as i64, 0, 96, 2),
+                    switch_row(&t!("Тень"), "", op!["decorations", "shadow"], d.shadow),
+                    int_row(&t!("Размер тени"), "", op!["decorations", "shadow_size"], d.shadow_size as i64, 0, 96, 2),
                     slider_row(
-                        "Плотность тени",
+                        &t!("Плотность тени"),
                         "",
                         op!["decorations", "shadow_opacity"],
                         d.shadow_opacity as f64,
@@ -481,18 +481,18 @@ pub fn decorations() -> W {
 pub fn animations() -> W {
     let c = store::config();
     let a = &c.animations;
-    let win: &[(&str, &str)] = &[("zoom", "Масштаб"), ("fade", "Растворение"), ("slide", "Выезд"), ("none", "Нет")];
+    let win: &[(&str, &str)] = &[("zoom", n_!("Масштаб")), ("fade", n_!("Растворение")), ("slide", n_!("Выезд")), ("none", n_!("Нет"))];
     page(
-        "Анимации",
-        "Эффекты открытия окон, переключения столов и сворачивания.",
+        t!("Анимации"),
+        t!("Эффекты открытия окон, переключения столов и сворачивания."),
         vec![
             group(
                 "",
                 vec![
-                    switch_row("Анимации включены", "", op!["animations", "enabled"], a.enabled),
+                    switch_row(&t!("Анимации включены"), "", op!["animations", "enabled"], a.enabled),
                     slider_row(
-                        "Длительность",
-                        "0.5 — вдвое быстрее, 2 — вдвое медленнее",
+                        t!("Длительность"),
+                        t!("0.5 — вдвое быстрее, 2 — вдвое медленнее"),
                         op!["animations", "speed"],
                         a.speed as f64,
                         0.25,
@@ -503,74 +503,74 @@ pub fn animations() -> W {
                 ],
             ),
             group(
-                "Эффекты",
+                &t!("Эффекты"),
                 vec![
-                    choice_row("Открытие окна", "", op!["animations", "window_open"], &a.window_open, win),
-                    choice_row("Закрытие окна", "", op!["animations", "window_close"], &a.window_close, win),
+                    choice_row(&t!("Открытие окна"), "", op!["animations", "window_open"], &a.window_open, win),
+                    choice_row(&t!("Закрытие окна"), "", op!["animations", "window_close"], &a.window_close, win),
                     choice_row(
-                        "Сворачивание",
+                        &t!("Сворачивание"),
                         "",
                         op!["animations", "minimize"],
                         &a.minimize,
-                        &[("zoom", "К панели"), ("fade", "Растворение"), ("none", "Нет")],
+                        &[("zoom", n_!("К панели")), ("fade", n_!("Растворение")), ("none", n_!("Нет"))],
                     ),
                     choice_row(
-                        "Переключение столов",
+                        &t!("Переключение столов"),
                         "",
                         op!["animations", "workspace_switch"],
                         &a.workspace_switch,
                         &[
-                            ("slide", "Сдвиг по горизонтали"),
-                            ("slide-vertical", "Сдвиг по вертикали"),
-                            ("fade", "Растворение"),
-                            ("none", "Нет"),
+                            ("slide", n_!("Сдвиг по горизонтали")),
+                            ("slide-vertical", n_!("Сдвиг по вертикали")),
+                            ("fade", n_!("Растворение")),
+                            ("none", n_!("Нет")),
                         ],
                     ),
                     switch_row(
-                        "Плавная смена раскладки",
-                        "Окна перетекают на новые места при плиточной раскладке",
+                        t!("Плавная смена раскладки"),
+                        t!("Окна перетекают на новые места при плиточной раскладке"),
                         op!["animations", "layout_changes"],
                         a.layout_changes,
                     ),
                 ],
             ),
             group(
-                "Оболочка",
+                &t!("Оболочка"),
                 vec![
                     switch_row(
-                        "Анимации оболочки",
-                        "Всплывающие окна вырастают из панели, меню запуска перетекает между разделами, уведомления въезжают",
+                        t!("Анимации оболочки"),
+                        t!("Всплывающие окна вырастают из панели, меню запуска перетекает между разделами, уведомления въезжают"),
                         op!["animations", "shell"],
                         a.shell,
                     ),
                     switch_row(
-                        "Плавная смена темы",
-                        "Цвета перетекают, обои растворяются при смене оформления",
+                        t!("Плавная смена темы"),
+                        t!("Цвета перетекают, обои растворяются при смене оформления"),
                         op!["animations", "theme_change"],
                         a.theme_change,
                     ),
-                    switch_row("Меньше движения", "Короче переходы, без частиц и волн", op!["animations", "reduce_motion"], a.reduce_motion),
+                    switch_row(t!("Меньше движения"), t!("Короче переходы, без частиц и волн"), op!["animations", "reduce_motion"], a.reduce_motion),
                 ],
             ),
             group(
-                "Группы оболочки",
+                &t!("Группы оболочки"),
                 vec![
-                    switch_row("Домашний экран", "Листание страниц, появление и уход (телефон)", op!["animations", "home"], a.home),
-                    switch_row("«Пуск»", "Появление, перетекание в «Все приложения», меню значка", op!["animations", "menu"], a.menu),
-                    switch_row("Шторка", "Выезд сверху, затемнение (телефон)", op!["animations", "shade"], a.shade),
-                    switch_row("Док и панели", "Увеличение значков, прыжки при запуске", op!["animations", "dock"], a.dock),
-                    switch_row("Приложения и режимы окон", "Листание приложений, «Недавние», смена режима (телефон)", op!["animations", "pages"], a.pages),
+                    switch_row(t!("Домашний экран"), t!("Листание страниц, появление и уход (телефон)"), op!["animations", "home"], a.home),
+                    switch_row(t!("«Пуск»"), t!("Появление, перетекание в «Все приложения», меню значка"), op!["animations", "menu"], a.menu),
+                    switch_row(t!("Шторка"), t!("Выезд сверху, затемнение (телефон)"), op!["animations", "shade"], a.shade),
+                    switch_row(t!("Док и панели"), t!("Увеличение значков, прыжки при запуске"), op!["animations", "dock"], a.dock),
+                    switch_row(t!("Приложения и режимы окон"), t!("Листание приложений, «Недавние», смена режима (телефон)"), op!["animations", "pages"], a.pages),
                 ],
             ),
             group(
-                "Эффекты",
+                &t!("Эффекты"),
                 vec![
-                    switch_row("Частицы", "Искры и конфетти дока", op!["animations", "particles"], a.particles),
-                    switch_row("Размытие", "Под меню и всплывающими окнами; на CPU-композиторе телефона дорого", op!["animations", "blur"], a.blur),
-                    switch_row("Волна от нажатия", "", op!["animations", "ripple"], a.ripple),
+                    switch_row(t!("Частицы"), t!("Искры и конфетти дока"), op!["animations", "particles"], a.particles),
+                    switch_row(t!("Размытие"), t!("Под меню и всплывающими окнами; на CPU-композиторе телефона дорого"), op!["animations", "blur"], a.blur),
+                    switch_row(&t!("Волна от нажатия"), "", op!["animations", "ripple"], a.ripple),
                 ],
             ),
-            group("Наборы", vec![row_inline("Быстро выставить", "", presets())]),
+            group(&t!("Наборы"), vec![row_inline(&t!("Быстро выставить"), "", presets())]),
         ],
     )
 }
@@ -589,8 +589,8 @@ fn presets() -> impl Widget {
     }
     Row::new()
         .gap(6.0)
-        .child(button("Максимум", || apply(true, 1.0, true, true, false)))
-        .child(button("Сбалансировано", || apply(true, 0.85, false, false, false)))
-        .child(button("Экономия", || apply(true, 0.6, false, false, true)))
-        .child(button("Выкл.", || apply(false, 1.0, false, false, true)))
+        .child(button(&t!("Максимум"), || apply(true, 1.0, true, true, false)))
+        .child(button(&t!("Сбалансировано"), || apply(true, 0.85, false, false, false)))
+        .child(button(&t!("Экономия"), || apply(true, 0.6, false, false, true)))
+        .child(button(&t!("Выкл."), || apply(false, 1.0, false, false, true)))
 }

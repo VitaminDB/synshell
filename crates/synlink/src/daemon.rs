@@ -20,6 +20,7 @@ use tokio::sync::{broadcast, mpsc, oneshot, Notify};
 use crate::discovery::Announce;
 use crate::identity::{Identity, Peers, Trusted};
 use crate::proto::{self, Ctl, Hello, Note};
+use synshell_tr::{n_, t};
 
 pub struct Session {
     pub conn: quinn::Connection,
@@ -220,13 +221,13 @@ impl Daemon {
 
     fn link_note(st: &St, id: &str) -> Option<String> {
         if st.pairing.contains(id) {
-            return Some("идёт спаривание".into());
+            return Some(t!("идёт спаривание").into());
         }
         if let Some((t, _)) = st.connecting.get(id) {
-            return Some(format!("соединяюсь {} с", t.elapsed().as_secs()));
+            return Some(t!("соединяюсь {v} с", v = t.elapsed().as_secs()));
         }
         if let Some(t) = st.backoff.get(id).filter(|t| t.elapsed() < Duration::from_secs(60)) {
-            return Some(format!("пауза после неудачного спаривания ещё {} с", 60 - t.elapsed().as_secs()));
+            return Some(t!("пауза после неудачного спаривания ещё {v} с", v = 60 - t.elapsed().as_secs()));
         }
         st.connect_err.get(id).cloned()
     }
@@ -436,10 +437,10 @@ impl Daemon {
             Ok(conn) => {
                 if let Err(e) = self.clone().run_session(conn, true).await {
                     tracing::info!(%addr, "сеанс: {e:#}");
-                    self.connect_failed(&id, format!("сеанс: {e:#}"));
+                    self.connect_failed(&id, t!("сеанс: {e}", e = format!("{:#}", e)));
                 }
             }
-            Err(e) => self.connect_failed(&id, format!("соединение с {addr}: {e:#}")),
+            Err(e) => self.connect_failed(&id, t!("соединение с {addr}: {e}", addr = addr, e = format!("{:#}", e))),
         }
         let mut st = self.st.lock().unwrap();
         if st.connecting.get(&id).is_some_and(|(_, s)| *s == seq) {
@@ -782,7 +783,7 @@ impl Daemon {
         } else if discoverable {
             Decide::Ask
         } else {
-            Decide::Reject("машина скрыта")
+            Decide::Reject(n_!("машина скрыта"))
         };
         let prompt = PairPrompt {
             id: pid.clone(),
@@ -795,7 +796,7 @@ impl Daemon {
         let mine = match decide {
             Decide::Accept => true,
             Decide::Reject(why) => {
-                let _ = proto::send(tx, &Ctl::PairReject(why.into())).await;
+                let _ = proto::send(tx, &Ctl::PairReject(synshell_tr::t(why))).await;
                 conn.close(0u32.into(), b"reject");
                 bail!("спаривание отклонено: {why}");
             }
@@ -816,7 +817,7 @@ impl Daemon {
                 ok
             }
         };
-        proto::send(tx, &if mine { Ctl::PairAccept } else { Ctl::PairReject("пользователь отказал".into()) }).await?;
+        proto::send(tx, &if mine { Ctl::PairAccept } else { Ctl::PairReject(t!("пользователь отказал").into()) }).await?;
         let theirs = tokio::select! {
             r = proto::recv::<Ctl>(rx) => r?,
             _ = tokio::time::sleep(Duration::from_secs(100)) => None,
@@ -826,8 +827,8 @@ impl Daemon {
         if !ok {
             let why = match theirs {
                 Some(Ctl::PairReject(w)) => w,
-                _ if !mine => "отклонено здесь".into(),
-                _ => "нет ответа".into(),
+                _ if !mine => t!("отклонено здесь").into(),
+                _ => t!("нет ответа").into(),
             };
             self.emit(Event::Paired { device: pid.clone(), name: hello.name.clone(), ok: false, message: Some(why.clone()) });
             conn.close(0u32.into(), b"reject");

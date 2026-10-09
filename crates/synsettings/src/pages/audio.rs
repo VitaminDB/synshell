@@ -95,13 +95,13 @@ fn node_row(n: &Node, max: u32, choosable: bool) -> W {
     let id = n.id;
     let mut hint = Vec::new();
     if n.default {
-        hint.push("по умолчанию");
+        hint.push(t!("по умолчанию"));
     }
     if n.running {
-        hint.push(if n.kind == NodeKind::Input { "идёт запись" } else { "играет" });
+        hint.push(if n.kind == NodeKind::Input { t!("идёт запись") } else { t!("играет") });
     }
     if n.muted {
-        hint.push("без звука");
+        hint.push(t!("без звука"));
     }
     let mut col = Column::new().gap(8.0).class("row-text").child(Text::new(n.label.clone()).class("row-label"));
     if !hint.is_empty() {
@@ -128,7 +128,7 @@ fn node_row(n: &Node, max: u32, choosable: bool) -> W {
     };
     ctl = ctl.child(icon_button(mute_icon, move || act(move || sound::set_node_mute(id, !muted))));
     if choosable && !n.default {
-        ctl = ctl.child(button("Выбрать", move || act(move || sound::set_default(id))));
+        ctl = ctl.child(button(&t!("Выбрать"), move || act(move || sound::set_default(id))));
     }
     boxed(
         Row::new()
@@ -143,20 +143,20 @@ fn node_row(n: &Node, max: u32, choosable: bool) -> W {
 
 fn phone_group(p: &PhoneAudio, profiles: &[DolbyProfile]) -> W {
     let out = match p.output.as_str() {
-        "headphones" => "наушники",
-        "headset" => "гарнитура",
-        _ => "динамики",
+        "headphones" => t!("наушники"),
+        "headset" => t!("гарнитура"),
+        _ => t!("динамики"),
     };
     let jack = match (p.headphones_plugged, p.headset_mic) {
-        (true, true) => "Гарнитура с микрофоном подключена",
-        (true, false) => "Наушники подключены",
-        _ => "Наушники не подключены (USB-C)",
+        (true, true) => t!("Гарнитура с микрофоном подключена"),
+        (true, false) => t!("Наушники подключены"),
+        _ => t!("Наушники не подключены (USB-C)"),
     };
     let route = Dropdown::new()
         .width(220.0)
-        .item(DropdownItem::new("auto", "Автоматически"))
-        .item(DropdownItem::new("speaker", "Всегда динамики"))
-        .item(DropdownItem::new("headphones", "Наушники"))
+        .item(DropdownItem::new("auto", t!("Автоматически")))
+        .item(DropdownItem::new("speaker", t!("Всегда динамики")))
+        .item(DropdownItem::new("headphones", t!("Наушники")))
         .selected(p.route.as_str())
         .on_change(|v: &str| {
             let r = match v {
@@ -168,26 +168,26 @@ fn phone_group(p: &PhoneAudio, profiles: &[DolbyProfile]) -> W {
                 sound::set_route(r);
             });
         });
-    let mut rows = vec![row("Куда выводить", &format!("Сейчас: {out}. {jack}"), route)];
+    let mut rows = vec![row(&t!("Куда выводить"), &t!("Сейчас: {out}. {jack}", out = out, jack = jack), route)];
     if let Some(on) = p.dolby {
         rows.push(row_inline(
             "Dolby Atmos",
-            "Обработка Dolby в сигнальном процессоре: объём, диалоги, выравнивание громкости, бас",
+            &t!("Обработка Dolby в сигнальном процессоре: объём, диалоги, выравнивание громкости, бас"),
             Toggle::with_state(on).on_change(|on| {
                 act(move || {
                     sound::set_dolby(on);
                 });
-                state::toast(if on { "Dolby Atmos включён" } else { "Dolby Atmos выключен" });
+                state::toast(if on { t!("Dolby Atmos включён") } else { t!("Dolby Atmos выключен") });
             }),
         ));
         if on && !profiles.is_empty() {
-            let mut dd = Dropdown::new().width(220.0).item(DropdownItem::new("-1", "По умолчанию"));
+            let mut dd = Dropdown::new().width(220.0).item(DropdownItem::new("-1", t!("По умолчанию")));
             for pr in profiles {
                 dd = dd.item(DropdownItem::new(pr.id.to_string(), pr.title()));
             }
             rows.push(row(
-                "Профиль Dolby",
-                "Настройки звука Xiaomi для динамиков и наушников",
+                t!("Профиль Dolby"),
+                t!("Настройки звука Xiaomi для динамиков и наушников"),
                 dd.selected(p.dolby_profile.to_string()).on_change(|v: &str| {
                     let id: i32 = v.parse().unwrap_or(-1);
                     act(move || {
@@ -197,41 +197,41 @@ fn phone_group(p: &PhoneAudio, profiles: &[DolbyProfile]) -> W {
             ));
         }
     }
-    group("Телефон", rows)
+    group(&t!("Телефон"), rows)
 }
 
 pub fn audio() -> W {
     let s = sig();
     refresh(s);
     let body = Reactive::new(move || -> Vec<W> {
-        let Some(snap) = s.get() else { return vec![note("Чтение состояния звука…")] };
+        let Some(snap) = s.get() else { return vec![note(&t!("Чтение состояния звука…"))] };
         let Some(nodes) = snap.nodes else {
-            return vec![note("PipeWire не отвечает: звук сеанса не запущен (pipewire, wireplumber).")];
+            return vec![note(&t!("PipeWire не отвечает: звук сеанса не запущен (pipewire, wireplumber)."))];
         };
         let max = snap.max;
         let mut col = Column::new().gap(18.0);
         let pick = |k: NodeKind| nodes.iter().filter(move |n| n.kind == k);
         let outs: Vec<W> = pick(NodeKind::Output).map(|n| node_row(n, max, true)).collect();
-        col = col.child(group("Вывод", if outs.is_empty() { vec![note("Нет устройств вывода.")] } else { outs }));
+        col = col.child(group(&t!("Вывод"), if outs.is_empty() { vec![note(&t!("Нет устройств вывода."))] } else { outs }));
         if let Some(p) = &snap.phone {
             col = col.child(phone_group(p, &snap.profiles));
         }
         let ins: Vec<W> = pick(NodeKind::Input).map(|n| node_row(n, max, true)).collect();
-        col = col.child(group("Ввод", if ins.is_empty() { vec![note("Нет микрофонов.")] } else { ins }));
+        col = col.child(group(&t!("Ввод"), if ins.is_empty() { vec![note(&t!("Нет микрофонов."))] } else { ins }));
         let apps: Vec<W> = pick(NodeKind::AppStream).map(|n| node_row(n, max, false)).collect();
         if !apps.is_empty() {
-            col = col.child(group("Программы", apps));
+            col = col.child(group(&t!("Программы"), apps));
         }
         col = col.child(group(
             "",
             vec![switch_row(
-                "Громкость выше 100 %",
-                "Усиление до 150 % для тихих записей и музыки; громкие звуки при этом искажаются",
+                t!("Громкость выше 100 %"),
+                t!("Усиление до 150 % для тихих записей и музыки; громкие звуки при этом искажаются"),
                 op!["sound", "overamplify"],
                 max > 100,
             )],
         ));
         vec![boxed(col)]
     });
-    page("Звук", "Динамики, наушники, микрофон, громкость программ, Dolby Atmos.", vec![boxed(body)])
+    page(t!("Звук"), t!("Динамики, наушники, микрофон, громкость программ, Dolby Atmos."), vec![boxed(body)])
 }

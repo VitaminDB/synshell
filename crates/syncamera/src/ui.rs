@@ -330,7 +330,7 @@ fn top_controls(st: St, vertical: bool) -> impl Widget {
                 let full = i > 0;
                 let next: Vec<u32> = sizes.iter().map(|s| proto::megapixels(*s)).collect();
                 let n = next.len();
-                items.push(chip_btn_on(&format!("{} Мп", proto::megapixels(cur)), full, move || {
+                items.push(chip_btn_on(&t!("{v} Мп", v = proto::megapixels(cur)), full, move || {
                     let j = (i + 1) % n;
                     st.photo_mp.set(if j == 0 { 0 } else { next[j] });
                 }));
@@ -591,7 +591,7 @@ fn ev_bar(st: St, pw: f32, ph: f32) -> impl Widget {
 struct LensItem {
     lens: Lens,
     icon: &'static str,
-    title: &'static str,
+    title: String,
     sub: String,
     ok: bool,
 }
@@ -601,9 +601,9 @@ fn lens_items(st: St) -> Vec<LensItem> {
     let cams = st.cams.get_untracked();
     let mut v = Vec::new();
     for (lens, role, icon, title, zoom) in [
-        (Lens::Main, Role::Main, gl::LENS_MAIN, "Основная", "1×"),
-        (Lens::Wide, Role::Wide, gl::LENS_WIDE, "Широкоугольная", "0.6×"),
-        (Lens::Macro, Role::Macro, gl::LENS_MACRO, "Макро", "вблизи"),
+        (Lens::Main, Role::Main, gl::LENS_MAIN, n_!("Основная"), "1×"),
+        (Lens::Wide, Role::Wide, gl::LENS_WIDE, n_!("Широкоугольная"), "0.6×"),
+        (Lens::Macro, Role::Macro, gl::LENS_MACRO, n_!("Макро"), n_!("вблизи")),
     ] {
         let module = mods.iter().find(|m| m.role == role);
         let avail = crate::lens_available(st, lens) && module.is_none_or(|m| m.ok);
@@ -614,14 +614,14 @@ fn lens_items(st: St) -> Vec<LensItem> {
             let mp = crate::pick_cam(&cams, false, lens)
                 .map(|c| {
                     let big = c.photo_sizes().last().copied().unwrap_or((c.photo_width, c.photo_height));
-                    format!("{} Мп · ", proto::megapixels(big))
+                    t!("{v} Мп · ", v = proto::megapixels(big))
                 })
                 .unwrap_or_default();
-            format!("{mp}{zoom}")
+            format!("{mp}{}", syngui::i18n::t(zoom))
         } else {
-            module.map(|m| m.fault.clone()).filter(|f| !f.is_empty()).unwrap_or_else(|| "Недоступна".into())
+            module.map(|m| m.fault.clone()).filter(|f| !f.is_empty()).unwrap_or_else(|| t!("Недоступна").into())
         };
-        v.push(LensItem { lens, icon, title, sub, ok: avail });
+        v.push(LensItem { lens, icon, title: syngui::i18n::t(title), sub, ok: avail });
     }
     v
 }
@@ -635,9 +635,9 @@ fn lens_pill(st: St, x: f32, y: f32) -> impl Widget {
             return vec![];
         }
         let (icon, title) = match lens {
-            Lens::Main => (gl::LENS_MAIN, "Основная"),
-            Lens::Wide => (gl::LENS_WIDE, "Широкоугольная"),
-            Lens::Macro => (gl::LENS_MACRO, "Макро"),
+            Lens::Main => (gl::LENS_MAIN, t!("Основная")),
+            Lens::Wide => (gl::LENS_WIDE, t!("Широкоугольная")),
+            Lens::Macro => (gl::LENS_MACRO, t!("Макро")),
         };
         let open = st.lens_menu.get();
         vec![Box::new(
@@ -708,7 +708,7 @@ fn lens_menu(st: St) -> impl Widget {
                 Box::new(item) as W
             });
         }
-        let card = Animated::new(DecoratedBox::new().child(Column::new().gap(4.0).child(Text::new("Задняя камера").class("lens-head")).child(col)).class("lens-menu"))
+        let card = Animated::new(DecoratedBox::new().child(Column::new().gap(4.0).child(Text::new(t!("Задняя камера")).class("lens-head")).child(col)).class("lens-menu"))
             .opacity(Animation::tween(Easing::EaseOutQuad).from(0.0).to(1.0).duration_ms(140).build())
             .translate_y(Animation::tween(Easing::EaseOutCubic).from(-8.0).to(0.0).duration_ms(180).build());
         let vp = viewport_size().get_untracked();
@@ -752,7 +752,7 @@ fn hints(st: St, pw: f32, ph: f32) -> impl Widget {
                     }
                     let _ = c.wait();
                 }
-                st.toast.set("Скопировано".into());
+                st.toast.set(t!("Скопировано").into());
             }));
             col = col.child(DecoratedBox::new().child(row).class("hint"));
             any = true;
@@ -762,7 +762,7 @@ fn hints(st: St, pw: f32, ph: f32) -> impl Widget {
             col = col.child(
                 GestureDetector::new().on_click(move || st.mode.set(Mode::Night)).child(
                     DecoratedBox::new()
-                        .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(gl::NIGHT).class("hint-icon")).child(Text::new("Темно — включить «Ночь»").class("hint-text")))
+                        .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(gl::NIGHT).class("hint-icon")).child(Text::new(t!("Темно — включить «Ночь»")).class("hint-text")))
                         .class("hint hint-night"),
                 ),
             );
@@ -866,7 +866,7 @@ fn modes_row(st: St, vertical: bool) -> impl Widget {
                             st.mode.set(m);
                         }
                     })
-                    .child(DecoratedBox::new().child(Text::new(name).class(if m == cur { "mode-text mode-on" } else { "mode-text" })).class(if m == cur { "mode mode-sel" } else { "mode" })),
+                    .child(DecoratedBox::new().child(Text::new(syngui::i18n::t(name)).class(if m == cur { "mode-text mode-on" } else { "mode-text" })).class(if m == cur { "mode mode-sel" } else { "mode" })),
             ));
         }
         vec![line(vertical, 4.0, items)]
@@ -997,7 +997,7 @@ const SHUTTERS: [(i64, &str); 16] = [
     (4_000_000_000, "4\""),
 ];
 
-const WB_NAMES: [(u32, &str); 5] = [(1, "Авто"), (2, "Лампа"), (3, "Флуор."), (5, "День"), (6, "Облачно")];
+const WB_NAMES: [(u32, &str); 5] = [(1, n_!("Авто")), (2, n_!("Лампа")), (3, n_!("Флуор.")), (5, n_!("День")), (6, n_!("Облачно"))];
 
 fn shutter_name(ns: i64) -> String {
     SHUTTERS.iter().min_by_key(|(v, _)| (v - ns).abs()).map(|(_, n)| n.to_string()).unwrap_or_default()
@@ -1019,10 +1019,10 @@ fn pro_panel(st: St) -> impl Widget {
         let meta = st.meta.get();
         let auto_iso = iso <= 0;
         let chips: [(ProField, String, String); 5] = [
-            (ProField::Iso, "ISO".into(), if auto_iso { format!("А {}", meta.iso) } else { iso.to_string() }),
-            (ProField::Shutter, "Выдержка".into(), if auto_iso { format!("А {}", shutter_name(meta.exposure_ns)) } else { shutter_name(sh) }),
-            (ProField::Focus, "Фокус".into(), if fd < 0.0 { "А".into() } else if fd == 0.0 { "∞".into() } else { format!("{:.2} м", 1.0 / fd) }),
-            (ProField::Wb, "ББ".into(), WB_NAMES.iter().find(|w| w.0 == awb).map(|w| w.1).unwrap_or("Авто").into()),
+            (ProField::Iso, "ISO".into(), if auto_iso { t!("А {iso}", iso = meta.iso) } else { iso.to_string() }),
+            (ProField::Shutter, t!("Выдержка").into(), if auto_iso { t!("А {v}", v = shutter_name(meta.exposure_ns)) } else { shutter_name(sh) }),
+            (ProField::Focus, t!("Фокус").into(), if fd < 0.0 { t!("А").into() } else if fd == 0.0 { "∞".into() } else { t!("{v} м", v = format!("{:.2}", 1.0 / fd)) }),
+            (ProField::Wb, t!("ББ").into(), WB_NAMES.iter().find(|w| w.0 == awb).map(|w| syngui::i18n::t(w.1)).unwrap_or_else(|| t!("Авто"))),
             (ProField::Ev, "EV".into(), format!("{:+.1}", ev as f32 * cam.ev_step()).replace('.', ",")),
         ];
         let mut row = Row::new().gap(4.0).main_axis_alignment(MainAxisAlignment::SpaceAround);
@@ -1062,7 +1062,7 @@ fn pro_slider(st: St, f: ProField, cam: &proto::Camera, iso: i32, sh: i64, fd: f
                 Row::new()
                     .gap(8.0)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(auto("А", iso <= 0, Box::new(move || {
+                    .child(auto(&t!("А"), iso <= 0, Box::new(move || {
                         st.iso.set(0);
                         crate::apply_manual(st)
                     })))
@@ -1086,7 +1086,7 @@ fn pro_slider(st: St, f: ProField, cam: &proto::Camera, iso: i32, sh: i64, fd: f
                 Row::new()
                     .gap(8.0)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(auto("А", iso <= 0, Box::new(move || {
+                    .child(auto(&t!("А"), iso <= 0, Box::new(move || {
                         st.iso.set(0);
                         crate::apply_manual(st)
                     })))
@@ -1106,14 +1106,14 @@ fn pro_slider(st: St, f: ProField, cam: &proto::Camera, iso: i32, sh: i64, fd: f
         }
         ProField::Focus => {
             if cam.min_focus <= 0.0 {
-                return Box::new(Text::new("У этой камеры постоянный фокус").class("pro-note"));
+                return Box::new(Text::new(t!("У этой камеры постоянный фокус")).class("pro-note"));
             }
             let mf = cam.min_focus;
             Box::new(
                 Row::new()
                     .gap(8.0)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(auto("А", fd < 0.0, Box::new(move || {
+                    .child(auto(&t!("А"), fd < 0.0, Box::new(move || {
                         st.focus_d.set(-1.0);
                         crate::apply_manual(st)
                     })))
@@ -1135,7 +1135,7 @@ fn pro_slider(st: St, f: ProField, cam: &proto::Camera, iso: i32, sh: i64, fd: f
                         })
                         .child(
                             DecoratedBox::new()
-                                .child(Column::new().cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(gl::WB[i]).class("wb-icon")).child(Text::new(name).class("pro-name")))
+                                .child(Column::new().cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(gl::WB[i]).class("wb-icon")).child(Text::new(syngui::i18n::t(name)).class("pro-name")))
                                 .class(if awb == mode { "pro-chip pro-on" } else { "pro-chip" }),
                         ),
                 );
@@ -1175,7 +1175,7 @@ fn setting_toggle(label: &'static str, sub: &'static str, sig: RwSignal<bool>) -
             Row::new()
                 .gap(12.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(Column::new().gap(2.0).child(Text::new(label).class("set-label")).child(Text::new(sub).max_lines(2).class("set-sub")).class("grow"))
+                .child(Column::new().gap(2.0).child(Text::new(syngui::i18n::t(label)).class("set-label")).child(Text::new(syngui::i18n::t(sub)).max_lines(2).class("set-sub")).class("grow"))
                 .child(Reactive::new(move || -> Vec<W> { vec![Box::new(Toggle::new().on(sig.get()).on_change(move |b| sig.set(b)))] }))
                 .class("set-row"),
         ),
@@ -1186,12 +1186,12 @@ fn setting_choice(label: &'static str, sig: RwSignal<u32>, opts: &'static [(u32,
     Box::new(
         Column::new()
             .gap(8.0)
-            .child(Text::new(label).class("set-label"))
+            .child(Text::new(syngui::i18n::t(label)).class("set-label"))
             .child(Reactive::new(move || -> Vec<W> {
                 let cur = sig.get();
                 let mut row = Row::new().gap(6.0);
                 for (v, name) in opts.iter().copied() {
-                    row = row.child(chip_btn_on(name, cur == v, move || sig.set(v)));
+                    row = row.child(chip_btn_on(&syngui::i18n::t(name), cur == v, move || sig.set(v)));
                 }
                 vec![Box::new(row)]
             }))
@@ -1204,7 +1204,7 @@ fn resolution_choice(st: St) -> W {
     Box::new(
         Column::new()
             .gap(8.0)
-            .child(Text::new("Разрешение фото (4:3)").class("set-label"))
+            .child(Text::new(t!("Разрешение фото (4:3)")).class("set-label"))
             .child(Reactive::new(move || -> Vec<W> {
                 let _ = (st.cams.get(), st.front.get(), st.lens.get());
                 let want = st.photo_mp.get();
@@ -1215,11 +1215,11 @@ fn resolution_choice(st: St) -> W {
                 for (i, s) in sizes.iter().copied().enumerate() {
                     let mp = proto::megapixels(s);
                     let v = if i == 0 { 0 } else { mp };
-                    row = row.child(chip_btn_on(&format!("{mp} Мп"), cur == Some(s), move || st.photo_mp.set(v)));
+                    row = row.child(chip_btn_on(&t!("{mp} Мп", mp = mp), cur == Some(s), move || st.photo_mp.set(v)));
                 }
                 vec![Box::new(row)]
             }))
-            .child(Text::new("Больше 12 Мп — полное разрешение датчика: снимок до 15 секунд, без «Ночи»").max_lines(2).class("set-sub"))
+            .child(Text::new(t!("Больше 12 Мп — полное разрешение датчика: снимок до 15 секунд, без «Ночи»")).max_lines(2).class("set-sub"))
             .class("set-row"),
     )
 }
@@ -1235,9 +1235,9 @@ fn storage_row(st: St, video: bool) -> W {
             Ok(rest) if !home.is_empty() => format!("~/{}", rest.display()),
             _ => path.display().to_string(),
         };
-        let mut buttons = Row::new().gap(6.0).child(chip_btn("Изменить", move || crate::choose_dir(st, video)));
+        let mut buttons = Row::new().gap(6.0).child(chip_btn(&t!("Изменить"), move || crate::choose_dir(st, video)));
         if custom {
-            buttons = buttons.child(chip_btn("По умолчанию", move || sig.set(String::new())));
+            buttons = buttons.child(chip_btn(&t!("По умолчанию"), move || sig.set(String::new())));
         }
         vec![Box::new(
             Column::new()
@@ -1250,7 +1250,7 @@ fn storage_row(st: St, video: bool) -> W {
                         .child(
                             Column::new()
                                 .gap(2.0)
-                                .child(Text::new(if video { "Видео" } else { "Снимки" }).class("set-label"))
+                                .child(Text::new(if video { t!("Видео") } else { t!("Снимки") }).class("set-label"))
                                 .child(Text::new(shown).max_lines(2).class("set-sub")),
                         ),
                 )
@@ -1270,25 +1270,25 @@ fn settings_sheet(st: St) -> impl Widget {
             .child(
                 Row::new()
                     .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(Text::new("Настройки камеры").class("sheet-title grow"))
+                    .child(Text::new(t!("Настройки камеры")).class("sheet-title grow"))
                     .child(icon_btn(gl::CLOSE, "", move || st.settings.set(false))),
             )
-            .child(Text::new("Камера").class("set-head"))
-            .child(setting_choice("Камера при запуске", st.start_cam, &[(1, "Основная"), (2, "Широкая"), (3, "Фронтальная"), (0, "Последняя")]))
-            .child(setting_toggle("Полноэкранный режим", "Окно во весь экран — без заголовка и панели состояния", st.fullscreen))
-            .child(Text::new("Фото").class("set-head"))
-            .child(setting_choice("Соотношение сторон", st.aspect, &[(0, "4:3"), (1, "16:9"), (2, "1:1")]))
+            .child(Text::new(t!("Камера")).class("set-head"))
+            .child(setting_choice(n_!("Камера при запуске"), st.start_cam, &[(1, n_!("Основная")), (2, n_!("Широкая")), (3, n_!("Фронтальная")), (0, n_!("Последняя"))]))
+            .child(setting_toggle(n_!("Полноэкранный режим"), n_!("Окно во весь экран — без заголовка и панели состояния"), st.fullscreen))
+            .child(Text::new(t!("Фото")).class("set-head"))
+            .child(setting_choice(n_!("Соотношение сторон"), st.aspect, &[(0, "4:3"), (1, "16:9"), (2, "1:1")]))
             .child(resolution_choice(st))
-            .child(setting_choice("Таймер", st.timer, &[(0, "Выкл."), (3, "3 с"), (10, "10 с")]))
-            .child(setting_toggle("Сетка", "Линии третей поверх кадра", st.grid))
-            .child(setting_toggle("Звук затвора", "Щелчок при съёмке и сигналы записи", st.sound))
-            .child(Text::new("Видео").class("set-head"))
-            .child(setting_choice("Качество", st.video_q, &[(0, "720p"), (1, "1080p"), (2, "4K")]))
-            .child(setting_toggle("HEVC (H.265)", "Файлы меньше на 40 %; старые проигрыватели могут не открыть", st.hevc))
-            .child(setting_toggle("Звук", "Запись с микрофона", st.mic))
-            .child(setting_toggle("Стабилизация", "Цифровая стабилизация видео", st.stab))
-            .child(setting_choice("Ускорение таймлапса", st.timelapse, &[(5, "×5"), (10, "×10"), (30, "×30"), (60, "×60")]))
-            .child(Text::new("Хранение").class("set-head"))
+            .child(setting_choice(n_!("Таймер"), st.timer, &[(0, n_!("Выкл.")), (3, n_!("3 с")), (10, n_!("10 с"))]))
+            .child(setting_toggle(n_!("Сетка"), n_!("Линии третей поверх кадра"), st.grid))
+            .child(setting_toggle(n_!("Звук затвора"), n_!("Щелчок при съёмке и сигналы записи"), st.sound))
+            .child(Text::new(t!("Видео")).class("set-head"))
+            .child(setting_choice(n_!("Качество"), st.video_q, &[(0, "720p"), (1, "1080p"), (2, "4K")]))
+            .child(setting_toggle("HEVC (H.265)", n_!("Файлы меньше на 40 %; старые проигрыватели могут не открыть"), st.hevc))
+            .child(setting_toggle(n_!("Звук"), n_!("Запись с микрофона"), st.mic))
+            .child(setting_toggle(n_!("Стабилизация"), n_!("Цифровая стабилизация видео"), st.stab))
+            .child(setting_choice(n_!("Ускорение таймлапса"), st.timelapse, &[(5, "×5"), (10, "×10"), (30, "×30"), (60, "×60")]))
+            .child(Text::new(t!("Хранение")).class("set-head"))
             .child(storage_row(st, false))
             .child(storage_row(st, true));
         let vp = viewport_size().get_untracked();
