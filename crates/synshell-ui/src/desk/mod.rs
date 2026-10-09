@@ -41,6 +41,39 @@ thread_local! {
     static GHOST: Cell<Option<([f32; 4], bool)>> = const { Cell::new(None) };
     static DESKTOP_REV: Cell<Option<RwSignal<u64>>> = const { Cell::new(None) };
     static DESKTOP_FILES: RefCell<Vec<PathBuf>> = const { RefCell::new(Vec::new()) };
+    /// Виджет у края стола при перетаскивании: сторона (−1/+1) и с какого момента.
+    static EDGE: Cell<Option<(i32, std::time::Instant)>> = const { Cell::new(None) };
+    /// Виджет уже ушёл на соседний стол — конец перетаскивания ничего не делает.
+    static MOVED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Виджет `index` — на соседний стол (`dir` −1/+1): то же место, иначе свободное; стол листается.
+fn move_to_neighbor(index: usize, dir: i32) {
+    let ctx = ShellCtx::get();
+    let count = ctx.cfg().workspaces.count.max(1) as i32;
+    let mut list = items(&ctx);
+    let Some(w) = list.get(index).cloned() else { return };
+    let cur = if w.page == 0 { current_page(&ctx) as i32 } else { w.page as i32 };
+    let target = cur + dir;
+    if target < 1 || target > count {
+        return;
+    }
+    let out = output_name(&ctx);
+    let g = grid(&ctx, &out);
+    let cells = g.cells(&w);
+    let (x, y) = if fits(&ctx, &g, &list, target as u32, cells, Some(index)) {
+        (cells.0, cells.1)
+    } else {
+        let mut others = list.clone();
+        others.remove(index);
+        free_spot(&ctx, &g, &others, target as u32, cells.2, cells.3)
+    };
+    let w = &mut list[index];
+    w.page = target as u32;
+    w.x = x;
+    w.y = y;
+    save(list);
+    crate::actions::run(synshell_common::Action::Workspace(synshell_common::action::WorkspaceTarget::Index(target as u32)));
 }
 
 /// Режим правки рабочего стола.
@@ -631,10 +664,46 @@ fn place(ctx: ShellCtx, g: Grid, slot: Slot, w: DeskWidget, editing: bool) -> im
     let (sx, sy) = (x + GAP, y + GAP);
     let tap_slot = slot.clone();
     let end_slot = slot.clone();
+    let edge_slot = slot.clone();
+    let phone = ctx.is_phone();
     let mover = GestureDetector::new()
+        .on_pan_start(|_| {
+            MOVED.with(|m| m.set(false));
+            EDGE.with(|e| e.set(None));
+        })
         .on_pan_update(move |u| {
+            if MOVED.with(|m| m.get()) {
+                return;
+            }
             let p = Point::new(sx + u.total.x, sy + u.total.y);
             off.set(p);
+            // у края стола (телефон) — через 0,4 с на соседний стол
+            if let (true, Slot::Item(i)) = (phone, &edge_slot) {
+                let over = inner.0 * 0.35;
+                let dir = if p.x < -over { -1 } else if p.x + inner.0 > g.width + over { 1 } else { 0 };
+                let entered = EDGE.with(|e| match e.get() {
+                    Some((d, _)) if d == dir => None,
+                    _ => {
+                        let now = std::time::Instant::now();
+                        e.set((dir != 0).then_some((dir, now)));
+                        (dir != 0).then_some(now)
+                    }
+                });
+                if let Some(t0) = entered {
+                    let i = *i;
+                    // палец может замереть у края — проверка таймером, не только движением
+                    syngui_layer::add_timer(std::time::Duration::from_millis(400), move || {
+                        let still = EDGE.with(|e| e.get()) == Some((dir, t0));
+                        if still && !MOVED.with(|m| m.get()) {
+                            MOVED.with(|m| m.set(true));
+                            EDGE.with(|e| e.set(None));
+                            GHOST.with(|gh| gh.set(None));
+                            move_to_neighbor(i, dir);
+                        }
+                        None
+                    });
+                }
+            }
             let (cx, cy) = g.cell_at(p.x - GAP, p.y - GAP, cells.2);
             let c = (cx, cy, cells.2, cells.3);
             let ctx = ShellCtx::get();
@@ -645,6 +714,10 @@ fn place(ctx: ShellCtx, g: Grid, slot: Slot, w: DeskWidget, editing: bool) -> im
             GHOST.with(|gh| gh.set(Some((g.rect(c), ok))));
         })
         .on_pan_end(move |_| {
+            EDGE.with(|e| e.set(None));
+            if MOVED.with(|m| m.replace(false)) {
+                return;
+            }
             let ghost = GHOST.with(|gh| gh.take());
             match ghost {
                 Some(([gx, gy, _, _], true)) => {
