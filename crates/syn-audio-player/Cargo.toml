@@ -12,6 +12,6 @@ path = "src/main.rs"
 
 [dependencies]
 synshell-common = { workspace = true, features = ["i18n"] }
-syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "ffmpeg"] }
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "ffmpeg", "wayland-dnd"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true

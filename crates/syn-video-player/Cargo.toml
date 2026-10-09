@@ -12,7 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 synshell-common = { workspace = true, features = ["i18n"] }
-syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "ffmpeg"] }
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "ffmpeg", "wayland-dnd"] }
 anyhow.workspace = true
 libc.workspace = true
 image = { version = "0.25", default-features = false, features = ["png"] }

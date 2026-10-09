@@ -109,7 +109,9 @@ pub fn install(ctx: ShellCtx) {
             auto_size: false,
             clear_color: [0.0, 0.0, 0.0, 1.0],
         };
+        let out_name = out.clone();
         let id = syngui_layer::create_surface(spec, move || Box::new(view(ShellCtx::get(), out.clone())));
+        synshell_ui::desk::accept_drops(id, out_name);
         SURFACE.with(|s| s.set(Some(id)));
     });
 }

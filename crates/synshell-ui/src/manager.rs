@@ -161,6 +161,7 @@ fn wallpaper(ctx: ShellCtx, out: &OutputInfo) -> (SurfaceId, Option<u64>) {
             }))
         },
     );
+    crate::desk::accept_drops(id, out.name.clone());
     (id, timer)
 }
 

@@ -806,6 +806,59 @@ pub fn open_menu(slot: &Slot) {
     crate::edit::open_at_press(&ctx, kind);
 }
 
+thread_local! {
+    /// Поверхности столов, принимающие файлы: поверхность → вывод.
+    static DROP_SURFACES: RefCell<Vec<(syngui_layer::SurfaceId, String)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Принимать на поверхность стола `id` (вывод `output`) файлы, перетащенные из
+/// Проводника: каждый встаёт значком в клетку под точкой (или в ближайшую свободную).
+pub fn accept_drops(id: syngui_layer::SurfaceId, output: String) {
+    let first = DROP_SURFACES.with(|d| {
+        let mut d = d.borrow_mut();
+        d.retain(|(i, o)| *i != id && *o != output);
+        d.push((id, output));
+        d.len() == 1
+    });
+    if first {
+        syngui_layer::set_drop_handler(|id, p, paths| {
+            let Some(out) = DROP_SURFACES.with(|d| d.borrow().iter().find(|(i, _)| *i == id).map(|(_, o)| o.clone())) else { return };
+            drop_files(&out, p, paths);
+        });
+    }
+}
+
+fn drop_files(output: &str, p: Point, paths: Vec<PathBuf>) {
+    let ctx = ShellCtx::get();
+    let g = grid(&ctx, output);
+    let page = current_page(&ctx);
+    let mut list = items(&ctx);
+    let (mut cx, mut cy) = g.cell_at(p.x - g.cw / 2.0, p.y - g.ch / 2.0, 1);
+    for path in paths {
+        let s = path.to_string_lossy().into_owned();
+        // уже приколот — переставить, иначе новый значок
+        let pinned = list.iter().position(|w| w.kind == "file" && w.str("path").is_some_and(|q| synshell_common::paths::expand_tilde(q) == path));
+        let (x, y) = if fits(&ctx, &g, &list, page, (cx, cy, 1, 1), pinned) { (cx, cy) } else { free_spot(&ctx, &g, &list, page, 1, 1) };
+        match pinned {
+            Some(i) => {
+                list[i].x = x;
+                list[i].y = y;
+                list[i].page = page;
+            }
+            None => {
+                let mut w = DeskWidget::new("file", x, y, 1, 1).with("path", s);
+                w.page = page;
+                w.form_factor = if ctx.is_phone() { "phone" } else { "desktop" }.into();
+                list.push(w);
+            }
+        }
+        // следующие — ниже
+        cx = x;
+        cy = y + 1;
+    }
+    save(list);
+}
+
 /// Синхронизировать сбор данных с тем, что на экране (компьютер: виджеты
 /// активного стола видны всегда, обои под окнами не прячутся).
 pub fn track_visibility_desktop(ctx: ShellCtx) {

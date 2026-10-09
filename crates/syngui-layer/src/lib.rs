@@ -284,6 +284,56 @@ pub(crate) fn virtual_keyboard_request(namespace: &str, show: bool) {
     }
 }
 
+thread_local! {
+    static DROP_HANDLER: RefCell<Option<std::rc::Rc<dyn Fn(SurfaceId, syngui::core::Point, Vec<std::path::PathBuf>)>>> = const { RefCell::new(None) };
+}
+
+/// Приём файлов, перетащенных на поверхности (`text/uri-list`, например из Проводника):
+/// `f(поверхность, точка в координатах интерфейса, пути)`. Без обработчика перетаскивание
+/// на поверхности не принимается.
+pub fn set_drop_handler(f: impl Fn(SurfaceId, syngui::core::Point, Vec<std::path::PathBuf>) + 'static) {
+    DROP_HANDLER.with(|h| *h.borrow_mut() = Some(std::rc::Rc::new(f)));
+}
+
+pub(crate) fn has_drop_handler() -> bool {
+    DROP_HANDLER.with(|h| h.borrow().is_some())
+}
+
+pub(crate) fn deliver_drop(id: SurfaceId, pos: syngui::core::Point, paths: Vec<std::path::PathBuf>) {
+    let f = DROP_HANDLER.with(|h| h.borrow().clone());
+    if let Some(f) = f {
+        f(id, pos, paths);
+    }
+}
+
+/// Локальные пути из `text/uri-list` (строки `file://…`, комментарии `#` пропускаются).
+pub(crate) fn parse_uri_list(s: &str) -> Vec<std::path::PathBuf> {
+    s.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter_map(|l| {
+            let rest = l.strip_prefix("file://")?;
+            let path = &rest[rest.find('/')?..];
+            let b = path.as_bytes();
+            let mut out = Vec::with_capacity(b.len());
+            let mut i = 0;
+            while i < b.len() {
+                if b[i] == b'%' && i + 2 < b.len() {
+                    if let Ok(v) = u8::from_str_radix(&path[i + 1..i + 3], 16) {
+                        out.push(v);
+                        i += 3;
+                        continue;
+                    }
+                }
+                out.push(b[i]);
+                i += 1;
+            }
+            use std::os::unix::ffi::OsStringExt;
+            Some(std::path::PathBuf::from(std::ffi::OsString::from_vec(out)))
+        })
+        .collect()
+}
+
 /// Виртуальная клавиатура (`zwp_virtual_keyboard_v1`): задать раскладку XKB
 /// (текст keymap, см. [`xkb_keymap`]). Композитор выставит её всем клиентам.
 pub fn virtual_keyboard_keymap(keymap: String) {
@@ -372,4 +422,13 @@ pub fn run(options: RunOptions, stylesheet: &str, init: impl FnOnce() + 'static)
 
 pub(crate) fn next_id_pub() -> u64 {
     next_id()
+}
+
+#[cfg(test)]
+mod drop_tests {
+    #[test]
+    fn uri_list() {
+        let p = super::parse_uri_list("# c\r\nfile:///home/u/%D0%A4%20x.png\r\nfile://host/tmp/a\r\nhttps://x\r\n");
+        assert_eq!(p, vec![std::path::PathBuf::from("/home/u/Ф x.png"), std::path::PathBuf::from("/tmp/a")]);
+    }
 }

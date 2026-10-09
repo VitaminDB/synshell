@@ -6,7 +6,13 @@ use crate::surface::{Backend, Surface};
 use crate::{Command, KeyInfo, OutputInfo, RunOptions, SurfaceId, SurfaceSpec};
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
-    delegate_compositor, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer,
+    data_device_manager::{
+        data_device::{DataDevice, DataDeviceHandler},
+        data_offer::{DataOfferHandler, DragOffer},
+        data_source::DataSourceHandler,
+        DataDeviceManagerState, WritePipe,
+    },
+    delegate_compositor, delegate_data_device, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer,
     delegate_registry, delegate_seat, delegate_session_lock, delegate_shm, delegate_touch,
     output::{OutputHandler, OutputState},
     reexports::{
@@ -46,7 +52,7 @@ use syngui::input::MouseButton;
 use syngui::mss::StyleEngine;
 use wayland_client::{
     globals::{registry_queue_init, GlobalList},
-    protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_surface, wl_touch},
+    protocol::{wl_data_device::WlDataDevice, wl_data_device_manager::DndAction, wl_data_source::WlDataSource, wl_keyboard, wl_output, wl_pointer, wl_seat, wl_surface, wl_touch},
     Connection, Dispatch, Proxy, QueueHandle,
 };
 
@@ -79,6 +85,10 @@ pub struct State {
     kb_focus: Option<SurfaceId>,
     /// Первый seat композитора — для виртуальной клавиатуры и input-method.
     pub(crate) seat: Option<wl_seat::WlSeat>,
+    /// Приём перетаскивания файлов (рабочий стол): устройство данных первого seat и куда сейчас тащат.
+    data_manager: Option<DataDeviceManagerState>,
+    data_device: Option<DataDevice>,
+    dnd_target: Option<(SurfaceId, f64, f64)>,
     pub(crate) vk: crate::vkbd::Vkbd,
     modifiers: syngui::input::Modifiers,
     handle: LoopHandle<'static, State>,
@@ -157,6 +167,9 @@ pub fn run(options: RunOptions, stylesheet: &str, init: Box<dyn FnOnce()>) -> an
         touch: None,
         touches: HashMap::new(),
         seat: None,
+        data_manager: None,
+        data_device: None,
+        dnd_target: None,
         vk: crate::vkbd::Vkbd::default(),
         keyboard: None,
         kb_focus: None,
@@ -285,6 +298,7 @@ impl State {
         self.fractional = globals.bind::<WpFractionalScaleManagerV1, _, _>(qh, 1..=1, ()).ok();
         self.viewporter = globals.bind::<WpViewporter, _, _>(qh, 1..=1, ()).ok();
         self.lock_state = Some(SessionLockState::new(globals, qh));
+        self.data_manager = DataDeviceManagerState::bind(globals, qh).ok();
         self.vk.bind(globals, qh);
         Ok(())
     }
@@ -947,6 +961,9 @@ impl SeatHandler for State {
     fn new_seat(&mut self, _: &Connection, qh: &QueueHandle<Self>, seat: wl_seat::WlSeat) {
         if self.seat.is_none() {
             self.seat = Some(seat.clone());
+            if let Some(m) = &self.data_manager {
+                self.data_device = Some(m.get_data_device(qh, &seat));
+            }
             crate::vkbd::seat_ready(self, qh);
         }
     }
@@ -1118,6 +1135,73 @@ impl ProvidesRegistryState for State {
     registry_handlers![OutputState, SeatState];
 }
 
+/// Перетаскивание файлов на поверхности оболочки (рабочий стол): принимается `text/uri-list`,
+/// брошенное отдаётся обработчику [`crate::set_drop_handler`].
+impl DataDeviceHandler for State {
+    fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, x: f64, y: f64, surface: &wl_surface::WlSurface) {
+        let id = self.surface_id_of(surface);
+        let offer = self.data_device.as_ref().and_then(|d| d.data().drag_offer());
+        let accept = id.is_some() && crate::has_drop_handler() && offer.as_ref().is_some_and(|o| o.with_mime_types(|m| m.iter().any(|t| t == "text/uri-list")));
+        if let Some(o) = &offer {
+            o.accept_mime_type(o.serial, accept.then(|| "text/uri-list".to_string()));
+            o.set_actions(DndAction::Copy | DndAction::Move, DndAction::Copy);
+        }
+        self.dnd_target = if accept { id.map(|i| (i, x, y)) } else { None };
+    }
+    fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {
+        self.dnd_target = None;
+    }
+    fn motion(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, x: f64, y: f64) {
+        if let Some(t) = self.dnd_target.as_mut() {
+            t.1 = x;
+            t.2 = y;
+        }
+    }
+    fn selection(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {}
+    fn drop_performed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {
+        let Some((id, x, y)) = self.dnd_target.take() else { return };
+        let Some(offer) = self.data_device.as_ref().and_then(|d| d.data().drag_offer()) else { return };
+        let pos = self.surfaces.get(&id).map(|s| s.ui_point(x, y)).unwrap_or(syngui::core::Point::new(x as f32, y as f32));
+        let pipe = match offer.receive("text/uri-list".to_string()) {
+            Ok(p) => p,
+            Err(e) => {
+                log::warn!("перетаскивание: {e}");
+                offer.destroy();
+                return;
+            }
+        };
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let mut pipe = pipe;
+            let mut buf = Vec::new();
+            let _ = pipe.read_to_end(&mut buf);
+            offer.finish();
+            offer.destroy();
+            let paths = crate::parse_uri_list(&String::from_utf8_lossy(&buf));
+            if !paths.is_empty() {
+                syngui::async_runtime::run_on_main_thread(move || crate::deliver_drop(id, pos, paths));
+            }
+        });
+    }
+}
+
+impl DataOfferHandler for State {
+    fn source_actions(&mut self, _: &Connection, _: &QueueHandle<Self>, offer: &mut DragOffer, _: DndAction) {
+        offer.set_actions(DndAction::Copy | DndAction::Move, DndAction::Copy);
+    }
+    fn selected_action(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &mut DragOffer, _: DndAction) {}
+}
+
+impl DataSourceHandler for State {
+    fn accept_mime(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource, _: Option<String>) {}
+    fn send_request(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource, _: String, _: WritePipe) {}
+    fn cancelled(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
+    fn dnd_dropped(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
+    fn dnd_finished(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
+    fn action(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource, _: DndAction) {}
+}
+
+delegate_data_device!(State);
 delegate_compositor!(State);
 delegate_output!(State);
 delegate_shm!(State);
