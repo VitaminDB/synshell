@@ -346,7 +346,7 @@ fn run_step(tree: &mut ElementTree, root: ElementId, touch: &mut syngui::input::
             touch.up(1, Some(b), &mut d);
         }
         "back" => send(tree, root, Event::BackPressed),
-        _ => eprintln!("неизвестный шаг сценария: {step}"),
+        _ => eprintln!("{}", t!("неизвестный шаг сценария: {step}", step = step)),
     }
 }
 

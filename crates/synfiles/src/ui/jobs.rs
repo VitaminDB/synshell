@@ -22,13 +22,13 @@ fn eta(job: &Job) -> String {
     }
     let left = total.saturating_sub(done) / rate.max(1);
     let t = if left >= 3600 {
-        format!("{} ч {} мин", left / 3600, left % 3600 / 60)
+        t!("{v} ч {v2} мин", v = left / 3600, v2 = left % 3600 / 60)
     } else if left >= 60 {
-        format!("{} мин {} с", left / 60, left % 60)
+        t!("{v} мин {v2} с", v = left / 60, v2 = left % 60)
     } else {
-        format!("{left} с")
+        t!("{left} с", left = left)
     };
-    format!("{}/с · осталось {t}", format_size(rate))
+    t!("{v}/с · осталось {t}", v = format_size(rate), t = t)
 }
 
 fn conflict_card(job: Arc<Job>, c: ops::Conflict) -> W {
@@ -42,23 +42,23 @@ fn conflict_card(job: Arc<Job>, c: ops::Conflict) -> W {
             .map(|m| {
                 use std::os::unix::fs::MetadataExt;
                 if m.is_dir() {
-                    format!("папка, изменена {}", crate::model::format_time(m.mtime()))
+                    t!("папка, изменена {v}", v = crate::model::format_time(m.mtime()))
                 } else {
-                    format!("{}, изменён {}", format_size(m.len()), crate::model::format_time(m.mtime()))
+                    t!("{v}, изменён {v2}", v = format_size(m.len()), v2 = crate::model::format_time(m.mtime()))
                 }
             })
             .unwrap_or_default()
     };
     let name = ops::name_of(&c.dst);
     let title = if c.dir {
-        format!("Папка «{name}» уже есть в «{}»", c.dst.parent().map(ops::name_of).unwrap_or_default())
+        t!("Папка «{name}» уже есть в «{v}»", name = name, v = c.dst.parent().map(ops::name_of).unwrap_or_default())
     } else {
-        format!("Файл «{name}» уже есть в «{}»", c.dst.parent().map(ops::name_of).unwrap_or_default())
+        t!("Файл «{name}» уже есть в «{v}»", name = name, v = c.dst.parent().map(ops::name_of).unwrap_or_default())
     };
-    let replace = Button::new(if c.dir { "Объединить" } else { "Заменить" }).class("primary").on_click(move || j1.answer(Resolution::Replace, all.get_untracked()));
-    let both = Button::new("Оставить оба").on_click(move || j2.answer(Resolution::KeepBoth, all.get_untracked()));
-    let skip = Button::new("Пропустить").on_click(move || j3.answer(Resolution::Skip, all.get_untracked()));
-    let cancel = Button::new("Отмена").class("flat").on_click(move || j4.cancel());
+    let replace = Button::new(if c.dir { t!("Объединить") } else { t!("Заменить") }).class("primary").on_click(move || j1.answer(Resolution::Replace, all.get_untracked()));
+    let both = Button::new(t!("Оставить оба")).on_click(move || j2.answer(Resolution::KeepBoth, all.get_untracked()));
+    let skip = Button::new(t!("Пропустить")).on_click(move || j3.answer(Resolution::Skip, all.get_untracked()));
+    let cancel = Button::new(t!("Отмена")).class("flat").on_click(move || j4.cancel());
     // Телефон: четыре кнопки в строку не влезают — по две.
     let buttons: W = if state::is_phone() {
         boxed(
@@ -75,10 +75,10 @@ fn conflict_card(job: Arc<Job>, c: ops::Conflict) -> W {
             .gap(8.0)
             .class("conflict")
             .child(Text::new(title).max_lines(2).class("conflict-title"))
-            .child(Text::new(format!("Новый: {}", meta(&c.src))).class("meta"))
-            .child(Text::new(format!("Имеющийся: {}", meta(&c.dst))).class("meta"))
+            .child(Text::new(t!("Новый: {v}", v = meta(&c.src))).class("meta"))
+            .child(Text::new(t!("Имеющийся: {v}", v = meta(&c.dst))).class("meta"))
             .child(buttons)
-            .child(Checkbox::new().label("Для всех совпадений").on_change(move |v| all.set(v))),
+            .child(Checkbox::new().label(t!("Для всех совпадений")).on_change(move |v| all.set(v))),
     )
 }
 
@@ -92,15 +92,15 @@ fn job_card(job: Arc<Job>) -> W {
     let conflict = p.conflict.lock().unwrap().clone();
     let frac = job.fraction();
     let status = if finished && cancelled {
-        "Отменено".to_string()
+        t!("Отменено").to_string()
     } else if finished && !errors.is_empty() {
-        format!("Готово с ошибками: {}", errors.len())
+        t!("Готово с ошибками: {n}", n = errors.len())
     } else if finished {
-        "Готово".to_string()
+        t!("Готово").to_string()
     } else if paused {
-        "Пауза".to_string()
+        t!("Пауза").to_string()
     } else {
-        let files = format!("{} из {}", p.done_files.load(Ordering::Relaxed), p.total_files.load(Ordering::Relaxed));
+        let files = t!("{v} из {v2}", v = p.done_files.load(Ordering::Relaxed), v2 = p.total_files.load(Ordering::Relaxed));
         let e = eta(&job);
         if e.is_empty() {
             files
@@ -120,12 +120,12 @@ fn job_card(job: Arc<Job>) -> W {
                 .child(if finished {
                     boxed(DecoratedBox::new())
                 } else {
-                    icon_button(if paused { icons::PLAY } else { icons::PAUSE }, if paused { "Продолжить" } else { "Пауза" }, "small", true, move || jp.toggle_pause())
+                    icon_button(if paused { icons::PLAY } else { icons::PAUSE }, &if paused { t!("Продолжить") } else { t!("Пауза") }, "small", true, move || jp.toggle_pause())
                 })
                 .child(if finished {
                     boxed(DecoratedBox::new())
                 } else {
-                    icon_button(icons::CLOSE, "Отменить", "small", true, move || jc.cancel())
+                    icon_button(icons::CLOSE, &t!("Отменить"), "small", true, move || jc.cancel())
                 }),
         )
         .child(ProgressBar::new().value(if finished { 1.0 } else { frac }).class("job-progress"))
@@ -159,7 +159,7 @@ pub fn jobs_panel() -> W {
             col = col.child(
                 GestureDetector::new()
                     .on_click(ops::clear_finished)
-                    .child(DecoratedBox::new().class("link-btn").child(Text::new("Скрыть завершённые"))),
+                    .child(DecoratedBox::new().class("link-btn").child(Text::new(t!("Скрыть завершённые")))),
             );
         }
         let mut jobs = DecoratedBox::new().class("jobs");

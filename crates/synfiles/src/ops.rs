@@ -9,6 +9,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::trash;
+use syngui::t;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Op {
@@ -31,13 +32,13 @@ impl Op {
             }
         };
         match self {
-            Op::Copy { srcs, dest } => format!("Копирование {} в «{}»", n(srcs), name_of(dest)),
-            Op::Move { srcs, dest } => format!("Перемещение {} в «{}»", n(srcs), name_of(dest)),
-            Op::Link { srcs, dest } => format!("Ссылки на {} в «{}»", n(srcs), name_of(dest)),
-            Op::Trash { srcs } => format!("Удаление {} в корзину", n(srcs)),
-            Op::Delete { srcs } => format!("Удаление {}", n(srcs)),
-            Op::Restore { files } => format!("Восстановление {}", n(files)),
-            Op::EmptyTrash => "Очистка корзины".into(),
+            Op::Copy { srcs, dest } => t!("Копирование {v} в «{v2}»", v = n(srcs), v2 = name_of(dest)),
+            Op::Move { srcs, dest } => t!("Перемещение {v} в «{v2}»", v = n(srcs), v2 = name_of(dest)),
+            Op::Link { srcs, dest } => t!("Ссылки на {v} в «{v2}»", v = n(srcs), v2 = name_of(dest)),
+            Op::Trash { srcs } => t!("Удаление {v} в корзину", v = n(srcs)),
+            Op::Delete { srcs } => t!("Удаление {v}", v = n(srcs)),
+            Op::Restore { files } => t!("Восстановление {v}", v = n(files)),
+            Op::EmptyTrash => t!("Очистка корзины").into(),
         }
     }
 }
@@ -135,10 +136,20 @@ pub enum Undo {
 impl Undo {
     pub fn title(&self) -> String {
         match self {
-            Undo::Created(v) => format!("Отменить создание ({})", v.len()),
-            Undo::Moved(v) => format!("Отменить перемещение ({})", v.len()),
-            Undo::Trashed(v) => format!("Отменить удаление ({})", v.len()),
-            Undo::Renamed(_, to) => format!("Отменить переименование «{}»", name_of(to)),
+            Undo::Created(v) => t!("Отменить создание ({n})", n = v.len()),
+            Undo::Moved(v) => t!("Отменить перемещение ({n})", n = v.len()),
+            Undo::Trashed(v) => t!("Отменить удаление ({n})", n = v.len()),
+            Undo::Renamed(_, to) => t!("Отменить переименование «{v}»", v = name_of(to)),
+        }
+    }
+
+    /// Сообщение после отмены.
+    pub fn done_title(&self) -> String {
+        match self {
+            Undo::Created(v) => t!("Отменено — создание ({n})", n = v.len()),
+            Undo::Moved(v) => t!("Отменено — перемещение ({n})", n = v.len()),
+            Undo::Trashed(v) => t!("Отменено — удаление ({n})", n = v.len()),
+            Undo::Renamed(_, to) => t!("Отменено — переименование «{v}»", v = name_of(to)),
         }
     }
 }
@@ -188,7 +199,7 @@ pub fn undo_title() -> Option<String> {
 /// Отменить последнее действие.
 pub fn undo() -> Option<Result<String, String>> {
     let u = G.lock().unwrap().undo.pop()?;
-    let title = u.title();
+    let title = u.done_title();
     let res: std::io::Result<()> = (|| {
         match &u {
             Undo::Created(v) => {
@@ -210,7 +221,7 @@ pub fn undo() -> Option<Result<String, String>> {
             }
             Undo::Renamed(from, to) => {
                 if from.exists() {
-                    return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "имя уже занято"));
+                    return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, t!("имя уже занято")));
                 }
                 std::fs::rename(to, from)?;
             }
@@ -334,7 +345,7 @@ fn run(job: &Job) -> Option<Undo> {
                 let Some(name) = src.file_name() else { continue };
                 let mut dst = dest.join(name);
                 if src.is_dir() && dest.starts_with(src) {
-                    err(p, format!("Нельзя {} папку «{}» в саму себя", if moving { "переместить" } else { "скопировать" }, name_of(src)));
+                    err(p, if moving { t!("Нельзя переместить папку «{name}» в саму себя", name = name_of(src)) } else { t!("Нельзя скопировать папку «{name}» в саму себя", name = name_of(src)) });
                     continue;
                 }
                 if dst == *src {
@@ -640,7 +651,7 @@ pub fn copy_recursive_simple(src: &Path, dst: &Path) -> std::io::Result<()> {
 
 fn move_one(from: &Path, to: &Path) -> std::io::Result<()> {
     if to.symlink_metadata().is_ok() {
-        return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, format!("{} уже существует", to.display())));
+        return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, t!("{to} уже существует", to = to.display())));
     }
     if std::fs::rename(from, to).is_err() {
         copy_recursive_simple(from, to)?;
@@ -655,13 +666,13 @@ fn move_one(from: &Path, to: &Path) -> std::io::Result<()> {
 pub fn check_name(name: &str) -> Result<(), String> {
     let n = name.trim();
     if n.is_empty() {
-        return Err("Имя не может быть пустым".into());
+        return Err(t!("Имя не может быть пустым").into());
     }
     if n.contains('/') || n.contains('\0') {
-        return Err("Имя не может содержать «/»".into());
+        return Err(t!("Имя не может содержать «/»").into());
     }
     if n == "." || n == ".." {
-        return Err("Недопустимое имя".into());
+        return Err(t!("Недопустимое имя").into());
     }
     Ok(())
 }
@@ -675,7 +686,7 @@ pub fn rename(from: &Path, new_name: &str) -> Result<PathBuf, String> {
     // Смена только регистра допустима (на нечувствительных к регистру ФС).
     let same_ignoring_case = name_of(from).to_lowercase() == new_name.trim().to_lowercase();
     if to.symlink_metadata().is_ok() && !same_ignoring_case {
-        return Err(format!("«{}» уже существует", new_name.trim()));
+        return Err(t!("«{trim}» уже существует", trim = new_name.trim()));
     }
     std::fs::rename(from, &to).map_err(|e| e.to_string())?;
     push_undo(Undo::Renamed(from.to_path_buf(), to.clone()));

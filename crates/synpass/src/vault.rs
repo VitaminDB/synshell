@@ -18,6 +18,7 @@ use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, Zeroizing};
+use syngui::n_;
 
 const AAD: &[u8] = b"synpass/1";
 
@@ -634,11 +635,11 @@ pub fn strength(p: &str) -> (u8, &'static str) {
     let len = p.chars().count().min(distinct * 2);
     let bits = len as f64 * (pool.max(1) as f64).log2();
     match bits as u32 {
-        0..=27 => (0, "Очень слабый"),
-        28..=40 => (1, "Слабый"),
-        41..=59 => (2, "Средний"),
-        60..=89 => (3, "Надёжный"),
-        _ => (4, "Отличный"),
+        0..=27 => (0, n_!("Очень слабый")),
+        28..=40 => (1, n_!("Слабый")),
+        41..=59 => (2, n_!("Средний")),
+        60..=89 => (3, n_!("Надёжный")),
+        _ => (4, n_!("Отличный")),
     }
 }
 

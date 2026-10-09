@@ -79,7 +79,7 @@ fn parse_args() -> Args {
                 })
             }
             "-h" | "--help" => {
-                println!("synfiles [--view details|list|tiles|icons] [--split] [ПУТЬ|URI…]\nsynfiles --viewer КАРТИНКА");
+                println!("{}", t!("synfiles [--view details|list|tiles|icons] [--split] [ПУТЬ|URI…]\nsynfiles --viewer КАРТИНКА"));
                 std::process::exit(0);
             }
             // Совместимость с вызовами «как у Dolphin/Nautilus».
@@ -155,6 +155,7 @@ fn main() {
         // stdout — ответ окна выбора (--choose)
         .with_writer(std::io::stderr)
         .init();
+    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
     let args = parse_args();
     if let Some(j) = &args.choose {
         if let Err(e) = chooser::init(j) {
@@ -171,7 +172,7 @@ fn main() {
     if let Some(file) = args.viewer.clone() {
         if let Some(out) = args.screenshot.clone() {
             if let Err(e) = viewer::screenshot(&out, args.size, args.scale, file, cfg, &args.script) {
-                eprintln!("снимок не удался: {e:#}");
+                eprintln!("{}", t!("снимок не удался: {e}", e = format!("{:#}", e)));
                 std::process::exit(1);
             }
             return;
@@ -184,7 +185,7 @@ fn main() {
     if let Some(out) = args.screenshot.clone() {
         let (size, scale, script) = (args.size, args.scale, args.script.clone());
         if let Err(e) = shot::screenshot(&out, size, scale, move || make_state(&args, cfg), &script) {
-            eprintln!("снимок не удался: {e:#}");
+            eprintln!("{}", t!("снимок не удался: {e}", e = format!("{:#}", e)));
             std::process::exit(1);
         }
         return;
@@ -201,7 +202,7 @@ fn main() {
     let initial = theme.get_untracked();
     watch_config();
 
-    let title = if choosing { chooser::title() } else { "Проводник".to_string() };
+    let title = if choosing { chooser::title() } else { t!("Проводник").to_string() };
     App::new()
         .title(&title)
         .app_id(if choosing { "synfiles-chooser" } else { "synfiles" })

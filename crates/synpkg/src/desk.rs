@@ -81,16 +81,16 @@ fn titlebar(st: St) -> W {
         let d = domain.get();
         let _ = st.search_rev.get();
         let w: W = match d {
-            1 => Box::new(search_box(st.aur_query.get_untracked(), "Искать в AUR", move |t| {
+            1 => Box::new(search_box(st.aur_query.get_untracked(), &t!("Искать в AUR"), move |t| {
                 st.selected.set(None);
                 st.aur_query.set(t.clone());
                 search_aur(st, t);
             })),
-            2 => Box::new(search_box(st.filter.get_untracked(), "Фильтр установленных", move |t| {
+            2 => Box::new(search_box(st.filter.get_untracked(), &t!("Фильтр установленных"), move |t| {
                 st.selected.set(None);
                 st.filter.set(t);
             })),
-            _ => Box::new(search_box(st.query.get_untracked(), "Найти программу в репозиториях и AUR", move |t| {
+            _ => Box::new(search_box(st.query.get_untracked(), &t!("Найти программу в репозиториях и AUR"), move |t| {
                 st.selected.set(None);
                 if st.tab.get_untracked() != Tab::Explore {
                     st.tab.set(Tab::Explore);
@@ -122,7 +122,7 @@ fn titlebar(st: St) -> W {
     let brand = WindowDragRegion::new().child(
         Column::new()
             .main_axis_alignment(MainAxisAlignment::Center)
-            .child(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().child(Icon::new("\u{EA12}").class("brand-icon")).class("brand-icon-box")).child(Text::new("Программы").class("brand")))
+            .child(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().child(Icon::new("\u{EA12}").class("brand-icon")).class("brand-icon-box")).child(Text::new(t!("Программы")).class("brand")))
             .class("tb-brand")
             .style("width", StyleValue::px(SIDEBAR_W))
             .style("height", StyleValue::px(TITLEBAR_H)),
@@ -155,7 +155,7 @@ fn sidebar(st: St) -> W {
         let tab = st.tab.get();
         let cat = st.category.get();
         let explore = tab == Tab::Explore;
-        let mut col = Column::new().gap(2.0).child(nav_item("\u{E88A}", "Обзор".into(), None, explore && cat.is_none(), move || {
+        let mut col = Column::new().gap(2.0).child(nav_item("\u{E88A}", t!("Обзор").into(), None, explore && cat.is_none(), move || {
             st.selected.set(None);
             st.tab.set(Tab::Explore);
             st.category.set(None);
@@ -163,14 +163,14 @@ fn sidebar(st: St) -> W {
         }));
         let apps = st.catalog.get().unwrap_or_default();
         if !apps.is_empty() {
-            col = col.child(Text::new("Категории").class("nav-section"));
+            col = col.child(Text::new(t!("Категории")).class("nav-section"));
             for c in CATEGORIES {
                 let n = apps.iter().filter(|a| c.contains(a)).count();
                 if n == 0 {
                     continue;
                 }
                 let key = c.key;
-                col = col.child(nav_item(c.icon, c.label.into(), Some(n.to_string()).filter(|_| false), explore && cat == Some(key), move || {
+                col = col.child(nav_item(c.icon, c.title(), Some(n.to_string()).filter(|_| false), explore && cat == Some(key), move || {
                     st.selected.set(None);
                     st.tab.set(Tab::Explore);
                     st.category.set(Some(key));
@@ -178,7 +178,7 @@ fn sidebar(st: St) -> W {
                 }));
             }
         }
-        col = col.child(Text::new("Наборы").class("nav-section")).child(nav_item(META_ICON, "Метапакеты и группы".into(), None, explore && cat == Some(META_KEY), move || {
+        col = col.child(Text::new(t!("Наборы")).class("nav-section")).child(nav_item(META_ICON, t!("Метапакеты и группы").into(), None, explore && cat == Some(META_KEY), move || {
             st.selected.set(None);
             st.tab.set(Tab::Explore);
             st.category.set(Some(META_KEY));
@@ -243,15 +243,15 @@ pub fn home(st: St, apps: Vec<CatalogApp>) -> W {
             .child(
                 Column::new()
                     .gap(6.0)
-                    .child(Text::new("Программы для вашего компьютера").class("hero-title"))
-                    .child(Text::new(format!("{} из репозиториев Arch Linux, поиск — ещё и по AUR. Отмечайте программы — установка и удаление выполнятся одной очередью.", programs(apps.len()))).class("hero-sub")),
+                    .child(Text::new(t!("Программы для вашего компьютера")).class("hero-title"))
+                    .child(Text::new(t!("{v} из репозиториев Arch Linux, поиск — ещё и по AUR. Отмечайте программы — установка и удаление выполнятся одной очередью.", v = programs(apps.len()))).class("hero-sub")),
             )
             .class("hero"),
     );
     let featured: Vec<CatalogApp> = FEATURED.iter().filter_map(|f| apps.iter().find(|a| a.pkg.name == *f)).filter(|a| a.pkg.installed.is_none()).take(n * 2).cloned().collect();
     let shown: Vec<String> = featured.iter().map(|a| a.pkg.name.clone()).collect();
     if !featured.is_empty() {
-        col = col.child(shelf_head("Популярные программы", None)).child(card_grid(st, featured, n));
+        col = col.child(shelf_head(&t!("Популярные программы"), None)).child(card_grid(st, featured, n));
     }
     for c in CATEGORIES {
         // Уже показанные в «Популярных» — не повторять.
@@ -263,7 +263,7 @@ pub fn home(st: St, apps: Vec<CatalogApp>) -> W {
         v.sort_by_cached_key(showcase_rank);
         v.truncate(n);
         let key = c.key;
-        col = col.child(shelf_head(c.label, Some((format!("Все {total}"), Box::new(move || st.category.set(Some(key))))))).child(card_grid(st, v, n));
+        col = col.child(shelf_head(&c.title(), Some((t!("Все {total}", total = total), Box::new(move || st.category.set(Some(key))))))).child(card_grid(st, v, n));
     }
     Box::new(col.class("page"))
 }
@@ -278,10 +278,10 @@ pub fn category_page(st: St, cat: &'static Category, apps: Vec<CatalogApp>) -> W
         .gap(12.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(DecoratedBox::new().child(Icon::new(cat.icon).class("cat-icon")).class("cat-icon-box"))
-        .child(Column::new().gap(2.0).child(Text::new(cat.label).class("h1")).child(Text::new(programs(v.len())).class("muted")).class("grow"));
+        .child(Column::new().gap(2.0).child(Text::new(cat.title()).class("h1")).child(Text::new(programs(v.len())).class("muted")).class("grow"));
     // Сотни карточек сразу — тяжело: первые 240, остальное находит поиск.
     let shown: Vec<CatalogApp> = v.into_iter().take(240).collect();
-    Box::new(Column::new().gap(14.0).child(head).child(select_all_row(st, &pkgs, "Программ", false)).child(card_grid(st, shown, n)).class("page"))
+    Box::new(Column::new().gap(14.0).child(head).child(select_all_row(st, &pkgs, &t!("Программ"), false)).child(card_grid(st, shown, n)).class("page"))
 }
 
 /// Страница программы: шапка с действиями, снимки, описание и сведения.
@@ -299,7 +299,7 @@ fn detail_page(st: St, p: Pkg) -> W {
     });
     let mut chips = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(p.version.clone()).class("pkg-ver")).child(source_chip(&p));
     if p.installed.is_some() {
-        chips = chips.child(chip("установлен", "chip-ok"));
+        chips = chips.child(chip(t!("установлен"), "chip-ok"));
     }
     if let Some(a) = &app {
         let c = category_label(a);
@@ -326,7 +326,7 @@ fn detail_page(st: St, p: Pkg) -> W {
         let mut c = Column::new().gap(10.0);
         let paras = if desc_local.is_empty() { st.media.get().filter(|m| m.name == n3).map(|m| m.description).unwrap_or_default() } else { desc_local.clone() };
         if !paras.is_empty() {
-            c = c.child(Text::new("Описание").class("h2"));
+            c = c.child(Text::new(t!("Описание")).class("h2"));
             for p in paras.into_iter().take(16) {
                 c = c.child(Text::new(p).class("desc"));
             }
@@ -335,7 +335,7 @@ fn detail_page(st: St, p: Pkg) -> W {
             let n = n4.clone();
             c = c.child(
                 DecoratedBox::new()
-                    .child(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new("\u{E002}").class("warn-icon")).child(Text::new("Пакет из AUR собирают пользователи, а не Arch Linux. Проверьте PKGBUILD перед установкой.").class("warn-text grow")).child(Button::new("PKGBUILD").class("small").on_click(move || show_pkgbuild(st, n.clone()))))
+                    .child(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new("\u{E002}").class("warn-icon")).child(Text::new(t!("Пакет из AUR собирают пользователи, а не Arch Linux. Проверьте PKGBUILD перед установкой.")).class("warn-text grow")).child(Button::new("PKGBUILD").class("small").on_click(move || show_pkgbuild(st, n.clone()))))
                     .class("warn"),
             );
         }
@@ -348,21 +348,21 @@ fn detail_page(st: St, p: Pkg) -> W {
                 for dep in &d.depends {
                     deps = deps.child(chip(dep.clone(), "chip-dep"));
                 }
-                c = c.child(Text::new("Зависимости").class("h2")).child(deps);
+                c = c.child(Text::new(t!("Зависимости")).class("h2")).child(deps);
             }
             if !d.optional.is_empty() {
                 let mut col = Column::new().gap(3.0);
                 for o in &d.optional {
                     col = col.child(Text::new(o.clone()).class("pkg-desc"));
                 }
-                c = c.child(Text::new("Дополнительно").class("h2")).child(col);
+                c = c.child(Text::new(t!("Дополнительно")).class("h2")).child(col);
             }
         }
         vec![Box::new(c)]
     });
     // Правая колонка: сведения и файлы.
     let right = Reactive::new(move || -> Vec<W> {
-        let mut c = Column::new().gap(10.0).child(Text::new("Сведения").class("h2"));
+        let mut c = Column::new().gap(10.0).child(Text::new(t!("Сведения")).class("h2"));
         let Some(d) = st.details.get() else {
             return vec![Box::new(c.child(CircularProgress::new().indeterminate().size(22.0)))];
         };
@@ -372,14 +372,14 @@ fn detail_page(st: St, p: Pkg) -> W {
         }
         if let Some(u) = &d.url {
             let u2 = u.clone();
-            table = table.child(Row::new().gap(10.0).child(Text::new("Сайт").class("k")).child(GestureDetector::new().on_click(move || {
+            table = table.child(Row::new().gap(10.0).child(Text::new(t!("Сайт")).class("k")).child(GestureDetector::new().on_click(move || {
                 let _ = std::process::Command::new("xdg-open").arg(&u2).spawn();
             }).child(Text::new(u.clone()).class("v link grow"))).class("kv"));
         }
         c = c.child(DecoratedBox::new().child(table).class("card"));
         if !d.files.is_empty() {
             let open = st.files_open.get();
-            c = c.child(Row::new().child(Button::new(if open { format!("Скрыть файлы ({})", d.files.len()) } else { format!("Показать файлы ({})", d.files.len()) }).class("small").on_click(move || st.files_open.set(!open))));
+            c = c.child(Row::new().child(Button::new(if open { t!("Скрыть файлы ({n})", n = d.files.len()) } else { t!("Показать файлы ({n})", n = d.files.len()) }).class("small").on_click(move || st.files_open.set(!open))));
             if open {
                 let mut col = Column::new().gap(0.0);
                 for f in d.files.iter().take(400) {

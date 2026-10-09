@@ -6,6 +6,7 @@
 //! вместе с установкой — `-Syu a b`), один проход AUR.
 
 use synsystem::packages::Op;
+use syngui::t;
 
 /// Что сделать с пакетом из очереди.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -29,12 +30,12 @@ impl QAct {
     }
 
     /// Метка задачи и класс плашки.
-    pub fn chip(self) -> (&'static str, &'static str) {
+    pub fn chip(self) -> (String, &'static str) {
         match self {
-            QAct::Install => ("к установке", "chip-q"),
-            QAct::InstallAur => ("к сборке из AUR", "chip-q"),
-            QAct::Remove => ("к удалению", "chip-rm"),
-            QAct::Upgrade | QAct::UpgradeAur => ("к обновлению", "chip-q"),
+            QAct::Install => (t!("к установке"), "chip-q"),
+            QAct::InstallAur => (t!("к сборке из AUR"), "chip-q"),
+            QAct::Remove => (t!("к удалению"), "chip-rm"),
+            QAct::Upgrade | QAct::UpgradeAur => (t!("к обновлению"), "chip-q"),
         }
     }
 }
@@ -154,15 +155,15 @@ impl Plan {
         let n_inst = self.install.len() + self.aur_install.len();
         let n_up = self.upgrade.len() + self.aur_upgrade.len();
         if !self.remove.is_empty() {
-            parts.push(format!("удаление {}", crate::packages_word(self.remove.len())));
+            parts.push(t!("удаление {v}", v = crate::packages_word(self.remove.len())));
         }
         if n_inst > 0 {
-            parts.push(format!("установка {}", crate::packages_word(n_inst)));
+            parts.push(t!("установка {v}", v = crate::packages_word(n_inst)));
         }
         if n_up > 0 {
-            parts.push(format!("обновление {}", crate::packages_word(n_up)));
+            parts.push(t!("обновление {v}", v = crate::packages_word(n_up)));
         }
-        format!("Очередь: {}", parts.join(", "))
+        t!("Очередь: {v}", v = parts.join(", "))
     }
 }
 
@@ -231,6 +232,8 @@ mod tests {
 
     #[test]
     fn steps_merge_into_transactions() {
+        // Исходный язык строк — русский (формы числа по его правилам).
+        syngui::i18n::set_source_language("ru");
         let v = q(&[("r1", Remove), ("i1", Install), ("i2", Install), ("r2", Remove), ("x", InstallAur), ("y", UpgradeAur)]);
         let p = Plan::of(&v);
         assert_eq!(p.remove, vec!["r1".to_string(), "r2".to_string()]);

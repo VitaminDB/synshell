@@ -487,8 +487,8 @@ pub fn load(p: Pane, keep: Option<Vec<PathBuf>>) {
 
 fn io_message(e: &std::io::Error, p: &Path) -> String {
     match e.kind() {
-        std::io::ErrorKind::PermissionDenied => format!("Нет доступа к «{}»", p.display()),
-        std::io::ErrorKind::NotFound => format!("Папка «{}» не найдена", p.display()),
+        std::io::ErrorKind::PermissionDenied => t!("Нет доступа к «{p}»", p = p.display()),
+        std::io::ErrorKind::NotFound => t!("Папка «{p}» не найдена", p = p.display()),
         _ => format!("{}: {e}", p.display()),
     }
 }

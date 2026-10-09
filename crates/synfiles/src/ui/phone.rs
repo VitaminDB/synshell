@@ -102,24 +102,24 @@ fn more_menu() -> Vec<MenuItem> {
     let p = state::pane();
     let loc = p.loc.get_untracked();
     let mut v = vec![
-        MenuItem::new("new-tab", "Новая вкладка").icon(icons::TAB),
-        MenuItem::new("select-all", "Выбрать всё").icon(icons::SELECT_ALL),
+        MenuItem::new("new-tab", t!("Новая вкладка")).icon(icons::TAB),
+        MenuItem::new("select-all", t!("Выбрать всё")).icon(icons::SELECT_ALL),
     ];
     if matches!(loc, Location::Trash) {
         v.push(MenuItem::separator());
-        v.push(MenuItem::new("trash:empty", "Очистить корзину").icon(icons::DELETE_FOREVER).disabled(crate::trash::is_empty()));
+        v.push(MenuItem::new("trash:empty", t!("Очистить корзину")).icon(icons::DELETE_FOREVER).disabled(crate::trash::is_empty()));
     }
     if let Some(d) = loc.dir() {
         v.push(MenuItem::separator());
-        v.push(MenuItem::new("paste", "Вставить").icon(icons::PASTE).disabled(!actions::can_paste()));
+        v.push(MenuItem::new("paste", t!("Вставить")).icon(icons::PASTE).disabled(!actions::can_paste()));
         if let Some(t) = crate::ops::undo_title() {
             v.push(MenuItem::new("undo", t).icon(icons::UNDO));
         }
         v.push(MenuItem::separator());
-        v.push(MenuItem::new("terminal", "Открыть в терминале").icon(icons::TERMINAL));
-        v.push(MenuItem::new("pin-here", if actions::is_pinned(d) { "Открепить от панели" } else { "Закрепить на панели" }).icon(icons::PIN));
-        v.push(MenuItem::new("copy-path-here", "Копировать путь").icon(icons::COPY_PATH));
-        v.push(MenuItem::new("props-here", "Свойства папки").icon(icons::INFO));
+        v.push(MenuItem::new("terminal", t!("Открыть в терминале")).icon(icons::TERMINAL));
+        v.push(MenuItem::new("pin-here", if actions::is_pinned(d) { t!("Открепить от панели") } else { t!("Закрепить на панели") }).icon(icons::PIN));
+        v.push(MenuItem::new("copy-path-here", t!("Копировать путь")).icon(icons::COPY_PATH));
+        v.push(MenuItem::new("props-here", t!("Свойства папки")).icon(icons::INFO));
     }
     v
 }
@@ -178,7 +178,7 @@ fn selection_bar(p: Pane, n: usize) -> W {
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .class("pbar selecting")
             .child(pbtn(icons::CLOSE, "", move || clear_selection(p)))
-            .child(Text::new(format!("Выбрано: {n}")).max_lines(1).class("pbar-title grow"))
+            .child(Text::new(t!("Выбрано: {n}", n = n)).max_lines(1).class("pbar-title grow"))
             .child(pbtn(if all { icons::DESELECT } else { icons::SELECT_ALL }, "", move || {
                 if all {
                     clear_selection(p)
@@ -277,26 +277,26 @@ fn selection_actions(p: Pane, n: usize, in_trash: bool) -> W {
     let mut row = Row::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Center);
     if in_trash {
         row = row
-            .child(action(icons::RESTORE, "Восстановить", true, move || {
+            .child(action(icons::RESTORE, &t!("Восстановить"), true, move || {
                 actions::run(p, "trash:restore");
                 clear_selection(p);
             }))
-            .child(action(icons::DELETE_FOREVER, "Удалить", true, move || actions::run(p, "delete")));
+            .child(action(icons::DELETE_FOREVER, &t!("Удалить"), true, move || actions::run(p, "delete")));
     } else {
         row = row
-            .child(action(icons::COPY, "Копировать", true, move || {
+            .child(action(icons::COPY, &t!("Копировать"), true, move || {
                 actions::run(p, "copy");
                 clear_selection(p);
             }))
-            .child(action(icons::CUT, "Вырезать", true, move || {
+            .child(action(icons::CUT, &t!("Вырезать"), true, move || {
                 actions::run(p, "cut");
                 clear_selection(p);
             }))
-            .child(action(icons::RENAME, "Переименовать", n == 1, move || {
+            .child(action(icons::RENAME, &t!("Переименовать"), n == 1, move || {
                 actions::start_rename(p);
                 clear_selection(p);
             }))
-            .child(action(icons::DELETE, "Удалить", true, move || {
+            .child(action(icons::DELETE, &t!("Удалить"), true, move || {
                 actions::run(p, "trash");
                 if state::ctx().dialog.get_untracked().is_none() {
                     clear_selection(p);
@@ -308,7 +308,7 @@ fn selection_actions(p: Pane, n: usize, in_trash: bool) -> W {
 
 fn paste_bar(p: Pane, clip: state::Clip) -> W {
     let what = model::format_count(clip.paths.len() as u32);
-    let hint = if clip.cut { format!("Перемещение: {what}") } else { format!("Копирование: {what}") };
+    let hint = if clip.cut { t!("Перемещение: {what}", what = what) } else { t!("Копирование: {what}", what = what) };
     boxed(
         DecoratedBox::new().class("pbottom ppaste").child(
             Row::new()
@@ -319,11 +319,11 @@ fn paste_bar(p: Pane, clip: state::Clip) -> W {
                     Column::new()
                         .gap(1.0)
                         .class("grow")
-                        .child(Text::new("Вставить сюда?").max_lines(1).class("ppaste-title"))
+                        .child(Text::new(t!("Вставить сюда?")).max_lines(1).class("ppaste-title"))
                         .child(Text::new(hint).max_lines(1).class("meta")),
                 )
-                .child(Button::new("Отмена").class("flat").on_click(|| state::ctx().clip.set(None)))
-                .child(Button::new("Вставить").class("primary").on_click(move || {
+                .child(Button::new(t!("Отмена")).class("flat").on_click(|| state::ctx().clip.set(None)))
+                .child(Button::new(t!("Вставить")).class("primary").on_click(move || {
                     actions::run(p, "paste");
                     // Скопированное вставляется один раз, как на Android.
                     state::ctx().clip.set(None);
@@ -443,7 +443,7 @@ fn drawer_panel() -> W {
         col = col.child(
             Row::new()
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(Text::new("Вкладки").class("side-title grow"))
+                .child(Text::new(t!("Вкладки")).class("side-title grow"))
                 .child(pbtn(icons::ADD, "small", || {
                     let loc = state::pane().loc.get_untracked();
                     state::new_tab(loc, true);
@@ -465,7 +465,7 @@ fn drawer_panel() -> W {
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .class("drawer-head")
                 .child(DecoratedBox::new().class("drawer-logo").child(Icon::new(icons::FOLDER).class("icon")))
-                .child(Text::new("Проводник").class("drawer-title")),
+                .child(Text::new(t!("Проводник")).class("drawer-title")),
         )
         .child(
             ScrollView::new().vertical().class("grow").child(
@@ -559,32 +559,32 @@ fn sheet_body() -> W {
         let mut col = Column::new()
             .gap(4.0)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(Text::new("Вид").class("side-title"))
+            .child(Text::new(t!("Вид")).class("side-title"))
             .child(
                 Row::new()
                     .gap(8.0)
                     .class("view-chips")
-                    .child(view_chip(p, ViewMode::Details, icons::VIEW_LIST, "Список", !grid))
-                    .child(view_chip(p, ViewMode::Icons, icons::VIEW_ICONS, "Сетка", grid)),
+                    .child(view_chip(p, ViewMode::Details, icons::VIEW_LIST, &t!("Список"), !grid))
+                    .child(view_chip(p, ViewMode::Icons, icons::VIEW_ICONS, &t!("Сетка"), grid)),
             )
-            .child(Text::new("Сортировка").class("side-title"));
+            .child(Text::new(t!("Сортировка")).class("side-title"));
         for (key, glyph) in [(SortKey::Name, icons::SORT), (SortKey::Modified, icons::REFRESH), (SortKey::Type, icons::FILE), (SortKey::Size, icons::DRIVE)] {
-            col = col.child(sheet_option(glyph, key.title(), s.key == key, move || {
+            col = col.child(sheet_option(glyph, &key.title(), s.key == key, move || {
                 let p = state::pane();
                 actions::run(p, &format!("sort:{}", key.id()));
             }));
         }
         col = col
             .child(DecoratedBox::new().class("side-sep"))
-            .child(sheet_switch("По убыванию", s.descending, move |on| {
+            .child(sheet_switch(&t!("По убыванию"), s.descending, move |on| {
                 actions::run(state::pane(), if on { "sort:desc" } else { "sort:asc" })
             }))
-            .child(sheet_switch("Папки сверху", s.folders_first, move |on| {
+            .child(sheet_switch(&t!("Папки сверху"), s.folders_first, move |on| {
                 if state::pane().sort.get_untracked().folders_first != on {
                     actions::run(state::pane(), "sort:folders")
                 }
             }))
-            .child(sheet_switch("Скрытые файлы", hidden, move |on| {
+            .child(sheet_switch(&t!("Скрытые файлы"), hidden, move |on| {
                 if state::ctx().show_hidden.get_untracked() != on {
                     actions::toggle_hidden()
                 }

@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use synshell_common::paths;
+use syngui::t;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Location {
@@ -19,7 +20,7 @@ impl Location {
         if s.is_empty() {
             return None;
         }
-        if s == "trash:" || s == "trash:/" || s.eq_ignore_ascii_case("корзина") {
+        if s == "trash:" || s == "trash:/" || s.eq_ignore_ascii_case("корзина") || s.to_lowercase() == t!("Корзина").to_lowercase() {
             return Some(Location::Trash);
         }
         if s.starts_with("file://") {
@@ -48,8 +49,8 @@ impl Location {
 
     pub fn title(&self) -> String {
         match self {
-            Location::Trash => "Корзина".into(),
-            Location::Search { query, .. } => format!("Поиск «{query}»"),
+            Location::Trash => t!("Корзина").into(),
+            Location::Search { query, .. } => t!("Поиск «{query}»", query = query),
             Location::Dir(p) => {
                 if let Some((_, t)) = crate::places::known(p) {
                     return t;
@@ -87,10 +88,10 @@ impl Location {
     /// одним сегментом, а не `/ › home › user`.
     pub fn crumbs(&self) -> Vec<(String, Location)> {
         match self {
-            Location::Trash => vec![("Корзина".into(), Location::Trash)],
+            Location::Trash => vec![(t!("Корзина").into(), Location::Trash)],
             Location::Search { root, query } => {
                 let mut v = Location::Dir(root.clone()).crumbs();
-                v.push((format!("Поиск «{query}»"), self.clone()));
+                v.push((t!("Поиск «{query}»", query = query), self.clone()));
                 v
             }
             Location::Dir(p) => {
@@ -101,7 +102,7 @@ impl Location {
                     let rest = p.strip_prefix(&root).unwrap();
                     (vec![(title, Location::Dir(root.clone()))], rest, root)
                 } else if p.starts_with(&home) {
-                    (vec![("Домашняя папка".to_string(), Location::Dir(home.clone()))], p.strip_prefix(&home).unwrap(), home)
+                    (vec![(t!("Домашняя папка").to_string(), Location::Dir(home.clone()))], p.strip_prefix(&home).unwrap(), home)
                 } else {
                     (vec![("/".to_string(), Location::Dir(PathBuf::from("/")))], p.strip_prefix("/").unwrap_or(p), PathBuf::from("/"))
                 };

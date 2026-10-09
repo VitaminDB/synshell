@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use synshell_common::xdg;
 
 use super::Item;
+use syngui::t;
 
 /// Как показывать картинку.
 #[derive(Clone, Debug, Default)]
@@ -258,9 +259,9 @@ fn convert(it: &Item) -> Result<PathBuf, String> {
     if !ok {
         let _ = std::fs::remove_file(&tmp);
         return Err(if heif && !xdg::which("heif-convert") && !xdg::which("magick") {
-            "Для HEIC/AVIF нужен пакет libheif или imagemagick".into()
+            t!("Для HEIC/AVIF нужен пакет libheif или imagemagick").into()
         } else {
-            "Формат не поддерживается".into()
+            t!("Формат не поддерживается").into()
         });
     }
     std::fs::rename(&tmp, &out).map_err(|e| e.to_string())?;

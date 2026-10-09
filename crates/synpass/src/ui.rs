@@ -224,7 +224,7 @@ fn mutate(st: St, f: impl FnOnce(&mut Session)) {
         persist(s)
     };
     if let Err(e) = res {
-        st.toast.set(format!("Не сохранено: {e:#}"));
+        st.toast.set(t!("Не сохранено: {e}", e = format!("{:#}", e)));
     }
     refresh(st);
     sync_now(st, false);
@@ -260,16 +260,16 @@ fn sync_now(st: St, manual: bool) {
             st.linked.set(peers.iter().map(|p| (p.name.clone(), p.kind)).collect());
             if manual {
                 let msg = if peers.is_empty() {
-                    "Нет соединённых устройств".to_string()
+                    t!("Нет соединённых устройств").to_string()
                 } else if let Some(p) = peers.iter().find(|p| p.state == PeerState::OtherPassword) {
-                    format!("На «{}» хранилище с другим мастер-паролем", p.name)
+                    t!("На «{name}» хранилище с другим мастер-паролем", name = p.name)
                 } else {
-                    format!("Синхронизировано: {}", names(&peers.iter().map(|p| p.name.clone()).collect::<Vec<_>>()))
+                    t!("Синхронизировано: {v}", v = names(&peers.iter().map(|p| p.name.clone()).collect::<Vec<_>>()))
                 };
                 st.toast.set(msg);
             }
             if let Some(e) = err {
-                st.toast.set(format!("Не сохранено: {e}"));
+                st.toast.set(t!("Не сохранено: {e}", e = e));
             }
             st.peers.set(peers);
             st.last_sync.set(Some(vault::now_ms()));
@@ -322,7 +322,7 @@ fn ticker(st: St) {
                 let idle = vault::now_ms() - LAST_ACTIVE.load(Ordering::Relaxed);
                 if mins > 0 && idle > mins as i64 * 60_000 && st.phase.get_untracked() == Phase::Open {
                     lock(st);
-                    st.toast.set("Заблокировано: долго без действий".into());
+                    st.toast.set(t!("Заблокировано: долго без действий").into());
                 } else if n % 15 == 0 {
                     sync_now(st, false);
                 }
@@ -386,7 +386,7 @@ fn unlock(st: St) {
     }
     let pw = st.pw.get_untracked();
     if pw.is_empty() {
-        return fail(st, "Введите мастер-пароль");
+        return fail(st, t!("Введите мастер-пароль"));
     }
     let adopt = st.adopt.get_untracked();
     st.busy.set(true);
@@ -397,7 +397,7 @@ fn unlock(st: St) {
             None => Envelope::read(&vault::vault_path()).transpose(),
         };
         let res = match env {
-            None => Err("Хранилище не найдено".to_string()),
+            None => Err(t!("Хранилище не найдено").to_string()),
             Some(Err(e)) => Err(format!("{e:#}")),
             Some(Ok(env)) => match Session::unlock(&env, &pw) {
                 Ok(Some(s)) => {
@@ -408,7 +408,7 @@ fn unlock(st: St) {
                     }
                     saved.map(|_| s)
                 }
-                Ok(None) => Err("Неверный мастер-пароль".to_string()),
+                Ok(None) => Err(t!("Неверный мастер-пароль").to_string()),
                 Err(e) => Err(format!("{e:#}")),
             },
         };
@@ -431,10 +431,10 @@ fn create(st: St) {
     }
     let (a, b) = (st.pw.get_untracked(), st.pw2.get_untracked());
     if a.chars().count() < 8 {
-        return fail(st, "Не короче 8 символов");
+        return fail(st, t!("Не короче 8 символов"));
     }
     if a != b {
-        return fail(st, "Пароли не совпадают");
+        return fail(st, t!("Пароли не совпадают"));
     }
     let q = match chosen_question(st) {
         Ok(q) => q,
@@ -457,7 +457,7 @@ fn create(st: St) {
                 Ok(s) => {
                     *SESSION.lock().unwrap() = Some(s);
                     opened(st);
-                    st.toast.set("Хранилище создано".into());
+                    st.toast.set(t!("Хранилище создано").into());
                 }
                 Err(e) => fail(st, format!("{e:#}")),
             }
@@ -477,10 +477,10 @@ fn chosen_question(st: St) -> std::result::Result<Option<(String, String)>, Stri
         None => st.q_custom.get_untracked().trim().to_string(),
     };
     if q.is_empty() {
-        return Err("Напишите свой вопрос".into());
+        return Err(t!("Напишите свой вопрос").into());
     }
     if vault::normalize_answer(&ans).chars().count() < 3 {
-        return Err("Ответ — не короче 3 букв".into());
+        return Err(t!("Ответ — не короче 3 букв").into());
     }
     Ok(Some((q, ans)))
 }
@@ -506,13 +506,13 @@ fn recover(st: St) {
     }
     let (ans, a, b) = (st.q_answer.get_untracked(), st.pw.get_untracked(), st.pw2.get_untracked());
     if ans.trim().is_empty() {
-        return fail(st, "Введите ответ на вопрос");
+        return fail(st, t!("Введите ответ на вопрос"));
     }
     if a.chars().count() < 8 {
-        return fail(st, "Новый пароль — не короче 8 символов");
+        return fail(st, t!("Новый пароль — не короче 8 символов"));
     }
     if a != b {
-        return fail(st, "Новые пароли не совпадают");
+        return fail(st, t!("Новые пароли не совпадают"));
     }
     st.busy.set(true);
     st.error.set(None);
@@ -520,10 +520,10 @@ fn recover(st: St) {
         let res = match Envelope::read(&vault::vault_path()) {
             Ok(Some(env)) => match Session::recover(&env, &ans, &a) {
                 Ok(Some(s)) => persist(&s).map(|_| s).map_err(|e| format!("{e:#}")),
-                Ok(None) => Err("Ответ не подходит".to_string()),
+                Ok(None) => Err(t!("Ответ не подходит").to_string()),
                 Err(e) => Err(format!("{e:#}")),
             },
-            Ok(None) => Err("Хранилище не найдено".to_string()),
+            Ok(None) => Err(t!("Хранилище не найдено").to_string()),
             Err(e) => Err(format!("{e:#}")),
         };
         run_on_main_thread(move || {
@@ -532,7 +532,7 @@ fn recover(st: St) {
                 Ok(s) => {
                     *SESSION.lock().unwrap() = Some(s);
                     opened(st);
-                    st.toast.set("Новый мастер-пароль задан — на устройствах он сменится при синхронизации".into());
+                    st.toast.set(t!("Новый мастер-пароль задан — на устройствах он сменится при синхронизации").into());
                 }
                 Err(e) => fail(st, e),
             }
@@ -592,13 +592,13 @@ fn copy(st: St, id: Option<&str>, text: String, what: &str, secret: bool) {
     }
     let seq = CLIP_GEN.fetch_add(1, Ordering::Relaxed) + 1;
     let clear = st.prefs.get_untracked().clear_secs;
-    let mut msg = format!("{what} скопирован");
+    let mut msg = t!("{what} скопирован", what = what);
     let linked: Vec<String> = st.linked.get_untracked().into_iter().map(|(n, _)| n).collect();
     if st.shared_clip && !linked.is_empty() {
-        msg.push_str(&format!(" — вставка и на {}", names(&linked)));
+        msg.push_str(&t!(" — вставка и на {v}", v = names(&linked)));
     }
     if secret && clear > 0 {
-        msg.push_str(&format!(" · очистка через {clear} с"));
+        msg.push_str(&t!(" · очистка через {clear} с", clear = clear));
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_secs(clear as u64));
             if CLIP_GEN.load(Ordering::Relaxed) == seq && syngui::clipboard::paste().as_deref() == Some(text.as_str()) {
@@ -653,7 +653,7 @@ fn save_draft(st: St) {
         } else if !d.username.trim().is_empty() {
             d.username.trim().to_string()
         } else {
-            st.toast.set("Укажите название".into());
+            st.toast.set(t!("Укажите название").into());
             return;
         };
     }
@@ -673,7 +673,7 @@ fn save_draft(st: St) {
     st.draft.set(None);
     st.selected.set(Some(id));
     st.reveal.set(false);
-    st.toast.set(if existed { "Сохранено".into() } else { "Запись добавлена".into() });
+    st.toast.set(if existed { t!("Сохранено").into() } else { t!("Запись добавлена").into() });
 }
 
 fn delete(st: St, id: String) {
@@ -685,7 +685,7 @@ fn delete(st: St, id: String) {
     st.draft.set(None);
     st.selected.set(None);
     st.confirm_delete.set(false);
-    st.toast.set("Запись удалена".into());
+    st.toast.set(t!("Запись удалена").into());
 }
 
 fn toggle_fav(st: St, id: String) {
@@ -703,13 +703,13 @@ fn change_password(st: St) {
     }
     let (old, a, b) = (st.chg_old.get_untracked(), st.chg_new.get_untracked(), st.chg_new2.get_untracked());
     if old.is_empty() {
-        return fail(st, "Введите текущий мастер-пароль или ответ на вопрос");
+        return fail(st, t!("Введите текущий мастер-пароль или ответ на вопрос"));
     }
     if a.chars().count() < 8 {
-        return fail(st, "Новый — не короче 8 символов");
+        return fail(st, t!("Новый — не короче 8 символов"));
     }
     if a != b {
-        return fail(st, "Новые пароли не совпадают");
+        return fail(st, t!("Новые пароли не совпадают"));
     }
     st.busy.set(true);
     std::thread::spawn(move || {
@@ -733,7 +733,7 @@ fn change_password(st: St) {
                     st.chg_old.set(String::new());
                     st.chg_new.set(String::new());
                     st.chg_new2.set(String::new());
-                    st.toast.set("Мастер-пароль изменён — копии на устройствах обновятся при синхронизации".into());
+                    st.toast.set(t!("Мастер-пароль изменён — копии на устройствах обновятся при синхронизации").into());
                     sync_now(st, false);
                 }
                 Err(e) => fail(st, format!("{e:#}")),
@@ -749,18 +749,18 @@ fn save_question(st: St) {
     }
     let pw = st.chg_old.get_untracked();
     if pw.is_empty() {
-        return fail(st, "Введите мастер-пароль");
+        return fail(st, t!("Введите мастер-пароль"));
     }
     let q = match chosen_question(st) {
         Ok(Some(q)) => q,
-        Ok(None) => return fail(st, "Введите ответ"),
+        Ok(None) => return fail(st, t!("Введите ответ")),
         Err(e) => return fail(st, e),
     };
     st.busy.set(true);
     std::thread::spawn(move || {
         let copy = SESSION.lock().unwrap().clone();
         let res = if !copy.is_some_and(|s| s.check_secret(&pw)) {
-            Err("Мастер-пароль неверен".to_string())
+            Err(t!("Мастер-пароль неверен").to_string())
         } else {
             let mut g = SESSION.lock().unwrap();
             match g.as_mut() {
@@ -776,7 +776,7 @@ fn save_question(st: St) {
                     st.q_open.set(false);
                     st.chg_old.set(String::new());
                     clear_question_form(st);
-                    st.toast.set("Секретный вопрос сохранён".into());
+                    st.toast.set(t!("Секретный вопрос сохранён").into());
                     sync_now(st, false);
                 }
                 Err(e) => fail(st, e),
@@ -798,10 +798,10 @@ fn remove_question(st: St) {
     };
     match res {
         Ok(()) => {
-            st.toast.set("Секретный вопрос убран".into());
+            st.toast.set(t!("Секретный вопрос убран").into());
             sync_now(st, false);
         }
-        Err(e) => st.toast.set(format!("Не сохранено: {e:#}")),
+        Err(e) => st.toast.set(t!("Не сохранено: {e}", e = format!("{:#}", e))),
     }
     // Перерисовать настройки.
     st.prefs.update(|_| {});
@@ -841,11 +841,11 @@ fn go_back(st: St) -> bool {
 }
 
 const QUESTIONS: &[&str] = &[
-    "Девичья фамилия матери",
-    "Кличка первого питомца",
-    "Имя лучшего школьного друга",
-    "Город, где познакомились родители",
-    "Модель первого телефона",
+    n_!("Девичья фамилия матери"),
+    n_!("Кличка первого питомца"),
+    n_!("Имя лучшего школьного друга"),
+    n_!("Город, где познакомились родители"),
+    n_!("Модель первого телефона"),
 ];
 
 // ─── Каркас ─────────────────────────────────────────────────────────────────
@@ -1005,7 +1005,7 @@ fn strength_bar(p: &str) -> W {
             .gap(10.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .child(row.class("grow"))
-            .child(Text::new(label.to_string()).class(&format!("seg-label seg-label-{lvl}"))),
+            .child(Text::new(syngui::i18n::t(label)).class(&format!("seg-label seg-label-{lvl}"))),
     )
 }
 
@@ -1019,7 +1019,7 @@ fn pw_field(st: St, sig: RwSignal<String>, placeholder: &'static str, autofocus:
             .obscure(!shown)
             .autofocus(autofocus)
             .disabled(busy)
-            .placeholder(placeholder)
+            .placeholder(syngui::i18n::t(placeholder))
             .prefix_icon(ic::KEY)
             .suffix_icon(if shown { ic::HIDE } else { ic::SHOW })
             .on_suffix_click(move || st.pw_show.set(!st.pw_show.get_untracked()))
@@ -1042,7 +1042,7 @@ fn answer_field(st: St, placeholder: &'static str, submit: fn(St)) -> W {
         let busy = st.busy.get();
         vec![Box::new(
             TextField::with_text(st.q_answer.get_untracked())
-                .placeholder(placeholder)
+                .placeholder(syngui::i18n::t(placeholder))
                 .prefix_icon(ic::QUESTION)
                 .disabled(busy)
                 .on_change(move |t| {
@@ -1063,14 +1063,14 @@ fn question_form(st: St, submit: fn(St)) -> W {
     let chips = Reactive::new(move || -> Vec<W> {
         let pick = st.q_pick.get();
         let mut row = Flex::row().gap(6.0).wrap();
-        for (i, q) in QUESTIONS.iter().chain(std::iter::once(&"Свой вопрос")).enumerate() {
+        for (i, q) in QUESTIONS.iter().copied().chain(std::iter::once(n_!("Свой вопрос"))).enumerate() {
             row = row.child(
                 GestureDetector::new()
                     .on_click(move || {
                         touch();
                         st.q_pick.set(i)
                     })
-                    .child(DecoratedBox::new().child(Text::new(q.to_string()).class("seg-text")).class(if pick == i { "segbtn segbtn-on" } else { "segbtn" })),
+                    .child(DecoratedBox::new().child(Text::new(syngui::i18n::t(q)).class("seg-text")).class(if pick == i { "segbtn segbtn-on" } else { "segbtn" })),
             );
         }
         vec![Box::new(row)]
@@ -1081,7 +1081,7 @@ fn question_form(st: St, submit: fn(St)) -> W {
         }
         vec![Box::new(
             TextField::with_text(st.q_custom.get_untracked())
-                .placeholder("Ваш вопрос")
+                .placeholder(t!("Ваш вопрос"))
                 .prefix_icon(ic::EDIT)
                 .on_change(move |t| {
                     touch();
@@ -1096,8 +1096,8 @@ fn question_form(st: St, submit: fn(St)) -> W {
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .child(chips)
             .child(custom)
-            .child(answer_field(st, "Ответ", submit))
-            .child(Text::new("Ответ откроет смену мастер-пароля, если вы его забудете. Регистр и «ё» не важны. Выберите то, чего не узнать из соцсетей.").max_lines(4).class("set-sub")),
+            .child(answer_field(st, n_!("Ответ"), submit))
+            .child(Text::new(t!("Ответ откроет смену мастер-пароля, если вы его забудете. Регистр и «ё» не важны. Выберите то, чего не узнать из соцсетей.")).max_lines(4).class("set-sub")),
     )
 }
 
@@ -1110,13 +1110,13 @@ fn gate(st: St) -> W {
         let remote = st.remote.get_untracked();
         let question = st.lock_question.get();
         let (title, sub) = match (phase, adopt) {
-            _ if recovering => ("Забыли мастер-пароль?".to_string(), "Ответьте на секретный вопрос и задайте новый мастер-пароль — записи останутся на месте.".to_string()),
+            _ if recovering => (t!("Забыли мастер-пароль?").to_string(), t!("Ответьте на секретный вопрос и задайте новый мастер-пароль — записи останутся на месте.").to_string()),
             (_, Some(i)) => (
-                "Хранилище с устройства".to_string(),
-                format!("Введите мастер-пароль хранилища с «{}» — оно сохранится и здесь и будет синхронизироваться.", remote.get(i).map(|r| r.0.as_str()).unwrap_or("")),
+                t!("Хранилище с устройства").to_string(),
+                t!("Введите мастер-пароль хранилища с «{v}» — оно сохранится и здесь и будет синхронизироваться.", v = remote.get(i).map(|r| r.0.as_str()).unwrap_or("")),
             ),
-            (Phase::Setup, None) => ("Новое хранилище".to_string(), "Придумайте мастер-пароль. Он открывает все пароли — запомните его.".to_string()),
-            _ => ("Пароли".to_string(), "Введите мастер-пароль".to_string()),
+            (Phase::Setup, None) => (t!("Новое хранилище").to_string(), t!("Придумайте мастер-пароль. Он открывает все пароли — запомните его.").to_string()),
+            _ => (t!("Пароли").to_string(), t!("Введите мастер-пароль").to_string()),
         };
         let badge = if setup {
             ic::SHIELD
@@ -1141,22 +1141,22 @@ fn gate(st: St) -> W {
             fields = fields
                 .child(
                     DecoratedBox::new()
-                        .child(Column::new().gap(4.0).child(Text::new("Секретный вопрос").class("fc-label")).child(Text::new(question.clone().unwrap_or_default()).max_lines(3).class("q-text")))
+                        .child(Column::new().gap(4.0).child(Text::new(t!("Секретный вопрос")).class("fc-label")).child(Text::new(syngui::i18n::t(&question.clone().unwrap_or_default())).max_lines(3).class("q-text")))
                         .class("q-box"),
                 )
-                .child(answer_field(st, "Ответ", recover))
-                .child(pw_field(st, st.pw, "Новый мастер-пароль", false, recover))
+                .child(answer_field(st, n_!("Ответ"), recover))
+                .child(pw_field(st, st.pw, n_!("Новый мастер-пароль"), false, recover))
                 .child(Reactive::new(move || -> Vec<W> { vec![strength_bar(&st.pw.get())] }))
-                .child(pw_field(st, st.pw2, "Повторите новый", false, recover));
+                .child(pw_field(st, st.pw2, n_!("Повторите новый"), false, recover));
         } else if setup {
             fields = fields
-                .child(pw_field(st, st.pw, "Мастер-пароль", true, create))
+                .child(pw_field(st, st.pw, n_!("Мастер-пароль"), true, create))
                 .child(Reactive::new(move || -> Vec<W> { vec![strength_bar(&st.pw.get())] }))
-                .child(pw_field(st, st.pw2, "Повторите мастер-пароль", false, create))
-                .child(Text::new("Секретный вопрос — по желанию").class("ed-label q-head"))
+                .child(pw_field(st, st.pw2, n_!("Повторите мастер-пароль"), false, create))
+                .child(Text::new(t!("Секретный вопрос — по желанию")).class("ed-label q-head"))
                 .child(question_form(st, create));
         } else {
-            fields = fields.child(pw_field(st, st.pw, "Мастер-пароль", true, unlock));
+            fields = fields.child(pw_field(st, st.pw, n_!("Мастер-пароль"), true, unlock));
         }
         let err = st.error.get();
         let cls = if err.is_some() && shake % 2 == 1 { "fields shake-a" } else if err.is_some() { "fields shake-b" } else { "fields" };
@@ -1166,12 +1166,12 @@ fn gate(st: St) -> W {
         }
         let busy = st.busy.get();
         let label = match (busy, setup, recovering) {
-            (true, _, _) => "Проверка…",
-            (false, _, true) => "Задать пароль и открыть",
-            (false, true, _) => "Создать хранилище",
-            _ => "Открыть",
+            (true, _, _) => t!("Проверка…"),
+            (false, _, true) => t!("Задать пароль и открыть"),
+            (false, true, _) => t!("Создать хранилище"),
+            _ => t!("Открыть"),
         };
-        col = col.child(button(if setup || recovering { ic::CHECK } else { ic::LOCK_OPEN }, label, if busy { "btn-primary btn-wide btn-busy" } else { "btn-primary btn-wide" }, move || {
+        col = col.child(button(if setup || recovering { ic::CHECK } else { ic::LOCK_OPEN }, &label, if busy { "btn-primary btn-wide btn-busy" } else { "btn-primary btn-wide" }, move || {
             if recovering {
                 recover(st)
             } else if setup {
@@ -1181,11 +1181,11 @@ fn gate(st: St) -> W {
             }
         }));
         if adopt.is_some() || recovering {
-            col = col.child(button("", "Назад", "btn-flat btn-wide", move || {
+            col = col.child(button("", &t!("Назад"), "btn-flat btn-wide", move || {
                 go_back(st);
             }));
         } else if phase == Phase::Locked && question.is_some() {
-            col = col.child(button("", "Забыли мастер-пароль?", "btn-flat btn-small", move || {
+            col = col.child(button("", &t!("Забыли мастер-пароль?"), "btn-flat btn-small", move || {
                 st.error.set(None);
                 st.pw.set(String::new());
                 st.pw2.set(String::new());
@@ -1201,7 +1201,7 @@ fn gate(st: St) -> W {
         if st.phase.get() != Phase::Setup || st.adopt.get().is_some() || r.is_empty() {
             return vec![];
         }
-        let mut col = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(Text::new("или возьмите хранилище с устройства").class("gate-or"));
+        let mut col = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(Text::new(t!("или возьмите хранилище с устройства")).class("gate-or"));
         for (i, (name, kind)) in r.into_iter().enumerate() {
             col = col.child(
                 GestureDetector::new()
@@ -1221,7 +1221,7 @@ fn gate(st: St) -> W {
                                         Column::new()
                                             .gap(2.0)
                                             .child(Text::new(name).max_lines(1).class("dev-name"))
-                                            .child(Text::new("Есть хранилище паролей · через synlink").class("dev-sub"))
+                                            .child(Text::new(t!("Есть хранилище паролей · через synlink")).class("dev-sub"))
                                             .class("grow"),
                                     )
                                     .child(Icon::new(ic::OPEN).class("dev-go")),
@@ -1243,7 +1243,7 @@ fn gate(st: St) -> W {
                 .main_axis_alignment(MainAxisAlignment::Center)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(Icon::new(ic::DEVICES).class("gate-foot-icon"))
-                .child(Text::new(format!("Синхронизация с {}", names(&l.into_iter().map(|x| x.0).collect::<Vec<_>>()))).max_lines(1).class("gate-foot")),
+                .child(Text::new(t!("Синхронизация с {v}", v = names(&l.into_iter().map(|x| x.0).collect::<Vec<_>>()))).max_lines(1).class("gate-foot")),
         )]
     });
     Box::new(
@@ -1339,9 +1339,9 @@ fn empty_detail(st: St) -> W {
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .gap(10.0)
             .child(Icon::new(ic::KEY).class("empty-icon"))
-            .child(Text::new(if n == 0 { "Пока ни одного пароля" } else { "Выберите запись" }).class("empty-title"))
-            .child(Text::new(if n == 0 { "Добавьте первый — пароль сгенерируется сам" } else { "Ctrl+N — новая запись, Ctrl+L — заблокировать" }).class("muted"))
-            .child(Row::new().main_axis_alignment(MainAxisAlignment::Center).child(if n == 0 { button(ic::ADD, "Добавить пароль", "btn-primary", move || start_new(st)) } else { Box::new(DecoratedBox::new()) }))
+            .child(Text::new(if n == 0 { t!("Пока ни одного пароля") } else { t!("Выберите запись") }).class("empty-title"))
+            .child(Text::new(if n == 0 { t!("Добавьте первый — пароль сгенерируется сам") } else { t!("Ctrl+N — новая запись, Ctrl+L — заблокировать") }).class("muted"))
+            .child(Row::new().main_axis_alignment(MainAxisAlignment::Center).child(if n == 0 { button(ic::ADD, &t!("Добавить пароль"), "btn-primary", move || start_new(st)) } else { Box::new(DecoratedBox::new()) }))
             .class("grow empty-detail"),
     )
 }
@@ -1353,18 +1353,18 @@ fn sync_chip(st: St) -> W {
         let linked = st.linked.get();
         let syncing = st.syncing.get();
         let (glyph, text, cls) = if syncing {
-            (ic::SYNC, "Синхронизация…".to_string(), "chip chip-busy")
+            (ic::SYNC, t!("Синхронизация…").to_string(), "chip chip-busy")
         } else if let Some(p) = peers.iter().find(|p| p.state == PeerState::OtherPassword) {
-            (ic::SYNC_PROBLEM, format!("{}: другой мастер-пароль", p.name), "chip chip-warn")
+            (ic::SYNC_PROBLEM, t!("{name}: другой мастер-пароль", name = p.name), "chip chip-warn")
         } else if let Some(p) = peers.iter().find(|p| matches!(p.state, PeerState::Error(_))) {
-            (ic::SYNC_PROBLEM, format!("{}: нет доступа", p.name), "chip chip-warn")
+            (ic::SYNC_PROBLEM, t!("{name}: нет доступа", name = p.name), "chip chip-warn")
         } else if !peers.is_empty() {
             let n: Vec<String> = peers.iter().map(|p| p.name.clone()).collect();
             (kind_icon(peers[0].kind), n.join(", "), "chip chip-ok")
         } else if !linked.is_empty() {
             (kind_icon(linked[0].1), linked.iter().map(|l| l.0.clone()).collect::<Vec<_>>().join(", "), "chip")
         } else {
-            (ic::DEVICES, "Только здесь".to_string(), "chip")
+            (ic::DEVICES, t!("Только здесь").to_string(), "chip")
         };
         vec![Box::new(
             GestureDetector::new()
@@ -1385,7 +1385,7 @@ fn list_view(st: St, phone: bool) -> W {
     let header = Row::new()
         .gap(4.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(Text::new("Пароли").max_lines(1).class("title"))
+        .child(Text::new(t!("Пароли")).max_lines(1).class("title"))
         .child(DecoratedBox::new().class("grow"))
         .child(sync_chip(st))
         .child(icon_btn(ic::LOCK, "", move || lock(st)))
@@ -1394,7 +1394,7 @@ fn list_view(st: St, phone: bool) -> W {
     let search = Reactive::new(move || -> Vec<W> {
         vec![Box::new(
             TextField::with_text(st.query.get_untracked())
-                .placeholder("Поиск")
+                .placeholder(t!("Поиск"))
                 .prefix_icon(ic::SEARCH)
                 .autofocus(!phone)
                 .on_change(move |t| {
@@ -1409,7 +1409,7 @@ fn list_view(st: St, phone: bool) -> W {
         let all = st.entries.get();
         let favs = all.iter().filter(|e| e.favorite).count();
         let mut row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center);
-        for (k, label) in [(Filter::All, format!("Все · {}", all.len())), (Filter::Favorites, format!("Избранное · {favs}")), (Filter::Recent, "Недавние".to_string())] {
+        for (k, label) in [(Filter::All, t!("Все · {n}", n = all.len())), (Filter::Favorites, t!("Избранное · {favs}", favs = favs)), (Filter::Recent, t!("Недавние").to_string())] {
             row = row.child(
                 GestureDetector::new()
                     .on_click(move || {
@@ -1437,13 +1437,13 @@ fn list_view(st: St, phone: bool) -> W {
         }
         if v.is_empty() {
             let (glyph, text) = if !q.trim().is_empty() {
-                (ic::SEARCH, "Ничего не найдено")
+                (ic::SEARCH, t!("Ничего не найдено"))
             } else if f == Filter::Favorites {
-                (ic::STAR_OFF, "Отметьте записи звёздочкой")
+                (ic::STAR_OFF, t!("Отметьте записи звёздочкой"))
             } else if f == Filter::Recent {
-                (ic::COPY, "Здесь появятся скопированные")
+                (ic::COPY, t!("Здесь появятся скопированные"))
             } else {
-                (ic::KEY, "Нажмите «+», чтобы добавить пароль")
+                (ic::KEY, t!("Нажмите «+», чтобы добавить пароль"))
             };
             return vec![Box::new(
                 Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(glyph).class("empty-icon")).child(Text::new(text).class("muted")).class("empty"),
@@ -1483,10 +1483,10 @@ fn row(st: St, e: Entry, sel: Option<&str>) -> W {
     }
     let mut actions = Row::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Center);
     if !e.username.is_empty() {
-        actions = actions.child(icon_btn(ic::PERSON, "ibtn-soft", move || copy(st, Some(&id_u), user.clone(), "Логин", false)));
+        actions = actions.child(icon_btn(ic::PERSON, "ibtn-soft", move || copy(st, Some(&id_u), user.clone(), &t!("Логин"), false)));
     }
     if !e.password.is_empty() {
-        actions = actions.child(icon_btn(ic::COPY, "ibtn-accent", move || copy(st, Some(&id_p), pass.clone(), "Пароль", true)));
+        actions = actions.child(icon_btn(ic::COPY, "ibtn-accent", move || copy(st, Some(&id_p), pass.clone(), &t!("Пароль"), true)));
     }
     Box::new(
         GestureDetector::new()
@@ -1566,17 +1566,17 @@ fn detail(st: St, id: String, phone: bool) -> W {
     let mut main_actions = Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center);
     if !e.password.is_empty() {
         let (i, p) = (id.clone(), e.password.clone());
-        main_actions = main_actions.child(DecoratedBox::new().child(button(ic::COPY, "Копировать пароль", "btn-primary btn-big", move || copy(st, Some(&i), p.clone(), "Пароль", true))).class("grow"));
+        main_actions = main_actions.child(DecoratedBox::new().child(button(ic::COPY, &t!("Копировать пароль"), "btn-primary btn-big", move || copy(st, Some(&i), p.clone(), &t!("Пароль"), true))).class("grow"));
     }
     if !e.username.is_empty() {
         let (i, u) = (id.clone(), e.username.clone());
-        main_actions = main_actions.child(DecoratedBox::new().child(button(ic::PERSON, "Логин", "btn-tonal btn-big", move || copy(st, Some(&i), u.clone(), "Логин", false))).class(if e.password.is_empty() { "grow" } else { "" }));
+        main_actions = main_actions.child(DecoratedBox::new().child(button(ic::PERSON, &t!("Логин"), "btn-tonal btn-big", move || copy(st, Some(&i), u.clone(), &t!("Логин"), false))).class(if e.password.is_empty() { "grow" } else { "" }));
     }
 
     let mut cards = Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
     if !e.username.is_empty() {
         let (i, u) = (id.clone(), e.username.clone());
-        cards = cards.child(field_card("Логин", ic::PERSON, Box::new(Text::new(e.username.clone()).max_lines(2).class("fc-value")), vec![icon_btn(ic::COPY, "", move || copy(st, Some(&i), u.clone(), "Логин", false))]));
+        cards = cards.child(field_card(&t!("Логин"), ic::PERSON, Box::new(Text::new(e.username.clone()).max_lines(2).class("fc-value")), vec![icon_btn(ic::COPY, "", move || copy(st, Some(&i), u.clone(), &t!("Логин"), false))]));
     }
     if !e.password.is_empty() {
         let pass = e.password.clone();
@@ -1588,10 +1588,10 @@ fn detail(st: St, id: String, phone: bool) -> W {
         let i_big = id.clone();
         let eye = Reactive::new(move || -> Vec<W> { vec![icon_btn(if st.reveal.get() { ic::HIDE } else { ic::SHOW }, "", move || st.reveal.set(!st.reveal.get_untracked()))] });
         cards = cards.child(field_card(
-            "Пароль",
+            &t!("Пароль"),
             ic::KEY,
             Box::new(Column::new().gap(8.0).child(value).child(strength_bar(&e.password))),
-            vec![Box::new(eye), icon_btn(ic::ZOOM, "", move || st.big.set(Some(i_big.clone()))), icon_btn(ic::COPY, "ibtn-accent", move || copy(st, Some(&i), p.clone(), "Пароль", true))],
+            vec![Box::new(eye), icon_btn(ic::ZOOM, "", move || st.big.set(Some(i_big.clone()))), icon_btn(ic::COPY, "ibtn-accent", move || copy(st, Some(&i), p.clone(), &t!("Пароль"), true))],
         ));
     }
     if !e.url.trim().is_empty() {
@@ -1599,22 +1599,22 @@ fn detail(st: St, id: String, phone: bool) -> W {
         let open_url = if url.contains("://") { url.clone() } else { format!("https://{url}") };
         let (i, u) = (id.clone(), url.clone());
         cards = cards.child(field_card(
-            "Сайт",
+            &t!("Сайт"),
             ic::WEB,
             Box::new(Text::new(url.clone()).max_lines(2).class("fc-value fc-link")),
             vec![
                 icon_btn(ic::OPEN, "", move || {
                     let _ = std::process::Command::new("xdg-open").arg(&open_url).spawn();
                 }),
-                icon_btn(ic::COPY, "", move || copy(st, Some(&i), u.clone(), "Адрес", false)),
+                icon_btn(ic::COPY, "", move || copy(st, Some(&i), u.clone(), &t!("Адрес"), false)),
             ],
         ));
     }
     if !e.notes.trim().is_empty() {
         let (i, n) = (id.clone(), e.notes.clone());
-        cards = cards.child(field_card("Заметки", ic::NOTES, Box::new(Text::new(e.notes.clone()).class("fc-notes")), vec![icon_btn(ic::COPY, "", move || copy(st, Some(&i), n.clone(), "Текст", false))]));
+        cards = cards.child(field_card(&t!("Заметки"), ic::NOTES, Box::new(Text::new(e.notes.clone()).class("fc-notes")), vec![icon_btn(ic::COPY, "", move || copy(st, Some(&i), n.clone(), &t!("Текст"), false))]));
     }
-    let meta = Text::new(format!("Изменено {} · создано {}", when(e.modified), when(e.created))).class("meta");
+    let meta = Text::new(t!("Изменено {v} · создано {v2}", v = when(e.modified), v2 = when(e.created))).class("meta");
 
     Box::new(
         Column::new().child(bar).child(
@@ -1647,11 +1647,11 @@ fn when(ms: i64) -> String {
     let mut now: libc::tm = unsafe { std::mem::zeroed() };
     let n = (vault::now_ms() / 1000) as libc::time_t;
     unsafe { libc::localtime_r(&n, &mut now) };
-    const MON: [&str; 12] = ["янв.", "февр.", "мар.", "апр.", "мая", "июня", "июля", "авг.", "сент.", "окт.", "нояб.", "дек."];
+    const MON: [&str; 12] = [n_!("янв."), n_!("февр."), n_!("мар."), n_!("апр."), n_!("мая"), n_!("июня"), n_!("июля"), n_!("авг."), n_!("сент."), n_!("окт."), n_!("нояб."), n_!("дек.")];
     if tm.tm_year == now.tm_year && tm.tm_yday == now.tm_yday {
-        format!("сегодня в {:02}:{:02}", tm.tm_hour, tm.tm_min)
+        t!("сегодня в {tm_hour}:{tm_min}", tm_hour = format!("{:02}", tm.tm_hour), tm_min = format!("{:02}", tm.tm_min))
     } else {
-        format!("{} {} {}", tm.tm_mday, MON[tm.tm_mon.clamp(0, 11) as usize], tm.tm_year + 1900)
+        t!("{day} {month} {year}", day = tm.tm_mday, month = syngui::i18n::t(MON[tm.tm_mon.clamp(0, 11) as usize]), year = tm.tm_year + 1900)
     }
 }
 
@@ -1676,10 +1676,10 @@ fn big_view(st: St, e: Entry) -> W {
     let legend = Row::new()
         .gap(14.0)
         .main_axis_alignment(MainAxisAlignment::Center)
-        .child(Text::new("abc строчные").class("lg"))
-        .child(Text::new("ABC заглавные").class("lg lg-upper"))
-        .child(Text::new("123 цифры").class("lg lg-digit"))
-        .child(Text::new("#!? символы").class("lg lg-sym"));
+        .child(Text::new(t!("abc строчные")).class("lg"))
+        .child(Text::new(t!("ABC заглавные")).class("lg lg-upper"))
+        .child(Text::new(t!("123 цифры")).class("lg lg-digit"))
+        .child(Text::new(t!("#!? символы")).class("lg lg-sym"));
     let (id, pass) = (e.id.clone(), e.password.clone());
     let card = Column::new()
         .gap(18.0)
@@ -1689,12 +1689,12 @@ fn big_view(st: St, e: Entry) -> W {
                 .gap(12.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(avatar(&e.title, "m"))
-                .child(Column::new().gap(2.0).child(Text::new(e.title.clone()).max_lines(1).class("big-title")).child(Text::new(format!("{} символов", e.password.chars().count())).class("big-sub")).class("grow"))
+                .child(Column::new().gap(2.0).child(Text::new(e.title.clone()).max_lines(1).class("big-title")).child(Text::new(tn!(e.password.chars().count(), "{n} символ", "{n} символа", "{n} символов")).class("big-sub")).class("grow"))
                 .child(icon_btn(ic::CLOSE, "", move || st.big.set(None))),
         )
         .child(ScrollView::new().vertical().child(grid.class("bc-grid")).class("bc-scroll"))
         .child(legend)
-        .child(button(ic::COPY, "Копировать пароль", "btn-primary btn-big", move || copy(st, Some(&id), pass.clone(), "Пароль", true)));
+        .child(button(ic::COPY, &t!("Копировать пароль"), "btn-primary btn-big", move || copy(st, Some(&id), pass.clone(), &t!("Пароль"), true)));
     overlay(st, Box::new(DecoratedBox::new().child(card).class("sheet sheet-big")), move || st.big.set(None))
 }
 
@@ -1721,7 +1721,7 @@ fn edit_field(st: St, label: &'static str, glyph: &'static str, get: fn(&Entry) 
         let v = st.draft.get_untracked().map(|d| get(&d)).unwrap_or_default();
         vec![Box::new(
             TextField::with_text(v)
-                .placeholder(label)
+                .placeholder(syngui::i18n::t(label))
                 .prefix_icon(glyph)
                 .autofocus(autofocus)
                 .on_change(move |t| {
@@ -1762,13 +1762,13 @@ fn generator(st: St) -> W {
                         set_prefs(st, |p| f(&mut p.generator));
                         regen();
                     })
-                    .child(DecoratedBox::new().child(Text::new(label).class("seg-text")).class(if on { "segbtn segbtn-on" } else { "segbtn" })),
+                    .child(DecoratedBox::new().child(Text::new(syngui::i18n::t(label)).class("seg-text")).class(if on { "segbtn segbtn-on" } else { "segbtn" })),
             )
         };
         let len = Row::new()
             .gap(6.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(Text::new("Длина").class("ed-label grow"))
+            .child(Text::new(t!("Длина")).class("ed-label grow"))
             .child(icon_btn(ic::REMOVE, "ibtn-soft", move || {
                 set_prefs(st, |p| p.generator.length = p.generator.length.saturating_sub(2).max(8));
                 regen();
@@ -1784,10 +1784,10 @@ fn generator(st: St) -> W {
             .child(chip("A–Z", o.upper, |g| g.upper = !g.upper))
             .child(chip("0–9", o.digits, |g| g.digits = !g.digits))
             .child(chip("!@#", o.symbols, |g| g.symbols = !g.symbols))
-            .child(chip("Без похожих", o.no_similar, |g| g.no_similar = !g.no_similar));
+            .child(chip(n_!("Без похожих"), o.no_similar, |g| g.no_similar = !g.no_similar));
         vec![Box::new(
             DecoratedBox::new()
-                .child(Column::new().gap(10.0).child(len).child(opts).child(button(ic::REFRESH, "Ещё вариант", "btn-tonal", regen)))
+                .child(Column::new().gap(10.0).child(len).child(opts).child(button(ic::REFRESH, &t!("Ещё вариант"), "btn-tonal", regen)))
                 .class("gen"),
         )]
     }))
@@ -1800,8 +1800,8 @@ fn editor(st: St, _phone: bool) -> W {
         .gap(6.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(icon_btn(ic::CLOSE, "", move || st.draft.set(None)))
-        .child(Text::new(if is_new { "Новая запись" } else { "Изменить" }).class("bar-title grow"))
-        .child(button(ic::CHECK, "Сохранить", "btn-primary", move || save_draft(st)))
+        .child(Text::new(if is_new { t!("Новая запись") } else { t!("Изменить") }).class("bar-title grow"))
+        .child(button(ic::CHECK, &t!("Сохранить"), "btn-primary", move || save_draft(st)))
         .class("bar");
 
     let pass = Reactive::new(move || -> Vec<W> {
@@ -1810,7 +1810,7 @@ fn editor(st: St, _phone: bool) -> W {
         let v = st.draft.get_untracked().map(|d| d.password).unwrap_or_default();
         vec![Box::new(
             TextField::with_text(v)
-                .placeholder("Пароль")
+                .placeholder(t!("Пароль"))
                 .prefix_icon(ic::KEY)
                 .obscure(!shown)
                 .suffix_icon(if shown { ic::HIDE } else { ic::SHOW })
@@ -1833,10 +1833,10 @@ fn editor(st: St, _phone: bool) -> W {
             Row::new()
                 .gap(8.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(Text::new("Пароль").class("ed-label grow"))
+                .child(Text::new(t!("Пароль")).class("ed-label grow"))
                 .child(Reactive::new(move || -> Vec<W> {
                     let open = st.gen_open.get();
-                    vec![button(ic::REFRESH, if open { "Скрыть генератор" } else { "Генератор" }, "btn-flat btn-small", move || st.gen_open.set(!st.gen_open.get_untracked()))]
+                    vec![button(ic::REFRESH, &if open { t!("Скрыть генератор") } else { t!("Генератор") }, "btn-flat btn-small", move || st.gen_open.set(!st.gen_open.get_untracked()))]
                 })),
         )
         .child(pass)
@@ -1849,7 +1849,7 @@ fn editor(st: St, _phone: bool) -> W {
         vec![Box::new(
             MultilineTextEdit::new()
                 .text(v)
-                .placeholder("Ответы на секретные вопросы, PIN, коды…")
+                .placeholder(t!("Ответы на секретные вопросы, PIN, коды…"))
                 .rows(4)
                 .on_change(move |t| {
                     touch();
@@ -1876,18 +1876,18 @@ fn editor(st: St, _phone: bool) -> W {
                     .child(
                         Column::new()
                             .gap(10.0)
-                            .child(Text::new("Удалить запись? Она исчезнет и на связанных устройствах.").max_lines(3).class("danger-text"))
+                            .child(Text::new(t!("Удалить запись? Она исчезнет и на связанных устройствах.")).max_lines(3).class("danger-text"))
                             .child(
                                 Row::new()
                                     .gap(8.0)
-                                    .child(DecoratedBox::new().child(button("", "Отмена", "btn-flat btn-wide", move || st.confirm_delete.set(false))).class("grow"))
-                                    .child(DecoratedBox::new().child(button(ic::DELETE, "Удалить", "btn-danger btn-wide", move || delete(st, id.clone()))).class("grow")),
+                                    .child(DecoratedBox::new().child(button("", &t!("Отмена"), "btn-flat btn-wide", move || st.confirm_delete.set(false))).class("grow"))
+                                    .child(DecoratedBox::new().child(button(ic::DELETE, &t!("Удалить"), "btn-danger btn-wide", move || delete(st, id.clone()))).class("grow")),
                             ),
                     )
                     .class("danger-box"),
             )];
         }
-        vec![button(ic::DELETE, "Удалить запись", "btn-flat btn-danger-flat", move || st.confirm_delete.set(true))]
+        vec![button(ic::DELETE, &t!("Удалить запись"), "btn-flat btn-danger-flat", move || st.confirm_delete.set(true))]
     });
 
     Box::new(
@@ -1898,11 +1898,11 @@ fn editor(st: St, _phone: bool) -> W {
                     Column::new()
                         .gap(16.0)
                         .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                        .child(edit_field(st, "Название", ic::KEY, |d| d.title.clone(), |d, v| d.title = v, is_new))
-                        .child(edit_field(st, "Логин", ic::PERSON, |d| d.username.clone(), |d, v| d.username = v, false))
+                        .child(edit_field(st, n_!("Название"), ic::KEY, |d| d.title.clone(), |d, v| d.title = v, is_new))
+                        .child(edit_field(st, n_!("Логин"), ic::PERSON, |d| d.username.clone(), |d, v| d.username = v, false))
                         .child(pass_block)
-                        .child(edit_field(st, "Сайт", ic::WEB, |d| d.url.clone(), |d, v| d.url = v, false))
-                        .child(Column::new().gap(6.0).child(Text::new("Заметки").class("ed-label")).child(notes))
+                        .child(edit_field(st, n_!("Сайт"), ic::WEB, |d| d.url.clone(), |d, v| d.url = v, false))
+                        .child(Column::new().gap(6.0).child(Text::new(t!("Заметки")).class("ed-label")).child(notes))
                         .child(danger)
                         .class("editor"),
                 )
@@ -1914,7 +1914,7 @@ fn editor(st: St, _phone: bool) -> W {
 // ─── Настройки ──────────────────────────────────────────────────────────────
 
 fn settings_view(st: St) -> W {
-    let choice = move |title: &'static str, sub: &'static str, opts: Vec<(u32, &'static str)>, cur: u32, f: fn(&mut Prefs, u32)| -> W {
+    let choice = move |title: String, sub: String, opts: Vec<(u32, String)>, cur: u32, f: fn(&mut Prefs, u32)| -> W {
         let mut row = Flex::row().gap(6.0).wrap();
         for (v, label) in opts {
             row = row.child(
@@ -1930,25 +1930,25 @@ fn settings_view(st: St) -> W {
         let mut col = Column::new()
             .gap(20.0)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(choice("Автоблокировка", "Закрыть хранилище, если долго ничего не делать", vec![(1, "1 мин"), (5, "5 мин"), (15, "15 мин"), (60, "1 ч"), (0, "Никогда")], p.autolock_min, |p, v| p.autolock_min = v))
+            .child(choice(t!("Автоблокировка"), t!("Закрыть хранилище, если долго ничего не делать"), vec![(1, t!("1 мин")), (5, t!("5 мин")), (15, t!("15 мин")), (60, t!("1 ч")), (0, t!("Никогда"))], p.autolock_min, |p, v| p.autolock_min = v))
             .child(choice(
-                "Очистка буфера обмена",
-                "Скопированный пароль стирается — здесь и на связанных устройствах",
-                vec![(15, "15 с"), (30, "30 с"), (60, "1 мин"), (0, "Не очищать")],
+                t!("Очистка буфера обмена"),
+                t!("Скопированный пароль стирается — здесь и на связанных устройствах"),
+                vec![(15, t!("15 с")), (30, t!("30 с")), (60, t!("1 мин")), (0, t!("Не очищать"))],
                 p.clear_secs,
                 |p, v| p.clear_secs = v,
             ));
         // Устройства.
         let peers = st.peers.get();
-        let mut devs = Column::new().gap(8.0).child(Text::new("Синхронизация через synlink").class("set-title"));
+        let mut devs = Column::new().gap(8.0).child(Text::new(t!("Синхронизация через synlink")).class("set-title"));
         if peers.is_empty() {
-            devs = devs.child(Text::new("Нет соединённых устройств. Подключите телефон кабелем или спарьте по Wi-Fi — пароли синхронизируются сами, если там тот же мастер-пароль.").max_lines(4).class("set-sub"));
+            devs = devs.child(Text::new(t!("Нет соединённых устройств. Подключите телефон кабелем или спарьте по Wi-Fi — пароли синхронизируются сами, если там тот же мастер-пароль.")).max_lines(4).class("set-sub"));
         }
         for p in peers {
             let (state, cls) = match &p.state {
-                PeerState::Synced => ("Синхронизировано".to_string(), "dev-sub"),
-                PeerState::Copied => ("Хранилище скопировано туда".to_string(), "dev-sub"),
-                PeerState::OtherPassword => ("Там хранилище с другим мастер-паролем".to_string(), "dev-sub dev-warn"),
+                PeerState::Synced => (t!("Синхронизировано").to_string(), "dev-sub"),
+                PeerState::Copied => (t!("Хранилище скопировано туда").to_string(), "dev-sub"),
+                PeerState::OtherPassword => (t!("Там хранилище с другим мастер-паролем").to_string(), "dev-sub dev-warn"),
                 PeerState::Error(e) => (e.clone(), "dev-sub dev-warn"),
             };
             devs = devs.child(
@@ -1964,13 +1964,13 @@ fn settings_view(st: St) -> W {
             );
         }
         if !st.shared_clip {
-            devs = devs.child(Text::new("Общий буфер обмена выключен: Параметры → Связь с устройствами.").max_lines(2).class("set-sub dev-warn"));
+            devs = devs.child(Text::new(t!("Общий буфер обмена выключен: Параметры → Связь с устройствами.")).max_lines(2).class("set-sub dev-warn"));
         }
-        devs = devs.child(button(ic::SYNC, "Синхронизировать сейчас", "btn-tonal", move || sync_now(st, true)));
+        devs = devs.child(button(ic::SYNC, &t!("Синхронизировать сейчас"), "btn-tonal", move || sync_now(st, true)));
         col = col.child(devs);
         // Секретный вопрос.
         let question = SESSION.lock().unwrap().as_ref().and_then(|s| s.question());
-        let mut qcol = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(Text::new("Секретный вопрос").class("set-title"));
+        let mut qcol = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(Text::new(t!("Секретный вопрос")).class("set-title"));
         if st.q_open.get() {
             let shake = st.shake.get();
             let err = st.error.get();
@@ -1978,7 +1978,7 @@ fn settings_view(st: St) -> W {
                 .gap(10.0)
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
                 .child(question_form(st, save_question))
-                .child(pw_field(st, st.chg_old, "Мастер-пароль для подтверждения", false, save_question));
+                .child(pw_field(st, st.chg_old, n_!("Мастер-пароль для подтверждения"), false, save_question));
             let cls = if err.is_some() && shake % 2 == 1 { "fields shake-a" } else if err.is_some() { "fields shake-b" } else { "fields" };
             qcol = qcol.child(DecoratedBox::new().child(fields).class(cls));
             if let Some(e) = err {
@@ -1987,24 +1987,24 @@ fn settings_view(st: St) -> W {
             qcol = qcol.child(
                 Row::new()
                     .gap(8.0)
-                    .child(DecoratedBox::new().child(button("", "Отмена", "btn-flat btn-wide", move || {
+                    .child(DecoratedBox::new().child(button("", &t!("Отмена"), "btn-flat btn-wide", move || {
                         st.q_open.set(false);
                         st.error.set(None);
                         st.chg_old.set(String::new());
                         clear_question_form(st);
                     })).class("grow"))
-                    .child(DecoratedBox::new().child(button(ic::CHECK, if st.busy.get() { "Шифрование…" } else { "Сохранить" }, "btn-primary btn-wide", move || save_question(st))).class("grow")),
+                    .child(DecoratedBox::new().child(button(ic::CHECK, &if st.busy.get() { t!("Шифрование…") } else { t!("Сохранить") }, "btn-primary btn-wide", move || save_question(st))).class("grow")),
             );
         } else {
             qcol = qcol.child(
                 Text::new(match &question {
-                    Some(q) => format!("«{q}» — если забудете мастер-пароль, ответ позволит задать новый (экран входа → «Забыли мастер-пароль?»)."),
-                    None => "Не задан. Без него забытый мастер-пароль не восстановить — записи будут потеряны.".to_string(),
+                    Some(q) => t!("«{q}» — если забудете мастер-пароль, ответ позволит задать новый (экран входа → «Забыли мастер-пароль?»).", q = syngui::i18n::t(q)),
+                    None => t!("Не задан. Без него забытый мастер-пароль не восстановить — записи будут потеряны.").to_string(),
                 })
                 .max_lines(4)
                 .class(if question.is_some() { "set-sub" } else { "set-sub dev-warn" }),
             );
-            let mut row = Row::new().gap(8.0).child(DecoratedBox::new().child(button(ic::QUESTION, if question.is_some() { "Изменить вопрос" } else { "Задать вопрос" }, "btn-tonal btn-wide", move || {
+            let mut row = Row::new().gap(8.0).child(DecoratedBox::new().child(button(ic::QUESTION, &if question.is_some() { t!("Изменить вопрос") } else { t!("Задать вопрос") }, "btn-tonal btn-wide", move || {
                 st.error.set(None);
                 st.chg_open.set(false);
                 st.chg_old.set(String::new());
@@ -2012,7 +2012,7 @@ fn settings_view(st: St) -> W {
                 st.q_open.set(true)
             })).class("grow"));
             if question.is_some() {
-                row = row.child(DecoratedBox::new().child(button(ic::DELETE, "Убрать", "btn-flat btn-wide btn-danger-flat", move || remove_question(st))).class("grow"));
+                row = row.child(DecoratedBox::new().child(button(ic::DELETE, &t!("Убрать"), "btn-flat btn-wide btn-danger-flat", move || remove_question(st))).class("grow"));
             }
             qcol = qcol.child(row);
         }
@@ -2024,36 +2024,36 @@ fn settings_view(st: St) -> W {
             let fields = Column::new()
                 .gap(10.0)
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                .child(pw_field(st, st.chg_old, "Текущий мастер-пароль или ответ на вопрос", true, change_password))
-                .child(pw_field(st, st.chg_new, "Новый мастер-пароль", false, change_password))
+                .child(pw_field(st, st.chg_old, n_!("Текущий мастер-пароль или ответ на вопрос"), true, change_password))
+                .child(pw_field(st, st.chg_new, n_!("Новый мастер-пароль"), false, change_password))
                 .child(Reactive::new(move || -> Vec<W> { vec![strength_bar(&st.chg_new.get())] }))
-                .child(pw_field(st, st.chg_new2, "Повторите новый", false, change_password));
+                .child(pw_field(st, st.chg_new2, n_!("Повторите новый"), false, change_password));
             let cls = if err.is_some() && shake % 2 == 1 { "fields shake-a" } else if err.is_some() { "fields shake-b" } else { "fields" };
-            let mut c = Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(Text::new("Смена мастер-пароля").class("set-title")).child(DecoratedBox::new().child(fields).class(cls));
+            let mut c = Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(Text::new(t!("Смена мастер-пароля")).class("set-title")).child(DecoratedBox::new().child(fields).class(cls));
             if let Some(e) = err {
                 c = c.child(Text::new(e).max_lines(2).class("gate-error"));
             }
             c = c.child(
                 Row::new()
                     .gap(8.0)
-                    .child(DecoratedBox::new().child(button("", "Отмена", "btn-flat btn-wide", move || {
+                    .child(DecoratedBox::new().child(button("", &t!("Отмена"), "btn-flat btn-wide", move || {
                         st.chg_open.set(false);
                         st.error.set(None);
                     })).class("grow"))
-                    .child(DecoratedBox::new().child(button(ic::CHECK, if st.busy.get() { "Шифрование…" } else { "Сменить" }, "btn-primary btn-wide", move || change_password(st))).class("grow")),
+                    .child(DecoratedBox::new().child(button(ic::CHECK, &if st.busy.get() { t!("Шифрование…") } else { t!("Сменить") }, "btn-primary btn-wide", move || change_password(st))).class("grow")),
             );
             col = col.child(c);
         } else {
             col = col.child(
                 Row::new()
                     .gap(8.0)
-                    .child(DecoratedBox::new().child(button(ic::KEY, "Сменить мастер-пароль", "btn-tonal btn-wide", move || {
+                    .child(DecoratedBox::new().child(button(ic::KEY, &t!("Сменить мастер-пароль"), "btn-tonal btn-wide", move || {
                         st.error.set(None);
                         st.q_open.set(false);
                         st.chg_old.set(String::new());
                         st.chg_open.set(true)
                     })).class("grow"))
-                    .child(DecoratedBox::new().child(button(ic::LOCK, "Заблокировать", "btn-tonal btn-wide", move || lock(st))).class("grow")),
+                    .child(DecoratedBox::new().child(button(ic::LOCK, &t!("Заблокировать"), "btn-tonal btn-wide", move || lock(st))).class("grow")),
             );
         }
         vec![Box::new(col)]
@@ -2064,7 +2064,7 @@ fn settings_view(st: St) -> W {
         .child(
             Row::new()
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(Text::new("Настройки").class("bar-title grow"))
+                .child(Text::new(t!("Настройки")).class("bar-title grow"))
                 .child(icon_btn(ic::CLOSE, "", move || {
                     st.settings.set(false);
                     st.chg_open.set(false);

@@ -100,12 +100,12 @@ fn phone_titlebar() -> W {
     };
     let info = Reactive::new(move || -> Vec<W> {
         let v = v();
-        let Some(it) = v.current() else { return vec![boxed(Text::new("Просмотр").class("iv-name"))] };
+        let Some(it) = v.current() else { return vec![boxed(Text::new(t!("Просмотр")).class("iv-name"))] };
         let n = v.items.with(|i| i.len());
         let idx = v.index.get();
         let mut meta = vec![model::format_size(it.size)];
         if n > 1 {
-            meta.push(format!("{} из {}", idx + 1, n));
+            meta.push(t!("{v} из {n}", v = idx + 1, n = n));
         }
         vec![boxed(
             Column::new()
@@ -123,15 +123,15 @@ fn phone_titlebar() -> W {
             let v = v();
             let Some(it) = v.current_untracked() else { return };
             let mut items = vec![
-                MenuItem::new("folder", "Показать в папке").icon(glyph::FOLDER),
-                MenuItem::new("copy", "Копировать").icon(glyph::COPY),
-                MenuItem::new("delete", "Удалить в корзину").icon(glyph::DELETE),
+                MenuItem::new("folder", t!("Показать в папке")).icon(glyph::FOLDER),
+                MenuItem::new("copy", t!("Копировать")).icon(glyph::COPY),
+                MenuItem::new("delete", t!("Удалить в корзину")).icon(glyph::DELETE),
             ];
             let apps: Vec<MenuItem> = mime::apps_for(&it.mime)
                 .into_iter()
                 .filter(|a| a.id != "synfiles-viewer" && a.takes_files())
                 .take(6)
-                .map(|a| MenuItem::new(format!("app:{}", a.id), format!("Открыть в «{}»", a.name)).icon(glyph::OPEN_WITH))
+                .map(|a| MenuItem::new(format!("app:{}", a.id), t!("Открыть в «{name}»", name = a.name)).icon(glyph::OPEN_WITH))
                 .collect();
             if !apps.is_empty() {
                 items.push(MenuItem::separator());
@@ -172,7 +172,7 @@ fn title_button(glyph: &str, tip: &str, class: &str, on: impl FnMut() + Send + '
 fn titlebar() -> W {
     let info = Reactive::new(move || -> Vec<W> {
         let v = v();
-        let Some(it) = v.current() else { return vec![boxed(Text::new("Просмотр").class("iv-name"))] };
+        let Some(it) = v.current() else { return vec![boxed(Text::new(t!("Просмотр")).class("iv-name"))] };
         let n = v.items.with(|i| i.len());
         let idx = v.index.get();
         let _ = v.rev.get();
@@ -183,7 +183,7 @@ fn titlebar() -> W {
         }
         meta.push(model::format_size(it.size));
         if n > 1 {
-            meta.push(format!("{} из {}", idx + 1, n));
+            meta.push(t!("{v} из {n}", v = idx + 1, n = n));
         }
         vec![boxed(
             Row::new()
@@ -201,11 +201,11 @@ fn titlebar() -> W {
             Row::new()
                 .gap(2.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(title_button(glyph::INFO, "Сведения (I)", if info_on { "toggled" } else { "" }, move || v.show_info.update(|s| *s = !*s)))
-                .child(title_button(glyph::FOLDER, "Показать в папке", "", show_in_folder))
+                .child(title_button(glyph::INFO, &t!("Сведения (I)"), if info_on { "toggled" } else { "" }, move || v.show_info.update(|s| *s = !*s)))
+                .child(title_button(glyph::FOLDER, &t!("Показать в папке"), "", show_in_folder))
                 .child(open_with_button())
-                .child(title_button(glyph::COPY, "Копировать (Ctrl+C)", "", copy_current))
-                .child(title_button(glyph::DELETE, "Удалить (Delete)", "", delete_current)),
+                .child(title_button(glyph::COPY, &t!("Копировать (Ctrl+C)"), "", copy_current))
+                .child(title_button(glyph::DELETE, &t!("Удалить (Delete)"), "", delete_current)),
         )]
     });
     let controls = Reactive::new(move || -> Vec<W> {
@@ -240,14 +240,14 @@ fn open_with_button() -> W {
                         .map(|a| MenuItem::new(format!("app:{}", a.id), a.name.clone()))
                         .collect();
                     if items.is_empty() {
-                        items.push(MenuItem::new("none", "Нет подходящих программ").disabled(true));
+                        items.push(MenuItem::new("none", t!("Нет подходящих программ")).disabled(true));
                     }
                     v.menu.set_always(items);
                     v.menu_pos.set(Point::new(r.origin.x, r.origin.y + r.size.height + 4.0));
                     v.menu_open.set(true);
                 })
                 .child(DecoratedBox::new().class("iv-title-btn").child(Icon::new(glyph::OPEN_WITH).class("icon"))),
-            "Открыть с помощью".to_string(),
+            t!("Открыть с помощью").to_string(),
         )
         .delay_ms(500),
     )
@@ -290,7 +290,7 @@ fn stage() -> W {
         let v = v();
         let _ = v.rev.get();
         let Some(it) = v.current() else {
-            return vec![boxed(Center::new().child(Text::new("Картинок не осталось").class("iv-hint")))];
+            return vec![boxed(Center::new().child(Text::new(t!("Картинок не осталось")).class("iv-hint")))];
         };
         let total = v.items.with(|i| i.len());
         let full = v.window.get().fullscreen;
@@ -322,11 +322,11 @@ fn stage() -> W {
                 );
             }
             Some(p) => {
-                let msg = p.error.clone().unwrap_or_else(|| "Не удалось открыть".into());
+                let msg = p.error.clone().unwrap_or_else(|| t!("Не удалось открыть").into());
                 stack = stack.child(DecoratedBox::new().class("iv-scrim")).child(placeholder(glyph::BROKEN, &msg));
             }
             None => {
-                stack = stack.child(DecoratedBox::new().class("iv-scrim")).child(placeholder(glyph::HOURGLASS, "Открываю…"));
+                stack = stack.child(DecoratedBox::new().class("iv-scrim")).child(placeholder(glyph::HOURGLASS, &t!("Открываю…")));
             }
         }
         if total > 1 && !phone {
@@ -393,9 +393,9 @@ fn preload_neighbours(v: Viewer) {
 
 fn nav_layer(delta: isize) -> impl Widget {
     let (icon, tip, align) = if delta < 0 {
-        (glyph::PREV, "Предыдущая (←)", MainAxisAlignment::Start)
+        (glyph::PREV, t!("Предыдущая (←)"), MainAxisAlignment::Start)
     } else {
-        (glyph::NEXT, "Следующая (→)", MainAxisAlignment::End)
+        (glyph::NEXT, t!("Следующая (→)"), MainAxisAlignment::End)
     };
     Row::new()
         .main_axis_alignment(align)
@@ -493,23 +493,23 @@ fn toolbar(v: Viewer, total: usize, full: bool) -> W {
         return boxed(DecoratedBox::new().class("iv-toolbar").child(Row::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Center).children(items)));
     }
     items.extend([
-        tool(glyph::ZOOM_OUT, "Уменьшить (−)", send(C::ZoomOut)),
+        tool(glyph::ZOOM_OUT, &t!("Уменьшить (−)"), send(C::ZoomOut)),
         zoom_label(v),
-        tool(glyph::ZOOM_IN, "Увеличить (+)", send(C::ZoomIn)),
+        tool(glyph::ZOOM_IN, &t!("Увеличить (+)"), send(C::ZoomIn)),
         separator(),
-        tool(glyph::FIT, "Вписать (0)", send(C::Fit)),
-        boxed(Tooltip::new(Button::new("1:1").on_click(send(C::Actual)).class("iv-tool-text"), "Пиксель в пиксель (1)".to_string()).delay_ms(500)),
-        tool(glyph::FILL, "Заполнить (2)", send(C::Fill)),
+        tool(glyph::FIT, &t!("Вписать (0)"), send(C::Fit)),
+        boxed(Tooltip::new(Button::new("1:1").on_click(send(C::Actual)).class("iv-tool-text"), t!("Пиксель в пиксель (1)").to_string()).delay_ms(500)),
+        tool(glyph::FILL, &t!("Заполнить (2)"), send(C::Fill)),
         separator(),
-        tool(glyph::ROTATE_LEFT, "Повернуть влево (Shift+R)", orient(|o| o.turns -= 1)),
-        tool(glyph::ROTATE_RIGHT, "Повернуть вправо (R)", orient(|o| o.turns += 1)),
-        tool(glyph::FLIP_H, "Отразить по горизонтали (H)", orient(|o| o.flip_h = !o.flip_h)),
-        tool(glyph::FLIP_V, "Отразить по вертикали (V)", orient(|o| o.flip_v = !o.flip_v)),
+        tool(glyph::ROTATE_LEFT, &t!("Повернуть влево (Shift+R)"), orient(|o| o.turns -= 1)),
+        tool(glyph::ROTATE_RIGHT, &t!("Повернуть вправо (R)"), orient(|o| o.turns += 1)),
+        tool(glyph::FLIP_H, &t!("Отразить по горизонтали (H)"), orient(|o| o.flip_h = !o.flip_h)),
+        tool(glyph::FLIP_V, &t!("Отразить по вертикали (V)"), orient(|o| o.flip_v = !o.flip_v)),
         separator(),
         if full {
-            tool(glyph::FULLSCREEN_EXIT, "Выйти из полноэкранного режима (F11)", syngui::signal::toggle_fullscreen)
+            tool(glyph::FULLSCREEN_EXIT, &t!("Выйти из полноэкранного режима (F11)"), syngui::signal::toggle_fullscreen)
         } else {
-            tool(glyph::FULLSCREEN, "Во весь экран (F11)", syngui::signal::toggle_fullscreen)
+            tool(glyph::FULLSCREEN, &t!("Во весь экран (F11)"), syngui::signal::toggle_fullscreen)
         },
     ]);
     boxed(DecoratedBox::new().class("iv-toolbar").child(Row::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Center).children(items)))
@@ -542,18 +542,18 @@ fn info_row(label: &str, value: String) -> W {
 }
 
 fn info_panel(it: &Item, p: Option<&Prepared>) -> W {
-    let mut col = Column::new().gap(12.0).child(Text::new("Сведения").class("iv-info-title"));
-    col = col.child(info_row("Имя", it.name.clone()));
+    let mut col = Column::new().gap(12.0).child(Text::new(t!("Сведения")).class("iv-info-title"));
+    col = col.child(info_row(&t!("Имя"), it.name.clone()));
     if let Some((w, h)) = p.map(|p| p.natural).filter(|n| n.0 > 0) {
         let (w, h) = if p.map(|p| p.exif_turns % 2 != 0).unwrap_or(false) { (h, w) } else { (w, h) };
         let mp = w as f64 * h as f64 / 1e6;
-        col = col.child(info_row("Размер в пикселях", format!("{w} × {h} ({mp:.1} Мп)")));
+        col = col.child(info_row(&t!("Размер в пикселях"), t!("{w} × {h} ({mp} Мп)", w = w, h = h, mp = format!("{:.1}", mp))));
     }
     col = col
-        .child(info_row("Размер файла", model::format_size(it.size)))
-        .child(info_row("Тип", mime::description(&it.mime)))
-        .child(info_row("Изменён", model::format_time(it.mtime)))
-        .child(info_row("Папка", it.path.parent().map(|d| d.display().to_string()).unwrap_or_default()));
+        .child(info_row(&t!("Размер файла"), model::format_size(it.size)))
+        .child(info_row(&t!("Тип"), mime::description(&it.mime)))
+        .child(info_row(&t!("Изменён"), model::format_time(it.mtime)))
+        .child(info_row(&t!("Папка"), it.path.parent().map(|d| d.display().to_string()).unwrap_or_default()));
     boxed(
         Row::new()
             .main_axis_alignment(MainAxisAlignment::End)
@@ -586,7 +586,7 @@ fn copy_current() {
     }
     let refs: Vec<(&str, &[u8])> = rich.iter().map(|(m, b)| (*m, b.as_slice())).collect();
     syngui::clipboard::copy_rich(&it.path.display().to_string(), &refs);
-    v.flash("Скопировано");
+    v.flash(t!("Скопировано"));
 }
 
 fn delete_current() {
@@ -603,9 +603,9 @@ fn delete_current() {
             v.index.set(i.min(items.len() - 1));
             v.items.set(std::sync::Arc::new(items));
             v.send(syngui::widgets::ImageViewCommand::Fit);
-            v.flash(format!("«{}» в корзине", it.name));
+            v.flash(t!("«{name}» в корзине", name = it.name));
         }
-        Err(e) => v.flash(format!("Не удалось удалить: {e}")),
+        Err(e) => v.flash(t!("Не удалось удалить: {e}", e = e)),
     }
 }
 

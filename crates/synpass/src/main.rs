@@ -52,10 +52,11 @@ impl Prefs {
 }
 
 fn main() {
+    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);
     App::new()
-        .title("Пароли")
+        .title(t!("Пароли"))
         .app_id("synpass")
         .size(980, 680)
         .min_size(340, 480)

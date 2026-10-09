@@ -93,11 +93,11 @@ fn status_bar() -> W {
         let entries = p.entries.get();
         let sel = p.sel.get();
         let loc = p.loc.get();
-        let mut left = format!("Элементов: {}", entries.len());
+        let mut left = t!("Элементов: {n}", n = entries.len());
         if !sel.selected.is_empty() {
             let chosen: Vec<&model::Entry> = sel.selected.iter().filter_map(|&i| entries.get(i)).collect();
             let files: Vec<&&model::Entry> = chosen.iter().filter(|e| !e.is_dir).collect();
-            left.push_str(&format!("   Выбрано: {}", chosen.len()));
+            left.push_str(&t!("   Выбрано: {n}", n = chosen.len()));
             if !files.is_empty() {
                 let bytes: u64 = files.iter().map(|e| e.size).sum();
                 left.push_str(&format!(" ({})", model::format_size(bytes)));
@@ -105,7 +105,7 @@ fn status_bar() -> W {
         }
         let right = match &loc {
             Location::Dir(d) => crate::places::space(d)
-                .map(|(free, total)| format!("Свободно {} из {}", model::format_size(free), model::format_size(total)))
+                .map(|(free, total)| t!("Свободно {v} из {v2}", v = model::format_size(free), v2 = model::format_size(total)))
                 .unwrap_or_default(),
             _ => String::new(),
         };
@@ -128,8 +128,8 @@ fn status_bar() -> W {
             Row::new()
                 .gap(4.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(seg(state::ViewMode::Details, icons::VIEW_DETAILS, "Таблица (Ctrl+4)"))
-                .child(seg(state::ViewMode::Icons, icons::VIEW_ICONS, "Значки (Ctrl+1)")),
+                .child(seg(state::ViewMode::Details, icons::VIEW_DETAILS, &t!("Таблица (Ctrl+4)")))
+                .child(seg(state::ViewMode::Icons, icons::VIEW_ICONS, &t!("Значки (Ctrl+1)"))),
         )]
     });
     bx(
@@ -158,7 +158,7 @@ fn zoom_bar() -> W {
             Row::new()
                 .gap(4.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(super::icon_button(icons::ZOOM_OUT, "Мельче (Ctrl+−)", "small", true, move || crate::actions::zoom(p, -1)))
+                .child(super::icon_button(icons::ZOOM_OUT, &t!("Мельче (Ctrl+−)"), "small", true, move || crate::actions::zoom(p, -1)))
                 .child(
                     Slider::new()
                         .range(32.0, 256.0)
@@ -168,7 +168,7 @@ fn zoom_bar() -> W {
                         .on_change(move |v| crate::actions::set_icon_size(p, v.round() as u32))
                         .class("zoom-slider"),
                 )
-                .child(super::icon_button(icons::ZOOM_IN, "Крупнее (Ctrl++)", "small", true, move || crate::actions::zoom(p, 1)))
+                .child(super::icon_button(icons::ZOOM_IN, &t!("Крупнее (Ctrl++)"), "small", true, move || crate::actions::zoom(p, 1)))
                 .child(DecoratedBox::new().class("zoom-label").child(label)),
         )]
     }))
@@ -189,7 +189,7 @@ pub(super) fn toast_layer() -> W {
                         state::ctx().toast.set(None);
                         crate::actions::undo();
                     })
-                    .child(DecoratedBox::new().class("toast-action").child(Text::new("Отменить"))),
+                    .child(DecoratedBox::new().class("toast-action").child(Text::new(t!("Отменить")))),
             );
         }
         let cls = if t.kind == ToastKind::Error { "toast error" } else { "toast" };

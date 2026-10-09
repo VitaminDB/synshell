@@ -27,9 +27,9 @@ fn eject(dev: Device) {
                         state::navigate(p, Location::Dir(synshell_common::paths::home()), true);
                     }
                 }
-                state::toast(format!("«{}» можно отключать", dev.title()));
+                state::toast(t!("«{title}» можно отключать", title = dev.title()));
             }
-            Err(e) => state::toast_error(format!("Не удалось извлечь «{}»: {e}", dev.title())),
+            Err(e) => state::toast_error(t!("Не удалось извлечь «{title}»: {e}", title = dev.title(), e = e)),
         });
     });
 }
@@ -41,7 +41,7 @@ fn mount_and_open(dev: Device) {
             state::navigate(state::pane(), Location::Dir(path), true);
         }),
         Err(e) => syngui::async_runtime::run_on_main_thread(move || {
-            state::toast_error(format!("Не удалось открыть «{}»: {e}", dev.title()));
+            state::toast_error(t!("Не удалось открыть «{title}»: {e}", title = dev.title(), e = e));
         }),
     });
 }
@@ -52,8 +52,8 @@ fn mount_and_open(dev: Device) {
 fn volume_row(dev: Device) -> W {
     let glyph = places::kind_icon(dev.kind());
     let sub = match &dev {
-        Device::Disk(v) => format!("Не смонтирован · {}", crate::drives::format_size(v.size)),
-        Device::Gadget(_) => format!("{} · нажмите, чтобы открыть", dev.kind_name()),
+        Device::Disk(v) => t!("Не смонтирован · {v}", v = crate::drives::format_size(v.size)),
+        Device::Gadget(_) => t!("{kind_name} · нажмите, чтобы открыть", kind_name = dev.kind_name()),
     };
     let col = Column::new()
         .gap(3.0)
@@ -69,10 +69,10 @@ fn volume_row(dev: Device) -> W {
     let row = GestureDetector::new()
         .on_click(move || mount_and_open(click.clone()))
         .on_secondary_click(move |at| {
-            let mut items = vec![MenuItem::new("mount", "Открыть").icon(icons::OPEN)];
+            let mut items = vec![MenuItem::new("mount", t!("Открыть")).icon(icons::OPEN)];
             if matches!(dev.kind(), Kind::Usb) {
                 items.push(MenuItem::separator());
-                items.push(MenuItem::new("eject", "Безопасно извлечь").icon(icons::EJECT));
+                items.push(MenuItem::new("eject", t!("Безопасно извлечь")).icon(icons::EJECT));
             }
             let d = dev.clone();
             state::show_menu(items, at, move |id| match id {
@@ -111,7 +111,7 @@ fn place_row(pl: Place, current: &Location) -> W {
                 .class(if used > 0.9 { "space-bar full" } else { "space-bar" })
                 .child(DecoratedBox::new().class("space-fill").style("width", (used * 150.0).clamp(2.0, 150.0))),
         );
-        col = col.child(Text::new(format!("Свободно {} из {}", crate::model::format_size(free), crate::model::format_size(total))).class("space-text"));
+        col = col.child(Text::new(t!("Свободно {v} из {v2}", v = crate::model::format_size(free), v2 = crate::model::format_size(total))).class("space-text"));
     }
     let row = GestureDetector::new()
         .on_click(move || {
@@ -123,28 +123,28 @@ fn place_row(pl: Place, current: &Location) -> W {
         })
         .on_secondary_click(move |at| {
             let mut items = vec![
-                MenuItem::new("open", "Открыть").icon(icons::OPEN),
-                MenuItem::new("open-tab", "Открыть в новой вкладке").icon(icons::TAB),
+                MenuItem::new("open", t!("Открыть")).icon(icons::OPEN),
+                MenuItem::new("open-tab", t!("Открыть в новой вкладке")).icon(icons::TAB),
             ];
             if loc_menu.dir().is_some() {
-                items.push(MenuItem::new("terminal", "Открыть в терминале").icon(icons::TERMINAL));
+                items.push(MenuItem::new("terminal", t!("Открыть в терминале")).icon(icons::TERMINAL));
                 items.push(MenuItem::separator());
-                items.push(MenuItem::new("copy-path", "Копировать путь").icon(icons::COPY_PATH));
+                items.push(MenuItem::new("copy-path", t!("Копировать путь")).icon(icons::COPY_PATH));
             }
             if pinned {
-                items.push(MenuItem::new("unpin", "Открепить").icon(icons::PIN));
+                items.push(MenuItem::new("unpin", t!("Открепить")).icon(icons::PIN));
             }
             if matches!(loc_menu, Location::Trash) {
                 items.push(MenuItem::separator());
-                items.push(MenuItem::new("empty", "Очистить корзину").icon(icons::DELETE_FOREVER).disabled(crate::trash::is_empty()));
+                items.push(MenuItem::new("empty", t!("Очистить корзину")).icon(icons::DELETE_FOREVER).disabled(crate::trash::is_empty()));
             }
             if loc_menu.dir().is_some() {
                 items.push(MenuItem::separator());
-                items.push(MenuItem::new("props", "Свойства").icon(icons::INFO));
+                items.push(MenuItem::new("props", t!("Свойства")).icon(icons::INFO));
             }
             if let Some(dev) = device.clone() {
                 items.push(MenuItem::separator());
-                items.push(MenuItem::new("eject", "Безопасно извлечь").icon(icons::EJECT));
+                items.push(MenuItem::new("eject", t!("Безопасно извлечь")).icon(icons::EJECT));
                 let target = loc_menu.clone();
                 state::show_menu(items, at, move |id| {
                     let p = state::pane();
@@ -228,7 +228,7 @@ pub fn places_list() -> W {
             if i > 0 {
                 col = col.child(DecoratedBox::new().class("side-sep"));
             }
-            col = col.child(Text::new(sec.title).class("side-title"));
+            col = col.child(Text::new(syngui::i18n::t(sec.title)).class("side-title"));
             for pl in sec.places {
                 col = col.child(place_row(pl, &current));
             }

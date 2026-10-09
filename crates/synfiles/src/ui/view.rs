@@ -42,7 +42,7 @@ pub fn drop_into(dest: &Path, d: &DragData, m: Modifiers) {
         return;
     }
     if srcs.iter().any(|s| dest.starts_with(s)) {
-        state::toast_error("Нельзя перенести папку в саму себя");
+        state::toast_error(t!("Нельзя перенести папку в саму себя"));
         return;
     }
     let op = if m.alt {
@@ -100,34 +100,34 @@ fn header(p: Pane, columns: Columns, fit: items::ColumnsFit) -> W {
     let mut row = Row::new()
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(DecoratedBox::new().class("hcell-icon").style("width", 20.0))
-        .child(DecoratedBox::new().class("grow").child(header_cell(p, SortKey::Name, "Имя", "name-cell", None)));
+        .child(DecoratedBox::new().class("grow").child(header_cell(p, SortKey::Name, &t!("Имя"), "name-cell", None)));
     match columns {
         Columns::Normal => {
             if fit.date {
-                row = row.child(header_cell(p, SortKey::Modified, "Дата изменения", "col-date", Some(items::COL_DATE)));
+                row = row.child(header_cell(p, SortKey::Modified, &t!("Дата изменения"), "col-date", Some(items::COL_DATE)));
             }
             if fit.kind {
-                row = row.child(header_cell(p, SortKey::Type, "Тип", "col-type", Some(items::COL_TYPE)));
+                row = row.child(header_cell(p, SortKey::Type, &t!("Тип"), "col-type", Some(items::COL_TYPE)));
             }
         }
         Columns::Trash => {
             if fit.kind {
-                row = row.child(plain_header("Откуда удалено", "col-where", items::COL_WHERE));
+                row = row.child(plain_header(&t!("Откуда удалено"), "col-where", items::COL_WHERE));
             }
             if fit.date {
-                row = row.child(plain_header("Дата удаления", "col-date", items::COL_DATE));
+                row = row.child(plain_header(&t!("Дата удаления"), "col-date", items::COL_DATE));
             }
         }
         Columns::Search => {
             if fit.kind {
-                row = row.child(plain_header("Папка", "col-where", items::COL_WHERE));
+                row = row.child(plain_header(&t!("Папка"), "col-where", items::COL_WHERE));
             }
             if fit.date {
-                row = row.child(header_cell(p, SortKey::Modified, "Дата изменения", "col-date", Some(items::COL_DATE)));
+                row = row.child(header_cell(p, SortKey::Modified, &t!("Дата изменения"), "col-date", Some(items::COL_DATE)));
             }
         }
     }
-    row = row.child(header_cell(p, SortKey::Size, "Размер", "col-size", Some(items::COL_SIZE)));
+    row = row.child(header_cell(p, SortKey::Size, &t!("Размер"), "col-size", Some(items::COL_SIZE)));
     bx("list-header", row)
 }
 
@@ -143,13 +143,13 @@ fn backdrop(p: Pane) -> W {
         } else if !empty {
             return vec![];
         } else if loading {
-            (icons::SEARCH, if matches!(loc, Location::Search { .. }) { "Поиск…".into() } else { "Загрузка…".into() })
+            (icons::SEARCH, if matches!(loc, Location::Search { .. }) { t!("Поиск…").into() } else { t!("Загрузка…").into() })
         } else {
             match loc {
-                Location::Trash => (icons::TRASH, "Корзина пуста".into()),
-                Location::Search { query, .. } => (icons::SEARCH, format!("По запросу «{query}» ничего не найдено")),
-                Location::Dir(_) if !p.filter.get().is_empty() => (icons::SEARCH, "Нет подходящих файлов".into()),
-                Location::Dir(_) => (icons::FOLDER_OPEN, "Эта папка пуста".into()),
+                Location::Trash => (icons::TRASH, t!("Корзина пуста").into()),
+                Location::Search { query, .. } => (icons::SEARCH, t!("По запросу «{query}» ничего не найдено", query = query)),
+                Location::Dir(_) if !p.filter.get().is_empty() => (icons::SEARCH, t!("Нет подходящих файлов").into()),
+                Location::Dir(_) => (icons::FOLDER_OPEN, t!("Эта папка пуста").into()),
             }
         };
         vec![boxed(

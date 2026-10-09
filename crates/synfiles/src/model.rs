@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use synshell_common::mime;
+use syngui::{n_, t, tn};
 
 /// Запись каталога.
 #[derive(Debug, Clone, PartialEq)]
@@ -94,7 +95,7 @@ impl Entry {
 
     pub fn description(&self) -> String {
         if self.is_dir {
-            return "Папка".into();
+            return t!("Папка").into();
         }
         mime::description(&self.mime)
     }
@@ -149,12 +150,12 @@ impl SortKey {
         }
     }
 
-    pub fn title(self) -> &'static str {
+    pub fn title(self) -> String {
         match self {
-            Self::Name => "Имя",
-            Self::Modified => "Дата изменения",
-            Self::Type => "Тип",
-            Self::Size => "Размер",
+            Self::Name => t!("Имя"),
+            Self::Modified => t!("Дата изменения"),
+            Self::Type => t!("Тип"),
+            Self::Size => t!("Размер"),
         }
     }
 }
@@ -251,9 +252,9 @@ pub fn visible(raw: &[Entry], sort: Sort, show_hidden: bool, filter: &str) -> Ar
 
 /// «1,4 МБ» (двоичные единицы, как в Проводнике).
 pub fn format_size(n: u64) -> String {
-    const U: [&str; 6] = ["Б", "КБ", "МБ", "ГБ", "ТБ", "ПБ"];
+    const U: [&str; 6] = [n_!("Б"), n_!("КБ"), n_!("МБ"), n_!("ГБ"), n_!("ТБ"), n_!("ПБ")];
     if n < 1024 {
-        return format!("{n} Б");
+        return t!("{n} Б", n = n);
     }
     let mut v = n as f64;
     let mut i = 0;
@@ -262,16 +263,11 @@ pub fn format_size(n: u64) -> String {
         i += 1;
     }
     let s = if v < 10.0 { format!("{v:.1}") } else { format!("{v:.0}") };
-    format!("{} {}", s.replace('.', ","), U[i])
+    format!("{} {}", s.replace('.', ","), syngui::i18n::t(U[i]))
 }
 
 pub fn format_count(n: u32) -> String {
-    let word = match (n % 10, n % 100) {
-        (1, x) if x != 11 => "элемент",
-        (2..=4, x) if !(12..=14).contains(&x) => "элемента",
-        _ => "элементов",
-    };
-    format!("{n} {word}")
+    tn!(n, "{n} элемент", "{n} элемента", "{n} элементов")
 }
 
 /// Локальное время: (год, месяц, день, час, минута).
@@ -295,9 +291,9 @@ pub fn format_time(secs: i64) -> String {
     let (ty, tmo, td, _, _) = local_time(now_secs());
     let (yy, ymo, yd, _, _) = local_time(now_secs() - 86_400);
     if (y, mo, d) == (ty, tmo, td) {
-        format!("Сегодня, {h:02}:{mi:02}")
+        t!("Сегодня, {h}:{mi}", h = format!("{:02}", h), mi = format!("{:02}", mi))
     } else if (y, mo, d) == (yy, ymo, yd) {
-        format!("Вчера, {h:02}:{mi:02}")
+        t!("Вчера, {h}:{mi}", h = format!("{:02}", h), mi = format!("{:02}", mi))
     } else {
         format!("{d:02}.{mo:02}.{y} {h:02}:{mi:02}")
     }
@@ -328,6 +324,8 @@ mod tests {
 
     #[test]
     fn sizes_and_counts() {
+        // Исходный язык строк — русский (формы числа по его правилам).
+        syngui::i18n::set_source_language("ru");
         assert_eq!(format_size(512), "512 Б");
         assert_eq!(format_size(1536), "1,5 КБ");
         assert_eq!(format_size(50 * 1024 * 1024), "50 МБ");

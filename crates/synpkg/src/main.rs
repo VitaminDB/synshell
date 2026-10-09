@@ -47,13 +47,13 @@ pub enum Tab {
 
 impl Tab {
     pub const ALL: [Tab; 5] = [Tab::Explore, Tab::Aur, Tab::Installed, Tab::Updates, Tab::Jobs];
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            Tab::Explore => "Обзор",
-            Tab::Aur => "AUR",
-            Tab::Installed => "Установленные",
-            Tab::Updates => "Обновления",
-            Tab::Jobs => "Задачи",
+            Tab::Explore => t!("Обзор"),
+            Tab::Aur => "AUR".into(),
+            Tab::Installed => t!("Установленные"),
+            Tab::Updates => t!("Обновления"),
+            Tab::Jobs => t!("Задачи"),
         }
     }
     pub fn icon(self) -> &'static str {
@@ -102,21 +102,25 @@ pub struct Category {
 }
 
 pub const CATEGORIES: &[Category] = &[
-    Category { key: "Network", also: &[], label: "Интернет", icon: "\u{E80B}" },
-    Category { key: "Office", also: &[], label: "Офис", icon: "\u{E873}" },
-    Category { key: "Graphics", also: &[], label: "Графика", icon: "\u{E3F4}" },
-    Category { key: "AudioVideo", also: &["Audio", "Video"], label: "Мультимедиа", icon: "\u{E02C}" },
-    Category { key: "Game", also: &[], label: "Игры", icon: "\u{EA28}" },
-    Category { key: "Development", also: &[], label: "Разработка", icon: "\u{E86F}" },
-    Category { key: "Education", also: &[], label: "Образование", icon: "\u{E80C}" },
-    Category { key: "Science", also: &[], label: "Наука", icon: "\u{EA4B}" },
-    Category { key: "System", also: &["Settings"], label: "Система", icon: "\u{E8B8}" },
-    Category { key: "Utility", also: &[], label: "Утилиты", icon: "\u{E869}" },
+    Category { key: "Network", also: &[], label: n_!("Интернет"), icon: "\u{E80B}" },
+    Category { key: "Office", also: &[], label: n_!("Офис"), icon: "\u{E873}" },
+    Category { key: "Graphics", also: &[], label: n_!("Графика"), icon: "\u{E3F4}" },
+    Category { key: "AudioVideo", also: &["Audio", "Video"], label: n_!("Мультимедиа"), icon: "\u{E02C}" },
+    Category { key: "Game", also: &[], label: n_!("Игры"), icon: "\u{EA28}" },
+    Category { key: "Development", also: &[], label: n_!("Разработка"), icon: "\u{E86F}" },
+    Category { key: "Education", also: &[], label: n_!("Образование"), icon: "\u{E80C}" },
+    Category { key: "Science", also: &[], label: n_!("Наука"), icon: "\u{EA4B}" },
+    Category { key: "System", also: &["Settings"], label: n_!("Система"), icon: "\u{E8B8}" },
+    Category { key: "Utility", also: &[], label: n_!("Утилиты"), icon: "\u{E869}" },
 ];
 
 impl Category {
     pub fn by_key(key: &str) -> Option<&'static Category> {
         CATEGORIES.iter().find(|c| c.key == key)
+    }
+    /// Подпись на языке интерфейса.
+    pub fn title(&self) -> String {
+        syngui::i18n::t(self.label)
     }
     pub fn contains(&self, a: &CatalogApp) -> bool {
         a.categories.iter().any(|c| c == self.key || self.also.contains(&c.as_str()))
@@ -128,38 +132,38 @@ pub const META_KEY: &str = "@meta";
 
 /// Описания известных групп pacman.
 pub const GROUP_INFO: &[(&str, &str)] = &[
-    ("gnome", "Рабочая среда GNOME"),
-    ("gnome-extra", "Дополнительные программы GNOME"),
-    ("gnome-circle", "Программы сообщества GNOME Circle"),
-    ("plasma", "Рабочая среда KDE Plasma"),
-    ("kde-applications", "Все программы KDE"),
-    ("xfce4", "Рабочая среда Xfce"),
-    ("xfce4-goodies", "Дополнения и модули Xfce"),
-    ("lxqt", "Лёгкая рабочая среда LXQt"),
-    ("lxde", "Лёгкая рабочая среда LXDE"),
-    ("mate", "Рабочая среда MATE"),
-    ("mate-extra", "Дополнительные программы MATE"),
-    ("budgie", "Рабочая среда Budgie"),
-    ("cosmic", "Рабочая среда COSMIC"),
-    ("deepin", "Рабочая среда Deepin"),
-    ("deepin-extra", "Дополнительные программы Deepin"),
-    ("pantheon", "Рабочая среда Pantheon (elementary OS)"),
-    ("ukui", "Рабочая среда UKUI"),
-    ("i3", "Мозаичный оконный менеджер i3"),
-    ("xorg", "Графический сервер X.Org целиком"),
-    ("xorg-apps", "Утилиты X.Org"),
-    ("xorg-drivers", "Драйверы X.Org"),
-    ("xorg-fonts", "Шрифты X.Org"),
-    ("pro-audio", "Профессиональная работа со звуком"),
-    ("texlive", "Вёрстка TeX Live"),
-    ("texlive-lang", "Языки TeX Live"),
-    ("nerd-fonts", "Шрифты Nerd Fonts со значками"),
-    ("vulkan-devel", "Разработка под Vulkan"),
-    ("qt6", "Библиотеки Qt 6"),
-    ("qt5", "Библиотеки Qt 5"),
+    ("gnome", n_!("Рабочая среда GNOME")),
+    ("gnome-extra", n_!("Дополнительные программы GNOME")),
+    ("gnome-circle", n_!("Программы сообщества GNOME Circle")),
+    ("plasma", n_!("Рабочая среда KDE Plasma")),
+    ("kde-applications", n_!("Все программы KDE")),
+    ("xfce4", n_!("Рабочая среда Xfce")),
+    ("xfce4-goodies", n_!("Дополнения и модули Xfce")),
+    ("lxqt", n_!("Лёгкая рабочая среда LXQt")),
+    ("lxde", n_!("Лёгкая рабочая среда LXDE")),
+    ("mate", n_!("Рабочая среда MATE")),
+    ("mate-extra", n_!("Дополнительные программы MATE")),
+    ("budgie", n_!("Рабочая среда Budgie")),
+    ("cosmic", n_!("Рабочая среда COSMIC")),
+    ("deepin", n_!("Рабочая среда Deepin")),
+    ("deepin-extra", n_!("Дополнительные программы Deepin")),
+    ("pantheon", n_!("Рабочая среда Pantheon (elementary OS)")),
+    ("ukui", n_!("Рабочая среда UKUI")),
+    ("i3", n_!("Мозаичный оконный менеджер i3")),
+    ("xorg", n_!("Графический сервер X.Org целиком")),
+    ("xorg-apps", n_!("Утилиты X.Org")),
+    ("xorg-drivers", n_!("Драйверы X.Org")),
+    ("xorg-fonts", n_!("Шрифты X.Org")),
+    ("pro-audio", n_!("Профессиональная работа со звуком")),
+    ("texlive", n_!("Вёрстка TeX Live")),
+    ("texlive-lang", n_!("Языки TeX Live")),
+    ("nerd-fonts", n_!("Шрифты Nerd Fonts со значками")),
+    ("vulkan-devel", n_!("Разработка под Vulkan")),
+    ("qt6", n_!("Библиотеки Qt 6")),
+    ("qt5", n_!("Библиотеки Qt 5")),
     ("kf6", "KDE Frameworks 6"),
-    ("libretro", "Эмуляторы libretro"),
-    ("mingw-w64", "Кросс-компиляция под Windows"),
+    ("libretro", n_!("Эмуляторы libretro")),
+    ("mingw-w64", n_!("Кросс-компиляция под Windows")),
 ];
 
 /// Известные программы для витрины «Обзора» (показываются те, что есть в каталоге).
@@ -359,9 +363,10 @@ pub fn new_state(cfg: Config, query: String, window: RwSignal<syngui::window::Wi
 }
 
 fn main() {
+    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
     if let Some(out) = arg_value("--screenshot") {
         if let Err(e) = shot::screenshot(&out) {
-            eprintln!("synpkg: снимок: {e:#}");
+            eprintln!("{}", t!("synpkg: снимок: {e}", e = format!("{:#}", e)));
             std::process::exit(1);
         }
         return;
@@ -371,7 +376,7 @@ fn main() {
     let mss = theme(&cfg);
     let window = use_signal(syngui::window::WindowState::default());
     App::new()
-        .title("Программы")
+        .title(t!("Программы"))
         .app_id("synpkg")
         .size(1240, 820)
         .min_size(340, 480)
@@ -617,7 +622,7 @@ pub fn show_pkgbuild(st: St, name: String) {
             .ok()
             .filter(|o| o.status.success())
             .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-            .unwrap_or_else(|| "Не удалось загрузить PKGBUILD".into());
+            .unwrap_or_else(|| t!("Не удалось загрузить PKGBUILD").into());
         run_on_main_thread(move || st.pkgbuild.set(Some(text)));
     });
 }
@@ -695,12 +700,7 @@ fn take_from_queue(st: St, done: &[QItem]) {
 
 /// «1 пакет», «3 пакета», «5 пакетов».
 pub fn packages_word(n: usize) -> String {
-    let w = match (n % 10, n % 100) {
-        (1, r) if r != 11 => "пакет",
-        (2..=4, r) if !(12..=14).contains(&r) => "пакета",
-        _ => "пакетов",
-    };
-    format!("{n} {w}")
+    tn!(n, "{n} пакет", "{n} пакета", "{n} пакетов")
 }
 
 /// Выполнить очередь одним заданием: удаление (с проверкой зависимостей),
@@ -714,7 +714,7 @@ pub fn apply_queue(st: St) {
     }
     // pacman — одна транзакция за раз: очередь ждёт, пока идёт задание.
     if let Some(j) = st.jobs.get_untracked().iter().find(|j| j.done.is_none()) {
-        st.toast.set(format!("Идёт «{}» — очередь ждёт, примените её после окончания", j.title));
+        st.toast.set(t!("Идёт «{title}» — очередь ждёт, примените её после окончания", title = j.title));
         return;
     }
     let updates: Vec<String> = st.updates.get_untracked().unwrap_or_default().into_iter().filter(|u| u.source != Source::Aur).map(|u| u.name).collect();
@@ -731,7 +731,7 @@ pub fn apply_queue(st: St) {
 /// Удалить `names` (и потом выполнить `then`): сначала проверка, нужны ли
 /// они другим пакетам; если да — окно выбора (каскадом / принудительно).
 pub fn remove_checked(st: St, names: Vec<String>, then: Vec<Op>, title: String, from_queue: Vec<QItem>) {
-    st.toast.set("Проверка зависимостей…".into());
+    st.toast.set(t!("Проверка зависимостей…").into());
     std::thread::spawn(move || {
         let check = pk::remove_check(&names);
         run_on_main_thread(move || {
@@ -771,7 +771,7 @@ pub fn set_cards(st: St, cards: bool) {
             cfg.packages.view = view.into();
             st.cfg.set(cfg);
         }
-        Err(e) => st.toast.set(format!("Не удалось сохранить вид: {e}")),
+        Err(e) => st.toast.set(t!("Не удалось сохранить вид: {e}", e = e)),
     }
 }
 
@@ -787,9 +787,9 @@ pub fn set_ignored(st: St, name: &str, ignore: bool) {
             let mut cfg = st.cfg.get_untracked();
             cfg.packages.ignore = list;
             st.cfg.set(cfg);
-            st.toast.set(if ignore { format!("{name} больше не обновляется") } else { format!("{name} снова обновляется") });
+            st.toast.set(if ignore { t!("{name} больше не обновляется", name = name) } else { t!("{name} снова обновляется", name = name) });
         }
-        Err(e) => st.toast.set(format!("Не удалось сохранить: {e}")),
+        Err(e) => st.toast.set(t!("Не удалось сохранить: {e}", e = e)),
     }
 }
 
@@ -799,10 +799,10 @@ pub fn run_op(st: St, title: String, op: Op) {
     let build_user = st.cfg.get_untracked().packages.build_user.clone();
     let job = pk::start(op, build_user);
     let mut jobs = st.jobs.get_untracked();
-    jobs.insert(0, JobView { id, title: title.clone(), stage: "Запуск…".into(), log: Vec::new(), done: None, cancel: job.cancel.clone(), cancelling: false });
+    jobs.insert(0, JobView { id, title: title.clone(), stage: t!("Запуск…").into(), log: Vec::new(), done: None, cancel: job.cancel.clone(), cancelling: false });
     st.jobs.set(jobs);
     st.job_open.set(Some(id));
-    st.toast.set(format!("{title} — в «Задачах»"));
+    st.toast.set(t!("{title} — в «Задачах»", title = title));
     std::thread::spawn(move || {
         let mut batch: Vec<JobEvent> = Vec::new();
         loop {
@@ -833,14 +833,14 @@ pub fn run_op(st: St, title: String, op: Op) {
                             JobEvent::Done(r) => {
                                 let cancelled = r.as_ref().is_err_and(|e| e == pk::CANCELLED);
                                 st.toast.set(match &r {
-                                    Ok(()) => format!("Готово: {}", j.title),
-                                    Err(_) if cancelled => format!("Отменено: {}", j.title),
-                                    Err(e) => format!("Ошибка: {} — {e}", j.title),
+                                    Ok(()) => t!("Готово: {title}", title = j.title),
+                                    Err(_) if cancelled => t!("Отменено: {title}", title = j.title),
+                                    Err(e) => t!("Ошибка: {title} — {e}", title = j.title, e = e),
                                 });
                                 j.stage = match &r {
-                                    Ok(()) => "Готово".into(),
-                                    Err(_) if cancelled => "Отменено".into(),
-                                    Err(_) => "Ошибка".into(),
+                                    Ok(()) => t!("Готово").into(),
+                                    Err(_) if cancelled => t!("Отменено").into(),
+                                    Err(_) => t!("Ошибка").into(),
                                 };
                                 j.cancelling = false;
                                 j.done = Some(r);
@@ -890,8 +890,8 @@ pub fn cancel_job(st: St, id: u64, c: &pk::JobCancel) {
     let mut jobs = st.jobs.get_untracked();
     if let Some(j) = jobs.iter_mut().find(|j| j.id == id && j.done.is_none()) {
         j.cancelling = true;
-        j.stage = "Отмена…".into();
-        j.log.push("— отмена задания —".into());
+        j.stage = t!("Отмена…").into();
+        j.log.push(t!("— отмена задания —").into());
     }
     st.jobs.set(jobs);
 }

@@ -6,6 +6,7 @@ use synshell_common::paths;
 
 use crate::loc::Location;
 use crate::drives::{Device, Kind};
+use syngui::{n_, t};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Target {
@@ -40,21 +41,21 @@ fn place(title: impl Into<String>, icon: &'static str, loc: Location) -> Place {
 
 /// Папки пользователя: (ключ XDG, подпись, глиф Material).
 pub const USER_DIRS: [(&str, &str, &str); 6] = [
-    ("DESKTOP", "Рабочий стол", crate::ui::icons::DESKTOP),
-    ("DOWNLOAD", "Загрузки", crate::ui::icons::DOWNLOAD),
-    ("DOCUMENTS", "Документы", crate::ui::icons::DOCUMENT),
-    ("PICTURES", "Изображения", crate::ui::icons::IMAGE),
-    ("MUSIC", "Музыка", crate::ui::icons::MUSIC),
-    ("VIDEOS", "Видео", crate::ui::icons::VIDEO),
+    ("DESKTOP", n_!("Рабочий стол"), crate::ui::icons::DESKTOP),
+    ("DOWNLOAD", n_!("Загрузки"), crate::ui::icons::DOWNLOAD),
+    ("DOCUMENTS", n_!("Документы"), crate::ui::icons::DOCUMENT),
+    ("PICTURES", n_!("Изображения"), crate::ui::icons::IMAGE),
+    ("MUSIC", n_!("Музыка"), crate::ui::icons::MUSIC),
+    ("VIDEOS", n_!("Видео"), crate::ui::icons::VIDEO),
 ];
 
 /// Глиф и подпись для известной папки (для вкладок и заголовков).
 pub fn known(path: &Path) -> Option<(&'static str, String)> {
     if path == paths::home() {
-        return Some((crate::ui::icons::HOME, "Домашняя папка".into()));
+        return Some((crate::ui::icons::HOME, t!("Домашняя папка").into()));
     }
     if path == Path::new("/") {
-        return Some((crate::ui::icons::DRIVE, "Корень системы".into()));
+        return Some((crate::ui::icons::DRIVE, t!("Корень системы").into()));
     }
     if let Some((root, title, icon)) = gadget_root(path) {
         if root == path {
@@ -63,17 +64,17 @@ pub fn known(path: &Path) -> Option<(&'static str, String)> {
     }
     for (k, title, icon) in USER_DIRS {
         if paths::user_dir(k).as_deref() == Some(path) {
-            return Some((icon, title.into()));
+            return Some((icon, syngui::i18n::t(title)));
         }
     }
     None
 }
 
 pub fn sections(pinned: &[String]) -> Vec<Section> {
-    let mut quick = vec![place("Домашняя папка", crate::ui::icons::HOME, Location::Dir(paths::home()))];
+    let mut quick = vec![place(t!("Домашняя папка"), crate::ui::icons::HOME, Location::Dir(paths::home()))];
     for (k, title, icon) in USER_DIRS {
         if let Some(d) = paths::user_dir(k).filter(|d| d.is_dir()) {
-            quick.push(place(title, icon, Location::Dir(d)));
+            quick.push(place(syngui::i18n::t(title), icon, Location::Dir(d)));
         }
     }
     for p in pinned {
@@ -83,10 +84,10 @@ pub fn sections(pinned: &[String]) -> Vec<Section> {
         pl.pinned = true;
         quick.push(pl);
     }
-    quick.push(place("Корзина", crate::ui::icons::TRASH, Location::Trash));
+    quick.push(place(t!("Корзина"), crate::ui::icons::TRASH, Location::Trash));
 
     let mut drives = vec![{
-        let mut p = place("Корень системы", crate::ui::icons::DRIVE, Location::Dir(PathBuf::from("/")));
+        let mut p = place(t!("Корень системы"), crate::ui::icons::DRIVE, Location::Dir(PathBuf::from("/")));
         p.space = space(Path::new("/"));
         p
     }];
@@ -121,7 +122,7 @@ pub fn sections(pinned: &[String]) -> Vec<Section> {
     }
     *GADGETS.lock().unwrap_or_else(|e| e.into_inner()) = gadgets;
     GADGETS_ASKED.store(false, std::sync::atomic::Ordering::Relaxed);
-    vec![Section { title: "Быстрый доступ", places: quick }, Section { title: "Устройства", places: drives }]
+    vec![Section { title: n_!("Быстрый доступ"), places: quick }, Section { title: n_!("Устройства"), places: drives }]
 }
 
 /// Смонтированные телефоны и камеры (папка gvfs, имя, значок) — запоминаются
@@ -236,7 +237,7 @@ fn gvfs_title(name: &str) -> String {
         }
     }
     let who = if user.is_empty() { host.to_string() } else { format!("{user}@{host}") };
-    let what = if share.is_empty() { who } else { format!("{share} на {who}") };
+    let what = if share.is_empty() { who } else { t!("{share} на {who}", share = share, who = who) };
     format!("{what} ({})", scheme.to_uppercase())
 }
 

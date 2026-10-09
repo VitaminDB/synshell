@@ -255,14 +255,14 @@ pub fn screenshot(out: &str, size: (u32, u32), scale: f64, file: PathBuf, cfg: s
 pub fn run(file: PathBuf, cfg: synshell_common::Config) {
     let file = std::fs::canonicalize(&file).unwrap_or(file);
     if !file.is_file() {
-        eprintln!("нет такого файла: {}", file.display());
+        eprintln!("{}", t!("нет такого файла: {file}", file = file.display()));
         std::process::exit(1);
     }
     let v = init(&file, &cfg);
     let initial = v.theme.get_untracked();
     let title = file.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     App::new()
-        .title(format!("{title} — Просмотр"))
+        .title(t!("{title} — Просмотр", title = title))
         .app_id("synfiles-viewer")
         .size(1280, 860)
         .min_size(340, 360)

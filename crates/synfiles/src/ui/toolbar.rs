@@ -48,26 +48,26 @@ pub fn command_bar() -> W {
         let mut row = Row::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Center);
         if in_trash {
             row = row
-                .child(super::text_button(icons::RESTORE, "Восстановить", if has { "" } else { "disabled" }, move || actions::run(p, "trash:restore")))
-                .child(super::text_button(icons::DELETE_FOREVER, "Очистить корзину", "", move || actions::run(p, "trash:empty")))
+                .child(super::text_button(icons::RESTORE, &t!("Восстановить"), if has { "" } else { "disabled" }, move || actions::run(p, "trash:restore")))
+                .child(super::text_button(icons::DELETE_FOREVER, &t!("Очистить корзину"), "", move || actions::run(p, "trash:empty")))
                 .child(sep());
         } else {
-            row = row.child(menu_button(icons::ADD, "Создать", "accent-btn", actions::new_menu)).child(sep());
+            row = row.child(menu_button(icons::ADD, &t!("Создать"), "accent-btn", actions::new_menu)).child(sep());
         }
         row = row
-            .child(icon_button(icons::CUT, "Вырезать (Ctrl+X)", "", has && !in_trash, move || actions::run(p, "cut")))
-            .child(icon_button(icons::COPY, "Копировать (Ctrl+C)", "", has && !in_trash, move || actions::run(p, "copy")))
-            .child(icon_button(icons::PASTE, "Вставить (Ctrl+V)", "", in_dir, move || actions::run(p, "paste")))
-            .child(icon_button(icons::RENAME, "Переименовать (F2)", "", sel_n == 1 && !in_trash, move || actions::run(p, "rename")))
-            .child(icon_button(icons::DELETE, "Удалить (Delete)", "", has, move || actions::run(p, "trash")))
+            .child(icon_button(icons::CUT, &t!("Вырезать (Ctrl+X)"), "", has && !in_trash, move || actions::run(p, "cut")))
+            .child(icon_button(icons::COPY, &t!("Копировать (Ctrl+C)"), "", has && !in_trash, move || actions::run(p, "copy")))
+            .child(icon_button(icons::PASTE, &t!("Вставить (Ctrl+V)"), "", in_dir, move || actions::run(p, "paste")))
+            .child(icon_button(icons::RENAME, &t!("Переименовать (F2)"), "", sel_n == 1 && !in_trash, move || actions::run(p, "rename")))
+            .child(icon_button(icons::DELETE, &t!("Удалить (Delete)"), "", has, move || actions::run(p, "trash")))
             .child(sep())
-            .child(menu_button(icons::SORT, if narrow { "" } else { "Сортировка" }, "", move || actions::sort_menu(state::pane())))
-            .child(menu_button(view_glyph(p.view.get()), if narrow { "" } else { "Вид" }, "", move || actions::view_menu(state::pane())))
+            .child(menu_button(icons::SORT, &if narrow { String::new() } else { t!("Сортировка") }, "", move || actions::sort_menu(state::pane())))
+            .child(menu_button(view_glyph(p.view.get()), &if narrow { String::new() } else { t!("Вид") }, "", move || actions::view_menu(state::pane())))
             .child(menu_button(icons::MORE, "", "", more_menu))
             .child(DecoratedBox::new().class("grow"))
             .child(icon_button(
                 icons::SPLIT,
-                "Две панели (F3)",
+                &t!("Две панели (F3)"),
                 if tab.split.get() { "toggled" } else { "" },
                 true,
                 state::toggle_split,
@@ -88,26 +88,26 @@ fn view_glyph(v: ViewMode) -> &'static str {
 fn more_menu() -> Vec<MenuItem> {
     let ctx = state::ctx();
     vec![
-        MenuItem::new("select-all", "Выделить всё").icon(icons::SELECT_ALL).shortcut("Ctrl+A"),
-        MenuItem::new("select-none", "Снять выделение").icon(icons::DESELECT),
-        MenuItem::new("invert-selection", "Обратить выделение").shortcut("Ctrl+Shift+I"),
+        MenuItem::new("select-all", t!("Выделить всё")).icon(icons::SELECT_ALL).shortcut("Ctrl+A"),
+        MenuItem::new("select-none", t!("Снять выделение")).icon(icons::DESELECT),
+        MenuItem::new("invert-selection", t!("Обратить выделение")).shortcut("Ctrl+Shift+I"),
         MenuItem::separator(),
-        MenuItem::new("terminal", "Открыть в терминале").icon(icons::TERMINAL).shortcut("Shift+F4"),
-        MenuItem::new("copy-path-here", "Копировать путь папки").icon(icons::COPY_PATH),
-        MenuItem::new("undo", crate::ops::undo_title().unwrap_or_else(|| "Отменить".into()))
+        MenuItem::new("terminal", t!("Открыть в терминале")).icon(icons::TERMINAL).shortcut("Shift+F4"),
+        MenuItem::new("copy-path-here", t!("Копировать путь папки")).icon(icons::COPY_PATH),
+        MenuItem::new("undo", crate::ops::undo_title().unwrap_or_else(|| t!("Отменить").into()))
             .icon(icons::UNDO)
             .shortcut("Ctrl+Z")
             .disabled(crate::ops::undo_title().is_none()),
         MenuItem::separator(),
         {
-            let m = MenuItem::new("hidden", "Скрытые файлы").shortcut("Ctrl+H");
+            let m = MenuItem::new("hidden", t!("Скрытые файлы")).shortcut("Ctrl+H");
             if ctx.show_hidden.get_untracked() {
                 m.icon(icons::CHECK)
             } else {
                 m
             }
         },
-        MenuItem::new("props-here", "Свойства папки").icon(icons::INFO),
+        MenuItem::new("props-here", t!("Свойства папки")).icon(icons::INFO),
     ]
 }
 
@@ -212,7 +212,7 @@ pub fn search_field(phone: bool) -> W {
             _ => p.filter.get_untracked(),
         };
         let field = TextField::with_text(text)
-            .placeholder(format!("Поиск: {place}"))
+            .placeholder(t!("Поиск: {place}", place = place))
             .prefix_icon(icons::SEARCH)
             .autofocus(focus > 0)
             .on_change(move |s| {
@@ -249,12 +249,12 @@ pub fn nav_bar() -> W {
             Row::new()
                 .gap(2.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(icon_button(icons::BACK, "Назад (Alt+←)", "nav-btn", can_back, move || state::go_back(p)))
-                .child(icon_button(icons::FORWARD, "Вперёд (Alt+→)", "nav-btn", can_fwd, move || state::go_forward(p)))
-                .child(icon_button(icons::UP, "Вверх (Alt+↑)", "nav-btn", can_up, move || state::go_up(p)))
+                .child(icon_button(icons::BACK, &t!("Назад (Alt+←)"), "nav-btn", can_back, move || state::go_back(p)))
+                .child(icon_button(icons::FORWARD, &t!("Вперёд (Alt+→)"), "nav-btn", can_fwd, move || state::go_forward(p)))
+                .child(icon_button(icons::UP, &t!("Вверх (Alt+↑)"), "nav-btn", can_up, move || state::go_up(p)))
                 .child(icon_button(
                     if loading { icons::CLOSE } else { icons::REFRESH },
-                    if loading { "Остановить" } else { "Обновить (F5)" },
+                    &if loading { t!("Остановить") } else { t!("Обновить (F5)") },
                     "nav-btn",
                     true,
                     move || state::load(p, Some(state::selected_paths(p))),

@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use synshell_common::paths;
 
 use crate::model::{self, Entry, TrashInfo};
+use syngui::t;
 
 /// Удалённое в корзину — для отмены.
 #[derive(Debug, Clone)]
@@ -84,7 +85,7 @@ fn trash_for(path: &Path) -> std::io::Result<PathBuf> {
     if home_dev == Some(dev) {
         return Ok(home);
     }
-    let top = topdir(path).ok_or_else(|| std::io::Error::other("не найден раздел"))?;
+    let top = topdir(path).ok_or_else(|| std::io::Error::other(t!("не найден раздел")))?;
     let admin = top.join(".Trash");
     if let Ok(m) = std::fs::symlink_metadata(&admin) {
         // Sticky-бит и не ссылка — иначе небезопасно.
@@ -143,7 +144,7 @@ fn now_iso() -> String {
 pub fn trash(path: &Path) -> std::io::Result<Trashed> {
     let path = if path.is_absolute() { path.to_path_buf() } else { std::env::current_dir()?.join(path) };
     let t = trash_for(&path)?;
-    let name = path.file_name().ok_or_else(|| std::io::Error::other("нет имени"))?.to_string_lossy().to_string();
+    let name = path.file_name().ok_or_else(|| std::io::Error::other(t!("нет имени")))?.to_string_lossy().to_string();
     // Уникальное имя: info создаётся с O_EXCL — это и есть «замок».
     let mut n = 0;
     let (info_path, mut info) = loop {
@@ -180,10 +181,10 @@ fn numbered(name: &str, n: usize) -> String {
 
 /// Вернуть из корзины (после отмены или «Восстановить»).
 pub fn restore(file: &Path) -> std::io::Result<PathBuf> {
-    let info = info_for(file).ok_or_else(|| std::io::Error::other("нет .trashinfo"))?;
-    let original = read_info(&info, file).map(|i| i.original).ok_or_else(|| std::io::Error::other("нет исходного пути"))?;
+    let info = info_for(file).ok_or_else(|| std::io::Error::other(t!("нет .trashinfo")))?;
+    let original = read_info(&info, file).map(|i| i.original).ok_or_else(|| std::io::Error::other(t!("нет исходного пути")))?;
     if original.exists() {
-        return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, format!("{} уже существует", original.display())));
+        return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, t!("{original} уже существует", original = original.display())));
     }
     if let Some(p) = original.parent() {
         std::fs::create_dir_all(p)?;

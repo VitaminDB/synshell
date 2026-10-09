@@ -53,17 +53,17 @@ fn confirm_delete(paths: Vec<PathBuf>) -> W {
     let from_trash = paths.iter().all(|p| crate::trash::contains(p));
     let permanent = from_trash || !state::ctx().cfg.get_untracked().files.confirm_trash;
     let body = Text::new(if permanent {
-        format!("Удалить {} навсегда? Это действие нельзя отменить.", names(&paths))
+        t!("Удалить {v} навсегда? Это действие нельзя отменить.", v = names(&paths))
     } else {
-        format!("Переместить {} в корзину?", names(&paths))
+        t!("Переместить {v} в корзину?", v = names(&paths))
     })
     .class("dialog-text");
     card(
-        if permanent { "Удалить навсегда" } else { "Удалить в корзину" },
+        &if permanent { t!("Удалить навсегда") } else { t!("Удалить в корзину") },
         boxed(body),
         vec![
-            boxed(Button::new("Отмена").on_click(close)),
-            boxed(Button::new("Удалить").class(if permanent { "danger" } else { "primary" }).on_click(move || {
+            boxed(Button::new(t!("Отмена")).on_click(close)),
+            boxed(Button::new(t!("Удалить")).class(if permanent { "danger" } else { "primary" }).on_click(move || {
                 close();
                 let op = if permanent { Op::Delete { srcs: p2.clone() } } else { Op::Trash { srcs: p2.clone() } };
                 ops::start(op);
@@ -74,11 +74,11 @@ fn confirm_delete(paths: Vec<PathBuf>) -> W {
 
 fn confirm_empty_trash() -> W {
     card(
-        "Очистить корзину",
-        boxed(Text::new("Все файлы в корзине будут удалены навсегда.").class("dialog-text")),
+        &t!("Очистить корзину"),
+        boxed(Text::new(t!("Все файлы в корзине будут удалены навсегда.")).class("dialog-text")),
         vec![
-            boxed(Button::new("Отмена").on_click(close)),
-            boxed(Button::new("Очистить").class("danger").on_click(|| {
+            boxed(Button::new(t!("Отмена")).on_click(close)),
+            boxed(Button::new(t!("Очистить")).class("danger").on_click(|| {
                 close();
                 ops::start(Op::EmptyTrash);
             })),
@@ -138,11 +138,11 @@ fn open_with(paths: Vec<PathBuf>, mime_type: String) -> W {
     let body = Column::new()
         .gap(10.0)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .child(Text::new(format!("Тип: {} ({})", mime::description(&mime_type), mime_type)).class("meta"))
-        .child(TextField::new().placeholder("Найти программу").prefix_icon(icons::SEARCH).autofocus(true).on_change(move |s| filter.set(s.to_string())))
+        .child(Text::new(t!("Тип: {v} ({mime_type})", v = mime::description(&mime_type), mime_type = mime_type)).class("meta"))
+        .child(TextField::new().placeholder(t!("Найти программу")).prefix_icon(icons::SEARCH).autofocus(true).on_change(move |s| filter.set(s.to_string())))
         .child(bx("app-list", ScrollView::new().vertical().child(list)))
-        .child(Checkbox::new().label("Всегда открывать файлы этого типа выбранной программой").on_change(move |v| remember.set(v)));
-    card("Открыть с помощью", boxed(body), vec![boxed(Button::new("Отмена").on_click(close))])
+        .child(Checkbox::new().label(t!("Всегда открывать файлы этого типа выбранной программой")).on_change(move |v| remember.set(v)));
+    card(&t!("Открыть с помощью"), boxed(body), vec![boxed(Button::new(t!("Отмена")).on_click(close))])
 }
 
 fn prop_row(k: &str, v: String) -> W {
@@ -188,40 +188,40 @@ fn properties(paths: Vec<PathBuf>) -> W {
                     .child(Text::new(e.name.clone()).selectable(true).max_lines(2).class("prop-name grow")),
             );
             col = col.child(DecoratedBox::new().class("side-sep"));
-            col = col.child(prop_row("Тип", format!("{} ({})", e.description(), e.mime)));
+            col = col.child(prop_row(&t!("Тип"), format!("{} ({})", e.description(), e.mime)));
             if e.is_link {
                 let target = std::fs::read_link(&first).map(|t| t.display().to_string()).unwrap_or_default();
-                col = col.child(prop_row("Ссылка на", target));
+                col = col.child(prop_row(&t!("Ссылка на"), target));
             }
             if let Some(app) = (!e.is_dir).then(|| mime::default_app(&e.mime)).flatten() {
-                col = col.child(prop_row("Открывается", app.name));
+                col = col.child(prop_row(&t!("Открывается"), app.name));
             }
         }
     } else {
         col = col.child(Text::new(model::format_count(paths.len() as u32)).class("prop-name"));
     }
-    col = col.child(prop_row("Расположение", first.parent().map(|p| p.display().to_string()).unwrap_or_default()));
+    col = col.child(prop_row(&t!("Расположение"), first.parent().map(|p| p.display().to_string()).unwrap_or_default()));
     col = col.child(boxed(Reactive::new(move || -> Vec<W> {
         let v = match size.get() {
-            None => "Подсчёт…".to_string(),
-            Some((b, f)) => format!("{} ({} байт), файлов и папок: {}", model::format_size(b), b, f.saturating_sub(1).max(if f == 1 { 1 } else { 0 })),
+            None => t!("Подсчёт…").to_string(),
+            Some((b, f)) => t!("{v} ({b} байт), файлов и папок: {v2}", v = model::format_size(b), b = b, v2 = f.saturating_sub(1).max(if f == 1 { 1 } else { 0 })),
         };
-        vec![prop_row("Размер", v)]
+        vec![prop_row(&t!("Размер"), v)]
     })));
     if one {
         if let Some(m) = &lmeta {
-            col = col.child(prop_row("Изменён", model::format_time(m.mtime())));
-            col = col.child(prop_row("Открыт", model::format_time(m.atime())));
-            col = col.child(prop_row("Владелец", format!("{} ({})", owner_name(m.uid()), m.uid())));
-            col = col.child(prop_row("Права", format!("{} ({:o})", model::format_mode(m.permissions().mode()), m.permissions().mode() & 0o7777)));
+            col = col.child(prop_row(&t!("Изменён"), model::format_time(m.mtime())));
+            col = col.child(prop_row(&t!("Открыт"), model::format_time(m.atime())));
+            col = col.child(prop_row(&t!("Владелец"), format!("{} ({})", owner_name(m.uid()), m.uid())));
+            col = col.child(prop_row(&t!("Права"), format!("{} ({:o})", model::format_mode(m.permissions().mode()), m.permissions().mode() & 0o7777)));
             if let Some((free, total)) = crate::places::space(&first) {
-                col = col.child(prop_row("На диске", format!("свободно {} из {}", model::format_size(free), model::format_size(total))));
+                col = col.child(prop_row(&t!("На диске"), t!("свободно {v} из {v2}", v = model::format_size(free), v2 = model::format_size(total))));
             }
             if m.is_file() {
                 let exec = m.permissions().mode() & 0o111 != 0;
                 let path = first.clone();
                 col = col.child(
-                    Checkbox::checked(exec).label("Разрешить запуск как программы").on_change(move |on| {
+                    Checkbox::checked(exec).label(t!("Разрешить запуск как программы")).on_change(move |on| {
                         if let Ok(meta) = std::fs::metadata(&path) {
                             let mut mode = meta.permissions().mode();
                             if on {
@@ -230,7 +230,7 @@ fn properties(paths: Vec<PathBuf>) -> W {
                                 mode &= !0o111;
                             }
                             if let Err(e) = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)) {
-                                state::toast_error(format!("Не удалось изменить права: {e}"));
+                                state::toast_error(t!("Не удалось изменить права: {e}", e = e));
                             }
                         }
                     }),
@@ -239,9 +239,9 @@ fn properties(paths: Vec<PathBuf>) -> W {
         }
     }
     card(
-        if one { "Свойства" } else { "Свойства выделенного" },
+        &if one { t!("Свойства") } else { t!("Свойства выделенного") },
         boxed(col),
-        vec![boxed(Button::new("Закрыть").class("primary").on_click(close))],
+        vec![boxed(Button::new(t!("Закрыть")).class("primary").on_click(close))],
     )
 }
 

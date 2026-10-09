@@ -58,7 +58,7 @@ thread_local! {
 
 /// Разобрать запрос из аргумента `--choose`.
 pub fn init(json: &str) -> std::result::Result<(), String> {
-    let r: Request = serde_json::from_str(json).map_err(|e| format!("запрос выбора файлов: {e}"))?;
+    let r: Request = serde_json::from_str(json).map_err(|e| t!("запрос выбора файлов: {e}", e = e))?;
     let _ = REQ.set(r);
     Ok(())
 }
@@ -87,10 +87,10 @@ pub fn title() -> String {
         return r.title.clone();
     }
     match (r.mode, r.directory) {
-        (Mode::Open, true) => "Выбор папки".into(),
-        (Mode::Open, false) if r.multiple => "Выбор файлов".into(),
-        (Mode::Open, false) => "Выбор файла".into(),
-        _ => "Сохранение".into(),
+        (Mode::Open, true) => t!("Выбор папки").into(),
+        (Mode::Open, false) if r.multiple => t!("Выбор файлов").into(),
+        (Mode::Open, false) => t!("Выбор файла").into(),
+        _ => t!("Сохранение").into(),
     }
 }
 
@@ -205,7 +205,7 @@ fn accept(p: Pane) {
     let Some(r) = active() else { return };
     let (_, name, confirm) = sig();
     let Some(dir) = current_dir(p) else {
-        state::toast_error("Выберите обычную папку");
+        state::toast_error(t!("Выберите обычную папку"));
         return;
     };
     match r.mode {
@@ -228,7 +228,7 @@ fn accept(p: Pane) {
                 if let Some(d) = sel.iter().find(|e| e.is_dir) {
                     state::navigate(p, crate::loc::Location::Dir(d.path.clone()), true);
                 } else {
-                    state::toast("Выберите файл");
+                    state::toast(t!("Выберите файл"));
                 }
                 return;
             }
@@ -241,7 +241,7 @@ fn accept(p: Pane) {
         Mode::Save => {
             let n = name.get_untracked().trim().to_string();
             if n.is_empty() || n.contains('/') {
-                state::toast_error("Введите имя файла");
+                state::toast_error(t!("Введите имя файла"));
                 return;
             }
             let path = dir.join(&n);
@@ -251,7 +251,7 @@ fn accept(p: Pane) {
             }
             if path.exists() && !confirm.get_untracked() {
                 confirm.set(true);
-                state::toast(format!("«{n}» уже есть — нажмите ещё раз, чтобы заменить"));
+                state::toast(t!("«{n}» уже есть — нажмите ещё раз, чтобы заменить", n = n));
                 return;
             }
             finish(&[path])
@@ -272,9 +272,9 @@ fn accept_label(r: &Request) -> String {
         return r.accept_label.replace('_', "");
     }
     match (r.mode, r.directory) {
-        (Mode::Open, true) => "Выбрать".into(),
-        (Mode::Open, false) => "Открыть".into(),
-        _ => "Сохранить".into(),
+        (Mode::Open, true) => t!("Выбрать").into(),
+        (Mode::Open, false) => t!("Открыть").into(),
+        _ => t!("Сохранить").into(),
     }
 }
 
@@ -309,7 +309,7 @@ pub fn bar() -> W {
         Mode::Save => boxed(
             TextField::new()
                 .text(name.get_untracked())
-                .placeholder("Имя файла")
+                .placeholder(t!("Имя файла"))
                 .autofocus(true)
                 .on_change(move |t: &str| {
                     name.set(t.to_string());
@@ -318,22 +318,22 @@ pub fn bar() -> W {
                 .on_submit(move |_| accept(state::pane()))
                 .class("ch-name"),
         ),
-        Mode::SaveFiles => boxed(Text::new(format!("Файлов: {} — выберите папку", r.files.len())).max_lines(2).class("ch-info")),
+        Mode::SaveFiles => boxed(Text::new(t!("Файлов: {n} — выберите папку", n = r.files.len())).max_lines(2).class("ch-info")),
         Mode::Open => boxed(Reactive::new(move || -> Vec<W> {
             let p = state::tab_tracked().pane_tracked();
             let sel = state::selected_entries_tracked(p);
             let text = if r.directory {
                 match sel.iter().find(|e| e.is_dir) {
-                    Some(e) => format!("Папка: {}", e.name),
-                    None => format!("Папка: {}", p.loc.get().title()),
+                    Some(e) => t!("Папка: {name}", name = e.name),
+                    None => t!("Папка: {v}", v = p.loc.get().title()),
                 }
             } else {
                 let files: Vec<&Entry> = sel.iter().filter(|e| !e.is_dir).collect();
                 match files.len() {
-                    0 if r.multiple => "Отметьте файлы".into(),
-                    0 => "Коснитесь файла".into(),
+                    0 if r.multiple => t!("Отметьте файлы").into(),
+                    0 => t!("Коснитесь файла").into(),
                     1 => files[0].name.clone(),
-                    n => format!("Выбрано файлов: {n}"),
+                    n => t!("Выбрано файлов: {n}", n = n),
                 }
             };
             vec![boxed(Text::new(text).max_lines(1).class("ch-info"))]
@@ -351,7 +351,7 @@ pub fn bar() -> W {
                         .gap(8.0)
                         .cross_axis_alignment(CrossAxisAlignment::Center)
                         .child(DecoratedBox::new().class("grow").child(info))
-                        .child(GestureDetector::new().on_click(|| cancel()).child(DecoratedBox::new().class("ch-btn").child(Text::new("Отмена").class("ch-btn-text"))))
+                        .child(GestureDetector::new().on_click(|| cancel()).child(DecoratedBox::new().class("ch-btn").child(Text::new(t!("Отмена")).class("ch-btn-text"))))
                         .child(
                             GestureDetector::new().on_click(|| accept(state::pane())).child(
                                 DecoratedBox::new().class("ch-btn ch-btn-main").child(

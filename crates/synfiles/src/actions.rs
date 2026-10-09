@@ -32,7 +32,7 @@ pub fn spawn_shell(cmd: &str, cwd: Option<&Path>) {
         });
     }
     if let Err(e) = c.spawn() {
-        state::toast_error(format!("Не удалось запустить: {e}"));
+        state::toast_error(t!("Не удалось запустить: {e}", e = e));
     }
 }
 
@@ -74,7 +74,7 @@ pub fn open_entry(p: Pane, e: &Entry, new_tab: bool) {
         return;
     }
     if e.broken {
-        state::toast_error(format!("Ссылка «{}» ведёт в никуда", e.name));
+        state::toast_error(t!("Ссылка «{name}» ведёт в никуда", name = e.name));
         return;
     }
     open_files(&[e.path.clone()], &e.mime);
@@ -156,9 +156,9 @@ pub fn set_clipboard(paths: Vec<PathBuf>, cut: bool) {
     let n = paths.len();
     state::ctx().clip.set(Some(Clip { paths, cut }));
     state::toast(if cut {
-        format!("Вырезано: {}", crate::model::format_count(n as u32))
+        t!("Вырезано: {v}", v = crate::model::format_count(n as u32))
     } else {
-        format!("Скопировано: {}", crate::model::format_count(n as u32))
+        t!("Скопировано: {v}", v = crate::model::format_count(n as u32))
     });
 }
 
@@ -202,7 +202,7 @@ pub fn can_paste() -> bool {
 
 pub fn paste_into(dir: &Path) {
     let Some((paths, cut)) = read_clipboard() else {
-        state::toast("Буфер обмена пуст");
+        state::toast(t!("Буфер обмена пуст"));
         return;
     };
     let op = if cut { Op::Move { srcs: paths, dest: dir.to_path_buf() } } else { Op::Copy { srcs: paths, dest: dir.to_path_buf() } };
@@ -216,7 +216,7 @@ pub fn paste_into(dir: &Path) {
 pub fn copy_paths_text(paths: &[PathBuf]) {
     let text = paths.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join("\n");
     syngui::clipboard::copy(&text);
-    state::toast(if paths.len() == 1 { "Путь скопирован".to_string() } else { format!("Скопировано путей: {}", paths.len()) });
+    state::toast(if paths.len() == 1 { t!("Путь скопирован").to_string() } else { t!("Скопировано путей: {n}", n = paths.len()) });
 }
 
 // ---------------------------------------------------------------- удаление
@@ -237,7 +237,7 @@ pub fn trash_selected(p: Pane) {
     }
     let n = paths.len();
     ops::start(Op::Trash { srcs: paths });
-    state::toast_undo(format!("В корзину: {}", crate::model::format_count(n as u32)));
+    state::toast_undo(t!("В корзину: {v}", v = crate::model::format_count(n as u32)));
 }
 
 pub fn delete_selected(p: Pane) {
@@ -249,12 +249,12 @@ pub fn delete_selected(p: Pane) {
 
 pub fn undo() {
     match ops::undo() {
-        None => state::toast("Нечего отменять"),
+        None => state::toast(t!("Нечего отменять")),
         Some(Ok(t)) => {
-            state::toast(t.replace("Отменить", "Отменено:").replace("Отменено: ", "Отменено — "));
+            state::toast(t);
             state::reload_all();
         }
-        Some(Err(e)) => state::toast_error(format!("Не удалось отменить: {e}")),
+        Some(Err(e)) => state::toast_error(t!("Не удалось отменить: {e}", e = e)),
     }
 }
 
@@ -294,7 +294,7 @@ pub fn finish_rename(p: Pane, from: &Path, new_name: &str) {
 pub fn new_folder(p: Pane) {
     let Some(dir) = p.loc.get_untracked().dir().map(Path::to_path_buf) else { return };
     // Как в Проводнике: сразу создать «Новая папка» и включить переименование.
-    match ops::new_folder(&dir, "Новая папка") {
+    match ops::new_folder(&dir, &t!("Новая папка")) {
         Ok(path) => after_create(p, path),
         Err(e) => state::toast_error(e),
     }
@@ -387,7 +387,7 @@ pub fn toggle_hidden() {
     ctx.show_hidden.set(v);
     state::refilter_all();
     save_setting("show_hidden", v);
-    state::toast(if v { "Скрытые файлы показаны" } else { "Скрытые файлы спрятаны" });
+    state::toast(if v { t!("Скрытые файлы показаны") } else { t!("Скрытые файлы спрятаны") });
 }
 
 /// Ступени размера значков для Ctrl+±/колеса и кнопок строки состояния.
@@ -480,17 +480,17 @@ pub fn view_menu(p: Pane) -> Vec<MenuItem> {
     let v = p.view.get_untracked();
     let ctx = state::ctx();
     vec![
-        check("view:icons", "Значки", v == ViewMode::Icons).shortcut("Ctrl+1"),
-        check("view:tiles", "Плитка", v == ViewMode::Tiles).shortcut("Ctrl+2"),
-        check("view:list", "Список", v == ViewMode::List).shortcut("Ctrl+3"),
-        check("view:details", "Таблица", v == ViewMode::Details).shortcut("Ctrl+4"),
+        check("view:icons", &t!("Значки"), v == ViewMode::Icons).shortcut("Ctrl+1"),
+        check("view:tiles", &t!("Плитка"), v == ViewMode::Tiles).shortcut("Ctrl+2"),
+        check("view:list", &t!("Список"), v == ViewMode::List).shortcut("Ctrl+3"),
+        check("view:details", &t!("Таблица"), v == ViewMode::Details).shortcut("Ctrl+4"),
         MenuItem::separator(),
-        item("zoom:in", "Крупнее", icons::ZOOM_IN).shortcut("Ctrl++"),
-        item("zoom:out", "Мельче", icons::ZOOM_OUT).shortcut("Ctrl+-"),
+        item("zoom:in", &t!("Крупнее"), icons::ZOOM_IN).shortcut("Ctrl++"),
+        item("zoom:out", &t!("Мельче"), icons::ZOOM_OUT).shortcut("Ctrl+-"),
         MenuItem::separator(),
-        check("hidden", "Скрытые файлы", ctx.show_hidden.get_untracked()).shortcut("Ctrl+H"),
-        check("split", "Две панели", state::tab().split.get_untracked()).shortcut("F3"),
-        check("sidebar", "Панель навигации", ctx.sidebar.get_untracked()).shortcut("F9"),
+        check("hidden", &t!("Скрытые файлы"), ctx.show_hidden.get_untracked()).shortcut("Ctrl+H"),
+        check("split", &t!("Две панели"), state::tab().split.get_untracked()).shortcut("F3"),
+        check("sidebar", &t!("Панель навигации"), ctx.sidebar.get_untracked()).shortcut("F9"),
     ]
 }
 
@@ -498,21 +498,21 @@ pub fn sort_menu(p: Pane) -> Vec<MenuItem> {
     let s = p.sort.get_untracked();
     let mut v: Vec<MenuItem> = [SortKey::Name, SortKey::Modified, SortKey::Type, SortKey::Size]
         .iter()
-        .map(|k| check(&format!("sort:{}", k.id()), k.title(), s.key == *k))
+        .map(|k| check(&format!("sort:{}", k.id()), &k.title(), s.key == *k))
         .collect();
     v.push(MenuItem::separator());
-    v.push(check("sort:asc", "По возрастанию", !s.descending));
-    v.push(check("sort:desc", "По убыванию", s.descending));
+    v.push(check("sort:asc", &t!("По возрастанию"), !s.descending));
+    v.push(check("sort:desc", &t!("По убыванию"), s.descending));
     v.push(MenuItem::separator());
-    v.push(check("sort:folders", "Папки сверху", s.folders_first));
+    v.push(check("sort:folders", &t!("Папки сверху"), s.folders_first));
     v
 }
 
 pub fn new_menu() -> Vec<MenuItem> {
     let mut v = vec![
-        item("new:folder", "Папку", icons::NEW_FOLDER).shortcut("Ctrl+Shift+N"),
-        item("new:text", "Текстовый документ", icons::DOCUMENT),
-        item("new:empty", "Пустой файл", icons::NEW_FILE),
+        item("new:folder", &t!("Папку"), icons::NEW_FOLDER).shortcut("Ctrl+Shift+N"),
+        item("new:text", &t!("Текстовый документ"), icons::DOCUMENT),
+        item("new:empty", &t!("Пустой файл"), icons::NEW_FILE),
     ];
     let t = templates();
     if !t.is_empty() {
@@ -533,27 +533,27 @@ pub fn context_menu(p: Pane, on_item: bool) -> Vec<MenuItem> {
     if !on_item || sel.is_empty() {
         let mut v = Vec::new();
         if in_trash {
-            v.push(item("trash:empty", "Очистить корзину", icons::DELETE_FOREVER).disabled(crate::trash::is_empty()));
+            v.push(item("trash:empty", &t!("Очистить корзину"), icons::DELETE_FOREVER).disabled(crate::trash::is_empty()));
             v.push(MenuItem::separator());
         }
-        v.push(MenuItem::new("menu:view", "Вид").icon(icons::VIEW_TILES).children(view_menu(p)));
-        v.push(MenuItem::new("menu:sort", "Сортировка").icon(icons::SORT).children(sort_menu(p)));
+        v.push(MenuItem::new("menu:view", t!("Вид")).icon(icons::VIEW_TILES).children(view_menu(p)));
+        v.push(MenuItem::new("menu:sort", t!("Сортировка")).icon(icons::SORT).children(sort_menu(p)));
         if loc.dir().is_some() {
             v.push(MenuItem::separator());
-            v.push(MenuItem::new("menu:new", "Создать").icon(icons::ADD).children(new_menu()));
-            v.push(item("paste", "Вставить", icons::PASTE).shortcut("Ctrl+V").disabled(!can_paste()));
-            v.push(item("undo", ops::undo_title().as_deref().unwrap_or("Отменить"), icons::UNDO).shortcut("Ctrl+Z").disabled(ops::undo_title().is_none()));
+            v.push(MenuItem::new("menu:new", t!("Создать")).icon(icons::ADD).children(new_menu()));
+            v.push(item("paste", &t!("Вставить"), icons::PASTE).shortcut("Ctrl+V").disabled(!can_paste()));
+            v.push(item("undo", ops::undo_title().as_deref().unwrap_or(&t!("Отменить")), icons::UNDO).shortcut("Ctrl+Z").disabled(ops::undo_title().is_none()));
             v.push(MenuItem::separator());
-            v.push(item("terminal", "Открыть в терминале", icons::TERMINAL).shortcut("Shift+F4"));
+            v.push(item("terminal", &t!("Открыть в терминале"), icons::TERMINAL).shortcut("Shift+F4"));
             if let Some(d) = loc.dir() {
-                v.push(item("pin-here", if is_pinned(d) { "Открепить от панели" } else { "Закрепить на панели" }, icons::PIN));
+                v.push(item("pin-here", &if is_pinned(d) { t!("Открепить от панели") } else { t!("Закрепить на панели") }, icons::PIN));
             }
-            v.push(item("copy-path-here", "Копировать путь", icons::COPY_PATH));
+            v.push(item("copy-path-here", &t!("Копировать путь"), icons::COPY_PATH));
         }
         v.push(MenuItem::separator());
-        v.push(item("select-all", "Выделить всё", icons::SELECT_ALL).shortcut("Ctrl+A"));
+        v.push(item("select-all", &t!("Выделить всё"), icons::SELECT_ALL).shortcut("Ctrl+A"));
         if loc.dir().is_some() {
-            v.push(item("props-here", "Свойства", icons::INFO).shortcut("Alt+Enter"));
+            v.push(item("props-here", &t!("Свойства"), icons::INFO).shortcut("Alt+Enter"));
         }
         return v;
     }
@@ -562,17 +562,17 @@ pub fn context_menu(p: Pane, on_item: bool) -> Vec<MenuItem> {
     let all_dirs = sel.iter().all(|e| e.is_dir);
     let mut v = Vec::new();
     if in_trash {
-        v.push(item("trash:restore", "Восстановить", icons::RESTORE));
-        v.push(item("delete", "Удалить навсегда", icons::DELETE_FOREVER).shortcut("Delete"));
+        v.push(item("trash:restore", &t!("Восстановить"), icons::RESTORE));
+        v.push(item("delete", &t!("Удалить навсегда"), icons::DELETE_FOREVER).shortcut("Delete"));
         v.push(MenuItem::separator());
-        v.push(item("props", "Свойства", icons::INFO).shortcut("Alt+Enter"));
+        v.push(item("props", &t!("Свойства"), icons::INFO).shortcut("Alt+Enter"));
         return v;
     }
-    v.push(item("open", "Открыть", icons::OPEN).shortcut("Enter"));
+    v.push(item("open", &t!("Открыть"), icons::OPEN).shortcut("Enter"));
     if all_dirs {
-        v.push(item("open-tab", "Открыть в новой вкладке", icons::TAB));
+        v.push(item("open-tab", &t!("Открыть в новой вкладке"), icons::TAB));
         if one {
-            v.push(item("open-terminal", "Открыть в терминале", icons::TERMINAL));
+            v.push(item("open-terminal", &t!("Открыть в терминале"), icons::TERMINAL));
         }
     } else if sel.iter().all(|e| e.mime == first.mime) {
         let apps = mime::apps_for(&first.mime);
@@ -589,29 +589,29 @@ pub fn context_menu(p: Pane, on_item: bool) -> Vec<MenuItem> {
         if !sub.is_empty() {
             sub.push(MenuItem::separator());
         }
-        sub.push(item("with:other", "Выбрать другую программу…", icons::OPEN_WITH));
-        v.push(MenuItem::new("menu:with", "Открыть с помощью").icon(icons::OPEN_WITH).children(sub));
+        sub.push(item("with:other", &t!("Выбрать другую программу…"), icons::OPEN_WITH));
+        v.push(MenuItem::new("menu:with", t!("Открыть с помощью")).icon(icons::OPEN_WITH).children(sub));
     }
     v.push(MenuItem::separator());
-    v.push(item("cut", "Вырезать", icons::CUT).shortcut("Ctrl+X"));
-    v.push(item("copy", "Копировать", icons::COPY).shortcut("Ctrl+C"));
+    v.push(item("cut", &t!("Вырезать"), icons::CUT).shortcut("Ctrl+X"));
+    v.push(item("copy", &t!("Копировать"), icons::COPY).shortcut("Ctrl+C"));
     if one && first.is_dir {
-        v.push(item("paste-into", "Вставить в папку", icons::PASTE).disabled(!can_paste()));
+        v.push(item("paste-into", &t!("Вставить в папку"), icons::PASTE).disabled(!can_paste()));
     }
-    v.push(item("copy-path", if one { "Копировать путь" } else { "Копировать пути" }, icons::COPY_PATH).shortcut("Ctrl+Shift+C"));
-    v.push(item("link", "Создать ссылку", icons::LINK));
+    v.push(item("copy-path", &if one { t!("Копировать путь") } else { t!("Копировать пути") }, icons::COPY_PATH).shortcut("Ctrl+Shift+C"));
+    v.push(item("link", &t!("Создать ссылку"), icons::LINK));
     v.push(MenuItem::separator());
     if one {
-        v.push(item("rename", "Переименовать", icons::RENAME).shortcut("F2"));
+        v.push(item("rename", &t!("Переименовать"), icons::RENAME).shortcut("F2"));
     }
-    v.push(item("trash", "Удалить в корзину", icons::DELETE).shortcut("Delete"));
-    v.push(item("delete", "Удалить навсегда", icons::DELETE_FOREVER).shortcut("Shift+Delete"));
+    v.push(item("trash", &t!("Удалить в корзину"), icons::DELETE).shortcut("Delete"));
+    v.push(item("delete", &t!("Удалить навсегда"), icons::DELETE_FOREVER).shortcut("Shift+Delete"));
     if one && first.is_dir {
         v.push(MenuItem::separator());
-        v.push(item("pin", if is_pinned(&first.path) { "Открепить от панели" } else { "Закрепить на панели" }, icons::PIN));
+        v.push(item("pin", &if is_pinned(&first.path) { t!("Открепить от панели") } else { t!("Закрепить на панели") }, icons::PIN));
     }
     v.push(MenuItem::separator());
-    v.push(item("props", "Свойства", icons::INFO).shortcut("Alt+Enter"));
+    v.push(item("props", &t!("Свойства"), icons::INFO).shortcut("Alt+Enter"));
     v
 }
 
@@ -690,8 +690,8 @@ pub fn run(p: Pane, id: &str) {
             ops::start(Op::Restore { files: paths });
         }
         "new:folder" => new_folder(p),
-        "new:text" => new_file(p, "Новый документ.txt", b""),
-        "new:empty" => new_file(p, "Новый файл", b""),
+        "new:text" => new_file(p, &t!("Новый документ.txt"), b""),
+        "new:empty" => new_file(p, &t!("Новый файл"), b""),
         "hidden" => toggle_hidden(),
         "split" => state::toggle_split(),
         "sidebar" => ctx.sidebar.update(|v| *v = !*v),
@@ -776,11 +776,11 @@ fn phone_items(items: Vec<MenuItem>) -> Vec<MenuItem> {
         match it.id.as_str() {
             "menu:view" | "menu:sort" => {
                 if !v.iter().any(|m| m.id == "sheet") {
-                    v.push(item("sheet", "Вид и сортировка", icons::TUNE));
+                    v.push(item("sheet", &t!("Вид и сортировка"), icons::TUNE));
                 }
             }
-            "menu:new" => v.push(item("new-menu", "Создать…", icons::ADD)),
-            "menu:with" => v.push(item("with:other", "Открыть с помощью…", icons::OPEN_WITH)),
+            "menu:new" => v.push(item("new-menu", &t!("Создать…"), icons::ADD)),
+            "menu:with" => v.push(item("with:other", &t!("Открыть с помощью…"), icons::OPEN_WITH)),
             _ => v.extend(phone_items(it.children)),
         }
     }
