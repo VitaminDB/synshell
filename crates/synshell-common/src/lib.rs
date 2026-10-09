@@ -28,7 +28,7 @@ pub use config::Config;
 pub mod i18n;
 
 /// Перевод строк библиотек: `synshell_common::t!`, `tn!`, `n_!` (см. `synshell_tr`).
-pub use synshell_tr::{n_, t, tn};
+pub use synshell_tr::{decimal, decimal_separator, n_, t, tn};
 
 /// Язык программы без syngui (synwm, CLI): `SYNSHELL_LANG`, `[general]
 /// language`, иначе `LC_ALL`/`LC_MESSAGES`/`LANG`; каталоги — свои `i18n/*.lang`

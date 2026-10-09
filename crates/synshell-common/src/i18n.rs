@@ -43,6 +43,8 @@ pub fn init(catalogs: &[&'static str]) {
 pub fn apply(cfg: &crate::Config) {
     let lang = requested(cfg);
     syngui::i18n::set_language(lang.as_str());
+    // числа, описания типов файлов и т. п. в библиотеках — на том же языке
+    synshell_tr::set_language(&lang);
     // Даты (strftime: дни недели, месяцы) — на том же языке, если язык выбран явно.
     if std::env::var("SYNSHELL_LANG").is_ok_and(|l| !l.trim().is_empty()) || !cfg.general.language.trim().is_empty() {
         set_time_locale(&lang);

@@ -78,7 +78,7 @@ fn date_text(it: &Item) -> String {
 
 fn size_text(b: u64) -> String {
     if b >= 1 << 20 {
-        t!("{v} МБ", v = format!("{:.1}", b as f64 / (1u64 << 20) as f64)).replace('.', ",")
+        t!("{v} МБ", v = synshell_common::decimal(b as f64 / (1u64 << 20) as f64, 1))
     } else {
         t!("{v} КБ", v = b.div_ceil(1024))
     }
@@ -156,7 +156,7 @@ pub fn view(st: St) -> W {
         let name = it.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let dims = if it.kind == Kind::Photo {
             image::ImageReader::open(&it.path).ok().and_then(|r| r.with_guessed_format().ok()).and_then(|r| r.into_dimensions().ok()).map(|(w, h)| {
-                t!("{w} × {h} ({v} Мп)", w = w, h = h, v = format!("{:.1}", w as f64 * h as f64 / 1e6)).replace('.', ",")
+                t!("{w} × {h} ({v} Мп)", w = w, h = h, v = synshell_common::decimal(w as f64 * h as f64 / 1e6, 1))
             })
         } else {
             None

@@ -550,11 +550,8 @@ fn xml_unescape(s: &str) -> String {
 }
 
 fn lang_keys() -> Vec<String> {
-    let lang = ["LC_ALL", "LC_MESSAGES", "LANG"]
-        .iter()
-        .filter_map(|k| std::env::var(k).ok())
-        .find(|v| !v.is_empty())
-        .unwrap_or_default();
+    // язык интерфейса программы (synshell_tr), иначе окружения
+    let lang = synshell_tr::language();
     let base = lang.split(['.', '@']).next().unwrap_or("").to_string();
     let mut v = Vec::new();
     if !base.is_empty() {

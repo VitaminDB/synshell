@@ -17,6 +17,46 @@ type TranslateN = fn(u64, &[&str]) -> String;
 
 static HOOK: OnceLock<(Translate, TranslateN)> = OnceLock::new();
 static OWN: RwLock<Option<Own>> = RwLock::new(None);
+/// Язык интерфейса (`ru`, `en-US`…), пусто — не задан ([`set_language`]).
+static LANG: RwLock<String> = RwLock::new(String::new());
+
+/// Запомнить язык интерфейса программы: даты, числа, описания типов файлов
+/// библиотек следуют ему, а не только LANG.
+pub fn set_language(lang: &str) {
+    if let Ok(mut l) = LANG.write() {
+        *l = lang.trim().to_string();
+    }
+}
+
+/// Язык интерфейса (`set_language`), иначе из окружения (`LC_ALL`,
+/// `LC_MESSAGES`, `LANG`), в виде `ru_RU.UTF-8`/`en`.
+pub fn language() -> String {
+    let set = LANG.read().map(|l| l.clone()).unwrap_or_default();
+    if !set.is_empty() {
+        return set;
+    }
+    ["LC_ALL", "LC_MESSAGES", "LANG"].iter().filter_map(|k| std::env::var(k).ok()).find(|v| !v.is_empty()).unwrap_or_default()
+}
+
+/// Десятичный разделитель языка интерфейса: запятая у русского, немецкого,
+/// французского…, точка у английского, китайского, японского, корейского.
+pub fn decimal_separator() -> char {
+    let lang = language();
+    let base = lang.split(['_', '-', '.', '@']).next().unwrap_or("").to_ascii_lowercase();
+    match base.as_str() {
+        "" | "c" | "posix" | "en" | "zh" | "ja" | "ko" | "he" | "th" => '.',
+        _ => ',',
+    }
+}
+
+/// Число с `prec` знаками после разделителя языка интерфейса (`1,5` / `1.5`).
+pub fn decimal(x: f64, prec: usize) -> String {
+    let s = format!("{x:.prec$}");
+    match decimal_separator() {
+        '.' => s,
+        c => s.replace('.', &c.to_string()),
+    }
+}
 
 struct Own {
     /// Язык исходных строк — его не переводим.
@@ -33,6 +73,7 @@ pub fn set_translator(t: Translate, tn: TranslateN) {
 /// Свои каталоги для программы без syngui: язык `lang` (`ru_RU.UTF-8`,
 /// `en`), исходники — на `source`; без каталога на язык — английский.
 pub fn init(source: &str, lang: &str, catalogs: &[&str]) {
+    set_language(lang);
     let base = lang.split(['_', '-', '.', '@']).next().unwrap_or("").to_ascii_lowercase();
     let source_base = source.split(['_', '-']).next().unwrap_or("").to_string();
     let mut by_lang: HashMap<String, HashMap<String, String>> = HashMap::new();
@@ -234,5 +275,9 @@ mod tests {
         assert_eq!(tn!(3, "{n} файл", "{n} файла", "{n} файлов"), "3 файла");
         assert_eq!(tn!(21, "{n} файл", "{n} файла", "{n} файлов"), "21 файл");
         assert_eq!(substitute("{a} {b} {", &[("a", &1)]), "1 {b} {");
+        set_language("en_US.UTF-8");
+        assert_eq!(decimal(1.25, 1), "1.2");
+        set_language("ru");
+        assert_eq!(decimal(2.0, 1), "2,0");
     }
 }

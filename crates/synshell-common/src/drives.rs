@@ -261,7 +261,7 @@ pub fn format_size(n: u64) -> String {
         i += 1;
     }
     let s = if v < 10.0 { format!("{v:.1}") } else { format!("{v:.0}") };
-    format!("{} {}", s.replace('.', ","), crate::t!(U[i]))
+    format!("{} {}", s.replace('.', &synshell_tr::decimal_separator().to_string()), crate::t!(U[i]))
 }
 
 /// Разделы с файловой системой для боковой панели: на съёмных дисках — все

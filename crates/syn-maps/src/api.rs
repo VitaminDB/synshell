@@ -326,7 +326,7 @@ pub fn fmt_distance(m: f64) -> String {
     if m < 1000.0 {
         t!("{v} м", v = ((m / 10.0).round() * 10.0) as i64)
     } else if m < 100_000.0 {
-        t!("{v} км", v = format!("{:.1}", m / 1000.0)).replace('.', ",")
+        t!("{v} км", v = synshell_common::decimal(m / 1000.0, 1))
     } else {
         t!("{v} км", v = (m / 1000.0).round() as i64)
     }

@@ -564,7 +564,7 @@ fn ev_bar(st: St, pw: f32, ph: f32) -> impl Widget {
         let ev = st.ev.get_untracked();
         let step = cam.ev_step();
         // подпись — отдельно: пересборка ползунка во время перетаскивания сорвала бы жест
-        let label = Reactive::new(move || -> Vec<W> { vec![Box::new(Text::new(format!("{:+.1}", st.ev.get() as f32 * step).replace('.', ",")).class("ev-text"))] });
+        let label = Reactive::new(move || -> Vec<W> { vec![Box::new(Text::new(ev_text(st.ev.get() as f32 * step)).class("ev-text"))] });
         let w = (pw - 48.0).min(320.0);
         let bar = Row::new()
             .gap(8.0)
@@ -1023,7 +1023,7 @@ fn pro_panel(st: St) -> impl Widget {
             (ProField::Shutter, t!("Выдержка").into(), if auto_iso { t!("А {v}", v = shutter_name(meta.exposure_ns)) } else { shutter_name(sh) }),
             (ProField::Focus, t!("Фокус").into(), if fd < 0.0 { t!("А").into() } else if fd == 0.0 { "∞".into() } else { t!("{v} м", v = format!("{:.2}", 1.0 / fd)) }),
             (ProField::Wb, t!("ББ").into(), WB_NAMES.iter().find(|w| w.0 == awb).map(|w| syngui::i18n::t(w.1)).unwrap_or_else(|| t!("Авто"))),
-            (ProField::Ev, "EV".into(), format!("{:+.1}", ev as f32 * cam.ev_step()).replace('.', ",")),
+            (ProField::Ev, "EV".into(), ev_text(ev as f32 * cam.ev_step())),
         ];
         let mut row = Row::new().gap(4.0).main_axis_alignment(MainAxisAlignment::SpaceAround);
         for (f, name, val) in chips {
@@ -1318,4 +1318,10 @@ fn settings_sheet(st: St) -> impl Widget {
                 ),
         )]
     })
+}
+
+/// Поправка экспозиции со знаком и разделителем языка интерфейса (`+0,3` / `+0.3`).
+fn ev_text(ev: f32) -> String {
+    let v = synshell_common::decimal(ev.abs() as f64, 1);
+    if ev < 0.0 { format!("−{v}") } else { format!("+{v}") }
 }
