@@ -511,6 +511,8 @@
 "Два касания по погашенному экрану включают его" = "Tap twice on the screen while it's off to turn it on"
 "Поднять, чтобы разбудить" = "Lift to wake"
 "Экран включается, когда телефон берут в руки" = "The screen turns on when you pick up the phone"
+"Экраном вниз — «Не беспокоить»" = "Face down — “Do not disturb”"
+"Положите телефон экраном вниз — уведомления не беспокоят, пока его не поднимут" = "Place the phone face down — notifications stay quiet until it is picked up"
 "Поворот экрана" = "Screen rotation"
 "Автоповорот" = "Auto-rotate"
 "Экран поворачивается за телефоном (акселерометр)" = "The screen rotates with the phone (accelerometer)"

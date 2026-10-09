@@ -69,6 +69,7 @@ pub fn phone() -> W {
                 vec![
                     switch_row(t!("Двойной стук"), t!("Два касания по погашенному экрану включают его"), op!["mobile", "double_tap_wake"], m.double_tap_wake),
                     switch_row(t!("Поднять, чтобы разбудить"), t!("Экран включается, когда телефон берут в руки"), op!["mobile", "raise_to_wake"], m.raise_to_wake),
+                    switch_row(t!("Экраном вниз — «Не беспокоить»"), t!("Положите телефон экраном вниз — уведомления не беспокоят, пока его не поднимут"), op!["mobile", "flip_to_dnd"], m.flip_to_dnd),
                 ],
             ),
             group(

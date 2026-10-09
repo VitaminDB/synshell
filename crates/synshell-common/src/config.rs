@@ -2099,6 +2099,8 @@ pub struct Mobile {
     pub double_tap_wake: bool,
     /// Поднять телефон — экран включается (`pickup` SLPI).
     pub raise_to_wake: bool,
+    /// Телефон экраном вниз — «Не беспокоить», пока лежит так (`screen_down` SLPI).
+    pub flip_to_dnd: bool,
 }
 
 impl Default for Mobile {
@@ -2118,6 +2120,7 @@ impl Default for Mobile {
             launcher: "pages".into(),
             double_tap_wake: true,
             raise_to_wake: false,
+            flip_to_dnd: false,
         }
     }
 }

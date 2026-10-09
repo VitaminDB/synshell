@@ -25,6 +25,7 @@ pub mod datetime;
 pub mod desk;
 pub mod devices;
 pub mod dock;
+pub mod flip_dnd;
 pub mod edit;
 pub mod gtkmenu;
 pub mod ipc;
@@ -143,6 +144,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         rotation::start(ctx);
         autobright::start(ctx);
         wake_gestures::start(ctx);
+        flip_dnd::start(ctx);
         ipc::start(ctx);
         appmenu::install(ctx);
         notifications::start(ctx);
