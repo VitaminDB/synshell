@@ -50,7 +50,7 @@ _profile=${SYNSHELL_PROFILE:-release}
 
 build() {
     cd "$startdir"
-    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player -p syn-maps -p syn-compass -p syngamepad -p synpass
+    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player -p syn-maps -p syn-compass -p syngamepad -p synpass -p syncamera -p syndroid -p syn-health -p synmodem -p syn-nfc -p synnfc -p synphone -p synsms
 }
 
 check() {
@@ -60,7 +60,7 @@ check() {
 
 package() {
     cd "$startdir"
-    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player syn-maps syn-compass syngamepad synpass; do
+    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player syn-maps syn-compass syngamepad synpass syncamera syndroid syndroidd syn-health synmodem synmodemd syn-nfc synnfc synnfcd synphone synsms; do
         install -Dm755 "target/$_profile/$b" "$pkgdir/usr/bin/$b"
     done
     install -Dm755 data/synshell-session "$pkgdir/usr/bin/synshell-session"
@@ -105,6 +105,13 @@ package() {
         "$pkgdir/usr/share/applications/synpass.desktop"
     install -Dm644 crates/synpass/data/icons/synpass.svg \
         "$pkgdir/usr/share/icons/hicolor/scalable/apps/synpass.svg"
+    # Программы телефона (на компьютере работают с тем, что есть: камера, история шагов, Android).
+    for app in syncamera syndroid syn-health syn-nfc synphone synsms; do
+        install -Dm644 crates/$app/data/$app.desktop "$pkgdir/usr/share/applications/$app.desktop"
+        if [ -f crates/$app/data/icons/$app.svg ]; then
+            install -Dm644 crates/$app/data/icons/$app.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/$app.svg"
+        fi
+    done
     # Программы по умолчанию для типов файлов (XDG_CURRENT_DESKTOP=synshell).
     { echo "[Default Applications]"; cat crates/*/data/defaults.mimeapps | grep -v '^#' | grep '='; } \
         | install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/synshell-mimeapps.list"
