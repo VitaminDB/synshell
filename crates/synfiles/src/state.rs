@@ -126,6 +126,8 @@ pub struct Ctx {
     pub clip: RwSignal<Option<Clip>>,
     pub jobs_rev: RwSignal<u64>,
     pub thumbs_rev: RwSignal<u64>,
+    /// Растёт, когда досчитаны размеры папок (`dirsize`).
+    pub sizes_rev: RwSignal<u64>,
     pub places_rev: RwSignal<u64>,
     pub toast: RwSignal<Option<Toast>>,
     pub menu: RwSignal<Vec<MenuItem>>,
@@ -150,6 +152,8 @@ pub struct Ctx {
     pub sheet: RwSignal<bool>,
     /// Телефон: строка поиска вместо заголовка.
     pub phone_search: RwSignal<bool>,
+    /// Выдвижная панель настроек справа.
+    pub settings: RwSignal<bool>,
 }
 
 thread_local! {
@@ -206,11 +210,12 @@ pub fn init(cfg: Config, start: Vec<Location>) -> Ctx {
         cfg: use_signal(cfg.clone()),
         tabs: use_signal(Vec::new()),
         cur: use_signal(0usize),
-        sidebar: use_signal(true),
+        sidebar: use_signal(cfg.files.sidebar),
         sidebar_width: use_signal(load_sidebar_width()),
         clip: use_signal(None),
         jobs_rev: use_signal(0u64),
         thumbs_rev: use_signal(0u64),
+        sizes_rev: use_signal(0u64),
         places_rev: use_signal(0u64),
         toast: use_signal(None),
         menu: use_signal(Vec::new()),
@@ -225,9 +230,11 @@ pub fn init(cfg: Config, start: Vec<Location>) -> Ctx {
         drawer: use_signal(false),
         sheet: use_signal(false),
         phone_search: use_signal(false),
+        settings: use_signal(false),
     };
     CTX.with(|c| *c.borrow_mut() = Some(ctx));
     crate::thumbs::set_max_mb(cfg.files.thumbnail_max_mb);
+    crate::dirsize::set_enabled(cfg.files.dir_sizes);
     let start = if start.is_empty() { vec![Location::Dir(synshell_common::paths::home())] } else { start };
     for loc in start {
         new_tab(loc, false);
@@ -282,6 +289,7 @@ pub fn close_tab(i: usize) {
     if let Some(t) = tabs.get(i) {
         for p in t.panes {
             PANES.with(|m| m.borrow_mut().remove(&p.id));
+            crate::dirsize::forget(p.id);
         }
     }
     ctx.tabs.update(|t| {
@@ -557,6 +565,9 @@ pub fn refilter(p: Pane) {
         let hidden = show_hidden || !matches!(p.loc.get_untracked(), Location::Dir(_));
         model::visible(raw, sort, hidden, &filter)
     });
+    if matches!(p.loc.get_untracked(), Location::Dir(_) | Location::Trash) && crate::dirsize::enabled() {
+        crate::dirsize::want(p.id, v.iter().filter(|e| e.is_dir && !e.is_link).map(|e| e.path.clone()).collect());
+    }
     p.entries.set_always(v);
     restore_selection(p, &keep);
 }
@@ -775,10 +786,24 @@ pub fn config_changed(cfg: Config) {
     synshell_common::xdg::set_icon_theme(&cfg.appearance.icon_theme);
     crate::thumbs::set_max_mb(cfg.files.thumbnail_max_mb);
     synshell_common::haptics::set_config(&cfg.haptics);
-    let pinned_changed = ctx.cfg.get_untracked().files.pinned != cfg.files.pinned;
+    let old = ctx.cfg.get_untracked();
+    let pinned_changed = old.files.pinned != cfg.files.pinned;
+    let sizes_changed = old.files.dir_sizes != cfg.files.dir_sizes;
+    if old.files.sidebar != cfg.files.sidebar {
+        ctx.sidebar.set(cfg.files.sidebar);
+    }
+    if old.files.show_hidden != cfg.files.show_hidden && ctx.show_hidden.get_untracked() != cfg.files.show_hidden {
+        ctx.show_hidden.set(cfg.files.show_hidden);
+        refilter_all();
+    }
+    crate::dirsize::set_enabled(cfg.files.dir_sizes);
     ctx.cfg.set_always(Arc::new(cfg));
     if pinned_changed {
         ctx.places_rev.update(|r| *r += 1);
+    }
+    if sizes_changed {
+        // Включили — попросить размеры папок во всех панелях.
+        refilter_all();
     }
 }
 
@@ -876,6 +901,38 @@ pub fn connect_background() {
                 ctx.jobs_rev.update(|r| *r += 1);
             }
         })
+    });
+    // Размеры папок — одной перерисовкой раз в 150 мс; досчитанные —
+    // пересортировать панели, отсортированные по размеру.
+    let sizes_pending = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let sizes_finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    crate::dirsize::set_notify(move |finished| {
+        if finished {
+            sizes_finished.store(true, Ordering::SeqCst);
+        }
+        if sizes_pending.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let pending = sizes_pending.clone();
+        let finished = sizes_finished.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            pending.store(false, Ordering::SeqCst);
+            let resort = finished.swap(false, Ordering::SeqCst);
+            run_on_main_thread(move || {
+                let Some(ctx) = try_ctx() else { return };
+                if resort {
+                    for t in ctx.tabs.get_untracked() {
+                        for p in t.panes {
+                            if p.sort.get_untracked().key == SortKey::Size {
+                                refilter(p);
+                            }
+                        }
+                    }
+                }
+                ctx.sizes_rev.update(|r| *r += 1);
+            });
+        });
     });
     let pending = Arc::new(std::sync::atomic::AtomicBool::new(false));
     crate::thumbs::set_notify(move || {

@@ -250,6 +250,7 @@ pub fn root() -> W {
         ctx.drawer.set(false);
         ctx.sheet.set(false);
         ctx.phone_search.set(false);
+        ctx.settings.set(false);
         vec![if phone { super::phone::root() } else { desktop_root() }]
     }))
 }
@@ -290,6 +291,10 @@ fn desktop_root() -> W {
     let hook = EventHook::new()
         .on_key_down(|k, m| {
             state::set_modifiers(m);
+            if k == Key::Escape && state::ctx().settings.get_untracked() {
+                state::ctx().settings.set(false);
+                return KeyReply::Handled;
+            }
             if state::ctx().dialog.get_untracked().is_some() {
                 if k == Key::Escape {
                     state::ctx().dialog.set(None);
@@ -314,6 +319,7 @@ fn desktop_root() -> W {
                 .child(main)
                 .child(jobs_layer())
                 .child(toast_layer())
+                .child(super::settings::layer(false))
                 .child(super::dialogs::dialogs())
                 .child(menu_layer()),
         );

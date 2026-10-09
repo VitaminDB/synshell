@@ -1584,6 +1584,10 @@ pub struct Files {
     pub pinned: Vec<String>,
     /// Открывать вкладки прошлого сеанса.
     pub restore_tabs: bool,
+    /// Считать размеры папок в фоне и показывать их чипом на значке.
+    pub dir_sizes: bool,
+    /// Боковая панель мест (компьютер).
+    pub sidebar: bool,
 }
 
 impl Default for Files {
@@ -1602,6 +1606,8 @@ impl Default for Files {
             thumbnail_max_mb: 64,
             pinned: Vec::new(),
             restore_tabs: true,
+            dir_sizes: false,
+            sidebar: true,
         }
     }
 }

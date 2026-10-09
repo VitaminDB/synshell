@@ -189,6 +189,9 @@ fn items_view(tab: Tab, idx: usize, fit: RwSignal<items::ColumnsFit>) -> W {
         let cut = ctx.clip.get().filter(|c| c.cut).map(|c| c.paths).unwrap_or_default();
         let _ = ctx.thumbs_rev.get();
         let cfg = ctx.cfg.get();
+        if cfg.files.dir_sizes {
+            let _ = ctx.sizes_rev.get();
+        }
         let generation = p.generation.get();
         let scroll = p.scroll_to.get();
         let active = !tab.split.get() || tab.active.get() == idx;
@@ -202,7 +205,19 @@ fn items_view(tab: Tab, idx: usize, fit: RwSignal<items::ColumnsFit>) -> W {
         let icon_px = if phone { icon_px.clamp(48, 96) } else { icon_px };
         let selecting = phone && !sel.selected.is_empty();
         let fit = fit.get();
-        let cx = ItemCtx { pane: p, mode, icon_px, cut, renaming, thumbs: cfg.files.thumbnails, columns, phone, selecting, fit };
+        let cx = ItemCtx {
+            pane: p,
+            mode,
+            icon_px,
+            cut,
+            renaming,
+            thumbs: cfg.files.thumbnails,
+            columns,
+            phone,
+            selecting,
+            fit,
+            dir_sizes: cfg.files.dir_sizes,
+        };
         let (w, h) = if phone { items::phone_cell_size(mode, icon_px) } else { items::cell_size(mode, icon_px) };
         let layout = if w == 0.0 || (!phone && mode == ViewMode::Details) {
             ItemLayout::Rows { row_height: h }
@@ -222,6 +237,7 @@ fn items_view(tab: Tab, idx: usize, fit: RwSignal<items::ColumnsFit>) -> W {
             .selection(sel)
             .keyboard_active(active)
             .touch_mode(phone)
+            .single_click(cfg.files.single_click && !phone)
             .stretch(phone)
             .reset_key(generation)
             .class(format!("items {}{}", mode.id(), if phone { " phone" } else { "" }))

@@ -12,6 +12,7 @@
 
 mod actions;
 mod chooser;
+mod dirsize;
 mod drives;
 mod loc;
 mod model;

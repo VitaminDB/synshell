@@ -5,6 +5,7 @@ pub mod dialogs;
 pub mod items;
 pub mod jobs;
 pub mod phone;
+pub mod settings;
 pub mod sidebar;
 pub mod toolbar;
 pub mod view;
@@ -128,4 +129,5 @@ pub mod icons {
     pub const UNCHECKED: &str = "\u{e836}";
     pub const TUNE: &str = "\u{e429}";
     pub const MOVE: &str = "\u{e2bf}";
+    pub const SETTINGS: &str = "\u{e8b8}";
 }

@@ -221,8 +221,8 @@ pub fn sort_entries(v: &mut [Entry], s: Sort) {
                 natural_cmp(&ta, &tb).then_with(by_name)
             }
             SortKey::Size => {
-                let sa = if a.is_dir { a.children.unwrap_or(0) as u64 } else { a.size };
-                let sb = if b.is_dir { b.children.unwrap_or(0) as u64 } else { b.size };
+                let sa = sort_size(a);
+                let sb = sort_size(b);
                 sa.cmp(&sb).then_with(by_name)
             }
         };
@@ -232,6 +232,18 @@ pub fn sort_entries(v: &mut [Entry], s: Sort) {
             o
         }
     });
+}
+
+/// Размер для сортировки: у папок — посчитанный объём (`dirsize`), если
+/// подсчёт включён, иначе число элементов.
+fn sort_size(e: &Entry) -> u64 {
+    if !e.is_dir {
+        return e.size;
+    }
+    if crate::dirsize::enabled() {
+        return crate::dirsize::done_bytes(&e.path).unwrap_or(0);
+    }
+    e.children.unwrap_or(0) as u64
 }
 
 /// Отобранные и отсортированные записи для показа.

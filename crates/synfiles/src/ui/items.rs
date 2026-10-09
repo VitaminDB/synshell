@@ -33,6 +33,8 @@ pub struct ItemCtx {
     pub selecting: bool,
     /// Таблица: сколько колонок кроме имени помещается (см. [`fit_columns`]).
     pub fit: ColumnsFit,
+    /// Показывать размеры папок (`[files] dir_sizes`).
+    pub dir_sizes: bool,
 }
 
 /// Какие колонки таблицы влезают в панель: узкой панели (половина окна,
@@ -182,6 +184,41 @@ fn rename_field(cx: &ItemCtx, e: &Entry) -> W {
     )
 }
 
+/// Размер папки для показа: (текст, досчитан). `None` — не папка или
+/// подсчёт выключен; пока не начат — многоточие.
+fn dir_size(cx: &ItemCtx, e: &Entry) -> Option<(String, bool)> {
+    if !cx.dir_sizes || !e.is_dir || e.is_link || e.trash.is_some() && cx.columns != Columns::Trash {
+        return None;
+    }
+    match crate::dirsize::get(&e.path) {
+        Some(s) => Some((model::format_size(s.bytes), s.done)),
+        None if crate::dirsize::pending(&e.path) => Some(("···".into(), false)),
+        None => None,
+    }
+}
+
+/// Чип с размером папки.
+fn size_chip(cx: &ItemCtx, e: &Entry, class: &str) -> Option<W> {
+    let (text, done) = dir_size(cx, e)?;
+    let cls = if done { format!("size-chip {class}") } else { format!("size-chip partial {class}") };
+    Some(boxed(DecoratedBox::new().class(cls).child(Text::new(text).max_lines(1).class("size-chip-text"))))
+}
+
+/// Большой значок с чипом размера папки поверх нижнего края. Мелкому
+/// значку чип шире его самого — слой под чип шире значка (ячейка вида
+/// всё равно шире 96 px), значок в нём по центру.
+fn icon_with_chip(cx: &ItemCtx, e: &Entry, px: u32) -> W {
+    let s = px as f32;
+    let icon = sized(s, entry_image(e, px, cx.thumbs), "big-icon");
+    let Some(chip) = size_chip(cx, e, "on-icon") else { return icon };
+    let w = s.max(84.0);
+    boxed(
+        Stack::new()
+            .child(DecoratedBox::new().class("chip-area").style("width", w).style("height", s).child(icon))
+            .child(DecoratedBox::new().class("chip-layer").style("width", w).style("height", s).child(chip)),
+    )
+}
+
 fn secondary(e: &Entry) -> String {
     if e.is_dir {
         e.children.map(model::format_count).unwrap_or_default()
@@ -223,7 +260,7 @@ fn details_row(cx: &ItemCtx, e: &Entry, st: ItemState, renaming: bool) -> W {
             if fit.kind {
                 row = row.child(cell(e.description(), "col-type", COL_TYPE));
             }
-            row = row.child(cell(if e.is_dir { String::new() } else { model::format_size(e.size) }, "col-size", COL_SIZE));
+            row = row.child(size_cell(cx, e, if e.is_dir { String::new() } else { model::format_size(e.size) }));
         }
         Columns::Trash => {
             let (from, when) = e
@@ -237,7 +274,7 @@ fn details_row(cx: &ItemCtx, e: &Entry, st: ItemState, renaming: bool) -> W {
             if fit.date {
                 row = row.child(cell(when, "col-date", COL_DATE));
             }
-            row = row.child(cell(secondary(e), "col-size", COL_SIZE));
+            row = row.child(size_cell(cx, e, secondary(e)));
         }
         Columns::Search => {
             let folder = e.path.parent().map(|p| p.display().to_string()).unwrap_or_default();
@@ -247,23 +284,31 @@ fn details_row(cx: &ItemCtx, e: &Entry, st: ItemState, renaming: bool) -> W {
             if fit.date {
                 row = row.child(cell(model::format_time(e.mtime), "col-date", COL_DATE));
             }
-            row = row.child(cell(if e.is_dir { String::new() } else { model::format_size(e.size) }, "col-size", COL_SIZE));
+            row = row.child(size_cell(cx, e, if e.is_dir { String::new() } else { model::format_size(e.size) }));
         }
     }
     boxed(DecoratedBox::new().class(state_class("item row", st, e, cx)).child(row))
 }
 
+/// Колонка «Размер»: у папок — посчитанный размер (недосчитанный — бледнее).
+fn size_cell(cx: &ItemCtx, e: &Entry, plain: String) -> W {
+    match dir_size(cx, e) {
+        Some((text, done)) => cell(text, if done { "col-size dir-size" } else { "col-size dir-size partial" }, COL_SIZE),
+        None => cell(plain, "col-size", COL_SIZE),
+    }
+}
+
 fn list_row(cx: &ItemCtx, e: &Entry, st: ItemState, renaming: bool) -> W {
     let name: W = if renaming { rename_field(cx, e) } else { name_text(e, "name", 1) };
-    boxed(
-        DecoratedBox::new().class(state_class("item list-item", st, e, cx)).child(
-            Row::new()
-                .gap(8.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(sized(20.0, entry_image(e, 20, false), "row-icon"))
-                .child(DecoratedBox::new().class("grow").child(name)),
-        ),
-    )
+    let mut row = Row::new()
+        .gap(8.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(sized(20.0, entry_image(e, 20, false), "row-icon"))
+        .child(DecoratedBox::new().class("grow").child(name));
+    if let Some(chip) = size_chip(cx, e, "") {
+        row = row.child(chip);
+    }
+    boxed(DecoratedBox::new().class(state_class("item list-item", st, e, cx)).child(row))
 }
 
 fn tile(cx: &ItemCtx, e: &Entry, st: ItemState, renaming: bool) -> W {
@@ -280,24 +325,29 @@ fn tile(cx: &ItemCtx, e: &Entry, st: ItemState, renaming: bool) -> W {
                         .class("grow")
                         .child(name)
                         .child(Text::new(e.description()).max_lines(1).class("meta"))
-                        .child(Text::new(secondary(e)).max_lines(1).class("meta")),
+                        .child(tile_meta(cx, e)),
                 ),
         ),
     )
 }
 
+/// Третья строка плитки: число элементов и чип размера папки.
+fn tile_meta(cx: &ItemCtx, e: &Entry) -> W {
+    let text = Text::new(secondary(e)).max_lines(1).class("meta");
+    match size_chip(cx, e, "") {
+        Some(chip) => boxed(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(text).child(chip)),
+        None => boxed(text),
+    }
+}
+
 fn icon_cell(cx: &ItemCtx, e: &Entry, st: ItemState, renaming: bool) -> W {
-    let px = cx.icon_px as f32;
     let name: W = if renaming { rename_field(cx, e) } else { name_text(e, "name centered", 2) };
-    boxed(
-        DecoratedBox::new().class(state_class("item icon-item", st, e, cx)).child(
-            Column::new()
-                .gap(4.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(sized(px, entry_image(e, cx.icon_px, cx.thumbs), "big-icon"))
-                .child(name),
-        ),
-    )
+    let col = Column::new()
+        .gap(4.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(icon_with_chip(cx, e, cx.icon_px))
+        .child(name);
+    boxed(DecoratedBox::new().class(state_class("item icon-item", st, e, cx)).child(col))
 }
 
 /// Телефон: вид «Значки» — сетка, остальные — список.
@@ -358,6 +408,9 @@ fn phone_row(cx: &ItemCtx, e: &Entry, st: ItemState, renaming: bool) -> W {
                 .child(name)
                 .child(Text::new(phone_meta(cx, e)).elide(Elide::Middle).class("meta")),
         );
+    if let Some(chip) = size_chip(cx, e, "") {
+        row = row.child(chip);
+    }
     if cx.selecting {
         row = row.child(check_mark(st.selected));
     }
@@ -365,12 +418,11 @@ fn phone_row(cx: &ItemCtx, e: &Entry, st: ItemState, renaming: bool) -> W {
 }
 
 fn phone_cell(cx: &ItemCtx, e: &Entry, st: ItemState, renaming: bool) -> W {
-    let px = cx.icon_px as f32;
     let name: W = if renaming { rename_field(cx, e) } else { name_text(e, "name centered", 2) };
     let body = Column::new()
         .gap(6.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(sized(px, entry_image(e, cx.icon_px, cx.thumbs), "big-icon"))
+        .child(icon_with_chip(cx, e, cx.icon_px))
         .child(name);
     let mut stack = Stack::new().child(body);
     if cx.selecting {

@@ -71,7 +71,8 @@ pub fn command_bar() -> W {
                 if tab.split.get() { "toggled" } else { "" },
                 true,
                 state::toggle_split,
-            ));
+            ))
+            .child(icon_button(icons::SETTINGS, &t!("Настройки (Ctrl+,)"), "", true, || state::ctx().settings.set(true)));
         vec![bx("command-bar", row)]
     }))
 }
@@ -108,6 +109,8 @@ fn more_menu() -> Vec<MenuItem> {
             }
         },
         MenuItem::new("props-here", t!("Свойства папки")).icon(icons::INFO),
+        MenuItem::separator(),
+        MenuItem::new("settings", t!("Настройки")).icon(icons::SETTINGS).shortcut("Ctrl+,"),
     ]
 }
 

@@ -356,6 +356,8 @@ thumbnails = true
 thumbnail_max_mb = 64
 pinned = []                    # закреплённые папки: ["~/Projects", "/mnt/data"]
 restore_tabs = true
+dir_sizes = false              # размеры папок (считаются в фоне) — чипом на значке
+sidebar = true                 # боковая панель мест
 
 [notifications]
 enabled = true

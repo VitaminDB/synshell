@@ -360,7 +360,31 @@ pub fn save_setting(key: &str, v: impl Into<toml_edit::Value>) {
     }
 }
 
+/// Изменить настройку `[files]`: записать в config.toml и сразу применить.
+pub fn set_files(key: &str, v: impl Into<toml_edit::Value>, f: impl FnOnce(&mut synshell_common::config::Files)) {
+    save_setting(key, v);
+    let mut c = (*state::ctx().cfg.get_untracked()).clone();
+    f(&mut c.files);
+    state::config_changed(c);
+}
+
 // ---------------------------------------------------------------- вид
+
+pub fn toggle_sidebar() {
+    let ctx = state::ctx();
+    let v = !ctx.sidebar.get_untracked();
+    ctx.sidebar.set(v);
+    save_setting("sidebar", v);
+}
+
+/// Сортировать по `key` (без переключения направления, как у заголовка).
+pub fn set_sort_key(p: Pane, key: SortKey) {
+    let mut s = p.sort.get_untracked();
+    s.key = key;
+    p.sort.set(s);
+    state::refilter(p);
+    save_setting("sort_by", key.id());
+}
 
 pub fn set_view(p: Pane, v: ViewMode) {
     p.view.set(v);
@@ -694,7 +718,8 @@ pub fn run(p: Pane, id: &str) {
         "new:empty" => new_file(p, &t!("Новый файл"), b""),
         "hidden" => toggle_hidden(),
         "split" => state::toggle_split(),
-        "sidebar" => ctx.sidebar.update(|v| *v = !*v),
+        "sidebar" => toggle_sidebar(),
+        "settings" => ctx.settings.set(true),
         "zoom:in" => zoom(p, 1),
         "zoom:out" => zoom(p, -1),
         "sort:asc" | "sort:desc" => {
@@ -733,12 +758,7 @@ pub fn run(p: Pane, id: &str) {
             if let Some(v) = id.strip_prefix("view:") {
                 set_view(p, ViewMode::parse(v));
             } else if let Some(k) = id.strip_prefix("sort:") {
-                let key = SortKey::parse(k);
-                let mut s = p.sort.get_untracked();
-                s.key = key;
-                p.sort.set(s);
-                state::refilter(p);
-                save_setting("sort_by", key.id());
+                set_sort_key(p, SortKey::parse(k));
             } else if let Some(i) = id.strip_prefix("new:tpl:").and_then(|i| i.parse::<usize>().ok()) {
                 if let Some(t) = templates().get(i) {
                     let content = std::fs::read(t).unwrap_or_default();
@@ -831,7 +851,7 @@ pub fn key(k: Key, m: Modifiers) -> bool {
         Key::F4 if m.shift => run(p, "terminal"),
         Key::F4 => ctx.address_edit.set(true),
         Key::F5 => run(p, "refresh"),
-        Key::F9 => ctx.sidebar.update(|v| *v = !*v),
+        Key::F9 => toggle_sidebar(),
         Key::Delete if m.shift => delete_selected(p),
         Key::Delete => trash_selected(p),
         Key::Left if m.alt => state::go_back(p),
@@ -854,6 +874,7 @@ pub fn char_key(c: char, m: Modifiers) -> bool {
     match c {
         '+' | '=' => zoom(p, 1),
         '-' => zoom(p, -1),
+        ',' => state::ctx().settings.set(true),
         _ => return false,
     }
     true

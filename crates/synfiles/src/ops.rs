@@ -23,6 +23,20 @@ pub enum Op {
 }
 
 impl Op {
+    /// Что операция меняет (размеры папок вокруг пересчитать).
+    pub fn touched(&self) -> Vec<PathBuf> {
+        match self {
+            Op::Copy { srcs, dest } | Op::Move { srcs, dest } | Op::Link { srcs, dest } => {
+                let mut v = srcs.clone();
+                v.push(dest.clone());
+                v
+            }
+            Op::Trash { srcs } | Op::Delete { srcs } => srcs.clone(),
+            Op::Restore { files } => files.clone(),
+            Op::EmptyTrash => vec![synshell_common::paths::data_home().join("Trash/files")],
+        }
+    }
+
     pub fn title(&self) -> String {
         let n = |v: &Vec<PathBuf>| {
             if v.len() == 1 {
@@ -249,6 +263,7 @@ pub fn start(op: Op) -> Arc<Job> {
         .spawn(move || {
             let undo = run(&j);
             j.progress.finished.store(true, Ordering::SeqCst);
+            crate::dirsize::invalidate(&j.op.touched());
             if let Some(u) = undo {
                 push_undo(u);
             }

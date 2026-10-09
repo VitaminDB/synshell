@@ -660,3 +660,75 @@ ItemView.phone { padding: 6px 6px 92px 6px; scrollbar-width: 4px; }
 .ch-btn-text { font-size: 14px; font-weight: 600; color: var(--fg); }
 .ch-btn-main .ch-btn-text { color: #ffffff; }
 .ch-btn-icon { font-size: 18px; color: #ffffff; }
+
+/* Размеры папок (`[files] dir_sizes`): чип на значке, в списке и плитках. */
+.size-chip {
+    padding: 1px 7px;
+    border-radius: 9px;
+    background: var(--accent-soft);
+}
+.size-chip-text { font-size: 11px; font-weight: 600; color: var(--accent); }
+.size-chip.partial { background: var(--hover); }
+.size-chip.partial .size-chip-text { color: var(--muted); font-weight: 400; }
+.size-chip.on-icon {
+    background: var(--surface);
+    border: 1px solid var(--accent-soft);
+    box-shadow: 0 2px 6px var(--shadow);
+    margin: 0px 0px 2px 0px;
+}
+.size-chip.on-icon.partial { border-color: var(--divider); }
+.chip-area { justify-content: center; align-items: center; }
+.chip-layer { justify-content: center; align-items: end; }
+.dir-size .cell-text { color: var(--accent); }
+.dir-size.partial .cell-text { color: var(--muted); }
+
+/* Настройки: панель справа поверх окна. */
+.set-scrim { background: #00000059; }
+.set-panel {
+    height: 100%;
+    background: var(--sidebar);
+    border-radius: 18px 0px 0px 18px;
+    border-left: 1px solid var(--divider);
+    box-shadow: -8px 0px 32px var(--shadow);
+}
+.set-panel-inner { flex-grow: 1; }
+.set-head { padding: 16px 10px 12px 18px; }
+.set-logo {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    background: var(--accent-soft);
+    justify-content: center;
+    align-items: center;
+}
+.set-logo .icon { color: var(--accent); font-size: 22px; icon-size: 22px; }
+.set-title { font-size: 20px; font-weight: 600; color: var(--fg); }
+.set-body { padding: 2px 14px 24px 14px; }
+.set-card {
+    padding: 14px;
+    border-radius: 14px;
+    background: var(--chrome);
+    border: 1px solid var(--divider);
+}
+.set-sec-badge {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: var(--accent-soft);
+    justify-content: center;
+    align-items: center;
+}
+.set-sec-icon { color: var(--accent); font-size: 18px; icon-size: 18px; }
+.set-sec-title { font-size: 15px; font-weight: 600; color: var(--fg); }
+.set-row-title { font-size: 13px; color: var(--fg); }
+.set-hint { font-size: 12px; color: var(--muted); }
+.set-value { font-size: 12px; color: var(--accent); font-weight: 600; }
+.set-panel.phone { border-radius: 22px 0px 0px 22px; }
+.set-panel.phone .set-row-title { font-size: 15px; }
+.set-panel.phone .set-hint { font-size: 13px; }
+.set-panel SegmentedButton {
+    background: var(--field);
+    color: var(--fg);
+    border-color: var(--divider);
+    accent-color: var(--accent);
+}

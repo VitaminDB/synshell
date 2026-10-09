@@ -66,6 +66,10 @@ pub fn back() -> bool {
         ctx.sheet.set(false);
         return true;
     }
+    if ctx.settings.get_untracked() {
+        ctx.settings.set(false);
+        return true;
+    }
     if ctx.drawer.get_untracked() {
         ctx.drawer.set(false);
         return true;
@@ -121,6 +125,8 @@ fn more_menu() -> Vec<MenuItem> {
         v.push(MenuItem::new("copy-path-here", t!("Копировать путь")).icon(icons::COPY_PATH));
         v.push(MenuItem::new("props-here", t!("Свойства папки")).icon(icons::INFO));
     }
+    v.push(MenuItem::separator());
+    v.push(MenuItem::new("settings", t!("Настройки")).icon(icons::SETTINGS));
     v
 }
 
@@ -652,6 +658,7 @@ pub fn root() -> W {
         .child(main)
         .child(drawer_layer())
         .child(sheet_layer())
+        .child(super::settings::layer(true))
         .child(super::dialogs::dialogs())
         .child(super::app::menu_layer());
     let hook = EventHook::new()
