@@ -1456,3 +1456,6 @@
 # src/ui.rs
 "Не менять" = "Don't change"
 "Да" = "Yes"
+"Своя раскладка виджетов" = "Custom widget layout"
+"Виджеты и значки расставлены вручную; кнопка вернёт встроенную раскладку (сводка и значки приложений)" = "Widgets and icons are arranged by hand; the button restores the built-in layout (summary and app icons)"
+"Вернуть раскладку по умолчанию" = "Restore the default layout"
