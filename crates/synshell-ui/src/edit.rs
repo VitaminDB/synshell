@@ -346,7 +346,18 @@ pub fn desktop_menu(ctx: ShellCtx) -> impl Widget {
         .gap(2.0)
         .child(title("Рабочий стол"))
         .child(menu_item("\u{E8F2}", "Добавить панель", || add_panel(false)))
-        .child(menu_item("\u{E30C}", "Добавить док", || add_panel(true)));
+        .child(menu_item("\u{E30C}", "Добавить док", || add_panel(true)))
+        .child(menu_item("\u{E1BD}", "Добавить виджет…", || {
+            let ctx = ShellCtx::get();
+            crate::desk::forms::set_add_tab(0);
+            crate::desk::open_later(PopupKind::DeskAdd(crate::desk::current_page(&ctx)));
+        }))
+        .child(menu_item(mi::APPS, "Добавить значок…", || {
+            let ctx = ShellCtx::get();
+            crate::desk::forms::set_add_tab(1);
+            crate::desk::open_later(PopupKind::DeskAdd(crate::desk::current_page(&ctx)));
+        }))
+        .child(menu_item("\u{E3C9}", "Изменить рабочий стол", crate::desk::start_editing));
     let cfg = ctx.cfg();
     for i in own_panels(&ctx) {
         let dock = cfg.panels[i].is_dock();
@@ -689,7 +700,7 @@ pub fn add_view(ctx: ShellCtx, panel: usize) -> impl Widget {
 }
 
 /// Список приложений с поиском: клик — значок на панель.
-fn app_picker(on_pick: impl Fn(String) + Clone + Send + Sync + 'static, selected: Option<RwSignal<Vec<String>>>) -> impl Widget {
+pub(crate) fn app_picker(on_pick: impl Fn(String) + Clone + Send + Sync + 'static, selected: Option<RwSignal<Vec<String>>>) -> impl Widget {
     let q = use_signal(String::new());
     Column::new()
         .gap(6.0)

@@ -50,6 +50,7 @@ pub fn output_size(name: Option<&str>) -> (f32, f32) {
 /// Обои и панели по мониторам (рабочий стол).
 pub fn install(ctx: ShellCtx) {
     install_with(ctx, true);
+    crate::desk::track_visibility_desktop(ctx);
 }
 
 /// Панели и доки по мониторам; `wallpaper` — ещё и поверхности обоев
@@ -105,7 +106,7 @@ pub fn install_with(ctx: ShellCtx, with_wallpaper: bool) {
 
 // ─── Обои ────────────────────────────────────────────────────────────────────
 
-use synshell_common::wallpaper::{is_image, pick};
+use synshell_common::wallpaper::pick;
 
 fn wallpaper(ctx: ShellCtx, out: &OutputInfo) -> (SurfaceId, Option<u64>) {
     let cfg = ctx.cfg();
@@ -119,7 +120,6 @@ fn wallpaper(ctx: ShellCtx, out: &OutputInfo) -> (SurfaceId, Option<u64>) {
             Some(Duration::from_secs(w.slideshow_minutes as u64 * 60))
         }));
     }
-    let icons = cfg.wallpaper.desktop_icons;
     let id = syngui_layer::create_surface(
         SurfaceSpec {
             namespace: "syndesktop-wallpaper".into(),
@@ -135,10 +135,20 @@ fn wallpaper(ctx: ShellCtx, out: &OutputInfo) -> (SurfaceId, Option<u64>) {
         },
         move || {
             let menu_output = out_name.clone();
-            let mut stack = Stack::new().fit(StackFit::Expand).child(wallpaper_view(out_name.clone(), slide, None));
-            if icons {
-                stack = stack.child(desktop_icons());
-            }
+            let ctx = ShellCtx::get();
+            // Виджеты и значки — страница активного стола (меняется только при смене стола).
+            let page = use_signal(ctx.active_workspace().unwrap_or(0) as usize);
+            create_effect(move || {
+                let p = ctx.active_workspace().unwrap_or(0) as usize;
+                if page.get_untracked() != p {
+                    page.set(p);
+                }
+            });
+            let desk_out = out_name.clone();
+            let stack = Stack::new()
+                .fit(StackFit::Expand)
+                .child(wallpaper_view(out_name.clone(), slide, None))
+                .child(crate::ui::rx(move || Box::new(crate::desk::page_view(ShellCtx::get(), page.get(), desk_out.clone()))));
             // Клик по рабочему столу закрывает открытые окна оболочки, правый —
             // меню рабочего стола.
             Box::new(InputArea::new(stack).on_press(move |b, p, _| {
@@ -268,25 +278,10 @@ fn framed_image(path: PathBuf, out: String, zoom: f32, center: [f32; 2], pano: O
     })
 }
 
-// ─── Значки рабочего стола ───────────────────────────────────────────────────
-
-fn desktop_dir() -> PathBuf {
-    // XDG_DESKTOP_DIR из user-dirs.dirs, иначе ~/Desktop.
-    let home = synshell_common::paths::expand_tilde("~");
-    let conf = home.join(".config/user-dirs.dirs");
-    if let Ok(s) = std::fs::read_to_string(conf) {
-        for line in s.lines() {
-            if let Some(v) = line.strip_prefix("XDG_DESKTOP_DIR=") {
-                let v = v.trim_matches('"').replace("$HOME", &home.to_string_lossy());
-                return PathBuf::from(v);
-            }
-        }
-    }
-    home.join("Desktop")
-}
+// ─── Файлы ──────────────────────────────────────────────────────────────────
 
 /// Команда открытия файла рабочего стола программой по умолчанию.
-fn open_command(p: &std::path::Path) -> String {
+pub(crate) fn open_command(p: &std::path::Path) -> String {
     let cmds = synshell_common::mime::open_commands(p);
     if cmds.is_empty() {
         format!("xdg-open '{}'", p.to_string_lossy().replace('\'', "'\\''"))
@@ -295,37 +290,3 @@ fn open_command(p: &std::path::Path) -> String {
     }
 }
 
-fn desktop_icons() -> impl Widget {
-    let dir = desktop_dir();
-    let mut items: Vec<(String, Option<PathBuf>, String)> = Vec::new(); // (подпись, значок, команда)
-    if let Ok(rd) = std::fs::read_dir(&dir) {
-        let mut entries: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| !p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.'))).collect();
-        entries.sort();
-        for p in entries {
-            if p.extension().is_some_and(|e| e == "desktop") {
-                if let Some(e) = crate::xdg::parse_desktop_file(&p, String::new(), &[]) {
-                    let cmd = e.command();
-                    items.push((e.name.clone(), crate::xdg::lookup_icon(&e.icon), cmd));
-                    continue;
-                }
-            }
-            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            let icon = if p.is_dir() { "folder" } else if is_image(&p) { "image-x-generic" } else { "text-x-generic" };
-            items.push((name, crate::xdg::lookup_icon(icon), open_command(&p)));
-        }
-    }
-    let mut col = Flex::new().direction(FlexDirection::Column).wrap().gap(6.0);
-    for (name, icon, cmd) in items {
-        let mut c = Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center);
-        if let Some(p) = icon {
-            c = c.child(Image::new(p.to_string_lossy()).fit(ImageFit::Contain).placeholder(false).class("desk-icon"));
-        }
-        c = c.child(Text::new(name).max_lines(2).class("desk-label"));
-        col = col.child(InputArea::new(DecoratedBox::new().child(c).class("desk-item")).pointer().on_click(move |b, _, _| {
-            if b == MouseButton::Left {
-                crate::actions::spawn(&cmd);
-            }
-        }));
-    }
-    DecoratedBox::new().child(col).class("desk-icons")
-}

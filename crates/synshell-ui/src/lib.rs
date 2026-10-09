@@ -22,6 +22,7 @@ pub mod input_mode;
 pub mod commands;
 pub mod ctx;
 pub mod datetime;
+pub mod desk;
 pub mod devices;
 pub mod dock;
 pub mod edit;
@@ -307,6 +308,10 @@ pub fn reload_config() {
         // Меню запуска читает [launcher] при открытии и на лету (вид, размер, положение, закреплённые) —
         // настройка из самого меню не должна пересобирать оболочку и закрывать его.
         probe.launcher = old.launcher.clone();
+        // Виджеты рабочего стола перестраиваются сами по сигналу конфига — правка виджета (перетащили,
+        // сменили вид) не пересобирает поверхности и не закрывает окно настроек.
+        probe.widgets = old.widgets.clone();
+        probe.desktop = old.desktop.clone();
         probe == *old
     };
     if behavior_only {

@@ -504,7 +504,8 @@ impl State {
 
     /// Шаг отладочного сценария указателя (`SYNGUI_LAYER_SCRIPT`).
     fn script_step(&mut self, action: &str, namespace: &str, pos: Option<(f32, f32)>) {
-        let Some(s) = self.surfaces.values_mut().find(|s| s.spec.namespace == namespace) else {
+        // Поверхностей с одним именем может быть несколько (меню и открытое из него окно) — самая новая.
+        let Some(s) = self.surfaces.iter_mut().filter(|(_, s)| s.spec.namespace == namespace).max_by_key(|(id, _)| **id).map(|(_, s)| s) else {
             log::warn!("SYNGUI_LAYER_SCRIPT: нет поверхности {namespace}");
             return;
         };

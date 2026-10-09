@@ -2,7 +2,7 @@
 //! и дока) с сохранением комментариев и порядка — через `toml_edit`.
 //! «Параметры системы» ведут свою копию документа (`synsettings::store`).
 
-use crate::config::{Applet, Config, Panel};
+use crate::config::{Applet, Config, DeskWidget, Panel};
 use crate::paths;
 use toml_edit::{DocumentMut, InlineTable, Item, Table, Value};
 
@@ -172,6 +172,24 @@ pub fn push_panel(current: &[Panel], panel: &Panel) -> anyhow::Result<bool> {
     })
 }
 
+/// Записать виджеты рабочего стола целиком (`[[widget]]`; пустой список —
+/// `widget = []`, иначе вернулась бы встроенная раскладка).
+pub fn set_widgets(widgets: &[DeskWidget]) -> anyhow::Result<bool> {
+    edit(|doc| {
+        doc.remove("widget");
+        if widgets.is_empty() {
+            doc.insert("widget", Item::Value(Value::Array(toml_edit::Array::new())));
+        } else {
+            let mut aot = toml_edit::ArrayOfTables::new();
+            for w in widgets {
+                aot.push(to_table(w));
+            }
+            doc.insert("widget", Item::ArrayOfTables(aot));
+        }
+        true
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,5 +219,19 @@ mod tests {
         doc.insert("panel", Item::ArrayOfTables(aot));
         let cfg = Config::parse(&doc.to_string()).unwrap();
         assert_eq!(cfg.panels[0], p);
+    }
+
+    #[test]
+    fn widgets_roundtrip() {
+        let w = DeskWidget::new("cpu", 1, 2, 4, 3).with("view", "line").with("history", 120i64);
+        let mut doc = DocumentMut::new();
+        let mut aot = toml_edit::ArrayOfTables::new();
+        aot.push(to_table(&w));
+        doc.insert("widget", Item::ArrayOfTables(aot));
+        let cfg = Config::parse(&doc.to_string()).unwrap();
+        assert_eq!(cfg.widgets, Some(vec![w]));
+        let empty = Config::parse("widget = []").unwrap();
+        assert_eq!(empty.widgets, Some(vec![]));
+        assert_eq!(Config::parse("").unwrap().widgets, None);
     }
 }

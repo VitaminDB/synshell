@@ -7,7 +7,6 @@
 mod gamepad;
 mod home;
 mod keyboard;
-mod resources;
 
 use synshell_common::config::FormFactor;
 use synshell_ui::ShellCtx;

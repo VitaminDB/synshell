@@ -70,6 +70,9 @@ fn width_of(kind: &PopupKind, ctx: &ShellCtx) -> f32 {
         PopupKind::EditItem { .. } => 480.0,
         PopupKind::Link => 380.0,
         PopupKind::InputMode => 320.0,
+        PopupKind::DeskAdd(_) => 480.0,
+        PopupKind::DeskEdit(_) => 440.0,
+        PopupKind::DeskItem(_) | PopupKind::DeskFile(_) => 280.0,
         PopupKind::LinkPair(_) => 360.0,
         PopupKind::LocationAsk(_) | PopupKind::AccessAsk(_) => 400.0,
     }
@@ -414,6 +417,10 @@ fn content_inner(kind: &PopupKind, ctx: ShellCtx) -> Box<dyn Widget> {
         PopupKind::EditItem { panel, index } => crate::edit::edit_view(ctx, *panel, *index),
         PopupKind::DesktopMenu => Box::new(crate::edit::desktop_menu(ctx)),
         PopupKind::HomeAppMenu(app) => Box::new(crate::edit::home_app_menu(ctx, app)),
+        PopupKind::DeskAdd(page) => Box::new(crate::desk::forms::add_view(ctx, *page)),
+        PopupKind::DeskEdit(index) => crate::desk::forms::edit_view(ctx, *index),
+        PopupKind::DeskItem(index) => Box::new(crate::desk::forms::item_menu(ctx, *index)),
+        PopupKind::DeskFile(path) => Box::new(crate::desk::forms::file_menu(ctx, path)),
     }
 }
 

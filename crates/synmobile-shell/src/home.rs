@@ -2,11 +2,12 @@
 //! под окнами (слой Bottom, на CPU-композиторе без полноэкранного
 //! смешивания), в ней обои и страницы, листаемые пальцем:
 //!
-//! - первый стол — «Сводка» (`[mobile] resources_page`): часы, процессор,
-//!   память, питание, запущенные приложения;
-//! - остальные — сетка значков (`[mobile] home_apps` или все) при
-//!   `[wallpaper] desktop_icons` («Значки на рабочем столе»), иначе пусто:
-//!   приложения запускаются из «Пуска» и дока.
+//! - на каждом — виджеты и значки (`synshell_ui::desk`, `[[widget]]`):
+//!   по умолчанию первый стол — «Сводка» (`[mobile] resources_page`: часы,
+//!   процессор, память, графика, питание, сеть, запущенные приложения),
+//!   остальные — сетка значков (`[mobile] home_apps` или все) при
+//!   `[wallpaper] desktop_icons`; виджеты добавляются, двигаются и
+//!   настраиваются удержанием на рабочем столе.
 //!
 //! Страницы — рабочие столы (`[workspaces] count`): листание пальцем
 //! переключает стол в композиторе, смена стола извне листает страницы;
@@ -17,9 +18,7 @@
 //! Свайп вверх — меню запуска, вниз — шторка.
 
 use std::cell::Cell;
-use synshell_common::xdg;
-use synshell_ui::launchers::{self, Launchable};
-use synshell_ui::ui::{boxed, meter, mi, rx};
+use synshell_ui::ui::rx;
 use synshell_ui::ShellCtx;
 use syngui::prelude::*;
 use syngui::widgets::{Carousel, PanAxis, SwipeDirection};
@@ -79,7 +78,8 @@ pub fn install(ctx: ShellCtx) {
             Some(m) if m.mode == synshell_common::action::MobileMode::Pages => m.page.is_none(),
             _ => !wins.iter().any(|w| !w.minimized),
         };
-        crate::resources::set_visible(ctx.cfg().mobile.resources_page && p == 0 && home_shown);
+        let _ = ctx.config.get();
+        synshell_ui::desk::data::set_visible(home_shown && synshell_ui::desk::has_data(&ctx, p));
     });
     create_effect(move || {
         let outputs = syngui_layer::outputs().get();
@@ -124,7 +124,8 @@ fn view(ctx: ShellCtx, output: String) -> impl Widget {
     // нужны): на первом — сводка ресурсов, на остальных — значки или пусто.
     // Сигнал страницы карусель читает при пересборке — отсюда `rx`.
     let count = cfg.workspaces.count.max(1) as usize;
-    let (resources, icons, wrap) = (cfg.mobile.resources_page, cfg.wallpaper.desktop_icons, cfg.workspaces.wrap);
+    let wrap = cfg.workspaces.wrap;
+    let out = output.clone();
     let pages = rx(move || {
         let _ = page.get();
         // перелистывание — по группе «Домашний экран» ([animations] home; «Анимации» и «Меньше движения» — через неё)
@@ -136,14 +137,7 @@ fn view(ctx: ShellCtx, output: String) -> impl Widget {
             .show_arrows(false)
             .show_indicators(false);
         for i in 0..count {
-            let p: Box<dyn Widget> = if i == 0 && resources {
-                Box::new(crate::resources::page(ctx))
-            } else if icons {
-                Box::new(apps_page_view(ctx))
-            } else {
-                Box::new(DecoratedBox::new())
-            };
-            pages = pages.child(p);
+            pages = pages.child(synshell_ui::desk::page_view(ctx, i, out.clone()));
         }
         Box::new(
             pages
@@ -220,99 +214,4 @@ fn workspace_dots(ctx: ShellCtx) -> impl Widget {
         }
         Box::new(DecoratedBox::new().child(row).class("home-ws"))
     })
-}
-
-// ─── Сводка ──────────────────────────────────────────────────────────────────
-
-fn summary_page(ctx: ShellCtx) -> impl Widget {
-    let clock = rx(move || {
-        let now = ctx.now.get();
-        Box::new(
-            Column::new()
-                .gap(2.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(Text::new(synshell_ui::clock::format(now, "%H:%M")).class("home-clock"))
-                .child(Text::new(synshell_ui::clock::format(now, "%A, %d %B")).class("home-date")),
-        )
-    });
-    let stats = rx(move || {
-        let cpu = ctx.cpu.get();
-        let mem = ctx.memory.get();
-        let bat = ctx.battery.get();
-        let mut col = Column::new().gap(14.0);
-        col = col.child(stat_row(mi::CPU, "Процессор", cpu.round() as u32));
-        col = col.child(stat_row(mi::MEMORY, "Память", mem.round() as u32));
-        if let Some(b) = bat {
-            let label = if b.charging { "Батарея · заряжается" } else { "Батарея" };
-            col = col.child(stat_row("\u{E1A4}", label, b.percent));
-        }
-        Box::new(boxed("home-card", col))
-    });
-    let clock = Row::new().main_axis_alignment(MainAxisAlignment::Center).child(clock);
-    ScrollView::new()
-        .vertical()
-        .child(Column::new().gap(28.0).child(clock).child(stats).class("home-page home-summary"))
-}
-
-fn stat_row(glyph: &str, label: &str, percent: u32) -> impl Widget {
-    Column::new()
-        .gap(6.0)
-        .child(
-            Row::new()
-                .gap(8.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(synshell_ui::ui::icon(glyph).class("home-stat-icon"))
-                .child(Text::new(label.to_string()).class("home-stat-label grow"))
-                .child(Text::new(format!("{percent}%")).class("home-stat-value")),
-        )
-        .child(meter(percent))
-}
-
-// ─── Приложения ──────────────────────────────────────────────────────────────
-
-fn apps_page_view(ctx: ShellCtx) -> impl Widget {
-    let cfg = ctx.cfg();
-    let entries: Vec<xdg::DesktopEntry> = if cfg.mobile.home_apps.is_empty() {
-        // Программы Linux; приложения Android — в меню, своим разделом (закреплённые вручную — остаются)
-        let mut v: Vec<_> = xdg::apps().iter().filter(|a| !a.no_display && a.android.is_none()).cloned().collect();
-        v.sort_by_key(|a| a.name.to_lowercase());
-        v
-    } else {
-        cfg.mobile.home_apps.iter().filter_map(|id| xdg::app_by_id(id)).collect()
-    };
-    let cols = cfg.mobile.home_columns.clamp(2, 8) as usize;
-    let mut grid = Grid::new(cols).gap(4.0);
-    for e in &entries {
-        grid = grid.child(app_tile(ctx, e));
-    }
-    ScrollView::new().vertical().child(Column::new().child(grid).class("home-page home-apps"))
-}
-
-fn app_tile(ctx: ShellCtx, e: &xdg::DesktopEntry) -> impl Widget {
-    let l = Launchable::from_entry(e);
-    let key = l.key();
-    let launch = l.clone();
-    let id = e.id.clone();
-    let icon = launchers::icon_widget(&l.icon, &None, "home-app-icon", 56.0);
-    let tile = rx(move || {
-        let launching = launchers::is_launching(&ctx, &key);
-        let class = if launching { "home-app home-app-launching" } else { "home-app" };
-        Box::new(DecoratedBox::new().class(class))
-    });
-    GestureDetector::new()
-        .on_click(move || launchers::launch(ShellCtx::get(), &launch))
-        .on_long_press(move |_| {
-            let ctx = ShellCtx::get();
-            synshell_ui::edit::open_at_press(&ctx, synshell_ui::ctx::PopupKind::HomeAppMenu(id.clone()));
-        })
-        .child(
-            Stack::new().child(tile).child(
-                Column::new()
-                    .gap(6.0)
-                    .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(icon)
-                    .child(Text::new(e.name.clone()).max_lines(2).class("home-app-name"))
-                    .class("home-app-body"),
-            ),
-        )
 }

@@ -58,6 +58,14 @@ pub enum PopupKind {
     AccessAsk(u64),
     /// Экранный ввод приложения в фокусе: клавиатура, контроллер, ничего (плитка «Ввод»).
     InputMode,
+    /// Добавить виджет или значок на рабочий стол (стол с 1, 0 — на все).
+    DeskAdd(u32),
+    /// Настройки виджета рабочего стола (номер в `[[widget]]`).
+    DeskEdit(usize),
+    /// Меню виджета рабочего стола.
+    DeskItem(usize),
+    /// Меню файла `~/Desktop` без своего места (путь).
+    DeskFile(String),
 }
 
 impl PopupKind {
@@ -75,11 +83,13 @@ impl PopupKind {
                 | PopupKind::PanelMenu(_)
                 | PopupKind::WindowMenu(_)
                 | PopupKind::TrayMenu(_)
+                | PopupKind::DeskItem(_)
+                | PopupKind::DeskFile(_)
         )
     }
 
     pub fn survives_reload(&self) -> bool {
-        matches!(self, PopupKind::AddItem(_) | PopupKind::Launcher)
+        matches!(self, PopupKind::AddItem(_) | PopupKind::Launcher | PopupKind::DeskAdd(_) | PopupKind::DeskEdit(_))
     }
 }
 

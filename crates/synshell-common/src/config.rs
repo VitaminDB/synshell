@@ -35,6 +35,14 @@ pub struct Config {
     /// дополняют встроенные; `"none"` снимает встроенное.
     pub keybindings: BTreeMap<String, Action>,
     pub wallpaper: Wallpaper,
+    /// Сетка виджетов и значков рабочего стола (`[desktop]`).
+    pub desktop: Desktop,
+    /// Виджеты и значки рабочего стола и домашнего экрана (`[[widget]]`).
+    /// `None` — раскладка не задана, действует встроенная (на телефоне —
+    /// «Сводка» на первом столе и значки приложений на остальных); пустой
+    /// список (`widget = []`) — пустой стол.
+    #[serde(rename = "widget", skip_serializing_if = "Option::is_none")]
+    pub widgets: Option<Vec<DeskWidget>>,
     #[serde(rename = "panel")]
     pub panels: Vec<Panel>,
     pub launcher: Launcher,
@@ -77,6 +85,8 @@ impl Default for Config {
             rules: Vec::new(),
             keybindings: BTreeMap::new(),
             wallpaper: Wallpaper::default(),
+            desktop: Desktop::default(),
+            widgets: None,
             panels: vec![Panel::default()],
             launcher: Launcher::default(),
             files: Files::default(),
@@ -1426,6 +1436,109 @@ impl Applet {
             .get(key)
             .and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)))
             .unwrap_or(default)
+    }
+
+    pub fn strings(&self, key: &str) -> Vec<String> {
+        self.options
+            .get(key)
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default()
+    }
+}
+
+// ─── desktop: виджеты и значки ──────────────────────────────────────────────
+
+/// Сетка рабочего стола (`[desktop]`): виджеты и значки встают в клетки.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Desktop {
+    /// Клетка сетки на компьютере, логические px (значок — одна клетка).
+    pub cell: u32,
+    /// Высота строки на телефоне, логические px (колонок — `[mobile]
+    /// home_columns`); 0 — квадратные клетки.
+    pub phone_row: u32,
+}
+
+impl Default for Desktop {
+    fn default() -> Self {
+        Self { cell: 96, phone_row: 100 }
+    }
+}
+
+/// Виджет или значок рабочего стола (`[[widget]]`): `type` — что это
+/// (`clock`, `cpu`, `memory`, `gpu`, `battery`, `network`, `temps`, `apps` —
+/// запущенные приложения, `launcher` — сетка значков приложений, `note`,
+/// `app` — значок приложения, `file` — файла или папки), место в клетках
+/// сетки (`x`, `y` с 0, `w`, `h`; 0 в `w`/`h` — до края), стол (`page` с 1,
+/// 0 — на всех) и свои параметры: `view` (вид: `card`, `ring`, `gauge`,
+/// `line`, `bars`, `pie`, `radar`, `text`…), `card` (подложка), `title`
+/// (заголовок), `color`, `history` (секунд на графике), `app`, `path`,
+/// `text`, `seconds`…
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DeskWidget {
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(default)]
+    pub page: u32,
+    #[serde(default)]
+    pub x: u32,
+    #[serde(default)]
+    pub y: u32,
+    #[serde(default = "one")]
+    pub w: u32,
+    #[serde(default = "one")]
+    pub h: u32,
+    /// `phone`, `desktop`; пусто — везде.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub form_factor: String,
+    /// Монитор (компьютер); пусто — основной.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub output: String,
+    #[serde(flatten)]
+    pub options: BTreeMap<String, toml::Value>,
+}
+
+fn one() -> u32 {
+    1
+}
+
+impl DeskWidget {
+    pub fn new(kind: &str, x: u32, y: u32, w: u32, h: u32) -> Self {
+        Self { kind: kind.into(), page: 0, x, y, w, h, form_factor: String::new(), output: String::new(), options: BTreeMap::new() }
+    }
+
+    pub fn shows_on(&self, ff: FormFactor) -> bool {
+        match self.form_factor.trim() {
+            "phone" | "mobile" => ff == FormFactor::Phone,
+            "desktop" => ff == FormFactor::Desktop,
+            _ => true,
+        }
+    }
+
+    pub fn with(mut self, key: &str, v: impl Into<toml::Value>) -> Self {
+        self.options.insert(key.into(), v.into());
+        self
+    }
+
+    pub fn set(&mut self, key: &str, v: impl Into<toml::Value>) {
+        self.options.insert(key.into(), v.into());
+    }
+
+    pub fn str(&self, key: &str) -> Option<&str> {
+        self.options.get(key).and_then(|v| v.as_str())
+    }
+
+    pub fn str_or<'a>(&'a self, key: &str, default: &'a str) -> &'a str {
+        self.str(key).filter(|s| !s.is_empty()).unwrap_or(default)
+    }
+
+    pub fn bool_or(&self, key: &str, default: bool) -> bool {
+        self.options.get(key).and_then(|v| v.as_bool()).unwrap_or(default)
+    }
+
+    pub fn int_or(&self, key: &str, default: i64) -> i64 {
+        self.options.get(key).and_then(|v| v.as_integer()).unwrap_or(default)
     }
 
     pub fn strings(&self, key: &str) -> Vec<String> {

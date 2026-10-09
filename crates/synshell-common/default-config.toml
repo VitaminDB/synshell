@@ -233,6 +233,21 @@ panorama_shift = 0.5           # панорама: сдвиг на один ст
 [wallpaper.per_output]
 # "HDMI-A-1" = "~/Pictures/other.jpg"
 
+# Сетка виджетов и значков рабочего стола. Сами виджеты — [[widget]]; их
+# добавляют и настраивают удержанием (правым щелчком) на рабочем столе.
+[desktop]
+cell = 96                      # клетка на компьютере, px
+phone_row = 100                # высота строки на телефоне, px (колонок — [mobile] home_columns)
+# [[widget]]
+# type = "cpu"                 # clock | cpu | memory | gpu | battery | network | temps | apps |
+#                              # launcher | note | app | file
+# page = 1                     # стол (с 1), 0 — на всех
+# x = 0                        # клетка слева сверху (с 0)
+# y = 0
+# w = 4                        # ширина и высота в клетках (0 — до края)
+# h = 3
+# view = "line"                # вид: card | ring | gauge | line | bars | pie | radar | text …
+
 # Панели. Их может быть сколько угодно, на любом крае и мониторе.
 # form_factor: desktop (по умолчанию) | phone | any — на телефоне панелей по
 # умолчанию нет, их добавляют удержанием на рабочем столе.
