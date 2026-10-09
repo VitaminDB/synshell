@@ -509,6 +509,9 @@ pub fn queue_toast(st: St, name: &str, r: Merged) {
 /// Метки пакета: источник, «установлен», задача очереди, «устарел», голоса.
 pub fn pkg_chips(mut row: Row, p: &Pkg, q: Option<QAct>) -> Row {
     row = row.child(source_chip(p));
+    if p.meta {
+        row = row.child(chip("метапакет", "chip-repo"));
+    }
     if p.installed.is_some() {
         row = row.child(chip("установлен", "chip-ok"));
     }
@@ -799,6 +802,9 @@ pub fn category_label(a: &CatalogApp) -> String {
 
 /// Каталог: витрина и плитки категорий или программы открытой категории.
 pub fn catalog_view(st: St) -> W {
+    if st.category.get() == Some(META_KEY) {
+        return meta_view(st);
+    }
     let Some(apps) = st.catalog.get() else {
         return busy_row("Загрузка каталога…");
     };
@@ -810,6 +816,9 @@ pub fn catalog_view(st: St) -> W {
         let has_pkg = st.installed.get().iter().any(|p| p.name == "archlinux-appstream-data");
         if !has_pkg {
             col = col.child(Row::new().child(Button::new("Установить каталог").class("primary").on_click(move || run_op(st, "Установка каталога программ".into(), Op::Install(vec!["archlinux-appstream-data".into()])))));
+        }
+        if !is_desk() {
+            col = col.child(meta_tile(st));
         }
         return Box::new(col.class("empty"));
     }
@@ -850,6 +859,7 @@ pub fn catalog_view(st: St) -> W {
                     .class("cat-tile"),
             ));
         }
+        grid = grid.child(meta_tile(st));
         return Box::new(col.child(Text::new("Категории").class("h2")).child(grid).child(Text::new(format!("В каталоге {}. Поиск находит и пакеты вне каталога, и AUR.", programs(apps.len()))).class("muted")));
     };
     let mut v: Vec<CatalogApp> = apps.into_iter().filter(|a| cat.contains(a)).collect();
@@ -869,6 +879,179 @@ pub fn catalog_view(st: St) -> W {
         .child(select_all_row(st, &pkgs, "Программ", true))
         .child(pkg_list(st, v.into_iter().map(|a| (a.pkg, Some(a.title))).collect()));
     Box::new(col)
+}
+
+/// Значок раздела «Метапакеты и группы».
+pub const META_ICON: &str = "\u{E53B}";
+
+/// Плитка раздела «Метапакеты и группы» среди категорий (телефон).
+pub fn meta_tile(st: St) -> W {
+    let n = st.metas.get().map(|m| m.len()).unwrap_or(0) + st.groups.get().len();
+    Box::new(GestureDetector::new().on_click(move || st.category.set(Some(META_KEY))).child(
+        DecoratedBox::new()
+            .child(
+                Row::new()
+                    .gap(12.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(DecoratedBox::new().child(Icon::new(META_ICON).class("cat-icon")).class("cat-icon-box"))
+                    .child(Column::new().gap(2.0).child(Text::new("Метапакеты и группы").max_lines(1).class("cat-label")).child(Text::new(if n > 0 { format!("наборов: {n}") } else { String::new() }).class("pkg-ver")).class("grow")),
+            )
+            .class("cat-tile"),
+    ))
+}
+
+/// «Метапакеты и группы»: метапакеты репозиториев (карточки / строки, как
+/// любые пакеты) и группы pacman — строками: поставить недостающие пакеты
+/// группы или удалить установленные, через очередь.
+pub fn meta_view(st: St) -> W {
+    let desk = is_desk();
+    let mut head = Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center);
+    if !desk {
+        head = head.child(GestureDetector::new().on_click(move || st.category.set(None)).child(DecoratedBox::new().child(Icon::new("\u{E5C4}").class("back-icon")).class("back")));
+    }
+    head = head.child(DecoratedBox::new().child(Icon::new(META_ICON).class("cat-icon")).class("cat-icon-box")).child(
+        Column::new()
+            .gap(2.0)
+            .child(Text::new("Метапакеты и группы").max_lines(1).class(if desk { "h1" } else { "h2" }))
+            .child(Text::new("Наборы пакетов одним действием: окружения рабочего стола, инструменты, драйверы").class("muted"))
+            .class("grow"),
+    );
+    let mut col = Column::new().gap(if desk { 14.0 } else { 10.0 }).child(head);
+    let Some(metas) = st.metas.get() else {
+        return Box::new(col.child(busy_row("Чтение метапакетов…")).class(if desk { "page" } else { "" }));
+    };
+    let show_groups = st.show_groups.get();
+    let mut groups = st.groups.get();
+    let mut chips = Row::new().gap(8.0);
+    for (val, label) in [(false, format!("Метапакеты · {}", metas.len())), (true, format!("Группы · {}", groups.len()))] {
+        chips = chips.child(GestureDetector::new().on_click(move || st.show_groups.set(val)).child(DecoratedBox::new().child(Text::new(label).class("fchip-text")).class(if show_groups == val { "fchip fchip-on" } else { "fchip" })));
+    }
+    col = col.child(chips);
+    let all = st.installed.get();
+    let inst: HashMap<String, String> = all.iter().map(|p| (p.name.clone(), p.version.clone())).collect();
+    if !show_groups {
+        let mut metas: Vec<Pkg> = metas
+            .into_iter()
+            .map(|mut p| {
+                if !all.is_empty() {
+                    p.installed = inst.get(&p.name).cloned();
+                }
+                p
+            })
+            .collect();
+        // Наборы core и «*-meta» (окружения, SDK) — первыми: остальное в основном
+        // пакеты-обёртки над разделёнными сборками (плагины).
+        metas.sort_by_cached_key(|p| (p.source != Source::Repo("core".into()), !p.name.ends_with("-meta"), p.name.clone()));
+        col = col.child(Text::new("Пакет без своих файлов, который ставит набор других как зависимости. Удаление метапакета убирает и его зависимости, если они больше никому не нужны.").class("desc"));
+        if metas.is_empty() {
+            col = col.child(Text::new("В репозиториях метапакетов нет").class("muted"));
+        } else {
+            col = col.child(select_all_row(st, &metas, "Метапакетов", true)).child(pkg_list(st, pkgs(metas)));
+        }
+        return Box::new(col.class(if desk { "page" } else { "" }));
+    }
+    // Известные (окружения рабочего стола и т. п.) — первыми, в порядке списка.
+    groups.sort_by_key(|g| GROUP_INFO.iter().position(|(n, _)| *n == g.name).unwrap_or(usize::MAX));
+    col = col.child(Text::new("Общее имя набора пакетов: можно поставить все недостающие или удалить установленные. Нажмите на группу — откроется её состав.").class("desc"));
+    if groups.is_empty() {
+        col = col.child(Text::new("В репозиториях групп нет").class("muted"));
+    }
+    let inst = std::sync::Arc::new(inst);
+    let mut list = Column::new().gap(4.0);
+    for g in groups {
+        list = list.child(group_row(st, g, inst.clone()));
+    }
+    Box::new(col.child(list).class(if desk { "page" } else { "" }))
+}
+
+/// Строка группы: название, сколько установлено, кнопки очереди; щелчок —
+/// состав (пакеты метками, установленные — зелёные; щелчок по метке — пакет).
+fn group_row(st: St, g: pk::Group, inst: std::sync::Arc<HashMap<String, String>>) -> W {
+    Box::new(Reactive::new(move || -> Vec<W> {
+        let q = st.queue.get();
+        let open = st.group_open.get().as_deref() == Some(g.name.as_str());
+        let (have, missing): (Vec<String>, Vec<String>) = g.members.iter().cloned().partition(|m| inst.contains_key(m));
+        let queued: Vec<String> = g.members.iter().filter(|m| q.iter().any(|x| &x.name == *m)).cloned().collect();
+        let info = GROUP_INFO.iter().find(|(n, _)| *n == g.name).map(|(_, d)| *d);
+        let mut sub = format!("{} · установлено {}", packages_word(g.members.len()), have.len());
+        if !queued.is_empty() {
+            sub.push_str(&format!(" · в очереди {}", queued.len()));
+        }
+        let mut text = Column::new().gap(3.0).child(Text::new(info.unwrap_or(&g.name).to_string()).max_lines(1).class("pkg-name"));
+        if info.is_some() {
+            text = text.child(Text::new(g.name.clone()).max_lines(1).class("pkg-ver"));
+        }
+        text = text.child(Text::new(sub).max_lines(1).class("pkg-desc"));
+        let mut buttons = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        let name = g.name.clone();
+        if !queued.is_empty() {
+            buttons = buttons.child(Button::new("Снять").class("small").on_click(move || {
+                let mut q = st.queue.get_untracked();
+                q.retain(|x| !queued.contains(&x.name));
+                st.queue.set(q);
+            }));
+        } else {
+            if !missing.is_empty() {
+                let label = if have.is_empty() { "Установить".to_string() } else { format!("Доустановить {}", missing.len()) };
+                let (n, m) = (name.clone(), missing.clone());
+                buttons = buttons.child(Button::new(label).class("small primary").on_click(move || {
+                    set_queued(st, m.iter().map(|x| QItem::new(x.clone(), QAct::Install)));
+                    st.toast.set(format!("{n}: {} — в очереди, «Применить» внизу", packages_word(m.len())));
+                }));
+            }
+            if !have.is_empty() {
+                let (n, h) = (name.clone(), have.clone());
+                buttons = buttons.child(Button::new("Удалить").class("small").on_click(move || {
+                    set_queued(st, h.iter().map(|x| QItem::new(x.clone(), QAct::Remove)));
+                    st.toast.set(format!("{n}: удаление {} — в очереди, «Применить» внизу", packages_word(h.len())));
+                }));
+            }
+        }
+        // Телефон: кнопки под текстом — в ряд с ним название не помещается.
+        let desk = is_desk();
+        let mut row = Row::new()
+            .gap(12.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(DecoratedBox::new().child(Icon::new(META_ICON).class("pkg-glyph")).class("pkg-glyph-box"))
+            .child(text.class("grow"));
+        let mut below = None;
+        if desk {
+            row = row.child(buttons);
+        } else {
+            below = Some(buttons);
+        }
+        row = row.child(Icon::new(if open { "\u{E5CE}" } else { "\u{E5CF}" }).class("more-icon"));
+        let n2 = name.clone();
+        let mut body = Column::new().gap(10.0).child(GestureDetector::new().on_click(move || st.group_open.set(if open { None } else { Some(n2.clone()) })).child(row));
+        if let Some(b) = below {
+            body = body.child(Row::new().main_axis_alignment(MainAxisAlignment::End).child(b));
+        }
+        if open {
+            let mut chips = Flex::new().wrap().gap(6.0);
+            for m in &g.members {
+                let p = Pkg { name: m.clone(), version: inst.get(m).cloned().unwrap_or_default(), description: String::new(), source: Source::Repo(String::new()), installed: inst.get(m).cloned(), votes: None, popularity: None, out_of_date: false, meta: false };
+                let class = match q.iter().find(|x| &x.name == m).map(|x| x.act) {
+                    Some(a) => a.chip().1,
+                    None if p.installed.is_some() => "chip-ok",
+                    None => "chip-dep",
+                };
+                chips = chips.child(GestureDetector::new().on_click(move || select(st, p.clone())).child(chip(m.clone(), class)));
+            }
+            body = body.child(chips);
+        }
+        let class = match (queued_act(&q, &g.members), open) {
+            (Some(QAct::Remove), _) => "pkg-row pkg-row-rm",
+            (Some(_), _) => "pkg-row pkg-row-q",
+            (None, true) => "pkg-row pkg-row-on",
+            _ => "pkg-row",
+        };
+        vec![Box::new(DecoratedBox::new().child(body).class(class))]
+    }))
+}
+
+/// Задача очереди у пакетов группы (первая найденная).
+fn queued_act(q: &[QItem], members: &[String]) -> Option<QAct> {
+    q.iter().find(|x| members.contains(&x.name)).map(|x| x.act)
 }
 
 pub fn aur_view(st: St) -> W {
@@ -935,7 +1118,7 @@ pub fn installed_view(st: St) -> W {
     let chips = Reactive::new(move || -> Vec<W> {
         let cur = st.inst_filter.get();
         let mut row = Row::new().gap(8.0);
-        for (f, label) in [(InstFilter::All, "Все пакеты"), (InstFilter::Apps, "Программы"), (InstFilter::Foreign, "Не из репозиториев")] {
+        for (f, label) in [(InstFilter::All, "Все пакеты"), (InstFilter::Apps, "Программы"), (InstFilter::Foreign, "Не из репозиториев"), (InstFilter::Meta, "Метапакеты")] {
             row = row.child(GestureDetector::new().on_click(move || st.inst_filter.set(f)).child(DecoratedBox::new().child(Text::new(label).class("fchip-text")).class(if cur == f { "fchip fchip-on" } else { "fchip" })));
         }
         vec![Box::new(row)]
@@ -955,6 +1138,7 @@ pub fn installed_view(st: St) -> W {
                 InstFilter::All => true,
                 InstFilter::Apps => app_meta(&p.name).is_some() || synshell_common::xdg::app_by_id(&p.name).is_some(),
                 InstFilter::Foreign => p.source == Source::Local,
+                InstFilter::Meta => p.meta,
             })
             .collect();
         let n = v.len();
@@ -988,7 +1172,7 @@ pub fn update_card(st: St, u: Update, description: String, cards: bool) -> W {
                 }
             })
             .child(check_icon(on));
-        let pkg = Pkg { name: u.name.clone(), version: u.new.clone(), description: description.clone(), source: u.source.clone(), installed: Some(u.old.clone()), votes: None, popularity: None, out_of_date: false };
+        let pkg = Pkg { name: u.name.clone(), version: u.new.clone(), description: description.clone(), source: u.source.clone(), installed: Some(u.old.clone()), votes: None, popularity: None, out_of_date: false, meta: false };
         let mut meta = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(source_chip(&pkg));
         if ignored {
             meta = meta.child(chip("не обновляется", "chip-warn"));

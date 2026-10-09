@@ -178,6 +178,12 @@ fn sidebar(st: St) -> W {
                 }));
             }
         }
+        col = col.child(Text::new("Наборы").class("nav-section")).child(nav_item(META_ICON, "Метапакеты и группы".into(), None, explore && cat == Some(META_KEY), move || {
+            st.selected.set(None);
+            st.tab.set(Tab::Explore);
+            st.category.set(Some(META_KEY));
+            clear_search(st);
+        }));
         vec![Box::new(col)]
     });
     let bottom = Reactive::new(move || -> Vec<W> {

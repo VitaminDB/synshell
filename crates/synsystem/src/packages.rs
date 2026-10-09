@@ -48,6 +48,8 @@ pub struct Pkg {
     pub votes: Option<u32>,
     pub popularity: Option<f64>,
     pub out_of_date: bool,
+    /// Метапакет: своих файлов нет, только зависимости ([`is_meta`]).
+    pub meta: bool,
 }
 
 /// Подробности о пакете.
@@ -129,6 +131,7 @@ pub fn parse_ss(text: &str, installed: &HashMap<String, String>) -> Vec<Pkg> {
             votes: None,
             popularity: None,
             out_of_date: false,
+            meta: false,
         });
     }
     out
@@ -144,6 +147,7 @@ fn aur_pkg(v: &serde_json::Value, installed: &HashMap<String, String>) -> Option
         votes: v.get("NumVotes").and_then(|x| x.as_u64()).map(|x| x as u32),
         popularity: v.get("Popularity").and_then(|x| x.as_f64()),
         out_of_date: v.get("OutOfDate").is_some_and(|x| !x.is_null()),
+        meta: false,
         name,
     })
 }
@@ -227,11 +231,93 @@ pub fn installed() -> Vec<Pkg> {
             votes: None,
             popularity: None,
             out_of_date: false,
+            meta: is_meta(&name, &get("Installed Size"), &get("Depends On")),
             version,
             name,
         });
     }
     out
+}
+
+/// Размер из `pacman -Qi/-Si` («27.26 KiB») в КиБ.
+fn size_kib(s: &str) -> Option<f64> {
+    let (n, unit) = s.trim().split_once(' ')?;
+    let n: f64 = n.parse().ok()?;
+    Some(match unit {
+        "B" => n / 1024.0,
+        "KiB" => n,
+        "MiB" => n * 1024.0,
+        "GiB" => n * 1024.0 * 1024.0,
+        _ => return None,
+    })
+}
+
+/// Метапакет: зависимости есть, своих файлов нет (0 байт); `*-meta` с парой
+/// КиБ лицензий и документации — тоже. `size` и `depends` — поля `pacman -Qi/-Si`.
+pub fn is_meta(name: &str, size: &str, depends: &str) -> bool {
+    if depends.trim().is_empty() || depends.trim() == "None" {
+        return false;
+    }
+    match size_kib(size) {
+        Some(k) => k == 0.0 || (name.ends_with("-meta") && k < 64.0),
+        None => false,
+    }
+}
+
+/// Метапакеты синхронизированных баз (`pacman -Si`, один вызов): по имени,
+/// пакет в нескольких репозиториях — по первому.
+pub fn metapackages() -> Vec<Pkg> {
+    let installed = installed_map();
+    let text = pacman(&["-Si"]).unwrap_or_default();
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for block in text.split("\n\n") {
+        let f = parse_fields(block);
+        let get = |k: &str| f.iter().find(|(a, _)| a == k).map(|(_, v)| v.clone()).unwrap_or_default();
+        let name = get("Name");
+        if name.is_empty() || !is_meta(&name, &get("Installed Size"), &get("Depends On")) || !seen.insert(name.clone()) {
+            continue;
+        }
+        out.push(Pkg {
+            installed: installed.get(&name).cloned(),
+            version: get("Version"),
+            description: get("Description"),
+            source: Source::Repo(get("Repository")),
+            votes: None,
+            popularity: None,
+            out_of_date: false,
+            meta: true,
+            name,
+        });
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
+/// Группа пакетов pacman (`gnome`, `xfce4`…): общее имя набора пакетов.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Group {
+    pub name: String,
+    pub members: Vec<String>,
+}
+
+/// Группы синхронизированных баз (`pacman -Sgg`) по имени.
+pub fn groups() -> Vec<Group> {
+    parse_groups(&pacman(&["-Sgg"]).unwrap_or_default())
+}
+
+/// Разбор `pacman -Sgg`: строки «группа пакет».
+pub fn parse_groups(text: &str) -> Vec<Group> {
+    let mut map: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    for l in text.lines() {
+        if let Some((g, p)) = l.trim().split_once(' ') {
+            let v = map.entry(g.to_string()).or_default();
+            if !v.iter().any(|x| x == p.trim()) {
+                v.push(p.trim().to_string());
+            }
+        }
+    }
+    map.into_iter().map(|(name, members)| Group { name, members }).collect()
 }
 
 /// «Ключ : значение» с продолжениями строк.
@@ -403,6 +489,7 @@ pub fn catalog() -> Vec<CatalogApp> {
                     votes: None,
                     popularity: None,
                     out_of_date: false,
+                    meta: false,
                     name: c.pkgname,
                 },
                 title: c.name,
@@ -1202,5 +1289,17 @@ mod tests {
         assert_eq!(list_field(&f[1].1), ["a", "b>=2"]);
         assert_eq!(f[2].1, "x: X\ny: Y");
         assert_eq!(urlencode("a b+c"), "a%20b%2Bc");
+    }
+
+    #[test]
+    fn metas_and_groups() {
+        assert!(is_meta("base", "0.00 KiB", "filesystem  glibc"));
+        assert!(is_meta("multilib-devel", "0.00 B", "gcc-multilib"));
+        assert!(is_meta("kde-development-environment-meta", "27.26 KiB", "kdevelop"));
+        assert!(!is_meta("haskell-src-meta", "576.09 KiB", "ghc-libs"));
+        assert!(!is_meta("empty", "0.00 B", "None"));
+        assert!(!is_meta("lib", "12.00 MiB", "glibc"));
+        let g = parse_groups("gnome gdm\ngnome nautilus\nxfce4 thunar\ngnome gdm\n");
+        assert_eq!(g, vec![Group { name: "gnome".into(), members: vec!["gdm".into(), "nautilus".into()] }, Group { name: "xfce4".into(), members: vec!["thunar".into()] }]);
     }
 }

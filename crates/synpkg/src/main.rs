@@ -123,6 +123,45 @@ impl Category {
     }
 }
 
+/// Раздел каталога «Метапакеты и группы» (ключ вместо категории в [`St::category`]).
+pub const META_KEY: &str = "@meta";
+
+/// Описания известных групп pacman.
+pub const GROUP_INFO: &[(&str, &str)] = &[
+    ("gnome", "Рабочая среда GNOME"),
+    ("gnome-extra", "Дополнительные программы GNOME"),
+    ("gnome-circle", "Программы сообщества GNOME Circle"),
+    ("plasma", "Рабочая среда KDE Plasma"),
+    ("kde-applications", "Все программы KDE"),
+    ("xfce4", "Рабочая среда Xfce"),
+    ("xfce4-goodies", "Дополнения и модули Xfce"),
+    ("lxqt", "Лёгкая рабочая среда LXQt"),
+    ("lxde", "Лёгкая рабочая среда LXDE"),
+    ("mate", "Рабочая среда MATE"),
+    ("mate-extra", "Дополнительные программы MATE"),
+    ("budgie", "Рабочая среда Budgie"),
+    ("cosmic", "Рабочая среда COSMIC"),
+    ("deepin", "Рабочая среда Deepin"),
+    ("deepin-extra", "Дополнительные программы Deepin"),
+    ("pantheon", "Рабочая среда Pantheon (elementary OS)"),
+    ("ukui", "Рабочая среда UKUI"),
+    ("i3", "Мозаичный оконный менеджер i3"),
+    ("xorg", "Графический сервер X.Org целиком"),
+    ("xorg-apps", "Утилиты X.Org"),
+    ("xorg-drivers", "Драйверы X.Org"),
+    ("xorg-fonts", "Шрифты X.Org"),
+    ("pro-audio", "Профессиональная работа со звуком"),
+    ("texlive", "Вёрстка TeX Live"),
+    ("texlive-lang", "Языки TeX Live"),
+    ("nerd-fonts", "Шрифты Nerd Fonts со значками"),
+    ("vulkan-devel", "Разработка под Vulkan"),
+    ("qt6", "Библиотеки Qt 6"),
+    ("qt5", "Библиотеки Qt 5"),
+    ("kf6", "KDE Frameworks 6"),
+    ("libretro", "Эмуляторы libretro"),
+    ("mingw-w64", "Кросс-компиляция под Windows"),
+];
+
 /// Известные программы для витрины «Обзора» (показываются те, что есть в каталоге).
 pub const FEATURED: &[&str] = &[
     "firefox", "thunderbird", "libreoffice-fresh", "gimp", "inkscape", "krita", "blender", "obs-studio", "kdenlive", "vlc", "mpv",
@@ -165,6 +204,7 @@ pub enum InstFilter {
     All,
     Apps,
     Foreign,
+    Meta,
 }
 
 #[derive(Clone, Copy)]
@@ -214,6 +254,14 @@ pub struct St {
     pub files_open: RwSignal<bool>,
     /// Списки пакетов карточками (иначе строками) — `packages.view`.
     pub cards: RwSignal<bool>,
+    /// Метапакеты репозиториев (`None` — ещё загружаются).
+    pub metas: RwSignal<Option<Vec<Pkg>>>,
+    /// Группы пакетов pacman.
+    pub groups: RwSignal<Vec<pk::Group>>,
+    /// Группа, чей состав развёрнут.
+    pub group_open: RwSignal<Option<String>>,
+    /// «Метапакеты и группы»: показаны группы (иначе метапакеты).
+    pub show_groups: RwSignal<bool>,
 }
 
 static SEARCH_GEN: AtomicU64 = AtomicU64::new(0);
@@ -300,6 +348,10 @@ pub fn new_state(cfg: Config, query: String, window: RwSignal<syngui::window::Wi
         search_rev: use_signal(0),
         files_open: use_signal(false),
         cards: use_signal(cards),
+        metas: use_signal(None),
+        groups: use_signal(Vec::new()),
+        group_open: use_signal(None),
+        show_groups: use_signal(false),
     }
 }
 
@@ -335,6 +387,7 @@ fn main() {
             }
             load_installed(st);
             load_catalog(st);
+            load_metas(st);
             ui::root(st)
         });
 }
@@ -383,6 +436,7 @@ pub fn search(st: St, q: String) {
         let r = pk::search(&q, aur);
         run_on_main_thread(move || {
             if SEARCH_GEN.load(Ordering::SeqCst) == gen {
+                let r = mark_metas(st, r);
                 st.results.set(r);
                 st.searching.set(false);
             }
@@ -418,6 +472,27 @@ pub fn load_installed(st: St) {
         let v = pk::installed();
         run_on_main_thread(move || st.installed.set(v));
     });
+}
+
+/// Метапакеты и группы репозиториев.
+pub fn load_metas(st: St) {
+    std::thread::spawn(move || {
+        let (m, g) = (pk::metapackages(), pk::groups());
+        run_on_main_thread(move || {
+            st.metas.set(Some(m));
+            st.groups.set(g);
+        });
+    });
+}
+
+/// Пометка «метапакет» у найденных (`pacman -Ss` размеров не знает).
+pub fn mark_metas(st: St, mut v: Vec<Pkg>) -> Vec<Pkg> {
+    if let Some(m) = st.metas.get_untracked() {
+        for p in &mut v {
+            p.meta = p.meta || m.iter().any(|x| x.name == p.name && p.source != Source::Aur);
+        }
+    }
+    v
 }
 
 fn load_catalog(st: St) {

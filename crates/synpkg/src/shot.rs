@@ -1,9 +1,11 @@
 //! Снимок интерфейса без окна (`synpkg --screenshot out.png [--tab updates]
-//! [--size 1240x820] [--scale 1] [--view cards|list] [--queue имя:действие,…]`): данные читаются
+//! [--meta] [--groups открытая-группа] [--size 1240x820] [--scale 1] [--view cards|list] [--queue имя:действие,…]`): данные читаются
 //! сразу (установленные, каталог, обновления), дерево syngui раскладывается и
 //! рисуется в текстуру wgpu, текстура — в PNG. Для проверки вёрстки без
 //! графического сеанса. Действие очереди: install, aur, remove, upgrade,
-//! upgrade-aur; `SYNPKG_SHOT_MENU=имя` — открыть меню пакета (как правым щелчком).
+//! upgrade-aur; `--meta` — раздел «Метапакеты и группы» обзора или фильтр
+//! «Метапакеты» установленных, `--groups` — группы этого раздела;
+//! `SYNPKG_SHOT_MENU=имя` — открыть меню пакета (как правым щелчком).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -41,6 +43,8 @@ pub fn screenshot(out: &str) -> anyhow::Result<()> {
     }
     st.installed.set(pk::installed());
     crate::set_catalog(st, pk::catalog());
+    st.metas.set(Some(pk::metapackages()));
+    st.groups.set(pk::groups());
     if matches!(tab, Tab::Updates | Tab::Jobs) {
         st.updates.set(Some(pk::updates(aur)));
     }
@@ -57,6 +61,15 @@ pub fn screenshot(out: &str) -> anyhow::Result<()> {
             _ => QAct::Install,
         };
         crate::enqueue(st, QItem::new(name, act));
+    }
+    if std::env::args().any(|a| a == "--meta") {
+        st.category.set(Some(crate::META_KEY));
+        st.inst_filter.set(crate::InstFilter::Meta);
+    }
+    if let Some(g) = arg_value("--groups") {
+        st.category.set(Some(crate::META_KEY));
+        st.show_groups.set(true);
+        st.group_open.set(Some(g).filter(|g| !g.is_empty()));
     }
 
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
@@ -138,6 +151,7 @@ pub fn screenshot(out: &str) -> anyhow::Result<()> {
                     votes: None,
                     popularity: None,
                     out_of_date: false,
+                    meta: false,
                 });
                 if let Some(p) = p {
                     crate::ui::pkg_menu(st, p, Point::new(lw as f32 / 2.0, 200.0), true);
