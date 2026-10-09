@@ -58,6 +58,8 @@ pub struct Keyboard {
     /// Буква над нажатой клавишей: подпись и прямоугольник клавиши
     /// (x, y, ширина, высота) в координатах поверхности.
     pub popup: RwSignal<Option<(String, [f32; 4])>>,
+    /// Выезжать самой на текстовом поле (режим ввода приложения не «Выключен», `[osk] apps`).
+    pub auto: RwSignal<bool>,
 }
 
 thread_local! {
@@ -77,6 +79,7 @@ impl Keyboard {
             sup: use_signal(false),
             fn_rows: use_signal(false),
             popup: use_signal(None),
+            auto: use_signal(true),
         }
     }
 
@@ -237,7 +240,7 @@ pub fn install(kb: Keyboard) {
     // Автопоказ по input-method: приложение открыло/закрыло поле ввода.
     let im = syngui_layer::input_method_active();
     create_effect(move || {
-        let active = im.get();
+        let active = im.get() && kb.auto.get();
         if kb.visible.get_untracked() != active {
             kb.visible.set(active);
         }

@@ -2295,18 +2295,74 @@ impl Config {
     }
 }
 
-/// Экранная клавиатура synkeyboard (`[osk]`).
+/// Экранный ввод (`[osk]`): клавиатура synkeyboard и контроллер syngamepad.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Osk {
     /// Масштаб клавиатуры поверх масштаба вывода — отдельно от масштаба
     /// оболочки (`[appearance] ui_scale`): высота клавиш, подписи, отступы.
     pub scale: f32,
+    /// Режим ввода по умолчанию (приложения без своего в `apps`).
+    pub mode: InputMode,
+    /// Раскладка контроллера по умолчанию (`~/.config/synshell/gamepads/<id>.toml`).
+    pub gamepad_layout: String,
+    /// Режим ввода приложения: app_id → режим (выбран в шторке, плитка «Ввод»).
+    pub apps: std::collections::BTreeMap<String, InputMode>,
+    /// Раскладка контроллера приложения: app_id → id раскладки.
+    pub app_layouts: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for Osk {
     fn default() -> Self {
-        Self { scale: 1.0 }
+        Self {
+            scale: 1.0,
+            mode: InputMode::Keyboard,
+            gamepad_layout: "standard".into(),
+            apps: Default::default(),
+            app_layouts: Default::default(),
+        }
+    }
+}
+
+impl Osk {
+    /// Режим для приложения `app_id` (`None` — нет окна в фокусе: домашний экран).
+    pub fn mode_for(&self, app_id: Option<&str>) -> InputMode {
+        app_id.and_then(|a| self.apps.get(a)).copied().unwrap_or(self.mode)
+    }
+
+    pub fn layout_for(&self, app_id: Option<&str>) -> &str {
+        app_id.and_then(|a| self.app_layouts.get(a)).map(String::as_str).unwrap_or(&self.gamepad_layout)
+    }
+}
+
+/// Экранный ввод приложения.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum InputMode {
+    /// Клавиатура выезжает сама на текстовом поле.
+    #[default]
+    Keyboard,
+    /// Экранный контроллер поверх приложения; клавиатура сама не выезжает (по кнопке в шторке).
+    Controller,
+    /// Ничего не выезжает (физическая клавиатура или геймпад).
+    Off,
+}
+
+impl InputMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            InputMode::Keyboard => "keyboard",
+            InputMode::Controller => "controller",
+            InputMode::Off => "off",
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            InputMode::Keyboard => "Клавиатура",
+            InputMode::Controller => "Контроллер",
+            InputMode::Off => "Выключен",
+        }
     }
 }
 

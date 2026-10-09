@@ -5017,6 +5017,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "syngamepad"
+version = "0.1.41"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "libc",
+ "log",
+ "serde",
+ "syngui",
+ "syngui-layer",
+ "synshell-common",
+ "toml",
+]
+
+[[package]]
 name = "syngui"
 version = "0.1.0"
 dependencies = [

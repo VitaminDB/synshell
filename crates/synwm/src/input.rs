@@ -198,6 +198,7 @@ impl State {
                 }
             }
             InputEvent::TouchCancel { .. } => {
+                self.core.gamepad_slots.clear();
                 self.touch_mouse_release();
                 self.core.touch_gestures.pending = None;
                 self.fingers_cancel();
@@ -582,6 +583,21 @@ impl State {
                 layers.layer_geometry(l).is_some_and(|lg| l.surface_under(rel - lg.loc.to_f64(), WindowSurfaceType::ALL).is_some())
             })
         })
+    }
+
+    /// В точке — элемент экранного контроллера (слой `syngamepad`, его область ввода — только элементы).
+    pub fn gamepad_at(&self, pos: Point<f64, Logical>) -> bool {
+        if self.core.is_locked() {
+            return false;
+        }
+        let Some(output) = self.core.output_at(pos) else { return false };
+        let rel = pos - self.core.space.output_geometry(&output).unwrap_or_default().loc.to_f64();
+        let layers = layer_map_for_output(&output);
+        let hit = layers.layers_on(Layer::Overlay).any(|l| {
+            crate::ipc::is_gamepad_namespace(l.namespace())
+                && layers.layer_geometry(l).is_some_and(|lg| l.surface_under(rel - lg.loc.to_f64(), WindowSurfaceType::ALL).is_some())
+        });
+        hit
     }
 
     pub fn under(&self, pos: Point<f64, Logical>) -> Under {
@@ -1215,6 +1231,13 @@ impl State {
             self.core.queue_redraw_all();
         }
         let pos = self.touch_location(&evt);
+        // Контроллер: несколько пальцев сразу (стик + кнопки) — не жест края, не сдвиг стола, без волны.
+        if self.gamepad_at(pos) {
+            self.core.gamepad_slots.push(evt.slot());
+            let focus = self.under(pos).focus();
+            touch.down(self, focus, &DownEvent { slot: evt.slot(), location: pos, serial: SERIAL_COUNTER.next_serial(), time: evt.time_msec() });
+            return;
+        }
         self.start_ripple(pos);
         if self.gesture_touch_down(evt.slot(), pos, evt.time_msec()) {
             return;
@@ -1240,6 +1263,13 @@ impl State {
         // Палец-мышь отпускаем всегда первым: иначе, если отпускание заберёт жест
         // (свернули игру свайпом), кнопка мыши и палец оставались «зажатыми», и
         // касания дальше не доходили никому (не разблокировать экран).
+        if let Some(i) = self.core.gamepad_slots.iter().position(|s| *s == evt.slot()) {
+            self.core.gamepad_slots.swap_remove(i);
+            if let Some(touch) = self.core.seat.get_touch() {
+                touch.up(self, &UpEvent { slot: evt.slot(), serial: SERIAL_COUNTER.next_serial(), time: evt.time_msec() });
+            }
+            return;
+        }
         if self.touch_mouse_up(evt.slot(), evt.time_msec()) {
             return;
         }
@@ -1256,6 +1286,11 @@ impl State {
     fn on_touch_motion<B: InputBackend>(&mut self, evt: B::TouchMotionEvent) {
         let Some(touch) = self.core.seat.get_touch() else { return };
         let pos = self.touch_location(&evt);
+        if self.core.gamepad_slots.contains(&evt.slot()) {
+            // Палец ведёт тот же элемент и за его пределами (стик): фокус касания — с нажатия.
+            touch.motion(self, None, &smithay::input::touch::MotionEvent { slot: evt.slot(), location: pos, time: evt.time_msec() });
+            return;
+        }
         if self.gesture_touch_motion(evt.slot(), pos, evt.time_msec()) {
             return;
         }

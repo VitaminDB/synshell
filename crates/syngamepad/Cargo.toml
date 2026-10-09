@@ -1,0 +1,22 @@
+[package]
+name = "syngamepad"
+description = "On-screen game controller of the synshell environment (layer-shell overlay, uinput gamepad/mouse, virtual keyboard)"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "syngamepad"
+path = "src/main.rs"
+
+[dependencies]
+synshell-common.workspace = true
+syngui-layer.workspace = true
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "svg", "material-icons", "i18n"] }
+anyhow.workspace = true
+libc.workspace = true
+serde = { workspace = true, features = ["derive"] }
+toml.workspace = true
+log = "0.4"
+env_logger = "0.11"

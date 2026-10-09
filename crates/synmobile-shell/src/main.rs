@@ -4,6 +4,7 @@
 //! блокировка; свои — домашний экран со страницами и команды жестов
 //! композитора (`home`, `shade`, `recents`, `back`).
 
+mod gamepad;
 mod home;
 mod keyboard;
 mod resources;
@@ -31,6 +32,8 @@ fn install(ctx: ShellCtx) {
     home::install(ctx);
     synshell_ui::commands::set_extra(command);
     keyboard::start();
+    gamepad::start();
+    synshell_ui::input_mode::start(ctx);
 }
 
 /// Команды жестов и кнопок (приходят от композитора `ShellCommand`).
@@ -48,6 +51,7 @@ fn command(name: &str, arg: &str) -> bool {
         }
         "apps" => synshell_ui::commands::handle("launcher"),
         "keyboard" => keyboard::toggle(),
+        "gamepad" => synshell_ui::actions::spawn("syngamepad fold"),
         "mode" => {
             let label = match arg.trim() {
                 "pages" => "Страницы",

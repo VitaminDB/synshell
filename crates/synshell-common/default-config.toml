@@ -397,6 +397,15 @@ long_press_window = "none"     # none | move — удержание по окн�
 touchpad_horizontal = "workspace next"
 touchpad_up = "overview"
 
+# Экранный ввод: клавиатура synkeyboard и контроллер syngamepad (телефон).
+# Режим — keyboard (клавиатура на текстовом поле), controller (контроллер поверх
+# приложения, клавиатура — кнопкой в шторке), off (ничего не выезжает). Свой режим приложения выбирается в
+# шторке, плитка «Ввод», и пишется в [osk.apps].
+[osk]
+scale = 1.0
+mode = "keyboard"
+gamepad_layout = "standard"
+
 # Виброотклик (телефон, вибромотор с force feedback).
 [haptics]
 enabled = true

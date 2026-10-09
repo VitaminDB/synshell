@@ -189,6 +189,7 @@ Text {
 .popup-morph { transition: size 320ms spring(420, 40); }
 
 .popup-title { font-size: 15px; font-weight: bold; color: var(--fg); }
+.popup-subtitle { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
 .popup-text { font-size: 13px; color: var(--fg); }
 .popup-value { font-size: 13px; color: var(--muted); min-width: 40px; }
 .popup-big-icon { icon-size: 30px; icon-color: var(--accent); }

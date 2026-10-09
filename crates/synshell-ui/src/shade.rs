@@ -295,11 +295,25 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
                 rev.set(rev.get_untracked() + 1);
             }));
         }
-        grid = grid
-            .child(tile(mi::KEYBOARD, "Клавиатура".into(), "Показать".into(), false, || {
+        grid = if ctx.is_phone() {
+            // Экранный ввод приложения в фокусе: клавиатура, контроллер или ничего.
+            let _ = ctx.focused.get();
+            let mode = crate::input_mode::current(&ctx);
+            let state = match crate::input_mode::focused_app_name(&ctx) {
+                Some(n) => format!("{} · {n}", mode.title()),
+                None => mode.title().to_string(),
+            };
+            grid.child(tile(crate::input_mode::glyph(mode), "Ввод".into(), state, mode == synshell_common::config::InputMode::Controller, || {
+                close();
+                ShellCtx::get().open_popup(crate::ctx::PopupKind::InputMode, crate::commands::centered());
+            }))
+        } else {
+            grid.child(tile(mi::KEYBOARD, "Клавиатура".into(), "Показать".into(), false, || {
                 close();
                 crate::actions::spawn("synkeyboard toggle");
             }))
+        };
+        grid = grid
             .child(tile("\u{E3B0}", "Снимок".into(), "Экрана".into(), false, || {
                 close();
                 // Шторка должна успеть уйти с экрана.

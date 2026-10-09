@@ -10,6 +10,7 @@
 //! synkeyboard lang              # следующая раскладка (EN → RU → …)
 //! synkeyboard type "ls -la"    # напечатать текст
 //! synkeyboard key ctrl+c        # сочетание: ctrl, shift, alt, super + клавиша
+//! synkeyboard auto on|off       # выезжать самой на текстовом поле (режим ввода «Выключен» — off)
 //! ```
 //!
 //! Управляющий сокет — `$XDG_RUNTIME_DIR/synkeyboard.sock` (или
@@ -45,11 +46,11 @@ fn main() {
         }
         Some("--help" | "-h") => {
             println!(
-                "synkeyboard [show|hide|toggle|fn|lang | type <текст> | key <сочетание>]\n  без аргументов — запустить демон экранной клавиатуры"
+                "synkeyboard [show|hide|toggle|fn|lang | type <текст> | key <сочетание> | auto on|off]\n  без аргументов — запустить демон экранной клавиатуры"
             );
         }
         Some(cmd @ ("show" | "hide" | "toggle" | "fn" | "lang")) => client(cmd.to_string()),
-        Some(cmd @ ("type" | "key")) => {
+        Some(cmd @ ("type" | "key" | "auto")) => {
             let Some(arg) = args.get(1) else {
                 eprintln!("synkeyboard {cmd}: нужен аргумент");
                 std::process::exit(2);
@@ -168,6 +169,11 @@ fn listen(kb: ui::Keyboard) {
                         "toggle" => Ok(kb.visible.set(!kb.visible.get_untracked())),
                         "fn" => Ok(kb.act(ui::Action::Fn)),
                         "lang" => Ok(kb.act(ui::Action::Layout)),
+                        "auto" => match arg.trim() {
+                            "on" => Ok(kb.auto.set(true)),
+                            "off" => Ok(kb.auto.set(false)),
+                            _ => Err("auto on|off".into()),
+                        },
                         "type" => Ok(ui::type_text(kb, arg)),
                         "key" => ui::press_combo(kb, arg),
                         other => Err(format!("команда не поддерживается: {other}")),

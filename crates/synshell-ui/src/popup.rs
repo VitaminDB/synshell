@@ -69,6 +69,7 @@ fn width_of(kind: &PopupKind, ctx: &ShellCtx) -> f32 {
         PopupKind::AddItem(_) => 480.0,
         PopupKind::EditItem { .. } => 480.0,
         PopupKind::Link => 380.0,
+        PopupKind::InputMode => 320.0,
         PopupKind::LinkPair(_) => 360.0,
         PopupKind::LocationAsk(_) | PopupKind::AccessAsk(_) => 400.0,
     }
@@ -393,6 +394,7 @@ fn content_inner(kind: &PopupKind, ctx: ShellCtx) -> Box<dyn Widget> {
         PopupKind::Volume => Box::new(volume(ctx)),
         PopupKind::Network => Box::new(crate::netmenu::view(ctx)),
         PopupKind::Link => Box::new(crate::link::view(ctx)),
+        PopupKind::InputMode => Box::new(crate::input_mode::view(ctx)),
         PopupKind::LinkPair(id) => Box::new(crate::link::pair_view(ctx, id.clone())),
         PopupKind::LocationAsk(id) => Box::new(crate::location::ask_view(ctx, *id)),
         PopupKind::AccessAsk(id) => Box::new(crate::access::ask_view(ctx, *id)),

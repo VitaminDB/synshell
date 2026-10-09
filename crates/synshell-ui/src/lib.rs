@@ -18,6 +18,7 @@ pub mod applets;
 pub mod appmenu;
 pub mod clock;
 pub mod incall;
+pub mod input_mode;
 pub mod commands;
 pub mod ctx;
 pub mod datetime;

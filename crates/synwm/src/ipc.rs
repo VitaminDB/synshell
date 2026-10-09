@@ -454,6 +454,11 @@ impl State {
     }
 }
 
+/// Слой экранного контроллера (syngamepad): касания — ему напрямую (`input.rs`).
+pub fn is_gamepad_namespace(ns: &str) -> bool {
+    ns == "syngamepad"
+}
+
 /// Слой экранной клавиатуры (synkeyboard, squeekboard и подобные).
 pub fn is_osk_namespace(ns: &str) -> bool {
     let ns = ns.to_ascii_lowercase();
