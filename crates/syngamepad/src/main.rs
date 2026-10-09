@@ -7,6 +7,7 @@
 //! syngamepad                 # демон (запускает оболочка)
 //! syngamepad show|hide|toggle    # режим «Контроллер» вкл/выкл
 //! syngamepad fold            # свернуть до ручки / развернуть
+//! syngamepad edit            # правка раскладки (или удержание ручки)
 //! syngamepad layout <id>     # раскладка
 //! syngamepad layouts         # список раскладок
 //! syngamepad status          # shown folded <id>
@@ -14,6 +15,7 @@
 //!
 //! Управляющий сокет — `$XDG_RUNTIME_DIR/syngamepad.sock`.
 
+mod editor;
 mod keys;
 mod layout;
 mod output;
@@ -51,14 +53,14 @@ fn main() {
     match args.first().map(String::as_str) {
         Some("--version" | "-V") => println!("syngamepad {}", env!("CARGO_PKG_VERSION")),
         Some("--help" | "-h") => {
-            println!("syngamepad [show|hide|toggle|fold|status|layouts | layout <id>]\n  без аргументов — демон экранного контроллера")
+            println!("syngamepad [show|hide|toggle|fold|edit|status|layouts | layout <id>]\n  без аргументов — демон экранного контроллера")
         }
         Some("layouts") => {
             for (id, name) in layout::list() {
                 println!("{id}\t{name}");
             }
         }
-        Some(cmd @ ("show" | "hide" | "toggle" | "fold" | "status")) => client(cmd),
+        Some(cmd @ ("show" | "hide" | "toggle" | "fold" | "edit" | "status")) => client(cmd),
         Some("layout") => match args.get(1) {
             Some(id) => client(&format!("layout {id}")),
             None => {
@@ -170,6 +172,17 @@ fn listen(pad: ui::Pad) {
                         "toggle" => {
                             pad.folded.set(false);
                             pad.shown.set(!pad.shown.get_untracked());
+                            ok()
+                        }
+                        "edit" => {
+                            pad.shown.set(true);
+                            editor::open(pad);
+                            ok()
+                        }
+                        // Приложение в фокусе (от оболочки; `-` — нет).
+                        "app" => {
+                            let a = arg.trim();
+                            pad.app.set((!a.is_empty() && a != "-").then(|| a.to_string()));
                             ok()
                         }
                         "fold" => {

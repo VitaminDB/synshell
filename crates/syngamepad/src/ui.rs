@@ -17,7 +17,7 @@ use crate::output;
 
 /// Ручка «спрятать/показать» (вверху по центру): сторона, px.
 const HANDLE: f32 = 40.0;
-/// Удержание ручки дольше — не сворачивать (позже — редактор раскладки).
+/// Удержание ручки дольше — не сворачивать, а открыть редактор раскладки.
 const HANDLE_HOLD_MS: u128 = 600;
 /// Запас вокруг элемента, который ещё ловит палец (доля размера).
 const HIT_SLOP: f32 = 0.12;
@@ -32,6 +32,9 @@ pub struct Pad {
     pub folded: RwSignal<bool>,
     pub layout_id: RwSignal<String>,
     pub layout: RwSignal<Layout>,
+    /// Приложение в фокусе (от оболочки): ему запоминается выбранная в редакторе раскладка.
+    pub app: RwSignal<Option<String>>,
+    pub ed: crate::editor::Editor,
 }
 
 impl Pad {
@@ -41,6 +44,8 @@ impl Pad {
             folded: use_signal(false),
             layout_id: use_signal(layout_id.to_string()),
             layout: use_signal(crate::layout::load(layout_id)),
+            app: use_signal(None),
+            ed: crate::editor::Editor::new(),
         }
     }
 
@@ -112,7 +117,7 @@ fn rt(i: usize) -> Option<Rt> {
 }
 
 /// Отпустить всё (свернули, сменили раскладку, спрятали).
-fn release_all() {
+pub(crate) fn release_all() {
     FINGERS.with(|f| f.borrow_mut().clear());
     HOLD.with(|h| h.borrow_mut().clear());
     TOGGLED.with(|t| t.borrow_mut().clear());
@@ -157,11 +162,13 @@ pub fn install(pad: Pad) {
         let size = syngui::viewport::viewport_size().get();
         let folded = pad.folded.get();
         let layout = pad.layout.get();
+        let editing = pad.ed.on.get();
         let _ = pad.shown.get();
         let Some(id) = SURFACE.with(|s| s.get()) else { return };
         let (w, h) = (size.width, size.height);
-        let mut rects = vec![handle_rect(w, h)];
-        if !folded {
+        // Правка — весь экран: тащить элементы можно куда угодно.
+        let mut rects = vec![if editing { [0.0, 0.0, w, h] } else { handle_rect(w, h) }];
+        if !folded && !editing {
             rects.extend(layout.elements.iter().map(|e| e.rect(w, h)).map(|r| {
                 let (dx, dy) = (r[2] * HIT_SLOP, r[3] * HIT_SLOP);
                 [r[0] - dx, r[1] - dy, r[2] + 2.0 * dx, r[3] + 2.0 * dy]
@@ -179,6 +186,9 @@ fn view(pad: Pad) -> impl Widget {
         let folded = pad.folded.get();
         let layout = pad.layout.get();
         let (w, h) = (size.width, size.height);
+        if pad.ed.on.get() {
+            return crate::editor::view(pad, w, h);
+        }
         let mut out: Vec<Box<dyn Widget>> = Vec::new();
         if !folded {
             for (i, e) in layout.elements.iter().enumerate() {
@@ -296,7 +306,7 @@ fn element_view(e: &crate::layout::Element, st: Rt, w: f32, h: f32, opacity: f32
 }
 
 /// Подпись: значок Material Icons (символы личной области Unicode) или текст.
-fn label_view(label: &str) -> Box<dyn Widget> {
+pub(crate) fn label_view(label: &str) -> Box<dyn Widget> {
     let icon = !label.is_empty() && label.chars().all(|c| ('\u{E000}'..='\u{F8FF}').contains(&c));
     if icon {
         Box::new(Icon::new(label.to_string()).class("gp-icon"))
@@ -307,6 +317,9 @@ fn label_view(label: &str) -> Box<dyn Widget> {
 
 fn on_touch(pad: Pad, t: TouchPoint) -> bool {
     log::debug!("касание {t:?}");
+    if pad.ed.on.get_untracked() {
+        return crate::editor::on_touch(pad, t);
+    }
     let (w, h) = (t.size.width, t.size.height);
     let p = (t.position.x, t.position.y);
     match t.phase {
@@ -353,9 +366,14 @@ fn on_touch(pad: Pad, t: TouchPoint) -> bool {
             let Some(f) = FINGERS.with(|f| f.borrow_mut().remove(&t.id)) else { return true };
             match f.target {
                 Target::Handle => {
-                    if t.phase == TouchPhase::Up && f.start.elapsed().as_millis() < HANDLE_HOLD_MS {
-                        release_all();
-                        pad.folded.set(!pad.folded.get_untracked());
+                    if t.phase == TouchPhase::Up {
+                        if f.start.elapsed().as_millis() < HANDLE_HOLD_MS {
+                            release_all();
+                            pad.folded.set(!pad.folded.get_untracked());
+                        } else {
+                            // Удержание ручки — правка раскладки.
+                            crate::editor::open(pad);
+                        }
                     }
                 }
                 Target::Element(i) => {

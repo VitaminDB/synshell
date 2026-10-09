@@ -142,6 +142,14 @@ impl Daemon {
                 Err(e) => tracing::warn!("ИК: {e}"),
             }
         }
+        // Геймпады хоста (экранный контроллер, USB/BT) — в /dev/input контейнера, пока он жив.
+        {
+            let me = self.clone();
+            crate::gamepads::watch(running.init_pid, move || {
+                let i = me.inner.lock().unwrap();
+                i.generation == gen && matches!(i.state, Some(State::Starting | State::Running))
+            });
+        }
         let session = self.inner.lock().unwrap().session.clone();
         if let Some(s) = session {
             match spawn_bridge(&crate::images::instance_of(cfg.active.as_deref().unwrap_or("")), &s) {

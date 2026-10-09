@@ -44,3 +44,18 @@ Text { color: #ffffff; font-size: 20px; }
     opacity: 0.6;
 }
 .gp-handle-icon { font-size: 22px; color: #ffffff; }
+
+/* Правка раскладки. */
+.gp-edit-bg { background-color: #000000a0; }
+.gp-selected { border-color: var(--accent); border-width: 3px; }
+.gp-panel {
+    border-radius: 16px;
+    background-color: var(--panel-bg);
+    border-width: 1px;
+    border-color: #ffffff30;
+    box-shadow: 0 6px 20px #00000080;
+}
+.gp-tool { border-radius: 10px; background-color: #ffffff1a; padding: 0 6px; }
+.gp-tool:active { background-color: var(--accent); }
+.gp-tool-label { font-size: 14px; color: var(--fg); text-box-edge: text; }
+.gp-tool-title { font-size: 14px; font-weight: bold; color: var(--fg); }

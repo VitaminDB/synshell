@@ -8,6 +8,7 @@ pub mod bridge;
 pub mod config;
 pub mod container;
 pub mod daemon;
+pub mod gamepads;
 pub mod gui;
 pub mod hwbinder;
 pub mod images;
