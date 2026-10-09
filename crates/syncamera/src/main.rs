@@ -179,7 +179,30 @@ pub struct St {
     pub auto_rotate: bool,
 }
 
+/// `--scan-qr [ПРЕФИКС]`: первый распознанный QR-код (начинающийся с префикса) — в stdout, и выход
+/// (так «Параметры» берут код активации eSIM).
+static SCAN_QR: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+
+/// Код подошёл режиму сканирования — напечатать и закрыть программу.
+fn scan_done(text: &str) -> bool {
+    let Some(Some(prefix)) = SCAN_QR.get() else { return false };
+    if !text.starts_with(prefix.as_str()) {
+        return false;
+    }
+    use std::io::Write;
+    println!("{text}");
+    let _ = std::io::stdout().flush();
+    syngui::signal::quit_app();
+    true
+}
+
 fn main() {
+    let mut args = std::env::args().skip(1);
+    if let Some(a) = args.next() {
+        if a == "--scan-qr" {
+            let _ = SCAN_QR.set(Some(args.next().unwrap_or_default()));
+        }
+    }
     let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "syncamera=info".into());
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
     synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
@@ -264,6 +287,9 @@ fn main() {
                 std::thread::spawn(move || loop {
                     let t = t.clone();
                     run_on_main_thread(move || {
+                        if scan_done(&t) {
+                            return;
+                        }
                         st.qr.set(Some(t));
                         st.qr_seen.set(st.qr_seen.get_untracked() + 1);
                     });
@@ -310,6 +336,9 @@ fn start(st: St) {
         Note::Started(w, h) => run_on_main_thread(move || st.stream_size.set((w, h))),
         Note::Status(s) => run_on_main_thread(move || st.status.set(s)),
         Note::Qr(s) => run_on_main_thread(move || {
+            if scan_done(&s) {
+                return;
+            }
             if st.qr.get_untracked().as_deref() != Some(s.as_str()) {
                 st.qr.set(Some(s));
             }

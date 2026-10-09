@@ -387,6 +387,9 @@ pub enum Request {
     EsimDisable { iccid: String },
     EsimDelete { iccid: String },
     EsimNickname { iccid: String, name: String },
+    /// Загрузить профиль по коду активации из QR оператора (`LPA:1$сервер$код`), при
+    /// необходимости — с кодом подтверждения; ход — событиями `EsimProgress` (до нескольких минут).
+    EsimDownload { code: String, confirmation: String },
     /// Поиск сетей (до нескольких минут).
     NetworkScan,
     /// Регистрация: `None` — автоматически, иначе MCC/MNC.
@@ -449,6 +452,8 @@ pub enum Event {
     CallLog,
     /// Ответ сети на USSD; `reply` — сеть ждёт ответа пользователя.
     Ussd { text: String, reply: bool, done: bool },
+    /// Ход загрузки профиля eSIM: шаг; `done` — закончена (`error` пуст — успешно).
+    EsimProgress { step: String, done: bool, error: String },
 }
 
 /// Один запрос к демону.
@@ -469,6 +474,25 @@ pub fn request(req: &Request) -> Result<Response> {
         bail!("{message}");
     }
     Ok(r)
+}
+
+/// Загрузить профиль eSIM (ждёт до 10 минут; ход — событиями `EsimProgress` подписки).
+pub fn esim_download(code: &str, confirmation: &str) -> Result<()> {
+    let s = UnixStream::connect(SOCKET).with_context(|| format!("synmodemd не запущен ({SOCKET})"))?;
+    s.set_read_timeout(Some(Duration::from_secs(600)))?;
+    let mut w = s.try_clone()?;
+    let mut line = serde_json::to_string(&Request::EsimDownload { code: code.to_string(), confirmation: confirmation.to_string() })?;
+    line.push('\n');
+    w.write_all(line.as_bytes())?;
+    let mut resp = String::new();
+    BufReader::new(s).read_line(&mut resp)?;
+    if resp.is_empty() {
+        bail!("synmodemd закрыл соединение");
+    }
+    match serde_json::from_str::<Response>(&resp)? {
+        Response::Error { message } => bail!("{message}"),
+        _ => Ok(()),
+    }
 }
 
 pub fn status() -> Result<Status> {

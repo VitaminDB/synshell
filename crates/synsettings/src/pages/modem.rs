@@ -33,6 +33,10 @@ struct Sigs {
     apn_edit: RwSignal<Option<Apn>>,
     esim_rename: RwSignal<Option<(String, String)>>,
     esim_delete: RwSignal<Option<String>>,
+    /// Форма «Добавить eSIM»: код активации и код подтверждения.
+    esim_add: RwSignal<Option<(String, String)>>,
+    /// Идёт загрузка профиля: текущий шаг.
+    esim_dl: RwSignal<Option<String>>,
     /// Форма PIN: «enable», «disable», «change», «verify», «unblock».
     pin_form: RwSignal<Option<&'static str>>,
 }
@@ -64,6 +68,8 @@ fn sigs() -> Sigs {
                 apn_edit: use_signal(None),
                 esim_rename: use_signal(None),
                 esim_delete: use_signal(None),
+                esim_add: use_signal(None),
+                esim_dl: use_signal(None),
                 pin_form: use_signal(None),
             };
             c.set(Some(s));
@@ -142,13 +148,20 @@ fn load_smsc(s: Sigs) {
 fn watch_ussd(s: Sigs) {
     std::thread::spawn(move || loop {
         let _ = api::subscribe(|ev| {
-            if let api::Event::Ussd { text, reply, done } = ev {
-                run_on_main_thread(move || {
+            match ev {
+                api::Event::Ussd { text, reply, done } => run_on_main_thread(move || {
                     if !text.is_empty() {
                         s.ussd.update(|l| l.push((false, text)));
                     }
                     s.ussd_reply.set(reply && !done);
-                });
+                }),
+                // ход загрузки профиля eSIM (запрос ждёт в своём потоке)
+                api::Event::EsimProgress { step, done: false, .. } => run_on_main_thread(move || {
+                    if s.esim_dl.get_untracked().is_some() {
+                        s.esim_dl.set(Some(step));
+                    }
+                }),
+                _ => {}
             }
             true
         });
@@ -290,8 +303,107 @@ fn sim_group(s: Sigs) -> W {
         t!("Перечитать профили с eSIM"),
         button(&t!("Обновить"), move || load_esim(s)),
     ));
-    rows.push(note(&t!("Загрузка нового профиля по QR-коду оператора (SM-DP+) — в следующей версии; пока — через Android.")));
+    rows.push(esim_add(s));
     group(&t!("SIM-карты и eSIM"), rows)
+}
+
+/// Код активации из QR оператора: `LPA:1$сервер$код[$OID[$1]]`; `Some(true)` — нужен код подтверждения.
+fn lpa_code(code: &str) -> Option<bool> {
+    synmodem::lpa::parse_code(code).map(|(_, _, conf)| conf)
+}
+
+/// Распознать QR «Камерой» (`syncamera --scan-qr LPA:`): код — в форму.
+fn scan_qr(s: Sigs) {
+    state::toast(t!("Наведите камеру на QR-код оператора"));
+    std::thread::spawn(move || {
+        let out = std::process::Command::new("syncamera").args(["--scan-qr", "LPA:"]).output();
+        run_on_main_thread(move || match out {
+            Ok(o) if o.status.success() => {
+                let code = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if !code.is_empty() {
+                    let conf = s.esim_add.get_untracked().map(|f| f.1).unwrap_or_default();
+                    s.esim_add.set(Some((code, conf)));
+                }
+            }
+            Ok(_) => {}
+            Err(e) => state::toast(t!("Камера не запустилась: {e}", e = e)),
+        });
+    });
+}
+
+/// Загрузка нового профиля: код активации (вручную или QR), код подтверждения, ход загрузки.
+fn esim_add(s: Sigs) -> W {
+    if let Some(step) = s.esim_dl.get() {
+        let shown = if step.is_empty() { t!("Подготовка…") } else { step };
+        return row_inline(
+            t!("Загрузка профиля eSIM"),
+            t!("{step} · не выключайте связь, это может занять несколько минут", step = shown),
+            CircularProgress::new().indeterminate().size(22.0),
+        );
+    }
+    let Some((code, conf)) = s.esim_add.get() else {
+        return row_inline(
+            t!("Добавить eSIM"),
+            t!("Профиль оператора по QR-коду или коду активации (LPA:1$…); связь должна быть включена"),
+            primary_button(&t!("Добавить"), move || s.esim_add.set(Some((String::new(), String::new())))),
+        );
+    };
+    let code_sig = use_signal(code.clone());
+    let conf_sig = use_signal(conf.clone());
+    let need_conf = lpa_code(&code).unwrap_or(false);
+    let valid = lpa_code(&code).is_some();
+    let mut col = Column::new()
+        .gap(10.0)
+        .child(Text::new(t!("Добавить eSIM")).class("row-title"))
+        .child(Text::new(t!("Код активации — в QR-коде оператора (начинается с LPA:1$). Его можно отсканировать камерой или вставить.")).max_lines(3).class("row-hint"))
+        .child(
+            Row::new()
+                .gap(8.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(TextField::new().text(code.as_str()).placeholder("LPA:1$smdp.example.com$…").on_change(move |t| {
+                    code_sig.set(t.to_string());
+                    s.esim_add.set(Some((t.to_string(), conf_sig.get_untracked())));
+                }).class("grow"))
+                .child(button(&t!("Сканировать QR"), move || scan_qr(s))),
+        );
+    if need_conf || !conf.is_empty() {
+        col = col.child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(t!("Код подтверждения")).class("row-hint")).child(
+            TextField::new().text(conf.as_str()).placeholder(tl(n_!("от оператора"))).on_change(move |t| {
+                conf_sig.set(t.to_string());
+                s.esim_add.set(Some((code_sig.get_untracked(), t.to_string())));
+            }).class("grow"),
+        ));
+    }
+    if !code.trim().is_empty() && !valid {
+        col = col.child(Text::new(t!("Это не код активации eSIM: ожидается LPA:1$сервер$код")).class("row-hint warn"));
+    }
+    col = col.child(
+        Row::new()
+            .gap(8.0)
+            .main_axis_alignment(MainAxisAlignment::End)
+            .child(button(&t!("Отмена"), move || s.esim_add.set(None)))
+            .child(primary_button(&t!("Загрузить"), move || {
+                let (code, conf) = (code_sig.get_untracked(), conf_sig.get_untracked());
+                if lpa_code(&code).is_none() {
+                    state::toast(t!("Неверный код активации"));
+                    return;
+                }
+                s.esim_add.set(None);
+                s.esim_dl.set(Some(String::new()));
+                std::thread::spawn(move || {
+                    let r = api::esim_download(&code, &conf);
+                    run_on_main_thread(move || {
+                        s.esim_dl.set(None);
+                        state::toast(match &r {
+                            Ok(()) => t!("Профиль eSIM загружен — включите его в списке"),
+                            Err(e) => t!("Профиль не загружен: {e}", e = format!("{e:#}")),
+                        });
+                        load_esim(s);
+                    });
+                });
+            })),
+    );
+    Box::new(DecoratedBox::new().child(col).class("row"))
 }
 
 fn esim_row(s: Sigs, p: Profile) -> W {

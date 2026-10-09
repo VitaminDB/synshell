@@ -1104,6 +1104,19 @@ impl Daemon {
                 euicc::delete(&ch, &iccid)?;
                 Response::Ok
             }
+            Request::EsimDownload { code, confirmation } => {
+                let m = self.modem()?;
+                let slot = self.euicc_slot(&m)?;
+                let r = crate::lpa::download(slot, &code, &confirmation, |step| {
+                    tracing::info!("eSIM: {step}");
+                    self.emit(Event::EsimProgress { step, done: false, error: String::new() });
+                });
+                let error = r.as_ref().err().map(|e| format!("{e:#}")).unwrap_or_default();
+                self.emit(Event::EsimProgress { step: String::new(), done: true, error: error.clone() });
+                r?;
+                tracing::info!("eSIM: профиль загружен");
+                Response::Ok
+            }
             Request::EsimNickname { iccid, name } => {
                 let m = self.modem()?;
                 let ch = euicc::Channel::open(&m.uim, self.euicc_slot(&m)?)?;

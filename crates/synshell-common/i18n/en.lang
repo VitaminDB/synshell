@@ -33,6 +33,20 @@
 # ../synmodem/src/gnss.rs
 "ГЛОНАСС" = "GLONASS"
 
+# ../synmodem/src/lpa.rs
+"Связь с eSIM" = "Talking to the eSIM"
+"Связь с сервером оператора" = "Contacting the carrier server"
+"Проверка сервера оператора" = "Verifying the carrier server"
+"Проверка eSIM сервером" = "The server is verifying the eSIM"
+"Подготовка загрузки" = "Preparing the download"
+"Загрузка профиля" = "Downloading the profile"
+"Установка профиля" = "Installing the profile"
+"Сведения о профиле" = "Profile details"
+"неверный код активации: ожидается LPA:1$сервер$код" = "invalid activation code: LPA:1$server$code expected"
+"нет lpac ({p}) — synmobile hw/modem/install.sh" = "no lpac ({p}) — synmobile hw/modem/install.sh"
+"lpac: {msg} ({data})" = "lpac: {msg} ({data})"
+"lpac завершился с кодом {c}: {err}" = "lpac exited with code {c}: {err}"
+
 # ../synmodem/src/qmi.rs
 "SupsFailure (сеть отказала в услуге)" = "SupsFailure (the network refused the service)"
 
@@ -99,9 +113,6 @@
 "Контроллер" = "Controller"
 "Выключен" = "Off"
 
-# src/config_edit.rs
-"Разработка" = "Development"
-
 # src/drives.rs
 "Диск" = "Disk"
 "Съёмный диск" = "Removable drive"
@@ -151,6 +162,7 @@
 "Мультимедиа" = "Multimedia"
 "Графика" = "Graphics"
 "Офис" = "Office"
+"Разработка" = "Development"
 "Наука и образование" = "Science and education"
 "Игры" = "Games"
 "Служебные" = "Utilities"

@@ -154,7 +154,7 @@ fn watch(st: St) {
                     });
                 }),
                 Event::SmsChanged => run_on_main_thread(move || reload(st)),
-                Event::CallLog | Event::Ussd { .. } => {}
+                Event::CallLog | Event::Ussd { .. } | Event::EsimProgress { .. } => {}
             }
             true
         });
