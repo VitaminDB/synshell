@@ -52,6 +52,7 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
     col = col.child(crate::popup::menu_item(mi::KEYBOARD, "Показать клавиатуру", || crate::actions::spawn("synkeyboard show")));
     if now == InputMode::Controller {
         col = col.child(crate::popup::menu_item(GAMEPAD, "Свернуть / развернуть контроллер", || crate::actions::spawn("syngamepad fold")));
+        col = col.child(crate::popup::menu_item("\u{E3C9}", "Настроить контроллер…", || crate::actions::spawn("syngamepad edit")));
     }
     col
 }
@@ -109,9 +110,10 @@ pub fn start(ctx: ShellCtx) {
         log::info!("экранный ввод: {} — {} ({layout})", app.as_deref().unwrap_or("-"), mode.as_str());
         *last.borrow_mut() = Some(state);
         std::thread::spawn(move || {
+            let app = format!("app {}", app.as_deref().unwrap_or("-"));
             let pad: &[String] = &match mode {
-                InputMode::Controller => vec![format!("layout {layout}"), "show".into()],
-                _ => vec!["hide".into()],
+                InputMode::Controller => vec![app, format!("layout {layout}"), "show".into()],
+                _ => vec![app, "hide".into()],
             };
             for cmd in pad {
                 send("syngamepad.sock", cmd);
