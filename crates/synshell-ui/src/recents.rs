@@ -181,7 +181,7 @@ fn view(ctx: ShellCtx, open: RwSignal<bool>) -> impl Widget {
                     Column::new()
                         .main_axis_alignment(MainAxisAlignment::Center)
                         .cross_axis_alignment(CrossAxisAlignment::Center)
-                        .child(Text::new("Нет открытых приложений").class("recents-empty"))
+                        .child(Text::new(t!("Нет открытых приложений")).class("recents-empty"))
                         .class("recents-empty-box"),
                 ) as Box<dyn Widget>;
             }
@@ -205,7 +205,7 @@ fn view(ctx: ShellCtx, open: RwSignal<bool>) -> impl Widget {
             })
             .child(
                 DecoratedBox::new()
-                    .child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(mi::CLEAR_ALL).class("recents-clear-icon")).child(Text::new("Закрыть все").class("recents-clear-text")))
+                    .child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(mi::CLEAR_ALL).class("recents-clear-icon")).child(Text::new(t!("Закрыть все")).class("recents-clear-text")))
                     .class("recents-clear"),
             );
         Box::new(
@@ -214,7 +214,7 @@ fn view(ctx: ShellCtx, open: RwSignal<bool>) -> impl Widget {
                     .gap(18.0)
                     .main_axis_alignment(MainAxisAlignment::Center)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(Text::new("Недавние").class("recents-title"))
+                    .child(Text::new(t!("Недавние")).class("recents-title"))
                     .child(cards)
                     .child(clear)
                     .class("recents")

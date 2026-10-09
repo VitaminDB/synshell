@@ -6,6 +6,7 @@
 //! с ШИМ), поэтому ниты ≈ доля × максимум.
 
 use crate::Sys;
+use synshell_tr::t;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Backlight {
@@ -68,7 +69,7 @@ pub fn primary(sys: &Sys) -> Option<Backlight> {
 /// Выставить яркость (проценты). Нужны права на запись (root на телефоне,
 /// udev-правило или группа video на десктопе); без них — `brightnessctl`.
 pub fn set_percent(sys: &Sys, pct: f32) -> std::io::Result<Backlight> {
-    let mut b = primary(sys).ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "нет подсветки"))?;
+    let mut b = primary(sys).ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, t!("нет подсветки")))?;
     let v = b.value_for_percent(pct);
     let path = sys.path(format!("{BL}/{}/brightness", b.name));
     if let Err(e) = std::fs::write(&path, v.to_string()) {
@@ -85,7 +86,7 @@ pub fn set_percent(sys: &Sys, pct: f32) -> std::io::Result<Backlight> {
 
 /// Изменить на `delta` процентов; результат — новая подсветка.
 pub fn change(sys: &Sys, delta: f32) -> std::io::Result<Backlight> {
-    let cur = primary(sys).ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "нет подсветки"))?;
+    let cur = primary(sys).ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, t!("нет подсветки")))?;
     set_percent(sys, cur.percent() + delta)
 }
 

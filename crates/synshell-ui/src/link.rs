@@ -89,11 +89,11 @@ fn on_event(ctx: ShellCtx, e: Event) {
             ctx.link.set(Some(status));
         }
         Event::Connected { device } => {
-            let how = device.transport.map(|t| t.title()).unwrap_or("сети");
-            crate::osd::show(ctx, kind_glyph(device.kind), None, format!("{} · соединено по {how}", device.name));
+            let how = device.transport.map(|t| t.title()).unwrap_or(n_!("сети"));
+            crate::osd::show(ctx, kind_glyph(device.kind), None, t!("{name} · соединено по {how}", name = device.name, how = syngui::i18n::t(how)));
         }
         Event::Disconnected { device } => {
-            crate::osd::show(ctx, gl::LINK_OFF, None, format!("{} · соединение разорвано", device.name));
+            crate::osd::show(ctx, gl::LINK_OFF, None, t!("{name} · соединение разорвано", name = device.name));
         }
         Event::PairPrompt { prompt } => {
             if !prompt.outgoing || prompt.code.is_some() {
@@ -103,9 +103,9 @@ fn on_event(ctx: ShellCtx, e: Event) {
         }
         Event::Paired { name, ok, message, .. } => {
             let label = if ok {
-                format!("{name} · спарено")
+                t!("{name} · спарено", name = name)
             } else {
-                format!("{name} · не спарено{}", message.map(|m| format!(": {m}")).unwrap_or_default())
+                t!("{name} · не спарено{v}", name = name, v = message.map(|m| format!(": {m}")).unwrap_or_default())
             };
             crate::osd::show(ctx, if ok { gl::LINK } else { gl::LINK_OFF }, None, label);
         }
@@ -132,7 +132,7 @@ fn screenshot(p: &PeerInfo) {
     let id = p.id.clone();
     let name = p.name.clone();
     std::thread::spawn(move || {
-        let dir = synshell_common::paths::user_dir_or_default("PICTURES").join("Снимки экрана");
+        let dir = synshell_common::paths::user_dir_or_default("PICTURES").join(t!("Снимки экрана"));
         let _ = std::fs::create_dir_all(&dir);
         let stamp = crate::clock::format(crate::clock::unix_now(), "%Y-%m-%d_%H-%M-%S");
         let path = dir.join(format!("{}_{stamp}.png", name.replace('/', "_")));
@@ -142,7 +142,7 @@ fn screenshot(p: &PeerInfo) {
             let ctx = ShellCtx::get();
             match r {
                 Ok(Response::Screenshot { path, width, height, .. }) => {
-                    crate::notifications::local(ctx, &format!("Снимок: {name}"), &format!("{width}×{height}"), Some(path))
+                    crate::notifications::local(ctx, &t!("Снимок: {name}", name = name), &format!("{width}×{height}"), Some(path))
                 }
                 Ok(Response::Error { message }) => crate::osd::show(ctx, gl::LINK_OFF, None, message),
                 Err(e) => crate::osd::show(ctx, gl::LINK_OFF, None, format!("synlink: {e}")),
@@ -174,14 +174,14 @@ fn shell_quote(s: &str) -> String {
 fn state_line(p: &PeerInfo) -> String {
     let mut parts = Vec::new();
     if p.connected {
-        parts.push(format!("Соединено · {}", p.transport.map(|t| t.title()).unwrap_or("?")));
+        parts.push(t!("Соединено · {v}", v = p.transport.map(|t| t.title()).unwrap_or("?")));
         if let Some(r) = p.rtt_ms {
-            parts.push(format!("{} мс", r.round().max(1.0) as u32));
+            parts.push(t!("{v} мс", v = r.round().max(1.0) as u32));
         }
     } else if p.paired {
-        parts.push("Не в сети".into());
+        parts.push(t!("Не в сети").into());
     } else {
-        parts.push(format!("Рядом · {}", p.transport.map(|t| t.title()).unwrap_or("сеть")));
+        parts.push(t!("Рядом · {v}", v = p.transport.map(|t| t.title()).unwrap_or("сеть")));
     }
     if let Some(b) = &p.battery {
         parts.push(format!("{}{} %", if b.charging { "⚡" } else { "" }, b.percent));
@@ -283,19 +283,19 @@ fn device_card(p: PeerInfo, compact: bool) -> Box<dyn Widget> {
         let (a, b, c, d) = (p.clone(), p.clone(), p.clone(), p.clone());
         let mut actions = Row::new()
             .gap(6.0)
-            .child(action(gl::SCREEN, "Экран", move || {
+            .child(action(gl::SCREEN, &t!("Экран"), move || {
                 ShellCtx::get().close_popup();
                 crate::shade::close();
                 crate::actions::spawn(&format!("synlink-view {}", a.id));
             }))
-            .child(action(gl::FOLDER, "Файлы", move || {
+            .child(action(gl::FOLDER, &t!("Файлы"), move || {
                 ShellCtx::get().close_popup();
                 crate::shade::close();
                 open_files(&b);
             }))
-            .child(action(gl::SHOT, "Снимок", move || screenshot(&c)));
+            .child(action(gl::SHOT, &t!("Снимок"), move || screenshot(&c)));
         if !compact {
-            actions = actions.child(action(gl::TERMINAL, "Терминал", move || {
+            actions = actions.child(action(gl::TERMINAL, &t!("Терминал"), move || {
                 ShellCtx::get().close_popup();
                 open_terminal(&d);
             }));
@@ -306,8 +306,8 @@ fn device_card(p: PeerInfo, compact: bool) -> Box<dyn Widget> {
         col = col.child(
             Row::new()
                 .gap(8.0)
-                .child(Text::new("Не спарено — на устройстве появится код для сверки").max_lines(2).class("link-note grow"))
-                .child(small_button("Спарить", true, move || send(Request::Pair { device: id.clone() }))),
+                .child(Text::new(t!("Не спарено — на устройстве появится код для сверки")).max_lines(2).class("link-note grow"))
+                .child(small_button(&t!("Спарить"), true, move || send(Request::Pair { device: id.clone() }))),
         );
     }
     Box::new(DecoratedBox::new().child(col).class(if p.connected { "link-card link-card-on" } else { "link-card" }))
@@ -317,18 +317,18 @@ fn device_card(p: PeerInfo, compact: bool) -> Box<dyn Widget> {
 fn usb_row(st: &Status) -> Box<dyn Widget> {
     let over_usb = st.peers.iter().any(|p| p.connected && p.transport == Some(Transport::Usb));
     let (text, on) = if over_usb {
-        ("Кабель USB подключён · оболочки соединены".to_string(), true)
+        (t!("Кабель USB подключён · оболочки соединены").to_string(), true)
     } else if st.usb.cable {
         (
             if st.me.kind.is_touch() {
-                "Кабель USB подключён · ждём оболочку компьютера".into()
+                t!("Кабель USB подключён · ждём оболочку компьютера").into()
             } else {
-                "Кабель USB подключён · ждём оболочку телефона".into()
+                t!("Кабель USB подключён · ждём оболочку телефона").into()
             },
             true,
         )
     } else {
-        ("Кабель USB не подключён".to_string(), false)
+        (t!("Кабель USB не подключён").to_string(), false)
     };
     Box::new(
         Row::new()
@@ -355,7 +355,7 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
             Row::new()
                 .gap(8.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(Text::new("Устройства").class("popup-title grow"))
+                .child(Text::new(t!("Устройства")).class("popup-title grow"))
                 .child(icon_button(gl::SETTINGS, || {
                     ShellCtx::get().close_popup();
                     crate::actions::spawn("synsettings devices");
@@ -366,8 +366,8 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
                 return Box::new(
                     Column::new()
                         .gap(6.0)
-                        .child(Text::new("Служба связи устройств не запущена").class("popup-text"))
-                        .child(Text::new("Она запускается вместе с сеансом (synlink daemon); включается в [link] config.toml.").max_lines(3).class("link-note")),
+                        .child(Text::new(t!("Служба связи устройств не запущена")).class("popup-text"))
+                        .child(Text::new(t!("Она запускается вместе с сеансом (synlink daemon); включается в [link] config.toml.")).max_lines(3).class("link-note")),
                 ) as Box<dyn Widget>;
             };
             let mut col = Column::new().gap(8.0).child(usb_row(&st));
@@ -380,9 +380,9 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
                                 .gap(4.0)
                                 .cross_axis_alignment(CrossAxisAlignment::Center)
                                 .child(icon(gl::LINK).class("link-empty-icon"))
-                                .child(Text::new("Устройств пока нет").class("popup-text"))
+                                .child(Text::new(t!("Устройств пока нет")).class("popup-text"))
                                 .child(
-                                    Text::new("Подключите телефон кабелем USB или откройте synshell на другом устройстве в той же сети Wi-Fi")
+                                    Text::new(t!("Подключите телефон кабелем USB или откройте synshell на другом устройстве в той же сети Wi-Fi"))
                                         .max_lines(3)
                                         .class("link-note link-center"),
                                 ),
@@ -394,13 +394,13 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
                 col = col.child(device_card(p, false));
             }
             if !nearby.is_empty() {
-                col = col.child(Text::new("Рядом").class("link-section"));
+                col = col.child(Text::new(t!("Рядом")).class("link-section"));
                 for p in nearby {
                     col = col.child(device_card(p, false));
                 }
             }
             col = col.child(
-                Text::new(format!("Эта машина: «{}»{}", st.me.name, if st.me.discoverable { "" } else { " · скрыта в Wi-Fi" }))
+                Text::new(t!("Эта машина: «{name}»{v}", name = st.me.name, v = if st.me.discoverable { "" } else { " · скрыта в Wi-Fi" }))
                     .max_lines(1)
                     .class("link-note"),
             );
@@ -412,18 +412,18 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
 pub fn pair_view(ctx: ShellCtx, id: String) -> impl Widget {
     rx(move || {
         let Some(p): Option<PairPrompt> = ctx.link.get().and_then(|s| s.prompts.into_iter().find(|x| x.id == id)) else {
-            return Box::new(Text::new("Запрос спаривания закрыт").class("popup-text")) as Box<dyn Widget>;
+            return Box::new(Text::new(t!("Запрос спаривания закрыт")).class("popup-text")) as Box<dyn Widget>;
         };
         let what = format!("{} «{}»", p.kind.title(), p.name);
         let (title, text) = match (&p.code, p.outgoing) {
-            (Some(_), true) => ("Спаривание".to_string(), format!("Сверьте код с экраном устройства {what} и подтвердите там.")),
+            (Some(_), true) => (t!("Спаривание").to_string(), t!("Сверьте код с экраном устройства {what} и подтвердите там.", what = what)),
             (Some(_), false) => (
-                "Запрос на соединение".to_string(),
-                format!("{what} хочет соединиться по Wi-Fi. Совпадает ли код на обоих экранах?"),
+                t!("Запрос на соединение").to_string(),
+                t!("{what} хочет соединиться по Wi-Fi. Совпадает ли код на обоих экранах?", what = what),
             ),
             (None, _) => (
-                "Подключено по USB".to_string(),
-                format!("{what}. Разрешить ему экран, ввод, файлы, уведомления и ssh этого устройства?"),
+                t!("Подключено по USB").to_string(),
+                t!("{what}. Разрешить ему экран, ввод, файлы, уведомления и ssh этого устройства?", what = what),
             ),
         };
         let mut col = Column::new()
@@ -439,23 +439,23 @@ pub fn pair_view(ctx: ShellCtx, id: String) -> impl Widget {
             Row::new()
                 .gap(8.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(Text::new(if p.transport == Transport::Usb { "Кабель USB" } else { "Wi-Fi" }).class("link-note"))
+                .child(Text::new(if p.transport == Transport::Usb { t!("Кабель USB") } else { "Wi-Fi".into() }).class("link-note"))
                 .child(icon(gl::SHIELD).class("link-shield")),
         );
         let (a, b) = (p.id.clone(), p.id.clone());
         let buttons = if p.outgoing {
-            Row::new().gap(8.0).child(small_button("Отмена", false, move || {
+            Row::new().gap(8.0).child(small_button(&t!("Отмена"), false, move || {
                 send(Request::Disconnect { device: a.clone() });
                 ShellCtx::get().close_popup();
             }))
         } else {
             Row::new()
                 .gap(8.0)
-                .child(small_button("Отклонить", false, move || {
+                .child(small_button(&t!("Отклонить"), false, move || {
                     send(Request::PairReply { device: a.clone(), accept: false });
                     ShellCtx::get().close_popup();
                 }))
-                .child(small_button("Разрешить", true, move || {
+                .child(small_button(&t!("Разрешить"), true, move || {
                     send(Request::PairReply { device: b.clone(), accept: true });
                     ShellCtx::get().close_popup();
                 }))

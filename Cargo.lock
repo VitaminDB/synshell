@@ -5186,6 +5186,7 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "synshell-tr",
  "tracing",
  "tracing-subscriber",
 ]
@@ -5265,12 +5266,18 @@ dependencies = [
  "png 0.17.16",
  "serde",
  "serde_json",
+ "syngui",
+ "synshell-tr",
  "tempfile",
  "toml",
  "toml_edit 0.23.10+spec-1.0.0",
  "tracing",
  "zbus",
 ]
+
+[[package]]
+name = "synshell-tr"
+version = "0.1.41"
 
 [[package]]
 name = "synshell-ui"
@@ -5346,6 +5353,7 @@ dependencies = [
  "flate2",
  "libc",
  "serde_json",
+ "synshell-tr",
  "tempfile",
  "tracing",
  "zbus",

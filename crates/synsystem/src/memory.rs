@@ -1,6 +1,7 @@
 //! Память (`/proc/meminfo`).
 
 use crate::Sys;
+use synshell_tr::t;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Memory {
@@ -43,9 +44,9 @@ pub fn read(sys: &Sys) -> Option<Memory> {
 pub fn human_kb(kb: u64) -> String {
     let mb = kb as f64 / 1024.0;
     if mb >= 1024.0 {
-        format!("{:.1} ГБ", mb / 1024.0)
+        t!("{v} ГБ", v = format!("{:.1}", mb / 1024.0))
     } else {
-        format!("{mb:.0} МБ")
+        t!("{mb} МБ", mb = format!("{:.0}", mb))
     }
 }
 

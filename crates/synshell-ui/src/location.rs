@@ -162,7 +162,7 @@ pub fn ask_view(_ctx: ShellCtx, id: u64) -> impl Widget {
 fn view(id: u64) -> Box<dyn Widget> {
     let desktop_id = PENDING.lock().unwrap().iter().find(|r| r.id == id).map(|r| r.desktop_id.clone());
     let Some(desktop_id) = desktop_id else {
-        return Box::new(Text::new("Запрос местоположения закрыт").class("popup-text"));
+        return Box::new(Text::new(t!("Запрос местоположения закрыт")).class("popup-text"));
     };
     let entry = crate::xdg::app_by_id(&desktop_id);
     let name = entry.as_ref().map(|e| e.name.clone()).unwrap_or_else(|| desktop_id.clone());
@@ -175,14 +175,14 @@ fn view(id: u64) -> Box<dyn Widget> {
             .gap(12.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .child(pic)
-            .child(Text::new("Местоположение").class("link-pair-title"))
-            .child(Text::new(format!("«{name}» запрашивает ваше точное местоположение.")).max_lines(4).class("link-pair-text"))
+            .child(Text::new(t!("Местоположение")).class("link-pair-title"))
+            .child(Text::new(t!("«{name}» запрашивает ваше точное местоположение.", name = name)).max_lines(4).class("link-pair-text"))
             .child(
                 Row::new()
                     .gap(8.0)
-                    .child(button("Запретить", false, move || answer(id, false, true)))
-                    .child(button("Только сейчас", false, move || answer(id, true, false)))
-                    .child(button("Разрешить", true, move || answer(id, true, true))),
+                    .child(button(&t!("Запретить"), false, move || answer(id, false, true)))
+                    .child(button(&t!("Только сейчас"), false, move || answer(id, true, false)))
+                    .child(button(&t!("Разрешить"), true, move || answer(id, true, true))),
             ),
     )
 }

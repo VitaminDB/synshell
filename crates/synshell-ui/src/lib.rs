@@ -108,6 +108,8 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
     theme::set_layer(shell.extra_mss, shell.user_mss);
     FORM_FACTOR.with(|f| f.set(shell.form_factor));
     let (config, err) = load_config(shell.form_factor);
+    // Язык интерфейса: строки оболочки, телефонной и десктопной (`i18n/*.lang`).
+    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
     apply_animations(&config);
     if let Some(e) = err {
         log::error!("ошибка в конфиге, взяты значения по умолчанию: {e}");
@@ -290,10 +292,12 @@ pub fn reload_config() {
     if let Some(e) = err {
         // Ошибку показываем уведомлением и оставляем прежний конфиг.
         log::error!("конфиг: {e}");
-        osd::show(ctx, ui::mi::INFO, None, "Ошибка в config.toml".into());
+        osd::show(ctx, ui::mi::INFO, None, t!("Ошибка в config.toml").into());
         return;
     }
     log::info!("конфиг перечитан");
+    // Сменили язык — до пересборки поверхностей (смена [general] — пересборка).
+    synshell_common::i18n::apply(&cfg);
     apply_animations(&cfg);
     xdg::set_icon_theme(&cfg.appearance.icon_theme);
     // Сменилось только оформление (тема, обои, анимации) — поверхности

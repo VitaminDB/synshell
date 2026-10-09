@@ -23,3 +23,9 @@ pub mod xdg;
 
 pub use action::Action;
 pub use config::Config;
+
+#[cfg(feature = "i18n")]
+pub mod i18n;
+
+/// Перевод строк библиотек: `synshell_common::t!`, `tn!`, `n_!` (см. `synshell_tr`).
+pub use synshell_tr::{n_, t, tn};

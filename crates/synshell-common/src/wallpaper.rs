@@ -11,6 +11,7 @@
 //! экран, сдвинутое на `pos × сдвиг` экрана. `pos` дробный — фон едет вслед
 //! за пальцем, листающим столы.
 
+use crate::t;
 /// Область картинки размером `img` (px), которую надо показать в кадре с
 /// пропорциями `view`, чтобы кадр был закрыт целиком.
 pub fn crop_uv(img: (f32, f32), view: (f32, f32), zoom: f32, center: [f32; 2]) -> [f32; 4] {
@@ -164,7 +165,7 @@ pub fn prepare(p: &std::path::Path, done: impl FnOnce() + Send + 'static) {
 
 fn convert(src: &std::path::Path, out: &std::path::Path) -> Result<(), String> {
     use std::process::{Command, Stdio};
-    let dir = out.parent().ok_or("нет каталога кэша")?;
+    let dir = out.parent().ok_or(t!("нет каталога кэша"))?;
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     // Во временный файл и переименованием — показ не увидит недописанный.
     let stem = format!(".{}-{:?}.tmp", std::process::id(), std::thread::current().id()).replace(['(', ')'], "");
@@ -196,7 +197,7 @@ fn convert(src: &std::path::Path, out: &std::path::Path) -> Result<(), String> {
         }
         cleanup();
     }
-    Err("нужен пакет libheif (heif-convert) или imagemagick".into())
+    Err(t!("нужен пакет libheif (heif-convert) или imagemagick").into())
 }
 
 /// Картинка ли это (по расширению) — годится ли в обои.

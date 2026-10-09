@@ -10,6 +10,7 @@ use std::process::{Command, Stdio};
 
 use zbus::blocking::Connection;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue};
+use synshell_tr::t;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Network {
@@ -132,14 +133,14 @@ pub fn service_control(unit: &str, start: bool) -> Result<(), String> {
         c.arg("systemctl");
         c
     } else {
-        return Err("нужны права root: pkexec не найден".into());
+        return Err(t!("нужны права root: pkexec не найден").into());
     };
     let out = c.args(&args).env("LC_ALL", "C").stdin(Stdio::null()).output().map_err(|e| format!("systemctl: {e}"))?;
     if out.status.success() {
         Ok(())
     } else {
         let e = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        Err(if e.is_empty() { format!("systemctl: код {}", out.status.code().unwrap_or(-1)) } else { e })
+        Err(if e.is_empty() { t!("systemctl: код {v}", v = out.status.code().unwrap_or(-1)) } else { e })
     }
 }
 
@@ -149,7 +150,7 @@ fn run(cmd: &str, args: &[&str]) -> Result<String, String> {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {
         let e = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        Err(if e.is_empty() { format!("{cmd}: код {}", out.status.code().unwrap_or(-1)) } else { e })
+        Err(if e.is_empty() { t!("{cmd}: код {v}", cmd = cmd, v = out.status.code().unwrap_or(-1)) } else { e })
     }
 }
 
@@ -249,7 +250,7 @@ impl WifiBackend for Iwd {
 
     fn scan(&self) -> Result<(), String> {
         let objs = self.objects()?;
-        let (sp, _) = self.station(&objs).ok_or("нет станции Wi-Fi")?;
+        let (sp, _) = self.station(&objs).ok_or(t!("нет станции Wi-Fi"))?;
         // Уже идёт — не ошибка.
         match self.call(&sp, "net.connman.iwd.Station", "Scan") {
             Err(e) if e.contains("InProgress") || e.contains("Busy") => Ok(()),
@@ -259,7 +260,7 @@ impl WifiBackend for Iwd {
 
     fn set_powered(&self, on: bool) -> Result<(), String> {
         let objs = self.objects()?;
-        let path = objs.iter().find(|(_, i)| i.contains_key("net.connman.iwd.Device")).map(|(p, _)| p.to_string()).ok_or("нет устройства Wi-Fi")?;
+        let path = objs.iter().find(|(_, i)| i.contains_key("net.connman.iwd.Device")).map(|(p, _)| p.to_string()).ok_or(t!("нет устройства Wi-Fi"))?;
         let v = zbus::zvariant::Value::from(on);
         self.conn
             .call_method(Some("net.connman.iwd"), path.as_str(), Some("org.freedesktop.DBus.Properties"), "Set", &("net.connman.iwd.Device", "Powered", v))
@@ -269,7 +270,7 @@ impl WifiBackend for Iwd {
 
     fn connect(&self, ssid: &str, passphrase: Option<&str>) -> Result<(), String> {
         let st = self.state()?;
-        let dev = st.device.ok_or("нет устройства Wi-Fi")?;
+        let dev = st.device.ok_or(t!("нет устройства Wi-Fi"))?;
         let mut args: Vec<&str> = Vec::new();
         if let Some(p) = passphrase {
             args.extend(["--passphrase", p]);
@@ -280,7 +281,7 @@ impl WifiBackend for Iwd {
 
     fn disconnect(&self) -> Result<(), String> {
         let objs = self.objects()?;
-        let (sp, _) = self.station(&objs).ok_or("нет станции Wi-Fi")?;
+        let (sp, _) = self.station(&objs).ok_or(t!("нет станции Wi-Fi"))?;
         self.call(&sp, "net.connman.iwd.Station", "Disconnect")
     }
 
@@ -290,7 +291,7 @@ impl WifiBackend for Iwd {
             .iter()
             .find(|(_, ifs)| ifs.get("net.connman.iwd.KnownNetwork").and_then(|k| prop_str(k, "Name")).as_deref() == Some(ssid))
             .map(|(p, _)| p.to_string())
-            .ok_or("сеть не сохранена")?;
+            .ok_or(t!("сеть не сохранена"))?;
         self.call(&path, "net.connman.iwd.KnownNetwork", "Forget")
     }
 }
@@ -413,7 +414,7 @@ impl WifiBackend for Nm {
 
     fn disconnect(&self) -> Result<(), String> {
         let st = self.state()?;
-        let dev = st.device.ok_or("нет устройства Wi-Fi")?;
+        let dev = st.device.ok_or(t!("нет устройства Wi-Fi"))?;
         run("nmcli", &["device", "disconnect", &dev]).map(|_| ())
     }
 

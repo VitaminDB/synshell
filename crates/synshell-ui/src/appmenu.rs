@@ -213,7 +213,7 @@ impl Registrar {
 
     fn get_menu_for_window(&self, window_id: u32) -> zbus::fdo::Result<(String, OwnedObjectPath)> {
         let w = self.windows.lock().unwrap();
-        let (s, p) = w.get(&window_id).ok_or_else(|| zbus::fdo::Error::Failed("нет меню".into()))?;
+        let (s, p) = w.get(&window_id).ok_or_else(|| zbus::fdo::Error::Failed(t!("нет меню").into()))?;
         let p = OwnedObjectPath::try_from(p.as_str()).map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
         Ok((s.clone(), p))
     }

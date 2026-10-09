@@ -1,0 +1,9 @@
+[package]
+name = "synshell-tr"
+description = "Translation of interface strings for synshell libraries without a GUI toolkit"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]

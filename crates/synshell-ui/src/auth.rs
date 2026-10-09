@@ -110,25 +110,25 @@ fn respond(view: RwSignal<Option<AuthView>>, pw: Option<String>) {
 fn source(action: &str) -> (&'static str, &'static str) {
     let pre = |p: &str| action.starts_with(p);
     if pre("org.freedesktop.policykit.exec") {
-        ("\u{E86F}", "Запуск программы от имени администратора")
+        ("\u{E86F}", n_!("Запуск программы от имени администратора"))
     } else if pre("org.freedesktop.udisks2.") {
-        ("\u{E1DB}", "Диски и разделы")
+        ("\u{E1DB}", n_!("Диски и разделы"))
     } else if pre("org.synshell.synpkg") || pre("org.archlinux.pacman") {
-        ("\u{E1A1}", "Установка и удаление программ")
+        ("\u{E1A1}", n_!("Установка и удаление программ"))
     } else if pre("org.freedesktop.NetworkManager.") || pre("net.connman.") {
-        ("\u{E63E}", "Сеть")
+        ("\u{E63E}", n_!("Сеть"))
     } else if pre("org.freedesktop.login1.") {
-        ("\u{E8AC}", "Питание и сеансы")
+        ("\u{E8AC}", n_!("Питание и сеансы"))
     } else if pre("org.freedesktop.timedate1.") {
-        ("\u{E192}", "Дата и время")
+        ("\u{E192}", n_!("Дата и время"))
     } else if pre("org.freedesktop.systemd1.") {
-        ("\u{E8B8}", "Системные службы")
+        ("\u{E8B8}", n_!("Системные службы"))
     } else if pre("org.bluez.") {
         ("\u{E1A7}", "Bluetooth")
     } else if pre("org.freedesktop.packagekit.") || pre("org.freedesktop.fwupd.") {
-        ("\u{E923}", "Обновление системы")
+        ("\u{E923}", n_!("Обновление системы"))
     } else {
-        ("\u{EF3D}", "Системное действие")
+        ("\u{EF3D}", n_!("Системное действие"))
     }
 }
 
@@ -204,11 +204,11 @@ fn card(view: RwSignal<Option<AuthView>>) -> impl Widget {
                         )
                         .class("auth-badge"),
                 )
-                .child(Text::new("Требуется подтверждение").class("auth-title"))
+                .child(Text::new(t!("Требуется подтверждение")).class("auth-title"))
                 .child(Text::new(msg).max_lines(4).class("auth-message"))
                 .child(
                     DecoratedBox::new()
-                        .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(glyph).class("auth-chip-icon")).child(Text::new(what).class("auth-chip-label")))
+                        .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(glyph).class("auth-chip-icon")).child(Text::new(syngui::i18n::t(what)).class("auth-chip-label")))
                         .class("auth-chip"),
                 ),
         )
@@ -219,11 +219,11 @@ fn card(view: RwSignal<Option<AuthView>>) -> impl Widget {
         let me = std::env::var("USER").unwrap_or_default();
         let name = real_name(&user).unwrap_or_else(|| user.clone());
         let hint = if user == "root" {
-            "Пароль суперпользователя (root)".to_string()
+            t!("Пароль суперпользователя (root)").to_string()
         } else if user == me {
-            format!("{user} · ваш пароль")
+            t!("{user} · ваш пароль", user = user)
         } else {
-            format!("{user} · пароль администратора")
+            t!("{user} · пароль администратора", user = user)
         };
         Box::new(
             DecoratedBox::new()
@@ -243,7 +243,7 @@ fn card(view: RwSignal<Option<AuthView>>) -> impl Widget {
         let shown = show.get();
         let wait = busy.get();
         let had_error = v.as_ref().is_some_and(|v| v.0.error.is_some());
-        let prompt = v.as_ref().map(|v| v.0.prompt.trim_end_matches(':').trim().to_string()).filter(|p| !p.is_empty() && !p.eq_ignore_ascii_case("password")).unwrap_or_else(|| "Пароль".into());
+        let prompt = v.as_ref().map(|v| v.0.prompt.trim_end_matches(':').trim().to_string()).filter(|p| !p.is_empty() && !p.eq_ignore_ascii_case("password")).unwrap_or_else(|| t!("Пароль").into());
         let f = TextField::with_text(pw.get_untracked())
             .obscure(!shown)
             .autofocus(true)
@@ -280,12 +280,12 @@ fn card(view: RwSignal<Option<AuthView>>) -> impl Widget {
             Row::new()
                 .gap(2.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(Text::new("Подробности").class("auth-link"))
+                .child(Text::new(t!("Подробности")).class("auth-link"))
                 .child(icon(if open { "\u{E5CE}" } else { "\u{E5CF}" }).class("auth-link-icon")),
         );
         let mut col = Column::new().gap(6.0).child(toggle);
         if open {
-            col = col.child(Text::new(format!("Действие: {action}")).selectable(true).class("auth-details"));
+            col = col.child(Text::new(t!("Действие: {action}", action = action)).selectable(true).class("auth-details"));
         }
         Box::new(col)
     });
@@ -293,15 +293,15 @@ fn card(view: RwSignal<Option<AuthView>>) -> impl Widget {
     let actions = rx(move || {
         let wait = busy.get();
         let ok: Box<dyn Widget> = if wait {
-            Box::new(button("Проверка…", "auth-btn auth-btn-primary auth-btn-busy", || {}))
+            Box::new(button(t!("Проверка…"), "auth-btn auth-btn-primary auth-btn-busy", || {}))
         } else {
-            Box::new(button("Подтвердить", "auth-btn auth-btn-primary", submit))
+            Box::new(button(t!("Подтвердить"), "auth-btn auth-btn-primary", submit))
         };
         Box::new(
             Row::new()
                 .gap(10.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(button("Отмена", "auth-btn", move || respond(view, None)))
+                .child(button(t!("Отмена"), "auth-btn", move || respond(view, None)))
                 .child(ok),
         )
     });

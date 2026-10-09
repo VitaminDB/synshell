@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 
 use crate::util::which;
+use synshell_tr::{n_, t};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Source {
@@ -31,7 +32,7 @@ impl Source {
         match self {
             Source::Repo(r) => r.clone(),
             Source::Aur => "AUR".into(),
-            Source::Local => "локальный".into(),
+            Source::Local => t!("локальный").into(),
         }
     }
 }
@@ -355,15 +356,15 @@ pub fn details(p: &Pkg) -> Details {
             let Some(v) = j.get("results").and_then(|r| r.as_array()).and_then(|a| a.first()) else { return Details::default() };
             let s = |k: &str| v.get(k).and_then(|x| x.as_str()).map(String::from);
             let arr = |k: &str| v.get(k).and_then(|x| x.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
-            let mut fields = vec![("Версия".into(), p.version.clone())];
+            let mut fields = vec![(t!("Версия").into(), p.version.clone())];
             if let Some(m) = s("Maintainer") {
-                fields.push(("Сопровождающий".into(), m));
+                fields.push((t!("Сопровождающий").into(), m));
             }
             if let Some(n) = v.get("NumVotes").and_then(|x| x.as_u64()) {
-                fields.push(("Голоса".into(), n.to_string()));
+                fields.push((t!("Голоса").into(), n.to_string()));
             }
             if let Some(l) = v.get("License").and_then(|x| x.as_array()) {
-                fields.push(("Лицензия".into(), l.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(", ")));
+                fields.push((t!("Лицензия").into(), l.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(", ")));
             }
             Details { fields, depends: arr("Depends"), make_depends: arr("MakeDepends"), optional: arr("OptDepends"), url: s("URL"), files: Vec::new() }
         }
@@ -372,15 +373,15 @@ pub fn details(p: &Pkg) -> Details {
             let f = parse_fields(&text);
             let get = |k: &str| f.iter().find(|(a, _)| a == k).map(|(_, v)| v.clone()).unwrap_or_default();
             let names = [
-                ("Version", "Версия"),
-                ("Repository", "Репозиторий"),
-                ("Licenses", "Лицензия"),
-                ("Download Size", "Загрузка"),
-                ("Installed Size", "Размер"),
-                ("Packager", "Сборщик"),
-                ("Build Date", "Собран"),
-                ("Install Date", "Установлен"),
-                ("Required By", "Нужен для"),
+                ("Version", t!("Версия")),
+                ("Repository", t!("Репозиторий")),
+                ("Licenses", t!("Лицензия")),
+                ("Download Size", t!("Загрузка")),
+                ("Installed Size", t!("Размер")),
+                ("Packager", t!("Сборщик")),
+                ("Build Date", t!("Собран")),
+                ("Install Date", t!("Установлен")),
+                ("Required By", t!("Нужен для")),
             ];
             let fields = names.iter().filter_map(|(k, ru)| Some((ru.to_string(), get(k)).clone()).filter(|(_, v)| !v.is_empty() && v != "None")).collect();
             let files = if p.installed.is_some() {
@@ -846,7 +847,7 @@ pub struct Job {
 }
 
 /// Текст ошибки отменённого задания.
-pub const CANCELLED: &str = "отменено";
+pub const CANCELLED: &str = n_!("отменено");
 
 /// Путь помощника pacman с отменой (`crates/synpkg/data/pacman-helper`); его же
 /// называет правило polkit `org.synshell.synpkg.pacman`.
@@ -951,7 +952,7 @@ fn run_streaming(mut cmd: Command, tx: &mpsc::Sender<JobEvent>, cancel: &JobCanc
         if cancel.is_cancelled() {
             return Err(CANCELLED.into());
         }
-        let mut child = cmd.spawn().map_err(|e| format!("не запустить: {e}"))?;
+        let mut child = cmd.spawn().map_err(|e| t!("не запустить: {e}", e = e))?;
         *cur = Some(Running { pid: child.id(), helper: child.stdin.take() });
         child
     };
@@ -981,9 +982,9 @@ fn run_streaming(mut cmd: Command, tx: &mpsc::Sender<JobEvent>, cancel: &JobCanc
         Ok(())
     } else if via_pkexec && matches!(st.code(), Some(126 | 127)) {
         // pkexec: 126 — окно пароля закрыто, 127 — не разрешено (отмена в окне агента или неверный пароль).
-        Err("права администратора не получены: окно пароля закрыто или пароль неверен".into())
+        Err(t!("права администратора не получены: окно пароля закрыто или пароль неверен").into())
     } else {
-        Err(format!("завершилось с кодом {}", st.code().unwrap_or(-1)))
+        Err(t!("завершилось с кодом {v}", v = st.code().unwrap_or(-1)))
     }
 }
 
@@ -1018,9 +1019,9 @@ fn aur_plan(names: &[String], tx: &mpsc::Sender<JobEvent>) -> Result<(Vec<String
             return Ok(());
         }
         let url = format!("https://aur.archlinux.org/rpc/v5/info?arg[]={}", urlencode(name));
-        let j = curl_json(&url).ok_or_else(|| "AUR недоступен (сеть?)".to_string())?;
+        let j = curl_json(&url).ok_or_else(|| t!("AUR недоступен (сеть?)").to_string())?;
         let Some(v) = j.get("results").and_then(|r| r.as_array()).and_then(|a| a.first()).cloned() else {
-            return Err(format!("{name}: нет ни в репозиториях, ни в AUR"));
+            return Err(t!("{name}: нет ни в репозиториях, ни в AUR", name = name));
         };
         let deps: Vec<String> = ["Depends", "MakeDepends", "CheckDepends"]
             .iter()
@@ -1036,7 +1037,7 @@ fn aur_plan(names: &[String], tx: &mpsc::Sender<JobEvent>) -> Result<(Vec<String
             if in_repo {
                 repo_deps.insert(d);
             } else {
-                let _ = tx.send(JobEvent::Line(format!("зависимость из AUR: {d}")));
+                let _ = tx.send(JobEvent::Line(t!("зависимость из AUR: {d}", d = d)));
                 visit(&d, installed, order, repo_deps, seen, tx, depth + 1)?;
             }
         }
@@ -1051,13 +1052,13 @@ fn aur_plan(names: &[String], tx: &mpsc::Sender<JobEvent>) -> Result<(Vec<String
 
 /// Собрать и установить пакеты AUR.
 fn build_aur(names: &[String], build_user: &str, tx: &mpsc::Sender<JobEvent>, cancel: &JobCancel) -> Result<(), String> {
-    let _ = tx.send(JobEvent::Stage("Разбор зависимостей AUR".into()));
+    let _ = tx.send(JobEvent::Stage(t!("Разбор зависимостей AUR").into()));
     let (order, repo_deps) = aur_plan(names, tx)?;
     if cancel.is_cancelled() {
         return Err(CANCELLED.into());
     }
     if !repo_deps.is_empty() {
-        let _ = tx.send(JobEvent::Stage(format!("Зависимости из репозиториев: {}", repo_deps.len())));
+        let _ = tx.send(JobEvent::Stage(t!("Зависимости из репозиториев: {n}", n = repo_deps.len())));
         let mut args = vec!["-S", "--needed", "--noconfirm", "--asdeps"];
         args.extend(repo_deps.iter().map(|s| s.as_str()));
         run_streaming(pacman_cmd(&args), tx, cancel)?;
@@ -1065,7 +1066,7 @@ fn build_aur(names: &[String], build_user: &str, tx: &mpsc::Sender<JobEvent>, ca
     let root = is_root();
     let user = if build_user.trim().is_empty() {
         if root {
-            return Err("makepkg не работает от root — задайте [packages] build_user (обычный пользователь, например `useradd -m builder`)".into());
+            return Err(t!("makepkg не работает от root — задайте [packages] build_user (обычный пользователь, например `useradd -m builder`)").into());
         }
         String::new()
     } else {
@@ -1075,7 +1076,7 @@ fn build_aur(names: &[String], build_user: &str, tx: &mpsc::Sender<JobEvent>, ca
     std::fs::create_dir_all(&cache).map_err(|e| format!("{}: {e}", cache.display()))?;
     let total = order.len();
     for (i, name) in order.iter().enumerate() {
-        let _ = tx.send(JobEvent::Stage(format!("Сборка {name} ({}/{total})", i + 1)));
+        let _ = tx.send(JobEvent::Stage(t!("Сборка {name} ({v}/{total})", name = name, v = i + 1, total = total)));
         let dir = cache.join(name);
         let _ = std::fs::remove_dir_all(&dir);
         let tarball = cache.join(format!("{name}.tar.gz"));
@@ -1109,9 +1110,9 @@ fn build_aur(names: &[String], build_user: &str, tx: &mpsc::Sender<JobEvent>, ca
             .map(|p| p.to_string_lossy().into_owned())
             .collect();
         if built.is_empty() {
-            return Err(format!("{name}: makepkg не создал пакет"));
+            return Err(t!("{name}: makepkg не создал пакет", name = name));
         }
-        let _ = tx.send(JobEvent::Stage(format!("Установка {name}")));
+        let _ = tx.send(JobEvent::Stage(t!("Установка {name}", name = name)));
         let mut args: Vec<&str> = vec!["-U", "--noconfirm", "--needed"];
         // Зависимости AUR — как зависимости, запрошенные — как явные.
         if !names.contains(name) {
@@ -1126,13 +1127,13 @@ fn build_aur(names: &[String], build_user: &str, tx: &mpsc::Sender<JobEvent>, ca
 fn run_op(op: &Op, build_user: &str, tx: &mpsc::Sender<JobEvent>, c: &JobCancel) -> Result<(), String> {
     match op {
         Op::Install(p) => {
-            let _ = tx.send(JobEvent::Stage(format!("Установка: {}", p.join(", "))));
+            let _ = tx.send(JobEvent::Stage(t!("Установка: {v}", v = p.join(", "))));
             let mut a = vec!["-S", "--noconfirm", "--needed"];
             a.extend(p.iter().map(|s| s.as_str()));
             run_streaming(pacman_cmd(&a), tx, c)
         }
         Op::Remove { names, mode } => {
-            let _ = tx.send(JobEvent::Stage(format!("Удаление: {}", names.join(", "))));
+            let _ = tx.send(JobEvent::Stage(t!("Удаление: {v}", v = names.join(", "))));
             let mut a = vec![
                 match mode {
                     RemoveMode::Normal => "-Rns",
@@ -1146,11 +1147,11 @@ fn run_op(op: &Op, build_user: &str, tx: &mpsc::Sender<JobEvent>, c: &JobCancel)
         }
         Op::InstallAur(p) => build_aur(p, build_user, tx, c),
         Op::Refresh => {
-            let _ = tx.send(JobEvent::Stage("Обновление баз".into()));
+            let _ = tx.send(JobEvent::Stage(t!("Обновление баз").into()));
             run_streaming(pacman_cmd(&["-Sy"]), tx, c)
         }
         Op::Upgrade { aur, ignore, install } => {
-            let _ = tx.send(JobEvent::Stage("Обновление системы".into()));
+            let _ = tx.send(JobEvent::Stage(t!("Обновление системы").into()));
             let list = ignore.join(",");
             let mut a = vec!["-Syu", "--noconfirm", "--needed"];
             if !ignore.is_empty() {
@@ -1168,7 +1169,7 @@ fn run_op(op: &Op, build_user: &str, tx: &mpsc::Sender<JobEvent>, c: &JobCancel)
         }
         Op::Batch(ops) => {
             for (i, o) in ops.iter().enumerate() {
-                let _ = tx.send(JobEvent::Line(format!("— шаг {} из {} —", i + 1, ops.len())));
+                let _ = tx.send(JobEvent::Line(t!("— шаг {v} из {n} —", v = i + 1, n = ops.len())));
                 run_op(o, build_user, tx, c)?;
             }
             Ok(())

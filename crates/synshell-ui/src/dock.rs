@@ -501,7 +501,7 @@ fn items_row(panel: &Panel, st: &DockState, editing: bool) -> impl Widget {
             match a.kind.as_str() {
                 "taskbar" => {
                     if editing {
-                        let w = placeholder_item(&env, "\u{F088}", "Открытые окна");
+                        let w = placeholder_item(&env, "\u{F088}", &t!("Открытые окна"));
                         fe = fe.child(crate::edit::item_frame(&st2.pc, ai, w, true));
                         slots.push(SlotInfo { name: String::new() });
                         want += g.item * 1.6;
@@ -536,7 +536,7 @@ fn items_row(panel: &Panel, st: &DockState, editing: bool) -> impl Widget {
                         "group" | "folder" => (stack_item(&env, slot, a, ai), launchers::stack_title(a)),
                         "separator" => (separator(&env), String::new()),
                         "spacer" => (Box::new(DecoratedBox::new().class("dock-spacer")) as Box<dyn Widget>, String::new()),
-                        "launcher" => (launcher_item(&env, slot, a), "Приложения".to_string()),
+                        "launcher" => (launcher_item(&env, slot, a), t!("Приложения").to_string()),
                         _ => (applet_item(&env, slot, a, ai), String::new()),
                     };
                     want += match kind {

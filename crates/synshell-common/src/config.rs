@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::theme::{Theme, Variant};
+use crate::t;
 
 /// Встроенный конфиг по умолчанию с комментариями — пишется в
 /// `~/.config/synshell/config.toml` при первом запуске.
@@ -135,6 +136,9 @@ pub struct General {
     pub xwayland: bool,
     /// Каталог снимков экрана.
     pub screenshot_dir: String,
+    /// Язык интерфейса программ synshell (`ru`, `en`, `de`…); пусто — язык
+    /// системы (`LANG`).
+    pub language: String,
 }
 
 impl Default for General {
@@ -149,6 +153,7 @@ impl Default for General {
             environment: BTreeMap::new(),
             xwayland: true,
             screenshot_dir: "~/Pictures/Screenshots".into(),
+            language: String::new(),
         }
     }
 }
@@ -1267,10 +1272,10 @@ impl Panel {
         };
         let mut folder = Applet::new("folder");
         folder.options.insert("path".into(), toml::Value::String("xdg:DOWNLOAD".into()));
-        folder.options.insert("name".into(), toml::Value::String("Загрузки".into()));
+        folder.options.insert("name".into(), toml::Value::String(t!("Загрузки").into()));
         let mut trash = Applet::new("folder");
         trash.options.insert("path".into(), toml::Value::String("trash:".into()));
-        trash.options.insert("name".into(), toml::Value::String("Корзина".into()));
+        trash.options.insert("name".into(), toml::Value::String(t!("Корзина").into()));
         Self {
             edge: Edge::Bottom,
             size: 64,
@@ -2031,7 +2036,7 @@ impl Config {
         for (k, a) in default_keybindings() {
             match (k.parse::<KeyCombo>(), a.parse::<Action>()) {
                 (Ok(c), Ok(a)) => put(c, subst(a)),
-                (Err(e), _) | (_, Err(e)) => errors.push(format!("встроенное «{k}»: {e}")),
+                (Err(e), _) | (_, Err(e)) => errors.push(t!("встроенное «{k}»: {e}", k = k, e = e)),
             }
         }
         for (k, a) in &self.keybindings {
@@ -2470,11 +2475,11 @@ impl InputMode {
         }
     }
 
-    pub fn title(self) -> &'static str {
+    pub fn title(self) -> String {
         match self {
-            InputMode::Keyboard => "Клавиатура",
-            InputMode::Controller => "Контроллер",
-            InputMode::Off => "Выключен",
+            InputMode::Keyboard => crate::t!("Клавиатура"),
+            InputMode::Controller => crate::t!("Контроллер"),
+            InputMode::Off => crate::t!("Выключен"),
         }
     }
 }

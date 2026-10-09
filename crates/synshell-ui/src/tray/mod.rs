@@ -188,7 +188,7 @@ pub fn overflow_view(ctx: ShellCtx) -> impl Widget {
     let applet = cfg.panels.iter().flat_map(|p| p.applets.iter()).find(|a| a.kind == "tray").cloned();
     let hide_passive = applet.as_ref().map(|a| a.bool_or("hide_passive", true)).unwrap_or(true);
     let max_visible = applet.as_ref().map(|a| a.int_or("max_visible", 0).max(0) as usize).unwrap_or(0);
-    Column::new().gap(4.0).child(Text::new("Скрытые значки").class("popup-title")).child(move || {
+    Column::new().gap(4.0).child(Text::new(t!("Скрытые значки")).class("popup-title")).child(move || {
         let (_, hidden) = split(sig.items.get(), hide_passive, max_visible);
         let mut col = Column::new().gap(2.0);
         for it in hidden {
@@ -241,7 +241,7 @@ pub fn menu_view(_ctx: ShellCtx, key: String) -> impl Widget {
     Column::new().gap(2.0).child(move || {
         let menu = sig.menu.get();
         let Some((k, entries)) = menu.filter(|(k, _)| *k == key) else {
-            return Column::new().gap(2.0).child(Text::new("Загрузка…").class("launcher-empty"));
+            return Column::new().gap(2.0).child(Text::new(t!("Загрузка…")).class("launcher-empty"));
         };
         menu_list(&entries, sub, move |id| sni::send(Cmd::MenuEvent { key: k.clone(), id }), |_| {})
     })
@@ -267,7 +267,7 @@ pub fn menu_list(
                             .gap(10.0)
                             .cross_axis_alignment(CrossAxisAlignment::Center)
                             .child(icon("\u{E5C4}").class("menu-icon"))
-                            .child(Text::new("Назад").class("menu-label")),
+                            .child(Text::new(t!("Назад")).class("menu-label")),
                     )
                     .class("menu-item"),
             )
@@ -278,10 +278,10 @@ pub fn menu_list(
         );
     }
     let Some(list) = find_path(entries, &path) else {
-        return col.child(Text::new("Меню изменилось").class("launcher-empty"));
+        return col.child(Text::new(t!("Меню изменилось")).class("launcher-empty"));
     };
     if list.is_empty() {
-        col = col.child(Text::new("Меню пусто").class("launcher-empty"));
+        col = col.child(Text::new(t!("Меню пусто")).class("launcher-empty"));
     }
     for e in list.iter().filter(|e| e.visible) {
         if e.separator {

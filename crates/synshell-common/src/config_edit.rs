@@ -197,7 +197,7 @@ mod tests {
     #[test]
     fn applet_roundtrip() {
         let mut a = Applet::new("group");
-        a.options.insert("name".into(), toml::Value::String("Разработка".into()));
+        a.options.insert("name".into(), toml::Value::String(t!("Разработка").into()));
         a.options.insert(
             "items".into(),
             toml::Value::Array(vec![toml::Value::String("code".into()), toml::Value::String("org.kde.konsole".into())]),

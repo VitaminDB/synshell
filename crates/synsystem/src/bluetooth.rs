@@ -15,6 +15,7 @@ use std::sync::Mutex;
 
 use zbus::blocking::Connection;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
+use synshell_tr::t;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Device {
@@ -128,7 +129,7 @@ impl Bluetooth {
 
     fn set_adapter(&self, prop: &str, v: bool) -> Result<(), String> {
         let objs = self.objects()?;
-        let ap = self.adapter(&objs).ok_or("нет адаптера Bluetooth")?;
+        let ap = self.adapter(&objs).ok_or(t!("нет адаптера Bluetooth"))?;
         self.conn
             .call_method(Some("org.bluez"), ap.as_str(), Some("org.freedesktop.DBus.Properties"), "Set", &("org.bluez.Adapter1", prop, Value::from(v)))
             .map(|_| ())
@@ -153,7 +154,7 @@ impl Bluetooth {
 
     pub fn discovery(&self, on: bool) -> Result<(), String> {
         let objs = self.objects()?;
-        let ap = self.adapter(&objs).ok_or("нет адаптера Bluetooth")?;
+        let ap = self.adapter(&objs).ok_or(t!("нет адаптера Bluetooth"))?;
         if on {
             self.ensure_agent();
         }
@@ -191,7 +192,7 @@ impl Bluetooth {
 
     pub fn forget(&self, path: &str) -> Result<(), String> {
         let objs = self.objects()?;
-        let ap = self.adapter(&objs).ok_or("нет адаптера Bluetooth")?;
+        let ap = self.adapter(&objs).ok_or(t!("нет адаптера Bluetooth"))?;
         let dev = OwnedObjectPath::try_from(path.to_string()).map_err(|e| e.to_string())?;
         self.conn.call_method(Some("org.bluez"), ap.as_str(), Some("org.bluez.Adapter1"), "RemoveDevice", &(dev,)).map(|_| ()).map_err(|e| e.to_string())
     }

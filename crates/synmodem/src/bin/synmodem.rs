@@ -2,11 +2,12 @@
 
 use anyhow::{bail, Result};
 use synmodem::api::{self, Request, Response};
+use synshell_tr::{n_, t};
 
-const USAGE: &str = "synmodem status | watch | radio on|off | data on|off | sms [list] | sms send НОМЕР ТЕКСТ… | sms read НОМЕР
+const USAGE: &str = n_!("synmodem status | watch | radio on|off | data on|off | sms [list] | sms send НОМЕР ТЕКСТ… | sms read НОМЕР
          | dial НОМЕР | answer ID | hangup ID | dtmf ID ЦИФРА | calls | info | cell | esim | apn
          | gnss [nmea] (местоположение раз в секунду; приёмник работает, пока команда идёт)
-         | req JSON (любой запрос протокола, например {\"request\":\"modes\"}; ответ — JSON)";
+         | req JSON (любой запрос протокола, например {\"request\":\"modes\"}; ответ — JSON)");
 
 fn main() {
     if let Err(e) = run() {
@@ -38,18 +39,18 @@ fn run() -> Result<()> {
         ["sms"] | ["sms", "list"] => {
             for m in api::sms_list()? {
                 let dir = if m.incoming { "←" } else { "→" };
-                println!("{} {dir} {} [{:?}{}] {}", m.id, m.number, m.status, if m.read { "" } else { ", новое" }, m.text);
+                println!("{} {dir} {} [{:?}{}] {}", m.id, m.number, m.status, if m.read { "" } else { n_!(", новое") }, m.text);
             }
         }
         ["sms", "send", number, text @ ..] if !text.is_empty() => {
             if let Response::Sms { message } = api::request(&Request::SmsSend { number: number.to_string(), text: text.join(" ") })? {
-                println!("{} поставлено в отправку", message.id);
+                println!("{}", t!("{id} поставлено в отправку", id = message.id));
             }
         }
         ["sms", "read", number] => ok(&Request::SmsRead { number: number.to_string() })?,
         ["dial", number] => {
             if let Response::CallId { id } = api::request(&Request::Dial { number: number.to_string() })? {
-                println!("звонок {id}");
+                println!("{}", t!("звонок {id}", id = id));
             }
         }
         ["answer", id] => ok(&Request::Answer { id: id.parse()? })?,
@@ -59,16 +60,9 @@ fn run() -> Result<()> {
         }
         ["gnss"] => api::gnss_watch(|f| {
             let pos = if f.valid {
-                format!(
-                    "{:.6} {:.6} ±{} м, высота {} м, {} км/ч",
-                    f.latitude,
-                    f.longitude,
-                    f.accuracy.map(|a| format!("{a:.0}")).unwrap_or("?".into()),
-                    f.altitude.map(|a| format!("{a:.0}")).unwrap_or("?".into()),
-                    f.speed.map(|v| format!("{:.1}", v * 3.6)).unwrap_or("?".into()),
-                )
+                t!("{latitude} {longitude} ±{v} м, высота {v2} м, {v3} км/ч", latitude = format!("{:.6}", f.latitude), longitude = format!("{:.6}", f.longitude), v = f.accuracy.map(|a| format!("{a:.0}")).unwrap_or("?".into()), v2 = f.altitude.map(|a| format!("{a:.0}")).unwrap_or("?".into()), v3 = f.speed.map(|v| format!("{:.1}", v * 3.6)).unwrap_or("?".into()))
             } else {
-                "нет решения".into()
+                t!("нет решения").into()
             };
             let mut sats = f.satellites.clone();
             sats.sort_by(|a, b| b.snr.total_cmp(&a.snr));
@@ -77,7 +71,7 @@ fn run() -> Result<()> {
                 .take(6)
                 .map(|s| format!("{}{}:{:.0}{}", s.system, s.id, s.snr, if s.used { "*" } else { "" }))
                 .collect();
-            println!("{pos}; спутники {}/{} [{}]", f.satellites_used, f.satellites_visible, best.join(" "));
+            println!("{}", t!("{pos}; спутники {satellites_used}/{satellites_visible} [{v}]", pos = pos, satellites_used = f.satellites_used, satellites_visible = f.satellites_visible, v = best.join(" ")));
             true
         })?,
         ["gnss", "nmea"] => api::gnss_watch(|f| {
@@ -91,7 +85,7 @@ fn run() -> Result<()> {
         ["req", json] => print_resp(&serde_json::from_str(json)?)?,
         ["calls"] => {
             for c in api::call_log()? {
-                println!("{} {:?} {} {} с, {}", c.id, c.kind, c.number, c.duration, c.time);
+                println!("{}", t!("{id} {kind} {number} {duration} с, {time}", id = c.id, kind = format!("{:?}", c.kind), number = c.number, duration = c.duration, time = c.time));
             }
         }
         _ => bail!("{USAGE}"),

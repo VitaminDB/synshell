@@ -1,5 +1,6 @@
 //! Местное время для показа SMS и журнала звонков.
 
+use synshell_tr::{n_, t};
 /// Разложенное местное время.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Local {
@@ -30,7 +31,7 @@ pub fn now() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
-const MONTHS: [&str; 12] = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+const MONTHS: [&str; 12] = [n_!("янв"), n_!("фев"), n_!("мар"), n_!("апр"), n_!("мая"), n_!("июн"), n_!("июл"), n_!("авг"), n_!("сен"), n_!("окт"), n_!("ноя"), n_!("дек")];
 
 /// Коротко для списков: «14:05», «вчера», «3 окт», «3 окт 2025».
 pub fn short(t: i64) -> String {
@@ -39,7 +40,7 @@ pub fn short(t: i64) -> String {
     if l.days == n.days {
         format!("{:02}:{:02}", l.hour, l.minute)
     } else if l.days == n.days - 1 {
-        "вчера".into()
+        t!("вчера").into()
     } else if l.year == n.year {
         format!("{} {}", l.day, MONTHS[(l.month - 1) as usize])
     } else {
@@ -50,13 +51,13 @@ pub fn short(t: i64) -> String {
 /// Заголовок дня в переписке: «Сегодня», «Вчера», «3 октября».
 pub fn day_title(t: i64) -> String {
     const FULL: [&str; 12] =
-        ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+        [n_!("января"), n_!("февраля"), n_!("марта"), n_!("апреля"), n_!("мая"), n_!("июня"), n_!("июля"), n_!("августа"), n_!("сентября"), n_!("октября"), n_!("ноября"), n_!("декабря")];
     let l = local(t);
     let n = local(now());
     if l.days == n.days {
-        "Сегодня".into()
+        t!("Сегодня").into()
     } else if l.days == n.days - 1 {
-        "Вчера".into()
+        t!("Вчера").into()
     } else if l.year == n.year {
         format!("{} {}", l.day, FULL[(l.month - 1) as usize])
     } else {

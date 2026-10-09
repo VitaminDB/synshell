@@ -15,6 +15,7 @@ name = "synmodem"
 path = "src/bin/synmodem.rs"
 
 [dependencies]
+synshell-tr.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true

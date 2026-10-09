@@ -83,7 +83,7 @@ pub fn refresh() {
 /// Действие с часами системы в фоне: подсказка «…», затем итог и перечитывание.
 fn act(label: &'static str, f: impl FnOnce() -> std::result::Result<(), String> + Send + 'static) {
     let note = note_sig();
-    note.set(Some(format!("{label}…")));
+    note.set(Some(format!("{}…", syngui::i18n::t(label))));
     std::thread::spawn(move || {
         let r = f();
         run_on_main_thread(move || {
@@ -188,11 +188,11 @@ pub fn quick(ctx: ShellCtx) -> impl Widget {
         .child(DecoratedBox::new().class("menu-sep"))
         .child(crate::ui::rx(move || {
             let Some(s) = st.get() else {
-                return Box::new(Text::new("Чтение настроек часов…").class("net-hint"));
+                return Box::new(Text::new(t!("Чтение настроек часов…")).class("net-hint"));
             };
             let now = ctx.now.get_untracked();
             let auto_tz = ctx.config.get().time.auto_timezone(ctx.form_factor);
-            let zone = if s.timezone.is_empty() { "не задан (UTC)".to_string() } else { s.timezone.clone() };
+            let zone = if s.timezone.is_empty() { t!("не задан (UTC)").to_string() } else { s.timezone.clone() };
             let mut col = Column::new().gap(2.0).child(
                 Row::new()
                     .gap(10.0)
@@ -201,29 +201,29 @@ pub fn quick(ctx: ShellCtx) -> impl Widget {
                     .child(
                         Column::new()
                             .gap(1.0)
-                            .child(Text::new("Часовой пояс").class("net-ssid"))
+                            .child(Text::new(t!("Часовой пояс")).class("net-ssid"))
                             .child(Text::new(format!("{zone} · {}", current_offset(now))).max_lines(1).class("net-hint"))
                             .class("grow"),
                     )
                     .class("net-row net-row-static"),
             );
             if !s.service {
-                return Box::new(col.child(Text::new("Служба systemd-timedated недоступна — часы не настроить").max_lines(2).class("net-note")));
+                return Box::new(col.child(Text::new(t!("Служба systemd-timedated недоступна — часы не настроить")).max_lines(2).class("net-note")));
             }
             let ntp_hint = match (s.can_ntp, s.ntp, s.synced) {
-                (false, _, _) => "Служба синхронизации не установлена".to_string(),
-                (true, true, true) => "По сети · сверено".to_string(),
-                (true, true, false) => "По сети · ещё не сверено".to_string(),
-                (true, false, _) => "Вручную".to_string(),
+                (false, _, _) => t!("Служба синхронизации не установлена").to_string(),
+                (true, true, true) => t!("По сети · сверено").to_string(),
+                (true, true, false) => t!("По сети · ещё не сверено").to_string(),
+                (true, false, _) => t!("Вручную").to_string(),
             };
             col = col
-                .child(switch_row(mi::SCHEDULE, "Время автоматически", ntp_hint, s.ntp, s.can_ntp, |on| {
-                    act(if on { "Включение синхронизации" } else { "Выключение синхронизации" }, move || systime::set_ntp(on))
+                .child(switch_row(mi::SCHEDULE, &t!("Время автоматически"), ntp_hint, s.ntp, s.can_ntp, |on| {
+                    act(if on { n_!("Включение синхронизации") } else { n_!("Выключение синхронизации") }, move || systime::set_ntp(on))
                 }))
                 .child(switch_row(
                     mi::PUBLIC,
-                    "Часовой пояс автоматически",
-                    if auto_tz { "По местоположению в сети".into() } else { "Вручную".into() },
+                    &t!("Часовой пояс автоматически"),
+                    if auto_tz { t!("По местоположению в сети").into() } else { t!("Вручную").into() },
                     auto_tz,
                     true,
                     set_auto_timezone,
@@ -234,5 +234,5 @@ pub fn quick(ctx: ShellCtx) -> impl Widget {
             Some(t) => Text::new(t).max_lines(3).class("net-toast"),
             None => Text::new(String::new()).class("net-toast-none"),
         })
-        .child(crate::popup::menu_item(mi::SETTINGS, "Параметры даты и времени…", || crate::actions::spawn("synsettings datetime")))
+        .child(crate::popup::menu_item(mi::SETTINGS, t!("Параметры даты и времени…"), || crate::actions::spawn("synsettings datetime")))
 }

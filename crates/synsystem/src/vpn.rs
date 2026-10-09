@@ -2,6 +2,7 @@
 //! подключение, импорт файла конфигурации, новое WireGuard-соединение, удаление, автоподключение.
 
 use std::process::Command;
+use synshell_tr::t;
 
 /// Соединение VPN.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,7 +35,7 @@ fn nmcli(args: &[&str]) -> Result<String, String> {
     let out = Command::new("nmcli").args(args).output().map_err(|e| format!("nmcli: {e}"))?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        return Err(if err.is_empty() { format!("nmcli {}: ошибка", args.join(" ")) } else { err });
+        return Err(if err.is_empty() { t!("nmcli {v}: ошибка", v = args.join(" ")) } else { err });
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
@@ -93,14 +94,14 @@ pub fn set_autoconnect(uuid: &str, on: bool) -> Result<(), String> {
 pub fn import(path: &str) -> Result<(), String> {
     let p = path.trim();
     if !std::path::Path::new(p).is_file() {
-        return Err(format!("нет файла {p}"));
+        return Err(t!("нет файла {p}", p = p));
     }
     let kind = if p.ends_with(".ovpn") {
         "openvpn"
     } else if p.ends_with(".conf") {
         "wireguard"
     } else {
-        return Err("поддерживаются .conf (WireGuard) и .ovpn (OpenVPN)".into());
+        return Err(t!("поддерживаются .conf (WireGuard) и .ovpn (OpenVPN)").into());
     };
     nmcli(&["connection", "import", "type", kind, "file", p]).map(|_| ())
 }
@@ -109,10 +110,10 @@ pub fn import(path: &str) -> Result<(), String> {
 pub fn add_wireguard(w: &WireGuard) -> Result<(), String> {
     let name: String = w.name.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').take(15).collect();
     if name.is_empty() {
-        return Err("имя — латиницей, до 15 символов".into());
+        return Err(t!("имя — латиницей, до 15 символов").into());
     }
     if w.private_key.trim().is_empty() || w.peer_public_key.trim().is_empty() || w.endpoint.trim().is_empty() {
-        return Err("нужны закрытый ключ, открытый ключ сервера и адрес сервера".into());
+        return Err(t!("нужны закрытый ключ, открытый ключ сервера и адрес сервера").into());
     }
     let mut conf = format!("[Interface]\nPrivateKey = {}\n", w.private_key.trim());
     if !w.address.trim().is_empty() {
@@ -142,7 +143,7 @@ pub fn add_wireguard(w: &WireGuard) -> Result<(), String> {
 
 /// Пара ключей WireGuard (закрытый, открытый) через `wg`.
 pub fn wireguard_keys() -> Result<(String, String), String> {
-    let private = Command::new("wg").arg("genkey").output().map_err(|e| format!("wg: {e} (нужен wireguard-tools)"))?;
+    let private = Command::new("wg").arg("genkey").output().map_err(|e| t!("wg: {e} (нужен wireguard-tools)", e = e))?;
     let private = String::from_utf8_lossy(&private.stdout).trim().to_string();
     let mut child = Command::new("wg")
         .arg("pubkey")

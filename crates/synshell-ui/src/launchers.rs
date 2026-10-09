@@ -490,12 +490,12 @@ pub fn stack_title(a: &Applet) -> String {
     if a.kind == "folder" {
         let spec = a.str_or("path", "~");
         if is_trash(spec) {
-            return "Корзина".into();
+            return t!("Корзина").into();
         }
         let p = resolve_path(spec);
         return p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| spec.to_string());
     }
-    "Раздел".into()
+    t!("Раздел").into()
 }
 
 // ─── Апплеты обычной панели ─────────────────────────────────────────────────
@@ -648,8 +648,8 @@ fn grid_cols(n: usize) -> f32 {
 /// Содержимое стека раздела/папки.
 pub fn stack_view(ctx: ShellCtx, panel: usize, index: usize) -> Box<dyn Widget> {
     let cfg = ctx.cfg();
-    let Some(p) = cfg.panels.get(panel) else { return Box::new(Text::new("Нет панели")) };
-    let Some(a) = p.applets.get(index).cloned() else { return Box::new(Text::new("Нет значка")) };
+    let Some(p) = cfg.panels.get(panel) else { return Box::new(Text::new(t!("Нет панели"))) };
+    let Some(a) = p.applets.get(index).cloned() else { return Box::new(Text::new(t!("Нет значка"))) };
     let view = stack_view_kind(&a, p.edge);
     let title = stack_title(&a);
     if a.kind == "folder" {
@@ -683,18 +683,18 @@ pub fn stack_view(ctx: ShellCtx, panel: usize, index: usize) -> Box<dyn Widget> 
                     let dir = cwd.get();
                     let entries = list_dir(&dir);
                     if entries.is_empty() {
-                        return Box::new(Text::new(if trash { "Корзина пуста" } else { "Папка пуста" }).class("stack-empty")) as Box<dyn Widget>;
+                        return Box::new(Text::new(if trash { t!("Корзина пуста") } else { t!("Папка пуста") }).class("stack-empty")) as Box<dyn Widget>;
                     }
                     entries_view(entries, view, Some(cwd))
                 }))
                 .child({
                     let root2 = resolve_path(&spec);
-                    let mut foot = Row::new().gap(8.0).class("stack-foot").child(crate::popup::menu_item("\u{E89E}", "Открыть в файловом менеджере", move || {
+                    let mut foot = Row::new().gap(8.0).class("stack-foot").child(crate::popup::menu_item("\u{E89E}", t!("Открыть в файловом менеджере"), move || {
                         let d = cwd.get_untracked();
                         open_path(if d.exists() { &d } else { &root2 });
                     }));
                     if trash {
-                        foot = foot.child(crate::popup::menu_item("\u{E872}", "Очистить", empty_trash));
+                        foot = foot.child(crate::popup::menu_item("\u{E872}", t!("Очистить"), empty_trash));
                     }
                     foot
                 }),
@@ -706,7 +706,7 @@ pub fn stack_view(ctx: ShellCtx, panel: usize, index: usize) -> Box<dyn Widget> 
         col = col.child(Text::new(title).max_lines(1).class("popup-title stack-title"));
     }
     if entries.is_empty() {
-        return Box::new(col.child(Text::new("Раздел пуст — добавьте приложения в режиме редактирования").class("stack-empty")));
+        return Box::new(col.child(Text::new(t!("Раздел пуст — добавьте приложения в режиме редактирования")).class("stack-empty")));
     }
     Box::new(col.child(entries_view(entries, view, None)))
 }

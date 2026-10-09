@@ -14,6 +14,7 @@ use anyhow::{anyhow, bail, Context, Result};
 
 use crate::api::{Fix, Satellite};
 use crate::qmi::{svc, Client, Indication, Message, QmiError, SERVICE_GONE};
+use synshell_tr::n_;
 
 /// Сокет NMEA: каждый подключившийся включает приёмник и получает GGA/RMC/GSA раз в секунду.
 pub const NMEA_SOCKET: &str = "/run/synmodem/gnss.nmea";
@@ -624,7 +625,7 @@ fn system_name(s: u32) -> &'static str {
         2 => "Galileo",
         3 => "SBAS",
         4 | 6 => "BeiDou",
-        5 => "ГЛОНАСС",
+        5 => n_!("ГЛОНАСС"),
         7 => "QZSS",
         8 => "NavIC",
         _ => "?",

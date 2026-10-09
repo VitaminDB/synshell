@@ -396,7 +396,7 @@ fn search(st: St) -> impl Widget {
                 .child(icon(mi::SEARCH).class("start-search-icon"))
                 .child(
                     TextField::new()
-                        .placeholder(if ShellCtx::get().is_phone() { "Поиск приложений и настроек" } else { "Поиск приложений, настроек, вычислений" })
+                        .placeholder(if ShellCtx::get().is_phone() { t!("Поиск приложений и настроек") } else { t!("Поиск приложений, настроек, вычислений") })
                         // Телефон: клавиатура — по касанию поля, иначе
                         // закрывала бы половину значков.
                         .autofocus(!ShellCtx::get().is_phone())
@@ -410,9 +410,9 @@ fn search(st: St) -> impl Widget {
 fn results(ctx: ShellCtx, st: St) -> impl Widget {
     let items = st.results.get_untracked();
     let sel = st.selected;
-    let mut col = Column::new().gap(2.0).child(Text::new("Лучшие совпадения").class("start-caption"));
+    let mut col = Column::new().gap(2.0).child(Text::new(t!("Лучшие совпадения")).class("start-caption"));
     if items.is_empty() {
-        col = col.child(Text::new("Ничего не найдено").class("start-empty"));
+        col = col.child(Text::new(t!("Ничего не найдено")).class("start-empty"));
     }
     for (i, it) in items.into_iter().enumerate() {
         let (name, sub) = launcher::item_text(&it);
@@ -461,10 +461,10 @@ fn home(ctx: ShellCtx, st: St, body_h: f32) -> impl Widget {
     let apps: Vec<DesktopEntry> = pinned_ids(&ctx).iter().filter_map(|id| xdg::app_by_id(id)).collect();
     let header = Row::new()
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(Text::new("Закреплённые").class("start-heading grow"))
-        .child(pill("Все", mi::CHEVRON_RIGHT, move || st.view.set(View::All)));
+        .child(Text::new(t!("Закреплённые")).class("start-heading grow"))
+        .child(pill(&t!("Все"), mi::CHEVRON_RIGHT, move || st.view.set(View::All)));
     let pinned: Box<dyn Widget> = if apps.is_empty() {
-        Box::new(Text::new("Закрепите приложения из списка «Все» — правый щелчок или удержание по значку.").class("start-empty"))
+        Box::new(Text::new(t!("Закрепите приложения из списка «Все» — правый щелчок или удержание по значку.")).class("start-empty"))
     } else {
         let paged = apps.len() > per_page;
         // Высота — по занятым строкам, без пустоты под одним рядом (и на рабочем столе:
@@ -500,7 +500,7 @@ fn home(ctx: ShellCtx, st: St, body_h: f32) -> impl Widget {
     }
     let mut col = Column::new().gap(10.0).child(header).child(pinned);
     if !recent.is_empty() && ctx.cfg().launcher.show_recent {
-        col = col.child(Text::new("Рекомендуемые").class("start-heading")).child(rec);
+        col = col.child(Text::new(t!("Рекомендуемые")).class("start-heading")).child(rec);
     }
     ScrollView::new().vertical().child(col).class("start-scroll")
 }
@@ -615,7 +615,7 @@ fn all_apps(ctx: ShellCtx, st: St, body_h: f32) -> impl Widget {
     let mut groups: BTreeMap<(u8, String), Vec<DesktopEntry>> = BTreeMap::new();
     let source = st.source.get_untracked();
     let title = match &source {
-        Source::Linux => "Все приложения".to_string(),
+        Source::Linux => t!("Все приложения").to_string(),
         Source::Android(i) => {
             let t = xdg::android_instances(&xdg::apps()).into_iter().find(|a| a.instance == *i).map(|a| a.title).unwrap_or_default();
             format!("Android · {t}")
@@ -648,7 +648,7 @@ fn all_apps(ctx: ShellCtx, st: St, body_h: f32) -> impl Widget {
         .child(
             GestureDetector::new().on_click(move || st.view.set(View::Home)).child(
                 DecoratedBox::new()
-                    .child(Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(mi::CHEVRON_LEFT).class("start-pill-icon")).child(Text::new("Назад").class("start-pill-text")))
+                    .child(Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(mi::CHEVRON_LEFT).class("start-pill-icon")).child(Text::new(t!("Назад")).class("start-pill-text")))
                     .class("start-pill"),
             ),
         )
@@ -723,7 +723,7 @@ fn item_menu(ctx: ShellCtx, st: St, id: &str, x: f32, y: f32) -> DecoratedBox {
     let close = move || st.item_menu.set(None);
     let mut col = Column::new().gap(2.0).child(Text::new(name).max_lines(1).class("popup-title"));
     if let Some(e) = entry.clone() {
-        col = col.child(crate::popup::menu_item("\u{E89E}", "Открыть", move || {
+        col = col.child(crate::popup::menu_item("\u{E89E}", t!("Открыть"), move || {
             let ctx = ShellCtx::get();
             launcher::launch(ctx, &e);
             ctx.close_popup();
@@ -732,7 +732,7 @@ fn item_menu(ctx: ShellCtx, st: St, id: &str, x: f32, y: f32) -> DecoratedBox {
     let i1 = id.to_string();
     col = col.child(crate::popup::menu_item(
         mi::PUSH_PIN,
-        if pinned { "Открепить от «Пуска»" } else { "Закрепить в «Пуске»" },
+        if pinned { t!("Открепить от «Пуска»") } else { t!("Закрепить в «Пуске»") },
         move || {
             set_pinned(&i1, !pinned);
             close();
@@ -741,14 +741,14 @@ fn item_menu(ctx: ShellCtx, st: St, id: &str, x: f32, y: f32) -> DecoratedBox {
     let dock = cfg.panels.iter().enumerate().find(|(_, p)| p.is_dock() && p.shows_on(ctx.form_factor)).map(|(i, _)| i);
     if let Some(panel) = dock {
         let i2 = id.to_string();
-        col = col.child(crate::popup::menu_item("\u{E30C}", "Закрепить на доке", move || {
+        col = col.child(crate::popup::menu_item("\u{E30C}", t!("Закрепить на доке"), move || {
             crate::edit::pin_app(panel, &i2);
             close();
         }));
     }
     if ctx.is_phone() && !cfg.mobile.home_apps.is_empty() && !cfg.mobile.home_apps.iter().any(|a| a == id) {
         let i3 = id.to_string();
-        col = col.child(crate::popup::menu_item(mi::HOME, "На домашний экран", move || {
+        col = col.child(crate::popup::menu_item(mi::HOME, t!("На домашний экран"), move || {
             let mut apps = ShellCtx::get().cfg().mobile.home_apps.clone();
             apps.push(i3.clone());
             crate::edit::set_home_apps(apps);

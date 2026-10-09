@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use syngui::async_runtime::run_on_main_thread;
 
 use crate::ctx::ShellCtx;
+use syngui::t;
 
 const SOCKET: &str = "/run/syndroid/syndroidd.sock";
 /// Дольше — что-то не так (журнал — в окне «Управление Android»), карточку убрать.
@@ -41,9 +42,9 @@ fn state() -> Option<String> {
 fn label(elapsed: Duration) -> String {
     let s = elapsed.as_secs();
     if s < 3 {
-        "Запускается подсистема Android…".into()
+        t!("Запускается подсистема Android…").into()
     } else {
-        format!("Запускается подсистема Android · {s} с")
+        t!("Запускается подсистема Android · {s} с", s = s)
     }
 }
 

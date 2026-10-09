@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use crate::actions::{output, spawn, which};
 use crate::ctx::ShellCtx;
+use syngui::t;
 
 pub use synsystem::battery::Battery;
 pub use synsystem::network::Network;
@@ -52,14 +53,14 @@ pub fn toggle_mute(ctx: ShellCtx, mic: bool) {
         if let Some(v) = refresh_volume(ctx) {
             let (icon, label) = if mic {
                 if v.mic_muted {
-                    (crate::ui::mi::MIC_OFF, "Микрофон выключен")
+                    (crate::ui::mi::MIC_OFF, t!("Микрофон выключен"))
                 } else {
-                    (crate::ui::mi::MIC, "Микрофон включён")
+                    (crate::ui::mi::MIC, t!("Микрофон включён"))
                 }
             } else if v.muted {
-                (crate::ui::mi::VOLUME_OFF, "Звук выключен")
+                (crate::ui::mi::VOLUME_OFF, t!("Звук выключен"))
             } else {
-                (crate::ui::mi::VOLUME_UP, "")
+                (crate::ui::mi::VOLUME_UP, String::new())
             };
             crate::osd::show(ctx, icon, if mic { None } else { Some(v.percent) }, label.into());
         }

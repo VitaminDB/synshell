@@ -86,51 +86,51 @@ pub struct Kind {
     pub data: bool,
 }
 
-const METRIC_VIEWS: &[View] = &[("card", "Карточка"), ("ring", "Кольцо"), ("gauge", "Шкала"), ("line", "График"), ("text", "Число")];
+const METRIC_VIEWS: &[View] = &[("card", n_!("Карточка")), ("ring", n_!("Кольцо")), ("gauge", n_!("Шкала")), ("line", n_!("График")), ("text", n_!("Число"))];
 
 pub const KINDS: &[Kind] = &[
-    Kind { kind: "clock", label: "Часы", glyph: "\u{E8B5}", views: &[("digital", "Цифры"), ("big", "Крупно"), ("analog", "Стрелки")], phone: (4, 1), desktop: (3, 1), data: false },
+    Kind { kind: "clock", label: n_!("Часы"), glyph: "\u{E8B5}", views: &[("digital", n_!("Цифры")), ("big", n_!("Крупно")), ("analog", n_!("Стрелки"))], phone: (4, 1), desktop: (3, 1), data: false },
     Kind {
         kind: "cpu",
-        label: "Процессор",
+        label: n_!("Процессор"),
         glyph: mi::CPU,
-        views: &[("card", "Карточка"), ("ring", "Кольцо"), ("gauge", "Шкала"), ("line", "График"), ("bars", "Ядра"), ("radar", "Радар"), ("text", "Число")],
+        views: &[("card", n_!("Карточка")), ("ring", n_!("Кольцо")), ("gauge", n_!("Шкала")), ("line", n_!("График")), ("bars", n_!("Ядра")), ("radar", n_!("Радар")), ("text", n_!("Число"))],
         phone: (4, 3),
         desktop: (4, 3),
         data: true,
     },
     Kind {
         kind: "memory",
-        label: "Память",
+        label: n_!("Память"),
         glyph: mi::MEMORY,
-        views: &[("card", "Карточка"), ("ring", "Кольцо"), ("gauge", "Шкала"), ("line", "График"), ("pie", "Круговая"), ("text", "Число")],
+        views: &[("card", n_!("Карточка")), ("ring", n_!("Кольцо")), ("gauge", n_!("Шкала")), ("line", n_!("График")), ("pie", n_!("Круговая")), ("text", n_!("Число"))],
         phone: (2, 2),
         desktop: (2, 2),
         data: true,
     },
-    Kind { kind: "gpu", label: "Графика", glyph: "\u{E30A}", views: METRIC_VIEWS, phone: (2, 2), desktop: (2, 2), data: true },
-    Kind { kind: "battery", label: "Питание", glyph: "\u{E1A4}", views: METRIC_VIEWS, phone: (2, 2), desktop: (2, 2), data: true },
+    Kind { kind: "gpu", label: n_!("Графика"), glyph: "\u{E30A}", views: METRIC_VIEWS, phone: (2, 2), desktop: (2, 2), data: true },
+    Kind { kind: "battery", label: n_!("Питание"), glyph: "\u{E1A4}", views: METRIC_VIEWS, phone: (2, 2), desktop: (2, 2), data: true },
     Kind {
         kind: "network",
-        label: "Сеть",
+        label: n_!("Сеть"),
         glyph: "\u{E80D}",
-        views: &[("card", "Карточка"), ("line", "График"), ("bars", "Столбики"), ("text", "Скорость")],
+        views: &[("card", n_!("Карточка")), ("line", n_!("График")), ("bars", n_!("Столбики")), ("text", n_!("Скорость"))],
         phone: (2, 2),
         desktop: (3, 2),
         data: true,
     },
     Kind {
         kind: "temps",
-        label: "Температуры",
+        label: n_!("Температуры"),
         glyph: "\u{E1FF}",
-        views: &[("bars", "Столбики"), ("line", "График"), ("gauge", "Шкала"), ("text", "Список")],
+        views: &[("bars", n_!("Столбики")), ("line", n_!("График")), ("gauge", n_!("Шкала")), ("text", n_!("Список"))],
         phone: (4, 2),
         desktop: (3, 2),
         data: true,
     },
-    Kind { kind: "apps", label: "Запущенные приложения", glyph: mi::APPS, views: &[("rail", "Лента")], phone: (4, 2), desktop: (5, 2), data: true },
-    Kind { kind: "launcher", label: "Значки приложений", glyph: mi::GRID, views: &[("grid", "Сетка")], phone: (4, 4), desktop: (4, 3), data: false },
-    Kind { kind: "note", label: "Заметка", glyph: "\u{E244}", views: &[("note", "Заметка")], phone: (2, 2), desktop: (2, 2), data: false },
+    Kind { kind: "apps", label: n_!("Запущенные приложения"), glyph: mi::APPS, views: &[("rail", n_!("Лента"))], phone: (4, 2), desktop: (5, 2), data: true },
+    Kind { kind: "launcher", label: n_!("Значки приложений"), glyph: mi::GRID, views: &[("grid", n_!("Сетка"))], phone: (4, 4), desktop: (4, 3), data: false },
+    Kind { kind: "note", label: n_!("Заметка"), glyph: "\u{E244}", views: &[("note", n_!("Заметка"))], phone: (2, 2), desktop: (2, 2), data: false },
 ];
 
 /// Значки — не из каталога виджетов, а со вкладки «Значки».
@@ -156,9 +156,9 @@ pub fn view_of(w: &DeskWidget) -> &str {
 /// Подпись виджета для меню и настроек.
 pub fn label_of(w: &DeskWidget) -> String {
     match w.kind.as_str() {
-        "app" => w.str("app").and_then(crate::xdg::app_by_id).map(|e| e.name.clone()).unwrap_or_else(|| "Приложение".into()),
-        "file" => w.str("path").map(|p| file_name(&synshell_common::paths::expand_tilde(p))).unwrap_or_else(|| "Файл".into()),
-        k => kind_info(k).map(|k| k.label.to_string()).unwrap_or_else(|| k.to_string()),
+        "app" => w.str("app").and_then(crate::xdg::app_by_id).map(|e| e.name.clone()).unwrap_or_else(|| t!("Приложение").into()),
+        "file" => w.str("path").map(|p| file_name(&synshell_common::paths::expand_tilde(p))).unwrap_or_else(|| t!("Файл").into()),
+        k => kind_info(k).map(|k| syngui::i18n::t(k.label)).unwrap_or_else(|| k.to_string()),
     }
 }
 
@@ -218,7 +218,7 @@ pub fn save(list: Vec<DeskWidget>) {
         Ok(_) => crate::reload_after_write(),
         Err(e) => {
             log::error!("рабочий стол: не удалось сохранить виджеты: {e:#}");
-            crate::osd::show(ShellCtx::get(), mi::INFO, None, "Не удалось сохранить config.toml".into());
+            crate::osd::show(ShellCtx::get(), mi::INFO, None, t!("Не удалось сохранить config.toml").into());
         }
     }
 }
@@ -683,7 +683,7 @@ fn edit_bar(ctx: ShellCtx) -> impl Widget {
     let button = |glyph: &'static str, label: &'static str, f: Box<dyn Fn() + Send + Sync>| {
         GestureDetector::new().on_click(move || f()).child(
             DecoratedBox::new()
-                .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(glyph).class("desk-bar-icon")).child(Text::new(label).class("desk-bar-label")))
+                .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(glyph).class("desk-bar-icon")).child(Text::new(syngui::i18n::t(label)).class("desk-bar-label")))
                 .class("desk-bar-btn"),
         )
     };
@@ -692,7 +692,7 @@ fn edit_bar(ctx: ShellCtx) -> impl Widget {
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(button(
             "\u{E145}",
-            "Виджет",
+            n_!("Виджет"),
             Box::new(move || {
                 let ctx = ShellCtx::get();
                 ctx.open_popup(PopupKind::DeskAdd(current_page(&ctx)), crate::commands::centered());
@@ -700,14 +700,14 @@ fn edit_bar(ctx: ShellCtx) -> impl Widget {
         ))
         .child(button(
             mi::APPS,
-            "Значок",
+            n_!("Значок"),
             Box::new(move || {
                 let ctx = ShellCtx::get();
                 forms::set_add_tab(1);
                 ctx.open_popup(PopupKind::DeskAdd(current_page(&ctx)), crate::commands::centered());
             }),
         ))
-        .child(button("\u{E876}", "Готово", Box::new(stop_editing)))
+        .child(button("\u{E876}", n_!("Готово"), Box::new(stop_editing)))
         .class("desk-bar");
     let _ = ctx;
     DecoratedBox::new().child(bar).class("desk-bar-place")

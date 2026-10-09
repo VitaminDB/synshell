@@ -39,7 +39,7 @@ fn save(panel: usize, applets: Vec<Applet>) {
         Ok(_) => crate::reload_after_write(),
         Err(e) => {
             log::error!("не удалось сохранить панель: {e:#}");
-            crate::osd::show(ShellCtx::get(), mi::INFO, None, "Не удалось сохранить config.toml".into());
+            crate::osd::show(ShellCtx::get(), mi::INFO, None, t!("Не удалось сохранить config.toml").into());
         }
     }
 }
@@ -344,39 +344,39 @@ fn own_panels(ctx: &ShellCtx) -> Vec<usize> {
 pub fn desktop_menu(ctx: ShellCtx) -> impl Widget {
     let mut col = Column::new()
         .gap(2.0)
-        .child(title("Рабочий стол"))
-        .child(menu_item("\u{E8F2}", "Добавить панель", || add_panel(false)))
-        .child(menu_item("\u{E30C}", "Добавить док", || add_panel(true)))
-        .child(menu_item("\u{E1BD}", "Добавить виджет…", || {
+        .child(title(t!("Рабочий стол")))
+        .child(menu_item("\u{E8F2}", t!("Добавить панель"), || add_panel(false)))
+        .child(menu_item("\u{E30C}", t!("Добавить док"), || add_panel(true)))
+        .child(menu_item("\u{E1BD}", t!("Добавить виджет…"), || {
             let ctx = ShellCtx::get();
             crate::desk::forms::set_add_tab(0);
             crate::desk::open_later(PopupKind::DeskAdd(crate::desk::current_page(&ctx)));
         }))
-        .child(menu_item(mi::APPS, "Добавить значок…", || {
+        .child(menu_item(mi::APPS, t!("Добавить значок…"), || {
             let ctx = ShellCtx::get();
             crate::desk::forms::set_add_tab(1);
             crate::desk::open_later(PopupKind::DeskAdd(crate::desk::current_page(&ctx)));
         }))
-        .child(menu_item("\u{E3C9}", "Изменить рабочий стол", crate::desk::start_editing));
+        .child(menu_item("\u{E3C9}", t!("Изменить рабочий стол"), crate::desk::start_editing));
     let cfg = ctx.cfg();
     for i in own_panels(&ctx) {
         let dock = cfg.panels[i].is_dock();
         let edge = match cfg.panels[i].edge {
-            synshell_common::config::Edge::Top => "сверху",
-            synshell_common::config::Edge::Bottom => "снизу",
-            synshell_common::config::Edge::Left => "слева",
-            synshell_common::config::Edge::Right => "справа",
+            synshell_common::config::Edge::Top => t!("сверху"),
+            synshell_common::config::Edge::Bottom => t!("снизу"),
+            synshell_common::config::Edge::Left => t!("слева"),
+            synshell_common::config::Edge::Right => t!("справа"),
         };
-        let label = format!("Изменить {} {edge}", if dock { "док" } else { "панель" });
+        let label = if dock { t!("Изменить док {edge}", edge = edge) } else { t!("Изменить панель {edge}", edge = edge) };
         col = col.child(menu_item("\u{E3C9}", label, move || start_editing(i)));
     }
     if ctx.is_phone() {
         use synshell_common::action::MobileMode;
-        col = col.child(sep()).child(Text::new("Режим окон").class("menu-caption"));
+        col = col.child(sep()).child(Text::new(t!("Режим окон")).class("menu-caption"));
         let current = ctx.mobile_mode();
         for (mode, icon, label) in [
-            (MobileMode::Pages, "\u{E8EB}", "Страницы"),
-            (MobileMode::Free, "\u{E89F}", "Свободный стол"),
+            (MobileMode::Pages, "\u{E8EB}", t!("Страницы")),
+            (MobileMode::Free, "\u{E89F}", t!("Свободный стол")),
         ] {
             let item = menu_item(icon, label, move || crate::actions::run(synshell_common::Action::MobileMode(mode)));
             let class = if mode == current { "menu-radio menu-radio-on" } else { "menu-radio" };
@@ -384,8 +384,8 @@ pub fn desktop_menu(ctx: ShellCtx) -> impl Widget {
         }
     }
     col.child(sep())
-        .child(menu_item(mi::WALLPAPER, "Обои и рабочий стол…", || crate::actions::spawn("synsettings wallpaper")))
-        .child(menu_item(mi::SETTINGS, "Параметры", || crate::actions::spawn("synsettings")))
+        .child(menu_item(mi::WALLPAPER, t!("Обои и рабочий стол…"), || crate::actions::spawn("synsettings wallpaper")))
+        .child(menu_item(mi::SETTINGS, t!("Параметры"), || crate::actions::spawn("synsettings")))
 }
 
 /// Открыть контекстное меню у последнего нажатия (палец или мышь).
@@ -405,7 +405,7 @@ pub fn home_app_menu(ctx: ShellCtx, app_id: &str) -> impl Widget {
     let mut col = Column::new().gap(2.0).child(title(entry.as_ref().map(|e| e.name.clone()).unwrap_or_else(|| app_id.to_string())));
     if let Some(l) = l {
         let l2 = l.clone();
-        col = col.child(menu_item("\u{E89E}", "Открыть", move || {
+        col = col.child(menu_item("\u{E89E}", t!("Открыть"), move || {
             ShellCtx::get().close_popup();
             launchers::launch(ShellCtx::get(), &l2)
         }));
@@ -415,7 +415,7 @@ pub fn home_app_menu(ctx: ShellCtx, app_id: &str) -> impl Widget {
     let dock = cfg.panels.iter().enumerate().find(|(_, p)| p.is_dock() && p.shows_on(ctx.form_factor)).map(|(i, _)| i);
     if let Some(panel) = dock {
         let id = app_id.to_string();
-        col = col.child(sep()).child(menu_item(mi::PUSH_PIN, "Закрепить на доке", move || {
+        col = col.child(sep()).child(menu_item(mi::PUSH_PIN, t!("Закрепить на доке"), move || {
             ShellCtx::get().close_popup();
             pin_app(panel, &id);
         }));
@@ -423,7 +423,7 @@ pub fn home_app_menu(ctx: ShellCtx, app_id: &str) -> impl Widget {
     let id = app_id.to_string();
     let pinned = cfg.mobile.home_apps.iter().any(|a| a == app_id);
     if pinned {
-        col = col.child(menu_item(mi::CLOSE, "Убрать с домашнего экрана", move || {
+        col = col.child(menu_item(mi::CLOSE, t!("Убрать с домашнего экрана"), move || {
             let mut apps = ShellCtx::get().cfg().mobile.home_apps.clone();
             apps.retain(|a| *a != id);
             set_home_apps(apps);
@@ -492,18 +492,18 @@ pub fn panel_menu(ctx: ShellCtx, panel: usize) -> impl Widget {
     let cfg = ctx.cfg();
     let dock = cfg.panels.get(panel).is_some_and(|p| p.is_dock());
     let editing = ctx.editing.get_untracked() == Some(panel);
-    let what = if dock { "док" } else { "панель" };
+    let what = if dock { t!("док") } else { t!("панель") };
     Column::new()
         .gap(2.0)
-        .child(title(if dock { "Док" } else { "Панель" }))
-        .child(menu_item("\u{E3C9}", if editing { format!("Закончить правку ({what})") } else { format!("Изменить {what}") }, move || {
+        .child(title(if dock { t!("Док") } else { t!("Панель") }))
+        .child(menu_item("\u{E3C9}", if editing { t!("Закончить правку ({what})", what = what) } else { t!("Изменить {what}", what = what) }, move || {
             if editing {
                 stop_editing();
             } else {
                 start_editing(panel);
             }
         }))
-        .child(menu_item("\u{E145}", "Добавить значок, раздел, папку…", move || {
+        .child(menu_item("\u{E145}", t!("Добавить значок, раздел, папку…"), move || {
             let ctx = ShellCtx::get();
             ctx.editing.set(Some(panel));
             // Меню закроется, окно «Добавить» откроется следующим кадром у того же места.
@@ -516,10 +516,10 @@ pub fn panel_menu(ctx: ShellCtx, panel: usize) -> impl Widget {
             });
         }))
         .child(sep())
-        .child(menu_item(if dock { "\u{E8F2}" } else { "\u{E30C}" }, if dock { "Сделать обычной панелью" } else { "Сделать доком" }, move || {
+        .child(menu_item(if dock { "\u{E8F2}" } else { "\u{E30C}" }, if dock { t!("Сделать обычной панелью") } else { t!("Сделать доком") }, move || {
             set_mode(panel, if dock { "panel" } else { "dock" });
         }))
-        .child(menu_item(mi::SETTINGS, "Параметры панелей…", || crate::actions::spawn("synsettings panels")))
+        .child(menu_item(mi::SETTINGS, t!("Параметры панелей…"), || crate::actions::spawn("synsettings panels")))
 }
 
 /// Меню значка панели/дока.
@@ -533,17 +533,17 @@ pub fn item_menu(ctx: ShellCtx, panel: usize, index: usize) -> impl Widget {
             col = col.child(title(l.name.clone()));
             col = window_items(ctx, col, &l.app_id);
             let l2 = l.clone();
-            col = col.child(menu_item("\u{E89E}", "Новое окно", move || launchers::launch(ShellCtx::get(), &l2)));
+            col = col.child(menu_item("\u{E89E}", t!("Новое окно"), move || launchers::launch(ShellCtx::get(), &l2)));
             let app_id = l.app_id.clone();
             if !launchers::windows_of(&app_id, &ctx.windows.get_untracked()).is_empty() {
-                col = col.child(menu_item(mi::CLOSE, "Закрыть все окна", move || close_all(&app_id)));
+                col = col.child(menu_item(mi::CLOSE, t!("Закрыть все окна"), move || close_all(&app_id)));
             }
-            col = col.child(sep()).child(menu_item(mi::PUSH_PIN, "Открепить", move || remove(panel, index)));
+            col = col.child(sep()).child(menu_item(mi::PUSH_PIN, t!("Открепить"), move || remove(panel, index)));
         }
         "group" | "folder" => {
             col = col.child(title(launchers::stack_title(&applet)));
             let anchor = ctx.popup.get_untracked().map(|p| p.anchor);
-            col = col.child(menu_item("\u{E89E}", "Открыть", move || {
+            col = col.child(menu_item("\u{E89E}", t!("Открыть"), move || {
                 let a = anchor.clone();
                 syngui_layer::add_timer(std::time::Duration::from_millis(30), move || {
                     if let Some(a) = a.clone() {
@@ -554,23 +554,23 @@ pub fn item_menu(ctx: ShellCtx, panel: usize, index: usize) -> impl Widget {
             }));
             if applet.kind == "folder" {
                 let spec = applet.str_or("path", "~").to_string();
-                col = col.child(menu_item("\u{E2C8}", "Открыть в файловом менеджере", move || {
+                col = col.child(menu_item("\u{E2C8}", t!("Открыть в файловом менеджере"), move || {
                     launchers::open_path(&launchers::resolve_path(&spec));
                 }));
                 if launchers::is_trash(applet.str_or("path", "")) {
-                    col = col.child(menu_item("\u{E872}", "Очистить корзину", launchers::empty_trash));
+                    col = col.child(menu_item("\u{E872}", t!("Очистить корзину"), launchers::empty_trash));
                 }
             }
-            col = col.child(sep()).child(menu_item(mi::CLOSE, "Убрать", move || remove(panel, index)));
+            col = col.child(sep()).child(menu_item(mi::CLOSE, t!("Убрать"), move || remove(panel, index)));
         }
         kind => {
             col = col.child(title(crate::edit::applet_label(kind)));
-            col = col.child(menu_item(mi::CLOSE, "Убрать с панели", move || remove(panel, index)));
+            col = col.child(menu_item(mi::CLOSE, t!("Убрать с панели"), move || remove(panel, index)));
         }
     }
     if matches!(applet.kind.as_str(), "app" | "group" | "folder") {
         let anchor = ctx.popup.get_untracked().map(|p| p.anchor);
-        col = col.child(menu_item("\u{E3C9}", "Настроить…", move || {
+        col = col.child(menu_item("\u{E3C9}", t!("Настроить…"), move || {
             let a = anchor.clone();
             ShellCtx::get().editing.set(Some(panel));
             syngui_layer::add_timer(std::time::Duration::from_millis(30), move || {
@@ -582,7 +582,7 @@ pub fn item_menu(ctx: ShellCtx, panel: usize, index: usize) -> impl Widget {
         }));
     }
     let dock = cfg.panels.get(panel).is_some_and(|p| p.is_dock());
-    col.child(menu_item("\u{E8B8}", if dock { "Изменить док" } else { "Изменить панель" }, move || start_editing(panel)))
+    col.child(menu_item("\u{E8B8}", if dock { t!("Изменить док") } else { t!("Изменить панель") }, move || start_editing(panel)))
 }
 
 /// Меню работающего приложения без значка (апплет `taskbar` на доке).
@@ -593,12 +593,12 @@ pub fn app_menu(ctx: ShellCtx, panel: usize, app_id: &str) -> impl Widget {
     col = window_items(ctx, col, app_id);
     if let Some(e) = entry {
         let l = Launchable::from_entry(&e);
-        col = col.child(menu_item("\u{E89E}", "Новое окно", move || launchers::launch(ShellCtx::get(), &l)));
+        col = col.child(menu_item("\u{E89E}", t!("Новое окно"), move || launchers::launch(ShellCtx::get(), &l)));
         let id = app_id.to_string();
-        col = col.child(menu_item(mi::PUSH_PIN, "Закрепить", move || pin_app(panel, &id)));
+        col = col.child(menu_item(mi::PUSH_PIN, t!("Закрепить"), move || pin_app(panel, &id)));
     }
     let id = app_id.to_string();
-    col.child(sep()).child(menu_item(mi::CLOSE, "Закрыть все окна", move || close_all(&id)))
+    col.child(sep()).child(menu_item(mi::CLOSE, t!("Закрыть все окна"), move || close_all(&id)))
 }
 
 fn window_items(ctx: ShellCtx, mut col: Column, app_id: &str) -> Column {
@@ -627,30 +627,30 @@ fn close_all(app_id: &str) {
 
 /// Апплеты, которые можно добавить из режима редактирования.
 const APPLET_KINDS: &[(&str, &str, &str)] = &[
-    ("launcher", "Меню запуска", "\u{E5C3}"),
-    ("taskbar", "Открытые окна", "\u{F088}"),
-    ("workspaces", "Рабочие столы", "\u{E53B}"),
-    ("separator", "Разделитель", "\u{E15B}"),
-    ("spacer", "Растяжка", "\u{E8D4}"),
-    ("clock", "Часы", "\u{E8B5}"),
-    ("tray", "Системный лоток", "\u{E5CF}"),
-    ("keyboard", "Раскладка", "\u{E312}"),
-    ("volume", "Громкость", "\u{E050}"),
-    ("network", "Сеть", "\u{E63E}"),
-    ("battery", "Батарея", "\u{E1A4}"),
-    ("notifications", "Уведомления", "\u{E7F4}"),
-    ("show-desktop", "Показать рабочий стол", "\u{E30C}"),
-    ("window-title", "Заголовок окна", "\u{F088}"),
-    ("window-buttons", "Кнопки окна", "\u{E5CD}"),
-    ("appmenu", "Глобальное меню", "\u{E5D2}"),
-    ("layout", "Раскладка окон", "\u{E871}"),
-    ("cpu", "Процессор", "\u{E30D}"),
-    ("memory", "Память", "\u{E322}"),
-    ("power", "Питание", "\u{E8AC}"),
+    ("launcher", n_!("Меню запуска"), "\u{E5C3}"),
+    ("taskbar", n_!("Открытые окна"), "\u{F088}"),
+    ("workspaces", n_!("Рабочие столы"), "\u{E53B}"),
+    ("separator", n_!("Разделитель"), "\u{E15B}"),
+    ("spacer", n_!("Растяжка"), "\u{E8D4}"),
+    ("clock", n_!("Часы"), "\u{E8B5}"),
+    ("tray", n_!("Системный лоток"), "\u{E5CF}"),
+    ("keyboard", n_!("Раскладка"), "\u{E312}"),
+    ("volume", n_!("Громкость"), "\u{E050}"),
+    ("network", n_!("Сеть"), "\u{E63E}"),
+    ("battery", n_!("Батарея"), "\u{E1A4}"),
+    ("notifications", n_!("Уведомления"), "\u{E7F4}"),
+    ("show-desktop", n_!("Показать рабочий стол"), "\u{E30C}"),
+    ("window-title", n_!("Заголовок окна"), "\u{F088}"),
+    ("window-buttons", n_!("Кнопки окна"), "\u{E5CD}"),
+    ("appmenu", n_!("Глобальное меню"), "\u{E5D2}"),
+    ("layout", n_!("Раскладка окон"), "\u{E871}"),
+    ("cpu", n_!("Процессор"), "\u{E30D}"),
+    ("memory", n_!("Память"), "\u{E322}"),
+    ("power", n_!("Питание"), "\u{E8AC}"),
 ];
 
 pub fn applet_label(kind: &str) -> String {
-    APPLET_KINDS.iter().find(|k| k.0 == kind).map(|k| k.1.to_string()).unwrap_or_else(|| kind.to_string())
+    APPLET_KINDS.iter().find(|k| k.0 == kind).map(|k| syngui::i18n::t(k.1)).unwrap_or_else(|| kind.to_string())
 }
 
 /// Значки для разделов (глифы Material Icons).
@@ -671,13 +671,13 @@ const GROUP_GLYPHS: &[&str] = &[
 
 /// Окно «Добавить на панель/док».
 pub fn add_view(ctx: ShellCtx, panel: usize) -> impl Widget {
-    const TABS: [&str; 4] = ["Приложение", "Раздел", "Папка", "Апплет"];
+    const TABS: [&str; 4] = [n_!("Приложение"), n_!("Раздел"), n_!("Папка"), n_!("Апплет")];
     let tab = use_signal(0usize);
     let mut bar = Row::new().gap(4.0).class("add-tabs");
     for (i, t) in TABS.iter().enumerate() {
         bar = bar.child(move || {
             let cls = if tab.get() == i { "add-tab add-tab-active" } else { "add-tab" };
-            InputArea::new(boxed(cls, Text::new(*t).class("add-tab-label"))).pointer().on_click(move |b, _, _| {
+            InputArea::new(boxed(cls, Text::new(syngui::i18n::t(t)).class("add-tab-label"))).pointer().on_click(move |b, _, _| {
                 if b == MouseButton::Left {
                     tab.set(i);
                 }
@@ -687,7 +687,7 @@ pub fn add_view(ctx: ShellCtx, panel: usize) -> impl Widget {
     let dock = ctx.cfg().panels.get(panel).is_some_and(|p| p.is_dock());
     Column::new()
         .gap(10.0)
-        .child(Text::new(if dock { "Добавить на док" } else { "Добавить на панель" }).class("popup-title"))
+        .child(Text::new(if dock { t!("Добавить на док") } else { t!("Добавить на панель") }).class("popup-title"))
         .child(bar)
         .child(crate::ui::rx(move || -> Box<dyn Widget> {
             match tab.get() {
@@ -711,7 +711,7 @@ pub(crate) fn app_picker(on_pick: impl Fn(String) + Clone + Send + Sync + 'stati
                         .gap(8.0)
                         .cross_axis_alignment(CrossAxisAlignment::Center)
                         .child(icon(mi::SEARCH).class("search-icon"))
-                        .child(TextField::new().placeholder("Поиск приложений").autofocus(true).on_change(move |t| q.set(t.to_string())).class("search-field grow")),
+                        .child(TextField::new().placeholder(t!("Поиск приложений")).autofocus(true).on_change(move |t| q.set(t.to_string())).class("search-field grow")),
                 )
                 .class("search-box"),
         )
@@ -775,9 +775,9 @@ fn add_app(panel: usize) -> impl Widget {
         .child(move || {
             let a = added.get();
             Text::new(if a.is_empty() {
-                "Щёлкните приложение — его значок появится на панели.".to_string()
+                t!("Щёлкните приложение — его значок появится на панели.").to_string()
             } else {
-                format!("Добавлено: {}", a.len())
+                t!("Добавлено: {n}", n = a.len())
             })
             .class("add-hint")
         })
@@ -799,7 +799,7 @@ fn add_applet(panel: usize) -> impl Widget {
         flex = flex.child(
             InputArea::new(
                 DecoratedBox::new()
-                    .child(Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(glyph).class("add-applet-icon")).child(Text::new(*label).max_lines(2).class("add-applet-label")))
+                    .child(Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(glyph).class("add-applet-icon")).child(Text::new(syngui::i18n::t(label)).max_lines(2).class("add-applet-label")))
                     .class("add-applet"),
             )
             .pointer()
@@ -823,7 +823,7 @@ fn choice(options: &'static [(&'static str, &'static str)], sig: RwSignal<String
     for (v, l) in options {
         row = row.child(move || {
             let on = sig.get() == *v;
-            InputArea::new(boxed(if on { "chip chip-on" } else { "chip" }, Text::new(*l).class("chip-label"))).pointer().on_click(move |b, _, _| {
+            InputArea::new(boxed(if on { "chip chip-on" } else { "chip" }, Text::new(syngui::i18n::t(l)).class("chip-label"))).pointer().on_click(move |b, _, _| {
                 if b == MouseButton::Left {
                     sig.set(v.to_string());
                 }
@@ -833,8 +833,8 @@ fn choice(options: &'static [(&'static str, &'static str)], sig: RwSignal<String
     row
 }
 
-const VIEWS: &[(&str, &str)] = &[("grid", "Сетка"), ("list", "Список"), ("fan", "Веер")];
-const OPENS: &[(&str, &str)] = &[("click", "По клику"), ("hover", "Наведением")];
+const VIEWS: &[(&str, &str)] = &[("grid", n_!("Сетка")), ("list", n_!("Список")), ("fan", n_!("Веер"))];
+const OPENS: &[(&str, &str)] = &[("click", n_!("По клику")), ("hover", n_!("Наведением"))];
 
 /// Форма раздела: новый (`index` = None) или правка существующего.
 pub fn group_form(panel: usize, index: Option<usize>) -> impl Widget {
@@ -859,11 +859,11 @@ pub fn group_form(panel: usize, index: Option<usize>) -> impl Widget {
     Column::new()
         .gap(8.0)
         .class("form")
-        .child(labeled("Название", TextField::with_text(name.get_untracked()).placeholder("Разработка").on_change(move |t| name.set(t.to_string())).class("form-field grow")))
-        .child(labeled("Значок", glyphs))
-        .child(labeled("Вид", choice(VIEWS, view)))
-        .child(labeled("Открывать", choice(OPENS, open)))
-        .child(Text::new("Приложения раздела:").class("form-label"))
+        .child(labeled(&t!("Название"), TextField::with_text(name.get_untracked()).placeholder(t!("Разработка")).on_change(move |t| name.set(t.to_string())).class("form-field grow")))
+        .child(labeled(&t!("Значок"), glyphs))
+        .child(labeled(&t!("Вид"), choice(VIEWS, view)))
+        .child(labeled(&t!("Открывать"), choice(OPENS, open)))
+        .child(Text::new(t!("Приложения раздела:")).class("form-label"))
         .child(app_picker(
             move |id| {
                 let mut v = items.get_untracked();
@@ -889,7 +889,7 @@ pub fn group_form(panel: usize, index: Option<usize>) -> impl Widget {
                 a.options.insert("items".into(), toml::Value::Array(items.get_untracked().into_iter().map(toml::Value::String).collect()));
                 a
             },
-            if index.is_some() { "Сохранить" } else { "Создать раздел" },
+            if index.is_some() { n_!("Сохранить") } else { n_!("Создать раздел") },
         ))
 }
 
@@ -904,12 +904,12 @@ pub fn folder_form(panel: usize, index: Option<usize>) -> impl Widget {
     // папки — не на каждую букву, иначе теряло бы фокус.
     let path_ver = use_signal(0u32);
     let quick: &[(&str, &str)] = &[
-        ("~", "Домашняя"),
-        ("xdg:DOWNLOAD", "Загрузки"),
-        ("xdg:DOCUMENTS", "Документы"),
-        ("xdg:PICTURES", "Изображения"),
-        ("xdg:DESKTOP", "Рабочий стол"),
-        ("trash:", "Корзина"),
+        ("~", &t!("Домашняя")),
+        ("xdg:DOWNLOAD", &t!("Загрузки")),
+        ("xdg:DOCUMENTS", &t!("Документы")),
+        ("xdg:PICTURES", &t!("Изображения")),
+        ("xdg:DESKTOP", &t!("Рабочий стол")),
+        ("trash:", &t!("Корзина")),
     ];
     let mut chips = Flex::new().wrap().gap(4.0).class("form-choice");
     for (p, l) in quick {
@@ -933,16 +933,16 @@ pub fn folder_form(panel: usize, index: Option<usize>) -> impl Widget {
         .gap(8.0)
         .class("form")
         .child(labeled(
-            "Путь",
+            &t!("Путь"),
             crate::ui::rx(move || {
                 let _ = path_ver.get();
-                Box::new(TextField::with_text(path.get_untracked()).placeholder("~/Проекты").on_change(move |t| path.set(t.to_string())).class("form-field grow"))
+                Box::new(TextField::with_text(path.get_untracked()).placeholder(t!("~/Проекты")).on_change(move |t| path.set(t.to_string())).class("form-field grow"))
             }),
         ))
         .child(chips)
-        .child(labeled("Название", TextField::with_text(name.get_untracked()).placeholder("По имени папки").on_change(move |t| name.set(t.to_string())).class("form-field grow")))
-        .child(labeled("Вид", choice(VIEWS, view)))
-        .child(labeled("Открывать", choice(OPENS, open)))
+        .child(labeled(&t!("Название"), TextField::with_text(name.get_untracked()).placeholder(t!("По имени папки")).on_change(move |t| name.set(t.to_string())).class("form-field grow")))
+        .child(labeled(&t!("Вид"), choice(VIEWS, view)))
+        .child(labeled(&t!("Открывать"), choice(OPENS, open)))
         .child(form_buttons(
             panel,
             index,
@@ -955,7 +955,7 @@ pub fn folder_form(panel: usize, index: Option<usize>) -> impl Widget {
                 a.options.insert("open".into(), toml::Value::String(open.get_untracked()));
                 a
             },
-            if index.is_some() { "Сохранить" } else { "Добавить папку" },
+            if index.is_some() { n_!("Сохранить") } else { n_!("Добавить папку") },
         ))
 }
 
@@ -981,9 +981,9 @@ pub fn app_form(panel: usize, index: usize) -> impl Widget {
                 .child(launchers::icon_widget(&l.icon, &l.glyph, "form-app-icon", 48.0))
                 .child(Column::new().gap(0.0).child(Text::new(l.name.clone()).class("popup-title")).child(Text::new(l.app_id.clone()).class("add-app-hint"))),
         )
-        .child(labeled("Подпись", TextField::with_text(name.get_untracked()).placeholder(l.name.clone()).on_change(move |t| name.set(t.to_string())).class("form-field grow")))
-        .child(labeled("Значок", TextField::with_text(icon_name.get_untracked()).placeholder("имя из темы значков или путь").on_change(move |t| icon_name.set(t.to_string())).class("form-field grow")))
-        .child(labeled("Команда", TextField::with_text(command.get_untracked()).placeholder(l.command.clone()).on_change(move |t| command.set(t.to_string())).class("form-field grow")))
+        .child(labeled(&t!("Подпись"), TextField::with_text(name.get_untracked()).placeholder(l.name.clone()).on_change(move |t| name.set(t.to_string())).class("form-field grow")))
+        .child(labeled(&t!("Значок"), TextField::with_text(icon_name.get_untracked()).placeholder(t!("имя из темы значков или путь")).on_change(move |t| icon_name.set(t.to_string())).class("form-field grow")))
+        .child(labeled(&t!("Команда"), TextField::with_text(command.get_untracked()).placeholder(l.command.clone()).on_change(move |t| command.set(t.to_string())).class("form-field grow")))
         .child(form_buttons(
             panel,
             Some(index),
@@ -994,7 +994,7 @@ pub fn app_form(panel: usize, index: usize) -> impl Widget {
                 set_opt(&mut a, "command", command.get_untracked());
                 a
             },
-            "Сохранить",
+            &t!("Сохранить"),
         ))
 }
 
@@ -1010,7 +1010,7 @@ fn form_buttons(panel: usize, index: Option<usize>, build: impl Fn() -> Applet +
     let mut row = Row::new().gap(8.0).main_axis_alignment(MainAxisAlignment::End).class("form-buttons");
     if let Some(i) = index {
         row = row.child(
-            InputArea::new(boxed("btn btn-danger", Text::new("Удалить").class("btn-label"))).pointer().on_click(move |b, _, _| {
+            InputArea::new(boxed("btn btn-danger", Text::new(t!("Удалить")).class("btn-label"))).pointer().on_click(move |b, _, _| {
                 if b == MouseButton::Left {
                     remove(panel, i);
                     ShellCtx::get().close_popup();
@@ -1019,7 +1019,7 @@ fn form_buttons(panel: usize, index: Option<usize>, build: impl Fn() -> Applet +
         );
     }
     row.child(
-        InputArea::new(boxed("btn btn-primary", Text::new(ok.to_string()).class("btn-label"))).pointer().on_click(move |b, _, _| {
+        InputArea::new(boxed("btn btn-primary", Text::new(syngui::i18n::t(ok)).class("btn-label"))).pointer().on_click(move |b, _, _| {
             if b != MouseButton::Left {
                 return;
             }
@@ -1044,15 +1044,15 @@ pub fn edit_view(ctx: ShellCtx, panel: usize, index: usize) -> Box<dyn Widget> {
             Column::new()
                 .gap(8.0)
                 .child(Text::new(applet_label(other)).class("popup-title"))
-                .child(Text::new("Настройки апплета — в «Параметрах системы» → «Панели».").class("add-hint"))
-                .child(form_buttons(panel, Some(index), move || applets_of(panel).get(index).cloned().unwrap_or_else(|| Applet::new("spacer")), "Готово")),
+                .child(Text::new(t!("Настройки апплета — в «Параметрах системы» → «Панели».")).class("add-hint"))
+                .child(form_buttons(panel, Some(index), move || applets_of(panel).get(index).cloned().unwrap_or_else(|| Applet::new("spacer")), &t!("Готово"))),
         ),
     };
     let title = match kind.as_str() {
-        "app" => "Значок приложения",
-        "group" => "Раздел",
-        "folder" => "Папка",
-        _ => "Апплет",
+        "app" => t!("Значок приложения"),
+        "group" => t!("Раздел"),
+        "folder" => t!("Папка"),
+        _ => t!("Апплет"),
     };
     Box::new(Column::new().gap(10.0).child(Text::new(title).class("popup-title")).child(body))
 }

@@ -4,6 +4,7 @@
 use crate::ctx::{PopupAnchor, PopupKind, ShellCtx};
 use crate::system;
 use synshell_common::config::Edge;
+use syngui::t;
 
 /// Всплывающее окно по центру вывода с фокусом (из сочетания клавиш; на
 /// телефоне — нижний лист).
@@ -91,29 +92,29 @@ pub fn handle(cmd: &str) {
         "window-menu" => window_menu(ctx, &arg),
         "osd-layout" => {
             let (glyph, label) = match arg.trim() {
-                "floating" => (crate::ui::mi::FLOAT, "Плавающие окна"),
-                "tile" => (crate::ui::mi::TILE, "Мозаика"),
-                "columns" => (crate::ui::mi::TILE, "Колонки"),
-                "grid" => (crate::ui::mi::GRID, "Сетка"),
-                "monocle" => (crate::ui::mi::FULLSCREEN, "Одно окно"),
-                other => (crate::ui::mi::TILE, other),
+                "floating" => (crate::ui::mi::FLOAT, t!("Плавающие окна")),
+                "tile" => (crate::ui::mi::TILE, t!("Мозаика")),
+                "columns" => (crate::ui::mi::TILE, t!("Колонки")),
+                "grid" => (crate::ui::mi::GRID, t!("Сетка")),
+                "monocle" => (crate::ui::mi::FULLSCREEN, t!("Одно окно")),
+                other => (crate::ui::mi::TILE, other.to_string()),
             };
             crate::osd::show(ctx, glyph, None, label.to_string());
         }
         "screenshot-taken" => crate::notifications::local(
             ctx,
-            "Снимок экрана",
-            &format!("Сохранён в {}", arg.trim()),
+            &t!("Снимок экрана"),
+            &t!("Сохранён в {trim}", trim = arg.trim()),
             Some(arg.trim().to_string()),
         ),
-        "screenshot-copied" => crate::notifications::local(ctx, "Снимок экрана", "Скопирован в буфер обмена", None),
+        "screenshot-copied" => crate::notifications::local(ctx, &t!("Снимок экрана"), &t!("Скопирован в буфер обмена"), None),
         "screenshot-path" => crate::notifications::local(
             ctx,
-            "Снимок экрана",
-            &format!("Путь скопирован в буфер обмена: {}", arg.trim()),
+            &t!("Снимок экрана"),
+            &t!("Путь скопирован в буфер обмена: {trim}", trim = arg.trim()),
             Some(arg.trim().to_string()),
         ),
-        "screenshot-failed" => crate::notifications::local(ctx, "Снимок не сделан", arg.trim(), None),
+        "screenshot-failed" => crate::notifications::local(ctx, &t!("Снимок не сделан"), arg.trim(), None),
         "close-popup" => ctx.close_popup(),
         // Показать спрятанные автоскрытием панели и доки (`reveal-panels
         // bottom` — только у края); спрячутся сами через задержку.

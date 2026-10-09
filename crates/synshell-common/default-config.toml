@@ -20,6 +20,7 @@ xdg_autostart = true
 # Xwayland для X11-программ (нужен пакет xorg-xwayland).
 xwayland = true
 screenshot_dir = "~/Pictures/Screenshots"
+language = ""                  # язык интерфейса: ru | en | …; пусто — язык системы (LANG)
 
 [general.environment]
 # QT_QPA_PLATFORMTHEME = "kde"

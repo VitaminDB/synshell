@@ -297,8 +297,8 @@ pub fn item_text(item: &Item) -> (String, String) {
             };
             (e.name.clone(), sub)
         }
-        Item::Calc { expr, value } => (format!("= {value}"), format!("{expr} · Enter — скопировать")),
-        Item::Run(cmd) => (format!("Выполнить «{cmd}»"), "Команда оболочки (! — в терминале)".into()),
+        Item::Calc { expr, value } => (format!("= {value}"), t!("{expr} · Enter — скопировать", expr = expr)),
+        Item::Run(cmd) => (t!("Выполнить «{cmd}»", cmd = cmd), t!("Команда оболочки (! — в терминале)").into()),
     }
 }
 
@@ -427,7 +427,7 @@ fn list(st: &State, ctx: ShellCtx) -> impl Widget {
                 let sel = selected.get();
                 let mut col = Column::new().gap(2.0);
                 if v.is_empty() {
-                    col = col.child(Text::new("Ничего не найдено").class("launcher-empty"));
+                    col = col.child(Text::new(t!("Ничего не найдено")).class("launcher-empty"));
                 }
                 for (i, it) in v.iter().cloned().enumerate() {
                     let _ = sel;
@@ -450,12 +450,12 @@ fn sidebar_entries(ctx: &ShellCtx) -> Vec<(String, String, String)> {
     let apps = xdg::apps();
     let mut entries: Vec<(String, String, String)> = Vec::new();
     if !cfg.launcher.favorites.is_empty() {
-        entries.push(("favorites".into(), "Избранное".into(), mi::STAR.into()));
+        entries.push(("favorites".into(), t!("Избранное").into(), mi::STAR.into()));
     }
     if cfg.launcher.show_recent {
-        entries.push(("recent".into(), "Недавние".into(), mi::HISTORY.into()));
+        entries.push(("recent".into(), t!("Недавние").into(), mi::HISTORY.into()));
     }
-    entries.push(("all".into(), "Все приложения".into(), mi::APPS.into()));
+    entries.push(("all".into(), t!("Все приложения").into(), mi::APPS.into()));
     if cfg.launcher.show_categories {
         for (key, label, glyph) in xdg::CATEGORIES {
             if apps.iter().any(|e| !e.no_display && e.android.is_none() && e.main_category() == *key) {
@@ -529,12 +529,12 @@ fn footer(ctx: ShellCtx, settings: RwSignal<bool>) -> impl Widget {
                 .class("grow"),
         )
         .child(crate::menu_prefs::button(settings, "footer-btn", ""))
-        .child(btn(mi::SETTINGS, "Параметры", || {
+        .child(btn(mi::SETTINGS, n_!("Параметры"), || {
             ShellCtx::get().close_popup();
             crate::actions::spawn("synsettings");
         }))
-        .child(btn(mi::LOCK, "Блокировать", || crate::commands::handle("lock")))
-        .child(btn(mi::POWER, "Питание", || {
+        .child(btn(mi::LOCK, n_!("Блокировать"), || crate::commands::handle("lock")))
+        .child(btn(mi::POWER, n_!("Питание"), || {
             let c = ShellCtx::get();
             c.popup.set(Some(crate::ctx::Popup {
                 kind: crate::ctx::PopupKind::Power,
@@ -557,7 +557,7 @@ pub fn menu(ctx: ShellCtx) -> impl Widget {
             Box::new(
                 Column::new()
                     .gap(10.0)
-                    .child(search_field(&st, "Поиск приложений, команд, вычислений…"))
+                    .child(search_field(&st, &t!("Поиск приложений, команд, вычислений…")))
                     .child(
                         Row::new()
                             .gap(8.0)
@@ -587,7 +587,7 @@ pub fn run_prompt(ctx: ShellCtx) -> impl Widget {
     });
     Column::new()
         .gap(8.0)
-        .child(search_field(&st, "Команда или приложение…"))
+        .child(search_field(&st, &t!("Команда или приложение…")))
         .child(AnimatedSize::new(results).axis(AnimationAxis::Height).spring(420.0, 40.0).class("popup-morph"))
 }
 
@@ -650,7 +650,7 @@ fn fullscreen_view(ctx: ShellCtx) -> impl Widget {
     let content = Column::new()
         .gap(24.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(DecoratedBox::new().child(search_field(&st, "Поиск")).class("launcher-fs-search"))
+        .child(DecoratedBox::new().child(search_field(&st, &t!("Поиск"))).class("launcher-fs-search"))
         .child(InputArea::new(grid.class("launcher-fs-grid")).absorb())
         .class("launcher-fs");
     Stack::new().fit(StackFit::Expand).child(backdrop).child(content)

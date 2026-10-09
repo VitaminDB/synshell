@@ -247,7 +247,7 @@ pub fn menu_view(id: i32) -> impl Widget {
         let entries = crate::appmenu::menu().and_then(|m| m.entries.into_iter().find(|e| e.id == id)).map(|e| e.children);
         match entries {
             Some(list) if !list.is_empty() => crate::tray::menu_list(&list, sub, crate::appmenu::activate, crate::appmenu::expand),
-            _ => Column::new().child(Text::new("Загрузка…").class("launcher-empty")),
+            _ => Column::new().child(Text::new(t!("Загрузка…")).class("launcher-empty")),
         }
     })
 }

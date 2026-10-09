@@ -23,6 +23,7 @@ use crate::manage;
 use crate::pdu;
 use crate::qmi::{svc, Client, Indication, Message, QmiError, SERVICE_GONE};
 use crate::store::{Part, Store};
+use synshell_tr::t;
 
 const T: Duration = Duration::from_secs(10);
 /// Хук звука разговора платформы: `call-audio start|stop` (маршрут голоса в DSP зависит от устройства).
@@ -704,7 +705,7 @@ impl Daemon {
                     if !enabled {
                         st.data.error.clear();
                     } else if roam_block {
-                        st.data.error = "Роуминг: передача данных в роуминге выключена".into();
+                        st.data.error = t!("Роуминг: передача данных в роуминге выключена").into();
                     }
                 });
             }
@@ -863,7 +864,7 @@ impl Daemon {
             (svc::VOICE, 0x43) => {
                 let text = manage::ussd_text(&msg, 0x12, 0x14);
                 let err = msg.get(0x10).is_some() || msg.get(0x11).is_some();
-                let text = text.unwrap_or_else(|| if err { "Запрос не выполнен".into() } else { String::new() });
+                let text = text.unwrap_or_else(|| if err { t!("Запрос не выполнен").into() } else { String::new() });
                 self.emit(Event::Ussd { text, reply: !err, done: err });
             }
             (svc::VOICE, 0x3E) => {
@@ -1377,7 +1378,7 @@ fn serve(d: Arc<Daemon>, s: UnixStream) {
         match serde_json::from_str::<Request>(&line) {
             Ok(Request::Subscribe) => {
                 if !peer.trusted {
-                    send(&mut w, &Response::Error { message: "нет доступа к событиям".into() });
+                    send(&mut w, &Response::Error { message: t!("нет доступа к событиям").into() });
                     return;
                 }
                 let (tx, rx) = mpsc::channel();
@@ -1396,7 +1397,7 @@ fn serve(d: Arc<Daemon>, s: UnixStream) {
             }
             Ok(Request::GnssWatch) => {
                 if !peer.trusted {
-                    send(&mut w, &Response::Error { message: "нет доступа к местоположению".into() });
+                    send(&mut w, &Response::Error { message: t!("нет доступа к местоположению").into() });
                     return;
                 }
                 let Some(g) = d.gnss.get() else { return };
@@ -1415,7 +1416,7 @@ fn serve(d: Arc<Daemon>, s: UnixStream) {
                 }
             }
             Err(e) => {
-                if !send(&mut w, &Response::Error { message: format!("запрос: {e}") }) {
+                if !send(&mut w, &Response::Error { message: t!("запрос: {e}", e = e) }) {
                     break;
                 }
             }

@@ -11,6 +11,7 @@ use synshell_common::drives::{self, Device, Kind};
 
 use crate::ctx::ShellCtx;
 use crate::notifications;
+use syngui::t;
 
 pub fn start(_ctx: ShellCtx) {
     std::thread::Builder::new()
@@ -60,11 +61,11 @@ fn icon(d: &Device) -> &'static str {
 }
 
 /// «Подключён телефон».
-fn connected_text(d: &Device) -> &'static str {
+fn connected_text(d: &Device) -> String {
     match d.kind() {
-        Kind::Phone => "Подключён телефон",
-        Kind::Camera => "Подключена камера",
-        Kind::Usb | Kind::Disk => "Подключён съёмный диск",
+        Kind::Phone => t!("Подключён телефон"),
+        Kind::Camera => t!("Подключена камера"),
+        Kind::Usb | Kind::Disk => t!("Подключён съёмный диск"),
     }
 }
 
@@ -80,9 +81,9 @@ fn connected(ctx: ShellCtx, d: Device) {
         mounted(ctx, d, p, &summary);
         return;
     }
-    let body = format!("Открыть в проводнике или только смонтировать{size}");
+    let body = t!("Открыть в проводнике или только смонтировать{size}", size = size);
     let key = note_key(d.key());
-    notifications::local_actions(ctx, &key, &summary, &body, icon(&d), &[("default", "Открыть"), ("open", "Открыть"), ("mount", "Смонтировать")], move |action| {
+    notifications::local_actions(ctx, &key, &summary, &body, icon(&d), &[("default", &t!("Открыть")), ("open", &t!("Открыть")), ("mount", &t!("Смонтировать"))], move |action| {
         let d = d.clone();
         match action {
             "mount" => mount(d, false),
@@ -94,11 +95,11 @@ fn connected(ctx: ShellCtx, d: Device) {
 /// Смонтированное: «Открыть» и «Извлечь».
 fn mounted(ctx: ShellCtx, d: Device, path: PathBuf, summary: &str) {
     let body = match &d {
-        Device::Disk(_) => format!("Смонтировано в {}", path.display()),
-        Device::Gadget(_) => "Файлы доступны в проводнике".to_string(),
+        Device::Disk(_) => t!("Смонтировано в {path}", path = path.display()),
+        Device::Gadget(_) => t!("Файлы доступны в проводнике").to_string(),
     };
     let key = note_key(d.key());
-    notifications::local_actions(ctx, &key, summary, &body, icon(&d), &[("default", "Открыть"), ("open", "Открыть"), ("eject", "Извлечь")], move |action| match action {
+    notifications::local_actions(ctx, &key, summary, &body, icon(&d), &[("default", &t!("Открыть")), ("open", &t!("Открыть")), ("eject", &t!("Извлечь"))], move |action| match action {
         "eject" => eject(d.clone()),
         _ => crate::launchers::open_path(&path),
     });
@@ -109,7 +110,7 @@ fn mounted(ctx: ShellCtx, d: Device, path: PathBuf, summary: &str) {
 fn mount(d: Device, open: bool) {
     // Телефон по MTP открывается несколько секунд — пусть будет видно, что идёт работа.
     let ctx = ShellCtx::get();
-    notifications::local_busy(ctx, &note_key(d.key()), &format!("Подключение к «{}»…", d.title()), "", icon(&d));
+    notifications::local_busy(ctx, &note_key(d.key()), &t!("Подключение к «{title}»…", title = d.title()), "", icon(&d));
     std::thread::spawn(move || {
         let r = d.mount();
         syngui::async_runtime::run_on_main_thread(move || {
@@ -120,13 +121,13 @@ fn mount(d: Device, open: bool) {
                     crate::launchers::open_path(&path);
                 }
                 Ok(path) => {
-                    let summary = format!("«{}» смонтировано", d.title());
+                    let summary = t!("«{title}» смонтировано", title = d.title());
                     mounted(ctx, d, path, &summary);
                 }
                 Err(e) => {
                     let key = note_key(d.key());
-                    let summary = format!("Не удалось открыть «{}»", d.title());
-                    notifications::local_actions(ctx, &key, &summary, &e, icon(&d), &[("retry", "Повторить")], move |a| {
+                    let summary = t!("Не удалось открыть «{title}»", title = d.title());
+                    notifications::local_actions(ctx, &key, &summary, &e, icon(&d), &[("retry", &t!("Повторить"))], move |a| {
                         if a == "retry" {
                             mount(d.clone(), open);
                         }
@@ -143,8 +144,8 @@ fn eject(d: Device) {
         syngui::async_runtime::run_on_main_thread(move || {
             let ctx = ShellCtx::get();
             match r {
-                Ok(()) => notifications::local_actions(ctx, &note_key(d.key()), &format!("«{}» можно отключать", d.title()), "", icon(&d), &[], |_| {}),
-                Err(e) => notifications::local(ctx, &format!("Не удалось извлечь «{}»", d.title()), &e, None),
+                Ok(()) => notifications::local_actions(ctx, &note_key(d.key()), &t!("«{title}» можно отключать", title = d.title()), "", icon(&d), &[], |_| {}),
+                Err(e) => notifications::local(ctx, &t!("Не удалось извлечь «{title}»", title = d.title()), &e, None),
             }
         });
     });

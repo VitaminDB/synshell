@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use crate::paths;
+use crate::t;
 
 /// Вариант темы — палитра одной схемы (тёмной или светлой).
 #[derive(Debug, Clone, Default, Deserialize, PartialEq)]
@@ -123,9 +124,9 @@ pub const DECORATION_KEYS: &[&str] =
 
 impl Theme {
     fn from_parts(id: &str, source: Source, toml_text: &str, shell_mss: String, settings_mss: String) -> Result<Theme, String> {
-        let f: ThemeFile = toml::from_str(toml_text).map_err(|e| format!("тема {id}: {e}"))?;
+        let f: ThemeFile = toml::from_str(toml_text).map_err(|e| t!("тема {id}: {e}", id = id, e = e))?;
         if f.dark.is_none() && f.light.is_none() {
-            return Err(format!("тема {id}: нет ни [dark], ни [light]"));
+            return Err(t!("тема {id}: нет ни [dark], ни [light]", id = id));
         }
         let keep = |t: toml::Table, keys: &[&str]| -> toml::Table {
             t.into_iter().filter(|(k, _)| keys.contains(&k.as_str())).collect()
@@ -166,7 +167,7 @@ impl Theme {
     pub fn find(id: &str) -> Result<Theme, String> {
         let id = id.trim();
         if id.is_empty() || id.contains('/') || id.starts_with('.') {
-            return Err(format!("неверное имя темы «{id}»"));
+            return Err(t!("неверное имя темы «{id}»", id = id));
         }
         for dir in search_dirs() {
             let d = dir.join(id);
@@ -174,7 +175,7 @@ impl Theme {
                 return Self::load_dir(id, &d);
             }
         }
-        Self::builtin(id).unwrap_or_else(|| Err(format!("тема «{id}» не найдена")))
+        Self::builtin(id).unwrap_or_else(|| Err(t!("тема «{id}» не найдена", id = id)))
     }
 
     /// Вариант для схемы: запрошенный, иначе единственный имеющийся.

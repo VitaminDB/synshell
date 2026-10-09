@@ -64,7 +64,7 @@ fn watch() -> zbus::Result<()> {
     let conn = zbus::blocking::Connection::system()?;
     let proxy = zbus::blocking::Proxy::new(&conn, "net.hadess.SensorProxy", "/net/hadess/SensorProxy", "net.hadess.SensorProxy")?;
     if !proxy.get_property::<bool>("HasProximity").unwrap_or(false) {
-        return Err(zbus::Error::Failure("нет датчика приближения".into()));
+        return Err(zbus::Error::Failure(t!("нет датчика приближения").into()));
     }
     proxy.call_method("ClaimProximity", &())?;
     let mut ear = true;

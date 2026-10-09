@@ -25,6 +25,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 
 use zbus::zvariant::{OwnedValue, Value};
+use synshell_tr::t;
 
 const AGENT_PATH: &str = "/org/synshell/PolkitAgent";
 const HELPER_SOCKET: &str = "/run/polkit/agent-helper.socket";
@@ -96,14 +97,14 @@ pub fn ensure() -> Result<(), String> {
 /// `XDG_SESSION_ID` (logind выставляет его при входе).
 pub fn ensure_session() -> Result<(), String> {
     if PROMPTER.get().is_none() {
-        return Err("polkit-агент сеанса: нет окна ввода пароля".into());
+        return Err(t!("polkit-агент сеанса: нет окна ввода пароля").into());
     }
     SESSION_AGENT.get_or_init(register_session).as_ref().map(|_| ()).map_err(Clone::clone)
 }
 
 fn register() -> Result<zbus::blocking::Connection, String> {
     let pid = std::process::id();
-    let start = process_start_time(pid).ok_or("polkit-агент: нет start-time процесса")?;
+    let start = process_start_time(pid).ok_or(t!("polkit-агент: нет start-time процесса"))?;
     let mut details: HashMap<&str, Value> = HashMap::new();
     details.insert("pid", Value::U32(pid));
     details.insert("start-time", Value::U64(start));
@@ -126,7 +127,7 @@ fn register_subject(subject: (&str, HashMap<&str, Value>)) -> Result<zbus::block
     let conn = zbus::blocking::connection::Builder::system()
         .and_then(|b| b.serve_at(AGENT_PATH, Agent))
         .and_then(|b| b.build())
-        .map_err(|e| format!("polkit-агент: системная шина: {e}"))?;
+        .map_err(|e| t!("polkit-агент: системная шина: {e}", e = e))?;
     let locale = std::env::var("LC_ALL").or_else(|_| std::env::var("LANG")).unwrap_or_else(|_| "C".into());
     conn.call_method(
         Some("org.freedesktop.PolicyKit1"),
@@ -135,7 +136,7 @@ fn register_subject(subject: (&str, HashMap<&str, Value>)) -> Result<zbus::block
         "RegisterAuthenticationAgent",
         &(subject, locale.as_str(), AGENT_PATH),
     )
-    .map_err(|e| format!("polkit-агент: регистрация: {e}"))?;
+    .map_err(|e| t!("polkit-агент: регистрация: {e}", e = e))?;
     Ok(conn)
 }
 
@@ -176,7 +177,7 @@ impl Agent {
         let me = unsafe { libc::getuid() };
         let uid = [me, 0].into_iter().find(|u| uids.contains(u)).or(uids.first().copied());
         let Some(user) = uid.and_then(user_name) else {
-            return Err(zbus::fdo::Error::Failed("нет подходящего пользователя для аутентификации".into()));
+            return Err(zbus::fdo::Error::Failed(t!("нет подходящего пользователя для аутентификации").into()));
         };
         let res = blocking::unblock(move || authenticate(&action_id, &message, &user, &cookie)).await;
         res.map_err(zbus::fdo::Error::Failed)
@@ -220,7 +221,7 @@ fn helper(user: &str, cookie: &str) -> Result<Helper, String> {
     if !SOCKET_BROKEN.load(Ordering::Relaxed) {
         if let Ok(s) = UnixStream::connect(HELPER_SOCKET) {
             let mut w = s.try_clone().map_err(|e| e.to_string())?;
-            writeln!(w, "{user}\n{cookie}").map_err(|e| format!("помощник polkit: {e}"))?;
+            writeln!(w, "{user}\n{cookie}").map_err(|e| t!("помощник polkit: {e}", e = e))?;
             return Ok((Box::new(BufReader::new(s)), Box::new(w), true));
         }
     }
@@ -231,15 +232,15 @@ fn helper(user: &str, cookie: &str) -> Result<Helper, String> {
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("{HELPER_BIN}: {e}"))?;
-    let mut w = child.stdin.take().ok_or("нет stdin помощника")?;
-    let r = child.stdout.take().ok_or("нет stdout помощника")?;
+    let mut w = child.stdin.take().ok_or(t!("нет stdin помощника"))?;
+    let r = child.stdout.take().ok_or(t!("нет stdout помощника"))?;
     std::thread::spawn(move || child.wait());
-    writeln!(w, "{cookie}").map_err(|e| format!("помощник polkit: {e}"))?;
+    writeln!(w, "{cookie}").map_err(|e| t!("помощник polkit: {e}", e = e))?;
     Ok((Box::new(BufReader::new(r)), Box::new(w), false))
 }
 
 fn authenticate(action_id: &str, message: &str, user: &str, cookie: &str) -> Result<(), String> {
-    let prompter = PROMPTER.get().cloned().ok_or("нет окна ввода пароля")?;
+    let prompter = PROMPTER.get().cloned().ok_or(t!("нет окна ввода пароля"))?;
     let (tx, rx) = mpsc::channel::<Option<String>>();
     let mut error: Option<String> = None;
     let mut cancelled = false;
@@ -304,7 +305,7 @@ fn authenticate(action_id: &str, message: &str, user: &str, cookie: &str) -> Res
             return Ok(());
         }
         if cancelled {
-            return Err("отменено".into());
+            return Err(t!("отменено").into());
         }
         if via_socket && silent {
             tracing::warn!("помощник polkit за сокетом не ответил (нет pidfd?) — setuid-помощник");
@@ -312,7 +313,7 @@ fn authenticate(action_id: &str, message: &str, user: &str, cookie: &str) -> Res
             continue;
         }
         attempt += 1;
-        error = Some("Неверный пароль".into());
+        error = Some(t!("Неверный пароль").into());
     }
-    Err("аутентификация не удалась".into())
+    Err(t!("аутентификация не удалась").into())
 }

@@ -16,6 +16,7 @@ use syngui::prelude::create_effect;
 use synshell_common::config::Brightness;
 
 use crate::ctx::ShellCtx;
+use syngui::t;
 
 /// Опорные точки кривой: люксы → доля диапазона `min_pct..max_pct`.
 /// Внизу круче, чем у Android: в комнатном полумраке (50–150 лк) экран заметно темнее, чем при дневном свете.
@@ -137,7 +138,7 @@ fn listen(tx: &std::sync::mpsc::Sender<Msg>, cfg: &Arc<Mutex<Brightness>>) -> zb
     let conn = zbus::blocking::Connection::system()?;
     let proxy = zbus::blocking::Proxy::new(&conn, "net.hadess.SensorProxy", "/net/hadess/SensorProxy", "net.hadess.SensorProxy")?;
     if !proxy.get_property::<bool>("HasAmbientLight")? {
-        return Err(zbus::Error::Failure("нет датчика освещённости".into()));
+        return Err(zbus::Error::Failure(t!("нет датчика освещённости").into()));
     }
     if SCREEN_ON.load(std::sync::atomic::Ordering::SeqCst) {
         proxy.call_method("ClaimLight", &())?;
@@ -157,7 +158,7 @@ fn listen(tx: &std::sync::mpsc::Sender<Msg>, cfg: &Arc<Mutex<Brightness>>) -> zb
             let _ = tx.send(Msg::Lux(v as f32));
         }
     }
-    Err(zbus::Error::Failure("поток свойств закрыт".into()))
+    Err(zbus::Error::Failure(t!("поток свойств закрыт").into()))
 }
 
 fn apply_loop(rx: Receiver<Msg>, cfg: Arc<Mutex<Brightness>>) {

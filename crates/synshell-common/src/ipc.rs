@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
+use crate::t;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "request", rename_all = "kebab-case")]
@@ -410,7 +411,7 @@ impl Client {
         if self.reader.read_line(&mut resp)? == 0 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::UnexpectedEof,
-                "композитор закрыл соединение",
+                t!("композитор закрыл соединение"),
             ));
         }
         serde_json::from_str(&resp).map_err(std::io::Error::other)
@@ -421,7 +422,7 @@ impl Client {
         match self.request(&Request::EventStream)? {
             Response::Ok => Ok(EventStream { reader: self.reader }),
             Response::Error { message } => Err(std::io::Error::other(message)),
-            other => Err(std::io::Error::other(format!("неожиданный ответ: {other:?}"))),
+            other => Err(std::io::Error::other(t!("неожиданный ответ: {other}", other = format!("{:?}", other)))),
         }
     }
 }

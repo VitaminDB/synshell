@@ -69,10 +69,10 @@ pub fn build(ctx: ShellCtx, slot: &Slot, w: &DeskWidget, iw: f32, ih: f32, editi
         "temps" => temps(cx.clone()),
         "apps" => apps_rail(),
         "launcher" => launcher_grid(ctx, w, &cx),
-        "note" => Box::new(Text::new(w.str_or("text", "Новая заметка — коснитесь в режиме правки, чтобы изменить.").to_string()).class("desk-note")),
+        "note" => Box::new(Text::new(w.str_or("text", &t!("Новая заметка — коснитесь в режиме правки, чтобы изменить.")).to_string()).class("desk-note")),
         "app" => app_icon(ctx, slot, w, iw, ih, editing),
         "file" => file_icon(slot, w, iw, ih, editing),
-        other => Box::new(Text::new(format!("Неизвестный виджет «{other}»")).class("desk-k")),
+        other => Box::new(Text::new(t!("Неизвестный виджет «{other}»", other = other)).class("desk-k")),
     };
     let mut col = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
     if title {
@@ -82,7 +82,7 @@ pub fn build(ctx: ShellCtx, slot: &Slot, w: &DeskWidget, iw: f32, ih: f32, editi
                 .gap(8.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(icon(glyph).class("desk-title-icon"))
-                .child(Text::new(w.str_or("name", label).to_string()).max_lines(1).class("desk-title grow"))
+                .child(Text::new(w.str("name").filter(|s| !s.is_empty()).map(String::from).unwrap_or_else(|| syngui::i18n::t(label))).max_lines(1).class("desk-title grow"))
                 .style("height", StyleValue::px(TITLE_H)),
         );
     }
@@ -187,15 +187,15 @@ fn clock(ctx: ShellCtx, w: &DeskWidget, cx: &Cx) -> Box<dyn Widget> {
 /// Значение 0…100, крупная подпись и мелкая.
 fn value_of(kind: &str, s: &Snap) -> (f32, String, String) {
     match kind {
-        "cpu" => (s.cpu, format!("{:.0}%", s.cpu), s.cpu_temp.map(|t| format!("{t:.0} °C")).unwrap_or_else(|| "процессор".into())),
+        "cpu" => (s.cpu, format!("{:.0}%", s.cpu), s.cpu_temp.map(|t| format!("{t:.0} °C")).unwrap_or_else(|| t!("процессор").into())),
         "memory" => (s.mem_percent, format!("{:.0}%", s.mem_percent), synsystem::memory::human_kb(s.mem_used_kb)),
         "gpu" => match &s.gpu {
-            Some((busy, mhz, _)) => (busy.unwrap_or(0.0), busy.map(|b| format!("{b:.0}%")).unwrap_or("—".into()), mhz.map(|m| format!("{m} МГц")).unwrap_or_default()),
-            None => (0.0, "—".into(), "нет данных".into()),
+            Some((busy, mhz, _)) => (busy.unwrap_or(0.0), busy.map(|b| format!("{b:.0}%")).unwrap_or("—".into()), mhz.map(|m| t!("{m} МГц", m = m)).unwrap_or_default()),
+            None => (0.0, "—".into(), t!("нет данных").into()),
         },
         "battery" => match &s.battery {
-            Some(b) => (b.percent as f32, format!("{}%", b.percent), if b.charging { "заряжается" } else if b.full { "заряжена" } else { "батарея" }.into()),
-            None => (0.0, s.adc_volt.map(|v| format!("{v:.2} В")).unwrap_or("—".into()), "нет драйвера".into()),
+            Some(b) => (b.percent as f32, format!("{}%", b.percent), if b.charging { t!("заряжается") } else if b.full { t!("заряжена") } else { t!("батарея") }.into()),
+            None => (0.0, s.adc_volt.map(|v| t!("{v} В", v = format!("{:.2}", v))).unwrap_or("—".into()), t!("нет драйвера").into()),
         },
         _ => (0.0, String::new(), String::new()),
     }
@@ -386,7 +386,7 @@ fn core_bars(s: &Snap, cx: &Cx) -> impl Widget {
     }
     BarChart::new()
         .categories(list.iter().map(|(i, _)| i.to_string()).collect())
-        .bar_series(BarSeries::new("Загрузка", list.iter().map(|x| x.1 as f64).collect()).color(cx.color))
+        .bar_series(BarSeries::new(t!("Загрузка"), list.iter().map(|x| x.1 as f64).collect()).color(cx.color))
         .y_axis(AxisConfig::new().min(0.0).max(100.0).tick_count(3).labels(cx.h >= 90.0).axis_line(false))
         .x_axis(AxisConfig::new().labels(cx.w / list.len().max(1) as f32 >= 14.0).grid(false))
         .legend(LegendPosition::None)
@@ -401,7 +401,7 @@ fn core_radar(s: &Snap, cx: &Cx) -> impl Widget {
     let vals: Vec<f64> = (0..n).map(|i| s.cores.get(i).map(|c| c.0 as f64).unwrap_or(0.0)).collect();
     RadarChart::new()
         .indicators((0..n).map(|i| RadarIndicator::new(i.to_string(), 100.0)).collect())
-        .radar_series(RadarSeries::new("Ядра", vals).color(cx.color).area_opacity(0.3).show_points(false))
+        .radar_series(RadarSeries::new(t!("Ядра"), vals).color(cx.color).area_opacity(0.3).show_points(false))
         .grid_levels(3)
         .legend(LegendPosition::None)
         .tooltip(false)
@@ -416,15 +416,15 @@ fn memory_pie(s: &Snap, cx: &Cx) -> impl Widget {
     Column::new()
         .gap(0.0)
         .child(
-            Text::new(format!("{} из {}", synsystem::memory::human_kb(s.mem_used_kb), synsystem::memory::human_kb(s.mem_total_kb)))
+            Text::new(t!("{v} из {v2}", v = synsystem::memory::human_kb(s.mem_used_kb), v2 = synsystem::memory::human_kb(s.mem_total_kb)))
                 .max_lines(1)
                 .class("desk-k")
                 .style("height", StyleValue::px(head)),
         )
         .child(
             PieChart::new()
-                .slice(PieSlice::new("Занято", used).color(cx.color))
-                .slice(PieSlice::new("Свободно", free).color(cx.color.with_alpha(0.22)))
+                .slice(PieSlice::new(t!("Занято"), used).color(cx.color))
+                .slice(PieSlice::new(t!("Свободно"), free).color(cx.color.with_alpha(0.22)))
                 .donut(0.6)
                 .label_position(PieLabelPosition::None)
                 .show_percentage(false)
@@ -451,13 +451,13 @@ fn card(ctx: ShellCtx, kind: &str, s: &Snap, cx: &Cx) -> Box<dyn Widget> {
             let top = Row::new()
                 .gap(14.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(ring(s.cpu, format!("{:.0}%", s.cpu), "процессор", ring_size, color))
+                .child(ring(s.cpu, format!("{:.0}%", s.cpu), &t!("процессор"), ring_size, color))
                 .child(
                     Column::new()
                         .gap(6.0)
-                        .child(kv("Ядер", s.cores.len().to_string()))
-                        .child(kv("Частота", max_mhz.map(|m| format!("до {m} МГц")).unwrap_or_default()))
-                        .child(kv("Температура", temp))
+                        .child(kv(&t!("Ядер"), s.cores.len().to_string()))
+                        .child(kv(&t!("Частота"), max_mhz.map(|m| t!("до {m} МГц", m = m)).unwrap_or_default()))
+                        .child(kv(&t!("Температура"), temp))
                         .child(sparkline(tail(&s.history.cpu, cx.history).to_vec(), cx.history, color, (cx.w - ring_size - 14.0).max(40.0), 30.0))
                         .class("grow"),
                 );
@@ -472,7 +472,7 @@ fn card(ctx: ShellCtx, kind: &str, s: &Snap, cx: &Cx) -> Box<dyn Widget> {
             let (v, big, sub) = value_of(kind, s);
             let size = (cx.h - 18.0).min(cx.w).max(40.0);
             let foot = if kind == "memory" {
-                format!("из {}", synsystem::memory::human_kb(s.mem_total_kb))
+                t!("из {v}", v = synsystem::memory::human_kb(s.mem_total_kb))
             } else {
                 s.gpu.as_ref().map(|g| format!("{}{}", g.2.clone().unwrap_or_default(), s.gpu_temp.map(|t| format!(" · {t:.0} °C")).unwrap_or_default())).unwrap_or_default()
             };
@@ -492,31 +492,31 @@ fn card(ctx: ShellCtx, kind: &str, s: &Snap, cx: &Cx) -> Box<dyn Widget> {
 fn power_body(s: &Snap) -> Box<dyn Widget> {
     match (&s.battery, &s.battery_info) {
         (Some(b), info) => {
-            let state = if b.charging { "Заряжается" } else if b.full { "Заряжена" } else { "Разряжается" };
+            let state = if b.charging { t!("Заряжается") } else if b.full { t!("Заряжена") } else { t!("Разряжается") };
             let mut col = Column::new()
                 .gap(6.0)
                 .child(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(format!("{}%", b.percent)).class("res-big")).child(Text::new(state).class("res-v grow")))
                 .child(crate::ui::meter(b.percent));
             if let Some(m) = b.minutes {
-                col = col.child(kv(if b.charging { "До полного" } else { "Осталось" }, format!("{}:{:02}", m / 60, m % 60)));
+                col = col.child(kv(if b.charging { n_!("До полного") } else { n_!("Осталось") }, format!("{}:{:02}", m / 60, m % 60)));
             }
             if let Some(w) = b.power_w.filter(|w| *w > 0.05) {
-                col = col.child(kv("Мощность", format!("{w:.2} Вт")));
+                col = col.child(kv(&t!("Мощность"), t!("{w} Вт", w = format!("{:.2}", w))));
             }
             if let Some(i) = info {
                 if let Some(v) = i.voltage_v {
-                    col = col.child(kv("Напряжение", format!("{v:.2} В")));
+                    col = col.child(kv(&t!("Напряжение"), t!("{v} В", v = format!("{:.2}", v))));
                 }
                 if let Some(t) = i.temp_c {
-                    col = col.child(kv("Температура", format!("{t:.1} °C")));
+                    col = col.child(kv(&t!("Температура"), format!("{t:.1} °C")));
                 }
             }
             Box::new(col)
         }
         (None, _) => match s.adc_volt {
             // Драйвера батареи нет (телефон без ADSP) — напряжение с АЦП.
-            Some(v) => Box::new(Column::new().gap(4.0).child(Text::new(format!("{v:.2} В")).class("res-big")).child(Text::new("напряжение аккумулятора").class("res-k"))),
-            None => Box::new(Text::new("Аккумулятора нет").class("res-v")),
+            Some(v) => Box::new(Column::new().gap(4.0).child(Text::new(t!("{v} В", v = format!("{:.2}", v))).class("res-big")).child(Text::new(t!("напряжение аккумулятора")).class("res-k"))),
+            None => Box::new(Text::new(t!("Аккумулятора нет")).class("res-v")),
         },
     }
 }
@@ -525,11 +525,11 @@ fn power_body(s: &Snap) -> Box<dyn Widget> {
 
 fn human_rate(b: f64) -> String {
     if b >= 1e6 {
-        format!("{:.1} МБ/с", b / 1e6)
+        t!("{v} МБ/с", v = format!("{:.1}", b / 1e6))
     } else if b >= 1e3 {
-        format!("{:.0} КБ/с", b / 1e3)
+        t!("{v} КБ/с", v = format!("{:.0}", b / 1e3))
     } else {
-        format!("{b:.0} Б/с")
+        t!("{b} Б/с", b = format!("{:.0}", b))
     }
 }
 
@@ -554,7 +554,7 @@ fn network(ctx: ShellCtx, cx: Cx) -> Box<dyn Widget> {
                 Box::new(line_view(
                     &format!("↓ {}", human_rate(s.net.0)),
                     &format!("↑ {}", human_rate(s.net.1)),
-                    &[("Приём", to_k(&s.history.rx), rx_c), ("Передача", to_k(&s.history.tx), tx_c)],
+                    &[(&t!("Приём"), to_k(&s.history.rx), rx_c), (&t!("Передача"), to_k(&s.history.tx), tx_c)],
                     None,
                     &cx,
                     |v| if v >= 1024.0 { format!("{:.0}M", v / 1024.0) } else { format!("{v:.0}K") },
@@ -567,8 +567,8 @@ fn network(ctx: ShellCtx, cx: Cx) -> Box<dyn Widget> {
                 Box::new(
                     BarChart::new()
                         .categories((0..rx_v.len()).map(|i| i.to_string()).collect())
-                        .bar_series(BarSeries::new("Приём", rx_v).color(rx_c))
-                        .bar_series(BarSeries::new("Передача", tx_v).color(tx_c))
+                        .bar_series(BarSeries::new(t!("Приём"), rx_v).color(rx_c))
+                        .bar_series(BarSeries::new(t!("Передача"), tx_v).color(tx_c))
                         .x_axis(AxisConfig::new().labels(false).grid(false))
                         .y_axis(AxisConfig::new().min(0.0).tick_count(3).labels(cx.h >= 90.0).axis_line(false).format(|v| format!("{v:.0}K")))
                         .legend(LegendPosition::None)
@@ -594,8 +594,8 @@ fn network(ctx: ShellCtx, cx: Cx) -> Box<dyn Widget> {
 fn net_card(n: &synsystem::network::Network, modem: Option<&synmodem::api::Status>, rate: (f64, f64)) -> impl Widget {
     let (glyph, title, sub) = match n.kind.as_str() {
         "wifi" if n.online => (mi::WIFI, n.connection.clone(), n.signal.map(|v| format!("Wi-Fi · {v} %")).unwrap_or_else(|| "Wi-Fi".into())),
-        "ethernet" if n.online => (mi::ETHERNET, n.connection.clone(), "Проводная сеть".into()),
-        _ => (mi::WIFI_OFF, "Нет Wi-Fi".into(), String::new()),
+        "ethernet" if n.online => (mi::ETHERNET, n.connection.clone(), t!("Проводная сеть").into()),
+        _ => (mi::WIFI_OFF, t!("Нет Wi-Fi").into(), String::new()),
     };
     let mut col = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(net_line(Box::new(icon(glyph).class("res-net-icon")), title, sub));
     if let Some(m) = modem.filter(|m| m.present) {
@@ -617,7 +617,7 @@ fn temps(cx: Cx) -> Box<dyn Widget> {
             "gauge" => Box::new(gauge(hottest, 110.0, "°", &cx)) as Box<dyn Widget>,
             "line" => Box::new(line_view(
                 &s.cpu_temp.map(|t| format!("{t:.0} °C")).unwrap_or("—".into()),
-                "процессор",
+                &t!("процессор"),
                 &[("", tail(&s.history.temp, cx.history).to_vec(), cx.color)],
                 None,
                 &cx,
@@ -659,7 +659,7 @@ fn apps_rail() -> Box<dyn Widget> {
     Box::new(rx(move || {
         let s = sig.get();
         if s.apps.is_empty() {
-            return Box::new(Text::new("Нет запущенных приложений").class("res-empty")) as Box<dyn Widget>;
+            return Box::new(Text::new(t!("Нет запущенных приложений")).class("res-empty")) as Box<dyn Widget>;
         }
         let mut row = Row::new().gap(12.0);
         for a in &s.apps {

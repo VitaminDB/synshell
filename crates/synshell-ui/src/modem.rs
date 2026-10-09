@@ -81,7 +81,7 @@ fn on_event(ev: Event, rung: &mut HashSet<u8>, told_missed: &mut HashSet<u64>) {
                         crate::notifications::local_command(
                             ShellCtx::get(),
                             "missed-call",
-                            "Пропущенный звонок",
+                            &t!("Пропущенный звонок"),
                             &c.number,
                             "call-missed",
                             "synphone --log".into(),
@@ -107,14 +107,14 @@ fn open_phone() {
 /// Строка состояния мобильной связи: (заголовок, подробности).
 pub fn summary(s: &Status) -> (String, String) {
     if !s.radio {
-        return ("Режим полёта".into(), "Мобильная связь выключена".into());
+        return (t!("Режим полёта").into(), t!("Мобильная связь выключена").into());
     }
     match s.sim.state {
-        SimState::Absent => return ("Нет SIM".into(), String::new()),
-        SimState::PinRequired => return ("SIM заблокирована".into(), "Нужен PIN-код".into()),
-        SimState::PukRequired | SimState::Blocked => return ("SIM заблокирована".into(), "Нужен PUK-код".into()),
-        SimState::Initializing | SimState::Unknown => return ("SIM…".into(), "Подготовка карты".into()),
-        SimState::Error => return ("Ошибка SIM".into(), String::new()),
+        SimState::Absent => return (t!("Нет SIM").into(), String::new()),
+        SimState::PinRequired => return (t!("SIM заблокирована").into(), t!("Нужен PIN-код").into()),
+        SimState::PukRequired | SimState::Blocked => return (t!("SIM заблокирована").into(), t!("Нужен PUK-код").into()),
+        SimState::Initializing | SimState::Unknown => return ("SIM…".into(), t!("Подготовка карты").into()),
+        SimState::Error => return (t!("Ошибка SIM").into(), String::new()),
         SimState::Ready => {}
     }
     let op = if s.operator.is_empty() { s.plmn.clone() } else { s.operator.clone() };
@@ -122,13 +122,13 @@ pub fn summary(s: &Status) -> (String, String) {
         Registration::Home | Registration::Roaming => {
             let mut sub = s.technology.clone();
             if s.roaming {
-                sub = if sub.is_empty() { "роуминг".into() } else { format!("{sub} · роуминг") };
+                sub = if sub.is_empty() { t!("роуминг").into() } else { t!("{sub} · роуминг", sub = sub) };
             }
             (op, sub)
         }
-        Registration::Limited => ("Только экстренные".into(), op),
-        Registration::Denied => ("Сеть отказала".into(), op),
-        Registration::Searching | Registration::NotRegistered | Registration::Unknown => ("Поиск сети…".into(), String::new()),
+        Registration::Limited => (t!("Только экстренные").into(), op),
+        Registration::Denied => (t!("Сеть отказала").into(), op),
+        Registration::Searching | Registration::NotRegistered | Registration::Unknown => (t!("Поиск сети…").into(), String::new()),
     }
 }
 

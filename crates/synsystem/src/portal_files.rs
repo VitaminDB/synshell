@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value as ZValue};
+use synshell_tr::t;
 
 const RESPONSE_OK: u32 = 0;
 const RESPONSE_CANCELLED: u32 = 1;
@@ -269,7 +270,7 @@ pub fn pick(title: &str, directory: bool, start: &std::path::Path, filters: &[Pi
     opts.insert("handle_token", V::from(token.as_str()));
     opts.insert("directory", V::from(directory));
     if directory {
-        opts.insert("accept_label", V::from("Выбрать"));
+        opts.insert("accept_label", V::from(t!("Выбрать")));
     }
     opts.insert("current_folder", V::from(folder));
     if !filters.is_empty() {
@@ -281,7 +282,7 @@ pub fn pick(title: &str, directory: bool, start: &std::path::Path, filters: &[Pi
     }
     let fc = zbus::blocking::Proxy::new(&conn, "org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop", "org.freedesktop.portal.FileChooser")
         .map_err(|e| e.to_string())?;
-    let _: OwnedObjectPath = fc.call("OpenFile", &("", title, opts)).map_err(|e| format!("портал выбора файлов: {e}"))?;
+    let _: OwnedObjectPath = fc.call("OpenFile", &("", title, opts)).map_err(|e| t!("портал выбора файлов: {e}", e = e))?;
     let Some(msg) = responses.next() else { return Ok(None) };
     let (code, results): (u32, HashMap<String, OwnedValue>) = msg.body().deserialize().map_err(|e| e.to_string())?;
     if code != 0 {

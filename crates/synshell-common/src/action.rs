@@ -8,6 +8,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
+use crate::t;
 
 /// Мини-замена bitflags без внешней зависимости.
 macro_rules! bitflags_lite {
@@ -59,7 +60,7 @@ impl FromStr for Direction {
             "right" | "r" => Direction::Right,
             "up" | "u" | "top" => Direction::Up,
             "down" | "d" | "bottom" => Direction::Down,
-            _ => return Err(format!("неизвестное направление «{s}»")),
+            _ => return Err(t!("неизвестное направление «{s}»", s = s)),
         })
     }
 }
@@ -97,7 +98,7 @@ impl FromStr for MobileMode {
         if s == "tiles" {
             return Ok(MobileMode::Pages);
         }
-        Self::ALL.into_iter().find(|m| m.as_str() == s).ok_or_else(|| format!("неизвестный режим окон «{s}» (pages, free)"))
+        Self::ALL.into_iter().find(|m| m.as_str() == s).ok_or_else(|| t!("неизвестный режим окон «{s}» (pages, free)", s = s))
     }
 }
 
@@ -158,7 +159,7 @@ impl FromStr for Rotation {
             "90" => Rotation::R90,
             "180" => Rotation::R180,
             "270" => Rotation::R270,
-            o => return Err(format!("rotate: ожидалось normal/90/180/270, а не «{o}»")),
+            o => return Err(t!("rotate: ожидалось normal/90/180/270, а не «{o}»", o = o)),
         })
     }
 }
@@ -186,7 +187,7 @@ impl FromStr for PageTarget {
             "home" | "0" => PageTarget::Home,
             "next" => PageTarget::Next,
             "prev" | "previous" => PageTarget::Prev,
-            n => PageTarget::Index(n.parse().map_err(|_| format!("page: ожидалось home/next/prev/номер, а не «{n}»"))?),
+            n => PageTarget::Index(n.parse().map_err(|_| t!("page: ожидалось home/next/prev/номер, а не «{n}»", n = n))?),
         })
     }
 }
@@ -253,7 +254,7 @@ impl FromStr for LayoutKind {
         Self::ALL
             .into_iter()
             .find(|l| l.as_str() == s)
-            .ok_or_else(|| format!("неизвестная раскладка «{s}»"))
+            .ok_or_else(|| t!("неизвестная раскладка «{s}»", s = s))
     }
 }
 
@@ -291,7 +292,7 @@ impl FromStr for WorkspaceTarget {
                 n.parse::<u32>()
                     .ok()
                     .filter(|n| *n >= 1)
-                    .ok_or_else(|| format!("ожидался номер стола (с 1) или next/prev/last, а не «{n}»"))?,
+                    .ok_or_else(|| t!("ожидался номер стола (с 1) или next/prev/last, а не «{n}»", n = n))?,
             ),
         })
     }
@@ -435,13 +436,13 @@ impl FromStr for Action {
         };
         let need = |what: &str| -> Result<&str, String> {
             if rest.is_empty() {
-                Err(format!("действию «{name}» нужен аргумент: {what}"))
+                Err(t!("действию «{name}» нужен аргумент: {what}", name = name, what = what))
             } else {
                 Ok(rest)
             }
         };
         Ok(match name {
-            "spawn" | "exec" => Action::Spawn(need("команда")?.to_string()),
+            "spawn" | "exec" => Action::Spawn(need(&t!("команда"))?.to_string()),
             "close" => Action::Close,
             "kill" => Action::Kill,
             "toggle-floating" => Action::ToggleFloating,
@@ -457,30 +458,30 @@ impl FromStr for Action {
             "move" => Action::Move(need("left/right/up/down")?.parse()?),
             "focus-next" => Action::FocusNext,
             "focus-prev" => Action::FocusPrev,
-            "workspace" => Action::Workspace(need("номер стола")?.parse()?),
-            "move-to-workspace" => Action::MoveToWorkspace(need("номер стола")?.parse()?),
+            "workspace" => Action::Workspace(need(&t!("номер стола"))?.parse()?),
+            "move-to-workspace" => Action::MoveToWorkspace(need(&t!("номер стола"))?.parse()?),
             "move-to-workspace-follow" => {
-                Action::MoveToWorkspaceFollow(need("номер стола")?.parse()?)
+                Action::MoveToWorkspaceFollow(need(&t!("номер стола"))?.parse()?)
             }
-            "focus-output" => Action::FocusOutput(need("направление")?.parse()?),
-            "move-to-output" => Action::MoveToOutput(need("направление")?.parse()?),
+            "focus-output" => Action::FocusOutput(need(&t!("направление"))?.parse()?),
+            "move-to-output" => Action::MoveToOutput(need(&t!("направление"))?.parse()?),
             "layout" => Action::Layout(need("floating/tile/columns/grid/monocle")?.parse()?),
             "cycle-layout" => Action::CycleLayout,
             "master-ratio" => Action::MasterRatio(
-                need("шаг, например +0.05")?
+                need(&t!("шаг, например +0.05"))?
                     .parse()
-                    .map_err(|_| format!("master-ratio: ожидалось число, а не «{rest}»"))?,
+                    .map_err(|_| t!("master-ratio: ожидалось число, а не «{rest}»", rest = rest))?,
             ),
             "master-count" => Action::MasterCount(
-                need("шаг, например +1")?
+                need(&t!("шаг, например +1"))?
                     .parse()
-                    .map_err(|_| format!("master-count: ожидалось целое, а не «{rest}»"))?,
+                    .map_err(|_| t!("master-count: ожидалось целое, а не «{rest}»", rest = rest))?,
             ),
             "keyboard-layout-next" => Action::KeyboardLayoutNext,
             "keyboard-layout" => Action::KeyboardLayout(
-                need("номер раскладки")?
+                need(&t!("номер раскладки"))?
                     .parse()
-                    .map_err(|_| format!("keyboard-layout: ожидался номер, а не «{rest}»"))?,
+                    .map_err(|_| t!("keyboard-layout: ожидался номер, а не «{rest}»", rest = rest))?,
             ),
             "screenshot" => Action::Screenshot,
             "screenshot-window" => Action::ScreenshotWindow,
@@ -498,21 +499,21 @@ impl FromStr for Action {
             "screen-toggle" => Action::ScreenToggle,
             "screen-off" => Action::ScreenOff,
             "screen-on" => Action::ScreenOn,
-            "proximity-blank" => Action::ProximityBlank(match need("on или off")? {
+            "proximity-blank" => Action::ProximityBlank(match need(&t!("on или off"))? {
                 "on" => true,
                 "off" => false,
-                v => return Err(format!("proximity-blank: «{v}» — нужно on или off")),
+                v => return Err(t!("proximity-blank: «{v}» — нужно on или off", v = v)),
             }),
-            "shell" => Action::Shell(need("команда оболочки")?.to_string()),
+            "shell" => Action::Shell(need(&t!("команда оболочки"))?.to_string()),
             "back" => Action::Back,
-            "key" => Action::Key(need("клавиша, например XF86Back или Alt+Left")?.parse()?),
+            "key" => Action::Key(need(&t!("клавиша, например XF86Back или Alt+Left"))?.parse()?),
             "mobile-mode" => Action::MobileMode(need("pages/free")?.parse()?),
             "mobile-mode-cycle" => Action::MobileModeCycle,
-            "page" => Action::Page(need("home/next/prev/номер")?.parse()?),
+            "page" => Action::Page(need(&t!("home/next/prev/номер"))?.parse()?),
             "camera-home" => Action::CameraHome,
             "rotate" => Action::Rotate(need("normal/90/180/270")?.parse()?),
             "none" | "" => Action::None,
-            other => return Err(format!("неизвестное действие «{other}»")),
+            other => return Err(t!("неизвестное действие «{other}»", other = other)),
         })
     }
 }
@@ -615,7 +616,7 @@ impl FromStr for KeyCombo {
         let mut mods = Mods::empty();
         let parts: Vec<&str> = s.split('+').map(str::trim).collect();
         let Some((key, mod_parts)) = parts.split_last() else {
-            return Err("пустое сочетание".into());
+            return Err(t!("пустое сочетание").into());
         };
         // «Ctrl++» — плюс как клавиша.
         let key = if key.is_empty() && s.ends_with("++") { "plus" } else { key };
@@ -623,10 +624,10 @@ impl FromStr for KeyCombo {
             if m.is_empty() {
                 continue;
             }
-            mods |= Mods::parse(m).ok_or_else(|| format!("неизвестный модификатор «{m}» в «{s}»"))?;
+            mods |= Mods::parse(m).ok_or_else(|| t!("неизвестный модификатор «{m}» в «{s}»", m = m, s = s))?;
         }
         if key.is_empty() {
-            return Err(format!("в сочетании «{s}» нет клавиши"));
+            return Err(t!("в сочетании «{s}» нет клавиши", s = s));
         }
         Ok(KeyCombo { mods, key: key.to_string() })
     }

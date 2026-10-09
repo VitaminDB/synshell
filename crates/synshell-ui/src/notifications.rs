@@ -366,7 +366,7 @@ pub fn local(ctx: ShellCtx, summary: &str, body: &str, open: Option<String>) {
         image: None,
         summary: summary.into(),
         body: body.into(),
-        actions: if open.is_some() { vec![("default".into(), "Открыть".into())] } else { Vec::new() },
+        actions: if open.is_some() { vec![("default".into(), t!("Открыть").into())] } else { Vec::new() },
         urgency: 1,
         timeout_ms: u32::MAX,
         time: crate::clock::unix_now(),
@@ -452,7 +452,7 @@ pub fn local_command(ctx: ShellCtx, key: &str, summary: &str, body: &str, icon: 
         image: None,
         summary: summary.into(),
         body: body.into(),
-        actions: vec![("default".into(), "Открыть".into())],
+        actions: vec![("default".into(), t!("Открыть").into())],
         urgency: 1,
         timeout_ms: u32::MAX,
         time: crate::clock::unix_now(),
@@ -698,7 +698,7 @@ fn popups(ctx: ShellCtx, bounds: Arc<syngui::core::sync::Mutex<Rect>>) -> impl W
 /// Подпись отправителя: у своих уведомлений оболочки (`synshell:КЛЮЧ`) — без ключа.
 fn app_title(app: &str) -> String {
     match app.strip_prefix("synshell:") {
-        Some(k) if k.starts_with("device:") => "Устройства".into(),
+        Some(k) if k.starts_with("device:") => t!("Устройства").into(),
         Some(_) => "synshell".into(),
         None => app.to_string(),
     }
@@ -798,12 +798,12 @@ pub fn center(ctx: ShellCtx) -> impl Widget {
             Row::new()
                 .gap(8.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(Text::new("Уведомления").class("popup-title grow"))
+                .child(Text::new(t!("Уведомления")).class("popup-title grow"))
                 .child(move || {
                     let dnd = ctx.dnd.get();
                     InputArea::new(
                         DecoratedBox::new()
-                            .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(if dnd { mi::BELL_OFF } else { mi::BELL })).child(Text::new("Не беспокоить").class("chip-label")))
+                            .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(if dnd { mi::BELL_OFF } else { mi::BELL })).child(Text::new(t!("Не беспокоить")).class("chip-label")))
                             .class(if dnd { "chip chip-on" } else { "chip" }),
                     )
                     .pointer()
@@ -830,7 +830,7 @@ pub fn center(ctx: ShellCtx) -> impl Widget {
                     let list = ctx.history.get();
                     let mut col = Column::new().gap(6.0);
                     if list.is_empty() {
-                        col = col.child(Text::new("Нет уведомлений").class("launcher-empty"));
+                        col = col.child(Text::new(t!("Нет уведомлений")).class("launcher-empty"));
                     }
                     for n in list {
                         col = col.child(card(ctx, n, true));

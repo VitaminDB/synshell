@@ -5,6 +5,8 @@
 //! телефоне с Android-ядром.
 
 use crate::{backlight, battery, cpu, gpu, memory, thermal, Sys};
+use synshell_tr::t;
+use synshell_tr::n_;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Device {
@@ -48,20 +50,20 @@ pub struct Section {
 /// Все разделы; пустые не попадают.
 pub fn collect(sys: &Sys) -> Vec<Section> {
     let mut out = vec![
-        section("cpu", "Процессор", "\u{E30D}", cpu_devices(sys)),
-        section("memory", "Память", "\u{E322}", memory_devices(sys)),
-        section("battery", "Аккумулятор", "\u{E1A4}", battery_devices(sys)),
-        section("gpu", "Графика", "\u{E30A}", gpu_devices(sys)),
-        section("display", "Дисплей", "\u{E30C}", display_devices(sys)),
-        section("sensors", "Датчики", "\u{E51E}", iio_devices(sys)),
-        section("thermal", "Температуры", "\u{E1FF}", thermal_devices(sys)),
-        section("storage", "Хранилище", "\u{E1DB}", storage_devices(sys)),
-        section("network", "Сеть", "\u{E80D}", net_devices(sys)),
+        section("cpu", n_!("Процессор"), "\u{E30D}", cpu_devices(sys)),
+        section("memory", n_!("Память"), "\u{E322}", memory_devices(sys)),
+        section("battery", n_!("Аккумулятор"), "\u{E1A4}", battery_devices(sys)),
+        section("gpu", n_!("Графика"), "\u{E30A}", gpu_devices(sys)),
+        section("display", n_!("Дисплей"), "\u{E30C}", display_devices(sys)),
+        section("sensors", n_!("Датчики"), "\u{E51E}", iio_devices(sys)),
+        section("thermal", n_!("Температуры"), "\u{E1FF}", thermal_devices(sys)),
+        section("storage", n_!("Хранилище"), "\u{E1DB}", storage_devices(sys)),
+        section("network", n_!("Сеть"), "\u{E80D}", net_devices(sys)),
         section("usb", "USB", "\u{E1E0}", usb_devices(sys)),
-        section("input", "Устройства ввода", "\u{E312}", input_devices(sys)),
-        section("sound", "Звук", "\u{E050}", sound_devices(sys)),
-        section("camera", "Камеры", "\u{E3AF}", camera_devices(sys)),
-        section("leds", "Светодиоды", "\u{E0F0}", led_devices(sys)),
+        section("input", n_!("Устройства ввода"), "\u{E312}", input_devices(sys)),
+        section("sound", n_!("Звук"), "\u{E050}", sound_devices(sys)),
+        section("camera", n_!("Камеры"), "\u{E3AF}", camera_devices(sys)),
+        section("leds", n_!("Светодиоды"), "\u{E0F0}", led_devices(sys)),
     ];
     out.retain(|s| !s.devices.is_empty());
     out
@@ -79,7 +81,7 @@ pub fn report(sections: &[Section]) -> String {
         for d in &sec.devices {
             s += &format!("- {}\n", d.name);
             if let Some(f) = &d.fault {
-                s += &format!("    НЕИСПРАВНОСТЬ: {f}\n");
+                s += &t!("    НЕИСПРАВНОСТЬ: {f}\n", f = f);
             }
             for (k, v) in &d.props {
                 s += &format!("    {k}: {v}\n");
@@ -93,28 +95,28 @@ pub fn report(sections: &[Section]) -> String {
 /// Состояния sysfs по-русски (DRM-коннектор, сеть, USB-контроллер); незнакомое — как есть.
 fn ru_state(v: &str) -> String {
     match v.trim() {
-        "enabled" => "да",
-        "disabled" => "нет",
-        "up" => "подключено",
-        "down" => "отключено",
-        "dormant" => "ожидание",
-        "unknown" | "UNKNOWN" => "неизвестно",
-        "configured" => "подключён к компьютеру",
-        "not attached" => "не подключён",
-        "attached" | "powered" | "default" | "addressed" => "подключается",
-        "suspended" => "сон",
-        "high-speed" => "USB 2.0 (480 Мбит/с)",
-        "full-speed" => "USB 1.1 (12 Мбит/с)",
-        "low-speed" => "USB 1.0 (1,5 Мбит/с)",
-        "super-speed" => "USB 3 (5 Гбит/с)",
-        "super-speed-plus" => "USB 3 (10 Гбит/с)",
+        "enabled" => t!("да"),
+        "disabled" => t!("нет"),
+        "up" => t!("подключено"),
+        "down" => t!("отключено"),
+        "dormant" => t!("ожидание"),
+        "unknown" | "UNKNOWN" => t!("неизвестно"),
+        "configured" => t!("подключён к компьютеру"),
+        "not attached" => t!("не подключён"),
+        "attached" | "powered" | "default" | "addressed" => t!("подключается"),
+        "suspended" => t!("сон"),
+        "high-speed" => t!("USB 2.0 (480 Мбит/с)"),
+        "full-speed" => t!("USB 1.1 (12 Мбит/с)"),
+        "low-speed" => t!("USB 1.0 (1,5 Мбит/с)"),
+        "super-speed" => t!("USB 3 (5 Гбит/с)"),
+        "super-speed-plus" => t!("USB 3 (10 Гбит/с)"),
         o => return o.to_string(),
     }
     .to_string()
 }
 
 fn mhz(v: Option<u32>) -> Option<String> {
-    v.map(|m| format!("{m} МГц"))
+    v.map(|m| t!("{m} МГц", m = m))
 }
 
 fn cpu_devices(sys: &Sys) -> Vec<Device> {
@@ -127,10 +129,10 @@ fn cpu_devices(sys: &Sys) -> Vec<Device> {
         .unwrap_or_else(|| sys.read("/proc/cpuinfo").map(|s| s.lines().filter(|l| l.starts_with("processor")).count()).unwrap_or(0));
     let arch = std::env::consts::ARCH;
     v.push(
-        Device::new(cpu::model(sys).unwrap_or_else(|| "Процессор".into()))
-            .opt("Устройство", cpu::device_model(sys))
-            .prop("Архитектура", arch)
-            .prop("Ядер", cores.to_string()),
+        Device::new(cpu::model(sys).unwrap_or_else(|| t!("Процессор").into()))
+            .opt(&t!("Устройство"), cpu::device_model(sys))
+            .prop(&t!("Архитектура"), arch)
+            .prop(&t!("Ядер"), cores.to_string()),
     );
     // Кластеры имеют смысл, если их меньше ядер (big.LITTLE).
     if clusters.len() > 1 && clusters.len() < cores {
@@ -141,32 +143,32 @@ fn cpu_devices(sys: &Sys) -> Vec<Device> {
                 _ => String::new(),
             };
             v.push(
-                Device::new(format!("Кластер {} ({} ядер)", i + 1, c.cpus.len()))
-                    .prop("Ядра", range)
-                    .opt("Частота", c.min_mhz.zip(c.max_mhz).map(|(a, b)| format!("{a}–{b} МГц")))
-                    .opt("Регулятор", c.governor.clone()),
+                Device::new(t!("Кластер {v} ({n} ядер)", v = i + 1, n = c.cpus.len()))
+                    .prop(&t!("Ядра"), range)
+                    .opt(&t!("Частота"), c.min_mhz.zip(c.max_mhz).map(|(a, b)| t!("{a}–{b} МГц", a = a, b = b)))
+                    .opt(&t!("Регулятор"), c.governor.clone()),
             );
         }
     } else if let Some(c) = clusters.first() {
-        v[0] = v[0].clone().opt("Частота", c.min_mhz.zip(c.max_mhz).map(|(a, b)| format!("{a}–{b} МГц"))).opt("Регулятор", c.governor.clone());
+        v[0] = v[0].clone().opt(&t!("Частота"), c.min_mhz.zip(c.max_mhz).map(|(a, b)| t!("{a}–{b} МГц", a = a, b = b))).opt(&t!("Регулятор"), c.governor.clone());
     }
     v
 }
 
 fn memory_devices(sys: &Sys) -> Vec<Device> {
     let Some(m) = memory::read(sys) else { return Vec::new() };
-    let mut d = Device::new("Оперативная память")
-        .prop("Всего", memory::human_kb(m.total_kb))
-        .prop("Доступно", memory::human_kb(m.available_kb));
+    let mut d = Device::new(t!("Оперативная память"))
+        .prop(&t!("Всего"), memory::human_kb(m.total_kb))
+        .prop(&t!("Доступно"), memory::human_kb(m.available_kb));
     if m.swap_total_kb > 0 {
-        d = d.prop("Подкачка", format!("{} из {}", memory::human_kb(m.swap_used_kb()), memory::human_kb(m.swap_total_kb)));
+        d = d.prop(&t!("Подкачка"), t!("{v} из {v2}", v = memory::human_kb(m.swap_used_kb()), v2 = memory::human_kb(m.swap_total_kb)));
     }
     let mut v = vec![d];
     // zram (телефоны): сжатая подкачка в памяти.
     for z in sys.list("/sys/block").into_iter().filter(|b| b.starts_with("zram")) {
         let size = sys.read_num::<u64>(format!("/sys/block/{z}/disksize")).unwrap_or(0);
         if size > 0 {
-            v.push(Device::new(z.clone()).prop("Размер", memory::human_kb(size / 1024)).opt("Сжатие", sys.read(format!("/sys/block/{z}/comp_algorithm"))));
+            v.push(Device::new(z.clone()).prop(&t!("Размер"), memory::human_kb(size / 1024)).opt(&t!("Сжатие"), sys.read(format!("/sys/block/{z}/comp_algorithm"))));
         }
     }
     v
@@ -177,17 +179,17 @@ fn battery_devices(sys: &Sys) -> Vec<Device> {
         .into_iter()
         .map(|b| {
             Device::new(b.model.clone().unwrap_or_else(|| b.name.clone()))
-                .opt("Производитель", b.manufacturer.clone())
-                .prop("Состояние", b.status.clone())
-                .opt("Заряд", b.percent.map(|p| format!("{p}%")))
-                .opt("Напряжение", b.voltage_v.map(|x| format!("{x:.2} В")))
-                .opt("Ток", b.current_a.map(|x| format!("{x:.2} А")))
-                .opt("Мощность", b.power_w.map(|x| format!("{x:.1} Вт")))
-                .opt("Температура", b.temp_c.map(|x| format!("{x:.1} °C")))
-                .opt("Здоровье", b.health.clone())
-                .opt("Износ", b.wear_percent().map(|w| format!("{w}% от паспортной ёмкости")))
-                .opt("Циклов", b.cycles.map(|c| c.to_string()))
-                .opt("Технология", b.technology.clone())
+                .opt(&t!("Производитель"), b.manufacturer.clone())
+                .prop(&t!("Состояние"), b.status.clone())
+                .opt(&t!("Заряд"), b.percent.map(|p| format!("{p}%")))
+                .opt(&t!("Напряжение"), b.voltage_v.map(|x| t!("{x} В", x = format!("{:.2}", x))))
+                .opt(&t!("Ток"), b.current_a.map(|x| t!("{x} А", x = format!("{:.2}", x))))
+                .opt(&t!("Мощность"), b.power_w.map(|x| t!("{x} Вт", x = format!("{:.1}", x))))
+                .opt(&t!("Температура"), b.temp_c.map(|x| format!("{x:.1} °C")))
+                .opt(&t!("Здоровье"), b.health.clone())
+                .opt(&t!("Износ"), b.wear_percent().map(|w| t!("{w}% от паспортной ёмкости", w = w)))
+                .opt(&t!("Циклов"), b.cycles.map(|c| c.to_string()))
+                .opt(&t!("Технология"), b.technology.clone())
         })
         .collect();
     // Без драйвера батареи (телефон без ADSP) — напряжение из IIO АЦП PMIC.
@@ -197,7 +199,7 @@ fn battery_devices(sys: &Sys) -> Vec<Device> {
             for f in sys.list(&base) {
                 if f.contains("vbat") && f.ends_with("_input") {
                     if let Some(uv) = sys.read_num::<f64>(format!("{base}/{f}")) {
-                        v.push(Device::new("Аккумулятор (АЦП PMIC)").prop("Напряжение", format!("{:.3} В", uv / 1e6)).prop("Источник", f));
+                        v.push(Device::new(t!("Аккумулятор (АЦП PMIC)")).prop(&t!("Напряжение"), t!("{v} В", v = format!("{:.3}", uv / 1e6))).prop(&t!("Источник"), f));
                     }
                 }
             }
@@ -211,15 +213,15 @@ fn gpu_devices(sys: &Sys) -> Vec<Device> {
     if let Some(g) = gpu::read(sys) {
         v.push(
             Device::new(g.name.clone().unwrap_or_else(|| "GPU".into()))
-                .opt("Частота", mhz(g.cur_mhz))
-                .opt("Максимум", mhz(g.max_mhz))
-                .opt("Загрузка", g.busy_percent.map(|b| format!("{b:.0}%"))),
+                .opt(&t!("Частота"), mhz(g.cur_mhz))
+                .opt(&t!("Максимум"), mhz(g.max_mhz))
+                .opt(&t!("Загрузка"), g.busy_percent.map(|b| format!("{b:.0}%"))),
         );
     }
     for card in sys.list("/sys/class/drm").into_iter().filter(|c| c.starts_with("card") && !c.contains('-')) {
         let uevent = sys.read(format!("/sys/class/drm/{card}/device/uevent")).unwrap_or_default();
         let driver = uevent.lines().find_map(|l| l.strip_prefix("DRIVER=")).map(String::from);
-        let dev = Device::new(card.clone()).opt("Драйвер", driver).opt("PCI", uevent.lines().find_map(|l| l.strip_prefix("PCI_ID=")).map(String::from));
+        let dev = Device::new(card.clone()).opt(&t!("Драйвер"), driver).opt("PCI", uevent.lines().find_map(|l| l.strip_prefix("PCI_ID=")).map(String::from));
         v.push(dev);
     }
     v
@@ -235,10 +237,10 @@ fn display_devices(sys: &Sys) -> Vec<Device> {
         }
         let modes = sys.read(format!("{base}/modes")).unwrap_or_default();
         let name = conn.split_once('-').map(|(_, n)| n.to_string()).unwrap_or(conn.clone());
-        v.push(Device::new(name).prop("Режимы", modes.lines().take(4).collect::<Vec<_>>().join(", ")).opt("Включён", sys.read(format!("{base}/enabled")).map(|v| ru_state(&v))));
+        v.push(Device::new(name).prop(&t!("Режимы"), modes.lines().take(4).collect::<Vec<_>>().join(", ")).opt(&t!("Включён"), sys.read(format!("{base}/enabled")).map(|v| ru_state(&v))));
     }
     for b in backlight::list(sys) {
-        v.push(Device::new(format!("Подсветка {}", b.name)).prop("Яркость", format!("{} из {} ({:.0}%)", b.brightness, b.max, b.percent())).prop("Тип", b.kind));
+        v.push(Device::new(t!("Подсветка {name}", name = b.name)).prop(&t!("Яркость"), t!("{brightness} из {max} ({percent}%)", brightness = b.brightness, max = b.max, percent = format!("{:.0}", b.percent()))).prop(&t!("Тип"), b.kind));
     }
     v
 }
@@ -281,7 +283,7 @@ fn scale_for(sys: &Sys, base: &str, ch: &str) -> Option<f64> {
 fn pretty_iio_name(n: &str) -> String {
     // «c42d000.qcom,spmi:qcom,pmk8350@0:vadc@3100» → «АЦП PMIC (vadc)».
     if n.contains("vadc") || n.contains("adc") {
-        return format!("АЦП PMIC ({})", n.rsplit(':').next().unwrap_or(n));
+        return t!("АЦП PMIC ({v})", v = n.rsplit(':').next().unwrap_or(n));
     }
     n.to_string()
 }
@@ -290,17 +292,17 @@ fn channel_label(ch: &str) -> String {
     let ch = ch.strip_prefix("in_").unwrap_or(ch);
     let (kind, rest) = ch.split_once('_').unwrap_or((ch, ""));
     let kind_ru = match kind {
-        "temp" => "Температура",
-        "voltage" => "Напряжение",
-        "current" => "Ток",
-        "accel" => "Ускорение",
-        "anglvel" => "Угловая скорость",
-        "magn" => "Магнитное поле",
-        "illuminance" => "Освещённость",
-        "proximity" => "Приближение",
-        "pressure" => "Давление",
-        "humidityrelative" => "Влажность",
-        other => other,
+        "temp" => t!("Температура"),
+        "voltage" => t!("Напряжение"),
+        "current" => t!("Ток"),
+        "accel" => t!("Ускорение"),
+        "anglvel" => t!("Угловая скорость"),
+        "magn" => t!("Магнитное поле"),
+        "illuminance" => t!("Освещённость"),
+        "proximity" => t!("Приближение"),
+        "pressure" => t!("Давление"),
+        "humidityrelative" => t!("Влажность"),
+        other => other.to_string(),
     };
     if rest.is_empty() {
         kind_ru.to_string()
@@ -315,9 +317,9 @@ fn channel_value(ch: &str, v: f64) -> String {
         format!("{:.1} °C", v / 1000.0)
     } else if ch.starts_with("voltage") {
         // processed в мВ по ABI; у qcom-vadc — мкВ (большие числа).
-        if v.abs() > 100_000.0 { format!("{:.3} В", v / 1e6) } else { format!("{:.3} В", v / 1000.0) }
+        if v.abs() > 100_000.0 { t!("{v} В", v = format!("{:.3}", v / 1e6)) } else { t!("{v} В", v = format!("{:.3}", v / 1000.0)) }
     } else if ch.starts_with("current") {
-        if v.abs() > 100_000.0 { format!("{:.3} А", v / 1e6) } else { format!("{:.0} мА", v) }
+        if v.abs() > 100_000.0 { t!("{v} А", v = format!("{:.3}", v / 1e6)) } else { t!("{v} мА", v = format!("{:.0}", v)) }
     } else {
         format!("{v}")
     }
@@ -329,7 +331,7 @@ fn thermal_devices(sys: &Sys) -> Vec<Device> {
         return Vec::new();
     }
     // Одно «устройство» со списком: зон на телефоне десятки.
-    let mut d = Device::new("Датчики температуры");
+    let mut d = Device::new(t!("Датчики температуры"));
     for s in sensors {
         d = d.prop(&s.name, format!("{:.1} °C", s.celsius));
     }
@@ -360,9 +362,9 @@ fn storage_devices(sys: &Sys) -> Vec<Device> {
         } else if vendor.contains("SAMSUNG") || b.starts_with("sd") && !rot {
             "UFS/SSD"
         } else {
-            "Диск"
+            &t!("Диск")
         };
-        v.push(Device::new(format!("{b} — {}", format!("{vendor} {model}").trim())).prop("Тип", kind).prop("Объём", format!("{gb:.1} ГБ")));
+        v.push(Device::new(format!("{b} — {}", format!("{vendor} {model}").trim())).prop(&t!("Тип"), kind).prop(&t!("Объём"), t!("{gb} ГБ", gb = format!("{:.1}", gb))));
     }
     v
 }
@@ -378,11 +380,11 @@ fn net_devices(sys: &Sys) -> Vec<Device> {
         let driver = std::fs::read_link(sys.path(format!("{base}/device/driver"))).ok().and_then(|p| p.file_name().map(|f| f.to_string_lossy().into_owned()));
         v.push(
             Device::new(n.clone())
-                .prop("Тип", if wifi { "Wi-Fi" } else if n.starts_with("usb") || n.starts_with("rndis") { "USB-сеть" } else { "Сеть" })
-                .opt("Состояние", sys.read(format!("{base}/operstate")).map(|v| ru_state(&v)))
+                .prop(&t!("Тип"), if wifi { "Wi-Fi".to_string() } else if n.starts_with("usb") || n.starts_with("rndis") { t!("USB-сеть") } else { t!("Сеть") })
+                .opt(&t!("Состояние"), sys.read(format!("{base}/operstate")).map(|v| ru_state(&v)))
                 .opt("MAC", sys.read(format!("{base}/address")))
-                .opt("Скорость", sys.read_num::<i64>(format!("{base}/speed")).filter(|s| *s > 0).map(|s| format!("{s} Мбит/с")))
-                .opt("Драйвер", driver),
+                .opt(&t!("Скорость"), sys.read_num::<i64>(format!("{base}/speed")).filter(|s| *s > 0).map(|s| t!("{s} Мбит/с", s = s)))
+                .opt(&t!("Драйвер"), driver),
         );
     }
     v
@@ -395,14 +397,14 @@ fn usb_devices(sys: &Sys) -> Vec<Device> {
         let Some(product) = sys.read(format!("{base}/product")) else { continue };
         v.push(
             Device::new(product)
-                .opt("Производитель", sys.read(format!("{base}/manufacturer")))
+                .opt(&t!("Производитель"), sys.read(format!("{base}/manufacturer")))
                 .opt("ID", sys.read(format!("{base}/idVendor")).zip(sys.read(format!("{base}/idProduct"))).map(|(a, b)| format!("{a}:{b}")))
-                .opt("Скорость", sys.read(format!("{base}/speed")).map(|s| format!("{s} Мбит/с"))),
+                .opt(&t!("Скорость"), sys.read(format!("{base}/speed")).map(|s| t!("{s} Мбит/с", s = s))),
         );
     }
     // Режим USB-контроллера телефона (device — гаджет USB-сети).
     for udc in sys.list("/sys/class/udc") {
-        v.push(Device::new(format!("Контроллер {udc}")).opt("Состояние", sys.read(format!("/sys/class/udc/{udc}/state")).map(|v| ru_state(&v))).opt("Скорость", sys.read(format!("/sys/class/udc/{udc}/current_speed")).map(|v| ru_state(&v))));
+        v.push(Device::new(t!("Контроллер {udc}", udc = udc)).opt(&t!("Состояние"), sys.read(format!("/sys/class/udc/{udc}/state")).map(|v| ru_state(&v))).opt(&t!("Скорость"), sys.read(format!("/sys/class/udc/{udc}/current_speed")).map(|v| ru_state(&v))));
     }
     v
 }
@@ -415,19 +417,19 @@ fn input_devices(sys: &Sys) -> Vec<Device> {
         let handlers = block.lines().find_map(|l| l.strip_prefix("H: Handlers=")).unwrap_or("").trim().to_string();
         let Some(name) = name else { continue };
         let kind = if name.contains("touch") || name == "fts" || name.contains("goodix") && !name.contains("uinput") {
-            "Сенсорный экран"
+            t!("Сенсорный экран")
         } else if name.contains("haptic") {
-            "Вибромотор"
+            t!("Вибромотор")
         } else if name.contains("pwrkey") || name.contains("resin") || name.contains("keys") {
-            "Кнопки"
+            t!("Кнопки")
         } else if handlers.contains("mouse") {
-            "Мышь / тачпад"
+            t!("Мышь / тачпад")
         } else if handlers.contains("kbd") {
-            "Клавиатура"
+            t!("Клавиатура")
         } else {
-            "Ввод"
+            t!("Ввод")
         };
-        v.push(Device::new(name).prop("Тип", kind).prop("Обработчики", handlers));
+        v.push(Device::new(name).prop(&t!("Тип"), kind).prop(&t!("Обработчики"), handlers));
     }
     v
 }
@@ -451,21 +453,21 @@ fn camera_devices(sys: &Sys) -> Vec<Device> {
         .into_iter()
         .filter_map(|v| {
             let name = sys.read(format!("/sys/class/video4linux/{v}/name"))?;
-            Some(Device::new(name).prop("Устройство", format!("/dev/{v}")))
+            Some(Device::new(name).prop(&t!("Устройство"), format!("/dev/{v}")))
         })
         .collect()
 }
 
 /// Роль модуля по имени (`diting_sunny_s5khm6_wide` → основная, датчик s5khm6).
-fn camera_role(name: &str) -> (&'static str, Option<&str>) {
+fn camera_role(name: &str) -> (String, Option<&str>) {
     let role = match name.rsplit('_').next().unwrap_or("") {
-        "wide" | "main" | "rear" => "Основная камера",
-        "front" => "Фронтальная камера",
-        "ultra" | "uw" | "ultrawide" => "Широкоугольная камера",
-        "macro" => "Макрокамера",
-        "tele" | "telephoto" => "Телекамера",
-        "depth" => "Камера глубины",
-        _ => "Камера",
+        "wide" | "main" | "rear" => t!("Основная камера"),
+        "front" => t!("Фронтальная камера"),
+        "ultra" | "uw" | "ultrawide" => t!("Широкоугольная камера"),
+        "macro" => t!("Макрокамера"),
+        "tele" | "telephoto" => t!("Телекамера"),
+        "depth" => t!("Камера глубины"),
+        _ => t!("Камера"),
     };
     let parts: Vec<&str> = name.split('_').collect();
     // <устройство>_<производитель модуля>_<датчик>_<роль>
@@ -483,30 +485,30 @@ fn camera_modules(v: &serde_json::Value) -> Vec<Device> {
     for m in mods {
         let name = m["name"].as_str().unwrap_or("");
         let (role, sensor) = camera_role(name);
-        let mut d = Device::new(role).opt("Датчик", sensor.map(str::to_uppercase)).prop("Слот", m["slot"].to_string());
+        let mut d = Device::new(role).opt(&t!("Датчик"), sensor.map(str::to_uppercase)).prop(&t!("Слот"), m["slot"].to_string());
         let hex = |k: &str| m[k].as_u64().map(|x| format!("0x{x:X}"));
         match m["status"].as_str().unwrap_or("") {
             "ok" => {
-                d = d.prop("Состояние", "работает");
+                d = d.prop(&t!("Состояние"), t!("работает"));
                 if let Some(c) = next_cam.next() {
                     let (w, h) = (c["width"].as_u64().unwrap_or(0), c["height"].as_u64().unwrap_or(0));
                     if w > 0 {
-                        d = d.prop("Наибольший кадр", format!("{w}×{h} ({:.1} Мп)", (w * h) as f64 / 1e6));
+                        d = d.prop(&t!("Наибольший кадр"), t!("{w}×{h} ({v} Мп)", w = w, h = h, v = format!("{:.1}", (w * h) as f64 / 1e6)));
                     }
                     if c["flash"].as_bool() == Some(true) {
-                        d = d.prop("Вспышка", "есть");
+                        d = d.prop(&t!("Вспышка"), t!("есть"));
                     }
-                    d = d.prop("Камера", c["id"].to_string());
+                    d = d.prop(&t!("Камера"), c["id"].to_string());
                 }
             }
             "mismatch" => {
                 let (r, e) = (hex("read_id").unwrap_or_default(), hex("expected_id").unwrap_or_default());
-                d = d.prop("Состояние", "не опознана");
-                d.fault = Some(format!("датчик отвечает id {r} вместо {e}: стоит другой модуль, его описания нет в прошивке"));
+                d = d.prop(&t!("Состояние"), t!("не опознана"));
+                d.fault = Some(t!("датчик отвечает id {r} вместо {e}: стоит другой модуль, его описания нет в прошивке", r = r, e = e));
             }
             _ => {
-                d = d.prop("Состояние", "неисправна");
-                d.fault = Some("датчик не отвечает (нет ответа по шине камеры)".into());
+                d = d.prop(&t!("Состояние"), t!("неисправна"));
+                d.fault = Some(t!("датчик не отвечает (нет ответа по шине камеры)").into());
             }
         }
         out.push(d);
@@ -521,7 +523,7 @@ fn led_devices(sys: &Sys) -> Vec<Device> {
         .map(|l| {
             let b = sys.read(format!("/sys/class/leds/{l}/brightness")).unwrap_or_default();
             let m = sys.read(format!("/sys/class/leds/{l}/max_brightness")).unwrap_or_default();
-            Device::new(l).prop("Яркость", format!("{b} из {m}"))
+            Device::new(l).prop(&t!("Яркость"), t!("{b} из {m}", b = b, m = m))
         })
         .collect()
 }

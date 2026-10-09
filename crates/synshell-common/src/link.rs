@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
+use crate::t;
 
 pub fn socket_path() -> PathBuf {
     if let Ok(p) = std::env::var("SYNLINK_SOCKET") {
@@ -41,13 +42,13 @@ impl DeviceKind {
     pub fn is_touch(self) -> bool {
         matches!(self, DeviceKind::Phone | DeviceKind::Tablet)
     }
-    /// Подпись по-русски.
-    pub fn title(self) -> &'static str {
+    /// Подпись на языке интерфейса.
+    pub fn title(self) -> String {
         match self {
-            DeviceKind::Desktop => "Компьютер",
-            DeviceKind::Laptop => "Ноутбук",
-            DeviceKind::Phone => "Телефон",
-            DeviceKind::Tablet => "Планшет",
+            DeviceKind::Desktop => t!("Компьютер"),
+            DeviceKind::Laptop => t!("Ноутбук"),
+            DeviceKind::Phone => t!("Телефон"),
+            DeviceKind::Tablet => t!("Планшет"),
         }
     }
 }
@@ -365,7 +366,7 @@ impl Client {
         self.writer.write_all(line.as_bytes())?;
         let mut resp = String::new();
         if self.reader.read_line(&mut resp)? == 0 {
-            return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "synlink закрыл соединение"));
+            return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, t!("synlink закрыл соединение")));
         }
         serde_json::from_str(&resp).map_err(std::io::Error::other)
     }
@@ -380,7 +381,7 @@ impl Client {
         match self.request(&Request::Subscribe)? {
             Response::Ok => Ok(Events { reader: self.reader }),
             Response::Error { message } => Err(std::io::Error::other(message)),
-            other => Err(std::io::Error::other(format!("неожиданный ответ: {other:?}"))),
+            other => Err(std::io::Error::other(t!("неожиданный ответ: {other}", other = format!("{:?}", other)))),
         }
     }
 }
@@ -441,7 +442,7 @@ pub fn read_frame(r: &mut impl std::io::Read) -> std::io::Result<Option<Vec<u8>>
     }
     let n = u32::from_be_bytes(len) as usize;
     if n > 256 << 20 {
-        return Err(std::io::Error::other("слишком большой кадр"));
+        return Err(std::io::Error::other(t!("слишком большой кадр")));
     }
     let mut buf = vec![0u8; n];
     r.read_exact(&mut buf)?;

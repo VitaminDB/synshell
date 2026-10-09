@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/synshell-common",
+    "crates/synshell-tr",
     "crates/synwm",
     "crates/syngui-layer",
     "crates/synshell-ui",
@@ -37,6 +38,7 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 synshell-common = { path = "crates/synshell-common" }
+synshell-tr = { path = "crates/synshell-tr" }
 syngui-layer = { path = "crates/syngui-layer" }
 synsystem = { path = "crates/synsystem" }
 synmodem = { path = "crates/synmodem" }

@@ -471,7 +471,7 @@ fn volume(ctx: ShellCtx) -> impl Widget {
     crate::system::start(ctx);
     Column::new()
         .gap(10.0)
-        .child(title("Звук"))
+        .child(title(t!("Звук")))
         .child(move || {
             let v = ctx.volume.get();
             let (pct, muted, mic) = v.as_ref().map(|v| (v.percent, v.muted, v.mic_muted)).unwrap_or((0, true, true));
@@ -505,10 +505,10 @@ fn volume(ctx: ShellCtx) -> impl Widget {
                                 .pointer()
                                 .on_click(|_, _, _| crate::system::toggle_mute(ShellCtx::get(), true)),
                         )
-                        .child(Text::new(if mic { "Микрофон выключен" } else { "Микрофон включён" }).class("popup-text")),
+                        .child(Text::new(if mic { t!("Микрофон выключен") } else { t!("Микрофон включён") }).class("popup-text")),
                 )
         })
-        .child(menu_item(mi::SETTINGS, "Параметры звука…", || {
+        .child(menu_item(mi::SETTINGS, t!("Параметры звука…"), || {
             if crate::actions::which("pavucontrol") {
                 crate::actions::spawn("pavucontrol");
             } else {
@@ -518,16 +518,16 @@ fn volume(ctx: ShellCtx) -> impl Widget {
 }
 
 fn battery(ctx: ShellCtx) -> impl Widget {
-    Column::new().gap(8.0).child(title("Питание")).child(move || {
+    Column::new().gap(8.0).child(title(t!("Питание"))).child(move || {
         let Some(b) = ctx.battery.get() else {
-            return Column::new().child(Text::new("Батарея не найдена").class("popup-text"));
+            return Column::new().child(Text::new(t!("Батарея не найдена")).class("popup-text"));
         };
         let state = if b.charging {
-            "Заряжается"
+            t!("Заряжается")
         } else if b.full {
-            "Заряжена"
+            t!("Заряжена")
         } else {
-            "Разряжается"
+            t!("Разряжается")
         };
         let time = b.minutes.map(|m| format!(" — {}:{:02}", m / 60, m % 60)).unwrap_or_default();
         Column::new()
@@ -552,7 +552,7 @@ fn power() -> impl Widget {
                         .gap(6.0)
                         .cross_axis_alignment(CrossAxisAlignment::Center)
                         .child(icon(glyph).class("power-icon"))
-                        .child(Text::new(label).class("power-label")),
+                        .child(Text::new(syngui::i18n::t(label)).class("power-label")),
                 )
                 .class("power-btn"),
         )
@@ -566,16 +566,16 @@ fn power() -> impl Widget {
     };
     Column::new()
         .gap(12.0)
-        .child(title("Завершение работы"))
+        .child(title(t!("Завершение работы")))
         .child(
             Row::new()
                 .gap(8.0)
                 .main_axis_alignment(MainAxisAlignment::SpaceBetween)
-                .child(big(mi::LOCK, "Блокировать", Action::Shell("lock".into())))
-                .child(big(mi::LOGOUT, "Выйти", Action::Quit))
-                .child(big(mi::SLEEP, "Сон", Action::Suspend))
-                .child(big(mi::RESTART, "Перезагрузка", Action::Reboot))
-                .child(big(mi::POWER, "Выключить", Action::PowerOff)),
+                .child(big(mi::LOCK, n_!("Блокировать"), Action::Shell("lock".into())))
+                .child(big(mi::LOGOUT, n_!("Выйти"), Action::Quit))
+                .child(big(mi::SLEEP, n_!("Сон"), Action::Suspend))
+                .child(big(mi::RESTART, n_!("Перезагрузка"), Action::Reboot))
+                .child(big(mi::POWER, n_!("Выключить"), Action::PowerOff)),
         )
 }
 
@@ -585,19 +585,19 @@ fn window_menu(ctx: ShellCtx, id: u64) -> impl Widget {
     let mut col = Column::new()
         .gap(2.0)
         .child(Text::new(if w.title.is_empty() { w.app_id.clone() } else { w.title.clone() }).max_lines(1).class("popup-title"))
-        .child(menu_item(mi::MINIMIZE, if w.minimized { "Восстановить" } else { "Свернуть" }, op(WindowOp::ToggleMinimize)))
-        .child(menu_item(mi::MAXIMIZE, if w.maximized { "Восстановить размер" } else { "Развернуть" }, op(WindowOp::ToggleMaximize)))
-        .child(menu_item(mi::FULLSCREEN, if w.fullscreen { "Выйти из полноэкранного" } else { "На весь экран" }, op(WindowOp::ToggleFullscreen)))
-        .child(menu_item(mi::FLOAT, if w.floating { "Встроить в мозаику" } else { "Плавающее" }, op(WindowOp::ToggleFloating)))
-        .child(menu_item(mi::ARROW_UP, if w.always_on_top { "✓ Поверх всех" } else { "Поверх всех" }, op(WindowOp::ToggleAlwaysOnTop)))
-        .child(menu_item(mi::PUSH_PIN, if w.sticky { "✓ На всех столах" } else { "На всех столах" }, op(WindowOp::ToggleSticky)));
+        .child(menu_item(mi::MINIMIZE, if w.minimized { t!("Восстановить") } else { t!("Свернуть") }, op(WindowOp::ToggleMinimize)))
+        .child(menu_item(mi::MAXIMIZE, if w.maximized { t!("Восстановить размер") } else { t!("Развернуть") }, op(WindowOp::ToggleMaximize)))
+        .child(menu_item(mi::FULLSCREEN, if w.fullscreen { t!("Выйти из полноэкранного") } else { t!("На весь экран") }, op(WindowOp::ToggleFullscreen)))
+        .child(menu_item(mi::FLOAT, if w.floating { t!("Встроить в мозаику") } else { t!("Плавающее") }, op(WindowOp::ToggleFloating)))
+        .child(menu_item(mi::ARROW_UP, if w.always_on_top { t!("✓ Поверх всех") } else { t!("Поверх всех") }, op(WindowOp::ToggleAlwaysOnTop)))
+        .child(menu_item(mi::PUSH_PIN, if w.sticky { t!("✓ На всех столах") } else { t!("На всех столах") }, op(WindowOp::ToggleSticky)));
     let wss = ctx.workspaces.get_untracked();
     for ws in wss.iter().filter(|ws| ws.index != w.workspace) {
         let idx = ws.index;
-        col = col.child(menu_item(mi::LAYERS, format!("На стол «{}»", ws.name), move || {
+        col = col.child(menu_item(mi::LAYERS, t!("На стол «{name}»", name = ws.name), move || {
             crate::actions::window_op(id, WindowOp::MoveToWorkspace(idx))
         }));
     }
     let _ = WorkspaceTarget::Next;
-    col.child(DecoratedBox::new().class("menu-sep")).child(menu_item(mi::CLOSE, "Закрыть", op(WindowOp::Close)))
+    col.child(DecoratedBox::new().class("menu-sep")).child(menu_item(mi::CLOSE, t!("Закрыть"), op(WindowOp::Close)))
 }

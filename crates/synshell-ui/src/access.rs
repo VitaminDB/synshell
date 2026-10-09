@@ -121,7 +121,7 @@ fn view(id: u64) -> Box<dyn Widget> {
         (r.app_id.clone(), r.title.clone(), r.subtitle.clone(), r.body.clone(), r.grant_label.clone(), r.deny_label.clone(), r.icon.clone())
     });
     let Some((app_id, title, subtitle, body, grant, deny, portal_icon)) = req else {
-        return Box::new(Text::new("Запрос закрыт").class("popup-text"));
+        return Box::new(Text::new(t!("Запрос закрыт")).class("popup-text"));
     };
     let entry = (!app_id.is_empty()).then(|| crate::xdg::app_by_id(&app_id)).flatten();
     // значок программы, иначе предложенный порталом (камера и т. п.), иначе глиф
@@ -149,8 +149,8 @@ fn view(id: u64) -> Box<dyn Widget> {
         col.child(
             Row::new()
                 .gap(8.0)
-                .child(button(deny.unwrap_or_else(|| "Запретить".into()), false, move || answer(id, false)))
-                .child(button(grant.unwrap_or_else(|| "Разрешить".into()), true, move || answer(id, true))),
+                .child(button(deny.unwrap_or_else(|| t!("Запретить").into()), false, move || answer(id, false)))
+                .child(button(grant.unwrap_or_else(|| t!("Разрешить").into()), true, move || answer(id, true))),
         ),
     )
 }

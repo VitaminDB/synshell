@@ -111,7 +111,7 @@ pub fn authenticate(user: &str, password: &str) -> std::result::Result<(), Strin
                 Ok(())
             } else {
                 let e = pam_strerror(h, r);
-                Err(if e.is_null() { format!("ошибка PAM {r}") } else { CStr::from_ptr(e).to_string_lossy().into_owned() })
+                Err(if e.is_null() { t!("ошибка PAM {r}", r = r) } else { CStr::from_ptr(e).to_string_lossy().into_owned() })
             };
             pam_end(h, r);
             msg
@@ -207,7 +207,7 @@ fn submit(password: String) {
                 }
                 Err(e) => {
                     log::info!("экран блокировки: отказ ({e})");
-                    st.error.set("Неверный пароль".into());
+                    st.error.set(t!("Неверный пароль").into());
                     st.attempt.set(st.attempt.get_untracked() + 1);
                 }
             }
@@ -234,7 +234,7 @@ fn view(ctx: ShellCtx, _out: OutputInfo) -> impl Widget {
             .obscure(true)
             .autofocus(true)
             .disabled(checking)
-            .placeholder(if checking { "Проверка…" } else { "Пароль" })
+            .placeholder(if checking { t!("Проверка…") } else { t!("Пароль") })
             .on_submit(|t| submit(t.to_string()))
             .class("lock-field")
     };
@@ -499,7 +499,7 @@ fn cover_bottom() -> impl Widget {
         .gap(6.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(icon(mi::LOCK).class("lock-phone-lock"))
-        .child(Text::new("Проведите вверх, чтобы разблокировать").class("lock-hint"))
+        .child(Text::new(t!("Проведите вверх, чтобы разблокировать")).class("lock-hint"))
 }
 
 fn pin_pad(ctx: ShellCtx) -> impl Widget {
@@ -567,7 +567,7 @@ fn pin_pad(ctx: ShellCtx) -> impl Widget {
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .main_axis_alignment(MainAxisAlignment::End)
         .child(Text::new(display_name()).class("lock-user"))
-        .child(Text::new("Введите PIN-код или пароль").class("lock-hint"))
+        .child(Text::new(t!("Введите PIN-код или пароль")).class("lock-hint"))
         .child(dots)
         .child(error)
         .child(grid.class("lock-pad"))
@@ -582,7 +582,7 @@ fn pin_pad(ctx: ShellCtx) -> impl Widget {
                 .child(
                     GestureDetector::new()
                         .on_click(move || stage.set(Stage::Cover))
-                        .child(DecoratedBox::new().child(Text::new("Отмена").class("lock-pill-text")).class("lock-pill")),
+                        .child(DecoratedBox::new().child(Text::new(t!("Отмена")).class("lock-pill-text")).class("lock-pill")),
                 ),
         )
         .class("lock-pin")
@@ -596,10 +596,10 @@ fn text_entry() -> impl Widget {
     let kb_state = KeyboardState::new("");
     let dots = crate::ui::rx(move || {
         let n = pin.get().chars().count();
-        Box::new(Text::new(if n == 0 { "Пароль".to_string() } else { "•".repeat(n) }).class("lock-text-dots"))
+        Box::new(Text::new(if n == 0 { t!("Пароль").to_string() } else { "•".repeat(n) }).class("lock-text-dots"))
     });
     let error = crate::ui::rx(move || Box::new(Text::new(st.error.get()).class("lock-error")));
-    let kb = on_screen_keyboard(kb_state, KeyboardLayout::text_en_ru("Войти"))
+    let kb = on_screen_keyboard(kb_state, KeyboardLayout::text_en_ru(&t!("Войти")))
         .gap(5.0)
         .stretch(44.0)
         .on_change(move |t| pin.set(t.to_string()))

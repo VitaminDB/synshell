@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use zbus::blocking::{Connection, Proxy};
 use zbus::zvariant::OwnedObjectPath;
+use synshell_tr::t;
 
 const GEOCLUE: &str = "org.freedesktop.GeoClue2";
 
@@ -123,10 +124,10 @@ fn run(desktop_id: &str, distance_m: u32, stop: &AtomicBool, on_status: &dyn Fn(
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 // клиент жив? (GeoClue перезапустился — свойство не читается)
                 if client.get_property::<bool>("Active").map(|a| !a).unwrap_or(true) {
-                    break Err(zbus::Error::Failure("клиент GeoClue остановлен (агент отказал или служба перезапущена)".into()));
+                    break Err(zbus::Error::Failure(t!("клиент GeoClue остановлен (агент отказал или служба перезапущена)").into()));
                 }
             }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break Err(zbus::Error::Failure("сигналы GeoClue прекратились".into())),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break Err(zbus::Error::Failure(t!("сигналы GeoClue прекратились").into())),
         }
     };
     let _ = client.call_method("Stop", &());

@@ -11,6 +11,7 @@ use std::process::{Command, Stdio};
 use zbus::blocking::Connection;
 
 use crate::Sys;
+use synshell_tr::t;
 
 const DEST: &str = "org.freedesktop.timedate1";
 const PATH: &str = "/org/freedesktop/timedate1";
@@ -31,7 +32,7 @@ pub struct TimeStatus {
 }
 
 fn conn() -> Result<Connection, String> {
-    Connection::system().map_err(|e| format!("системная шина D-Bus: {e}"))
+    Connection::system().map_err(|e| t!("системная шина D-Bus: {e}", e = e))
 }
 
 fn err(e: zbus::Error) -> String {
@@ -240,7 +241,7 @@ pub fn detect_timezone() -> Result<String, String> {
             return Ok(tz);
         }
     }
-    Err(if reached { "геосервисы не определили пояс".into() } else { "нет связи с интернетом".into() })
+    Err(if reached { t!("геосервисы не определили пояс").into() } else { t!("нет связи с интернетом").into() })
 }
 
 #[cfg(test)]

@@ -96,7 +96,7 @@ fn listen() -> zbus::Result<()> {
     let proxy = zbus::blocking::Proxy::new(&conn, "net.hadess.SensorProxy", "/net/hadess/SensorProxy", "net.hadess.SensorProxy")?;
     let has: bool = proxy.get_property("HasAccelerometer")?;
     if !has {
-        return Err(zbus::Error::Failure("нет акселерометра".into()));
+        return Err(zbus::Error::Failure(t!("нет акселерометра").into()));
     }
     if SCREEN_ON.load(std::sync::atomic::Ordering::SeqCst) {
         proxy.call_method("ClaimAccelerometer", &())?;
@@ -133,7 +133,7 @@ fn listen() -> zbus::Result<()> {
             deliver(&v);
         }
     }
-    Err(zbus::Error::Failure("поток свойств закрыт".into()))
+    Err(zbus::Error::Failure(t!("поток свойств закрыт").into()))
 }
 
 /// Угол срабатывания датчика — службе (метод есть только в нашей сборке

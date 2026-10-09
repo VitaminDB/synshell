@@ -140,7 +140,7 @@ fn choices(items: &[(&'static str, &'static str, &'static str)], cur: &str, on: 
         row = row.child(
             InputArea::new(
                 DecoratedBox::new()
-                    .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(glyph).class("mp-choice-icon")).child(Text::new(label).class("mp-choice-text")))
+                    .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(glyph).class("mp-choice-icon")).child(Text::new(syngui::i18n::t(label)).class("mp-choice-text")))
                     .class(if cur == key { "mp-choice mp-choice-on" } else { "mp-choice" }),
             )
             .pointer()
@@ -174,50 +174,50 @@ pub fn view(ctx: ShellCtx, size: RwSignal<(f32, f32)>, close: impl Fn() + Clone 
         .gap(8.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(InputArea::new(DecoratedBox::new().child(icon(mi::BACK).class("mp-back-icon")).class("mp-back")).pointer().on_click(move |_, _, _| back()))
-        .child(Text::new("Настройки меню").class("mp-title grow"));
+        .child(Text::new(t!("Настройки меню")).class("mp-title grow"));
     let body = rx(move || {
         let cfg = ctx.config.get();
         let l = &cfg.launcher;
         let (w, h) = size.get();
         let mut col = Column::new()
             .gap(10.0)
-            .child(section("Вид"))
+            .child(section(&t!("Вид")))
             .child(choices(
-                &[("win11", mi::GRID, "Пуск"), ("menu", mi::LIST, "С разделами"), ("fullscreen", mi::FULLSCREEN, "На весь экран")],
+                &[("win11", mi::GRID, n_!("Пуск")), ("menu", mi::LIST, n_!("С разделами")), ("fullscreen", mi::FULLSCREEN, n_!("На весь экран"))],
                 &l.style,
                 |k| {
                     set("style", k);
                     reopen();
                 },
             ))
-            .child(section("Положение у панели"))
+            .child(section(&t!("Положение у панели")))
             .child(choices(
-                &[("icon", "\u{E55F}", "У кнопки"), ("center", "\u{E234}", "По центру дока"), ("start", "\u{E236}", "В начале"), ("end", "\u{E237}", "В конце")],
+                &[("icon", "\u{E55F}", n_!("У кнопки")), ("center", "\u{E234}", n_!("По центру дока")), ("start", "\u{E236}", n_!("В начале")), ("end", "\u{E237}", n_!("В конце"))],
                 &l.align,
                 |k| {
                     set("align", k);
                     reopen();
                 },
             ))
-            .child(section("Размер"))
+            .child(section(&t!("Размер")))
             .child(
                 Row::new()
                     .gap(10.0)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
                     .child(Text::new(format!("{} × {}", w.round(), h.round())).class("mp-label grow"))
-                    .child(Button::new("Сбросить").class("mp-btn").on_click(move || {
+                    .child(Button::new(t!("Сбросить")).class("mp-btn").on_click(move || {
                         size.set(clamp(DEFAULT_W as f32, DEFAULT_H as f32));
                         save_size(DEFAULT_W as f32, DEFAULT_H as f32);
                     })),
             )
-            .child(Text::new("Потяните за уголок меню, чтобы изменить размер — он запомнится.").class("mp-hint"));
+            .child(Text::new(t!("Потяните за уголок меню, чтобы изменить размер — он запомнится.")).class("mp-hint"));
         if l.style == "win11" {
             let cols = l.columns.clamp(3, 10);
             col = col.child(
                 Row::new()
                     .gap(10.0)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(Text::new("Колонок закреплённых").class("mp-label grow"))
+                    .child(Text::new(t!("Колонок закреплённых")).class("mp-label grow"))
                     .child(Button::new("−").class("mp-btn").disabled(cols <= 3).on_click(move || set("columns", (cols as i64) - 1)))
                     .child(Text::new(cols.to_string()).class("mp-label"))
                     .child(Button::new("+").class("mp-btn").disabled(cols >= 10).on_click(move || set("columns", (cols as i64) + 1)))
@@ -226,19 +226,19 @@ pub fn view(ctx: ShellCtx, size: RwSignal<(f32, f32)>, close: impl Fn() + Clone 
         }
         if l.style == "menu" {
             col = col
-                .child(switch("Раздел «Недавние»", l.show_recent, |v| set("show_recent", v)))
-                .child(switch("Разделы по категориям", l.show_categories, |v| set("show_categories", v)));
+                .child(switch(&t!("Раздел «Недавние»"), l.show_recent, |v| set("show_recent", v)))
+                .child(switch(&t!("Разделы по категориям"), l.show_categories, |v| set("show_categories", v)));
         }
         col = col
-            .child(switch("Калькулятор в поиске", l.calculator, |v| set("calculator", v)))
-            .child(switch("Запуск команд из поиска", l.run_commands, |v| set("run_commands", v)));
+            .child(switch(&t!("Калькулятор в поиске"), l.calculator, |v| set("calculator", v)))
+            .child(switch(&t!("Запуск команд из поиска"), l.run_commands, |v| set("run_commands", v)));
         Box::new(col)
     });
     Column::new()
         .gap(12.0)
         .child(head)
         .child(ScrollView::new().vertical().child(body).class("grow"))
-        .child(Row::new().child(Button::new("Все параметры…").class("mp-btn").on_click(|| {
+        .child(Row::new().child(Button::new(t!("Все параметры…")).class("mp-btn").on_click(|| {
             ShellCtx::get().close_popup();
             crate::actions::spawn("synsettings");
         })))

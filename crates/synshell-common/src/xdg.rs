@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock, RwLock};
 use crate::paths;
+use crate::n_;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DesktopEntry {
@@ -161,17 +162,17 @@ impl DesktopEntry {
 
 /// Категории меню в порядке показа: (ключ, подпись, значок Material).
 pub const CATEGORIES: &[(&str, &str, &str)] = &[
-    ("internet", "Интернет", "\u{E80B}"),
-    ("multimedia", "Мультимедиа", "\u{E405}"),
-    ("graphics", "Графика", "\u{E3F4}"),
-    ("office", "Офис", "\u{E873}"),
-    ("development", "Разработка", "\u{E86F}"),
-    ("education", "Наука и образование", "\u{E80C}"),
-    ("games", "Игры", "\u{E338}"),
-    ("utilities", "Служебные", "\u{E869}"),
-    ("settings", "Настройки", "\u{E8B8}"),
-    ("system", "Система", "\u{E30A}"),
-    ("other", "Прочее", "\u{E5D3}"),
+    ("internet", n_!("Интернет"), "\u{E80B}"),
+    ("multimedia", n_!("Мультимедиа"), "\u{E405}"),
+    ("graphics", n_!("Графика"), "\u{E3F4}"),
+    ("office", n_!("Офис"), "\u{E873}"),
+    ("development", n_!("Разработка"), "\u{E86F}"),
+    ("education", n_!("Наука и образование"), "\u{E80C}"),
+    ("games", n_!("Игры"), "\u{E338}"),
+    ("utilities", n_!("Служебные"), "\u{E869}"),
+    ("settings", n_!("Настройки"), "\u{E8B8}"),
+    ("system", n_!("Система"), "\u{E30A}"),
+    ("other", n_!("Прочее"), "\u{E5D3}"),
 ];
 
 fn locale_keys() -> Vec<String> {

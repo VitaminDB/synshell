@@ -52,11 +52,8 @@ pub fn utc_offset(ts: i64) -> i32 {
 
 /// Тикать `now` на границе каждой секунды.
 pub fn start(ctx: ShellCtx) {
-    // Локаль для strftime (названия дней/месяцев).
-    // SAFETY: вызывается один раз на старте из главного потока.
-    unsafe {
-        libc::setlocale(libc::LC_TIME, c"".as_ptr());
-    }
+    // Локаль strftime (названия дней и месяцев) ставит язык интерфейса —
+    // `synshell_common::i18n::apply`.
     fn next_delay() -> Duration {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
         Duration::from_millis(1000 - (now.subsec_millis() as u64).min(999))

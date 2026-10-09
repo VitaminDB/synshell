@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use zbus::blocking::{connection, Connection};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Structure, Value};
+use crate::{n_, t};
 
 const SERVICE: &str = "org.freedesktop.UDisks2";
 const ROOT: &str = "/org/freedesktop/UDisks2";
@@ -162,12 +163,12 @@ impl Device {
     }
 
     /// Подпись вида устройства для сообщений.
-    pub fn kind_name(&self) -> &'static str {
+    pub fn kind_name(&self) -> String {
         match self.kind() {
-            Kind::Disk => "Диск",
-            Kind::Usb => "Съёмный диск",
-            Kind::Phone => "Телефон",
-            Kind::Camera => "Камера",
+            Kind::Disk => t!("Диск"),
+            Kind::Usb => t!("Съёмный диск"),
+            Kind::Phone => t!("Телефон"),
+            Kind::Camera => t!("Камера"),
         }
     }
 }
@@ -249,9 +250,9 @@ fn service_partition(part: &Props) -> bool {
 
 /// «1,5 ГБ».
 pub fn format_size(n: u64) -> String {
-    const U: [&str; 6] = ["Б", "КБ", "МБ", "ГБ", "ТБ", "ПБ"];
+    const U: [&str; 6] = [n_!("Б"), n_!("КБ"), n_!("МБ"), n_!("ГБ"), n_!("ТБ"), n_!("ПБ")];
     if n < 1024 {
-        return format!("{n} Б");
+        return t!("{n} Б", n = n);
     }
     let mut v = n as f64;
     let mut i = 0;
@@ -260,7 +261,7 @@ pub fn format_size(n: u64) -> String {
         i += 1;
     }
     let s = if v < 10.0 { format!("{v:.1}") } else { format!("{v:.0}") };
-    format!("{} {}", s.replace('.', ","), U[i])
+    format!("{} {}", s.replace('.', ","), crate::t!(U[i]))
 }
 
 /// Разделы с файловой системой для боковой панели: на съёмных дисках — все
@@ -294,9 +295,9 @@ pub fn volumes() -> Vec<Volume> {
         } else if removable && !model.is_empty() {
             model
         } else if removable {
-            "Съёмный диск".into()
+            t!("Съёмный диск").into()
         } else {
-            format!("Локальный диск {}", format_size(num(blk, "Size")))
+            t!("Локальный диск {v}", v = format_size(num(blk, "Size")))
         };
         out.push(Volume { block: path.to_string(), drive, title, size: num(blk, "Size"), mounts, removable });
     }
@@ -306,7 +307,7 @@ pub fn volumes() -> Vec<Volume> {
 
 /// Смонтировать раздел (точка выбирается udisks); вернуть её.
 pub fn mount(block: &str) -> Result<PathBuf, String> {
-    let bus = slow_bus().ok_or("нет системной шины D-Bus")?;
+    let bus = slow_bus().ok_or(t!("нет системной шины D-Bus"))?;
     let m = bus
         .call_method(Some(SERVICE), block, Some(FILESYSTEM), "Mount", &(HashMap::<String, Value>::new(),))
         .map_err(explain)?;
@@ -317,8 +318,8 @@ pub fn mount(block: &str) -> Result<PathBuf, String> {
 /// Безопасно извлечь диск: отмонтировать все его смонтированные разделы и
 /// выключить диск (`PowerOff`), после чего его можно вынимать.
 pub fn eject(drive: &str) -> Result<(), String> {
-    let bus = slow_bus().ok_or("нет системной шины D-Bus")?;
-    let objs = objects().ok_or("udisks2 не отвечает")?;
+    let bus = slow_bus().ok_or(t!("нет системной шины D-Bus"))?;
+    let objs = objects().ok_or(t!("udisks2 не отвечает"))?;
     for (path, ifs) in &objs {
         let Some(blk) = ifs.get(BLOCK) else { continue };
         if object_path(blk, "Drive") != drive {
@@ -340,11 +341,11 @@ fn explain(e: zbus::Error) -> String {
         zbus::Error::MethodError(name, msg, _) => {
             let n = name.as_str();
             if n.ends_with("NotAuthorizedDismissed") {
-                "пароль не введён".into()
+                t!("пароль не введён").into()
             } else if n.contains("NotAuthorized") {
-                "нет прав на это действие (polkit)".into()
+                t!("нет прав на это действие (polkit)").into()
             } else if n.ends_with("DeviceBusy") {
-                "устройство занято: закройте программы, открытые с него".into()
+                t!("устройство занято: закройте программы, открытые с него").into()
             } else {
                 match msg {
                     Some(m) if !m.is_empty() => m,
@@ -425,7 +426,7 @@ fn gio(args: &[&str]) -> Result<String, String> {
         .args(args)
         .stdin(std::process::Stdio::null())
         .output()
-        .map_err(|e| format!("gio: {e} (нужен пакет glib2 и gvfs-mtp)"))?;
+        .map_err(|e| t!("gio: {e} (нужен пакет glib2 и gvfs-mtp)", e = e))?;
     if out.status.success() {
         return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
     }
@@ -433,7 +434,7 @@ fn gio(args: &[&str]) -> Result<String, String> {
     let err = err.lines().last().unwrap_or("").trim();
     // «gio: mtp://…/: Unable to open MTP device …» — без адреса.
     let err = err.rsplit_once(": ").map(|(_, e)| e).unwrap_or(err);
-    Err(if err.is_empty() { format!("gio завершился с ошибкой {}", out.status) } else { err.to_string() })
+    Err(if err.is_empty() { t!("gio завершился с ошибкой {status}", status = out.status) } else { err.to_string() })
 }
 
 /// Смонтировать телефон или камеру через gvfs. Телефон, пока экран
@@ -442,12 +443,12 @@ fn gio(args: &[&str]) -> Result<String, String> {
 fn gio_mount(g: &Gadget) -> Result<PathBuf, String> {
     gio(&["mount", &g.uri]).map_err(|e| {
         if g.kind == Kind::Phone {
-            format!("{e}. Разблокируйте телефон и разрешите доступ к файлам (режим «Передача файлов»)")
+            t!("{e}. Разблокируйте телефон и разрешите доступ к файлам (режим «Передача файлов»)", e = e)
         } else {
             e
         }
     })?;
-    gvfs_dir(&g.uri).ok_or_else(|| "gvfs смонтировал устройство, но его папки нет".into())
+    gvfs_dir(&g.uri).ok_or_else(|| t!("gvfs смонтировал устройство, но его папки нет").into())
 }
 
 // ─── Слежение ───────────────────────────────────────────────────────────────

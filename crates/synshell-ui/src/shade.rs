@@ -191,10 +191,10 @@ fn tile(glyph: &str, label: String, state: String, on: bool, f: impl Fn() + Send
     )
 }
 
-fn mode_label(m: MobileMode) -> &'static str {
+fn mode_label(m: MobileMode) -> String {
     match m {
-        MobileMode::Pages => "Страницы",
-        MobileMode::Free => "Свободный стол",
+        MobileMode::Pages => t!("Страницы"),
+        MobileMode::Free => t!("Свободный стол"),
     }
 }
 
@@ -210,10 +210,10 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
         let cfg = ctx.config.get();
         let _ = &cfg;
         let mode = ctx.mobile_mode();
-        let wifi_state = if net.online { net.connection.clone() } else { "Нет подключения".into() };
+        let wifi_state = if net.online { net.connection.clone() } else { t!("Нет подключения").into() };
         let torch = ctx.torch.get();
         let mut grid = Grid::new(2).gap(8.0);
-        grid = grid.child(tile(crate::applets::network_glyph(&net), "Сеть".into(), wifi_state, net.online, || {
+        grid = grid.child(tile(crate::applets::network_glyph(&net), t!("Сеть").into(), wifi_state, net.online, || {
             // Окно сети: Wi-Fi, подключение, «Параметры сети…».
             close();
             ShellCtx::get().open_popup(crate::ctx::PopupKind::Network, crate::commands::centered());
@@ -224,7 +224,7 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
             let on = m.radio;
             let glyph = if !on { "\u{E195}" } else if m.registration.registered() { "\u{E1C8}" } else { "\u{E1D0}" };
             let state = if sub.is_empty() { title.clone() } else if on { format!("{title} · {sub}") } else { sub };
-            grid = grid.child(tile(glyph, "Мобильная связь".into(), state, on, move || {
+            grid = grid.child(tile(glyph, t!("Мобильная связь").into(), state, on, move || {
                 std::thread::spawn(move || {
                     if let Err(e) = synmodem::api::request(&synmodem::api::Request::SetRadio { on: !on }) {
                         log::warn!("радио модема: {e:#}");
@@ -237,15 +237,15 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
             use synmodem::api::DataState;
             let on = m.data.enabled;
             let state = match m.data.state {
-                DataState::Off => "Выключен".to_string(),
-                DataState::Waiting if !m.radio => "Режим полёта".into(),
-                DataState::Waiting => "Нет сети".into(),
-                DataState::Connecting => "Подключение…".into(),
-                DataState::Connected if m.roaming => format!("{} · роуминг", if m.technology.is_empty() { "Подключён" } else { m.technology.as_str() }),
-                DataState::Connected => if m.technology.is_empty() { "Подключён".into() } else { m.technology.clone() },
-                DataState::Error => "Ошибка".into(),
+                DataState::Off => t!("Выключен").to_string(),
+                DataState::Waiting if !m.radio => t!("Режим полёта").into(),
+                DataState::Waiting => t!("Нет сети").into(),
+                DataState::Connecting => t!("Подключение…").into(),
+                DataState::Connected if m.roaming => t!("{v} · роуминг", v = if m.technology.is_empty() { "Подключён" } else { m.technology.as_str() }),
+                DataState::Connected => if m.technology.is_empty() { t!("Подключён").into() } else { m.technology.clone() },
+                DataState::Error => t!("Ошибка").into(),
             };
-            grid = grid.child(tile("\u{E8D5}", "Моб. интернет".into(), state, on, move || {
+            grid = grid.child(tile("\u{E8D5}", t!("Моб. интернет").into(), state, on, move || {
                 std::thread::spawn(move || {
                     if let Err(e) = synmodem::api::request(&synmodem::api::Request::SetData { on: !on }) {
                         log::warn!("передача данных: {e:#}");
@@ -257,40 +257,40 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
         {
             let on = cfg.location.enabled;
             let state = if !on {
-                "Выключено".to_string()
+                t!("Выключено").to_string()
             } else if ctx.modem.get().is_some_and(|m| m.gnss) {
-                "Используется".into()
+                t!("Используется").into()
             } else {
-                "Включено".into()
+                t!("Включено").into()
             };
-            grid = grid.child(tile(crate::location::GLYPH, "Местоположение".into(), state, on, move || {
+            grid = grid.child(tile(crate::location::GLYPH, t!("Местоположение").into(), state, on, move || {
                 if let Err(e) = synshell_common::config_edit::set_value(&["location", "enabled"], toml_edit::Value::from(!on)) {
                     log::warn!("[location] enabled: {e:#}");
                 }
             }));
         }
         grid = grid
-            .child(tile("\u{E1A7}", "Bluetooth".into(), "Параметры".into(), false, || {
+            .child(tile("\u{E1A7}", "Bluetooth".into(), t!("Параметры").into(), false, || {
                 close();
                 crate::actions::spawn("synsettings bluetooth");
             }))
-            .child(tile(if dnd { mi::BELL_OFF } else { mi::BELL }, "Не беспокоить".into(), if dnd { "Включено" } else { "Выключено" }.into(), dnd, || {
+            .child(tile(if dnd { mi::BELL_OFF } else { mi::BELL }, t!("Не беспокоить").into(), if dnd { t!("Включено") } else { t!("Выключено") }.into(), dnd, || {
                 let c = ShellCtx::get();
                 c.dnd.set(!c.dnd.get_untracked());
             }))
-            .child(tile(mi::WINDOW, "Режим окон".into(), mode_label(mode).into(), true, move || {
+            .child(tile(mi::WINDOW, t!("Режим окон").into(), mode_label(mode).into(), true, move || {
                 crate::actions::run(Action::MobileModeCycle);
             }))
             .child({
                 // Автоповорот: выключен — ориентация зафиксирована.
                 let auto = cfg.rotation.auto;
-                let (glyph, state) = if auto { ("\u{E1C1}", "Включён") } else { ("\u{E1C0}", "Фиксация") };
-                tile(glyph, "Автоповорот".into(), state.into(), auto, move || crate::rotation::set_auto(!auto))
+                let (glyph, state) = if auto { ("\u{E1C1}", t!("Включён")) } else { ("\u{E1C0}", t!("Фиксация")) };
+                tile(glyph, t!("Автоповорот").into(), state.into(), auto, move || crate::rotation::set_auto(!auto))
             });
         if let Some(t) = torch {
             let on = t.on;
-            let state = if on { format!("Включён · {:.0}%", t.level * 100.0) } else { "Выключен".into() };
-            grid = grid.child(tile(GLYPH_TORCH, "Фонарик".into(), state, on, move || {
+            let state = if on { t!("Включён · {v}%", v = format!("{:.0}", t.level * 100.0)) } else { t!("Выключен").into() };
+            grid = grid.child(tile(GLYPH_TORCH, t!("Фонарик").into(), state, on, move || {
                 torch_toggle(ShellCtx::get());
                 rev.set(rev.get_untracked() + 1);
             }));
@@ -303,18 +303,18 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
                 Some(n) => format!("{} · {n}", mode.title()),
                 None => mode.title().to_string(),
             };
-            grid.child(tile(crate::input_mode::glyph(mode), "Ввод".into(), state, mode == synshell_common::config::InputMode::Controller, || {
+            grid.child(tile(crate::input_mode::glyph(mode), t!("Ввод").into(), state, mode == synshell_common::config::InputMode::Controller, || {
                 close();
                 ShellCtx::get().open_popup(crate::ctx::PopupKind::InputMode, crate::commands::centered());
             }))
         } else {
-            grid.child(tile(mi::KEYBOARD, "Клавиатура".into(), "Показать".into(), false, || {
+            grid.child(tile(mi::KEYBOARD, t!("Клавиатура").into(), t!("Показать").into(), false, || {
                 close();
                 crate::actions::spawn("synkeyboard toggle");
             }))
         };
         grid = grid
-            .child(tile("\u{E3B0}", "Снимок".into(), "Экрана".into(), false, || {
+            .child(tile("\u{E3B0}", t!("Снимок").into(), t!("Экрана").into(), false, || {
                 close();
                 // Шторка должна успеть уйти с экрана.
                 syngui_layer::add_timer(std::time::Duration::from_millis(450), || {
@@ -322,11 +322,11 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
                     None
                 });
             }))
-            .child(tile(mi::LAYERS, "Недавние".into(), "Приложения".into(), false, || {
+            .child(tile(mi::LAYERS, t!("Недавние").into(), t!("Приложения").into(), false, || {
                 close();
                 crate::recents::open();
             }))
-            .child(tile(mi::LOCK, "Блокировка".into(), "Экрана".into(), false, || {
+            .child(tile(mi::LOCK, t!("Блокировка").into(), t!("Экрана").into(), false, || {
                 close();
                 crate::commands::handle("lock");
             }));
@@ -380,14 +380,14 @@ fn open_apps(ctx: ShellCtx) -> impl Widget {
                 close();
                 crate::recents::open();
             })
-            .child(DecoratedBox::new().child(Text::new("Все").class("shade-apps-all-text")).class("shade-apps-all"));
+            .child(DecoratedBox::new().child(Text::new(t!("Все")).class("shade-apps-all-text")).class("shade-apps-all"));
         Box::new(
             Column::new()
                 .gap(6.0)
                 .child(
                     Row::new()
                         .cross_axis_alignment(CrossAxisAlignment::Center)
-                        .child(Text::new("Открытые приложения").class("shade-section grow"))
+                        .child(Text::new(t!("Открытые приложения")).class("shade-section grow"))
                         .child(all),
                 )
                 .child(ScrollView::new().horizontal().child(row)),
@@ -429,7 +429,7 @@ fn sliders(ctx: ShellCtx) -> impl Widget {
             let auto = ctx.config.get().brightness.auto;
             let pct = bright.get().unwrap_or(50.0);
             let text = match nits {
-                Some(max) => format!("{:.0} нит · {pct:.0}%", pct / 100.0 * max),
+                Some(max) => t!("{v} нит · {pct}%", v = format!("{:.0}", pct / 100.0 * max), pct = format!("{:.0}", pct)),
                 None => format!("{pct:.0}%"),
             };
             let p2 = pending.clone();
@@ -450,7 +450,7 @@ fn sliders(ctx: ShellCtx) -> impl Widget {
             });
             // Кнопка автояркости (как в Android): включена — акцентный кружок «А», выключена — значок яркости.
             let badge: Box<dyn Widget> = if auto {
-                Box::new(DecoratedBox::new().child(Text::new("А").class("shade-auto-badge")).class("shade-auto shade-auto-on"))
+                Box::new(DecoratedBox::new().child(Text::new(t!("А")).class("shade-auto-badge")).class("shade-auto shade-auto-on"))
             } else {
                 Box::new(DecoratedBox::new().child(icon(mi::BRIGHTNESS).class("shade-slider-icon")).class("shade-auto"))
             };
@@ -554,7 +554,7 @@ fn torch_row(ctx: ShellCtx) -> impl Widget {
         let badge = |text: &'static str, on: bool, f: Box<dyn Fn() + Send + Sync>| {
             GestureDetector::new().on_click(move || f()).child(
                 DecoratedBox::new()
-                    .child(Text::new(text).class("shade-auto-badge"))
+                    .child(Text::new(syngui::i18n::t(text)).class("shade-auto-badge"))
                     .class(if on { "shade-auto shade-auto-on" } else { "shade-auto shade-auto-off" }),
             )
         };
@@ -576,8 +576,8 @@ fn torch_row(ctx: ShellCtx) -> impl Widget {
         if two_tone {
             // оба выключены — горят оба; «Т»/«Х» — только тёплый/холодный, оба включены — смесь
             row = row
-                .child(badge("Т", st.warm, Box::new(move || torch_set(ShellCtx::get(), synsystem::torch::State { warm: !st.warm, ..st }))))
-                .child(badge("Х", st.cold, Box::new(move || torch_set(ShellCtx::get(), synsystem::torch::State { cold: !st.cold, ..st }))));
+                .child(badge(n_!("Т"), st.warm, Box::new(move || torch_set(ShellCtx::get(), synsystem::torch::State { warm: !st.warm, ..st }))))
+                .child(badge(n_!("Х"), st.cold, Box::new(move || torch_set(ShellCtx::get(), synsystem::torch::State { cold: !st.cold, ..st }))));
         }
         Box::new(DecoratedBox::new().child(row).class("shade-slider"))
     })

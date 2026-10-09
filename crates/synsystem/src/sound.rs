@@ -10,6 +10,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::process::Command;
 use std::time::Duration;
+use synshell_tr::t;
 
 /// Вид узла PipeWire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -176,12 +177,12 @@ impl DolbyProfile {
     /// Имя для людей.
     pub fn title(&self) -> String {
         match self.name.as_str() {
-            "Dynamic" => "Динамический",
-            "Movie" => "Кино",
-            "Music" => "Музыка",
-            "Custom" => "Свой",
-            "Voice" => "Голос",
-            n => n,
+            "Dynamic" => t!("Динамический"),
+            "Movie" => t!("Кино"),
+            "Music" => t!("Музыка"),
+            "Custom" => t!("Свой"),
+            "Voice" => t!("Голос"),
+            n => n.to_string(),
         }
         .to_string()
     }

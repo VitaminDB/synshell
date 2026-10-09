@@ -10,6 +10,7 @@ mod keyboard;
 
 use synshell_common::config::FormFactor;
 use synshell_ui::ShellCtx;
+use syngui::t;
 
 fn main() {
     let result = synshell_ui::run(synshell_ui::Shell {
@@ -53,11 +54,11 @@ fn command(name: &str, arg: &str) -> bool {
         "gamepad" => synshell_ui::actions::spawn("syngamepad fold"),
         "mode" => {
             let label = match arg.trim() {
-                "pages" => "Страницы",
-                "free" => "Свободный стол",
-                other => other,
+                "pages" => t!("Страницы"),
+                "free" => t!("Свободный стол"),
+                other => other.to_string(),
             };
-            synshell_ui::osd::show(ctx, synshell_ui::ui::mi::WINDOW, None, format!("Режим окон: {label}"));
+            synshell_ui::osd::show(ctx, synshell_ui::ui::mi::WINDOW, None, t!("Режим окон: {label}", label = label));
         }
         _ => return false,
     }

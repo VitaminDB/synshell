@@ -7,6 +7,7 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 
 use crate::qmi::{Client, Message};
+use synshell_tr::t;
 
 /// AID ISD-R (SGP.22).
 const ISD_R: [u8; 16] = [0xA0, 0x00, 0x00, 0x05, 0x59, 0x10, 0x10, 0xFF, 0xFF, 0xFF, 0xFF, 0x89, 0x00, 0x00, 0x01, 0x00];
@@ -203,9 +204,9 @@ pub fn profiles(ch: &Channel) -> Result<Vec<Profile>> {
             provider: s(0x91),
             name: s(0x92),
             class: match find(&f, 0x95).and_then(|v| v.first()) {
-                Some(0) => "тестовый",
-                Some(1) => "служебный",
-                _ => "рабочий",
+                Some(0) => t!("тестовый"),
+                Some(1) => t!("служебный"),
+                _ => t!("рабочий"),
             }
             .into(),
         });
@@ -220,13 +221,13 @@ fn result_code(resp: &[u8], tag: u32) -> Result<()> {
     let code = find(&parse(body), 0x80).and_then(|v| v.first().copied()).unwrap_or(127);
     let why = match code {
         0 => return Ok(()),
-        1 => "профиль не найден",
-        2 => "профиль уже в этом состоянии",
-        3 => "запрещено политикой профиля",
-        5 => "сначала выключите профиль",
-        6 => "нельзя: это служебный профиль",
-        127 => "неизвестная ошибка",
-        _ => "ошибка eUICC",
+        1 => t!("профиль не найден"),
+        2 => t!("профиль уже в этом состоянии"),
+        3 => t!("запрещено политикой профиля"),
+        5 => t!("сначала выключите профиль"),
+        6 => t!("нельзя: это служебный профиль"),
+        127 => t!("неизвестная ошибка"),
+        _ => t!("ошибка eUICC"),
     };
     bail!("{why} (код {code})")
 }

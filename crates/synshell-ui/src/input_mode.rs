@@ -37,22 +37,22 @@ pub fn focused_app_name(ctx: &ShellCtx) -> Option<String> {
 pub fn view(ctx: ShellCtx) -> impl Widget {
     let now = current(&ctx);
     let whom = match focused_app_name(&ctx) {
-        Some(n) => format!("Для «{n}»"),
-        None => "По умолчанию (приложения без своего режима)".into(),
+        Some(n) => t!("Для «{n}»", n = n),
+        None => t!("По умолчанию (приложения без своего режима)").into(),
     };
     let mut col = Column::new()
         .gap(4.0)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .child(Text::new("Экранный ввод").class("popup-title"))
+        .child(Text::new(t!("Экранный ввод")).class("popup-title"))
         .child(Text::new(whom).class("popup-subtitle"));
     for mode in [InputMode::Keyboard, InputMode::Controller, InputMode::Off] {
         let label = if mode == now { format!("{}  {CHECK}", mode.title()) } else { mode.title().to_string() };
         col = col.child(crate::popup::menu_item(glyph(mode), label, move || set_for_focused(&ShellCtx::get(), mode)));
     }
-    col = col.child(crate::popup::menu_item(mi::KEYBOARD, "Показать клавиатуру", || crate::actions::spawn("synkeyboard show")));
+    col = col.child(crate::popup::menu_item(mi::KEYBOARD, t!("Показать клавиатуру"), || crate::actions::spawn("synkeyboard show")));
     if now == InputMode::Controller {
-        col = col.child(crate::popup::menu_item(GAMEPAD, "Свернуть / развернуть контроллер", || crate::actions::spawn("syngamepad fold")));
-        col = col.child(crate::popup::menu_item("\u{E3C9}", "Настроить контроллер…", || crate::actions::spawn("syngamepad edit")));
+        col = col.child(crate::popup::menu_item(GAMEPAD, t!("Свернуть / развернуть контроллер"), || crate::actions::spawn("syngamepad fold")));
+        col = col.child(crate::popup::menu_item("\u{E3C9}", t!("Настроить контроллер…"), || crate::actions::spawn("syngamepad edit")));
     }
     col
 }
