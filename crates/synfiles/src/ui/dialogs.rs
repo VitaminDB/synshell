@@ -62,7 +62,7 @@ fn confirm_delete(paths: Vec<PathBuf>) -> W {
         &if permanent { t!("Удалить навсегда") } else { t!("Удалить в корзину") },
         boxed(body),
         vec![
-            boxed(Button::new(t!("Отмена")).on_click(close)),
+            boxed(Button::new(t!("Отмена")).autofocus(true).on_click(close)),
             boxed(Button::new(t!("Удалить")).class(if permanent { "danger" } else { "primary" }).on_click(move || {
                 close();
                 let op = if permanent { Op::Delete { srcs: p2.clone() } } else { Op::Trash { srcs: p2.clone() } };
@@ -77,7 +77,7 @@ fn confirm_empty_trash() -> W {
         &t!("Очистить корзину"),
         boxed(Text::new(t!("Все файлы в корзине будут удалены навсегда.")).class("dialog-text")),
         vec![
-            boxed(Button::new(t!("Отмена")).on_click(close)),
+            boxed(Button::new(t!("Отмена")).autofocus(true).on_click(close)),
             boxed(Button::new(t!("Очистить")).class("danger").on_click(|| {
                 close();
                 ops::start(Op::EmptyTrash);
@@ -237,11 +237,12 @@ fn properties(paths: Vec<PathBuf>) -> W {
                 );
             }
         }
+        col = col.child(super::activity::history_section(first.clone()));
     }
     card(
         &if one { t!("Свойства") } else { t!("Свойства выделенного") },
         boxed(col),
-        vec![boxed(Button::new(t!("Закрыть")).class("primary").on_click(close))],
+        vec![boxed(Button::new(t!("Закрыть")).class("primary").autofocus(true).on_click(close))],
     )
 }
 

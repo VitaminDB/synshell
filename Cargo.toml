@@ -11,6 +11,7 @@ members = [
     "crates/synkeyboard",
     "crates/synsettings",
     "crates/synfiles",
+    "crates/synfsd",
     "crates/synshot",
     "crates/synsystem",
     "crates/synpkg",
@@ -47,6 +48,7 @@ syngui-layer = { path = "crates/syngui-layer" }
 synsystem = { path = "crates/synsystem" }
 synmodem = { path = "crates/synmodem" }
 synshell-ui = { path = "crates/synshell-ui" }
+synfsd = { path = "crates/synfsd", default-features = false }
 syngui = { path = "../syngui/syngui", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

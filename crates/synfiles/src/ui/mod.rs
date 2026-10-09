@@ -1,5 +1,6 @@
 //! Интерфейс окна.
 
+pub mod activity;
 pub mod app;
 pub mod dialogs;
 pub mod items;
@@ -130,4 +131,6 @@ pub mod icons {
     pub const TUNE: &str = "\u{e429}";
     pub const MOVE: &str = "\u{e2bf}";
     pub const SETTINGS: &str = "\u{e8b8}";
+    pub const BLOCK: &str = "\u{e14b}";
+    pub const HISTORY: &str = "\u{e889}";
 }

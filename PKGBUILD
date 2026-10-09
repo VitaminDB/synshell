@@ -6,7 +6,7 @@ pkgdesc="Окружение рабочего стола для Wayland на Rust
 arch=('x86_64')
 license=('MIT OR Apache-2.0')
 depends=('mesa' 'libinput' 'seatd' 'systemd-libs' 'libxkbcommon' 'libdrm' 'vulkan-icd-loader'
-         'fontconfig' 'freetype2' 'dbus' 'ffmpeg')
+         'fontconfig' 'freetype2' 'dbus' 'ffmpeg' 'sqlite')
 optdepends=('xorg-xwayland: X11-программы'
             'wireplumber: громкость (wpctl)'
             'brightnessctl: яркость'
@@ -51,7 +51,7 @@ _profile=${SYNSHELL_PROFILE:-release}
 
 build() {
     cd "$startdir"
-    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player -p syn-maps -p syn-compass -p syngamepad -p synpass -p syncamera -p syndroid -p syn-health -p synmodem -p syn-nfc -p synnfc -p synphone -p synsms
+    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player -p syn-maps -p syn-compass -p syngamepad -p synpass -p syncamera -p syndroid -p syn-health -p synmodem -p syn-nfc -p synnfc -p synphone -p synsms -p synfsd
 }
 
 check() {
@@ -61,7 +61,7 @@ check() {
 
 package() {
     cd "$startdir"
-    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player syn-maps syn-compass syngamepad synpass syncamera syndroid syndroidd syn-health synmodem synmodemd syn-nfc synnfc synnfcd synphone synsms; do
+    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player syn-maps syn-compass syngamepad synpass syncamera syndroid syndroidd syn-health synmodem synmodemd syn-nfc synnfc synnfcd synphone synsms synfsd; do
         install -Dm755 "target/$_profile/$b" "$pkgdir/usr/bin/$b"
     done
     install -Dm755 data/synshell-session "$pkgdir/usr/bin/synshell-session"
@@ -120,6 +120,8 @@ package() {
     install -Dm644 crates/synlink/autostart/synlink.desktop "$pkgdir/etc/xdg/autostart/synlink.desktop"
     install -Dm644 crates/synshell-ui/data/syndesktop-lock.pam "$pkgdir/etc/pam.d/syndesktop-lock"
     install -Dm644 crates/synlogin/data/synlogin.service "$pkgdir/usr/lib/systemd/system/synlogin.service"
+    install -Dm644 crates/synfsd/data/synfsd.service "$pkgdir/usr/lib/systemd/system/synfsd.service"
+    install -Dm644 docs/FSD.md "$pkgdir/usr/share/doc/synshell/FSD.md"
     install -Dm644 crates/synlogin/data/synlogin.pam "$pkgdir/etc/pam.d/synlogin"
     install -Dm644 crates/synshell-common/default-config.toml \
         "$pkgdir/usr/share/doc/synshell/config.toml.example"

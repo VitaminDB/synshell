@@ -238,6 +238,7 @@ fn panel(phone: bool) -> W {
         .child(sort_section())
         .child(thumbs_section())
         .child(behaviour_section(phone))
+        .child(section(icons::HISTORY, &t!("Журнал изменений"), super::activity::settings_rows()))
         .child(hint(&t!("Настройки хранятся в ~/.config/synshell/config.toml, раздел [files].")))
         .class("set-body");
     let col = Column::new()

@@ -1,0 +1,17 @@
+[Unit]
+Description=synfsd: журнал изменений файлов (какая программа что меняла)
+Documentation=file:///usr/share/doc/synshell/FSD.md
+
+[Service]
+ExecStart=/usr/bin/synfsd
+Restart=on-failure
+RestartSec=3
+# Фоновая служба: уступает процессор и диск всем остальным.
+Nice=10
+IOSchedulingClass=idle
+StateDirectory=synfsd
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

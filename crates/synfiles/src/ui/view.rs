@@ -194,7 +194,9 @@ fn items_view(tab: Tab, idx: usize, fit: RwSignal<items::ColumnsFit>) -> W {
         }
         let generation = p.generation.get();
         let scroll = p.scroll_to.get();
-        let active = !tab.split.get() || tab.active.get() == idx;
+        // Открыт диалог или настройки — клавиши им (Enter не должен открыть файл).
+        let modal = ctx.dialog.with(|d| d.is_some()) || ctx.settings.get();
+        let active = (!tab.split.get() || tab.active.get() == idx) && !modal;
         let loc = p.loc.get();
         let columns = match loc {
             Location::Trash => Columns::Trash,

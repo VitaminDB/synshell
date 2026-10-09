@@ -364,17 +364,22 @@ Button {
     border-radius: 6px;
     padding: 7px 14px;
     font-size: 13px;
+    border: 2px solid transparent;
     transition: background 100ms ease;
     &:hover { background: var(--pressed); }
+    /* Кнопка с фокусом (по умолчанию в диалоге) — Enter нажмёт её. */
+    &:focus { border-color: var(--accent); }
 }
 Button.primary {
     background: var(--accent);
     color: var(--accent-fg);
     &:hover { background: var(--accent); opacity: 0.9; }
+    &:focus { border-color: var(--fg); }
 }
 Button.danger {
     background: var(--danger);
     color: #ffffff;
+    &:focus { border-color: var(--fg); }
 }
 Button.flat { background: transparent; }
 
@@ -732,3 +737,24 @@ ItemView.phone { padding: 6px 6px 92px 6px; scrollbar-width: 4px; }
     border-color: var(--divider);
     accent-color: var(--accent);
 }
+
+/* Журнал изменений (synfsd): история в «Свойствах», исключения в настройках. */
+.hist-title { font-size: 14px; font-weight: 600; color: var(--fg); }
+.hist-title-icon { color: var(--accent); }
+.hist-row { padding: 6px 4px; border-radius: 8px; &:hover { background: var(--hover); } }
+.hist-what { font-size: 13px; color: var(--fg); }
+.hist-exe { font-size: 11px; }
+.hist-badge {
+    width: 28px;
+    height: 28px;
+    border-radius: 14px;
+    background: var(--accent-soft);
+    justify-content: center;
+    align-items: center;
+}
+.hist-badge .icon { font-size: 16px; icon-size: 16px; color: var(--accent); }
+.hist-badge.deleted { background: var(--hover); }
+.hist-badge.deleted .icon { color: var(--danger); }
+.excl-row { padding: 4px 4px 4px 10px; border-radius: 10px; background: var(--field); border: 1px solid var(--divider); }
+.excl-icon { font-size: 16px; icon-size: 16px; color: var(--muted); }
+.excl-name { font-size: 13px; color: var(--fg); }
