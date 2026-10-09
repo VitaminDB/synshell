@@ -47,3 +47,7 @@ ToolButton.shot-close {
 .shot-hint-icon { color: var(--accent); font-size: 22px; icon-size: 22px; margin: 0px 8px 0px 6px; }
 .shot-hint-text { color: var(--fg); font-size: 13px; font-weight: 600; }
 .shot-hint-keys { color: var(--muted); font-size: 11.5px; }
+
+/* Флажок «Курсор» на панелях. */
+.shot-check { padding: 0px 8px 0px 6px; }
+.shot-check Checkbox { color: var(--fg); accent-color: var(--accent); font-size: 13px; }

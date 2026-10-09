@@ -23,14 +23,29 @@ impl State {
         let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
         let mut info = CaptureInfo::default();
         let outputs: Vec<_> = self.core.space.outputs().cloned().collect();
+        let under = self.core.output_under_pointer();
         for output in outputs {
             let g = self.core.space.output_geometry(&output).unwrap_or_default();
-            let (w, h, mut data) = self.backend.screenshot(&mut self.core, &output)?;
+            let (w, h, mut data) = self.backend.screenshot(&mut self.core, &output, false)?;
             for px in data.chunks_exact_mut(4) {
                 px[3] = 255;
             }
             let path = dir.join(format!("{}-{stamp}.rgba", output.name()));
             write_private(&path, &data)?;
+            // Вывод под указателем — ещё и с курсором: synshot даёт выбрать.
+            let mut cursor_path = None;
+            if under.as_ref() == Some(&output) {
+                if let Ok((cw, ch, mut c)) = self.backend.screenshot(&mut self.core, &output, true) {
+                    if (cw, ch) == (w, h) {
+                        for px in c.chunks_exact_mut(4) {
+                            px[3] = 255;
+                        }
+                        let p = dir.join(format!("{}-{stamp}-cursor.rgba", output.name()));
+                        write_private(&p, &c)?;
+                        cursor_path = Some(p.to_string_lossy().into_owned());
+                    }
+                }
+            }
             info.outputs.push(CapturedOutput {
                 name: output.name(),
                 geometry: [g.loc.x, g.loc.y, g.size.w, g.size.h],
@@ -38,6 +53,7 @@ impl State {
                 width: w,
                 height: h,
                 path: path.to_string_lossy().into_owned(),
+                cursor_path,
             });
         }
         let title_h = self.core.deco_theme.height;
@@ -108,7 +124,8 @@ impl State {
 
     pub fn screenshot(&mut self, window_only: bool) {
         let Some(output) = self.core.output_under_pointer() else { return };
-        let (w, h, mut data) = match self.backend.screenshot(&mut self.core, &output) {
+        let cursor = self.core.config.general.screenshot_cursor;
+        let (w, h, mut data) = match self.backend.screenshot(&mut self.core, &output, cursor) {
             Ok(x) => x,
             Err(e) => {
                 tracing::warn!(?e, "снимок экрана не удался");

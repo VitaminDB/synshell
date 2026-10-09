@@ -81,9 +81,19 @@ pub struct Frame {
     pub width: u32,
     pub height: u32,
     pub rgba: Arc<Vec<u8>>,
+    /// Тот же кадр с указателем мыши (есть у вывода под указателем).
+    pub rgba_cursor: Option<Arc<Vec<u8>>>,
 }
 
 impl Frame {
+    /// Пиксели кадра: с указателем или без.
+    pub fn data(&self, cursor: bool) -> &Arc<Vec<u8>> {
+        match (&self.rgba_cursor, cursor) {
+            (Some(c), true) => c,
+            _ => &self.rgba,
+        }
+    }
+
     /// Физический пиксель под глобальной логической точкой.
     pub fn pixel_pos(&self, p: (f64, f64)) -> (i64, i64) {
         let sx = self.width as f64 / self.geo.w.max(1.0);
@@ -92,11 +102,15 @@ impl Frame {
     }
 
     pub fn pixel(&self, px: i64, py: i64) -> Option<[u8; 4]> {
+        self.pixel_in(&self.rgba, px, py)
+    }
+
+    fn pixel_in(&self, buf: &[u8], px: i64, py: i64) -> Option<[u8; 4]> {
         if px < 0 || py < 0 || px >= self.width as i64 || py >= self.height as i64 {
             return None;
         }
         let i = ((py as usize) * self.width as usize + px as usize) * 4;
-        self.rgba.get(i..i + 4).map(|s| [s[0], s[1], s[2], s[3]])
+        buf.get(i..i + 4).map(|s| [s[0], s[1], s[2], s[3]])
     }
 
     /// Пикселей на логическую единицу (по ширине кадра — у повёрнутых
@@ -132,12 +146,19 @@ impl Shot {
             if data.len() < need {
                 anyhow::bail!("{}: кадр короче {}×{}", o.path, o.width, o.height);
             }
+            // Кадр с указателем: нет или не тот размер — без него.
+            let rgba_cursor = o.cursor_path.as_ref().and_then(|p| {
+                let d = std::fs::read(p);
+                let _ = std::fs::remove_file(p);
+                d.ok().filter(|d| d.len() >= need).map(Arc::new)
+            });
             frames.push(Frame {
                 name: o.name.clone(),
                 geo: R::from_i32(o.geometry),
                 width: o.width,
                 height: o.height,
                 rgba: Arc::new(data),
+                rgba_cursor,
             });
         }
         if frames.is_empty() {
@@ -170,6 +191,11 @@ impl Shot {
         let text = std::fs::read(path);
         let _ = std::fs::remove_file(path);
         Ok(serde_json::from_slice(&text?)?)
+    }
+
+    /// Есть ли кадр с указателем (флажок «Курсор»).
+    pub fn has_cursor(&self) -> bool {
+        self.frames.iter().any(|f| f.rgba_cursor.is_some())
     }
 
     pub fn frame_index_at(&self, p: (f64, f64)) -> Option<usize> {
@@ -216,7 +242,7 @@ impl Shot {
     /// Вырезать область: внутри одного вывода — его пиксели как есть, через
     /// несколько — сборка в плотности самого чёткого; места вне выводов
     /// прозрачные.
-    pub fn crop(&self, r: &R) -> Option<(u32, u32, Vec<u8>)> {
+    pub fn crop(&self, r: &R, cursor: bool) -> Option<(u32, u32, Vec<u8>)> {
         let r = r.intersect(&self.bounds)?;
         if let Some(f) = self.frames.iter().find(|f| f.geo.intersect(&r) == Some(r)) {
             let d = f.density();
@@ -228,10 +254,11 @@ impl Shot {
             if w == 0 || h == 0 {
                 return None;
             }
+            let src = f.data(cursor);
             let mut out = Vec::with_capacity(w * h * 4);
             for row in y0 as usize..y1 as usize {
                 let start = (row * f.width as usize + x0 as usize) * 4;
-                out.extend_from_slice(&f.rgba[start..start + w * 4]);
+                out.extend_from_slice(&src[start..start + w * 4]);
             }
             return Some((w as u32, h as u32, out));
         }
@@ -240,6 +267,7 @@ impl Shot {
         let mut out = vec![0u8; w as usize * h as usize * 4];
         for f in &self.frames {
             let Some(part) = f.geo.intersect(&r) else { continue };
+            let src = f.data(cursor);
             let dx0 = ((part.x - r.x) * d).round() as u32;
             let dy0 = ((part.y - r.y) * d).round() as u32;
             let dx1 = (((part.right() - r.x) * d).round() as u32).min(w);
@@ -249,7 +277,7 @@ impl Shot {
                 for dx in dx0..dx1 {
                     let gx = r.x + (dx as f64 + 0.5) / d;
                     let (px, py) = f.pixel_pos((gx, gy));
-                    if let Some(p) = f.pixel(px, py) {
+                    if let Some(p) = f.pixel_in(src, px, py) {
                         let i = (dy as usize * w as usize + dx as usize) * 4;
                         out[i..i + 4].copy_from_slice(&p);
                     }
@@ -271,6 +299,7 @@ mod tests {
             width: w,
             height: h,
             rgba: Arc::new((0..w * h).flat_map(|i| [fill, (i % 251) as u8, 0, 255]).collect()),
+            rgba_cursor: None,
         }
     }
 
@@ -282,7 +311,7 @@ mod tests {
     #[test]
     fn crop_inside_one_output_is_exact() {
         let s = shot(vec![frame(0.0, 20, 10, 1.0, 1)]);
-        let (w, h, px) = s.crop(&R::new(2.0, 3.0, 5.0, 4.0)).unwrap();
+        let (w, h, px) = s.crop(&R::new(2.0, 3.0, 5.0, 4.0), false).unwrap();
         assert_eq!((w, h), (5, 4));
         let src = &s.frames[0].rgba;
         let i = (3 * 20 + 2) * 4;
@@ -292,17 +321,26 @@ mod tests {
     #[test]
     fn crop_hidpi_uses_physical_pixels() {
         let s = shot(vec![frame(0.0, 40, 20, 2.0, 1)]);
-        let (w, h, _) = s.crop(&R::new(1.0, 1.0, 5.0, 4.0)).unwrap();
+        let (w, h, _) = s.crop(&R::new(1.0, 1.0, 5.0, 4.0), false).unwrap();
         assert_eq!((w, h), (10, 8));
     }
 
     #[test]
     fn crop_across_outputs_composes() {
         let s = shot(vec![frame(0.0, 10, 10, 1.0, 1), frame(10.0, 10, 10, 1.0, 2)]);
-        let (w, h, px) = s.crop(&R::new(8.0, 0.0, 4.0, 2.0)).unwrap();
+        let (w, h, px) = s.crop(&R::new(8.0, 0.0, 4.0, 2.0), false).unwrap();
         assert_eq!((w, h), (4, 2));
         assert_eq!(px[0], 1);
         assert_eq!(px[3 * 4], 2);
+    }
+
+    #[test]
+    fn crop_with_cursor_uses_cursor_frame() {
+        let mut f = frame(0.0, 10, 10, 1.0, 1);
+        f.rgba_cursor = Some(Arc::new(vec![9u8; 10 * 10 * 4]));
+        let s = shot(vec![f]);
+        assert_eq!(s.crop(&R::new(0.0, 0.0, 2.0, 2.0), true).unwrap().2[0], 9);
+        assert_eq!(s.crop(&R::new(0.0, 0.0, 2.0, 2.0), false).unwrap().2[0], 1);
     }
 
     #[test]

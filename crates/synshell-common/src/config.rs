@@ -136,6 +136,8 @@ pub struct General {
     pub xwayland: bool,
     /// Каталог снимков экрана.
     pub screenshot_dir: String,
+    /// Снимки экрана с указателем мыши (synshot — флажок «Курсор»).
+    pub screenshot_cursor: bool,
     /// Язык интерфейса программ synshell (`ru`, `en`, `de`…); пусто — язык
     /// системы (`LANG`).
     pub language: String,
@@ -153,6 +155,7 @@ impl Default for General {
             environment: BTreeMap::new(),
             xwayland: true,
             screenshot_dir: "~/Pictures/Screenshots".into(),
+            screenshot_cursor: false,
             language: String::new(),
         }
     }

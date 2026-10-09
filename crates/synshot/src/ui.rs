@@ -29,7 +29,7 @@ mod glyph {
 
 /// Ширина полосы, в которой по центру стоит панель действий, и её высота
 /// (для выбора места у выделения).
-const BAR_W: f32 = 640.0;
+const BAR_W: f32 = 760.0;
 const BAR_H: f32 = 46.0;
 const GAP: f32 = 12.0;
 const HINT_TOP: f32 = 28.0;
@@ -74,13 +74,18 @@ fn surface_root(i: usize) -> impl Widget {
     let shot = sel::shot();
     let f = &shot.frames[i];
     let s = sel::sig();
+    let (name, width, height) = (f.name.clone(), f.width, f.height);
+    let (plain, with_cursor) = (f.rgba.clone(), f.rgba_cursor.clone());
     Stack::new()
         .fit(StackFit::Expand)
-        .child(
-            Image::from_rgba_shared(format!("shot:{}", f.name), f.width, f.height, f.rgba.clone())
-                .fit(ImageFit::Fill)
-                .placeholder(false),
-        )
+        // Застывший экран — с указателем или без, как будет в снимке.
+        .child(Reactive::new(move || -> Vec<W> {
+            let (key, data) = match (&with_cursor, s.cursor.get()) {
+                (Some(c), true) => (format!("shot:{name}:cursor"), c.clone()),
+                _ => (format!("shot:{name}"), plain.clone()),
+            };
+            vec![boxed(Image::from_rgba_shared(key, width, height, data).fit(ImageFit::Fill).placeholder(false))]
+        }))
         .child(Reactive::new(move || -> Vec<W> { vec![boxed(Overlay::new(i, s.rev.get()))] }))
         .child(Reactive::new(move || -> Vec<W> { hint_layer(i) }))
         .child(Reactive::new(move || -> Vec<W> { toolbar_layer(i) }))
@@ -98,6 +103,24 @@ fn button(glyph: &str, label: &str, tip: &str, class: &str, choice: Choice) -> W
 
 fn close_button() -> W {
     boxed(ToolButton::new(glyph::CLOSE).tooltip(t!("Отмена (Esc)")).on_click(sel::cancel).class("shot-close"))
+}
+
+/// Флажок «Курсор»: снимок с указателем мыши; выбор запоминается
+/// (`[general] screenshot_cursor`). Нет кадра с указателем — нет и флажка.
+fn cursor_check() -> Option<W> {
+    if !sel::shot().has_cursor() {
+        return None;
+    }
+    let s = sel::sig();
+    let check = Checkbox::checked(s.cursor.get_untracked()).label(t!("Курсор")).on_change(move |on| {
+        s.cursor.set(on);
+        std::thread::spawn(move || {
+            if let Err(e) = synshell_common::config_edit::set_value(&["general", "screenshot_cursor"], on.into()) {
+                log::warn!("config.toml: {e}");
+            }
+        });
+    });
+    Some(boxed(Tooltip::new(DecoratedBox::new().class("shot-check").child(check), t!("Снимок с указателем мыши")).delay_ms(600)))
 }
 
 fn separator() -> W {
@@ -121,8 +144,11 @@ fn hint_layer(i: usize) -> Vec<W> {
                 .child(Text::new(t!("Выделите область или щёлкните по окну")).max_lines(1).class("shot-hint-text"))
                 .child(Text::new(t!("Enter — весь экран · Ctrl+C — копировать · Esc — отмена")).max_lines(1).class("shot-hint-keys")),
         )
-        .child(separator())
-        .child(Button::new(t!("Весь экран")).leading_icon(glyph::SCREEN).on_click(sel::select_output).class("shot-btn"));
+        .child(separator());
+    if let Some(c) = cursor_check() {
+        row = row.child(c).child(separator());
+    }
+    row = row.child(Button::new(t!("Весь экран")).leading_icon(glyph::SCREEN).on_click(sel::select_output).class("shot-btn"));
     if many {
         row = row.child(Button::new(t!("Все экраны")).leading_icon(glyph::ALL).on_click(sel::select_all).class("shot-btn"));
     }
@@ -145,11 +171,12 @@ fn toolbar_layer(i: usize) -> Vec<W> {
         return Vec::new();
     }
     let (x, y) = bar_position(&r, &shot.frames[i].geo);
+    let mut row = Row::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Center);
+    if let Some(c) = cursor_check() {
+        row = row.child(c).child(separator());
+    }
     let bar = DecoratedBox::new().class("shot-bar").child(
-        Row::new()
-            .gap(2.0)
-            .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(button(glyph::COPY, &t!("Копировать"), &t!("Копировать снимок в буфер обмена (Ctrl+C)"), "", Choice::Copy))
+        row.child(button(glyph::COPY, &t!("Копировать"), &t!("Копировать снимок в буфер обмена (Ctrl+C)"), "", Choice::Copy))
             .child(button(glyph::SAVE, &t!("Сохранить"), &t!("Сохранить в папку снимков (Enter, Ctrl+S)"), "primary", Choice::Save))
             .child(button(glyph::LINK, &t!("Копировать путь"), &t!("Сохранить и скопировать путь к файлу (Ctrl+Shift+C)"), "", Choice::CopyPath))
             .child(button(glyph::OPEN, &t!("Открыть"), &t!("Сохранить и открыть (Ctrl+O)"), "", Choice::Open))

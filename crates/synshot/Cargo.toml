@@ -15,6 +15,7 @@ synshell-common = { workspace = true, features = ["i18n"] }
 syngui-layer.workspace = true
 syngui = { workspace = true, features = ["winit", "clipboard", "msdf", "effects", "svg", "material-icons", "i18n"] }
 anyhow.workspace = true
+toml_edit.workspace = true
 libc.workspace = true
 serde_json.workspace = true
 log = "0.4"

@@ -90,12 +90,13 @@ impl Backend {
     }
 
     /// Снимок вывода: (ширина, высота, RGBA).
-    pub fn screenshot(&mut self, core: &mut Core, output: &Output) -> anyhow::Result<(u32, u32, Vec<u8>)> {
+    /// Снимок вывода; `cursor` — с указателем мыши.
+    pub fn screenshot(&mut self, core: &mut Core, output: &Output, cursor: bool) -> anyhow::Result<(u32, u32, Vec<u8>)> {
         match self {
-            Backend::Winit(w) => w.screenshot(core, output),
-            Backend::Tty(t) => t.screenshot(core, output),
+            Backend::Winit(w) => w.screenshot(core, output, cursor),
+            Backend::Tty(t) => t.screenshot(core, output, cursor),
             #[cfg(feature = "pixman")]
-            Backend::KmsCpu(b) => b.screenshot(core, output),
+            Backend::KmsCpu(b) => b.screenshot(core, output, cursor),
         }
     }
 

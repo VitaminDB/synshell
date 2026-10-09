@@ -58,21 +58,23 @@ pub struct Signals {
     pub pointer_frame: RwSignal<usize>,
     /// Рамку тянут — подсказка и панель прячутся.
     pub dragging: RwSignal<bool>,
+    /// Снимок с указателем мыши (флажок «Курсор»).
+    pub cursor: RwSignal<bool>,
 }
 
 thread_local! {
     static SHOT: RefCell<Option<Rc<Shot>>> = const { RefCell::new(None) };
     static SEL: RefCell<Sel> = const { RefCell::new(Sel { rect: None, drag: Drag::None, pointer: (0.0, 0.0) }) };
     static SIGNALS: Cell<Option<Signals>> = const { Cell::new(None) };
-    static RESULT: Cell<Option<(Choice, R)>> = const { Cell::new(None) };
+    static RESULT: Cell<Option<(Choice, R, bool)>> = const { Cell::new(None) };
 }
 
-pub fn init(shot: Shot) {
+pub fn init(shot: Shot, cursor: bool) {
     let pointer = shot.pointer;
     let frame = shot.nearest_frame(pointer);
     SHOT.with(|s| *s.borrow_mut() = Some(Rc::new(shot)));
     SEL.with(|s| s.borrow_mut().pointer = pointer);
-    SIGNALS.with(|s| s.set(Some(Signals { rev: use_signal(0), settled: use_signal(None), pointer_frame: use_signal(frame), dragging: use_signal(false) })));
+    SIGNALS.with(|s| s.set(Some(Signals { rev: use_signal(0), settled: use_signal(None), pointer_frame: use_signal(frame), dragging: use_signal(false), cursor: use_signal(cursor) })));
 }
 
 pub fn shot() -> Rc<Shot> {
@@ -110,8 +112,8 @@ fn changed() {
     }
 }
 
-/// Итог работы: действие и область (после выхода из цикла).
-pub fn result() -> Option<(Choice, R)> {
+/// Итог работы (после выхода из цикла): действие, область, с указателем ли.
+pub fn result() -> Option<(Choice, R, bool)> {
     RESULT.with(|r| r.get())
 }
 
@@ -120,7 +122,8 @@ pub fn result() -> Option<(Choice, R)> {
 pub fn finish(choice: Choice) {
     let shot = shot();
     let rect = with(|s| s.rect).unwrap_or_else(|| shot.frames[shot.nearest_frame(with(|s| s.pointer))].geo);
-    RESULT.with(|r| r.set(Some((choice, rect))));
+    let cursor = sig().cursor.get_untracked();
+    RESULT.with(|r| r.set(Some((choice, rect, cursor))));
     syngui_layer::quit();
 }
 

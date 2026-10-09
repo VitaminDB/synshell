@@ -365,6 +365,9 @@ pub struct CapturedOutput {
     pub height: u32,
     /// Файл с кадром: RGBA построчно, без заголовка; читатель удаляет его.
     pub path: String,
+    /// Тот же кадр с указателем мыши (только у вывода под указателем).
+    #[serde(default)]
+    pub cursor_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

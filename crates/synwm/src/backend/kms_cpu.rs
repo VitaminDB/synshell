@@ -492,13 +492,13 @@ impl KmsCpuBackend {
         crate::render::thumbnail::<_, smithay::reexports::pixman::Image<'static, 'static>>(core, &mut self.renderer, id, max)
     }
 
-    pub fn screenshot(&mut self, core: &mut Core, output: &Output) -> anyhow::Result<(u32, u32, Vec<u8>)> {
+    pub fn screenshot(&mut self, core: &mut Core, output: &Output, cursor: bool) -> anyhow::Result<(u32, u32, Vec<u8>)> {
         let size = output.current_mode().map(|m| m.size).unwrap_or_default();
         let transformed = output.current_transform().transform_size(size);
         let buffer_size = Size::from((transformed.w, transformed.h));
         let r = &mut self.renderer;
         let mut image = <PixmanRenderer as Offscreen<_>>::create_buffer(r, Fourcc::Abgr8888, buffer_size)?;
-        let (elements, clear) = crate::render::output_elements(core, r, output, false);
+        let (elements, clear) = crate::render::output_elements(core, r, output, cursor);
         {
             let mut fb = r.bind(&mut image)?;
             let mut tracker = OutputDamageTracker::new(transformed, output.current_scale().fractional_scale(), Transform::Normal);

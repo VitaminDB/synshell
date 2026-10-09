@@ -73,8 +73,9 @@ fn main() {
     let mss = ui::stylesheet(&cfg);
     let font = Some(cfg.appearance.font.trim().to_string()).filter(|f| !f.is_empty());
 
+    let cursor = cfg.general.screenshot_cursor;
     let result = syngui_layer::run(syngui_layer::RunOptions { font_family: font }, &mss, move || {
-        sel::init(shot);
+        sel::init(shot, cursor);
         ui::open_surfaces();
     });
     if let Err(e) = result {
@@ -82,9 +83,9 @@ fn main() {
         std::process::exit(1);
     }
 
-    let Some((choice, rect)) = sel::result() else { return };
+    let Some((choice, rect, cursor)) = sel::result() else { return };
     let shot = sel::shot();
-    let Some((w, h, rgba)) = shot.crop(&rect) else { return };
+    let Some((w, h, rgba)) = shot.crop(&rect, cursor) else { return };
     if let Err(e) = output::run(choice, w, h, &rgba, &cfg) {
         eprintln!("synshot: {e:#}");
         output::notify(format!("screenshot-failed {e:#}"));

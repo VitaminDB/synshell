@@ -176,14 +176,14 @@ impl WinitBackend {
         }
     }
 
-    pub fn screenshot(&mut self, core: &mut Core, output: &Output) -> anyhow::Result<(u32, u32, Vec<u8>)> {
+    pub fn screenshot(&mut self, core: &mut Core, output: &Output, cursor: bool) -> anyhow::Result<(u32, u32, Vec<u8>)> {
         let size = output.current_mode().map(|m| m.size).unwrap_or_default();
         let transformed = output.current_transform().transform_size(size);
         let buffer_size = Size::from((transformed.w, transformed.h));
         let renderer = self.backend.renderer();
         let mut texture: smithay::backend::renderer::gles::GlesTexture =
             renderer.create_buffer(Fourcc::Abgr8888, buffer_size)?;
-        let (elements, clear) = crate::render::output_elements(core, renderer, output, false);
+        let (elements, clear) = crate::render::output_elements(core, renderer, output, cursor);
         {
             let mut fb = renderer.bind(&mut texture)?;
             let mut tracker = OutputDamageTracker::new(transformed, output.current_scale().fractional_scale(), Transform::Normal);
