@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=syn-health tracker
+Name[ru]=Счётчик шагов
+Comment=Count steps with the phone's pedometer in the background (exits if there is none)
+Comment[ru]=Счёт шагов шагомером телефона в фоне (выходит, если шагомера нет)
+Exec=syn-health --track
+NoDisplay=true
+X-GNOME-Autostart-Phase=Applications

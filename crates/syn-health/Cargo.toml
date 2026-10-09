@@ -1,0 +1,21 @@
+[package]
+name = "syn-health"
+description = "Спорт и здоровье synshell: шаги по шагомеру SLPI, расстояние, калории, история и цели"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "syn-health"
+path = "src/main.rs"
+
+[dependencies]
+synshell-common = { workspace = true, features = ["i18n"] }
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "image"] }
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+libc.workspace = true

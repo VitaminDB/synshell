@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Спорт и здоровье
+Name[en]=Fitness
+GenericName=Шаги и активность
+GenericName[en]=Steps and Activity
+Comment=Шаги за день по шагомеру телефона, расстояние, калории, история
+Comment[en]=Daily steps from the phone's pedometer, distance, calories, history
+Exec=syn-health
+Icon=syn-health
+Categories=Utility;
+Keywords=steps;pedometer;fitness;health;walk;шаги;шагомер;здоровье;спорт;ходьба;
+StartupNotify=true

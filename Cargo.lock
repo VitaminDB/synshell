@@ -4925,6 +4925,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-health"
+version = "0.1.41"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "syngui",
+ "synshell-common",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "syn-maps"
 version = "0.1.41"
 dependencies = [
