@@ -10,6 +10,9 @@ license.workspace = true
 name = "synpass"
 path = "src/main.rs"
 
+[dev-dependencies]
+syngui = { workspace = true, features = ["testing"] }
+
 [dependencies]
 synshell-common = { workspace = true, features = ["i18n"] }
 serde.workspace = true

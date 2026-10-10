@@ -128,7 +128,7 @@ Text { color: var(--fg); font-size: 14px; }
 
 .chip { height: 32px; padding: 0px 12px; border-radius: 16px; background-color: var(--surface-alt); align-items: center; max-width: 136px; margin: 0px 4px 0px 8px; }
 .chip-icon { font-size: 16px; icon-size: 16px; color: var(--muted); icon-color: var(--muted); }
-.chip-text { font-size: 12px; color: var(--muted); }
+.chip-text { font-size: 12px; color: var(--muted); flex-shrink: 1; }
 .chip-ok { background-color: var(--accent-soft); }
 .chip-ok .chip-icon, .chip-ok .chip-text { color: var(--accent); icon-color: var(--accent); }
 .chip-warn .chip-icon, .chip-warn .chip-text { color: var(--warning); icon-color: var(--warning); }

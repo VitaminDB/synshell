@@ -137,7 +137,20 @@ fn touch() {
 pub fn root() -> W {
     let (cfg, _) = synshell_common::Config::load();
     let has_vault = vault::vault_path().exists();
-    let st = St {
+    let st = state(has_vault, cfg.link.enabled && cfg.link.clipboard);
+    touch();
+    watch_link(st);
+    ticker(st);
+    if !has_vault {
+        find_remote(st);
+    } else {
+        load_question(st);
+    }
+    build_root(st)
+}
+
+fn state(has_vault: bool, shared_clip: bool) -> St {
+    St {
         phase: use_signal(if has_vault { Phase::Locked } else { Phase::Setup }),
         entries: use_signal(Vec::new()),
         selected: use_signal(None),
@@ -174,17 +187,8 @@ pub fn root() -> W {
         q_open: use_signal(false),
         lock_question: use_signal(None),
         recovering: use_signal(false),
-        shared_clip: cfg.link.enabled && cfg.link.clipboard,
-    };
-    touch();
-    watch_link(st);
-    ticker(st);
-    if !has_vault {
-        find_remote(st);
-    } else {
-        load_question(st);
+        shared_clip,
     }
-    build_root(st)
 }
 
 // ─── Данные ─────────────────────────────────────────────────────────────────
@@ -2076,4 +2080,44 @@ fn settings_view(st: St) -> W {
         st.settings.set(false);
         st.chg_open.set(false);
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use syngui::testing::TestHarness;
+
+    /// Две записи в списке — две строки одна под другой, а не друг на друге.
+    #[test]
+    fn list_rows_do_not_overlap() {
+        syngui::signal::allow_signal_reads_on_this_thread();
+        let st = state(true, false);
+        let mk = |t: &str, u: &str| Entry { title: t.into(), username: u.into(), password: "x".into(), ..Entry::new() };
+        st.entries.set(vec![mk("Gandex account", "vitamin@gmail.com"), mk("Yandex account", "yandex@gsdf")]);
+        st.phase.set(Phase::Open);
+        let mut h = TestHarness::new(list_view(st, false));
+        h.apply_mss(include_str!("../styles/synpass.mss"));
+        h.rebuild();
+        h.layout(460.0, 800.0);
+        h.rebuild();
+        h.layout(460.0, 800.0);
+        let rows: Vec<_> = h.find_by_class("row").iter().map(|&id| h.element_bounds(id)).collect();
+        eprintln!("{rows:?}");
+        assert_eq!(rows.len(), 2);
+        assert!(rows[1].origin.y >= rows[0].origin.y + rows[0].size.height, "строки наложены: {rows:?}");
+    }
+}
+
+#[cfg(test)]
+mod make_vault {
+    /// `SYNPASS_VAULT=… cargo test -p synpass make_test_vault -- --ignored`
+    #[test]
+    #[ignore]
+    fn make_test_vault() {
+        let mut s = crate::vault::Session::create("1").unwrap();
+        for (t, u) in [("Gmail account", "vitamindbnfkz@gmail.com"), ("Yandex account", "yandex@gsdf")] {
+            s.data.entries.push(crate::vault::Entry { title: t.into(), username: u.into(), password: "x1".into(), ..crate::vault::Entry::new() });
+        }
+        s.seal().unwrap().write(&crate::vault::vault_path()).unwrap();
+    }
 }
