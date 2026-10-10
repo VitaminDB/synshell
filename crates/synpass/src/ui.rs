@@ -1453,7 +1453,7 @@ fn list_view(st: St, phone: bool) -> W {
         if f == Filter::All && q.trim().is_empty() {
             v.sort_by_key(|e| (!e.favorite, e.title.to_lowercase()));
         }
-        v.into_iter().map(|e| row(st, e, sel.as_deref())).collect()
+        vec![Box::new(Column::new().gap(2.0).children(v.into_iter().map(|e| row(st, e, sel.as_deref()))))]
     });
     let fab = GestureDetector::new()
         .on_click(move || start_new(st))
@@ -1465,7 +1465,7 @@ fn list_view(st: St, phone: bool) -> W {
                 Column::new()
                     .child(header)
                     .child(DecoratedBox::new().child(Column::new().gap(10.0).child(search).child(filters)).class("tools"))
-                    .child(ScrollView::new().vertical().child(Column::new().gap(2.0).child(list).class("list")).class("grow")),
+                    .child(ScrollView::new().vertical().child(Column::new().child(list).class("list")).class("grow")),
             )
             .child(Column::new().main_axis_alignment(MainAxisAlignment::End).cross_axis_alignment(CrossAxisAlignment::End).child(fab).class("fab-place")),
     )
