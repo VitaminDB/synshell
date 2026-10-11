@@ -19,6 +19,7 @@
 pub mod data;
 pub mod forms;
 mod views;
+pub use views::KILL;
 
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;

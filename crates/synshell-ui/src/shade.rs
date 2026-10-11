@@ -336,10 +336,12 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
 
 // ─── Открытые приложения ─────────────────────────────────────────────────────
 
-/// Открытые окна лентой: тап — перейти, «×» — закрыть, «Все» — «Недавние».
-/// Нет окон — раздела нет.
+/// Открытые окна лентой: тап — перейти, «×» — закрыть, «Все» — «Недавние». Удержание или
+/// правый щелчок — на чипе «Закрыть» и «Убить» (SIGKILL). Нет окон — раздела нет.
 fn open_apps(ctx: ShellCtx) -> impl Widget {
+    let armed = use_signal(None::<u64>);
     rx(move || {
+        let armed_id = armed.get();
         let list = crate::recents::visible_windows(&ctx);
         if list.is_empty() {
             return Box::new(DecoratedBox::new()) as Box<dyn Widget>;
@@ -352,27 +354,47 @@ fn open_apps(ctx: ShellCtx) -> impl Widget {
             });
             let icon_path = entry.as_ref().and_then(|e| crate::xdg::lookup_icon(&e.icon)).or_else(|| crate::xdg::window_icon(&w.app_id));
             let id = w.id;
-            let close_btn = GestureDetector::new()
-                .on_click(move || crate::actions::window_op(id, WindowOp::Close))
-                .child(DecoratedBox::new().child(icon(mi::CLOSE).class("shade-app-close-icon")).class("shade-app-close"));
+            let mut chip = Row::new()
+                .gap(8.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(crate::launchers::icon_widget(&icon_path, &None, "shade-app-icon", 24.0))
+                .child(Text::new(name).max_lines(1).class("shade-app-name"));
+            if armed_id == Some(id) {
+                let act = |glyph: &'static str, label: String, class: &'static str, op: WindowOp| {
+                    GestureDetector::new()
+                        .on_click(move || {
+                            crate::actions::window_op(id, op);
+                            armed.set(None);
+                        })
+                        .child(
+                            DecoratedBox::new()
+                                .child(Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(glyph).class("shade-act-icon")).child(Text::new(label).class("shade-act-text")))
+                                .class(class),
+                        )
+                };
+                chip = chip
+                    .child(act(mi::CLOSE, t!("Закрыть"), "shade-act", WindowOp::Close))
+                    .child(act(crate::desk::KILL, t!("Убить"), "shade-act shade-act-kill", WindowOp::Kill));
+            } else {
+                chip = chip.child(
+                    GestureDetector::new()
+                        .on_click(move || crate::actions::window_op(id, WindowOp::Close))
+                        .child(DecoratedBox::new().child(icon(mi::CLOSE).class("shade-app-close-icon")).class("shade-app-close")),
+                );
+            }
             row = row.child(
                 GestureDetector::new()
                     .on_click(move || {
+                        if armed.get_untracked().is_some() {
+                            armed.set(None);
+                            return;
+                        }
                         crate::actions::window_op(id, WindowOp::Activate);
                         close();
                     })
-                    .child(
-                        DecoratedBox::new()
-                            .child(
-                                Row::new()
-                                    .gap(8.0)
-                                    .cross_axis_alignment(CrossAxisAlignment::Center)
-                                    .child(crate::launchers::icon_widget(&icon_path, &None, "shade-app-icon", 24.0))
-                                    .child(Text::new(name).max_lines(1).class("shade-app-name"))
-                                    .child(close_btn),
-                            )
-                            .class(if w.focused { "shade-app shade-app-focused" } else { "shade-app" }),
-                    ),
+                    .on_long_press(move |_| armed.set(Some(id)))
+                    .on_secondary_click(move |_| armed.set(Some(id)))
+                    .child(DecoratedBox::new().child(chip).class(if w.focused { "shade-app shade-app-focused" } else { "shade-app" })),
             );
         }
         let all = GestureDetector::new()

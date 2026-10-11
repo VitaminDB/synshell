@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Монитор ресурсов
+Name[en]=Resource Monitor
+GenericName=Процессор, память, графика, NPU, сеть
+GenericName[en]=CPU, Memory, Graphics, NPU, Network
+Comment=Загрузка процессора и ядер, память, GPU и видеопамять, NPU, сеть, диски, датчики, питание и процессы
+Comment[en]=CPU and cores, memory, GPU and VRAM, NPU, network, disks, sensors, power and processes
+Exec=syn-systeminfo
+Icon=syn-systeminfo
+Categories=System;Monitor;
+Keywords=task;manager;monitor;cpu;gpu;npu;memory;ram;process;kill;ресурсы;диспетчер;задач;процессы;память;процессор;
+StartupNotify=true

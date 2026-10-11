@@ -98,16 +98,31 @@ pub fn build(ctx: ShellCtx, slot: &Slot, w: &DeskWidget, iw: f32, ih: f32, editi
     }
     let slot = slot.clone();
     let slot2 = slot.clone();
-    let clock_tap = w.kind == "clock";
     let mut g = GestureDetector::new().on_long_press(move |_| super::open_menu(&slot)).on_secondary_click(move |_| super::open_menu(&slot2));
-    if clock_tap {
+    if w.kind == "clock" {
         // Тап по часам — календарь и быстрые настройки времени.
         g = g.on_click(move || {
             let ctx = ShellCtx::get();
             ctx.open_popup(crate::ctx::PopupKind::Calendar, crate::commands::centered());
         });
+    } else if let Some(page) = resource_page(&w.kind) {
+        // Тап по ресурсу — монитор ресурсов на его странице.
+        g = g.on_click(move || crate::actions::open_resources(page));
     }
     Box::new(g.child(frame))
+}
+
+/// Страница монитора ресурсов (`syn-systeminfo`) для виджета.
+fn resource_page(kind: &str) -> Option<&'static str> {
+    Some(match kind {
+        "cpu" => "cpu",
+        "memory" => "memory",
+        "gpu" => "gpu",
+        "battery" => "battery",
+        "network" => "network",
+        "temps" => "sensors",
+        _ => return None,
+    })
 }
 
 // ─── Часы ───────────────────────────────────────────────────────────────────
@@ -673,7 +688,8 @@ fn apps_rail() -> Box<dyn Widget> {
 }
 
 /// Карточка приложения в ленте: значок, имя и подпись (с переносом), внизу — бейджи памяти и
-/// процессора; тап — к окну, «×» в углу или свайп вверх — закрыть.
+/// процессора; тап — к окну, «×» в углу или свайп вверх — закрыть. Удержание или правый щелчок —
+/// действия на карточке: закрыть или убить (SIGKILL).
 fn app_card(a: &AppStat) -> impl Widget {
     let entry = xdg::app_for_window(&a.app_id);
     let icon_path = entry.as_ref().and_then(|e| xdg::lookup_icon(&e.icon)).or_else(|| xdg::window_icon(&a.app_id));
@@ -685,40 +701,63 @@ fn app_card(a: &AppStat) -> impl Widget {
     }
     let mem = if a.mem_kb >= 1024 * 1024 { format!("{:.1}G", a.mem_kb as f64 / 1048576.0) } else { format!("{}M", a.mem_kb / 1024) };
     let cpu_class = if a.cpu >= 25.0 { "res-badge res-badge-cpu res-badge-hot" } else { "res-badge res-badge-cpu" };
+    let cpu = format!("{:.0}%", a.cpu);
     let id = a.window;
+    let armed = use_signal(false);
     let close = GestureDetector::new()
         .on_click(move || crate::actions::window_op(id, WindowOp::Close))
         .child(DecoratedBox::new().child(icon(mi::CLOSE).class("res-app-close-icon")).class("res-app-close"));
+    let body = rx(move || -> Box<dyn Widget> {
+        let mut col = Column::new()
+            .gap(4.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(launchers::icon_widget(&icon_path, &None, "res-app-icon", 44.0))
+            .child(Text::new(name.clone()).max_lines(2).class("res-app-name"));
+        if armed.get() {
+            let action = |glyph: &'static str, label: String, class: &'static str, f: Box<dyn Fn() + Send + Sync>| {
+                GestureDetector::new().on_click(move || f()).child(
+                    DecoratedBox::new()
+                        .child(Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(glyph).class("res-act-icon")).child(Text::new(label).class("res-act-text")))
+                        .class(class),
+                )
+            };
+            col = col
+                .child(action(mi::CLOSE, t!("Закрыть"), "res-act", Box::new(move || crate::actions::window_op(id, WindowOp::Close))))
+                .child(action(KILL, t!("Убить"), "res-act res-act-kill", Box::new(move || crate::actions::window_op(id, WindowOp::Kill))));
+        } else {
+            col = col.child(Text::new(subtitle.clone()).max_lines(3).class("res-app-title")).child(
+                Row::new()
+                    .gap(4.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(DecoratedBox::new().child(Text::new(mem.clone()).class("res-badge-text")).class("res-badge res-badge-mem"))
+                    .child(DecoratedBox::new().child(Text::new(cpu.clone()).class("res-badge-text")).class(cpu_class))
+                    .class("res-app-badges"),
+            );
+        }
+        Box::new(col)
+    });
     let card = GestureDetector::new()
         .pan_axis(PanAxis::Vertical)
-        .on_click(move || crate::actions::window_op(id, WindowOp::Activate))
+        .on_click(move || {
+            if armed.get_untracked() {
+                armed.set(false);
+            } else {
+                crate::actions::window_op(id, WindowOp::Activate);
+            }
+        })
+        .on_long_press(move |_| armed.set(true))
+        .on_secondary_click(move |_| armed.set(true))
         .on_swipe(move |d, _| {
             if d == SwipeDirection::Up {
                 crate::actions::window_op(id, WindowOp::Close);
             }
         })
-        .child(
-            DecoratedBox::new()
-                .child(
-                    Column::new()
-                        .gap(4.0)
-                        .cross_axis_alignment(CrossAxisAlignment::Center)
-                        .child(launchers::icon_widget(&icon_path, &None, "res-app-icon", 44.0))
-                        .child(Text::new(name).max_lines(2).class("res-app-name"))
-                        .child(Text::new(subtitle).max_lines(3).class("res-app-title"))
-                        .child(
-                            Row::new()
-                                .gap(4.0)
-                                .cross_axis_alignment(CrossAxisAlignment::Center)
-                                .child(DecoratedBox::new().child(Text::new(mem).class("res-badge-text")).class("res-badge res-badge-mem"))
-                                .child(DecoratedBox::new().child(Text::new(format!("{:.0}%", a.cpu)).class("res-badge-text")).class(cpu_class))
-                                .class("res-app-badges"),
-                        ),
-                )
-                .class("res-app"),
-        );
+        .child(DecoratedBox::new().child(body).class("res-app"));
     Stack::new().child(card).child(Row::new().main_axis_alignment(MainAxisAlignment::End).child(close).class("res-app-close-row"))
 }
+
+/// Значок «убить процесс» (Material `dangerous`).
+pub const KILL: &str = "\u{E99A}";
 
 // ─── Значки приложений ──────────────────────────────────────────────────────
 

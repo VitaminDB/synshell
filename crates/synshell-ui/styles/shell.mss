@@ -797,6 +797,13 @@ Text {
 .res-app-close:active { background-color: #ef5350; scale: 0.9; }
 .res-app-close-icon { icon-size: 14px; icon-color: var(--fg); }
 .res-app-icon { width: 44px; height: 44px; }
+.res-act { width: 116px; padding: 4px 10px; margin: 2px 0px 0px 0px; border-radius: 999px; background-color: var(--surface-alt); transition: scale 200ms spring(420, 26); }
+.res-act:active { scale: 0.94; }
+.res-act-kill { background-color: #e5393530; }
+.res-act-icon { icon-size: 15px; icon-color: var(--fg); }
+.res-act-text { font-size: 12px; font-weight: 600; color: var(--fg); }
+.res-act-kill .res-act-icon { icon-color: #ef5350; }
+.res-act-kill .res-act-text { color: #ef5350; }
 .res-app-name { font-size: 12px; font-weight: 600; color: var(--fg); text-align: center; }
 .res-app-title { font-size: 10px; color: var(--muted); text-align: center; }
 .res-app-badges { padding-top: 4px; }
@@ -1397,6 +1404,13 @@ TextField {
 .shade-app-close { padding: 4px; border-radius: 999px; }
 .shade-app-close:active { background-color: var(--pressed); }
 .shade-app-close-icon { icon-size: 16px; icon-color: var(--muted); }
+.shade-act { padding: 4px 10px; border-radius: 999px; background-color: var(--surface-alt); }
+.shade-act:active { scale: 0.94; }
+.shade-act-kill { background-color: #e5393530; }
+.shade-act-icon { icon-size: 15px; icon-color: var(--fg); }
+.shade-act-text { font-size: 12px; font-weight: 600; color: var(--fg); }
+.shade-act-kill .shade-act-icon { icon-color: #ef5350; }
+.shade-act-kill .shade-act-text { color: #ef5350; }
 .recents-empty-box { height: 200px; }
 .recents-scroll { height: 500px; width: 100%; }
 

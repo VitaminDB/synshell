@@ -64,6 +64,16 @@ pub fn send(req: Request) {
     });
 }
 
+/// Монитор ресурсов на странице `page` (`cpu`, `memory`, `processes`…): открытое окно — поднять
+/// (запуск с аргументом передаст ему страницу и сразу выйдет), иначе — запустить.
+pub fn open_resources(page: &str) {
+    let ctx = crate::ShellCtx::get();
+    if let Some(w) = ctx.windows.get_untracked().iter().find(|w| w.app_id == "syn-systeminfo") {
+        window_op(w.id, WindowOp::Activate);
+    }
+    spawn(&format!("syn-systeminfo {page}"));
+}
+
 pub fn window_op(id: u64, op: WindowOp) {
     send(Request::WindowAction { id, op });
 }

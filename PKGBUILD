@@ -52,7 +52,7 @@ _profile=${SYNSHELL_PROFILE:-release}
 
 build() {
     cd "$startdir"
-    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player -p syn-maps -p syn-compass -p syngamepad -p synpass -p syncamera -p syndroid -p syn-health -p synmodem -p syn-nfc -p synnfc -p synphone -p synsms -p synfsd
+    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player -p syn-maps -p syn-compass -p syngamepad -p synpass -p syncamera -p syndroid -p syn-health -p syn-systeminfo -p synmodem -p syn-nfc -p synnfc -p synphone -p synsms -p synfsd
     cargo build --profile "$_profile" -p synaptixd --bins --features "synaptixd/${SYNAPTIXD_FEATURES:-cuda}"
 }
 
@@ -63,7 +63,7 @@ check() {
 
 package() {
     cd "$startdir"
-    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player syn-maps syn-compass syngamepad synpass syncamera syndroid syndroidd syn-health synmodem synmodemd syn-nfc synnfc synnfcd synphone synsms synfsd synaptixd synaptixctl; do
+    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player syn-maps syn-compass syngamepad synpass syncamera syndroid syndroidd syn-health syn-systeminfo synmodem synmodemd syn-nfc synnfc synnfcd synphone synsms synfsd synaptixd synaptixctl; do
         install -Dm755 "target/$_profile/$b" "$pkgdir/usr/bin/$b"
     done
     install -Dm755 data/synshell-session "$pkgdir/usr/bin/synshell-session"
@@ -104,6 +104,10 @@ package() {
         "$pkgdir/usr/share/applications/syn-compass.desktop"
     install -Dm644 crates/syn-compass/data/icons/syn-compass.svg \
         "$pkgdir/usr/share/icons/hicolor/scalable/apps/syn-compass.svg"
+    install -Dm644 crates/syn-systeminfo/data/syn-systeminfo.desktop \
+        "$pkgdir/usr/share/applications/syn-systeminfo.desktop"
+    install -Dm644 crates/syn-systeminfo/data/icons/syn-systeminfo.svg \
+        "$pkgdir/usr/share/icons/hicolor/scalable/apps/syn-systeminfo.svg"
     install -Dm644 crates/synpass/data/synpass.desktop \
         "$pkgdir/usr/share/applications/synpass.desktop"
     install -Dm644 crates/synpass/data/icons/synpass.svg \

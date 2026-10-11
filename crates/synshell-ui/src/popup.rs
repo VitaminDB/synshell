@@ -599,5 +599,7 @@ fn window_menu(ctx: ShellCtx, id: u64) -> impl Widget {
         }));
     }
     let _ = WorkspaceTarget::Next;
-    col.child(DecoratedBox::new().class("menu-sep")).child(menu_item(mi::CLOSE, t!("Закрыть"), op(WindowOp::Close)))
+    col.child(DecoratedBox::new().class("menu-sep"))
+        .child(menu_item(mi::CLOSE, t!("Закрыть"), op(WindowOp::Close)))
+        .child(menu_item(crate::desk::KILL, t!("Убить (SIGKILL)"), op(WindowOp::Kill)))
 }

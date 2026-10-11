@@ -36,6 +36,23 @@ pub fn sensors(sys: &Sys) -> Vec<Sensor> {
     out
 }
 
+/// Зоны thermal, чей тип подходит под `pred` (читается только их температура).
+pub fn sensors_matching(sys: &Sys, pred: impl Fn(&str) -> bool) -> Vec<Sensor> {
+    let base = "/sys/class/thermal";
+    sys.list(base)
+        .into_iter()
+        .filter(|z| z.starts_with("thermal_zone"))
+        .filter_map(|z| {
+            let name = sys.read(format!("{base}/{z}/type"))?;
+            if !pred(&name) {
+                return None;
+            }
+            let t = sys.read_num::<f64>(format!("{base}/{z}/temp"))?;
+            Some(Sensor { name, celsius: (t / 1000.0) as f32 })
+        })
+        .collect()
+}
+
 /// Температура процессора: максимум по зонам CPU (`cpu*`, `x86_pkg_temp`,
 /// `k10temp`, `coretemp`).
 pub fn cpu_celsius(sensors: &[Sensor]) -> Option<f32> {

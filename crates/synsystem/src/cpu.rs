@@ -193,6 +193,19 @@ pub fn model(sys: &Sys) -> Option<String> {
     })
 }
 
+/// Средняя загрузка за 1, 5 и 15 минут; задач всего (`/proc/loadavg`).
+pub fn load_average(sys: &Sys) -> Option<([f32; 3], u32)> {
+    let s = sys.read("/proc/loadavg")?;
+    let f: Vec<&str> = s.split_whitespace().collect();
+    let tasks = f.get(3).and_then(|x| x.split_once('/')).and_then(|(_, t)| t.parse().ok()).unwrap_or(0);
+    Some(([f.first()?.parse().ok()?, f.get(1)?.parse().ok()?, f.get(2)?.parse().ok()?], tasks))
+}
+
+/// Время с загрузки, с.
+pub fn uptime_secs(sys: &Sys) -> Option<u64> {
+    sys.read("/proc/uptime")?.split_whitespace().next()?.parse::<f64>().ok().map(|s| s as u64)
+}
+
 /// Модель устройства (device tree), если есть.
 pub fn device_model(sys: &Sys) -> Option<String> {
     sys.read("/proc/device-tree/model").map(|s| s.trim_end_matches('\0').trim().to_string()).filter(|s| !s.is_empty())
@@ -258,5 +271,10 @@ mod tests {
         let dir = phone();
         assert_eq!(model(&Sys::at(dir.path())).as_deref(), Some("Qualcomm Technologies, Inc SM8475"));
         assert_eq!(parse_cpu_list("0-2,7"), [0, 1, 2, 7]);
+        fs::write(dir.path().join("proc/loadavg"), "1.47 1.04 0.95 1/751 297621\n").unwrap();
+        fs::write(dir.path().join("proc/uptime"), "31096.66 233618.56\n").unwrap();
+        let sys = Sys::at(dir.path());
+        assert_eq!(load_average(&sys), Some(([1.47, 1.04, 0.95], 751)));
+        assert_eq!(uptime_secs(&sys), Some(31096));
     }
 }
