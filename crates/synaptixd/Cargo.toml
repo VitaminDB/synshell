@@ -18,6 +18,7 @@ daemon = [
     "dep:synaptix-asr-wav2vec2",
     "dep:synaptix-align-mfa",
     "dep:synaptix",
+    "dep:synaptix-tts-omnivoice",
 ]
 cuda = ["daemon", "dep:synaptix-kernels-cuda"]
 npu = ["daemon", "dep:synaptix-kernels-npu"]
@@ -42,3 +43,4 @@ synaptix-kernels-npu = { workspace = true, optional = true }
 synaptix-asr-wav2vec2 = { workspace = true, optional = true }
 synaptix-align-mfa = { workspace = true, optional = true }
 synaptix = { workspace = true, optional = true }
+synaptix-tts-omnivoice = { workspace = true, optional = true }

@@ -279,6 +279,18 @@ pub enum Request {
         #[serde(default)]
         language: Option<String>,
     },
+    Speak {
+        model: String,
+        text: String,
+        #[serde(default)]
+        language: Option<String>,
+        #[serde(default)]
+        instruct: Option<String>,
+        #[serde(default)]
+        speed: Option<f32>,
+        #[serde(default)]
+        steps: Option<usize>,
+    },
     Generate {
         model: String,
         messages: Vec<Message>,
@@ -350,6 +362,18 @@ pub struct CtcReply {
     pub logprobs: FdRef,
     pub hidden: Option<FdRef>,
     pub hidden_dim: usize,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct SpeechReply {
+    pub samples: usize,
+    pub sample_rate: u32,
+    pub audio: FdRef,
+}
+
+pub struct Speech {
+    pub sample_rate: u32,
+    pub audio: Mapped,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -552,6 +576,36 @@ impl Client {
         };
         let (v, _) = self.call(req, &[fd.as_fd()])?;
         serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))
+    }
+
+    pub fn speak(&mut self, model: &str, text: &str, language: Option<&str>, instruct: Option<&str>, speed: Option<f32>) -> Result<Speech> {
+        self.speak_steps(model, text, language, instruct, speed, None)
+    }
+
+    pub fn speak_steps(
+        &mut self,
+        model: &str,
+        text: &str,
+        language: Option<&str>,
+        instruct: Option<&str>,
+        speed: Option<f32>,
+        steps: Option<usize>,
+    ) -> Result<Speech> {
+        let req = Request::Speak {
+            model: model.into(),
+            text: text.into(),
+            language: language.map(Into::into),
+            instruct: instruct.map(Into::into),
+            speed,
+            steps,
+        };
+        let (v, fds) = self.call(req, &[])?;
+        let r: SpeechReply = serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))?;
+        let fd = fds
+            .into_iter()
+            .nth(r.audio.fd as usize)
+            .ok_or_else(|| Error::new(ErrorCode::Protocol, "нет файла с аудио в ответе"))?;
+        Ok(Speech { sample_rate: r.sample_rate, audio: Mapped::map(fd, r.samples * 4)? })
     }
 
     pub fn generate(

@@ -11,6 +11,7 @@ pub enum Loaded {
     Mfa(Box<synaptix_align_mfa::MfaModel>),
     Asr(std::sync::Mutex<synaptix::facade::asr::Transcriber>),
     Llm(Box<(synaptix::facade::llm::Llm, synaptix::facade::llm::LlmTokenizer)>),
+    Tts(std::sync::Mutex<synaptix_tts_omnivoice::OmniVoicePipeline>, DeviceKind),
 }
 
 pub struct CtcResult {
@@ -55,6 +56,16 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind) -> anyhow
             let precision = optimal_profile_for_device(path, device).policy.to_precision().map_err(|e| anyhow::anyhow!("{e}"))?;
             let (llm, tok) = load_llm(path, device, precision, Some(8192)).map_err(|e| anyhow::anyhow!("{e}"))?;
             Ok(Loaded::Llm(Box::new((llm, tok))))
+        }
+        ModelKind::Tts => {
+            let device = devices::device(dev);
+            let dtype = match dev {
+                DeviceKind::Cpu => DType::F32,
+                DeviceKind::Npu => DType::F16,
+                _ => DType::BF16,
+            };
+            let p = synaptix_tts_omnivoice::OmniVoicePipeline::from_syn(path, device, dtype).map_err(|e| anyhow::anyhow!("{e}"))?;
+            Ok(Loaded::Tts(std::sync::Mutex::new(p), dev))
         }
         other => anyhow::bail!("модели {other:?} ({arch}) служба пока не исполняет"),
     }
@@ -189,6 +200,27 @@ impl Loaded {
         })
         .map_err(|e| anyhow::anyhow!("{e}"))?;
         Ok(synaptixd::Generated { text, tokens })
+    }
+
+    pub fn speak(
+        &self,
+        text: &str,
+        language: Option<&str>,
+        instruct: Option<&str>,
+        speed: Option<f32>,
+        steps: Option<usize>,
+    ) -> anyhow::Result<(Vec<f32>, u32)> {
+        let Loaded::Tts(p, dev) = self else { anyhow::bail!("модель не синтезирует речь") };
+        let p = p.lock().unwrap_or_else(|e| e.into_inner());
+        let default_steps = if *dev == DeviceKind::Npu { 16 } else { 32 };
+        let gen = synaptix_tts_omnivoice::OmniVoiceGenerationConfig {
+            num_step: steps.unwrap_or(default_steps).clamp(4, 64),
+            ..Default::default()
+        };
+        let wav = p
+            .synthesize(text, None, language, instruct, speed.unwrap_or(1.0) as f64, None, &gen)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        Ok((wav, p.output_sample_rate() as u32))
     }
 
     pub fn warmup(&self) -> anyhow::Result<()> {

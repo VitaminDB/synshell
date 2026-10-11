@@ -6049,6 +6049,7 @@ dependencies = [
 name = "synaptix-llm-gemma4"
 version = "0.1.1"
 dependencies = [
+ "half",
  "serde",
  "serde_json",
  "synaptix-bundle",
@@ -6257,6 +6258,7 @@ dependencies = [
  "synaptix-kernels-cpu",
  "synaptix-kernels-cuda",
  "synaptix-kernels-npu",
+ "synaptix-tts-omnivoice",
  "toml",
  "tracing",
  "tracing-subscriber",

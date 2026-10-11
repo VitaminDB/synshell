@@ -151,6 +151,11 @@ impl Conn {
                 let t = mgr.run(&model, |m| m.transcribe(pcm.f32s(), sample_rate, language.as_deref()))?;
                 (data(t), none())
             }
+            Request::Speak { model, text, language, instruct, speed, steps } => {
+                let (wav, sr) = mgr.run(&model, |m| m.speak(&text, language.as_deref(), instruct.as_deref(), speed, steps))?;
+                let fd = wire::memfd_f32("speech", &wav)?;
+                (data(synaptixd::SpeechReply { samples: wav.len(), sample_rate: sr, audio: FdRef { fd: 0 } }), vec![fd])
+            }
             Request::Generate { model, messages, max_tokens, temperature } => {
                 let sock = self.sock.as_fd();
                 let id = self.current;

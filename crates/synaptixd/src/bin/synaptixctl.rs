@@ -134,6 +134,34 @@ fn run(args: &[String]) -> Result<(), String> {
             let t = c.transcribe(arg(1)?, &pcm, sr, args.get(3).map(String::as_str)).map_err(|e| e.to_string())?;
             println!("{}\n[{:.1} с]", t.text, t0.elapsed().as_secs_f32());
         }
+        "say" => {
+            let out = arg(2)?;
+            let text = args[3..].join(" ");
+            let lang = std::env::var("LANG_CODE").ok();
+            let t0 = std::time::Instant::now();
+            let steps = std::env::var("TTS_STEPS").ok().and_then(|v| v.parse().ok());
+            let sp = c.speak_steps(arg(1)?, &text, lang.as_deref(), None, None, steps).map_err(|e| e.to_string())?;
+            let pcm = sp.audio.f32s();
+            let mut wav = Vec::with_capacity(44 + pcm.len() * 2);
+            let data_len = (pcm.len() * 2) as u32;
+            wav.extend_from_slice(b"RIFF");
+            wav.extend_from_slice(&(36 + data_len).to_le_bytes());
+            wav.extend_from_slice(b"WAVEfmt ");
+            wav.extend_from_slice(&16u32.to_le_bytes());
+            wav.extend_from_slice(&1u16.to_le_bytes());
+            wav.extend_from_slice(&1u16.to_le_bytes());
+            wav.extend_from_slice(&sp.sample_rate.to_le_bytes());
+            wav.extend_from_slice(&(sp.sample_rate * 2).to_le_bytes());
+            wav.extend_from_slice(&2u16.to_le_bytes());
+            wav.extend_from_slice(&16u16.to_le_bytes());
+            wav.extend_from_slice(b"data");
+            wav.extend_from_slice(&data_len.to_le_bytes());
+            for &x in pcm {
+                wav.extend_from_slice(&((x.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes());
+            }
+            std::fs::write(out, wav).map_err(|e| e.to_string())?;
+            println!("{:.1} с звука за {:.1} с → {out}", pcm.len() as f32 / sp.sample_rate as f32, t0.elapsed().as_secs_f32());
+        }
         "watch" => {
             c.subscribe(|ev| {
                 match ev {
@@ -144,7 +172,7 @@ fn run(args: &[String]) -> Result<(), String> {
             })
             .map_err(|e| e.to_string())?;
         }
-        other => return Err(format!("неизвестная команда {other}: list|status|load|unload|set|ctc|asr|gen|watch|rescan")),
+        other => return Err(format!("неизвестная команда {other}: list|status|load|unload|set|ctc|asr|gen|say|watch|rescan")),
     }
     Ok(())
 }

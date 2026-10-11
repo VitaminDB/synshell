@@ -133,6 +133,7 @@ Unix-сокет `/run/synaptix/synaptixd.sock` (`0666`; изменение па�
 | `ctc` | `model`, `pcm` (fd, f32 моно), `sample_rate`, `hidden` | `frames`, `vocab`, `frame_sec`, `logprobs` (fd, f32 `[T×V]`), `hidden` (fd, f32 `[T×D]`), `hidden_dim` |
 | `mfa_align` | `model`, `pcm` (fd, f32 16 кГц), `words[]` (варианты фонем с весами), `options` | `phones[]`, `frame_shift` |
 | `transcribe` | `model`, `pcm` (fd), `sample_rate`, `language?` | `text`, `segments[]` |
+| `speak` | `model`, `text`, `language?`, `instruct?` (описание голоса), `speed?`, `steps?` | `samples`, `sample_rate`, `audio` (fd, f32 моно) |
 | `generate` | `model`, `messages[]`, `max_tokens`, `temperature`… | события `token`, итог `text` |
 | `subscribe` | — | поток событий `model_state` (для «Параметров») |
 
@@ -149,3 +150,10 @@ HTP v69 исполняет FullyConnected с F16-активациями и ве�
 каналу, шкала подбирается поиском порога отсечения, минимизирующего ошибку восстановления (MSE) на строке,
 остальные тензоры — F16. Качество проверяется против F16 на тестовом наборе модели (PER для CTC, WER для ASR,
 перплексия для LLM) перед выпуском пакета.
+
+## Синтез речи (OmniVoice)
+
+`speak` — OmniVoice: текст → волна 24 кГц, язык (`ru`, `en`, `kk`, …), голос по описанию (`instruct`). Число шагов
+маскированного декода — `steps` (по умолчанию 16 на NPU, 32 на остальных). На Xiaomi бэкбон идёт на NPU в int8,
+кодек — на CPU: фраза 3,5 с синтезируется примерно за 8 с. Проверка: `LANG_CODE=ru synaptixctl say omnivoice out.wav
+Текст` (`TTS_STEPS=32` — больше шагов).
