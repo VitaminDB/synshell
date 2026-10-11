@@ -117,6 +117,23 @@ fn run(args: &[String]) -> Result<(), String> {
             println!("{} кадров, словарь {}, hidden {} за {:.0} мс на {:?}", out.frames, out.vocab, out.hidden_dim, dt.as_secs_f64() * 1e3, info.entry.device);
             println!("{}", text.join(" "));
         }
+        "gen" => {
+            let prompt = args[2..].join(" ");
+            let t0 = std::time::Instant::now();
+            let g = c
+                .generate(arg(1)?, vec![synaptixd::Message { role: "user".into(), content: prompt }], 256, None, |t| {
+                    print!("{t}");
+                    let _ = std::io::Write::flush(&mut std::io::stdout());
+                })
+                .map_err(|e| e.to_string())?;
+            println!("\n[{} токенов за {:.1} с]", g.tokens, t0.elapsed().as_secs_f32());
+        }
+        "asr" => {
+            let (pcm, sr) = read_wav(arg(2)?)?;
+            let t0 = std::time::Instant::now();
+            let t = c.transcribe(arg(1)?, &pcm, sr, args.get(3).map(String::as_str)).map_err(|e| e.to_string())?;
+            println!("{}\n[{:.1} с]", t.text, t0.elapsed().as_secs_f32());
+        }
         "watch" => {
             c.subscribe(|ev| {
                 match ev {
@@ -127,7 +144,7 @@ fn run(args: &[String]) -> Result<(), String> {
             })
             .map_err(|e| e.to_string())?;
         }
-        other => return Err(format!("неизвестная команда {other}: list|status|load|unload|set|ctc|watch|rescan")),
+        other => return Err(format!("неизвестная команда {other}: list|status|load|unload|set|ctc|asr|gen|watch|rescan")),
     }
     Ok(())
 }

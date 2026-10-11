@@ -17,6 +17,7 @@ daemon = [
     "dep:synaptix-kernels-cpu",
     "dep:synaptix-asr-wav2vec2",
     "dep:synaptix-align-mfa",
+    "dep:synaptix",
 ]
 cuda = ["daemon", "dep:synaptix-kernels-cuda"]
 npu = ["daemon", "dep:synaptix-kernels-npu"]
@@ -40,3 +41,4 @@ synaptix-kernels-cuda = { workspace = true, optional = true }
 synaptix-kernels-npu = { workspace = true, optional = true }
 synaptix-asr-wav2vec2 = { workspace = true, optional = true }
 synaptix-align-mfa = { workspace = true, optional = true }
+synaptix = { workspace = true, optional = true }

@@ -66,6 +66,7 @@ struct Conn {
     sock: OwnedFd,
     admin: bool,
     opened: Vec<String>,
+    current: u64,
 }
 
 impl Conn {
@@ -145,8 +146,20 @@ impl Conn {
                 let al = mgr.run(&model, |m| m.mfa_align(pcm.f32s(), &words, options.as_ref()))?;
                 (data(al), none())
             }
-            Request::Transcribe { model, .. } | Request::Generate { model, .. } => {
-                return Err(Error::new(ErrorCode::WrongKind, format!("{model}: задача пока не поддержана службой")));
+            Request::Transcribe { model, pcm, samples, sample_rate, language } => {
+                let pcm = pcm_from(&mut fds, pcm, samples)?;
+                let t = mgr.run(&model, |m| m.transcribe(pcm.f32s(), sample_rate, language.as_deref()))?;
+                (data(t), none())
+            }
+            Request::Generate { model, messages, max_tokens, temperature } => {
+                let sock = self.sock.as_fd();
+                let id = self.current;
+                let send = |piece: &str| {
+                    let r = Reply { id, event: Some(synaptixd::Event::Token { text: piece.to_string() }), ..Default::default() };
+                    let _ = wire::send(sock, &serde_json::to_vec(&r).unwrap_or_default(), &[]);
+                };
+                let g = mgr.run(&model, |m| m.generate(&messages, max_tokens, temperature, &send))?;
+                (data(g), none())
             }
             Request::Subscribe => unreachable!(),
         })
@@ -188,6 +201,7 @@ impl Conn {
                 break;
             }
             let id = env.id;
+            self.current = id;
             let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.dispatch(env.req, fds)))
                 .unwrap_or_else(|_| Err(Error::new(ErrorCode::Failed, "сбой модели")));
             let sent = match res {
@@ -235,7 +249,7 @@ fn main() -> anyhow::Result<()> {
             }
         };
         let admin = wire::peer(sock.as_fd()).map(|p| is_admin(p.uid)).unwrap_or(false);
-        let conn = Conn { mgr: mgr.clone(), sock, admin, opened: Vec::new() };
+        let conn = Conn { mgr: mgr.clone(), sock, admin, opened: Vec::new(), current: 0 };
         let _ = std::thread::Builder::new().name("conn".into()).spawn(move || conn.serve());
     }
 }

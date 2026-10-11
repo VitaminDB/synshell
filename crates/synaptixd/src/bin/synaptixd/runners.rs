@@ -9,6 +9,8 @@ use crate::devices;
 pub enum Loaded {
     Ctc(Box<Wav2Vec2Ctc>),
     Mfa(Box<synaptix_align_mfa::MfaModel>),
+    Asr(std::sync::Mutex<synaptix::facade::asr::Transcriber>),
+    Llm(Box<(synaptix::facade::llm::Llm, synaptix::facade::llm::LlmTokenizer)>),
 }
 
 pub struct CtcResult {
@@ -31,6 +33,28 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind) -> anyhow
         ModelKind::Mfa => {
             let m = synaptix_align_mfa::MfaModel::load(path).map_err(|e| anyhow::anyhow!("{e}"))?;
             Ok(Loaded::Mfa(Box::new(m)))
+        }
+        ModelKind::Asr => {
+            use synaptix::facade::asr::{AsrConfig, AsrModelKind, ComputeDType, Transcriber};
+            let device = devices::device(dev);
+            let compute = if dev == DeviceKind::Cpu { ComputeDType::F32 } else { ComputeDType::F16 };
+            let t = Transcriber::load(AsrConfig {
+                kind: AsrModelKind::Whisper,
+                model_path: path.to_path_buf(),
+                language: None,
+                device,
+                storage_dtype: compute.to_dtype(),
+                compute_dtype: compute,
+            })
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            Ok(Loaded::Asr(std::sync::Mutex::new(t)))
+        }
+        ModelKind::Llm => {
+            use synaptix::facade::llm::{load_llm, optimal_profile_for_device};
+            let device = devices::device(dev);
+            let precision = optimal_profile_for_device(path, device).policy.to_precision().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let (llm, tok) = load_llm(path, device, precision, Some(8192)).map_err(|e| anyhow::anyhow!("{e}"))?;
+            Ok(Loaded::Llm(Box::new((llm, tok))))
         }
         other => anyhow::bail!("модели {other:?} ({arch}) служба пока не исполняет"),
     }
@@ -110,6 +134,61 @@ impl Loaded {
             frame_shift: al.frame_shift,
             score: al.score,
         })
+    }
+
+    pub fn transcribe(&self, pcm: &[f32], sample_rate: u32, language: Option<&str>) -> anyhow::Result<synaptixd::Transcript> {
+        let Loaded::Asr(t) = self else { anyhow::bail!("модель не распознаёт речь") };
+        let mut t = t.lock().unwrap_or_else(|e| e.into_inner());
+        let text = t.transcribe_pcm_text(pcm, sample_rate, language).map_err(|e| anyhow::anyhow!("{e}"))?;
+        Ok(synaptixd::Transcript { text: text.trim().to_string(), segments: Vec::new() })
+    }
+
+    pub fn generate(
+        &self,
+        messages: &[synaptixd::Message],
+        max_tokens: usize,
+        temperature: Option<f32>,
+        on_token: &dyn Fn(&str),
+    ) -> anyhow::Result<synaptixd::Generated> {
+        use synaptix::facade::llm::{GenerationOptions, LlmGeneration, Message};
+        let Loaded::Llm(b) = self else { anyhow::bail!("модель не языковая") };
+        let (llm, tok) = (&b.0, &b.1);
+        let msgs: Vec<Message> = messages
+            .iter()
+            .map(|m| match m.role.as_str() {
+                "system" => Message::system(m.content.clone()),
+                "assistant" => Message::assistant(m.content.clone()),
+                "tool" => Message::tool(m.content.clone()),
+                _ => Message::user(m.content.clone()),
+            })
+            .collect();
+        let prompt = tok.apply_chat_template_ex_tools(&msgs, true, false, None).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let ids = tok.encode(&prompt).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let opts = GenerationOptions {
+            max_new_tokens: max_tokens.max(1),
+            max_seq_len: ids.len() + max_tokens.max(1) + 16,
+            temperature: temperature.unwrap_or(0.7),
+            top_k: 20,
+            top_p: 0.95,
+            min_p: 0.0,
+            seed: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1) | 1,
+            repeat_penalty: 1.0,
+            repeat_last_n: 64,
+            presence_penalty: 0.0,
+            frequency_penalty: 0.0,
+        };
+        let mut gen = LlmGeneration::new(llm, opts);
+        gen.set_stop_tokens(tok.eos_ids().to_vec());
+        let mut text = String::new();
+        let mut tokens = 0usize;
+        gen.generate_streaming(&ids, tok, |_, piece| {
+            tokens += 1;
+            text.push_str(piece);
+            on_token(piece);
+            true
+        })
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+        Ok(synaptixd::Generated { text, tokens })
     }
 
     pub fn warmup(&self) -> anyhow::Result<()> {
