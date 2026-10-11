@@ -54,7 +54,8 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind) -> anyhow
             use synaptix::facade::llm::{load_llm, optimal_profile_for_device};
             let device = devices::device(dev);
             let precision = optimal_profile_for_device(path, device).policy.to_precision().map_err(|e| anyhow::anyhow!("{e}"))?;
-            let (llm, tok) = load_llm(path, device, precision, Some(8192)).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let max_seq = if dev == DeviceKind::Npu { 2048 } else { 8192 };
+            let (llm, tok) = load_llm(path, device, precision, Some(max_seq)).map_err(|e| anyhow::anyhow!("{e}"))?;
             Ok(Loaded::Llm(Box::new((llm, tok))))
         }
         ModelKind::Tts => {
