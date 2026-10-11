@@ -240,7 +240,7 @@ impl Mapped {
         if len == 0 {
             return Ok(Self { ptr: std::ptr::NonNull::<f32>::dangling().as_ptr() as *mut libc::c_void, len: 0, _fd: fd });
         }
-        let ptr = unsafe { libc::mmap(std::ptr::null_mut(), len, libc::PROT_READ, libc::MAP_SHARED, fd.as_raw_fd(), 0) };
+        let ptr = unsafe { libc::mmap(std::ptr::null_mut(), len, libc::PROT_READ, libc::MAP_PRIVATE, fd.as_raw_fd(), 0) };
         if ptr == libc::MAP_FAILED {
             return Err(io::Error::last_os_error());
         }
