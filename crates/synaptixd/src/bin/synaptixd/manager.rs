@@ -20,6 +20,7 @@ pub struct Slot {
     pub precision: String,
     pub fallback: bool,
     pub mem_bytes: u64,
+    pub vram_bytes: u64,
     pub clients: u32,
     pub busy: u32,
     pub last_used: Instant,
@@ -40,6 +41,7 @@ impl Slot {
             precision: String::new(),
             fallback: false,
             mem_bytes: 0,
+            vram_bytes: 0,
             clients: 0,
             busy: 0,
             last_used: Instant::now(),
@@ -68,6 +70,7 @@ impl Slot {
             precision: self.precision.clone(),
             fallback: self.fallback,
             mem_bytes: self.mem_bytes,
+            vram_bytes: self.vram_bytes,
             clients: self.clients,
             busy: self.busy > 0,
             last_used_ms: self.last_used_ms,
@@ -306,6 +309,7 @@ impl Manager {
                 s.state = LoadState::Unloaded;
                 s.device = None;
                 s.mem_bytes = 0;
+                s.vram_bytes = 0;
                 s.precision.clear();
             }
             m
@@ -409,6 +413,7 @@ impl Manager {
         let s = slots.get_mut(id).ok_or_else(|| no_model(id))?;
         let out = match result {
             Ok((model, dev, precision, bytes)) => {
+                s.vram_bytes = if dev == DeviceKind::Cuda { manifest.vram_estimate(dev) } else { 0 };
                 s.model = Some(Arc::new(model));
                 s.device = Some(dev);
                 s.precision = precision;

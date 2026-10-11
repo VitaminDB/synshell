@@ -14,6 +14,7 @@ mod input;
 mod language;
 mod location;
 mod mobile;
+mod models;
 mod modem;
 mod vpn;
 mod net;
@@ -262,6 +263,14 @@ pub const PAGES: &[PageDef] = &[
         group: n_!("Система"),
         keywords: n_!("батарея аккумулятор заряд регулятор частота governor сон гашение экрана"),
         build: power::power,
+    },
+    PageDef {
+        id: "models",
+        title: n_!("Нейросети"),
+        icon: "\u{ea4a}",
+        group: n_!("Система"),
+        keywords: n_!("нейросети модели ии ai synaptix npu процессор нейронный cpu gpu cuda память выгрузка распознавание речи языковая модель llm whisper"),
+        build: models::models,
     },
     PageDef {
         id: "location",

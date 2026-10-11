@@ -102,6 +102,13 @@ impl Manifest {
         }
     }
 
+    pub fn vram_estimate(&self, dev: DeviceKind) -> u64 {
+        if let Some(mb) = self.resources.vram.get(&dev) {
+            return mb << 20;
+        }
+        self.variant_for(dev).and_then(|v| std::fs::metadata(self.path(v)).ok()).map(|m| m.len()).unwrap_or(0)
+    }
+
     pub fn npu_cache_dir(&self) -> PathBuf {
         PathBuf::from(crate::config::NPU_CACHE_RO).join(&self.id)
     }

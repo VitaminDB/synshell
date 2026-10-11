@@ -110,6 +110,8 @@ pub struct ModelEntry {
     #[serde(default)]
     pub fallback: bool,
     pub mem_bytes: u64,
+    #[serde(default)]
+    pub vram_bytes: u64,
     pub clients: u32,
     pub busy: bool,
     pub last_used_ms: i64,
