@@ -1502,3 +1502,6 @@
 "Обновить список" = "Refresh list"
 "Модели не установлены. Найдите пакеты synaptix-model в «Программах»." = "No models installed. Look for synaptix-model packages in Software."
 "Системные модели: общие для всех программ, загружаются по требованию и выгружаются при нехватке памяти." = "System models: shared by all apps, loaded on demand and unloaded when memory runs low."
+
+"Квантование" = "Quantization"
+"int8 по каналу (веса), счёт F16" = "int8 per channel (weights), F16 compute"

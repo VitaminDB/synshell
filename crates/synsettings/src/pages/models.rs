@@ -108,7 +108,7 @@ fn state_text(m: &ModelEntry) -> String {
                 s.push_str(&t!(" + видеопамять {v}", v = mb(m.vram_bytes)));
             }
             if !m.precision.is_empty() {
-                s.push_str(&format!(" · {}", m.precision));
+                s.push_str(&format!(" · {}", tl(synaptixd::precision_label(&m.precision))));
             }
             if m.busy {
                 s.push_str(&t!(" · работает"));
@@ -149,6 +149,17 @@ fn model_card(sig: RwSignal<Snapshot>, m: &ModelEntry, devices: &[DeviceKind]) -
         hint = format!("{} · {hint}", m.description);
     }
     rows.push(row_inline(state_text(m), hint, Text::new("")));
+    let quant: Vec<String> = m
+        .variants
+        .iter()
+        .map(|v| {
+            let devs: Vec<String> = v.devices.iter().map(|d| device_label(*d)).collect();
+            format!("{}: {} · {}", devs.join(", "), tl(synaptixd::precision_label(&v.precision)), mb(v.bytes))
+        })
+        .collect();
+    if !quant.is_empty() {
+        rows.push(row_inline(t!("Квантование"), quant.join("\n"), Text::new("")));
+    }
 
     let mut dd = Dropdown::new().width(220.0);
     let mut choices = vec![DeviceKind::Auto];

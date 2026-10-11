@@ -11,6 +11,10 @@ RestartSec=3
 StateDirectory=synaptix
 RuntimeDirectory=synaptix
 RuntimeDirectoryMode=0755
+CacheDirectory=synaptix
+Environment=CUDA_CACHE_PATH=/var/cache/synaptix/cuda
+Environment=CUDA_CACHE_MAXSIZE=4294967296
+Environment=SYN_TRANSCODE_CACHE=/var/cache/synaptix/transcode
 OOMScoreAdjust=300
 LimitMEMLOCK=infinity
 

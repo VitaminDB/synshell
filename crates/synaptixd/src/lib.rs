@@ -87,6 +87,24 @@ pub struct ModelSettings {
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct VariantInfo {
+    pub precision: String,
+    pub devices: Vec<DeviceKind>,
+    pub bytes: u64,
+}
+
+pub fn precision_label(p: &str) -> String {
+    match p {
+        "w8a16" | "q8row" => "int8 по каналу (веса), счёт F16".into(),
+        "f16" => "F16".into(),
+        "bf16" => "BF16".into(),
+        "f32" => "F32".into(),
+        "" => "—".into(),
+        other => other.to_uppercase(),
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct ModelEntry {
     pub id: String,
     pub title: String,
@@ -119,6 +137,8 @@ pub struct ModelEntry {
     pub error: Option<String>,
     #[serde(default)]
     pub npu_cache: bool,
+    #[serde(default)]
+    pub variants: Vec<VariantInfo>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]

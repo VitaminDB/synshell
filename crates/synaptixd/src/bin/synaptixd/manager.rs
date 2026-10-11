@@ -76,6 +76,15 @@ impl Slot {
             last_used_ms: self.last_used_ms,
             error: self.error.clone(),
             npu_cache: m.npu_cache_dir().is_dir(),
+            variants: m
+                .variants
+                .iter()
+                .map(|v| synaptixd::VariantInfo {
+                    precision: v.precision.clone(),
+                    devices: v.devices.clone(),
+                    bytes: std::fs::metadata(m.path(v)).map(|x| x.len()).unwrap_or(0),
+                })
+                .collect(),
         }
     }
 }
