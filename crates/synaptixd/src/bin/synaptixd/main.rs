@@ -221,7 +221,18 @@ impl Conn {
     }
 }
 
+fn raise_nofile() {
+    unsafe {
+        let mut r: libc::rlimit = std::mem::zeroed();
+        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut r) == 0 && r.rlim_cur < r.rlim_max {
+            r.rlim_cur = r.rlim_max;
+            libc::setrlimit(libc::RLIMIT_NOFILE, &r);
+        }
+    }
+}
+
 fn main() -> anyhow::Result<()> {
+    raise_nofile();
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "synaptixd=info".into()))
         .init();

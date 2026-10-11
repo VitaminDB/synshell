@@ -462,13 +462,27 @@ impl Manager {
         self.make_room(&m.id, m.ram_estimate(dev))?;
         let before = rss();
         let t0 = Instant::now();
-        let model = {
+        let loaded = {
             let _dl = devices::lock(dev);
             runners::load(m.kind, &m.arch, &path, dev)
-                .map_err(|e| Error::new(ErrorCode::Failed, format!("{}: {e}", path.display())))?
+        };
+        let (model, dev, variant) = match loaded {
+            Ok(model) => (model, dev, variant),
+            Err(e) if dev != DeviceKind::Cpu && m.devices().contains(&DeviceKind::Cpu) => {
+                tracing::warn!("{}: {} не загрузилась ({e}); загружаю на CPU", m.id, dev.id());
+                let cpu = m.variant_for(DeviceKind::Cpu).ok_or_else(|| Error::new(ErrorCode::Device, "нет варианта весов для CPU"))?;
+                let model = runners::load(m.kind, &m.arch, &m.path(cpu), DeviceKind::Cpu)
+                    .map_err(|e| Error::new(ErrorCode::Failed, format!("{}: {e}", m.path(cpu).display())))?;
+                (model, DeviceKind::Cpu, cpu)
+            }
+            Err(e) => return Err(Error::new(ErrorCode::Failed, format!("{}: {e}", path.display()))),
         };
         tracing::info!("{}: {} за {:.1} с", m.id, path.display(), t0.elapsed().as_secs_f32());
-        let bytes = rss().saturating_sub(before).max(m.resources.ram.get(&dev).map(|mb| mb << 20).unwrap_or(0));
+        let floor = match dev {
+            DeviceKind::Npu => m.ram_estimate(dev),
+            _ => m.resources.ram.get(&dev).map(|mb| mb << 20).unwrap_or(0),
+        };
+        let bytes = rss().saturating_sub(before).max(floor);
         Ok((model, dev, variant.precision.clone(), bytes))
     }
 

@@ -17,6 +17,7 @@ Environment=CUDA_CACHE_MAXSIZE=4294967296
 Environment=SYN_TRANSCODE_CACHE=/var/cache/synaptix/transcode
 OOMScoreAdjust=300
 LimitMEMLOCK=infinity
+LimitNOFILE=1048576
 
 [Install]
 WantedBy=multi-user.target
