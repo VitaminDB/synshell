@@ -35,6 +35,11 @@ pub struct Snap {
     pub adc_volt: Option<f32>,
     /// Байт/с принято, передано.
     pub net: (f64, f64),
+    /// Видеопамять первого GPU, который её сообщает: занято, всего (у общей с ОЗУ — нет), имя.
+    pub vram: Option<(u64, Option<u64>, String)>,
+    pub npu: Option<synsystem::npu::Npu>,
+    /// Разделы с данными (корень первым).
+    pub mounts: Vec<synsystem::disk::Mount>,
     /// Приложения: окно, app_id, имя, память КБ, CPU %.
     pub apps: Vec<AppStat>,
     pub history: History,
@@ -50,6 +55,9 @@ pub struct History {
     pub rx: Vec<f64>,
     pub tx: Vec<f64>,
     pub temp: Vec<f32>,
+    /// Видеопамять, % (от своей или от ОЗУ, если общая).
+    pub vram: Vec<f32>,
+    pub npu: Vec<f32>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -106,8 +114,12 @@ fn start_sampler(sig: RwSignal<Snap>) {
             let sys = synsystem::Sys::host();
             let mut cpu = synsystem::cpu::CpuSampler::new(sys.clone());
             let mut procs = synsystem::procs::ProcSampler::new(sys.clone());
+            let mut npu_s = synsystem::npu::NpuSampler::new(sys.clone());
             let (mut h_cpu, mut h_mem, mut h_gpu, mut h_bat, mut h_rx, mut h_tx, mut h_temp) =
                 (VecDeque::new(), VecDeque::new(), VecDeque::new(), VecDeque::new(), VecDeque::new(), VecDeque::new(), VecDeque::new());
+            let (mut h_vram, mut h_npu) = (VecDeque::new(), VecDeque::new());
+            let mut mounts: Vec<synsystem::disk::Mount> = Vec::new();
+            let mut tick = 0u64;
             let mut last_net: Option<(u64, u64)> = None;
             cpu.sample();
             loop {
@@ -141,6 +153,16 @@ fn start_sampler(sig: RwSignal<Snap>) {
                 let gpu = synsystem::gpu::read(&sys).map(|g| (g.busy_percent, g.cur_mhz, g.name));
                 let battery = synsystem::battery::read(&sys);
                 let cpu_temp = synsystem::thermal::cpu_celsius(&temps);
+                let vram = synsystem::gpu::devices(&sys).into_iter().find_map(|g| Some((g.mem_used?, if g.shared_memory { None } else { g.mem_total }, g.name)));
+                let npu = npu_s.sample();
+                if tick % 10 == 0 {
+                    mounts = synsystem::disk::mounts(&sys);
+                    mounts.sort_by_key(|m| m.path != "/");
+                }
+                tick += 1;
+                let vram_pct = vram.as_ref().map(|(u, t, _)| *u as f32 / t.unwrap_or(mem.total_kb * 1024).max(1) as f32 * 100.0).unwrap_or(0.0);
+                push(&mut h_vram, vram_pct);
+                push(&mut h_npu, npu.as_ref().and_then(|n| n.busy_percent).unwrap_or(0.0));
                 push(&mut h_cpu, c.usage);
                 push(&mut h_mem, mem.used_percent());
                 push(&mut h_gpu, gpu.as_ref().and_then(|g| g.0).unwrap_or(0.0));
@@ -162,6 +184,9 @@ fn start_sampler(sig: RwSignal<Snap>) {
                     battery_info: synsystem::battery::batteries(&sys).into_iter().next(),
                     adc_volt: synsystem::battery::adc_voltage(&sys),
                     net,
+                    vram,
+                    npu,
+                    mounts: mounts.clone(),
                     apps,
                     history: History {
                         cpu: h_cpu.iter().copied().collect(),
@@ -171,6 +196,8 @@ fn start_sampler(sig: RwSignal<Snap>) {
                         rx: h_rx.iter().copied().collect(),
                         tx: h_tx.iter().copied().collect(),
                         temp: h_temp.iter().copied().collect(),
+                        vram: h_vram.iter().copied().collect(),
+                        npu: h_npu.iter().copied().collect(),
                     },
                 };
                 syngui::async_runtime::run_on_main_thread(move || {

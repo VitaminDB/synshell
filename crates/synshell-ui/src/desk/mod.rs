@@ -143,6 +143,17 @@ pub const KINDS: &[Kind] = &[
         data: true,
     },
     Kind { kind: "gpu", label: n_!("Графика"), glyph: "\u{E30A}", views: METRIC_VIEWS, phone: (2, 2), desktop: (2, 2), data: true },
+    Kind { kind: "vram", label: n_!("Видеопамять"), glyph: "\u{E53B}", views: METRIC_VIEWS, phone: (2, 2), desktop: (2, 2), data: true },
+    Kind { kind: "npu", label: n_!("Нейропроцессор"), glyph: "\u{EA4A}", views: METRIC_VIEWS, phone: (2, 2), desktop: (2, 2), data: true },
+    Kind {
+        kind: "storage",
+        label: n_!("Хранилище"),
+        glyph: "\u{E1DB}",
+        views: &[("card", n_!("Карточка")), ("ring", n_!("Кольцо")), ("gauge", n_!("Шкала")), ("text", n_!("Число"))],
+        phone: (2, 2),
+        desktop: (2, 2),
+        data: true,
+    },
     Kind { kind: "battery", label: n_!("Питание"), glyph: "\u{E1A4}", views: METRIC_VIEWS, phone: (2, 2), desktop: (2, 2), data: true },
     Kind {
         kind: "network",

@@ -64,7 +64,7 @@ pub fn build(ctx: ShellCtx, slot: &Slot, w: &DeskWidget, iw: f32, ih: f32, editi
     let cx = Cx { w: cw, h: chh, color: color_of(&ctx, w), view, history: w.int_or("history", 60).clamp(10, data::HISTORY as i64) as usize };
     let body: Box<dyn Widget> = match w.kind.as_str() {
         "clock" => clock(ctx, w, &cx),
-        "cpu" | "memory" | "gpu" | "battery" => metric(ctx, w.kind.clone(), cx.clone()),
+        "cpu" | "memory" | "gpu" | "battery" | "vram" | "npu" | "storage" => metric(ctx, w.kind.clone(), cx.clone()),
         "network" => network(ctx, cx.clone()),
         "temps" => temps(cx.clone()),
         "apps" => apps_rail(),
@@ -121,6 +121,9 @@ fn resource_page(kind: &str) -> Option<&'static str> {
         "battery" => "battery",
         "network" => "network",
         "temps" => "sensors",
+        "vram" => "vram",
+        "npu" => "npu",
+        "storage" => "disk",
         _ => return None,
     })
 }
@@ -212,7 +215,53 @@ fn value_of(kind: &str, s: &Snap) -> (f32, String, String) {
             Some(b) => (b.percent as f32, format!("{}%", b.percent), if b.charging { t!("заряжается") } else if b.full { t!("заряжена") } else { t!("батарея") }.into()),
             None => (0.0, s.adc_volt.map(|v| t!("{v} В", v = format!("{:.2}", v))).unwrap_or("—".into()), t!("нет драйвера").into()),
         },
+        "vram" => match &s.vram {
+            Some((used, total, _)) => {
+                let base = total.unwrap_or(s.mem_total_kb * 1024).max(1);
+                let sub = match total {
+                    Some(t) => t!("из {v}", v = human_bytes(*t)),
+                    None => t!("{p}% ОЗУ", p = format!("{:.0}", *used as f32 / base as f32 * 100.0)),
+                };
+                (*used as f32 / base as f32 * 100.0, human_bytes(*used), sub)
+            }
+            None => (0.0, "—".into(), t!("нет данных").into()),
+        },
+        "npu" => match &s.npu {
+            Some(n) => match n.busy_percent {
+                Some(b) => (b, format!("{b:.0}%"), n.temp_c.map(|t| format!("{t:.0} °C")).unwrap_or_else(|| npu_state(n))),
+                None => (0.0, npu_state(n), n.temp_c.map(|t| format!("{t:.0} °C")).unwrap_or_default()),
+            },
+            None => (0.0, "—".into(), t!("нет NPU").into()),
+        },
+        "storage" => match s.mounts.first() {
+            Some(m) => {
+                let p = m.used as f32 / m.total.max(1) as f32 * 100.0;
+                (p, format!("{p:.0}%"), t!("свободно {v}", v = human_bytes(m.total.saturating_sub(m.used))))
+            }
+            None => (0.0, "—".into(), t!("нет данных").into()),
+        },
         _ => (0.0, String::new(), String::new()),
+    }
+}
+
+/// «1.5 ГБ» из байт.
+fn human_bytes(b: u64) -> String {
+    let gb = b as f64 / 1073741824.0;
+    if gb >= 1000.0 {
+        t!("{v} ТБ", v = format!("{:.1}", gb / 1024.0))
+    } else {
+        synsystem::memory::human_kb(b / 1024)
+    }
+}
+
+/// Состояние NPU без счётчика загрузки (Qualcomm): считает, готов (есть сеансы), простой, выключен.
+fn npu_state(n: &synsystem::npu::Npu) -> String {
+    if !n.online {
+        t!("выкл").into()
+    } else if n.daemon.as_ref().is_some_and(|d| !d.workers.is_empty()) {
+        t!("готов").into()
+    } else {
+        t!("простой").into()
     }
 }
 
@@ -223,6 +272,8 @@ fn history_of<'a>(kind: &str, s: &'a Snap) -> &'a [f32] {
         "gpu" => &s.history.gpu,
         "battery" => &s.history.battery,
         "temps" => &s.history.temp,
+        "vram" => &s.history.vram,
+        "npu" => &s.history.npu,
         _ => &[],
     }
 }
@@ -483,13 +534,21 @@ fn card(ctx: ShellCtx, kind: &str, s: &Snap, cx: &Cx) -> Box<dyn Widget> {
             }
             Box::new(col)
         }
-        "memory" | "gpu" => {
+        "storage" => storage_body(s, cx),
+        "memory" | "gpu" | "vram" | "npu" => {
             let (v, big, sub) = value_of(kind, s);
             let size = (cx.h - 18.0).min(cx.w).max(40.0);
-            let foot = if kind == "memory" {
-                t!("из {v}", v = synsystem::memory::human_kb(s.mem_total_kb))
-            } else {
-                s.gpu.as_ref().map(|g| format!("{}{}", g.2.clone().unwrap_or_default(), s.gpu_temp.map(|t| format!(" · {t:.0} °C")).unwrap_or_default())).unwrap_or_default()
+            let foot = match kind {
+                "memory" => t!("из {v}", v = synsystem::memory::human_kb(s.mem_total_kb)),
+                "vram" => s.vram.as_ref().map(|v| v.2.clone()).unwrap_or_default(),
+                "npu" => match &s.npu {
+                    Some(n) => {
+                        let sessions = n.daemon.as_ref().map(|d| d.workers.len()).unwrap_or(0);
+                        if sessions > 0 { t!("сеансов {n}", n = sessions) } else { n.name.replace("Qualcomm ", "") }
+                    }
+                    None => String::new(),
+                },
+                _ => s.gpu.as_ref().map(|g| format!("{}{}", g.2.clone().unwrap_or_default(), s.gpu_temp.map(|t| format!(" · {t:.0} °C")).unwrap_or_default())).unwrap_or_default(),
             };
             Box::new(
                 Column::new()
@@ -504,6 +563,32 @@ fn card(ctx: ShellCtx, kind: &str, s: &Snap, cx: &Cx) -> Box<dyn Widget> {
         "battery" => power_body(s),
         _ => Box::new(DecoratedBox::new()),
     }
+}
+
+/// Разделы: путь, свободно, полоса заполнения — сколько влезет по высоте.
+fn storage_body(s: &Snap, cx: &Cx) -> Box<dyn Widget> {
+    if s.mounts.is_empty() {
+        return Box::new(Text::new(t!("Нет данных")).class("res-k"));
+    }
+    let rows = ((cx.h + 8.0) / 44.0).floor().max(1.0) as usize;
+    let mut col = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+    for m in s.mounts.iter().take(rows) {
+        let p = (m.used as f64 / m.total.max(1) as f64 * 100.0).round() as u32;
+        let name = if m.path == "/" { t!("Система").to_string() } else { m.path.rsplit('/').next().filter(|x| !x.is_empty()).unwrap_or(&m.path).to_string() };
+        col = col.child(
+            Column::new()
+                .gap(4.0)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(
+                    Row::new()
+                        .gap(6.0)
+                        .child(Text::new(name).max_lines(1).class("res-v grow"))
+                        .child(Text::new(t!("{f} своб.", f = human_bytes(m.total.saturating_sub(m.used)))).max_lines(1).class("res-k")),
+                )
+                .child(crate::ui::meter(p)),
+        );
+    }
+    Box::new(col)
 }
 
 fn power_body(s: &Snap) -> Box<dyn Widget> {
