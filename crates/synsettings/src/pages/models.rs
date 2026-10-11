@@ -178,10 +178,15 @@ fn model_card(sig: RwSignal<Snapshot>, m: &ModelEntry, devices: &[DeviceKind]) -
             act(sig, move |c| c.set(&i, SettingsChange { device: Some(d), ..Default::default() }).map(|_| ()));
         }
     });
+    let order: Vec<String> = [DeviceKind::Cuda, DeviceKind::Npu, DeviceKind::Cpu]
+        .into_iter()
+        .filter(|d| m.devices.contains(d) && devices.contains(d))
+        .map(device_label)
+        .collect();
     let dev_hint = if m.fallback {
         t!("Выбранное устройство не справилось — модель работает на CPU")
     } else {
-        t!("Авто: CUDA, затем NPU, затем CPU")
+        t!("Авто: {order}", order = order.join(" → "))
     };
     rows.push(row(t!("Тип выполнения"), dev_hint, dd));
 
@@ -222,11 +227,11 @@ fn model_card(sig: RwSignal<Snapshot>, m: &ModelEntry, devices: &[DeviceKind]) -
     let (i1, i2) = (id.clone(), id.clone());
     let buttons = Row::new()
         .gap(8.0)
-        .child(button(t!("Загрузить"), move || {
+        .child(button(t!("Загрузить в память"), move || {
             let i = i1.clone();
             act(sig, move |c| c.load(&i).map(|_| ()));
         }))
-        .child(button(t!("Выгрузить"), move || {
+        .child(button(t!("Выгрузить из памяти"), move || {
             let i = i2.clone();
             act(sig, move |c| c.unload(&i));
         }));

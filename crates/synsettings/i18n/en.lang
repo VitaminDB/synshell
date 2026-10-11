@@ -1505,3 +1505,6 @@
 
 "Квантование" = "Quantization"
 "int8 по каналу (веса), счёт F16" = "int8 per channel (weights), F16 compute"
+"Авто: {order}" = "Auto: {order}"
+"Загрузить в память" = "Load"
+"Выгрузить из памяти" = "Unload"
