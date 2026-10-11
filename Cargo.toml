@@ -32,6 +32,7 @@ members = [
     "crates/syn-nfc",
     "crates/syn-health",
     "crates/syngamepad",
+    "crates/synaptixd",
 ]
 
 [workspace.package]
@@ -49,6 +50,14 @@ synsystem = { path = "crates/synsystem" }
 synmodem = { path = "crates/synmodem" }
 synshell-ui = { path = "crates/synshell-ui" }
 synfsd = { path = "crates/synfsd", default-features = false }
+synaptixd = { path = "crates/synaptixd", default-features = false }
+synaptix = { path = "../synaptix/crates/synaptix", default-features = false }
+synaptix-core = { path = "../synaptix/crates/synaptix-core" }
+synaptix-kernels-cpu = { path = "../synaptix/crates/synaptix-kernels-cpu" }
+synaptix-kernels-cuda = { path = "../synaptix/crates/synaptix-kernels-cuda" }
+synaptix-kernels-npu = { path = "../synaptix/crates/synaptix-kernels-npu" }
+synaptix-asr-wav2vec2 = { path = "../synaptix/crates/synaptix-models/asr/wav2vec2" }
+synaptix-align-mfa = { path = "../synaptix/crates/synaptix-models/align/mfa" }
 syngui = { path = "../syngui/syngui", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

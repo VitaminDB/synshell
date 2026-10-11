@@ -44,6 +44,7 @@ provides=('syndesktop')
 conflicts=('syndesktop')
 replaces=('syndesktop')
 install=synshell.install
+backup=('etc/synaptix/synaptixd.toml')
 
 # Профиль cargo: release (LTO) — для AUR/GitHub; локально быстрее
 # `SYNSHELL_PROFILE=fast-release makepkg -f`.
@@ -52,6 +53,7 @@ _profile=${SYNSHELL_PROFILE:-release}
 build() {
     cd "$startdir"
     cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player -p syn-maps -p syn-compass -p syngamepad -p synpass -p syncamera -p syndroid -p syn-health -p synmodem -p syn-nfc -p synnfc -p synphone -p synsms -p synfsd
+    cargo build --profile "$_profile" -p synaptixd --bins --features "synaptixd/${SYNAPTIXD_FEATURES:-cuda}"
 }
 
 check() {
@@ -61,7 +63,7 @@ check() {
 
 package() {
     cd "$startdir"
-    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player syn-maps syn-compass syngamepad synpass syncamera syndroid syndroidd syn-health synmodem synmodemd syn-nfc synnfc synnfcd synphone synsms synfsd; do
+    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player syn-maps syn-compass syngamepad synpass syncamera syndroid syndroidd syn-health synmodem synmodemd syn-nfc synnfc synnfcd synphone synsms synfsd synaptixd synaptixctl; do
         install -Dm755 "target/$_profile/$b" "$pkgdir/usr/bin/$b"
     done
     install -Dm755 data/synshell-session "$pkgdir/usr/bin/synshell-session"
@@ -122,6 +124,10 @@ package() {
     install -Dm644 crates/synlogin/data/synlogin.service "$pkgdir/usr/lib/systemd/system/synlogin.service"
     install -Dm644 crates/synfsd/data/synfsd.service "$pkgdir/usr/lib/systemd/system/synfsd.service"
     install -Dm644 docs/FSD.md "$pkgdir/usr/share/doc/synshell/FSD.md"
+    install -Dm644 crates/synaptixd/data/synaptixd.service "$pkgdir/usr/lib/systemd/system/synaptixd.service"
+    install -Dm644 crates/synaptixd/data/synaptixd.toml "$pkgdir/etc/synaptix/synaptixd.toml"
+    install -Dm644 docs/MODELS.md "$pkgdir/usr/share/doc/synshell/MODELS.md"
+    install -dm755 "$pkgdir/usr/share/synaptix/models"
     install -Dm644 crates/synlogin/data/synlogin.pam "$pkgdir/etc/pam.d/synlogin"
     install -Dm644 crates/synshell-common/default-config.toml \
         "$pkgdir/usr/share/doc/synshell/config.toml.example"

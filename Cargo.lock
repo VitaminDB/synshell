@@ -288,7 +288,7 @@ version = "0.38.0+1.3.281"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bb44936d800fea8f016d7f2311c6a4f97aebd5dc86f09906139ec848cf3a46f"
 dependencies = [
- "libloading",
+ "libloading 0.8.9",
 ]
 
 [[package]]
@@ -520,6 +520,15 @@ name = "base64ct"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
+
+[[package]]
+name = "bincode"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "bindgen"
@@ -808,6 +817,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "ciborium"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42e69ffd6f0917f5c029256a24d0161db17cea3997d185db0d35926308770f0e"
+dependencies = [
+ "ciborium-io",
+ "ciborium-ll",
+ "serde",
+]
+
+[[package]]
+name = "ciborium-io"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05afea1e0a06c9be33d539b876f1ce3692f4afea2cb41f740e7743225ed1c757"
+
+[[package]]
+name = "ciborium-ll"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57663b653d948a338bfb3eeba9bb2fd5fcfaecb9e199e87e1eda4d9e8b240fd9"
+dependencies = [
+ "ciborium-io",
+ "half",
+]
+
+[[package]]
 name = "cipher"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -826,7 +862,7 @@ checksum = "157a8ba7b480713b56f4c09fd13fc3e0a22a5dfab8097ba61cbc5feef950788a"
 dependencies = [
  "glob",
  "libc",
- "libloading",
+ "libloading 0.8.9",
 ]
 
 [[package]]
@@ -1101,6 +1137,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "crc32c"
+version = "0.6.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a47af21622d091a8f0fb295b88bc886ac74efcc613efc19f5d0b21de5c89e47"
+dependencies = [
+ "rustc_version",
+]
+
+[[package]]
 name = "crc32fast"
 version = "1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1149,6 +1194,14 @@ dependencies = [
  "generic-array",
  "rand_core 0.6.4",
  "typenum",
+]
+
+[[package]]
+name = "cudarc"
+version = "0.19.8"
+dependencies = [
+ "half",
+ "libloading 0.9.0",
 ]
 
 [[package]]
@@ -1302,7 +1355,7 @@ version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab8ecd87370524b461f8557c119c405552c396ed91fc0a8eec68679eab26f94a"
 dependencies = [
- "libloading",
+ "libloading 0.8.9",
 ]
 
 [[package]]
@@ -1741,6 +1794,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fs4"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8640e34b88f7652208ce9e88b1a37a2ae95227d84abec377ccd3c5cfeb141ed4"
+dependencies = [
+ "rustix 1.1.5",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "fsevent-sys"
 version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2044,9 +2107,12 @@ version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ea2d84b969582b4b1864a92dc5d27cd2b77b622a8d79306834f1be5ba20d84b"
 dependencies = [
+ "bytemuck",
  "cfg-if",
  "crunchy",
  "num-traits",
+ "rand 0.9.5",
+ "rand_distr",
  "zerocopy",
 ]
 
@@ -2070,6 +2136,8 @@ dependencies = [
  "allocator-api2",
  "equivalent",
  "foldhash 0.2.0",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -2585,7 +2653,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6aae1df220ece3c0ada96b8153459b67eebe9ae9212258bb0134ae60416fdf76"
 dependencies = [
  "libc",
- "libloading",
+ "libloading 0.8.9",
  "pkg-config",
 ]
 
@@ -2643,6 +2711,16 @@ name = "libloading"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
+dependencies = [
+ "cfg-if",
+ "windows-link",
+]
+
+[[package]]
+name = "libloading"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "754ca22de805bb5744484a5b151a9e1a8e837d5dc232c2d7d8c2e3492edc8b60"
 dependencies = [
  "cfg-if",
  "windows-link",
@@ -4053,11 +4131,22 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rand"
+version = "0.8.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e058c7de0b26af77780c769414d6257830bb240f3c38477dbc2c16e5f54d6d4c"
+dependencies = [
+ "libc",
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
+]
+
+[[package]]
+name = "rand"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9ef1d0d795eb7d84685bca4f72f3649f064e6641543d3a8c415898726a57b41"
 dependencies = [
- "rand_chacha",
+ "rand_chacha 0.9.0",
  "rand_core 0.9.5",
 ]
 
@@ -4070,6 +4159,16 @@ dependencies = [
  "chacha20 0.10.2",
  "getrandom 0.4.3",
  "rand_core 0.10.1",
+]
+
+[[package]]
+name = "rand_chacha"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
+dependencies = [
+ "ppv-lite86",
+ "rand_core 0.6.4",
 ]
 
 [[package]]
@@ -4105,6 +4204,16 @@ name = "rand_core"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
+
+[[package]]
+name = "rand_distr"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a8615d50dcf34fa31f7ab52692afec947c4dd0ab803cc87cb3b0b4570ff7463"
+dependencies = [
+ "num-traits",
+ "rand 0.9.5",
+]
 
 [[package]]
 name = "rand_pcg"
@@ -4531,6 +4640,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "safetensors"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "675656c1eabb620b921efea4f9199f97fc86e36dd6ffd1fbbe48d0f59a4987f5"
+dependencies = [
+ "hashbrown 0.16.1",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "same-file"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4606,6 +4726,7 @@ version = "1.0.151"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
 dependencies = [
+ "indexmap",
  "itoa",
  "memchr",
  "serde",
@@ -4767,7 +4888,7 @@ dependencies = [
  "indexmap",
  "input",
  "libc",
- "libloading",
+ "libloading 0.8.9",
  "libseat",
  "pixman",
  "pkg-config",
@@ -5022,6 +5143,214 @@ dependencies = [
  "serde_json",
  "syngui",
  "synshell-common",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "synaptix-align-mfa"
+version = "0.1.1"
+dependencies = [
+ "rayon",
+ "rustfft",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-asr-wav2vec2"
+version = "0.1.1"
+dependencies = [
+ "safetensors",
+ "serde",
+ "serde_json",
+ "synaptix-audio",
+ "synaptix-bundle",
+ "synaptix-core",
+ "synaptix-io",
+ "synaptix-ops",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-audio"
+version = "0.1.1"
+dependencies = [
+ "hound",
+ "rubato",
+ "rustfft",
+ "synaptix-core",
+ "synaptix-nn",
+ "synaptix-ops",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-autograd"
+version = "0.1.1"
+dependencies = [
+ "once_cell",
+ "parking_lot",
+ "synaptix-core",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-bundle"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "byteorder",
+ "ciborium",
+ "crc32c",
+ "fs4",
+ "memmap2 0.9.11",
+ "safetensors",
+ "serde",
+ "serde_json",
+ "synaptix-core",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
+name = "synaptix-core"
+version = "0.1.1"
+dependencies = [
+ "bincode",
+ "bytemuck",
+ "cudarc",
+ "half",
+ "libc",
+ "num-traits",
+ "once_cell",
+ "parking_lot",
+ "rand 0.8.8",
+ "rayon",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-gguf"
+version = "0.1.1"
+dependencies = [
+ "half",
+ "memmap2 0.9.11",
+ "rayon",
+ "serde",
+ "serde_json",
+ "synaptix-bundle",
+ "synaptix-core",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
+name = "synaptix-io"
+version = "0.1.1"
+dependencies = [
+ "memmap2 0.9.11",
+ "safetensors",
+ "serde",
+ "serde_json",
+ "synaptix-bundle",
+ "synaptix-core",
+ "synaptix-gguf",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
+name = "synaptix-kernels-cpu"
+version = "0.1.1"
+dependencies = [
+ "bytemuck",
+ "half",
+ "num-traits",
+ "once_cell",
+ "rayon",
+ "synaptix-core",
+ "wide",
+]
+
+[[package]]
+name = "synaptix-kernels-cuda"
+version = "0.1.1"
+dependencies = [
+ "bytemuck",
+ "cudarc",
+ "half",
+ "once_cell",
+ "parking_lot",
+ "synaptix-core",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
+name = "synaptix-kernels-npu"
+version = "0.1.1"
+dependencies = [
+ "bytemuck",
+ "half",
+ "once_cell",
+ "parking_lot",
+ "synaptix-core",
+ "synaptix-kernels-cpu",
+ "synaptix-npu",
+]
+
+[[package]]
+name = "synaptix-nn"
+version = "0.1.1"
+dependencies = [
+ "once_cell",
+ "synaptix-autograd",
+ "synaptix-core",
+ "synaptix-ops",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-npu"
+version = "0.1.1"
+dependencies = [
+ "bytemuck",
+ "half",
+ "libc",
+ "parking_lot",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-ops"
+version = "0.1.1"
+dependencies = [
+ "half",
+ "rand 0.8.8",
+ "synaptix-core",
+ "synaptix-kernels-cpu",
+ "synaptix-kernels-cuda",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptixd"
+version = "0.1.41"
+dependencies = [
+ "anyhow",
+ "libc",
+ "serde",
+ "serde_json",
+ "synaptix-align-mfa",
+ "synaptix-asr-wav2vec2",
+ "synaptix-core",
+ "synaptix-kernels-cpu",
+ "synaptix-kernels-cuda",
+ "synaptix-kernels-npu",
  "toml",
  "tracing",
  "tracing-subscriber",
@@ -5431,6 +5760,7 @@ dependencies = [
  "syngui",
  "syngui-layer",
  "synshell-common",
+ "toml_edit 0.23.10+spec-1.0.0",
 ]
 
 [[package]]
@@ -6509,7 +6839,7 @@ dependencies = [
  "js-sys",
  "khronos-egl",
  "libc",
- "libloading",
+ "libloading 0.8.9",
  "log",
  "metal",
  "naga",
@@ -7152,7 +7482,7 @@ dependencies = [
  "as-raw-xcb-connection",
  "gethostname",
  "libc",
- "libloading",
+ "libloading 0.8.9",
  "once_cell",
  "rustix 1.1.5",
  "x11rb-protocol",

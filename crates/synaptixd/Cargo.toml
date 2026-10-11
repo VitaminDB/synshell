@@ -1,0 +1,42 @@
+[package]
+name = "synaptixd"
+description = "Системная служба нейросетей synaptix: модели для всех программ, загрузка по требованию, выгрузка при нехватке памяти"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[features]
+default = []
+daemon = [
+    "dep:toml",
+    "dep:anyhow",
+    "dep:tracing",
+    "dep:tracing-subscriber",
+    "dep:synaptix-core",
+    "dep:synaptix-kernels-cpu",
+    "dep:synaptix-asr-wav2vec2",
+    "dep:synaptix-align-mfa",
+]
+cuda = ["daemon", "dep:synaptix-kernels-cuda"]
+npu = ["daemon", "dep:synaptix-kernels-npu"]
+
+[[bin]]
+name = "synaptixd"
+path = "src/bin/synaptixd/main.rs"
+required-features = ["daemon"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+libc.workspace = true
+toml = { workspace = true, optional = true }
+anyhow = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
+synaptix-core = { workspace = true, optional = true }
+synaptix-kernels-cpu = { workspace = true, optional = true }
+synaptix-kernels-cuda = { workspace = true, optional = true }
+synaptix-kernels-npu = { workspace = true, optional = true }
+synaptix-asr-wav2vec2 = { workspace = true, optional = true }
+synaptix-align-mfa = { workspace = true, optional = true }

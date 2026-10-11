@@ -1,0 +1,18 @@
+[Unit]
+Description=synaptixd: системные нейросети synaptix
+Documentation=file:///usr/share/doc/synshell/MODELS.md
+After=synnpu-qnn.service
+Wants=synnpu-qnn.service
+
+[Service]
+ExecStart=/usr/bin/synaptixd
+Restart=on-failure
+RestartSec=3
+StateDirectory=synaptix
+RuntimeDirectory=synaptix
+RuntimeDirectoryMode=0755
+OOMScoreAdjust=300
+LimitMEMLOCK=infinity
+
+[Install]
+WantedBy=multi-user.target
