@@ -124,6 +124,8 @@ package() {
         | install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/synshell-mimeapps.list"
     # Связь устройств: демон стартует с сеансом (synwm читает /etc/xdg/autostart).
     install -Dm644 crates/synlink/autostart/synlink.desktop "$pkgdir/etc/xdg/autostart/synlink.desktop"
+    # USB-сеть телефона: адрес по DHCP через systemd-networkd (без NetworkManager её никто не поднимал).
+    install -Dm644 crates/synlink/data/80-synlink-usb.network "$pkgdir/usr/lib/systemd/network/80-synlink-usb.network"
     install -Dm644 crates/synshell-ui/data/syndesktop-lock.pam "$pkgdir/etc/pam.d/syndesktop-lock"
     install -Dm644 crates/synlogin/data/synlogin.service "$pkgdir/usr/lib/systemd/system/synlogin.service"
     install -Dm644 crates/synfsd/data/synfsd.service "$pkgdir/usr/lib/systemd/system/synfsd.service"

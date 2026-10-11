@@ -1,0 +1,16 @@
+# USB-сеть телефона synmobile (NCM-гаджет 1d6b:0104): адрес по DHCP от телефона
+# (172.16.42.0/24), без маршрута по умолчанию и DNS — интернет остаётся на Wi-Fi.
+# Нужен включённый systemd-networkd: systemctl enable --now systemd-networkd.
+[Match]
+Driver=cdc_ncm
+Property=ID_VENDOR_ID=1d6b ID_MODEL_ID=0104
+
+[Network]
+DHCP=ipv4
+LinkLocalAddressing=no
+IPv6AcceptRA=no
+
+[DHCPv4]
+UseDNS=no
+UseRoutes=no
+UseGateway=no

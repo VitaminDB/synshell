@@ -1,9 +1,22 @@
 # Экран входа synlogin включается при установке, если другой экран входа
 # (display-manager.service) не выбран. Перезагрузка — и вход через synlogin.
+
+# USB-сеть телефона поднимает systemd-networkd (/usr/lib/systemd/network/80-synlink-usb.network).
+_usb_net_hint() {
+    if ! systemctl is-enabled -q systemd-networkd 2>/dev/null && ! systemctl is-enabled -q NetworkManager 2>/dev/null; then
+        echo ":: USB-сеть телефона (synlink по кабелю): systemctl enable --now systemd-networkd"
+    fi
+}
+
 post_install() {
     echo ":: журнал изменений файлов: systemctl enable --now synfsd (история — в «Свойствах» проводника)"
+    _usb_net_hint
     if [ ! -e /etc/systemd/system/display-manager.service ]; then
         systemctl enable synlogin.service >/dev/null 2>&1 \
             && echo ":: экран входа synlogin включён (systemctl disable synlogin — выключить)"
     fi
+}
+
+post_upgrade() {
+    _usb_net_hint
 }
