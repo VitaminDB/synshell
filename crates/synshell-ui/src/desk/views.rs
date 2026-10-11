@@ -496,7 +496,9 @@ fn card(ctx: ShellCtx, kind: &str, s: &Snap, cx: &Cx) -> Box<dyn Widget> {
                     .gap(4.0)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
                     .child(ring(v, big, &sub, size, color))
-                    .child(Text::new(foot).max_lines(1).class("res-ring-sub")),
+                    .child(Text::new(foot).max_lines(1).class("res-ring-sub"))
+                    // Колонка по содержимому прижималась к левому краю карточки.
+                    .style("width", StyleValue::px(cx.w)),
             )
         }
         "battery" => power_body(s),
