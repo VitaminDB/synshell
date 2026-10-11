@@ -203,9 +203,10 @@ fn temp_list(temps: &[synsystem::thermal::Sensor]) -> Vec<(String, f32)> {
     v
 }
 
-/// Держать список окон для ленты в курсе (pid нужен фоновому потоку).
+/// Держать список окон для ленты в курсе (pid нужен фоновому потоку). Эффект без владельца:
+/// сборщик поднимает первый виджет с данными, и с его перестройкой список не должен замирать.
 fn track_windows(ctx: ShellCtx) {
-    create_effect(move || {
+    create_detached_effect(move || {
         let wins = ctx.windows.get();
         let v: Vec<(u64, String, String, i32)> = wins
             .iter()
