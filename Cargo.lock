@@ -6258,6 +6258,7 @@ dependencies = [
  "synaptix-kernels-cpu",
  "synaptix-kernels-cuda",
  "synaptix-kernels-npu",
+ "synaptix-llm-common",
  "synaptix-tts-omnivoice",
  "toml",
  "tracing",

@@ -188,6 +188,8 @@ impl Loaded {
             presence_penalty: 0.0,
             frequency_penalty: 0.0,
         };
+        let prof = std::env::var_os("SYNAPTIX_LLM_PROF").is_some();
+        synaptix_llm_common::model::set_prefill_prof(prof);
         let mut gen = LlmGeneration::new(llm, opts);
         gen.set_stop_tokens(tok.eos_ids().to_vec());
         let mut text = String::new();
@@ -199,6 +201,9 @@ impl Loaded {
             true
         })
         .map_err(|e| anyhow::anyhow!("{e}"))?;
+        if prof {
+            eprintln!("{}", synaptix_llm_common::model::prefill_prof_report_and_clear());
+        }
         Ok(synaptixd::Generated { text, tokens })
     }
 

@@ -1508,3 +1508,4 @@
 "Авто: {order}" = "Auto: {order}"
 "Загрузить в память" = "Load"
 "Выгрузить из памяти" = "Unload"
+"int8 по каналу (веса)" = "int8 per channel (weights)"

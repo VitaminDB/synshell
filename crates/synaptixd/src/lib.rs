@@ -96,6 +96,7 @@ pub struct VariantInfo {
 pub fn precision_label(p: &str) -> String {
     match p {
         "w8a16" | "q8row" => "int8 по каналу (веса), счёт F16".into(),
+        "w8" => "int8 по каналу (веса)".into(),
         "f16" => "F16".into(),
         "bf16" => "BF16".into(),
         "f32" => "F32".into(),

@@ -94,8 +94,11 @@ impl Manifest {
         if let Some(mb) = self.resources.ram.get(&dev) {
             return mb << 20;
         }
-        let file = self.variant_for(dev).and_then(|v| std::fs::metadata(self.path(v)).ok()).map(|m| m.len()).unwrap_or(0);
+        let variant = self.variant_for(dev);
+        let file = variant.and_then(|v| std::fs::metadata(self.path(v)).ok()).map(|m| m.len()).unwrap_or(0);
+        let int8 = variant.is_some_and(|v| v.precision.starts_with("w8"));
         match dev {
+            DeviceKind::Cpu if int8 => file,
             DeviceKind::Cpu => file * 2,
             DeviceKind::Cuda | DeviceKind::Gpu => file / 4,
             _ => file,
