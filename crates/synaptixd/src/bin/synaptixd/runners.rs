@@ -29,18 +29,47 @@ pub enum Voice {
     Pcm { pcm: Vec<f32>, sr: u32 },
 }
 
-/// Синтезатор речи и запомненные голоса: `voices` — референсы, выросшие из
-/// первых фраз (ключ: язык + описание голоса), чтобы все фразы одной
-/// озвучки и все ответы звучали одним голосом; `refs` — клоны с образцов
-/// пользователя (ключ: путь + текст образца).
+/// Синтезатор речи и запомненные голоса: `voices` — голоса разговоров
+/// (ключ: язык + описание голоса + закреплённое зерно), чтобы все фразы одной
+/// озвучки и все ответы звучали одним голосом; `anchors` — опорные фразы по
+/// зерну (см. [`anchor_text`]); `refs` — клоны с образцов пользователя (ключ:
+/// путь + текст образца).
 pub struct TtsState {
     engine: TtsEngine,
     voices: std::collections::HashMap<String, Voice>,
+    anchors: std::collections::HashMap<String, Voice>,
     refs: std::collections::HashMap<String, Voice>,
 }
 
-/// Сколько секунд речи копить в референсе голоса из первых фраз.
-const VOICE_REF_SEC: f32 = 12.0;
+/// Опорные фразы, задающие голос без образца пользователя. Голос модели без
+/// образца выбирают зерно и сам текст: одно зерно на разных фразах — разные
+/// голоса, и ответ ассистента звучал не тем голосом, что проверка в
+/// Параметрах (там текст один и тот же). Поэтому голос ключа задаёт опорная
+/// запись — эти две фразы, озвученные зерном (у закреплённого зерна она всегда
+/// одна), а любой текст — и проверка, и ответы — продолжает её как образец.
+/// Образец ответами не дорастает: иначе голос уплывал бы с каждой фразой.
+/// Первая фраза — та же, что в проверке Параметров по умолчанию: закреплённое
+/// по ней зерно даёт тот же голос.
+fn anchor_text(language: Option<&str>) -> [&'static str; 2] {
+    match language.map(|l| l.trim().to_ascii_lowercase()).as_deref() {
+        Some("en") => ["Hello! This is how this model sounds with the chosen settings.", "I will read any text in this voice."],
+        Some("kk") => ["Сәлем! Бұл модель таңдалған параметрлермен осылай естіледі.", "Кез келген мәтінді осы дауыспен оқимын."],
+        _ => ["Привет! Так звучит эта модель с заданными настройками.", "Этим голосом я прочитаю любой текст."],
+    }
+}
+
+fn anchor_key(key: &str, seed: u64) -> String {
+    format!("{key}\x1f{seed}")
+}
+
+/// Запомнить опорную фразу зерна: проверка со случайным зерном и его
+/// закрепление потом не озвучивают её заново. Старые — по 16 штук — забываются.
+fn remember_anchor(anchors: &mut std::collections::HashMap<String, Voice>, key: String, voice: Voice) {
+    if anchors.len() >= 16 {
+        anchors.clear();
+    }
+    anchors.insert(key, voice);
+}
 
 /// VibeVoice читает сценарий «Speaker N: …»; обычный текст — одним голосом.
 fn vibe_script(text: &str) -> String {
@@ -52,18 +81,25 @@ fn vibe_script(text: &str) -> String {
     }
 }
 
-/// Дописать сказанное к голосу-референсу, пока он короче `VOICE_REF_SEC`.
-fn grow_pcm_voice(voice: &mut Option<Voice>, pcm: &[f32], sr: u32) {
-    let cap = (VOICE_REF_SEC * sr as f32) as usize;
-    match voice {
-        Some(Voice::Pcm { pcm: acc, .. }) => {
-            if acc.len() < cap {
-                acc.extend_from_slice(pcm);
-            }
-        }
-        Some(Voice::Omni(_)) => {}
-        None => *voice = Some(Voice::Pcm { pcm: pcm.to_vec(), sr }),
+/// Голос PCM для продолжения (VibeVoice, VoxCPM): запомненный по ключу
+/// (не при `fresh`), иначе опорная фраза зерна — из кэша или озвученная `synth`.
+fn pcm_voice(
+    voices: &std::collections::HashMap<String, Voice>,
+    anchors: &mut std::collections::HashMap<String, Voice>,
+    key: &str,
+    akey: String,
+    fresh: bool,
+    synth: impl FnOnce() -> anyhow::Result<(Vec<f32>, u32)>,
+) -> anyhow::Result<(Vec<f32>, u32)> {
+    if let Some(Voice::Pcm { pcm, sr }) = voices.get(key).filter(|_| !fresh) {
+        return Ok((pcm.clone(), *sr));
     }
+    if let Some(Voice::Pcm { pcm, sr }) = anchors.get(&akey) {
+        return Ok((pcm.clone(), *sr));
+    }
+    let (pcm, sr) = synth()?;
+    remember_anchor(anchors, akey, Voice::Pcm { pcm: pcm.clone(), sr });
+    Ok((pcm, sr))
 }
 
 pub enum Loaded {
@@ -211,7 +247,7 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind, quant: Op
             } else {
                 TtsEngine::Omni(synaptix_tts_omnivoice::OmniVoicePipeline::from_syn_quant(path, device, dtype, q).map_err(|e| anyhow::anyhow!("{e}"))?)
             };
-            let st = TtsState { engine, voices: Default::default(), refs: Default::default() };
+            let st = TtsState { engine, voices: Default::default(), anchors: Default::default(), refs: Default::default() };
             Ok((Loaded::Tts(std::sync::Mutex::new(st), dev), Some(precision_tag(q, dtype))))
         }
         other => anyhow::bail!("модели {other:?} ({arch}) служба пока не исполняет"),
@@ -440,11 +476,13 @@ impl Loaded {
         let ref_audio = params.text("ref_audio").map(str::trim).filter(|s| !s.is_empty());
         let ref_text = params.text("ref_text").unwrap_or("").trim().to_string();
         // Голос для продолжения: фразы одной озвучки и все ответы — одним
-        // голосом. Первая фраза выбирает голос (по описанию или случайно),
-        // дальше он держится по уже сказанному: у OmniVoice — референс в
-        // кодах, у VibeVoice и VoxCPM — PCM как образец. Другое закреплённое
+        // голосом. Его выбирает опорная фраза ([`anchor_text`]) по описанию и
+        // зерну, дальше он держится по уже сказанному: у OmniVoice — референс
+        // в кодах, у VibeVoice и VoxCPM — PCM как образец. Другое закреплённое
         // зерно — другой голос, поэтому оно тоже в ключе.
         let key = format!("{}\x1f{}\x1f{}", language.unwrap_or(""), instruct.unwrap_or(""), pinned.map(|s| s.to_string()).unwrap_or_default());
+        let akey = anchor_key(&key, seed);
+        let anchor = anchor_text(language);
         match &st.engine {
             TtsEngine::Omni(p) => {
                 let default_steps = if *dev == DeviceKind::Npu { 16 } else { 32 };
@@ -477,17 +515,24 @@ impl Loaded {
                         }
                         None => None,
                     };
-                    // Образец голоса идёт во вход каждого из шагов декода: на CPU и NPU
-                    // держим его короче — 6 с, на видеокарте — 12 с.
-                    let ref_sec = if *dev == DeviceKind::Cuda { VOICE_REF_SEC } else { VOICE_REF_SEC / 2.0 };
-                    let first = voice.is_none();
-                    let r = p.synthesize_continuing(text, &mut voice, language, instruct, speed, &gen, ref_sec);
-                    // Короткая первая фраза без образца («Привет!») часто выходит
-                    // шумом — образцом голоса разговора её не брать, иначе шум
-                    // продолжится во всех следующих фразах.
-                    if first && text.chars().filter(|c| c.is_alphanumeric()).count() < 20 {
-                        voice = None;
+                    if voice.is_none() {
+                        // Голос выбирает опорная запись зерном (скорость — обычная,
+                        // чтобы голос не зависел от неё), текст продолжает её.
+                        voice = Some(match st.anchors.get(&akey) {
+                            Some(Voice::Omni(a)) => a.clone(),
+                            _ => {
+                                let mut a = None;
+                                for s in anchor {
+                                    p.synthesize_continuing(s, &mut a, language, instruct, 1.0, &gen, f32::MAX).map_err(|e| anyhow::anyhow!("{e}"))?;
+                                }
+                                let a = a.ok_or_else(|| anyhow::anyhow!("опорная фраза не озвучена"))?;
+                                remember_anchor(&mut st.anchors, akey, Voice::Omni(a.clone()));
+                                a
+                            }
+                        });
                     }
+                    // Образец — только опорная запись (0 с дорастания).
+                    let r = p.synthesize_continuing(text, &mut voice, language, instruct, speed, &gen, 0.0);
                     if let Some(v) = voice.filter(|_| !fresh) {
                         st.voices.insert(key, Voice::Omni(v));
                     }
@@ -505,13 +550,18 @@ impl Loaded {
                 };
                 let sr = p.sample_rate();
                 let script = vibe_script(text);
+                // Голос без образца пользователя: запомненный по ключу, иначе
+                // опорная фраза зерна (она же — начало запоминаемого голоса).
+                let mut voice = None;
                 let sample = if let Some(path) = ref_audio {
                     Some(VoiceSample::from_path(path).map_err(|e| anyhow::anyhow!("образец голоса {path}: {e}"))?)
                 } else {
-                    match st.voices.get(&key).filter(|_| !fresh) {
-                        Some(Voice::Pcm { pcm, sr }) => Some(VoiceSample::new(pcm.clone(), *sr)),
-                        _ => None,
-                    }
+                    let (pcm, vsr) = pcm_voice(&st.voices, &mut st.anchors, &key, akey, fresh, || {
+                        let a = p.synthesize(&vibe_script(&anchor.join(" ")), &[], &cfg).map_err(|e| anyhow::anyhow!("{e}"))?;
+                        Ok((a.audio, sr))
+                    })?;
+                    voice = Some(Voice::Pcm { pcm: pcm.clone(), sr: vsr });
+                    Some(VoiceSample::new(pcm, vsr))
                 };
                 let voices: Vec<VoiceSample> = sample.into_iter().collect();
                 let out = p.synthesize(&script, &voices, &cfg).map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -522,12 +572,8 @@ impl Loaded {
                     out.audio.len() as f32 / sr as f32,
                     if out.reached_max { ", обрыв по пределу длины" } else { "" }
                 );
-                if ref_audio.is_none() && !fresh {
-                    let mut voice = st.voices.remove(&key);
-                    grow_pcm_voice(&mut voice, &out.audio, sr);
-                    if let Some(v) = voice {
-                        st.voices.insert(key, v);
-                    }
+                if let Some(v) = voice.filter(|_| !fresh) {
+                    st.voices.insert(key, v);
                 }
                 Ok((out.audio, sr, Some(seed)))
             }
@@ -541,30 +587,34 @@ impl Loaded {
                 // Описание голоса VoxCPM2 берёт скобками перед текстом: без
                 // образца — голос по описанию (voice design), с образцом —
                 // манера поверх его тембра. С текстом образца не сочетается.
-                let designed = instruct.map(str::trim).filter(|d| !d.is_empty()).map(|d| format!("({d}){text}"));
-                let styled = designed.as_deref().unwrap_or(text);
+                let design = instruct.map(str::trim).filter(|d| !d.is_empty());
+                let styled = design.map(|d| format!("({d}){text}")).unwrap_or_else(|| text.to_string());
+                let mut voice = None;
                 let out = if let Some(path) = ref_audio {
                     if ref_text.is_empty() {
-                        p.synthesize_with_reference(styled, path, &opts)
+                        p.synthesize_with_reference(&styled, path, &opts)
                     } else {
                         // Полный клон: та же запись и образцом тембра, и
                         // началом, которое модель продолжает.
                         p.synthesize_combined(text, &ref_text, path, path, &opts)
                     }
                 } else {
-                    match st.voices.get(&key).filter(|_| !fresh) {
-                        Some(Voice::Pcm { pcm, sr }) => p.synthesize_with_reference_pcm(styled, pcm, *sr, &opts),
-                        _ => p.synthesize(styled, &opts),
-                    }
+                    // Голос без образца пользователя: запомненный по ключу, иначе
+                    // опорная фраза зерна (по описанию), и текст — с ней как с образцом.
+                    let (pcm, vsr) = pcm_voice(&st.voices, &mut st.anchors, &key, akey, fresh, || {
+                        let anchor = anchor.join(" ");
+                        let styled_anchor = design.map(|d| format!("({d}){anchor}")).unwrap_or(anchor);
+                        let a = p.synthesize(&styled_anchor, &opts).map_err(|e| anyhow::anyhow!("{e}"))?;
+                        Ok((a.pcm, a.sample_rate as u32))
+                    })?;
+                    let r = p.synthesize_with_reference_pcm(&styled, &pcm, vsr, &opts);
+                    voice = Some(Voice::Pcm { pcm, sr: vsr });
+                    r
                 }
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
                 let sr = out.sample_rate as u32;
-                if ref_audio.is_none() && !fresh {
-                    let mut voice = st.voices.remove(&key);
-                    grow_pcm_voice(&mut voice, &out.pcm, sr);
-                    if let Some(v) = voice {
-                        st.voices.insert(key, v);
-                    }
+                if let Some(v) = voice.filter(|_| !fresh) {
+                    st.voices.insert(key, v);
                 }
                 Ok((out.pcm, sr, Some(seed)))
             }
