@@ -474,7 +474,10 @@ impl Loaded {
                         }
                         None => None,
                     };
-                    let r = p.synthesize_continuing(text, &mut voice, language, instruct, speed, &gen, VOICE_REF_SEC);
+                    // Образец голоса идёт во вход каждого из шагов декода: на CPU и NPU
+                    // держим его короче — 6 с, на видеокарте — 12 с.
+                    let ref_sec = if *dev == DeviceKind::Cuda { VOICE_REF_SEC } else { VOICE_REF_SEC / 2.0 };
+                    let r = p.synthesize_continuing(text, &mut voice, language, instruct, speed, &gen, ref_sec);
                     if let Some(v) = voice.filter(|_| !fresh) {
                         st.voices.insert(key, Voice::Omni(v));
                     }
