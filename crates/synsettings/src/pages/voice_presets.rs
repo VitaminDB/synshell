@@ -200,7 +200,7 @@ pub fn for_arch(arch: &str) -> Option<&'static Presets> {
         categories: VOXCPM,
     };
     static OMNI: Presets = Presets {
-        hint: n_!("Нажмите — признаки встанут в «Голос» и сразу прозвучит фраза ниже. OmniVoice понимает только пол, возраст, высоту, шёпот и акцент через запятую"),
+        hint: n_!("Нажмите — признаки встанут в «Голос» и сразу прозвучит фраза ниже. OmniVoice понимает только пол, возраст, высоту, шёпот и акцент через запятую. Голос меняется от зерна: понравился — закрепите зерно"),
         categories: OMNIVOICE,
     };
     let arch = arch.to_ascii_lowercase();

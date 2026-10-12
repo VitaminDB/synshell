@@ -451,6 +451,9 @@ impl Loaded {
                 let gen = synaptix_tts_omnivoice::OmniVoiceGenerationConfig {
                     num_step: steps.unwrap_or(default_steps).clamp(4, 64),
                     guidance_scale: guidance.unwrap_or(2.0),
+                    position_temperature: params.f32("position_temperature").unwrap_or(5.0),
+                    class_temperature: params.f32("class_temperature").unwrap_or(0.0),
+                    seed: Some(seed),
                     ..Default::default()
                 };
                 let wav = if let Some(path) = ref_audio {
@@ -483,7 +486,7 @@ impl Loaded {
                     }
                     r.map_err(|e| anyhow::anyhow!("{e}"))?
                 };
-                Ok((wav, p.output_sample_rate() as u32, None))
+                Ok((wav, p.output_sample_rate() as u32, Some(seed)))
             }
             TtsEngine::Vibe(p) => {
                 use synaptix_tts_vibevoice::pipeline::VoiceSample;
