@@ -3,7 +3,7 @@
 
 use syngui::prelude::*;
 use syngui::widgets::{EventHook, KeyReply};
-use syngui::input::Key;
+use syngui::input::{Key, MouseButton};
 
 use crate::pages::{self, PAGES};
 use crate::state::{self, Ctx};
@@ -11,7 +11,7 @@ use crate::store;
 use crate::sys;
 use crate::ui::*;
 
-fn sidebar(ctx: Ctx) -> W {
+fn sidebar(ctx: Ctx) -> Column {
     let search = TextField::new()
         .placeholder(t!("Поиск настроек"))
         .prefix_icon(icons::SEARCH)
@@ -53,21 +53,39 @@ fn sidebar(ctx: Ctx) -> W {
         }
         vec![boxed(col)]
     });
-    boxed(
-        Column::new()
-            .gap(12.0)
-            .class("sidebar")
-            .child(
-                Row::new()
-                    .gap(10.0)
-                    .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .class("brand")
-                    .child(DecoratedBox::new().class("brand-logo").child(Icon::new(icons::SETTINGS).class("brand-icon")))
-                    .child(Text::new(t!("Параметры")).class("brand-title")),
+    Column::new()
+        .gap(12.0)
+        .class("sidebar")
+        .child(
+            Row::new()
+                .gap(10.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .class("brand")
+                .child(DecoratedBox::new().class("brand-logo").child(Icon::new(icons::SETTINGS).class("brand-icon")))
+                .child(Text::new(t!("Параметры")).class("brand-title grow"))
+                .child(history_buttons(ctx)),
+        )
+        .child(search)
+        .child(ScrollView::new().vertical().class("grow nav-scroll").child(nav))
+}
+
+fn history_buttons(ctx: Ctx) -> W {
+    let rev = state::history_rev();
+    boxed(Reactive::new(move || -> Vec<W> {
+        rev.get();
+        let nav = |back: bool, icon: &'static str| {
+            boxed(
+                Button::new("")
+                    .icon(icon)
+                    .class("icon-btn")
+                    .disabled(!state::can_go(back))
+                    .on_click(move || {
+                        state::history_go(ctx, back);
+                    }),
             )
-            .child(search)
-            .child(ScrollView::new().vertical().class("grow nav-scroll").child(nav)),
-    )
+        };
+        vec![boxed(Row::new().gap(2.0).child(nav(true, icons::ARROW_BACK)).child(nav(false, icons::ARROW_FORWARD)))]
+    }))
 }
 
 fn error_banner(ctx: Ctx) -> W {
@@ -311,5 +329,26 @@ fn desktop_root(ctx: Ctx) -> W {
         .child(error_banner(ctx))
         .child(DecoratedBox::new().class("grow page-host").child(content))
         .child(footer(ctx));
-    boxed(Row::new().gap(0.0).class("root").child(sidebar(ctx)).child(main))
+    let split = SplitView::new(sidebar(ctx), main)
+        .first_size_signal(ctx.sidebar_width)
+        .first_size_range(state::SIDEBAR_MIN, state::SIDEBAR_MAX)
+        .min_size(360.0)
+        .class("side-split");
+    boxed(
+        EventHook::new()
+            .capture_shortcuts(|k, m| m.alt && matches!(k, Key::Left | Key::Right))
+            .on_key_down(move |k, m| match k {
+                Key::Left if m.alt => {
+                    state::history_go(ctx, true);
+                    KeyReply::Handled
+                }
+                Key::Right if m.alt => {
+                    state::history_go(ctx, false);
+                    KeyReply::Handled
+                }
+                _ => KeyReply::Ignore,
+            })
+            .on_nav_button(move |b| state::history_go(ctx, b == MouseButton::Back))
+            .child(DecoratedBox::new().class("root").child(split)),
+    )
 }

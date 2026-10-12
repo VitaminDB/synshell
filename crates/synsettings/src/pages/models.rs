@@ -527,6 +527,24 @@ fn kind_page(ctx: state::Ctx, sig: RwSignal<Snapshot>, kind: ModelKind) -> W {
     sub_page(ctx, group_label(kind), task_hint(kind), vec![boxed(body)])
 }
 
+fn task_row(kind: ModelKind, control: W, open: Option<W>) -> W {
+    let badge = DecoratedBox::new().class("hw-badge").child(Icon::new(kind_icon(kind)).class("hw-icon"));
+    let text = Column::new()
+        .gap(2.0)
+        .class("grow")
+        .child(Text::new(task_label(kind)).class("row-label"))
+        .child(Text::new(task_hint(kind)).class("row-hint"));
+    let mut controls = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(control);
+    if let Some(o) = open {
+        controls = controls.child(o);
+    }
+    let head = Row::new().gap(14.0).cross_axis_alignment(CrossAxisAlignment::Center).child(badge).child(text);
+    if narrow() {
+        return boxed(Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("setting-row-wide").child(head).child(controls));
+    }
+    boxed(Row::new().gap(16.0).cross_axis_alignment(CrossAxisAlignment::Center).class("setting-row").child(head.class("grow")).child(controls))
+}
+
 fn defaults_page(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
     let choices = choices_signal();
     let body = Reactive::new(move || -> Vec<W> {
@@ -537,14 +555,14 @@ fn defaults_page(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
             let models: Vec<&(String, String, ModelKind)> = ch.models.iter().filter(|m| m.2 == kind).collect();
             let title = |id: &str| ch.models.iter().find(|m| m.0 == id).map(|m| m.1.clone()).unwrap_or_else(|| id.to_string());
             if models.is_empty() {
-                rows.push(row_inline(task_label(kind), task_hint(kind), Text::new(t!("Нет установленных моделей")).class("row-value")));
+                rows.push(task_row(kind, boxed(Text::new(t!("Нет установленных моделей")).class("row-value")), None));
                 continue;
             }
             let auto = match (&d.model, &d.resolved) {
                 (None, Some(r)) => t!("Авто — {m}", m = title(r)),
                 _ => t!("Авто"),
             };
-            let mut dd = Dropdown::new().item(DropdownItem::new("", auto));
+            let mut dd = Dropdown::new().width(280.0).item(DropdownItem::new("", auto));
             for (id, t, _) in &models {
                 dd = dd.item(DropdownItem::new(id.clone(), t.clone()));
             }
@@ -552,14 +570,23 @@ fn defaults_page(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
                 let model = (!v.is_empty()).then(|| v.to_string());
                 act(sig, move |c| c.set_default(kind, model.as_deref()).map(|_| ()));
             });
-            rows.push(row(task_label(kind), task_hint(kind), dd));
+            let open = d.resolved.clone().map(|id| {
+                let t = title(&id);
+                boxed(
+                    Button::new("")
+                        .icon(icons::TUNE)
+                        .class("icon-btn")
+                        .on_click(move || ctx.sub.set(Some((format!("{SUB}m/{id}"), t.clone())))),
+                )
+            });
+            rows.push(task_row(kind, boxed(dd), open));
         }
         vec![group(t!("Модель для задачи"), rows)]
     });
     sub_page(
         ctx,
         t!("Модели по умолчанию"),
-        t!("Их берут программы и ассистент, если не выбрали модель сами. «Авто» — уже загруженная или лучшая для устройств этой машины."),
+        t!("Их берут программы и ассистент, если не выбрали модель сами. «Авто» — уже загруженная или лучшая для устройств этой машины. Кнопка справа открывает настройки выбранной модели."),
         vec![boxed(body)],
     )
 }

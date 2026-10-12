@@ -384,6 +384,8 @@ pub fn danger_icon_button(icon: &str, on_click: impl FnMut() + Send + 'static) -
 
 /// Кодовые точки Material Icons.
 pub mod icons {
+    pub const ARROW_BACK: &str = "\u{e5c4}";
+    pub const ARROW_FORWARD: &str = "\u{e5c8}";
     pub const PALETTE: &str = "\u{e40a}";
     pub const WALLPAPER: &str = "\u{e1bc}";
     pub const PANEL: &str = "\u{e06c}";

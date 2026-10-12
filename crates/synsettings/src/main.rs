@@ -92,6 +92,7 @@ fn main() {
     }
 
     let ctx = state::init(&args.page);
+    state::track_history(ctx);
     // Страница из командной строки (`synsettings wifi`, кнопки оболочки) —
     // в узком окне открыть сразу её, а не список разделов.
     if args.page != "appearance" {
@@ -137,4 +138,5 @@ fn main() {
 
     // Не потерять правку, сделанную за миг до закрытия окна.
     let _ = store::save_now();
+    state::save_sidebar_width();
 }

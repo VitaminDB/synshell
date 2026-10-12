@@ -791,7 +791,7 @@
 "Нет установленных моделей" = "No models installed"
 "Авто — {m}" = "Auto — {m}"
 "Модель для задачи" = "Model per task"
-"Их берут программы и ассистент, если не выбрали модель сами. «Авто» — уже загруженная или лучшая для устройств этой машины." = "Apps and the assistant use these unless they pick a model themselves. “Auto” is the one already loaded or the best for this machine's devices."
+"Их берут программы и ассистент, если не выбрали модель сами. «Авто» — уже загруженная или лучшая для устройств этой машины. Кнопка справа открывает настройки выбранной модели." = "Apps and the assistant use these unless they pick a model themselves. “Auto” is the one already loaded or the best for this machine's devices. The button on the right opens the selected model's settings."
 "Служба" = "Service"
 "Память" = "Memory"
 "Свободно {a} из {b}; запас {c} МБ — меньше выгружаются неиспользуемые" = "{a} free of {b}; reserve {c} MB — below it unused models are unloaded"

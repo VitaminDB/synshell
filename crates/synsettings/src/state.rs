@@ -29,6 +29,39 @@ pub struct Ctx {
     /// Подстраница внутри страницы (раздел «Оборудования»): ключ и заголовок
     /// для шапки. «Назад» сначала закрывает её; смена страницы — сбрасывает.
     pub sub: RwSignal<Option<(String, String)>>,
+    pub sidebar_width: RwSignal<f32>,
+}
+
+pub const SIDEBAR_WIDTH: f32 = 264.0;
+pub const SIDEBAR_MIN: f32 = 200.0;
+pub const SIDEBAR_MAX: f32 = 480.0;
+
+fn sidebar_file() -> std::path::PathBuf {
+    std::env::var_os("XDG_STATE_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| synshell_common::paths::home().join(".local/state"))
+        .join("synshell/settings-sidebar")
+}
+
+fn load_sidebar_width() -> f32 {
+    std::fs::read_to_string(sidebar_file())
+        .ok()
+        .and_then(|t| t.trim().parse::<f32>().ok())
+        .filter(|w| w.is_finite())
+        .map_or(SIDEBAR_WIDTH, |w| w.clamp(SIDEBAR_MIN, SIDEBAR_MAX))
+}
+
+pub fn save_sidebar_width() {
+    let Some(ctx) = try_ctx() else { return };
+    let w = ctx.sidebar_width.get_untracked().round();
+    if w == load_sidebar_width() {
+        return;
+    }
+    let f = sidebar_file();
+    if let Some(d) = f.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let _ = std::fs::write(f, w.to_string());
 }
 
 thread_local! {
@@ -52,6 +85,7 @@ pub fn init(start: &str) -> Ctx {
         toast: use_signal(String::new()),
         page_open: use_signal(false),
         sub: use_signal(sub),
+        sidebar_width: use_signal(load_sidebar_width()),
     };
     CTX.with(|c| *c.borrow_mut() = Some(ctx));
     ctx
@@ -140,8 +174,108 @@ pub fn toast(msg: impl Into<String>) {
 
 /// Открыть страницу `id` (подстраница сбрасывается).
 pub fn open_page(ctx: Ctx, id: &str) {
-    if ctx.sub.get_untracked().is_some() {
-        ctx.sub.set(None);
-    }
+    quiet(|| {
+        if ctx.sub.get_untracked().is_some() {
+            ctx.sub.set(None);
+        }
+    });
     ctx.page.set(id.to_string());
+}
+
+type Loc = (String, Option<(String, String)>);
+
+#[derive(Default)]
+struct History {
+    back: Vec<Loc>,
+    fwd: Vec<Loc>,
+    cur: Option<Loc>,
+    quiet: bool,
+}
+
+thread_local! {
+    static HISTORY: RefCell<History> = RefCell::new(History::default());
+}
+
+pub fn history_rev() -> RwSignal<u64> {
+    thread_local! {
+        static REV: std::cell::Cell<Option<RwSignal<u64>>> = const { std::cell::Cell::new(None) };
+    }
+    REV.with(|r| match r.get() {
+        Some(s) => s,
+        None => {
+            let s = use_signal(0u64);
+            r.set(Some(s));
+            s
+        }
+    })
+}
+
+fn quiet(f: impl FnOnce()) {
+    HISTORY.with(|h| h.borrow_mut().quiet = true);
+    f();
+    HISTORY.with(|h| h.borrow_mut().quiet = false);
+}
+
+fn loc(ctx: Ctx) -> Loc {
+    (ctx.page.get_untracked(), ctx.sub.get_untracked())
+}
+
+pub fn track_history(ctx: Ctx) {
+    let rev = history_rev();
+    create_detached_effect(move || {
+        let page = ctx.page.get();
+        let sub = ctx.sub.get();
+        let changed = HISTORY.with(|h| {
+            let mut h = h.borrow_mut();
+            if h.quiet {
+                return false;
+            }
+            let now = (page, sub);
+            match h.cur.replace(now.clone()) {
+                Some(prev) if prev != now => {
+                    h.back.push(prev);
+                    h.fwd.clear();
+                    true
+                }
+                _ => false,
+            }
+        });
+        if changed {
+            rev.set(rev.get_untracked() + 1);
+        }
+    });
+}
+
+pub fn can_go(back: bool) -> bool {
+    HISTORY.with(|h| {
+        let h = h.borrow();
+        if back { !h.back.is_empty() } else { !h.fwd.is_empty() }
+    })
+}
+
+pub fn history_go(ctx: Ctx, back: bool) -> bool {
+    let cur = loc(ctx);
+    let Some(target) = HISTORY.with(|h| {
+        let mut h = h.borrow_mut();
+        let t = if back { h.back.pop() } else { h.fwd.pop() }?;
+        if back { h.fwd.push(cur) } else { h.back.push(cur) }
+        h.cur = Some(t.clone());
+        Some(t)
+    }) else {
+        return false;
+    };
+    quiet(|| {
+        if ctx.sub.get_untracked().is_some() {
+            ctx.sub.set(None);
+        }
+        if ctx.page.get_untracked() != target.0 {
+            ctx.page.set(target.0.clone());
+        }
+        if target.1.is_some() {
+            ctx.sub.set(target.1.clone());
+        }
+    });
+    let rev = history_rev();
+    rev.set(rev.get_untracked() + 1);
+    true
 }

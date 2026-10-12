@@ -12,17 +12,20 @@
 /* ── Боковая панель ─────────────────────────────────────────────── */
 
 .sidebar {
-    width: 264px;
     background: var(--sidebar-bg);
-    border-right: 1px solid var(--border);
     padding: 16px 12px 12px 12px;
+}
+
+.side-split {
+    border-color: var(--border);
+    accent-color: var(--accent);
+    divider-thickness: 1px;
 }
 
 .brand { padding: 2px 6px 6px 6px; }
 
 .brand-logo {
-    width: 34px;
-    height: 34px;
+    padding: 7px;
     border-radius: 10px;
     background: var(--accent);
 }
@@ -31,8 +34,6 @@
     color: var(--accent-fg);
     icon-size: 20px;
     font-size: 20px;
-    width: 34px;
-    height: 34px;
 }
 
 .brand-title {

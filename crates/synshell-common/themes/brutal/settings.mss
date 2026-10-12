@@ -1,5 +1,5 @@
 /* Необрутализм: рамки и жёсткие тени у карточек и кнопок. */
-.sidebar { border-right: 2px solid var(--border); }
+.side-split { border-color: var(--border); divider-thickness: 2px; }
 .group-card { border: 2px solid var(--border); border-radius: 0px; box-shadow: 5px 5px 0 var(--hard); }
 .row-sep { background: var(--border); }
 .nav-item { border-radius: 0px; }
