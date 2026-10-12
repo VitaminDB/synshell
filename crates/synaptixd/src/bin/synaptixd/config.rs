@@ -23,7 +23,7 @@ impl Default for Config {
             min_available_mb: 1024,
             idle_unload_min: 10,
             max_loaded: 0,
-            model_dirs: vec![PathBuf::from(synaptixd::SYSTEM_MODELS)],
+            model_dirs: Vec::new(),
             state: PathBuf::from(STATE),
             socket: synaptixd::socket_path(),
         }

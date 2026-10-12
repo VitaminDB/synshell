@@ -495,6 +495,26 @@ impl Manager {
     }
 
     pub fn import_scan(&self, path: &str) -> synaptixd::ImportScan {
+        let dirs = library::model_dirs_in(std::path::Path::new(path));
+        if !dirs.is_empty() {
+            let installed: Vec<String> = self.slots.lock().unwrap().iter().filter(|(_, s)| s.manifest.library.is_some()).map(|(id, _)| id.clone()).collect();
+            return synaptixd::ImportScan {
+                models: dirs
+                    .iter()
+                    .filter_map(|d| Manifest::load(d).ok())
+                    .map(|m| synaptixd::ImportCandidate {
+                        installed: installed.contains(&m.id),
+                        files: library::dir_files(&m.dir).iter().map(|f| ("file".to_string(), f.to_string_lossy().into_owned(), std::fs::metadata(f).map(|x| x.len()).unwrap_or(0))).collect(),
+                        id: m.id,
+                        title: m.title,
+                        kind: m.kind,
+                        arch: m.arch,
+                        description: m.description,
+                    })
+                    .collect(),
+                skipped: Vec::new(),
+            };
+        }
         let plan = synaptix::facade::catalog::plan_dir(std::path::Path::new(path));
         let installed: Vec<String> = self.slots.lock().unwrap().keys().cloned().collect();
         synaptixd::ImportScan {
@@ -557,6 +577,33 @@ impl Manager {
 
     pub fn import(self: &Arc<Self>, path: &str, lib: &str, ids: Option<Vec<String>>) -> Result<synaptixd::Job, Error> {
         let lib = self.library_path(lib)?;
+        let dirs = library::model_dirs_in(std::path::Path::new(path));
+        if !dirs.is_empty() {
+            let mut list: Vec<(String, std::path::PathBuf)> = dirs.iter().filter_map(|d| Manifest::load(d).ok().map(|m| (m.id, d.clone()))).collect();
+            if let Some(ids) = &ids {
+                list.retain(|(id, _)| ids.contains(id));
+            }
+            if list.is_empty() {
+                return Err(Error::new(ErrorCode::Failed, "нечего переносить"));
+            }
+            let total: u64 = list.iter().flat_map(|(_, d)| library::dir_files(d)).map(|f| std::fs::metadata(f).map(|m| m.len()).unwrap_or(0)).sum();
+            let id = self.start_job(format!("Перенос моделей в библиотеку: {}", list.len()), total);
+            let mgr = self.clone();
+            std::thread::Builder::new()
+                .name("adopt".into())
+                .spawn(move || {
+                    let r = (|| -> anyhow::Result<()> {
+                        for (mid, d) in &list {
+                            mgr.job(id, |j| j.detail = mid.clone());
+                            library::adopt(&lib, d, mid, &|n| mgr.job(id, |j| j.done += n))?;
+                        }
+                        Ok(())
+                    })();
+                    mgr.finish_job(id, r);
+                })
+                .map_err(|e| Error::new(ErrorCode::Failed, e.to_string()))?;
+            return Ok(self.job_entry(id));
+        }
         let mut plan = synaptix::facade::catalog::plan_dir(std::path::Path::new(path)).models;
         if let Some(ids) = &ids {
             plan.retain(|m| ids.contains(&m.id));

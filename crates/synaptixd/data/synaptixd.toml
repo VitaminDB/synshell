@@ -1,4 +1,3 @@
 min_available_mb = 1024
 idle_unload_min = 10
 max_loaded = 0
-model_dirs = ["/usr/share/synaptix/models"]

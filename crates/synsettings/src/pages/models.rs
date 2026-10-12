@@ -425,7 +425,7 @@ fn menu(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
                 "storage".into(),
                 t!("Хранилище моделей"),
                 if snap.libraries.is_empty() {
-                    t!("Библиотек нет — только модели из пакетов")
+                    t!("Библиотек нет — добавьте папку для моделей")
                 } else {
                     let used: u64 = snap.libraries.iter().map(|l| l.used).sum();
                     let models: u32 = snap.libraries.iter().map(|l| l.models).sum();
@@ -444,7 +444,7 @@ fn menu(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
             ),
         ]));
         if snap.models.is_empty() {
-            out.push(note(t!("Модели не установлены. Найдите пакеты synaptix-model в «Программах».")));
+            out.push(note(t!("Моделей нет. Добавьте библиотеку и импортируйте модели в «Хранилище моделей».")));
         }
         for kind in ModelKind::ALL {
             let items: Vec<W> = snap
@@ -533,7 +533,7 @@ fn service_page(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
                 row_inline(t!("Выгружено при нехватке"), t!("С запуска службы"), Text::new(st.evictions.to_string()).class("row-value")),
                 row_inline(
                     t!("Модели"),
-                    t!("Ставятся пакетами synaptix-model-* в /usr/share/synaptix/models"),
+                    t!("Хранятся в библиотеках — «Хранилище моделей»"),
                     button(t!("Обновить список"), move || act(sig, |c| c.call(synaptixd::Request::Rescan, &[]).map(|_| ()))),
                 ),
             ],
@@ -970,7 +970,7 @@ fn params_card(sig: RwSignal<Snapshot>, id: &str) -> W {
 fn location_card(sig: RwSignal<Snapshot>, m: &ModelEntry, libs: &[LibraryInfo]) -> W {
     let mut rows: Vec<W> = Vec::new();
     match &m.library {
-        None => rows.push(row_inline(t!("Где лежит"), t!("Установлена пакетом в системный каталог — место задаёт пакет"), Text::new(""))),
+        None => rows.push(row_inline(t!("Где лежит"), t!("Лежит в каталоге из model_dirs службы, вне библиотек"), Text::new(""))),
         Some(path) => {
             let name = libs.iter().find(|l| &l.path == path).map(|l| l.name.clone()).unwrap_or_else(|| path.clone());
             let others: Vec<&LibraryInfo> = libs.iter().filter(|l| &l.path != path && l.online).collect();
@@ -1012,7 +1012,7 @@ fn model_page(ctx: state::Ctx, sig: RwSignal<Snapshot>, id: String) -> W {
         let snap = sig.get();
         match snap.models.iter().find(|m| m.id == i) {
             Some(m) => vec![status_card(m), location_card(sig, m, &snap.libraries)],
-            None => vec![note(t!("Модель {id} не найдена — возможно, пакет удалён", id = i))],
+            None => vec![note(t!("Модель {id} не найдена — возможно, удалена из библиотеки", id = i))],
         }
     });
     let i = id.clone();

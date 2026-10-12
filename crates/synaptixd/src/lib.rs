@@ -13,7 +13,6 @@ pub use wire::Mapped;
 
 pub const SOCKET: &str = "/run/synaptix/synaptixd.sock";
 pub const VERSION: u32 = 1;
-pub const SYSTEM_MODELS: &str = "/usr/share/synaptix/models";
 
 pub fn socket_path() -> PathBuf {
     std::env::var_os("SYNAPTIXD_SOCKET").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(SOCKET))

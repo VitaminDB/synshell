@@ -148,6 +148,52 @@ pub fn write_model(lib: &Path, id: &str, title: &str, kind: ModelKind, arch: &st
     Ok(())
 }
 
+pub fn model_dirs_in(path: &Path) -> Vec<PathBuf> {
+    if path.join("model.toml").is_file() {
+        return vec![path.to_path_buf()];
+    }
+    let mut v: Vec<PathBuf> = std::fs::read_dir(path)
+        .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.join("model.toml").is_file()).collect())
+        .unwrap_or_default();
+    v.sort();
+    v
+}
+
+pub fn dir_files(src: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(src)
+        .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.file_name().is_some_and(|n| n != "model.toml") && std::fs::metadata(p).is_ok_and(|m| m.is_file())).collect())
+        .unwrap_or_default()
+}
+
+pub fn adopt(lib: &Path, src: &Path, id: &str, progress: &dyn Fn(u64)) -> anyhow::Result<()> {
+    let toml = std::fs::read_to_string(src.join("model.toml"))?;
+    let toml: String = toml.lines().filter(|l| !l.trim_start().starts_with("package")).map(|l| format!("{l}\n")).collect();
+    let mut links: Vec<(String, String)> = Vec::new();
+    for f in dir_files(src) {
+        let fp = fingerprint(&f)?;
+        let ext = f.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_else(|| "bin".into());
+        let blob = format!("{fp}.{ext}");
+        let size = std::fs::metadata(&f)?.len();
+        if !put_file(&f, &blobs_dir(lib).join(&blob), progress)? {
+            progress(size);
+        }
+        links.push((f.file_name().unwrap_or_default().to_string_lossy().into_owned(), blob));
+    }
+    let dir = models_dir(lib).join(id);
+    let tmp = models_dir(lib).join(format!(".{id}.new"));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp)?;
+    std::fs::write(tmp.join("model.toml"), toml)?;
+    for (name, blob) in links {
+        std::os::unix::fs::symlink(format!("../../{BLOBS}/{blob}"), tmp.join(name))?;
+    }
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir)?;
+    }
+    std::fs::rename(&tmp, &dir)?;
+    Ok(())
+}
+
 pub fn model_blobs(model_dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     if let Ok(rd) = std::fs::read_dir(model_dir) {
