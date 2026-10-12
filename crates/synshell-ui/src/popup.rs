@@ -227,11 +227,18 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
     };
     // Меню запуска на рабочем столе само задаёт ширину (уголок меняет её живьём).
     let launcher_desk = matches!(p.kind, PopupKind::Launcher) && !ctx.is_phone();
+    // Панель со своей непрозрачностью красится поверх темы — примыкающая
+    // карточка тем же цветом, иначе она другого оттенка и не перетекает.
+    let panel_bg = attached.then_some(p.anchor.panel_opacity).flatten();
     let card = crate::anim::popup_presence(&ctx, open, presence_edge, attached, move || {
         let leave_timer = leave_timer.clone();
         let mut card = DecoratedBox::new().child(content(&kind, ShellCtx::get())).class(&card_class);
         if !launcher_desk {
             card = card.style("width", StyleValue::px(width));
+        }
+        if let Some(o) = panel_bg {
+            let c = ShellCtx::get().config.get().appearance.palette().bg.with_alpha(o);
+            card = card.style("background-color", syngui::core::Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0));
         }
         Box::new(
             InputArea::new(card)

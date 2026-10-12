@@ -162,8 +162,14 @@ Text {
     box-shadow: 0 10px 32px var(--shadow);
 }
 
-/* Карточка, примыкающая к панели: перетекает в неё — угловые скругления у
- * края панели вогнутые (`flow-edge`), рамка у этого края снята. */
+/* Карточка, примыкающая к панели: перетекает в неё — фон тот же, что у
+ * панели (не `--menu-bg`: иначе панель и карточка разных цветов и
+ * «перетекания» нет), угловые скругления у края панели вогнутые
+ * (`flow-edge`), рамка у этого края снята. */
+.popup-card.popup-flow-top, .popup-card.popup-flow-bottom,
+.popup-card.popup-flow-left, .popup-card.popup-flow-right {
+    background-color: var(--panel-bg);
+}
 .popup-card.popup-flow-top {
     border-top-left-radius: 0px; border-top-right-radius: 0px;
     border-top-width: 0px;

@@ -538,7 +538,7 @@ fn footer(ctx: ShellCtx, settings: RwSignal<bool>) -> impl Widget {
             let c = ShellCtx::get();
             c.popup.set(Some(crate::ctx::Popup {
                 kind: crate::ctx::PopupKind::Power,
-                anchor: crate::ctx::PopupAnchor { output: None, rect: None, edge: synshell_common::config::Edge::Bottom, attached: false },
+                anchor: crate::ctx::PopupAnchor { output: None, rect: None, edge: synshell_common::config::Edge::Bottom, attached: false, panel_opacity: None },
             }));
         }))
         .class("launcher-footer")

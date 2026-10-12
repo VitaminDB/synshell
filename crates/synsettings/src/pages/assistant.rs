@@ -122,7 +122,8 @@ fn mic_meter(s: VadState, phrase: Option<f32>) -> impl Widget {
     } else {
         (t!("Тишина"), "mic-test-state")
     };
-    let (w, full) = (480.0, 0.2);
+    // Шкала — до 20 % или с запасом над порогом речи, если «Уровень шума» высокий.
+    let (w, full) = (480.0, (s.speech * 1.25).clamp(0.2, 1.0));
     let mut col = Column::new()
         .gap(6.0)
         .cross_axis_alignment(CrossAxisAlignment::Start)

@@ -38,13 +38,13 @@ pub struct PanelCtx {
 impl PanelCtx {
     /// Якорь всплывающего окна у прямоугольника апплета (координаты поверхности панели).
     pub fn anchor(&self, r: Rect) -> PopupAnchor {
-        let (rect, attached) = PANELS.with(|p| {
+        let (rect, attached, panel_opacity) = PANELS.with(|p| {
             p.borrow()
                 .get(&self.key)
-                .map(|rt| (rt.anchor_rect(r), rt.attached))
-                .unwrap_or(([r.origin.x, r.origin.y, r.size.width, r.size.height], false))
+                .map(|rt| (rt.anchor_rect(r), rt.attached, rt.opacity))
+                .unwrap_or(([r.origin.x, r.origin.y, r.size.width, r.size.height], false, None))
         });
-        PopupAnchor { output: Some(self.output.clone()), rect: Some(rect), edge: self.edge, attached }
+        PopupAnchor { output: Some(self.output.clone()), rect: Some(rect), edge: self.edge, attached, panel_opacity }
     }
 
     /// Границы апплета номер `index` (для якоря всплывающего окна,
@@ -102,6 +102,8 @@ pub(crate) struct PanelRt {
     spec: SurfaceSpec,
     /// Панель прижата к краю: всплывающие окна примыкают к ней.
     attached: bool,
+    /// Своя непрозрачность панели (`opacity`), иначе из темы.
+    opacity: Option<f32>,
     /// Границы видимой части (док — его полоса значков), иначе — по апплетам.
     bar: Option<Arc<Mutex<Rect>>>,
     /// Показать спрятанную автоскрытием панель (док) — по жесту от края
@@ -111,7 +113,7 @@ pub(crate) struct PanelRt {
 
 /// Завести учёт панели (док ведёт его так же): якоря окон считаются от
 /// положения поверхности.
-pub(crate) fn register(key: u64, output: &str, edge: Edge, spec: &SurfaceSpec, attached: bool) {
+pub(crate) fn register(key: u64, output: &str, edge: Edge, spec: &SurfaceSpec, attached: bool, opacity: Option<f32>) {
     PANELS.with(|p| {
         p.borrow_mut().insert(
             key,
@@ -123,6 +125,7 @@ pub(crate) fn register(key: u64, output: &str, edge: Edge, spec: &SurfaceSpec, a
                 items: HashMap::new(),
                 spec: spec.clone(),
                 attached,
+                opacity,
                 bar: None,
                 reveal: None,
             },
@@ -284,6 +287,7 @@ pub fn applet_anchor(kind: &str) -> Option<PopupAnchor> {
                         rect: Some(rt.anchor_rect(r)),
                         edge: rt.edge,
                         attached: rt.attached,
+                        panel_opacity: rt.opacity,
                     });
                 }
             }
@@ -460,7 +464,7 @@ pub fn create(ctx: ShellCtx, index: usize, panel: &Panel, out: &OutputInfo) -> (
     let key = next_key();
     let defloated = use_signal(want_defloat(panel, out));
     let spec = spec_for(panel, out, panel.autohide, defloated.get_untracked());
-    register(key, &out.name, panel.edge, &spec, !panel.floating || defloated.get_untracked());
+    register(key, &out.name, panel.edge, &spec, !panel.floating || defloated.get_untracked(), panel.opacity);
     let hidden = use_signal(panel.autohide);
     let id_cell: Arc<std::sync::Mutex<Option<SurfaceId>>> = Arc::new(std::sync::Mutex::new(None));
     let autohide = panel.autohide.then(|| AutoHide {
