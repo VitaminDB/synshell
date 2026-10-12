@@ -1192,6 +1192,8 @@ fn temp_icon(k: synsystem::thermal::TempKind) -> &'static str {
         Memory => mi::MEMORY,
         Wifi => "\u{E63E}",
         Battery => "\u{E1A4}",
+        Npu => "\u{EA4A}",
+        Modem => "\u{E1C8}",
         Board | Other => "\u{E1FF}",
     }
 }
@@ -1206,6 +1208,8 @@ fn temp_kind_label(k: synsystem::thermal::TempKind) -> String {
         Wifi => t!("Беспроводной адаптер"),
         Battery => t!("Аккумулятор"),
         Board => t!("Корпус и плата"),
+        Npu => t!("Нейропроцессор"),
+        Modem => t!("Модем"),
         Other => t!("Датчик"),
     }
     .to_string()
@@ -1232,8 +1236,10 @@ fn temp_devices_view(s: &Snap, cx: &Cx) -> Box<dyn Widget> {
             Memory => 3,
             Board => 4,
             Battery => 5,
-            Wifi => 6,
-            Other => 7,
+            Npu => 6,
+            Modem => 7,
+            Wifi => 8,
+            Other => 9,
         };
         (d.level() < 0.75, k)
     };

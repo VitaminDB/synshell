@@ -84,6 +84,8 @@ pub enum TempKind {
     Wifi,
     Battery,
     Board,
+    Npu,
+    Modem,
     Other,
 }
 
@@ -197,11 +199,17 @@ pub fn devices(sys: &Sys) -> Vec<TempDevice> {
             TempKind::Cpu
         } else if l.starts_with("gpu") {
             TempKind::Gpu
+        } else if l.starts_with("ddr") {
+            TempKind::Memory
+        } else if l.starts_with("nspss") || l.contains("npu") {
+            TempKind::Npu
+        } else if l.starts_with("mdmss") || l.starts_with("modem") {
+            TempKind::Modem
         } else if l.contains("battery") || l == "bms" {
             TempKind::Battery
         } else if l.starts_with("sen") || l.starts_with("acpitz") || l.contains("skin") || l.contains("quiet") || l.contains("pch") || l.starts_with("tz") {
             TempKind::Board
-        } else if l.contains("nvme") || l.contains("ufs") || l.contains("sdc") {
+        } else if l.contains("nvme") || l.contains("ufs") || l.contains("sdc") || l.starts_with("flash") {
             TempKind::Storage
         } else if l.contains("wlan") || l.contains("wifi") {
             TempKind::Wifi

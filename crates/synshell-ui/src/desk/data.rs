@@ -169,6 +169,11 @@ fn start_sampler(sig: RwSignal<Snap>) {
                         temp_devs.push(synsystem::thermal::TempDevice { kind: synsystem::thermal::TempKind::Gpu, name: g.name.clone(), celsius: t, crit: Some(90.0) });
                     }
                 }
+                if let Some(g) = primary_gpu(&gpus) {
+                    for d in temp_devs.iter_mut().filter(|d| d.kind == synsystem::thermal::TempKind::Gpu && d.name == "GPU") {
+                        d.name = g.name.clone();
+                    }
+                }
                 temp_devs.sort_by(|a, b| b.level().total_cmp(&a.level()));
                 let battery = synsystem::battery::read(&sys);
                 let cpu_temp = synsystem::thermal::cpu_celsius(&temps);
