@@ -62,16 +62,23 @@ pub fn scan(lib: &Path) -> Vec<Manifest> {
         let Some(main) = main else { continue };
         let components: BTreeMap<String, String> =
             p.components.iter().filter(|(r, _)| r != "model").map(|(r, f)| (r.clone(), f.to_string_lossy().into_owned())).collect();
+        let kind = crate::defaults::kind_of(p.task);
+        // NPU — речь и эмбеддинги: языковые модели на нём на порядки медленнее
+        // (граф на каждый токен), картинки, видео и музыка не проверены.
+        let mut devices = vec![synaptixd::DeviceKind::Cuda, synaptixd::DeviceKind::Cpu];
+        if matches!(kind, synaptixd::ModelKind::Tts | synaptixd::ModelKind::Asr | synaptixd::ModelKind::Ctc | synaptixd::ModelKind::Embed) {
+            devices.push(synaptixd::DeviceKind::Npu);
+        }
         out.push(Manifest {
             id: p.id,
             title: p.title,
-            kind: crate::defaults::kind_of(p.task),
+            kind,
             arch: p.arch,
             languages: Vec::new(),
             license: String::new(),
             description: p.description,
             package: None,
-            variants: vec![Variant { file: main.to_string_lossy().into_owned(), devices: vec![synaptixd::DeviceKind::Cuda, synaptixd::DeviceKind::Cpu, synaptixd::DeviceKind::Npu], precision: String::new() }],
+            variants: vec![Variant { file: main.to_string_lossy().into_owned(), devices, precision: String::new() }],
             resources: Default::default(),
             defaults: Default::default(),
             components,
