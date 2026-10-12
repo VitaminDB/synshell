@@ -119,9 +119,10 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         "gen" => {
             let prompt = args[2..].join(" ");
+            let max = std::env::var("GEN_MAX").ok().and_then(|v| v.parse().ok()).unwrap_or(256);
             let t0 = std::time::Instant::now();
             let g = c
-                .generate(arg(1)?, vec![synaptixd::Message { role: "user".into(), content: prompt }], 256, None, |t| {
+                .generate(arg(1)?, vec![synaptixd::Message { role: "user".into(), content: prompt }], max, None, |t| {
                     print!("{t}");
                     let _ = std::io::Write::flush(&mut std::io::stdout());
                 })

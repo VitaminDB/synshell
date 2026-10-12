@@ -6,11 +6,18 @@ use synaptixd::{Alignment, CtcInfo, DeviceKind, ModelKind, PhoneSpan};
 
 use crate::devices;
 
+pub struct LlmSlot {
+    llm: synaptix::facade::llm::Llm,
+    tok: synaptix::facade::llm::LlmTokenizer,
+    ctx: usize,
+    session: std::sync::Mutex<Option<synaptix::facade::llm::LlmKvSession>>,
+}
+
 pub enum Loaded {
     Ctc(Box<Wav2Vec2Ctc>),
     Mfa(Box<synaptix_align_mfa::MfaModel>),
     Asr(std::sync::Mutex<synaptix::facade::asr::Transcriber>),
-    Llm(Box<(synaptix::facade::llm::Llm, synaptix::facade::llm::LlmTokenizer)>),
+    Llm(Box<LlmSlot>),
     Tts(std::sync::Mutex<synaptix_tts_omnivoice::OmniVoicePipeline>, DeviceKind),
 }
 
@@ -56,7 +63,8 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind) -> anyhow
             let precision = optimal_profile_for_device(path, device).policy.to_precision().map_err(|e| anyhow::anyhow!("{e}"))?;
             let max_seq = if dev == DeviceKind::Npu { 2048 } else { 8192 };
             let (llm, tok) = load_llm(path, device, precision, Some(max_seq)).map_err(|e| anyhow::anyhow!("{e}"))?;
-            Ok(Loaded::Llm(Box::new((llm, tok))))
+            let ctx = if dev == DeviceKind::Npu { 2048 } else { 4096 };
+            Ok(Loaded::Llm(Box::new(LlmSlot { llm, tok, ctx, session: std::sync::Mutex::new(None) })))
         }
         ModelKind::Tts => {
             let device = devices::device(dev);
@@ -164,7 +172,7 @@ impl Loaded {
     ) -> anyhow::Result<synaptixd::Generated> {
         use synaptix::facade::llm::{GenerationOptions, LlmGeneration, Message};
         let Loaded::Llm(b) = self else { anyhow::bail!("модель не языковая") };
-        let (llm, tok) = (&b.0, &b.1);
+        let (llm, tok) = (&b.llm, &b.tok);
         let msgs: Vec<Message> = messages
             .iter()
             .map(|m| match m.role.as_str() {
@@ -195,13 +203,28 @@ impl Loaded {
         gen.set_stop_tokens(tok.eos_ids().to_vec());
         let mut text = String::new();
         let mut tokens = 0usize;
-        gen.generate_streaming(&ids, tok, |_, piece| {
+        let on_piece = |_: u32, piece: &str| {
             tokens += 1;
             text.push_str(piece);
             on_token(piece);
             true
-        })
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+        };
+        let fits = ids.len() + max_tokens.max(1) + 16 <= b.ctx;
+        let mut session = if fits { Some(b.session.lock().unwrap_or_else(|e| e.into_inner())) } else { None };
+        if let Some(s) = session.as_mut() {
+            if s.is_none() {
+                **s = llm.new_kv_session(b.ctx, b.ctx).ok().flatten();
+            }
+        }
+        let t0 = std::time::Instant::now();
+        let reused = match session.as_mut().and_then(|s| s.as_mut()) {
+            Some(s) => gen.generate_streaming_cached(s, &ids, tok, on_piece).map_err(|e| anyhow::anyhow!("{e}"))?,
+            None => {
+                gen.generate_streaming(&ids, tok, on_piece).map_err(|e| anyhow::anyhow!("{e}"))?;
+                0
+            }
+        };
+        tracing::info!("generate: промпт {} токенов (из кэша {reused}), ответ {tokens} за {:.1} с", ids.len(), t0.elapsed().as_secs_f32());
         if prof {
             eprintln!("{}", synaptix_llm_common::model::prefill_prof_report_and_clear());
         }
