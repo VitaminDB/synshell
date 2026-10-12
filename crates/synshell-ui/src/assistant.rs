@@ -78,8 +78,7 @@ fn ask(p: Panel, text: String) {
         .name("assistant".into())
         .spawn(move || {
             let cfg = synshell_common::Config::load().0.assistant;
-            let mut agent = Agent::new(Arc::new(DaemonBackend), synassist::builtin::enabled(&cfg.disabled_tools));
-            agent.auto_approve = cfg.auto_approve;
+            let agent = Agent::configured(Arc::new(DaemonBackend), &cfg.disabled_tools, cfg.auto_approve, cfg.autocompact);
             let confirm = move |_: &str, summary: &str| -> bool {
                 let (tx, rx) = channel();
                 *shared().answer.lock().unwrap() = Some(tx);

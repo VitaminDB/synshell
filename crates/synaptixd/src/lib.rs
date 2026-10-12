@@ -561,7 +561,7 @@ pub struct Transcript {
     pub segments: Vec<Segment>,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
 pub struct Generated {
     pub text: String,
     pub tokens: usize,
@@ -569,6 +569,10 @@ pub struct Generated {
     pub thinking: String,
     #[serde(default)]
     pub tool_calls: Vec<ToolCall>,
+    #[serde(default)]
+    pub prompt_tokens: usize,
+    #[serde(default)]
+    pub context: usize,
 }
 
 #[derive(Debug, Clone)]

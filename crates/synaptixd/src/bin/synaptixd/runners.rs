@@ -304,7 +304,7 @@ impl Loaded {
         }
         let tool_calls: Vec<synaptixd::ToolCall> =
             parser.finish().into_iter().map(|c| synaptixd::ToolCall { name: c.name, arguments: c.arguments_json }).collect();
-        Ok(synaptixd::Generated { text, tokens, thinking: reasoning.into_inner(), tool_calls })
+        Ok(synaptixd::Generated { text, tokens, thinking: reasoning.into_inner(), tool_calls, prompt_tokens: ids.len(), context: b.ctx })
     }
 
     pub fn speak(&self, text: &str, params: &Params) -> anyhow::Result<(Vec<f32>, u32)> {

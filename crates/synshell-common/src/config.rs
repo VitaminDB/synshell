@@ -1566,11 +1566,12 @@ pub struct Assistant {
     pub enabled: bool,
     pub auto_approve: bool,
     pub disabled_tools: Vec<String>,
+    pub autocompact: bool,
 }
 
 impl Default for Assistant {
     fn default() -> Self {
-        Self { enabled: true, auto_approve: false, disabled_tools: Vec::new() }
+        Self { enabled: true, auto_approve: false, disabled_tools: Vec::new(), autocompact: true }
     }
 }
 

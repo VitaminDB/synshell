@@ -11,7 +11,7 @@ serde.workspace = true
 serde_json.workspace = true
 synaptixd.workspace = true
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2", "stream"] }
-tokio = { version = "1", features = ["rt", "time"] }
+tokio = { version = "1", features = ["rt", "time", "process", "io-util", "macros"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 thiserror = "2"
 htmd = "0.5"
@@ -21,6 +21,7 @@ url = "2"
 urlencoding = "2"
 base64 = "0.22"
 log = "0.4"
+libc = "0.2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "time", "macros"] }

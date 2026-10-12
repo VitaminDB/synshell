@@ -84,7 +84,8 @@ fn cli(question: &str) {
     use std::io::Write;
     use std::sync::Arc;
     use synassist::agent::{Agent, AgentEvent, DaemonBackend};
-    let agent = Agent::new(Arc::new(DaemonBackend), synassist::builtin::all());
+    let cfg = synshell_common::Config::load().0.assistant;
+    let agent = Agent::configured(Arc::new(DaemonBackend), &cfg.disabled_tools, false, cfg.autocompact);
     let mut chat = synassist::chat::Chat::new();
     let confirm = |tool: &str, summary: &str| -> bool {
         print!("\n[{tool}] {summary} — разрешить? [y/N] ");
@@ -99,6 +100,7 @@ fn cli(question: &str) {
             AgentEvent::Text(t) => print!("{t}"),
             AgentEvent::Thinking(t) => print!("\x1b[2m{t}\x1b[0m"),
             AgentEvent::ToolStart { name, summary } => print!("\n\x1b[33m→ {name}: {summary}\x1b[0m"),
+            AgentEvent::Compacted(_) => print!("\n\x1b[2m[начало разговора сжато в сводку]\x1b[0m"),
             AgentEvent::Message(m) if m.role == synassist::chat::Role::Tool => {
                 let first: String = m.text.lines().take(6).collect::<Vec<_>>().join("\n  ");
                 print!("\n\x1b[36m  {first}\x1b[0m\n");

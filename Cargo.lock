@@ -6937,6 +6937,7 @@ dependencies = [
  "dom_smoothie",
  "futures-util",
  "htmd",
+ "libc",
  "log",
  "reqwest",
  "scraper",

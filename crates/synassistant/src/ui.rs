@@ -25,6 +25,7 @@ fn tool_icon(name: &str) -> &'static str {
         "bash" => "\u{EB8E}",
         "web" => "\u{E894}",
         "media" => "\u{E3F4}",
+        "subagent" => "\u{EA0B}",
         _ => "\u{E869}",
     }
 }
@@ -115,8 +116,39 @@ fn tool_card(m: &ChatMsg) -> W {
     boxed(col.class(if run.ok { "tool-card" } else { "tool-card failed" }))
 }
 
+fn summary_card(m: &ChatMsg) -> W {
+    let open = use_signal(false);
+    let text = m.text.clone();
+    boxed(
+        Column::new()
+            .gap(6.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(
+                GestureDetector::new().on_click(move || open.set(!open.get_untracked())).child(
+                    Row::new()
+                        .gap(8.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(icon("\u{E8F4}").class("ic tool-ic"))
+                        .child(Text::new(t!("Начало разговора сжато в сводку ({n} сообщ.)", n = m.covers)).max_lines(1).class("tool-sum grow")),
+                ),
+            )
+            .child(Reactive::new(move || -> Vec<W> {
+                if open.get() {
+                    vec![markdown(&text, "tool-out")]
+                } else {
+                    vec![]
+                }
+            }))
+            .class("tool-card"),
+    )
+}
+
 fn message(m: &ChatMsg) -> Option<W> {
+    if m.compacted {
+        return None;
+    }
     match m.role {
+        Role::Summary => Some(summary_card(m)),
         Role::User => Some(boxed(
             Row::new().main_axis_alignment(MainAxisAlignment::End).child(DecoratedBox::new().class("user-bubble").child(Text::new(m.text.clone()).selectable(true).class("user-text"))),
         )),

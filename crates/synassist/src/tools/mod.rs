@@ -1,3 +1,5 @@
+pub mod args;
+pub mod bash;
 pub mod web;
 
 use serde_json::Value;
@@ -30,6 +32,9 @@ pub trait Tool: Send + Sync {
     fn danger(&self, args: &Value) -> Danger;
     fn summary(&self, args: &Value) -> String;
     fn run(&self, args: &Value) -> ToolResult;
+    fn run_ctx(&self, args: &Value, _cancel: &std::sync::atomic::AtomicBool) -> ToolResult {
+        self.run(args)
+    }
 }
 
 pub fn schema(t: &dyn Tool) -> Value {

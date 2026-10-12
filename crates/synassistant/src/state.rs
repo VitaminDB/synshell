@@ -133,8 +133,7 @@ impl St {
             .name("assistant".into())
             .spawn(move || {
                 let cfg = synshell_common::Config::load().0.assistant;
-                let mut agent = Agent::new(Arc::new(DaemonBackend), synassist::builtin::enabled(&cfg.disabled_tools));
-                agent.auto_approve = cfg.auto_approve;
+                let agent = Agent::configured(Arc::new(DaemonBackend), &cfg.disabled_tools, cfg.auto_approve, cfg.autocompact);
                 let confirm = move |tool: &str, summary: &str| -> bool {
                     let (tx, rx) = channel();
                     *shared().answer.lock().unwrap() = Some(tx);
@@ -168,6 +167,11 @@ impl St {
             AgentEvent::ToolText(t) => self.live_update(|l| l.tool_text.push_str(&t)),
             AgentEvent::ToolStart { name, summary } => self.live_update(|l| l.tool = Some((name, summary))),
             AgentEvent::Message(m) => self.push(m),
+            AgentEvent::Compacted(msgs) => {
+                let mut c = self.chat.get_untracked();
+                c.messages = msgs;
+                self.chat.set(c);
+            }
             AgentEvent::Done => {}
         }
     }

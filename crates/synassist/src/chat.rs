@@ -9,6 +9,7 @@ pub enum Role {
     User,
     Assistant,
     Tool,
+    Summary,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -35,11 +36,19 @@ pub struct ChatMsg {
     pub error: Option<String>,
     #[serde(default)]
     pub time: i64,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub compacted: bool,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub covers: usize,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 impl ChatMsg {
     pub fn user(text: impl Into<String>) -> Self {
-        Self { role: Role::User, text: text.into(), thinking: String::new(), tool_calls: Vec::new(), tool: None, files: Vec::new(), error: None, time: now() }
+        Self { role: Role::User, text: text.into(), thinking: String::new(), tool_calls: Vec::new(), tool: None, files: Vec::new(), error: None, time: now(), compacted: false, covers: 0 }
     }
 
     pub fn assistant(text: impl Into<String>, thinking: String, tool_calls: Vec<ToolCall>) -> Self {
@@ -48,6 +57,10 @@ impl ChatMsg {
 
     pub fn tool(name: &str, summary: String, ok: bool, text: String, files: Vec<PathBuf>) -> Self {
         Self { role: Role::Tool, text, tool: Some(ToolRun { name: name.into(), summary, ok }), files, ..Self::user("") }
+    }
+
+    pub fn summary(text: String, covers: usize) -> Self {
+        Self { role: Role::Summary, text, covers, ..Self::user("") }
     }
 }
 
@@ -65,6 +78,10 @@ pub struct Chat {
     pub thinking: bool,
     #[serde(default)]
     pub messages: Vec<ChatMsg>,
+    #[serde(default)]
+    pub prompt_tokens: usize,
+    #[serde(default)]
+    pub context: usize,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -160,7 +177,7 @@ impl Store {
                     .filter_map(|e| std::fs::read(e.path()).ok())
                     .filter_map(|b| serde_json::from_slice::<Chat>(&b).ok())
                     .map(|c| ChatSummary {
-                        preview: c.messages.iter().rev().find(|m| m.role == Role::Assistant && !m.text.is_empty()).map(|m| title_from(&m.text)).unwrap_or_default(),
+                        preview: c.messages.iter().rev().find(|m| m.role == Role::Assistant && !m.text.is_empty() && !m.compacted).map(|m| title_from(&m.text)).unwrap_or_default(),
                         title: c.display_title(),
                         updated: c.updated,
                         id: c.id,
