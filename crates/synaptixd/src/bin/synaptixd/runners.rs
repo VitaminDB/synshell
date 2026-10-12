@@ -35,7 +35,7 @@ pub fn runnable(kind: ModelKind) -> bool {
 }
 
 fn llm_policy(path: &Path, dev: DeviceKind, quant: Option<&str>) -> synaptix::facade::llm::QuantPolicy {
-    use synaptix::facade::llm::{optimal_profile_for_device, QuantPolicy};
+    use synaptix::facade::llm::{optimal_profile_for, optimal_profile_for_device, QuantPolicy};
     let mut p = optimal_profile_for_device(path, devices::device(dev)).policy;
     match quant {
         Some("int8") => {
@@ -43,6 +43,15 @@ fn llm_policy(path: &Path, dev: DeviceKind, quant: Option<&str>) -> synaptix::fa
             p.weights_storage = q8;
             p.attn_storage = None;
             p.lm_head_storage = q8;
+        }
+        Some("nvfp4") if dev == DeviceKind::Cuda => p = optimal_profile_for(path, None).policy,
+        Some("mxfp8") if dev == DeviceKind::Cuda => {
+            p = optimal_profile_for(path, None).policy;
+            let fp8 = |d: DType| if d == DType::NVFP4 { DType::MXFP8 } else { d };
+            p.weights_storage = fp8(p.weights_storage);
+            p.attn_storage = p.attn_storage.map(fp8);
+            p.lm_head_storage = fp8(p.lm_head_storage);
+            p.embed_storage = fp8(p.embed_storage);
         }
         Some("bf16") if dev == DeviceKind::Cuda => p = QuantPolicy::quality(),
         _ => {}

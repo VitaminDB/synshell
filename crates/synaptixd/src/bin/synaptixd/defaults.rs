@@ -79,7 +79,9 @@ pub fn quant_options(m: &Manifest) -> Vec<QuantOption> {
     if m.kind == ModelKind::Llm {
         out.push(QuantOption { id: "int8".into(), devices: devices.clone() });
         if devices.contains(&DeviceKind::Cuda) {
-            out.push(QuantOption { id: "bf16".into(), devices: vec![DeviceKind::Cuda] });
+            for id in ["nvfp4", "mxfp8", "bf16"] {
+                out.push(QuantOption { id: id.into(), devices: vec![DeviceKind::Cuda] });
+            }
         }
         return out;
     }
