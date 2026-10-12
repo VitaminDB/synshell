@@ -49,6 +49,7 @@ fn kind(k: sp::ParamKind) -> ParamKind {
         sp::ParamKind::Float { min, max, step, decimals } => ParamKind::Float { min, max, step, decimals },
         sp::ParamKind::Bool => ParamKind::Bool,
         sp::ParamKind::Choice { options } => ParamKind::Choice { options },
+        sp::ParamKind::File { patterns } => ParamKind::File { patterns },
     }
 }
 
@@ -102,16 +103,19 @@ pub fn quant_options(m: &Manifest) -> Vec<QuantOption> {
             out.push(QuantOption { id: p.to_string(), devices: devs });
         }
     }
-    // Аудио-модели считаются в выбранной точности: половинная — на
-    // ускорителях, F32 — везде.
+    // Аудио-модели: линейные слои квантуются на лету при загрузке (int8 —
+    // везде, NVFP4/MXFP8 — на CUDA) независимо от формата весов, либо
+    // считаются в выбранной плотной точности (половинная — на ускорителях,
+    // F32 — везде).
     if matches!(m.kind, ModelKind::Asr | ModelKind::Tts | ModelKind::Ctc) {
         for p in crate::runners::AUDIO_PRECISIONS {
             if out.iter().any(|q| q.id == p) {
                 continue;
             }
+            let cuda = |d: &DeviceKind| matches!(d, DeviceKind::Cuda | DeviceKind::Gpu);
             let devs: Vec<DeviceKind> = match p {
-                "f32" => devices.clone(),
-                "bf16" => devices.iter().copied().filter(|d| matches!(d, DeviceKind::Cuda | DeviceKind::Gpu)).collect(),
+                "int8" | "f32" => devices.clone(),
+                "nvfp4" | "mxfp8" | "bf16" => devices.iter().copied().filter(cuda).collect(),
                 _ => devices.iter().copied().filter(|d| *d != DeviceKind::Cpu).collect(),
             };
             if !devs.is_empty() {

@@ -15,12 +15,25 @@ pub struct LlmSlot {
     session: std::sync::Mutex<Option<synaptix::facade::llm::LlmKvSession>>,
 }
 
+/// Синтезатор речи и запомненные голоса: `voices` — референсы, выросшие из
+/// первых фраз (ключ: язык + описание голоса), чтобы все фразы одной
+/// озвучки и все ответы звучали одним голосом; `refs` — клоны с образцов
+/// пользователя (ключ: путь + текст образца).
+pub struct TtsState {
+    pipeline: synaptix_tts_omnivoice::OmniVoicePipeline,
+    voices: std::collections::HashMap<String, synaptix_tts_omnivoice::VoiceClonePrompt>,
+    refs: std::collections::HashMap<String, synaptix_tts_omnivoice::VoiceClonePrompt>,
+}
+
+/// Сколько секунд речи копить в референсе голоса из первых фраз.
+const VOICE_REF_SEC: f32 = 12.0;
+
 pub enum Loaded {
     Ctc(Box<Wav2Vec2Ctc>),
     Mfa(Box<synaptix_align_mfa::MfaModel>),
     Asr(std::sync::Mutex<synaptix::facade::asr::Transcriber>),
     Llm(Box<LlmSlot>),
-    Tts(std::sync::Mutex<synaptix_tts_omnivoice::OmniVoicePipeline>, DeviceKind),
+    Tts(std::sync::Mutex<TtsState>, DeviceKind),
 }
 
 pub struct CtcResult {
@@ -73,20 +86,30 @@ pub fn dtype_label(d: DType) -> String {
     }
 }
 
-/// Точности, в которых аудио-модели (ASR, TTS, CTC) умеют считать: веса
-/// приводятся к ней при загрузке. Ускорителю — половинная, CPU — F32.
-pub const AUDIO_PRECISIONS: [&str; 3] = ["f16", "bf16", "f32"];
+/// Варианты точности аудио-моделей (ASR, TTS, CTC): квантование линейных
+/// слоёв на лету при загрузке (int8, NVFP4, MXFP8) независимо от формата
+/// весов, либо плотная точность счёта.
+pub const AUDIO_PRECISIONS: [&str; 6] = ["int8", "nvfp4", "mxfp8", "f16", "bf16", "f32"];
 
-/// Точность аудио-модели по выбору пользователя или оптимальная для
-/// устройства (`accel` — для ускорителей, CPU всегда F32).
-fn audio_dtype(dev: DeviceKind, quant: Option<&str>, accel: DType) -> DType {
+/// (квант линейных слоёв, точность счёта) аудио-модели по выбору
+/// пользователя; без выбора — плотные веса в `accel` на ускорителе и F32
+/// на CPU. Квант-GEMM считает в F16 (NVFP4 — нативно в BF16), на CPU — F32.
+fn audio_precision(dev: DeviceKind, quant: Option<&str>, accel: DType) -> (Option<DType>, DType) {
+    let cpu = dev == DeviceKind::Cpu;
     match quant {
-        Some("f16") => DType::F16,
-        Some("bf16") => DType::BF16,
-        Some("f32") => DType::F32,
-        _ if dev == DeviceKind::Cpu => DType::F32,
-        _ => accel,
+        Some("int8") => (Some(DType::Sq { bits: 8 }), if cpu { DType::F32 } else { DType::F16 }),
+        Some("nvfp4") => (Some(DType::NVFP4), if cpu { DType::F32 } else { DType::BF16 }),
+        Some("mxfp8") => (Some(DType::MXFP8), if cpu { DType::F32 } else { DType::F16 }),
+        Some("f16") => (None, DType::F16),
+        Some("bf16") => (None, DType::BF16),
+        Some("f32") => (None, DType::F32),
+        _ => (None, if cpu { DType::F32 } else { accel }),
     }
+}
+
+/// Подпись точности: квант линейных слоёв, иначе точность счёта.
+fn precision_tag(quant: Option<DType>, compute: DType) -> String {
+    dtype_label(quant.unwrap_or(compute))
 }
 
 pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind, quant: Option<&str>) -> anyhow::Result<(Loaded, Option<String>)> {
@@ -94,9 +117,9 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind, quant: Op
     match kind {
         ModelKind::Ctc => {
             let device = devices::device(dev);
-            let dtype = audio_dtype(dev, quant, DType::F16);
-            let m = Wav2Vec2Ctc::load(path, &device, dtype).map_err(|e| anyhow::anyhow!("{e}"))?;
-            Ok((Loaded::Ctc(Box::new(m)), Some(dtype_label(dtype))))
+            let (q, dtype) = audio_precision(dev, quant, DType::F16);
+            let m = Wav2Vec2Ctc::load_quant(path, &device, dtype, q).map_err(|e| anyhow::anyhow!("{e}"))?;
+            Ok((Loaded::Ctc(Box::new(m)), Some(precision_tag(q, dtype))))
         }
         ModelKind::Mfa => {
             let m = synaptix_align_mfa::MfaModel::load(path).map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -105,7 +128,7 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind, quant: Op
         ModelKind::Asr => {
             use synaptix::facade::asr::{AsrConfig, AsrModelKind, ComputeDType, Transcriber};
             let device = devices::device(dev);
-            let dtype = audio_dtype(dev, quant, DType::F16);
+            let (q, dtype) = audio_precision(dev, quant, DType::F16);
             let compute = match dtype {
                 DType::F32 => ComputeDType::F32,
                 DType::BF16 => ComputeDType::BF16,
@@ -118,11 +141,11 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind, quant: Op
                 model_path: path.to_path_buf(),
                 language: None,
                 device,
-                storage_dtype: compute.to_dtype(),
+                storage_dtype: q.unwrap_or_else(|| compute.to_dtype()),
                 compute_dtype: compute,
             })
             .map_err(|e| anyhow::anyhow!("{e}"))?;
-            Ok((Loaded::Asr(std::sync::Mutex::new(t)), Some(dtype_label(dtype))))
+            Ok((Loaded::Asr(std::sync::Mutex::new(t)), Some(precision_tag(q, dtype))))
         }
         ModelKind::Llm => {
             use synaptix::facade::llm::load_llm;
@@ -137,9 +160,10 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind, quant: Op
         }
         ModelKind::Tts => {
             let device = devices::device(dev);
-            let dtype = audio_dtype(dev, quant, if dev == DeviceKind::Npu { DType::F16 } else { DType::BF16 });
-            let p = synaptix_tts_omnivoice::OmniVoicePipeline::from_syn(path, device, dtype).map_err(|e| anyhow::anyhow!("{e}"))?;
-            Ok((Loaded::Tts(std::sync::Mutex::new(p), dev), Some(dtype_label(dtype))))
+            let (q, dtype) = audio_precision(dev, quant, if dev == DeviceKind::Npu { DType::F16 } else { DType::BF16 });
+            let p = synaptix_tts_omnivoice::OmniVoicePipeline::from_syn_quant(path, device, dtype, q).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let st = TtsState { pipeline: p, voices: Default::default(), refs: Default::default() };
+            Ok((Loaded::Tts(std::sync::Mutex::new(st), dev), Some(precision_tag(q, dtype))))
         }
         other => anyhow::bail!("модели {other:?} ({arch}) служба пока не исполняет"),
     }
@@ -350,17 +374,39 @@ impl Loaded {
         let instruct = params.text("voice");
         let (speed, steps) = (params.f32("speed"), params.u32("steps").map(|s| s as usize));
         let Loaded::Tts(p, dev) = self else { anyhow::bail!("модель не синтезирует речь") };
-        let p = p.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = p.lock().unwrap_or_else(|e| e.into_inner());
+        let st = &mut *guard;
         let default_steps = if *dev == DeviceKind::Npu { 16 } else { 32 };
         let gen = synaptix_tts_omnivoice::OmniVoiceGenerationConfig {
             num_step: steps.unwrap_or(default_steps).clamp(4, 64),
             guidance_scale: params.f32("guidance").unwrap_or(2.0),
             ..Default::default()
         };
-        let wav = p
-            .synthesize(text, None, language, instruct, speed.unwrap_or(1.0) as f64, None, &gen)
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
-        Ok((wav, p.output_sample_rate() as u32))
+        let speed = speed.unwrap_or(1.0) as f64;
+        let ref_audio = params.text("ref_audio").map(str::trim).filter(|s| !s.is_empty());
+        let wav = if let Some(path) = ref_audio {
+            // Образец пользователя: клон голоса с записи, описание голоса не нужно.
+            let ref_text = params.text("ref_text").unwrap_or("").trim().to_string();
+            let key = format!("{path}\x1f{ref_text}");
+            if !st.refs.contains_key(&key) {
+                let pr = st.pipeline.create_voice_clone_prompt(path, &ref_text).map_err(|e| anyhow::anyhow!("образец голоса {path}: {e}"))?;
+                st.refs.insert(key.clone(), pr);
+            }
+            st.pipeline.synthesize(text, st.refs.get(&key), language, None, speed, None, &gen).map_err(|e| anyhow::anyhow!("{e}"))?
+        } else {
+            // Фразы одной озвучки и все ответы — одним голосом: первая фраза
+            // выбирает голос по описанию, дальше он держится по референсу из
+            // уже сказанного (описание в промпт больше не идёт — модель
+            // читала его вслух).
+            let key = format!("{}\x1f{}", language.unwrap_or(""), instruct.unwrap_or(""));
+            let mut voice = st.voices.remove(&key);
+            let r = st.pipeline.synthesize_continuing(text, &mut voice, language, instruct, speed, &gen, VOICE_REF_SEC);
+            if let Some(v) = voice {
+                st.voices.insert(key, v);
+            }
+            r.map_err(|e| anyhow::anyhow!("{e}"))?
+        };
+        Ok((wav, st.pipeline.output_sample_rate() as u32))
     }
 
     /// Отдать видеопамять кэшей модели (KV-сессия, резидентные эксперты MoE)

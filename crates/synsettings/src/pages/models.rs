@@ -892,7 +892,7 @@ fn param_row(sig: RwSignal<Snapshot>, id: &str, spec: &ParamSpec, st: &ParamStat
     let label = tl(&spec.label);
     let mut hint = tl(&spec.hint);
     match (&own, &optimal) {
-        (Some(_), Some(o)) if !matches!(kind, ParamKind::Text { multiline: true } | ParamKind::Bool) => hint.push_str(&t!(" · оптимальное: {v}", v = o)),
+        (Some(_), Some(o)) if !matches!(kind, ParamKind::Text { multiline: true } | ParamKind::Bool | ParamKind::File { .. }) => hint.push_str(&t!(" · оптимальное: {v}", v = o)),
         (Some(_), None) => hint.push_str(&t!(" · оптимальное: авто")),
         _ => {}
     }
@@ -950,6 +950,36 @@ fn param_row(sig: RwSignal<Snapshot>, id: &str, spec: &ParamSpec, st: &ParamStat
                     save_param(sig, &i, &key, (!v.is_empty()).then(|| ParamValue::Text(v.to_string())));
                 });
             row(label, hint, field)
+        }
+        ParamKind::File { patterns } => {
+            let (i2, key2) = (i.clone(), key.clone());
+            let field = TextField::with_text(own.clone().unwrap_or_default())
+                .placeholder(t!("Не задан"))
+                .width(260.0)
+                .submit_on_focus_lost(true)
+                .on_submit(move |s| {
+                    let v = s.trim();
+                    save_param(sig, &i, &key, (!v.is_empty()).then(|| ParamValue::Text(v.to_string())));
+                });
+            let patterns = patterns.clone();
+            let start = own.unwrap_or_default();
+            let title = label.clone();
+            let pick = icon_button(icons::FOLDER, move || {
+                let (i, key, patterns, start, title) = (i2.clone(), key2.clone(), patterns.clone(), start.clone(), title.clone());
+                std::thread::spawn(move || {
+                    let dir = std::path::Path::new(&start).parent().filter(|p| p.is_dir()).map(|p| p.to_path_buf()).unwrap_or_else(|| synshell_common::paths::expand_tilde("~"));
+                    let pats: Vec<&str> = patterns.iter().map(String::as_str).collect();
+                    let filters = [synsystem::portal_files::PickFilter { name: &title, patterns: &pats }];
+                    let picked = match synsystem::portal_files::pick(&title, false, &dir, if pats.is_empty() { &[] } else { &filters }) {
+                        Ok(p) => p.map(|p| p.display().to_string()),
+                        Err(_) => crate::sys::pick_path(false, &dir.display().to_string()),
+                    };
+                    if let Some(path) = picked {
+                        syngui::async_runtime::run_on_main_thread(move || save_param(sig, &i, &key, Some(ParamValue::Text(path))));
+                    }
+                });
+            });
+            row(label, hint, Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(field).child(pick))
         }
         ParamKind::Int { .. } | ParamKind::Float { .. } => {
             let field = TextField::with_text(own.unwrap_or_default())

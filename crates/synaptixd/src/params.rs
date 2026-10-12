@@ -76,6 +76,11 @@ pub enum ParamKind {
     Choice {
         options: Vec<String>,
     },
+    /// Путь к файлу; `patterns` — MIME-типы или маски для диалога выбора.
+    File {
+        #[serde(default)]
+        patterns: Vec<String>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -92,7 +97,7 @@ pub struct ParamSpec {
 impl ParamSpec {
     pub fn normalize(&self, v: &ParamValue) -> Option<ParamValue> {
         match &self.kind {
-            ParamKind::Text { .. } => Some(ParamValue::Text(match v {
+            ParamKind::Text { .. } | ParamKind::File { .. } => Some(ParamValue::Text(match v {
                 ParamValue::Text(s) => s.clone(),
                 other => other.display(&self.kind),
             })),
