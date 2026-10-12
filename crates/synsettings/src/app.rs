@@ -243,8 +243,8 @@ fn phone_page(ctx: Ctx) -> W {
     });
     let title = Reactive::new(move || -> Vec<W> {
         let t = match ctx.sub.get() {
-            Some((_, t)) => t,
-            None => tl(pages::find(&ctx.page.get()).title),
+            Some((_, t)) if !t.is_empty() => t,
+            _ => tl(pages::find(&ctx.page.get()).title),
         };
         vec![boxed(Text::new(t).max_lines(1).class("phone-bar-title grow"))]
     });

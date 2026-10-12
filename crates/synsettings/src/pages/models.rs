@@ -480,7 +480,7 @@ fn defaults_page(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
                 (None, Some(r)) => t!("Авто — {m}", m = title(r)),
                 _ => t!("Авто"),
             };
-            let mut dd = Dropdown::new().width(260.0).item(DropdownItem::new("", auto));
+            let mut dd = Dropdown::new().item(DropdownItem::new("", auto));
             for (id, t, _) in &models {
                 dd = dd.item(DropdownItem::new(id.clone(), t.clone()));
             }
