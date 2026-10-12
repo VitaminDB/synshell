@@ -5,7 +5,7 @@ use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 
 use syngui::prelude::*;
-use synassist_voice::{VadState, VisHandle};
+use synassist_voice::VisHandle;
 pub use synassist_voice::Phase;
 use synassist::agent::{Agent, AgentEvent, DaemonBackend};
 use synassist::chat::{Chat, ChatMsg, ChatSummary, Role, Store};
@@ -25,7 +25,6 @@ pub struct Voice {
     pub open: RwSignal<bool>,
     pub phase: RwSignal<Phase>,
     pub vis: RwSignal<Option<VisHandle>>,
-    pub vad: RwSignal<Option<VadState>>,
     pub heard: RwSignal<String>,
     pub muted: RwSignal<bool>,
     pub dictating: RwSignal<bool>,
@@ -131,7 +130,6 @@ impl St {
                 open: use_signal(false),
                 phase: use_signal(Phase::Off),
                 vis: use_signal(None),
-                vad: use_signal(None),
                 heard: use_signal(String::new()),
                 muted: use_signal(false),
                 dictating: use_signal(false),

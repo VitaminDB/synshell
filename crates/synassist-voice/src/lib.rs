@@ -76,8 +76,6 @@ pub struct VadState {
 pub enum VoiceEvent {
     Phase(Phase),
     Vis(Option<VisHandle>),
-    /// Состояние детектора речи, ~10 раз в секунду, пока слушаем.
-    Level(VadState),
     Heard(String),
     Speaking(bool),
     Error(String),
@@ -175,7 +173,7 @@ impl Vad {
         self.gate = percent / 100.0;
     }
 
-    /// Живое состояние для индикатора на голосовой панели.
+    /// Живое состояние для проверки микрофона в настройках.
     pub fn state(&self) -> VadState {
         self.last
     }
@@ -305,6 +303,72 @@ impl Vad {
         }
         self.reset();
         None
+    }
+}
+
+/// Событие проверки микрофона в настройках.
+#[derive(Clone, Debug, PartialEq)]
+pub enum MicTestEvent {
+    /// Состояние детектора, раз в 100 мс.
+    Level(VadState),
+    /// Детектор закончил фразу: её длина в секундах.
+    Phrase(f32),
+    Error(String),
+}
+
+/// Проверка микрофона для настроек (как в synspeak): тот же детектор речи,
+/// что в голосовом режиме, на живом звуке, без распознавания. Останавливается
+/// `stop()` или при уничтожении.
+pub struct MicTest {
+    stop: Arc<AtomicBool>,
+    gate: Arc<std::sync::atomic::AtomicU32>,
+}
+
+impl MicTest {
+    pub fn start(microphone: Option<String>, noise_level: f32, on: impl Fn(MicTestEvent) + Send + 'static) -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let gate = Arc::new(std::sync::atomic::AtomicU32::new(noise_level.to_bits()));
+        let (stop2, gate2) = (stop.clone(), gate.clone());
+        std::thread::spawn(move || {
+            let cfg = VoiceConfig { microphone, ..VoiceConfig::default() };
+            let (_rec, rx, sr) = match open_mic(&cfg) {
+                Ok(v) => v,
+                Err(e) => return on(MicTestEvent::Error(e)),
+            };
+            let mut vad = Vad::new(sr).with_noise_level(noise_level);
+            let mut last = std::time::Instant::now();
+            while !stop2.load(Ordering::Acquire) {
+                let chunk = match rx.recv_timeout(Duration::from_millis(100)) {
+                    Ok(c) => c,
+                    Err(RecvTimeoutError::Timeout) => continue,
+                    Err(RecvTimeoutError::Disconnected) => return on(MicTestEvent::Error("микрофон отключился".into())),
+                };
+                vad.set_noise_level(f32::from_bits(gate2.load(Ordering::Relaxed)));
+                if let Some(u) = vad.push(&chunk) {
+                    on(MicTestEvent::Phrase(u.len() as f32 / sr as f32));
+                }
+                if last.elapsed() >= Duration::from_millis(100) {
+                    last = std::time::Instant::now();
+                    on(MicTestEvent::Level(vad.state()));
+                }
+            }
+        });
+        Self { stop, gate }
+    }
+
+    /// Новый «Уровень шума», % — подхватывается сразу.
+    pub fn set_noise_level(&self, percent: f32) {
+        self.gate.store(percent.to_bits(), Ordering::Relaxed);
+    }
+
+    pub fn stop(&self) {
+        self.stop.store(true, Ordering::Release);
+    }
+}
+
+impl Drop for MicTest {
+    fn drop(&mut self) {
+        self.stop();
     }
 }
 
@@ -552,7 +616,6 @@ fn conversation(cfg: VoiceConfig, turn: Turn, on: Listener) {
     };
     on(VoiceEvent::Vis(Some(rec.vis_handle())));
     let mut vad = Vad::new(sr).with_noise_level(cfg.noise_level);
-    let mut last_level = std::time::Instant::now();
     on(VoiceEvent::Phase(Phase::Listening));
     loop {
         if f.stop.load(Ordering::Acquire) {
@@ -567,12 +630,7 @@ fn conversation(cfg: VoiceConfig, turn: Turn, on: Listener) {
             vad.reset();
             continue;
         }
-        let got = vad.push(&chunk);
-        if last_level.elapsed() >= Duration::from_millis(100) {
-            last_level = std::time::Instant::now();
-            on(VoiceEvent::Level(vad.state()));
-        }
-        let Some(utt) = got else { continue };
+        let Some(utt) = vad.push(&chunk) else { continue };
         rec.pause();
         on(VoiceEvent::Phase(Phase::Transcribing));
         let text = match transcribe(&utt, sr, &cfg) {
@@ -666,19 +724,13 @@ fn dictation(cfg: VoiceConfig, on: Listener, done: Done<String>) {
     on(VoiceEvent::Phase(Phase::Listening));
     let mut vad = Vad::new(sr).with_noise_level(cfg.noise_level);
     let started = std::time::Instant::now();
-    let mut last_level = started;
     let utt = loop {
         if f.dict_stop.load(Ordering::Acquire) || started.elapsed() > Duration::from_secs(90) {
             break vad.flush();
         }
         match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(c) => {
-                let got = vad.push(&c);
-                if last_level.elapsed() >= Duration::from_millis(100) {
-                    last_level = std::time::Instant::now();
-                    on(VoiceEvent::Level(vad.state()));
-                }
-                if let Some(u) = got {
+                if let Some(u) = vad.push(&c) {
                     break Some(u);
                 }
             }

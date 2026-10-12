@@ -10,7 +10,7 @@ use syngui::widgets::visual::MarkdownView;
 use syngui::widgets::{Stack, Tooltip};
 use synassist::agent::{Agent, AgentEvent, DaemonBackend};
 use synassist::chat::{Chat, Role, Store};
-use synassist_voice::{Phase, VadState, VisHandle, VoiceConfig, VoiceEvent};
+use synassist_voice::{Phase, VisHandle, VoiceConfig, VoiceEvent};
 
 use crate::ui::{icon, rx};
 use crate::ctx::PopupKind;
@@ -41,7 +41,6 @@ struct Panel {
     voice_open: RwSignal<bool>,
     phase: RwSignal<Phase>,
     vis: RwSignal<Option<VisHandle>>,
-    vad: RwSignal<Option<VadState>>,
     heard: RwSignal<String>,
     muted: RwSignal<bool>,
     dictating: RwSignal<bool>,
@@ -79,7 +78,6 @@ fn panel() -> Panel {
                 voice_open: use_signal(false),
                 phase: use_signal(Phase::Off),
                 vis: use_signal(None),
-                vad: use_signal(None),
                 heard: use_signal(String::new()),
                 muted: use_signal(false),
                 dictating: use_signal(false),
@@ -198,7 +196,6 @@ fn listener(p: Panel) -> synassist_voice::Listener {
             match ev {
                 VoiceEvent::Phase(ph) => p.phase.set(ph),
                 VoiceEvent::Vis(v) => p.vis.set(v),
-                VoiceEvent::Level(s) => p.vad.set(Some(s)),
                 VoiceEvent::Heard(t) => p.heard.set(t),
                 VoiceEvent::Speaking(on) => p.speaking.set(on),
                 VoiceEvent::Error(e) => p.note.set(Some(e)),
@@ -402,14 +399,6 @@ fn voice_stage(p: Panel) -> Box<dyn Widget> {
         };
         Box::new(Text::new(text).max_lines(2).class("assist-voice-status"))
     });
-    // Индикатор детектора речи: уровень, фон, пороги и что он слышит.
-    let meter = rx(move || {
-        let listening = p.phase.get() == Phase::Listening && !p.muted.get();
-        let Some(s) = p.vad.get().filter(|_| listening) else {
-            return Box::new(Column::new()) as Box<dyn Widget>;
-        };
-        Box::new(voice_meter(s))
-    });
     let transcript = rx(move || {
         let heard = p.heard.get();
         let answer = p.answer.get();
@@ -447,53 +436,11 @@ fn voice_stage(p: Panel) -> Box<dyn Widget> {
         row = row.child(tip(Button::new("").icon(CALL_END).class("btn assist-act end").on_click(move || stop_voice(p)), t!("Завершить")));
         Box::new(row)
     });
-    Box::new(Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).class("assist-voice").child(stage).child(status).child(meter).child(DecoratedBox::new().class("assist-voice-body").child(transcript)).child(actions))
+    Box::new(Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).class("assist-voice").child(stage).child(status).child(DecoratedBox::new().class("assist-voice-body").child(transcript)).child(actions))
 }
 
 /// Индикатор детектора речи (как проверка микрофона в synspeak): полоса уровня
 /// с отметкой порога тишины, цифры и что детектор слышит.
-fn voice_meter(s: VadState) -> impl Widget {
-    let (text, class) = if s.in_phrase && s.speaking {
-        (t!("Слышу речь"), "assist-meter-state on")
-    } else if s.in_phrase {
-        (t!("Пауза — здесь фраза закончится"), "assist-meter-state pause")
-    } else if s.speaking {
-        (t!("Громко — похоже на начало речи"), "assist-meter-state on")
-    } else {
-        (t!("Тишина"), "assist-meter-state")
-    };
-    let full = 0.2;
-    Column::new()
-        .gap(4.0)
-        .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(
-            // Полоса уровня, под ней — отметка порога тишины (без Stack: он без
-            // ограничения по ширине ужимается до 40 px).
-            Column::new()
-                .width(260.0)
-                .gap(1.0)
-                .cross_axis_alignment(CrossAxisAlignment::Start)
-                .child(ProgressBar::with_value((s.level / full).clamp(0.0, 1.0)).class(if s.speaking { "assist-meter on" } else { "assist-meter" }))
-                .child(
-                    Row::new()
-                        .width(260.0)
-                        .child(Column::new().width((s.silence / full).clamp(0.0, 1.0) * 260.0 - 1.0))
-                        .child(DecoratedBox::new().class("assist-meter-mark")),
-                ),
-        )
-        .child(
-            Text::new(t!(
-                "уровень {l} % · фон {f} % · тишина ниже {s} % · речь выше {p} %",
-                l = format!("{:.1}", s.level * 100.0),
-                f = format!("{:.1}", s.floor * 100.0),
-                s = format!("{:.1}", s.silence * 100.0),
-                p = format!("{:.1}", s.speech * 100.0)
-            ))
-            .class("assist-meter-text"),
-        )
-        .child(Text::new(text).class(class))
-}
-
 fn confirm_card(p: Panel, summary: String) -> Column {
     Column::new()
         .gap(6.0)

@@ -772,3 +772,13 @@ Button.accent-swatch.selected {
 
 .lib-bar-wrap { padding: 0px 16px 14px 16px; }
 ProgressBar.lib-bar { height: 6px; border-radius: 3px; background-color: var(--pressed); accent-color: var(--accent); }
+
+/* Проверка микрофона (Ассистент → Голос) */
+.mic-test { padding: 0px 16px 14px 16px; }
+.mic-meter { width: 480px; height: 8px; border-radius: 999px; color: var(--muted); background-color: var(--border); }
+.mic-meter.on { color: var(--success); }
+.mic-meter-mark { width: 2px; height: 6px; background-color: var(--danger); }
+.mic-test-text { font-size: 12px; color: var(--muted); }
+.mic-test-state { font-size: 13px; color: var(--muted); }
+.mic-test-state.on { color: var(--success); font-weight: 600; }
+.mic-test-state.pause { color: var(--warning); font-weight: 600; }

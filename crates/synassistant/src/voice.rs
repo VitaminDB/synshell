@@ -14,7 +14,6 @@ fn listener(st: St) -> synassist_voice::Listener {
         run_on_main_thread(move || match ev {
             VoiceEvent::Phase(p) => st.voice.phase.set(p),
             VoiceEvent::Vis(v) => st.voice.vis.set(v),
-            VoiceEvent::Level(s) => st.voice.vad.set(Some(s)),
             VoiceEvent::Heard(t) => st.voice.heard.set(t),
             VoiceEvent::Speaking(on) => st.voice.speaking.set(on),
             VoiceEvent::Error(e) => {

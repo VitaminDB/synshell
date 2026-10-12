@@ -1568,13 +1568,6 @@ TextField {
 .assist-center:hover { background-color: #ffffff22; }
 .assist-voice-status { font-size: 14px; font-weight: 600; color: var(--fg); text-align: center; }
 .assist-voice-body { width: 100%; }
-.assist-meter { width: 260px; height: 6px; border-radius: 999px; color: var(--muted); background-color: var(--border); }
-.assist-meter.on { color: var(--success); }
-.assist-meter-mark { width: 2px; height: 5px; background-color: var(--danger); }
-.assist-meter-text { font-size: 11px; color: var(--muted); text-align: center; }
-.assist-meter-state { font-size: 12px; color: var(--muted); text-align: center; }
-.assist-meter-state.on { color: var(--success); font-weight: 600; }
-.assist-meter-state.pause { color: var(--warning); font-weight: 600; }
 .assist-heard { padding: 8px 12px; border-radius: 14px; background: linear-gradient(135deg, var(--accent), #8b5cf6); max-width: 480px; }
 .assist-heard-text { font-size: 13px; color: var(--accent-fg); }
 .assist-voice-scroll { max-height: 220px; }

@@ -1,6 +1,8 @@
 use syngui::prelude::*;
 use toml_edit::{Array, Value};
 
+use synassist_voice::{MicTest, MicTestEvent, VadState};
+
 use crate::op;
 use crate::state;
 use crate::store;
@@ -30,6 +32,129 @@ fn default_model() -> String {
         .and_then(|mut c| c.resolve(synaptixd::ModelKind::Llm))
         .map(|m| m.title)
         .unwrap_or_else(|_| t!("служба нейросетей не отвечает").to_string())
+}
+
+thread_local! {
+    /// Идущая проверка микрофона (одна на окно).
+    static MIC_TEST: std::cell::RefCell<Option<MicTest>> = const { std::cell::RefCell::new(None) };
+    static MIC_TEST_WATCH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn stop_mic_test() {
+    MIC_TEST.with(|t| t.borrow_mut().take());
+}
+
+/// Проверка микрофона (как в synspeak): тот же детектор речи, что в голосовом
+/// режиме, на живом звуке — уровень, фон, пороги и где фраза закончится.
+fn mic_check() -> W {
+    stop_mic_test();
+    let running = use_signal(false);
+    let vad: RwSignal<Option<VadState>> = use_signal(None);
+    let phrase: RwSignal<Option<f32>> = use_signal(None);
+    let error: RwSignal<Option<String>> = use_signal(None);
+    // Ушли со страницы — микрофон больше не держим.
+    if !MIC_TEST_WATCH.with(|w| w.replace(true)) {
+        let ctx = state::ctx();
+        create_detached_effect(move || {
+            if ctx.page.get() != "assistant" {
+                stop_mic_test();
+            }
+        });
+    }
+    let toggle = Reactive::new(move || -> Vec<W> {
+        let on = running.get();
+        let label = if on { t!("Остановить") } else { t!("Проверить") };
+        vec![boxed(button(label, move || {
+            if running.get_untracked() {
+                stop_mic_test();
+                running.set(false);
+                vad.set(None);
+                return;
+            }
+            let a = store::config().assistant.clone();
+            let mic = Some(a.microphone).filter(|m| !m.is_empty());
+            phrase.set(None);
+            error.set(None);
+            let test = MicTest::start(mic, a.noise_level, move |e| match e {
+                MicTestEvent::Level(s) => vad.set(Some(s)),
+                MicTestEvent::Phrase(sec) => phrase.set(Some(sec)),
+                MicTestEvent::Error(e) => {
+                    error.set(Some(e));
+                    running.set(false);
+                }
+            });
+            MIC_TEST.with(|t| *t.borrow_mut() = Some(test));
+            running.set(true);
+        }))]
+    });
+    let meter = Reactive::new(move || -> Vec<W> {
+        if let Some(e) = error.get() {
+            return vec![boxed(Text::new(t!("Микрофон не открылся: {e}", e = e)).class("mic-test-state pause"))];
+        }
+        if !running.get() {
+            return Vec::new();
+        }
+        let Some(s) = vad.get() else {
+            return vec![boxed(Text::new(t!("Включаю микрофон…")).class("mic-test-text"))];
+        };
+        vec![boxed(mic_meter(s, phrase.get()))]
+    });
+    boxed(
+        Column::new()
+            .gap(0.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(row_inline(
+                t!("Проверка микрофона"),
+                t!("Говорите и делайте паузы: полоса — громкость микрофона, красная отметка — порог тишины. Тише отметки — тишина, через секунду тишины фраза заканчивается"),
+                toggle,
+            ))
+            .child(meter),
+    )
+}
+
+fn mic_meter(s: VadState, phrase: Option<f32>) -> impl Widget {
+    let (text, class) = if s.in_phrase && s.speaking {
+        (t!("Слышу речь"), "mic-test-state on")
+    } else if s.in_phrase {
+        (t!("Пауза — здесь фраза закончится"), "mic-test-state pause")
+    } else if s.speaking {
+        (t!("Громко — похоже на начало речи"), "mic-test-state on")
+    } else {
+        (t!("Тишина"), "mic-test-state")
+    };
+    let (w, full) = (480.0, 0.2);
+    let mut col = Column::new()
+        .gap(6.0)
+        .cross_axis_alignment(CrossAxisAlignment::Start)
+        .class("mic-test")
+        .child(
+            Column::new()
+                .width(w)
+                .gap(1.0)
+                .cross_axis_alignment(CrossAxisAlignment::Start)
+                .child(ProgressBar::with_value((s.level / full).clamp(0.0, 1.0)).class(if s.speaking { "mic-meter on" } else { "mic-meter" }))
+                .child(
+                    Row::new()
+                        .width(w)
+                        .child(Column::new().width((s.silence / full).clamp(0.0, 1.0) * w - 1.0))
+                        .child(DecoratedBox::new().class("mic-meter-mark")),
+                ),
+        )
+        .child(
+            Text::new(t!(
+                "уровень {l} % · фон {f} % · тишина ниже {s} % · речь выше {p} %",
+                l = format!("{:.1}", s.level * 100.0),
+                f = format!("{:.1}", s.floor * 100.0),
+                s = format!("{:.1}", s.silence * 100.0),
+                p = format!("{:.1}", s.speech * 100.0)
+            ))
+            .class("mic-test-text"),
+        )
+        .child(Text::new(text).class(class));
+    if let Some(sec) = phrase {
+        col = col.child(Text::new(t!("Последняя фраза закончилась: {s} с", s = format!("{sec:.1}"))).class("mic-test-text"));
+    }
+    col
 }
 
 pub fn assistant() -> W {
@@ -111,16 +236,22 @@ pub fn assistant() -> W {
             ),
             slider_row(t!("Скорость речи"), t!("1,0 — обычная"), op!["assistant", "voice_speed"], a.voice_speed as f64, 0.5, 2.0, 0.1, 1),
             row_inline(t!("Микрофон"), t!("Устройство записи для голосового режима"), mic_pick),
-            slider_row(
+            row(
                 t!("Уровень шума, %"),
-                t!("Звук тише этого уровня — тишина (0 — только автоматически по фону). Уровень микрофона, фон и пороги видно на голосовой панели ассистента: поставьте чуть выше музыки или шума, но ниже своей речи"),
-                op!["assistant", "noise_level"],
-                a.noise_level as f64,
-                0.0,
-                50.0,
-                0.5,
-                1,
+                t!("Звук тише этого уровня — тишина (0 — только автоматически по фону). Включите проверку микрофона ниже и поставьте чуть выше музыки или шума, но ниже своей речи"),
+                Slider::new()
+                    .range(0.0, 50.0)
+                    .step(0.5)
+                    .value(a.noise_level)
+                    .show_value(1)
+                    .width(240.0)
+                    .on_change(|v| {
+                        let v = round_to(v as f64, 2);
+                        set(&op!["assistant", "noise_level"], v);
+                        MIC_TEST.with(|t| t.borrow().as_ref().map(|t| t.set_noise_level(v as f32)));
+                    }),
             ),
+            mic_check(),
         ],
     );
     let rows: Vec<W> = TOOLS

@@ -4,7 +4,7 @@ use syngui::prelude::*;
 use syngui::widgets::visual::canvas::Canvas;
 use syngui::widgets::visual::MarkdownView;
 use syngui::widgets::Stack;
-use synassist_voice::{Phase, VadState, VisHandle};
+use synassist_voice::{Phase, VisHandle};
 
 use super::{boxed, icon, tip, W};
 use crate::icons;
@@ -134,58 +134,8 @@ fn status(st: St) -> W {
                 Phase::Speaking => t!("Говорю…").to_string(),
             }
         };
-        let mut col = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(text).max_lines(2).class("voice-status"));
-        if phase == Phase::Listening && !muted {
-            if let Some(s) = st.voice.vad.get() {
-                col = col.child(voice_meter(s));
-            }
-        }
-        vec![boxed(col)]
+        vec![boxed(Text::new(text).max_lines(2).class("voice-status"))]
     }))
-}
-
-/// Индикатор детектора речи (как проверка микрофона в synspeak): полоса уровня
-/// с отметкой порога тишины, цифры и что детектор слышит.
-fn voice_meter(s: VadState) -> impl Widget {
-    let (text, class) = if s.in_phrase && s.speaking {
-        (t!("Слышу речь"), "voice-meter-state on")
-    } else if s.in_phrase {
-        (t!("Пауза — здесь фраза закончится"), "voice-meter-state pause")
-    } else if s.speaking {
-        (t!("Громко — похоже на начало речи"), "voice-meter-state on")
-    } else {
-        (t!("Тишина"), "voice-meter-state")
-    };
-    let full = 0.2;
-    Column::new()
-        .gap(4.0)
-        .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(
-            // Полоса уровня, под ней — отметка порога тишины (без Stack: он без
-            // ограничения по ширине ужимается до 40 px).
-            Column::new()
-                .width(300.0)
-                .gap(1.0)
-                .cross_axis_alignment(CrossAxisAlignment::Start)
-                .child(ProgressBar::with_value((s.level / full).clamp(0.0, 1.0)).class(if s.speaking { "voice-meter on" } else { "voice-meter" }))
-                .child(
-                    Row::new()
-                        .width(300.0)
-                        .child(Column::new().width((s.silence / full).clamp(0.0, 1.0) * 300.0 - 1.0))
-                        .child(DecoratedBox::new().class("voice-meter-mark")),
-                ),
-        )
-        .child(
-            Text::new(t!(
-                "уровень {l} % · фон {f} % · тишина ниже {s} % · речь выше {p} %",
-                l = format!("{:.1}", s.level * 100.0),
-                f = format!("{:.1}", s.floor * 100.0),
-                s = format!("{:.1}", s.silence * 100.0),
-                p = format!("{:.1}", s.speech * 100.0)
-            ))
-            .class("voice-meter-text"),
-        )
-        .child(Text::new(text).class(class))
 }
 
 fn transcript(st: St) -> W {
