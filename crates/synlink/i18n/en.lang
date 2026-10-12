@@ -72,3 +72,4 @@
 
 # src/services.rs
 "композитор этой машины старый (без удалённого ввода и потока кадров) — обновите synshell (synwm) и перезайдите" = "the compositor on this machine is outdated (no remote input or frame stream) — update synshell (synwm) and log in again"
+"Wi-Fi: других устройств в сети не видно — похоже, точка доступа изолирует клиентов" = "Wi-Fi: no other devices visible on the network — the access point seems to isolate clients"

@@ -12,6 +12,7 @@ mod fs;
 mod fuse;
 mod gestures;
 mod identity;
+mod isolation;
 mod mcp;
 mod net;
 mod netif;
@@ -207,6 +208,7 @@ fn run_daemon() -> Result<()> {
             }
         }
         tokio::spawn(discovery::run(d.clone()));
+        tokio::spawn(isolation::run(d.clone()));
         tokio::spawn(d.clone().accept_loop());
         tokio::spawn(d.clone().ticker());
         let ctl = tokio::spawn(control::run(d.clone()));
@@ -253,6 +255,9 @@ fn cli(args: &[String]) -> Result<()> {
                 if u.cable { t!("кабель подключён") } else { t!("нет кабеля") },
                 u.interface.as_ref().map(|i| format!(" ({i} {})", u.address.clone().unwrap_or_default())).unwrap_or_default()
             );
+            if status.wifi_isolated {
+                println!("{}", t!("Wi-Fi: других устройств в сети не видно — похоже, точка доступа изолирует клиентов"));
+            }
             if status.peers.is_empty() {
                 println!("{}", t!("устройств нет"));
             }

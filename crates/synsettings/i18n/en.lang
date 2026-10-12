@@ -1509,3 +1509,4 @@
 "Загрузить в память" = "Load"
 "Выгрузить из памяти" = "Unload"
 "int8 по каналу (веса)" = "int8 per channel (weights)"
+"Сеть Wi-Fi изолирует устройства: кроме роутера, в ней никого не видно — так обычно устроены гостевые сети. Подключитесь к другой сети, к точке доступа телефона или кабелем USB." = "The Wi-Fi network isolates devices: nothing but the router is visible on it — guest networks usually work this way. Connect to another network, to the phone's hotspot, or with a USB cable."

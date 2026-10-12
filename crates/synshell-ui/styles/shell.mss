@@ -1483,6 +1483,8 @@ TextField {
 
 .link-dot { width: 8px; height: 8px; border-radius: 999px; background-color: var(--muted); }
 .link-dot-on { background-color: var(--success); box-shadow: 0 0 8px var(--success); }
+.link-dot-warn { background-color: var(--warning); }
+.link-warn { padding: 10px 12px; border-radius: 14px; background-color: var(--surface-alt); }
 .link-dot-wait { background-color: var(--warning); animation: link-pulse 1100ms ease-in-out infinite; }
 @keyframes link-pulse { 0% { opacity: 1; } 50% { opacity: 0.25; } 100% { opacity: 1; } }
 .link-usb-icon { icon-size: 18px; icon-color: var(--muted); }

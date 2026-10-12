@@ -66,6 +66,7 @@ struct St {
     name: String,
     discoverable: bool,
     gen: u64,
+    wifi_isolated: bool,
 }
 
 pub struct Daemon {
@@ -216,7 +217,7 @@ impl Daemon {
         }
         // Соединённые — первыми, потом спаренные, потом рядом.
         peers.sort_by_key(|p| (!p.connected, !p.paired, p.name.to_lowercase()));
-        Status { me: SelfInfo { id: self.id.id.clone(), name: st.name.clone(), kind: self.kind, discoverable: st.discoverable }, usb: st.usb.clone(), peers, prompts: st.prompts.clone() }
+        Status { me: SelfInfo { id: self.id.id.clone(), name: st.name.clone(), kind: self.kind, discoverable: st.discoverable }, usb: st.usb.clone(), peers, prompts: st.prompts.clone(), wifi_isolated: st.wifi_isolated }
     }
 
     fn link_note(st: &St, id: &str) -> Option<String> {
@@ -234,6 +235,20 @@ impl Daemon {
 
     pub fn emit(&self, e: Event) {
         let _ = self.events.send(e);
+    }
+
+    pub fn wifi_alive(&self) -> bool {
+        let st = self.st.lock().unwrap();
+        st.sessions.values().any(|s| s.transport == Transport::Wifi)
+            || st.nearby.values().any(|n| n.transport == Transport::Wifi && n.seen.elapsed() < Duration::from_secs(20))
+    }
+
+    pub fn set_wifi_isolated(&self, v: bool) {
+        let changed = std::mem::replace(&mut self.st.lock().unwrap().wifi_isolated, v) != v;
+        if changed {
+            tracing::info!(isolated = v, "изоляция клиентов в сети Wi-Fi");
+            self.emit_status();
+        }
     }
 
     pub fn emit_status(&self) {

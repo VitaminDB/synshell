@@ -168,6 +168,12 @@ pub fn devices() -> W {
                 row_inline("USB", st.usb.interface.as_deref().unwrap_or(""), Text::new(usb).class("row-value")),
             ],
         ));
+        if st.wifi_isolated {
+            out.push(group(
+                "Wi-Fi",
+                vec![note(&t!("Сеть Wi-Fi изолирует устройства: кроме роутера, в ней никого не видно — так обычно устроены гостевые сети. Подключитесь к другой сети, к точке доступа телефона или кабелем USB."))],
+            ));
+        }
         let (paired, nearby): (Vec<&PeerInfo>, Vec<&PeerInfo>) = st.peers.iter().partition(|p| p.paired);
         if paired.is_empty() {
             out.push(group(&t!("Связанные устройства"), vec![note(&t!("Пока нет. Подключите телефон кабелем USB — спаривание начнётся само (подтвердите на телефоне), или спарьте устройство из списка «Рядом»."))]));

@@ -550,3 +550,5 @@
 "Скрытые значки" = "Hidden icons"
 "Меню изменилось" = "The menu has changed"
 "Меню пусто" = "The menu is empty"
+"Сеть Wi-Fi изолирует устройства" = "Wi-Fi network isolates devices"
+"Кроме роутера, в сети никого не видно — так обычно устроены гостевые сети. Подключитесь к другой сети, к точке доступа телефона или кабелем USB." = "Nothing but the router is visible on the network — guest networks usually work this way. Connect to another network, to the phone's hotspot, or with a USB cable."

@@ -164,6 +164,8 @@ pub struct Status {
     pub usb: UsbInfo,
     pub peers: Vec<PeerInfo>,
     pub prompts: Vec<PairPrompt>,
+    #[serde(default)]
+    pub wifi_isolated: bool,
 }
 
 impl Status {

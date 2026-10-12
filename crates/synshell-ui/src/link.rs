@@ -313,6 +313,30 @@ fn device_card(p: PeerInfo, compact: bool) -> Box<dyn Widget> {
     Box::new(DecoratedBox::new().child(col).class(if p.connected { "link-card link-card-on" } else { "link-card" }))
 }
 
+fn isolation_row() -> Box<dyn Widget> {
+    Box::new(
+        DecoratedBox::new()
+            .child(
+                Row::new()
+                    .gap(8.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(DecoratedBox::new().class("link-dot link-dot-warn"))
+                    .child(
+                        Column::new()
+                            .gap(2.0)
+                            .child(Text::new(t!("Сеть Wi-Fi изолирует устройства")).max_lines(1).class("link-usb-text"))
+                            .child(
+                                Text::new(t!("Кроме роутера, в сети никого не видно — так обычно устроены гостевые сети. Подключитесь к другой сети, к точке доступа телефона или кабелем USB."))
+                                    .max_lines(4)
+                                    .class("link-note"),
+                            )
+                            .class("grow"),
+                    ),
+            )
+            .class("link-warn"),
+    )
+}
+
 /// Строка «кабель USB»: подключён ли, есть ли на том конце оболочка.
 fn usb_row(st: &Status) -> Box<dyn Widget> {
     let over_usb = st.peers.iter().any(|p| p.connected && p.transport == Some(Transport::Usb));
@@ -371,6 +395,9 @@ pub fn view(ctx: ShellCtx) -> impl Widget {
                 ) as Box<dyn Widget>;
             };
             let mut col = Column::new().gap(8.0).child(usb_row(&st));
+            if st.wifi_isolated {
+                col = col.child(isolation_row());
+            }
             let (paired, nearby): (Vec<PeerInfo>, Vec<PeerInfo>) = st.peers.iter().cloned().partition(|p| p.paired);
             if paired.is_empty() && nearby.is_empty() {
                 col = col.child(
