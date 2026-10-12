@@ -47,6 +47,14 @@ pub fn change_volume(ctx: ShellCtx, delta: i32, set: Option<u32>) {
     });
 }
 
+/// Выставить громкость микрофона, %.
+pub fn set_mic(ctx: ShellCtx, percent: u32) {
+    std::thread::spawn(move || {
+        synsystem::volume::set_mic(percent);
+        refresh_volume(ctx);
+    });
+}
+
 pub fn toggle_mute(ctx: ShellCtx, mic: bool) {
     std::thread::spawn(move || {
         synsystem::volume::toggle_mute(mic);

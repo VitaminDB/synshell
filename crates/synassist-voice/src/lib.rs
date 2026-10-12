@@ -26,7 +26,7 @@ pub struct VoiceConfig {
     pub voice: Option<String>,
     pub speed: Option<f32>,
     pub microphone: Option<String>,
-    /// Уровень фонового шума 0–100 (см. `Assistant::noise_level`); 0 — авто.
+    /// Уровень шума 0–100 (см. `Assistant::noise_level`): запас порога тишины над фоном.
     pub noise_level: f32,
 }
 
@@ -101,9 +101,12 @@ pub struct Vad {
     buf: Vec<f32>,
     pre: VecDeque<f32>,
     pre_cap: usize,
+    /// Уровень фона — скользящее среднее RMS вне речи (не минимум: в шуме
+    /// минимум сильно ниже обычного уровня, и тишина никогда не наступала).
     floor: f32,
-    /// Нижняя граница шумового пола, заданная пользователем (0 — нет).
-    floor_min: f32,
+    /// Во сколько раз звук громче фона всё ещё считается тишиной
+    /// (`Assistant::noise_level` 0–100 → 1,8…11,8).
+    margin: f32,
     ticks: usize,
     in_speech: bool,
     above: usize,
@@ -123,7 +126,7 @@ impl Vad {
             pre: VecDeque::with_capacity(sr * PRE_ROLL_MS / 1000),
             pre_cap: sr * PRE_ROLL_MS / 1000,
             floor: 0.01,
-            floor_min: 0.0,
+            margin: 1.8,
             ticks: 0,
             in_speech: false,
             above: 0,
@@ -134,12 +137,16 @@ impl Vad {
         }
     }
 
-    /// Уровень фонового шума 0–100 → нижняя граница шумового пола (RMS по
-    /// логарифмической шкале: 50 ≈ 0,01, 100 ≈ 0,1). 0 — только автоподбор.
     pub fn with_noise_level(mut self, level: f32) -> Self {
-        let level = level.clamp(0.0, 100.0);
-        self.floor_min = if level <= 0.0 { 0.0 } else { 0.001 * 10f32.powf(level / 50.0) };
+        self.set_noise_level(level);
         self
+    }
+
+    /// Уровень шума 0–100: насколько порог тишины отодвинут от фона. 0 — порог
+    /// в 1,8 раза выше фона; 100 — почти в 12 раз (тихая речь уже не услышится).
+    pub fn set_noise_level(&mut self, level: f32) {
+        let level = if level.is_finite() { level.clamp(0.0, 100.0) } else { 0.0 };
+        self.margin = 1.8 + level / 10.0;
     }
 
     pub fn reset(&mut self) {
@@ -153,9 +160,8 @@ impl Vad {
     }
 
     pub fn thresholds(&self) -> (f32, f32) {
-        let floor = self.floor.max(self.floor_min);
-        let silence = (floor * 1.8 + 0.004).max(0.006);
-        let speech = (floor * 3.0 + 0.01).max(silence * 1.3);
+        let silence = (self.floor * self.margin + 0.004).max(0.006);
+        let speech = (self.floor * 3.0 + 0.01).max(silence * 1.3);
         (speech, silence)
     }
 
@@ -178,11 +184,17 @@ impl Vad {
             self.floor = rms.max(0.001);
             return None;
         }
-        if rms < self.floor {
-            self.floor = rms.max(0.001);
-        } else if !self.in_speech {
-            self.floor += (rms - self.floor) * 0.03;
-        }
+        // Фон: вниз быстро, вверх медленно — громкий всплеск не поднимает порог
+        // сразу. В речи фон ползёт вверх совсем медленно: если «речь» не
+        // кончается десятки секунд, это шум, и порог должен его догнать.
+        let k = if rms < self.floor {
+            0.2
+        } else if self.in_speech {
+            0.002
+        } else {
+            0.03
+        };
+        self.floor = (self.floor + (rms - self.floor) * k).max(0.001);
         let (speech, silence) = self.thresholds();
         if !self.in_speech {
             for &s in frame {
@@ -208,7 +220,9 @@ impl Vad {
         self.utter.extend_from_slice(frame);
         if rms > silence {
             self.speech_frames += 1;
-            self.silence_frames = 0;
+            // Одиночный всплеск (стук, шорох) не обнуляет отсчёт тишины, а лишь
+            // откатывает его: иначе в шумном месте фраза не кончалась никогда.
+            self.silence_frames = self.silence_frames.saturating_sub(3);
         } else {
             self.silence_frames += 1;
         }
@@ -514,6 +528,7 @@ fn conversation(cfg: VoiceConfig, turn: Turn, on: Listener) {
         };
         if text.chars().filter(|c| c.is_alphanumeric()).count() < 2 {
             vad.reset();
+            vad.set_noise_level(VoiceConfig::load().noise_level);
             while rx.try_recv().is_ok() {}
             rec.resume();
             on(VoiceEvent::Phase(Phase::Listening));
@@ -545,6 +560,8 @@ fn conversation(cfg: VoiceConfig, turn: Turn, on: Listener) {
             break;
         }
         vad.reset();
+        // «Уровень шума» из Параметров подхватывается без перезапуска разговора
+        vad.set_noise_level(VoiceConfig::load().noise_level);
         while rx.try_recv().is_ok() {}
         rec.resume();
         on(VoiceEvent::Phase(Phase::Listening));
@@ -677,6 +694,47 @@ mod tests {
         for _ in 0..END_SILENCE_FRAMES + 2 {
             assert!(vad.push(&quiet).is_none());
         }
+    }
+
+    /// Шум, прыгающий между уровнями (минимум в разы ниже обычного), с редкими
+    /// всплесками: фраза должна заканчиваться, а не тянуться до предела.
+    #[test]
+    fn utterance_ends_in_fluctuating_noise() {
+        let sr = 16_000u32;
+        let mut vad = Vad::new(sr);
+        let frame = sr as usize * FRAME_MS / 1000;
+        let noise = |i: usize| {
+            let a = if i % 7 == 0 { 0.004 } else { 0.012 };
+            (0..frame).map(|k| ((k * (i + 1)) as f32 * 0.7).sin() * a * 1.414).collect::<Vec<f32>>()
+        };
+        for i in 0..100 {
+            assert!(vad.push(&noise(i)).is_none(), "шум не должен запускать фразу");
+        }
+        let loud: Vec<f32> = (0..frame).map(|i| (i as f32 * 0.3).sin() * 0.3).collect();
+        for _ in 0..30 {
+            assert!(vad.push(&loud).is_none());
+        }
+        let mut got = None;
+        let mut spent = 0;
+        for i in 0..400 {
+            spent = i;
+            // раз в полсекунды — всплеск (стук), который раньше обнулял отсчёт тишины
+            let f = if i % 25 == 10 { vec![0.08f32; frame] } else { noise(i) };
+            if let Some(u) = vad.push(&f) {
+                got = Some(u);
+                break;
+            }
+        }
+        assert!(got.is_some(), "фраза должна закончиться в шуме");
+        assert!(spent < 150, "конец фразы должен найтись за ~3 с, а не за {spent} кадров");
+    }
+
+    #[test]
+    fn noise_level_raises_thresholds() {
+        let quiet = Vad::new(16_000);
+        let noisy = Vad::new(16_000).with_noise_level(40.0);
+        assert!(noisy.thresholds().1 > quiet.thresholds().1 * 2.0);
+        assert!(noisy.thresholds().0 >= noisy.thresholds().1 * 1.3);
     }
 }
 

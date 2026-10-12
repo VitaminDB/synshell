@@ -476,7 +476,8 @@ fn volume(ctx: ShellCtx) -> impl Widget {
         .child(title(t!("Звук")))
         .child(move || {
             let v = ctx.volume.get();
-            let (pct, muted, mic) = v.as_ref().map(|v| (v.percent, v.muted, v.mic_muted)).unwrap_or((0, true, true));
+            let (pct, muted, mic, mic_pct) =
+                v.as_ref().map(|v| (v.percent, v.muted, v.mic_muted, v.mic_percent)).unwrap_or((0, true, true, 0));
             Column::new()
                 .gap(10.0)
                 .child(
@@ -507,7 +508,15 @@ fn volume(ctx: ShellCtx) -> impl Widget {
                                 .pointer()
                                 .on_click(|_, _, _| crate::system::toggle_mute(ShellCtx::get(), true)),
                         )
-                        .child(Text::new(if mic { t!("Микрофон выключен") } else { t!("Микрофон включён") }).class("popup-text")),
+                        .child(
+                            Slider::new()
+                                .range(0.0, 100.0f32.max(mic_pct as f32))
+                                .step(1.0)
+                                .value(mic_pct as f32)
+                                .on_change(|v| crate::system::set_mic(ShellCtx::get(), v.round() as u32))
+                                .class("grow"),
+                        )
+                        .child(Text::new(format!("{mic_pct}%")).class("popup-value")),
                 )
         })
         .child(menu_item(mi::SETTINGS, t!("Параметры звука…"), || {
