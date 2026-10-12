@@ -227,7 +227,16 @@ pub fn action_label(a: &Action) -> String {
         Action::ScreenOn => t!("Включить экран").into(),
         Action::ProximityBlank(true) => t!("Погасить экран (у уха)").into(),
         Action::ProximityBlank(false) => t!("Включить экран после «у уха»").into(),
-        Action::Shell(c) => t!("Оболочка: {c}", c = c),
+        Action::Shell(c) => match c.trim() {
+            "resources processes" => t!("Монитор ресурсов: процессы"),
+            "resources" => t!("Монитор ресурсов"),
+            "power-menu" | "power" => t!("Меню выключения"),
+            "notifications" => t!("Уведомления"),
+            "clipboard" => t!("Буфер обмена"),
+            "launcher" | "menu" => t!("Меню запуска"),
+            "run" => t!("Выполнить команду"),
+            other => t!("Оболочка: {c}", c = other),
+        },
         Action::Back => t!("Назад").into(),
         Action::Key(k) => t!("Клавиша {k}", k = k),
         Action::MobileMode(m) => t!("Режим окон: {v}", v = match m {

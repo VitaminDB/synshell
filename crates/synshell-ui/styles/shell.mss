@@ -695,6 +695,11 @@ Text {
 }
 .desk-plain { background-color: #00000000; }
 .desk-title-icon { icon-size: 18px; icon-color: var(--accent); }
+.desk-disk-badge { width: 32px; height: 32px; border-radius: 10px; background-color: #ffffff12; justify-content: center; align-items: center; }
+.desk-disk-icon { icon-size: 18px; }
+.desk-disk-name { font-size: 14px; font-weight: 600; color: var(--fg); }
+.desk-disk-free { font-size: 12px; color: var(--fg); }
+.desk-disk-sub { font-size: 11px; color: var(--muted); }
 .desk-title { font-size: 14px; font-weight: 600; color: var(--fg); }
 .desk-k { font-size: 12px; color: var(--muted); }
 .desk-value { font-size: 20px; font-weight: 600; color: var(--fg); }

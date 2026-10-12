@@ -68,6 +68,7 @@ pub fn handle(cmd: &str) {
         "launcher" | "menu" => ctx.open_popup(PopupKind::Launcher, at_applet("launcher")),
         "run" => ctx.open_popup(PopupKind::Run, centered()),
         "power-menu" | "power" => ctx.open_popup(PopupKind::Power, centered()),
+        "resources" => crate::actions::open_resources(if arg.trim().is_empty() { "overview" } else { arg.trim() }),
         "notifications" => ctx.open_popup(PopupKind::Notifications, at_applet("notifications")),
         "calendar" => ctx.open_popup(PopupKind::Calendar, at_applet("clock")),
         "network" | "wifi" => ctx.open_popup(PopupKind::Network, at_applet("network")),

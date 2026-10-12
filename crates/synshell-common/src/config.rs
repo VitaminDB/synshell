@@ -1947,7 +1947,7 @@ pub fn default_keybindings() -> Vec<(&'static str, &'static str)> {
         ("Alt+Print", "screenshot-window"),
         ("Super+Shift+R", "reload-config"),
         ("Super+Shift+E", "shell power-menu"),
-        ("Ctrl+Alt+Delete", "shell power-menu"),
+        ("Ctrl+Alt+Delete", "shell resources processes"),
         ("Super+Escape", "lock"),
         ("Super+N", "shell notifications"),
         ("Super+V", "shell clipboard"),

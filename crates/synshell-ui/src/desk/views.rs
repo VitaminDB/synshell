@@ -64,6 +64,7 @@ pub fn build(ctx: ShellCtx, slot: &Slot, w: &DeskWidget, iw: f32, ih: f32, editi
     let cx = Cx { w: cw, h: chh, color: color_of(&ctx, w), view, history: w.int_or("history", 60).clamp(10, data::HISTORY as i64) as usize };
     let body: Box<dyn Widget> = match w.kind.as_str() {
         "clock" => clock(ctx, w, &cx),
+        "storage" if cx.view == "card" => storage(w, cx.clone()),
         "cpu" | "memory" | "gpu" | "battery" | "vram" | "npu" | "storage" => metric(ctx, w.kind.clone(), cx.clone()),
         "network" => network(ctx, cx.clone()),
         "temps" => temps(cx.clone()),
@@ -534,7 +535,6 @@ fn card(ctx: ShellCtx, kind: &str, s: &Snap, cx: &Cx) -> Box<dyn Widget> {
             }
             Box::new(col)
         }
-        "storage" => storage_body(s, cx),
         "memory" | "gpu" | "vram" | "npu" => {
             let (v, big, sub) = value_of(kind, s);
             let size = (cx.h - 18.0).min(cx.w).max(40.0);
@@ -563,32 +563,6 @@ fn card(ctx: ShellCtx, kind: &str, s: &Snap, cx: &Cx) -> Box<dyn Widget> {
         "battery" => power_body(s),
         _ => Box::new(DecoratedBox::new()),
     }
-}
-
-/// Разделы: путь, свободно, полоса заполнения — сколько влезет по высоте.
-fn storage_body(s: &Snap, cx: &Cx) -> Box<dyn Widget> {
-    if s.mounts.is_empty() {
-        return Box::new(Text::new(t!("Нет данных")).class("res-k"));
-    }
-    let rows = ((cx.h + 8.0) / 44.0).floor().max(1.0) as usize;
-    let mut col = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
-    for m in s.mounts.iter().take(rows) {
-        let p = (m.used as f64 / m.total.max(1) as f64 * 100.0).round() as u32;
-        let name = if m.path == "/" { t!("Система").to_string() } else { m.path.rsplit('/').next().filter(|x| !x.is_empty()).unwrap_or(&m.path).to_string() };
-        col = col.child(
-            Column::new()
-                .gap(4.0)
-                .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                .child(
-                    Row::new()
-                        .gap(6.0)
-                        .child(Text::new(name).max_lines(1).class("res-v grow"))
-                        .child(Text::new(t!("{f} своб.", f = human_bytes(m.total.saturating_sub(m.used)))).max_lines(1).class("res-k")),
-                )
-                .child(crate::ui::meter(p)),
-        );
-    }
-    Box::new(col)
 }
 
 fn power_body(s: &Snap) -> Box<dyn Widget> {
@@ -971,4 +945,139 @@ fn icon_gestures(child: impl Widget + 'static, slot: Slot, open: impl Fn() + Sen
         .on_long_press(move |_| super::open_menu(&slot))
         .on_secondary_click(move |_| super::open_menu(&slot2))
         .child(child)
+}
+
+// ─── Хранилище ──────────────────────────────────────────────────────────────
+
+pub fn mount_name(path: &str) -> String {
+    match path {
+        "/" => t!("Система").to_string(),
+        "/home" => t!("Домашние папки").to_string(),
+        "/boot" | "/efi" | "/boot/efi" => t!("Загрузочный").to_string(),
+        p => p.rsplit('/').find(|x| !x.is_empty()).unwrap_or(p).to_string(),
+    }
+}
+
+fn is_removable(path: &str) -> bool {
+    path.starts_with("/run/media/") || path.starts_with("/media/")
+}
+
+fn is_boot(path: &str) -> bool {
+    matches!(path, "/boot" | "/efi" | "/boot/efi")
+}
+
+fn mount_icon(path: &str) -> &'static str {
+    if path == "/" {
+        "\u{E1DB}"
+    } else if path.starts_with("/home") {
+        "\u{E88A}"
+    } else if is_removable(path) {
+        "\u{E1E0}"
+    } else if is_boot(path) {
+        "\u{E8F4}"
+    } else {
+        "\u{E2C7}"
+    }
+}
+
+pub fn storage_mounts<'a>(w: &DeskWidget, all: &'a [synsystem::disk::Mount]) -> Vec<&'a synsystem::disk::Mount> {
+    let chosen = w.strings("mounts");
+    let mut list: Vec<&synsystem::disk::Mount> = if chosen.is_empty() {
+        let removable = w.bool_or("removable", true);
+        all.iter().filter(|m| !is_boot(&m.path) && (removable || !is_removable(&m.path))).collect()
+    } else {
+        chosen.iter().filter_map(|p| all.iter().find(|m| &m.path == p)).collect()
+    };
+    let fill = |m: &synsystem::disk::Mount| m.used as f64 / m.total.max(1) as f64;
+    match w.str_or("sort", "system") {
+        "fill" => list.sort_by(|a, b| fill(b).total_cmp(&fill(a))),
+        "size" => list.sort_by(|a, b| b.total.cmp(&a.total)),
+        _ if chosen.is_empty() => list.sort_by_key(|m| (m.path != "/", !m.path.starts_with("/home"), is_removable(&m.path), m.path.clone())),
+        _ => {}
+    }
+    list
+}
+
+fn fill_color(p: f32, base: Color) -> Color {
+    if p >= 92.0 {
+        Color::from_hex("#ef4444")
+    } else if p >= 80.0 {
+        Color::from_hex("#f59e0b")
+    } else {
+        base
+    }
+}
+
+fn bar(p: f32, width: f32, height: f32, color: Color) -> impl Widget {
+    Canvas::new(move |c, _| {
+        let r = height / 2.0;
+        c.set_color(Color::from_hex("#ffffff1f"));
+        c.fill_rounded_rect(0.0, 0.0, width, height, r);
+        let fw = (width * (p / 100.0).clamp(0.0, 1.0)).max(if p > 0.0 { height } else { 0.0 });
+        if fw > 0.0 {
+            c.set_color(color);
+            c.fill_rounded_rect(0.0, 0.0, fw, height, r);
+        }
+    })
+    .size(width, height)
+}
+
+fn storage(w: &DeskWidget, cx: Cx) -> Box<dyn Widget> {
+    let sig = data::snap();
+    let w = w.clone();
+    Box::new(rx(move || {
+        let s = sig.get();
+        let list = storage_mounts(&w, &s.mounts);
+        if list.is_empty() {
+            return Box::new(Text::new(t!("Нет разделов")).class("desk-k")) as Box<dyn Widget>;
+        }
+        let details = w.bool_or("details", true);
+        let gap = 10.0;
+        let row_h = if details { 52.0 } else { 36.0 };
+        let fit = (((cx.h + gap) / (row_h + gap)).floor() as usize).max(1);
+        let shown = if list.len() > fit { fit.saturating_sub(1).max(1) } else { list.len() };
+        let gap = if shown == list.len() { ((cx.h - shown as f32 * row_h) / shown as f32).clamp(gap, 30.0) } else { gap };
+        let badge = 32.0;
+        let bw = (cx.w - badge - 12.0).max(40.0);
+        let mut col = Column::new().gap(gap).cross_axis_alignment(CrossAxisAlignment::Stretch);
+        for m in list.iter().take(shown) {
+            let p = m.used as f32 / m.total.max(1) as f32 * 100.0;
+            let color = fill_color(p, cx.color);
+            let free = m.total.saturating_sub(m.used);
+            let mut info = Column::new()
+                .gap(5.0)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .class("grow")
+                .child(
+                    Row::new()
+                        .gap(6.0)
+                        .cross_axis_alignment(CrossAxisAlignment::End)
+                        .child(Text::new(mount_name(&m.path)).max_lines(1).class("desk-disk-name grow"))
+                        .child(Text::new(t!("{v} свободно", v = human_bytes(free))).max_lines(1).class("desk-disk-free")),
+                )
+                .child(bar(p, bw, 8.0, color));
+            if details {
+                let ro = if m.read_only { t!(" · только чтение").to_string() } else { String::new() };
+                info = info.child(
+                    Text::new(t!("{u} из {t} · {p}% · {fs}{ro}", u = human_bytes(m.used), t = human_bytes(m.total), p = format!("{p:.0}"), fs = m.fstype.clone(), ro = ro))
+                        .max_lines(1)
+                        .class("desk-disk-sub"),
+                );
+            }
+            let path = PathBuf::from(&m.path);
+            col = col.child(
+                GestureDetector::new().on_click(move || launchers::open_path(&path)).child(
+                    Row::new()
+                        .gap(12.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(DecoratedBox::new().class("desk-disk-badge").child(icon(mount_icon(&m.path)).class("desk-disk-icon").style("icon-color", StyleValue::Color(syngui::mss::MssColor { r: (color.r * 255.0) as u8, g: (color.g * 255.0) as u8, b: (color.b * 255.0) as u8, a: 255 }))))
+                        .child(info),
+                ),
+            );
+        }
+        if shown < list.len() {
+            col = col.child(Text::new(t!("и ещё {n}", n = list.len() - shown)).class("desk-disk-sub"));
+        }
+        Box::new(col)
+    }))
 }

@@ -315,6 +315,69 @@ pub fn edit_view(ctx: ShellCtx, index: usize) -> Box<dyn Widget> {
                 }).class("form-field"),
             ));
         }
+        "storage" => {
+            col = col.child(labeled(
+                &t!("Разделы"),
+                rx(move || {
+                    let _ = ctx.config.get();
+                    let snap = super::data::snap().get();
+                    let chosen = cur().map(|w| w.strings("mounts")).unwrap_or_default();
+                    let mut flex = Flex::new().wrap().gap(4.0).child(chip(t!("Все"), chosen.is_empty(), move || super::update(index, |w| {
+                        w.options.remove("mounts");
+                    })));
+                    for m in &snap.mounts {
+                        let path = m.path.clone();
+                        let on = chosen.contains(&path);
+                        let label = format!("{} · {}", super::views::mount_name(&path), path);
+                        flex = flex.child(chip(label, on, move || {
+                            let path = path.clone();
+                            super::update(index, move |w| {
+                                let mut list = w.strings("mounts");
+                                if let Some(i) = list.iter().position(|p| *p == path) {
+                                    list.remove(i);
+                                } else {
+                                    list.push(path);
+                                }
+                                if list.is_empty() {
+                                    w.options.remove("mounts");
+                                } else {
+                                    w.set("mounts", toml::Value::Array(list.into_iter().map(toml::Value::String).collect()));
+                                }
+                            })
+                        }));
+                    }
+                    Box::new(flex)
+                }),
+            ));
+            col = col.child(labeled(
+                &t!("Показывать"),
+                rx(move || {
+                    let _ = ctx.config.get();
+                    let w = cur();
+                    let removable = w.as_ref().is_none_or(|w| w.bool_or("removable", true));
+                    let details = w.as_ref().is_none_or(|w| w.bool_or("details", true));
+                    Box::new(
+                        Flex::new()
+                            .wrap()
+                            .gap(4.0)
+                            .child(chip(t!("Съёмные диски"), removable, move || super::update(index, |w| w.set("removable", !removable))))
+                            .child(chip(t!("Подробности"), details, move || super::update(index, |w| w.set("details", !details)))),
+                    )
+                }),
+            ));
+            col = col.child(labeled(
+                &t!("Порядок"),
+                rx(move || {
+                    let _ = ctx.config.get();
+                    let sort = cur().map(|w| w.str_or("sort", "system").to_string()).unwrap_or_else(|| "system".into());
+                    let mut flex = Flex::new().wrap().gap(4.0);
+                    for (v, l) in [("system", t!("Система сначала")), ("fill", t!("По заполненности")), ("size", t!("По размеру"))] {
+                        flex = flex.child(chip(l, sort == v, move || super::update(index, |w| w.set("sort", v))));
+                    }
+                    Box::new(flex)
+                }),
+            ));
+        }
         "launcher" => {
             col = col.child(labeled(
                 &t!("Колонок"),
@@ -331,7 +394,7 @@ pub fn edit_view(ctx: ShellCtx, index: usize) -> Box<dyn Widget> {
         }
         _ => {}
     }
-    if matches!(kind.as_str(), "cpu" | "memory" | "gpu" | "battery" | "network" | "temps" | "apps" | "note") {
+    if matches!(kind.as_str(), "cpu" | "memory" | "gpu" | "battery" | "network" | "temps" | "apps" | "note" | "storage") {
         let name = w0.str("name").unwrap_or_default().to_string();
         col = col.child(labeled(
             &t!("Своё название"),
