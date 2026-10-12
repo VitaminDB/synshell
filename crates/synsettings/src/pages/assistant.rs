@@ -102,6 +102,7 @@ fn mic_check() -> W {
         create_detached_effect(move || {
             if ctx.page.get() != "assistant" {
                 stop_mic_test();
+                synassist_voice::stop_speaking();
             }
         });
     }
@@ -153,6 +154,83 @@ fn mic_check() -> W {
                 toggle,
             ))
             .child(meter),
+    )
+}
+
+/// Проверка озвучки: текст из поля читается вслух моделью озвучки по умолчанию
+/// с текущими «Языком речи», «Голосом» и «Скоростью речи».
+fn tts_check() -> W {
+    let sample = t!("Привет! Так будут звучать ответы ассистента.").to_string();
+    let text = use_signal(sample.clone());
+    let speaking = use_signal(false);
+    let error: RwSignal<Option<String>> = use_signal(None);
+    // Каждый запуск — своё поколение: завершение старой озвучки не гасит новую.
+    let gen = use_signal(0u64);
+    let start = move || {
+        let s = text.get_untracked();
+        if s.trim().is_empty() {
+            return;
+        }
+        let cfg = synassist_voice::VoiceConfig::from_assistant(&store::config().assistant);
+        let id = gen.get_untracked() + 1;
+        gen.set(id);
+        error.set(None);
+        speaking.set(true);
+        synassist_voice::speak(
+            cfg,
+            s,
+            std::sync::Arc::new(move |r: std::result::Result<(), String>| {
+                run_on_main_thread(move || {
+                    if gen.get_untracked() != id {
+                        return;
+                    }
+                    speaking.set(false);
+                    if let Err(e) = r {
+                        error.set(Some(e));
+                    }
+                })
+            }),
+        );
+    };
+    let toggle = Reactive::new(move || -> Vec<W> {
+        let label = if speaking.get() { t!("Остановить") } else { t!("Проверить") };
+        vec![boxed(button(label, move || {
+            if speaking.get_untracked() {
+                synassist_voice::stop_speaking();
+                speaking.set(false);
+            } else {
+                start();
+            }
+        }))]
+    });
+    let state = Reactive::new(move || -> Vec<W> {
+        if let Some(e) = error.get() {
+            return vec![boxed(Text::new(t!("Озвучка не удалась: {e}", e = e)).class("mic-test-state pause"))];
+        }
+        if speaking.get() {
+            return vec![boxed(Text::new(t!("Озвучиваю…")).class("mic-test-text"))];
+        }
+        Vec::new()
+    });
+    boxed(
+        Column::new()
+            .gap(0.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(row(
+                t!("Проверка озвучки"),
+                t!("Текст читается вслух с выбранными языком, голосом и скоростью — моделью озвучки по умолчанию"),
+                Row::new()
+                    .gap(8.0)
+                    .child(
+                        TextField::with_text(&sample)
+                            .placeholder(t!("Текст для проверки"))
+                            .width(320.0)
+                            .on_change(move |s| text.set(s.to_string()))
+                            .on_submit(move |_| start()),
+                    )
+                    .child(toggle),
+            ))
+            .child(state),
     )
 }
 
@@ -296,6 +374,7 @@ pub fn assistant() -> W {
                         MIC_TEST.with(|t| t.borrow().as_ref().map(|t| t.set_noise_level(v as f32)));
                     }),
             ),
+            tts_check(),
             mic_volume(),
             mic_check(),
         ],
