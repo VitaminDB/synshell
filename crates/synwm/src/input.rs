@@ -1560,8 +1560,13 @@ impl State {
         }
     }
 
+    pub fn lock_orphaned(&self) -> bool {
+        use smithay::utils::IsAlive;
+        matches!(self.core.lock, crate::state::LockState::Locked) && self.core.lock_surfaces.values().all(|s| !s.alive())
+    }
+
     pub fn lock_screen(&mut self) {
-        if self.core.is_locked() {
+        if self.core.is_locked() && !self.lock_orphaned() {
             return;
         }
         let cmd = self.core.config.lock.command.trim().to_string();

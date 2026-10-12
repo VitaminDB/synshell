@@ -374,6 +374,12 @@ fn update_activation_environment(state: &State) {
 impl State {
     /// Простой: погасить мониторы, заблокировать, уснуть.
     fn check_idle(&mut self) {
+        if self.lock_orphaned() && self.core.ipc.subscribers() > 0 && self.core.relock_at.is_none_or(|t| t.elapsed() >= Duration::from_secs(5)) {
+            tracing::warn!("экран заблокирован, а экрана блокировки нет — прошу оболочку заблокировать заново");
+            self.core.relock_at = Some(std::time::Instant::now());
+            self.core.lock_surfaces.clear();
+            self.core.ipc.broadcast(&synshell_common::ipc::Event::ShellCommand { command: "lock".into() });
+        }
         self.update_idle_inhibit();
         if !self.core.idle_inhibitors.is_empty() {
             return;

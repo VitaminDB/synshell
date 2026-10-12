@@ -1,7 +1,7 @@
 # Maintainer: Alexeyev Vitaly
 pkgname=synshell
 pkgver=0.1.42
-pkgrel=6
+pkgrel=7
 pkgdesc="Окружение рабочего стола для Wayland на Rust и syngui: композитор, оболочка, параметры"
 arch=('x86_64')
 license=('MIT OR Apache-2.0')

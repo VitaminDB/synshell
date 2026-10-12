@@ -211,6 +211,7 @@ pub struct Core {
     pub lock: LockState,
     /// Поверхности блокировки по выводу.
     pub lock_surfaces: HashMap<Output, smithay::wayland::session_lock::LockSurface>,
+    pub relock_at: Option<std::time::Instant>,
     /// Поверхности, запретившие простой.
     pub idle_inhibitors: HashSet<WlSurface>,
     pub last_activity: Instant,
@@ -450,6 +451,7 @@ impl Core {
             wm,
             output_data: HashMap::new(),
             lock: LockState::Unlocked,
+            relock_at: None,
             lock_surfaces: HashMap::new(),
             idle_inhibitors: HashSet::new(),
             last_activity: Instant::now(),
