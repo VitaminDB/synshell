@@ -16,6 +16,14 @@
 # src/appmenu.rs
 "нет меню" = "no menu"
 
+# src/assistant.rs
+"Спросите ассистента…" = "Ask the assistant…"
+"Разрешить действие?" = "Allow this action?"
+"Отклонить" = "Decline"
+"Новый вопрос" = "New question"
+"Открыть чат" = "Open chat"
+"Управление системой, файлы, интернет и медиа — на нейросетях этого устройства." = "System control, files, web and media — on this device's neural networks."
+
 # src/auth.rs
 "Запуск программы от имени администратора" = "Run a program as administrator"
 "Диски и разделы" = "Disks and partitions"
@@ -414,7 +422,6 @@
 "Подключено по USB" = "Connected via USB"
 "{what}. Разрешить ему экран, ввод, файлы, уведомления и ssh этого устройства?" = "{what}. Allow it the screen, input, files, notifications and ssh of this device?"
 "Кабель USB" = "USB cable"
-"Отклонить" = "Decline"
 
 # src/location.rs
 "Запрос местоположения закрыт" = "Location request closed"

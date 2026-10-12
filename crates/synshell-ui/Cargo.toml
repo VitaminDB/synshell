@@ -11,7 +11,8 @@ synshell-common = { workspace = true, features = ["drives", "i18n"] }
 syngui-layer.workspace = true
 synsystem.workspace = true
 synmodem.workspace = true
-syngui = { workspace = true, features = ["winit", "clipboard", "msdf", "effects", "svg", "material-icons", "i18n"] }
+syngui = { workspace = true, features = ["winit", "clipboard", "msdf", "effects", "svg", "material-icons", "i18n", "markdown-syntax"] }
+synassist.workspace = true
 anyhow.workspace = true
 libc.workspace = true
 serde.workspace = true

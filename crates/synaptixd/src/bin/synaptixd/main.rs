@@ -227,7 +227,7 @@ impl Conn {
                 let fd = wire::memfd_f32("speech", &wav)?;
                 (data(synaptixd::SpeechReply { samples: wav.len(), sample_rate: sr, audio: FdRef { fd: 0 } }), vec![fd])
             }
-            Request::Generate { model, messages, max_tokens, temperature, params } => {
+            Request::Generate { model, messages, max_tokens, temperature, params, tools } => {
                 let model = mgr.resolve_id(&model, ModelKind::Llm)?;
                 let mut call = params;
                 if let Some(v) = max_tokens {
@@ -239,11 +239,11 @@ impl Conn {
                 let params = mgr.params(&model, &call);
                 let sock = self.sock.as_fd();
                 let id = self.current;
-                let send = |piece: &str| {
-                    let r = Reply { id, event: Some(synaptixd::Event::Token { text: piece.to_string() }), ..Default::default() };
+                let send = |ev: synaptixd::Event| {
+                    let r = Reply { id, event: Some(ev), ..Default::default() };
                     let _ = wire::send(sock, &serde_json::to_vec(&r).unwrap_or_default(), &[]);
                 };
-                let g = mgr.run(&model, |m| m.generate(&messages, &params, &send))?;
+                let g = mgr.run(&model, |m| m.generate(&messages, &params, &tools, &send))?;
                 (data(g), none())
             }
             Request::Subscribe => unreachable!(),

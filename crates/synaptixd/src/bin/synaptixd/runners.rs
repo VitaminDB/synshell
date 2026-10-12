@@ -198,7 +198,8 @@ impl Loaded {
         Ok(synaptixd::Transcript { text: text.trim().to_string(), segments: Vec::new() })
     }
 
-    pub fn generate(&self, messages: &[synaptixd::Message], params: &Params, on_token: &dyn Fn(&str)) -> anyhow::Result<synaptixd::Generated> {
+    pub fn generate(&self, messages: &[synaptixd::Message], params: &Params, tools: &[serde_json::Value], on_event: &dyn Fn(synaptixd::Event)) -> anyhow::Result<synaptixd::Generated> {
+        use synaptix::facade::chat::{prompt_for_model, StreamParser};
         use synaptix::facade::llm::{GenerationOptions, LlmGeneration, Message};
         let Loaded::Llm(b) = self else { anyhow::bail!("модель не языковая") };
         let (llm, tok) = (&b.llm, &b.tok);
@@ -210,13 +211,24 @@ impl Loaded {
             .chain(messages.iter()
             .map(|m| match m.role.as_str() {
                 "system" => Message::system(m.content.clone()),
-                "assistant" => Message::assistant(m.content.clone()),
-                "tool" => Message::tool(m.content.clone()),
+                "assistant" => Message::assistant_turn(
+                    m.content.clone(),
+                    m.reasoning.clone().filter(|r| !r.is_empty()),
+                    m.tool_calls.iter().map(|c| (c.name.clone(), c.arguments.clone())).collect(),
+                ),
+                "tool" => match &m.name {
+                    Some(n) => Message::tool_named(n.clone(), m.content.clone()),
+                    None => Message::tool(m.content.clone()),
+                },
                 _ => Message::user(m.content.clone()),
             }))
             .collect();
         let thinking = params.bool("thinking").unwrap_or(false);
-        let prompt = tok.apply_chat_template_reasoning(&msgs, true, thinking, params.text("reasoning"), None).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let tools_opt = (!tools.is_empty()).then_some(tools);
+        let prompt = tok.apply_chat_template_reasoning(&msgs, true, thinking, params.text("reasoning"), tools_opt).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let prompt = prompt_for_model(tok, thinking, prompt);
+        let parser = std::cell::RefCell::new(StreamParser::for_model(tok, thinking, &prompt));
+        let reasoning = std::cell::RefCell::new(String::new());
         let ids = tok.encode(&prompt).map_err(|e| anyhow::anyhow!("{e}"))?;
         let opts = GenerationOptions {
             max_new_tokens: max_tokens,
@@ -240,11 +252,21 @@ impl Loaded {
         gen.set_stop_tokens(tok.eos_ids().to_vec());
         let mut text = String::new();
         let mut tokens = 0usize;
-        let on_piece = |_: u32, piece: &str| {
+        let on_piece = |id: u32, piece: &str| {
             tokens += 1;
-            text.push_str(piece);
-            on_token(piece);
-            true
+            let (body, think, tool) = parser.borrow_mut().feed(id, piece);
+            if !body.is_empty() {
+                text.push_str(&body);
+                on_event(synaptixd::Event::Token { text: body });
+            }
+            if !think.is_empty() {
+                reasoning.borrow_mut().push_str(&think);
+                on_event(synaptixd::Event::Thinking { text: think });
+            }
+            if !tool.is_empty() {
+                on_event(synaptixd::Event::ToolText { text: tool });
+            }
+            !parser.borrow().tool_call_ready()
         };
         let fits = ids.len() + max_tokens + 16 <= b.ctx;
         let mut session = if fits { Some(b.session.lock().unwrap_or_else(|e| e.into_inner())) } else { None };
@@ -265,7 +287,15 @@ impl Loaded {
         if prof {
             eprintln!("{}", synaptix_llm_common::model::prefill_prof_report_and_clear());
         }
-        Ok(synaptixd::Generated { text, tokens })
+        let mut parser = parser.into_inner();
+        let tail = parser.take_tail();
+        if !tail.is_empty() {
+            text.push_str(&tail);
+            on_event(synaptixd::Event::Token { text: tail });
+        }
+        let tool_calls: Vec<synaptixd::ToolCall> =
+            parser.finish().into_iter().map(|c| synaptixd::ToolCall { name: c.name, arguments: c.arguments_json }).collect();
+        Ok(synaptixd::Generated { text, tokens, thinking: reasoning.into_inner(), tool_calls })
     }
 
     pub fn speak(&self, text: &str, params: &Params) -> anyhow::Result<(Vec<f32>, u32)> {

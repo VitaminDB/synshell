@@ -67,6 +67,8 @@ pub fn handle(cmd: &str) {
     match name {
         "launcher" | "menu" => ctx.open_popup(PopupKind::Launcher, at_applet("launcher")),
         "run" => ctx.open_popup(PopupKind::Run, centered()),
+        "assistant" if ctx.cfg().assistant.enabled => ctx.open_popup(PopupKind::Assistant, centered()),
+        "assistant-window" if ctx.cfg().assistant.enabled => crate::actions::spawn("synassistant"),
         "power-menu" | "power" => ctx.open_popup(PopupKind::Power, centered()),
         "resources" => crate::actions::open_resources(if arg.trim().is_empty() { "overview" } else { arg.trim() }),
         "notifications" => ctx.open_popup(PopupKind::Notifications, at_applet("notifications")),

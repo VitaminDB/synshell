@@ -4,6 +4,7 @@ use crate::ui::{icons, W};
 use syngui::n_;
 
 mod appearance;
+mod assistant;
 mod audio;
 mod camera;
 mod datetime;
@@ -271,6 +272,14 @@ pub const PAGES: &[PageDef] = &[
         group: n_!("Система"),
         keywords: n_!("нейросети модели ии ai synaptix npu процессор нейронный cpu gpu cuda память выгрузка распознавание речи языковая модель llm whisper"),
         build: models::models,
+    },
+    PageDef {
+        id: "assistant",
+        title: n_!("Ассистент"),
+        icon: "\u{e65f}",
+        group: n_!("Система"),
+        keywords: n_!("ассистент помощник ии ai чат нейросеть голос вопрос инструменты"),
+        build: assistant::assistant,
     },
     PageDef {
         id: "location",

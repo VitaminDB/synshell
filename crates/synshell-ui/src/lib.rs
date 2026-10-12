@@ -8,6 +8,7 @@
 //! жесты и те же панели/доки под телефонный форм-фактор
 //! ([`ctx::ShellCtx::form_factor`]).
 
+mod assistant;
 pub mod access;
 pub mod auth;
 pub mod actions;

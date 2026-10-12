@@ -356,6 +356,40 @@ pub struct FdRef {
 pub struct Message {
     pub role: String,
     pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<ToolCall>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct ToolCall {
+    pub name: String,
+    pub arguments: String,
+}
+
+impl Message {
+    pub fn new(role: &str, content: impl Into<String>) -> Self {
+        Self { role: role.into(), content: content.into(), name: None, reasoning: None, tool_calls: Vec::new() }
+    }
+
+    pub fn system(content: impl Into<String>) -> Self {
+        Self::new("system", content)
+    }
+
+    pub fn user(content: impl Into<String>) -> Self {
+        Self::new("user", content)
+    }
+
+    pub fn assistant(content: impl Into<String>) -> Self {
+        Self::new("assistant", content)
+    }
+
+    pub fn tool(name: &str, content: impl Into<String>) -> Self {
+        Self { name: Some(name.into()), ..Self::new("tool", content) }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -478,6 +512,8 @@ pub enum Request {
         temperature: Option<f32>,
         #[serde(default, skip_serializing_if = "Params::is_empty")]
         params: Params,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        tools: Vec<Value>,
     },
     Subscribe,
 }
@@ -510,6 +546,8 @@ pub enum ErrorCode {
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
     Token { text: String },
+    Thinking { text: String },
+    ToolText { text: String },
     ModelState { model: ModelEntry },
     ModelsChanged,
 }
@@ -575,6 +613,10 @@ pub struct Transcript {
 pub struct Generated {
     pub text: String,
     pub tokens: usize,
+    #[serde(default)]
+    pub thinking: String,
+    #[serde(default)]
+    pub tool_calls: Vec<ToolCall>,
 }
 
 #[derive(Debug, Clone)]
@@ -859,12 +901,16 @@ impl Client {
         params: &Params,
         mut on_token: impl FnMut(&str),
     ) -> Result<Generated> {
-        let req = Request::Generate { model: model.into(), messages, max_tokens: None, temperature: None, params: params.clone() };
-        let (v, _) = self.call_events(req, &[], |ev| {
+        self.chat(model, messages, Vec::new(), params, |ev| {
             if let Event::Token { text } = ev {
                 on_token(&text);
             }
-        })?;
+        })
+    }
+
+    pub fn chat(&mut self, model: &str, messages: Vec<Message>, tools: Vec<Value>, params: &Params, on_event: impl FnMut(Event)) -> Result<Generated> {
+        let req = Request::Generate { model: model.into(), messages, max_tokens: None, temperature: None, params: params.clone(), tools };
+        let (v, _) = self.call_events(req, &[], on_event)?;
         serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))
     }
 

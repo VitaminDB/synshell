@@ -202,12 +202,21 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             let model = if arg(1)? == "-" { "" } else { arg(1)? };
             let t0 = std::time::Instant::now();
+            let tools: Vec<serde_json::Value> = std::env::var("TOOLS").ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
             let g = c
-                .generate_with(model, vec![synaptixd::Message { role: "user".into(), content: prompt }], &params, |t| {
-                    print!("{t}");
+                .chat(model, vec![synaptixd::Message::user(prompt)], tools, &params, |ev| {
+                    match ev {
+                        synaptixd::Event::Token { text } => print!("{text}"),
+                        synaptixd::Event::Thinking { text } => print!("\x1b[2m{text}\x1b[0m"),
+                        synaptixd::Event::ToolText { text } => print!("\x1b[33m{text}\x1b[0m"),
+                        _ => {}
+                    }
                     let _ = std::io::Write::flush(&mut std::io::stdout());
                 })
                 .map_err(|e| e.to_string())?;
+            for call in &g.tool_calls {
+                println!("\n→ вызов {}({})", call.name, call.arguments);
+            }
             println!("\n[{} токенов за {:.1} с]", g.tokens, t0.elapsed().as_secs_f32());
         }
         "asr" => {

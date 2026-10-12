@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Ассистент
+Name[en]=Assistant
+GenericName=Помощник на нейросетях
+GenericName[en]=AI assistant
+Comment=Чаты с нейросетью устройства: управление системой, файлы, интернет, медиа
+Comment[en]=Chat with the on-device AI: system control, files, web, media
+Exec=synassistant
+Icon=synassistant
+Categories=Utility;
+Keywords=assistant;ai;chat;llm;ассистент;помощник;ии;нейросеть;чат;
+StartupNotify=true

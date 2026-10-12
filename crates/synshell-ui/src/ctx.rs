@@ -13,6 +13,7 @@ use crate::system::{Battery, Network, Volume};
 pub enum PopupKind {
     Launcher,
     Run,
+    Assistant,
     Calendar,
     Volume,
     Network,

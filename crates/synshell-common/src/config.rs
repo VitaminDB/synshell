@@ -64,6 +64,7 @@ pub struct Config {
     pub location: Location,
     pub wifi: Wifi,
     pub packages: Packages,
+    pub assistant: Assistant,
     /// Разрешение экрана X11-программ (`[x11]`).
     pub x11: X11,
     /// Своё разрешение для отдельных X11-программ (`[[x11_app]]`).
@@ -107,6 +108,7 @@ impl Default for Config {
             location: Location::default(),
             wifi: Wifi::default(),
             packages: Packages::default(),
+            assistant: Assistant::default(),
             x11: X11::default(),
             x11_apps: Vec::new(),
         }
@@ -1558,6 +1560,20 @@ impl DeskWidget {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Assistant {
+    pub enabled: bool,
+    pub auto_approve: bool,
+    pub disabled_tools: Vec<String>,
+}
+
+impl Default for Assistant {
+    fn default() -> Self {
+        Self { enabled: true, auto_approve: false, disabled_tools: Vec::new() }
+    }
+}
+
 // ─── files ──────────────────────────────────────────────────────────────────
 
 /// Проводник `synfiles`.
@@ -1950,6 +1966,7 @@ pub fn default_keybindings() -> Vec<(&'static str, &'static str)> {
         ("Ctrl+Alt+Delete", "shell resources processes"),
         ("Super+Escape", "lock"),
         ("Super+N", "shell notifications"),
+        ("Super+A", "shell assistant"),
         ("Super+V", "shell clipboard"),
         ("Super+I", "spawn synsettings"),
         ("XF86AudioRaiseVolume", "shell volume +5"),

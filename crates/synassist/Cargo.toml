@@ -1,0 +1,27 @@
+[package]
+name = "synassist"
+description = "Ядро ассистента: чаты, агентный цикл, инструменты (система, файлы, терминал, интернет, медиа)"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+synaptixd.workspace = true
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2", "stream"] }
+tokio = { version = "1", features = ["rt", "time"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+thiserror = "2"
+htmd = "0.5"
+dom_smoothie = "0.16"
+scraper = "0.20"
+url = "2"
+urlencoding = "2"
+base64 = "0.22"
+log = "0.4"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "time", "macros"] }
+tempfile = "3"

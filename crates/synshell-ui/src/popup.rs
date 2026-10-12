@@ -54,6 +54,7 @@ fn width_of(kind: &PopupKind, ctx: &ShellCtx) -> f32 {
     match kind {
         PopupKind::Launcher => ctx.cfg().launcher.width as f32,
         PopupKind::Run => 560.0,
+        PopupKind::Assistant => 600.0,
         PopupKind::Calendar => 340.0,
         PopupKind::Volume => 320.0,
         PopupKind::Network | PopupKind::Battery => 300.0,
@@ -393,6 +394,7 @@ fn content_inner(kind: &PopupKind, ctx: ShellCtx) -> Box<dyn Widget> {
         PopupKind::Launcher if ctx.cfg().launcher.style == "win11" => crate::start_menu::view(ctx),
         PopupKind::Launcher => Box::new(crate::launcher::menu(ctx)),
         PopupKind::Run => Box::new(crate::launcher::run_prompt(ctx)),
+        PopupKind::Assistant => Box::new(crate::assistant::view(ctx)),
         PopupKind::Calendar => Box::new(calendar(ctx)),
         PopupKind::Volume => Box::new(volume(ctx)),
         PopupKind::Network => Box::new(crate::netmenu::view(ctx)),

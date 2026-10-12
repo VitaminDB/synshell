@@ -1,0 +1,24 @@
+@tag = "en"
+@name = "English"
+
+# src/main.rs
+"synassistant [--ask ВОПРОС] [--chat ID] [--cli ВОПРОС] [--screenshot СНИМОК.png [--size ШxВ] [--scale N]]" = "synassistant [--ask QUESTION] [--chat ID] [--cli QUESTION] [--screenshot SHOT.png [--size WxH] [--scale N]]"
+"Ассистент" = "Assistant"
+
+# src/ui.rs
+"Размышляет…" = "Thinking…"
+"Размышления" = "Thinking"
+"Готовит действие…" = "Preparing an action…"
+"Сделай громкость 30% и яркость 60%" = "Set volume to 30% and brightness to 60%"
+"Что занимает место в папке Загрузки?" = "What takes up space in Downloads?"
+"Найди в интернете курс доллара" = "Look up the dollar exchange rate online"
+"Озвучь: доброе утро!" = "Say aloud: good morning!"
+"Чем помочь?" = "How can I help?"
+"Ассистент работает на нейросетях этого устройства: управляет системой, файлами, ищет в интернете и создаёт медиа." = "The assistant runs on this device's neural networks: it controls the system and files, searches the web and creates media."
+"Ошибка: {e}" = "Error: {e}"
+"Разрешить действие?" = "Allow this action?"
+"Отклонить" = "Decline"
+"Разрешить" = "Allow"
+"Спросите что-нибудь…" = "Ask anything…"
+"Чатов пока нет" = "No chats yet"
+"Новый чат" = "New chat"

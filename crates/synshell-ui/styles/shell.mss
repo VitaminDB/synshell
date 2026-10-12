@@ -1534,3 +1534,14 @@ TextField {
 .mp-label { font-size: 14px; color: var(--fg); }
 .mp-hint { font-size: 12px; color: var(--muted); }
 .mp-btn { padding: 5px 12px; font-size: 13px; }
+
+.assist-icon { icon-size: 20px; icon-color: var(--accent); }
+.assist-hint { font-size: 12px; color: var(--muted); padding: 2px 6px; }
+.assist-typing { font-size: 20px; color: var(--muted); padding: 0px 6px; }
+.assist-tool-icon { icon-size: 16px; icon-color: var(--accent); }
+.assist-tool { font-size: 13px; color: var(--fg); }
+.assist-scroll { max-height: 420px; }
+.assist-answer { font-size: 14px; color: var(--fg); padding: 2px 6px; }
+.assist-confirm { padding: 10px 12px; border-radius: var(--radius-sm); background-color: var(--surface-alt); border: 1px solid var(--accent); }
+.assist-confirm-title { font-size: 13px; font-weight: 600; color: var(--fg); }
+.assist-confirm-sum { font-size: 12px; color: var(--fg); }

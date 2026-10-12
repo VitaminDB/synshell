@@ -34,6 +34,8 @@ members = [
     "crates/syn-systeminfo",
     "crates/syngamepad",
     "crates/synaptixd",
+    "crates/synassist",
+    "crates/synassistant",
 ]
 
 [workspace.package]
@@ -46,6 +48,7 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 synshell-common = { path = "crates/synshell-common" }
 synshell-tr = { path = "crates/synshell-tr" }
+synassist = { path = "crates/synassist" }
 syngui-layer = { path = "crates/syngui-layer" }
 synsystem = { path = "crates/synsystem" }
 synmodem = { path = "crates/synmodem" }
