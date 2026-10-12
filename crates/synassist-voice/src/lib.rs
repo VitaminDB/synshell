@@ -457,6 +457,9 @@ pub fn strip_markdown(text: &str) -> String {
     out.trim().to_string()
 }
 
+/// Короче — фраза не озвучивается отдельно, а присоединяется к следующей.
+const MIN_PART: usize = 30;
+
 pub fn chunks(text: &str) -> Vec<String> {
     let mut sentences: Vec<String> = Vec::new();
     let mut cur = String::new();
@@ -479,8 +482,11 @@ pub fn chunks(text: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for s in sentences {
         let n = out.len();
+        // Фраза короче MIN_PART символов идёт вместе со следующей: синтез
+        // короткой первой фразы без образца голоса (OmniVoice: «Привет!») —
+        // шум, и он становится голосом всего ответа.
         match out.last_mut() {
-            Some(last) if n > 2 && last.chars().count() + s.chars().count() < 240 => {
+            Some(last) if (n > 2 || last.chars().count() < MIN_PART) && last.chars().count() + s.chars().count() < 240 => {
                 last.push(' ');
                 last.push_str(&s);
             }
@@ -798,12 +804,12 @@ mod tests {
     }
 
     #[test]
-    fn chunks_keep_first_sentence_short() {
+    fn chunks_join_short_sentences() {
         let c = chunks("Привет! Это первый ответ. А это вторая фраза подлиннее, чтобы проверить слияние. И третья.");
-        assert_eq!(c[0], "Привет!");
-        assert_eq!(c[1], "Это первый ответ.");
-        assert_eq!(c[2], "А это вторая фраза подлиннее, чтобы проверить слияние. И третья.");
-        assert_eq!(c.len(), 3);
+        assert_eq!(c[0], "Привет! Это первый ответ. А это вторая фраза подлиннее, чтобы проверить слияние.");
+        assert_eq!(c[1], "И третья.");
+        assert_eq!(c.len(), 2);
+        assert_eq!(chunks("Да."), vec!["Да."]);
     }
 
     #[test]
