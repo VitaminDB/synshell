@@ -153,8 +153,8 @@ fn go_back(ctx: Ctx) -> bool {
         return true;
     }
     // Подстраница (раздел «Оборудования») — обратно на страницу.
-    if ctx.sub.get_untracked().is_some() {
-        ctx.sub.set(None);
+    if let Some((key, _)) = ctx.sub.get_untracked() {
+        ctx.sub.set(crate::pages::models_sub_parent(&key));
         return true;
     }
     if ctx.page_open.get_untracked() {

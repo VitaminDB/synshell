@@ -27,6 +27,7 @@ mod wallpaper;
 mod windows;
 
 pub use input::capture_hook;
+pub use models::sub_parent as models_sub_parent;
 pub use themes::gallery_mss as themes_gallery_mss;
 pub use wallpaper::{close_editor as close_wallpaper_editor, open_editor as open_wallpaper_editor};
 

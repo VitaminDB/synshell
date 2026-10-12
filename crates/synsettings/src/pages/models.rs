@@ -445,16 +445,27 @@ fn menu(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
         if snap.models.is_empty() {
             out.push(note(t!("Моделей нет. Добавьте библиотеку и импортируйте модели в «Хранилище моделей».")));
         }
-        for kind in ModelKind::ALL {
-            let items: Vec<W> = snap
-                .models
-                .iter()
-                .filter(|m| m.kind == kind)
-                .map(|m| nav_item(ctx, format!("m/{}", m.id), m.title.clone(), short_state(m), kind_icon(kind), m.state == LoadState::Failed))
-                .collect();
-            if !items.is_empty() {
-                out.push(titled(group_label(kind), card(items)));
-            }
+        let cats: Vec<W> = ModelKind::ALL
+            .into_iter()
+            .filter_map(|kind| {
+                let ms: Vec<&ModelEntry> = snap.models.iter().filter(|m| m.kind == kind).collect();
+                if ms.is_empty() {
+                    return None;
+                }
+                let loaded = ms.iter().filter(|m| m.state == LoadState::Loaded).count();
+                let mut sum = t!("Моделей: {n}", n = ms.len());
+                if loaded > 0 {
+                    sum.push_str(&t!(" · загружено: {n}", n = loaded));
+                }
+                if let Some(id) = snap.defaults.iter().find(|d| d.kind == kind).and_then(|d| d.resolved.as_ref()) {
+                    sum.push_str(&t!(" · по умолчанию {m}", m = title_of(&snap, id)));
+                }
+                let fault = ms.iter().any(|m| m.state == LoadState::Failed);
+                Some(nav_item(ctx, format!("k/{}", kind.id()), group_label(kind), sum, kind_icon(kind), fault))
+            })
+            .collect();
+        if !cats.is_empty() {
+            out.push(titled(t!("Модели"), card(cats)));
         }
         vec![boxed(Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Stretch).children(out))]
     });
@@ -468,14 +479,52 @@ fn menu(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
     )
 }
 
-fn back(ctx: state::Ctx) -> Option<W> {
-    (!narrow()).then(|| boxed(Row::new().child(button(t!("‹ Нейросети"), move || ctx.sub.set(None)))))
+fn back(ctx: state::Ctx, to: Option<(String, String)>) -> Option<W> {
+    let label = match &to {
+        Some((_, t)) => format!("‹ {t}"),
+        None => t!("‹ Нейросети"),
+    };
+    (!narrow()).then(|| boxed(Row::new().child(button(label, move || ctx.sub.set(to.clone())))))
 }
 
 fn sub_page(ctx: state::Ctx, title: String, subtitle: String, body: Vec<W>) -> W {
-    let mut parts: Vec<W> = back(ctx).into_iter().collect();
+    sub_page_in(ctx, None, title, subtitle, body)
+}
+
+fn sub_page_in(ctx: state::Ctx, parent: Option<(String, String)>, title: String, subtitle: String, body: Vec<W>) -> W {
+    let mut parts: Vec<W> = back(ctx, parent).into_iter().collect();
     parts.extend(body);
     page(title, subtitle, parts)
+}
+
+fn kind_key(kind: ModelKind) -> (String, String) {
+    (format!("{SUB}k/{}", kind.id()), group_label(kind))
+}
+
+pub fn sub_parent(key: &str) -> Option<(String, String)> {
+    let id = key.strip_prefix(SUB)?.strip_prefix("m/")?;
+    let sig = LIVE.with(|l| l.get())?;
+    sig.get_untracked().models.iter().find(|m| m.id == id).map(|m| kind_key(m.kind))
+}
+
+fn kind_page(ctx: state::Ctx, sig: RwSignal<Snapshot>, kind: ModelKind) -> W {
+    let body = Reactive::new(move || -> Vec<W> {
+        let snap = sig.get();
+        if snap.status.is_none() {
+            return vec![note(t!("Служба нейросетей не отвечает"))];
+        }
+        let items: Vec<W> = snap
+            .models
+            .iter()
+            .filter(|m| m.kind == kind)
+            .map(|m| nav_item(ctx, format!("m/{}", m.id), m.title.clone(), short_state(m), kind_icon(kind), m.state == LoadState::Failed))
+            .collect();
+        if items.is_empty() {
+            return vec![note(t!("Моделей этого вида нет"))];
+        }
+        vec![card(items)]
+    });
+    sub_page(ctx, group_label(kind), task_hint(kind), vec![boxed(body)])
 }
 
 fn defaults_page(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
@@ -927,10 +976,13 @@ fn model_page(ctx: state::Ctx, sig: RwSignal<Snapshot>, id: String) -> W {
     });
     let i = id.clone();
     let settings = Reactive::new(move || -> Vec<W> { cfg.get().map(|c| settings_card(sig, &i, &c)).into_iter().collect() });
-    let title = title_of(&sig.get_untracked(), &id);
+    let snap = sig.get_untracked();
+    let title = title_of(&snap, &id);
+    let parent = snap.models.iter().find(|m| m.id == id).map(|m| kind_key(m.kind));
     let note_text = t!("Программы могут передать свои значения в запросе — они действуют только на этот запрос.");
-    sub_page(
+    sub_page_in(
         ctx,
+        parent,
         title,
         note_text,
         vec![boxed(Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(status).child(settings).child(params_card(sig, &id)))],
@@ -957,6 +1009,10 @@ pub fn models() -> W {
                 Some("service") => service_page(ctx, sig),
                 Some("storage") => storage_page(ctx, sig),
                 Some(k) if k.starts_with("m/") => model_page(ctx, sig, k[2..].to_string()),
+                Some(k) if k.starts_with("k/") => match ModelKind::parse(&k[2..]) {
+                    Some(kind) => kind_page(ctx, sig, kind),
+                    None => menu(ctx, sig),
+                },
                 _ => menu(ctx, sig),
             })
             .directional(true)
