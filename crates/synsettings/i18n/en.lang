@@ -858,6 +858,8 @@
 "Загрузить в память" = "Load"
 "Выгрузить из памяти" = "Unload"
 "Выгрузить" = "Unload"
+"Уровень шума" = "Noise level"
+"0 — автоматически; поднимите, если из-за фонового шума ассистент не слышит, что вы замолчали" = "0 — automatic; raise it if background noise keeps the assistant from hearing that you stopped talking"
 "Описание голоса по-английски: пол, возраст, манера (например, calm female voice); цифры и русский текст модель может прочитать вслух. Не нужно, если задан образец" = "Voice description in English: gender, age, manner (e.g. calm female voice); the model may read digits and Russian text aloud. Not needed when a sample is set"
 "Образец голоса" = "Voice sample"
 "WAV-запись речи одного человека на 3–10 секунд: голос клонируется с неё" = "A 3–10 second WAV recording of one speaker: the voice is cloned from it"

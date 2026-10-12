@@ -111,6 +111,16 @@ pub fn assistant() -> W {
             ),
             slider_row(t!("Скорость речи"), t!("1,0 — обычная"), op!["assistant", "voice_speed"], a.voice_speed as f64, 0.5, 2.0, 0.1, 1),
             row_inline(t!("Микрофон"), t!("Устройство записи для голосового режима"), mic_pick),
+            slider_row(
+                t!("Уровень шума"),
+                t!("0 — автоматически; поднимите, если из-за фонового шума ассистент не слышит, что вы замолчали"),
+                op!["assistant", "noise_level"],
+                a.noise_level as f64,
+                0.0,
+                100.0,
+                5.0,
+                0,
+            ),
         ],
     );
     let rows: Vec<W> = TOOLS

@@ -1577,6 +1577,10 @@ pub struct Assistant {
     pub voice_speed: f32,
     /// Микрофон (имя устройства); пусто — системный по умолчанию.
     pub microphone: String,
+    /// Уровень фонового шума, 0–100: ниже него звук считается тишиной.
+    /// 0 — подбирать автоматически; поднять, если в шумном месте детектор
+    /// не слышит конца фразы.
+    pub noise_level: f32,
 }
 
 impl Default for Assistant {
@@ -1591,6 +1595,7 @@ impl Default for Assistant {
             voice: String::new(),
             voice_speed: 1.0,
             microphone: String::new(),
+            noise_level: 0.0,
         }
     }
 }

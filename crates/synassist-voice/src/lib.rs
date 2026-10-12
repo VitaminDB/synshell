@@ -26,6 +26,8 @@ pub struct VoiceConfig {
     pub voice: Option<String>,
     pub speed: Option<f32>,
     pub microphone: Option<String>,
+    /// Уровень фонового шума 0–100 (см. `Assistant::noise_level`); 0 — авто.
+    pub noise_level: f32,
 }
 
 impl VoiceConfig {
@@ -43,6 +45,7 @@ impl VoiceConfig {
             voice: opt(&a.voice),
             speed: if (a.voice_speed - 1.0).abs() > 0.01 && a.voice_speed > 0.2 { Some(a.voice_speed) } else { None },
             microphone: opt(&a.microphone),
+            noise_level: a.noise_level,
         }
     }
 
@@ -99,6 +102,8 @@ pub struct Vad {
     pre: VecDeque<f32>,
     pre_cap: usize,
     floor: f32,
+    /// Нижняя граница шумового пола, заданная пользователем (0 — нет).
+    floor_min: f32,
     ticks: usize,
     in_speech: bool,
     above: usize,
@@ -118,6 +123,7 @@ impl Vad {
             pre: VecDeque::with_capacity(sr * PRE_ROLL_MS / 1000),
             pre_cap: sr * PRE_ROLL_MS / 1000,
             floor: 0.01,
+            floor_min: 0.0,
             ticks: 0,
             in_speech: false,
             above: 0,
@@ -126,6 +132,14 @@ impl Vad {
             utter: Vec::new(),
             max_len: sr * MAX_UTTERANCE_SEC,
         }
+    }
+
+    /// Уровень фонового шума 0–100 → нижняя граница шумового пола (RMS по
+    /// логарифмической шкале: 50 ≈ 0,01, 100 ≈ 0,1). 0 — только автоподбор.
+    pub fn with_noise_level(mut self, level: f32) -> Self {
+        let level = level.clamp(0.0, 100.0);
+        self.floor_min = if level <= 0.0 { 0.0 } else { 0.001 * 10f32.powf(level / 50.0) };
+        self
     }
 
     pub fn reset(&mut self) {
@@ -139,8 +153,9 @@ impl Vad {
     }
 
     pub fn thresholds(&self) -> (f32, f32) {
-        let silence = (self.floor * 1.8 + 0.004).max(0.006);
-        let speech = (self.floor * 3.0 + 0.01).max(silence * 1.3);
+        let floor = self.floor.max(self.floor_min);
+        let silence = (floor * 1.8 + 0.004).max(0.006);
+        let speech = (floor * 3.0 + 0.01).max(silence * 1.3);
         (speech, silence)
     }
 
@@ -472,7 +487,7 @@ fn conversation(cfg: VoiceConfig, turn: Turn, on: Listener) {
         }
     };
     on(VoiceEvent::Vis(Some(rec.vis_handle())));
-    let mut vad = Vad::new(sr);
+    let mut vad = Vad::new(sr).with_noise_level(cfg.noise_level);
     on(VoiceEvent::Phase(Phase::Listening));
     loop {
         if f.stop.load(Ordering::Acquire) {
@@ -576,7 +591,7 @@ fn dictation(cfg: VoiceConfig, on: Listener, done: Done<String>) {
     };
     on(VoiceEvent::Vis(Some(rec.vis_handle())));
     on(VoiceEvent::Phase(Phase::Listening));
-    let mut vad = Vad::new(sr);
+    let mut vad = Vad::new(sr).with_noise_level(cfg.noise_level);
     let started = std::time::Instant::now();
     let utt = loop {
         if f.dict_stop.load(Ordering::Acquire) || started.elapsed() > Duration::from_secs(90) {
