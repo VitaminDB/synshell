@@ -6914,7 +6914,6 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
- "sha2",
  "synaptix",
  "synaptix-align-mfa",
  "synaptix-asr-wav2vec2",

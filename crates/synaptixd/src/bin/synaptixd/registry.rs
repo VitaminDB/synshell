@@ -59,10 +59,6 @@ impl Manifest {
         Ok(m)
     }
 
-    pub fn package(&self) -> String {
-        self.package.clone().unwrap_or_else(|| format!("synaptix-model-{}", self.id))
-    }
-
     pub fn devices(&self) -> Vec<DeviceKind> {
         let mut v: Vec<DeviceKind> = Vec::new();
         for var in &self.variants {

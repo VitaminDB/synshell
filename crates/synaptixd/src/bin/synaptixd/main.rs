@@ -131,8 +131,6 @@ impl Conn {
             }
             Request::Resolve { kind } => (data(mgr.entry(&mgr.resolve(kind)?)?), none()),
             Request::Libraries => (data(mgr.libraries()), none()),
-            Request::Jobs => (data(mgr.jobs()), none()),
-            Request::ImportScan { path } => (data(mgr.import_scan(&path)), none()),
             Request::AddLibrary { path, name } => {
                 if !self.admin {
                     return Err(denied());
@@ -150,18 +148,6 @@ impl Conn {
                     return Err(denied());
                 }
                 (data(mgr.set_default_library(&path)?), none())
-            }
-            Request::Import { path, library, ids } => {
-                if !self.admin {
-                    return Err(denied());
-                }
-                (data(mgr.import(&path, &library, ids)?), none())
-            }
-            Request::MoveModel { model, library } => {
-                if !self.admin {
-                    return Err(denied());
-                }
-                (data(mgr.move_model(&model, &library)?), none())
             }
             Request::DeleteModel { model } => {
                 if !self.admin {

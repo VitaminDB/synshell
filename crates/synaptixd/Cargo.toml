@@ -20,7 +20,6 @@ daemon = [
     "dep:synaptix",
     "dep:synaptix-tts-omnivoice",
     "dep:synaptix-llm-common",
-    "dep:sha2",
 ]
 cuda = ["daemon", "dep:synaptix-kernels-cuda"]
 npu = ["daemon", "dep:synaptix-kernels-npu"]
@@ -47,7 +46,6 @@ synaptix-align-mfa = { workspace = true, optional = true }
 synaptix = { workspace = true, optional = true }
 synaptix-tts-omnivoice = { workspace = true, optional = true }
 synaptix-llm-common = { workspace = true, optional = true }
-sha2 = { version = "0.10", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

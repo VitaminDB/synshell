@@ -117,32 +117,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "library-remove" => {
             c.call(synaptixd::Request::RemoveLibrary { path: arg(1)?.into() }, &[]).map_err(|e| e.to_string())?;
         }
-        "import-scan" => {
-            let s = c.import_scan(arg(1)?).map_err(|e| e.to_string())?;
-            for m in &s.models {
-                let size: u64 = m.files.iter().map(|f| f.2).sum();
-                let roles: Vec<&str> = m.files.iter().map(|f| f.0.as_str()).collect();
-                println!("{:<32} {:<6} {:<13} {:>10} {}{}", m.id, m.kind.id(), m.arch, mb(size), roles.join(","), if m.installed { " (уже есть)" } else { "" });
-            }
-            for (p, why) in &s.skipped {
-                println!("пропущено: {p} — {why}");
-            }
-        }
-        "import" => {
-            let ids = args.get(3).map(|v| v.split(',').map(String::from).collect());
-            let j = c.import(arg(1)?, args.get(2).map(String::as_str).unwrap_or(""), ids).map_err(|e| e.to_string())?;
-            println!("задача {}: {}", j.id, j.title);
-        }
-        "move" => {
-            let j = c.move_model(arg(1)?, arg(2)?).map_err(|e| e.to_string())?;
-            println!("задача {}: {}", j.id, j.title);
-        }
         "delete" => c.delete_model(arg(1)?).map_err(|e| e.to_string())?,
-        "jobs" => {
-            for j in c.jobs().map_err(|e| e.to_string())? {
-                println!("{} {:?} {} — {} из {} {}{}", j.id, j.state, j.title, mb(j.done), mb(j.total), j.detail, j.error.map(|e| format!(" ошибка: {e}")).unwrap_or_default());
-            }
-        }
         "load" => print_entry(&c.load(arg(1)?).map_err(|e| e.to_string())?),
         "unload" => c.unload(arg(1)?).map_err(|e| e.to_string())?,
         "rescan" => {
@@ -264,7 +239,7 @@ fn run(args: &[String]) -> Result<(), String> {
             })
             .map_err(|e| e.to_string())?;
         }
-        other => return Err(format!("неизвестная команда {other}: list|status|defaults|default|params|libraries|library-add|library-remove|import-scan|import|move|delete|jobs|load|unload|set|ctc|asr|gen|say|watch|rescan")),
+        other => return Err(format!("неизвестная команда {other}: list|status|defaults|default|params|libraries|library-add|library-remove|delete|load|unload|set|ctc|asr|gen|say|watch|rescan")),
     }
     Ok(())
 }
