@@ -232,18 +232,35 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
     };
     // Меню запуска на рабочем столе само задаёт ширину (уголок меняет её живьём).
     let launcher_desk = matches!(p.kind, PopupKind::Launcher) && !ctx.is_phone();
-    // Панель со своей непрозрачностью красится поверх темы — примыкающая
-    // карточка тем же цветом, иначе она другого оттенка и не перетекает.
-    let panel_bg = (on_panel && !is_sheet).then_some(p.anchor.panel_opacity).flatten();
+    // Окно апплета панели — то же «стекло», что панель: под карточкой тот же
+    // фрагмент обоев в координатах экрана (`Positioned::fixed`, карточка
+    // обрезает его по своим скруглениям), поверх — фон панели. Иначе
+    // полупрозрачная панель над обоями и такая же карточка над тёмным окном
+    // выглядят разного цвета и перетекания нет.
+    let glass = on_panel && !is_sheet;
+    // Панель со своей непрозрачностью красится поверх темы — карточка тем же цветом.
+    let panel_bg = glass.then_some(p.anchor.panel_opacity).flatten();
+    let glass_out = p.anchor.output.clone().unwrap_or_default();
+    let (ow0, oh0) = out;
     let card = crate::anim::popup_presence(&ctx, open, presence_edge, attached, move || {
         let leave_timer = leave_timer.clone();
-        let mut card = DecoratedBox::new().child(content(&kind, ShellCtx::get())).class(&card_class);
+        let body = content(&kind, ShellCtx::get());
+        let mut card = if glass {
+            let wall = syngui::widgets::containers::Positioned::new(crate::manager::wallpaper_view(glass_out.clone(), use_signal(0u64), None))
+                .fixed()
+                .at(0.0, 0.0)
+                .dimensions(ow0, oh0);
+            let mut body = DecoratedBox::new().child(body).class("popup-panel-body");
+            if let Some(o) = panel_bg {
+                let c = ShellCtx::get().config.get().appearance.palette().bg.with_alpha(o);
+                body = body.style("background-color", syngui::core::Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0));
+            }
+            DecoratedBox::new().child(syngui::widgets::Stack::new().child(wall).child(body)).class(&card_class).clip(true)
+        } else {
+            DecoratedBox::new().child(body).class(&card_class)
+        };
         if !launcher_desk {
             card = card.style("width", StyleValue::px(width));
-        }
-        if let Some(o) = panel_bg {
-            let c = ShellCtx::get().config.get().appearance.palette().bg.with_alpha(o);
-            card = card.style("background-color", syngui::core::Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0));
         }
         Box::new(
             InputArea::new(card)
