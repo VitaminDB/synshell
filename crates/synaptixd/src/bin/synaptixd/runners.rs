@@ -107,7 +107,7 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind, quant: Op
             let policy = llm_policy(path, dev, quant);
             let label = dtype_label(policy.weights_storage);
             let precision = policy.to_precision().map_err(|e| anyhow::anyhow!("{e}"))?;
-            let max_seq = (dev == DeviceKind::Npu).then_some(2048);
+            let max_seq = if dev == DeviceKind::Npu { Some(2048) } else { synaptix::facade::arch::config_max_seq(path) };
             let (llm, tok) = load_llm(path, device, precision, max_seq).map_err(|e| anyhow::anyhow!("{e}"))?;
             let window = llm.config().max_seq_len.max(2048);
             Ok((Loaded::Llm(Box::new(LlmSlot { llm, tok, window, session: std::sync::Mutex::new(None) })), Some(label)))
