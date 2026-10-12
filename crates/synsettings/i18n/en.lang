@@ -166,7 +166,7 @@
 "Русский" = "Russian"
 "Английский" = "English"
 "Казахский" = "Kazakh"
-"Описание голоса для модели озвучки, например «спокойный женский голос»; пусто — голос модели по умолчанию" = "Voice description for the text-to-speech model, e.g. “calm female voice”; empty — the model's default voice"
+"Описание голоса по-английски, например calm female voice (русский текст и цифры модель может прочитать вслух); пусто — голос модели по умолчанию. Голос держится одним на всю озвучку" = "Voice description in English, e.g. calm female voice (the model may read Russian text and digits aloud); empty — the model's default voice. The voice stays the same for the whole reading"
 "по умолчанию" = "default"
 "Скорость речи" = "Speech rate"
 "1,0 — обычная" = "1.0 — normal"
