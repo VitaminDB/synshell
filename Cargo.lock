@@ -6459,6 +6459,7 @@ dependencies = [
  "synaptix-bundle",
  "synaptix-core",
  "synaptix-io",
+ "synaptix-nn",
  "synaptix-ops",
  "thiserror 2.0.21",
 ]
