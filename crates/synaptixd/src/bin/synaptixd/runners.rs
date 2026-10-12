@@ -6,10 +6,12 @@ use synaptixd::{Alignment, CtcInfo, DeviceKind, ModelKind, Params, PhoneSpan};
 
 use crate::devices;
 
+const SESSION_STEP: usize = 16384;
+
 pub struct LlmSlot {
     llm: synaptix::facade::llm::Llm,
     tok: synaptix::facade::llm::LlmTokenizer,
-    ctx: usize,
+    window: usize,
     session: std::sync::Mutex<Option<synaptix::facade::llm::LlmKvSession>>,
 }
 
@@ -105,10 +107,10 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind, quant: Op
             let policy = llm_policy(path, dev, quant);
             let label = dtype_label(policy.weights_storage);
             let precision = policy.to_precision().map_err(|e| anyhow::anyhow!("{e}"))?;
-            let max_seq = if dev == DeviceKind::Npu { 2048 } else { 8192 };
-            let (llm, tok) = load_llm(path, device, precision, Some(max_seq)).map_err(|e| anyhow::anyhow!("{e}"))?;
-            let ctx = if dev == DeviceKind::Npu { 2048 } else { 4096 };
-            Ok((Loaded::Llm(Box::new(LlmSlot { llm, tok, ctx, session: std::sync::Mutex::new(None) })), Some(label)))
+            let max_seq = (dev == DeviceKind::Npu).then_some(2048);
+            let (llm, tok) = load_llm(path, device, precision, max_seq).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let window = llm.config().max_seq_len.max(2048);
+            Ok((Loaded::Llm(Box::new(LlmSlot { llm, tok, window, session: std::sync::Mutex::new(None) })), Some(label)))
         }
         ModelKind::Tts => {
             let device = devices::device(dev);
@@ -212,7 +214,7 @@ impl Loaded {
         use synaptix::facade::llm::{GenerationOptions, LlmGeneration, Message};
         let Loaded::Llm(b) = self else { anyhow::bail!("модель не языковая") };
         let (llm, tok) = (&b.llm, &b.tok);
-        let max_tokens = params.u32("max_tokens").unwrap_or(1024).max(1) as usize;
+        let max_tokens = params.u32("max_tokens").unwrap_or(16384).max(1) as usize;
         let system = params.text("system_prompt");
         let lead = system.filter(|_| !messages.iter().any(|m| m.role == "system")).map(Message::system);
         let msgs: Vec<Message> = lead
@@ -239,6 +241,12 @@ impl Loaded {
         let parser = std::cell::RefCell::new(StreamParser::for_model(tok, thinking, &prompt));
         let reasoning = std::cell::RefCell::new(String::new());
         let ids = tok.encode(&prompt).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let window = params.u32("context").map(|v| v as usize).filter(|v| *v > 0).unwrap_or(b.window).clamp(2048, b.window);
+        let room = window.saturating_sub(ids.len() + 16);
+        if room < 64 {
+            anyhow::bail!("промпт ({} токенов) не помещается в контекст {window} токенов — увеличьте размер контекста модели или сократите историю", ids.len());
+        }
+        let max_tokens = max_tokens.min(room);
         let opts = GenerationOptions {
             max_new_tokens: max_tokens,
             max_seq_len: ids.len() + max_tokens + 16,
@@ -277,11 +285,22 @@ impl Loaded {
             }
             !parser.borrow().tool_call_ready()
         };
-        let fits = ids.len() + max_tokens + 16 <= b.ctx;
-        let mut session = if fits { Some(b.session.lock().unwrap_or_else(|e| e.into_inner())) } else { None };
+        let need = ids.len() + max_tokens + 16;
+        let mut session = Some(b.session.lock().unwrap_or_else(|e| e.into_inner()));
         if let Some(s) = session.as_mut() {
-            if s.is_none() {
-                **s = llm.new_kv_session(b.ctx, b.ctx).ok().flatten();
+            if s.as_ref().is_none_or(|k| k.ctx_tokens() < need) {
+                **s = None;
+                let want = need.div_ceil(SESSION_STEP).saturating_mul(SESSION_STEP).clamp(need, window);
+                **s = match llm.new_kv_session(want, max_tokens) {
+                    Ok(k) => {
+                        tracing::info!("generate: кэш контекста на {want} токенов (предел {window})");
+                        k
+                    }
+                    Err(e) => {
+                        tracing::warn!("generate: кэш на {want} токенов не создан ({e}) — без кэша");
+                        None
+                    }
+                };
             }
         }
         let t0 = std::time::Instant::now();
@@ -304,7 +323,7 @@ impl Loaded {
         }
         let tool_calls: Vec<synaptixd::ToolCall> =
             parser.finish().into_iter().map(|c| synaptixd::ToolCall { name: c.name, arguments: c.arguments_json }).collect();
-        Ok(synaptixd::Generated { text, tokens, thinking: reasoning.into_inner(), tool_calls, prompt_tokens: ids.len(), context: b.ctx })
+        Ok(synaptixd::Generated { text, tokens, thinking: reasoning.into_inner(), tool_calls, prompt_tokens: ids.len(), context: window })
     }
 
     pub fn speak(&self, text: &str, params: &Params) -> anyhow::Result<(Vec<f32>, u32)> {
