@@ -462,7 +462,7 @@ fn voice_meter(s: VadState) -> impl Widget {
     } else {
         (t!("Тишина"), "assist-meter-state")
     };
-    let full = 0.3;
+    let full = 0.2;
     Column::new()
         .gap(4.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
