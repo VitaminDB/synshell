@@ -169,7 +169,8 @@ Text {
  * окном программы одного цвета; у плавающей панели окно висит рядом с
  * зазором, у прижатой — примыкает. Составной селектор сильнее `.popup-card` тем. */
 .popup-card.popup-panel { background-color: #00000000; padding: 0px; }
-.popup-panel-body { background-color: var(--panel-bg); padding: 14px; }
+.popup-panel-glass { background-color: var(--panel-bg); }
+.popup-panel-body { padding: 14px; }
 
 /* Карточка, примыкающая к панели: перетекает в неё — одна фигура с
  * панелью (как в caelestia): без рамки и тени (тень ложилась на панель

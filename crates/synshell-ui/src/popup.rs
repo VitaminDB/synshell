@@ -246,15 +246,24 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
         let leave_timer = leave_timer.clone();
         let body = content(&kind, ShellCtx::get());
         let mut card = if glass {
-            let wall = syngui::widgets::containers::Positioned::new(crate::manager::wallpaper_view(glass_out.clone(), use_signal(0u64), None))
-                .fixed()
-                .at(0.0, 0.0)
-                .dimensions(ow0, oh0);
-            let mut body = DecoratedBox::new().child(body).class("popup-panel-body");
+            // Тон панели — слоем во весь экран над обоями, а не фоном тела:
+            // тело и обрезка карточки расходятся на пиксель при дробных
+            // координатах, и у края просвечивала полоска обоев без тона.
+            let mut tint = DecoratedBox::new().class("popup-panel-glass");
             if let Some(o) = panel_bg {
                 let c = ShellCtx::get().config.get().appearance.palette().bg.with_alpha(o);
-                body = body.style("background-color", syngui::core::Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0));
+                tint = tint.style("background-color", syngui::core::Color::from_srgb(c.r, c.g, c.b, c.a as f32 / 255.0));
             }
+            let wall = syngui::widgets::containers::Positioned::new(
+                syngui::widgets::Stack::new()
+                    .fit(syngui::widgets::StackFit::Expand)
+                    .child(crate::manager::wallpaper_view(glass_out.clone(), use_signal(0u64), None))
+                    .child(tint),
+            )
+            .fixed()
+            .at(0.0, 0.0)
+            .dimensions(ow0, oh0);
+            let body = DecoratedBox::new().child(body).class("popup-panel-body");
             DecoratedBox::new().child(syngui::widgets::Stack::new().child(wall).child(body)).class(&card_class).clip(true)
         } else {
             DecoratedBox::new().child(body).class(&card_class)
