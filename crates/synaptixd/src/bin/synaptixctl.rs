@@ -207,7 +207,23 @@ fn run(args: &[String]) -> Result<(), String> {
             let t0 = std::time::Instant::now();
             let steps = std::env::var("TTS_STEPS").ok().and_then(|v| v.parse().ok());
             let model = if arg(1)? == "-" { "" } else { arg(1)? };
-            let sp = c.speak_steps(model, &text, lang.as_deref(), None, None, steps).map_err(|e| e.to_string())?;
+            // VOICE / SEED / GUIDANCE — проверка настроек: свежий голос с этим
+            // описанием, зерном и CFG.
+            let (voice, seed) = (std::env::var("VOICE").ok(), std::env::var("SEED").ok().and_then(|v| v.parse::<i64>().ok()));
+            let guidance = std::env::var("GUIDANCE").ok().and_then(|v| v.parse::<f64>().ok());
+            let sp = if voice.is_some() || seed.is_some() || guidance.is_some() {
+                let mut p = synaptixd::Params::default();
+                p.set("voice", voice.map(Into::into));
+                p.set("seed", seed.map(Into::into));
+                p.set("guidance", guidance.map(Into::into));
+                c.speak_fresh(model, &text, &p)
+            } else {
+                c.speak_steps(model, &text, lang.as_deref(), None, None, steps)
+            }
+            .map_err(|e| e.to_string())?;
+            if let Some(s) = sp.seed {
+                eprintln!("зерно {s}");
+            }
             let pcm = sp.audio.f32s();
             let mut wav = Vec::with_capacity(44 + pcm.len() * 2);
             let data_len = (pcm.len() * 2) as u32;
