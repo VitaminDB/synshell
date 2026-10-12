@@ -116,11 +116,20 @@ impl Manifest {
         }
     }
 
+    /// Оценка видеопамяти: из манифеста, иначе размер файла весов с поправкой
+    /// на квантование при загрузке (файл обычно в BF16/F16: NVFP4 — около
+    /// трети, int8/MXFP8 — чуть больше половины, F32 — вдвое больше).
     pub fn vram_estimate(&self, dev: DeviceKind, quant: Option<&str>) -> u64 {
         if let Some(mb) = self.resources.vram.get(&dev) {
             return mb << 20;
         }
-        self.variant_quant(dev, quant).and_then(|v| std::fs::metadata(self.path(v)).ok()).map(|m| m.len()).unwrap_or(0)
+        let file = self.variant_quant(dev, quant).and_then(|v| std::fs::metadata(self.path(v)).ok()).map(|m| m.len()).unwrap_or(0);
+        match quant {
+            Some("nvfp4") => file * 30 / 100,
+            Some("int8") | Some("mxfp8") => file * 55 / 100,
+            Some("f32") => file * 2,
+            _ => file,
+        }
     }
 
     pub fn npu_cache_dir(&self) -> PathBuf {

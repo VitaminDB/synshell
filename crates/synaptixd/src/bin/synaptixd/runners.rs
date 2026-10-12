@@ -424,7 +424,11 @@ impl Loaded {
         let st = &mut *guard;
         let speed = speed.unwrap_or(1.0) as f64;
         let guidance = params.f32("guidance");
-        let seed = params.i64("seed").filter(|s| *s >= 0).map(|s| s as u64);
+        // Зерно: заданное — повторяемый результат; иначе случайное (с одним и
+        // тем же зерном отдельные сочетания текста и образца дают брак).
+        let seed = params.i64("seed").filter(|s| *s >= 0).map(|s| s as u64).unwrap_or_else(|| {
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1) | 1
+        });
         let ref_audio = params.text("ref_audio").map(str::trim).filter(|s| !s.is_empty());
         let ref_text = params.text("ref_text").unwrap_or("").trim().to_string();
         // Голос для продолжения: фразы одной озвучки и все ответы — одним
@@ -471,7 +475,7 @@ impl Loaded {
                 let cfg = synaptix_tts_vibevoice::GenerationConfig {
                     cfg_scale: guidance.unwrap_or(1.3),
                     ddpm_inference_steps: steps.unwrap_or(20).clamp(1, 200),
-                    seed: seed.unwrap_or(0),
+                    seed,
                     ..Default::default()
                 };
                 let sr = p.sample_rate();
@@ -486,6 +490,13 @@ impl Loaded {
                 };
                 let voices: Vec<VoiceSample> = sample.into_iter().collect();
                 let out = p.synthesize(&script, &voices, &cfg).map_err(|e| anyhow::anyhow!("{e}"))?;
+                tracing::info!(
+                    "vibevoice: образцов {}, токенов {}, звука {:.1} с{}",
+                    voices.len(),
+                    out.tokens.len(),
+                    out.audio.len() as f32 / sr as f32,
+                    if out.reached_max { ", обрыв по пределу длины" } else { "" }
+                );
                 if ref_audio.is_none() {
                     let mut voice = st.voices.remove(&key);
                     grow_pcm_voice(&mut voice, &out.audio, sr);
@@ -499,7 +510,7 @@ impl Loaded {
                 let opts = synaptix_tts_voxcpm::GenerateOptions {
                     n_timesteps: steps.unwrap_or(10).clamp(1, 200),
                     cfg_value: guidance.unwrap_or(2.0),
-                    seed: seed.unwrap_or(1988),
+                    seed,
                     ..Default::default()
                 };
                 let out = if let Some(path) = ref_audio {

@@ -208,8 +208,18 @@ fn release_vram(dev: Option<DeviceKind>) {
         return;
     }
     let (descs, scratch) = synaptix::facade::llm::cuda_release_kernel_caches();
+    let arena = synaptix_core::memory::expert_arena::release_empty(0) >> 20;
     let freed = synaptix::facade::llm::cuda_trim_pool(0);
-    tracing::debug!("cuda: пулы ужаты, возвращено {freed} МБ (дескрипторов: {descs}, скретчей: {} МБ)", scratch >> 20);
+    let mb = |r: Result<(u64, u64), _>| r.map(|(a, b)| (a >> 20, b >> 20)).unwrap_or((0, 0));
+    let dflt = mb(synaptix_core::memory::cuda_pool::cuda_mempool_stats(0));
+    let w = mb(synaptix_core::device::cuda::weights_pool_stats(0));
+    let a = mb(synaptix_core::device::cuda::activations_pool_stats(0));
+    let e = mb(synaptix_core::device::cuda::experts_pool_stats(0));
+    let (free, total) = synaptix_core::device::cuda::mem_info(0).map(|(f, t)| (f >> 20, t >> 20)).unwrap_or((0, 0));
+    tracing::info!(
+        "cuda: пулы ужаты, возвращено {freed} МБ (арена экспертов {arena} МБ, дескрипторов {descs}, скретчей {} МБ); удержано/занято МБ: default {}/{}, weights {}/{}, activations {}/{}, experts {}/{}; свободно {free} из {total}",
+        scratch >> 20, dflt.0, dflt.1, w.0, w.1, a.0, a.1, e.0, e.1
+    );
 }
 
 fn no_model(id: &str) -> Error {
@@ -561,6 +571,7 @@ impl Manager {
                 s.mem_bytes = 0;
                 s.vram_bytes = 0;
                 s.precision.clear();
+                s.fallback = false;
             }
             (m, dev)
         };
@@ -579,17 +590,24 @@ impl Manager {
         true
     }
 
-    fn pick_victim(&self, except: &str) -> Option<String> {
+    /// Кого выгрузить: незанятая, не закреплённая, давно не использованная;
+    /// `dev` — только модели на этом устройстве (освобождение видеопамяти).
+    fn pick_victim(&self, except: &str, dev: Option<DeviceKind>) -> Option<String> {
         let slots = self.slots.lock().unwrap();
         slots
             .iter()
             .filter(|(id, s)| s.model.is_some() && s.busy == 0 && !s.settings.pinned && id.as_str() != except)
+            .filter(|(_, s)| dev.is_none() || s.device == dev)
             .min_by_key(|(_, s)| (s.clients > 0, s.last_used))
             .map(|(id, _)| id.clone())
     }
 
     fn evict_one(&self, except: &str, why: &str) -> bool {
-        let Some(victim) = self.pick_victim(except) else { return false };
+        self.evict_one_on(except, None, why)
+    }
+
+    fn evict_one_on(&self, except: &str, dev: Option<DeviceKind>, why: &str) -> bool {
+        let Some(victim) = self.pick_victim(except, dev) else { return false };
         if self.unload(&victim) {
             self.evictions.fetch_add(1, Ordering::Relaxed);
             tracing::info!("{victim}: выгружена ({why})");
@@ -622,6 +640,23 @@ impl Manager {
                     ErrorCode::NoMemory,
                     format!("не хватает памяти: нужно {} МБ, свободно {} МБ", need >> 20, avail >> 20),
                 ));
+            }
+        }
+    }
+
+    /// Освободить видеопамять под новую модель: пока свободной VRAM меньше
+    /// оценки с запасом, выгружать с карты незанятые модели. Без жертв —
+    /// грузим как есть (оценка груба, а загрузчик сам умеет стримить слои);
+    /// раньше при занятой карте загрузка падала и модель тихо уходила на CPU.
+    fn make_vram_room(&self, id: &str, dev: DeviceKind, need: u64) {
+        if dev != DeviceKind::Cuda || need == 0 {
+            return;
+        }
+        let free = || synaptix_core::device::cuda::mem_info(0).map(|(f, _)| f as u64).unwrap_or(u64::MAX);
+        let margin = 768u64 << 20;
+        while free() < need + margin {
+            if !self.evict_one_on(id, Some(DeviceKind::Cuda), "не хватает видеопамяти для новой") {
+                break;
             }
         }
     }
@@ -659,7 +694,9 @@ impl Manager {
             }
             s.state = LoadState::Loading;
             s.error = None;
-            let want = force.unwrap_or(if s.fallback { DeviceKind::Cpu } else { s.settings.device });
+            // Каждая загрузка снова пробует выбранное устройство: откат на CPU
+            // был разовым (не хватило видеопамяти), а не приговором модели.
+            let want = force.unwrap_or(s.settings.device);
             (s.manifest.clone(), want, s.settings.quant.clone())
         };
         self.notify_slot(id);
@@ -706,6 +743,7 @@ impl Manager {
         let variant = m.variant_quant(dev, quant).ok_or_else(|| Error::new(ErrorCode::Device, "нет варианта весов для устройства"))?;
         let path = m.path(variant);
         self.make_room(&m.id, m.ram_estimate(dev, quant))?;
+        self.make_vram_room(&m.id, dev, m.vram_estimate(dev, quant));
         let before = rss();
         let t0 = Instant::now();
         let loaded = {
