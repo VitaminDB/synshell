@@ -1045,6 +1045,103 @@ fn location_card(sig: RwSignal<Snapshot>, m: &ModelEntry, libs: &[LibraryInfo]) 
     group(t!("Хранение"), rows)
 }
 
+/// Идущая проверка озвучки: новый запуск или «Остановить» сменяют поколение.
+static TTS_TEST: AtomicU64 = AtomicU64::new(0);
+
+/// Озвучивает текст моделью `id` с её сохранёнными параметрами и ждёт конца
+/// воспроизведения (или смены поколения / ухода со страницы моделей).
+fn tts_test_blocking(id: &str, text: &str, gen: u64) -> std::result::Result<(), String> {
+    let current = || TTS_TEST.load(Ordering::Acquire) == gen && ACTIVE.load(Ordering::Relaxed);
+    let mut c = Client::connect().map_err(|e| e.to_string())?;
+    let sp = c.speak_with(id, text, &Params::default()).map_err(|e| e.to_string())?;
+    if !current() {
+        return Ok(());
+    }
+    let pcm: Arc<[f32]> = sp.audio.f32s().into();
+    let player = syngui::audio::AudioPlayer::start(pcm, sp.sample_rate).map_err(|e| e.to_string())?;
+    while !player.is_done() && current() {
+        if let Some(e) = player.error() {
+            return Err(e);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(30));
+    }
+    player.stop();
+    Ok(())
+}
+
+/// Проверка модели синтеза речи: текст из поля читается этой моделью с
+/// заданными на странице параметрами (голос, скорость, шаги…).
+fn tts_test_card(id: &str) -> W {
+    let text = use_signal(t!("Привет! Так звучит эта модель с заданными настройками.").to_string());
+    let busy: RwSignal<Option<bool>> = use_signal(None);
+    let error: RwSignal<Option<String>> = use_signal(None);
+    let id = id.to_string();
+    let start = {
+        let id = id.clone();
+        move || {
+            let s = text.get_untracked();
+            if s.trim().is_empty() {
+                return;
+            }
+            let gen = TTS_TEST.fetch_add(1, Ordering::AcqRel) + 1;
+            error.set(None);
+            busy.set(Some(true));
+            let id = id.clone();
+            std::thread::spawn(move || {
+                let r = tts_test_blocking(&id, &s, gen);
+                run_on_main_thread(move || {
+                    if TTS_TEST.load(Ordering::Acquire) != gen {
+                        return;
+                    }
+                    busy.set(None);
+                    if let Err(e) = r {
+                        error.set(Some(e));
+                    }
+                });
+            });
+        }
+    };
+    let submit = start.clone();
+    let toggle = Reactive::new(move || -> Vec<W> {
+        let on = busy.get().is_some();
+        let start = start.clone();
+        vec![boxed(button(if on { t!("Остановить") } else { t!("Проверить") }, move || {
+            if busy.get_untracked().is_some() {
+                TTS_TEST.fetch_add(1, Ordering::AcqRel);
+                busy.set(None);
+            } else {
+                start();
+            }
+        }))]
+    });
+    let state = Reactive::new(move || -> Vec<W> {
+        if let Some(e) = error.get() {
+            return vec![boxed(Text::new(t!("Озвучка не удалась: {e}", e = e)).class("mic-test-state pause"))];
+        }
+        if busy.get().is_some() {
+            return vec![boxed(Text::new(t!("Озвучиваю… (первый запуск загружает модель)")).class("mic-test-text"))];
+        }
+        Vec::new()
+    });
+    let field = TextField::with_text(text.get_untracked())
+        .placeholder(t!("Текст для проверки"))
+        .on_change(move |s| text.set(s.to_string()))
+        .on_submit(move |_| submit())
+        .class("grow");
+    group(
+        t!("Проверка"),
+        vec![row_wide(
+            t!("Проверка озвучки"),
+            t!("Текст читается этой моделью с параметрами, заданными выше"),
+            Column::new()
+                .gap(6.0)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(Row::new().gap(8.0).child(field).child(toggle))
+                .child(state),
+        )],
+    )
+}
+
 fn model_page(ctx: state::Ctx, sig: RwSignal<Snapshot>, id: String) -> W {
     let cfg = cfg_signal(&id);
     let i = id.clone();
@@ -1061,12 +1158,13 @@ fn model_page(ctx: state::Ctx, sig: RwSignal<Snapshot>, id: String) -> W {
     let title = title_of(&snap, &id);
     let parent = snap.models.iter().find(|m| m.id == id).map(|m| kind_key(m.kind));
     let note_text = t!("Программы могут передать свои значения в запросе — они действуют только на этот запрос.");
+    let test = snap.models.iter().any(|m| m.id == id && m.kind == ModelKind::Tts).then(|| tts_test_card(&id));
     sub_page_in(
         ctx,
         parent,
         title,
         note_text,
-        vec![boxed(Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(status).child(settings).child(params_card(sig, &id)))],
+        vec![boxed(Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(status).child(settings).child(params_card(sig, &id)).children(test))],
     )
 }
 
