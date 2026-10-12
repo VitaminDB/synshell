@@ -171,8 +171,15 @@ Text {
 .popup-card.popup-panel { background-color: #00000000; padding: 0px; }
 .popup-panel-body { background-color: var(--panel-bg); padding: 14px; }
 
-/* Карточка, примыкающая к панели: перетекает в неё — угловые скругления у
- * края панели вогнутые (`flow-edge`), рамка у этого края снята. */
+/* Карточка, примыкающая к панели: перетекает в неё — одна фигура с
+ * панелью (как в caelestia): без рамки и тени (тень ложилась на панель
+ * тёмной полосой у стыка, рамка и светлая кромка тем рисовали шов),
+ * угловые скругления у края панели вогнутые (`flow-edge`). */
+.popup-card.popup-flow-top, .popup-card.popup-flow-bottom,
+.popup-card.popup-flow-left, .popup-card.popup-flow-right {
+    border-width: 0px;
+    box-shadow: none;
+}
 .popup-card.popup-flow-top {
     border-top-left-radius: 0px; border-top-right-radius: 0px;
     border-top-width: 0px;

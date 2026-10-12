@@ -409,8 +409,16 @@ impl Appearance {
                 out.push_str(&format!("  --{k}: {val};\n"));
             }
         }
+        let a = self.panel_opacity.clamp(0.0, 1.0);
         for (k, val) in &v.vars {
-            out.push_str(&format!("  --{}: {val};\n", k.trim_start_matches('-')));
+            let k = k.trim_start_matches('-');
+            // Непрозрачность панели — из настроек («Непрозрачность панелей»),
+            // тема даёт только цвет: иначе ползунок под темой ничего не менял.
+            let val = match (k, Rgba::parse(val)) {
+                ("panel-bg", Some(c)) => c.with_alpha(a).hex(),
+                _ => val.clone(),
+            };
+            out.push_str(&format!("  --{k}: {val};\n"));
         }
         out.push_str("}\n");
         out
