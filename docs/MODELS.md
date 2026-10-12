@@ -18,7 +18,9 @@ synaptixd — системная служба, которая держит не�
 | Протокол и клиент (serde + libc, без synaptix) | `crates/synaptixd/src/lib.rs` |
 | Демон (фича `daemon`, тянет synaptix) | `crates/synaptixd/src/bin/synaptixd/` |
 | Юнит systemd | `crates/synaptixd/data/synaptixd.service` |
-| Раздел «Параметры → Нейросети» | `crates/synsettings/src/pages/models.rs` |
+| Раздел «Параметры → Нейросети» (меню → «По умолчанию», «Служба», страница каждой модели) | `crates/synsettings/src/pages/models.rs` |
+| Параметры запроса (`Params`, `ParamKey`) | `crates/synaptixd/src/params.rs` |
+| Оптимальные параметры и варианты квантования | `crates/synaptixd/src/bin/synaptixd/defaults.rs` |
 | Сборка пакетов моделей | `synaptix/tools/modelpkg/` |
 
 ## Модели в системе
@@ -45,7 +47,7 @@ synaptixd — системная служба, которая держит не�
 ```toml
 id = "w2v2-lv60-espeak"
 title = "wav2vec2 LV-60 (фонемы IPA)"
-kind = "ctc"                 # ctc | mfa | asr | llm | tts | embed
+kind = "ctc"                 # ctc | mfa | asr | llm | tts | embed | image | video | music
 arch = "wav2vec2"
 languages = ["en"]
 license = "Apache-2.0"
@@ -64,6 +66,9 @@ precision = "f16"
 [resources]                  # оценка для планировщика памяти, МБ
 ram = { cpu = 1300, cuda = 200, npu = 700 }
 vram = { cuda = 700 }
+
+[defaults]                   # необязательно: поправки к встроенным оптимальным параметрам (ниже)
+temperature = 0.8
 ```
 
 ## Устройство и параметры модели
@@ -90,6 +95,51 @@ CPU и помечает модель `fallback` до смены устройст
 min_available_mb = 1024   # держать свободным; меньше — выгружать неиспользуемые
 idle_unload_min = 10      # по умолчанию для моделей без своего значения
 max_loaded = 0            # 0 — без ограничения числа
+```
+
+## Параметры модели и модели по умолчанию
+
+У каждой модели есть параметры запроса. Значение берётся по слоям, верхний побеждает:
+
+1. **оптимальные** — встроенная таблица службы (`bin/synaptixd/defaults.rs`) + `[defaults]` из `model.toml`.
+   LLM: сэмплинг из `synaptix::facade::sampling::sampling_profile` (карточка модели, `generation_config.json`;
+   Gemma 4 — 1.0 / 0.95 / top-k 64), стартовый промпт службы, 1024 токена. Картинки/видео/музыка — значения
+   synthos (SDXL 30 шагов CFG 5; FLUX 28 / 3.5; FLUX.2, Qwen-Image — шаги решает модель; LTX 1024×576 10 с 24 к/с;
+   MiniMax H3 20 шагов CFG 5 1344×768 5 с; ACE-Step turbo 8 / base 32 / sft 50 шагов, 30 с). Нет значения —
+   решает сама модель (OmniVoice: шаги 16 на NPU, 32 на остальных);
+2. **свои** — `settings.params` в `state.toml`, «Параметры → Нейросети → модель», `synaptixctl set <id> param.temperature=0.3`
+   (`=default` — убрать);
+3. **запрос** — `params` в `generate`, поля `speak`/`transcribe`: действуют только на этот запрос.
+
+| Вид | Параметры |
+|---|---|
+| llm | `system_prompt`, `max_tokens`, `temperature`, `top_p`, `top_k`, `min_p`, `repeat_penalty`, `presence_penalty`, `seed` |
+| image | `negative_prompt`, `steps`, `guidance`, `width`, `height`, `seed` |
+| video | то же + `duration`, `fps` |
+| music | `steps`, `guidance`, `duration`, `seed` |
+| tts | `language`, `voice` (описание голоса), `speed`, `steps` |
+| asr | `language` |
+
+Стартовый промпт подставляется, только если в `messages` нет своего `system`. `seed = -1` — случайное.
+
+**Квантование** (`settings.quant`): `auto` — оптимальное для устройства. У LLM — политика движка при загрузке:
+`auto` = `optimal_profile_for_device` (CPU/NPU — SQ4, CUDA — NVFP4/SQ4 по карте), `int8` — веса и голова SQ8,
+`bf16` — без квантования (только CUDA). У остальных — выбор `[[variant]]` по `precision`. Смена перезагружает модель.
+
+**Модели по умолчанию** — по видам (`llm`, `image`, `video`, `music`, `tts`, `asr`, `embed`), в `state.toml`
+`[defaults]`. Не выбрана — «авто»: загруженная, иначе с лучшим доступным устройством (CUDA → NPU → CPU).
+Программа передаёт `model: ""` (или `"auto"`) — служба берёт модель по умолчанию для вида запроса
+(`generate` → llm, `speak` → tts, `transcribe` → asr). `synaptixctl defaults`, `synaptixctl default llm <id|auto>`,
+`synaptixctl params <id>`, `synaptixctl gen - текст`.
+
+Виды `image`/`video`/`music` уже есть в протоколе, «Параметрах» и выборе по умолчанию, но исполнители (из synthos)
+служба ещё не получила — у таких моделей `runnable = false`.
+
+```rust
+let mut c = synaptixd::Client::connect()?;
+let over = synaptixd::Params { temperature: Some(0.2), ..Default::default() };
+c.generate_with("", messages, &over, |t| print!("{t}"))?;   // модель и прочие параметры — системные
+let chat = c.resolve(synaptixd::ModelKind::Llm)?;              // какая модель сейчас по умолчанию, её effective()
 ```
 
 ## Память и выгрузка
@@ -131,12 +181,15 @@ Unix-сокет `/run/synaptix/synaptixd.sock` (`0666`; изменение па�
 | `status` | — | память системы, загруженные модели и их потребление |
 | `open` | `model` | аренда до закрытия соединения; `info` модели (словарь, размерности, корзины) |
 | `load` / `unload` | `model` | загрузить заранее / выгрузить |
-| `set` | `model`, `device?`, `pinned?`, `idle_unload?`, `preload?` | новые параметры |
+| `set` | `model`, `device?`, `pinned?`, `idle_unload?`, `preload?`, `quant?`, `params?` (свои значения целиком) | новые параметры |
+| `defaults` | — | `[{kind, model?, resolved?}]` — модели по умолчанию |
+| `set_default` | `kind`, `model?` (нет — авто) | то же |
+| `resolve` | `kind` | запись модели по умолчанию (`defaults` — оптимальные, `settings.params` — свои) |
 | `ctc` | `model`, `pcm` (fd, f32 моно), `sample_rate`, `hidden` | `frames`, `vocab`, `frame_sec`, `logprobs` (fd, f32 `[T×V]`), `hidden` (fd, f32 `[T×D]`), `hidden_dim` |
 | `mfa_align` | `model`, `pcm` (fd, f32 16 кГц), `words[]` (варианты фонем с весами), `options` | `phones[]`, `frame_shift` |
 | `transcribe` | `model`, `pcm` (fd), `sample_rate`, `language?` | `text`, `segments[]` |
 | `speak` | `model`, `text`, `language?`, `instruct?` (описание голоса), `speed?`, `steps?` | `samples`, `sample_rate`, `audio` (fd, f32 моно) |
-| `generate` | `model`, `messages[]`, `max_tokens`, `temperature`… | события `token`, итог `text`, `tokens` |
+| `generate` | `model` (`""` — по умолчанию), `messages[]`, `params?`, `max_tokens?`, `temperature?` | события `token`, итог `text`, `tokens` |
 | `subscribe` | — | поток событий `model_state` (для «Параметров») |
 
 ## Языковые модели (generate)

@@ -1,7 +1,13 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 
 use syngui::prelude::*;
-use synaptixd::{Client, DeviceKind, LoadState, ModelEntry, ModelKind, SettingsChange, Status};
+use synaptixd::{
+    Client, DefaultModel, DeviceKind, LoadState, ModelEntry, ModelKind, ModelSettings, ParamKey, ParamType, ParamValue, Params, QuantOption,
+    SettingsChange, Status,
+};
 
 use crate::state;
 use crate::ui::*;
@@ -10,24 +16,113 @@ use crate::ui::*;
 struct Snapshot {
     status: Option<Status>,
     models: Vec<ModelEntry>,
+    defaults: Vec<DefaultModel>,
     error: Option<String>,
+}
+
+#[derive(Clone, PartialEq)]
+struct Cfg {
+    devices: Vec<DeviceKind>,
+    avail: Vec<DeviceKind>,
+    settings: ModelSettings,
+    quant: Vec<QuantOption>,
+    fallback: bool,
+}
+
+#[derive(Clone, PartialEq)]
+struct Choices {
+    defaults: Vec<DefaultModel>,
+    models: Vec<(String, String, ModelKind)>,
+}
+
+#[derive(Clone, PartialEq)]
+struct ParamState {
+    kind: ModelKind,
+    optimal: Params,
+    own: Params,
 }
 
 thread_local! {
     static LIVE: std::cell::Cell<Option<RwSignal<Snapshot>>> = const { std::cell::Cell::new(None) };
+    static CHOICES: std::cell::Cell<Option<RwSignal<Option<Choices>>>> = const { std::cell::Cell::new(None) };
+    static CFG: RefCell<HashMap<String, RwSignal<Option<Cfg>>>> = RefCell::new(HashMap::new());
+    static PARAMS: RefCell<HashMap<String, (RwSignal<u64>, Option<ParamState>)>> = RefCell::new(HashMap::new());
 }
 
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 
+const SUB: &str = "models/";
+
 fn fetch() -> Snapshot {
-    let r = Client::connect().and_then(|mut c| Ok((c.status()?, c.list()?)));
+    let r = Client::connect().and_then(|mut c| Ok((c.status()?, c.list()?, c.defaults()?)));
     match r {
-        Ok((status, models)) => Snapshot { status: Some(status), models, error: None },
+        Ok((status, models, defaults)) => Snapshot { status: Some(status), models, defaults, error: None },
         Err(e) => Snapshot { error: Some(e.to_string()), ..Default::default() },
     }
 }
 
+fn cfg_signal(id: &str) -> RwSignal<Option<Cfg>> {
+    CFG.with(|m| *m.borrow_mut().entry(id.to_string()).or_insert_with(|| use_signal(None)))
+}
+
+fn choices_signal() -> RwSignal<Option<Choices>> {
+    CHOICES.with(|c| match c.get() {
+        Some(s) => s,
+        None => {
+            let s = use_signal(None);
+            c.set(Some(s));
+            s
+        }
+    })
+}
+
+fn params_rev(id: &str) -> RwSignal<u64> {
+    PARAMS.with(|m| m.borrow_mut().entry(id.to_string()).or_insert_with(|| (use_signal(0u64), None)).0)
+}
+
+fn params_state(id: &str) -> Option<ParamState> {
+    PARAMS.with(|m| m.borrow().get(id).and_then(|(_, s)| s.clone()))
+}
+
+fn set_params_state(id: &str, st: ParamState, bump: bool) {
+    let rev = params_rev(id);
+    PARAMS.with(|m| {
+        if let Some(e) = m.borrow_mut().get_mut(id) {
+            e.1 = Some(st);
+        }
+    });
+    if bump {
+        rev.set(rev.get_untracked() + 1);
+    }
+}
+
 fn apply(sig: RwSignal<Snapshot>, s: Snapshot) {
+    let avail = s.status.as_ref().map(|st| st.devices.clone()).unwrap_or_default();
+    for m in &s.models {
+        let cfg = Cfg {
+            devices: m.devices.clone(),
+            avail: avail.clone(),
+            settings: ModelSettings { params: Params::default(), ..m.settings.clone() },
+            quant: m.quant_options.clone(),
+            fallback: m.fallback,
+        };
+        let c = cfg_signal(&m.id);
+        if c.get_untracked().as_ref() != Some(&cfg) {
+            c.set(Some(cfg));
+        }
+        let st = ParamState { kind: m.kind, optimal: m.defaults.clone(), own: m.settings.params.clone() };
+        params_rev(&m.id);
+        if params_state(&m.id).as_ref() != Some(&st) {
+            set_params_state(&m.id, st, true);
+        }
+    }
+    if s.status.is_some() {
+        let choices = Choices { defaults: s.defaults.clone(), models: s.models.iter().map(|m| (m.id.clone(), m.title.clone(), m.kind)).collect() };
+        let c = choices_signal();
+        if c.get_untracked().as_ref() != Some(&choices) {
+            c.set(Some(choices));
+        }
+    }
     if sig.get_untracked() != s {
         sig.set(s);
     }
@@ -37,8 +132,9 @@ fn live() -> RwSignal<Snapshot> {
     LIVE.with(|l| match l.get() {
         Some(v) => v,
         None => {
-            let v = use_signal(fetch());
+            let v = use_signal(Snapshot::default());
             l.set(Some(v));
+            apply(v, fetch());
             std::thread::Builder::new()
                 .name("synaptixd".into())
                 .spawn(move || loop {
@@ -70,6 +166,11 @@ fn act(sig: RwSignal<Snapshot>, f: impl FnOnce(&mut Client) -> synaptixd::Result
     });
 }
 
+fn change(sig: RwSignal<Snapshot>, id: &str, ch: SettingsChange) {
+    let id = id.to_string();
+    act(sig, move |c| c.set(&id, ch).map(|_| ()));
+}
+
 fn mb(b: u64) -> String {
     if b >= 1 << 30 {
         t!("{v} ГБ", v = format!("{:.1}", b as f64 / (1u64 << 30) as f64))
@@ -96,6 +197,109 @@ fn kind_label(k: ModelKind) -> String {
         ModelKind::Llm => t!("Языковая модель"),
         ModelKind::Tts => t!("Синтез речи"),
         ModelKind::Embed => t!("Эмбеддинги"),
+        ModelKind::Image => t!("Генерация картинок"),
+        ModelKind::Video => t!("Генерация видео"),
+        ModelKind::Music => t!("Генерация музыки"),
+    }
+}
+
+fn group_label(k: ModelKind) -> String {
+    match k {
+        ModelKind::Llm => t!("Языковые модели"),
+        ModelKind::Image => t!("Картинки"),
+        ModelKind::Video => t!("Видео"),
+        ModelKind::Music => t!("Музыка"),
+        ModelKind::Tts => t!("Синтез речи"),
+        ModelKind::Asr => t!("Распознавание речи"),
+        ModelKind::Embed => t!("Эмбеддинги"),
+        ModelKind::Ctc => t!("Распознавание звуков (CTC)"),
+        ModelKind::Mfa => t!("Выравнивание речи (MFA)"),
+    }
+}
+
+fn task_label(k: ModelKind) -> String {
+    match k {
+        ModelKind::Llm => t!("Чат и текст"),
+        ModelKind::Image => t!("Картинки"),
+        ModelKind::Video => t!("Видео"),
+        ModelKind::Music => t!("Музыка"),
+        ModelKind::Tts => t!("Синтез речи"),
+        ModelKind::Asr => t!("Распознавание речи"),
+        ModelKind::Embed => t!("Поиск по смыслу (эмбеддинги)"),
+        other => kind_label(other),
+    }
+}
+
+fn task_hint(k: ModelKind) -> String {
+    match k {
+        ModelKind::Llm => t!("Ассистент, ответы, обработка текста"),
+        ModelKind::Image => t!("SDXL, FLUX, Qwen-Image…"),
+        ModelKind::Video => t!("LTX, MiniMax H3…"),
+        ModelKind::Music => t!("ACE-Step, YuE…"),
+        ModelKind::Tts => t!("Озвучка текста"),
+        ModelKind::Asr => t!("Голосовой ввод и расшифровка"),
+        ModelKind::Embed => t!("Поиск файлов и заметок по смыслу"),
+        _ => String::new(),
+    }
+}
+
+fn kind_icon(k: ModelKind) -> &'static str {
+    match k {
+        ModelKind::Llm => "\u{e0b7}",
+        ModelKind::Image => "\u{e3f4}",
+        ModelKind::Video => "\u{e04b}",
+        ModelKind::Music => "\u{e405}",
+        ModelKind::Tts => "\u{e050}",
+        ModelKind::Asr => "\u{e029}",
+        ModelKind::Embed => "\u{e8b6}",
+        ModelKind::Ctc | ModelKind::Mfa => "\u{e1b8}",
+    }
+}
+
+fn param_label(k: ParamKey) -> String {
+    match k {
+        ParamKey::SystemPrompt => t!("Стартовый промпт"),
+        ParamKey::MaxTokens => t!("Длина ответа, токенов"),
+        ParamKey::Temperature => t!("Температура"),
+        ParamKey::TopP => "Top-p".into(),
+        ParamKey::TopK => "Top-k".into(),
+        ParamKey::MinP => "Min-p".into(),
+        ParamKey::RepeatPenalty => t!("Штраф за повторы"),
+        ParamKey::PresencePenalty => t!("Штраф за присутствие"),
+        ParamKey::Seed => t!("Зерно (seed)"),
+        ParamKey::NegativePrompt => t!("Негативный промпт"),
+        ParamKey::Steps => t!("Шаги"),
+        ParamKey::Guidance => t!("Guidance (CFG)"),
+        ParamKey::Width => t!("Ширина"),
+        ParamKey::Height => t!("Высота"),
+        ParamKey::Duration => t!("Длительность, с"),
+        ParamKey::Fps => t!("Кадров в секунду"),
+        ParamKey::Language => t!("Язык"),
+        ParamKey::Voice => t!("Голос"),
+        ParamKey::Speed => t!("Скорость речи"),
+    }
+}
+
+fn param_hint(k: ParamKey) -> String {
+    match k {
+        ParamKey::SystemPrompt => t!("Системное сообщение в начале диалога, если программа не задала своё"),
+        ParamKey::MaxTokens => t!("Предел длины одного ответа"),
+        ParamKey::Temperature => t!("Выше — разнообразнее, ниже — точнее"),
+        ParamKey::TopP => t!("Доля вероятности, из которой выбирается слово"),
+        ParamKey::TopK => t!("Из скольких самых вероятных слов выбирать; 0 — без ограничения"),
+        ParamKey::MinP => t!("Отсекать слова вероятностью ниже этой доли от лучшего"),
+        ParamKey::RepeatPenalty => t!("1 — без штрафа"),
+        ParamKey::PresencePenalty => t!("Против повторов уже сказанного; 0 — без штрафа"),
+        ParamKey::Seed => t!("−1 — случайное; одно зерно даёт повторяемый результат"),
+        ParamKey::NegativePrompt => t!("Чего не должно быть в результате"),
+        ParamKey::Steps => t!("Больше — качественнее и дольше"),
+        ParamKey::Guidance => t!("Насколько строго следовать промпту"),
+        ParamKey::Width | ParamKey::Height => t!("В пикселях"),
+        ParamKey::Duration => t!("Длина результата в секундах"),
+        ParamKey::Fps => t!("Частота кадров видео"),
+        ParamKey::Language => t!("Код языка (ru, en, kk); пусто — определять самой"),
+        ParamKey::Voice => t!("Описание голоса: пол, возраст, манера"),
+        ParamKey::Speed => t!("1 — обычная"),
     }
 }
 
@@ -120,7 +324,25 @@ fn state_text(m: &ModelEntry) -> String {
         }
         LoadState::Loading => t!("Загружается…"),
         LoadState::Failed => t!("Ошибка: {e}", e = m.error.clone().unwrap_or_default()),
+        LoadState::Unloaded if !m.runnable => t!("Служба пока не исполняет модели этого вида"),
         LoadState::Unloaded => t!("Не загружена — загрузится при первом обращении программы"),
+    }
+}
+
+fn short_state(m: &ModelEntry) -> String {
+    match m.state {
+        LoadState::Loaded => {
+            let dev = m.device.map(device_label).unwrap_or_default();
+            let mut s = t!("Загружена · {dev} · {mem}", dev = dev, mem = mb(m.mem_bytes));
+            if m.busy {
+                s.push_str(&t!(" · работает"));
+            }
+            s
+        }
+        LoadState::Loading => t!("Загружается…"),
+        LoadState::Failed => t!("Ошибка: {e}", e = m.error.clone().unwrap_or_default()),
+        LoadState::Unloaded if !m.runnable => t!("Пока не исполняется службой"),
+        LoadState::Unloaded => t!("Не загружена · {v} на диске", v = mb(m.disk_bytes)),
     }
 }
 
@@ -134,8 +356,178 @@ const IDLE: &[(i64, &str)] = &[
     (60, n_!("1 час")),
 ];
 
-fn model_card(sig: RwSignal<Snapshot>, m: &ModelEntry, devices: &[DeviceKind]) -> W {
-    let id = m.id.clone();
+fn nav_item(ctx: state::Ctx, key: String, title: String, summary: String, icon: &'static str, fault: bool) -> W {
+    let t = title.clone();
+    boxed(
+        syngui::GestureDetector::new().on_click(move || ctx.sub.set(Some((format!("{SUB}{key}"), t.clone())))).child(
+            DecoratedBox::new().class("phone-nav-item").child(
+                Row::new()
+                    .gap(14.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(
+                        DecoratedBox::new()
+                            .class(if fault { "hw-badge hw-badge-fault" } else { "hw-badge" })
+                            .child(Icon::new(if fault { "\u{E002}" } else { icon }).class(if fault { "hw-icon hw-icon-fault" } else { "hw-icon" })),
+                    )
+                    .child(
+                        Column::new()
+                            .gap(2.0)
+                            .class("grow")
+                            .child(Text::new(title).class("phone-nav-label"))
+                            .child(Text::new(summary).max_lines(1).class(if fault { "hw-sum hw-sum-fault" } else { "hw-sum" })),
+                    )
+                    .child(Icon::new(icons::CHEVRON_RIGHT).class("phone-nav-chevron")),
+            ),
+        ),
+    )
+}
+
+fn card(items: Vec<W>) -> W {
+    let mut card = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("group-card");
+    for (n, w) in items.into_iter().enumerate() {
+        if n > 0 {
+            card = card.child(DecoratedBox::new().class("row-sep"));
+        }
+        card = card.child(w);
+    }
+    boxed(card)
+}
+
+fn titled(title: String, body: W) -> W {
+    boxed(Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(Text::new(title).class("group-title")).child(body))
+}
+
+fn title_of(snap: &Snapshot, id: &str) -> String {
+    snap.models.iter().find(|m| m.id == id).map(|m| m.title.clone()).unwrap_or_else(|| id.to_string())
+}
+
+fn menu(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
+    let body = Reactive::new(move || -> Vec<W> {
+        let snap = sig.get();
+        let Some(st) = snap.status.as_ref() else {
+            return vec![note(t!(
+                "Служба нейросетей synaptixd не отвечает ({e}). Включите её: systemctl enable --now synaptixd",
+                e = snap.error.clone().unwrap_or_default()
+            ))];
+        };
+        let mut out: Vec<W> = Vec::new();
+        let picked: Vec<String> = snap
+            .defaults
+            .iter()
+            .filter_map(|d| d.resolved.as_ref().map(|id| format!("{}: {}", task_label(d.kind), title_of(&snap, id))))
+            .collect();
+        let summary = if picked.is_empty() { t!("Модели не установлены") } else { picked.join(" · ") };
+        out.push(card(vec![
+            nav_item(ctx, "defaults".into(), t!("Модели по умолчанию"), summary, "\u{e838}", false),
+            nav_item(
+                ctx,
+                "service".into(),
+                t!("Служба и память"),
+                t!("Свободно {a} из {b} · загружено моделей: {n}", a = mb(st.mem_available), b = mb(st.mem_total), n = st.loaded),
+                "\u{e322}",
+                false,
+            ),
+        ]));
+        if snap.models.is_empty() {
+            out.push(note(t!("Модели не установлены. Найдите пакеты synaptix-model в «Программах».")));
+        }
+        for kind in ModelKind::ALL {
+            let items: Vec<W> = snap
+                .models
+                .iter()
+                .filter(|m| m.kind == kind)
+                .map(|m| nav_item(ctx, format!("m/{}", m.id), m.title.clone(), short_state(m), kind_icon(kind), m.state == LoadState::Failed))
+                .collect();
+            if !items.is_empty() {
+                out.push(titled(group_label(kind), card(items)));
+            }
+        }
+        vec![boxed(Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Stretch).children(out))]
+    });
+    let actions = Row::new()
+        .gap(8.0)
+        .child(button(t!("Обновить список моделей"), move || act(sig, |c| c.call(synaptixd::Request::Rescan, &[]).map(|_| ()))));
+    page(
+        t!("Нейросети"),
+        t!("Системные модели: общие для всех программ, загружаются по требованию и выгружаются при нехватке памяти."),
+        vec![boxed(actions), boxed(body)],
+    )
+}
+
+fn back(ctx: state::Ctx) -> Option<W> {
+    (!narrow()).then(|| boxed(Row::new().child(button(t!("‹ Нейросети"), move || ctx.sub.set(None)))))
+}
+
+fn sub_page(ctx: state::Ctx, title: String, subtitle: String, body: Vec<W>) -> W {
+    let mut parts: Vec<W> = back(ctx).into_iter().collect();
+    parts.extend(body);
+    page(title, subtitle, parts)
+}
+
+fn defaults_page(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
+    let choices = choices_signal();
+    let body = Reactive::new(move || -> Vec<W> {
+        let Some(ch) = choices.get() else { return vec![note(t!("Служба нейросетей не отвечает"))] };
+        let mut rows: Vec<W> = Vec::new();
+        for d in &ch.defaults {
+            let kind = d.kind;
+            let models: Vec<&(String, String, ModelKind)> = ch.models.iter().filter(|m| m.2 == kind).collect();
+            let title = |id: &str| ch.models.iter().find(|m| m.0 == id).map(|m| m.1.clone()).unwrap_or_else(|| id.to_string());
+            if models.is_empty() {
+                rows.push(row_inline(task_label(kind), task_hint(kind), Text::new(t!("Нет установленных моделей")).class("row-value")));
+                continue;
+            }
+            let auto = match (&d.model, &d.resolved) {
+                (None, Some(r)) => t!("Авто — {m}", m = title(r)),
+                _ => t!("Авто"),
+            };
+            let mut dd = Dropdown::new().width(260.0).item(DropdownItem::new("", auto));
+            for (id, t, _) in &models {
+                dd = dd.item(DropdownItem::new(id.clone(), t.clone()));
+            }
+            let dd = dd.selected(d.model.clone().unwrap_or_default()).on_change(move |v: &str| {
+                let model = (!v.is_empty()).then(|| v.to_string());
+                act(sig, move |c| c.set_default(kind, model.as_deref()).map(|_| ()));
+            });
+            rows.push(row(task_label(kind), task_hint(kind), dd));
+        }
+        vec![group(t!("Модель для задачи"), rows)]
+    });
+    sub_page(
+        ctx,
+        t!("Модели по умолчанию"),
+        t!("Их берут программы и ассистент, если не выбрали модель сами. «Авто» — уже загруженная или лучшая для устройств этой машины."),
+        vec![boxed(body)],
+    )
+}
+
+fn service_page(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
+    let body = Reactive::new(move || -> Vec<W> {
+        let snap = sig.get();
+        let Some(st) = snap.status.as_ref() else { return vec![note(t!("Служба нейросетей не отвечает"))] };
+        let devs: Vec<String> = st.devices.iter().map(|d| device_label(*d)).collect();
+        vec![group(
+            t!("Служба"),
+            vec![
+                row_inline(
+                    t!("Память"),
+                    t!("Свободно {a} из {b}; запас {c} МБ — меньше выгружаются неиспользуемые", a = mb(st.mem_available), b = mb(st.mem_total), c = st.min_available_mb),
+                    Text::new(t!("моделей {n}, {m}", n = st.loaded, m = mb(st.models_bytes))).class("row-value"),
+                ),
+                row_inline(t!("Устройства"), t!("Где служба может исполнять модели"), Text::new(devs.join(", ")).class("row-value")),
+                row_inline(t!("Выгружено при нехватке"), t!("С запуска службы"), Text::new(st.evictions.to_string()).class("row-value")),
+                row_inline(
+                    t!("Модели"),
+                    t!("Ставятся пакетами synaptix-model-* в /usr/share/synaptix/models"),
+                    button(t!("Обновить список"), move || act(sig, |c| c.call(synaptixd::Request::Rescan, &[]).map(|_| ()))),
+                ),
+            ],
+        )]
+    });
+    sub_page(ctx, t!("Служба и память"), String::new(), vec![boxed(body)])
+}
+
+fn status_card(m: &ModelEntry) -> W {
     let mut rows: Vec<W> = Vec::new();
     let mut hint = kind_label(m.kind);
     if !m.languages.is_empty() {
@@ -149,7 +541,7 @@ fn model_card(sig: RwSignal<Snapshot>, m: &ModelEntry, devices: &[DeviceKind]) -
         hint = format!("{} · {hint}", m.description);
     }
     rows.push(row_inline(state_text(m), hint, Text::new("")));
-    let quant: Vec<String> = m
+    let files: Vec<String> = m
         .variants
         .iter()
         .map(|v| {
@@ -157,74 +549,92 @@ fn model_card(sig: RwSignal<Snapshot>, m: &ModelEntry, devices: &[DeviceKind]) -
             format!("{}: {} · {}", devs.join(", "), tl(synaptixd::precision_label(&v.precision)), mb(v.bytes))
         })
         .collect();
-    if !quant.is_empty() {
-        rows.push(row_inline(t!("Квантование"), quant.join("\n"), Text::new("")));
+    if !files.is_empty() {
+        rows.push(row_inline(t!("Файлы весов"), files.join("\n"), Text::new("")));
     }
+    if !m.license.is_empty() {
+        rows.push(row_inline(t!("Лицензия"), "", Text::new(m.license.clone()).class("row-value")));
+    }
+    group(t!("Состояние"), rows)
+}
 
+fn settings_card(sig: RwSignal<Snapshot>, id: &str, cfg: &Cfg) -> W {
+    let mut rows: Vec<W> = Vec::new();
     let mut dd = Dropdown::new().width(220.0);
     let mut choices = vec![DeviceKind::Auto];
-    choices.extend(DeviceKind::ALL.iter().copied().filter(|d| *d != DeviceKind::Auto && m.devices.contains(d)));
+    choices.extend(DeviceKind::ALL.iter().copied().filter(|d| *d != DeviceKind::Auto && cfg.devices.contains(d)));
     for d in choices {
         let mut label = device_label(d);
-        if d != DeviceKind::Auto && !devices.contains(&d) {
+        if d != DeviceKind::Auto && !cfg.avail.contains(&d) {
             label.push_str(&t!(" — недоступно"));
         }
         dd = dd.item(DropdownItem::new(d.id(), label));
     }
-    let i = id.clone();
-    let dd = dd.selected(m.settings.device.id().to_string()).on_change(move |v: &str| {
+    let i = id.to_string();
+    let dd = dd.selected(cfg.settings.device.id().to_string()).on_change(move |v: &str| {
         if let Some(d) = DeviceKind::parse(v) {
-            let i = i.clone();
-            act(sig, move |c| c.set(&i, SettingsChange { device: Some(d), ..Default::default() }).map(|_| ()));
+            change(sig, &i, SettingsChange { device: Some(d), ..Default::default() });
         }
     });
     let order: Vec<String> = [DeviceKind::Cuda, DeviceKind::Npu, DeviceKind::Cpu]
         .into_iter()
-        .filter(|d| m.devices.contains(d) && devices.contains(d))
+        .filter(|d| cfg.devices.contains(d) && cfg.avail.contains(d))
         .map(device_label)
         .collect();
-    let dev_hint = if m.fallback {
+    let dev_hint = if cfg.fallback {
         t!("Выбранное устройство не справилось — модель работает на CPU")
     } else {
         t!("Авто: {order}", order = order.join(" → "))
     };
-    rows.push(row(t!("Тип выполнения"), dev_hint, dd));
+    rows.push(row(t!("Устройство"), dev_hint, dd));
 
-    let i = id.clone();
+    let usable: Vec<&QuantOption> = cfg.quant.iter().filter(|q| q.devices.iter().any(|d| cfg.avail.contains(d))).collect();
+    if usable.len() > 1 {
+        let mut qd = Dropdown::new().width(220.0);
+        for q in &usable {
+            let mut label = if q.id == "auto" { t!("Оптимальное") } else { tl(synaptixd::precision_label(&q.id)) };
+            if q.id != "auto" && q.devices.len() < cfg.devices.len() {
+                let devs: Vec<String> = q.devices.iter().map(|d| device_label(*d)).collect();
+                label.push_str(&format!(" ({})", devs.join(", ")));
+            }
+            qd = qd.item(DropdownItem::new(q.id.clone(), label));
+        }
+        let i = id.to_string();
+        let qd = qd.selected(cfg.settings.quant.clone().unwrap_or_else(|| "auto".into())).on_change(move |v: &str| {
+            let q = (v != "auto").then(|| v.to_string());
+            change(sig, &i, SettingsChange { quant: Some(q), ..Default::default() });
+        });
+        rows.push(row(t!("Квантование"), t!("Оптимальное подбирается под устройство; смена перезагрузит модель"), qd));
+    }
+
+    let i = id.to_string();
     rows.push(row_inline(
         t!("Не выгружать"),
         t!("Держать в памяти, даже если её не хватает другим"),
-        Toggle::with_state(m.settings.pinned).on_change(move |v| {
-            let i = i.clone();
-            act(sig, move |c| c.set(&i, SettingsChange { pinned: Some(v), ..Default::default() }).map(|_| ()));
-        }),
+        Toggle::with_state(cfg.settings.pinned).on_change(move |v| change(sig, &i, SettingsChange { pinned: Some(v), ..Default::default() })),
     ));
-    let i = id.clone();
+    let i = id.to_string();
     rows.push(row_inline(
         t!("Загружать при запуске"),
         t!("Модель готова сразу, без задержки при первом обращении"),
-        Toggle::with_state(m.settings.preload).on_change(move |v| {
-            let i = i.clone();
-            act(sig, move |c| c.set(&i, SettingsChange { preload: Some(v), ..Default::default() }).map(|_| ()));
-        }),
+        Toggle::with_state(cfg.settings.preload).on_change(move |v| change(sig, &i, SettingsChange { preload: Some(v), ..Default::default() })),
     ));
     let mut idle = Dropdown::new().width(220.0);
     for (v, l) in IDLE {
         idle = idle.item(DropdownItem::new(v.to_string(), tl(l)));
     }
-    let i = id.clone();
-    let cur = m.settings.idle_unload_min.map(|v| v as i64).unwrap_or(-1);
+    let i = id.to_string();
+    let cur = cfg.settings.idle_unload_min.map(|v| v as i64).unwrap_or(-1);
     rows.push(row(
         t!("Выгружать при простое"),
         t!("Неиспользуемая модель освобождает память"),
         idle.selected(cur.to_string()).on_change(move |v: &str| {
             let Ok(n) = v.parse::<i64>() else { return };
-            let i = i.clone();
             let value = if n < 0 { None } else { Some(n as u32) };
-            act(sig, move |c| c.set(&i, SettingsChange { idle_unload_min: Some(value), ..Default::default() }).map(|_| ()));
+            change(sig, &i, SettingsChange { idle_unload_min: Some(value), ..Default::default() });
         }),
     ));
-    let (i1, i2) = (id.clone(), id.clone());
+    let (i1, i2) = (id.to_string(), id.to_string());
     let buttons = Row::new()
         .gap(8.0)
         .child(button(t!("Загрузить в память"), move || {
@@ -236,49 +646,160 @@ fn model_card(sig: RwSignal<Snapshot>, m: &ModelEntry, devices: &[DeviceKind]) -
             act(sig, move |c| c.unload(&i));
         }));
     rows.push(row_inline(t!("Память"), "", buttons));
-    group(m.title.clone(), rows)
+    group(t!("Выполнение"), rows)
+}
+
+fn save_param(sig: RwSignal<Snapshot>, id: &str, key: ParamKey, value: Option<ParamValue>) {
+    let Some(mut st) = params_state(id) else { return };
+    let mut own = st.own.clone();
+    key.set(&mut own, value);
+    if key.get(&own).is_some() && key.get(&own) == key.get(&st.optimal) {
+        key.set(&mut own, None);
+    }
+    if own == st.own {
+        return;
+    }
+    st.own = own.clone();
+    set_params_state(id, st, false);
+    change(sig, id, SettingsChange { params: Some(own), ..Default::default() });
+}
+
+fn param_row(sig: RwSignal<Snapshot>, id: &str, key: ParamKey, st: &ParamState) -> W {
+    let ty = key.ty();
+    let optimal = key.get(&st.optimal).map(|v| v.display(ty));
+    let own = key.get(&st.own).map(|v| v.display(ty));
+    let mut hint = param_hint(key);
+    match (&own, &optimal) {
+        (Some(_), Some(o)) if !matches!(ty, ParamType::Text { multiline: true }) => hint.push_str(&t!(" · оптимальное: {v}", v = o)),
+        (Some(_), None) => hint.push_str(&t!(" · оптимальное: авто")),
+        _ => {}
+    }
+    let i = id.to_string();
+    match ty {
+        ParamType::Text { multiline: true } => {
+            let gen = Arc::new(AtomicU64::new(0));
+            let edit = syngui::widgets::input::MultilineTextEdit::new()
+                .text(own.clone().or(optimal.clone()).unwrap_or_default())
+                .placeholder(t!("Не задан"))
+                .rows(3)
+                .max_rows(12)
+                .auto_height(true)
+                .soft_wrap(true)
+                .on_change(move |s: &str| {
+                    let n = gen.fetch_add(1, Ordering::Relaxed) + 1;
+                    let (gen, i, s) = (gen.clone(), i.clone(), s.to_string());
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(700));
+                        if gen.load(Ordering::Relaxed) == n {
+                            syngui::async_runtime::run_on_main_thread(move || save_param(sig, &i, key, Some(ParamValue::Text(s))));
+                        }
+                    });
+                });
+            row_wide(param_label(key), hint, edit)
+        }
+        ParamType::Text { multiline: false } => {
+            let field = TextField::with_text(own.unwrap_or_default())
+                .placeholder(optimal.unwrap_or_else(|| t!("Авто")))
+                .width(160.0)
+                .submit_on_focus_lost(true)
+                .on_submit(move |s| {
+                    let v = s.trim();
+                    save_param(sig, &i, key, (!v.is_empty()).then(|| ParamValue::Text(v.to_string())));
+                });
+            row(param_label(key), hint, field)
+        }
+        ParamType::Int { .. } | ParamType::Float { .. } => {
+            let field = TextField::with_text(own.unwrap_or_default())
+                .placeholder(optimal.unwrap_or_else(|| t!("Авто")))
+                .width(140.0)
+                .submit_on_focus_lost(true)
+                .input_filter(|c: char| c.is_ascii_digit() || matches!(c, '.' | ',' | '-'))
+                .on_submit(move |s| {
+                    let v = s.trim();
+                    save_param(sig, &i, key, (!v.is_empty()).then(|| ParamValue::Text(v.to_string())));
+                });
+            row(param_label(key), hint, field)
+        }
+    }
+}
+
+fn params_card(sig: RwSignal<Snapshot>, id: &str) -> W {
+    let rev = params_rev(id);
+    let id = id.to_string();
+    boxed(Reactive::new(move || -> Vec<W> {
+        rev.get();
+        let Some(st) = params_state(&id) else { return vec![] };
+        let keys = st.kind.params();
+        if keys.is_empty() {
+            return vec![];
+        }
+        let mut rows: Vec<W> = keys.iter().map(|k| param_row(sig, &id, *k, &st)).collect();
+        let i = id.clone();
+        let reset = button(t!("Сбросить к оптимальным"), move || {
+            let Some(mut st) = params_state(&i) else { return };
+            st.own = Params::default();
+            set_params_state(&i, st, true);
+            change(sig, &i, SettingsChange { params: Some(Params::default()), ..Default::default() });
+        });
+        rows.push(row_inline(
+            t!("Свои значения"),
+            if st.own.is_empty() { t!("Не заданы — работают оптимальные значения модели") } else { t!("Пустое поле — оптимальное значение модели") },
+            reset,
+        ));
+        vec![group(t!("Параметры по умолчанию"), rows)]
+    }))
+}
+
+fn model_page(ctx: state::Ctx, sig: RwSignal<Snapshot>, id: String) -> W {
+    let cfg = cfg_signal(&id);
+    let i = id.clone();
+    let status = Reactive::new(move || -> Vec<W> {
+        let snap = sig.get();
+        match snap.models.iter().find(|m| m.id == i) {
+            Some(m) => vec![status_card(m)],
+            None => vec![note(t!("Модель {id} не найдена — возможно, пакет удалён", id = i))],
+        }
+    });
+    let i = id.clone();
+    let settings = Reactive::new(move || -> Vec<W> { cfg.get().map(|c| settings_card(sig, &i, &c)).into_iter().collect() });
+    let title = title_of(&sig.get_untracked(), &id);
+    let note_text = t!("Программы могут передать свои значения в запросе — они действуют только на этот запрос.");
+    sub_page(
+        ctx,
+        title,
+        note_text,
+        vec![boxed(Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(status).child(settings).child(params_card(sig, &id)))],
+    )
+}
+
+fn key_hash(s: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    s.hash(&mut h);
+    h.finish() | 2
 }
 
 pub fn models() -> W {
     let sig = live();
-    let body = Reactive::new(move || -> Vec<W> {
-        let snap = sig.get();
-        let mut out: Vec<W> = Vec::new();
-        let Some(st) = snap.status.as_ref() else {
-            out.push(note(t!(
-                "Служба нейросетей synaptixd не отвечает ({e}). Включите её: systemctl enable --now synaptixd",
-                e = snap.error.clone().unwrap_or_default()
-            )));
-            return vec![boxed(Column::new().children(out))];
-        };
-        let devs: Vec<String> = st.devices.iter().map(|d| device_label(*d)).collect();
-        out.push(group(
-            t!("Служба"),
-            vec![
-                row_inline(
-                    t!("Память"),
-                    t!("Свободно {a} из {b}; запас {c} МБ — меньше выгружаются неиспользуемые", a = mb(st.mem_available), b = mb(st.mem_total), c = st.min_available_mb),
-                    Text::new(t!("моделей {n}, {m}", n = st.loaded, m = mb(st.models_bytes))).class("row-value"),
-                ),
-                row_inline(t!("Устройства"), t!("Где служба может исполнять модели"), Text::new(devs.join(", ")).class("row-value")),
-                row_inline(
-                    t!("Модели"),
-                    t!("Ставятся пакетами synaptix-model-* в /usr/share/synaptix/models"),
-                    button(t!("Обновить список"), move || act(sig, |c| c.call(synaptixd::Request::Rescan, &[]).map(|_| ()))),
-                ),
-            ],
-        ));
-        if snap.models.is_empty() {
-            out.push(note(t!("Модели не установлены. Найдите пакеты synaptix-model в «Программах».")));
-        }
-        for m in &snap.models {
-            out.push(model_card(sig, m, &st.devices));
-        }
-        vec![boxed(Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Stretch).children(out))]
+    ACTIVE.store(true, Ordering::Relaxed);
+    let ctx = state::ctx();
+    let view = Reactive::new(move || -> Vec<W> {
+        let sub = ctx.sub.get().and_then(|(k, _)| k.strip_prefix(SUB).map(str::to_string));
+        let key = sub.as_deref().map(key_hash).unwrap_or(1);
+        vec![boxed(
+            AnimatedSwitcher::new(key, move || match sub.as_deref() {
+                Some("defaults") => defaults_page(ctx, sig),
+                Some("service") => service_page(ctx, sig),
+                Some(k) if k.starts_with("m/") => model_page(ctx, sig, k[2..].to_string()),
+                _ => menu(ctx, sig),
+            })
+            .directional(true)
+            .slide(48.0, 0.0)
+            .duration_ms(240)
+            .exit_duration_ms(160)
+            .animate_size(false)
+            .class("grow"),
+        )]
     });
-    page(
-        t!("Нейросети"),
-        t!("Системные модели: общие для всех программ, загружаются по требованию и выгружаются при нехватке памяти."),
-        vec![boxed(body)],
-    )
+    boxed(view)
 }

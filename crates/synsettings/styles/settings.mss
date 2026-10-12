@@ -256,6 +256,17 @@ TextField {
     &:focus { border-color: var(--accent); }
 }
 
+MultilineTextEdit {
+    background: var(--input-bg);
+    color: var(--fg);
+    accent-color: var(--accent);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    font-size: 13px;
+    &:focus { border-color: var(--accent); }
+}
+
 Dropdown, Autocomplete, SpinBox, Combobox, ColorPicker {
     background: var(--input-bg);
     color: var(--fg);

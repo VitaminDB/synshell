@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use synaptixd::{Client, DeviceKind, ModelEntry, SettingsChange};
+use synaptixd::{Client, DeviceKind, ModelEntry, ModelKind, ParamKey, ParamValue, SettingsChange};
 
 fn mb(b: u64) -> String {
     format!("{} МБ", b >> 20)
@@ -76,6 +76,26 @@ fn run(args: &[String]) -> Result<(), String> {
                 s.devices.iter().map(|d| d.id()).collect::<Vec<_>>()
             );
         }
+        "defaults" => {
+            for d in c.defaults().map_err(|e| e.to_string())? {
+                let chosen = d.model.unwrap_or_else(|| "auto".into());
+                println!("{:<6} {:<28} → {}", d.kind.id(), chosen, d.resolved.unwrap_or_else(|| "-".into()));
+            }
+        }
+        "default" => {
+            let kind = ModelKind::parse(arg(1)?).ok_or("вид: llm|image|video|music|tts|asr|embed")?;
+            let model = arg(2)?;
+            c.set_default(kind, (model != "auto").then_some(model)).map_err(|e| e.to_string())?;
+        }
+        "params" => {
+            let m = c.list().map_err(|e| e.to_string())?.into_iter().find(|m| m.id == args.get(1).cloned().unwrap_or_default()).ok_or("нет такой модели")?;
+            let eff = m.effective();
+            for k in m.kind.params() {
+                let v = k.get(&eff).map(|v| v.display(k.ty())).unwrap_or_else(|| "авто".into());
+                let own = if k.get(&m.settings.params).is_some() { " *" } else { "" };
+                println!("{:<18} {v}{own}", k.id());
+            }
+        }
         "load" => print_entry(&c.load(arg(1)?).map_err(|e| e.to_string())?),
         "unload" => c.unload(arg(1)?).map_err(|e| e.to_string())?,
         "rescan" => {
@@ -91,6 +111,23 @@ fn run(args: &[String]) -> Result<(), String> {
                     "pinned" => ch.pinned = Some(v == "1" || v == "true"),
                     "preload" => ch.preload = Some(v == "1" || v == "true"),
                     "idle" => ch.idle_unload_min = Some(if v == "default" { None } else { Some(v.parse().map_err(|_| "idle: минуты")?) }),
+                    "quant" => ch.quant = Some((v != "auto").then(|| v.to_string())),
+                    k if k.starts_with("param.") => {
+                        let key = k.trim_start_matches("param.");
+                        let pk = ModelKind::ALL
+                            .iter()
+                            .flat_map(|kind| kind.params().iter())
+                            .find(|p| p.id() == key)
+                            .copied()
+                            .ok_or_else(|| format!("неизвестный параметр {key}"))?;
+                        let mut params = match ch.params.take() {
+                            Some(p) => p,
+                            None => c.list().map_err(|e| e.to_string())?.into_iter().find(|m| m.id == id).map(|m| m.settings.params).unwrap_or_default(),
+                        };
+                        let value: Option<ParamValue> = (v != "default").then(|| ParamValue::Text(v.to_string()));
+                        ParamKey::set(pk, &mut params, value);
+                        ch.params = Some(params);
+                    }
                     _ => return Err(format!("неизвестный параметр {k}")),
                 }
             }
@@ -119,10 +156,11 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         "gen" => {
             let prompt = args[2..].join(" ");
-            let max = std::env::var("GEN_MAX").ok().and_then(|v| v.parse().ok()).unwrap_or(256);
+            let params = synaptixd::Params { max_tokens: std::env::var("GEN_MAX").ok().and_then(|v| v.parse().ok()), ..Default::default() };
+            let model = if arg(1)? == "-" { "" } else { arg(1)? };
             let t0 = std::time::Instant::now();
             let g = c
-                .generate(arg(1)?, vec![synaptixd::Message { role: "user".into(), content: prompt }], max, None, |t| {
+                .generate_with(model, vec![synaptixd::Message { role: "user".into(), content: prompt }], &params, |t| {
                     print!("{t}");
                     let _ = std::io::Write::flush(&mut std::io::stdout());
                 })
@@ -141,7 +179,8 @@ fn run(args: &[String]) -> Result<(), String> {
             let lang = std::env::var("LANG_CODE").ok();
             let t0 = std::time::Instant::now();
             let steps = std::env::var("TTS_STEPS").ok().and_then(|v| v.parse().ok());
-            let sp = c.speak_steps(arg(1)?, &text, lang.as_deref(), None, None, steps).map_err(|e| e.to_string())?;
+            let model = if arg(1)? == "-" { "" } else { arg(1)? };
+            let sp = c.speak_steps(model, &text, lang.as_deref(), None, None, steps).map_err(|e| e.to_string())?;
             let pcm = sp.audio.f32s();
             let mut wav = Vec::with_capacity(44 + pcm.len() * 2);
             let data_len = (pcm.len() * 2) as u32;
@@ -173,7 +212,7 @@ fn run(args: &[String]) -> Result<(), String> {
             })
             .map_err(|e| e.to_string())?;
         }
-        other => return Err(format!("неизвестная команда {other}: list|status|load|unload|set|ctc|asr|gen|say|watch|rescan")),
+        other => return Err(format!("неизвестная команда {other}: list|status|defaults|default|params|load|unload|set|ctc|asr|gen|say|watch|rescan")),
     }
     Ok(())
 }

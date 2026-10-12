@@ -1,4 +1,5 @@
 mod config;
+mod defaults;
 mod devices;
 mod manager;
 mod registry;
@@ -12,7 +13,7 @@ use std::sync::Arc;
 use serde::Serialize;
 use serde_json::Value;
 use synaptixd::wire::{self, Mapped};
-use synaptixd::{CtcReply, Envelope, Error, ErrorCode, FdRef, Hello, Reply, Request, SettingsChange};
+use synaptixd::{CtcReply, Envelope, Error, ErrorCode, FdRef, Hello, ModelKind, Params, Reply, Request, SettingsChange};
 
 use manager::Manager;
 
@@ -114,12 +115,20 @@ impl Conn {
                 mgr.unload(&model);
                 (data(mgr.entry(&model)?), none())
             }
-            Request::Set { model, device, pinned, idle_unload_min, preload } => {
+            Request::Set { model, device, pinned, idle_unload_min, preload, quant, params } => {
                 if !self.admin {
                     return Err(denied());
                 }
-                (data(mgr.set(&model, SettingsChange { device, pinned, idle_unload_min, preload })?), none())
+                (data(mgr.set(&model, SettingsChange { device, pinned, idle_unload_min, preload, quant, params })?), none())
             }
+            Request::Defaults => (data(mgr.defaults()), none()),
+            Request::SetDefault { kind, model } => {
+                if !self.admin {
+                    return Err(denied());
+                }
+                (data(mgr.set_default(kind, model)?), none())
+            }
+            Request::Resolve { kind } => (data(mgr.entry(&mgr.resolve(kind)?)?), none()),
             Request::Ctc { model, pcm, samples, sample_rate, hidden } => {
                 let pcm = pcm_from(&mut fds, pcm, samples)?;
                 let r = mgr.run(&model, |m| m.ctc(pcm.f32s(), sample_rate, hidden))?;
@@ -147,23 +156,32 @@ impl Conn {
                 (data(al), none())
             }
             Request::Transcribe { model, pcm, samples, sample_rate, language } => {
+                let model = mgr.resolve_id(&model, ModelKind::Asr)?;
+                let call = Params { language, ..Default::default() };
+                let language = mgr.params(&model).over(&call).language.filter(|l| !l.trim().is_empty());
                 let pcm = pcm_from(&mut fds, pcm, samples)?;
                 let t = mgr.run(&model, |m| m.transcribe(pcm.f32s(), sample_rate, language.as_deref()))?;
                 (data(t), none())
             }
             Request::Speak { model, text, language, instruct, speed, steps } => {
-                let (wav, sr) = mgr.run(&model, |m| m.speak(&text, language.as_deref(), instruct.as_deref(), speed, steps))?;
+                let model = mgr.resolve_id(&model, ModelKind::Tts)?;
+                let call = Params { language, voice: instruct, speed, steps: steps.map(|s| s as u32), ..Default::default() };
+                let params = mgr.params(&model).over(&call);
+                let (wav, sr) = mgr.run(&model, |m| m.speak(&text, &params))?;
                 let fd = wire::memfd_f32("speech", &wav)?;
                 (data(synaptixd::SpeechReply { samples: wav.len(), sample_rate: sr, audio: FdRef { fd: 0 } }), vec![fd])
             }
-            Request::Generate { model, messages, max_tokens, temperature } => {
+            Request::Generate { model, messages, max_tokens, temperature, params } => {
+                let model = mgr.resolve_id(&model, ModelKind::Llm)?;
+                let legacy = Params { max_tokens: max_tokens.map(|n| n as u32), temperature, ..Default::default() };
+                let params = mgr.params(&model).over(&params).over(&legacy);
                 let sock = self.sock.as_fd();
                 let id = self.current;
                 let send = |piece: &str| {
                     let r = Reply { id, event: Some(synaptixd::Event::Token { text: piece.to_string() }), ..Default::default() };
                     let _ = wire::send(sock, &serde_json::to_vec(&r).unwrap_or_default(), &[]);
                 };
-                let g = mgr.run(&model, |m| m.generate(&messages, max_tokens, temperature, &send))?;
+                let g = mgr.run(&model, |m| m.generate(&messages, &params, &send))?;
                 (data(g), none())
             }
             Request::Subscribe => unreachable!(),

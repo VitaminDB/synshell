@@ -36,7 +36,11 @@ thread_local! {
 }
 
 /// Создать сигналы (на главном потоке, до построения интерфейса).
-pub fn init(start_page: &str) -> Ctx {
+pub fn init(start: &str) -> Ctx {
+    let (start_page, sub) = match start.split_once('/') {
+        Some((p, _)) => (p, Some((start.to_string(), String::new()))),
+        None => (start, None),
+    };
     let ctx = Ctx {
         page: use_signal(start_page.to_string()),
         rev: use_signal(0u64),
@@ -47,7 +51,7 @@ pub fn init(start_page: &str) -> Ctx {
         capture: use_signal(None),
         toast: use_signal(String::new()),
         page_open: use_signal(false),
-        sub: use_signal(None),
+        sub: use_signal(sub),
     };
     CTX.with(|c| *c.borrow_mut() = Some(ctx));
     ctx

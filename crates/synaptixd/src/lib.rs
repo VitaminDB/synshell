@@ -1,3 +1,4 @@
+pub mod params;
 pub mod wire;
 
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
@@ -7,6 +8,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub use params::{ParamKey, ParamType, ParamValue, Params};
 pub use wire::Mapped;
 
 pub const SOCKET: &str = "/run/synaptix/synaptixd.sock";
@@ -62,6 +64,44 @@ pub enum ModelKind {
     Llm,
     Tts,
     Embed,
+    Image,
+    Video,
+    Music,
+}
+
+impl ModelKind {
+    pub const ALL: [ModelKind; 9] = [
+        ModelKind::Llm,
+        ModelKind::Image,
+        ModelKind::Video,
+        ModelKind::Music,
+        ModelKind::Tts,
+        ModelKind::Asr,
+        ModelKind::Embed,
+        ModelKind::Ctc,
+        ModelKind::Mfa,
+    ];
+
+    pub const DEFAULTABLE: [ModelKind; 7] =
+        [ModelKind::Llm, ModelKind::Image, ModelKind::Video, ModelKind::Music, ModelKind::Tts, ModelKind::Asr, ModelKind::Embed];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            ModelKind::Ctc => "ctc",
+            ModelKind::Mfa => "mfa",
+            ModelKind::Asr => "asr",
+            ModelKind::Llm => "llm",
+            ModelKind::Tts => "tts",
+            ModelKind::Embed => "embed",
+            ModelKind::Image => "image",
+            ModelKind::Video => "video",
+            ModelKind::Music => "music",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|k| k.id() == s.trim())
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -84,6 +124,16 @@ pub struct ModelSettings {
     pub idle_unload_min: Option<u32>,
     #[serde(default)]
     pub preload: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quant: Option<String>,
+    #[serde(default, skip_serializing_if = "Params::is_empty")]
+    pub params: Params,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct QuantOption {
+    pub id: String,
+    pub devices: Vec<DeviceKind>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -97,6 +147,11 @@ pub fn precision_label(p: &str) -> String {
     match p {
         "w8a16" | "q8row" => "int8 по каналу (веса), счёт F16".into(),
         "w8" => "int8 по каналу (веса)".into(),
+        "auto" => "оптимальное для устройства".into(),
+        "int8" | "sq8" => "int8".into(),
+        "int4" | "sq4" => "int4".into(),
+        "nvfp4" => "NVFP4".into(),
+        "mxfp8" => "MXFP8".into(),
         "f16" => "F16".into(),
         "bf16" => "BF16".into(),
         "f32" => "F32".into(),
@@ -140,6 +195,27 @@ pub struct ModelEntry {
     pub npu_cache: bool,
     #[serde(default)]
     pub variants: Vec<VariantInfo>,
+    #[serde(default)]
+    pub quant_options: Vec<QuantOption>,
+    #[serde(default)]
+    pub defaults: Params,
+    #[serde(default)]
+    pub runnable: bool,
+}
+
+impl ModelEntry {
+    pub fn effective(&self) -> Params {
+        self.defaults.over(&self.settings.params)
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct DefaultModel {
+    pub kind: ModelKind,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub resolved: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
@@ -255,8 +331,21 @@ pub enum Request {
         idle_unload_min: Option<Option<u32>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         preload: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "double_option")]
+        quant: Option<Option<String>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        params: Option<Params>,
     },
     Rescan,
+    Defaults,
+    SetDefault {
+        kind: ModelKind,
+        #[serde(default)]
+        model: Option<String>,
+    },
+    Resolve {
+        kind: ModelKind,
+    },
     Ctc {
         model: String,
         pcm: FdRef,
@@ -295,9 +384,12 @@ pub enum Request {
     Generate {
         model: String,
         messages: Vec<Message>,
-        max_tokens: usize,
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_tokens: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         temperature: Option<f32>,
+        #[serde(default, skip_serializing_if = "Params::is_empty")]
+        params: Params,
     },
     Subscribe,
 }
@@ -529,7 +621,21 @@ impl Client {
             pinned: change.pinned,
             idle_unload_min: change.idle_unload_min,
             preload: change.preload,
+            quant: change.quant,
+            params: change.params,
         })
+    }
+
+    pub fn defaults(&mut self) -> Result<Vec<DefaultModel>> {
+        self.call_typed(Request::Defaults)
+    }
+
+    pub fn set_default(&mut self, kind: ModelKind, model: Option<&str>) -> Result<Vec<DefaultModel>> {
+        self.call_typed(Request::SetDefault { kind, model: model.map(Into::into) })
+    }
+
+    pub fn resolve(&mut self, kind: ModelKind) -> Result<ModelEntry> {
+        self.call_typed(Request::Resolve { kind })
     }
 
     pub fn ctc(&mut self, model: &str, pcm: &[f32], sample_rate: u32, hidden: bool) -> Result<CtcOutput> {
@@ -579,6 +685,17 @@ impl Client {
         serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))
     }
 
+    pub fn speak_with(&mut self, model: &str, text: &str, params: &Params) -> Result<Speech> {
+        self.speak_steps(
+            model,
+            text,
+            params.language.as_deref(),
+            params.voice.as_deref(),
+            params.speed,
+            params.steps.map(|s| s as usize),
+        )
+    }
+
     pub fn speak(&mut self, model: &str, text: &str, language: Option<&str>, instruct: Option<&str>, speed: Option<f32>) -> Result<Speech> {
         self.speak_steps(model, text, language, instruct, speed, None)
     }
@@ -615,9 +732,20 @@ impl Client {
         messages: Vec<Message>,
         max_tokens: usize,
         temperature: Option<f32>,
+        on_token: impl FnMut(&str),
+    ) -> Result<Generated> {
+        let params = Params { max_tokens: Some(max_tokens as u32), temperature, ..Default::default() };
+        self.generate_with(model, messages, &params, on_token)
+    }
+
+    pub fn generate_with(
+        &mut self,
+        model: &str,
+        messages: Vec<Message>,
+        params: &Params,
         mut on_token: impl FnMut(&str),
     ) -> Result<Generated> {
-        let req = Request::Generate { model: model.into(), messages, max_tokens, temperature };
+        let req = Request::Generate { model: model.into(), messages, max_tokens: None, temperature: None, params: params.clone() };
         let (v, _) = self.call_events(req, &[], |ev| {
             if let Event::Token { text } = ev {
                 on_token(&text);
@@ -650,6 +778,8 @@ pub struct SettingsChange {
     pub pinned: Option<bool>,
     pub idle_unload_min: Option<Option<u32>>,
     pub preload: Option<bool>,
+    pub quant: Option<Option<String>>,
+    pub params: Option<Params>,
 }
 
 pub fn model_id_from_file(name: &str) -> String {
@@ -676,11 +806,20 @@ mod tests {
                 pinned: None,
                 idle_unload_min: Some(None),
                 preload: None,
+                quant: Some(None),
+                params: None,
             },
         };
         let s = serde_json::to_string(&e).unwrap();
         assert!(s.contains("\"op\":\"set\""));
         assert_eq!(serde_json::from_str::<Envelope>(&s).unwrap(), e);
+    }
+
+    #[test]
+    fn generate_compat() {
+        let old = r#"{"id":1,"op":"generate","model":"m","messages":[],"max_tokens":5,"temperature":0.4}"#;
+        let Envelope { req: Request::Generate { max_tokens, temperature, params, .. }, .. } = serde_json::from_str(old).unwrap() else { panic!() };
+        assert_eq!((max_tokens, temperature, params.is_empty()), (Some(5), Some(0.4), true));
     }
 
     #[test]

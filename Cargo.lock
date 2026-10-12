@@ -6214,6 +6214,7 @@ dependencies = [
 name = "synaptix-tts-omnivoice"
 version = "0.1.1"
 dependencies = [
+ "rayon",
  "safetensors",
  "serde",
  "serde_json",

@@ -2,7 +2,7 @@ use std::path::Path;
 
 use synaptix_asr_wav2vec2::Wav2Vec2Ctc;
 use synaptix_core::dtype::DType;
-use synaptixd::{Alignment, CtcInfo, DeviceKind, ModelKind, PhoneSpan};
+use synaptixd::{Alignment, CtcInfo, DeviceKind, ModelKind, Params, PhoneSpan};
 
 use crate::devices;
 
@@ -30,17 +30,50 @@ pub struct CtcResult {
     pub hidden_dim: usize,
 }
 
-pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind) -> anyhow::Result<Loaded> {
+pub fn runnable(kind: ModelKind) -> bool {
+    matches!(kind, ModelKind::Ctc | ModelKind::Mfa | ModelKind::Asr | ModelKind::Llm | ModelKind::Tts)
+}
+
+fn llm_policy(path: &Path, dev: DeviceKind, quant: Option<&str>) -> synaptix::facade::llm::QuantPolicy {
+    use synaptix::facade::llm::{optimal_profile_for_device, QuantPolicy};
+    let mut p = optimal_profile_for_device(path, devices::device(dev)).policy;
+    match quant {
+        Some("int8") => {
+            let q8 = DType::Sq { bits: 8 };
+            p.weights_storage = q8;
+            p.attn_storage = None;
+            p.lm_head_storage = q8;
+        }
+        Some("bf16") if dev == DeviceKind::Cuda => p = QuantPolicy::quality(),
+        _ => {}
+    }
+    p
+}
+
+pub fn dtype_label(d: DType) -> String {
+    match d {
+        DType::Sq { bits } => format!("sq{bits}"),
+        DType::NVFP4 => "nvfp4".into(),
+        DType::MXFP8 => "mxfp8".into(),
+        DType::BF16 => "bf16".into(),
+        DType::F16 => "f16".into(),
+        DType::F32 => "f32".into(),
+        other => format!("{other:?}").to_lowercase(),
+    }
+}
+
+pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind, quant: Option<&str>) -> anyhow::Result<(Loaded, Option<String>)> {
+    let plain = |l: Loaded| Ok((l, None));
     match kind {
         ModelKind::Ctc => {
             let device = devices::device(dev);
             let dtype = if dev == DeviceKind::Cpu { DType::F32 } else { DType::F16 };
             let m = Wav2Vec2Ctc::load(path, &device, dtype).map_err(|e| anyhow::anyhow!("{e}"))?;
-            Ok(Loaded::Ctc(Box::new(m)))
+            plain(Loaded::Ctc(Box::new(m)))
         }
         ModelKind::Mfa => {
             let m = synaptix_align_mfa::MfaModel::load(path).map_err(|e| anyhow::anyhow!("{e}"))?;
-            Ok(Loaded::Mfa(Box::new(m)))
+            plain(Loaded::Mfa(Box::new(m)))
         }
         ModelKind::Asr => {
             use synaptix::facade::asr::{AsrConfig, AsrModelKind, ComputeDType, Transcriber};
@@ -55,16 +88,18 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind) -> anyhow
                 compute_dtype: compute,
             })
             .map_err(|e| anyhow::anyhow!("{e}"))?;
-            Ok(Loaded::Asr(std::sync::Mutex::new(t)))
+            plain(Loaded::Asr(std::sync::Mutex::new(t)))
         }
         ModelKind::Llm => {
-            use synaptix::facade::llm::{load_llm, optimal_profile_for_device};
+            use synaptix::facade::llm::load_llm;
             let device = devices::device(dev);
-            let precision = optimal_profile_for_device(path, device).policy.to_precision().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let policy = llm_policy(path, dev, quant);
+            let label = dtype_label(policy.weights_storage);
+            let precision = policy.to_precision().map_err(|e| anyhow::anyhow!("{e}"))?;
             let max_seq = if dev == DeviceKind::Npu { 2048 } else { 8192 };
             let (llm, tok) = load_llm(path, device, precision, Some(max_seq)).map_err(|e| anyhow::anyhow!("{e}"))?;
             let ctx = if dev == DeviceKind::Npu { 2048 } else { 4096 };
-            Ok(Loaded::Llm(Box::new(LlmSlot { llm, tok, ctx, session: std::sync::Mutex::new(None) })))
+            Ok((Loaded::Llm(Box::new(LlmSlot { llm, tok, ctx, session: std::sync::Mutex::new(None) })), Some(label)))
         }
         ModelKind::Tts => {
             let device = devices::device(dev);
@@ -74,7 +109,7 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind) -> anyhow
                 _ => DType::BF16,
             };
             let p = synaptix_tts_omnivoice::OmniVoicePipeline::from_syn(path, device, dtype).map_err(|e| anyhow::anyhow!("{e}"))?;
-            Ok(Loaded::Tts(std::sync::Mutex::new(p), dev))
+            plain(Loaded::Tts(std::sync::Mutex::new(p), dev))
         }
         other => anyhow::bail!("модели {other:?} ({arch}) служба пока не исполняет"),
     }
@@ -163,38 +198,39 @@ impl Loaded {
         Ok(synaptixd::Transcript { text: text.trim().to_string(), segments: Vec::new() })
     }
 
-    pub fn generate(
-        &self,
-        messages: &[synaptixd::Message],
-        max_tokens: usize,
-        temperature: Option<f32>,
-        on_token: &dyn Fn(&str),
-    ) -> anyhow::Result<synaptixd::Generated> {
+    pub fn generate(&self, messages: &[synaptixd::Message], params: &Params, on_token: &dyn Fn(&str)) -> anyhow::Result<synaptixd::Generated> {
         use synaptix::facade::llm::{GenerationOptions, LlmGeneration, Message};
         let Loaded::Llm(b) = self else { anyhow::bail!("модель не языковая") };
         let (llm, tok) = (&b.llm, &b.tok);
-        let msgs: Vec<Message> = messages
-            .iter()
+        let max_tokens = params.max_tokens.unwrap_or(1024).max(1) as usize;
+        let system = params.system_prompt.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        let lead = system.filter(|_| !messages.iter().any(|m| m.role == "system")).map(Message::system);
+        let msgs: Vec<Message> = lead
+            .into_iter()
+            .chain(messages.iter()
             .map(|m| match m.role.as_str() {
                 "system" => Message::system(m.content.clone()),
                 "assistant" => Message::assistant(m.content.clone()),
                 "tool" => Message::tool(m.content.clone()),
                 _ => Message::user(m.content.clone()),
-            })
+            }))
             .collect();
         let prompt = tok.apply_chat_template_ex_tools(&msgs, true, false, None).map_err(|e| anyhow::anyhow!("{e}"))?;
         let ids = tok.encode(&prompt).map_err(|e| anyhow::anyhow!("{e}"))?;
         let opts = GenerationOptions {
-            max_new_tokens: max_tokens.max(1),
-            max_seq_len: ids.len() + max_tokens.max(1) + 16,
-            temperature: temperature.unwrap_or(0.7),
-            top_k: 20,
-            top_p: 0.95,
-            min_p: 0.0,
-            seed: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1) | 1,
-            repeat_penalty: 1.0,
+            max_new_tokens: max_tokens,
+            max_seq_len: ids.len() + max_tokens + 16,
+            temperature: params.temperature.unwrap_or(0.7),
+            top_k: params.top_k.unwrap_or(20) as usize,
+            top_p: params.top_p.unwrap_or(0.95),
+            min_p: params.min_p.unwrap_or(0.0),
+            seed: match params.seed {
+                Some(s) if s >= 0 => s as u64,
+                _ => std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1) | 1,
+            },
+            repeat_penalty: params.repeat_penalty.unwrap_or(1.0),
             repeat_last_n: 64,
-            presence_penalty: 0.0,
+            presence_penalty: params.presence_penalty.unwrap_or(0.0),
             frequency_penalty: 0.0,
         };
         let prof = std::env::var_os("SYNAPTIX_LLM_PROF").is_some();
@@ -209,7 +245,7 @@ impl Loaded {
             on_token(piece);
             true
         };
-        let fits = ids.len() + max_tokens.max(1) + 16 <= b.ctx;
+        let fits = ids.len() + max_tokens + 16 <= b.ctx;
         let mut session = if fits { Some(b.session.lock().unwrap_or_else(|e| e.into_inner())) } else { None };
         if let Some(s) = session.as_mut() {
             if s.is_none() {
@@ -231,14 +267,10 @@ impl Loaded {
         Ok(synaptixd::Generated { text, tokens })
     }
 
-    pub fn speak(
-        &self,
-        text: &str,
-        language: Option<&str>,
-        instruct: Option<&str>,
-        speed: Option<f32>,
-        steps: Option<usize>,
-    ) -> anyhow::Result<(Vec<f32>, u32)> {
+    pub fn speak(&self, text: &str, params: &Params) -> anyhow::Result<(Vec<f32>, u32)> {
+        let language = params.language.as_deref().filter(|s| !s.trim().is_empty());
+        let instruct = params.voice.as_deref().filter(|s| !s.trim().is_empty());
+        let (speed, steps) = (params.speed, params.steps.map(|s| s as usize));
         let Loaded::Tts(p, dev) = self else { anyhow::bail!("модель не синтезирует речь") };
         let p = p.lock().unwrap_or_else(|e| e.into_inner());
         let default_steps = if *dev == DeviceKind::Npu { 16 } else { 32 };

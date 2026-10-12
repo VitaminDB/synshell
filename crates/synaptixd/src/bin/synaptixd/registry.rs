@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use synaptixd::{DeviceKind, ModelKind, ModelSettings};
+use synaptixd::{DeviceKind, ModelKind, ModelSettings, Params};
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct Variant {
@@ -38,6 +38,8 @@ pub struct Manifest {
     pub variants: Vec<Variant>,
     #[serde(default)]
     pub resources: Resources,
+    #[serde(default)]
+    pub defaults: Params,
     #[serde(skip)]
     pub dir: PathBuf,
 }
@@ -73,6 +75,13 @@ impl Manifest {
         self.variants.iter().find(|v| v.devices.contains(&dev))
     }
 
+    pub fn variant_quant(&self, dev: DeviceKind, quant: Option<&str>) -> Option<&Variant> {
+        let by_quant = quant.filter(|q| self.kind != ModelKind::Llm && *q != "auto");
+        by_quant
+            .and_then(|q| self.variants.iter().find(|v| v.devices.contains(&dev) && v.precision == q))
+            .or_else(|| self.variant_for(dev))
+    }
+
     pub fn path(&self, v: &Variant) -> PathBuf {
         self.dir.join(&v.file)
     }
@@ -90,11 +99,11 @@ impl Manifest {
         total
     }
 
-    pub fn ram_estimate(&self, dev: DeviceKind) -> u64 {
+    pub fn ram_estimate(&self, dev: DeviceKind, quant: Option<&str>) -> u64 {
         if let Some(mb) = self.resources.ram.get(&dev) {
             return mb << 20;
         }
-        let variant = self.variant_for(dev);
+        let variant = self.variant_quant(dev, quant);
         let file = variant.and_then(|v| std::fs::metadata(self.path(v)).ok()).map(|m| m.len()).unwrap_or(0);
         let int8 = variant.is_some_and(|v| v.precision.starts_with("w8"));
         match dev {
@@ -105,11 +114,11 @@ impl Manifest {
         }
     }
 
-    pub fn vram_estimate(&self, dev: DeviceKind) -> u64 {
+    pub fn vram_estimate(&self, dev: DeviceKind, quant: Option<&str>) -> u64 {
         if let Some(mb) = self.resources.vram.get(&dev) {
             return mb << 20;
         }
-        self.variant_for(dev).and_then(|v| std::fs::metadata(self.path(v)).ok()).map(|m| m.len()).unwrap_or(0)
+        self.variant_quant(dev, quant).and_then(|v| std::fs::metadata(self.path(v)).ok()).map(|m| m.len()).unwrap_or(0)
     }
 
     pub fn npu_cache_dir(&self) -> PathBuf {
@@ -141,6 +150,8 @@ pub fn scan(dirs: &[PathBuf]) -> BTreeMap<String, Manifest> {
 pub struct StateFile {
     #[serde(default)]
     pub models: BTreeMap<String, ModelSettings>,
+    #[serde(default)]
+    pub defaults: BTreeMap<String, String>,
 }
 
 impl StateFile {

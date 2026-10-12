@@ -4,9 +4,10 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use synaptixd::{DeviceKind, Error, ErrorCode, Event, LoadState, ModelEntry, ModelInfo, ModelSettings, SettingsChange, Status};
+use synaptixd::{DefaultModel, DeviceKind, Error, ErrorCode, Event, LoadState, ModelEntry, ModelInfo, ModelKind, ModelSettings, Params, SettingsChange, Status};
 
 use crate::config::Config;
+use crate::defaults;
 use crate::devices;
 use crate::registry::{self, Manifest, StateFile};
 use crate::runners::{self, Loaded};
@@ -27,11 +28,13 @@ pub struct Slot {
     pub last_used_ms: i64,
     pub error: Option<String>,
     pub disk_bytes: u64,
+    pub optimal: Params,
 }
 
 impl Slot {
     fn new(manifest: Manifest, settings: ModelSettings) -> Self {
         let disk_bytes = manifest.disk_bytes();
+        let optimal = defaults::optimal(&manifest);
         Self {
             manifest,
             settings,
@@ -48,6 +51,7 @@ impl Slot {
             last_used_ms: 0,
             error: None,
             disk_bytes,
+            optimal,
         }
     }
 
@@ -85,7 +89,14 @@ impl Slot {
                     bytes: std::fs::metadata(m.path(v)).map(|x| x.len()).unwrap_or(0),
                 })
                 .collect(),
+            quant_options: defaults::quant_options(m),
+            defaults: self.optimal.clone(),
+            runnable: runners::runnable(m.kind),
         }
+    }
+
+    fn params(&self) -> Params {
+        self.optimal.over(&self.settings.params)
     }
 }
 
@@ -95,6 +106,7 @@ pub struct Manager {
     changed: Condvar,
     load_lock: Mutex<()>,
     subscribers: Mutex<Vec<Sender<Event>>>,
+    defaults: Mutex<BTreeMap<String, String>>,
     evictions: AtomicU64,
     since_ms: i64,
 }
@@ -169,6 +181,7 @@ impl Manager {
             changed: Condvar::new(),
             load_lock: Mutex::new(()),
             subscribers: Mutex::new(Vec::new()),
+            defaults: Mutex::new(state.defaults.clone()),
             evictions: AtomicU64::new(0),
             since_ms: now_ms(),
         })
@@ -199,6 +212,7 @@ impl Manager {
                 match slots.get_mut(&id) {
                     Some(s) => {
                         s.disk_bytes = m.disk_bytes();
+                        s.optimal = defaults::optimal(&m);
                         s.manifest = m;
                     }
                     None => {
@@ -217,6 +231,70 @@ impl Manager {
 
     pub fn entry(&self, id: &str) -> Result<ModelEntry, Error> {
         self.slots.lock().unwrap().get(id).map(Slot::entry).ok_or_else(|| no_model(id))
+    }
+
+    pub fn params(&self, id: &str) -> Params {
+        self.slots.lock().unwrap().get(id).map(Slot::params).unwrap_or_default()
+    }
+
+    fn auto_pick(&self, kind: ModelKind) -> Option<String> {
+        let slots = self.slots.lock().unwrap();
+        let rank = |s: &Slot| {
+            let supported = s.manifest.devices();
+            let dev = devices::resolve(s.settings.device, &supported).or_else(|| devices::resolve(DeviceKind::Auto, &supported));
+            let dev_rank = match dev {
+                Some(DeviceKind::Cuda) => 0,
+                Some(DeviceKind::Npu) => 1,
+                Some(DeviceKind::Cpu) => 2,
+                _ => 3,
+            };
+            (s.model.is_none(), s.state == LoadState::Failed, dev_rank)
+        };
+        slots.iter().filter(|(_, s)| s.manifest.kind == kind).min_by_key(|(_, s)| rank(s)).map(|(id, _)| id.clone())
+    }
+
+    pub fn resolve(&self, kind: ModelKind) -> Result<String, Error> {
+        let chosen = self.defaults.lock().unwrap().get(kind.id()).cloned();
+        if let Some(id) = chosen {
+            if self.slots.lock().unwrap().get(&id).is_some_and(|s| s.manifest.kind == kind) {
+                return Ok(id);
+            }
+        }
+        self.auto_pick(kind).ok_or_else(|| Error::new(ErrorCode::NoModel, format!("нет установленных моделей вида {}", kind.id())))
+    }
+
+    pub fn resolve_id(&self, id: &str, kind: ModelKind) -> Result<String, Error> {
+        match id.trim() {
+            "" | "auto" | "default" => self.resolve(kind),
+            other => Ok(other.to_string()),
+        }
+    }
+
+    pub fn defaults(&self) -> Vec<DefaultModel> {
+        let chosen = self.defaults.lock().unwrap().clone();
+        ModelKind::DEFAULTABLE
+            .into_iter()
+            .map(|kind| DefaultModel { kind, model: chosen.get(kind.id()).cloned(), resolved: self.resolve(kind).ok() })
+            .collect()
+    }
+
+    pub fn set_default(&self, kind: ModelKind, model: Option<String>) -> Result<Vec<DefaultModel>, Error> {
+        if let Some(id) = &model {
+            let ok = self.slots.lock().unwrap().get(id).map(|s| s.manifest.kind == kind).ok_or_else(|| no_model(id))?;
+            if !ok {
+                return Err(Error::new(ErrorCode::WrongKind, format!("{id}: модель другого вида")));
+            }
+        }
+        {
+            let mut d = self.defaults.lock().unwrap();
+            match model {
+                Some(id) => d.insert(kind.id().to_string(), id),
+                None => d.remove(kind.id()),
+            };
+        }
+        self.save_state();
+        self.notify(Event::ModelsChanged);
+        Ok(self.defaults())
     }
 
     pub fn status(&self) -> Status {
@@ -285,6 +363,16 @@ impl Manager {
             if let Some(p) = ch.preload {
                 s.settings.preload = p;
             }
+            if let Some(q) = ch.quant {
+                let q = q.filter(|q| q != "auto");
+                if q != s.settings.quant {
+                    s.settings.quant = q;
+                    reload |= s.model.is_some();
+                }
+            }
+            if let Some(p) = ch.params {
+                s.settings.params = p;
+            }
             (s.entry(), reload)
         };
         self.save_state();
@@ -304,6 +392,7 @@ impl Manager {
                 state.models.insert(id.clone(), s.settings.clone());
             }
         }
+        state.defaults = self.defaults.lock().unwrap().clone();
         if let Err(e) = state.save(&self.cfg.state) {
             tracing::warn!("{}: {e}", self.cfg.state.display());
         }
@@ -405,7 +494,7 @@ impl Manager {
 
     pub fn load(&self, id: &str, force: Option<DeviceKind>) -> Result<(), Error> {
         let _guard = self.load_lock.lock().unwrap_or_else(|e| e.into_inner());
-        let (manifest, want) = {
+        let (manifest, want, quant) = {
             let mut slots = self.slots.lock().unwrap();
             let s = slots.get_mut(id).ok_or_else(|| no_model(id))?;
             if s.model.is_some() && force.is_none() {
@@ -414,15 +503,15 @@ impl Manager {
             s.state = LoadState::Loading;
             s.error = None;
             let want = force.unwrap_or(if s.fallback { DeviceKind::Cpu } else { s.settings.device });
-            (s.manifest.clone(), want)
+            (s.manifest.clone(), want, s.settings.quant.clone())
         };
         self.notify_slot(id);
-        let result = self.load_inner(&manifest, want);
+        let result = self.load_inner(&manifest, want, quant.as_deref());
         let mut slots = self.slots.lock().unwrap();
         let s = slots.get_mut(id).ok_or_else(|| no_model(id))?;
         let out = match result {
             Ok((model, dev, precision, bytes)) => {
-                s.vram_bytes = if dev == DeviceKind::Cuda { manifest.vram_estimate(dev) } else { 0 };
+                s.vram_bytes = if dev == DeviceKind::Cuda { manifest.vram_estimate(dev, quant.as_deref()) } else { 0 };
                 s.model = Some(Arc::new(model));
                 s.device = Some(dev);
                 s.precision = precision;
@@ -448,7 +537,7 @@ impl Manager {
         out
     }
 
-    fn load_inner(&self, m: &Manifest, want: DeviceKind) -> Result<(Loaded, DeviceKind, String, u64), Error> {
+    fn load_inner(&self, m: &Manifest, want: DeviceKind, quant: Option<&str>) -> Result<(Loaded, DeviceKind, String, u64), Error> {
         let supported = m.devices();
         let dev = match devices::resolve(want, &supported) {
             Some(d) => d,
@@ -457,21 +546,21 @@ impl Manager {
             })?,
             None => return Err(Error::new(ErrorCode::Device, format!("нет доступного устройства для {}", m.id))),
         };
-        let variant = m.variant_for(dev).ok_or_else(|| Error::new(ErrorCode::Device, "нет варианта весов для устройства"))?;
+        let variant = m.variant_quant(dev, quant).ok_or_else(|| Error::new(ErrorCode::Device, "нет варианта весов для устройства"))?;
         let path = m.path(variant);
-        self.make_room(&m.id, m.ram_estimate(dev))?;
+        self.make_room(&m.id, m.ram_estimate(dev, quant))?;
         let before = rss();
         let t0 = Instant::now();
         let loaded = {
             let _dl = devices::lock(dev);
-            runners::load(m.kind, &m.arch, &path, dev)
+            runners::load(m.kind, &m.arch, &path, dev, quant)
         };
         let (model, dev, variant) = match loaded {
             Ok(model) => (model, dev, variant),
             Err(e) if dev != DeviceKind::Cpu && m.devices().contains(&DeviceKind::Cpu) => {
                 tracing::warn!("{}: {} не загрузилась ({e}); загружаю на CPU", m.id, dev.id());
                 let cpu = m.variant_for(DeviceKind::Cpu).ok_or_else(|| Error::new(ErrorCode::Device, "нет варианта весов для CPU"))?;
-                let model = runners::load(m.kind, &m.arch, &m.path(cpu), DeviceKind::Cpu)
+                let model = runners::load(m.kind, &m.arch, &m.path(cpu), DeviceKind::Cpu, quant)
                     .map_err(|e| Error::new(ErrorCode::Failed, format!("{}: {e}", m.path(cpu).display())))?;
                 (model, DeviceKind::Cpu, cpu)
             }
@@ -479,11 +568,12 @@ impl Manager {
         };
         tracing::info!("{}: {} за {:.1} с", m.id, path.display(), t0.elapsed().as_secs_f32());
         let floor = match dev {
-            DeviceKind::Npu => m.ram_estimate(dev),
+            DeviceKind::Npu => m.ram_estimate(dev, quant),
             _ => m.resources.ram.get(&dev).map(|mb| mb << 20).unwrap_or(0),
         };
         let bytes = rss().saturating_sub(before).max(floor);
-        Ok((model, dev, variant.precision.clone(), bytes))
+        let (model, label) = model;
+        Ok((model, dev, label.unwrap_or_else(|| variant.precision.clone()), bytes))
     }
 
     pub fn run<T>(
