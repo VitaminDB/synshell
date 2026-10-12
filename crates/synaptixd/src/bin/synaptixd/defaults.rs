@@ -102,5 +102,22 @@ pub fn quant_options(m: &Manifest) -> Vec<QuantOption> {
             out.push(QuantOption { id: p.to_string(), devices: devs });
         }
     }
+    // Аудио-модели считаются в выбранной точности: половинная — на
+    // ускорителях, F32 — везде.
+    if matches!(m.kind, ModelKind::Asr | ModelKind::Tts | ModelKind::Ctc) {
+        for p in crate::runners::AUDIO_PRECISIONS {
+            if out.iter().any(|q| q.id == p) {
+                continue;
+            }
+            let devs: Vec<DeviceKind> = match p {
+                "f32" => devices.clone(),
+                "bf16" => devices.iter().copied().filter(|d| matches!(d, DeviceKind::Cuda | DeviceKind::Gpu)).collect(),
+                _ => devices.iter().copied().filter(|d| *d != DeviceKind::Cpu).collect(),
+            };
+            if !devs.is_empty() {
+                out.push(QuantOption { id: p.into(), devices: devs });
+            }
+        }
+    }
     out
 }

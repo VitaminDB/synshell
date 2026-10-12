@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::mem::ManuallyDrop;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Condvar, Mutex};
@@ -138,20 +139,31 @@ fn scan_all(cfg: &Config, libs: &[LibraryConf]) -> BTreeMap<String, Manifest> {
 pub struct Lease {
     mgr: Arc<Manager>,
     id: String,
-    pub model: Arc<Loaded>,
+    pub model: ManuallyDrop<Arc<Loaded>>,
     pub device: DeviceKind,
 }
 
 impl Drop for Lease {
     fn drop(&mut self) {
-        let entry = {
+        // SAFETY: поле больше не используется — Drop выполняется один раз.
+        let model = unsafe { ManuallyDrop::take(&mut self.model) };
+        let (entry, unloaded) = {
             let mut slots = self.mgr.slots.lock().unwrap();
             let Some(s) = slots.get_mut(&self.id) else { return };
             s.busy = s.busy.saturating_sub(1);
             s.last_used = Instant::now();
             s.last_used_ms = now_ms();
-            s.entry()
+            (s.entry(), s.model.is_none())
         };
+        // Модель выгрузили, пока ей пользовались: последняя ссылка уходит
+        // здесь, и только теперь память можно вернуть драйверу.
+        let last = unloaded && Arc::strong_count(&model) == 1;
+        drop(model);
+        if last {
+            trim();
+            release_vram(Some(self.device));
+            tracing::info!("{}: память освобождена после завершения работы", self.id);
+        }
         self.mgr.notify(Event::ModelState { model: entry });
     }
 }
@@ -184,6 +196,20 @@ fn trim() {
     unsafe {
         libc::malloc_trim(0);
     }
+}
+
+/// Вернуть драйверу видеопамять выгруженной модели. Веса и активации живут
+/// в CUDA-пулах с порогом «не отдавать» (`cuMemPoolTrimTo` зовётся только
+/// при OOM), так что после `Drop` модели её гигабайты оставались за
+/// процессом; кэши ядер (TMA-дескрипторы, скретчи) к тому же держат
+/// страницы пулов и мешают триму — чистим их первыми.
+fn release_vram(dev: Option<DeviceKind>) {
+    if dev != Some(DeviceKind::Cuda) {
+        return;
+    }
+    let (descs, scratch) = synaptix::facade::llm::cuda_release_kernel_caches();
+    let freed = synaptix::facade::llm::cuda_trim_pool(0);
+    tracing::debug!("cuda: пулы ужаты, возвращено {freed} МБ (дескрипторов: {descs}, скретчей: {} МБ)", scratch >> 20);
 }
 
 fn no_model(id: &str) -> Error {
@@ -524,10 +550,11 @@ impl Manager {
     }
 
     pub fn unload(&self, id: &str) -> bool {
-        let model = {
+        let (model, dev) = {
             let mut slots = self.slots.lock().unwrap();
             let Some(s) = slots.get_mut(id) else { return false };
             let m = s.model.take();
+            let dev = s.device;
             if m.is_some() {
                 s.state = LoadState::Unloaded;
                 s.device = None;
@@ -535,16 +562,21 @@ impl Manager {
                 s.vram_bytes = 0;
                 s.precision.clear();
             }
-            m
+            (m, dev)
         };
-        let was = model.is_some();
+        let Some(model) = model else { return false };
+        model.release_device_caches();
+        // Модель занята (`Lease` в работе): последняя ссылка уйдёт в его
+        // Drop, там же вернётся и память.
+        let last = Arc::strong_count(&model) == 1;
         drop(model);
-        if was {
+        if last {
             trim();
-            tracing::info!("{id}: выгружена");
-            self.notify_slot(id);
+            release_vram(dev);
         }
-        was
+        tracing::info!("{id}: выгружена");
+        self.notify_slot(id);
+        true
     }
 
     fn pick_victim(&self, except: &str) -> Option<String> {
@@ -604,7 +636,7 @@ impl Manager {
                         s.busy += 1;
                         s.last_used = Instant::now();
                         s.last_used_ms = now_ms();
-                        return Ok(Lease { mgr: self.clone(), id: id.into(), model: m.clone(), device: s.device.unwrap_or(DeviceKind::Cpu) });
+                        return Ok(Lease { mgr: self.clone(), id: id.into(), model: ManuallyDrop::new(m.clone()), device: s.device.unwrap_or(DeviceKind::Cpu) });
                     }
                     (None, LoadState::Loading) => {
                         let _ = self.changed.wait_timeout(slots, Duration::from_millis(200)).unwrap();

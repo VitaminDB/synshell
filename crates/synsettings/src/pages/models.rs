@@ -411,6 +411,30 @@ fn menu(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
             ))];
         };
         let mut out: Vec<W> = Vec::new();
+        let active: Vec<W> = snap
+            .models
+            .iter()
+            .filter(|m| matches!(m.state, LoadState::Loaded | LoadState::Loading))
+            .map(|m| {
+                let id = m.id.clone();
+                let mut hint = short_state(m);
+                if m.vram_bytes > 0 {
+                    hint.push_str(&t!(" · видеопамять {v}", v = mb(m.vram_bytes)));
+                }
+                let control: W = if m.state == LoadState::Loaded {
+                    boxed(button(t!("Выгрузить"), move || {
+                        let i = id.clone();
+                        act(sig, move |c| c.unload(&i));
+                    }))
+                } else {
+                    boxed(Text::new(""))
+                };
+                row_inline(m.title.clone(), hint, control)
+            })
+            .collect();
+        if !active.is_empty() {
+            out.push(titled(t!("Загруженные модели"), card(active)));
+        }
         let picked: Vec<String> = snap
             .defaults
             .iter()

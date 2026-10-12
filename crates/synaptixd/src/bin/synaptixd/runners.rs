@@ -73,14 +73,30 @@ pub fn dtype_label(d: DType) -> String {
     }
 }
 
+/// Точности, в которых аудио-модели (ASR, TTS, CTC) умеют считать: веса
+/// приводятся к ней при загрузке. Ускорителю — половинная, CPU — F32.
+pub const AUDIO_PRECISIONS: [&str; 3] = ["f16", "bf16", "f32"];
+
+/// Точность аудио-модели по выбору пользователя или оптимальная для
+/// устройства (`accel` — для ускорителей, CPU всегда F32).
+fn audio_dtype(dev: DeviceKind, quant: Option<&str>, accel: DType) -> DType {
+    match quant {
+        Some("f16") => DType::F16,
+        Some("bf16") => DType::BF16,
+        Some("f32") => DType::F32,
+        _ if dev == DeviceKind::Cpu => DType::F32,
+        _ => accel,
+    }
+}
+
 pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind, quant: Option<&str>) -> anyhow::Result<(Loaded, Option<String>)> {
     let plain = |l: Loaded| Ok((l, None));
     match kind {
         ModelKind::Ctc => {
             let device = devices::device(dev);
-            let dtype = if dev == DeviceKind::Cpu { DType::F32 } else { DType::F16 };
+            let dtype = audio_dtype(dev, quant, DType::F16);
             let m = Wav2Vec2Ctc::load(path, &device, dtype).map_err(|e| anyhow::anyhow!("{e}"))?;
-            plain(Loaded::Ctc(Box::new(m)))
+            Ok((Loaded::Ctc(Box::new(m)), Some(dtype_label(dtype))))
         }
         ModelKind::Mfa => {
             let m = synaptix_align_mfa::MfaModel::load(path).map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -89,7 +105,12 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind, quant: Op
         ModelKind::Asr => {
             use synaptix::facade::asr::{AsrConfig, AsrModelKind, ComputeDType, Transcriber};
             let device = devices::device(dev);
-            let compute = if dev == DeviceKind::Cpu { ComputeDType::F32 } else { ComputeDType::F16 };
+            let dtype = audio_dtype(dev, quant, DType::F16);
+            let compute = match dtype {
+                DType::F32 => ComputeDType::F32,
+                DType::BF16 => ComputeDType::BF16,
+                _ => ComputeDType::F16,
+            };
             let stem = path.file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
             let kind = if arch.to_lowercase().contains("gigaam") || stem.contains("gigaam") { AsrModelKind::GigaAm } else { AsrModelKind::Whisper };
             let t = Transcriber::load(AsrConfig {
@@ -101,7 +122,7 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind, quant: Op
                 compute_dtype: compute,
             })
             .map_err(|e| anyhow::anyhow!("{e}"))?;
-            plain(Loaded::Asr(std::sync::Mutex::new(t)))
+            Ok((Loaded::Asr(std::sync::Mutex::new(t)), Some(dtype_label(dtype))))
         }
         ModelKind::Llm => {
             use synaptix::facade::llm::load_llm;
@@ -116,13 +137,9 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind, quant: Op
         }
         ModelKind::Tts => {
             let device = devices::device(dev);
-            let dtype = match dev {
-                DeviceKind::Cpu => DType::F32,
-                DeviceKind::Npu => DType::F16,
-                _ => DType::BF16,
-            };
+            let dtype = audio_dtype(dev, quant, if dev == DeviceKind::Npu { DType::F16 } else { DType::BF16 });
             let p = synaptix_tts_omnivoice::OmniVoicePipeline::from_syn(path, device, dtype).map_err(|e| anyhow::anyhow!("{e}"))?;
-            plain(Loaded::Tts(std::sync::Mutex::new(p), dev))
+            Ok((Loaded::Tts(std::sync::Mutex::new(p), dev), Some(dtype_label(dtype))))
         }
         other => anyhow::bail!("модели {other:?} ({arch}) служба пока не исполняет"),
     }
@@ -344,6 +361,17 @@ impl Loaded {
             .synthesize(text, None, language, instruct, speed.unwrap_or(1.0) as f64, None, &gen)
             .map_err(|e| anyhow::anyhow!("{e}"))?;
         Ok((wav, p.output_sample_rate() as u32))
+    }
+
+    /// Отдать видеопамять кэшей модели (KV-сессия, резидентные эксперты MoE)
+    /// до `Drop`: он может задержаться, пока жива хоть одна ссылка.
+    pub fn release_device_caches(&self) {
+        if let Loaded::Llm(b) = self {
+            if let Ok(mut s) = b.session.lock() {
+                *s = None;
+            }
+            b.llm.release_device_caches();
+        }
     }
 
     pub fn warmup(&self) -> anyhow::Result<()> {
