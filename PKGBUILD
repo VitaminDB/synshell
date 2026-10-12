@@ -1,13 +1,16 @@
 # Maintainer: Alexeyev Vitaly
 pkgname=synshell
 pkgver=0.1.42
-pkgrel=39
+pkgrel=40
 pkgdesc="Окружение рабочего стола для Wayland на Rust и syngui: композитор, оболочка, параметры"
 arch=('x86_64')
 license=('MIT OR Apache-2.0')
 depends=('mesa' 'libinput' 'seatd' 'systemd-libs' 'libxkbcommon' 'libdrm' 'vulkan-icd-loader'
          'fontconfig' 'freetype2' 'dbus' 'ffmpeg' 'sqlite')
 optdepends=('xorg-xwayland: X11-программы'
+            'openvino-intel-npu-plugin: нейросети на Intel NPU (Core Ultra), вместе с intel-npu-driver и intel-npu-compiler'
+            'intel-npu-driver: драйвер Intel NPU'
+            'intel-npu-compiler: компилятор графов Intel NPU'
             'wireplumber: громкость (wpctl)'
             'brightnessctl: яркость'
             'networkmanager: апплет сети'
@@ -53,7 +56,7 @@ _profile=${SYNSHELL_PROFILE:-release}
 build() {
     cd "$startdir"
     cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player -p syn-maps -p syn-compass -p syngamepad -p synpass -p syncamera -p syndroid -p syn-health -p syn-systeminfo -p synmodem -p syn-nfc -p synnfc -p synphone -p synsms -p synfsd -p synassistant
-    cargo build --profile "$_profile" -p synaptixd --bins --features "synaptixd/${SYNAPTIXD_FEATURES:-cuda}"
+    cargo build --profile "$_profile" -p synaptixd --bins --features "synaptixd/${SYNAPTIXD_FEATURES:-cuda},synaptixd/npu"
 }
 
 check() {

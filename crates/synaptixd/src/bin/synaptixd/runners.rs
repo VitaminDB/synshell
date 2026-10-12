@@ -136,6 +136,8 @@ pub const AUDIO_PRECISIONS: [&str; 6] = ["int8", "nvfp4", "mxfp8", "f16", "bf16"
 fn audio_precision(dev: DeviceKind, quant: Option<&str>, accel: DType) -> (Option<DType>, DType) {
     let cpu = dev == DeviceKind::Cpu;
     match quant {
+        // NPU исполняет int8 только по строке (q8row), SQ-блоки — нет.
+        Some("int8") if dev == DeviceKind::Npu => (Some(DType::Q8Row), DType::F16),
         Some("int8") => (Some(DType::Sq { bits: 8 }), if cpu { DType::F32 } else { DType::F16 }),
         Some("nvfp4") => (Some(DType::NVFP4), if cpu { DType::F32 } else { DType::F16 }),
         Some("mxfp8") => (Some(DType::MXFP8), if cpu { DType::F32 } else { DType::F16 }),
