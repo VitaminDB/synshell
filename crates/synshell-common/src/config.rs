@@ -687,6 +687,23 @@ pub struct OutputConfig {
     pub max_nits: Option<f32>,
 }
 
+/// Индекс записи `[[output]]` для монитора: сначала по имени коннектора, затем по описанию
+/// («производитель модель» или только модель). По описанию встроенная панель находится и под другим
+/// коннектором: MUX ноутбука переключает её между видеокартами, и после перезагрузки `eDP-1`
+/// (NVIDIA) становится `eDP-2` (Intel).
+pub fn output_config_index(outputs: &[OutputConfig], name: &str, make: &str, model: &str) -> Option<usize> {
+    let desc = format!("{make} {model}");
+    outputs.iter().position(|o| o.name.trim().eq_ignore_ascii_case(name)).or_else(|| {
+        if model.is_empty() {
+            return None;
+        }
+        outputs.iter().position(|o| {
+            let n = o.name.trim();
+            n.eq_ignore_ascii_case(&desc) || n.eq_ignore_ascii_case(model)
+        })
+    })
+}
+
 impl Default for OutputConfig {
     fn default() -> Self {
         Self {
@@ -2713,6 +2730,19 @@ impl Default for Packages {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn output_config_by_connector_then_model() {
+        let o = |n: &str| OutputConfig { name: n.into(), ..Default::default() };
+        let outs = [o("HDMI-A-1"), o("Samsung Display ATNA60HU01-0"), o("eDP-1")];
+        let f = |n, make, model| output_config_index(&outs, n, make, model);
+        // Коннектор — раньше описания.
+        assert_eq!(f("eDP-1", "Samsung Display", "ATNA60HU01-0"), Some(2));
+        // Та же панель под другим коннектором (MUX) — по описанию.
+        assert_eq!(f("eDP-2", "Samsung Display", "ATNA60HU01-0"), Some(1));
+        assert_eq!(f("hdmi-a-1", "", ""), Some(0));
+        assert_eq!(f("DP-3", "", ""), None);
+    }
+
     use super::*;
 
     #[test]

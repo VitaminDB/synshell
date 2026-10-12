@@ -24,6 +24,7 @@ use smithay::{
 };
 
 use crate::state::{Core, State};
+use synshell_common::config::OutputConfig;
 
 pub enum Backend {
     Winit(winit::WinitBackend),
@@ -342,14 +343,21 @@ pub fn output_matches(output: &Output, name: &str) -> bool {
     desc.eq_ignore_ascii_case(name) || p.model.eq_ignore_ascii_case(name)
 }
 
+/// `[[output]]` для монитора — см. [`synshell_common::config::output_config_index`].
+pub fn output_config<'a>(outputs: &'a [OutputConfig], name: &str, make: &str, model: &str) -> Option<&'a OutputConfig> {
+    synshell_common::config::output_config_index(outputs, name, make, model).map(|i| &outputs[i])
+}
+
+/// [`output_config`] для уже созданного вывода.
+pub fn output_config_for<'a>(outputs: &'a [OutputConfig], output: &Output) -> Option<&'a OutputConfig> {
+    let p = output.physical_properties();
+    output_config(outputs, &output.name(), &p.make, &p.model)
+}
+
 /// Действующий поворот вывода: `transform` из `[[output]]` и поверх —
 /// поворот на лету (`rotate`).
 pub fn output_transform(core: &Core, output: &Output) -> smithay::utils::Transform {
-    let base = core
-        .config
-        .outputs
-        .iter()
-        .find(|o| output_matches(output, &o.name))
+    let base = output_config_for(&core.config.outputs, output)
         .map(|c| parse_transform(&c.transform))
         .unwrap_or(smithay::utils::Transform::Normal);
     let q = core.rotation.get(&output.name()).map(|r| r.quarters()).unwrap_or(0);

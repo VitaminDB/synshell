@@ -272,7 +272,7 @@ pub fn scan_connectors(state: &mut State) {
             tracing::info!(name, "вывод пропущен (platform.ignore_outputs)");
             continue;
         }
-        let cfg = state.core.config.outputs.iter().find(|o| o.name == name).cloned();
+        let cfg = crate::backend::output_config(&state.core.config.outputs, &name, "", "").cloned();
         if cfg.as_ref().is_some_and(|c| !c.enabled) {
             tracing::info!(name, "вывод выключен в конфиге");
             continue;
@@ -535,7 +535,7 @@ impl KmsCpuBackend {
                 let _ = s.drm_output.with_compositor(|c| c.reset_buffers());
             }
             s.output.change_current_state(None, Some(transform), None, None);
-            let Some(cfg) = core.config.outputs.iter().find(|o| crate::backend::output_matches(&s.output, &o.name)) else {
+            let Some(cfg) = crate::backend::output_config_for(&core.config.outputs, &s.output) else {
                 continue;
             };
             if cfg.scale > 0.0 {

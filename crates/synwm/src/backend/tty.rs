@@ -429,7 +429,8 @@ pub fn scan_connectors(state: &mut State, node: DrmNode) {
             tracing::info!(name, "вывод пропущен (platform.ignore_outputs)");
             continue;
         }
-        let cfg = state.core.config.outputs.iter().find(|o| o.name == name).cloned();
+        let (make, model, _serial) = edid_info(device.manager.device(), info.handle());
+        let cfg = crate::backend::output_config(&state.core.config.outputs, &name, &make, &model).cloned();
         if cfg.as_ref().is_some_and(|c| !c.enabled) {
             tracing::info!(name, "монитор выключен в конфиге");
             continue;
@@ -456,7 +457,6 @@ pub fn scan_connectors(state: &mut State, node: DrmNode) {
             .and_then(|c| pick_mode(modes, &c.mode))
             .or_else(|| modes.iter().find(|m| m.mode_type().contains(ModeTypeFlags::PREFERRED)).copied())
             .unwrap_or(modes[0]);
-        let (make, model, _serial) = edid_info(drm, info.handle());
         let (mm_w, mm_h) = info.size().unwrap_or((0, 0));
         let output = Output::new(
             name.clone(),
@@ -914,7 +914,7 @@ impl TtyBackend {
                 let _ = s.drm_output.with_compositor(|c| c.reset_buffers());
             }
             s.output.change_current_state(None, Some(transform), None, None);
-                let Some(cfg) = core.config.outputs.iter().find(|o| crate::backend::output_matches(&s.output, &o.name)) else {
+                let Some(cfg) = crate::backend::output_config_for(&core.config.outputs, &s.output) else {
                     continue;
                 };
                 if cfg.scale > 0.0 {

@@ -1,7 +1,7 @@
 //! Мониторы, меню запуска, уведомления, блокировка, автозапуск, сеанс,
 //! «О системе».
 
-use synshell_common::config::OutputConfig;
+use synshell_common::config::{output_config_index, OutputConfig};
 use synshell_common::ipc::OutputInfo;
 use syngui::prelude::*;
 use syngui::widgets::GestureDetector;
@@ -47,7 +47,8 @@ fn oset(name: &str, key: &str, v: impl Into<Value>) {
     set(&op!["output", i, key], v);
 }
 
-fn output_card(name: String, info: Option<&OutputInfo>, cfg: &OutputConfig) -> W {
+/// `name` — ключ записи `[[output]]` (коннектор или описание монитора), `title` — коннектор в заголовке.
+fn output_card(title: String, name: String, info: Option<&OutputInfo>, cfg: &OutputConfig) -> W {
     let mut rows: Vec<W> = Vec::new();
     let n = name.clone();
     rows.push(row(&t!("Включён"), "", Toggle::with_state(cfg.enabled).on_change(move |v| oset(&n, "enabled", v))));
@@ -184,7 +185,7 @@ fn output_card(name: String, info: Option<&OutputInfo>, cfg: &OutputConfig) -> W
     let mut header = Row::new()
         .gap(8.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(Column::new().class("grow").gap(2.0).child(Text::new(name.clone()).class("group-title")).child(Text::new(subtitle).class("row-hint")));
+        .child(Column::new().class("grow").gap(2.0).child(Text::new(title).class("group-title")).child(Text::new(subtitle).class("row-hint")));
     if let Some(i) = in_config {
         header = header.child(Button::new(t!("Сбросить")).class("btn small").icon(icons::UNDO).on_click(move || {
             unset(&op!["output", i]);
@@ -256,15 +257,20 @@ pub fn displays() -> W {
             &t!("Композитор synshell не запущен — показаны записи из config.toml. Режимы можно вписать вручную."),
         )),
     }
-    for o in &c.outputs {
-        if !names.contains(&o.name) && !o.name.is_empty() {
-            names.push(o.name.clone());
-        }
-    }
+    // Подключённые — с записью по коннектору или по описанию монитора; затем записи без монитора.
+    let mut used = Vec::new();
     for name in names {
         let info = live.as_ref().and_then(|l| l.iter().find(|o| o.name == name));
-        let cfg = c.outputs.iter().find(|o| o.name == name).cloned().unwrap_or_default();
-        body.push(output_card(name, info, &cfg));
+        let idx = info.and_then(|i| output_config_index(&c.outputs, &i.name, &i.make, &i.model));
+        used.extend(idx);
+        let cfg = idx.map(|i| c.outputs[i].clone()).unwrap_or_default();
+        let key = idx.map(|i| c.outputs[i].name.clone()).unwrap_or_else(|| name.clone());
+        body.push(output_card(name, key, info, &cfg));
+    }
+    for (i, o) in c.outputs.iter().enumerate() {
+        if !used.contains(&i) && !o.name.is_empty() {
+            body.push(output_card(o.name.clone(), o.name.clone(), None, o));
+        }
     }
     let new_name = use_signal(String::new());
     body.push(group(
