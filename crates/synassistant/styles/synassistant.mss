@@ -179,6 +179,14 @@ MultilineTextEdit.input { background-color: #00000000; color: var(--fg); border:
 .btn.voice-center:hover { background-color: #ffffff22; }
 .voice-status { font-size: 16px; font-weight: 600; color: var(--fg); text-align: center; }
 .voice-transcript { width: 100%; max-width: 600px; }
+.voice-meter { width: 300px; height: 6px; border-radius: 999px; color: var(--muted); background-color: var(--surface); }
+.voice-meter.on { color: var(--success); }
+.voice-meter-mark-row { width: 300px; height: 6px; }
+.voice-meter-mark { width: 2px; height: 6px; background-color: var(--danger); }
+.voice-meter-text { font-size: 11px; color: var(--muted); text-align: center; }
+.voice-meter-state { font-size: 12px; color: var(--muted); text-align: center; }
+.voice-meter-state.on { color: var(--success); font-weight: 600; }
+.voice-meter-state.pause { color: var(--warning); font-weight: 600; }
 .voice-answer-scroll { height: 200px; }
 .voice-answer { font-size: 15px; color: var(--fg); }
 .btn.voice-act { padding: 14px; background-color: var(--surface); icon-size: 24px; icon-color: var(--fg); }

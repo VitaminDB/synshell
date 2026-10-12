@@ -26,7 +26,7 @@ pub struct VoiceConfig {
     pub voice: Option<String>,
     pub speed: Option<f32>,
     pub microphone: Option<String>,
-    /// Уровень шума 0–100 (см. `Assistant::noise_level`): запас порога тишины над фоном.
+    /// Уровень шума, % полной шкалы (см. `Assistant::noise_level`): звук тише — тишина.
     pub noise_level: f32,
 }
 
@@ -54,10 +54,30 @@ impl VoiceConfig {
     }
 }
 
+/// Живое состояние детектора речи — для индикатора на голосовой панели.
+/// Уровни — RMS в долях полной шкалы (0,01 = 1 %).
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct VadState {
+    /// Громкость последнего кадра.
+    pub level: f32,
+    /// Фон (скользящее среднее вне речи).
+    pub floor: f32,
+    /// Порог начала фразы.
+    pub speech: f32,
+    /// Порог тишины: тише него внутри фразы — пауза, по 0,9 с паузы фраза кончается.
+    pub silence: f32,
+    /// Идёт фраза.
+    pub in_phrase: bool,
+    /// Последний кадр громче порога тишины (внутри фразы) или порога речи (вне её).
+    pub speaking: bool,
+}
+
 #[derive(Clone)]
 pub enum VoiceEvent {
     Phase(Phase),
     Vis(Option<VisHandle>),
+    /// Состояние детектора речи, ~10 раз в секунду, пока слушаем.
+    Level(VadState),
     Heard(String),
     Speaking(bool),
     Error(String),
@@ -104,9 +124,13 @@ pub struct Vad {
     /// Уровень фона — скользящее среднее RMS вне речи (не минимум: в шуме
     /// минимум сильно ниже обычного уровня, и тишина никогда не наступала).
     floor: f32,
-    /// Во сколько раз звук громче фона всё ещё считается тишиной
-    /// (`Assistant::noise_level` 0–100 → 1,8…11,8).
-    margin: f32,
+    /// Порог тишины, заданный пользователем (`Assistant::noise_level`, доли
+    /// полной шкалы; 0 — только автоподбор от фона).
+    gate: f32,
+    /// Громкость речи в текущей фразе (пик с медленным спадом).
+    peak: f32,
+    /// Последнее состояние для индикатора.
+    last: VadState,
     ticks: usize,
     in_speech: bool,
     above: usize,
@@ -126,7 +150,9 @@ impl Vad {
             pre: VecDeque::with_capacity(sr * PRE_ROLL_MS / 1000),
             pre_cap: sr * PRE_ROLL_MS / 1000,
             floor: 0.01,
-            margin: 1.8,
+            gate: 0.0,
+            peak: 0.0,
+            last: VadState::default(),
             ticks: 0,
             in_speech: false,
             above: 0,
@@ -142,11 +168,16 @@ impl Vad {
         self
     }
 
-    /// Уровень шума 0–100: насколько порог тишины отодвинут от фона. 0 — порог
-    /// в 1,8 раза выше фона; 100 — почти в 12 раз (тихая речь уже не услышится).
-    pub fn set_noise_level(&mut self, level: f32) {
-        let level = if level.is_finite() { level.clamp(0.0, 100.0) } else { 0.0 };
-        self.margin = 1.8 + level / 10.0;
+    /// Уровень шума, % полной шкалы: звук тише него считается тишиной
+    /// (порог тишины не опускается ниже). 0 — только автоподбор от фона.
+    pub fn set_noise_level(&mut self, percent: f32) {
+        let percent = if percent.is_finite() { percent.clamp(0.0, 100.0) } else { 0.0 };
+        self.gate = percent / 100.0;
+    }
+
+    /// Живое состояние для индикатора на голосовой панели.
+    pub fn state(&self) -> VadState {
+        self.last
     }
 
     pub fn reset(&mut self) {
@@ -156,11 +187,18 @@ impl Vad {
         self.above = 0;
         self.speech_frames = 0;
         self.silence_frames = 0;
+        self.peak = 0.0;
         self.utter.clear();
     }
 
+    /// (порог речи, порог тишины). Порог тишины — выше фона, не ниже заданного
+    /// пользователем и, внутри фразы, не ниже трети громкости самого голоса:
+    /// музыка или гул тише речи фразу не держат, даже если громче фона до неё.
     pub fn thresholds(&self) -> (f32, f32) {
-        let silence = (self.floor * self.margin + 0.004).max(0.006);
+        let mut silence = (self.floor * 1.8 + 0.004).max(0.006).max(self.gate);
+        if self.in_speech {
+            silence = silence.max(self.peak * 0.3);
+        }
         let speech = (self.floor * 3.0 + 0.01).max(silence * 1.3);
         (speech, silence)
     }
@@ -195,7 +233,18 @@ impl Vad {
             0.03
         };
         self.floor = (self.floor + (rms - self.floor) * k).max(0.001);
+        if self.in_speech {
+            self.peak = (self.peak * 0.99).max(rms);
+        }
         let (speech, silence) = self.thresholds();
+        self.last = VadState {
+            level: rms,
+            floor: self.floor,
+            speech,
+            silence,
+            in_phrase: self.in_speech,
+            speaking: if self.in_speech { rms > silence } else { rms > speech },
+        };
         if !self.in_speech {
             for &s in frame {
                 if self.pre.len() >= self.pre_cap {
@@ -209,6 +258,7 @@ impl Vad {
                     self.in_speech = true;
                     self.speech_frames = self.above;
                     self.silence_frames = 0;
+                    self.peak = rms;
                     self.utter = self.pre.iter().copied().collect();
                     self.pre.clear();
                 }
@@ -502,6 +552,7 @@ fn conversation(cfg: VoiceConfig, turn: Turn, on: Listener) {
     };
     on(VoiceEvent::Vis(Some(rec.vis_handle())));
     let mut vad = Vad::new(sr).with_noise_level(cfg.noise_level);
+    let mut last_level = std::time::Instant::now();
     on(VoiceEvent::Phase(Phase::Listening));
     loop {
         if f.stop.load(Ordering::Acquire) {
@@ -516,7 +567,12 @@ fn conversation(cfg: VoiceConfig, turn: Turn, on: Listener) {
             vad.reset();
             continue;
         }
-        let Some(utt) = vad.push(&chunk) else { continue };
+        let got = vad.push(&chunk);
+        if last_level.elapsed() >= Duration::from_millis(100) {
+            last_level = std::time::Instant::now();
+            on(VoiceEvent::Level(vad.state()));
+        }
+        let Some(utt) = got else { continue };
         rec.pause();
         on(VoiceEvent::Phase(Phase::Transcribing));
         let text = match transcribe(&utt, sr, &cfg) {
@@ -610,13 +666,19 @@ fn dictation(cfg: VoiceConfig, on: Listener, done: Done<String>) {
     on(VoiceEvent::Phase(Phase::Listening));
     let mut vad = Vad::new(sr).with_noise_level(cfg.noise_level);
     let started = std::time::Instant::now();
+    let mut last_level = started;
     let utt = loop {
         if f.dict_stop.load(Ordering::Acquire) || started.elapsed() > Duration::from_secs(90) {
             break vad.flush();
         }
         match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(c) => {
-                if let Some(u) = vad.push(&c) {
+                let got = vad.push(&c);
+                if last_level.elapsed() >= Duration::from_millis(100) {
+                    last_level = std::time::Instant::now();
+                    on(VoiceEvent::Level(vad.state()));
+                }
+                if let Some(u) = got {
                     break Some(u);
                 }
             }
@@ -729,12 +791,64 @@ mod tests {
         assert!(spent < 150, "конец фразы должен найтись за ~3 с, а не за {spent} кадров");
     }
 
+    /// Музыка на фоне: громче фона до начала фразы и колеблется, но тише
+    /// голоса — фраза должна кончаться, когда замолкает голос.
     #[test]
-    fn noise_level_raises_thresholds() {
-        let quiet = Vad::new(16_000);
-        let noisy = Vad::new(16_000).with_noise_level(40.0);
-        assert!(noisy.thresholds().1 > quiet.thresholds().1 * 2.0);
-        assert!(noisy.thresholds().0 >= noisy.thresholds().1 * 1.3);
+    fn utterance_ends_over_quieter_music() {
+        let sr = 16_000u32;
+        let mut vad = Vad::new(sr);
+        let frame = sr as usize * FRAME_MS / 1000;
+        let music = |i: usize| {
+            let a = 0.015 + 0.03 * ((i as f32 * 0.37).sin().abs());
+            (0..frame).map(|k| ((k * 3 + i) as f32 * 0.5).sin() * a * 1.414).collect::<Vec<f32>>()
+        };
+        for i in 0..200 {
+            vad.push(&music(i));
+        }
+        let voice: Vec<f32> = (0..frame).map(|i| (i as f32 * 0.3).sin() * 0.3).collect();
+        for _ in 0..40 {
+            vad.push(&voice);
+        }
+        let mut got = None;
+        let mut spent = 0;
+        for i in 0..400 {
+            spent = i;
+            if let Some(u) = vad.push(&music(i + 1000)) {
+                got = Some(u);
+                break;
+            }
+        }
+        assert!(got.is_some(), "фраза должна закончиться под музыку");
+        assert!(spent < 100, "конец фразы должен найтись за ~2 с, а не за {spent} кадров");
+    }
+
+    /// Заданный уровень шума — прямой порог тишины в процентах полной шкалы:
+    /// шум тише него фразу не начинает, а речь громче — заканчивается по нему.
+    #[test]
+    fn noise_level_is_a_gate_in_percent() {
+        let sr = 16_000u32;
+        let mut vad = Vad::new(sr).with_noise_level(5.0);
+        assert!((vad.thresholds().1 - 0.05).abs() < 1e-6);
+        assert!(vad.thresholds().0 >= 0.065);
+        let frame = sr as usize * FRAME_MS / 1000;
+        let hum: Vec<f32> = (0..frame).map(|i| (i as f32 * 0.2).sin() * 0.04 * 1.414).collect();
+        for _ in 0..200 {
+            assert!(vad.push(&hum).is_none(), "гул 4 % тише порога 5 % — не речь");
+        }
+        assert!(!vad.state().in_phrase);
+        let voice: Vec<f32> = (0..frame).map(|i| (i as f32 * 0.3).sin() * 0.3).collect();
+        for _ in 0..30 {
+            vad.push(&voice);
+        }
+        assert!(vad.state().in_phrase && vad.state().speaking);
+        let mut got = None;
+        for _ in 0..END_SILENCE_FRAMES + 2 {
+            if let Some(u) = vad.push(&hum) {
+                got = Some(u);
+                break;
+            }
+        }
+        assert!(got.is_some(), "под гулом тише порога фраза кончается");
     }
 }
 
