@@ -168,7 +168,7 @@ pub const KINDS: &[Kind] = &[
         kind: "temps",
         label: n_!("Температуры"),
         glyph: "\u{E1FF}",
-        views: &[("bars", n_!("Столбики")), ("line", n_!("График")), ("gauge", n_!("Шкала")), ("text", n_!("Список"))],
+        views: &[("list", n_!("Устройства")), ("bars", n_!("Столбики")), ("line", n_!("График")), ("gauge", n_!("Шкала")), ("text", n_!("Список"))],
         phone: (4, 2),
         desktop: (3, 2),
         data: true,

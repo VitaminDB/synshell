@@ -208,6 +208,7 @@ fn value_of(kind: &str, s: &Snap) -> (f32, String, String) {
     match kind {
         "cpu" => (s.cpu, format!("{:.0}%", s.cpu), s.cpu_temp.map(|t| format!("{t:.0} °C")).unwrap_or_else(|| t!("процессор").into())),
         "memory" => (s.mem_percent, format!("{:.0}%", s.mem_percent), synsystem::memory::human_kb(s.mem_used_kb)),
+        "gpu" if data::primary_gpu(&s.gpus).is_some_and(|g| g.asleep) => (0.0, t!("сон").into(), t!("не используется").into()),
         "gpu" => match &s.gpu {
             Some((busy, mhz, _)) => (busy.unwrap_or(0.0), busy.map(|b| format!("{b:.0}%")).unwrap_or("—".into()), mhz.map(|m| t!("{m} МГц", m = m)).unwrap_or_default()),
             None => (0.0, "—".into(), t!("нет данных").into()),
@@ -290,11 +291,19 @@ fn metric(ctx: ShellCtx, kind: String, cx: Cx) -> Box<dyn Widget> {
         let (v, big, sub) = value_of(&kind, &s);
         let size = cx.w.min(cx.h);
         match cx.view.as_str() {
-            "ring" => Box::new(Row::new().main_axis_alignment(MainAxisAlignment::Center).child(ring(v, big, &sub, size, cx.color))) as Box<dyn Widget>,
+            "ring" => {
+                let name = foot(&kind, &s);
+                let size = if name.is_empty() { size } else { (cx.h - 20.0).min(cx.w).max(40.0) };
+                let mut col = Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(ring(v, big, &sub, size, cx.color));
+                if !name.is_empty() {
+                    col = col.child(Text::new(name).max_lines(1).class("res-ring-sub"));
+                }
+                Box::new(col.style("width", StyleValue::px(cx.w))) as Box<dyn Widget>
+            }
             "gauge" => Box::new(gauge(v, 100.0, "%", &cx)),
             "line" => Box::new(line_view(&big, &sub, &[("", tail(history_of(&kind, &s), cx.history).to_vec(), cx.color)], Some(100.0), &cx, |v| format!("{v:.0}%"))),
             "text" => Box::new(big_text(&big, &sub, &cx)),
-            "bars" if kind == "cpu" => Box::new(core_bars(&s, &cx)),
+            "bars" if kind == "cpu" => Box::new(core_view(&s, &cx)),
             "radar" if kind == "cpu" => Box::new(core_radar(&s, &cx)),
             "pie" if kind == "memory" => Box::new(memory_pie(&s, &cx)),
             _ => card(ctx, &kind, &s, &cx),
@@ -443,25 +452,6 @@ fn cores(list: &[(f32, Option<u32>, usize)], h: f32, max: usize) -> impl Widget 
     row
 }
 
-fn core_bars(s: &Snap, cx: &Cx) -> impl Widget {
-    let mut list: Vec<(usize, f32)> = s.cores.iter().map(|c| c.0).enumerate().collect();
-    let max = ((cx.w / 22.0) as usize).clamp(2, 32);
-    if list.len() > max {
-        list.sort_by(|a, b| b.1.total_cmp(&a.1));
-        list.truncate(max);
-        list.sort_by_key(|x| x.0);
-    }
-    BarChart::new()
-        .categories(list.iter().map(|(i, _)| i.to_string()).collect())
-        .bar_series(BarSeries::new(t!("Загрузка"), list.iter().map(|x| x.1 as f64).collect()).color(cx.color))
-        .y_axis(AxisConfig::new().min(0.0).max(100.0).tick_count(3).labels(cx.h >= 90.0).axis_line(false))
-        .x_axis(AxisConfig::new().labels(cx.w / list.len().max(1) as f32 >= 14.0).grid(false))
-        .legend(LegendPosition::None)
-        .tooltip(false)
-        .animate(false)
-        .bar_radius(3.0)
-        .size(cx.w, cx.h)
-}
 
 fn core_radar(s: &Snap, cx: &Cx) -> impl Widget {
     let n = s.cores.len().clamp(3, 24);
@@ -538,18 +528,7 @@ fn card(ctx: ShellCtx, kind: &str, s: &Snap, cx: &Cx) -> Box<dyn Widget> {
         "memory" | "gpu" | "vram" | "npu" => {
             let (v, big, sub) = value_of(kind, s);
             let size = (cx.h - 18.0).min(cx.w).max(40.0);
-            let foot = match kind {
-                "memory" => t!("из {v}", v = synsystem::memory::human_kb(s.mem_total_kb)),
-                "vram" => s.vram.as_ref().map(|v| v.2.clone()).unwrap_or_default(),
-                "npu" => match &s.npu {
-                    Some(n) => {
-                        let sessions = n.daemon.as_ref().map(|d| d.workers.len()).unwrap_or(0);
-                        if sessions > 0 { t!("сеансов {n}", n = sessions) } else { n.name.replace("Qualcomm ", "") }
-                    }
-                    None => String::new(),
-                },
-                _ => s.gpu.as_ref().map(|g| format!("{}{}", g.2.clone().unwrap_or_default(), s.gpu_temp.map(|t| format!(" · {t:.0} °C")).unwrap_or_default())).unwrap_or_default(),
-            };
+            let foot = foot(kind, s);
             Box::new(
                 Column::new()
                     .gap(4.0)
@@ -690,6 +669,7 @@ fn temps(cx: Cx) -> Box<dyn Widget> {
         let s = sig.get();
         let hottest = s.temps.first().map(|t| t.1).unwrap_or(0.0);
         match cx.view.as_str() {
+            "list" => temp_devices_view(&s, &cx),
             "gauge" => Box::new(gauge(hottest, 110.0, "°", &cx)) as Box<dyn Widget>,
             "line" => Box::new(line_view(
                 &s.cpu_temp.map(|t| format!("{t:.0} °C")).unwrap_or("—".into()),
@@ -1011,7 +991,7 @@ fn fill_color(p: f32, base: Color) -> Color {
 fn bar(p: f32, width: f32, height: f32, color: Color) -> impl Widget {
     Canvas::new(move |c, _| {
         let r = height / 2.0;
-        c.set_color(Color::from_hex("#ffffff1f"));
+        c.set_color(color.with_alpha(0.14));
         c.fill_rounded_rect(0.0, 0.0, width, height, r);
         let fw = (width * (p / 100.0).clamp(0.0, 1.0)).max(if p > 0.0 { height } else { 0.0 });
         if fw > 0.0 {
@@ -1070,7 +1050,7 @@ fn storage(w: &DeskWidget, cx: Cx) -> Box<dyn Widget> {
                     Row::new()
                         .gap(12.0)
                         .cross_axis_alignment(CrossAxisAlignment::Center)
-                        .child(DecoratedBox::new().class("desk-disk-badge").child(icon(mount_icon(&m.path)).class("desk-disk-icon").style("icon-color", StyleValue::Color(syngui::mss::MssColor { r: (color.r * 255.0) as u8, g: (color.g * 255.0) as u8, b: (color.b * 255.0) as u8, a: 255 }))))
+                        .child(DecoratedBox::new().class("desk-disk-badge").child(icon(mount_icon(&m.path)).class("desk-disk-icon").style("icon-color", StyleValue::Color(mss_color(color)))))
                         .child(info),
                 ),
             );
@@ -1080,4 +1060,245 @@ fn storage(w: &DeskWidget, cx: Cx) -> Box<dyn Widget> {
         }
         Box::new(col)
     }))
+}
+
+fn short_gpu(name: &str) -> String {
+    name.replace("NVIDIA ", "").replace("GeForce ", "").replace(" GPU", "").replace("AMD ", "").replace("Intel Corporation ", "")
+}
+
+fn ghz(mhz: u32) -> String {
+    t!("{v} ГГц", v = format!("{:.1}", mhz as f32 / 1000.0)).to_string()
+}
+
+fn foot(kind: &str, s: &Snap) -> String {
+    match kind {
+        "cpu" => {
+            let cur = s.cores.iter().filter_map(|c| c.1).max();
+            let mut parts: Vec<String> = s.cpu_model.iter().cloned().collect();
+            if let Some(m) = cur {
+                parts.push(ghz(m));
+            }
+            parts.join(" · ")
+        }
+        "memory" => t!("из {v}", v = synsystem::memory::human_kb(s.mem_total_kb)).to_string(),
+        "gpu" => match data::primary_gpu(&s.gpus) {
+            Some(g) => {
+                let mut parts = vec![short_gpu(&g.name)];
+                if let Some(t) = g.temp_c.or(s.gpu_temp) {
+                    parts.push(format!("{t:.0} °C"));
+                }
+                parts.join(" · ")
+            }
+            None => s.gpu.as_ref().and_then(|g| g.2.clone()).unwrap_or_default(),
+        },
+        "vram" => s.vram.as_ref().map(|v| short_gpu(&v.2)).unwrap_or_default(),
+        "npu" => match &s.npu {
+            Some(n) => {
+                let sessions = n.daemon.as_ref().map(|d| d.workers.len()).unwrap_or(0);
+                if sessions > 0 { t!("сеансов {n}", n = sessions).to_string() } else { n.name.replace("Qualcomm ", "") }
+            }
+            None => String::new(),
+        },
+        _ => String::new(),
+    }
+}
+
+fn load_color(p: f32, base: Color) -> Color {
+    if p >= 85.0 {
+        Color::from_hex("#ef4444")
+    } else if p >= 60.0 {
+        Color::from_hex("#f59e0b")
+    } else {
+        base
+    }
+}
+
+fn core_view(s: &Snap, cx: &Cx) -> impl Widget {
+    let cur = s.cores.iter().filter_map(|c| c.1).max();
+    let tiers: Vec<usize> = {
+        let mut t: Vec<usize> = s.cores.iter().map(|c| c.2).collect();
+        t.sort();
+        t.dedup();
+        t
+    };
+    let mut sub: Vec<String> = Vec::new();
+    if let Some(m) = cur {
+        sub.push(ghz(m));
+    }
+    if let Some(t) = s.cpu_temp {
+        sub.push(format!("{t:.0} °C"));
+    }
+    let slow_tier = tiers.first().copied().unwrap_or(0);
+    if tiers.len() > 1 {
+        let fast = s.cores.iter().filter(|c| c.2 != slow_tier).count();
+        sub.push(t!("{p}P + {e}E", p = fast, e = s.cores.len() - fast).to_string());
+    } else {
+        sub.push(t!("потоков {n}", n = s.cores.len()).to_string());
+    }
+    let head = Row::new()
+        .gap(8.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(
+            Column::new()
+                .gap(1.0)
+                .class("grow")
+                .child(Text::new(s.cpu_model.clone().unwrap_or_else(|| t!("Процессор").to_string())).max_lines(1).class("desk-disk-name"))
+                .child(Text::new(sub.join(" · ")).max_lines(1).class("desk-disk-sub")),
+        )
+        .child(Text::new(format!("{:.0}%", s.cpu)).class("desk-cpu-load"));
+    let rest = (cx.h - 40.0 - 10.0).max(16.0);
+    let (bars_h, spark_h) = if rest >= 120.0 { let b = (rest * 0.45).min(80.0); (b, rest - b - 10.0) } else { (rest, 0.0) };
+    let cores: Vec<(f32, bool)> = s.cores.iter().map(|c| (c.0, tiers.len() > 1 && c.2 == slow_tier)).collect();
+    let (w, color) = (cx.w, cx.color);
+    let canvas = Canvas::new(move |c, _| {
+        let n = cores.len().max(1) as f32;
+        let gap = if n > 24.0 { 2.0 } else { 3.0 };
+        let bw = ((w - gap * (n - 1.0)) / n).max(1.0);
+        let r = (bw / 2.0).min(3.0);
+        for (i, (load, slow)) in cores.iter().enumerate() {
+            let x = i as f32 * (bw + gap);
+            c.set_color(color.with_alpha(0.10));
+            c.fill_rounded_rect(x, 0.0, bw, bars_h, r);
+            let fh = (load / 100.0).clamp(0.0, 1.0) * bars_h;
+            let fh = fh.max(2.0);
+            let col = load_color(*load, color);
+            c.set_color(if *slow { col.with_alpha(0.6) } else { col });
+            c.fill_rounded_rect(x, bars_h - fh, bw, fh, r);
+        }
+    })
+    .size(cx.w, bars_h);
+    let mut col = Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(head).child(canvas);
+    if spark_h > 0.0 {
+        let hist = tail(&s.history.cpu, cx.history).to_vec();
+        let top = hist.iter().copied().fold(0.0f32, f32::max).max(10.0) * 1.2;
+        let scaled: Vec<f32> = hist.iter().map(|v| v / top * 100.0).collect();
+        let label = t!("Загрузка за {n} с · пик {p}%", n = cx.history, p = format!("{:.0}", hist.iter().copied().fold(0.0f32, f32::max)));
+        col = col.child(
+            Column::new()
+                .gap(4.0)
+                .child(Text::new(label).max_lines(1).class("desk-disk-sub"))
+                .child(sparkline(scaled, cx.history, cx.color, cx.w, (spark_h - 18.0).max(12.0))),
+        );
+    }
+    col
+}
+
+fn temp_icon(k: synsystem::thermal::TempKind) -> &'static str {
+    use synsystem::thermal::TempKind::*;
+    match k {
+        Cpu => mi::CPU,
+        Gpu => "\u{E30A}",
+        Storage => "\u{E1DB}",
+        Memory => mi::MEMORY,
+        Wifi => "\u{E63E}",
+        Battery => "\u{E1A4}",
+        Board | Other => "\u{E1FF}",
+    }
+}
+
+fn temp_kind_label(k: synsystem::thermal::TempKind) -> String {
+    use synsystem::thermal::TempKind::*;
+    match k {
+        Cpu => t!("Процессор"),
+        Gpu => t!("Видеокарта"),
+        Storage => t!("Накопитель"),
+        Memory => t!("Оперативная память"),
+        Wifi => t!("Беспроводной адаптер"),
+        Battery => t!("Аккумулятор"),
+        Board => t!("Корпус и плата"),
+        Other => t!("Датчик"),
+    }
+    .to_string()
+}
+
+fn temp_color(level: f32, base: Color) -> Color {
+    if level >= 0.9 {
+        Color::from_hex("#ef4444")
+    } else if level >= 0.75 {
+        Color::from_hex("#f59e0b")
+    } else {
+        base
+    }
+}
+
+fn temp_devices_view(s: &Snap, cx: &Cx) -> Box<dyn Widget> {
+    let mut sorted: Vec<&synsystem::thermal::TempDevice> = s.temp_devs.iter().collect();
+    let prio = |d: &synsystem::thermal::TempDevice| {
+        use synsystem::thermal::TempKind::*;
+        let k = match d.kind {
+            Cpu => 0,
+            Gpu => 1,
+            Storage => 2,
+            Memory => 3,
+            Board => 4,
+            Battery => 5,
+            Wifi => 6,
+            Other => 7,
+        };
+        (d.level() < 0.75, k)
+    };
+    sorted.sort_by_key(|d| prio(d));
+    let list = &sorted;
+    if list.is_empty() {
+        return Box::new(Text::new(t!("Нет датчиков")).class("desk-k"));
+    }
+    let worst = list.iter().map(|d| d.level()).fold(0.0f32, f32::max);
+    let hottest = list.iter().map(|d| d.celsius).fold(0.0f32, f32::max);
+    let (state, scolor) = if worst >= 0.9 {
+        (t!("Горячо"), temp_color(1.0, cx.color))
+    } else if worst >= 0.75 {
+        (t!("Тепло"), temp_color(0.8, cx.color))
+    } else {
+        (t!("Всё в норме"), cx.color)
+    };
+    let head = Row::new()
+        .gap(8.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(Canvas::new(move |c, _| {
+            c.set_color(scolor);
+            c.fill_circle(5.0, 5.0, 5.0);
+        }).size(10.0, 10.0))
+        .child(Text::new(state).class("desk-disk-name grow"))
+        .child(Text::new(t!("макс. {v} °C", v = format!("{hottest:.0}"))).class("desk-disk-free"));
+    let gap = 8.0;
+    let row_h = 32.0;
+    let avail = cx.h - 18.0 - gap;
+    let fit = (((avail + gap) / (row_h + gap)).floor() as usize).max(1);
+    let shown = if list.len() > fit { ((((avail - 18.0) + gap) / (row_h + gap)).floor() as usize).max(1) } else { list.len() };
+    let badge = 32.0;
+    let bw = (cx.w - badge - 12.0).max(40.0);
+    let mut col = Column::new().gap(gap).cross_axis_alignment(CrossAxisAlignment::Stretch).child(head);
+    for d in list.iter().take(shown) {
+        let color = temp_color(d.level(), cx.color);
+        let name = if d.name.is_empty() { temp_kind_label(d.kind) } else { d.name.clone() };
+        let crit = d.crit.filter(|c| *c > 40.0 && *c < 150.0).unwrap_or(100.0);
+        let info = Column::new()
+            .gap(4.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .class("grow")
+            .child(
+                Row::new()
+                    .gap(6.0)
+                    .cross_axis_alignment(CrossAxisAlignment::End)
+                    .child(Text::new(name).max_lines(1).class("desk-temp-name grow"))
+                    .child(Text::new(format!("{:.0} °C", d.celsius)).class("desk-temp-value").style("color", StyleValue::Color(mss_color(color)))),
+            )
+            .child(bar(d.celsius / crit * 100.0, bw, 5.0, color));
+        col = col.child(
+            Row::new()
+                .gap(12.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(DecoratedBox::new().class("desk-disk-badge").child(icon(temp_icon(d.kind)).class("desk-disk-icon").style("icon-color", StyleValue::Color(mss_color(color)))))
+                .child(info),
+        );
+    }
+    if shown < list.len() {
+        col = col.child(Text::new(t!("и ещё {n}", n = list.len() - shown)).class("desk-disk-sub"));
+    }
+    Box::new(col)
+}
+
+fn mss_color(c: Color) -> syngui::mss::MssColor {
+    let [r, g, b] = c.to_srgb_u8();
+    syngui::mss::MssColor { r, g, b, a: 255 }
 }

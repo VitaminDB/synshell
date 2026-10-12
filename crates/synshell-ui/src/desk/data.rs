@@ -29,6 +29,9 @@ pub struct Snap {
     pub mem_used_kb: u64,
     pub mem_total_kb: u64,
     pub gpu: Option<(Option<f32>, Option<u32>, Option<String>)>,
+    pub gpus: Vec<synsystem::gpu::GpuDevice>,
+    pub cpu_model: Option<String>,
+    pub temp_devs: Vec<synsystem::thermal::TempDevice>,
     pub battery: Option<synsystem::battery::Battery>,
     pub battery_info: Option<synsystem::battery::BatteryInfo>,
     /// Напряжение из АЦП, если драйвера батареи нет.
@@ -119,6 +122,8 @@ fn start_sampler(sig: RwSignal<Snap>) {
                 (VecDeque::new(), VecDeque::new(), VecDeque::new(), VecDeque::new(), VecDeque::new(), VecDeque::new(), VecDeque::new());
             let (mut h_vram, mut h_npu) = (VecDeque::new(), VecDeque::new());
             let mut mounts: Vec<synsystem::disk::Mount> = Vec::new();
+            let mut gpus: Vec<synsystem::gpu::GpuDevice> = Vec::new();
+            let cpu_model = synsystem::thermal::cpu_short_name(&sys);
             let mut tick = 0u64;
             let mut last_net: Option<(u64, u64)> = None;
             cpu.sample();
@@ -150,10 +155,24 @@ fn start_sampler(sig: RwSignal<Snap>) {
                     })
                     .collect();
                 apps.sort_by(|a, b| b.mem_kb.cmp(&a.mem_kb));
-                let gpu = synsystem::gpu::read(&sys).map(|g| (g.busy_percent, g.cur_mhz, g.name));
+                if tick % 2 == 0 {
+                    gpus = synsystem::gpu::devices(&sys);
+                }
+                let gpu = match primary_gpu(&gpus) {
+                    Some(g) => Some((if g.asleep { Some(0.0) } else { g.busy_percent }, g.cur_mhz, Some(g.name.clone()))),
+                    None => synsystem::gpu::read(&sys).map(|g| (g.busy_percent, g.cur_mhz, g.name)),
+                };
+                let mut temp_devs = synsystem::thermal::devices(&sys);
+                for g in gpus.iter().filter(|g| !g.shared_memory) {
+                    if let Some(t) = g.temp_c {
+                        temp_devs.retain(|d| !(d.kind == synsystem::thermal::TempKind::Gpu && d.name == "GPU"));
+                        temp_devs.push(synsystem::thermal::TempDevice { kind: synsystem::thermal::TempKind::Gpu, name: g.name.clone(), celsius: t, crit: Some(90.0) });
+                    }
+                }
+                temp_devs.sort_by(|a, b| b.level().total_cmp(&a.level()));
                 let battery = synsystem::battery::read(&sys);
                 let cpu_temp = synsystem::thermal::cpu_celsius(&temps);
-                let vram = synsystem::gpu::devices(&sys).into_iter().find_map(|g| Some((g.mem_used?, if g.shared_memory { None } else { g.mem_total }, g.name)));
+                let vram = gpus.iter().find_map(|g| Some((g.mem_used?, if g.shared_memory { None } else { g.mem_total }, g.name.clone())));
                 let npu = npu_s.sample();
                 if tick % 10 == 0 {
                     mounts = synsystem::disk::mounts(&sys);
@@ -174,12 +193,15 @@ fn start_sampler(sig: RwSignal<Snap>) {
                     cpu: c.usage,
                     cores: c.cores.iter().map(|k| (k.usage, k.cur_mhz, k.tier)).collect(),
                     cpu_temp,
-                    gpu_temp: synsystem::thermal::gpu_celsius(&temps),
+                    gpu_temp: primary_gpu(&gpus).and_then(|g| g.temp_c).or_else(|| synsystem::thermal::gpu_celsius(&temps)),
                     temps: temp_list(&temps),
                     mem_percent: mem.used_percent(),
                     mem_used_kb: mem.used_kb(),
                     mem_total_kb: mem.total_kb,
                     gpu,
+                    gpus: gpus.clone(),
+                    cpu_model: cpu_model.clone(),
+                    temp_devs,
                     battery,
                     battery_info: synsystem::battery::batteries(&sys).into_iter().next(),
                     adc_volt: synsystem::battery::adc_voltage(&sys),
@@ -263,4 +285,8 @@ fn usage_source(sys: &synsystem::Sys, app_id: &str, pid: i32) -> synsystem::proc
         }
     }
     Source::Pids(vec![pid])
+}
+
+pub fn primary_gpu(gpus: &[synsystem::gpu::GpuDevice]) -> Option<&synsystem::gpu::GpuDevice> {
+    gpus.iter().find(|g| !g.shared_memory && !g.asleep).or_else(|| gpus.iter().find(|g| !g.shared_memory)).or_else(|| gpus.first())
 }

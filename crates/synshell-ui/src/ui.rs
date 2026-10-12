@@ -430,7 +430,7 @@ pub mod mi {
     pub const BELL_OFF: &str = "\u{E7F6}";
     pub const WIFI: &str = "\u{E63E}";
     pub const WIFI_OFF: &str = "\u{E648}";
-    pub const ETHERNET: &str = "\u{EB54}";
+    pub const ETHERNET: &str = "\u{EB2F}";
     pub const NET_OFF: &str = "\u{E1DA}";
     pub const BATTERY_FULL: &str = "\u{E1A4}";
     pub const BATTERY_CHARGING: &str = "\u{E1A3}";

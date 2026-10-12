@@ -146,7 +146,7 @@ pub mod icons {
     pub const SEARCH: &str = "\u{E8B6}";
     pub const CLOSE: &str = "\u{E5CD}";
     pub const WIFI: &str = "\u{E63E}";
-    pub const ETHERNET: &str = "\u{EB54}";
+    pub const ETHERNET: &str = "\u{EB2F}";
     pub const CELL: &str = "\u{E202}";
     pub const USB: &str = "\u{E1E0}";
     pub const VPN: &str = "\u{E0DA}";

@@ -700,6 +700,9 @@ Text {
 .desk-disk-name { font-size: 14px; font-weight: 600; color: var(--fg); }
 .desk-disk-free { font-size: 12px; color: var(--fg); }
 .desk-disk-sub { font-size: 11px; color: var(--muted); }
+.desk-temp-name { font-size: 13px; color: var(--fg); }
+.desk-temp-value { font-size: 14px; font-weight: 600; }
+.desk-cpu-load { font-size: 26px; font-weight: 600; color: var(--fg); }
 .desk-title { font-size: 14px; font-weight: 600; color: var(--fg); }
 .desk-k { font-size: 12px; color: var(--muted); }
 .desk-value { font-size: 20px; font-weight: 600; color: var(--fg); }
