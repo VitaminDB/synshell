@@ -322,10 +322,10 @@ impl Grid {
     }
 }
 
-/// Место под панелями, которые его резервируют: [сверху, справа, снизу, слева].
 fn reserved(ctx: &ShellCtx) -> [f32; 4] {
     let mut r = [0.0f32; 4];
-    for p in ctx.cfg().panels.iter().filter(|p| p.shows_on(ctx.form_factor) && p.exclusive && !p.autohide) {
+    let phone = ctx.is_phone();
+    for p in ctx.cfg().panels.iter().filter(|p| p.shows_on(ctx.form_factor) && ((p.exclusive && !p.autohide) || (!phone && p.is_dock()))) {
         let size = p.size as f32 + if p.floating { 8.0 } else { 0.0 };
         let i = match p.edge {
             Edge::Top => 0,
@@ -360,7 +360,8 @@ pub fn grid(ctx: &ShellCtx, output: &str) -> Grid {
         let (aw, ah) = (w - r[1] - r[3] - 2.0 * pad, h - r[0] - r[2] - 2.0 * pad);
         let cols = (aw / cell).floor().max(1.0) as u32;
         let rows = (ah / cell).floor().max(1.0) as u32;
-        Grid { cols, rows, cw: cell, ch: cell, x0: r[3] + pad, y0: r[0] + pad, width: w, height: h }
+        let (cw, ch) = (aw / cols as f32, ah / rows as f32);
+        Grid { cols, rows, cw, ch, x0: r[3] + pad, y0: r[0] + pad, width: w, height: h }
     }
 }
 
@@ -588,10 +589,11 @@ pub fn page_view(ctx: ShellCtx, page: usize, output: String) -> impl Widget {
     // Панель правки — внизу: колонка с выравниванием снаружи `rx`
     // (Reactive отдаёт детям свободные ограничения).
     let bar = rx(move || if edit.get() { Box::new(edit_bar(ctx)) } else { Box::new(DecoratedBox::new()) });
+    let lift = if ctx.is_phone() { 0.0 } else { reserved(&ctx)[2] };
     Stack::new()
         .fit(StackFit::Expand)
         .child(body)
-        .child(Column::new().main_axis_alignment(MainAxisAlignment::End).cross_axis_alignment(CrossAxisAlignment::Center).child(bar))
+        .child(Column::new().main_axis_alignment(MainAxisAlignment::End).cross_axis_alignment(CrossAxisAlignment::Center).child(Padding::only(0.0, 0.0, 0.0, lift).child(bar)))
 }
 
 /// Клетки сетки (режим правки) и рамка-подсказка при перетаскивании.

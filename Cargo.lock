@@ -5651,7 +5651,7 @@ dependencies = [
 
 [[package]]
 name = "syn-audio-player"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "syngui",
  "synshell-common",
@@ -5661,7 +5661,7 @@ dependencies = [
 
 [[package]]
 name = "syn-compass"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "serde",
  "syngui",
@@ -5674,7 +5674,7 @@ dependencies = [
 
 [[package]]
 name = "syn-health"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "libc",
  "serde",
@@ -5688,7 +5688,7 @@ dependencies = [
 
 [[package]]
 name = "syn-maps"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "serde",
  "serde_json",
@@ -5703,7 +5703,7 @@ dependencies = [
 
 [[package]]
 name = "syn-nfc"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "serde",
  "serde_json",
@@ -5716,7 +5716,7 @@ dependencies = [
 
 [[package]]
 name = "syn-systeminfo"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "libc",
  "synaptixd",
@@ -5729,7 +5729,7 @@ dependencies = [
 
 [[package]]
 name = "syn-video-player"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "anyhow",
  "image",
@@ -6246,7 +6246,7 @@ dependencies = [
 
 [[package]]
 name = "synaptixd"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "anyhow",
  "libc",
@@ -6268,7 +6268,7 @@ dependencies = [
 
 [[package]]
 name = "syncamera"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "anyhow",
  "cc",
@@ -6289,7 +6289,7 @@ dependencies = [
 
 [[package]]
 name = "syndesktop-shell"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "log",
  "synshell-common",
@@ -6298,7 +6298,7 @@ dependencies = [
 
 [[package]]
 name = "syndroid"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "anyhow",
  "libc",
@@ -6318,7 +6318,7 @@ dependencies = [
 
 [[package]]
 name = "synfiles"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "anyhow",
  "image",
@@ -6343,7 +6343,7 @@ dependencies = [
 
 [[package]]
 name = "synfsd"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "anyhow",
  "libc",
@@ -6357,7 +6357,7 @@ dependencies = [
 
 [[package]]
 name = "syngamepad"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "anyhow",
  "env_logger",
@@ -6424,7 +6424,7 @@ dependencies = [
 
 [[package]]
 name = "syngui-layer"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "anyhow",
  "calloop 0.13.0",
@@ -6445,7 +6445,7 @@ dependencies = [
 
 [[package]]
 name = "synkeyboard"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "anyhow",
  "env_logger",
@@ -6457,7 +6457,7 @@ dependencies = [
 
 [[package]]
 name = "synlink"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -6484,7 +6484,7 @@ dependencies = [
 
 [[package]]
 name = "synlink-view"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "env_logger",
  "libc",
@@ -6497,7 +6497,7 @@ dependencies = [
 
 [[package]]
 name = "synlogin"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "env_logger",
  "libc",
@@ -6510,7 +6510,7 @@ dependencies = [
 
 [[package]]
 name = "synmobile-shell"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "libc",
  "log",
@@ -6524,7 +6524,7 @@ dependencies = [
 
 [[package]]
 name = "synmodem"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "anyhow",
  "libc",
@@ -6537,7 +6537,7 @@ dependencies = [
 
 [[package]]
 name = "synnfc"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "anyhow",
  "libc",
@@ -6551,7 +6551,7 @@ dependencies = [
 
 [[package]]
 name = "synpass"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "anyhow",
  "argon2",
@@ -6570,7 +6570,7 @@ dependencies = [
 
 [[package]]
 name = "synphone"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "syngui",
  "synmodem",
@@ -6579,7 +6579,7 @@ dependencies = [
 
 [[package]]
 name = "synpkg"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "anyhow",
  "png 0.17.16",
@@ -6594,7 +6594,7 @@ dependencies = [
 
 [[package]]
 name = "synsettings"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "anyhow",
  "libc",
@@ -6616,7 +6616,7 @@ dependencies = [
 
 [[package]]
 name = "synshell-common"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "anyhow",
  "image",
@@ -6636,11 +6636,11 @@ dependencies = [
 
 [[package]]
 name = "synshell-tr"
-version = "0.1.41"
+version = "0.1.42"
 
 [[package]]
 name = "synshell-ui"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "anyhow",
  "env_logger",
@@ -6660,7 +6660,7 @@ dependencies = [
 
 [[package]]
 name = "synshot"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "anyhow",
  "env_logger",
@@ -6676,7 +6676,7 @@ dependencies = [
 
 [[package]]
 name = "synsms"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "syngui",
  "synmodem",
@@ -6707,7 +6707,7 @@ dependencies = [
 
 [[package]]
 name = "synsystem"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "blocking",
  "flate2",
@@ -6721,7 +6721,7 @@ dependencies = [
 
 [[package]]
 name = "synwm"
-version = "0.1.41"
+version = "0.1.42"
 dependencies = [
  "anyhow",
  "bitflags 2.13.2",
