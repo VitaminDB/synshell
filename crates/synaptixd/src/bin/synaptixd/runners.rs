@@ -15,18 +15,56 @@ pub struct LlmSlot {
     session: std::sync::Mutex<Option<synaptix::facade::llm::LlmKvSession>>,
 }
 
+/// Движок синтеза речи — по архитектуре модели.
+pub enum TtsEngine {
+    Omni(synaptix_tts_omnivoice::OmniVoicePipeline),
+    Vibe(synaptix_tts_vibevoice::VibeVoicePipeline),
+    Vox(synaptix_tts_voxcpm::VoxCpmPipeline),
+}
+
+/// Голос, которым продолжать: у OmniVoice — референс в кодах кодека, у
+/// остальных — уже сказанная речь (PCM), подаваемая как образец.
+pub enum Voice {
+    Omni(synaptix_tts_omnivoice::VoiceClonePrompt),
+    Pcm { pcm: Vec<f32>, sr: u32 },
+}
+
 /// Синтезатор речи и запомненные голоса: `voices` — референсы, выросшие из
 /// первых фраз (ключ: язык + описание голоса), чтобы все фразы одной
 /// озвучки и все ответы звучали одним голосом; `refs` — клоны с образцов
 /// пользователя (ключ: путь + текст образца).
 pub struct TtsState {
-    pipeline: synaptix_tts_omnivoice::OmniVoicePipeline,
-    voices: std::collections::HashMap<String, synaptix_tts_omnivoice::VoiceClonePrompt>,
-    refs: std::collections::HashMap<String, synaptix_tts_omnivoice::VoiceClonePrompt>,
+    engine: TtsEngine,
+    voices: std::collections::HashMap<String, Voice>,
+    refs: std::collections::HashMap<String, Voice>,
 }
 
 /// Сколько секунд речи копить в референсе голоса из первых фраз.
 const VOICE_REF_SEC: f32 = 12.0;
+
+/// VibeVoice читает сценарий «Speaker N: …»; обычный текст — одним голосом.
+fn vibe_script(text: &str) -> String {
+    let has_speakers = text.lines().any(|l| l.trim_start().to_ascii_lowercase().starts_with("speaker"));
+    if has_speakers {
+        text.to_string()
+    } else {
+        format!("Speaker 0: {}", text.trim().replace('\n', " "))
+    }
+}
+
+/// Дописать сказанное к голосу-референсу, пока он короче `VOICE_REF_SEC`.
+fn grow_pcm_voice(voice: &mut Option<Voice>, pcm: &[f32], sr: u32) {
+    let cap = (VOICE_REF_SEC * sr as f32) as usize;
+    match voice {
+        Some(Voice::Pcm { pcm: acc, .. }) => {
+            if acc.len() < cap {
+                acc.extend_from_slice(pcm);
+            }
+        }
+        Some(Voice::Omni(_)) => {}
+        None => *voice = Some(Voice::Pcm { pcm: pcm.to_vec(), sr }),
+    }
+}
 
 pub enum Loaded {
     Ctc(Box<Wav2Vec2Ctc>),
@@ -93,12 +131,13 @@ pub const AUDIO_PRECISIONS: [&str; 6] = ["int8", "nvfp4", "mxfp8", "f16", "bf16"
 
 /// (квант линейных слоёв, точность счёта) аудио-модели по выбору
 /// пользователя; без выбора — плотные веса в `accel` на ускорителе и F32
-/// на CPU. Квант-GEMM считает в F16 (NVFP4 — нативно в BF16), на CPU — F32.
+/// на CPU. Квант-GEMM считает в F16 (на BF16-входе NVFP4 через QuantLinear
+/// заметно теряет качество — VibeVoice), на CPU — F32.
 fn audio_precision(dev: DeviceKind, quant: Option<&str>, accel: DType) -> (Option<DType>, DType) {
     let cpu = dev == DeviceKind::Cpu;
     match quant {
         Some("int8") => (Some(DType::Sq { bits: 8 }), if cpu { DType::F32 } else { DType::F16 }),
-        Some("nvfp4") => (Some(DType::NVFP4), if cpu { DType::F32 } else { DType::BF16 }),
+        Some("nvfp4") => (Some(DType::NVFP4), if cpu { DType::F32 } else { DType::F16 }),
         Some("mxfp8") => (Some(DType::MXFP8), if cpu { DType::F32 } else { DType::F16 }),
         Some("f16") => (None, DType::F16),
         Some("bf16") => (None, DType::BF16),
@@ -161,8 +200,15 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind, quant: Op
         ModelKind::Tts => {
             let device = devices::device(dev);
             let (q, dtype) = audio_precision(dev, quant, if dev == DeviceKind::Npu { DType::F16 } else { DType::BF16 });
-            let p = synaptix_tts_omnivoice::OmniVoicePipeline::from_syn_quant(path, device, dtype, q).map_err(|e| anyhow::anyhow!("{e}"))?;
-            let st = TtsState { pipeline: p, voices: Default::default(), refs: Default::default() };
+            let a = arch.to_ascii_lowercase();
+            let engine = if a.contains("vibevoice") {
+                TtsEngine::Vibe(synaptix_tts_vibevoice::VibeVoicePipeline::from_syn_quant(path, device, dtype, q).map_err(|e| anyhow::anyhow!("{e}"))?)
+            } else if a.starts_with("voxcpm") {
+                TtsEngine::Vox(synaptix_tts_voxcpm::VoxCpmPipeline::from_bundle_quant(path, device, dtype, q).map_err(|e| anyhow::anyhow!("{e}"))?)
+            } else {
+                TtsEngine::Omni(synaptix_tts_omnivoice::OmniVoicePipeline::from_syn_quant(path, device, dtype, q).map_err(|e| anyhow::anyhow!("{e}"))?)
+            };
+            let st = TtsState { engine, voices: Default::default(), refs: Default::default() };
             Ok((Loaded::Tts(std::sync::Mutex::new(st), dev), Some(precision_tag(q, dtype))))
         }
         other => anyhow::bail!("модели {other:?} ({arch}) служба пока не исполняет"),
@@ -376,37 +422,110 @@ impl Loaded {
         let Loaded::Tts(p, dev) = self else { anyhow::bail!("модель не синтезирует речь") };
         let mut guard = p.lock().unwrap_or_else(|e| e.into_inner());
         let st = &mut *guard;
-        let default_steps = if *dev == DeviceKind::Npu { 16 } else { 32 };
-        let gen = synaptix_tts_omnivoice::OmniVoiceGenerationConfig {
-            num_step: steps.unwrap_or(default_steps).clamp(4, 64),
-            guidance_scale: params.f32("guidance").unwrap_or(2.0),
-            ..Default::default()
-        };
         let speed = speed.unwrap_or(1.0) as f64;
+        let guidance = params.f32("guidance");
+        let seed = params.i64("seed").filter(|s| *s >= 0).map(|s| s as u64);
         let ref_audio = params.text("ref_audio").map(str::trim).filter(|s| !s.is_empty());
-        let wav = if let Some(path) = ref_audio {
-            // Образец пользователя: клон голоса с записи, описание голоса не нужно.
-            let ref_text = params.text("ref_text").unwrap_or("").trim().to_string();
-            let key = format!("{path}\x1f{ref_text}");
-            if !st.refs.contains_key(&key) {
-                let pr = st.pipeline.create_voice_clone_prompt(path, &ref_text).map_err(|e| anyhow::anyhow!("образец голоса {path}: {e}"))?;
-                st.refs.insert(key.clone(), pr);
+        let ref_text = params.text("ref_text").unwrap_or("").trim().to_string();
+        // Голос для продолжения: фразы одной озвучки и все ответы — одним
+        // голосом. Первая фраза выбирает голос (по описанию или случайно),
+        // дальше он держится по уже сказанному: у OmniVoice — референс в
+        // кодах, у VibeVoice и VoxCPM — PCM как образец. Описание голоса в
+        // промпт больше не идёт — модель читала его вслух.
+        let key = format!("{}\x1f{}", language.unwrap_or(""), instruct.unwrap_or(""));
+        match &st.engine {
+            TtsEngine::Omni(p) => {
+                let default_steps = if *dev == DeviceKind::Npu { 16 } else { 32 };
+                let gen = synaptix_tts_omnivoice::OmniVoiceGenerationConfig {
+                    num_step: steps.unwrap_or(default_steps).clamp(4, 64),
+                    guidance_scale: guidance.unwrap_or(2.0),
+                    ..Default::default()
+                };
+                let wav = if let Some(path) = ref_audio {
+                    // Образец пользователя: клон голоса с записи.
+                    let rkey = format!("{path}\x1f{ref_text}");
+                    if !st.refs.contains_key(&rkey) {
+                        let pr = p.create_voice_clone_prompt(path, &ref_text).map_err(|e| anyhow::anyhow!("образец голоса {path}: {e}"))?;
+                        st.refs.insert(rkey.clone(), Voice::Omni(pr));
+                    }
+                    let prompt = match st.refs.get(&rkey) {
+                        Some(Voice::Omni(pr)) => Some(pr),
+                        _ => None,
+                    };
+                    p.synthesize(text, prompt, language, None, speed, None, &gen).map_err(|e| anyhow::anyhow!("{e}"))?
+                } else {
+                    let mut voice = match st.voices.remove(&key) {
+                        Some(Voice::Omni(v)) => Some(v),
+                        _ => None,
+                    };
+                    let r = p.synthesize_continuing(text, &mut voice, language, instruct, speed, &gen, VOICE_REF_SEC);
+                    if let Some(v) = voice {
+                        st.voices.insert(key, Voice::Omni(v));
+                    }
+                    r.map_err(|e| anyhow::anyhow!("{e}"))?
+                };
+                Ok((wav, p.output_sample_rate() as u32))
             }
-            st.pipeline.synthesize(text, st.refs.get(&key), language, None, speed, None, &gen).map_err(|e| anyhow::anyhow!("{e}"))?
-        } else {
-            // Фразы одной озвучки и все ответы — одним голосом: первая фраза
-            // выбирает голос по описанию, дальше он держится по референсу из
-            // уже сказанного (описание в промпт больше не идёт — модель
-            // читала его вслух).
-            let key = format!("{}\x1f{}", language.unwrap_or(""), instruct.unwrap_or(""));
-            let mut voice = st.voices.remove(&key);
-            let r = st.pipeline.synthesize_continuing(text, &mut voice, language, instruct, speed, &gen, VOICE_REF_SEC);
-            if let Some(v) = voice {
-                st.voices.insert(key, v);
+            TtsEngine::Vibe(p) => {
+                use synaptix_tts_vibevoice::pipeline::VoiceSample;
+                let cfg = synaptix_tts_vibevoice::GenerationConfig {
+                    cfg_scale: guidance.unwrap_or(1.3),
+                    ddpm_inference_steps: steps.unwrap_or(20).clamp(1, 200),
+                    seed: seed.unwrap_or(0),
+                    ..Default::default()
+                };
+                let sr = p.sample_rate();
+                let script = vibe_script(text);
+                let sample = if let Some(path) = ref_audio {
+                    Some(VoiceSample::from_path(path).map_err(|e| anyhow::anyhow!("образец голоса {path}: {e}"))?)
+                } else {
+                    match st.voices.get(&key) {
+                        Some(Voice::Pcm { pcm, sr }) => Some(VoiceSample::new(pcm.clone(), *sr)),
+                        _ => None,
+                    }
+                };
+                let voices: Vec<VoiceSample> = sample.into_iter().collect();
+                let out = p.synthesize(&script, &voices, &cfg).map_err(|e| anyhow::anyhow!("{e}"))?;
+                if ref_audio.is_none() {
+                    let mut voice = st.voices.remove(&key);
+                    grow_pcm_voice(&mut voice, &out.audio, sr);
+                    if let Some(v) = voice {
+                        st.voices.insert(key, v);
+                    }
+                }
+                Ok((out.audio, sr))
             }
-            r.map_err(|e| anyhow::anyhow!("{e}"))?
-        };
-        Ok((wav, st.pipeline.output_sample_rate() as u32))
+            TtsEngine::Vox(p) => {
+                let opts = synaptix_tts_voxcpm::GenerateOptions {
+                    n_timesteps: steps.unwrap_or(10).clamp(1, 200),
+                    cfg_value: guidance.unwrap_or(2.0),
+                    seed: seed.unwrap_or(1988),
+                    ..Default::default()
+                };
+                let out = if let Some(path) = ref_audio {
+                    if ref_text.is_empty() {
+                        p.synthesize_with_reference(text, path, &opts)
+                    } else {
+                        p.synthesize_continuation(text, &ref_text, path, &opts)
+                    }
+                } else {
+                    match st.voices.get(&key) {
+                        Some(Voice::Pcm { pcm, sr }) => p.synthesize_with_reference_pcm(text, pcm, *sr, &opts),
+                        _ => p.synthesize(text, &opts),
+                    }
+                }
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+                let sr = out.sample_rate as u32;
+                if ref_audio.is_none() {
+                    let mut voice = st.voices.remove(&key);
+                    grow_pcm_voice(&mut voice, &out.pcm, sr);
+                    if let Some(v) = voice {
+                        st.voices.insert(key, v);
+                    }
+                }
+                Ok((out.pcm, sr))
+            }
+        }
     }
 
     /// Отдать видеопамять кэшей модели (KV-сессия, резидентные эксперты MoE)

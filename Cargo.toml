@@ -65,6 +65,8 @@ synaptix-kernels-npu = { path = "../synaptix/crates/synaptix-kernels-npu" }
 synaptix-asr-wav2vec2 = { path = "../synaptix/crates/synaptix-models/asr/wav2vec2" }
 synaptix-align-mfa = { path = "../synaptix/crates/synaptix-models/align/mfa" }
 synaptix-tts-omnivoice = { path = "../synaptix/crates/synaptix-models/tts/omnivoice" }
+synaptix-tts-vibevoice = { path = "../synaptix/crates/synaptix-models/tts/vibevoice" }
+synaptix-tts-voxcpm = { path = "../synaptix/crates/synaptix-models/tts/voxcpm" }
 synaptix-llm-common = { path = "../synaptix/crates/synaptix-models/llm/common" }
 syngui = { path = "../syngui/syngui", default-features = false }
 serde = { version = "1", features = ["derive"] }

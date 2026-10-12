@@ -19,6 +19,8 @@ daemon = [
     "dep:synaptix-align-mfa",
     "dep:synaptix",
     "dep:synaptix-tts-omnivoice",
+    "dep:synaptix-tts-vibevoice",
+    "dep:synaptix-tts-voxcpm",
     "dep:synaptix-llm-common",
 ]
 cuda = ["daemon", "dep:synaptix-kernels-cuda"]
@@ -45,6 +47,8 @@ synaptix-asr-wav2vec2 = { workspace = true, optional = true }
 synaptix-align-mfa = { workspace = true, optional = true }
 synaptix = { workspace = true, optional = true }
 synaptix-tts-omnivoice = { workspace = true, optional = true }
+synaptix-tts-vibevoice = { workspace = true, optional = true }
+synaptix-tts-voxcpm = { workspace = true, optional = true }
 synaptix-llm-common = { workspace = true, optional = true }
 
 [dev-dependencies]
