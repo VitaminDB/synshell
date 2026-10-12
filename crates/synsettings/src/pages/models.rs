@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use syngui::prelude::*;
 use synaptixd::{
-    Client, DefaultModel, DeviceKind, LoadState, ModelEntry, ModelKind, ModelSettings, ParamKey, ParamType, ParamValue, Params, QuantOption,
+    Client, DefaultModel, DeviceKind, LoadState, ModelEntry, ModelKind, ModelSettings, ParamKind, ParamSpec, ParamValue, Params, QuantOption,
     SettingsChange, Status,
 };
 
@@ -37,7 +37,7 @@ struct Choices {
 
 #[derive(Clone, PartialEq)]
 struct ParamState {
-    kind: ModelKind,
+    schema: Vec<ParamSpec>,
     optimal: Params,
     own: Params,
 }
@@ -110,7 +110,7 @@ fn apply(sig: RwSignal<Snapshot>, s: Snapshot) {
         if c.get_untracked().as_ref() != Some(&cfg) {
             c.set(Some(cfg));
         }
-        let st = ParamState { kind: m.kind, optimal: m.defaults.clone(), own: m.settings.params.clone() };
+        let st = ParamState { schema: m.schema.clone(), optimal: m.defaults.clone(), own: m.settings.params.clone() };
         params_rev(&m.id);
         if params_state(&m.id).as_ref() != Some(&st) {
             set_params_state(&m.id, st, true);
@@ -256,52 +256,51 @@ fn kind_icon(k: ModelKind) -> &'static str {
     }
 }
 
-fn param_label(k: ParamKey) -> String {
-    match k {
-        ParamKey::SystemPrompt => t!("Стартовый промпт"),
-        ParamKey::MaxTokens => t!("Длина ответа, токенов"),
-        ParamKey::Temperature => t!("Температура"),
-        ParamKey::TopP => "Top-p".into(),
-        ParamKey::TopK => "Top-k".into(),
-        ParamKey::MinP => "Min-p".into(),
-        ParamKey::RepeatPenalty => t!("Штраф за повторы"),
-        ParamKey::PresencePenalty => t!("Штраф за присутствие"),
-        ParamKey::Seed => t!("Зерно (seed)"),
-        ParamKey::NegativePrompt => t!("Негативный промпт"),
-        ParamKey::Steps => t!("Шаги"),
-        ParamKey::Guidance => t!("Guidance (CFG)"),
-        ParamKey::Width => t!("Ширина"),
-        ParamKey::Height => t!("Высота"),
-        ParamKey::Duration => t!("Длительность, с"),
-        ParamKey::Fps => t!("Кадров в секунду"),
-        ParamKey::Language => t!("Язык"),
-        ParamKey::Voice => t!("Голос"),
-        ParamKey::Speed => t!("Скорость речи"),
-    }
-}
-
-fn param_hint(k: ParamKey) -> String {
-    match k {
-        ParamKey::SystemPrompt => t!("Системное сообщение в начале диалога, если программа не задала своё"),
-        ParamKey::MaxTokens => t!("Предел длины одного ответа"),
-        ParamKey::Temperature => t!("Выше — разнообразнее, ниже — точнее"),
-        ParamKey::TopP => t!("Доля вероятности, из которой выбирается слово"),
-        ParamKey::TopK => t!("Из скольких самых вероятных слов выбирать; 0 — без ограничения"),
-        ParamKey::MinP => t!("Отсекать слова вероятностью ниже этой доли от лучшего"),
-        ParamKey::RepeatPenalty => t!("1 — без штрафа"),
-        ParamKey::PresencePenalty => t!("Против повторов уже сказанного; 0 — без штрафа"),
-        ParamKey::Seed => t!("−1 — случайное; одно зерно даёт повторяемый результат"),
-        ParamKey::NegativePrompt => t!("Чего не должно быть в результате"),
-        ParamKey::Steps => t!("Больше — качественнее и дольше"),
-        ParamKey::Guidance => t!("Насколько строго следовать промпту"),
-        ParamKey::Width | ParamKey::Height => t!("В пикселях"),
-        ParamKey::Duration => t!("Длина результата в секундах"),
-        ParamKey::Fps => t!("Частота кадров видео"),
-        ParamKey::Language => t!("Код языка (ru, en, kk); пусто — определять самой"),
-        ParamKey::Voice => t!("Описание голоса: пол, возраст, манера"),
-        ParamKey::Speed => t!("1 — обычная"),
-    }
-}
+const SCHEMA_TEXT: &[&str] = &[
+    n_!("Стартовый промпт"),
+    n_!("Системное сообщение в начале диалога, если программа не задала своё"),
+    n_!("Длина ответа, токенов"),
+    n_!("Предел длины одного ответа"),
+    n_!("Температура"),
+    n_!("Выше — разнообразнее, ниже — точнее"),
+    n_!("Доля вероятности, из которой выбирается слово"),
+    n_!("Из скольких самых вероятных слов выбирать; 0 — без ограничения"),
+    n_!("Отсекать слова вероятностью ниже этой доли от лучшего"),
+    n_!("Штраф за повторы"),
+    n_!("1 — без штрафа"),
+    n_!("Штраф за присутствие"),
+    n_!("Против повторов уже сказанного; 0 — без штрафа"),
+    n_!("Размышления"),
+    n_!("Модель сначала рассуждает, потом отвечает — точнее и дольше"),
+    n_!("Глубина размышлений"),
+    n_!("Сколько модель думает перед ответом"),
+    n_!("Зерно (seed)"),
+    n_!("−1 — случайное; одно зерно даёт повторяемый результат"),
+    n_!("Негативный промпт"),
+    n_!("Чего не должно быть в результате"),
+    n_!("Шаги"),
+    n_!("Больше — качественнее и дольше"),
+    n_!("Шаги диффузии"),
+    n_!("Шаги маскированного декода; авто — 16 на NPU, 32 на остальных"),
+    n_!("Насколько строго следовать промпту"),
+    n_!("Ширина"),
+    n_!("Высота"),
+    n_!("В пикселях"),
+    n_!("Длительность, с"),
+    n_!("Длина результата в секундах"),
+    n_!("Кадров в секунду"),
+    n_!("Частота кадров видео"),
+    n_!("Язык"),
+    n_!("Код языка (ru, en, kk); пусто — определять по тексту"),
+    n_!("Код языка (ru, en, kk); пусто — определять самой"),
+    n_!("Голос"),
+    n_!("Описание голоса: пол, возраст, манера"),
+    n_!("Скорость речи"),
+    n_!("1 — обычная"),
+    n_!("Текст песни"),
+    n_!("Пусто — инструментал"),
+    n_!("Куплеты и припевы"),
+];
 
 fn state_text(m: &ModelEntry) -> String {
     match m.state {
@@ -649,13 +648,13 @@ fn settings_card(sig: RwSignal<Snapshot>, id: &str, cfg: &Cfg) -> W {
     group(t!("Выполнение"), rows)
 }
 
-fn save_param(sig: RwSignal<Snapshot>, id: &str, key: ParamKey, value: Option<ParamValue>) {
+fn save_param(sig: RwSignal<Snapshot>, id: &str, key: &str, value: Option<ParamValue>) {
     let Some(mut st) = params_state(id) else { return };
+    let Some(spec) = st.schema.iter().find(|p| p.key == key).cloned() else { return };
     let mut own = st.own.clone();
-    key.set(&mut own, value);
-    if key.get(&own).is_some() && key.get(&own) == key.get(&st.optimal) {
-        key.set(&mut own, None);
-    }
+    let value = value.and_then(|v| spec.normalize(&v));
+    let value = value.filter(|v| Some(v) != st.optimal.get(key));
+    own.set(key, value);
     if own == st.own {
         return;
     }
@@ -664,19 +663,22 @@ fn save_param(sig: RwSignal<Snapshot>, id: &str, key: ParamKey, value: Option<Pa
     change(sig, id, SettingsChange { params: Some(own), ..Default::default() });
 }
 
-fn param_row(sig: RwSignal<Snapshot>, id: &str, key: ParamKey, st: &ParamState) -> W {
-    let ty = key.ty();
-    let optimal = key.get(&st.optimal).map(|v| v.display(ty));
-    let own = key.get(&st.own).map(|v| v.display(ty));
-    let mut hint = param_hint(key);
+fn param_row(sig: RwSignal<Snapshot>, id: &str, spec: &ParamSpec, st: &ParamState) -> W {
+    let _ = SCHEMA_TEXT;
+    let kind = spec.kind.clone();
+    let optimal = st.optimal.get(&spec.key).map(|v| v.display(&kind));
+    let own = st.own.get(&spec.key).map(|v| v.display(&kind));
+    let label = tl(&spec.label);
+    let mut hint = tl(&spec.hint);
     match (&own, &optimal) {
-        (Some(_), Some(o)) if !matches!(ty, ParamType::Text { multiline: true }) => hint.push_str(&t!(" · оптимальное: {v}", v = o)),
+        (Some(_), Some(o)) if !matches!(kind, ParamKind::Text { multiline: true } | ParamKind::Bool) => hint.push_str(&t!(" · оптимальное: {v}", v = o)),
         (Some(_), None) => hint.push_str(&t!(" · оптимальное: авто")),
         _ => {}
     }
     let i = id.to_string();
-    match ty {
-        ParamType::Text { multiline: true } => {
+    let key = spec.key.clone();
+    match &kind {
+        ParamKind::Text { multiline: true } => {
             let gen = Arc::new(AtomicU64::new(0));
             let edit = syngui::widgets::input::MultilineTextEdit::new()
                 .text(own.clone().or(optimal.clone()).unwrap_or_default())
@@ -687,28 +689,48 @@ fn param_row(sig: RwSignal<Snapshot>, id: &str, key: ParamKey, st: &ParamState) 
                 .soft_wrap(true)
                 .on_change(move |s: &str| {
                     let n = gen.fetch_add(1, Ordering::Relaxed) + 1;
-                    let (gen, i, s) = (gen.clone(), i.clone(), s.to_string());
+                    let (gen, i, s, key) = (gen.clone(), i.clone(), s.to_string(), key.clone());
                     std::thread::spawn(move || {
                         std::thread::sleep(std::time::Duration::from_millis(700));
                         if gen.load(Ordering::Relaxed) == n {
-                            syngui::async_runtime::run_on_main_thread(move || save_param(sig, &i, key, Some(ParamValue::Text(s))));
+                            syngui::async_runtime::run_on_main_thread(move || save_param(sig, &i, &key, Some(ParamValue::Text(s))));
                         }
                     });
                 });
-            row_wide(param_label(key), hint, edit)
+            row_wide(label, hint, edit)
         }
-        ParamType::Text { multiline: false } => {
+        ParamKind::Bool => {
+            let on = st.own.get(&spec.key).or(st.optimal.get(&spec.key)).and_then(ParamValue::as_bool).unwrap_or(false);
+            row_inline(label, hint, Toggle::with_state(on).on_change(move |v| save_param(sig, &i, &key, Some(ParamValue::Bool(v)))))
+        }
+        ParamKind::Choice { options } => {
+            let mut dd = Dropdown::new().width(200.0);
+            if optimal.is_none() {
+                dd = dd.item(DropdownItem::new("", t!("Авто")));
+            }
+            for o in options {
+                let mut l = o.clone();
+                if optimal.as_deref() == Some(o.as_str()) {
+                    l.push_str(&t!(" (оптимальное)"));
+                }
+                dd = dd.item(DropdownItem::new(o.clone(), l));
+            }
+            let cur = own.or(optimal).unwrap_or_default();
+            let dd = dd.selected(cur).on_change(move |v: &str| save_param(sig, &i, &key, (!v.is_empty()).then(|| ParamValue::Text(v.to_string()))));
+            row(label, hint, dd)
+        }
+        ParamKind::Text { multiline: false } => {
             let field = TextField::with_text(own.unwrap_or_default())
                 .placeholder(optimal.unwrap_or_else(|| t!("Авто")))
                 .width(160.0)
                 .submit_on_focus_lost(true)
                 .on_submit(move |s| {
                     let v = s.trim();
-                    save_param(sig, &i, key, (!v.is_empty()).then(|| ParamValue::Text(v.to_string())));
+                    save_param(sig, &i, &key, (!v.is_empty()).then(|| ParamValue::Text(v.to_string())));
                 });
-            row(param_label(key), hint, field)
+            row(label, hint, field)
         }
-        ParamType::Int { .. } | ParamType::Float { .. } => {
+        ParamKind::Int { .. } | ParamKind::Float { .. } => {
             let field = TextField::with_text(own.unwrap_or_default())
                 .placeholder(optimal.unwrap_or_else(|| t!("Авто")))
                 .width(140.0)
@@ -716,9 +738,9 @@ fn param_row(sig: RwSignal<Snapshot>, id: &str, key: ParamKey, st: &ParamState) 
                 .input_filter(|c: char| c.is_ascii_digit() || matches!(c, '.' | ',' | '-'))
                 .on_submit(move |s| {
                     let v = s.trim();
-                    save_param(sig, &i, key, (!v.is_empty()).then(|| ParamValue::Text(v.to_string())));
+                    save_param(sig, &i, &key, (!v.is_empty()).then(|| ParamValue::Text(v.to_string())));
                 });
-            row(param_label(key), hint, field)
+            row(label, hint, field)
         }
     }
 }
@@ -729,11 +751,10 @@ fn params_card(sig: RwSignal<Snapshot>, id: &str) -> W {
     boxed(Reactive::new(move || -> Vec<W> {
         rev.get();
         let Some(st) = params_state(&id) else { return vec![] };
-        let keys = st.kind.params();
-        if keys.is_empty() {
+        if st.schema.is_empty() {
             return vec![];
         }
-        let mut rows: Vec<W> = keys.iter().map(|k| param_row(sig, &id, *k, &st)).collect();
+        let mut rows: Vec<W> = st.schema.iter().map(|k| param_row(sig, &id, k, &st)).collect();
         let i = id.clone();
         let reset = button(t!("Сбросить к оптимальным"), move || {
             let Some(mut st) = params_state(&i) else { return };

@@ -28,13 +28,16 @@ pub struct Slot {
     pub last_used_ms: i64,
     pub error: Option<String>,
     pub disk_bytes: u64,
+    pub schema: Vec<synaptixd::ParamSpec>,
     pub optimal: Params,
 }
 
 impl Slot {
     fn new(manifest: Manifest, settings: ModelSettings) -> Self {
         let disk_bytes = manifest.disk_bytes();
-        let optimal = defaults::optimal(&manifest);
+        let schema = defaults::schema(&manifest);
+        let optimal = defaults::optimal(&schema);
+        let settings = ModelSettings { params: settings.params.sanitize(&schema), ..settings };
         Self {
             manifest,
             settings,
@@ -51,6 +54,7 @@ impl Slot {
             last_used_ms: 0,
             error: None,
             disk_bytes,
+            schema,
             optimal,
         }
     }
@@ -90,6 +94,7 @@ impl Slot {
                 })
                 .collect(),
             quant_options: defaults::quant_options(m),
+            schema: self.schema.clone(),
             defaults: self.optimal.clone(),
             runnable: runners::runnable(m.kind),
         }
@@ -212,7 +217,8 @@ impl Manager {
                 match slots.get_mut(&id) {
                     Some(s) => {
                         s.disk_bytes = m.disk_bytes();
-                        s.optimal = defaults::optimal(&m);
+                        s.schema = defaults::schema(&m);
+                        s.optimal = defaults::optimal(&s.schema);
                         s.manifest = m;
                     }
                     None => {
@@ -233,8 +239,8 @@ impl Manager {
         self.slots.lock().unwrap().get(id).map(Slot::entry).ok_or_else(|| no_model(id))
     }
 
-    pub fn params(&self, id: &str) -> Params {
-        self.slots.lock().unwrap().get(id).map(Slot::params).unwrap_or_default()
+    pub fn params(&self, id: &str, call: &Params) -> Params {
+        self.slots.lock().unwrap().get(id).map(|s| s.params().over(&call.sanitize(&s.schema))).unwrap_or_default()
     }
 
     fn auto_pick(&self, kind: ModelKind) -> Option<String> {
@@ -371,7 +377,7 @@ impl Manager {
                 }
             }
             if let Some(p) = ch.params {
-                s.settings.params = p;
+                s.settings.params = p.sanitize(&s.schema);
             }
             (s.entry(), reload)
         };

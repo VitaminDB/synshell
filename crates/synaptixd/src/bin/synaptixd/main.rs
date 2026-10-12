@@ -157,24 +157,45 @@ impl Conn {
             }
             Request::Transcribe { model, pcm, samples, sample_rate, language } => {
                 let model = mgr.resolve_id(&model, ModelKind::Asr)?;
-                let call = Params { language, ..Default::default() };
-                let language = mgr.params(&model).over(&call).language.filter(|l| !l.trim().is_empty());
+                let mut call = Params::new();
+                if let Some(v) = language {
+                    call.set("language", Some(v.into()));
+                }
+                let language = mgr.params(&model, &call).text("language").map(String::from);
                 let pcm = pcm_from(&mut fds, pcm, samples)?;
                 let t = mgr.run(&model, |m| m.transcribe(pcm.f32s(), sample_rate, language.as_deref()))?;
                 (data(t), none())
             }
-            Request::Speak { model, text, language, instruct, speed, steps } => {
+            Request::Speak { model, text, language, instruct, speed, steps, params } => {
                 let model = mgr.resolve_id(&model, ModelKind::Tts)?;
-                let call = Params { language, voice: instruct, speed, steps: steps.map(|s| s as u32), ..Default::default() };
-                let params = mgr.params(&model).over(&call);
+                let mut call = params;
+                if let Some(v) = language {
+                    call.set("language", Some(v.into()));
+                }
+                if let Some(v) = instruct {
+                    call.set("voice", Some(v.into()));
+                }
+                if let Some(v) = speed {
+                    call.set("speed", Some(v.into()));
+                }
+                if let Some(v) = steps {
+                    call.set("steps", Some((v as i64).into()));
+                }
+                let params = mgr.params(&model, &call);
                 let (wav, sr) = mgr.run(&model, |m| m.speak(&text, &params))?;
                 let fd = wire::memfd_f32("speech", &wav)?;
                 (data(synaptixd::SpeechReply { samples: wav.len(), sample_rate: sr, audio: FdRef { fd: 0 } }), vec![fd])
             }
             Request::Generate { model, messages, max_tokens, temperature, params } => {
                 let model = mgr.resolve_id(&model, ModelKind::Llm)?;
-                let legacy = Params { max_tokens: max_tokens.map(|n| n as u32), temperature, ..Default::default() };
-                let params = mgr.params(&model).over(&params).over(&legacy);
+                let mut call = params;
+                if let Some(v) = max_tokens {
+                    call.set("max_tokens", Some((v as i64).into()));
+                }
+                if let Some(v) = temperature {
+                    call.set("temperature", Some(v.into()));
+                }
+                let params = mgr.params(&model, &call);
                 let sock = self.sock.as_fd();
                 let id = self.current;
                 let send = |piece: &str| {

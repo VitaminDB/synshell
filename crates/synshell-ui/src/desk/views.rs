@@ -179,7 +179,7 @@ fn clock(ctx: ShellCtx, w: &DeskWidget, cx: &Cx) -> Box<dyn Widget> {
         })),
         "big" => Box::new(rx(move || {
             let now = ctx.now.get();
-            let size = (ch * 0.62).clamp(18.0, 120.0);
+            let size = (ch * 0.62).min(cw * if seconds { 0.2 } else { 0.3 }).clamp(18.0, 120.0);
             Box::new(
                 Column::new()
                     .gap(0.0)
@@ -187,6 +187,7 @@ fn clock(ctx: ShellCtx, w: &DeskWidget, cx: &Cx) -> Box<dyn Widget> {
                     .cross_axis_alignment(CrossAxisAlignment::Center)
                     .child(Text::new(crate::clock::format(now, fmt)).class("desk-clock-big").style("font-size", StyleValue::px(size)))
                     .child(Text::new(crate::clock::format(now, "%A, %d %B")).class("desk-date"))
+                    .style("width", StyleValue::px(cw))
                     .style("height", StyleValue::px(ch)),
             )
         })),

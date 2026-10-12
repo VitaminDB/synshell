@@ -19,8 +19,9 @@ synaptixd — системная служба, которая держит не�
 | Демон (фича `daemon`, тянет synaptix) | `crates/synaptixd/src/bin/synaptixd/` |
 | Юнит systemd | `crates/synaptixd/data/synaptixd.service` |
 | Раздел «Параметры → Нейросети» (меню → «По умолчанию», «Служба», страница каждой модели) | `crates/synsettings/src/pages/models.rs` |
-| Параметры запроса (`Params`, `ParamKey`) | `crates/synaptixd/src/params.rs` |
-| Оптимальные параметры и варианты квантования | `crates/synaptixd/src/bin/synaptixd/defaults.rs` |
+| Схема параметров моделей | `synaptix/crates/synaptix/src/facade/params.rs` |
+| Параметры в протоколе (`Params`, `ParamSpec`) | `crates/synaptixd/src/params.rs` |
+| Схема в службе, варианты квантования | `crates/synaptixd/src/bin/synaptixd/defaults.rs` |
 | Сборка пакетов моделей | `synaptix/tools/modelpkg/` |
 
 ## Модели в системе
@@ -99,26 +100,22 @@ max_loaded = 0            # 0 — без ограничения числа
 
 ## Параметры модели и модели по умолчанию
 
-У каждой модели есть параметры запроса. Значение берётся по слоям, верхний побеждает:
+Какие параметры есть у модели, решает synaptix: `synaptix::facade::params::param_schema(task, arch, id, path)`
+возвращает схему — ключ, подпись, подсказку, тип (`text`, `int`, `float`, `bool`, `choice`), пределы и значение по
+умолчанию (`None` — решает модель, «авто»). Схема своя у каждого семейства и у каждой модели:
 
-1. **оптимальные** — встроенная таблица службы (`bin/synaptixd/defaults.rs`) + `[defaults]` из `model.toml`.
-   LLM: сэмплинг из `synaptix::facade::sampling::sampling_profile` (карточка модели, `generation_config.json`;
-   Gemma 4 — 1.0 / 0.95 / top-k 64), стартовый промпт службы, 1024 токена. Картинки/видео/музыка — значения
-   synthos (SDXL 30 шагов CFG 5; FLUX 28 / 3.5; FLUX.2, Qwen-Image — шаги решает модель; LTX 1024×576 10 с 24 к/с;
-   MiniMax H3 20 шагов CFG 5 1344×768 5 с; ACE-Step turbo 8 / base 32 / sft 50 шагов, 30 с). Нет значения —
-   решает сама модель (OmniVoice: шаги 16 на NPU, 32 на остальных);
-2. **свои** — `settings.params` в `state.toml`, «Параметры → Нейросети → модель», `synaptixctl set <id> param.temperature=0.3`
-   (`=default` — убрать);
-3. **запрос** — `params` в `generate`, поля `speak`/`transcribe`: действуют только на этот запрос.
+- LLM — сэмплинг по умолчанию из карточки и `generation_config.json` (`sampling_profile`; Gemma 4 — 1.0 / 0.95 /
+  top-k 64), «Размышления», если chat-шаблон знает `enable_thinking`, «Глубина размышлений» с уровнями из шаблона
+  (Qwen3.8, Muse Glimmer);
+- FLUX — без негативного промпта, SDXL — с ним; LTX-2.3 — без шагов (дистиллированное расписание), FPS выбором;
+  ACE-Step — шаги и CFG по варианту (turbo 8 / base 32 / sft 50); OmniVoice — язык, голос, скорость, шаги, CFG.
 
-| Вид | Параметры |
-|---|---|
-| llm | `system_prompt`, `max_tokens`, `temperature`, `top_p`, `top_k`, `min_p`, `repeat_penalty`, `presence_penalty`, `seed` |
-| image | `negative_prompt`, `steps`, `guidance`, `width`, `height`, `seed` |
-| video | то же + `duration`, `fps` |
-| music | `steps`, `guidance`, `duration`, `seed` |
-| tts | `language`, `voice` (описание голоса), `speed`, `steps` |
-| asr | `language` |
+Служба отдаёт схему в `ModelEntry.schema`, оптимальные значения — в `defaults` (схема + стартовый промпт службы +
+`[defaults]` из `model.toml`). Параметры — словарь `ключ → значение` (`Params`); значение берётся по слоям, верхний
+побеждает: оптимальные → свои (`settings.params`, «Параметры → Нейросети → модель», `synaptixctl set <id>
+param.temperature=0.3`, `=default` — убрать) → запрос (`params` в `generate`/`speak`). Свои и запросные значения
+служба сверяет со схемой: неизвестные ключи отбрасываются, числа зажимаются в пределы, варианты — только из списка.
+«Параметры» рисуют форму по схеме, поэтому новый параметр модели появляется без правок оболочки.
 
 Стартовый промпт подставляется, только если в `messages` нет своего `system`. `seed = -1` — случайное.
 
@@ -137,7 +134,7 @@ max_loaded = 0            # 0 — без ограничения числа
 
 ```rust
 let mut c = synaptixd::Client::connect()?;
-let over = synaptixd::Params { temperature: Some(0.2), ..Default::default() };
+let over = synaptixd::Params::new().with("temperature", 0.2);
 c.generate_with("", messages, &over, |t| print!("{t}"))?;   // модель и прочие параметры — системные
 let chat = c.resolve(synaptixd::ModelKind::Llm)?;              // какая модель сейчас по умолчанию, её effective()
 ```

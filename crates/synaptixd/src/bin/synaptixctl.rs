@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use synaptixd::{Client, DeviceKind, ModelEntry, ModelKind, ParamKey, ParamValue, SettingsChange};
+use synaptixd::{Client, DeviceKind, ModelEntry, ModelKind, SettingsChange};
 
 fn mb(b: u64) -> String {
     format!("{} МБ", b >> 20)
@@ -90,10 +90,10 @@ fn run(args: &[String]) -> Result<(), String> {
         "params" => {
             let m = c.list().map_err(|e| e.to_string())?.into_iter().find(|m| m.id == args.get(1).cloned().unwrap_or_default()).ok_or("нет такой модели")?;
             let eff = m.effective();
-            for k in m.kind.params() {
-                let v = k.get(&eff).map(|v| v.display(k.ty())).unwrap_or_else(|| "авто".into());
-                let own = if k.get(&m.settings.params).is_some() { " *" } else { "" };
-                println!("{:<18} {v}{own}", k.id());
+            for k in &m.schema {
+                let v = eff.get(&k.key).map(|v| v.display(&k.kind)).unwrap_or_else(|| "авто".into());
+                let own = if m.settings.params.get(&k.key).is_some() { " *" } else { "" };
+                println!("{:<18} {v}{own}  — {}", k.key, k.label);
             }
         }
         "load" => print_entry(&c.load(arg(1)?).map_err(|e| e.to_string())?),
@@ -114,18 +114,11 @@ fn run(args: &[String]) -> Result<(), String> {
                     "quant" => ch.quant = Some((v != "auto").then(|| v.to_string())),
                     k if k.starts_with("param.") => {
                         let key = k.trim_start_matches("param.");
-                        let pk = ModelKind::ALL
-                            .iter()
-                            .flat_map(|kind| kind.params().iter())
-                            .find(|p| p.id() == key)
-                            .copied()
-                            .ok_or_else(|| format!("неизвестный параметр {key}"))?;
-                        let mut params = match ch.params.take() {
-                            Some(p) => p,
-                            None => c.list().map_err(|e| e.to_string())?.into_iter().find(|m| m.id == id).map(|m| m.settings.params).unwrap_or_default(),
-                        };
-                        let value: Option<ParamValue> = (v != "default").then(|| ParamValue::Text(v.to_string()));
-                        ParamKey::set(pk, &mut params, value);
+                        let entry = c.list().map_err(|e| e.to_string())?.into_iter().find(|m| m.id == id).ok_or("нет такой модели")?;
+                        let spec = entry.schema.iter().find(|p| p.key == key).ok_or_else(|| format!("у модели нет параметра {key}"))?;
+                        let mut params = ch.params.take().unwrap_or(entry.settings.params.clone());
+                        let value = if v == "default" { None } else { Some(spec.parse(v).ok_or_else(|| format!("{key}: неверное значение {v}"))?) };
+                        params.set(key, value);
                         ch.params = Some(params);
                     }
                     _ => return Err(format!("неизвестный параметр {k}")),
@@ -156,7 +149,10 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         "gen" => {
             let prompt = args[2..].join(" ");
-            let params = synaptixd::Params { max_tokens: std::env::var("GEN_MAX").ok().and_then(|v| v.parse().ok()), ..Default::default() };
+            let mut params = synaptixd::Params::new();
+            if let Some(n) = std::env::var("GEN_MAX").ok().and_then(|v| v.parse::<i64>().ok()) {
+                params = params.with("max_tokens", n);
+            }
             let model = if arg(1)? == "-" { "" } else { arg(1)? };
             let t0 = std::time::Instant::now();
             let g = c

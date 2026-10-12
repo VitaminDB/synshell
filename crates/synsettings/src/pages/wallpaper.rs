@@ -666,6 +666,24 @@ fn main_page(scr: (f32, f32), s: Sig) -> W {
                         op!["wallpaper", "desktop_icons"],
                         w.desktop_icons,
                     )];
+                    rows.push(int_row(
+                        t!("Размер клетки сетки"),
+                        t!("Компьютер, px: меньше — больше клеток; клетки растягиваются на весь экран"),
+                        op!["desktop", "cell"],
+                        c.desktop.cell as i64,
+                        48,
+                        256,
+                        8,
+                    ));
+                    rows.push(int_row(
+                        t!("Высота строки на телефоне"),
+                        t!("px; 0 — квадратные клетки; число колонок — в разделе «Телефон»"),
+                        op!["desktop", "phone_row"],
+                        c.desktop.phone_row as i64,
+                        0,
+                        256,
+                        4,
+                    ));
                     if c.widgets.is_some() {
                         rows.push(widget_reset_row());
                     }

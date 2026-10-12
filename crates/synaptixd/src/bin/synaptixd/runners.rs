@@ -202,8 +202,8 @@ impl Loaded {
         use synaptix::facade::llm::{GenerationOptions, LlmGeneration, Message};
         let Loaded::Llm(b) = self else { anyhow::bail!("модель не языковая") };
         let (llm, tok) = (&b.llm, &b.tok);
-        let max_tokens = params.max_tokens.unwrap_or(1024).max(1) as usize;
-        let system = params.system_prompt.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        let max_tokens = params.u32("max_tokens").unwrap_or(1024).max(1) as usize;
+        let system = params.text("system_prompt");
         let lead = system.filter(|_| !messages.iter().any(|m| m.role == "system")).map(Message::system);
         let msgs: Vec<Message> = lead
             .into_iter()
@@ -215,22 +215,23 @@ impl Loaded {
                 _ => Message::user(m.content.clone()),
             }))
             .collect();
-        let prompt = tok.apply_chat_template_ex_tools(&msgs, true, false, None).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let thinking = params.bool("thinking").unwrap_or(false);
+        let prompt = tok.apply_chat_template_reasoning(&msgs, true, thinking, params.text("reasoning"), None).map_err(|e| anyhow::anyhow!("{e}"))?;
         let ids = tok.encode(&prompt).map_err(|e| anyhow::anyhow!("{e}"))?;
         let opts = GenerationOptions {
             max_new_tokens: max_tokens,
             max_seq_len: ids.len() + max_tokens + 16,
-            temperature: params.temperature.unwrap_or(0.7),
-            top_k: params.top_k.unwrap_or(20) as usize,
-            top_p: params.top_p.unwrap_or(0.95),
-            min_p: params.min_p.unwrap_or(0.0),
-            seed: match params.seed {
+            temperature: params.f32("temperature").unwrap_or(0.7),
+            top_k: params.u32("top_k").unwrap_or(20) as usize,
+            top_p: params.f32("top_p").unwrap_or(0.95),
+            min_p: params.f32("min_p").unwrap_or(0.0),
+            seed: match params.i64("seed") {
                 Some(s) if s >= 0 => s as u64,
                 _ => std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1) | 1,
             },
-            repeat_penalty: params.repeat_penalty.unwrap_or(1.0),
+            repeat_penalty: params.f32("repeat_penalty").unwrap_or(1.0),
             repeat_last_n: 64,
-            presence_penalty: params.presence_penalty.unwrap_or(0.0),
+            presence_penalty: params.f32("presence_penalty").unwrap_or(0.0),
             frequency_penalty: 0.0,
         };
         let prof = std::env::var_os("SYNAPTIX_LLM_PROF").is_some();
@@ -268,14 +269,15 @@ impl Loaded {
     }
 
     pub fn speak(&self, text: &str, params: &Params) -> anyhow::Result<(Vec<f32>, u32)> {
-        let language = params.language.as_deref().filter(|s| !s.trim().is_empty());
-        let instruct = params.voice.as_deref().filter(|s| !s.trim().is_empty());
-        let (speed, steps) = (params.speed, params.steps.map(|s| s as usize));
+        let language = params.text("language");
+        let instruct = params.text("voice");
+        let (speed, steps) = (params.f32("speed"), params.u32("steps").map(|s| s as usize));
         let Loaded::Tts(p, dev) = self else { anyhow::bail!("модель не синтезирует речь") };
         let p = p.lock().unwrap_or_else(|e| e.into_inner());
         let default_steps = if *dev == DeviceKind::Npu { 16 } else { 32 };
         let gen = synaptix_tts_omnivoice::OmniVoiceGenerationConfig {
             num_step: steps.unwrap_or(default_steps).clamp(4, 64),
+            guidance_scale: params.f32("guidance").unwrap_or(2.0),
             ..Default::default()
         };
         let wav = p

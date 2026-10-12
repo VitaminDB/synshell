@@ -1,71 +1,62 @@
-use synaptixd::{DeviceKind, ModelKind, Params, QuantOption};
+use synaptix::facade::params as sp;
+use synaptixd::{DeviceKind, ModelKind, ParamKind, ParamSpec, ParamValue, Params, QuantOption};
 
 use crate::registry::Manifest;
 
 pub const SYSTEM_PROMPT: &str = "Ты — помощник, встроенный в операционную систему. Отвечай по делу, кратко и на языке пользователя.";
 
-pub fn optimal(m: &Manifest) -> Params {
-    builtin(m).over(&m.defaults)
-}
-
-fn builtin(m: &Manifest) -> Params {
-    let arch = m.arch.to_ascii_lowercase();
-    let id = m.id.to_ascii_lowercase();
-    let size = |w: u32, h: u32| Params { width: Some(w), height: Some(h), seed: Some(-1), ..Default::default() };
-    match m.kind {
-        ModelKind::Llm => llm(m),
-        ModelKind::Tts => match arch.as_str() {
-            "vibevoice" => Params { steps: Some(20), speed: Some(1.0), ..Default::default() },
-            "voxcpm" | "voxcpm2" => Params { steps: Some(10), speed: Some(1.0), ..Default::default() },
-            _ => Params { speed: Some(1.0), ..Default::default() },
-        },
-        ModelKind::Image => match arch.as_str() {
-            "sdxl" => Params { steps: Some(30), guidance: Some(5.0), ..size(1024, 1024) },
-            "flux" => Params { steps: Some(28), guidance: Some(3.5), ..size(1024, 1024) },
-            "flux2" => Params { guidance: Some(4.0), ..size(1024, 1024) },
-            "qwen_image" => Params { guidance: Some(4.0), negative_prompt: Some(" ".into()), ..size(1024, 1024) },
-            "qwen_image21" => Params { guidance: Some(1.0), ..size(1024, 1024) },
-            _ => size(1024, 1024),
-        },
-        ModelKind::Video => match arch.as_str() {
-            "minimax_h3" | "h3" => Params { steps: Some(20), guidance: Some(5.0), duration: Some(5.0), fps: Some(24.0), ..size(1344, 768) },
-            _ => Params { duration: Some(10.0), fps: Some(24.0), ..size(1024, 576) },
-        },
-        ModelKind::Music => match arch.as_str() {
-            "yue2" => Params { duration: Some(60.0), seed: Some(-1), ..Default::default() },
-            _ => {
-                let (steps, guidance) = if id.contains("turbo") {
-                    (8, 1.0)
-                } else if id.contains("sft") {
-                    (50, 7.0)
-                } else {
-                    (32, 7.0)
-                };
-                Params { steps: Some(steps), guidance: Some(guidance), duration: Some(30.0), seed: Some(-1), ..Default::default() }
-            }
-        },
-        ModelKind::Asr | ModelKind::Ctc | ModelKind::Mfa | ModelKind::Embed => Params::default(),
+fn task(k: ModelKind) -> sp::Task {
+    match k {
+        ModelKind::Llm => sp::Task::Llm,
+        ModelKind::Tts => sp::Task::Tts,
+        ModelKind::Asr => sp::Task::Asr,
+        ModelKind::Image => sp::Task::Image,
+        ModelKind::Video => sp::Task::Video,
+        ModelKind::Music => sp::Task::Music,
+        ModelKind::Ctc => sp::Task::Ctc,
+        ModelKind::Mfa => sp::Task::Mfa,
+        ModelKind::Embed => sp::Task::Embed,
     }
 }
 
-fn llm(m: &Manifest) -> Params {
-    let mut p = Params {
-        system_prompt: Some(SYSTEM_PROMPT.into()),
-        max_tokens: Some(1024),
-        seed: Some(-1),
-        ..Default::default()
-    };
-    let Some(v) = m.variants.first() else { return p };
-    let profile = synaptix::facade::sampling::sampling_profile(&m.path(v));
-    if let Some(s) = profile.pick("", false) {
-        p.temperature = Some(s.temperature);
-        p.top_p = Some(s.top_p);
-        p.top_k = Some(s.top_k as u32);
-        p.min_p = Some(s.min_p);
-        p.repeat_penalty = Some(s.repetition_penalty);
-        p.presence_penalty = Some(s.presence_penalty);
+fn value(v: sp::ParamValue) -> ParamValue {
+    match v {
+        sp::ParamValue::Bool(b) => ParamValue::Bool(b),
+        sp::ParamValue::Int(i) => ParamValue::Int(i),
+        sp::ParamValue::Float(f) => ParamValue::Float(f),
+        sp::ParamValue::Text(t) => ParamValue::Text(t),
     }
-    p
+}
+
+fn kind(k: sp::ParamKind) -> ParamKind {
+    match k {
+        sp::ParamKind::Text { multiline } => ParamKind::Text { multiline },
+        sp::ParamKind::Int { min, max, step } => ParamKind::Int { min, max, step },
+        sp::ParamKind::Float { min, max, step, decimals } => ParamKind::Float { min, max, step, decimals },
+        sp::ParamKind::Bool => ParamKind::Bool,
+        sp::ParamKind::Choice { options } => ParamKind::Choice { options },
+    }
+}
+
+pub fn schema(m: &Manifest) -> Vec<ParamSpec> {
+    let path = m.variants.first().map(|v| m.path(v));
+    let mut out: Vec<ParamSpec> = sp::param_schema(task(m.kind), &m.arch, &m.id, path.as_deref())
+        .into_iter()
+        .map(|s| ParamSpec { key: s.key.into(), label: s.label.into(), hint: s.hint.into(), kind: kind(s.kind), default: s.default.map(value) })
+        .collect();
+    for s in out.iter_mut() {
+        if s.key == "system_prompt" && s.default.is_none() {
+            s.default = Some(ParamValue::Text(SYSTEM_PROMPT.into()));
+        }
+        if let Some(v) = m.defaults.get(&s.key).and_then(|v| s.normalize(v)) {
+            s.default = Some(v);
+        }
+    }
+    out
+}
+
+pub fn optimal(schema: &[ParamSpec]) -> Params {
+    Params::from_schema(schema)
 }
 
 pub fn quant_options(m: &Manifest) -> Vec<QuantOption> {

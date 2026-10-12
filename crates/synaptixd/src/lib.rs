@@ -8,7 +8,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub use params::{ParamKey, ParamType, ParamValue, Params};
+pub use params::{ParamKind, ParamSpec, ParamValue, Params};
 pub use wire::Mapped;
 
 pub const SOCKET: &str = "/run/synaptix/synaptixd.sock";
@@ -198,6 +198,8 @@ pub struct ModelEntry {
     #[serde(default)]
     pub quant_options: Vec<QuantOption>,
     #[serde(default)]
+    pub schema: Vec<ParamSpec>,
+    #[serde(default)]
     pub defaults: Params,
     #[serde(default)]
     pub runnable: bool,
@@ -380,6 +382,8 @@ pub enum Request {
         speed: Option<f32>,
         #[serde(default)]
         steps: Option<usize>,
+        #[serde(default, skip_serializing_if = "Params::is_empty")]
+        params: Params,
     },
     Generate {
         model: String,
@@ -686,14 +690,8 @@ impl Client {
     }
 
     pub fn speak_with(&mut self, model: &str, text: &str, params: &Params) -> Result<Speech> {
-        self.speak_steps(
-            model,
-            text,
-            params.language.as_deref(),
-            params.voice.as_deref(),
-            params.speed,
-            params.steps.map(|s| s as usize),
-        )
+        let req = Request::Speak { model: model.into(), text: text.into(), language: None, instruct: None, speed: None, steps: None, params: params.clone() };
+        self.speech(req)
     }
 
     pub fn speak(&mut self, model: &str, text: &str, language: Option<&str>, instruct: Option<&str>, speed: Option<f32>) -> Result<Speech> {
@@ -716,7 +714,12 @@ impl Client {
             instruct: instruct.map(Into::into),
             speed,
             steps,
+            params: Params::default(),
         };
+        self.speech(req)
+    }
+
+    fn speech(&mut self, req: Request) -> Result<Speech> {
         let (v, fds) = self.call(req, &[])?;
         let r: SpeechReply = serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))?;
         let fd = fds
@@ -734,7 +737,10 @@ impl Client {
         temperature: Option<f32>,
         on_token: impl FnMut(&str),
     ) -> Result<Generated> {
-        let params = Params { max_tokens: Some(max_tokens as u32), temperature, ..Default::default() };
+        let mut params = Params::new().with("max_tokens", max_tokens as i64);
+        if let Some(t) = temperature {
+            params = params.with("temperature", t);
+        }
         self.generate_with(model, messages, &params, on_token)
     }
 
