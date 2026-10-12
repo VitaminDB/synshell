@@ -9,7 +9,8 @@ use synaptixd::{DefaultModel, DeviceKind, Error, ErrorCode, Event, LoadState, Mo
 use crate::config::Config;
 use crate::defaults;
 use crate::devices;
-use crate::registry::{self, Manifest, StateFile};
+use crate::library;
+use crate::registry::{self, LibraryConf, Manifest, StateFile};
 use crate::runners::{self, Loaded};
 
 pub struct Slot {
@@ -83,6 +84,8 @@ impl Slot {
             busy: self.busy > 0,
             last_used_ms: self.last_used_ms,
             error: self.error.clone(),
+            library: m.library.as_ref().map(|p| p.to_string_lossy().into_owned()),
+            components: m.components.keys().cloned().collect(),
             npu_cache: m.npu_cache_dir().is_dir(),
             variants: m
                 .variants
@@ -112,8 +115,20 @@ pub struct Manager {
     load_lock: Mutex<()>,
     subscribers: Mutex<Vec<Sender<Event>>>,
     defaults: Mutex<BTreeMap<String, String>>,
+    libraries: Mutex<(Vec<LibraryConf>, Option<String>)>,
+    jobs: Mutex<Vec<synaptixd::Job>>,
+    next_job: AtomicU64,
     evictions: AtomicU64,
     since_ms: i64,
+}
+
+fn scan_dirs(cfg: &Config, libs: &[LibraryConf]) -> Vec<(std::path::PathBuf, Option<std::path::PathBuf>)> {
+    let mut v: Vec<_> = cfg.model_dirs.iter().map(|d| (d.clone(), None)).collect();
+    for l in libs {
+        let p = std::path::PathBuf::from(&l.path);
+        v.push((library::models_dir(&p), Some(p)));
+    }
+    v
 }
 
 pub struct Lease {
@@ -175,7 +190,7 @@ impl Manager {
     pub fn new(cfg: Config) -> Arc<Self> {
         let state = StateFile::load(&cfg.state);
         let mut slots = BTreeMap::new();
-        for (id, m) in registry::scan(&cfg.model_dirs) {
+        for (id, m) in registry::scan(&scan_dirs(&cfg, &state.libraries)) {
             let settings = state.models.get(&id).cloned().unwrap_or_default();
             slots.insert(id, Slot::new(m, settings));
         }
@@ -187,6 +202,9 @@ impl Manager {
             load_lock: Mutex::new(()),
             subscribers: Mutex::new(Vec::new()),
             defaults: Mutex::new(state.defaults.clone()),
+            libraries: Mutex::new((state.libraries.clone(), state.default_library.clone())),
+            jobs: Mutex::new(Vec::new()),
+            next_job: AtomicU64::new(1),
             evictions: AtomicU64::new(0),
             since_ms: now_ms(),
         })
@@ -209,7 +227,8 @@ impl Manager {
 
     pub fn rescan(&self) {
         let state = StateFile::load(&self.cfg.state);
-        let found = registry::scan(&self.cfg.model_dirs);
+        let libs = self.libraries.lock().unwrap().0.clone();
+        let found = registry::scan(&scan_dirs(&self.cfg, &libs));
         {
             let mut slots = self.slots.lock().unwrap();
             slots.retain(|id, s| found.contains_key(id) || s.model.is_some());
@@ -399,9 +418,270 @@ impl Manager {
             }
         }
         state.defaults = self.defaults.lock().unwrap().clone();
+        {
+            let l = self.libraries.lock().unwrap();
+            state.libraries = l.0.clone();
+            state.default_library = l.1.clone();
+        }
         if let Err(e) = state.save(&self.cfg.state) {
             tracing::warn!("{}: {e}", self.cfg.state.display());
         }
+    }
+
+    pub fn libraries(&self) -> Vec<synaptixd::LibraryInfo> {
+        let (libs, def) = self.libraries.lock().unwrap().clone();
+        libs.iter()
+            .map(|l| {
+                let p = std::path::Path::new(&l.path);
+                let online = p.join(library::MARK).is_file();
+                let (total, free) = library::statvfs(p).unwrap_or((0, 0));
+                synaptixd::LibraryInfo {
+                    path: l.path.clone(),
+                    name: if l.name.is_empty() { l.path.clone() } else { l.name.clone() },
+                    online,
+                    default: def.as_deref() == Some(l.path.as_str()) || (def.is_none() && libs.first().map(|x| &x.path) == Some(&l.path)),
+                    total,
+                    free,
+                    models: if online { library::model_count(p) } else { 0 },
+                    used: if online { library::used_bytes(p) } else { 0 },
+                }
+            })
+            .collect()
+    }
+
+    pub fn add_library(&self, path: &str, name: Option<String>) -> Result<Vec<synaptixd::LibraryInfo>, Error> {
+        let path = path.trim().trim_end_matches('/').to_string();
+        if !path.starts_with('/') {
+            return Err(Error::new(ErrorCode::Failed, "нужен абсолютный путь к папке"));
+        }
+        let name = name.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| {
+            std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.clone())
+        });
+        library::ensure(std::path::Path::new(&path), &name).map_err(|e| Error::new(ErrorCode::Failed, format!("{path}: {e}")))?;
+        {
+            let mut l = self.libraries.lock().unwrap();
+            if !l.0.iter().any(|x| x.path == path) {
+                l.0.push(LibraryConf { path, name });
+            }
+        }
+        self.save_state();
+        self.rescan();
+        Ok(self.libraries())
+    }
+
+    pub fn remove_library(&self, path: &str) -> Result<Vec<synaptixd::LibraryInfo>, Error> {
+        {
+            let mut l = self.libraries.lock().unwrap();
+            l.0.retain(|x| x.path != path);
+            if l.1.as_deref() == Some(path) {
+                l.1 = None;
+            }
+        }
+        self.save_state();
+        self.rescan();
+        Ok(self.libraries())
+    }
+
+    pub fn set_default_library(&self, path: &str) -> Result<Vec<synaptixd::LibraryInfo>, Error> {
+        {
+            let mut l = self.libraries.lock().unwrap();
+            if !l.0.iter().any(|x| x.path == path) {
+                return Err(Error::new(ErrorCode::Failed, "нет такой библиотеки"));
+            }
+            l.1 = Some(path.to_string());
+        }
+        self.save_state();
+        Ok(self.libraries())
+    }
+
+    pub fn import_scan(&self, path: &str) -> synaptixd::ImportScan {
+        let plan = synaptix::facade::catalog::plan_dir(std::path::Path::new(path));
+        let installed: Vec<String> = self.slots.lock().unwrap().keys().cloned().collect();
+        synaptixd::ImportScan {
+            models: plan
+                .models
+                .into_iter()
+                .map(|m| synaptixd::ImportCandidate {
+                    installed: installed.contains(&m.id),
+                    kind: crate::defaults::kind_of(m.task),
+                    files: m
+                        .components
+                        .iter()
+                        .map(|(r, p)| (r.clone(), p.to_string_lossy().into_owned(), std::fs::metadata(p).map(|x| x.len()).unwrap_or(0)))
+                        .collect(),
+                    id: m.id,
+                    title: m.title,
+                    arch: m.arch,
+                    description: m.description,
+                })
+                .collect(),
+            skipped: plan.skipped.into_iter().map(|s| (s.path.to_string_lossy().into_owned(), s.reason)).collect(),
+        }
+    }
+
+    pub fn jobs(&self) -> Vec<synaptixd::Job> {
+        self.jobs.lock().unwrap().clone()
+    }
+
+    fn start_job(&self, title: String, total: u64) -> u64 {
+        let id = self.next_job.fetch_add(1, Ordering::Relaxed);
+        let mut jobs = self.jobs.lock().unwrap();
+        jobs.retain(|j| j.state == synaptixd::JobState::Running || jobs_recent(j));
+        jobs.push(synaptixd::Job { id, title, total, ..Default::default() });
+        id
+    }
+
+    fn job(&self, id: u64, f: impl FnOnce(&mut synaptixd::Job)) {
+        if let Some(j) = self.jobs.lock().unwrap().iter_mut().find(|j| j.id == id) {
+            f(j);
+        }
+    }
+
+    fn job_entry(&self, id: u64) -> synaptixd::Job {
+        self.jobs.lock().unwrap().iter().find(|j| j.id == id).cloned().unwrap_or_default()
+    }
+
+    fn library_path(&self, path: &str) -> Result<std::path::PathBuf, Error> {
+        let l = self.libraries.lock().unwrap();
+        let p = if path.is_empty() { l.1.clone().or_else(|| l.0.first().map(|x| x.path.clone())) } else { Some(path.to_string()) };
+        let p = p.ok_or_else(|| Error::new(ErrorCode::Failed, "нет ни одной библиотеки моделей — добавьте папку"))?;
+        if !l.0.iter().any(|x| x.path == p) {
+            return Err(Error::new(ErrorCode::Failed, format!("{p}: не библиотека моделей")));
+        }
+        let pb = std::path::PathBuf::from(&p);
+        if !pb.join(library::MARK).is_file() {
+            return Err(Error::new(ErrorCode::Failed, format!("{p}: диск не подключён")));
+        }
+        Ok(pb)
+    }
+
+    pub fn import(self: &Arc<Self>, path: &str, lib: &str, ids: Option<Vec<String>>) -> Result<synaptixd::Job, Error> {
+        let lib = self.library_path(lib)?;
+        let mut plan = synaptix::facade::catalog::plan_dir(std::path::Path::new(path)).models;
+        if let Some(ids) = &ids {
+            plan.retain(|m| ids.contains(&m.id));
+        }
+        if plan.is_empty() {
+            return Err(Error::new(ErrorCode::Failed, "нечего импортировать"));
+        }
+        let mut files: Vec<std::path::PathBuf> = plan.iter().flat_map(|m| m.components.iter().map(|(_, p)| p.clone())).collect();
+        files.sort();
+        files.dedup();
+        let total: u64 = files.iter().map(|p| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0)).sum();
+        let id = self.start_job(format!("Импорт моделей: {}", plan.len()), total);
+        let mgr = self.clone();
+        std::thread::Builder::new()
+            .name("import".into())
+            .spawn(move || {
+                let r = (|| -> anyhow::Result<()> {
+                    let mut blobs: BTreeMap<std::path::PathBuf, String> = BTreeMap::new();
+                    for f in &files {
+                        mgr.job(id, |j| j.detail = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+                        let fp = library::fingerprint(f)?;
+                        let dst = library::blobs_dir(&lib).join(format!("{fp}.syn"));
+                        let size = std::fs::metadata(f)?.len();
+                        if !library::put_file(f, &dst, &|n| mgr.job(id, |j| j.done += n))? {
+                            mgr.job(id, |j| j.done += size);
+                        }
+                        blobs.insert(f.clone(), fp);
+                    }
+                    for m in &plan {
+                        let comps: Vec<library::Component> =
+                            m.components.iter().map(|(r, p)| library::Component { role: r.clone(), blob: blobs[p].clone() }).collect();
+                        library::write_model(&lib, &m.id, &m.title, crate::defaults::kind_of(m.task), &m.arch, &m.description, &comps)?;
+                    }
+                    Ok(())
+                })();
+                mgr.finish_job(id, r);
+            })
+            .map_err(|e| Error::new(ErrorCode::Failed, e.to_string()))?;
+        Ok(self.job_entry(id))
+    }
+
+    fn finish_job(&self, id: u64, r: anyhow::Result<()>) {
+        self.job(id, |j| match &r {
+            Ok(()) => {
+                j.state = synaptixd::JobState::Done;
+                j.done = j.total;
+                j.detail.clear();
+            }
+            Err(e) => {
+                j.state = synaptixd::JobState::Failed;
+                j.error = Some(e.to_string());
+            }
+        });
+        if let Err(e) = &r {
+            tracing::warn!("задача {id}: {e}");
+        }
+        self.rescan();
+    }
+
+    fn model_location(&self, id: &str) -> Result<(std::path::PathBuf, std::path::PathBuf), Error> {
+        let slots = self.slots.lock().unwrap();
+        let s = slots.get(id).ok_or_else(|| no_model(id))?;
+        let lib = s.manifest.library.clone().ok_or_else(|| Error::new(ErrorCode::Failed, "модель установлена пакетом — её место задаёт пакет"))?;
+        Ok((lib, s.manifest.dir.clone()))
+    }
+
+    pub fn move_model(self: &Arc<Self>, id: &str, target: &str) -> Result<synaptixd::Job, Error> {
+        let (src_lib, dir) = self.model_location(id)?;
+        let dst_lib = self.library_path(target)?;
+        if dst_lib == src_lib {
+            return Err(Error::new(ErrorCode::Failed, "модель уже в этой библиотеке"));
+        }
+        let blobs = library::model_blobs(&dir);
+        let total: u64 = blobs.iter().map(|p| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0)).sum();
+        let title = self.slots.lock().unwrap().get(id).map(|s| s.manifest.title.clone()).unwrap_or_else(|| id.to_string());
+        let job = self.start_job(format!("Перенос: {title}"), total);
+        let (mgr, id) = (self.clone(), id.to_string());
+        std::thread::Builder::new()
+            .name("move".into())
+            .spawn(move || {
+                let r = (|| -> anyhow::Result<()> {
+                    for b in &blobs {
+                        let name = b.file_name().ok_or_else(|| anyhow::anyhow!("нет имени файла"))?;
+                        let size = std::fs::metadata(b)?.len();
+                        if !library::put_file(b, &library::blobs_dir(&dst_lib).join(name), &|n| mgr.job(job, |j| j.done += n))? {
+                            mgr.job(job, |j| j.done += size);
+                        }
+                    }
+                    let new_dir = library::models_dir(&dst_lib).join(&id);
+                    let tmp = library::models_dir(&dst_lib).join(format!(".{id}.new"));
+                    let _ = std::fs::remove_dir_all(&tmp);
+                    std::fs::create_dir_all(&tmp)?;
+                    for e in std::fs::read_dir(&dir)?.flatten() {
+                        let p = e.path();
+                        let meta = std::fs::symlink_metadata(&p)?;
+                        let target = tmp.join(e.file_name());
+                        if meta.file_type().is_symlink() {
+                            std::os::unix::fs::symlink(std::fs::read_link(&p)?, target)?;
+                        } else if meta.is_file() {
+                            std::fs::copy(&p, target)?;
+                        }
+                    }
+                    if new_dir.exists() {
+                        std::fs::remove_dir_all(&new_dir)?;
+                    }
+                    std::fs::rename(&tmp, &new_dir)?;
+                    mgr.unload(&id);
+                    std::fs::remove_dir_all(&dir)?;
+                    library::gc(&src_lib);
+                    Ok(())
+                })();
+                mgr.finish_job(job, r);
+            })
+            .map_err(|e| Error::new(ErrorCode::Failed, e.to_string()))?;
+        Ok(self.job_entry(job))
+    }
+
+    pub fn delete_model(&self, id: &str) -> Result<(), Error> {
+        let (lib, dir) = self.model_location(id)?;
+        self.unload(id);
+        std::fs::remove_dir_all(&dir).map_err(|e| Error::new(ErrorCode::Failed, e.to_string()))?;
+        let freed = library::gc(&lib);
+        tracing::info!("{id}: удалена, освобождено {} МБ", freed >> 20);
+        self.rescan();
+        Ok(())
     }
 
     pub fn unload(&self, id: &str) -> bool {
@@ -650,4 +930,8 @@ impl Manager {
             }
         }
     }
+}
+
+fn jobs_recent(j: &synaptixd::Job) -> bool {
+    j.state != synaptixd::JobState::Done
 }

@@ -19,6 +19,20 @@ fn task(k: ModelKind) -> sp::Task {
     }
 }
 
+pub fn kind_of(t: sp::Task) -> ModelKind {
+    match t {
+        sp::Task::Llm => ModelKind::Llm,
+        sp::Task::Tts => ModelKind::Tts,
+        sp::Task::Asr => ModelKind::Asr,
+        sp::Task::Image => ModelKind::Image,
+        sp::Task::Video => ModelKind::Video,
+        sp::Task::Music => ModelKind::Music,
+        sp::Task::Ctc => ModelKind::Ctc,
+        sp::Task::Mfa => ModelKind::Mfa,
+        sp::Task::Embed => ModelKind::Embed,
+    }
+}
+
 fn value(v: sp::ParamValue) -> ParamValue {
     match v {
         sp::ParamValue::Bool(b) => ParamValue::Bool(b),

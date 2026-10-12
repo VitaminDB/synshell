@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use syngui::prelude::*;
 use synaptixd::{
-    Client, DefaultModel, DeviceKind, LoadState, ModelEntry, ModelKind, ModelSettings, ParamKind, ParamSpec, ParamValue, Params, QuantOption,
+    Client, DefaultModel, DeviceKind, ImportScan, Job, JobState, LibraryInfo, LoadState, ModelEntry, ModelKind, ModelSettings, ParamKind, ParamSpec, ParamValue, Params, QuantOption,
     SettingsChange, Status,
 };
 
@@ -17,6 +17,8 @@ struct Snapshot {
     status: Option<Status>,
     models: Vec<ModelEntry>,
     defaults: Vec<DefaultModel>,
+    libraries: Vec<LibraryInfo>,
+    jobs: Vec<Job>,
     error: Option<String>,
 }
 
@@ -54,9 +56,9 @@ static ACTIVE: AtomicBool = AtomicBool::new(false);
 const SUB: &str = "models/";
 
 fn fetch() -> Snapshot {
-    let r = Client::connect().and_then(|mut c| Ok((c.status()?, c.list()?, c.defaults()?)));
+    let r = Client::connect().and_then(|mut c| Ok((c.status()?, c.list()?, c.defaults()?, c.libraries().unwrap_or_default(), c.jobs().unwrap_or_default())));
     match r {
-        Ok((status, models, defaults)) => Snapshot { status: Some(status), models, defaults, error: None },
+        Ok((status, models, defaults, libraries, jobs)) => Snapshot { status: Some(status), models, defaults, libraries, jobs, error: None },
         Err(e) => Snapshot { error: Some(e.to_string()), ..Default::default() },
     }
 }
@@ -420,6 +422,20 @@ fn menu(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
             nav_item(ctx, "defaults".into(), t!("Модели по умолчанию"), summary, "\u{e838}", false),
             nav_item(
                 ctx,
+                "storage".into(),
+                t!("Хранилище моделей"),
+                if snap.libraries.is_empty() {
+                    t!("Библиотек нет — только модели из пакетов")
+                } else {
+                    let used: u64 = snap.libraries.iter().map(|l| l.used).sum();
+                    let models: u32 = snap.libraries.iter().map(|l| l.models).sum();
+                    t!("Библиотек: {n} · моделей: {m} · {u}", n = snap.libraries.len(), m = models, u = mb(used))
+                },
+                "\u{E1DB}",
+                snap.libraries.iter().any(|l| !l.online) || snap.jobs.iter().any(|j| j.state == JobState::Failed),
+            ),
+            nav_item(
+                ctx,
                 "service".into(),
                 t!("Служба и память"),
                 t!("Свободно {a} из {b} · загружено моделей: {n}", a = mb(st.mem_available), b = mb(st.mem_total), n = st.loaded),
@@ -526,6 +542,183 @@ fn service_page(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
     sub_page(ctx, t!("Служба и память"), String::new(), vec![boxed(body)])
 }
 
+thread_local! {
+    static SCAN: std::cell::Cell<Option<RwSignal<Option<(String, ImportScan)>>>> = const { std::cell::Cell::new(None) };
+    static IMPORT_DIR: RefCell<String> = RefCell::new(String::new());
+    static NEW_LIB: RefCell<String> = RefCell::new(String::new());
+}
+
+fn scan_signal() -> RwSignal<Option<(String, ImportScan)>> {
+    SCAN.with(|c| match c.get() {
+        Some(s) => s,
+        None => {
+            let s = use_signal(None);
+            c.set(Some(s));
+            s
+        }
+    })
+}
+
+fn usage_bar(used: u64, total: u64) -> W {
+    let v = if total > 0 { used as f32 / total as f32 } else { 0.0 };
+    boxed(DecoratedBox::new().class("lib-bar-wrap").child(ProgressBar::with_value(v).class("lib-bar")))
+}
+
+fn kind_short(k: ModelKind) -> String {
+    group_label(k)
+}
+
+fn library_rows(sig: RwSignal<Snapshot>, libs: &[LibraryInfo]) -> Vec<W> {
+    let mut rows: Vec<W> = Vec::new();
+    for l in libs {
+        let hint = if l.online {
+            t!("{p} · моделей: {n} · занято {u} · свободно {f} из {t}", p = l.path.clone(), n = l.models, u = mb(l.used), f = mb(l.free), t = mb(l.total))
+        } else {
+            t!("{p} · диск не подключён — модели отсюда недоступны", p = l.path.clone())
+        };
+        let mut actions = Row::new().gap(8.0);
+        if l.default {
+            actions = actions.child(Text::new(t!("Основная")).class("row-value"));
+        } else {
+            let p = l.path.clone();
+            actions = actions.child(button(t!("Сделать основной"), move || {
+                let p = p.clone();
+                act(sig, move |c| c.call(synaptixd::Request::SetDefaultLibrary { path: p }, &[]).map(|_| ()));
+            }));
+        }
+        let p = l.path.clone();
+        actions = actions.child(button(t!("Убрать"), move || {
+            let p = p.clone();
+            act(sig, move |c| c.call(synaptixd::Request::RemoveLibrary { path: p }, &[]).map(|_| ()));
+        }));
+        rows.push(boxed(
+            Column::new()
+                .gap(6.0)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(row_wide(l.name.clone(), hint, actions))
+                .child(usage_bar(l.total.saturating_sub(l.free), l.total)),
+        ));
+    }
+    rows
+}
+
+fn storage_page(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
+    let scan = scan_signal();
+    let libs_view = Reactive::new(move || -> Vec<W> {
+        let snap = sig.get();
+        let mut out: Vec<W> = Vec::new();
+        if snap.libraries.is_empty() {
+            out.push(note(t!("Библиотека — папка на любом диске, где служба хранит модели. Одинаковые файлы хранятся один раз; на том же разделе btrfs импорт не тратит место.")));
+        } else {
+            out.push(group(t!("Библиотеки"), library_rows(sig, &snap.libraries)));
+        }
+        let jobs: Vec<W> = snap
+            .jobs
+            .iter()
+            .map(|j| {
+                let hint = match j.state {
+                    JobState::Running => format!("{} / {} · {}", mb(j.done), mb(j.total), j.detail),
+                    JobState::Done => t!("Готово"),
+                    JobState::Failed => t!("Ошибка: {e}", e = j.error.clone().unwrap_or_default()),
+                };
+                boxed(
+                    Column::new()
+                        .gap(6.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                        .child(row_inline(j.title.clone(), hint, Text::new("")))
+                        .child(usage_bar(j.done, j.total.max(1))),
+                )
+            })
+            .collect();
+        if !jobs.is_empty() {
+            out.push(group(t!("Задачи"), jobs));
+        }
+        vec![boxed(Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Stretch).children(out))]
+    });
+    let add_field = TextField::with_text(NEW_LIB.with(|v| v.borrow().clone()))
+        .placeholder(t!("/путь/к/папке"))
+        .width(320.0)
+        .on_change(|s| NEW_LIB.with(|v| *v.borrow_mut() = s.to_string()));
+    let add = group(
+        t!("Добавить библиотеку"),
+        vec![row_wide(
+            t!("Папка"),
+            t!("Будет создана, если её нет; лучше быстрый диск — модели читаются при загрузке"),
+            Row::new().gap(8.0).child(add_field).child(button(t!("Добавить"), move || {
+                let path = NEW_LIB.with(|v| v.borrow().trim().to_string());
+                if path.is_empty() {
+                    return;
+                }
+                act(sig, move |c| c.call(synaptixd::Request::AddLibrary { path, name: None }, &[]).map(|_| ()));
+            })),
+        )],
+    );
+    let dir_field = TextField::with_text(IMPORT_DIR.with(|v| v.borrow().clone()))
+        .placeholder(t!("Папка с файлами .syn"))
+        .width(320.0)
+        .on_change(|s| IMPORT_DIR.with(|v| *v.borrow_mut() = s.to_string()));
+    let find = button(t!("Найти модели"), move || {
+        let dir = IMPORT_DIR.with(|v| v.borrow().trim().to_string());
+        if dir.is_empty() {
+            return;
+        }
+        std::thread::spawn(move || {
+            let r = Client::connect().and_then(|mut c| c.import_scan(&dir));
+            syngui::async_runtime::run_on_main_thread(move || match r {
+                Ok(s) => scan.set(Some((dir, s))),
+                Err(e) => state::toast(e.to_string()),
+            });
+        });
+    });
+    let import_head = row_wide(t!("Импорт"), t!("Служба узнаёт модели synaptix по файлам и собирает их из частей"), Row::new().gap(8.0).child(dir_field).child(find));
+    let found = Reactive::new(move || -> Vec<W> {
+        let Some((dir, s)) = scan.get() else { return vec![] };
+        let libs = sig.get_untracked().libraries;
+        let mut rows: Vec<W> = Vec::new();
+        let fresh: Vec<String> = s.models.iter().filter(|m| !m.installed).map(|m| m.id.clone()).collect();
+        for m in &s.models {
+            let size: u64 = m.files.iter().map(|f| f.2).sum();
+            let parts = if m.files.len() > 1 { t!(" · частей: {n}", n = m.files.len()) } else { String::new() };
+            let state = if m.installed { t!("уже установлена") } else { mb(size) };
+            rows.push(row_inline(m.title.clone(), format!("{} · {}{parts}", kind_short(m.kind), m.description), Text::new(state).class("row-value")));
+        }
+        for (p, why) in &s.skipped {
+            rows.push(row_inline(p.rsplit('/').next().unwrap_or(p).to_string(), why.clone(), Text::new(t!("пропущено")).class("row-value")));
+        }
+        if !fresh.is_empty() && !libs.is_empty() {
+            let mut dd = Dropdown::new();
+            for l in &libs {
+                dd = dd.item(DropdownItem::new(l.path.clone(), l.name.clone()));
+            }
+            let def = libs.iter().find(|l| l.default).or(libs.first()).map(|l| l.path.clone()).unwrap_or_default();
+            let target = Arc::new(std::sync::Mutex::new(def.clone()));
+            let t2 = target.clone();
+            let dd = dd.selected(def).on_change(move |v: &str| *t2.lock().unwrap() = v.to_string());
+            let n = fresh.len();
+            let go = primary_button(t!("Импортировать: {n}", n = n), move || {
+                let (dir, lib, ids) = (dir.clone(), target.lock().unwrap().clone(), fresh.clone());
+                scan.set(None);
+                act(sig, move |c| c.import(&dir, &lib, Some(ids)).map(|_| ()));
+            });
+            rows.push(row(t!("В библиотеку"), "", Row::new().gap(8.0).child(dd).child(go)));
+        } else if libs.is_empty() {
+            rows.push(note(t!("Сначала добавьте библиотеку")));
+        }
+        vec![group(t!("Найдено"), rows)]
+    });
+    sub_page(
+        ctx,
+        t!("Хранилище моделей"),
+        t!("Библиотеки моделей на любых дисках: перенос между ними, импорт, общие файлы без копий."),
+        vec![
+            boxed(libs_view),
+            add,
+            group(t!("Импорт моделей"), vec![import_head]),
+            boxed(found),
+        ],
+    )
+}
+
 fn status_card(m: &ModelEntry) -> W {
     let mut rows: Vec<W> = Vec::new();
     let mut hint = kind_label(m.kind);
@@ -553,6 +746,9 @@ fn status_card(m: &ModelEntry) -> W {
     }
     if !m.license.is_empty() {
         rows.push(row_inline(t!("Лицензия"), "", Text::new(m.license.clone()).class("row-value")));
+    }
+    if !m.components.is_empty() {
+        rows.push(row_inline(t!("Части модели"), m.components.join(", "), Text::new("")));
     }
     group(t!("Состояние"), rows)
 }
@@ -771,13 +967,51 @@ fn params_card(sig: RwSignal<Snapshot>, id: &str) -> W {
     }))
 }
 
+fn location_card(sig: RwSignal<Snapshot>, m: &ModelEntry, libs: &[LibraryInfo]) -> W {
+    let mut rows: Vec<W> = Vec::new();
+    match &m.library {
+        None => rows.push(row_inline(t!("Где лежит"), t!("Установлена пакетом в системный каталог — место задаёт пакет"), Text::new(""))),
+        Some(path) => {
+            let name = libs.iter().find(|l| &l.path == path).map(|l| l.name.clone()).unwrap_or_else(|| path.clone());
+            let others: Vec<&LibraryInfo> = libs.iter().filter(|l| &l.path != path && l.online).collect();
+            if others.is_empty() {
+                rows.push(row_inline(t!("Где лежит"), path.clone(), Text::new(name).class("row-value")));
+            } else {
+                let mut dd = Dropdown::new().item(DropdownItem::new("", name));
+                for l in others {
+                    dd = dd.item(DropdownItem::new(l.path.clone(), t!("Перенести в «{n}»", n = l.name.clone())));
+                }
+                let id = m.id.clone();
+                let dd = dd.selected("").on_change(move |v: &str| {
+                    if v.is_empty() {
+                        return;
+                    }
+                    let (id, lib) = (id.clone(), v.to_string());
+                    act(sig, move |c| c.move_model(&id, &lib).map(|_| ()));
+                });
+                rows.push(row(t!("Где лежит"), path.clone(), dd));
+            }
+            let id = m.id.clone();
+            rows.push(row_inline(
+                t!("Удалить модель"),
+                t!("Файлы, которые не нужны другим моделям, будут удалены"),
+                button(t!("Удалить"), move || {
+                    let id = id.clone();
+                    act(sig, move |c| c.delete_model(&id));
+                }),
+            ));
+        }
+    }
+    group(t!("Хранение"), rows)
+}
+
 fn model_page(ctx: state::Ctx, sig: RwSignal<Snapshot>, id: String) -> W {
     let cfg = cfg_signal(&id);
     let i = id.clone();
     let status = Reactive::new(move || -> Vec<W> {
         let snap = sig.get();
         match snap.models.iter().find(|m| m.id == i) {
-            Some(m) => vec![status_card(m)],
+            Some(m) => vec![status_card(m), location_card(sig, m, &snap.libraries)],
             None => vec![note(t!("Модель {id} не найдена — возможно, пакет удалён", id = i))],
         }
     });
@@ -811,6 +1045,7 @@ pub fn models() -> W {
             AnimatedSwitcher::new(key, move || match sub.as_deref() {
                 Some("defaults") => defaults_page(ctx, sig),
                 Some("service") => service_page(ctx, sig),
+                Some("storage") => storage_page(ctx, sig),
                 Some(k) if k.starts_with("m/") => model_page(ctx, sig, k[2..].to_string()),
                 _ => menu(ctx, sig),
             })

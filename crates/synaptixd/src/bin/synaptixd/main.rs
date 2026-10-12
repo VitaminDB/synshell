@@ -1,5 +1,6 @@
 mod config;
 mod defaults;
+mod library;
 mod devices;
 mod manager;
 mod registry;
@@ -129,6 +130,46 @@ impl Conn {
                 (data(mgr.set_default(kind, model)?), none())
             }
             Request::Resolve { kind } => (data(mgr.entry(&mgr.resolve(kind)?)?), none()),
+            Request::Libraries => (data(mgr.libraries()), none()),
+            Request::Jobs => (data(mgr.jobs()), none()),
+            Request::ImportScan { path } => (data(mgr.import_scan(&path)), none()),
+            Request::AddLibrary { path, name } => {
+                if !self.admin {
+                    return Err(denied());
+                }
+                (data(mgr.add_library(&path, name)?), none())
+            }
+            Request::RemoveLibrary { path } => {
+                if !self.admin {
+                    return Err(denied());
+                }
+                (data(mgr.remove_library(&path)?), none())
+            }
+            Request::SetDefaultLibrary { path } => {
+                if !self.admin {
+                    return Err(denied());
+                }
+                (data(mgr.set_default_library(&path)?), none())
+            }
+            Request::Import { path, library, ids } => {
+                if !self.admin {
+                    return Err(denied());
+                }
+                (data(mgr.import(&path, &library, ids)?), none())
+            }
+            Request::MoveModel { model, library } => {
+                if !self.admin {
+                    return Err(denied());
+                }
+                (data(mgr.move_model(&model, &library)?), none())
+            }
+            Request::DeleteModel { model } => {
+                if !self.admin {
+                    return Err(denied());
+                }
+                mgr.delete_model(&model)?;
+                (Value::Null, none())
+            }
             Request::Ctc { model, pcm, samples, sample_rate, hidden } => {
                 let pcm = pcm_from(&mut fds, pcm, samples)?;
                 let r = mgr.run(&model, |m| m.ctc(pcm.f32s(), sample_rate, hidden))?;

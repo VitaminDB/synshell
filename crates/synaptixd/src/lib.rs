@@ -203,6 +203,61 @@ pub struct ModelEntry {
     pub defaults: Params,
     #[serde(default)]
     pub runnable: bool,
+    #[serde(default)]
+    pub library: Option<String>,
+    #[serde(default)]
+    pub components: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct LibraryInfo {
+    pub path: String,
+    pub name: String,
+    pub online: bool,
+    pub default: bool,
+    pub total: u64,
+    pub free: u64,
+    pub models: u32,
+    pub used: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct ImportCandidate {
+    pub id: String,
+    pub title: String,
+    pub kind: ModelKind,
+    pub arch: String,
+    pub description: String,
+    pub files: Vec<(String, String, u64)>,
+    pub installed: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct ImportScan {
+    pub models: Vec<ImportCandidate>,
+    pub skipped: Vec<(String, String)>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum JobState {
+    #[default]
+    Running,
+    Done,
+    Failed,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct Job {
+    pub id: u64,
+    pub title: String,
+    pub state: JobState,
+    pub done: u64,
+    pub total: u64,
+    #[serde(default)]
+    pub detail: String,
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 impl ModelEntry {
@@ -348,6 +403,35 @@ pub enum Request {
     Resolve {
         kind: ModelKind,
     },
+    Libraries,
+    AddLibrary {
+        path: String,
+        #[serde(default)]
+        name: Option<String>,
+    },
+    RemoveLibrary {
+        path: String,
+    },
+    SetDefaultLibrary {
+        path: String,
+    },
+    ImportScan {
+        path: String,
+    },
+    Import {
+        path: String,
+        library: String,
+        #[serde(default)]
+        ids: Option<Vec<String>>,
+    },
+    MoveModel {
+        model: String,
+        library: String,
+    },
+    DeleteModel {
+        model: String,
+    },
+    Jobs,
     Ctc {
         model: String,
         pcm: FdRef,
@@ -640,6 +724,30 @@ impl Client {
 
     pub fn resolve(&mut self, kind: ModelKind) -> Result<ModelEntry> {
         self.call_typed(Request::Resolve { kind })
+    }
+
+    pub fn libraries(&mut self) -> Result<Vec<LibraryInfo>> {
+        self.call_typed(Request::Libraries)
+    }
+
+    pub fn jobs(&mut self) -> Result<Vec<Job>> {
+        self.call_typed(Request::Jobs)
+    }
+
+    pub fn import_scan(&mut self, path: &str) -> Result<ImportScan> {
+        self.call_typed(Request::ImportScan { path: path.into() })
+    }
+
+    pub fn import(&mut self, path: &str, library: &str, ids: Option<Vec<String>>) -> Result<Job> {
+        self.call_typed(Request::Import { path: path.into(), library: library.into(), ids })
+    }
+
+    pub fn move_model(&mut self, model: &str, library: &str) -> Result<Job> {
+        self.call_typed(Request::MoveModel { model: model.into(), library: library.into() })
+    }
+
+    pub fn delete_model(&mut self, model: &str) -> Result<()> {
+        self.call(Request::DeleteModel { model: model.into() }, &[]).map(|_| ())
     }
 
     pub fn ctc(&mut self, model: &str, pcm: &[f32], sample_rate: u32, hidden: bool) -> Result<CtcOutput> {

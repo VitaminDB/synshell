@@ -1561,7 +1561,6 @@ impl State {
     }
 
     pub fn lock_orphaned(&self) -> bool {
-        use smithay::utils::IsAlive;
         matches!(self.core.lock, crate::state::LockState::Locked) && self.core.lock_surfaces.values().all(|s| !s.alive())
     }
 

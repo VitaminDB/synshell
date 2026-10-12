@@ -40,8 +40,12 @@ pub struct Manifest {
     pub resources: Resources,
     #[serde(default)]
     pub defaults: Params,
+    #[serde(default)]
+    pub components: BTreeMap<String, String>,
     #[serde(skip)]
     pub dir: PathBuf,
+    #[serde(skip)]
+    pub library: Option<PathBuf>,
 }
 
 impl Manifest {
@@ -87,14 +91,16 @@ impl Manifest {
     }
 
     pub fn disk_bytes(&self) -> u64 {
-        let mut seen = Vec::new();
+        let mut seen: Vec<PathBuf> = Vec::new();
         let mut total = 0;
-        for v in &self.variants {
-            if seen.contains(&v.file) {
+        let files = self.variants.iter().map(|v| self.path(v)).chain(self.components.values().map(|f| self.dir.join(f)));
+        for p in files {
+            let canon = std::fs::canonicalize(&p).unwrap_or(p.clone());
+            if seen.contains(&canon) {
                 continue;
             }
-            seen.push(v.file.clone());
-            total += std::fs::metadata(self.path(v)).map(|m| m.len()).unwrap_or(0);
+            total += std::fs::metadata(&canon).map(|m| m.len()).unwrap_or(0);
+            seen.push(canon);
         }
         total
     }
@@ -126,15 +132,16 @@ impl Manifest {
     }
 }
 
-pub fn scan(dirs: &[PathBuf]) -> BTreeMap<String, Manifest> {
+pub fn scan(dirs: &[(PathBuf, Option<PathBuf>)]) -> BTreeMap<String, Manifest> {
     let mut out = BTreeMap::new();
-    for root in dirs {
+    for (root, library) in dirs {
         let Ok(rd) = std::fs::read_dir(root) else { continue };
         let mut entries: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.join("model.toml").is_file()).collect();
         entries.sort();
         for dir in entries {
             match Manifest::load(&dir) {
-                Ok(m) => {
+                Ok(mut m) => {
+                    m.library = library.clone();
                     if !out.contains_key(&m.id) {
                         out.insert(m.id.clone(), m);
                     }
@@ -152,6 +159,17 @@ pub struct StateFile {
     pub models: BTreeMap<String, ModelSettings>,
     #[serde(default)]
     pub defaults: BTreeMap<String, String>,
+    #[serde(default)]
+    pub libraries: Vec<LibraryConf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_library: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct LibraryConf {
+    pub path: String,
+    #[serde(default)]
+    pub name: String,
 }
 
 impl StateFile {

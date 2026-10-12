@@ -768,3 +768,6 @@ Button.accent-swatch.selected {
 .da-radio { color: var(--border); icon-size: 22px; font-size: 22px; }
 /* подсветка строки при наведении — в границах скругления карточки */
 .da-card { overflow: hidden; }
+
+.lib-bar-wrap { padding: 0px 16px 14px 16px; }
+ProgressBar.lib-bar { height: 6px; border-radius: 3px; background-color: var(--pressed); accent-color: var(--accent); }
