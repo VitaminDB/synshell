@@ -23,6 +23,7 @@ mod panels;
 mod power;
 mod system;
 mod themes;
+mod voice_presets;
 mod wallpaper;
 mod windows;
 

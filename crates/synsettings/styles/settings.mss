@@ -307,6 +307,14 @@ SegmentedButton {
     font-size: 13px;
 }
 
+Chip {
+    background: var(--input-bg);
+    color: var(--fg);
+    accent-color: var(--accent);
+    border-color: var(--border);
+    font-size: 13px;
+}
+
 PopupMenu, ListView {
     background: var(--menu-bg);
     color: var(--fg);

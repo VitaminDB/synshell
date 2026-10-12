@@ -1073,7 +1073,9 @@ fn tts_test_blocking(id: &str, text: &str, gen: u64, seed: &dyn Fn(Option<u64>))
 
 /// Проверка модели синтеза речи: текст из поля читается этой моделью с
 /// заданными на странице параметрами (голос, скорость, шаги…).
-fn tts_test_card(sig: RwSignal<Snapshot>, id: &str) -> W {
+/// `presets` — модель понимает описание голоса (VoxCPM2): над проверкой
+/// готовые описания, нажатие подставляет его в «Голос» и сразу озвучивает.
+fn tts_test_card(sig: RwSignal<Snapshot>, id: &str, presets: bool) -> W {
     let text = use_signal(t!("Привет! Так звучит эта модель с заданными настройками.").to_string());
     let busy: RwSignal<Option<bool>> = use_signal(None);
     let error: RwSignal<Option<String>> = use_signal(None);
@@ -1106,6 +1108,7 @@ fn tts_test_card(sig: RwSignal<Snapshot>, id: &str) -> W {
         }
     };
     let submit = start.clone();
+    let preset_row = presets.then(|| voice_presets_row(sig, &id, start.clone()));
     let toggle = Reactive::new(move || -> Vec<W> {
         let on = busy.get().is_some();
         let start = start.clone();
@@ -1151,9 +1154,8 @@ fn tts_test_card(sig: RwSignal<Snapshot>, id: &str) -> W {
         .on_change(move |s| text.set(s.to_string()))
         .on_submit(move |_| submit())
         .class("grow");
-    group(
-        t!("Проверка"),
-        vec![row_wide(
+    let mut rows: Vec<W> = preset_row.into_iter().collect();
+    rows.push(row_wide(
             t!("Проверка озвучки"),
             t!("Текст читается этой моделью с параметрами, заданными выше, каждый раз заново — без голоса прошлых озвучек. Со случайным зерном голос каждый раз новый: понравившийся можно закрепить его зерном"),
             Column::new()
@@ -1161,7 +1163,56 @@ fn tts_test_card(sig: RwSignal<Snapshot>, id: &str) -> W {
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
                 .child(Row::new().gap(8.0).child(field).child(toggle))
                 .child(state),
-        )],
+        ));
+    group(t!("Проверка"), rows)
+}
+
+/// Готовые голоса: вкладки категорий и плитки; выбранная — та, что сейчас в «Голосе».
+fn voice_presets_row(sig: RwSignal<Snapshot>, id: &str, play: impl Fn() + Clone + Send + Sync + 'static) -> W {
+    use super::voice_presets::{category_of, CATEGORIES};
+    let current = move |id: &str| -> String {
+        params_state(id).and_then(|st| st.own.get("voice").and_then(|v| v.as_str().map(str::to_string))).unwrap_or_default()
+    };
+    let tab = use_signal(category_of(&current(id)).unwrap_or(0));
+    let tabs = SegmentedButton::new(CATEGORIES.iter().map(|c| tl(c.title)).collect::<Vec<_>>()).selected(tab.get_untracked()).on_change(move |i| tab.set(i));
+    let id = id.to_string();
+    let chips = Reactive::new(move || -> Vec<W> {
+        params_rev(&id).get();
+        let cur = current(&id);
+        let cat = &CATEGORIES[tab.get().min(CATEGORIES.len() - 1)];
+        let mut wrap = Flex::row().wrap().gap(6.0);
+        for pr in cat.presets {
+            let (id, play) = (id.clone(), play.clone());
+            wrap = wrap.child(Chip::new(tl(pr.title)).selected(cur == pr.voice).on_click(move || {
+                save_param(sig, &id, "voice", Some(ParamValue::Text(pr.voice.to_string())));
+                if let Some(st) = params_state(&id) {
+                    set_params_state(&id, st, true);
+                }
+                play();
+            }));
+        }
+        if !cur.is_empty() {
+            let id = id.clone();
+            wrap = wrap.child(Chip::new(t!("Без описания")).on_click(move || {
+                save_param(sig, &id, "voice", None);
+                if let Some(st) = params_state(&id) {
+                    set_params_state(&id, st, true);
+                }
+            }));
+        }
+        let hint = if cur.is_empty() { t!("Описание не задано — голос выбирает зерно").to_string() } else { cur };
+        vec![boxed(
+            Column::new()
+                .gap(8.0)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(wrap)
+                .child(Text::new(hint).class("mic-test-text")),
+        )]
+    });
+    row_wide(
+        t!("Готовые голоса"),
+        t!("Нажмите — описание встанет в «Голос» и сразу прозвучит фраза ниже. Голос немного меняется от зерна: понравился — закрепите зерно"),
+        Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Start).child(tabs).child(chips),
     )
 }
 
@@ -1181,7 +1232,11 @@ fn model_page(ctx: state::Ctx, sig: RwSignal<Snapshot>, id: String) -> W {
     let title = title_of(&snap, &id);
     let parent = snap.models.iter().find(|m| m.id == id).map(|m| kind_key(m.kind));
     let note_text = t!("Программы могут передать свои значения в запросе — они действуют только на этот запрос.");
-    let test = snap.models.iter().any(|m| m.id == id && m.kind == ModelKind::Tts).then(|| tts_test_card(sig, &id));
+    let test = snap
+        .models
+        .iter()
+        .find(|m| m.id == id && m.kind == ModelKind::Tts)
+        .map(|m| tts_test_card(sig, &id, m.arch.to_ascii_lowercase().starts_with("voxcpm")));
     sub_page_in(
         ctx,
         parent,
