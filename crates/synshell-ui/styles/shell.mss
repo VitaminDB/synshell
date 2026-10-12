@@ -162,14 +162,14 @@ Text {
     box-shadow: 0 10px 32px var(--shadow);
 }
 
-/* Карточка, примыкающая к панели: перетекает в неё — фон тот же, что у
- * панели (не `--menu-bg`: иначе панель и карточка разных цветов и
- * «перетекания» нет), угловые скругления у края панели вогнутые
- * (`flow-edge`), рамка у этого края снята. */
-.popup-card.popup-flow-top, .popup-card.popup-flow-bottom,
-.popup-card.popup-flow-left, .popup-card.popup-flow-right {
-    background-color: var(--panel-bg);
-}
+/* Окно апплета панели (сеть, звук, батарея, календарь…) — фон тот же, что у
+ * панели, а не `--menu-bg`: иначе панель и окно разных цветов и выглядят
+ * чужими; у плавающей панели окно висит рядом с зазором, у прижатой —
+ * примыкает. Составной селектор сильнее `.popup-card` тем. */
+.popup-card.popup-panel { background-color: var(--panel-bg); }
+
+/* Карточка, примыкающая к панели: перетекает в неё — угловые скругления у
+ * края панели вогнутые (`flow-edge`), рамка у этого края снята. */
 .popup-card.popup-flow-top {
     border-top-left-radius: 0px; border-top-right-radius: 0px;
     border-top-width: 0px;

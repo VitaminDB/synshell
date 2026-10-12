@@ -202,10 +202,15 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
         Edge::Left => "popup-flow-left",
         Edge::Right => "popup-flow-right",
     };
+    // Окно апплета панели — цветом панели (у плавающей тоже), примыкающее —
+    // ещё и перетекает в неё.
+    let on_panel = p.anchor.on_panel && !fan;
     let card_class = if fan {
         "popup-card popup-card-fan".to_string()
     } else if attached {
-        format!("popup-card {edge_class}")
+        format!("popup-card popup-panel {edge_class}")
+    } else if on_panel {
+        "popup-card popup-panel".to_string()
     } else {
         "popup-card".to_string()
     };
@@ -229,7 +234,7 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
     let launcher_desk = matches!(p.kind, PopupKind::Launcher) && !ctx.is_phone();
     // Панель со своей непрозрачностью красится поверх темы — примыкающая
     // карточка тем же цветом, иначе она другого оттенка и не перетекает.
-    let panel_bg = attached.then_some(p.anchor.panel_opacity).flatten();
+    let panel_bg = (on_panel && !is_sheet).then_some(p.anchor.panel_opacity).flatten();
     let card = crate::anim::popup_presence(&ctx, open, presence_edge, attached, move || {
         let leave_timer = leave_timer.clone();
         let mut card = DecoratedBox::new().child(content(&kind, ShellCtx::get())).class(&card_class);

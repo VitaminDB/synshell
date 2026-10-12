@@ -9,7 +9,7 @@ use syngui::t;
 /// Всплывающее окно по центру вывода с фокусом (из сочетания клавиш; на
 /// телефоне — нижний лист).
 pub fn centered() -> PopupAnchor {
-    PopupAnchor { output: None, rect: None, edge: Edge::Bottom, attached: false, panel_opacity: None }
+    PopupAnchor { output: None, rect: None, edge: Edge::Bottom, attached: false, panel_opacity: None, on_panel: false }
 }
 
 /// Якорь у кнопки апплета, если она есть на панели (меню запуска по
@@ -222,7 +222,7 @@ fn window_menu(ctx: ShellCtx, arg: &str) {
     let (lx, ly) = (lx / z, ly / z);
     ctx.popup.set(Some(crate::ctx::Popup {
         kind: PopupKind::WindowMenu(id),
-        anchor: PopupAnchor { output, rect: Some([lx, ly, 0.0, 0.0]), edge: Edge::Top, attached: false, panel_opacity: None },
+        anchor: PopupAnchor { output, rect: Some([lx, ly, 0.0, 0.0]), edge: Edge::Top, attached: false, panel_opacity: None, on_panel: false },
     }));
 }
 

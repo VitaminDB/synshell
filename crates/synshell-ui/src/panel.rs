@@ -44,7 +44,7 @@ impl PanelCtx {
                 .map(|rt| (rt.anchor_rect(r), rt.attached, rt.opacity))
                 .unwrap_or(([r.origin.x, r.origin.y, r.size.width, r.size.height], false, None))
         });
-        PopupAnchor { output: Some(self.output.clone()), rect: Some(rect), edge: self.edge, attached, panel_opacity }
+        PopupAnchor { output: Some(self.output.clone()), rect: Some(rect), edge: self.edge, attached, panel_opacity, on_panel: true }
     }
 
     /// Границы апплета номер `index` (для якоря всплывающего окна,
@@ -288,6 +288,7 @@ pub fn applet_anchor(kind: &str) -> Option<PopupAnchor> {
                         edge: rt.edge,
                         attached: rt.attached,
                         panel_opacity: rt.opacity,
+                        on_panel: true,
                     });
                 }
             }
@@ -551,6 +552,8 @@ fn start_defloat_timer(id: SurfaceId, key: u64, panel: Panel, out: OutputInfo, h
             PANELS.with(|p| {
                 if let Some(rt) = p.borrow_mut().get_mut(&key) {
                     rt.spec = s.clone();
+                    // Прилипшая панель — окна примыкают к ней, отлипшая — висят рядом.
+                    rt.attached = !panel.floating || want;
                 }
             });
             syngui_layer::reconfigure_surface(id, s);

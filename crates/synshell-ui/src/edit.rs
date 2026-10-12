@@ -330,7 +330,7 @@ fn sep() -> impl Widget {
 pub fn open_desktop_menu(ctx: &ShellCtx, output: Option<String>, p: Point) {
     ctx.open_popup(
         PopupKind::DesktopMenu,
-        crate::ctx::PopupAnchor { output, rect: Some([p.x, p.y, 0.0, 0.0]), edge: synshell_common::config::Edge::Top, attached: false, panel_opacity: None },
+        crate::ctx::PopupAnchor { output, rect: Some([p.x, p.y, 0.0, 0.0]), edge: synshell_common::config::Edge::Top, attached: false, panel_opacity: None, on_panel: false },
     );
 }
 
@@ -393,7 +393,7 @@ pub fn open_at_press(ctx: &ShellCtx, kind: PopupKind) {
     let p = syngui::input::last_press().unwrap_or(Point::new(40.0, 120.0));
     ctx.open_popup(
         kind,
-        crate::ctx::PopupAnchor { output: None, rect: Some([p.x, p.y, 0.0, 0.0]), edge: synshell_common::config::Edge::Top, attached: false, panel_opacity: None },
+        crate::ctx::PopupAnchor { output: None, rect: Some([p.x, p.y, 0.0, 0.0]), edge: synshell_common::config::Edge::Top, attached: false, panel_opacity: None, on_panel: false },
     );
 }
 
