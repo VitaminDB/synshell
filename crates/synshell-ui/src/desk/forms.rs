@@ -394,7 +394,7 @@ fn move_to_page(index: usize, page: u32) {
 /// Меню виджета (удержание, правый щелчок).
 pub fn item_menu(ctx: ShellCtx, index: usize) -> impl Widget {
     let w = items(&ctx).get(index).cloned();
-    let mut col = Column::new().gap(2.0).child(title(w.as_ref().map(label_of).unwrap_or_default()));
+    let mut col = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(title(w.as_ref().map(label_of).unwrap_or_default()));
     if let Some(w) = &w {
         match w.kind.as_str() {
             "app" => {
@@ -441,7 +441,7 @@ fn file_items(mut col: Column, p: std::path::PathBuf) -> Column {
 /// Меню файла `~/Desktop`, место которому выбрано само.
 pub fn file_menu(_ctx: ShellCtx, path: &str) -> impl Widget {
     let p = std::path::PathBuf::from(path);
-    let col = Column::new().gap(2.0).child(title(super::file_name(&p)));
+    let col = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(title(super::file_name(&p)));
     file_items(col, p).child(sep()).child(menu_item("\u{E3C9}", t!("Изменить рабочий стол"), super::start_editing))
 }
 

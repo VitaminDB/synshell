@@ -583,7 +583,7 @@ fn window_menu(ctx: ShellCtx, id: u64) -> impl Widget {
     let w = ctx.windows.get_untracked().into_iter().find(|w| w.id == id).unwrap_or_default();
     let op = move |o: WindowOp| move || crate::actions::window_op(id, o);
     let mut col = Column::new()
-        .gap(2.0)
+        .gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(Text::new(if w.title.is_empty() { w.app_id.clone() } else { w.title.clone() }).max_lines(1).class("popup-title"))
         .child(menu_item(mi::MINIMIZE, if w.minimized { t!("Восстановить") } else { t!("Свернуть") }, op(WindowOp::ToggleMinimize)))
         .child(menu_item(mi::MAXIMIZE, if w.maximized { t!("Восстановить размер") } else { t!("Развернуть") }, op(WindowOp::ToggleMaximize)))

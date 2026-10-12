@@ -343,7 +343,7 @@ fn own_panels(ctx: &ShellCtx) -> Vec<usize> {
 /// окон (телефон), обои, параметры.
 pub fn desktop_menu(ctx: ShellCtx) -> impl Widget {
     let mut col = Column::new()
-        .gap(2.0)
+        .gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(title(t!("Рабочий стол")))
         .child(menu_item("\u{E8F2}", t!("Добавить панель"), || add_panel(false)))
         .child(menu_item("\u{E30C}", t!("Добавить док"), || add_panel(true)))
@@ -402,7 +402,7 @@ pub fn open_at_press(ctx: &ShellCtx, kind: PopupKind) {
 pub fn home_app_menu(ctx: ShellCtx, app_id: &str) -> impl Widget {
     let entry = crate::xdg::app_by_id(app_id);
     let l = entry.as_ref().map(Launchable::from_entry);
-    let mut col = Column::new().gap(2.0).child(title(entry.as_ref().map(|e| e.name.clone()).unwrap_or_else(|| app_id.to_string())));
+    let mut col = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(title(entry.as_ref().map(|e| e.name.clone()).unwrap_or_else(|| app_id.to_string())));
     if let Some(l) = l {
         let l2 = l.clone();
         col = col.child(menu_item("\u{E89E}", t!("Открыть"), move || {
@@ -494,7 +494,7 @@ pub fn panel_menu(ctx: ShellCtx, panel: usize) -> impl Widget {
     let editing = ctx.editing.get_untracked() == Some(panel);
     let what = if dock { t!("док") } else { t!("панель") };
     Column::new()
-        .gap(2.0)
+        .gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(title(if dock { t!("Док") } else { t!("Панель") }))
         .child(menu_item("\u{E3C9}", if editing { t!("Закончить правку ({what})", what = what) } else { t!("Изменить {what}", what = what) }, move || {
             if editing {
@@ -526,7 +526,7 @@ pub fn panel_menu(ctx: ShellCtx, panel: usize) -> impl Widget {
 pub fn item_menu(ctx: ShellCtx, panel: usize, index: usize) -> impl Widget {
     let cfg = ctx.cfg();
     let applet = cfg.panels.get(panel).and_then(|p| p.applets.get(index)).cloned().unwrap_or_else(|| Applet::new("?"));
-    let mut col = Column::new().gap(2.0);
+    let mut col = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
     match applet.kind.as_str() {
         "app" => {
             let l = Launchable::from_applet(&applet);
@@ -589,7 +589,7 @@ pub fn item_menu(ctx: ShellCtx, panel: usize, index: usize) -> impl Widget {
 pub fn app_menu(ctx: ShellCtx, panel: usize, app_id: &str) -> impl Widget {
     let entry = crate::xdg::app_by_id(app_id);
     let name = entry.as_ref().map(|e| e.name.clone()).unwrap_or_else(|| app_id.to_string());
-    let mut col = Column::new().gap(2.0).child(title(name));
+    let mut col = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(title(name));
     col = window_items(ctx, col, app_id);
     if let Some(e) = entry {
         let l = Launchable::from_entry(&e);
