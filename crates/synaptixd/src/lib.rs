@@ -454,6 +454,10 @@ pub enum Request {
         steps: Option<usize>,
         #[serde(default, skip_serializing_if = "Params::is_empty")]
         params: Params,
+        /// Не брать и не запоминать голос прошлых озвучек: голос задают
+        /// только параметры и зерно (проверка настроек модели).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        fresh: bool,
     },
     Generate {
         model: String,
@@ -540,11 +544,15 @@ pub struct SpeechReply {
     pub samples: usize,
     pub sample_rate: u32,
     pub audio: FdRef,
+    /// Зерно, с которым синтезировано (у движков со случайным зерном).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u64>,
 }
 
 pub struct Speech {
     pub sample_rate: u32,
     pub audio: Mapped,
+    pub seed: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -780,7 +788,14 @@ impl Client {
     }
 
     pub fn speak_with(&mut self, model: &str, text: &str, params: &Params) -> Result<Speech> {
-        let req = Request::Speak { model: model.into(), text: text.into(), language: None, instruct: None, speed: None, steps: None, params: params.clone() };
+        let req = Request::Speak { model: model.into(), text: text.into(), language: None, instruct: None, speed: None, steps: None, params: params.clone(), fresh: false };
+        self.speech(req)
+    }
+
+    /// Озвучка для проверки настроек: голос не продолжает прошлые озвучки,
+    /// в ответе — зерно, которым его можно закрепить.
+    pub fn speak_fresh(&mut self, model: &str, text: &str, params: &Params) -> Result<Speech> {
+        let req = Request::Speak { model: model.into(), text: text.into(), language: None, instruct: None, speed: None, steps: None, params: params.clone(), fresh: true };
         self.speech(req)
     }
 
@@ -805,6 +820,7 @@ impl Client {
             speed,
             steps,
             params: Params::default(),
+            fresh: false,
         };
         self.speech(req)
     }
@@ -816,7 +832,7 @@ impl Client {
             .into_iter()
             .nth(r.audio.fd as usize)
             .ok_or_else(|| Error::new(ErrorCode::Protocol, "нет файла с аудио в ответе"))?;
-        Ok(Speech { sample_rate: r.sample_rate, audio: Mapped::map(fd, r.samples * 4)? })
+        Ok(Speech { sample_rate: r.sample_rate, audio: Mapped::map(fd, r.samples * 4)?, seed: r.seed })
     }
 
     pub fn generate(

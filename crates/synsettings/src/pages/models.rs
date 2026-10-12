@@ -1050,10 +1050,12 @@ static TTS_TEST: AtomicU64 = AtomicU64::new(0);
 
 /// Озвучивает текст моделью `id` с её сохранёнными параметрами и ждёт конца
 /// воспроизведения (или смены поколения / ухода со страницы моделей).
-fn tts_test_blocking(id: &str, text: &str, gen: u64) -> std::result::Result<(), String> {
+/// Зерно, которым синтезировано, отдаётся в `seed` (закрепить понравившийся голос).
+fn tts_test_blocking(id: &str, text: &str, gen: u64, seed: &dyn Fn(Option<u64>)) -> std::result::Result<(), String> {
     let current = || TTS_TEST.load(Ordering::Acquire) == gen && ACTIVE.load(Ordering::Relaxed);
     let mut c = Client::connect().map_err(|e| e.to_string())?;
-    let sp = c.speak_with(id, text, &Params::default()).map_err(|e| e.to_string())?;
+    let sp = c.speak_fresh(id, text, &Params::default()).map_err(|e| e.to_string())?;
+    seed(sp.seed);
     if !current() {
         return Ok(());
     }
@@ -1071,10 +1073,11 @@ fn tts_test_blocking(id: &str, text: &str, gen: u64) -> std::result::Result<(), 
 
 /// Проверка модели синтеза речи: текст из поля читается этой моделью с
 /// заданными на странице параметрами (голос, скорость, шаги…).
-fn tts_test_card(id: &str) -> W {
+fn tts_test_card(sig: RwSignal<Snapshot>, id: &str) -> W {
     let text = use_signal(t!("Привет! Так звучит эта модель с заданными настройками.").to_string());
     let busy: RwSignal<Option<bool>> = use_signal(None);
     let error: RwSignal<Option<String>> = use_signal(None);
+    let seed: RwSignal<Option<u64>> = use_signal(None);
     let id = id.to_string();
     let start = {
         let id = id.clone();
@@ -1088,7 +1091,8 @@ fn tts_test_card(id: &str) -> W {
             busy.set(Some(true));
             let id = id.clone();
             std::thread::spawn(move || {
-                let r = tts_test_blocking(&id, &s, gen);
+                let got = move |n: Option<u64>| run_on_main_thread(move || seed.set(n));
+                let r = tts_test_blocking(&id, &s, gen, &got);
                 run_on_main_thread(move || {
                     if TTS_TEST.load(Ordering::Acquire) != gen {
                         return;
@@ -1114,14 +1118,33 @@ fn tts_test_card(id: &str) -> W {
             }
         }))]
     });
+    let pin_id = id.clone();
     let state = Reactive::new(move || -> Vec<W> {
+        let mut out: Vec<W> = Vec::new();
         if let Some(e) = error.get() {
-            return vec![boxed(Text::new(t!("Озвучка не удалась: {e}", e = e)).class("mic-test-state pause"))];
+            out.push(boxed(Text::new(t!("Озвучка не удалась: {e}", e = e)).class("mic-test-state pause")));
+        } else if busy.get().is_some() {
+            out.push(boxed(Text::new(t!("Озвучиваю… (первый запуск загружает модель)")).class("mic-test-text")));
         }
-        if busy.get().is_some() {
-            return vec![boxed(Text::new(t!("Озвучиваю… (первый запуск загружает модель)")).class("mic-test-text"))];
+        // Зерно последней проверки: понравился голос — закрепить его.
+        if let Some(n) = seed.get() {
+            params_rev(&pin_id).get();
+            let pinned = params_state(&pin_id).and_then(|st| st.own.get("seed").cloned()) == Some(ParamValue::Int(n as i64));
+            let id = pin_id.clone();
+            let mut r = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(
+                Text::new(if pinned { t!("Зерно {n} — закреплено", n = n) } else { t!("Зерно этого голоса: {n}", n = n) }).class("mic-test-text"),
+            );
+            if !pinned {
+                r = r.child(button(t!("Закрепить"), move || {
+                    save_param(sig, &id, "seed", Some(ParamValue::Int(n as i64)));
+                    if let Some(st) = params_state(&id) {
+                        set_params_state(&id, st, true);
+                    }
+                }));
+            }
+            out.push(boxed(r));
         }
-        Vec::new()
+        out
     });
     let field = TextField::with_text(text.get_untracked())
         .placeholder(t!("Текст для проверки"))
@@ -1132,7 +1155,7 @@ fn tts_test_card(id: &str) -> W {
         t!("Проверка"),
         vec![row_wide(
             t!("Проверка озвучки"),
-            t!("Текст читается этой моделью с параметрами, заданными выше"),
+            t!("Текст читается этой моделью с параметрами, заданными выше, каждый раз заново — без голоса прошлых озвучек. Со случайным зерном голос каждый раз новый: понравившийся можно закрепить его зерном"),
             Column::new()
                 .gap(6.0)
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
@@ -1158,7 +1181,7 @@ fn model_page(ctx: state::Ctx, sig: RwSignal<Snapshot>, id: String) -> W {
     let title = title_of(&snap, &id);
     let parent = snap.models.iter().find(|m| m.id == id).map(|m| kind_key(m.kind));
     let note_text = t!("Программы могут передать свои значения в запросе — они действуют только на этот запрос.");
-    let test = snap.models.iter().any(|m| m.id == id && m.kind == ModelKind::Tts).then(|| tts_test_card(&id));
+    let test = snap.models.iter().any(|m| m.id == id && m.kind == ModelKind::Tts).then(|| tts_test_card(sig, &id));
     sub_page_in(
         ctx,
         parent,

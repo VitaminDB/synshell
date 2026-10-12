@@ -415,7 +415,9 @@ impl Loaded {
         Ok(synaptixd::Generated { text, tokens, thinking: reasoning.into_inner(), tool_calls, prompt_tokens: ids.len(), context: window })
     }
 
-    pub fn speak(&self, text: &str, params: &Params) -> anyhow::Result<(Vec<f32>, u32)> {
+    /// `fresh` — проверка настроек: голос прошлых озвучек не берётся и не
+    /// запоминается. Возвращает и зерно (у движков, которые его используют).
+    pub fn speak(&self, text: &str, params: &Params, fresh: bool) -> anyhow::Result<(Vec<f32>, u32, Option<u64>)> {
         let language = params.text("language");
         let instruct = params.text("voice");
         let (speed, steps) = (params.f32("speed"), params.u32("steps").map(|s| s as usize));
@@ -426,17 +428,20 @@ impl Loaded {
         let guidance = params.f32("guidance");
         // Зерно: заданное — повторяемый результат; иначе случайное (с одним и
         // тем же зерном отдельные сочетания текста и образца дают брак).
-        let seed = params.i64("seed").filter(|s| *s >= 0).map(|s| s as u64).unwrap_or_else(|| {
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1) | 1
+        // Случайное — в пределах поля «Зерно», чтобы его можно было закрепить.
+        let pinned = params.i64("seed").filter(|s| *s >= 0).map(|s| s as u64);
+        let seed = pinned.unwrap_or_else(|| {
+            let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(1);
+            ((n ^ (n >> 32)) as u32 | 1) as u64
         });
         let ref_audio = params.text("ref_audio").map(str::trim).filter(|s| !s.is_empty());
         let ref_text = params.text("ref_text").unwrap_or("").trim().to_string();
         // Голос для продолжения: фразы одной озвучки и все ответы — одним
         // голосом. Первая фраза выбирает голос (по описанию или случайно),
         // дальше он держится по уже сказанному: у OmniVoice — референс в
-        // кодах, у VibeVoice и VoxCPM — PCM как образец. Описание голоса в
-        // промпт больше не идёт — модель читала его вслух.
-        let key = format!("{}\x1f{}", language.unwrap_or(""), instruct.unwrap_or(""));
+        // кодах, у VibeVoice и VoxCPM — PCM как образец. Другое закреплённое
+        // зерно — другой голос, поэтому оно тоже в ключе.
+        let key = format!("{}\x1f{}\x1f{}", language.unwrap_or(""), instruct.unwrap_or(""), pinned.map(|s| s.to_string()).unwrap_or_default());
         match &st.engine {
             TtsEngine::Omni(p) => {
                 let default_steps = if *dev == DeviceKind::Npu { 16 } else { 32 };
@@ -459,16 +464,20 @@ impl Loaded {
                     p.synthesize(text, prompt, language, None, speed, None, &gen).map_err(|e| anyhow::anyhow!("{e}"))?
                 } else {
                     let mut voice = match st.voices.remove(&key) {
-                        Some(Voice::Omni(v)) => Some(v),
-                        _ => None,
+                        Some(Voice::Omni(v)) if !fresh => Some(v),
+                        Some(v) => {
+                            st.voices.insert(key.clone(), v);
+                            None
+                        }
+                        None => None,
                     };
                     let r = p.synthesize_continuing(text, &mut voice, language, instruct, speed, &gen, VOICE_REF_SEC);
-                    if let Some(v) = voice {
+                    if let Some(v) = voice.filter(|_| !fresh) {
                         st.voices.insert(key, Voice::Omni(v));
                     }
                     r.map_err(|e| anyhow::anyhow!("{e}"))?
                 };
-                Ok((wav, p.output_sample_rate() as u32))
+                Ok((wav, p.output_sample_rate() as u32, None))
             }
             TtsEngine::Vibe(p) => {
                 use synaptix_tts_vibevoice::pipeline::VoiceSample;
@@ -483,7 +492,7 @@ impl Loaded {
                 let sample = if let Some(path) = ref_audio {
                     Some(VoiceSample::from_path(path).map_err(|e| anyhow::anyhow!("образец голоса {path}: {e}"))?)
                 } else {
-                    match st.voices.get(&key) {
+                    match st.voices.get(&key).filter(|_| !fresh) {
                         Some(Voice::Pcm { pcm, sr }) => Some(VoiceSample::new(pcm.clone(), *sr)),
                         _ => None,
                     }
@@ -497,14 +506,14 @@ impl Loaded {
                     out.audio.len() as f32 / sr as f32,
                     if out.reached_max { ", обрыв по пределу длины" } else { "" }
                 );
-                if ref_audio.is_none() {
+                if ref_audio.is_none() && !fresh {
                     let mut voice = st.voices.remove(&key);
                     grow_pcm_voice(&mut voice, &out.audio, sr);
                     if let Some(v) = voice {
                         st.voices.insert(key, v);
                     }
                 }
-                Ok((out.audio, sr))
+                Ok((out.audio, sr, Some(seed)))
             }
             TtsEngine::Vox(p) => {
                 let opts = synaptix_tts_voxcpm::GenerateOptions {
@@ -513,28 +522,35 @@ impl Loaded {
                     seed,
                     ..Default::default()
                 };
+                // Описание голоса VoxCPM2 берёт скобками перед текстом: без
+                // образца — голос по описанию (voice design), с образцом —
+                // манера поверх его тембра. С текстом образца не сочетается.
+                let designed = instruct.map(str::trim).filter(|d| !d.is_empty()).map(|d| format!("({d}){text}"));
+                let styled = designed.as_deref().unwrap_or(text);
                 let out = if let Some(path) = ref_audio {
                     if ref_text.is_empty() {
-                        p.synthesize_with_reference(text, path, &opts)
+                        p.synthesize_with_reference(styled, path, &opts)
                     } else {
-                        p.synthesize_continuation(text, &ref_text, path, &opts)
+                        // Полный клон: та же запись и образцом тембра, и
+                        // началом, которое модель продолжает.
+                        p.synthesize_combined(text, &ref_text, path, path, &opts)
                     }
                 } else {
-                    match st.voices.get(&key) {
-                        Some(Voice::Pcm { pcm, sr }) => p.synthesize_with_reference_pcm(text, pcm, *sr, &opts),
-                        _ => p.synthesize(text, &opts),
+                    match st.voices.get(&key).filter(|_| !fresh) {
+                        Some(Voice::Pcm { pcm, sr }) => p.synthesize_with_reference_pcm(styled, pcm, *sr, &opts),
+                        _ => p.synthesize(styled, &opts),
                     }
                 }
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
                 let sr = out.sample_rate as u32;
-                if ref_audio.is_none() {
+                if ref_audio.is_none() && !fresh {
                     let mut voice = st.voices.remove(&key);
                     grow_pcm_voice(&mut voice, &out.pcm, sr);
                     if let Some(v) = voice {
                         st.voices.insert(key, v);
                     }
                 }
-                Ok((out.pcm, sr))
+                Ok((out.pcm, sr, Some(seed)))
             }
         }
     }

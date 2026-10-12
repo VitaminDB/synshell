@@ -193,7 +193,7 @@ impl Conn {
                 let t = mgr.run(&model, |m| m.transcribe(pcm.f32s(), sample_rate, language.as_deref()))?;
                 (data(t), none())
             }
-            Request::Speak { model, text, language, instruct, speed, steps, params } => {
+            Request::Speak { model, text, language, instruct, speed, steps, params, fresh } => {
                 let model = mgr.resolve_id(&model, ModelKind::Tts)?;
                 let mut call = params;
                 if let Some(v) = language {
@@ -209,9 +209,9 @@ impl Conn {
                     call.set("steps", Some((v as i64).into()));
                 }
                 let params = mgr.params(&model, &call);
-                let (wav, sr) = mgr.run(&model, |m| m.speak(&text, &params))?;
+                let (wav, sr, seed) = mgr.run(&model, |m| m.speak(&text, &params, fresh))?;
                 let fd = wire::memfd_f32("speech", &wav)?;
-                (data(synaptixd::SpeechReply { samples: wav.len(), sample_rate: sr, audio: FdRef { fd: 0 } }), vec![fd])
+                (data(synaptixd::SpeechReply { samples: wav.len(), sample_rate: sr, audio: FdRef { fd: 0 }, seed }), vec![fd])
             }
             Request::Generate { model, messages, max_tokens, temperature, params, tools } => {
                 let model = mgr.resolve_id(&model, ModelKind::Llm)?;
