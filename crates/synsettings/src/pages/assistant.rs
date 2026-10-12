@@ -69,6 +69,50 @@ pub fn assistant() -> W {
             })),
         ],
     );
+    let mics: RwSignal<Option<Vec<String>>> = use_signal(None);
+    std::thread::spawn(move || {
+        let list = synassist_voice::list_microphones();
+        run_on_main_thread(move || mics.set(Some(list)));
+    });
+    let current_mic = a.microphone.clone();
+    let mic_pick = Reactive::new(move || -> Vec<W> {
+        let mut v = vec![(String::new(), t!("Системный по умолчанию").to_string())];
+        if let Some(list) = mics.get() {
+            v.extend(list.into_iter().map(|d| (d.clone(), d)));
+        }
+        if !current_mic.is_empty() && !v.iter().any(|(id, _)| *id == current_mic) {
+            v.push((current_mic.clone(), current_mic.clone()));
+        }
+        vec![boxed(choice_owned(op!["assistant", "microphone"], &current_mic, v, 280.0))]
+    });
+    let voice_note = note(t!("Голосовой разговор и диктовка используют модели распознавания речи и озвучки по умолчанию из «Нейросети → Модели по умолчанию». В окне ассистента — кнопка «Голосом» (Ctrl+Shift+M), диктовка — микрофон в строке ввода (Ctrl+M); в быстрой панели Super+A — те же кнопки."));
+    let voice = group(
+        &t!("Голос"),
+        vec![
+            switch_row(
+                t!("Озвучивать ответы"),
+                t!("Читать вслух ответы и в текстовом чате; в голосовом разговоре ответы озвучиваются всегда"),
+                op!["assistant", "speak_answers"],
+                a.speak_answers,
+            ),
+            choice_row(
+                t!("Язык речи"),
+                t!("Язык распознавания и озвучки"),
+                op!["assistant", "voice_language"],
+                &a.voice_language,
+                &[("", t!("Автоматически")), ("ru", t!("Русский")), ("en", t!("Английский")), ("kk", t!("Казахский"))],
+            ),
+            text_row(
+                t!("Голос"),
+                t!("Описание голоса для модели озвучки, например «спокойный женский голос»; пусто — голос модели по умолчанию"),
+                op!["assistant", "voice"],
+                &a.voice,
+                t!("по умолчанию"),
+            ),
+            slider_row(t!("Скорость речи"), t!("1,0 — обычная"), op!["assistant", "voice_speed"], a.voice_speed as f64, 0.5, 2.0, 0.1, 1),
+            row_inline(t!("Микрофон"), t!("Устройство записи для голосового режима"), mic_pick),
+        ],
+    );
     let rows: Vec<W> = TOOLS
         .iter()
         .map(|(id, title, hint)| {
@@ -91,6 +135,6 @@ pub fn assistant() -> W {
     page(
         t!("Ассистент"),
         t!("Помощник на нейросетях этого устройства: отвечает, управляет системой, работает с файлами, ищет в интернете."),
-        vec![general, group(&t!("Инструменты"), rows)],
+        vec![general, voice, voice_note, group(&t!("Инструменты"), rows)],
     )
 }

@@ -6952,14 +6952,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "synassist-voice"
+version = "0.1.42"
+dependencies = [
+ "synaptixd",
+ "syngui",
+ "synshell-common",
+]
+
+[[package]]
 name = "synassistant"
 version = "0.1.42"
 dependencies = [
  "serde_json",
  "synaptixd",
  "synassist",
+ "synassist-voice",
  "syngui",
  "synshell-common",
+ "synsystem",
  "tracing",
  "tracing-subscriber",
 ]
@@ -7312,6 +7323,7 @@ dependencies = [
  "serde",
  "serde_json",
  "synaptixd",
+ "synassist-voice",
  "syngui",
  "synmodem",
  "synshell-common",
@@ -7358,6 +7370,7 @@ dependencies = [
  "serde",
  "serde_json",
  "synassist",
+ "synassist-voice",
  "syngui",
  "syngui-layer",
  "synmodem",

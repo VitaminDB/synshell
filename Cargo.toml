@@ -35,6 +35,7 @@ members = [
     "crates/syngamepad",
     "crates/synaptixd",
     "crates/synassist",
+    "crates/synassist-voice",
     "crates/synassistant",
 ]
 
@@ -49,6 +50,7 @@ license = "MIT OR Apache-2.0"
 synshell-common = { path = "crates/synshell-common" }
 synshell-tr = { path = "crates/synshell-tr" }
 synassist = { path = "crates/synassist" }
+synassist-voice = { path = "crates/synassist-voice" }
 syngui-layer = { path = "crates/syngui-layer" }
 synsystem = { path = "crates/synsystem" }
 synmodem = { path = "crates/synmodem" }

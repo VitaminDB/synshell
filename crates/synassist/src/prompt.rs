@@ -11,6 +11,14 @@ fn user_name() -> String {
     std::env::var("USER").unwrap_or_default()
 }
 
+pub const VOICE_NOTE: &str = "\nРежим голосового общения: твой ответ будет озвучен вслух. Отвечай коротко и разговорно, одной-тремя фразами; без markdown, списков, таблиц, кода и ссылок; числа и единицы — словами, как в живой речи.\n";
+
+pub fn build_voice(tools: &[Arc<dyn Tool>]) -> String {
+    let mut s = build(tools);
+    s.push_str(VOICE_NOTE);
+    s
+}
+
 pub fn build(tools: &[Arc<dyn Tool>]) -> String {
     let home = std::env::var("HOME").unwrap_or_default();
     let mut groups: Vec<&str> = tools.iter().map(|t| t.group()).collect();

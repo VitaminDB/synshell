@@ -90,8 +90,10 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind, quant: Op
             use synaptix::facade::asr::{AsrConfig, AsrModelKind, ComputeDType, Transcriber};
             let device = devices::device(dev);
             let compute = if dev == DeviceKind::Cpu { ComputeDType::F32 } else { ComputeDType::F16 };
+            let stem = path.file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
+            let kind = if arch.to_lowercase().contains("gigaam") || stem.contains("gigaam") { AsrModelKind::GigaAm } else { AsrModelKind::Whisper };
             let t = Transcriber::load(AsrConfig {
-                kind: AsrModelKind::Whisper,
+                kind,
                 model_path: path.to_path_buf(),
                 language: None,
                 device,

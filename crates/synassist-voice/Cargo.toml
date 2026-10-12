@@ -1,0 +1,12 @@
+[package]
+name = "synassist-voice"
+description = "Голосовой режим ассистента synshell: микрофон, детектор речи, распознавание и озвучка через службу нейросетей"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+syngui = { workspace = true, features = ["audio"] }
+synaptixd.workspace = true
+synshell-common.workspace = true

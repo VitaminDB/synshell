@@ -1535,13 +1535,39 @@ TextField {
 .mp-hint { font-size: 12px; color: var(--muted); }
 .mp-btn { padding: 5px 12px; font-size: 13px; }
 
-.assist-icon { icon-size: 20px; icon-color: var(--accent); }
+.assist-box { padding: 6px 8px 6px 10px; border-radius: 14px; }
+.assist-brand { width: 30px; height: 30px; border-radius: 10px; background: linear-gradient(135deg, var(--accent), #8b5cf6); justify-content: center; align-items: center; }
+.assist-brand-ic { icon-size: 18px; icon-color: #ffffff; }
+.assist-mic { padding: 7px; border-radius: 999px; background-color: #00000000; icon-size: 20px; icon-color: var(--muted); }
+.assist-mic:hover { background-color: var(--hover); icon-color: var(--fg); }
+.assist-mic.on { background-color: var(--danger); icon-color: #ffffff; }
+.assist-mic.send { background-color: var(--accent); icon-color: var(--accent-fg); }
+.assist-mic.stop { background-color: var(--danger); icon-color: #ffffff; }
+.assist-mic.voice { background-color: var(--accent-soft); icon-color: var(--accent); }
 .assist-hint { font-size: 12px; color: var(--muted); padding: 2px 6px; }
-.assist-typing { font-size: 20px; color: var(--muted); padding: 0px 6px; }
+.assist-hint.dim { opacity: 0.7; }
+.assist-spin { color: var(--accent); }
 .assist-tool-icon { icon-size: 16px; icon-color: var(--accent); }
 .assist-tool { font-size: 13px; color: var(--fg); }
+.assist-avatar { width: 26px; height: 26px; border-radius: 999px; background: linear-gradient(135deg, var(--accent), #22d3ee); justify-content: center; align-items: center; }
+.assist-avatar-ic { icon-size: 16px; icon-color: #ffffff; }
 .assist-scroll { max-height: 420px; }
 .assist-answer { font-size: 14px; color: var(--fg); padding: 2px 6px; }
+.assist-act { padding: 8px; border-radius: 999px; background-color: var(--surface-alt); icon-size: 20px; icon-color: var(--fg); }
+.assist-act:hover { background-color: var(--hover); }
+.assist-act.small { padding: 5px; icon-size: 16px; icon-color: var(--muted); background-color: #00000000; }
+.assist-act.off { background-color: var(--accent-soft); icon-color: var(--danger); }
+.assist-act.end { background-color: var(--danger); icon-color: #ffffff; }
 .assist-confirm { padding: 10px 12px; border-radius: var(--radius-sm); background-color: var(--surface-alt); border: 1px solid var(--accent); }
 .assist-confirm-title { font-size: 13px; font-weight: 600; color: var(--fg); }
 .assist-confirm-sum { font-size: 12px; color: var(--fg); }
+.assist-voice { padding: 4px 0px; }
+.assist-aura-wrap { width: 140px; height: 140px; }
+.assist-aura { accent-color: var(--accent); }
+.assist-center { width: 56px; height: 56px; padding: 0px; border-radius: 999px; background-color: #00000000; icon-size: 28px; icon-color: var(--accent-fg); justify-content: center; align-items: center; }
+.assist-center:hover { background-color: #ffffff22; }
+.assist-voice-status { font-size: 14px; font-weight: 600; color: var(--fg); text-align: center; }
+.assist-voice-body { width: 100%; }
+.assist-heard { padding: 8px 12px; border-radius: 14px; background: linear-gradient(135deg, var(--accent), #8b5cf6); max-width: 480px; }
+.assist-heard-text { font-size: 13px; color: var(--accent-fg); }
+.assist-voice-scroll { max-height: 220px; }

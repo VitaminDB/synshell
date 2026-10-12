@@ -1567,11 +1567,31 @@ pub struct Assistant {
     pub auto_approve: bool,
     pub disabled_tools: Vec<String>,
     pub autocompact: bool,
+    /// Озвучивать ответы и в текстовом чате (в голосовом режиме — всегда).
+    pub speak_answers: bool,
+    /// Язык распознавания и озвучки (`ru`, `en`, `kk`…); пусто — автоматически.
+    pub voice_language: String,
+    /// Описание голоса для озвучки (инструкция модели TTS); пусто — голос модели по умолчанию.
+    pub voice: String,
+    /// Скорость речи, 1.0 — обычная.
+    pub voice_speed: f32,
+    /// Микрофон (имя устройства); пусто — системный по умолчанию.
+    pub microphone: String,
 }
 
 impl Default for Assistant {
     fn default() -> Self {
-        Self { enabled: true, auto_approve: false, disabled_tools: Vec::new(), autocompact: true }
+        Self {
+            enabled: true,
+            auto_approve: false,
+            disabled_tools: Vec::new(),
+            autocompact: true,
+            speak_answers: false,
+            voice_language: String::new(),
+            voice: String::new(),
+            voice_speed: 1.0,
+            microphone: String::new(),
+        }
     }
 }
 
