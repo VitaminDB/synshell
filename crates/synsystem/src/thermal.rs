@@ -108,7 +108,34 @@ fn hwmon_temp(sys: &Sys, dir: &str, idx: &str, file: &str) -> Option<f32> {
     sys.read_num::<f64>(format!("{dir}/temp{idx}_{file}")).map(|v| (v / 1000.0) as f32)
 }
 
+const SOCS: &[(&str, &str)] = &[
+    ("SM8750", "Snapdragon 8 Elite"),
+    ("SM8650", "Snapdragon 8 Gen 3"),
+    ("SM8550", "Snapdragon 8 Gen 2"),
+    ("SM8475", "Snapdragon 8+ Gen 1"),
+    ("SM8450", "Snapdragon 8 Gen 1"),
+    ("SM8350", "Snapdragon 888"),
+    ("SM8250", "Snapdragon 865"),
+    ("SM8150", "Snapdragon 855"),
+    ("SDM845", "Snapdragon 845"),
+    ("SM7475", "Snapdragon 7+ Gen 2"),
+    ("SM7325", "Snapdragon 778G"),
+    ("SM7250", "Snapdragon 765G"),
+    ("SM7150", "Snapdragon 730"),
+    ("SM6375", "Snapdragon 695"),
+    ("SDM660", "Snapdragon 660"),
+    ("SDM450", "Snapdragon 450"),
+    ("MSM8953", "Snapdragon 625"),
+    ("MSM8917", "Snapdragon 425"),
+    ("MSM8916", "Snapdragon 410"),
+];
+
 fn short_cpu(name: &str) -> String {
+    let up = name.to_ascii_uppercase();
+    if let Some((_, n)) = SOCS.iter().find(|(id, _)| up.split(|c: char| !c.is_ascii_alphanumeric()).any(|w| w == *id)) {
+        return n.to_string();
+    }
+    let name = name.trim_start_matches("Qualcomm Technologies, Inc ").trim_start_matches("Qualcomm ");
     let mut s = name.replace("(R)", "").replace("(TM)", "").replace("(tm)", "");
     for cut in [" CPU", " @", " with ", " Processor"] {
         if let Some(i) = s.find(cut) {
@@ -265,5 +292,7 @@ mod tests {
         assert_eq!(short_cpu("Intel(R) Core(TM) Ultra 9 275HX"), "Core Ultra 9 275HX");
         assert_eq!(short_cpu("AMD Ryzen 9 7945HX with Radeon Graphics"), "Ryzen 9 7945HX");
         assert_eq!(short_cpu("AMD Ryzen 7 5800X 8-Core Processor"), "Ryzen 7 5800X");
+        assert_eq!(short_cpu("Qualcomm Technologies, Inc SM8475"), "Snapdragon 8+ Gen 1");
+        assert_eq!(short_cpu("Qualcomm Technologies, Inc SM9999"), "SM9999");
     }
 }

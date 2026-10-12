@@ -45,6 +45,7 @@ fn accent(ctx: &ShellCtx) -> Color {
 fn color_of(ctx: &ShellCtx, w: &DeskWidget) -> Color {
     match w.str("color").filter(|c| c.starts_with('#')) {
         Some(c) => Color::from_hex(c),
+        None if w.kind == "temps" => Color::from_hex("#34d399"),
         None => accent(ctx),
     }
 }
@@ -67,7 +68,7 @@ pub fn build(ctx: ShellCtx, slot: &Slot, w: &DeskWidget, iw: f32, ih: f32, editi
         "storage" if cx.view == "card" => storage(w, cx.clone()),
         "cpu" | "memory" | "gpu" | "battery" | "vram" | "npu" | "storage" => metric(ctx, w.kind.clone(), cx.clone()),
         "network" => network(ctx, cx.clone()),
-        "temps" => temps(cx.clone()),
+        "temps" => temps(cx.clone(), w.str("color").is_some_and(|c| c.starts_with('#'))),
         "apps" => apps_rail(),
         "launcher" => launcher_grid(ctx, w, &cx),
         "note" => Box::new(Text::new(w.str_or("text", &t!("Новая заметка — коснитесь в режиме правки, чтобы изменить.")).to_string()).class("desk-note")),
@@ -82,7 +83,7 @@ pub fn build(ctx: ShellCtx, slot: &Slot, w: &DeskWidget, iw: f32, ih: f32, editi
             Row::new()
                 .gap(8.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(icon(glyph).class("desk-title-icon"))
+                .child(icon(glyph).class("desk-title-icon").style("icon-color", StyleValue::Color(mss_color(cx.color))))
                 .child(Text::new(w.str("name").filter(|s| !s.is_empty()).map(String::from).unwrap_or_else(|| syngui::i18n::t(label))).max_lines(1).class("desk-title grow"))
                 .style("height", StyleValue::px(TITLE_H)),
         );
@@ -663,13 +664,13 @@ fn net_card(n: &synsystem::network::Network, modem: Option<&synmodem::api::Statu
 
 // ─── Температуры ────────────────────────────────────────────────────────────
 
-fn temps(cx: Cx) -> Box<dyn Widget> {
+fn temps(cx: Cx, own_color: bool) -> Box<dyn Widget> {
     let sig = data::snap();
     Box::new(rx(move || {
         let s = sig.get();
         let hottest = s.temps.first().map(|t| t.1).unwrap_or(0.0);
         match cx.view.as_str() {
-            "list" => temp_devices_view(&s, &cx),
+            "list" => temp_devices_view(&s, &cx, own_color),
             "gauge" => Box::new(gauge(hottest, 110.0, "°", &cx)) as Box<dyn Widget>,
             "line" => Box::new(line_view(
                 &s.cpu_temp.map(|t| format!("{t:.0} °C")).unwrap_or("—".into()),
@@ -933,6 +934,7 @@ pub fn mount_name(path: &str) -> String {
     match path {
         "/" => t!("Система").to_string(),
         "/home" => t!("Домашние папки").to_string(),
+        "/android/data" | "/data" => "Android".to_string(),
         "/boot" | "/efi" | "/boot/efi" => t!("Загрузочный").to_string(),
         p => p.rsplit('/').find(|x| !x.is_empty()).unwrap_or(p).to_string(),
     }
@@ -944,6 +946,7 @@ fn is_removable(path: &str) -> bool {
 
 fn is_boot(path: &str) -> bool {
     matches!(path, "/boot" | "/efi" | "/boot/efi")
+        || ["/mnt/vendor", "/vendor", "/persist", "/firmware", "/dsp", "/bt_firmware", "/efs", "/metadata"].iter().any(|p| path.starts_with(p))
 }
 
 fn mount_icon(path: &str) -> &'static str {
@@ -1013,9 +1016,9 @@ fn storage(w: &DeskWidget, cx: Cx) -> Box<dyn Widget> {
         }
         let details = w.bool_or("details", true);
         let gap = 10.0;
-        let row_h = if details { 52.0 } else { 36.0 };
+        let row_h = if details { 48.0 } else { 34.0 };
         let fit = (((cx.h + gap) / (row_h + gap)).floor() as usize).max(1);
-        let shown = if list.len() > fit { fit.saturating_sub(1).max(1) } else { list.len() };
+        let shown = if list.len() > fit { ((((cx.h - 18.0) + gap) / (row_h + gap)).floor() as usize).max(1) } else { list.len() };
         let gap = if shown == list.len() { ((cx.h - shown as f32 * row_h) / shown as f32).clamp(gap, 30.0) } else { gap };
         let badge = 32.0;
         let bw = (cx.w - badge - 12.0).max(40.0);
@@ -1225,7 +1228,12 @@ fn temp_color(level: f32, base: Color) -> Color {
     }
 }
 
-fn temp_devices_view(s: &Snap, cx: &Cx) -> Box<dyn Widget> {
+fn temp_devices_view(s: &Snap, cx: &Cx, own_color: bool) -> Box<dyn Widget> {
+    let mut cx = cx.clone();
+    if !own_color {
+        cx.color = Color::from_hex("#34d399");
+    }
+    let cx = &cx;
     let mut sorted: Vec<&synsystem::thermal::TempDevice> = s.temp_devs.iter().collect();
     let prio = |d: &synsystem::thermal::TempDevice| {
         use synsystem::thermal::TempKind::*;
