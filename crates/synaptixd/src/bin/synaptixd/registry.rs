@@ -98,7 +98,7 @@ impl Manifest {
         let file = variant.and_then(|v| std::fs::metadata(self.path(v)).ok()).map(|m| m.len()).unwrap_or(0);
         let int8 = variant.is_some_and(|v| v.precision.starts_with("w8"));
         match dev {
-            DeviceKind::Cpu if int8 => file,
+            DeviceKind::Cpu if int8 => file * 55 / 100,
             DeviceKind::Cpu => file * 2,
             DeviceKind::Cuda | DeviceKind::Gpu => file / 4,
             _ => file,
