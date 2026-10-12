@@ -500,7 +500,15 @@ fn speak_blocking(text: &str, gen: u64, cfg: &VoiceConfig) -> Result<(), String>
     let mut rx: Option<Receiver<Vec<f32>>> = Some(rx);
     let mut player: Option<AudioPlayer> = None;
     let current = || flags().speech_gen.load(Ordering::Acquire) == gen;
-    for part in parts {
+    // Запас перед началом воспроизведения: если синтез медленнее реального
+    // времени (OmniVoice на NPU), звук сразу после первой фразы прерывался бы
+    // паузами между фразами. По уже озвученному оцениваем скорость синтеза и
+    // длину всего ответа и начинаем, когда накопленного хватит до конца.
+    let total_chars: usize = parts.iter().map(|p| p.chars().count()).sum();
+    let (mut done_chars, mut audio_sec, mut sr) = (0usize, 0f64, 0u32);
+    let t0 = std::time::Instant::now();
+    let n = parts.len();
+    for (i, part) in parts.into_iter().enumerate() {
         if !current() {
             break;
         }
@@ -508,13 +516,22 @@ fn speak_blocking(text: &str, gen: u64, cfg: &VoiceConfig) -> Result<(), String>
         if !current() {
             break;
         }
-        if player.is_none() {
+        sr = sp.sample_rate;
+        let pcm = sp.audio.f32s().to_vec();
+        done_chars += part.chars().count();
+        audio_sec += pcm.len() as f64 / sr.max(1) as f64;
+        let _ = tx.send(pcm);
+        if player.is_none() && (i + 1 == n || enough_buffered(t0.elapsed().as_secs_f64(), audio_sec, done_chars, total_chars)) {
             let r = rx.take().ok_or_else(|| "поток вывода уже занят".to_string())?;
-            player = Some(AudioPlayer::start_streaming(r, sp.sample_rate).map_err(|e| e.to_string())?);
+            player = Some(AudioPlayer::start_streaming(r, sr).map_err(|e| e.to_string())?);
         }
-        let _ = tx.send(sp.audio.f32s().to_vec());
     }
     drop(tx);
+    if player.is_none() && sr > 0 && current() {
+        if let Some(r) = rx.take() {
+            player = Some(AudioPlayer::start_streaming(r, sr).map_err(|e| e.to_string())?);
+        }
+    }
     if let Some(p) = player {
         while !p.is_done() && current() {
             std::thread::sleep(Duration::from_millis(30));
@@ -522,6 +539,20 @@ fn speak_blocking(text: &str, gen: u64, cfg: &VoiceConfig) -> Result<(), String>
         p.stop();
     }
     Ok(())
+}
+
+/// Хватит ли озвученного (`audio_sec` за `synth_sec` синтеза, `done` из
+/// `total` символов), чтобы, начав сейчас, доиграть ответ без пауз: при
+/// скорости синтеза r (с синтеза на с звука) остаток в R с звука готов через
+/// r·R с, а играть нам ещё audio_sec + R — без пауз, если r·R ≤ audio_sec + R.
+fn enough_buffered(synth_sec: f64, audio_sec: f64, done: usize, total: usize) -> bool {
+    if audio_sec <= 0.0 || done == 0 {
+        return false;
+    }
+    let r = synth_sec / audio_sec;
+    let rest = audio_sec / done as f64 * total.saturating_sub(done) as f64;
+    // Запас 10 % на разброс скорости и длины фраз.
+    r * rest * 1.1 <= audio_sec + rest
 }
 
 fn next_gen() -> u64 {
@@ -755,6 +786,15 @@ mod tests {
     fn markdown_is_stripped_for_speech() {
         let s = strip_markdown("## Заголовок\n\n- **жирный** и `код`\n- [ссылка](http://x)\n\n```rust\nlet a = 1;\n```\n| a | b |\n|---|---|\n| 1 | 2 |");
         assert_eq!(s, "Заголовок. жирный и код. ссылка. (код). a, b. 1, 2.");
+    }
+
+    #[test]
+    fn buffering_waits_only_for_slow_synthesis() {
+        // Быстрый синтез (5 с звука за 1 с) — сразу после первой фразы.
+        assert!(enough_buffered(1.0, 5.0, 50, 300));
+        // Вдвое медленнее реального времени: 3 с из 30 — ждать, 17 с из 30 — пора.
+        assert!(!enough_buffered(6.0, 3.0, 30, 300));
+        assert!(enough_buffered(34.0, 17.0, 170, 300));
     }
 
     #[test]
