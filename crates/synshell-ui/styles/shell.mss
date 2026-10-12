@@ -1570,8 +1570,7 @@ TextField {
 .assist-voice-body { width: 100%; }
 .assist-meter { width: 260px; height: 6px; border-radius: 999px; color: var(--muted); background-color: var(--surface); }
 .assist-meter.on { color: var(--success); }
-.assist-meter-mark-row { width: 260px; height: 6px; }
-.assist-meter-mark { width: 2px; height: 6px; background-color: var(--danger); }
+.assist-meter-mark { width: 2px; height: 5px; background-color: var(--danger); }
 .assist-meter-text { font-size: 11px; color: var(--muted); text-align: center; }
 .assist-meter-state { font-size: 12px; color: var(--muted); text-align: center; }
 .assist-meter-state.on { color: var(--success); font-weight: 600; }

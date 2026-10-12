@@ -181,8 +181,7 @@ MultilineTextEdit.input { background-color: #00000000; color: var(--fg); border:
 .voice-transcript { width: 100%; max-width: 600px; }
 .voice-meter { width: 300px; height: 6px; border-radius: 999px; color: var(--muted); background-color: var(--surface); }
 .voice-meter.on { color: var(--success); }
-.voice-meter-mark-row { width: 300px; height: 6px; }
-.voice-meter-mark { width: 2px; height: 6px; background-color: var(--danger); }
+.voice-meter-mark { width: 2px; height: 5px; background-color: var(--danger); }
 .voice-meter-text { font-size: 11px; color: var(--muted); text-align: center; }
 .voice-meter-state { font-size: 12px; color: var(--muted); text-align: center; }
 .voice-meter-state.on { color: var(--success); font-weight: 600; }

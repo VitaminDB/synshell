@@ -161,12 +161,17 @@ fn voice_meter(s: VadState) -> impl Widget {
         .gap(4.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(
-            Stack::new()
+            // Полоса уровня, под ней — отметка порога тишины (без Stack: он без
+            // ограничения по ширине ужимается до 40 px).
+            Column::new()
+                .width(300.0)
+                .gap(1.0)
+                .cross_axis_alignment(CrossAxisAlignment::Start)
                 .child(ProgressBar::with_value((s.level / full).clamp(0.0, 1.0)).class(if s.speaking { "voice-meter on" } else { "voice-meter" }))
                 .child(
                     Row::new()
-                        .class("voice-meter-mark-row")
-                        .child(Column::new().width((s.silence / full).clamp(0.0, 1.0) * 300.0))
+                        .width(300.0)
+                        .child(Column::new().width((s.silence / full).clamp(0.0, 1.0) * 300.0 - 1.0))
                         .child(DecoratedBox::new().class("voice-meter-mark")),
                 ),
         )
