@@ -1692,3 +1692,5 @@
 "Тишина" = "Silence"
 "уровень {l} % · фон {f} % · тишина ниже {s} % · речь выше {p} %" = "level {l} % · background {f} % · silence below {s} % · speech above {p} %"
 "Последняя фраза закончилась: {s} с" = "Last phrase ended: {s} s"
+"Громкость микрофона, %" = "Microphone volume, %"
+"Системный микрофон по умолчанию; то же, что в окне звука на панели" = "Default system microphone; the same as in the panel's sound popup"

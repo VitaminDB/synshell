@@ -44,6 +44,50 @@ fn stop_mic_test() {
     MIC_TEST.with(|t| t.borrow_mut().take());
 }
 
+/// Громкость системного микрофона: ползунок шлёт значения в один поток,
+/// который применяет только последнее (при перетаскивании их десятки).
+fn set_mic_volume(percent: u32) {
+    use std::sync::mpsc::{channel, Sender};
+    use std::sync::{Mutex, OnceLock};
+    static TX: OnceLock<Mutex<Sender<u32>>> = OnceLock::new();
+    let tx = TX.get_or_init(|| {
+        let (tx, rx) = channel::<u32>();
+        std::thread::spawn(move || {
+            while let Ok(mut v) = rx.recv() {
+                while let Ok(n) = rx.try_recv() {
+                    v = n;
+                }
+                synsystem::volume::set_mic(v);
+            }
+        });
+        Mutex::new(tx)
+    });
+    let _ = tx.lock().map(|t| t.send(percent));
+}
+
+fn mic_volume() -> W {
+    let vol: RwSignal<Option<u32>> = use_signal(None);
+    std::thread::spawn(move || {
+        let v = synsystem::volume::read().map(|v| v.mic_percent);
+        run_on_main_thread(move || vol.set(Some(v.unwrap_or(0))));
+    });
+    let control = Reactive::new(move || -> Vec<W> {
+        let Some(v) = vol.get() else {
+            return vec![boxed(Text::new("…").class("row-hint"))];
+        };
+        vec![boxed(
+            Slider::new()
+                .range(0.0, 100.0)
+                .step(1.0)
+                .value(v.min(100) as f32)
+                .show_value(0)
+                .width(240.0)
+                .on_change(|v| set_mic_volume(v.round() as u32)),
+        )]
+    });
+    row(t!("Громкость микрофона, %"), t!("Системный микрофон по умолчанию; то же, что в окне звука на панели"), control)
+}
+
 /// Проверка микрофона (как в synspeak): тот же детектор речи, что в голосовом
 /// режиме, на живом звуке — уровень, фон, пороги и где фраза закончится.
 fn mic_check() -> W {
@@ -252,6 +296,7 @@ pub fn assistant() -> W {
                         MIC_TEST.with(|t| t.borrow().as_ref().map(|t| t.set_noise_level(v as f32)));
                     }),
             ),
+            mic_volume(),
             mic_check(),
         ],
     );
