@@ -127,6 +127,8 @@ fn demo() -> model::Data {
         }
     }
     d.days.entry(t).or_default().mood = 2;
+    d.intimacy.push(model::Intimacy { id: 1, day: t - 3, time: Some(22 * 60 + 30), protected: Some(true) });
+    d.intimacy.push(model::Intimacy { id: 2, day: t, time: Some(8 * 60 + 15), protected: None });
     d
 }
 

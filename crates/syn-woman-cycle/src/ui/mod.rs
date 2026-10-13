@@ -11,9 +11,9 @@ mod today;
 
 use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 use syngui::prelude::*;
-use syngui::StyleValue;
 use syngui::widgets::{EventHook, KeyReply};
 use syngui::GestureDetector;
+use syngui::StyleValue;
 
 use crate::icons;
 use crate::state::{St, Tab};
@@ -104,9 +104,10 @@ pub fn scroll_page(wide: bool, children: Vec<W>) -> W {
         col = col.child(c);
     }
     boxed(
-        ScrollView::new().vertical().class("page-scroll").child(
-            DecoratedBox::new().class("fill").child(Column::new().cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class(if wide { "page wide" } else { "page" }).style("width", StyleValue::px(w + 32.0)).child(col))),
-        ),
+        ScrollView::new()
+            .vertical()
+            .class("page-scroll")
+            .child(DecoratedBox::new().class("fill").child(Column::new().cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class(if wide { "page wide" } else { "page" }).style("width", StyleValue::px(w + 32.0)).child(col)))),
     )
 }
 
@@ -145,14 +146,20 @@ fn sidebar(st: St) -> W {
             let on = t == cur;
             col = col.child(
                 GestureDetector::new().on_click(move || st.go(t)).child(
-                    DecoratedBox::new().class(if on { "side-item on" } else { "side-item" }).child(
-                        Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(tab_icon(t)).class("ic side-ic")).child(Text::new(tab_title(t)).class("side-title")),
-                    ),
+                    DecoratedBox::new()
+                        .class(if on { "side-item on" } else { "side-item" })
+                        .child(Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(tab_icon(t)).class("ic side-ic")).child(Text::new(tab_title(t)).class("side-title"))),
                 ),
             );
         }
         col = col.child(DecoratedBox::new().class("grow"));
-        col = col.child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(icons::LOCK).class("ic tiny-ic")).child(DecoratedBox::new().class("grow").child(Text::new(t!("Данные хранятся только на устройстве")).max_lines(2).class("hint"))));
+        col = col.child(
+            Row::new()
+                .gap(8.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(icon(icons::LOCK).class("ic tiny-ic"))
+                .child(DecoratedBox::new().class("grow").child(Text::new(t!("Данные хранятся только на устройстве")).max_lines(2).class("hint"))),
+        );
         vec![boxed(DecoratedBox::new().class("sidebar").child(col))]
     }))
 }
@@ -212,11 +219,7 @@ fn toast_layer(st: St) -> W {
         let shown = cur.is_some();
         let text = cur.map(|(_, t)| t).unwrap_or_default();
         vec![boxed(
-            Presence::new(shown, DecoratedBox::new().class("toast").child(Text::new(text).max_lines(3).class("toast-text")))
-                .enter(Motion::fade().slide(0.0, 24.0).scale(0.96))
-                .exit(Motion::fade().slide(0.0, 12.0))
-                .duration_ms(260)
-                .initial(false),
+            Presence::new(shown, DecoratedBox::new().class("toast").child(Text::new(text).max_lines(3).class("toast-text"))).enter(Motion::fade().slide(0.0, 24.0).scale(0.96)).exit(Motion::fade().slide(0.0, 12.0)).duration_ms(260).initial(false),
         )]
     });
     boxed(Column::new().main_axis_alignment(MainAxisAlignment::End).cross_axis_alignment(CrossAxisAlignment::Center).class("toast-wrap").child(toast))
@@ -332,5 +335,36 @@ mod tests {
         assert!(sheet.size.width <= w, "лист шире окна: {sheet:?}");
         assert!(sheet.size.height < inner.size.height + 1.0, "лист выше содержимого: {sheet:?} / {inner:?}");
         assert!(row.origin.x + row.size.width <= inner.origin.x + inner.size.width + 0.5, "строка вылезает: {row:?} / {inner:?}");
+    }
+}
+
+#[cfg(test)]
+mod hidden_tests {
+    use super::*;
+    use syngui::testing::TestHarness;
+
+    /// Скрытый диалог удаления не ловит касания.
+    #[test]
+    fn hidden_reset_dialog_is_not_clickable() {
+        syngui::signal::allow_signal_reads_on_this_thread();
+        let mut data = crate::model::Data { onboarded: true, ..Default::default() };
+        data.days.insert(crate::date::today(), crate::model::DayLog { flow: 3, ..Default::default() });
+        let st = St::new(data);
+        let mut h = TestHarness::new(root(st));
+        let (cfg, _) = synshell_common::Config::load();
+        let engine = h.apply_mss(&crate::theme(&cfg, false));
+        for _ in 0..4 {
+            h.frame(Some(&engine), 420.0, 900.0);
+        }
+        let ids = h.find_by_class("danger-solid");
+        for id in &ids {
+            eprintln!("кнопка удаления: {:?}", h.element_bounds(*id));
+        }
+        for id in ids {
+            let b = h.element_bounds(id);
+            h.send_events(&syngui::testing::click_at(Point::new(b.origin.x + b.size.width / 2.0, b.origin.y + b.size.height / 2.0)));
+            h.frame(Some(&engine), 420.0, 900.0);
+        }
+        assert!(!st.data.get_untracked().days.is_empty(), "скрытая кнопка «Удалить» сработала");
     }
 }

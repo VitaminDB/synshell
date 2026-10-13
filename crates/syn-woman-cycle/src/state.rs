@@ -38,6 +38,8 @@ pub struct St {
     pub sheet: RwSignal<Option<Day>>,
     pub sheet_open: RwSignal<bool>,
     pub confirm_reset: RwSignal<bool>,
+    /// Отметка близости, открытая для правки (время, защита).
+    pub love_edit: RwSignal<Option<u64>>,
     /// Шаг знакомства (0..3) и выбранная в нём дата.
     pub intro_step: RwSignal<u64>,
     pub intro_day: RwSignal<Option<Day>>,
@@ -67,6 +69,7 @@ impl St {
             sheet: use_signal(None),
             sheet_open: use_signal(false),
             confirm_reset: use_signal(false),
+            love_edit: use_signal(None),
             intro_step: use_signal(0),
             intro_day: use_signal(None),
             intro_month: use_signal(date::month_index(today)),
@@ -159,7 +162,31 @@ impl St {
         });
     }
 
+    /// Отметить близость в день; сегодня — с текущим временем (его можно убрать).
+    pub fn add_intimacy(&self, day: Day) -> u64 {
+        let id = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+        let time = (day == date::today()).then(date::now_minutes);
+        self.edit(|d| d.intimacy.push(crate::model::Intimacy { id, day, time, protected: None }));
+        id
+    }
+
+    pub fn update_intimacy(&self, id: u64, f: impl FnOnce(&mut crate::model::Intimacy)) {
+        self.edit(|d| {
+            if let Some(i) = d.intimacy.iter_mut().find(|i| i.id == id) {
+                f(i);
+            }
+        });
+    }
+
+    pub fn remove_intimacy(&self, id: u64) {
+        self.edit(|d| d.intimacy.retain(|i| i.id != id));
+        if self.love_edit.get_untracked() == Some(id) {
+            self.love_edit.set(None);
+        }
+    }
+
     pub fn open_day(&self, d: Day) {
+        self.love_edit.set(None);
         self.sheet.set(Some(d));
         self.sheet_open.set(true);
     }

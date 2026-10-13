@@ -2,11 +2,11 @@
 //! листается кнопками, смахиванием и стрелками, день открывается карточкой.
 
 use syngui::prelude::*;
-use syngui::StyleValue;
 use syngui::widgets::SwipeDirection;
 use syngui::GestureDetector;
+use syngui::StyleValue;
 
-use super::{boxed, icon, icon_button, scroll_page, page_header, rise, W};
+use super::{boxed, icon, icon_button, page_header, rise, scroll_page, W};
 use crate::date::{self, Day};
 use crate::icons;
 use crate::model::{Forecast, Kind};
@@ -95,14 +95,27 @@ pub fn grid(st: St, fc: &Forecast, idx: i32, w: f32, mode: Mode) -> W {
             let d = first + k;
             let log = fc.log(d);
             let mut inner = Column::new().gap(2.0).main_axis_alignment(MainAxisAlignment::Center).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new((k + 1).to_string()).class(text_class(fc, d, mode, picked)));
-            let dot = if mode == Mode::Main && d == fc.today {
-                "dot today"
-            } else if mode == Mode::Main && (log.sym != 0 || log.mood != 0) {
-                "dot note"
-            } else {
-                "dot none"
-            };
-            inner = inner.child(DecoratedBox::new().class(dot));
+            // точки: сегодня, близость, симптомы/настроение
+            let mut dots = Row::new().gap(2.0);
+            let mut any = false;
+            if mode == Mode::Main {
+                if d == fc.today {
+                    dots = dots.child(DecoratedBox::new().class("dot today"));
+                    any = true;
+                }
+                if fc.show_intimacy && !fc.intimacy(d).is_empty() {
+                    dots = dots.child(DecoratedBox::new().class("dot love"));
+                    any = true;
+                }
+                if log.sym != 0 || log.mood != 0 {
+                    dots = dots.child(DecoratedBox::new().class("dot note"));
+                    any = true;
+                }
+            }
+            if !any {
+                dots = dots.child(DecoratedBox::new().class("dot none"));
+            }
+            inner = inner.child(dots);
             let disabled = mode == Mode::Pick && d > fc.today;
             row = row.child(
                 GestureDetector::new()
@@ -155,12 +168,7 @@ pub fn swiper(month: RwSignal<i32>, version: impl Fn() -> u64 + Send + Sync + 's
                     SwipeDirection::Right => month.set(month.get_untracked() - 1),
                     _ => {}
                 })
-                .child(AnimatedSwitcher::new((idx + 1_000_000) as u64, move || b(month.get_untracked()))
-                .version(ver)
-                .slide(60.0, 0.0)
-                .directional(true)
-                .duration_ms(300)
-                .exit_duration_ms(150)),
+                .child(AnimatedSwitcher::new((idx + 1_000_000) as u64, move || b(month.get_untracked())).version(ver).slide(60.0, 0.0).directional(true).duration_ms(300).exit_duration_ms(150)),
         )]
     }))
 }
@@ -179,6 +187,9 @@ fn legend(st: St) -> W {
     }
     if s.show_ovulation {
         f = f.child(legend_item("ovul", t!("Овуляция")));
+    }
+    if s.show_intimacy {
+        f = f.child(legend_item("love", t!("Близость")));
     }
     boxed(DecoratedBox::new().class("legend").child(f))
 }
@@ -247,15 +258,17 @@ pub fn page(st: St, wide: bool) -> W {
         let gw = w - 28.0;
         let mut blocks: Vec<W> = vec![page_header(st, wide, t!("Нажмите на день, чтобы отметить"), t!("Календарь"), vec![])];
         let month = st.month;
-        let card = DecoratedBox::new().class("cal-card").child(
-            Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(month_bar(month, fc.today, true)).child(swiper(month, move || {
+        let card = DecoratedBox::new().class("cal-card").child(Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(month_bar(month, fc.today, true)).child(swiper(
+            month,
+            move || {
                 let sel = if st.sheet_open.get() { st.sheet.get().unwrap_or(0) as u64 } else { 0 };
                 st.rev.get() << 24 ^ sel
-            }, move |i| {
+            },
+            move |i| {
                 let fc = st.fc.get_untracked();
                 grid(st, &fc, i, gw, Mode::Main)
-            })),
-        );
+            },
+        )));
         blocks.push(rise(0, card));
         blocks.push(rise(1, legend(st)));
         blocks.push(rise(2, events(&fc, idx)));

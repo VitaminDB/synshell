@@ -2,7 +2,7 @@
 
 use syngui::prelude::*;
 
-use super::{boxed, icon, scroll_page, page_header, rise, W};
+use super::{boxed, icon, page_header, rise, scroll_page, W};
 use crate::date;
 use crate::icons;
 use crate::model::{Cycle, Forecast};
@@ -11,10 +11,7 @@ use crate::state::{St, Tab};
 fn stat(value: String, unit: String, label: String, tone: &str) -> W {
     boxed(
         DecoratedBox::new().class(&format!("stat grow {tone}")).child(
-            Column::new()
-                .gap(2.0)
-                .child(Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::End).child(Text::new(value).class("stat-value")).child(Text::new(unit).class("stat-unit")))
-                .child(Text::new(label).max_lines(2).class("hint")),
+            Column::new().gap(2.0).child(Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::End).child(Text::new(value).class("stat-value")).child(Text::new(unit).class("stat-unit"))).child(Text::new(label).max_lines(2).class("hint")),
         ),
     )
 }
@@ -98,29 +95,32 @@ pub fn page(st: St, wide: bool) -> W {
             (Some(a), Some(b)) if lens.len() >= 2 => Some(b - a <= 7),
             _ => None,
         };
-        let row1 = Row::new()
-            .gap(12.0)
-            .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(stat(fc.cycle.to_string(), t!("дн."), t!("Средний цикл"), "plum"))
-            .child(stat(fc.period.to_string(), t!("дн."), t!("Месячные"), "rose"));
-        let row2 = Row::new()
-            .gap(12.0)
-            .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(stat(fc.cycles.len().to_string(), String::new(), t!("Циклов отмечено"), "gold"))
-            .child(stat(
-                match regular {
-                    Some(true) => t!("Да"),
-                    Some(false) => t!("Нет"),
-                    None => "—".into(),
-                },
+        let row1 = Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(stat(fc.cycle.to_string(), t!("дн."), t!("Средний цикл"), "plum")).child(stat(fc.period.to_string(), t!("дн."), t!("Месячные"), "rose"));
+        let row2 = Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(stat(fc.cycles.len().to_string(), String::new(), t!("Циклов отмечено"), "gold")).child(stat(
+            match regular {
+                Some(true) => t!("Да"),
+                Some(false) => t!("Нет"),
+                None => "—".into(),
+            },
+            String::new(),
+            match regular {
+                Some(_) => t!("Регулярный (разброс до 7 дней)"),
+                None => t!("Регулярность — после 2 циклов"),
+            },
+            "teal",
+        ));
+        let mut stats = Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(row1).child(row2);
+        if fc.show_intimacy {
+            let start = fc.cycles.last().map(|c| c.start).unwrap_or(fc.today);
+            let (all, fertile) = fc.intimacy_stats(start, fc.today);
+            stats = stats.child(Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(stat(all.to_string(), String::new(), t!("Близость в этом цикле"), "plum")).child(stat(
+                fertile.to_string(),
                 String::new(),
-                match regular {
-                    Some(_) => t!("Регулярный (разброс до 7 дней)"),
-                    None => t!("Регулярность — после 2 циклов"),
-                },
+                t!("Из них в фертильные дни"),
                 "teal",
-            ));
-        blocks.push(rise(0, Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(row1).child(row2)));
+            )));
+        }
+        blocks.push(rise(0, stats));
         let max_len = fc.cycles.iter().map(|c| c.len.unwrap_or_else(|| (fc.today - c.start + 1).max(fc.cycle))).max().unwrap_or(fc.cycle).max(fc.cycle);
         let mut list = Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
         list = list.child(Text::new(t!("История циклов")).class("section"));

@@ -16,6 +16,19 @@ pub fn today() -> Day {
     from_ymd(tm.tm_year + 1900, tm.tm_mon as u32 + 1, tm.tm_mday as u32)
 }
 
+/// Текущее местное время в минутах от полуночи (с шагом 5 минут).
+pub fn now_minutes() -> u16 {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+    // SAFETY: localtime_r с корректными буферами.
+    let tm = unsafe {
+        let t: libc::time_t = now as libc::time_t;
+        let mut tm: libc::tm = std::mem::zeroed();
+        libc::localtime_r(&t, &mut tm);
+        tm
+    };
+    ((tm.tm_hour * 60 + tm.tm_min) / 5 * 5) as u16
+}
+
 /// Год, месяц (1–12), число → день (алгоритм Хиннанта).
 pub fn from_ymd(y: i32, m: u32, d: u32) -> Day {
     let y = if m <= 2 { y - 1 } else { y };

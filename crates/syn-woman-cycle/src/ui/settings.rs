@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use syngui::prelude::*;
 use syngui::GestureDetector;
 
-use super::{boxed, icon, scroll_page, page_header, rise, W};
+use super::{boxed, icon, page_header, rise, scroll_page, W};
 use crate::icons;
 use crate::model::{Settings, ThemeMode};
 use crate::state::St;
@@ -40,17 +40,15 @@ fn toggle_row(st: St, glyph: &str, title: String, hint: String, on: bool, set: i
     let set = std::sync::Arc::new(set);
     let s2 = set.clone();
     boxed(
-        GestureDetector::new().on_click(move || {
-            let s = s2.clone();
-            st.set_settings(move |x| s(x, !on));
-        }).child(
-            DecoratedBox::new().class("set-row").child(
-                Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(label(glyph, title, hint)).child(Toggle::new().on(on).on_change(move |v| {
-                    let s = set.clone();
-                    st.set_settings(move |x| s(x, v));
-                })),
-            ),
-        ),
+        GestureDetector::new()
+            .on_click(move || {
+                let s = s2.clone();
+                st.set_settings(move |x| s(x, !on));
+            })
+            .child(DecoratedBox::new().class("set-row").child(Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(label(glyph, title, hint)).child(Toggle::new().on(on).on_change(move |v| {
+                let s = set.clone();
+                st.set_settings(move |x| s(x, v));
+            })))),
     )
 }
 
@@ -128,18 +126,12 @@ fn theme_row(st: St, cur: ThemeMode) -> W {
                     st.set_settings(|s| s.theme = m);
                     crate::apply_theme(st);
                 })
-                .child(
-                    DecoratedBox::new().class(if on { "seg on" } else { "seg" }).child(
-                        Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(g).class(if on { "ic seg-ic on" } else { "ic seg-ic" })).child(Text::new(l).max_lines(1).class(if on { "seg-text on" } else { "seg-text" })),
-                    ),
-                ),
+                .child(DecoratedBox::new().class(if on { "seg on" } else { "seg" }).child(
+                    Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(g).class(if on { "ic seg-ic on" } else { "ic seg-ic" })).child(Text::new(l).max_lines(1).class(if on { "seg-text on" } else { "seg-text" })),
+                )),
         );
     }
-    boxed(
-        DecoratedBox::new()
-            .class("set-row")
-            .child(Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(label(icons::PALETTE, t!("Тема"), String::new())).child(DecoratedBox::new().class("segs").child(row))),
-    )
+    boxed(DecoratedBox::new().class("set-row").child(Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(label(icons::PALETTE, t!("Тема"), String::new())).child(DecoratedBox::new().class("segs").child(row))))
 }
 
 pub fn page(st: St, wide: bool) -> W {
@@ -148,7 +140,11 @@ pub fn page(st: St, wide: bool) -> W {
         let fc = st.fc.get_untracked();
         let s = data.settings.clone();
         let mut blocks: Vec<W> = vec![page_header(st, wide, t!("Цикл, вид и данные"), t!("Настройки"), vec![])];
-        let auto_hint = if s.auto && fc.cycles.iter().filter(|c| c.len.is_some()).count() >= 1 { t!("Сейчас по истории: цикл {c} дн., месячные {p} дн.", c = fc.cycle, p = fc.period) } else { t!("Пока истории мало — берутся значения ниже") };
+        let auto_hint = if s.auto && fc.cycles.iter().filter(|c| c.len.is_some()).count() >= 1 {
+            t!("Сейчас по истории: цикл {c} дн., месячные {p} дн.", c = fc.cycle, p = fc.period)
+        } else {
+            t!("Пока истории мало — берутся значения ниже")
+        };
         blocks.push(rise(
             0,
             section(
@@ -171,6 +167,7 @@ pub fn page(st: St, wide: bool) -> W {
                     toggle_row(st, icons::CALENDAR, t!("Неделя с понедельника"), String::new(), s.monday, |x, v| x.monday = v),
                     toggle_row(st, icons::FLOWER, t!("Показывать фертильное окно"), String::new(), s.show_fertile, |x, v| x.show_fertile = v),
                     toggle_row(st, icons::EGG, t!("Показывать овуляцию"), String::new(), s.show_ovulation, |x, v| x.show_ovulation = v),
+                    toggle_row(st, icons::HEART, t!("Показывать близость"), t!("Отметки в календаре и статистике; можно скрыть от посторонних глаз"), s.show_intimacy, |x, v| x.show_intimacy = v),
                 ],
             ),
         ));
@@ -222,24 +219,20 @@ pub fn reset_dialog(st: St) -> W {
                         .child(Row::new().main_axis_alignment(MainAxisAlignment::Center).child(DecoratedBox::new().class("hero-badge danger").child(icon(icons::DELETE).class("ic hero-ic"))))
                         .child(Text::new(t!("Удалить все отметки?")).class("h2 center"))
                         .child(Text::new(t!("История циклов, симптомы и настроение будут удалены без возможности восстановления. Настройки сохранятся.")).max_lines(5).class("hint center"))
-                        .child(
-                            Row::new()
-                                .gap(10.0)
-                                .child(Button::new(t!("Отмена")).class("btn ghost grow").on_click(move || st.confirm_reset.set(false)))
-                                .child(Button::new(t!("Удалить")).class("btn danger-solid grow").on_click(move || {
-                                    st.reset();
-                                    st.toast(t!("Все отметки удалены"));
-                                })),
-                        ),
+                        .child(Row::new().gap(10.0).child(Button::new(t!("Отмена")).class("btn ghost grow").on_click(move || st.confirm_reset.set(false))).child(Button::new(t!("Удалить")).class("btn danger-solid grow").on_click(move || {
+                            st.reset();
+                            st.toast(t!("Все отметки удалены"));
+                        }))),
                 ),
             ),
         )
     };
     boxed(
         Stack::new().fit(StackFit::Expand).child(scrim).child(
-            Column::new().main_axis_alignment(MainAxisAlignment::Center).cross_axis_alignment(CrossAxisAlignment::Center).child(
-                Presence::signal(st.confirm_reset, card).enter(Motion::fade().scale(0.9)).exit(Motion::fade().scale(0.95)).duration_ms(260).exit_duration_ms(160),
-            ),
+            Column::new()
+                .main_axis_alignment(MainAxisAlignment::Center)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(Presence::signal(st.confirm_reset, card).enter(Motion::fade().scale(0.9)).exit(Motion::fade().scale(0.95)).duration_ms(260).exit_duration_ms(160)),
         ),
     )
 }

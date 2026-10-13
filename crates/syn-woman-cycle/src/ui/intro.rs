@@ -4,7 +4,7 @@ use syngui::prelude::*;
 
 use super::calendar::{self, Mode};
 use super::settings::{section, stepper};
-use super::{boxed, icon, scroll_page, rise, W};
+use super::{boxed, icon, rise, scroll_page, W};
 use crate::icons;
 use crate::state::St;
 
@@ -35,7 +35,14 @@ fn welcome(st: St, wide: bool) -> W {
         vec![
             boxed(DecoratedBox::new().class("intro-top")),
             boxed(Column::new().cross_axis_alignment(CrossAxisAlignment::Center).child(hero)),
-            rise(1, Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(t!("Цикл")).class("intro-title")).child(Text::new(t!("Ваш календарь месячных, овуляции и фертильных дней")).max_lines(3).class("intro-text center"))),
+            rise(
+                1,
+                Column::new()
+                    .gap(6.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(Text::new(t!("Цикл")).class("intro-title"))
+                    .child(Text::new(t!("Ваш календарь месячных, овуляции и фертильных дней")).max_lines(3).class("intro-text center")),
+            ),
             rise(
                 2,
                 DecoratedBox::new().class("group pad").child(
@@ -59,13 +66,21 @@ fn last_period(st: St, wide: bool) -> W {
     let month = st.intro_month;
     let fc = st.fc.get_untracked();
     let card = DecoratedBox::new().class("cal-card").child(
-        Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(Reactive::new(move || -> Vec<W> {
-            let _ = month.get();
-            vec![calendar::month_bar(month, fc.today, true)]
-        })).child(calendar::swiper(month, move || st.intro_day.get().unwrap_or(0) as u64, move |i| {
-            let fc = st.fc.get_untracked();
-            calendar::grid(st, &fc, i, w, Mode::Pick)
-        })),
+        Column::new()
+            .gap(10.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(Reactive::new(move || -> Vec<W> {
+                let _ = month.get();
+                vec![calendar::month_bar(month, fc.today, true)]
+            }))
+            .child(calendar::swiper(
+                month,
+                move || st.intro_day.get().unwrap_or(0) as u64,
+                move |i| {
+                    let fc = st.fc.get_untracked();
+                    calendar::grid(st, &fc, i, w, Mode::Pick)
+                },
+            )),
     );
     // кнопка без Reactive (иначе не растягивается): шаг перестраивается при выборе даты (`version`)
     let next = Button::new(t!("Далее")).class("btn big primary").disabled(picked.is_none()).on_click(move || st.intro_step.set(2));
@@ -75,10 +90,13 @@ fn last_period(st: St, wide: bool) -> W {
             boxed(DecoratedBox::new().class("intro-top")),
             rise(0, Column::new().gap(6.0).child(Text::new(t!("Когда начались последние месячные?")).max_lines(3).class("h1")).child(Text::new(t!("Выберите первый день — от него строится прогноз")).max_lines(2).class("hint"))),
             rise(1, card),
-            rise(2, Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(next).child(Button::new(t!("Не помню")).class("btn ghost").on_click(move || {
-                st.intro_day.set(None);
-                st.intro_step.set(2);
-            }))),
+            rise(
+                2,
+                Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(next).child(Button::new(t!("Не помню")).class("btn ghost").on_click(move || {
+                    st.intro_day.set(None);
+                    st.intro_step.set(2);
+                })),
+            ),
             (dots(1)),
         ],
     )
@@ -102,7 +120,14 @@ fn lengths(st: St, wide: bool) -> W {
                         ],
                     ),
                 ),
-                rise(2, Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(Button::new(t!("Готово")).icon(icons::CHECK).class("btn big primary").on_click(move || st.finish_intro())).child(Button::new(t!("Назад")).class("btn ghost").on_click(move || st.intro_step.set(1)))),
+                rise(
+                    2,
+                    Column::new()
+                        .gap(10.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                        .child(Button::new(t!("Готово")).icon(icons::CHECK).class("btn big primary").on_click(move || st.finish_intro()))
+                        .child(Button::new(t!("Назад")).class("btn ghost").on_click(move || st.intro_step.set(1))),
+                ),
                 (dots(2)),
             ],
         )]
@@ -131,4 +156,3 @@ pub fn page_root(st: St, wide: bool) -> W {
         )]
     }))
 }
-

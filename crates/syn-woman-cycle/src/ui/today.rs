@@ -3,10 +3,10 @@
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use syngui::prelude::*;
-use syngui::StyleValue;
 use syngui::GestureDetector;
+use syngui::StyleValue;
 
-use super::{boxed, icon, scroll_page, page_header, rise, W};
+use super::{boxed, icon, page_header, rise, scroll_page, W};
 use crate::date;
 use crate::icons;
 use crate::model::{Forecast, Phase};
@@ -147,9 +147,14 @@ fn ring(st: St, fc: &Forecast, size: f32) -> W {
     }
     let inner = size * 0.68;
     boxed(
-        Stack::new()
-            .child(canvas)
-            .child(Column::new().main_axis_alignment(MainAxisAlignment::Center).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().style("width", StyleValue::px(inner)).child(center)).style("width", StyleValue::px(size)).style("height", StyleValue::px(size))),
+        Stack::new().child(canvas).child(
+            Column::new()
+                .main_axis_alignment(MainAxisAlignment::Center)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(DecoratedBox::new().style("width", StyleValue::px(inner)).child(center))
+                .style("width", StyleValue::px(size))
+                .style("height", StyleValue::px(size)),
+        ),
     )
 }
 
@@ -158,7 +163,9 @@ fn info_tile(glyph: &str, tone: &str, label: String, value: String, sub: String)
         DecoratedBox::new().class("tile grow").child(
             Column::new()
                 .gap(6.0)
-                .child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class(&format!("tile-badge {tone}")).child(icon(glyph).class("ic tile-ic"))).child(Text::new(label).max_lines(1).class("tile-label")))
+                .child(
+                    Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class(&format!("tile-badge {tone}")).child(icon(glyph).class("ic tile-ic"))).child(Text::new(label).max_lines(1).class("tile-label")),
+                )
                 .child(Text::new(value).max_lines(1).class("tile-value"))
                 .child(Text::new(sub).max_lines(1).class("hint")),
         ),
@@ -183,15 +190,12 @@ fn actions(st: St, fc: &Forecast) -> W {
             st.toast(t!("Отмечено: месячные закончились"));
         }));
     } else if fc.ongoing {
-        col = col.child(
-            Row::new()
-                .gap(10.0)
-                .child(Button::new(t!("Идут сегодня")).icon(icons::DROP).class("btn big primary grow").on_click(move || st.toggle_period(st.today.get_untracked())))
-                .child(Button::new(t!("Закончились")).icon(icons::CHECK).class("btn big soft grow").on_click(move || {
-                    st.end_period(st.today.get_untracked() - 1);
-                    st.toast(t!("Отмечено: месячные закончились"));
-                })),
-        );
+        col = col.child(Row::new().gap(10.0).child(Button::new(t!("Идут сегодня")).icon(icons::DROP).class("btn big primary grow").on_click(move || st.toggle_period(st.today.get_untracked()))).child(
+            Button::new(t!("Закончились")).icon(icons::CHECK).class("btn big soft grow").on_click(move || {
+                st.end_period(st.today.get_untracked() - 1);
+                st.toast(t!("Отмечено: месячные закончились"));
+            }),
+        ));
     } else {
         col = col.child(Button::new(t!("Начались месячные")).icon(icons::DROP).class("btn big primary").on_click(move || {
             st.toggle_period(st.today.get_untracked());
@@ -212,7 +216,10 @@ pub fn page(st: St, wide: bool) -> W {
         let w = super::content_width(wide);
         let size = (w * 0.8).clamp(220.0, 320.0);
         let mut blocks: Vec<W> = vec![page_header(st, wide, over, t!("Сегодня"), vec![])];
-        blocks.push(rise(0, DecoratedBox::new().class("hero").child(Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Center).child(ring(st, &fc, size)).child(DecoratedBox::new().style("width", StyleValue::px(w - 36.0)).child(actions(st, &fc))))));
+        blocks.push(rise(
+            0,
+            DecoratedBox::new().class("hero").child(Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Center).child(ring(st, &fc, size)).child(DecoratedBox::new().style("width", StyleValue::px(w - 36.0)).child(actions(st, &fc)))),
+        ));
         if fc.has_data() {
             let next = fc.next.first().copied();
             let ov = fc.next_ovulation();
@@ -223,11 +230,13 @@ pub fn page(st: St, wide: bool) -> W {
                 .child(info_tile(icons::EGG, "teal", t!("Овуляция"), ov.map(date::long).unwrap_or_default(), ov.map(|o| date::relative(o, today)).unwrap_or_default()));
             let (ch, tone) = chance_text(fc.chance(today));
             let win = ov.map(|o| date::range(o - 5, o + 1)).unwrap_or_default();
-            let row2 = Row::new()
-                .gap(12.0)
-                .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                .child(info_tile(icons::FLOWER, "teal", t!("Фертильное окно"), win, t!("6–7 дней вокруг овуляции")))
-                .child(info_tile(icons::SPARK, tone, t!("Шанс зачатия"), ch, t!("сегодня")));
+            let row2 = Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(info_tile(icons::FLOWER, "teal", t!("Фертильное окно"), win, t!("6–7 дней вокруг овуляции"))).child(info_tile(
+                icons::SPARK,
+                tone,
+                t!("Шанс зачатия"),
+                ch,
+                t!("сегодня"),
+            ));
             blocks.push(rise(1, Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(row1).child(row2)));
             if let Some(ph) = fc.phase() {
                 blocks.push(rise(
@@ -257,6 +266,37 @@ pub fn page(st: St, wide: bool) -> W {
                 ),
             ),
         ));
+        let loves = fc.intimacy(today);
+        let love_sub = if loves.is_empty() {
+            t!("Сегодня не отмечено")
+        } else {
+            let times: Vec<String> = loves.iter().filter_map(|i| i.time_text()).collect();
+            let n = tn!(loves.len(), "сегодня {n} раз", "сегодня {n} раза", "сегодня {n} раз");
+            if times.is_empty() {
+                n
+            } else {
+                format!("{n} · {}", times.join(", "))
+            }
+        };
+        if fc.show_intimacy {
+            blocks.push(rise(
+                4,
+                GestureDetector::new().on_click(move || st.open_day(st.today.get_untracked())).child(
+                    DecoratedBox::new().class("row-card").child(
+                        Row::new()
+                            .gap(12.0)
+                            .cross_axis_alignment(CrossAxisAlignment::Center)
+                            .child(DecoratedBox::new().class("tile-badge love").child(icon(icons::HEART).class("ic tile-ic")))
+                            .child(DecoratedBox::new().class("grow").child(Column::new().gap(2.0).child(Text::new(t!("Близость")).class("row-title")).child(Text::new(love_sub).max_lines(1).class("hint"))))
+                            .child(Button::new("").icon(icons::ADD).class("btn round love-add").on_click(move || {
+                                let t = st.today.get_untracked();
+                                st.add_intimacy(t);
+                                st.toast(t!("Близость отмечена — время и защиту можно указать в карточке дня"));
+                            })),
+                    ),
+                ),
+            ));
+        }
         blocks.push(Box::new(Text::new(t!("Прогноз приблизительный и не заменяет контрацепцию и консультацию врача.")).max_lines(3).class("hint center disclaimer")));
         vec![scroll_page(wide, blocks)]
     }))

@@ -22,13 +22,7 @@ pub const SYMPTOMS: &[(u32, &str, &str)] = &[
 ];
 
 /// Настроение — `DayLog::mood` (0 — не отмечено).
-pub const MOODS: &[(u8, &str, &str)] = &[
-    (1, "Отлично", "\u{E813}"),
-    (2, "Спокойно", "\u{E812}"),
-    (3, "Грустно", "\u{E811}"),
-    (4, "Тревожно", "\u{E7F3}"),
-    (5, "Раздражение", "\u{E814}"),
-];
+pub const MOODS: &[(u8, &str, &str)] = &[(1, "Отлично", "\u{E813}"), (2, "Спокойно", "\u{E812}"), (3, "Грустно", "\u{E811}"), (4, "Тревожно", "\u{E7F3}"), (5, "Раздражение", "\u{E814}")];
 
 /// Обильность: 1 — мажущие, 2 — слабые, 3 — средние, 4 — обильные.
 pub const FLOWS: &[(u8, &str)] = &[(1, "Мажущие"), (2, "Слабые"), (3, "Средние"), (4, "Обильные")];
@@ -47,6 +41,24 @@ pub struct DayLog {
 impl DayLog {
     pub fn is_empty(&self) -> bool {
         self.flow == 0 && self.sym == 0 && self.mood == 0
+    }
+}
+
+/// Близость: день, необязательное время (минуты от полуночи) и защита (если отмечена).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Intimacy {
+    pub id: u64,
+    pub day: Day,
+    #[serde(default)]
+    pub time: Option<u16>,
+    #[serde(default)]
+    pub protected: Option<bool>,
+}
+
+impl Intimacy {
+    /// «21:30» или пусто.
+    pub fn time_text(&self) -> Option<String> {
+        self.time.map(|m| format!("{:02}:{:02}", m / 60, m % 60))
     }
 }
 
@@ -75,11 +87,13 @@ pub struct Settings {
     pub monday: bool,
     pub show_fertile: bool,
     pub show_ovulation: bool,
+    /// Отметки близости в календаре (можно скрыть).
+    pub show_intimacy: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { cycle_len: 28, period_len: 5, luteal: 14, auto: true, theme: ThemeMode::System, scale: 1.0, fullscreen: true, monday: true, show_fertile: true, show_ovulation: true }
+        Settings { cycle_len: 28, period_len: 5, luteal: 14, auto: true, theme: ThemeMode::System, scale: 1.0, fullscreen: true, monday: true, show_fertile: true, show_ovulation: true, show_intimacy: true }
     }
 }
 
@@ -92,6 +106,8 @@ pub struct Data {
     pub days: BTreeMap<Day, DayLog>,
     /// День, когда отмечено «месячные закончились» (остаток прогноза не показывается).
     pub ended: Option<Day>,
+    /// Близость по дням (в порядке дня и времени).
+    pub intimacy: Vec<Intimacy>,
 }
 
 fn store_path() -> std::path::PathBuf {
@@ -166,7 +182,9 @@ pub struct Forecast {
     pub ongoing_end: Option<Day>,
     show_fertile: bool,
     show_ovulation: bool,
+    pub show_intimacy: bool,
     days: BTreeMap<Day, DayLog>,
+    intimacy: Vec<Intimacy>,
 }
 
 /// Подряд идущие дни месячных (разрыв до 2 дней — тот же период): (начало, конец).
@@ -227,11 +245,25 @@ impl Forecast {
                 p += cycle;
             }
         }
-        Forecast { today, cycle, period, luteal, cycles, next, late, ongoing, ongoing_end, show_fertile: s.show_fertile, show_ovulation: s.show_ovulation, days: data.days.clone() }
+        Forecast { today, cycle, period, luteal, cycles, next, late, ongoing, ongoing_end, show_fertile: s.show_fertile, show_ovulation: s.show_ovulation, show_intimacy: s.show_intimacy, days: data.days.clone(), intimacy: data.intimacy.clone() }
     }
 
     pub fn has_data(&self) -> bool {
         !self.cycles.is_empty()
+    }
+
+    /// Близость в этот день (по времени, без времени — в конце).
+    pub fn intimacy(&self, d: Day) -> Vec<Intimacy> {
+        let mut v: Vec<Intimacy> = self.intimacy.iter().filter(|i| i.day == d).copied().collect();
+        v.sort_by_key(|i| (i.time.is_none(), i.time, i.id));
+        v
+    }
+
+    /// Близость за дни `from..=to`: всего и в фертильные дни.
+    pub fn intimacy_stats(&self, from: Day, to: Day) -> (usize, usize) {
+        let list: Vec<&Intimacy> = self.intimacy.iter().filter(|i| i.day >= from && i.day <= to).collect();
+        let fertile = list.iter().filter(|i| self.chance(i.day) > 0).count();
+        (list.len(), fertile)
     }
 
     pub fn log(&self, d: Day) -> DayLog {
@@ -273,7 +305,9 @@ impl Forecast {
                 return Kind::Predicted;
             }
         }
-        let Some((_, next)) = self.cycle_of(d) else { return Kind::None };
+        let Some((_, next)) = self.cycle_of(d) else {
+            return Kind::None;
+        };
         let ov = self.ovulation(next);
         if self.show_ovulation && d == ov {
             return Kind::Ovulation;
@@ -318,7 +352,9 @@ impl Forecast {
 
     /// Вероятность зачатия в день: 0 — низкая, 1 — средняя, 2 — высокая.
     pub fn chance(&self, d: Day) -> u8 {
-        let Some((_, next)) = self.cycle_of(d) else { return 0 };
+        let Some((_, next)) = self.cycle_of(d) else {
+            return 0;
+        };
         let ov = self.ovulation(next);
         match d - ov {
             -2..=0 => 2,
@@ -354,6 +390,20 @@ mod tests {
         assert_eq!(f.kind(172), Kind::Fertile);
         assert_eq!(f.cycle_day(170), Some(11));
         assert_eq!(f.kind(161), Kind::Period);
+    }
+
+    #[test]
+    fn intimacy_by_day_and_stats() {
+        let mut d = data(&[100, 130, 160], 4);
+        d.intimacy.push(Intimacy { id: 1, day: 172, time: None, protected: None });
+        d.intimacy.push(Intimacy { id: 2, day: 172, time: Some(8 * 60), protected: Some(true) });
+        d.intimacy.push(Intimacy { id: 3, day: 165, time: Some(23 * 60), protected: Some(false) });
+        let f = Forecast::new(&d, 175);
+        let day = f.intimacy(172);
+        assert_eq!(day.iter().map(|i| i.id).collect::<Vec<_>>(), vec![2, 1]);
+        assert_eq!(day[0].time_text().as_deref(), Some("08:00"));
+        // цикл с 160: 165 — обычный день, 172 — фертильное окно (овуляция 176)
+        assert_eq!(f.intimacy_stats(160, 175), (3, 2));
     }
 
     #[test]

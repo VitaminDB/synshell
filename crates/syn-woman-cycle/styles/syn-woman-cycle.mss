@@ -244,3 +244,19 @@ Slider { height: 6px; background: var(--pressed); color: var(--plum); accent-col
 .toast-text { font-size: 14px; color: var(--bg); }
 .fill { width: 100%; }
 .sheet-scroll { height: fit-content; }
+
+/* ── Близость ─────────────────────────────────────────────────────── */
+
+.tile-badge.love { background: linear-gradient(135deg, var(--rose), var(--plum)); }
+.tile-badge.love .tile-ic { icon-color: #ffffff; }
+.love-row { padding: 12px 12px 12px 14px; border-radius: 20px; background-color: var(--surface-alt); border: 1px solid #00000000; transition: background-color 220ms ease-out, border-color 220ms ease-out; }
+.love-row.on { background-color: var(--plum-soft); border-color: var(--plum); }
+.love-ic-muted { icon-size: 20px; icon-color: var(--plum); }
+.time-num { font-size: 20px; font-weight: 800; color: var(--fg); }
+.btn.love { background-color: var(--plum-soft); color: var(--plum); icon-color: var(--plum); border: 1px dashed var(--plum); }
+.btn.love:hover { background-color: var(--plum); color: #ffffff; icon-color: #ffffff; }
+.btn.danger-ic { icon-color: var(--faint); icon-size: 20px; }
+.btn.danger-ic:hover { icon-color: var(--danger); }
+.dot.love { background-color: var(--plum); }
+.legend-dot.love { width: 8px; height: 8px; border-radius: 4px; background-color: var(--plum); margin: 3px; }
+.btn.love-add { padding: 10px; background: linear-gradient(135deg, var(--rose), var(--plum)); icon-color: #ffffff; icon-size: 22px; box-shadow: 0 6px 16px var(--shadow-strong); }
