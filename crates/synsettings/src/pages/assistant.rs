@@ -18,12 +18,27 @@ const TOOLS: &[(&str, &str, &str)] = &[
     ("subagent", n_!("Субагенты"), n_!("Длинные подзадачи выполняет вложенный агент и возвращает только итог; запуск подтверждается, шаги внутри — нет")),
 ];
 
-fn set_disabled(list: Vec<String>) {
+fn set_list(key: &str, list: &[String]) {
     let mut a = Array::new();
-    for s in &list {
+    for s in list {
         a.push(s.as_str());
     }
-    set(&op!["assistant", "disabled_tools"], Value::Array(a));
+    set(&op!["assistant", key], Value::Array(a));
+}
+
+/// Режим инструмента: deny — отключён, ask — спрашивать (опасные действия),
+/// allow — выполнять сразу.
+fn set_mode(id: &str, mode: &str) {
+    let a = store::config().assistant.clone();
+    let mut disabled: Vec<String> = a.disabled_tools.into_iter().filter(|d| d != id).collect();
+    let mut approved: Vec<String> = a.approved_tools.into_iter().filter(|d| d != id).collect();
+    match mode {
+        "deny" => disabled.push(id.to_string()),
+        "allow" => approved.push(id.to_string()),
+        _ => {}
+    }
+    set_list("disabled_tools", &disabled);
+    set_list("approved_tools", &approved);
     state::bump();
 }
 
@@ -300,25 +315,53 @@ pub fn assistant() -> W {
             mic_check(),
         ],
     );
-    let rows: Vec<W> = TOOLS
-        .iter()
-        .map(|(id, title, hint)| {
-            let on = !a.disabled_tools.iter().any(|d| d == id);
-            let list = a.disabled_tools.clone();
-            let id = id.to_string();
-            row_inline(
-                tl(title),
-                tl(hint),
-                Toggle::with_state(on).on_change(move |v| {
-                    let mut l: Vec<String> = list.iter().filter(|d| **d != id).cloned().collect();
-                    if !v {
-                        l.push(id.clone());
-                    }
-                    set_disabled(l);
-                }),
-            )
-        })
-        .collect();
+    let tools_note = note(t!("Безопасные действия (чтение, поиск, просмотр) выполняются всегда без вопроса. «Спрашивать» — подтверждать удаление, запись, команды и выключение; «Сразу» — без подтверждения."));
+    let mut rows: Vec<W> = Vec::new();
+    rows.extend(TOOLS.iter().map(|(id, title, hint)| {
+        let mode = if a.disabled_tools.iter().any(|d| d == id) {
+            "deny"
+        } else if a.approved_tools.iter().any(|d| d == id) {
+            "allow"
+        } else {
+            "ask"
+        };
+        let id = id.to_string();
+        let dd = Dropdown::new()
+            .width(170.0)
+            .item(DropdownItem::new("ask", t!("Спрашивать")))
+            .item(DropdownItem::new("allow", t!("Сразу")))
+            .item(DropdownItem::new("deny", t!("Отключён")))
+            .selected(mode)
+            .on_change(move |v: &str| set_mode(&id, v));
+        row_inline(tl(title), tl(hint), dd)
+    }));
+    let skills_dir = synassist::skills::resolve(&a.skills_dir);
+    let found = synassist::skills::list(&skills_dir);
+    let mut skill_rows: Vec<W> = vec![
+        switch_row(
+            t!("Использовать навыки"),
+            t!("Навык — папка с файлом SKILL.md: в начале между строками --- поля name и description (когда применять), дальше — инструкции. Ассистент видит описания и подгружает навык, когда задача подходит"),
+            op!["assistant", "skills"],
+            a.skills,
+        ),
+        text_row(
+            t!("Каталог навыков"),
+            t!("Пусто — {d}", d = synassist::skills::resolve("").display()),
+            op!["assistant", "skills_dir"],
+            &a.skills_dir,
+            t!("по умолчанию"),
+        ),
+        row_inline(t!("Папка навыков"), skills_dir.display().to_string(), button(t!("Открыть"), move || {
+            let _ = std::fs::create_dir_all(&skills_dir);
+            let _ = std::process::Command::new("xdg-open").arg(&skills_dir).spawn();
+        })),
+    ];
+    if found.is_empty() {
+        skill_rows.push(row_inline(t!("Навыков пока нет"), t!("Положите в каталог папку с SKILL.md — навык появится здесь и у ассистента"), Text::new("")));
+    }
+    for k in found {
+        skill_rows.push(row_inline(k.name.clone(), k.description.clone(), Text::new(k.dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()).class("muted")));
+    }
     let memory_dir = synassist::memory::resolve(&a.memory_dir);
     let memory = group(
         &t!("Память"),
@@ -345,6 +388,6 @@ pub fn assistant() -> W {
     page(
         t!("Ассистент"),
         t!("Помощник на нейросетях этого устройства: отвечает, управляет системой, работает с файлами, ищет в интернете."),
-        vec![general, memory, voice, voice_note, group(&t!("Инструменты"), rows)],
+        vec![general, memory, group(&t!("Инструменты"), rows), tools_note, group(&t!("Навыки"), skill_rows), voice, voice_note],
     )
 }

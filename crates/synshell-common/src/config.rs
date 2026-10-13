@@ -1592,6 +1592,8 @@ pub struct Assistant {
     pub enabled: bool,
     pub auto_approve: bool,
     pub disabled_tools: Vec<String>,
+    /// Инструменты, которые выполняются без подтверждения (режим «сразу»).
+    pub approved_tools: Vec<String>,
     pub autocompact: bool,
     /// Озвучивать ответы и в текстовом чате (в голосовом режиме — всегда).
     pub speak_answers: bool,
@@ -1612,6 +1614,10 @@ pub struct Assistant {
     pub memory: bool,
     /// Каталог памяти; пусто — `~/.local/share/synassist/memory`.
     pub memory_dir: String,
+    /// Навыки — папки с SKILL.md, которые ассистент подгружает по задаче.
+    pub skills: bool,
+    /// Каталог навыков; пусто — `~/.local/share/synassist/skills`.
+    pub skills_dir: String,
 }
 
 impl Default for Assistant {
@@ -1620,6 +1626,7 @@ impl Default for Assistant {
             enabled: true,
             auto_approve: false,
             disabled_tools: Vec::new(),
+            approved_tools: Vec::new(),
             autocompact: true,
             speak_answers: false,
             voice_language: String::new(),
@@ -1629,6 +1636,8 @@ impl Default for Assistant {
             noise_level: 0.0,
             memory: true,
             memory_dir: String::new(),
+            skills: true,
+            skills_dir: String::new(),
         }
     }
 }

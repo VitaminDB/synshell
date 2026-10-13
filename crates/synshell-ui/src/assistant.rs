@@ -391,8 +391,12 @@ fn ask(p: Panel, text: String, voice: bool) {
         .spawn(move || {
             let cfg = synshell_common::Config::load().0.assistant;
             let mut agent = Agent::configured(Arc::new(DaemonBackend), &cfg.disabled_tools, cfg.auto_approve, cfg.autocompact);
+                agent = agent.approve(&cfg.approved_tools);
                 if cfg.memory {
                     agent = agent.with_memory(synassist::memory::resolve(&cfg.memory_dir));
+                }
+                if cfg.skills {
+                    agent = agent.with_skills(synassist::skills::resolve(&cfg.skills_dir));
                 }
             if voice {
                 agent.system = Some(synassist::prompt::build_voice(&agent.tools));

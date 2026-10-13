@@ -54,6 +54,10 @@ pub struct Agent {
     pub system: Option<String>,
     /// Каталог памяти (см. `memory`); `None` — без памяти.
     pub memory: Option<std::path::PathBuf>,
+    /// Инструменты, которые выполняются без подтверждения.
+    pub approved: Vec<String>,
+    /// Навыки (описания — в промпте).
+    pub skills: Vec<crate::skills::Skill>,
 }
 
 const TOOL_RESULT_LIMIT: usize = 12_000;
@@ -63,7 +67,7 @@ const SUBAGENT_PROMPT: &str = "Ты — субагент: выполняешь �
 
 impl Agent {
     pub fn new(backend: Arc<dyn Backend>, tools: Vec<Arc<dyn Tool>>) -> Self {
-        Self { backend, tools, max_steps: 24, auto_approve: false, compact_percent: 85, subagent: true, subagent_steps: 16, system: None, memory: None }
+        Self { backend, tools, max_steps: 24, auto_approve: false, compact_percent: 85, subagent: true, subagent_steps: 16, system: None, memory: None, approved: Vec::new(), skills: Vec::new() }
     }
 
     pub fn configured(backend: Arc<dyn Backend>, disabled: &[String], auto_approve: bool, autocompact: bool) -> Self {
@@ -83,8 +87,29 @@ impl Agent {
         self
     }
 
+    /// Инструменты без подтверждения (режим «сразу» в Параметрах).
+    pub fn approve(mut self, tools: &[String]) -> Self {
+        self.approved = tools.to_vec();
+        self
+    }
+
+    /// Навыки из каталога `dir`: описания в промпте и инструмент `skill`.
+    pub fn with_skills(mut self, dir: std::path::PathBuf) -> Self {
+        let skills = crate::skills::list(&dir);
+        if !skills.is_empty() {
+            self.tools.push(Arc::new(crate::skills::SkillTool { dir }));
+            self.skills = skills;
+        }
+        self
+    }
+
+    fn approved(&self, tool: &str) -> bool {
+        self.auto_approve || self.approved.iter().any(|t| t == tool)
+    }
+
     fn system_prompt(&self) -> String {
         let mut s = self.system.clone().unwrap_or_else(|| crate::prompt::build(&self.tools));
+        s.push_str(&crate::skills::prompt_section(&self.skills));
         if let Some(dir) = &self.memory {
             s.push_str(&crate::memory::prompt_section(dir));
         }
@@ -272,7 +297,7 @@ impl Agent {
         };
         let summary = tool.summary(&args);
         on(AgentEvent::ToolStart { name: name.to_string(), summary: summary.clone() });
-        if tool.danger(&args) == Danger::Confirm && !self.auto_approve && !confirm.confirm(name, &summary) {
+        if tool.danger(&args) == Danger::Confirm && !self.approved(name) && !confirm.confirm(name, &summary) {
             return ChatMsg::tool(name, summary, false, "Пользователь отклонил это действие. Не повторяй его без новой просьбы.".into(), Vec::new());
         }
         match tool.run_ctx(&args, cancel) {
@@ -291,7 +316,7 @@ impl Agent {
         };
         let summary = format!("Субагент: {}", crate::chat::title_from(task));
         on(AgentEvent::ToolStart { name: SUBAGENT.into(), summary: summary.clone() });
-        if !self.auto_approve && !confirm.confirm(SUBAGENT, &format!("Субагент выполнит задачу сам, без отдельных подтверждений:\n{task}")) {
+        if !self.approved(SUBAGENT) && !confirm.confirm(SUBAGENT, &format!("Субагент выполнит задачу сам, без отдельных подтверждений:\n{task}")) {
             return ChatMsg::tool(SUBAGENT, summary, false, "Пользователь отклонил запуск субагента.".into(), Vec::new());
         }
         let allowed: Option<Vec<&str>> = args.get("tools").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect());
@@ -309,6 +334,8 @@ impl Agent {
             subagent_steps: 0,
             system: Some(system),
             memory: None,
+            approved: Vec::new(),
+            skills: Vec::new(),
         };
         let mut chat = Chat::new();
         chat.model = model.to_string();
