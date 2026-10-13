@@ -52,6 +52,8 @@ pub struct Agent {
     pub subagent: bool,
     pub subagent_steps: usize,
     pub system: Option<String>,
+    /// Каталог памяти (см. `memory`); `None` — без памяти.
+    pub memory: Option<std::path::PathBuf>,
 }
 
 const TOOL_RESULT_LIMIT: usize = 12_000;
@@ -61,7 +63,7 @@ const SUBAGENT_PROMPT: &str = "Ты — субагент: выполняешь �
 
 impl Agent {
     pub fn new(backend: Arc<dyn Backend>, tools: Vec<Arc<dyn Tool>>) -> Self {
-        Self { backend, tools, max_steps: 24, auto_approve: false, compact_percent: 85, subagent: true, subagent_steps: 16, system: None }
+        Self { backend, tools, max_steps: 24, auto_approve: false, compact_percent: 85, subagent: true, subagent_steps: 16, system: None, memory: None }
     }
 
     pub fn configured(backend: Arc<dyn Backend>, disabled: &[String], auto_approve: bool, autocompact: bool) -> Self {
@@ -74,8 +76,19 @@ impl Agent {
         a
     }
 
+    /// Память в каталоге `dir`: раздел в системном промпте и инструмент `memory`.
+    pub fn with_memory(mut self, dir: std::path::PathBuf) -> Self {
+        self.tools.push(Arc::new(crate::memory::MemoryTool { dir: dir.clone() }));
+        self.memory = Some(dir);
+        self
+    }
+
     fn system_prompt(&self) -> String {
-        self.system.clone().unwrap_or_else(|| crate::prompt::build(&self.tools))
+        let mut s = self.system.clone().unwrap_or_else(|| crate::prompt::build(&self.tools));
+        if let Some(dir) = &self.memory {
+            s.push_str(&crate::memory::prompt_section(dir));
+        }
+        s
     }
 
     pub fn history(&self, chat: &Chat) -> Vec<Message> {
@@ -295,6 +308,7 @@ impl Agent {
             subagent: false,
             subagent_steps: 0,
             system: Some(system),
+            memory: None,
         };
         let mut chat = Chat::new();
         chat.model = model.to_string();

@@ -7516,6 +7516,7 @@ dependencies = [
  "serde",
  "serde_json",
  "synaptixd",
+ "synassist",
  "synassist-voice",
  "syngui",
  "synmodem",

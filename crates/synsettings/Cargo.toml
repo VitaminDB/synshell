@@ -15,6 +15,7 @@ synshell-common = { workspace = true, features = ["thumbs", "i18n"] }
 synsystem.workspace = true
 synmodem.workspace = true
 synaptixd.workspace = true
+synassist.workspace = true
 synassist-voice.workspace = true
 syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "clipboard", "i18n", "image", "svg"] }
 toml.workspace = true

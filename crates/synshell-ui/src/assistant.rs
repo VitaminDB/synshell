@@ -391,6 +391,9 @@ fn ask(p: Panel, text: String, voice: bool) {
         .spawn(move || {
             let cfg = synshell_common::Config::load().0.assistant;
             let mut agent = Agent::configured(Arc::new(DaemonBackend), &cfg.disabled_tools, cfg.auto_approve, cfg.autocompact);
+                if cfg.memory {
+                    agent = agent.with_memory(synassist::memory::resolve(&cfg.memory_dir));
+                }
             if voice {
                 agent.system = Some(synassist::prompt::build_voice(&agent.tools));
             }
@@ -745,6 +748,7 @@ fn header(p: Panel) -> Box<dyn Widget> {
                         .text(initial)
                         .placeholder(t!("Спросите ассистента…"))
                         .autofocus(true)
+                        .focus_token(p.input_rev.get_untracked())
                         .on_change(move |t| q.set(t.to_string()))
                         .on_submit(move |t| ask(p, t.to_string(), false))
                         .class("search-field grow"),

@@ -319,9 +319,32 @@ pub fn assistant() -> W {
             )
         })
         .collect();
+    let memory_dir = synassist::memory::resolve(&a.memory_dir);
+    let memory = group(
+        &t!("Память"),
+        vec![
+            switch_row(
+                t!("Помнить между разговорами"),
+                t!("Ассистент сохраняет важное о вас и ваших делах — по файлу на факт, индекс MEMORY.md читает в начале каждого разговора. Попросите «запомни…» или «забудь…»"),
+                op!["assistant", "memory"],
+                a.memory,
+            ),
+            text_row(
+                t!("Каталог памяти"),
+                t!("Файлы .md можно править руками; пусто — {d}", d = synassist::memory::resolve("").display()),
+                op!["assistant", "memory_dir"],
+                &a.memory_dir,
+                t!("по умолчанию"),
+            ),
+            row_inline(t!("Файлы памяти"), memory_dir.display().to_string(), button(t!("Открыть"), move || {
+                let _ = std::fs::create_dir_all(&memory_dir);
+                let _ = std::process::Command::new("xdg-open").arg(&memory_dir).spawn();
+            })),
+        ],
+    );
     page(
         t!("Ассистент"),
         t!("Помощник на нейросетях этого устройства: отвечает, управляет системой, работает с файлами, ищет в интернете."),
-        vec![general, voice, voice_note, group(&t!("Инструменты"), rows)],
+        vec![general, memory, voice, voice_note, group(&t!("Инструменты"), rows)],
     )
 }

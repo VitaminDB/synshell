@@ -1608,6 +1608,10 @@ pub struct Assistant {
     /// пороги показывает «Проверка микрофона» в Параметрах: ставить чуть выше музыки
     /// или шума, но ниже своей речи.
     pub noise_level: f32,
+    /// Постоянная память между разговорами (каталог `.md` и индекс `MEMORY.md`).
+    pub memory: bool,
+    /// Каталог памяти; пусто — `~/.local/share/synassist/memory`.
+    pub memory_dir: String,
 }
 
 impl Default for Assistant {
@@ -1623,6 +1627,8 @@ impl Default for Assistant {
             voice_speed: 1.0,
             microphone: String::new(),
             noise_level: 0.0,
+            memory: true,
+            memory_dir: String::new(),
         }
     }
 }
