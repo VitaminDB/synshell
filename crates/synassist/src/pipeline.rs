@@ -37,28 +37,63 @@ impl Tool for PipelineTool {
         "медиа"
     }
     fn description(&self) -> String {
-        "Выполнить многошаговый сценарий с нейросетями: recipe — имя рецепта из системного промпта и params — его параметры (пути файлов — абсолютные); или graph — свой граф: {\"params\":{...}, \"nodes\":[{\"id\":\"…\",\"op\":\"…\", поля}], \"output\":[\"id\"]}. Операции: llm (prompt, system), text (text), image (prompt, width, height, images — референсы), video (prompt, seconds, first_frame, last_frame, refs, audio, source_video, extend, control_video, restyle), music (prompt, lyrics, seconds), speak (text, voice), transcribe (file), concat (files), mux (video, audio, mode: replace|mix), frame (video, at: first|last|секунда), trim (file, start, end), still (image, audio). Поля ссылаются на параметры и результаты: {{param}}, {{id.text}}, {{id.file}}, {{id.files}}, {{id.lines}}; each: \"{{список}}\" — выполнить узел для каждого элемента ({{item}}). Результат покажется пользователю. Генерация видео и музыки идёт минуты.".into()
+        "action: run (по умолчанию) — выполнить; save — сохранить graph своим рецептом (в graph обязательны name — короткое имя латиницей, description — когда применять, params — то, что меняется от раза к разу: тема, файлы, текст, с type text|file|files|number, description и default; в узлах вместо конкретных значений — {{параметр}}); delete — удалить свой рецепт recipe. Пример графа: {\"name\":\"poster\",\"description\":\"постер со слоганом по теме\",\"params\":{\"topic\":{\"type\":\"text\",\"description\":\"тема\"}},\"nodes\":[{\"id\":\"slogan\",\"op\":\"llm\",\"prompt\":\"Слоган на тему {{topic}}, только текст\"},{\"id\":\"art\",\"op\":\"image\",\"prompt\":\"vertical poster about {{topic}}, bold composition\",\"width\":768,\"height\":1024}],\"output\":[\"art\",\"slogan\"]} — output перечисляет id узлов, размеры задавай оба. Сохраняй, когда пользователь просит, а после удачного прогона своего графа коротко предложи сохранить его рецептом. Выполнить многошаговый сценарий с нейросетями: recipe — имя рецепта из системного промпта и params — его параметры (пути файлов — абсолютные); или graph — свой граф: {\"params\":{...}, \"nodes\":[{\"id\":\"…\",\"op\":\"…\", поля}], \"output\":[\"id\"]}. Операции: llm (prompt, system), text (text), image (prompt, width, height, images — референсы), video (prompt, seconds, first_frame, last_frame, refs, audio, source_video, extend, control_video, restyle), music (prompt, lyrics, seconds), speak (text, voice), transcribe (file), concat (files), mux (video, audio, mode: replace|mix), frame (video, at: first|last|секунда), trim (file, start, end), still (image, audio). Поля ссылаются на параметры и результаты: {{param}}, {{id.text}}, {{id.file}}, {{id.files}}, {{id.lines}}; each: \"{{список}}\" — выполнить узел для каждого элемента ({{item}}). Результат покажется пользователю. Генерация видео и музыки идёт минуты.".into()
     }
     fn parameters(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
+                "action": {"type": "string", "enum": ["run", "save", "delete"]},
                 "recipe": {"type": "string", "description": "имя рецепта"},
                 "params": {"type": "object", "description": "параметры рецепта"},
                 "graph": {"type": "object", "description": "свой граф вместо рецепта"}
             }
         })
     }
-    fn danger(&self, _: &Value) -> Danger {
-        Danger::Safe
+    fn danger(&self, args: &Value) -> Danger {
+        // Удаление своего рецепта пользователь подтверждает.
+        if str_arg(args, "action") == Some("delete") {
+            Danger::Confirm
+        } else {
+            Danger::Safe
+        }
     }
     fn summary(&self, args: &Value) -> String {
+        if str_arg(args, "action") == Some("save") {
+            let name = args.get("graph").and_then(|g| g.get("name")).and_then(Value::as_str).unwrap_or("");
+            return format!("Сохраняю рецепт: {name}");
+        }
+        if str_arg(args, "action") == Some("delete") {
+            return format!("Удаляю рецепт: {}", str_arg(args, "recipe").unwrap_or(""));
+        }
         match str_arg(args, "recipe") {
             Some(r) => format!("Рецепт: {r}"),
             None => "Сценарий из нескольких шагов".into(),
         }
     }
     fn run(&self, args: &Value) -> ToolResult {
+        match str_arg(args, "action") {
+            Some("save") => {
+                let g: synaptix_graph::Graph = serde_json::from_value(args.get("graph").cloned().ok_or("нужен graph")?).map_err(|e| format!("граф: {e}"))?;
+                let (path, existed) = synaptix_graph::recipes::save(&self.dir, &g)?;
+                let name = path.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                return Ok(ToolOutput::text(format!(
+                    "Рецепт «{name}» {} ({}). Он виден в окне ассистента → ⚡ Рецепты и доступен по имени в следующих разговорах.",
+                    if existed { "обновлён" } else { "сохранён" },
+                    path.display()
+                )));
+            }
+            Some("delete") => {
+                let name = synaptix_graph::recipes::slug(crate::tools::need_str(args, "recipe")?);
+                let path = self.dir.join(format!("{name}.json"));
+                if !path.exists() {
+                    return Err(format!("своего рецепта «{name}» нет (встроенные не удаляются)"));
+                }
+                std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+                return Ok(ToolOutput::text(format!("Рецепт «{name}» удалён.")));
+            }
+            _ => {}
+        }
         let graph = match (str_arg(args, "recipe"), args.get("graph")) {
             (Some(name), _) => synaptix_graph::recipes::find(&self.dir, name).ok_or_else(|| {
                 let names: Vec<String> = synaptix_graph::recipes::list(&self.dir).into_iter().map(|g| g.name).collect();

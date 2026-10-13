@@ -166,6 +166,23 @@ impl Graph {
     }
 
     /// Проверка до запуска: порядок, известные операции, обязательные параметры.
+    /// `output` в форме `id.поле` → `id` (модели часто пишут так); неизвестные узлы — ошибка.
+    pub fn normalize_output(&mut self) -> Result<(), String> {
+        let ids: Vec<String> = self.nodes.iter().map(|n| n.id.clone()).collect();
+        let mut out = Vec::new();
+        for o in &self.output {
+            let id = o.trim().trim_start_matches("{{").trim_end_matches("}}").split('.').next().unwrap_or("").trim().to_string();
+            if !ids.contains(&id) {
+                return Err(format!("output «{o}»: нет узла «{id}» (output — список id узлов)"));
+            }
+            if !out.contains(&id) {
+                out.push(id);
+            }
+        }
+        self.output = out;
+        Ok(())
+    }
+
     pub fn validate(&self, params: &Map<String, Value>) -> Result<(), String> {
         self.order()?;
         for n in &self.nodes {

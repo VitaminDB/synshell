@@ -333,6 +333,9 @@ pub fn run(graph: &Graph, params: &Map<String, Value>, dir: &Path, on_step: &mut
             }
         }
     }
+    let mut graph = graph.clone();
+    graph.normalize_output()?;
+    let graph = &graph;
     graph.validate(&params)?;
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let order = graph.order()?;

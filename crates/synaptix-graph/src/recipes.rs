@@ -56,6 +56,46 @@ pub fn list(dir: &Path) -> Vec<Graph> {
     all
 }
 
+/// Имя рецепта → имя файла (латиница, цифры, дефисы).
+pub fn slug(name: &str) -> String {
+    let mut s: String = name.trim().to_lowercase().chars().map(|c| if c.is_alphanumeric() { c } else { '-' }).collect();
+    while s.contains("--") {
+        s = s.replace("--", "-");
+    }
+    s.trim_matches('-').chars().take(60).collect()
+}
+
+/// Сохранить граф своим рецептом: проверка (имя, описание, порядок, операции,
+/// ссылки только на параметры и узлы), запись `<slug>.json`. Возвращает путь
+/// и признак «заменён существующий».
+pub fn save(dir: &Path, g: &Graph) -> Result<(std::path::PathBuf, bool), String> {
+    let name = slug(&g.name);
+    if name.is_empty() {
+        return Err("у рецепта нужно имя (name)".into());
+    }
+    if g.description.trim().is_empty() {
+        return Err("у рецепта нужно описание (description) — по нему его выбирают".into());
+    }
+    if g.nodes.is_empty() {
+        return Err("в рецепте нет шагов (nodes)".into());
+    }
+    g.order()?;
+    for n in &g.nodes {
+        if !crate::exec::OPS.contains(&n.op.as_str()) {
+            return Err(format!("узел «{}»: неизвестная операция «{}»", n.id, n.op));
+        }
+    }
+    let mut g = g.clone();
+    g.normalize_output()?;
+    g.name = name.clone();
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let path = dir.join(format!("{name}.json"));
+    let existed = path.exists();
+    let json = serde_json::to_string_pretty(&g).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json + "\n").map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok((path, existed))
+}
+
 pub fn find(dir: &Path, name: &str) -> Option<Graph> {
     list(dir).into_iter().find(|g| g.name.eq_ignore_ascii_case(name))
 }
@@ -88,6 +128,21 @@ mod tests {
                 assert!(crate::exec::OPS.contains(&n.op.as_str()), "{}: {}", g.name, n.op);
             }
         }
+    }
+
+    #[test]
+    fn save_and_find() {
+        let dir = tempfile::tempdir().unwrap();
+        let g: Graph = serde_json::from_value(serde_json::json!({
+            "name": "Мой Постер!", "description": "постер по теме",
+            "params": {"topic": {"type": "text"}},
+            "nodes": [{"id": "img", "op": "image", "prompt": "poster about {{topic}}"}]
+        })).unwrap();
+        let (path, existed) = save(dir.path(), &g).unwrap();
+        assert!(!existed && path.ends_with("мой-постер.json"));
+        assert_eq!(find(dir.path(), "мой-постер").unwrap().description, "постер по теме");
+        let bad: Graph = serde_json::from_value(serde_json::json!({"name": "x", "description": "", "nodes": [{"id": "a", "op": "text"}]})).unwrap();
+        assert!(save(dir.path(), &bad).is_err());
     }
 
     #[test]
