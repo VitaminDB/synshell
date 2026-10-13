@@ -35,7 +35,8 @@
 }
 
 .search-box {
-    background-color: var(--glass-hi);
+    /* Цвет палитры, а не белая дымка: --glass-hi поверх тёмной карточки давал серый. */
+    background-color: var(--surface-alt);
     border-color: var(--glass-edge);
     border-radius: 14px;
 }
