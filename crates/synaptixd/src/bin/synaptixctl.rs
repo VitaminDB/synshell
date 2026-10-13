@@ -194,6 +194,30 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             println!("\n[{} токенов за {:.1} с]", g.tokens, t0.elapsed().as_secs_f32());
         }
+        "image" => {
+            // synaptixctl image <модель|-> <выход.png> <описание…>  (REF=путь — референс, W/H/STEPS/SEED)
+            let model = if arg(1)? == "-" { "" } else { arg(1)? };
+            let out = arg(2)?;
+            let prompt = args[3..].join(" ");
+            let env_num = |k: &str| std::env::var(k).ok().and_then(|v| v.parse::<u64>().ok());
+            let p = synaptixd::ImageParams {
+                width: env_num("W").map(|v| v as usize),
+                height: env_num("H").map(|v| v as usize),
+                steps: env_num("STEPS").map(|v| v as usize),
+                seed: env_num("SEED"),
+                images: std::env::var("REF").ok().map(|r| r.split(',').map(String::from).collect()).unwrap_or_default(),
+                ..Default::default()
+            };
+            let t0 = std::time::Instant::now();
+            let (reply, png) = c
+                .image(model, &prompt, &p, |i, n| {
+                    eprint!("\r  шаг {i}/{n}");
+                })
+                .map_err(|e| e.to_string())?;
+            std::fs::write(out, &png).map_err(|e| e.to_string())?;
+            eprintln!();
+            println!("{} · зерно {} → {out} за {:.1} с", reply.label, reply.seed, t0.elapsed().as_secs_f32());
+        }
         "asr" => {
             let (pcm, sr) = read_wav(arg(2)?)?;
             let t0 = std::time::Instant::now();
@@ -255,7 +279,7 @@ fn run(args: &[String]) -> Result<(), String> {
             })
             .map_err(|e| e.to_string())?;
         }
-        other => return Err(format!("неизвестная команда {other}: list|status|defaults|default|params|libraries|library-add|library-remove|delete|load|unload|set|ctc|asr|gen|say|watch|rescan")),
+        other => return Err(format!("неизвестная команда {other}: list|status|defaults|default|params|libraries|library-add|library-remove|delete|load|unload|set|ctc|asr|gen|image|say|watch|rescan")),
     }
     Ok(())
 }

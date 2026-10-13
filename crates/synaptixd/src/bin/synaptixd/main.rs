@@ -182,6 +182,61 @@ impl Conn {
                 let al = mgr.run(&model, |m| m.mfa_align(pcm.f32s(), &words, options.as_ref()))?;
                 (data(al), none())
             }
+            Request::Image { model, prompt, negative, width, height, steps, guidance, seed, images, init, strength } => {
+                let model = mgr.resolve_id(&model, ModelKind::Image)?;
+                let seed = seed.unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1) % 1_000_000_007);
+                let req = synaptix_gen::image::ImageRequest {
+                    prompt,
+                    negative,
+                    width,
+                    height,
+                    steps,
+                    guidance,
+                    seed,
+                    images: images.into_iter().map(std::path::PathBuf::from).collect(),
+                    init: init.map(std::path::PathBuf::from),
+                    strength,
+                    quant: mgr.params(&model, &Params::new()).text("quant").map(String::from),
+                };
+                let sock = self.sock.as_fd();
+                let id = self.current;
+                // Клиент ушёл (отправка не прошла) — отмена генерации.
+                let send = |step: usize, total: usize| -> bool {
+                    let r = Reply { id, event: Some(synaptixd::Event::Progress { step, total }), ..Default::default() };
+                    wire::send(sock, &serde_json::to_vec(&r).unwrap_or_default(), &[]).is_ok()
+                };
+                mgr.clear_device(&model, synaptixd::DeviceKind::Cuda, "генерация картинки");
+                let r = mgr.run(&model, |m| m.image(&req, &mut |i, n| send(i, n)));
+                // Этапы пайплайна оставляют гигабайты в CUDA-пулах — вернуть драйверу.
+                manager::release_vram(Some(synaptixd::DeviceKind::Cuda));
+                let (png, out) = r?;
+                let fd = wire::memfd("image", &png)?;
+                let reply = synaptixd::ImageReply { width: out.width, height: out.height, seed, label: out.label, png: FdRef { fd: 0 }, bytes: png.len() };
+                (data(reply), vec![fd])
+            }
+            Request::Music { model, prompt, lyrics, seconds, seed, steps } => {
+                let model = mgr.resolve_id(&model, ModelKind::Music)?;
+                let seed = seed.unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1) % 1_000_000_007);
+                let req = synaptix_gen::music::MusicRequest { prompt, lyrics, seconds: seconds.unwrap_or(0), seed, steps };
+                let sock = self.sock.as_fd();
+                let id = self.current;
+                let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let c2 = cancel.clone();
+                let send = |step: usize, total: usize| {
+                    let r = Reply { id, event: Some(synaptixd::Event::Progress { step, total }), ..Default::default() };
+                    if wire::send(sock, &serde_json::to_vec(&r).unwrap_or_default(), &[]).is_err() {
+                        c2.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                };
+                mgr.clear_device(&model, synaptixd::DeviceKind::Cuda, "генерация музыки");
+                let r = mgr.run(&model, |m| m.music(&req, cancel.clone(), &mut |i, n| send(i, n)));
+                manager::release_vram(Some(synaptixd::DeviceKind::Cuda));
+                let (wav, out) = r?;
+                let fd = wire::memfd("music", &wav)?;
+                let seconds = out.samples.len() as f32 / (out.sample_rate.max(1) as f32 * out.channels.max(1) as f32);
+                let reply = synaptixd::MusicReply { seconds, sample_rate: out.sample_rate, channels: out.channels, seed, label: out.label, wav: FdRef { fd: 0 }, bytes: wav.len() };
+                (data(reply), vec![fd])
+            }
             Request::Embed { model, texts } => {
                 let model = mgr.resolve_id(&model, ModelKind::Embed)?;
                 let e = mgr.run(&model, |m| m.embed(&texts))?;

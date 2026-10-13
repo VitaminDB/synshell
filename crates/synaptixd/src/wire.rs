@@ -209,6 +209,9 @@ pub fn memfd(name: &str, data: &[u8]) -> io::Result<OwnedFd> {
     let fd = unsafe { OwnedFd::from_raw_fd(fd) };
     let mut file = std::fs::File::from(fd);
     std::io::Write::write_all(&mut file, data)?;
+    // Позиция файла общая с получателем — в начало, чтобы читать можно было
+    // и обычным read, а не только mmap.
+    std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(0))?;
     let fd = OwnedFd::from(file);
     unsafe {
         libc::fcntl(fd.as_raw_fd(), libc::F_ADD_SEALS, libc::F_SEAL_SHRINK | libc::F_SEAL_GROW | libc::F_SEAL_WRITE | libc::F_SEAL_SEAL);

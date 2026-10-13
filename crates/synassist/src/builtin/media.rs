@@ -56,6 +56,66 @@ fn speak(args: &Value) -> ToolResult {
     Ok(ToolOutput { text: format!("Озвучено: {:.1} с, файл {}", secs, path.display()), files: vec![path] })
 }
 
+fn image(args: &Value) -> ToolResult {
+    let prompt = need_str(args, "prompt")?;
+    let num = |k: &str| args.get(k).and_then(Value::as_u64);
+    let images: Vec<String> = args
+        .get("images")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(|p| crate::builtin::expand(p).to_string_lossy().into_owned()).collect())
+        .unwrap_or_default();
+    let p = synaptixd::ImageParams {
+        negative: str_arg(args, "negative").map(String::from),
+        width: num("width").map(|v| v as usize),
+        height: num("height").map(|v| v as usize),
+        steps: num("steps").map(|v| v as usize),
+        guidance: args.get("guidance").and_then(Value::as_f64).map(|v| v as f32),
+        seed: num("seed"),
+        images,
+        init: None,
+        strength: None,
+    };
+    let model = str_arg(args, "model").unwrap_or("");
+    let mut c = synaptixd::Client::connect().map_err(|e| e.to_string())?;
+    let (reply, png) = match c.image(model, prompt, &p, |_, _| {}) {
+        Ok(r) => r,
+        Err(e) if e.code == synaptixd::ErrorCode::NoModel => return generate(ModelKind::Image, "картинки"),
+        Err(e) => return Err(e.to_string()),
+    };
+    let path = media_dir().join(format!("image-{}.png", stamp()));
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, &png).map_err(|e| e.to_string())?;
+    Ok(ToolOutput {
+        text: format!("Картинка готова и уже показана пользователю под ответом ({}, зерно {}; файл {} — для инструментов, пользователю путь не называй).", reply.label, reply.seed, path.display()),
+        files: vec![path],
+    })
+}
+
+fn music(args: &Value) -> ToolResult {
+    let prompt = need_str(args, "prompt")?;
+    let lyrics = str_arg(args, "lyrics").unwrap_or("");
+    let seconds = args.get("seconds").and_then(Value::as_u64).map(|v| v.clamp(5, 300) as u32);
+    let seed = args.get("seed").and_then(Value::as_u64);
+    let model = str_arg(args, "model").unwrap_or("");
+    let mut c = synaptixd::Client::connect().map_err(|e| e.to_string())?;
+    let (reply, wav) = match c.music(model, prompt, lyrics, seconds, seed, |_, _| {}) {
+        Ok(r) => r,
+        Err(e) if e.code == synaptixd::ErrorCode::NoModel => return generate(ModelKind::Music, "музыки"),
+        Err(e) => return Err(e.to_string()),
+    };
+    let path = media_dir().join(format!("music-{}.wav", stamp()));
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, &wav).map_err(|e| e.to_string())?;
+    Ok(ToolOutput {
+        text: format!("Музыка готова и уже показана пользователю под ответом ({}, {:.0} с, зерно {}; файл {} — для инструментов, пользователю путь не называй).", reply.label, reply.seconds, reply.seed, path.display()),
+        files: vec![path],
+    })
+}
+
 fn generate(kind: ModelKind, what: &str) -> ToolResult {
     let mut c = synaptixd::Client::connect().map_err(|e| e.to_string())?;
     match c.resolve(kind) {
@@ -76,7 +136,7 @@ impl Tool for MediaTool {
         "медиа"
     }
     fn description(&self) -> String {
-        "Создание медиа системными нейросетями. action: speak — озвучить текст (prompt — текст, voice — описание голоса, language — код языка), image — картинка по описанию (prompt), video — видео (prompt), music — музыка или песня (prompt). Результат — файл, он покажется пользователю в чате.".into()
+        "Создание медиа системными нейросетями. action: speak — озвучить текст (prompt — текст, voice — описание голоса, language — код языка); image — картинка: prompt — подробное описание по-английски (объекты, стиль, свет, композиция), width/height (по умолчанию ~1024, кратно 16), steps, seed, negative; images — пути картинок-референсов, чтобы изменить или скомбинировать их (prompt — что сделать); video — видео (prompt); music — музыка или песня: prompt — жанр, инструменты, настроение по-английски, lyrics — текст песни с метками [verse]/[chorus] (пусто — инструментал), seconds — длительность. Результат — файл, он покажется пользователю в чате, и ты его увидишь.".into()
     }
     fn parameters(&self) -> Value {
         json!({
@@ -85,7 +145,17 @@ impl Tool for MediaTool {
                 "action": {"type": "string", "enum": ["speak", "image", "video", "music"]},
                 "prompt": {"type": "string"},
                 "voice": {"type": "string"},
-                "language": {"type": "string"}
+                "language": {"type": "string"},
+                "negative": {"type": "string"},
+                "width": {"type": "integer"},
+                "height": {"type": "integer"},
+                "steps": {"type": "integer"},
+                "seed": {"type": "integer"},
+                "guidance": {"type": "number"},
+                "images": {"type": "array", "items": {"type": "string"}, "description": "пути картинок-референсов для правки"},
+                "lyrics": {"type": "string", "description": "текст песни (music)"},
+                "seconds": {"type": "integer", "description": "длительность музыки, с"},
+                "model": {"type": "string", "description": "id модели; пусто — по умолчанию"}
             },
             "required": ["action", "prompt"]
         })
@@ -106,9 +176,9 @@ impl Tool for MediaTool {
     fn run(&self, args: &Value) -> ToolResult {
         match need_str(args, "action")? {
             "speak" => speak(args),
-            "image" => generate(ModelKind::Image, "картинки"),
+            "image" => image(args),
             "video" => generate(ModelKind::Video, "видео"),
-            "music" => generate(ModelKind::Music, "музыки"),
+            "music" => music(args),
             other => Err(format!("неизвестное действие {other}")),
         }
     }

@@ -452,6 +452,45 @@ pub enum Request {
         #[serde(default)]
         options: Option<AlignOptions>,
     },
+    /// Картинка по описанию (и по референсам/исходной картинке); прогресс —
+    /// событиями `progress`, PNG — fd 0 ответа.
+    Image {
+        model: String,
+        prompt: String,
+        #[serde(default)]
+        negative: Option<String>,
+        #[serde(default)]
+        width: Option<usize>,
+        #[serde(default)]
+        height: Option<usize>,
+        #[serde(default)]
+        steps: Option<usize>,
+        #[serde(default)]
+        guidance: Option<f32>,
+        #[serde(default)]
+        seed: Option<u64>,
+        /// Референсы (пути; служба читает сама).
+        #[serde(default)]
+        images: Vec<String>,
+        /// Исходная картинка для img2img.
+        #[serde(default)]
+        init: Option<String>,
+        #[serde(default)]
+        strength: Option<f32>,
+    },
+    /// Музыка или песня; WAV — fd 0 ответа.
+    Music {
+        model: String,
+        prompt: String,
+        #[serde(default)]
+        lyrics: String,
+        #[serde(default)]
+        seconds: Option<u32>,
+        #[serde(default)]
+        seed: Option<u64>,
+        #[serde(default)]
+        steps: Option<usize>,
+    },
     /// Эмбеддинги текстов (модель вида embed, например bge-m3).
     Embed {
         model: String,
@@ -529,6 +568,8 @@ pub enum Event {
     Thinking { text: String },
     ToolText { text: String },
     ModelState { model: ModelEntry },
+    /// Ход генерации: шаг из всего.
+    Progress { step: usize, total: usize },
     ModelsChanged,
 }
 
@@ -584,6 +625,43 @@ pub struct Segment {
     pub start: f32,
     pub end: f32,
     pub text: String,
+}
+
+/// Готовая картинка: PNG в fd ответа.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct ImageReply {
+    pub width: usize,
+    pub height: usize,
+    pub seed: u64,
+    pub label: String,
+    pub png: FdRef,
+    pub bytes: usize,
+}
+
+/// Готовая музыка: WAV в fd ответа.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct MusicReply {
+    pub seconds: f32,
+    pub sample_rate: u32,
+    pub channels: u16,
+    pub seed: u64,
+    pub label: String,
+    pub wav: FdRef,
+    pub bytes: usize,
+}
+
+/// Параметры картинки для [`Client::image`].
+#[derive(Clone, Debug, Default)]
+pub struct ImageParams {
+    pub negative: Option<String>,
+    pub width: Option<usize>,
+    pub height: Option<usize>,
+    pub steps: Option<usize>,
+    pub guidance: Option<f32>,
+    pub seed: Option<u64>,
+    pub images: Vec<String>,
+    pub init: Option<String>,
+    pub strength: Option<f32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
@@ -815,6 +893,50 @@ impl Client {
         };
         let (v, _) = self.call(req, &[fd.as_fd()])?;
         serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))
+    }
+
+    /// Картинка: PNG-байты и описание; `on_progress(шаг, всего)`.
+    pub fn image(&mut self, model: &str, prompt: &str, p: &ImageParams, mut on_progress: impl FnMut(usize, usize)) -> Result<(ImageReply, Vec<u8>)> {
+        let req = Request::Image {
+            model: model.into(),
+            prompt: prompt.into(),
+            negative: p.negative.clone(),
+            width: p.width,
+            height: p.height,
+            steps: p.steps,
+            guidance: p.guidance,
+            seed: p.seed,
+            images: p.images.clone(),
+            init: p.init.clone(),
+            strength: p.strength,
+        };
+        let (v, fds) = self.call_events(req, &[], |ev| {
+            if let Event::Progress { step, total } = ev {
+                on_progress(step, total);
+            }
+        })?;
+        let reply: ImageReply = serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))?;
+        let fd = fds.into_iter().next().ok_or_else(|| Error::new(ErrorCode::Protocol, "нет fd с картинкой"))?;
+        let mut png = Vec::with_capacity(reply.bytes);
+        use std::io::Read;
+        std::fs::File::from(fd).read_to_end(&mut png).map_err(|e| Error::new(ErrorCode::Failed, e.to_string()))?;
+        Ok((reply, png))
+    }
+
+    /// Музыка: WAV-байты и описание; `on_progress(шаг, всего)` (где модель его даёт).
+    pub fn music(&mut self, model: &str, prompt: &str, lyrics: &str, seconds: Option<u32>, seed: Option<u64>, mut on_progress: impl FnMut(usize, usize)) -> Result<(MusicReply, Vec<u8>)> {
+        let req = Request::Music { model: model.into(), prompt: prompt.into(), lyrics: lyrics.into(), seconds, seed, steps: None };
+        let (v, fds) = self.call_events(req, &[], |ev| {
+            if let Event::Progress { step, total } = ev {
+                on_progress(step, total);
+            }
+        })?;
+        let reply: MusicReply = serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))?;
+        let fd = fds.into_iter().next().ok_or_else(|| Error::new(ErrorCode::Protocol, "нет fd с музыкой"))?;
+        let mut wav = Vec::with_capacity(reply.bytes);
+        use std::io::Read;
+        std::fs::File::from(fd).read_to_end(&mut wav).map_err(|e| Error::new(ErrorCode::Failed, e.to_string()))?;
+        Ok((reply, wav))
     }
 
     /// Эмбеддинги текстов; пустая модель — по умолчанию для embed. Большие

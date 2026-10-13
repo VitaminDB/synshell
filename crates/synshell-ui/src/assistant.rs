@@ -62,6 +62,8 @@ struct Panel {
     note: RwSignal<Option<String>>,
     attachments: RwSignal<Vec<std::path::PathBuf>>,
     drag_over: RwSignal<bool>,
+    /// Файлы, созданные инструментами за этот ответ (картинки, звук…).
+    results: RwSignal<Vec<std::path::PathBuf>>,
 }
 
 thread_local! {
@@ -101,6 +103,7 @@ fn panel() -> Panel {
                 note: use_signal(None),
                 attachments: use_signal(Vec::new()),
                 drag_over: use_signal(false),
+                results: use_signal(Vec::new()),
             };
             p.set(Some(v));
             v
@@ -377,6 +380,7 @@ fn ask(p: Panel, text: String, voice: bool) {
         p.attachments.set(Vec::new());
     }
     p.busy.set(true);
+    p.results.set(Vec::new());
     p.answer.set(String::new());
     p.tool.set(None);
     p.query.set(String::new());
@@ -419,6 +423,11 @@ fn ask(p: Panel, text: String, voice: bool) {
                     }
                     AgentEvent::ToolStart { summary, .. } => p.tool.set(Some(summary)),
                     AgentEvent::Message(m) if m.role == Role::Assistant && !m.tool_calls.is_empty() => p.answer.set(String::new()),
+                    AgentEvent::Message(m) if m.role == Role::Tool && !m.files.is_empty() => {
+                        let mut v = p.results.get_untracked();
+                        v.extend(m.files.iter().filter(|f| f.exists()).cloned());
+                        p.results.set(v);
+                    }
                     _ => {}
                 });
             });
@@ -798,6 +807,34 @@ pub fn view(_ctx: ShellCtx) -> impl Widget {
                     .child(ScrollView::new().vertical().follow_end(true).class("assist-scroll grow").child(MarkdownView::new(answer.clone()).with_copy_code(true).selectable(true).class("assist-answer"))),
             );
         }
+        let results = p.results.get();
+        if !results.is_empty() {
+            let mut row = Flex::new().direction(FlexDirection::Row).wrap().gap(8.0);
+            for f in results {
+                let open = f.clone();
+                let tile: Box<dyn Widget> = if is_image(&f) {
+                    Box::new(DecoratedBox::new().child(Image::new(f.to_string_lossy()).fit(ImageFit::Cover).class("assist-result-img")).class("assist-result").clip(true))
+                } else if is_video(&f) {
+                    match video_poster(&f) {
+                        Some(poster) => Box::new(DecoratedBox::new().child(Image::new(poster.to_string_lossy()).fit(ImageFit::Cover).class("assist-result-img")).class("assist-result").clip(true)),
+                        None => Box::new(Chip::new(f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()).icon(PLAY).class("assist-att")),
+                    }
+                } else {
+                    let glyph = if synassist::attach::kind(&f) == synassist::attach::Kind::Audio { AUDIO } else { ATTACH };
+                    Box::new(Chip::new(f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()).icon(glyph).class("assist-att"))
+                };
+                let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                row = row.child(tip(
+                    crate::ui::InputArea::new(tile).pointer().on_click(move |b, _, _| {
+                        if b == syngui::input::MouseButton::Left {
+                            let _ = std::process::Command::new("xdg-open").arg(&open).spawn();
+                        }
+                    }),
+                    name,
+                ));
+            }
+            col = col.child(DecoratedBox::new().child(row).class("assist-results"));
+        }
         if !busy && p.chat_id.get().is_some() {
             let a1 = answer.clone();
             let a2 = answer.clone();
@@ -816,6 +853,7 @@ pub fn view(_ctx: ShellCtx) -> impl Widget {
                     p.chat_id.set(None);
                     p.answer.set(String::new());
                     p.attachments.set(Vec::new());
+                    p.results.set(Vec::new());
                     p.heard.set(String::new());
                     p.input_rev.set(p.input_rev.get_untracked() + 1);
                 }))

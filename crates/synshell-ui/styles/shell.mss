@@ -1592,6 +1592,9 @@ TextField {
 .assist-avatar-ic { icon-size: 16px; icon-color: var(--accent-fg); }
 .assist-scroll { max-height: 420px; }
 .assist-answer { font-size: 14px; color: var(--fg); padding: 3px 6px; }
+.assist-results { padding: 0px 0px 0px 38px; }
+.assist-result { width: 240px; height: 240px; border-radius: 12px; border-width: 1px; border-color: var(--border); background-color: var(--surface-alt); }
+.assist-result-img { width: 240px; height: 240px; border-radius: 12px; }
 .assist-sep { height: 1px; background-color: var(--border); }
 .assist-act { padding: 8px; border-radius: 999px; background-color: var(--surface-alt); icon-size: 20px; color: var(--fg); icon-color: var(--fg); transition: background-color 120ms ease-out; }
 .assist-act:hover { background-color: var(--pressed); }

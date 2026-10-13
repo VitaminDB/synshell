@@ -122,6 +122,40 @@ pub enum Loaded {
     Llm(Box<LlmSlot>),
     Tts(std::sync::Mutex<TtsState>, DeviceKind),
     Embed(Box<dyn synaptix::facade::embedding::Embedder + Send + Sync>),
+    /// Генеративная модель: веса грузит пайплайн на время запроса (по этапам,
+    /// с выгрузкой лишнего), здесь — только путь и устройство.
+    Image(std::path::PathBuf, DeviceKind),
+    Music(MusicModel, DeviceKind),
+}
+
+pub enum MusicModel {
+    Ace(synaptix_gen::music::AcePaths),
+    Yue { model: std::path::PathBuf, vae: std::path::PathBuf },
+}
+
+/// Файл по началу имени рядом в библиотеке (на уровень выше, с подкаталогами).
+fn find_near(path: &Path, prefix: &str) -> Option<std::path::PathBuf> {
+    let root = path.parent()?.parent()?;
+    let mut stack = vec![root.to_path_buf()];
+    let mut depth = 0;
+    while depth < 3 && !stack.is_empty() {
+        let mut next = Vec::new();
+        for dir in stack {
+            for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let p = e.path();
+                let name = p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+                if p.is_file() && name.starts_with(prefix) && name.ends_with(".syn") {
+                    return Some(p);
+                }
+                if p.is_dir() {
+                    next.push(p);
+                }
+            }
+        }
+        stack = next;
+        depth += 1;
+    }
+    None
 }
 
 pub struct CtcResult {
@@ -134,7 +168,7 @@ pub struct CtcResult {
 }
 
 pub fn runnable(kind: ModelKind) -> bool {
-    matches!(kind, ModelKind::Ctc | ModelKind::Mfa | ModelKind::Asr | ModelKind::Llm | ModelKind::Tts | ModelKind::Embed)
+    matches!(kind, ModelKind::Ctc | ModelKind::Mfa | ModelKind::Asr | ModelKind::Llm | ModelKind::Tts | ModelKind::Embed | ModelKind::Image | ModelKind::Music)
 }
 
 fn llm_policy(path: &Path, dev: DeviceKind, quant: Option<&str>) -> synaptix::facade::llm::QuantPolicy {
@@ -204,7 +238,7 @@ fn precision_tag(quant: Option<DType>, compute: DType) -> String {
     dtype_label(quant.unwrap_or(compute))
 }
 
-pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind, quant: Option<&str>) -> anyhow::Result<(Loaded, Option<String>)> {
+pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collections::BTreeMap<String, std::path::PathBuf>, dev: DeviceKind, quant: Option<&str>) -> anyhow::Result<(Loaded, Option<String>)> {
     let plain = |l: Loaded| Ok((l, None));
     match kind {
         ModelKind::Ctc => {
@@ -263,6 +297,26 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind, quant: Op
             };
             let st = TtsState { engine, voices: Default::default(), anchors: Default::default(), refs: Default::default() };
             Ok((Loaded::Tts(std::sync::Mutex::new(st), dev), Some(precision_tag(q, dtype))))
+        }
+        ModelKind::Music => {
+            let a = arch.to_ascii_lowercase();
+            let need = |role: &str| components.get(role).cloned().ok_or_else(|| anyhow::anyhow!("у модели нет компонента «{role}»"));
+            let m = if a.contains("yue") {
+                MusicModel::Yue { model: path.to_path_buf(), vae: need("vae")? }
+            } else {
+                let lm = components.get("lm").or(components.get("lm_small")).cloned().ok_or_else(|| anyhow::anyhow!("нет LM кодов ACE-Step"))?;
+                let text_encoder = components
+                    .get("text_encoder")
+                    .cloned()
+                    .or_else(|| find_near(path, "qwen3-embedding-0.6b"))
+                    .ok_or_else(|| anyhow::anyhow!("нет текстового энкодера ACE-Step (qwen3-embedding-0.6b.syn)"))?;
+                MusicModel::Ace(synaptix_gen::music::AcePaths { dit: path.to_path_buf(), lm, text_encoder, vae: need("vae")? })
+            };
+            plain(Loaded::Music(m, dev))
+        }
+        ModelKind::Image => {
+            synaptix_gen::image::detect(path).map_err(|e| anyhow::anyhow!("{e}"))?;
+            plain(Loaded::Image(path.to_path_buf(), dev))
         }
         ModelKind::Embed => {
             use synaptix::facade::embedding::{load_embedder, DType as EDType, EmbedderConfig};
@@ -348,6 +402,36 @@ impl Loaded {
             frame_shift: al.frame_shift,
             score: al.score,
         })
+    }
+
+    /// Повторять ли на CPU после ошибки на ускорителе: генерацию — нет (на
+    /// CPU это часы; ошибка — обычно отмена или нехватка памяти).
+    pub fn cpu_fallback(&self) -> bool {
+        !matches!(self, Loaded::Image(..) | Loaded::Music(..))
+    }
+
+    /// Картинка: PNG-байты, ответ; `progress(шаг, всего) -> продолжать`.
+    pub fn image(&self, req: &synaptix_gen::image::ImageRequest, progress: &mut dyn FnMut(usize, usize) -> bool) -> anyhow::Result<(Vec<u8>, synaptix_gen::image::ImageOutput)> {
+        let Loaded::Image(path, dev) = self else { anyhow::bail!("модель не рисует картинки") };
+        let out = synaptix_gen::image::generate(path, devices::device(*dev), req, progress).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let tmp = std::env::temp_dir().join(format!("synaptixd-image-{}-{}.png", std::process::id(), md5_like(&req.prompt)));
+        synaptix_gen::image::save_png(&out.image, &tmp).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let png = std::fs::read(&tmp)?;
+        let _ = std::fs::remove_file(&tmp);
+        Ok((png, out))
+    }
+
+    /// Музыка: WAV-байты и описание.
+    pub fn music(&self, req: &synaptix_gen::music::MusicRequest, cancel: std::sync::Arc<std::sync::atomic::AtomicBool>, progress: &mut dyn FnMut(usize, usize)) -> anyhow::Result<(Vec<u8>, synaptix_gen::music::MusicOutput)> {
+        let Loaded::Music(m, dev) = self else { anyhow::bail!("модель не создаёт музыку") };
+        let device = devices::device(*dev);
+        let out = match m {
+            MusicModel::Ace(p) => synaptix_gen::music::acestep(p, device, req, cancel),
+            MusicModel::Yue { model, vae } => synaptix_gen::music::yue2(model, vae, device, req, cancel, progress),
+        }
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let wav = synaptix_gen::music::wav_bytes(&out.samples, out.sample_rate, out.channels);
+        Ok((wav, out))
     }
 
     /// Векторы текстов (нормированные, косинус = скалярное произведение).

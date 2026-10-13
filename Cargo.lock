@@ -6727,6 +6727,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "synaptix-diffusion"
+version = "0.1.1"
+dependencies = [
+ "synaptix-core",
+ "synaptix-infer",
+ "synaptix-nn",
+ "synaptix-ops",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "synaptix-embedding-bge-m3"
 version = "0.1.1"
 dependencies = [
@@ -6743,6 +6754,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "synaptix-gen"
+version = "0.1.1"
+dependencies = [
+ "serde_json",
+ "synaptix-bundle",
+ "synaptix-core",
+ "synaptix-image-flux",
+ "synaptix-image-flux2",
+ "synaptix-image-qwen",
+ "synaptix-image-qwen21",
+ "synaptix-image-sdxl",
+ "synaptix-io",
+ "synaptix-kernels-cpu",
+ "synaptix-kernels-cuda",
+ "synaptix-music-acestep",
+ "synaptix-music-yue2",
+]
+
+[[package]]
 name = "synaptix-gguf"
 version = "0.1.1"
 dependencies = [
@@ -6755,6 +6785,92 @@ dependencies = [
  "synaptix-core",
  "thiserror 2.0.21",
  "tracing",
+]
+
+[[package]]
+name = "synaptix-image-flux"
+version = "0.1.1"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "synaptix-bundle",
+ "synaptix-core",
+ "synaptix-diffusion",
+ "synaptix-io",
+ "synaptix-kernels-cuda",
+ "synaptix-nn",
+ "synaptix-ops",
+ "synaptix-tokenizer",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-image-flux2"
+version = "0.1.1"
+dependencies = [
+ "half",
+ "serde_json",
+ "synaptix-bundle",
+ "synaptix-core",
+ "synaptix-diffusion",
+ "synaptix-io",
+ "synaptix-kernels-cuda",
+ "synaptix-nn",
+ "synaptix-ops",
+ "synaptix-tokenizer",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-image-qwen"
+version = "0.1.1"
+dependencies = [
+ "half",
+ "serde_json",
+ "synaptix-bundle",
+ "synaptix-core",
+ "synaptix-diffusion",
+ "synaptix-io",
+ "synaptix-kernels-cuda",
+ "synaptix-nn",
+ "synaptix-ops",
+ "synaptix-tokenizer",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-image-qwen21"
+version = "0.1.1"
+dependencies = [
+ "half",
+ "serde_json",
+ "synaptix-bundle",
+ "synaptix-core",
+ "synaptix-diffusion",
+ "synaptix-image-qwen",
+ "synaptix-io",
+ "synaptix-nn",
+ "synaptix-ops",
+ "synaptix-tokenizer",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-image-sdxl"
+version = "0.1.1"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "synaptix-bundle",
+ "synaptix-core",
+ "synaptix-diffusion",
+ "synaptix-io",
+ "synaptix-nn",
+ "synaptix-ops",
+ "synaptix-tokenizer",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -6966,6 +7082,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "synaptix-music-acestep"
+version = "0.1.1"
+dependencies = [
+ "safetensors",
+ "serde_json",
+ "synaptix-bundle",
+ "synaptix-core",
+ "synaptix-infer",
+ "synaptix-io",
+ "synaptix-llm-common",
+ "synaptix-nn",
+ "synaptix-ops",
+ "synaptix-tokenizer",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-music-yue2"
+version = "0.1.1"
+dependencies = [
+ "fancy-regex",
+ "serde_json",
+ "synaptix-bundle",
+ "synaptix-core",
+ "synaptix-infer",
+ "synaptix-io",
+ "synaptix-llm-common",
+ "synaptix-nn",
+ "synaptix-ops",
+ "thiserror 2.0.21",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "synaptix-nn"
 version = "0.1.1"
 dependencies = [
@@ -7109,6 +7259,7 @@ dependencies = [
  "synaptix-align-mfa",
  "synaptix-asr-wav2vec2",
  "synaptix-core",
+ "synaptix-gen",
  "synaptix-kernels-cpu",
  "synaptix-kernels-cuda",
  "synaptix-kernels-npu",
@@ -8278,6 +8429,15 @@ name = "unicode-ident"
 version = "1.0.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
+
+[[package]]
+name = "unicode-normalization"
+version = "0.1.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fd4f6878c9cb28d874b009da9e8d183b5abc80117c40bbd187a1fde336be6e8"
+dependencies = [
+ "tinyvec",
+]
 
 [[package]]
 name = "unicode-normalization-alignments"

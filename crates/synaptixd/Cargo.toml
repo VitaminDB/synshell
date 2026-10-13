@@ -22,6 +22,7 @@ daemon = [
     "dep:synaptix-tts-vibevoice",
     "dep:synaptix-tts-voxcpm",
     "dep:synaptix-llm-common",
+    "dep:synaptix-gen",
 ]
 cuda = ["daemon", "dep:synaptix-kernels-cuda"]
 npu = ["daemon", "dep:synaptix-kernels-npu"]
@@ -50,6 +51,7 @@ synaptix-tts-omnivoice = { workspace = true, optional = true }
 synaptix-tts-vibevoice = { workspace = true, optional = true }
 synaptix-tts-voxcpm = { workspace = true, optional = true }
 synaptix-llm-common = { workspace = true, optional = true }
+synaptix-gen = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = "3"

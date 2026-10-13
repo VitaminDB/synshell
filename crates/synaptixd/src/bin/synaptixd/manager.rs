@@ -203,7 +203,7 @@ fn trim() {
 /// при OOM), так что после `Drop` модели её гигабайты оставались за
 /// процессом; кэши ядер (TMA-дескрипторы, скретчи) к тому же держат
 /// страницы пулов и мешают триму — чистим их первыми.
-fn release_vram(dev: Option<DeviceKind>) {
+pub fn release_vram(dev: Option<DeviceKind>) {
     if dev != Some(DeviceKind::Cuda) {
         return;
     }
@@ -602,6 +602,12 @@ impl Manager {
             .map(|(id, _)| id.clone())
     }
 
+    /// Выгрузить с устройства все незанятые модели, кроме `except` —
+    /// генерации нужна вся видеопамять (пайплайн грузит этапы сам).
+    pub fn clear_device(&self, except: &str, dev: DeviceKind, why: &str) {
+        while self.evict_one_on(except, Some(dev), why) {}
+    }
+
     fn evict_one(&self, except: &str, why: &str) -> bool {
         self.evict_one_on(except, None, why)
     }
@@ -748,14 +754,14 @@ impl Manager {
         let t0 = Instant::now();
         let loaded = {
             let _dl = devices::lock(dev);
-            runners::load(m.kind, &m.arch, &path, dev, quant)
+            runners::load(m.kind, &m.arch, &path, &m.component_paths(), dev, quant)
         };
         let (model, dev, variant) = match loaded {
             Ok(model) => (model, dev, variant),
             Err(e) if dev != DeviceKind::Cpu && m.devices().contains(&DeviceKind::Cpu) => {
                 tracing::warn!("{}: {} не загрузилась ({e}); загружаю на CPU", m.id, dev.id());
                 let cpu = m.variant_for(DeviceKind::Cpu).ok_or_else(|| Error::new(ErrorCode::Device, "нет варианта весов для CPU"))?;
-                let model = runners::load(m.kind, &m.arch, &m.path(cpu), DeviceKind::Cpu, quant)
+                let model = runners::load(m.kind, &m.arch, &m.path(cpu), &m.component_paths(), DeviceKind::Cpu, quant)
                     .map_err(|e| Error::new(ErrorCode::Failed, format!("{}: {e}", m.path(cpu).display())))?;
                 (model, DeviceKind::Cpu, cpu)
             }
@@ -784,7 +790,7 @@ impl Manager {
         };
         match r {
             Ok(v) => Ok(v),
-            Err(e) if dev != DeviceKind::Cpu => {
+            Err(e) if dev != DeviceKind::Cpu && lease.model.cpu_fallback() => {
                 tracing::warn!("{id}: ошибка на {} ({e}); повтор на CPU", dev.id());
                 drop(lease);
                 self.unload(id);

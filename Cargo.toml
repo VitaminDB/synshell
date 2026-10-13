@@ -68,6 +68,7 @@ synaptix-tts-omnivoice = { path = "../synaptix/crates/synaptix-models/tts/omnivo
 synaptix-tts-vibevoice = { path = "../synaptix/crates/synaptix-models/tts/vibevoice" }
 synaptix-tts-voxcpm = { path = "../synaptix/crates/synaptix-models/tts/voxcpm" }
 synaptix-llm-common = { path = "../synaptix/crates/synaptix-models/llm/common" }
+synaptix-gen = { path = "../synaptix/crates/synaptix-gen" }
 syngui = { path = "../syngui/syngui", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -158,8 +158,12 @@ impl Agent {
                 Role::Tool => {
                     let name = m.tool.as_ref().map(|t| t.name.as_str()).unwrap_or("tool");
                     let mut msg = Message::tool(name, crate::tools::truncate(&m.text, TOOL_RESULT_LIMIT));
-                    // Картинки результата (снимок экрана, сгенерированное) модель видит.
-                    msg.media = crate::attach::media_of(&m.files);
+                    // Картинки результата (снимок экрана, просмотр файла) модель видит;
+                    // своё созданное (media) — нет: описание она и так знает, а
+                    // картинка в ответе инструмента сбивает некоторые модели.
+                    if name != "media" {
+                        msg.media = crate::attach::media_of(&m.files);
+                    }
                     out.push(msg);
                 }
                 Role::Summary => {}

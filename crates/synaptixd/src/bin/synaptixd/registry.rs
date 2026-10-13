@@ -49,6 +49,11 @@ pub struct Manifest {
 }
 
 impl Manifest {
+    /// Компоненты модели (роль → абсолютный путь).
+    pub fn component_paths(&self) -> std::collections::BTreeMap<String, std::path::PathBuf> {
+        self.components.iter().map(|(r, f)| (r.clone(), self.dir.join(f))).collect()
+    }
+
     pub fn load(dir: &Path) -> anyhow::Result<Self> {
         let text = std::fs::read_to_string(dir.join("model.toml"))?;
         let mut m: Manifest = toml::from_str(&text)?;
