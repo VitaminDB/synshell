@@ -351,7 +351,7 @@ impl St {
 
     pub fn send_with(self, text: String, voice: bool) {
         let text = text.trim().to_string();
-        if text.is_empty() || self.busy.get_untracked() {
+        if (text.is_empty() && self.attachments.get_untracked().is_empty()) || self.busy.get_untracked() {
             if voice {
                 if let Some(tx) = shared().turn.lock().unwrap().take() {
                     let _ = tx.send(Err(t!("Ассистент занят").to_string()));

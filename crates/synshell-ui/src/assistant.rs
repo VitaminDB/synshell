@@ -37,6 +37,9 @@ const ADD: &str = "\u{E145}";
 const SEND: &str = "\u{E163}";
 const CLOSE: &str = "\u{E5CD}";
 const ATTACH: &str = "\u{E226}";
+const PLAY: &str = "\u{E037}";
+const AUDIO: &str = "\u{E405}";
+const PDF: &str = "\u{E415}";
 /// Сторона превью картинки-вложения.
 const THUMB: f32 = 72.0;
 
@@ -237,6 +240,30 @@ fn dropped(p: Panel, data: DropData) {
     p.attachments.set(v);
 }
 
+fn is_video(path: &std::path::Path) -> bool {
+    synassist::attach::kind(path) == synassist::attach::Kind::Video
+}
+
+/// Постер видео (миниатюра freedesktop) или `None`, пока он готовится —
+/// по готовности окно перерисуется (`thumbs_rev`).
+fn video_poster(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    thread_local! {
+        static REV: std::cell::Cell<Option<RwSignal<u64>>> = const { std::cell::Cell::new(None) };
+    }
+    let rev = REV.with(|r| match r.get() {
+        Some(v) => v,
+        None => {
+            let v = use_signal(0u64);
+            r.set(Some(v));
+            synshell_common::thumbs::set_notify(move || run_on_main_thread(move || v.set(v.get_untracked() + 1)));
+            v
+        }
+    });
+    rev.get();
+    let mtime = std::fs::metadata(path).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs() as i64).unwrap_or(0);
+    synshell_common::thumbs::get(path, "video/mp4", mtime, 256)
+}
+
 fn is_image(path: &std::path::Path) -> bool {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" | "avif" | "heic")
@@ -265,9 +292,32 @@ fn attachments_row(p: Panel) -> Box<dyn Widget> {
                 .child(Positioned::new(Button::new("").icon(CLOSE).class("btn assist-thumb-x").on_click(move || remove(i))).at(THUMB - 26.0, 4.0));
             row = row.child(tip(DecoratedBox::new().child(thumb).class("assist-thumb-box").clip(true), name));
         }
-        for (i, f) in files.iter().enumerate().filter(|(_, f)| !is_image(f)) {
+        // Видео — постер с ▶.
+        for (i, f) in files.iter().enumerate().filter(|(_, f)| is_video(f)) {
+            let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let poster: Box<dyn Widget> = match video_poster(f) {
+                Some(p) => Box::new(Image::new(p.to_string_lossy()).fit(ImageFit::Cover).class("assist-thumb")),
+                None => Box::new(DecoratedBox::new().class("assist-thumb assist-thumb-empty")),
+            };
+            let play = Column::new()
+                .main_axis_alignment(MainAxisAlignment::Center)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .class("assist-thumb")
+                .child(DecoratedBox::new().class("assist-play").child(icon(PLAY).class("assist-play-ic")));
+            let thumb = Stack::new()
+                .child(poster)
+                .child(play)
+                .child(Positioned::new(Button::new("").icon(CLOSE).class("btn assist-thumb-x").on_click(move || remove(i))).at(THUMB - 26.0, 4.0));
+            row = row.child(tip(DecoratedBox::new().child(thumb).class("assist-thumb-box").clip(true), name));
+        }
+        for (i, f) in files.iter().enumerate().filter(|(_, f)| !is_image(f) && !is_video(f)) {
             let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| f.to_string_lossy().into_owned());
-            row = row.child(Chip::new(name).icon(ATTACH).deletable().on_delete(move || remove(i)).class("assist-att"));
+            let glyph = match synassist::attach::kind(f) {
+                synassist::attach::Kind::Audio => AUDIO,
+                synassist::attach::Kind::Pdf => PDF,
+                _ => ATTACH,
+            };
+            row = row.child(Chip::new(name).icon(glyph).deletable().on_delete(move || remove(i)).class("assist-att"));
         }
         Box::new(DecoratedBox::new().child(row).class("assist-atts"))
     }))

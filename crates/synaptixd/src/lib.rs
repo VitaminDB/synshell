@@ -328,6 +328,25 @@ pub struct Message {
     pub reasoning: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_calls: Vec<ToolCall>,
+    /// Картинки и видео к сообщению: модель со зрением их видит (служба
+    /// кодирует их башней зрения и ставит блок перед текстом), без зрения —
+    /// получает строку с причиной.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub media: Vec<Media>,
+}
+
+/// Медиа-вложение сообщения: файл на диске (служба читает его сама).
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Media {
+    pub kind: MediaKind,
+    pub path: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaKind {
+    Image,
+    Video,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -338,7 +357,7 @@ pub struct ToolCall {
 
 impl Message {
     pub fn new(role: &str, content: impl Into<String>) -> Self {
-        Self { role: role.into(), content: content.into(), name: None, reasoning: None, tool_calls: Vec::new() }
+        Self { role: role.into(), content: content.into(), name: None, reasoning: None, tool_calls: Vec::new(), media: Vec::new() }
     }
 
     pub fn system(content: impl Into<String>) -> Self {

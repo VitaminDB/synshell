@@ -131,6 +131,14 @@ Dropdown.model-pick { background-color: var(--surface); border-radius: 999px; pa
 .tool-fail { icon-size: 16px; icon-color: var(--danger); }
 .tool-sum { font-size: 13px; color: var(--fg); }
 .tool-out { font-size: 12px; color: var(--muted); font-family: monospace; }
+.att-tile-box { border-radius: 12px; border-width: 1px; border-color: var(--border); background-color: var(--surface-alt); }
+.att-tile { width: 100%; height: 100%; border-radius: 12px; }
+.att-tile-empty { background-color: var(--surface-alt); }
+.att-play { width: 36px; height: 36px; border-radius: 999px; background-color: #000000aa; justify-content: center; align-items: center; }
+.att-play-ic { icon-size: 24px; icon-color: #ffffff; }
+.btn.att-x { width: 22px; height: 22px; padding: 0px; border-radius: 999px; background-color: #000000aa; icon-size: 14px; color: #ffffff; icon-color: #ffffff; justify-content: center; align-items: center; }
+.btn.att-x:hover { background-color: var(--danger); }
+.btn.att-x-inline { padding: 4px; border-radius: 999px; background-color: #00000000; icon-size: 14px; color: var(--muted); icon-color: var(--muted); }
 .att-image { max-width: 420px; max-height: 420px; border-radius: 12px; }
 .typing { accent-color: var(--accent); }
 .spin { color: var(--accent); }

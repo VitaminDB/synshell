@@ -13,12 +13,11 @@ fn attachments(st: St) -> W {
         if files.is_empty() {
             return vec![];
         }
-        let mut row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).class("att-row");
+        let mut row = Flex::new().direction(FlexDirection::Row).wrap().gap(6.0);
         for (i, f) in files.iter().enumerate() {
-            let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            row = row.child(Chip::new(name).icon(icons::ATTACH).deletable().on_delete(move || st.remove_attachment(i)).class("att-chip"));
+            row = row.child(super::feed::media_tile(f, 72.0, Some(Box::new(move || st.remove_attachment(i)))));
         }
-        vec![boxed(row)]
+        vec![boxed(DecoratedBox::new().child(row).class("att-row"))]
     }))
 }
 

@@ -4,6 +4,7 @@ use syngui::prelude::*;
 use syngui::widgets::visual::canvas::Canvas;
 use syngui::widgets::visual::MarkdownView;
 use syngui::GestureDetector;
+use syngui::StyleValue;
 use synassist::chat::{ChatMsg, Role};
 
 use super::{boxed, icon, icon_button, W};
@@ -11,7 +12,70 @@ use crate::icons;
 use crate::state::{Live, St};
 
 fn is_image(p: &Path) -> bool {
-    p.extension().and_then(|e| e.to_str()).is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif"))
+    synassist::attach::kind(p) == synassist::attach::Kind::Image
+}
+
+/// Постер видео или `None`, пока готовится (по готовности лента перерисуется).
+fn video_poster(path: &Path) -> Option<std::path::PathBuf> {
+    thread_local! {
+        static REV: std::cell::Cell<Option<RwSignal<u64>>> = const { std::cell::Cell::new(None) };
+    }
+    let rev = REV.with(|r| match r.get() {
+        Some(v) => v,
+        None => {
+            let v = use_signal(0u64);
+            r.set(Some(v));
+            synshell_common::thumbs::set_notify(move || run_on_main_thread(move || v.set(v.get_untracked() + 1)));
+            v
+        }
+    });
+    rev.get();
+    let mtime = std::fs::metadata(path).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs() as i64).unwrap_or(0);
+    synshell_common::thumbs::get(path, "video/mp4", mtime, 256)
+}
+
+/// Вложение плиткой: картинка — превью, видео — постер с ▶, остальное —
+/// кнопкой с именем; щелчок открывает файл, `on_remove` — крестик (черновик).
+pub fn media_tile(f: &Path, size: f32, on_remove: Option<Box<dyn Fn() + Send + Sync>>) -> W {
+    let p = f.to_path_buf();
+    let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let kind = synassist::attach::kind(f);
+    if !matches!(kind, synassist::attach::Kind::Image | synassist::attach::Kind::Video) || !f.exists() {
+        let glyph = match kind {
+            synassist::attach::Kind::Audio => "\u{E405}",
+            synassist::attach::Kind::Pdf => "\u{E415}",
+            _ => icons::FILE,
+        };
+        let mut row = Row::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        row = row.child(Button::new(name).icon(glyph).class("btn att").on_click(move || open_path(&p)));
+        if let Some(rm) = on_remove {
+            row = row.child(Button::new("").icon("\u{E5CD}").class("btn att-x-inline").on_click(move || rm()));
+        }
+        return boxed(row);
+    }
+    let base: W = if kind == synassist::attach::Kind::Image {
+        boxed(Image::new(f.to_string_lossy()).fit(ImageFit::Cover).class("att-tile"))
+    } else {
+        match video_poster(f) {
+            Some(poster) => boxed(Image::new(poster.to_string_lossy()).fit(ImageFit::Cover).class("att-tile")),
+            None => boxed(DecoratedBox::new().class("att-tile att-tile-empty")),
+        }
+    };
+    let mut stack = syngui::widgets::Stack::new().child(base);
+    if kind == synassist::attach::Kind::Video {
+        stack = stack.child(
+            Column::new()
+                .main_axis_alignment(MainAxisAlignment::Center)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .class("att-tile")
+                .child(DecoratedBox::new().class("att-play").child(icon("\u{E037}").class("att-play-ic"))),
+        );
+    }
+    if let Some(rm) = on_remove {
+        stack = stack.child(syngui::widgets::containers::Positioned::new(Button::new("").icon("\u{E5CD}").class("btn att-x").on_click(move || rm())).at(size - 26.0, 4.0));
+    }
+    let tile = DecoratedBox::new().child(stack).class("att-tile-box").clip(true).style("width", StyleValue::px(size)).style("height", StyleValue::px(size));
+    boxed(syngui::widgets::Tooltip::new(GestureDetector::new().on_click(move || open_path(&p)).child(tile), name).delay_ms(500))
 }
 
 fn open_path(p: &Path) {
@@ -150,11 +214,9 @@ fn user_bubble(m: &ChatMsg) -> W {
     let mut col = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::End);
     col = col.child(DecoratedBox::new().class("user-bubble").child(Text::new(m.text.clone()).selectable(true).class("user-text")));
     if !m.files.is_empty() {
-        let mut files = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        let mut files = Flex::new().direction(FlexDirection::Row).wrap().gap(6.0);
         for f in &m.files {
-            let p = f.clone();
-            let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            files = files.child(Button::new(name).icon(if is_image(f) { icons::IMAGE } else { icons::FILE }).class("btn att").on_click(move || open_path(&p)));
+            files = files.child(media_tile(f, 160.0, None));
         }
         col = col.child(files);
     }

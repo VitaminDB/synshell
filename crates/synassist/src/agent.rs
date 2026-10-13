@@ -55,7 +55,6 @@ pub struct Agent {
 }
 
 const TOOL_RESULT_LIMIT: usize = 12_000;
-const ATTACHMENT_LIMIT: usize = 16_000;
 const SUBAGENT: &str = "subagent";
 const LIMIT_PROMPT: &str = "Лимит шагов исчерпан. Больше не вызывай инструменты. Коротко подведи итог: что удалось сделать и узнать, что осталось нерешённым. Без вступления.";
 const SUBAGENT_PROMPT: &str = "Ты — субагент: выполняешь одну узкую подзадачу инструментами и возвращаешь только краткий итог в 1–3 абзаца, без вступления. Истории основного разговора у тебя нет — опирайся только на текст задачи.";
@@ -89,7 +88,17 @@ impl Agent {
         let mut out = vec![Message::system(system)];
         for m in chat.messages.iter().filter(|m| !m.compacted) {
             match m.role {
-                Role::User => out.push(Message::user(user_text(m))),
+                Role::User => {
+                    let (extra, media) = crate::attach::describe(&m.files);
+                    let mut text = m.text.clone();
+                    if !extra.is_empty() {
+                        text.push_str("\n\n[Вложения пользователя]");
+                        text.push_str(&extra);
+                    }
+                    let mut msg = Message::user(text);
+                    msg.media = media;
+                    out.push(msg);
+                }
                 Role::Assistant => {
                     let mut msg = Message::assistant(m.text.clone());
                     msg.tool_calls = m.tool_calls.clone();
@@ -97,7 +106,10 @@ impl Agent {
                 }
                 Role::Tool => {
                     let name = m.tool.as_ref().map(|t| t.name.as_str()).unwrap_or("tool");
-                    out.push(Message::tool(name, crate::tools::truncate(&m.text, TOOL_RESULT_LIMIT)));
+                    let mut msg = Message::tool(name, crate::tools::truncate(&m.text, TOOL_RESULT_LIMIT));
+                    // Картинки результата (снимок экрана, сгенерированное) модель видит.
+                    msg.media = crate::attach::media_of(&m.files);
+                    out.push(msg);
                 }
                 Role::Summary => {}
             }
@@ -308,28 +320,13 @@ pub fn is_text_file(p: &Path) -> bool {
     )
 }
 
+/// Текст реплики пользователя с описанием вложений (без медиа).
 pub fn user_text(m: &ChatMsg) -> String {
-    if m.files.is_empty() {
+    let (extra, _) = crate::attach::describe(&m.files);
+    if extra.is_empty() {
         return m.text.clone();
     }
-    let mut s = m.text.clone();
-    s.push_str("\n\n[Вложения пользователя]");
-    for f in &m.files {
-        let shown = f.display();
-        if is_text_file(f) {
-            match std::fs::read_to_string(f) {
-                Ok(c) => {
-                    let body = crate::tools::truncate(&c, ATTACHMENT_LIMIT);
-                    s.push_str(&format!("\n\nФайл {shown}:\n```\n{body}\n```"));
-                }
-                Err(e) => s.push_str(&format!("\n\nФайл {shown}: не прочитан ({e})")),
-            }
-        } else {
-            let size = std::fs::metadata(f).map(|m| m.len()).unwrap_or(0);
-            s.push_str(&format!("\n\nФайл {shown} ({size} байт) — содержимое не текстовое; при необходимости посмотри его инструментом files или bash."));
-        }
-    }
-    s
+    format!("{}\n\n[Вложения пользователя]{extra}", m.text)
 }
 
 pub fn subagent_schema() -> Value {

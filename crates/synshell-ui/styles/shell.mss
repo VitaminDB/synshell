@@ -1573,6 +1573,9 @@ TextField {
 .assist-atts { padding: 8px 2px 2px 40px; }
 .assist-thumb-box { width: 72px; height: 72px; border-radius: 12px; border-width: 1px; border-color: var(--border); background-color: var(--surface-alt); }
 .assist-thumb { width: 72px; height: 72px; border-radius: 12px; }
+.assist-thumb-empty { background-color: var(--surface-alt); }
+.assist-play { width: 30px; height: 30px; border-radius: 999px; background-color: #000000aa; justify-content: center; align-items: center; }
+.assist-play-ic { icon-size: 20px; icon-color: #ffffff; }
 .assist-thumb-x { width: 22px; height: 22px; padding: 0px; border-radius: 999px; background-color: #000000aa; icon-size: 14px; color: #ffffff; icon-color: #ffffff; justify-content: center; align-items: center; }
 .assist-thumb-x:hover { background-color: var(--danger); }
 .assist-att { font-size: 12px; background-color: var(--accent-soft); color: var(--fg); icon-color: var(--accent); }

@@ -7,12 +7,25 @@ use synaptixd::{Alignment, CtcInfo, DeviceKind, ModelKind, Params, PhoneSpan};
 use crate::devices;
 
 const SESSION_STEP: usize = 16384;
+/// Сколько токенов эмбеддингов медиа держать в видеопамяти между запросами.
+const MEDIA_BUDGET: usize = 24_576;
+/// Кадров видео, когда модель видео не принимает (идут картинками).
+const VIDEO_FRAMES: usize = 6;
 
 pub struct LlmSlot {
     llm: synaptix::facade::llm::Llm,
     tok: synaptix::facade::llm::LlmTokenizer,
     window: usize,
     session: std::sync::Mutex<Option<synaptix::facade::llm::LlmKvSession>>,
+    /// Эмбеддинги картинок и видео истории: ключ — файл, время изменения и
+    /// вид; старые вытесняются по бюджету токенов.
+    media: std::sync::Mutex<Vec<(String, synaptix::facade::llm::MediaEmbedding)>>,
+}
+
+/// Медиа сообщения для промпта: блок токенов (или строка-замена) по порядку.
+enum MediaPart {
+    Embed(String),
+    Text(String),
 }
 
 /// Движок синтеза речи — по архитектуре модели.
@@ -234,7 +247,7 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind, quant: Op
             let max_seq = if dev == DeviceKind::Npu { Some(2048) } else { synaptix::facade::arch::config_max_seq(path) };
             let (llm, tok) = load_llm(path, device, precision, max_seq).map_err(|e| anyhow::anyhow!("{e}"))?;
             let window = llm.config().max_seq_len.max(2048);
-            Ok((Loaded::Llm(Box::new(LlmSlot { llm, tok, window, session: std::sync::Mutex::new(None) })), Some(label)))
+            Ok((Loaded::Llm(Box::new(LlmSlot { llm, tok, window, session: std::sync::Mutex::new(None), media: std::sync::Mutex::new(Vec::new()) })), Some(label)))
         }
         ModelKind::Tts => {
             let device = devices::device(dev);
@@ -345,10 +358,36 @@ impl Loaded {
         let max_tokens = params.u32("max_tokens").unwrap_or(16384).max(1) as usize;
         let system = params.text("system_prompt");
         let lead = system.filter(|_| !messages.iter().any(|m| m.role == "system")).map(Message::system);
+        // Картинки и видео: эмбеддинги (из кэша или башней зрения), блоки — перед текстом.
+        let mut cache = b.media.lock().unwrap_or_else(|e| e.into_inner());
+        let parts: Vec<Vec<MediaPart>> = encode_media(b, &mut cache, messages, params);
+        let mut order: Vec<String> = Vec::new();
+        let with_media = |m: &synaptixd::Message, parts: &[MediaPart], order: &mut Vec<String>| -> String {
+            if parts.is_empty() {
+                return m.content.clone();
+            }
+            let mut s = String::new();
+            for p in parts {
+                match p {
+                    MediaPart::Embed(key) => {
+                        let e = &cache.iter().find(|(k, _)| k == key).expect("эмбеддинг в кэше").1;
+                        s.push_str(&e.prompt_block);
+                        s.push('\n');
+                        order.push(key.clone());
+                    }
+                    MediaPart::Text(t) => {
+                        s.push_str(t);
+                        s.push('\n');
+                    }
+                }
+            }
+            s.push_str(&m.content);
+            s
+        };
         let msgs: Vec<Message> = lead
             .into_iter()
-            .chain(messages.iter()
-            .map(|m| match m.role.as_str() {
+            .chain(messages.iter().zip(parts.iter())
+            .map(|(m, parts)| match m.role.as_str() {
                 "system" => Message::system(m.content.clone()),
                 "assistant" => Message::assistant_turn(
                     m.content.clone(),
@@ -356,12 +395,14 @@ impl Loaded {
                     m.tool_calls.iter().map(|c| (c.name.clone(), c.arguments.clone())).collect(),
                 ),
                 "tool" => match &m.name {
-                    Some(n) => Message::tool_named(n.clone(), m.content.clone()),
-                    None => Message::tool(m.content.clone()),
+                    Some(n) => Message::tool_named(n.clone(), with_media(m, parts, &mut order)),
+                    None => Message::tool(with_media(m, parts, &mut order)),
                 },
-                _ => Message::user(m.content.clone()),
+                _ => Message::user(with_media(m, parts, &mut order)),
             }))
             .collect();
+        let refs: Vec<&synaptix::facade::llm::MediaEmbedding> =
+            order.iter().filter_map(|k| cache.iter().find(|(c, _)| c == k).map(|(_, e)| e)).collect();
         let thinking = params.bool("thinking").unwrap_or(false);
         let tools_opt = (!tools.is_empty()).then_some(tools);
         let prompt = tok.apply_chat_template_reasoning(&msgs, true, thinking, params.text("reasoning"), tools_opt).map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -433,8 +474,13 @@ impl Loaded {
         }
         let t0 = std::time::Instant::now();
         let reused = match session.as_mut().and_then(|s| s.as_mut()) {
-            Some(s) => gen.generate_streaming_cached(s, &ids, tok, on_piece).map_err(|e| anyhow::anyhow!("{e}"))?,
-            None => {
+            Some(s) if refs.is_empty() => gen.generate_streaming_cached(s, &ids, tok, on_piece).map_err(|e| anyhow::anyhow!("{e}"))?,
+            Some(s) if llm.kv_session_media_ok() => gen.generate_streaming_cached_media(s, &ids, tok, &refs, on_piece).map_err(|e| anyhow::anyhow!("{e}"))?,
+            _ if !refs.is_empty() => {
+                gen.generate_streaming_media(&ids, tok, &refs, on_piece).map_err(|e| anyhow::anyhow!("{e}"))?;
+                0
+            }
+            _ => {
                 gen.generate_streaming(&ids, tok, on_piece).map_err(|e| anyhow::anyhow!("{e}"))?;
                 0
             }
@@ -628,6 +674,9 @@ impl Loaded {
             if let Ok(mut s) = b.session.lock() {
                 *s = None;
             }
+            if let Ok(mut m) = b.media.lock() {
+                m.clear();
+            }
             b.llm.release_device_caches();
         }
     }
@@ -653,4 +702,166 @@ fn noise(n: usize) -> Vec<f32> {
             ((x >> 8) as f32 / (1u32 << 24) as f32 - 0.5) * 0.02
         })
         .collect()
+}
+
+/// Ключ эмбеддинга: файл, время его изменения и вид.
+fn media_key(path: &Path, kind: &str) -> String {
+    let mtime = std::fs::metadata(path).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis()).unwrap_or(0);
+    format!("{}:{mtime}:{kind}", path.display())
+}
+
+fn file_name(path: &Path) -> String {
+    path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string())
+}
+
+/// Кадры видео равномерно по длительности (ffmpeg) — для модели без видеовхода.
+fn video_frames(path: &Path, n: usize) -> anyhow::Result<Vec<(f64, std::path::PathBuf)>> {
+    let out = std::process::Command::new("ffprobe")
+        .args(["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1"])
+        .arg(path)
+        .output()?;
+    let dur: f64 = String::from_utf8_lossy(&out.stdout).trim().parse().unwrap_or(0.0);
+    let dir = std::env::temp_dir().join(format!("synaptixd-frames-{}", std::process::id()));
+    std::fs::create_dir_all(&dir)?;
+    let stem = format!("{:x}", md5_like(&media_key(path, "video")));
+    let mut frames = Vec::new();
+    for i in 0..n {
+        let t = if dur > 0.0 { dur * (i as f64 + 0.5) / n as f64 } else { 0.0 };
+        let png = dir.join(format!("{stem}-{i}.png"));
+        if !png.exists() {
+            let ok = std::process::Command::new("ffmpeg")
+                .args(["-y", "-v", "error", "-ss", &format!("{t:.2}")])
+                .arg("-i")
+                .arg(path)
+                .args(["-frames:v", "1", "-vf", "scale='min(896,iw)':-2"])
+                .arg(&png)
+                .status()?
+                .success();
+            if !ok || !png.exists() {
+                continue;
+            }
+        }
+        frames.push((t, png));
+        if dur <= 0.0 {
+            break;
+        }
+    }
+    if frames.is_empty() {
+        anyhow::bail!("не удалось извлечь кадры (нужен ffmpeg)");
+    }
+    Ok(frames)
+}
+
+/// Хэш строки для имён временных кадров (FNV-1a).
+fn md5_like(s: &str) -> u64 {
+    s.bytes().fold(0xcbf29ce484222325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3))
+}
+
+/// Эмбеддинги медиа всех сообщений: из кэша, иначе башней зрения (она
+/// поднимается один раз и отпускается после — эмбеддинги остаются).
+/// Неудача — строкой с причиной, чтобы модель знала о вложении.
+fn encode_media(
+    b: &LlmSlot,
+    cache: &mut Vec<(String, synaptix::facade::llm::MediaEmbedding)>,
+    messages: &[synaptixd::Message],
+    params: &Params,
+) -> Vec<Vec<MediaPart>> {
+    use synaptixd::MediaKind;
+    let llm = &b.llm;
+    let max_tokens = params.u32("max_image_tokens").map(|v| v as usize).filter(|v| *v > 0).or(Some(1024));
+    let mut tower: Option<Result<(), String>> = None;
+    let mut ensure = |tower: &mut Option<Result<(), String>>| -> Result<(), String> {
+        tower
+            .get_or_insert_with(|| {
+                if !llm.supports_media() {
+                    return Err("модель без зрения".into());
+                }
+                match llm.ensure_media_tower() {
+                    Ok(true) => Ok(()),
+                    Ok(false) => Err("в модели нет башни зрения".into()),
+                    Err(e) => Err(format!("башня зрения не загрузилась: {e}")),
+                }
+            })
+            .clone()
+    };
+    let mut embed = |key: String, cache: &mut Vec<(String, synaptix::facade::llm::MediaEmbedding)>, tower: &mut Option<Result<(), String>>, f: &dyn Fn() -> Result<synaptix::facade::llm::MediaEmbedding, String>| -> Result<String, String> {
+        if cache.iter().any(|(k, _)| *k == key) {
+            return Ok(key);
+        }
+        ensure(tower)?;
+        let e = f()?;
+        cache.push((key.clone(), e));
+        Ok(key)
+    };
+    let mut out = Vec::with_capacity(messages.len());
+    let mut used: Vec<String> = Vec::new();
+    for m in messages {
+        let mut parts = Vec::new();
+        for item in &m.media {
+            let path = Path::new(&item.path);
+            let name = file_name(path);
+            if !path.is_file() {
+                parts.push(MediaPart::Text(format!("[вложение «{name}» недоступно: файла нет]")));
+                continue;
+            }
+            match item.kind {
+                MediaKind::Image => {
+                    let key = media_key(path, "image");
+                    match embed(key, cache, &mut tower, &|| llm.encode_image(path, max_tokens).map_err(|e| e.to_string())) {
+                        Ok(k) => {
+                            used.push(k.clone());
+                            parts.push(MediaPart::Embed(k));
+                        }
+                        Err(e) => parts.push(MediaPart::Text(format!("[изображение «{name}» — не удалось передать модели: {e}]"))),
+                    }
+                }
+                MediaKind::Video => {
+                    let key = media_key(path, "video");
+                    match embed(key, cache, &mut tower, &|| llm.encode_video(path).map_err(|e| e.to_string())) {
+                        Ok(k) => {
+                            used.push(k.clone());
+                            parts.push(MediaPart::Embed(k));
+                        }
+                        // Модель не принимает видео (Gemma-4) — кадрами-картинками с таймкодами.
+                        Err(video_err) => match video_frames(path, VIDEO_FRAMES) {
+                            Ok(frames) => {
+                                parts.push(MediaPart::Text(format!("[видео «{name}»: {} кадров по всей длительности]", frames.len())));
+                                for (t, png) in frames {
+                                    let key = media_key(&png, "image");
+                                    match embed(key, cache, &mut tower, &|| llm.encode_image(&png, Some(256)).map_err(|e| e.to_string())) {
+                                        Ok(k) => {
+                                            parts.push(MediaPart::Text(format!("Кадр {t:.1} с:")));
+                                            used.push(k.clone());
+                                            parts.push(MediaPart::Embed(k));
+                                        }
+                                        Err(e) => {
+                                            parts.push(MediaPart::Text(format!("[кадры видео «{name}» не переданы модели: {e}]")));
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => parts.push(MediaPart::Text(format!("[видео «{name}» — не удалось передать модели: {video_err}; {e}]"))),
+                        },
+                    }
+                }
+            }
+        }
+        out.push(parts);
+    }
+    if matches!(tower, Some(Ok(()))) {
+        llm.release_media_tower();
+    }
+    // Бюджет: вытеснять старые, кроме нужных этому запросу.
+    let mut total: usize = cache.iter().map(|(_, e)| e.tokens).sum();
+    let mut i = 0;
+    while total > MEDIA_BUDGET && i < cache.len() {
+        if used.contains(&cache[i].0) {
+            i += 1;
+            continue;
+        }
+        total -= cache[i].1.tokens;
+        cache.remove(i);
+    }
+    out
 }
