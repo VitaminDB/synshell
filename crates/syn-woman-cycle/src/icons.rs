@@ -1,0 +1,34 @@
+//! Кодовые точки Material Icons.
+
+pub const DROP: &str = "\u{E798}";
+pub const TODAY: &str = "\u{E8DF}";
+pub const CALENDAR: &str = "\u{EBCC}";
+pub const INSIGHTS: &str = "\u{F092}";
+pub const SETTINGS: &str = "\u{E8B8}";
+pub const ADD: &str = "\u{E145}";
+pub const REMOVE: &str = "\u{E15B}";
+pub const PREV: &str = "\u{E5CB}";
+pub const NEXT: &str = "\u{E5CC}";
+pub const CLOSE: &str = "\u{E5CD}";
+pub const CHECK: &str = "\u{E5CA}";
+pub const FULLSCREEN: &str = "\u{E5D0}";
+pub const FULLSCREEN_EXIT: &str = "\u{E5D1}";
+pub const DELETE: &str = "\u{E872}";
+pub const INFO: &str = "\u{E88E}";
+pub const ZOOM: &str = "\u{E8FF}";
+pub const PALETTE: &str = "\u{E40A}";
+pub const EVENT: &str = "\u{E878}";
+pub const FLOWER: &str = "\u{E545}";
+pub const SPARK: &str = "\u{E65F}";
+pub const EDIT_CAL: &str = "\u{E742}";
+pub const EGG: &str = "\u{EACC}";
+pub const SPA: &str = "\u{EB4C}";
+pub const DARK: &str = "\u{E51C}";
+pub const LIGHT: &str = "\u{E518}";
+pub const AUTO: &str = "\u{E3A9}";
+pub const BACK: &str = "\u{E5C4}";
+pub const LOCK: &str = "\u{E897}";
+pub const TIMELINE: &str = "\u{E922}";
+pub const TUNE: &str = "\u{E429}";
+pub const HEART: &str = "\u{E87D}";
+pub const MOOD: &str = "\u{E7F2}";
