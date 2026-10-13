@@ -220,7 +220,7 @@ impl Conn {
                 let reply = synaptixd::ImageReply { width: out.width, height: out.height, seed, label: out.label, png: FdRef { fd: 0 }, bytes: png.len() };
                 (data(reply), vec![fd])
             }
-            Request::Video { model, prompt, negative, width, height, seconds, steps, guidance, seed, first_frame, last_frame, refs, audio, source_video, retake, extend, control_video, control, two_stage } => {
+            Request::Video { model, prompt, negative, width, height, seconds, steps, guidance, seed, first_frame, last_frame, refs, audio, source_video, retake, extend, control_video, control, two_stage, strength } => {
                 let model = mgr.resolve_id(&model, ModelKind::Video)?;
                 let mp = mgr.params(&model, &Params::new());
                 let seed = seed.or_else(|| mp.i64("seed").filter(|s| *s >= 0).map(|s| s as u64)).unwrap_or_else(random_seed);
@@ -244,6 +244,7 @@ impl Conn {
                     control_video: control_video.map(std::path::PathBuf::from),
                     control,
                     two_stage,
+                    strength,
                 };
                 let raw = self.sock.as_raw_fd();
                 let id = self.current;

@@ -521,6 +521,9 @@ pub enum Request {
         /// LTX: две стадии (апскейлер ×2).
         #[serde(default)]
         two_stage: bool,
+        /// H3 restyle: сила перерисовки source_video (0..1).
+        #[serde(default)]
+        strength: Option<f32>,
     },
     /// Музыка или песня; WAV — fd 0 ответа.
     Music {
@@ -715,6 +718,7 @@ pub struct VideoParams {
     pub control_video: Option<String>,
     pub control: Option<String>,
     pub two_stage: bool,
+    pub strength: Option<f32>,
 }
 
 /// Готовая музыка: WAV в fd ответа.
@@ -1024,6 +1028,7 @@ impl Client {
             control_video: p.control_video.clone(),
             control: p.control.clone(),
             two_stage: p.two_stage,
+            strength: p.strength,
         };
         let (v, fds) = self.call_events(req, &[], |ev| {
             if let Event::Progress { step, total } = ev {
