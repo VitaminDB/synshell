@@ -338,6 +338,17 @@ fn reserved(ctx: &ShellCtx) -> [f32; 4] {
     r
 }
 
+/// Высота нижних панелей телефона, лежащих поверх стола (док без exclusive zone, не
+/// прячущийся): над ними поднимается панель режима правки.
+fn overlay_bottom(ctx: &ShellCtx) -> f32 {
+    ctx.cfg()
+        .panels
+        .iter()
+        .filter(|p| p.shows_on(ctx.form_factor) && p.edge == Edge::Bottom && !p.exclusive && !p.autohide)
+        .map(|p| p.size as f32 + if p.floating { 8.0 } else { 0.0 })
+        .fold(0.0, f32::max)
+}
+
 /// Сетка страницы вывода `output`.
 pub fn grid(ctx: &ShellCtx, output: &str) -> Grid {
     let cfg = ctx.cfg();
@@ -589,7 +600,8 @@ pub fn page_view(ctx: ShellCtx, page: usize, output: String) -> impl Widget {
     // Панель правки — внизу: колонка с выравниванием снаружи `rx`
     // (Reactive отдаёт детям свободные ограничения).
     let bar = rx(move || if edit.get() { Box::new(edit_bar(ctx)) } else { Box::new(DecoratedBox::new()) });
-    let lift = if ctx.is_phone() { 0.0 } else { reserved(&ctx)[2] };
+    // Телефон: стол не заходит под exclusive-панели, но плавающий док лежит поверх него.
+    let lift = if ctx.is_phone() { overlay_bottom(&ctx) } else { reserved(&ctx)[2] };
     Stack::new()
         .fit(StackFit::Expand)
         .child(body)
