@@ -290,6 +290,6 @@ pub fn spawn(program: &Path, args: &[&std::ffi::OsStr]) {
 
 /// Открыть картинки просмотрщиком (новым процессом): из проводника.
 pub fn open(file: &Path) {
-    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("synfiles"));
+    let exe = synshell_common::paths::self_exe("synfiles");
     spawn(&exe, &["--viewer".as_ref(), file.as_os_str()]);
 }

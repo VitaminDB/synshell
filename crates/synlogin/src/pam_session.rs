@@ -69,7 +69,7 @@ pub fn vt() -> u32 {
 
 /// Команда работника: `synlogin session-worker КЛАСС ПОЛЬЗОВАТЕЛЬ -- программа…`.
 pub fn worker_command(class: &str, user: &str, program: &str) -> Command {
-    let mut c = Command::new(std::env::current_exe().unwrap_or_else(|_| "synlogin".into()));
+    let mut c = Command::new(synshell_common::paths::self_exe("synlogin"));
     c.args(["session-worker", class, user, "--", program]);
     // SAFETY: prctl — async-signal-safe. Демон умер (systemctl restart) —
     // работник завершает сеанс, а не остаётся вторым композитором.

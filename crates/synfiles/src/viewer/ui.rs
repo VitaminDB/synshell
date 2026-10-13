@@ -566,7 +566,7 @@ fn info_panel(it: &Item, p: Option<&Prepared>) -> W {
 
 fn show_in_folder() {
     if let Some(it) = v().current_untracked() {
-        let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("synfiles"));
+        let exe = synshell_common::paths::self_exe("synfiles");
         super::spawn(&exe, &[it.path.as_os_str()]);
     }
 }

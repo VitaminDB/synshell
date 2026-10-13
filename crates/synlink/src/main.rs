@@ -102,7 +102,7 @@ fn run_session() -> Result<()> {
                 cmd.arg(format!("--setenv={k}={v}"));
             }
         }
-        let exe = std::env::current_exe().unwrap_or_else(|_| "synlink".into());
+        let exe = self_exe();
         cmd.arg(exe).arg("daemon");
         match cmd.status() {
             Ok(st) if st.success() => return Ok(()),
@@ -644,9 +644,5 @@ fn proxy(device: &str, port: u16) -> Result<()> {
 /// `/usr/bin/synlink (deleted)` — новый файл лежит по тому же пути, суффикс отбрасывается
 /// (иначе ProxyCommand в ssh-конфиге указывает в никуда).
 pub(crate) fn self_exe() -> std::path::PathBuf {
-    let Ok(p) = std::env::current_exe() else { return "synlink".into() };
-    match p.to_str().and_then(|s| s.strip_suffix(" (deleted)")) {
-        Some(s) => s.into(),
-        None => p,
-    }
+    synshell_common::paths::self_exe("synlink")
 }

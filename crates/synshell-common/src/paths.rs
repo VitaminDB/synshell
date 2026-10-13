@@ -144,3 +144,14 @@ pub fn user_dir_or_default(kind: &str) -> PathBuf {
         home().join(name)
     })
 }
+
+/// Свой исполняемый файл — запустить себя ещё раз (просмотрщик, новое окно). После обновления
+/// пакета работающая программа видит `/usr/bin/X (deleted)`; новый файл лежит по тому же пути —
+/// суффикс отбрасывается. Не вышло — `fallback` (имя из `PATH`).
+pub fn self_exe(fallback: &str) -> PathBuf {
+    let Ok(p) = std::env::current_exe() else { return fallback.into() };
+    match p.to_str().and_then(|s| s.strip_suffix(" (deleted)")) {
+        Some(s) => s.into(),
+        None => p,
+    }
+}

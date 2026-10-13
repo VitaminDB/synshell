@@ -828,9 +828,8 @@ pub fn key(k: Key, m: Modifiers) -> bool {
         Key::N if ctrl && m.shift => new_folder(p),
         Key::N if ctrl => {
             let dir = p.loc.get_untracked().address();
-            if let Ok(exe) = std::env::current_exe() {
-                spawn_shell(&format!("'{}' '{}'", exe.display(), dir.replace('\'', "'\\''")), None);
-            }
+            let exe = synshell_common::paths::self_exe("synfiles");
+            spawn_shell(&format!("'{}' '{}'", exe.display(), dir.replace('\'', "'\\''")), None);
         }
         Key::C if ctrl && m.shift => copy_paths_text(&state::selected_paths(p)),
         Key::C if ctrl => set_clipboard(state::selected_paths(p), false),
