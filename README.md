@@ -92,7 +92,7 @@ The workspace sets `rust-version = "1.85"`. Build and runtime dependencies (Arch
 mesa, libinput, seatd, systemd-libs, libxkbcommon, libdrm, vulkan-icd-loader, fontconfig,
 freetype2, dbus. Optional ones — xorg-xwayland, wireplumber, brightnessctl, networkmanager,
 playerctl, wl-clipboard, xdg-desktop-portal-wlr, ffmpegthumbnailer, libheif, imagemagick,
-breeze-icons — are listed with their purpose in the [PKGBUILD](PKGBUILD).
+breeze-icons — are listed with their purpose in the [PKGBUILD](packaging/PKGBUILD).
 
 **Nested, inside your current Wayland or X11 session** (it runs in a window):
 
@@ -117,8 +117,8 @@ SYNSHELL_CONFIG_DIR=/tmp/synshell-test PATH="$PWD/target/fast-release:$PATH" \
 **As a real session** on Arch Linux:
 
 ```sh
-makepkg -si                                   # release build
-SYNSHELL_PROFILE=fast-release makepkg -si   # faster local build
+cd packaging && makepkg -si                   # release build
+cd packaging && SYNSHELL_PROFILE=fast-release makepkg -si   # faster local build
 ```
 
 then pick “synshell” in your display manager. The package installs the binaries, the session

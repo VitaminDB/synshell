@@ -50,22 +50,23 @@ install=synshell.install
 backup=('etc/synaptix/synaptixd.toml')
 
 # Профиль cargo: release (LTO) — для AUR/GitHub; локально быстрее
-# `SYNSHELL_PROFILE=fast-release makepkg -f`.
+# `cd packaging && SYNSHELL_PROFILE=fast-release makepkg -f`.
+# Сборка идёт из packaging/: пакеты, pkg/ и src/ остаются там, корень чистый.
 _profile=${SYNSHELL_PROFILE:-release}
 
 build() {
-    cd "$startdir"
+    cd "$startdir/.."
     cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player -p syn-maps -p syn-compass -p syngamepad -p synpass -p syncamera -p syndroid -p syn-health -p syn-systeminfo -p synmodem -p syn-nfc -p synnfc -p synphone -p synsms -p synfsd -p synassistant
     cargo build --profile "$_profile" -p synaptixd --bins --features "synaptixd/${SYNAPTIXD_FEATURES:-cuda},synaptixd/npu"
 }
 
 check() {
-    cd "$startdir"
+    cd "$startdir/.."
     cargo test --profile "$_profile" -p synshell-common -p synwm -p synshot -p synlogin -p synpass
 }
 
 package() {
-    cd "$startdir"
+    cd "$startdir/.."
     for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player syn-maps syn-compass syngamepad synpass syncamera syndroid syndroidd syn-health syn-systeminfo synmodem synmodemd syn-nfc synnfc synnfcd synphone synsms synfsd synaptixd synaptixctl synassistant; do
         install -Dm755 "target/$_profile/$b" "$pkgdir/usr/bin/$b"
     done
