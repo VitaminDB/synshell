@@ -1,5 +1,6 @@
 mod compose;
 mod feed;
+mod player;
 mod recipes;
 mod sidebar;
 mod voice;

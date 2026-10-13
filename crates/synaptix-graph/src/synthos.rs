@@ -155,7 +155,7 @@ pub fn to_template(g: &Graph, params: &Map<String, Value>) -> Result<Value, Stri
             v
         };
         // Вход-текст поля: из узла-источника или новой ноды «Текст» с подставленным значением.
-        let mut text_in = |b: &mut Builder, key: &str, y: f32| -> (u64, &'static str) {
+        let text_in = |b: &mut Builder, key: &str, y: f32| -> (u64, &'static str) {
             if let Some(src) = source(n, key) {
                 if let Some(t) = ports.get(&src).and_then(|p| p.text) {
                     return t;

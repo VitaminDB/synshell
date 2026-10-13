@@ -40,6 +40,13 @@ pub fn media_tile(f: &Path, size: f32, on_remove: Option<Box<dyn Fn() + Send + S
     let p = f.to_path_buf();
     let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let kind = synassist::attach::kind(f);
+    // Результаты (без крестика черновика): звук и видео играют на месте.
+    if on_remove.is_none() && f.exists() && kind == synassist::attach::Kind::Audio {
+        return super::player::audio(p);
+    }
+    if on_remove.is_none() && f.exists() && kind == synassist::attach::Kind::Video {
+        return super::player::video(p, video_poster(f), size.max(360.0));
+    }
     if !matches!(kind, synassist::attach::Kind::Image | synassist::attach::Kind::Video) || !f.exists() {
         let glyph = match kind {
             synassist::attach::Kind::Audio => "\u{E405}",
@@ -121,8 +128,11 @@ pub fn files_row(files: &[std::path::PathBuf]) -> Option<W> {
     let mut col = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Start);
     for f in files {
         let p = f.clone();
+        let kind = synassist::attach::kind(f);
         if is_image(f) && f.exists() {
             col = col.child(GestureDetector::new().on_click(move || open_path(&p)).child(Image::new(f.to_string_lossy()).fit(ImageFit::Contain).class("att-image")));
+        } else if f.exists() && matches!(kind, synassist::attach::Kind::Video | synassist::attach::Kind::Audio) {
+            col = col.child(media_tile(f, 480.0, None));
         } else {
             let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             col = col.child(Button::new(name).icon(icons::FILE).class("btn att").on_click(move || open_path(&p)));

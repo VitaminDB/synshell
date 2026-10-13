@@ -220,3 +220,9 @@ MultilineTextEdit.input { background-color: #00000000; color: var(--fg); border:
 
 .tool-progress-box { padding: 2px 4px 2px 44px; }
 .tool-progress { height: 6px; border-radius: 3px; background-color: var(--surface-alt); color: var(--accent); accent-color: var(--accent); }
+
+.player-audio { padding: 8px 12px; border-radius: 12px; background-color: var(--surface-alt); border-width: 1px; border-color: var(--border); }
+.player-name { font-size: 12px; color: var(--fg); }
+.btn.round.play-btn { padding: 8px; background-color: var(--accent); icon-color: var(--accent-fg); color: var(--accent-fg); }
+.btn.round.play-btn:hover { background-color: var(--accent); icon-color: var(--accent-fg); }
+.player-video { border-radius: 12px; }
