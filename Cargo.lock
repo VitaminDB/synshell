@@ -6529,6 +6529,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-remote"
+version = "0.1.42"
+dependencies = [
+ "anyhow",
+ "libc",
+ "serde",
+ "serde_json",
+ "syngui",
+ "synshell-common",
+ "tracing",
+ "tracing-subscriber",
+ "ureq",
+ "zip",
+]
+
+[[package]]
 name = "syn-systeminfo"
 version = "0.1.42"
 dependencies = [

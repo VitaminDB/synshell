@@ -32,6 +32,7 @@ members = [
     "crates/syn-compass",
     "crates/synnfc",
     "crates/syn-nfc",
+    "crates/syn-remote",
     "crates/syn-health",
     "crates/syn-systeminfo",
     "crates/syngamepad",

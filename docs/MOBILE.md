@@ -240,6 +240,17 @@ docs/15-sensors.md), политика — `synshell-ui/src/rotation.rs`. Ком�
   координаты GeoClue. Калибровка: поправка SLPI `mag_cal` (строки `B`), иначе своя «восьмёркой» (сфера по точкам,
   `~/.config/synshell/compass.toml`). Без датчиков — `SYN_COMPASS_DEMO=градусы`; снимок —
   `syn-compass --screenshot out.png` (`syngui::shot`).
+- **syn-remote** «Пульт»: ИК-пульт для бытовой техники. Передача — платформенной `syn-ir raw ЧАСТОТА -`
+  (synmobile, hw/ir; `SYN_REMOTE_IR` — другая программа), кодирование протоколов (NEC/NECext/NEC42, Samsung32,
+  RC5/RC5X, RC6, SIRC 12/15/20, Kaseikyo, RCA, Pioneer, raw) — в `src/ir.rs` по таймингам прошивки Flipper Zero.
+  База — Flipper-IRDB (zip с GitHub → `~/.local/share/synshell/irdb`, ≈8 900 пультов, архив `_Converted_` —
+  «Архив по маркам») и универсальные библиотеки Flipper (`_universal/{tv,ac,audio,projector}.ir`). Автоподбор:
+  разные коды питания пультов марки (частые — первыми, архив марки — после), без марки — порядок универсальной
+  библиотеки; проверка кнопкой «Питание/Без звука/Громкость +», шаг «Да/Нет» или автоперебор (2,8 с). Мои
+  пульты — `~/.local/share/synshell/remote/remotes.json` (кнопки копируются из базы). Своя рамка окна,
+  полноэкранный режим (кнопка, F11); громкость, каналы и стрелки повторяются при удержании; клавиатура: стрелки,
+  Enter, +/−, PgUp/PgDn, цифры, M, P. CLI: `syn-remote --send ПУЛЬТ КНОПКА`, `--timings ФАЙЛ.ir КНОПКА`,
+  `--download`; снимок — `--screenshot out.png --page home|add|brands|pick|found|remote|db`.
 - «Параметры»: **Мобильная сеть** (связь/интернет, SIM и профили eSIM — ES10c через логический канал UIM
   к ISD-R, `euicc.rs`; технологии, роуминг данных, поиск и ручной выбор сети, APN, PIN, трафик), **Вызовы и
   SMS** (ожидание, скрытие номера, переадресация, USSD, SMS-центр), **О модеме** (IMEI, MPSS, ICCID/IMSI/EID,

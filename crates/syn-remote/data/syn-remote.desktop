@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Пульт
+Name[en]=Remote
+GenericName=ИК-пульт
+GenericName[en]=IR Remote
+Comment=Управление телевизором, кондиционером и другой техникой через ИК-передатчик
+Comment[en]=Control a TV, air conditioner and other appliances with the IR blaster
+Exec=syn-remote
+Icon=syn-remote
+Categories=Utility;
+Keywords=ir;infrared;remote;tv;ac;пульт;ик;телевизор;кондиционер;
+StartupNotify=true
