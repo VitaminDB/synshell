@@ -15,6 +15,7 @@ CacheDirectory=synaptix
 Environment=CUDA_CACHE_PATH=/var/cache/synaptix/cuda
 Environment=CUDA_CACHE_MAXSIZE=4294967296
 Environment=SYN_TRANSCODE_CACHE=/var/cache/synaptix/transcode
+Environment=SYNAPTIX_CACHE_DIR=/var/cache/synaptix
 Environment=SYNAPTIX_NPU_CACHE=/var/cache/synaptix/npu-intel
 OOMScoreAdjust=300
 LimitMEMLOCK=infinity
