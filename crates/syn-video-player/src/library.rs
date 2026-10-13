@@ -55,6 +55,17 @@ pub fn scan() -> Vec<Item> {
     out
 }
 
+/// Видео того же каталога, что и `file`, по имени (как в просмотрщике картинок): листание
+/// следующий/предыдущий и лента миниатюр в плеере.
+pub fn siblings(file: &Path) -> Vec<Item> {
+    let mut out = Vec::new();
+    if let Some(dir) = file.parent() {
+        walk(dir, 0, &mut out);
+    }
+    out.sort_by(|a, b| synshell_common::text::natural_cmp(&a.path.to_string_lossy(), &b.path.to_string_lossy()));
+    out
+}
+
 fn walk(dir: &Path, depth: u32, out: &mut Vec<Item>) {
     let Ok(rd) = std::fs::read_dir(dir) else { return };
     for e in rd.flatten() {

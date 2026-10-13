@@ -118,6 +118,7 @@ fn main() {
                 info: use_signal(None),
                 settings_open: use_signal(false),
                 cards: use_signal(Vec::new()),
+                siblings: use_signal(Vec::new()),
                 scanning: use_signal(true),
                 playing: use_signal(None),
                 opening: use_signal(None),

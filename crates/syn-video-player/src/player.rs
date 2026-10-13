@@ -11,7 +11,7 @@ use syngui::video::DecodeInfo;
 use syngui::widgets::*;
 
 use crate::settings::{Settings, SEEK_STEPS};
-use crate::ui::{back, icons, reopen, St};
+use crate::ui::{back, go, icons, reopen, step, Card, St};
 
 type W = Box<dyn Widget>;
 
@@ -36,14 +36,17 @@ pub fn view(st: St) -> W {
             }),
         };
         let title = p.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        vec![Box::new(
-            VideoPlayerView::file(p.player.clone())
-                .fullscreen(fs)
-                .fit(if s.fill { ImageFit::Cover } else { ImageFit::Contain })
-                .seek_step(s.seek_step as f64)
-                .header(move || header(st, title.clone()))
-                .build(),
-        )]
+        let mut view = VideoPlayerView::file(p.player.clone())
+            .fullscreen(fs)
+            .fit(if s.fill { ImageFit::Cover } else { ImageFit::Contain })
+            .seek_step(s.seek_step as f64)
+            .header(move || header(st, title.clone()));
+        // в каталоге есть другие ролики — листание, как в просмотрщике картинок
+        if st.siblings.with(|v| v.len() > 1) {
+            let path = p.path.clone();
+            view = view.on_prev(move || step(st, -1)).on_next(move || step(st, 1)).footer(move || filmstrip(st, &path));
+        }
+        vec![Box::new(view.build())]
     });
     let panel = Reactive::new(move || -> Vec<W> {
         if st.settings_open.get() {
@@ -142,6 +145,104 @@ fn resolution_label(w: u32, h: u32) -> String {
         720..=1079 => "720p".into(),
         480..=719 => "480p".into(),
         _ => format!("{w}×{h}"),
+    }
+}
+
+// ─── лента миниатюр ─────────────────────────────────────────────────────────
+
+/// Ширина миниатюры ленты: на узком окне меньше.
+const STRIP_THUMB: f32 = 96.0;
+const STRIP_THUMB_NARROW: f32 = 64.0;
+const STRIP_GAP: f32 = 6.0;
+/// Больше миниатюр разом не показывать, даже на широком экране.
+const STRIP_MAX: usize = 11;
+
+/// Окно ленты: `window` миниатюр вокруг текущей, текущая — посередине.
+fn strip_range(index: usize, total: usize, window: usize) -> std::ops::Range<usize> {
+    if total <= window {
+        return 0..total;
+    }
+    let start = index.saturating_sub(window / 2).min(total - window);
+    start..start + window
+}
+
+/// Сколько миниатюр шириной `thumb` помещается в `width` (нечётное — текущая по центру).
+fn strip_window(width: f32, thumb: f32) -> usize {
+    let n = (((width + STRIP_GAP) / (thumb + STRIP_GAP)).floor() as usize).clamp(1, STRIP_MAX);
+    if n % 2 == 0 { n - 1 } else { n }
+}
+
+/// Лента над шкалой перемотки: соседние ролики каталога, текущий — в рамке акцента.
+fn filmstrip(st: St, current: &std::path::Path) -> W {
+    let list = st.siblings.get_untracked();
+    let Some(index) = list.iter().position(|c| c.item.path == current) else {
+        return Box::new(Row::new());
+    };
+    let width = viewport_size().get().width;
+    let narrow = width < 560.0;
+    let thumb = if narrow { STRIP_THUMB_NARROW } else { STRIP_THUMB };
+    // поля панели `.vp-controls` — по 18 px
+    let range = strip_range(index, list.len(), strip_window(width - 36.0, thumb));
+    let thumbs: Vec<W> = range.map(|i| strip_thumb(st, &list[i], i == index, narrow)).collect();
+    Box::new(
+        Row::new()
+            .gap(STRIP_GAP)
+            .main_axis_alignment(MainAxisAlignment::Center)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .children(thumbs)
+            .class("strip"),
+    )
+}
+
+fn strip_thumb(st: St, c: &Card, active: bool, narrow: bool) -> W {
+    let pic = c.pic;
+    let key = format!("svp:{}", c.item.path.display());
+    let picture = Reactive::new(move || -> Vec<W> {
+        let mut layers = Stack::new().fit(StackFit::Expand).child(DecoratedBox::new().class("strip-bg"));
+        layers = match pic.get() {
+            Some(p) => layers.child(Image::from_rgba_shared(key.clone(), p.w, p.h, p.rgba.clone()).fit(ImageFit::Cover).class("pic")),
+            None => layers.child(
+                Column::new()
+                    .main_axis_alignment(MainAxisAlignment::Center)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(Icon::new(icons::MOVIE).class("strip-icon")),
+            ),
+        };
+        vec![Box::new(layers)]
+    });
+    let mut class = String::from(if narrow { "strip-thumb strip-thumb-sm" } else { "strip-thumb" });
+    if active {
+        class.push_str(" strip-thumb-active");
+    }
+    let path = c.item.path.clone();
+    let thumb = DecoratedBox::new().child(picture).class(class);
+    let thumb: W = if narrow { Box::new(thumb) } else { Box::new(Tooltip::new(thumb, &c.item.name())) };
+    Box::new(
+        GestureDetector::new()
+            .on_click(move || go(st, path.clone()))
+            .cursor(syngui::CursorIcon::Pointer)
+            .child(thumb),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_keeps_current_in_window() {
+        assert_eq!(strip_range(0, 3, 11), 0..3);
+        assert_eq!(strip_range(20, 40, 11), 15..26);
+        assert_eq!(strip_range(39, 40, 11), 29..40);
+        assert_eq!(strip_range(1, 40, 5), 0..5);
+    }
+
+    #[test]
+    fn strip_window_is_odd_and_fits() {
+        // телефон 360 px: поля по 18 — 324 px, по 64 + 6 — четыре, нечётно — три
+        assert_eq!(strip_window(324.0, STRIP_THUMB_NARROW), 3);
+        assert_eq!(strip_window(1500.0, STRIP_THUMB), STRIP_MAX);
+        assert_eq!(strip_window(10.0, STRIP_THUMB), 1);
     }
 }
 

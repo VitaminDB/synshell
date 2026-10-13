@@ -20,7 +20,7 @@ type W = Box<dyn Widget>;
 pub struct Pic {
     pub w: u32,
     pub h: u32,
-    pub rgba: Vec<u8>,
+    pub rgba: Arc<Vec<u8>>,
     pub duration: f64,
 }
 
@@ -58,10 +58,12 @@ pub struct St {
     pub info: RwSignal<Option<DecodeInfo>>,
     pub settings_open: RwSignal<bool>,
     pub cards: RwSignal<Vec<Card>>,
+    /// Видео каталога открытого ролика: листание и лента миниатюр в плеере.
+    pub siblings: RwSignal<Vec<Card>>,
     pub scanning: RwSignal<bool>,
     pub playing: RwSignal<Option<Playing>>,
     /// Файл открывается (поток открытия ещё не вернулся).
-    pub opening: RwSignal<Option<String>>,
+    pub opening: RwSignal<Option<PathBuf>>,
     pub error: RwSignal<Option<String>>,
     pub fullscreen: RwSignal<bool>,
     /// Программа запущена с файлом: «назад» из плеера закрывает окно, а не ведёт в библиотеку.
@@ -99,7 +101,62 @@ fn hw_of(st: St) -> HwAccel {
 
 pub fn open(st: St, path: PathBuf) {
     let start = if st.settings.get_untracked().resume { settings::saved_position(&path) } else { None };
+    load_siblings(st, &path);
     open_at(st, path, start, false);
+}
+
+/// Перейти к другому ролику того же каталога, не выходя из плеера (полный экран остаётся).
+pub fn go(st: St, path: PathBuf) {
+    if current(st).as_ref() == Some(&path) {
+        return;
+    }
+    let start = if st.settings.get_untracked().resume { settings::saved_position(&path) } else { None };
+    open_at(st, path, start, true);
+}
+
+/// Соседний ролик каталога: `delta` −1 — предыдущий, +1 — следующий; по кругу.
+pub fn step(st: St, delta: isize) {
+    let list = st.siblings.get_untracked();
+    let n = list.len() as isize;
+    let Some(i) = current(st).and_then(|p| list.iter().position(|c| c.item.path == p)) else { return };
+    if n < 2 {
+        return;
+    }
+    go(st, list[(i as isize + delta).rem_euclid(n) as usize].item.path.clone());
+}
+
+/// Ролик, который открыт или открывается.
+pub fn current(st: St) -> Option<PathBuf> {
+    st.opening.get_untracked().or_else(|| st.playing.get_untracked().map(|p| p.path))
+}
+
+/// Видео каталога ролика — в фоне; миниатюры, уже загруженные библиотекой, берутся оттуда.
+fn load_siblings(st: St, path: &std::path::Path) {
+    if st.siblings.get_untracked().iter().any(|c| c.item.path == path) {
+        return;
+    }
+    st.siblings.set(Vec::new());
+    let path = path.to_path_buf();
+    std::thread::spawn(move || {
+        let items = library::siblings(&path);
+        run_on_main_thread(move || {
+            // пока читали каталог, открыли ролик из другого
+            if current(st).is_some_and(|p| p.parent() != path.parent()) {
+                return;
+            }
+            let known = st.cards.get_untracked();
+            let cards: Vec<Card> = items
+                .into_iter()
+                .map(|item| {
+                    let pic = known.iter().find(|c| c.item == item).map(|c| c.pic).unwrap_or_else(|| use_signal(None));
+                    Card { item, pic }
+                })
+                .collect();
+            let todo = cards.iter().filter(|c| c.pic.get_untracked().is_none()).map(|c| (c.item.clone(), c.pic)).collect();
+            st.siblings.set(cards);
+            load_thumbs(todo);
+        });
+    });
 }
 
 /// Открыть заново тот же ролик с того же места (сменилось декодирование).
@@ -121,8 +178,7 @@ fn open_at(st: St, path: PathBuf, start: Option<f64>, keep_old: bool) {
     }
     st.error.set(None);
     st.info.set(None);
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    st.opening.set(Some(name));
+    st.opening.set(Some(path.clone()));
     let hw = hw_of(st);
     std::thread::Builder::new()
         .name("svp-open".into())
@@ -133,8 +189,11 @@ fn open_at(st: St, path: PathBuf, start: Option<f64>, keep_old: bool) {
             }
             let r = VideoPlayer::open_with_hwaccel(&path.to_string_lossy(), hw);
             run_on_main_thread(move || {
-                // пока открывали, пользователь ушёл назад
-                if st.opening.get_untracked().is_none() {
+                // пока открывали, пользователь ушёл назад или перешёл к другому ролику
+                if st.opening.get_untracked().as_ref() != Some(&path) {
+                    if let Ok(p) = r {
+                        std::thread::spawn(move || drop(p));
+                    }
                     return;
                 }
                 st.opening.set(None);
@@ -268,7 +327,7 @@ fn load_thumbs(todo: Vec<(Item, RwSignal<Option<Arc<Pic>>>)>) {
         .spawn(move || {
             for (item, sig) in todo {
                 if let Some((w, h, rgba, duration)) = library::thumb(&item, 480) {
-                    let pic = Arc::new(Pic { w, h, rgba, duration });
+                    let pic = Arc::new(Pic { w, h, rgba: Arc::new(rgba), duration });
                     run_on_main_thread(move || sig.set(Some(pic)));
                 }
             }
@@ -328,7 +387,7 @@ fn card(st: St, c: Card) -> W {
     let picture = Reactive::new(move || -> Vec<W> {
         let mut layers = Stack::new().fit(StackFit::Expand).child(DecoratedBox::new().class("pic-bg"));
         if let Some(p) = pic.get() {
-            layers = layers.child(Image::from_rgba(key.clone(), p.w, p.h, p.rgba.clone()).fit(ImageFit::Cover).class("pic"));
+            layers = layers.child(Image::from_rgba_shared(key.clone(), p.w, p.h, p.rgba.clone()).fit(ImageFit::Cover).class("pic"));
             if p.duration > 0.0 {
                 layers = layers.child(
                     Row::new()

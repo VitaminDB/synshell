@@ -14,6 +14,7 @@ pub mod ipc;
 pub mod link;
 pub mod mime;
 pub mod paths;
+pub mod text;
 pub mod theme;
 #[cfg(feature = "thumbs")]
 pub mod thumbs;

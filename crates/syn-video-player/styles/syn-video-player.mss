@@ -58,3 +58,21 @@ Text { color: var(--fg); font-size: 14px; }
 .set-sec-title { font-size: 15px; font-weight: 600; }
 .set-row-title { font-size: 14px; }
 .set-hint { font-size: 12px; color: var(--muted); }
+
+/* Лента миниатюр каталога над шкалой перемотки (палитра тёмная — лежит на кадре). */
+.strip { padding: 0px 0px 4px 0px; }
+.strip-thumb {
+    width: 96px;
+    height: 54px;
+    border-radius: 8px;
+    border: 2px solid rgba(255, 255, 255, 0.0);
+    overflow: hidden;
+    opacity: 0.6;
+    transition: opacity 100ms ease, border-color 100ms ease;
+}
+.strip-thumb-sm { width: 64px; height: 40px; border-radius: 7px; }
+.strip-thumb:hover { opacity: 0.9; }
+.strip-thumb-active { opacity: 1; border-color: var(--accent); }
+.strip-thumb-active:hover { opacity: 1; }
+.strip-bg { background: rgba(255, 255, 255, 0.12); }
+.strip-icon { icon-size: 22px; font-size: 22px; color: rgba(255, 255, 255, 0.7); }
