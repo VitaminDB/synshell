@@ -124,9 +124,9 @@ pub enum Loaded {
     Embed(Box<dyn synaptix::facade::embedding::Embedder + Send + Sync>),
     /// Генеративная модель: веса грузит пайплайн на время запроса (по этапам,
     /// с выгрузкой лишнего), здесь — только путь и устройство.
-    Image(std::path::PathBuf, DeviceKind),
-    Music(MusicModel, DeviceKind),
-    Video(VideoModel, DeviceKind),
+    Image(std::path::PathBuf, DeviceKind, Option<String>),
+    Music(MusicModel, DeviceKind, Option<String>),
+    Video(VideoModel, DeviceKind, Option<String>),
 }
 
 pub enum VideoModel {
@@ -317,7 +317,7 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
             } else {
                 anyhow::bail!("видео {arch} служба пока не исполняет");
             };
-            plain(Loaded::Video(m, dev))
+            plain(Loaded::Video(m, dev, quant.map(String::from)))
         }
         ModelKind::Music => {
             let a = arch.to_ascii_lowercase();
@@ -333,11 +333,11 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
                     .ok_or_else(|| anyhow::anyhow!("нет текстового энкодера ACE-Step (qwen3-embedding-0.6b.syn)"))?;
                 MusicModel::Ace(synaptix_gen::music::AcePaths { dit: path.to_path_buf(), lm, text_encoder, vae: need("vae")? })
             };
-            plain(Loaded::Music(m, dev))
+            plain(Loaded::Music(m, dev, quant.map(String::from)))
         }
         ModelKind::Image => {
             synaptix_gen::image::detect(path).map_err(|e| anyhow::anyhow!("{e}"))?;
-            plain(Loaded::Image(path.to_path_buf(), dev))
+            plain(Loaded::Image(path.to_path_buf(), dev, quant.map(String::from)))
         }
         ModelKind::Embed => {
             use synaptix::facade::embedding::{load_embedder, DType as EDType, EmbedderConfig};
@@ -433,7 +433,12 @@ impl Loaded {
 
     /// Картинка: PNG-байты, ответ; `progress(шаг, всего) -> продолжать`.
     pub fn image(&self, req: &synaptix_gen::image::ImageRequest, progress: &mut dyn FnMut(usize, usize) -> bool) -> anyhow::Result<(Vec<u8>, synaptix_gen::image::ImageOutput)> {
-        let Loaded::Image(path, dev) = self else { anyhow::bail!("модель не рисует картинки") };
+        let Loaded::Image(path, dev, quant) = self else { anyhow::bail!("модель не рисует картинки") };
+        let mut req = req.clone();
+        if req.quant.is_none() {
+            req.quant = quant.clone();
+        }
+        let req = &req;
         let out = synaptix_gen::image::generate(path, devices::device(*dev), req, progress).map_err(|e| anyhow::anyhow!("{e}"))?;
         let tmp = std::env::temp_dir().join(format!("synaptixd-image-{}-{}.png", std::process::id(), md5_like(&req.prompt)));
         synaptix_gen::image::save_png(&out.image, &tmp).map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -444,7 +449,12 @@ impl Loaded {
 
     /// Видео: mp4-байты и описание.
     pub fn video(&self, req: &synaptix_gen::video::VideoRequest, cancel: &std::sync::atomic::AtomicBool, progress: &(dyn Fn(usize, usize) + Sync)) -> anyhow::Result<(Vec<u8>, synaptix_gen::video::VideoOutput)> {
-        let Loaded::Video(m, dev) = self else { anyhow::bail!("модель не создаёт видео") };
+        let Loaded::Video(m, dev, quant) = self else { anyhow::bail!("модель не создаёт видео") };
+        let mut req = req.clone();
+        if req.quant.is_none() {
+            req.quant = quant.clone();
+        }
+        let req = &req;
         let tmp = std::env::temp_dir().join(format!("synaptixd-video-{}-{}.mp4", std::process::id(), md5_like(&req.prompt)));
         let out = match m {
             VideoModel::H3 { model, encoder } => synaptix_gen::video::h3(model, encoder.as_deref(), devices::device(*dev), req, &tmp, cancel, progress),
@@ -458,7 +468,12 @@ impl Loaded {
 
     /// Музыка: WAV-байты и описание.
     pub fn music(&self, req: &synaptix_gen::music::MusicRequest, cancel: std::sync::Arc<std::sync::atomic::AtomicBool>, progress: &mut dyn FnMut(usize, usize)) -> anyhow::Result<(Vec<u8>, synaptix_gen::music::MusicOutput)> {
-        let Loaded::Music(m, dev) = self else { anyhow::bail!("модель не создаёт музыку") };
+        let Loaded::Music(m, dev, quant) = self else { anyhow::bail!("модель не создаёт музыку") };
+        let mut req = req.clone();
+        if req.quant.is_none() {
+            req.quant = quant.clone();
+        }
+        let req = &req;
         let device = devices::device(*dev);
         let out = match m {
             MusicModel::Ace(p) => synaptix_gen::music::acestep(p, device, req, cancel),

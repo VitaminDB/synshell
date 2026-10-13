@@ -51,6 +51,10 @@ fn data<T: Serialize>(v: T) -> Value {
     serde_json::to_value(v).unwrap_or(Value::Null)
 }
 
+fn random_seed() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1) % 1_000_000_007
+}
+
 fn pcm_from(fds: &mut [Option<OwnedFd>], r: FdRef, samples: usize) -> Result<Mapped, Error> {
     let fd = fds
         .get_mut(r.fd as usize)
@@ -184,19 +188,21 @@ impl Conn {
             }
             Request::Image { model, prompt, negative, width, height, steps, guidance, seed, images, init, strength } => {
                 let model = mgr.resolve_id(&model, ModelKind::Image)?;
-                let seed = seed.unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1) % 1_000_000_007);
+                // Параметры модели из Параметров — умолчания, явные значения запроса сильнее.
+                let mp = mgr.params(&model, &Params::new());
+                let seed = seed.or_else(|| mp.i64("seed").filter(|s| *s >= 0).map(|s| s as u64)).unwrap_or_else(random_seed);
                 let req = synaptix_gen::image::ImageRequest {
                     prompt,
-                    negative,
-                    width,
-                    height,
-                    steps,
-                    guidance,
+                    negative: negative.or_else(|| mp.text("negative_prompt").filter(|t| !t.trim().is_empty()).map(String::from)),
+                    width: width.or(mp.u32("width").map(|v| v as usize)),
+                    height: height.or(mp.u32("height").map(|v| v as usize)),
+                    steps: steps.or(mp.u32("steps").map(|v| v as usize)),
+                    guidance: guidance.or(mp.f32("guidance")),
                     seed,
                     images: images.into_iter().map(std::path::PathBuf::from).collect(),
                     init: init.map(std::path::PathBuf::from),
                     strength,
-                    quant: mgr.params(&model, &Params::new()).text("quant").map(String::from),
+                    quant: None,
                 };
                 let sock = self.sock.as_fd();
                 let id = self.current;
@@ -216,19 +222,21 @@ impl Conn {
             }
             Request::Video { model, prompt, negative, width, height, seconds, steps, guidance, seed, first_frame, last_frame, refs } => {
                 let model = mgr.resolve_id(&model, ModelKind::Video)?;
-                let seed = seed.unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1) % 1_000_000_007);
+                let mp = mgr.params(&model, &Params::new());
+                let seed = seed.or_else(|| mp.i64("seed").filter(|s| *s >= 0).map(|s| s as u64)).unwrap_or_else(random_seed);
                 let req = synaptix_gen::video::VideoRequest {
                     prompt,
-                    negative,
-                    width,
-                    height,
-                    seconds,
-                    steps,
-                    guidance,
+                    negative: negative.or_else(|| mp.text("negative_prompt").filter(|t| !t.trim().is_empty()).map(String::from)),
+                    width: width.or(mp.u32("width").map(|v| v as usize)),
+                    height: height.or(mp.u32("height").map(|v| v as usize)),
+                    seconds: seconds.or(mp.f32("duration").map(|v| v as f64)),
+                    steps: steps.or(mp.u32("steps").map(|v| v as usize)),
+                    guidance: guidance.or(mp.f32("guidance")),
                     seed,
                     first_frame: first_frame.map(std::path::PathBuf::from),
                     last_frame: last_frame.map(std::path::PathBuf::from),
                     refs: refs.into_iter().map(std::path::PathBuf::from).collect(),
+                    quant: None,
                 };
                 let raw = self.sock.as_raw_fd();
                 let id = self.current;
@@ -250,8 +258,17 @@ impl Conn {
             }
             Request::Music { model, prompt, lyrics, seconds, seed, steps } => {
                 let model = mgr.resolve_id(&model, ModelKind::Music)?;
-                let seed = seed.unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1) % 1_000_000_007);
-                let req = synaptix_gen::music::MusicRequest { prompt, lyrics, seconds: seconds.unwrap_or(0), seed, steps };
+                let mp = mgr.params(&model, &Params::new());
+                let seed = seed.or_else(|| mp.i64("seed").filter(|s| *s >= 0).map(|s| s as u64)).unwrap_or_else(random_seed);
+                let req = synaptix_gen::music::MusicRequest {
+                    prompt,
+                    lyrics,
+                    seconds: seconds.or(mp.f32("duration").map(|v| v.round() as u32)).unwrap_or(0),
+                    seed,
+                    steps: steps.or(mp.u32("steps").map(|v| v as usize)),
+                    guidance: mp.f32("guidance"),
+                    quant: None,
+                };
                 let sock = self.sock.as_fd();
                 let id = self.current;
                 let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
