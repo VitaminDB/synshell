@@ -272,6 +272,157 @@ fn is_image(path: &std::path::Path) -> bool {
     matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" | "avif" | "heic")
 }
 
+thread_local! {
+    /// Проигрыватель звука результата: файл, плеер, длительность.
+    static AUDIO_PLAYER: std::cell::RefCell<Option<(std::path::PathBuf, syngui::audio::AudioPlayer)>> = const { std::cell::RefCell::new(None) };
+    /// Ролик, который сейчас играет в панели.
+    static VIDEO_PLAYER: std::cell::RefCell<Option<(std::path::PathBuf, Arc<Mutex<syngui::video::VideoPlayer>>)>> = const { std::cell::RefCell::new(None) };
+}
+
+fn media_rev() -> RwSignal<u64> {
+    thread_local! {
+        static REV: std::cell::Cell<Option<RwSignal<u64>>> = const { std::cell::Cell::new(None) };
+    }
+    REV.with(|r| match r.get() {
+        Some(v) => v,
+        None => {
+            let v = use_signal(0u64);
+            r.set(Some(v));
+            v
+        }
+    })
+}
+
+fn bump_media() {
+    let r = media_rev();
+    r.set(r.get_untracked() + 1);
+}
+
+/// Остановить звук и ролик (новый ответ, закрытие окна).
+fn stop_media() {
+    if let Some((_, p)) = AUDIO_PLAYER.with(|a| a.borrow_mut().take()) {
+        p.stop();
+    }
+    VIDEO_PLAYER.with(|v| v.borrow_mut().take());
+}
+
+fn fmt_time(s: f64) -> String {
+    let s = s.max(0.0) as u64;
+    format!("{}:{:02}", s / 60, s % 60)
+}
+
+/// Звук → перемежённое стерео 48 кГц (ffmpeg).
+fn decode_stereo(path: &std::path::Path) -> Option<Arc<[f32]>> {
+    let out = std::process::Command::new("ffmpeg").args(["-v", "error", "-i"]).arg(path).args(["-vn", "-ac", "2", "-ar", "48000", "-f", "f32le", "-"]).output().ok()?;
+    if !out.status.success() || out.stdout.is_empty() {
+        return None;
+    }
+    Some(out.stdout.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect::<Vec<_>>().into())
+}
+
+/// Строка проигрывателя звука: ▶/⏸, ползунок, время.
+fn audio_row(path: std::path::PathBuf) -> Box<dyn Widget> {
+    let rev = media_rev();
+    Box::new(rx(move || {
+        rev.get();
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let state = AUDIO_PLAYER.with(|a| a.borrow().as_ref().filter(|(p, _)| *p == path).map(|(_, pl)| (pl.position_seconds(), pl.duration_seconds(), pl.is_paused() || pl.is_done())));
+        let (pos, dur, paused) = state.unwrap_or((0.0, 0.0, true));
+        let p1 = path.clone();
+        let toggle = Button::new("").icon(if paused { PLAY } else { "\u{E034}" }).class("btn assist-mic send").on_click(move || {
+            let mine = AUDIO_PLAYER.with(|a| a.borrow().as_ref().is_some_and(|(p, _)| *p == p1));
+            if mine {
+                AUDIO_PLAYER.with(|a| {
+                    if let Some((_, pl)) = a.borrow().as_ref() {
+                        if pl.is_done() {
+                            let _ = pl.seek_seconds(0.0);
+                            pl.resume();
+                        } else if pl.is_paused() {
+                            pl.resume();
+                        } else {
+                            pl.pause();
+                        }
+                    }
+                });
+            } else {
+                stop_media();
+                if let Some(pcm) = decode_stereo(&p1) {
+                    if let Ok(pl) = syngui::audio::AudioPlayer::start_stereo(pcm, 48_000) {
+                        AUDIO_PLAYER.with(|a| *a.borrow_mut() = Some((p1.clone(), pl)));
+                        // Пока играет — обновлять ползунок и время.
+                        syngui_layer::add_timer(Duration::from_millis(250), move || {
+                            bump_media();
+                            let playing = AUDIO_PLAYER.with(|a| a.borrow().as_ref().is_some_and(|(_, pl)| !pl.is_done()));
+                            playing.then_some(Duration::from_millis(250))
+                        });
+                    }
+                }
+            }
+            bump_media();
+        });
+        let p2 = path.clone();
+        let slider = Slider::new().range(0.0, dur.max(0.01) as f32).value(pos as f32).width(260.0).on_change(move |v| {
+            AUDIO_PLAYER.with(|a| {
+                if let Some((p, pl)) = a.borrow().as_ref() {
+                    if *p == p2 {
+                        let _ = pl.seek_seconds(v as f64);
+                    }
+                }
+            });
+        });
+        Box::new(
+            DecoratedBox::new()
+                .class("assist-audio")
+                .child(
+                    Row::new()
+                        .gap(10.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(toggle)
+                        .child(Column::new().gap(2.0).child(Text::new(name).max_lines(1).class("assist-audio-name")).child(slider))
+                        .child(Text::new(if dur > 0.0 { format!("{} / {}", fmt_time(pos), fmt_time(dur)) } else { String::new() }).class("assist-hint")),
+                ),
+        ) as Box<dyn Widget>
+    }))
+}
+
+/// Ролик: постер с ▶, по щелчку — компактный проигрыватель в панели.
+fn video_tile(path: std::path::PathBuf) -> Box<dyn Widget> {
+    let rev = media_rev();
+    Box::new(rx(move || {
+        rev.get();
+        let playing = VIDEO_PLAYER.with(|v| v.borrow().as_ref().filter(|(p, _)| *p == path).map(|(_, pl)| pl.clone()));
+        if let Some(pl) = playing {
+            return Box::new(DecoratedBox::new().class("assist-video").child(syngui::widgets::visual::video_view::VideoPlayerView::file(pl).compact(true).build())) as Box<dyn Widget>;
+        }
+        let poster: Box<dyn Widget> = match video_poster(&path) {
+            Some(p) => Box::new(Image::new(p.to_string_lossy()).fit(ImageFit::Cover).class("assist-result-img")),
+            None => Box::new(DecoratedBox::new().class("assist-result-img assist-thumb-empty")),
+        };
+        let play = Column::new()
+            .main_axis_alignment(MainAxisAlignment::Center)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .class("assist-result-img")
+            .child(DecoratedBox::new().class("assist-play big").child(icon(PLAY).class("assist-play-ic")));
+        let p = path.clone();
+        Box::new(
+            crate::ui::InputArea::new(DecoratedBox::new().child(Stack::new().child(poster).child(play)).class("assist-result").clip(true)).pointer().on_click(move |b, _, _| {
+                if b != syngui::input::MouseButton::Left {
+                    return;
+                }
+                stop_media();
+                // Аппаратный декодер, где он есть (иначе программный).
+                match syngui::video::VideoPlayer::open_with_hwaccel(&p.to_string_lossy(), syngui::video::HwAccel::platform_default()) {
+                    Ok(pl) => VIDEO_PLAYER.with(|v| *v.borrow_mut() = Some((p.clone(), Arc::new(Mutex::new(pl))))),
+                    Err(_) => {
+                        let _ = std::process::Command::new("xdg-open").arg(&p).spawn();
+                    }
+                }
+                bump_media();
+            }),
+        ) as Box<dyn Widget>
+    }))
+}
+
 /// Вложения под строкой ввода — чипы с крестиком.
 fn attachments_row(p: Panel) -> Box<dyn Widget> {
     Box::new(rx(move || {
@@ -380,6 +531,7 @@ fn ask(p: Panel, text: String, voice: bool) {
         p.attachments.set(Vec::new());
     }
     p.busy.set(true);
+    stop_media();
     p.results.set(Vec::new());
     p.answer.set(String::new());
     p.tool.set(None);
@@ -812,6 +964,14 @@ pub fn view(_ctx: ShellCtx) -> impl Widget {
             let mut row = Flex::new().direction(FlexDirection::Row).wrap().gap(8.0);
             for f in results {
                 let open = f.clone();
+                if is_video(&f) {
+                    row = row.child(video_tile(f.clone()));
+                    continue;
+                }
+                if synassist::attach::kind(&f) == synassist::attach::Kind::Audio {
+                    row = row.child(audio_row(f.clone()));
+                    continue;
+                }
                 let tile: Box<dyn Widget> = if is_image(&f) {
                     Box::new(DecoratedBox::new().child(Image::new(f.to_string_lossy()).fit(ImageFit::Cover).class("assist-result-img")).class("assist-result").clip(true))
                 } else if is_video(&f) {

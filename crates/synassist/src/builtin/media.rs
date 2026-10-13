@@ -155,8 +155,18 @@ fn music(args: &Value) -> ToolResult {
     let lyrics = str_arg(args, "lyrics").unwrap_or("");
     let seconds = args.get("seconds").and_then(Value::as_u64).map(|v| v.clamp(5, 300) as u32);
     let seed = args.get("seed").and_then(Value::as_u64);
-    let model = str_arg(args, "model").unwrap_or("");
     let mut c = synaptixd::Client::connect().map_err(|e| e.to_string())?;
+    // Инструментал (без текста) — ACE-Step (YuE2 — песенная модель); нет её — модель по умолчанию.
+    let picked = match str_arg(args, "model") {
+        Some(m) => Some(m.to_string()),
+        None if lyrics.trim().is_empty() => c
+            .list()
+            .ok()
+            .and_then(|l| l.into_iter().filter(|m| m.kind == ModelKind::Music && m.id.contains("acestep")).min_by_key(|m| !m.id.contains("turbo")))
+            .map(|m| m.id),
+        None => None,
+    };
+    let model = picked.as_deref().unwrap_or("");
     let (reply, wav) = match c.music(model, prompt, lyrics, seconds, seed, |_, _| {}) {
         Ok(r) => r,
         Err(e) if e.code == synaptixd::ErrorCode::NoModel => return generate(ModelKind::Music, "музыки"),
