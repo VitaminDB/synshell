@@ -197,6 +197,9 @@ pub struct Core {
     pub cursor_hidden: bool,
     pub last_pointer_motion: Instant,
     pub dnd_icon: Option<WlSurface>,
+    /// Положение значка перетаскивания относительно курсора (смещения
+    /// `attach` клиента копятся).
+    pub dnd_icon_offset: smithay::utils::Point<i32, smithay::utils::Logical>,
     /// Клавиши, нажатие которых ушло в сочетание — их отпускание не
     /// отдаётся клиенту.
     pub suppressed_keys: HashSet<u32>,
@@ -444,6 +447,7 @@ impl Core {
             cursor_hidden: false,
             last_pointer_motion: Instant::now(),
             dnd_icon: None,
+            dnd_icon_offset: (0, 0).into(),
             suppressed_keys: HashSet::new(),
             input_devices: Vec::new(),
             space: Space::default(),

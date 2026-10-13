@@ -968,6 +968,13 @@ impl SeatHandler for State {
         }
     }
     fn new_capability(&mut self, _: &Connection, qh: &QueueHandle<Self>, seat: wl_seat::WlSeat, cap: Capability) {
+        // new_seat мог прийти раньше привязки менеджера перетаскивания.
+        if self.data_device.is_none() {
+            if let Some(m) = &self.data_manager {
+                log::debug!("dnd: устройство перетаскивания создано");
+                self.data_device = Some(m.get_data_device(qh, &seat));
+            }
+        }
         if cap == Capability::Keyboard && self.keyboard.is_none() {
             let handle = self.handle.clone();
             let kb = self.seat_state.as_mut().unwrap().get_keyboard_with_repeat(
@@ -1135,33 +1142,82 @@ impl ProvidesRegistryState for State {
     registry_handlers![OutputState, SeatState];
 }
 
-/// Перетаскивание файлов на поверхности оболочки (рабочий стол): принимается `text/uri-list`,
-/// брошенное отдаётся обработчику [`crate::set_drop_handler`].
+/// Перетаскивание на поверхности оболочки: у поверхности со своим обработчиком
+/// ([`crate::set_surface_drop_handler`]) — файлы, картинки и текст, иначе файлы
+/// (`text/uri-list`) общему обработчику [`crate::set_drop_handler`].
 impl DataDeviceHandler for State {
     fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, x: f64, y: f64, surface: &wl_surface::WlSurface) {
         let id = self.surface_id_of(surface);
         let offer = self.data_device.as_ref().and_then(|d| d.data().drag_offer());
-        let accept = id.is_some() && crate::has_drop_handler() && offer.as_ref().is_some_and(|o| o.with_mime_types(|m| m.iter().any(|t| t == "text/uri-list")));
+        let own = id.is_some_and(crate::has_surface_drop_handler);
+        let mime = if own {
+            offer.as_ref().and_then(|o| o.with_mime_types(|m| crate::surface_drop_mimes(m).into_iter().next()))
+        } else {
+            let files = id.is_some() && crate::has_drop_handler() && offer.as_ref().is_some_and(|o| o.with_mime_types(|m| m.iter().any(|t| t == "text/uri-list")));
+            files.then(|| "text/uri-list".to_string())
+        };
+        let accept = mime.is_some();
+        log::debug!("dnd enter: поверхность {id:?}, свой обработчик {own}, типы {:?}, принят {mime:?}", offer.as_ref().map(|o| o.with_mime_types(|m| m.to_vec())));
         if let Some(o) = &offer {
-            o.accept_mime_type(o.serial, accept.then(|| "text/uri-list".to_string()));
+            o.accept_mime_type(o.serial, mime);
             o.set_actions(DndAction::Copy | DndAction::Move, DndAction::Copy);
         }
         self.dnd_target = if accept { id.map(|i| (i, x, y)) } else { None };
+        if let (true, Some(id)) = (own && accept, id) {
+            let pos = self.dnd_point(id, x, y);
+            crate::deliver_surface_drop(id, crate::DropEvent::Enter(pos));
+        }
     }
     fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {
-        self.dnd_target = None;
+        if let Some((id, _, _)) = self.dnd_target.take() {
+            crate::deliver_surface_drop(id, crate::DropEvent::Leave);
+        }
     }
     fn motion(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, x: f64, y: f64) {
         if let Some(t) = self.dnd_target.as_mut() {
             t.1 = x;
             t.2 = y;
+            let id = t.0;
+            let pos = self.dnd_point(id, x, y);
+            crate::deliver_surface_drop(id, crate::DropEvent::Motion(pos));
         }
     }
     fn selection(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {}
     fn drop_performed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {
+        log::debug!("dnd drop: цель {:?}", self.dnd_target);
         let Some((id, x, y)) = self.dnd_target.take() else { return };
         let Some(offer) = self.data_device.as_ref().and_then(|d| d.data().drag_offer()) else { return };
-        let pos = self.surfaces.get(&id).map(|s| s.ui_point(x, y)).unwrap_or(syngui::core::Point::new(x as f32, y as f32));
+        let pos = self.dnd_point(id, x, y);
+        if crate::has_surface_drop_handler(id) {
+            // Все подходящие типы — сразу (получать можно только из главного
+            // потока), читаются по порядку в фоне.
+            let mimes = offer.with_mime_types(crate::surface_drop_mimes);
+            let pipes: Vec<_> = mimes.into_iter().filter_map(|m| offer.receive(m.clone()).ok().map(|p| (m, p))).collect();
+            if pipes.is_empty() {
+                offer.destroy();
+                crate::deliver_surface_drop(id, crate::DropEvent::Leave);
+                return;
+            }
+            std::thread::spawn(move || {
+                use std::io::Read;
+                let parts: Vec<(String, Vec<u8>)> = pipes
+                    .into_iter()
+                    .map(|(m, mut p)| {
+                        let mut buf = Vec::new();
+                        let _ = p.read_to_end(&mut buf);
+                        (m, buf)
+                    })
+                    .collect();
+                offer.finish();
+                offer.destroy();
+                let data = crate::surface_drop_data(parts);
+                syngui::async_runtime::run_on_main_thread(move || match data {
+                    Some(d) => crate::deliver_surface_drop(id, crate::DropEvent::Drop(pos, d)),
+                    None => crate::deliver_surface_drop(id, crate::DropEvent::Leave),
+                });
+            });
+            return;
+        }
         let pipe = match offer.receive("text/uri-list".to_string()) {
             Ok(p) => p,
             Err(e) => {
@@ -1182,6 +1238,12 @@ impl DataDeviceHandler for State {
                 syngui::async_runtime::run_on_main_thread(move || crate::deliver_drop(id, pos, paths));
             }
         });
+    }
+}
+
+impl State {
+    fn dnd_point(&self, id: SurfaceId, x: f64, y: f64) -> syngui::core::Point {
+        self.surfaces.get(&id).map(|s| s.ui_point(x, y)).unwrap_or(syngui::core::Point::new(x as f32, y as f32))
     }
 }
 

@@ -169,6 +169,7 @@ impl CompositorHandler for State {
 
         self.layer_commit(surface);
         self.cursor_commit(surface);
+        self.dnd_icon_commit(surface);
 
         if let LockState::Locking(_) = self.core.lock {
             self.maybe_finish_lock();
@@ -246,6 +247,16 @@ impl State {
         // Слой с эксклюзивной клавиатурой получил фокус.
         self.update_layer_keyboard_focus();
         self.core.queue_redraw(&output);
+    }
+
+    fn dnd_icon_commit(&mut self, surface: &WlSurface) {
+        if self.core.dnd_icon.as_ref() == Some(surface) {
+            let delta = with_states(surface, |s| s.cached_state.get::<SurfaceAttributes>().current().buffer_delta.take());
+            if let Some(d) = delta {
+                self.core.dnd_icon_offset += d;
+            }
+            self.core.queue_redraw_all();
+        }
     }
 
     fn cursor_commit(&mut self, surface: &WlSurface) {
@@ -772,6 +783,11 @@ impl DataDeviceHandler for State {
 
 impl ClientDndGrabHandler for State {
     fn started(&mut self, _source: Option<smithay::reexports::wayland_server::protocol::wl_data_source::WlDataSource>, icon: Option<WlSurface>, _seat: Seat<Self>) {
+        // Первый буфер значок прикрепил до начала переноса — его смещение уже в состоянии.
+        self.core.dnd_icon_offset = icon
+            .as_ref()
+            .and_then(|s| with_states(s, |st| st.cached_state.get::<SurfaceAttributes>().current().buffer_delta.take()))
+            .unwrap_or_default();
         self.core.dnd_icon = icon;
     }
 

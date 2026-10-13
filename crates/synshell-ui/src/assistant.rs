@@ -13,6 +13,8 @@ use synassist::chat::{Chat, Role, Store};
 use synassist_voice::{Phase, VisHandle, VoiceConfig, VoiceEvent};
 
 use syngui::StyleValue;
+use syngui::widgets::Chip;
+use syngui_layer::{DropData, DropEvent};
 use syngui::input::Key;
 use syngui_layer::{Anchor, KeyInfo, KeyboardInteractivity, Layer, SurfaceHooks, SurfaceId, SurfaceSpec};
 
@@ -33,6 +35,8 @@ const OPEN: &str = "\u{E89E}";
 const ADD: &str = "\u{E145}";
 const SEND: &str = "\u{E163}";
 const CLOSE: &str = "\u{E5CD}";
+const ATTACH: &str = "\u{E226}";
+const IMAGE: &str = "\u{E3F4}";
 
 #[derive(Clone, Copy)]
 struct Panel {
@@ -51,6 +55,8 @@ struct Panel {
     dictating: RwSignal<bool>,
     speaking: RwSignal<bool>,
     note: RwSignal<Option<String>>,
+    attachments: RwSignal<Vec<std::path::PathBuf>>,
+    drag_over: RwSignal<bool>,
 }
 
 thread_local! {
@@ -88,6 +94,8 @@ fn panel() -> Panel {
                 dictating: use_signal(false),
                 speaking: use_signal(false),
                 note: use_signal(None),
+                attachments: use_signal(Vec::new()),
+                drag_over: use_signal(false),
             };
             p.set(Some(v));
             v
@@ -168,12 +176,105 @@ pub fn toggle(ctx: ShellCtx) {
     *my_id.lock().unwrap() = Some(id);
     SURFACE.with(|s| s.set(Some(id)));
     SHOWN.with(|o| o.set(Some(open)));
+    let p = panel();
+    syngui_layer::set_surface_drop_handler(id, move |ev| match ev {
+        DropEvent::Enter(_) | DropEvent::Motion(_) => {
+            if !p.drag_over.get_untracked() {
+                p.drag_over.set(true);
+            }
+        }
+        DropEvent::Leave => p.drag_over.set(false),
+        DropEvent::Drop(_, data) => {
+            p.drag_over.set(false);
+            dropped(p, data);
+        }
+    });
     syngui_layer::add_timer(Duration::from_millis(400), move || {
         if SURFACE.with(|s| s.get()) == Some(id) {
             syngui_layer::reconfigure_surface(id, SurfaceSpec { keyboard: KeyboardInteractivity::OnDemand, ..spec.clone() });
         }
         None
     });
+}
+
+/// Брошенное на окно: файлы и картинки — вложениями, короткий текст — в поле
+/// ввода, длинный — вложением-файлом.
+fn dropped(p: Panel, data: DropData) {
+    let save = |ext: &str, bytes: &[u8]| -> Option<std::path::PathBuf> {
+        let dir = synshell_common::paths::data_home().join("synshell/assistant-drops");
+        std::fs::create_dir_all(&dir).ok()?;
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+        let path = dir.join(format!("{stamp}.{ext}"));
+        std::fs::write(&path, bytes).ok()?;
+        Some(path)
+    };
+    let files = match data {
+        DropData::Files(f) => f,
+        DropData::Data { mime, bytes } => {
+            let ext = mime.strip_prefix("image/").map(|e| e.split(['+', ';']).next().unwrap_or("png").replace("jpeg", "jpg")).unwrap_or_else(|| "bin".into());
+            save(&ext, &bytes).into_iter().collect()
+        }
+        DropData::Text(t) if t.chars().count() > 2000 => save("txt", t.as_bytes()).into_iter().collect(),
+        DropData::Text(t) => {
+            let mut q = p.query.get_untracked();
+            if !q.is_empty() && !q.ends_with(char::is_whitespace) {
+                q.push(' ');
+            }
+            q.push_str(t.trim());
+            p.query.set(q);
+            p.input_rev.set(p.input_rev.get_untracked() + 1);
+            return;
+        }
+    };
+    let mut v = p.attachments.get_untracked();
+    for f in files {
+        if !v.contains(&f) {
+            v.push(f);
+        }
+    }
+    p.attachments.set(v);
+}
+
+fn is_image(path: &std::path::Path) -> bool {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" | "avif" | "heic")
+}
+
+/// Вложения под строкой ввода — чипы с крестиком.
+fn attachments_row(p: Panel) -> Box<dyn Widget> {
+    Box::new(rx(move || {
+        let files = p.attachments.get();
+        if files.is_empty() {
+            return Box::new(Row::new()) as Box<dyn Widget>;
+        }
+        let mut row = Flex::new().direction(FlexDirection::Row).wrap().gap(6.0);
+        for (i, f) in files.iter().enumerate() {
+            let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| f.to_string_lossy().into_owned());
+            let glyph = if is_image(f) { IMAGE } else { ATTACH };
+            row = row.child(Chip::new(name).icon(glyph).deletable().on_delete(move || {
+                let mut v = p.attachments.get_untracked();
+                if i < v.len() {
+                    v.remove(i);
+                }
+                p.attachments.set(v);
+            }).class("assist-att"));
+        }
+        Box::new(DecoratedBox::new().child(row).class("assist-atts"))
+    }))
+}
+
+fn drop_zone() -> Box<dyn Widget> {
+    Box::new(
+        DecoratedBox::new().class("assist-drop").child(
+            Column::new()
+                .gap(6.0)
+                .main_axis_alignment(MainAxisAlignment::Center)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(icon(ATTACH).class("assist-drop-ic"))
+                .child(Text::new(t!("Отпустите, чтобы прикрепить")).class("assist-drop-title"))
+                .child(Text::new(t!("Файлы, картинки, видео — вложениями, текст — в поле ввода")).class("assist-hint")),
+        ),
+    )
 }
 
 /// Закрыть окно ассистента (с анимацией ухода).
@@ -203,13 +304,17 @@ fn stop(p: Panel) {
 
 fn ask(p: Panel, text: String, voice: bool) {
     let text = text.trim().to_string();
-    if text.is_empty() || p.busy.get_untracked() {
+    if (text.is_empty() && p.attachments.get_untracked().is_empty()) || p.busy.get_untracked() {
         if voice {
             if let Some(tx) = shared().turn.lock().unwrap().take() {
                 let _ = tx.send(Err(String::new()));
             }
         }
         return;
+    }
+    let files = if voice { Vec::new() } else { p.attachments.get_untracked() };
+    if !voice {
+        p.attachments.set(Vec::new());
     }
     p.busy.set(true);
     p.answer.set(String::new());
@@ -237,7 +342,7 @@ fn ask(p: Panel, text: String, voice: bool) {
                 rx.recv().unwrap_or(false)
             };
             let cancel = shared().cancel.clone();
-            let r = agent.run_turn(&mut chat, &text, &confirm, &cancel, &mut |ev| {
+            let r = agent.run_turn_files(&mut chat, &text, files, &confirm, &cancel, &mut |ev| {
                 run_on_main_thread(move || match ev {
                     AgentEvent::Text(t) => {
                         let mut a = p.answer.get_untracked();
@@ -598,6 +703,9 @@ pub fn view(_ctx: ShellCtx) -> impl Widget {
         if p.voice_open.get() {
             return voice_stage(p);
         }
+        if p.drag_over.get() {
+            return drop_zone();
+        }
         let answer = p.answer.get();
         let busy = p.busy.get();
         let tool = p.tool.get();
@@ -638,6 +746,7 @@ pub fn view(_ctx: ShellCtx) -> impl Widget {
                 .child(Button::new(t!("Новый вопрос")).icon(ADD).class("btn assist-ghost").on_click(move || {
                     p.chat_id.set(None);
                     p.answer.set(String::new());
+                    p.attachments.set(Vec::new());
                     p.heard.set(String::new());
                     p.input_rev.set(p.input_rev.get_untracked() + 1);
                 }))
@@ -661,7 +770,7 @@ pub fn view(_ctx: ShellCtx) -> impl Widget {
     Column::new()
         .gap(10.0)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .child(DecoratedBox::new().child(header(p)).class("search-box assist-box"))
+        .child(DecoratedBox::new().child(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(header(p)).child(attachments_row(p))).class("search-box assist-box"))
         .child(AnimatedSize::new(body).axis(AnimationAxis::Height).spring(420.0, 40.0).class("popup-morph"))
 }
 

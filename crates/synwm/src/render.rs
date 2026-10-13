@@ -809,7 +809,7 @@ where
     // DnD-значок.
     if let Some(icon) = &core.dnd_icon {
         if icon.alive() {
-            let loc = rel.to_physical(scale_f).to_i32_round();
+            let loc = (rel + core.dnd_icon_offset.to_f64()).to_physical(scale_f).to_i32_round();
             out.extend(
                 render_elements_from_surface_tree::<R, WaylandSurfaceRenderElement<R>>(renderer, icon, loc, scale, 1.0, Kind::Unspecified)
                     .into_iter()

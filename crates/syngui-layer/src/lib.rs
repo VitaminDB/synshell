@@ -230,6 +230,7 @@ pub fn set_input_region(id: SurfaceId, rects: Option<Vec<[i32; 4]>>) {
 }
 
 pub fn close_surface(id: SurfaceId) {
+    SURFACE_DROP.with(|h| h.borrow_mut().remove(&id));
     push(Command::Close { id });
 }
 
@@ -297,6 +298,94 @@ pub fn set_drop_handler(f: impl Fn(SurfaceId, syngui::core::Point, Vec<std::path
 
 pub(crate) fn has_drop_handler() -> bool {
     DROP_HANDLER.with(|h| h.borrow().is_some())
+}
+
+/// Что бросили на поверхность.
+#[derive(Debug, Clone)]
+pub enum DropData {
+    /// Локальные файлы (`text/uri-list`).
+    Files(Vec<std::path::PathBuf>),
+    /// Данные без файла — например, картинка из браузера (`image/png`).
+    Data { mime: String, bytes: Vec<u8> },
+    /// Текст (или адреса ссылок, если локальных файлов нет).
+    Text(String),
+}
+
+/// Перетаскивание над поверхностью; точки — в координатах интерфейса.
+#[derive(Debug, Clone)]
+pub enum DropEvent {
+    Enter(syngui::core::Point),
+    Motion(syngui::core::Point),
+    Leave,
+    Drop(syngui::core::Point, DropData),
+}
+
+type SurfaceDropFn = std::rc::Rc<dyn Fn(DropEvent)>;
+
+thread_local! {
+    static SURFACE_DROP: RefCell<std::collections::HashMap<SurfaceId, SurfaceDropFn>> = RefCell::new(std::collections::HashMap::new());
+}
+
+/// Приём перетаскивания на одну поверхность: файлы, картинки и текст (в отличие
+/// от [`set_drop_handler`], который берёт только файлы). Снимается вместе с поверхностью.
+pub fn set_surface_drop_handler(id: SurfaceId, f: impl Fn(DropEvent) + 'static) {
+    SURFACE_DROP.with(|h| h.borrow_mut().insert(id, std::rc::Rc::new(f)));
+}
+
+pub(crate) fn has_surface_drop_handler(id: SurfaceId) -> bool {
+    SURFACE_DROP.with(|h| h.borrow().contains_key(&id))
+}
+
+pub(crate) fn deliver_surface_drop(id: SurfaceId, ev: DropEvent) {
+    let f = SURFACE_DROP.with(|h| h.borrow().get(&id).cloned());
+    if let Some(f) = f {
+        f(ev);
+    }
+}
+
+/// Текстовые типы в порядке предпочтения.
+pub(crate) const TEXT_MIMES: &[&str] = &["text/plain;charset=utf-8", "UTF8_STRING", "text/plain", "STRING", "TEXT"];
+
+/// Какие типы брошенного забирать для поверхности со своим обработчиком —
+/// по порядку: файлы, картинка, текст.
+pub(crate) fn surface_drop_mimes(offered: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    if offered.iter().any(|m| m == "text/uri-list") {
+        out.push("text/uri-list".to_string());
+    }
+    if let Some(m) = offered.iter().find(|m| m.starts_with("image/")) {
+        out.push(m.clone());
+    }
+    if let Some(m) = TEXT_MIMES.iter().find(|t| offered.iter().any(|m| m == *t)) {
+        out.push(m.to_string());
+    }
+    out
+}
+
+/// Разбор забранных типов (в порядке [`surface_drop_mimes`]) в одно брошенное.
+pub(crate) fn surface_drop_data(parts: Vec<(String, Vec<u8>)>) -> Option<DropData> {
+    let mut links = String::new();
+    for (mime, bytes) in parts {
+        if bytes.is_empty() {
+            continue;
+        }
+        if mime == "text/uri-list" {
+            let text = String::from_utf8_lossy(&bytes);
+            let files = parse_uri_list(&text);
+            if !files.is_empty() {
+                return Some(DropData::Files(files));
+            }
+            links = text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')).collect::<Vec<_>>().join("\n");
+        } else if mime.starts_with("image/") {
+            return Some(DropData::Data { mime, bytes });
+        } else {
+            let text = String::from_utf8_lossy(&bytes).trim_end_matches('\0').to_string();
+            if !text.trim().is_empty() {
+                return Some(DropData::Text(text));
+            }
+        }
+    }
+    (!links.is_empty()).then_some(DropData::Text(links))
 }
 
 pub(crate) fn deliver_drop(id: SurfaceId, pos: syngui::core::Point, paths: Vec<std::path::PathBuf>) {
@@ -426,6 +515,18 @@ pub(crate) fn next_id_pub() -> u64 {
 
 #[cfg(test)]
 mod drop_tests {
+    #[test]
+    fn surface_drop() {
+        let offered: Vec<String> = ["text/html", "UTF8_STRING", "image/png", "text/uri-list"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(super::surface_drop_mimes(&offered), vec!["text/uri-list", "image/png", "UTF8_STRING"]);
+        let web = super::surface_drop_data(vec![("text/uri-list".into(), b"https://x/a.png\r\n".to_vec()), ("image/png".into(), vec![1, 2])]);
+        assert!(matches!(web, Some(super::DropData::Data { ref mime, .. }) if mime == "image/png"));
+        let link = super::surface_drop_data(vec![("text/uri-list".into(), b"https://x/\r\n".to_vec())]);
+        assert!(matches!(link, Some(super::DropData::Text(ref t)) if t == "https://x/"));
+        let file = super::surface_drop_data(vec![("text/uri-list".into(), b"file:///tmp/a\n".to_vec()), ("UTF8_STRING".into(), b"x".to_vec())]);
+        assert!(matches!(file, Some(super::DropData::Files(_))));
+    }
+
     #[test]
     fn uri_list() {
         let p = super::parse_uri_list("# c\r\nfile:///home/u/%D0%A4%20x.png\r\nfile://host/tmp/a\r\nhttps://x\r\n");
