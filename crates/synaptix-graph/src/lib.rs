@@ -21,6 +21,7 @@ use serde_json::{Map, Value};
 
 mod exec;
 pub mod recipes;
+pub mod synthos;
 
 pub use exec::run;
 
@@ -78,7 +79,7 @@ impl Output {
 }
 
 /// Итог прогона.
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, PartialEq)]
 pub struct Report {
     /// Файлы узлов-результатов.
     pub files: Vec<PathBuf>,

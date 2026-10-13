@@ -1,5 +1,6 @@
 mod compose;
 mod feed;
+mod recipes;
 mod sidebar;
 mod voice;
 
@@ -334,6 +335,14 @@ fn keys(st: St, inner: impl Widget + 'static) -> W {
 fn desktop_root(st: St) -> W {
     let body = Reactive::new(move || -> Vec<W> {
         let mut row = Row::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("body grow");
+        if st.recipes_open.get() {
+            let rs = recipes::state();
+            if st.sidebar.get() {
+                row = row.child(DecoratedBox::new().class("sidebar").child(recipes::sidebar(st, rs)));
+            }
+            row = row.child(recipes::pane(st, rs));
+            return vec![boxed(row)];
+        }
         if st.sidebar.get() {
             row = row.child(sidebar::sidebar(st, false));
         }

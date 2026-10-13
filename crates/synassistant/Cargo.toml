@@ -14,6 +14,7 @@ path = "src/main.rs"
 synshell-common = { workspace = true, features = ["i18n", "thumbs"] }
 syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "image", "markdown-syntax", "clipboard"] }
 synassist.workspace = true
+synaptix-graph.workspace = true
 synassist-voice.workspace = true
 synaptixd.workspace = true
 synsystem.workspace = true

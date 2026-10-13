@@ -7358,6 +7358,7 @@ name = "synassistant"
 version = "0.1.42"
 dependencies = [
  "serde_json",
+ "synaptix-graph",
  "synaptixd",
  "synassist",
  "synassist-voice",

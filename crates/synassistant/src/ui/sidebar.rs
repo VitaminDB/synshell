@@ -161,7 +161,12 @@ pub fn sidebar(st: St, phone: bool) -> W {
             .class(if phone { "sidebar phone" } else { "sidebar" })
             .child(head)
             .child(search)
-            .child(Button::new(t!("Новый чат")).icon(icons::ADD).class("btn new").on_click(move || st.new_chat()))
+            .child(
+                Row::new()
+                    .gap(6.0)
+                    .child(Button::new(t!("Новый чат")).icon(icons::ADD).class("btn new grow").on_click(move || st.new_chat()))
+                    .child(super::icon_button(icons::BOLT, t!("Рецепты — готовые сценарии"), "tb-btn", move || st.recipes_open.set(true))),
+            )
             .child(ScrollView::new().vertical().class("grow chat-list").child(list(st)))
             .child(footer(st)),
     )

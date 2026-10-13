@@ -200,3 +200,20 @@ MultilineTextEdit.input { background-color: #00000000; color: var(--fg); border:
 .toast { padding: 10px 16px; border-radius: 12px; background-color: var(--menu-bg); border: 1px solid var(--border); box-shadow: 0 8px 24px var(--shadow); }
 .toast-ic { icon-size: 18px; icon-color: var(--success); }
 .toast-text { font-size: 13px; color: var(--fg); }
+
+/* ─── Рецепты ─── */
+.recipe-detail { padding: 22px 28px; max-width: 900px; }
+.recipe-empty { padding: 40px; }
+.recipe-empty-ic { icon-size: 48px; icon-color: var(--accent); }
+.recipe-title { font-size: 20px; font-weight: 700; color: var(--fg); }
+.recipe-desc { font-size: 14px; color: var(--fg); }
+.recipe-section { font-size: 13px; font-weight: 700; color: var(--muted); padding-top: 4px; }
+.recipe-hint { font-size: 12px; color: var(--muted); }
+.recipe-param { font-size: 13px; font-weight: 600; color: var(--fg); }
+.recipe-field { padding: 7px 10px; border-radius: 10px; border-width: 1px; border-color: var(--border); background-color: var(--surface-alt); font-size: 13px; color: var(--fg); }
+.recipe-step { padding: 8px 12px; border-radius: 10px; background-color: var(--surface-alt); }
+.recipe-step-n { font-size: 12px; font-weight: 700; color: var(--accent); min-width: 16px; }
+.recipe-step-ic { icon-size: 18px; icon-color: var(--accent); }
+.recipe-step-title { font-size: 13px; color: var(--fg); }
+.recipe-log { padding: 4px 0px; }
+.recipe-error { font-size: 13px; color: var(--danger); }

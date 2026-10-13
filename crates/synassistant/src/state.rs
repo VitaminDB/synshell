@@ -50,6 +50,8 @@ pub struct St {
     pub error: RwSignal<Option<String>>,
     pub input_rev: RwSignal<u64>,
     pub list_open: RwSignal<bool>,
+    /// Открыта вкладка «Рецепты» (вместо чатов).
+    pub recipes_open: RwSignal<bool>,
     pub empty: RwSignal<bool>,
     pub sidebar: RwSignal<bool>,
     pub window: RwSignal<syngui::window::WindowState>,
@@ -109,6 +111,7 @@ impl St {
             error: use_signal(None),
             input_rev: use_signal(0),
             list_open: use_signal(false),
+            recipes_open: use_signal(false),
             empty: use_signal(true),
             sidebar: use_signal(true),
             window: use_signal(syngui::window::WindowState::default()),
