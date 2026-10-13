@@ -161,18 +161,17 @@ fn bottom_nav(st: St) -> W {
     boxed(Reactive::new(move || -> Vec<W> {
         syngui::i18n::subscribe();
         let cur = st.tab.get();
-        let mut row = Row::new().main_axis_alignment(MainAxisAlignment::SpaceAround).cross_axis_alignment(CrossAxisAlignment::Center);
+        let mut row = Row::new().cross_axis_alignment(CrossAxisAlignment::Center);
         for t in Tab::ALL {
             let on = t == cur;
             row = row.child(
-                GestureDetector::new().on_click(move || st.go(t)).child(
-                    DecoratedBox::new().class("nav-item").child(
-                        Column::new()
-                            .gap(4.0)
-                            .cross_axis_alignment(CrossAxisAlignment::Center)
-                            .child(DecoratedBox::new().class(if on { "nav-pill on" } else { "nav-pill" }).child(icon(tab_icon(t)).class(if on { "ic nav-ic on" } else { "ic nav-ic" })))
-                            .child(Text::new(tab_title(t)).max_lines(1).class(if on { "nav-label on" } else { "nav-label" })),
-                    ),
+                GestureDetector::new().class("grow").on_click(move || st.go(t)).child(
+                    Column::new()
+                        .gap(4.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(DecoratedBox::new().class(if on { "nav-pill on" } else { "nav-pill" }).child(icon(tab_icon(t)).class(if on { "ic nav-ic on" } else { "ic nav-ic" })))
+                        .child(Text::new(tab_title(t)).max_lines(1).class(if on { "nav-label on" } else { "nav-label" }))
+                        .class("nav-item"),
                 ),
             );
         }

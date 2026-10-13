@@ -45,8 +45,8 @@ SystemWindowControls { color: var(--fg); background-color: var(--hover); }
 .side-title { font-size: 14px; font-weight: 600; color: var(--fg); }
 .side-note { max-width: 190px; }
 
-.bottom-nav { padding: 8px 6px 10px 6px; background-color: var(--nav); border-top: 1px solid var(--border); }
-.nav-item { padding: 2px 6px; min-width: 72px; align-items: center; }
+.bottom-nav { padding: 8px 2px 10px 2px; background-color: var(--nav); border-top: 1px solid var(--border); }
+.nav-item { padding: 2px 0px; }
 .nav-pill { width: 40px; height: 32px; border-radius: 16px; justify-content: center; align-items: center; background-color: #00000000; transition: width 320ms spring(380, 26), background-color 220ms ease-out; }
 .nav-pill.on { width: 64px; background-color: var(--rose-soft); }
 .nav-ic { icon-size: 23px; icon-color: var(--muted); transition: icon-color 200ms ease-out; }
@@ -176,10 +176,10 @@ Slider { height: 6px; background: var(--pressed); color: var(--plum); accent-col
 .scrim { background-color: var(--scrim); }
 .sheet { border-radius: 30px 30px 0px 0px; background-color: var(--menu-bg); box-shadow: 0 -10px 40px var(--shadow-strong); }
 .sheet.wide { border-radius: 30px; border: 1px solid var(--border); }
-.sheet-inner { padding: 10px 18px 22px 18px; }
+.sheet-inner { padding: 10px 60px 22px 60px; }
 .grabber { width: 44px; height: 5px; border-radius: 3px; background-color: var(--border); }
 .sheet-title { font-size: 24px; font-weight: 800; color: var(--fg); }
-.status { padding: 7px 14px; border-radius: 999px; background-color: var(--surface-alt); }
+.status { padding: 8px 14px; border-radius: 14px; background-color: var(--surface-alt); }
 .status.rose { background-color: var(--rose-soft); }
 .status.rose-o { background-color: var(--rose-soft); border: 1px dashed var(--rose-line); }
 .status.teal { background-color: var(--teal-soft); }

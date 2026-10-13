@@ -67,11 +67,8 @@ fn last_period(st: St, wide: bool) -> W {
             calendar::grid(st, &fc, i, w, Mode::Pick)
         })),
     );
-    let next = Reactive::new(move || -> Vec<W> {
-        let has = st.intro_day.get().is_some();
-        vec![boxed(Button::new(t!("Далее")).class("btn big primary").disabled(!has).on_click(move || st.intro_step.set(2)))]
-    });
-    let _ = picked;
+    // кнопка без Reactive (иначе не растягивается): шаг перестраивается при выборе даты (`version`)
+    let next = Button::new(t!("Далее")).class("btn big primary").disabled(picked.is_none()).on_click(move || st.intro_step.set(2));
     scroll_page(
         wide,
         vec![
@@ -115,6 +112,7 @@ fn lengths(st: St, wide: bool) -> W {
 pub fn page_root(st: St, wide: bool) -> W {
     boxed(Reactive::new(move || -> Vec<W> {
         let step = st.intro_step.get();
+        let ver = if step == 1 { st.intro_day.get().is_some() as u64 } else { 0 };
         vec![boxed(
             AnimatedSwitcher::new(step, move || -> W {
                 syngui::i18n::subscribe();
@@ -124,6 +122,7 @@ pub fn page_root(st: St, wide: bool) -> W {
                     _ => lengths(st, wide),
                 }
             })
+            .version(ver)
             .slide(48.0, 0.0)
             .directional(true)
             .duration_ms(340)

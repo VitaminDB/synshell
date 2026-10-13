@@ -57,17 +57,15 @@ fn toggle_row(st: St, glyph: &str, title: String, hint: String, on: bool, set: i
 pub fn stepper(st: St, glyph: &str, title: String, hint: String, value: i32, min: i32, max: i32, unit: String, set: fn(&mut Settings, i32)) -> W {
     let dec = Button::new("").icon(icons::REMOVE).class("btn round step").disabled(value <= min).on_click(move || st.set_settings(|s| set(s, (value - 1).max(min))));
     let inc = Button::new("").icon(icons::ADD).class("btn round step").disabled(value >= max).on_click(move || st.set_settings(|s| set(s, (value + 1).min(max))));
-    boxed(
-        DecoratedBox::new().class("set-row").child(
-            Row::new()
-                .gap(8.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(label(glyph, title, hint))
-                .child(dec)
-                .child(DecoratedBox::new().class("step-value").child(Column::new().cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(value.to_string()).class("step-num")).child(Text::new(unit).class("step-unit"))))
-                .child(inc),
-        ),
-    )
+    let value = DecoratedBox::new().class("step-value").child(Column::new().cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(value.to_string()).class("step-num")).child(Text::new(unit).class("step-unit")));
+    let controls = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(dec).child(value).child(inc);
+    // на узком окне (или крупном масштабе) кнопки — под подписью
+    let row: W = if viewport_size().get_untracked().width < 400.0 {
+        boxed(Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(label(glyph, title, hint)).child(Row::new().main_axis_alignment(MainAxisAlignment::End).child(controls)))
+    } else {
+        boxed(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(label(glyph, title, hint)).child(controls))
+    };
+    boxed(DecoratedBox::new().class("set-row").child(row))
 }
 
 /// Масштаб интерфейса: применяется сразу, сохраняется после паузы.

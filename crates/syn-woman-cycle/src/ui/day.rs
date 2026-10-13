@@ -64,7 +64,7 @@ fn body(st: St) -> W {
                 .child(icon_button(icons::CLOSE, "nav-btn", move || st.sheet_open.set(false))),
         );
         let (stat, tone) = status(st, d);
-        col = col.child(Row::new().child(DecoratedBox::new().class(&format!("status {tone}")).child(Text::new(stat).max_lines(1).class("status-text"))));
+        col = col.child(DecoratedBox::new().class(&format!("status {tone}")).child(Text::new(stat).max_lines(2).class("status-text")));
 
         // месячные
         let future = d > today;
@@ -115,15 +115,16 @@ fn body(st: St) -> W {
 
 fn panel(st: St, wide: bool) -> W {
     let vp = viewport_size().get_untracked();
-    let w = if wide { vp.width.min(540.0) } else { vp.width };
     let maxh = (vp.height * 0.88).max(320.0);
+    let mut sheet = DecoratedBox::new().class(if wide { "sheet wide" } else { "sheet" });
+    if wide {
+        sheet = sheet.style("width", StyleValue::px(vp.width.min(540.0)));
+    }
     boxed(
         GestureDetector::new().on_click(|| {}).child(
-            DecoratedBox::new()
-                .class(if wide { "sheet wide" } else { "sheet" })
-                .style("width", StyleValue::px(w))
+            sheet
                 .style("max-height", StyleValue::px(maxh))
-                .child(ScrollView::new().vertical().class("sheet-scroll").child(DecoratedBox::new().class("sheet-inner").child(body(st)))),
+                .child(DecoratedBox::new().class("sheet-inner").child(body(st))),
         ),
     )
 }
@@ -148,7 +149,7 @@ fn scrim(st: St) -> W {
 pub fn layer(st: St, wide: bool) -> W {
     boxed(
         Stack::new().fit(StackFit::Expand).child(scrim(st)).child(
-            Column::new().main_axis_alignment(if wide { MainAxisAlignment::Center } else { MainAxisAlignment::End }).cross_axis_alignment(CrossAxisAlignment::Center).child(
+            Column::new().main_axis_alignment(if wide { MainAxisAlignment::Center } else { MainAxisAlignment::End }).cross_axis_alignment(if wide { CrossAxisAlignment::Center } else { CrossAxisAlignment::Stretch }).child(
                 Presence::signal(st.sheet_open, move || panel(st, wide))
                     .enter(if wide { Motion::fade().scale(0.94).slide(0.0, 24.0) } else { Motion::fade().slide(0.0, 260.0) })
                     .exit(if wide { Motion::fade().scale(0.96) } else { Motion::fade().slide(0.0, 260.0) })
