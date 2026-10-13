@@ -124,7 +124,7 @@ fn panel(st: St, wide: bool) -> W {
         GestureDetector::new().on_click(|| {}).child(
             sheet
                 .style("max-height", StyleValue::px(maxh))
-                .child(DecoratedBox::new().class("sheet-inner").child(body(st))),
+                .child(ScrollView::new().vertical().class("sheet-scroll").child(DecoratedBox::new().class("sheet-inner").child(body(st)))),
         ),
     )
 }
@@ -150,11 +150,19 @@ pub fn layer(st: St, wide: bool) -> W {
     boxed(
         Stack::new().fit(StackFit::Expand).child(scrim(st)).child(
             Column::new().main_axis_alignment(if wide { MainAxisAlignment::Center } else { MainAxisAlignment::End }).cross_axis_alignment(if wide { CrossAxisAlignment::Center } else { CrossAxisAlignment::Stretch }).child(
-                Presence::signal(st.sheet_open, move || panel(st, wide))
-                    .enter(if wide { Motion::fade().scale(0.94).slide(0.0, 24.0) } else { Motion::fade().slide(0.0, 260.0) })
-                    .exit(if wide { Motion::fade().scale(0.96) } else { Motion::fade().slide(0.0, 260.0) })
-                    .duration_ms(340)
-                    .exit_duration_ms(200),
+                // лист строится при открытии: его ширина зависит от окна (Presence::signal построил бы его
+                // один раз при запуске, когда размер окна ещё не известен)
+                Reactive::new(move || -> Vec<W> {
+                    let shown = st.sheet_open.get();
+                    vec![boxed(
+                        Presence::new(shown, DecoratedBox::new().child(panel(st, wide)))
+                            .enter(if wide { Motion::fade().scale(0.94).slide(0.0, 24.0) } else { Motion::fade().slide(0.0, 260.0) })
+                            .exit(if wide { Motion::fade().scale(0.96) } else { Motion::fade().slide(0.0, 260.0) })
+                            .duration_ms(340)
+                            .exit_duration_ms(200)
+                            .initial(false),
+                    )]
+                }),
             ),
         ),
     )

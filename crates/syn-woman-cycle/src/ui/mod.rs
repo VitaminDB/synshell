@@ -294,3 +294,43 @@ pub fn root(st: St) -> W {
         vec![boxed(WindowResizeRegion::new().over_content(true).inset(5.0).enabled(w && !fs).child(frame))]
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use syngui::testing::TestHarness;
+
+    /// Карточка дня, открытая после запуска, укладывается в ширину окна.
+    #[test]
+    fn day_sheet_fits_window() {
+        syngui::signal::allow_signal_reads_on_this_thread();
+        let mut data = crate::model::Data { onboarded: true, ..Default::default() };
+        data.settings.fullscreen = false;
+        let st = St::new(data);
+        let mut h = TestHarness::new(root(st));
+        let (cfg, _) = synshell_common::Config::load();
+        let engine = h.apply_mss(&crate::theme(&cfg, false));
+        let (w, hh) = (420.0, 900.0);
+        for _ in 0..4 {
+            h.frame(Some(&engine), w, hh);
+        }
+        st.go(Tab::Calendar);
+        for _ in 0..4 {
+            h.frame(Some(&engine), w, hh);
+            h.animate(std::time::Duration::from_millis(200));
+        }
+        st.open_day(crate::date::today() + 7);
+        for _ in 0..6 {
+            h.frame(Some(&engine), w, hh);
+            h.animate(std::time::Duration::from_millis(200));
+        }
+        h.frame(Some(&engine), w, hh);
+        let sheet = h.element_bounds(h.find_by_class("sheet")[0]);
+        let inner = h.element_bounds(h.find_by_class("sheet-inner")[0]);
+        let row = h.element_bounds(h.find_by_class("period-row")[0]);
+        eprintln!("sheet {sheet:?}\ninner {inner:?}\nrow {row:?}");
+        assert!(sheet.size.width <= w, "лист шире окна: {sheet:?}");
+        assert!(sheet.size.height < inner.size.height + 1.0, "лист выше содержимого: {sheet:?} / {inner:?}");
+        assert!(row.origin.x + row.size.width <= inner.origin.x + inner.size.width + 0.5, "строка вылезает: {row:?} / {inner:?}");
+    }
+}

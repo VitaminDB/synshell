@@ -176,7 +176,7 @@ Slider { height: 6px; background: var(--pressed); color: var(--plum); accent-col
 .scrim { background-color: var(--scrim); }
 .sheet { border-radius: 30px 30px 0px 0px; background-color: var(--menu-bg); box-shadow: 0 -10px 40px var(--shadow-strong); }
 .sheet.wide { border-radius: 30px; border: 1px solid var(--border); }
-.sheet-inner { padding: 10px 60px 22px 60px; }
+.sheet-inner { padding: 10px 18px 22px 18px; }
 .grabber { width: 44px; height: 5px; border-radius: 3px; background-color: var(--border); }
 .sheet-title { font-size: 24px; font-weight: 800; color: var(--fg); }
 .status { padding: 8px 14px; border-radius: 14px; background-color: var(--surface-alt); }
@@ -243,3 +243,4 @@ Slider { height: 6px; background: var(--pressed); color: var(--plum); accent-col
 .toast { padding: 12px 18px; border-radius: 16px; background-color: var(--fg); box-shadow: 0 10px 28px var(--shadow-strong); max-width: 420px; }
 .toast-text { font-size: 14px; color: var(--bg); }
 .fill { width: 100%; }
+.sheet-scroll { height: fit-content; }
