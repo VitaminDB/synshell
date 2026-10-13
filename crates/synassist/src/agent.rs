@@ -60,6 +60,8 @@ pub struct Agent {
     pub skills: Vec<crate::skills::Skill>,
     /// Папки баз знаний.
     pub knowledge: Vec<std::path::PathBuf>,
+    /// Каталог рецептов (инструмент pipeline).
+    pub recipes: Option<std::path::PathBuf>,
 }
 
 const TOOL_RESULT_LIMIT: usize = 12_000;
@@ -69,7 +71,7 @@ const SUBAGENT_PROMPT: &str = "Ты — субагент: выполняешь �
 
 impl Agent {
     pub fn new(backend: Arc<dyn Backend>, tools: Vec<Arc<dyn Tool>>) -> Self {
-        Self { backend, tools, max_steps: 24, auto_approve: false, compact_percent: 85, subagent: true, subagent_steps: 16, system: None, memory: None, approved: Vec::new(), skills: Vec::new(), knowledge: Vec::new() }
+        Self { backend, tools, max_steps: 24, auto_approve: false, compact_percent: 85, subagent: true, subagent_steps: 16, system: None, memory: None, approved: Vec::new(), skills: Vec::new(), knowledge: Vec::new(), recipes: None }
     }
 
     pub fn configured(backend: Arc<dyn Backend>, disabled: &[String], auto_approve: bool, autocompact: bool) -> Self {
@@ -115,6 +117,13 @@ impl Agent {
         self
     }
 
+    /// Сценарии и рецепты: инструмент `pipeline`, список рецептов в промпте.
+    pub fn with_recipes(mut self, dir: std::path::PathBuf) -> Self {
+        self.tools.push(Arc::new(crate::pipeline::PipelineTool { dir: dir.clone() }));
+        self.recipes = Some(dir);
+        self
+    }
+
     fn approved(&self, tool: &str) -> bool {
         self.auto_approve || self.approved.iter().any(|t| t == tool)
     }
@@ -123,6 +132,9 @@ impl Agent {
         let mut s = self.system.clone().unwrap_or_else(|| crate::prompt::build(&self.tools));
         s.push_str(&crate::skills::prompt_section(&self.skills));
         s.push_str(&crate::kb::prompt_section(&self.knowledge));
+        if let Some(dir) = &self.recipes {
+            s.push_str(&crate::pipeline::prompt_section(dir));
+        }
         if let Some(dir) = &self.memory {
             s.push_str(&crate::memory::prompt_section(dir));
         }
@@ -354,6 +366,7 @@ impl Agent {
             approved: Vec::new(),
             skills: Vec::new(),
             knowledge: Vec::new(),
+            recipes: None,
         };
         let mut chat = Chat::new();
         chat.model = model.to_string();

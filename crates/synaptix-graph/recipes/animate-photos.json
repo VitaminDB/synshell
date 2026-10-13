@@ -1,0 +1,14 @@
+{
+  "name": "animate-photos",
+  "description": "Оживить фотографии: каждое фото — короткое видео, затем склейка в один ролик",
+  "params": {
+    "photos": {"type": "files", "description": "пути фотографий"},
+    "motion": {"type": "text", "description": "движение по-английски", "default": "gentle cinematic camera motion, the scene comes alive, subtle natural movement"},
+    "seconds": {"type": "number", "description": "секунд на фото", "default": 3}
+  },
+  "nodes": [
+    {"id": "clips", "op": "video", "each": "{{photos}}", "prompt": "{{motion}}", "first_frame": "{{item}}", "seconds": "{{seconds}}", "model": "ltx-2-3-22b-distilled-1-1"},
+    {"id": "film", "op": "concat", "files": "{{clips.files}}"}
+  ],
+  "output": ["film"]
+}

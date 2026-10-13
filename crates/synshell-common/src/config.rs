@@ -1620,6 +1620,8 @@ pub struct Assistant {
     pub skills_dir: String,
     /// Базы знаний — папки с документами (поиск по смыслу).
     pub knowledge: Vec<String>,
+    /// Каталог своих рецептов (графы-сценарии *.json); пусто — `~/.local/share/synassist/recipes`.
+    pub recipes_dir: String,
 }
 
 impl Default for Assistant {
@@ -1641,6 +1643,7 @@ impl Default for Assistant {
             skills: true,
             skills_dir: String::new(),
             knowledge: Vec::new(),
+            recipes_dir: String::new(),
         }
     }
 }

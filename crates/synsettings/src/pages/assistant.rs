@@ -443,6 +443,33 @@ pub fn assistant() -> W {
             let _ = std::process::Command::new("xdg-open").arg(&skills_dir).spawn();
         })),
     ];
+    let recipes_dir = synassist::pipeline::resolve(&a.recipes_dir);
+    let mut recipe_rows: Vec<W> = vec![
+        text_row(
+            t!("Каталог своих рецептов"),
+            t!("Рецепт — граф-сценарий *.json: параметры и шаги (LLM, картинка, видео, музыка, речь, склейка). Свой рецепт с тем же именем заменяет встроенный. Пусто — {d}", d = synassist::pipeline::resolve("").display()),
+            op!["assistant", "recipes_dir"],
+            &a.recipes_dir,
+            t!("по умолчанию"),
+        ),
+        row_inline(t!("Папка рецептов"), recipes_dir.display().to_string(), button(t!("Открыть"), {
+            let d = recipes_dir.clone();
+            move || {
+                let _ = std::fs::create_dir_all(&d);
+                let _ = std::process::Command::new("xdg-open").arg(&d).spawn();
+            }
+        })),
+    ];
+    let user_names: Vec<String> = synaptix_graph::recipes::user(&recipes_dir).into_iter().filter(|(_, ok)| ok.is_ok()).map(|(g, _)| g.name).collect();
+    for g in synaptix_graph::recipes::list(&recipes_dir) {
+        let origin = if user_names.contains(&g.name) { t!("свой") } else { t!("встроенный") };
+        recipe_rows.push(row_inline(g.name.clone(), g.description.clone(), Text::new(origin.to_string()).class("muted")));
+    }
+    for (g, ok) in synaptix_graph::recipes::user(&recipes_dir) {
+        if let Err(e) = ok {
+            recipe_rows.push(row_inline(g.name.clone(), t!("Ошибка в рецепте: {e}", e = e).to_string(), Text::new("")));
+        }
+    }
     if found.is_empty() {
         skill_rows.push(row_inline(t!("Навыков пока нет"), t!("Положите в каталог папку с SKILL.md — навык появится здесь и у ассистента"), Text::new("")));
     }
@@ -475,6 +502,6 @@ pub fn assistant() -> W {
     page(
         t!("Ассистент"),
         t!("Помощник на нейросетях этого устройства: отвечает, управляет системой, работает с файлами, ищет в интернете."),
-        vec![general, memory, knowledge(a.knowledge.clone()), group(&t!("Инструменты"), rows), tools_note, group(&t!("Навыки"), skill_rows), voice, voice_note],
+        vec![general, memory, knowledge(a.knowledge.clone()), group(&t!("Инструменты"), rows), tools_note, group(&t!("Навыки"), skill_rows), group(&t!("Рецепты"), recipe_rows), voice, voice_note],
     )
 }

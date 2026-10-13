@@ -1,0 +1,18 @@
+{
+  "name": "story-video",
+  "description": "Видеоистория: LLM пишет сцены → картинка и видео на каждую сцену → склейка → фоновая музыка",
+  "params": {
+    "story": {"type": "text", "description": "о чём история"},
+    "scenes": {"type": "number", "description": "число сцен", "default": 3},
+    "music": {"type": "text", "description": "фоновая музыка по-английски", "default": "calm cinematic ambient, soft piano and strings"}
+  },
+  "nodes": [
+    {"id": "plan", "op": "llm", "prompt": "Раздели историю «{{story}}» на {{scenes}} сцен. Для каждой сцены дай одну строку — подробное описание кадра по-английски (персонажи, место, действие, свет), без нумерации и пояснений. Ровно {{scenes}} строк."},
+    {"id": "frames", "op": "image", "each": "{{plan.lines}}", "prompt": "{{item}}, cinematic film still", "width": 960, "height": 544},
+    {"id": "shots", "op": "video", "each": "{{frames.files}}", "prompt": "cinematic camera motion, the scene comes alive", "first_frame": "{{item}}", "seconds": 3, "model": "ltx-2-3-22b-distilled-1-1"},
+    {"id": "cut", "op": "concat", "files": "{{shots.files}}"},
+    {"id": "score", "op": "music", "prompt": "{{music}}", "seconds": 15},
+    {"id": "film", "op": "mux", "video": "{{cut.file}}", "audio": "{{score.file}}", "mode": "mix", "volume": 0.7}
+  ],
+  "output": ["film"]
+}

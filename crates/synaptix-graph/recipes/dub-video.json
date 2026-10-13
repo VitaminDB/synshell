@@ -1,0 +1,14 @@
+{
+  "name": "dub-video",
+  "description": "Переозвучить ролик: новый текст озвучивается, губы человека в видео подстраиваются под новую речь (LipDub)",
+  "params": {
+    "video": {"type": "file", "description": "ролик с говорящим человеком"},
+    "text": {"type": "text", "description": "новый текст (например, перевод)"},
+    "voice": {"type": "text", "description": "описание голоса по-английски", "default": ""}
+  },
+  "nodes": [
+    {"id": "speech", "op": "speak", "text": "{{text}}", "voice": "{{voice}}"},
+    {"id": "dubbed", "op": "video", "prompt": "the person speaks, natural lip sync", "control_video": "{{video}}", "audio": "{{speech.file}}"}
+  ],
+  "output": ["dubbed"]
+}

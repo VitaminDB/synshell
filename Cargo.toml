@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/synshell-common",
+    "crates/synaptix-graph",
     "crates/synshell-tr",
     "crates/synwm",
     "crates/syngui-layer",
@@ -57,6 +58,7 @@ synmodem = { path = "crates/synmodem" }
 synshell-ui = { path = "crates/synshell-ui" }
 synfsd = { path = "crates/synfsd", default-features = false }
 synaptixd = { path = "crates/synaptixd", default-features = false }
+synaptix-graph = { path = "crates/synaptix-graph" }
 synaptix = { path = "../synaptix/crates/synaptix", default-features = false }
 synaptix-core = { path = "../synaptix/crates/synaptix-core" }
 synaptix-kernels-cpu = { path = "../synaptix/crates/synaptix-kernels-cpu" }

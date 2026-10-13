@@ -1,0 +1,52 @@
+{
+  "name": "talking-avatar",
+  "description": "Говорящий аватар: персонаж с фото произносит текст — озвучка и видео с синхронными губами (MiniMax-H3 ref2va: фото и голос — референсы)",
+  "params": {
+    "photo": {
+      "type": "file",
+      "description": "фото лица, с которого начинается видео"
+    },
+    "text": {
+      "type": "text",
+      "description": "что сказать"
+    },
+    "voice": {
+      "type": "text",
+      "description": "описание голоса по-английски, например calm male voice",
+      "default": ""
+    },
+    "scene": {
+      "type": "text",
+      "description": "сцена и манера по-английски",
+      "default": "the character from the reference image talks to the camera saying the words from the reference audio, clear lip sync, mouth moves with every word, same appearance and outfit as the reference"
+    }
+  },
+  "nodes": [
+    {
+      "id": "speech",
+      "op": "speak",
+      "text": "{{text}}",
+      "voice": "{{voice}}"
+    },
+    {
+      "id": "video",
+      "op": "video",
+      "prompt": "{{scene}}",
+      "refs": [
+        "{{photo}}",
+        "{{speech.file}}"
+      ],
+      "model": "minimax-h3-ref2va"
+    },
+    {
+      "id": "final",
+      "op": "mux",
+      "video": "{{video.file}}",
+      "audio": "{{speech.file}}",
+      "mode": "replace"
+    }
+  ],
+  "output": [
+    "final"
+  ]
+}

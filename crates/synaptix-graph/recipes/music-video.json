@@ -1,0 +1,17 @@
+{
+  "name": "music-video",
+  "description": "Клип на тему: текст песни (LLM) → песня → картинка-образ → видео, движущееся под музыку",
+  "params": {
+    "topic": {"type": "text", "description": "о чём песня"},
+    "style": {"type": "text", "description": "жанр и настроение по-английски", "default": "indie pop, warm, uplifting, female vocal"},
+    "seconds": {"type": "number", "description": "длительность, с (до 20)", "default": 15}
+  },
+  "nodes": [
+    {"id": "lyrics", "op": "llm", "prompt": "Напиши короткий текст песни на тему «{{topic}}»: куплет и припев, по 4 строки, с метками [verse] и [chorus]. Только текст песни, без пояснений."},
+    {"id": "song", "op": "music", "prompt": "{{style}}", "lyrics": "{{lyrics.text}}", "seconds": "{{seconds}}"},
+    {"id": "look", "op": "llm", "prompt": "Опиши одним предложением по-английски яркий кинематографичный кадр для клипа на песню о «{{topic}}» в стиле {{style}}. Только описание кадра."},
+    {"id": "cover", "op": "image", "prompt": "{{look.text}}", "width": 960, "height": 544},
+    {"id": "clip", "op": "video", "prompt": "{{look.text}}, the scene moves to the rhythm of the music, cinematic camera motion", "first_frame": "{{cover.file}}", "audio": "{{song.file}}", "seconds": "{{seconds}}"}
+  ],
+  "output": ["clip"]
+}

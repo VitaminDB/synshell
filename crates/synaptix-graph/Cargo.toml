@@ -1,0 +1,15 @@
+[package]
+name = "synaptix-graph"
+description = "Графы-сценарии поверх службы нейросетей: узлы — операции synaptixd (LLM, картинки, видео, музыка, речь) и утилиты ffmpeg; рецепты — сохранённые графы с параметрами"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+synaptixd.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

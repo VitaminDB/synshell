@@ -6791,6 +6791,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "synaptix-graph"
+version = "0.1.42"
+dependencies = [
+ "serde",
+ "serde_json",
+ "synaptixd",
+ "tempfile",
+]
+
+[[package]]
 name = "synaptix-image-flux"
 version = "0.1.1"
 dependencies = [
@@ -7325,6 +7335,7 @@ dependencies = [
  "scraper",
  "serde",
  "serde_json",
+ "synaptix-graph",
  "synaptixd",
  "tempfile",
  "thiserror 2.0.21",
@@ -7704,6 +7715,7 @@ dependencies = [
  "pollster",
  "serde",
  "serde_json",
+ "synaptix-graph",
  "synaptixd",
  "synassist",
  "synassist-voice",
