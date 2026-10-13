@@ -11,6 +11,7 @@ mod today;
 
 use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 use syngui::prelude::*;
+use syngui::StyleValue;
 use syngui::widgets::{EventHook, KeyReply};
 use syngui::GestureDetector;
 
@@ -96,7 +97,7 @@ pub fn page_header(st: St, wide: bool, over: String, title: String, actions: Vec
 }
 
 /// Прокручиваемая страница с колонкой по центру.
-pub fn page(wide: bool, children: Vec<W>) -> W {
+pub fn scroll_page(wide: bool, children: Vec<W>) -> W {
     let w = content_width(wide);
     let mut col = Column::new().gap(14.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
     for c in children {
@@ -104,17 +105,17 @@ pub fn page(wide: bool, children: Vec<W>) -> W {
     }
     boxed(
         ScrollView::new().vertical().class("page-scroll").child(
-            Column::new().cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class(if wide { "page wide" } else { "page" }).style("width", StyleValue::px(w + 32.0)).child(col)),
+            DecoratedBox::new().class("fill").child(Column::new().cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class(if wide { "page wide" } else { "page" }).style("width", StyleValue::px(w + 32.0)).child(col))),
         ),
     )
 }
 
 /// Появление блока страницы: подъём и проявление с задержкой по порядку.
-pub fn rise(i: u32, w: impl Widget + 'static) -> W {
+pub fn rise<M>(i: u32, w: impl syngui::widgets::IntoWidget<M>) -> W {
     boxed(
-        Animated::new(w)
-            .opacity(Animation::tween(Easing::EaseOutCubic).from(0.0).to(1.0).duration_ms(360).delay_ms(40 + i * 55))
-            .translate_y(Animation::tween(Easing::EaseOutCubic).from(18.0).to(0.0).duration_ms(420).delay_ms(40 + i * 55)),
+        Animated::new(DecoratedBox::new().child(w))
+            .opacity(Animation::tween(Easing::EaseOutCubic).from(0.0).to(1.0).duration_ms(360).delay_ms(40 + i * 55).into())
+            .translate_y(Animation::tween(Easing::EaseOutCubic).from(18.0).to(0.0).duration_ms(420).delay_ms(40 + i * 55).into()),
     )
 }
 
@@ -151,7 +152,7 @@ fn sidebar(st: St) -> W {
             );
         }
         col = col.child(DecoratedBox::new().class("grow"));
-        col = col.child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(icons::LOCK).class("ic tiny-ic")).child(Text::new(t!("Данные хранятся только на устройстве")).max_lines(2).class("hint side-note")));
+        col = col.child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(icons::LOCK).class("ic tiny-ic")).child(DecoratedBox::new().class("grow").child(Text::new(t!("Данные хранятся только на устройстве")).max_lines(2).class("hint"))));
         vec![boxed(DecoratedBox::new().class("sidebar").child(col))]
     }))
 }
@@ -183,7 +184,7 @@ fn bottom_nav(st: St) -> W {
 fn content(st: St, wide: bool) -> W {
     boxed(Reactive::new(move || -> Vec<W> {
         if !st.data.get().onboarded {
-            return vec![intro::page(st, wide)];
+            return vec![intro::page_root(st, wide)];
         }
         let tab = st.tab.get();
         vec![boxed(

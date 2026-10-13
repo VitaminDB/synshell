@@ -2,10 +2,11 @@
 //! листается кнопками, смахиванием и стрелками, день открывается карточкой.
 
 use syngui::prelude::*;
+use syngui::StyleValue;
 use syngui::widgets::SwipeDirection;
 use syngui::GestureDetector;
 
-use super::{boxed, icon, icon_button, page, page_header, rise, W};
+use super::{boxed, icon, icon_button, scroll_page, page_header, rise, W};
 use crate::date::{self, Day};
 use crate::icons;
 use crate::model::{Forecast, Kind};
@@ -69,7 +70,7 @@ pub fn grid(st: St, fc: &Forecast, idx: i32, w: f32, mode: Mode) -> W {
     let monday = st.data.get_untracked().settings.monday;
     let gap = 4.0;
     let cell = ((w - gap * 6.0) / 7.0).floor();
-    let h = cell.min(54.0);
+    let h = cell.min(52.0);
     let first = date::month_start(idx);
     let n = date::days_in_month(idx);
     let lead = if monday { date::weekday(first) } else { (date::weekday(first) + 1) % 7 } as i32;
@@ -110,7 +111,13 @@ pub fn grid(st: St, fc: &Forecast, idx: i32, w: f32, mode: Mode) -> W {
                         Mode::Pick if !disabled => st.intro_day.set(Some(d)),
                         Mode::Pick => {}
                     })
-                    .child(DecoratedBox::new().class(&cell_class(fc, d, mode, picked, sel)).style("width", StyleValue::px(cell)).style("height", StyleValue::px(h)).child(inner)),
+                    .child(
+                        DecoratedBox::new()
+                            .class("cell-slot")
+                            .style("width", StyleValue::px(cell))
+                            .style("height", StyleValue::px(h))
+                            .child(DecoratedBox::new().class(&cell_class(fc, d, mode, picked, sel)).style("width", StyleValue::px(h)).style("height", StyleValue::px(h)).child(inner)),
+                    ),
             );
         }
         col = col.child(row);
@@ -181,27 +188,36 @@ fn events(fc: &Forecast, idx: i32) -> W {
     let first = date::month_start(idx);
     let last = first + date::days_in_month(idx) - 1;
     let mut list: Vec<(Day, &'static str, &'static str, String, String)> = Vec::new();
-    // подряд идущие дни одного вида
+    // подряд идущие дни одного вида; овуляция — внутри фертильного окна и отдельной строкой
+    let group = |k: Kind| match k {
+        Kind::Ovulation => Kind::Fertile,
+        k => k,
+    };
     let mut d = first;
     while d <= last {
-        let k = fc.kind(d);
+        let k = group(fc.kind(d));
         let mut e = d;
-        while e < last && fc.kind(e + 1) == k {
+        while e < last && group(fc.kind(e + 1)) == k {
             e += 1;
         }
         let item = match k {
             Kind::Period => Some((icons::DROP, "rose", t!("Месячные"))),
             Kind::Predicted => Some((icons::DROP, "rose-o", t!("Ожидаются месячные"))),
             Kind::Fertile => Some((icons::FLOWER, "teal", t!("Фертильное окно"))),
-            Kind::Ovulation => Some((icons::EGG, "teal", t!("Овуляция"))),
-            Kind::None => None,
+            _ => None,
         };
         if let Some((g, tone, title)) = item {
             let when = if d == e { date::long(d) } else { date::range(d, e) };
             list.push((d, g, tone, title, when));
         }
+        if k == Kind::Fertile {
+            if let Some(o) = (d..=e).find(|&x| fc.kind(x) == Kind::Ovulation) {
+                list.push((o, icons::EGG, "teal", t!("Овуляция"), date::long(o)));
+            }
+        }
         d = e + 1;
     }
+    list.sort_by_key(|x| x.0);
     let mut col = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
     col = col.child(Text::new(t!("В этом месяце")).class("section"));
     if list.is_empty() {
@@ -243,6 +259,6 @@ pub fn page(st: St, wide: bool) -> W {
         blocks.push(rise(0, card));
         blocks.push(rise(1, legend(st)));
         blocks.push(rise(2, events(&fc, idx)));
-        vec![page(wide, blocks)]
+        vec![scroll_page(wide, blocks)]
     }))
 }

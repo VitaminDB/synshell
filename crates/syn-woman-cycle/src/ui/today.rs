@@ -3,9 +3,10 @@
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use syngui::prelude::*;
+use syngui::StyleValue;
 use syngui::GestureDetector;
 
-use super::{boxed, icon, page, page_header, rise, W};
+use super::{boxed, icon, scroll_page, page_header, rise, W};
 use crate::date;
 use crate::icons;
 use crate::model::{Forecast, Phase};
@@ -78,7 +79,7 @@ fn ring(st: St, fc: &Forecast, size: f32) -> W {
             return;
         }
         let gap = 0.035;
-        let mut arc = |c: &mut CanvasContext, from: f32, to: f32, col: Color| {
+        let arc = |c: &mut CanvasContext, from: f32, to: f32, col: Color| {
             let (a, b) = (ang(from) + gap, (ang(to) - gap).min(lim));
             if b > a {
                 c.set_color(col);
@@ -86,14 +87,14 @@ fn ring(st: St, fc: &Forecast, size: f32) -> W {
             }
         };
         if late {
-            arc(c, 0.0, len, p.plum.with_alpha(0.55));
+            arc(c, 0.0, len, p.plum.lerp(&p.track, 0.55));
         }
         if period > 0.0 {
             arc(c, 0.0, period, p.rose);
         }
         if let Some(o) = ov {
             if o > period {
-                arc(c, (o - 5.0).max(period), o + 2.0, p.teal.with_alpha(0.45));
+                arc(c, (o - 5.0).max(period), o + 2.0, p.teal.lerp(&p.track, 0.5));
                 if lim >= ang(o + 0.5) {
                     c.set_color(p.teal);
                     let (x, y) = (cx + r * ang(o + 0.5).cos(), cy + r * ang(o + 0.5).sin());
@@ -104,12 +105,12 @@ fn ring(st: St, fc: &Forecast, size: f32) -> W {
         // сегодняшний день: точка с ободком
         let at = ang((day + 0.5) * e);
         let (x, y) = (cx + r * at.cos(), cy + r * at.sin());
-        c.set_color(p.rose.with_alpha(0.22 * e));
-        c.fill_circle(x, y, stroke * 1.15);
+        c.set_color(p.track.lerp(&p.plum, 0.25));
+        c.fill_circle(x, y, stroke * 1.05);
         c.set_color(p.surface);
-        c.fill_circle(x, y, stroke * 0.78);
-        c.set_color(p.fg);
-        c.fill_circle(x, y, stroke * 0.36);
+        c.fill_circle(x, y, stroke * 0.82);
+        c.set_color(p.plum);
+        c.fill_circle(x, y, stroke * 0.42);
     })
     .size(size, size)
     .animated_for(1.3)
@@ -257,6 +258,6 @@ pub fn page(st: St, wide: bool) -> W {
             ),
         ));
         blocks.push(Box::new(Text::new(t!("Прогноз приблизительный и не заменяет контрацепцию и консультацию врача.")).max_lines(3).class("hint center disclaimer")));
-        vec![page(wide, blocks)]
+        vec![scroll_page(wide, blocks)]
     }))
 }

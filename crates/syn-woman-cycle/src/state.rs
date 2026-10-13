@@ -45,6 +45,8 @@ pub struct St {
     pub window: RwSignal<syngui::window::WindowState>,
     pub theme: RwSignal<String>,
     pub dark: RwSignal<bool>,
+    /// Масштаб интерфейса (живое значение, в настройки пишется после паузы).
+    pub scale: RwSignal<f32>,
     pub toast: RwSignal<Option<(u64, String)>>,
 }
 
@@ -54,6 +56,7 @@ impl St {
     pub fn new(data: Data) -> Self {
         let today = date::today();
         let fc = Forecast::new(&data, today);
+        let scale = data.settings.scale;
         St {
             data: use_signal(data),
             fc: use_signal(fc),
@@ -70,6 +73,7 @@ impl St {
             window: use_signal(syngui::window::WindowState::default()),
             theme: use_signal(String::new()),
             dark: use_signal(false),
+            scale: use_signal(scale),
             toast: use_signal(None),
         }
     }

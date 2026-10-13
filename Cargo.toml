@@ -33,6 +33,7 @@ members = [
     "crates/synnfc",
     "crates/syn-nfc",
     "crates/syn-remote",
+    "crates/syn-woman-cycle",
     "crates/syn-health",
     "crates/syn-systeminfo",
     "crates/syngamepad",

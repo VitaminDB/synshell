@@ -2,7 +2,7 @@
 
 use syngui::prelude::*;
 
-use super::{boxed, icon, page, page_header, rise, W};
+use super::{boxed, icon, scroll_page, page_header, rise, W};
 use crate::date;
 use crate::icons;
 use crate::model::{Cycle, Forecast};
@@ -43,9 +43,9 @@ fn bar(st: St, fc: &Forecast, c: Cycle, i: usize, max_len: i32, w: f32) -> W {
         };
         seg(cv, 0.0, len, p.track);
         if c.len.is_none() {
-            seg(cv, 0.0, elapsed, p.plum.with_alpha(0.22));
+            seg(cv, 0.0, elapsed, p.plum.lerp(&p.track, 0.75));
         }
-        seg(cv, (ov - 5.0).max(period), ov + 2.0, p.teal.with_alpha(0.4));
+        seg(cv, (ov - 5.0).max(period), ov + 2.0, p.teal.lerp(&p.track, 0.5));
         seg(cv, 0.0, period, p.rose);
         if px(ov + 0.5) <= lim {
             cv.set_color(p.teal);
@@ -91,7 +91,7 @@ pub fn page(st: St, wide: bool) -> W {
                         .child(Button::new(t!("Открыть календарь")).icon(icons::CALENDAR).class("btn primary").on_click(move || st.go(Tab::Calendar))),
                 ),
             ));
-            return vec![page(wide, blocks)];
+            return vec![scroll_page(wide, blocks)];
         }
         let lens: Vec<i32> = fc.cycles.iter().filter_map(|c| c.len).collect();
         let regular = match (lens.iter().min(), lens.iter().max()) {
@@ -129,6 +129,6 @@ pub fn page(st: St, wide: bool) -> W {
         }
         blocks.push(rise(1, list));
         blocks.push(Box::new(Text::new(t!("Средние считаются по последним 6 циклам длиной 18–60 дней.")).max_lines(2).class("hint center disclaimer")));
-        vec![page(wide, blocks)]
+        vec![scroll_page(wide, blocks)]
     }))
 }

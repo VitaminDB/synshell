@@ -2,6 +2,7 @@
 //! симптомы, настроение.
 
 use syngui::prelude::*;
+use syngui::StyleValue;
 use syngui::GestureDetector;
 
 use super::{boxed, icon_button, W};

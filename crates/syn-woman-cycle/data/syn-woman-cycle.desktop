@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Цикл
+Name[en]=Cycle
+GenericName=Женский календарь
+GenericName[en]=Period tracker
+Comment=Календарь месячных, овуляции и фертильного окна
+Comment[en]=Period, ovulation and fertile window calendar
+Exec=syn-woman-cycle
+Icon=syn-woman-cycle
+Categories=Utility;Calendar;
+Keywords=period;cycle;ovulation;fertility;месячные;цикл;овуляция;календарь;
+StartupNotify=true
