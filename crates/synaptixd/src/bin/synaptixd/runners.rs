@@ -126,7 +126,12 @@ pub enum Loaded {
     /// с выгрузкой лишнего), здесь — только путь и устройство.
     Image(std::path::PathBuf, DeviceKind),
     Music(MusicModel, DeviceKind),
-    Video(std::path::PathBuf, Option<std::path::PathBuf>, DeviceKind),
+    Video(VideoModel, DeviceKind),
+}
+
+pub enum VideoModel {
+    H3 { model: std::path::PathBuf, encoder: Option<std::path::PathBuf> },
+    Ltx(synaptix_gen::video::LtxPaths),
 }
 
 pub enum MusicModel {
@@ -300,13 +305,19 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
             Ok((Loaded::Tts(std::sync::Mutex::new(st), dev), Some(precision_tag(q, dtype))))
         }
         ModelKind::Video => {
-            if !arch.to_ascii_lowercase().contains("h3") {
-                anyhow::bail!("видео {arch} служба пока не исполняет (готов MiniMax-H3)");
-            }
             if dev != DeviceKind::Cuda {
                 anyhow::bail!("видео генерируется только на видеокарте");
             }
-            plain(Loaded::Video(path.to_path_buf(), components.get("encoder").cloned(), dev))
+            let a = arch.to_ascii_lowercase();
+            let m = if a.contains("h3") {
+                VideoModel::H3 { model: path.to_path_buf(), encoder: components.get("encoder").cloned() }
+            } else if a.contains("ltx") {
+                let gemma = components.get("text_encoder").cloned().ok_or_else(|| anyhow::anyhow!("у LTX нет текстового энкодера (Gemma-3 LTX)"))?;
+                VideoModel::Ltx(synaptix_gen::video::LtxPaths { model: path.to_path_buf(), gemma, distilled_lora: components.get("distilled_lora").cloned() })
+            } else {
+                anyhow::bail!("видео {arch} служба пока не исполняет");
+            };
+            plain(Loaded::Video(m, dev))
         }
         ModelKind::Music => {
             let a = arch.to_ascii_lowercase();
@@ -433,9 +444,13 @@ impl Loaded {
 
     /// Видео: mp4-байты и описание.
     pub fn video(&self, req: &synaptix_gen::video::VideoRequest, cancel: &std::sync::atomic::AtomicBool, progress: &(dyn Fn(usize, usize) + Sync)) -> anyhow::Result<(Vec<u8>, synaptix_gen::video::VideoOutput)> {
-        let Loaded::Video(path, encoder, dev) = self else { anyhow::bail!("модель не создаёт видео") };
+        let Loaded::Video(m, dev) = self else { anyhow::bail!("модель не создаёт видео") };
         let tmp = std::env::temp_dir().join(format!("synaptixd-video-{}-{}.mp4", std::process::id(), md5_like(&req.prompt)));
-        let out = synaptix_gen::video::h3(path, encoder.as_deref(), devices::device(*dev), req, &tmp, cancel, progress).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let out = match m {
+            VideoModel::H3 { model, encoder } => synaptix_gen::video::h3(model, encoder.as_deref(), devices::device(*dev), req, &tmp, cancel, progress),
+            VideoModel::Ltx(p) => synaptix_gen::video::ltx(p, devices::device(*dev), req, &tmp, cancel, progress),
+        }
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
         let mp4 = std::fs::read(&tmp)?;
         let _ = std::fs::remove_file(&tmp);
         Ok((mp4, out))

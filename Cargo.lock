@@ -6768,8 +6768,10 @@ dependencies = [
  "synaptix-io",
  "synaptix-kernels-cpu",
  "synaptix-kernels-cuda",
+ "synaptix-llm-gemma3",
  "synaptix-music-acestep",
  "synaptix-music-yue2",
+ "synaptix-video-ltx23",
  "synaptix-video-minimax-h3",
 ]
 
@@ -7220,6 +7222,23 @@ dependencies = [
 name = "synaptix-tts-voxcpm"
 version = "0.1.1"
 dependencies = [
+ "serde",
+ "serde_json",
+ "synaptix-audio",
+ "synaptix-bundle",
+ "synaptix-core",
+ "synaptix-io",
+ "synaptix-nn",
+ "synaptix-ops",
+ "synaptix-tokenizer",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-video-ltx23"
+version = "0.1.1"
+dependencies = [
+ "cudarc",
  "serde",
  "serde_json",
  "synaptix-audio",

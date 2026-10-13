@@ -35,7 +35,7 @@
 4. **Эмбеддинги и базы знаний** (готово, pkgrel 56). Раннер `embed` в службе (`op: embed`);
    `synassist::kb`: индекс папок (чанки, векторы, mtime), инструмент
    `kb_search`; Параметры: список баз, состояние индексации, переиндексация.
-5. **Генерация в службе** (картинки, музыка и видео MiniMax-H3 — готово, pkgrel 58; LTX-2.3 — дальше). Фасады `synaptix::facade::{image, video, music}`
+5. **Генерация в службе** (картинки, музыка, видео MiniMax-H3 и LTX-2.3 — готово, pkgrel 59). Фасады `synaptix::facade::{image, video, music}`
    из команд CLI (flux, flux2, qwen-image, sdxl; ltx, minimax-h3; acestep,
    yue2); раннеры и операции службы с прогрессом и результатом в файле;
    `synaptixctl image|video|music`.
