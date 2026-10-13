@@ -8,7 +8,7 @@
 "{n} день назад".other = "{n} days ago"
 
 # src/main.rs
-"syn-woman-cycle [--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page today|calendar|history|settings|intro|day] [--dark]]" = "syn-woman-cycle [--screenshot SHOT.png [--size WxH] [--scale N] [--page today|calendar|history|settings|intro|day] [--dark]]"
+"syn-woman-cycle [--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page today|calendar|history|settings|intro|cycle|day] [--dark]]" = "syn-woman-cycle [--screenshot SHOT.png [--size WxH] [--scale N] [--page today|calendar|history|settings|intro|cycle|day] [--dark]]"
 "Цикл" = "Cycle"
 
 # src/ui/calendar.rs
@@ -82,17 +82,17 @@
 "Приватно" = "Private"
 "Данные хранятся только на этом устройстве" = "Data stays on this device only"
 "Начать" = "Get started"
-"Далее" = "Next"
-"Когда начались последние месячные?" = "When did your last period start?"
-"Выберите первый день — от него строится прогноз" = "Pick the first day — the forecast starts from it"
+"Нажмите на первый день последних месячных" = "Tap the first day of your last period"
+"Отмечен {n} день месячных".one = "{n} period day marked"
+"Отмечен {n} день месячных".other = "{n} period days marked"
+"Следующие месячные" = "Next period"
 "Не помню" = "I don’t remember"
 "Ваш цикл" = "Your cycle"
-"Если не знаете точно — оставьте как есть: прогноз уточнится по вашим отметкам" = "Not sure? Leave the defaults: the forecast improves as you log"
+"Отметьте первый день последних месячных и поправьте длины — календарь сразу покажет прогноз" = "Mark the first day of your last period and adjust the lengths — the calendar shows the forecast right away"
 "Обычно" = "Usually"
+"Месячные длятся" = "Period lasts"
 "Длина цикла" = "Cycle length"
 "От начала одних месячных до следующих" = "From the start of one period to the next"
-"Месячные длятся" = "Period lasts"
-"Назад" = "Back"
 
 # src/ui/mod.rs
 "Настройки" = "Settings"

@@ -19,47 +19,32 @@ pub enum Mode {
     Pick,
 }
 
-fn cell_class(fc: &Forecast, d: Day, mode: Mode, picked: Option<Day>, sel: Option<Day>) -> String {
+fn cell_class(fc: &Forecast, d: Day, mode: Mode, sel: Option<Day>) -> String {
     let mut c = String::from("cell");
-    if mode == Mode::Pick {
-        if Some(d) == picked {
-            c.push_str(" period");
-        } else if picked.is_some_and(|p| d > p && d < p + 5) {
-            c.push_str(" predicted");
-        } else if d > fc.today {
-            c.push_str(" off");
-        }
-        return c;
-    }
-    c.push_str(match fc.kind(d) {
+    let k = fc.kind(d);
+    c.push_str(match k {
         Kind::Period => " period",
         Kind::Predicted => " predicted",
         Kind::Ovulation => " ovul",
         Kind::Fertile => " fertile",
         Kind::None => "",
     });
+    // выбор даты: будущие дни без прогноза приглушены (их выбрать нельзя)
+    if mode == Mode::Pick && k == Kind::None && d > fc.today {
+        c.push_str(" off");
+    }
     if Some(d) == sel {
         c.push_str(" sel");
     }
     c
 }
 
-fn text_class(fc: &Forecast, d: Day, mode: Mode, picked: Option<Day>) -> &'static str {
-    let k = if mode == Mode::Pick {
-        if Some(d) == picked {
-            Kind::Period
-        } else if d > fc.today {
-            return "cell-num off";
-        } else {
-            Kind::None
-        }
-    } else {
-        fc.kind(d)
-    };
-    match k {
+fn text_class(fc: &Forecast, d: Day, mode: Mode) -> &'static str {
+    match fc.kind(d) {
         Kind::Period | Kind::Ovulation => "cell-num strong",
         Kind::Predicted => "cell-num rose",
         Kind::Fertile => "cell-num teal",
+        Kind::None if mode == Mode::Pick && d > fc.today => "cell-num off",
         Kind::None if d == fc.today => "cell-num today",
         Kind::None => "cell-num",
     }
@@ -74,8 +59,7 @@ pub fn grid(st: St, fc: &Forecast, idx: i32, w: f32, mode: Mode) -> W {
     let first = date::month_start(idx);
     let n = date::days_in_month(idx);
     let lead = if monday { date::weekday(first) } else { (date::weekday(first) + 1) % 7 } as i32;
-    let picked = st.intro_day.get_untracked();
-    let sel = if st.sheet_open.get_untracked() { st.sheet.get_untracked() } else { None };
+    let sel = if mode == Mode::Pick { st.intro_day.get_untracked() } else if st.sheet_open.get_untracked() { st.sheet.get_untracked() } else { None };
     let mut col = Column::new().gap(gap);
     let mut head = Row::new().gap(gap);
     for i in 0..7u32 {
@@ -94,7 +78,7 @@ pub fn grid(st: St, fc: &Forecast, idx: i32, w: f32, mode: Mode) -> W {
             }
             let d = first + k;
             let log = fc.log(d);
-            let mut inner = Column::new().gap(2.0).main_axis_alignment(MainAxisAlignment::Center).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new((k + 1).to_string()).class(text_class(fc, d, mode, picked)));
+            let mut inner = Column::new().gap(2.0).main_axis_alignment(MainAxisAlignment::Center).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new((k + 1).to_string()).class(text_class(fc, d, mode)));
             // точки: сегодня, близость, симптомы/настроение
             let mut dots = Row::new().gap(2.0);
             let mut any = false;
@@ -129,7 +113,7 @@ pub fn grid(st: St, fc: &Forecast, idx: i32, w: f32, mode: Mode) -> W {
                             .class("cell-slot")
                             .style("width", StyleValue::px(cell))
                             .style("height", StyleValue::px(h))
-                            .child(DecoratedBox::new().class(&cell_class(fc, d, mode, picked, sel)).style("width", StyleValue::px(h)).style("height", StyleValue::px(h)).child(inner)),
+                            .child(DecoratedBox::new().class(&cell_class(fc, d, mode, sel)).style("width", StyleValue::px(h)).style("height", StyleValue::px(h)).child(inner)),
                     ),
             );
         }

@@ -32,4 +32,3 @@ pub const HEART_OUTLINE: &str = "\u{E87E}";
 pub const TIME: &str = "\u{E8B5}";
 pub const SHIELD: &str = "\u{E9E0}";
 pub const NO_SHIELD: &str = "\u{E641}";
-pub const ADD_CIRCLE: &str = "\u{E147}";

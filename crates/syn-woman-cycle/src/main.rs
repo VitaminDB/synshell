@@ -1,7 +1,7 @@
 //! syn-woman-cycle — «Цикл» synshell: календарь месячных, овуляции и фертильного окна.
 //! Отметки по дням, прогноз по истории циклов, самочувствие. Данные — только на устройстве.
 //!
-//!   syn-woman-cycle [--screenshot out.png [--size 420x900] [--scale 2] [--page today|calendar|history|settings|intro|day] [--dark]]
+//!   syn-woman-cycle [--screenshot out.png [--size 420x900] [--scale 2] [--page today|calendar|history|settings|intro|cycle|day] [--dark]]
 
 mod date;
 mod icons;
@@ -145,7 +145,7 @@ fn main() {
     while let Some(a) = args.next() {
         match a.as_str() {
             "-h" | "--help" => {
-                println!("{}", t!("syn-woman-cycle [--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page today|calendar|history|settings|intro|day] [--dark]]"));
+                println!("{}", t!("syn-woman-cycle [--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page today|calendar|history|settings|intro|cycle|day] [--dark]]"));
                 return;
             }
             "--screenshot" => shot = args.next(),
@@ -165,13 +165,17 @@ fn main() {
         let mss = theme(&cfg, dark_shot);
         let r = syngui::shot::render_png(
             || {
-                let data = if page == "intro" { model::Data::default() } else { demo() };
+                let data = if page == "intro" || page == "cycle" { model::Data::default() } else { demo() };
                 let st = state::St::new(data);
                 st.dark.set(dark_shot);
                 match page.as_str() {
                     "calendar" => st.tab.set(state::Tab::Calendar),
                     "history" => st.tab.set(state::Tab::History),
                     "settings" => st.tab.set(state::Tab::Settings),
+                    "cycle" => {
+                        st.intro_step.set(1);
+                        st.intro_day.set(Some(date::today() - 10));
+                    }
                     "day" => {
                         st.tab.set(state::Tab::Calendar);
                         st.open_day(date::today());

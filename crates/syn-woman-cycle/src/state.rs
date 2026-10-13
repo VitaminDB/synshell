@@ -239,21 +239,33 @@ impl St {
         });
     }
 
+    /// Данные знакомства как будто уже сохранены: выбранный день и длина месячных из настроек.
+    fn intro_data(&self) -> Data {
+        let mut d = self.data.get_untracked();
+        if let Some(start) = self.intro_day.get_untracked() {
+            let today = date::today();
+            for i in 0..d.settings.period_len {
+                if start + i > today {
+                    break;
+                }
+                d.days.entry(start + i).or_default().flow = 3;
+            }
+        }
+        d
+    }
+
+    /// Прогноз по выбору в знакомстве — для календаря-предпросмотра.
+    pub fn intro_preview(&self) -> Forecast {
+        Forecast::new(&self.intro_data(), date::today())
+    }
+
     /// Завершить знакомство: отметить последние месячные (если дата выбрана).
     pub fn finish_intro(&self) {
-        let start = self.intro_day.get_untracked();
-        self.edit(|d| {
-            if let Some(s) = start {
-                for i in 0..d.settings.period_len {
-                    let day = s + i;
-                    if day > date::today() {
-                        break;
-                    }
-                    d.days.entry(day).or_default().flow = 3;
-                }
-            }
-            d.onboarded = true;
-        });
+        let mut d = self.intro_data();
+        d.onboarded = true;
+        model::save(&d);
+        self.data.set(d);
+        self.recompute();
         self.tab.set(Tab::Today);
     }
 
