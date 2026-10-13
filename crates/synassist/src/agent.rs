@@ -58,6 +58,8 @@ pub struct Agent {
     pub approved: Vec<String>,
     /// Навыки (описания — в промпте).
     pub skills: Vec<crate::skills::Skill>,
+    /// Папки баз знаний.
+    pub knowledge: Vec<std::path::PathBuf>,
 }
 
 const TOOL_RESULT_LIMIT: usize = 12_000;
@@ -67,7 +69,7 @@ const SUBAGENT_PROMPT: &str = "Ты — субагент: выполняешь �
 
 impl Agent {
     pub fn new(backend: Arc<dyn Backend>, tools: Vec<Arc<dyn Tool>>) -> Self {
-        Self { backend, tools, max_steps: 24, auto_approve: false, compact_percent: 85, subagent: true, subagent_steps: 16, system: None, memory: None, approved: Vec::new(), skills: Vec::new() }
+        Self { backend, tools, max_steps: 24, auto_approve: false, compact_percent: 85, subagent: true, subagent_steps: 16, system: None, memory: None, approved: Vec::new(), skills: Vec::new(), knowledge: Vec::new() }
     }
 
     pub fn configured(backend: Arc<dyn Backend>, disabled: &[String], auto_approve: bool, autocompact: bool) -> Self {
@@ -103,6 +105,16 @@ impl Agent {
         self
     }
 
+    /// Базы знаний (папки): список в промпте и инструмент `knowledge`.
+    pub fn with_knowledge(mut self, roots: Vec<std::path::PathBuf>) -> Self {
+        let roots: Vec<_> = roots.into_iter().filter(|r| r.is_dir()).collect();
+        if !roots.is_empty() {
+            self.tools.push(Arc::new(crate::kb::KnowledgeTool { roots: roots.clone() }));
+            self.knowledge = roots;
+        }
+        self
+    }
+
     fn approved(&self, tool: &str) -> bool {
         self.auto_approve || self.approved.iter().any(|t| t == tool)
     }
@@ -110,6 +122,7 @@ impl Agent {
     fn system_prompt(&self) -> String {
         let mut s = self.system.clone().unwrap_or_else(|| crate::prompt::build(&self.tools));
         s.push_str(&crate::skills::prompt_section(&self.skills));
+        s.push_str(&crate::kb::prompt_section(&self.knowledge));
         if let Some(dir) = &self.memory {
             s.push_str(&crate::memory::prompt_section(dir));
         }
@@ -336,6 +349,7 @@ impl Agent {
             memory: None,
             approved: Vec::new(),
             skills: Vec::new(),
+            knowledge: Vec::new(),
         };
         let mut chat = Chat::new();
         chat.model = model.to_string();

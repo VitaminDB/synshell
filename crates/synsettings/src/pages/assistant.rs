@@ -42,6 +42,93 @@ fn set_mode(id: &str, mode: &str) {
     state::bump();
 }
 
+/// Базы знаний: папки, состояние индекса, обновление в фоне.
+fn knowledge(list: Vec<String>) -> W {
+    // Ход индексации по папке (текст для подсказки), пусто — не идёт.
+    let progress: RwSignal<std::collections::HashMap<String, String>> = use_signal(Default::default());
+    let rows = Reactive::new(move || -> Vec<W> {
+        let prog = progress.get();
+        let mut rows: Vec<W> = Vec::new();
+        for (i, k) in list.iter().enumerate() {
+            let root = synassist::builtin::expand(k);
+            let st = synassist::kb::status(&root);
+            let hint = match prog.get(k) {
+                Some(p) => p.clone(),
+                None if !root.is_dir() => t!("Папки нет: {p}", p = root.display()).to_string(),
+                None if st.indexed => t!("{p} · файлов: {f}, фрагментов: {c}", p = root.display(), f = st.files, c = st.chunks).to_string(),
+                None => t!("{p} · ещё не проиндексирована — индекс построится при первом поиске или кнопкой", p = root.display()).to_string(),
+            };
+            let busy = prog.contains_key(k);
+            let key = k.clone();
+            let refresh = button(if st.indexed { t!("Обновить") } else { t!("Проиндексировать") }, move || {
+                if progress.get_untracked().contains_key(&key) {
+                    return;
+                }
+                let key = key.clone();
+                let mut m = progress.get_untracked();
+                m.insert(key.clone(), t!("Индексация…").to_string());
+                progress.set(m);
+                std::thread::spawn(move || {
+                    let root = synassist::builtin::expand(&key);
+                    let k2 = key.clone();
+                    let r = synassist::kb::refresh(&root, &mut |done, total| {
+                        let k3 = k2.clone();
+                        let text = t!("Индексация: {d} из {t} файлов", d = done, t = total).to_string();
+                        run_on_main_thread(move || {
+                            let mut m = progress.get_untracked();
+                            m.insert(k3, text);
+                            progress.set(m);
+                        });
+                    });
+                    run_on_main_thread(move || {
+                        let mut m = progress.get_untracked();
+                        m.remove(&key);
+                        progress.set(m);
+                        if let Err(e) = r {
+                            state::toast(t!("База знаний: {e}", e = e).to_string());
+                        }
+                    });
+                });
+            });
+            let all = list.clone();
+            let remove = button(t!("Убрать"), move || {
+                let rest: Vec<String> = all.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, v)| v.clone()).collect();
+                set_list("knowledge", &rest);
+                state::bump();
+            });
+            let mut actions = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center);
+            if !busy {
+                actions = actions.child(refresh);
+            }
+            actions = actions.child(remove);
+            rows.push(row_inline(synassist::kb::name_of(&root), hint, actions));
+        }
+        if rows.is_empty() {
+            rows.push(row_inline(t!("Баз пока нет"), t!("Добавьте папку с документами (txt, md, pdf, код) — ассистент будет искать в ней по смыслу и ссылаться на файлы"), Text::new("")));
+        }
+        rows
+    });
+    let current = store::config().assistant.knowledge.clone();
+    let add = row_inline(t!("Добавить папку"), t!("Документы индексирует модель эмбеддингов по умолчанию (Нейросети → Модели по умолчанию → embed)"), button(t!("Выбрать…"), move || {
+        let current = current.clone();
+        std::thread::spawn(move || {
+            let home = synassist::builtin::home();
+            if let Ok(Some(dir)) = synsystem::portal_files::pick(&t!("Папка базы знаний"), true, &home, &[]) {
+                let mut list = current.clone();
+                let s = dir.display().to_string();
+                if !list.contains(&s) {
+                    list.push(s);
+                }
+                run_on_main_thread(move || {
+                    set_list("knowledge", &list);
+                    state::bump();
+                });
+            }
+        });
+    }));
+    group(&t!("Базы знаний"), vec![boxed(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(rows)), add])
+}
+
 fn default_model() -> String {
     synaptixd::Client::connect()
         .and_then(|mut c| c.resolve(synaptixd::ModelKind::Llm))
@@ -388,6 +475,6 @@ pub fn assistant() -> W {
     page(
         t!("Ассистент"),
         t!("Помощник на нейросетях этого устройства: отвечает, управляет системой, работает с файлами, ищет в интернете."),
-        vec![general, memory, group(&t!("Инструменты"), rows), tools_note, group(&t!("Навыки"), skill_rows), voice, voice_note],
+        vec![general, memory, knowledge(a.knowledge.clone()), group(&t!("Инструменты"), rows), tools_note, group(&t!("Навыки"), skill_rows), voice, voice_note],
     )
 }

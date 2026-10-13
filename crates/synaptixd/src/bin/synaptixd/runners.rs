@@ -121,6 +121,7 @@ pub enum Loaded {
     Asr(std::sync::Mutex<synaptix::facade::asr::Transcriber>),
     Llm(Box<LlmSlot>),
     Tts(std::sync::Mutex<TtsState>, DeviceKind),
+    Embed(Box<dyn synaptix::facade::embedding::Embedder + Send + Sync>),
 }
 
 pub struct CtcResult {
@@ -133,7 +134,7 @@ pub struct CtcResult {
 }
 
 pub fn runnable(kind: ModelKind) -> bool {
-    matches!(kind, ModelKind::Ctc | ModelKind::Mfa | ModelKind::Asr | ModelKind::Llm | ModelKind::Tts)
+    matches!(kind, ModelKind::Ctc | ModelKind::Mfa | ModelKind::Asr | ModelKind::Llm | ModelKind::Tts | ModelKind::Embed)
 }
 
 fn llm_policy(path: &Path, dev: DeviceKind, quant: Option<&str>) -> synaptix::facade::llm::QuantPolicy {
@@ -263,6 +264,12 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, dev: DeviceKind, quant: Op
             let st = TtsState { engine, voices: Default::default(), anchors: Default::default(), refs: Default::default() };
             Ok((Loaded::Tts(std::sync::Mutex::new(st), dev), Some(precision_tag(q, dtype))))
         }
+        ModelKind::Embed => {
+            use synaptix::facade::embedding::{load_embedder, DType as EDType, EmbedderConfig};
+            let dtype = if dev == DeviceKind::Cpu { EDType::F32 } else { EDType::F16 };
+            let e = load_embedder(EmbedderConfig::new(path.to_path_buf()).with_device(devices::device(dev)).with_dtype(dtype)).map_err(|e| anyhow::anyhow!("{e}"))?;
+            Ok((Loaded::Embed(e), Some(dtype_label(match dtype { EDType::F32 => DType::F32, _ => DType::F16 }))))
+        }
         other => anyhow::bail!("модели {other:?} ({arch}) служба пока не исполняет"),
     }
 }
@@ -341,6 +348,14 @@ impl Loaded {
             frame_shift: al.frame_shift,
             score: al.score,
         })
+    }
+
+    /// Векторы текстов (нормированные, косинус = скалярное произведение).
+    pub fn embed(&self, texts: &[String]) -> anyhow::Result<synaptixd::Embeddings> {
+        let Loaded::Embed(e) = self else { anyhow::bail!("модель не строит эмбеддинги") };
+        let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
+        let vectors = e.encode(&refs).map_err(|e| anyhow::anyhow!("{e}"))?;
+        Ok(synaptixd::Embeddings { dim: e.dim(), vectors })
     }
 
     pub fn transcribe(&self, pcm: &[f32], sample_rate: u32, language: Option<&str>) -> anyhow::Result<synaptixd::Transcript> {

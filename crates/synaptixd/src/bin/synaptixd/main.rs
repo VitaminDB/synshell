@@ -182,6 +182,11 @@ impl Conn {
                 let al = mgr.run(&model, |m| m.mfa_align(pcm.f32s(), &words, options.as_ref()))?;
                 (data(al), none())
             }
+            Request::Embed { model, texts } => {
+                let model = mgr.resolve_id(&model, ModelKind::Embed)?;
+                let e = mgr.run(&model, |m| m.embed(&texts))?;
+                (data(e), none())
+            }
             Request::Transcribe { model, pcm, samples, sample_rate, language } => {
                 let model = mgr.resolve_id(&model, ModelKind::Asr)?;
                 let mut call = Params::new();

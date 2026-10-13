@@ -452,6 +452,11 @@ pub enum Request {
         #[serde(default)]
         options: Option<AlignOptions>,
     },
+    /// Эмбеддинги текстов (модель вида embed, например bge-m3).
+    Embed {
+        model: String,
+        texts: Vec<String>,
+    },
     Transcribe {
         model: String,
         pcm: FdRef,
@@ -579,6 +584,12 @@ pub struct Segment {
     pub start: f32,
     pub end: f32,
     pub text: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct Embeddings {
+    pub dim: usize,
+    pub vectors: Vec<Vec<f32>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -804,6 +815,19 @@ impl Client {
         };
         let (v, _) = self.call(req, &[fd.as_fd()])?;
         serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))
+    }
+
+    /// Эмбеддинги текстов; пустая модель — по умолчанию для embed. Большие
+    /// списки — частями (предел сообщения 4 МБ).
+    pub fn embed(&mut self, model: &str, texts: &[String]) -> Result<Embeddings> {
+        let mut out = Embeddings::default();
+        for chunk in texts.chunks(32) {
+            let (v, _) = self.call(Request::Embed { model: model.into(), texts: chunk.to_vec() }, &[])?;
+            let part: Embeddings = serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))?;
+            out.dim = part.dim;
+            out.vectors.extend(part.vectors);
+        }
+        Ok(out)
     }
 
     pub fn speak_with(&mut self, model: &str, text: &str, params: &Params) -> Result<Speech> {

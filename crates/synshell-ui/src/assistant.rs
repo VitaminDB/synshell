@@ -398,6 +398,7 @@ fn ask(p: Panel, text: String, voice: bool) {
                 if cfg.skills {
                     agent = agent.with_skills(synassist::skills::resolve(&cfg.skills_dir));
                 }
+                agent = agent.with_knowledge(cfg.knowledge.iter().map(|k| synassist::builtin::expand(k)).collect());
             if voice {
                 agent.system = Some(synassist::prompt::build_voice(&agent.tools));
             }
