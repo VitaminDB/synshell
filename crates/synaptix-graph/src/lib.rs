@@ -8,22 +8,27 @@
 //! элемента списка (`{{item}}`). Служба не меняется: граф только вызывает её
 //! операции по очереди, поэтому существующая генерация от него не зависит.
 //!
+//! Исполняет граф ядро `synaptix-flow`: рецепт компилируется в граф с
+//! проводами ([`compile::to_flow`]), где `each` — пакет на входе ноды.
+//!
 //! Рецепт — граф с именем, описанием и параметрами; встроенные лежат в
 //! `recipes/`, пользовательские — в каталоге рецептов (одноимённый заменяет
 //! встроенный).
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+pub mod compile;
 mod exec;
 pub mod recipes;
 pub mod synthos;
 
-pub use exec::run;
+pub use exec::{run, run_cancellable};
+pub use synaptix_flow::Cancel;
+pub(crate) use exec::OPS;
 
 /// Граф (он же рецепт).
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -92,7 +97,7 @@ pub struct Report {
 }
 
 /// Ссылки `{{x}}` / `{{x.y}}` в строке.
-fn refs(s: &str) -> Vec<String> {
+pub(crate) fn refs(s: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut rest = s;
     while let Some(a) = rest.find("{{") {
@@ -269,12 +274,6 @@ impl Scope<'_> {
             other => other.clone(),
         }
     }
-}
-
-/// Длительность медиафайла, с (ffprobe).
-pub(crate) fn media_seconds(path: &Path) -> Option<f64> {
-    let out = Command::new("ffprobe").args(["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1"]).arg(path).output().ok()?;
-    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
 }
 
 #[cfg(test)]

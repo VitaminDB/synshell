@@ -6754,6 +6754,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "synaptix-flow"
+version = "0.1.42"
+dependencies = [
+ "serde",
+ "serde_json",
+ "synaptixd",
+ "tempfile",
+]
+
+[[package]]
 name = "synaptix-gen"
 version = "0.1.1"
 dependencies = [
@@ -6796,6 +6806,7 @@ version = "0.1.42"
 dependencies = [
  "serde",
  "serde_json",
+ "synaptix-flow",
  "synaptixd",
  "tempfile",
 ]

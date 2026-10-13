@@ -816,6 +816,18 @@ pub struct Client {
     next_id: u64,
 }
 
+/// Отмена запроса клиента (см. [`Client::canceller`]).
+pub struct Canceller(OwnedFd);
+
+impl Canceller {
+    pub fn cancel(&self) {
+        use std::os::fd::AsRawFd;
+        unsafe {
+            libc::shutdown(self.0.as_raw_fd(), libc::SHUT_RDWR);
+        }
+    }
+}
+
 impl Client {
     pub fn connect() -> Result<Self> {
         Self::connect_to(&socket_path())
@@ -824,6 +836,12 @@ impl Client {
     pub fn connect_to(path: &std::path::Path) -> Result<Self> {
         let sock = wire::connect(path)?;
         Ok(Self { sock, next_id: 1 })
+    }
+
+    /// Отмена из другого потока: закрывает соединение, текущий запрос
+    /// получает ошибку, служба видит обрыв и прерывает генерацию.
+    pub fn canceller(&self) -> Option<Canceller> {
+        self.sock.try_clone().ok().map(Canceller)
     }
 
     pub fn send(&mut self, req: Request, fds: &[BorrowedFd]) -> Result<u64> {
