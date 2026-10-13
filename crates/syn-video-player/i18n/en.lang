@@ -32,6 +32,8 @@
 "Ролик откроется там, где вы его закрыли." = "The video opens where you closed it."
 "Повторять ролик" = "Repeat video"
 "Дошёл до конца — сначала." = "Start over when it ends."
+"Воспроизводить следующий" = "Play next"
+"Дошёл до конца — следующий ролик из той же папки. Если включён повтор — повтор." = "When it ends, play the next video from the same folder. Repeat takes priority."
 "Интерфейс" = "Interface"
 "Показывать способ воспроизведения" = "Show playback method"
 "Чип вверху: кодек, размер, аппаратно или программно." = "Chip at the top: codec, size, hardware or software."

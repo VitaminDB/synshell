@@ -125,6 +125,14 @@ pub fn step(st: St, delta: isize) {
     go(st, list[(i as isize + delta).rem_euclid(n) as usize].item.path.clone());
 }
 
+/// Ролик `from` досмотрен — следующий ролик каталога; после последнего — ничего (без круга).
+fn play_next(st: St, from: PathBuf) {
+    let list = st.siblings.get_untracked();
+    if let Some(next) = list.iter().position(|c| c.item.path == from).and_then(|i| list.get(i + 1)) {
+        go(st, next.item.path.clone());
+    }
+}
+
 /// Ролик, который открыт или открывается.
 pub fn current(st: St) -> Option<PathBuf> {
     st.opening.get_untracked().or_else(|| st.playing.get_untracked().map(|p| p.path))
@@ -247,7 +255,23 @@ fn save_progress(p: &Playing) {
     settings::save_position(&p.path, pos, dur);
 }
 
-/// Пока ролик открыт: сводка декодирования для чипа, повтор, место остановки раз в 5 с.
+/// Ролик дошёл до конца (виджет плеера встал на паузу): повтор или следующий из каталога.
+pub fn ended(st: St, playing: &Playing) {
+    if current(st).as_ref() != Some(&playing.path) {
+        return;
+    }
+    let s = st.settings.get_untracked();
+    if s.repeat {
+        if let Ok(mut p) = playing.player.lock() {
+            let _ = p.seek(0.0);
+            p.play();
+        }
+    } else if s.autoplay_next {
+        play_next(st, playing.path.clone());
+    }
+}
+
+/// Пока ролик открыт: сводка декодирования для чипа, место остановки раз в 5 с.
 /// Плеер — по слабой ссылке: закрыли — наблюдатель заканчивается сам.
 fn watch(st: St, playing: &Playing) {
     let weak = Arc::downgrade(&playing.player);
@@ -261,19 +285,13 @@ fn watch(st: St, playing: &Playing) {
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 let Some(player) = weak.upgrade() else { break };
                 let s = st_settings(st);
-                let (info, ended, pos, dur) = match player.lock() {
-                    Ok(p) => (p.decode_info(), p.is_ended(), p.position_sec(), p.duration_sec()),
+                let (info, pos, dur) = match player.lock() {
+                    Ok(p) => (p.decode_info(), p.position_sec(), p.duration_sec()),
                     Err(_) => break,
                 };
                 if last.as_ref() != Some(&info) {
                     last = Some(info.clone());
                     run_on_main_thread(move || st.info.set(Some(info)));
-                }
-                if ended && s.repeat {
-                    if let Ok(mut p) = player.lock() {
-                        let _ = p.seek(0.0);
-                        p.play();
-                    }
                 }
                 tick += 1;
                 if s.resume && tick % 10 == 0 {

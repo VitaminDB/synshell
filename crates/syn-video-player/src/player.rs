@@ -11,7 +11,7 @@ use syngui::video::DecodeInfo;
 use syngui::widgets::*;
 
 use crate::settings::{Settings, SEEK_STEPS};
-use crate::ui::{back, go, icons, reopen, step, Card, St};
+use crate::ui::{back, ended, go, icons, reopen, step, Card, St};
 
 type W = Box<dyn Widget>;
 
@@ -35,12 +35,14 @@ pub fn view(st: St) -> W {
                 syngui::signal::set_fullscreen(on);
             }),
         };
+        let done = p.clone();
         let title = p.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         let mut view = VideoPlayerView::file(p.player.clone())
             .fullscreen(fs)
             .fit(if s.fill { ImageFit::Cover } else { ImageFit::Contain })
             .seek_step(s.seek_step as f64)
-            .header(move || header(st, title.clone()));
+            .header(move || header(st, title.clone()))
+            .on_ended(move || ended(st, &done));
         // в каталоге есть другие ролики — листание, как в просмотрщике картинок
         if st.siblings.with(|v| v.len() > 1) {
             let path = p.path.clone();
@@ -333,6 +335,12 @@ fn settings_panel(st: St) -> W {
                 update(st, |s| s.resume = on)
             }),
             toggle_row(&t!("Повторять ролик"), &t!("Дошёл до конца — сначала."), s.repeat, move |on| update(st, |s| s.repeat = on)),
+            toggle_row(
+                &t!("Воспроизводить следующий"),
+                &t!("Дошёл до конца — следующий ролик из той же папки. Если включён повтор — повтор."),
+                s.autoplay_next,
+                move |on| update(st, |s| s.autoplay_next = on),
+            ),
         ],
     );
 

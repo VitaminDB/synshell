@@ -17,6 +17,8 @@ pub struct Settings {
     pub seek_step: u32,
     /// Ролик дошёл до конца — начать сначала.
     pub repeat: bool,
+    /// Ролик дошёл до конца — открыть следующий из того же каталога (повтор важнее).
+    pub autoplay_next: bool,
     /// Открывать ролик с места, где остановились.
     pub resume: bool,
     /// Чип «как идёт воспроизведение» в шапке плеера.
@@ -25,7 +27,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { hardware: true, fill: false, seek_step: 10, repeat: false, resume: true, show_info: true }
+        Self { hardware: true, fill: false, seek_step: 10, repeat: false, autoplay_next: false, resume: true, show_info: true }
     }
 }
 
