@@ -7,7 +7,7 @@ mod registry;
 mod runners;
 
 use std::ffi::CStr;
-use std::os::fd::{AsFd, OwnedFd};
+use std::os::fd::{AsFd, AsRawFd, OwnedFd};
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
 
@@ -212,6 +212,40 @@ impl Conn {
                 let (png, out) = r?;
                 let fd = wire::memfd("image", &png)?;
                 let reply = synaptixd::ImageReply { width: out.width, height: out.height, seed, label: out.label, png: FdRef { fd: 0 }, bytes: png.len() };
+                (data(reply), vec![fd])
+            }
+            Request::Video { model, prompt, negative, width, height, seconds, steps, guidance, seed, first_frame, last_frame, refs } => {
+                let model = mgr.resolve_id(&model, ModelKind::Video)?;
+                let seed = seed.unwrap_or_else(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1) % 1_000_000_007);
+                let req = synaptix_gen::video::VideoRequest {
+                    prompt,
+                    negative,
+                    width,
+                    height,
+                    seconds,
+                    steps,
+                    guidance,
+                    seed,
+                    first_frame: first_frame.map(std::path::PathBuf::from),
+                    last_frame: last_frame.map(std::path::PathBuf::from),
+                    refs: refs.into_iter().map(std::path::PathBuf::from).collect(),
+                };
+                let raw = self.sock.as_raw_fd();
+                let id = self.current;
+                let cancel = std::sync::atomic::AtomicBool::new(false);
+                let send = |step: usize, total: usize| {
+                    let r = Reply { id, event: Some(synaptixd::Event::Progress { step, total }), ..Default::default() };
+                    let sock = unsafe { std::os::fd::BorrowedFd::borrow_raw(raw) };
+                    if wire::send(sock, &serde_json::to_vec(&r).unwrap_or_default(), &[]).is_err() {
+                        cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                };
+                mgr.clear_device(&model, synaptixd::DeviceKind::Cuda, "генерация видео");
+                let r = mgr.run(&model, |m| m.video(&req, &cancel, &send));
+                manager::release_vram(Some(synaptixd::DeviceKind::Cuda));
+                let (mp4, out) = r?;
+                let fd = wire::memfd("video", &mp4)?;
+                let reply = synaptixd::VideoReply { width: out.width, height: out.height, frames: out.frames, fps: out.fps, seed, label: out.label, mp4: FdRef { fd: 0 }, bytes: mp4.len() };
                 (data(reply), vec![fd])
             }
             Request::Music { model, prompt, lyrics, seconds, seed, steps } => {

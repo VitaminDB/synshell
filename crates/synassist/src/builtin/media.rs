@@ -93,6 +93,46 @@ fn image(args: &Value) -> ToolResult {
     })
 }
 
+fn video(args: &Value) -> ToolResult {
+    let prompt = need_str(args, "prompt")?;
+    let num = |k: &str| args.get(k).and_then(Value::as_u64);
+    let path_arg = |k: &str| str_arg(args, k).map(|p| crate::builtin::expand(p).to_string_lossy().into_owned());
+    let p = synaptixd::VideoParams {
+        negative: str_arg(args, "negative").map(String::from),
+        width: Some(num("width").map(|v| v as usize).unwrap_or(960)),
+        height: Some(num("height").map(|v| v as usize).unwrap_or(544)),
+        seconds: Some(args.get("seconds").and_then(Value::as_f64).unwrap_or(4.0).clamp(1.0, 15.0)),
+        steps: num("steps").map(|v| v as usize),
+        guidance: None,
+        seed: num("seed"),
+        first_frame: path_arg("first_frame"),
+        last_frame: path_arg("last_frame"),
+        refs: args
+            .get("refs")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).map(|p| crate::builtin::expand(p).to_string_lossy().into_owned()).collect())
+            .unwrap_or_default(),
+    };
+    // Ключевые кадры понимает партиция FL2VA у H3.
+    let keyed = p.first_frame.is_some() || p.last_frame.is_some();
+    let model = str_arg(args, "model").unwrap_or(if keyed { "minimax-h3-fl2va" } else { "" });
+    let mut c = synaptixd::Client::connect().map_err(|e| e.to_string())?;
+    let (reply, mp4) = match c.video(model, prompt, &p, |_, _| {}) {
+        Ok(r) => r,
+        Err(e) if e.code == synaptixd::ErrorCode::NoModel => return generate(ModelKind::Video, "видео"),
+        Err(e) => return Err(e.to_string()),
+    };
+    let path = media_dir().join(format!("video-{}.mp4", stamp()));
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, &mp4).map_err(|e| e.to_string())?;
+    Ok(ToolOutput {
+        text: format!("Видео готово и уже показано пользователю под ответом ({}, зерно {}; файл {} — для инструментов, пользователю путь не называй).", reply.label, reply.seed, path.display()),
+        files: vec![path],
+    })
+}
+
 fn music(args: &Value) -> ToolResult {
     let prompt = need_str(args, "prompt")?;
     let lyrics = str_arg(args, "lyrics").unwrap_or("");
@@ -136,7 +176,7 @@ impl Tool for MediaTool {
         "медиа"
     }
     fn description(&self) -> String {
-        "Создание медиа системными нейросетями. action: speak — озвучить текст (prompt — текст, voice — описание голоса, language — код языка); image — картинка: prompt — подробное описание по-английски (объекты, стиль, свет, композиция), width/height (по умолчанию ~1024, кратно 16), steps, seed, negative; images — пути картинок-референсов, чтобы изменить или скомбинировать их (prompt — что сделать); video — видео (prompt); music — музыка или песня: prompt — жанр, инструменты, настроение по-английски, lyrics — текст песни с метками [verse]/[chorus] (пусто — инструментал), seconds — длительность. Результат — файл, он покажется пользователю в чате, и ты его увидишь.".into()
+        "Создание медиа системными нейросетями. action: speak — озвучить текст (prompt — текст, voice — описание голоса, language — код языка); image — картинка: prompt — подробное описание по-английски (объекты, стиль, свет, композиция), width/height (по умолчанию ~1024, кратно 16), steps, seed, negative; images — пути картинок-референсов, чтобы изменить или скомбинировать их (prompt — что сделать); video — видео со звуком: prompt — подробная сцена по-английски (действие, камера, звук), seconds (по умолчанию 4, до 15; генерация идёт минуты), first_frame / last_frame — пути картинок, с которых начать или которыми закончить; refs — пути референсов (картинки персонажей и предметов, видео, звук — голос для липсинка или музыка; до 12, не вместе с кадрами), в prompt опиши, что с ними делать; music — музыка или песня: prompt — жанр, инструменты, настроение по-английски, lyrics — текст песни с метками [verse]/[chorus] (пусто — инструментал), seconds — длительность. Результат — файл, он покажется пользователю в чате, и ты его увидишь.".into()
     }
     fn parameters(&self) -> Value {
         json!({
@@ -154,6 +194,9 @@ impl Tool for MediaTool {
                 "guidance": {"type": "number"},
                 "images": {"type": "array", "items": {"type": "string"}, "description": "пути картинок-референсов для правки"},
                 "lyrics": {"type": "string", "description": "текст песни (music)"},
+                "refs": {"type": "array", "items": {"type": "string"}, "description": "пути референсов для видео: картинки, видео, звук"},
+                "first_frame": {"type": "string", "description": "путь картинки — первый кадр видео"},
+                "last_frame": {"type": "string", "description": "путь картинки — последний кадр видео"},
                 "seconds": {"type": "integer", "description": "длительность музыки, с"},
                 "model": {"type": "string", "description": "id модели; пусто — по умолчанию"}
             },
@@ -177,7 +220,7 @@ impl Tool for MediaTool {
         match need_str(args, "action")? {
             "speak" => speak(args),
             "image" => image(args),
-            "video" => generate(ModelKind::Video, "видео"),
+            "video" => video(args),
             "music" => music(args),
             other => Err(format!("неизвестное действие {other}")),
         }

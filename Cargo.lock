@@ -6770,6 +6770,7 @@ dependencies = [
  "synaptix-kernels-cuda",
  "synaptix-music-acestep",
  "synaptix-music-yue2",
+ "synaptix-video-minimax-h3",
 ]
 
 [[package]]
@@ -7228,6 +7229,24 @@ dependencies = [
  "synaptix-nn",
  "synaptix-ops",
  "synaptix-tokenizer",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-video-minimax-h3"
+version = "0.1.1"
+dependencies = [
+ "cudarc",
+ "serde",
+ "serde_json",
+ "synaptix-audio",
+ "synaptix-bundle",
+ "synaptix-core",
+ "synaptix-io",
+ "synaptix-nn",
+ "synaptix-ops",
+ "synaptix-tokenizer",
+ "synaptix-vlm-qwen3",
  "thiserror 2.0.21",
 ]
 

@@ -478,6 +478,32 @@ pub enum Request {
         #[serde(default)]
         strength: Option<f32>,
     },
+    /// Видео (со звуком, где модель умеет); mp4 — fd 0 ответа.
+    Video {
+        model: String,
+        prompt: String,
+        #[serde(default)]
+        negative: Option<String>,
+        #[serde(default)]
+        width: Option<usize>,
+        #[serde(default)]
+        height: Option<usize>,
+        #[serde(default)]
+        seconds: Option<f64>,
+        #[serde(default)]
+        steps: Option<usize>,
+        #[serde(default)]
+        guidance: Option<f32>,
+        #[serde(default)]
+        seed: Option<u64>,
+        #[serde(default)]
+        first_frame: Option<String>,
+        #[serde(default)]
+        last_frame: Option<String>,
+        /// Референсы: картинки, видео, звук (до 12).
+        #[serde(default)]
+        refs: Vec<String>,
+    },
     /// Музыка или песня; WAV — fd 0 ответа.
     Music {
         model: String,
@@ -636,6 +662,34 @@ pub struct ImageReply {
     pub label: String,
     pub png: FdRef,
     pub bytes: usize,
+}
+
+/// Готовое видео: mp4 в fd ответа.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct VideoReply {
+    pub width: usize,
+    pub height: usize,
+    pub frames: usize,
+    pub fps: f64,
+    pub seed: u64,
+    pub label: String,
+    pub mp4: FdRef,
+    pub bytes: usize,
+}
+
+/// Параметры видео для [`Client::video`].
+#[derive(Clone, Debug, Default)]
+pub struct VideoParams {
+    pub negative: Option<String>,
+    pub width: Option<usize>,
+    pub height: Option<usize>,
+    pub seconds: Option<f64>,
+    pub steps: Option<usize>,
+    pub guidance: Option<f32>,
+    pub seed: Option<u64>,
+    pub first_frame: Option<String>,
+    pub last_frame: Option<String>,
+    pub refs: Vec<String>,
 }
 
 /// Готовая музыка: WAV в fd ответа.
@@ -921,6 +975,35 @@ impl Client {
         use std::io::Read;
         std::fs::File::from(fd).read_to_end(&mut png).map_err(|e| Error::new(ErrorCode::Failed, e.to_string()))?;
         Ok((reply, png))
+    }
+
+    /// Видео: mp4-байты и описание; `on_progress(шаг, всего)`.
+    pub fn video(&mut self, model: &str, prompt: &str, p: &VideoParams, mut on_progress: impl FnMut(usize, usize)) -> Result<(VideoReply, Vec<u8>)> {
+        let req = Request::Video {
+            model: model.into(),
+            prompt: prompt.into(),
+            negative: p.negative.clone(),
+            width: p.width,
+            height: p.height,
+            seconds: p.seconds,
+            steps: p.steps,
+            guidance: p.guidance,
+            seed: p.seed,
+            first_frame: p.first_frame.clone(),
+            last_frame: p.last_frame.clone(),
+            refs: p.refs.clone(),
+        };
+        let (v, fds) = self.call_events(req, &[], |ev| {
+            if let Event::Progress { step, total } = ev {
+                on_progress(step, total);
+            }
+        })?;
+        let reply: VideoReply = serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))?;
+        let fd = fds.into_iter().next().ok_or_else(|| Error::new(ErrorCode::Protocol, "нет fd с видео"))?;
+        let mut mp4 = Vec::with_capacity(reply.bytes);
+        use std::io::Read;
+        std::fs::File::from(fd).read_to_end(&mut mp4).map_err(|e| Error::new(ErrorCode::Failed, e.to_string()))?;
+        Ok((reply, mp4))
     }
 
     /// Музыка: WAV-байты и описание; `on_progress(шаг, всего)` (где модель его даёт).

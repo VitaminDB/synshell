@@ -126,6 +126,7 @@ pub enum Loaded {
     /// с выгрузкой лишнего), здесь — только путь и устройство.
     Image(std::path::PathBuf, DeviceKind),
     Music(MusicModel, DeviceKind),
+    Video(std::path::PathBuf, Option<std::path::PathBuf>, DeviceKind),
 }
 
 pub enum MusicModel {
@@ -168,7 +169,7 @@ pub struct CtcResult {
 }
 
 pub fn runnable(kind: ModelKind) -> bool {
-    matches!(kind, ModelKind::Ctc | ModelKind::Mfa | ModelKind::Asr | ModelKind::Llm | ModelKind::Tts | ModelKind::Embed | ModelKind::Image | ModelKind::Music)
+    matches!(kind, ModelKind::Ctc | ModelKind::Mfa | ModelKind::Asr | ModelKind::Llm | ModelKind::Tts | ModelKind::Embed | ModelKind::Image | ModelKind::Music | ModelKind::Video)
 }
 
 fn llm_policy(path: &Path, dev: DeviceKind, quant: Option<&str>) -> synaptix::facade::llm::QuantPolicy {
@@ -298,6 +299,15 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
             let st = TtsState { engine, voices: Default::default(), anchors: Default::default(), refs: Default::default() };
             Ok((Loaded::Tts(std::sync::Mutex::new(st), dev), Some(precision_tag(q, dtype))))
         }
+        ModelKind::Video => {
+            if !arch.to_ascii_lowercase().contains("h3") {
+                anyhow::bail!("видео {arch} служба пока не исполняет (готов MiniMax-H3)");
+            }
+            if dev != DeviceKind::Cuda {
+                anyhow::bail!("видео генерируется только на видеокарте");
+            }
+            plain(Loaded::Video(path.to_path_buf(), components.get("encoder").cloned(), dev))
+        }
         ModelKind::Music => {
             let a = arch.to_ascii_lowercase();
             let need = |role: &str| components.get(role).cloned().ok_or_else(|| anyhow::anyhow!("у модели нет компонента «{role}»"));
@@ -407,7 +417,7 @@ impl Loaded {
     /// Повторять ли на CPU после ошибки на ускорителе: генерацию — нет (на
     /// CPU это часы; ошибка — обычно отмена или нехватка памяти).
     pub fn cpu_fallback(&self) -> bool {
-        !matches!(self, Loaded::Image(..) | Loaded::Music(..))
+        !matches!(self, Loaded::Image(..) | Loaded::Music(..) | Loaded::Video(..))
     }
 
     /// Картинка: PNG-байты, ответ; `progress(шаг, всего) -> продолжать`.
@@ -419,6 +429,16 @@ impl Loaded {
         let png = std::fs::read(&tmp)?;
         let _ = std::fs::remove_file(&tmp);
         Ok((png, out))
+    }
+
+    /// Видео: mp4-байты и описание.
+    pub fn video(&self, req: &synaptix_gen::video::VideoRequest, cancel: &std::sync::atomic::AtomicBool, progress: &(dyn Fn(usize, usize) + Sync)) -> anyhow::Result<(Vec<u8>, synaptix_gen::video::VideoOutput)> {
+        let Loaded::Video(path, encoder, dev) = self else { anyhow::bail!("модель не создаёт видео") };
+        let tmp = std::env::temp_dir().join(format!("synaptixd-video-{}-{}.mp4", std::process::id(), md5_like(&req.prompt)));
+        let out = synaptix_gen::video::h3(path, encoder.as_deref(), devices::device(*dev), req, &tmp, cancel, progress).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let mp4 = std::fs::read(&tmp)?;
+        let _ = std::fs::remove_file(&tmp);
+        Ok((mp4, out))
     }
 
     /// Музыка: WAV-байты и описание.
