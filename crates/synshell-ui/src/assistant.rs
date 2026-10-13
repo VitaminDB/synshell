@@ -12,6 +12,10 @@ use synassist::agent::{Agent, AgentEvent, DaemonBackend};
 use synassist::chat::{Chat, Role, Store};
 use synassist_voice::{Phase, VisHandle, VoiceConfig, VoiceEvent};
 
+use syngui::StyleValue;
+use syngui::input::Key;
+use syngui_layer::{Anchor, KeyInfo, KeyboardInteractivity, Layer, SurfaceHooks, SurfaceId, SurfaceSpec};
+
 use crate::ui::{icon, rx};
 use crate::ctx::PopupKind;
 use crate::ShellCtx;
@@ -28,6 +32,7 @@ const COPY: &str = "\u{E14D}";
 const OPEN: &str = "\u{E89E}";
 const ADD: &str = "\u{E145}";
 const SEND: &str = "\u{E163}";
+const CLOSE: &str = "\u{E5CD}";
 
 #[derive(Clone, Copy)]
 struct Panel {
@@ -90,8 +95,98 @@ fn panel() -> Panel {
     })
 }
 
+thread_local! {
+    static SURFACE: std::cell::Cell<Option<SurfaceId>> = const { std::cell::Cell::new(None) };
+    static SHOWN: std::cell::Cell<Option<RwSignal<bool>>> = const { std::cell::Cell::new(None) };
+}
+
 fn popup_open() -> bool {
-    ShellCtx::get().popup.get_untracked().is_some_and(|p| matches!(p.kind, PopupKind::Assistant))
+    SURFACE.with(|s| s.get()).is_some() || ShellCtx::get().popup.get_untracked().is_some_and(|p| matches!(p.kind, PopupKind::Assistant))
+}
+
+/// Открыть или закрыть окно ассистента (команда `assistant`). На компьютере
+/// оно живёт своей поверхностью и не закрывается щелчком мимо: на него
+/// перетаскивают файлы и текст из других окон. Закрывают явно — Esc,
+/// крестиком или той же командой.
+pub fn toggle(ctx: ShellCtx) {
+    if ctx.is_phone() {
+        ctx.open_popup(PopupKind::Assistant, crate::commands::centered());
+        return;
+    }
+    if SURFACE.with(|s| s.get()).is_some() {
+        close();
+        return;
+    }
+    let my_id: Arc<Mutex<Option<SurfaceId>>> = Arc::new(Mutex::new(None));
+    let hook_id = my_id.clone();
+    let hooks = SurfaceHooks {
+        on_key: Some(Box::new(|k: &KeyInfo| {
+            if k.pressed && k.key == Key::Escape {
+                close();
+                return true;
+            }
+            false
+        })),
+        on_closed: Some(Box::new(move || {
+            if SURFACE.with(|s| s.get()) == *hook_id.lock().unwrap() {
+                SURFACE.with(|s| s.set(None));
+                SHOWN.with(|o| o.take());
+            }
+        })),
+        ..Default::default()
+    };
+    let output = crate::manager::focused_output(&ctx);
+    let spec = SurfaceSpec {
+        namespace: "syndesktop-assistant".into(),
+        layer: Layer::Overlay,
+        anchor: Anchor::empty(),
+        size: (0, 0),
+        margin: [0; 4],
+        exclusive_zone: -1,
+        // Сразу — клавиатура окну, чтобы печатать без щелчка; дальше «по
+        // требованию»: щелчок по другому окну отдаёт фокус ему.
+        keyboard: KeyboardInteractivity::Exclusive,
+        output,
+        auto_size: true,
+        clear_color: [0.0; 4],
+    };
+    let open = use_signal(true);
+    let sid = my_id.clone();
+    let id = syngui_layer::create_surface_with(spec.clone(), hooks, move || {
+        let ctx = ShellCtx::get();
+        let sid = sid.clone();
+        let card = crate::anim::popup_presence(&ctx, open, None, false, move || {
+            Box::new(DecoratedBox::new().child(view(ShellCtx::get())).class("popup-card assist-card").style("width", StyleValue::px(600.0)))
+        })
+        .on_exit_complete(move || {
+            if let Some(id) = *sid.lock().unwrap() {
+                syngui_layer::close_surface(id);
+            }
+        });
+        Box::new(DecoratedBox::new().child(card).class("assist-surface"))
+    });
+    *my_id.lock().unwrap() = Some(id);
+    SURFACE.with(|s| s.set(Some(id)));
+    SHOWN.with(|o| o.set(Some(open)));
+    syngui_layer::add_timer(Duration::from_millis(400), move || {
+        if SURFACE.with(|s| s.get()) == Some(id) {
+            syngui_layer::reconfigure_surface(id, SurfaceSpec { keyboard: KeyboardInteractivity::OnDemand, ..spec.clone() });
+        }
+        None
+    });
+}
+
+/// Закрыть окно ассистента (с анимацией ухода).
+pub fn close() {
+    let ctx = ShellCtx::get();
+    if ctx.popup.get_untracked().is_some_and(|p| matches!(p.kind, PopupKind::Assistant)) {
+        ctx.close_popup();
+    }
+    let Some(id) = SURFACE.with(|s| s.take()) else { return };
+    match SHOWN.with(|o| o.take()) {
+        Some(open) if crate::anim::on(&ctx) => open.set(false),
+        _ => syngui_layer::close_surface(id),
+    }
 }
 
 fn reply(p: Panel, yes: bool) {
@@ -287,7 +382,7 @@ fn open_window(p: Panel) {
         None => "synassistant".into(),
     };
     crate::actions::spawn(&cmd);
-    ShellCtx::get().close_popup();
+    close();
 }
 
 fn tip(w: impl Widget + 'static, text: impl Into<String>) -> Box<dyn Widget> {
@@ -466,7 +561,7 @@ fn header(p: Panel) -> Box<dyn Widget> {
             let on = p.dictating.get();
             let phase = p.phase.get();
             let label = if on && phase == Phase::Transcribing { t!("Распознаю…") } else if on { t!("Говорите… нажмите ещё раз, чтобы закончить") } else { t!("Надиктовать") };
-            tip(Button::new("").icon(if on { STOP } else { MIC }).class(if on { "btn assist-mic on" } else { "btn assist-mic" }).on_click(move || toggle_dictation(p)), label)
+            tip(Button::new("").icon(if on { STOP } else { MIC }).class(if on { "btn assist-mic rec on" } else { "btn assist-mic rec" }).on_click(move || toggle_dictation(p)), label)
         });
         let send = rx(move || {
             if p.busy.get() {
@@ -491,7 +586,8 @@ fn header(p: Panel) -> Box<dyn Widget> {
                 )
                 .child(mic)
                 .child(send)
-                .child(tip(Button::new("").icon(VOICE_CHAT).class("btn assist-mic voice").on_click(move || start_voice(p)), t!("Голосовой разговор"))),
+                .child(tip(Button::new("").icon(VOICE_CHAT).class("btn assist-mic voice").on_click(move || start_voice(p)), t!("Голосовой разговор")))
+                .child(tip(Button::new("").icon(CLOSE).class("btn assist-mic close").on_click(close), t!("Закрыть (Esc)"))),
         )
     }))
 }

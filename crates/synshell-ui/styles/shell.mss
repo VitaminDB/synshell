@@ -1555,12 +1555,16 @@ TextField {
 .mp-hint { font-size: 12px; color: var(--muted); }
 .mp-btn { padding: 5px 12px; font-size: 13px; }
 
+.assist-surface { padding: 28px 36px 44px 36px; }
 .assist-box { padding: 6px 6px 6px 8px; border-radius: 16px; }
 .assist-brand { width: 32px; height: 32px; border-radius: 11px; background: linear-gradient(135deg, var(--accent), #8b5cf6); justify-content: center; align-items: center; }
 .assist-brand-ic { icon-size: 18px; icon-color: #ffffff; }
 .assist-mic { padding: 8px; border-radius: 999px; background-color: #00000000; icon-size: 20px; color: var(--muted); icon-color: var(--muted); transition: background-color 120ms ease-out; }
 .assist-mic:hover { background-color: var(--hover); icon-color: var(--fg); }
-.assist-mic.on { background-color: var(--danger); icon-color: #ffffff; }
+.assist-mic.rec { background-color: var(--danger-soft); icon-color: var(--danger); }
+.assist-mic.rec:hover { background-color: var(--danger); icon-color: #ffffff; }
+.assist-mic.rec.on { background-color: var(--danger); icon-color: #ffffff; box-shadow: 0 0 0 4px var(--danger-soft); }
+.assist-mic.close { padding: 6px; icon-size: 18px; }
 .assist-mic.send { background-color: var(--accent); icon-color: var(--accent-fg); }
 .assist-mic.send:hover { background-color: var(--accent); icon-color: var(--accent-fg); }
 .assist-mic.stop { background-color: var(--danger); icon-color: #ffffff; }

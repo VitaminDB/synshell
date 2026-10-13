@@ -449,7 +449,7 @@ impl Appearance {
         let a = self.panel_opacity.clamp(0.0, 1.0);
         let r = self.corner_radius.max(0.0);
         format!(
-            ":root {{\n  --bg: {};\n  --surface: {};\n  --surface-alt: {};\n  --panel-bg: {};\n  --menu-bg: {};\n  --fg: {};\n  --muted: {};\n  --border: {};\n  --accent: {};\n  --accent-fg: {};\n  --accent-soft: {};\n  --hover: {};\n  --pressed: {};\n  --danger: {};\n  --success: {};\n  --warning: {};\n  --radius: {r}px;\n  --radius-sm: {}px;\n  --font-size: {}px;\n}}\n",
+            ":root {{\n  --bg: {};\n  --surface: {};\n  --surface-alt: {};\n  --panel-bg: {};\n  --menu-bg: {};\n  --fg: {};\n  --muted: {};\n  --border: {};\n  --accent: {};\n  --accent-fg: {};\n  --accent-soft: {};\n  --hover: {};\n  --pressed: {};\n  --danger: {};\n  --danger-soft: {};\n  --success: {};\n  --warning: {};\n  --radius: {r}px;\n  --radius-sm: {}px;\n  --font-size: {}px;\n}}\n",
             p.bg.hex(),
             p.surface.hex(),
             p.surface_alt.hex(),
@@ -464,6 +464,7 @@ impl Appearance {
             p.fg.with_alpha(0.08).hex(),
             p.fg.with_alpha(0.14).hex(),
             p.danger.hex(),
+            p.danger.with_alpha(0.18).hex(),
             p.success.hex(),
             p.warning.hex(),
             (r * 0.6).round(),
