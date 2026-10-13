@@ -59,3 +59,28 @@ pub fn truncate(s: &str, max: usize) -> String {
     let cut: String = s.chars().take(max).collect();
     format!("{cut}\n… [обрезано: всего {} символов]", s.chars().count())
 }
+
+/// Ход выполнения инструмента (долгая генерация): `(шаг, всего, подпись)`.
+/// Слушатель ставит агент на время вызова; инструменты зовут [`progress`].
+type ProgressFn = Box<dyn FnMut(usize, usize, &str) + Send>;
+
+thread_local! {
+    static PROGRESS: std::cell::RefCell<Option<ProgressFn>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Сообщить ход: `step` из `total` (0 из 0 — только подпись этапа).
+pub fn progress(step: usize, total: usize, label: &str) {
+    PROGRESS.with(|p| {
+        if let Some(f) = p.borrow_mut().as_mut() {
+            f(step, total, label);
+        }
+    });
+}
+
+/// Выполнить `f` со слушателем хода (в том же потоке).
+pub fn with_progress<R>(listener: ProgressFn, f: impl FnOnce() -> R) -> R {
+    let prev = PROGRESS.with(|p| p.replace(Some(listener)));
+    let r = f();
+    PROGRESS.with(|p| *p.borrow_mut() = prev);
+    r
+}

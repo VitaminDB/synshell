@@ -99,7 +99,7 @@ fn video_model(a: &Args, p: &synaptixd::VideoParams) -> String {
     }
 }
 
-fn op(node: &Node, a: &Args, out_base: &Path) -> R<Output> {
+fn op(node: &Node, a: &Args, out_base: &Path, progress: &mut dyn FnMut(usize, usize)) -> R<Output> {
     let file = |ext: &str| out_base.with_extension(ext);
     match node.op.as_str() {
         "text" => Ok(Output { text: a.str("text").unwrap_or_default(), ..Default::default() }),
@@ -128,7 +128,7 @@ fn op(node: &Node, a: &Args, out_base: &Path) -> R<Output> {
                 init: a.str("init"),
                 strength: a.num("strength").map(|v| v as f32),
             };
-            let (reply, png) = client()?.image(&a.str("model").unwrap_or_default(), &a.need("prompt")?, &p, |_, _| {}).map_err(|e| e.to_string())?;
+            let (reply, png) = client()?.image(&a.str("model").unwrap_or_default(), &a.need("prompt")?, &p, |i, n| progress(i, n)).map_err(|e| e.to_string())?;
             let path = file("png");
             std::fs::write(&path, png).map_err(|e| e.to_string())?;
             Ok(Output { files: vec![path], label: reply.label, ..Default::default() })
@@ -158,7 +158,7 @@ fn op(node: &Node, a: &Args, out_base: &Path) -> R<Output> {
                 strength: a.num("strength").map(|v| v as f32),
             };
             let model = video_model(a, &p);
-            let (reply, mp4) = client()?.video(&model, &a.need("prompt")?, &p, |_, _| {}).map_err(|e| e.to_string())?;
+            let (reply, mp4) = client()?.video(&model, &a.need("prompt")?, &p, |i, n| progress(i, n)).map_err(|e| e.to_string())?;
             let path = file("mp4");
             std::fs::write(&path, mp4).map_err(|e| e.to_string())?;
             Ok(Output { files: vec![path], label: reply.label, ..Default::default() })
@@ -175,7 +175,7 @@ fn op(node: &Node, a: &Args, out_base: &Path) -> R<Output> {
                 }
             });
             let (reply, wav) = c
-                .music(&model.unwrap_or_default(), &a.need("prompt")?, &lyrics, a.num("seconds").map(|v| v as u32), a.num("seed").map(|v| v as u64), |_, _| {})
+                .music(&model.unwrap_or_default(), &a.need("prompt")?, &lyrics, a.num("seconds").map(|v| v as u32), a.num("seed").map(|v| v as u64), |i, n| progress(i, n))
                 .map_err(|e| e.to_string())?;
             let path = file("wav");
             std::fs::write(&path, wav).map_err(|e| e.to_string())?;
@@ -359,7 +359,8 @@ pub fn run(graph: &Graph, params: &Map<String, Value>, dir: &Path, on_step: &mut
             None => {
                 let scope = Scope { params: &params, outputs: &outputs, item: None };
                 let args = scope.resolve(&Value::Object(node.args.clone()));
-                op(node, &Args(args.as_object().unwrap()), &dir.join(&node.id))
+                let head = format!("{} ({})", node.id, node.op);
+                op(node, &Args(args.as_object().unwrap()), &dir.join(&node.id), &mut |i, n| on_step(&format!("{head} · {i}/{n}")))
             }
             Some(items) => {
                 let mut acc = Output::default();
@@ -368,7 +369,8 @@ pub fn run(graph: &Graph, params: &Map<String, Value>, dir: &Path, on_step: &mut
                     on_step(&format!("{} ({}) — {} из {}", node.id, node.op, k + 1, items.len()));
                     let scope = Scope { params: &params, outputs: &outputs, item: Some(item) };
                     let args = scope.resolve(&Value::Object(node.args.clone()));
-                    let o = op(node, &Args(args.as_object().unwrap()), &dir.join(format!("{}-{k:03}", node.id))).map_err(|e| format!("{} (элемент {}): {e}", node.id, k + 1))?;
+                    let head = format!("{} ({}) — {} из {}", node.id, node.op, k + 1, items.len());
+                    let o = op(node, &Args(args.as_object().unwrap()), &dir.join(format!("{}-{k:03}", node.id)), &mut |i, n| on_step(&format!("{head} · {i}/{n}"))).map_err(|e| format!("{} (элемент {}): {e}", node.id, k + 1))?;
                     acc.files.extend(o.files);
                     if !o.text.is_empty() {
                         texts.push(o.text);

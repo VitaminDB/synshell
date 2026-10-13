@@ -1599,6 +1599,8 @@ TextField {
 .assist-audio-name { font-size: 12px; color: var(--fg); }
 .assist-video { width: 520px; height: 292px; border-radius: 12px; }
 .assist-play.big { width: 48px; height: 48px; }
+.assist-progress-box { padding: 0px 0px 0px 24px; }
+.assist-progress { height: 6px; border-radius: 3px; background-color: var(--surface-alt); color: var(--accent); accent-color: var(--accent); }
 .assist-sep { height: 1px; background-color: var(--border); }
 .assist-act { padding: 8px; border-radius: 999px; background-color: var(--surface-alt); icon-size: 20px; color: var(--fg); icon-color: var(--fg); transition: background-color 120ms ease-out; }
 .assist-act:hover { background-color: var(--pressed); }

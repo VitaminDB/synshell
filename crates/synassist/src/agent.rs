@@ -28,6 +28,8 @@ pub enum AgentEvent {
     Thinking(String),
     ToolText(String),
     ToolStart { name: String, summary: String },
+    /// Ход текущего инструмента: шаг из всего (0/0 — только этап) и подпись.
+    ToolProgress { step: usize, total: usize, label: String },
     Message(ChatMsg),
     Compacted(Vec<ChatMsg>),
     Done,
@@ -329,7 +331,28 @@ impl Agent {
         if tool.danger(&args) == Danger::Confirm && !self.approved(name) && !confirm.confirm(name, &summary) {
             return ChatMsg::tool(name, summary, false, "Пользователь отклонил это действие. Не повторяй его без новой просьбы.".into(), Vec::new());
         }
-        match tool.run_ctx(&args, cancel) {
+        // Ход долгих инструментов (генерация) — событиями, через канал: колбэк
+        // `on` не Send, а слушатель хода живёт в потоке инструмента.
+        let (tx, rx) = std::sync::mpsc::channel::<(usize, usize, String)>();
+        let result = std::thread::scope(|scope| {
+            let worker = scope.spawn(|| crate::tools::with_progress(Box::new(move |s, t, l| {
+                let _ = tx.send((s, t, l.to_string()));
+            }), || tool.run_ctx(&args, cancel)));
+            loop {
+                match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                    Ok((step, total, label)) => on(AgentEvent::ToolProgress { step, total, label }),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) if !worker.is_finished() => {}
+                    Err(_) => {
+                        while let Ok((step, total, label)) = rx.try_recv() {
+                            on(AgentEvent::ToolProgress { step, total, label });
+                        }
+                        break;
+                    }
+                }
+            }
+            worker.join().unwrap_or_else(|_| Err("инструмент упал".into()))
+        });
+        match result {
             Ok(out) => ChatMsg::tool(name, summary, true, out.text, out.files),
             Err(e) => ChatMsg::tool(name, summary, false, format!("Ошибка: {e}"), Vec::new()),
         }

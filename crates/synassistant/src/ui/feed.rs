@@ -283,6 +283,22 @@ fn live_view(l: &Live) -> W {
                 .child(CircularProgress::new().indeterminate().size(16.0).stroke_width(2.0).class("spin"))
                 .class("tool-card"),
         );
+        if let Some((frac, label)) = &l.progress {
+            let bar = match frac {
+                Some(f) => ProgressBar::new().value(f.clamp(0.0, 1.0)),
+                None => ProgressBar::new().indeterminate(),
+            }
+            .class("tool-progress");
+            let pct = frac.map(|f| format!("{:.0}%", f * 100.0)).unwrap_or_default();
+            col = col.child(
+                Column::new()
+                    .gap(4.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                    .class("tool-progress-box")
+                    .child(Row::new().gap(8.0).child(Text::new(label.clone()).max_lines(1).class("hint grow")).child(Text::new(pct).class("hint")))
+                    .child(bar),
+            );
+        }
     } else if !l.tool_text.is_empty() {
         col = col.child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(typing()).child(Text::new(t!("Готовит действие…")).class("hint")));
     } else if l.thinking.is_empty() {

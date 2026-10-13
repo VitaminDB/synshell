@@ -217,3 +217,6 @@ MultilineTextEdit.input { background-color: #00000000; color: var(--fg); border:
 .recipe-step-title { font-size: 13px; color: var(--fg); }
 .recipe-log { padding: 4px 0px; }
 .recipe-error { font-size: 13px; color: var(--danger); }
+
+.tool-progress-box { padding: 2px 4px 2px 44px; }
+.tool-progress { height: 6px; border-radius: 3px; background-color: var(--surface-alt); color: var(--accent); accent-color: var(--accent); }

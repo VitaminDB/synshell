@@ -77,7 +77,7 @@ fn image(args: &Value) -> ToolResult {
     };
     let model = str_arg(args, "model").unwrap_or("");
     let mut c = synaptixd::Client::connect().map_err(|e| e.to_string())?;
-    let (reply, png) = match c.image(model, prompt, &p, |_, _| {}) {
+    let (reply, png) = match c.image(model, prompt, &p, |i, n| crate::tools::progress(i, n, "картинка")) {
         Ok(r) => r,
         Err(e) if e.code == synaptixd::ErrorCode::NoModel => return generate(ModelKind::Image, "картинки"),
         Err(e) => return Err(e.to_string()),
@@ -137,7 +137,7 @@ fn video(args: &Value) -> ToolResult {
         ""
     });
     let mut c = synaptixd::Client::connect().map_err(|e| e.to_string())?;
-    let (reply, mp4) = match c.video(model, prompt, &p, |_, _| {}) {
+    let (reply, mp4) = match c.video(model, prompt, &p, |i, n| crate::tools::progress(i, n, "видео")) {
         Ok(r) => r,
         Err(e) if e.code == synaptixd::ErrorCode::NoModel => return generate(ModelKind::Video, "видео"),
         Err(e) => return Err(e.to_string()),
@@ -170,7 +170,7 @@ fn music(args: &Value) -> ToolResult {
         None => None,
     };
     let model = picked.as_deref().unwrap_or("");
-    let (reply, wav) = match c.music(model, prompt, lyrics, seconds, seed, |_, _| {}) {
+    let (reply, wav) = match c.music(model, prompt, lyrics, seconds, seed, |i, n| crate::tools::progress(i, n, "музыка")) {
         Ok(r) => r,
         Err(e) if e.code == synaptixd::ErrorCode::NoModel => return generate(ModelKind::Music, "музыки"),
         Err(e) => return Err(e.to_string()),

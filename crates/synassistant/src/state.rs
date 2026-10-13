@@ -18,6 +18,8 @@ pub struct Live {
     pub thinking: String,
     pub tool_text: String,
     pub tool: Option<(String, String)>,
+    /// Ход инструмента: доля 0..1 (None — неизвестна) и подпись этапа.
+    pub progress: Option<(Option<f32>, String)>,
 }
 
 #[derive(Clone, Copy)]
@@ -439,7 +441,11 @@ impl St {
             AgentEvent::Text(t) => self.live_update(|l| l.text.push_str(&t)),
             AgentEvent::Thinking(t) => self.live_update(|l| l.thinking.push_str(&t)),
             AgentEvent::ToolText(t) => self.live_update(|l| l.tool_text.push_str(&t)),
-            AgentEvent::ToolStart { name, summary } => self.live_update(|l| l.tool = Some((name, summary))),
+            AgentEvent::ToolStart { name, summary } => self.live_update(|l| {
+                l.tool = Some((name, summary));
+                l.progress = None;
+            }),
+            AgentEvent::ToolProgress { step, total, label } => self.live_update(|l| l.progress = Some(((total > 0).then(|| step as f32 / total as f32), label))),
             AgentEvent::Message(m) => self.push(m),
             AgentEvent::Compacted(msgs) => {
                 let mut c = self.chat.get_untracked();

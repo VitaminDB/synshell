@@ -370,6 +370,32 @@ fn detail(st: St, rs: RecipesState) -> W {
             ),
         );
         if let Some(lines) = rs.progress.get() {
+            // Последняя строка «узел (op) · шаг/всего» — полоса и проценты.
+            let last = lines.last().cloned().unwrap_or_default();
+            let frac = last.rsplit_once(" · ").and_then(|(_, f)| f.split_once('/')).and_then(|(a, b)| Some((a.parse::<f32>().ok()?, b.parse::<f32>().ok()?))).filter(|(_, b)| *b > 0.0).map(|(a, b)| a / b);
+            let bar = match frac {
+                Some(f) => ProgressBar::new().value(f),
+                None => ProgressBar::new().indeterminate(),
+            }
+            .class("tool-progress");
+            col = col.child(
+                Column::new()
+                    .gap(4.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                    .child(Row::new().gap(8.0).child(Text::new(last.rsplit_once(" · ").map(|(h, _)| h.to_string()).unwrap_or(last.clone())).max_lines(1).class("recipe-param grow")).child(Text::new(frac.map(|f| format!("{:.0}%", f * 100.0)).unwrap_or_default()).class("recipe-hint")))
+                    .child(bar),
+            );
+            // В журнал — только смена шагов графа, без каждого шага денойза.
+            let lines: Vec<String> = {
+                let mut v: Vec<String> = Vec::new();
+                for l in &lines {
+                    let head = l.rsplit_once(" · ").map(|(h, _)| h.to_string()).unwrap_or(l.clone());
+                    if v.last() != Some(&head) {
+                        v.push(head);
+                    }
+                }
+                v
+            };
             let mut c = Column::new().gap(3.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("recipe-log");
             for l in lines.iter().rev().take(6).rev() {
                 c = c.child(Text::new(l.clone()).max_lines(1).class("recipe-hint"));

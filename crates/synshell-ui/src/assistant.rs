@@ -48,6 +48,8 @@ struct Panel {
     query: RwSignal<String>,
     answer: RwSignal<String>,
     tool: RwSignal<Option<String>>,
+    /// Ход инструмента: доля 0..1 (None — неизвестна) и подпись этапа.
+    tool_progress: RwSignal<Option<(Option<f32>, String)>>,
     confirm: RwSignal<Option<String>>,
     busy: RwSignal<bool>,
     chat_id: RwSignal<Option<String>>,
@@ -89,6 +91,7 @@ fn panel() -> Panel {
                 query: use_signal(String::new()),
                 answer: use_signal(String::new()),
                 tool: use_signal(None),
+                tool_progress: use_signal(None),
                 confirm: use_signal(None),
                 busy: use_signal(false),
                 chat_id: use_signal(None),
@@ -574,7 +577,14 @@ fn ask(p: Panel, text: String, voice: bool) {
                         a.push_str(&t);
                         p.answer.set(a);
                     }
-                    AgentEvent::ToolStart { summary, .. } => p.tool.set(Some(summary)),
+                    AgentEvent::ToolStart { summary, .. } => {
+                        p.tool.set(Some(summary));
+                        p.tool_progress.set(None);
+                    }
+                    AgentEvent::ToolProgress { step, total, label } => {
+                        let frac = (total > 0).then(|| step as f32 / total as f32);
+                        p.tool_progress.set(Some((frac, label)));
+                    }
                     AgentEvent::Message(m) if m.role == Role::Assistant && !m.tool_calls.is_empty() => p.answer.set(String::new()),
                     AgentEvent::Message(m) if m.role == Role::Tool && !m.files.is_empty() => {
                         let mut v = p.results.get_untracked();
@@ -947,6 +957,9 @@ pub fn view(_ctx: ShellCtx) -> impl Widget {
             col = col.child(confirm_card(p, s));
         } else if let Some(t) = tool.filter(|_| busy && answer.is_empty()) {
             col = col.child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon("\u{E869}").class("assist-tool-icon")).child(Text::new(t).max_lines(1).class("assist-tool grow")));
+            if let Some((frac, label)) = p.tool_progress.get() {
+                col = col.child(progress_row(frac, &label));
+            }
         } else if busy && answer.is_empty() {
             col = col.child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(CircularProgress::new().indeterminate().size(16.0).stroke_width(2.0).class("assist-spin")).child(Text::new(t!("Думаю…")).class("assist-hint")));
         }
@@ -1040,6 +1053,24 @@ pub fn view(_ctx: ShellCtx) -> impl Widget {
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(DecoratedBox::new().child(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(header(p)).child(attachments_row(p))).class("search-box assist-box"))
         .child(AnimatedSize::new(body).axis(AnimationAxis::Height).spring(420.0, 40.0).class("popup-morph"))
+}
+
+/// Ход долгого инструмента: этап, полоса и проценты (или бегущая полоса).
+fn progress_row(frac: Option<f32>, label: &str) -> Box<dyn Widget> {
+    let bar = match frac {
+        Some(f) => ProgressBar::new().value(f.clamp(0.0, 1.0)),
+        None => ProgressBar::new().indeterminate(),
+    }
+    .class("assist-progress grow");
+    let pct = frac.map(|f| format!("{:.0}%", f * 100.0)).unwrap_or_default();
+    Box::new(
+        Column::new()
+            .gap(4.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .class("assist-progress-box")
+            .child(Row::new().gap(8.0).child(Text::new(label.to_string()).max_lines(1).class("assist-hint grow")).child(Text::new(pct).class("assist-hint")))
+            .child(bar),
+    )
 }
 
 fn col_is_empty(busy: bool, p: &Panel) -> bool {
