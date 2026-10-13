@@ -35,7 +35,7 @@ shadow = "#00000066"
 
 [dark.vars]
 panel-bg = "#0a1624b8"
-menu-bg = "#0d1d2eeb"
+menu-bg = "#0d1d2ef7"
 glass-edge = "#ffffff33"
 glass-hi = "#ffffff1a"
 violet = "#a78bfa"
@@ -60,7 +60,7 @@ shadow = "#0f2a3d33"
 
 [light.vars]
 panel-bg = "#ffffffb8"
-menu-bg = "#ffffffeb"
+menu-bg = "#fffffff7"
 glass-edge = "#ffffffcc"
 glass-hi = "#ffffff99"
 violet = "#7c3aed"

@@ -520,6 +520,7 @@ pub fn view(_ctx: ShellCtx) -> impl Widget {
                 Row::new()
                     .gap(10.0)
                     .cross_axis_alignment(CrossAxisAlignment::Start)
+                    .class("assist-msg")
                     .child(DecoratedBox::new().class("assist-avatar").child(icon(SPARKLE).class("assist-avatar-ic")))
                     .child(ScrollView::new().vertical().follow_end(true).class("assist-scroll grow").child(MarkdownView::new(answer.clone()).with_copy_code(true).selectable(true).class("assist-answer"))),
             );
@@ -538,13 +539,16 @@ pub fn view(_ctx: ShellCtx) -> impl Widget {
             }
             row = row
                 .child(DecoratedBox::new().class("grow"))
-                .child(Button::new(t!("Новый вопрос")).icon(ADD).class("btn").on_click(move || {
+                .child(Button::new(t!("Новый вопрос")).icon(ADD).class("btn assist-ghost").on_click(move || {
                     p.chat_id.set(None);
                     p.answer.set(String::new());
                     p.heard.set(String::new());
                     p.input_rev.set(p.input_rev.get_untracked() + 1);
                 }))
                 .child(Button::new(t!("Открыть чат")).icon(OPEN).class("btn btn-primary").on_click(move || open_window(p)));
+            if !answer.is_empty() {
+                col = col.child(DecoratedBox::new().class("assist-sep"));
+            }
             col = col.child(row);
         }
         if col_is_empty(busy, &p) {

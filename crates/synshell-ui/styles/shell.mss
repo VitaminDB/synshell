@@ -1347,9 +1347,12 @@ TextField {
     padding: 7px 16px;
     border-radius: var(--radius-sm);
     background-color: var(--surface-alt);
+    color: var(--fg);
+    font-weight: 600;
     transition: background-color 120ms ease-out;
 }
-.btn-primary { background-color: var(--accent); }
+.btn-primary { background-color: var(--accent); color: var(--accent-fg); }
+.btn-danger { color: var(--danger); }
 .btn-primary .btn-label { color: var(--accent-fg); }
 .btn-danger .btn-label { color: var(--danger); }
 .btn-label { font-size: 13px; font-weight: 600; }
@@ -1552,29 +1555,36 @@ TextField {
 .mp-hint { font-size: 12px; color: var(--muted); }
 .mp-btn { padding: 5px 12px; font-size: 13px; }
 
-.assist-box { padding: 6px 8px 6px 10px; border-radius: 14px; }
-.assist-brand { width: 30px; height: 30px; border-radius: 10px; background: linear-gradient(135deg, var(--accent), #8b5cf6); justify-content: center; align-items: center; }
+.assist-box { padding: 6px 6px 6px 8px; border-radius: 16px; }
+.assist-brand { width: 32px; height: 32px; border-radius: 11px; background: linear-gradient(135deg, var(--accent), #8b5cf6); justify-content: center; align-items: center; }
 .assist-brand-ic { icon-size: 18px; icon-color: #ffffff; }
-.assist-mic { padding: 7px; border-radius: 999px; background-color: #00000000; icon-size: 20px; icon-color: var(--muted); }
+.assist-mic { padding: 8px; border-radius: 999px; background-color: #00000000; icon-size: 20px; color: var(--muted); icon-color: var(--muted); transition: background-color 120ms ease-out; }
 .assist-mic:hover { background-color: var(--hover); icon-color: var(--fg); }
 .assist-mic.on { background-color: var(--danger); icon-color: #ffffff; }
 .assist-mic.send { background-color: var(--accent); icon-color: var(--accent-fg); }
+.assist-mic.send:hover { background-color: var(--accent); icon-color: var(--accent-fg); }
 .assist-mic.stop { background-color: var(--danger); icon-color: #ffffff; }
 .assist-mic.voice { background-color: var(--accent-soft); icon-color: var(--accent); }
+.assist-mic.voice:hover { background-color: var(--accent); icon-color: var(--accent-fg); }
 .assist-hint { font-size: 12px; color: var(--muted); padding: 2px 6px; }
-.assist-hint.dim { opacity: 0.7; }
+.assist-hint.dim { opacity: 0.8; }
 .assist-spin { color: var(--accent); }
 .assist-tool-icon { icon-size: 16px; icon-color: var(--accent); }
 .assist-tool { font-size: 13px; color: var(--fg); }
-.assist-avatar { width: 26px; height: 26px; border-radius: 999px; background: linear-gradient(135deg, var(--accent), #22d3ee); justify-content: center; align-items: center; }
-.assist-avatar-ic { icon-size: 16px; icon-color: #ffffff; }
+.assist-msg { padding: 4px 2px 2px 2px; }
+.assist-avatar { width: 28px; height: 28px; border-radius: 999px; background: linear-gradient(135deg, var(--accent), #22d3ee); justify-content: center; align-items: center; }
+.assist-avatar-ic { icon-size: 16px; icon-color: var(--accent-fg); }
 .assist-scroll { max-height: 420px; }
-.assist-answer { font-size: 14px; color: var(--fg); padding: 2px 6px; }
-.assist-act { padding: 8px; border-radius: 999px; background-color: var(--surface-alt); icon-size: 20px; icon-color: var(--fg); }
-.assist-act:hover { background-color: var(--hover); }
-.assist-act.small { padding: 5px; icon-size: 16px; icon-color: var(--muted); background-color: #00000000; }
+.assist-answer { font-size: 14px; color: var(--fg); padding: 3px 6px; }
+.assist-sep { height: 1px; background-color: var(--border); }
+.assist-act { padding: 8px; border-radius: 999px; background-color: var(--surface-alt); icon-size: 20px; color: var(--fg); icon-color: var(--fg); transition: background-color 120ms ease-out; }
+.assist-act:hover { background-color: var(--pressed); }
+.assist-act.small { padding: 6px; icon-size: 18px; color: var(--muted); icon-color: var(--muted); background-color: #00000000; }
+.assist-act.small:hover { background-color: var(--hover); icon-color: var(--fg); }
 .assist-act.off { background-color: var(--accent-soft); icon-color: var(--danger); }
 .assist-act.end { background-color: var(--danger); icon-color: #ffffff; }
+.assist-ghost { background-color: #00000000; border-width: 1px; border-color: var(--border); color: var(--fg); }
+.assist-ghost:hover { background-color: var(--hover); }
 .assist-confirm { padding: 10px 12px; border-radius: var(--radius-sm); background-color: var(--surface-alt); border: 1px solid var(--accent); }
 .assist-confirm-title { font-size: 13px; font-weight: 600; color: var(--fg); }
 .assist-confirm-sum { font-size: 12px; color: var(--fg); }
