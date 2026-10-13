@@ -503,6 +503,24 @@ pub enum Request {
         /// Референсы: картинки, видео, звук (до 12).
         #[serde(default)]
         refs: Vec<String>,
+        /// LTX: звук (липсинк; с control_video — LipDub).
+        #[serde(default)]
+        audio: Option<String>,
+        /// LTX: исходное видео — retake отрезка или продление.
+        #[serde(default)]
+        source_video: Option<String>,
+        #[serde(default)]
+        retake: Option<(f64, f64)>,
+        #[serde(default)]
+        extend: bool,
+        /// LTX IC-LoRA: видео-образец; control — canny | motion.
+        #[serde(default)]
+        control_video: Option<String>,
+        #[serde(default)]
+        control: Option<String>,
+        /// LTX: две стадии (апскейлер ×2).
+        #[serde(default)]
+        two_stage: bool,
     },
     /// Музыка или песня; WAV — fd 0 ответа.
     Music {
@@ -690,6 +708,13 @@ pub struct VideoParams {
     pub first_frame: Option<String>,
     pub last_frame: Option<String>,
     pub refs: Vec<String>,
+    pub audio: Option<String>,
+    pub source_video: Option<String>,
+    pub retake: Option<(f64, f64)>,
+    pub extend: bool,
+    pub control_video: Option<String>,
+    pub control: Option<String>,
+    pub two_stage: bool,
 }
 
 /// Готовая музыка: WAV в fd ответа.
@@ -992,6 +1017,13 @@ impl Client {
             first_frame: p.first_frame.clone(),
             last_frame: p.last_frame.clone(),
             refs: p.refs.clone(),
+            audio: p.audio.clone(),
+            source_video: p.source_video.clone(),
+            retake: p.retake,
+            extend: p.extend,
+            control_video: p.control_video.clone(),
+            control: p.control.clone(),
+            two_stage: p.two_stage,
         };
         let (v, fds) = self.call_events(req, &[], |ev| {
             if let Event::Progress { step, total } = ev {

@@ -313,7 +313,15 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
                 VideoModel::H3 { model: path.to_path_buf(), encoder: components.get("encoder").cloned() }
             } else if a.contains("ltx") {
                 let gemma = components.get("text_encoder").cloned().ok_or_else(|| anyhow::anyhow!("у LTX нет текстового энкодера (Gemma-3 LTX)"))?;
-                VideoModel::Ltx(synaptix_gen::video::LtxPaths { model: path.to_path_buf(), gemma, distilled_lora: components.get("distilled_lora").cloned() })
+                VideoModel::Ltx(synaptix_gen::video::LtxPaths {
+                    model: path.to_path_buf(),
+                    gemma,
+                    distilled_lora: components.get("distilled_lora").cloned(),
+                    upscaler: components.get("upscaler").cloned(),
+                    ic_union: components.get("ic_lora_union").or(components.get("ic_lora")).cloned(),
+                    ic_motion: components.get("ic_lora_motion").cloned(),
+                    ic_lipdub: components.get("ic_lora_lipdub").cloned(),
+                })
             } else {
                 anyhow::bail!("видео {arch} служба пока не исполняет");
             };

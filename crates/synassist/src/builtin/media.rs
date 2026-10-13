@@ -112,10 +112,27 @@ fn video(args: &Value) -> ToolResult {
             .and_then(Value::as_array)
             .map(|a| a.iter().filter_map(Value::as_str).map(|p| crate::builtin::expand(p).to_string_lossy().into_owned()).collect())
             .unwrap_or_default(),
+        audio: path_arg("audio"),
+        source_video: path_arg("source_video"),
+        retake: match (args.get("retake_start").and_then(Value::as_f64), args.get("retake_end").and_then(Value::as_f64)) {
+            (Some(a), Some(b)) => Some((a, b)),
+            _ => None,
+        },
+        extend: args.get("extend").and_then(Value::as_bool).unwrap_or(false),
+        control_video: path_arg("control_video"),
+        control: str_arg(args, "control").map(String::from),
+        two_stage: args.get("two_stage").and_then(Value::as_bool).unwrap_or(false),
     };
-    // Ключевые кадры понимает партиция FL2VA у H3.
+    // Возможности только LTX — быстрая distilled LTX; ключевые кадры без них — H3 FL2VA.
+    let ltx_only = p.audio.is_some() || p.source_video.is_some() || p.control_video.is_some() || p.two_stage;
     let keyed = p.first_frame.is_some() || p.last_frame.is_some();
-    let model = str_arg(args, "model").unwrap_or(if keyed { "minimax-h3-fl2va" } else { "" });
+    let model = str_arg(args, "model").unwrap_or(if ltx_only {
+        "ltx-2-3-22b-distilled-1-1"
+    } else if keyed {
+        "minimax-h3-fl2va"
+    } else {
+        ""
+    });
     let mut c = synaptixd::Client::connect().map_err(|e| e.to_string())?;
     let (reply, mp4) = match c.video(model, prompt, &p, |_, _| {}) {
         Ok(r) => r,
@@ -176,7 +193,7 @@ impl Tool for MediaTool {
         "медиа"
     }
     fn description(&self) -> String {
-        "Создание медиа системными нейросетями. action: speak — озвучить текст (prompt — текст, voice — описание голоса, language — код языка); image — картинка: prompt — подробное описание по-английски (объекты, стиль, свет, композиция), width/height (по умолчанию ~1024, кратно 16), steps, seed, negative; images — пути картинок-референсов, чтобы изменить или скомбинировать их (prompt — что сделать); video — видео со звуком: prompt — подробная сцена по-английски (действие, камера, звук), seconds (по умолчанию 4, до 15; генерация идёт минуты), first_frame / last_frame — пути картинок, с которых начать или которыми закончить; refs — пути референсов (картинки персонажей и предметов, видео, звук — голос для липсинка или музыка; до 12, не вместе с кадрами), в prompt опиши, что с ними делать; model для видео: ltx-2-3-22b-distilled-1-1 — в 2–3 раза быстрее, только по описанию или с first_frame; minimax-h3-* (по умолчанию) — ещё last_frame и refs; music — музыка или песня: prompt — жанр, инструменты, настроение по-английски, lyrics — текст песни с метками [verse]/[chorus] (пусто — инструментал), seconds — длительность. Результат — файл, он покажется пользователю в чате, и ты его увидишь.".into()
+        "Создание медиа системными нейросетями. action: speak — озвучить текст (prompt — текст, voice — описание голоса, language — код языка); image — картинка: prompt — подробное описание по-английски (объекты, стиль, свет, композиция), width/height (по умолчанию ~1024, кратно 16), steps, seed, negative; images — пути картинок-референсов, чтобы изменить или скомбинировать их (prompt — что сделать); video — видео со звуком: prompt — подробная сцена по-английски (действие, камера, звук), seconds (по умолчанию 4, до 15; генерация идёт минуты), first_frame / last_frame — пути картинок, с которых начать или которыми закончить; refs — пути референсов (картинки персонажей и предметов, видео, звук — голос для липсинка или музыка; до 12, не вместе с кадрами), в prompt опиши, что с ними делать; возможности LTX-2.3 (модель выбирается сама): audio — путь звука, видео строится под него (липсинк речи, движение под музыку); source_video + retake_start/retake_end — перегенерировать отрезок ролика по prompt; source_video + extend=true — продолжить ролик; control_video — повторить движение/композицию образца (control: canny — контуры, motion — движение); control_video + audio — LipDub (переозвучить ролик: губы под новый звук); two_stage=true — выше качество и разрешение (дольше). model: ltx-2-3-22b-distilled-1-1 — быстрая, minimax-h3-* (по умолчанию) — refs; music — музыка или песня: prompt — жанр, инструменты, настроение по-английски, lyrics — текст песни с метками [verse]/[chorus] (пусто — инструментал), seconds — длительность. Результат — файл, он покажется пользователю в чате, и ты его увидишь.".into()
     }
     fn parameters(&self) -> Value {
         json!({
@@ -195,6 +212,14 @@ impl Tool for MediaTool {
                 "images": {"type": "array", "items": {"type": "string"}, "description": "пути картинок-референсов для правки"},
                 "lyrics": {"type": "string", "description": "текст песни (music)"},
                 "refs": {"type": "array", "items": {"type": "string"}, "description": "пути референсов для видео: картинки, видео, звук"},
+                "audio": {"type": "string", "description": "видео: путь звука для липсинка или под музыку"},
+                "source_video": {"type": "string", "description": "видео: исходный ролик для retake или продления"},
+                "retake_start": {"type": "number"},
+                "retake_end": {"type": "number"},
+                "extend": {"type": "boolean"},
+                "control_video": {"type": "string", "description": "видео: образец движения/композиции (IC-LoRA) или ролик для LipDub"},
+                "control": {"type": "string", "enum": ["canny", "motion"]},
+                "two_stage": {"type": "boolean"},
                 "first_frame": {"type": "string", "description": "путь картинки — первый кадр видео"},
                 "last_frame": {"type": "string", "description": "путь картинки — последний кадр видео"},
                 "seconds": {"type": "integer", "description": "длительность музыки, с"},
