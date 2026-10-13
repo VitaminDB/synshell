@@ -1571,6 +1571,10 @@ TextField {
 .assist-mic.voice { background-color: var(--accent-soft); icon-color: var(--accent); }
 .assist-mic.voice:hover { background-color: var(--accent); icon-color: var(--accent-fg); }
 .assist-atts { padding: 8px 2px 2px 40px; }
+.assist-thumb-box { width: 72px; height: 72px; border-radius: 12px; border-width: 1px; border-color: var(--border); background-color: var(--surface-alt); }
+.assist-thumb { width: 72px; height: 72px; border-radius: 12px; }
+.assist-thumb-x { width: 22px; height: 22px; padding: 0px; border-radius: 999px; background-color: #000000aa; icon-size: 14px; color: #ffffff; icon-color: #ffffff; justify-content: center; align-items: center; }
+.assist-thumb-x:hover { background-color: var(--danger); }
 .assist-att { font-size: 12px; background-color: var(--accent-soft); color: var(--fg); icon-color: var(--accent); }
 .assist-drop { width: 100%; min-height: 120px; padding: 18px; border-radius: var(--radius-sm); border-width: 2px; border-color: var(--accent); background-color: var(--accent-soft); justify-content: center; align-items: center; }
 .assist-drop-ic { icon-size: 30px; icon-color: var(--accent); }

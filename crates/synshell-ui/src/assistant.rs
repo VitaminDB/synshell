@@ -13,6 +13,7 @@ use synassist::chat::{Chat, Role, Store};
 use synassist_voice::{Phase, VisHandle, VoiceConfig, VoiceEvent};
 
 use syngui::StyleValue;
+use syngui::widgets::containers::Positioned;
 use syngui::widgets::Chip;
 use syngui_layer::{DropData, DropEvent};
 use syngui::input::Key;
@@ -36,7 +37,8 @@ const ADD: &str = "\u{E145}";
 const SEND: &str = "\u{E163}";
 const CLOSE: &str = "\u{E5CD}";
 const ATTACH: &str = "\u{E226}";
-const IMAGE: &str = "\u{E3F4}";
+/// Сторона превью картинки-вложения.
+const THUMB: f32 = 72.0;
 
 #[derive(Clone, Copy)]
 struct Panel {
@@ -247,17 +249,25 @@ fn attachments_row(p: Panel) -> Box<dyn Widget> {
         if files.is_empty() {
             return Box::new(Row::new()) as Box<dyn Widget>;
         }
-        let mut row = Flex::new().direction(FlexDirection::Row).wrap().gap(6.0);
-        for (i, f) in files.iter().enumerate() {
+        let remove = move |i: usize| {
+            let mut v = p.attachments.get_untracked();
+            if i < v.len() {
+                v.remove(i);
+            }
+            p.attachments.set(v);
+        };
+        let mut row = Flex::new().direction(FlexDirection::Row).wrap().gap(8.0);
+        // Картинки — превью, остальное — чипами.
+        for (i, f) in files.iter().enumerate().filter(|(_, f)| is_image(f)) {
+            let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let thumb = Stack::new()
+                .child(Image::new(f.to_string_lossy()).fit(ImageFit::Cover).class("assist-thumb"))
+                .child(Positioned::new(Button::new("").icon(CLOSE).class("btn assist-thumb-x").on_click(move || remove(i))).at(THUMB - 26.0, 4.0));
+            row = row.child(tip(DecoratedBox::new().child(thumb).class("assist-thumb-box").clip(true), name));
+        }
+        for (i, f) in files.iter().enumerate().filter(|(_, f)| !is_image(f)) {
             let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| f.to_string_lossy().into_owned());
-            let glyph = if is_image(f) { IMAGE } else { ATTACH };
-            row = row.child(Chip::new(name).icon(glyph).deletable().on_delete(move || {
-                let mut v = p.attachments.get_untracked();
-                if i < v.len() {
-                    v.remove(i);
-                }
-                p.attachments.set(v);
-            }).class("assist-att"));
+            row = row.child(Chip::new(name).icon(ATTACH).deletable().on_delete(move || remove(i)).class("assist-att"));
         }
         Box::new(DecoratedBox::new().child(row).class("assist-atts"))
     }))
