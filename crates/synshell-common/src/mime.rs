@@ -624,7 +624,10 @@ fn load_assoc() -> Assoc {
                 continue;
             }
             let Some((k, v)) = line.split_once('=') else { continue };
-            let (k, apps) = (k.trim().to_string(), v.split(';').map(str::trim).filter(|s| !s.is_empty()));
+            // Ключ — по основному имени типа: в mimeapps.list бывают и псевдонимы
+            // (`application/x-ms-dos-executable` у .exe — `application/x-msdownload`).
+            let k = db().unalias(k.trim()).to_string();
+            let apps = v.split(';').map(str::trim).filter(|s| !s.is_empty());
             match group {
                 // Раньше прочитанный файл важнее: дописываем в конец.
                 "d" => a.defaults.entry(k).or_default().extend(apps.map(String::from)),
@@ -703,7 +706,9 @@ pub fn apps_for(mime: &str) -> Vec<DesktopEntry> {
                 }
             }
         }
-        for e in all.iter().filter(|e| e.mime_types.iter().any(|t| t == &m) && ok(&e.id)) {
+        // Ярлыки объявляют типы и под старыми именами (Wine — `x-ms-dos-executable`).
+        let d = db();
+        for e in all.iter().filter(|e| e.mime_types.iter().any(|t| t == &m || d.unalias(t) == m) && ok(&e.id)) {
             push(e.clone(), &mut out);
         }
         // От октет-потока подходят все подряд — не предлагать.
@@ -842,6 +847,15 @@ pub fn reload_assoc() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Программа для .exe на этой машине: `cargo test … exe_app -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn exe_app() {
+        for m in ["application/vnd.microsoft.portable-executable", "application/x-msdownload", "application/x-ms-dos-executable"] {
+            eprintln!("{m}: {:?}", default_app(m).map(|e| e.id));
+        }
+    }
 
     #[test]
     fn rewrite_defaults_keeps_other_lines() {

@@ -38,6 +38,7 @@ fn hash(uri: &str) -> String {
 pub fn supported(mime: &str) -> bool {
     (mime.starts_with("image/") && mime != "image/svg+xml" && mime != "image/x-xcf" && mime != "image/vnd.adobe.photoshop")
         || (mime.starts_with("video/") && video_tool().is_some())
+        || crate::pe_icon::is_pe(mime)
 }
 
 #[derive(Clone, Copy)]
@@ -187,6 +188,9 @@ fn produce(key: &Key, mime: &str) -> Option<PathBuf> {
     let meta = std::fs::metadata(&key.path).ok()?;
     let img = if mime.starts_with("video/") {
         video_frame(&key.path, size)
+    } else if crate::pe_icon::is_pe(mime) {
+        // программа Windows — её значок (читается только секция ресурсов)
+        crate::pe_icon::extract(&key.path)
     } else if meta.len() > *shared().max_bytes.lock().unwrap() {
         return None;
     } else {

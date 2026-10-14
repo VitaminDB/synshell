@@ -17,6 +17,8 @@ pub mod paths;
 pub mod text;
 pub mod theme;
 #[cfg(feature = "thumbs")]
+pub mod pe_icon;
+#[cfg(feature = "thumbs")]
 pub mod thumbs;
 pub mod wallpaper;
 pub mod watch;
