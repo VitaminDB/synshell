@@ -66,6 +66,9 @@ fn run(args: &[String]) -> Result<(), String> {
             let b = |v: Option<bool>| v.map_or("—", |v| if v { "да" } else { "нет" });
             let s = |v: &Option<String>| v.clone().unwrap_or_else(|| "—".into());
             println!("{}{}", m.id, if e.custom { " (свой профиль)" } else { " (выверенный)" });
+            if !e.source.is_empty() {
+                println!("  в файле {}{}", e.source.join(", "), if e.transcode == Some(true) { " → перекодируются" } else { " — так и считаются" });
+            }
             println!("  веса {}, счёт {}, KV {}, голова {}, эмбеддинги {}", s(&e.weights), s(&e.compute), s(&e.kv_dtype), s(&e.lm_head), s(&e.embed));
             println!("  граф декода {}, спекуляция {}, синхронизация слоёв {}, перекодировка {}", b(e.graph_decode), b(e.speculation), s(&e.layer_sync), b(e.transcode));
         }

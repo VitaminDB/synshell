@@ -296,6 +296,7 @@ pub fn llm_engine(
         speculation: rt.speculation,
         layer_sync: Some(sync.into()),
         transcode: Some(policy.transcode),
+        source: synaptix::facade::arch::bundle_quant_formats(path).into_iter().map(|(f, _)| f).collect(),
     };
     (policy, rt, shown)
 }
@@ -402,8 +403,12 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
         }
         ModelKind::Llm => {
             let device = devices::device(dev);
-            let (policy, runtime, _) = llm_engine(path, dev, quant, engine);
-            let label = dtype_label(policy.weights_storage);
+            let (policy, runtime, shown) = llm_engine(path, dev, quant, engine);
+            // Квантованный источник без перекодировки остаётся как в файле.
+            let label = match shown.source.first() {
+                Some(f) if !policy.transcode => f.clone(),
+                _ => dtype_label(policy.weights_storage),
+            };
             let max_seq = if dev == DeviceKind::Npu { Some(2048) } else { synaptix::facade::arch::config_max_seq(path) };
             let (llm, tok) = synaptix::facade::llm::load_llm_full(path, policy, &device, max_seq, runtime).map_err(|e| anyhow::anyhow!("{e}"))?;
             let window = llm.config().max_seq_len.max(2048);

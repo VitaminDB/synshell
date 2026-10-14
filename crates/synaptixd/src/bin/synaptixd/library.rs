@@ -23,6 +23,13 @@ pub fn ensure(lib: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Файл модели: бандл `.syn` или `.gguf` (проектор зрения `mmproj` — не
+/// модель, его подхватывает сама языковая модель рядом).
+fn is_model_file(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.ends_with(".syn") || (n.ends_with(".gguf") && !n.contains("mmproj"))
+}
+
 fn walk(dir: &Path, depth: usize, syn: &mut Vec<PathBuf>, dirs: &mut Vec<PathBuf>) {
     let Ok(rd) = std::fs::read_dir(dir) else { return };
     let mut entries: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect();
@@ -38,7 +45,7 @@ fn walk(dir: &Path, depth: usize, syn: &mut Vec<PathBuf>, dirs: &mut Vec<PathBuf
             } else if depth < 4 {
                 walk(&p, depth + 1, syn, dirs);
             }
-        } else if name.ends_with(".syn") && p.is_file() {
+        } else if is_model_file(&name) && p.is_file() {
             syn.push(p);
         }
     }
@@ -103,6 +110,12 @@ pub fn is_own_dir(m: &Manifest) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn model_files() {
+        assert!(is_model_file("a.syn") && is_model_file("Qwen3-8B-Q4_K_M.gguf"));
+        assert!(!is_model_file("mmproj-Qwen3-VL-F16.gguf") && !is_model_file("a.safetensors"));
+    }
 
     #[test]
     fn scans_dirs_and_skips_private() {

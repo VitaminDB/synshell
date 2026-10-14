@@ -173,6 +173,11 @@ pub struct EngineProfile {
     /// Перекодировать уже квантованные веса в форматы профиля (двойной квант).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transcode: Option<bool>,
+    /// Квант-форматы весов в самом файле (GGUF, квантованный `.syn`), самый
+    /// частый первым; пусто у плотных. Только в действующем профиле: без
+    /// перекодировки такие веса остаются как в файле.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source: Vec<String>,
 }
 
 impl EngineProfile {
