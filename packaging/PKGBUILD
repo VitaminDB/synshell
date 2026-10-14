@@ -1,7 +1,7 @@
 # Maintainer: Alexeyev Vitaly
 pkgname=synshell
 pkgver=0.1.42
-pkgrel=93
+pkgrel=94
 pkgdesc="Окружение рабочего стола для Wayland на Rust и syngui: композитор, оболочка, параметры"
 arch=('x86_64')
 license=('MIT OR Apache-2.0')
@@ -34,6 +34,9 @@ optdepends=('xorg-xwayland: X11-программы'
             'gvfs-mtp: телефоны Android в проводнике (MTP)'
             'gvfs-gphoto2: камеры в проводнике (PTP)'
             'gvfs-afc: iPhone в проводнике'
+            'gvfs-smb: сетевые папки Windows и Samba в проводнике (smb://)'
+            'libarchive: архивы в проводнике (bsdtar)'
+            'git: метки git в проводнике'
             'fuse3: файлы связанных устройств (synlink) в проводнике'
             'openssh: ssh на связанные устройства (synlink)'
             'intel-media-driver: аппаратное видео на Intel (трансляция экрана, «Видео»)'
