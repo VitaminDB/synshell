@@ -36,6 +36,7 @@ const BUILTIN_MSS: &str = include_str!("../styles/gamepad.mss");
 pub mod icons {
     pub const GAMEPAD: &str = "\u{E338}";
     pub const FOLD: &str = "\u{E8F5}";
+    pub const TUNE: &str = "\u{E429}";
     pub const UP: &str = "\u{E5C7}";
     pub const DOWN: &str = "\u{E5C5}";
     pub const LEFT: &str = "\u{E5DE}";

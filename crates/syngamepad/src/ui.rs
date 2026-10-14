@@ -15,8 +15,10 @@ use synshell_common::haptics::{self, Feedback};
 use crate::layout::{Axis, Bind, Kind, Layout};
 use crate::output;
 
-/// Ручка «спрятать/показать» (вверху по центру): сторона, px.
+/// Ручка «спрятать/показать» и кнопка настройки (вверху по центру, рядом): сторона, px.
 const HANDLE: f32 = 40.0;
+/// Зазор между ручкой и кнопкой настройки.
+const HANDLE_GAP: f32 = 10.0;
 /// Удержание ручки дольше — не сворачивать, а открыть редактор раскладки.
 const HANDLE_HOLD_MS: u128 = 600;
 /// Запас вокруг элемента, который ещё ловит палец (доля размера).
@@ -67,6 +69,8 @@ struct Rt {
 
 enum Target {
     Handle,
+    /// Кнопка настройки — редактор раскладки.
+    Tune,
     Element(usize),
 }
 
@@ -103,8 +107,21 @@ fn spec() -> SurfaceSpec {
     }
 }
 
+/// Фокус клавиатуры поверхности: только пока вводится имя раскладки (иначе игра теряла бы клавиши).
+pub(crate) fn set_keyboard(on: bool) {
+    if let Some(id) = SURFACE.with(|s| s.get()) {
+        let keyboard = if on { KeyboardInteractivity::Exclusive } else { KeyboardInteractivity::None };
+        syngui_layer::reconfigure_surface(id, SurfaceSpec { keyboard, ..spec() });
+    }
+}
+
 fn handle_rect(w: f32, _h: f32) -> [f32; 4] {
-    [w / 2.0 - HANDLE / 2.0, 6.0, HANDLE, HANDLE]
+    [w / 2.0 - HANDLE - HANDLE_GAP / 2.0, 6.0, HANDLE, HANDLE]
+}
+
+/// Кнопка настройки — справа от ручки: править раскладку, не открывая шторку.
+fn tune_rect(w: f32, _h: f32) -> [f32; 4] {
+    [w / 2.0 + HANDLE_GAP / 2.0, 6.0, HANDLE, HANDLE]
 }
 
 fn contains(r: [f32; 4], p: (f32, f32), slop: f32) -> bool {
@@ -167,7 +184,15 @@ pub fn install(pad: Pad) {
         let Some(id) = SURFACE.with(|s| s.get()) else { return };
         let (w, h) = (size.width, size.height);
         // Правка — весь экран: тащить элементы можно куда угодно.
-        let mut rects = vec![if editing { [0.0, 0.0, w, h] } else { handle_rect(w, h) }];
+        let naming = pad.ed.naming.get();
+        // Ввод имени — только панель: касания ниже — экранной клавиатуре.
+        let mut rects = if naming {
+            vec![crate::editor::panel_rect(pad, w, h)]
+        } else if editing {
+            vec![[0.0, 0.0, w, h]]
+        } else {
+            vec![handle_rect(w, h), tune_rect(w, h)]
+        };
         if !folded && !editing {
             rects.extend(layout.elements.iter().map(|e| e.rect(w, h)).map(|r| {
                 let (dx, dy) = (r[2] * HIT_SLOP, r[3] * HIT_SLOP);
@@ -196,19 +221,22 @@ fn view(pad: Pad) -> impl Widget {
                 out.push(element_view(e, st, w, h, layout.opacity));
             }
         }
-        let [hx, hy, hw, hh] = handle_rect(w, h);
-        let handle = DecoratedBox::new()
-            .child(
-                Row::new()
-                    .main_axis_alignment(MainAxisAlignment::Center)
-                    .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(Icon::new(if folded { crate::icons::GAMEPAD } else { crate::icons::FOLD }).class("gp-handle-icon"))
-                    .class("gp-fill"),
-            )
-            .class("gp-handle")
-            .style("width", StyleValue::px(hw))
-            .style("height", StyleValue::px(hh));
-        out.push(Box::new(Positioned::new(handle).at(hx, hy)));
+        let round = |glyph: &'static str, [x, y, rw, rh]: [f32; 4]| -> Box<dyn Widget> {
+            let b = DecoratedBox::new()
+                .child(
+                    Row::new()
+                        .main_axis_alignment(MainAxisAlignment::Center)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(Icon::new(glyph).class("gp-handle-icon"))
+                        .class("gp-fill"),
+                )
+                .class("gp-handle")
+                .style("width", StyleValue::px(rw))
+                .style("height", StyleValue::px(rh));
+            Box::new(Positioned::new(b).at(x, y))
+        };
+        out.push(round(if folded { crate::icons::GAMEPAD } else { crate::icons::FOLD }, handle_rect(w, h)));
+        out.push(round(crate::icons::TUNE, tune_rect(w, h)));
         out
     });
     MultiTouch::new()
@@ -324,9 +352,11 @@ fn on_touch(pad: Pad, t: TouchPoint) -> bool {
     let p = (t.position.x, t.position.y);
     match t.phase {
         TouchPhase::Down => {
-            if contains(handle_rect(w, h), p, 0.2) {
-                FINGERS.with(|f| f.borrow_mut().insert(t.id, Finger { target: Target::Handle, origin: p, center: p, radius: 1.0, last: p, start: Instant::now(), moved: false }));
-                return true;
+            for (rect, target) in [(handle_rect(w, h), Target::Handle), (tune_rect(w, h), Target::Tune)] {
+                if contains(rect, p, 0.2) {
+                    FINGERS.with(|f| f.borrow_mut().insert(t.id, Finger { target, origin: p, center: p, radius: 1.0, last: p, start: Instant::now(), moved: false }));
+                    return true;
+                }
             }
             if pad.folded.get_untracked() {
                 return false;
@@ -354,7 +384,7 @@ fn on_touch(pad: Pad, t: TouchPoint) -> bool {
                 }
                 match fi.target {
                     Target::Element(i) => Some(i),
-                    Target::Handle => None,
+                    Target::Handle | Target::Tune => None,
                 }
             }) else {
                 return true;
@@ -374,6 +404,11 @@ fn on_touch(pad: Pad, t: TouchPoint) -> bool {
                             // Удержание ручки — правка раскладки.
                             crate::editor::open(pad);
                         }
+                    }
+                }
+                Target::Tune => {
+                    if t.phase == TouchPhase::Up {
+                        crate::editor::open(pad);
                     }
                 }
                 Target::Element(i) => {

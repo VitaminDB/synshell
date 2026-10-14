@@ -9,7 +9,7 @@
 //! x = 0.14            # центр: доля ширины и высоты экрана
 //! y = 0.62
 //! size = 0.32         # высота (у круглых — диаметр): доля короткой стороны экрана
-//! bind = "left"       # stick: left | right | wasd | arrows | mouse; dpad: pad | arrows | wasd
+//! bind = "left"       # stick: left | right | pad | wasd | arrows | mouse; dpad: pad | arrows | wasd
 //! [[element]]
 //! kind = "button"
 //! label = "A"       # текст или значок Material Icons (символ U+E000…U+F8FF)
@@ -164,6 +164,8 @@ impl Axis {
             (_, "wasd") => Axis::Wasd,
             (_, "arrows") => Axis::Arrows,
             (_, "mouse") => Axis::Mouse,
+            // Стик как крестовина геймпада (D-pad, 8 направлений).
+            (_, "pad" | "dpad" | "hat") => Axis::Hat,
             (Kind::Stick, "right") => Axis::RightStick,
             (Kind::Stick, _) => Axis::LeftStick,
             (_, _) => Axis::Hat,
@@ -261,6 +263,8 @@ mod tests {
         assert_eq!(Bind::parse("mouse:right"), Bind::Mouse(crate::uinput::BTN_RIGHT));
         assert_eq!(Axis::parse(Kind::Stick, "right"), Axis::RightStick);
         assert_eq!(Axis::parse(Kind::Dpad, "pad"), Axis::Hat);
+        assert_eq!(Axis::parse(Kind::Stick, "pad"), Axis::Hat, "стик — крестовиной");
+        assert_eq!(Axis::parse(Kind::Stick, ""), Axis::LeftStick);
     }
 
     #[test]

@@ -2,6 +2,7 @@
 @name = "English"
 
 # src/editor.rs
+"Имя раскладки" = "Layout name"
 "Стрелки" = "Arrow keys"
 "Мышь" = "Mouse"
 "Тачпад" = "Touchpad"

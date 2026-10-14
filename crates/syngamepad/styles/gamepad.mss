@@ -58,4 +58,9 @@ Text { color: #ffffff; font-size: 20px; }
 .gp-tool { border-radius: 10px; background-color: #ffffff1a; padding: 0 6px; }
 .gp-tool:active { background-color: var(--accent); }
 .gp-tool-label { font-size: 14px; color: var(--fg); text-box-edge: text; }
-.gp-tool-title { font-size: 14px; font-weight: bold; color: var(--fg); }
+.gp-tool-title { font-size: 14px; font-weight: bold; color: var(--fg); text-box-edge: text; }
+/* выбор назначения: чипы по ширине подписи */
+.gp-chip { height: 36px; padding: 0 14px; border-radius: 18px; background-color: #ffffff1a; }
+.gp-chip:active { background-color: var(--accent); }
+.gp-chip-on { background-color: var(--accent); }
+.gp-name-field { font-size: 15px; color: var(--fg); background-color: #ffffff14; border-radius: 10px; padding: 0 10px; }

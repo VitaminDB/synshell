@@ -1,11 +1,11 @@
 //! Редактор раскладки — прямо поверх игры, в поверхности контроллера: элементы тащатся пальцем,
 //! у выбранного — размер, ширина, назначение, удаление; добавить элемент, прозрачность, раскладки
-//! (своя у приложения: `[osk] app_layouts`). Правка идёт в черновике, «Готово» — сохранить в файл.
+//! (своя у приложения: `[osk] app_layouts`), имя раскладки. Правка идёт в черновике, «Готово» — сохранить в файл.
 
 use syngui::containers::{Positioned, TouchPhase, TouchPoint};
 use syngui::mss::StyleValue;
 use syngui::prelude::*;
-use syngui::{GestureDetector, Grid, ScrollView};
+use syngui::{Flex, GestureDetector, ScrollView, TextField};
 
 use crate::layout::{Element, Kind, Layout};
 use crate::ui::Pad;
@@ -14,6 +14,8 @@ use crate::ui::Pad;
 const BAR_W: f32 = 560.0;
 const BAR_H: f32 = 196.0;
 const PICKER_H: f32 = 330.0;
+/// Ввод имени: одна строка.
+const NAME_H: f32 = 54.0;
 /// Шаги размера, ширины и прозрачности.
 const SIZE_STEP: f32 = 0.02;
 const ASPECT_STEP: f32 = 0.2;
@@ -28,6 +30,8 @@ pub struct Editor {
     pub picker: RwSignal<bool>,
     /// Панель вверху (иначе внизу) — убрать с дороги элементы под ней.
     pub bar_top: RwSignal<bool>,
+    /// Вводится имя раскладки (поле вместо заголовка, экранная клавиатура).
+    pub naming: RwSignal<bool>,
 }
 
 impl Editor {
@@ -38,6 +42,7 @@ impl Editor {
             selected: use_signal(None),
             picker: use_signal(false),
             bar_top: use_signal(false),
+            naming: use_signal(false),
         }
     }
 }
@@ -45,6 +50,41 @@ impl Editor {
 thread_local! {
     /// Перетаскивание: палец → (элемент, сдвиг пальца от центра элемента).
     static DRAG: std::cell::RefCell<Option<(u64, usize, f32, f32)>> = const { std::cell::RefCell::new(None) };
+    /// Вводимое имя: не в черновике — его смена перестраивает вид, и поле теряло бы фокус на каждой букве.
+    static NAME: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
+
+/// Начать ввод имени: панель — наверх (клавиатура снизу), поверхности — фокус клавиатуры.
+fn start_naming(pad: Pad) {
+    NAME.with(|n| *n.borrow_mut() = pad.ed.draft.get_untracked().name);
+    pad.ed.selected.set(None);
+    pad.ed.picker.set(false);
+    pad.ed.bar_top.set(true);
+    crate::ui::set_keyboard(true);
+    pad.ed.naming.set(true);
+    spawn_keyboard("show");
+}
+
+/// Закончить ввод: `save` — имя в черновик (в файл — по «Готово», как всё остальное).
+fn finish_naming(pad: Pad, save: bool) {
+    if !pad.ed.naming.get_untracked() {
+        return;
+    }
+    if save {
+        let name = NAME.with(|n| n.borrow().trim().to_string());
+        if !name.is_empty() {
+            pad.ed.draft.update(|l| l.name = name);
+        }
+    }
+    pad.ed.naming.set(false);
+    crate::ui::set_keyboard(false);
+    spawn_keyboard("hide");
+}
+
+fn spawn_keyboard(cmd: &str) {
+    if let Err(e) = std::process::Command::new("synkeyboard").arg(cmd).spawn() {
+        log::warn!("synkeyboard {cmd}: {e}");
+    }
 }
 
 pub fn open(pad: Pad) {
@@ -57,6 +97,7 @@ pub fn open(pad: Pad) {
 }
 
 fn close(pad: Pad, save: bool) {
+    finish_naming(pad, save);
     if save {
         let draft = pad.ed.draft.get_untracked();
         let id = pad.layout_id.get_untracked();
@@ -73,7 +114,16 @@ fn close(pad: Pad, save: bool) {
 /// Прямоугольник панели (выбор назначения — выше).
 pub fn panel_rect(pad: Pad, w: f32, h: f32) -> [f32; 4] {
     let pw = BAR_W.min(w - 16.0);
-    let ph = if pad.ed.picker.get_untracked() { PICKER_H } else { BAR_H }.min(h - 16.0);
+    let ph = if pad.ed.naming.get_untracked() {
+        NAME_H
+    } else if pad.ed.picker.get_untracked() {
+        // кнопкам — много назначений, стику и крестовине — одна-две строки чипов
+        let kind = pad.ed.selected.get_untracked().and_then(|i| pad.ed.draft.get_untracked().elements.get(i).map(|e| e.kind));
+        if kind == Some(Kind::Button) { PICKER_H } else { BAR_H }
+    } else {
+        BAR_H
+    }
+    .min(h - 16.0);
     let y = if pad.ed.bar_top.get_untracked() { 56.0 } else { h - ph - 8.0 };
     [(w - pw) / 2.0, y, pw, ph]
 }
@@ -87,6 +137,8 @@ pub fn on_touch(pad: Pad, t: TouchPoint) -> bool {
             if p.0 >= r[0] && p.0 <= r[0] + r[2] && p.1 >= r[1] && p.1 <= r[1] + r[3] {
                 return false; // кнопкам панели
             }
+            // Тап мимо панели во время ввода имени — принять имя.
+            finish_naming(pad, true);
             let draft = pad.ed.draft.get_untracked();
             let hit = draft.elements.iter().enumerate().rev().find(|(_, e)| {
                 let r = e.rect(w, h);
@@ -136,11 +188,15 @@ pub fn view(pad: Pad, w: f32, h: f32) -> Vec<Box<dyn Widget>> {
     let selected = pad.ed.selected.get();
     let picker = pad.ed.picker.get();
     let _ = pad.ed.bar_top.get();
-    let mut out: Vec<Box<dyn Widget>> = vec![Box::new(
-        DecoratedBox::new().class("gp-edit-bg").style("width", StyleValue::px(w)).style("height", StyleValue::px(h)),
-    )];
-    for (i, e) in draft.elements.iter().enumerate() {
-        out.push(element_preview(e, w, h, selected == Some(i)));
+    let _ = pad.ed.naming.get();
+    let naming = pad.ed.naming.get_untracked();
+    let mut out: Vec<Box<dyn Widget>> = Vec::new();
+    // Ввод имени — только строка с полем: экранная клавиатура лежит под этим слоем, её не закрывать.
+    if !naming {
+        out.push(Box::new(DecoratedBox::new().class("gp-edit-bg").style("width", StyleValue::px(w)).style("height", StyleValue::px(h))));
+        for (i, e) in draft.elements.iter().enumerate() {
+            out.push(element_preview(e, w, h, selected == Some(i)));
+        }
     }
     let [x, y, pw, ph] = panel_rect(pad, w, h);
     let panel: Box<dyn Widget> = if picker { Box::new(picker_view(pad, selected)) } else { Box::new(toolbar(pad, &draft, selected)) };
@@ -155,6 +211,7 @@ fn element_preview(e: &Element, w: f32, h: f32, selected: bool) -> Box<dyn Widge
     let label = match e.kind {
         Kind::Stick => match e.bind.as_str() {
             "right" => "R".to_string(),
+            "pad" => "✚".into(),
             "wasd" => "WASD".into(),
             "arrows" => t!("Стрелки").into(),
             "mouse" => t!("Мышь").into(),
@@ -201,9 +258,32 @@ fn btn(label: impl Into<String>, f: impl Fn() + Send + Sync + 'static) -> impl W
         .style("flex-grow", 1.0_f32)
 }
 
-/// Кнопка заданной высоты (в сетке выбора назначения кнопки иначе по высоте текста).
-fn btn_h(label: impl Into<String>, height: f32, f: impl Fn() + Send + Sync + 'static) -> impl Widget {
-    btn(label, f).style("height", StyleValue::px(height))
+/// Чип выбора назначения: по ширине своей подписи, не по сетке (подписи бывают длинные).
+fn chip(label: impl Into<String>, on: bool, f: impl Fn() + Send + Sync + 'static) -> impl Widget {
+    GestureDetector::new()
+        .child(
+            DecoratedBox::new()
+                .child(
+                    Row::new()
+                        .main_axis_alignment(MainAxisAlignment::Center)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(Text::new(label.into()).max_lines(1).class("gp-tool-label"))
+                        .class("gp-fill"),
+                )
+                .class(if on { "gp-chip gp-chip-on" } else { "gp-chip" }),
+        )
+        .on_click(move || f())
+}
+
+/// Текст по центру своей доли строки.
+fn centered(w: impl Widget + 'static, grow: f32) -> Box<dyn Widget> {
+    Box::new(
+        Row::new()
+            .main_axis_alignment(MainAxisAlignment::Center)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(w)
+            .style("flex-grow", grow),
+    )
 }
 
 fn row(items: Vec<Box<dyn Widget>>) -> impl Widget {
@@ -240,12 +320,36 @@ fn toolbar(pad: Pad, draft: &Layout, selected: Option<usize>) -> impl Widget {
     let name = draft.name.clone();
     let sel = selected.and_then(|i| draft.elements.get(i)).cloned();
     let mut col = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
-    col = col.child(row(vec![
-        boxed(btn("◀", move || switch_layout(pad, -1))),
-        boxed(Text::new(format!("{name} · {:.0}%", draft.opacity * 100.0)).class("gp-tool-title").style("flex-grow", 3.0_f32)),
-        boxed(btn("▶", move || switch_layout(pad, 1))),
-        boxed(btn(t!("Новая"), move || new_layout(pad))),
-    ]));
+    if pad.ed.naming.get_untracked() {
+        // Имя раскладки: поле во всю строку, «Готово» — принять.
+        let field = TextField::with_text(NAME.with(|n| n.borrow().clone()))
+            .placeholder(t!("Имя раскладки"))
+            .autofocus(true)
+            .on_change(|t| NAME.with(|n| *n.borrow_mut() = t.to_string()))
+            .on_submit(move |_| finish_naming(pad, true))
+            .on_escape(move || finish_naming(pad, false))
+            .class("gp-name-field")
+            .style("flex-grow", 4.0_f32);
+        return col
+            .child(row(vec![
+                boxed(field),
+                boxed(btn(t!("Отмена"), move || finish_naming(pad, false))),
+                boxed(btn("OK", move || finish_naming(pad, true))),
+            ]))
+            .style("padding", 8.0_f32);
+    } else {
+        // Тап по имени — переименовать.
+        let title = GestureDetector::new()
+            .on_click(move || start_naming(pad))
+            .child(Text::new(format!("{name} · {:.0}%", draft.opacity * 100.0)).max_lines(1).class("gp-tool-title"));
+        col = col.child(row(vec![
+            boxed(btn("◀", move || switch_layout(pad, -1))),
+            centered(title, 3.0),
+            boxed(btn("▶", move || switch_layout(pad, 1))),
+            boxed(btn("✎", move || start_naming(pad))),
+            boxed(btn(t!("Новая"), move || new_layout(pad))),
+        ]));
+    }
     match sel {
         Some(e) => {
             let mut items = vec![
@@ -317,9 +421,11 @@ fn bind_title(e: &Element) -> String {
 /// Варианты назначения: (подпись в списке, назначение, подпись на кнопке).
 fn options(kind: Kind) -> Vec<(&'static str, &'static str, &'static str)> {
     match kind {
+        // «Крестовина» — D-pad геймпада (HAT), её видят игры с геймпадом; «Стрелки» — клавиши ↑↓←→ клавиатуры.
         Kind::Stick => vec![
             (n_!("Левый стик"), "left", ""),
             (n_!("Правый стик"), "right", ""),
+            (n_!("Крестовина"), "pad", ""),
             ("WASD", "wasd", ""),
             (n_!("Стрелки"), "arrows", ""),
             (n_!("Мышь"), "mouse", ""),
@@ -375,10 +481,12 @@ fn options(kind: Kind) -> Vec<(&'static str, &'static str, &'static str)> {
 }
 
 fn picker_view(pad: Pad, selected: Option<usize>) -> impl Widget {
-    let kind = selected.and_then(|i| pad.ed.draft.get_untracked().elements.get(i).map(|e| e.kind)).unwrap_or_default();
-    let mut grid = Grid::new(6).gap(6.0);
+    let cur = selected.and_then(|i| pad.ed.draft.get_untracked().elements.get(i).cloned());
+    let kind = cur.as_ref().map(|e| e.kind).unwrap_or_default();
+    let mut grid = Flex::new().wrap().gap(6.0);
     for (title, bind, label) in options(kind) {
-        grid = grid.child(btn_h(&syngui::i18n::t(title), 36.0, move || {
+        let on = cur.as_ref().is_some_and(|e| e.bind == bind);
+        grid = grid.child(chip(syngui::i18n::t(title), on, move || {
             edit_selected(pad, |e| {
                 e.bind = bind.to_string();
                 if e.kind == Kind::Button {
@@ -392,7 +500,7 @@ fn picker_view(pad: Pad, selected: Option<usize>) -> impl Widget {
         .gap(8.0)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(row(vec![
-            boxed(Text::new(t!("Назначение")).class("gp-tool-title").style("flex-grow", 3.0_f32)),
+            centered(Text::new(t!("Назначение")).class("gp-tool-title"), 3.0),
             boxed(btn(t!("Назад"), move || pad.ed.picker.set(false))),
         ]))
         .child(ScrollView::new().vertical().child(grid).style("flex-grow", 1.0_f32))
@@ -438,4 +546,6 @@ fn new_layout(pad: Pad) {
         return;
     }
     use_layout(pad, &id);
+    // Новой — сразу своё имя.
+    start_naming(pad);
 }
