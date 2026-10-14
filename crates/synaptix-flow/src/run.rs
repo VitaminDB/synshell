@@ -3,11 +3,12 @@
 //! в списки); отмена и ход — общие для всех нод.
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::{Path, PathBuf};
+use std::hash::{Hash, Hasher};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::doc::{Flow, FlowNode};
 use crate::ops;
@@ -85,15 +86,23 @@ impl Drop for CancelGuard {
 }
 
 /// Событие прогона.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "lowercase")]
 pub enum Event {
     /// Нода начата; `item` — (номер, всего) в пакете.
     Started { id: u64, name: String, item: Option<(usize, usize)> },
     /// Шаг генерации внутри ноды.
     Progress { id: u64, step: usize, total: usize },
-    /// Нода готова.
-    Finished { id: u64, name: String, summary: String },
+    /// Нода готова; `cached` — результат взят из кэша.
+    Finished {
+        id: u64,
+        name: String,
+        summary: String,
+        #[serde(default, skip_serializing_if = "Outputs::is_empty")]
+        outputs: Outputs,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        cached: bool,
+    },
     /// Нода выключена — пропущена.
     Skipped { id: u64, name: String },
 }
@@ -107,8 +116,39 @@ pub struct Cx<'a> {
     base: PathBuf,
     progress: &'a mut dyn FnMut(usize, usize),
     pub cancel: &'a Cancel,
+    sandbox: Option<&'a Sandbox>,
     /// Описание результата для отчёта (модель, длительность…).
     pub label: String,
+    uncached: bool,
+}
+
+/// Файлы, доступные нодам (служба: входы клиента и каталог прогона).
+/// Пути сверяются по написанию, без разыменования ссылок; `..` запрещено.
+#[derive(Clone, Debug, Default)]
+pub struct Sandbox {
+    pub roots: Vec<PathBuf>,
+}
+
+impl Sandbox {
+    pub fn allows(&self, p: &Path) -> bool {
+        p.is_absolute() && !p.components().any(|c| matches!(c, Component::ParentDir)) && self.roots.iter().any(|r| p.starts_with(r))
+    }
+}
+
+/// Кэш результатов стадий: ключ — вид, поля и входы ноды.
+pub trait StageCache: Send + Sync {
+    fn get(&self, key: u64) -> Option<Outputs>;
+    fn put(&self, key: u64, outputs: &Outputs);
+}
+
+/// Параметры прогона.
+#[derive(Default)]
+pub struct RunOpts<'a> {
+    pub cancel: Cancel,
+    /// Готовые значения на входах: (нода, порт) → значение (с нод вне графа).
+    pub inputs: HashMap<(u64, String), Val>,
+    pub sandbox: Option<Sandbox>,
+    pub cache: Option<&'a dyn StageCache>,
 }
 
 impl<'a> Cx<'a> {
@@ -158,8 +198,11 @@ impl<'a> Cx<'a> {
         matches!(self.val(name).text().trim(), "true" | "1" | "yes" | "да")
     }
 
-    /// Путь к файлу со входа или из поля.
-    pub fn file(&self, name: &str) -> Option<String> {
+    fn allowed(&self, p: &str) -> bool {
+        self.sandbox.map(|s| s.allows(Path::new(p))).unwrap_or(true)
+    }
+
+    fn raw_file(&self, name: &str) -> Option<String> {
         let v = self.val(name);
         v.file().map(|p| p.display().to_string()).or_else(|| match v {
             Val::Text(s) if !s.trim().is_empty() => Some(s.trim().to_string()),
@@ -167,16 +210,46 @@ impl<'a> Cx<'a> {
         })
     }
 
+    /// Путь к файлу со входа или из поля (вне песочницы — нет).
+    pub fn file(&self, name: &str) -> Option<String> {
+        self.raw_file(name).filter(|p| self.allowed(p))
+    }
+
     pub fn need_file(&self, name: &str) -> Result<String, String> {
-        self.file(name).ok_or_else(|| format!("нужен файл «{}»", self.title_of(name)))
+        match self.raw_file(name) {
+            Some(p) if self.allowed(&p) => Ok(p),
+            Some(p) => Err(format!("«{}»: нет доступа к {p}", self.title_of(name))),
+            None => Err(format!("нужен файл «{}»", self.title_of(name))),
+        }
     }
 
     /// Все файлы со входа/поля (список, путь или пути через пробел).
     pub fn files(&self, name: &str) -> Vec<String> {
-        match self.val(name) {
+        let all: Vec<String> = match self.val(name) {
             Val::Text(s) => s.split_whitespace().map(String::from).collect(),
             v => v.files().into_iter().map(|p| p.display().to_string()).collect(),
+        };
+        all.into_iter().filter(|p| self.allowed(p)).collect()
+    }
+
+    /// Дескриптор со входа с объектом нужного типа.
+    pub fn handle<T: std::any::Any + Send + Sync>(&self, name: &str) -> Result<std::sync::Arc<T>, String> {
+        let v = self.val(name);
+        let h = v.handle().ok_or_else(|| format!("нужен вход «{}»", self.title_of(name)))?;
+        h.get::<T>().ok_or_else(|| format!("«{}»: на входе {} — не подходит этой ноде", self.title_of(name), h.label))
+    }
+
+    /// Дескриптор, если вход подключён.
+    pub fn opt_handle<T: std::any::Any + Send + Sync>(&self, name: &str) -> Result<Option<std::sync::Arc<T>>, String> {
+        if self.val(name).handle().is_none() {
+            return Ok(None);
         }
+        self.handle(name).map(Some)
+    }
+
+    /// Результат зависит не только от входов (случайный сид) — не кэшировать.
+    pub fn uncached(&mut self) {
+        self.uncached = true;
     }
 
     pub fn out(&mut self, port: &str, v: Val) {
@@ -207,19 +280,68 @@ impl<'a> Cx<'a> {
     }
 }
 
-/// Входы ноды из выходов предшественников.
-fn gather(flow: &Flow, id: u64, values: &HashMap<u64, Outputs>) -> HashMap<String, Val> {
-    flow.links
-        .iter()
-        .filter(|l| l.to_node == id)
-        .filter_map(|l| values.get(&l.from_node).and_then(|o| o.get(&l.from_port)).map(|v| (l.to_port.clone(), v.clone())))
-        .collect()
+/// Входы ноды: готовые значения и выходы предшественников.
+fn gather(flow: &Flow, id: u64, values: &HashMap<u64, Outputs>, preset: &HashMap<(u64, String), Val>) -> HashMap<String, Val> {
+    let mut out: HashMap<String, Val> = preset.iter().filter(|((n, _), _)| *n == id).map(|((_, p), v)| (p.clone(), v.clone())).collect();
+    for l in flow.links.iter().filter(|l| l.to_node == id) {
+        if let Some(v) = values.get(&l.from_node).and_then(|o| o.get(&l.from_port)) {
+            out.insert(l.to_port.clone(), v.clone());
+        }
+    }
+    out
+}
+
+fn hash_val(v: &Val, h: &mut impl Hasher) {
+    match v {
+        Val::Empty => 0u8.hash(h),
+        Val::Text(s) => (1u8, s).hash(h),
+        Val::Number(n) => (2u8, n.to_bits()).hash(h),
+        Val::File(p) => {
+            3u8.hash(h);
+            // Файл — по содержимому на диске (inode, размер, время), не по
+            // пути: путь к входу клиента меняется от запроса к запросу.
+            match std::fs::metadata(p) {
+                Ok(m) => {
+                    use std::os::unix::fs::MetadataExt;
+                    (m.dev(), m.ino(), m.size(), m.mtime(), m.mtime_nsec()).hash(h)
+                }
+                Err(_) => p.hash(h),
+            }
+        }
+        Val::List(l) => {
+            (4u8, l.len()).hash(h);
+            for x in l {
+                hash_val(x, h);
+            }
+        }
+        Val::Handle(x) => (5u8, x.id()).hash(h),
+    }
+}
+
+/// Ключ кэша стадии: вид, поля, входы.
+fn cache_key(node: &FlowNode, inputs: &HashMap<String, Val>) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    node.kind.hash(&mut h);
+    serde_json::to_string(&node.fields).unwrap_or_default().hash(&mut h);
+    let mut keys: Vec<&String> = inputs.keys().collect();
+    keys.sort();
+    for k in keys {
+        k.hash(&mut h);
+        hash_val(&inputs[k], &mut h);
+    }
+    h.finish()
 }
 
 /// Выполнить одну ноду с готовыми входами (пакет — по элементам).
 /// Файлы — в `dir` с именем по id ноды.
 pub fn run_node(node: &FlowNode, inputs: HashMap<String, Val>, dir: &Path, cancel: &Cancel, on_event: &mut dyn FnMut(Event)) -> Result<(Outputs, String), String> {
+    exec_node(node, inputs, dir, cancel, None, on_event).map(|(o, l, _)| (o, l))
+}
+
+/// Нода: выходы, подпись, можно ли кэшировать.
+fn exec_node(node: &FlowNode, inputs: HashMap<String, Val>, dir: &Path, cancel: &Cancel, sandbox: Option<&Sandbox>, on_event: &mut dyn FnMut(Event)) -> Result<(Outputs, String, bool), String> {
     let (spec, op) = ops::lookup(&node.kind).ok_or_else(|| format!("неизвестный вид ноды «{}»", node.kind))?;
+    let op = op.ok_or_else(|| format!("«{}» исполняет только служба нейросетей (synaptixd)", spec.title))?;
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     // Пакетные входы: список на одиночном порту.
     let batch: Vec<(String, Vec<Val>)> = inputs
@@ -234,14 +356,15 @@ pub fn run_node(node: &FlowNode, inputs: HashMap<String, Val>, dir: &Path, cance
         on_event(Event::Started { id: node.id, name: name.clone(), item: None });
         let id = node.id;
         let mut prog = |s: usize, t: usize| on_event(Event::Progress { id, step: s, total: t });
-        let mut cx = Cx { node, spec, inputs: &inputs, outputs: Outputs::new(), base: dir.join(&stem), progress: &mut prog, cancel, label: String::new() };
+        let mut cx = Cx { node, spec, inputs: &inputs, outputs: Outputs::new(), base: dir.join(&stem), progress: &mut prog, cancel, sandbox, label: String::new(), uncached: false };
         op(&mut cx)?;
         let label = cx.label;
-        return Ok((cx.outputs, label));
+        return Ok((cx.outputs, label, !cx.uncached));
     }
     let n = batch.iter().map(|(_, v)| v.len()).max().unwrap_or(0);
     let mut lists: BTreeMap<String, Vec<Val>> = spec.outputs.iter().map(|p| (p.name.to_string(), Vec::new())).collect();
     let mut label = String::new();
+    let mut cacheable = true;
     for k in 0..n {
         cancel.check()?;
         on_event(Event::Started { id: node.id, name: name.clone(), item: Some((k + 1, n)) });
@@ -251,15 +374,16 @@ pub fn run_node(node: &FlowNode, inputs: HashMap<String, Val>, dir: &Path, cance
         }
         let id = node.id;
         let mut prog = |s: usize, t: usize| on_event(Event::Progress { id, step: s, total: t });
-        let mut cx = Cx { node, spec, inputs: &inp, outputs: Outputs::new(), base: dir.join(format!("{stem}-{k:03}")), progress: &mut prog, cancel, label: String::new() };
+        let mut cx = Cx { node, spec, inputs: &inp, outputs: Outputs::new(), base: dir.join(format!("{stem}-{k:03}")), progress: &mut prog, cancel, sandbox, label: String::new(), uncached: false };
         op(&mut cx).map_err(|e| format!("элемент {} из {n}: {e}", k + 1))?;
         label = cx.label;
+        cacheable &= !cx.uncached;
         for (port, v) in cx.outputs {
             lists.entry(port).or_default().push(v);
         }
     }
     let outs = lists.into_iter().map(|(p, v)| (p, Val::List(v))).collect();
-    Ok((outs, format!("{n} × {label}")))
+    Ok((outs, format!("{n} × {label}"), cacheable))
 }
 
 fn sanitize(s: &str) -> String {
@@ -282,8 +406,15 @@ pub struct Report {
 
 /// Выполнить граф; файлы — в `dir`.
 pub fn run(flow: &Flow, dir: &Path, cancel: &Cancel, on_event: &mut dyn FnMut(Event)) -> Result<Report, String> {
+    run_with(flow, dir, &RunOpts { cancel: cancel.clone(), ..Default::default() }, on_event)
+}
+
+/// Выполнить граф с параметрами прогона (служба: песочница, кэш стадий,
+/// входы с нод вне графа).
+pub fn run_with(flow: &Flow, dir: &Path, opts: &RunOpts, on_event: &mut dyn FnMut(Event)) -> Result<Report, String> {
     flow.validate()?;
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let cancel = &opts.cancel;
     let mut values: HashMap<u64, Outputs> = HashMap::new();
     let mut steps = Vec::new();
     for id in flow.order()? {
@@ -293,45 +424,79 @@ pub fn run(flow: &Flow, dir: &Path, cancel: &Cancel, on_event: &mut dyn FnMut(Ev
             values.insert(id, Outputs::new());
             continue;
         }
-        let inputs = gather(flow, id, &values);
-        let (outs, label) = run_node(node, inputs, dir, cancel, on_event).map_err(|e| format!("{}: {e}", node.name()))?;
+        let inputs = gather(flow, id, &values, &opts.inputs);
+        let stage = ops::spec(&node.kind).map(|s| s.stage).unwrap_or(false);
+        let key = opts.cache.filter(|_| stage).map(|_| cache_key(node, &inputs));
+        let hit = key.and_then(|k| opts.cache.and_then(|c| c.get(k)));
+        let cached = hit.is_some();
+        let (outs, label) = match hit {
+            Some(o) => {
+                let what = o.values().map(Val::text).collect::<Vec<_>>().join(", ");
+                (o, format!("{what} (из кэша)"))
+            }
+            None => {
+                let (outs, label, cacheable) = exec_node(node, inputs, dir, cancel, opts.sandbox.as_ref(), on_event).map_err(|e| format!("{}: {e}", node.name()))?;
+                // В кэш — только дескрипторы: файлы живут в каталоге прогона.
+                if let (Some(k), Some(c), true) = (key, opts.cache, cacheable) {
+                    if !outs.is_empty() && outs.values().all(|v| v.items().iter().all(|x| matches!(x, Val::Handle(_)))) {
+                        c.put(k, &outs);
+                    }
+                }
+                (outs, label)
+            }
+        };
         let summary = summarize(&outs, &label);
-        on_event(Event::Finished { id, name: node.name(), summary: summary.clone() });
+        on_event(Event::Finished { id, name: node.name(), summary: summary.clone(), outputs: outs.clone(), cached });
         steps.push(format!("{}: {summary}", node.name()));
         values.insert(id, outs);
     }
-    let mut report = Report { steps, dir: dir.to_path_buf(), ..Default::default() };
-    let mut texts = Vec::new();
-    for id in flow.result_nodes() {
-        let Some(node) = flow.node(id) else { continue };
-        let Some(main) = ops::spec(&node.kind).and_then(|s| s.main_output()) else { continue };
-        let Some(v) = values.get(&id).and_then(|o| o.get(main.name)) else { continue };
-        let files = v.files();
-        if files.is_empty() {
-            let t = v.text();
-            if !t.trim().is_empty() {
-                texts.push(t);
+    Ok(Report::build(flow, values, steps, dir))
+}
+
+impl Report {
+    /// Итог по выходам нод: файлы и текст нод-результатов.
+    pub fn build(flow: &Flow, values: HashMap<u64, Outputs>, steps: Vec<String>, dir: &Path) -> Report {
+        let mut report = Report { steps, dir: dir.to_path_buf(), ..Default::default() };
+        let mut texts = Vec::new();
+        for id in flow.result_nodes() {
+            let Some(node) = flow.node(id) else { continue };
+            let Some(main) = ops::spec(&node.kind).and_then(|s| s.main_output()) else { continue };
+            let Some(v) = values.get(&id).and_then(|o| o.get(main.name)) else { continue };
+            let files = v.files();
+            if files.is_empty() {
+                let t = v.text();
+                if !t.trim().is_empty() {
+                    texts.push(t);
+                }
+            } else {
+                report.files.extend(files);
             }
-        } else {
-            report.files.extend(files);
         }
+        report.text = texts.join("\n\n");
+        report.values = values;
+        report
     }
-    report.text = texts.join("\n\n");
-    report.values = values;
-    Ok(report)
 }
 
 fn summarize(outs: &Outputs, label: &str) -> String {
     let files: usize = outs.values().map(|v| v.files().len()).sum();
+    let handles = !outs.is_empty() && outs.values().all(|v| v.handle().is_some());
     let what = if files > 0 {
         format!("{files} файл(ов)")
+    } else if handles {
+        // Дескриптор: его подпись и есть описание.
+        if label.is_empty() {
+            outs.values().map(Val::text).collect::<Vec<_>>().join(", ")
+        } else {
+            String::new()
+        }
     } else {
         let t: String = outs.values().map(Val::text).collect::<Vec<_>>().join(" ").chars().take(80).collect();
         format!("текст: {t}")
     };
-    if label.is_empty() {
-        what
-    } else {
-        format!("{what}, {label}")
+    match (what.is_empty(), label.is_empty()) {
+        (true, _) => label.to_string(),
+        (false, true) => what,
+        (false, false) => format!("{what}, {label}"),
     }
 }

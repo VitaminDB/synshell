@@ -194,6 +194,25 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             println!("\n[{} токенов за {:.1} с]", g.tokens, t0.elapsed().as_secs_f32());
         }
+        "flow" => {
+            // synaptixctl flow <граф.json> [каталог] — граф ядра synaptix-flow в службе.
+            let raw = std::fs::read_to_string(arg(1)?).map_err(|e| e.to_string())?;
+            let flow: synaptix_flow::Flow = serde_json::from_str(&raw).map_err(|e| format!("граф: {e}"))?;
+            let dir = std::path::PathBuf::from(args.get(2).map(String::as_str).unwrap_or("."));
+            let t0 = std::time::Instant::now();
+            let r = synaptixd::flow::run(&flow, &dir, &synaptix_flow::Cancel::new(), &mut |e| match e {
+                synaptix_flow::Event::Started { name, item, .. } => eprintln!("[{:>6.1} с] {name}{}", t0.elapsed().as_secs_f32(), item.map(|(k, n)| format!(" — {k} из {n}")).unwrap_or_default()),
+                synaptix_flow::Event::Progress { step, total, .. } => eprint!("\r  шаг {step}/{total}  "),
+                synaptix_flow::Event::Finished { name, summary, cached, .. } => eprintln!("[{:>6.1} с] {name}: {summary}{}", t0.elapsed().as_secs_f32(), if cached { " (кэш)" } else { "" }),
+                _ => {}
+            })?;
+            for f in &r.files {
+                println!("{}", f.display());
+            }
+            if !r.text.is_empty() {
+                println!("{}", r.text);
+            }
+        }
         "image" => {
             // synaptixctl image <модель|-> <выход.png> <описание…>  (REF=путь — референс, W/H/STEPS/SEED)
             let model = if arg(1)? == "-" { "" } else { arg(1)? };

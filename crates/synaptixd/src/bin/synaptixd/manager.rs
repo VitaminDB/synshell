@@ -326,11 +326,28 @@ impl Manager {
         self.auto_pick(kind).ok_or_else(|| Error::new(ErrorCode::NoModel, format!("нет установленных моделей вида {}", kind.id())))
     }
 
+    /// Модель по id; пусто — по умолчанию; абсолютный путь — та, чей файл
+    /// (вариант) лежит по этому пути (шаблоны редактора узлов хранят пути).
     pub fn resolve_id(&self, id: &str, kind: ModelKind) -> Result<String, Error> {
         match id.trim() {
             "" | "auto" | "default" => self.resolve(kind),
+            p if p.starts_with('/') => self.id_by_path(std::path::Path::new(p), kind),
             other => Ok(other.to_string()),
         }
+    }
+
+    fn id_by_path(&self, path: &std::path::Path, kind: ModelKind) -> Result<String, Error> {
+        let want = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let slots = self.slots.lock().unwrap();
+        slots
+            .iter()
+            .filter(|(_, s)| s.manifest.kind == kind)
+            .find(|(_, s)| s.manifest.variants.iter().any(|v| {
+                let p = s.manifest.path(v);
+                std::fs::canonicalize(&p).unwrap_or(p) == want
+            }))
+            .map(|(id, _)| id.clone())
+            .ok_or_else(|| Error::new(ErrorCode::NoModel, format!("{}: такой модели нет в библиотеке службы", path.display())))
     }
 
     pub fn defaults(&self) -> Vec<DefaultModel> {

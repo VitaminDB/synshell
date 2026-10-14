@@ -13,11 +13,22 @@ pub enum PortType {
     /// Список значений (пакет): порт принимает его целиком, без раскрытия.
     List,
     Any,
+    /// Загруженная модель (дескриптор службы).
+    Model,
+    /// Условие: закодированное описание (и референсы).
+    Cond,
+    /// Латент: результат сэмплера или закодированная картинка.
+    Latent,
 }
 
 impl PortType {
     pub fn is_media(self) -> bool {
         matches!(self, PortType::Image | PortType::Audio | PortType::Video | PortType::Media)
+    }
+
+    /// Дескриптор объекта службы — не покидает процесс, исполняющий граф.
+    pub fn is_handle(self) -> bool {
+        matches!(self, PortType::Model | PortType::Cond | PortType::Latent)
     }
 
     /// Можно ли соединить выход `self` со входом `to`. Медиатипы
@@ -28,6 +39,7 @@ impl PortType {
         match (self, to) {
             (_, Any) | (Any, _) => true,
             (a, b) if a == b => true,
+            (a, b) if a.is_handle() || b.is_handle() => false,
             (List, _) | (_, List) => true,
             (a, b) if a.is_media() && b.is_media() => true,
             (Number, Text) | (Text, Number) => true,
@@ -86,6 +98,9 @@ pub struct NodeSpec {
     pub inputs: &'static [PortSpec],
     pub outputs: &'static [PortSpec],
     pub fields: &'static [FieldSpec],
+    /// Стадия модели: исполняется только службой, результат (дескриптор)
+    /// кэшируется — повторный прогон с теми же входами берёт его из кэша.
+    pub stage: bool,
 }
 
 impl NodeSpec {

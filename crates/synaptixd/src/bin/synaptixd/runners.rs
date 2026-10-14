@@ -439,6 +439,20 @@ impl Loaded {
         !matches!(self, Loaded::Image(..) | Loaded::Music(..) | Loaded::Video(..))
     }
 
+    /// Модель картинок для стадий графа: путь, устройство, квант из Параметров.
+    pub fn image_source(&self) -> anyhow::Result<(std::path::PathBuf, DeviceKind, Option<String>)> {
+        let Loaded::Image(path, dev, quant) = self else { anyhow::bail!("модель не рисует картинки") };
+        Ok((path.clone(), *dev, quant.clone()))
+    }
+
+    /// MiniMax-H3 для стадий графа: модель, энкодер, устройство, квант.
+    pub fn h3_source(&self) -> anyhow::Result<(std::path::PathBuf, Option<std::path::PathBuf>, DeviceKind, Option<String>)> {
+        match self {
+            Loaded::Video(VideoModel::H3 { model, encoder }, dev, quant) => Ok((model.clone(), encoder.clone(), *dev, quant.clone())),
+            _ => anyhow::bail!("это не MiniMax-H3"),
+        }
+    }
+
     /// Картинка: PNG-байты, ответ; `progress(шаг, всего) -> продолжать`.
     pub fn image(&self, req: &synaptix_gen::image::ImageRequest, progress: &mut dyn FnMut(usize, usize) -> bool) -> anyhow::Result<(Vec<u8>, synaptix_gen::image::ImageOutput)> {
         let Loaded::Image(path, dev, quant) = self else { anyhow::bail!("модель не рисует картинки") };

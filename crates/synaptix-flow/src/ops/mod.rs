@@ -1,13 +1,17 @@
-//! Виды нод: данные (текст, файл, шаблон, строки), генерация через службу
-//! (LLM, картинка, видео, музыка, речь, расшифровка) и монтаж ffmpeg
+//! Виды нод: данные (текст, файл, шаблон, строки), генерация в службе
+//! (LLM, картинка, видео, музыка, речь, расшифровка), стадии моделей
+//! ([`stages`]: модель → условие → латент → картинка/ролик) и монтаж ffmpeg
 //! (склейка, наложение звука, кадр, обрезка, картинка в ролик).
+
+use std::collections::HashMap;
+use std::sync::{OnceLock, RwLock};
 
 use crate::run::OpFn;
 use crate::schema::{field, port, FieldType as F, NodeSpec, PortType as P};
 
 mod data;
 pub mod media;
-mod service;
+pub mod stages;
 
 const GEN: &str = "Генерация";
 const EDIT: &str = "Монтаж";
@@ -21,6 +25,7 @@ pub static TEXT: NodeSpec = NodeSpec {
     inputs: &[],
     outputs: &[port("text", "Текст", P::Text)],
     fields: &[field("text", "Текст", F::LongText, "")],
+    stage: false,
 };
 
 pub static FILE: NodeSpec = NodeSpec {
@@ -31,6 +36,7 @@ pub static FILE: NodeSpec = NodeSpec {
     inputs: &[],
     outputs: &[port("file", "Файл", P::Media)],
     fields: &[field("path", "Путь", F::File, "")],
+    stage: false,
 };
 
 pub static FORMAT: NodeSpec = NodeSpec {
@@ -48,6 +54,7 @@ pub static FORMAT: NodeSpec = NodeSpec {
     ],
     outputs: &[port("text", "Текст", P::Text)],
     fields: &[field("template", "Шаблон", F::LongText, "")],
+    stage: false,
 };
 
 pub static LINES: NodeSpec = NodeSpec {
@@ -58,6 +65,7 @@ pub static LINES: NodeSpec = NodeSpec {
     inputs: &[port("text", "Текст", P::Text)],
     outputs: &[port("list", "Список", P::List)],
     fields: &[],
+    stage: false,
 };
 
 pub static LIST: NodeSpec = NodeSpec {
@@ -75,6 +83,7 @@ pub static LIST: NodeSpec = NodeSpec {
     ],
     outputs: &[port("list", "Список", P::List)],
     fields: &[field("items", "Элементы (по строке)", F::LongText, "")],
+    stage: false,
 };
 
 pub static LLM: NodeSpec = NodeSpec {
@@ -90,6 +99,7 @@ pub static LLM: NodeSpec = NodeSpec {
         field("model", "Модель", F::Text, ""),
         field("max_tokens", "Токенов", F::Number, "0"),
     ],
+    stage: false,
 };
 
 pub static IMAGE: NodeSpec = NodeSpec {
@@ -110,6 +120,7 @@ pub static IMAGE: NodeSpec = NodeSpec {
         field("strength", "Сила (img2img)", F::Number, "0"),
         field("seed", "Сид", F::Number, "0"),
     ],
+    stage: false,
 };
 
 pub const CONTROLS: &[&str] = &["", "union", "canny", "motion-track"];
@@ -147,6 +158,7 @@ pub static VIDEO: NodeSpec = NodeSpec {
         field("strength", "Сила", F::Number, "0"),
         field("two_stage", "Две стадии", F::Bool, "false"),
     ],
+    stage: false,
 };
 
 pub static MUSIC: NodeSpec = NodeSpec {
@@ -163,6 +175,7 @@ pub static MUSIC: NodeSpec = NodeSpec {
         field("seconds", "Секунд", F::Number, "0"),
         field("seed", "Сид", F::Number, "0"),
     ],
+    stage: false,
 };
 
 pub static SPEAK: NodeSpec = NodeSpec {
@@ -178,6 +191,7 @@ pub static SPEAK: NodeSpec = NodeSpec {
         field("language", "Язык", F::Text, ""),
         field("model", "Модель", F::Text, ""),
     ],
+    stage: false,
 };
 
 pub static TRANSCRIBE: NodeSpec = NodeSpec {
@@ -188,6 +202,7 @@ pub static TRANSCRIBE: NodeSpec = NodeSpec {
     inputs: &[port("file", "Звук или ролик", P::Media)],
     outputs: &[port("text", "Текст", P::Text)],
     fields: &[field("language", "Язык", F::Text, "")],
+    stage: false,
 };
 
 pub static CONCAT: NodeSpec = NodeSpec {
@@ -204,6 +219,7 @@ pub static CONCAT: NodeSpec = NodeSpec {
     ],
     outputs: &[port("file", "Результат", P::Media)],
     fields: &[],
+    stage: false,
 };
 
 pub const MUX_MODES: &[&str] = &["replace", "mix"];
@@ -216,6 +232,7 @@ pub static MUX: NodeSpec = NodeSpec {
     inputs: &[port("video", "Ролик", P::Video), port("audio", "Звук", P::Audio)],
     outputs: &[port("video", "Ролик", P::Video)],
     fields: &[field("mode", "Режим", F::Choice(MUX_MODES), "replace"), field("volume", "Громкость (mix)", F::Number, "0.8")],
+    stage: false,
 };
 
 pub static FRAME: NodeSpec = NodeSpec {
@@ -226,6 +243,7 @@ pub static FRAME: NodeSpec = NodeSpec {
     inputs: &[port("video", "Ролик", P::Video)],
     outputs: &[port("image", "Кадр", P::Image)],
     fields: &[field("at", "Где (first / last / секунда)", F::Text, "last")],
+    stage: false,
 };
 
 pub static TRIM: NodeSpec = NodeSpec {
@@ -236,6 +254,7 @@ pub static TRIM: NodeSpec = NodeSpec {
     inputs: &[port("file", "Файл", P::Media)],
     outputs: &[port("file", "Отрезок", P::Media)],
     fields: &[field("start", "С, с", F::Number, "0"), field("end", "По, с (0 — до конца)", F::Number, "0")],
+    stage: false,
 };
 
 pub static STILL: NodeSpec = NodeSpec {
@@ -246,38 +265,57 @@ pub static STILL: NodeSpec = NodeSpec {
     inputs: &[port("image", "Картинка", P::Image), port("audio", "Звук", P::Audio)],
     outputs: &[port("video", "Ролик", P::Video)],
     fields: &[field("seconds", "Секунд (без звука)", F::Number, "5")],
+    stage: false,
 };
 
-static ALL: &[(&NodeSpec, OpFn)] = &[
-    (&TEXT, data::text),
-    (&FILE, data::file),
-    (&FORMAT, data::format),
-    (&LINES, data::lines),
-    (&LIST, data::list),
-    (&LLM, service::llm),
-    (&IMAGE, service::image),
-    (&VIDEO, service::video),
-    (&MUSIC, service::music),
-    (&SPEAK, service::speak),
-    (&TRANSCRIBE, service::transcribe),
-    (&CONCAT, media::concat),
-    (&MUX, media::mux),
-    (&FRAME, media::frame),
-    (&TRIM, media::trim),
-    (&STILL, media::still),
+/// Виды нод и их исполнители в этом процессе. Генерация (`None`) —
+/// только в службе: она подставляет исполнителей через [`provide`].
+static ALL: &[(&NodeSpec, Option<OpFn>)] = &[
+    (&TEXT, Some(data::text)),
+    (&FILE, Some(data::file)),
+    (&FORMAT, Some(data::format)),
+    (&LINES, Some(data::lines)),
+    (&LIST, Some(data::list)),
+    (&LLM, None),
+    (&IMAGE, None),
+    (&VIDEO, None),
+    (&MUSIC, None),
+    (&SPEAK, None),
+    (&TRANSCRIBE, None),
+    (&CONCAT, Some(media::concat)),
+    (&MUX, Some(media::mux)),
+    (&FRAME, Some(media::frame)),
+    (&TRIM, Some(media::trim)),
+    (&STILL, Some(media::still)),
 ];
 
-pub fn lookup(kind: &str) -> Option<(&'static NodeSpec, OpFn)> {
-    ALL.iter().find(|(s, _)| s.kind == kind).map(|&(s, f)| (s, f))
+fn provided() -> &'static RwLock<HashMap<&'static str, OpFn>> {
+    static P: OnceLock<RwLock<HashMap<&'static str, OpFn>>> = OnceLock::new();
+    P.get_or_init(Default::default)
+}
+
+/// Исполнитель вида ноды для этого процесса (служба — генерация и стадии
+/// моделей). Перекрывает встроенный.
+pub fn provide(kind: &'static str, op: OpFn) {
+    if let Ok(mut p) = provided().write() {
+        p.insert(kind, op);
+    }
+}
+
+/// Описание вида ноды и исполнитель, если он есть в этом процессе.
+pub fn lookup(kind: &str) -> Option<(&'static NodeSpec, Option<OpFn>)> {
+    let spec = spec(kind)?;
+    let own = provided().read().ok().and_then(|p| p.get(kind).copied());
+    Some((spec, own.or_else(|| ALL.iter().find(|(s, _)| s.kind == kind).and_then(|(_, f)| *f))))
 }
 
 pub fn spec(kind: &str) -> Option<&'static NodeSpec> {
-    lookup(kind).map(|(s, _)| s)
+    specs().find(|s| s.kind == kind)
 }
 
 /// Все виды нод.
 pub fn specs() -> impl Iterator<Item = &'static NodeSpec> {
-    ALL.iter().map(|(s, _)| *s)
+    ALL.iter().map(|(s, _)| *s).chain(stages::ALL.iter().copied())
 }
 
 pub fn kinds() -> Vec<&'static str> {

@@ -157,3 +157,35 @@ pub fn still(cx: &mut Cx) -> R {
     cx.out("video", Val::File(path));
     Ok(())
 }
+
+/// Моно 16 бит WAV из отсчётов −1..1.
+pub fn wav_mono(pcm: &[f32], rate: u32) -> Vec<u8> {
+    let data_len = (pcm.len() * 2) as u32;
+    let mut w = Vec::with_capacity(44 + pcm.len() * 2);
+    w.extend_from_slice(b"RIFF");
+    w.extend_from_slice(&(36 + data_len).to_le_bytes());
+    w.extend_from_slice(b"WAVEfmt ");
+    w.extend_from_slice(&16u32.to_le_bytes());
+    w.extend_from_slice(&1u16.to_le_bytes());
+    w.extend_from_slice(&1u16.to_le_bytes());
+    w.extend_from_slice(&rate.to_le_bytes());
+    w.extend_from_slice(&(rate * 2).to_le_bytes());
+    w.extend_from_slice(&2u16.to_le_bytes());
+    w.extend_from_slice(&16u16.to_le_bytes());
+    w.extend_from_slice(b"data");
+    w.extend_from_slice(&data_len.to_le_bytes());
+    for &x in pcm {
+        w.extend_from_slice(&((x.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes());
+    }
+    w
+}
+
+/// Звук или звуковая дорожка ролика — моно f32 с частотой `rate`.
+pub fn decode_pcm(src: &str, rate: u32) -> Result<Vec<f32>, String> {
+    let out = Command::new("ffmpeg").args(["-v", "error", "-i", src, "-vn", "-ac", "1", "-ar", &rate.to_string(), "-f", "f32le", "-"]).output().map_err(|e| format!("ffmpeg: {e}"))?;
+    let pcm: Vec<f32> = out.stdout.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
+    if pcm.is_empty() {
+        return Err(format!("в {src} нет звука"));
+    }
+    Ok(pcm)
+}

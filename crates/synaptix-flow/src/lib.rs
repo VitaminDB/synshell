@@ -1,5 +1,8 @@
 //! Безголовое ядро нодового движка — общее для ассистента (рецепты),
-//! службы (`op flow`) и редактора узлов Synthos.
+//! службы (`op flow`) и редактора узлов Synthos. Граф с генерацией
+//! исполняет служба synaptixd (клиенты — `synaptixd::flow`): ноды
+//! генерации и стадии моделей есть только там, тензоры между стадиями —
+//! дескрипторы в её памяти.
 //!
 //! - [`schema`] — типы портов и полей, описание вида ноды;
 //! - [`doc::Flow`] — граф: ноды с полями и связи порт → порт (формат связей
@@ -7,7 +10,8 @@
 //! - [`order::topo`] — порядок исполнения (им же пользуется Synthos);
 //! - [`run()`] — прогон: нода за нодой, список на входе не типа `List` — пакет
 //!   (нода выполняется для каждого элемента), отмена и ход генерации;
-//! - [`ops`] — виды нод: данные, генерация через службу synaptixd, монтаж ffmpeg.
+//! - [`ops`] — виды нод: данные, генерация и стадии моделей (исполняет служба),
+//!   монтаж ffmpeg.
 
 pub mod doc;
 pub mod ops;
@@ -17,9 +21,9 @@ pub mod schema;
 pub mod value;
 
 pub use doc::{Flow, FlowNode, Link};
-pub use run::{run, run_node, Cancel, Cx, Event, Outputs, Report};
+pub use run::{run, run_node, run_with, Cancel, Cx, Event, Outputs, Report, RunOpts, Sandbox, StageCache};
 pub use schema::{FieldSpec, FieldType, NodeSpec, PortSpec, PortType};
-pub use value::Val;
+pub use value::{Handle, Val};
 
 /// Длительность медиафайла, с (ffprobe).
 pub use ops::media::media_seconds;

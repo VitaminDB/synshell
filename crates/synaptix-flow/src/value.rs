@@ -1,6 +1,11 @@
-//! Значения на портах: текст, число, файл, список (пакет).
+//! Значения на портах: текст, число, файл, список (пакет) и дескриптор —
+//! объект службы (модель, условие, латент), который живёт только в процессе,
+//! исполняющем граф.
 
+use std::any::Any;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
@@ -14,6 +19,64 @@ pub enum Val {
     Number(f64),
     File(PathBuf),
     List(Vec<Val>),
+    /// Объект в памяти исполнителя; наружу уходит только подпись.
+    Handle(Handle),
+}
+
+/// Дескриптор объекта (модель, условие, латент). Сравнение и хэш — по
+/// номеру: копии одного дескриптора равны, новый объект — новый номер.
+#[derive(Clone)]
+pub struct Handle {
+    id: u64,
+    /// Подпись: «FLUX.1 dev», «латент 1024×1024».
+    pub label: String,
+    data: Option<Arc<dyn Any + Send + Sync>>,
+}
+
+static NEXT_HANDLE: AtomicU64 = AtomicU64::new(1);
+
+impl Handle {
+    pub fn new<T: Any + Send + Sync>(label: impl Into<String>, data: T) -> Self {
+        Self::from_arc(label, Arc::new(data))
+    }
+
+    pub fn from_arc<T: Any + Send + Sync>(label: impl Into<String>, data: Arc<T>) -> Self {
+        Self { id: NEXT_HANDLE.fetch_add(1, Ordering::Relaxed), label: label.into(), data: Some(data) }
+    }
+
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    /// Объект нужного типа (у дескриптора, пришедшего извне, объекта нет).
+    pub fn get<T: Any + Send + Sync>(&self) -> Option<Arc<T>> {
+        self.data.clone()?.downcast::<T>().ok()
+    }
+}
+
+impl PartialEq for Handle {
+    fn eq(&self, o: &Self) -> bool {
+        self.id == o.id
+    }
+}
+
+impl std::fmt::Debug for Handle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Handle#{}({})", self.id, self.label)
+    }
+}
+
+impl Serialize for Handle {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.label)
+    }
+}
+
+impl<'de> Deserialize<'de> for Handle {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let label = String::deserialize(d)?;
+        Ok(Self { id: 0, label, data: None })
+    }
 }
 
 impl Val {
@@ -34,6 +97,25 @@ impl Val {
             Val::Number(n) => fmt_num(*n),
             Val::File(p) => p.display().to_string(),
             Val::List(l) => l.iter().map(Val::text).collect::<Vec<_>>().join("\n"),
+            Val::Handle(h) => h.label.clone(),
+        }
+    }
+
+    /// Дескриптор (у списка — первого элемента-дескриптора).
+    pub fn handle(&self) -> Option<&Handle> {
+        match self {
+            Val::Handle(h) => Some(h),
+            Val::List(l) => l.iter().find_map(Val::handle),
+            _ => None,
+        }
+    }
+
+    /// Файлы (рекурсивно) с заменой — для перевода путей между процессами.
+    pub fn map_files(&self, f: &mut dyn FnMut(&Path) -> PathBuf) -> Val {
+        match self {
+            Val::File(p) => Val::File(f(p)),
+            Val::List(l) => Val::List(l.iter().map(|v| v.map_files(f)).collect()),
+            other => other.clone(),
         }
     }
 

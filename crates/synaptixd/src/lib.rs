@@ -1,3 +1,4 @@
+pub mod flow;
 pub mod params;
 pub mod wire;
 
@@ -581,7 +582,32 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         tools: Vec<Value>,
     },
+    /// Граф ядра synaptix-flow целиком в службе (генерация, стадии моделей,
+    /// монтаж). Входные файлы — fd запроса: в полях и входах они записаны
+    /// как `@in:<номер>`, имена — в `files`. Ход и выходы нод — события
+    /// `flow`, файлы выходов — fd событий `flow_files`.
+    Flow {
+        flow: Value,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        inputs: Vec<FlowInput>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        files: Vec<String>,
+    },
     Subscribe,
+}
+
+/// Готовое значение на входе ноды графа (с ноды вне графа).
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct FlowInput {
+    pub node: u64,
+    pub port: String,
+    pub value: synaptix_flow::Val,
+}
+
+/// Итог прогона графа в службе (выходы нод пришли событиями).
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct FlowReply {
+    pub steps: Vec<String>,
 }
 
 fn double_option<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(d: D) -> std::result::Result<Option<Option<T>>, D::Error> {
@@ -618,6 +644,10 @@ pub enum Event {
     /// Ход генерации: шаг из всего.
     Progress { step: usize, total: usize },
     ModelsChanged,
+    /// Событие прогона графа; файлы в выходах — `@out:<номер>`.
+    Flow { node: synaptix_flow::Event },
+    /// Файлы выходов графа: fd сообщения — `@out:<first>`, `@out:<first+1>`, …
+    FlowFiles { first: usize, names: Vec<String> },
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]

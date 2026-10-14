@@ -6937,7 +6937,6 @@ version = "0.1.42"
 dependencies = [
  "serde",
  "serde_json",
- "synaptixd",
  "tempfile",
 ]
 
@@ -7497,6 +7496,7 @@ dependencies = [
  "synaptix-align-mfa",
  "synaptix-asr-wav2vec2",
  "synaptix-core",
+ "synaptix-flow",
  "synaptix-gen",
  "synaptix-kernels-cpu",
  "synaptix-kernels-cuda",

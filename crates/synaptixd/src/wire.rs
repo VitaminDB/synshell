@@ -5,7 +5,8 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
 pub const MAX_MSG: usize = 4 << 20;
-pub const MAX_FDS: usize = 8;
+/// Файлов в одном сообщении (входы графа — до стольких за запрос).
+pub const MAX_FDS: usize = 64;
 
 fn cvt(r: libc::c_int) -> io::Result<libc::c_int> {
     if r < 0 {

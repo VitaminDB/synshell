@@ -2,6 +2,9 @@ mod config;
 mod defaults;
 mod library;
 mod devices;
+mod flow;
+mod gen;
+mod stages;
 mod manager;
 mod registry;
 mod runners;
@@ -49,10 +52,6 @@ fn is_admin(uid: u32) -> bool {
 
 fn data<T: Serialize>(v: T) -> Value {
     serde_json::to_value(v).unwrap_or(Value::Null)
-}
-
-fn random_seed() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1) % 1_000_000_007
 }
 
 fn pcm_from(fds: &mut [Option<OwnedFd>], r: FdRef, samples: usize) -> Result<Mapped, Error> {
@@ -187,65 +186,21 @@ impl Conn {
                 (data(al), none())
             }
             Request::Image { model, prompt, negative, width, height, steps, guidance, seed, images, init, strength } => {
-                let model = mgr.resolve_id(&model, ModelKind::Image)?;
-                // Параметры модели из Параметров — умолчания, явные значения запроса сильнее.
-                let mp = mgr.params(&model, &Params::new());
-                let seed = seed.or_else(|| mp.i64("seed").filter(|s| *s >= 0).map(|s| s as u64)).unwrap_or_else(random_seed);
-                let req = synaptix_gen::image::ImageRequest {
-                    prompt,
-                    negative: negative.or_else(|| mp.text("negative_prompt").filter(|t| !t.trim().is_empty()).map(String::from)),
-                    width: width.or(mp.u32("width").map(|v| v as usize)),
-                    height: height.or(mp.u32("height").map(|v| v as usize)),
-                    steps: steps.or(mp.u32("steps").map(|v| v as usize)),
-                    guidance: guidance.or(mp.f32("guidance")),
-                    seed,
-                    images: images.into_iter().map(std::path::PathBuf::from).collect(),
-                    init: init.map(std::path::PathBuf::from),
-                    strength,
-                    quant: None,
-                };
+                let p = synaptixd::ImageParams { negative, width, height, steps, guidance, seed, images, init, strength };
                 let sock = self.sock.as_fd();
                 let id = self.current;
                 // Клиент ушёл (отправка не прошла) — отмена генерации.
-                let send = |step: usize, total: usize| -> bool {
+                let mut send = |step: usize, total: usize| -> bool {
                     let r = Reply { id, event: Some(synaptixd::Event::Progress { step, total }), ..Default::default() };
                     wire::send(sock, &serde_json::to_vec(&r).unwrap_or_default(), &[]).is_ok()
                 };
-                mgr.clear_device(&model, synaptixd::DeviceKind::Cuda, "генерация картинки");
-                let r = mgr.run(&model, |m| m.image(&req, &mut |i, n| send(i, n)));
-                // Этапы пайплайна оставляют гигабайты в CUDA-пулах — вернуть драйверу.
-                manager::release_vram(Some(synaptixd::DeviceKind::Cuda));
-                let (png, out) = r?;
-                let fd = wire::memfd("image", &png)?;
-                let reply = synaptixd::ImageReply { width: out.width, height: out.height, seed, label: out.label, png: FdRef { fd: 0 }, bytes: png.len() };
+                let r = gen::image(&mgr, &model, prompt, p, &mut send)?;
+                let fd = wire::memfd("image", &r.png)?;
+                let reply = synaptixd::ImageReply { width: r.width, height: r.height, seed: r.seed, label: r.label, png: FdRef { fd: 0 }, bytes: r.png.len() };
                 (data(reply), vec![fd])
             }
             Request::Video { model, prompt, negative, width, height, seconds, steps, guidance, seed, first_frame, last_frame, refs, audio, source_video, retake, extend, control_video, control, two_stage, strength } => {
-                let model = mgr.resolve_id(&model, ModelKind::Video)?;
-                let mp = mgr.params(&model, &Params::new());
-                let seed = seed.or_else(|| mp.i64("seed").filter(|s| *s >= 0).map(|s| s as u64)).unwrap_or_else(random_seed);
-                let req = synaptix_gen::video::VideoRequest {
-                    prompt,
-                    negative: negative.or_else(|| mp.text("negative_prompt").filter(|t| !t.trim().is_empty()).map(String::from)),
-                    width: width.or(mp.u32("width").map(|v| v as usize)),
-                    height: height.or(mp.u32("height").map(|v| v as usize)),
-                    seconds: seconds.or(mp.f32("duration").map(|v| v as f64)),
-                    steps: steps.or(mp.u32("steps").map(|v| v as usize)),
-                    guidance: guidance.or(mp.f32("guidance")),
-                    seed,
-                    first_frame: first_frame.map(std::path::PathBuf::from),
-                    last_frame: last_frame.map(std::path::PathBuf::from),
-                    refs: refs.into_iter().map(std::path::PathBuf::from).collect(),
-                    quant: None,
-                    audio: audio.map(std::path::PathBuf::from),
-                    source_video: source_video.map(std::path::PathBuf::from),
-                    retake,
-                    extend,
-                    control_video: control_video.map(std::path::PathBuf::from),
-                    control,
-                    two_stage,
-                    strength,
-                };
+                let p = synaptixd::VideoParams { negative, width, height, seconds, steps, guidance, seed, first_frame, last_frame, refs, audio, source_video, retake, extend, control_video, control, two_stage, strength };
                 let raw = self.sock.as_raw_fd();
                 let id = self.current;
                 let cancel = std::sync::atomic::AtomicBool::new(false);
@@ -256,44 +211,28 @@ impl Conn {
                         cancel.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
                 };
-                mgr.clear_device(&model, synaptixd::DeviceKind::Cuda, "генерация видео");
-                let r = mgr.run(&model, |m| m.video(&req, &cancel, &send));
-                manager::release_vram(Some(synaptixd::DeviceKind::Cuda));
-                let (mp4, out) = r?;
-                let fd = wire::memfd("video", &mp4)?;
-                let reply = synaptixd::VideoReply { width: out.width, height: out.height, frames: out.frames, fps: out.fps, seed, label: out.label, mp4: FdRef { fd: 0 }, bytes: mp4.len() };
+                let r = gen::video(&mgr, &model, prompt, p, &cancel, &send)?;
+                let fd = wire::memfd("video", &r.mp4)?;
+                let o = r.out;
+                let reply = synaptixd::VideoReply { width: o.width, height: o.height, frames: o.frames, fps: o.fps, seed: r.seed, label: o.label, mp4: FdRef { fd: 0 }, bytes: r.mp4.len() };
                 (data(reply), vec![fd])
             }
             Request::Music { model, prompt, lyrics, seconds, seed, steps } => {
-                let model = mgr.resolve_id(&model, ModelKind::Music)?;
-                let mp = mgr.params(&model, &Params::new());
-                let seed = seed.or_else(|| mp.i64("seed").filter(|s| *s >= 0).map(|s| s as u64)).unwrap_or_else(random_seed);
-                let req = synaptix_gen::music::MusicRequest {
-                    prompt,
-                    lyrics,
-                    seconds: seconds.or(mp.f32("duration").map(|v| v.round() as u32)).unwrap_or(0),
-                    seed,
-                    steps: steps.or(mp.u32("steps").map(|v| v as usize)),
-                    guidance: mp.f32("guidance"),
-                    quant: None,
-                };
                 let sock = self.sock.as_fd();
                 let id = self.current;
                 let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                 let c2 = cancel.clone();
-                let send = |step: usize, total: usize| {
+                let mut send = |step: usize, total: usize| {
                     let r = Reply { id, event: Some(synaptixd::Event::Progress { step, total }), ..Default::default() };
                     if wire::send(sock, &serde_json::to_vec(&r).unwrap_or_default(), &[]).is_err() {
                         c2.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
                 };
-                mgr.clear_device(&model, synaptixd::DeviceKind::Cuda, "генерация музыки");
-                let r = mgr.run(&model, |m| m.music(&req, cancel.clone(), &mut |i, n| send(i, n)));
-                manager::release_vram(Some(synaptixd::DeviceKind::Cuda));
-                let (wav, out) = r?;
-                let fd = wire::memfd("music", &wav)?;
-                let seconds = out.samples.len() as f32 / (out.sample_rate.max(1) as f32 * out.channels.max(1) as f32);
-                let reply = synaptixd::MusicReply { seconds, sample_rate: out.sample_rate, channels: out.channels, seed, label: out.label, wav: FdRef { fd: 0 }, bytes: wav.len() };
+                let r = gen::music(&mgr, &model, prompt, lyrics, seconds, seed, steps, cancel.clone(), &mut send)?;
+                let fd = wire::memfd("music", &r.wav)?;
+                let o = r.out;
+                let seconds = o.samples.len() as f32 / (o.sample_rate.max(1) as f32 * o.channels.max(1) as f32);
+                let reply = synaptixd::MusicReply { seconds, sample_rate: o.sample_rate, channels: o.channels, seed: r.seed, label: o.label, wav: FdRef { fd: 0 }, bytes: r.wav.len() };
                 (data(reply), vec![fd])
             }
             Request::Embed { model, texts } => {
@@ -351,6 +290,7 @@ impl Conn {
                 let g = mgr.run(&model, |m| m.generate(&messages, &params, &tools, &send))?;
                 (data(g), none())
             }
+            Request::Flow { flow, inputs, files } => flow::serve(&mgr, self.sock.as_fd(), self.current, flow, inputs, files, fds.into_iter().flatten().collect())?,
             Request::Subscribe => unreachable!(),
         })
     }

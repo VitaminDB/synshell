@@ -1,5 +1,5 @@
 //! Исполнение рецепта: компиляция в граф ядра `synaptix-flow` и его
-//! прогон. Ход — строками «узел (операция)», «… — k из n», «… · шаг/всего».
+//! прогон службой synaptixd (`op flow`). Ход — строками «узел (операция)», «… — k из n», «… · шаг/всего».
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -40,7 +40,7 @@ pub fn run_cancellable(graph: &Graph, params: &Map<String, Value>, dir: &Path, c
     let ops: HashMap<String, String> = graph.nodes.iter().map(|n| (n.id.clone(), n.op.clone())).collect();
     let heads: HashMap<u64, String> = flow.nodes.iter().filter_map(|n| ops.get(&n.label).map(|op| (n.id, format!("{} ({op})", n.label)))).collect();
     let mut current: HashMap<u64, String> = HashMap::new();
-    let r = synaptix_flow::run(&flow, dir, cancel, &mut |e| match e {
+    let r = synaptixd::flow::run(&flow, dir, cancel, &mut |e| match e {
         Event::Started { id, item, .. } => {
             if let Some(h) = heads.get(&id) {
                 let h = match item {
