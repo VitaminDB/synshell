@@ -1648,9 +1648,10 @@ TextField {
 .assist-results { padding: 0px 0px 0px 38px; }
 .assist-result { width: 240px; height: 240px; border-radius: 12px; border-width: 1px; border-color: var(--border); background-color: var(--surface-alt); }
 .assist-result-img { width: 240px; height: 240px; border-radius: 12px; }
-.assist-audio { padding: 8px 12px; border-radius: 12px; background-color: var(--surface-alt); border-width: 1px; border-color: var(--border); }
+.assist-audio { width: 100%; padding: 8px 12px; border-radius: 12px; background-color: var(--surface-alt); border-width: 1px; border-color: var(--border); }
 .assist-audio-name { font-size: 12px; color: var(--fg); }
-.assist-video { width: 520px; height: 292px; border-radius: 12px; }
+.assist-video { width: 100%; height: 300px; border-radius: 12px; }
+.assist-video-box { width: 100%; height: 300px; border-radius: 12px; border-width: 1px; border-color: var(--border); background-color: var(--surface-alt); }
 .assist-play.big { width: 48px; height: 48px; }
 .assist-progress-box { padding: 0px 0px 0px 24px; }
 .assist-progress { height: 6px; border-radius: 3px; background-color: var(--surface-alt); color: var(--accent); accent-color: var(--accent); }

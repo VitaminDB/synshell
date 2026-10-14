@@ -673,9 +673,22 @@ fn conversation(cfg: VoiceConfig, turn: Turn, on: Listener) {
     on(VoiceEvent::Vis(Some(rec.vis_handle())));
     let mut vad = Vad::new(sr).with_noise_level(cfg.noise_level);
     on(VoiceEvent::Phase(Phase::Listening));
+    let mut held = false;
     loop {
         if f.stop.load(Ordering::Acquire) {
             break;
+        }
+        // Играет звук или ролик — запись на паузе; после — с чистого листа.
+        let hold = f.held.load(Ordering::Acquire);
+        if hold != held {
+            held = hold;
+            if hold {
+                rec.pause();
+            } else {
+                vad.reset();
+                while rx.try_recv().is_ok() {}
+                rec.resume();
+            }
         }
         let chunk = match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(c) => c,
@@ -734,6 +747,7 @@ fn conversation(cfg: VoiceConfig, turn: Turn, on: Listener) {
         vad.set_noise_level(VoiceConfig::load().noise_level);
         while rx.try_recv().is_ok() {}
         rec.resume();
+        held = false;
         on(VoiceEvent::Phase(Phase::Listening));
     }
     drop(rec);

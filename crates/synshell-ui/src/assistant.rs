@@ -66,6 +66,8 @@ struct Panel {
     drag_over: RwSignal<bool>,
     /// Файлы, созданные инструментами за этот ответ (картинки, звук…).
     results: RwSignal<Vec<std::path::PathBuf>>,
+    /// Играет звук или ролик — разговор не слушает микрофон.
+    held: RwSignal<bool>,
 }
 
 thread_local! {
@@ -107,6 +109,7 @@ fn panel() -> Panel {
                 attachments: use_signal(Vec::new()),
                 drag_over: use_signal(false),
                 results: use_signal(Vec::new()),
+                held: use_signal(false),
             };
             p.set(Some(v));
             v
@@ -307,7 +310,15 @@ fn stop_media() {
         p.stop();
     }
     VIDEO_PLAYER.with(|v| v.borrow_mut().take());
-    synassist_voice::set_held(false);
+    set_held(false);
+}
+
+fn set_held(held: bool) {
+    synassist_voice::set_held(held);
+    let p = panel();
+    if p.held.get_untracked() != held {
+        p.held.set(held);
+    }
 }
 
 fn fmt_time(s: f64) -> String {
@@ -360,13 +371,13 @@ fn hold_mic_while_playing() {
     thread_local! {
         static WATCHING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     }
-    synassist_voice::set_held(media_playing());
+    set_held(media_playing());
     if WATCHING.with(|w| w.replace(true)) {
         return;
     }
     syngui_layer::add_timer(Duration::from_millis(250), || {
         let playing = media_playing();
-        synassist_voice::set_held(playing);
+        set_held(playing);
         if !playing {
             WATCHING.with(|w| w.set(false));
         }
@@ -430,7 +441,7 @@ fn audio_row(path: std::path::PathBuf) -> Box<dyn Widget> {
             bump_media();
         });
         let p2 = path.clone();
-        let slider = Slider::new().range(0.0, dur.max(0.01) as f32).value(pos as f32).width(260.0).on_change(move |v| {
+        let slider = Slider::new().range(0.0, dur.max(0.01) as f32).value(pos as f32).on_change(move |v| {
             AUDIO_PLAYER.with(|a| {
                 if let Some((p, pl)) = a.borrow().as_ref() {
                     if *p == p2 {
@@ -447,7 +458,7 @@ fn audio_row(path: std::path::PathBuf) -> Box<dyn Widget> {
                         .gap(10.0)
                         .cross_axis_alignment(CrossAxisAlignment::Center)
                         .child(toggle)
-                        .child(Column::new().gap(2.0).child(Text::new(name).max_lines(1).class("assist-audio-name")).child(slider))
+                        .child(Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("grow").child(Text::new(name).max_lines(1).class("assist-audio-name")).child(slider))
                         .child(Text::new(if dur > 0.0 { format!("{} / {}", fmt_time(pos), fmt_time(dur)) } else { String::new() }).class("assist-hint")),
                 ),
         ) as Box<dyn Widget>
@@ -464,17 +475,17 @@ fn video_tile(path: std::path::PathBuf) -> Box<dyn Widget> {
             return Box::new(DecoratedBox::new().class("assist-video").child(syngui::widgets::visual::video_view::VideoPlayerView::file(pl).compact(true).build())) as Box<dyn Widget>;
         }
         let poster: Box<dyn Widget> = match video_poster(&path) {
-            Some(p) => Box::new(Image::new(p.to_string_lossy()).fit(ImageFit::Cover).class("assist-result-img")),
-            None => Box::new(DecoratedBox::new().class("assist-result-img assist-thumb-empty")),
+            Some(p) => Box::new(Image::new(p.to_string_lossy()).fit(ImageFit::Cover).class("assist-video")),
+            None => Box::new(DecoratedBox::new().class("assist-video assist-thumb-empty")),
         };
         let play = Column::new()
             .main_axis_alignment(MainAxisAlignment::Center)
             .cross_axis_alignment(CrossAxisAlignment::Center)
-            .class("assist-result-img")
+            .class("assist-video")
             .child(DecoratedBox::new().class("assist-play big").child(icon(PLAY).class("assist-play-ic")));
         let p = path.clone();
         Box::new(
-            crate::ui::InputArea::new(DecoratedBox::new().child(Stack::new().child(poster).child(play)).class("assist-result").clip(true)).pointer().on_click(move |b, _, _| {
+            crate::ui::InputArea::new(DecoratedBox::new().child(Stack::new().child(poster).child(play)).class("assist-video-box").clip(true)).pointer().on_click(move |b, _, _| {
                 if b != syngui::input::MouseButton::Left {
                     return;
                 }
@@ -865,7 +876,8 @@ fn aura(handle: Option<VisHandle>, phase: Phase) -> Box<dyn Widget> {
 
 fn voice_stage(p: Panel) -> Box<dyn Widget> {
     let stage = rx(move || {
-        let handle = p.vis.get();
+        // Пока играет результат, микрофон на паузе — аура не «слушает».
+        let handle = p.vis.get().filter(|_| !p.held.get());
         let phase = p.phase.get();
         let muted = p.muted.get();
         let (glyph, label) = match phase {
@@ -898,6 +910,8 @@ fn voice_stage(p: Panel) -> Box<dyn Widget> {
         let muted = p.muted.get();
         let text = if let Some(n) = p.note.get() {
             n
+        } else if p.held.get() && phase == Phase::Listening {
+            t!("Играет — микрофон на паузе").to_string()
         } else {
             match phase {
                 Phase::Off => t!("Голосовой режим выключен").to_string(),
@@ -1104,17 +1118,21 @@ pub fn view(_ctx: ShellCtx) -> impl Widget {
 
 /// Файлы, созданные за ответ: картинки, ролики, звук, прочее — чипами.
 fn results_view(results: Vec<std::path::PathBuf>) -> Box<dyn Widget> {
+    // Ролики и звук — проигрыватели на всю ширину окна, остальное — плитками.
+    let mut col = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
     let mut row = Flex::new().direction(FlexDirection::Row).wrap().gap(8.0);
+    let mut tiles = false;
     for f in results {
         let open = f.clone();
         if is_video(&f) {
-            row = row.child(video_tile(f.clone()));
+            col = col.child(video_tile(f.clone()));
             continue;
         }
         if synassist::attach::kind(&f) == synassist::attach::Kind::Audio {
-            row = row.child(audio_row(f.clone()));
+            col = col.child(audio_row(f.clone()));
             continue;
         }
+        tiles = true;
         let tile: Box<dyn Widget> = if is_image(&f) {
             Box::new(DecoratedBox::new().child(Image::new(f.to_string_lossy()).fit(ImageFit::Cover).class("assist-result-img")).class("assist-result").clip(true))
         } else if is_video(&f) {
@@ -1136,7 +1154,10 @@ fn results_view(results: Vec<std::path::PathBuf>) -> Box<dyn Widget> {
             name,
         ));
     }
-    Box::new(DecoratedBox::new().child(row).class("assist-results"))
+    if tiles {
+        col = col.child(row);
+    }
+    Box::new(DecoratedBox::new().child(col).class("assist-results"))
 }
 
 /// Ход долгого инструмента: этап, полоса и проценты (или бегущая полоса).
