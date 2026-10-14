@@ -167,6 +167,7 @@ pub static VIDEO: NodeSpec = NodeSpec {
         field("retake_end", "Retake по, с", F::Number, "0"),
         field("strength", "Сила", F::Number, "0"),
         field("two_stage", "Две стадии", F::Bool, "false"),
+        field("chain", "Цепочкой (с последнего кадра)", F::Bool, "false"),
     ],
     stage: false,
 };

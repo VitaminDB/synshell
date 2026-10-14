@@ -107,14 +107,6 @@ fn spec() -> SurfaceSpec {
     }
 }
 
-/// Фокус клавиатуры поверхности: только пока вводится имя раскладки (иначе игра теряла бы клавиши).
-pub(crate) fn set_keyboard(on: bool) {
-    if let Some(id) = SURFACE.with(|s| s.get()) {
-        let keyboard = if on { KeyboardInteractivity::Exclusive } else { KeyboardInteractivity::None };
-        syngui_layer::reconfigure_surface(id, SurfaceSpec { keyboard, ..spec() });
-    }
-}
-
 fn handle_rect(w: f32, _h: f32) -> [f32; 4] {
     [w / 2.0 - HANDLE - HANDLE_GAP / 2.0, 6.0, HANDLE, HANDLE]
 }

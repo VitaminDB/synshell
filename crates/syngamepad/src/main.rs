@@ -13,6 +13,9 @@
 //! syngamepad status          # shown folded <id>
 //! ```
 //!
+//! По сокету от synkeyboard при вводе имени раскладки (`synkeyboard show float for syngamepad.sock`):
+//! `text <символы>`, `key backspace|space|enter|escape`.
+//!
 //! Управляющий сокет — `$XDG_RUNTIME_DIR/syngamepad.sock`.
 
 mod editor;
@@ -197,6 +200,15 @@ fn listen(pad: ui::Pad) {
                             ok()
                         }
                         "status" => Ok(format!("{} {} {}", pad.shown.get_untracked(), pad.folded.get_untracked(), pad.layout_id.get_untracked())),
+                        // Клавиши от экранной клавиатуры при вводе имени раскладки.
+                        "text" => {
+                            editor::type_text(pad, arg);
+                            ok()
+                        }
+                        "key" => {
+                            editor::key(pad, arg.trim());
+                            ok()
+                        }
                         other => Err(t!("команда не поддерживается: {other}", other = other)),
                     };
                     let _ = tx.send(r);

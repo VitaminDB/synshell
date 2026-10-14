@@ -5,7 +5,7 @@
 use syngui::containers::{Positioned, TouchPhase, TouchPoint};
 use syngui::mss::StyleValue;
 use syngui::prelude::*;
-use syngui::{Flex, GestureDetector, ScrollView, TextField};
+use syngui::{Flex, GestureDetector, ScrollView};
 
 use crate::layout::{Element, Kind, Layout};
 use crate::ui::Pad;
@@ -32,6 +32,9 @@ pub struct Editor {
     pub bar_top: RwSignal<bool>,
     /// Вводится имя раскладки (поле вместо заголовка, экранная клавиатура).
     pub naming: RwSignal<bool>,
+    /// Вводимое имя: буквы приходят от synkeyboard по сокету (`text`/`key`), не через фокус клавиатуры —
+    /// игра под контроллером фокуса не теряет (полноэкранная от этого сворачивается).
+    pub name: RwSignal<String>,
 }
 
 impl Editor {
@@ -43,6 +46,7 @@ impl Editor {
             picker: use_signal(false),
             bar_top: use_signal(false),
             naming: use_signal(false),
+            name: use_signal(String::new()),
         }
     }
 }
@@ -50,19 +54,17 @@ impl Editor {
 thread_local! {
     /// Перетаскивание: палец → (элемент, сдвиг пальца от центра элемента).
     static DRAG: std::cell::RefCell<Option<(u64, usize, f32, f32)>> = const { std::cell::RefCell::new(None) };
-    /// Вводимое имя: не в черновике — его смена перестраивает вид, и поле теряло бы фокус на каждой букве.
-    static NAME: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
 }
 
-/// Начать ввод имени: панель — наверх (клавиатура снизу), поверхности — фокус клавиатуры.
+/// Начать ввод имени: панель — наверх, экранная клавиатура — плавающей и с клавишами нам по сокету
+/// (`synkeyboard show float for syngamepad.sock`): фокус клавиатуры у игры не отбирается, окна не двигаются.
 fn start_naming(pad: Pad) {
-    NAME.with(|n| *n.borrow_mut() = pad.ed.draft.get_untracked().name);
+    pad.ed.name.set(pad.ed.draft.get_untracked().name);
     pad.ed.selected.set(None);
     pad.ed.picker.set(false);
     pad.ed.bar_top.set(true);
-    crate::ui::set_keyboard(true);
     pad.ed.naming.set(true);
-    spawn_keyboard("show");
+    spawn_keyboard(&["show", "float", "for", "syngamepad.sock"]);
 }
 
 /// Закончить ввод: `save` — имя в черновик (в файл — по «Готово», как всё остальное).
@@ -71,19 +73,48 @@ fn finish_naming(pad: Pad, save: bool) {
         return;
     }
     if save {
-        let name = NAME.with(|n| n.borrow().trim().to_string());
+        let name = pad.ed.name.get_untracked().trim().to_string();
         if !name.is_empty() {
             pad.ed.draft.update(|l| l.name = name);
         }
     }
     pad.ed.naming.set(false);
-    crate::ui::set_keyboard(false);
-    spawn_keyboard("hide");
+    spawn_keyboard(&["hide"]);
 }
 
-fn spawn_keyboard(cmd: &str) {
-    if let Err(e) = std::process::Command::new("synkeyboard").arg(cmd).spawn() {
-        log::warn!("synkeyboard {cmd}: {e}");
+/// Символы от экранной клавиатуры (сокет, `text …`) — в имя.
+pub fn type_text(pad: Pad, text: &str) {
+    if !pad.ed.naming.get_untracked() || text.is_empty() {
+        return;
+    }
+    pad.ed.name.update(|n| n.push_str(text));
+}
+
+/// Клавиша без символа от экранной клавиатуры (сокет, `key …`).
+pub fn key(pad: Pad, name: &str) {
+    if !pad.ed.naming.get_untracked() {
+        return;
+    }
+    match name {
+        "backspace" => pad.ed.name.update(|n| {
+            n.pop();
+        }),
+        "space" => pad.ed.name.update(|n| n.push(' ')),
+        "enter" => finish_naming(pad, true),
+        "escape" => finish_naming(pad, false),
+        _ => {}
+    }
+}
+
+/// Команда synkeyboard; процесс дожидается своего потока (иначе копились зомби).
+fn spawn_keyboard(args: &[&str]) {
+    match std::process::Command::new("synkeyboard").args(args).spawn() {
+        Ok(mut child) => {
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        }
+        Err(e) => log::warn!("synkeyboard {}: {e}", args.join(" ")),
     }
 }
 
@@ -189,6 +220,7 @@ pub fn view(pad: Pad, w: f32, h: f32) -> Vec<Box<dyn Widget>> {
     let picker = pad.ed.picker.get();
     let _ = pad.ed.bar_top.get();
     let _ = pad.ed.naming.get();
+    let _ = pad.ed.name.get();
     let naming = pad.ed.naming.get_untracked();
     let mut out: Vec<Box<dyn Widget>> = Vec::new();
     // Ввод имени — только строка с полем: экранная клавиатура лежит под этим слоем, её не закрывать.
@@ -321,13 +353,19 @@ fn toolbar(pad: Pad, draft: &Layout, selected: Option<usize>) -> impl Widget {
     let sel = selected.and_then(|i| draft.elements.get(i)).cloned();
     let mut col = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
     if pad.ed.naming.get_untracked() {
-        // Имя раскладки: поле во всю строку, «Готово» — принять.
-        let field = TextField::with_text(NAME.with(|n| n.borrow().clone()))
-            .placeholder(t!("Имя раскладки"))
-            .autofocus(true)
-            .on_change(|t| NAME.with(|n| *n.borrow_mut() = t.to_string()))
-            .on_submit(move |_| finish_naming(pad, true))
-            .on_escape(move || finish_naming(pad, false))
+        // Имя раскладки: строка во всю ширину с курсором (буквы — от synkeyboard по сокету, своего
+        // фокуса ввода у строки нет), «OK» — принять.
+        let name = pad.ed.name.get_untracked();
+        let (text, class) = if name.is_empty() { (t!("Имя раскладки").to_string(), "gp-name-text gp-name-placeholder") } else { (name, "gp-name-text") };
+        let field = DecoratedBox::new()
+            .child(
+                Row::new()
+                    .main_axis_alignment(MainAxisAlignment::Start)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(Text::new(text).max_lines(1).class(class))
+                    .child(DecoratedBox::new().class("gp-name-caret"))
+                    .class("gp-fill"),
+            )
             .class("gp-name-field")
             .style("flex-grow", 4.0_f32);
         return col

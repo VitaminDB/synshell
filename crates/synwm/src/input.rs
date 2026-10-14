@@ -1271,6 +1271,9 @@ impl State {
             return;
         }
         if self.touch_mouse_up(evt.slot(), evt.time_msec()) {
+            // Палец учтён в `fingers.down` при касании (finger_down до touch_mouse_down) — снять, иначе
+            // он числился бы лежащим на окне и следующий палец считался бы вторым (сдвиг стола).
+            self.finger_up(evt.slot());
             return;
         }
         if self.gesture_touch_up(evt.slot(), evt.time_msec()) {

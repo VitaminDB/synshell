@@ -73,6 +73,8 @@ pub enum Action {
     /// Показать/спрятать ряды Esc/Tab/стрелки/F1–F12.
     Fn,
     Hide,
+    /// Плавающая ↔ внизу.
+    Float,
     /// Пустое место (выравнивание коротких рядов).
     Spacer,
 }
@@ -126,6 +128,29 @@ const ROW_CODES: [&[u32]; 3] = [
     &[30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40],
     &[44, 45, 46, 47, 48, 49, 50, 51, 52],
 ];
+
+/// Подпись клавиши «плавающая ↔ внизу» — значок Material Icons (open_with), не текст.
+pub const FLOAT_ICON: &str = "\u{E89F}";
+
+/// Имя клавиши для программы, принимающей клавиши вместо виртуальной клавиатуры (`show … for <сокет>`):
+/// клавиши без символа. `None` — клавиша такой программе не нужна.
+pub fn key_name(code: u32) -> Option<&'static str> {
+    Some(match code {
+        KEY_BACKSPACE => "backspace",
+        KEY_ENTER => "enter",
+        KEY_SPACE => "space",
+        KEY_TAB => "tab",
+        KEY_ESC => "escape",
+        KEY_LEFT => "left",
+        KEY_RIGHT => "right",
+        KEY_UP => "up",
+        KEY_DOWN => "down",
+        KEY_HOME => "home",
+        KEY_END => "end",
+        KEY_DELETE => "delete",
+        _ => return None,
+    })
+}
 
 /// Символ US-раскладки → (код, нужен ли Shift).
 pub fn us_char(c: char) -> Option<(u32, bool)> {
@@ -233,10 +258,11 @@ fn page_rows(page: Page, lang: &Lang) -> Vec<Vec<Key>> {
     };
     out.push(vec![
         Key::special("⌄", Action::Hide, 1.0),
+        Key::special(FLOAT_ICON, Action::Float, 1.0),
         Key { width: 1.3, ..page_key },
         Key::special("⌨", Action::Fn, 1.0),
         Key::special(lang.name, Action::Layout, 1.0),
-        Key::special("", Action::Key { code: KEY_SPACE, shift: false, repeat: false, latin: false }, 3.2),
+        Key::special("", Action::Key { code: KEY_SPACE, shift: false, repeat: false, latin: false }, 2.4),
         sym("."),
         Key::special("⏎", Action::Key { code: KEY_ENTER, shift: false, repeat: false, latin: false }, 1.5),
     ]);

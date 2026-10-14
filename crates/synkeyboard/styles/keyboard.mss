@@ -44,5 +44,21 @@ Text { color: var(--fg); font-size: 18px; }
 }
 .key-pop-label { font-size: 30px; text-box-edge: text; }
 
+.key-icon { font-size: 20px; color: var(--fg); }
+
+/* Плавающая: окно с ручкой сверху (полоска — тащить; справа «вниз» и «спрятать»). */
+.keyboard-float {
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: #ffffff22;
+    box-shadow: 0 8px 28px #00000080;
+}
+.keyboard-float .keyboard { border-radius: 0 0 14px 14px; }
+.keyboard-grip { background-color: var(--panel-bg); border-radius: 14px 14px 0 0; }
+.keyboard-grip-pill { width: 56px; height: 5px; border-radius: 3px; background-color: #ffffff55; }
+.keyboard-grip-btn { flex-grow: 1; border-radius: 8px; }
+.keyboard-grip-btn:active { background-color: var(--accent); }
+.keyboard-grip-icon { font-size: 20px; color: var(--fg); }
+
 .key-active { background-color: var(--accent); }
 .key-lock { border-width: 2px; border-color: var(--fg); }

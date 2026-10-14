@@ -478,6 +478,8 @@ fn keyboard_height(o: &smithay::output::Output) -> i32 {
             let g = map.layer_geometry(l)?;
             Some(match l.cached_state().exclusive_zone {
                 ExclusiveZone::Exclusive(z) if z > 0 => (z as i32).min(g.size.h),
+                // плавающая synkeyboard: поверхность во весь экран без зоны — окнам и доку ничего не отодвигать
+                ExclusiveZone::DontCare => 0,
                 _ => g.size.h,
             })
         })

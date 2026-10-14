@@ -63,4 +63,7 @@ Text { color: #ffffff; font-size: 20px; }
 .gp-chip { height: 36px; padding: 0 14px; border-radius: 18px; background-color: #ffffff1a; }
 .gp-chip:active { background-color: var(--accent); }
 .gp-chip-on { background-color: var(--accent); }
-.gp-name-field { font-size: 15px; color: var(--fg); background-color: #ffffff14; border-radius: 10px; padding: 0 10px; }
+.gp-name-field { background-color: #ffffff14; border-radius: 10px; padding: 0 10px; }
+.gp-name-text { font-size: 15px; color: var(--fg); text-box-edge: text; }
+.gp-name-placeholder { color: #ffffff66; }
+.gp-name-caret { width: 2px; height: 18px; background-color: var(--accent); }

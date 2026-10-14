@@ -2681,6 +2681,9 @@ pub struct Osk {
     pub apps: std::collections::BTreeMap<String, InputMode>,
     /// Раскладка контроллера приложения: app_id → id раскладки.
     pub app_layouts: std::collections::BTreeMap<String, String>,
+    /// Где клавиатура: внизу экрана, отодвигая окна, или плавающая (окно поменьше, таскается за ручку,
+    /// окна не трогает). `auto` — внизу на страницах, плавающая на свободном столе и когда её просит контроллер.
+    pub placement: OskPlacement,
 }
 
 impl Default for Osk {
@@ -2691,6 +2694,30 @@ impl Default for Osk {
             gamepad_layout: "standard".into(),
             apps: Default::default(),
             app_layouts: Default::default(),
+            placement: OskPlacement::Auto,
+        }
+    }
+}
+
+/// Где экранная клавиатура (`[osk] placement`).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum OskPlacement {
+    /// Внизу на страницах; плавающая на свободном столе и по просьбе контроллера (поле над игрой).
+    #[default]
+    Auto,
+    /// Всегда плавающая.
+    Floating,
+    /// Всегда внизу, отодвигая окна.
+    Docked,
+}
+
+impl OskPlacement {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            OskPlacement::Auto => "auto",
+            OskPlacement::Floating => "floating",
+            OskPlacement::Docked => "docked",
         }
     }
 }

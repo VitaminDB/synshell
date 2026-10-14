@@ -6,6 +6,9 @@
 //! ```text
 //! synkeyboard              # демон
 //! synkeyboard show|hide|toggle
+//! synkeyboard show float|dock   # показать плавающей / внизу (без слова — по [osk] placement)
+//! synkeyboard show for syngamepad.sock   # клавиши — программе по её сокету (text …/key …), не композитору
+//! synkeyboard float on|off|toggle   # плавающая ↔ внизу
 //! synkeyboard fn                # показать/спрятать ряды Esc/F1–F12/стрелки
 //! synkeyboard lang              # следующая раскладка (EN → RU → …)
 //! synkeyboard type "ls -la"    # напечатать текст
@@ -48,10 +51,11 @@ fn main() {
             println!("synkeyboard {}", env!("CARGO_PKG_VERSION"));
         }
         Some("--help" | "-h") => {
-            println!("{}", t!("synkeyboard [show|hide|toggle|fn|lang | type <текст> | key <сочетание> | auto on|off]\n  без аргументов — запустить демон экранной клавиатуры"));
+            println!("{}", t!("synkeyboard [show [float|dock] [for <сокет>]|hide|toggle|fn|lang | float on|off|toggle | type <текст> | key <сочетание> | auto on|off]\n  без аргументов — запустить демон экранной клавиатуры"));
         }
-        Some(cmd @ ("show" | "hide" | "toggle" | "fn" | "lang")) => client(cmd.to_string()),
-        Some(cmd @ ("type" | "key" | "auto")) => {
+        Some("show") => client(args.join(" ")),
+        Some(cmd @ ("hide" | "toggle" | "fn" | "lang")) => client(cmd.to_string()),
+        Some(cmd @ ("type" | "key" | "auto" | "float")) => {
             let Some(arg) = args.get(1) else {
                 eprintln!("{}", t!("synkeyboard {cmd}: нужен аргумент", cmd = cmd));
                 std::process::exit(2);
@@ -93,12 +97,13 @@ fn daemon() {
     let font = Some(config.appearance.font.trim().to_string()).filter(|f| !f.is_empty());
 
     let scale = config.osk.scale;
+    let placement = config.osk.placement;
     let result = syngui_layer::run(syngui_layer::RunOptions { font_family: font }, &mss, move || {
         syngui_layer::set_ui_zoom(scale);
-        let kb = ui::Keyboard::new();
+        let kb = ui::Keyboard::new(placement);
         ui::install(kb);
         listen(kb);
-        watch_scale();
+        watch_config(kb);
     });
     let _ = std::fs::remove_file(socket_path());
     if let Err(e) = result {
@@ -107,9 +112,9 @@ fn daemon() {
     }
 }
 
-/// `[osk] scale` меняется на лету («Параметры → Клавиатура»): конфиг
-/// проверяется раз в 2 с.
-fn watch_scale() {
+/// `[osk] scale` и `placement` меняются на лету («Параметры → Телефон → Экранная клавиатура»):
+/// конфиг проверяется раз в 2 с.
+fn watch_config(kb: ui::Keyboard) {
     let path = synshell_common::paths::config_file();
     let mtime = move || std::fs::metadata(&path).and_then(|m| m.modified()).ok();
     let mut last = mtime();
@@ -120,10 +125,34 @@ fn watch_scale() {
             let (cfg, err) = Config::load();
             if err.is_none() {
                 syngui_layer::set_ui_zoom(cfg.osk.scale);
+                if kb.placement.get_untracked() != cfg.osk.placement {
+                    kb.placement.set(cfg.osk.placement);
+                    // Настройку сменили — своё прежнее «⧉» забыть, показывать по ней.
+                    kb.chosen.set(None);
+                }
             }
         }
         Some(std::time::Duration::from_secs(2))
     });
+}
+
+/// `show [float|dock] [for <сокет>]` → (плавающая?, кому клавиши).
+fn parse_show(arg: &str) -> Result<(Option<bool>, Option<String>), String> {
+    let mut float = None;
+    let mut capture = None;
+    let mut words = arg.split_whitespace();
+    while let Some(w) = words.next() {
+        match w {
+            "float" | "floating" => float = Some(true),
+            "dock" | "docked" | "bottom" => float = Some(false),
+            "for" => match words.next() {
+                Some(s) if !s.is_empty() && !s.contains('/') => capture = Some(s.to_string()),
+                _ => return Err(t!("show for: нужно имя сокета в $XDG_RUNTIME_DIR")),
+            },
+            other => return Err(t!("show: не понято «{other}»", other = other)),
+        }
+    }
+    Ok((float, capture))
 }
 
 fn build_mss(config: &Config) -> String {
@@ -165,9 +194,15 @@ fn listen(kb: ui::Keyboard) {
                 syngui::async_runtime::run_on_main_thread(move || {
                     let (verb, arg) = cmd.split_once(' ').unwrap_or((cmd.as_str(), ""));
                     let r = match verb {
-                        "show" => Ok(kb.visible.set(true)),
-                        "hide" => Ok(kb.visible.set(false)),
-                        "toggle" => Ok(kb.visible.set(!kb.visible.get_untracked())),
+                        "show" => parse_show(arg).map(|(float, capture)| kb.show(float, capture)),
+                        "hide" => Ok(kb.hide()),
+                        "toggle" => Ok(if kb.visible.get_untracked() { kb.hide() } else { kb.show(None, None) }),
+                        "float" => match arg.trim() {
+                            "on" => Ok(kb.set_floating(true)),
+                            "off" => Ok(kb.set_floating(false)),
+                            "toggle" => Ok(kb.set_floating(!kb.floating.get_untracked())),
+                            _ => Err("float on|off|toggle".into()),
+                        },
                         "fn" => Ok(kb.act(ui::Action::Fn)),
                         "lang" => Ok(kb.act(ui::Action::Layout)),
                         "auto" => match arg.trim() {

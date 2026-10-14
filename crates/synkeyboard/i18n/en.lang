@@ -2,7 +2,9 @@
 @name = "English"
 
 # src/main.rs
-"synkeyboard [show|hide|toggle|fn|lang | type <текст> | key <сочетание> | auto on|off]\n  без аргументов — запустить демон экранной клавиатуры" = "synkeyboard [show|hide|toggle|fn|lang | type <text> | key <combo> | auto on|off]\n  without arguments — start the on-screen keyboard daemon"
+"synkeyboard [show [float|dock] [for <сокет>]|hide|toggle|fn|lang | float on|off|toggle | type <текст> | key <сочетание> | auto on|off]\n  без аргументов — запустить демон экранной клавиатуры" = "synkeyboard [show [float|dock] [for <socket>]|hide|toggle|fn|lang | float on|off|toggle | type <text> | key <combo> | auto on|off]\n  without arguments — start the on-screen keyboard daemon"
+"show for: нужно имя сокета в $XDG_RUNTIME_DIR" = "show for: a socket name in $XDG_RUNTIME_DIR is required"
+"show: не понято «{other}»" = "show: unknown word \"{other}\""
 "synkeyboard {cmd}: нужен аргумент" = "synkeyboard {cmd}: argument required"
 "synkeyboard: неизвестная команда «{other}»" = "synkeyboard: unknown command “{other}”"
 "команда не поддерживается: {other}" = "unsupported command: {other}"

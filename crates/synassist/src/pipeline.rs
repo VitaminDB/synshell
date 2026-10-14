@@ -98,7 +98,19 @@ impl Tool for PipelineTool {
             }
             _ => {}
         }
-        let graph = match (str_arg(args, "recipe"), args.get("graph")) {
+        // Модель порой шлёт граф строкой JSON и вдобавок имя рецепта: свой
+        // разборчивый граф главнее, рецепт — если графа нет или он сломан.
+        let own = match args.get("graph") {
+            Some(Value::String(t)) => serde_json::from_str::<Value>(t).ok().filter(Value::is_object),
+            Some(g) if g.is_object() => Some(g.clone()),
+            _ => None,
+        };
+        if own.is_none() && str_arg(args, "recipe").is_none() {
+            if let Some(Value::String(t)) = args.get("graph") {
+                return Err(format!("graph — не разобрать как JSON-объект: {}", serde_json::from_str::<Value>(t).err().map(|e| e.to_string()).unwrap_or_default()));
+            }
+        }
+        let graph = match (str_arg(args, "recipe").filter(|_| own.is_none()), own.as_ref()) {
             (Some(name), _) => synaptix_graph::recipes::find(&self.dir, name).ok_or_else(|| {
                 let names: Vec<String> = synaptix_graph::recipes::list(&self.dir).into_iter().map(|g| g.name).collect();
                 format!("рецепта «{name}» нет; есть: {}", names.join(", "))
@@ -140,6 +152,17 @@ impl Tool for PipelineTool {
             text.push_str(&format!("\nТекст результата:\n{}\n", report.text));
         }
         text.push_str(&format!("Файлы: {}", report.files.iter().map(|f| f.display().to_string()).collect::<Vec<_>>().join(", ")));
+        // Настоящая длина роликов и звука — модель не выдумывает её в ответе.
+        let lens: Vec<String> = report.files.iter().filter_map(|f| media_seconds(f).map(|s| format!("{} — {s:.0} с", f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()))).collect();
+        if !lens.is_empty() {
+            text.push_str(&format!("\nДлительность (называй пользователю только её): {}", lens.join(", ")));
+        }
         Ok(ToolOutput { text, files: report.files })
     }
+}
+
+/// Длительность ролика или звука, с (ffprobe).
+fn media_seconds(path: &std::path::Path) -> Option<f64> {
+    let out = std::process::Command::new("ffprobe").args(["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0"]).arg(path).output().ok()?;
+    String::from_utf8_lossy(&out.stdout).trim().parse().ok().filter(|s: &f64| *s > 0.0)
 }

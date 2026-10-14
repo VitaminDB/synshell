@@ -8,7 +8,7 @@ use crate::value::Val;
 
 type R = Result<(), String>;
 
-fn ffmpeg(args: &[&str]) -> R {
+pub(crate) fn ffmpeg(args: &[&str]) -> R {
     let out = Command::new("ffmpeg").args(["-v", "error", "-y"]).args(args).output().map_err(|e| format!("ffmpeg: {e}"))?;
     if out.status.success() {
         Ok(())
