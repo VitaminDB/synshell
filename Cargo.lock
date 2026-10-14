@@ -6794,27 +6794,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "syn-wine-helper"
-version = "0.1.42"
-dependencies = [
- "anyhow",
- "cab",
- "cfb",
- "flate2",
- "lzma-rs",
- "object",
- "serde",
- "sha2",
- "syngui",
- "synshell-common",
- "toml",
- "tracing",
- "tracing-subscriber",
- "ureq",
- "zip",
-]
-
-[[package]]
 name = "syn-woman-cycle"
 version = "0.1.42"
 dependencies = [
