@@ -9,7 +9,6 @@ use std::time::Duration;
 use synaptixd::{Activity, ActivityState, DeviceKind, LoadState, Metrics, ModelEntry, ModelKind, SettingsChange, Status};
 use syngui::containers::Keyed;
 use syngui::mss::StyleValue;
-use syngui::core::Color;
 use syngui::prelude::*;
 use syngui::GestureDetector;
 
@@ -415,6 +414,7 @@ pub fn open_service() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use syngui::core::Color;
 
     /// Снимок виджетов с живой службой: `SHOT_DIR=… cargo test -p synshell-ui shot_ai -- --ignored`.
     #[test]
