@@ -56,7 +56,7 @@ Text { color: var(--fg); font-size: 18px; }
 .keyboard-float .keyboard { border-radius: 0 0 14px 14px; }
 .keyboard-grip { background-color: var(--panel-bg); border-radius: 14px 14px 0 0; }
 .keyboard-grip-pill { width: 56px; height: 5px; border-radius: 3px; background-color: #ffffff55; }
-.keyboard-grip-btn { width: 26px; height: 26px; border-radius: 13px; background-color: #ffffff1e; }
+.keyboard-grip-btn { border-radius: 14px; background-color: #ffffff1e; }
 .keyboard-grip-btn:active { background-color: var(--accent); }
 .keyboard-grip-icon { font-size: 16px; color: var(--fg); }
 

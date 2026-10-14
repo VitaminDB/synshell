@@ -24,7 +24,7 @@ use syngui::prelude::*;
 use syngui::StyleValue;
 use syngui::widget::WidgetExt;
 use syngui::GestureDetector;
-use syngui::containers::{MultiTouch, Positioned, TouchPhase, TouchPoint};
+use syngui::containers::{MultiTouch, Padding, Positioned, TouchPhase, TouchPoint};
 use syngui_layer::{Anchor, KeyboardInteractivity, Layer, SurfaceId, SurfaceSpec};
 
 pub use crate::layout::Action;
@@ -49,8 +49,9 @@ const POP_OVERLAP: f32 = 6.0;
 const POP_MIN_W: f32 = 46.0;
 /// Плавающая: ручка сверху (за неё таскать; справа — кнопка «спрятать»), отступ от краёв
 /// экрана, доля ширины экрана и её пределы.
-const GRIP_H: u32 = 34;
-const GRIP_BTN_W: f32 = 48.0;
+const GRIP_H: u32 = 42;
+const GRIP_BTN_W: f32 = 64.0;
+const GRIP_BTN: f32 = 28.0;
 const FLOAT_MARGIN: f32 = 12.0;
 const FLOAT_SHARE: f32 = 0.62;
 const FLOAT_MIN_W: f32 = 360.0;
@@ -514,19 +515,20 @@ fn floating_view(kb: Keyboard) -> impl Widget {
 /// Ручка плавающей: полоска по центру (тащить), справа — круглая «спрятать» (вниз, к краю экрана, —
 /// клавиша ⧉ в нижнем ряду).
 fn grip_view(kb: Keyboard) -> impl Widget {
+    // Кружок с отступами от края и верха окна (не центрированием: ряд с flex растягивал кружок к краю).
+    let side = (GRIP_BTN_W - GRIP_BTN) / 2.0;
+    let top = (GRIP_H as f32 - GRIP_BTN) / 2.0;
     let hide = GestureDetector::new()
         .child(
-            Row::new()
-                .main_axis_alignment(MainAxisAlignment::Center)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(
-                    Row::new()
-                        .main_axis_alignment(MainAxisAlignment::Center)
-                        .cross_axis_alignment(CrossAxisAlignment::Center)
-                        .child(Icon::new(ICON_HIDE.to_string()).class("keyboard-grip-icon"))
-                        .class("keyboard-grip-btn"),
-                )
-                .class("key-fill"),
+            Padding::only(side, top, side, top).child(
+                Row::new()
+                    .main_axis_alignment(MainAxisAlignment::Center)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(Icon::new(ICON_HIDE.to_string()).class("keyboard-grip-icon"))
+                    .class("keyboard-grip-btn")
+                    .style("width", StyleValue::px(GRIP_BTN))
+                    .style("height", StyleValue::px(GRIP_BTN)),
+            ),
         )
         .on_click(move || kb.hide())
         .style("width", StyleValue::px(GRIP_BTN_W));
