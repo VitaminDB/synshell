@@ -385,6 +385,8 @@ impl XdgShellHandler for State {
         let Some(id) = self.core.wm.id_by_surface(surface.wl_surface()) else { return };
         let pointer = seat.get_pointer().unwrap();
         if !pointer.has_grab(serial) {
+            // Заголовок клиента (CSD) тянут пальцем: winit шлёт serial мыши.
+            self.finger_take_for_client(surface.wl_surface(), id, None);
             return;
         }
         let Some(start) = pointer.grab_start_data() else { return };
@@ -399,6 +401,7 @@ impl XdgShellHandler for State {
         let Some(id) = self.core.wm.id_by_surface(surface.wl_surface()) else { return };
         let pointer = seat.get_pointer().unwrap();
         if !pointer.has_grab(serial) {
+            self.finger_take_for_client(surface.wl_surface(), id, Some(ResizeEdge::from(edges)));
             return;
         }
         let Some(start) = pointer.grab_start_data() else { return };

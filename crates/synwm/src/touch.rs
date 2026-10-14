@@ -312,6 +312,7 @@ impl State {
 
 use crate::deco::{Button, DecoHit};
 use crate::wm::{ResizeEdge, WindowId};
+use smithay::reexports::wayland_server::{protocol::wl_surface::WlSurface, Resource};
 
 /// Что делает палец, которого не видят клиенты.
 pub enum Active {
@@ -675,6 +676,38 @@ impl State {
             }
             None => {}
         }
+        true
+    }
+
+    /// Клиент со своим заголовком (CSD) просит `move`/`resize`, а держат его
+    /// пальцем: захвата указателя нет (winit шлёт serial последнего нажатия
+    /// мыши). Палец, прижатый к поверхности этого клиента, забирает
+    /// композитор и ведёт окно, как за серверный заголовок. `true` — забрал.
+    pub fn finger_take_for_client(&mut self, surface: &WlSurface, id: WindowId, resize: Option<ResizeEdge>) -> bool {
+        if self.core.fingers.active.is_some() {
+            return false;
+        }
+        let Some(m) = self.core.wm.get(id) else { return false };
+        if m.fullscreen || self.core.wm.page_locked(id) || resize.is_some_and(|e| m.maximized || e.is_empty()) {
+            return false;
+        }
+        let (loc0, size0) = (m.loc, m.size());
+        let fingers: Vec<_> = self.core.fingers.down.iter().rev().copied().filter(|(s, _)| !self.core.fingers.owned.contains(s)).collect();
+        let Some((slot, pos)) = fingers.into_iter().find(|(_, p)| {
+            matches!(self.under(*p), crate::input::Under::Surface(f, _) if f.0.id().same_client_as(&surface.id()))
+        }) else {
+            return false;
+        };
+        // Клиенту — отмена касания: дальше палец ведёт композитор.
+        if let Some(touch) = self.core.seat.get_touch() {
+            touch.cancel(self);
+        }
+        self.focus_window(Some(id));
+        self.core.fingers.active = Some(match resize {
+            None => Active::Move { id, start: pos, loc0 },
+            Some(edges) => Active::Resize { id, edges, start: pos, loc0, size0, last: Instant::now() },
+        });
+        self.core.fingers.owned.push(slot);
         true
     }
 
