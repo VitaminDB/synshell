@@ -860,6 +860,16 @@ pub enum Request {
         #[serde(default)]
         history: bool,
     },
+    /// Упаковать модель в `.syn` с квантованием на устройстве службы.
+    /// `plan` — `synaptix_bundle::PackPlan`, `options` —
+    /// `synaptix::facade::pack::PackOptions` (JSON). Файлы читаются и
+    /// пишутся с правами программы-клиента.
+    Pack {
+        plan: Value,
+        out: String,
+        #[serde(default)]
+        options: Value,
+    },
     /// Остановить работу (свою — любой, чужую — root и wheel).
     Cancel {
         activity: u64,
@@ -918,6 +928,8 @@ pub enum Event {
     Flow { node: synaptix_flow::Event },
     /// Файлы выходов графа: fd сообщения — `@out:<first>`, `@out:<first+1>`, …
     FlowFiles { first: usize, names: Vec<String> },
+    /// Ход упаковки: событие `synaptix_bundle::ProgressEvent` в JSON.
+    Pack { progress: Value },
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
@@ -1268,6 +1280,17 @@ impl Client {
     /// Работы, программы и KV-сессии службы; `history` — и история за 5 минут.
     pub fn metrics(&mut self, history: bool) -> Result<Metrics> {
         self.call_typed(Request::Metrics { history })
+    }
+
+    /// Упаковка модели службой (см. [`Request::Pack`]); `on_event` — ход.
+    pub fn pack(&mut self, plan: Value, out: &str, options: Value, mut on_event: impl FnMut(Value)) -> Result<()> {
+        let req = Request::Pack { plan, out: out.into(), options };
+        self.call_events(req, &[], |ev| {
+            if let Event::Pack { progress } = ev {
+                on_event(progress);
+            }
+        })
+        .map(|_| ())
     }
 
     pub fn cancel_activity(&mut self, activity: u64) -> Result<()> {

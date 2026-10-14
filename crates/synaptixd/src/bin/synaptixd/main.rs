@@ -94,6 +94,7 @@ fn work_op(req: &Request) -> Option<&'static str> {
         Request::Generate { .. } => "generate",
         Request::Rerank { .. } => "rerank",
         Request::Flow { .. } => "flow",
+        Request::Pack { .. } => "pack",
         _ => return None,
     })
 }
@@ -384,6 +385,33 @@ impl Conn {
                 (data(info), none())
             }
             Request::Flow { flow, inputs, files } => flow::serve(&mgr, self.sock.as_fd(), self.current, flow, inputs, files, fds.into_iter().flatten().collect())?,
+            Request::Pack { plan, out, options } => {
+                let plan: synaptix_bundle::PackPlan = serde_json::from_value(plan).map_err(|e| Error::new(ErrorCode::Protocol, format!("план упаковки: {e}")))?;
+                let opts: synaptix::facade::pack::PackOptions = if options.is_null() { Default::default() } else { serde_json::from_value(options).map_err(|e| Error::new(ErrorCode::Protocol, format!("параметры упаковки: {e}")))? };
+                let peer = wire::peer(self.sock.as_fd()).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))?;
+                let raw = self.sock.as_raw_fd();
+                let id = self.current;
+                let progress: synaptix_bundle::ProgressCallback = Arc::new(move |ev| {
+                    let r = Reply { id, event: Some(synaptixd::Event::Pack { progress: data(ev) }), ..Default::default() };
+                    let sock = unsafe { std::os::fd::BorrowedFd::borrow_raw(raw) };
+                    let _ = wire::send(sock, &serde_json::to_vec(&r).unwrap_or_default(), &[]);
+                });
+                // Квант считается на карте: она занята упаковкой, модели ей уступают.
+                let quant = !opts.quant.is_empty();
+                let _dl = quant.then(|| {
+                    mgr.make_vram_room("pack", synaptixd::DeviceKind::Cuda, 4 << 30);
+                    devices::lock(synaptixd::DeviceKind::Cuda)
+                });
+                let out_path = std::path::PathBuf::from(&out);
+                if let Some(l) = activity::current() {
+                    l.model(&out_path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+                    l.running();
+                }
+                let r = as_peer(peer.uid, peer.gid, || synaptix::facade::pack::pack(plan, &out_path, &opts, synaptix_core::device::Device::Cuda(0), Some(progress)));
+                manager::release_vram(Some(synaptixd::DeviceKind::Cuda));
+                r.map_err(|e| Error::new(ErrorCode::Failed, e))?;
+                (Value::Null, none())
+            }
             Request::Metrics { history } => (data(mgr.metrics(history)), none()),
             Request::Cancel { activity } => {
                 let uid = wire::peer(self.sock.as_fd()).map(|p| p.uid).unwrap_or(u32::MAX);
@@ -454,6 +482,19 @@ impl Conn {
         }
         activity::disconnect(self.conn);
     }
+}
+
+/// Работа с файлами от имени программы-клиента: служба — root, а читать и
+/// писать она должна только то, что доступно пользователю. fsuid и fsgid
+/// у Linux свои у каждого потока, поэтому другие соединения не затронуты.
+fn as_peer<T>(uid: u32, gid: u32, f: impl FnOnce() -> T) -> T {
+    let (old_gid, old_uid) = unsafe { (libc::setfsgid(gid), libc::setfsuid(uid)) };
+    let r = f();
+    unsafe {
+        libc::setfsuid(old_uid as u32);
+        libc::setfsgid(old_gid as u32);
+    }
+    r
 }
 
 static NEXT_CONN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);

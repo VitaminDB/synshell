@@ -34,6 +34,7 @@ members = [
     "crates/synnfc",
     "crates/syn-nfc",
     "crates/syn-remote",
+    "crates/syn-wine-helper",
     "crates/syn-woman-cycle",
     "crates/syn-health",
     "crates/syn-systeminfo",
@@ -67,6 +68,7 @@ synaptix-graph = { path = "crates/synaptix-graph" }
 synaptix-flow = { path = "crates/synaptix-flow" }
 synaptix = { path = "../synaptix/crates/synaptix", default-features = false }
 synaptix-core = { path = "../synaptix/crates/synaptix-core" }
+synaptix-bundle = { path = "../synaptix/crates/synaptix-bundle" }
 synaptix-kernels-cpu = { path = "../synaptix/crates/synaptix-kernels-cpu" }
 synaptix-kernels-cuda = { path = "../synaptix/crates/synaptix-kernels-cuda" }
 synaptix-kernels-npu = { path = "../synaptix/crates/synaptix-kernels-npu" }

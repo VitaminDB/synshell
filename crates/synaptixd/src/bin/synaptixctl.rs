@@ -86,6 +86,25 @@ fn run(args: &[String]) -> Result<(), String> {
                 println!("ток/с по секундам: {}", tps.join(" "));
             }
         }
+        // pack план.json выход.syn [параметры.json] — упаковка службой.
+        "pack" => {
+            let read = |p: &str| -> Result<serde_json::Value, String> { serde_json::from_str(&std::fs::read_to_string(p).map_err(|e| format!("{p}: {e}"))?).map_err(|e| format!("{p}: {e}")) };
+            let plan = read(arg(1)?)?;
+            let options = match args.get(3) {
+                Some(p) => read(p)?,
+                None => serde_json::Value::Null,
+            };
+            let out = std::path::absolute(arg(2)?).map_err(|e| e.to_string())?;
+            c.pack(plan, &out.to_string_lossy(), options, |ev| {
+                if let Some(o) = ev.as_object().and_then(|o| o.keys().next().cloned()) {
+                    if o != "Bytes" {
+                        println!("{ev}");
+                    }
+                }
+            })
+            .map_err(|e| e.to_string())?;
+            println!("готово: {}", out.display());
+        }
         "cancel" => c.cancel_activity(arg(1)?.parse().map_err(|_| "номер работы")?).map_err(|e| e.to_string())?,
         "engine" => {
             let id = arg(1)?;

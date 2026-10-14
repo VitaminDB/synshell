@@ -778,7 +778,7 @@ impl Manager {
     /// оценки с запасом, выгружать с карты незанятые модели. Без жертв —
     /// грузим как есть (оценка груба, а загрузчик сам умеет стримить слои);
     /// раньше при занятой карте загрузка падала и модель тихо уходила на CPU.
-    fn make_vram_room(&self, id: &str, dev: DeviceKind, need: u64) {
+    pub fn make_vram_room(&self, id: &str, dev: DeviceKind, need: u64) {
         if dev != DeviceKind::Cuda || need == 0 {
             return;
         }
