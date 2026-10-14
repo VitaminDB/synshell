@@ -11,12 +11,36 @@
 //! длительность) → описание с ключевыми кадрами и референсами → сэмплер →
 //! декодеры видео и звука. LTX-2.3: модель → описание (и NAG) → Stage1 →
 //! апскейл ×2 → Stage2, либо Retake / IC-LoRA / LipDub / по звуку → декодеры.
+//! Музыка ACE-Step: модель → [запись в латент] → генерация (все режимы);
+//! YuE2: модель → песня (звук, латент, партитура) → [декодер]; запись в
+//! партитуру (SheetSage2).
 
 use crate::schema::{field, port, FieldType as F, NodeSpec, PortType as P};
 
 const IMG: &str = "Модели картинок";
 const H3: &str = "MiniMax-H3";
 const LTX: &str = "LTX-2.3";
+const MUSIC: &str = "Музыка";
+
+/// Режимы ACE-Step (порядок — как у прежней ноды Synthos).
+pub const ACE_MODES: &[&str] = &["text2music", "retake", "repaint", "extend", "edit", "cover", "extract"];
+/// LM кодов ACE-Step: полная или малая.
+pub const ACE_LMS: &[&str] = &["4b", "1.7b"];
+/// Тональность; пусто — выводит LM.
+pub const KEYSCALES: &[&str] = &[
+    "", "C major", "C minor", "C# major", "C# minor", "D major", "D minor", "D# major", "D# minor", "E major", "E minor", "F major", "F minor", "F# major", "F# minor", "G major",
+    "G minor", "G# major", "G# minor", "A major", "A minor", "A# major", "A# minor", "B major", "B minor",
+];
+/// Размер такта; пусто — выводит LM.
+pub const TIMESIGS: &[&str] = &["", "4/4", "3/4", "6/8", "2/4", "5/4", "7/8", "9/8", "12/8"];
+pub const NORMS: &[&str] = &["peak", "rms", "off"];
+pub const DCW_MODES: &[&str] = &["off", "double", "low", "high", "pix"];
+/// Дорожки режима extract.
+pub const TRACKS: &[&str] = &["vocals", "backing_vocals", "drums", "bass", "guitar", "keyboard", "percussion", "strings", "synth", "fx", "brass", "woodwinds"];
+/// Партитура YuE2: с аккордами, только мелодия, без партитуры.
+pub const COTS: &[&str] = &["full", "melody", "off"];
+pub const TRANSCRIBE_MODES: &[&str] = &["melody", "full"];
+pub const VOICES: &[&str] = &["both", "vocal", "ins"];
 
 /// Кадров в секунду у LTX-2.3.
 pub const LTX_FPS: &[&str] = &["24", "25", "48", "50"];
@@ -386,6 +410,127 @@ pub static LTX_DECODE_AUDIO: NodeSpec = NodeSpec {
     stage: true,
 };
 
+pub static ACE_MODEL: NodeSpec = NodeSpec {
+    kind: "acestep_model",
+    title: "Модель ACE-Step",
+    description: "ACE-Step v1.5 из библиотеки службы (DiT base/turbo/sft; LM кодов, текстовый энкодер и VAE — её компоненты)",
+    category: MUSIC,
+    inputs: &[],
+    outputs: &[port("model", "Модель", P::Model)],
+    fields: &[field("model", "Модель", F::Text, ""), field("lm", "LM кодов", F::Choice(ACE_LMS), "4b"), field("quant", "Квант", F::Choice(QUANTS), "")],
+    stage: true,
+};
+
+pub static ACE_ENCODE: NodeSpec = NodeSpec {
+    kind: "acestep_encode",
+    title: "Запись в латент ACE-Step",
+    description: "Звук в латент VAE (25 кадров в секунду) — исходник для retake, repaint, extend, edit, cover и extract",
+    category: MUSIC,
+    inputs: &[port("model", "Модель", P::Model), port("audio", "Звук", P::Audio)],
+    outputs: &[port("latent", "Латент", P::Latent)],
+    fields: &[field("chunk", "Окно, с", F::Number, "30"), field("overlap", "Контекст окна, с", F::Number, "0.5")],
+    stage: true,
+};
+
+pub static ACE_GENERATE: NodeSpec = NodeSpec {
+    kind: "acestep_generate",
+    title: "Генерация ACE-Step",
+    description: "Музыка по тегам и стихам или правка записи (латент на входе): retake, repaint, extend, edit, cover, extract. Нули в шагах, CFG и сдвиге — умолчания варианта DiT",
+    category: MUSIC,
+    inputs: &[port("model", "Модель", P::Model), port("prompt", "Теги", P::Text), port("lyrics", "Стихи", P::Text), port("latent", "Исходный латент", P::Latent)],
+    outputs: &[port("audio", "Звук", P::Audio), port("latent", "Латент", P::Latent)],
+    fields: &[
+        field("mode", "Режим", F::Choice(ACE_MODES), "text2music"),
+        field("prompt", "Теги", F::LongText, ""),
+        field("lyrics", "Стихи", F::LongText, ""),
+        field("seconds", "Секунд (≤0 — решает LM)", F::Number, "-1"),
+        field("steps", "Шагов (0 — по модели)", F::Number, "0"),
+        field("guidance", "CFG (0 — по модели)", F::Number, "0"),
+        field("shift", "Сдвиг (0 — по модели)", F::Number, "0"),
+        field("seed", "Сид (0 — случайный)", F::Number, "0"),
+        field("temperature", "Температура LM", F::Number, "0.85"),
+        field("top_p", "Top-p LM", F::Number, "0.9"),
+        field("top_k", "Top-k LM (0 — выкл.)", F::Number, "0"),
+        field("min_p", "Min-p LM", F::Number, "0"),
+        field("lm_guidance", "CFG LM", F::Number, "2"),
+        field("cot", "LM выводит метаданные (CoT)", F::Bool, "true"),
+        field("ar", "LM кодов (выкл. — только turbo)", F::Bool, "true"),
+        field("bpm", "Темп (0 — решает LM)", F::Number, "0"),
+        field("keyscale", "Тональность", F::Choice(KEYSCALES), ""),
+        field("timesig", "Размер", F::Choice(TIMESIGS), ""),
+        field("norm", "Нормализация", F::Choice(NORMS), "peak"),
+        field("dcw", "DCW", F::Choice(DCW_MODES), "off"),
+        field("dcw_scaler", "DCW: низкие", F::Number, "0.02"),
+        field("dcw_high_scaler", "DCW: высокие", F::Number, "0.06"),
+        field("retake_variance", "Retake: разброс", F::Number, "0.5"),
+        field("retake_seed", "Retake: сид (0 — случайный)", F::Number, "0"),
+        field("repaint_start", "Repaint: начало, с", F::Number, "0"),
+        field("repaint_end", "Repaint: конец, с (-1 — до конца)", F::Number, "-1"),
+        field("repaint_strength", "Repaint: сила", F::Number, "0.7"),
+        field("edit_n_min", "Edit: от доли шагов", F::Number, "0"),
+        field("edit_n_max", "Edit: до доли шагов", F::Number, "1"),
+        field("track", "Extract: дорожка", F::Choice(TRACKS), "vocals"),
+    ],
+    stage: true,
+};
+
+pub static YUE2_MODEL: NodeSpec = NodeSpec {
+    kind: "yue2_model",
+    title: "Модель YuE2",
+    description: "YuE2 из библиотеки службы: песня с вокалом по стилю и стихам; декодер и транскриптор SheetSage2 — её компоненты",
+    category: MUSIC,
+    inputs: &[],
+    outputs: &[port("model", "Модель", P::Model)],
+    fields: &[field("model", "Модель", F::Text, ""), field("quant", "Квант", F::Choice(QUANTS), "")],
+    stage: true,
+};
+
+pub static YUE2_GENERATE: NodeSpec = NodeSpec {
+    kind: "yue2_generate",
+    title: "Песня YuE2",
+    description: "Партитура (ABC) и музыка по стилю и стихам; готовая партитура на входе сильнее сгенерированной",
+    category: MUSIC,
+    inputs: &[port("model", "Модель", P::Model), port("prompt", "Стиль", P::Text), port("lyrics", "Стихи", P::Text), port("abc", "Партитура", P::Text)],
+    outputs: &[port("audio", "Звук", P::Audio), port("latent", "Латент", P::Latent), port("score", "Партитура", P::Text)],
+    fields: &[
+        field("prompt", "Стиль", F::LongText, ""),
+        field("lyrics", "Стихи", F::LongText, ""),
+        field("cot", "Партитура", F::Choice(COTS), "full"),
+        field("seconds", "Секунд (0 — до конца)", F::Number, "60"),
+        field("steps", "Шагов акустики", F::Number, "32"),
+        field("guidance", "CFG (0 — по режиму)", F::Number, "0"),
+        field("seed", "Сид (0 — случайный)", F::Number, "0"),
+        field("temperature", "Температура", F::Number, "1"),
+        field("top_p", "Top-p", F::Number, "0.95"),
+        field("top_k", "Top-k", F::Number, "100"),
+        field("repetition_penalty", "Штраф повторов", F::Number, "1.2"),
+        field("core_frames", "Тайл декодера, кадров", F::Number, "1024"),
+    ],
+    stage: true,
+};
+
+pub static YUE2_DECODE: NodeSpec = NodeSpec {
+    kind: "yue2_decode",
+    title: "Декодер YuE2",
+    description: "Латент песни в звук (48 кГц, стерео)",
+    category: MUSIC,
+    inputs: &[port("model", "Модель", P::Model), port("latent", "Латент", P::Latent)],
+    outputs: &[port("audio", "Звук", P::Audio)],
+    fields: &[field("core_frames", "Тайл декодера, кадров", F::Number, "1024")],
+    stage: true,
+};
+
+pub static YUE2_TRANSCRIBE: NodeSpec = NodeSpec {
+    kind: "yue2_transcribe",
+    title: "Запись в партитуру",
+    description: "SheetSage2: мелодии записи в партитуру ABC для YuE2 (кавер — только мелодия)",
+    category: MUSIC,
+    inputs: &[port("model", "Модель", P::Model), port("audio", "Звук", P::Audio)],
+    outputs: &[port("score", "Партитура", P::Text)],
+    fields: &[field("mode", "Что писать", F::Choice(TRANSCRIBE_MODES), "melody"), field("voices", "Мелодии", F::Choice(VOICES), "both")],
+    stage: true,
+};
+
 pub static ALL: &[&NodeSpec] = &[
     &IMAGE_MODEL,
     &IMAGE_ENCODE,
@@ -413,4 +558,11 @@ pub static ALL: &[&NodeSpec] = &[
     &LTX_A2V,
     &LTX_DECODE_VIDEO,
     &LTX_DECODE_AUDIO,
+    &ACE_MODEL,
+    &ACE_ENCODE,
+    &ACE_GENERATE,
+    &YUE2_MODEL,
+    &YUE2_GENERATE,
+    &YUE2_DECODE,
+    &YUE2_TRANSCRIBE,
 ];

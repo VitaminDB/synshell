@@ -6984,6 +6984,7 @@ dependencies = [
  "synaptix-kernels-cuda",
  "synaptix-llm-gemma3",
  "synaptix-music-acestep",
+ "synaptix-music-sheetsage2",
  "synaptix-music-yue2",
  "synaptix-video-ltx23",
  "synaptix-video-minimax-h3",
@@ -7323,6 +7324,24 @@ dependencies = [
  "synaptix-nn",
  "synaptix-ops",
  "synaptix-tokenizer",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-music-sheetsage2"
+version = "0.1.1"
+dependencies = [
+ "half",
+ "memmap2 0.9.11",
+ "rubato",
+ "rustfft",
+ "safetensors",
+ "serde_json",
+ "sha2",
+ "synaptix-bundle",
+ "synaptix-core",
+ "synaptix-io",
+ "synaptix-ops",
  "thiserror 2.0.21",
 ]
 

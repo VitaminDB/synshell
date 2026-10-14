@@ -12,6 +12,7 @@ use synaptix_flow::{self as sf, Cx, Handle, Val};
 use synaptix_gen::h3_stages as h3;
 use synaptix_gen::ltx_stages as ltx;
 use synaptix_gen::image_stages as img;
+use synaptix_gen::music_stages as mus;
 use synaptixd::{DeviceKind, ModelKind};
 
 use crate::flow::{mgr, with_progress};
@@ -47,6 +48,13 @@ pub fn install() {
         ("ltx_a2v", ltx_a2v),
         ("ltx_decode_video", ltx_decode_video),
         ("ltx_decode_audio", ltx_decode_audio),
+        ("acestep_model", ace_model),
+        ("acestep_encode", ace_encode),
+        ("acestep_generate", ace_generate),
+        ("yue2_model", yue_model),
+        ("yue2_generate", yue_generate),
+        ("yue2_decode", yue_decode),
+        ("yue2_transcribe", yue_transcribe),
     ] {
         sf::ops::provide(k, f);
     }
@@ -530,6 +538,220 @@ fn ltx_decode_audio(cx: &mut Cx) -> R {
 }
 
 #[allow(dead_code)]
+// ── Музыка ────────────────────────────────────────────────────────────────
+
+struct AceModel {
+    id: String,
+    dev: DeviceKind,
+    m: mus::AceModel,
+}
+
+struct YueModel {
+    id: String,
+    dev: DeviceKind,
+    m: mus::YueModel,
+}
+
+/// Музыкальная модель по полю `model`; пусто — первая подходящая в библиотеке.
+fn music_model(cx: &Cx, family: &str) -> Result<(String, crate::runners::MusicModel, DeviceKind, Option<String>), String> {
+    let m = mgr();
+    let want = match cx.str("model") {
+        Some(w) => w,
+        None => m.list().into_iter().filter(|e| e.kind == ModelKind::Music && e.id.contains(family)).min_by_key(|e| !e.id.contains("base")).map(|e| e.id).ok_or_else(|| format!("в библиотеке нет модели {family}"))?,
+    };
+    let id = m.resolve_id(&want, ModelKind::Music).map_err(|e| e.message)?;
+    let (mm, dev, q) = m.run(&id, |l| l.music_source().map(|(mm, d, q)| (mm.clone(), d, q))).map_err(|e| e.message)?;
+    Ok((id, mm, dev, q))
+}
+
+fn wav_out(cx: &mut Cx, pcm: &[f32], rate: u32, ch: u16) -> Result<PathBuf, String> {
+    let path = cx.out_path("wav");
+    std::fs::write(&path, synaptix_gen::music::wav_bytes(pcm, rate, ch)).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+/// Сид поля с другим именем; 0 — случайный.
+fn seed_of(cx: &mut Cx, name: &str) -> u64 {
+    match cx.pos(name) {
+        Some(s) => s as u64,
+        None => {
+            cx.uncached();
+            crate::gen::random_seed()
+        }
+    }
+}
+
+fn ace_model(cx: &mut Cx) -> R {
+    let (id, mm, dev, q) = music_model(cx, "acestep")?;
+    let crate::runners::MusicModel::Ace(mut paths, small) = mm else { return Err(format!("{id} — не ACE-Step")) };
+    if cx.str("lm").as_deref() == Some("1.7b") {
+        paths.lm = small.ok_or("у модели нет малой LM кодов (1.7B)")?;
+    }
+    let quant = quant_field(cx, q);
+    let model = mus::ace_open(paths, devices::device(dev), quant.as_deref())?;
+    let label = format!("{} ({id}{})", model.name(), quant.map(|q| format!(", {q}")).unwrap_or_default());
+    cx.label = label.clone();
+    cx.out("model", Val::Handle(Handle::new(label, AceModel { id, dev, m: model })));
+    Ok(())
+}
+
+fn ace_encode(cx: &mut Cx) -> R {
+    let m = cx.handle::<AceModel>("model")?;
+    let audio = PathBuf::from(cx.need_file("audio")?);
+    let chunk = cx.pos("chunk").unwrap_or(30.0) as f32;
+    let overlap = cx.num("overlap").unwrap_or(0.5) as f32;
+    let lat = with_progress(cx, |_, stop| {
+        let cancelled = || stop.load(Ordering::Relaxed);
+        on_device(&m.id, m.dev, "VAE ACE-Step", || m.m.encode(&audio, chunk, overlap, &cancelled))
+    })
+    .map_err(|e| stopped(cx, e))?;
+    let label = format!("латент записи {:.1} с", lat.seconds());
+    cx.label = label.clone();
+    cx.out("latent", Val::Handle(Handle::new(label, lat)));
+    Ok(())
+}
+
+fn ace_generate(cx: &mut Cx) -> R {
+    let m = cx.handle::<AceModel>("model")?;
+    let src = cx.opt_handle::<mus::AceLatent>("latent")?;
+    let d = mus::AceRequest::default();
+    let text = |cx: &Cx, k: &str, d: &str| cx.str(k).unwrap_or_else(|| d.to_string());
+    let mode = text(cx, "mode", &d.mode);
+    let seed = seed_of(cx, "seed");
+    let retake_seed = if mode == "retake" { seed_of(cx, "retake_seed") } else { 1 };
+    let req = mus::AceRequest {
+        caption: cx.str("prompt").unwrap_or_default(),
+        lyrics: cx.str("lyrics").unwrap_or_default(),
+        seconds: cx.num("seconds").unwrap_or(-1.0) as f32,
+        steps: cx.pos("steps").unwrap_or(0.0) as usize,
+        guidance: cx.pos("guidance").unwrap_or(0.0) as f32,
+        shift: cx.pos("shift").unwrap_or(0.0) as f32,
+        seed,
+        temperature: cx.num("temperature").unwrap_or(d.temperature as f64) as f32,
+        top_p: cx.num("top_p").unwrap_or(d.top_p as f64) as f32,
+        top_k: cx.pos("top_k").unwrap_or(0.0) as usize,
+        min_p: cx.num("min_p").unwrap_or(0.0) as f32,
+        lm_guidance: cx.num("lm_guidance").unwrap_or(d.lm_guidance as f64) as f32,
+        use_cot: cx.bool("cot"),
+        use_ar: cx.bool("ar"),
+        bpm: cx.pos("bpm").unwrap_or(0.0) as u32,
+        keyscale: cx.str("keyscale").unwrap_or_default(),
+        timesig: cx.str("timesig").unwrap_or_default(),
+        norm: text(cx, "norm", &d.norm),
+        dcw: text(cx, "dcw", &d.dcw),
+        dcw_scaler: cx.num("dcw_scaler").unwrap_or(d.dcw_scaler as f64) as f32,
+        dcw_high_scaler: cx.num("dcw_high_scaler").unwrap_or(d.dcw_high_scaler as f64) as f32,
+        retake_variance: cx.num("retake_variance").unwrap_or(d.retake_variance as f64) as f32,
+        retake_seed,
+        repaint_start: cx.num("repaint_start").unwrap_or(0.0) as f32,
+        repaint_end: cx.num("repaint_end").unwrap_or(-1.0) as f32,
+        repaint_strength: cx.num("repaint_strength").unwrap_or(d.repaint_strength as f64) as f32,
+        edit_n_min: cx.num("edit_n_min").unwrap_or(0.0) as f32,
+        edit_n_max: cx.num("edit_n_max").unwrap_or(1.0) as f32,
+        track: text(cx, "track", &d.track),
+        mode,
+    };
+    let out = with_progress(cx, |_, stop| on_device(&m.id, m.dev, "ACE-Step", || m.m.generate(&req, src.as_deref(), stop.clone())))
+        .map_err(|e| stopped(cx, e))?;
+    let path = wav_out(cx, &out.samples, out.sample_rate, 1)?;
+    cx.label = out.label.clone();
+    cx.out("audio", Val::File(path));
+    cx.out("latent", Val::Handle(Handle::new(out.label, out.latent)));
+    Ok(())
+}
+
+fn yue_model(cx: &mut Cx) -> R {
+    let (id, mm, dev, q) = music_model(cx, "yue")?;
+    let crate::runners::MusicModel::Yue { model, vae } = mm else { return Err(format!("{id} — не YuE2")) };
+    let quant = quant_field(cx, q);
+    let m = mus::yue_open(&model, &vae, devices::device(dev), quant.as_deref())?;
+    let label = format!("{} ({id}{})", m.name(), quant.map(|q| format!(", {q}")).unwrap_or_default());
+    cx.label = label.clone();
+    cx.out("model", Val::Handle(Handle::new(label, YueModel { id, dev, m })));
+    Ok(())
+}
+
+/// Доля 0..1 → прогресс стадии.
+fn frac(progress: &(dyn Fn(usize, usize) + Sync)) -> impl Fn(f32) + '_ {
+    move |f: f32| progress((f.clamp(0.0, 1.0) * 1000.0) as usize, 1000)
+}
+
+fn yue_generate(cx: &mut Cx) -> R {
+    let m = cx.handle::<YueModel>("model")?;
+    let d = mus::YueRequest::default();
+    let req = mus::YueRequest {
+        style: cx.need("prompt")?,
+        lyrics: cx.str("lyrics").unwrap_or_default(),
+        abc: cx.str("abc"),
+        cot: cx.str("cot").unwrap_or(d.cot),
+        seconds: cx.num("seconds").unwrap_or(d.seconds as f64) as f32,
+        steps: cx.pos("steps").unwrap_or(d.steps as f64) as usize,
+        guidance: cx.pos("guidance").unwrap_or(0.0) as f32,
+        seed: seed_of(cx, "seed"),
+        temperature: cx.num("temperature").unwrap_or(d.temperature as f64) as f32,
+        top_p: cx.num("top_p").unwrap_or(d.top_p as f64) as f32,
+        top_k: cx.pos("top_k").unwrap_or(d.top_k as f64) as usize,
+        repetition_penalty: cx.num("repetition_penalty").unwrap_or(d.repetition_penalty as f64) as f32,
+    };
+    let core = cx.pos("core_frames").unwrap_or(1024.0) as usize;
+    let (song, pcm) = with_progress(cx, |progress, stop| {
+        let cancelled = || stop.load(Ordering::Relaxed);
+        let p = frac(progress);
+        let song = on_device(&m.id, m.dev, "YuE2", || m.m.generate(&req, &cancelled, &|f| p(0.9 * f)))?;
+        let pcm = on_device(&m.id, m.dev, "декодер YuE2", || m.m.decode(&song.latent, core, &cancelled, &|f| p(0.9 + 0.1 * f)))?;
+        Ok::<_, String>((song, pcm))
+    })
+    .map_err(|e| stopped(cx, e))?;
+    let path = wav_out(cx, &pcm, 48_000, 2)?;
+    cx.label = song.label.clone();
+    cx.out("audio", Val::File(path));
+    if let Some(score) = song.score {
+        cx.out("score", Val::Text(score));
+    }
+    cx.out("latent", Val::Handle(Handle::new(song.label, song.latent)));
+    Ok(())
+}
+
+fn yue_decode(cx: &mut Cx) -> R {
+    let m = cx.handle::<YueModel>("model")?;
+    let lat = cx.handle::<mus::YueLatent>("latent")?;
+    let core = cx.pos("core_frames").unwrap_or(1024.0) as usize;
+    let pcm = with_progress(cx, |progress, stop| {
+        let cancelled = || stop.load(Ordering::Relaxed);
+        let p = frac(progress);
+        on_device(&m.id, m.dev, "декодер YuE2", || m.m.decode(&lat, core, &cancelled, &p))
+    })
+    .map_err(|e| stopped(cx, e))?;
+    let path = wav_out(cx, &pcm, 48_000, 2)?;
+    cx.label = format!("песня {:.0} с", lat.seconds);
+    cx.out("audio", Val::File(path));
+    Ok(())
+}
+
+fn yue_transcribe(cx: &mut Cx) -> R {
+    let m = cx.handle::<YueModel>("model")?;
+    let audio = PathBuf::from(cx.need_file("audio")?);
+    let mode = cx.str("mode").unwrap_or_else(|| "melody".into());
+    let voices = cx.str("voices").unwrap_or_else(|| "both".into());
+    let abc = with_progress(cx, |progress, stop| {
+        let cancelled = || stop.load(Ordering::Relaxed);
+        let p = frac(progress);
+        on_device(&m.id, m.dev, "SheetSage2", || m.m.transcribe(&audio, &mode, &voices, &cancelled, &p))
+    })
+    .map_err(|e| stopped(cx, e))?;
+    cx.label = format!("партитура, {} строк", abc.lines().count());
+    cx.out("score", Val::Text(abc));
+    Ok(())
+}
+
+fn stopped(cx: &Cx, e: String) -> String {
+    if cx.cancel.is_cancelled() {
+        "прогон остановлен".into()
+    } else {
+        e
+    }
+}
+
 fn _assert_send_sync() {
     fn ok<T: Send + Sync>() {}
     ok::<Arc<ImageModel>>();
@@ -537,6 +759,10 @@ fn _assert_send_sync() {
     ok::<img::Latent>();
     ok::<img::Refs>();
     ok::<H3Model>();
+    ok::<AceModel>();
+    ok::<mus::AceLatent>();
+    ok::<YueModel>();
+    ok::<mus::YueLatent>();
     ok::<h3::H3Cond>();
     ok::<h3::H3Latent>();
     ok::<LtxModel>();

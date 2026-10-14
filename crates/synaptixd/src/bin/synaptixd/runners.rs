@@ -134,8 +134,10 @@ pub enum VideoModel {
     Ltx(synaptix_gen::video::LtxPaths),
 }
 
+#[derive(Clone)]
 pub enum MusicModel {
-    Ace(synaptix_gen::music::AcePaths),
+    /// Компоненты (LM — полная, если есть) и малая LM кодов.
+    Ace(synaptix_gen::music::AcePaths, Option<std::path::PathBuf>),
     Yue { model: std::path::PathBuf, vae: std::path::PathBuf },
 }
 
@@ -339,7 +341,7 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
                     .cloned()
                     .or_else(|| find_near(path, "qwen3-embedding-0.6b"))
                     .ok_or_else(|| anyhow::anyhow!("нет текстового энкодера ACE-Step (qwen3-embedding-0.6b.syn)"))?;
-                MusicModel::Ace(synaptix_gen::music::AcePaths { dit: path.to_path_buf(), lm, text_encoder, vae: need("vae")? })
+                MusicModel::Ace(synaptix_gen::music::AcePaths { dit: path.to_path_buf(), lm, text_encoder, vae: need("vae")? }, components.get("lm_small").cloned())
             };
             plain(Loaded::Music(m, dev, quant.map(String::from)))
         }
@@ -453,6 +455,14 @@ impl Loaded {
         }
     }
 
+    /// Музыкальная модель для стадий графа: компоненты, устройство, квант.
+    pub fn music_source(&self) -> anyhow::Result<(&MusicModel, DeviceKind, Option<String>)> {
+        match self {
+            Loaded::Music(m, dev, quant) => Ok((m, *dev, quant.clone())),
+            _ => anyhow::bail!("это не музыкальная модель"),
+        }
+    }
+
     /// MiniMax-H3 для стадий графа: модель, энкодер, устройство, квант.
     pub fn h3_source(&self) -> anyhow::Result<(std::path::PathBuf, Option<std::path::PathBuf>, DeviceKind, Option<String>)> {
         match self {
@@ -506,7 +516,7 @@ impl Loaded {
         let req = &req;
         let device = devices::device(*dev);
         let out = match m {
-            MusicModel::Ace(p) => synaptix_gen::music::acestep(p, device, req, cancel),
+            MusicModel::Ace(p, _) => synaptix_gen::music::acestep(p, device, req, cancel),
             MusicModel::Yue { model, vae } => synaptix_gen::music::yue2(model, vae, device, req, cancel, progress),
         }
         .map_err(|e| anyhow::anyhow!("{e}"))?;
