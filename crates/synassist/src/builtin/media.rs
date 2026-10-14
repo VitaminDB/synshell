@@ -39,6 +39,28 @@ pub fn write_wav(path: &Path, pcm: &[f32], rate: u32) -> std::io::Result<()> {
     std::fs::write(path, w)
 }
 
+/// `model` из аргументов, если это установленная модель нужного вида: модель
+/// нередко выдумывает id или берёт модель другого вида (видео для музыки) —
+/// тогда `None`, и решают настройки.
+fn model_arg(c: &mut synaptixd::Client, args: &Value, kind: ModelKind) -> Option<String> {
+    let id = str_arg(args, "model")?.trim();
+    if id.is_empty() {
+        return None;
+    }
+    let models: Vec<_> = c.list().ok()?.into_iter().filter(|m| m.kind == kind).collect();
+    if let Some(m) = models.iter().find(|m| m.id == id) {
+        return Some(m.id.clone());
+    }
+    // «yue2», «YuE 2» — без регистра и знаков, по началу id или названия; только однозначно.
+    let norm = |s: &str| s.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect::<String>();
+    let want = norm(id);
+    let mut hits = models.iter().filter(|m| !want.is_empty() && (norm(&m.id).starts_with(&want) || norm(&m.title).starts_with(&want)));
+    match (hits.next(), hits.next()) {
+        (Some(m), None) => Some(m.id.clone()),
+        _ => None,
+    }
+}
+
 fn speak(args: &Value) -> ToolResult {
     let text = need_str(args, "prompt")?;
     let mut params = Params::new();
@@ -75,9 +97,9 @@ fn image(args: &Value) -> ToolResult {
         init: None,
         strength: None,
     };
-    let model = str_arg(args, "model").unwrap_or("");
     let mut c = synaptixd::Client::connect().map_err(|e| e.to_string())?;
-    let (reply, png) = match c.image(model, prompt, &p, |i, n| crate::tools::progress(i, n, "картинка")) {
+    let model = model_arg(&mut c, args, ModelKind::Image).unwrap_or_default();
+    let (reply, png) = match c.image(&model, prompt, &p, |i, n| crate::tools::progress(i, n, "картинка")) {
         Ok(r) => r,
         Err(e) if e.code == synaptixd::ErrorCode::NoModel => return generate(ModelKind::Image, "картинки"),
         Err(e) => return Err(e.to_string()),
@@ -129,15 +151,18 @@ fn video(args: &Value) -> ToolResult {
     // Возможности только LTX — быстрая distilled LTX; ключевые кадры без них — H3 FL2VA.
     let ltx_only = !restyle && (p.audio.is_some() || p.source_video.is_some() || p.control_video.is_some() || p.two_stage);
     let keyed = p.first_frame.is_some() || p.last_frame.is_some();
-    let model = str_arg(args, "model").unwrap_or(if ltx_only {
-        "ltx-2-3-22b-distilled-1-1"
-    } else if keyed || restyle {
-        "minimax-h3-fl2va"
-    } else {
-        ""
-    });
     let mut c = synaptixd::Client::connect().map_err(|e| e.to_string())?;
-    let (reply, mp4) = match c.video(model, prompt, &p, |i, n| crate::tools::progress(i, n, "видео")) {
+    let model = model_arg(&mut c, args, ModelKind::Video).unwrap_or_else(|| {
+        if ltx_only {
+            "ltx-2-3-22b-distilled-1-1"
+        } else if keyed || restyle {
+            "minimax-h3-fl2va"
+        } else {
+            ""
+        }
+        .to_string()
+    });
+    let (reply, mp4) = match c.video(&model, prompt, &p, |i, n| crate::tools::progress(i, n, "видео")) {
         Ok(r) => r,
         Err(e) if e.code == synaptixd::ErrorCode::NoModel => return generate(ModelKind::Video, "видео"),
         Err(e) => return Err(e.to_string()),
@@ -159,9 +184,12 @@ fn music(args: &Value) -> ToolResult {
     let seconds = args.get("seconds").and_then(Value::as_u64).map(|v| v.clamp(5, 300) as u32);
     let seed = args.get("seed").and_then(Value::as_u64);
     let mut c = synaptixd::Client::connect().map_err(|e| e.to_string())?;
-    // Инструментал (без текста) — ACE-Step (YuE2 — песенная модель); нет её — модель по умолчанию.
-    let picked = match str_arg(args, "model") {
-        Some(m) => Some(m.to_string()),
+    // Модель из настроек главнее; не выбрана — инструментал (без текста) на
+    // ACE-Step (YuE2 — песенная модель), иначе — по умолчанию.
+    let chosen = c.defaults().ok().and_then(|d| d.into_iter().find(|d| d.kind == ModelKind::Music)).and_then(|d| d.model);
+    let picked = match model_arg(&mut c, args, ModelKind::Music) {
+        Some(m) => Some(m),
+        None if chosen.is_some() => chosen,
         None if lyrics.trim().is_empty() => c
             .list()
             .ok()
@@ -238,7 +266,7 @@ impl Tool for MediaTool {
                 "first_frame": {"type": "string", "description": "путь картинки — первый кадр видео"},
                 "last_frame": {"type": "string", "description": "путь картинки — последний кадр видео"},
                 "seconds": {"type": "integer", "description": "длительность музыки, с"},
-                "model": {"type": "string", "description": "id модели; пусто — по умолчанию"}
+                "model": {"type": "string", "description": "id модели, только если пользователь сам её назвал; обычно не указывай — модель берётся из настроек"}
             },
             "required": ["action", "prompt"]
         })
