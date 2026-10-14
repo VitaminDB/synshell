@@ -63,11 +63,19 @@ pub fn install() {
 /// Стадия на устройстве: другие модели уступают ему место, стадии
 /// идут по одной на устройство (как запросы службы), пулы — драйверу.
 fn on_device<T>(id: &str, dev: DeviceKind, why: &str, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    let live = crate::activity::current();
+    if let Some(l) = &live {
+        l.model(id);
+        l.waiting();
+    }
     if dev == DeviceKind::Cuda {
         mgr().clear_device(id, dev, why);
     }
     let r = {
         let _l = devices::lock(dev);
+        if let Some(l) = &live {
+            l.running();
+        }
         f()
     };
     manager::release_vram(Some(dev));

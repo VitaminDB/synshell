@@ -15,6 +15,30 @@ pub use wire::Mapped;
 pub const SOCKET: &str = "/run/synaptix/synaptixd.sock";
 pub const VERSION: u32 = 1;
 
+static LABEL: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+thread_local! {
+    static THREAD_LABEL: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Роль программы для всех её соединений со службой (показывается рядом с
+/// именем программы в метриках): «нодовый редактор», «чат»…
+pub fn set_label(label: Option<&str>) {
+    *LABEL.lock().unwrap_or_else(|e| e.into_inner()) = label.map(String::from);
+}
+
+/// Роль для соединений этого потока на время `f` (субагент в своём потоке).
+pub fn with_label<R>(label: &str, f: impl FnOnce() -> R) -> R {
+    let prev = THREAD_LABEL.with(|l| l.replace(Some(label.to_string())));
+    let r = f();
+    THREAD_LABEL.with(|l| *l.borrow_mut() = prev);
+    r
+}
+
+fn current_label() -> Option<String> {
+    THREAD_LABEL.with(|l| l.borrow().clone()).or_else(|| LABEL.lock().unwrap_or_else(|e| e.into_inner()).clone())
+}
+
 pub fn socket_path() -> PathBuf {
     std::env::var_os("SYNAPTIXD_SOCKET").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(SOCKET))
 }
@@ -316,6 +340,140 @@ pub struct DefaultModel {
     pub model: Option<String>,
     #[serde(default)]
     pub resolved: Option<String>,
+}
+
+/// Программа, которая обратилась к службе: процесс и его ярлык `.desktop`.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Default, Hash)]
+pub struct AppInfo {
+    pub pid: u32,
+    pub uid: u32,
+    /// Имя программы (из `.desktop`, иначе имя процесса).
+    pub name: String,
+    /// Значок из `.desktop` (имя темы или путь).
+    #[serde(default)]
+    pub icon: String,
+    /// Ярлык `.desktop` без расширения или имя исполняемого файла.
+    pub id: String,
+    /// Роль внутри программы из `Hello` («субагент», «нодовый редактор»…).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub label: String,
+}
+
+impl AppInfo {
+    /// «Synthos · субагент».
+    pub fn title(&self) -> String {
+        if self.label.is_empty() || self.label.eq_ignore_ascii_case(&self.name) || self.label.eq_ignore_ascii_case(&self.id) {
+            self.name.clone()
+        } else {
+            format!("{} · {}", self.name, self.label)
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityState {
+    /// Ждёт загрузки модели или освобождения устройства.
+    #[default]
+    Waiting,
+    Running,
+    Done,
+    Failed,
+    Cancelled,
+}
+
+/// Одна работа службы: запрос программы (генерация, картинка, граф…).
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct Activity {
+    pub id: u64,
+    /// Операция запроса: `generate`, `image`, `video`, `music`, `speak`,
+    /// `transcribe`, `embed`, `rerank`, `flow`…
+    pub op: String,
+    pub app: AppInfo,
+    /// Модели, которые работа заняла (у графа их может быть несколько).
+    pub models: Vec<String>,
+    pub state: ActivityState,
+    pub started_ms: i64,
+    #[serde(default)]
+    pub finished_ms: Option<i64>,
+    /// Шаг генерации (картинка, видео, музыка, нода графа).
+    #[serde(default)]
+    pub step: Option<(usize, usize)>,
+    /// Языковая модель: промпт, из кэша, ответ, контекст.
+    #[serde(default)]
+    pub prompt_tokens: u32,
+    #[serde(default)]
+    pub cached_tokens: u32,
+    #[serde(default)]
+    pub tokens: u32,
+    #[serde(default)]
+    pub context: u32,
+    #[serde(default)]
+    pub prefill_ms: u64,
+    #[serde(default)]
+    pub decode_ms: u64,
+    /// Скорость ответа, токенов в секунду (идёт — текущая, готово — итоговая).
+    #[serde(default)]
+    pub tps: f32,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+/// Точка истории: раз в секунду.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct MetricsSample {
+    pub t_ms: i64,
+    /// Токенов в секунду всех языковых моделей.
+    pub tps: f32,
+    /// Работ идёт / ждёт.
+    pub running: u32,
+    pub waiting: u32,
+    /// Память моделей службы: RAM и видеопамять, байт.
+    pub ram: u64,
+    pub vram: u64,
+}
+
+/// KV-сессия языковой модели (контекст чата программы).
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct KvUsage {
+    pub model: String,
+    /// Ключ сессии (чат программы).
+    pub key: String,
+    pub app: AppInfo,
+    pub tokens: u32,
+    pub capacity: u32,
+    /// Байт на устройстве (припаркованная — в RAM).
+    pub bytes: u64,
+    pub parked: bool,
+}
+
+/// Программа и что она держит в службе.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct AppUsage {
+    pub app: AppInfo,
+    /// Открытых соединений (подписки, открытые модели).
+    pub connections: u32,
+    /// Модели, открытые программой или занятые её работами.
+    pub models: Vec<String>,
+    /// Байт KV-сессий программы.
+    pub kv_bytes: u64,
+    pub requests: u64,
+    pub tokens: u64,
+    pub last_ms: i64,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct Metrics {
+    pub now_ms: i64,
+    /// Идут и ждут.
+    pub running: Vec<Activity>,
+    /// Последние завершённые, новые первыми.
+    pub recent: Vec<Activity>,
+    pub apps: Vec<AppUsage>,
+    pub kv: Vec<KvUsage>,
+    /// История за 5 минут (по запросу `history`).
+    #[serde(default)]
+    pub history: Vec<MetricsSample>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
@@ -693,6 +851,15 @@ pub enum Request {
         files: Vec<String>,
     },
     Subscribe,
+    /// Что служба делает сейчас: работы, программы, история скорости.
+    Metrics {
+        #[serde(default)]
+        history: bool,
+    },
+    /// Остановить работу (свою — любой, чужую — root и wheel).
+    Cancel {
+        activity: u64,
+    },
 }
 
 /// Готовое значение на входе ноды графа (с ноды вне графа).
@@ -1020,7 +1187,11 @@ impl Client {
 
     pub fn connect_to(path: &std::path::Path) -> Result<Self> {
         let sock = wire::connect(path)?;
-        Ok(Self { sock, next_id: 1 })
+        let mut c = Self { sock, next_id: 1 };
+        if let Some(label) = current_label() {
+            c.hello(&label)?;
+        }
+        Ok(c)
     }
 
     /// Отмена из другого потока: закрывает соединение, текущий запрос
@@ -1088,6 +1259,21 @@ impl Client {
 
     pub fn status(&mut self) -> Result<Status> {
         self.call_typed(Request::Status)
+    }
+
+    /// Работы, программы и KV-сессии службы; `history` — и история за 5 минут.
+    pub fn metrics(&mut self, history: bool) -> Result<Metrics> {
+        self.call_typed(Request::Metrics { history })
+    }
+
+    pub fn cancel_activity(&mut self, activity: u64) -> Result<()> {
+        self.call(Request::Cancel { activity }, &[]).map(|_| ())
+    }
+
+    /// Роль соединения внутри программы («субагент», «нодовый редактор»):
+    /// служба показывает её рядом с именем программы.
+    pub fn label(&mut self, label: &str) -> Result<Hello> {
+        self.hello(label)
     }
 
     pub fn open(&mut self, model: &str) -> Result<ModelInfo> {

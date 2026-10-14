@@ -262,6 +262,11 @@ pub fn serve(m: &Arc<Manager>, sock: BorrowedFd, id: u64, flow: Value, inputs: V
         let c = cancel.clone();
         crate::hangup::watch(sock.as_raw_fd(), move || c.cancel())
     };
+    let live = crate::activity::current();
+    if let Some(l) = &live {
+        let c = cancel.clone();
+        l.on_cancel(move || c.cancel());
+    }
     let mut sink = Sink { sock, id, cancel, next_out: 0, inputs: ins.paths.clone() };
     let t0 = Instant::now();
     let r = sf::run_with(&flow, &dir, &opts, &mut |e| {
@@ -269,6 +274,9 @@ pub fn serve(m: &Arc<Manager>, sock: BorrowedFd, id: u64, flow: Value, inputs: V
             Event::Finished { id, name, summary, outputs, cached } => Event::Finished { id, name, summary, outputs: sink.outputs(&outputs), cached },
             other => other,
         };
+        if let (Some(l), Event::Progress { step, total, .. }) = (&live, &e) {
+            l.progress(*step, *total);
+        }
         sink.send(synaptixd::Event::Flow { node: e }, &[]);
     });
     let _ = std::fs::remove_dir_all(&dir);

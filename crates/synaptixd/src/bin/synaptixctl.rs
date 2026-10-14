@@ -59,6 +59,34 @@ fn run(args: &[String]) -> Result<(), String> {
     let mut c = Client::connect().map_err(|e| e.to_string())?;
     let arg = |i: usize| args.get(i).map(String::as_str).ok_or_else(|| "мало аргументов".to_string());
     match args.first().map(String::as_str).unwrap_or("list") {
+        "top" => {
+            let m = c.metrics(args.get(1).is_some_and(|a| a == "-h")).map_err(|e| e.to_string())?;
+            let act = |a: &synaptixd::Activity| {
+                let step = a.step.map(|(s, t)| format!(" шаг {s}/{t}")).unwrap_or_default();
+                let tok = if a.tokens > 0 { format!(" {} ток, {:.0} ток/с", a.tokens, a.tps) } else { String::new() };
+                format!("#{} {:?} {} [{}] {}{}{}", a.id, a.state, a.op, a.app.title(), a.models.join("+"), step, tok)
+            };
+            println!("Идут:");
+            for a in &m.running {
+                println!("  {}", act(a));
+            }
+            println!("Недавние:");
+            for a in m.recent.iter().take(8) {
+                println!("  {}", act(a));
+            }
+            println!("Программы:");
+            for u in &m.apps {
+                println!("  {} (pid {}, {}) соединений {}, запросов {}, токенов {}, KV {} МБ, модели: {}", u.app.title(), u.app.pid, u.app.id, u.connections, u.requests, u.tokens, u.kv_bytes >> 20, u.models.join(", "));
+            }
+            for k in &m.kv {
+                println!("  KV {} «{}» [{}] {}/{} ток, {} МБ{}", k.model, k.key, k.app.title(), k.tokens, k.capacity, k.bytes >> 20, if k.parked { " (в RAM)" } else { "" });
+            }
+            if !m.history.is_empty() {
+                let tps: Vec<String> = m.history.iter().rev().take(20).rev().map(|h| format!("{:.0}", h.tps)).collect();
+                println!("ток/с по секундам: {}", tps.join(" "));
+            }
+        }
+        "cancel" => c.cancel_activity(arg(1)?.parse().map_err(|_| "номер работы")?).map_err(|e| e.to_string())?,
         "engine" => {
             let id = arg(1)?;
             let m = c.list().map_err(|e| e.to_string())?.into_iter().find(|m| m.id == id).ok_or("нет такой модели")?;

@@ -445,6 +445,38 @@ impl Manager {
         }
     }
 
+    /// Память загруженных моделей: (RAM, видеопамять), байт.
+    pub fn models_mem(&self) -> (u64, u64) {
+        let slots = self.slots.lock().unwrap();
+        let loaded = slots.values().filter(|s| s.model.is_some());
+        loaded.fold((0, 0), |(r, v), s| if s.device == Some(DeviceKind::Cuda) { (r, v + s.vram_bytes) } else { (r + s.mem_bytes, v) })
+    }
+
+    pub fn metrics(&self, history: bool) -> synaptixd::Metrics {
+        let snap = crate::activity::snapshot(history);
+        let mut kv = Vec::new();
+        {
+            let slots = self.slots.lock().unwrap();
+            for (id, s) in slots.iter() {
+                let Some(m) = &s.model else { continue };
+                for (key, app, tokens, capacity, bytes, parked) in m.kv_usage() {
+                    kv.push(synaptixd::KvUsage { model: id.clone(), key, app, tokens, capacity, bytes, parked });
+                }
+            }
+        }
+        let mut apps = snap.apps;
+        for k in &kv {
+            match apps.iter_mut().find(|u| u.app.pid == k.app.pid && u.app.label == k.app.label) {
+                Some(u) => u.kv_bytes += k.bytes,
+                None if k.app.pid != 0 && std::path::Path::new(&format!("/proc/{}", k.app.pid)).exists() => {
+                    apps.push(synaptixd::AppUsage { app: k.app.clone(), kv_bytes: k.bytes, models: vec![k.model.clone()], ..Default::default() })
+                }
+                None => {}
+            }
+        }
+        synaptixd::Metrics { now_ms: now_ms(), running: snap.running, recent: snap.recent, apps, kv, history: snap.history }
+    }
+
     pub fn open(self: &Arc<Self>, id: &str) -> Result<ModelInfo, Error> {
         {
             let mut slots = self.slots.lock().unwrap();
@@ -755,6 +787,9 @@ impl Manager {
     }
 
     pub fn acquire(self: &Arc<Self>, id: &str) -> Result<Lease, Error> {
+        if let Some(l) = crate::activity::current() {
+            l.model(id);
+        }
         loop {
             {
                 let mut slots = self.slots.lock().unwrap();
@@ -869,10 +904,14 @@ impl Manager {
         id: &str,
         f: impl Fn(&Loaded) -> anyhow::Result<T>,
     ) -> Result<T, Error> {
+        let live = crate::activity::current();
         let lease = self.acquire(id)?;
         let dev = lease.device;
         let r = {
             let _dl = devices::lock(dev);
+            if let Some(l) = &live {
+                l.running();
+            }
             f(&lease.model)
         };
         match r {

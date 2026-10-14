@@ -32,6 +32,8 @@ struct KvEntry {
     key: String,
     kv: synaptix::facade::llm::LlmKvSession,
     parked: bool,
+    /// Программа, чей это контекст.
+    app: synaptixd::AppInfo,
 }
 
 /// Медиа сообщения для промпта: блок токенов (или строка-замена) по порядку.
@@ -482,6 +484,20 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
 }
 
 impl Loaded {
+    /// KV-сессии языковой модели: (ключ, программа, токенов, ёмкость, байт, припаркована).
+    pub fn kv_usage(&self) -> Vec<(String, synaptixd::AppInfo, u32, u32, u64, bool)> {
+        let Loaded::Llm(b) = self else { return Vec::new() };
+        let per_token = b.llm.kv_bytes_per_token() as u64;
+        let all = b.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        all.iter()
+            .map(|e| {
+                let tokens = e.kv.cached_tokens() as u32;
+                let bytes = if e.parked { per_token * tokens as u64 } else { e.kv.device_bytes() as u64 };
+                (e.key.clone(), e.app.clone(), tokens, e.kv.ctx_tokens() as u32, bytes, e.parked)
+            })
+            .collect()
+    }
+
     /// Настройки генерации языковой модели (на лету, без перезагрузки).
     pub fn set_runtime(&self, rt: synaptix::facade::llm::RuntimeOptions) {
         if let Loaded::Llm(b) = self {
@@ -957,7 +973,8 @@ impl Loaded {
             match llm.new_kv_session(want, max_tokens) {
                 Ok(Some(kv)) => {
                     tracing::info!("generate: кэш контекста «{key}» на {want} токенов (предел {window})");
-                    entry = Some(KvEntry { key: key.clone(), kv, parked: false });
+                    let app = crate::activity::current().map(|l| l.app().clone()).unwrap_or_default();
+                    entry = Some(KvEntry { key: key.clone(), kv, parked: false, app });
                 }
                 Ok(None) => {}
                 Err(e) => tracing::warn!("generate: кэш на {want} токенов не создан ({e}) — без кэша"),

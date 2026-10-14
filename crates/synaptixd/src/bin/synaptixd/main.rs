@@ -1,3 +1,4 @@
+mod activity;
 mod config;
 mod defaults;
 mod library;
@@ -73,6 +74,28 @@ struct Conn {
     admin: bool,
     opened: Vec<String>,
     current: u64,
+    /// Номер соединения и программа на том конце.
+    conn: u64,
+    app: synaptixd::AppInfo,
+}
+
+/// Операция запроса, если это работа с моделью (для учёта работ).
+fn work_op(req: &Request) -> Option<&'static str> {
+    Some(match req {
+        Request::Load { .. } => "load",
+        Request::Ctc { .. } => "ctc",
+        Request::MfaAlign { .. } => "align",
+        Request::Image { .. } => "image",
+        Request::Video { .. } => "video",
+        Request::Music { .. } => "music",
+        Request::Embed { .. } => "embed",
+        Request::Transcribe { .. } => "transcribe",
+        Request::Speak { .. } => "speak",
+        Request::Generate { .. } => "generate",
+        Request::Rerank { .. } => "rerank",
+        Request::Flow { .. } => "flow",
+        _ => return None,
+    })
 }
 
 impl Conn {
@@ -89,6 +112,8 @@ impl Conn {
         Ok(match req {
             Request::Hello { client } => {
                 tracing::debug!("клиент {client}");
+                self.app.label = client;
+                activity::relabel(self.conn, &self.app);
                 (data(Hello { version: synaptixd::VERSION, devices: devices::list() }), none())
             }
             Request::List => (data(mgr.list()), none()),
@@ -101,6 +126,7 @@ impl Conn {
                 let model = mgr.resolve_any(&model)?;
                 let info = mgr.open(&model)?;
                 self.opened.push(model);
+                activity::opened(self.conn, &self.opened);
                 (data(info), none())
             }
             Request::Close { model } => {
@@ -108,6 +134,7 @@ impl Conn {
                 if let Some(i) = self.opened.iter().position(|m| *m == model) {
                     self.opened.swap_remove(i);
                     mgr.close(&model);
+                    activity::opened(self.conn, &self.opened);
                 }
                 (Value::Null, none())
             }
@@ -194,9 +221,17 @@ impl Conn {
                 let sock = self.sock.as_fd();
                 let id = self.current;
                 // Клиент ушёл (отправка не прошла) — отмена генерации.
+                let live = activity::current();
+                let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                if let Some(l) = &live {
+                    l.cancel_flag(stop.clone());
+                }
                 let mut send = |step: usize, total: usize| -> bool {
+                    if let Some(l) = &live {
+                        l.progress(step, total);
+                    }
                     let r = Reply { id, event: Some(synaptixd::Event::Progress { step, total }), ..Default::default() };
-                    wire::send(sock, &serde_json::to_vec(&r).unwrap_or_default(), &[]).is_ok()
+                    wire::send(sock, &serde_json::to_vec(&r).unwrap_or_default(), &[]).is_ok() && !stop.load(std::sync::atomic::Ordering::Relaxed)
                 };
                 let r = gen::image(&mgr, &model, prompt, p, &mut send)?;
                 let fd = wire::memfd("image", &r.png)?;
@@ -207,8 +242,15 @@ impl Conn {
                 let p = synaptixd::VideoParams { negative, width, height, seconds, steps, guidance, seed, first_frame, last_frame, refs, audio, source_video, retake, extend, control_video, control, two_stage, strength };
                 let raw = self.sock.as_raw_fd();
                 let id = self.current;
-                let cancel = std::sync::atomic::AtomicBool::new(false);
+                let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let live = activity::current();
+                if let Some(l) = &live {
+                    l.cancel_flag(cancel.clone());
+                }
                 let send = |step: usize, total: usize| {
+                    if let Some(l) = &live {
+                        l.progress(step, total);
+                    }
                     let r = Reply { id, event: Some(synaptixd::Event::Progress { step, total }), ..Default::default() };
                     let sock = unsafe { std::os::fd::BorrowedFd::borrow_raw(raw) };
                     if wire::send(sock, &serde_json::to_vec(&r).unwrap_or_default(), &[]).is_err() {
@@ -226,7 +268,14 @@ impl Conn {
                 let id = self.current;
                 let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                 let c2 = cancel.clone();
+                let live = activity::current();
+                if let Some(l) = &live {
+                    l.cancel_flag(cancel.clone());
+                }
                 let mut send = |step: usize, total: usize| {
+                    if let Some(l) = &live {
+                        l.progress(step, total);
+                    }
                     let r = Reply { id, event: Some(synaptixd::Event::Progress { step, total }), ..Default::default() };
                     if wire::send(sock, &serde_json::to_vec(&r).unwrap_or_default(), &[]).is_err() {
                         c2.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -300,13 +349,23 @@ impl Conn {
                     let c = cancel.clone();
                     hangup::watch(sock.as_raw_fd(), move || c.store(true, std::sync::atomic::Ordering::SeqCst))
                 };
+                let live = activity::current();
+                if let Some(l) = &live {
+                    l.cancel_flag(cancel.clone());
+                }
                 let send = |ev: synaptixd::Event| {
+                    if let (Some(l), synaptixd::Event::Token { .. } | synaptixd::Event::Thinking { .. } | synaptixd::Event::ToolText { .. }) = (&live, &ev) {
+                        l.token();
+                    }
                     let r = Reply { id, event: Some(ev), ..Default::default() };
                     if wire::send(sock, &serde_json::to_vec(&r).unwrap_or_default(), &[]).is_err() {
                         cancel.store(true, std::sync::atomic::Ordering::SeqCst);
                     }
                 };
                 let g = mgr.run(&model, |m| m.generate(&messages, &params, &tools, &send, &cancel))?;
+                if let Some(l) = &live {
+                    l.generated(&g);
+                }
                 (data(g), none())
             }
             Request::Rerank { model, pairs } => {
@@ -325,6 +384,12 @@ impl Conn {
                 (data(info), none())
             }
             Request::Flow { flow, inputs, files } => flow::serve(&mgr, self.sock.as_fd(), self.current, flow, inputs, files, fds.into_iter().flatten().collect())?,
+            Request::Metrics { history } => (data(mgr.metrics(history)), none()),
+            Request::Cancel { activity } => {
+                let uid = wire::peer(self.sock.as_fd()).map(|p| p.uid).unwrap_or(u32::MAX);
+                activity::cancel(activity, uid, self.admin).map_err(|e| Error::new(ErrorCode::Denied, e))?;
+                (Value::Null, none())
+            }
             Request::Subscribe => unreachable!(),
         })
     }
@@ -366,8 +431,13 @@ impl Conn {
             }
             let id = env.id;
             self.current = id;
+            let work = work_op(&env.req).map(|op| activity::begin(&self.app, op));
             let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.dispatch(env.req, fds)))
                 .unwrap_or_else(|_| Err(Error::new(ErrorCode::Failed, "сбой модели")));
+            if let (Some(w), Err(e)) = (&work, &res) {
+                w.fail(&e.message);
+            }
+            drop(work);
             let sent = match res {
                 Ok((data, out)) => self.send(&Reply { id, ok: Some(true), data, ..Default::default() }, &out),
                 Err(e) => self.send(
@@ -382,8 +452,11 @@ impl Conn {
         for id in std::mem::take(&mut self.opened) {
             self.mgr.close(&id);
         }
+        activity::disconnect(self.conn);
     }
 }
+
+static NEXT_CONN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 fn raise_nofile() {
     unsafe {
@@ -414,6 +487,8 @@ fn main() -> anyhow::Result<()> {
         std::thread::Builder::new().name("monitor".into()).spawn(move || m.monitor())?;
         let m = mgr.clone();
         std::thread::Builder::new().name("preload".into()).spawn(move || m.preload())?;
+        let m = mgr.clone();
+        activity::sampler(move || m.models_mem());
     }
     loop {
         let sock = match wire::accept(listener.as_fd()) {
@@ -423,8 +498,12 @@ fn main() -> anyhow::Result<()> {
                 continue;
             }
         };
-        let admin = wire::peer(sock.as_fd()).map(|p| is_admin(p.uid)).unwrap_or(false);
-        let conn = Conn { mgr: mgr.clone(), sock, admin, opened: Vec::new(), current: 0 };
+        let peer = wire::peer(sock.as_fd()).ok();
+        let admin = peer.as_ref().map(|p| is_admin(p.uid)).unwrap_or(false);
+        let app = peer.map(|p| activity::app_of(p.pid, p.uid)).unwrap_or_default();
+        let id = NEXT_CONN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        activity::connect(id, &app);
+        let conn = Conn { mgr: mgr.clone(), sock, admin, opened: Vec::new(), current: 0, conn: id, app };
         let _ = std::thread::Builder::new().name("conn".into()).spawn(move || conn.serve());
     }
 }
