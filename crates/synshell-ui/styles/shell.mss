@@ -1492,6 +1492,9 @@ TextField {
     border-color: var(--accent-soft);
 }
 .link-card-slim { padding: 10px 12px; border-radius: 18px; }
+/* Файл тянут над карточкой — отпустить, чтобы отправить на устройство. */
+.link-card-drop { border-width: 2px; border-color: var(--accent); }
+.link-drop-hint { font-size: 11px; color: var(--muted); }
 .link-card-slim:active { scale: 0.97; }
 
 .link-avatar { padding: 9px; border-radius: 999px; background-color: var(--hover); }

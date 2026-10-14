@@ -140,6 +140,8 @@ pub(crate) enum Command {
     VkModifiers(u32, u32, u32),
     /// Подписаться на активность полей ввода (zwp_input_method_v2).
     ImEnable,
+    /// Брошенные на поверхность файлы — в её дерево виджетов (`DropArea`).
+    WidgetDrop { id: SurfaceId, pos: syngui::core::Point, paths: Vec<std::path::PathBuf> },
 }
 
 /// Виджет экрана блокировки для вывода.
@@ -324,6 +326,24 @@ type SurfaceDropFn = std::rc::Rc<dyn Fn(DropEvent)>;
 
 thread_local! {
     static SURFACE_DROP: RefCell<std::collections::HashMap<SurfaceId, SurfaceDropFn>> = RefCell::new(std::collections::HashMap::new());
+}
+
+thread_local! {
+    static WIDGET_DROPS: RefCell<std::collections::HashSet<SurfaceId>> = RefCell::new(std::collections::HashSet::new());
+}
+
+/// Перетаскивание файлов на поверхность `id` — в её виджеты: `DropArea` под
+/// курсором получает вход, движение, уход и бросок, как в окне syngui.
+pub fn route_drops_to_widgets(id: SurfaceId) {
+    WIDGET_DROPS.with(|w| w.borrow_mut().insert(id));
+}
+
+pub(crate) fn has_widget_drops(id: SurfaceId) -> bool {
+    WIDGET_DROPS.with(|w| w.borrow().contains(&id))
+}
+
+pub(crate) fn queue_widget_drop(id: SurfaceId, pos: syngui::core::Point, paths: Vec<std::path::PathBuf>) {
+    push(Command::WidgetDrop { id, pos, paths });
 }
 
 /// Приём перетаскивания на одну поверхность: файлы, картинки и текст (в отличие

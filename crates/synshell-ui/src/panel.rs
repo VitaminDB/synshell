@@ -528,6 +528,8 @@ pub fn create(ctx: ShellCtx, index: usize, panel: &Panel, out: &OutputInfo) -> (
             Box::new(view(&panel_v, &pcc, bg, editing, defloated.get()))
         })))
     });
+    // Перетаскивание файлов — в виджеты панели (значок связи открывает устройства).
+    syngui_layer::route_drops_to_widgets(id);
     *id_cell.lock().unwrap() = Some(id);
     if let Some(auto) = autohide {
         set_reveal(key, Rc::new(move || auto.reveal()));

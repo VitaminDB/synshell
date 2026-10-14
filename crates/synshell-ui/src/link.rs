@@ -265,7 +265,7 @@ fn icon_button(glyph: &'static str, f: impl Fn() + Send + Sync + 'static) -> imp
 }
 
 /// Карточка устройства: значок, имя, состояние, действия.
-fn device_card(p: PeerInfo, compact: bool) -> Box<dyn Widget> {
+fn card_body(p: PeerInfo, compact: bool, over: bool) -> impl Widget {
     let head = Row::new()
         .gap(12.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
@@ -279,6 +279,9 @@ fn device_card(p: PeerInfo, compact: bool) -> Box<dyn Widget> {
         )
         .child(chip(p.transport, p.connected));
     let mut col = Column::new().gap(10.0).child(head);
+    if p.connected && p.files_path().is_some() {
+        col = col.child(Text::new(t!("Перетащите сюда файлы — они уйдут в «Загрузки» устройства")).max_lines(2).class("link-note link-drop-hint"));
+    }
     if p.connected {
         let (a, b, c, d) = (p.clone(), p.clone(), p.clone(), p.clone());
         let mut actions = Row::new()
@@ -310,7 +313,83 @@ fn device_card(p: PeerInfo, compact: bool) -> Box<dyn Widget> {
                 .child(small_button(&t!("Спарить"), true, move || send(Request::Pair { device: id.clone() }))),
         );
     }
-    Box::new(DecoratedBox::new().child(col).class(if p.connected { "link-card link-card-on" } else { "link-card" }))
+    DecoratedBox::new().child(col).class(match (p.connected, over) {
+        (true, true) => "link-card link-card-on link-card-drop",
+        (true, false) => "link-card link-card-on",
+        _ => "link-card",
+    })
+}
+
+fn device_card(p: PeerInfo, compact: bool) -> Box<dyn Widget> {
+    if !p.connected || p.files_path().is_none() {
+        return Box::new(card_body(p, compact, false));
+    }
+    // Файлы, брошенные на карточку, копируются в «Загрузки» устройства через
+    // его смонтированные файлы; пока тянут над карточкой — подсветка.
+    let over = use_signal(false);
+    let dest = p.clone();
+    Box::new(
+        DropArea::new()
+            .child(Reactive::new(move || vec![Box::new(card_body(p.clone(), compact, over.get())) as Box<dyn Widget>]))
+            .on_drag_enter(move || over.set(true))
+            .on_drag_leave(move || over.set(false))
+            .on_drop(move |data| {
+                over.set(false);
+                if data.drag_type == syngui::input::DragData::TYPE_FILE && !data.payload.is_empty() {
+                    send_files(&dest, vec![std::path::PathBuf::from(&data.payload)]);
+                }
+            }),
+    )
+}
+
+/// Скопировать файлы на устройство (его «Загрузки», нет — домашний каталог)
+/// через смонтированные файлы; уведомление по итогу.
+fn send_files(p: &PeerInfo, files: Vec<std::path::PathBuf>) {
+    let Some(home) = p.files_path() else { return };
+    let name = p.name.clone();
+    std::thread::spawn(move || {
+        let home = std::path::PathBuf::from(home);
+        let dir = ["Загрузки", "Downloads"].iter().map(|d| home.join(d)).find(|d| d.is_dir()).unwrap_or(home);
+        let mut sent = Vec::new();
+        let mut err = None;
+        for f in &files {
+            let Some(fname) = f.file_name() else { continue };
+            let mut to = dir.join(fname);
+            let mut n = 1;
+            while to.exists() {
+                let stem = std::path::Path::new(fname).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+                let ext = std::path::Path::new(fname).extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+                to = dir.join(format!("{stem} ({n}){ext}"));
+                n += 1;
+            }
+            let r = if f.is_dir() { copy_dir(f, &to) } else { std::fs::copy(f, &to).map(|_| ()) };
+            match r {
+                Ok(()) => sent.push(to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
+                Err(e) => err = Some(format!("{}: {e}", f.display())),
+            }
+        }
+        run_on_main_thread(move || {
+            let ctx = ShellCtx::get();
+            match err {
+                Some(e) => crate::osd::show(ctx, gl::LINK_OFF, None, e),
+                None => crate::notifications::local(ctx, &t!("Отправлено на {name}", name = name), &sent.join(", "), None),
+            }
+        });
+    });
+}
+
+fn copy_dir(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for e in std::fs::read_dir(from)? {
+        let e = e?;
+        let t = to.join(e.file_name());
+        if e.file_type()?.is_dir() {
+            copy_dir(&e.path(), &t)?;
+        } else {
+            std::fs::copy(e.path(), t)?;
+        }
+    }
+    Ok(())
 }
 
 fn isolation_row() -> Box<dyn Widget> {
@@ -526,7 +605,7 @@ pub fn applet(pc: &crate::panel::PanelCtx) -> Box<dyn Widget> {
     let ctx = ShellCtx::get();
     start(ctx);
     let pc = pc.clone();
-    Box::new(
+    let button = Box::new(
         crate::applets::applet_button(
             "link",
             Row::new().child(move || {
@@ -545,12 +624,36 @@ pub fn applet(pc: &crate::panel::PanelCtx) -> Box<dyn Widget> {
                 row
             }),
         )
-        .on_click(move |b, _, r| {
-            if b == MouseButton::Left {
-                ShellCtx::get().open_popup(PopupKind::Link, pc.anchor(r));
+        .on_click({
+            let pc = pc.clone();
+            move |b, _, r| {
+                if b == MouseButton::Left {
+                    ShellCtx::get().open_popup(PopupKind::Link, pc.anchor(r));
+                }
             }
         }),
-    )
+    );
+    // Файл поднесли к значку — окно устройств открывается само: его
+    // бросают на карточку устройства.
+    Box::new(DropArea::new().child(*button).on_drag_over(move |d| {
+        let ctx = ShellCtx::get();
+        if ctx.popup.get_untracked().is_some_and(|p| p.kind == PopupKind::Link) {
+            return;
+        }
+        let origin = syngui::core::Point::new(d.position.x - d.local_position.x, d.position.y - d.local_position.y);
+        ctx.open_popup(PopupKind::Link, pc.anchor(Rect::new(origin, d.size)));
+    }).on_drop(|data| {
+        // Брошено на сам значок: устройство с файлами одно — ему.
+        if data.drag_type != syngui::input::DragData::TYPE_FILE || data.payload.is_empty() {
+            return;
+        }
+        let ctx = ShellCtx::get();
+        let peers: Vec<PeerInfo> = ctx.link.get_untracked().map(|s| s.connected().filter(|p| p.files_path().is_some()).cloned().collect()).unwrap_or_default();
+        if let [p] = peers.as_slice() {
+            ctx.close_popup();
+            send_files(p, vec![std::path::PathBuf::from(&data.payload)]);
+        }
+    }))
 }
 
 /// Значок связи в лотке (см. `tray::applet`): только без апплета `link` на

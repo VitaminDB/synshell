@@ -649,3 +649,5 @@
 "Открепить группу" = "Unpin group"
 "Вынуть из группы" = "Take out of group"
 "Объединить в группу…" = "Group with…"
+"Перетащите сюда файлы — они уйдут в «Загрузки» устройства" = "Drop files here — they go to the device's Downloads"
+"Отправлено на {name}" = "Sent to {name}"

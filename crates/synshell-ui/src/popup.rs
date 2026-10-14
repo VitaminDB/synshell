@@ -179,6 +179,8 @@ pub fn install(ctx: ShellCtx) {
             Box::new(frame(&p, width_of(&p.kind, &ctx), out_size, is_fan(&p.kind, &ctx), open, sid))
         });
         *my_id.lock().unwrap() = Some(id);
+        // Файлы, поднесённые к окну, — его виджетам (карточки устройств).
+        syngui_layer::route_drops_to_widgets(id);
         SURFACE.with(|s| s.set(Some(id)));
         OPEN.with(|o| o.set(Some(open)));
     });

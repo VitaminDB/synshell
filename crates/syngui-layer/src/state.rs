@@ -502,6 +502,15 @@ impl State {
                     }
                 }
             }
+            Command::WidgetDrop { id, pos, paths } => {
+                // Без файлов (не прочитались) — только уход: подсветка гаснет.
+                if paths.is_empty() {
+                    self.widget_drag(id, syngui::input::Event::DragLeave);
+                }
+                for path in paths {
+                    self.widget_drag(id, syngui::input::Event::Drop { position: pos, data: syngui::input::DragData::external_file(&path) });
+                }
+            }
             Command::Redraw(id) => {
                 for (sid, s) in self.surfaces.iter_mut() {
                     if id.is_none() || id == Some(*sid) {
@@ -1151,10 +1160,11 @@ impl DataDeviceHandler for State {
         let id = self.surface_id_of(surface);
         let offer = self.data_device.as_ref().and_then(|d| d.data().drag_offer());
         let own = id.is_some_and(crate::has_surface_drop_handler);
+        let widgets = !own && id.is_some_and(crate::has_widget_drops);
         let mime = if own {
             offer.as_ref().and_then(|o| o.with_mime_types(|m| crate::surface_drop_mimes(m).into_iter().next()))
         } else {
-            let files = id.is_some() && crate::has_drop_handler() && offer.as_ref().is_some_and(|o| o.with_mime_types(|m| m.iter().any(|t| t == "text/uri-list")));
+            let files = id.is_some() && (widgets || crate::has_drop_handler()) && offer.as_ref().is_some_and(|o| o.with_mime_types(|m| m.iter().any(|t| t == "text/uri-list")));
             files.then(|| "text/uri-list".to_string())
         };
         let accept = mime.is_some();
@@ -1168,10 +1178,17 @@ impl DataDeviceHandler for State {
             let pos = self.dnd_point(id, x, y);
             crate::deliver_surface_drop(id, crate::DropEvent::Enter(pos));
         }
+        if let (true, Some(id)) = (widgets && accept, id) {
+            let pos = self.dnd_point(id, x, y);
+            self.widget_drag(id, syngui::input::Event::DragEnter { position: pos, data: syngui::input::DragData::new(syngui::input::DragData::TYPE_FILE, "", 0) });
+        }
     }
     fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {
         if let Some((id, _, _)) = self.dnd_target.take() {
             crate::deliver_surface_drop(id, crate::DropEvent::Leave);
+            if crate::has_widget_drops(id) {
+                self.widget_drag(id, syngui::input::Event::DragLeave);
+            }
         }
     }
     fn motion(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, x: f64, y: f64) {
@@ -1181,6 +1198,9 @@ impl DataDeviceHandler for State {
             let id = t.0;
             let pos = self.dnd_point(id, x, y);
             crate::deliver_surface_drop(id, crate::DropEvent::Motion(pos));
+            if crate::has_widget_drops(id) {
+                self.widget_drag(id, syngui::input::Event::DragMove { position: pos, data: syngui::input::DragData::new(syngui::input::DragData::TYPE_FILE, "", 0) });
+            }
         }
     }
     fn selection(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {}
@@ -1236,13 +1256,28 @@ impl DataDeviceHandler for State {
             offer.destroy();
             let paths = crate::parse_uri_list(&String::from_utf8_lossy(&buf));
             if !paths.is_empty() {
-                syngui::async_runtime::run_on_main_thread(move || crate::deliver_drop(id, pos, paths));
+                if crate::has_widget_drops(id) {
+                    syngui::async_runtime::run_on_main_thread(move || crate::queue_widget_drop(id, pos, paths));
+                } else {
+                    syngui::async_runtime::run_on_main_thread(move || crate::deliver_drop(id, pos, paths));
+                }
+            } else if crate::has_widget_drops(id) {
+                syngui::async_runtime::run_on_main_thread(move || crate::queue_widget_drop(id, pos, Vec::new()));
             }
         });
     }
 }
 
 impl State {
+    /// Событие перетаскивания — в дерево виджетов поверхности, с перерисовкой.
+    fn widget_drag(&mut self, id: SurfaceId, ev: syngui::input::Event) {
+        if let Some(s) = self.surfaces.get_mut(&id) {
+            s.view.tree.dispatch_drag_event(&ev);
+            s.needs_frame = true;
+            s.view.invalidate();
+        }
+    }
+
     fn dnd_point(&self, id: SurfaceId, x: f64, y: f64) -> syngui::core::Point {
         self.surfaces.get(&id).map(|s| s.ui_point(x, y)).unwrap_or(syngui::core::Point::new(x as f32, y as f32))
     }
