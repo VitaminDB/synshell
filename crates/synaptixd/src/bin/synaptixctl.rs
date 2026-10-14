@@ -175,6 +175,13 @@ fn run(args: &[String]) -> Result<(), String> {
             if let Some(n) = std::env::var("GEN_MAX").ok().and_then(|v| v.parse::<i64>().ok()) {
                 params = params.with("max_tokens", n);
             }
+            // SESSION — ключ KV-сессии, THINK=1 — с размышлениями.
+            if let Ok(k) = std::env::var("SESSION") {
+                params = params.with("session", k);
+            }
+            if std::env::var("THINK").is_ok_and(|v| v == "1") {
+                params = params.with("thinking", true);
+            }
             let model = if arg(1)? == "-" { "" } else { arg(1)? };
             let t0 = std::time::Instant::now();
             let tools: Vec<serde_json::Value> = std::env::var("TOOLS").ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
@@ -192,7 +199,22 @@ fn run(args: &[String]) -> Result<(), String> {
             for call in &g.tool_calls {
                 println!("\n→ вызов {}({})", call.name, call.arguments);
             }
-            println!("\n[{} токенов за {:.1} с]", g.tokens, t0.elapsed().as_secs_f32());
+            println!(
+                "\n[{} токенов за {:.1} с; промпт {} (из кэша {}), префилл {} мс, декод {} мс]",
+                g.tokens,
+                t0.elapsed().as_secs_f32(),
+                g.prompt_tokens,
+                g.cached_tokens,
+                g.prefill_ms,
+                g.decode_ms
+            );
+        }
+        "tokens" => {
+            // synaptixctl tokens <модель> <текст…> — число токенов; `info` — сведения о модели.
+            let model = arg(1)?;
+            let text = args[2..].join(" ");
+            println!("{:?}", c.count_tokens(model, &[text]).map_err(|e| e.to_string())?);
+            println!("{:#?}", c.llm_info(model).map_err(|e| e.to_string())?);
         }
         "flow" => {
             // synaptixctl flow <граф.json> [каталог] — граф ядра synaptix-flow в службе.

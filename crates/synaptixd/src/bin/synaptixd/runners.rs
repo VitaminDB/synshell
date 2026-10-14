@@ -16,10 +16,22 @@ pub struct LlmSlot {
     llm: synaptix::facade::llm::Llm,
     tok: synaptix::facade::llm::LlmTokenizer,
     window: usize,
-    session: std::sync::Mutex<Option<synaptix::facade::llm::LlmKvSession>>,
+    path: std::path::PathBuf,
+    /// KV-сессии по ключу клиента (чат, субагент…): на устройстве — только
+    /// последняя, остальные припаркованы в RAM; самые старые вытесняются.
+    sessions: std::sync::Mutex<Vec<KvEntry>>,
     /// Эмбеддинги картинок и видео истории: ключ — файл, время изменения и
     /// вид; старые вытесняются по бюджету токенов.
     media: std::sync::Mutex<Vec<(String, synaptix::facade::llm::MediaEmbedding)>>,
+}
+
+/// Сколько KV-сессий держать (на устройстве из них — одна).
+const SESSIONS: usize = 4;
+
+struct KvEntry {
+    key: String,
+    kv: synaptix::facade::llm::LlmKvSession,
+    parked: bool,
 }
 
 /// Медиа сообщения для промпта: блок токенов (или строка-замена) по порядку.
@@ -326,7 +338,7 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
             let max_seq = if dev == DeviceKind::Npu { Some(2048) } else { synaptix::facade::arch::config_max_seq(path) };
             let (llm, tok) = load_llm(path, device, precision, max_seq).map_err(|e| anyhow::anyhow!("{e}"))?;
             let window = llm.config().max_seq_len.max(2048);
-            Ok((Loaded::Llm(Box::new(LlmSlot { llm, tok, window, session: std::sync::Mutex::new(None), media: std::sync::Mutex::new(Vec::new()) })), Some(label)))
+            Ok((Loaded::Llm(Box::new(LlmSlot { llm, tok, window, path: path.to_path_buf(), sessions: std::sync::Mutex::new(Vec::new()), media: std::sync::Mutex::new(Vec::new()) })), Some(label)))
         }
         ModelKind::Tts => {
             let device = devices::device(dev);
@@ -560,6 +572,38 @@ impl Loaded {
         }
     }
 
+    /// Число токенов каждого текста по токенизатору модели.
+    pub fn tokenize(&self, texts: &[String]) -> anyhow::Result<Vec<usize>> {
+        let Loaded::Llm(b) = self else { anyhow::bail!("модель не языковая") };
+        texts.iter().map(|t| b.tok.encode(t).map(|ids| ids.len()).map_err(|e| anyhow::anyhow!("{e}"))).collect()
+    }
+
+    /// Окно, зрение, пресеты сэмплинга и глубины размышлений.
+    pub fn llm_info(&self) -> anyhow::Result<synaptixd::LlmInfo> {
+        let Loaded::Llm(b) = self else { anyhow::bail!("модель не языковая") };
+        let profile = synaptix::facade::sampling::sampling_profile(&b.path);
+        Ok(synaptixd::LlmInfo {
+            window: b.window,
+            media: b.llm.supports_media(),
+            presets: profile
+                .presets
+                .iter()
+                .map(|p| synaptixd::SamplingPreset {
+                    id: p.id.to_string(),
+                    thinking: p.thinking,
+                    temperature: p.temperature,
+                    top_p: p.top_p,
+                    top_k: p.top_k,
+                    min_p: p.min_p,
+                    presence_penalty: p.presence_penalty,
+                    repetition_penalty: p.repetition_penalty,
+                })
+                .collect(),
+            reasoning_levels: profile.reasoning.as_ref().map(|r| r.levels.clone()).unwrap_or_default(),
+            reasoning_default: profile.reasoning.as_ref().map(|r| r.default.clone()),
+        })
+    }
+
     /// Диаризация: (сводка по говорящим, JSON отрезков).
     pub fn diarize(&self, pcm: &[f32], sr: u32, threshold: f32, overlap: bool) -> anyhow::Result<(String, String)> {
         let Loaded::Diarize(d) = self else { anyhow::bail!("модель не размечает говорящих") };
@@ -732,20 +776,28 @@ impl Loaded {
                 _ => std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1) | 1,
             },
             repeat_penalty: params.f32("repeat_penalty").unwrap_or(1.0),
-            repeat_last_n: 64,
+            repeat_last_n: params.u32("repeat_last_n").map(|v| v as usize).unwrap_or(64),
             presence_penalty: params.f32("presence_penalty").unwrap_or(0.0),
-            frequency_penalty: 0.0,
+            frequency_penalty: params.f32("frequency_penalty").unwrap_or(0.0),
         };
         let prof = std::env::var_os("SYNAPTIX_LLM_PROF").is_some();
         synaptix_llm_common::model::set_prefill_prof(prof);
         let mut gen = LlmGeneration::new(llm, opts);
         gen.set_stop_tokens(tok.eos_ids().to_vec());
+        // Стоп-строки клиента: через U+001F.
+        for stop in params.text("stop").unwrap_or("").split('\u{1f}') {
+            gen.add_stop_sequence(stop);
+        }
         let stopped = || cancel.load(std::sync::atomic::Ordering::SeqCst);
         gen.set_interrupt(stopped);
+        let first = std::cell::Cell::new(None::<std::time::Instant>);
         let mut text = String::new();
         let mut tokens = 0usize;
         let on_piece = |id: u32, piece: &str| {
             tokens += 1;
+            if first.get().is_none() {
+                first.set(Some(std::time::Instant::now()));
+            }
             let (body, think, tool) = parser.borrow_mut().feed(id, piece);
             if !body.is_empty() {
                 text.push_str(&body);
@@ -761,25 +813,51 @@ impl Loaded {
             !parser.borrow().tool_call_ready() && !stopped()
         };
         let need = ids.len() + max_tokens + 16;
-        let mut session = Some(b.session.lock().unwrap_or_else(|e| e.into_inner()));
-        if let Some(s) = session.as_mut() {
-            if s.as_ref().is_none_or(|k| k.ctx_tokens() < need) {
-                **s = None;
-                let want = need.div_ceil(SESSION_STEP).saturating_mul(SESSION_STEP).clamp(need, window);
-                **s = match llm.new_kv_session(want, max_tokens) {
-                    Ok(k) => {
-                        tracing::info!("generate: кэш контекста на {want} токенов (предел {window})");
-                        k
+        let key = params.text("session").unwrap_or("").to_string();
+        // Сессия ключа: остальные — в RAM (на устройстве одна), своя —
+        // обратно на устройство; короткая — заново.
+        let mut entry = {
+            let mut all = b.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let mine = all.iter().position(|e| e.key == key).map(|i| all.remove(i));
+            let mut parked_any = false;
+            for e in all.iter_mut().filter(|e| !e.parked) {
+                match e.kv.park_to_host() {
+                    Ok(_) => {
+                        e.parked = true;
+                        parked_any = true;
                     }
-                    Err(e) => {
-                        tracing::warn!("generate: кэш на {want} токенов не создан ({e}) — без кэша");
-                        None
-                    }
-                };
+                    Err(err) => tracing::warn!("generate: сессия «{}» не уехала в RAM ({err})", e.key),
+                }
+            }
+            all.retain(|e| e.parked);
+            if parked_any {
+                crate::manager::release_vram(None);
+            }
+            mine
+        };
+        if let Some(e) = entry.as_mut().filter(|e| e.parked) {
+            match e.kv.unpark_to(llm.device().clone()) {
+                Ok(_) => e.parked = false,
+                Err(err) => {
+                    tracing::warn!("generate: сессия «{key}» не вернулась на устройство ({err}) — заново");
+                    entry = None;
+                }
+            }
+        }
+        if entry.as_ref().is_none_or(|e| e.kv.ctx_tokens() < need) {
+            entry = None;
+            let want = need.div_ceil(SESSION_STEP).saturating_mul(SESSION_STEP).clamp(need, window);
+            match llm.new_kv_session(want, max_tokens) {
+                Ok(Some(kv)) => {
+                    tracing::info!("generate: кэш контекста «{key}» на {want} токенов (предел {window})");
+                    entry = Some(KvEntry { key: key.clone(), kv, parked: false });
+                }
+                Ok(None) => {}
+                Err(e) => tracing::warn!("generate: кэш на {want} токенов не создан ({e}) — без кэша"),
             }
         }
         let t0 = std::time::Instant::now();
-        let reused = match session.as_mut().and_then(|s| s.as_mut()) {
+        let reused = match entry.as_mut().map(|e| &mut e.kv) {
             Some(s) if refs.is_empty() => gen.generate_streaming_cached(s, &ids, tok, on_piece).map_err(|e| anyhow::anyhow!("{e}"))?,
             Some(s) if llm.kv_session_media_ok() => gen.generate_streaming_cached_media(s, &ids, tok, &refs, on_piece).map_err(|e| anyhow::anyhow!("{e}"))?,
             _ if !refs.is_empty() => {
@@ -791,6 +869,16 @@ impl Loaded {
                 0
             }
         };
+        if let Some(e) = entry {
+            let mut all = b.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            all.push(e);
+            while all.len() > SESSIONS {
+                all.remove(0);
+            }
+        }
+        let done = std::time::Instant::now();
+        let prefill_ms = first.get().unwrap_or(done).duration_since(t0).as_millis() as u64;
+        let decode_ms = done.duration_since(first.get().unwrap_or(done)).as_millis() as u64;
         tracing::info!("generate: промпт {} токенов (из кэша {reused}), ответ {tokens} за {:.1} с", ids.len(), t0.elapsed().as_secs_f32());
         if prof {
             eprintln!("{}", synaptix_llm_common::model::prefill_prof_report_and_clear());
@@ -803,7 +891,7 @@ impl Loaded {
         }
         let tool_calls: Vec<synaptixd::ToolCall> =
             parser.finish().into_iter().map(|c| synaptixd::ToolCall { name: c.name, arguments: c.arguments_json }).collect();
-        Ok(synaptixd::Generated { text, tokens, thinking: reasoning.into_inner(), tool_calls, prompt_tokens: ids.len(), context: window })
+        Ok(synaptixd::Generated { text, tokens, thinking: reasoning.into_inner(), tool_calls, prompt_tokens: ids.len(), context: window, cached_tokens: reused, prefill_ms, decode_ms })
     }
 
     /// `fresh` — проверка настроек: голос прошлых озвучек не берётся и не
@@ -977,8 +1065,8 @@ impl Loaded {
     /// до `Drop`: он может задержаться, пока жива хоть одна ссылка.
     pub fn release_device_caches(&self) {
         if let Loaded::Llm(b) = self {
-            if let Ok(mut s) = b.session.lock() {
-                *s = None;
+            if let Ok(mut s) = b.sessions.lock() {
+                s.clear();
             }
             if let Ok(mut m) = b.media.lock() {
                 m.clear();
@@ -1074,7 +1162,12 @@ fn encode_media(
 ) -> Vec<Vec<MediaPart>> {
     use synaptixd::MediaKind;
     let llm = &b.llm;
-    let max_tokens = params.u32("max_image_tokens").map(|v| v as usize).filter(|v| *v > 0).or(Some(1024));
+    // 0 — без предела; не задано — 1024.
+    let max_tokens = match params.u32("max_image_tokens") {
+        Some(0) => None,
+        Some(v) => Some(v as usize),
+        None => Some(1024),
+    };
     let mut tower: Option<Result<(), String>> = None;
     let mut ensure = |tower: &mut Option<Result<(), String>>| -> Result<(), String> {
         tower

@@ -586,6 +586,17 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         tools: Vec<Value>,
     },
+    /// Число токенов текстов по токенизатору языковой модели (бюджеты
+    /// контекста у клиента).
+    Tokenize {
+        model: String,
+        texts: Vec<String>,
+    },
+    /// Сведения о языковой модели: окно, зрение, пресеты сэмплинга и глубины
+    /// размышлений. Модель загружается, если ещё не в памяти.
+    LlmInfo {
+        model: String,
+    },
     /// Граф ядра synaptix-flow целиком в службе (генерация, стадии моделей,
     /// монтаж). Входные файлы — fd запроса: в полях и входах они записаны
     /// как `@in:<номер>`, имена — в `files`. Ход и выходы нод — события
@@ -806,6 +817,51 @@ pub struct Generated {
     pub prompt_tokens: usize,
     #[serde(default)]
     pub context: usize,
+    /// Токенов промпта, взятых из KV-кэша сессии.
+    #[serde(default)]
+    pub cached_tokens: usize,
+    /// До первого токена ответа (префилл), мс.
+    #[serde(default)]
+    pub prefill_ms: u64,
+    /// Декод ответа, мс.
+    #[serde(default)]
+    pub decode_ms: u64,
+}
+
+/// Ответ `Tokenize`: по числу на текст.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct TokenCounts {
+    pub counts: Vec<usize>,
+}
+
+/// Пресет сэмплинга модели (`thinking`: для режима с размышлениями, без них
+/// или для обоих).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct SamplingPreset {
+    pub id: String,
+    #[serde(default)]
+    pub thinking: Option<bool>,
+    pub temperature: f32,
+    pub top_p: f32,
+    pub top_k: usize,
+    pub min_p: f32,
+    pub presence_penalty: f32,
+    pub repetition_penalty: f32,
+}
+
+/// Ответ `LlmInfo`.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct LlmInfo {
+    /// Окно контекста, токенов.
+    pub window: usize,
+    /// Принимает картинки и видео.
+    pub media: bool,
+    pub presets: Vec<SamplingPreset>,
+    /// Уровни глубины размышлений (пусто — только вкл./выкл.) и умолчание.
+    #[serde(default)]
+    pub reasoning_levels: Vec<String>,
+    #[serde(default)]
+    pub reasoning_default: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1204,6 +1260,18 @@ impl Client {
     pub fn chat(&mut self, model: &str, messages: Vec<Message>, tools: Vec<Value>, params: &Params, on_event: impl FnMut(Event)) -> Result<Generated> {
         let req = Request::Generate { model: model.into(), messages, max_tokens: None, temperature: None, params: params.clone(), tools };
         let (v, _) = self.call_events(req, &[], on_event)?;
+        serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))
+    }
+
+    /// Число токенов текстов по токенизатору модели.
+    pub fn count_tokens(&mut self, model: &str, texts: &[String]) -> Result<Vec<usize>> {
+        let (v, _) = self.call(Request::Tokenize { model: model.into(), texts: texts.to_vec() }, &[])?;
+        let r: TokenCounts = serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))?;
+        Ok(r.counts)
+    }
+
+    pub fn llm_info(&mut self, model: &str) -> Result<LlmInfo> {
+        let (v, _) = self.call(Request::LlmInfo { model: model.into() }, &[])?;
         serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))
     }
 

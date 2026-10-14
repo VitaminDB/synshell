@@ -281,7 +281,13 @@ impl Conn {
                 if let Some(v) = temperature {
                     call.set("temperature", Some(v.into()));
                 }
-                let params = mgr.params(&model, &call);
+                // Параметры запроса, а не настройки модели: схема их не знает.
+                let request_only: Vec<(&str, synaptixd::ParamValue)> =
+                    ["session", "stop", "max_image_tokens"].into_iter().filter_map(|k| call.get(k).cloned().map(|v| (k, v))).collect();
+                let mut params = mgr.params(&model, &call);
+                for (k, v) in request_only {
+                    params.set(k, Some(v));
+                }
                 let sock = self.sock.as_fd();
                 let id = self.current;
                 // Отмена: клиент закрыл сокет (кнопка «Стоп») — ход обрывается и
@@ -299,6 +305,16 @@ impl Conn {
                 };
                 let g = mgr.run(&model, |m| m.generate(&messages, &params, &tools, &send, &cancel))?;
                 (data(g), none())
+            }
+            Request::Tokenize { model, texts } => {
+                let model = mgr.resolve_id(&model, ModelKind::Llm)?;
+                let counts = mgr.run(&model, |m| m.tokenize(&texts))?;
+                (data(synaptixd::TokenCounts { counts }), none())
+            }
+            Request::LlmInfo { model } => {
+                let model = mgr.resolve_id(&model, ModelKind::Llm)?;
+                let info = mgr.run(&model, |m| m.llm_info())?;
+                (data(info), none())
             }
             Request::Flow { flow, inputs, files } => flow::serve(&mgr, self.sock.as_fd(), self.current, flow, inputs, files, fds.into_iter().flatten().collect())?,
             Request::Subscribe => unreachable!(),
