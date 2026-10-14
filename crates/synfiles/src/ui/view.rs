@@ -188,7 +188,7 @@ fn items_view(tab: Tab, idx: usize, fit: RwSignal<items::ColumnsFit>) -> W {
         let renaming = p.renaming.get();
         let cut = ctx.clip.get().filter(|c| c.cut).map(|c| c.paths).unwrap_or_default();
         let _ = ctx.thumbs_rev.get();
-        let _ = ctx.git_rev.get();
+        let _ = ctx.marks_rev.get();
         let cfg = ctx.cfg.get();
         if cfg.files.dir_sizes {
             let _ = ctx.sizes_rev.get();

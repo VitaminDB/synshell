@@ -123,6 +123,8 @@ SystemWindowControls {
 
 .address.edit { padding: 0px; border-width: 0px; background: transparent; }
 
+.tag-dot { width: 9px; height: 9px; border-radius: 5px; }
+.rating { font-size: 11px; color: #e3b341; }
 .git-mark { padding: 0 4px; border-radius: 4px; min-width: 16px; }
 .git-letter { font-size: 11px; font-weight: 700; color: #ffffff; text-align: center; }
 .git-modified { background: #d08a2e; }

@@ -23,6 +23,7 @@ mod places;
 mod rename;
 mod search;
 mod shot;
+mod tags;
 mod state;
 use synshell_common::thumbs;
 mod trash;

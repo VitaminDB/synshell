@@ -164,12 +164,39 @@ fn git_mark(e: &Entry) -> Option<W> {
     Some(boxed(Tooltip::new(DecoratedBox::new().class(m.class()).style("height", 16.0).child(Text::new(m.letter()).class("git-letter")), m.title()).delay_ms(500)))
 }
 
-/// Имя с меткой git справа (строки таблицы, списка, плитки).
-fn name_with_mark(e: &Entry, name: W) -> W {
-    match git_mark(e) {
-        Some(m) => boxed(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class("shrink").child(name)).child(m)),
-        None => name,
+/// Цветные точки меток и звёзды оценки.
+fn tag_marks(e: &Entry) -> Option<W> {
+    if e.trash.is_some() {
+        return None;
     }
+    let info = crate::tags::get(&e.path);
+    if info.tags.is_empty() && info.rating == 0 {
+        return None;
+    }
+    let mut row = Row::new().gap(3.0).cross_axis_alignment(CrossAxisAlignment::Center);
+    for t in &info.tags {
+        row = row.child(Tooltip::new(DecoratedBox::new().class("tag-dot").style("background", Color::from_hex(crate::tags::color_of(t))), crate::tags::color_title(t)).delay_ms(500));
+    }
+    if info.rating > 0 {
+        row = row.child(Text::new("★".repeat((info.rating as usize).div_ceil(2))).class("rating"));
+    }
+    Some(boxed(row))
+}
+
+/// Имя с метками справа: git, цветные, оценка (строки таблицы, списка, плитки).
+fn name_with_mark(e: &Entry, name: W) -> W {
+    let (git, tags) = (git_mark(e), tag_marks(e));
+    if git.is_none() && tags.is_none() {
+        return name;
+    }
+    let mut row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class("shrink").child(name));
+    if let Some(t) = tags {
+        row = row.child(t);
+    }
+    if let Some(g) = git {
+        row = row.child(g);
+    }
+    boxed(row)
 }
 
 fn name_text(e: &Entry, class: &str, lines: usize) -> W {
@@ -356,6 +383,11 @@ fn tile_meta(cx: &ItemCtx, e: &Entry) -> W {
 
 fn icon_cell(cx: &ItemCtx, e: &Entry, st: ItemState, renaming: bool) -> W {
     let name: W = if renaming { rename_field(cx, e) } else { name_text(e, "name centered", 2) };
+    // Метки и оценка — над именем, по центру.
+    let name = match tag_marks(e) {
+        Some(t) if !renaming => boxed(Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Center).child(t).child(name)),
+        _ => name,
+    };
     let mut icon = icon_with_chip(cx, e, cx.icon_px);
     // Метка git — в верхнем правом углу значка.
     if let Some(m) = git_mark(e) {

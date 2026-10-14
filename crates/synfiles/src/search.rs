@@ -10,19 +10,24 @@ use std::sync::{mpsc, Arc, Mutex};
 
 use crate::model::Entry;
 
-/// Запрос: слова (все должны встретиться) или шаблон `*.rs`, `отчёт?.pdf`.
+/// Запрос: слова (все должны встретиться), шаблон `*.rs`, `отчёт?.pdf`
+/// или метка — `метка:красная`, `tag:Red`.
 pub struct Query {
     words: Vec<String>,
     glob: Option<String>,
+    tag: Option<String>,
 }
 
 impl Query {
     pub fn new(q: &str) -> Self {
         let q = q.trim().to_lowercase();
+        if let Some(t) = q.strip_prefix("метка:").or_else(|| q.strip_prefix("tag:")) {
+            return Query { words: Vec::new(), glob: None, tag: Some(t.trim().to_string()) };
+        }
         if q.contains(['*', '?']) {
-            Query { words: Vec::new(), glob: Some(q) }
+            Query { words: Vec::new(), glob: Some(q), tag: None }
         } else {
-            Query { words: q.split_whitespace().map(String::from).collect(), glob: None }
+            Query { words: q.split_whitespace().map(String::from).collect(), glob: None, tag: None }
         }
     }
 
@@ -45,7 +50,11 @@ pub fn walk(root: &Path, query: &str, content: bool, hidden: bool, found: &mut d
     }
     let q = Query::new(query);
     each(root, hidden, false, &mut |path, name, _| {
-        if q.matches(name) {
+        let hit = match &q.tag {
+            Some(t) => crate::tags::has(path, t),
+            None => q.matches(name),
+        };
+        if hit {
             if let Some(entry) = Entry::from_path(path) {
                 return found(entry);
             }

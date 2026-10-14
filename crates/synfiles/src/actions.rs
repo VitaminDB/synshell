@@ -680,6 +680,27 @@ pub fn context_menu(p: Pane, on_item: bool) -> Vec<MenuItem> {
     }
     v.push(item("copy-path", &if one { t!("Копировать путь") } else { t!("Копировать пути") }, icons::COPY_PATH).shortcut("Ctrl+Shift+C"));
     v.push(item("link", &t!("Создать ссылку"), icons::LINK));
+    {
+        let infos: Vec<crate::tags::Info> = sel.iter().map(|e| crate::tags::get(&e.path)).collect();
+        let mut tags: Vec<MenuItem> = crate::tags::COLORS
+            .iter()
+            .map(|(n, c)| {
+                let on = infos.iter().all(|i| i.tags.iter().any(|t| t == n));
+                // Цветной кружок; стоит у всех выделенных — кружок с галочкой.
+                MenuItem::new(format!("tag:{n}"), crate::tags::color_title(n))
+                    .icon(if on { icons::CHECK_CIRCLE } else { icons::DOT })
+                    .icon_color(Color::from_hex(c))
+            })
+            .collect();
+        tags.push(MenuItem::separator());
+        tags.push(item("tag:clear", &t!("Снять все метки"), icons::CLOSE).disabled(infos.iter().all(|i| i.tags.is_empty())));
+        v.push(MenuItem::new("menu:tag", t!("Метка")).icon(icons::LABEL).children(tags));
+        let stars = if one { infos[0].rating.div_ceil(2) } else { 0 };
+        let mut rate: Vec<MenuItem> = (1..=5).map(|n| check(&format!("rate:{n}"), &"★".repeat(n as usize), stars == n)).collect();
+        rate.push(MenuItem::separator());
+        rate.push(item("rate:0", &t!("Без оценки"), icons::CLOSE));
+        v.push(MenuItem::new("menu:rate", t!("Оценка")).icon(icons::STAR).children(rate));
+    }
     if loc.dir().is_some() {
         v.push(MenuItem::separator());
         if sel.iter().all(|e| !e.is_dir && ops::is_archive(&e.mime, &e.name)) {
@@ -687,7 +708,7 @@ pub fn context_menu(p: Pane, on_item: bool) -> Vec<MenuItem> {
             let to = if one { t!("Извлечь в «{v}»", v = ops::archive_stem(&first.path)) } else { t!("Извлечь каждый в свою папку") };
             v.push(item("extract-sub", &to, icons::UNARCHIVE));
         }
-        let zip = if one { t!("Сжать в «{v}»", v = format!("{}.zip", ops::archive_stem(&first.path))) } else { t!("Сжать в ZIP") };
+        let zip = if one { t!("Сжать в «{v}»", v = format!("{}.zip", zip_stem(first))) } else { t!("Сжать в ZIP") };
         v.push(item("compress", &zip, icons::ARCHIVE));
     }
     v.push(MenuItem::separator());
@@ -705,6 +726,19 @@ pub fn context_menu(p: Pane, on_item: bool) -> Vec<MenuItem> {
     v.push(MenuItem::separator());
     v.push(item("props", &t!("Свойства"), icons::INFO).shortcut("Alt+Enter"));
     v
+}
+
+/// Имя архива для одного файла: без расширения (`отчёт.pdf` → `отчёт`).
+fn zip_stem(e: &Entry) -> String {
+    crate::rename::split_ext(&e.name, e.is_dir).0.to_string()
+}
+
+/// Метки и оценки поменяли — перерисовать; ошибку — показать.
+fn marks_done(r: std::result::Result<(), String>) {
+    if let Err(e) = r {
+        state::toast_error(e);
+    }
+    state::ctx().marks_rev.update(|v| *v += 1);
 }
 
 /// Выполнить пункт меню или команду панели.
@@ -761,11 +795,12 @@ pub fn run(p: Pane, id: &str) {
         }
         "compress" => {
             if let (Some(d), Some(f)) = (&dir, sel.first()) {
-                let stem = if sel.len() == 1 { ops::archive_stem(&f.path) } else { d.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| t!("Архив").into()) };
+                let stem = if sel.len() == 1 { zip_stem(f) } else { d.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| t!("Архив").into()) };
                 let dest = ops::free_name(&d.join(format!("{stem}.zip")));
                 ops::start(Op::Compress { srcs: paths, dest });
             }
         }
+        "tag:clear" => marks_done(crate::tags::clear(&paths)),
         "rename" => start_rename(p),
         "rename-many" => ctx.dialog.set(Some(Dialog::BatchRename { paths })),
         "trash" => trash_selected(p),
@@ -837,7 +872,11 @@ pub fn run(p: Pane, id: &str) {
         "up" => state::go_up(p),
         "home" => state::navigate(p, Location::Dir(synshell_common::paths::home()), true),
         _ => {
-            if let Some(v) = id.strip_prefix("view:") {
+            if let Some(tag) = id.strip_prefix("tag:") {
+                marks_done(crate::tags::toggle(&paths, tag));
+            } else if let Some(n) = id.strip_prefix("rate:").and_then(|n| n.parse().ok()) {
+                marks_done(crate::tags::set_stars(&paths, n));
+            } else if let Some(v) = id.strip_prefix("view:") {
                 set_view(p, ViewMode::parse(v));
             } else if let Some(k) = id.strip_prefix("sort:") {
                 set_sort_key(p, SortKey::parse(k));
