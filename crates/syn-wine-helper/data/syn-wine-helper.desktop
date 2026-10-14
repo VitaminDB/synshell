@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Компоненты Wine
+Name[en]=Wine Components
+GenericName=Библиотеки для Windows-программ
+GenericName[en]=Libraries for Windows programs
+Comment=DLL, которых нет в Wine: MFC, Visual Basic, OpenAL — один раз для всех программ
+Comment[en]=DLLs that Wine lacks: MFC, Visual Basic, OpenAL — installed once for all programs
+Exec=syn-wine-helper
+Icon=syn-wine-helper
+Categories=System;Emulator;
+Keywords=wine;dll;mfc;mfc42;vb6;openal;winetricks;windows;компоненты;библиотеки;
+StartupNotify=true

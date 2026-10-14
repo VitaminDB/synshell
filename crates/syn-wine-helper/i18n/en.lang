@@ -1,0 +1,60 @@
+@tag = "en"
+@name = "English"
+
+# src/fetch.rs
+"другой файл: {got} байт, sha256 {sum}" = "a different file: {got} bytes, sha256 {sum}"
+
+# src/install.rs
+"нет пакета «{id}»" = "no package “{id}”"
+"у пакета «{id}» нет варианта {arch}" = "package “{id}” has no {arch} variant"
+"в базе нет источника «{s}»" = "source “{s}” is not in the database"
+"{name}: скачивание {file}{step}" = "{name}: downloading {file}{step}"
+"{name}: скачивание {got} из {total} МБ{step}" = "{name}: downloading {got} of {total} MB{step}"
+"не удалось скачать {file}" = "could not download {file}"
+"{name}: распаковка{step}" = "{name}: unpacking{step}"
+"в {file} нет {dll} ({arch})" = "{file} has no {dll} ({arch})"
+
+# src/main.rs
+"syn-wine-helper [list | install ПАКЕТ|DLL… [--arch x86|x64] | remove ПАКЕТ… | scan ПРОГРАММА.exe | run ПРОГРАММА.exe [АРГ…] | probe ФАЙЛ]" = "syn-wine-helper [list | install PACKAGE|DLL… [--arch x86|x64] | remove PACKAGE… | scan PROGRAM.exe | run PROGRAM.exe [ARG…] | probe FILE]"
+"неизвестная команда «{c}» (см. --help)" = "unknown command “{c}” (see --help)"
+"Каталог DLL: {d}" = "DLL directory: {d}"
+"нет пакета или DLL «{n}»" = "no package or DLL “{n}”"
+"что поставить? (syn-wine-helper list)" = "what to install? (syn-wine-helper list)"
+"{id}: удалено файлов — {n}" = "{id}: files removed — {n}"
+"какую программу проверить?" = "which program to check?"
+"{exe} ({arch}): всех DLL хватает" = "{exe} ({arch}): no DLLs are missing"
+"пакет {id}" = "package {id}"
+"в базе нет" = "not in the database"
+"какую программу запустить?" = "which program to run?"
+
+# src/scan.rs
+"{f}: не PE-файл" = "{f}: not a PE file"
+"{f}: машина {m:04x} — не x86 и не x64" = "{f}: machine {m:04x} is neither x86 nor x64"
+
+# src/ui/ask.rs
+"Компоненты установлены. Закройте программу и запустите её снова." = "Components installed. Close the program and start it again."
+"Готово. Запустите игру снова из Steam." = "Done. Start the game again from Steam."
+"установлено, но программа не запустилась: {e}" = "installed, but the program did not start: {e}"
+"Этого нет ни в Wine, ни в базе компонентов. Обычно такие библиотеки лежат рядом с программой — проверьте, что она скопирована целиком." = "Neither Wine nor the component database has this. Such libraries usually ship next to the program — check that it was copied completely."
+"Не хватает компонентов" = "Missing components"
+"Программе «{p}» нужны библиотеки, которых нет в Wine." = "“{p}” needs libraries that Wine does not have."
+"Эти библиотеки уже поставлены, но Wine их не нашёл. Нужен Wine с поддержкой общего каталога компонентов (патч syn-wine-helper)." = "These libraries are already installed, but Wine did not find them. Wine with shared component directory support (the syn-wine-helper patch) is required."
+"Скачать {s} — один раз: компоненты ставятся для всех программ." = "Download {s} once: components are installed for all programs."
+"Файлы уже скачаны: компоненты ставятся для всех программ." = "Files are already downloaded: components are installed for all programs."
+"Закрыть" = "Close"
+"Отмена" = "Cancel"
+"Запустить так" = "Run anyway"
+"Повторить" = "Retry"
+"Установить" = "Install"
+"Установить и запустить" = "Install and run"
+
+# src/ui/list.rs
+"Компоненты Wine" = "Wine Components"
+"Библиотеки, которых нет в самом Wine. Ставятся один раз — для всех программ и префиксов; когда программе чего-то не хватит, Wine предложит поставить сам." = "Libraries that Wine itself lacks. Installed once for all programs and prefixes; when a program is missing something, Wine offers to install it."
+"Каталог: {d}" = "Directory: {d}"
+
+# src/ui/mod.rs
+"Подготовка…" = "Preparing…"
+"{n} МБ" = "{n} MB"
+"Не получилось: {e}" = "Failed: {e}"
+"Нужны компоненты Wine" = "Wine components needed"

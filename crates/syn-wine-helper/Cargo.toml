@@ -1,0 +1,29 @@
+[package]
+name = "syn-wine-helper"
+description = "Компоненты Wine synshell: DLL, которых нет в Wine (MFC, рантаймы VB, OpenAL), — в общий каталог для всех префиксов; вопрос «поставить?», когда программе не хватает DLL"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "syn-wine-helper"
+path = "src/main.rs"
+
+[dependencies]
+synshell-common = { workspace = true, features = ["i18n"] }
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "image"] }
+serde.workspace = true
+toml.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+ureq = "3"
+sha2 = "0.10"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+flate2 = "1"
+lzxd = "0.2"
+miniz_oxide = "0.8"
+cfb = "0.10"
+lzma-rs = "0.3"
+object = { version = "0.37", default-features = false, features = ["read_core", "pe", "std"] }

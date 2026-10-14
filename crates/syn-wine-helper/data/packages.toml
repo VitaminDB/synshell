@@ -1,0 +1,246 @@
+# База syn-wine-helper: только DLL, которых нет в самом Wine, — без них программа не запускается
+# («Library X (which is needed by …) not found»). Рантаймы, у которых в Wine есть своя реализация
+# (msvcr*/msvcp*/vcruntime140, d3dx9, xact, xinput, msxml, gdiplus…), сюда не входят: Wine находит их сам.
+#
+# [[source]] — файл для скачивания: адреса по порядку, затем те же адреса в архиве web.archive.org;
+# размер и sha256 обязательны (файл с другим содержимым не принимается).
+# [[package]] — что ставится: `dlls` — имена; [package.x86]/[package.x64] — из какого источника.
+# Внутри источника DLL ищутся по самому PE (имя в таблице экспорта и тип машины) во вложенных
+# CAB/MSI/ZIP/NSIS — имена файлов в контейнерах не важны. `files` — явный путь в контейнере (шаблон с *)
+# для DLL под другим именем.
+#
+# Свои пакеты — в $XDG_DATA_HOME/syn-wine/packages.toml в том же виде (дополняют и заменяют эти по id).
+
+[[source]]
+id = "vc6"
+file = "VC6RedistSetup_deu.exe"
+size = 1837888
+sha256 = "c2eb91d9c4448d50e46a32fecbcc3b418706d002beab9b5f4981de552098cee7"
+urls = ["https://download.microsoft.com/download/vc60pro/Update/2/W9XNT4/EN-US/VC6RedistSetup_deu.exe"]
+
+[[source]]
+id = "vs70sp1"
+file = "VS7.0sp1-KB924642-X86.exe"
+size = 65317744
+sha256 = "7173a950169a58c56d7174811a7cd50e6092046f1f083db9d2b03315347fc0f4"
+urls = ["https://download.microsoft.com/download/6/b/e/6be11d8a-e0c7-429c-ac8c-9860e313ced9/VS7.0sp1-KB924642-X86.exe"]
+
+[[source]]
+id = "bzedit"
+file = "BZEditW32_1.6.5.exe"
+size = 882263
+sha256 = "84d1bda5dbf814742898a2e1c0e4bc793e9bc1fba4b7a93d59a7ef12bd0fd802"
+urls = ["https://downloads.sourceforge.net/project/bzflag/bzedit%20win32/1.6.5/BZEditW32_1.6.5.exe"]
+
+[[source]]
+id = "vc2005-x86"
+file = "vcredist_x86.EXE"
+size = 2710520
+sha256 = "8648c5fc29c44b9112fe52f9a33f80e7fc42d10f3b5b42b2121542a13e44adfd"
+urls = ["https://download.microsoft.com/download/8/B/4/8B42259F-5D70-43F4-AC2E-4B208FD8D66A/vcredist_x86.EXE"]
+
+[[source]]
+id = "vc2005-x64"
+file = "vcredist_x64.EXE"
+size = 3179000
+sha256 = "4487570bd86e2e1aac29db2a1d0a91eb63361fcaac570808eb327cd4e0e2240d"
+urls = ["https://download.microsoft.com/download/8/B/4/8B42259F-5D70-43F4-AC2E-4B208FD8D66A/vcredist_x64.EXE"]
+
+[[source]]
+id = "vc2008-x86"
+file = "vcredist_x86.exe"
+size = 4483040
+sha256 = "8742bcbf24ef328a72d2a27b693cc7071e38d3bb4b9b44dec42aa3d2c8d61d92"
+urls = ["https://download.microsoft.com/download/5/D/8/5D8C65CB-C849-4025-8E95-C3966CAFD8AE/vcredist_x86.exe"]
+
+[[source]]
+id = "vc2008-x64"
+file = "vcredist_x64.exe"
+size = 5211080
+sha256 = "c5e273a4a16ab4d5471e91c7477719a2f45ddadb76c7f98a38fa5074a6838654"
+urls = ["https://download.microsoft.com/download/5/D/8/5D8C65CB-C849-4025-8E95-C3966CAFD8AE/vcredist_x64.exe"]
+
+[[source]]
+id = "vc2010-x86"
+file = "vcredist_x86.exe"
+size = 5076456
+sha256 = "31d32fa39d52cac9a765a43660431f7a127eee784b54b2f5e2af3e2b763a1af8"
+urls = ["https://download.microsoft.com/download/5/B/C/5BC5DBB3-652D-4DCE-B14A-475AB85EEF6E/vcredist_x86.exe"]
+
+[[source]]
+id = "vc2010-x64"
+file = "vcredist_x64.exe"
+size = 5677032
+sha256 = "2fddbc3aaaab784c16bc673c3bae5f80929d5b372810dbc28649283566d33255"
+urls = ["https://download.microsoft.com/download/A/8/0/A80747C3-41BD-45DF-B505-E9710D2744E0/vcredist_x64.exe"]
+
+[[source]]
+id = "vc2012-x86"
+file = "vcredist_x86.exe"
+size = 6554576
+sha256 = "b924ad8062eaf4e70437c8be50fa612162795ff0839479546ce907ffa8d6e386"
+urls = ["https://download.microsoft.com/download/1/6/B/16B06F60-3B20-4FF2-B699-5E9B7962F9AE/VSU_4/vcredist_x86.exe"]
+
+[[source]]
+id = "vc2012-x64"
+file = "vcredist_x64.exe"
+size = 7186992
+sha256 = "681be3e5ba9fd3da02c09d7e565adfa078640ed66a0d58583efad2c1e3cc4064"
+urls = ["https://download.microsoft.com/download/1/6/B/16B06F60-3B20-4FF2-B699-5E9B7962F9AE/VSU_4/vcredist_x64.exe"]
+
+[[source]]
+id = "vc2013-x86"
+file = "vcredist_x86.exe"
+size = 6510544
+sha256 = "89f4e593ea5541d1c53f983923124f9fd061a1c0c967339109e375c661573c17"
+urls = ["https://download.microsoft.com/download/0/5/6/056dcda9-d667-4e27-8001-8a0c6971d6b1/vcredist_x86.exe"]
+
+[[source]]
+id = "vc2013-x64"
+file = "vcredist_x64.exe"
+size = 7201032
+sha256 = "20e2645b7cd5873b1fa3462b99a665ac8d6e14aae83ded9d875fea35ffdd7d7e"
+urls = ["https://download.microsoft.com/download/0/5/6/056dcda9-d667-4e27-8001-8a0c6971d6b1/vcredist_x64.exe"]
+
+# Visual C++ 2015–2022 (14.44): постоянные ссылки на эту сборку (aka.ms ведёт на самую новую)
+[[source]]
+id = "vc2022-x86"
+file = "VC_redist.x86.exe"
+size = 13953392
+sha256 = "0c09f2611660441084ce0df425c51c11e147e6447963c3690f97e0b25c55ed64"
+urls = ["https://download.visualstudio.microsoft.com/download/pr/990c720a-46ce-4dc7-87b9-c2eb615d34b9/0C09F2611660441084CE0DF425C51C11E147E6447963C3690F97E0B25C55ED64/VC_redist.x86.exe"]
+
+[[source]]
+id = "vc2022-x64"
+file = "VC_redist.x64.exe"
+size = 25635768
+sha256 = "cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b"
+urls = ["https://download.visualstudio.microsoft.com/download/pr/990c720a-46ce-4dc7-87b9-c2eb615d34b9/CC0FF0EB1DC3F5188AE6300FAEF32BF5BEEBA4BDD6E8E445A9184072096B713B/VC_redist.x64.exe"]
+
+[[source]]
+id = "vb5"
+file = "msvbvm50.exe"
+size = 992864
+sha256 = "b5f8ea5b9d8b30822a2be2cdcb89cda99ec0149832659ad81f45360daa6e6965"
+urls = ["https://download.microsoft.com/download/vb50pro/utility/1/win98/en-us/msvbvm50.exe"]
+
+# VB6 SP6 (KB290887) с сайта Microsoft убран — только архив
+[[source]]
+id = "vb6"
+file = "VB6.0-KB290887-X86.exe"
+size = 1064736
+sha256 = "467b5a10c369865f2021d379fc0933cb382146b702bbca4bcb703fc86f4322bb"
+urls = ["https://download.microsoft.com/download/5/a/d/5ad868a0-8ecd-4bb0-a882-fe53eb7ef348/VB6.0-KB290887-X86.exe"]
+
+[[source]]
+id = "openal-soft"
+file = "openal-soft-1.24.3-bin.zip"
+size = 13968080
+sha256 = "03c8c0c0bcdba9d3fb54b0d3c2f9a565f81b3e2a19a538dd394f9b8cb6caaa22"
+urls = ["https://github.com/kcat/openal-soft/releases/download/1.24.3/openal-soft-1.24.3-bin.zip"]
+
+[[package]]
+id = "mfc42"
+name = "MFC 4.2"
+description = "Microsoft Foundation Classes из Visual C++ 6.0 — программы и игры 1998–2005 годов"
+dlls = ["mfc42.dll", "mfc42u.dll"]
+x86 = { source = "vc6" }
+
+[[package]]
+id = "mfc70"
+name = "MFC 7.0"
+description = "Microsoft Foundation Classes из Visual Studio .NET 2002"
+dlls = ["mfc70.dll", "mfc70u.dll"]
+x86 = { source = "vs70sp1" }
+
+[[package]]
+id = "atl70"
+name = "ATL 7.0"
+description = "Active Template Library из Visual Studio .NET 2002"
+dlls = ["atl70.dll"]
+x86 = { source = "vs70sp1" }
+
+[[package]]
+id = "mfc71"
+name = "MFC 7.1"
+description = "Microsoft Foundation Classes из Visual Studio .NET 2003"
+dlls = ["mfc71.dll"]
+x86 = { source = "bzedit" }
+
+[[package]]
+id = "mfc80"
+name = "MFC 8.0"
+description = "Microsoft Foundation Classes из Visual C++ 2005"
+dlls = ["mfc80.dll", "mfc80u.dll", "mfcm80.dll", "mfcm80u.dll"]
+x86 = { source = "vc2005-x86" }
+x64 = { source = "vc2005-x64" }
+
+[[package]]
+id = "mfc90"
+name = "MFC 9.0"
+description = "Microsoft Foundation Classes из Visual C++ 2008"
+dlls = ["mfc90.dll", "mfc90u.dll", "mfcm90.dll", "mfcm90u.dll"]
+x86 = { source = "vc2008-x86" }
+x64 = { source = "vc2008-x64" }
+
+[[package]]
+id = "mfc100"
+name = "MFC 10.0"
+description = "Microsoft Foundation Classes из Visual C++ 2010"
+dlls = ["mfc100.dll", "mfc100u.dll", "mfcm100.dll", "mfcm100u.dll"]
+x86 = { source = "vc2010-x86" }
+x64 = { source = "vc2010-x64" }
+
+[[package]]
+id = "mfc110"
+name = "MFC 11.0"
+description = "Microsoft Foundation Classes из Visual C++ 2012"
+dlls = ["mfc110.dll", "mfc110u.dll", "mfcm110.dll", "mfcm110u.dll"]
+x86 = { source = "vc2012-x86" }
+x64 = { source = "vc2012-x64" }
+
+[[package]]
+id = "mfc120"
+name = "MFC 12.0"
+description = "Microsoft Foundation Classes из Visual C++ 2013"
+dlls = ["mfc120.dll", "mfc120u.dll", "mfcm120.dll", "mfcm120u.dll"]
+x86 = { source = "vc2013-x86" }
+x64 = { source = "vc2013-x64" }
+
+[[package]]
+id = "mfc140"
+name = "MFC 14"
+description = "Microsoft Foundation Classes из Visual C++ 2015–2022"
+dlls = ["mfc140.dll", "mfc140u.dll", "mfcm140.dll", "mfcm140u.dll"]
+x86 = { source = "vc2022-x86" }
+x64 = { source = "vc2022-x64" }
+
+[[package]]
+id = "vcruntime140-threads"
+name = "Потоки C++ 2022"
+description = "vcruntime140_threads.dll из Visual C++ 2022 (17.10+): у Wine её нет"
+dlls = ["vcruntime140_threads.dll"]
+x86 = { source = "vc2022-x86" }
+x64 = { source = "vc2022-x64" }
+
+[[package]]
+id = "vb5run"
+name = "Visual Basic 5"
+description = "Среда выполнения Visual Basic 5.0 (msvbvm50.dll)"
+dlls = ["msvbvm50.dll"]
+x86 = { source = "vb5" }
+
+[[package]]
+id = "vb6run"
+name = "Visual Basic 6"
+description = "Среда выполнения Visual Basic 6.0 SP6 (msvbvm60.dll)"
+dlls = ["msvbvm60.dll"]
+x86 = { source = "vb6" }
+
+[[package]]
+id = "openal"
+name = "OpenAL"
+description = "Звук OpenAL для игр — открытая реализация OpenAL Soft вместо установщика Creative"
+dlls = ["openal32.dll"]
+x86 = { source = "openal-soft", files = { "openal32.dll" = "*/bin/Win32/soft_oal.dll" } }
+x64 = { source = "openal-soft", files = { "openal32.dll" = "*/bin/Win64/soft_oal.dll" } }

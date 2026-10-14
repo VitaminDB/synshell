@@ -62,7 +62,7 @@ _profile=${SYNSHELL_PROFILE:-release}
 
 build() {
     cd "$startdir/.."
-    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player -p syn-terminal -p syn-maps -p syn-compass -p syngamepad -p synpass -p syncamera -p syndroid -p syn-health -p syn-systeminfo -p syn-vm -p synmodem -p syn-nfc -p syn-remote -p syn-woman-cycle -p synnfc -p synphone -p synsms -p synfsd -p synassistant
+    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player -p syn-terminal -p syn-maps -p syn-compass -p syngamepad -p synpass -p syncamera -p syndroid -p syn-health -p syn-systeminfo -p syn-vm -p synmodem -p syn-nfc -p syn-remote -p syn-wine-helper -p syn-woman-cycle -p synnfc -p synphone -p synsms -p synfsd -p synassistant
     cargo build --profile "$_profile" -p synaptixd --bins --features "synaptixd/${SYNAPTIXD_FEATURES:-cuda},synaptixd/npu"
 }
 
@@ -73,7 +73,7 @@ check() {
 
 package() {
     cd "$startdir/.."
-    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player syn-terminal syn-maps syn-compass syngamepad synpass syncamera syndroid syndroidd syn-health syn-systeminfo syn-vm synmodem synmodemd syn-nfc syn-remote synnfc synnfcd syn-woman-cycle synphone synsms synfsd synaptixd synaptixctl synassistant; do
+    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player syn-terminal syn-maps syn-compass syngamepad synpass syncamera syndroid syndroidd syn-health syn-systeminfo syn-vm synmodem synmodemd syn-nfc syn-remote syn-wine-helper synnfc synnfcd syn-woman-cycle synphone synsms synfsd synaptixd synaptixctl synassistant; do
         install -Dm755 "target/$_profile/$b" "$pkgdir/usr/bin/$b"
     done
     install -Dm755 data/synshell-session "$pkgdir/usr/bin/synshell-session"
@@ -134,6 +134,11 @@ package() {
         "$pkgdir/usr/share/applications/synpass.desktop"
     install -Dm644 crates/synpass/data/icons/synpass.svg \
         "$pkgdir/usr/share/icons/hicolor/scalable/apps/synpass.svg"
+    # Компоненты Wine: DLL, которых нет в Wine, — в общий каталог; Wine с патчем зовёт при нехватке DLL.
+    install -Dm644 crates/syn-wine-helper/data/syn-wine-helper.desktop \
+        "$pkgdir/usr/share/applications/syn-wine-helper.desktop"
+    install -Dm644 crates/syn-wine-helper/data/icons/syn-wine-helper.svg \
+        "$pkgdir/usr/share/icons/hicolor/scalable/apps/syn-wine-helper.svg"
     # Программы телефона (на компьютере работают с тем, что есть: камера, история шагов, Android).
     for app in syncamera syndroid syn-health syn-nfc syn-remote syn-woman-cycle synphone synsms; do
         install -Dm644 crates/$app/data/$app.desktop "$pkgdir/usr/share/applications/$app.desktop"

@@ -265,6 +265,22 @@ docs/15-sensors.md), политика — `synshell-ui/src/rotation.rs`. Ком�
   полноэкранный режим (кнопка, F11); громкость, каналы и стрелки повторяются при удержании; клавиатура: стрелки,
   Enter, +/−, PgUp/PgDn, цифры, M, P. CLI: `syn-remote --send ПУЛЬТ КНОПКА`, `--timings ФАЙЛ.ir КНОПКА`,
   `--download`; снимок — `--screenshot out.png --page home|add|brands|pick|found|remote|db`.
+- **syn-wine-helper** «Компоненты Wine»: DLL, которых нет в самом Wine (MFC 4.2–14, ATL 7.0, рантаймы VB5/VB6,
+  vcruntime140_threads, OpenAL Soft), — замена winetricks только для того, без чего exe не запускается; рантаймы,
+  которые Wine реализует сам (msvcr*/msvcp*, d3dx9, xact, msxml…), не ставятся. Без префиксов: DLL — один раз в
+  общий каталог пользователя `~/.local/share/syn-wine/dlls/{i386,x86_64}-windows` (`$SYN_WINE_DLLS`); Wine с патчем
+  synmobile `pkgs/wine-arm64ec/syn-wine-helper.patch` ищет там последним (после каталога программы и system32
+  префикса) и показывает модуль как `system32\имя`. Тот же патч зовёт `syn-wine-helper missing …`, когда загрузчик
+  не нашёл DLL из таблицы импорта — при старте exe или при `LoadLibrary` DLL, у которой нет зависимости (голые
+  пробы `LoadLibrary("x.dll")` — нет): окно «Не хватает компонентов» → установка → программа запускается снова (из
+  Steam и при `LoadLibrary` — «запустите снова»). База — `data/packages.toml` (свои пакеты —
+  `~/.local/share/syn-wine/packages.toml`): источники с sha256 и размером, запасной путь — те же адреса в
+  web.archive.org; DLL в установщике ищутся по самому PE (машина + имя в таблице экспорта) через вложенные
+  CAB (свой разбор: папка распаковывается один раз, MSZIP/LZX), MSI/OLE, ZIP, NSIS — без cabextract/7z. Кэш
+  загрузок — `~/.cache/syn-wine-helper`. CLI: `list`, `install ПАКЕТ|DLL [--arch x86|x64]`, `remove`,
+  `scan ПРОГРАММА.exe` (импорты рекурсивно против Wine, каталога и папки программы), `run ПРОГРАММА.exe` (проверка,
+  окно, запуск — для Wine без патча), `probe ФАЙЛ` (какие DLL нашлись бы в установщике); снимок —
+  `--screenshot out.png --page ask|ask-unknown|busy|error|list`.
 - **syn-woman-cycle** «Цикл»: календарь месячных, овуляции и фертильного окна. Отметки по дням (месячные и
   обильность, симптомы, настроение; близость — время и защита необязательны, можно скрыть) — `~/.local/share/synshell/woman-cycle/data.json`, никуда не отправляются.
   Прогноз (`src/model.rs`): дни месячных подряд (разрыв до 2 дней — тот же период) — циклы; средние длины по
