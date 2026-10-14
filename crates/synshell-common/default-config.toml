@@ -370,6 +370,7 @@ width = 380
 do_not_disturb = false
 history = true
 history_size = 100
+swipe_dismiss = "both"         # смахнуть карточку, чтобы закрыть: both | left | right | off
 
 [lock]
 command = ""                   # пусто — встроенный экран блокировки; или "swaylock -f"
@@ -411,7 +412,8 @@ edge_left = "back"             # свайп от левого края
 edge_right = "back"
 edge_bottom = "shell home"     # свайп снизу вверх
 edge_bottom_hold = "shell recents"  # свайп снизу с задержкой пальца
-edge_top = "shell shade"       # свайп сверху — шторка
+edge_top = "shell notifications"     # свайп сверху в левой половине — шторка уведомлений
+edge_top_right = "shell quick-settings"  # в правой — быстрые настройки (shell shade — открыть/закрыть их)
 two_finger_pan = true          # двумя пальцами двигать стол (free)
 long_press_window = "none"     # none | move — удержание по окну тащит его
 touchpad_horizontal = "workspace next"

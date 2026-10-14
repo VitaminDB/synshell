@@ -468,6 +468,13 @@ pub fn notifications() -> W {
                     int_row(t!("Критичные"), t!("мс, 0 — пока не закроют"), op!["notifications", "critical_timeout"], n.critical_timeout as i64, 0, 600000, 1000),
                     int_row(&t!("Одновременно на экране"), "", op!["notifications", "max_visible"], n.max_visible as i64, 1, 20, 1),
                     int_row(&t!("Ширина"), "px", op!["notifications", "width"], n.width as i64, 240, 800, 10),
+                    choice_row(
+                        t!("Смахнуть, чтобы закрыть"),
+                        t!("Куда вести карточку пальцем — во всплывающих и в шторке"),
+                        op!["notifications", "swipe_dismiss"],
+                        &n.swipe_dismiss,
+                        &[("both", n_!("Влево или вправо")), ("left", n_!("Только влево")), ("right", n_!("Только вправо")), ("off", n_!("Не закрывать жестом"))],
+                    ),
                 ],
             ),
             group(

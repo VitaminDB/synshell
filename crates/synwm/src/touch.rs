@@ -8,7 +8,9 @@
 //!   [`HOLD_SLOP`] px не в счёт) — `edge_bottom_hold` («Недавние»), как в
 //!   Android: срабатывает по таймеру, не дожидаясь отпускания;
 //! - вдоль нижнего края в режиме страниц — листание приложений пальцем;
-//! - свайп сверху вниз — `edge_top` (шторка), сразу по порогу;
+//! - свайп сверху вниз — сразу по порогу: в левой половине экрана
+//!   `edge_top` (уведомления), в правой — `edge_top_right` (быстрые
+//!   настройки);
 //! - не жест (тап у края, движение вдоль края) — касание воспроизводится
 //!   приложению или панели как было: сначала `down`, потом движения.
 //!
@@ -176,7 +178,8 @@ impl State {
                         self.page_drag_update(dx);
                     }
                     Decision::Edge if p.edge == Edge::Top => {
-                        let a = self.core.config.gestures.edge_top.clone();
+                        let g = &self.core.config.gestures;
+                        let a = if p.start.x < p.width / 2.0 { g.edge_top.clone() } else { g.edge_top_right.clone() };
                         haptics::play(Feedback::Gesture);
                         self.edge_action(Edge::Top, a);
                     }

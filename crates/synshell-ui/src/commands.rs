@@ -71,7 +71,10 @@ pub fn handle(cmd: &str) {
         "assistant-window" if ctx.cfg().assistant.enabled => crate::actions::spawn("synassistant"),
         "power-menu" | "power" => ctx.open_popup(PopupKind::Power, centered()),
         "resources" => crate::actions::open_resources(if arg.trim().is_empty() { "overview" } else { arg.trim() }),
+        // Телефон — шторка уведомлений, компьютер — окно апплета.
+        "notifications" if ctx.is_phone() => crate::shade::show(crate::shade::Panel::Notifications),
         "notifications" => ctx.open_popup(PopupKind::Notifications, at_applet("notifications")),
+        "quick-settings" => crate::shade::show(crate::shade::Panel::QuickSettings),
         "calendar" => ctx.open_popup(PopupKind::Calendar, at_applet("clock")),
         "network" | "wifi" => ctx.open_popup(PopupKind::Network, at_applet("network")),
         // Связанные устройства (synlink): у апплета `link` или в лотке, иначе по центру.

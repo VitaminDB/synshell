@@ -8,7 +8,7 @@ use std::time::Duration;
 use syngui::input::MouseButton;
 use syngui::prelude::*;
 use syngui::containers::Keyed;
-use syngui::widgets::{EventHook, GestureDetector, SwipeDirection};
+use syngui::widgets::{DismissDirection, Dismissible, EventHook};
 use syngui_layer::{Anchor, KeyboardInteractivity, Layer, SurfaceId, SurfaceSpec};
 use zbus::zvariant::OwnedValue;
 
@@ -292,6 +292,11 @@ fn add(ctx: ShellCtx, n: Notification, replace: bool) {
     }
     // «Не беспокоить» пропускает только критические.
     if ctx.dnd.get_untracked() && n.urgency < 2 {
+        return;
+    }
+    // Открыта шторка уведомлений — новое уже видно в ленте; всплывать поверх незачем.
+    if crate::shade::current() == Some(crate::shade::Panel::Notifications) && !n.transient {
+        synshell_common::haptics::play(synshell_common::haptics::Feedback::Notification);
         return;
     }
     let fresh = !ctx.notifications.get_untracked().iter().any(|x| x.id == id);
@@ -670,14 +675,10 @@ fn popups(ctx: ShellCtx, bounds: Arc<syngui::core::sync::Mutex<Rect>>) -> impl W
                 h.finish()
             };
             col = col.child(Keyed::new(id as u64, version, move || {
-                // Смахнуть вбок — закрыть (на телефоне)
-                let swipe = GestureDetector::new()
-                    .on_swipe(move |dir, _| {
-                        if matches!(dir, SwipeDirection::Left | SwipeDirection::Right) {
-                            close(ShellCtx::get(), id, 2);
-                        }
-                    })
-                    .child(card(ctx, n.clone(), false));
+                // Смахнуть вбок — закрыть (на телефоне; сторона — `[notifications] swipe_dismiss`)
+                let swipe = Dismissible::new(card(ctx, n.clone(), false))
+                    .direction(dismiss_direction(&ctx))
+                    .on_dismiss(move |_| close(ShellCtx::get(), id, 2));
                 let presence = Presence::new(visible, swipe)
                     .enter(Motion::fade().slide(dx, dy).scale(0.94))
                     .exit(Motion::fade().slide(dx, dy).scale(0.96))
@@ -736,9 +737,7 @@ fn card(ctx: ShellCtx, n: Notification, in_center: bool) -> impl Widget {
     head = head.child(text.class("grow")).child(
         InputArea::new(DecoratedBox::new().child(icon(mi::CLOSE)).class("notif-close")).pointer().on_click(move |b, _, _| {
             if b == MouseButton::Left {
-                let ctx = ShellCtx::get();
-                close(ctx, id, 2);
-                ctx.history.update(|h| h.retain(|x| x.id != id));
+                dismiss(ShellCtx::get(), id);
             }
         }),
     );
@@ -790,6 +789,89 @@ fn card(ctx: ShellCtx, n: Notification, in_center: bool) -> impl Widget {
         })
 }
 
+/// Убрать всплывающие карточки (в истории остаются): открылась шторка уведомлений.
+pub fn hide_popups(ctx: ShellCtx) {
+    for n in ctx.notifications.get_untracked() {
+        close(ctx, n.id, 1);
+    }
+}
+
+/// Куда смахивать уведомления (`[notifications] swipe_dismiss`).
+pub fn dismiss_direction(ctx: &ShellCtx) -> DismissDirection {
+    match ctx.cfg().notifications.swipe_dismiss.as_str() {
+        "left" => DismissDirection::Left,
+        "right" => DismissDirection::Right,
+        "off" | "none" => DismissDirection::Off,
+        _ => DismissDirection::Both,
+    }
+}
+
+/// Убрать уведомление совсем: с экрана и из истории (и `resident`).
+pub fn dismiss(ctx: ShellCtx, id: u32) {
+    close(ctx, id, 2);
+    ctx.history.update(|h| h.retain(|x| x.id != id));
+}
+
+/// Очистить историю.
+pub fn clear_all(ctx: ShellCtx) {
+    for n in ctx.history.get_untracked() {
+        emit("NotificationClosed", n.id, SignalArg::Reason(2));
+    }
+    ctx.history.set(Vec::new());
+    ctx.notifications.set(Vec::new());
+}
+
+/// Кнопка «Не беспокоить» центра уведомлений.
+pub fn dnd_chip(ctx: ShellCtx) -> impl Widget {
+    crate::ui::rx(move || {
+        let dnd = ctx.dnd.get();
+        Box::new(InputArea::new(
+            DecoratedBox::new()
+                .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(if dnd { mi::BELL_OFF } else { mi::BELL })).child(Text::new(t!("Не беспокоить")).class("chip-label")))
+                .class(if dnd { "chip chip-on" } else { "chip" }),
+        )
+        .pointer()
+        .on_click(|_, _, _| {
+            let c = ShellCtx::get();
+            c.dnd.set(!c.dnd.get_untracked());
+        }))
+    })
+}
+
+/// Кнопка «Очистить всё».
+pub fn clear_button() -> impl Widget {
+    InputArea::new(DecoratedBox::new().child(icon(mi::CLEAR_ALL)).class("footer-btn")).pointer().on_click(|_, _, _| clear_all(ShellCtx::get()))
+}
+
+/// Карточки истории: смахнуть вбок — убрать (соседи съезжают на место), кнопки
+/// действий и «×» — на карточке. Прокрутка — у владельца.
+pub fn history_list(ctx: ShellCtx) -> impl Widget {
+    crate::ui::rx(move || {
+        let list = ctx.history.get();
+        // смена `[notifications] swipe_dismiss` — сразу, без переоткрытия
+        let _ = ctx.config.get();
+        let dir = dismiss_direction(&ctx);
+        let mut col = Column::new().gap(6.0);
+        if list.is_empty() {
+            col = col.child(Text::new(t!("Нет уведомлений")).class("launcher-empty"));
+        }
+        for n in list {
+            let id = n.id;
+            let version = {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                (n.time, &n.summary, &n.body, n.progress, &n.actions, format!("{dir:?}")).hash(&mut h);
+                h.finish()
+            };
+            col = col.child(Keyed::new(id as u64, version, move || {
+                let card = Dismissible::new(card(ctx, n.clone(), true)).direction(dir).on_dismiss(move |_| dismiss(ShellCtx::get(), id));
+                Box::new(AnimatedPosition::new(card))
+            }));
+        }
+        Box::new(col)
+    })
+}
+
 /// Центр уведомлений (окно апплета).
 pub fn center(ctx: ShellCtx) -> impl Widget {
     Column::new()
@@ -799,44 +881,8 @@ pub fn center(ctx: ShellCtx) -> impl Widget {
                 .gap(8.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(Text::new(t!("Уведомления")).class("popup-title grow"))
-                .child(move || {
-                    let dnd = ctx.dnd.get();
-                    InputArea::new(
-                        DecoratedBox::new()
-                            .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(if dnd { mi::BELL_OFF } else { mi::BELL })).child(Text::new(t!("Не беспокоить")).class("chip-label")))
-                            .class(if dnd { "chip chip-on" } else { "chip" }),
-                    )
-                    .pointer()
-                    .on_click(|_, _, _| {
-                        let c = ShellCtx::get();
-                        c.dnd.set(!c.dnd.get_untracked());
-                    })
-                })
-                .child(
-                    InputArea::new(DecoratedBox::new().child(icon(mi::CLEAR_ALL)).class("footer-btn")).pointer().on_click(|_, _, _| {
-                        let c = ShellCtx::get();
-                        for n in c.history.get_untracked() {
-                            emit("NotificationClosed", n.id, SignalArg::Reason(2));
-                        }
-                        c.history.set(Vec::new());
-                        c.notifications.set(Vec::new());
-                    }),
-                ),
+                .child(dnd_chip(ctx))
+                .child(clear_button()),
         )
-        .child(
-            ScrollView::new()
-                .vertical()
-                .child(move || {
-                    let list = ctx.history.get();
-                    let mut col = Column::new().gap(6.0);
-                    if list.is_empty() {
-                        col = col.child(Text::new(t!("Нет уведомлений")).class("launcher-empty"));
-                    }
-                    for n in list {
-                        col = col.child(card(ctx, n, true));
-                    }
-                    col
-                })
-                .class("notif-center-list"),
-        )
+        .child(ScrollView::new().vertical().child(history_list(ctx)).class("notif-center-list"))
 }

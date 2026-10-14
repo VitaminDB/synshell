@@ -636,7 +636,10 @@ Text {
 .shade-auto-badge-icon { icon-size: 20px; icon-color: var(--accent-fg); }
 .shade-auto-off { border: 1px solid var(--muted); }
 .shade-auto-off .shade-auto-badge { color: var(--fg); }
-.shade-notifications { max-height: 320px; }
+/* шторка уведомлений — во всю высоту, лента прокручивается внутри */
+.shade-notif-panel { padding-bottom: 12px; }
+.shade-notif-list { overflow-clip-margin: 4px; }
+.shade-notif-link .shade-tile-label { font-weight: 500; }
 .shade-handle { width: 44px; height: 5px; border-radius: 3px; background-color: var(--border); }
 
 /* ─── Уведомления ────────────────────────────────────────────────────────── */

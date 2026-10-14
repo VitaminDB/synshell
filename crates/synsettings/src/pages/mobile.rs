@@ -239,7 +239,9 @@ const GESTURE_ACTIONS: &[(&str, &str)] = &[
     ("shell home", n_!("Домой (свернуть окна и открыть приложения)")),
     ("minimize-all", n_!("Свернуть все окна")),
     ("shell recents", n_!("Недавние")),
-    ("shell shade", n_!("Шторка")),
+    ("shell notifications", n_!("Шторка уведомлений")),
+    ("shell quick-settings", n_!("Быстрые настройки")),
+    ("shell shade", n_!("Быстрые настройки (открыть/закрыть)")),
     ("shell launcher", n_!("«Пуск»")),
     ("page next", n_!("Следующее приложение")),
     ("page prev", n_!("Предыдущее приложение")),
@@ -258,6 +260,30 @@ fn action_row(label: impl AsRef<str>, hint: impl AsRef<str>, key: &str, current:
         opts.push((cur.clone(), t!("Своё: {cur}", cur = cur)));
     }
     row(label, hint, choice_owned(op!["gestures", key.to_string()], &cur, opts, 240.0))
+}
+
+/// Свайп сверху вниз слева и справа и кнопка «Поменять местами»; после обмена
+/// строки перечитывают конфиг.
+fn top_edges() -> W {
+    let tick = crate::state::ctx().tick;
+    boxed(Reactive::new(move || -> Vec<W> {
+        let _ = tick.get();
+        let c = store::config();
+        let g = &c.gestures;
+        let (left, right) = (g.edge_top.to_string(), g.edge_top_right.to_string());
+        vec![
+            action_row(t!("Слева"), t!("Свайп от верхнего края в левой половине экрана"), "edge_top", &g.edge_top),
+            action_row(t!("Справа"), t!("Свайп от верхнего края в правой половине экрана"), "edge_top_right", &g.edge_top_right),
+            row_inline(
+                t!("Поменять местами"),
+                t!("Уведомления и быстрые настройки — с другой стороны"),
+                button(t!("Поменять"), move || {
+                    set(&op!["gestures", "edge_top"], right.clone());
+                    set(&op!["gestures", "edge_top_right"], left.clone());
+                }),
+            ),
+        ]
+    }))
 }
 
 pub fn gestures() -> W {
@@ -283,9 +309,9 @@ pub fn gestures() -> W {
                     action_row(&t!("Свайп от правого края"), "", "edge_right", &g.edge_right),
                     action_row(&t!("Свайп снизу вверх"), "", "edge_bottom", &g.edge_bottom),
                     action_row(t!("Свайп снизу с задержкой"), t!("Провести вверх и задержать палец"), "edge_bottom_hold", &g.edge_bottom_hold),
-                    action_row(&t!("Свайп сверху вниз"), "", "edge_top", &g.edge_top),
                 ],
             ),
+            group(&t!("Сверху вниз"), vec![top_edges()]),
             group(
                 &t!("Пальцы"),
                 vec![

@@ -1,9 +1,15 @@
-//! Шторка (телефон): выезжает сверху по жесту от верхнего края или свайпу
-//! вниз по рабочему столу (`shell shade`). Сверху — время, дата, параметры и
-//! питание; плитки быстрых настроек; яркость (проценты и ниты, если в
-//! `[[output]] max_nits` задан максимум панели) и громкость; ниже — центр
-//! уведомлений. Закрывается свайпом вверх, тапом по затемнению, жестом
-//! «назад».
+//! Шторки телефона — две, как в iOS и HyperOS: свайп сверху вниз в левой
+//! половине экрана открывает уведомления, в правой — быстрые настройки
+//! (`[gestures] edge_top` / `edge_top_right`, стороны меняются в «Параметры →
+//! Жесты»). Свайп вниз по рабочему столу — та же шторка, что у края над
+//! пальцем.
+//!
+//! Быстрые настройки: время, дата, параметры и питание; плитки; яркость
+//! (проценты и ниты, если в `[[output]] max_nits` задан максимум панели) и
+//! громкость; открытые приложения. Уведомления: лента на весь экран с
+//! прокруткой, карточку смахивают вбок (`[notifications] swipe_dismiss`).
+//! Свайп с другой стороны при открытой шторке переключает на другую.
+//! Закрывается свайпом вверх, тапом по затемнению, жестом «назад».
 
 use std::cell::Cell;
 use std::sync::{Arc, Mutex};
@@ -19,20 +25,52 @@ use syngui_layer::{Anchor, KeyboardInteractivity, Layer, SurfaceId, SurfaceSpec}
 use crate::ctx::ShellCtx;
 use crate::ui::{icon, mi, rx};
 
+/// Какая шторка.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Panel {
+    Notifications,
+    QuickSettings,
+}
+
 thread_local! {
     static SURFACE: Cell<Option<SurfaceId>> = const { Cell::new(None) };
     static OPEN: Cell<Option<RwSignal<bool>>> = const { Cell::new(None) };
+    static PANEL: Cell<Option<RwSignal<Panel>>> = const { Cell::new(None) };
 }
 
 pub fn is_open() -> bool {
     OPEN.with(|o| o.get()).is_some_and(|s| s.get_untracked())
 }
 
+/// Открытая шторка.
+pub fn current() -> Option<Panel> {
+    if !is_open() {
+        return None;
+    }
+    PANEL.with(|p| p.get()).map(|p| p.get_untracked())
+}
+
+/// Открыть или закрыть быстрые настройки (`shell shade`); открыты
+/// уведомления — переключить на настройки.
 pub fn toggle() {
-    if is_open() {
-        close();
-    } else {
-        open();
+    match current() {
+        Some(Panel::QuickSettings) => close(),
+        _ => show(Panel::QuickSettings),
+    }
+}
+
+/// Показать шторку; открыта другая — переключить на эту.
+pub fn show(panel: Panel) {
+    if panel == Panel::Notifications {
+        crate::notifications::hide_popups(ShellCtx::get());
+    }
+    match PANEL.with(|p| p.get()) {
+        Some(sig) if is_open() => {
+            if sig.get_untracked() != panel {
+                sig.set(panel);
+            }
+        }
+        _ => open(panel),
     }
 }
 
@@ -50,10 +88,16 @@ fn close_now() {
         syngui_layer::close_surface(id);
     }
     OPEN.with(|o| o.set(None));
+    PANEL.with(|p| p.set(None));
 }
 
-pub fn open() {
+fn open(panel: Panel) {
     if SURFACE.with(|s| s.get()).is_some() {
+        // Ещё уезжает — поверхность та же, вернуть.
+        if let (Some(o), Some(p)) = (OPEN.with(|o| o.get()), PANEL.with(|p| p.get())) {
+            p.set(panel);
+            o.set(true);
+        }
         return;
     }
     let ctx = ShellCtx::get();
@@ -61,7 +105,9 @@ pub fn open() {
     // Экранная клавиатура поверх ленты/шторки не нужна.
     crate::actions::spawn("synkeyboard hide");
     let open = use_signal(true);
+    let which = use_signal(panel);
     OPEN.with(|o| o.set(Some(open)));
+    PANEL.with(|p| p.set(Some(which)));
     let spec = SurfaceSpec {
         namespace: "syndesktop-shade".into(),
         layer: Layer::Overlay,
@@ -74,11 +120,21 @@ pub fn open() {
         auto_size: false,
         clear_color: [0.0; 4],
     };
-    let id = syngui_layer::create_surface(spec, move || Box::new(view(ShellCtx::get(), open)));
+    let id = syngui_layer::create_surface(spec, move || Box::new(view(ShellCtx::get(), open, which)));
     SURFACE.with(|s| s.set(Some(id)));
 }
 
-fn view(ctx: ShellCtx, open: RwSignal<bool>) -> impl Widget {
+/// Свайп вниз по рабочему столу в точке `x` (лог. px): то же действие, что у
+/// верхнего края над пальцем.
+pub fn swipe_down_at(x: f32) {
+    let ctx = ShellCtx::get();
+    let (w, _) = crate::manager::output_size(None);
+    let g = &ctx.cfg().gestures;
+    let action = if x < w as f32 / 2.0 { g.edge_top.clone() } else { g.edge_top_right.clone() };
+    crate::actions::run(action);
+}
+
+fn view(ctx: ShellCtx, open: RwSignal<bool>, which: RwSignal<Panel>) -> impl Widget {
     let dur = crate::anim::group_ms(&ctx, "shade", 320);
     let scrim_dur = dur;
     let scrim = Presence::signal(open, || {
@@ -93,16 +149,22 @@ fn view(ctx: ShellCtx, open: RwSignal<bool>) -> impl Widget {
     .duration_ms(scrim_dur)
     .initial(scrim_dur > 0);
     let panel = Presence::signal(open, move || {
-        Box::new(
-            GestureDetector::new()
-                .pan_axis(PanAxis::Vertical)
-                .on_swipe(|dir, _| {
-                    if dir == SwipeDirection::Up {
-                        close();
-                    }
-                })
-                .child(content(ShellCtx::get())),
-        )
+        // Смена шторки — пересборка содержимого; поверхность и затемнение те же.
+        Box::new(rx(move || -> Box<dyn Widget> {
+            let ctx = ShellCtx::get();
+            let closer = || GestureDetector::new().pan_axis(PanAxis::Vertical).on_swipe(|dir, _| {
+                if dir == SwipeDirection::Up {
+                    close();
+                }
+            });
+            match which.get() {
+                Panel::QuickSettings => Box::new(
+                    Column::new().main_axis_alignment(MainAxisAlignment::Start).child(closer().child(quick_settings(ctx))),
+                ),
+                // Во всю высоту: лента прокручивается внутри.
+                Panel::Notifications => Box::new(closer().child(notifications(ctx))),
+            }
+        }))
     })
     .enter(Motion::fade().slide(0.0, -80.0))
     .exit(Motion::fade().slide(0.0, -60.0))
@@ -113,14 +175,14 @@ fn view(ctx: ShellCtx, open: RwSignal<bool>) -> impl Widget {
     .exit_duration_ms(dur * 2 / 3)
     .initial(dur > 0)
     .on_exit_complete(close_now);
-    let _ = ctx;
-    Stack::new()
-        .fit(StackFit::Expand)
-        .child(scrim)
-        .child(Column::new().main_axis_alignment(MainAxisAlignment::Start).child(panel))
+    Stack::new().fit(StackFit::Expand).child(scrim).child(panel)
 }
 
-fn content(ctx: ShellCtx) -> impl Widget {
+fn handle() -> impl Widget {
+    Row::new().main_axis_alignment(MainAxisAlignment::Center).child(DecoratedBox::new().class("shade-handle"))
+}
+
+fn quick_settings(ctx: ShellCtx) -> impl Widget {
     Column::new()
         .gap(14.0)
         .child(header(ctx))
@@ -128,9 +190,60 @@ fn content(ctx: ShellCtx) -> impl Widget {
         .child(tiles(ctx))
         .child(sliders(ctx))
         .child(open_apps(ctx))
-        .child(DecoratedBox::new().child(crate::notifications::center(ctx)).class("shade-notifications"))
-        .child(Row::new().main_axis_alignment(MainAxisAlignment::Center).child(DecoratedBox::new().class("shade-handle")))
+        .child(notifications_link(ctx))
+        .child(handle())
         .class("shade")
+}
+
+/// В быстрых настройках — строка «N уведомлений»: тап переключает на ленту.
+fn notifications_link(ctx: ShellCtx) -> impl Widget {
+    rx(move || {
+        let n = ctx.history.get().len();
+        if n == 0 {
+            return Box::new(DecoratedBox::new()) as Box<dyn Widget>;
+        }
+        Box::new(
+            GestureDetector::new().on_click(|| show(Panel::Notifications)).child(
+                DecoratedBox::new()
+                    .child(
+                        Row::new()
+                            .gap(10.0)
+                            .cross_axis_alignment(CrossAxisAlignment::Center)
+                            .child(icon(mi::BELL).class("shade-slider-icon"))
+                            .child(Text::new(tn!(n, "{n} уведомление", "{n} уведомления", "{n} уведомлений")).class("shade-tile-label grow"))
+                            .child(icon(mi::CHEVRON_RIGHT).class("shade-slider-icon")),
+                    )
+                    .class("shade-slider shade-notif-link"),
+            ),
+        )
+    })
+}
+
+/// Шторка уведомлений: время и дата, «Не беспокоить», «Очистить», лента.
+fn notifications(ctx: ShellCtx) -> impl Widget {
+    let time = rx(move || {
+        let now = ctx.now.get();
+        Box::new(
+            Column::new()
+                .gap(0.0)
+                .child(Text::new(crate::clock::format(now, "%H:%M")).class("shade-time"))
+                .child(Text::new(crate::clock::format(now, "%A, %d %B")).class("shade-date")),
+        )
+    });
+    Column::new()
+        .gap(12.0)
+        .child(time)
+        .child(
+            Row::new()
+                .gap(8.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(Text::new(t!("Уведомления")).class("shade-section grow"))
+                .child(crate::notifications::dnd_chip(ctx))
+                .child(crate::notifications::clear_button()),
+        )
+        .child(ScrollView::new().vertical().child(crate::notifications::history_list(ctx)).class("shade-notif-list grow"))
+        .child(handle())
+        .class("shade shade-notif-panel")
 }
 
 fn header(ctx: ShellCtx) -> impl Widget {

@@ -162,11 +162,15 @@ fn view(ctx: ShellCtx, output: String) -> impl Widget {
                 .class("home-pages"),
         )
     });
+    // Где начался свайп: вниз слева и справа — разные шторки, как у верхнего края.
+    let start_x = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let sx = start_x.clone();
     let gestures = GestureDetector::new()
         .pan_axis(PanAxis::Vertical)
-        .on_swipe(|dir, _| match dir {
+        .on_pan_start(move |p| sx.store(p.x.to_bits(), std::sync::atomic::Ordering::Relaxed))
+        .on_swipe(move |dir, _| match dir {
             SwipeDirection::Up => synshell_ui::commands::handle("launcher"),
-            SwipeDirection::Down => synshell_ui::commands::handle("shade"),
+            SwipeDirection::Down => synshell_ui::shade::swipe_down_at(f32::from_bits(start_x.load(std::sync::atomic::Ordering::Relaxed))),
             _ => {}
         })
         .on_long_press(|_| {

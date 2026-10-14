@@ -1777,6 +1777,8 @@ pub struct Notifications {
     /// Хранить историю в центре уведомлений.
     pub history: bool,
     pub history_size: u32,
+    /// Куда смахнуть уведомление, чтобы закрыть: `both`, `left`, `right`, `off`.
+    pub swipe_dismiss: String,
 }
 
 impl Default for Notifications {
@@ -1791,6 +1793,7 @@ impl Default for Notifications {
             do_not_disturb: false,
             history: true,
             history_size: 100,
+            swipe_dismiss: "both".into(),
         }
     }
 }
@@ -2094,6 +2097,17 @@ impl Config {
         if c.general.file_manager.trim() == "syndesktop-files" {
             c.general.file_manager = "synfiles".into();
         }
+        // Шторка разделена на две: старое умолчание `edge_top = "shell shade"` (из шаблона, без
+        // `edge_top_right`) — теперь слева уведомления, справа быстрые настройки.
+        if c.gestures.edge_top.to_string() == "shell shade" {
+            let has_right = toml::from_str::<toml::Table>(text)
+                .ok()
+                .and_then(|t| t.get("gestures").and_then(|g| g.get("edge_top_right")).cloned())
+                .is_some();
+            if !has_right {
+                c.gestures.edge_top = Gestures::default().edge_top;
+            }
+        }
         c.appearance.load_theme();
         Ok(c)
     }
@@ -2248,7 +2262,10 @@ pub struct Gestures {
     pub edge_bottom: Action,
     /// Свайп снизу с задержкой пальца.
     pub edge_bottom_hold: Action,
+    /// Свайп сверху вниз в левой половине экрана (по умолчанию — уведомления).
     pub edge_top: Action,
+    /// Свайп сверху вниз в правой половине (по умолчанию — быстрые настройки).
+    pub edge_top_right: Action,
     /// Пан двумя пальцами двигает виртуальный стол (`free`).
     pub two_finger_pan: bool,
     /// Долгое нажатие по окну: `none` или `move` (перетаскивание окна).
@@ -2272,7 +2289,8 @@ impl Default for Gestures {
             edge_right: a("back"),
             edge_bottom: a("shell home"),
             edge_bottom_hold: a("shell recents"),
-            edge_top: a("shell shade"),
+            edge_top: a("shell notifications"),
+            edge_top_right: a("shell quick-settings"),
             two_finger_pan: true,
             long_press_window: "none".into(),
             touchpad_horizontal: a("workspace next"),
@@ -2752,6 +2770,15 @@ impl Default for Packages {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn old_shade_top_edge_splits() {
+        let c = Config::parse("[gestures]\nedge_top = \"shell shade\"\n").unwrap();
+        assert_eq!(c.gestures.edge_top.to_string(), "shell notifications");
+        assert_eq!(c.gestures.edge_top_right.to_string(), "shell quick-settings");
+        let c = Config::parse("[gestures]\nedge_top = \"shell shade\"\nedge_top_right = \"shell shade\"\n").unwrap();
+        assert_eq!(c.gestures.edge_top.to_string(), "shell shade", "обе стороны заданы явно — не трогать");
+    }
+
     #[test]
     fn output_config_by_connector_then_model() {
         let o = |n: &str| OutputConfig { name: n.into(), ..Default::default() };

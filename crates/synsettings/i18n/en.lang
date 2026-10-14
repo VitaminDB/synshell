@@ -536,6 +536,15 @@
 "Кому доступно местоположение телефона" = "Who can access the phone's location"
 
 # src/pages/mobile.rs
+"Шторка уведомлений" = "Notification shade"
+"Быстрые настройки" = "Quick settings"
+"Быстрые настройки (открыть/закрыть)" = "Quick settings (toggle)"
+"Сверху вниз" = "Top edge, swipe down"
+"Свайп от верхнего края в левой половине экрана" = "Swipe down from the top edge in the left half of the screen"
+"Свайп от верхнего края в правой половине экрана" = "Swipe down from the top edge in the right half of the screen"
+"Поменять местами" = "Swap sides"
+"Уведомления и быстрые настройки — с другой стороны" = "Notifications and quick settings switch sides"
+"Поменять" = "Swap"
 "Страницы" = "Pages"
 "Свободный стол" = "Free desk"
 "Режим окон" = "Window mode"
@@ -1330,6 +1339,12 @@
 "Аккумулятор, частота процессора, гашение экрана и сон." = "Battery, CPU frequency, screen blanking and sleep."
 
 # src/pages/system.rs
+"Смахнуть, чтобы закрыть" = "Swipe to dismiss"
+"Куда вести карточку пальцем — во всплывающих и в шторке" = "Which way to swipe a card — in popups and in the shade"
+"Влево или вправо" = "Left or right"
+"Только влево" = "Left only"
+"Только вправо" = "Right only"
+"Не закрывать жестом" = "Don’t dismiss by swipe"
 "Без поворота" = "No rotation"
 "Отражение" = "Flipped"
 "Отражение + 90°" = "Flipped + 90°"

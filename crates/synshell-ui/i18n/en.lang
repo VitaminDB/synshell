@@ -581,6 +581,8 @@
 "нет акселерометра" = "no accelerometer"
 
 # src/shade.rs
+"{n} уведомление".one = "{n} notification"
+"{n} уведомление".other = "{n} notifications"
 "Мобильная связь" = "Mobile network"
 "Нет сети" = "No network"
 "{v} · роуминг" = "{v} · roaming"
