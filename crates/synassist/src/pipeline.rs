@@ -18,9 +18,20 @@ pub fn resolve(setting: &str) -> PathBuf {
 /// Раздел системного промпта: рецепты с параметрами.
 pub fn prompt_section(dir: &std::path::Path) -> String {
     let list = synaptix_graph::recipes::list(dir);
-    let mut s = String::from("\n\n## Рецепты (инструмент pipeline)\nМногошаговые задачи с медиа (клип, говорящий аватар, видеоистория, оживить фото, переозвучка) выполняй одним вызовом pipeline: рецептом по имени с params или своим графом. Рецепты:\n");
+    let mut s = String::from("\n\n## Сценарии (инструмент pipeline)\nМногошаговую задачу с медиа (мультфильм, клип, говорящий аватар, оживить фото, переозвучка…) выполняй одним вызовом pipeline со СВОИМ графом, собранным под просьбу пользователя: его длину, стиль, число сцен, нужен ли звук или текст. Граф передавай объектом JSON (не строкой). Рецепт по имени бери, только если он в точности делает то, что просят; иначе возьми его за образец и собери свой граф. Удачный свой граф предложи сохранить рецептом. Рецепты — образцы (узлы: id(операция)):\n");
     for g in list {
-        s.push_str(&format!("- {}: {} Параметры: {}.\n", g.name, g.description, synaptix_graph::recipes::params_line(&g)));
+        let chain: Vec<String> = g.nodes.iter().map(|n| {
+            let mut x = format!("{}({}", n.id, n.op);
+            if n.each.is_some() {
+                x.push_str(", each");
+            }
+            if n.args.get("chain").and_then(serde_json::Value::as_bool) == Some(true) {
+                x.push_str(", chain");
+            }
+            x.push(')');
+            x
+        }).collect();
+        s.push_str(&format!("- {}: {} Узлы: {}. Параметры: {}.\n", g.name, g.description, chain.join(" → "), synaptix_graph::recipes::params_line(&g)));
     }
     s
 }
@@ -37,7 +48,7 @@ impl Tool for PipelineTool {
         "медиа"
     }
     fn description(&self) -> String {
-        "action: run (по умолчанию) — выполнить; save — сохранить graph своим рецептом (в graph обязательны name — короткое имя латиницей, description — когда применять, params — то, что меняется от раза к разу: тема, файлы, текст, с type text|file|files|number, description и default; в узлах вместо конкретных значений — {{параметр}}); delete — удалить свой рецепт recipe. Пример графа: {\"name\":\"poster\",\"description\":\"постер со слоганом по теме\",\"params\":{\"topic\":{\"type\":\"text\",\"description\":\"тема\"}},\"nodes\":[{\"id\":\"slogan\",\"op\":\"llm\",\"prompt\":\"Слоган на тему {{topic}}, только текст\"},{\"id\":\"art\",\"op\":\"image\",\"prompt\":\"vertical poster about {{topic}}, bold composition\",\"width\":768,\"height\":1024}],\"output\":[\"art\",\"slogan\"]} — output перечисляет id узлов, размеры задавай оба. Сохраняй, когда пользователь просит, а после удачного прогона своего графа коротко предложи сохранить его рецептом. Выполнить многошаговый сценарий с нейросетями: recipe — имя рецепта из системного промпта и params — его параметры (пути файлов — абсолютные); или graph — свой граф: {\"params\":{...}, \"nodes\":[{\"id\":\"…\",\"op\":\"…\", поля}], \"output\":[\"id\"]}. Операции: llm (prompt, system), text (text), image (prompt, width, height, images — референсы), video (prompt, seconds — до 20 на ролик, first_frame, last_frame, refs, audio, source_video, extend, control_video, restyle, chain; длинный ролик — each по строкам сцен с chain: true: каждый следующий ролик начинается с последнего кадра предыдущего, получается одна непрерывная сцена, потом concat; звук — речь, шумы, музыку сцены — видеомодель делает сама, опиши его в prompt; отдельную музыку и mux добавляй, только если пользователь их просил), music (prompt, lyrics, seconds — только если пользователь назвал длительность, иначе не указывай: песня около 3 минут), speak (text, voice), transcribe (file), concat (files), mux (video, audio, mode: replace|mix), frame (video, at: first|last|секунда), trim (file, start, end), still (image, audio). Поля ссылаются на параметры и результаты: {{param}}, {{id.text}}, {{id.file}}, {{id.files}}, {{id.lines}}; each: \"{{список}}\" — выполнить узел для каждого элемента ({{item}}). Результат покажется пользователю. Поле model в узлах не указывай — модели берутся из настроек пользователя (кроме случая, когда он сам назвал модель). Генерация видео и музыки идёт минуты.".into()
+        "action: run (по умолчанию) — выполнить; save — сохранить graph своим рецептом (в graph обязательны name — короткое имя латиницей, description — когда применять, params — то, что меняется от раза к разу: тема, файлы, текст, с type text|file|files|number, description и default; в узлах вместо конкретных значений — {{параметр}}); delete — удалить свой рецепт recipe. Пример графа: {\"name\":\"poster\",\"description\":\"постер со слоганом по теме\",\"params\":{\"topic\":{\"type\":\"text\",\"description\":\"тема\"}},\"nodes\":[{\"id\":\"slogan\",\"op\":\"llm\",\"prompt\":\"Слоган на тему {{topic}}, только текст\"},{\"id\":\"art\",\"op\":\"image\",\"prompt\":\"vertical poster about {{topic}}, bold composition\",\"width\":768,\"height\":1024}],\"output\":[\"art\",\"slogan\"]} — output перечисляет id узлов, размеры задавай оба. Сохраняй, когда пользователь просит, а после удачного прогона своего графа коротко предложи сохранить его рецептом. Выполнить многошаговый сценарий с нейросетями: graph — свой граф, собранный под просьбу (основной способ, объект JSON): {\"params\":{...}, \"nodes\":[{\"id\":\"…\",\"op\":\"…\", поля}], \"output\":[\"id\"]}; или recipe — имя рецепта, если он в точности подходит, и params — его параметры (пути файлов — абсолютные). Операции: llm (prompt, system), text (text), image (prompt, width, height, images — референсы), video (prompt, seconds — до 20 на ролик, first_frame, last_frame, refs, audio, source_video, extend, control_video, restyle, chain; длинный ролик — each по строкам сцен с chain: true: каждый следующий ролик начинается с последнего кадра предыдущего, получается одна непрерывная сцена, потом concat; звук — речь, шумы, музыку сцены — видеомодель делает сама, опиши его в prompt; отдельную музыку и mux добавляй, только если пользователь их просил), music (prompt, lyrics, seconds — только если пользователь назвал длительность, иначе не указывай: песня около 3 минут), speak (text, voice), transcribe (file), concat (files), mux (video, audio, mode: replace|mix), frame (video, at: first|last|секунда), trim (file, start, end), still (image, audio). Поля ссылаются на параметры и результаты: {{param}}, {{id.text}}, {{id.file}}, {{id.files}}, {{id.lines}}; each: \"{{список}}\" — выполнить узел для каждого элемента ({{item}}). Результат покажется пользователю. Поле model в узлах не указывай — модели берутся из настроек пользователя (кроме случая, когда он сам назвал модель). Генерация видео и музыки идёт минуты.".into()
     }
     fn parameters(&self) -> Value {
         json!({
@@ -46,7 +57,7 @@ impl Tool for PipelineTool {
                 "action": {"type": "string", "enum": ["run", "save", "delete"]},
                 "recipe": {"type": "string", "description": "имя рецепта"},
                 "params": {"type": "object", "description": "параметры рецепта"},
-                "graph": {"type": "object", "description": "свой граф вместо рецепта"}
+                "graph": {"type": "object", "description": "свой граф (объект JSON) — основной способ"}
             }
         })
     }
