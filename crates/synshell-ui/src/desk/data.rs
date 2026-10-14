@@ -103,6 +103,10 @@ pub fn set_visible(v: bool) {
     VISIBLE.store(v, Ordering::Relaxed);
 }
 
+pub fn visible() -> bool {
+    VISIBLE.load(Ordering::Relaxed)
+}
+
 fn push<T>(q: &mut VecDeque<T>, v: T) {
     q.push_back(v);
     while q.len() > HISTORY {

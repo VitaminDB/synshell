@@ -29,12 +29,12 @@ const TITLE_H: f32 = 28.0;
 
 /// Что рисовать: размер содержимого, цвет, вид.
 #[derive(Clone)]
-struct Cx {
-    w: f32,
-    h: f32,
-    color: Color,
-    view: String,
-    history: usize,
+pub(super) struct Cx {
+    pub w: f32,
+    pub h: f32,
+    pub color: Color,
+    pub view: String,
+    pub history: usize,
 }
 
 fn accent(ctx: &ShellCtx) -> Color {
@@ -70,6 +70,8 @@ pub fn build(ctx: ShellCtx, slot: &Slot, w: &DeskWidget, iw: f32, ih: f32, editi
         "network" => network(ctx, cx.clone()),
         "temps" => temps(cx.clone(), w.str("color").is_some_and(|c| c.starts_with('#'))),
         "apps" => apps_rail(),
+        "llm" => super::ai::llm(cx.clone()),
+        "ai_models" => super::ai::models(cx.clone()),
         "launcher" => launcher_grid(ctx, w, &cx),
         "note" => Box::new(Text::new(w.str_or("text", &t!("Новая заметка — коснитесь в режиме правки, чтобы изменить.")).to_string()).class("desk-note")),
         "app" => app_icon(ctx, slot, w, iw, ih, editing),
@@ -107,6 +109,8 @@ pub fn build(ctx: ShellCtx, slot: &Slot, w: &DeskWidget, iw: f32, ih: f32, editi
             let ctx = ShellCtx::get();
             ctx.open_popup(crate::ctx::PopupKind::Calendar, crate::commands::centered());
         });
+    } else if w.kind == "llm" {
+        g = g.on_click(super::ai::open_service);
     } else if let Some(page) = resource_page(&w.kind) {
         // Тап по ресурсу — монитор ресурсов на его странице.
         g = g.on_click(move || crate::actions::open_resources(page));
@@ -249,7 +253,7 @@ fn value_of(kind: &str, s: &Snap) -> (f32, String, String) {
 }
 
 /// «1.5 ГБ» из байт.
-fn human_bytes(b: u64) -> String {
+pub(super) fn human_bytes(b: u64) -> String {
     let gb = b as f64 / 1073741824.0;
     if gb >= 1000.0 {
         t!("{v} ТБ", v = format!("{:.1}", gb / 1024.0))
@@ -314,7 +318,7 @@ fn metric(ctx: ShellCtx, kind: String, cx: Cx) -> Box<dyn Widget> {
 }
 
 /// Крупное число с подписью, по центру.
-fn big_text(big: &str, sub: &str, cx: &Cx) -> impl Widget {
+pub(super) fn big_text(big: &str, sub: &str, cx: &Cx) -> impl Widget {
     let size = (cx.h * 0.5).clamp(18.0, 64.0);
     Column::new()
         .gap(2.0)
@@ -343,7 +347,7 @@ fn gauge(v: f32, max: f64, unit: &'static str, cx: &Cx) -> impl Widget {
 }
 
 /// График истории: значение сверху, линии снизу.
-fn line_view(big: &str, sub: &str, series: &[(&str, Vec<f32>, Color)], max: Option<f64>, cx: &Cx, fmt: impl Fn(f64) -> String + Send + Sync + 'static) -> impl Widget {
+pub(super) fn line_view(big: &str, sub: &str, series: &[(&str, Vec<f32>, Color)], max: Option<f64>, cx: &Cx, fmt: impl Fn(f64) -> String + Send + Sync + 'static) -> impl Widget {
     let head = 26.0;
     let chart_h = (cx.h - head).max(20.0);
     let n = cx.history;
@@ -409,7 +413,7 @@ fn ring(value: f32, label: String, sub: &str, size: f32, color: Color) -> impl W
     )
 }
 
-fn sparkline(values: Vec<f32>, n: usize, color: Color, w: f32, h: f32) -> impl Widget {
+pub(super) fn sparkline(values: Vec<f32>, n: usize, color: Color, w: f32, h: f32) -> impl Widget {
     Canvas::new(move |c, _| {
         if values.len() < 2 {
             return;
@@ -992,7 +996,7 @@ fn fill_color(p: f32, base: Color) -> Color {
     }
 }
 
-fn bar(p: f32, width: f32, height: f32, color: Color) -> impl Widget {
+pub(super) fn bar(p: f32, width: f32, height: f32, color: Color) -> impl Widget {
     Canvas::new(move |c, _| {
         let r = height / 2.0;
         c.set_color(color.with_alpha(0.14));
@@ -1066,7 +1070,7 @@ fn storage(w: &DeskWidget, cx: Cx) -> Box<dyn Widget> {
     }))
 }
 
-fn short_gpu(name: &str) -> String {
+pub(super) fn short_gpu(name: &str) -> String {
     name.replace("NVIDIA ", "").replace("GeForce ", "").replace(" GPU", "").replace("AMD ", "").replace("Intel Corporation ", "")
 }
 
@@ -1313,7 +1317,7 @@ fn temp_devices_view(s: &Snap, cx: &Cx, own_color: bool) -> Box<dyn Widget> {
     Box::new(col)
 }
 
-fn mss_color(c: Color) -> syngui::mss::MssColor {
+pub(super) fn mss_color(c: Color) -> syngui::mss::MssColor {
     let [r, g, b] = c.to_srgb_u8();
     syngui::mss::MssColor { r, g, b, a: 255 }
 }

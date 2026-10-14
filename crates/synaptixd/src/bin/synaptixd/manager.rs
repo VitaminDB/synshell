@@ -460,14 +460,13 @@ impl Manager {
 
     pub fn metrics(&self, history: bool) -> synaptixd::Metrics {
         let snap = crate::activity::snapshot(history);
+        // Модели — под замком, сессии — уже без него: замок моделей нужен
+        // всем запросам, а сессии заняты, пока идёт ход.
+        let loaded: Vec<(String, Arc<Loaded>)> = self.slots.lock().unwrap().iter().filter_map(|(id, s)| Some((id.clone(), s.model.clone()?))).collect();
         let mut kv = Vec::new();
-        {
-            let slots = self.slots.lock().unwrap();
-            for (id, s) in slots.iter() {
-                let Some(m) = &s.model else { continue };
-                for (key, app, tokens, capacity, bytes, parked) in m.kv_usage() {
-                    kv.push(synaptixd::KvUsage { model: id.clone(), key, app, tokens, capacity, bytes, parked });
-                }
+        for (id, m) in loaded {
+            for (key, app, tokens, capacity, bytes, parked) in m.kv_usage() {
+                kv.push(synaptixd::KvUsage { model: id.clone(), key, app, tokens, capacity, bytes, parked });
             }
         }
         let mut apps = snap.apps;
@@ -838,8 +837,13 @@ impl Manager {
         let mut slots = self.slots.lock().unwrap();
         let s = slots.get_mut(id).ok_or_else(|| no_model(id))?;
         let out = match result {
-            Ok((model, dev, precision, bytes)) => {
-                s.vram_bytes = if dev == DeviceKind::Cuda { manifest.vram_estimate(dev, quant.as_deref()) } else { 0 };
+            Ok((model, dev, precision, bytes, vram)) => {
+                // Замер прироста пула при загрузке; нет замера — оценка.
+                s.vram_bytes = match dev {
+                    DeviceKind::Cuda if vram > 0 => vram,
+                    DeviceKind::Cuda => manifest.vram_estimate(dev, quant.as_deref()),
+                    _ => 0,
+                };
                 s.model = Some(Arc::new(model));
                 s.device = Some(dev);
                 s.precision = precision;
@@ -865,7 +869,7 @@ impl Manager {
         out
     }
 
-    fn load_inner(&self, m: &Manifest, want: DeviceKind, quant: Option<&str>, engine: &EngineProfile) -> Result<(Loaded, DeviceKind, String, u64), Error> {
+    fn load_inner(&self, m: &Manifest, want: DeviceKind, quant: Option<&str>, engine: &EngineProfile) -> Result<(Loaded, DeviceKind, String, u64, u64), Error> {
         let supported = m.devices();
         let dev = match devices::resolve(want, &supported) {
             Some(d) => d,
@@ -879,6 +883,7 @@ impl Manager {
         self.make_room(&m.id, m.ram_estimate(dev, quant))?;
         self.make_vram_room(&m.id, dev, m.vram_estimate(dev, quant));
         let before = rss();
+        let vram_before = synaptix_core::memory::cuda_pool::cuda_allocated_bytes() as u64;
         let t0 = Instant::now();
         let loaded = {
             let _dl = devices::lock(dev);
@@ -901,8 +906,9 @@ impl Manager {
             _ => m.resources.ram.get(&dev).map(|mb| mb << 20).unwrap_or(0),
         };
         let bytes = rss().saturating_sub(before).max(floor);
+        let vram = if dev == DeviceKind::Cuda { (synaptix_core::memory::cuda_pool::cuda_allocated_bytes() as u64).saturating_sub(vram_before) } else { 0 };
         let (model, label) = model;
-        Ok((model, dev, label.unwrap_or_else(|| variant.precision.clone()), bytes))
+        Ok((model, dev, label.unwrap_or_else(|| variant.precision.clone()), bytes, vram))
     }
 
     pub fn run<T>(

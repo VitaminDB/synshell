@@ -16,6 +16,7 @@
 //! значками в свободные клетки сами, как в KDE; перетащенный значок
 //! запоминает место.
 
+mod ai;
 pub mod data;
 pub mod forms;
 mod views;
@@ -173,6 +174,16 @@ pub const KINDS: &[Kind] = &[
         desktop: (3, 2),
         data: true,
     },
+    Kind {
+        kind: "llm",
+        label: n_!("Языковые модели"),
+        glyph: ai::LLM,
+        views: &[("card", n_!("Карточка")), ("line", n_!("График")), ("text", n_!("Число"))],
+        phone: (4, 2),
+        desktop: (4, 2),
+        data: true,
+    },
+    Kind { kind: "ai_models", label: n_!("Модели в памяти"), glyph: mi::MEMORY, views: &[("list", n_!("Список"))], phone: (4, 3), desktop: (4, 4), data: true },
     Kind { kind: "apps", label: n_!("Запущенные приложения"), glyph: mi::APPS, views: &[("rail", n_!("Лента"))], phone: (4, 2), desktop: (5, 2), data: true },
     Kind { kind: "launcher", label: n_!("Значки приложений"), glyph: mi::GRID, views: &[("grid", n_!("Сетка"))], phone: (4, 4), desktop: (4, 3), data: false },
     Kind { kind: "note", label: n_!("Заметка"), glyph: "\u{E244}", views: &[("note", n_!("Заметка"))], phone: (2, 2), desktop: (2, 2), data: false },

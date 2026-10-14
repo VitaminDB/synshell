@@ -752,6 +752,21 @@ Text {
 .desk-disk-name { font-size: 14px; font-weight: 600; color: var(--fg); }
 .desk-disk-free { font-size: 12px; color: var(--fg); }
 .desk-disk-sub { font-size: 11px; color: var(--muted); }
+.desk-ai-who { font-size: 13px; font-weight: 600; color: var(--fg); }
+.desk-ai-act { font-size: 12px; font-weight: 600; color: var(--fg); }
+.desk-ai-dev { font-size: 12px; font-weight: 600; color: var(--fg); }
+.desk-ai-model { font-size: 13px; font-weight: 600; color: var(--fg); }
+.desk-ai-apps { font-size: 11px; color: var(--accent); }
+.desk-ai-row { padding: 8px; border-radius: 10px; background-color: #ffffff08; transition: background-color 150ms ease-out; }
+.desk-ai-row:hover { background-color: #ffffff12; }
+.desk-ai-row-busy { background-color: #ffffff10; border: 1px solid #ffffff1c; }
+.desk-ai-badge { width: 32px; height: 32px; border-radius: 10px; background-color: #ffffff12; justify-content: center; align-items: center; }
+.desk-ai-badge-icon { icon-size: 18px; }
+.desk-ai-btn { padding: 5px; border-radius: 999px; background-color: #ffffff10; transition: background-color 120ms ease-out, scale 200ms spring(420, 26); }
+.desk-ai-btn:hover { background-color: #ffffff22; }
+.desk-ai-btn:active { scale: 0.9; }
+.desk-ai-btn-on { background-color: var(--accent); }
+.desk-ai-btn-icon { icon-size: 15px; icon-color: var(--fg); }
 .desk-temp-name { font-size: 13px; color: var(--fg); }
 .desk-temp-value { font-size: 14px; font-weight: 600; }
 .desk-cpu-load { font-size: 26px; font-weight: 600; color: var(--fg); }

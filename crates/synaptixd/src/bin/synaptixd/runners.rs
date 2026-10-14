@@ -20,10 +20,15 @@ pub struct LlmSlot {
     /// KV-сессии по ключу клиента (чат, субагент…): на устройстве — только
     /// последняя, остальные припаркованы в RAM; самые старые вытесняются.
     sessions: std::sync::Mutex<Vec<KvEntry>>,
+    /// Последний снимок сессий для метрик: пока идёт ход, `sessions` занят.
+    kv_seen: std::sync::Mutex<Vec<KvRow>>,
     /// Эмбеддинги картинок и видео истории: ключ — файл, время изменения и
     /// вид; старые вытесняются по бюджету токенов.
     media: std::sync::Mutex<Vec<(String, synaptix::facade::llm::MediaEmbedding)>>,
 }
+
+/// Сессия для метрик: (ключ, программа, токенов, ёмкость, байт, припаркована).
+pub type KvRow = (String, synaptixd::AppInfo, u32, u32, u64, bool);
 
 /// Сколько KV-сессий держать (на устройстве из них — одна).
 const SESSIONS: usize = 4;
@@ -414,7 +419,7 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
             let max_seq = if dev == DeviceKind::Npu { Some(2048) } else { synaptix::facade::arch::config_max_seq(path) };
             let (llm, tok) = synaptix::facade::llm::load_llm_full(path, policy, &device, max_seq, runtime).map_err(|e| anyhow::anyhow!("{e}"))?;
             let window = llm.config().max_seq_len.max(2048);
-            Ok((Loaded::Llm(Box::new(LlmSlot { llm, tok, window, path: path.to_path_buf(), sessions: std::sync::Mutex::new(Vec::new()), media: std::sync::Mutex::new(Vec::new()) })), Some(label)))
+            Ok((Loaded::Llm(Box::new(LlmSlot { llm, tok, window, path: path.to_path_buf(), sessions: std::sync::Mutex::new(Vec::new()), kv_seen: std::sync::Mutex::new(Vec::new()), media: std::sync::Mutex::new(Vec::new()) })), Some(label)))
         }
         ModelKind::Tts => {
             let device = devices::device(dev);
@@ -484,18 +489,25 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
 }
 
 impl Loaded {
-    /// KV-сессии языковой модели: (ключ, программа, токенов, ёмкость, байт, припаркована).
-    pub fn kv_usage(&self) -> Vec<(String, synaptixd::AppInfo, u32, u32, u64, bool)> {
+    /// KV-сессии языковой модели. Не ждёт: пока идёт ход (сессии заняты),
+    /// отдаёт прошлый снимок.
+    pub fn kv_usage(&self) -> Vec<KvRow> {
         let Loaded::Llm(b) = self else { return Vec::new() };
+        let Ok(all) = b.sessions.try_lock() else {
+            return b.kv_seen.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        };
         let per_token = b.llm.kv_bytes_per_token() as u64;
-        let all = b.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        all.iter()
+        let rows: Vec<KvRow> = all
+            .iter()
             .map(|e| {
                 let tokens = e.kv.cached_tokens() as u32;
                 let bytes = if e.parked { per_token * tokens as u64 } else { e.kv.device_bytes() as u64 };
                 (e.key.clone(), e.app.clone(), tokens, e.kv.ctx_tokens() as u32, bytes, e.parked)
             })
-            .collect()
+            .collect();
+        drop(all);
+        *b.kv_seen.lock().unwrap_or_else(|e| e.into_inner()) = rows.clone();
+        rows
     }
 
     /// Настройки генерации языковой модели (на лету, без перезагрузки).
