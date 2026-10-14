@@ -103,7 +103,7 @@ fn image_model(cx: &mut Cx) -> R {
     let id = m.resolve_id(&cx.str("model").unwrap_or_default(), ModelKind::Image).map_err(|e| e.message)?;
     let (path, dev, q) = m.run(&id, |l| l.image_source()).map_err(|e| e.message)?;
     let quant = quant_field(cx, q);
-    let model = img::open(&path, devices::device(dev), quant.as_deref())?;
+    let model = img::open(&path, devices::device(dev), quant.as_deref())?.with_resolution(cx.str("resolution").and_then(|r| r.parse().ok()).unwrap_or(0));
     let label = format!("{} ({id}{})", model.name(), quant.map(|q| format!(", {q}")).unwrap_or_default());
     cx.label = label.clone();
     cx.out("model", Val::Handle(Handle::new(label, ImageModel { id, dev, m: model })));
@@ -225,8 +225,13 @@ fn h3_model(cx: &mut Cx) -> R {
     let id = m.resolve_id(&want, ModelKind::Video).map_err(|e| e.message)?;
     let (path, encoder, dev, q) = m.run(&id, |l| l.h3_source()).map_err(|e| e.message)?;
     let quant = quant_field(cx, q);
-    let model = h3::open(&path, encoder.as_deref(), devices::device(dev), quant.as_deref())?;
-    let label = format!("MiniMax-H3 ({id}{})", quant.map(|q| format!(", {q}")).unwrap_or_default());
+    let mut model = h3::open(&path, encoder.as_deref(), devices::device(dev), quant.as_deref())?;
+    let lora = cx.file("lora").map(PathBuf::from);
+    if let Some(p) = &lora {
+        model = model.with_lora(p.clone(), cx.num("lora_strength").unwrap_or(1.0) as f32);
+    }
+    let lora_name = lora.as_ref().and_then(|p| p.file_name()).map(|n| format!(", LoRA {}", n.to_string_lossy())).unwrap_or_default();
+    let label = format!("MiniMax-H3 ({id}{}{lora_name})", quant.map(|q| format!(", {q}")).unwrap_or_default());
     cx.label = label.clone();
     cx.out("model", Val::Handle(Handle::new(label, H3Model { id, dev, m: model })));
     Ok(())
@@ -248,7 +253,8 @@ fn h3_encode(cx: &mut Cx) -> R {
     let first = cx.file("first_frame").map(PathBuf::from);
     let last = cx.file("last_frame").map(PathBuf::from);
     let refs: Vec<PathBuf> = cx.files("refs").into_iter().map(PathBuf::from).collect();
-    let cond = with_progress(cx, |_, _| on_device(&m.id, m.dev, "кодировщик H3", || m.m.encode(size, &prompt, negative.as_deref(), first.as_deref(), last.as_deref(), &refs)))?;
+    let ref_size = if cx.str("ref_size").as_deref() == Some("max") { h3::RefSize::Max } else { h3::RefSize::Match };
+    let cond = with_progress(cx, |_, _| on_device(&m.id, m.dev, "кодировщик H3", || m.m.encode(size, &prompt, negative.as_deref(), first.as_deref(), last.as_deref(), &refs, ref_size)))?;
     let label = format!("условие H3 {}", cond.label());
     cx.label = label.clone();
     cx.out("cond", Val::Handle(Handle::new(label, cond)));

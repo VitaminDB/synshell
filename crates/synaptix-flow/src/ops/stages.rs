@@ -25,6 +25,10 @@ pub const LTX_CONTROLS: &[&str] = &["none", "canny", "depth"];
 
 /// Квант трансформера: пусто — из Параметров службы.
 pub const QUANTS: &[&str] = &["", "nvfp4", "mxfp8", "bf16"];
+/// Размер картинок-референсов H3: под площадь кадра или крупно (2048).
+pub const REF_SIZES: &[&str] = &["match", "max"];
+/// Разрешение условия Qwen-Image 2.1; пусто — по модели (1024).
+pub const RESOLUTIONS: &[&str] = &["", "512", "768", "1024", "1536", "2048"];
 /// Как вписать картинку в размер латента.
 pub const FITS: &[&str] = &["cover", "stretch"];
 
@@ -35,7 +39,11 @@ pub static IMAGE_MODEL: NodeSpec = NodeSpec {
     category: IMG,
     inputs: &[],
     outputs: &[port("model", "Модель", P::Model)],
-    fields: &[field("model", "Модель", F::Text, ""), field("quant", "Квант", F::Choice(QUANTS), "")],
+    fields: &[
+        field("model", "Модель", F::Text, ""),
+        field("quant", "Квант", F::Choice(QUANTS), ""),
+        field("resolution", "Разрешение условия (Qwen-Image 2.1)", F::Choice(RESOLUTIONS), ""),
+    ],
     stage: true,
 };
 
@@ -113,11 +121,16 @@ pub static IMAGE_DECODE: NodeSpec = NodeSpec {
 pub static H3_MODEL: NodeSpec = NodeSpec {
     kind: "h3_model",
     title: "Модель H3",
-    description: "MiniMax-H3 из библиотеки службы: FL2VA (описание, ключевые кадры) или Ref2VA (референсы)",
+    description: "MiniMax-H3 из библиотеки службы: FL2VA (описание, ключевые кадры) или Ref2VA (референсы); LoRA — например Turbo (6 шагов без CFG)",
     category: H3,
     inputs: &[],
     outputs: &[port("model", "Модель", P::Model)],
-    fields: &[field("model", "Модель", F::Text, ""), field("quant", "Квант", F::Choice(QUANTS), "")],
+    fields: &[
+        field("model", "Модель", F::Text, ""),
+        field("quant", "Квант", F::Choice(QUANTS), ""),
+        field("lora", "LoRA", F::File, ""),
+        field("lora_strength", "Сила LoRA", F::Number, "1"),
+    ],
     stage: true,
 };
 
@@ -147,7 +160,11 @@ pub static H3_ENCODE: NodeSpec = NodeSpec {
         port("refs", "Референсы", P::List),
     ],
     outputs: &[port("cond", "Условие", P::Cond)],
-    fields: &[field("prompt", "Описание", F::LongText, ""), field("negative", "Без", F::Text, "")],
+    fields: &[
+        field("prompt", "Описание", F::LongText, ""),
+        field("negative", "Без", F::Text, ""),
+        field("ref_size", "Картинки-референсы", F::Choice(REF_SIZES), "match"),
+    ],
     stage: true,
 };
 
