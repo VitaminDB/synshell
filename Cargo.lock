@@ -6906,6 +6906,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "synaptix-depth-anything"
+version = "0.1.0"
+dependencies = [
+ "synaptix-core",
+ "synaptix-io",
+ "synaptix-ops",
+]
+
+[[package]]
 name = "synaptix-diarization-sortformer"
 version = "0.1.1"
 dependencies = [
@@ -6964,6 +6973,7 @@ dependencies = [
  "serde_json",
  "synaptix-bundle",
  "synaptix-core",
+ "synaptix-depth-anything",
  "synaptix-image-flux",
  "synaptix-image-flux2",
  "synaptix-image-qwen",
