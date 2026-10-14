@@ -701,7 +701,8 @@ impl State {
         }
         self.last_cursor = Some(icon);
         if let (Some(p), Some(conn)) = (&self.pointer, &self.conn) {
-            let _ = p.set_cursor(conn, map_cursor(icon));
+            // `cursor: none` (MSS) — указатель скрыт над элементом
+            let _ = if icon == syngui::input::CursorIcon::None { p.hide_cursor() } else { p.set_cursor(conn, map_cursor(icon)) };
         }
     }
 
