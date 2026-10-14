@@ -545,6 +545,7 @@ fn ask(p: Panel, text: String, voice: bool) {
     let mut chat = p.chat_id.get_untracked().and_then(|id| store.load(&id)).unwrap_or_else(Chat::new);
     let from = chat.messages.len();
     let speak_after = !voice && ShellCtx::get().cfg().assistant.speak_answers;
+    let starting = t!("Сейчас сделаю, это займёт немного времени.").to_string();
     std::thread::Builder::new()
         .name("assistant".into())
         .spawn(move || {
@@ -570,7 +571,17 @@ fn ask(p: Panel, text: String, voice: bool) {
                 rx.recv().unwrap_or(false)
             };
             let cancel = shared().cancel.clone();
+            let voice_cfg = voice.then(VoiceConfig::load);
             let r = agent.run_turn_files(&mut chat, &text, files, &confirm, &cancel, &mut |ev| {
+                // Перед долгим инструментом голосом сразу «сейчас сделаю» —
+                // и только потом инструмент (агент ждёт, пока фраза звучит).
+                if let (Some(cfg), AgentEvent::Message(m)) = (&voice_cfg, &ev) {
+                    if let Some(phrase) = synassist::prompt::before_tools(m, &starting) {
+                        run_on_main_thread(move || p.phase.set(Phase::Speaking));
+                        let _ = synassist_voice::say(cfg, &phrase);
+                        run_on_main_thread(move || p.phase.set(Phase::Thinking));
+                    }
+                }
                 run_on_main_thread(move || match ev {
                     AgentEvent::Text(t) => {
                         let mut a = p.answer.get_untracked();
@@ -596,14 +607,7 @@ fn ask(p: Panel, text: String, voice: bool) {
             });
             let _ = store.save(&chat);
             let id = chat.id.clone();
-            let answer: String = chat
-                .messages
-                .iter()
-                .skip(from)
-                .filter(|m| m.role == Role::Assistant && !m.text.trim().is_empty())
-                .map(|m| m.text.trim().to_string())
-                .collect::<Vec<_>>()
-                .join("\n");
+            let answer = synassist::prompt::final_answer(&chat.messages[from.min(chat.messages.len())..]);
             let result = match &r {
                 Ok(()) => Ok(answer.clone()),
                 Err(e) => Err(e.clone()),
@@ -852,9 +856,16 @@ fn voice_stage(p: Panel) -> Box<dyn Widget> {
             col = col.child(confirm_card(p, s));
         } else if let Some(t) = tool.filter(|_| p.busy.get() && answer.is_empty()) {
             col = col.child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon("\u{E869}").class("assist-tool-icon")).child(Text::new(t).max_lines(1).class("assist-tool grow")));
+            if let Some((frac, label)) = p.tool_progress.get() {
+                col = col.child(progress_row(frac, &label));
+            }
         }
         if !answer.is_empty() {
             col = col.child(ScrollView::new().vertical().follow_end(true).class("assist-voice-scroll").child(MarkdownView::new(answer).selectable(true).class("assist-answer")));
+        }
+        let results = p.results.get();
+        if !results.is_empty() {
+            col = col.child(results_view(results));
         }
         Box::new(col)
     });
@@ -975,39 +986,7 @@ pub fn view(_ctx: ShellCtx) -> impl Widget {
         }
         let results = p.results.get();
         if !results.is_empty() {
-            let mut row = Flex::new().direction(FlexDirection::Row).wrap().gap(8.0);
-            for f in results {
-                let open = f.clone();
-                if is_video(&f) {
-                    row = row.child(video_tile(f.clone()));
-                    continue;
-                }
-                if synassist::attach::kind(&f) == synassist::attach::Kind::Audio {
-                    row = row.child(audio_row(f.clone()));
-                    continue;
-                }
-                let tile: Box<dyn Widget> = if is_image(&f) {
-                    Box::new(DecoratedBox::new().child(Image::new(f.to_string_lossy()).fit(ImageFit::Cover).class("assist-result-img")).class("assist-result").clip(true))
-                } else if is_video(&f) {
-                    match video_poster(&f) {
-                        Some(poster) => Box::new(DecoratedBox::new().child(Image::new(poster.to_string_lossy()).fit(ImageFit::Cover).class("assist-result-img")).class("assist-result").clip(true)),
-                        None => Box::new(Chip::new(f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()).icon(PLAY).class("assist-att")),
-                    }
-                } else {
-                    let glyph = if synassist::attach::kind(&f) == synassist::attach::Kind::Audio { AUDIO } else { ATTACH };
-                    Box::new(Chip::new(f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()).icon(glyph).class("assist-att"))
-                };
-                let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                row = row.child(tip(
-                    crate::ui::InputArea::new(tile).pointer().on_click(move |b, _, _| {
-                        if b == syngui::input::MouseButton::Left {
-                            let _ = std::process::Command::new("xdg-open").arg(&open).spawn();
-                        }
-                    }),
-                    name,
-                ));
-            }
-            col = col.child(DecoratedBox::new().child(row).class("assist-results"));
+            col = col.child(results_view(results));
         }
         if !busy && p.chat_id.get().is_some() {
             let a1 = answer.clone();
@@ -1053,6 +1032,43 @@ pub fn view(_ctx: ShellCtx) -> impl Widget {
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(DecoratedBox::new().child(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(header(p)).child(attachments_row(p))).class("search-box assist-box"))
         .child(AnimatedSize::new(body).axis(AnimationAxis::Height).spring(420.0, 40.0).class("popup-morph"))
+}
+
+/// Файлы, созданные за ответ: картинки, ролики, звук, прочее — чипами.
+fn results_view(results: Vec<std::path::PathBuf>) -> Box<dyn Widget> {
+    let mut row = Flex::new().direction(FlexDirection::Row).wrap().gap(8.0);
+    for f in results {
+        let open = f.clone();
+        if is_video(&f) {
+            row = row.child(video_tile(f.clone()));
+            continue;
+        }
+        if synassist::attach::kind(&f) == synassist::attach::Kind::Audio {
+            row = row.child(audio_row(f.clone()));
+            continue;
+        }
+        let tile: Box<dyn Widget> = if is_image(&f) {
+            Box::new(DecoratedBox::new().child(Image::new(f.to_string_lossy()).fit(ImageFit::Cover).class("assist-result-img")).class("assist-result").clip(true))
+        } else if is_video(&f) {
+            match video_poster(&f) {
+                Some(poster) => Box::new(DecoratedBox::new().child(Image::new(poster.to_string_lossy()).fit(ImageFit::Cover).class("assist-result-img")).class("assist-result").clip(true)),
+                None => Box::new(Chip::new(f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()).icon(PLAY).class("assist-att")),
+            }
+        } else {
+            let glyph = if synassist::attach::kind(&f) == synassist::attach::Kind::Audio { AUDIO } else { ATTACH };
+            Box::new(Chip::new(f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()).icon(glyph).class("assist-att"))
+        };
+        let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        row = row.child(tip(
+            crate::ui::InputArea::new(tile).pointer().on_click(move |b, _, _| {
+                if b == syngui::input::MouseButton::Left {
+                    let _ = std::process::Command::new("xdg-open").arg(&open).spawn();
+                }
+            }),
+            name,
+        ));
+    }
+    Box::new(DecoratedBox::new().child(row).class("assist-results"))
 }
 
 /// Ход долгого инструмента: этап, полоса и проценты (или бегущая полоса).

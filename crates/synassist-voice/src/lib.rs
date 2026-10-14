@@ -589,6 +589,16 @@ pub fn speak(cfg: VoiceConfig, text: String, done: Done<()>) -> u64 {
     gen
 }
 
+/// Сказать фразу и дождаться конца (реплика по ходу ответа в разговоре —
+/// микрофон в это время на паузе). Прерывается `stop_speaking`.
+pub fn say(cfg: &VoiceConfig, text: &str) -> Result<(), String> {
+    let spoken = strip_markdown(text);
+    if spoken.trim().is_empty() {
+        return Ok(());
+    }
+    speak_blocking(&spoken, next_gen(), cfg)
+}
+
 pub fn set_muted(muted: bool) {
     flags().muted.store(muted, Ordering::Release);
 }

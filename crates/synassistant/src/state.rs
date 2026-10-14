@@ -375,6 +375,7 @@ impl St {
         let speak_after = !voice && self.speak_answers.get_untracked();
         let mut chat = self.chat.get_untracked();
         let from = chat.messages.len();
+        let starting = t!("Сейчас сделаю, это займёт немного времени.").to_string();
         std::thread::Builder::new()
             .name("assistant".into())
             .spawn(move || {
@@ -400,18 +401,18 @@ impl St {
                     rx.recv().unwrap_or(false)
                 };
                 let cancel = shared().cancel.clone();
+                let voice_cfg = voice.then(synassist_voice::VoiceConfig::load);
                 let r = agent.run_turn_files(&mut chat, &text, files, &confirm, &cancel, &mut |ev| {
+                    // Перед долгим инструментом голосом сразу «сейчас сделаю».
+                    if let (Some(cfg), AgentEvent::Message(m)) = (&voice_cfg, &ev) {
+                        if let Some(phrase) = synassist::prompt::before_tools(m, &starting) {
+                            let _ = synassist_voice::say(cfg, &phrase);
+                        }
+                    }
                     run_on_main_thread(move || self.apply(ev));
                 });
                 let _ = store().save(&chat);
-                let answer: String = chat
-                    .messages
-                    .iter()
-                    .skip(from)
-                    .filter(|m| m.role == Role::Assistant && !m.text.trim().is_empty())
-                    .map(|m| m.text.trim().to_string())
-                    .collect::<Vec<_>>()
-                    .join("\n");
+                let answer = synassist::prompt::final_answer(&chat.messages[from.min(chat.messages.len())..]);
                 let result = match &r {
                     Ok(()) => Ok(answer.clone()),
                     Err(e) => Err(e.clone()),

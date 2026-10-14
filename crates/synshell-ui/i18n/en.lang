@@ -682,3 +682,4 @@
 "загружается" = "loading"
 "ОЗУ" = "RAM"
 "Нет загруженных моделей — служба загрузит нужную при первом обращении" = "No models loaded — the service loads one on first use"
+"Сейчас сделаю, это займёт немного времени." = "On it, this will take a little while."

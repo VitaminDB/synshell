@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::chat::{ChatMsg, Role};
 use crate::tools::Tool;
 
 fn today() -> String {
@@ -11,7 +12,35 @@ fn user_name() -> String {
     std::env::var("USER").unwrap_or_default()
 }
 
-pub const VOICE_NOTE: &str = "\nРежим голосового общения: твой ответ будет озвучен вслух. Отвечай коротко и разговорно, одной-тремя фразами; без markdown, списков, таблиц, кода и ссылок; числа и единицы — словами, как в живой речи.\n";
+pub const VOICE_NOTE: &str = "\nРежим голосового общения: твой ответ будет озвучен вслух. Отвечай коротко и разговорно, одной-тремя фразами; без markdown, списков, таблиц, кода и ссылок; числа и единицы — словами, как в живой речи. Перед долгим действием (видео, музыка, картинка, поиск в интернете) сначала скажи одну короткую фразу, что начинаешь (например «Сейчас сделаю, это займёт пару минут»), и в том же ответе вызови инструмент — это важнее правила «перед вызовом инструмента ничего не пиши».\n";
+
+/// Фраза, которую голосовой режим говорит сразу, пока идут инструменты:
+/// реплика модели перед их вызовом, а если её нет и инструмент долгий
+/// (генерация медиа) — `fallback`.
+pub fn before_tools(m: &ChatMsg, fallback: &str) -> Option<String> {
+    if m.role != Role::Assistant || m.tool_calls.is_empty() {
+        return None;
+    }
+    let text = m.text.trim();
+    if !text.is_empty() {
+        return Some(text.to_string());
+    }
+    let long = m.tool_calls.iter().any(|c| {
+        c.name == "media" && serde_json::from_str::<serde_json::Value>(&c.arguments).ok().and_then(|a| a.get("action")?.as_str().map(|s| s != "speak")).unwrap_or(false)
+    });
+    long.then(|| fallback.to_string())
+}
+
+/// Итоговый ответ хода для озвучки: реплики модели без тех, что шли перед
+/// вызовами инструментов (они уже сказаны по ходу).
+pub fn final_answer(messages: &[ChatMsg]) -> String {
+    messages
+        .iter()
+        .filter(|m| m.role == Role::Assistant && m.tool_calls.is_empty() && !m.text.trim().is_empty())
+        .map(|m| m.text.trim().to_string())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
 pub fn build_voice(tools: &[Arc<dyn Tool>]) -> String {
     let mut s = build(tools);
