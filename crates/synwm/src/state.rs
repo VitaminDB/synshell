@@ -227,6 +227,9 @@ pub struct Core {
     pub remote_input_active: bool,
     /// Палец, который сейчас изображает мышь (окно с `touch_as_mouse`).
     pub touch_mouse_slot: Option<smithay::backend::input::TouchSlot>,
+    /// Палец-мышь уже нажал левую кнопку (нажатие отложено, см. `touch_mouse_down`); номер касания — для таймера.
+    pub touch_mouse_pressed: bool,
+    pub touch_mouse_gen: u64,
     /// Пальцы на экранном контроллере (`syngamepad`): идут ему напрямую, мимо жестов края и стола.
     pub gamepad_slots: Vec<smithay::backend::input::TouchSlot>,
     /// Поворот выводов на лету (действие `rotate`, автоповорот оболочки)
@@ -486,6 +489,8 @@ impl Core {
             last_kb_layout: None,
             restart_requested: false,
             touch_mouse_slot: None,
+            touch_mouse_pressed: false,
+            touch_mouse_gen: 0,
             gamepad_slots: Vec::new(),
         })
     }

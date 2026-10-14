@@ -1326,11 +1326,38 @@ impl State {
             return false;
         }
         self.core.touch_mouse_slot = Some(slot);
-        let pointer = self.core.pointer.clone();
+        self.core.touch_mouse_pressed = false;
         self.touch_mouse_move(pos, time);
+        // Движение — своим кадром: Xwayland копит абсолютное движение до frame, а кнопку отдаёт сразу —
+        // в одном кадре нажатие приходило X-клиенту в старой точке (щелчок мимо пальца). Нажатие — позже,
+        // через пару кадров игры: игре, которая рисует свой курсор по смещениям DirectInput, Wine сначала
+        // уводит курсор в угол, а при нажатии — из угла под палец (в одном кадре игра сложила бы оба смещения).
+        self.core.pointer.clone().frame(self);
+        self.core.touch_mouse_gen += 1;
+        let gen = self.core.touch_mouse_gen;
+        use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+        let _ = self.core.loop_handle.insert_source(
+            Timer::from_duration(std::time::Duration::from_millis(TOUCH_MOUSE_PRESS_DELAY_MS)),
+            move |_, _, st: &mut State| {
+                if st.core.touch_mouse_gen == gen && st.core.touch_mouse_slot.is_some() {
+                    st.touch_mouse_press();
+                }
+                TimeoutAction::Drop
+            },
+        );
+        true
+    }
+
+    /// Нажать левую кнопку пальца-мыши (один раз за касание).
+    fn touch_mouse_press(&mut self) {
+        if self.core.touch_mouse_pressed {
+            return;
+        }
+        self.core.touch_mouse_pressed = true;
+        let time = self.core.clock.now().as_millis();
+        let pointer = self.core.pointer.clone();
         pointer.button(self, &ButtonEvent { button: BTN_LEFT, state: ButtonState::Pressed.into(), serial: SERIAL_COUNTER.next_serial(), time });
         pointer.frame(self);
-        true
     }
 
     fn touch_mouse_motion(&mut self, slot: smithay::backend::input::TouchSlot, pos: Point<f64, Logical>, time: u32) -> bool {
@@ -1362,6 +1389,8 @@ impl State {
         if self.core.touch_mouse_slot != Some(slot) {
             return false;
         }
+        // Короткое касание: отложенное нажатие ещё не ушло — нажать и сразу отпустить.
+        self.touch_mouse_press();
         self.core.touch_mouse_slot = None;
         let pointer = self.core.pointer.clone();
         pointer.button(self, &ButtonEvent { button: BTN_LEFT, state: ButtonState::Released.into(), serial: SERIAL_COUNTER.next_serial(), time });
@@ -1797,3 +1826,6 @@ fn is_media_shell_command(cmd: &str) -> bool {
     let w = cmd.split_whitespace().next().unwrap_or("");
     matches!(w, "volume" | "mute" | "mic-mute" | "media")
 }
+
+/// Палец-мышь: нажатие кнопки — через столько после касания (2–3 кадра игры, см. `touch_mouse_down`).
+const TOUCH_MOUSE_PRESS_DELAY_MS: u64 = 50;
