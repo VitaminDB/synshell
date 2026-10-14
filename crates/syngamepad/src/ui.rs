@@ -163,7 +163,9 @@ pub fn install(pad: Pad) {
                 output::connect();
                 let id = syngui_layer::create_surface(spec(), move || Box::new(view(pad)));
                 SURFACE.with(|s| s.set(Some(id)));
-                syngui_layer::set_input_region(id, Some(Vec::new()));
+                // Область ввода — сразу по элементам: эффект ниже мог отработать раньше, пока поверхности ещё не
+                // было, и тогда пустая область оставалась до смены размера — контроллер не нажимался и не прятался.
+                update_input_region(pad);
             }
             (false, Some(id)) => {
                 SURFACE.with(|s| s.set(None));
@@ -176,33 +178,39 @@ pub fn install(pad: Pad) {
     });
     // Касания — только элементы и ручка; свёрнутый — только ручка.
     create_effect(move || {
-        let size = syngui::viewport::viewport_size().get();
-        let folded = pad.folded.get();
-        let layout = pad.layout.get();
-        let editing = pad.ed.on.get();
-        let _ = pad.shown.get();
-        let Some(id) = SURFACE.with(|s| s.get()) else { return };
-        let (w, h) = (size.width, size.height);
-        // Правка — весь экран: тащить элементы можно куда угодно.
-        let naming = pad.ed.naming.get();
-        // Ввод имени — только панель: касания ниже — экранной клавиатуре.
-        let mut rects = if naming {
-            vec![crate::editor::panel_rect(pad, w, h)]
-        } else if editing {
-            vec![[0.0, 0.0, w, h]]
-        } else {
-            vec![handle_rect(w, h), tune_rect(w, h)]
-        };
-        if !folded && !editing {
-            rects.extend(layout.elements.iter().map(|e| e.rect(w, h)).map(|r| {
-                let (dx, dy) = (r[2] * HIT_SLOP, r[3] * HIT_SLOP);
-                [r[0] - dx, r[1] - dy, r[2] + 2.0 * dx, r[3] + 2.0 * dy]
-            }));
-        }
-        let ints = rects.into_iter().map(|r| [r[0].floor() as i32, r[1].floor() as i32, r[2].ceil() as i32, r[3].ceil() as i32]).collect();
-        log::debug!("область ввода {w}×{h}: {ints:?}");
-        syngui_layer::set_input_region(id, Some(ints));
+        let _ = syngui::viewport::viewport_size().get();
+        let _ = (pad.folded.get(), pad.layout.get(), pad.ed.on.get(), pad.ed.naming.get(), pad.shown.get());
+        update_input_region(pad);
     });
+}
+
+/// Область ввода поверхности: элементы и ручка; свёрнутый — только ручка; правка — весь экран.
+fn update_input_region(pad: Pad) {
+    let Some(id) = SURFACE.with(|s| s.get()) else { return };
+    let size = syngui::viewport::viewport_size().get_untracked();
+    let folded = pad.folded.get_untracked();
+    let layout = pad.layout.get_untracked();
+    let editing = pad.ed.on.get_untracked();
+    let naming = pad.ed.naming.get_untracked();
+    let (w, h) = (size.width, size.height);
+    // Правка — весь экран: тащить элементы можно куда угодно.
+    // Ввод имени — только панель: касания ниже — экранной клавиатуре.
+    let mut rects = if naming {
+        vec![crate::editor::panel_rect(pad, w, h)]
+    } else if editing {
+        vec![[0.0, 0.0, w, h]]
+    } else {
+        vec![handle_rect(w, h), tune_rect(w, h)]
+    };
+    if !folded && !editing {
+        rects.extend(layout.elements.iter().map(|e| e.rect(w, h)).map(|r| {
+            let (dx, dy) = (r[2] * HIT_SLOP, r[3] * HIT_SLOP);
+            [r[0] - dx, r[1] - dy, r[2] + 2.0 * dx, r[3] + 2.0 * dy]
+        }));
+    }
+    let ints = rects.into_iter().map(|r| [r[0].floor() as i32, r[1].floor() as i32, r[2].ceil() as i32, r[3].ceil() as i32]).collect();
+    log::debug!("область ввода {w}×{h}: {ints:?}");
+    syngui_layer::set_input_region(id, Some(ints));
 }
 
 fn view(pad: Pad) -> impl Widget {
