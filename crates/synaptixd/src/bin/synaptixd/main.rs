@@ -309,6 +309,11 @@ impl Conn {
                 let g = mgr.run(&model, |m| m.generate(&messages, &params, &tools, &send, &cancel))?;
                 (data(g), none())
             }
+            Request::Rerank { model, pairs } => {
+                let model = mgr.resolve_id(&model, ModelKind::Rerank)?;
+                let r = mgr.run(&model, |m| m.rerank(&pairs))?;
+                (data(r), none())
+            }
             Request::Tokenize { model, texts } => {
                 let model = mgr.resolve_id(&model, ModelKind::Llm)?;
                 let counts = mgr.run(&model, |m| m.tokenize(&texts))?;

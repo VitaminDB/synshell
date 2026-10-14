@@ -155,6 +155,7 @@ pub enum Loaded {
     Tts(std::sync::Mutex<TtsState>, DeviceKind),
     Embed(Box<dyn synaptix::facade::embedding::Embedder + Send + Sync>),
     Diarize(std::sync::Mutex<synaptix::facade::diarization::Diarizer>),
+    Rerank(Box<dyn synaptix::facade::rerank::Reranker + Send + Sync>),
     /// Генеративная модель: веса грузит пайплайн на время запроса (по этапам,
     /// с выгрузкой лишнего), здесь — только путь и устройство.
     Image(std::path::PathBuf, DeviceKind, Option<String>),
@@ -209,7 +210,7 @@ pub struct CtcResult {
 }
 
 pub fn runnable(kind: ModelKind) -> bool {
-    matches!(kind, ModelKind::Ctc | ModelKind::Mfa | ModelKind::Asr | ModelKind::Llm | ModelKind::Tts | ModelKind::Embed | ModelKind::Image | ModelKind::Music | ModelKind::Video | ModelKind::Diarize)
+    matches!(kind, ModelKind::Ctc | ModelKind::Mfa | ModelKind::Asr | ModelKind::Llm | ModelKind::Tts | ModelKind::Embed | ModelKind::Image | ModelKind::Music | ModelKind::Video | ModelKind::Diarize | ModelKind::Rerank)
 }
 
 fn llm_policy(path: &Path, dev: DeviceKind, quant: Option<&str>) -> synaptix::facade::llm::QuantPolicy {
@@ -313,6 +314,14 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
             })
             .map_err(|e| anyhow::anyhow!("{e}"))?;
             Ok((Loaded::Asr(std::sync::Mutex::new(t)), Some(precision_tag(q, dtype))))
+        }
+        ModelKind::Rerank => {
+            use synaptix::facade::rerank::{load_reranker, RerankerConfig};
+            let dtype = if dev == DeviceKind::Cpu { synaptix::facade::rerank::DType::F32 } else { synaptix::facade::rerank::DType::F16 };
+            let mut cfg = RerankerConfig::new(path.to_path_buf()).with_device(devices::device(dev)).with_dtype(dtype).with_max_tokens(512);
+            cfg.batch_size = 8;
+            let r = load_reranker(cfg).map_err(|e| anyhow::anyhow!("{e}"))?;
+            Ok((Loaded::Rerank(r), Some(dtype_label(if dev == DeviceKind::Cpu { DType::F32 } else { DType::F16 }))))
         }
         ModelKind::Diarize => {
             use synaptix::facade::diarization::{DiarizationConfig, Diarizer};
@@ -688,7 +697,15 @@ impl Loaded {
         let Loaded::Embed(e) = self else { anyhow::bail!("модель не строит эмбеддинги") };
         let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
         let vectors = e.encode(&refs).map_err(|e| anyhow::anyhow!("{e}"))?;
-        Ok(synaptixd::Embeddings { dim: e.dim(), vectors })
+        Ok(synaptixd::Embeddings { dim: e.dim(), vectors, max_tokens: e.max_tokens() })
+    }
+
+    /// Оценки пар (запрос, документ).
+    pub fn rerank(&self, pairs: &[(String, String)]) -> anyhow::Result<synaptixd::RerankScores> {
+        let Loaded::Rerank(r) = self else { anyhow::bail!("модель не переранжирует") };
+        let refs: Vec<(&str, &str)> = pairs.iter().map(|(q, d)| (q.as_str(), d.as_str())).collect();
+        let scores = r.score_pairs(&refs).map_err(|e| anyhow::anyhow!("{e}"))?;
+        Ok(synaptixd::RerankScores { scores, max_tokens: r.max_tokens() })
     }
 
     pub fn transcribe(&self, pcm: &[f32], sample_rate: u32, language: Option<&str>) -> anyhow::Result<synaptixd::Transcript> {

@@ -66,7 +66,7 @@ pub fn scan(lib: &Path) -> Vec<Manifest> {
         // NPU — речь и эмбеддинги: языковые модели на нём на порядки медленнее
         // (граф на каждый токен), картинки, видео и музыка не проверены.
         let mut devices = vec![synaptixd::DeviceKind::Cuda, synaptixd::DeviceKind::Cpu];
-        if matches!(kind, synaptixd::ModelKind::Tts | synaptixd::ModelKind::Asr | synaptixd::ModelKind::Ctc | synaptixd::ModelKind::Embed) {
+        if matches!(kind, synaptixd::ModelKind::Tts | synaptixd::ModelKind::Asr | synaptixd::ModelKind::Ctc | synaptixd::ModelKind::Embed | synaptixd::ModelKind::Rerank) {
             devices.push(synaptixd::DeviceKind::Npu);
         }
         out.push(Manifest {

@@ -17,6 +17,7 @@ fn task(k: ModelKind) -> sp::Task {
         ModelKind::Mfa => sp::Task::Mfa,
         ModelKind::Embed => sp::Task::Embed,
         ModelKind::Diarize => sp::Task::Diarize,
+        ModelKind::Rerank => sp::Task::Rerank,
     }
 }
 
@@ -32,6 +33,7 @@ pub fn kind_of(t: sp::Task) -> ModelKind {
         sp::Task::Mfa => ModelKind::Mfa,
         sp::Task::Embed => ModelKind::Embed,
         sp::Task::Diarize => ModelKind::Diarize,
+        sp::Task::Rerank => ModelKind::Rerank,
     }
 }
 

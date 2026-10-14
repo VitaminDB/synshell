@@ -723,6 +723,7 @@
 "Распознавание звуков (CTC)" = "Phoneme recognition (CTC)"
 "Выравнивание речи (MFA)" = "Speech alignment (MFA)"
 "Разметка говорящих" = "Speaker diarization"
+"Переранжирование" = "Reranking"
 "Распознавание речи" = "Speech recognition"
 "Языковая модель" = "Language model"
 "Синтез речи" = "Speech synthesis"

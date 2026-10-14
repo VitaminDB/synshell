@@ -69,10 +69,12 @@ pub enum ModelKind {
     Music,
     /// Кто когда говорит (Sortformer).
     Diarize,
+    /// Переранжирование найденного (кросс-энкодер).
+    Rerank,
 }
 
 impl ModelKind {
-    pub const ALL: [ModelKind; 10] = [
+    pub const ALL: [ModelKind; 11] = [
         ModelKind::Llm,
         ModelKind::Image,
         ModelKind::Video,
@@ -83,6 +85,7 @@ impl ModelKind {
         ModelKind::Ctc,
         ModelKind::Mfa,
         ModelKind::Diarize,
+        ModelKind::Rerank,
     ];
 
     pub const DEFAULTABLE: [ModelKind; 7] =
@@ -100,6 +103,7 @@ impl ModelKind {
             ModelKind::Video => "video",
             ModelKind::Music => "music",
             ModelKind::Diarize => "diarize",
+            ModelKind::Rerank => "rerank",
         }
     }
 
@@ -591,6 +595,11 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         tools: Vec<Value>,
     },
+    /// Оценки пар (запрос, документ) кросс-энкодером.
+    Rerank {
+        model: String,
+        pairs: Vec<(String, String)>,
+    },
     /// Число токенов текстов по токенизатору языковой модели (бюджеты
     /// контекста у клиента).
     Tokenize {
@@ -801,6 +810,17 @@ pub struct ImageParams {
 pub struct Embeddings {
     pub dim: usize,
     pub vectors: Vec<Vec<f32>>,
+    /// Предел длины текста модели, токенов (0 — не сообщён).
+    #[serde(default)]
+    pub max_tokens: usize,
+}
+
+/// Ответ `Rerank`: оценки пар (запрос, документ) и предел длины пары.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct RerankScores {
+    pub scores: Vec<f32>,
+    #[serde(default)]
+    pub max_tokens: usize,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -1180,6 +1200,7 @@ impl Client {
             let (v, _) = self.call(Request::Embed { model: model.into(), texts: chunk.to_vec() }, &[])?;
             let part: Embeddings = serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))?;
             out.dim = part.dim;
+            out.max_tokens = part.max_tokens;
             out.vectors.extend(part.vectors);
         }
         Ok(out)
@@ -1266,6 +1287,18 @@ impl Client {
         let req = Request::Generate { model: model.into(), messages, max_tokens: None, temperature: None, params: params.clone(), tools };
         let (v, _) = self.call_events(req, &[], on_event)?;
         serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))
+    }
+
+    /// Оценки пар (запрос, документ); пачками по 32.
+    pub fn rerank_pairs(&mut self, model: &str, pairs: &[(String, String)]) -> Result<RerankScores> {
+        let mut out = RerankScores::default();
+        for chunk in pairs.chunks(32) {
+            let (v, _) = self.call(Request::Rerank { model: model.into(), pairs: chunk.to_vec() }, &[])?;
+            let part: RerankScores = serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))?;
+            out.max_tokens = part.max_tokens;
+            out.scores.extend(part.scores);
+        }
+        Ok(out)
     }
 
     /// Число токенов текстов по токенизатору модели.
