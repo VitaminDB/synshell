@@ -430,3 +430,5 @@
 "Размер файлов" = "Size of files"
 "Панель просмотра" = "Preview Panel"
 "Панель просмотра (F11)" = "Preview panel (F11)"
+"Не удалось запустить терминал: {e}" = "Could not start the terminal: {e}"
+"Терминал" = "Terminal"

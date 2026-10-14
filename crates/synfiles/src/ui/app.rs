@@ -268,6 +268,18 @@ fn body() -> W {
         } else {
             content
         };
+        // Терминал — под файлами и панелью просмотра.
+        let content: W = if ctx.terminal.get() && !state::is_phone() {
+            boxed(
+                SplitView::new(DecoratedBox::new().class("grow").child(content), DecoratedBox::new().class("grow").child(super::termpanel::panel()))
+                    .direction(SplitDirection::Vertical)
+                    .ratio_signal(ctx.terminal_ratio)
+                    .min_size(100.0)
+                    .class("term-split"),
+            )
+        } else {
+            content
+        };
         if !ctx.sidebar.get() {
             return vec![content];
         }

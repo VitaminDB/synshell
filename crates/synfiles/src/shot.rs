@@ -374,8 +374,13 @@ fn parse_key(k: &str) -> Option<syngui::input::Key> {
             3 => Key::F3,
             4 => Key::F4,
             5 => Key::F5,
+            6 => Key::F6,
+            7 => Key::F7,
+            8 => Key::F8,
             9 => Key::F9,
+            10 => Key::F10,
             11 => Key::F11,
+            12 => Key::F12,
             _ => return None,
         },
         s if s.len() == 1 => {

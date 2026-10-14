@@ -578,6 +578,7 @@ pub fn view_menu(p: Pane) -> Vec<MenuItem> {
         check("split", &t!("Две панели"), state::tab().split.get_untracked()).shortcut("F3"),
         check("sidebar", &t!("Панель навигации"), ctx.sidebar.get_untracked()).shortcut("F9"),
         check("preview", &t!("Панель просмотра"), ctx.preview.get_untracked()).shortcut("F11"),
+        check("term", &t!("Терминал"), ctx.terminal.get_untracked()).shortcut("F12"),
     ]
 }
 
@@ -844,6 +845,7 @@ pub fn run(p: Pane, id: &str) {
         "compare" => compare_panes(),
         "sidebar" => toggle_sidebar(),
         "preview" => toggle_preview(),
+        "term" => crate::ui::termpanel::toggle(),
         "settings" => ctx.settings.set(true),
         "zoom:in" => zoom(p, 1),
         "zoom:out" => zoom(p, -1),
@@ -981,6 +983,7 @@ pub fn key(k: Key, m: Modifiers) -> bool {
         Key::F5 => run(p, "refresh"),
         Key::F9 => toggle_sidebar(),
         Key::F11 => toggle_preview(),
+        Key::F12 => crate::ui::termpanel::toggle(),
         Key::Delete if m.shift => delete_selected(p),
         Key::Delete => trash_selected(p),
         Key::Left if m.alt => state::go_back(p),

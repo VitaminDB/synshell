@@ -146,6 +146,9 @@ SystemWindowControls {
 .pv-btn { padding: 4px; border-radius: 6px; &:hover { background: var(--hover); } }
 .pv-many-icon { icon-size: 64px; color: var(--muted); }
 
+.term-panel { background: var(--content); padding: 4px 0 0 6px; }
+.term { background: var(--content); color: var(--fg); }
+
 .search-mode { icon-size: 16px; color: var(--muted); }
 .search-mode.on { color: var(--accent); }
 

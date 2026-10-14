@@ -129,6 +129,9 @@ pub struct Ctx {
     /// Панель просмотра справа (F11) и её доля ширины.
     pub preview: RwSignal<bool>,
     pub preview_ratio: RwSignal<f32>,
+    /// Встроенный терминал под файлами (F12) и доля высоты над ним.
+    pub terminal: RwSignal<bool>,
+    pub terminal_ratio: RwSignal<f32>,
     pub clip: RwSignal<Option<Clip>>,
     pub jobs_rev: RwSignal<u64>,
     pub thumbs_rev: RwSignal<u64>,
@@ -223,6 +226,8 @@ pub fn init(cfg: Config, start: Vec<Location>) -> Ctx {
         sidebar: use_signal(cfg.files.sidebar),
         sidebar_width: use_signal(load_sidebar_width()),
         preview: use_signal(load_session_file().map(|s| s.preview).unwrap_or(false)),
+        terminal: use_signal(false),
+        terminal_ratio: use_signal(0.66f32),
         preview_ratio: use_signal(load_session_file().and_then(|s| s.preview_ratio).filter(|r| (0.3..0.9).contains(r)).unwrap_or(PREVIEW_RATIO)),
         clip: use_signal(None),
         jobs_rev: use_signal(0u64),
@@ -382,6 +387,7 @@ pub fn navigate(p: Pane, loc: Location, push_history: bool) {
         ctx.drawer.set(false);
     }
     load(p, None);
+    crate::ui::termpanel::pane_moved();
 }
 
 pub fn go_back(p: Pane) {

@@ -9,6 +9,7 @@ pub mod phone;
 pub mod preview;
 pub mod settings;
 pub mod sidebar;
+pub mod termpanel;
 pub mod toolbar;
 pub mod view;
 
