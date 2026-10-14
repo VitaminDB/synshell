@@ -383,3 +383,5 @@
 "Каждое Слово" = "Title Case"
 "Переименовать {v}" = "Rename {v}"
 "Переименовать…" = "Rename…"
+"Текст «{query}» в файлах" = "Text “{query}” in files"
+"Текст в файлах: {place}" = "Text in files: {place}"

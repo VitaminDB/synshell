@@ -123,6 +123,9 @@ SystemWindowControls {
 
 .address.edit { padding: 0px; border-width: 0px; background: transparent; }
 
+.search-mode { icon-size: 16px; color: var(--muted); }
+.search-mode.on { color: var(--accent); }
+
 .address-field, .search-field {
     height: 34px;
     background: var(--field);

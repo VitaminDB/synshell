@@ -9,8 +9,8 @@ use syngui::t;
 pub enum Location {
     Dir(PathBuf),
     Trash,
-    /// Поиск по имени внутри `root`.
-    Search { root: PathBuf, query: String },
+    /// Поиск внутри `root`: по имени или (`content`) по тексту файлов.
+    Search { root: PathBuf, query: String, content: bool },
 }
 
 impl Location {
@@ -50,7 +50,8 @@ impl Location {
     pub fn title(&self) -> String {
         match self {
             Location::Trash => t!("Корзина").into(),
-            Location::Search { query, .. } => t!("Поиск «{query}»", query = query),
+            Location::Search { query, content: false, .. } => t!("Поиск «{query}»", query = query),
+            Location::Search { query, .. } => t!("Текст «{query}» в файлах", query = query),
             Location::Dir(p) => {
                 if let Some((_, t)) = crate::places::known(p) {
                     return t;
@@ -89,9 +90,9 @@ impl Location {
     pub fn crumbs(&self) -> Vec<(String, Location)> {
         match self {
             Location::Trash => vec![(t!("Корзина").into(), Location::Trash)],
-            Location::Search { root, query } => {
+            Location::Search { root, .. } => {
                 let mut v = Location::Dir(root.clone()).crumbs();
-                v.push((t!("Поиск «{query}»", query = query), self.clone()));
+                v.push((self.title(), self.clone()));
                 v
             }
             Location::Dir(p) => {

@@ -74,6 +74,7 @@ pub mod icons {
     pub const RENAME: &str = "\u{e9a2}";
     pub const DELETE: &str = "\u{e872}";
     pub const DELETE_FOREVER: &str = "\u{e92b}";
+    pub const FIND_IN_PAGE: &str = "\u{e880}";
     pub const ARCHIVE: &str = "\u{e149}";
     pub const UNARCHIVE: &str = "\u{e169}";
     pub const SORT: &str = "\u{e164}";

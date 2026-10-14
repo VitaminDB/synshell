@@ -472,6 +472,15 @@ pub fn invert_selection(p: Pane) {
     p.sel.set(ItemSelection { selected: (0..n).filter(|i| !s.is_selected(*i)).collect(), cursor: s.cursor, anchor: None });
 }
 
+/// Переключить поиск по именам / по тексту; идущий поиск — повторить.
+pub fn toggle_search_content(p: Pane) {
+    let ctx = state::ctx();
+    ctx.search_content.update(|v| *v = !*v);
+    if let Location::Search { query, .. } = p.loc.get_untracked() {
+        search(p, &query);
+    }
+}
+
 /// Поиск в текущей папке.
 pub fn search(p: Pane, query: &str) {
     let q = query.trim();
@@ -488,7 +497,8 @@ pub fn search(p: Pane, query: &str) {
         return;
     }
     let push = !matches!(loc, Location::Search { .. });
-    state::navigate(p, Location::Search { root, query: q.to_string() }, push);
+    let content = state::ctx().search_content.get_untracked();
+    state::navigate(p, Location::Search { root, query: q.to_string(), content }, push);
     p.loading.set(true);
 }
 

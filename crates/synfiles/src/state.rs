@@ -141,6 +141,8 @@ pub struct Ctx {
     pub search: RwSignal<String>,
     /// Растёт, когда надо поставить фокус в поиск.
     pub search_focus: RwSignal<u64>,
+    /// Поиск по тексту файлов, а не по именам.
+    pub search_content: RwSignal<bool>,
     /// Растёт, когда размер значков меняют не ползунком (клавиши, меню) —
     /// ползунок строки состояния пересобирается только тогда, иначе
     /// перестройка посреди перетаскивания обрывала бы его.
@@ -226,6 +228,7 @@ pub fn init(cfg: Config, start: Vec<Location>) -> Ctx {
         address_edit: use_signal(false),
         search: use_signal(String::new()),
         search_focus: use_signal(0u64),
+        search_content: use_signal(false),
         zoom_rev: use_signal(0u64),
         window: use_signal(syngui::window::WindowState::default()),
         drawer: use_signal(false),
@@ -458,17 +461,22 @@ pub fn load(p: Pane, keep: Option<Vec<PathBuf>>) {
     }
     watch(p, &loc);
     let pid = p.id;
+    // Поиск дописывает находки порциями — начинать с пустого списка.
+    if matches!(loc, Location::Search { .. }) {
+        PANES.with(|m| m.borrow_mut().entry(pid).or_default().raw.clear());
+        p.entries.set_always(Arc::new(Vec::new()));
+    }
     std::thread::spawn(move || {
         let current = |t: u64| LOAD_TOKENS.lock().unwrap().iter().any(|(id, tok)| *id == pid && *tok == t);
         let result: std::result::Result<Vec<Entry>, String> = match &loc {
             Location::Dir(d) => model::read_dir(d).map_err(|e| io_message(&e, d)),
             Location::Trash => Ok(crate::trash::list()),
-            Location::Search { root, query } => {
+            Location::Search { root, query, content } => {
                 // Результаты приходят порциями — показываем по мере нахождения.
                 let mut batch = Vec::new();
                 let mut last = std::time::Instant::now();
                 let mut all = 0usize;
-                crate::search::walk(root, query, show_hidden, &mut |e| {
+                crate::search::walk(root, query, *content, show_hidden, &mut |e| {
                     if !current(token) {
                         return false;
                     }

@@ -210,13 +210,16 @@ pub fn search_field(phone: bool) -> W {
             Location::Search { root, .. } => Location::Dir(root.clone()).title(),
             l => l.title(),
         };
+        let content = ctx.search_content.get();
         let text = match &loc {
             Location::Search { query, .. } => query.clone(),
             _ => p.filter.get_untracked(),
         };
         let field = TextField::with_text(text)
-            .placeholder(t!("Поиск: {place}", place = place))
+            .placeholder(if content { t!("Текст в файлах: {place}", place = place) } else { t!("Поиск: {place}", place = place) })
             .prefix_icon(icons::SEARCH)
+            .suffix(Icon::new(icons::FIND_IN_PAGE).class(if content { "search-mode on" } else { "search-mode" }))
+            .on_suffix_click(move || actions::toggle_search_content(p))
             .autofocus(focus > 0)
             .on_change(move |s| {
                 // Пока печатают — фильтр текущей папки; Enter — поиск вглубь.
