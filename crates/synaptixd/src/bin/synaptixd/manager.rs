@@ -336,12 +336,25 @@ impl Manager {
         }
     }
 
+    /// Id модели или путь к её файлу (любого вида) — id.
+    pub fn resolve_any(&self, id: &str) -> Result<String, Error> {
+        if id.trim().starts_with('/') {
+            self.id_by_path_of(std::path::Path::new(id.trim()), None)
+        } else {
+            Ok(id.to_string())
+        }
+    }
+
     fn id_by_path(&self, path: &std::path::Path, kind: ModelKind) -> Result<String, Error> {
+        self.id_by_path_of(path, Some(kind))
+    }
+
+    fn id_by_path_of(&self, path: &std::path::Path, kind: Option<ModelKind>) -> Result<String, Error> {
         let want = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let slots = self.slots.lock().unwrap();
         slots
             .iter()
-            .filter(|(_, s)| s.manifest.kind == kind)
+            .filter(|(_, s)| kind.is_none_or(|k| s.manifest.kind == k))
             .find(|(_, s)| s.manifest.variants.iter().any(|v| {
                 let p = s.manifest.path(v);
                 std::fs::canonicalize(&p).unwrap_or(p) == want

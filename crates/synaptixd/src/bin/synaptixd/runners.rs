@@ -714,6 +714,24 @@ impl Loaded {
             if parts.is_empty() {
                 return m.content.clone();
             }
+            // Клиент разметил места вложений (подписи у каждого файла): блок —
+            // на место своего маркера, по порядку.
+            if m.content.matches(synaptixd::MEDIA_MARK).count() == parts.len() {
+                let mut s = String::new();
+                for (piece, p) in m.content.split(synaptixd::MEDIA_MARK).zip(parts.iter().map(Some).chain(std::iter::once(None))) {
+                    s.push_str(piece);
+                    match p {
+                        Some(MediaPart::Embed(key)) => {
+                            let e = &cache.iter().find(|(k, _)| k == key).expect("эмбеддинг в кэше").1;
+                            s.push_str(&e.prompt_block);
+                            order.push(key.clone());
+                        }
+                        Some(MediaPart::Text(t)) => s.push_str(t),
+                        None => {}
+                    }
+                }
+                return s;
+            }
             let mut s = String::new();
             for p in parts {
                 match p {

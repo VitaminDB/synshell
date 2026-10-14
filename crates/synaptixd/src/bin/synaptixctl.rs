@@ -186,7 +186,7 @@ fn run(args: &[String]) -> Result<(), String> {
             let t0 = std::time::Instant::now();
             let tools: Vec<serde_json::Value> = std::env::var("TOOLS").ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
             let g = c
-                .chat(model, vec![synaptixd::Message::user(prompt)], tools, &params, |ev| {
+                .chat(model, vec![gen_message(prompt)], tools, &params, |ev| {
                     match ev {
                         synaptixd::Event::Token { text } => print!("{text}"),
                         synaptixd::Event::Thinking { text } => print!("\x1b[2m{text}\x1b[0m"),
@@ -334,4 +334,17 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Сообщение `gen`: MEDIA=картинка — она встаёт маркером перед текстом с подписью.
+fn gen_message(prompt: String) -> synaptixd::Message {
+    let mut m = synaptixd::Message::user(prompt.clone());
+    if let Ok(path) = std::env::var("MEDIA") {
+        let name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        if std::env::var("MEDIA_NOMARK").is_err() {
+            m.content = format!("[file 1: {name}]\n{}\n{prompt}", synaptixd::MEDIA_MARK);
+        }
+        m.media = vec![synaptixd::Media { kind: synaptixd::MediaKind::Image, path }];
+    }
+    m
 }

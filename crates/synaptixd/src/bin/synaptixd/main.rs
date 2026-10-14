@@ -98,11 +98,13 @@ impl Conn {
                 (data(mgr.list()), none())
             }
             Request::Open { model } => {
+                let model = mgr.resolve_any(&model)?;
                 let info = mgr.open(&model)?;
                 self.opened.push(model);
                 (data(info), none())
             }
             Request::Close { model } => {
+                let model = mgr.resolve_any(&model)?;
                 if let Some(i) = self.opened.iter().position(|m| *m == model) {
                     self.opened.swap_remove(i);
                     mgr.close(&model);
@@ -110,6 +112,7 @@ impl Conn {
                 (Value::Null, none())
             }
             Request::Load { model } => {
+                let model = mgr.resolve_any(&model)?;
                 drop(mgr.acquire(&model)?);
                 (data(mgr.entry(&model)?), none())
             }

@@ -340,6 +340,11 @@ pub struct Message {
     pub media: Vec<Media>,
 }
 
+/// Маркер места вложения в тексте сообщения: служба ставит блок картинки
+/// (или строку-замену) ровно сюда, по порядку `media`. Без маркеров блоки
+/// идут перед текстом.
+pub const MEDIA_MARK: char = '\u{FFFC}';
+
 /// Медиа-вложение сообщения: файл на диске (служба читает его сама).
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub struct Media {
