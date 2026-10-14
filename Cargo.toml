@@ -37,6 +37,7 @@ members = [
     "crates/syn-woman-cycle",
     "crates/syn-health",
     "crates/syn-systeminfo",
+    "crates/syn-vm",
     "crates/syngamepad",
     "crates/synaptixd",
     "crates/synassist",

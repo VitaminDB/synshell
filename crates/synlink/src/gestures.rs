@@ -78,6 +78,14 @@ fn send(device: &str, s: &Screen, events: Vec<InputEvent>) -> Result<()> {
 
 const BTN_LEFT: u32 = 0x110;
 
+/// Мышь: сначала движение, затем — отдельным пакетом — нажатие. В одном пакете
+/// окно успевало разобрать кнопку раньше движения и жало по прежней позиции указателя.
+fn press_at(device: &str, s: &Screen, x: f64, y: f64) -> Result<()> {
+    send(device, s, vec![InputEvent::Motion { x, y }])?;
+    std::thread::sleep(Duration::from_millis(30));
+    send(device, s, vec![InputEvent::Button { button: BTN_LEFT, pressed: true }])
+}
+
 pub fn tap(device: &str, s: &Screen, x: f64, y: f64) -> Result<()> {
     hold(device, s, x, y, 60)
 }
@@ -89,7 +97,7 @@ pub fn hold(device: &str, s: &Screen, x: f64, y: f64, ms: u64) -> Result<()> {
         std::thread::sleep(Duration::from_millis(ms));
         send(device, s, vec![InputEvent::TouchUp { id: 0 }, InputEvent::TouchFrame])
     } else {
-        send(device, s, vec![InputEvent::Motion { x: fx, y: fy }, InputEvent::Button { button: BTN_LEFT, pressed: true }])?;
+        press_at(device, s, fx, fy)?;
         std::thread::sleep(Duration::from_millis(ms));
         send(device, s, vec![InputEvent::Button { button: BTN_LEFT, pressed: false }])
     }
@@ -103,7 +111,7 @@ pub fn swipe(device: &str, s: &Screen, a: (f64, f64), b: (f64, f64), ms: u64) ->
     if s.touch {
         send(device, s, vec![InputEvent::TouchDown { id: 0, x: ax, y: ay }, InputEvent::TouchFrame])?;
     } else {
-        send(device, s, vec![InputEvent::Motion { x: ax, y: ay }, InputEvent::Button { button: BTN_LEFT, pressed: true }])?;
+        press_at(device, s, ax, ay)?;
     }
     for i in 1..=steps {
         let t = i as f64 / steps as f64;

@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Виртуальные машины
+Name[en]=Virtual Machines
+GenericName=Менеджер виртуальных машин QEMU/KVM
+GenericName[en]=QEMU/KVM Virtual Machine Manager
+Comment=Linux, Windows и BSD в окне: мастер по образу, снимки, общие папки, проброс портов
+Comment[en]=Linux, Windows and BSD in a window: image wizard, snapshots, shared folders, port forwarding
+Exec=syn-vm %f
+Icon=syn-vm
+Categories=System;Emulator;
+Keywords=vm;virtual;machine;qemu;kvm;virtualization;windows;linux;iso;виртуальная;машина;виртуализация;эмулятор;
+MimeType=application/x-cd-image;application/x-iso9660-image;application/x-qemu-disk;
+StartupNotify=true

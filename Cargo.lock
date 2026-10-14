@@ -6723,6 +6723,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-vm"
+version = "0.1.42"
+dependencies = [
+ "anyhow",
+ "flate2",
+ "image",
+ "libc",
+ "serde",
+ "serde_json",
+ "syngui",
+ "synshell-common",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "syn-woman-cycle"
 version = "0.1.42"
 dependencies = [
