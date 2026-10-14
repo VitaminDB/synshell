@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use syngui::prelude::*;
 use synaptixd::{
-    Client, DefaultModel, DeviceKind, LibraryInfo, LoadState, ModelEntry, ModelKind, ModelSettings, ParamKind, ParamSpec, ParamValue, Params, QuantOption,
+    Client, DefaultModel, DeviceKind, EngineProfile, LibraryInfo, LoadState, ModelEntry, ModelKind, ModelSettings, ParamKind, ParamSpec, ParamValue, Params, QuantOption,
     SettingsChange, Status,
 };
 
@@ -28,6 +28,8 @@ struct Cfg {
     settings: ModelSettings,
     quant: Vec<QuantOption>,
     fallback: bool,
+    /// Действующий профиль движка (у языковых моделей).
+    engine: Option<EngineProfile>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -106,6 +108,7 @@ fn apply(sig: RwSignal<Snapshot>, s: Snapshot) {
             settings: ModelSettings { params: Params::default(), ..m.settings.clone() },
             quant: m.quant_options.clone(),
             fallback: m.fallback,
+            engine: m.engine.clone(),
         };
         let c = cfg_signal(&m.id);
         if c.get_untracked().as_ref() != Some(&cfg) {
@@ -875,6 +878,120 @@ fn settings_card(sig: RwSignal<Snapshot>, id: &str, cfg: &Cfg) -> W {
     group(t!("Выполнение"), rows)
 }
 
+const ENGINE_WEIGHTS: [(&str, &str); 7] = [
+    ("nvfp4", "NVFP4 — 4 бита"),
+    ("mxfp8", "MXFP8 — 8 бит"),
+    ("sq8", "SQ8 — 8 бит"),
+    ("sq4", "SQ4 — 4 бита"),
+    ("bf16", "BF16"),
+    ("f16", "F16"),
+    ("f32", "F32"),
+];
+const ENGINE_COMPUTE: [(&str, &str); 3] = [("bf16", "BF16"), ("f16", "F16"), ("f32", "F32")];
+const ENGINE_KV: [(&str, &str); 4] = [("fp8e4m3", "MXFP8 — вдвое меньше памяти"), ("bf16", "BF16"), ("f16", "F16"), ("f32", "F32")];
+const ENGINE_SYNC: [(&str, &str); 3] = [("auto", "Авто — на префилле"), ("on", "После каждого слоя"), ("off", "Не синхронизировать")];
+
+/// Правка профиля движка: любая правка делает профиль своим.
+fn set_engine(sig: RwSignal<Snapshot>, id: &str, f: impl FnOnce(&mut EngineProfile)) {
+    let Some(cfg) = cfg_signal(id).get_untracked() else { return };
+    let mut e = cfg.settings.engine;
+    e.custom = true;
+    f(&mut e);
+    change(sig, id, SettingsChange { engine: Some(e), ..Default::default() });
+}
+
+fn engine_choice(
+    sig: RwSignal<Snapshot>,
+    id: &str,
+    items: &[(&str, &str)],
+    cur: Option<String>,
+    set: impl Fn(&mut EngineProfile, String) + Send + Sync + 'static,
+) -> W {
+    let mut dd = Dropdown::new().width(220.0);
+    let cur = cur.unwrap_or_default();
+    for (v, l) in items {
+        dd = dd.item(DropdownItem::new(*v, tl(*l)));
+    }
+    if !cur.is_empty() && !items.iter().any(|(v, _)| *v == cur) {
+        dd = dd.item(DropdownItem::new(cur.clone(), cur.to_uppercase()));
+    }
+    let i = id.to_string();
+    let set = std::sync::Arc::new(set);
+    boxed(dd.selected(cur).on_change(move |v: &str| {
+        let (v, set) = (v.to_string(), set.clone());
+        set_engine(sig, &i, move |e| set(e, v));
+    }))
+}
+
+fn engine_toggle(sig: RwSignal<Snapshot>, id: &str, on: bool, set: impl Fn(&mut EngineProfile, bool) + Send + Sync + 'static) -> W {
+    let i = id.to_string();
+    let set = std::sync::Arc::new(set);
+    boxed(Toggle::with_state(on).on_change(move |v| {
+        let set = set.clone();
+        set_engine(sig, &i, move |e| set(e, v));
+    }))
+}
+
+/// Профиль движка языковой модели: выверенный synaptix под архитектуру и
+/// устройство или свой (правки поверх выверенного).
+fn engine_card(sig: RwSignal<Snapshot>, id: &str, cfg: &Cfg) -> Option<W> {
+    let shown = cfg.engine.clone()?;
+    let own = cfg.settings.engine.clone();
+    let mut rows: Vec<W> = Vec::new();
+    let i = id.to_string();
+    rows.push(row_inline(
+        t!("Свой профиль"),
+        if own.custom { t!("Правки поверх выверенного; пустые поля — как выверено") } else { t!("Сейчас — как выверено движком под архитектуру и устройство") },
+        Toggle::with_state(own.custom).on_change(move |v| {
+            let Some(cfg) = cfg_signal(&i).get_untracked() else { return };
+            let e = EngineProfile { custom: v, ..cfg.settings.engine };
+            change(sig, &i, SettingsChange { engine: Some(e), ..Default::default() });
+        }),
+    ));
+    let transcode = shown.transcode == Some(true);
+    let weights_hint = if shown.source.is_empty() {
+        t!("Плотные веса квантуются в него при загрузке")
+    } else if transcode {
+        t!("В файле {f} — перекодируются в этот формат", f = shown.source.join(", ").to_uppercase())
+    } else {
+        t!("В файле {f} — так и считаются; формат — только для плотных тензоров", f = shown.source.join(", ").to_uppercase())
+    };
+    rows.push(row(t!("Веса"), weights_hint, engine_choice(sig, id, &ENGINE_WEIGHTS, shown.weights.clone(), |e, v| e.weights = Some(v))));
+    rows.push(row(t!("Голова (lm_head)"), "", engine_choice(sig, id, &ENGINE_WEIGHTS, shown.lm_head.clone(), |e, v| e.lm_head = Some(v))));
+    rows.push(row(t!("Эмбеддинги"), "", engine_choice(sig, id, &ENGINE_WEIGHTS, shown.embed.clone(), |e, v| e.embed = Some(v))));
+    rows.push(row(t!("Точность счёта"), "", engine_choice(sig, id, &ENGINE_COMPUTE, shown.compute.clone(), |e, v| e.compute = Some(v))));
+    rows.push(row(t!("KV-кэш"), t!("Память на токен контекста"), engine_choice(sig, id, &ENGINE_KV, shown.kv_dtype.clone(), |e, v| e.kv_dtype = Some(v))));
+    if !shown.source.is_empty() {
+        rows.push(row_inline(
+            t!("Перекодировать веса"),
+            t!("Двойной квант: быстрее на тензорных ядрах, но теряет точность"),
+            engine_toggle(sig, id, transcode, |e, v| e.transcode = Some(v)),
+        ));
+    }
+    rows.push(row_inline(
+        t!("Граф декода"),
+        t!("Шаг генерации — одним CUDA-графом; меняется без перезагрузки"),
+        engine_toggle(sig, id, shown.graph_decode == Some(true), |e, v| e.graph_decode = Some(v)),
+    ));
+    rows.push(row_inline(
+        t!("Спекулятивный декод"),
+        t!("MTP или DFlash: несколько токенов за шаг, ответ тот же"),
+        engine_toggle(sig, id, shown.speculation == Some(true), |e, v| e.speculation = Some(v)),
+    ));
+    rows.push(row(t!("Синхронизация слоёв"), "", engine_choice(sig, id, &ENGINE_SYNC, shown.layer_sync.clone(), |e, v| e.layer_sync = Some(v))));
+    if own.custom && own != (EngineProfile { custom: true, ..Default::default() }) {
+        let i = id.to_string();
+        rows.push(row_inline(
+            t!("Правки"),
+            t!("Веса, счёт, KV и спекуляция перезагружают модель"),
+            button(t!("Сбросить"), move || {
+                change(sig, &i, SettingsChange { engine: Some(EngineProfile { custom: true, ..Default::default() }), ..Default::default() });
+            }),
+        ));
+    }
+    Some(group(t!("Профиль движка"), rows))
+}
+
 fn save_param(sig: RwSignal<Snapshot>, id: &str, key: &str, value: Option<ParamValue>) {
     let Some(mut st) = params_state(id) else { return };
     let Some(spec) = st.schema.iter().find(|p| p.key == key).cloned() else { return };
@@ -1234,7 +1351,14 @@ fn model_page(ctx: state::Ctx, sig: RwSignal<Snapshot>, id: String) -> W {
         }
     });
     let i = id.clone();
-    let settings = Reactive::new(move || -> Vec<W> { cfg.get().map(|c| settings_card(sig, &i, &c)).into_iter().collect() });
+    let settings = Reactive::new(move || -> Vec<W> {
+        let Some(c) = cfg.get() else { return Vec::new() };
+        let mut col = Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(settings_card(sig, &i, &c));
+        if let Some(e) = engine_card(sig, &i, &c) {
+            col = col.child(e);
+        }
+        vec![boxed(col)]
+    });
     let snap = sig.get_untracked();
     let title = title_of(&snap, &id);
     let parent = snap.models.iter().find(|m| m.id == id).map(|m| kind_key(m.kind));
