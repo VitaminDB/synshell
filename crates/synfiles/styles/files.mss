@@ -464,6 +464,9 @@ ProgressBar {
 .prop-val { font-size: 13px; color: var(--fg); }
 
 .app-list { height: 300px; }
+.rename-list { height: 220px; }
+.rename-bad { font-size: 13px; color: var(--danger); }
+.rename-arrow { font-size: 14px; color: var(--muted); }
 .app-row {
     padding: 6px 8px;
     border-radius: 6px;

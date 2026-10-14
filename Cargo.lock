@@ -7675,6 +7675,7 @@ dependencies = [
  "notify",
  "png 0.17.16",
  "pollster",
+ "regex",
  "serde",
  "serde_json",
  "synfsd",

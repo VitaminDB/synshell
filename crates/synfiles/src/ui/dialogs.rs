@@ -246,6 +246,112 @@ fn properties(paths: Vec<PathBuf>) -> W {
     )
 }
 
+fn field(label: &str, f: TextField) -> W {
+    boxed(
+        Row::new()
+            .gap(10.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(DecoratedBox::new().style("width", if state::is_phone() { 84.0 } else { 110.0 }).child(Text::new(label).class("meta")))
+            .child(bx("grow", f)),
+    )
+}
+
+fn batch_rename(paths: Vec<PathBuf>) -> W {
+    use crate::rename::{self, Case, Rule};
+    let rule = use_signal(Rule::default());
+    let items: Vec<(String, bool)> = paths.iter().map(|p| (ops::name_of(p), p.is_dir())).collect();
+    let edit = move |f: &dyn Fn(&mut Rule)| {
+        let mut r = rule.get_untracked();
+        f(&mut r);
+        rule.set(r);
+    };
+    let (paths2, items2) = (paths.clone(), items.clone());
+    let preview = Reactive::new(move || -> Vec<W> {
+        let r = rule.get();
+        let mut col = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+        match rename::new_names(&items2, &r) {
+            Err(e) => col = col.child(Text::new(e).class("rename-bad")),
+            Ok(names) => {
+                let bad = rename::problems(&paths2, &names);
+                for ((old, _), (new, why)) in items2.iter().zip(names.iter().zip(&bad)).take(200) {
+                    let row = Row::new()
+                        .gap(8.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(DecoratedBox::new().class("grow").style("width", 0.0).child(Text::new(old.clone()).max_lines(1).class("meta")))
+                        .child(Icon::new(icons::FORWARD).class("rename-arrow"))
+                        .child(DecoratedBox::new().class("grow").style("width", 0.0).child(
+                            Text::new(match why {
+                                Some(w) => format!("{new} — {w}"),
+                                None => new.clone(),
+                            })
+                            .max_lines(1)
+                            .class(if why.is_some() { "rename-bad" } else if new == old { "meta" } else { "prop-val" }),
+                        ));
+                    col = col.child(row);
+                }
+            }
+        }
+        vec![boxed(col)]
+    });
+    let phone = state::is_phone();
+    let body = Column::new()
+        .gap(8.0)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(field(
+            &t!("Шаблон"),
+            TextField::new().placeholder("{name}").autofocus(true).on_change(move |s: &str| edit(&|r| r.template = s.to_string())),
+        ))
+        .child(Text::new(t!("{name} — прежнее имя, {n} — номер, {ext} — расширение (без него — остаётся прежнее)")).class("meta"))
+        .child(field(&t!("Найти"), TextField::new().on_change(move |s: &str| edit(&|r| r.find = s.to_string()))))
+        .child(field(&t!("Заменить на"), TextField::new().on_change(move |s: &str| edit(&|r| r.replace = s.to_string()))))
+        .child(boxed(
+            Row::new()
+                .gap(16.0)
+                .child(Checkbox::new().label(t!("Регулярное выражение")).on_change(move |v| edit(&|r| r.regex = v)))
+                .child(Checkbox::new().label(t!("Без учёта регистра")).on_change(move |v| edit(&|r| r.ignore_case = v))),
+        ))
+        .child(field(
+            &t!("Нумерация с"),
+            TextField::new().text("1").on_change(move |s: &str| {
+                let n = s.trim().parse().unwrap_or(1);
+                edit(&|r| r.start = n)
+            }),
+        ))
+        .child(boxed(
+            SegmentedButton::new(if phone {
+                vec!["Aa".to_string(), "aa".into(), "AA".into(), "Aa Bb".into()]
+            } else {
+                vec![t!("Как есть").to_string(), t!("строчные").into(), t!("ПРОПИСНЫЕ").into(), t!("Каждое Слово").into()]
+            })
+            .selected(0)
+            .on_change(move |i| {
+                let c = [Case::Keep, Case::Lower, Case::Upper, Case::Title][i.min(3)];
+                edit(&|r| r.case = c)
+            }),
+        ))
+        .child(DecoratedBox::new().class("side-sep"))
+        .child(bx("rename-list", ScrollView::new().vertical().child(preview)));
+    let title = t!("Переименовать {v}", v = names(&paths));
+    let ok = move || {
+        let r = rule.get_untracked();
+        let res = rename::new_names(&items, &r).and_then(|names| ops::rename_many(&paths, &names));
+        match res {
+            Ok(_) => {
+                close();
+                for d in paths.iter().filter_map(|p| p.parent()).collect::<std::collections::BTreeSet<_>>() {
+                    state::reload_dir(d);
+                }
+            }
+            Err(e) => state::toast_error(e),
+        }
+    };
+    card(
+        &title,
+        boxed(body),
+        vec![boxed(Button::new(t!("Отмена")).on_click(close)), boxed(Button::new(t!("Переименовать")).class("primary").on_click(ok))],
+    )
+}
+
 /// Слой модальных окон (затемнение + карточка по центру). `Reactive`
 /// отдаёт детям свободные ограничения, поэтому растягивающий слой и
 /// центрирующая колонка — снаружи, а затемнению размер задан по окну.
@@ -269,6 +375,7 @@ pub fn dialogs() -> W {
             Dialog::ConfirmEmptyTrash => confirm_empty_trash(),
             Dialog::OpenWith { paths, mime } => open_with(paths, mime),
             Dialog::Properties { paths } if !paths.is_empty() => properties(paths),
+            Dialog::BatchRename { paths } if !paths.is_empty() => batch_rename(paths),
             _ => return vec![],
         };
         vec![boxed(GestureDetector::new().cursor(CursorIcon::Default).child(content))]

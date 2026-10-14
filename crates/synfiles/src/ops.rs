@@ -801,6 +801,17 @@ pub fn rename(from: &Path, new_name: &str) -> Result<PathBuf, String> {
     Ok(to)
 }
 
+/// Пакетное переименование — одна запись отмены.
+pub fn rename_many(paths: &[PathBuf], names: &[String]) -> Result<usize, String> {
+    let done = crate::rename::apply(paths, names)?;
+    let n = done.len();
+    if n > 0 {
+        push_undo(Undo::Moved(done));
+    }
+    notify();
+    Ok(n)
+}
+
 pub fn new_folder(dir: &Path, name: &str) -> Result<PathBuf, String> {
     check_name(name)?;
     let p = free_name(&dir.join(name.trim()));

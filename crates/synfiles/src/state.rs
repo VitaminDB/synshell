@@ -110,6 +110,7 @@ pub enum Dialog {
     ConfirmEmptyTrash,
     OpenWith { paths: Vec<PathBuf>, mime: String },
     Properties { paths: Vec<PathBuf> },
+    BatchRename { paths: Vec<PathBuf> },
 }
 
 #[derive(Clone, Copy)]

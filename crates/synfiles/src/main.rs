@@ -18,6 +18,7 @@ mod loc;
 mod model;
 mod ops;
 mod places;
+mod rename;
 mod search;
 mod shot;
 mod state;

@@ -261,6 +261,13 @@ pub fn undo() {
 // ---------------------------------------------------------------- создание и имена
 
 pub fn start_rename(p: Pane) {
+    let many = state::selected_entries(p);
+    if many.len() > 1 {
+        if many.iter().all(|e| e.trash.is_none()) {
+            state::ctx().dialog.set(Some(Dialog::BatchRename { paths: many.iter().map(|e| e.path.clone()).collect() }));
+        }
+        return;
+    }
     let sel = p.sel.get_untracked();
     let entries = p.entries.get_untracked();
     let i = sel.cursor.filter(|c| sel.is_selected(*c)).or_else(|| sel.selected.iter().next().copied());
@@ -637,6 +644,8 @@ pub fn context_menu(p: Pane, on_item: bool) -> Vec<MenuItem> {
     v.push(MenuItem::separator());
     if one {
         v.push(item("rename", &t!("Переименовать"), icons::RENAME).shortcut("F2"));
+    } else {
+        v.push(item("rename-many", &t!("Переименовать…"), icons::RENAME).shortcut("F2"));
     }
     v.push(item("trash", &t!("Удалить в корзину"), icons::DELETE).shortcut("Delete"));
     v.push(item("delete", &t!("Удалить навсегда"), icons::DELETE_FOREVER).shortcut("Shift+Delete"));
@@ -709,6 +718,7 @@ pub fn run(p: Pane, id: &str) {
             }
         }
         "rename" => start_rename(p),
+        "rename-many" => ctx.dialog.set(Some(Dialog::BatchRename { paths })),
         "trash" => trash_selected(p),
         "delete" => delete_selected(p),
         "undo" => undo(),

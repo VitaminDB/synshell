@@ -58,7 +58,7 @@ pub fn command_bar() -> W {
             .child(icon_button(icons::CUT, &t!("Вырезать (Ctrl+X)"), "", has && !in_trash, move || actions::run(p, "cut")))
             .child(icon_button(icons::COPY, &t!("Копировать (Ctrl+C)"), "", has && !in_trash, move || actions::run(p, "copy")))
             .child(icon_button(icons::PASTE, &t!("Вставить (Ctrl+V)"), "", in_dir, move || actions::run(p, "paste")))
-            .child(icon_button(icons::RENAME, &t!("Переименовать (F2)"), "", sel_n == 1 && !in_trash, move || actions::run(p, "rename")))
+            .child(icon_button(icons::RENAME, &t!("Переименовать (F2)"), "", sel_n >= 1 && !in_trash, move || actions::start_rename(p)))
             .child(icon_button(icons::DELETE, &t!("Удалить (Delete)"), "", has, move || actions::run(p, "trash")))
             .child(sep())
             .child(menu_button(icons::SORT, &if narrow { String::new() } else { t!("Сортировка") }, "", move || actions::sort_menu(state::pane())))
