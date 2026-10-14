@@ -4,7 +4,7 @@
 //! Два положения: **внизу** — полоса во всю ширину, высота из числа рядов, exclusive zone той же
 //! высоты отодвигает окна; **плавающая** — поверхность Overlay во весь экран (поверх полноэкранной
 //! игры и контроллера), область ввода — только сама клавиатура (окно поменьше с ручкой сверху:
-//! таскается пальцем, кнопки «вниз» и «спрятать»), окна она не трогает. Клавиша ⧉ в нижнем ряду
+//! таскается пальцем, справа кнопка «спрятать»), окна она не трогает. Клавиша ⧉ в нижнем ряду
 //! переключает одно в другое; `[osk] placement` — что выбирать самой.
 //!
 //! «Захват» (`show … for <сокет>`): клавиши идут не композитору через виртуальную клавиатуру,
@@ -47,17 +47,16 @@ const HEADROOM: u32 = 64;
 const POP_H: f32 = 62.0;
 const POP_OVERLAP: f32 = 6.0;
 const POP_MIN_W: f32 = 46.0;
-/// Плавающая: ручка сверху (за неё таскать; справа — кнопки «вниз» и «спрятать»), отступ от краёв
+/// Плавающая: ручка сверху (за неё таскать; справа — кнопка «спрятать»), отступ от краёв
 /// экрана, доля ширины экрана и её пределы.
-const GRIP_H: u32 = 30;
-const GRIP_BTN_W: f32 = 44.0;
+const GRIP_H: u32 = 34;
+const GRIP_BTN_W: f32 = 48.0;
 const FLOAT_MARGIN: f32 = 12.0;
 const FLOAT_SHARE: f32 = 0.62;
 const FLOAT_MIN_W: f32 = 360.0;
 const FLOAT_MAX_W: f32 = 760.0;
-/// Material Icons: вниз (vertical_align_bottom), спрятать (keyboard_hide).
-const ICON_DOCK: &str = "\u{E258}";
-const ICON_HIDE: &str = "\u{E31A}";
+/// Material Icons: спрятать (close).
+const ICON_HIDE: &str = "\u{E5CD}";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shift {
@@ -512,23 +511,29 @@ fn floating_view(kb: Keyboard) -> impl Widget {
         )
 }
 
-/// Ручка плавающей: полоска по центру (тащить), справа — «вниз» и «спрятать».
+/// Ручка плавающей: полоска по центру (тащить), справа — круглая «спрятать» (вниз, к краю экрана, —
+/// клавиша ⧉ в нижнем ряду).
 fn grip_view(kb: Keyboard) -> impl Widget {
-    let button = |glyph: &str, f: Box<dyn Fn() + Send + Sync>| {
-        GestureDetector::new()
-            .child(
-                Row::new()
-                    .main_axis_alignment(MainAxisAlignment::Center)
-                    .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(Icon::new(glyph.to_string()).class("keyboard-grip-icon"))
-                    .class("keyboard-grip-btn"),
-            )
-            .on_click(move || f())
-            .style("width", StyleValue::px(GRIP_BTN_W))
-    };
+    let hide = GestureDetector::new()
+        .child(
+            Row::new()
+                .main_axis_alignment(MainAxisAlignment::Center)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(
+                    Row::new()
+                        .main_axis_alignment(MainAxisAlignment::Center)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(Icon::new(ICON_HIDE.to_string()).class("keyboard-grip-icon"))
+                        .class("keyboard-grip-btn"),
+                )
+                .class("key-fill"),
+        )
+        .on_click(move || kb.hide())
+        .style("width", StyleValue::px(GRIP_BTN_W));
     Row::new()
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .height(GRIP_H as f32)
+        .child(DecoratedBox::new().style("width", StyleValue::px(GRIP_BTN_W)))
         .child(
             Row::new()
                 .main_axis_alignment(MainAxisAlignment::Center)
@@ -536,12 +541,11 @@ fn grip_view(kb: Keyboard) -> impl Widget {
                 .child(DecoratedBox::new().class("keyboard-grip-pill"))
                 .style("flex-grow", 1.0_f32),
         )
-        .child(button(ICON_DOCK, Box::new(move || kb.set_floating(false))))
-        .child(button(ICON_HIDE, Box::new(move || kb.hide())))
+        .child(hide)
         .class("keyboard-grip")
 }
 
-/// Палец на полоске ручки — тащить клавиатуру; кнопки справа и клавиши — не наше.
+/// Палец на полоске ручки — тащить клавиатуру; кнопка справа и клавиши — не наше.
 fn grip_touch(kb: Keyboard, t: TouchPoint) -> bool {
     match t.phase {
         TouchPhase::Down => {
@@ -549,7 +553,7 @@ fn grip_touch(kb: Keyboard, t: TouchPoint) -> bool {
                 return false;
             }
             let [x, y, w, _] = kb.float_rect();
-            let on_grip = t.position.x >= x && t.position.x < x + w - 2.0 * GRIP_BTN_W && t.position.y >= y && t.position.y < y + GRIP_H as f32;
+            let on_grip = t.position.x >= x && t.position.x < x + w - GRIP_BTN_W && t.position.y >= y && t.position.y < y + GRIP_H as f32;
             if !on_grip {
                 return false;
             }
