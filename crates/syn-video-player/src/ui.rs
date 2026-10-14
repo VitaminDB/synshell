@@ -68,10 +68,19 @@ pub struct St {
     pub fullscreen: RwSignal<bool>,
     /// Программа запущена с файлом: «назад» из плеера закрывает окно, а не ведёт в библиотеку.
     pub direct: bool,
+    /// Монтаж открытого ролика (ножницы в шапке плеера).
+    pub edit: RwSignal<Option<crate::edit::Edit>>,
+    /// Окно поверх экрана монтажа.
+    pub sheet: RwSignal<crate::editor::Sheet>,
+    /// Позиция плеера в секундах (от виджета плеера) — шкала кусков монтажа.
+    pub pos: RwSignal<f32>,
 }
 
 pub fn root(st: St) -> W {
     let body = Reactive::new(move || -> Vec<W> {
+        if st.edit.with(Option::is_some) {
+            return vec![crate::editor::view(st)];
+        }
         let playing = st.playing.get().is_some() || st.opening.get().is_some() || (st.direct && st.error.get().is_some());
         vec![if playing { crate::player::view(st) } else { library_view(st) }]
     });
@@ -84,6 +93,9 @@ pub fn root(st: St) -> W {
 
 /// «Назад»: из плеера — в библиотеку (или выход, если открыт файл из командной строки).
 pub fn back(st: St) -> bool {
+    if crate::editor::back(st) {
+        return true;
+    }
     if st.playing.get_untracked().is_some() || st.opening.get_untracked().is_some() {
         close(st);
         if st.direct {
@@ -176,7 +188,7 @@ pub fn reopen(st: St) {
 
 /// `keep_old`: старый плеер закрывается в потоке открытия до нового — у аппаратного
 /// кодека общий лимит сессий (Venus: две сессии 1080p уже не помещаются).
-fn open_at(st: St, path: PathBuf, start: Option<f64>, keep_old: bool) {
+pub fn open_at(st: St, path: PathBuf, start: Option<f64>, keep_old: bool) {
     let old = if keep_old { st.playing.get_untracked() } else { None };
     if keep_old {
         st.playing.set(None);
@@ -468,4 +480,15 @@ pub mod icons {
     pub const FAST_FORWARD: &str = "\u{E01F}";
     pub const PLAY_CIRCLE: &str = "\u{E1C4}";
     pub const INFO: &str = "\u{E88E}";
+    /// content_cut: монтаж
+    pub const CUT: &str = "\u{E14E}";
+    pub const UNDO: &str = "\u{E166}";
+    pub const SAVE: &str = "\u{E161}";
+    pub const DELETE: &str = "\u{E872}";
+    /// restore_from_trash
+    pub const RESTORE: &str = "\u{E938}";
+    pub const LEFT: &str = "\u{E5CB}";
+    pub const RIGHT: &str = "\u{E5CC}";
+    pub const ADD: &str = "\u{E145}";
+    pub const PLAY: &str = "\u{E037}";
 }

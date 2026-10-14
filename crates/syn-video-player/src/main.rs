@@ -8,6 +8,8 @@
 //! Без файла — список видео из «Видео» (XDG_VIDEOS_DIR).
 
 mod bench;
+mod edit;
+mod editor;
 mod library;
 mod player;
 mod settings;
@@ -125,7 +127,11 @@ fn main() {
                 error: use_signal(None),
                 fullscreen: use_signal(false),
                 direct: args.file.is_some(),
+                edit: use_signal(None),
+                sheet: use_signal(editor::Sheet::None),
+                pos: use_signal(0.0),
             };
+            syngui::signal::create_detached_effect(move || editor::follow(st));
             match &args.file {
                 Some(f) => ui::open(st, f.into()),
                 None => ui::rescan(st),

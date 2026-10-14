@@ -87,6 +87,12 @@ fn header(st: St, title: String) -> W {
         .child(Text::new(title).max_lines(1).class("player-title"))
         .child(DecoratedBox::new().class("grow"))
         .child(
+            ToolButton::new(icons::CUT)
+                .tooltip(t!("Монтаж: резать и склеивать"))
+                .on_click(move || crate::editor::start(st))
+                .class("vp-btn"),
+        )
+        .child(
             ToolButton::new(icons::SETTINGS)
                 .tooltip(t!("Настройки"))
                 .on_click(move || st.settings_open.set(true))
