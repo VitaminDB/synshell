@@ -14,6 +14,7 @@ mod actions;
 mod chooser;
 mod dirsize;
 mod drives;
+mod gitstatus;
 mod loc;
 mod model;
 mod netmount;
@@ -76,7 +77,7 @@ fn parse_args() -> Args {
             "--choose" => a.choose = it.next(),
             "--split" => a.split = true,
             "--viewer" => {
-                a.viewer = it.next().map(|s| match Location::parse(&s) {
+                a.viewer = it.next().map(|s| match Location::parse(&cwd_relative(&s)) {
                     Some(Location::Dir(p)) => p,
                     _ => PathBuf::from(s),
                 })
@@ -88,7 +89,7 @@ fn parse_args() -> Args {
             // Совместимость с вызовами «как у Dolphin/Nautilus».
             "--new-window" | "-w" | "--select" | "--" => {}
             other if other.starts_with("--") => {}
-            other => match Location::parse(other) {
+            other => match Location::parse(&cwd_relative(other)) {
                 Some(Location::Dir(p)) if p.is_file() || (!p.exists() && p.parent().map(|d| d.is_dir()).unwrap_or(false)) => {
                     if let Some(parent) = p.parent() {
                         a.locations.push(Location::Dir(parent.to_path_buf()));
@@ -101,6 +102,16 @@ fn parse_args() -> Args {
         }
     }
     a
+}
+
+/// Относительный путь в командной строке — от текущего каталога (в строке
+/// адреса — от домашней папки).
+fn cwd_relative(s: &str) -> String {
+    let rel = !s.is_empty() && !s.starts_with('/') && !s.starts_with('~') && !s.contains("://") && !s.starts_with("trash:");
+    match std::env::current_dir() {
+        Ok(cwd) if rel => cwd.join(s).to_string_lossy().to_string(),
+        _ => s.to_string(),
+    }
 }
 
 fn load_config() -> synshell_common::Config {

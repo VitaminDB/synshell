@@ -123,6 +123,13 @@ SystemWindowControls {
 
 .address.edit { padding: 0px; border-width: 0px; background: transparent; }
 
+.git-mark { padding: 0 4px; border-radius: 4px; min-width: 16px; }
+.git-letter { font-size: 11px; font-weight: 700; color: #ffffff; text-align: center; }
+.git-modified { background: #d08a2e; }
+.git-added { background: #3f9b52; }
+.git-new { background: #6b7685; }
+.git-conflict { background: var(--danger); }
+
 .search-mode { icon-size: 16px; color: var(--muted); }
 .search-mode.on { color: var(--accent); }
 

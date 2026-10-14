@@ -406,3 +406,6 @@
 "Отключить" = "Disconnect"
 "Подключиться к серверу…" = "Connect to Server…"
 "Пользователь" = "User"
+"Не отслеживается git" = "Not tracked by git"
+"Добавлен в git" = "Added to git"
+"Конфликт слияния" = "Merge conflict"

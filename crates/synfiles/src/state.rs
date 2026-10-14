@@ -131,6 +131,8 @@ pub struct Ctx {
     pub thumbs_rev: RwSignal<u64>,
     /// Растёт, когда досчитаны размеры папок (`dirsize`).
     pub sizes_rev: RwSignal<u64>,
+    /// Растёт, когда обновились метки git (`gitstatus`).
+    pub git_rev: RwSignal<u64>,
     pub places_rev: RwSignal<u64>,
     pub toast: RwSignal<Option<Toast>>,
     pub menu: RwSignal<Vec<MenuItem>>,
@@ -221,6 +223,7 @@ pub fn init(cfg: Config, start: Vec<Location>) -> Ctx {
         jobs_rev: use_signal(0u64),
         thumbs_rev: use_signal(0u64),
         sizes_rev: use_signal(0u64),
+        git_rev: use_signal(0u64),
         places_rev: use_signal(0u64),
         toast: use_signal(None),
         menu: use_signal(Vec::new()),
@@ -462,6 +465,9 @@ pub fn load(p: Pane, keep: Option<Vec<PathBuf>>) {
         p.loading.set(true);
     }
     watch(p, &loc);
+    if let Location::Dir(d) = &loc {
+        crate::gitstatus::request(d);
+    }
     let pid = p.id;
     // Поиск дописывает находки порциями — начинать с пустого списка.
     if matches!(loc, Location::Search { .. }) {
@@ -917,6 +923,13 @@ pub fn connect_background() {
     // пересортировать панели, отсортированные по размеру.
     let sizes_pending = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let sizes_finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    crate::gitstatus::set_notify(|| {
+        run_on_main_thread(|| {
+            if let Some(ctx) = try_ctx() {
+                ctx.git_rev.update(|r| *r += 1);
+            }
+        })
+    });
     crate::dirsize::set_notify(move |finished| {
         if finished {
             sizes_finished.store(true, Ordering::SeqCst);

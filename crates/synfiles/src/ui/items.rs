@@ -158,6 +158,20 @@ fn state_class(base: &str, st: ItemState, e: &Entry, cx: &ItemCtx) -> String {
     c
 }
 
+/// Метка git у имени.
+fn git_mark(e: &Entry) -> Option<W> {
+    let m = crate::gitstatus::get(&e.path)?;
+    Some(boxed(Tooltip::new(DecoratedBox::new().class(m.class()).style("height", 16.0).child(Text::new(m.letter()).class("git-letter")), m.title()).delay_ms(500)))
+}
+
+/// Имя с меткой git справа (строки таблицы, списка, плитки).
+fn name_with_mark(e: &Entry, name: W) -> W {
+    match git_mark(e) {
+        Some(m) => boxed(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class("shrink").child(name)).child(m)),
+        None => name,
+    }
+}
+
 fn name_text(e: &Entry, class: &str, lines: usize) -> W {
     let t = Text::new(e.name.clone());
     let t = if lines <= 1 { t.elide(Elide::Middle) } else { t.max_lines(lines) };
@@ -245,7 +259,7 @@ fn cell(text: String, class: &str, width: f32) -> W {
 }
 
 fn details_row(cx: &ItemCtx, e: &Entry, st: ItemState, renaming: bool) -> W {
-    let name: W = if renaming { rename_field(cx, e) } else { name_text(e, "name", 1) };
+    let name: W = if renaming { rename_field(cx, e) } else { name_with_mark(e, name_text(e, "name", 1)) };
     let mut row = Row::new()
         .gap(0.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
@@ -299,7 +313,7 @@ fn size_cell(cx: &ItemCtx, e: &Entry, plain: String) -> W {
 }
 
 fn list_row(cx: &ItemCtx, e: &Entry, st: ItemState, renaming: bool) -> W {
-    let name: W = if renaming { rename_field(cx, e) } else { name_text(e, "name", 1) };
+    let name: W = if renaming { rename_field(cx, e) } else { name_with_mark(e, name_text(e, "name", 1)) };
     let mut row = Row::new()
         .gap(8.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
@@ -312,7 +326,7 @@ fn list_row(cx: &ItemCtx, e: &Entry, st: ItemState, renaming: bool) -> W {
 }
 
 fn tile(cx: &ItemCtx, e: &Entry, st: ItemState, renaming: bool) -> W {
-    let name: W = if renaming { rename_field(cx, e) } else { name_text(e, "name", 1) };
+    let name: W = if renaming { rename_field(cx, e) } else { name_with_mark(e, name_text(e, "name", 1)) };
     boxed(
         DecoratedBox::new().class(state_class("item tile", st, e, cx)).child(
             Row::new()
@@ -342,10 +356,21 @@ fn tile_meta(cx: &ItemCtx, e: &Entry) -> W {
 
 fn icon_cell(cx: &ItemCtx, e: &Entry, st: ItemState, renaming: bool) -> W {
     let name: W = if renaming { rename_field(cx, e) } else { name_text(e, "name centered", 2) };
+    let mut icon = icon_with_chip(cx, e, cx.icon_px);
+    // Метка git — в верхнем правом углу значка.
+    if let Some(m) = git_mark(e) {
+        let s = cx.icon_px as f32;
+        let w = s.max(84.0);
+        icon = boxed(
+            Stack::new()
+                .child(icon)
+                .child(DecoratedBox::new().style("width", w).style("height", s).child(Row::new().main_axis_alignment(MainAxisAlignment::End).cross_axis_alignment(CrossAxisAlignment::Start).child(m))),
+        );
+    }
     let col = Column::new()
         .gap(4.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(icon_with_chip(cx, e, cx.icon_px))
+        .child(icon)
         .child(name);
     boxed(DecoratedBox::new().class(state_class("item icon-item", st, e, cx)).child(col))
 }
