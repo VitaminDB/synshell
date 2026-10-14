@@ -7354,6 +7354,7 @@ dependencies = [
  "synaptix-io",
  "synaptix-llm-common",
  "synaptix-tokenizer",
+ "synaptix-vlm-minicpm",
  "synaptix-vlm-qwen3",
  "thiserror 2.0.21",
 ]
@@ -7576,6 +7577,19 @@ dependencies = [
  "synaptix-ops",
  "synaptix-tokenizer",
  "synaptix-vlm-qwen3",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-vlm-minicpm"
+version = "0.1.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "synaptix-bundle",
+ "synaptix-core",
+ "synaptix-io",
+ "synaptix-ops",
  "thiserror 2.0.21",
 ]
 
