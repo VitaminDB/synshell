@@ -1327,8 +1327,7 @@ impl State {
         }
         self.core.touch_mouse_slot = Some(slot);
         let pointer = self.core.pointer.clone();
-        let under = self.under(pos);
-        pointer.motion(self, under.focus(), &MotionEvent { location: pos, serial: SERIAL_COUNTER.next_serial(), time });
+        self.touch_mouse_move(pos, time);
         pointer.button(self, &ButtonEvent { button: BTN_LEFT, state: ButtonState::Pressed.into(), serial: SERIAL_COUNTER.next_serial(), time });
         pointer.frame(self);
         true
@@ -1338,11 +1337,22 @@ impl State {
         if self.core.touch_mouse_slot != Some(slot) {
             return false;
         }
-        let pointer = self.core.pointer.clone();
-        let under = self.under(pos);
-        pointer.motion(self, under.focus(), &MotionEvent { location: pos, serial: SERIAL_COUNTER.next_serial(), time });
-        pointer.frame(self);
+        self.touch_mouse_move(pos, time);
+        self.core.pointer.clone().frame(self);
         true
+    }
+
+    /// Указатель — к пальцу: относительное движение на ту же разницу и абсолютное. Xwayland выдаёт XI2 RawMotion
+    /// только из относительных событий, а Wine, пока игра держит мышь (DirectInput, ClipCursor), берёт движение
+    /// только из них — без этого палец игре не виден (курсор Fable стоял в углу).
+    fn touch_mouse_move(&mut self, pos: Point<f64, Logical>, time: u32) {
+        let pointer = self.core.pointer.clone();
+        let delta = pos - pointer.current_location();
+        let under = self.under(pos);
+        if delta.x != 0.0 || delta.y != 0.0 {
+            pointer.relative_motion(self, under.focus(), &RelativeMotionEvent { delta, delta_unaccel: delta, utime: u64::from(time) * 1000 });
+        }
+        pointer.motion(self, under.focus(), &MotionEvent { location: pos, serial: SERIAL_COUNTER.next_serial(), time });
     }
 
     /// Отпустить палец-мышь (отмена касаний, блокировка экрана).
