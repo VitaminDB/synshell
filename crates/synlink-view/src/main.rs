@@ -32,6 +32,7 @@ use synshell_common::link::{self, DeviceKind, PeerInfo, Request, Response, Scree
 
 const STYLES: &str = include_str!("../styles/view.mss");
 
+mod record;
 mod video;
 
 mod gl {
@@ -53,6 +54,8 @@ mod gl {
     pub const VOLUME_OFF: &str = "\u{E04F}";
     pub const FULLSCREEN: &str = "\u{E5D0}";
     pub const FULLSCREEN_EXIT: &str = "\u{E5D1}";
+    pub const RECORD: &str = "\u{E061}";
+    pub const STOP: &str = "\u{E047}";
 }
 
 /// Звук трансляции.
@@ -86,6 +89,21 @@ struct Ctx {
     note: RwSignal<String>,
     /// Кнопка выхода из полноэкранного режима видна.
     hud: RwSignal<bool>,
+    /// Частота обновления экрана устройства, к/с.
+    refresh: u32,
+    rec: RwSignal<Rec>,
+    /// Открыто окно параметров записи.
+    rec_panel: RwSignal<bool>,
+    rec_settings: RwSignal<record::Settings>,
+}
+
+/// Запись экрана (сама запись — в `REC`).
+#[derive(Clone, PartialEq)]
+enum Rec {
+    Idle,
+    /// Идёт: с какого момента, секунд прошло, кодер.
+    On { since: Instant, secs: u64, encoder: String },
+    Saving,
 }
 
 fn main() {
@@ -103,7 +121,7 @@ fn main() {
         }
     };
     // Окно под пропорции экрана устройства.
-    let (w, h) = output_size(&peer.id).unwrap_or(if peer.kind.is_touch() { (1080, 2400) } else { (1920, 1080) });
+    let (w, h, refresh) = output_size(&peer.id).unwrap_or(if peer.kind.is_touch() { (1080, 2400, 60) } else { (1920, 1080, 60) });
     let (win_w, win_h) = window_size(w, h);
 
     let cfg = synshell_common::Config::load().0;
@@ -135,8 +153,15 @@ fn main() {
                 sound: use_signal(Sound::Off),
                 note: use_signal(String::new()),
                 hud: use_signal(false),
+                refresh,
+                rec: use_signal(Rec::Idle),
+                rec_panel: use_signal(false),
+                rec_settings: use_signal(record::load_settings()),
             };
             watch_fullscreen(ctx);
+            syngui::signal::create_effect(move || {
+                record::SOUND_ON.store(ctx.sound.get() == Sound::On, Ordering::Relaxed);
+            });
             if remembered_fullscreen() {
                 // Окна ещё нет — после его создания.
                 run_on_main_thread(|| syngui::signal::set_fullscreen(true));
@@ -183,8 +208,8 @@ fn find_peer(device: &str) -> Result<PeerInfo, String> {
     }
 }
 
-/// Размер кадра первого вывода устройства (пиксели, с поворотом).
-fn output_size(id: &str) -> Option<(u32, u32)> {
+/// Размер кадра первого вывода устройства (пиксели, с поворотом) и частота обновления.
+fn output_size(id: &str) -> Option<(u32, u32, u32)> {
     let Ok(Response::Wm { wm: ipc::Response::Outputs { outputs } }) =
         link::request(&Request::Wm { device: id.into(), wm: ipc::Request::Outputs })
     else {
@@ -193,7 +218,8 @@ fn output_size(id: &str) -> Option<(u32, u32)> {
     let o = outputs.first()?;
     let m = o.current_mode.and_then(|i| o.modes.get(i))?;
     let rot = o.transform.contains("90") || o.transform.contains("270");
-    Some(if rot { (m.height as u32, m.width as u32) } else { (m.width as u32, m.height as u32) })
+    let hz = ((m.refresh_mhz.max(0) as u32 + 500) / 1000).max(1);
+    Some(if rot { (m.height as u32, m.width as u32, hz) } else { (m.width as u32, m.height as u32, hz) })
 }
 
 // ─── кадры ───────────────────────────────────────────────────────────────────
@@ -313,7 +339,9 @@ fn stream_once(device: &str, cursor: bool, frame: &LiveFrame, rev: RwSignal<u64>
             }
         }
         let t1 = Instant::now();
-        frame.set(fw, fh, Arc::from(buf.as_slice()));
+        let data: Arc<[u8]> = Arc::from(buf.as_slice());
+        record::push(fw, fh, &data);
+        frame.set(fw, fh, data);
         if std::env::var_os("SYNLINK_VIEW_TIMING").is_some() {
             eprintln!("кадр в окно {:.1} мс", t1.elapsed().as_secs_f64() * 1e3);
         }
@@ -643,7 +671,7 @@ fn root(ctx: Ctx, frame: Arc<LiveFrame>, input: mpsc::Sender<InputEvent>) -> imp
                 .child(bar)
                 .child(
                     DecoratedBox::new()
-                        .child(Stack::new().fit(StackFit::Expand).child(screen).child(overlay).child(hud))
+                        .child(Stack::new().fit(StackFit::Expand).child(screen).child(overlay).child(hud).child(record_overlay(ctx)))
                         .class("stage grow"),
                 )
                 .class("root"),
@@ -669,7 +697,13 @@ fn bar(ctx: Ctx) -> impl Widget {
                 .child(Reactive::new(move || {
                     let s = stats.get();
                     let n = note.get();
-                    let line = if !n.is_empty() {
+                    let rec = ctx.rec.get();
+                    let line = if let Rec::On { secs, encoder, .. } = &rec {
+                        let e = if encoder.is_empty() { String::new() } else { format!(" · {encoder}") };
+                        t!("● Запись {time}{e}", time = clock(*secs), e = e)
+                    } else if rec == Rec::Saving {
+                        t!("Запись сохраняется…").to_string()
+                    } else if !n.is_empty() {
                         n
                     } else if !s.state.is_empty() {
                         s.state.clone()
@@ -696,7 +730,8 @@ fn bar(ctx: Ctx) -> impl Widget {
         });
 
     let dev = ctx.device;
-    let mut tools = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center);
+    // Узкое окно (экран телефона) — кнопки переносятся на вторую строку.
+    let mut tools = syngui::widgets::Flex::row().gap(4.0).wrap().cross_axis_alignment(CrossAxisAlignment::Center);
     if touch {
         tools = tools
             .child(tool(gl::BACK, &t!("Назад"), || action("back")))
@@ -718,8 +753,21 @@ fn bar(ctx: Ctx) -> impl Widget {
                 .child(DecoratedBox::new().child(icon(glyph).class("tool-icon")).class(class)),
         ) as Box<dyn Widget>]
     });
+    let rec = Reactive::new(move || {
+        let (glyph, class) = match ctx.rec.get() {
+            Rec::Idle => (gl::RECORD, "tool"),
+            Rec::On { .. } => (gl::STOP, "tool tool-rec"),
+            Rec::Saving => (gl::STOP, "tool tool-wait"),
+        };
+        vec![Box::new(
+            GestureDetector::new()
+                .on_click(move || record_click(ctx))
+                .child(DecoratedBox::new().child(icon(glyph).class("tool-icon")).class(class)),
+        ) as Box<dyn Widget>]
+    });
     tools = tools
         .child(DecoratedBox::new().class("grow"))
+        .child(rec)
         .child(sound)
         .child(tool(gl::FULLSCREEN, &t!("Во весь экран"), || syngui::signal::set_fullscreen(true)))
         .child(tool(gl::LOCK, &t!("Блокировка"), || action("lock")))
@@ -761,6 +809,186 @@ fn open_files(device: &'static str) {
             let _ = std::process::Command::new("synfiles").arg(p).spawn();
         }
     });
+}
+
+// ─── запись экрана ───────────────────────────────────────────────────────────
+
+/// Идущая запись.
+static REC: Mutex<Option<record::Recording>> = Mutex::new(None);
+
+/// `ч:мм:сс` или `мм:сс`.
+fn clock(secs: u64) -> String {
+    let (h, m, s) = (secs / 3600, secs / 60 % 60, secs % 60);
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m:02}:{s:02}")
+    }
+}
+
+/// Кнопка записи: нет записи — окно параметров, идёт — стоп.
+fn record_click(ctx: Ctx) {
+    match ctx.rec.get_untracked() {
+        Rec::Idle => {
+            if !record::available() {
+                show_note(ctx.note, t!("Запись: нет ffmpeg").into());
+                return;
+            }
+            ctx.rec_panel.set(!ctx.rec_panel.get_untracked());
+        }
+        Rec::On { .. } => stop_recording(ctx),
+        Rec::Saving => {}
+    }
+}
+
+fn stream_codec(ctx: Ctx) -> Option<record::Codec> {
+    match ctx.stats.get_untracked().codec.as_str() {
+        "HEVC" => Some(record::Codec::Hevc),
+        "H264" => Some(record::Codec::H264),
+        _ => None,
+    }
+}
+
+fn start_recording(ctx: Ctx) {
+    ctx.rec_panel.set(false);
+    let s = ctx.rec_settings.get_untracked();
+    record::save_settings(&s);
+    let src = record::Source { refresh: ctx.refresh, codec: stream_codec(ctx) };
+    let r = record::Recording::start(&ctx.peer.name, &s, src);
+    let (since, encoder) = (r.started, r.encoder.clone());
+    *REC.lock().unwrap() = Some(r);
+    ctx.rec.set(Rec::On { since, secs: 0, encoder: String::new() });
+    // Часы в строке состояния; запись оборвалась сама (ffmpeg) — показать почему.
+    let rec = ctx.rec;
+    std::thread::Builder::new()
+        .name("view-record-clock".into())
+        .spawn(move || loop {
+            std::thread::sleep(Duration::from_millis(250));
+            let failed = match REC.lock().unwrap().as_ref() {
+                Some(r) if r.started == since => r.finished(),
+                _ => return,
+            };
+            if failed {
+                run_on_main_thread(move || stop_recording(ctx));
+                return;
+            }
+            let secs = since.elapsed().as_secs();
+            let enc = encoder.lock().unwrap().clone();
+            run_on_main_thread(move || {
+                if let Rec::On { since: s, secs: old, encoder: e } = rec.get_untracked() {
+                    if s == since && (old != secs || e != enc) {
+                        rec.set(Rec::On { since, secs, encoder: enc });
+                    }
+                }
+            });
+        })
+        .ok();
+}
+
+fn stop_recording(ctx: Ctx) {
+    let Some(r) = REC.lock().unwrap().take() else { return };
+    ctx.rec.set(Rec::Saving);
+    let (rec, note) = (ctx.rec, ctx.note);
+    std::thread::spawn(move || {
+        let res = r.finish();
+        run_on_main_thread(move || {
+            rec.set(Rec::Idle);
+            match res {
+                Ok(path) => {
+                    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    show_note(note, t!("Запись сохранена: {name}", name = name));
+                }
+                Err(e) => show_note(note, t!("Запись не удалась: {e}", e = e)),
+            }
+        });
+    });
+}
+
+/// Ряд выбора: подпись и сегменты.
+fn choice(label: String, items: Vec<String>, selected: usize, f: impl FnMut(usize) + Send + 'static) -> impl Widget {
+    Column::new()
+        .gap(6.0)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(Text::new(label).class("rec-label"))
+        .child(SegmentedButton::new(items).selected(selected).on_change(f))
+}
+
+/// Окно параметров записи поверх кадра.
+fn record_overlay(ctx: Ctx) -> impl Widget {
+    Reactive::new(move || {
+        if !ctx.rec_panel.get() {
+            return Vec::new();
+        }
+        let s = ctx.rec_settings.get();
+        let set = move |f: fn(&mut record::Settings, usize)| {
+            move |i: usize| {
+                let mut v = ctx.rec_settings.get_untracked();
+                f(&mut v, i);
+                ctx.rec_settings.set(v);
+            }
+        };
+        let size = ctx.stats.get_untracked().size;
+        let src = record::Source { refresh: ctx.refresh, codec: stream_codec(ctx) };
+        let mut card = Column::new()
+            .gap(14.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(Text::new(t!("Запись экрана")).class("rec-title"))
+            .child(SegmentedButton::new(vec![t!("Исходное"), t!("Свои настройки")]).selected(if s.source { 0 } else { 1 }).on_change(set(|v, i| v.source = i == 0)));
+        if s.source {
+            card = card.child(
+                Text::new(t!("{w} × {h} · {rest}", w = size.0, h = size.1, rest = record::source_summary(src)))
+                    .max_lines(2)
+                    .class("rec-hint"),
+            );
+        } else {
+            let heights: Vec<String> = record::HEIGHTS.iter().map(|&h| if h == 0 { t!("Исходное").to_string() } else { format!("{h}p") }).collect();
+            let hi = record::HEIGHTS.iter().position(|&h| h == s.height).unwrap_or(0);
+            let fps: Vec<String> = record::FPS.iter().map(|f| f.to_string()).collect();
+            let fi = record::FPS.iter().position(|&f| f == s.fps).unwrap_or(1);
+            let codecs: Vec<String> = record::CODECS.iter().map(|c| c.title().to_string()).collect();
+            let ci = record::CODECS.iter().position(|&c| c == s.codec).unwrap_or(0);
+            card = card
+                .child(choice(t!("Разрешение (короткая сторона)").into(), heights, hi, set(|v, i| v.height = record::HEIGHTS[i])))
+                .child(choice(t!("Кадров в секунду").into(), fps, fi, set(|v, i| v.fps = record::FPS[i])))
+                .child(choice(t!("Кодек").into(), codecs, ci, set(|v, i| v.codec = record::CODECS[i])))
+                .child(choice(
+                    t!("Качество").into(),
+                    vec![t!("Высокое").into(), t!("Среднее").into(), t!("Низкое").into()],
+                    s.quality.min(2) as usize,
+                    set(|v, i| v.quality = i as u8),
+                ))
+                .child(choice(t!("Формат").into(), vec!["MP4".into(), "MKV".into()], s.mkv as usize, set(|v, i| v.mkv = i == 1)));
+        }
+        let sound = s.sound;
+        card = card
+            .child(
+                Row::new()
+                    .gap(10.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(
+                        Column::new()
+                            .gap(2.0)
+                            .child(Text::new(t!("Звук устройства")).class("rec-label"))
+                            .child(Text::new(t!("Пишется, пока включён звук трансляции")).max_lines(2).class("rec-hint"))
+                            .class("grow"),
+                    )
+                    .child(Toggle::new().on(sound).on_change(move |on| {
+                        let mut v = ctx.rec_settings.get_untracked();
+                        v.sound = on;
+                        ctx.rec_settings.set(v);
+                    })),
+            )
+            .child(
+                Row::new()
+                    .gap(8.0)
+                    .main_axis_alignment(MainAxisAlignment::End)
+                    .child(Button::new(t!("Отмена")).on_click(move || ctx.rec_panel.set(false)))
+                    .child(Button::new(t!("Начать запись")).icon(gl::RECORD).class("primary").on_click(move || start_recording(ctx))),
+            );
+        // Затемнение глотает нажатия: до кадра под ним они не доходят.
+        vec![Box::new(GestureDetector::new().on_click(|| {}).child(DecoratedBox::new().child(DecoratedBox::new().child(card).class("rec-card")).class("rec-scrim")))
+            as Box<dyn Widget>]
+    })
 }
 
 // ─── звук ────────────────────────────────────────────────────────────────────

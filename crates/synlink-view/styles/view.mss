@@ -60,3 +60,45 @@ Text { color: var(--fg); font-size: 13px; }
 .wait-icon { icon-size: 40px; icon-color: var(--accent); animation: view-spin 1400ms linear infinite; }
 @keyframes view-spin { 0% { rotate: 0deg; } 100% { rotate: 360deg; } }
 .wait-text { font-size: 13px; color: var(--muted); text-align: center; }
+
+/* Запись экрана: кнопка во время записи и окно параметров. */
+.tool-rec { background-color: var(--danger); }
+.tool-rec:hover { background-color: var(--danger); }
+.tool-rec .tool-icon { icon-color: #ffffff; }
+
+.rec-scrim { padding: 16px; background-color: rgba(0, 0, 0, 0.5); width: 100%; height: 100%; justify-content: center; align-items: center; }
+.rec-card {
+    max-width: 420px;
+    padding: 20px;
+    border-radius: 20px;
+    background-color: var(--surface);
+    border-width: 1px;
+    border-color: var(--border);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+.rec-title { font-size: 17px; font-weight: 600; }
+.rec-label { font-size: 13px; font-weight: 600; }
+.rec-hint { font-size: 12px; color: var(--muted); }
+
+Button {
+    background: var(--surface-alt);
+    color: var(--fg);
+    accent-color: var(--accent);
+    border-radius: 999px;
+    padding: 8px 16px;
+    font-size: 14px;
+    transition: background 120ms ease;
+    &:hover { background: var(--hover); }
+}
+Button.primary {
+    background: var(--accent);
+    color: var(--accent-fg);
+    &:hover { background: var(--accent-hover); }
+}
+SegmentedButton {
+    background: var(--surface-alt);
+    color: var(--fg);
+    accent-color: var(--accent);
+    border-color: var(--border);
+}
+Toggle { width: 46px; height: 28px; background: var(--pressed); color: #ffffff; accent-color: var(--accent); border-radius: 14px; }
