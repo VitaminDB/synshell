@@ -1439,6 +1439,7 @@ mod tests {
                 preload: None,
                 quant: Some(None),
                 params: None,
+                engine: Some(EngineProfile { custom: true, graph_decode: Some(false), kv_dtype: Some("bf16".into()), ..Default::default() }),
             },
         };
         let s = serde_json::to_string(&e).unwrap();
