@@ -13,8 +13,11 @@ use synshell_common::link::DeviceKind;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// 2 — трансляция с видео (`Rpc::ScreenV2`), 3 — звук трансляции (`Rpc::Audio`),
-/// 4 — общий буфер обмена (`Ctl::Clipboard`).
-pub const PROTO: u32 = 4;
+/// 4 — общий буфер обмена (`Ctl::Clipboard`), 5 — звук трансляции в Opus
+/// (`Rpc::AudioV2`).
+pub const PROTO: u32 = 5;
+/// С какой версии устройство понимает `Rpc::AudioV2`.
+pub const PROTO_OPUS: u32 = 5;
 /// С какой версии устройство понимает `Ctl::Clipboard` (старое на
 /// незнакомом сообщении рвёт управляющий поток).
 pub const PROTO_CLIPBOARD: u32 = 4;
@@ -92,6 +95,10 @@ pub enum Rpc {
     /// в обе стороны — туда звук этой стороны (монитор выхода по умолчанию),
     /// обратно микрофон зрителя (если `mic`) для виртуального источника.
     Audio { mic: bool },
+    /// Звук трансляции с Opus (proto ≥ 5): как `Audio`; `opus` — зритель
+    /// декодирует Opus. Первое сообщение после `Done` — `AudioMsg::Caps`
+    /// с тем же о транслирующей стороне.
+    AudioV2 { mic: bool, opus: bool },
 }
 
 /// Кадр звука трансляции. PCM s16le, 48 кГц, стерео, кусками по 10 мс.
@@ -102,6 +109,10 @@ pub enum AudioMsg {
     Silence(u32),
     /// Звук этой стороны прервался — почему.
     Error(String),
+    /// Что умеет эта сторона (первым сообщением `AudioV2`).
+    Caps { opus: bool },
+    /// Пакет Opus (кадр 10 мс).
+    Opus(Vec<u8>),
 }
 
 /// Видео трансляции: как `ipc::VideoRequest` композитора.

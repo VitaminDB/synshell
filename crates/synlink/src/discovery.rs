@@ -85,7 +85,10 @@ async fn receive(d: &Arc<Daemon>, sock: &UdpSocket, port: u16, sent: &Mutex<Opti
             }
         };
         let Ok(a) = serde_json::from_slice::<Announce>(&buf[..n]) else { continue };
-        if a.synlink != crate::proto::PROTO {
+        // Другая версия — не помеха: возможности сессии согласуются по
+        // `Hello::proto` (раньше устройства разных версий не видели друг друга,
+        // и каждое повышение PROTO рвало связь с необновлёнными).
+        if a.synlink == 0 {
             continue;
         }
         if a.id == d.id.id {

@@ -17,6 +17,7 @@ mod mcp;
 mod net;
 mod netif;
 mod notify;
+mod opus;
 mod proto;
 mod rpc;
 mod screen;

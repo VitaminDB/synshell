@@ -100,8 +100,8 @@ struct Capture {
 }
 
 impl Capture {
-    fn start(props: serde_json::Value) -> Result<Self> {
-        let mut child = pw_cat("-r", "10ms", None, props)?;
+    fn start(target: Option<&str>, props: serde_json::Value) -> Result<Self> {
+        let mut child = pw_cat("-r", "10ms", target, props)?;
         let mut out = child.stdout.take().context("stdout pw-cat")?;
         let pid = child.id();
         let (tx, rx) = mpsc::channel(SEND_QUEUE);
@@ -227,9 +227,11 @@ impl Drop for Player {
     }
 }
 
-/// Перекачка: запись этой стороны → туда, оттуда → воспроизведение.
-async fn pump(mut w: quinn::SendStream, mut r: quinn::RecvStream, cap: Option<Capture>, play: Option<Player>) -> Result<()> {
+/// Перекачка: запись этой стороны → туда (Opus, если `opus` и библиотека
+/// есть, иначе PCM), оттуда → воспроизведение (PCM и Opus понимает всегда).
+async fn pump(mut w: quinn::SendStream, mut r: quinn::RecvStream, cap: Option<Capture>, play: Option<Player>, opus: bool) -> Result<()> {
     let recv = async move {
+        let mut dec: Option<crate::opus::Decoder> = None;
         while let Some(m) = proto::recv::<AudioMsg>(&mut r).await? {
             match m {
                 AudioMsg::Pcm(p) => {
@@ -237,11 +239,20 @@ async fn pump(mut w: quinn::SendStream, mut r: quinn::RecvStream, cap: Option<Ca
                         pl.push(&p);
                     }
                 }
+                AudioMsg::Opus(pkt) => {
+                    if dec.is_none() {
+                        dec = crate::opus::Decoder::new();
+                    }
+                    if let (Some(pl), Some(pcm)) = (&play, dec.as_mut().and_then(|d| d.decode(&pkt))) {
+                        pl.push(&pcm);
+                    }
+                }
                 AudioMsg::Silence(n) => {
                     if let Some(pl) = &play {
                         pl.push_silence(n as usize);
                     }
                 }
+                AudioMsg::Caps { .. } => {}
                 AudioMsg::Error(e) => bail!("{e}"),
             }
         }
@@ -251,8 +262,16 @@ async fn pump(mut w: quinn::SendStream, mut r: quinn::RecvStream, cap: Option<Ca
         let Some(mut cap) = cap else {
             return std::future::pending::<Result<()>>().await;
         };
+        let mut enc = if opus { crate::opus::Encoder::new() } else { None };
         while let Some(b) = cap.rx.recv().await {
-            let m = if b.iter().all(|&x| x == 0) { AudioMsg::Silence(b.len() as u32) } else { AudioMsg::Pcm(b) };
+            let m = if b.iter().all(|&x| x == 0) {
+                AudioMsg::Silence(b.len() as u32)
+            } else {
+                match enc.as_mut().and_then(|e| e.encode(&b)) {
+                    Some(pkt) => AudioMsg::Opus(pkt),
+                    None => AudioMsg::Pcm(b),
+                }
+            };
             proto::send(&mut w, &m).await?;
         }
         let why = t!("запись звука прервалась (pw-cat)");
@@ -262,6 +281,56 @@ async fn pump(mut w: quinn::SendStream, mut r: quinn::RecvStream, cap: Option<Ca
     tokio::select! {
         r = recv => r,
         r = send => r,
+    }
+}
+
+// ─── эхоподавление ──────────────────────────────────────────────────────────
+
+/// Узлы модуля эхоподавления PipeWire на время звука с микрофоном: звук
+/// устройства играет через его приёмник, микрофон пишется из его источника —
+/// модуль вычитает из микрофона то, что играют колонки, и звук устройства не
+/// возвращается ему эхом. Модуль живёт, пока жив процесс `pw-cli`.
+struct EchoCancel(Child);
+
+const EC_SINK: &str = "synlink-ec-sink";
+const EC_SOURCE: &str = "synlink-ec-source";
+
+impl EchoCancel {
+    fn start() -> Result<Self> {
+        let mut c = Command::new("pw-cli")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .context("pw-cli (пакет pipewire) не запускается")?;
+        let args = format!(
+            "load-module libpipewire-module-echo-cancel {{ library.name = aec/libspa-aec-webrtc monitor.mode = false \
+             capture.props = {{ node.name = synlink-ec-capture node.passive = true }} \
+             source.props = {{ node.name = {EC_SOURCE} node.description = \"synlink: микрофон без эха\" node.virtual = true }} \
+             sink.props = {{ node.name = {EC_SINK} node.description = \"synlink: звук устройства\" node.virtual = true }} \
+             playback.props = {{ node.name = synlink-ec-playback node.passive = true }} }}\n"
+        );
+        c.stdin.as_mut().context("stdin pw-cli")?.write_all(args.as_bytes())?;
+        // Узлы появляются не сразу — ждём источник (до 2 с).
+        for _ in 0..20 {
+            std::thread::sleep(Duration::from_millis(100));
+            if let Some(st) = c.try_wait()? {
+                bail!("pw-cli вышел ({st})");
+            }
+            let out = Command::new("pw-cli").args(["ls", "Node"]).output()?;
+            if String::from_utf8_lossy(&out.stdout).contains(EC_SOURCE) {
+                return Ok(Self(c));
+            }
+        }
+        let _ = c.kill();
+        bail!("модуль эхоподавления не создал узлы")
+    }
+}
+
+impl Drop for EchoCancel {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
     }
 }
 
@@ -320,11 +389,11 @@ pub fn cleanup_stale() {
 
 /// `Rpc::Audio` от зрителя `peer`: монитор выхода → туда, его микрофон →
 /// виртуальный источник.
-pub async fn serve(d: D, peer: String, mut w: quinn::SendStream, r: quinn::RecvStream, mic: bool) -> Result<()> {
+pub async fn serve(d: D, peer: String, mut w: quinn::SendStream, r: quinn::RecvStream, mic: bool, opus: Option<bool>) -> Result<()> {
     let name = d.peer_info(&peer).map(|p| p.name).unwrap_or_else(|| t!("устройства").into());
     let n = name.clone();
     let started = tokio::task::spawn_blocking(move || -> Result<(Capture, Option<Player>, Option<DefaultMic>)> {
-        let cap = Capture::start(json!({
+        let cap = Capture::start(None, json!({
             "stream.capture.sink": true,
             "node.name": "synlink-monitor",
             "node.description": t!("Звук для «{n}»", n = n),
@@ -358,8 +427,15 @@ pub async fn serve(d: D, peer: String, mut w: quinn::SendStream, r: quinn::RecvS
         }
     };
     proto::send(&mut w, &Reply::Done).await?;
-    tracing::info!(mic, "звук трансляции для «{name}»: начат");
-    let res = pump(w, r, Some(cap), play).await;
+    // AudioV2: сказать зрителю, понимаем ли Opus; свой звук — в Opus, если
+    // он его декодирует.
+    let mine = crate::opus::available();
+    if opus.is_some() {
+        proto::send(&mut w, &AudioMsg::Caps { opus: mine }).await?;
+    }
+    let send_opus = mine && opus == Some(true);
+    tracing::info!(mic, send_opus, "звук трансляции для «{name}»: начат");
+    let res = pump(w, r, Some(cap), play, send_opus).await;
     drop(default);
     tracing::info!("звук трансляции для «{name}»: конец ({})", res.as_ref().map(|_| "закрыт".to_string()).unwrap_or_else(|e| format!("{e:#}")));
     Ok(())
@@ -381,7 +457,10 @@ pub async fn start(d: &D, device: &str, mic: bool) -> Result<(String, u64, onesh
         bail!("на «{name}» synlink без звука трансляции — обновите synshell там");
     }
     stop(d, &id);
-    let (w, mut r) = crate::rpc::open(&conn, &Rpc::Audio { mic }).await?;
+    let v2 = proto_ver >= crate::proto::PROTO_OPUS;
+    let mine = crate::opus::available();
+    let rpc = if v2 { Rpc::AudioV2 { mic, opus: mine } } else { Rpc::Audio { mic } };
+    let (w, mut r) = crate::rpc::open(&conn, &rpc).await?;
     match tokio::time::timeout(Duration::from_secs(8), proto::recv::<Reply>(&mut r)).await {
         Ok(Ok(Some(Reply::Done))) => {}
         Ok(Ok(Some(Reply::Err(e)))) => bail!("«{name}»: {e}"),
@@ -389,10 +468,32 @@ pub async fn start(d: &D, device: &str, mic: bool) -> Result<(String, u64, onesh
         Ok(Err(e)) => bail!("«{name}»: {e:#}"),
         Err(_) => bail!("«{name}» не ответило вовремя"),
     }
+    // Понимает ли та сторона Opus — первым сообщением AudioV2.
+    let peer_opus = if v2 {
+        match tokio::time::timeout(Duration::from_secs(4), proto::recv::<AudioMsg>(&mut r)).await {
+            Ok(Ok(Some(AudioMsg::Caps { opus }))) => opus,
+            _ => false,
+        }
+    } else {
+        false
+    };
+    let send_opus = mine && peer_opus;
     let n = name.clone();
-    let (play, cap) = tokio::task::spawn_blocking(move || -> Result<(Player, Option<Capture>)> {
+    let (play, cap, ec) = tokio::task::spawn_blocking(move || -> Result<(Player, Option<Capture>, Option<EchoCancel>)> {
+        // С микрофоном — через эхоподавление (не вышло — без него).
+        let ec = if mic {
+            match EchoCancel::start() {
+                Ok(e) => Some(e),
+                Err(e) => {
+                    tracing::warn!("звук трансляции без эхоподавления: {e:#}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let play = Player::start(
-            None,
+            ec.as_ref().map(|_| EC_SINK),
             json!({
                 "node.name": "synlink-audio",
                 "node.description": t!("Звук {n}", n = n),
@@ -401,7 +502,7 @@ pub async fn start(d: &D, device: &str, mic: bool) -> Result<(String, u64, onesh
             }),
         )?;
         let cap = if mic {
-            Some(Capture::start(json!({
+            Some(Capture::start(ec.as_ref().map(|_| EC_SOURCE), json!({
                 "node.name": "synlink-mic-capture",
                 "node.description": t!("Микрофон для «{n}»", n = n),
                 "media.name": t!("Микрофон для «{n}»", n = n),
@@ -410,7 +511,7 @@ pub async fn start(d: &D, device: &str, mic: bool) -> Result<(String, u64, onesh
         } else {
             None
         };
-        Ok((play, cap))
+        Ok((play, cap, ec))
     })
     .await??;
     let (done_tx, done_rx) = oneshot::channel();
@@ -424,7 +525,8 @@ pub async fn start(d: &D, device: &str, mic: bool) -> Result<(String, u64, onesh
         let d2 = d.clone();
         let id2 = id.clone();
         let task = tokio::spawn(async move {
-            let res = pump(w, r, cap, Some(play)).await;
+            let res = pump(w, r, cap, Some(play), send_opus).await;
+            drop(ec);
             let msg = match res {
                 Ok(()) => t!("«{name}» закончило звук", name = name),
                 Err(e) => t!("звук «{name}»: {e}", name = name, e = format!("{:#}", e)),
