@@ -257,8 +257,10 @@ impl St {
         self.confirm.set(None);
     }
 
+    /// «Стоп»: прервать ответ, генерацию в службе и озвучку.
     pub fn stop(self) {
         shared().cancel.store(true, Ordering::Relaxed);
+        synassist_voice::stop_speaking();
         self.answer(false);
     }
 

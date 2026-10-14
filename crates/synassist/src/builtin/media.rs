@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 
 use serde_json::{json, Value};
 use synaptixd::{ModelKind, Params};
@@ -61,7 +62,7 @@ fn model_arg(c: &mut synaptixd::Client, args: &Value, kind: ModelKind) -> Option
     }
 }
 
-fn speak(args: &Value) -> ToolResult {
+fn speak(args: &Value, cancel: &AtomicBool) -> ToolResult {
     let text = need_str(args, "prompt")?;
     let mut params = Params::new();
     if let Some(v) = str_arg(args, "voice") {
@@ -71,14 +72,15 @@ fn speak(args: &Value) -> ToolResult {
         params = params.with("language", l);
     }
     let mut c = synaptixd::Client::connect().map_err(|e| e.to_string())?;
-    let sp = c.speak_with("", text, &params).map_err(|e| e.to_string())?;
+    let stop = c.canceller();
+    let sp = crate::tools::watch_cancel(cancel, || stop.map(|s| s.cancel()).unwrap_or(()), || c.speak_with("", text, &params)).map_err(|e| e.to_string())?;
     let path = media_dir().join(format!("speech-{}.wav", stamp()));
     write_wav(&path, sp.audio.f32s(), sp.sample_rate).map_err(|e| e.to_string())?;
     let secs = sp.audio.f32s().len() as f32 / sp.sample_rate.max(1) as f32;
     Ok(ToolOutput { text: format!("Озвучено: {:.1} с, файл {}", secs, path.display()), files: vec![path] })
 }
 
-fn image(args: &Value) -> ToolResult {
+fn image(args: &Value, cancel: &AtomicBool) -> ToolResult {
     let prompt = need_str(args, "prompt")?;
     let num = |k: &str| args.get(k).and_then(Value::as_u64);
     let images: Vec<String> = args
@@ -99,7 +101,8 @@ fn image(args: &Value) -> ToolResult {
     };
     let mut c = synaptixd::Client::connect().map_err(|e| e.to_string())?;
     let model = model_arg(&mut c, args, ModelKind::Image).unwrap_or_default();
-    let (reply, png) = match c.image(&model, prompt, &p, |i, n| crate::tools::progress(i, n, "картинка")) {
+    let stop = c.canceller();
+    let (reply, png) = match crate::tools::watch_cancel(cancel, || stop.map(|s| s.cancel()).unwrap_or(()), || c.image(&model, prompt, &p, |i, n| crate::tools::progress(i, n, "картинка"))) {
         Ok(r) => r,
         Err(e) if e.code == synaptixd::ErrorCode::NoModel => return generate(ModelKind::Image, "картинки"),
         Err(e) => return Err(e.to_string()),
@@ -115,7 +118,7 @@ fn image(args: &Value) -> ToolResult {
     })
 }
 
-fn video(args: &Value) -> ToolResult {
+fn video(args: &Value, cancel: &AtomicBool) -> ToolResult {
     let prompt = need_str(args, "prompt")?;
     let num = |k: &str| args.get(k).and_then(Value::as_u64);
     let path_arg = |k: &str| str_arg(args, k).map(|p| crate::builtin::expand(p).to_string_lossy().into_owned());
@@ -162,7 +165,8 @@ fn video(args: &Value) -> ToolResult {
         }
         .to_string()
     });
-    let (reply, mp4) = match c.video(&model, prompt, &p, |i, n| crate::tools::progress(i, n, "видео")) {
+    let stop = c.canceller();
+    let (reply, mp4) = match crate::tools::watch_cancel(cancel, || stop.map(|s| s.cancel()).unwrap_or(()), || c.video(&model, prompt, &p, |i, n| crate::tools::progress(i, n, "видео"))) {
         Ok(r) => r,
         Err(e) if e.code == synaptixd::ErrorCode::NoModel => return generate(ModelKind::Video, "видео"),
         Err(e) => return Err(e.to_string()),
@@ -178,7 +182,7 @@ fn video(args: &Value) -> ToolResult {
     })
 }
 
-fn music(args: &Value) -> ToolResult {
+fn music(args: &Value, cancel: &AtomicBool) -> ToolResult {
     let prompt = need_str(args, "prompt")?;
     let lyrics = str_arg(args, "lyrics").unwrap_or("");
     // Длительность — только если пользователь её назвал: модель ставит 30 с
@@ -200,7 +204,8 @@ fn music(args: &Value) -> ToolResult {
         None => None,
     };
     let model = picked.as_deref().unwrap_or("");
-    let (reply, wav) = match c.music(model, prompt, lyrics, seconds, seed, |i, n| crate::tools::progress(i, n, "музыка")) {
+    let stop = c.canceller();
+    let (reply, wav) = match crate::tools::watch_cancel(cancel, || stop.map(|s| s.cancel()).unwrap_or(()), || c.music(model, prompt, lyrics, seconds, seed, |i, n| crate::tools::progress(i, n, "музыка"))) {
         Ok(r) => r,
         Err(e) if e.code == synaptixd::ErrorCode::NoModel => return generate(ModelKind::Music, "музыки"),
         Err(e) => return Err(e.to_string()),
@@ -287,12 +292,20 @@ impl Tool for MediaTool {
         }
     }
     fn run(&self, args: &Value) -> ToolResult {
-        match need_str(args, "action")? {
-            "speak" => speak(args),
-            "image" => image(args),
-            "video" => video(args),
-            "music" => music(args),
+        self.run_ctx(args, &AtomicBool::new(false))
+    }
+    /// «Стоп» обрывает запрос — служба прерывает генерацию.
+    fn run_ctx(&self, args: &Value, cancel: &AtomicBool) -> ToolResult {
+        let r = match need_str(args, "action")? {
+            "speak" => speak(args, cancel),
+            "image" => image(args, cancel),
+            "video" => video(args, cancel),
+            "music" => music(args, cancel),
             other => Err(format!("неизвестное действие {other}")),
+        };
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err("остановлено пользователем".into());
         }
+        r
     }
 }

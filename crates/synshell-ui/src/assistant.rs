@@ -583,8 +583,10 @@ fn reply(p: Panel, yes: bool) {
     p.confirm.set(None);
 }
 
+/// «Стоп»: прервать ответ, генерацию в службе и озвучку.
 fn stop(p: Panel) {
     shared().cancel.store(true, Ordering::Relaxed);
+    synassist_voice::stop_speaking();
     reply(p, false);
 }
 

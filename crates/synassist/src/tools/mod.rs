@@ -87,6 +87,27 @@ pub fn request() -> String {
     REQUEST.with(|r| r.borrow().clone())
 }
 
+/// Выполнить `f`, а если за это время поднимут `cancel` — вызвать
+/// `on_cancel` (оборвать запрос к службе: генерация в ней прервётся).
+pub fn watch_cancel<R>(cancel: &std::sync::atomic::AtomicBool, on_cancel: impl FnOnce() + Send, f: impl FnOnce() -> R) -> R {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let done = AtomicBool::new(false);
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            while !done.load(Ordering::Acquire) {
+                if cancel.load(Ordering::Relaxed) {
+                    on_cancel();
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        });
+        let r = f();
+        done.store(true, Ordering::Release);
+        r
+    })
+}
+
 /// Назвал ли пользователь длительность («на 2 минуты», «30 секунд»).
 pub fn asked_duration() -> bool {
     let r = request().to_lowercase();

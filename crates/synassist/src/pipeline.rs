@@ -72,6 +72,10 @@ impl Tool for PipelineTool {
         }
     }
     fn run(&self, args: &Value) -> ToolResult {
+        self.run_ctx(args, &std::sync::atomic::AtomicBool::new(false))
+    }
+
+    fn run_ctx(&self, args: &Value, cancel: &std::sync::atomic::AtomicBool) -> ToolResult {
         match str_arg(args, "action") {
             Some("save") => {
                 let g: synaptix_graph::Graph = serde_json::from_value(args.get("graph").cloned().ok_or("нужен graph")?).map_err(|e| format!("граф: {e}"))?;
@@ -119,11 +123,14 @@ impl Tool for PipelineTool {
         let params: Map<String, Value> = args.get("params").and_then(Value::as_object).cloned().unwrap_or_default();
         let dir = crate::builtin::media::media_dir().join(format!("pipeline-{:x}", crate::chat::now()));
         // Ход: «узел (операция) · шаг/всего» → шаг и подпись для панели.
-        let report = synaptix_graph::run(&graph, &params, &dir, &mut |s| {
-            match s.rsplit_once(" · ").and_then(|(head, frac)| frac.split_once('/').map(|(a, b)| (head, a.parse::<usize>(), b.parse::<usize>()))) {
-                Some((head, Ok(i), Ok(n))) => crate::tools::progress(i, n, head),
-                _ => crate::tools::progress(0, 0, s),
-            }
+        let stop = synaptix_graph::Cancel::new();
+        let report = crate::tools::watch_cancel(cancel, || stop.cancel(), || {
+            synaptix_graph::run_cancellable(&graph, &params, &dir, &stop, &mut |s| {
+                match s.rsplit_once(" · ").and_then(|(head, frac)| frac.split_once('/').map(|(a, b)| (head, a.parse::<usize>(), b.parse::<usize>()))) {
+                    Some((head, Ok(i), Ok(n))) => crate::tools::progress(i, n, head),
+                    _ => crate::tools::progress(0, 0, s),
+                }
+            })
         })?;
         let mut text = format!("Сценарий{} выполнен; результат уже показан пользователю под ответом (пути — для инструментов, пользователю не называй).\nШаги:\n", if graph.name.is_empty() { String::new() } else { format!(" «{}»", graph.name) });
         for s in &report.steps {
