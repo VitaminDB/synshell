@@ -253,13 +253,13 @@ mod tests {
         let p = params(&g, serde_json::json!({"story": "ёж"}));
         let f = to_flow(&g, &p).unwrap();
         let by = |l: &str| f.nodes.iter().find(|n| n.label == l).unwrap().id;
-        // plan → lines → format(prompt) → shots.prompt (пакет, цепочкой); opening → shots.first_frame → cut.files.
+        // plan → lines → format(prompt) → shots.prompt (пакет, цепочкой); opening → shots.first_frame → film.files.
         let lines = by("plan-lines");
         let fmt = by("shots-prompt");
         assert!(f.links.iter().any(|l| l.from_node == lines && l.to_node == fmt && l.to_port == "a"));
         assert!(f.links.iter().any(|l| l.from_node == fmt && l.to_node == by("shots") && l.to_port == "prompt"));
         assert!(f.links.iter().any(|l| l.from_node == by("opening") && l.to_node == by("shots") && l.to_port == "first_frame"));
-        assert!(f.links.iter().any(|l| l.from_node == by("shots") && l.to_node == by("cut") && l.to_port == "files"));
+        assert!(f.links.iter().any(|l| l.from_node == by("shots") && l.to_node == by("film") && l.to_port == "files"));
         let shots = f.node(by("shots")).unwrap();
         assert_eq!(shots.fields["chain"], true);
         assert_eq!(shots.fields["seconds"], 10);

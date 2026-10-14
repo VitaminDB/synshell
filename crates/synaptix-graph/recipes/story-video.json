@@ -1,21 +1,56 @@
 {
   "name": "story-video",
-  "description": "Видеоистория одной непрерывной сценой: LLM делит историю на сцены → картинка первого кадра → ролики по сценам цепочкой (каждый следующий — с последнего кадра предыдущего) → склейка → фоновая музыка. Длина ≈ scenes × shot секунд (по умолчанию 6 × 10 = минута)",
+  "description": "Видеоистория (фильм, мультфильм) одной непрерывной сценой со звуком от видеомодели (речь, шумы, музыка сцены): LLM делит историю на сцены → картинка первого кадра → ролики по сценам цепочкой (каждый следующий — с последнего кадра предыдущего) → склейка. Длина ≈ scenes × shot секунд (по умолчанию 6 × 10 = минута)",
   "params": {
-    "story": {"type": "text", "description": "о чём история"},
-    "scenes": {"type": "number", "description": "число сцен", "default": 6},
-    "shot": {"type": "number", "description": "длина сцены, с (до 20)", "default": 10},
-    "seconds": {"type": "number", "description": "длина фильма, с — для музыки (scenes × shot)", "default": 60},
-    "style": {"type": "text", "description": "визуальный стиль по-английски", "default": "cinematic"},
-    "music": {"type": "text", "description": "фоновая музыка по-английски", "default": "calm cinematic ambient, soft piano and strings"}
+    "story": {
+      "type": "text",
+      "description": "о чём история"
+    },
+    "scenes": {
+      "type": "number",
+      "description": "число сцен",
+      "default": 6
+    },
+    "shot": {
+      "type": "number",
+      "description": "длина сцены, с (до 20)",
+      "default": 10
+    },
+    "style": {
+      "type": "text",
+      "description": "визуальный стиль по-английски (например 3D cartoon, anime, cinematic)",
+      "default": "cinematic"
+    }
   },
   "nodes": [
-    {"id": "plan", "op": "llm", "prompt": "Раздели историю «{{story}}» на {{scenes}} сцен, которые продолжают друг друга без смены места, как один непрерывный кадр. Для каждой сцены дай одну строку — подробное описание по-английски: персонажи (всегда одинаково описанные), место, действие, движение камеры, звук. Без нумерации и пояснений. Ровно {{scenes}} строк."},
-    {"id": "opening", "op": "image", "prompt": "{{story}}, opening scene, {{style}}, film still", "width": 1344, "height": 768},
-    {"id": "shots", "op": "video", "each": "{{plan.lines}}", "prompt": "{{item}}, {{style}}", "first_frame": "{{opening.file}}", "seconds": "{{shot}}", "chain": true},
-    {"id": "cut", "op": "concat", "files": "{{shots.files}}"},
-    {"id": "score", "op": "music", "prompt": "{{music}}", "seconds": "{{seconds}}"},
-    {"id": "film", "op": "mux", "video": "{{cut.file}}", "audio": "{{score.file}}", "mode": "mix", "volume": 0.5}
+    {
+      "id": "plan",
+      "op": "llm",
+      "prompt": "Раздели историю «{{story}}» на {{scenes}} сцен, которые продолжают друг друга без смены места, как один непрерывный кадр. Для каждой сцены дай одну строку — подробное описание по-английски: персонажи (всегда одинаково описанные), место, действие, движение камеры и звук сцены (реплики героев в кавычках, шумы, музыка). Без нумерации и пояснений. Ровно {{scenes}} строк."
+    },
+    {
+      "id": "opening",
+      "op": "image",
+      "prompt": "{{story}}, opening scene, {{style}}, film still",
+      "width": 1344,
+      "height": 768
+    },
+    {
+      "id": "shots",
+      "op": "video",
+      "each": "{{plan.lines}}",
+      "prompt": "{{item}}, {{style}}",
+      "first_frame": "{{opening.file}}",
+      "seconds": "{{shot}}",
+      "chain": true
+    },
+    {
+      "id": "film",
+      "op": "concat",
+      "files": "{{shots.files}}"
+    }
   ],
-  "output": ["film"]
+  "output": [
+    "film"
+  ]
 }
