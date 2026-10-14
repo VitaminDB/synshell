@@ -47,6 +47,18 @@ pub fn output_size(name: Option<&str>) -> (f32, f32) {
     o.map(|o| (o.size.0 as f32, o.size.1 as f32)).unwrap_or((1920.0, 1080.0))
 }
 
+/// Телефон повёрнут горизонтально (вывод с фокусом шире, чем выше). Читает сигнал
+/// выводов: в реактивном построении вид перестроится при повороте.
+pub fn is_landscape(ctx: &ShellCtx) -> bool {
+    if !ctx.is_phone() {
+        return false;
+    }
+    let outs = syngui_layer::outputs().get();
+    let name = focused_output(ctx);
+    let o = name.as_deref().and_then(|n| outs.iter().find(|o| o.name == n)).or_else(|| outs.first());
+    o.is_some_and(|o| o.size.0 > o.size.1)
+}
+
 /// Обои и панели по мониторам (рабочий стол).
 pub fn install(ctx: ShellCtx) {
     install_with(ctx, true);

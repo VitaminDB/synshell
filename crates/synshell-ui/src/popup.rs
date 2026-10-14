@@ -18,6 +18,8 @@ use crate::ctx::{Popup, PopupKind, ShellCtx};
 use crate::ui::{boxed, icon, mi, InputArea};
 
 const GAP: f32 = 8.0;
+/// Телефон горизонтально: наибольшая ширина нижнего листа.
+const SHEET_WIDE_MAX: f32 = 560.0;
 
 thread_local! {
     static SURFACE: Cell<Option<SurfaceId>> = const { Cell::new(None) };
@@ -220,8 +222,12 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
     let is_sheet = ctx.is_phone() && !p.kind.is_context_menu() && !centered_on_phone(&p.kind);
     // Телефон: окно по центру экрана (часы) — во всю ширину, как лист.
     let full = is_sheet || (ctx.is_phone() && centered_on_phone(&p.kind));
+    // Телефон горизонтально: листы (кроме меню запуска) не во всю ширину — кнопки и
+    // ползунки на 900 px растягивались; и почти во всю высоту — иначе низ не помещался.
+    let wide = crate::manager::is_landscape(&ctx);
+    let wide_cap = if wide && !matches!(p.kind, PopupKind::Launcher) { SHEET_WIDE_MAX } else { f32::MAX };
     // На узком экране карточка не шире вывода.
-    let width = if full { ow0 - 2.0 * GAP } else { width.min((ow0 - 2.0 * GAP).max(120.0)) };
+    let width = if full { (ow0 - 2.0 * GAP).min(wide_cap) } else { width.min((ow0 - 2.0 * GAP).max(120.0)) };
     let card_class = if is_sheet { "popup-card popup-sheet".to_string() } else { card_class };
     let presence_edge = if is_sheet {
         Some(Edge::Bottom)
@@ -270,6 +276,9 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
         };
         if !launcher_desk {
             card = card.style("width", StyleValue::px(width));
+        }
+        if is_sheet && wide {
+            card = card.style("max-height", StyleValue::px(oh0 - 16.0));
         }
         Box::new(
             InputArea::new(card)

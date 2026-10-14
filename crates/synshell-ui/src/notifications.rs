@@ -294,8 +294,9 @@ fn add(ctx: ShellCtx, n: Notification, replace: bool) {
     if ctx.dnd.get_untracked() && n.urgency < 2 {
         return;
     }
-    // Открыта шторка уведомлений — новое уже видно в ленте; всплывать поверх незачем.
-    if crate::shade::current() == Some(crate::shade::Panel::Notifications) && !n.transient {
+    // Открыта шторка — карточка просвечивала бы сквозь неё; новое видно в ленте (и строкой
+    // «N уведомлений» в быстрых настройках).
+    if crate::shade::is_open() && !n.transient {
         synshell_common::haptics::play(synshell_common::haptics::Feedback::Notification);
         return;
     }
@@ -789,7 +790,7 @@ fn card(ctx: ShellCtx, n: Notification, in_center: bool) -> impl Widget {
         })
 }
 
-/// Убрать всплывающие карточки (в истории остаются): открылась шторка уведомлений.
+/// Убрать всплывающие карточки (в истории остаются): открылась шторка.
 pub fn hide_popups(ctx: ShellCtx) {
     for n in ctx.notifications.get_untracked() {
         close(ctx, n.id, 1);

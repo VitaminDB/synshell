@@ -61,9 +61,7 @@ pub fn toggle() {
 
 /// Показать шторку; открыта другая — переключить на эту.
 pub fn show(panel: Panel) {
-    if panel == Panel::Notifications {
-        crate::notifications::hide_popups(ShellCtx::get());
-    }
+    crate::notifications::hide_popups(ShellCtx::get());
     match PANEL.with(|p| p.get()) {
         Some(sig) if is_open() => {
             if sig.get_untracked() != panel {
@@ -157,12 +155,16 @@ fn view(ctx: ShellCtx, open: RwSignal<bool>, which: RwSignal<Panel>) -> impl Wid
                     close();
                 }
             });
+            // поворот экрана — перестроить под новую сторону
+            let landscape = crate::manager::is_landscape(&ctx);
             match which.get() {
+                // Горизонтально — во всю высоту двумя колонками с прокруткой: иначе плитки уходили за низ экрана.
+                Panel::QuickSettings if landscape => Box::new(closer().child(quick_settings_wide(ctx))),
                 Panel::QuickSettings => Box::new(
                     Column::new().main_axis_alignment(MainAxisAlignment::Start).child(closer().child(quick_settings(ctx))),
                 ),
                 // Во всю высоту: лента прокручивается внутри.
-                Panel::Notifications => Box::new(closer().child(notifications(ctx))),
+                Panel::Notifications => Box::new(closer().child(notifications(ctx, landscape))),
             }
         }))
     })
@@ -195,6 +197,30 @@ fn quick_settings(ctx: ShellCtx) -> impl Widget {
         .class("shade")
 }
 
+/// Быстрые настройки горизонтально: слева время, связь, ползунки, приложения;
+/// справа плитки. Колонки прокручиваются каждая сама.
+fn quick_settings_wide(ctx: ShellCtx) -> impl Widget {
+    let left = Column::new()
+        .gap(12.0)
+        .child(header(ctx))
+        .child(crate::link::shade_card(ctx))
+        .child(sliders(ctx))
+        .child(open_apps(ctx))
+        .child(notifications_link(ctx));
+    Column::new()
+        .gap(8.0)
+        .child(
+            Row::new()
+                .gap(16.0)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(ScrollView::new().vertical().child(left).class("shade-col grow"))
+                .child(ScrollView::new().vertical().child(tiles(ctx)).class("shade-col grow"))
+                .class("grow"),
+        )
+        .child(handle())
+        .class("shade shade-wide")
+}
+
 /// В быстрых настройках — строка «N уведомлений»: тап переключает на ленту.
 fn notifications_link(ctx: ShellCtx) -> impl Widget {
     rx(move || {
@@ -220,7 +246,9 @@ fn notifications_link(ctx: ShellCtx) -> impl Widget {
 }
 
 /// Шторка уведомлений: время и дата, «Не беспокоить», «Очистить», лента.
-fn notifications(ctx: ShellCtx) -> impl Widget {
+/// Горизонтально — шапка колонкой слева, лента справа (карточки во всю ширину
+/// экрана читались плохо).
+fn notifications(ctx: ShellCtx, landscape: bool) -> Box<dyn Widget> {
     let time = rx(move || {
         let now = ctx.now.get();
         Box::new(
@@ -230,20 +258,38 @@ fn notifications(ctx: ShellCtx) -> impl Widget {
                 .child(Text::new(crate::clock::format(now, "%A, %d %B")).class("shade-date")),
         )
     });
-    Column::new()
-        .gap(12.0)
-        .child(time)
-        .child(
-            Row::new()
+    let list = ScrollView::new().vertical().child(crate::notifications::history_list(ctx)).class("shade-notif-list grow");
+    if landscape {
+        let side = Column::new()
+            .gap(12.0)
+            .child(time)
+            .child(Text::new(t!("Уведомления")).class("shade-section"))
+            .child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(crate::notifications::dnd_chip(ctx)).child(crate::notifications::clear_button()))
+            .class("shade-notif-side");
+        return Box::new(
+            Column::new()
                 .gap(8.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(Text::new(t!("Уведомления")).class("shade-section grow"))
-                .child(crate::notifications::dnd_chip(ctx))
-                .child(crate::notifications::clear_button()),
-        )
-        .child(ScrollView::new().vertical().child(crate::notifications::history_list(ctx)).class("shade-notif-list grow"))
-        .child(handle())
-        .class("shade shade-notif-panel")
+                .child(Row::new().gap(16.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(side).child(list).class("grow"))
+                .child(handle())
+                .class("shade shade-notif-panel shade-wide"),
+        );
+    }
+    Box::new(
+        Column::new()
+            .gap(12.0)
+            .child(time)
+            .child(
+                Row::new()
+                    .gap(8.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(Text::new(t!("Уведомления")).class("shade-section grow"))
+                    .child(crate::notifications::dnd_chip(ctx))
+                    .child(crate::notifications::clear_button()),
+            )
+            .child(list)
+            .child(handle())
+            .class("shade shade-notif-panel"),
+    )
 }
 
 fn header(ctx: ShellCtx) -> impl Widget {

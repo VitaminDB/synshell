@@ -356,15 +356,19 @@ pub fn grid(ctx: &ShellCtx, output: &str) -> Grid {
     let r = reserved(ctx);
     if ctx.is_phone() {
         // Домашний экран уже не заходит под панели (exclusive zone 0).
+        // Горизонтально клетка — как в книжной ориентации (по короткой стороне), а не вдвое
+        // крупнее; сетка раскладки та же, по центру (виджеты по ширине раскладывает page_view).
+        let short = w.min(h);
         let (w, h) = (w - r[1] - r[3], h - r[0] - r[2]);
         let pad = 10.0;
         let cols = phone_columns(&cfg);
-        let cw = ((w - 2.0 * pad) / cols as f32).floor().max(40.0);
+        let cw = ((w.min(short) - 2.0 * pad) / cols as f32).floor().max(40.0);
         let ch = if cfg.desktop.phone_row > 0 { cfg.desktop.phone_row as f32 } else { cw };
         // сверху — точки столов
         let y0 = 34.0;
         let rows = ((h - y0 - pad) / ch).floor().max(1.0) as u32;
-        Grid { cols, rows, cw, ch, x0: pad, y0, width: w, height: h }
+        let x0 = ((w - cols as f32 * cw) / 2.0).floor().max(pad);
+        Grid { cols, rows, cw, ch, x0, y0, width: w, height: h }
     } else {
         let cell = (cfg.desktop.cell.max(32)) as f32;
         let pad = 12.0;
@@ -542,10 +546,14 @@ pub fn page_view(ctx: ShellCtx, page: usize, output: String) -> impl Widget {
         } else {
             Vec::new()
         };
-        let g = grid(&ctx, &output);
+        let mut g = grid(&ctx, &output);
         let list = items(&ctx);
         let mut placed: Vec<(Slot, DeskWidget)> =
             list.iter().enumerate().filter(|(_, w)| on_page(&ctx, w, page, &output)).map(|(i, w)| (Slot::Item(i), w.clone())).collect();
+        // Телефон горизонтально (не в правке): виджеты по порядку — в сетку на всю ширину.
+        if ctx.is_phone() && g.width > g.height && !editing {
+            (g, placed) = spread(g, placed);
+        }
         // Файлы рабочего стола без своего места — в свободные клетки
         // сверху вниз, затем вправо (как в KDE).
         if icons {
@@ -606,6 +614,39 @@ pub fn page_view(ctx: ShellCtx, page: usize, output: String) -> impl Widget {
         .fit(StackFit::Expand)
         .child(body)
         .child(Column::new().main_axis_alignment(MainAxisAlignment::End).cross_axis_alignment(CrossAxisAlignment::Center).child(Padding::only(0.0, 0.0, 0.0, lift).child(bar)))
+}
+
+/// Раскладка телефона на широкий экран: колонок столько, сколько клеток книжного
+/// размера влезает по ширине; виджеты сверху вниз, слева направо встают на первое
+/// свободное место. Сохранённые координаты не меняются — это только показ.
+fn spread(g: Grid, placed: Vec<(Slot, DeskWidget)>) -> (Grid, Vec<(Slot, DeskWidget)>) {
+    let pad = 10.0;
+    let cols = (((g.width - 2.0 * pad) / g.cw).floor() as u32).max(g.cols);
+    if cols == g.cols {
+        return (g, placed);
+    }
+    let wide = Grid { cols, x0: ((g.width - cols as f32 * g.cw) / 2.0).floor().max(pad), ..g };
+    let mut items = placed;
+    items.sort_by_key(|(_, w)| (w.y, w.x));
+    let mut taken: Vec<(u32, u32, u32, u32)> = Vec::new();
+    let mut out = Vec::with_capacity(items.len());
+    for (slot, mut w) in items {
+        // «До края» (значки на весь стол) — как есть, во всю новую ширину.
+        if w.w == 0 || w.h == 0 {
+            taken.push(wide.cells(&w));
+            out.push((slot, w));
+            continue;
+        }
+        let (_, _, cw, ch) = g.cells(&w);
+        let spot = (0..wide.rows + 64)
+            .flat_map(|y| (0..=cols - cw).map(move |x| (x, y)))
+            .find(|&(x, y)| !taken.iter().any(|t| overlaps(*t, (x, y, cw, ch))))
+            .unwrap_or((0, 0));
+        (w.x, w.y, w.w, w.h) = (spot.0, spot.1, cw, ch);
+        taken.push((spot.0, spot.1, cw, ch));
+        out.push((slot, w));
+    }
+    (wide, out)
 }
 
 /// Клетки сетки (режим правки) и рамка-подсказка при перетаскивании.

@@ -146,10 +146,16 @@ fn size(ctx: &ShellCtx) -> (f32, f32) {
     }
 }
 
+/// Высота шапки меню горизонтально: поиск, а кнопки низа — в той же строке.
+const CHROME_H_WIDE: f32 = 58.0 + 14.0;
+/// Телефон: ширина колонки значков (горизонтально колонок больше, а не шире значки).
+const PHONE_TILE_W: f32 = 96.0;
+
 /// Колонок в сетке закреплённых.
 fn columns(ctx: &ShellCtx) -> usize {
     if ctx.is_phone() {
-        4
+        let (ow, _) = crate::manager::output_size(crate::manager::focused_output(ctx).as_deref());
+        (((ow - 60.0) / PHONE_TILE_W).floor() as usize).clamp(4, 10)
     } else {
         ctx.cfg().launcher.columns.clamp(3, 10) as usize
     }
@@ -223,11 +229,13 @@ pub fn view(ctx: ShellCtx) -> Box<dyn Widget> {
     // Телефон: высота — по месту поверхности (между панелями и клавиатурой),
     // с запасом сверху, и меняется, когда клавиатура выезжает.
     let sized = rx(move || {
+        let wide = crate::manager::is_landscape(&ctx);
         let (w, h) = if phone {
-            // Лист `.popup-sheet` — не выше 86 % и с отступами 18 + 20 px:
-            // меню меньше на них, иначе низ (пользователь, питание) срезался.
+            // Лист `.popup-sheet` — не выше 86 % (горизонтально — почти во всю высоту, см.
+            // popup.rs) и с отступами 18 + 20 px: меню меньше на них, иначе низ срезался.
             let vp = syngui::viewport::viewport_size().get();
-            (vp.width - 20.0, (vp.height * 0.86 - 40.0).max(300.0))
+            let share = if wide { vp.height - 16.0 } else { vp.height * 0.86 };
+            (vp.width - 20.0, (share - 40.0).max(if wide { 200.0 } else { 300.0 }))
         } else {
             msize.get()
         };
@@ -242,14 +250,23 @@ pub fn view(ctx: ShellCtx) -> Box<dyn Widget> {
             let rows = chip_rows(&chip_labels(&instances), w - 24.0 - 8.0);
             CHIPS_H + (rows - 1) as f32 * (CHIP_ROW_H + CHIP_GAP)
         };
-        let mut col = Column::new().gap(14.0).child(search(st));
+        // Горизонтально высоты мало: кнопки низа — справа от поиска, а не отдельной строкой.
+        let top: Box<dyn Widget> = if wide {
+            Box::new(Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(search(st).class("grow")).child(footer(ShellCtx::get(), st, true)))
+        } else {
+            Box::new(search(st))
+        };
+        let mut col = Column::new().gap(14.0).child(top);
         if !instances.is_empty() {
             col = col.child(chips(st, instances.clone()));
         }
+        let chrome = if wide { CHROME_H_WIDE } else { CHROME_H };
+        col = col.child(body_ref(st, ctx, h - chrome - chips_h));
+        if !wide {
+            col = col.child(footer(ShellCtx::get(), st, false));
+        }
         let menu: Box<dyn Widget> = Box::new(
             col
-                .child(body_ref(st, ctx, h - CHROME_H - chips_h))
-                .child(footer(ShellCtx::get(), st))
                 .class("start")
                 .style("height", StyleValue::px(h))
                 .style("width", StyleValue::px(w - 24.0)),
@@ -811,7 +828,9 @@ fn set_pages(st: St, pages: bool) {
     crate::reload_after_write();
 }
 
-fn footer(ctx: ShellCtx, st: St) -> impl Widget {
+/// Низ меню: пользователь и кнопки; `compact` — только кнопки, без черты
+/// (горизонтально — в строке поиска).
+fn footer(ctx: ShellCtx, st: St, compact: bool) -> impl Widget {
     let user = std::env::var("USER").unwrap_or_else(|_| "user".into());
     let avatar: Box<dyn Widget> = match avatar_path() {
         Some(p) => Box::new(Image::new(p.to_string_lossy()).fit(ImageFit::Cover).class("start-avatar")),
@@ -824,11 +843,10 @@ fn footer(ctx: ShellCtx, st: St) -> impl Widget {
     let btn = |glyph: &'static str, f: fn()| {
         GestureDetector::new().on_click(f).child(DecoratedBox::new().child(icon(glyph).class("start-footer-icon")).class("start-footer-btn"))
     };
-    let mut row = Row::new()
-        .gap(8.0)
-        .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(avatar)
-        .child(Text::new(user).class("start-user grow"));
+    let mut row = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center);
+    if !compact {
+        row = row.child(avatar).child(Text::new(user).class("start-user grow"));
+    }
     if ctx.is_phone() {
         // Вид: значки по страницам ⇄ список.
         let toggle = rx(move || {
@@ -856,6 +874,6 @@ fn footer(ctx: ShellCtx, st: St) -> impl Widget {
                 anchor: crate::ctx::PopupAnchor { output: None, rect: None, edge: synshell_common::config::Edge::Bottom, attached: false, panel_opacity: None, on_panel: false },
             }));
         }))
-        .class("start-footer")
+        .class(if compact { "start-footer-compact" } else { "start-footer" })
 }
 

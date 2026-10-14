@@ -31,6 +31,13 @@ thread_local! {
 
 /// Область картинки в карточке (логические px, как `.recents-preview`).
 const PREVIEW: (f64, f64) = (226.0, 420.0);
+/// То же горизонтально: окна широкие, а высоты экрана мало.
+const PREVIEW_WIDE: (f64, f64) = (380.0, 230.0);
+
+/// Рамка карточки под ориентацию экрана.
+fn preview_box(ctx: &ShellCtx) -> (f64, f64) {
+    if crate::manager::is_landscape(ctx) { PREVIEW_WIDE } else { PREVIEW }
+}
 
 #[derive(Clone)]
 struct Thumb {
@@ -66,7 +73,8 @@ fn load_thumbs(ctx: &ShellCtx) {
     }
     let out = crate::manager::focused_output(ctx);
     let scale = ctx.comp_outputs.get_untracked().iter().find(|o| Some(&o.name) == out.as_ref()).map(|o| o.scale).unwrap_or(2.0).max(1.0);
-    let max = [(PREVIEW.0 * scale).round() as u32, (PREVIEW.1 * scale).round() as u32];
+    let pb = preview_box(ctx);
+    let max = [(pb.0 * scale).round() as u32, (pb.1 * scale).round() as u32];
     let sig = thumbs();
     std::thread::spawn(move || {
         let thumbs = match Client::connect().and_then(|mut c| c.request(&Request::Thumbnails { ids, max })) {
@@ -255,7 +263,9 @@ fn card(w: WindowInfo) -> impl Widget {
                         )
                         .child(preview(id, icon_path.clone(), title.clone())),
                 )
-                .class("recents-card"),
+                .class("recents-card")
+                // по рамке миниатюры (горизонтально — шире), поля .recents-card — 12 px
+                .style("width", (preview_box(&ShellCtx::get()).0 + 24.0) as f32),
         )
     };
     let presence = Presence::signal(leaving, body)
@@ -295,8 +305,9 @@ fn card(w: WindowInfo) -> impl Widget {
 /// [`PREVIEW`]) или, пока её нет, значок и заголовок.
 fn preview(id: u64, icon_path: Option<std::path::PathBuf>, title: String) -> impl Widget {
     rx(move || -> Box<dyn Widget> {
+        let pb = preview_box(&ShellCtx::get());
         if let Some(t) = thumbs().get().get(&id).cloned() {
-            let k = (PREVIEW.0 / t.width as f64).min(PREVIEW.1 / t.height as f64);
+            let k = (pb.0 / t.width as f64).min(pb.1 / t.height as f64);
             let (w, h) = ((t.width as f64 * k).round(), (t.height as f64 * k).round());
             return Box::new(
                 DecoratedBox::new()
@@ -316,7 +327,9 @@ fn preview(id: u64, icon_path: Option<std::path::PathBuf>, title: String) -> imp
                         .child(launchers::icon_widget(&icon_path, &None, "recents-big-icon", 72.0))
                         .child(Text::new(title.clone()).max_lines(3).class("recents-window-title")),
                 )
-                .class("recents-preview"),
+                .class("recents-preview")
+                .style("width", pb.0 as f32)
+                .style("height", pb.1 as f32),
         )
     })
 }

@@ -640,6 +640,10 @@ Text {
 .shade-notif-panel { padding-bottom: 12px; }
 .shade-notif-list { overflow-clip-margin: 4px; }
 .shade-notif-link .shade-tile-label { font-weight: 500; }
+/* горизонтально: поля по бокам шире, колонки прокручиваются; шапка уведомлений — колонкой слева */
+.shade-wide { padding: 14px 24px 8px 24px; }
+.shade-col { overflow-clip-margin: 4px; }
+.shade-notif-side { width: 260px; }
 .shade-handle { width: 44px; height: 5px; border-radius: 3px; background-color: var(--border); }
 
 /* ─── Уведомления ────────────────────────────────────────────────────────── */
