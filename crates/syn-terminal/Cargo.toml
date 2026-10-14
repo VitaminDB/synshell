@@ -1,0 +1,19 @@
+[package]
+name = "syn-terminal"
+description = "Терминал synshell на syngui: вкладки, своё окно, схемы цветов и шрифт"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "syn-terminal"
+path = "src/main.rs"
+
+[dependencies]
+synshell-common = { workspace = true, features = ["i18n"] }
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "clipboard", "image", "terminal", "wayland-dnd"] }
+serde.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

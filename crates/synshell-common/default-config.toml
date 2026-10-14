@@ -7,7 +7,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 [general]
-terminal = "konsole"
+terminal = "syn-terminal"
 file_manager = "synfiles"
 browser = "xdg-open https://"
 # Оболочка: панели, меню запуска, уведомления. Пусто — без оболочки
@@ -332,7 +332,7 @@ applets = [
 
 [launcher]
 style = "win11"                # win11 — как Windows 11 | menu — с разделами | fullscreen — сетка
-favorites = ["org.kde.konsole", "org.kde.dolphin", "firefox", "synsettings"]
+favorites = ["syn-terminal", "org.kde.dolphin", "firefox", "synsettings"]
 show_categories = true
 show_recent = true
 columns = 5

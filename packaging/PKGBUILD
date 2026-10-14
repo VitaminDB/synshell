@@ -56,7 +56,7 @@ _profile=${SYNSHELL_PROFILE:-release}
 
 build() {
     cd "$startdir/.."
-    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player -p syn-maps -p syn-compass -p syngamepad -p synpass -p syncamera -p syndroid -p syn-health -p syn-systeminfo -p synmodem -p syn-nfc -p syn-remote -p syn-woman-cycle -p synnfc -p synphone -p synsms -p synfsd -p synassistant
+    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player -p syn-terminal -p syn-maps -p syn-compass -p syngamepad -p synpass -p syncamera -p syndroid -p syn-health -p syn-systeminfo -p synmodem -p syn-nfc -p syn-remote -p syn-woman-cycle -p synnfc -p synphone -p synsms -p synfsd -p synassistant
     cargo build --profile "$_profile" -p synaptixd --bins --features "synaptixd/${SYNAPTIXD_FEATURES:-cuda},synaptixd/npu"
 }
 
@@ -67,7 +67,7 @@ check() {
 
 package() {
     cd "$startdir/.."
-    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player syn-maps syn-compass syngamepad synpass syncamera syndroid syndroidd syn-health syn-systeminfo synmodem synmodemd syn-nfc syn-remote synnfc synnfcd syn-woman-cycle synphone synsms synfsd synaptixd synaptixctl synassistant; do
+    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player syn-terminal syn-maps syn-compass syngamepad synpass syncamera syndroid syndroidd syn-health syn-systeminfo synmodem synmodemd syn-nfc syn-remote synnfc synnfcd syn-woman-cycle synphone synsms synfsd synaptixd synaptixctl synassistant; do
         install -Dm755 "target/$_profile/$b" "$pkgdir/usr/bin/$b"
     done
     install -Dm755 data/synshell-session "$pkgdir/usr/bin/synshell-session"
@@ -100,6 +100,10 @@ package() {
         "$pkgdir/usr/share/applications/syn-audio-player.desktop"
     install -Dm644 crates/syn-audio-player/data/icons/syn-audio-player.svg \
         "$pkgdir/usr/share/icons/hicolor/scalable/apps/syn-audio-player.svg"
+    install -Dm644 crates/syn-terminal/data/syn-terminal.desktop \
+        "$pkgdir/usr/share/applications/syn-terminal.desktop"
+    install -Dm644 crates/syn-terminal/data/icons/syn-terminal.svg \
+        "$pkgdir/usr/share/icons/hicolor/scalable/apps/syn-terminal.svg"
     install -Dm644 crates/syn-maps/data/syn-maps.desktop \
         "$pkgdir/usr/share/applications/syn-maps.desktop"
     install -Dm644 crates/syn-maps/data/icons/syn-maps.svg \

@@ -28,6 +28,7 @@ members = [
     "crates/syncamera",
     "crates/syn-video-player",
     "crates/syn-audio-player",
+    "crates/syn-terminal",
     "crates/syn-maps",
     "crates/syn-compass",
     "crates/synnfc",

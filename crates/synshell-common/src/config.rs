@@ -148,7 +148,7 @@ pub struct General {
 impl Default for General {
     fn default() -> Self {
         Self {
-            terminal: "konsole".into(),
+            terminal: "syn-terminal".into(),
             file_manager: "synfiles".into(),
             browser: "xdg-open https://".into(),
             shell: "syndesktop-shell".into(),
@@ -1319,7 +1319,7 @@ impl Panel {
                 Applet::new("separator"),
                 app("org.kde.dolphin"),
                 app("firefox"),
-                app("org.kde.konsole"),
+                app("syn-terminal"),
                 app("synsettings"),
                 Applet::new("taskbar"),
                 Applet::new("separator"),
@@ -1739,7 +1739,7 @@ impl Default for Launcher {
         Self {
             style: "win11".into(),
             favorites: vec![
-                "org.kde.konsole".into(),
+                "syn-terminal".into(),
                 "org.kde.dolphin".into(),
                 "firefox".into(),
                 "synsettings".into(),

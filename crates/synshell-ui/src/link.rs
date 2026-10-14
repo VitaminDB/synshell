@@ -162,7 +162,7 @@ fn open_files(p: &PeerInfo) {
 fn open_terminal(p: &PeerInfo) {
     let host = p.ssh_host.clone().unwrap_or_else(|| p.id.clone());
     let term = ShellCtx::get().cfg().general.terminal.clone();
-    let term = if term.trim().is_empty() { "foot".to_string() } else { term };
+    let term = if term.trim().is_empty() { "syn-terminal".to_string() } else { term };
     crate::actions::spawn(&format!("{term} -e ssh {}", shell_quote(&host)));
 }
 

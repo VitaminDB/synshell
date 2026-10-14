@@ -1,0 +1,19 @@
+[Desktop Entry]
+Type=Application
+Name=Терминал
+Name[en]=Terminal
+GenericName=Эмулятор терминала
+GenericName[en]=Terminal Emulator
+Comment=Командная строка во вкладках
+Comment[en]=Command line in tabs
+Exec=syn-terminal
+Icon=syn-terminal
+Categories=System;TerminalEmulator;
+Keywords=terminal;shell;console;command;prompt;терминал;консоль;оболочка;командная строка;
+StartupNotify=true
+Actions=new-window;
+
+[Desktop Action new-window]
+Name=Новое окно
+Name[en]=New Window
+Exec=syn-terminal

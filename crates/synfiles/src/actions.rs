@@ -39,7 +39,7 @@ pub fn spawn_shell(cmd: &str, cwd: Option<&Path>) {
 fn terminal_cmd() -> String {
     let t = state::ctx().cfg.get_untracked().general.terminal.clone();
     if t.trim().is_empty() {
-        "konsole".into()
+        "syn-terminal".into()
     } else {
         t
     }
