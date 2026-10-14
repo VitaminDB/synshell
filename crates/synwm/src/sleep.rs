@@ -5,7 +5,8 @@
 //! композитор, гася экран, и убирает, включая; внутри — pid композитора, чтобы
 //! служба не усыпляла телефон без живого композитора, и второй строкой —
 //! задержка `[idle] sleep_delay` (секунды после гашения экрана до сна; служба
-//! отсчитывает её от времени файла). Нет каталога (рабочий стол, служба не
+//! отсчитывает её от времени файла; `SLEEP_NEVER` — файл не ставится, телефон
+//! не засыпает). Нет каталога (рабочий стол, служба не
 //! установлена) — ничего не делается.
 
 use std::path::Path;
@@ -17,7 +18,7 @@ pub fn screen_power(on: bool, delay_secs: u32) {
     if !Path::new(DIR).is_dir() {
         return;
     }
-    let r = if on {
+    let r = if on || delay_secs == synshell_common::config::SLEEP_NEVER {
         match std::fs::remove_file(FLAG) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             r => r,

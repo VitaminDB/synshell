@@ -2024,10 +2024,13 @@ pub struct Idle {
     /// Уснуть через N секунд.
     pub suspend_after: u32,
     /// Телефон: глубокий сон через N секунд после гашения экрана (кнопкой или
-    /// по простою); 0 — сразу. Композитор пишет это в `/run/syn-sleep/screen-off`
-    /// вместе со своим pid, усыпляет служба платформы `syn-sleepd`.
+    /// по простою); 0 — сразу, [`SLEEP_NEVER`] — никогда. Композитор пишет это в
+    /// `/run/syn-sleep/screen-off` вместе со своим pid, усыпляет служба платформы `syn-sleepd`.
     pub sleep_delay: u32,
 }
+
+/// `[idle] sleep_delay`: телефон не засыпает вовсе (флаг сна не ставится).
+pub const SLEEP_NEVER: u32 = u32::MAX;
 
 impl Default for Idle {
     fn default() -> Self {
