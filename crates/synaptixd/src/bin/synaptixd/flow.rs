@@ -258,6 +258,10 @@ pub fn serve(m: &Arc<Manager>, sock: BorrowedFd, id: u64, flow: Value, inputs: V
         sandbox: Some(Sandbox { roots: vec![dir.clone()] }),
         cache: Some(&cache),
     };
+    let _watch = {
+        let c = cancel.clone();
+        crate::hangup::watch(sock.as_raw_fd(), move || c.cancel())
+    };
     let mut sink = Sink { sock, id, cancel, next_out: 0, inputs: ins.paths.clone() };
     let t0 = Instant::now();
     let r = sf::run_with(&flow, &dir, &opts, &mut |e| {
@@ -353,7 +357,7 @@ fn llm(cx: &mut Cx) -> R {
     let m = mgr();
     let model = m.resolve_id(&cx.str("model").unwrap_or_default(), ModelKind::Llm).map_err(|e| e.message)?;
     let params = m.params(&model, &call);
-    let g = with_progress(cx, |_, _| m.run(&model, |l| l.generate(&msgs, &params, &[], &|_| {}))).map_err(|e| e.message)?;
+    let g = with_progress(cx, |_, stop| m.run(&model, |l| l.generate(&msgs, &params, &[], &|_| {}, stop))).map_err(|e| stopped(cx, e.message))?;
     cx.label = format!("{} токенов", g.tokens);
     cx.out("text", Val::Text(g.text.trim().to_string()));
     if let Some(t) = Some(g.thinking.trim()).filter(|t| !t.is_empty()) {

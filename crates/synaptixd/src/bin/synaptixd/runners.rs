@@ -654,7 +654,7 @@ impl Loaded {
         Ok(synaptixd::Transcript { text: text.trim().to_string(), segments: Vec::new() })
     }
 
-    pub fn generate(&self, messages: &[synaptixd::Message], params: &Params, tools: &[serde_json::Value], on_event: &dyn Fn(synaptixd::Event)) -> anyhow::Result<synaptixd::Generated> {
+    pub fn generate(&self, messages: &[synaptixd::Message], params: &Params, tools: &[serde_json::Value], on_event: &dyn Fn(synaptixd::Event), cancel: &std::sync::atomic::AtomicBool) -> anyhow::Result<synaptixd::Generated> {
         use synaptix::facade::chat::{prompt_for_model, StreamParser};
         use synaptix::facade::llm::{GenerationOptions, LlmGeneration, Message};
         let Loaded::Llm(b) = self else { anyhow::bail!("модель не языковая") };
@@ -740,6 +740,8 @@ impl Loaded {
         synaptix_llm_common::model::set_prefill_prof(prof);
         let mut gen = LlmGeneration::new(llm, opts);
         gen.set_stop_tokens(tok.eos_ids().to_vec());
+        let stopped = || cancel.load(std::sync::atomic::Ordering::SeqCst);
+        gen.set_interrupt(stopped);
         let mut text = String::new();
         let mut tokens = 0usize;
         let on_piece = |id: u32, piece: &str| {
@@ -756,7 +758,7 @@ impl Loaded {
             if !tool.is_empty() {
                 on_event(synaptixd::Event::ToolText { text: tool });
             }
-            !parser.borrow().tool_call_ready()
+            !parser.borrow().tool_call_ready() && !stopped()
         };
         let need = ids.len() + max_tokens + 16;
         let mut session = Some(b.session.lock().unwrap_or_else(|e| e.into_inner()));

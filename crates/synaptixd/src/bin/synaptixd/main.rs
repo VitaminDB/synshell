@@ -4,6 +4,7 @@ mod library;
 mod devices;
 mod flow;
 mod gen;
+mod hangup;
 mod stages;
 mod manager;
 mod registry;
@@ -283,11 +284,20 @@ impl Conn {
                 let params = mgr.params(&model, &call);
                 let sock = self.sock.as_fd();
                 let id = self.current;
+                // Отмена: клиент закрыл сокет (кнопка «Стоп») — ход обрывается и
+                // на префилле, и между токенами.
+                let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let _watch = {
+                    let c = cancel.clone();
+                    hangup::watch(sock.as_raw_fd(), move || c.store(true, std::sync::atomic::Ordering::SeqCst))
+                };
                 let send = |ev: synaptixd::Event| {
                     let r = Reply { id, event: Some(ev), ..Default::default() };
-                    let _ = wire::send(sock, &serde_json::to_vec(&r).unwrap_or_default(), &[]);
+                    if wire::send(sock, &serde_json::to_vec(&r).unwrap_or_default(), &[]).is_err() {
+                        cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
                 };
-                let g = mgr.run(&model, |m| m.generate(&messages, &params, &tools, &send))?;
+                let g = mgr.run(&model, |m| m.generate(&messages, &params, &tools, &send, &cancel))?;
                 (data(g), none())
             }
             Request::Flow { flow, inputs, files } => flow::serve(&mgr, self.sock.as_fd(), self.current, flow, inputs, files, fds.into_iter().flatten().collect())?,
