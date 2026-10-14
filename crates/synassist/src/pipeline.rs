@@ -179,16 +179,10 @@ impl Tool for PipelineTool {
         }
         text.push_str(&format!("Файлы: {}", report.files.iter().map(|f| f.display().to_string()).collect::<Vec<_>>().join(", ")));
         // Настоящая длина роликов и звука — модель не выдумывает её в ответе.
-        let lens: Vec<String> = report.files.iter().filter_map(|f| media_seconds(f).map(|s| format!("{} — {s:.0} с", f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()))).collect();
+        let lens: Vec<String> = report.files.iter().filter_map(|f| crate::builtin::media::media_seconds(f).map(|s| format!("{} — {s:.0} с", f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()))).collect();
         if !lens.is_empty() {
             text.push_str(&format!("\nДлительность (называй пользователю только её): {}", lens.join(", ")));
         }
         Ok(ToolOutput { text, files: report.files })
     }
-}
-
-/// Длительность ролика или звука, с (ffprobe).
-fn media_seconds(path: &std::path::Path) -> Option<f64> {
-    let out = std::process::Command::new("ffprobe").args(["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0"]).arg(path).output().ok()?;
-    String::from_utf8_lossy(&out.stdout).trim().parse().ok().filter(|s: &f64| *s > 0.0)
 }
