@@ -16,6 +16,7 @@ fn task(k: ModelKind) -> sp::Task {
         ModelKind::Ctc => sp::Task::Ctc,
         ModelKind::Mfa => sp::Task::Mfa,
         ModelKind::Embed => sp::Task::Embed,
+        ModelKind::Diarize => sp::Task::Diarize,
     }
 }
 
@@ -30,6 +31,7 @@ pub fn kind_of(t: sp::Task) -> ModelKind {
         sp::Task::Ctc => ModelKind::Ctc,
         sp::Task::Mfa => ModelKind::Mfa,
         sp::Task::Embed => ModelKind::Embed,
+        sp::Task::Diarize => ModelKind::Diarize,
     }
 }
 

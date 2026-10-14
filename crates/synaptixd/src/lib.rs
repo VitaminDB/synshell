@@ -67,10 +67,12 @@ pub enum ModelKind {
     Image,
     Video,
     Music,
+    /// Кто когда говорит (Sortformer).
+    Diarize,
 }
 
 impl ModelKind {
-    pub const ALL: [ModelKind; 9] = [
+    pub const ALL: [ModelKind; 10] = [
         ModelKind::Llm,
         ModelKind::Image,
         ModelKind::Video,
@@ -80,6 +82,7 @@ impl ModelKind {
         ModelKind::Embed,
         ModelKind::Ctc,
         ModelKind::Mfa,
+        ModelKind::Diarize,
     ];
 
     pub const DEFAULTABLE: [ModelKind; 7] =
@@ -96,6 +99,7 @@ impl ModelKind {
             ModelKind::Image => "image",
             ModelKind::Video => "video",
             ModelKind::Music => "music",
+            ModelKind::Diarize => "diarize",
         }
     }
 

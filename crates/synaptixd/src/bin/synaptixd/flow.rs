@@ -41,6 +41,10 @@ fn install(m: &Arc<Manager>) {
         sf::ops::provide("music", music);
         sf::ops::provide("speak", speak);
         sf::ops::provide("transcribe", transcribe);
+        sf::ops::provide("omnivoice", omnivoice);
+        sf::ops::provide("voxcpm", voxcpm);
+        sf::ops::provide("vibevoice", vibevoice);
+        sf::ops::provide("diarize", diarize);
         stages::install();
         let _ = std::thread::Builder::new().name("flow-cache".into()).spawn(|| loop {
             std::thread::sleep(Duration::from_secs(60));
@@ -327,9 +331,24 @@ fn llm(cx: &mut Cx) -> R {
         msgs.push(synaptixd::Message::system(sys));
     }
     msgs.push(synaptixd::Message::user(cx.need("prompt")?));
-    let mut call = Params::new().with("thinking", false);
-    if let Some(n) = cx.pos("max_tokens") {
-        call = call.with("max_tokens", n as i64);
+    let mut call = Params::new().with("thinking", cx.bool("think"));
+    for k in ["max_tokens", "context"] {
+        if let Some(n) = cx.pos(k) {
+            call = call.with(k, n as i64);
+        }
+    }
+    // Отрицательное — умолчание модели.
+    for k in ["temperature", "top_p", "min_p", "repeat_penalty"] {
+        if let Some(v) = cx.num(k).filter(|v| *v >= 0.0) {
+            call = call.with(k, v);
+        }
+    }
+    if let Some(v) = cx.num("top_k").filter(|v| *v >= 0.0) {
+        call = call.with("top_k", v as i64);
+    }
+    match cx.num("seed").filter(|v| *v >= 0.0) {
+        Some(v) => call = call.with("seed", v as i64),
+        None => cx.uncached(),
     }
     let m = mgr();
     let model = m.resolve_id(&cx.str("model").unwrap_or_default(), ModelKind::Llm).map_err(|e| e.message)?;
@@ -337,6 +356,9 @@ fn llm(cx: &mut Cx) -> R {
     let g = with_progress(cx, |_, _| m.run(&model, |l| l.generate(&msgs, &params, &[], &|_| {}))).map_err(|e| e.message)?;
     cx.label = format!("{} токенов", g.tokens);
     cx.out("text", Val::Text(g.text.trim().to_string()));
+    if let Some(t) = Some(g.thinking.trim()).filter(|t| !t.is_empty()) {
+        cx.out("thinking", Val::Text(t.to_string()));
+    }
     Ok(())
 }
 
@@ -442,7 +464,10 @@ fn music(cx: &mut Cx) -> R {
 
 fn speak(cx: &mut Cx) -> R {
     let mut call = Params::new();
-    if let Some(v) = cx.file("voice").or_else(|| cx.str("voice").filter(|v| !v.starts_with('/'))) {
+    // Файл голоса — образец для клона; слова — описание голоса.
+    if let Some(f) = cx.file("voice").filter(|f| Path::new(f).is_file()) {
+        call = call.with("ref_audio", f);
+    } else if let Some(v) = cx.str("voice").filter(|v| !v.starts_with('/')) {
         call = call.with("voice", v);
     }
     if let Some(l) = cx.str("language") {
@@ -460,11 +485,80 @@ fn speak(cx: &mut Cx) -> R {
     Ok(())
 }
 
+/// Сид поля; 0 — случайный (результат тогда не повторяется).
+fn seed_field(cx: &mut Cx) -> u64 {
+    match cx.pos("seed") {
+        Some(s) => s as u64,
+        None => {
+            cx.uncached();
+            gen::random_seed()
+        }
+    }
+}
+
+/// Синтез речи нодой с явными параметрами: модель поля, образцы со входов.
+fn tts_node(cx: &mut Cx, text_port: &str, voice_ports: &[&str]) -> R {
+    let seed = seed_field(cx);
+    let req = crate::runners::TtsRequest {
+        text: cx.need(text_port)?,
+        voices: voice_ports.iter().filter_map(|p| cx.file(p)).map(PathBuf::from).collect(),
+        ref_text: cx.str("ref_text"),
+        prompt_audio: cx.file("prompt_audio").map(PathBuf::from),
+        prompt_text: cx.str("prompt_text"),
+        language: cx.str("language"),
+        instruct: cx.str("instruct"),
+        steps: cx.pos("steps").map(|v| v as usize),
+        guidance: cx.pos("guidance").map(|v| v as f32),
+        t_shift: cx.num("t_shift").map(|v| v as f32),
+        speed: cx.pos("speed").map(|v| v as f32),
+        max_len: cx.pos("max_len").map(|v| v as usize),
+        max_length_times: cx.pos("max_length_times").map(|v| v as f32),
+        seed,
+    };
+    let m = mgr();
+    let model = m.resolve_id(&cx.str("model").unwrap_or_default(), ModelKind::Tts).map_err(|e| e.message)?;
+    let (pcm, rate) = with_progress(cx, |progress, _| m.run(&model, |l| l.tts(&req, &mut |i, n| progress(i, n)))).map_err(|e| stopped(cx, e.message))?;
+    let path = cx.out_path("wav");
+    std::fs::write(&path, sf::ops::media::wav_mono(&pcm, rate)).map_err(|e| e.to_string())?;
+    cx.label = format!("речь {:.1} с, сид {seed}", pcm.len() as f32 / rate.max(1) as f32);
+    cx.out("audio", Val::File(path));
+    Ok(())
+}
+
+fn omnivoice(cx: &mut Cx) -> R {
+    tts_node(cx, "text", &["ref_audio"])
+}
+
+fn voxcpm(cx: &mut Cx) -> R {
+    tts_node(cx, "text", &["ref_audio"])
+}
+
+fn vibevoice(cx: &mut Cx) -> R {
+    // Голоса — по порядку говорящих, без пропусков.
+    let ports = ["voice1", "voice2", "voice3", "voice4"];
+    let n = ports.iter().take_while(|p| cx.file(p).is_some()).count();
+    tts_node(cx, "script", &ports[..n])
+}
+
+fn diarize(cx: &mut Cx) -> R {
+    let src = cx.need_file("audio")?;
+    let pcm = sf::ops::media::decode_pcm(&src, 16000)?;
+    let threshold = cx.num("threshold").unwrap_or(0.5) as f32;
+    let overlap = cx.bool("overlap");
+    let m = mgr();
+    let model = m.resolve_id(&cx.str("model").unwrap_or_default(), ModelKind::Diarize).map_err(|e| e.message)?;
+    let (pretty, json) = with_progress(cx, |_, _| m.run(&model, |l| l.diarize(&pcm, 16000, threshold, overlap))).map_err(|e| stopped(cx, e.message))?;
+    cx.label = format!("{} строк", pretty.lines().count());
+    cx.out("text", Val::Text(pretty));
+    cx.out("json", Val::Text(json));
+    Ok(())
+}
+
 fn transcribe(cx: &mut Cx) -> R {
     let src = cx.need_file("file")?;
     let pcm = sf::ops::media::decode_pcm(&src, 16000)?;
     let m = mgr();
-    let model = m.resolve_id("", ModelKind::Asr).map_err(|e| e.message)?;
+    let model = m.resolve_id(&cx.str("model").unwrap_or_default(), ModelKind::Asr).map_err(|e| e.message)?;
     let mut call = Params::new();
     if let Some(l) = cx.str("language") {
         call = call.with("language", l);

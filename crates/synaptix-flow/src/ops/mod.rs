@@ -1,5 +1,6 @@
 //! Виды нод: данные (текст, файл, шаблон, строки), генерация в службе
-//! (LLM, картинка, видео, музыка, речь, расшифровка), стадии моделей
+//! (LLM, картинка, видео, музыка, речь, расшифровка; OmniVoice, VoxCPM2,
+//! VibeVoice, разметка говорящих), стадии моделей
 //! ([`stages`]: модель → условие → латент → картинка/ролик) и монтаж ffmpeg
 //! (склейка, наложение звука, кадр, обрезка, картинка в ролик).
 
@@ -16,6 +17,7 @@ pub mod stages;
 const GEN: &str = "Генерация";
 const EDIT: &str = "Монтаж";
 const DATA: &str = "Данные";
+const SPEECH: &str = "Речь";
 
 pub static TEXT: NodeSpec = NodeSpec {
     kind: "text",
@@ -92,12 +94,20 @@ pub static LLM: NodeSpec = NodeSpec {
     description: "Ответ языковой модели службы на запрос",
     category: GEN,
     inputs: &[port("prompt", "Запрос", P::Text), port("system", "Система", P::Text)],
-    outputs: &[port("text", "Ответ", P::Text)],
+    outputs: &[port("text", "Ответ", P::Text), port("thinking", "Размышления", P::Text)],
     fields: &[
         field("prompt", "Запрос", F::LongText, ""),
         field("system", "Система", F::LongText, ""),
         field("model", "Модель", F::Text, ""),
         field("max_tokens", "Токенов", F::Number, "0"),
+        field("think", "Размышления", F::Bool, "false"),
+        field("context", "Контекст (0 — по модели)", F::Number, "0"),
+        field("temperature", "Температура (-1 — по модели)", F::Number, "-1.0"),
+        field("top_p", "Top-p (-1 — по модели)", F::Number, "-1.0"),
+        field("top_k", "Top-k (-1 — по модели)", F::Number, "-1"),
+        field("min_p", "Min-p (-1 — по модели)", F::Number, "-1.0"),
+        field("repeat_penalty", "Штраф повторов (-1 — по модели)", F::Number, "-1.0"),
+        field("seed", "Сид (-1 — случайный)", F::Number, "-1"),
     ],
     stage: false,
 };
@@ -201,7 +211,87 @@ pub static TRANSCRIBE: NodeSpec = NodeSpec {
     category: GEN,
     inputs: &[port("file", "Звук или ролик", P::Media)],
     outputs: &[port("text", "Текст", P::Text)],
-    fields: &[field("language", "Язык", F::Text, "")],
+    fields: &[field("language", "Язык", F::Text, ""), field("model", "Модель", F::Text, "")],
+    stage: false,
+};
+
+pub static OMNIVOICE: NodeSpec = NodeSpec {
+    kind: "omnivoice",
+    title: "OmniVoice",
+    description: "Речь на 600+ языках: голос с образца (клон), по описанию или свой",
+    category: SPEECH,
+    inputs: &[port("text", "Текст", P::Text), port("ref_audio", "Образец голоса", P::Audio), port("ref_text", "Текст образца", P::Text)],
+    outputs: &[port("audio", "Звук", P::Audio)],
+    fields: &[
+        field("text", "Текст", F::LongText, ""),
+        field("instruct", "Описание голоса (без образца)", F::Text, ""),
+        field("ref_text", "Текст образца", F::Text, ""),
+        field("language", "Язык", F::Text, ""),
+        field("model", "Модель", F::Text, "omnivoice"),
+        field("steps", "Шагов", F::Number, "32"),
+        field("guidance", "CFG", F::Number, "2.0"),
+        field("t_shift", "Сдвиг времени", F::Number, "0.1"),
+        field("speed", "Скорость", F::Number, "1.0"),
+        field("seed", "Сид (0 — случайный)", F::Number, "0"),
+    ],
+    stage: false,
+};
+
+pub static VOXCPM: NodeSpec = NodeSpec {
+    kind: "voxcpm",
+    title: "VoxCPM2",
+    description: "Речь: тембр с образца, продолжение записи (её текст обязателен) или оба сразу",
+    category: SPEECH,
+    inputs: &[port("text", "Текст", P::Text), port("ref_audio", "Образец тембра", P::Audio), port("prompt_audio", "Запись для продолжения", P::Audio), port("prompt_text", "Текст записи", P::Text)],
+    outputs: &[port("audio", "Звук", P::Audio)],
+    fields: &[
+        field("text", "Текст", F::LongText, ""),
+        field("prompt_text", "Текст записи", F::Text, ""),
+        field("model", "Модель", F::Text, "voxcpm2"),
+        field("guidance", "CFG", F::Number, "2.0"),
+        field("steps", "Шагов", F::Number, "10"),
+        field("max_len", "Предел длины, токенов", F::Number, "2000"),
+        field("seed", "Сид (0 — случайный)", F::Number, "1988"),
+    ],
+    stage: false,
+};
+
+pub static VIBEVOICE: NodeSpec = NodeSpec {
+    kind: "vibevoice",
+    title: "VibeVoice",
+    description: "Диалог до 4 голосов: строки «Speaker 1: …» (или простой текст), образцы голосов по порядку говорящих",
+    category: SPEECH,
+    inputs: &[
+        port("script", "Сценарий", P::Text),
+        port("voice1", "Голос 1", P::Audio),
+        port("voice2", "Голос 2", P::Audio),
+        port("voice3", "Голос 3", P::Audio),
+        port("voice4", "Голос 4", P::Audio),
+    ],
+    outputs: &[port("audio", "Звук", P::Audio)],
+    fields: &[
+        field("script", "Сценарий", F::LongText, ""),
+        field("model", "Модель", F::Text, "vibevoice-1-5b"),
+        field("guidance", "CFG", F::Number, "1.3"),
+        field("steps", "Шагов", F::Number, "20"),
+        field("max_length_times", "Предел длины, ×текста", F::Number, "2.0"),
+        field("seed", "Сид (0 — случайный)", F::Number, "0"),
+    ],
+    stage: false,
+};
+
+pub static DIARIZE: NodeSpec = NodeSpec {
+    kind: "diarize",
+    title: "Кто говорит",
+    description: "Разметка говорящих (Sortformer, до 4 голосов): сводка и JSON отрезков",
+    category: SPEECH,
+    inputs: &[port("audio", "Звук или ролик", P::Media)],
+    outputs: &[port("text", "Сводка", P::Text), port("json", "JSON", P::Text)],
+    fields: &[
+        field("model", "Модель", F::Text, ""),
+        field("threshold", "Порог", F::Number, "0.5"),
+        field("overlap", "Наложения голосов", F::Bool, "true"),
+    ],
     stage: false,
 };
 
@@ -282,6 +372,10 @@ static ALL: &[(&NodeSpec, Option<OpFn>)] = &[
     (&MUSIC, None),
     (&SPEAK, None),
     (&TRANSCRIBE, None),
+    (&OMNIVOICE, None),
+    (&VOXCPM, None),
+    (&VIBEVOICE, None),
+    (&DIARIZE, None),
     (&CONCAT, Some(media::concat)),
     (&MUX, Some(media::mux)),
     (&FRAME, Some(media::frame)),

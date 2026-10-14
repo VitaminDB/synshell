@@ -201,6 +201,7 @@ fn kind_label(k: ModelKind) -> String {
         ModelKind::Image => t!("Генерация картинок"),
         ModelKind::Video => t!("Генерация видео"),
         ModelKind::Music => t!("Генерация музыки"),
+        ModelKind::Diarize => t!("Разметка говорящих"),
     }
 }
 
@@ -215,6 +216,7 @@ fn group_label(k: ModelKind) -> String {
         ModelKind::Embed => t!("Эмбеддинги"),
         ModelKind::Ctc => t!("Распознавание звуков (CTC)"),
         ModelKind::Mfa => t!("Выравнивание речи (MFA)"),
+        ModelKind::Diarize => t!("Разметка говорящих"),
     }
 }
 
@@ -254,6 +256,7 @@ fn kind_icon(k: ModelKind) -> &'static str {
         ModelKind::Asr => "\u{e029}",
         ModelKind::Embed => "\u{e8b6}",
         ModelKind::Ctc | ModelKind::Mfa => "\u{e1b8}",
+        ModelKind::Diarize => "\u{e7ef}",
     }
 }
 

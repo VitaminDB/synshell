@@ -28,6 +28,26 @@ enum MediaPart {
     Text(String),
 }
 
+/// Синтез речи нодой графа: параметры прежних нод Synthos. `voices` — образцы
+/// (OmniVoice и VoxCPM2 берут первый, VibeVoice — до четырёх по говорящим).
+#[derive(Default)]
+pub struct TtsRequest {
+    pub text: String,
+    pub voices: Vec<std::path::PathBuf>,
+    pub ref_text: Option<String>,
+    pub prompt_audio: Option<std::path::PathBuf>,
+    pub prompt_text: Option<String>,
+    pub language: Option<String>,
+    pub instruct: Option<String>,
+    pub steps: Option<usize>,
+    pub guidance: Option<f32>,
+    pub t_shift: Option<f32>,
+    pub speed: Option<f32>,
+    pub max_len: Option<usize>,
+    pub max_length_times: Option<f32>,
+    pub seed: u64,
+}
+
 /// Движок синтеза речи — по архитектуре модели.
 pub enum TtsEngine {
     Omni(synaptix_tts_omnivoice::OmniVoicePipeline),
@@ -122,6 +142,7 @@ pub enum Loaded {
     Llm(Box<LlmSlot>),
     Tts(std::sync::Mutex<TtsState>, DeviceKind),
     Embed(Box<dyn synaptix::facade::embedding::Embedder + Send + Sync>),
+    Diarize(std::sync::Mutex<synaptix::facade::diarization::Diarizer>),
     /// Генеративная модель: веса грузит пайплайн на время запроса (по этапам,
     /// с выгрузкой лишнего), здесь — только путь и устройство.
     Image(std::path::PathBuf, DeviceKind, Option<String>),
@@ -176,7 +197,7 @@ pub struct CtcResult {
 }
 
 pub fn runnable(kind: ModelKind) -> bool {
-    matches!(kind, ModelKind::Ctc | ModelKind::Mfa | ModelKind::Asr | ModelKind::Llm | ModelKind::Tts | ModelKind::Embed | ModelKind::Image | ModelKind::Music | ModelKind::Video)
+    matches!(kind, ModelKind::Ctc | ModelKind::Mfa | ModelKind::Asr | ModelKind::Llm | ModelKind::Tts | ModelKind::Embed | ModelKind::Image | ModelKind::Music | ModelKind::Video | ModelKind::Diarize)
 }
 
 fn llm_policy(path: &Path, dev: DeviceKind, quant: Option<&str>) -> synaptix::facade::llm::QuantPolicy {
@@ -280,6 +301,21 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
             })
             .map_err(|e| anyhow::anyhow!("{e}"))?;
             Ok((Loaded::Asr(std::sync::Mutex::new(t)), Some(precision_tag(q, dtype))))
+        }
+        ModelKind::Diarize => {
+            use synaptix::facade::diarization::{DiarizationConfig, Diarizer};
+            let (q, dtype) = audio_precision(dev, quant, DType::BF16);
+            let compute = if dtype == DType::F32 { synaptix::facade::asr::ComputeDType::F32 } else { synaptix::facade::asr::ComputeDType::BF16 };
+            let d = Diarizer::load(DiarizationConfig {
+                model_path: path.to_path_buf(),
+                device: devices::device(dev),
+                storage_dtype: q.unwrap_or(dtype),
+                compute_dtype: compute,
+                threshold: 0.5,
+                allow_overlap: true,
+            })
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            Ok((Loaded::Diarize(std::sync::Mutex::new(d)), Some(precision_tag(q, dtype))))
         }
         ModelKind::Llm => {
             use synaptix::facade::llm::load_llm;
@@ -453,6 +489,85 @@ impl Loaded {
             Loaded::Video(VideoModel::Ltx(p), dev, quant) => Ok((p.clone(), *dev, quant.clone())),
             _ => anyhow::bail!("это не LTX-2.3"),
         }
+    }
+
+    /// Синтез речи с явными параметрами (ноды графа): без запоминания голосов
+    /// разговоров. Голоса — пути к образцам. `progress(шаг, всего)`.
+    pub fn tts(&self, r: &TtsRequest, progress: &mut dyn FnMut(usize, usize)) -> anyhow::Result<(Vec<f32>, u32)> {
+        let Loaded::Tts(p, _) = self else { anyhow::bail!("модель не синтезирует речь") };
+        let guard = p.lock().unwrap_or_else(|e| e.into_inner());
+        let text = r.text.trim();
+        anyhow::ensure!(!text.is_empty(), "нет текста");
+        match &guard.engine {
+            TtsEngine::Omni(p) => {
+                let gen = synaptix_tts_omnivoice::OmniVoiceGenerationConfig {
+                    num_step: r.steps.unwrap_or(32).clamp(1, 128),
+                    guidance_scale: r.guidance.unwrap_or(2.0),
+                    t_shift: r.t_shift.unwrap_or(0.1),
+                    seed: Some(r.seed),
+                    ..Default::default()
+                };
+                let language = r.language.as_deref().filter(|l| !l.trim().is_empty());
+                let wav = match r.voices.first() {
+                    // Образец — клон голоса; описание голоса при этом не действует.
+                    Some(path) => {
+                        let pr = p.create_voice_clone_prompt(path, r.ref_text.as_deref().unwrap_or("").trim()).map_err(|e| anyhow::anyhow!("образец голоса {}: {e}", path.display()))?;
+                        p.synthesize(text, Some(&pr), language, None, r.speed.unwrap_or(1.0) as f64, None, &gen)
+                    }
+                    None => p.synthesize(text, None, language, r.instruct.as_deref().filter(|i| !i.trim().is_empty()), r.speed.unwrap_or(1.0) as f64, None, &gen),
+                }
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+                Ok((wav, p.output_sample_rate() as u32))
+            }
+            TtsEngine::Vox(p) => {
+                let opts = synaptix_tts_voxcpm::GenerateOptions {
+                    cfg_value: r.guidance.unwrap_or(2.0),
+                    n_timesteps: r.steps.unwrap_or(10).clamp(1, 200),
+                    seed: r.seed,
+                    max_len: r.max_len.unwrap_or(2000).max(16),
+                    ..Default::default()
+                };
+                let s = |p: &std::path::Path| p.to_string_lossy().into_owned();
+                let prompt_text = r.prompt_text.as_deref().map(str::trim).filter(|t| !t.is_empty());
+                let out = match (r.voices.first(), r.prompt_audio.as_ref(), prompt_text) {
+                    (Some(rf), Some(pw), Some(pt)) => p.synthesize_combined(text, pt, &s(pw), &s(rf), &opts),
+                    (Some(rf), _, _) => p.synthesize_with_reference(text, &s(rf), &opts),
+                    (None, Some(pw), Some(pt)) => p.synthesize_continuation(text, pt, &s(pw), &opts),
+                    (None, Some(_), None) => anyhow::bail!("для продолжения записи нужен её текст"),
+                    _ => p.synthesize(text, &opts),
+                }
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+                Ok((out.pcm, out.sample_rate as u32))
+            }
+            TtsEngine::Vibe(p) => {
+                use synaptix_tts_vibevoice::pipeline::VoiceSample;
+                let cfg = synaptix_tts_vibevoice::GenerationConfig {
+                    cfg_scale: r.guidance.unwrap_or(1.3),
+                    ddpm_inference_steps: r.steps.unwrap_or(20).clamp(1, 200),
+                    max_length_times: r.max_length_times.unwrap_or(2.0),
+                    seed: r.seed,
+                    ..Default::default()
+                };
+                let script = synaptix_tts_vibevoice::processor::plain_text_to_script(text);
+                let voices: Vec<VoiceSample> = r
+                    .voices
+                    .iter()
+                    .map(|v| VoiceSample::from_path(v).map_err(|e| anyhow::anyhow!("образец голоса {}: {e}", v.display())))
+                    .collect::<anyhow::Result<_>>()?;
+                let out = p.synthesize_with(&script, &voices, &cfg, None, Some(progress)).map_err(|e| anyhow::anyhow!("{e}"))?;
+                Ok((out.audio, p.sample_rate()))
+            }
+        }
+    }
+
+    /// Диаризация: (сводка по говорящим, JSON отрезков).
+    pub fn diarize(&self, pcm: &[f32], sr: u32, threshold: f32, overlap: bool) -> anyhow::Result<(String, String)> {
+        let Loaded::Diarize(d) = self else { anyhow::bail!("модель не размечает говорящих") };
+        let mut d = d.lock().unwrap_or_else(|e| e.into_inner());
+        d.set_threshold(threshold);
+        d.set_allow_overlap(overlap);
+        let r = d.diarize_pcm(pcm, sr).map_err(|e| anyhow::anyhow!("{e}"))?;
+        Ok((r.to_pretty(), r.to_json()))
     }
 
     /// Музыкальная модель для стадий графа: компоненты, устройство, квант.

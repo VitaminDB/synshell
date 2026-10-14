@@ -722,6 +722,7 @@
 "GPU (Vulkan)" = "GPU (Vulkan)"
 "Распознавание звуков (CTC)" = "Phoneme recognition (CTC)"
 "Выравнивание речи (MFA)" = "Speech alignment (MFA)"
+"Разметка говорящих" = "Speaker diarization"
 "Распознавание речи" = "Speech recognition"
 "Языковая модель" = "Language model"
 "Синтез речи" = "Speech synthesis"
