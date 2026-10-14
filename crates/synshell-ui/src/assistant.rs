@@ -949,7 +949,7 @@ fn voice_stage(p: Panel) -> Box<dyn Widget> {
         }
         let results = p.results.get();
         if !results.is_empty() {
-            col = col.child(results_view(results));
+            col = col.child(results_view(results, false));
         }
         Box::new(col)
     });
@@ -1070,7 +1070,7 @@ pub fn view(_ctx: ShellCtx) -> impl Widget {
         }
         let results = p.results.get();
         if !results.is_empty() {
-            col = col.child(results_view(results));
+            col = col.child(results_view(results, true));
         }
         if !busy && p.chat_id.get().is_some() {
             let a1 = answer.clone();
@@ -1119,7 +1119,8 @@ pub fn view(_ctx: ShellCtx) -> impl Widget {
 }
 
 /// Файлы, созданные за ответ: картинки, ролики, звук, прочее — чипами.
-fn results_view(results: Vec<std::path::PathBuf>) -> Box<dyn Widget> {
+/// `indent` — отступ под аватар текстового вида; в голосовом аватара нет.
+fn results_view(results: Vec<std::path::PathBuf>, indent: bool) -> Box<dyn Widget> {
     // Ролики и звук — проигрыватели на всю ширину окна, остальное — плитками.
     let mut col = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
     let mut row = Flex::new().direction(FlexDirection::Row).wrap().gap(8.0);
@@ -1159,7 +1160,7 @@ fn results_view(results: Vec<std::path::PathBuf>) -> Box<dyn Widget> {
     if tiles {
         col = col.child(row);
     }
-    Box::new(DecoratedBox::new().child(col).class("assist-results"))
+    Box::new(DecoratedBox::new().child(col).class(if indent { "assist-results" } else { "assist-results flat" }))
 }
 
 /// Ход долгого инструмента: этап, полоса и проценты (или бегущая полоса).

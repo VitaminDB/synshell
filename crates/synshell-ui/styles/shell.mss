@@ -1646,6 +1646,7 @@ TextField {
 .assist-scroll { max-height: 420px; }
 .assist-answer { font-size: 14px; color: var(--fg); padding: 3px 6px; }
 .assist-results { padding: 0px 0px 0px 38px; }
+.assist-results.flat { padding: 0px; }
 .assist-result { width: 240px; height: 240px; border-radius: 12px; border-width: 1px; border-color: var(--border); background-color: var(--surface-alt); }
 .assist-result-img { width: 240px; height: 240px; border-radius: 12px; }
 .assist-audio { width: 100%; padding: 8px 12px; border-radius: 12px; background-color: var(--surface-alt); border-width: 1px; border-color: var(--border); }
