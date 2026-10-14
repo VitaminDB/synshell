@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use synaptix_flow::{self as sf, Cx, Handle, Val};
 use synaptix_gen::h3_stages as h3;
+use synaptix_gen::ltx_stages as ltx;
 use synaptix_gen::image_stages as img;
 use synaptixd::{DeviceKind, ModelKind};
 
@@ -32,6 +33,23 @@ pub fn install() {
     sf::ops::provide("h3_sample", h3_sample);
     sf::ops::provide("h3_decode_video", h3_decode_video);
     sf::ops::provide("h3_decode_audio", h3_decode_audio);
+    for (k, f) in [
+        ("ltx_model", ltx_model as fn(&mut Cx) -> R),
+        ("ltx_encode", ltx_encode),
+        ("ltx_nag", ltx_nag),
+        ("ltx_image", ltx_image),
+        ("ltx_stage1", ltx_stage1),
+        ("ltx_upscale", ltx_upscale),
+        ("ltx_stage2", ltx_stage2),
+        ("ltx_retake", ltx_retake),
+        ("ltx_ic_lora", ltx_ic_lora),
+        ("ltx_lipdub", ltx_lipdub),
+        ("ltx_a2v", ltx_a2v),
+        ("ltx_decode_video", ltx_decode_video),
+        ("ltx_decode_audio", ltx_decode_audio),
+    ] {
+        sf::ops::provide(k, f);
+    }
 }
 
 /// Стадия на устройстве: другие модели уступают ему место, стадии
@@ -275,6 +293,236 @@ fn h3_decode_audio(cx: &mut Cx) -> R {
     Ok(())
 }
 
+// ── LTX-2.3 ───────────────────────────────────────────────────────────────
+
+struct LtxModel {
+    id: String,
+    dev: DeviceKind,
+    m: ltx::LtxModel,
+}
+
+/// Живые модели LTX: держат DiT и Gemma между стадиями.
+fn ltx_live() -> &'static std::sync::Mutex<Vec<std::sync::Weak<LtxModel>>> {
+    static L: std::sync::OnceLock<std::sync::Mutex<Vec<std::sync::Weak<LtxModel>>>> = std::sync::OnceLock::new();
+    L.get_or_init(Default::default)
+}
+
+/// Отпустить DiT/Gemma моделей LTX (кроме `except` — той, что сейчас работает).
+pub fn release_ltx(except: Option<&str>) {
+    let models: Vec<Arc<LtxModel>> = ltx_live().lock().map(|mut l| {
+        l.retain(|w| w.strong_count() > 0);
+        l.iter().filter_map(|w| w.upgrade()).collect()
+    }).unwrap_or_default();
+    for m in models.iter().filter(|m| Some(m.id.as_str()) != except) {
+        if m.m.holds() {
+            tracing::info!("LTX {}: DiT/Gemma отпущены — карта нужна другой модели", m.id);
+            m.m.release();
+        }
+    }
+}
+
+/// Отпустить DiT/Gemma, простаивающие дольше двух минут.
+pub fn release_idle_ltx() {
+    let models: Vec<Arc<LtxModel>> = ltx_live().lock().map(|l| l.iter().filter_map(|w| w.upgrade()).collect()).unwrap_or_default();
+    for m in models {
+        if m.m.release_idle(std::time::Duration::from_secs(120)) {
+            tracing::info!("LTX {}: DiT/Gemma отпущены после простоя", m.id);
+        }
+    }
+}
+
+fn ltx_model(cx: &mut Cx) -> R {
+    let m = mgr();
+    let want = cx.str("model").unwrap_or_else(|| "ltx-2-3-22b-distilled-1-1".into());
+    let id = m.resolve_id(&want, ModelKind::Video).map_err(|e| e.message)?;
+    let (paths, dev, q) = m.run(&id, |l| l.ltx_source()).map_err(|e| e.message)?;
+    let quant = quant_field(cx, q);
+    let strength = cx.num("lora_strength").unwrap_or(1.0) as f32;
+    let distilled = paths.model.file_name().map(|n| n.to_string_lossy().to_lowercase().contains("distilled")).unwrap_or(false);
+    // LoRA: имя компонента модели или файл; dev-чекпойнту — distilled-LoRA (сигмы дистиллированные).
+    let lora = match cx.str("lora").as_deref() {
+        Some("union") => Some(paths.ic_union.clone().ok_or("у модели нет IC-LoRA union-control")?),
+        Some("motion") => Some(paths.ic_motion.clone().ok_or("у модели нет IC-LoRA motion-track")?),
+        Some("lipdub") => Some(paths.ic_lipdub.clone().ok_or("у модели нет IC-LoRA LipDub")?),
+        Some("distilled") => Some(paths.distilled_lora.clone().ok_or("у модели нет distilled-LoRA")?),
+        Some(_) => Some(PathBuf::from(cx.need_file("lora")?)),
+        None if !distilled => paths.distilled_lora.clone(),
+        None => None,
+    };
+    let depth = cx.file("depth").map(PathBuf::from);
+    let lora_name = lora.as_ref().and_then(|p| p.file_name()).map(|n| format!(", LoRA {}", n.to_string_lossy())).unwrap_or_default();
+    let model = ltx::open(paths, devices::device(dev), quant.as_deref(), lora.map(|p| (p, strength)), depth)?;
+    let label = format!("LTX-2.3 ({id}{}{lora_name})", quant.map(|q| format!(", {q}")).unwrap_or_default());
+    let h = Arc::new(LtxModel { id, dev, m: model });
+    if let Ok(mut l) = ltx_live().lock() {
+        l.push(Arc::downgrade(&h));
+    }
+    cx.label = label.clone();
+    cx.out("model", Val::Handle(Handle::from_arc(label, h)));
+    Ok(())
+}
+
+fn ltx_shape(cx: &Cx) -> ltx::Shape {
+    ltx::Shape {
+        width: cx.pos("width").unwrap_or(1024.0) as usize,
+        height: cx.pos("height").unwrap_or(576.0) as usize,
+        seconds: cx.pos("seconds").unwrap_or(10.0),
+        fps: cx.str("fps").and_then(|f| f.parse().ok()).unwrap_or(24.0),
+    }
+}
+
+/// Стадия LTX на видеокарте с ходом и отменой.
+fn ltx_run<T: Send>(cx: &mut Cx, m: &Arc<LtxModel>, why: &str, f: impl FnOnce(&ltx::Hooks) -> Result<T, String> + Send) -> Result<T, String> {
+    with_progress(cx, |progress, stop| on_device(&m.id, m.dev, why, || f(&ltx::Hooks { cancel: stop, progress })))
+        .map_err(|e| if cx.cancel.is_cancelled() { "прогон остановлен".into() } else { e })
+}
+
+fn ltx_latent(cx: &mut Cx, lat: ltx::LtxLatent, seed: Option<u64>) {
+    let label = format!("{}, {}×{}, {:.1} с{}", lat.label, lat.width(), lat.height(), lat.seconds(), seed.map(|s| format!(", сид {s}")).unwrap_or_default());
+    cx.label = label.clone();
+    cx.out("latent", Val::Handle(Handle::new(label, lat)));
+}
+
+fn ltx_encode(cx: &mut Cx) -> R {
+    let m = cx.handle::<LtxModel>("model")?;
+    let prompt = cx.need("prompt")?;
+    let cond = ltx_run(cx, &m, "кодировщик LTX", |_| m.m.encode(&prompt))?;
+    let label = format!("условие «{}»", short(&prompt, 40));
+    cx.label = label.clone();
+    cx.out("cond", Val::Handle(Handle::new(label, cond)));
+    Ok(())
+}
+
+fn ltx_nag(cx: &mut Cx) -> R {
+    let m = cx.handle::<LtxModel>("model")?;
+    let prompt = cx.str("prompt").unwrap_or_default();
+    let (scale, alpha, tau) = (cx.num("scale").unwrap_or(11.0) as f32, cx.num("alpha").unwrap_or(0.25) as f32, cx.num("tau").unwrap_or(2.5) as f32);
+    let nag = ltx_run(cx, &m, "NAG LTX", |_| m.m.nag(&prompt, scale, alpha, tau))?;
+    let label = format!("NAG ×{scale}");
+    cx.label = label.clone();
+    cx.out("nag", Val::Handle(Handle::new(label, nag)));
+    Ok(())
+}
+
+fn ltx_image(cx: &mut Cx) -> R {
+    let path = PathBuf::from(cx.need_file("image")?);
+    let strength = cx.num("strength").unwrap_or(1.0) as f32;
+    let frame = cx.num("frame").unwrap_or(0.0).max(0.0) as usize;
+    let image = ltx::LtxImage::load(&path, strength, frame)?;
+    let label = if frame == 0 { format!("первый кадр, сила {strength}") } else { format!("ключевой кадр {frame}, сила {strength}") };
+    cx.label = label.clone();
+    cx.out("image", Val::Handle(Handle::new(label, image)));
+    Ok(())
+}
+
+fn ltx_stage1(cx: &mut Cx) -> R {
+    let m = cx.handle::<LtxModel>("model")?;
+    let cond = cx.handle::<ltx::LtxCond>("cond")?;
+    let nag = cx.opt_handle::<ltx::LtxNag>("nag")?;
+    let image = cx.opt_handle::<ltx::LtxImage>("image")?;
+    let shape = ltx_shape(cx);
+    let seed = seed(cx);
+    let lat = ltx_run(cx, &m, "Stage1 LTX", |h| m.m.stage1(&cond, nag.as_deref(), image.as_deref(), shape, seed, h))?;
+    ltx_latent(cx, lat, Some(seed));
+    Ok(())
+}
+
+fn ltx_upscale(cx: &mut Cx) -> R {
+    let m = cx.handle::<LtxModel>("model")?;
+    let lat = cx.handle::<ltx::LtxLatent>("latent")?;
+    let up = ltx_run(cx, &m, "апскейл LTX", |_| m.m.upscale(&lat))?;
+    ltx_latent(cx, up, None);
+    Ok(())
+}
+
+fn ltx_stage2(cx: &mut Cx) -> R {
+    let m = cx.handle::<LtxModel>("model")?;
+    let lat = cx.handle::<ltx::LtxLatent>("latent")?;
+    let cond = cx.handle::<ltx::LtxCond>("cond")?;
+    let image = cx.opt_handle::<ltx::LtxImage>("image")?;
+    let seed = seed(cx);
+    let out = ltx_run(cx, &m, "Stage2 LTX", |h| m.m.stage2(&lat, &cond, image.as_deref(), seed, h))?;
+    ltx_latent(cx, out, Some(seed));
+    Ok(())
+}
+
+fn ltx_retake(cx: &mut Cx) -> R {
+    let m = cx.handle::<LtxModel>("model")?;
+    let cond = cx.handle::<ltx::LtxCond>("cond")?;
+    let video = PathBuf::from(cx.need_file("video")?);
+    let shape = ltx_shape(cx);
+    let (start, end) = (cx.num("start").unwrap_or(0.0), cx.num("end").unwrap_or(2.0));
+    if end <= start {
+        return Err(format!("отрезок retake пуст: {start}–{end} с"));
+    }
+    let seed = seed(cx);
+    let lat = ltx_run(cx, &m, "retake LTX", |h| m.m.retake(&cond, &video, shape, start, end, seed, h))?;
+    ltx_latent(cx, lat, Some(seed));
+    Ok(())
+}
+
+fn ltx_ic_lora(cx: &mut Cx) -> R {
+    let m = cx.handle::<LtxModel>("model")?;
+    let cond = cx.handle::<ltx::LtxCond>("cond")?;
+    let video = PathBuf::from(cx.need_file("video")?);
+    let shape = ltx_shape(cx);
+    let downscale = cx.pos("downscale").unwrap_or(2.0) as usize;
+    let strength = cx.num("strength").unwrap_or(1.0) as f32;
+    let control = match cx.str("control").as_deref() {
+        Some("canny") => ltx::Control::Canny { low: cx.num("canny_low").unwrap_or(0.1) as f32, high: cx.num("canny_high").unwrap_or(0.3) as f32 },
+        Some("depth") => ltx::Control::Depth,
+        _ => ltx::Control::None,
+    };
+    let seed = seed(cx);
+    let lat = ltx_run(cx, &m, "IC-LoRA LTX", |h| m.m.ic_lora(&cond, &video, shape, downscale, strength, control, seed, h))?;
+    ltx_latent(cx, lat, Some(seed));
+    Ok(())
+}
+
+fn ltx_lipdub(cx: &mut Cx) -> R {
+    let m = cx.handle::<LtxModel>("model")?;
+    let cond = cx.handle::<ltx::LtxCond>("cond")?;
+    let video = PathBuf::from(cx.need_file("video")?);
+    let audio = PathBuf::from(cx.need_file("audio")?);
+    let shape = ltx_shape(cx);
+    let lat = ltx_run(cx, &m, "LipDub LTX", |_| m.m.lipdub(&cond, &video, &audio, shape))?;
+    ltx_latent(cx, lat, None);
+    Ok(())
+}
+
+fn ltx_a2v(cx: &mut Cx) -> R {
+    let m = cx.handle::<LtxModel>("model")?;
+    let cond = cx.handle::<ltx::LtxCond>("cond")?;
+    let audio = PathBuf::from(cx.need_file("audio")?);
+    let shape = ltx_shape(cx);
+    let seed = seed(cx);
+    let lat = ltx_run(cx, &m, "видео по звуку LTX", |h| m.m.audio_to_video(&cond, &audio, shape, seed, h))?;
+    ltx_latent(cx, lat, Some(seed));
+    Ok(())
+}
+
+fn ltx_decode_video(cx: &mut Cx) -> R {
+    let m = cx.handle::<LtxModel>("model")?;
+    let lat = cx.handle::<ltx::LtxLatent>("latent")?;
+    let frames = ltx_run(cx, &m, "декодер видео LTX", |_| m.m.decode_video(&lat))?;
+    let path = cx.out_path("mp4");
+    synaptix_gen::video::write_mp4(&frames, None, lat.fps, &path)?;
+    cx.label = format!("ролик {}×{}, {:.1} с", lat.width(), lat.height(), frames.len() as f64 / lat.fps);
+    cx.out("video", Val::File(path));
+    Ok(())
+}
+
+fn ltx_decode_audio(cx: &mut Cx) -> R {
+    let m = cx.handle::<LtxModel>("model")?;
+    let lat = cx.handle::<ltx::LtxLatent>("latent")?;
+    let pcm = ltx_run(cx, &m, "декодер звука LTX", |_| m.m.decode_audio(&lat))?;
+    let path = cx.out_path("wav");
+    std::fs::write(&path, synaptix_gen::music::wav_bytes(&pcm, ltx::AUDIO_RATE, 2)).map_err(|e| e.to_string())?;
+    cx.label = format!("звук {:.1} с", pcm.len() as f32 / (2.0 * ltx::AUDIO_RATE as f32));
+    cx.out("audio", Val::File(path));
+    Ok(())
+}
+
 #[allow(dead_code)]
 fn _assert_send_sync() {
     fn ok<T: Send + Sync>() {}
@@ -285,4 +533,9 @@ fn _assert_send_sync() {
     ok::<H3Model>();
     ok::<h3::H3Cond>();
     ok::<h3::H3Latent>();
+    ok::<LtxModel>();
+    ok::<ltx::LtxCond>();
+    ok::<ltx::LtxNag>();
+    ok::<ltx::LtxImage>();
+    ok::<ltx::LtxLatent>();
 }

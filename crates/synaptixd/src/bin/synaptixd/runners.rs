@@ -445,6 +445,14 @@ impl Loaded {
         Ok((path.clone(), *dev, quant.clone()))
     }
 
+    /// LTX-2.3 для стадий графа: компоненты, устройство, квант.
+    pub fn ltx_source(&self) -> anyhow::Result<(synaptix_gen::video::LtxPaths, DeviceKind, Option<String>)> {
+        match self {
+            Loaded::Video(VideoModel::Ltx(p), dev, quant) => Ok((p.clone(), *dev, quant.clone())),
+            _ => anyhow::bail!("это не LTX-2.3"),
+        }
+    }
+
     /// MiniMax-H3 для стадий графа: модель, энкодер, устройство, квант.
     pub fn h3_source(&self) -> anyhow::Result<(std::path::PathBuf, Option<std::path::PathBuf>, DeviceKind, Option<String>)> {
         match self {

@@ -9,12 +9,19 @@
 //! модель → описание (+ референсы) → пустой латент или картинка в латент →
 //! сэмплер → декодер. Видео MiniMax-H3: модель → латент (размер и
 //! длительность) → описание с ключевыми кадрами и референсами → сэмплер →
-//! декодеры видео и звука.
+//! декодеры видео и звука. LTX-2.3: модель → описание (и NAG) → Stage1 →
+//! апскейл ×2 → Stage2, либо Retake / IC-LoRA / LipDub / по звуку → декодеры.
 
 use crate::schema::{field, port, FieldType as F, NodeSpec, PortType as P};
 
 const IMG: &str = "Модели картинок";
 const H3: &str = "MiniMax-H3";
+const LTX: &str = "LTX-2.3";
+
+/// Кадров в секунду у LTX-2.3.
+pub const LTX_FPS: &[&str] = &["24", "25", "48", "50"];
+/// Управляющий сигнал IC-LoRA.
+pub const LTX_CONTROLS: &[&str] = &["none", "canny", "depth"];
 
 /// Квант трансформера: пусто — из Параметров службы.
 pub const QUANTS: &[&str] = &["", "nvfp4", "mxfp8", "bf16"];
@@ -182,6 +189,186 @@ pub static H3_DECODE_AUDIO: NodeSpec = NodeSpec {
     stage: true,
 };
 
+pub static LTX_MODEL: NodeSpec = NodeSpec {
+    kind: "ltx_model",
+    title: "Модель LTX",
+    description: "LTX-2.3 из библиотеки службы (Gemma, апскейлер и IC-LoRA — её компоненты). LoRA: путь к файлу или union / motion / lipdub / distilled",
+    category: LTX,
+    inputs: &[],
+    outputs: &[port("model", "Модель", P::Model)],
+    fields: &[
+        field("model", "Модель", F::Text, ""),
+        field("quant", "Квант DiT", F::Choice(QUANTS), ""),
+        field("lora", "LoRA", F::File, ""),
+        field("lora_strength", "Сила LoRA", F::Number, "1"),
+        field("depth", "Depth Anything (каталог)", F::File, ""),
+    ],
+    stage: true,
+};
+
+pub static LTX_ENCODE: NodeSpec = NodeSpec {
+    kind: "ltx_encode",
+    title: "Кодировщик LTX",
+    description: "Описание → контексты видео и звука (Gemma → коннекторы)",
+    category: LTX,
+    inputs: &[port("model", "Модель", P::Model), port("prompt", "Описание", P::Text)],
+    outputs: &[port("cond", "Условие", P::Cond)],
+    fields: &[field("prompt", "Описание", F::LongText, "")],
+    stage: true,
+};
+
+pub static LTX_NAG: NodeSpec = NodeSpec {
+    kind: "ltx_nag",
+    title: "NAG LTX",
+    description: "Чего не должно быть в ролике (Normalized Attention Guidance) — для Stage1",
+    category: LTX,
+    inputs: &[port("model", "Модель", P::Model), port("prompt", "Без", P::Text)],
+    outputs: &[port("nag", "NAG", P::Cond)],
+    fields: &[
+        field("prompt", "Без (пусто — по умолчанию)", F::LongText, ""),
+        field("scale", "Масштаб", F::Number, "11"),
+        field("alpha", "Alpha", F::Number, "0.25"),
+        field("tau", "Tau", F::Number, "2.5"),
+    ],
+    stage: true,
+};
+
+pub static LTX_IMAGE: NodeSpec = NodeSpec {
+    kind: "ltx_image",
+    title: "Кадр-условие LTX",
+    description: "Картинка в ролик: кадр 0 — первый кадр, дальше — ключевой кадр на этом месте",
+    category: LTX,
+    inputs: &[port("image", "Картинка", P::Image)],
+    outputs: &[port("image", "Кадр", P::Cond)],
+    fields: &[field("strength", "Сила", F::Number, "1"), field("frame", "Кадр", F::Number, "0")],
+    stage: true,
+};
+
+const LTX_SHAPE: [crate::schema::FieldSpec; 4] = [
+    field("width", "Ширина", F::Number, "1024"),
+    field("height", "Высота", F::Number, "576"),
+    field("seconds", "Секунд", F::Number, "10"),
+    field("fps", "Кадров/с", F::Choice(LTX_FPS), "24"),
+];
+
+pub static LTX_STAGE1: NodeSpec = NodeSpec {
+    kind: "ltx_stage1",
+    title: "Stage1 LTX",
+    description: "Денойз видео и звука на половинной сетке (дальше — апскейл ×2 и Stage2)",
+    category: LTX,
+    inputs: &[port("model", "Модель", P::Model), port("cond", "Условие", P::Cond), port("nag", "NAG", P::Cond), port("image", "Кадр", P::Cond)],
+    outputs: &[port("latent", "Латент", P::Latent)],
+    fields: &[LTX_SHAPE[0], LTX_SHAPE[1], LTX_SHAPE[2], LTX_SHAPE[3], field("seed", "Сид", F::Number, "0")],
+    stage: true,
+};
+
+pub static LTX_UPSCALE: NodeSpec = NodeSpec {
+    kind: "ltx_upscale",
+    title: "Апскейл LTX ×2",
+    description: "Латент видео ×2 по сторонам (апскейлер модели)",
+    category: LTX,
+    inputs: &[port("model", "Модель", P::Model), port("latent", "Латент", P::Latent)],
+    outputs: &[port("latent", "Латент", P::Latent)],
+    fields: &[],
+    stage: true,
+};
+
+pub static LTX_STAGE2: NodeSpec = NodeSpec {
+    kind: "ltx_stage2",
+    title: "Stage2 LTX",
+    description: "Доводка латента после апскейла (то же условие и кадр)",
+    category: LTX,
+    inputs: &[port("model", "Модель", P::Model), port("latent", "Латент", P::Latent), port("cond", "Условие", P::Cond), port("image", "Кадр", P::Cond)],
+    outputs: &[port("latent", "Латент", P::Latent)],
+    fields: &[field("seed", "Сид", F::Number, "0")],
+    stage: true,
+};
+
+pub static LTX_RETAKE: NodeSpec = NodeSpec {
+    kind: "ltx_retake",
+    title: "Retake LTX",
+    description: "Перегенерировать отрезок исходного ролика по описанию",
+    category: LTX,
+    inputs: &[port("model", "Модель", P::Model), port("cond", "Условие", P::Cond), port("video", "Ролик", P::Video)],
+    outputs: &[port("latent", "Латент", P::Latent)],
+    fields: &[
+        LTX_SHAPE[0],
+        LTX_SHAPE[1],
+        LTX_SHAPE[2],
+        LTX_SHAPE[3],
+        field("start", "С, с", F::Number, "0"),
+        field("end", "По, с", F::Number, "2"),
+        field("seed", "Сид", F::Number, "0"),
+    ],
+    stage: true,
+};
+
+pub static LTX_IC_LORA: NodeSpec = NodeSpec {
+    kind: "ltx_ic_lora",
+    title: "IC-LoRA LTX",
+    description: "Ролик по образцу: как есть, по контурам (Canny) или глубине; адаптер — LoRA модели",
+    category: LTX,
+    inputs: &[port("model", "Модель", P::Model), port("cond", "Условие", P::Cond), port("video", "Образец", P::Video)],
+    outputs: &[port("latent", "Латент", P::Latent)],
+    fields: &[
+        LTX_SHAPE[0],
+        LTX_SHAPE[1],
+        LTX_SHAPE[2],
+        LTX_SHAPE[3],
+        field("downscale", "Уменьшить образец", F::Number, "2"),
+        field("strength", "Сила образца", F::Number, "1"),
+        field("control", "Сигнал", F::Choice(LTX_CONTROLS), "none"),
+        field("canny_low", "Canny low", F::Number, "0.1"),
+        field("canny_high", "Canny high", F::Number, "0.3"),
+        field("seed", "Сид", F::Number, "0"),
+    ],
+    stage: true,
+};
+
+pub static LTX_LIPDUB: NodeSpec = NodeSpec {
+    kind: "ltx_lipdub",
+    title: "LipDub LTX",
+    description: "Переозвучка ролика новой речью: губы под звук (обе стадии сразу; LoRA модели — lipdub)",
+    category: LTX,
+    inputs: &[port("model", "Модель", P::Model), port("cond", "Условие", P::Cond), port("video", "Ролик", P::Video), port("audio", "Речь", P::Audio)],
+    outputs: &[port("latent", "Латент", P::Latent)],
+    fields: &[LTX_SHAPE[0], LTX_SHAPE[1], LTX_SHAPE[2], LTX_SHAPE[3]],
+    stage: true,
+};
+
+pub static LTX_A2V: NodeSpec = NodeSpec {
+    kind: "ltx_a2v",
+    title: "Видео по звуку LTX",
+    description: "Ролик под звук (речь — липсинк, музыка — движение); обе стадии сразу",
+    category: LTX,
+    inputs: &[port("model", "Модель", P::Model), port("cond", "Условие", P::Cond), port("audio", "Звук", P::Audio)],
+    outputs: &[port("latent", "Латент", P::Latent)],
+    fields: &[LTX_SHAPE[0], LTX_SHAPE[1], LTX_SHAPE[2], LTX_SHAPE[3], field("seed", "Сид", F::Number, "0")],
+    stage: true,
+};
+
+pub static LTX_DECODE_VIDEO: NodeSpec = NodeSpec {
+    kind: "ltx_decode_video",
+    title: "Декодер видео LTX",
+    description: "Латент в ролик без звука",
+    category: LTX,
+    inputs: &[port("model", "Модель", P::Model), port("latent", "Латент", P::Latent)],
+    outputs: &[port("video", "Ролик", P::Video)],
+    fields: &[],
+    stage: true,
+};
+
+pub static LTX_DECODE_AUDIO: NodeSpec = NodeSpec {
+    kind: "ltx_decode_audio",
+    title: "Декодер звука LTX",
+    description: "Звуковые токены в звук (48 кГц, стерео)",
+    category: LTX,
+    inputs: &[port("model", "Модель", P::Model), port("latent", "Латент", P::Latent)],
+    outputs: &[port("audio", "Звук", P::Audio)],
+    fields: &[],
+    stage: true,
+};
+
 pub static ALL: &[&NodeSpec] = &[
     &IMAGE_MODEL,
     &IMAGE_ENCODE,
@@ -196,4 +383,17 @@ pub static ALL: &[&NodeSpec] = &[
     &H3_SAMPLE,
     &H3_DECODE_VIDEO,
     &H3_DECODE_AUDIO,
+    &LTX_MODEL,
+    &LTX_ENCODE,
+    &LTX_NAG,
+    &LTX_IMAGE,
+    &LTX_STAGE1,
+    &LTX_UPSCALE,
+    &LTX_STAGE2,
+    &LTX_RETAKE,
+    &LTX_IC_LORA,
+    &LTX_LIPDUB,
+    &LTX_A2V,
+    &LTX_DECODE_VIDEO,
+    &LTX_DECODE_AUDIO,
 ];

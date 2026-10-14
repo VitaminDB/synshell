@@ -44,6 +44,7 @@ fn local_file(s: &str) -> Option<PathBuf> {
 struct Uploads {
     files: Vec<File>,
     names: Vec<String>,
+    paths: Vec<PathBuf>,
     index: HashMap<PathBuf, usize>,
 }
 
@@ -58,6 +59,7 @@ impl Uploads {
         let f = File::open(p).map_err(|e| format!("{}: {e}", p.display()))?;
         let i = self.files.len();
         self.files.push(f);
+        self.paths.push(p.to_path_buf());
         self.names.push(p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| format!("in{i}")));
         self.index.insert(p.to_path_buf(), i);
         Ok(in_marker(i))
@@ -136,6 +138,8 @@ fn prepare(flow: &Flow, inputs: &HashMap<(u64, String), Val>) -> Result<(Flow, V
 #[derive(Default)]
 struct Received {
     paths: HashMap<usize, PathBuf>,
+    /// Входы клиента по номеру метки `@in:<n>`.
+    inputs: Vec<PathBuf>,
 }
 
 impl Received {
@@ -155,9 +159,15 @@ impl Received {
     }
 
     fn local(&self, v: &Val) -> Val {
-        v.map_files(&mut |p| match marker_index(&p.to_string_lossy(), "@out:").and_then(|i| self.paths.get(&i)) {
-            Some(l) => l.clone(),
-            None => p.to_path_buf(),
+        v.map_files(&mut |p| {
+            let s = p.to_string_lossy();
+            if let Some(l) = marker_index(&s, "@out:").and_then(|i| self.paths.get(&i)) {
+                return l.clone();
+            }
+            match marker_index(&s, "@in:").and_then(|i| self.inputs.get(i)) {
+                Some(l) => l.clone(),
+                None => p.to_path_buf(),
+            }
         })
     }
 
@@ -185,7 +195,7 @@ pub fn run_with(flow: &Flow, dir: &Path, opts: &RunOpts, on_event: &mut dyn FnMu
     let req = Request::Flow { flow: serde_json::to_value(&wire_flow).map_err(|e| e.to_string())?, inputs, files: up.names.clone() };
     let id = c.send(req, &fds).map_err(|e| stopped(format!("служба нейросетей: {e}")))?;
     drop(fds);
-    let mut got = Received::default();
+    let mut got = Received { inputs: up.paths.clone(), ..Default::default() };
     let mut values: HashMap<u64, Outputs> = HashMap::new();
     loop {
         let (reply, fds) = c.recv().map_err(|e| stopped(format!("служба нейросетей: {e}")))?;

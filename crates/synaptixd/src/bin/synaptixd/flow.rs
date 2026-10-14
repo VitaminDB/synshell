@@ -45,6 +45,7 @@ fn install(m: &Arc<Manager>) {
         let _ = std::thread::Builder::new().name("flow-cache".into()).spawn(|| loop {
             std::thread::sleep(Duration::from_secs(60));
             sweep(TTL);
+            stages::release_idle_ltx();
         });
     });
 }
@@ -178,6 +179,8 @@ struct Sink<'a> {
     id: u64,
     cancel: sf::Cancel,
     next_out: usize,
+    /// Входы клиента: на выходе (нода «Файл») — обратно меткой, без копии.
+    inputs: Vec<PathBuf>,
 }
 
 impl Sink<'_> {
@@ -196,7 +199,11 @@ impl Sink<'_> {
         let mapped: Outputs = o
             .iter()
             .map(|(k, v)| {
-                let v = v.map_files(&mut |p| match std::fs::File::open(p) {
+                let v = v.map_files(&mut |p| {
+                    if let Some(i) = self.inputs.iter().position(|x| x == p) {
+                        return PathBuf::from(synaptixd::flow::in_marker(i));
+                    }
+                    match std::fs::File::open(p) {
                     Ok(f) => {
                         let m = synaptixd::flow::out_marker(self.next_out);
                         self.next_out += 1;
@@ -204,6 +211,7 @@ impl Sink<'_> {
                         PathBuf::from(m)
                     }
                     Err(_) => p.to_path_buf(),
+                    }
                 });
                 (k.clone(), v)
             })
@@ -246,7 +254,7 @@ pub fn serve(m: &Arc<Manager>, sock: BorrowedFd, id: u64, flow: Value, inputs: V
         sandbox: Some(Sandbox { roots: vec![dir.clone()] }),
         cache: Some(&cache),
     };
-    let mut sink = Sink { sock, id, cancel, next_out: 0 };
+    let mut sink = Sink { sock, id, cancel, next_out: 0, inputs: ins.paths.clone() };
     let t0 = Instant::now();
     let r = sf::run_with(&flow, &dir, &opts, &mut |e| {
         let e = match e {

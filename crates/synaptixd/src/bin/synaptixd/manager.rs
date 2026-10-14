@@ -622,6 +622,8 @@ impl Manager {
     /// Выгрузить с устройства все незанятые модели, кроме `except` —
     /// генерации нужна вся видеопамять (пайплайн грузит этапы сам).
     pub fn clear_device(&self, except: &str, dev: DeviceKind, why: &str) {
+        // DiT и Gemma, что держат стадии LTX графа, — тоже место на карте.
+        crate::stages::release_ltx(Some(except));
         while self.evict_one_on(except, Some(dev), why) {}
     }
 
