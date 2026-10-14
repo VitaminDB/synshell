@@ -181,7 +181,9 @@ fn video(args: &Value) -> ToolResult {
 fn music(args: &Value) -> ToolResult {
     let prompt = need_str(args, "prompt")?;
     let lyrics = str_arg(args, "lyrics").unwrap_or("");
-    let seconds = args.get("seconds").and_then(Value::as_u64).map(|v| v.clamp(5, 300) as u32);
+    // Длительность — только если пользователь её назвал: модель ставит 30 с
+    // по привычке (повторяет прошлые вызовы), и песня обрывается на куплете.
+    let seconds = args.get("seconds").and_then(Value::as_u64).filter(|_| crate::tools::asked_duration()).map(|v| v.clamp(5, 300) as u32);
     let seed = args.get("seed").and_then(Value::as_u64);
     let mut c = synaptixd::Client::connect().map_err(|e| e.to_string())?;
     // Модель из настроек главнее; не выбрана — инструментал (без текста) на

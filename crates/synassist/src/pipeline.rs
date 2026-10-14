@@ -99,7 +99,21 @@ impl Tool for PipelineTool {
                 let names: Vec<String> = synaptix_graph::recipes::list(&self.dir).into_iter().map(|g| g.name).collect();
                 format!("рецепта «{name}» нет; есть: {}", names.join(", "))
             })?,
-            (None, Some(g)) => serde_json::from_value(g.clone()).map_err(|e| format!("граф: {e}"))?,
+            (None, Some(g)) => {
+                // Длительность музыки в своём графе — только названная пользователем
+                // (модель ставит 30 с по привычке); иначе — песня целиком.
+                let mut g = g.clone();
+                if !crate::tools::asked_duration() {
+                    for n in g.get_mut("nodes").and_then(Value::as_array_mut).into_iter().flatten() {
+                        if n.get("op").and_then(Value::as_str) == Some("music") {
+                            if let Some(o) = n.as_object_mut() {
+                                o.remove("seconds");
+                            }
+                        }
+                    }
+                }
+                serde_json::from_value(g).map_err(|e| format!("граф: {e}"))?
+            }
             _ => return Err("нужен recipe или graph".into()),
         };
         let params: Map<String, Value> = args.get("params").and_then(Value::as_object).cloned().unwrap_or_default();

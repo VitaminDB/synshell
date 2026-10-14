@@ -77,6 +77,26 @@ pub fn progress(step: usize, total: usize, label: &str) {
     });
 }
 
+thread_local! {
+    static REQUEST: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
+
+/// Просьба пользователя, ради которой идёт ход: инструменты сверяют с ней
+/// параметры, которые модель любит выдумывать (длительность песни).
+pub fn request() -> String {
+    REQUEST.with(|r| r.borrow().clone())
+}
+
+/// Назвал ли пользователь длительность («на 2 минуты», «30 секунд»).
+pub fn asked_duration() -> bool {
+    let r = request().to_lowercase();
+    ["сек", "мин", "sec", "min"].iter().any(|w| r.contains(w))
+}
+
+pub fn set_request(text: &str) {
+    REQUEST.with(|r| *r.borrow_mut() = text.to_string());
+}
+
 /// Выполнить `f` со слушателем хода (в том же потоке).
 pub fn with_progress<R>(listener: ProgressFn, f: impl FnOnce() -> R) -> R {
     let prev = PROGRESS.with(|p| p.replace(Some(listener)));

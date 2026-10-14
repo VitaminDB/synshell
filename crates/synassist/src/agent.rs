@@ -215,6 +215,7 @@ impl Agent {
         cancel: &AtomicBool,
         on: &mut dyn FnMut(AgentEvent),
     ) -> Result<(), String> {
+        crate::tools::set_request(user_text);
         let mut user = ChatMsg::user(user_text);
         user.files = files;
         chat.messages.push(user.clone());
@@ -334,10 +335,14 @@ impl Agent {
         // Ход долгих инструментов (генерация) — событиями, через канал: колбэк
         // `on` не Send, а слушатель хода живёт в потоке инструмента.
         let (tx, rx) = std::sync::mpsc::channel::<(usize, usize, String)>();
+        let request = crate::tools::request();
         let result = std::thread::scope(|scope| {
             let worker = scope.spawn(|| crate::tools::with_progress(Box::new(move |s, t, l| {
                 let _ = tx.send((s, t, l.to_string()));
-            }), || tool.run_ctx(&args, cancel)));
+            }), || {
+                crate::tools::set_request(&request);
+                tool.run_ctx(&args, cancel)
+            }));
             loop {
                 match rx.recv_timeout(std::time::Duration::from_millis(100)) {
                     Ok((step, total, label)) => on(AgentEvent::ToolProgress { step, total, label }),
