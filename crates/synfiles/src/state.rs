@@ -126,6 +126,9 @@ pub struct Ctx {
     /// Ширина боковой панели, px: меняется перетаскиванием разделителя,
     /// сохраняется в файле сеанса.
     pub sidebar_width: RwSignal<f32>,
+    /// Панель просмотра справа (F11) и её доля ширины.
+    pub preview: RwSignal<bool>,
+    pub preview_ratio: RwSignal<f32>,
     pub clip: RwSignal<Option<Clip>>,
     pub jobs_rev: RwSignal<u64>,
     pub thumbs_rev: RwSignal<u64>,
@@ -219,6 +222,8 @@ pub fn init(cfg: Config, start: Vec<Location>) -> Ctx {
         cur: use_signal(0usize),
         sidebar: use_signal(cfg.files.sidebar),
         sidebar_width: use_signal(load_sidebar_width()),
+        preview: use_signal(load_session_file().map(|s| s.preview).unwrap_or(false)),
+        preview_ratio: use_signal(load_session_file().and_then(|s| s.preview_ratio).filter(|r| (0.3..0.9).contains(r)).unwrap_or(PREVIEW_RATIO)),
         clip: use_signal(None),
         jobs_rev: use_signal(0u64),
         thumbs_rev: use_signal(0u64),
@@ -841,6 +846,18 @@ struct Session {
     /// Ширина боковой панели; нет — по умолчанию.
     #[serde(default)]
     sidebar_width: Option<f32>,
+    /// Панель просмотра открыта и доля ширины, что остаётся файлам.
+    #[serde(default)]
+    preview: bool,
+    #[serde(default)]
+    preview_ratio: Option<f32>,
+}
+
+/// Файлам — столько ширины, остальное — панели просмотра.
+pub const PREVIEW_RATIO: f32 = 0.68;
+
+fn load_session_file() -> Option<Session> {
+    std::fs::read_to_string(session_file()).ok().and_then(|t| toml::from_str::<Session>(&t).ok())
 }
 
 /// Боковая панель: ширина по умолчанию и пределы перетаскивания, px.
@@ -871,7 +888,13 @@ pub fn save_session() {
             Location::Search { root, .. } => Some(root.display().to_string()),
         })
         .collect();
-    let s = Session { tabs, current: ctx.cur.get_untracked(), sidebar_width: Some(ctx.sidebar_width.get_untracked().round()) };
+    let s = Session {
+        tabs,
+        current: ctx.cur.get_untracked(),
+        sidebar_width: Some(ctx.sidebar_width.get_untracked().round()),
+        preview: ctx.preview.get_untracked(),
+        preview_ratio: Some((ctx.preview_ratio.get_untracked() * 1000.0).round() / 1000.0),
+    };
     let f = session_file();
     if let Some(d) = f.parent() {
         let _ = std::fs::create_dir_all(d);

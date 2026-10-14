@@ -261,12 +261,18 @@ pub fn root() -> W {
 fn body() -> W {
     boxed(Reactive::new(move || -> Vec<W> {
         let ctx = state::ctx();
-        let content = DecoratedBox::new().class("content grow").child(panes());
+        let content: W = boxed(DecoratedBox::new().class("content grow").child(panes()));
+        // Панель просмотра — справа от файлов (на телефоне её нет).
+        let content: W = if ctx.preview.get() && !state::is_phone() {
+            boxed(SplitView::new(DecoratedBox::new().class("grow").child(content), DecoratedBox::new().class("grow").child(super::preview::panel())).ratio_signal(ctx.preview_ratio).min_size(220.0).class("preview-split"))
+        } else {
+            content
+        };
         if !ctx.sidebar.get() {
-            return vec![boxed(content)];
+            return vec![content];
         }
         vec![boxed(
-            SplitView::new(super::sidebar::sidebar(), content)
+            SplitView::new(super::sidebar::sidebar(), DecoratedBox::new().class("grow").child(content))
                 .first_size_signal(ctx.sidebar_width)
                 .first_size_range(state::SIDEBAR_MIN, state::SIDEBAR_MAX)
                 .min_size(300.0)

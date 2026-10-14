@@ -66,6 +66,13 @@ pub fn command_bar() -> W {
             .child(menu_button(icons::MORE, "", "", more_menu))
             .child(DecoratedBox::new().class("grow"))
             .child(icon_button(
+                icons::PREVIEW,
+                &t!("Панель просмотра (F11)"),
+                if state::ctx().preview.get() { "toggled" } else { "" },
+                true,
+                actions::toggle_preview,
+            ))
+            .child(icon_button(
                 icons::SPLIT,
                 &t!("Две панели (F3)"),
                 if tab.split.get() { "toggled" } else { "" },

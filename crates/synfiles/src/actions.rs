@@ -377,6 +377,12 @@ pub fn set_files(key: &str, v: impl Into<toml_edit::Value>, f: impl FnOnce(&mut 
 
 // ---------------------------------------------------------------- вид
 
+pub fn toggle_preview() {
+    let ctx = state::ctx();
+    // Запомнится в файле сеанса при закрытии окна.
+    ctx.preview.update(|v| *v = !*v);
+}
+
 pub fn toggle_sidebar() {
     let ctx = state::ctx();
     let v = !ctx.sidebar.get_untracked();
@@ -571,6 +577,7 @@ pub fn view_menu(p: Pane) -> Vec<MenuItem> {
         check("hidden", &t!("Скрытые файлы"), ctx.show_hidden.get_untracked()).shortcut("Ctrl+H"),
         check("split", &t!("Две панели"), state::tab().split.get_untracked()).shortcut("F3"),
         check("sidebar", &t!("Панель навигации"), ctx.sidebar.get_untracked()).shortcut("F9"),
+        check("preview", &t!("Панель просмотра"), ctx.preview.get_untracked()).shortcut("F11"),
     ]
 }
 
@@ -836,6 +843,7 @@ pub fn run(p: Pane, id: &str) {
         "split" => state::toggle_split(),
         "compare" => compare_panes(),
         "sidebar" => toggle_sidebar(),
+        "preview" => toggle_preview(),
         "settings" => ctx.settings.set(true),
         "zoom:in" => zoom(p, 1),
         "zoom:out" => zoom(p, -1),
@@ -972,6 +980,7 @@ pub fn key(k: Key, m: Modifiers) -> bool {
         Key::F4 => ctx.address_edit.set(true),
         Key::F5 => run(p, "refresh"),
         Key::F9 => toggle_sidebar(),
+        Key::F11 => toggle_preview(),
         Key::Delete if m.shift => delete_selected(p),
         Key::Delete => trash_selected(p),
         Key::Left if m.alt => state::go_back(p),

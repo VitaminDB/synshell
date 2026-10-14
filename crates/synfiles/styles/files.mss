@@ -132,6 +132,20 @@ SystemWindowControls {
 .git-new { background: #6b7685; }
 .git-conflict { background: var(--danger); }
 
+.preview { background: var(--content); border-left: 1px solid var(--divider); }
+.pv-body { padding: 16px; }
+.pv-media { border-radius: 8px; }
+.pv-title { font-size: 15px; font-weight: 600; color: var(--fg); }
+.pv-key { font-size: 11px; color: var(--muted); }
+.pv-val { font-size: 13px; color: var(--fg); }
+.pv-plain { font-size: 12px; color: var(--fg); }
+.pv-text-box { border: 1px solid var(--divider); border-radius: 8px; padding: 8px; }
+.pv-play-layer { width: 100%; height: 100%; }
+.pv-play { width: 56px; height: 56px; border-radius: 28px; background: #000000a0; }
+.pv-play-icon { icon-size: 34px; color: #ffffff; }
+.pv-btn { padding: 4px; border-radius: 6px; &:hover { background: var(--hover); } }
+.pv-many-icon { icon-size: 64px; color: var(--muted); }
+
 .search-mode { icon-size: 16px; color: var(--muted); }
 .search-mode.on { color: var(--accent); }
 

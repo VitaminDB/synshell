@@ -6,6 +6,7 @@ pub mod dialogs;
 pub mod items;
 pub mod jobs;
 pub mod phone;
+pub mod preview;
 pub mod settings;
 pub mod sidebar;
 pub mod toolbar;
