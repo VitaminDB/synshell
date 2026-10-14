@@ -435,7 +435,10 @@ fn stream_once(device: &str, cursor: bool, ui: Option<&Ui>) -> Result<(), String
         }
         let hlen = u32::from_be_bytes([pkt[0], pkt[1], pkt[2], pkt[3]]) as usize;
         let Ok(h) = serde_json::from_slice::<ScreenHeader>(&pkt[4..4 + hlen.min(pkt.len() - 4)]) else { continue };
+        // Изменившиеся места кадра — в текстуру окна уйдут только они.
+        let mut changed: Option<Vec<[u32; 4]>> = Some(Vec::new());
         if (h.width, h.height) != (fw, fh) {
+            changed = None;
             // Поворот экрана устройства (ширина и высота поменялись) — и окно.
             let rotated = fw > 0 && (fw > fh) != (h.width > h.height);
             fw = h.width;
@@ -477,6 +480,9 @@ fn stream_once(device: &str, cursor: bool, ui: Option<&Ui>) -> Result<(), String
                     want_key = false;
                     let t0 = Instant::now();
                     let res = d.decode(data, &v.rects, &mut buf, fw, fh);
+                    if let Some(c) = changed.as_mut() {
+                        c.extend_from_slice(&v.rects);
+                    }
                     if std::env::var_os("SYNLINK_VIEW_TIMING").is_some() {
                         eprintln!("декод+цвет {:.1} мс, {} байт", t0.elapsed().as_secs_f64() * 1e3, data.len());
                     }
@@ -493,6 +499,9 @@ fn stream_once(device: &str, cursor: bool, ui: Option<&Ui>) -> Result<(), String
         }
         for ([x, y, w, hh], r) in lossless {
             let Ok(raw) = zstd::bulk::decompress(&pkt[r], (w * hh * 4) as usize) else { continue };
+            if let Some(c) = changed.as_mut() {
+                c.push([x, y, w, hh]);
+            }
             let row = w as usize * 4;
             for i in 0..hh as usize {
                 let dst = ((y as usize + i) * fw as usize + x as usize) * 4;
@@ -505,7 +514,10 @@ fn stream_once(device: &str, cursor: bool, ui: Option<&Ui>) -> Result<(), String
         let data: Arc<[u8]> = Arc::from(buf.as_slice());
         record::push(fw, fh, &data);
         if let Some(ui) = ui {
-            ui.frame.set(fw, fh, data);
+            match changed {
+                Some(rects) => ui.frame.set_changed(fw, fh, data, rects),
+                None => ui.frame.set(fw, fh, data),
+            }
         }
         if std::env::var_os("SYNLINK_VIEW_TIMING").is_some() {
             eprintln!("кадр в окно {:.1} мс", t1.elapsed().as_secs_f64() * 1e3);
