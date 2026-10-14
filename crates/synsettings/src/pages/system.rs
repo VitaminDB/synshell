@@ -671,15 +671,82 @@ fn set_x11_modes(modes: &[String]) {
     state::bump();
 }
 
+/// Пропорции-пресеты для режимов игр: значение в `[x11] aspects` и подпись.
+const X11_ASPECTS: &[(&str, &str)] = &[
+    ("screen", "Как экран — без полос"),
+    ("16:9", "16:9 — большинство игр"),
+    ("16:10", "16:10"),
+    ("4:3", "4:3 — старые игры"),
+    ("5:4", "5:4"),
+    ("21:9", "21:9"),
+];
+
+/// Записать список пропорций режимов X11 целиком.
+fn set_x11_aspects(aspects: &[String]) {
+    let mut a = Array::new();
+    for m in aspects {
+        a.push(m.as_str());
+    }
+    set(&op!["x11", "aspects"], a);
+    state::bump();
+}
+
 /// «Разрешения для игр»: режимы экрана, которые видят Wine-игры.
 fn x11_modes_group(c: &synshell_common::config::Config) -> W {
     let modes = c.x11.modes.clone();
+    let aspects = c.x11.aspects.clone();
     let mut rows: Vec<W> = vec![note(
         &t!("Wine-игры видят эти разрешения как режимы экрана и выбирают их в своих настройках; выбранное \
          растягивается на весь экран. Чем меньше — тем крупнее интерфейс игры и выше частота кадров. \
-         720p — короткая сторона 720 точек в пропорциях экрана (без полос); можно и 1600x720 или 50%. \
-         Игра видит новый список после перезапуска."),
+         720p — короткая сторона 720 точек, длинная — в каждой из включённых пропорций (ниже); можно и \
+         1600x720, 50% или своя пропорция у одного режима: 720p@4:3. Игра видит новый список после перезапуска."),
     )];
+    // Пропорции: режим вида 720p даётся в каждой включённой; другие пропорции, чем у экрана, — с полосами.
+    let is_on = |v: &str| aspects.iter().any(|a| a.trim().eq_ignore_ascii_case(v));
+    for (v, label) in X11_ASPECTS {
+        let on = is_on(v);
+        let all = aspects.clone();
+        rows.push(row(
+            &tl(label),
+            if *v == "screen" { t!("Игра на весь экран") } else { t!("Картинка с полосами по бокам") },
+            Toggle::with_state(on).on_change(move |enable| {
+                let mut list: Vec<String> = all.iter().filter(|a| !a.trim().eq_ignore_ascii_case(v)).cloned().collect();
+                if enable {
+                    list.push(v.to_string());
+                }
+                if list.is_empty() {
+                    list.push("screen".into());
+                }
+                set_x11_aspects(&list);
+            }),
+        ));
+    }
+    let custom: Vec<String> =
+        aspects.iter().filter(|a| !X11_ASPECTS.iter().any(|(v, _)| a.trim().eq_ignore_ascii_case(v))).cloned().collect();
+    rows.push(row(
+        &t!("Свои пропорции"),
+        t!("Через запятую: 3:2, 32:9"),
+        TextField::with_text(custom.join(", ")).placeholder("3:2").width(160.0).on_change({
+            let aspects = aspects.clone();
+            move |v| {
+                let mut list: Vec<String> =
+                    aspects.iter().filter(|a| X11_ASPECTS.iter().any(|(p, _)| a.trim().eq_ignore_ascii_case(p))).cloned().collect();
+                list.extend(
+                    v.split(',')
+                        .map(|a| a.trim().to_string())
+                        .filter(|a| !a.is_empty() && synshell_common::config::parse_x11_aspect(a).is_some()),
+                );
+                if list.is_empty() {
+                    list.push("screen".into());
+                }
+                let mut arr = Array::new();
+                for m in &list {
+                    arr.push(m.as_str());
+                }
+                set(&op!["x11", "aspects"], arr);
+            }
+        }),
+    ));
     for (i, m) in modes.iter().enumerate() {
         let all = modes.clone();
         rows.push(row(

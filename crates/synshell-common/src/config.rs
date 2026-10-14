@@ -2491,6 +2491,11 @@ pub struct X11 {
     /// Значения — как у `resolution` (`720p`, `1600x720`, `50%`); `720p` даёт
     /// ширину в пропорциях экрана — без полос и искажений.
     pub modes: Vec<String>,
+    /// Пропорции режимов вида `720p` (короткая сторона): каждый такой режим даётся во всех
+    /// пропорциях списка — `screen` (как у экрана, без полос), `16:9`, `16:10`, `4:3`… Режим с
+    /// другими пропорциями игра рисует с полосами по бокам (Wine вписывает картинку). Своя
+    /// пропорция у одного режима — `720p@4:3`.
+    pub aspects: Vec<String>,
     /// DPI для программ, которые его читают (GTK, Qt, Steam — Xft.dpi и
     /// XSETTINGS); 0 — по разрешению (96 × масштаб). Игры его не замечают.
     pub dpi: u32,
@@ -2501,6 +2506,7 @@ impl Default for X11 {
         Self {
             resolution: "native".into(),
             modes: ["1080p", "900p", "720p", "600p", "540p", "480p"].map(String::from).to_vec(),
+            aspects: ["screen", "16:9", "4:3"].map(String::from).to_vec(),
             dpi: 0,
         }
     }
@@ -2589,6 +2595,58 @@ impl X11Resolution {
             Self::Short(p) => (even(p as f64 * aspect), p),
             Self::Percent(p) => (even(screen.0 * p / 100.0), even(screen.1 * p / 100.0)),
         }
+    }
+}
+
+/// Пропорция режима X11: `screen` (пусто) — как у экрана (`Some(None)`), `16:9` или `1.78` —
+/// длинная сторона к короткой (порядок чисел не важен); неразборчивое — `None`.
+pub fn parse_x11_aspect(s: &str) -> Option<Option<f64>> {
+    let s = s.trim().to_ascii_lowercase();
+    if s.is_empty() || s == "screen" {
+        return Some(None);
+    }
+    let r = match s.split_once([':', '/', 'x', '×']) {
+        Some((w, h)) => {
+            let (w, h): (f64, f64) = (w.trim().parse().ok()?, h.trim().parse().ok()?);
+            (w > 0.0 && h > 0.0).then(|| w.max(h) / w.min(h))?
+        }
+        None => s.parse::<f64>().ok().filter(|r| *r > 0.0).map(|r| r.max(1.0 / r))?,
+    };
+    (r <= 4.0).then_some(Some(r))
+}
+
+impl X11 {
+    /// Режимы экрана для игр в пикселях X11 (длинная сторона, короткая) на экране X11 `screen`
+    /// (длинная, короткая) — см. [`X11Resolution::mode_size`]: `720p` даётся во всех пропорциях
+    /// [`Self::aspects`], `720p@4:3` — в своей; повторы убраны. Неразборчивые записи — во втором списке.
+    pub fn mode_sizes(&self, screen: (f64, f64), client_scale: f64, output_scale: f64) -> (Vec<(u32, u32)>, Vec<String>) {
+        let even = |v: f64| ((v / 2.0).round() * 2.0).max(2.0) as u32;
+        let screen_aspect = screen.0 / screen.1.max(1.0);
+        let mut aspects: Vec<f64> = self.aspects.iter().filter_map(|a| parse_x11_aspect(a)).map(|a| a.unwrap_or(screen_aspect)).collect();
+        if aspects.is_empty() {
+            aspects.push(screen_aspect);
+        }
+        let (mut out, mut bad) = (Vec::<(u32, u32)>::new(), Vec::new());
+        for m in &self.modes {
+            let (res, own) = match m.split_once('@') {
+                Some((r, a)) => (X11Resolution::parse(r), parse_x11_aspect(a).map(|a| vec![a.unwrap_or(screen_aspect)])),
+                None => (X11Resolution::parse(m), Some(aspects.clone())),
+            };
+            let (Some(res), Some(list)) = (res, own) else {
+                bad.push(m.clone());
+                continue;
+            };
+            let sizes: Vec<(u32, u32)> = match res {
+                X11Resolution::Short(p) => list.iter().map(|a| (even(p as f64 * a), p)).collect(),
+                r => vec![r.mode_size(screen, client_scale, output_scale)],
+            };
+            for s in sizes {
+                if !out.contains(&s) {
+                    out.push(s);
+                }
+            }
+        }
+        (out, bad)
     }
 }
 
@@ -2844,6 +2902,18 @@ impl Default for Packages {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn x11_mode_aspects() {
+        let mut x = X11 { modes: vec!["720p".into(), "1600x720".into(), "480p@4:3".into(), "bad".into()], ..X11::default() };
+        x.aspects = vec!["screen".into(), "16:9".into(), "4:3".into(), "9:16".into()];
+        let (sizes, bad) = x.mode_sizes((2712.0, 1220.0), 2.348, 2.348);
+        assert_eq!(sizes, vec![(1600, 720), (1280, 720), (960, 720), (640, 480)]);
+        assert_eq!(bad, vec!["bad".to_string()]);
+        assert_eq!(parse_x11_aspect("16:10"), Some(Some(1.6)));
+        assert_eq!(parse_x11_aspect("screen"), Some(None));
+        assert_eq!(parse_x11_aspect("ой"), None);
+    }
+
     #[test]
     fn old_shade_top_edge_splits() {
         let c = Config::parse("[gestures]\nedge_top = \"shell shade\"\n").unwrap();

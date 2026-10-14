@@ -212,7 +212,7 @@ impl State {
         let long = logical.0.max(logical.1);
         let short = logical.0.min(logical.1);
         let dpi_setting = self.core.config.x11.dpi;
-        let modes = self.core.config.x11.modes.clone();
+        let x11 = self.core.config.x11.clone();
         let mut changed = false;
         for i in 0..self.core.xwayland.len() {
             let res = X11Resolution::parse(&self.core.xwayland[i].resolution).unwrap_or_else(|| {
@@ -222,16 +222,11 @@ impl State {
             let scale = res.client_scale(output_scale, logical);
             // Режимы экрана для игр — в пикселях этого Xwayland, длинная сторона первой.
             let screen = (long * scale, short * scale);
-            let mut list = String::new();
-            for m in &modes {
-                match X11Resolution::parse(m) {
-                    Some(r) => {
-                        let (w, h) = r.mode_size(screen, scale, output_scale);
-                        list.push_str(&format!("{w} {h}\n"));
-                    }
-                    None => tracing::warn!(mode = %m, "непонятный режим X11"),
-                }
+            let (sizes, bad) = x11.mode_sizes(screen, scale, output_scale);
+            for m in bad {
+                tracing::warn!(mode = %m, "непонятный режим X11");
             }
+            let list: String = sizes.iter().map(|(w, h)| format!("{w} {h}\n")).collect();
             let dpi = if dpi_setting > 0 { dpi_setting as f64 } else { scale * 96.0 };
             let x = &mut self.core.xwayland[i];
             let modes_changed = x.modes_written != list;
