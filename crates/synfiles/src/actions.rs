@@ -624,6 +624,16 @@ pub fn context_menu(p: Pane, on_item: bool) -> Vec<MenuItem> {
     }
     v.push(item("copy-path", &if one { t!("Копировать путь") } else { t!("Копировать пути") }, icons::COPY_PATH).shortcut("Ctrl+Shift+C"));
     v.push(item("link", &t!("Создать ссылку"), icons::LINK));
+    if loc.dir().is_some() {
+        v.push(MenuItem::separator());
+        if sel.iter().all(|e| !e.is_dir && ops::is_archive(&e.mime, &e.name)) {
+            v.push(item("extract-here", &t!("Извлечь сюда"), icons::UNARCHIVE));
+            let to = if one { t!("Извлечь в «{v}»", v = ops::archive_stem(&first.path)) } else { t!("Извлечь каждый в свою папку") };
+            v.push(item("extract-sub", &to, icons::UNARCHIVE));
+        }
+        let zip = if one { t!("Сжать в «{v}»", v = format!("{}.zip", ops::archive_stem(&first.path))) } else { t!("Сжать в ZIP") };
+        v.push(item("compress", &zip, icons::ARCHIVE));
+    }
     v.push(MenuItem::separator());
     if one {
         v.push(item("rename", &t!("Переименовать"), icons::RENAME).shortcut("F2"));
@@ -684,6 +694,18 @@ pub fn run(p: Pane, id: &str) {
         "link" => {
             if let Some(d) = &dir {
                 ops::start(Op::Link { srcs: paths, dest: d.clone() });
+            }
+        }
+        "extract-here" | "extract-sub" => {
+            if let Some(d) = &dir {
+                ops::start(Op::Extract { archives: paths, dest: d.clone(), subfolder: id == "extract-sub" });
+            }
+        }
+        "compress" => {
+            if let (Some(d), Some(f)) = (&dir, sel.first()) {
+                let stem = if sel.len() == 1 { ops::archive_stem(&f.path) } else { d.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| t!("Архив").into()) };
+                let dest = ops::free_name(&d.join(format!("{stem}.zip")));
+                ops::start(Op::Compress { srcs: paths, dest });
             }
         }
         "rename" => start_rename(p),

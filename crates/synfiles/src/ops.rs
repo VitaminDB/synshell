@@ -20,6 +20,10 @@ pub enum Op {
     Delete { srcs: Vec<PathBuf> },
     Restore { files: Vec<PathBuf> },
     EmptyTrash,
+    /// Распаковать архивы в `dest` (`subfolder` — каждый в свою папку по имени).
+    Extract { archives: Vec<PathBuf>, dest: PathBuf, subfolder: bool },
+    /// Упаковать `srcs` (из одной папки) в архив `dest`; формат — по расширению.
+    Compress { srcs: Vec<PathBuf>, dest: PathBuf },
 }
 
 impl Op {
@@ -34,6 +38,7 @@ impl Op {
             Op::Trash { srcs } | Op::Delete { srcs } => srcs.clone(),
             Op::Restore { files } => files.clone(),
             Op::EmptyTrash => vec![synshell_common::paths::data_home().join("Trash/files")],
+            Op::Extract { dest, .. } | Op::Compress { dest, .. } => vec![dest.clone()],
         }
     }
 
@@ -53,6 +58,8 @@ impl Op {
             Op::Delete { srcs } => t!("Удаление {v}", v = n(srcs)),
             Op::Restore { files } => t!("Восстановление {v}", v = n(files)),
             Op::EmptyTrash => t!("Очистка корзины").into(),
+            Op::Extract { archives, .. } => t!("Распаковка {v}", v = n(archives)),
+            Op::Compress { dest, .. } => t!("Упаковка в «{v}»", v = name_of(dest)),
         }
     }
 }
@@ -475,7 +482,92 @@ fn run(job: &Job) -> Option<Undo> {
             }
             None
         }
+        Op::Extract { archives, dest, subfolder } => {
+            p.total_files.store(archives.len() as u64, Ordering::Relaxed);
+            for a in archives {
+                if r.cancelled() {
+                    break;
+                }
+                *p.current.lock().unwrap() = name_of(a);
+                notify();
+                let to = if *subfolder { free_name(&dest.join(archive_stem(a))) } else { dest.clone() };
+                if let Err(e) = std::fs::create_dir_all(&to) {
+                    err(p, format!("{}: {e}", to.display()));
+                    continue;
+                }
+                let mut c = std::process::Command::new("bsdtar");
+                c.arg("-xf").arg(a).arg("-C").arg(&to);
+                if let Err(e) = run_tool(&mut r, c) {
+                    err(p, format!("{}: {e}", name_of(a)));
+                }
+                p.done_files.fetch_add(1, Ordering::Relaxed);
+            }
+            None
+        }
+        Op::Compress { srcs, dest } => {
+            p.total_files.store(1, Ordering::Relaxed);
+            *p.current.lock().unwrap() = name_of(dest);
+            notify();
+            let Some(parent) = srcs.first().and_then(|s| s.parent()) else { return None };
+            let mut c = std::process::Command::new("bsdtar");
+            c.arg("-a").arg("-cf").arg(dest).arg("-C").arg(parent);
+            for s in srcs {
+                c.arg(name_of(s));
+            }
+            if let Err(e) = run_tool(&mut r, c) {
+                err(p, format!("{}: {e}", name_of(dest)));
+                let _ = std::fs::remove_file(dest);
+            }
+            p.done_files.fetch_add(1, Ordering::Relaxed);
+            None
+        }
     }
+}
+
+/// Внешняя программа задания: отмена убивает её; ошибка — её последняя строка.
+fn run_tool(r: &mut Runner, mut c: std::process::Command) -> Result<(), String> {
+    let mut child = c.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped()).spawn().map_err(|e| e.to_string())?;
+    loop {
+        if r.cancelled() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(t!("отменено").into());
+        }
+        match child.try_wait().map_err(|e| e.to_string())? {
+            Some(st) if st.success() => return Ok(()),
+            Some(st) => {
+                let mut msg = String::new();
+                if let Some(mut e) = child.stderr.take() {
+                    let _ = e.read_to_string(&mut msg);
+                }
+                let line = msg.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string();
+                return Err(if line.is_empty() { st.to_string() } else { line });
+            }
+            None => std::thread::sleep(Duration::from_millis(100)),
+        }
+    }
+}
+
+/// Имя папки для распаковки: имя архива без расширений архива.
+pub fn archive_stem(p: &Path) -> String {
+    let name = name_of(p);
+    let lower = name.to_lowercase();
+    for ext in [".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst", ".tar.lz4", ".tgz", ".tbz2", ".txz", ".zip", ".7z", ".rar", ".tar", ".gz", ".xz", ".zst", ".bz2", ".iso", ".cpio", ".jar", ".apk"] {
+        if lower.ends_with(ext) && name.len() > ext.len() {
+            return name[..name.len() - ext.len()].to_string();
+        }
+    }
+    name
+}
+
+/// Архив, который распаковывает bsdtar (по типу или имени).
+pub fn is_archive(mime: &str, name: &str) -> bool {
+    matches!(
+        mime,
+        "application/zip" | "application/x-tar" | "application/x-compressed-tar" | "application/x-bzip-compressed-tar" | "application/x-xz-compressed-tar"
+            | "application/x-zstd-compressed-tar" | "application/x-7z-compressed" | "application/vnd.rar" | "application/x-rar" | "application/x-cpio"
+            | "application/gzip" | "application/x-iso9660-image" | "application/java-archive" | "application/vnd.android.package-archive"
+    ) || archive_stem(Path::new(name)) != name
 }
 
 fn same_device(a: &Path, b: &Path) -> bool {
@@ -735,6 +827,32 @@ mod tests {
             assert!(t.elapsed() < Duration::from_secs(10));
             std::thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    #[test]
+    fn archive_names() {
+        assert_eq!(archive_stem(Path::new("/a/фото.tar.zst")), "фото");
+        assert_eq!(archive_stem(Path::new("x.ZIP")), "x");
+        assert_eq!(archive_stem(Path::new("note.txt")), "note.txt");
+        assert!(is_archive("application/octet-stream", "a.7z"));
+        assert!(!is_archive("text/plain", "a.txt"));
+    }
+
+    #[test]
+    fn compress_then_extract_round_trip() {
+        let d = tempfile::tempdir().unwrap();
+        let src = d.path().join("папка");
+        std::fs::create_dir_all(src.join("вложенная")).unwrap();
+        std::fs::write(src.join("вложенная/a.txt"), "привет").unwrap();
+        let zip = d.path().join("архив.zip");
+        let j = start(Op::Compress { srcs: vec![src.clone()], dest: zip.clone() });
+        wait(&j);
+        assert!(zip.is_file(), "{:?}", j.progress.errors.lock().unwrap());
+        let out = d.path().join("out");
+        std::fs::create_dir_all(&out).unwrap();
+        let j = start(Op::Extract { archives: vec![zip], dest: out.clone(), subfolder: true });
+        wait(&j);
+        assert_eq!(std::fs::read_to_string(out.join("архив/папка/вложенная/a.txt")).unwrap(), "привет");
     }
 
     #[test]
