@@ -7637,6 +7637,7 @@ dependencies = [
  "scraper",
  "serde",
  "serde_json",
+ "synaptix-flow",
  "synaptix-graph",
  "synaptixd",
  "tempfile",

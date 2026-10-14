@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod attach;
+pub mod autoguide;
 pub mod builtin;
 pub mod chat;
 pub mod compact;

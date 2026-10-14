@@ -385,6 +385,15 @@ impl Tool for MediaTool {
     fn run(&self, args: &Value) -> ToolResult {
         self.run_ctx(args, &AtomicBool::new(false))
     }
+    fn pooled(&self) -> bool {
+        true
+    }
+    fn when(&self) -> String {
+        "создать картинку, видео (со звуком и репликами), музыку или песню, озвучить текст".into()
+    }
+    fn guide(&self) -> String {
+        crate::autoguide::models()
+    }
     /// «Стоп» обрывает запрос — служба прерывает генерацию.
     fn run_ctx(&self, args: &Value, cancel: &AtomicBool) -> ToolResult {
         let r = match need_str(args, "action")? {

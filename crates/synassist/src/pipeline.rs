@@ -85,6 +85,15 @@ impl Tool for PipelineTool {
     fn run(&self, args: &Value) -> ToolResult {
         self.run_ctx(args, &std::sync::atomic::AtomicBool::new(false))
     }
+    fn pooled(&self) -> bool {
+        true
+    }
+    fn when(&self) -> String {
+        "многошаговый сценарий с нейросетями своим графом из нод (мультфильм по сценам, клип, говорящий аватар, монтаж) или рецептом".into()
+    }
+    fn guide(&self) -> String {
+        format!("{}\n\n{}", crate::autoguide::nodes(), crate::autoguide::models())
+    }
 
     fn run_ctx(&self, args: &Value, cancel: &std::sync::atomic::AtomicBool) -> ToolResult {
         match str_arg(args, "action") {

@@ -1,7 +1,8 @@
 //! Навыки — как skills у Claude Code: папка на навык с `SKILL.md`
-//! (frontmatter `name`, `description`, дальше — инструкции). В системный
-//! промпт идут только описания; полный текст ассистент подгружает
-//! инструментом `skill`, когда задача подходит под навык.
+//! (frontmatter `name`, `description`, дальше — инструкции). Модели видны
+//! только описания (в описании инструмента `autoskill`); полный текст она
+//! подгружает им же, когда задача подходит под навык. Встроенные навыки
+//! (`models`, `nodes`) собираются из живой системы — [`crate::autoguide`].
 
 use std::path::{Path, PathBuf};
 
@@ -56,16 +57,9 @@ pub fn list(dir: &Path) -> Vec<Skill> {
     out
 }
 
-/// Раздел системного промпта: список навыков.
-pub fn prompt_section(skills: &[Skill]) -> String {
-    if skills.is_empty() {
-        return String::new();
-    }
-    let mut s = String::from("\n\n## Навыки\nНавыки — инструкции под отдельные задачи. Если задача подходит под навык, сначала загрузи его инструментом skill (name) и следуй ему.\n");
-    for k in skills {
-        s.push_str(&format!("- {}: {}\n", k.name, k.description));
-    }
-    s
+/// Раздел системного промпта: как пользоваться навыками и пулом.
+pub fn prompt_section(_skills: &[Skill]) -> String {
+    "\n\n## Навыки и инструменты по запросу\nНавыки — инструкции и справка под задачу: если задача подходит под навык, сначала загрузи его инструментом autoskill (name) и следуй ему. Встроенные навыки models (нейросети системы и их параметры) и nodes (ноды графов) собираются из системы сейчас — читай их, а не угадывай id моделей и поля. Часть инструментов (генерация медиа, сценарии) не объявлена сразу: их список — в описании autotools; перед первым вызовом загрузи нужный инструментом autotools (id) — получишь его параметры, установленные модели и правила.\n".into()
 }
 
 pub struct SkillTool {
@@ -74,18 +68,27 @@ pub struct SkillTool {
 
 impl Tool for SkillTool {
     fn name(&self) -> &'static str {
-        "skill"
+        "autoskill"
     }
     fn group(&self) -> &'static str {
         "навыки"
     }
     fn description(&self) -> String {
-        "Загрузить навык по имени: полные инструкции и список его файлов (читай их инструментом files).".into()
+        let mut s = String::from("Загрузить навык по имени: полные инструкции (и список его файлов — читай их инструментом files). Навыки (имя — когда загружать):\n");
+        for (name, when, _) in crate::autoguide::skills() {
+            s.push_str(&format!("- {name} — {when}\n"));
+        }
+        for k in list(&self.dir) {
+            s.push_str(&format!("- {} — {}\n", k.name, k.description));
+        }
+        s
     }
     fn parameters(&self) -> Value {
+        let mut names: Vec<String> = crate::autoguide::skills().iter().map(|(n, _, _)| n.to_string()).collect();
+        names.extend(list(&self.dir).into_iter().map(|k| k.name));
         json!({
             "type": "object",
-            "properties": { "name": { "type": "string", "description": "имя навыка из списка в системном промпте" } },
+            "properties": { "name": { "type": "string", "enum": names, "description": "имя навыка" } },
             "required": ["name"]
         })
     }
@@ -97,6 +100,9 @@ impl Tool for SkillTool {
     }
     fn run(&self, args: &Value) -> ToolResult {
         let name = need_str(args, "name")?;
+        if let Some((n, _, make)) = crate::autoguide::skills().into_iter().find(|(n, _, _)| n.eq_ignore_ascii_case(name)) {
+            return Ok(ToolOutput::text(format!("Навык «{n}» (собран из системы сейчас):\n\n{}", make())));
+        }
         let skills = list(&self.dir);
         let k = skills.iter().find(|k| k.name.eq_ignore_ascii_case(name)).ok_or_else(|| {
             format!("навыка «{name}» нет; есть: {}", skills.iter().map(|k| k.name.as_str()).collect::<Vec<_>>().join(", "))
@@ -132,7 +138,7 @@ mod tests {
         let skills = list(dir.path());
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].name, "weekly-report");
-        assert!(prompt_section(&skills).contains("weekly-report: недельный отчёт"));
+        assert!(SkillTool { dir: dir.path().into() }.description().contains("weekly-report — недельный отчёт"));
         let out = SkillTool { dir: dir.path().into() }.run(&json!({"name": "weekly-report"})).unwrap();
         assert!(out.text.contains("1. Собери задачи."));
         assert!(out.text.contains("шаблон.md"));

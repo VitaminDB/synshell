@@ -101,11 +101,9 @@ impl Agent {
 
     /// Навыки из каталога `dir`: описания в промпте и инструмент `skill`.
     pub fn with_skills(mut self, dir: std::path::PathBuf) -> Self {
-        let skills = crate::skills::list(&dir);
-        if !skills.is_empty() {
-            self.tools.push(Arc::new(crate::skills::SkillTool { dir }));
-            self.skills = skills;
-        }
+        // Встроенные навыки (модели, ноды) есть всегда — инструмент тоже.
+        self.skills = crate::skills::list(&dir);
+        self.tools.push(Arc::new(crate::skills::SkillTool { dir }));
         self
     }
 
@@ -187,7 +185,11 @@ impl Agent {
     }
 
     fn schemas(&self) -> Vec<Value> {
-        let mut v: Vec<Value> = self.tools.iter().map(|t| crate::tools::schema(t.as_ref())).collect();
+        let mut v: Vec<Value> = self.tools.iter().filter(|t| !t.pooled()).map(|t| crate::tools::schema(t.as_ref())).collect();
+        let pool: Vec<&Arc<dyn Tool>> = self.tools.iter().filter(|t| t.pooled()).collect();
+        if !pool.is_empty() {
+            v.push(autotools_schema(&pool));
+        }
         if self.subagent {
             v.push(subagent_schema());
         }
@@ -271,7 +273,10 @@ impl Agent {
                     break;
                 }
                 let model = chat.model.clone();
-                let msg = self.execute(&model, &call.name, &call.arguments, confirm, cancel, on);
+                let msg = match self.pool_gate(chat, &call.name) {
+                    Some(msg) => msg,
+                    None => self.execute(&model, &call.name, &call.arguments, confirm, cancel, on),
+                };
                 chat.messages.push(msg.clone());
                 on(AgentEvent::Message(msg));
             }
@@ -308,15 +313,74 @@ impl Agent {
 
     fn tool_names(&self) -> Vec<&'static str> {
         let mut v: Vec<&'static str> = self.tools.iter().map(|t| t.name()).collect();
+        v.push(AUTOTOOLS);
         if self.subagent {
             v.push(SUBAGENT);
         }
         v
     }
 
-    fn execute(&self, model: &str, raw_name: &str, arguments: &str, confirm: &dyn Confirm, cancel: &AtomicBool, on: &mut dyn FnMut(AgentEvent)) -> ChatMsg {
+    /// Инструмент пула, который в этом разговоре ещё не загружали
+    /// (`autotools`), — не вызывать, а вернуть подсказку загрузить: без его
+    /// справки модель угадывает модели и поля.
+    fn pool_gate(&self, chat: &Chat, raw_name: &str) -> Option<ChatMsg> {
         let names = self.tool_names();
         let name = crate::tools::args::canonical_name(raw_name, &names);
+        let tool = self.find(name).filter(|t| t.pooled())?;
+        let mark = loaded_mark(tool.name());
+        let loaded = chat.messages.iter().any(|m| !m.compacted && m.tool.as_ref().is_some_and(|t| t.name == AUTOTOOLS && t.ok) && m.text.contains(&mark));
+        (!loaded).then(|| {
+            ChatMsg::tool(
+                name,
+                name.to_string(),
+                false,
+                format!("Инструмент «{name}» не загружен. Сначала вызови autotools с id \"{name}\": получишь его параметры, установленные модели и правила — и потом вызывай {name} заново по ним."),
+                Vec::new(),
+            )
+        })
+    }
+
+    /// `autotools`: описание, схема параметров и справка инструментов пула.
+    fn load_pooled(&self, arguments: &str) -> ChatMsg {
+        let args = crate::tools::args::parse(arguments, &Value::Null).unwrap_or_default();
+        let mut ids: Vec<String> = args.get("ids").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(String::from).collect()).unwrap_or_default();
+        if let Some(id) = args.get("id").and_then(Value::as_str) {
+            ids.insert(0, id.to_string());
+        }
+        let pool: Vec<&Arc<dyn Tool>> = self.tools.iter().filter(|t| t.pooled()).collect();
+        let summary = format!("Загрузить инструмент: {}", ids.join(", "));
+        if ids.is_empty() {
+            return ChatMsg::tool(AUTOTOOLS, summary, false, "нужен id инструмента из списка autotools".into(), Vec::new());
+        }
+        let mut out = String::new();
+        for id in &ids {
+            let Some(t) = pool.iter().find(|t| t.name() == id.as_str()) else {
+                return ChatMsg::tool(AUTOTOOLS, summary, false, format!("в пуле нет «{id}»; есть: {}", pool.iter().map(|t| t.name()).collect::<Vec<_>>().join(", ")), Vec::new());
+            };
+            out.push_str(&format!(
+                "{}\n\n{}\n\nПараметры (JSON-схема):\n{}\n",
+                loaded_mark(t.name()),
+                t.description(),
+                serde_json::to_string(&t.parameters()).unwrap_or_default()
+            ));
+            let guide = t.guide();
+            if !guide.is_empty() {
+                out.push_str(&format!("\n{guide}\n"));
+            }
+            out.push_str("\n");
+        }
+        ChatMsg::tool(AUTOTOOLS, summary, true, out, Vec::new())
+    }
+
+    fn execute(&self, model: &str, raw_name: &str, arguments: &str, confirm: &dyn Confirm, cancel: &AtomicBool, on: &mut dyn FnMut(AgentEvent)) -> ChatMsg {
+        let names = self.tool_names();
+        // Прежнее имя навыков (до autoskill) — модели из старых разговоров.
+        let raw_name = if raw_name == "skill" { "autoskill" } else { raw_name };
+        let name = crate::tools::args::canonical_name(raw_name, &names);
+        if name == AUTOTOOLS {
+            on(AgentEvent::ToolStart { name: AUTOTOOLS.into(), summary: "Загрузить инструмент".into() });
+            return self.load_pooled(arguments);
+        }
         if name == SUBAGENT && self.subagent {
             return self.execute_subagent(model, arguments, confirm, cancel, on);
         }
@@ -427,6 +491,37 @@ pub fn user_text(m: &ChatMsg) -> String {
         return m.text.clone();
     }
     format!("{}\n\n[Вложения пользователя]{extra}", m.text)
+}
+
+/// Инструмент пула по запросу (как в Synthos): его схема не объявляется,
+/// модель загружает её с живой справкой.
+pub const AUTOTOOLS: &str = "autotools";
+
+/// Метка в ответе `autotools`: по ней видно, что инструмент загружен.
+fn loaded_mark(name: &str) -> String {
+    format!("## Инструмент «{name}» загружен")
+}
+
+fn autotools_schema(pool: &[&Arc<dyn Tool>]) -> Value {
+    let mut description = String::from("Загрузить инструмент из пула: его описание, параметры и справку из системы (установленные модели, ноды). Инструменты пула не объявлены — перед первым вызовом любого из них загрузи его здесь, потом вызывай по имени. Пул (id — когда звать):\n");
+    for t in pool {
+        description.push_str(&format!("- {} — {}\n", t.name(), t.when()));
+    }
+    let ids: Vec<&str> = pool.iter().map(|t| t.name()).collect();
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": AUTOTOOLS,
+            "description": description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "enum": ids, "description": "инструмент"},
+                    "ids": {"type": "array", "items": {"type": "string", "enum": ids}, "description": "несколько инструментов сразу"}
+                }
+            }
+        }
+    })
 }
 
 pub fn subagent_schema() -> Value {

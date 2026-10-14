@@ -35,6 +35,20 @@ pub trait Tool: Send + Sync {
     fn run_ctx(&self, args: &Value, _cancel: &std::sync::atomic::AtomicBool) -> ToolResult {
         self.run(args)
     }
+    /// Инструмент пула `autotools`: схема модели заранее не объявляется,
+    /// модель загружает её (с [`Tool::guide`]) перед первым вызовом.
+    fn pooled(&self) -> bool {
+        false
+    }
+    /// Когда звать — строка каталога `autotools`.
+    fn when(&self) -> String {
+        String::new()
+    }
+    /// Справка из живой системы, которую модель получает при загрузке
+    /// из пула: модели, их параметры, ноды.
+    fn guide(&self) -> String {
+        String::new()
+    }
 }
 
 pub fn schema(t: &dyn Tool) -> Value {
