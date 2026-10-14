@@ -352,6 +352,169 @@ fn batch_rename(paths: Vec<PathBuf>) -> W {
     )
 }
 
+/// Что окно подключения показывает под адресом.
+#[derive(Clone, PartialEq)]
+enum NetStage {
+    Address,
+    Busy,
+    Auth { message: String, wrong: bool, domain: bool },
+    Question { message: String, choices: Vec<String> },
+    Error(String),
+}
+
+fn connect(uri0: String, auto: bool) -> W {
+    use crate::netmount::{self, Answers, Outcome};
+    let uri = use_signal(uri0);
+    let answers = use_signal(Answers::default());
+    let stage = use_signal(NetStage::Address);
+    let go = move || {
+        let u = uri.get_untracked();
+        if !netmount::is_remote(&u) {
+            stage.set(NetStage::Error(t!("Адрес вида sftp://сервер, smb://сервер/ресурс, ftp://, dav://, nfs://").into()));
+            return;
+        }
+        let a = answers.get_untracked();
+        stage.set(NetStage::Busy);
+        std::thread::spawn(move || {
+            let r = netmount::mount(&u, &a);
+            syngui::async_runtime::run_on_main_thread(move || {
+                // Окно закрыли, пока подключались, — ничего не показываем.
+                if !state::ctx().dialog.with_untracked(|d| matches!(d, Some(Dialog::Connect { .. }))) {
+                    return;
+                }
+                match r {
+                    Outcome::Mounted(path) => {
+                        netmount::remember(&u);
+                        close();
+                        state::ctx().places_rev.update(|v| *v += 1);
+                        state::navigate(state::pane(), crate::loc::Location::Dir(path), true);
+                    }
+                    Outcome::NeedAuth { message, wrong, domain } => {
+                        answers.update(|a| {
+                            a.choice = None;
+                            a.password.clear();
+                        });
+                        stage.set(NetStage::Auth { message, wrong, domain })
+                    }
+                    Outcome::Question { message, choices } => stage.set(NetStage::Question { message, choices }),
+                    Outcome::Failed(e) => {
+                        answers.update(|a| a.choice = None);
+                        stage.set(NetStage::Error(e))
+                    }
+                }
+            });
+        });
+    };
+    if auto {
+        go();
+    }
+    let recent = netmount::recent();
+    let details = Reactive::new(move || -> Vec<W> {
+        let mut col = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+        match stage.get() {
+            NetStage::Address => {
+                col = col.child(Text::new(t!("SSH — sftp://имя@сервер/папка, Windows и Samba — smb://сервер/ресурс, а также ftp://, dav://, davs://, nfs://")).class("meta"));
+                if !recent.is_empty() {
+                    col = col.child(Text::new(t!("Недавние")).class("side-title"));
+                    for r in recent.iter().take(6) {
+                        let r2 = r.clone();
+                        col = col.child(
+                            GestureDetector::new()
+                                .on_click(move || {
+                                    uri.set(r2.clone());
+                                    go();
+                                })
+                                .child(
+                                    DecoratedBox::new().class("app-row").child(
+                                        Row::new()
+                                            .gap(10.0)
+                                            .cross_axis_alignment(CrossAxisAlignment::Center)
+                                            .child(Icon::new(icons::NETWORK).class("icon"))
+                                            .child(Text::new(r.clone()).max_lines(1).class("grow")),
+                                    ),
+                                ),
+                        );
+                    }
+                }
+            }
+            NetStage::Busy => col = col.child(Text::new(t!("Подключение…")).class("meta")),
+            NetStage::Error(e) => col = col.child(Text::new(e).class("rename-bad")),
+            NetStage::Auth { message, wrong, domain } => {
+                if !message.is_empty() {
+                    col = col.child(Text::new(message).class("dialog-text"));
+                }
+                if wrong {
+                    col = col.child(Text::new(t!("Неверное имя или пароль")).class("rename-bad"));
+                }
+                let a = answers.get_untracked();
+                col = col.child(field(
+                    &t!("Пользователь"),
+                    TextField::with_text(a.user.clone())
+                        .autofocus(a.user.is_empty())
+                        .on_change(move |s: &str| answers.update(|a| a.user = s.to_string()))
+                        .on_submit(move |_| go()),
+                ));
+                if domain {
+                    col = col.child(field(
+                        &t!("Домен"),
+                        TextField::with_text(a.domain.clone()).placeholder("WORKGROUP").on_change(move |s: &str| answers.update(|a| a.domain = s.to_string())),
+                    ));
+                }
+                col = col.child(field(
+                    &t!("Пароль"),
+                    TextField::new()
+                        .obscure(true)
+                        .autofocus(!a.user.is_empty())
+                        .on_change(move |s: &str| answers.update(|a| a.password = s.to_string()))
+                        .on_submit(move |_| go()),
+                ));
+            }
+            NetStage::Question { message, choices } => {
+                col = col.child(Text::new(message).class("dialog-text"));
+                let mut row = Row::new().gap(8.0);
+                for (i, c) in choices.into_iter().enumerate() {
+                    row = row.child(Button::new(c).on_click(move || {
+                        answers.update(|a| a.choice = Some(i + 1));
+                        go();
+                    }));
+                }
+                col = col.child(row);
+            }
+        }
+        vec![boxed(col)]
+    });
+    let body = Column::new()
+        .gap(10.0)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(field(
+            &t!("Адрес"),
+            TextField::with_text(uri.get_untracked())
+                .placeholder("sftp://user@host/home")
+                .autofocus(!auto)
+                .on_change(move |s: &str| {
+                    uri.set(s.to_string());
+                    // Новый адрес — заново: прежние имя, пароль и вопрос к нему не относятся.
+                    answers.set(Answers::default());
+                    if stage.get_untracked() != NetStage::Address {
+                        stage.set(NetStage::Address);
+                    }
+                })
+                .on_submit(move |_| go()),
+        ))
+        .child(details);
+    card(
+        &t!("Подключиться к серверу"),
+        boxed(body),
+        vec![
+            boxed(Button::new(t!("Отмена")).on_click(close)),
+            boxed(Reactive::new(move || -> Vec<W> {
+                let busy = stage.get() == NetStage::Busy;
+                vec![boxed(Button::new(t!("Подключить")).class("primary").disabled(busy).on_click(go))]
+            })),
+        ],
+    )
+}
+
 /// Слой модальных окон (затемнение + карточка по центру). `Reactive`
 /// отдаёт детям свободные ограничения, поэтому растягивающий слой и
 /// центрирующая колонка — снаружи, а затемнению размер задан по окну.
@@ -376,6 +539,7 @@ pub fn dialogs() -> W {
             Dialog::OpenWith { paths, mime } => open_with(paths, mime),
             Dialog::Properties { paths } if !paths.is_empty() => properties(paths),
             Dialog::BatchRename { paths } if !paths.is_empty() => batch_rename(paths),
+            Dialog::Connect { uri, auto } => connect(uri, auto),
             _ => return vec![],
         };
         vec![boxed(GestureDetector::new().cursor(CursorIcon::Default).child(content))]

@@ -126,6 +126,11 @@ fn address() -> W {
                 .autofocus(true)
                 .select_range(0, loc.address().len())
                 .on_submit(move |s| {
+                    if crate::netmount::is_remote(s) {
+                        state::ctx().address_edit.set(false);
+                        state::ctx().dialog.set(Some(state::Dialog::Connect { uri: s.trim().to_string(), auto: true }));
+                        return;
+                    }
                     match Location::parse(s) {
                         Some(Location::Dir(d)) if d.is_file() => {
                             // Путь к файлу — открыть папку и выделить его.

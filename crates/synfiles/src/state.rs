@@ -111,6 +111,8 @@ pub enum Dialog {
     OpenWith { paths: Vec<PathBuf>, mime: String },
     Properties { paths: Vec<PathBuf> },
     BatchRename { paths: Vec<PathBuf> },
+    /// Подключение к серверу; `auto` — сразу подключаться (адрес введён в строке пути).
+    Connect { uri: String, auto: bool },
 }
 
 #[derive(Clone, Copy)]

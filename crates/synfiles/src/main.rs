@@ -16,6 +16,7 @@ mod dirsize;
 mod drives;
 mod loc;
 mod model;
+mod netmount;
 mod ops;
 mod places;
 mod rename;

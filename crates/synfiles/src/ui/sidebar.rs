@@ -138,6 +138,10 @@ fn place_row(pl: Place, current: &Location) -> W {
                 items.push(MenuItem::separator());
                 items.push(MenuItem::new("empty", t!("Очистить корзину")).icon(icons::DELETE_FOREVER).disabled(crate::trash::is_empty()));
             }
+            if loc_menu.dir().is_some_and(crate::netmount::is_gvfs_root) {
+                items.push(MenuItem::separator());
+                items.push(MenuItem::new("unmount", t!("Отключить")).icon(icons::EJECT));
+            }
             if loc_menu.dir().is_some() {
                 items.push(MenuItem::separator());
                 items.push(MenuItem::new("props", t!("Свойства")).icon(icons::INFO));
@@ -206,6 +210,27 @@ fn menu_action(id: &str, target: &Location, p: state::Pane) {
             }
         }
         "empty" => state::ctx().dialog.set(Some(state::Dialog::ConfirmEmptyTrash)),
+        "unmount" => {
+            if let Some(d) = target.dir().map(|d| d.to_path_buf()) {
+                std::thread::spawn(move || {
+                    let r = crate::netmount::unmount(&d);
+                    syngui::async_runtime::run_on_main_thread(move || match r {
+                        Ok(()) => {
+                            // Панели внутри отключённого — домой.
+                            for t in state::ctx().tabs.get_untracked() {
+                                for p in t.panes {
+                                    if p.loc.get_untracked().dir().is_some_and(|x| x.starts_with(&d)) {
+                                        state::navigate(p, Location::Dir(synshell_common::paths::home()), true);
+                                    }
+                                }
+                            }
+                            state::ctx().places_rev.update(|v| *v += 1);
+                        }
+                        Err(e) => state::toast_error(e),
+                    });
+                });
+            }
+        }
         "props" => {
             if let Some(d) = target.dir() {
                 state::ctx().dialog.set(Some(state::Dialog::Properties { paths: vec![d.to_path_buf()] }));
@@ -233,6 +258,19 @@ pub fn places_list() -> W {
                 col = col.child(place_row(pl, &current));
             }
         }
+        col = col.child(
+            GestureDetector::new()
+                .on_click(|| state::ctx().dialog.set(Some(state::Dialog::Connect { uri: String::new(), auto: false })))
+                .child(
+                    DecoratedBox::new().class("place").child(
+                        Row::new()
+                            .gap(10.0)
+                            .cross_axis_alignment(CrossAxisAlignment::Center)
+                            .child(Icon::new(icons::NETWORK).class("icon place-icon"))
+                            .child(Text::new(t!("Подключиться к серверу…")).max_lines(1).class("place-title grow")),
+                    ),
+                ),
+        );
         vec![boxed(col)]
     }))
 }
