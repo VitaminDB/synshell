@@ -352,13 +352,21 @@ impl Manager {
     fn id_by_path_of(&self, path: &std::path::Path, kind: Option<ModelKind>) -> Result<String, Error> {
         let want = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let slots = self.slots.lock().unwrap();
-        slots
-            .iter()
-            .filter(|(_, s)| kind.is_none_or(|k| s.manifest.kind == k))
-            .find(|(_, s)| s.manifest.variants.iter().any(|v| {
+        let of_kind = || slots.iter().filter(|(_, s)| kind.is_none_or(|k| s.manifest.kind == k));
+        // Тот же файл; иначе — тот же бандл под тем же именем в другом каталоге
+        // (копия, старый путь в настройках программы).
+        let same_file = of_kind().find(|(_, s)| {
+            s.manifest.variants.iter().any(|v| {
                 let p = s.manifest.path(v);
                 std::fs::canonicalize(&p).unwrap_or(p) == want
-            }))
+            })
+        });
+        let same_name = || {
+            let name = path.file_name()?;
+            of_kind().find(|(_, s)| s.manifest.variants.iter().any(|v| s.manifest.path(v).file_name() == Some(name)))
+        };
+        same_file
+            .or_else(same_name)
             .map(|(id, _)| id.clone())
             .ok_or_else(|| Error::new(ErrorCode::NoModel, format!("{}: такой модели нет в библиотеке службы", path.display())))
     }
