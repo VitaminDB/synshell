@@ -481,6 +481,45 @@ pub fn toggle_search_content(p: Pane) {
     }
 }
 
+/// Что отличается в двух списках: в каждом — чего нет в другом, и файлы
+/// новее одноимённых напротив (при равном времени — разного размера, с
+/// обеих сторон). Время сравнивается с допуском 2 с (FAT, копирование).
+pub fn diff_entries(a: &[Entry], b: &[Entry]) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    use std::collections::HashMap;
+    let side = |x: &[Entry], y: &[Entry]| -> Vec<PathBuf> {
+        let other: HashMap<&str, &Entry> = y.iter().map(|e| (e.name.as_str(), e)).collect();
+        x.iter()
+            .filter(|e| match other.get(e.name.as_str()) {
+                None => true,
+                Some(o) if e.is_dir || o.is_dir => e.is_dir != o.is_dir,
+                Some(o) => e.mtime > o.mtime + 2 || ((e.mtime - o.mtime).abs() <= 2 && e.size != o.size),
+            })
+            .map(|e| e.path.clone())
+            .collect()
+    };
+    (side(a, b), side(b, a))
+}
+
+/// «Сравнить папки»: в двух панелях выделить отличающееся.
+pub fn compare_panes() {
+    let t = state::tab();
+    if !t.split.get_untracked() {
+        state::toggle_split();
+        state::toast(t!("Откройте во второй панели папку для сравнения"));
+        return;
+    }
+    let [l, r] = t.panes;
+    let (le, re) = (l.entries.get_untracked(), r.entries.get_untracked());
+    let (a, b) = diff_entries(&le, &re);
+    state::restore_selection(l, &a);
+    state::restore_selection(r, &b);
+    state::toast(if a.is_empty() && b.is_empty() {
+        t!("Папки совпадают").to_string()
+    } else {
+        t!("Отличается: слева {v}, справа {v2}", v = a.len(), v2 = b.len())
+    });
+}
+
 /// Поиск в текущей папке.
 pub fn search(p: Pane, query: &str) {
     let q = query.trim();
@@ -760,6 +799,7 @@ pub fn run(p: Pane, id: &str) {
         "new:empty" => new_file(p, &t!("Новый файл"), b""),
         "hidden" => toggle_hidden(),
         "split" => state::toggle_split(),
+        "compare" => compare_panes(),
         "sidebar" => toggle_sidebar(),
         "settings" => ctx.settings.set(true),
         "zoom:in" => zoom(p, 1),
@@ -919,4 +959,40 @@ pub fn char_key(c: char, m: Modifiers) -> bool {
         _ => return false,
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn diff_marks_missing_newer_and_resized() {
+        let d = tempfile::tempdir().unwrap();
+        let (l, r) = (d.path().join("l"), d.path().join("r"));
+        for p in [&l, &r] {
+            std::fs::create_dir_all(p.join("общая")).unwrap();
+            for f in ["same", "newer", "size", "only"] {
+                std::fs::write(p.join(f), "x").unwrap();
+            }
+        }
+        std::fs::remove_file(r.join("only")).unwrap();
+        let read = |p: &Path| {
+            let mut v = crate::model::read_dir(p).unwrap();
+            for e in &mut v {
+                e.mtime = 1000;
+            }
+            v
+        };
+        let (mut a, mut b) = (read(&l), read(&r));
+        a.iter_mut().find(|e| e.name == "newer").unwrap().mtime = 2000;
+        b.iter_mut().find(|e| e.name == "size").unwrap().size = 5;
+        let (x, y) = diff_entries(&a, &b);
+        let names = |v: Vec<PathBuf>| {
+            let mut n: Vec<String> = v.iter().map(|p| ops::name_of(p)).collect();
+            n.sort();
+            n
+        };
+        assert_eq!(names(x), ["newer", "only", "size"]);
+        assert_eq!(names(y), ["size"]);
+    }
 }

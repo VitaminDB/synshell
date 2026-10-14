@@ -81,7 +81,7 @@ fn parse_args() -> Args {
                 })
             }
             "-h" | "--help" => {
-                println!("{}", t!("synfiles [--view details|list|tiles|icons] [--split] [ПУТЬ|URI…]\nsynfiles --viewer КАРТИНКА"));
+                println!("{}", t!("synfiles [--view details|list|tiles|icons] [--split [ЛЕВАЯ ПРАВАЯ]] [ПУТЬ|URI…]\nsynfiles --viewer КАРТИНКА"));
                 std::process::exit(0);
             }
             // Совместимость с вызовами «как у Dolphin/Nautilus».
@@ -115,6 +115,9 @@ fn make_state(args: &Args, cfg: synshell_common::Config) -> state::Ctx {
     let (locs, cur) = if let Some(d) = chooser::start_dir() {
         // окно выбора — с папки запроса, без вкладок прошлого сеанса
         (vec![Location::Dir(d)], 0)
+    } else if args.split && args.locations.len() == 2 {
+        // `--split А Б` — две папки рядом в одной вкладке.
+        (args.locations[..1].to_vec(), 0)
     } else if !args.locations.is_empty() {
         (args.locations.clone(), 0)
     } else if cfg.files.restore_tabs && args.screenshot.is_none() {
@@ -133,6 +136,9 @@ fn make_state(args: &Args, cfg: synshell_common::Config) -> state::Ctx {
     }
     if args.split {
         state::toggle_split();
+        if args.locations.len() == 2 && chooser::start_dir().is_none() {
+            state::navigate(state::tab().panes[1], args.locations[1].clone(), false);
+        }
     }
     for s in &args.select {
         state::select_later(state::pane(), s.clone());

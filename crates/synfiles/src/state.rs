@@ -590,7 +590,7 @@ pub fn refilter_all() {
     }
 }
 
-fn restore_selection(p: Pane, keep: &[PathBuf]) {
+pub fn restore_selection(p: Pane, keep: &[PathBuf]) {
     let entries = p.entries.get_untracked();
     let old = p.sel.get_untracked();
     // Курсор — там же, где был (по пути), иначе на первом выделенном.

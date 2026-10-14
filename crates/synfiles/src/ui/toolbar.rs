@@ -92,6 +92,7 @@ fn more_menu() -> Vec<MenuItem> {
         MenuItem::new("select-all", t!("Выделить всё")).icon(icons::SELECT_ALL).shortcut("Ctrl+A"),
         MenuItem::new("select-none", t!("Снять выделение")).icon(icons::DESELECT),
         MenuItem::new("invert-selection", t!("Обратить выделение")).shortcut("Ctrl+Shift+I"),
+        MenuItem::new("compare", t!("Сравнить папки")).icon(icons::COMPARE),
         MenuItem::separator(),
         MenuItem::new("terminal", t!("Открыть в терминале")).icon(icons::TERMINAL).shortcut("Shift+F4"),
         MenuItem::new("copy-path-here", t!("Копировать путь папки")).icon(icons::COPY_PATH),

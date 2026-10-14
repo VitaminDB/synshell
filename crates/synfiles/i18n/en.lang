@@ -88,7 +88,7 @@
 "Домашняя папка" = "Home"
 
 # src/main.rs
-"synfiles [--view details|list|tiles|icons] [--split] [ПУТЬ|URI…]\nsynfiles --viewer КАРТИНКА" = "synfiles [--view details|list|tiles|icons] [--split] [PATH|URI…]\nsynfiles --viewer IMAGE"
+"synfiles [--view details|list|tiles|icons] [--split [ЛЕВАЯ ПРАВАЯ]] [ПУТЬ|URI…]\nsynfiles --viewer КАРТИНКА" = "synfiles [--view details|list|tiles|icons] [--split [LEFT RIGHT]] [PATH|URI…]\nsynfiles --viewer IMAGE"
 "снимок не удался: {e}" = "screenshot failed: {e}"
 "Проводник" = "Files"
 
@@ -385,3 +385,7 @@
 "Переименовать…" = "Rename…"
 "Текст «{query}» в файлах" = "Text “{query}” in files"
 "Текст в файлах: {place}" = "Text in files: {place}"
+"Откройте во второй панели папку для сравнения" = "Open the folder to compare in the second pane"
+"Папки совпадают" = "Folders are identical"
+"Отличается: слева {v}, справа {v2}" = "Differences: {v} on the left, {v2} on the right"
+"Сравнить папки" = "Compare Folders"

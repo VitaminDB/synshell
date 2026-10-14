@@ -125,7 +125,7 @@ fn walk_content(root: &Path, query: &str, hidden: bool, found: &mut dyn FnMut(En
         })
         .collect();
     drop(hit_tx);
-    let mut deliver = |found: &mut dyn FnMut(Entry) -> bool, p: PathBuf| -> bool {
+    let deliver = |found: &mut dyn FnMut(Entry) -> bool, p: PathBuf| -> bool {
         match Entry::from_path(&p) {
             Some(e) => found(e),
             None => true,
