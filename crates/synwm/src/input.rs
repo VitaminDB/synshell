@@ -1327,6 +1327,17 @@ impl State {
         }
         self.core.touch_mouse_slot = Some(slot);
         let pointer = self.core.pointer.clone();
+        // Клиент заблокировал указатель (Wine, пока игра держит мышь DirectInput): игра рисует свой курсор и
+        // двигает его относительными смещениями в своих координатах — где под пальцем точка игры, неизвестно, и
+        // касание с прыжком попадало мимо. Тогда — тачпад: палец ведёт курсор, короткое касание — щелчок там, где
+        // курсор (кнопка не держится, пока палец едет).
+        let locked = with_pointer_constraint(surface, &pointer, |c| c.is_some_and(|c| c.is_active() && matches!(&*c, PointerConstraint::Locked(_))));
+        if locked {
+            self.core.touch_mouse_pos = Some(pos);
+            self.core.touch_mouse_pad = Some((pos, time, false));
+            return true;
+        }
+        self.core.touch_mouse_pad = None;
         self.touch_mouse_move(pos, time);
         pointer.button(self, &ButtonEvent { button: BTN_LEFT, state: ButtonState::Pressed.into(), serial: SERIAL_COUNTER.next_serial(), time });
         pointer.frame(self);
@@ -1337,6 +1348,12 @@ impl State {
         if self.core.touch_mouse_slot != Some(slot) {
             return false;
         }
+        if let Some((start, _, moved)) = &mut self.core.touch_mouse_pad {
+            let d = pos - *start;
+            if d.x * d.x + d.y * d.y > TOUCHPAD_TAP_SLOP * TOUCHPAD_TAP_SLOP {
+                *moved = true;
+            }
+        }
         self.touch_mouse_move(pos, time);
         self.core.pointer.clone().frame(self);
         true
@@ -1344,10 +1361,13 @@ impl State {
 
     /// Указатель — к пальцу: относительное движение на ту же разницу и абсолютное. Xwayland выдаёт XI2 RawMotion
     /// только из относительных событий, а Wine, пока игра держит мышь (DirectInput, ClipCursor), берёт движение
-    /// только из них — без этого палец игре не виден (курсор Fable стоял в углу).
+    /// только из них — без этого палец игре не виден (курсор Fable стоял в углу). Разница — от прошлого положения
+    /// пальца, а не указателя: Wine в этом режиме возвращает курсор, Xwayland — подсказкой положения при
+    /// блокировке, и указатель каждый раз встаёт в ту же точку (смещения выходили размером с экран).
     fn touch_mouse_move(&mut self, pos: Point<f64, Logical>, time: u32) {
         let pointer = self.core.pointer.clone();
-        let delta = pos - pointer.current_location();
+        let delta = self.core.touch_mouse_pos.map_or((0.0, 0.0).into(), |last| pos - last);
+        self.core.touch_mouse_pos = Some(pos);
         let under = self.under(pos);
         if delta.x != 0.0 || delta.y != 0.0 {
             pointer.relative_motion(self, under.focus(), &RelativeMotionEvent { delta, delta_unaccel: delta, utime: u64::from(time) * 1000 });
@@ -1369,6 +1389,16 @@ impl State {
         }
         self.core.touch_mouse_slot = None;
         let pointer = self.core.pointer.clone();
+        if let Some((_, start, moved)) = self.core.touch_mouse_pad.take() {
+            // Тачпад: короткое касание без сдвига — щелчок там, где курсор.
+            if !moved && time.wrapping_sub(start) < TOUCHPAD_TAP_MS {
+                pointer.button(self, &ButtonEvent { button: BTN_LEFT, state: ButtonState::Pressed.into(), serial: SERIAL_COUNTER.next_serial(), time });
+                pointer.frame(self);
+                pointer.button(self, &ButtonEvent { button: BTN_LEFT, state: ButtonState::Released.into(), serial: SERIAL_COUNTER.next_serial(), time });
+                pointer.frame(self);
+            }
+            return true;
+        }
         pointer.button(self, &ButtonEvent { button: BTN_LEFT, state: ButtonState::Released.into(), serial: SERIAL_COUNTER.next_serial(), time });
         pointer.frame(self);
         true
@@ -1802,3 +1832,7 @@ fn is_media_shell_command(cmd: &str) -> bool {
     let w = cmd.split_whitespace().next().unwrap_or("");
     matches!(w, "volume" | "mute" | "mic-mute" | "media")
 }
+
+/// Тачпад (палец-мышь при заблокированном указателе): касание короче этого и без сдвига дальше слопа — щелчок.
+const TOUCHPAD_TAP_MS: u32 = 300;
+const TOUCHPAD_TAP_SLOP: f64 = 12.0;

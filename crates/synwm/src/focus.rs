@@ -89,12 +89,25 @@ impl WaylandFocus for FocusTarget {
     }
 }
 
+/// X11-окно этой поверхности: фокус клавиатуры стоит на её wl_surface, а фокус ввода X ставится отдельно —
+/// иначе у X-клиентов он так и оставался PointerRoot (умолчание X-сервера), и Wine считал игру неактивной:
+/// DirectInput отпускал мышь, клавиатуру и геймпад.
+fn x11_surface(data: &State, surface: &WlSurface) -> Option<smithay::xwayland::X11Surface> {
+    data.core.wm.by_surface(surface).and_then(|m| m.window.x11_surface().cloned())
+}
+
 impl KeyboardTarget<State> for FocusTarget {
     fn enter(&self, seat: &Seat<State>, data: &mut State, keys: Vec<KeysymHandle<'_>>, serial: Serial) {
+        if let Some(x) = x11_surface(data, &self.0) {
+            x.focus_input();
+        }
         KeyboardTarget::enter(&self.0, seat, data, keys, serial)
     }
 
     fn leave(&self, seat: &Seat<State>, data: &mut State, serial: Serial) {
+        if let Some(x) = x11_surface(data, &self.0) {
+            x.unfocus_input();
+        }
         KeyboardTarget::leave(&self.0, seat, data, serial)
     }
 
