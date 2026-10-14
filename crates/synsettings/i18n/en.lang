@@ -1713,3 +1713,4 @@
 "Шум в порядке раскрытия токенов (как в оригинале — 5); 0 — без случайности, зерно не действует" = "Noise in the token unmasking order (5 as in the original); 0 — no randomness, the seed has no effect"
 "Температура токенов" = "Token temperature"
 "Выбор токена из верхних 10 % вместо самого вероятного; 0 — как в оригинале" = "Pick a token from the top 10% instead of the most likely one; 0 — as in the original"
+"Группа «{name}» ({n})" = "Group “{name}” ({n})"

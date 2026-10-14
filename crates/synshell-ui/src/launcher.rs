@@ -151,7 +151,7 @@ fn section_items(ctx: &ShellCtx, key: &str) -> Vec<Item> {
     // Программы Linux; приложения Android — только в разделах своих экземпляров (`android:<экземпляр>`)
     let visible = || apps.iter().filter(|e| !e.no_display && e.android.is_none());
     let v: Vec<DesktopEntry> = match key {
-        "favorites" => ctx.cfg().launcher.favorites.iter().filter_map(|id| xdg::app_by_id(id)).collect(),
+        "favorites" => ctx.cfg().launcher.favorite_apps().iter().filter_map(|id| xdg::app_by_id(id)).collect(),
         "recent" => recent().iter().filter_map(|id| xdg::app_by_id(id)).collect(),
         "all" => visible().cloned().collect(),
         k if k.starts_with("android:") => {

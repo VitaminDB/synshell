@@ -42,6 +42,7 @@ pub mod netmenu;
 pub mod notifications;
 pub mod osd;
 pub mod panel;
+pub mod pins;
 pub mod popup;
 pub mod recents;
 pub mod rotation;

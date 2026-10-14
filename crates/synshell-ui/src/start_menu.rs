@@ -116,7 +116,41 @@ struct St {
     source: RwSignal<Source>,
     /// Рабочий стол: открыты настройки меню.
     settings: RwSignal<bool>,
+    /// Открытая группа закреплённых (id).
+    group: RwSignal<Option<String>>,
+    /// Имя открытой группы правится.
+    renaming: RwSignal<bool>,
+    /// Меню значка открыто из группы (id): «Вынуть из группы».
+    menu_group: RwSignal<Option<String>>,
+    /// «Объединить в группу…»: выбран первый значок, ждём второй.
+    merge_src: RwSignal<Option<String>>,
+    /// Перетаскивание: над каким значком и куда ляжет.
+    hint: RwSignal<Option<(String, Zone)>>,
 }
+
+/// Куда ляжет перетаскиваемый значок: перед целью, в группу с ней, после неё.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Zone {
+    Before,
+    Merge,
+    After,
+}
+
+/// Средняя часть значка — объединить, края — переставить.
+fn zone_of(x: f32, w: f32) -> Zone {
+    let r = if w > 0.0 { x / w } else { 0.5 };
+    if r < 0.28 {
+        Zone::Before
+    } else if r > 0.72 {
+        Zone::After
+    } else {
+        Zone::Merge
+    }
+}
+
+/// Тип переноса: закреплённый значок и значок внутри группы.
+const PIN_DRAG: &str = "synshell/start-pin";
+const GROUP_DRAG: &str = "synshell/start-group-item";
 
 /// Телефон: высота значка в сетке (отступы, значок, две строки подписи) и
 /// зазор между строками.
@@ -172,6 +206,11 @@ pub fn view(ctx: ShellCtx) -> Box<dyn Widget> {
         pages: use_signal(ctx.is_phone() && ctx.cfg().mobile.launcher != "list"),
         source: use_signal(Source::Linux),
         settings: use_signal(!ctx.is_phone() && crate::menu_prefs::take_reopen_settings()),
+        group: use_signal(None),
+        renaming: use_signal(false),
+        menu_group: use_signal(None),
+        merge_src: use_signal(None),
+        hint: use_signal(None),
     };
     // Рабочий стол: размер меню — уголком, живьём.
     let msize = crate::menu_prefs::size_signal(&ctx);
@@ -187,6 +226,18 @@ pub fn view(ctx: ShellCtx) -> Box<dyn Widget> {
         }
         if st.item_menu.get_untracked().is_some() && k.key == Key::Escape {
             st.item_menu.set(None);
+            return true;
+        }
+        if k.key == Key::Escape && st.renaming.get_untracked() {
+            st.renaming.set(false);
+            return true;
+        }
+        if k.key == Key::Escape && st.group.get_untracked().is_some() {
+            st.group.set(None);
+            return true;
+        }
+        if k.key == Key::Escape && st.merge_src.get_untracked().is_some() {
+            st.merge_src.set(None);
             return true;
         }
         let searching = !st.query.get_untracked().trim().is_empty();
@@ -222,6 +273,13 @@ pub fn view(ctx: ShellCtx) -> Box<dyn Widget> {
             let o = b2.lock().map(|r| r.origin).unwrap_or_default();
             let (w, h) = if ctx.is_phone() { size(&ctx) } else { msize.get_untracked() };
             Box::new(item_menu(ctx, st, &id, x - o.x, y - o.y).style("width", StyleValue::px(w - 24.0)).style("height", StyleValue::px(h)))
+        }
+        None => Box::new(DecoratedBox::new()),
+    });
+    let group_layer = rx(move || match st.group.get() {
+        Some(gid) => {
+            let (w, h) = if ctx.is_phone() { size(&ctx) } else { msize.get_untracked() };
+            Box::new(group_view(ctx, st, gid).style("width", StyleValue::px(w - 24.0)).style("height", StyleValue::px(h)))
         }
         None => Box::new(DecoratedBox::new()),
     });
@@ -276,7 +334,7 @@ pub fn view(ctx: ShellCtx) -> Box<dyn Widget> {
     let _ = w;
     // Меню значка — поверх «Пуска» внутри его границ; уголок — последним слоем, иначе
     // слой меню значка (на всю площадь) забирал бы его нажатия.
-    let body = syngui::widgets::EventHook::new().report_bounds(bounds).child(Stack::new().child(sized).child(menu_layer));
+    let body = syngui::widgets::EventHook::new().report_bounds(bounds).child(Stack::new().child(sized).child(group_layer).child(menu_layer));
     if phone {
         Box::new(body) as Box<dyn Widget>
     } else {
@@ -294,9 +352,16 @@ fn body_ref(st: St, ctx: ShellCtx, body_h: f32) -> impl Widget {
         let pages = st.pages.get();
         let source = st.source.get();
         // Поставили или удалили программу — пересобрать списки.
-        let rev = ctx.apps_rev.get();
-        // Закрепили, открепили, сменили колонки — [launcher] перечитан на лету.
+        let rev = ctx.apps_rev.get().wrapping_add(ctx.pins_rev.get().wrapping_mul(0x9E37_79B9));
+        // Закрепили, открепили, сгруппировали, сменили колонки — [launcher] перечитан на лету;
+        // при том же ключе переключатель пересобирает содержимое только по смене версии.
         let _ = ctx.config.get();
+        let launcher_rev = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            format!("{:?}", ctx.cfg().launcher).hash(&mut h);
+            h.finish()
+        };
         // Ключ задаёт направление перетекания: дальше по списку — въезд справа.
         let key = if searching { 3 } else if pages { 4 } else if v == View::All { 2 } else { 1 };
         // Смена источника — тоже перетекание
@@ -312,7 +377,7 @@ fn body_ref(st: St, ctx: ShellCtx, body_h: f32) -> impl Widget {
                 Box::new(home(ctx, st, body_h))
             }
         })
-        .version(rev)
+        .version(rev ^ launcher_rev)
         .directional(true)
         .slide(36.0, 0.0)
         .duration_ms(dur)
@@ -465,37 +530,43 @@ fn results(ctx: ShellCtx, st: St) -> impl Widget {
 
 // ─── Закреплённые и рекомендуемые ────────────────────────────────────────────
 
-fn pinned_ids(ctx: &ShellCtx) -> Vec<String> {
-    ctx.cfg().launcher.favorites.clone()
-}
-
 fn home(ctx: ShellCtx, st: St, body_h: f32) -> impl Widget {
     let cols = columns(&ctx);
     let phone = ctx.is_phone();
     // Телефон: не больше половины тела, чтобы рекомендуемые были видны.
     let rows = if phone { phone_rows(body_h * 0.5 - 40.0).min(4) } else { 3 };
     let per_page = cols * rows;
-    let apps: Vec<DesktopEntry> = pinned_ids(&ctx).iter().filter_map(|id| xdg::app_by_id(id)).collect();
+    let pins = crate::pins::Pins::from_cfg(&ctx.cfg().launcher);
+    // Метки, которые есть что показать: приложение установлено, в группе есть установленные.
+    let tokens: Vec<String> = pins
+        .fav
+        .iter()
+        .filter(|t| match crate::pins::group_id(t) {
+            Some(id) => pins.groups.get(id).is_some_and(|g| g.items.iter().any(|a| xdg::app_by_id(a).is_some())),
+            None => xdg::app_by_id(t).is_some(),
+        })
+        .cloned()
+        .collect();
     let header = Row::new()
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(Text::new(t!("Закреплённые")).class("start-heading grow"))
         .child(pill(&t!("Все"), mi::CHEVRON_RIGHT, move || st.view.set(View::All)));
-    let pinned: Box<dyn Widget> = if apps.is_empty() {
+    let pinned: Box<dyn Widget> = if tokens.is_empty() {
         Box::new(Text::new(t!("Закрепите приложения из списка «Все» — правый щелчок или удержание по значку.")).class("start-empty"))
     } else {
-        let paged = apps.len() > per_page;
+        let paged = tokens.len() > per_page;
         // Высота — по занятым строкам, без пустоты под одним рядом (и на рабочем столе:
         // раньше там было 300 px при любом числе значков).
         let tile_h = if phone { PHONE_TILE_H } else { DESK_TILE_H };
         let pinned_h = Some({
-            let used = apps.len().div_ceil(cols).min(rows) as f32;
+            let used = tokens.len().div_ceil(cols).min(rows) as f32;
             used * (tile_h + PHONE_GRID_GAP) + if paged { INDICATORS_H } else { 0.0 }
         });
         let mut pages = Carousel::new().page_signal(st.page).show_arrows(false).show_indicators(paged);
-        for chunk in apps.chunks(per_page) {
+        for chunk in tokens.chunks(per_page) {
             let mut grid = Grid::new(cols).gap(2.0);
-            for e in chunk {
-                grid = grid.child(tile(ctx, st, e, true));
+            for t in chunk {
+                grid = grid.child(pin_tile(ctx, st, &pins, t));
             }
             let page = Column::new().main_axis_alignment(MainAxisAlignment::Start).child(grid);
             let page: Box<dyn Widget> = match pinned_h {
@@ -515,7 +586,7 @@ fn home(ctx: ShellCtx, st: St, body_h: f32) -> impl Widget {
     for e in &recent {
         rec = rec.child(recent_row(ctx, st, e, true));
     }
-    let mut col = Column::new().gap(10.0).child(header).child(pinned);
+    let mut col = Column::new().gap(10.0).child(header).child(merge_banner(st)).child(pinned);
     if !recent.is_empty() && ctx.cfg().launcher.show_recent {
         col = col.child(Text::new(t!("Рекомендуемые")).class("start-heading")).child(rec);
     }
@@ -584,6 +655,331 @@ fn tile(ctx: ShellCtx, st: St, e: &DesktopEntry, mixed: bool) -> impl Widget {
                 )
                 .class("start-tile"),
         )
+}
+
+// ─── Группы закреплённых ─────────────────────────────────────────────────────
+
+/// Имя новой группы — по общей категории приложений (как на телефонах), иначе «Группа».
+fn group_name(items: &[String]) -> String {
+    const CATS: &[(&str, &str)] = &[
+        ("Game", "Игры"),
+        ("Development", "Разработка"),
+        ("Graphics", "Графика"),
+        ("Office", "Офис"),
+        ("Audio", "Музыка"),
+        ("Video", "Видео"),
+        ("AudioVideo", "Мультимедиа"),
+        ("Network", "Интернет"),
+        ("Education", "Обучение"),
+        ("Science", "Наука"),
+        ("Settings", "Настройки"),
+        ("System", "Система"),
+        ("Utility", "Утилиты"),
+    ];
+    let entries: Vec<DesktopEntry> = items.iter().filter_map(|a| xdg::app_by_id(a)).collect();
+    CATS.iter()
+        .find(|(c, _)| !entries.is_empty() && entries.iter().all(|e| e.categories.iter().any(|x| x == c)))
+        .map(|(_, name)| t!(name).to_string())
+        .unwrap_or_else(|| t!("Группа").to_string())
+}
+
+/// Изменить закреплённые и записать.
+fn edit_pins(f: impl FnOnce(&mut crate::pins::Pins) -> bool) {
+    let mut p = crate::pins::Pins::from_cfg(&ShellCtx::get().cfg().launcher);
+    if f(&mut p) {
+        p.save();
+    }
+}
+
+/// Бросили или выбрали `src` на `dst` в зоне `zone`.
+fn apply_drop(src: &str, dst: &str, zone: Zone) {
+    edit_pins(|p| match zone {
+        Zone::Merge => p.merge(src, dst, group_name).is_some(),
+        Zone::Before => p.reorder(src, dst, false),
+        Zone::After => p.reorder(src, dst, true),
+    });
+}
+
+/// «Объединить в группу…» выбран: подсказка и отмена над закреплёнными.
+fn merge_banner(st: St) -> impl Widget {
+    rx(move || match st.merge_src.get() {
+        Some(src) => {
+            let name = crate::pins::group_id(&src)
+                .and_then(|id| synshell_common::config::load_launcher_groups().get(id).map(|g| g.name.clone()))
+                .or_else(|| xdg::app_by_id(&src).map(|e| e.name))
+                .unwrap_or(src);
+            Box::new(
+                DecoratedBox::new()
+                    .child(
+                        Row::new()
+                            .gap(8.0)
+                            .cross_axis_alignment(CrossAxisAlignment::Center)
+                            .child(icon(mi::GROUP_ADD).class("start-merge-icon"))
+                            .child(Text::new(t!("Выберите значок, с которым объединить «{name}»", name = name)).max_lines(2).class("start-merge-text grow"))
+                            .child(pill(&t!("Отмена"), mi::CLOSE, move || st.merge_src.set(None))),
+                    )
+                    .class("start-merge"),
+            )
+        }
+        None => Box::new(DecoratedBox::new()),
+    })
+}
+
+/// Значок закреплённого: приложение или группа. На рабочем столе перетаскивается:
+/// на середину другого значка — в группу с ним, на край — перед ним или после.
+fn pin_tile(ctx: ShellCtx, st: St, pins: &crate::pins::Pins, token: &str) -> Box<dyn Widget> {
+    let phone = ctx.is_phone();
+    let size = if phone { 48.0 } else { 36.0 };
+    let name = match crate::pins::group_id(token) {
+        Some(id) => pins.groups.get(id).map(|g| g.name.clone()).unwrap_or_default(),
+        None => match xdg::app_by_id(token) {
+            Some(e) => e.name,
+            None => return Box::new(DecoratedBox::new()),
+        },
+    };
+    let tok = token.to_string();
+    // Внешний вид реагирует на подсказку переноса и режим «объединить»; сама плитка — нет.
+    let t1 = tok.clone();
+    let look = rx(move || {
+        let hint = st.hint.get();
+        let picking = st.merge_src.get();
+        let mut class = String::from("start-tile");
+        match hint {
+            Some((ref t, z)) if *t == t1 => class.push_str(match z {
+                Zone::Merge => " start-tile-merge",
+                Zone::Before => " start-tile-before",
+                Zone::After => " start-tile-after",
+            }),
+            _ => {}
+        }
+        if let Some(src) = picking {
+            class.push_str(if src == t1 { " start-tile-source" } else { " start-tile-pick" });
+        }
+        let f = pin_face(&t1, size);
+        Box::new(
+            DecoratedBox::new()
+                .child(
+                    Column::new()
+                        .gap(6.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(f)
+                        .child(Text::new(name.clone()).max_lines(2).class("start-tile-name")),
+                )
+                .class(class),
+        )
+    });
+    let t2 = tok.clone();
+    let activate = move || {
+        if let Some(src) = st.merge_src.get_untracked() {
+            st.merge_src.set(None);
+            if src != t2 {
+                apply_drop(&src, &t2, Zone::Merge);
+            }
+            return;
+        }
+        match crate::pins::group_id(&t2) {
+            Some(id) => {
+                st.renaming.set(false);
+                st.group.set(Some(id.to_string()));
+            }
+            None => {
+                if let Some(e) = xdg::app_by_id(&t2) {
+                    let ctx = ShellCtx::get();
+                    launcher::launch(ctx, &e);
+                    ctx.close_popup();
+                }
+            }
+        }
+    };
+    let (m1, m2) = (tok.clone(), tok.clone());
+    if phone {
+        // Телефон: перенос мешал бы листать страницы — объединение через меню значка.
+        return Box::new(
+            GestureDetector::new()
+                .on_click(activate)
+                .on_secondary_click(move |_| open_menu(st, m1.clone()))
+                .on_long_press(move |_| open_menu(st, m2.clone()))
+                .child(look),
+        );
+    }
+    let drag = Draggable::new(PIN_DRAG, tok.clone()).threshold(6.0).label(tok.clone()).on_click(activate).child(look);
+    let (t3, t4, t5) = (tok.clone(), tok.clone(), tok.clone());
+    Box::new(
+        DropArea::new()
+            .accept_types(vec![PIN_DRAG.to_string()])
+            .on_drag_over(move |info| {
+                let z = if info.data.payload == t3 { None } else { Some((t3.clone(), zone_of(info.local_position.x, info.size.width))) };
+                if st.hint.get_untracked() != z {
+                    st.hint.set(z);
+                }
+            })
+            .on_drag_leave(move || {
+                if st.hint.get_untracked().is_some_and(|(t, _)| t == t4) {
+                    st.hint.set(None);
+                }
+            })
+            .on_drop_positioned(move |info| {
+                st.hint.set(None);
+                let src = info.data.payload.clone();
+                if src != t5 {
+                    apply_drop(&src, &t5, zone_of(info.local_position.x, info.size.width));
+                }
+            })
+            .child(GestureDetector::new().on_secondary_click(move |_| open_menu(st, m1.clone())).child(drag)),
+    )
+}
+
+/// Значок метки: приложение или превью группы 2×2.
+fn pin_face(token: &str, size: f32) -> Box<dyn Widget> {
+    match crate::pins::group_id(token) {
+        Some(id) => {
+            let g = synshell_common::config::load_launcher_groups().get(id).cloned().unwrap_or_default();
+            let entries: Vec<crate::launchers::StackEntry> =
+                g.items.iter().filter_map(|a| xdg::app_by_id(a)).map(|e| crate::launchers::StackEntry::App(Launchable::from_entry(&e))).collect();
+            crate::launchers::group_preview(&entries, size)
+        }
+        None => xdg::app_by_id(token).map(|e| app_icon(&e, "start-tile-icon", size, true)).unwrap_or_else(|| Box::new(DecoratedBox::new())),
+    }
+}
+
+/// Открытая группа: имя (правится по щелчку), значки (переставляются
+/// перетаскиванием, брошенный за пределы карточки — вынимается из группы).
+fn group_view(ctx: ShellCtx, st: St, gid: String) -> DecoratedBox {
+    let _ = ctx.pins_rev.get();
+    let Some(g) = synshell_common::config::load_launcher_groups().get(&gid).cloned() else {
+        st.group.set(None);
+        return DecoratedBox::new();
+    };
+    let phone = ctx.is_phone();
+    let close = move || {
+        st.group.set(None);
+        st.renaming.set(false);
+    };
+    let g1 = gid.clone();
+    let title: Box<dyn Widget> = if st.renaming.get() {
+        let g2 = gid.clone();
+        Box::new(
+            TextField::with_text(g.name.clone())
+                .autofocus(true)
+                .submit_on_focus_lost(true)
+                .on_submit(move |v| {
+                    let v = v.to_string();
+                    let g = g2.clone();
+                    st.renaming.set(false);
+                    edit_pins(|p| p.rename(&g, &v));
+                })
+                .class("start-group-field grow"),
+        )
+    } else {
+        Box::new(
+            GestureDetector::new()
+                .on_click(move || st.renaming.set(true))
+                .child(
+                    DecoratedBox::new()
+                        .child(
+                            Row::new()
+                                .gap(8.0)
+                                .cross_axis_alignment(CrossAxisAlignment::Center)
+                                .child(Text::new(g.name.clone()).max_lines(1).class("start-group-title"))
+                                .child(icon(mi::EDIT).class("start-group-edit")),
+                        )
+                        .class("start-group-title-box"),
+                )
+                .class("grow"),
+        )
+    };
+    let cols = g.items.len().clamp(1, if phone { 4 } else { 5 });
+    let mut grid = Grid::new(cols).gap(2.0);
+    for a in &g.items {
+        let Some(e) = xdg::app_by_id(a) else { continue };
+        grid = grid.child(group_item(ctx, st, &g1, &e));
+    }
+    let card = InputArea::new(
+        DecoratedBox::new()
+            .child(
+                Column::new()
+                    .gap(12.0)
+                    .child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(title))
+                    .child(grid)
+                    .child(Text::new(if phone { t!("Удерживайте значок, чтобы вынуть его из группы") } else { t!("Перетащите значок за пределы группы, чтобы вынуть его") }).max_lines(2).class("start-group-hint")),
+            )
+            .class("popup-card start-group")
+            .style("width", StyleValue::px(if phone { 320.0 } else { (cols as f32 * 104.0 + 40.0).max(300.0) })),
+    )
+    .absorb();
+    let dur = crate::anim::group_ms(&ctx, "menu", 200);
+    let card = Presence::new(true, card).enter(Motion::fade().scale(0.85)).origin(TransformOrigin::Center).duration_ms(dur).initial(dur > 0);
+    let g3 = gid.clone();
+    // Затемнение (как у шторки — коробкой прямо в слое), над ним щелчок — закрыть,
+    // выше — приём переноса: брошенный за карточку значок вынимается из группы.
+    let scrim = DecoratedBox::new().class("start-group-scrim");
+    let click = InputArea::new(DecoratedBox::new()).on_press(move |_, _, _| close());
+    let take_out = DropArea::new()
+        .accept_types(vec![GROUP_DRAG.to_string()])
+        .on_drop(move |data| {
+            let g = g3.clone();
+            edit_pins(|p| p.take_out(&g, &data.payload));
+        })
+        // с ребёнком: без него область рисует заглушку «Drop here»
+        .child(DecoratedBox::new());
+    DecoratedBox::new().child(
+        Stack::new()
+            .fit(StackFit::Expand)
+            .child(scrim)
+            .child(click)
+            .child(take_out)
+            .child(Column::new().main_axis_alignment(MainAxisAlignment::Center).cross_axis_alignment(CrossAxisAlignment::Center).child(card)),
+    )
+}
+
+/// Значок внутри открытой группы.
+fn group_item(ctx: ShellCtx, st: St, gid: &str, e: &DesktopEntry) -> Box<dyn Widget> {
+    let phone = ctx.is_phone();
+    let e2 = e.clone();
+    let launch = move || {
+        let ctx = ShellCtx::get();
+        launcher::launch(ctx, &e2);
+        ctx.close_popup();
+    };
+    let face = DecoratedBox::new()
+        .child(
+            Column::new()
+                .gap(6.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(app_icon(e, "start-tile-icon", if phone { 48.0 } else { 36.0 }, true))
+                .child(Text::new(e.name.clone()).max_lines(2).class("start-tile-name")),
+        )
+        .class("start-tile start-group-tile");
+    let (id1, id2, g1, g2) = (e.id.clone(), e.id.clone(), gid.to_string(), gid.to_string());
+    let menu = move |id: String, g: String| {
+        st.menu_group.set(Some(g));
+        open_menu(st, id);
+    };
+    let menu2 = menu.clone();
+    if phone {
+        return Box::new(
+            GestureDetector::new()
+                .on_click(launch)
+                .on_secondary_click(move |_| menu(id1.clone(), g1.clone()))
+                .on_long_press(move |_| menu2(id2.clone(), g2.clone()))
+                .child(face),
+        );
+    }
+    let (g3, id3) = (gid.to_string(), e.id.clone());
+    Box::new(
+        DropArea::new()
+            .accept_types(vec![GROUP_DRAG.to_string()])
+            .on_drop_positioned(move |info| {
+                let after = info.local_position.x > info.size.width / 2.0;
+                let (g, dst, src) = (g3.clone(), id3.clone(), info.data.payload.clone());
+                edit_pins(|p| p.reorder_in_group(&g, &src, &dst, after));
+            })
+            .child(
+                GestureDetector::new()
+                    .on_secondary_click(move |_| menu(id1.clone(), g1.clone()))
+                    .child(Draggable::new(GROUP_DRAG, e.id.clone()).threshold(6.0).label(e.name.clone()).on_click(launch).child(face)),
+            ),
+    )
 }
 
 fn recent_row(ctx: ShellCtx, st: St, e: &DesktopEntry, mixed: bool) -> impl Widget {
@@ -734,16 +1130,77 @@ fn rail(ctx: ShellCtx, letters: Vec<String>, body_h: f32) -> impl Widget {
 
 fn item_menu(ctx: ShellCtx, st: St, id: &str, x: f32, y: f32) -> DecoratedBox {
     let cfg = ctx.cfg();
-    let pinned = cfg.launcher.favorites.iter().any(|f| f == id);
+    let close = move || {
+        st.item_menu.set(None);
+        st.menu_group.set(None);
+    };
+    // Группа закреплённых — своё меню.
+    if let Some(gid) = crate::pins::group_id(id) {
+        let name = synshell_common::config::load_launcher_groups().get(gid).map(|g| g.name.clone()).unwrap_or_default();
+        let (g1, g2, g3, t4) = (gid.to_string(), gid.to_string(), gid.to_string(), id.to_string());
+        let col = Column::new()
+            .gap(2.0)
+            .child(Text::new(name).max_lines(1).class("popup-title"))
+            .child(crate::popup::menu_item("\u{E89E}", t!("Открыть"), move || {
+                close();
+                st.renaming.set(false);
+                st.group.set(Some(g1.clone()));
+            }))
+            .child(crate::popup::menu_item(mi::EDIT, t!("Переименовать"), move || {
+                close();
+                st.group.set(Some(g2.clone()));
+                st.renaming.set(true);
+            }))
+            .child(crate::popup::menu_item(mi::GROUP_ADD, t!("Объединить с другим значком…"), {
+                let t = t4.clone();
+                move || {
+                    close();
+                    st.merge_src.set(Some(t.clone()));
+                }
+            }))
+            .child(crate::popup::menu_item(mi::UNGROUP, t!("Разгруппировать"), move || {
+                close();
+                let g = g3.clone();
+                edit_pins(|p| {
+                    p.dissolve(&g);
+                    true
+                });
+            }))
+            .child(crate::popup::menu_item(mi::PUSH_PIN, t!("Открепить группу"), move || {
+                close();
+                let t = t4.clone();
+                edit_pins(|p| {
+                    p.unpin(&t);
+                    true
+                });
+            }));
+        return menu_card(ctx, st, col, x, y);
+    }
+    let in_group = st.menu_group.get_untracked();
+    let pinned = cfg.launcher.favorite_apps().iter().any(|f| f == id);
+    let top_level = cfg.launcher.favorites.iter().any(|f| f == id);
     let entry = xdg::app_by_id(id);
     let name = entry.as_ref().map(|e| e.name.clone()).unwrap_or_else(|| id.to_string());
-    let close = move || st.item_menu.set(None);
     let mut col = Column::new().gap(2.0).child(Text::new(name).max_lines(1).class("popup-title"));
     if let Some(e) = entry.clone() {
         col = col.child(crate::popup::menu_item("\u{E89E}", t!("Открыть"), move || {
             let ctx = ShellCtx::get();
             launcher::launch(ctx, &e);
             ctx.close_popup();
+        }));
+    }
+    if let Some(gid) = in_group.clone() {
+        let (g, i) = (gid.clone(), id.to_string());
+        col = col.child(crate::popup::menu_item(mi::UNGROUP, t!("Вынуть из группы"), move || {
+            close();
+            let (g, i) = (g.clone(), i.clone());
+            edit_pins(|p| p.take_out(&g, &i));
+        }));
+    } else if top_level && cfg.launcher.favorites.len() > 1 {
+        let i = id.to_string();
+        col = col.child(crate::popup::menu_item(mi::GROUP_ADD, t!("Объединить в группу…"), move || {
+            close();
+            st.merge_src.set(Some(i.clone()));
         }));
     }
     let i1 = id.to_string();
@@ -771,6 +1228,11 @@ fn item_menu(ctx: ShellCtx, st: St, id: &str, x: f32, y: f32) -> DecoratedBox {
             crate::edit::set_home_apps(apps);
         }));
     }
+    menu_card(ctx, st, col, x, y)
+}
+
+/// Карточка меню значка у точки нажатия, поверх «Пуска».
+fn menu_card(ctx: ShellCtx, st: St, col: Column, x: f32, y: f32) -> DecoratedBox {
     let (w, _) = size(&ctx);
     let card_w = 240.0;
     let left = (x - 12.0).clamp(8.0, (w - card_w - 8.0).max(8.0));
@@ -783,7 +1245,10 @@ fn item_menu(ctx: ShellCtx, st: St, id: &str, x: f32, y: f32) -> DecoratedBox {
     .origin(TransformOrigin::TopLeft)
     .duration_ms(dur)
     .initial(dur > 0);
-    let backdrop = InputArea::new(DecoratedBox::new().class("start-menu-scrim")).on_press(move |_, _, _| st.item_menu.set(None));
+    let backdrop = InputArea::new(DecoratedBox::new().class("start-menu-scrim")).on_press(move |_, _, _| {
+        st.item_menu.set(None);
+        st.menu_group.set(None);
+    });
     DecoratedBox::new().child(Stack::new().fit(StackFit::Expand).child(backdrop).child(
         Column::new()
             .child(Row::new().child(menu).style("padding-left", StyleValue::px(left)))
@@ -791,17 +1256,23 @@ fn item_menu(ctx: ShellCtx, st: St, id: &str, x: f32, y: f32) -> DecoratedBox {
     ))
 }
 
+/// Закрепить или открепить приложение (открепить — и из группы).
 fn set_pinned(id: &str, pin: bool) {
-    let mut fav = ShellCtx::get().cfg().launcher.favorites.clone();
-    fav.retain(|f| f != id);
-    if pin {
-        fav.push(id.to_string());
-    }
-    let arr = toml_edit::Value::Array(fav.iter().map(|a| toml_edit::Value::from(a.as_str())).collect());
-    if let Err(e) = synshell_common::config_edit::set_value(&["launcher", "favorites"], arr) {
-        log::error!("«Пуск»: {e:#}");
-    }
-    crate::reload_after_write();
+    edit_pins(|p| {
+        if pin {
+            if p.fav.iter().any(|f| f == id) {
+                return false;
+            }
+            p.fav.push(id.to_string());
+        } else {
+            p.unpin(id);
+            let gids: Vec<String> = p.groups.iter().filter(|(_, g)| g.items.iter().any(|a| a == id)).map(|(k, _)| k.clone()).collect();
+            for g in gids {
+                p.remove_from_group(&g, id);
+            }
+        }
+        true
+    });
 }
 
 // ─── Низ ─────────────────────────────────────────────────────────────────────

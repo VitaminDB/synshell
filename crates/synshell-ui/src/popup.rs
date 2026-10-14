@@ -129,11 +129,16 @@ pub fn install(ctx: ShellCtx) {
         let open = use_signal(true);
         let hooks = SurfaceHooks {
             on_key: Some(Box::new(move |k: &KeyInfo| {
+                // Сначала окно: Escape может закрыть его вложенный слой (меню значка,
+                // открытую группу «Пуска»), и только иначе закрывает само окно.
+                if KEY_HANDLER.with(|h| h.borrow_mut().as_mut().map(|f| f(k)).unwrap_or(false)) {
+                    return true;
+                }
                 if k.pressed && k.key == Key::Escape {
                     ShellCtx::get().close_popup();
                     return true;
                 }
-                KEY_HANDLER.with(|h| h.borrow_mut().as_mut().map(|f| f(k)).unwrap_or(false))
+                false
             })),
             on_closed: Some(Box::new(move || {
                 // Поверхность, доигравшую уход, композитор закрывает уже

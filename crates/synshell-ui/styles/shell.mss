@@ -568,6 +568,34 @@ Text {
 .start-item-menu { padding: 8px; }
 .start-menu-scrim { background-color: #00000018; }
 
+/* Группы закреплённых: перенос на середину значка — объединить (кольцо),
+   на край — поставить перед ним или после (черта). */
+.start-tile { border-width: 2px; border-color: #00000000; }
+.start-tile-merge { background-color: var(--accent-soft); border-color: var(--accent); scale: 1.06; }
+.start-tile-before { border-left-color: var(--accent); }
+.start-tile-after { border-right-color: var(--accent); }
+.start-tile-source { background-color: var(--accent-soft); }
+.start-tile-pick:hover { border-color: var(--accent); }
+.start-merge {
+    padding: 8px 8px 8px 12px;
+    border-radius: var(--radius-sm);
+    background-color: var(--accent-soft);
+}
+.start-merge-icon { icon-size: 20px; icon-color: var(--accent); }
+.start-merge-text { font-size: 13px; color: var(--fg); }
+.start-group-scrim { background-color: #00000073; }
+.start-group { padding: 16px; }
+.start-group-title-box {
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    transition: background-color 120ms ease-out;
+}
+.start-group-title-box:hover { background-color: var(--hover); }
+.start-group-title { font-size: 18px; font-weight: 600; color: var(--fg); }
+.start-group-edit { icon-size: 16px; icon-color: var(--muted); }
+.start-group-field { font-size: 16px; }
+.start-group-hint { font-size: 12px; color: var(--muted); text-align: center; }
+
 .start-footer {
     padding: 10px 6px 6px 6px;
     border-top-width: 1px;

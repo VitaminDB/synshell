@@ -445,6 +445,11 @@ pub mod mi {
     pub const RESTORE: &str = "\u{E3E0}";
     pub const FULLSCREEN: &str = "\u{E5D0}";
     pub const PUSH_PIN: &str = "\u{F10D}";
+    /// create_new_folder: объединить в группу
+    pub const GROUP_ADD: &str = "\u{E2CC}";
+    pub const EDIT: &str = "\u{E3C9}";
+    /// folder_off: разгруппировать
+    pub const UNGROUP: &str = "\u{EB83}";
     pub const ARROW_UP: &str = "\u{E5D8}";
     pub const LAYERS: &str = "\u{E53B}";
     pub const GRID: &str = "\u{E9B0}";

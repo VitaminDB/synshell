@@ -295,6 +295,17 @@ pub fn displays() -> W {
 
 // ─── Меню запуска ───────────────────────────────────────────────────────────
 
+/// Подпись избранного: группа «Пуска» — по имени и числу значков.
+fn fav_label(f: &str) -> String {
+    match f.strip_prefix(synshell_common::config::GROUP_PREFIX) {
+        Some(id) => match synshell_common::config::load_launcher_groups().get(id) {
+            Some(g) => t!("Группа «{name}» ({n})", name = g.name, n = g.items.len()).to_string(),
+            None => f.to_string(),
+        },
+        None => f.to_string(),
+    }
+}
+
 fn favorites_editor(favs: Vec<String>) -> W {
     let mut col = Column::new().gap(4.0);
     let n = favs.len();
@@ -313,7 +324,7 @@ fn favorites_editor(favs: Vec<String>) -> W {
                 .gap(4.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .class("chip-row")
-                .child(Text::new(f.clone()).class("grow"))
+                .child(Text::new(fav_label(f)).class("grow"))
                 .child(icon_button(icons::UP, move || {
                     if i > 0 {
                         let mut v = a.clone();

@@ -1714,7 +1714,8 @@ pub struct Launcher {
     /// алфавитным указателем, рекомендуемые), `menu` — меню с разделами
     /// (Kickoff), `fullscreen` — сетка на весь экран.
     pub style: String,
-    /// Избранное: имена .desktop без расширения (`org.kde.dolphin`).
+    /// Избранное: имена .desktop без расширения (`org.kde.dolphin`) и группы
+    /// (`group:<id>`, состав — в `launcher-groups.toml`, см. [`load_launcher_groups`]).
     pub favorites: Vec<String>,
     pub show_categories: bool,
     pub show_recent: bool,
@@ -1754,6 +1755,79 @@ impl Default for Launcher {
             calculator: true,
             run_commands: true,
         }
+    }
+}
+
+/// Группа закреплённых значков «Пуска».
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct LauncherGroup {
+    pub name: String,
+    /// Приложения: имена .desktop без расширения.
+    pub items: Vec<String>,
+}
+
+/// Метка группы в `favorites`.
+pub const GROUP_PREFIX: &str = "group:";
+
+/// Группы закреплённых «Пуска» — отдельным файлом рядом с config.toml:
+/// `[launcher]` разбирается строго, и программа, собранная до появления
+/// групп, отвергла бы весь конфиг из-за незнакомой таблицы.
+pub fn launcher_groups_file() -> PathBuf {
+    crate::paths::config_dir().join("launcher-groups.toml")
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default)]
+struct LauncherGroupsFile {
+    groups: BTreeMap<String, LauncherGroup>,
+}
+
+/// Разобрать файл групп (`[groups] g1 = { name = "…", items = […] }`).
+pub fn parse_launcher_groups(text: &str) -> BTreeMap<String, LauncherGroup> {
+    toml::from_str::<LauncherGroupsFile>(text).map(|f| f.groups).unwrap_or_default()
+}
+
+fn render_launcher_groups(groups: &BTreeMap<String, LauncherGroup>) -> String {
+    toml::to_string(&LauncherGroupsFile { groups: groups.clone() }).unwrap_or_default()
+}
+
+pub fn load_launcher_groups() -> BTreeMap<String, LauncherGroup> {
+    std::fs::read_to_string(launcher_groups_file()).map(|t| parse_launcher_groups(&t)).unwrap_or_default()
+}
+
+/// Записать группы атомарно; пусто — файл удаляется.
+pub fn save_launcher_groups(groups: &BTreeMap<String, LauncherGroup>) -> std::io::Result<()> {
+    let path = launcher_groups_file();
+    if groups.is_empty() {
+        return match std::fs::remove_file(&path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        };
+    }
+    let mut out = String::from("# Группы закреплённых «Пуска» (перетащите значок на значок в меню).\n\n");
+    out.push_str(&render_launcher_groups(groups));
+    if let Some(d) = path.parent() {
+        std::fs::create_dir_all(d)?;
+    }
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, out)?;
+    std::fs::rename(&tmp, &path)
+}
+
+impl Launcher {
+    /// Закреплённые приложения без групп: группы раскрыты на месте (меню без
+    /// групп — стили `menu` и `fullscreen`).
+    pub fn favorite_apps(&self) -> Vec<String> {
+        let groups = if self.favorites.iter().any(|f| f.starts_with(GROUP_PREFIX)) { load_launcher_groups() } else { BTreeMap::new() };
+        let mut out = Vec::new();
+        for f in &self.favorites {
+            match f.strip_prefix(GROUP_PREFIX) {
+                Some(id) => out.extend(groups.get(id).into_iter().flat_map(|g| g.items.iter().cloned())),
+                None => out.push(f.clone()),
+            }
+        }
+        out
     }
 }
 
@@ -2929,6 +3003,16 @@ mod tests {
 
 #[cfg(test)]
 mod platform_tests {
+
+    #[test]
+    fn launcher_groups_file_roundtrip() {
+        let mut g = BTreeMap::new();
+        g.insert("g1".to_string(), LauncherGroup { name: "Игры \"и\" всё".into(), items: vec!["steam".into(), "net.lutris.Lutris".into()] });
+        let text = render_launcher_groups(&g);
+        assert_eq!(parse_launcher_groups(&text), g);
+        assert!(parse_launcher_groups("мусор").is_empty());
+    }
+
     use super::*;
     #[test]
     fn glob() {
