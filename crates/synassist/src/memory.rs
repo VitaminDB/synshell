@@ -46,7 +46,7 @@ pub fn prompt_section(dir: &Path) -> String {
     let mut s = String::from("\n\n## Память\n");
     s.push_str(&format!("У тебя есть постоянная память между разговорами — каталог {} (инструмент memory). ", dir.display()));
     s.push_str("Сохраняй (memory save) то, что пригодится в будущих разговорах и не следует из самих файлов: кто пользователь и как он любит работать (user), его указания и поправки к твоей работе с причиной (feedback), текущие дела и договорённости с абсолютными датами (project), ссылки на внешние ресурсы (reference). ");
-    s.push_str("Один факт — одна память; прежде чем создать новую, проверь индекс и обнови существующую (тот же name). Не сохраняй разовое, секреты и то, что легко узнать заново. Если память оказалась неверной — исправь или забудь её (memory forget). ");
+    s.push_str("Один факт — одна память; name — короткий латинский слаг о сути факта (user-name, favorite-color, preferred-editor). Прежде чем создать новую, проверь индекс: если там уже есть память о том же факте — обнови её (тот же name, replace: true); новый факт пиши под новым name, не занимай чужой. Не сохраняй разовое, секреты и то, что легко узнать заново. Если память оказалась неверной — исправь или забудь её (memory forget). ");
     s.push_str("Когда пользователь просит запомнить или забыть — сделай это сразу. Подробности памяти читай memory read по name.\n");
     if index.trim().is_empty() {
         s.push_str("Индекс памяти пока пуст.\n");
@@ -72,7 +72,14 @@ fn write_index(dir: &Path, lines: &[String]) -> std::io::Result<()> {
     std::fs::write(dir.join(INDEX), body)
 }
 
-pub fn save(dir: &Path, name: &str, description: &str, kind: &str, content: &str) -> Result<PathBuf, String> {
+/// Описание из frontmatter файла памяти.
+fn description_of(text: &str) -> Option<&str> {
+    text.lines().find_map(|l| l.strip_prefix("description:")).map(str::trim)
+}
+
+/// Сохраняет память. Существующую с тем же name перезаписывает только при
+/// `replace` — иначе модель, взявшая чужой name из индекса, затёрла бы другой факт.
+pub fn save(dir: &Path, name: &str, description: &str, kind: &str, content: &str, replace: bool) -> Result<PathBuf, String> {
     let slug = slug(name);
     if slug.is_empty() {
         return Err("пустое имя памяти".into());
@@ -80,6 +87,14 @@ pub fn save(dir: &Path, name: &str, description: &str, kind: &str, content: &str
     let kind = if TYPES.contains(&kind) { kind } else { "project" };
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let path = file_of(dir, &slug);
+    if !replace {
+        if let Ok(old) = std::fs::read_to_string(&path) {
+            return Err(format!(
+                "память «{slug}» уже есть: {}. Если это тот же факт — повтори save с replace: true; если другой — выбери другое name по сути факта",
+                description_of(&old).unwrap_or("")
+            ));
+        }
+    }
     let description = description.lines().next().unwrap_or("").trim();
     let body = format!("---\nname: {slug}\ndescription: {description}\nmetadata:\n  type: {kind}\n---\n\n{}\n", content.trim());
     std::fs::write(&path, body).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -125,17 +140,18 @@ impl Tool for MemoryTool {
         "память"
     }
     fn description(&self) -> String {
-        "Постоянная память между разговорами. action: save — сохранить или обновить память (name, description — одна строка для индекса, type: user|feedback|project|reference, content — сам факт; для feedback и project добавь строки «Почему:» и «Как применять:»); read — прочитать память по name; forget — удалить по name; list — индекс.".into()
+        "Постоянная память между разговорами. action: save — сохранить или обновить память (name — слаг о сути факта, description — одна строка для индекса, type: user|feedback|project|reference, content — сам факт; для feedback и project добавь строки «Почему:» и «Как применять:»; replace: true — перезаписать существующую память о том же факте); read — прочитать память по name; forget — удалить по name; list — индекс.".into()
     }
     fn parameters(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
                 "action": { "type": "string", "enum": ["save", "read", "forget", "list"] },
-                "name": { "type": "string", "description": "короткое имя-слаг памяти" },
+                "name": { "type": "string", "description": "короткий латинский слаг о сути факта, например user-name" },
                 "description": { "type": "string", "description": "одна строка для индекса" },
                 "type": { "type": "string", "enum": TYPES },
-                "content": { "type": "string" }
+                "content": { "type": "string" },
+                "replace": { "type": "boolean", "description": "save: перезаписать существующую память с этим name" }
             },
             "required": ["action"]
         })
@@ -158,7 +174,8 @@ impl Tool for MemoryTool {
                 let name = need_str(args, "name")?;
                 let content = need_str(args, "content")?;
                 let description = str_arg(args, "description").unwrap_or(name);
-                let path = save(&self.dir, name, description, str_arg(args, "type").unwrap_or("project"), content)?;
+                let replace = args.get("replace").and_then(Value::as_bool).unwrap_or(false);
+                let path = save(&self.dir, name, description, str_arg(args, "type").unwrap_or("project"), content, replace)?;
                 Ok(ToolOutput::text(format!("Сохранено: {}", path.display())))
             }
             "read" => read(&self.dir, need_str(args, "name")?).map(ToolOutput::text),
@@ -180,8 +197,11 @@ mod tests {
     fn save_read_forget() {
         let dir = tempfile::tempdir().unwrap();
         let d = dir.path();
-        save(d, "Любимый редактор", "редактор пользователя — helix", "user", "Пользователь пишет код в helix.").unwrap();
-        save(d, "любимый-редактор", "редактор пользователя — neovim", "user", "Теперь neovim.").unwrap();
+        save(d, "Любимый редактор", "редактор пользователя — helix", "user", "Пользователь пишет код в helix.", false).unwrap();
+        let err = save(d, "любимый-редактор", "имя пользователя", "user", "Имя — Виталя.", false).unwrap_err();
+        assert!(err.contains("helix"), "без replace чужой факт не затирается: {err}");
+        assert!(read(d, "любимый-редактор").unwrap().contains("helix"));
+        save(d, "любимый-редактор", "редактор пользователя — neovim", "user", "Теперь neovim.", true).unwrap();
         let index = std::fs::read_to_string(d.join(INDEX)).unwrap();
         assert_eq!(index.lines().count(), 1, "обновление, а не дубль: {index}");
         assert!(index.contains("neovim"));
