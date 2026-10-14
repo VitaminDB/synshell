@@ -59,6 +59,16 @@ fn run(args: &[String]) -> Result<(), String> {
     let mut c = Client::connect().map_err(|e| e.to_string())?;
     let arg = |i: usize| args.get(i).map(String::as_str).ok_or_else(|| "мало аргументов".to_string());
     match args.first().map(String::as_str).unwrap_or("list") {
+        "engine" => {
+            let id = arg(1)?;
+            let m = c.list().map_err(|e| e.to_string())?.into_iter().find(|m| m.id == id).ok_or("нет такой модели")?;
+            let e = m.engine.ok_or("у модели нет профиля движка (не языковая)")?;
+            let b = |v: Option<bool>| v.map_or("—", |v| if v { "да" } else { "нет" });
+            let s = |v: &Option<String>| v.clone().unwrap_or_else(|| "—".into());
+            println!("{}{}", m.id, if e.custom { " (свой профиль)" } else { " (выверенный)" });
+            println!("  веса {}, счёт {}, KV {}, голова {}, эмбеддинги {}", s(&e.weights), s(&e.compute), s(&e.kv_dtype), s(&e.lm_head), s(&e.embed));
+            println!("  граф декода {}, спекуляция {}, синхронизация слоёв {}, перекодировка {}", b(e.graph_decode), b(e.speculation), s(&e.layer_sync), b(e.transcode));
+        }
         "list" => {
             for m in c.list().map_err(|e| e.to_string())? {
                 print_entry(&m);
@@ -134,6 +144,36 @@ fn run(args: &[String]) -> Result<(), String> {
                     "preload" => ch.preload = Some(v == "1" || v == "true"),
                     "idle" => ch.idle_unload_min = Some(if v == "default" { None } else { Some(v.parse().map_err(|_| "idle: минуты")?) }),
                     "quant" => ch.quant = Some((v != "auto").then(|| v.to_string())),
+                    // engine.custom=1, engine.graph_decode=0, engine.kv_dtype=bf16; «default» — снять правку.
+                    k if k.starts_with("engine.") => {
+                        let mut e = match ch.engine.take() {
+                            Some(e) => e,
+                            None => c.list().map_err(|e| e.to_string())?.into_iter().find(|m| m.id == id).ok_or("нет такой модели")?.settings.engine,
+                        };
+                        let text = (v != "default").then(|| v.to_string());
+                        let flag = || -> Result<Option<bool>, String> {
+                            match v {
+                                "default" => Ok(None),
+                                "1" | "true" | "on" => Ok(Some(true)),
+                                "0" | "false" | "off" => Ok(Some(false)),
+                                _ => Err(format!("{k}: 1|0|default")),
+                            }
+                        };
+                        match k.trim_start_matches("engine.") {
+                            "custom" => e.custom = flag()?.unwrap_or(false),
+                            "weights" => e.weights = text,
+                            "compute" => e.compute = text,
+                            "kv_dtype" => e.kv_dtype = text,
+                            "lm_head" => e.lm_head = text,
+                            "embed" => e.embed = text,
+                            "layer_sync" => e.layer_sync = text,
+                            "graph_decode" => e.graph_decode = flag()?,
+                            "speculation" => e.speculation = flag()?,
+                            "transcode" => e.transcode = flag()?,
+                            other => return Err(format!("у профиля нет поля {other}")),
+                        }
+                        ch.engine = Some(e);
+                    }
                     k if k.starts_with("param.") => {
                         let key = k.trim_start_matches("param.");
                         let entry = c.list().map_err(|e| e.to_string())?.into_iter().find(|m| m.id == id).ok_or("нет такой модели")?;

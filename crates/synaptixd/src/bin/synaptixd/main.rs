@@ -123,11 +123,11 @@ impl Conn {
                 mgr.unload(&model);
                 (data(mgr.entry(&model)?), none())
             }
-            Request::Set { model, device, pinned, idle_unload_min, preload, quant, params } => {
+            Request::Set { model, device, pinned, idle_unload_min, preload, quant, params, engine } => {
                 if !self.admin {
                     return Err(denied());
                 }
-                (data(mgr.set(&model, SettingsChange { device, pinned, idle_unload_min, preload, quant, params })?), none())
+                (data(mgr.set(&model, SettingsChange { device, pinned, idle_unload_min, preload, quant, params, engine })?), none())
             }
             Request::Defaults => (data(mgr.defaults()), none()),
             Request::SetDefault { kind, model } => {

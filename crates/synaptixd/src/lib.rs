@@ -136,6 +136,66 @@ pub struct ModelSettings {
     pub quant: Option<String>,
     #[serde(default, skip_serializing_if = "Params::is_empty")]
     pub params: Params,
+    /// Профиль движка языковой модели (ручные правки поверх выверенного).
+    #[serde(default, skip_serializing_if = "EngineProfile::is_default")]
+    pub engine: EngineProfile,
+}
+
+/// Профиль движка языковой модели. В настройках — только ручные правки
+/// (`custom`; пустое поле — как выверено движком), в описании модели
+/// (`ModelEntry::engine`) — действующие значения целиком.
+///
+/// Типы — имена synaptix: веса `nvfp4|mxfp8|bf16|f16|f32|sqN`, счёт
+/// `bf16|f16|f32`, KV `auto|f16|bf16|f32|fp8e4m3|mxfp8`, синхронизация слоёв
+/// `auto|on|off`.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Default)]
+pub struct EngineProfile {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub custom: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weights: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compute: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kv_dtype: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lm_head: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embed: Option<String>,
+    /// CUDA-граф на декоде.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph_decode: Option<bool>,
+    /// Спекулятивный декод (MTP, DFlash).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speculation: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer_sync: Option<String>,
+    /// Перекодировать уже квантованные веса в форматы профиля (двойной квант).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcode: Option<bool>,
+}
+
+impl EngineProfile {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Правки, которые действуют (вне `custom` — никакие).
+    pub fn effective(&self) -> Self {
+        if self.custom {
+            self.clone()
+        } else {
+            Self::default()
+        }
+    }
+
+    /// Отличаются ли поля, нужные при загрузке весов (их смена перезагружает
+    /// модель; остальное применяется на лету).
+    pub fn reload_differs(&self, other: &Self) -> bool {
+        let (a, b) = (self.effective(), other.effective());
+        (&a.weights, &a.compute, &a.kv_dtype, &a.lm_head, &a.embed, a.transcode, a.speculation)
+            != (&b.weights, &b.compute, &b.kv_dtype, &b.lm_head, &b.embed, b.transcode, b.speculation)
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -217,6 +277,9 @@ pub struct ModelEntry {
     pub components: Vec<String>,
     #[serde(default)]
     pub files: Vec<String>,
+    /// Действующий профиль движка (у языковых моделей).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine: Option<EngineProfile>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -425,6 +488,8 @@ pub enum Request {
         quant: Option<Option<String>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         params: Option<Params>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        engine: Option<EngineProfile>,
     },
     Rescan,
     Defaults,
@@ -1041,6 +1106,7 @@ impl Client {
             preload: change.preload,
             quant: change.quant,
             params: change.params,
+            engine: change.engine,
         })
     }
 
@@ -1339,6 +1405,7 @@ pub struct SettingsChange {
     pub preload: Option<bool>,
     pub quant: Option<Option<String>>,
     pub params: Option<Params>,
+    pub engine: Option<EngineProfile>,
 }
 
 pub fn model_id_from_file(name: &str) -> String {

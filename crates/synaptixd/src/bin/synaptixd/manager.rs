@@ -5,7 +5,7 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use synaptixd::{DefaultModel, DeviceKind, Error, ErrorCode, Event, LoadState, ModelEntry, ModelInfo, ModelKind, ModelSettings, Params, SettingsChange, Status};
+use synaptixd::{DefaultModel, DeviceKind, EngineProfile, Error, ErrorCode, Event, LoadState, ModelEntry, ModelInfo, ModelKind, ModelSettings, Params, SettingsChange, Status};
 
 use crate::config::Config;
 use crate::defaults;
@@ -32,7 +32,11 @@ pub struct Slot {
     pub disk_bytes: u64,
     pub schema: Vec<synaptixd::ParamSpec>,
     pub optimal: Params,
+    /// Действующий профиль движка LLM по (устройство, точность, правки).
+    engine_shown: Mutex<Option<(EngineKey, EngineProfile)>>,
 }
+
+type EngineKey = (DeviceKind, Option<String>, EngineProfile);
 
 impl Slot {
     fn new(manifest: Manifest, settings: ModelSettings) -> Self {
@@ -58,7 +62,33 @@ impl Slot {
             disk_bytes,
             schema,
             optimal,
+            engine_shown: Mutex::new(None),
         }
+    }
+
+    /// Устройство, на котором модель работает или будет загружена.
+    fn target_device(&self) -> Option<DeviceKind> {
+        self.device.or_else(|| devices::resolve(self.settings.device, &self.manifest.devices()))
+    }
+
+    /// Действующий профиль движка (только у языковых моделей).
+    fn engine(&self) -> Option<EngineProfile> {
+        if self.manifest.kind != ModelKind::Llm {
+            return None;
+        }
+        let dev = self.target_device()?;
+        let key = (dev, self.settings.quant.clone(), self.settings.engine.clone());
+        let mut cache = self.engine_shown.lock().unwrap();
+        if let Some((k, v)) = cache.as_ref() {
+            if *k == key {
+                return Some(v.clone());
+            }
+        }
+        let variant = self.manifest.variant_quant(dev, key.1.as_deref())?;
+        let path = self.manifest.path(variant);
+        let (_, _, shown) = runners::llm_engine(&path, dev, key.1.as_deref(), &key.2);
+        *cache = Some((key, shown.clone()));
+        Some(shown)
     }
 
     fn entry(&self) -> ModelEntry {
@@ -102,6 +132,7 @@ impl Slot {
             schema: self.schema.clone(),
             defaults: self.optimal.clone(),
             runnable: runners::runnable(m.kind),
+            engine: self.engine(),
         }
     }
 
@@ -474,6 +505,22 @@ impl Manager {
             if let Some(p) = ch.params {
                 s.settings.params = p.sanitize(&s.schema);
             }
+            if let Some(e) = ch.engine {
+                if e != s.settings.engine {
+                    let differs = e.reload_differs(&s.settings.engine);
+                    s.settings.engine = e;
+                    if differs {
+                        reload |= s.model.is_some();
+                    } else if let (Some(m), Some(dev)) = (&s.model, s.device) {
+                        // Граф декода и синхронизация слоёв — на лету.
+                        let variant = s.manifest.variant_quant(dev, s.settings.quant.as_deref());
+                        if let Some(v) = variant {
+                            let (_, rt, _) = runners::llm_engine(&s.manifest.path(v), dev, s.settings.quant.as_deref(), &s.settings.engine);
+                            m.set_runtime(rt);
+                        }
+                    }
+                }
+            }
             (s.entry(), reload)
         };
         self.save_state();
@@ -732,7 +779,7 @@ impl Manager {
 
     pub fn load(&self, id: &str, force: Option<DeviceKind>) -> Result<(), Error> {
         let _guard = self.load_lock.lock().unwrap_or_else(|e| e.into_inner());
-        let (manifest, want, quant) = {
+        let (manifest, want, quant, engine) = {
             let mut slots = self.slots.lock().unwrap();
             let s = slots.get_mut(id).ok_or_else(|| no_model(id))?;
             if s.model.is_some() && force.is_none() {
@@ -743,10 +790,10 @@ impl Manager {
             // Каждая загрузка снова пробует выбранное устройство: откат на CPU
             // был разовым (не хватило видеопамяти), а не приговором модели.
             let want = force.unwrap_or(s.settings.device);
-            (s.manifest.clone(), want, s.settings.quant.clone())
+            (s.manifest.clone(), want, s.settings.quant.clone(), s.settings.engine.clone())
         };
         self.notify_slot(id);
-        let result = self.load_inner(&manifest, want, quant.as_deref());
+        let result = self.load_inner(&manifest, want, quant.as_deref(), &engine);
         let mut slots = self.slots.lock().unwrap();
         let s = slots.get_mut(id).ok_or_else(|| no_model(id))?;
         let out = match result {
@@ -777,7 +824,7 @@ impl Manager {
         out
     }
 
-    fn load_inner(&self, m: &Manifest, want: DeviceKind, quant: Option<&str>) -> Result<(Loaded, DeviceKind, String, u64), Error> {
+    fn load_inner(&self, m: &Manifest, want: DeviceKind, quant: Option<&str>, engine: &EngineProfile) -> Result<(Loaded, DeviceKind, String, u64), Error> {
         let supported = m.devices();
         let dev = match devices::resolve(want, &supported) {
             Some(d) => d,
@@ -794,14 +841,14 @@ impl Manager {
         let t0 = Instant::now();
         let loaded = {
             let _dl = devices::lock(dev);
-            runners::load(m.kind, &m.arch, &path, &m.component_paths(), dev, quant)
+            runners::load(m.kind, &m.arch, &path, &m.component_paths(), dev, quant, engine)
         };
         let (model, dev, variant) = match loaded {
             Ok(model) => (model, dev, variant),
             Err(e) if dev != DeviceKind::Cpu && m.devices().contains(&DeviceKind::Cpu) => {
                 tracing::warn!("{}: {} не загрузилась ({e}); загружаю на CPU", m.id, dev.id());
                 let cpu = m.variant_for(DeviceKind::Cpu).ok_or_else(|| Error::new(ErrorCode::Device, "нет варианта весов для CPU"))?;
-                let model = runners::load(m.kind, &m.arch, &m.path(cpu), &m.component_paths(), DeviceKind::Cpu, quant)
+                let model = runners::load(m.kind, &m.arch, &m.path(cpu), &m.component_paths(), DeviceKind::Cpu, quant, engine)
                     .map_err(|e| Error::new(ErrorCode::Failed, format!("{}: {e}", m.path(cpu).display())))?;
                 (model, DeviceKind::Cpu, cpu)
             }

@@ -2,7 +2,7 @@ use std::path::Path;
 
 use synaptix_asr_wav2vec2::Wav2Vec2Ctc;
 use synaptix_core::dtype::DType;
-use synaptixd::{Alignment, CtcInfo, DeviceKind, ModelKind, Params, PhoneSpan};
+use synaptixd::{Alignment, CtcInfo, DeviceKind, EngineProfile, ModelKind, Params, PhoneSpan};
 
 use crate::devices;
 
@@ -238,6 +238,68 @@ fn llm_policy(path: &Path, dev: DeviceKind, quant: Option<&str>) -> synaptix::fa
     p
 }
 
+/// Профиль движка языковой модели: квант-политика (точность из настроек
+/// модели, затем ручные правки), настройки генерации и всё это для показа.
+pub fn llm_engine(
+    path: &Path,
+    dev: DeviceKind,
+    quant: Option<&str>,
+    prof: &EngineProfile,
+) -> (synaptix::facade::llm::QuantPolicy, synaptix::facade::llm::RuntimeOptions, EngineProfile) {
+    use synaptix::facade::llm::{optimal_profile_for_device, KvDtypePolicy, LayerSyncMode, RuntimeOptions};
+    use synaptix_core::precision::{dtype_name, parse_dtype};
+    let mut policy = llm_policy(path, dev, quant);
+    let mut rt = RuntimeOptions::from_profile(&optimal_profile_for_device(path, devices::device(dev)));
+    let p = prof.effective();
+    let storage = |v: &Option<String>, d: DType| match v.as_deref().map(str::to_ascii_lowercase).as_deref() {
+        Some("fp8" | "fp8e4m3" | "mxfp8") => DType::MXFP8,
+        Some(s) => parse_dtype(s).unwrap_or(d),
+        None => d,
+    };
+    policy.weights_storage = storage(&p.weights, policy.weights_storage);
+    policy.lm_head_storage = storage(&p.lm_head, policy.lm_head_storage);
+    policy.embed_storage = storage(&p.embed, policy.embed_storage);
+    if let Some(c) = p.compute.as_deref().and_then(parse_dtype).filter(|d| matches!(d, DType::F16 | DType::BF16 | DType::F32)) {
+        policy.compute = c;
+    }
+    if let Some(kv) = p.kv_dtype.as_deref().and_then(KvDtypePolicy::from_name) {
+        policy.kv_dtype = kv;
+    }
+    if let Some(t) = p.transcode {
+        policy.transcode = t;
+    }
+    if p.graph_decode.is_some() {
+        rt.graph_decode = p.graph_decode;
+    }
+    if p.speculation.is_some() {
+        rt.speculation = p.speculation;
+    }
+    if let Some(m) = p.layer_sync.as_deref().and_then(|s| s.parse::<LayerSyncMode>().ok()) {
+        rt.layer_sync = Some(m);
+    }
+    if p.custom {
+        policy.preset_name = "custom".into();
+    }
+    let sync = match rt.layer_sync.unwrap_or_default() {
+        LayerSyncMode::Auto => "auto",
+        LayerSyncMode::Off => "off",
+        LayerSyncMode::On => "on",
+    };
+    let shown = EngineProfile {
+        custom: prof.custom,
+        weights: Some(dtype_name(policy.weights_storage)),
+        compute: Some(dtype_name(policy.compute)),
+        kv_dtype: Some(policy.kv_dtype.name().to_string()),
+        lm_head: Some(dtype_name(policy.lm_head_storage)),
+        embed: Some(dtype_name(policy.embed_storage)),
+        graph_decode: rt.graph_decode,
+        speculation: rt.speculation,
+        layer_sync: Some(sync.into()),
+        transcode: Some(policy.transcode),
+    };
+    (policy, rt, shown)
+}
+
 pub fn dtype_label(d: DType) -> String {
     match d {
         DType::Sq { bits } => format!("sq{bits}"),
@@ -280,7 +342,7 @@ fn precision_tag(quant: Option<DType>, compute: DType) -> String {
     dtype_label(quant.unwrap_or(compute))
 }
 
-pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collections::BTreeMap<String, std::path::PathBuf>, dev: DeviceKind, quant: Option<&str>) -> anyhow::Result<(Loaded, Option<String>)> {
+pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collections::BTreeMap<String, std::path::PathBuf>, dev: DeviceKind, quant: Option<&str>, engine: &EngineProfile) -> anyhow::Result<(Loaded, Option<String>)> {
     let plain = |l: Loaded| Ok((l, None));
     match kind {
         ModelKind::Ctc => {
@@ -339,13 +401,11 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
             Ok((Loaded::Diarize(std::sync::Mutex::new(d)), Some(precision_tag(q, dtype))))
         }
         ModelKind::Llm => {
-            use synaptix::facade::llm::load_llm;
             let device = devices::device(dev);
-            let policy = llm_policy(path, dev, quant);
+            let (policy, runtime, _) = llm_engine(path, dev, quant, engine);
             let label = dtype_label(policy.weights_storage);
-            let precision = policy.to_precision().map_err(|e| anyhow::anyhow!("{e}"))?;
             let max_seq = if dev == DeviceKind::Npu { Some(2048) } else { synaptix::facade::arch::config_max_seq(path) };
-            let (llm, tok) = load_llm(path, device, precision, max_seq).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let (llm, tok) = synaptix::facade::llm::load_llm_full(path, policy, &device, max_seq, runtime).map_err(|e| anyhow::anyhow!("{e}"))?;
             let window = llm.config().max_seq_len.max(2048);
             Ok((Loaded::Llm(Box::new(LlmSlot { llm, tok, window, path: path.to_path_buf(), sessions: std::sync::Mutex::new(Vec::new()), media: std::sync::Mutex::new(Vec::new()) })), Some(label)))
         }
@@ -417,6 +477,13 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
 }
 
 impl Loaded {
+    /// Настройки генерации языковой модели (на лету, без перезагрузки).
+    pub fn set_runtime(&self, rt: synaptix::facade::llm::RuntimeOptions) {
+        if let Loaded::Llm(b) = self {
+            b.llm.set_runtime(rt);
+        }
+    }
+
     pub fn ctc_info(&self) -> Option<CtcInfo> {
         match self {
             Loaded::Ctc(m) => Some(CtcInfo {
