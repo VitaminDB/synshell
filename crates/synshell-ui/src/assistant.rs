@@ -307,11 +307,87 @@ fn stop_media() {
         p.stop();
     }
     VIDEO_PLAYER.with(|v| v.borrow_mut().take());
+    synassist_voice::set_held(false);
 }
 
 fn fmt_time(s: f64) -> String {
     let s = s.max(0.0) as u64;
     format!("{}:{:02}", s / 60, s % 60)
+}
+
+/// Проиграть звук результата в панели (прежнее проигрывание — стоп).
+fn play_audio(path: &std::path::Path) {
+    stop_media();
+    if let Some(pcm) = decode_stereo(path) {
+        if let Ok(pl) = syngui::audio::AudioPlayer::start_stereo(pcm, 48_000) {
+            AUDIO_PLAYER.with(|a| *a.borrow_mut() = Some((path.to_path_buf(), pl)));
+            // Пока играет — обновлять ползунок и время.
+            syngui_layer::add_timer(Duration::from_millis(250), move || {
+                bump_media();
+                let playing = AUDIO_PLAYER.with(|a| a.borrow().as_ref().is_some_and(|(_, pl)| !pl.is_done()));
+                playing.then_some(Duration::from_millis(250))
+            });
+        }
+    }
+    hold_mic_while_playing();
+    bump_media();
+}
+
+/// Ролик в панели; не открылся — во внешнем проигрывателе.
+fn play_video(path: &std::path::Path) {
+    stop_media();
+    // Аппаратный декодер, где он есть (иначе программный).
+    match syngui::video::VideoPlayer::open_with_hwaccel(&path.to_string_lossy(), syngui::video::HwAccel::platform_default()) {
+        Ok(pl) => VIDEO_PLAYER.with(|v| *v.borrow_mut() = Some((path.to_path_buf(), Arc::new(Mutex::new(pl))))),
+        Err(_) => {
+            let _ = std::process::Command::new("xdg-open").arg(path).spawn();
+        }
+    }
+    hold_mic_while_playing();
+    bump_media();
+}
+
+/// Играет ли сейчас звук или ролик панели.
+fn media_playing() -> bool {
+    let audio = AUDIO_PLAYER.with(|a| a.borrow().as_ref().is_some_and(|(_, pl)| !pl.is_paused() && !pl.is_done()));
+    let video = VIDEO_PLAYER.with(|v| v.borrow().as_ref().is_some_and(|(_, pl)| pl.lock().is_ok_and(|pl| !pl.is_paused() && !pl.is_ended())));
+    audio || video
+}
+
+/// Пока играет звук или ролик, голосовой разговор не слушает микрофон —
+/// иначе распознаёт песню или речь из ролика как вопрос.
+fn hold_mic_while_playing() {
+    thread_local! {
+        static WATCHING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    synassist_voice::set_held(media_playing());
+    if WATCHING.with(|w| w.replace(true)) {
+        return;
+    }
+    syngui_layer::add_timer(Duration::from_millis(250), || {
+        let playing = media_playing();
+        synassist_voice::set_held(playing);
+        if !playing {
+            WATCHING.with(|w| w.set(false));
+        }
+        playing.then_some(Duration::from_millis(250))
+    });
+}
+
+/// Голосовой ход кончился с результатами — когда ассистент договорит,
+/// первый ролик или звук сам начнёт играть.
+static AUTOPLAY: AtomicBool = AtomicBool::new(false);
+
+fn autoplay(p: Panel) {
+    if !AUTOPLAY.swap(false, Ordering::AcqRel) {
+        return;
+    }
+    let results = p.results.get_untracked();
+    if let Some(f) = results.iter().find(|f| is_video(f)) {
+        play_video(f);
+    } else if let Some(f) = results.iter().find(|f| synassist::attach::kind(f) == synassist::attach::Kind::Audio) {
+        play_audio(f);
+    }
 }
 
 /// Звук → перемежённое стерео 48 кГц (ffmpeg).
@@ -348,19 +424,9 @@ fn audio_row(path: std::path::PathBuf) -> Box<dyn Widget> {
                     }
                 });
             } else {
-                stop_media();
-                if let Some(pcm) = decode_stereo(&p1) {
-                    if let Ok(pl) = syngui::audio::AudioPlayer::start_stereo(pcm, 48_000) {
-                        AUDIO_PLAYER.with(|a| *a.borrow_mut() = Some((p1.clone(), pl)));
-                        // Пока играет — обновлять ползунок и время.
-                        syngui_layer::add_timer(Duration::from_millis(250), move || {
-                            bump_media();
-                            let playing = AUDIO_PLAYER.with(|a| a.borrow().as_ref().is_some_and(|(_, pl)| !pl.is_done()));
-                            playing.then_some(Duration::from_millis(250))
-                        });
-                    }
-                }
+                play_audio(&p1);
             }
+            hold_mic_while_playing();
             bump_media();
         });
         let p2 = path.clone();
@@ -412,15 +478,7 @@ fn video_tile(path: std::path::PathBuf) -> Box<dyn Widget> {
                 if b != syngui::input::MouseButton::Left {
                     return;
                 }
-                stop_media();
-                // Аппаратный декодер, где он есть (иначе программный).
-                match syngui::video::VideoPlayer::open_with_hwaccel(&p.to_string_lossy(), syngui::video::HwAccel::platform_default()) {
-                    Ok(pl) => VIDEO_PLAYER.with(|v| *v.borrow_mut() = Some((p.clone(), Arc::new(Mutex::new(pl))))),
-                    Err(_) => {
-                        let _ = std::process::Command::new("xdg-open").arg(&p).spawn();
-                    }
-                }
-                bump_media();
+                play_video(&p);
             }),
         ) as Box<dyn Widget>
     }))
@@ -612,6 +670,11 @@ fn ask(p: Panel, text: String, voice: bool) {
                 Ok(()) => Ok(answer.clone()),
                 Err(e) => Err(e.clone()),
             };
+            // До ответа разговору: он озвучит ответ и сразу перейдёт к «слушаю».
+            let playable = chat.messages[from.min(chat.messages.len())..].iter().filter(|m| m.role == Role::Tool).flat_map(|m| &m.files).any(|f| {
+                f.exists() && matches!(synassist::attach::kind(f), synassist::attach::Kind::Video | synassist::attach::Kind::Audio)
+            });
+            AUTOPLAY.store(voice && r.is_ok() && playable, Ordering::Release);
             if let Some(tx) = shared().turn.lock().unwrap().take() {
                 let _ = tx.send(result);
             }
@@ -638,7 +701,12 @@ fn listener(p: Panel) -> synassist_voice::Listener {
                 synassist_voice::stop_conversation();
             }
             match ev {
-                VoiceEvent::Phase(ph) => p.phase.set(ph),
+                VoiceEvent::Phase(ph) => {
+                    p.phase.set(ph);
+                    if ph == Phase::Listening {
+                        autoplay(p);
+                    }
+                }
                 VoiceEvent::Vis(v) => p.vis.set(v),
                 VoiceEvent::Heard(t) => p.heard.set(t),
                 VoiceEvent::Speaking(on) => p.speaking.set(on),

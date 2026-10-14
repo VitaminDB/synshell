@@ -92,6 +92,8 @@ struct Flags {
     dict_stop: AtomicBool,
     dictating: AtomicBool,
     muted: AtomicBool,
+    /// Микрофон временно не слушается: играет звук или видео.
+    held: AtomicBool,
     speech_gen: AtomicU64,
 }
 
@@ -103,6 +105,7 @@ fn flags() -> &'static Flags {
         dict_stop: AtomicBool::new(false),
         dictating: AtomicBool::new(false),
         muted: AtomicBool::new(false),
+        held: AtomicBool::new(false),
         speech_gen: AtomicU64::new(0),
     })
 }
@@ -603,6 +606,12 @@ pub fn set_muted(muted: bool) {
     flags().muted.store(muted, Ordering::Release);
 }
 
+/// Не слушать, пока играет звук или видео (их не принимать за речь);
+/// в отличие от `set_muted` — не выбор пользователя.
+pub fn set_held(held: bool) {
+    flags().held.store(held, Ordering::Release);
+}
+
 pub fn muted() -> bool {
     flags().muted.load(Ordering::Acquire)
 }
@@ -673,7 +682,7 @@ fn conversation(cfg: VoiceConfig, turn: Turn, on: Listener) {
             Err(RecvTimeoutError::Timeout) => continue,
             Err(RecvTimeoutError::Disconnected) => break,
         };
-        if f.muted.load(Ordering::Acquire) {
+        if f.muted.load(Ordering::Acquire) || f.held.load(Ordering::Acquire) {
             vad.reset();
             continue;
         }

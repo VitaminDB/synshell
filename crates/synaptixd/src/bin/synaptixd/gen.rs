@@ -120,10 +120,13 @@ pub fn music(
     let model = mgr.resolve_id(model, ModelKind::Music)?;
     let mp = mgr.params(&model, &Params::new());
     let seed = seed_of(seed, &mp);
+    // Длительность не задана: песня с текстом — как обычная песня, 3 минуты
+    // (модель может закончить раньше); инструментал — по умолчанию движка.
+    let song = if lyrics.trim().is_empty() { 0 } else { 180 };
     let req = synaptix_gen::music::MusicRequest {
         prompt,
         lyrics,
-        seconds: seconds.or(mp.f32("duration").map(|v| v.round() as u32)).unwrap_or(0),
+        seconds: seconds.filter(|&s| s > 0).or(mp.f32("duration").map(|v| v.round() as u32)).unwrap_or(song),
         seed,
         steps: steps.or(mp.u32("steps").map(|v| v as usize)),
         guidance: mp.f32("guidance"),
