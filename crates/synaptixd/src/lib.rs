@@ -309,6 +309,10 @@ pub struct ModelEntry {
     /// Действующий профиль движка (у языковых моделей).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub engine: Option<EngineProfile>,
+    /// Основной файл весов (для устройства, на котором модель работает или
+    /// будет загружена).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub path: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]

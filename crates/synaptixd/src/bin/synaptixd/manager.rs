@@ -133,6 +133,12 @@ impl Slot {
             defaults: self.optimal.clone(),
             runnable: runners::runnable(m.kind),
             engine: self.engine(),
+            path: self
+                .target_device()
+                .and_then(|d| m.variant_quant(d, self.settings.quant.as_deref()))
+                .or(m.variants.first())
+                .map(|v| m.path(v).to_string_lossy().into_owned())
+                .unwrap_or_default(),
         }
     }
 
