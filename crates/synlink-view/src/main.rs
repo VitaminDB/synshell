@@ -120,6 +120,10 @@ fn main() {
             std::process::exit(1);
         }
     };
+    let args: Vec<String> = std::env::args().skip(2).collect();
+    if args.iter().any(|a| a == "--record") {
+        std::process::exit(headless_record(peer, &args));
+    }
     // Окно под пропорции экрана устройства.
     let (w, h, refresh) = output_size(&peer.id).unwrap_or(if peer.kind.is_touch() { (1080, 2400, 60) } else { (1920, 1080, 60) });
     let (win_w, win_h) = window_size(w, h);
@@ -170,6 +174,156 @@ fn main() {
             let input = start_input(device);
             Box::new(root(ctx, frame.clone(), input))
         });
+}
+
+// ─── запись без окна ─────────────────────────────────────────────────────────
+
+/// Остановить фоновую запись (SIGINT/SIGTERM).
+static STOP: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn on_stop(_: libc::c_int) {
+    STOP.store(true, Ordering::Relaxed);
+}
+
+fn emit(v: serde_json::Value) {
+    use std::io::Write;
+    let mut o = std::io::stdout().lock();
+    let _ = writeln!(o, "{v}");
+    let _ = o.flush();
+}
+
+/// `--record`: запись экрана без окна (для `synlink mcp`). Без параметров —
+/// исходные; `--height N`, `--fps N`, `--codec h264|hevc|av1`,
+/// `--quality high|medium|low` — свои (не заданное — по умолчанию). `--sound` —
+/// со звуком устройства (он играет и здесь), `--out ФАЙЛ`, `--mkv`,
+/// `--duration С`. До конца — SIGINT/SIGTERM. На stdout строки JSON: `started`
+/// (параметры файла), потом `done` или `error`.
+fn headless_record(peer: PeerInfo, args: &[String]) -> i32 {
+    let mut s = record::Settings { source: true, height: 0, fps: 30, codec: record::Codec::H264, quality: 1, mkv: false, sound: false };
+    let mut out: Option<std::path::PathBuf> = None;
+    let mut duration: Option<f64> = None;
+    let mut i = 0;
+    while i < args.len() {
+        let val = args.get(i + 1).cloned().unwrap_or_default();
+        let mut takes = true;
+        match args[i].as_str() {
+            "--out" => out = Some(val.into()),
+            "--height" => {
+                s.source = false;
+                s.height = val.parse().unwrap_or(0);
+            }
+            "--fps" => {
+                s.source = false;
+                s.fps = val.parse().unwrap_or(30);
+            }
+            "--codec" => {
+                s.source = false;
+                s.codec = match val.to_lowercase().as_str() {
+                    "hevc" | "h265" => record::Codec::Hevc,
+                    "av1" => record::Codec::Av1,
+                    _ => record::Codec::H264,
+                };
+            }
+            "--quality" => {
+                s.source = false;
+                s.quality = match val.as_str() {
+                    "high" => 0,
+                    "low" => 2,
+                    _ => 1,
+                };
+            }
+            "--duration" => duration = val.parse().ok().filter(|d: &f64| *d > 0.0),
+            "--mkv" => {
+                s.mkv = true;
+                takes = false;
+            }
+            "--sound" => {
+                s.sound = true;
+                takes = false;
+            }
+            _ => takes = false,
+        }
+        i += if takes { 2 } else { 1 };
+    }
+    if let Some(o) = &out {
+        s.mkv = o.extension().is_some_and(|e| e.eq_ignore_ascii_case("mkv"));
+    }
+    if !record::available() {
+        emit(serde_json::json!({"event": "error", "message": t!("нет ffmpeg")}));
+        return 1;
+    }
+    unsafe {
+        libc::signal(libc::SIGINT, on_stop as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGTERM, on_stop as *const () as libc::sighandler_t);
+    }
+    let refresh = output_size(&peer.id).map_or(60, |(_, _, hz)| hz);
+    // Звук: держим соединение с демоном, пока пишем.
+    let _audio = if s.sound {
+        let started = (|| -> Result<link::Client, String> {
+            let mut c = link::Client::connect().map_err(|e| format!("synlink: {e}"))?;
+            match c.request(&Request::Audio { device: peer.id.clone(), on: true, mic: false, hold: true }).map_err(|e| e.to_string())? {
+                Response::Ok => Ok(c),
+                Response::Error { message } => Err(message),
+                other => Err(format!("{other:?}")),
+            }
+        })();
+        match started {
+            Ok(c) => {
+                record::SOUND_ON.store(true, Ordering::Relaxed);
+                Some(c)
+            }
+            Err(e) => {
+                eprintln!("{}", t!("Звук: {e}", e = e));
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let (device, cursor) = (peer.id.clone(), !peer.kind.is_touch());
+    std::thread::Builder::new()
+        .name("view-stream".into())
+        .spawn(move || {
+            while !STOP.load(Ordering::Relaxed) {
+                if let Err(e) = stream_once(&device, cursor, None) {
+                    eprintln!("synlink-view: {e}");
+                }
+                std::thread::sleep(Duration::from_secs(1));
+            }
+        })
+        .ok();
+    let rec = record::Recording::start(&peer.name, &s, refresh, out);
+    let info = rec.info.clone();
+    let mut since: Option<Instant> = None;
+    loop {
+        std::thread::sleep(Duration::from_millis(50));
+        if since.is_none() {
+            if let Some(i) = info.lock().unwrap().clone() {
+                since = Some(Instant::now());
+                let mut v = serde_json::to_value(&i).unwrap_or_default();
+                v["event"] = "started".into();
+                emit(v);
+            }
+        }
+        if rec.finished() || STOP.load(Ordering::Relaxed) || since.zip(duration).is_some_and(|(t, d)| t.elapsed().as_secs_f64() >= d) {
+            break;
+        }
+    }
+    let secs = since.map_or(0.0, |t| t.elapsed().as_secs_f64());
+    match rec.finish() {
+        Ok(path) => {
+            let mut v = info.lock().unwrap().as_ref().map(|i| serde_json::to_value(i).unwrap_or_default()).unwrap_or_default();
+            v["event"] = "done".into();
+            v["path"] = path.to_string_lossy().into_owned().into();
+            v["seconds"] = ((secs * 10.0).round() / 10.0).into();
+            emit(v);
+            0
+        }
+        Err(e) => {
+            emit(serde_json::json!({"event": "error", "message": e}));
+            1
+        }
+    }
 }
 
 /// Размер окна под кадр устройства `w`×`h`: высота 860 у вертикального
@@ -224,13 +378,21 @@ fn output_size(id: &str) -> Option<(u32, u32, u32)> {
 
 // ─── кадры ───────────────────────────────────────────────────────────────────
 
+/// Окно, куда идут кадры; без него (запись в фоне) — только в запись.
+struct Ui {
+    frame: Arc<LiveFrame>,
+    rev: RwSignal<u64>,
+    stats: RwSignal<Stats>,
+}
+
 fn start_stream(ctx: Ctx, frame: Arc<LiveFrame>) {
     let (device, rev, stats) = (ctx.device.to_string(), ctx.frame_rev, ctx.stats);
     let cursor = !ctx.peer.kind.is_touch();
+    let ui = Ui { frame, rev, stats };
     std::thread::Builder::new()
         .name("view-stream".into())
         .spawn(move || loop {
-            let err = stream_once(&device, cursor, &frame, rev, stats);
+            let err = stream_once(&device, cursor, Some(&ui));
             let msg = match err {
                 Ok(()) => t!("Трансляция остановлена — переподключение…").to_string(),
                 Err(e) => t!("{e} — переподключение…", e = e),
@@ -246,7 +408,7 @@ fn start_stream(ctx: Ctx, frame: Arc<LiveFrame>) {
         .ok();
 }
 
-fn stream_once(device: &str, cursor: bool, frame: &LiveFrame, rev: RwSignal<u64>, stats: RwSignal<Stats>) -> Result<(), String> {
+fn stream_once(device: &str, cursor: bool, ui: Option<&Ui>) -> Result<(), String> {
     let mut c = link::Client::connect().map_err(|e| format!("synlink: {e}"))?;
     let video_ok = video::available();
     match c.request(&Request::Screen { device: device.into(), output: None, cursor, video: video_ok }).map_err(|e| e.to_string())? {
@@ -279,7 +441,7 @@ fn stream_once(device: &str, cursor: bool, frame: &LiveFrame, rev: RwSignal<u64>
             fw = h.width;
             fh = h.height;
             buf = vec![0u8; fw as usize * fh as usize * 4];
-            if rotated {
+            if rotated && ui.is_some() {
                 let (ww, wh) = window_size(fw, fh);
                 syngui::window::request_size(ww, wh);
             }
@@ -297,6 +459,7 @@ fn stream_once(device: &str, cursor: bool, frame: &LiveFrame, rev: RwSignal<u64>
         let mut ask_key = false;
         if let Some(v) = &h.video {
             codec = v.codec.clone();
+            record::set_stream_codec(&v.codec);
             let data = &pkt[off.min(pkt.len())..(off + v.len as usize).min(pkt.len())];
             if dec.as_ref().is_none_or(|d| d.codec != v.codec) {
                 match video::Decoder::new(&v.codec) {
@@ -341,13 +504,16 @@ fn stream_once(device: &str, cursor: bool, frame: &LiveFrame, rev: RwSignal<u64>
         let t1 = Instant::now();
         let data: Arc<[u8]> = Arc::from(buf.as_slice());
         record::push(fw, fh, &data);
-        frame.set(fw, fh, data);
+        if let Some(ui) = ui {
+            ui.frame.set(fw, fh, data);
+        }
         if std::env::var_os("SYNLINK_VIEW_TIMING").is_some() {
             eprintln!("кадр в окно {:.1} мс", t1.elapsed().as_secs_f64() * 1e3);
         }
         let ack = serde_json::to_vec(&ScreenAck { seq: h.seq, key: ask_key }).unwrap_or_default();
         link::write_frame(&mut wr, &ack).map_err(|e| e.to_string())?;
         count += 1;
+        let Some(&Ui { rev, stats, .. }) = ui else { continue };
         if pending.fetch_add(1, Ordering::AcqRel) == 0 {
             let p = pending.clone();
             run_on_main_thread(move || {
@@ -841,21 +1007,12 @@ fn record_click(ctx: Ctx) {
     }
 }
 
-fn stream_codec(ctx: Ctx) -> Option<record::Codec> {
-    match ctx.stats.get_untracked().codec.as_str() {
-        "HEVC" => Some(record::Codec::Hevc),
-        "H264" => Some(record::Codec::H264),
-        _ => None,
-    }
-}
-
 fn start_recording(ctx: Ctx) {
     ctx.rec_panel.set(false);
     let s = ctx.rec_settings.get_untracked();
     record::save_settings(&s);
-    let src = record::Source { refresh: ctx.refresh, codec: stream_codec(ctx) };
-    let r = record::Recording::start(&ctx.peer.name, &s, src);
-    let (since, encoder) = (r.started, r.encoder.clone());
+    let r = record::Recording::start(&ctx.peer.name, &s, ctx.refresh, None);
+    let (since, info) = (r.started, r.info.clone());
     *REC.lock().unwrap() = Some(r);
     ctx.rec.set(Rec::On { since, secs: 0, encoder: String::new() });
     // Часы в строке состояния; запись оборвалась сама (ffmpeg) — показать почему.
@@ -873,7 +1030,7 @@ fn start_recording(ctx: Ctx) {
                 return;
             }
             let secs = since.elapsed().as_secs();
-            let enc = encoder.lock().unwrap().clone();
+            let enc = info.lock().unwrap().as_ref().map(|i| i.encoder.to_string()).unwrap_or_default();
             run_on_main_thread(move || {
                 if let Rec::On { since: s, secs: old, encoder: e } = rec.get_untracked() {
                     if s == since && (old != secs || e != enc) {
@@ -928,7 +1085,6 @@ fn record_overlay(ctx: Ctx) -> impl Widget {
             }
         };
         let size = ctx.stats.get_untracked().size;
-        let src = record::Source { refresh: ctx.refresh, codec: stream_codec(ctx) };
         let mut card = Column::new()
             .gap(14.0)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
@@ -936,7 +1092,7 @@ fn record_overlay(ctx: Ctx) -> impl Widget {
             .child(SegmentedButton::new(vec![t!("Исходное"), t!("Свои настройки")]).selected(if s.source { 0 } else { 1 }).on_change(set(|v, i| v.source = i == 0)));
         if s.source {
             card = card.child(
-                Text::new(t!("{w} × {h} · {rest}", w = size.0, h = size.1, rest = record::source_summary(src)))
+                Text::new(t!("{w} × {h} · {rest}", w = size.0, h = size.1, rest = record::source_summary(ctx.refresh)))
                     .max_lines(2)
                     .class("rec-hint"),
             );

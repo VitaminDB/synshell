@@ -4,9 +4,18 @@
 //! годится и для телефона (по USB/Wi-Fi), и для этой машины (`local`).
 //!
 //! Подключение: `claude mcp add synlink -- synlink mcp`.
+//!
+//! Запись экрана (`record`) — `synlink-view УСТРОЙСТВО --record` подпроцессом
+//! без окна: он собирает кадры трансляции и пишет файл, отсюда — старт, стоп
+//! (SIGTERM, файл доводится до конца) и кадр из середины для проверки. Умер
+//! MCP-сервер — запись тоже штатно заканчивается (PDEATHSIG).
 
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
+use std::os::unix::process::CommandExt;
+use std::process::{Child, Command, Stdio};
+use std::sync::mpsc;
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use base64::Engine;
@@ -20,15 +29,26 @@ const INSTRUCTIONS: &str = "synlink управляет устройствами 
 Координаты для tap/long_press/swipe/scroll — пиксели последнего снимка `screenshot` этого устройства \
 (снимок может быть уменьшен — пересчёт делается сам). На телефоне ввод идёт касаниями, на компьютере — мышью. \
 Системный «назад» телефона — action `back`; домой — action `shell home`. \
-После действия делайте новый снимок, чтобы увидеть результат.";
+После действия делайте новый снимок, чтобы увидеть результат. \
+Видео экрана — `record`: start, действия, stop (или start с duration_s).";
 
 struct Server {
     /// Уменьшение последнего снимка: устройство → (ширина снимка, полная ширина).
     shots: HashMap<String, (f64, f64)>,
+    /// Идущие записи экрана по устройству.
+    recs: HashMap<String, Rec>,
+}
+
+/// Запись экрана: `synlink-view --record` и его строки JSON.
+struct Rec {
+    child: Child,
+    lines: mpsc::Receiver<Value>,
+    /// Строка `started`: параметры файла.
+    info: Value,
 }
 
 pub fn run() -> Result<()> {
-    let mut srv = Server { shots: HashMap::new() };
+    let mut srv = Server { shots: HashMap::new(), recs: HashMap::new() };
     let stdin = std::io::stdin();
     let mut out = std::io::stdout();
     for line in stdin.lock().lines() {
@@ -81,7 +101,7 @@ fn tools() -> Value {
          "inputSchema": schema(json!({"device": dev, "text": {"type": "string"}}), &["device", "text"])},
         {"name": "key", "description": "Нажать сочетание клавиш: Return, Escape, BackSpace, ctrl+a, Alt+Tab, Super, XF86Back…",
          "inputSchema": schema(json!({"device": dev, "combo": {"type": "string"}}), &["device", "combo"])},
-        {"name": "action", "description": "Действие композитора synwm: back, shell home, shell launcher, shell shade, shell recents, workspace 2, close, lock, screenshot…",
+        {"name": "action", "description": "Действие композитора synwm: back, shell home, shell launcher, shell notifications, shell quick-settings, shell recents, workspace 2, close, lock, screenshot…",
          "inputSchema": schema(json!({"device": dev, "action": {"type": "string"}}), &["device", "action"])},
         {"name": "windows", "description": "Окна на устройстве (заголовок, app_id, фокус, геометрия) — JSON.",
          "inputSchema": schema(json!({"device": dev}), &["device"])},
@@ -97,6 +117,19 @@ fn tools() -> Value {
          "inputSchema": schema(json!({"device": dev, "path": {"type": "string"}}), &["device", "path"])},
         {"name": "write_file", "description": "Записать текстовый файл на устройстве (создаётся или перезаписывается).",
          "inputSchema": schema(json!({"device": dev, "path": {"type": "string"}, "content": {"type": "string"}}), &["device", "path", "content"])},
+        {"name": "record", "description": "Запись экрана устройства в видеофайл на этой машине (по умолчанию «Видео/Записи экрана»). \
+start — начать (с duration_s — записать столько секунд и вернуть результат сразу), потом жесты и прочее, stop — закончить: путь, параметры и кадр из середины. \
+Без height/fps/codec/quality — исходные параметры трансляции (родное разрешение, частота экрана, её кодек, высокое качество). status — идущие записи.",
+         "inputSchema": schema(json!({"device": dev,
+             "action": {"type": "string", "enum": ["start", "stop", "status"], "description": "start (по умолчанию), stop, status"},
+             "height": num("короткая сторона кадра, px (0 — исходная)"),
+             "fps": num("кадров в секунду (1–120)"),
+             "codec": {"type": "string", "enum": ["h264", "hevc", "av1"]},
+             "quality": {"type": "string", "enum": ["high", "medium", "low"]},
+             "sound": {"type": "boolean", "description": "со звуком устройства (он будет играть и на этой машине); по умолчанию нет"},
+             "format": {"type": "string", "enum": ["mp4", "mkv"]},
+             "path": {"type": "string", "description": "куда сохранить (путь на этой машине)"},
+             "duration_s": num("записать столько секунд и вернуть результат (до 600)")}), &["device"])},
     ])
 }
 
@@ -302,7 +335,159 @@ impl Server {
                 }
                 Ok(text("записано"))
             }
+            "record" => match a.get("action").and_then(Value::as_str).unwrap_or("start") {
+                "start" => self.record_start(&device, a),
+                "stop" => {
+                    let r = self.recs.remove(&device).with_context(|| format!("запись {device} не идёт"))?;
+                    record_finish(r)
+                }
+                "status" => {
+                    self.reap();
+                    let list: Vec<Value> = self.recs.iter().map(|(d, r)| json!({"device": d, "file": r.info})).collect();
+                    Ok(text(if list.is_empty() { "записей нет".to_string() } else { serde_json::to_string_pretty(&list)? }))
+                }
+                other => bail!("action {other}: нужно start, stop или status"),
+            },
             other => bail!("нет инструмента {other}"),
         }
     }
+
+    /// Убрать записи, которые кончились сами (ошибка, устройство пропало).
+    fn reap(&mut self) {
+        self.recs.retain(|_, r| matches!(r.child.try_wait(), Ok(None)));
+    }
+
+    fn record_start(&mut self, device: &str, a: &Value) -> Result<Value> {
+        self.reap();
+        if self.recs.contains_key(device) {
+            bail!("запись {device} уже идёт — сначала action stop");
+        }
+        let mut cmd = Command::new("synlink-view");
+        cmd.args([device, "--record"]);
+        if let Some(h) = a.get("height").and_then(Value::as_u64) {
+            cmd.args(["--height", &h.to_string()]);
+        }
+        if let Some(f) = a.get("fps").and_then(Value::as_u64) {
+            cmd.args(["--fps", &f.to_string()]);
+        }
+        for k in ["codec", "quality"] {
+            if let Some(v) = a.get(k).and_then(Value::as_str) {
+                cmd.args([format!("--{k}"), v.to_string()]);
+            }
+        }
+        if a.get("sound").and_then(Value::as_bool).unwrap_or(false) {
+            cmd.arg("--sound");
+        }
+        if a.get("format").and_then(Value::as_str) == Some("mkv") {
+            cmd.arg("--mkv");
+        }
+        if let Some(p) = a.get("path").and_then(Value::as_str) {
+            cmd.args(["--out", p]);
+        }
+        let duration = a.get("duration_s").and_then(Value::as_f64).map(|d| d.clamp(0.5, 600.0));
+        if let Some(d) = duration {
+            cmd.args(["--duration", &d.to_string()]);
+        }
+        // Разбудить экран, как перед снимком: погашенный — запишется чёрный.
+        let ev = vec![synshell_common::ipc::InputEvent::MotionRelative { dx: 0.0, dy: 0.0 }];
+        let _ = gestures::req(&Request::Input { device: device.into(), output: None, events: ev });
+        cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+        // SAFETY: в потомке до exec — только prctl. Умер сервер — запись заканчивается штатно.
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+                Ok(())
+            });
+        }
+        let mut child = cmd.spawn().context("synlink-view не запускается")?;
+        let out = child.stdout.take().context("stdout synlink-view")?;
+        let (tx, lines) = mpsc::channel();
+        std::thread::spawn(move || {
+            for l in std::io::BufReader::new(out).lines().map_while(Result::ok) {
+                if let Ok(v) = serde_json::from_str::<Value>(&l) {
+                    if tx.send(v).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        // Первый кадр трансляции и кодер — до нескольких секунд.
+        let info = match lines.recv_timeout(Duration::from_secs(25)) {
+            Ok(v) if v["event"] == "started" => v,
+            Ok(v) if v["event"] == "error" => {
+                let _ = child.wait();
+                bail!("{}", v["message"].as_str().unwrap_or("запись не началась"));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                bail!("запись не началась (нет трансляции {device}?)");
+            }
+        };
+        let mut r = Rec { child, lines, info };
+        if duration.is_some() {
+            return record_finish_wait(&mut r);
+        }
+        let i = &r.info;
+        let msg = format!(
+            "запись {device} идёт: {}×{} · {} к/с · {} ({}){} → {}\nзакончить: record action=stop",
+            i["width"], i["height"], i["fps"], i["codec"].as_str().unwrap_or(""), i["encoder"].as_str().unwrap_or(""),
+            if i["sound"] == true { " · со звуком" } else { "" }, i["path"].as_str().unwrap_or(""),
+        );
+        self.recs.insert(device.to_string(), r);
+        Ok(text(msg))
+    }
+}
+
+/// Остановить запись (SIGTERM) и дождаться файла.
+fn record_finish(mut r: Rec) -> Result<Value> {
+    unsafe {
+        libc::kill(r.child.id() as i32, libc::SIGTERM);
+    }
+    record_finish_wait(&mut r)
+}
+
+/// Дождаться строки `done`/`error`; результат с кадром из середины.
+fn record_finish_wait(r: &mut Rec) -> Result<Value> {
+    let end = loop {
+        match r.lines.recv_timeout(Duration::from_secs(660)) {
+            Ok(v) if v["event"] == "done" || v["event"] == "error" => break v,
+            Ok(_) => continue,
+            Err(_) => {
+                let _ = r.child.kill();
+                let _ = r.child.wait();
+                bail!("запись не закончилась вовремя");
+            }
+        }
+    };
+    let _ = r.child.wait();
+    if end["event"] == "error" {
+        bail!("{}", end["message"].as_str().unwrap_or("запись не удалась"));
+    }
+    let path = end["path"].as_str().unwrap_or_default().to_string();
+    let secs = end["seconds"].as_f64().unwrap_or(0.0);
+    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    let summary = format!(
+        "записано: {path}\n{}×{} · {} к/с · {} ({}){} · {secs:.1} с · {:.1} МБ",
+        end["width"], end["height"], end["fps"], end["codec"].as_str().unwrap_or(""), end["encoder"].as_str().unwrap_or(""),
+        if end["sound"] == true { " · со звуком" } else { "" }, size as f64 / 1_048_576.0,
+    );
+    let mut content = vec![json!({"type": "text", "text": summary})];
+    if let Some(png) = middle_frame(&path, secs) {
+        content.push(json!({"type": "image", "data": base64::engine::general_purpose::STANDARD.encode(&png), "mimeType": "image/png"}));
+        content.push(json!({"type": "text", "text": format!("кадр на {:.1} с", secs / 2.0)}));
+    }
+    Ok(json!({"content": content}))
+}
+
+/// Кадр из середины видео (PNG, длинная сторона ≤ 800) — проверить, что записалось.
+fn middle_frame(path: &str, secs: f64) -> Option<Vec<u8>> {
+    let out = Command::new("ffmpeg")
+        .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-ss", &format!("{:.2}", secs / 2.0), "-i", path])
+        .args(["-frames:v", "1", "-vf", "scale='if(gt(iw,ih),min(800,iw),-2)':'if(gt(iw,ih),-2,min(800,ih))'", "-f", "image2pipe", "-c:v", "png", "-"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    (out.status.success() && !out.stdout.is_empty()).then_some(out.stdout)
 }

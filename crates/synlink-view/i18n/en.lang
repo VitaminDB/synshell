@@ -29,6 +29,7 @@
 "● Запись {time}{e}" = "● Recording {time}{e}"
 "Запись сохраняется…" = "Saving the recording…"
 "Запись: нет ffmpeg" = "Recording: ffmpeg not found"
+"нет ffmpeg" = "ffmpeg not found"
 "Запись сохранена: {name}" = "Recording saved: {name}"
 "Запись не удалась: {e}" = "Recording failed: {e}"
 "Запись экрана" = "Screen recording"

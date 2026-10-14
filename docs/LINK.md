@@ -212,6 +212,7 @@ Esc (во весь экран той стороне не отправляетс�
 
 ### Запись экрана
 
+Агентам — то же через MCP (`record`, см. «Claude Code (MCP)»).
 Кнопка ● на панели `synlink-view` открывает окно параметров, повторное
 нажатие во время записи (кнопка красная, в строке состояния время и кодер)
 останавливает её. Файл — `Видео/Записи экрана/synlink-<устройство>-<время>.mp4`
@@ -296,6 +297,7 @@ synlink shell phone            # терминал
 synlink logs phone -f -u synshell
 synlink windows phone          # окна (JSON)
 synlink view phone             # окно трансляции
+synlink-view phone --record --duration 10   # запись экрана без окна (см. «Запись экрана»)
 synlink audio phone on         # звук трансляции (off — выключить; --no-mic — без микрофона)
 synlink mount phone            # файлы (обычно смонтированы сами)
 ssh phone                      # ssh внутри соединения
@@ -313,9 +315,19 @@ claude mcp add synlink -- synlink mcp
 
 Инструменты: `devices`, `screenshot` (картинка, по умолчанию длинная сторона
 1280 px), `tap`, `long_press`, `swipe`, `scroll`, `type_text`, `key`, `action`,
-`windows`, `exec`, `logs`, `notifications`, `read_file`, `write_file`.
+`windows`, `exec`, `logs`, `notifications`, `read_file`, `write_file`,
+`record`.
 Координаты жестов — в пикселях последнего снимка этого устройства (пересчёт
 в экран делается сам).
+
+`record` — запись экрана в файл на этой машине: `action=start` (параметры как
+в окне трансляции: `height`, `fps`, `codec`, `quality`, `format`, `sound`,
+`path`; без них — исходные), потом жесты, `action=stop` — путь, параметры и
+кадр из середины видео; `start` с `duration_s` записывает столько секунд и
+сразу отдаёт результат, `status` — идущие записи. Внутри —
+`synlink-view УСТРОЙСТВО --record` без окна (строки JSON `started`/`done`/
+`error` на stdout, конец — SIGINT/SIGTERM); умер MCP-сервер — запись
+заканчивается штатно. Звук устройства при записи играет и на этой машине.
 
 ## Настройки `[link]`
 

@@ -90,13 +90,17 @@ pub fn save_settings(s: &Settings) {
     let _ = std::fs::write(&path, serde_json::to_vec_pretty(s).unwrap_or_default());
 }
 
-/// Что известно о трансляции к началу записи.
-#[derive(Clone, Copy)]
-pub struct Source {
-    /// Частота обновления экрана устройства, к/с.
-    pub refresh: u32,
-    /// Кодек трансляции (`None` — без потерь).
-    pub codec: Option<Codec>,
+/// Кодек трансляции (`None` — без потерь): «Исходное» пишет тем же.
+static STREAM_CODEC: Mutex<Option<Codec>> = Mutex::new(None);
+
+/// Чем идёт трансляция (поток приёма): `hevc`, `h264` или пусто — без потерь.
+pub fn set_stream_codec(codec: &str) {
+    let c = match codec {
+        "hevc" => Some(Codec::Hevc),
+        "h264" => Some(Codec::H264),
+        _ => None,
+    };
+    *STREAM_CODEC.lock().unwrap() = c;
 }
 
 /// Итоговые параметры: что пишем на деле.
@@ -104,24 +108,42 @@ pub struct Source {
 struct Plan {
     height: u32,
     fps: u32,
-    codec: Codec,
+    /// `None` — кодек трансляции (узнаётся к первому кадру).
+    codec: Option<Codec>,
     quality: u8,
     mkv: bool,
     sound: bool,
 }
 
-fn plan(s: &Settings, src: Source) -> Plan {
+/// `refresh` — частота обновления экрана устройства, к/с.
+fn plan(s: &Settings, refresh: u32) -> Plan {
     if s.source {
-        Plan { height: 0, fps: src.refresh.clamp(10, 120), codec: src.codec.unwrap_or(Codec::H264), quality: 0, mkv: s.mkv, sound: s.sound }
+        Plan { height: 0, fps: refresh.clamp(10, 120), codec: None, quality: 0, mkv: s.mkv, sound: s.sound }
     } else {
-        Plan { height: s.height, fps: s.fps.clamp(1, 120), codec: s.codec, quality: s.quality.min(2), mkv: s.mkv, sound: s.sound }
+        Plan { height: s.height, fps: s.fps.clamp(1, 120), codec: Some(s.codec), quality: s.quality.min(2), mkv: s.mkv, sound: s.sound }
     }
 }
 
+fn source_codec() -> Codec {
+    STREAM_CODEC.lock().unwrap().unwrap_or(Codec::H264)
+}
+
 /// Краткое описание исходных параметров для окна настроек.
-pub fn source_summary(src: Source) -> String {
-    let p = plan(&Settings::default(), src);
-    t!("{fps} к/с · {codec} · высокое качество", fps = p.fps, codec = p.codec.title())
+pub fn source_summary(refresh: u32) -> String {
+    let p = plan(&Settings::default(), refresh);
+    t!("{fps} к/с · {codec} · высокое качество", fps = p.fps, codec = source_codec().title())
+}
+
+/// Что пишется на деле — известно с первого кадра.
+#[derive(Clone, Debug, Serialize)]
+pub struct Info {
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+    pub codec: &'static str,
+    pub encoder: &'static str,
+    pub sound: bool,
+    pub path: PathBuf,
 }
 
 // ─── кадры ───────────────────────────────────────────────────────────────────
@@ -147,24 +169,25 @@ pub struct Recording {
     stop: Arc<AtomicBool>,
     thread: JoinHandle<Result<PathBuf, String>>,
     pub started: Instant,
-    /// Кодер ffmpeg (для строки состояния), когда выбран.
-    pub encoder: Arc<Mutex<String>>,
+    /// Параметры файла, когда запись пошла (первый кадр, кодер открылся).
+    pub info: Arc<Mutex<Option<Info>>>,
 }
 
 impl Recording {
-    /// Начать запись в фоне; кадры — через `push`.
-    pub fn start(name: &str, s: &Settings, src: Source) -> Self {
-        let p = plan(s, src);
+    /// Начать запись в фоне; кадры — через `push`. Файл — `out` или
+    /// «Видео/Записи экрана/synlink-<name>-<время>».
+    pub fn start(name: &str, s: &Settings, refresh: u32, out: Option<PathBuf>) -> Self {
+        let p = plan(s, refresh);
         let stop = Arc::new(AtomicBool::new(false));
-        let encoder = Arc::new(Mutex::new(String::new()));
+        let info = Arc::new(Mutex::new(None));
         *LATEST.lock().unwrap() = None;
         ACTIVE.store(true, Ordering::Relaxed);
-        let path = output_path(name, p.mkv);
-        let (st, enc) = (stop.clone(), encoder.clone());
+        let path = out.unwrap_or_else(|| output_path(name, p.mkv));
+        let (st, inf) = (stop.clone(), info.clone());
         let thread = std::thread::Builder::new()
             .name("view-record".into())
             .spawn(move || {
-                let r = run(p, &path, &st, &enc);
+                let r = run(p, &path, &st, &inf);
                 ACTIVE.store(false, Ordering::Relaxed);
                 *LATEST.lock().unwrap() = None;
                 if r.is_err() {
@@ -173,7 +196,7 @@ impl Recording {
                 r.map(|()| path)
             })
             .expect("поток записи");
-        Self { stop, thread, started: Instant::now(), encoder }
+        Self { stop, thread, started: Instant::now(), info }
     }
 
     /// Запись уже кончилась сама (ошибка кодера).
@@ -208,7 +231,7 @@ fn stamp() -> String {
 /// Кадр трансляции до начала записи — ждём не дольше этого.
 const FIRST_FRAME: Duration = Duration::from_secs(10);
 
-fn run(p: Plan, path: &Path, stop: &AtomicBool, encoder: &Mutex<String>) -> Result<(), String> {
+fn run(p: Plan, path: &Path, stop: &AtomicBool, info: &Mutex<Option<Info>>) -> Result<(), String> {
     // Холст — по первому кадру.
     let t0 = Instant::now();
     let first = loop {
@@ -222,8 +245,10 @@ fn run(p: Plan, path: &Path, stop: &AtomicBool, encoder: &Mutex<String>) -> Resu
     };
     let (cw, ch) = (first.0, first.1);
     let (ow, oh) = out_size(cw, ch, p.height);
-    let enc = pick_encoder(p.codec).ok_or_else(|| t!("нет кодера {codec} в ffmpeg", codec = p.codec.title()))?;
-    *encoder.lock().unwrap() = enc.name.to_string();
+    let codec = p.codec.unwrap_or_else(source_codec);
+    let enc = pick_encoder(codec).ok_or_else(|| t!("нет кодера {codec} в ffmpeg", codec = codec.title()))?;
+    *info.lock().unwrap() =
+        Some(Info { width: ow, height: oh, fps: p.fps, codec: codec.title(), encoder: enc.name, sound: p.sound, path: path.to_path_buf() });
 
     // Канал звука: ffmpeg читает его как fd 3.
     let audio = if p.sound { Some(pipe()?) } else { None };
@@ -248,12 +273,14 @@ fn run(p: Plan, path: &Path, stop: &AtomicBool, encoder: &Mutex<String>) -> Resu
     if !p.mkv {
         cmd.args(["-movflags", "+faststart"]);
     }
-    if p.codec == Codec::Hevc && !p.mkv {
+    if codec == Codec::Hevc && !p.mkv {
         // Иначе QuickTime и браузеры не узнают HEVC в MP4.
         cmd.args(["-tag:v", "hvc1"]);
     }
     cmd.arg(path);
     cmd.stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped());
+    // Своя группа: Ctrl+C в терминале — нам, ffmpeg доводит файл по концу кадров.
+    cmd.process_group(0);
     if let Some((r, _)) = &audio {
         let fd = r.as_raw_fd();
         // SAFETY: в потомке до exec — только dup2.
@@ -448,6 +475,7 @@ fn spawn_pw_record() -> Option<(Child, mpsc::Receiver<Vec<u8>>)> {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
+        .process_group(0)
         .spawn()
         .map_err(|e| log::warn!("pw-record: {e}"))
         .ok()?;
