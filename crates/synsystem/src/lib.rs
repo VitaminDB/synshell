@@ -28,6 +28,7 @@ pub mod sound;
 pub mod thermal;
 pub mod time;
 pub mod torch;
+pub mod usb;
 pub mod usbc;
 pub mod util;
 pub mod volume;

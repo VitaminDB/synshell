@@ -23,6 +23,7 @@ mod panels;
 mod power;
 mod system;
 mod themes;
+mod usb;
 mod voice_presets;
 mod wallpaper;
 mod windows;
@@ -186,6 +187,14 @@ pub const PAGES: &[PageDef] = &[
         group: n_!("Устройства"),
         keywords: n_!("наушники колонка сопряжение устройство клавиатура мышь bluez"),
         build: net::bluetooth,
+    },
+    PageDef {
+        id: "usb",
+        title: n_!("USB-устройства"),
+        icon: icons::USB,
+        group: n_!("Устройства"),
+        keywords: n_!("usb юсб подключение отключение уведомления vid pid lsusb флешка телефон хаб"),
+        build: usb::usb,
     },
     PageDef {
         id: "mobile-network",

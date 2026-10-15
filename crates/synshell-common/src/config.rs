@@ -1853,6 +1853,7 @@ pub struct Notifications {
     pub history_size: u32,
     /// Куда смахнуть уведомление, чтобы закрыть: `both`, `left`, `right`, `off`.
     pub swipe_dismiss: String,
+    pub usb_devices: bool,
 }
 
 impl Default for Notifications {
@@ -1868,6 +1869,7 @@ impl Default for Notifications {
             history: true,
             history_size: 100,
             swipe_dismiss: "both".into(),
+            usb_devices: true,
         }
     }
 }

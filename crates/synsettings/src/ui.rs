@@ -410,6 +410,7 @@ pub mod icons {
     pub const PHONE: &str = "\u{e325}";
     pub const WIFI: &str = "\u{e63e}";
     pub const BLUETOOTH: &str = "\u{e1a7}";
+    pub const USB: &str = "\u{e1e0}";
     pub const GESTURE: &str = "\u{e155}";
     pub const VIBRATION: &str = "\u{e62d}";
     pub const HARDWARE: &str = "\u{e30d}";

@@ -25,6 +25,7 @@ pub mod ctx;
 pub mod datetime;
 pub mod desk;
 pub mod devices;
+pub mod usb_notify;
 pub mod dock;
 pub mod flip_dnd;
 pub mod edit;
@@ -151,6 +152,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         appmenu::install(ctx);
         notifications::start(ctx);
         devices::start(ctx);
+        usb_notify::start(ctx);
         link::start(ctx);
         modem::start(ctx);
         incall::start(ctx);

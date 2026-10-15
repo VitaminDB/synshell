@@ -371,6 +371,7 @@ do_not_disturb = false
 history = true
 history_size = 100
 swipe_dismiss = "both"         # смахнуть карточку, чтобы закрыть: both | left | right | off
+usb_devices = true             # уведомлять о подключении и отключении USB-устройств (VID:PID и имя)
 
 [lock]
 command = ""                   # пусто — встроенный экран блокировки; или "swaylock -f"

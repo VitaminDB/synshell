@@ -694,3 +694,8 @@
 "Нет загруженных моделей — служба загрузит нужную при первом обращении" = "No models loaded — the service loads one on first use"
 "Сейчас сделаю, это займёт немного времени." = "On it, this will take a little while."
 "Играет — микрофон на паузе" = "Playing — microphone paused"
+"Подключено: {name}" = "Connected: {name}"
+"Отключено: {name}" = "Disconnected: {name}"
+"Подключено USB-устройство" = "USB device connected"
+"Отключено USB-устройство" = "USB device disconnected"
+"ID {id} · шина {bus} · устройство {dev}" = "ID {id} · bus {bus} · device {dev}"
