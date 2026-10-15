@@ -37,6 +37,8 @@
 "Вставить" = "Paste"
 "Отменить" = "Undo"
 "Открыть в терминале" = "Open in Terminal"
+"Выполнить в терминале" = "Run in Terminal"
+"[Код выхода {code}. Enter — закрыть]" = "[Exit code {code}. Press Enter to close]"
 "Открепить от панели" = "Unpin from Sidebar"
 "Закрепить на панели" = "Pin to Sidebar"
 "Копировать путь" = "Copy Path"

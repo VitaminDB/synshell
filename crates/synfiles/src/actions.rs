@@ -58,6 +58,100 @@ pub fn open_terminal(dir: &Path) {
     spawn_shell(&terminal_cmd(), Some(dir));
 }
 
+fn sq(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
+/// Чем запустить файл, если он программа или сценарий — независимо от
+/// бита `x`: с ним — сам файл; ELF без него — через его загрузчик
+/// (`PT_INTERP`); сценарий — интерпретатором из `#!` или по расширению.
+/// `None` — файл не запускаемый.
+pub fn runner(e: &Entry) -> Option<Vec<String>> {
+    use std::io::Read;
+    if e.is_dir || e.broken {
+        return None;
+    }
+    let path = e.path.to_string_lossy().to_string();
+    let mut head = [0u8; 256];
+    let n = std::fs::File::open(&e.path).and_then(|mut f| f.read(&mut head)).unwrap_or(0);
+    let head = &head[..n];
+    let lname = e.name.to_lowercase();
+    let elf = head.starts_with(b"\x7fELF") && !lname.contains(".so") && !lname.ends_with(".o") && !lname.ends_with(".ko");
+    let shebang = head.starts_with(b"#!");
+    let script_ext = ["sh", "bash", "zsh", "fish", "py", "pl", "rb", "lua", "js", "php", "tcl"]
+        .iter()
+        .any(|x| lname.rsplit_once('.').is_some_and(|(_, ext)| ext == *x));
+    let script_mime = e.mime.contains("shellscript") || matches!(e.mime.as_str(), "text/x-python" | "text/x-python3" | "application/x-perl" | "text/x-perl" | "application/x-ruby" | "text/x-lua");
+    let exec = e.mode & 0o111 != 0;
+    if !(elf || shebang || script_ext || script_mime) {
+        return None;
+    }
+    if exec {
+        return Some(vec![path]);
+    }
+    if elf {
+        return elf_interp(&e.path).map(|i| vec![i, path]);
+    }
+    let mut argv: Vec<String> = if shebang {
+        let line = head[2..].split(|b| *b == b'\n').next().unwrap_or_default();
+        String::from_utf8_lossy(line).split_whitespace().map(str::to_string).collect()
+    } else {
+        Vec::new()
+    };
+    if argv.is_empty() {
+        let ext = lname.rsplit_once('.').map(|(_, x)| x).unwrap_or("");
+        let prog = match ext {
+            "py" => "python3",
+            "pl" => "perl",
+            "rb" => "ruby",
+            "lua" => "lua",
+            "js" => "node",
+            "php" => "php",
+            "tcl" => "tclsh",
+            "zsh" => "zsh",
+            "fish" => "fish",
+            _ if Path::new("/usr/bin/bash").exists() || Path::new("/bin/bash").exists() => "bash",
+            _ => "sh",
+        };
+        argv.push(prog.into());
+    }
+    argv.push(path);
+    Some(argv)
+}
+
+/// Загрузчик динамического ELF (`PT_INTERP`): запускает файл без бита `x`.
+fn elf_interp(path: &Path) -> Option<String> {
+    let d = std::fs::read(path).ok()?;
+    let b64 = *d.get(4)? == 2;
+    let le = *d.get(5)? == 1;
+    let u16_at = |o: usize| d.get(o..o + 2).map(|b| if le { u16::from_le_bytes([b[0], b[1]]) } else { u16::from_be_bytes([b[0], b[1]]) } as usize);
+    let u32_at = |o: usize| d.get(o..o + 4).map(|b| { let a = [b[0], b[1], b[2], b[3]]; if le { u32::from_le_bytes(a) } else { u32::from_be_bytes(a) } } as usize);
+    let u64_at = |o: usize| d.get(o..o + 8).map(|b| { let a: [u8; 8] = b.try_into().unwrap(); if le { u64::from_le_bytes(a) } else { u64::from_be_bytes(a) } } as usize);
+    let (phoff, phentsize, phnum) = if b64 { (u64_at(0x20)?, u16_at(0x36)?, u16_at(0x38)?) } else { (u32_at(0x1c)?, u16_at(0x2a)?, u16_at(0x2c)?) };
+    for i in 0..phnum {
+        let ph = phoff + i * phentsize;
+        if u32_at(ph)? != 3 {
+            continue;
+        }
+        let (off, size) = if b64 { (u64_at(ph + 8)?, u64_at(ph + 32)?) } else { (u32_at(ph + 4)?, u32_at(ph + 16)?) };
+        let s = d.get(off..off + size)?;
+        let s = String::from_utf8_lossy(s).trim_end_matches('\0').to_string();
+        return (!s.is_empty()).then_some(s);
+    }
+    None
+}
+
+/// Выполнить программу или сценарий в терминале; окно не закрывается,
+/// пока не нажат Enter, — видно вывод и код выхода.
+pub fn run_in_terminal(e: &Entry) {
+    let Some(argv) = runner(e) else { return };
+    let done = t!("[Код выхода {code}. Enter — закрыть]", code = "%d");
+    let script = r#"m=$1; shift; "$@"; s=$?; printf "\n$m\n" "$s"; read r"#;
+    let args: Vec<String> = argv.iter().map(|a| sq(a)).collect();
+    let cmd = format!("{} -e sh -c {} sh {} {}", terminal_cmd(), sq(script), sq(&done), args.join(" "));
+    spawn_shell(&cmd, e.path.parent());
+}
+
 /// Открыть запись: папку — в панели (или новой вкладке), файл — программой.
 pub fn open_entry(p: Pane, e: &Entry, new_tab: bool) {
     // окно выбора портала: файл не открывается, а выбирается
@@ -657,6 +751,9 @@ pub fn context_menu(p: Pane, on_item: bool) -> Vec<MenuItem> {
         return v;
     }
     v.push(item("open", &t!("Открыть"), icons::OPEN).shortcut("Enter"));
+    if loc.dir().is_some() && sel.iter().all(|e| runner(e).is_some()) {
+        v.push(item("run-terminal", &t!("Выполнить в терминале"), icons::TERMINAL));
+    }
     if all_dirs {
         v.push(item("open-tab", &t!("Открыть в новой вкладке"), icons::TAB));
         if one {
@@ -766,6 +863,11 @@ pub fn run(p: Pane, id: &str) {
         "open-terminal" => {
             if let Some(e) = sel.first() {
                 open_terminal(&e.path);
+            }
+        }
+        "run-terminal" => {
+            for e in &sel {
+                run_in_terminal(e);
             }
         }
         "terminal" => {
