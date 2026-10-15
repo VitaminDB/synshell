@@ -5,7 +5,7 @@ syndroid запускает Android (LineageOS) в контейнере рядо
 Rust: без Python, LXC и gbinder. Используются готовые образы LineageOS из OTA-каналов Waydroid (system +
 vendor MAINLINE), с хостом они общаются по протоколу Waydroid (binder-сервисы `lineageos.waydroid.*`,
 свойства `waydroid.*`). Код Waydroid (GPL-3.0) не переносится — только совместимость по протоколу;
-лицензия syndroid — как у всего synshell (MIT OR Apache-2.0).
+лицензия syndroid — как у всего synshell (GPL-3.0 или коммерческая, см. LICENSE-COMMERCIAL.md).
 
 Платформенная часть (ядро с `PID_NS`, сборка образа, GPU) — `synmobile/docs/16-android.md`.
 
