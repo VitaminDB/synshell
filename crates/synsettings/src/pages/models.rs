@@ -365,6 +365,16 @@ const IDLE: &[(i64, &str)] = &[
     (60, n_!("1 час")),
 ];
 
+const KV_KEEP: &[(i64, &str)] = &[
+    (-1, n_!("По умолчанию")),
+    (0, n_!("Не держать")),
+    (10, n_!("10 минут")),
+    (30, n_!("30 минут")),
+    (60, n_!("1 час")),
+    (180, n_!("3 часа")),
+    (720, n_!("12 часов")),
+];
+
 fn nav_item(ctx: state::Ctx, key: String, title: String, summary: String, icon: &'static str, fault: bool) -> W {
     let t = title.clone();
     boxed(
@@ -863,6 +873,23 @@ fn settings_card(sig: RwSignal<Snapshot>, id: &str, cfg: &Cfg) -> W {
             change(sig, &i, SettingsChange { idle_unload_min: Some(value), ..Default::default() });
         }),
     ));
+    if cfg.engine.is_some() {
+        let mut keep = Dropdown::new().width(220.0);
+        for (v, l) in KV_KEEP {
+            keep = keep.item(DropdownItem::new(v.to_string(), tl(l)));
+        }
+        let i = id.to_string();
+        let cur = cfg.settings.kv_keep_min.map(|v| v as i64).unwrap_or(-1);
+        rows.push(row(
+            t!("Держать контекст чатов"),
+            t!("После выгрузки KV-кэш диалогов ждёт в оперативной памяти: модель загрузится снова — чат продолжится без пересчёта истории"),
+            keep.selected(cur.to_string()).on_change(move |v: &str| {
+                let Ok(n) = v.parse::<i64>() else { return };
+                let value = if n < 0 { None } else { Some(n as u32) };
+                change(sig, &i, SettingsChange { kv_keep_min: Some(value), ..Default::default() });
+            }),
+        ));
+    }
     let (i1, i2) = (id.to_string(), id.to_string());
     let buttons = Row::new()
         .gap(8.0)

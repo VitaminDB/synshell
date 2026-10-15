@@ -154,6 +154,11 @@ pub struct ModelSettings {
     pub pinned: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idle_unload_min: Option<u32>,
+    /// Сколько минут держать в RAM KV-кэш чатов выгруженной языковой модели:
+    /// загрузится снова — диалоги продолжатся без префилла истории. `None` —
+    /// как в конфиге службы, 0 — не держать.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kv_keep_min: Option<u32>,
     #[serde(default)]
     pub preload: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -649,6 +654,8 @@ pub enum Request {
         pinned: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "double_option")]
         idle_unload_min: Option<Option<u32>>,
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "double_option")]
+        kv_keep_min: Option<Option<u32>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         preload: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "double_option")]
@@ -1321,6 +1328,7 @@ impl Client {
             device: change.device,
             pinned: change.pinned,
             idle_unload_min: change.idle_unload_min,
+            kv_keep_min: change.kv_keep_min,
             preload: change.preload,
             quant: change.quant,
             params: change.params,
@@ -1620,6 +1628,7 @@ pub struct SettingsChange {
     pub device: Option<DeviceKind>,
     pub pinned: Option<bool>,
     pub idle_unload_min: Option<Option<u32>>,
+    pub kv_keep_min: Option<Option<u32>>,
     pub preload: Option<bool>,
     pub quant: Option<Option<String>>,
     pub params: Option<Params>,
@@ -1649,6 +1658,7 @@ mod tests {
                 device: Some(DeviceKind::Npu),
                 pinned: None,
                 idle_unload_min: Some(None),
+                kv_keep_min: Some(Some(30)),
                 preload: None,
                 quant: Some(None),
                 params: None,

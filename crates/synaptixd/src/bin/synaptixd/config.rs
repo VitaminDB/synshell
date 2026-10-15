@@ -11,6 +11,8 @@ pub const NPU_CACHE_RO: &str = "/usr/lib/synaptix/npu-cache";
 pub struct Config {
     pub min_available_mb: u64,
     pub idle_unload_min: u32,
+    /// Сколько минут держать в RAM KV-кэш чатов выгруженной модели (0 — нет).
+    pub kv_keep_min: u32,
     pub max_loaded: usize,
     pub model_dirs: Vec<PathBuf>,
     pub state: PathBuf,
@@ -22,6 +24,7 @@ impl Default for Config {
         Self {
             min_available_mb: 1024,
             idle_unload_min: 10,
+            kv_keep_min: 60,
             max_loaded: 0,
             model_dirs: Vec::new(),
             state: PathBuf::from(STATE),

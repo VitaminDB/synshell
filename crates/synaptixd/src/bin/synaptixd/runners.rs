@@ -22,6 +22,9 @@ pub struct LlmSlot {
     sessions: std::sync::Mutex<Vec<KvEntry>>,
     /// Последний снимок сессий для метрик: пока идёт ход, `sessions` занят.
     kv_seen: std::sync::Mutex<Vec<KvRow>>,
+    /// Сессия идущего хода: на время генерации она вынута из `sessions`, а
+    /// метрикам (виджет, детали чата) её всё равно надо видеть.
+    kv_active: std::sync::Mutex<Option<KvRow>>,
     /// Эмбеддинги картинок и видео истории: ключ — файл, время изменения и
     /// вид; старые вытесняются по бюджету токенов.
     media: std::sync::Mutex<Vec<(String, synaptix::facade::llm::MediaEmbedding)>>,
@@ -33,12 +36,61 @@ pub type KvRow = (String, synaptixd::AppInfo, u32, u32, u64, bool);
 /// Сколько KV-сессий держать (на устройстве из них — одна).
 const SESSIONS: usize = 4;
 
+/// Сбрасывает сессию хода в метриках, как бы ход ни кончился. Вернувшаяся
+/// в `sessions` сессия видна там раньше, чем guard уйдёт, — `kv_usage`
+/// убирает дубль по ключу.
+struct ActiveKv<'a>(&'a std::sync::Mutex<Option<KvRow>>);
+
+impl Drop for ActiveKv<'_> {
+    fn drop(&mut self) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+}
+
+/// KV-сессии выгруженной модели, припаркованные в RAM: служба держит их
+/// заданное время и отдаёт модели при следующей загрузке, чтобы чат не
+/// префиллил историю заново.
+pub struct KeptKv {
+    entries: Vec<KvEntry>,
+    rows: Vec<KvRow>,
+}
+
+impl KeptKv {
+    /// Сессии для метрик (все припаркованы).
+    pub fn rows(&self) -> &[KvRow] {
+        &self.rows
+    }
+
+    pub fn bytes(&self) -> u64 {
+        self.rows.iter().map(|r| r.4).sum()
+    }
+}
+
 struct KvEntry {
     key: String,
     kv: synaptix::facade::llm::LlmKvSession,
     parked: bool,
+    /// Сколько кэш занимал на карте перед парковкой — столько же он держит
+    /// в RAM (весь буфер ринга, а не только записанные токены).
+    parked_bytes: u64,
     /// Программа, чей это контекст.
     app: synaptixd::AppInfo,
+}
+
+impl KvEntry {
+    /// Увести сессию в RAM.
+    fn park(&mut self) -> Result<(), synaptix::facade::llm::LlmError> {
+        let bytes = self.kv.device_bytes() as u64;
+        self.kv.park_to_host()?;
+        self.parked = true;
+        self.parked_bytes = bytes;
+        Ok(())
+    }
+
+    /// Память сессии: в RAM — припаркованная, иначе — на карте.
+    fn bytes(&self) -> u64 {
+        if self.parked { self.parked_bytes } else { self.kv.device_bytes() as u64 }
+    }
 }
 
 /// Медиа сообщения для промпта: блок токенов (или строка-замена) по порядку.
@@ -419,7 +471,7 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
             let max_seq = if dev == DeviceKind::Npu { Some(2048) } else { synaptix::facade::arch::config_max_seq(path) };
             let (llm, tok) = synaptix::facade::llm::load_llm_full(path, policy, &device, max_seq, runtime).map_err(|e| anyhow::anyhow!("{e}"))?;
             let window = llm.config().max_seq_len.max(2048);
-            Ok((Loaded::Llm(Box::new(LlmSlot { llm, tok, window, path: path.to_path_buf(), sessions: std::sync::Mutex::new(Vec::new()), kv_seen: std::sync::Mutex::new(Vec::new()), media: std::sync::Mutex::new(Vec::new()) })), Some(label)))
+            Ok((Loaded::Llm(Box::new(LlmSlot { llm, tok, window, path: path.to_path_buf(), sessions: std::sync::Mutex::new(Vec::new()), kv_seen: std::sync::Mutex::new(Vec::new()), kv_active: std::sync::Mutex::new(None), media: std::sync::Mutex::new(Vec::new()) })), Some(label)))
         }
         ModelKind::Tts => {
             let device = devices::device(dev);
@@ -496,18 +548,67 @@ impl Loaded {
         let Ok(all) = b.sessions.try_lock() else {
             return b.kv_seen.lock().unwrap_or_else(|e| e.into_inner()).clone();
         };
-        let per_token = b.llm.kv_bytes_per_token() as u64;
         let rows: Vec<KvRow> = all
+            .iter()
+            .map(|e| (e.key.clone(), e.app.clone(), e.kv.cached_tokens() as u32, e.kv.ctx_tokens() as u32, e.bytes(), e.parked))
+            .collect();
+        drop(all);
+        let mut rows = rows;
+        if let Some(active) = b.kv_active.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+            rows.retain(|r| r.0 != active.0);
+            rows.push(active);
+        }
+        *b.kv_seen.lock().unwrap_or_else(|e| e.into_inner()) = rows.clone();
+        rows
+    }
+
+    /// Увести KV-сессии в RAM перед выгрузкой модели (см. [`KeptKv`]).
+    /// Сессию, что не уехала, просто теряем: полный префилл всегда возможен.
+    pub fn park_sessions(&self) -> Option<KeptKv> {
+        let Loaded::Llm(b) = self else { return None };
+        let mut all = b.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let mut entries = Vec::new();
+        for mut e in all.drain(..) {
+            if e.kv.cached_tokens() == 0 {
+                continue;
+            }
+            if !e.parked {
+                match e.park() {
+                    Ok(()) => {}
+                    Err(err) => {
+                        tracing::warn!("сессия «{}» не уехала в RAM ({err})", e.key);
+                        continue;
+                    }
+                }
+            }
+            entries.push(e);
+        }
+        if entries.is_empty() {
+            return None;
+        }
+        let rows = entries
             .iter()
             .map(|e| {
                 let tokens = e.kv.cached_tokens() as u32;
-                let bytes = if e.parked { per_token * tokens as u64 } else { e.kv.device_bytes() as u64 };
-                (e.key.clone(), e.app.clone(), tokens, e.kv.ctx_tokens() as u32, bytes, e.parked)
+                (e.key.clone(), e.app.clone(), tokens, e.kv.ctx_tokens() as u32, e.bytes(), true)
             })
             .collect();
-        drop(all);
-        *b.kv_seen.lock().unwrap_or_else(|e| e.into_inner()) = rows.clone();
-        rows
+        Some(KeptKv { entries, rows })
+    }
+
+    /// Принять сессии, удержанные с прошлой загрузки этой же модели: они
+    /// остаются в RAM и возвращаются на карту ходом своего ключа.
+    pub fn adopt_sessions(&self, kept: KeptKv) {
+        let Loaded::Llm(b) = self else { return };
+        let mut all = b.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        for e in kept.entries {
+            if !all.iter().any(|x| x.key == e.key) {
+                all.push(e);
+            }
+        }
+        while all.len() > SESSIONS {
+            all.remove(0);
+        }
     }
 
     /// Настройки генерации языковой модели (на лету, без перезагрузки).
@@ -956,11 +1057,8 @@ impl Loaded {
             let mine = all.iter().position(|e| e.key == key).map(|i| all.remove(i));
             let mut parked_any = false;
             for e in all.iter_mut().filter(|e| !e.parked) {
-                match e.kv.park_to_host() {
-                    Ok(_) => {
-                        e.parked = true;
-                        parked_any = true;
-                    }
+                match e.park() {
+                    Ok(()) => parked_any = true,
                     Err(err) => tracing::warn!("generate: сессия «{}» не уехала в RAM ({err})", e.key),
                 }
             }
@@ -979,6 +1077,19 @@ impl Loaded {
                 }
             }
         }
+        // Ход длиннее, чем рассчитана сессия, — доращиваем её, посчитанный
+        // префикс остаётся; не вышло — заводим новую.
+        if let Some(e) = entry.as_mut().filter(|e| e.kv.ctx_tokens() < need) {
+            let want = need.div_ceil(SESSION_STEP).saturating_mul(SESSION_STEP).clamp(need, window);
+            match llm.grow_kv_session(&mut e.kv, want, max_tokens) {
+                Ok(()) => tracing::info!("generate: кэш контекста «{key}» дорос до {want} токенов (предел {window})"),
+                Err(err) => {
+                    tracing::warn!("generate: кэш «{key}» не дорос до {want} токенов ({err}) — заново");
+                    entry = None;
+                    crate::manager::release_vram(None);
+                }
+            }
+        }
         if entry.as_ref().is_none_or(|e| e.kv.ctx_tokens() < need) {
             entry = None;
             let want = need.div_ceil(SESSION_STEP).saturating_mul(SESSION_STEP).clamp(need, window);
@@ -986,12 +1097,19 @@ impl Loaded {
                 Ok(Some(kv)) => {
                     tracing::info!("generate: кэш контекста «{key}» на {want} токенов (предел {window})");
                     let app = crate::activity::current().map(|l| l.app().clone()).unwrap_or_default();
-                    entry = Some(KvEntry { key: key.clone(), kv, parked: false, app });
+                    entry = Some(KvEntry { key: key.clone(), kv, parked: false, parked_bytes: 0, app });
                 }
                 Ok(None) => {}
                 Err(e) => tracing::warn!("generate: кэш на {want} токенов не создан ({e}) — без кэша"),
             }
         }
+        // Метрикам — сессия хода, пока она вне `sessions`: ёмкость и память
+        // известны сразу, токены — по промпту.
+        *b.kv_active.lock().unwrap_or_else(|e| e.into_inner()) = entry.as_ref().map(|e| {
+            (e.key.clone(), e.app.clone(), ids.len() as u32, e.kv.ctx_tokens() as u32, e.kv.device_bytes() as u64, false)
+        });
+        // Снимается и при ошибке хода.
+        let _active = ActiveKv(&b.kv_active);
         let t0 = std::time::Instant::now();
         let reused = match entry.as_mut().map(|e| &mut e.kv) {
             Some(s) if refs.is_empty() => gen.generate_streaming_cached(s, &ids, tok, on_piece).map_err(|e| anyhow::anyhow!("{e}"))?,

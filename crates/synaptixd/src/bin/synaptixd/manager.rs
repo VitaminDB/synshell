@@ -34,6 +34,18 @@ pub struct Slot {
     pub optimal: Params,
     /// Действующий профиль движка LLM по (устройство, точность, правки).
     engine_shown: Mutex<Option<(EngineKey, EngineProfile)>>,
+    /// KV-кэш чатов, удержанный в RAM после выгрузки (см. [`KeptSlot`]).
+    kept_kv: Option<KeptSlot>,
+}
+
+/// Удержанные KV-сессии выгруженной модели: до какого момента ждать загрузки
+/// и на каком устройстве и с какой точностью они посчитаны — с другими их
+/// не продолжить.
+struct KeptSlot {
+    kv: runners::KeptKv,
+    until: Instant,
+    device: Option<DeviceKind>,
+    precision: String,
 }
 
 type EngineKey = (DeviceKind, Option<String>, EngineProfile);
@@ -63,7 +75,13 @@ impl Slot {
             schema,
             optimal,
             engine_shown: Mutex::new(None),
+            kept_kv: None,
         }
+    }
+
+    /// Сколько минут держать KV-кэш чатов после выгрузки.
+    fn kv_keep_min(&self, cfg: &Config) -> u32 {
+        self.settings.kv_keep_min.unwrap_or(cfg.kv_keep_min)
     }
 
     /// Устройство, на котором модель работает или будет загружена.
@@ -469,6 +487,12 @@ impl Manager {
                 kv.push(synaptixd::KvUsage { model: id.clone(), key, app, tokens, capacity, bytes, parked });
             }
         }
+        // Удержанный KV выгруженных моделей — тоже память программ.
+        for (id, s) in self.slots.lock().unwrap().iter() {
+            for (key, app, tokens, capacity, bytes, parked) in s.kept_kv.iter().flat_map(|k| k.kv.rows().iter().cloned()) {
+                kv.push(synaptixd::KvUsage { model: id.clone(), key, app, tokens, capacity, bytes, parked });
+            }
+        }
         let mut apps = snap.apps;
         for k in &kv {
             match apps.iter_mut().find(|u| u.app.pid == k.app.pid && u.app.label == k.app.label) {
@@ -529,6 +553,12 @@ impl Manager {
             if let Some(i) = ch.idle_unload_min {
                 s.settings.idle_unload_min = i;
             }
+            if let Some(k) = ch.kv_keep_min {
+                s.settings.kv_keep_min = k;
+                if s.kv_keep_min(&self.cfg) == 0 {
+                    s.kept_kv = None;
+                }
+            }
             if let Some(p) = ch.preload {
                 s.settings.preload = p;
             }
@@ -558,11 +588,15 @@ impl Manager {
                     }
                 }
             }
+            if reload {
+                // Новая точность или устройство: посчитанный KV им не годится.
+                s.kept_kv = None;
+            }
             (s.entry(), reload)
         };
         self.save_state();
         if reload {
-            self.unload(id);
+            self.unload_with(id, false);
         }
         self.notify_slot(id);
         Ok(if reload { self.entry(id)? } else { entry })
@@ -669,7 +703,10 @@ impl Manager {
             let others: Vec<std::path::PathBuf> = slots.iter().filter(|(k, _)| k.as_str() != id).flat_map(|(_, s)| library::files_of(&s.manifest)).collect();
             (s.manifest.clone(), others)
         };
-        self.unload(id);
+        self.unload_with(id, false);
+        if let Some(s) = self.slots.lock().unwrap().get_mut(id) {
+            s.kept_kv = None;
+        }
         let r = if library::is_own_dir(&manifest) {
             std::fs::remove_dir_all(&manifest.dir).map(|_| ())
         } else {
@@ -681,12 +718,24 @@ impl Manager {
         Ok(())
     }
 
+    /// Выгрузить модель; KV-кэш чатов остаётся ждать её в RAM (см.
+    /// [`Self::unload_with`]).
     pub fn unload(&self, id: &str) -> bool {
-        let (model, dev) = {
+        self.unload_with(id, true)
+    }
+
+    /// `keep_kv` — увести KV-сессии языковой модели в RAM и держать их
+    /// `kv_keep_min` минут: загрузится снова — чаты продолжатся без префилла.
+    /// Не держим при нехватке RAM и когда модель грузится с другими
+    /// настройками.
+    fn unload_with(&self, id: &str, keep_kv: bool) -> bool {
+        let (model, dev, keep) = {
             let mut slots = self.slots.lock().unwrap();
             let Some(s) = slots.get_mut(id) else { return false };
             let m = s.model.take();
             let dev = s.device;
+            let keep_min = if keep_kv { s.kv_keep_min(&self.cfg) } else { 0 };
+            let keep = (keep_min > 0 && m.is_some()).then(|| (keep_min, s.precision.clone()));
             if m.is_some() {
                 s.state = LoadState::Unloaded;
                 s.device = None;
@@ -695,9 +744,22 @@ impl Manager {
                 s.precision.clear();
                 s.fallback = false;
             }
-            (m, dev)
+            (m, dev, keep)
         };
         let Some(model) = model else { return false };
+        if let Some((keep_min, precision)) = keep {
+            if let Some(kv) = model.park_sessions() {
+                tracing::info!(
+                    "{id}: KV-кэш чатов ({} МБ, сессий {}) ждёт в RAM {keep_min} мин",
+                    kv.bytes() >> 20,
+                    kv.rows().len()
+                );
+                if let Some(s) = self.slots.lock().unwrap().get_mut(id) {
+                    let until = Instant::now() + Duration::from_secs(keep_min as u64 * 60);
+                    s.kept_kv = Some(KeptSlot { kv, until, device: dev, precision });
+                }
+            }
+        }
         model.release_device_caches();
         // Модель занята (`Lease` в работе): последняя ссылка уйдёт в его
         // Drop, там же вернётся и память.
@@ -738,7 +800,8 @@ impl Manager {
 
     fn evict_one_on(&self, except: &str, dev: Option<DeviceKind>, why: &str) -> bool {
         let Some(victim) = self.pick_victim(except, dev) else { return false };
-        if self.unload(&victim) {
+        // Ради видеопамяти KV-кэш уезжает ждать в RAM; ради самой RAM — нет.
+        if self.unload_with(&victim, dev.is_some()) {
             self.evictions.fetch_add(1, Ordering::Relaxed);
             tracing::info!("{victim}: выгружена ({why})");
             true
@@ -761,6 +824,9 @@ impl Manager {
             let (_, avail) = meminfo();
             if avail >= need + min {
                 return Ok(());
+            }
+            if self.drop_kept_kv("не хватает памяти для новой") {
+                continue;
             }
             if !self.evict_one(id, "не хватает памяти для новой") {
                 if avail >= need {
@@ -844,6 +910,14 @@ impl Manager {
                     DeviceKind::Cuda => manifest.vram_estimate(dev, quant.as_deref()),
                     _ => 0,
                 };
+                if let Some(k) = s.kept_kv.take() {
+                    if k.until > Instant::now() && k.device == Some(dev) && k.precision == precision {
+                        tracing::info!("{id}: KV-кэш чатов ({} МБ) вернулся к модели", k.kv.bytes() >> 20);
+                        model.adopt_sessions(k.kv);
+                    } else {
+                        tracing::info!("{id}: удержанный KV-кэш не подошёл (другое устройство или точность) — сброшен");
+                    }
+                }
                 s.model = Some(Arc::new(model));
                 s.device = Some(dev);
                 s.precision = precision;
@@ -931,7 +1005,7 @@ impl Manager {
             Err(e) if dev != DeviceKind::Cpu && lease.model.cpu_fallback() => {
                 tracing::warn!("{id}: ошибка на {} ({e}); повтор на CPU", dev.id());
                 drop(lease);
-                self.unload(id);
+                self.unload_with(id, false);
                 if let Some(s) = self.slots.lock().unwrap().get_mut(id) {
                     s.fallback = true;
                 }
@@ -953,12 +1027,47 @@ impl Manager {
         }
     }
 
+    /// Сбросить KV-кэш, чей срок ожидания вышел.
+    fn expire_kept_kv(&self) {
+        let now = Instant::now();
+        let mut slots = self.slots.lock().unwrap();
+        for (id, s) in slots.iter_mut() {
+            if s.kept_kv.as_ref().is_some_and(|k| k.until <= now) {
+                let k = s.kept_kv.take();
+                tracing::info!("{id}: удержанный KV-кэш ({} МБ) сброшен по сроку", k.map(|k| k.kv.bytes() >> 20).unwrap_or(0));
+            }
+        }
+    }
+
+    /// Сбросить весь удержанный KV-кэш; `true` — было что сбрасывать.
+    fn drop_kept_kv(&self, why: &str) -> bool {
+        let dropped: Vec<(String, KeptSlot)> = {
+            let mut slots = self.slots.lock().unwrap();
+            slots.iter_mut().filter_map(|(id, s)| Some((id.clone(), s.kept_kv.take()?))).collect()
+        };
+        for (id, k) in &dropped {
+            tracing::info!("{id}: удержанный KV-кэш ({} МБ) сброшен ({why})", k.kv.bytes() >> 20);
+        }
+        let any = !dropped.is_empty();
+        drop(dropped);
+        if any {
+            trim();
+        }
+        any
+    }
+
     pub fn monitor(self: &Arc<Self>) {
         let min = self.cfg.min_available_mb << 20;
         loop {
             std::thread::sleep(Duration::from_secs(5));
+            self.expire_kept_kv();
             let (_, avail) = meminfo();
             if avail < min {
+                // Сначала — удержанный KV выгруженных моделей: он дешевле
+                // любой загруженной модели.
+                if self.drop_kept_kv("мало свободной памяти") {
+                    continue;
+                }
                 while meminfo().1 < min && self.evict_one("", "мало свободной памяти") {}
             }
             let idle: Vec<String> = {

@@ -193,6 +193,7 @@ fn run(args: &[String]) -> Result<(), String> {
                     "pinned" => ch.pinned = Some(v == "1" || v == "true"),
                     "preload" => ch.preload = Some(v == "1" || v == "true"),
                     "idle" => ch.idle_unload_min = Some(if v == "default" { None } else { Some(v.parse().map_err(|_| "idle: минуты")?) }),
+                    "kv_keep" => ch.kv_keep_min = Some(if v == "default" { None } else { Some(v.parse().map_err(|_| "kv_keep: минуты")?) }),
                     "quant" => ch.quant = Some((v != "auto").then(|| v.to_string())),
                     // engine.custom=1, engine.graph_decode=0, engine.kv_dtype=bf16; «default» — снять правку.
                     k if k.starts_with("engine.") => {
@@ -274,9 +275,17 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             let model = if arg(1)? == "-" { "" } else { arg(1)? };
             let t0 = std::time::Instant::now();
+            // HISTORY — JSON-файл с прошлыми сообщениями диалога (массив
+            // `{role, content}`): промпт идёт после них, как ход чата.
+            let mut messages: Vec<synaptixd::Message> = match std::env::var("HISTORY") {
+                Ok(path) => serde_json::from_str(&std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?)
+                    .map_err(|e| format!("{path}: {e}"))?,
+                Err(_) => Vec::new(),
+            };
+            messages.push(gen_message(prompt));
             let tools: Vec<serde_json::Value> = std::env::var("TOOLS").ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
             let g = c
-                .chat(model, vec![gen_message(prompt)], tools, &params, |ev| {
+                .chat(model, messages, tools, &params, |ev| {
                     match ev {
                         synaptixd::Event::Token { text } => print!("{text}"),
                         synaptixd::Event::Thinking { text } => print!("\x1b[2m{text}\x1b[0m"),
