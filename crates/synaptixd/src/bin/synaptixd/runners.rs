@@ -917,7 +917,7 @@ impl Loaded {
     }
 
     pub fn generate(&self, messages: &[synaptixd::Message], params: &Params, tools: &[serde_json::Value], on_event: &dyn Fn(synaptixd::Event), cancel: &std::sync::atomic::AtomicBool) -> anyhow::Result<synaptixd::Generated> {
-        use synaptix::facade::chat::{prompt_for_model, StreamParser};
+        use synaptix::facade::chat::{history_tokens, prompt_for_model, StreamParser};
         use synaptix::facade::llm::{GenerationOptions, LlmGeneration, Message};
         let Loaded::Llm(b) = self else { anyhow::bail!("модель не языковая") };
         let (llm, tok) = (&b.llm, &b.tok);
@@ -994,6 +994,10 @@ impl Loaded {
         let parser = std::cell::RefCell::new(StreamParser::for_model(tok, thinking, &prompt));
         let reasoning = std::cell::RefCell::new(String::new());
         let ids = tok.encode(&prompt).map_err(|e| anyhow::anyhow!("{e}"))?;
+        // Конец истории перед приглашением к ответу: точка возврата гибрида и
+        // Qwen4Exp ставится сюда, а не на конец промпта — иначе ход, после
+        // которого прерванный ответ в историю не попал, префиллит её всю.
+        let history = history_tokens(tok, &msgs, thinking, params.text("reasoning"), tools_opt, &prompt, &ids);
         let window = params.u32("context").map(|v| v as usize).filter(|v| *v > 0).unwrap_or(b.window).clamp(2048, b.window);
         let room = window.saturating_sub(ids.len() + 16);
         if room < 64 {
@@ -1111,6 +1115,9 @@ impl Loaded {
         // Снимается и при ошибке хода.
         let _active = ActiveKv(&b.kv_active);
         let t0 = std::time::Instant::now();
+        if let Some(e) = entry.as_mut() {
+            e.kv.set_resume_at(history);
+        }
         let reused = match entry.as_mut().map(|e| &mut e.kv) {
             Some(s) if refs.is_empty() => gen.generate_streaming_cached(s, &ids, tok, on_piece).map_err(|e| anyhow::anyhow!("{e}"))?,
             Some(s) if llm.kv_session_media_ok() => gen.generate_streaming_cached_media(s, &ids, tok, &refs, on_piece).map_err(|e| anyhow::anyhow!("{e}"))?,
