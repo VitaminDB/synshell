@@ -83,6 +83,11 @@ pub struct St {
     /// Размер шрифта сменили клавишами — ползунок в настройках пересобирается
     /// (от собственного перетаскивания — нет).
     pub font_rev: RwSignal<u32>,
+    /// Контекстное меню терминала (правая кнопка, долгое нажатие).
+    pub menu_open: RwSignal<bool>,
+    pub menu_pos: RwSignal<syngui::core::Point>,
+    /// Было ли выделение при открытии меню — «Копировать» доступен.
+    pub menu_sel: RwSignal<bool>,
 }
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -116,6 +121,9 @@ impl St {
             ask_open: use_signal(false),
             phone: use_signal(false),
             font_rev: use_signal(0),
+            menu_open: use_signal(false),
+            menu_pos: use_signal(syngui::core::Point::zero()),
+            menu_sel: use_signal(false),
         };
         st.retheme();
         st
@@ -307,6 +315,30 @@ impl St {
     pub fn command(&self, c: TerminalCommand) {
         if let Some(t) = self.active_untracked() {
             t.cmd.set(Some(c));
+        }
+    }
+
+    /// Открыть контекстное меню в точке окна.
+    pub fn open_menu(&self, at: syngui::core::Point) {
+        let sel = self.active_untracked().is_some_and(|t| t.session.has_selection());
+        if self.menu_sel.get_untracked() != sel {
+            self.menu_sel.set(sel);
+        }
+        self.menu_pos.set(at);
+        self.menu_open.set(true);
+    }
+
+    /// Пункт контекстного меню.
+    pub fn menu_selected(&self, id: &str) {
+        self.menu_open.set(false);
+        match id {
+            "copy" => self.command(TerminalCommand::Copy),
+            "paste" => self.command(TerminalCommand::Paste),
+            "clear" => self.command(TerminalCommand::Clear),
+            "new-tab" => self.new_tab_here(),
+            "new-window" => self.new_window(),
+            "settings" => self.settings_open.set(true),
+            _ => {}
         }
     }
 

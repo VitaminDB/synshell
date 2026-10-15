@@ -23,6 +23,11 @@ pub mod icons {
     /// fiber_manual_record: в вкладке работает программа
     pub const DOT: &str = "\u{E061}";
     pub const PASTE: &str = "\u{E14F}";
+    pub const COPY: &str = "\u{E14D}";
+    /// clear_all: очистить экран
+    pub const CLEAR: &str = "\u{E0B8}";
+    /// open_in_new: новое окно
+    pub const WINDOW: &str = "\u{E89E}";
     pub const LEFT: &str = "\u{E314}";
     pub const RIGHT: &str = "\u{E315}";
     pub const UP: &str = "\u{E316}";
@@ -299,9 +304,43 @@ fn terminal_view(st: St) -> W {
                     q.push(' ');
                     st.send(q.as_bytes());
                 })
-                .child(DecoratedBox::new().class("grow term-wrap").child(term)),
+                .child(
+                    Stack::new()
+                        .fit(StackFit::Expand)
+                        .child(
+                            GestureDetector::new()
+                                .on_secondary_click(move |at| st.open_menu(at))
+                                .child(DecoratedBox::new().class("grow term-wrap").child(term)),
+                        )
+                        .child(context_menu(st)),
+                ),
         ),
     )
+}
+
+/// Контекстное меню терминала: копировать и вставить, очистить, вкладки.
+fn context_menu(st: St) -> W {
+    boxed(Reactive::new(move || -> Vec<W> {
+        let sel = st.menu_sel.get();
+        let items = vec![
+            MenuItem::new("copy", t!("Копировать")).icon(icons::COPY).shortcut("Ctrl+Shift+C").disabled(!sel),
+            MenuItem::new("paste", t!("Вставить")).icon(icons::PASTE).shortcut("Ctrl+Shift+V"),
+            MenuItem::separator(),
+            MenuItem::new("clear", t!("Очистить")).icon(icons::CLEAR),
+            MenuItem::separator(),
+            MenuItem::new("new-tab", t!("Новая вкладка")).icon(icons::ADD).shortcut("Ctrl+Shift+T"),
+            MenuItem::new("new-window", t!("Новое окно")).icon(icons::WINDOW).shortcut("Ctrl+Shift+N"),
+            MenuItem::new("settings", t!("Настройки")).icon(icons::SETTINGS).shortcut("Ctrl+,"),
+        ];
+        vec![boxed(
+            PopupMenu::new()
+                .items(items)
+                .position(st.menu_pos)
+                .is_open(st.menu_open)
+                .min_width(240.0)
+                .on_select(move |id| st.menu_selected(id)),
+        )]
+    }))
 }
 
 // ─── вопрос перед закрытием ────────────────────────────────────────────────
