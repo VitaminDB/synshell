@@ -545,41 +545,128 @@ fn card(ctx: ShellCtx, kind: &str, s: &Snap, cx: &Cx) -> Box<dyn Widget> {
                     .style("width", StyleValue::px(cx.w)),
             )
         }
-        "battery" => power_body(s),
+        "battery" => power_body(s, cx),
         _ => Box::new(DecoratedBox::new()),
     }
 }
 
-fn power_body(s: &Snap) -> Box<dyn Widget> {
+const ROW_H: f32 = 22.0;
+
+fn kv_line(k: String, v: String) -> Box<dyn Widget> {
+    Box::new(Row::new().gap(8.0).child(Text::new(k).max_lines(1).class("res-k grow")).child(Text::new(v).max_lines(1).class("res-v")))
+}
+
+fn watts(w: f32) -> String {
+    t!("{w} Вт", w = if w >= 10.0 { format!("{w:.0}") } else { format!("{w:.1}") }).into()
+}
+
+fn usbc_label(ports: &[synsystem::usbc::UsbcPort], i: usize) -> String {
+    let p = &ports[i];
+    let side = match p.position.as_deref() {
+        Some("left") => Some(t!("слева")),
+        Some("right") => Some(t!("справа")),
+        Some("center") => Some(t!("по центру")),
+        Some("front") => Some(t!("спереди")),
+        Some("back") => Some(t!("сзади")),
+        _ => None,
+    };
+    match side {
+        Some(side) => {
+            let same: Vec<usize> = (0..ports.len()).filter(|j| ports[*j].position == p.position).collect();
+            if same.len() > 1 {
+                format!("USB-C {side} {}", same.iter().position(|j| *j == i).unwrap_or(0) + 1)
+            } else {
+                format!("USB-C {side}")
+            }
+        }
+        None => format!("USB-C {}", i + 1),
+    }
+}
+
+fn usbc_rows(ports: &[synsystem::usbc::UsbcPort]) -> Vec<Box<dyn Widget>> {
+    use synsystem::usbc::OpMode;
+    let mut rows = Vec::new();
+    for (i, p) in ports.iter().enumerate().filter(|(_, p)| p.connected()) {
+        let name = match p.devices.first().and_then(|d| d.name()) {
+            Some(n) if p.devices.len() > 1 => format!("{n} +{}", p.devices.len() - 1),
+            Some(n) => n,
+            None if p.input.is_some() => t!("зарядка").into(),
+            None => t!("подключено").into(),
+        };
+        rows.push(kv_line(usbc_label(ports, i), name));
+        if let Some(inp) = &p.input {
+            let mut v = t!("{v} В", v = format!("{:.1}", inp.voltage_v)).to_string();
+            if let Some(a) = inp.current_a.filter(|a| *a > 0.0).or(inp.current_max_a) {
+                v = format!("{v} · {a:.2} А");
+            }
+            if let Some(w) = inp.watts().or(p.partner_source_w) {
+                v = format!("{v} · {}", watts(w));
+            }
+            rows.push(kv_line(t!("Питание в ноутбук").into(), v));
+        } else if p.supplying() {
+            let mut v = match (p.mode, p.out_limit_w()) {
+                (_, Some(w)) => t!("до {w}", w = watts(w)).to_string(),
+                (OpMode::PowerDelivery, None) => "PD".to_string(),
+                _ => "—".to_string(),
+            };
+            let declared: u32 = p.devices.iter().filter_map(|d| d.max_ma).sum();
+            if declared > 0 {
+                v = format!("{v} · {}", t!("заявлено {ma} мА", ma = declared));
+            } else if p.devices.iter().any(|d| d.self_powered) {
+                v = format!("{v} · {}", t!("своё питание"));
+            }
+            rows.push(kv_line(t!("Отдаёт").into(), v));
+        }
+    }
+    rows
+}
+
+fn power_body(s: &Snap, cx: &Cx) -> Box<dyn Widget> {
+    let mut col = Column::new().gap(6.0);
+    let mut rows: Vec<Box<dyn Widget>> = Vec::new();
+    let head_h;
     match (&s.battery, &s.battery_info) {
         (Some(b), info) => {
             let state = if b.charging { t!("Заряжается") } else if b.full { t!("Заряжена") } else { t!("Разряжается") };
-            let mut col = Column::new()
-                .gap(6.0)
+            col = col
                 .child(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(format!("{}%", b.percent)).class("res-big")).child(Text::new(state).class("res-v grow")))
                 .child(crate::ui::meter(b.percent));
+            head_h = 54.0;
             if let Some(m) = b.minutes {
-                col = col.child(kv(if b.charging { n_!("До полного") } else { n_!("Осталось") }, format!("{}:{:02}", m / 60, m % 60)));
+                rows.push(kv_line(t!(if b.charging { n_!("До полного") } else { n_!("Осталось") }).into(), format!("{}:{:02}", m / 60, m % 60)));
             }
             if let Some(w) = b.power_w.filter(|w| *w > 0.05) {
-                col = col.child(kv(&t!("Мощность"), t!("{w} Вт", w = format!("{:.2}", w))));
+                rows.push(kv_line(t!("Мощность").into(), t!("{w} Вт", w = format!("{:.2}", w)).into()));
             }
+            rows.extend(usbc_rows(&s.usbc));
             if let Some(i) = info {
                 if let Some(v) = i.voltage_v {
-                    col = col.child(kv(&t!("Напряжение"), t!("{v} В", v = format!("{:.2}", v))));
+                    rows.push(kv_line(t!("Напряжение").into(), t!("{v} В", v = format!("{:.2}", v)).into()));
                 }
                 if let Some(t) = i.temp_c {
-                    col = col.child(kv(&t!("Температура"), format!("{t:.1} °C")));
+                    rows.push(kv_line(t!("Температура").into(), format!("{t:.1} °C")));
                 }
             }
-            Box::new(col)
         }
-        (None, _) => match s.adc_volt {
-            // Драйвера батареи нет (телефон без ADSP) — напряжение с АЦП.
-            Some(v) => Box::new(Column::new().gap(4.0).child(Text::new(t!("{v} В", v = format!("{:.2}", v))).class("res-big")).child(Text::new(t!("напряжение аккумулятора")).class("res-k"))),
-            None => Box::new(Text::new(t!("Аккумулятора нет")).class("res-v")),
-        },
+        (None, _) => {
+            match s.adc_volt {
+                Some(v) => {
+                    col = col.child(Text::new(t!("{v} В", v = format!("{:.2}", v))).class("res-big")).child(Text::new(t!("напряжение аккумулятора")).class("res-k"));
+                    head_h = 60.0;
+                }
+                None => {
+                    col = col.child(Text::new(t!("Аккумулятора нет")).class("res-v"));
+                    head_h = ROW_H;
+                }
+            }
+            rows.extend(usbc_rows(&s.usbc));
+        }
     }
+    let fit = ((cx.h - head_h).max(0.0) / ROW_H) as usize;
+    for r in rows.into_iter().take(fit) {
+        col = col.child(r);
+    }
+    Box::new(col)
 }
 
 // ─── Сеть ───────────────────────────────────────────────────────────────────

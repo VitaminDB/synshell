@@ -36,6 +36,7 @@ pub struct Snap {
     pub battery_info: Option<synsystem::battery::BatteryInfo>,
     /// Напряжение из АЦП, если драйвера батареи нет.
     pub adc_volt: Option<f32>,
+    pub usbc: Vec<synsystem::usbc::UsbcPort>,
     /// Байт/с принято, передано.
     pub net: (f64, f64),
     /// Видеопамять первого GPU, который её сообщает: занято, всего (у общей с ОЗУ — нет), имя.
@@ -214,6 +215,7 @@ fn start_sampler(sig: RwSignal<Snap>) {
                     battery,
                     battery_info: synsystem::battery::batteries(&sys).into_iter().next(),
                     adc_volt: synsystem::battery::adc_voltage(&sys),
+                    usbc: synsystem::usbc::ports(&sys),
                     net,
                     vram,
                     npu,
