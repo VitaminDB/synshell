@@ -11,7 +11,17 @@ use crate::tools::{Danger, Tool};
 
 pub trait Backend: Send + Sync {
     fn chat(&self, model: &str, messages: Vec<Message>, tools: Vec<Value>, params: &Params, on_event: &mut dyn FnMut(Event)) -> Result<Generated, String>;
+
+    /// То же, но прерывается флагом `cancel` посреди генерации (кнопка «Стоп»).
+    /// По умолчанию — без прерывания: флаг смотрят только между шагами.
+    fn chat_cancellable(&self, model: &str, messages: Vec<Message>, tools: Vec<Value>, params: &Params, cancel: &AtomicBool, on_event: &mut dyn FnMut(Event)) -> Result<Generated, String> {
+        let _ = cancel;
+        self.chat(model, messages, tools, params, on_event)
+    }
 }
+
+/// Ошибка генерации, оборванной «Стопом».
+pub const CANCELLED: &str = "остановлено";
 
 pub struct DaemonBackend;
 
@@ -19,6 +29,33 @@ impl Backend for DaemonBackend {
     fn chat(&self, model: &str, messages: Vec<Message>, tools: Vec<Value>, params: &Params, on_event: &mut dyn FnMut(Event)) -> Result<Generated, String> {
         let mut c = synaptixd::Client::connect().map_err(|e| e.to_string())?;
         c.chat(model, messages, tools, params, |ev| on_event(ev)).map_err(|e| e.to_string())
+    }
+
+    /// Сторож в соседнем потоке: «Стоп» закрывает соединение — служба видит
+    /// обрыв и прерывает генерацию, запрос возвращает ошибку.
+    fn chat_cancellable(&self, model: &str, messages: Vec<Message>, tools: Vec<Value>, params: &Params, cancel: &AtomicBool, on_event: &mut dyn FnMut(Event)) -> Result<Generated, String> {
+        let mut c = synaptixd::Client::connect().map_err(|e| e.to_string())?;
+        let Some(canceller) = c.canceller() else {
+            return c.chat(model, messages, tools, params, |ev| on_event(ev)).map_err(|e| e.to_string());
+        };
+        let done = AtomicBool::new(false);
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                while !done.load(Ordering::Relaxed) {
+                    if cancel.load(Ordering::Relaxed) {
+                        canceller.cancel();
+                        return;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+            });
+            let r = c.chat(model, messages, tools, params, |ev| on_event(ev));
+            done.store(true, Ordering::Relaxed);
+            match r {
+                Err(_) if cancel.load(Ordering::Relaxed) => Err(CANCELLED.to_string()),
+                r => r.map_err(|e| e.to_string()),
+            }
+        })
     }
 }
 
@@ -240,7 +277,7 @@ impl Agent {
         self.continue_turn(chat, confirm, cancel, on)
     }
 
-    fn generate(&self, chat: &mut Chat, history: Vec<Message>, tools: Vec<Value>, on: &mut dyn FnMut(AgentEvent)) -> Result<Generated, String> {
+    fn generate(&self, chat: &mut Chat, history: Vec<Message>, tools: Vec<Value>, cancel: &AtomicBool, on: &mut dyn FnMut(AgentEvent)) -> Result<Generated, String> {
         let mut params = Params::new();
         if chat.thinking {
             params = params.with("thinking", true);
@@ -249,7 +286,7 @@ impl Agent {
                 params = params.with("reasoning", chat.reasoning.clone());
             }
         }
-        let out = self.backend.chat(&chat.model, history, tools, &params, &mut |ev| match ev {
+        let out = self.backend.chat_cancellable(&chat.model, history, tools, &params, cancel, &mut |ev| match ev {
             Event::Token { text } => on(AgentEvent::Text(text)),
             Event::Thinking { text } => on(AgentEvent::Thinking(text)),
             Event::ToolText { text } => on(AgentEvent::ToolText(text)),
@@ -281,7 +318,15 @@ impl Agent {
                 break;
             }
             let history = self.history(chat);
-            let out = self.generate(chat, history, schemas.clone(), on)?;
+            let out = match self.generate(chat, history, schemas.clone(), cancel, on) {
+                Ok(out) => out,
+                // «Стоп» посреди генерации — не ошибка: ход просто кончается
+                Err(_) if cancel.load(Ordering::Relaxed) => {
+                    pending_tools = false;
+                    break;
+                }
+                Err(e) => return Err(e),
+            };
             self.push_reply(chat, &out, on);
             pending_tools = !out.tool_calls.is_empty();
             if !pending_tools {
@@ -306,8 +351,13 @@ impl Agent {
         if pending_tools && !cancel.load(Ordering::Relaxed) {
             let mut history = self.history(chat);
             history.push(Message::user(LIMIT_PROMPT));
-            let out = self.generate(chat, history, Vec::new(), on)?;
-            self.push_reply(chat, &out, on);
+            match self.generate(chat, history, Vec::new(), cancel, on) {
+                Ok(out) => {
+                    self.push_reply(chat, &out, on);
+                }
+                Err(_) if cancel.load(Ordering::Relaxed) => {}
+                Err(e) => return Err(e),
+            }
         }
         chat.updated = crate::chat::now();
         on(AgentEvent::Done);
