@@ -28,7 +28,7 @@ pub fn resolve(setting: &str) -> PathBuf {
 }
 
 /// Поле frontmatter (`key: value`) в начале файла между `---`.
-fn front(text: &str, key: &str) -> Option<String> {
+pub fn front(text: &str, key: &str) -> Option<String> {
     let rest = text.strip_prefix("---")?;
     let end = rest.find("\n---")?;
     rest[..end].lines().find_map(|l| l.trim().strip_prefix(&format!("{key}:")).map(|v| v.trim().trim_matches('"').to_string()))
@@ -57,13 +57,52 @@ pub fn list(dir: &Path) -> Vec<Skill> {
     out
 }
 
+/// Навыки из нескольких каталогов: одноимённый из более позднего каталога
+/// заменяет ранний; отключённые (по имени) пропускаются.
+pub fn list_all(dirs: &[PathBuf], disabled: &[String]) -> Vec<Skill> {
+    let mut out: Vec<Skill> = Vec::new();
+    for d in dirs {
+        for k in list(d) {
+            match out.iter_mut().find(|x| x.name == k.name) {
+                Some(x) => *x = k,
+                None => out.push(k),
+            }
+        }
+    }
+    out.retain(|k| !disabled.iter().any(|d| d == &k.name));
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
 /// Раздел системного промпта: как пользоваться навыками и пулом.
 pub fn prompt_section(_skills: &[Skill]) -> String {
     "\n\n## Навыки и инструменты по запросу\nНавыки — инструкции и справка под задачу: если задача подходит под навык, сначала загрузи его инструментом autoskill (name) и следуй ему. Встроенные навыки models (нейросети системы и их параметры) и nodes (ноды графов) собираются из системы сейчас — читай их, а не угадывай id моделей и поля. Часть инструментов (генерация медиа, сценарии) не объявлена сразу: их список — в описании autotools; перед первым вызовом загрузи нужный инструментом autotools (id) — получишь его параметры, установленные модели и правила.\n".into()
 }
 
 pub struct SkillTool {
-    pub dir: PathBuf,
+    pub dirs: Vec<PathBuf>,
+    /// Отключённые навыки (по имени).
+    pub disabled: Vec<String>,
+    /// Встроенные навыки системы (`models`, `nodes`) — для оболочки synshell.
+    pub system: bool,
+}
+
+impl SkillTool {
+    pub fn new(dir: PathBuf) -> Self {
+        Self { dirs: vec![dir], disabled: Vec::new(), system: true }
+    }
+
+    fn skills(&self) -> Vec<Skill> {
+        list_all(&self.dirs, &self.disabled)
+    }
+
+    fn system_skills(&self) -> Vec<(&'static str, &'static str, fn() -> String)> {
+        if self.system {
+            crate::autoguide::skills().to_vec()
+        } else {
+            Vec::new()
+        }
+    }
 }
 
 impl Tool for SkillTool {
@@ -75,17 +114,17 @@ impl Tool for SkillTool {
     }
     fn description(&self) -> String {
         let mut s = String::from("Загрузить навык по имени: полные инструкции (и список его файлов — читай их инструментом files). Навыки (имя — когда загружать):\n");
-        for (name, when, _) in crate::autoguide::skills() {
+        for (name, when, _) in self.system_skills() {
             s.push_str(&format!("- {name} — {when}\n"));
         }
-        for k in list(&self.dir) {
+        for k in self.skills() {
             s.push_str(&format!("- {} — {}\n", k.name, k.description));
         }
         s
     }
     fn parameters(&self) -> Value {
-        let mut names: Vec<String> = crate::autoguide::skills().iter().map(|(n, _, _)| n.to_string()).collect();
-        names.extend(list(&self.dir).into_iter().map(|k| k.name));
+        let mut names: Vec<String> = self.system_skills().iter().map(|(n, _, _)| n.to_string()).collect();
+        names.extend(self.skills().into_iter().map(|k| k.name));
         json!({
             "type": "object",
             "properties": { "name": { "type": "string", "enum": names, "description": "имя навыка" } },
@@ -100,10 +139,10 @@ impl Tool for SkillTool {
     }
     fn run(&self, args: &Value) -> ToolResult {
         let name = need_str(args, "name")?;
-        if let Some((n, _, make)) = crate::autoguide::skills().into_iter().find(|(n, _, _)| n.eq_ignore_ascii_case(name)) {
+        if let Some((n, _, make)) = self.system_skills().into_iter().find(|(n, _, _)| n.eq_ignore_ascii_case(name)) {
             return Ok(ToolOutput::text(format!("Навык «{n}» (собран из системы сейчас):\n\n{}", make())));
         }
-        let skills = list(&self.dir);
+        let skills = self.skills();
         let k = skills.iter().find(|k| k.name.eq_ignore_ascii_case(name)).ok_or_else(|| {
             format!("навыка «{name}» нет; есть: {}", skills.iter().map(|k| k.name.as_str()).collect::<Vec<_>>().join(", "))
         })?;
@@ -138,8 +177,8 @@ mod tests {
         let skills = list(dir.path());
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].name, "weekly-report");
-        assert!(SkillTool { dir: dir.path().into() }.description().contains("weekly-report — недельный отчёт"));
-        let out = SkillTool { dir: dir.path().into() }.run(&json!({"name": "weekly-report"})).unwrap();
+        assert!(SkillTool::new(dir.path().into()).description().contains("weekly-report — недельный отчёт"));
+        let out = SkillTool::new(dir.path().into()).run(&json!({"name": "weekly-report"})).unwrap();
         assert!(out.text.contains("1. Собери задачи."));
         assert!(out.text.contains("шаблон.md"));
     }

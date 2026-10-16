@@ -82,6 +82,39 @@ pub struct Chat {
     pub prompt_tokens: usize,
     #[serde(default)]
     pub context: usize,
+    /// Глубина размышлений (`low`, `medium`, `high`…; пусто — умолчание модели).
+    #[serde(default)]
+    pub reasoning: String,
+    /// Последний вызов модели.
+    #[serde(default)]
+    pub last: Usage,
+    /// Сгенерировано за весь чат, токенов.
+    #[serde(default)]
+    pub total_tokens: usize,
+}
+
+/// Расход одного вызова модели.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Usage {
+    /// Токенов промпта.
+    pub prompt: usize,
+    /// Токенов ответа.
+    pub tokens: usize,
+    /// Промпта взято из KV-кэша.
+    pub cached: usize,
+    pub prefill_ms: u64,
+    pub decode_ms: u64,
+}
+
+impl Usage {
+    /// Скорость генерации, токенов в секунду.
+    pub fn speed(&self) -> f32 {
+        if self.decode_ms == 0 {
+            0.0
+        } else {
+            self.tokens as f32 * 1000.0 / self.decode_ms as f32
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]

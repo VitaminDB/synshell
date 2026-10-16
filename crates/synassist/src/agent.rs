@@ -103,7 +103,17 @@ impl Agent {
     pub fn with_skills(mut self, dir: std::path::PathBuf) -> Self {
         // Встроенные навыки (модели, ноды) есть всегда — инструмент тоже.
         self.skills = crate::skills::list(&dir);
-        self.tools.push(Arc::new(crate::skills::SkillTool { dir }));
+        self.tools.push(Arc::new(crate::skills::SkillTool::new(dir)));
+        self
+    }
+
+    /// Навыки из нескольких каталогов (поздний важнее), без отключённых и
+    /// без системных навыков synshell (`models`, `nodes`) — для приложений.
+    pub fn with_skill_dirs(mut self, dirs: Vec<std::path::PathBuf>, disabled: Vec<String>) -> Self {
+        self.skills = crate::skills::list_all(&dirs, &disabled);
+        if !self.skills.is_empty() {
+            self.tools.push(Arc::new(crate::skills::SkillTool { dirs, disabled, system: false }));
+        }
         self
     }
 
@@ -232,6 +242,10 @@ impl Agent {
         let mut params = Params::new();
         if chat.thinking {
             params = params.with("thinking", true);
+            // глубина размышлений (`low`, `medium`, `high`…), если модель умеет
+            if !chat.reasoning.is_empty() {
+                params = params.with("reasoning", chat.reasoning.clone());
+            }
         }
         let out = self.backend.chat(&chat.model, history, tools, &params, &mut |ev| match ev {
             Event::Token { text } => on(AgentEvent::Text(text)),
@@ -243,6 +257,8 @@ impl Agent {
             chat.prompt_tokens = out.prompt_tokens + out.tokens;
             chat.context = out.context;
         }
+        chat.last = crate::chat::Usage { prompt: out.prompt_tokens, tokens: out.tokens, cached: out.cached_tokens, prefill_ms: out.prefill_ms, decode_ms: out.decode_ms };
+        chat.total_tokens += out.tokens;
         Ok(out)
     }
 
