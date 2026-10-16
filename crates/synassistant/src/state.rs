@@ -455,6 +455,11 @@ impl St {
                 c.messages = msgs;
                 self.chat.set(c);
             }
+            AgentEvent::Usage { prompt_tokens, context, last, total } => {
+                let mut c = self.chat.get_untracked();
+                (c.prompt_tokens, c.context, c.last, c.total_tokens) = (prompt_tokens, context, last, total);
+                self.chat.set(c);
+            }
             AgentEvent::Done => {}
         }
     }

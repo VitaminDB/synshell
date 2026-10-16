@@ -32,6 +32,8 @@ pub enum AgentEvent {
     ToolProgress { step: usize, total: usize, label: String },
     Message(ChatMsg),
     Compacted(Vec<ChatMsg>),
+    /// Расход после вызова модели: занято контекста, окно, этот вызов, всего за чат.
+    Usage { prompt_tokens: usize, context: usize, last: crate::chat::Usage, total: usize },
     Done,
 }
 
@@ -259,6 +261,7 @@ impl Agent {
         }
         chat.last = crate::chat::Usage { prompt: out.prompt_tokens, tokens: out.tokens, cached: out.cached_tokens, prefill_ms: out.prefill_ms, decode_ms: out.decode_ms };
         chat.total_tokens += out.tokens;
+        on(AgentEvent::Usage { prompt_tokens: chat.prompt_tokens, context: chat.context, last: chat.last, total: chat.total_tokens });
         Ok(out)
     }
 
