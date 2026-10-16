@@ -182,6 +182,12 @@ pub fn timeout_secs(asked: Option<&serde_json::Value>) -> u64 {
 }
 
 pub fn run_blocking(command: &str, cwd: Option<&Path>, timeout: u64, cancel: &AtomicBool) -> Result<String, BashError> {
+    run_blocking_tapped(command, cwd, timeout, cancel, None)
+}
+
+/// Как [`run_blocking`], но вывод по мере появления уходит в `tap` (живой
+/// вывод в интерфейсе); результат — тот же.
+pub fn run_blocking_tapped(command: &str, cwd: Option<&Path>, timeout: u64, cancel: &AtomicBool, tap: Option<Tap>) -> Result<String, BashError> {
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| BashError::Spawn(e.to_string()))?;
     rt.block_on(async {
         let watch = async {
@@ -190,7 +196,7 @@ pub fn run_blocking(command: &str, cwd: Option<&Path>, timeout: u64, cancel: &At
             }
         };
         tokio::select! {
-            r = run(command, cwd, OUTPUT_CAP) => r,
+            r = run_tapped(command, cwd, OUTPUT_CAP, tap) => r,
             _ = tokio::time::sleep(Duration::from_secs(timeout)) => Err(BashError::Timeout(timeout)),
             _ = watch => Err(BashError::Cancelled),
         }

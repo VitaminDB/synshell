@@ -2,6 +2,7 @@ pub mod files;
 pub mod media;
 pub mod shell;
 pub mod system;
+pub mod view_media;
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -17,6 +18,7 @@ pub fn all() -> Vec<Arc<dyn Tool>> {
         Arc::new(shell::ShellTool),
         Arc::new(crate::tools::web::WebTool::new()),
         Arc::new(media::MediaTool),
+        Arc::new(view_media::ViewMediaTool),
     ]
 }
 

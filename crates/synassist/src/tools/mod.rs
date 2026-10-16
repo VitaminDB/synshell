@@ -139,3 +139,49 @@ pub fn with_progress<R>(listener: ProgressFn, f: impl FnOnce() -> R) -> R {
     PROGRESS.with(|p| *p.borrow_mut() = prev);
     r
 }
+
+/// Обёртка: любой инструмент — в пул `autotools` (схема модели заранее не
+/// объявляется, она загружает её по запросу; экономит контекст).
+pub struct Pooled(pub std::sync::Arc<dyn Tool>);
+
+impl Tool for Pooled {
+    fn name(&self) -> &'static str {
+        self.0.name()
+    }
+    fn group(&self) -> &'static str {
+        self.0.group()
+    }
+    fn description(&self) -> String {
+        self.0.description()
+    }
+    fn parameters(&self) -> Value {
+        self.0.parameters()
+    }
+    fn danger(&self, args: &Value) -> Danger {
+        self.0.danger(args)
+    }
+    fn summary(&self, args: &Value) -> String {
+        self.0.summary(args)
+    }
+    fn run(&self, args: &Value) -> ToolResult {
+        self.0.run(args)
+    }
+    fn run_ctx(&self, args: &Value, cancel: &std::sync::atomic::AtomicBool) -> ToolResult {
+        self.0.run_ctx(args, cancel)
+    }
+    fn pooled(&self) -> bool {
+        true
+    }
+    fn when(&self) -> String {
+        let w = self.0.when();
+        if !w.is_empty() {
+            return w;
+        }
+        // первая фраза описания
+        let d = self.0.description();
+        d.split_inclusive(['.', '\n']).next().unwrap_or(&d).trim().trim_end_matches('.').to_string()
+    }
+    fn guide(&self) -> String {
+        self.0.guide()
+    }
+}
