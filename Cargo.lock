@@ -8160,6 +8160,7 @@ dependencies = [
  "tempfile",
  "tracing",
  "zbus",
+ "zeroize",
 ]
 
 [[package]]

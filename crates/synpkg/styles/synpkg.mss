@@ -311,3 +311,5 @@ Button.queued { background: var(--accent-soft); color: var(--fg); }
 .seg-on { background: var(--accent-soft); }
 .seg-icon { font-size: 18px; color: var(--muted); }
 .seg-icon-on { color: var(--accent); }
+.seg-label { font-size: 12px; color: var(--muted); }
+.seg-on .seg-label { color: var(--accent); font-weight: 600; }

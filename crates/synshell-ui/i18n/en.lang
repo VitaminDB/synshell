@@ -67,6 +67,11 @@
 "Проверка…" = "Checking…"
 "Подтвердить" = "Confirm"
 "Отмена" = "Cancel"
+"Не спрашивать снова" = "Don't ask again"
+"Каждый раз" = "Each time"
+"5 мин" = "5 min"
+"15 мин" = "15 min"
+"1 час" = "1 hour"
 
 # src/autobright.rs
 "нет датчика освещённости" = "no light sensor"
