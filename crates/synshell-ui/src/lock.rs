@@ -165,6 +165,8 @@ pub fn lock_now(ctx: ShellCtx) {
     if syngui_layer::session_locked().get_untracked() {
         return;
     }
+    // За блокировкой запомненный пароль sudo действовать не должен.
+    synsystem::polkit_agent::forget();
     let st = state();
     st.error.set(String::new());
     st.checking.set(false);

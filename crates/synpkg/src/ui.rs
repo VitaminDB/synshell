@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use synsystem::packages::{self as pk, CatalogApp, Op, Pkg, RemoveMode, Source, Update};
+use synsystem::polkit_agent::AuthResponse;
 use syngui::async_runtime::run_on_main_thread;
 use syngui::mss::StyleValue;
 use syngui::prelude::*;
@@ -143,9 +144,11 @@ pub fn auth_overlay(st: St) -> W {
             return vec![];
         };
         let pass = use_signal(String::new());
+        // Сколько секунд не спрашивать пароль снова (0 — спрашивать каждый раз).
+        let remember = use_signal(0u64);
         let (r1, r2, r3) = (req.clone(), req.clone(), req.clone());
         let submit = move || {
-            r1.respond(Some(pass.get_untracked()));
+            r1.respond(Some(AuthResponse { password: pass.get_untracked(), remember: Duration::from_secs(remember.get_untracked()) }));
             st.auth.set(None);
         };
         let s2 = submit.clone();
@@ -153,6 +156,20 @@ pub fn auth_overlay(st: St) -> W {
             r2.respond(None);
             st.auth.set(None);
         };
+        // Выбор срока «не спрашивать снова» (перестраивается только сам, не всё окно).
+        let remember_sel: W = Box::new(Reactive::new(move || -> Vec<W> {
+            let cur = remember.get();
+            let mut row = Row::new().class("seg");
+            for (secs, label) in [(0u64, t!("Каждый раз").to_string()), (300, t!("5 мин").to_string()), (900, t!("15 мин").to_string()), (3600, t!("1 час").to_string())] {
+                let on = cur == secs;
+                row = row.child(
+                    GestureDetector::new()
+                        .on_click(move || remember.set(secs))
+                        .child(DecoratedBox::new().child(Text::new(label).class("seg-label")).class(if on { "seg-btn seg-on" } else { "seg-btn" })),
+                );
+            }
+            vec![Box::new(Column::new().gap(6.0).child(Text::new(t!("Не спрашивать снова")).class("muted")).child(row))]
+        }));
         let mut card = Column::new()
             .gap(12.0)
             .child(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new("\u{E897}").class("auth-icon")).child(Text::new(t!("Нужны права администратора")).class("auth-title grow")))
@@ -163,6 +180,7 @@ pub fn auth_overlay(st: St) -> W {
         }
         card = card
             .child(TextField::new().obscure(r3.secret).autofocus(true).placeholder(if r3.prompt.is_empty() { t!("Пароль").to_string() } else { r3.prompt.trim_end_matches(':').to_string() }).on_change(move |t| pass.set(t.to_string())).on_submit(move |_| s2()))
+            .child(remember_sel)
             .child(
                 Row::new()
                     .gap(8.0)

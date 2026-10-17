@@ -993,6 +993,25 @@ Text {
 .auth-link { font-size: 12px; color: var(--muted); }
 .auth-link-icon { icon-size: 16px; icon-color: var(--muted); color: var(--muted); }
 .auth-details { font-size: 11px; color: var(--muted); }
+/* выбор срока «не спрашивать снова» */
+.auth-remember-title { font-size: 11px; color: var(--muted); }
+.auth-remember-chip {
+    width: 80px;
+    padding: 7px 4px;
+    border-radius: 10px;
+    background-color: var(--surface-alt);
+    border-width: 1px;
+    border-color: var(--border);
+    transition: background-color 120ms ease, border-color 120ms ease, scale 180ms spring(420, 26);
+    &:hover { background-color: var(--hover); }
+    &:active { scale: 0.96; }
+}
+.auth-remember-chip-selected {
+    background-color: var(--accent-soft);
+    border-color: var(--accent);
+}
+.auth-remember-label { font-size: 12px; color: var(--fg); text-align: center; }
+.auth-remember-chip-selected .auth-remember-label { color: var(--accent); font-weight: 600; }
 /* две кнопки поровну во всю ширину карточки: (400 − 2·28 − 10) / 2 */
 .auth-btn {
     width: 167px;

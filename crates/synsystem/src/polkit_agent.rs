@@ -23,8 +23,10 @@ use std::os::unix::net::UnixStream;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use zbus::zvariant::{OwnedValue, Value};
+use zeroize::Zeroizing;
 use synshell_tr::t;
 
 const AGENT_PATH: &str = "/org/synshell/PolkitAgent";
@@ -49,12 +51,21 @@ pub struct AuthRequest {
     pub secret: bool,
     /// Ошибка предыдущей попытки («Неверный пароль») или сообщение PAM.
     pub error: Option<String>,
-    reply: mpsc::Sender<Option<String>>,
+    reply: mpsc::Sender<Option<AuthResponse>>,
+}
+
+/// Ответ пользователя на запрос пароля.
+pub struct AuthResponse {
+    pub password: String,
+    /// На сколько запомнить пароль и больше не спрашивать его у этого пользователя
+    /// (ноль — спрашивать каждый раз).
+    pub remember: Duration,
 }
 
 impl AuthRequest {
-    pub fn respond(&self, password: Option<String>) {
-        let _ = self.reply.send(password);
+    /// Ответить паролем и сроком, на который его запомнить; `None` — отмена.
+    pub fn respond(&self, answer: Option<AuthResponse>) {
+        let _ = self.reply.send(answer);
     }
 }
 
@@ -73,11 +84,54 @@ static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 /// Помощник за сокетом закрыл соединение, ничего не ответив (нет pidfd в ядре).
 static SOCKET_BROKEN: AtomicBool = AtomicBool::new(false);
 /// Запросы в работе: cookie → (id окна, канал ответа) — для CancelAuthentication.
-static PENDING: Mutex<Vec<(String, u64, mpsc::Sender<Option<String>>)>> = Mutex::new(Vec::new());
+static PENDING: Mutex<Vec<(String, u64, mpsc::Sender<Option<AuthResponse>>)>> = Mutex::new(Vec::new());
+/// Пароль, запомненный на выбранный пользователем срок: пока он не истёк, повторные
+/// запросы polkit того же пользователя проходят без окна. Живёт только в памяти
+/// процесса, стирается по истечении срока и при блокировке экрана ([`forget`]).
+static CACHE: Mutex<Option<Cached>> = Mutex::new(None);
+
+struct Cached {
+    user: String,
+    password: Zeroizing<String>,
+    expires: Instant,
+}
 
 /// Задать окно ввода пароля приложения (один раз, при старте).
 pub fn set_prompter(p: impl Prompter + 'static) {
     let _ = PROMPTER.set(Arc::new(p));
+}
+
+/// Взять непросроченный запомненный пароль пользователя `user`; чужой или
+/// просроченный тут же стереть.
+fn cache_get(user: &str) -> Option<String> {
+    let mut c = CACHE.lock().ok()?;
+    match c.as_ref() {
+        Some(e) if e.user == user && Instant::now() < e.expires => Some(e.password.to_string()),
+        Some(_) => {
+            *c = None;
+            None
+        }
+        None => None,
+    }
+}
+
+/// Запомнить пароль `user` на `ttl` (ноль — не запоминать, прежнее значение стереть).
+fn cache_store(user: &str, password: &str, ttl: Duration) {
+    if let Ok(mut c) = CACHE.lock() {
+        *c = (!ttl.is_zero()).then(|| Cached {
+            user: user.to_string(),
+            password: Zeroizing::new(password.to_string()),
+            expires: Instant::now() + ttl,
+        });
+    }
+}
+
+/// Забыть запомненный пароль. Оболочка вызывает это при блокировке экрана:
+/// за блокировкой запомненный пароль действовать не должен.
+pub fn forget() {
+    if let Ok(mut c) = CACHE.lock() {
+        *c = None;
+    }
 }
 
 /// Зарегистрировать процесс агентом polkit (один раз; повторные вызовы —
@@ -241,15 +295,20 @@ fn helper(user: &str, cookie: &str) -> Result<Helper, String> {
 
 fn authenticate(action_id: &str, message: &str, user: &str, cookie: &str) -> Result<(), String> {
     let prompter = PROMPTER.get().cloned().ok_or(t!("нет окна ввода пароля"))?;
-    let (tx, rx) = mpsc::channel::<Option<String>>();
+    let (tx, rx) = mpsc::channel::<Option<AuthResponse>>();
     let mut error: Option<String> = None;
     let mut cancelled = false;
+    // Пароль и срок из последнего ответа пользователя — кладём в кэш при успехе.
+    let mut remember = Duration::ZERO;
+    let mut last_pw = String::new();
     let mut attempt = 0;
     while attempt < ATTEMPTS {
         let (mut r, mut w, via_socket) = helper(user, cookie)?;
         let mut info: Option<String> = None;
         let mut ok = false;
         let mut silent = true;
+        // На первую подсказку пароля подставляем запомненный (если есть) без окна.
+        let mut used_cache = false;
         let mut line = String::new();
         loop {
             line.clear();
@@ -273,39 +332,61 @@ fn authenticate(action_id: &str, message: &str, user: &str, cookie: &str) -> Res
                 }
                 continue;
             };
-            while rx.try_recv().is_ok() {} // запоздалые ответы прошлых окон
-            let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-            if let Ok(mut p) = PENDING.lock() {
-                p.push((cookie.to_string(), id, tx.clone()));
-            }
-            prompter.ask(AuthRequest {
-                id,
-                message: message.to_string(),
-                action_id: action_id.to_string(),
-                user: user.to_string(),
-                prompt: prompt.trim().to_string(),
-                secret,
-                error: info.take().or_else(|| error.take()),
-                reply: tx.clone(),
-            });
-            let answer = rx.recv().ok().flatten();
-            if let Ok(mut p) = PENDING.lock() {
-                p.retain(|(_, i, _)| *i != id);
-            }
-            prompter.cancel(id);
-            let Some(pw) = answer else {
+            // Запомненный пароль — только на первой попытке и первой скрытой подсказке.
+            let cached = (attempt == 0 && !used_cache && secret).then(|| cache_get(user)).flatten();
+            let answer = if let Some(pw) = cached {
+                used_cache = true;
+                Some(AuthResponse { password: pw, remember: Duration::ZERO })
+            } else {
+                while rx.try_recv().is_ok() {} // запоздалые ответы прошлых окон
+                let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+                if let Ok(mut p) = PENDING.lock() {
+                    p.push((cookie.to_string(), id, tx.clone()));
+                }
+                prompter.ask(AuthRequest {
+                    id,
+                    message: message.to_string(),
+                    action_id: action_id.to_string(),
+                    user: user.to_string(),
+                    prompt: prompt.trim().to_string(),
+                    secret,
+                    error: info.take().or_else(|| error.take()),
+                    reply: tx.clone(),
+                });
+                let a = rx.recv().ok().flatten();
+                if let Ok(mut p) = PENDING.lock() {
+                    p.retain(|(_, i, _)| *i != id);
+                }
+                prompter.cancel(id);
+                a
+            };
+            let Some(answer) = answer else {
                 cancelled = true;
                 break;
             };
-            if writeln!(w, "{pw}").is_err() {
+            if writeln!(w, "{}", answer.password).is_err() {
                 break;
+            }
+            // Запомненный пароль не продлевает свой срок; срок задаёт только человек.
+            if !used_cache {
+                remember = answer.remember;
+                last_pw = answer.password;
             }
         }
         if ok {
+            if !remember.is_zero() {
+                cache_store(user, &last_pw, remember);
+            }
             return Ok(());
         }
         if cancelled {
             return Err(t!("отменено").into());
+        }
+        // Запомненный пароль не подошёл (сменился) — забыть и спросить вживую,
+        // не тратя попытку пользователя.
+        if used_cache {
+            forget();
+            continue;
         }
         if via_socket && silent {
             tracing::warn!("помощник polkit за сокетом не ответил (нет pidfd?) — setuid-помощник");

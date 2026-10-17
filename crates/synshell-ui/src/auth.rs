@@ -4,12 +4,13 @@
 //! потока, поэтому окно открывается через сигнал в главном потоке.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use syngui::async_runtime::run_on_main_thread;
 use syngui::prelude::*;
 use syngui::GestureDetector;
 use syngui_layer::{Anchor, KeyInfo, KeyboardInteractivity, Layer, SurfaceHooks, SurfaceId, SurfaceSpec};
-use synsystem::polkit_agent::{self, AuthRequest, Prompter};
+use synsystem::polkit_agent::{self, AuthRequest, AuthResponse, Prompter};
 
 use crate::ctx::ShellCtx;
 use crate::ui::{icon, mi, rx};
@@ -100,9 +101,9 @@ pub fn start(ctx: ShellCtx) {
 }
 
 /// Отдать ответ агенту (`None` — отмена) и не трогать окно: его закроет `cancel`.
-fn respond(view: RwSignal<Option<AuthView>>, pw: Option<String>) {
+fn respond(view: RwSignal<Option<AuthView>>, answer: Option<AuthResponse>) {
     if let Some(v) = view.get_untracked() {
-        v.0.respond(pw);
+        v.0.respond(answer);
     }
 }
 
@@ -172,18 +173,21 @@ fn card(view: RwSignal<Option<AuthView>>) -> impl Widget {
     let show = use_signal(false);
     let busy = use_signal(false);
     let details = use_signal(false);
+    // Сколько секунд не спрашивать пароль снова (0 — спрашивать каждый раз).
+    let remember = use_signal(0u64);
     // Новый запрос (в том числе после неверного пароля) — поле с нуля, ожидание снято.
     create_effect(move || {
         let _ = view.get();
         pw.set(String::new());
         busy.set(false);
+        remember.set(0);
     });
     let submit = move || {
         if busy.get_untracked() {
             return;
         }
         busy.set(true);
-        respond(view, Some(pw.get_untracked()));
+        respond(view, Some(AuthResponse { password: pw.get_untracked(), remember: Duration::from_secs(remember.get_untracked()) }));
     };
 
     let head = rx(move || {
@@ -290,6 +294,32 @@ fn card(view: RwSignal<Option<AuthView>>) -> impl Widget {
         Box::new(col)
     });
 
+    // Выбор срока, на который не спрашивать пароль снова.
+    let remember_sel = rx(move || {
+        let cur = remember.get();
+        let chip = move |secs: u64, label: String| {
+            GestureDetector::new().on_click(move || remember.set(secs)).child(
+                DecoratedBox::new()
+                    .child(Text::new(label).class("auth-remember-label"))
+                    .class(if cur == secs { "auth-remember-chip auth-remember-chip-selected" } else { "auth-remember-chip" }),
+            )
+        };
+        Box::new(
+            Column::new()
+                .gap(8.0)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(Text::new(t!("Не спрашивать снова")).class("auth-remember-title"))
+                .child(
+                    Row::new()
+                        .main_axis_alignment(MainAxisAlignment::SpaceBetween)
+                        .child(chip(0, t!("Каждый раз").to_string()))
+                        .child(chip(300, t!("5 мин").to_string()))
+                        .child(chip(900, t!("15 мин").to_string()))
+                        .child(chip(3600, t!("1 час").to_string())),
+                ),
+        )
+    });
+
     let actions = rx(move || {
         let wait = busy.get();
         let ok: Box<dyn Widget> = if wait {
@@ -312,6 +342,7 @@ fn card(view: RwSignal<Option<AuthView>>) -> impl Widget {
         .child(head)
         .child(who)
         .child(Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(field).child(status))
+        .child(remember_sel)
         .child(more)
         .child(actions);
     Stack::new()
