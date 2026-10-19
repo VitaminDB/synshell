@@ -56,6 +56,15 @@ impl CenterSpec {
     }
 }
 
+thread_local! {
+    static CENTER_EXTRA: std::cell::Cell<Option<fn() -> Box<dyn Widget>>> = const { std::cell::Cell::new(None) };
+}
+
+/// Что программа-хозяин ставит в середину шапки (synthos — кнопку поиска).
+pub fn set_center_widget(f: fn() -> Box<dyn Widget>) {
+    CENTER_EXTRA.with(|c| c.set(Some(f)));
+}
+
 /// Контент центрального заголовка: идентичность | поиск (растягивается) |
 /// действия. Тогглы скрытых панелей добавляет каркас.
 pub fn center(spec: CenterSpec) -> impl Widget {
@@ -74,7 +83,8 @@ pub fn center(spec: CenterSpec) -> impl Widget {
     let mut center = Row::new()
         .gap(10.0)
         .main_axis_alignment(MainAxisAlignment::Center)
-        .cross_axis_alignment(CrossAxisAlignment::Center);
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .children(CENTER_EXTRA.with(|c| c.get()).map(|f| f()).into_iter().collect::<Vec<_>>());
     if let Some(extra) = center_extra {
         center = center.child(Stack::new().children(vec![extra]));
     }

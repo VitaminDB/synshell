@@ -651,7 +651,7 @@ impl NotesCtx {
         };
         let active_page = self.active.get();
         let expanded = sorted(&self.expanded.get());
-        let projects = self
+        let mut projects: Vec<NotesProjectConfig> = self
             .projects
             .get()
             .iter()
@@ -666,6 +666,10 @@ impl NotesCtx {
                 NotesProjectConfig { path: p.path.display().to_string(), opened_at: p.opened_at, active_page, expanded }
             })
             .collect();
+        // Проекты, ждущие освобождения другой программой, тоже помнятся.
+        if let Some(busy) = BUSY.with(|b| b.get()) {
+            projects.extend(busy.get());
+        }
         NotesPersist {
             projects,
             active_project: active_path.display().to_string(),
@@ -697,6 +701,38 @@ thread_local! {
 /// остановились и кто держит.
 pub fn take_busy_at_start() -> Vec<(NotesProjectConfig, String)> {
     BUSY_AT_START.with(|b| b.borrow_mut().drain(..).collect())
+}
+
+thread_local! {
+    static BUSY: std::cell::Cell<Option<RwSignal<Vec<NotesProjectConfig>>>> = const { std::cell::Cell::new(None) };
+}
+
+/// Проекты, занятые при старте другой программой: сообщить о них, помнить
+/// их в состоянии ([`NotesCtx::persist`]) и раз в минуту пробовать открыть
+/// снова — на той странице, где остановились. Зовётся один раз после
+/// `NotesCtx::new_or_restore`.
+pub fn install_busy_retry() {
+    let mut list = Vec::new();
+    for (saved, who) in take_busy_at_start() {
+        super::project_ui::report_error(&ProjectError::Busy(saved.path.clone().into(), who));
+        list.push(saved);
+    }
+    let busy = use_signal(list);
+    BUSY.with(|b| b.set(Some(busy)));
+    syngui::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            syngui::async_runtime::run_on_main_thread(move || {
+                let list = busy.get_untracked();
+                if list.is_empty() {
+                    return;
+                }
+                let ctx = use_context::<NotesCtx>();
+                let left: Vec<_> = list.into_iter().filter(|p| ctx.open_project_resumed(p).is_err()).collect();
+                busy.set(left);
+            });
+        }
+    });
 }
 
 /// Открытые проекты из конфига. Конфиг без списка (обновление со времён

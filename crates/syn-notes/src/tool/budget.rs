@@ -256,7 +256,9 @@ pub fn fit_with(
 /// Слот один на процесс: тесты, которые его трогают (здесь и у `notes`),
 /// обязаны идти по очереди — иначе чужой `arm` меняет бюджет посреди
 /// чужого же чтения.
-#[cfg(test)]
+/// Тестам, которые ставят бюджет: глобальный слот — по одному за раз
+/// (открыт и программе-хозяину для её тестов).
+#[doc(hidden)]
 pub fn test_serial() -> std::sync::MutexGuard<'static, ()> {
     static SERIAL: Mutex<()> = Mutex::new(());
     SERIAL.lock().unwrap_or_else(|e| e.into_inner())

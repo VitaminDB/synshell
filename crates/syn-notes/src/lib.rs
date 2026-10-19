@@ -19,3 +19,7 @@ pub mod time;
 pub mod tool;
 
 pub use notes::NotesCtx;
+
+/// Стили заметок для программы, встраивающей их (имена классов и
+/// переменных — как в synthos).
+pub const NOTES_MSS: &str = include_str!("../styles/notes.mss");

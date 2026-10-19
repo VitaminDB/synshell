@@ -27,8 +27,18 @@ pub struct Attachment {
     pub original_name: String,
 }
 
+static FINDER: std::sync::OnceLock<fn(&str) -> Option<Attachment>> = std::sync::OnceLock::new();
+
+/// Поиск вложений чата программы-хозяина (synthos: имя, sha, `last`).
+pub fn set_finder(f: fn(&str) -> Option<Attachment>) {
+    let _ = FINDER.set(f);
+}
+
 /// `r` — путь к файлу или префикс sha256 блоба synthos.
 pub fn find_attachment(r: &str) -> Option<Attachment> {
+    if let Some(f) = FINDER.get() {
+        return f(r);
+    }
     let p = synshell_common::paths::expand_tilde(r);
     if p.is_file() {
         return None;

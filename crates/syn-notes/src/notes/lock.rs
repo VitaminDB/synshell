@@ -70,22 +70,67 @@ pub fn moved(from: &Path, to: &Path) {
     let _ = acquire(to);
 }
 
-/// Работающий synthos без блокировок, у которого проект открыт.
+/// Работающий synthos без блокировок (собран до перехода на эту
+/// библиотеку), у которого проект открыт в его конфиге.
 fn legacy_owner(path: &Path) -> Option<String> {
     if std::env::var_os("SYN_NOTES_IGNORE_SYNTHOS").is_some() {
         return None;
     }
     let me = std::process::id();
-    let pid = std::fs::read_dir("/proc").ok()?.flatten().find_map(|e| {
-        let pid: u32 = e.file_name().to_str()?.parse().ok()?;
+    for e in std::fs::read_dir("/proc").ok()?.flatten() {
+        let Some(pid) = e.file_name().to_str().and_then(|n| n.parse::<u32>().ok()) else { continue };
         if pid == me {
-            return None;
+            continue;
         }
-        let comm = std::fs::read_to_string(e.path().join("comm")).ok()?;
-        (comm.trim() == "synthos").then_some(pid)
-    })?;
-    let cfg = std::fs::read_to_string(synshell_common::paths::home().join(".config/synthos/config.json")).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&cfg).ok()?;
-    let open = v.get("notes_projects")?.as_array()?.iter().filter_map(|p| p.get("path")?.as_str()).any(|p| super::project::normalize_path(Path::new(p)) == path);
-    open.then(|| format!("synthos (pid {pid})"))
+        let comm = std::fs::read_to_string(e.path().join("comm")).unwrap_or_default();
+        if comm.trim() != "synthos" || knows_locks(pid) {
+            continue;
+        }
+        // Конфиг этого процесса — по его HOME.
+        let home = std::fs::read(e.path().join("environ"))
+            .ok()
+            .and_then(|env| env.split(|b| *b == 0).find_map(|kv| kv.strip_prefix(b"HOME=").map(|h| String::from_utf8_lossy(h).to_string())))
+            .unwrap_or_else(|| synshell_common::paths::home().display().to_string());
+        let Ok(cfg) = std::fs::read_to_string(Path::new(&home).join(".config/synthos/config.json")) else { continue };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&cfg) else { continue };
+        let open = v
+            .get("notes_projects")
+            .and_then(|l| l.as_array())
+            .is_some_and(|l| l.iter().filter_map(|p| p.get("path")?.as_str()).any(|p| super::project::normalize_path(Path::new(p)) == path));
+        if open {
+            return Some(format!("synthos (pid {pid})"));
+        }
+    }
+    None
+}
+
+/// Собран ли процесс с этой библиотекой (тогда он сам берёт блокировки):
+/// в его бинарнике есть имя каталога блокировок. Ответ запоминается по pid.
+fn knows_locks(pid: u32) -> bool {
+    static SEEN: Mutex<Option<HashMap<u32, bool>>> = Mutex::new(None);
+    if let Some(v) = SEEN.lock().ok().and_then(|g| g.as_ref().and_then(|m| m.get(&pid).copied())) {
+        return v;
+    }
+    let needle = b"notes-locks";
+    let found = std::fs::File::open(format!("/proc/{pid}/exe")).ok().is_some_and(|mut f| {
+        use std::io::Read;
+        let mut buf = vec![0u8; 1 << 20];
+        let mut tail: Vec<u8> = Vec::new();
+        loop {
+            let n = match f.read(&mut buf) {
+                Ok(0) | Err(_) => return false,
+                Ok(n) => n,
+            };
+            tail.extend_from_slice(&buf[..n]);
+            if tail.windows(needle.len()).any(|w| w == needle) {
+                return true;
+            }
+            let keep = tail.len().saturating_sub(needle.len());
+            tail.drain(..keep);
+        }
+    });
+    if let Ok(mut g) = SEEN.lock() {
+        g.get_or_insert_with(HashMap::new).insert(pid, found);
+    }
+    found
 }

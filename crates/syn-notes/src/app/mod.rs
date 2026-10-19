@@ -115,29 +115,7 @@ fn install_state() {
     notes::autosave::install_notes_autosave();
     notes::reminders::install_reminders();
     notes::right_panel::install_props_panel_memory();
-    // Проекты, занятые другой программой, ждут: состояние их помнит, а раз
-    // в минуту они пробуют открыться снова.
-    let mut busy = Vec::new();
-    for (saved, who) in notes::projects::take_busy_at_start() {
-        notes::project_ui::report_error(&notes::projects::ProjectError::Busy(saved.path.clone().into(), who));
-        busy.push(saved);
-    }
-    let busy = use_signal(busy);
-    provide_context(Busy(busy));
-    syngui::async_runtime::spawn(async move {
-        loop {
-            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-            syngui::async_runtime::run_on_main_thread(move || {
-                let list = busy.get_untracked();
-                if list.is_empty() {
-                    return;
-                }
-                let ctx = use_context::<NotesCtx>();
-                let left: Vec<_> = list.into_iter().filter(|p| ctx.open_project_resumed(p).is_err()).collect();
-                busy.set(left);
-            });
-        }
-    });
+    notes::projects::install_busy_retry();
     install_state_autosave(app);
     for (file, backup) in crate::fsutil::take_quarantined() {
         notify_quarantined(&file, &backup);
@@ -155,21 +133,13 @@ fn notify_quarantined(file: &std::path::Path, backup: &std::path::Path) {
     ));
 }
 
-/// Проекты, ждущие освобождения другой программой.
-#[derive(Clone, Copy)]
-struct Busy(RwSignal<Vec<crate::config::NotesProjectConfig>>);
-
 /// Открытые проекты, страницы, панели и разделители — в файл состояния.
 fn install_state_autosave(app: AppCtx) {
     let notes = use_context::<NotesCtx>();
     create_effect(move || {
         let st = notes.persist();
-        let mut projects = st.projects;
-        if let Some(Busy(busy)) = try_use_context::<Busy>() {
-            projects.extend(busy.get());
-        }
         let cfg = AppConfig {
-            notes_projects: Some(projects),
+            notes_projects: Some(st.projects),
             notes_active_project: st.active_project,
             notes_recent: st.recent,
             notes_left_split_ratio: app.notes_left_split_ratio.get(),

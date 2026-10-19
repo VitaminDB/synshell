@@ -89,9 +89,20 @@ fn synthos_config() -> PathBuf {
     synshell_common::paths::home().join(".config/synthos/config.json")
 }
 
+static LOADER: std::sync::OnceLock<fn() -> AppConfig> = std::sync::OnceLock::new();
+
+/// Программа, встраивающая заметки (synthos), хранит их состояние в своём
+/// конфиге: `load` тогда берёт его отсюда.
+pub fn set_loader(f: fn() -> AppConfig) {
+    let _ = LOADER.set(f);
+}
+
 impl AppConfig {
     /// Состояние с диска; нет файла — из synthos, нет и его — по умолчанию.
     pub fn load() -> Self {
+        if let Some(f) = LOADER.get() {
+            return f();
+        }
         let path = state_path();
         if let Ok(text) = std::fs::read_to_string(&path) {
             return serde_json::from_str(&text).unwrap_or_default();
