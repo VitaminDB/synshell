@@ -61,6 +61,13 @@ pub fn data_home() -> PathBuf {
         .unwrap_or_else(|| home().join(".local/share"))
 }
 
+/// `$XDG_STATE_HOME` (по умолчанию `~/.local/state`).
+pub fn state_home() -> PathBuf {
+    std::env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home().join(".local/state"))
+}
+
 /// `$XDG_CACHE_HOME` (по умолчанию `~/.cache`).
 pub fn cache_home() -> PathBuf {
     std::env::var_os("XDG_CACHE_HOME")

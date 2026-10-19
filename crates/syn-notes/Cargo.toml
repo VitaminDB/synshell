@@ -1,0 +1,58 @@
+[package]
+name = "syn-notes"
+description = "Заметки synshell: страницы-холсты, канбан, Гант, mindmap, календарь, графики, журнал и напоминания в одном .syn-проекте"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "syn-notes"
+path = "src/main.rs"
+
+[features]
+default = []
+testing = ["syngui/testing"]
+
+[dependencies]
+synshell-common = { workspace = true, features = ["i18n"] }
+syngui = { workspace = true, features = [
+    "winit",
+    "msdf",
+    "effects",
+    "wayland-dnd",
+    "material-icons",
+    "tokio",
+    "markdown",
+    "markdown-syntax",
+    "image",
+    "image-network",
+    "color-emoji",
+    "svg",
+    "clipboard",
+    "audio",
+    "ffmpeg",
+    "document-editor",
+    "i18n",
+    "single-instance",
+] }
+synaptix-bundle = { workspace = true, features = ["sha256", "blake3"] }
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+libc.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+log = "0.4"
+rand = "0.8"
+sha2 = "0.10"
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "macros", "sync"] }
+symphonia = { version = "0.5", default-features = false, features = ["mp3", "flac", "wav", "pcm", "isomp4", "aac", "vorbis", "ogg"] }
+zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
+
+[dev-dependencies]
+tempfile = "3"
