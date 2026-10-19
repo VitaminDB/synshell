@@ -45,6 +45,7 @@ members = [
     "crates/synassist-voice",
     "crates/synassistant",
     "crates/syn-notes",
+    "crates/syn-notes-proto",
 ]
 
 [workspace.package]
@@ -59,6 +60,7 @@ synshell-common = { path = "crates/synshell-common" }
 synshell-tr = { path = "crates/synshell-tr" }
 synassist = { path = "crates/synassist" }
 synassist-voice = { path = "crates/synassist-voice" }
+syn-notes-proto = { path = "crates/syn-notes-proto" }
 syngui-layer = { path = "crates/syngui-layer" }
 synsystem = { path = "crates/synsystem" }
 synmodem = { path = "crates/synmodem" }

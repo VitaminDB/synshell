@@ -1,5 +1,6 @@
 pub mod files;
 pub mod media;
+pub mod notes;
 pub mod shell;
 pub mod system;
 pub mod view_media;
@@ -11,7 +12,7 @@ use std::sync::Arc;
 use crate::tools::Tool;
 
 pub fn all() -> Vec<Arc<dyn Tool>> {
-    vec![
+    let mut tools: Vec<Arc<dyn Tool>> = vec![
         Arc::new(system::SystemTool),
         Arc::new(system::WindowsTool),
         Arc::new(files::FilesTool),
@@ -19,7 +20,11 @@ pub fn all() -> Vec<Arc<dyn Tool>> {
         Arc::new(crate::tools::web::WebTool::new()),
         Arc::new(media::MediaTool),
         Arc::new(view_media::ViewMediaTool),
-    ]
+    ];
+    if notes::available() {
+        tools.push(Arc::new(notes::NotesTool));
+    }
+    tools
 }
 
 pub fn enabled(disabled: &[String]) -> Vec<Arc<dyn Tool>> {

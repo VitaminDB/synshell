@@ -19,6 +19,7 @@ testing = ["syngui/testing"]
 
 [dependencies]
 synshell-common = { workspace = true, features = ["i18n"] }
+syn-notes-proto.workspace = true
 syngui = { workspace = true, features = [
     "winit",
     "msdf",

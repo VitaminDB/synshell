@@ -17,7 +17,8 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::PathBuf;
+
+use syn_notes_proto::socket_path;
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -33,14 +34,6 @@ pub enum Command {
     Open(String),
 }
 
-/// `SYN_NOTES_SOCKET` — другой путь (проверка рядом с работающим хозяином).
-pub fn socket_path() -> PathBuf {
-    if let Some(p) = std::env::var_os("SYN_NOTES_SOCKET") {
-        return PathBuf::from(p);
-    }
-    synshell_common::paths::runtime_dir().join("syn-notes.sock")
-}
-
 /// Передать команду работающему хозяину. Ошибка — хозяина нет.
 pub fn send(cmd: &Command) -> std::io::Result<()> {
     let req = match cmd {
@@ -48,19 +41,7 @@ pub fn send(cmd: &Command) -> std::io::Result<()> {
         Command::Show => json!({"cmd": "show"}),
         Command::Open(t) => json!({"cmd": "open", "target": t}),
     };
-    request(&req, Duration::from_secs(5)).map(|_| ())
-}
-
-/// Запрос к хозяину: строка JSON туда, строка JSON обратно.
-pub fn request(req: &Value, timeout: Duration) -> std::io::Result<Value> {
-    let mut s = UnixStream::connect(socket_path())?;
-    s.set_read_timeout(Some(timeout))?;
-    let mut line = serde_json::to_string(req)?;
-    line.push('\n');
-    s.write_all(line.as_bytes())?;
-    let mut reply = String::new();
-    BufReader::new(s).read_line(&mut reply)?;
-    serde_json::from_str(&reply).map_err(std::io::Error::other)
+    syn_notes_proto::request(&req, Duration::from_secs(5)).map(|_| ())
 }
 
 /// Команда запуска (на главном потоке, до цикла событий или из сокета).

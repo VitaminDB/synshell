@@ -1,0 +1,10 @@
+[package]
+name = "syn-notes-proto"
+description = "Протокол заметок synshell: сокет хозяина syn-notes, схема инструмента notes, клиент"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+serde_json.workspace = true

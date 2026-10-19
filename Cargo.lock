@@ -6869,6 +6869,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "symphonia",
+ "syn-notes-proto",
  "synaptix-bundle",
  "syngui",
  "synshell-common",
@@ -6878,6 +6879,13 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "zbus",
+]
+
+[[package]]
+name = "syn-notes-proto"
+version = "0.1.42"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -7826,6 +7834,7 @@ dependencies = [
  "scraper",
  "serde",
  "serde_json",
+ "syn-notes-proto",
  "synaptix-flow",
  "synaptix-graph",
  "synaptixd",

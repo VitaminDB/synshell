@@ -2,6 +2,7 @@
 
 use serde_json::json;
 
+
 pub const KEY_NOTES: &str = "notes";
 
 /// Краткая подпись инструмента.

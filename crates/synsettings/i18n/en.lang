@@ -182,6 +182,8 @@
 "Терминал" = "Terminal"
 "Команды bash от вашего имени" = "bash commands as you"
 "Интернет" = "Web"
+"Заметки" = "Notes"
+"Страницы, задачи и канбан, календарь, повестка дня в syn-notes; удаление — с подтверждением" = "Pages, tasks and kanban, calendar, the day's agenda in syn-notes; deleting asks first"
 "Поиск и чтение страниц" = "Search and read pages"
 "Медиа" = "Media"
 "Озвучка текста; картинки, видео и музыка — когда служба их поддержит" = "Text to speech; images, video and music once the service supports them"

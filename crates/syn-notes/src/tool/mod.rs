@@ -108,7 +108,7 @@ use crate::notes::{embeds, media};
 use crate::attach::blobs;
 
 pub mod budget;
-pub mod schema;
+pub use syn_notes_proto::schema;
 
 /// Ошибка вызова инструмента — тексты те же, что у исполнителя synthos.
 #[derive(Debug)]
