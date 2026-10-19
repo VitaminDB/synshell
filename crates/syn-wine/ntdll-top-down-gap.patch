@@ -1,0 +1,31 @@
+--- a/dlls/ntdll/unix/virtual.c	2026-10-10 11:25:26.907728597 +0500
++++ b/dlls/ntdll/unix/virtual.c	2026-10-10 11:25:26.915671337 +0500
+@@ -194,6 +194,7 @@
+ #endif
+ 
+ static void *host_addr_space_limit;  /* top of the host virtual address space */
++static void *top_down_limit;         /* top of MEM_TOP_DOWN placement (gap below a small host address space) */
+ 
+ static struct file_view *arm64ec_view;
+ 
+@@ -2294,6 +2295,7 @@
+ 
+         if (limit_low && (void *)limit_low > start) start = (void *)limit_low;
+         if (limit_high && (void *)limit_high < end) end = (char *)limit_high + 1;
++        if (top_down && top_down_limit && end > top_down_limit && start < top_down_limit) end = top_down_limit;
+ 
+         if ((ptr = map_reserved_area( start, end, host_size, top_down, unix_prot, align_mask )))
+         {
+@@ -3696,6 +3698,12 @@
+ #ifdef _WIN64
+     host_addr_space_limit = get_host_addr_space_limit();
+     TRACE( "host addr space limit: %p\n", host_addr_space_limit );
++    /* With a small host address space (39-bit VA on Android/GKI kernels) top-down placement puts ntdll and
++     * the other system DLLs right below the end of the address space. Code that hooks them (Themida,
++     * anti-cheats) looks for free memory just above the hooked function for its trampoline, which on
++     * Windows always exists. Keep a gap at the top free from top-down placement. */
++    if ((ULONG_PTR)host_addr_space_limit <= ((ULONG_PTR)1 << 40))
++        top_down_limit = (char *)host_addr_space_limit - ((ULONG_PTR)4 << 30);
+ #else
+     host_addr_space_limit = address_space_limit;
+ #endif

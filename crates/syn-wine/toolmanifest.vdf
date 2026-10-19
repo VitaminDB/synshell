@@ -1,0 +1,6 @@
+"manifest"
+{
+  "version" "2"
+  "commandline" "/syn-wine %verb%"
+  "use_tool_subprocess_reaper" "1"
+}

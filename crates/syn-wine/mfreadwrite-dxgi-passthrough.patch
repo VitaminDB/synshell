@@ -1,0 +1,44 @@
+Source reader: hand out D3D11 samples the last transform already allocated.
+
+With a DXGI device manager the reader copied every decoded frame into a sample from its own
+allocator, created from the reader attributes only. What the client set on the transform output
+stream (MF_SA_D3D11_SHARED_WITHOUT_MUTEX, MF_SA_D3D11_BINDFLAGS) was lost: Unity VideoPlayer then
+gets NULL from IDXGIResource::GetSharedHandle and shows a black screen.
+
+--- a/dlls/mfreadwrite/reader.c
++++ b/dlls/mfreadwrite/reader.c
+@@ -1239,6 +1239,25 @@
+     return response;
+ }
+ 
++/* The transform already produced a D3D texture (its own allocator, with the attributes the
++ * client set on its output stream): copying it into our allocator would drop them. */
++static BOOL sample_has_dxgi_buffer(IMFSample *sample)
++{
++    IMFMediaBuffer *buffer;
++    IMFDXGIBuffer *dxgi;
++    BOOL ret = FALSE;
++
++    if (FAILED(IMFSample_GetBufferByIndex(sample, 0, &buffer)))
++        return FALSE;
++    if (SUCCEEDED(IMFMediaBuffer_QueryInterface(buffer, &IID_IMFDXGIBuffer, (void **)&dxgi)))
++    {
++        IMFDXGIBuffer_Release(dxgi);
++        ret = TRUE;
++    }
++    IMFMediaBuffer_Release(buffer);
++    return ret;
++}
++
+ static struct stream_response *media_stream_pop_response(struct source_reader *reader, struct media_stream *stream)
+ {
+     struct stream_response *response;
+@@ -1253,7 +1272,7 @@
+         if (!stream && response->stream_index < reader->stream_count)
+             stream = &reader->streams[response->stream_index];
+ 
+-        if (response->sample && stream->allocator)
++        if (response->sample && stream->allocator && !sample_has_dxgi_buffer(response->sample))
+         {
+             /* Return allocation error to the caller, while keeping original response sample in for later. */
+             if (SUCCEEDED(hr = IMFVideoSampleAllocatorEx_AllocateSample(stream->allocator, &sample)))

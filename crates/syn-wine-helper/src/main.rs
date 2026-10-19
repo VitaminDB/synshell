@@ -1,6 +1,6 @@
 //! syn-wine-helper — «Компоненты Wine» synshell: DLL, которых нет в самом Wine (MFC, рантаймы VB,
 //! OpenAL…), ставятся один раз в общий каталог пользователя и видны всем префиксам
-//! (`$XDG_DATA_HOME/syn-wine/dlls`, ищет наш Wine — pkgs/wine-arm64ec/syn-wine-helper.patch).
+//! (`$XDG_DATA_HOME/syn-wine/dlls`, ищет наш Wine — synshell crates/syn-wine/syn-wine-helper.patch).
 //! Не хватает DLL при запуске — Wine зовёт `syn-wine-helper missing …`: окно «поставить?», установка,
 //! программа запускается снова.
 //!

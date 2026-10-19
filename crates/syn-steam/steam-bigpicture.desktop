@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Steam Big Picture
+GenericName=Steam
+Comment=Steam на весь экран, под касания и геймпад
+Exec=/usr/bin/steam --bigpicture %U
+Icon=steam
+Terminal=false
+Type=Application
+Categories=Game;
+Keywords=steam;games;bigpicture;
+PrefersNonDefaultGPU=true

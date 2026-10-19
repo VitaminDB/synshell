@@ -1,0 +1,56 @@
+--- a/dlls/wow64/syscall.c
++++ b/dlls/wow64/syscall.c
+@@ -191,12 +191,26 @@
+ }
+ 
+ 
++/* exception code while the 32-bit exception frame is being written (a slot reserved for wow64, unused by Wine and FEX) */
++#define WOW64_TLS_DISPATCHING 13
++
+ /**********************************************************************
+  *           call_user_exception_dispatcher
+  */
+ static void __attribute__((used)) call_user_exception_dispatcher( EXCEPTION_RECORD32 *rec, void *ctx32_ptr,
+                                                                   void *ctx64_ptr )
+ {
++    void * volatile *dispatching = &NtCurrentTeb()->TlsSlots[WOW64_TLS_DISPATCHING];
++
++    /* The 32-bit stack is not writable and the translator did not recover the fault while the previous frame
++     * was written: the frame would be written to the same stack again and again until the 64-bit stack
++     * overflows. Windows terminates the process when it cannot push the exception frame, do the same. */
++    if (*dispatching)
++    {
++        ERR( "cannot write exception %08lx frame to the 32-bit stack, terminating\n", (ULONG)(ULONG_PTR)*dispatching );
++        NtTerminateProcess( GetCurrentProcess(), (ULONG)(ULONG_PTR)*dispatching );
++    }
++
+     switch (current_machine)
+     {
+     case IMAGE_FILE_MACHINE_I386:
+@@ -241,6 +255,7 @@
+ 
+             esp = LOWORD(ctx.SegSs) != ss32_sel ? NtCurrentTeb32()->SystemReserved1[0] : ctx.Esp;
+             stack = (struct exc_stack_layout32 *)ULongToPtr( (esp - offsetof(struct exc_stack_layout32, context) - context_length) & ~3 );
++            *dispatching = ULongToPtr( rec->ExceptionCode ? rec->ExceptionCode : STATUS_ACCESS_VIOLATION );
+             stack->rec_ptr     = PtrToUlong( &stack->rec );
+             stack->context_ptr = PtrToUlong( &stack->context );
+             stack->rec         = *rec;
+@@ -251,6 +266,7 @@
+             /* adjust Eip for breakpoints in software emulation (hardware exceptions already adjust Rip) */
+             if (rec->ExceptionCode == EXCEPTION_BREAKPOINT && (wow64info->CpuFlags & WOW64_CPUFLAGS_SOFTWARE))
+                 stack->context.Eip--;
++            *dispatching = NULL;
+ 
+             ctx.Esp = PtrToUlong( stack );
+             ctx.Eip = pLdrSystemDllInitBlock->pKiUserExceptionDispatcher;
+@@ -274,8 +290,10 @@
+ 
+             pBTCpuGetContext( GetCurrentThread(), GetCurrentProcess(), NULL, &ctx );
+             stack = (struct stack_layout *)(ULONG_PTR)(ctx.Sp & ~3) - 1;
++            *dispatching = ULongToPtr( rec->ExceptionCode ? rec->ExceptionCode : STATUS_ACCESS_VIOLATION );
+             stack->rec = *rec;
+             stack->context = ctx;
++            *dispatching = NULL;
+ 
+             ctx.R0 = PtrToUlong( &stack->rec );     /* first arg for KiUserExceptionDispatcher */
+             ctx.R1 = PtrToUlong( &stack->context ); /* second arg for KiUserExceptionDispatcher */

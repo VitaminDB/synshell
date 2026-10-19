@@ -1,0 +1,152 @@
+--- a/dlls/winewayland.drv/wayland.c
++++ b/dlls/winewayland.drv/wayland.c
+@@ -70,6 +70,11 @@
+     else if (!(caps & WL_SEAT_CAPABILITY_POINTER) && process_wayland.pointer.wl_pointer)
+         wayland_pointer_deinit();
+ 
++    if (caps & WL_SEAT_CAPABILITY_TOUCH)
++        wayland_touch_init(wl_seat_get_touch(seat));
++    else
++        wayland_touch_deinit();
++
+     if ((caps & WL_SEAT_CAPABILITY_KEYBOARD) && !process_wayland.keyboard.wl_keyboard)
+         wayland_keyboard_init(wl_seat_get_keyboard(seat));
+     else if (!(caps & WL_SEAT_CAPABILITY_KEYBOARD) && process_wayland.keyboard.wl_keyboard)
+--- a/dlls/winewayland.drv/waylanddrv.h
++++ b/dlls/winewayland.drv/waylanddrv.h
+@@ -419,6 +419,8 @@
+ 
+ void wayland_pointer_init(struct wl_pointer *wl_pointer);
+ void wayland_pointer_deinit(void);
++void wayland_touch_init(struct wl_touch *wl_touch);
++void wayland_touch_deinit(void);
+ void wayland_pointer_clear_constraint(void);
+ 
+ /**********************************************************************
+--- a/dlls/winewayland.drv/wayland_pointer.c
++++ b/dlls/winewayland.drv/wayland_pointer.c
+@@ -1083,3 +1083,124 @@
+ 
+     return TRUE;
+ }
++
++/**********************************************************************
++ *          Touch handling (single touch emulated as left mouse button)
++ */
++
++static struct wl_touch *touch_wl_touch;
++static int32_t touch_primary_id = -1;
++
++static void touch_send_button(HWND hwnd, DWORD flags)
++{
++    INPUT input = {0};
++
++    input.type = INPUT_MOUSE;
++    input.mi.dwFlags = flags;
++    NtUserSendHardwareInput(hwnd, SEND_HWMSG_RAWINPUT, &input, 0);
++}
++
++static void touch_handle_down(void *data, struct wl_touch *wl_touch, uint32_t serial,
++                              uint32_t time, struct wl_surface *wl_surface, int32_t id,
++                              wl_fixed_t x, wl_fixed_t y)
++{
++    struct wayland_pointer *pointer = &process_wayland.pointer;
++    HWND hwnd;
++
++    InterlockedExchange(&process_wayland.input_serial, serial);
++
++    if (touch_primary_id != -1 || !wl_surface) return;
++    /* The wl_surface user data remains valid and immutable for the whole
++     * lifetime of the object, so it's safe to access without locking. */
++    if (!(hwnd = wl_surface_get_user_data(wl_surface))) return;
++
++    TRACE("hwnd=%p id=%d\n", hwnd, id);
++
++    touch_primary_id = id;
++    pthread_mutex_lock(&pointer->mutex);
++    pointer->focused_hwnd = hwnd;
++    pointer->button_serial = serial;
++    pthread_mutex_unlock(&pointer->mutex);
++
++    pointer_handle_motion_internal(x, y);
++    touch_send_button(hwnd, MOUSEEVENTF_LEFTDOWN);
++}
++
++static void touch_handle_up(void *data, struct wl_touch *wl_touch, uint32_t serial,
++                            uint32_t time, int32_t id)
++{
++    struct wayland_pointer *pointer = &process_wayland.pointer;
++
++    InterlockedExchange(&process_wayland.input_serial, serial);
++
++    if (id != touch_primary_id) return;
++    touch_primary_id = -1;
++
++    TRACE("id=%d\n", id);
++
++    touch_send_button(wayland_pointer_get_focused_hwnd(), MOUSEEVENTF_LEFTUP);
++
++    pthread_mutex_lock(&pointer->mutex);
++    pointer->button_serial = 0;
++    pthread_mutex_unlock(&pointer->mutex);
++}
++
++static void touch_handle_motion(void *data, struct wl_touch *wl_touch, uint32_t time,
++                                int32_t id, wl_fixed_t x, wl_fixed_t y)
++{
++    if (id != touch_primary_id) return;
++    pointer_handle_motion_internal(x, y);
++}
++
++static void touch_handle_frame(void *data, struct wl_touch *wl_touch)
++{
++    pointer_handle_frame(data, NULL);
++}
++
++static void touch_handle_cancel(void *data, struct wl_touch *wl_touch)
++{
++    if (touch_primary_id == -1) return;
++    touch_primary_id = -1;
++    touch_send_button(wayland_pointer_get_focused_hwnd(), MOUSEEVENTF_LEFTUP);
++}
++
++static void touch_handle_shape(void *data, struct wl_touch *wl_touch, int32_t id,
++                               wl_fixed_t major, wl_fixed_t minor)
++{
++}
++
++static void touch_handle_orientation(void *data, struct wl_touch *wl_touch, int32_t id,
++                                     wl_fixed_t orientation)
++{
++}
++
++static const struct wl_touch_listener touch_listener =
++{
++    touch_handle_down,
++    touch_handle_up,
++    touch_handle_motion,
++    touch_handle_frame,
++    touch_handle_cancel,
++    touch_handle_shape,
++    touch_handle_orientation,
++};
++
++void wayland_touch_init(struct wl_touch *wl_touch)
++{
++    if (touch_wl_touch)
++    {
++        wl_touch_destroy(wl_touch);
++        return;
++    }
++    touch_wl_touch = wl_touch;
++    touch_primary_id = -1;
++    wl_touch_add_listener(touch_wl_touch, &touch_listener, NULL);
++}
++
++void wayland_touch_deinit(void)
++{
++    if (!touch_wl_touch) return;
++    wl_touch_release(touch_wl_touch);
++    touch_wl_touch = NULL;
++    touch_primary_id = -1;
++}

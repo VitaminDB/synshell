@@ -1,0 +1,79 @@
+diff -ru a/dlls/ntdll/unix/signal_arm64.c b/dlls/ntdll/unix/signal_arm64.c
+--- a/dlls/ntdll/unix/signal_arm64.c	2026-10-14 10:30:57.407308888 +0500
++++ b/dlls/ntdll/unix/signal_arm64.c	2026-10-14 10:31:20.449915410 +0500
+@@ -1076,6 +1076,12 @@
+     for (i = 0; i < rec->NumberParameters; i++)
+         TRACE( " info[%d]=%016lx\n", i, rec->ExceptionInformation[i] );
+ 
++    /* tell wow64 where a write fault happened: the binary translator may have write-protected
++     * the page to track self-modifying code (cf. wow64 bt_handle_syscall_write_fault) */
++    if (get_wow_teb( data->teb ) && rec->ExceptionCode == EXCEPTION_ACCESS_VIOLATION &&
++        rec->ExceptionInformation[0] == EXCEPTION_WRITE_FAULT)
++        data->teb->TlsSlots[4 /* WOW64_TLS_EXCEPTIONADDR */] = (void *)rec->ExceptionInformation[1];
++
+     TRACE("  x0=%016lx  x1=%016lx  x2=%016lx  x3=%016lx\n",
+           (DWORD64)REGn_sig(0, context), (DWORD64)REGn_sig(1, context),
+           (DWORD64)REGn_sig(2, context), (DWORD64)REGn_sig(3, context) );
+diff -ru a/dlls/wow64/syscall.c b/dlls/wow64/syscall.c
+--- a/dlls/wow64/syscall.c	2026-10-14 10:30:57.406560001 +0500
++++ b/dlls/wow64/syscall.c	2026-10-14 10:31:20.450010948 +0500
+@@ -1196,6 +1196,40 @@
+ #endif
+ 
+ 
++#ifdef __aarch64__
++#define WOW64_TLS_EXCEPTIONADDR 4  /* write fault address, set by ntdll in handle_syscall_fault */
++
++/**********************************************************************
++ *           bt_handle_syscall_write_fault
++ *
++ * A system call failed writing to guest memory. The binary translator write-protects RWX pages
++ * it has compiled code from (self-modifying code tracking); on Windows the kernel write succeeds.
++ * Let the translator handle the fault as if it happened in user mode; TRUE means it unprotected
++ * the page and the call can be repeated.
++ */
++static BOOL bt_handle_syscall_write_fault(void)
++{
++    ULONG_PTR addr = (ULONG_PTR)NtCurrentTeb()->TlsSlots[WOW64_TLS_EXCEPTIONADDR];
++    EXCEPTION_RECORD rec = { EXCEPTION_ACCESS_VIOLATION };
++    CONTEXT context;
++    EXCEPTION_POINTERS ptrs = { &rec, &context };
++    volatile BOOL handled = FALSE;
++
++    NtCurrentTeb()->TlsSlots[WOW64_TLS_EXCEPTIONADDR] = NULL;
++    if (!addr || !pBTCpuResetToConsistentState) return FALSE;
++    rec.NumberParameters = 2;
++    rec.ExceptionInformation[0] = EXCEPTION_WRITE_FAULT;
++    rec.ExceptionInformation[1] = addr;
++    RtlCaptureContext( &context );
++    if (handled) return TRUE;  /* resumed here by NtContinue from the translator */
++    handled = TRUE;
++    rec.ExceptionAddress = (void *)context.Pc;
++    pBTCpuResetToConsistentState( &ptrs );
++    return FALSE;
++}
++#endif
++
++
+ /**********************************************************************
+  *           Wow64SystemServiceEx  (wow64.@)
+  */
+@@ -1210,7 +1244,18 @@
+         ERR( "unsupported syscall %04x\n", num );
+         return STATUS_INVALID_SYSTEM_SERVICE;
+     }
++#ifdef __aarch64__
++    NtCurrentTeb()->TlsSlots[WOW64_TLS_EXCEPTIONADDR] = NULL;
++    status = wow64_syscall( args, table->ServiceTable[id] );
++    /* each retry unprotects one page */
++    for (UINT retry = 0; status == STATUS_ACCESS_VIOLATION && retry < 16 && bt_handle_syscall_write_fault(); retry++)
++    {
++        TRACE( "retrying syscall %04x after translator write fault\n", num );
++        status = wow64_syscall( args, table->ServiceTable[id] );
++    }
++#else
+     status = wow64_syscall( args, table->ServiceTable[id] );
++#endif
+     free_temp_data();
+     return status;
+ }

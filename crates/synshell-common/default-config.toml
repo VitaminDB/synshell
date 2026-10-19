@@ -511,7 +511,7 @@ dpi = 0
 
 # Своё разрешение для отдельных программ (отдельный Xwayland). name — без учёта регистра,
 # * — любые символы: имя exe Wine-игры или steam:<AppId>. Запускалка узнаёт дисплей
-# командой `synwm msg x11-display ИМЯ…` (wine-arm64ec в Steam делает это сама).
+# командой `synwm msg x11-display ИМЯ…` (compat tool Steam «syn-wine» делает это сам).
 # [[x11_app]]
 # name = "HeroesOldenEra.exe"
 # resolution = "720p"

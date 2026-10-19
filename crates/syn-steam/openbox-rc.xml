@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Openbox внутри Xwayland для steam-arm64 --desktop: все окна развёрнуты,
+     без рамок (на телефоне окна и так во весь экран). -->
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <focus><focusNew>yes</focusNew><followMouse>no</followMouse></focus>
+  <placement><policy>Smart</policy><center>yes</center></placement>
+  <desktops><number>1</number></desktops>
+  <margins><top>0</top><bottom>0</bottom><left>0</left><right>0</right></margins>
+  <applications>
+    <application class="*" type="normal">
+      <decor>no</decor>
+      <maximized>true</maximized>
+    </application>
+    <application class="*" type="dialog">
+      <decor>no</decor>
+    </application>
+  </applications>
+  <mouse><dragThreshold>8</dragThreshold><doubleClickTime>500</doubleClickTime></mouse>
+</openbox_config>

@@ -1,0 +1,45 @@
+--- a/dlls/winex11.drv/init.c
++++ b/dlls/winex11.drv/init.c
+@@ -378,6 +378,34 @@
+     client_surface_update_offscreen( hwnd, surface );
+ }
+ 
++/* An emulated display mode with another aspect presents into part of the fullscreen window: the rest showed
++ * whatever the window surface held there (white in Fable). Paint it black, as a scaling display would. */
++static void fill_present_margins( Drawable window, HWND toplevel, const RECT *dst )
++{
++    static GC gc;
++    struct x11drv_win_data *data;
++    XRectangle bands[4];
++    int count = 0, w, h;
++
++    if (!(data = get_win_data( toplevel ))) return;
++    w = data->rects.visible.right - data->rects.visible.left;
++    h = data->rects.visible.bottom - data->rects.visible.top;
++    release_win_data( data );
++    if (dst->left <= 0 && dst->top <= 0 && dst->right >= w && dst->bottom >= h) return;
++
++    if (!gc)
++    {
++        XGCValues values = { .foreground = BlackPixel( gdi_display, DefaultScreen( gdi_display ) ),
++                             .subwindow_mode = IncludeInferiors };
++        gc = XCreateGC( gdi_display, window, GCForeground | GCSubwindowMode, &values );
++    }
++    if (dst->left > 0) bands[count++] = (XRectangle){ 0, 0, dst->left, h };
++    if (dst->right < w) bands[count++] = (XRectangle){ dst->right, 0, w - dst->right, h };
++    if (dst->top > 0) bands[count++] = (XRectangle){ dst->left, 0, dst->right - dst->left, dst->top };
++    if (dst->bottom < h) bands[count++] = (XRectangle){ dst->left, dst->bottom, dst->right - dst->left, h - dst->bottom };
++    XFillRectangles( gdi_display, window, gc, bands, count );
++}
++
+ static void X11DRV_client_surface_present( struct client_surface *client, HDC hdc )
+ {
+     struct x11drv_client_surface *surface = impl_from_client_surface( client );
+@@ -392,6 +420,7 @@
+     /* if window is exclusive fullscreen, ignore the window region clipping rules */
+     if (hwnd == toplevel && NtUserGetPresentRect( toplevel, &rect, -1 /* raw dpi */ )) region = 0;
+     else region = get_dc_monitor_region( hwnd, hdc );
++    if (hwnd == toplevel) fill_present_margins( window, toplevel, &rect_dst );
+ 
+     rect_src = surface->client.raw ? surface->client.monitor_rect : surface->client.virtual_rect;
+     TRACE( "hwnd %p %s to toplevel %p %s region %p\n", hwnd, wine_dbgstr_rect(&rect_src),

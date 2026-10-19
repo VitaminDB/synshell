@@ -1,0 +1,48 @@
+diff --git a/Source/Windows/WOW64/Module.cpp b/Source/Windows/WOW64/Module.cpp
+index 0c92ba007..b42a1c23c 100644
+--- a/Source/Windows/WOW64/Module.cpp
++++ b/Source/Windows/WOW64/Module.cpp
+@@ -116,6 +116,10 @@ struct TLS {
+ 
+ struct FrontendThreadData {
+   bool InLockedRWXRead {};
++  // x86 debug registers (Dr0-Dr3, Dr6, Dr7) as last set through a WOW64 context. Hardware breakpoints are not
++  // emulated, but the values must read back unchanged: copy protections (e.g. SecuROM) set Dr7 from an exception
++  // handler and verify it in later exception contexts.
++  uint32_t DebugRegs[6] {};
+ };
+ 
+ class WowSyscallHandler;
+@@ -285,6 +289,9 @@ void StoreWowContextFromState(FEXCore::Core::InternalThreadState* Thread, WOW64_
+   Context->FloatSave.DataOffset = XSave->DataOffset;
+   Context->FloatSave.DataSelector = XSave->DataSelector;
+   Context->FloatSave.Cr0NpxState = XSave->StatusWord | 0xffff0000;
++
++  // Debug registers: not emulated, report what the guest last set.
++  memcpy(&Context->Dr0, GetFrontendThreadData(Thread)->DebugRegs, sizeof(GetFrontendThreadData(Thread)->DebugRegs));
+ }
+ 
+ NTSTATUS FlushThreadStateContext(HANDLE Thread) {
+@@ -705,7 +712,11 @@ NTSTATUS BTCpuGetContext(HANDLE Thread, HANDLE Process, void* Unknown, WOW64_CON
+     return Err;
+   }
+ 
+-  return RtlWow64GetThreadContext(*ThreadDup, Context);
++  Err = RtlWow64GetThreadContext(*ThreadDup, Context);
++  if (!Err && (Context->ContextFlags & WOW64_CONTEXT_DEBUG_REGISTERS) == WOW64_CONTEXT_DEBUG_REGISTERS) {
++    memcpy(&Context->Dr0, GetFrontendThreadData(TLS.ThreadState())->DebugRegs, sizeof(GetFrontendThreadData(TLS.ThreadState())->DebugRegs));
++  }
++  return Err;
+ }
+ 
+ NTSTATUS BTCpuSetContext(HANDLE Thread, HANDLE Process, void* Unknown, WOW64_CONTEXT* Context) {
+@@ -723,6 +734,9 @@ NTSTATUS BTCpuSetContext(HANDLE Thread, HANDLE Process, void* Unknown, WOW64_CON
+   WOW64_CONTEXT TmpContext = *Context;
+ 
+   Context::ScopedJITContextLock Lk {TLS};
++  if ((TmpContext.ContextFlags & WOW64_CONTEXT_DEBUG_REGISTERS) == WOW64_CONTEXT_DEBUG_REGISTERS) {
++    memcpy(GetFrontendThreadData(TLS.ThreadState())->DebugRegs, &TmpContext.Dr0, sizeof(GetFrontendThreadData(TLS.ThreadState())->DebugRegs));
++  }
+   if (Err = Context::FlushThreadStateContext(*ThreadDup); Err) {
+     return Err;
+   }

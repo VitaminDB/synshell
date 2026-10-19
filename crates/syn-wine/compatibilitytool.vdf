@@ -1,0 +1,13 @@
+"compatibilitytools"
+{
+  "compat_tools"
+  {
+    "syn-wine"
+    {
+      "install_path" "."
+      "display_name" "Wine synshell (системный)"
+      "from_oslist" "windows"
+      "to_oslist" "linux"
+    }
+  }
+}

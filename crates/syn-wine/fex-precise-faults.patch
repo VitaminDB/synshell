@@ -1,0 +1,195 @@
+diff --git a/FEXCore/Source/Interface/Core/OpcodeDispatcher.cpp b/FEXCore/Source/Interface/Core/OpcodeDispatcher.cpp
+index 31f9eddc0..c664e5324 100644
+--- a/FEXCore/Source/Interface/Core/OpcodeDispatcher.cpp
++++ b/FEXCore/Source/Interface/Core/OpcodeDispatcher.cpp
+@@ -433,7 +433,29 @@ void OpDispatchBuilder::PUSHSegmentOp(OpcodeArgs, uint32_t SegmentReg) {
+   Push(DstSize, Src);
+ }
+ 
++static bool OperandUsesGPR(const X86Tables::DecodedOperand& Operand, uint8_t GPR) {
++  if (Operand.IsGPRIndirect() || Operand.IsGPRIndirectRelocation()) {
++    return Operand.Data.GPRIndirect.GPR == GPR;
++  }
++  if (Operand.IsSIB() || Operand.IsSIBRelocation()) {
++    return Operand.Data.SIB.Base == GPR || Operand.Data.SIB.Index == GPR;
++  }
++  return false;
++}
++
+ void OpDispatchBuilder::POPOp(OpcodeArgs) {
++  // POP to memory must not update RSP before its store: the store can fault (an RWX page write-protected for
++  // self-modifying code tracking) and the instruction is then restarted, popping twice. x86 faults are precise.
++  // With RSP in the address it is computed after the increment, keep the plain path for that rare case.
++  if (!Op->Dest.IsGPR() && !OperandUsesGPR(Op->Dest, X86State::REG_RSP)) {
++    const auto Size = OpSizeFromSrc(Op);
++    Ref SP = LoadGPRRegister(X86State::REG_RSP);
++    Ref Value = _LoadMemGPR(Size, SP, Size);
++    StoreResultGPR(Op, Value);
++    StoreGPRRegister(X86State::REG_RSP, Add(GetGPROpSize(), SP, IR::OpSizeToSize(Size)));
++    return;
++  }
++
+   Ref Value = Pop(OpSizeFromSrc(Op));
+   StoreResultGPR(Op, Value);
+ }
+@@ -3704,6 +3726,36 @@ void OpDispatchBuilder::NEGOp(OpcodeArgs) {
+   }
+ }
+ 
++void OpDispatchBuilder::DivideErrorCheck(OpcodeArgs, Ref Lhs, Ref Rhs, CondClass Cond, IR::OpSize CompareSize) {
++  // x86 raises #DE on a zero divisor and on a quotient that does not fit the destination, while ARM udiv/sdiv
++  // return 0 or truncate. Software relies on the exception (e.g. SecuROM uses it for control flow), so branch to
++  // a fault with RIP at the faulting instruction when Lhs <Cond> Rhs.
++  // The check splits the block and values do not live across blocks: callers load their operands again after it.
++  CalculateDeferredFlags();
++
++  auto FaultBlock = CreateNewCodeBlockAfter(GetCurrentBlock());
++  auto EndBlock = CreateNewCodeBlockAfter(FaultBlock);
++  // CondJump compares only against zero (cbz/cbnz/tbz): evaluate the condition first.
++  Ref Fault = _Select(OpSize::i32Bit, CompareSize, Cond, Lhs, Rhs, Constant(1), Constant(0));
++  CondJump(Fault, Constant(0), FaultBlock, EndBlock, CondClass::NEQ, OpSize::i32Bit);
++
++  SetCurrentCodeBlock(FaultBlock);
++  StartNewBlock();
++  {
++    auto NewRIP = GetRelocatedPC(Op, -Op->InstSize);
++    _StoreContextGPR(GetGPROpSize(), NewRIP, offsetof(FEXCore::Core::CPUState, rip));
++    Break(FEXCore::IR::BreakDefinition {
++      .ErrorRegister = 0,
++      .Signal = Core::FAULT_SIGFPE,
++      .TrapNumber = X86State::X86_TRAPNO_DE,
++      .si_code = 1, // FPE_INTDIV
++    });
++  }
++
++  SetCurrentCodeBlock(EndBlock);
++  StartNewBlock();
++}
++
+ void OpDispatchBuilder::DIVOp(OpcodeArgs) {
+   const auto GPRSize = GetGPROpSize();
+   auto Size = OpSizeFromSrc(Op);
+@@ -3717,6 +3769,15 @@ void OpDispatchBuilder::DIVOp(OpcodeArgs) {
+     return;
+   }
+ 
++  // Zero divisor and quotient overflow are both "upper half of the dividend >= divisor" (unsigned).
++  Ref High = Size == OpSize::i8Bit  ? _Bfe(OpSize::i32Bit, 8, 8, LoadGPRRegister(X86State::REG_RAX)) :
++             Size == OpSize::i16Bit ? _Bfe(OpSize::i32Bit, 16, 0, LoadGPRRegister(X86State::REG_RDX)) :
++                                      LoadGPRRegister(X86State::REG_RDX);
++  DivideErrorCheck(Op, High, Divisor, CondClass::UGE, Size == OpSize::i64Bit ? OpSize::i64Bit : OpSize::i32Bit);
++  // A masked 8/16-bit divisor from before the check would share a register with the quotient and the remainder
++  // came out as dividend - quotient * quotient.
++  Divisor = LoadSourceGPR(Op, Op->Dest, Op->Flags, {.AllowUpperGarbage = Size >= OpSize::i32Bit});
++
+   Ref Quotient = _AllocateGPR(true);
+   Ref Remainder = _AllocateGPR(true);
+ 
+@@ -3746,9 +3807,6 @@ void OpDispatchBuilder::DIVOp(OpcodeArgs) {
+ }
+ 
+ void OpDispatchBuilder::IDIVOp(OpcodeArgs) {
+-  // This loads the divisor
+-  Ref Divisor = LoadSourceGPR(Op, Op->Dest, Op->Flags);
+-
+   const auto GPRSize = GetGPROpSize();
+   auto Size = OpSizeFromSrc(Op);
+ 
+@@ -3758,25 +3816,38 @@ void OpDispatchBuilder::IDIVOp(OpcodeArgs) {
+     return;
+   }
+ 
+-  Ref Quotient = _AllocateGPR(true);
+-  Ref Remainder = _AllocateGPR(true);
++  // Raw quotient and remainder: 8 and 32-bit sizes divide in 64 bits, 16-bit in 32 bits, so the quotient keeps
++  // the bits that tell an overflow.
++  auto Divide = [&](Ref& Quotient, Ref& Remainder) {
++    Ref Divisor = LoadSourceGPR(Op, Op->Dest, Op->Flags);
++    Quotient = _AllocateGPR(true);
++    Remainder = _AllocateGPR(true);
++    if (Size == OpSize::i8Bit) {
++      Ref Src1 = _Sbfe(OpSize::i64Bit, 16, 0, LoadGPRRegister(X86State::REG_RAX));
++      _Div(OpSize::i64Bit, Src1, Invalid(), _Sbfe(OpSize::i64Bit, 8, 0, Divisor), Quotient, Remainder);
++    } else {
++      _Div(Size, LoadGPRRegister(X86State::REG_RAX), LoadGPRRegister(X86State::REG_RDX), Divisor, Quotient, Remainder);
++    }
++  };
+ 
+-  if (Size == OpSize::i8Bit) {
+-    Ref Src1 = LoadGPRRegister(X86State::REG_RAX);
+-    Src1 = _Sbfe(OpSize::i64Bit, 16, 0, Src1);
+-    Divisor = _Sbfe(OpSize::i64Bit, 8, 0, Divisor);
++  DivideErrorCheck(Op, LoadSourceGPR(Op, Op->Dest, Op->Flags), Constant(0), CondClass::EQ,
++                   Size == OpSize::i32Bit ? OpSize::i32Bit : OpSize::i64Bit);
+ 
+-    _Div(OpSize::i64Bit, Src1, Invalid(), Divisor, Quotient, Remainder);
++  Ref Quotient, Remainder;
++  if (Size != OpSize::i64Bit) {
++    // Quotient overflow (INT_MIN / -1 and the like): divide once to check that the quotient fits, then again
++    // after the block split. 128-bit dividends of 64-bit mode are not checked.
++    Divide(Quotient, Remainder);
++    const auto CompareSize = Size == OpSize::i16Bit ? OpSize::i32Bit : OpSize::i64Bit;
++    DivideErrorCheck(Op, Quotient, _Sbfe(CompareSize, IR::OpSizeAsBits(Size), 0, Quotient), CondClass::NEQ, CompareSize);
++  }
++  Divide(Quotient, Remainder);
+ 
++  if (Size == OpSize::i8Bit) {
+     // AX[15:0] = concat<URem[7:0]:UDiv[7:0]>
+     auto ResultAX = _Bfi(GPRSize, 8, 8, Quotient, Remainder);
+     StoreGPRRegister(X86State::REG_RAX, ResultAX, OpSize::i16Bit);
+   } else {
+-    Ref Src1 = LoadGPRRegister(X86State::REG_RAX);
+-    Ref Src2 = LoadGPRRegister(X86State::REG_RDX);
+-
+-    _Div(Size, Src1, Src2, Divisor, Quotient, Remainder);
+-
+     if (Size == OpSize::i32Bit) {
+       Quotient = _Bfe(OpSize::i32Bit, IR::OpSizeAsBits(Size), 0, Quotient);
+       Remainder = _Bfe(OpSize::i32Bit, IR::OpSizeAsBits(Size), 0, Remainder);
+diff --git a/FEXCore/Source/Interface/Core/OpcodeDispatcher.h b/FEXCore/Source/Interface/Core/OpcodeDispatcher.h
+index e2239ae0e..c623c2b23 100644
+--- a/FEXCore/Source/Interface/Core/OpcodeDispatcher.h
++++ b/FEXCore/Source/Interface/Core/OpcodeDispatcher.h
+@@ -887,6 +887,7 @@ public:
+   void Insertq(OpcodeArgs);
+ 
+   void BreakOp(OpcodeArgs, FEXCore::IR::BreakDefinition BreakDefinition);
++  void DivideErrorCheck(OpcodeArgs, Ref Lhs, Ref Rhs, CondClass Cond, IR::OpSize CompareSize);
+   void UnimplementedOp(OpcodeArgs);
+   void PermissionRestrictedOp(OpcodeArgs);
+ 
+diff --git a/FEXCore/include/FEXCore/Core/SignalDelegator.h b/FEXCore/include/FEXCore/Core/SignalDelegator.h
+index 4386f0c9d..7063b18d8 100644
+--- a/FEXCore/include/FEXCore/Core/SignalDelegator.h
++++ b/FEXCore/include/FEXCore/Core/SignalDelegator.h
+@@ -14,10 +14,12 @@ namespace Core {
+     FAULT_SIGSEGV = SIGSEGV,
+     FAULT_SIGTRAP = SIGTRAP,
+     FAULT_SIGILL = SIGILL,
++    FAULT_SIGFPE = SIGFPE,
+ #else
+     FAULT_SIGSEGV = 11,
+     FAULT_SIGTRAP = 5,
+     FAULT_SIGILL = 4,
++    FAULT_SIGFPE = 8,
+ #endif
+   };
+ } // namespace Core
+diff --git a/Source/Windows/Common/Exception.h b/Source/Windows/Common/Exception.h
+index 73bf5a9f3..36ac511bc 100644
+--- a/Source/Windows/Common/Exception.h
++++ b/Source/Windows/Common/Exception.h
+@@ -25,6 +25,13 @@ static inline EXCEPTION_RECORD HandleGuestException(FEXCore::Core::CpuStateFrame
+ 
+   switch (Fault.Signal) {
+   case FEXCore::Core::FAULT_SIGILL: Dst.ExceptionCode = EXCEPTION_ILLEGAL_INSTRUCTION; return Dst;
++  case FEXCore::Core::FAULT_SIGFPE:
++    if (Fault.TrapNo == FEXCore::X86State::X86_TRAPNO_DE) {
++      Dst.ExceptionCode = EXCEPTION_INT_DIVIDE_BY_ZERO;
++      return Dst;
++    }
++    LogMan::Msg::EFmt("Unknown SIGFPE trap: {}", Fault.TrapNo);
++    break;
+   case FEXCore::Core::FAULT_SIGTRAP:
+     switch (Fault.TrapNo) {
+     case FEXCore::X86State::X86_TRAPNO_DB: Dst.ExceptionCode = EXCEPTION_SINGLE_STEP; return Dst;

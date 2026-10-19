@@ -1,0 +1,22 @@
+--- a/dlls/win32u/vulkan.c
++++ b/dlls/win32u/vulkan.c
+@@ -1895,8 +1895,17 @@
+         instance->extensions.has_VK_EXT_surface_maintenance1 &&
+         physical_device->extensions.has_VK_KHR_swapchain_maintenance1)
+     {
+-        scaling.scalingBehavior = VK_PRESENT_SCALING_STRETCH_BIT_EXT;
+-        create_info_host.pNext = &scaling;
++        const VkBaseInStructure *ext;
++
++        for (ext = create_info_host.pNext; ext; ext = ext->pNext)
++            if (ext->sType == VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_SCALING_CREATE_INFO_EXT) break;
++        if (!ext)
++        {
++            /* keep the application's chain (e.g. VkImageFormatListCreateInfo for mutable formats) */
++            scaling.scalingBehavior = VK_PRESENT_SCALING_STRETCH_BIT_EXT;
++            scaling.pNext = create_info_host.pNext;
++            create_info_host.pNext = &scaling;
++        }
+     }
+ 
+     if (!(swapchain = calloc( 1, sizeof(*swapchain) ))) return VK_ERROR_OUT_OF_HOST_MEMORY;

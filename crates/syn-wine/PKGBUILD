@@ -1,0 +1,260 @@
+# Wine synshell: upstream Wine со своими патчами — общий пакет для x86_64 и aarch64.
+#   x86_64  — WoW64 (x86_64 + i386 без lib32), DXVK из релиза;
+#   aarch64 — ARM64EC/WoW64, x86/x86_64 эмулируют FEX/Box64 (DLL из релиза Hangover), DXVK ARM64EC — своя сборка.
+# Патчи одни для всех архитектур: то, что нужно только ARM, внутри патчей под #ifdef __aarch64__ / проверкой
+# условий (адресное пространство 39 бит), в prepare() — под [[ $CARCH == aarch64 ]].
+# Телефон: synport hostpkg syn-wine (кросс-сборка на хосте) или makepkg на телефоне. Десктоп: makepkg -si.
+
+pkgname=syn-wine
+pkgver=11.19
+pkgrel=15
+# мост Steam API из Proton (lsteamclient, steam.exe) — фиксированный коммит ValveSoftware/Proton
+_proton=ce53dd45cef6e51fbdb88524581dc1b0b11669fe
+# DXVK: x86_64 — релиз Valve/doitsujin; aarch64 — x64/aarch64/x32 из Hangover, arm64ec — своя сборка
+# (build-dxvk-arm64ec.sh на x86_64-хосте, llvm-mingw): в архиве Hangover DXVK 2.7.1 без разделяемых ресурсов через
+# D3DKMT (Wine >= 10.17) — у Unity-игр чёрное видео (IDXGIResource::GetSharedHandle).
+_dxvk=3.1.1
+_hangover=11.16
+_dxvk_hangover=2.7.1
+_dxvk_arm64ec=3.1.1
+# FEX для i386 (libwow64fex.dll) — своя сборка того же коммита, что в Hangover $_hangover (build-fex-wow64.sh на
+# x86_64-хосте, llvm-mingw) с fex-precise-faults.patch: #DE при делении на ноль (ARM udiv/sdiv дают 0) и точный сбой
+# POP в память на странице под отслеживанием SMC (FEX перезапускал инструкцию с уже сдвинутым ESP — двойной pop);
+# fex-wow64-debugregs.patch: Dr0–Dr3/Dr6/Dr7, записанные гостем в контекст, читаются назад (SecuROM сверяет Dr7)
+_fex=fa556167d5a64ec7adb5503c2aa15b169c292cac
+# DPI по умолчанию для новых префиксов на телефоне (aarch64; подобрано: минимум 180), на x86_64 — 96 как в Wine
+_dpi=180
+pkgdesc="Wine (development) with synshell patches: touch, Steam API bridge, syn-wine-helper, DXVK; ARM64EC/FEX on aarch64"
+arch=(x86_64 aarch64)
+url="https://www.winehq.org"
+license=(LGPL-2.1-or-later Zlib)
+depends=(
+  alsa-lib desktop-file-utils fontconfig freetype2 gettext glib2 gnutls gst-plugins-base-libs
+  libcups libpulse libunwind libx11 libxcomposite libxcursor libxext libxi
+  libxinerama libxkbcommon libxrandr libxrender libxxf86vm mesa sdl2 systemd-libs vulkan-icd-loader
+  wayland dbus libpcap v4l-utils ffmpeg
+)
+makedepends=(clang lld llvm perl flex bison libusb autoconf)
+optdepends=(
+  'samba: ntlm_auth for NTLM auth'
+  'wine-mono: .NET'
+  'wine-gecko: HTML (mshtml)'
+  'ntsync-autoload: NTSync'
+  'synshell: syn-wine-helper — недостающие DLL (MFC, VB6, OpenAL…)'
+)
+provides=("wine=$pkgver")
+conflicts=(wine wine-arm64ec)
+replaces=(wine-arm64ec)
+options=(!lto !debug !strip staticlibs)
+install=syn-wine.install
+source=(
+  "https://dl.winehq.org/wine/source/11.x/wine-$pkgver.tar.xz"
+  setup-dxvk
+  30-win32-aliases.conf
+  wine-binfmt.conf
+  wayland-touch.patch
+  win32u-swapchain-pnext.patch
+  mfreadwrite-dxgi-passthrough.patch
+  ffmpeg-arm64ec-yuv2rgb.patch
+  ntdll-top-down-gap.patch
+  wow64-bt-syscall-write-fault.patch
+  wow64-exception-bad-stack.patch
+  winex11-touch-dinput.patch
+  win32u-dpi-ratio.patch
+  winex11-present-margins.patch
+  proton-steamclient.patch
+  syn-wine-helper.patch
+  lsteamclient-unix-compat.h
+  compatibilitytool.vdf
+  toolmanifest.vdf
+  syn-wine
+  "proton-${_proton:0:7}.tar.gz::https://github.com/ValveSoftware/Proton/archive/$_proton.tar.gz"
+)
+source_x86_64=("https://github.com/doitsujin/dxvk/releases/download/v$_dxvk/dxvk-$_dxvk.tar.gz")
+source_aarch64=(
+  "https://github.com/AndreRH/hangover/releases/download/hangover-$_hangover/hangover_${_hangover}_dlls.tar"
+  "dxvk-$_dxvk_arm64ec-arm64ec.tar.gz"
+  "libwow64fex-${_fex:0:7}.dll"
+)
+noextract=("proton-${_proton:0:7}.tar.gz" "dxvk-$_dxvk.tar.gz" "hangover_${_hangover}_dlls.tar" "dxvk-$_dxvk_arm64ec-arm64ec.tar.gz")
+sha256sums=('4820066eda68e553d330239ffc628164a348d1c623e49d058e011c5a7cda95f1'
+            SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP)
+sha256sums_x86_64=(SKIP)
+sha256sums_aarch64=(SKIP SKIP SKIP)
+
+# архитектуры PE-частей; опции configure — и для makepkg, и для кросс-сборки на хосте (synport hostpkg syn-wine,
+# CARCH=aarch64)
+case "${CARCH:-$(uname -m)}" in
+  aarch64) _archs=arm64ec,aarch64,i386 ;;
+  *) _archs=x86_64,i386 ;;
+esac
+_configure=(
+  --prefix=/usr
+  --libdir=/usr/lib
+  --enable-archs=$_archs
+  --with-mingw=clang
+  --with-x --with-wayland --with-vulkan --with-gstreamer --with-ffmpeg
+  --without-oss
+  --disable-tests
+)
+
+prepare() {
+  [[ $CARCH == aarch64 ]] && { mkdir -p emu && bsdtar -xf "hangover_${_hangover}_dlls.tar" -C emu; }
+
+  cd "wine-$pkgver"
+  # winewayland.drv не обрабатывает wl_touch: касание -> левая кнопка мыши
+  patch -Np1 -i "$srcdir/wayland-touch.patch"
+  # при DPI-масштабировании win32u заменял всю pNext-цепочку swapchain на свою
+  # структуру -> терялся VkImageFormatListCreateInfo -> краш Mesa WSI (DXVK)
+  patch -Np1 -i "$srcdir/win32u-swapchain-pnext.patch"
+  # видео Media Foundation в Unity-играх (заставки): читатель копировал кадры в свои текстуры без
+  # MF_SA_D3D11_SHARED* -> IDXGIResource::GetSharedHandle = NULL -> чёрный экран (нужен и DXVK >= 3.0)
+  patch -Np1 -i "$srcdir/mfreadwrite-dxgi-passthrough.patch"
+  # ffmpeg ARM64EC: yuv2rgb NEON затирал суммы синего канала -> полосы в видео (bgra/argb/abgr); файл только arm64ec
+  patch -Np1 -i "$srcdir/ffmpeg-arm64ec-yuv2rgb.patch"
+  # 39-битное адресное пространство (ядра Android): top-down клал ntdll и системные DLL под самый верх, а
+  # Themida (Brawlhalla: «Error at hooking API NtProtectVirtualMemory») ищет память под трамплин выше
+  # перехватываемой функции. Верхние 4 ГБ — без top-down размещения, как запас на Windows. Только при
+  # адресном пространстве <= 40 бит (x86_64 — 47 бит, не затрагивается).
+  patch -Np1 -i "$srcdir/ntdll-top-down-gap.patch"
+  # aarch64 (#ifdef): системный вызов WoW64 пишет в RWX-страницу, которую FEX защитил от записи (отслеживание
+  # самомодифицирующегося кода) -> STATUS_ACCESS_VIOLATION вместо успеха, как на Windows (распаковщик
+  # SecuROM Fable TLC: NtQuerySystemInformation с ReturnLength в своей секции кода). ntdll запоминает адрес
+  # сбоя, wow64 отдаёт его FEX как обычное исключение; снял защиту — вызов повторяется, иначе всё как было.
+  patch -Np1 -i "$srcdir/wow64-bt-syscall-write-fault.patch"
+  # Исключение i386 при негодном ESP (поток с испорченным стеком): wow64 писал кадр исключения на 32-битный стек,
+  # запись падала, сбой снова уходил гостю тем же путём — рекурсия до переполнения 64-битного стека, процесс висел.
+  # Повторный вход во время записи кадра — процесс завершается с кодом исключения, как в Windows.
+  patch -Np1 -i "$srcdir/wow64-exception-bad-stack.patch"
+  # Касание (абсолютный указатель Xwayland) в DirectInput: raw input получал только XI2 raw motion, у касания её
+  # нет — курсор Wine двигался, а игра (свой курсор по смещениям DirectInput, Fable TLC) — нет. winex11 отдаёт
+  # смещения в координатах клиентской области игры (с учётом эмулированного режима), новое касание — сначала в угол.
+  patch -Np1 -i "$srcdir/winex11-touch-dinput.patch"
+  # Эмулированный режим «неудобной» ширины (1334x600 на экране 2712x1220): DPI = 96 * 2712 / 1334 не сокращается
+  # до 16 бит, make_ratio падал по assert (Fable при выборе разрешения) — дробь приближается.
+  patch -Np1 -i "$srcdir/win32u-dpi-ratio.patch"
+  # Эмулированный режим других пропорций выводится в часть полноэкранного окна, в полях оставалось содержимое
+  # поверхности окна (белый прямоугольник в Fable) — поля закрашиваются чёрным, как у масштабирующего дисплея.
+  patch -Np1 -i "$srcdir/winex11-present-margins.patch"
+  # Steam API как в Proton: ntdll перенаправляет экспорты steamclient(64).dll Valve (кладёт compat tool в
+  # «Program Files (x86)\Steam», путь — wine.inf) на lsteamclient.dll -> ~/.steam/sdk64|sdkarm64/steamclient.so.
+  # Без него steam_api не инициализируется (Brawlhalla: SteamAir.dll падает по нулевому указателю).
+  patch -Np1 -i "$srcdir/proton-steamclient.patch"
+  # Компоненты Wine (syn-wine-helper, synshell): DLL, которых нет в Wine (MFC, VB6, OpenAL…), — один общий
+  # каталог для всех префиксов (~/.local/share/syn-wine/dlls/<arch>-windows), ищется последним, модуль виден как
+  # system32\<имя>; не нашлась DLL из таблицы импорта (старт exe или LoadLibrary DLL без зависимости) — загрузчик
+  # зовёт syn-wine-helper (окно «поставить?», затем запуск заново). Без syn-wine-helper — как раньше.
+  patch -Np1 -i "$srcdir/syn-wine-helper.patch"
+  bsdtar -xf "$srcdir/proton-${_proton:0:7}.tar.gz" --strip-components=1 -C dlls "Proton-$_proton/lsteamclient"
+  mkdir -p programs/steam
+  bsdtar -xf "$srcdir/proton-${_proton:0:7}.tar.gz" --strip-components=2 -C programs/steam "Proton-$_proton/steam_helper"
+  # в Wine Proton ntdll экспортирует wine_unix_to_nt_file_name/wine_nt_to_unix_file_name, в upstream — нет
+  cp "$srcdir/lsteamclient-unix-compat.h" dlls/lsteamclient/unix_compat.h
+  sed -i 's|^#include "unix_private.h"$|#include "unix_private.h"\n#include "unix_compat.h"|' dlls/lsteamclient/unixlib.cpp
+  sed -i 's|^UNIXLIB   = lsteamclient.so$|UNIXLIB   = lsteamclient.so\nUNIX_LIBS = -lstdc++|' dlls/lsteamclient/Makefile.in
+  grep -q unix_compat.h dlls/lsteamclient/unixlib.cpp
+  grep -q '^UNIX_LIBS = -lstdc++' dlls/lsteamclient/Makefile.in
+  sed -i 's|^WINE_CONFIG_MAKEFILE(dlls/lz32)$|WINE_CONFIG_MAKEFILE(dlls/lsteamclient)\nWINE_CONFIG_MAKEFILE(dlls/lz32)|; s|^WINE_CONFIG_MAKEFILE(programs/start)$|WINE_CONFIG_MAKEFILE(programs/start)\nWINE_CONFIG_MAKEFILE(programs/steam)|' configure.ac
+  grep -q 'WINE_CONFIG_MAKEFILE(dlls/lsteamclient)' configure.ac
+  grep -q 'WINE_CONFIG_MAKEFILE(programs/steam)' configure.ac
+  autoreconf -fi
+
+  # Смена разрешения игрой — внутри Wine (EmulateModeset): игра рисует в выбранном режиме, Wine растягивает
+  # картинку и пересчитывает ввод на весь экран. Под Xwayland настоящая смена режима не работает: Xwayland
+  # эмулирует её для одного X-подключения, а explorer.exe префикса видит реальный режим и затирает выбранный.
+  sed -i '/^HKCU,Software\\Wine\\Debug,"RelayFromExclude"/a HKCU,Software\\Wine\\X11 Driver,"EmulateModeset",2,"Y"' loader/wine.inf.in
+  grep -q 'X11 Driver,"EmulateModeset",2,"Y"' loader/wine.inf.in
+
+  # Эмуляторы по умолчанию на ARM64-хосте: x86_64 -> FEX (ARM64EC), i386 -> Box64 (ключи wine.inf — только в
+  # секции ntarm64, выбор в коде — только при native_machine ARM64: на x86_64 ничего не меняется).
+  # Переопределяются через реестр:
+  #   HKLM\Software\Microsoft\Wow64\amd64  (default) = libarm64ecfex.dll
+  #   HKLM\Software\Microsoft\Wow64\x86    (default) = wowbox64.dll | libwow64fex.dll
+  sed -i 's|C:\\\\windows\\\\system32\\\\xtajit64.dll|C:\\\\windows\\\\system32\\\\libarm64ecfex.dll|' dlls/ntdll/loader.c
+  sed -i 's|L"xtajit.dll" : L"wow64cpu.dll"|L"wowbox64.dll" : L"wow64cpu.dll"|' dlls/wow64/syscall.c
+  sed -i 's|^HKLM,Software\\Microsoft\\Wow64\\amd64,,2,"xtajit64.dll"|HKLM,Software\\Microsoft\\Wow64\\amd64,,2,"libarm64ecfex.dll"|; s|^HKLM,Software\\Microsoft\\Wow64\\x86,,2,"xtajit.dll"|HKLM,Software\\Microsoft\\Wow64\\x86,,2,"wowbox64.dll"|' loader/wine.inf.in
+  grep -q '"libarm64ecfex.dll"' loader/wine.inf.in
+  grep -q 'x86,,2,"wowbox64.dll"' loader/wine.inf.in
+  grep -q libarm64ecfex.dll dlls/ntdll/loader.c
+  grep -q wowbox64.dll dlls/wow64/syscall.c
+
+  # Размер таблицы pages_vprot — до целой страницы: при 39-битном адресном пространстве (ядра Android) он 1 KiB,
+  # не кратен странице -> assert в anon_mmap_alloc (при большом пространстве размер и так кратен странице).
+  sed -i 's|pages_vprot = anon_mmap_alloc( pages_vprot_size \* sizeof(\*pages_vprot), |pages_vprot = anon_mmap_alloc( (pages_vprot_size * sizeof(*pages_vprot) + host_page_mask) \& ~host_page_mask, |' dlls/ntdll/unix/virtual.c
+  grep -q 'sizeof(\*pages_vprot) + host_page_mask' dlls/ntdll/unix/virtual.c
+
+  if [[ $CARCH == aarch64 ]]; then
+    # ARM64EC: rpcrt4 отложенным импортом -> первый вызов NdrClientCall2 (varargs) идёт через x64-заглушку
+    # delay-load и exit thunk $varargs из clang, который не копирует стековые аргументы в x64-стек -> RPC
+    # получает мусорные указатели (secur32 падает в DllMain: Adobe AIR/Brawlhalla «не найдена среда AIR»;
+    # sechost/advapi32 — OpenSCManager). Обычный импорт: загрузчик сразу даёт EC-адрес, thunk не нужен.
+    for m in advapi32 sechost secur32 ntoskrnl.exe; do
+      sed -i '/^DELAYIMPORTS/s/ rpcrt4\b//; /^DELAYIMPORTS *= *$/d; /^IMPORTS/s/$/ rpcrt4/' dlls/$m/Makefile.in
+      grep -q '^IMPORTS.* rpcrt4' dlls/$m/Makefile.in
+      ! grep -q '^DELAYIMPORTS.*rpcrt4' dlls/$m/Makefile.in
+    done
+
+    # системный DPI по умолчанию (иначе на телефоне всё мелкое)
+    sed -i "s|^\(HKLM,System\\\\CurrentControlSet\\\\Hardware Profiles\\\\Current\\\\Software\\\\Fonts,\"LogPixels\",0x10003,\)0x00000060|\1$(printf '0x%08x' $_dpi)|" loader/wine.inf.in
+    grep -q "LogPixels\",0x10003,$(printf '0x%08x' $_dpi)" loader/wine.inf.in
+  fi
+}
+
+build() {
+  cd "wine-$pkgver"
+  # makepkg-флаги (fortify, -mbranch-protection и т.п.) не годятся для PE-кросс-сборки
+  export CROSSCFLAGS="-O2 -pipe"
+  export CROSSLDFLAGS=""
+  ./configure "${_configure[@]}"
+  make
+
+  if [[ $CARCH == aarch64 ]]; then
+    # aarch64: static-pie preloader не релоцирует себя, а -fstack-protector из
+    # makepkg CFLAGS обращается к __stack_chk_guard через GOT -> segfault при старте.
+    rm -f loader/preloader.o loader/wine-preloader
+    make CFLAGS="$CFLAGS -fno-stack-protector" loader/wine-preloader
+  fi
+}
+
+package() {
+  cd "wine-$pkgver"
+  make DESTDIR="$pkgdir" install
+
+  # DXVK: 64-битный вариант -> system32, x32 -> syswow64 (через setup-dxvk)
+  if [[ $CARCH == aarch64 ]]; then
+    install -Dm644 -t "$pkgdir/usr/lib/wine/aarch64-windows" \
+      "$srcdir/emu/libarm64ecfex.dll" \
+      "$srcdir/emu/wowbox64.dll"
+    install -Dm644 "$srcdir/libwow64fex-${_fex:0:7}.dll" "$pkgdir/usr/lib/wine/aarch64-windows/libwow64fex.dll"
+
+    bsdtar -xf "$srcdir/hangover_${_hangover}_dlls.tar" -C "$srcdir" "dxvk-v$_dxvk_hangover.tar.gz"
+    bsdtar -xf "$srcdir/dxvk-v$_dxvk_hangover.tar.gz" -C "$srcdir"
+    for v in x64 aarch64 x32; do
+      install -Dm644 -t "$pkgdir/usr/share/dxvk/$v" "$srcdir/dxvk-v$_dxvk_hangover/$v"/*.dll
+    done
+    install -d "$pkgdir/usr/share/dxvk/arm64ec"
+    bsdtar --no-same-owner -xf "$srcdir/dxvk-$_dxvk_arm64ec-arm64ec.tar.gz" -C "$pkgdir/usr/share/dxvk/arm64ec"
+    chmod 644 "$pkgdir/usr/share/dxvk/arm64ec"/*.dll
+  else
+    bsdtar -xf "$srcdir/dxvk-$_dxvk.tar.gz" -C "$srcdir"
+    for v in x64 x32; do
+      install -Dm644 -t "$pkgdir/usr/share/dxvk/$v" "$srcdir/dxvk-$_dxvk/$v"/*.dll
+    done
+  fi
+  install -Dm755 "$srcdir/setup-dxvk" "$pkgdir/usr/bin/setup-dxvk"
+
+  # compat tool Steam «syn-wine»: Windows-игры Steam этим Wine (без Proton); Steam ищет и в /usr/share/steam
+  local ct="$pkgdir/usr/share/steam/compatibilitytools.d/syn-wine"
+  install -Dm644 -t "$ct" "$srcdir/compatibilitytool.vdf" "$srcdir/toolmanifest.vdf"
+  install -Dm755 -t "$ct" "$srcdir/syn-wine"
+
+  # шрифтовые псевдонимы для Win32-программ и запуск .exe через binfmt (как в пакете wine Arch)
+  install -d "$pkgdir"/usr/share/fontconfig/conf.{avail,default}
+  install -m644 "$srcdir/30-win32-aliases.conf" "$pkgdir/usr/share/fontconfig/conf.avail"
+  ln -s ../conf.avail/30-win32-aliases.conf "$pkgdir/usr/share/fontconfig/conf.default/30-win32-aliases.conf"
+  install -Dm644 "$srcdir/wine-binfmt.conf" "$pkgdir/usr/lib/binfmt.d/wine.conf"
+
+  # strip только ELF-части (PE-файлы ARM64EC strip может испортить)
+  find "$pkgdir/usr/bin" "$pkgdir/usr/lib/wine/$CARCH-unix" -type f \
+    -exec sh -c 'file -b "$1" | grep -q ^ELF && strip --strip-unneeded "$1"' _ {} \;
+}

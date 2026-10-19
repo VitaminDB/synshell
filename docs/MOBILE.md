@@ -269,7 +269,7 @@ docs/15-sensors.md), политика — `synshell-ui/src/rotation.rs`. Ком�
   vcruntime140_threads, OpenAL Soft), — замена winetricks только для того, без чего exe не запускается; рантаймы,
   которые Wine реализует сам (msvcr*/msvcp*, d3dx9, xact, msxml…), не ставятся. Без префиксов: DLL — один раз в
   общий каталог пользователя `~/.local/share/syn-wine/dlls/{i386,x86_64}-windows` (`$SYN_WINE_DLLS`); Wine с патчем
-  synmobile `pkgs/wine-arm64ec/syn-wine-helper.patch` ищет там последним (после каталога программы и system32
+  `crates/syn-wine/syn-wine-helper.patch` (пакет `syn-wine`) ищет там последним (после каталога программы и system32
   префикса) и показывает модуль как `system32\имя`. Тот же патч зовёт `syn-wine-helper missing …`, когда загрузчик
   не нашёл DLL из таблицы импорта — при старте exe или при `LoadLibrary` DLL, у которой нет зависимости (голые
   пробы `LoadLibrary("x.dll")` — нет): окно «Не хватает компонентов» → установка → программа запускается снова (из

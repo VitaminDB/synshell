@@ -1,0 +1,196 @@
+--- a/dlls/ntdll/unix/env.c
++++ b/dlls/ntdll/unix/env.c
+@@ -1023,6 +1023,21 @@
+ }
+ 
+ 
++/* каталог DLL syn-wine-helper (общий для всех префиксов): $SYN_WINE_DLLS или
++ * $XDG_DATA_HOME/syn-wine/dlls (~/.local/share/syn-wine/dlls) */
++static const char *syn_wine_dll_dir(void)
++{
++    static char *dir;
++    const char *p;
++
++    if (dir) return dir;
++    if ((p = getenv( "SYN_WINE_DLLS" )) && *p) return dir = strdup( p );
++    if ((p = getenv( "XDG_DATA_HOME" )) && *p == '/') asprintf( &dir, "%s/syn-wine/dlls", p );
++    else if (home_dir) asprintf( &dir, "%s/.local/share/syn-wine/dlls", home_dir );
++    return dir;
++}
++
++
+ /*************************************************************************
+  *		add_dynamic_environment
+  *
+@@ -1041,6 +1056,7 @@
+     add_path_var( env, pos, size, "WINEHOMEDIR", home_dir );
+     add_path_var( env, pos, size, "WINECONFIGDIR", config_dir );
+     add_path_var( env, pos, size, "WINELOADER", wineloader );
++    add_path_var( env, pos, size, "WINESYNDLLDIR", syn_wine_dll_dir() );
+     for (i = 0; dll_paths[i]; i++)
+     {
+         snprintf( str, sizeof(str), "WINEDLLDIR%u", i );
+--- a/dlls/ntdll/loader.c
++++ b/dlls/ntdll/loader.c
+@@ -1137,6 +1137,84 @@
+ }
+ 
+ 
++/* имена DLL, не найденных при разрешении импортов, — для syn-wine-helper */
++static char missing_dlls[1024];
++static unsigned int missing_dlls_len, missing_dlls_reported;
++
++static void note_missing_dll( const char *name )
++{
++    unsigned int len = strlen( name ) + 1;
++    const char *p;
++
++    for (p = missing_dlls; p < missing_dlls + missing_dlls_len; p += strlen( p ) + 1)
++        if (!_stricmp( p, name )) return;
++    if (missing_dlls_len + len > sizeof(missing_dlls)) return;
++    memcpy( missing_dlls + missing_dlls_len, name, len );
++    missing_dlls_len += len;
++}
++
++static char *syn_utf8( const UNICODE_STRING *str )
++{
++    DWORD len = 0;
++    char *ret;
++
++    RtlUnicodeToUTF8N( NULL, 0, &len, str->Buffer, str->Length );
++    if (!(ret = RtlAllocateHeap( GetProcessHeap(), 0, len + 1 ))) return NULL;
++    RtlUnicodeToUTF8N( ret, len, &len, str->Buffer, str->Length );
++    ret[len] = 0;
++    return ret;
++}
++
++/***********************************************************************
++ *		run_missing_dll_helper
++ *
++ * Нет DLL из таблицы импорта: программа не запустилась (running = FALSE) или не загрузилась её DLL
++ * (LoadLibrary, running = TRUE — сама DLL есть, не хватает её зависимости). syn-wine-helper (из PATH)
++ * предлагает поставить недостающее; без него — как раньше. О каждом имени — один раз за процесс.
++ * SYN_WINE_HELPER=0 — не звать.
++ */
++static void run_missing_dll_helper( BOOL running )
++{
++    RTL_USER_PROCESS_PARAMETERS *params = NtCurrentTeb()->Peb->ProcessParameters;
++    const IMAGE_NT_HEADERS *nt = RtlImageNtHeader( NtCurrentTeb()->Peb->ImageBaseAddress );
++    char machine[8], *argv[64], *exe, *cwd, *cmdline, *p;
++    WCHAR off[2];
++    UNICODE_STRING name = RTL_CONSTANT_STRING( L"SYN_WINE_HELPER" ), val = { 0, sizeof(off), off };
++    unsigned int i, argc = 0;
++
++    if (missing_dlls_reported >= missing_dlls_len) return;
++    if (!RtlQueryEnvironmentVariable_U( NULL, &name, &val ) && val.Length && off[0] == '0') return;
++    exe = syn_utf8( &params->ImagePathName );
++    cwd = syn_utf8( &params->CurrentDirectory.DosPath );
++    cmdline = syn_utf8( &params->CommandLine );
++    if (!exe || !cwd || !cmdline) goto done;
++    for (i = 0; i < 4; i++) machine[i] = "0123456789abcdef"[((nt ? nt->FileHeader.Machine : 0) >> (12 - 4 * i)) & 0xf];
++    machine[4] = 0;
++
++    argv[argc++] = (char *)"syn-wine-helper";
++    argv[argc++] = (char *)"missing";
++    argv[argc++] = (char *)"--machine";
++    argv[argc++] = machine;
++    argv[argc++] = (char *)"--exe";
++    argv[argc++] = exe;
++    argv[argc++] = (char *)"--cwd";
++    argv[argc++] = cwd;
++    argv[argc++] = (char *)"--cmdline";
++    argv[argc++] = cmdline;
++    if (running) argv[argc++] = (char *)"--running";
++    argv[argc++] = (char *)"--";
++    for (p = missing_dlls + missing_dlls_reported; p < missing_dlls + missing_dlls_len && argc < ARRAY_SIZE(argv) - 1; p += strlen( p ) + 1)
++        argv[argc++] = p;
++    argv[argc] = NULL;
++    missing_dlls_reported = missing_dlls_len;
++    __wine_unix_spawnvp( argv, FALSE );
++done:
++    RtlFreeHeap( GetProcessHeap(), 0, exe );
++    RtlFreeHeap( GetProcessHeap(), 0, cwd );
++    RtlFreeHeap( GetProcessHeap(), 0, cmdline );
++}
++
++
+ /*************************************************************************
+  *		import_dll
+  *
+@@ -1190,8 +1268,11 @@
+     if (status)
+     {
+         if (status == STATUS_DLL_NOT_FOUND)
++        {
+             ERR("Library %s (which is needed by %s) not found\n",
+                 name, debugstr_w(wm->ldr.FullDllName.Buffer));
++            note_missing_dll( name );
++        }
+         else
+             ERR("Loading library %s (which is needed by %s) failed (error %lx).\n",
+                 name, debugstr_w(wm->ldr.FullDllName.Buffer), status);
+@@ -3232,6 +3313,38 @@
+ 
+ 
+ /***********************************************************************
++ *	find_syn_wine_dll
++ *
++ * syn-wine-helper: DLL, которых нет в Wine (MFC, рантаймы VB, OpenAL…), лежат в одном каталоге
++ * пользователя для всех префиксов ($WINESYNDLLDIR\<arch>-windows, его задаёт unix-часть ntdll);
++ * ищутся последними, модуль виден программе как system32\<имя>.
++ */
++static NTSTATUS find_syn_wine_dll( const WCHAR *name, UNICODE_STRING *new_name,
++                                   WINE_MODREF **pwm, HANDLE *mapping,
++                                   SECTION_IMAGE_INFORMATION *image_info, struct file_id *id )
++{
++#ifdef _WIN64
++    static const WCHAR arch_dir[] = L"\\x86_64-windows\\";
++#else
++    static const WCHAR arch_dir[] = L"\\i386-windows\\";
++#endif
++    NTSTATUS status;
++
++    if (contains_path( name )) return STATUS_DLL_NOT_FOUND;
++    if (get_env_var( L"WINESYNDLLDIR", wcslen(arch_dir) + wcslen(name), new_name ))
++        return STATUS_DLL_NOT_FOUND;
++    RtlAppendUnicodeToString( new_name, arch_dir );
++    RtlAppendUnicodeToString( new_name, name );
++    status = open_dll_file( new_name, pwm, mapping, image_info, id );
++    RtlFreeUnicodeString( new_name );
++    if (status) return STATUS_DLL_NOT_FOUND;
++    TRACE( "%s from syn-wine\n", debugstr_w(name) );
++    build_sysdir_nt_name( name, new_name );
++    return status;
++}
++
++
++/***********************************************************************
+  *	find_builtin_without_file
+  *
+  * Find a builtin dll when the corresponding file cannot be found in the prefix.
+@@ -3416,6 +3529,8 @@
+             /* fall through */
+         case STATUS_DLL_NOT_FOUND:
+             status = find_builtin_without_file( libname, nt_name, pwm, mapping, image_info, id );
++            if (status == STATUS_DLL_NOT_FOUND)
++                status = find_syn_wine_dll( libname, nt_name, pwm, mapping, image_info, id );
+             break;
+         }
+     }
+@@ -3590,6 +3705,8 @@
+         }
+     }
+     if (wm) *hModule = wm->ldr.DllBase;
++    /* wm при ошибке не обнуляется — смотреть только на статус */
++    if (nts == STATUS_DLL_NOT_FOUND && imports_fixup_done) run_missing_dll_helper( TRUE );
+ 
+     RtlLeaveCriticalSection( &loader_section );
+     RtlFreeHeap( GetProcessHeap(), 0, dllname );
+@@ -4617,6 +4734,7 @@
+         {
+             ERR( "Importing dlls for %s failed, status %lx\n",
+                  debugstr_w(NtCurrentTeb()->Peb->ProcessParameters->ImagePathName.Buffer), status );
++            if (status == STATUS_DLL_NOT_FOUND) run_missing_dll_helper( FALSE );
+             NtTerminateProcess( GetCurrentProcess(), status );
+         }
+         imports_fixup_done = TRUE;

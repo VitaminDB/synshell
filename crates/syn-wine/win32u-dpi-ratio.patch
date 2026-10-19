@@ -1,0 +1,25 @@
+--- a/dlls/win32u/sysparams.c
++++ b/dlls/win32u/sysparams.c
+@@ -320,9 +320,19 @@
+ static struct ratio make_ratio( UINT num, UINT den )
+ {
+     UINT d = gcd( num, den );
+-    struct ratio r = { num / d, den / d };
+-    assert( num / d < 65536 );
+-    assert( den / d < 65536 );
++    struct ratio r;
++
++    num /= d;
++    den /= d;
++    /* an irreducible ratio can still be too large: the DPI scale of an emulated display mode is
++     * dpi * physical / mode size (96 * 2712 / 1334 = 130176 / 667), keep it approximate */
++    while (num >= 65536 || den >= 65536)
++    {
++        num = (num + 1) / 2;
++        den = max( 1, (den + 1) / 2 );
++    }
++    r.num = num;
++    r.den = den;
+     return r;
+ }
+ 

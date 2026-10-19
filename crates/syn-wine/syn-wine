@@ -1,0 +1,88 @@
+#!/bin/bash
+# Compatibility tool Steam «syn-wine»: запуск Windows-игр системным Wine synshell (пакет syn-wine) без Proton.
+# На aarch64 x86-64 код эмулирует FEX внутри wine (libarm64ecfex.dll), без x86-64 RootFS.
+#   syn-wine run|waitforexitandrun <game.exe> [args...]
+set -u
+
+verb=${1:-}; shift || true
+log="${STEAM_COMPAT_DATA_PATH:-/tmp}/syn-wine.log"
+machine=$(uname -m)
+
+case "$verb" in
+  run|waitforexitandrun) ;;
+  getcompatpath|getnativepath) echo "$1"; exit 0 ;;
+  *) echo "syn-wine: неизвестная команда '$verb'" >&2; exit 1 ;;
+esac
+
+# Префикс — отдельный на каждую игру, рядом с данными Steam.
+export WINEPREFIX="${STEAM_COMPAT_DATA_PATH:?нет STEAM_COMPAT_DATA_PATH}/pfx"
+
+# Окружение клиента Steam не для игры: шим SysV/libXrandr, программный GL.
+unset LD_PRELOAD LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER LIBGL_KOPPER_DISABLE
+# Слои Steam (оверлей, fossilize) собраны под x86 — в aarch64 wine не грузятся.
+[ "$machine" = aarch64 ] && export DISABLE_VK_LAYER_VALVE_steam_overlay_1=1 DISABLE_VK_LAYER_VALVE_steam_fossilize_1=1
+
+# Драйвер окон wine. С DISPLAY wine берёт x11drv: игра идёт через Xwayland композитора
+# и видит экран как есть — в физических пикселях и с учётом поворота (2712x1220 в
+# альбомной). winewayland отдаёт игре «сырой» режим панели 1220x2712 — картинка мелкая,
+# на чёрном. x11drv нужен turnip с X11 WSI (VK_KHR_xlib_surface); без него DXVK не
+# создаст Vulkan instance — тогда только Wayland-драйвер (проверка — только при turnip, на x86_64 его нет).
+# SYN_WINE_WAYLAND=1 (или прежнее WINE_ARM64EC_WAYLAND=1) — Wayland-драйвер принудительно.
+# Своё разрешение экрана для игры ([[x11_app]] в конфиге synshell, «Параметры → Сеанс →
+# X11-программы»): synwm отдаёт DISPLAY отдельного Xwayland. Имена — exe игры и steam:<AppId>.
+if [ -n "${DISPLAY:-}" ] && command -v synwm >/dev/null; then
+  exe=$(basename "${1:-}")
+  if d=$(synwm msg x11-display "$exe" ${SteamAppId:+"steam:$SteamAppId"} 2>/dev/null) && [ -n "$d" ]; then
+    export DISPLAY="$d"
+  fi
+fi
+tu=/opt/turnip/lib/libvulkan_freedreno.so
+if [ -n "${WAYLAND_DISPLAY:-}" ] && { [ -n "${SYN_WINE_WAYLAND:-${WINE_ARM64EC_WAYLAND:-}}" ] || { [ -e "$tu" ] && ! grep -aq VK_KHR_xlib_surface "$tu"; }; }; then
+  unset DISPLAY
+fi
+icd=/opt/turnip/share/vulkan/icd.d/freedreno_icd.aarch64.json
+if [ -z "${VK_ICD_FILENAMES:-}" ] && [ -e "$icd" ]; then
+  export VK_ICD_FILENAMES="$icd" VK_DRIVER_FILES="$icd"
+fi
+[ -e /dev/dri/card0 ] && export TU_KGSL_DRM_NODE="${TU_KGSL_DRM_NODE:-/dev/dri/card0}"
+
+export WINEDEBUG="${WINEDEBUG:--all}"
+
+{
+  echo "=== $(date '+%F %T') $verb $*"
+  # первый запуск: создать префикс и поставить DXVK
+  if [ ! -e "$WINEPREFIX/.dxvk-installed" ]; then
+    echo "создание префикса $WINEPREFIX"
+    mkdir -p "$WINEPREFIX"
+    wineboot -u && wineserver -w
+    setup-dxvk install && touch "$WINEPREFIX/.dxvk-installed"
+    wineserver -w
+  fi
+  # Смена разрешения игрой — внутри Wine: игра рисует в выбранном в её настройках режиме, Wine
+  # растягивает картинку на экран (так интерфейс игры крупнее). Новые префиксы получают это из
+  # wine.inf пакета, старые — здесь, один раз.
+  if [ ! -e "$WINEPREFIX/.synshell-emulate-modeset" ]; then
+    wine reg add 'HKCU\Software\Wine\X11 Driver' /v EmulateModeset /d Y /f && wineserver -w \
+      && touch "$WINEPREFIX/.synshell-emulate-modeset"
+  fi
+  # Steam API (как Proton): steamclient(64).dll Valve — в «Program Files (x86)\Steam» префикса, путь к ним
+  # пишет wine.inf (ActiveProcess\SteamClientDll64). ntdll перенаправляет их экспорты на lsteamclient.dll —
+  # мост к ~/.steam/sdkarm64/steamclient.so клиента Steam. Без него steam_api игры не инициализируется.
+  steam="${STEAM_COMPAT_CLIENT_INSTALL_PATH:-$HOME/.local/share/Steam}/legacycompat"
+  dst="$WINEPREFIX/drive_c/Program Files (x86)/Steam"
+  mkdir -p "$dst"
+  for f in steamclient.dll steamclient64.dll GameOverlayRenderer64.dll Steam.dll; do
+    [ -e "$steam/$f" ] && cp -Lu "$steam/$f" "$dst/$f"
+  done
+} >>"$log" 2>&1
+
+# waitforexitandrun (как в Proton): сначала дождаться прежних процессов префикса.
+# Иначе игра подключается к wineserver служебного запуска Steam (iscriptevaluator),
+# а сведения об экране Wine берёт с его дисплея — при своём разрешении игры
+# ([[x11_app]]) она получала чужой размер экрана.
+[ "$verb" = waitforexitandrun ] && wineserver -w
+cd "$(dirname "$1")" 2>/dev/null || true
+wine "$@" >>"$log" 2>&1
+status=$?
+[ "$verb" = waitforexitandrun ] && wineserver -w
+exit $status
