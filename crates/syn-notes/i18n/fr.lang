@@ -499,3 +499,6 @@ notes.props.gantt.boards_hint = "Les cartes des tableaux sélectionnés qui ont 
 notes.notify.open = "Ouvrir"
 notes.notify.done = "Terminé"
 notes.notify.snooze = "Dans une heure"
+notes.project.main = "Stockage principal"
+notes.project.make_main = "Définir comme stockage principal"
+notes.project.error.busy = "Le projet {path} est ouvert dans un autre programme : {owner}. Fermez-le là-bas pour travailler ici."

@@ -104,3 +104,15 @@ pub fn open(target: &str) -> Result<(), String> {
         _ => Err(reply.get("error").and_then(Value::as_str).unwrap_or("не открылось").to_string()),
     }
 }
+
+/// Сводка для рабочего стола: повестка, доски, разделы страницы стола
+/// (формат — `syn-notes/src/app/desk.rs`). Хозяина не запускает: стол
+/// опрашивает его часто, а стартует хозяин с сеансом.
+pub fn desk(page: Option<&str>) -> Result<Value, String> {
+    let reply = request(&json!({"cmd": "desk", "page": page}), Duration::from_secs(10)).map_err(|e| e.to_string())?;
+    if reply.get("ok").and_then(Value::as_bool) == Some(true) {
+        Ok(reply)
+    } else {
+        Err(reply.get("error").and_then(Value::as_str).unwrap_or("нет данных").to_string())
+    }
+}

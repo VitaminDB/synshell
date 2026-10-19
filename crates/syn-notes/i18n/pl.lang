@@ -503,3 +503,6 @@ notes.props.gantt.boards_hint = "Karty wybranych tablic z początkiem i końcem 
 notes.notify.open = "Otwórz"
 notes.notify.done = "Gotowe"
 notes.notify.snooze = "Za godzinę"
+notes.project.main = "Główny magazyn"
+notes.project.make_main = "Ustaw jako główny magazyn"
+notes.project.error.busy = "Projekt {path} jest otwarty w innym programie: {owner}. Zamknij go tam, aby pracować tutaj."

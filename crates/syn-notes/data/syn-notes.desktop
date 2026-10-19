@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Заметки
+Name[en]=Notes
+GenericName=Заметки, задачи и календарь
+GenericName[en]=Notes, tasks and calendar
+Comment=Страницы-холсты, канбан, диаграммы Ганта, mindmap, календарь и журнал в одном проекте
+Comment[en]=Canvas pages, kanban, Gantt charts, mind maps, calendar and journal in one project
+Exec=syn-notes %f
+Icon=syn-notes
+Categories=Office;Utility;
+Keywords=notes;tasks;kanban;todo;calendar;journal;заметки;задачи;канбан;календарь;журнал;дела;
+StartupNotify=true

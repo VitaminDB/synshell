@@ -19,6 +19,7 @@
 mod ai;
 pub mod data;
 pub mod forms;
+pub mod notes;
 mod views;
 pub use views::KILL;
 
@@ -186,6 +187,9 @@ pub const KINDS: &[Kind] = &[
     Kind { kind: "ai_models", label: n_!("Модели в памяти"), glyph: mi::MEMORY, views: &[("list", n_!("Список"))], phone: (4, 3), desktop: (4, 4), data: true },
     Kind { kind: "apps", label: n_!("Запущенные приложения"), glyph: mi::APPS, views: &[("rail", n_!("Лента"))], phone: (4, 2), desktop: (5, 2), data: true },
     Kind { kind: "launcher", label: n_!("Значки приложений"), glyph: mi::GRID, views: &[("grid", n_!("Сетка"))], phone: (4, 4), desktop: (4, 3), data: false },
+    Kind { kind: "notes-agenda", label: n_!("Дела на сегодня"), glyph: "\u{E614}", views: &[("list", n_!("Список"))], phone: (4, 3), desktop: (3, 4), data: false },
+    Kind { kind: "notes-board", label: n_!("Доска задач"), glyph: "\u{E8F0}", views: &[("list", n_!("Список"))], phone: (4, 4), desktop: (4, 4), data: false },
+    Kind { kind: "notes-page", label: n_!("Страница заметок"), glyph: "\u{E873}", views: &[("text", n_!("Текст"))], phone: (4, 3), desktop: (4, 3), data: false },
     Kind { kind: "note", label: n_!("Заметка"), glyph: "\u{E244}", views: &[("note", n_!("Заметка"))], phone: (2, 2), desktop: (2, 2), data: false },
 ];
 
@@ -549,6 +553,13 @@ pub fn page_view(ctx: ShellCtx, page: usize, output: String) -> impl Widget {
         let _ = syngui_layer::outputs().get();
         let editing = edit.get();
         let cfg = ctx.cfg();
+        // Вид «Заметки»: страница стола из syn-notes вместо виджетов.
+        if notes_view_on(&ctx) && !editing {
+            let g = grid(&ctx, &output);
+            let r = reserved(&ctx);
+            return notes::desk_view(g.width, g.height, r[0]);
+        }
+        notes::desk_view_hidden();
         let icons = !ctx.is_phone() && cfg.wallpaper.desktop_icons;
         let files = if icons {
             let (rev, files) = desktop_files();
@@ -621,10 +632,29 @@ pub fn page_view(ctx: ShellCtx, page: usize, output: String) -> impl Widget {
     let bar = rx(move || if edit.get() { Box::new(edit_bar(ctx)) } else { Box::new(DecoratedBox::new()) });
     // Телефон: стол не заходит под exclusive-панели, но плавающий док лежит поверх него.
     let lift = if ctx.is_phone() { overlay_bottom(&ctx) } else { reserved(&ctx)[2] };
+    // Переключатель «Виджеты / Заметки» — внизу слева, на компьютере.
+    let switch = rx(move || {
+        let _ = ctx.config.get();
+        if ctx.is_phone() || edit.get() || !notes::available() {
+            return Box::new(DecoratedBox::new());
+        }
+        Box::new(notes::view_switch(ctx))
+    });
     Stack::new()
         .fit(StackFit::Expand)
         .child(body)
         .child(Column::new().main_axis_alignment(MainAxisAlignment::End).cross_axis_alignment(CrossAxisAlignment::Center).child(Padding::only(0.0, 0.0, 0.0, lift).child(bar)))
+        .child(
+            Column::new()
+                .main_axis_alignment(MainAxisAlignment::End)
+                .cross_axis_alignment(CrossAxisAlignment::Start)
+                .child(Padding::only(16.0, 0.0, 0.0, lift + 16.0).child(switch)),
+        )
+}
+
+/// Показан ли вид «Заметки» (компьютер, `[desktop] view = "notes"`).
+fn notes_view_on(ctx: &ShellCtx) -> bool {
+    !ctx.is_phone() && ctx.cfg().desktop.view == "notes" && notes::available()
 }
 
 /// Раскладка телефона на широкий экран: колонок столько, сколько клеток книжного

@@ -495,3 +495,6 @@ notes.props.gantt.boards_hint = "시작일과 종료일이 있는 선택한 보�
 notes.notify.open = "열기"
 notes.notify.done = "완료"
 notes.notify.snooze = "1시간 후"
+notes.project.main = "기본 저장소"
+notes.project.make_main = "기본 저장소로 지정"
+notes.project.error.busy = "프로젝트 {path}이(가) 다른 프로그램에서 열려 있습니다: {owner}. 여기서 작업하려면 거기서 닫으세요."

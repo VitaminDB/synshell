@@ -499,3 +499,6 @@ notes.props.gantt.boards_hint = "Las tarjetas de los tableros seleccionados que 
 notes.notify.open = "Abrir"
 notes.notify.done = "Hecho"
 notes.notify.snooze = "En una hora"
+notes.project.main = "Almacén principal"
+notes.project.make_main = "Usar como almacén principal"
+notes.project.error.busy = "El proyecto {path} está abierto en otro programa: {owner}. Ciérrelo allí para trabajar aquí."

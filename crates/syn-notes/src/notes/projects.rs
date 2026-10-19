@@ -102,6 +102,8 @@ pub enum ProjectError {
     Io(String),
     /// Закрытие: файл проекта пропал, а незаписанные правки есть.
     VanishedUnsaved(PathBuf),
+    /// Проект открыт в другой программе (см. [`super::lock`]).
+    Busy(PathBuf, String),
 }
 
 /// Второе закрытие того же пропавшего проекта подряд — пользователь уже
@@ -130,6 +132,7 @@ impl ProjectError {
             ProjectError::NoProject => tr!("notes.project.error.no_project"),
             ProjectError::Io(e) => tr!("notes.project.error.io", error = e.clone()),
             ProjectError::VanishedUnsaved(p) => tr!("notes.project.error.vanished_unsaved", path = name(p)),
+            ProjectError::Busy(p, who) => tr!("notes.project.error.busy", path = name(p), owner = who.clone()),
         }
     }
 
@@ -315,6 +318,7 @@ impl NotesCtx {
         let path = project::normalize_path(path);
         if !self.is_open(&path) {
             project::probe(&path).map_err(|e| ProjectError::from_probe(&path, e))?;
+            super::lock::acquire(&path).map_err(|who| ProjectError::Busy(path.clone(), who))?;
             // Файл, закрытый раньше в этой сессии, мог смениться на диске:
             // ревизии прошлого открытия к нему не относятся.
             autosave::forget_project(&path);
@@ -403,6 +407,7 @@ impl NotesCtx {
         }
         autosave::forget_project(path);
         project::invalidate(path);
+        super::lock::release(path);
         self.remember_recent(path);
         let next = list
             .get(idx + 1)
@@ -449,6 +454,7 @@ impl NotesCtx {
         autosave::with_write_lock(|| project::save_copy(&src, &dst)).map_err(ProjectError::Io)?;
         // Файл до копии мог быть закрытым проектом — его ревизии не наши.
         let dst = project::normalize_path(&dst);
+        super::lock::moved(&src, &dst);
         autosave::forget_project(&dst);
         autosave::rekey_project(&src, &dst);
         autosave::set_project_path(dst.clone());
@@ -495,6 +501,7 @@ impl NotesCtx {
         autosave::flush_project(path).map_err(ProjectError::Io)?;
         autosave::with_write_lock(|| std::fs::rename(path, &dst)).map_err(|e| ProjectError::Io(e.to_string()))?;
         let dst = project::normalize_path(&dst);
+        super::lock::moved(path, &dst);
         project::invalidate(path);
         autosave::forget_project(&dst);
         autosave::rekey_project(path, &dst);
@@ -665,10 +672,20 @@ pub struct Restored {
     pub recent: Vec<PathBuf>,
 }
 
+thread_local! {
+    // Проекты, занятые другой программой при восстановлении: окно скажет о них.
+    static BUSY_AT_START: std::cell::RefCell<Vec<(PathBuf, String)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Забрать проекты, которые при старте оказались заняты.
+pub fn take_busy_at_start() -> Vec<ProjectError> {
+    BUSY_AT_START.with(|b| b.borrow_mut().drain(..).map(|(p, w)| ProjectError::Busy(p, w)).collect())
+}
+
 /// Открытые проекты из конфига. Конфиг без списка (обновление со времён
 /// одного проекта) даёт единственный проект: настроенный или дефолтный
 /// файл, как раньше, с его активной страницей и раскрытыми узлами.
-/// Пропавшие файлы пропускаются.
+/// Пропавшие и занятые другой программой файлы пропускаются.
 pub fn restore(cfg: &AppConfig) -> Restored {
     let recent: Vec<PathBuf> = cfg.notes_recent.iter().map(|p| project::normalize_path(Path::new(p))).collect();
     let mut projects: Vec<OpenProject> = Vec::new();
@@ -685,6 +702,11 @@ pub fn restore(cfg: &AppConfig) -> Restored {
                     log::warn!("notes: проект {} не найден — плитка не восстановлена", path.display());
                     continue;
                 }
+                if let Err(who) = super::lock::acquire(&path) {
+                    log::warn!("notes: проект {} открыт в {who} — плитка не восстановлена", path.display());
+                    BUSY_AT_START.with(|b| b.borrow_mut().push((path.clone(), who)));
+                    continue;
+                }
                 push(OpenProject {
                     path,
                     opened_at: p.opened_at,
@@ -695,7 +717,7 @@ pub fn restore(cfg: &AppConfig) -> Restored {
             }
         }
         None => {
-            if let Some(path) = legacy_project(cfg) {
+            if let Some(path) = legacy_project(cfg).filter(|p| super::lock::acquire(p).is_ok()) {
                 push(OpenProject {
                     path,
                     opened_at: cfg.notes_tile_opened_at.unwrap_or_else(now_millis),

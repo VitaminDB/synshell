@@ -40,6 +40,7 @@ pub mod icon_picker;
 pub mod index;
 pub mod kanban;
 pub mod links;
+pub mod lock;
 pub mod media;
 pub mod mindmap;
 pub mod project;

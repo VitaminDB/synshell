@@ -1497,11 +1497,14 @@ pub struct Desktop {
     /// Высота строки на телефоне, логические px (колонок — `[mobile]
     /// home_columns`); 0 — квадратные клетки.
     pub phone_row: u32,
+    /// Вид стола: `widgets` — виджеты из `[[widget]]`, `notes` — страница
+    /// заметок (`[notes] desk_page`); переключатель внизу слева.
+    pub view: String,
 }
 
 impl Default for Desktop {
     fn default() -> Self {
-        Self { cell: 96, phone_row: 100 }
+        Self { cell: 96, phone_row: 100, view: "widgets".into() }
     }
 }
 

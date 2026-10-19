@@ -1,7 +1,7 @@
 # Maintainer: Alexeyev Vitaly
 pkgname=synshell
 pkgver=0.1.42
-pkgrel=121
+pkgrel=123
 pkgdesc="Окружение рабочего стола для Wayland на Rust и syngui: композитор, оболочка, параметры"
 arch=('x86_64')
 license=('GPL-3.0-only')
@@ -62,7 +62,7 @@ _profile=${SYNSHELL_PROFILE:-release}
 
 build() {
     cd "$startdir/.."
-    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player -p syn-terminal -p syn-maps -p syn-compass -p syngamepad -p synpass -p syncamera -p syndroid -p syn-health -p syn-systeminfo -p syn-vm -p synmodem -p syn-nfc -p syn-remote -p syn-wine-helper -p syn-woman-cycle -p synnfc -p synphone -p synsms -p synfsd -p synassistant
+    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player -p syn-terminal -p syn-maps -p syn-compass -p syngamepad -p synpass -p syncamera -p syndroid -p syn-health -p syn-systeminfo -p syn-vm -p synmodem -p syn-nfc -p syn-remote -p syn-wine-helper -p syn-woman-cycle -p synnfc -p synphone -p synsms -p synfsd -p synassistant -p syn-notes
     cargo build --profile "$_profile" -p synaptixd --bins --features "synaptixd/${SYNAPTIXD_FEATURES:-cuda},synaptixd/npu"
 }
 
@@ -73,7 +73,7 @@ check() {
 
 package() {
     cd "$startdir/.."
-    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player syn-terminal syn-maps syn-compass syngamepad synpass syncamera syndroid syndroidd syn-health syn-systeminfo syn-vm synmodem synmodemd syn-nfc syn-remote syn-wine-helper synnfc synnfcd syn-woman-cycle synphone synsms synfsd synaptixd synaptixctl synassistant; do
+    for b in synwm syndesktop-shell synmobile-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player syn-terminal syn-maps syn-compass syngamepad synpass syncamera syndroid syndroidd syn-health syn-systeminfo syn-vm synmodem synmodemd syn-nfc syn-remote syn-wine-helper synnfc synnfcd syn-woman-cycle synphone synsms synfsd synaptixd synaptixctl synassistant syn-notes; do
         install -Dm755 "target/$_profile/$b" "$pkgdir/usr/bin/$b"
     done
     install -Dm755 data/synshell-session "$pkgdir/usr/bin/synshell-session"
@@ -140,7 +140,7 @@ package() {
     install -Dm644 crates/syn-wine-helper/data/icons/syn-wine-helper.svg \
         "$pkgdir/usr/share/icons/hicolor/scalable/apps/syn-wine-helper.svg"
     # Программы телефона (на компьютере работают с тем, что есть: камера, история шагов, Android).
-    for app in syncamera syndroid syn-health syn-nfc syn-remote syn-woman-cycle synphone synsms; do
+    for app in syncamera syndroid syn-health syn-nfc syn-remote syn-woman-cycle synphone synsms syn-notes; do
         install -Dm644 crates/$app/data/$app.desktop "$pkgdir/usr/share/applications/$app.desktop"
         if [ -f crates/$app/data/icons/$app.svg ]; then
             install -Dm644 crates/$app/data/icons/$app.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/$app.svg"
@@ -149,6 +149,9 @@ package() {
     # Программы по умолчанию для типов файлов (XDG_CURRENT_DESKTOP=synshell).
     { echo "[Default Applications]"; cat crates/*/data/defaults.mimeapps | grep -v '^#' | grep '='; } \
         | install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/synshell-mimeapps.list"
+    # Заметки: хозяин проектов стартует с сеансом без окна (напоминания,
+    # ассистент, рабочий стол), окно открывается по запросу.
+    install -Dm644 crates/syn-notes/data/syn-notes-autostart.desktop "$pkgdir/etc/xdg/autostart/syn-notes.desktop"
     # Связь устройств: демон стартует с сеансом (synwm читает /etc/xdg/autostart).
     install -Dm644 crates/synlink/autostart/synlink.desktop "$pkgdir/etc/xdg/autostart/synlink.desktop"
     # USB-сеть телефона: адрес по DHCP через systemd-networkd (без NetworkManager её никто не поднимал).

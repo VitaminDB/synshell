@@ -499,3 +499,6 @@ notes.props.gantt.boards_hint = "Басталуы мен аяқталуы бар
 notes.notify.open = "Ашу"
 notes.notify.done = "Дайын"
 notes.notify.snooze = "Бір сағаттан кейін"
+notes.project.main = "Негізгі қойма"
+notes.project.make_main = "Негізгі қойма ету"
+notes.project.error.busy = "{path} жобасы басқа бағдарламада ашық: {owner}. Мұнда жұмыс істеу үшін оны сол жерде жабыңыз."

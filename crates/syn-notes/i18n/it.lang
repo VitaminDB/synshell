@@ -499,3 +499,6 @@ notes.props.gantt.boards_hint = "Le schede delle bacheche selezionate che hanno 
 notes.notify.open = "Apri"
 notes.notify.done = "Fatto"
 notes.notify.snooze = "Tra un'ora"
+notes.project.main = "Archivio principale"
+notes.project.make_main = "Imposta come archivio principale"
+notes.project.error.busy = "Il progetto {path} è aperto in un altro programma: {owner}. Chiudilo lì per lavorarci qui."

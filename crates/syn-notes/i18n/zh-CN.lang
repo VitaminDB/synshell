@@ -495,3 +495,6 @@ notes.props.gantt.boards_hint = "所选看板中设有开始和结束日期的�
 notes.notify.open = "打开"
 notes.notify.done = "完成"
 notes.notify.snooze = "一小时后"
+notes.project.main = "主存储"
+notes.project.make_main = "设为主存储"
+notes.project.error.busy = "项目 {path} 已在另一个程序中打开：{owner}。请先在那里关闭，才能在这里编辑。"

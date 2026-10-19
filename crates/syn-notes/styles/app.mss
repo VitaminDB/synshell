@@ -44,3 +44,8 @@
 .shell {
     background-color: var(--bg-shell);
 }
+.notes-app-tile-main {
+    icon-size: 12px;
+    color: var(--warning);
+    margin: 2px 0px 0px 26px;
+}

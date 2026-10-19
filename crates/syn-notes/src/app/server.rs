@@ -178,6 +178,10 @@ fn answer(req: Value) -> Value {
                 None => json!({"ok": false, "error": "timeout"}),
             }
         }
+        "desk" => {
+            let page = req.get("page").and_then(Value::as_str).map(str::to_string);
+            on_main(move || super::desk::summary(page.as_deref())).unwrap_or_else(|| json!({"ok": false, "error": "timeout"}))
+        }
         other => json!({"ok": false, "error": format!("unknown cmd: {other}")}),
     }
 }

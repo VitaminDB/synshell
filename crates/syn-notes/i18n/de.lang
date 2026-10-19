@@ -499,3 +499,6 @@ notes.props.gantt.boards_hint = "Karten der ausgewählten Boards mit Start und E
 notes.notify.open = "Öffnen"
 notes.notify.done = "Erledigt"
 notes.notify.snooze = "In einer Stunde"
+notes.project.main = "Hauptspeicher"
+notes.project.make_main = "Als Hauptspeicher festlegen"
+notes.project.error.busy = "Projekt {path} ist in einem anderen Programm geöffnet: {owner}. Schließen Sie es dort, um hier daran zu arbeiten."

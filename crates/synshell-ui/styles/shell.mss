@@ -1697,3 +1697,26 @@ TextField {
 .assist-heard { padding: 8px 12px; border-radius: 14px; background: linear-gradient(135deg, var(--accent), #8b5cf6); max-width: 480px; }
 .assist-heard-text { font-size: 13px; color: var(--accent-fg); }
 .assist-voice-scroll { max-height: 220px; }
+
+/* ─── Заметки на рабочем столе (desk/notes.rs) ─────────────────────────── */
+.desk-notes-row { padding: 4px 6px; border-radius: 8px; }
+.desk-notes-row:hover { background-color: var(--hover); }
+.desk-notes-title { font-size: 13px; color: var(--fg); }
+.desk-notes-group { font-size: 11px; font-weight: 600; color: var(--muted); margin-top: 4px; }
+.desk-notes-dot { width: 8px; height: 8px; border-radius: 4px; margin-top: 5px; background-color: var(--muted); }
+.desk-notes-dot.overdue { background-color: var(--danger); }
+.desk-notes-dot.today { background-color: var(--warning); }
+.desk-notes-dot.event { background-color: var(--accent); }
+.desk-notes-dot.tomorrow { background-color: var(--success); }
+.desk-notes-dot.card { background-color: var(--accent-soft); }
+.desk-notes-md { font-size: 13px; color: var(--fg); }
+.desk-notes-card { border-radius: var(--radius); }
+.desk-notes-head { font-size: 22px; font-weight: 700; color: #ffffff; text-shadow: 0px 1px 4px #000000a0; }
+.desk-notes-open { icon-size: 20px; color: #ffffffcc; }
+.desk-view-switch { padding: 3px; border-radius: 12px; background-color: var(--panel-bg); border: 1px solid var(--border); box-shadow: 0 4px 14px var(--shadow); }
+.desk-view-btn { padding: 6px 10px; border-radius: 9px; }
+.desk-view-btn:hover { background-color: var(--hover); }
+.desk-view-btn.on { background-color: var(--accent-soft); }
+.desk-view-icon { icon-size: 16px; color: var(--muted); }
+.desk-view-btn.on .desk-view-icon { color: var(--accent); }
+.desk-view-label { font-size: 12px; color: var(--fg); }

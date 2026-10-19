@@ -198,6 +198,7 @@ pub const MI_BOOKMARK_ADD: &str        = "\u{E598}";
 // --- Voice FAB / Voice History
 pub const MI_PAUSE: &str               = "\u{E034}";
 pub const MI_HISTORY: &str             = "\u{E889}";
+pub const MI_STAR: &str                = "\u{E838}";
 pub const MI_CONTENT_PASTE: &str       = "\u{E14F}";
 /// Material «timer» — секундомер в бейджах таймеров node-editor'а
 /// (шапка карточки ноды и Run-pill).

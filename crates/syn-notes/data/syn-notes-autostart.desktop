@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=syn-notes
+Name[ru]=Заметки (фон)
+Comment=Notes owner: reminders, assistant and desktop access
+Comment[ru]=Хозяин заметок: напоминания, доступ ассистента и рабочего стола
+Exec=syn-notes --background
+Icon=syn-notes
+NoDisplay=true
+X-GNOME-Autostart-Phase=Applications

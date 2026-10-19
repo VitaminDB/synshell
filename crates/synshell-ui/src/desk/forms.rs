@@ -305,6 +305,25 @@ pub fn edit_view(ctx: ShellCtx, index: usize) -> Box<dyn Widget> {
                 }).class("form-field"),
             ));
         }
+        "notes-board" | "notes-page" => {
+            let keys: &[(&str, String, String)] = if kind == "notes-board" {
+                &[("board", t!("Доска"), t!("Страница с доской или id; пусто — первая")), ("column", t!("Колонка"), t!("Пусто — все открытые"))]
+            } else {
+                &[("page", t!("Страница"), t!("Название страницы; пусто — страница стола"))]
+            };
+            for (key, label, hint) in keys {
+                let key: &'static str = key;
+                let text = w0.str(key).unwrap_or_default().to_string();
+                col = col.child(labeled(
+                    label,
+                    TextField::with_text(text).placeholder(hint.clone()).submit_on_focus_lost(true).on_submit(move |t| {
+                        let t = t.to_string();
+                        super::update(index, |w| w.set(key, t));
+                        super::notes::refresh();
+                    }).class("form-field"),
+                ));
+            }
+        }
         "file" => {
             let p = w0.str("path").unwrap_or_default().to_string();
             col = col.child(labeled(

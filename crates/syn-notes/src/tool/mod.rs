@@ -142,7 +142,7 @@ mod gantt;
 mod geom;
 mod kanban;
 mod life;
-mod md;
+pub(crate) mod md;
 mod mindmap;
 mod pages;
 mod projects;

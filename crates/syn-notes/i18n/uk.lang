@@ -503,3 +503,6 @@ notes.props.gantt.boards_hint = "Картки вибраних дошок із �
 notes.notify.open = "Відкрити"
 notes.notify.done = "Готово"
 notes.notify.snooze = "За годину"
+notes.project.main = "Основне сховище"
+notes.project.make_main = "Зробити основним сховищем"
+notes.project.error.busy = "Проєкт {path} відкрито в іншій програмі: {owner}. Закрийте його там, щоб працювати тут."

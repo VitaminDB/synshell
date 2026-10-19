@@ -495,3 +495,6 @@ notes.props.gantt.boards_hint = "開始日と終了日があるカードは、�
 notes.notify.open = "開く"
 notes.notify.done = "完了"
 notes.notify.snooze = "1時間後"
+notes.project.main = "メインの保存先"
+notes.project.make_main = "メインの保存先にする"
+notes.project.error.busy = "プロジェクト {path} は別のプログラムで開かれています: {owner}。ここで作業するにはそちらで閉じてください。"

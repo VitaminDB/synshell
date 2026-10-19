@@ -499,3 +499,6 @@ notes.props.gantt.boards_hint = "Başlangıcı ve bitişi olan seçili pano kart
 notes.notify.open = "Aç"
 notes.notify.done = "Tamam"
 notes.notify.snooze = "Bir saat sonra"
+notes.project.main = "Ana depo"
+notes.project.make_main = "Ana depo yap"
+notes.project.error.busy = "{path} projesi başka bir programda açık: {owner}. Burada çalışmak için orada kapatın."
