@@ -9,6 +9,7 @@
 //! ([`ctx::ShellCtx::form_factor`]).
 
 mod assistant;
+mod autonomy;
 pub mod access;
 pub mod auth;
 pub mod actions;
@@ -153,6 +154,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         notifications::start(ctx);
         devices::start(ctx);
         usb_notify::start(ctx);
+        autonomy::start(ctx);
         link::start(ctx);
         modem::start(ctx);
         incall::start(ctx);

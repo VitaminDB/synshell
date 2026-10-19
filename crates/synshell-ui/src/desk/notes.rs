@@ -188,14 +188,23 @@ fn find_board<'a>(data: &'a Value, key: &str) -> Option<&'a Value> {
     boards.iter().find(|b| s(b, "id") == key || s(b, "page") == key || s(b, "page_title").to_lowercase() == key)
 }
 
-fn board_view(b: &Value, column: &str, horizontal: bool, h: f32) -> Box<dyn Widget> {
+/// `h` — высота виджета (со своей прокруткой); `None` — по содержимому
+/// (карточка вида «Заметки», прокручивается вся страница).
+fn board_view(b: &Value, column: &str, horizontal: bool, h: Option<f32>) -> Box<dyn Widget> {
     let page = Some(s(b, "page").to_string());
     let columns = b.get("columns").and_then(Value::as_array).cloned().unwrap_or_default();
     let column = column.trim().to_lowercase();
-    let shown: Vec<&Value> = columns
+    let count = |c: &Value| c.get("cards").and_then(Value::as_array).map(Vec::len).unwrap_or(0);
+    let mut shown: Vec<&Value> = columns
         .iter()
         .filter(|c| if column.is_empty() { !c.get("done").and_then(Value::as_bool).unwrap_or(false) } else { s(c, "name").to_lowercase() == column || s(c, "id") == column })
         .collect();
+    // Пустые колонки — шум; все пустые — показать первую («нет задач»).
+    if column.is_empty() && shown.iter().any(|c| count(c) > 0) {
+        shown.retain(|c| count(c) > 0);
+    } else if column.is_empty() {
+        shown.truncate(1);
+    }
     let col_view = |c: &Value| -> Column {
         let cards = c.get("cards").and_then(Value::as_array).cloned().unwrap_or_default();
         let mut list = Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(
@@ -224,9 +233,15 @@ fn board_view(b: &Value, column: &str, horizontal: bool, h: f32) -> Box<dyn Widg
         for c in &shown {
             col = col.child(col_view(c));
         }
-        Box::new(ScrollView::new().vertical().child(col))
+        match h {
+            Some(_) => Box::new(ScrollView::new().vertical().child(col)),
+            None => Box::new(col),
+        }
     };
-    Box::new(DecoratedBox::new().style("height", StyleValue::px(h)).child(body))
+    match h {
+        Some(h) => Box::new(DecoratedBox::new().style("height", StyleValue::px(h)).child(body)),
+        None => body,
+    }
 }
 
 pub(super) fn board(w: &DeskWidget, cx: Cx) -> Box<dyn Widget> {
@@ -237,7 +252,7 @@ pub(super) fn board(w: &DeskWidget, cx: Cx) -> Box<dyn Widget> {
         let snap = sig.get();
         let Some(data) = snap.data else { return offline(&cx) };
         match find_board(&data, &key) {
-            Some(b) => board_view(b, &column, cx.w > 520.0, cx.h),
+            Some(b) => board_view(b, &column, cx.w > 520.0, Some(cx.h)),
             None => Box::new(Text::new(t!("Доска не найдена")).class("desk-k")),
         }
     }))
@@ -308,7 +323,7 @@ pub fn desk_view(width: f32, height: f32, top: f32) -> Box<dyn Widget> {
             // Страницы стола нет — повестка и все доски.
             cards.push((agenda_height(&data), card(t!("Повестка"), None, Box::new(agenda_list(&data)))));
             for b in data.get("boards").and_then(Value::as_array).cloned().unwrap_or_default() {
-                cards.push((board_height(&b), card(s(&b, "page_title").to_string(), Some(s(&b, "page").to_string()), board_view(&b, "", false, board_height(&b)))));
+                cards.push((board_height(&b), card(s(&b, "page_title").to_string(), Some(s(&b, "page").to_string()), board_view(&b, "", false, None))));
             }
         }
         for sec in &sections {
@@ -322,7 +337,7 @@ pub fn desk_view(width: f32, height: f32, top: f32) -> Box<dyn Widget> {
                 "kanban" => {
                     if let Some(b) = find_board(&data, s(sec, "id")) {
                         let h = board_height(b);
-                        cards.push((h, card(s(b, "page_title").to_string(), Some(s(b, "page").to_string()), board_view(b, "", false, h))));
+                        cards.push((h, card(s(b, "page_title").to_string(), Some(s(b, "page").to_string()), board_view(b, "", false, None))));
                     }
                 }
                 "calendar" => cards.push((agenda_height(&data), card(t!("Повестка"), None, Box::new(agenda_list(&data))))),
@@ -379,7 +394,8 @@ fn board_height(b: &Value) -> f32 {
         .map(|cs| {
             cs.iter()
                 .filter(|c| !c.get("done").and_then(Value::as_bool).unwrap_or(false))
-                .map(|c| 1 + c.get("cards").and_then(Value::as_array).map(Vec::len).unwrap_or(0))
+                .map(|c| c.get("cards").and_then(Value::as_array).map(Vec::len).unwrap_or(0))
+                .map(|n| if n > 0 { n + 1 } else { 0 })
                 .sum()
         })
         .unwrap_or(0);
@@ -435,4 +451,57 @@ pub fn view_switch(ctx: ShellCtx) -> impl Widget {
                 .child(btn("\u{E244}", t!("Заметки"), notes, "notes")),
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use syngui::core::Color;
+
+    /// Снимки с живым хозяином заметок: `SHOT_DIR=… cargo test -p synshell-ui shot_notes -- --ignored`.
+    #[test]
+    #[ignore]
+    fn shot_notes() {
+        let dir = std::env::var("SHOT_DIR").unwrap_or_else(|_| "/tmp".into());
+        let cfg = synshell_common::config::Config::default();
+        let mss = crate::theme::build(&cfg);
+        let data = fetch();
+        assert!(data.data.is_some(), "syn-notes не отвечает");
+        let cases: [(&str, f32, f32); 4] = [("desk", 1600.0, 1000.0), ("notes-agenda", 330.0, 420.0), ("notes-board", 760.0, 420.0), ("notes-page", 420.0, 320.0)];
+        for (kind, w, h) in cases {
+            let out = format!("{dir}/desk-{kind}.png");
+            let d = data.clone();
+            syngui::shot::render_png(
+                move || {
+                    let ctx = crate::ShellCtx::new(synshell_common::config::Config::default(), synshell_common::config::FormFactor::Desktop);
+                    provide_context(ctx);
+                    snap().set(d.clone());
+                    if kind == "desk" {
+                        return Box::new(DecoratedBox::new().style("background-color", StyleValue::Color(super::super::views::mss_color(Color::from_hex("#2b3a55")))).child(desk_view(w, h, 0.0)));
+                    }
+                    let pad = 12.0;
+                    let cx = Cx { w: w - 2.0 * pad, h: h - 2.0 * pad - 28.0, color: Color::from_hex("#7aa2f7"), view: "list".into(), history: 60 };
+                    let dw = DeskWidget::new(kind, 0, 0, 1, 1).with("board", "synshell");
+                    let body = match kind {
+                        "notes-agenda" => agenda(cx),
+                        "notes-board" => board(&dw, cx),
+                        _ => page(&DeskWidget::new(kind, 0, 0, 1, 1).with("page", "synshell"), cx),
+                    };
+                    Box::new(
+                        DecoratedBox::new()
+                            .child(Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(Text::new(kind).class("desk-title").style("height", StyleValue::px(28.0))).child(body))
+                            .style("width", StyleValue::px(w))
+                            .style("height", StyleValue::px(h))
+                            .style("padding", StyleValue::px(pad))
+                            .class(format!("desk-card desk-{kind}")),
+                    )
+                },
+                &mss,
+                (w as u32, h as u32),
+                1.0,
+                &out,
+            )
+            .unwrap();
+        }
+    }
 }

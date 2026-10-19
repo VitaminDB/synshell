@@ -215,6 +215,14 @@ impl State {
             Request::Windows => Response::Windows { windows: self.all_window_infos() },
             Request::Workspaces => Response::Workspaces { workspaces: self.workspace_infos() },
             Request::Mobile => Response::Mobile { mobile: self.mobile_info() },
+            Request::Idle => Response::Idle {
+                idle: synshell_common::ipc::IdleInfo {
+                    seconds: self.core.last_activity.elapsed().as_secs(),
+                    inhibited: !self.core.idle_inhibitors.is_empty(),
+                    locked: self.core.is_locked(),
+                    fullscreen: self.all_window_infos().iter().any(|w| w.fullscreen && !w.minimized),
+                },
+            },
             Request::X11Display { keys } => match self.x11_display_for(&keys) {
                 Ok((d, resolution)) => Response::X11Display { display: format!(":{d}"), resolution },
                 Err(message) => Response::Error { message },

@@ -1709,7 +1709,15 @@ TextField {
 .desk-notes-dot.event { background-color: var(--accent); }
 .desk-notes-dot.tomorrow { background-color: var(--success); }
 .desk-notes-dot.card { background-color: var(--accent-soft); }
-.desk-notes-md { font-size: 13px; color: var(--fg); }
+.desk-notes-md {
+    font-size: 13px; color: var(--fg);
+    --md-heading-color: var(--fg); --md-h1-size: 20px; --md-h2-size: 17px; --md-h3-size: 15px; --md-heading-spacing: 8px;
+    --md-link-color: var(--accent); --md-bullet-color: var(--muted); --md-checkbox-color: var(--accent);
+    --md-code-bg: var(--surface-alt); --md-code-color: var(--fg); --md-code-block-bg: var(--surface-alt); --md-code-block-color: var(--fg);
+    --md-quote-bg: var(--accent-soft); --md-quote-text-color: var(--fg); --md-quote-border-color: var(--accent);
+    --md-table-border-color: var(--border); --md-table-header-bg: var(--surface-alt); --md-table-header-color: var(--fg); --md-table-stripe-bg: var(--hover);
+    --md-hr-color: var(--border);
+}
 .desk-notes-card { border-radius: var(--radius); }
 .desk-notes-head { font-size: 22px; font-weight: 700; color: #ffffff; text-shadow: 0px 1px 4px #000000a0; }
 .desk-notes-open { icon-size: 20px; color: #ffffffcc; }

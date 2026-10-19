@@ -68,6 +68,8 @@ pub enum Request {
     /// экрана с последним кадром клиента, вписанным в `max` (физические px),
     /// кадр — сырой RGBA в `$XDG_RUNTIME_DIR`; ответ — [`Response::Thumbnails`].
     Thumbnails { ids: Vec<u64>, max: [u32; 2] },
+    /// Простой пользователя — [`Response::Idle`] (автономный режим ассистента).
+    Idle,
 }
 
 /// Видео в потоке кадров.
@@ -190,6 +192,17 @@ pub enum Response {
     /// `display` — значение DISPLAY (`:1`), `resolution` — разрешение этого Xwayland.
     X11Display { display: String, resolution: String },
     Thumbnails { thumbs: Vec<Thumbnail> },
+    Idle { idle: IdleInfo },
+}
+
+/// Простой: сколько секунд не было ввода, держит ли что-то экран
+/// (видео, игра — idle-inhibit), заблокирован ли он, есть ли окно во весь экран.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct IdleInfo {
+    pub seconds: u64,
+    pub inhibited: bool,
+    pub locked: bool,
+    pub fullscreen: bool,
 }
 
 /// Миниатюра окна: RGBA построчно в файле `path` (файл забирает и

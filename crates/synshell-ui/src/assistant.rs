@@ -590,6 +590,21 @@ fn stop(p: Panel) {
     reply(p, false);
 }
 
+/// Агент ассистента по настройкам `[assistant]`: инструменты и их режимы,
+/// память, навыки, базы знаний, рецепты.
+pub(crate) fn build_agent(cfg: &synshell_common::config::Assistant) -> Agent {
+    let mut agent = Agent::configured(Arc::new(DaemonBackend), &cfg.disabled_tools, cfg.auto_approve, cfg.autocompact);
+    agent = agent.approve(&cfg.approved_tools);
+    if cfg.memory {
+        agent = agent.with_memory(synassist::memory::resolve(&cfg.memory_dir));
+    }
+    if cfg.skills {
+        agent = agent.with_skills(synassist::skills::resolve(&cfg.skills_dir));
+    }
+    agent = agent.with_knowledge(cfg.knowledge.iter().map(|k| synassist::builtin::expand(k)).collect());
+    agent.with_recipes(synassist::pipeline::resolve(&cfg.recipes_dir))
+}
+
 fn ask(p: Panel, text: String, voice: bool) {
     let text = text.trim().to_string();
     if (text.is_empty() && p.attachments.get_untracked().is_empty()) || p.busy.get_untracked() {
@@ -621,16 +636,7 @@ fn ask(p: Panel, text: String, voice: bool) {
         .name("assistant".into())
         .spawn(move || {
             let cfg = synshell_common::Config::load().0.assistant;
-            let mut agent = Agent::configured(Arc::new(DaemonBackend), &cfg.disabled_tools, cfg.auto_approve, cfg.autocompact);
-                agent = agent.approve(&cfg.approved_tools);
-                if cfg.memory {
-                    agent = agent.with_memory(synassist::memory::resolve(&cfg.memory_dir));
-                }
-                if cfg.skills {
-                    agent = agent.with_skills(synassist::skills::resolve(&cfg.skills_dir));
-                }
-                agent = agent.with_knowledge(cfg.knowledge.iter().map(|k| synassist::builtin::expand(k)).collect());
-                agent = agent.with_recipes(synassist::pipeline::resolve(&cfg.recipes_dir));
+            let mut agent = build_agent(&cfg);
             if voice {
                 agent.system = Some(synassist::prompt::build_voice(&agent.tools));
             }

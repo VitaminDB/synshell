@@ -408,12 +408,13 @@ impl State {
 fn msg(args: &[String]) -> i32 {
     use synshell_common::ipc::{Client, Request, Response, WindowOp};
     let Some(cmd) = args.first() else {
-        eprintln!("{}", t!("использование: synwm msg <version|windows|workspaces|outputs|layouts|events|action …|window ID ОПЕРАЦИЯ|x11-display ИМЯ…|reload|restart-shell|restart>"));
+        eprintln!("{}", t!("использование: synwm msg <version|windows|workspaces|outputs|layouts|idle|events|action …|window ID ОПЕРАЦИЯ|x11-display ИМЯ…|reload|restart-shell|restart>"));
         return 2;
     };
     let req = match cmd.as_str() {
         "version" => Request::Version,
         "windows" => Request::Windows,
+        "idle" => Request::Idle,
         "workspaces" => Request::Workspaces,
         "outputs" => Request::Outputs,
         "layouts" => Request::KeyboardLayouts,

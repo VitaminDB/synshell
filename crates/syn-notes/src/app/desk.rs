@@ -75,7 +75,7 @@ fn collect(ctx: NotesCtx, page: Option<&str>) -> Value {
                             };
                             let overdue = c.done.is_none() && c.due.as_deref().and_then(parse_days).is_some_and(|d| d < today);
                             json!({
-                                "id": c.id, "title": title, "due": c.due,
+                                "id": c.id, "title": title, "due": c.due, "md": c.md, "tags": c.tags,
                                 "priority": c.priority.map(|p| format!("{p:?}").to_lowercase()),
                                 "overdue": overdue,
                             })
@@ -133,7 +133,15 @@ fn sections(md: &str) -> Vec<Value> {
         if (t.starts_with("# ") || t.starts_with("## ")) && !text.trim().is_empty() {
             flush(&mut text, &mut out);
         }
-        text.push_str(line);
+        // Callout `> [!note] Заголовок` — обычная цитата: стол рисует markdown без расширений.
+        let line = match line.find("[!") {
+            Some(i) if line[..i].trim_start().starts_with('>') => match line[i..].find(']') {
+                Some(j) => format!("{}{}", &line[..i], line[i + j + 1..].trim_start()),
+                None => line.to_string(),
+            },
+            _ => line.to_string(),
+        };
+        text.push_str(&line);
         text.push('\n');
     }
     flush(&mut text, &mut out);

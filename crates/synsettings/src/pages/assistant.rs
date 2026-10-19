@@ -305,6 +305,69 @@ fn mic_meter(s: VadState, phrase: Option<f32>) -> impl Widget {
     col
 }
 
+/// Ползунок целого: значение пишется целым (поля `u32` в конфиге).
+fn int_slider_row(label: String, hint: String, path: Vec<crate::ui::O>, value: u32, min: f32, max: f32, step: f32) -> W {
+    row(
+        label,
+        hint,
+        Slider::new().range(min, max).step(step).value(value as f32).show_value(0).width(240.0).on_change(move |v| set(&path, v.round() as i64)),
+    )
+}
+
+/// Заметки (syn-notes) и автономный режим ассистента.
+fn notes_and_autonomy(a: &synshell_common::config::Assistant) -> Vec<W> {
+    let n = store::config().notes.clone();
+    let au = a.autonomy.clone();
+    let notes = group(
+        &t!("Заметки"),
+        vec![
+            text_row(
+                t!("Основное хранилище"),
+                t!("Проект .syn, с которым работают ассистент, рабочий стол и напоминания; пусто — показанный в «Заметках». Выбрать можно и в самих заметках: правый щелчок по проекту → «Сделать основным хранилищем»"),
+                op!["notes", "storage"],
+                &n.storage,
+                t!("показанный проект"),
+            ),
+            text_row(t!("Страница рабочего стола"), t!("Страница основного хранилища для вида «Заметки» на рабочем столе"), op!["notes", "desk_page"], &n.desk_page, t!("Рабочий стол")),
+            switch_row(t!("Напоминания уведомлениями"), t!("Сроки карточек и события календаря — системными уведомлениями с кнопками «Открыть», «Готово», «Через час»"), op!["notes", "reminders"], n.reminders),
+        ],
+    );
+    let autonomy = group(
+        &t!("Автономный режим"),
+        vec![
+            switch_row(
+                t!("Работать самостоятельно"),
+                t!("Когда компьютер простаивает, ассистент берёт задачи со своей доски в заметках и выполняет их; итог дописывается в карточку"),
+                op!["assistant", "autonomy", "enabled"],
+                au.enabled,
+            ),
+            text_row(t!("Доска задач"), t!("Страница с доской задач ассистента в основном хранилище заметок"), op!["assistant", "autonomy", "board"], &au.board, t!("Ассистент")),
+            choice_row(
+                t!("Спрашивать перед задачей"),
+                t!("Уведомление «Выполнить?» с кнопками «Выполнить», «Не сейчас», «Не делать»"),
+                op!["assistant", "autonomy", "ask"],
+                &au.ask,
+                &[("new", t!("Новые задачи")), ("always", t!("Всегда")), ("never", t!("Никогда"))],
+            ),
+            int_slider_row(t!("Проверять каждые, мин"), t!("Как часто искать задачи"), op!["assistant", "autonomy", "interval_min"], au.interval_min, 1.0, 120.0, 1.0),
+            int_slider_row(t!("Простой, мин"), t!("Сколько минут без мыши и клавиатуры считать простоем"), op!["assistant", "autonomy", "idle_min"], au.idle_min, 1.0, 60.0, 1.0),
+            int_slider_row(t!("Загрузка видеокарты до, %"), t!("Выше — компьютер занят (игра, рендер), ассистент ждёт"), op!["assistant", "autonomy", "max_gpu_percent"], au.max_gpu_percent, 0.0, 100.0, 5.0),
+            row(
+                t!("Не работать, пока запущены"),
+                t!("Имена процессов через запятую, например steam, obs"),
+                TextField::with_text(au.busy_apps.join(", ")).placeholder(t!("нет")).width(260.0).on_change(|s| {
+                    let mut arr = Array::new();
+                    for name in s.split(',').map(str::trim).filter(|n| !n.is_empty()) {
+                        arr.push(name);
+                    }
+                    set(&op!["assistant", "autonomy", "busy_apps"], Value::Array(arr));
+                }),
+            ),
+        ],
+    );
+    vec![notes, autonomy]
+}
+
 pub fn assistant() -> W {
     let a = store::config().assistant.clone();
     let ctx = state::ctx();
@@ -503,6 +566,11 @@ pub fn assistant() -> W {
     page(
         t!("Ассистент"),
         t!("Помощник на нейросетях этого устройства: отвечает, управляет системой, работает с файлами, ищет в интернете."),
-        vec![general, memory, knowledge(a.knowledge.clone()), group(&t!("Инструменты"), rows), tools_note, group(&t!("Навыки"), skill_rows), group(&t!("Рецепты"), recipe_rows), voice, voice_note],
+        {
+            let mut v = vec![general, memory, knowledge(a.knowledge.clone()), group(&t!("Инструменты"), rows), tools_note];
+            v.extend(notes_and_autonomy(&a));
+            v.extend([group(&t!("Навыки"), skill_rows), group(&t!("Рецепты"), recipe_rows), voice, voice_note]);
+            v
+        },
     )
 }
