@@ -742,3 +742,5 @@
 "Ты работаешь в автономном режиме, пока пользователь отошёл. Выполни задачу с доски ассистента в заметках (инструмент notes) и в конце кратко отчитайся, что сделано. Карточку сам не закрывай и не переноси — это сделает планировщик." = "You are working in autonomous mode while the user is away. Complete the task from the assistant board in the notes (the notes tool) and briefly report what was done at the end. Do not close or move the card yourself — the scheduler will do that."
 "без отчёта" = "no report"
 "срок {due}" = "due {due}"
+"Нет открытого проекта заметок" = "No notes project is open"
+"Проект может быть открыт в другой программе (synthos). Коснитесь, чтобы открыть заметки" = "The project may be open in another program (synthos). Tap to open Notes"

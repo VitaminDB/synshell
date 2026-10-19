@@ -118,11 +118,9 @@ fn install_state() {
     // Проекты, занятые другой программой, ждут: состояние их помнит, а раз
     // в минуту они пробуют открыться снова.
     let mut busy = Vec::new();
-    for e in notes::projects::take_busy_at_start() {
-        notes::project_ui::report_error(&e);
-        if let notes::projects::ProjectError::Busy(p, _) = e {
-            busy.push(p);
-        }
+    for (saved, who) in notes::projects::take_busy_at_start() {
+        notes::project_ui::report_error(&notes::projects::ProjectError::Busy(saved.path.clone().into(), who));
+        busy.push(saved);
     }
     let busy = use_signal(busy);
     provide_context(Busy(busy));
@@ -135,7 +133,7 @@ fn install_state() {
                     return;
                 }
                 let ctx = use_context::<NotesCtx>();
-                let left: Vec<_> = list.into_iter().filter(|p| ctx.open_project_quietly(p).is_err()).collect();
+                let left: Vec<_> = list.into_iter().filter(|p| ctx.open_project_resumed(p).is_err()).collect();
                 busy.set(left);
             });
         }
@@ -159,7 +157,7 @@ fn notify_quarantined(file: &std::path::Path, backup: &std::path::Path) {
 
 /// Проекты, ждущие освобождения другой программой.
 #[derive(Clone, Copy)]
-struct Busy(RwSignal<Vec<std::path::PathBuf>>);
+struct Busy(RwSignal<Vec<crate::config::NotesProjectConfig>>);
 
 /// Открытые проекты, страницы, панели и разделители — в файл состояния.
 fn install_state_autosave(app: AppCtx) {
@@ -168,9 +166,7 @@ fn install_state_autosave(app: AppCtx) {
         let st = notes.persist();
         let mut projects = st.projects;
         if let Some(Busy(busy)) = try_use_context::<Busy>() {
-            for p in busy.get() {
-                projects.push(crate::config::NotesProjectConfig { path: p.display().to_string(), ..Default::default() });
-            }
+            projects.extend(busy.get());
         }
         let cfg = AppConfig {
             notes_projects: Some(projects),

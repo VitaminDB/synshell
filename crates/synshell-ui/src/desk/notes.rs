@@ -30,6 +30,8 @@ use crate::ShellCtx;
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct NotesSnap {
     pub data: Option<Value>,
+    /// Хозяин отвечает, но открытого проекта нет (заняты другой программой).
+    pub no_project: bool,
 }
 
 thread_local! {
@@ -60,7 +62,10 @@ pub fn refresh() {
 fn fetch() -> NotesSnap {
     let (cfg, _) = synshell_common::Config::load();
     let page = cfg.notes.desk_page.trim().to_string();
-    NotesSnap { data: syn_notes_proto::desk((!page.is_empty()).then_some(page.as_str())).ok() }
+    match syn_notes_proto::desk((!page.is_empty()).then_some(page.as_str())) {
+        Ok(d) => NotesSnap { data: Some(d), no_project: false },
+        Err(e) => NotesSnap { data: None, no_project: e.contains("no notes project") },
+    }
 }
 
 fn start(sig: RwSignal<NotesSnap>) {
@@ -106,6 +111,18 @@ fn s<'a>(v: &'a Value, k: &str) -> &'a str {
 }
 
 fn offline(cx: &Cx) -> Box<dyn Widget> {
+    if snap().get_untracked().no_project {
+        return Box::new(
+            GestureDetector::new().on_click(|| open(None)).child(
+                Column::new()
+                    .gap(6.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Start)
+                    .child(Text::new(t!("Нет открытого проекта заметок")).class("desk-title"))
+                    .child(Text::new(t!("Проект может быть открыт в другой программе (synthos). Коснитесь, чтобы открыть заметки")).max_lines(3).class("desk-k"))
+                    .style("height", StyleValue::px(cx.h)),
+            ),
+        );
+    }
     Box::new(
         GestureDetector::new().on_click(|| open(None)).child(
             Column::new()

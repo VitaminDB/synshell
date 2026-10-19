@@ -314,6 +314,22 @@ impl NotesCtx {
     /// Открыть файл проекта плиткой, не показывая его: агент работает в
     /// нём, а пользователь остаётся там, где был. Показывается, только если
     /// другого открытого проекта нет. Возвращает нормализованный путь.
+    /// Открыть проект, ждавший освобождения, на той странице, где остановились.
+    pub fn open_project_resumed(&self, saved: &NotesProjectConfig) -> std::result::Result<PathBuf, ProjectError> {
+        let path = project::normalize_path(Path::new(&saved.path));
+        let fresh = !self.is_open(&path);
+        let path = self.open_project_quietly(&path)?;
+        if fresh && self.project_path.get_untracked() != path {
+            self.projects.update(|v| {
+                if let Some(p) = v.iter_mut().find(|p| p.path == path) {
+                    p.saved_active = saved.active_page.clone();
+                    p.saved_expanded = saved.expanded.clone();
+                }
+            });
+        }
+        Ok(path)
+    }
+
     pub fn open_project_quietly(&self, path: &Path) -> std::result::Result<PathBuf, ProjectError> {
         let path = project::normalize_path(path);
         if !self.is_open(&path) {
@@ -674,12 +690,13 @@ pub struct Restored {
 
 thread_local! {
     // Проекты, занятые другой программой при восстановлении: окно скажет о них.
-    static BUSY_AT_START: std::cell::RefCell<Vec<(PathBuf, String)>> = const { std::cell::RefCell::new(Vec::new()) };
+    static BUSY_AT_START: std::cell::RefCell<Vec<(NotesProjectConfig, String)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
-/// Забрать проекты, которые при старте оказались заняты.
-pub fn take_busy_at_start() -> Vec<ProjectError> {
-    BUSY_AT_START.with(|b| b.borrow_mut().drain(..).map(|(p, w)| ProjectError::Busy(p, w)).collect())
+/// Забрать проекты, которые при старте оказались заняты: где в них
+/// остановились и кто держит.
+pub fn take_busy_at_start() -> Vec<(NotesProjectConfig, String)> {
+    BUSY_AT_START.with(|b| b.borrow_mut().drain(..).collect())
 }
 
 /// Открытые проекты из конфига. Конфиг без списка (обновление со времён
@@ -704,7 +721,7 @@ pub fn restore(cfg: &AppConfig) -> Restored {
                 }
                 if let Err(who) = super::lock::acquire(&path) {
                     log::warn!("notes: проект {} открыт в {who} — плитка не восстановлена", path.display());
-                    BUSY_AT_START.with(|b| b.borrow_mut().push((path.clone(), who)));
+                    BUSY_AT_START.with(|b| b.borrow_mut().push((NotesProjectConfig { path: path.display().to_string(), ..p.clone() }, who)));
                     continue;
                 }
                 push(OpenProject {
