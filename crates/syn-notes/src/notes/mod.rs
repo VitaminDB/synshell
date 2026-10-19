@@ -48,6 +48,7 @@ pub mod projects;
 pub mod reminders;
 pub mod right_panel;
 pub mod state;
+pub mod sysnotify;
 
 pub use state::{LiveObject, LivePage, NotesCtx};
 

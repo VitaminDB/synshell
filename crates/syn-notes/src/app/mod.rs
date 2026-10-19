@@ -78,6 +78,14 @@ pub fn run() {
     let (cfg, _) = Config::load();
     let theme = use_signal(theme::mss(&cfg));
     install_state();
+    // Основное хранилище всегда открыто: с ним работают ассистент, рабочий
+    // стол и напоминания.
+    if let Some(main) = server::main_storage() {
+        let ctx = use_context::<NotesCtx>();
+        if !ctx.projects.get_untracked().iter().any(|p| p.path == crate::notes::project::normalize_path(&main)) {
+            let _ = ctx.open_project_quietly(&main);
+        }
+    }
     if let Some(cmd) = args.command.clone() {
         server::handle(cmd);
     }

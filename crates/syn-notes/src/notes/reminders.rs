@@ -169,6 +169,8 @@ pub struct Reminder {
     pub subtitle: String,
     /// Страница, которую открыть по клику.
     pub page: Option<String>,
+    /// Доска и карточка напоминания о сроке — кнопка «Готово» уведомления.
+    pub card: Option<(String, String)>,
     /// Когда показывать: день и минута.
     pub day: i64,
     pub at: u32,
@@ -211,6 +213,7 @@ pub fn collect(ctx: NotesCtx, now: (i64, u32)) -> Vec<Reminder> {
                     title,
                     subtitle: sub,
                     page: Some(pid.clone()),
+                    card: Some((oid.clone(), c.id.clone())),
                     day: today,
                     at: settings.card_time,
                 });
@@ -237,6 +240,7 @@ pub fn collect(ctx: NotesCtx, now: (i64, u32)) -> Vec<Reminder> {
             title: e.title.clone(),
             subtitle: if calendar.is_empty() { time } else { format!("{time} · {calendar}") },
             page: e.link.clone(),
+            card: None,
             day: occ.day,
             at,
         });
@@ -301,12 +305,7 @@ pub fn refresh_list(ctx: NotesCtx) {
 fn toast_batch(batch: &[Reminder]) {
     let app = use_context::<AppCtx>();
     let show = |r: &Reminder| {
-        let title = match r.kind {
-            ReminderKind::Overdue => tr!("notes.reminders.toast.overdue", title = r.title.clone()),
-            ReminderKind::DueToday => tr!("notes.reminders.toast.due_today", title = r.title.clone()),
-            ReminderKind::DueTomorrow => tr!("notes.reminders.toast.due_tomorrow", title = r.title.clone()),
-            ReminderKind::Event | ReminderKind::EventTomorrow => r.title.clone(),
-        };
+        let title = headline(r);
         let item = syngui::widgets::feedback::NotificationItem::info(title).message(r.subtitle.clone()).duration_ms(30_000);
         app.notifications.show(item);
     };
@@ -321,19 +320,50 @@ fn toast_batch(batch: &[Reminder]) {
     }
 }
 
-/// Проверка «сейчас» на main-потоке с тостами приложения.
+/// Проверка «сейчас» на main-потоке: все открытые проекты, напоминания —
+/// системными уведомлениями с кнопками (`super::sysnotify`). Без шины
+/// сеанса (тесты, сбой D-Bus) — тостами окна, как в synthos.
 pub fn check_now() {
     let ctx = use_context::<NotesCtx>();
     if !ctx.has_project() {
         return;
     }
+    let active = ctx.project_path.get_untracked();
+    let mut batch: Vec<(std::path::PathBuf, Reminder)> = Vec::new();
+    let now = crate::time::local_now();
     // Такт таймеров колонок досок — на том же минутном пробуждении, до
     // сбора напоминаний: истёкшие и перенесённые карточки уже на месте.
     super::kanban::sweep_boards(ctx);
-    let mut batch = Vec::new();
-    check(ctx, crate::time::local_now(), &mut |r| batch.push(r.clone()));
-    if !batch.is_empty() {
-        toast_batch(&batch);
+    check(ctx, now, &mut |r| batch.push((active.clone(), r.clone())));
+    for p in ctx.projects.get_untracked() {
+        if p.path == active {
+            continue;
+        }
+        let path = p.path.clone();
+        ctx.with_project(&p.path, |c| {
+            super::kanban::sweep_boards(c);
+            check(c, now, &mut |r| batch.push((path.clone(), r.clone())));
+        });
+    }
+    // Колокольчик — по показанному проекту: `check` чужих его перезаписал.
+    refresh_list(ctx);
+    if batch.is_empty() {
+        return;
+    }
+    let system = synshell_common::Config::load().0.notes.reminders;
+    if !system || !super::sysnotify::show(&batch) {
+        let only: Vec<Reminder> = batch.into_iter().map(|(_, r)| r).collect();
+        toast_batch(&only);
+    }
+}
+
+/// Заголовок напоминания для уведомления.
+pub fn headline(r: &Reminder) -> String {
+    match r.kind {
+        ReminderKind::Overdue => tr!("notes.reminders.toast.overdue", title = r.title.clone()),
+        ReminderKind::DueToday => tr!("notes.reminders.toast.due_today", title = r.title.clone()),
+        ReminderKind::DueTomorrow => tr!("notes.reminders.toast.due_tomorrow", title = r.title.clone()),
+        ReminderKind::Event | ReminderKind::EventTomorrow => r.title.clone(),
     }
 }
 

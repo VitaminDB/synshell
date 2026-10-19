@@ -65,6 +65,8 @@ pub struct Config {
     pub wifi: Wifi,
     pub packages: Packages,
     pub assistant: Assistant,
+    /// Заметки (`[notes]`): основное хранилище, рабочий стол, напоминания.
+    pub notes: Notes,
     /// Разрешение экрана X11-программ (`[x11]`).
     pub x11: X11,
     /// Своё разрешение для отдельных X11-программ (`[[x11_app]]`).
@@ -108,6 +110,7 @@ impl Default for Config {
             location: Location::default(),
             wifi: Wifi::default(),
             packages: Packages::default(),
+            notes: Notes::default(),
             assistant: Assistant::default(),
             x11: X11::default(),
             x11_apps: Vec::new(),
@@ -1622,6 +1625,65 @@ pub struct Assistant {
     pub knowledge: Vec<String>,
     /// Каталог своих рецептов (графы-сценарии *.json); пусто — `~/.local/share/synassist/recipes`.
     pub recipes_dir: String,
+    /// Автономный режим: задачи с доски ассистента по таймеру в простое.
+    pub autonomy: Autonomy,
+}
+
+/// Автономный режим ассистента (`[assistant.autonomy]`): по таймеру, когда
+/// компьютер простаивает, ассистент берёт открытые задачи со своей доски в
+/// основном хранилище заметок и выполняет их.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Autonomy {
+    pub enabled: bool,
+    /// Как часто просыпаться, минуты.
+    pub interval_min: u32,
+    /// Сколько минут без ввода пользователя считается простоем.
+    pub idle_min: u32,
+    /// Загрузка видеокарты выше (%) — такт пропускается.
+    pub max_gpu_percent: u32,
+    /// Пока запущены эти программы (имя процесса), ассистент не работает.
+    pub busy_apps: Vec<String>,
+    /// Доска задач ассистента (название страницы или доски).
+    pub board: String,
+    /// Спрашивать ли «Выполнить?» уведомлением: `always`, `new` (задачи,
+    /// которые ещё не выполнялись) или `never`.
+    pub ask: String,
+}
+
+impl Default for Autonomy {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval_min: 10,
+            idle_min: 5,
+            max_gpu_percent: 20,
+            busy_apps: Vec::new(),
+            board: "Ассистент".into(),
+            ask: "new".into(),
+        }
+    }
+}
+
+// ─── notes ──────────────────────────────────────────────────────────────────
+
+/// Заметки `syn-notes` (`[notes]`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Notes {
+    /// Основное хранилище — проект `.syn`, с которым работают ассистент,
+    /// рабочий стол и напоминания. Пусто — показанный в syn-notes проект.
+    pub storage: String,
+    /// Страница основного хранилища для режима «Заметки» рабочего стола.
+    pub desk_page: String,
+    /// Напоминания о сроках и событиях — системными уведомлениями.
+    pub reminders: bool,
+}
+
+impl Default for Notes {
+    fn default() -> Self {
+        Self { storage: String::new(), desk_page: "Рабочий стол".into(), reminders: true }
+    }
 }
 
 impl Default for Assistant {
@@ -1644,6 +1706,7 @@ impl Default for Assistant {
             skills_dir: String::new(),
             knowledge: Vec::new(),
             recipes_dir: String::new(),
+            autonomy: Autonomy::default(),
         }
     }
 }

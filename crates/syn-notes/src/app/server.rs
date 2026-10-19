@@ -82,6 +82,17 @@ fn open(target: &str) -> Result<(), String> {
     crate::tool::dispatch_now(&json!({"action": "open", "page": target})).map(|_| ())
 }
 
+/// Основное хранилище из `[notes] storage`, если задано и есть на диске.
+pub fn main_storage() -> Option<std::path::PathBuf> {
+    let (cfg, _) = synshell_common::Config::load();
+    let s = cfg.notes.storage.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let p = synshell_common::paths::expand_tilde(s);
+    p.is_file().then_some(p)
+}
+
 /// Слушать сокет в фоне. Занятый чужим живым процессом сокет не трогаем.
 pub fn start() {
     let path = socket_path();
@@ -156,7 +167,11 @@ fn answer(req: Value) -> Value {
             }
         }
         "tool" => {
-            let args = req.get("args").cloned().unwrap_or(Value::Null);
+            let mut args = req.get("args").cloned().unwrap_or(Value::Null);
+            // Ассистент без явного проекта работает в основном хранилище.
+            if let (Some(obj), Some(main)) = (args.as_object_mut(), main_storage()) {
+                obj.entry("project").or_insert_with(|| Value::String(main.display().to_string()));
+            }
             match on_main(move || crate::tool::dispatch_now(&args)) {
                 Some(Ok(text)) => json!({"ok": true, "text": text}),
                 Some(Err(e)) => json!({"ok": false, "error": e}),
