@@ -116,9 +116,18 @@ fn take_devices(paths: &[String], uid: u32, gid: u32) -> Vec<(String, u32, u32)>
     use std::os::unix::fs::MetadataExt;
     let owners: Vec<(String, u32, u32)> =
         paths.iter().filter_map(|p| std::fs::metadata(p).ok().map(|m| (p.clone(), m.uid(), m.gid()))).collect();
-    chown_all(paths, uid, gid);
+    for p in paths {
+        // /dev/rfkill открывает и iwd: он root, но без CAP_DAC_OVERRIDE, и чужой
+        // узел ему недоступен — перезапуск iwd в сеансе падал до перезагрузки.
+        // Пользователю хватает группы (режим 0664 от udev).
+        let owner = if KEEP_ROOT_OWNER.contains(&p.as_str()) { u32::MAX } else { uid };
+        chown(p, owner, gid);
+    }
     owners
 }
+
+/// Узлы, которые нужны и системным службам: владелец остаётся root.
+const KEEP_ROOT_OWNER: [&str; 1] = ["/dev/rfkill"];
 
 fn run_greeter() {
     let _ = std::fs::create_dir_all("/run/synlogin");
