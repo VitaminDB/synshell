@@ -536,6 +536,7 @@ impl Agent {
             subagent: false,
             subagent_steps: 0,
             system: Some(system),
+            instructions: None,
             memory: None,
             approved: Vec::new(),
             skills: Vec::new(),
