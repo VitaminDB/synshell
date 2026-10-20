@@ -149,6 +149,25 @@ fn from_desktop(e: &DesktopEntry, is_game: bool) -> Game {
     }
 }
 
+fn in_path(bin: &str) -> bool {
+    std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d.join(bin).is_file()))
+}
+
+/// Команда запуска игры Steam: `[gameshell] steam_launch`; если в ней `steam`,
+/// а такой программы нет — клиент под другим именем (`steam-arm64` старого
+/// пакета на телефоне).
+fn steam_launch_command(cfg: &Gameshell) -> String {
+    let launch = if cfg.steam_launch.trim().is_empty() { "steam steam://rungameid/{appid}".to_string() } else { cfg.steam_launch.trim().to_string() };
+    if let Some(rest) = launch.strip_prefix("steam ") {
+        if !in_path("steam") {
+            if let Some(alt) = ["steam-arm64", "steam-runtime"].into_iter().find(|b| in_path(b)) {
+                return format!("{alt} {rest}");
+            }
+        }
+    }
+    launch
+}
+
 /// Найденные игры и все приложения.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Library {
@@ -168,7 +187,7 @@ impl Library {
         // Steam.
         let steam_games = if cfg.steam { steam::games(cfg) } else { Vec::new() };
         let steam_ids: Vec<u32> = steam_games.iter().map(|g| g.appid).collect();
-        let launch = if cfg.steam_launch.trim().is_empty() { "steam steam://rungameid/{appid}".to_string() } else { cfg.steam_launch.clone() };
+        let launch = steam_launch_command(cfg);
         for g in steam_games {
             let id = format!("steam:{}", g.appid);
             games.push(Game {
