@@ -21,7 +21,7 @@ use crate::tiles;
 
 thread_local! {
     static SURFACE: Cell<Option<SurfaceId>> = const { Cell::new(None) };
-    static BUILT: Cell<Option<(u64, usize)>> = const { Cell::new(None) };
+    static BUILT: Cell<Option<(u64, u64)>> = const { Cell::new(None) };
 }
 
 pub fn install(ctx: ShellCtx) {
@@ -30,7 +30,9 @@ pub fn install(ctx: ShellCtx) {
     create_effect(move || {
         let outputs = syngui_layer::outputs().get();
         let generation = ctx.generation.get();
-        let key = (generation, outputs.len());
+        // Поворот экрана меняет размер вывода — раскладка другая.
+        let sizes = outputs.iter().fold(outputs.len() as u64, |h, o| h.wrapping_mul(1_000_003).wrapping_add((o.size.0 as u64) << 20 | o.size.1 as u64));
+        let key = (generation, sizes);
         if BUILT.with(|b| b.get()) == Some(key) {
             return;
         }
@@ -86,14 +88,27 @@ fn side_pad(w: f32) -> f32 {
 fn view(output: String) -> impl Widget {
     let (w, h) = synshell_ui::manager::output_size(Some(&output));
     let pad = side_pad(w);
-    let top = Row::new()
-        .gap(16.0)
-        .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(DecoratedBox::new().child(tiles::tabs_bar()).class("grow"))
-        .child(tiles::status_bar())
-        .class("gs-top")
-        .style("padding-left", StyleValue::px(pad))
-        .style("padding-right", StyleValue::px(pad));
+    // Узкий (портретный) экран: строка состояния — своей строкой, вкладки листаются вбок.
+    let top: Box<dyn Widget> = if w < 760.0 {
+        Box::new(
+            Column::new()
+                .gap(10.0)
+                .child(Row::new().main_axis_alignment(MainAxisAlignment::End).child(tiles::status_bar()).style("padding-left", StyleValue::px(pad)).style("padding-right", StyleValue::px(pad)))
+                .child(ScrollView::new().horizontal().scrollbar_policy(ScrollbarPolicy::Never).child(DecoratedBox::new().child(tiles::tabs_bar()).style("padding-left", StyleValue::px(pad)).style("padding-right", StyleValue::px(pad))))
+                .class("gs-top"),
+        )
+    } else {
+        Box::new(
+            Row::new()
+                .gap(16.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(DecoratedBox::new().child(tiles::tabs_bar()).class("grow"))
+                .child(tiles::status_bar())
+                .class("gs-top")
+                .style("padding-left", StyleValue::px(pad))
+                .style("padding-right", StyleValue::px(pad)),
+        )
+    };
     let body = body(pad, h);
     let content = Column::new()
         .child(top)
@@ -120,7 +135,8 @@ fn body(pad: f32, screen_h: f32) -> impl Widget {
         }
         let mut col = Column::new().gap(26.0);
         // Афиша — над прокруткой, на месте.
-        let hero = (tab_key == "home" && ctx.cfg().gameshell.hero).then(|| {
+        // Низкий экран (телефон боком) — без афиши: место полкам, картинка и так на фоне.
+        let hero = (tab_key == "home" && ctx.cfg().gameshell.hero && screen_h >= 640.0).then(|| {
             DecoratedBox::new().child(tiles::hero()).style("height", StyleValue::px((screen_h * 0.30).max(180.0))).style("padding-left", StyleValue::px(pad)).style("padding-right", StyleValue::px(pad))
         });
         for (si, s) in sections.iter().enumerate() {

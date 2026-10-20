@@ -278,7 +278,7 @@ pub fn tabs_bar() -> impl Widget {
                 (true, false) => "gs-tab gs-tab-on",
                 _ => "gs-tab",
             };
-            row = row.child(
+            row = row.child(Named::new(format!("gs-tab-{i}"),
                 InputArea::new(DecoratedBox::new().child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(glyph).class("gs-tab-icon")).child(Text::new(label).class("gs-tab-text"))).class(class))
                     .pointer()
                     .on_click(move |_, _, _| {
@@ -288,7 +288,7 @@ pub fn tabs_bar() -> impl Widget {
                         g.sel.set((0, 0));
                         g.zone.set(Zone::Content);
                     }),
-            );
+            ));
         }
         match input {
             Input::Gamepad => row = row.child(hint("RB")),

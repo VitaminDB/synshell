@@ -598,6 +598,7 @@ fn home(n: Nav) {
         let t = (g.tab.get_untracked() as i32 + d).rem_euclid(ntabs as i32) as usize;
         g.tab.set(t);
         g.sel.set((0, 0));
+        syngui::widgets::reveal_named(format!("gs-tab-{t}"));
     };
     let (_, rows) = rows_now(&g);
     let (r, c) = g.sel.get_untracked();
