@@ -615,7 +615,13 @@ impl State {
                     (m.fullscreen, m.maximized, m.snap, m.is_tiled(layout))
                 };
                 if fullscreen {
-                    let geo = self.core.space.output_geometry(output).unwrap_or_default();
+                    // Открытая экранная клавиатура (внизу) — окно над ней, как в Android:
+                    // поле ввода не прячется под клавишами.
+                    let mut geo = self.core.space.output_geometry(output).unwrap_or_default();
+                    let kb = crate::ipc::keyboard_height(output);
+                    if kb > 0 && kb < geo.size.h * 7 / 10 {
+                        geo.size.h -= kb;
+                    }
                     self.configure_content(id, geo, false);
                 } else if maximized {
                     self.place_frame(id, area, title_h, false, move_dur, false);

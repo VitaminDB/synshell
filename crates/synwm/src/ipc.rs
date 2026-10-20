@@ -482,7 +482,7 @@ pub fn is_osk_namespace(ns: &str) -> bool {
 /// Высота открытой экранной клавиатуры на выводе, 0 — её нет. Поверхность
 /// может быть выше клавиш (прозрачный запас synkeyboard под всплывающую
 /// букву) — тогда высота клавиатуры — её exclusive zone.
-fn keyboard_height(o: &smithay::output::Output) -> i32 {
+pub(crate) fn keyboard_height(o: &smithay::output::Output) -> i32 {
     use smithay::wayland::shell::wlr_layer::ExclusiveZone;
     let map = smithay::desktop::layer_map_for_output(o);
     map.layers()

@@ -205,15 +205,18 @@ where
         }
     }
 
-    // ── окно во весь экран — поверх панелей ──
-    if overview.is_none() {
-        if let Some(fs) = fullscreen {
-            window_elements(core, renderer, output, fs, Point::from((0, 0)), 1.0, &mut out);
-        }
+    // ── окно во весь экран — поверх панелей, но под экранной клавиатурой
+    // (иначе поле ввода полноэкранной программы — игровой режим — звало
+    // клавиатуру, а она открывалась под окном) ──
+    let osk = |l: &LayerSurface| crate::ipc::is_osk_namespace(l.namespace());
+    let fs_shown = overview.is_none() && fullscreen.is_some();
+    if fs_shown {
+        layer_elements_where(renderer, output, Layer::Top, scale, &mut out, osk);
+        window_elements(core, renderer, output, fullscreen.unwrap(), Point::from((0, 0)), 1.0, &mut out);
     }
 
     // ── слои top ──
-    layer_elements(renderer, output, Layer::Top, scale, &mut out);
+    layer_elements_where(renderer, output, Layer::Top, scale, &mut out, |l| !(fs_shown && osk(l)));
 
     // ── закрывающиеся окна (поверх окон) ──
     if overview.is_none() {
@@ -331,10 +334,21 @@ where
     R: Renderer + ImportAll + ImportMem + RotateDraw,
     R::TextureId: Clone + Send + 'static,
 {
+    layer_elements_where(renderer, output, layer, scale, out, |_| true)
+}
+
+/// Слои уровня `layer`, прошедшие фильтр (экранная клавиатура — отдельно,
+/// над полноэкранным окном).
+fn layer_elements_where<R>(renderer: &mut R, output: &Output, layer: Layer, scale: Scale<f64>, out: &mut Vec<OutputElement<R>>, keep: impl Fn(&LayerSurface) -> bool)
+where
+    R: Renderer + ImportAll + ImportMem + RotateDraw,
+    R::TextureId: Clone + Send + 'static,
+{
     let map = layer_map_for_output(output);
     let layers: Vec<(LayerSurface, Rectangle<i32, Logical>)> = map
         .layers_on(layer)
         .rev()
+        .filter(|l| keep(l))
         .filter_map(|l| map.layer_geometry(l).map(|g| (l.clone(), g)))
         .collect();
     drop(map);
