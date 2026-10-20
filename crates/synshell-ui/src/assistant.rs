@@ -602,6 +602,7 @@ pub(crate) fn build_agent(cfg: &synshell_common::config::Assistant) -> Agent {
         agent = agent.with_skills(synassist::skills::resolve(&cfg.skills_dir));
     }
     agent = agent.with_knowledge(cfg.knowledge.iter().map(|k| synassist::builtin::expand(k)).collect());
+    agent = agent.with_instructions(&cfg.instructions);
     agent.with_recipes(synassist::pipeline::resolve(&cfg.recipes_dir))
 }
 

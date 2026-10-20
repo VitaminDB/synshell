@@ -93,6 +93,8 @@ pub struct Agent {
     pub subagent: bool,
     pub subagent_steps: usize,
     pub system: Option<String>,
+    /// Указания пользователя — в конец системного промпта.
+    pub instructions: Option<String>,
     /// Каталог памяти (см. `memory`); `None` — без памяти.
     pub memory: Option<std::path::PathBuf>,
     /// Инструменты, которые выполняются без подтверждения.
@@ -112,7 +114,7 @@ const SUBAGENT_PROMPT: &str = "Ты — субагент: выполняешь �
 
 impl Agent {
     pub fn new(backend: Arc<dyn Backend>, tools: Vec<Arc<dyn Tool>>) -> Self {
-        Self { backend, tools, max_steps: 24, auto_approve: false, compact_percent: 85, subagent: true, subagent_steps: 16, system: None, memory: None, approved: Vec::new(), skills: Vec::new(), knowledge: Vec::new(), recipes: None }
+        Self { backend, tools, max_steps: 24, auto_approve: false, compact_percent: 85, subagent: true, subagent_steps: 16, system: None, instructions: None, memory: None, approved: Vec::new(), skills: Vec::new(), knowledge: Vec::new(), recipes: None }
     }
 
     pub fn configured(backend: Arc<dyn Backend>, disabled: &[String], auto_approve: bool, autocompact: bool) -> Self {
@@ -156,6 +158,13 @@ impl Agent {
         self
     }
 
+    /// Свои указания пользователя (роль, характер, манера ответов).
+    pub fn with_instructions(mut self, text: &str) -> Self {
+        let t = text.trim();
+        self.instructions = (!t.is_empty()).then(|| t.to_string());
+        self
+    }
+
     /// Базы знаний (папки): список в промпте и инструмент `knowledge`.
     pub fn with_knowledge(mut self, roots: Vec<std::path::PathBuf>) -> Self {
         let roots: Vec<_> = roots.into_iter().filter(|r| r.is_dir()).collect();
@@ -186,6 +195,10 @@ impl Agent {
         }
         if let Some(dir) = &self.memory {
             s.push_str(&crate::memory::prompt_section(dir));
+        }
+        if let Some(t) = &self.instructions {
+            s.push_str("\n\n# Указания пользователя\nРоль, характер и манеру ответов задаёт пользователь — следуй им всегда, не отказываясь от инструментов и правил выше:\n");
+            s.push_str(t);
         }
         s
     }

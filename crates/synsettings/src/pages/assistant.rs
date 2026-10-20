@@ -388,6 +388,18 @@ pub fn assistant() -> W {
                     ctx.sub.set(Some(("models/defaults".into(), t!("Модели по умолчанию"))));
                 }),
             ),
+            row_wide(
+                t!("Свои указания"),
+                t!("Роль, характер и манера ответов ассистента. Добавляются к встроенному промпту: инструменты, память и навыки продолжают работать"),
+                syngui::widgets::input::MultilineTextEdit::new()
+                    .text(a.instructions.clone())
+                    .placeholder(t!("Например: отвечай коротко и с юмором"))
+                    .rows(3)
+                    .max_rows(12)
+                    .auto_height(true)
+                    .soft_wrap(true)
+                    .on_change(|s: &str| set(&op!["assistant", "instructions"], s.to_string())),
+            ),
             switch_row(
                 t!("Выполнять без подтверждения"),
                 t!("Удаление и запись файлов, команды терминала и выключение — без вопроса. Включайте, только если доверяете модели"),

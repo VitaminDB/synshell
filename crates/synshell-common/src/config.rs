@@ -1604,6 +1604,9 @@ pub struct Assistant {
     /// Инструменты, которые выполняются без подтверждения (режим «сразу»).
     pub approved_tools: Vec<String>,
     pub autocompact: bool,
+    /// Свои указания ассистенту: роль, характер, манера ответов. Добавляются
+    /// к встроенному системному промпту (инструменты и правила остаются).
+    pub instructions: String,
     /// Озвучивать ответы и в текстовом чате (в голосовом режиме — всегда).
     pub speak_answers: bool,
     /// Язык распознавания и озвучки (`ru`, `en`, `kk`…); пусто — автоматически.
@@ -1700,6 +1703,7 @@ impl Default for Assistant {
             disabled_tools: Vec::new(),
             approved_tools: Vec::new(),
             autocompact: true,
+            instructions: String::new(),
             speak_answers: false,
             voice_language: String::new(),
             voice: String::new(),

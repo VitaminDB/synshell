@@ -392,6 +392,7 @@ impl St {
                 }
                 agent = agent.with_knowledge(cfg.knowledge.iter().map(|k| synassist::builtin::expand(k)).collect());
                 agent = agent.with_recipes(synassist::pipeline::resolve(&cfg.recipes_dir));
+                agent = agent.with_instructions(&cfg.instructions);
                 if voice {
                     agent.system = Some(synassist::prompt::build_voice(&agent.tools));
                 }
