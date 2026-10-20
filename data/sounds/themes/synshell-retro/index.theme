@@ -1,0 +1,10 @@
+[Sound Theme]
+Name=synshell Retro
+Name[ru]=synshell Ретро
+Comment=8-bit chiptune blips
+Comment[ru]=8-битные чиптюн-сигналы
+Inherits=synshell
+Directories=stereo
+
+[stereo]
+OutputProfile=stereo

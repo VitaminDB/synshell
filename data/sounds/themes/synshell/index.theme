@@ -1,0 +1,10 @@
+[Sound Theme]
+Name=synshell
+Name[ru]=synshell
+Comment=Soft glass chimes — the default synshell theme
+Comment[ru]=Мягкое стекло — тема synshell по умолчанию
+Inherits=freedesktop
+Directories=stereo
+
+[stereo]
+OutputProfile=stereo

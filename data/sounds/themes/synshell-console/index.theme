@@ -1,0 +1,10 @@
+[Sound Theme]
+Name=synshell Console
+Name[ru]=synshell Консоль
+Comment=Deep soft clicks and airy whooshes, game console style
+Comment[ru]=Глубокие мягкие щелчки и воздушные переходы, как у игровой консоли
+Inherits=synshell
+Directories=stereo
+
+[stereo]
+OutputProfile=stereo

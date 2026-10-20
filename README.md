@@ -171,6 +171,7 @@ The documentation in [`docs/`](docs/) is **in Russian**:
 - [THEMES.md](docs/THEMES.md) — theme format, MSS variables, writing your own theme.
 - [FILES.md](docs/FILES.md) — the file manager and image viewer.
 - [LINK.md](docs/LINK.md) — linking the phone and the computer: screen, input, files, notifications, ssh, MCP.
+- [SOUNDS.md](docs/SOUNDS.md) — event sounds and sound themes (own themes made by synthesis and ACE-Step, freedesktop themes).
 - [GAMESHELL.md](docs/GAMESHELL.md) — game mode: switching modes on the fly, fullscreen window policy, game library (Steam, .desktop, custom), gamepad.
 
 The fully commented default config is

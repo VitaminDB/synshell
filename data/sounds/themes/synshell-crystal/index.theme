@@ -1,0 +1,10 @@
+[Sound Theme]
+Name=synshell Crystal
+Name[ru]=synshell Хрусталь
+Comment=Bright celesta and shimmering glass
+Comment[ru]=Яркая челеста и мерцающее стекло
+Inherits=synshell
+Directories=stereo
+
+[stereo]
+OutputProfile=stereo

@@ -42,6 +42,10 @@ pub fn change_volume(ctx: ShellCtx, delta: i32, set: Option<u32>) {
             if set.is_none() {
                 let icon = if v.muted || v.percent == 0 { crate::ui::mi::VOLUME_OFF } else { crate::ui::mi::VOLUME_UP };
                 crate::osd::show(ctx, icon, Some(v.percent), String::new());
+                // Щелчок новой громкостью — слышно, насколько громко.
+                if !v.muted {
+                    syngui::async_runtime::run_on_main_thread(|| crate::sounds::play(crate::sounds::Ev::Volume));
+                }
             }
         }
     });

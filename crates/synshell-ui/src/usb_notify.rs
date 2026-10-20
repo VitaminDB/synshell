@@ -28,6 +28,11 @@ pub fn start(_ctx: ShellCtx) {
                     for d in &added {
                         log::info!("usb: подключено {} ({})", d.lsusb_line(), d.sysname);
                     }
+                    if !added.is_empty() {
+                        crate::sounds::play(crate::sounds::Ev::DeviceAdded);
+                    } else if !removed.is_empty() {
+                        crate::sounds::play(crate::sounds::Ev::DeviceRemoved);
+                    }
                     if !ctx.cfg().notifications.usb_devices {
                         return;
                     }

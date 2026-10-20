@@ -45,6 +45,15 @@ fn install(ctx: ShellCtx) {
         synshell_ui::manager::install_with(ctx, false);
     }
     home::install(ctx);
+    {
+        use synshell_ui::sounds::{self, Ev};
+        sounds::preload(&[Ev::Navigate, Ev::Bump, Ev::Select, Ev::Back, Ev::Tab, Ev::MenuOpen, Ev::MenuClose, Ev::Launch, Ev::Favorite, Ev::Click]);
+        // Вход в игровой режим (оболочка запускается при переключении).
+        syngui_layer::add_timer(std::time::Duration::from_millis(600), || {
+            sounds::play(Ev::Startup);
+            None
+        });
+    }
     synshell_ui::commands::set_extra(command);
     if ctx.cfg().gameshell.gamepad {
         gamepad::start(nav::gamepad);

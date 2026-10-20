@@ -358,6 +358,26 @@ fn run(args: &[String]) -> Result<(), String> {
             eprintln!();
             println!("{} · зерно {} → {out} за {:.1} с", reply.label, reply.seed, t0.elapsed().as_secs_f32());
         }
+        "music" => {
+            // synaptixctl music <модель|-> <выход.wav> <стиль/теги…>  (LYRICS=текст или файл, SECONDS, SEED)
+            let model = if arg(1)? == "-" { "" } else { arg(1)? };
+            let out = arg(2)?;
+            let prompt = args[3..].join(" ");
+            let lyrics = match std::env::var("LYRICS") {
+                Ok(l) if std::path::Path::new(&l).is_file() => std::fs::read_to_string(&l).map_err(|e| e.to_string())?,
+                Ok(l) => l,
+                Err(_) => String::new(),
+            };
+            let seconds = std::env::var("SECONDS").ok().and_then(|v| v.parse::<u32>().ok());
+            let seed = std::env::var("SEED").ok().and_then(|v| v.parse::<u64>().ok());
+            let t0 = std::time::Instant::now();
+            let (reply, wav) = c
+                .music(model, &prompt, &lyrics, seconds, seed, |i, n| eprint!("\r  шаг {i}/{n}"))
+                .map_err(|e| e.to_string())?;
+            std::fs::write(out, &wav).map_err(|e| e.to_string())?;
+            eprintln!();
+            println!("{} · {:.1} с · зерно {} → {out} за {:.1} с", reply.label, reply.seconds, reply.seed, t0.elapsed().as_secs_f32());
+        }
         "asr" => {
             let (pcm, sr) = read_wav(arg(2)?)?;
             let t0 = std::time::Instant::now();
@@ -419,7 +439,7 @@ fn run(args: &[String]) -> Result<(), String> {
             })
             .map_err(|e| e.to_string())?;
         }
-        other => return Err(format!("неизвестная команда {other}: list|status|defaults|default|params|libraries|library-add|library-remove|delete|load|unload|set|ctc|asr|gen|image|say|watch|rescan")),
+        other => return Err(format!("неизвестная команда {other}: list|status|defaults|default|params|libraries|library-add|library-remove|delete|load|unload|set|ctc|asr|gen|image|music|say|watch|rescan")),
     }
     Ok(())
 }

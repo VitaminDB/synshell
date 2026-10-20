@@ -53,6 +53,7 @@ pub mod autobright;
 pub mod wake_gestures;
 pub mod camera;
 pub mod shade;
+pub mod sounds;
 pub mod start_menu;
 pub mod switcher;
 pub mod system;
@@ -168,6 +169,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         notifications::install(ctx);
         auth::start(ctx);
         switcher::install(ctx);
+        sounds::start(ctx);
         applets::taskbar::start_minimize_rects();
         watch_config();
         watch_apps();

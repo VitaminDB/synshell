@@ -15,6 +15,7 @@ use syngui_layer::KeyInfo;
 
 pub use crate::gamepad::Nav;
 use crate::library::{self, Game, Library, Source, UserState};
+use synshell_ui::sounds::{self, Ev};
 
 /// Чем пользователь управлял последним — от этого подсказки внизу.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -426,6 +427,7 @@ pub fn launch(game: &Game) {
     if game.command.trim().is_empty() {
         return;
     }
+    sounds::play(Ev::Launch);
     let cfg = ctx.cfg();
     if game.terminal {
         synshell_ui::actions::spawn(&format!("{} -e {}", cfg.general.terminal, game.command));
@@ -462,6 +464,7 @@ pub fn toggle_favorite(game: &Game) {
     let g = gs();
     let mut user = (*g.user.get_untracked()).clone();
     let on = user.toggle_favorite(&game.id);
+    sounds::play(Ev::Favorite);
     user.save();
     g.user.set(Arc::new(user));
     let ctx = ShellCtx::get();
@@ -630,8 +633,14 @@ fn home(n: Nav) {
     // Подтверждение закрытия.
     if let Some((wid, name)) = g.confirm.get_untracked() {
         match n {
-            Nav::Accept => close_window(wid, name),
-            Nav::Back | Nav::Options => g.confirm.set(None),
+            Nav::Accept => {
+                sounds::play(Ev::Select);
+                close_window(wid, name)
+            }
+            Nav::Back | Nav::Options => {
+                sounds::play(Ev::MenuClose);
+                g.confirm.set(None)
+            }
             _ => {}
         }
         return;
@@ -645,21 +654,30 @@ fn home(n: Nav) {
     }
     // Меню действий игры.
     if let Some(mut sh) = g.sheet.get_untracked() {
+        let before = sh.sel;
         match n {
             Nav::Up => {
                 sh.sel = sh.sel.saturating_sub(1);
+                sounds::play(if sh.sel != before { Ev::Navigate } else { Ev::Bump });
                 g.sheet.set(Some(sh));
             }
             Nav::Down => {
                 sh.sel = (sh.sel + 1).min(sh.items.len().saturating_sub(1));
+                sounds::play(if sh.sel != before { Ev::Navigate } else { Ev::Bump });
                 g.sheet.set(Some(sh));
             }
             Nav::Accept => {
                 if let Some(it) = sh.items.get(sh.sel).cloned() {
+                    if !matches!(it, SheetItem::Play | SheetItem::Resume | SheetItem::Favorite(_)) {
+                        sounds::play(Ev::Select);
+                    }
                     sheet_activate(&it, &sh.game);
                 }
             }
-            Nav::Back | Nav::Options => g.sheet.set(None),
+            Nav::Back | Nav::Options => {
+                sounds::play(Ev::MenuClose);
+                g.sheet.set(None)
+            }
             _ => {}
         }
         return;
@@ -674,6 +692,7 @@ fn home(n: Nav) {
     };
     let (_, rows) = rows_now(&g);
     let (r, c) = g.sel.get_untracked();
+    let before = (g.zone.get_untracked(), g.tab.get_untracked(), g.sel.get_untracked());
     match (g.zone.get_untracked(), n) {
         (_, Nav::PrevTab) => switch_tab(-1),
         (_, Nav::NextTab) => switch_tab(1),
@@ -737,6 +756,15 @@ fn home(n: Nav) {
                 g.tab.set(start);
             }
         }
+    }
+    let after = (g.zone.get_untracked(), g.tab.get_untracked(), g.sel.get_untracked());
+    match n {
+        Nav::Up | Nav::Down | Nav::Left | Nav::Right if after.1 != before.1 => sounds::play(Ev::Tab),
+        Nav::Up | Nav::Down | Nav::Left | Nav::Right => sounds::play(if after != before { Ev::Navigate } else { Ev::Bump }),
+        Nav::PrevTab | Nav::NextTab => sounds::play(Ev::Tab),
+        Nav::Back => sounds::play(if after != before { Ev::Back } else { Ev::Bump }),
+        Nav::Options if g.sheet.get_untracked().is_some() => sounds::play(Ev::MenuOpen),
+        _ => {}
     }
     if g.zone.get_untracked() == Zone::Content {
         reveal(&g);

@@ -433,6 +433,9 @@ status = ["network", "battery", "volume", "gamepad", "clock"]
 hints = true                   # подсказки кнопок внизу
 panels = false                 # обычные панели [[panel]] и в игровом режиме
 confirm_close = true
+sounds = true                  # навигация, выбор, назад, вкладки, меню, запуск
+sound_theme = "synshell-console"   # пусто — как [sound] theme
+sound_volume = 80
 remember_mode = false          # переключение действием пишет [platform] form_factor
 # Свои игры и правка найденных (id найденной игры — меняет её имя, картинки, команду):
 # [[gameshell.game]]
@@ -499,6 +502,16 @@ offset = 0                     # поправка к кривой, %: сдвиг
 
 [sound]
 overamplify = false            # громкость выше 100 % (до 150 %): для тихих записей, громкие искажаются
+# Звуки событий — по звуковой теме freedesktop (/usr/share/sounds, ~/.local/share/sounds):
+# synshell, synshell-console, synshell-crystal, synshell-retro, synshell-wood,
+# freedesktop, ocean, deepin, elementary…
+theme = "synshell"
+events = true                  # общий выключатель звуков событий
+volume = 70                    # громкость звуков событий, %
+notifications = true           # новые уведомления (не в «Не беспокоить»)
+system = true                  # громкость, снимок экрана, блокировка, вход в сеанс
+devices = false                # устройства, зарядка, низкий заряд
+clicks = false                 # тихие щелчки по кнопкам оболочки
 
 # Дата и время. Пояс и синхронизация часов по сети — системные (timedatectl,
 # «Параметры → Дата и время»); здесь — что делает оболочка.

@@ -8044,6 +8044,7 @@ dependencies = [
  "single-instance",
  "smithay-client-toolkit",
  "swash",
+ "symphonia",
  "syntect",
  "tokio",
  "ureq",

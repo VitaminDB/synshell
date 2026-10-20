@@ -2489,6 +2489,12 @@ pub struct Gameshell {
     pub panels: bool,
     /// Спрашивать перед «Закрыть игру».
     pub confirm_close: bool,
+    /// Звуки игрового режима: навигация, выбор, назад, вкладки, меню, запуск.
+    pub sounds: bool,
+    /// Звуковая тема игрового режима; пусто — как `[sound] theme`.
+    pub sound_theme: String,
+    /// Громкость звуков игрового режима, %.
+    pub sound_volume: u32,
     /// Запоминать режим в config.toml (`[platform] form_factor`) при
     /// переключении действием — после перезапуска сеанс начнётся в нём.
     pub remember_mode: bool,
@@ -2527,6 +2533,9 @@ impl Default for Gameshell {
             hints: true,
             panels: false,
             confirm_close: true,
+            sounds: true,
+            sound_theme: "synshell-console".into(),
+            sound_volume: 80,
             remember_mode: false,
             games: Vec::new(),
         }
@@ -2646,13 +2655,43 @@ impl Default for Haptics {
 
 // ─── звук ───────────────────────────────────────────────────────────────────
 
-/// Звук (`[sound]`).
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+/// Звук (`[sound]`): громкость и звуки событий оболочки.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Sound {
     /// Громкость выше 100 % (до 150 %, программное усиление PipeWire — как «Сверхусиление» GNOME):
     /// для тихих записей; громкие звуки при этом искажаются.
     pub overamplify: bool,
+    /// Звуковая тема (XDG, каталог в `/usr/share/sounds` или
+    /// `~/.local/share/sounds`): `synshell`, `synshell-console`, `freedesktop`, `ocean`…
+    pub theme: String,
+    /// Звуки событий вообще (общий выключатель).
+    pub events: bool,
+    /// Громкость звуков событий, % (поверх системной).
+    pub volume: u32,
+    /// Новые уведомления (не в «Не беспокоить»).
+    pub notifications: bool,
+    /// Громкость (щелчок), снимок экрана, блокировка и разблокировка, вход в сеанс.
+    pub system: bool,
+    /// Подключение и отключение устройств, зарядки, низкий заряд.
+    pub devices: bool,
+    /// Тихие щелчки по кнопкам оболочки (панели, меню, шторка).
+    pub clicks: bool,
+}
+
+impl Default for Sound {
+    fn default() -> Self {
+        Self {
+            overamplify: false,
+            theme: crate::sound_theme::DEFAULT_THEME.into(),
+            events: true,
+            volume: 70,
+            notifications: true,
+            system: true,
+            devices: false,
+            clicks: false,
+        }
+    }
 }
 
 impl Sound {

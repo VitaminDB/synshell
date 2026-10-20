@@ -1871,3 +1871,27 @@
 
 # src/pages/mod.rs
 "gameshell игры игровой режим консоль steam big picture геймпад полный экран лаунчер обложки" = "gameshell games game mode console steam big picture gamepad fullscreen launcher covers"
+
+# src/pages/audio.rs, game.rs (звуки)
+"Динамики, наушники, микрофон, громкость программ, Dolby Atmos, звуки событий." = "Speakers, headphones, microphone, app volume, Dolby Atmos, event sounds."
+"{c} (не установлена)" = "{c} (not installed)"
+"Звуки событий" = "Event sounds"
+"Звуковая тема" = "Sound theme"
+"Свои темы synshell и установленные в системе (freedesktop, Ocean, Deepin, Yaru, Smooth…)" = "synshell's own themes and those installed on the system (freedesktop, Ocean, Deepin, Yaru, Smooth…)"
+"Прослушать" = "Preview"
+"Уведомление, громкость, снимок, вход" = "Notification, volume, screenshot, login"
+"Общий выключатель" = "Master switch"
+"Громкость звуков, %" = "Sound volume, %"
+"Поверх системной громкости" = "On top of the system volume"
+"Новое уведомление (кроме «Не беспокоить»)" = "New notification (except in Do Not Disturb)"
+"Щелчок громкости, снимок экрана, блокировка, вход в сеанс" = "Volume click, screenshot, lock, session login"
+"Подключение USB, зарядка, низкий заряд" = "USB connect, charging, low battery"
+"Нажатия" = "Clicks"
+"Тихие щелчки по кнопкам оболочки" = "Quiet clicks on shell buttons"
+"Звуки" = "Sounds"
+"Звуки интерфейса" = "Interface sounds"
+"Навигация, выбор, назад, вкладки, меню, запуск игры" = "Navigation, select, back, tabs, menus, game launch"
+"Своя для игрового режима или как у оболочки" = "Its own for game mode or the same as the shell"
+"Как в «Звук → Звуки событий»" = "Same as Sound → Event sounds"
+"Навигация, выбор, вкладка, меню, запуск" = "Navigation, select, tab, menu, launch"
+"звуки событий звуковая тема уведомления щелчки громкость динамик наушники гарнитура микрофон вывод ввод устройство программы dolby atmos профиль музыка кино pipewire" = "event sounds sound theme notifications clicks volume speaker headphones headset microphone output input device apps dolby atmos profile music movie pipewire"

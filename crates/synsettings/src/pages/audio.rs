@@ -233,5 +233,65 @@ pub fn audio() -> W {
         ));
         vec![boxed(col)]
     });
-    page(t!("Звук"), t!("Динамики, наушники, микрофон, громкость программ, Dolby Atmos."), vec![boxed(body)])
+    page(t!("Звук"), t!("Динамики, наушники, микрофон, громкость программ, Dolby Atmos, звуки событий."), vec![boxed(body), events_group()])
+}
+
+/// Прослушать события темы по очереди.
+pub fn preview(theme: String, events: &'static [&'static str], volume: f32) {
+    std::thread::spawn(move || {
+        for ev in events {
+            if let Some(p) = synshell_common::sound_theme::lookup(&theme, ev) {
+                if let Ok(s) = syngui::audio::sfx::load(&p) {
+                    let d = s.duration().min(std::time::Duration::from_millis(1400));
+                    syngui::audio::sfx::play(&s, volume);
+                    std::thread::sleep(d + std::time::Duration::from_millis(150));
+                }
+            }
+        }
+    });
+}
+
+/// Выбор звуковой темы: установленные (XDG) с подписями.
+pub fn theme_choice(p: crate::ui::P, current: &str, with_inherit: Option<String>) -> impl Widget {
+    let mut opts: Vec<(String, String)> = Vec::new();
+    if let Some(label) = with_inherit {
+        opts.push((String::new(), label));
+    }
+    for t in synshell_common::sound_theme::list() {
+        let label = if t.comment.is_empty() { t.name.clone() } else { format!("{} — {}", t.name, t.comment) };
+        opts.push((t.id, label));
+    }
+    if !current.is_empty() && !opts.iter().any(|(id, _)| id == current) {
+        opts.push((current.to_string(), t!("{c} (не установлена)", c = current).to_string()));
+    }
+    choice_owned(p, current, opts, 320.0)
+}
+
+/// Звуки событий оболочки (`[sound]`).
+fn events_group() -> W {
+    let c = store::config();
+    let s = &c.sound;
+    let theme = s.theme.clone();
+    let vol = s.volume as f32 / 100.0;
+    group(
+        &t!("Звуки событий"),
+        vec![
+            row_wide(t!("Звуковая тема"), t!("Свои темы synshell и установленные в системе (freedesktop, Ocean, Deepin, Yaru, Smooth…)"), theme_choice(op!["sound", "theme"], &s.theme, None)),
+            row(
+                t!("Прослушать"),
+                t!("Уведомление, громкость, снимок, вход"),
+                button(t!("Прослушать"), move || {
+                    let th = store::config().sound.theme.clone();
+                    let th = if th.is_empty() { theme.clone() } else { th };
+                    preview(th, &["message-new-instant", "audio-volume-change", "screen-capture", "desktop-login"], vol)
+                }),
+            ),
+            switch_row(t!("Звуки событий"), t!("Общий выключатель"), op!["sound", "events"], s.events),
+            int_row(t!("Громкость звуков, %"), t!("Поверх системной громкости"), op!["sound", "volume"], s.volume as i64, 0, 150, 5),
+            switch_row(t!("Уведомления"), t!("Новое уведомление (кроме «Не беспокоить»)"), op!["sound", "notifications"], s.notifications),
+            switch_row(t!("Система"), t!("Щелчок громкости, снимок экрана, блокировка, вход в сеанс"), op!["sound", "system"], s.system),
+            switch_row(t!("Устройства"), t!("Подключение USB, зарядка, низкий заряд"), op!["sound", "devices"], s.devices),
+            switch_row(t!("Нажатия"), t!("Тихие щелчки по кнопкам оболочки"), op!["sound", "clicks"], s.clicks),
+        ],
+    )
 }

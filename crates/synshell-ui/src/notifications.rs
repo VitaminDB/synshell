@@ -298,6 +298,7 @@ fn add(ctx: ShellCtx, n: Notification, replace: bool) {
     // «N уведомлений» в быстрых настройках).
     if crate::shade::is_open() && !n.transient {
         synshell_common::haptics::play(synshell_common::haptics::Feedback::Notification);
+        crate::sounds::play(crate::sounds::Ev::Notification);
         return;
     }
     let fresh = !ctx.notifications.get_untracked().iter().any(|x| x.id == id);
@@ -308,6 +309,7 @@ fn add(ctx: ShellCtx, n: Notification, replace: bool) {
     // Новое (не обновлённое) уведомление — вибрацией; тихие (transient) — нет.
     if fresh && !n.transient {
         synshell_common::haptics::play(synshell_common::haptics::Feedback::Notification);
+        crate::sounds::play(crate::sounds::Ev::Notification);
     }
     if timeout > 0 {
         syngui_layer::add_timer(Duration::from_millis(timeout as u64), move || {

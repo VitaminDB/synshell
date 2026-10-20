@@ -115,6 +115,13 @@ name = "Heroes: Olden Era"
 cover = "~/Картинки/heroes.png"
 ```
 
+## Звуки
+
+Навигация, упор в край, выбор, назад, вкладки, меню, запуск игры, избранное,
+вход в режим — по звуковой теме `[gameshell] sound_theme` (по умолчанию
+`synshell-console`; пусто — как `[sound] theme`), громкость `sound_volume`,
+выключатель `sounds`. Подробно — [SOUNDS.md](SOUNDS.md).
+
 ## Вид
 
 `tile_size` (`small`, `medium`, `large`), `tile_style` (`cover`, `icon`), `hero`, `background`

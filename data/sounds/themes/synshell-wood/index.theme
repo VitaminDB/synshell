@@ -1,0 +1,10 @@
+[Sound Theme]
+Name=synshell Wood
+Name[ru]=synshell Дерево
+Comment=Marimba and kalimba, warm and organic
+Comment[ru]=Маримба и калимба — тёплые деревянные звуки
+Inherits=synshell
+Directories=stereo
+
+[stereo]
+OutputProfile=stereo

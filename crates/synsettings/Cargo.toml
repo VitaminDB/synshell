@@ -18,7 +18,7 @@ synaptixd.workspace = true
 synassist.workspace = true
 synaptix-graph.workspace = true
 synassist-voice.workspace = true
-syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "clipboard", "i18n", "image", "svg"] }
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "clipboard", "i18n", "image", "svg", "sfx"] }
 toml.workspace = true
 toml_edit.workspace = true
 serde.workspace = true

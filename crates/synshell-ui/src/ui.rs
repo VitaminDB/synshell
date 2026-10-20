@@ -293,6 +293,9 @@ impl Element for InputAreaElement {
                 if self.pressed == Some(*button) {
                     self.pressed = None;
                     if inside {
+                        if self.on_click.is_some() && *button == MouseButton::Left {
+                            crate::sounds::play(crate::sounds::Ev::Click);
+                        }
                         call3(&self.on_click, *button, *position, self.bounds);
                     }
                     return EventResult::Handled;

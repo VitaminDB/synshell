@@ -1,7 +1,7 @@
 # Maintainer: Alexeyev Vitaly
 pkgname=synshell
 pkgver=0.1.42
-pkgrel=126
+pkgrel=127
 pkgdesc="Окружение рабочего стола для Wayland на Rust и syngui: композитор, оболочка, параметры"
 arch=('x86_64')
 license=('GPL-3.0-only')
@@ -12,6 +12,10 @@ optdepends=('xorg-xwayland: X11-программы'
             'intel-npu-driver: драйвер Intel NPU'
             'intel-npu-compiler: компилятор графов Intel NPU'
             'wireplumber: громкость (wpctl)'
+            'sound-theme-freedesktop: звуковая тема freedesktop (запасная для событий)'
+            'ocean-sound-theme: звуковая тема Ocean (KDE)'
+            'deepin-sound-theme: звуковая тема Deepin'
+            'sound-theme-elementary: звуковая тема elementary'
             'brightnessctl: яркость'
             'networkmanager: апплет сети'
             'playerctl: мультимедийные клавиши'
@@ -79,6 +83,12 @@ package() {
     install -Dm755 data/synshell-session "$pkgdir/usr/bin/synshell-session"
     ln -s synwm "$pkgdir/usr/bin/syndesktop"   # совместимость: старое имя композитора
     install -Dm644 data/synshell.desktop "$pkgdir/usr/share/wayland-sessions/synshell.desktop"
+    # Звуковые темы synshell (XDG): synshell, -console, -crystal, -retro, -wood.
+    for t in data/sounds/themes/*/; do
+        t=$(basename "$t")
+        install -Dm644 "data/sounds/themes/$t/index.theme" "$pkgdir/usr/share/sounds/$t/index.theme"
+        install -Dm644 -t "$pkgdir/usr/share/sounds/$t/stereo" data/sounds/themes/$t/stereo/*
+    done
     install -Dm644 data/xdg-desktop-portal-wlr/synshell "$pkgdir/etc/xdg/xdg-desktop-portal-wlr/synshell"
     install -Dm644 data/synshell-portals.conf "$pkgdir/usr/share/xdg-desktop-portal/synshell-portals.conf"
     install -Dm644 data/synshell.portal "$pkgdir/usr/share/xdg-desktop-portal/portals/synshell.portal"

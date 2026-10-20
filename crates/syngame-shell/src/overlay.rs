@@ -75,6 +75,9 @@ pub fn is_open() -> bool {
 }
 
 pub fn open(section: Section) {
+    if !is_open() {
+        synshell_ui::sounds::play(synshell_ui::sounds::Ev::MenuOpen);
+    }
     let s = st();
     s.section.set(Some(section));
     s.sel.set(0);
@@ -112,6 +115,7 @@ pub fn open(section: Section) {
 pub fn close() {
     crate::gamepad::set_grab(false);
     if let Some(id) = SURFACE.with(|s| s.take()) {
+        synshell_ui::sounds::play(synshell_ui::sounds::Ev::MenuClose);
         syngui_layer::close_surface(id);
     }
     st().section.set(None);
@@ -269,9 +273,16 @@ pub fn handle(n: Nav) {
     if !matches!(n, Nav::Accept) {
         s.armed.set(false);
     }
+    use synshell_ui::sounds::{play, Ev};
     match n {
-        Nav::Up => s.sel.set(sel.saturating_sub(1)),
-        Nav::Down => s.sel.set((sel + 1).min(list.len().saturating_sub(1))),
+        Nav::Up => {
+            play(if sel > 0 { Ev::Navigate } else { Ev::Bump });
+            s.sel.set(sel.saturating_sub(1))
+        }
+        Nav::Down => {
+            play(if sel + 1 < list.len() { Ev::Navigate } else { Ev::Bump });
+            s.sel.set((sel + 1).min(list.len().saturating_sub(1)))
+        }
         Nav::Left | Nav::Right => {
             if let Some(it) = list.get(sel) {
                 adjust(it, if n == Nav::Left { -1 } else { 1 });
@@ -279,6 +290,7 @@ pub fn handle(n: Nav) {
         }
         Nav::Accept => {
             if let Some(it) = list.get(sel).cloned() {
+                play(Ev::Select);
                 activate(&it);
             }
         }
@@ -286,6 +298,7 @@ pub fn handle(n: Nav) {
             if section == Section::Main {
                 close();
             } else {
+                play(Ev::Back);
                 s.section.set(Some(Section::Main));
                 s.sel.set(0);
             }

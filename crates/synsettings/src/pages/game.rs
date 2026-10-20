@@ -114,6 +114,31 @@ pub fn game() -> W {
                 ],
             ),
             group(
+                &t!("Звуки"),
+                vec![
+                    switch_row(t!("Звуки интерфейса"), t!("Навигация, выбор, назад, вкладки, меню, запуск игры"), op!["gameshell", "sounds"], gs.sounds),
+                    row_wide(
+                        t!("Звуковая тема"),
+                        t!("Своя для игрового режима или как у оболочки"),
+                        super::audio::theme_choice(op!["gameshell", "sound_theme"], &gs.sound_theme, Some(t!("Как в «Звук → Звуки событий»").to_string())),
+                    ),
+                    int_row(t!("Громкость звуков, %"), "", op!["gameshell", "sound_volume"], gs.sound_volume as i64, 0, 150, 5),
+                    row(
+                        t!("Прослушать"),
+                        t!("Навигация, выбор, вкладка, меню, запуск"),
+                        button(t!("Прослушать"), || {
+                            let c = store::config();
+                            let th = if c.gameshell.sound_theme.trim().is_empty() { c.sound.theme.clone() } else { c.gameshell.sound_theme.clone() };
+                            super::audio::preview(
+                                th,
+                                &["gameshell-navigate", "gameshell-navigate", "gameshell-select", "gameshell-tab", "gameshell-menu-open", "gameshell-back", "gameshell-launch"],
+                                c.gameshell.sound_volume as f32 / 100.0,
+                            )
+                        }),
+                    ),
+                ],
+            ),
+            group(
                 &t!("Управление"),
                 vec![
                     switch_row(t!("Геймпад"), t!("Навигация крестовиной и стиком, A — запуск, B — назад, LB/RB — вкладки"), op!["gameshell", "gamepad"], gs.gamepad),
