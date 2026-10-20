@@ -40,6 +40,7 @@
 .gs-tab:hover { background-color: #ffffff14; }
 .gs-tab-on { background-color: #ffffff22; }
 .gs-tab-focus { background-color: var(--accent); }
+.gs-menu-btn { padding: 9px 12px; margin-right: 6px; background-color: #ffffff14; }
 .gs-tab-icon { icon-size: 20px; icon-color: var(--gs-muted); }
 .gs-tab-text { font-size: 17px; font-weight: 600; color: var(--gs-muted); }
 .gs-tab-on .gs-tab-icon { icon-color: var(--gs-fg); }

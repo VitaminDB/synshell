@@ -280,6 +280,12 @@ pub fn tabs_bar() -> impl Widget {
         let _ = g.user.get();
         let _ = ctx.windows.get();
         let mut row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        // Кнопка быстрого меню — для касаний и мыши (геймпад — Start/Guide).
+        row = row.child(
+            InputArea::new(DecoratedBox::new().child(icon("\u{E5D2}").class("gs-tab-icon")).class("gs-tab gs-menu-btn"))
+                .pointer()
+                .on_click(|_, _, _| crate::overlay::open(crate::overlay::Section::Main)),
+        );
         let hint = |s: &str| DecoratedBox::new().child(Text::new(s.to_string()).class("gs-key-text")).class("gs-key");
         match input {
             Input::Gamepad => row = row.child(hint("LB")),
