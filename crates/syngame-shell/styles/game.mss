@@ -102,6 +102,11 @@
 .gs-btn-primary .gs-btn-text { color: #0b0e14; }
 .gs-btn-round { padding: 12px; }
 .gs-btn-on .gs-btn-icon { icon-color: #f2c94c; }
+.gs-btn-sm { padding: 8px 14px; }
+.gs-btn-sm .gs-btn-text { font-size: 15px; }
+.gs-btn-sm .gs-btn-icon { icon-size: 20px; }
+.gs-btn-danger { background-color: #c8413b; }
+.gs-btn-danger:hover { background-color: #e0524b; }
 .gs-btn-icon { icon-size: 24px; icon-color: var(--gs-fg); }
 .gs-btn-text { font-size: 18px; font-weight: 700; color: var(--gs-fg); }
 

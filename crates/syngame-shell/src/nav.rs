@@ -56,6 +56,7 @@ pub enum SheetItem {
     Resume,
     Favorite(bool),
     CloseGame,
+    Kill,
     Hide,
 }
 
@@ -118,8 +119,13 @@ pub fn init(ctx: ShellCtx) -> Gs {
     create_effect(move || {
         let lib = g.lib.get();
         let user = g.user.get();
-        let tab = g.tab.get();
         let _ = ctx.windows.get();
+        // Вкладка могла исчезнуть (закрыли последнее окно — нет «Запущенных»).
+        let ntabs = tabs(&ctx, &g).len().max(1);
+        if g.tab.get_untracked() >= ntabs {
+            g.tab.set(ntabs - 1);
+        }
+        let tab = g.tab.get();
         let _ = ctx.generation.get();
         let v = build_sections(&ctx, &g, &lib, &user, tab);
         // Выделение держится за игру, а не за номер строки: появилась полка
@@ -167,6 +173,7 @@ pub fn tabs(ctx: &ShellCtx, g: &Gs) -> Vec<(String, String, &'static str)> {
         let t = t.trim();
         match t {
             "home" => v.push((t.to_string(), t!("Главная").to_string(), "\u{E88A}")),
+            "running" if !running(ctx, &lib).is_empty() => v.push((t.to_string(), t!("Запущенные").to_string(), "\u{E53B}")),
             "games" => v.push((t.to_string(), t!("Игры").to_string(), "\u{EA28}")),
             "favorites" if !user.favorites.is_empty() => v.push((t.to_string(), t!("Избранное").to_string(), "\u{E838}")),
             "steam" if lib.games.iter().any(|g| g.source == Source::Steam) => v.push((t.to_string(), "Steam".to_string(), "\u{E30A}")),
@@ -250,6 +257,8 @@ fn build_sections(ctx: &ShellCtx, g: &Gs, lib: &Library, user: &UserState, tab: 
             }
             v
         }
+        // Окна: закрыть или убить кнопками на плитке (`procs` — свой ключ, не «Запущено» главной).
+        "running" => vec![grid("procs", String::new(), running(ctx, lib).into_iter().map(|(g, _)| g).collect(), false)],
         "games" => vec![grid("games", String::new(), lib.games.clone(), false)],
         "favorites" => vec![grid("favorites", String::new(), fav, false)],
         "steam" => vec![grid("steam", String::new(), lib.games.iter().filter(|g| g.source == Source::Steam).cloned().collect(), false)],
@@ -434,6 +443,19 @@ pub fn close_window(wid: u64, name: String) {
     }
     g.confirm.set(None);
     synshell_ui::actions::window_op(wid, WindowOp::Close);
+    // Не закрылось за полторы секунды — приложение, видимо, спрашивает само
+    // (несохранённое, запущенная команда): показать его окно с вопросом.
+    syngui_layer::add_timer(Duration::from_millis(1500), move || {
+        if ShellCtx::get().windows.get_untracked().iter().any(|w| w.id == wid) {
+            synshell_ui::actions::window_op(wid, WindowOp::Activate);
+        }
+        None
+    });
+}
+
+/// Убить процесс окна (SIGKILL) — когда приложение не закрывается.
+pub fn kill_window(wid: u64) {
+    synshell_ui::actions::window_op(wid, WindowOp::Kill);
 }
 
 fn hide_game(game: &Game) {
@@ -456,6 +478,7 @@ fn open_sheet(game: Game) {
     let mut items = vec![if running { SheetItem::Resume } else { SheetItem::Play }, SheetItem::Favorite(fav)];
     if running {
         items.push(SheetItem::CloseGame);
+        items.push(SheetItem::Kill);
     }
     if !game.id.starts_with("window:") {
         items.push(SheetItem::Hide);
@@ -472,6 +495,11 @@ pub fn sheet_activate(item: &SheetItem, game: &Game) {
         SheetItem::CloseGame => {
             if let Some(w) = window_of(game) {
                 close_window(w, game.name.clone());
+            }
+        }
+        SheetItem::Kill => {
+            if let Some(w) = window_of(game) {
+                kill_window(w);
             }
         }
         SheetItem::Hide => hide_game(game),

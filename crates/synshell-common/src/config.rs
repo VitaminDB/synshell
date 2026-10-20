@@ -2435,6 +2435,7 @@ pub struct Gameshell {
     /// app_id (шаблоны с `*`), которым fullscreen не навязывается.
     pub fullscreen_exclude: Vec<String>,
     /// Вкладки лаунчера по порядку: `home` (главная: недавние и избранное),
+    /// `running` (запущенные: закрыть, убить; видна, пока есть окна),
     /// `games` (все игры), `favorites`, `steam`, `apps` (все приложения),
     /// `tag:<метка>` (свои подборки из `[[gameshell.game]] tags`).
     pub tabs: Vec<String>,
@@ -2502,7 +2503,7 @@ impl Default for Gameshell {
             exit_to: "device".into(),
             force_fullscreen: true,
             fullscreen_exclude: Vec::new(),
-            tabs: vec!["home".into(), "games".into(), "steam".into(), "apps".into()],
+            tabs: vec!["home".into(), "running".into(), "games".into(), "steam".into(), "apps".into()],
             start_tab: "home".into(),
             desktop_games: true,
             game_categories: vec!["Game".into()],

@@ -185,7 +185,8 @@ fn sheet_label(it: &SheetItem) -> (&'static str, String) {
         SheetItem::Resume => ("\u{E037}", t!("Продолжить").to_string()),
         SheetItem::Favorite(true) => (mi::STAR, t!("Убрать из избранного").to_string()),
         SheetItem::Favorite(false) => (mi::STAR, t!("В избранное").to_string()),
-        SheetItem::CloseGame => (mi::CLOSE, t!("Закрыть игру").to_string()),
+        SheetItem::CloseGame => (mi::CLOSE, t!("Закрыть").to_string()),
+        SheetItem::Kill => (synshell_ui::desk::KILL, t!("Убить (SIGKILL)").to_string()),
         SheetItem::Hide => ("\u{E8F5}", t!("Скрыть из библиотеки").to_string()),
     }
 }

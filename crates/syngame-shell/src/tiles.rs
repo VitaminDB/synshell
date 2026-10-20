@@ -115,6 +115,7 @@ fn card(g: &Game, icons: bool, selected: bool, fav: bool, launching: bool) -> im
 /// Плитка игры `index` раздела `section` (выделение, наведение, касание).
 pub fn tile(section: usize, key: &str, index: usize, game: Game, icons: bool) -> impl Widget {
     let g = gs();
+    let manage = key == "procs";
     let ga = game.clone();
     let body = rx(move || {
         let sections = g.sections.get();
@@ -123,7 +124,20 @@ pub fn tile(section: usize, key: &str, index: usize, game: Game, icons: bool) ->
         let selected = g.zone.get() == Zone::Content && rows.get(r).is_some_and(|row| row.section == section && row.start + c.min(row.len.saturating_sub(1)) == index);
         let fav = g.user.get().is_favorite(&ga.id);
         let launching = g.launching.get().is_some_and(|l| l.0 == ga.id);
-        Box::new(card(&ga, icons, selected, fav, launching))
+        let card = card(&ga, icons, selected, fav, launching);
+        if !manage {
+            return Box::new(card);
+        }
+        // Вкладка «Запущенные»: закрыть или убить кнопками под плиткой.
+        let _ = ShellCtx::get().windows.get();
+        let Some(wid) = nav::window_of(&ga) else { return Box::new(card) };
+        let name = ga.name.clone();
+        let buttons = Row::new()
+            .gap(10.0)
+            .main_axis_alignment(MainAxisAlignment::Center)
+            .child(button(mi::CLOSE, Some(t!("Закрыть").to_string()), "gs-btn-sm", move || nav::close_window(wid, name.clone())))
+            .child(button(synshell_ui::desk::KILL, None, "gs-btn-sm gs-btn-danger", move || nav::kill_window(wid)));
+        Box::new(Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(card).child(buttons))
     });
     let gl = game.clone();
     Named::new(
@@ -264,6 +278,7 @@ pub fn tabs_bar() -> impl Widget {
         let input = g.input.get();
         let _ = g.lib.get();
         let _ = g.user.get();
+        let _ = ctx.windows.get();
         let mut row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center);
         let hint = |s: &str| DecoratedBox::new().child(Text::new(s.to_string()).class("gs-key-text")).class("gs-key");
         match input {
