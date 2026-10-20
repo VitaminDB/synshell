@@ -40,10 +40,37 @@ pub fn session_env(core: &Core) -> Vec<(String, String)> {
     if let Some(x) = core.xwayland.first().and_then(|x| x.display) {
         env.push(("DISPLAY".to_string(), format!(":{x}")));
     }
+    // Ядро без user namespaces (Android GKI телефона): песочница Chromium в
+    // Electron-программах (веб-приложения WebCatalog, VS Code…) невозможна —
+    // свой chrome-sandbox у них в домашнем каталоге, setuid ему не дать, — и
+    // программа падала с «SUID sandbox helper … not configured correctly».
+    if std::env::var_os("ELECTRON_DISABLE_SANDBOX").is_none() && !user_namespaces() {
+        env.push(("ELECTRON_DISABLE_SANDBOX".to_string(), "1".to_string()));
+    }
     for (k, v) in &core.config.general.environment {
         env.push((k.clone(), v.clone()));
     }
     env
+}
+
+/// Может ли обычный процесс создать user namespace (проверка один раз:
+/// дочерний процесс делает unshare(CLONE_NEWUSER)).
+fn user_namespaces() -> bool {
+    static OK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *OK.get_or_init(|| {
+        // SAFETY: fork без потоков-помощников в ребёнке: только unshare и _exit.
+        unsafe {
+            match libc::fork() {
+                0 => libc::_exit(if libc::unshare(libc::CLONE_NEWUSER) == 0 { 0 } else { 1 }),
+                -1 => true,
+                pid => {
+                    let mut st = 0;
+                    libc::waitpid(pid, &mut st, 0);
+                    libc::WIFEXITED(st) && libc::WEXITSTATUS(st) == 0
+                }
+            }
+        }
+    })
 }
 
 /// Тема платформы Qt: без неё Qt-приложения не читают цвета и стиль из
