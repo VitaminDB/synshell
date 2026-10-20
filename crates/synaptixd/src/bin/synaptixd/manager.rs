@@ -355,6 +355,16 @@ impl Manager {
         self.slots.lock().unwrap().get(id).map(|s| s.params().over(&call.sanitize(&s.schema))).unwrap_or_default()
     }
 
+    /// Стартовый промпт, который пользователь сам вписал в настройки модели
+    /// (не значение по умолчанию). Программы со своим системным сообщением
+    /// (ассистент) получают его в дополнение, а не теряют.
+    pub fn user_system_prompt(&self, id: &str) -> Option<String> {
+        let slots = self.slots.lock().unwrap();
+        let s = slots.get(id)?;
+        let v = s.settings.params.text("system_prompt")?.trim();
+        (!v.is_empty() && s.optimal.text("system_prompt").map(str::trim) != Some(v)).then(|| v.to_string())
+    }
+
     fn auto_pick(&self, kind: ModelKind) -> Option<String> {
         let slots = self.slots.lock().unwrap();
         let rank = |s: &Slot| {

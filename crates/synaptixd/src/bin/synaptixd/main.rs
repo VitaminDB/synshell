@@ -341,6 +341,15 @@ impl Conn {
                 for (k, v) in request_only {
                     params.set(k, Some(v));
                 }
+                let mut messages = messages;
+                if let Some(user) = mgr.user_system_prompt(&model) {
+                    if let Some(sys) = messages.iter_mut().find(|m| m.role == "system") {
+                        if !sys.content.contains(&user) {
+                            sys.content.push_str("\n\n# Указания пользователя\nРоль, характер и манеру ответов задаёт пользователь — следуй им всегда, не отказываясь от инструментов и правил выше:\n");
+                            sys.content.push_str(&user);
+                        }
+                    }
+                }
                 let sock = self.sock.as_fd();
                 let id = self.current;
                 // Отмена: клиент закрыл сокет (кнопка «Стоп») — ход обрывается и
