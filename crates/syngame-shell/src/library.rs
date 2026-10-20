@@ -154,6 +154,8 @@ fn from_desktop(e: &DesktopEntry, is_game: bool) -> Game {
 pub struct Library {
     pub games: Vec<Game>,
     pub apps: Vec<Game>,
+    /// Приложения Android (syndroid) — своя вкладка.
+    pub android: Vec<Game>,
 }
 
 impl Library {
@@ -202,9 +204,14 @@ impl Library {
                 games.push(g);
             }
         }
-        // Android-приложения — в «Все приложения».
+        // Android-приложения — своя вкладка; несколько экземпляров — подпись в тегах.
+        let mut android: Vec<Game> = Vec::new();
         for e in apps.iter().filter(|e| !e.no_display && e.android.is_some()) {
-            all_apps.push(from_desktop(e, false));
+            let mut g = from_desktop(e, false);
+            if let Some(a) = &e.android {
+                g.tags.push(format!("android:{}", a.title));
+            }
+            android.push(g);
         }
 
         // Свои ярлыки и правка найденного.
@@ -276,22 +283,25 @@ impl Library {
         };
         games.retain(|g| !hidden(&g.id) && !g.tags.iter().any(|t| t == "\u{0}hidden"));
         all_apps.retain(|g| !hidden(&g.id));
+        android.retain(|g| !hidden(&g.id));
         games.iter_mut().for_each(played);
         all_apps.iter_mut().for_each(played);
+        android.iter_mut().for_each(played);
         let by_name = |a: &Game, b: &Game| a.name.to_lowercase().cmp(&b.name.to_lowercase());
         games.sort_by(by_name);
         all_apps.sort_by(by_name);
-        Library { games, apps: all_apps }
+        android.sort_by(by_name);
+        Library { games, apps: all_apps, android }
     }
 
     pub fn find(&self, id: &str) -> Option<&Game> {
-        self.games.iter().find(|g| g.id == id).or_else(|| self.apps.iter().find(|g| g.id == id))
+        self.games.iter().chain(self.apps.iter()).chain(self.android.iter()).find(|g| g.id == id)
     }
 
     /// Недавние игры (и приложения, запущенные из gameshell).
     pub fn recent(&self, n: usize) -> Vec<Game> {
         let mut seen: HashMap<&str, ()> = HashMap::new();
-        let mut v: Vec<&Game> = self.games.iter().chain(self.apps.iter()).filter(|g| g.last_played > 0 && seen.insert(g.id.as_str(), ()).is_none()).collect();
+        let mut v: Vec<&Game> = self.games.iter().chain(self.apps.iter()).chain(self.android.iter()).filter(|g| g.last_played > 0 && seen.insert(g.id.as_str(), ()).is_none()).collect();
         v.sort_by(|a, b| b.last_played.cmp(&a.last_played));
         v.into_iter().take(n).cloned().collect()
     }

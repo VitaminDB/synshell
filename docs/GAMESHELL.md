@@ -50,7 +50,8 @@ IPC: `Request::FormFactor` → `Response::FormFactor { current, device, previous
 - **Запущенные** (видна, пока есть окна): плитка приложения с кнопками «Закрыть» (если оно не
   закрылось за 1,5 с — само спрашивает, его окно показывается) и «Убить» (SIGKILL); то же — X →
   «Закрыть» / «Убить (SIGKILL)» на любой запущенной игре.
-- **Игры**, **Избранное**, **Steam**, **Приложения**, свои подборки `tag:<метка>` — сетки плиток.
+- **Игры**, **Избранное**, **Steam**, **Android** (приложения syndroid, видна, если они есть),
+  **Приложения** (программы Linux), свои подборки `tag:<метка>` — сетки плиток.
   Состав и порядок — `tabs`, вкладка при запуске — `start_tab`.
 - Плитка — обложка 2:3 (Steam `library_600x900`/`library_capsule`, своя `cover`), без обложки —
   значок на цветном градиенте с именем; звезда у избранных; заставка запуска до появления окна.
@@ -88,7 +89,8 @@ IPC: `Request::FormFactor` → `Response::FormFactor { current, device, previous
 | .desktop с категориями `game_categories` (по умолчанию `Game`) | `desktop_games`, `include_apps` |
 | Steam: `appmanifest_*.acf` во всех библиотеках `libraryfolders.vdf`, картинки из `appcache/librarycache` | `steam`, `steam_dirs`, `steam_launch`, `steam_hide_tools` |
 | Свои ярлыки `[[gameshell.game]]` | — |
-| Все приложения (вкладка «Приложения», включая Android) | — |
+| Все приложения Linux (вкладка «Приложения») | — |
+| Приложения Android (syndroid, вкладка «Android») | — |
 
 Ярлыки .desktop, запускающие `steam://rungameid/N`, сливаются с игрой Steam. Окно запущенной
 игры узнаётся по `steam_app_<id>` (Steam), `app_id` (свои) или по .desktop. Спрятать игру —

@@ -77,7 +77,13 @@ pub struct Gs {
     pub sel: RwSignal<(usize, usize)>,
     pub input: RwSignal<Input>,
     pub sections: RwSignal<Arc<Vec<Section>>>,
-    pub cols: RwSignal<usize>,
+    /// Колонки сеток: обложки, значки — по настоящей ширине поверхности.
+    pub cols: RwSignal<(usize, usize)>,
+    /// Ширина плиток (обложки, значки): подогнана, чтобы сетка шла во всю ширину.
+    pub tile_w: RwSignal<(f32, f32)>,
+    /// Размер главного экрана в единицах интерфейса (из configure поверхности:
+    /// у дробного масштаба вывод сообщает неточный логический размер).
+    pub size: RwSignal<(f32, f32)>,
     /// Игра запускается: id и время нажатия (заставка до появления окна).
     pub launching: RwSignal<Option<(String, i64)>>,
     pub sheet: RwSignal<Option<Sheet>>,
@@ -105,7 +111,9 @@ pub fn init(ctx: ShellCtx) -> Gs {
         sel: use_signal((0usize, 0usize)),
         input: use_signal(Input::Pointer),
         sections: use_signal(Arc::new(Vec::new())),
-        cols: use_signal(5usize),
+        cols: use_signal((5usize, 6usize)),
+        tile_w: use_signal((188.0f32, 154.0f32)),
+        size: use_signal((1280.0f32, 720.0f32)),
         launching: use_signal(None),
         sheet: use_signal(None),
         confirm: use_signal(None),
@@ -156,7 +164,7 @@ pub fn rescan(ctx: &ShellCtx) {
     let cfg = ctx.cfg();
     let user = g.user.get_untracked();
     let lib = Library::scan(&cfg.gameshell, &user);
-    if *g.lib.get_untracked().games != lib.games || *g.lib.get_untracked().apps != lib.apps {
+    if *g.lib.get_untracked() != lib {
         g.lib.set(Arc::new(lib));
     }
 }
@@ -178,6 +186,7 @@ pub fn tabs(ctx: &ShellCtx, g: &Gs) -> Vec<(String, String, &'static str)> {
             "favorites" if !user.favorites.is_empty() => v.push((t.to_string(), t!("Избранное").to_string(), "\u{E838}")),
             "steam" if lib.games.iter().any(|g| g.source == Source::Steam) => v.push((t.to_string(), "Steam".to_string(), "\u{E30A}")),
             "apps" => v.push((t.to_string(), t!("Приложения").to_string(), "\u{E5C3}")),
+            "android" if !lib.android.is_empty() => v.push((t.to_string(), "Android".to_string(), "\u{E859}")),
             _ => {
                 if let Some(tag) = t.strip_prefix("tag:") {
                     if lib.games.iter().any(|g| g.tags.iter().any(|x| x == tag)) {
@@ -200,7 +209,7 @@ pub fn running(ctx: &ShellCtx, lib: &Library) -> Vec<(Game, u64)> {
         if out.iter().any(|(_, id)| *id == w.id) {
             continue;
         }
-        let g = lib.games.iter().chain(lib.apps.iter()).find(|g| library::window_matches(g, &w.app_id));
+        let g = lib.games.iter().chain(lib.apps.iter()).chain(lib.android.iter()).find(|g| library::window_matches(g, &w.app_id));
         if let Some(g) = g {
             if out.iter().any(|(x, _)| x.id == g.id) {
                 continue;
@@ -263,6 +272,7 @@ fn build_sections(ctx: &ShellCtx, g: &Gs, lib: &Library, user: &UserState, tab: 
         "favorites" => vec![grid("favorites", String::new(), fav, false)],
         "steam" => vec![grid("steam", String::new(), lib.games.iter().filter(|g| g.source == Source::Steam).cloned().collect(), false)],
         "apps" => vec![grid("apps", String::new(), lib.apps.clone(), true)],
+        "android" => vec![grid("android", String::new(), lib.android.clone(), true)],
         other => {
             let tag = other.strip_prefix("tag:").unwrap_or(other);
             vec![grid(other, String::new(), lib.games.iter().filter(|g| g.tags.iter().any(|x| x == tag)).cloned().collect(), false)]
@@ -270,13 +280,47 @@ fn build_sections(ctx: &ShellCtx, g: &Gs, lib: &Library, user: &UserState, tab: 
     }
 }
 
-pub fn nav_rows(sections: &[Section], cols: usize) -> Vec<NavRow> {
-    let cols = cols.max(1);
+/// Отступ по бокам экрана.
+pub fn side_pad(w: f32) -> f32 {
+    if w < 1300.0 {
+        28.0
+    } else {
+        64.0
+    }
+}
+
+/// Новый размер главного экрана: колонки сеток под него.
+pub fn set_size(w: f32, h: f32) {
+    let g = gs();
+    let pad = side_pad(w);
+    // Колонки — ближайшее число плиток базового размера, ширина плиток
+    // подгоняется так, чтобы ряд занял всю ширину (без пустоты справа).
+    let gap = crate::tiles::GAP;
+    let avail = (w - 2.0 * pad).max(100.0);
+    let fit = |tw: f32| {
+        let n = ((avail + gap) / (tw + gap)).round().max(2.0) as usize;
+        (n, ((avail - gap * (n as f32 - 1.0)) / n as f32).floor())
+    };
+    let (cn, cw) = fit(crate::tiles::base_width(false));
+    let (inn, iw) = fit(crate::tiles::base_width(true));
+    if g.cols.get_untracked() != (cn, inn) {
+        g.cols.set((cn, inn));
+    }
+    if g.tile_w.get_untracked() != (cw, iw) {
+        g.tile_w.set((cw, iw));
+    }
+    if g.size.get_untracked() != (w, h) {
+        g.size.set((w, h));
+    }
+}
+
+pub fn nav_rows(sections: &[Section], cols: (usize, usize)) -> Vec<NavRow> {
     let mut v = Vec::new();
     for (si, s) in sections.iter().enumerate() {
         if s.items.is_empty() {
             continue;
         }
+        let cols = if s.icons { cols.1 } else { cols.0 }.max(1);
         if s.grid {
             let mut start = 0;
             while start < s.items.len() {

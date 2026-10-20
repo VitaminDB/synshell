@@ -19,8 +19,8 @@ const PLAY: &str = "\u{E037}";
 const MORE: &str = "\u{E5D3}";
 const STAR_BORDER: &str = "\u{E83A}";
 
-/// Размер плитки (логические px): обложка 2:3 или квадрат значка.
-pub fn tile_dims(icons: bool) -> (f32, f32) {
+/// Базовая ширина плитки по `[gameshell] tile_size` (обложка или значок).
+pub fn base_width(icons: bool) -> f32 {
     let cfg = ShellCtx::get().cfg();
     let w = match cfg.gameshell.tile_size.trim() {
         "small" => 150.0,
@@ -28,9 +28,20 @@ pub fn tile_dims(icons: bool) -> (f32, f32) {
         _ => 188.0,
     };
     if icons {
-        (w * 0.82, w * 0.82)
+        (w * 0.82f32).round()
     } else {
-        (w, (w * 1.5).round())
+        w
+    }
+}
+
+/// Размер плитки: ширина подогнана под экран (`nav::set_size`), обложка 2:3,
+/// значок — квадрат.
+pub fn tile_dims(icons: bool) -> (f32, f32) {
+    let (cw, iw) = gs().tile_w.get_untracked();
+    if icons {
+        (iw, iw)
+    } else {
+        (cw, (cw * 1.5).round())
     }
 }
 
@@ -107,7 +118,7 @@ fn card(g: &Game, icons: bool, selected: bool, fav: bool, launching: bool) -> im
     let mut col = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(frame);
     // Подпись — у обложек с картинкой (на подложке имя уже есть) и у значков.
     if icons || (use_cover && g.cover.is_some()) || selected {
-        col = col.child(Text::new(g.name.clone()).max_lines(1).class(if selected { "gs-tile-name gs-tile-name-sel" } else { "gs-tile-name" }).style("width", px(w + 8.0)));
+        col = col.child(Text::new(g.name.clone()).max_lines(1).class(if selected { "gs-tile-name gs-tile-name-sel" } else { "gs-tile-name" }).style("width", px(w)));
     }
     col
 }
@@ -401,7 +412,7 @@ pub fn empty(key: &str) -> impl Widget {
     let (title, body) = match key {
         "favorites" => (t!("В избранном пусто"), t!("Выделите игру и нажмите Y (F на клавиатуре)")),
         "steam" => (t!("Игр Steam не найдено"), t!("Установите игры в Steam — они появятся здесь")),
-        "apps" => (t!("Приложений не найдено"), String::new().into()),
+        "apps" | "android" => (t!("Приложений не найдено"), String::new().into()),
         _ => (
             t!("Игр пока нет"),
             t!("Игры находятся в Steam, среди программ с категорией Game и в [[gameshell.game]] config.toml"),

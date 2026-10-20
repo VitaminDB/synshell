@@ -25,7 +25,7 @@ thread_local! {
 }
 
 pub fn install(ctx: ShellCtx) {
-    let g = nav::init(ctx);
+    nav::init(ctx);
     // Пересобрать поверхность при смене конфига и выводов.
     create_effect(move || {
         let outputs = syngui_layer::outputs().get();
@@ -41,12 +41,9 @@ pub fn install(ctx: ShellCtx) {
             syngui_layer::close_surface(id);
         }
         let Some(out) = synshell_ui::manager::primary_output(&ctx).or_else(|| outputs.first().map(|o| o.name.clone())) else { return };
-        // Колонки сетки — по ширине вывода.
-        let (w, _) = synshell_ui::manager::output_size(Some(&out));
-        let (tw, _) = tiles::tile_dims(false);
-        let pad = side_pad(w);
-        let cols = (((w - 2.0 * pad + tiles::GAP) / (tw + tiles::GAP)).floor() as usize).max(2);
-        g.cols.set(cols);
+        // Колонки — пока по размеру вывода, точно — по configure поверхности.
+        let (w, h) = synshell_ui::manager::output_size(Some(&out));
+        nav::set_size(w, h);
         let spec = SurfaceSpec {
             namespace: "syngame-home".into(),
             layer: Layer::Bottom,
@@ -59,7 +56,11 @@ pub fn install(ctx: ShellCtx) {
             auto_size: false,
             clear_color: [0.04, 0.05, 0.08, 1.0],
         };
-        let hooks = SurfaceHooks { on_key: Some(Box::new(nav::key)), ..Default::default() };
+        let hooks = SurfaceHooks {
+            on_key: Some(Box::new(nav::key)),
+            on_resize: Some(Box::new(|w, h| nav::set_size(w as f32, h as f32))),
+            ..Default::default()
+        };
         let id = syngui_layer::create_surface_with(spec, hooks, move || Box::new(view(out.clone())));
         SURFACE.with(|s| s.set(Some(id)));
     });
@@ -77,43 +78,40 @@ pub fn install(ctx: ShellCtx) {
     synshell_ui::on_reload(|ctx, _| nav::rescan(&ctx));
 }
 
-fn side_pad(w: f32) -> f32 {
-    if w < 900.0 {
-        28.0
-    } else {
-        64.0
-    }
-}
 
 fn view(output: String) -> impl Widget {
-    let (w, h) = synshell_ui::manager::output_size(Some(&output));
-    let pad = side_pad(w);
-    // Узкий (портретный) экран: строка состояния — своей строкой, вкладки листаются вбок.
-    let top: Box<dyn Widget> = if w < 760.0 {
+    let g = gs();
+    let content = rx(move || {
+        let (w, h) = g.size.get();
+        let pad = nav::side_pad(w);
+        // Узкий (портретный) экран: строка состояния — своей строкой, вкладки листаются вбок.
+        let top: Box<dyn Widget> = if w < 760.0 {
+            Box::new(
+                Column::new()
+                    .gap(10.0)
+                    .child(Row::new().main_axis_alignment(MainAxisAlignment::End).child(tiles::status_bar()).style("padding-left", StyleValue::px(pad)).style("padding-right", StyleValue::px(pad)))
+                    .child(ScrollView::new().horizontal().scrollbar_policy(ScrollbarPolicy::Never).child(DecoratedBox::new().child(tiles::tabs_bar()).style("padding-left", StyleValue::px(pad)).style("padding-right", StyleValue::px(pad))))
+                    .class("gs-top"),
+            )
+        } else {
+            Box::new(
+                Row::new()
+                    .gap(16.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(DecoratedBox::new().child(tiles::tabs_bar()).class("grow"))
+                    .child(tiles::status_bar())
+                    .class("gs-top")
+                    .style("padding-left", StyleValue::px(pad))
+                    .style("padding-right", StyleValue::px(pad)),
+            )
+        };
         Box::new(
             Column::new()
-                .gap(10.0)
-                .child(Row::new().main_axis_alignment(MainAxisAlignment::End).child(tiles::status_bar()).style("padding-left", StyleValue::px(pad)).style("padding-right", StyleValue::px(pad)))
-                .child(ScrollView::new().horizontal().scrollbar_policy(ScrollbarPolicy::Never).child(DecoratedBox::new().child(tiles::tabs_bar()).style("padding-left", StyleValue::px(pad)).style("padding-right", StyleValue::px(pad))))
-                .class("gs-top"),
+                .child(top)
+                .child(DecoratedBox::new().child(body(pad, h)).class("grow"))
+                .child(DecoratedBox::new().child(tiles::hints()).style("padding-left", StyleValue::px(pad)).style("padding-right", StyleValue::px(pad))),
         )
-    } else {
-        Box::new(
-            Row::new()
-                .gap(16.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(DecoratedBox::new().child(tiles::tabs_bar()).class("grow"))
-                .child(tiles::status_bar())
-                .class("gs-top")
-                .style("padding-left", StyleValue::px(pad))
-                .style("padding-right", StyleValue::px(pad)),
-        )
-    };
-    let body = body(pad, h);
-    let content = Column::new()
-        .child(top)
-        .child(DecoratedBox::new().child(body).class("grow"))
-        .child(DecoratedBox::new().child(tiles::hints()).style("padding-left", StyleValue::px(pad)).style("padding-right", StyleValue::px(pad)));
+    });
     Stack::new()
         .fit(StackFit::Expand)
         .child(tiles::background(output))
@@ -144,7 +142,8 @@ fn body(pad: f32, screen_h: f32) -> impl Widget {
                 continue;
             }
             if s.grid {
-                let cols = g.cols.get_untracked().max(1);
+                let _ = g.tile_w.get();
+                let cols = { let c = g.cols.get(); if s.icons { c.1 } else { c.0 } }.max(1);
                 let mut grid = Column::new().gap(tiles::GAP + 6.0);
                 for (r, chunk) in s.items.chunks(cols).enumerate() {
                     let mut row = Row::new().gap(tiles::GAP);
