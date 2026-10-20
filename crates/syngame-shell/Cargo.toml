@@ -1,0 +1,22 @@
+[package]
+name = "syngame-shell"
+description = "Game mode shell of the synshell environment (gameshell): fullscreen console-style game launcher with Steam library, gamepad navigation and an in-game quick menu"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "syngame-shell"
+path = "src/main.rs"
+
+[dependencies]
+libc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml_edit.workspace = true
+synshell-common.workspace = true
+synshell-ui.workspace = true
+syngui-layer.workspace = true
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "svg", "material-icons", "i18n"] }
+log = "0.4"

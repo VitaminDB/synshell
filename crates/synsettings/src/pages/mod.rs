@@ -10,6 +10,7 @@ mod camera;
 mod datetime;
 mod default_apps;
 mod devices;
+mod game;
 mod hardware;
 mod input;
 mod language;
@@ -243,6 +244,14 @@ pub const PAGES: &[PageDef] = &[
         group: n_!("Устройства"),
         keywords: n_!("режим окон страницы свободный стол ручка назад домашний экран ресурсы мобильный"),
         build: mobile::phone,
+    },
+    PageDef {
+        id: "gameshell",
+        title: n_!("Игровой режим"),
+        icon: "\u{EA28}",
+        group: n_!("Устройства"),
+        keywords: n_!("gameshell игры игровой режим консоль steam big picture геймпад полный экран лаунчер обложки"),
+        build: game::game,
     },
     PageDef {
         id: "gestures",

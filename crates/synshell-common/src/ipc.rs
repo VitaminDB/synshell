@@ -70,6 +70,8 @@ pub enum Request {
     Thumbnails { ids: Vec<u64>, max: [u32; 2] },
     /// Простой пользователя — [`Response::Idle`] (автономный режим ассистента).
     Idle,
+    /// Режим оболочки (форм-фактор) — [`Response::FormFactor`].
+    FormFactor,
 }
 
 /// Видео в потоке кадров.
@@ -193,6 +195,9 @@ pub enum Response {
     X11Display { display: String, resolution: String },
     Thumbnails { thumbs: Vec<Thumbnail> },
     Idle { idle: IdleInfo },
+    /// `current` — режим сейчас (`desktop`, `phone`, `game`), `device` —
+    /// режим устройства (по мониторам), `previous` — откуда пришли в текущий.
+    FormFactor { current: String, device: String, previous: String },
 }
 
 /// Простой: сколько секунд не было ввода, держит ли что-то экран

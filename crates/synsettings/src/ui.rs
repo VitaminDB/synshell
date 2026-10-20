@@ -201,6 +201,18 @@ pub fn text_row(label: impl AsRef<str>, hint: impl AsRef<str>, p: P, value: &str
     row(label, hint, text(p, value, placeholder, 260.0))
 }
 
+/// Список строк одной строкой через запятую (`["a", "b"]` ↔ «a, b»).
+pub fn list_text(p: P, value: &[String], placeholder: impl AsRef<str>, width: f32) -> impl Widget {
+    TextField::with_text(value.join(", ")).placeholder(tl(placeholder)).width(width).on_change(move |s| {
+        let arr: toml_edit::Array = s.split(',').map(str::trim).filter(|x| !x.is_empty()).collect();
+        set(&p, toml_edit::Value::Array(arr))
+    })
+}
+
+pub fn list_row(label: impl AsRef<str>, hint: impl AsRef<str>, p: P, value: &[String], placeholder: impl AsRef<str>) -> W {
+    row(label, hint, list_text(p, value, placeholder, 260.0))
+}
+
 /// Текстовое поле, где пустое значение удаляет ключ (необязательные поля правил).
 pub fn opt_text(p: P, value: &str, placeholder: impl AsRef<str>, width: f32) -> impl Widget {
     TextField::with_text(value).placeholder(tl(placeholder)).width(width).on_change(move |s| {

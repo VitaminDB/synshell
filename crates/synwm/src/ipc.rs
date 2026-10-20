@@ -215,6 +215,11 @@ impl State {
             Request::Windows => Response::Windows { windows: self.all_window_infos() },
             Request::Workspaces => Response::Workspaces { workspaces: self.workspace_infos() },
             Request::Mobile => Response::Mobile { mobile: self.mobile_info() },
+            Request::FormFactor => Response::FormFactor {
+                current: self.core.form_factor.as_str().into(),
+                device: self.core.device_form_factor.as_str().into(),
+                previous: self.core.prev_form_factor.as_str().into(),
+            },
             Request::Idle => Response::Idle {
                 idle: synshell_common::ipc::IdleInfo {
                     seconds: self.core.last_activity.elapsed().as_secs(),

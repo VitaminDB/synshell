@@ -372,3 +372,6 @@
 "нет станции Wi-Fi" = "no Wi-Fi station"
 "нет устройства Wi-Fi" = "no Wi-Fi device"
 "сеть не сохранена" = "network not saved"
+
+# src/action.rs (form-factor)
+"неизвестный режим «{other}» (desktop, phone, game, device, toggle-game)" = "unknown mode “{other}” (desktop, phone, game, device, toggle-game)"

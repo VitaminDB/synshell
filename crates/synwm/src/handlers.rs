@@ -294,6 +294,13 @@ impl State {
         let current = self.core.keyboard.current_focus().map(|f| f.0);
         match exclusive {
             Some(s) if current.as_ref() != Some(&s) => self.focus_surface(Some(s)),
+            // Игровой режим без окна в фокусе: клавиатура — главному экрану.
+            None if self.core.wm.focused.is_none() && current.as_ref().is_none_or(|c| !c.is_alive() || !self.layer_wants_keyboard(c)) && self.game_home_surface().is_some() => {
+                let home = self.game_home_surface();
+                if current != home {
+                    self.focus_surface(home);
+                }
+            }
             None => {
                 // Эксклюзивный слой закрылся — вернуть фокус окну.
                 let current_is_layer = current.as_ref().is_some_and(|c| self.is_layer_surface(c));
@@ -483,7 +490,7 @@ impl XdgShellHandler for State {
 
     fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
         if let Some(id) = self.core.wm.id_by_surface(surface.wl_surface()) {
-            if self.core.wm.get(id).is_some_and(|m| m.fullscreen) {
+            if self.core.wm.get(id).is_some_and(|m| m.fullscreen) && !self.game_keeps_fullscreen(id) {
                 self.apply_fullscreen(id, false, None);
             }
         }

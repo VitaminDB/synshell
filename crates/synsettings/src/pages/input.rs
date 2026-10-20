@@ -244,6 +244,13 @@ pub fn action_label(a: &Action) -> String {
                 synshell_common::action::MobileMode::Free => t!("свободный"),
             }),
         Action::MobileModeCycle => t!("Следующий режим окон").into(),
+        Action::FormFactor(f) => t!("Режим оболочки: {v}", v = match f {
+                synshell_common::action::FormFactorTarget::Desktop => t!("рабочий стол"),
+                synshell_common::action::FormFactorTarget::Phone => t!("телефон"),
+                synshell_common::action::FormFactorTarget::Game => t!("игровой"),
+                synshell_common::action::FormFactorTarget::Device => t!("как у устройства"),
+                synshell_common::action::FormFactorTarget::ToggleGame => t!("игровой ↔ обычный"),
+            }),
         Action::Page(p) => t!("Страница приложений: {p}", p = p),
         Action::CameraHome => t!("Стол — к началу").into(),
         Action::Rotate(r) => t!("Повернуть экран: {v}", v = if *r == synshell_common::action::Rotation::Normal { t!("как обычно") } else { format!("{r}°") }),

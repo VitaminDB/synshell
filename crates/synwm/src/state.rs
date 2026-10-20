@@ -143,8 +143,17 @@ pub struct Core {
     pub start_time: Instant,
     pub socket_name: String,
     pub nested: bool,
-    /// Десктоп или телефон — см. `[platform]`.
+    /// Режим оболочки: рабочий стол, телефон или игровой — см. `[platform]`,
+    /// меняется на лету (`form-factor`).
     pub form_factor: synshell_common::config::FormFactor,
+    /// Режим устройства (по мониторам или `[platform]`): масштаб экранов,
+    /// кнопка питания — не меняется с режимом оболочки.
+    pub device_form_factor: synshell_common::config::FormFactor,
+    /// Откуда пришли в текущий режим (`form-factor toggle-game`).
+    pub prev_form_factor: synshell_common::config::FormFactor,
+    /// Последнее прочитанное `[platform] form_factor` — правка в конфиге
+    /// переключает режим на лету.
+    pub form_factor_setting: Option<synshell_common::config::FormFactor>,
 
     // ── конфигурация ──
     pub config: Config,
@@ -405,6 +414,9 @@ impl Core {
             socket_name,
             nested,
             form_factor,
+            device_form_factor: form_factor,
+            prev_form_factor: form_factor,
+            form_factor_setting: None,
             config_watcher: FileWatcher::new(crate::config::watched_files(&config)),
             config,
             config_error,

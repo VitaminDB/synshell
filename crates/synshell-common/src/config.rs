@@ -52,6 +52,8 @@ pub struct Config {
     pub lock: Lock,
     pub idle: Idle,
     pub mobile: Mobile,
+    /// Игровой режим (`[gameshell]`): лаунчер игр, источники, геймпад.
+    pub gameshell: Gameshell,
     pub gestures: Gestures,
     pub haptics: Haptics,
     pub rotation: ScreenRotation,
@@ -98,6 +100,7 @@ impl Default for Config {
             lock: Lock::default(),
             idle: Idle::default(),
             mobile: Mobile::default(),
+            gameshell: Gameshell::default(),
             gestures: Gestures::default(),
             haptics: Haptics::default(),
             rotation: ScreenRotation::default(),
@@ -1970,8 +1973,9 @@ pub struct Platform {
     /// (pixman + dumb-буферы — телефоны с downstream-ядром без GBM/EGL, где
     /// GPU доступен только клиентам через Vulkan/KGSL).
     pub renderer: String,
-    /// Форм-фактор: `auto`, `desktop` или `phone`. `auto` — телефон, если
-    /// единственный подключённый монитор — встроенная DSI-панель.
+    /// Форм-фактор: `auto`, `desktop`, `phone` или `game` (игровой режим
+    /// gameshell). `auto` — телефон, если единственный подключённый монитор —
+    /// встроенная DSI-панель. Сменить на лету — действие `form-factor`.
     pub form_factor: String,
     /// Выходы, которые никогда не включаются (шаблоны с `*`): writeback-коннекторы
     /// downstream-драйверов вроде `Virtual-1` иначе получают CRTC панели.
@@ -1990,6 +1994,9 @@ pub enum FormFactor {
     #[default]
     Desktop,
     Phone,
+    /// Игровой режим (gameshell): лаунчер игр на весь экран, все
+    /// приложения — во весь экран без рамок, управление геймпадом.
+    Game,
 }
 
 impl FormFactor {
@@ -1997,6 +2004,17 @@ impl FormFactor {
         match self {
             FormFactor::Desktop => "desktop",
             FormFactor::Phone => "phone",
+            FormFactor::Game => "game",
+        }
+    }
+
+    /// `desktop`, `phone`/`mobile`, `game`/`gameshell`; иначе `None`.
+    pub fn parse(s: &str) -> Option<FormFactor> {
+        match s.trim() {
+            "phone" | "mobile" => Some(FormFactor::Phone),
+            "desktop" => Some(FormFactor::Desktop),
+            "game" | "gameshell" => Some(FormFactor::Game),
+            _ => None,
         }
     }
 }
@@ -2004,11 +2022,7 @@ impl FormFactor {
 impl Config {
     /// Разобрать `platform.form_factor`; `None` — `auto` (решает бэкенд по мониторам).
     pub fn form_factor_setting(&self) -> Option<FormFactor> {
-        match self.platform.form_factor.trim() {
-            "phone" | "mobile" => Some(FormFactor::Phone),
-            "desktop" => Some(FormFactor::Desktop),
-            _ => None,
-        }
+        FormFactor::parse(&self.platform.form_factor)
     }
 
     /// Подстроить значения по умолчанию под телефон: окна во весь экран
@@ -2017,14 +2031,17 @@ impl Config {
     /// Форм-фактор процесса: `SYNSHELL_FORM_FACTOR` (его выставляет
     /// композитор детям), иначе `[platform] form_factor`, иначе рабочий стол.
     pub fn process_form_factor(&self) -> FormFactor {
-        match std::env::var("SYNSHELL_FORM_FACTOR").as_deref() {
-            Ok("phone") | Ok("mobile") => FormFactor::Phone,
-            Ok("desktop") => FormFactor::Desktop,
-            _ => self.form_factor_setting().unwrap_or_default(),
-        }
+        std::env::var("SYNSHELL_FORM_FACTOR")
+            .ok()
+            .and_then(|v| FormFactor::parse(&v))
+            .unwrap_or_else(|| self.form_factor_setting().unwrap_or_default())
     }
 
     pub fn apply_form_factor(&mut self, ff: FormFactor) {
+        if ff == FormFactor::Game {
+            self.apply_game_mode();
+            return;
+        }
         if ff != FormFactor::Phone {
             return;
         }
@@ -2050,6 +2067,19 @@ impl Config {
         if self.lock.method == d.lock.method {
             self.lock.method = "swipe".into();
         }
+    }
+
+    /// Игровой режим: окна во весь экран (monocle), без рамок, заголовков
+    /// и зазоров, оболочка `[gameshell] shell`. В отличие от телефона —
+    /// безусловно: режим включают на лету поверх любых настроек окон.
+    fn apply_game_mode(&mut self) {
+        self.windows.default_layout = crate::action::LayoutKind::Monocle;
+        self.windows.border_width = 0;
+        self.windows.gaps_inner = 0;
+        self.windows.gaps_outer = 0;
+        self.windows.decorations = DecorationMode::Client;
+        let shell = self.gameshell.shell.trim();
+        self.general.shell = if shell.is_empty() { "syngame-shell".into() } else { shell.to_string() };
     }
 
     /// Совпадает ли имя выхода с одним из шаблонов `platform.ignore_outputs`.
@@ -2115,6 +2145,8 @@ pub fn default_keybindings() -> Vec<(&'static str, &'static str)> {
         ("Ctrl+Alt+T", "spawn $TERMINAL"),
         ("Super+E", "spawn $FILE_MANAGER"),
         ("Super+D", "shell launcher"),
+        // Игровой режим (gameshell) и обратно.
+        ("Super+G", "form-factor toggle-game"),
         ("Alt+F1", "shell launcher"),
         ("Alt+F2", "shell run"),
         ("Alt+Space", "shell run"),
@@ -2382,6 +2414,146 @@ impl Default for Mobile {
             flip_to_dnd: false,
         }
     }
+}
+
+// ─── gameshell ──────────────────────────────────────────────────────────────
+
+/// Игровой режим (`[gameshell]`): полноэкранный лаунчер игр в духе игровой
+/// консоли. Все приложения в режиме — во весь экран без рамок, диалоги — по
+/// центру поверх; управление геймпадом, клавиатурой и касаниями.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Gameshell {
+    /// Команда оболочки игрового режима.
+    pub shell: String,
+    /// Куда ведёт «Выйти из игрового режима»: `device` (режим устройства:
+    /// телефон для встроенной DSI-панели, иначе рабочий стол), `previous`
+    /// (откуда пришли), `desktop`, `phone`.
+    pub exit_to: String,
+    /// Корневые окна приложений — во весь экран (диалоги — по центру).
+    pub force_fullscreen: bool,
+    /// app_id (шаблоны с `*`), которым fullscreen не навязывается.
+    pub fullscreen_exclude: Vec<String>,
+    /// Вкладки лаунчера по порядку: `home` (главная: недавние и избранное),
+    /// `games` (все игры), `favorites`, `steam`, `apps` (все приложения),
+    /// `tag:<метка>` (свои подборки из `[[gameshell.game]] tags`).
+    pub tabs: Vec<String>,
+    /// Вкладка при запуске.
+    pub start_tab: String,
+    /// Игры из .desktop с категориями `game_categories`.
+    pub desktop_games: bool,
+    /// Какие категории .desktop считать играми.
+    pub game_categories: Vec<String>,
+    /// .desktop (id) — тоже игры, даже без категории.
+    pub include_apps: Vec<String>,
+    /// Библиотека Steam (установленные игры, обложки из кэша клиента).
+    pub steam: bool,
+    /// Свои каталоги Steam (где `steamapps/`); пусто — `~/.local/share/Steam`,
+    /// `~/.steam/steam` и `$STEAM_ARM64_ROOT`.
+    pub steam_dirs: Vec<String>,
+    /// Команда запуска игры Steam, `{appid}` — номер.
+    pub steam_launch: String,
+    /// Прятать служебное Steam: Proton, Steam Linux Runtime, Redistributables.
+    pub steam_hide_tools: bool,
+    /// Спрятать: id игр (`steam:228980`, `org.foo.Game.desktop`, `custom:имя`).
+    pub hide: Vec<String>,
+    /// Сколько недавних игр на главной.
+    pub recent_count: u32,
+    /// Размер плиток: `small`, `medium`, `large`.
+    pub tile_size: String,
+    /// Вид плитки: `cover` (обложка, если есть; иначе значок на цветном фоне)
+    /// или `icon` (всегда значок).
+    pub tile_style: String,
+    /// Большая афиша выбранной игры вверху главной.
+    pub hero: bool,
+    /// Фон: `hero` (размытая афиша выбранной игры), `wallpaper` (обои
+    /// `[wallpaper]`), `color` (`background_color`).
+    pub background: String,
+    /// Цвет фона для `background = "color"` (и подложка под афишей).
+    pub background_color: String,
+    /// Акцент выделения; пусто — акцент темы.
+    pub accent: String,
+    /// Навигация геймпадом (evdev).
+    pub gamepad: bool,
+    /// Кнопка Guide (PS/Xbox) и Super в игре: `overlay` (быстрое меню
+    /// поверх игры), `home` (сразу на главную), `none`.
+    pub guide_button: String,
+    /// Строка состояния вверху справа: `network`, `battery`, `volume`,
+    /// `gamepad`, `clock` — по порядку; пусто — без неё.
+    pub status: Vec<String>,
+    /// Подсказки кнопок внизу экрана.
+    pub hints: bool,
+    /// Обычные панели и доки `[[panel]]` и в игровом режиме.
+    pub panels: bool,
+    /// Спрашивать перед «Закрыть игру».
+    pub confirm_close: bool,
+    /// Запоминать режим в config.toml (`[platform] form_factor`) при
+    /// переключении действием — после перезапуска сеанс начнётся в нём.
+    pub remember_mode: bool,
+    /// Свои игры и правка найденных (`[[gameshell.game]]`).
+    #[serde(rename = "game")]
+    pub games: Vec<GameEntry>,
+}
+
+impl Default for Gameshell {
+    fn default() -> Self {
+        Self {
+            shell: "syngame-shell".into(),
+            exit_to: "device".into(),
+            force_fullscreen: true,
+            fullscreen_exclude: Vec::new(),
+            tabs: vec!["home".into(), "games".into(), "steam".into(), "apps".into()],
+            start_tab: "home".into(),
+            desktop_games: true,
+            game_categories: vec!["Game".into()],
+            include_apps: Vec::new(),
+            steam: true,
+            steam_dirs: Vec::new(),
+            steam_launch: "steam steam://rungameid/{appid}".into(),
+            steam_hide_tools: true,
+            hide: Vec::new(),
+            recent_count: 10,
+            tile_size: "medium".into(),
+            tile_style: "cover".into(),
+            hero: true,
+            background: "hero".into(),
+            background_color: "#0b0e14".into(),
+            accent: String::new(),
+            gamepad: true,
+            guide_button: "overlay".into(),
+            status: vec!["network".into(), "battery".into(), "volume".into(), "gamepad".into(), "clock".into()],
+            hints: true,
+            panels: false,
+            confirm_close: true,
+            remember_mode: false,
+            games: Vec::new(),
+        }
+    }
+}
+
+/// Своя игра или правка найденной (`[[gameshell.game]]`). Если `id`
+/// совпадает с найденной игрой (`steam:570`, `org.foo.Game.desktop`), поля
+/// заменяют её; иначе — новая игра (нужна `command`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct GameEntry {
+    pub id: String,
+    pub name: String,
+    /// Команда запуска (`sh -c`).
+    pub command: String,
+    /// Обложка 2:3 (путь к картинке).
+    pub cover: String,
+    /// Афиша — широкая картинка для главной и фона.
+    pub hero: String,
+    /// Логотип поверх афиши.
+    pub logo: String,
+    /// Значок (имя темы или путь).
+    pub icon: String,
+    /// Подборки — вкладки `tag:<метка>`.
+    pub tags: Vec<String>,
+    /// app_id окна игры — чтобы «Играть» поднимало уже запущенную.
+    pub app_id: String,
+    pub hidden: bool,
 }
 
 // ─── gestures ───────────────────────────────────────────────────────────────
@@ -3045,6 +3217,7 @@ mod tests {
         assert_eq!(c.appearance, d.appearance);
         assert_eq!(c.decorations, d.decorations);
         assert_eq!(c.wallpaper, d.wallpaper);
+        assert_eq!(c.gameshell, d.gameshell);
         assert_eq!(c.panels.len(), 1);
     }
 
@@ -3218,5 +3391,22 @@ mod platform_tests {
         c.general.shell = "my-shell".into();
         c.apply_form_factor(FormFactor::Phone);
         assert_eq!(c.general.shell, "my-shell");
+    }
+
+    #[test]
+    fn game_mode() {
+        // Игровой режим — безусловно, поверх своих настроек окон и оболочки.
+        let mut c: Config = toml::from_str(
+            "[general]\nshell = \"my-shell\"\n[windows]\nborder_width = 3\n[gameshell]\nshell = \"syngame-shell --x\"\n[[gameshell.game]]\nname = \"Pony Town\"\ncommand = \"firefox --kiosk https://pony.town\"\ntags = [\"web\"]\n",
+        )
+        .unwrap();
+        c.apply_form_factor(FormFactor::Game);
+        assert_eq!(c.general.shell, "syngame-shell --x");
+        assert_eq!(c.windows.border_width, 0);
+        assert_eq!(c.windows.default_layout, crate::action::LayoutKind::Monocle);
+        assert_eq!(c.gameshell.games[0].tags, vec!["web".to_string()]);
+        assert_eq!(FormFactor::parse("gameshell"), Some(FormFactor::Game));
+        c.platform.form_factor = "game".into();
+        assert_eq!(c.form_factor_setting(), Some(FormFactor::Game));
     }
 }

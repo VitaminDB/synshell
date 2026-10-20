@@ -114,6 +114,45 @@ impl<'de> Deserialize<'de> for MobileMode {
     }
 }
 
+/// Куда переключить режим оболочки (`form-factor …`): рабочий стол,
+/// телефон, игровой режим (gameshell), режим устройства или туда-обратно.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FormFactorTarget {
+    Desktop,
+    Phone,
+    Game,
+    /// Режим устройства: телефон — для встроенной DSI-панели, иначе рабочий стол.
+    Device,
+    /// Игровой режим ↔ режим, из которого в него пришли.
+    ToggleGame,
+}
+
+impl FormFactorTarget {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FormFactorTarget::Desktop => "desktop",
+            FormFactorTarget::Phone => "phone",
+            FormFactorTarget::Game => "game",
+            FormFactorTarget::Device => "device",
+            FormFactorTarget::ToggleGame => "toggle-game",
+        }
+    }
+}
+
+impl FromStr for FormFactorTarget {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        Ok(match s.trim() {
+            "desktop" => FormFactorTarget::Desktop,
+            "phone" | "mobile" => FormFactorTarget::Phone,
+            "game" | "gameshell" => FormFactorTarget::Game,
+            "device" | "auto" => FormFactorTarget::Device,
+            "toggle-game" | "toggle" => FormFactorTarget::ToggleGame,
+            other => return Err(t!("неизвестный режим «{other}» (desktop, phone, game, device, toggle-game)", other = other)),
+        })
+    }
+}
+
 /// Поворот встроенного экрана относительно его естественной ориентации
 /// (`rotate normal|90|180|270`; по часовой стрелке, как `transform` вывода).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
@@ -385,6 +424,8 @@ pub enum Action {
     Back,
     /// Нажать клавишу в окне с фокусом: `key XF86Back`, `key Alt+Left`.
     Key(KeyCombo),
+    /// Режим оболочки на лету: рабочий стол, телефон, игровой (gameshell).
+    FormFactor(FormFactorTarget),
     /// Режим окон на телефоне.
     MobileMode(MobileMode),
     MobileModeCycle,
@@ -420,7 +461,7 @@ impl Action {
         "focus-output", "move-to-output", "layout", "cycle-layout", "master-ratio",
         "master-count", "keyboard-layout-next", "keyboard-layout", "screenshot",
         "screenshot-window", "screenshot-interactive", "overview", "reload-config", "quit", "lock", "suspend", "reboot",
-        "poweroff", "monitors-off", "shell", "back", "key", "mobile-mode", "mobile-mode-cycle", "page",
+        "poweroff", "monitors-off", "shell", "back", "key", "form-factor", "mobile-mode", "mobile-mode-cycle", "page",
         "camera-home", "rotate", "screen-toggle", "screen-off", "screen-on", "proximity-blank", "none",
     ];
 }
@@ -507,6 +548,7 @@ impl FromStr for Action {
             "shell" => Action::Shell(need(&t!("команда оболочки"))?.to_string()),
             "back" => Action::Back,
             "key" => Action::Key(need(&t!("клавиша, например XF86Back или Alt+Left"))?.parse()?),
+            "form-factor" | "shell-mode" => Action::FormFactor(need("desktop/phone/game/device/toggle-game")?.parse()?),
             "mobile-mode" => Action::MobileMode(need("pages/free")?.parse()?),
             "mobile-mode-cycle" => Action::MobileModeCycle,
             "page" => Action::Page(need(&t!("home/next/prev/номер"))?.parse()?),
@@ -568,6 +610,7 @@ impl fmt::Display for Action {
             Action::Shell(c) => write!(f, "shell {c}"),
             Action::Back => f.write_str("back"),
             Action::Key(k) => write!(f, "key {k}"),
+            Action::FormFactor(t) => write!(f, "form-factor {}", t.as_str()),
             Action::MobileMode(m) => write!(f, "mobile-mode {}", m.as_str()),
             Action::MobileModeCycle => f.write_str("mobile-mode-cycle"),
             Action::Page(p) => write!(f, "page {p}"),
@@ -682,6 +725,9 @@ mod tests {
             "key XF86Back",
             "mobile-mode free",
             "mobile-mode-cycle",
+            "form-factor game",
+            "form-factor toggle-game",
+            "form-factor device",
             "page next",
             "page 3",
             "layout rows",

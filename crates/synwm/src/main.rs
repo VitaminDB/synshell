@@ -66,7 +66,7 @@ fn main() {
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("{}", t!("synwm {v} — окружение рабочего стола для Wayland\n\n\
              synwm [--nested [--nested-size ШxВ] | --tty] [--cpu | --gpu] [--no-shell] [--no-autostart]\n\
-             synwm msg <version|windows|workspaces|outputs|layouts|events|action ДЕЙСТВИЕ|window ID ОПЕРАЦИЯ|reload|restart-shell|restart>\n", v = env!("CARGO_PKG_VERSION")));
+             synwm msg <version|windows|workspaces|outputs|layouts|events|action ДЕЙСТВИЕ|window ID ОПЕРАЦИЯ|form-factor [РЕЖИМ]|reload|restart-shell|restart>\n", v = env!("CARGO_PKG_VERSION")));
         return;
     }
     if args.iter().any(|a| a == "--version" || a == "-V") {
@@ -223,11 +223,11 @@ fn run(args: &[String]) -> anyhow::Result<bool> {
 
     // Платформа: рендерер (GPU через GBM/EGL или CPU через pixman) и форм-фактор.
     // Форм-фактор: SYNSHELL_FORM_FACTOR (отладка), [platform], иначе — по мониторам.
-    let mut form_factor = match std::env::var("SYNSHELL_FORM_FACTOR").as_deref() {
-        Ok("phone") | Ok("mobile") => Some(synshell_common::config::FormFactor::Phone),
-        Ok("desktop") => Some(synshell_common::config::FormFactor::Desktop),
-        _ => config.form_factor_setting(),
-    };
+    // Режим устройства (телефон/компьютер) — отдельно от режима оболочки:
+    // игровой режим на телефоне сохраняет его масштаб и кнопку питания.
+    use synshell_common::config::FormFactor;
+    let requested = std::env::var("SYNSHELL_FORM_FACTOR").ok().and_then(|v| FormFactor::parse(&v)).or_else(|| config.form_factor_setting());
+    let mut device_ff = requested.filter(|f| *f != FormFactor::Game);
     let backend = if nested {
         Backend::Winit(backend::winit::WinitBackend::new(&event_loop)?)
     } else {
@@ -239,8 +239,8 @@ fn run(args: &[String]) -> anyhow::Result<bool> {
             std::env::var("SYNSHELL_RENDERER").unwrap_or_else(|_| config.platform.renderer.trim().to_string())
         };
         let device = backend::kms_cpu_device_path();
-        if form_factor.is_none() {
-            form_factor = device.as_deref().and_then(backend::probe_form_factor);
+        if device_ff.is_none() {
+            device_ff = device.as_deref().and_then(backend::probe_form_factor);
         }
         let cpu = match renderer.as_str() {
             "cpu" | "pixman" => true,
@@ -269,11 +269,15 @@ fn run(args: &[String]) -> anyhow::Result<bool> {
             }
         }
     };
-    let form_factor = form_factor.unwrap_or_default();
+    let device_ff = device_ff.unwrap_or_default();
+    let form_factor = requested.unwrap_or(device_ff);
     config.apply_form_factor(form_factor);
-    tracing::info!(form_factor = form_factor.as_str(), "форм-фактор");
+    tracing::info!(form_factor = form_factor.as_str(), device = device_ff.as_str(), "форм-фактор");
     let seat_name = backend.seat_name();
-    let core = Core::new(display, event_loop.handle(), event_loop.get_signal(), &seat_name, nested, form_factor, config, config_error)?;
+    let mut core = Core::new(display, event_loop.handle(), event_loop.get_signal(), &seat_name, nested, form_factor, config, config_error)?;
+    core.device_form_factor = device_ff;
+    core.prev_form_factor = device_ff;
+    core.form_factor_setting = core.config.form_factor_setting();
     let mut state = State { backend, core };
 
     match &mut state.backend {
@@ -408,7 +412,7 @@ impl State {
 fn msg(args: &[String]) -> i32 {
     use synshell_common::ipc::{Client, Request, Response, WindowOp};
     let Some(cmd) = args.first() else {
-        eprintln!("{}", t!("использование: synwm msg <version|windows|workspaces|outputs|layouts|idle|events|action …|window ID ОПЕРАЦИЯ|x11-display ИМЯ…|reload|restart-shell|restart>"));
+        eprintln!("{}", t!("использование: synwm msg <version|windows|workspaces|outputs|layouts|idle|events|action …|window ID ОПЕРАЦИЯ|x11-display ИМЯ…|form-factor [desktop|phone|game|device|toggle-game]|reload|restart-shell|restart>"));
         return 2;
     };
     let req = match cmd.as_str() {
@@ -454,6 +458,29 @@ fn msg(args: &[String]) -> i32 {
                 }
             };
         }
+        // Режим оболочки: без аргумента — текущий, с аргументом — сменить на лету.
+        "form-factor" | "shell-mode" => match args.get(1) {
+            None => {
+                return match Client::connect().and_then(|mut c| c.request(&Request::FormFactor)) {
+                    Ok(Response::FormFactor { current, device, previous }) => {
+                        println!("{current} (device {device}, previous {previous})");
+                        0
+                    }
+                    Ok(_) => 1,
+                    Err(e) => {
+                        eprintln!("{}", t!("нет связи с композитором: {e}", e = e));
+                        1
+                    }
+                };
+            }
+            Some(t) => match t.parse() {
+                Ok(t) => Request::Action { action: synshell_common::Action::FormFactor(t) },
+                Err(e) => {
+                    eprintln!("{e}");
+                    return 2;
+                }
+            },
+        },
         "reload" => Request::Action { action: synshell_common::Action::ReloadConfig },
         "restart-shell" => Request::Action { action: synshell_common::Action::RestartShell },
         "restart" => Request::Action { action: synshell_common::Action::Restart },

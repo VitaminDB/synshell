@@ -488,7 +488,9 @@ impl XwmHandler for State {
 
     fn unfullscreen_request(&mut self, _xwm: XwmId, window: X11Surface) {
         if let Some(id) = self.x11_id(&window) {
-            self.apply_fullscreen(id, false, None);
+            // Игровой режим: корневое окно остаётся во весь экран.
+            let keep = self.game_keeps_fullscreen(id);
+            self.apply_fullscreen(id, keep, None);
         }
     }
 

@@ -31,8 +31,10 @@ language = ""                  # язык интерфейса: ru | en | …; �
 # Рендерер сеанса DRM: "auto", "gpu" (GLES через GBM/EGL; на телефоне с Android-ядром — zink поверх
 # turnip) или "cpu" (pixman + dumb-буферы). auto — проба EGL в отдельном процессе, при неудаче — cpu.
 renderer = "auto"
-# "auto", "desktop" или "phone": на телефоне окна во весь экран, без рамок,
-# оболочка synmobile-shell. auto — телефон, если единственный монитор — DSI-панель.
+# "auto", "desktop", "phone" или "game": на телефоне окна во весь экран, без рамок,
+# оболочка synmobile-shell; game — игровой режим (gameshell, см. [gameshell]).
+# auto — телефон, если единственный монитор — DSI-панель. Сменить на лету — действие
+# form-factor (Super+G — игровой режим и обратно), правка этого поля тоже переключает.
 form_factor = "auto"
 # Выходы, которые никогда не включаются (шаблоны с *): writeback-коннекторы
 # downstream-драйверов ("Virtual-1") иначе отбирают CRTC у панели.
@@ -400,6 +402,45 @@ launcher = "pages"             # «Пуск»: pages — значки по ст�
 double_tap_wake = true         # двойной стук по погашенному экрану включает его (датчики SLPI)
 raise_to_wake = false          # поднять телефон — экран включается
 flip_to_dnd = false            # экраном вниз — «Не беспокоить», пока телефон лежит так
+
+# Игровой режим (form_factor = game, Super+G): полноэкранный лаунчер игр syngame-shell,
+# все приложения во весь экран без рамок, управление геймпадом, клавиатурой, касаниями.
+[gameshell]
+shell = "syngame-shell"
+exit_to = "device"             # «Выйти из игрового режима»: device | previous | desktop | phone
+force_fullscreen = true        # главные окна во весь экран, диалоги — по центру
+fullscreen_exclude = []        # app_id (можно *), которым полный экран не навязывается
+tabs = ["home", "games", "steam", "apps"]   # ещё favorites и tag:<метка>
+start_tab = "home"
+desktop_games = true           # игры из .desktop с категориями game_categories
+game_categories = ["Game"]
+include_apps = []              # id .desktop — тоже игры
+steam = true                   # библиотека Steam (обложки из кэша клиента)
+steam_dirs = []                # пусто — ~/.local/share/Steam, ~/.steam/steam, $STEAM_ARM64_ROOT
+steam_launch = "steam steam://rungameid/{appid}"
+steam_hide_tools = true        # прятать Proton, Steam Linux Runtime, Redistributables
+hide = []                      # спрятанные: steam:228980, org.foo.Game, custom:имя
+recent_count = 10
+tile_size = "medium"           # small | medium | large
+tile_style = "cover"           # cover — обложки, icon — значки
+hero = true                    # афиша выбранной игры на главной
+background = "hero"            # hero | wallpaper | color
+background_color = "#0b0e14"
+accent = ""                    # пусто — акцент темы
+gamepad = true                 # навигация геймпадом (evdev)
+guide_button = "overlay"       # Guide/Super в игре: overlay | home | none (Select+Start = Guide)
+status = ["network", "battery", "volume", "gamepad", "clock"]
+hints = true                   # подсказки кнопок внизу
+panels = false                 # обычные панели [[panel]] и в игровом режиме
+confirm_close = true
+remember_mode = false          # переключение действием пишет [platform] form_factor
+# Свои игры и правка найденных (id найденной игры — меняет её имя, картинки, команду):
+# [[gameshell.game]]
+# name = "Pony Town"
+# command = "firefox --kiosk https://pony.town"
+# cover = "~/Картинки/pony-cover.png"      # 2:3
+# hero = "~/Картинки/pony-hero.jpg"        # широкая афиша
+# tags = ["web"]                           # вкладка tag:web
 
 # Сенсорные жесты (действия — как в [keybindings]).
 [gestures]

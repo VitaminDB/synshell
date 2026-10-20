@@ -10,6 +10,7 @@ members = [
     "crates/synshell-ui",
     "crates/syndesktop-shell",
     "crates/synmobile-shell",
+    "crates/syngame-shell",
     "crates/synkeyboard",
     "crates/synsettings",
     "crates/synfiles",

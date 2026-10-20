@@ -5,6 +5,7 @@
 //! его синхронизирует [`crate::state::State::sync_space`]. Операции над
 //! окнами — в `ops.rs` (им нужен `&mut State` ради фокуса клавиатуры).
 
+pub mod game;
 pub mod layout;
 pub mod mobile;
 pub mod ops;
@@ -151,6 +152,10 @@ pub struct Managed {
     /// X11 override-redirect (меню, подсказки): без управления.
     pub override_redirect: bool,
     pub created: Instant,
+    /// Политика игрового режима применена (см. `wm/game.rs`).
+    pub game_policy: bool,
+    /// Во весь экран окно развернул игровой режим — при выходе из него вернуть.
+    pub game_forced: bool,
 }
 
 impl Managed {
@@ -196,6 +201,8 @@ impl Managed {
             kb_layout: None,
             override_redirect: false,
             created: Instant::now(),
+            game_policy: false,
+            game_forced: false,
         }
     }
 

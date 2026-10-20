@@ -35,6 +35,7 @@ impl State {
             return;
         }
         tracing::info!("конфиг перечитан");
+        let setting_changed = config.form_factor_setting() != self.core.form_factor_setting;
         synshell_common::haptics::set_config(&config.haptics);
         let old = std::mem::replace(&mut self.core.config, config);
         let mut errors = Vec::new();
@@ -112,6 +113,9 @@ impl State {
         self.broadcast_workspaces();
         self.core.ipc_dirty = true;
         self.core.queue_redraw_all();
+        if setting_changed {
+            self.form_factor_setting_changed();
+        }
     }
 
     fn reapply_pointer_config(&mut self) {

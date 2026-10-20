@@ -223,8 +223,8 @@ impl State {
     /// действие, держат дольше — действие удержания (по таймеру, не дожидаясь
     /// отпускания, как в Android).
     fn power_key(&mut self, state: KeyState) -> bool {
-        let (short, long, long_ms) = self.core.config.power_button.resolved(self.core.form_factor);
-        if long == "none" && short == "shell power-menu" && self.core.form_factor != synshell_common::config::FormFactor::Phone {
+        let (short, long, long_ms) = self.core.config.power_button.resolved(self.core.device_form_factor);
+        if long == "none" && short == "shell power-menu" && self.core.device_form_factor != synshell_common::config::FormFactor::Phone {
             // Компьютер по умолчанию — как раньше, через сочетание XF86PowerOff.
             return false;
         }
@@ -245,7 +245,7 @@ impl State {
                             if *s == seq && !*fired {
                                 *fired = true;
                                 let _ = woke;
-                                let (_, long, _) = st.core.config.power_button.resolved(st.core.form_factor);
+                                let (_, long, _) = st.core.config.power_button.resolved(st.core.device_form_factor);
                                 if let Ok(a) = long.parse::<Action>() {
                                     tracing::info!(action = %a, "кнопка питания: удержание");
                                     st.do_action(a);
@@ -1581,6 +1581,7 @@ impl State {
             Action::Key(combo) => self.send_key_combo(&combo),
             // Режимы окон телефона и страницы — этап режимов окон; пока
             // оболочке сообщается команда, чтобы она могла ответить.
+            Action::FormFactor(t) => self.form_factor_action(t),
             Action::MobileMode(m) => self.set_mobile_mode(m, true),
             Action::MobileModeCycle => {
                 let next = self.core.wm.mobile.mode.next();

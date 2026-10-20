@@ -25,6 +25,7 @@ pub mod commands;
 pub mod ctx;
 pub mod datetime;
 pub mod desk;
+pub mod daemons;
 pub mod devices;
 pub mod usb_notify;
 pub mod dock;

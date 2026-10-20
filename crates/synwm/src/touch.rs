@@ -83,7 +83,7 @@ pub struct TouchGestures {
 
 impl State {
     fn gestures_on(&self) -> bool {
-        self.core.form_factor == FormFactor::Phone && self.core.config.gestures.enabled && !self.core.is_locked()
+        self.core.form_factor != FormFactor::Desktop && self.core.config.gestures.enabled && !self.core.is_locked()
     }
 
     fn edge_at(&self, pos: Point<f64, Logical>) -> Option<(Edge, f64, f64)> {

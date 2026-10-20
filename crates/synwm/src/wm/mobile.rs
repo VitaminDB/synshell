@@ -276,7 +276,7 @@ impl State {
 
     /// Рамки по режиму: в свободном — серверные (ручка для пальца), в
     /// остальных — как настроено (`[windows] decorations`, правила окон).
-    fn apply_mode_decorations(&mut self) {
+    pub(crate) fn apply_mode_decorations(&mut self) {
         use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode;
         let want_server = self.core.default_decoration_mode() == Mode::ServerSide;
         let ids: Vec<WindowId> = self.core.wm.windows.iter().map(|m| m.id).collect();

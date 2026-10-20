@@ -139,6 +139,7 @@ impl State {
                 s.cached_state.get::<SurfaceCachedState>().pending().min_size = (w, h).into();
             });
         }
+        self.apply_game_policy(id);
     }
 
     /// Вывод для окна: по правилу, по привязке, иначе под указателем.
@@ -154,6 +155,8 @@ impl State {
 
     /// Первый буфер: разместить, показать, дать фокус.
     pub fn map_window(&mut self, id: WindowId) {
+        // X11-окна приходят без первичного configure — политику игрового режима здесь.
+        self.apply_game_policy(id);
         let Some(output) = self.target_output_for(id) else { return };
         let area = self.core.work_area(&output);
         let placement = self.core.config.windows.placement;
@@ -442,7 +445,9 @@ impl State {
         }
         let target = id
             .and_then(|i| self.core.wm.get(i))
-            .and_then(|m| m.window.wl_surface().map(|s| FocusTarget(s.into_owned())));
+            .and_then(|m| m.window.wl_surface().map(|s| FocusTarget(s.into_owned())))
+            // Игровой режим без окон — клавиатура главному экрану оболочки.
+            .or_else(|| if id.is_none() { self.game_home_surface().map(FocusTarget) } else { None });
         if let (Some(i), Some(x11)) = (id, id.and_then(|i| self.core.wm.get(i)).and_then(|m| m.window.x11_surface().cloned())) {
             let _ = i;
             if let Some(xw) = self.core.xwayland.iter_mut().filter_map(|x| x.wm.as_mut()).find(|w| Some(w.id()) == x11.xwm_id()) {

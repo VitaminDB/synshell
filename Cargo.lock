@@ -7971,6 +7971,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "syngame-shell"
+version = "0.1.42"
+dependencies = [
+ "libc",
+ "log",
+ "serde",
+ "serde_json",
+ "syngui",
+ "syngui-layer",
+ "synshell-common",
+ "synshell-ui",
+ "toml_edit 0.23.10+spec-1.0.0",
+]
+
+[[package]]
 name = "syngamepad"
 version = "0.1.42"
 dependencies = [

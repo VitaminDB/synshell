@@ -34,6 +34,7 @@ tested.
 | `synwm` | Compositor on smithay 0.7: DRM/KMS (multiple GPUs, hotplug, DPMS) or a nested window for development. Server-side decorations, workspaces, floating / tile / columns / grid / monocle layouts, snapping to edges and halves, window overview, Alt+Tab, window rules, Xwayland, a JSON IPC socket and the `synwm msg` CLI. |
 | `syndesktop-shell` | The shell (layer-shell surfaces): wallpaper, panels with applets, dock, launcher, notification server (D-Bus), OSD, power menu, window switcher, system tray (StatusNotifierItem), lock screen (ext-session-lock + PAM). If it crashes, the compositor restarts it and your windows stay. |
 | `synmobile-shell` | The phone shell (status bar, navigation bar, home screen). The compositor picks it automatically on a phone form factor; see `docs/MOBILE.md`. |
+| `syngame-shell` | Game mode (gameshell): a fullscreen console-style launcher with the Steam library, covers, gamepad navigation and an in-game quick menu; every app runs fullscreen without frames. Switched on the fly with Super+G; see `docs/GAMESHELL.md`. |
 | `synkeyboard` | Gboard-like on-screen keyboard: EN/RU, symbols, F1–F12, arrows, sticky Ctrl/Alt/Super, auto-show via input-method; `synkeyboard type/key` CLI. |
 | `synsettings` | System Settings: 18 pages. Edits `config.toml` through `toml_edit`, so comments and ordering survive. |
 | `synfiles` | A file manager modelled on Windows 11 Explorer: tabs in the title bar, dual pane, icons / tiles / list / details views, thumbnails, rubber-band selection, drag and drop, background operations with pause and cancel, Ctrl+Z, freedesktop trash, search. `--viewer` is a built-in image viewer (zoom, EXIF rotation, HEIC, folder filmstrip). |
@@ -134,6 +135,7 @@ Main key bindings (any of them can be remapped in `[keybindings]`):
 |---|---|
 | Super+Return | terminal |
 | Super+D / Alt+F1 | launcher |
+| Super+G | game mode (gameshell) and back |
 | Alt+Space | run prompt |
 | Super+1…9 / Super+Shift+1…9 | go to workspace / move window to workspace |
 | Super+←/→/↑/↓ | snap to an edge, maximize, minimize |
@@ -169,6 +171,7 @@ The documentation in [`docs/`](docs/) is **in Russian**:
 - [THEMES.md](docs/THEMES.md) — theme format, MSS variables, writing your own theme.
 - [FILES.md](docs/FILES.md) — the file manager and image viewer.
 - [LINK.md](docs/LINK.md) — linking the phone and the computer: screen, input, files, notifications, ssh, MCP.
+- [GAMESHELL.md](docs/GAMESHELL.md) — game mode: switching modes on the fly, fullscreen window policy, game library (Steam, .desktop, custom), gamepad.
 
 The fully commented default config is
 [crates/synshell-common/default-config.toml](crates/synshell-common/default-config.toml).

@@ -642,6 +642,11 @@ fn power() -> impl Widget {
                 .child(big(mi::RESTART, n_!("Перезагрузка"), Action::Reboot))
                 .child(big(mi::POWER, n_!("Выключить"), Action::PowerOff)),
         )
+        .child(DecoratedBox::new().class("menu-sep"))
+        .child(menu_item(crate::input_mode::GAMEPAD, t!("Игровой режим"), || {
+            ShellCtx::get().close_popup();
+            crate::actions::run(Action::FormFactor(synshell_common::action::FormFactorTarget::Game));
+        }))
 }
 
 fn window_menu(ctx: ShellCtx, id: u64) -> impl Widget {

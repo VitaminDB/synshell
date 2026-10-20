@@ -440,6 +440,10 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
             .child(tile(mi::WINDOW, t!("Режим окон").into(), mode_label(mode).into(), true, move || {
                 crate::actions::run(Action::MobileModeCycle);
             }))
+            .child(tile(crate::input_mode::GAMEPAD, t!("Игровой режим").into(), t!("Лаунчер игр").into(), false, || {
+                close();
+                crate::actions::run(Action::FormFactor(synshell_common::action::FormFactorTarget::Game));
+            }))
             .child({
                 // Автоповорот: выключен — ориентация зафиксирована.
                 let auto = cfg.rotation.auto;

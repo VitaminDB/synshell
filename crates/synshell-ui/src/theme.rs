@@ -23,6 +23,14 @@ fn layer() -> (&'static str, Option<&'static str>) {
     LAYER.get().copied().unwrap_or(("", None))
 }
 
+/// Стили оболочки, зависящие от конфига (например, акцент игрового режима):
+/// добавляются после её встроенных стилей, до пользовательских файлов.
+static CONFIG_MSS: std::sync::OnceLock<fn(&Config) -> String> = std::sync::OnceLock::new();
+
+pub fn set_config_mss(f: fn(&Config) -> String) {
+    let _ = CONFIG_MSS.set(f);
+}
+
 pub fn build(cfg: &Config) -> String {
     let a = &cfg.appearance;
     let mut out = a.mss_variables();
@@ -35,6 +43,9 @@ pub fn build(cfg: &Config) -> String {
     out.push_str(&a.theme_mss_variables());
     out.push_str(BASE);
     out.push_str(layer().0);
+    if let Some(f) = CONFIG_MSS.get() {
+        out.push_str(&f(cfg));
+    }
     // Общий шрифт — на всё, что рисует текст.
     if !a.font.trim().is_empty() {
         out.push_str(&format!("Text, Button, TextField {{\n  font-family: \"{}\";\n}}\n", a.font.trim()));
