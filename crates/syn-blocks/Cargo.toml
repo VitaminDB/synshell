@@ -1,0 +1,45 @@
+[package]
+name = "elle_block"
+version = "0.2.0"
+edition = "2021"
+authors = ["Syn"]
+description = "Elle Block — 8×8 block puzzle on syngui"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "elle_block"
+path = "src/main.rs"
+
+[features]
+default = ["desktop"]
+desktop = ["syngui/clipboard"]
+android = ["syngui/android"]
+
+[dependencies]
+syngui = { path = "../syngui/syngui", default-features = false, features = ["msdf", "effects", "winit", "material-icons", "audio", "image"] }
+hound = "3.5"
+log = "0.4"
+
+[dev-dependencies]
+syngui = { path = "../syngui/syngui", default-features = false, features = ["msdf", "effects", "winit", "material-icons", "audio", "image", "testing"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.15"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+
+# Быстрая release-сборка для локальной работы: без LTO, параллельная
+# кодогенерация, инкрементальная, без отладочной информации — в разы быстрее
+# линкуется ценой 5–15% скорости. `cargo build --profile fast-release`
+# (бинарники в target/fast-release). `--release` — только для публикаций.
+[profile.fast-release]
+inherits = "release"
+lto = false
+codegen-units = 256
+incremental = true
+debug = false
