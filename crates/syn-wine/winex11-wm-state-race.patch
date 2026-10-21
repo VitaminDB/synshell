@@ -1,0 +1,54 @@
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -1574,6 +1574,10 @@
+     data->desired_state.wm_state = new_state;
+     data->desired_state.activate = activate;
+     if (data->state_locks) return; /* win32 state is being updated, delay the change */
++    /* the WM minimized or restored the window itself and the win32 side has not applied it yet
++     * (X11DRV_GetWindowStateUpdates): a win32 update now carries the stale state -- a fullscreen game
++     * moving its window while being restored asked to be iconified again. Delay it until applied. */
++    if (data->wm_state_from_wm && new_state != data->current_state.wm_state) return;
+     if (!data->whole_window) return; /* no window, nothing to update */
+     if (data->wm_state_serial && !data->current_state.wm_state != !data->pending_state.wm_state)
+         return; /* another map/unmap WM_STATE update is pending, wait for it to complete */
+@@ -1831,6 +1835,13 @@
+     {
+         if (!data->state_locks++) TRACE( "Locked window %p/%lx state\n", data->hwnd, data->whole_window );
+         *state_cmd = window_update_client_state( data );
++        if (data->wm_state_from_wm)
++        {
++            UINT style = NtUserGetWindowLongW( data->hwnd, GWL_STYLE );
++            BOOL iconic = data->current_state.wm_state == IconicState;
++            /* the win32 side gets the WM's state now, or already has it */
++            if (*state_cmd || !(style & WS_MINIMIZE) == !iconic) data->wm_state_from_wm = FALSE;
++        }
+         *swp_flags = window_update_client_config( data );
+         *rect = window_rect_from_visible( &data->rects, data->current_state.rect );
+         release_win_data( data );
+@@ -1876,6 +1887,8 @@
+     unsigned long *expect_serial = &data->wm_state_serial;
+     const char *reason = NULL, *expected, *received, *prefix;
+ 
++    BOOL from_wm = !*expect_serial && *current != value && value != WithdrawnState;
++
+     prefix = wine_dbg_sprintf( "window %p/%lx ", data->hwnd, data->whole_window );
+     received = wine_dbg_sprintf( "WM_STATE %#x/%lu", value, serial );
+     expected = *expect_serial ? wine_dbg_sprintf( ", expected %#x/%lu", *pending, *expect_serial ) : "";
+@@ -1885,6 +1898,7 @@
+     if (!handle_state_change( serial, expect_serial, sizeof(value), &value, desired, pending,
+                               current, expected, prefix, received, reason ))
+         return;
++    if (from_wm) data->wm_state_from_wm = TRUE; /* until X11DRV_GetWindowStateUpdates hands it to win32 */
+     data->current_state.activate = data->pending_state.activate;
+     data->reparenting = 0;
+ 
+--- a/dlls/winex11.drv/x11drv.h
++++ b/dlls/winex11.drv/x11drv.h
+@@ -706,6 +706,7 @@
+     struct window_state pending_state; /* window state tracking the pending / requested state */
+     struct window_state current_state; /* window state tracking the current X11 state */
+     unsigned long wm_state_serial;     /* serial of last pending WM_STATE request */
++    BOOL     wm_state_from_wm;         /* the WM changed WM_STATE itself, the win32 side has not caught up yet */
+     unsigned long net_wm_state_serial; /* serial of last pending _NET_WM_STATE request */
+     unsigned long wm_hints_serial;     /* serial of last pending WM_HINTS request */
+     unsigned long mwm_hints_serial;    /* serial of last pending _MOTIF_WM_HINTS request */

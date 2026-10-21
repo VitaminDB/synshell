@@ -796,7 +796,22 @@ impl State {
         self.core.ipc_dirty = true;
     }
 
+    /// X11-окну — его состояние ICCCM (WM_STATE): клиент, попросивший свернуться (Wine — полноэкранное окно
+    /// без фокуса), ждёт ответа, а Wine до него не принимает фокус — развёрнутая игра оставалась на паузе.
+    fn x11_set_minimized(&self, id: WindowId, minimized: bool) {
+        if let Some(x) = self.core.wm.get(id).and_then(|m| m.window.x11_surface().cloned()) {
+            if let Err(e) = x.set_minimized(minimized) {
+                tracing::debug!(?e, "WM_STATE X11-окна");
+            }
+        }
+    }
+
     pub fn minimize(&mut self, id: WindowId) {
+        let Some(m) = self.core.wm.get(id) else { return };
+        if m.mapped {
+            // и уже свёрнутому: ответ на просьбу клиента свернуться
+            self.x11_set_minimized(id, true);
+        }
         let Some(m) = self.core.wm.get(id) else { return };
         if m.minimized || !m.mapped {
             return;
@@ -830,6 +845,8 @@ impl State {
     }
 
     pub fn unminimize(&mut self, id: WindowId) {
+        // и не свёрнутому: клиент мог попросить свернуться и снова развернуться, ответ — WM_STATE
+        self.x11_set_minimized(id, false);
         let Some(m) = self.core.wm.get_mut(id) else { return };
         if !m.minimized {
             return;
