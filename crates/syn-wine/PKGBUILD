@@ -7,7 +7,7 @@
 
 pkgname=syn-wine
 pkgver=11.19
-pkgrel=16
+pkgrel=18
 # мост Steam API из Proton (lsteamclient, steam.exe) — фиксированный коммит ValveSoftware/Proton
 _proton=ce53dd45cef6e51fbdb88524581dc1b0b11669fe
 # DXVK: x86_64 — релиз Valve/doitsujin; aarch64 — x64/aarch64/x32 из Hangover, arm64ec — своя сборка
@@ -33,6 +33,8 @@ depends=(
   libcups libpulse libunwind libx11 libxcomposite libxcursor libxext libxi
   libxinerama libxkbcommon libxrandr libxrender libxxf86vm mesa sdl2 systemd-libs vulkan-icd-loader
   wayland dbus libpcap v4l-utils ffmpeg
+  # видео игр через winegstreamer: ASF/WMV (gst-plugins-ugly — asfdemux), WMV/WMA и прочие кодеки (gst-libav)
+  gst-plugins-good gst-plugins-ugly gst-libav
 )
 makedepends=(clang lld llvm perl flex bison libusb autoconf)
 optdepends=(
@@ -61,10 +63,12 @@ source=(
   wow64-exception-bad-stack.patch
   winex11-touch-dinput.patch
   win32u-dpi-ratio.patch
+  win32u-emulated-mode-dpi.patch
   winex11-present-margins.patch
   proton-steamclient.patch
   syn-wine-helper.patch
   winevulkan-host-fd.patch
+  winegstreamer-missing-plugin.patch
   lsteamclient-unix-compat.h
   compatibilitytool.vdf
   toolmanifest.vdf
@@ -79,7 +83,7 @@ source_aarch64=(
 )
 noextract=("proton-${_proton:0:7}.tar.gz" "dxvk-$_dxvk.tar.gz" "hangover_${_hangover}_dlls.tar" "dxvk-$_dxvk_arm64ec-arm64ec.tar.gz")
 sha256sums=('4820066eda68e553d330239ffc628164a348d1c623e49d058e011c5a7cda95f1'
-            SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP)
+            SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP)
 sha256sums_x86_64=(SKIP)
 sha256sums_aarch64=(SKIP SKIP SKIP)
 
@@ -134,6 +138,10 @@ prepare() {
   # Эмулированный режим «неудобной» ширины (1334x600 на экране 2712x1220): DPI = 96 * 2712 / 1334 не сокращается
   # до 16 бит, make_ratio падал по assert (Fable при выборе разрешения) — дробь приближается.
   patch -Np1 -i "$srcdir/win32u-dpi-ratio.patch"
+  # DPI эмулированного режима: пока выбранный игрой режим не совпадает с физическим, эффективный DPI монитора —
+  # 96, как подбирает Windows для низких режимов. С DPI рабочего стола 144 окно Fable TLC (не DPI-aware) в
+  # 1024x768 растягивалось ещё в 1.5 раза и обрезалось справа и снизу.
+  patch -Np1 -i "$srcdir/win32u-emulated-mode-dpi.patch"
   # Эмулированный режим других пропорций выводится в часть полноэкранного окна, в полях оставалось содержимое
   # поверхности окна (белый прямоугольник в Fable) — поля закрашиваются чёрным, как у масштабирующего дисплея.
   patch -Np1 -i "$srcdir/winex11-present-margins.patch"
@@ -152,6 +160,10 @@ prepare() {
   # host-типов памяти идёт в драйвер как есть (без D3DKMT), процесс объявляет prctl(PR_SET_PTRACER_ANY) — иначе
   # при Yama ptrace_scope 1 слой не заберёт fd через pidfd_getfd. Без переменной всё как в upstream.
   patch -Np1 -i "$srcdir/winevulkan-host-fd.patch"
+  # Нет модулей GStreamer для видео/звука (демультиплексор или декодер: decodebin «missing-plugin», find_element,
+  # create_element) — winegstreamer зовёт syn-wine-helper gst-missing: окно «поставить пакеты?» (gst-plugins-ugly,
+  # gst-libav…). Раньше игра лишь писала «0x80040218» в своём окне (Fable TLC без gst-plugins-ugly).
+  patch -Np1 -i "$srcdir/winegstreamer-missing-plugin.patch"
   bsdtar -xf "$srcdir/proton-${_proton:0:7}.tar.gz" --strip-components=1 -C dlls "Proton-$_proton/lsteamclient"
   mkdir -p programs/steam
   bsdtar -xf "$srcdir/proton-${_proton:0:7}.tar.gz" --strip-components=2 -C programs/steam "Proton-$_proton/steam_helper"

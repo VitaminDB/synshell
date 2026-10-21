@@ -1,0 +1,138 @@
+--- a/dlls/winegstreamer/unixlib.c
++++ b/dlls/winegstreamer/unixlib.c
+@@ -25,8 +25,11 @@
+ #include "config.h"
+ 
+ #include <assert.h>
++#include <pthread.h>
+ #include <stdarg.h>
+ #include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
+ 
+ #include <gst/gst.h>
+ #include <gst/video/video.h>
+@@ -69,13 +72,72 @@
+     return GST_STREAM_TYPE_UNKNOWN;
+ }
+ 
++/* syn-wine: a GStreamer plugin is missing -- syn-wine-helper (from PATH) offers the distribution package
++ * that has it. what: "caps:<caps>" (decoder/demuxer for these caps) or "plugins:<set>" (base, good, ugly, bad,
++ * libav). Each once per process; SYN_WINE_HELPER=0 -- not called. */
++void report_missing_plugin(const char *what)
++{
++    static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
++    static char *seen[32];
++    static unsigned int seen_count;
++    const char *env = getenv("SYN_WINE_HELPER");
++    char exe[64] = "", *argv[7];
++    unsigned int i;
++    FILE *f;
++
++    if (!what || !*what || (env && env[0] == '0')) return;
++    pthread_mutex_lock(&lock);
++    for (i = 0; i < seen_count; i++) if (!strcmp(seen[i], what)) break;
++    if (i < seen_count || seen_count == ARRAY_SIZE(seen) || !(seen[seen_count] = strdup(what)))
++    {
++        pthread_mutex_unlock(&lock);
++        return;
++    }
++    seen_count++;
++    pthread_mutex_unlock(&lock);
++
++    if ((f = fopen("/proc/self/comm", "r")))
++    {
++        if (fgets(exe, sizeof(exe), f)) exe[strcspn(exe, "\n")] = 0;
++        fclose(f);
++    }
++    argv[0] = (char *)"syn-wine-helper";
++    argv[1] = (char *)"gst-missing";
++    argv[2] = (char *)"--exe";
++    argv[3] = exe;
++    argv[4] = (char *)"--";
++    argv[5] = (char *)what;
++    argv[6] = NULL;
++    __wine_unix_spawnvp(argv, FALSE);
++}
++
++void report_missing_caps(GstCaps *caps)
++{
++    gchar *str, *what;
++
++    if (!caps || gst_caps_is_any(caps) || gst_caps_is_empty(caps)) return;
++    str = gst_caps_to_string(caps);
++    what = g_strconcat("caps:", str, NULL);
++    report_missing_plugin(what);
++    g_free(what);
++    g_free(str);
++}
++
+ GstElement *create_element(const char *name, const char *plugin_set)
+ {
+     GstElement *element;
+ 
+     if (!(element = gst_element_factory_make(name, NULL)))
++    {
+         fprintf(stderr, "winegstreamer: failed to create %s, are %u-bit GStreamer \"%s\" plugins installed?\n",
+                 name, 8 * (unsigned int)sizeof(void *), plugin_set);
++        if (plugin_set)
++        {
++            gchar *what = g_strconcat("plugins:", plugin_set, NULL);
++            report_missing_plugin(what);
++            g_free(what);
++        }
++    }
+     return element;
+ }
+ 
+@@ -134,7 +196,12 @@
+     const gchar *name;
+ 
+     if (!(transforms = find_element_factories(type, GST_RANK_MARGINAL, element_sink_caps, element_src_caps)))
++    {
++        /* no decoder/demuxer for encoded input -- a codec plugin is missing */
++        if (type & (GST_ELEMENT_FACTORY_TYPE_DECODER | GST_ELEMENT_FACTORY_TYPE_DEMUXER))
++            report_missing_caps(element_sink_caps);
+         return NULL;
++    }
+ 
+     for (tmp = transforms; tmp != NULL && element == NULL; tmp = tmp->next)
+     {
+--- a/dlls/winegstreamer/unix_private.h
++++ b/dlls/winegstreamer/unix_private.h
+@@ -36,6 +36,8 @@
+ 
+ extern GstStreamType stream_type_from_caps(GstCaps *caps);
+ extern GstElement *create_element(const char *name, const char *plugin_set);
++extern void report_missing_plugin(const char *what);
++extern void report_missing_caps(GstCaps *caps);
+ GstElement *factory_create_element(GstElementFactory *factory);
+ extern GList *find_element_factories(GstElementFactoryListType type, GstRank min_rank,
+         GstCaps *element_sink_caps, GstCaps *element_src_caps);
+--- a/dlls/winegstreamer/wg_parser.c
++++ b/dlls/winegstreamer/wg_parser.c
+@@ -1484,6 +1484,24 @@
+         g_free(dbg_info);
+         break;
+ 
++    case GST_MESSAGE_ELEMENT:
++        /* decodebin: no decoder/demuxer for a stream (gst_missing_decoder_message_new) */
++        if (gst_message_has_name(msg, "missing-plugin"))
++        {
++            const GstStructure *structure = gst_message_get_structure(msg);
++            const GValue *detail = gst_structure_get_value(structure, "detail");
++
++            if (detail && G_VALUE_HOLDS(detail, GST_TYPE_CAPS))
++                report_missing_caps((GstCaps *)gst_value_get_caps(detail));
++            else if (detail && G_VALUE_HOLDS_STRING(detail))
++            {
++                gchar *what = g_strconcat("element:", g_value_get_string(detail), NULL);
++                report_missing_plugin(what);
++                g_free(what);
++            }
++        }
++        break;
++
+     case GST_MESSAGE_DURATION_CHANGED:
+         pthread_mutex_lock(&parser->mutex);
+         parser->has_duration = true;

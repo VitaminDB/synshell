@@ -1,7 +1,10 @@
 //! Окно: «не хватает компонентов — поставить?» (вызов из Wine или `run`) и список всех компонентов.
 
 mod ask;
+mod gst;
 mod list;
+
+pub use gst::GstAsk;
 
 use std::sync::Arc;
 
@@ -30,6 +33,7 @@ pub mod icons {
     pub const CHECK: &str = "\u{E86C}";
     pub const ERROR: &str = "\u{E000}";
     pub const DELETE: &str = "\u{E872}";
+    pub const MOVIE: &str = "\u{E02C}";
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -40,6 +44,8 @@ pub enum Mode {
     Ask,
     /// `run`: перед запуском — поставить или запустить как есть.
     AskBeforeRun,
+    /// Нет модулей GStreamer (вызов из winegstreamer): поставить пакеты из репозиториев.
+    Gst,
 }
 
 #[derive(Clone, PartialEq)]
@@ -106,6 +112,8 @@ pub struct St {
     pub changed: RwSignal<u64>,
     pub failed: RwSignal<Option<Arc<Failed>>>,
     pub plan: RwSignal<Arc<Plan>>,
+    /// Режим [`Mode::Gst`]: что не нашлось и какие пакеты поставить.
+    pub gst: RwSignal<Option<Arc<GstAsk>>>,
 }
 
 thread_local! {
@@ -119,7 +127,7 @@ pub fn db() -> Arc<Db> {
 impl St {
     pub fn new(mode: Mode, failed: Option<Failed>) -> St {
         let plan = failed.as_ref().map(|f| Plan::new(&db(), f)).unwrap_or_default();
-        St { mode, phase: use_signal(Phase::Idle), changed: use_signal(0), failed: use_signal(failed.map(Arc::new)), plan: use_signal(Arc::new(plan)) }
+        St { mode, phase: use_signal(Phase::Idle), changed: use_signal(0), failed: use_signal(failed.map(Arc::new)), plan: use_signal(Arc::new(plan)), gst: use_signal(None) }
     }
 
     pub fn busy(&self) -> bool {
@@ -200,16 +208,28 @@ fn root(st: St) -> W {
     let page = match st.mode {
         Mode::List => list::page(st),
         Mode::Ask | Mode::AskBeforeRun => ask::page(st),
+        Mode::Gst => gst::page(st),
     };
     boxed(DecoratedBox::new().class("root").child(page))
 }
 
 /// Окно; `false` — пользователь отказался (для `run`).
 pub fn run(mode: Mode, failed: Option<Failed>) -> bool {
+    run_with(mode, failed, None)
+}
+
+/// Окно «нет модулей GStreamer».
+pub fn run_gst(ask: GstAsk) {
+    run_with(Mode::Gst, None, Some(ask));
+}
+
+fn run_with(mode: Mode, failed: Option<Failed>, gst: Option<GstAsk>) -> bool {
+    let gst = gst.map(Arc::new);
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);
     let (title, size) = match mode {
         Mode::List => (t!("Компоненты Wine"), (520, 760)),
+        Mode::Gst => (t!("Модули видео и звука"), (480, 560)),
         _ => (t!("Нужны компоненты Wine"), (480, 560)),
     };
     App::new()
@@ -219,7 +239,11 @@ pub fn run(mode: Mode, failed: Option<Failed>) -> bool {
         .min_size(340, 420)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_styles_str(&mss)
-        .run(move |_| root(St::new(mode, failed.clone())));
+        .run(move |_| {
+            let st = St::new(mode, failed.clone());
+            st.gst.set(gst.clone());
+            root(st)
+        });
     ask::ACCEPTED.load(std::sync::atomic::Ordering::SeqCst)
 }
 
@@ -252,11 +276,22 @@ pub fn screenshot(args: Vec<String>) {
                 dlls: if page == "ask-unknown" { vec!["mfc42.dll".into(), "binkw32.dll".into()] } else { vec!["mfc42.dll".into(), "msvbvm60.dll".into()] },
                 ..Default::default()
             };
-            let mode = if page == "list" { Mode::List } else { Mode::Ask };
-            let st = St::new(mode, (mode != Mode::List).then_some(demo));
+            let mode = match page.as_str() {
+                "list" => Mode::List,
+                "gst" | "gst-busy" | "gst-done" => Mode::Gst,
+                _ => Mode::Ask,
+            };
+            let st = St::new(mode, (mode == Mode::Ask).then_some(demo));
+            if mode == Mode::Gst {
+                let missing = crate::gst::Missing { exe: "Fable.exe".into(), what: vec!["caps:video/x-ms-asf".into(), "caps:audio/x-wma, wmaversion=(int)2".into()] };
+                let pkgs = missing.candidates();
+                st.gst.set(Some(Arc::new(GstAsk { missing, pkgs })));
+            }
             match page.as_str() {
                 "busy" => st.phase.set(Phase::Busy("MFC 4.2: скачивание 0,8 из 1,8 МБ".into(), Some(0.45))),
                 "error" => st.phase.set(Phase::Error("не удалось скачать VC6RedistSetup_deu.exe: http status: 404".into())),
+                "gst-busy" => st.phase.set(Phase::Busy("(2/2) установка gst-libav".into(), None)),
+                "gst-done" => st.phase.set(Phase::Done("Модули установлены. Перезапустите программу, чтобы видео и звук заработали.".into())),
                 _ => {}
             }
             root(st)

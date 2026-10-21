@@ -11,12 +11,15 @@
 //!   syn-wine-helper scan ПРОГРАММА.exe      каких DLL не хватит (без запуска)
 //!   syn-wine-helper run ПРОГРАММА.exe [АРГ…]  проверить, предложить недостающее, запустить в Wine
 //!   syn-wine-helper missing --machine M --exe … --cwd … --cmdline … -- DLL…   (из Wine)
+//!   syn-wine-helper gst-missing --exe ИМЯ -- caps:…|plugins:…|element:…   (из winegstreamer: нет модулей
+//!                                           GStreamer — поставить пакеты из репозиториев)
 //!   syn-wine-helper probe ФАЙЛ              какие DLL нашлись бы в установщике
 //!   syn-wine-helper --screenshot out.png [--size 460x620] [--scale 2] [--page ask|list|busy|error]
 
 mod cab;
 mod db;
 mod fetch;
+mod gst;
 mod install;
 mod launch;
 mod nsis;
@@ -58,6 +61,7 @@ fn main() {
             ui::run(ui::Mode::Ask, Some(f));
             0
         }
+        "gst-missing" => gst_missing(gst::Missing::parse(&mut args)),
         "--screenshot" => {
             ui::screenshot(args.collect());
             0
@@ -68,6 +72,21 @@ fn main() {
         }
     };
     std::process::exit(code);
+}
+
+/// Нет модулей GStreamer: окно с пакетами, которых нет в системе; всё уже стоит или уже спрашивали в
+/// этом сеансе — молча.
+fn gst_missing(m: gst::Missing) -> i32 {
+    let pkgs = m.to_install(&synsystem::packages::installed_map());
+    if pkgs.is_empty() {
+        eprintln!("{}", t!("модули GStreamer для {w}: подходящие пакеты уже установлены", w = m.what.join(" ")));
+        return 0;
+    }
+    if !gst::claim(&pkgs) {
+        return 0;
+    }
+    ui::run_gst(ui::GstAsk { missing: m, pkgs });
+    0
 }
 
 fn list() -> i32 {

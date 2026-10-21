@@ -1,0 +1,18 @@
+--- a/dlls/win32u/sysparams.c
++++ b/dlls/win32u/sysparams.c
+@@ -2347,6 +2347,15 @@
+     UINT dpi;
+ 
+     if (!source || !(dpi = source->dpi)) dpi = system_dpi;
++    /* Emulated display mode (EmulateModeset) other than the physical one: Windows picks the DPI
++     * scale for the new resolution, 100% for the low modes games set, so a DPI-unaware fullscreen
++     * window fills the mode. Keeping the desktop DPI (144) scaled a 1024x768 game by 1.5 more and
++     * cropped it (Fable TLC). */
++    if (emulate_modeset && source && (source->state_flags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP) &&
++        source->current.dmPelsWidth && source->current.dmPelsHeight &&
++        (source->current.dmPelsWidth != source->physical.dmPelsWidth ||
++         source->current.dmPelsHeight != source->physical.dmPelsHeight))
++        dpi = USER_DEFAULT_SCREEN_DPI;
+     if (source && type != MDT_EFFECTIVE_DPI && (source->state_flags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP))
+     {
+         scale_x.num = source->physical.dmPelsWidth;

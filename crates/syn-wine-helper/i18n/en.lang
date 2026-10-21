@@ -58,3 +58,25 @@
 "{n} МБ" = "{n} MB"
 "Не получилось: {e}" = "Failed: {e}"
 "Нужны компоненты Wine" = "Wine components needed"
+
+# src/gst.rs
+"Основные форматы: AVI, MKV, MP4/MOV, FLAC, VP8/VP9" = "Core formats: AVI, MKV, MP4/MOV, FLAC, VP8/VP9"
+"ASF/WMV-контейнер, MPEG-1/2, AC-3 — форматы с лицензионными ограничениями" = "ASF/WMV container, MPEG-1/2, AC-3 — formats with licensing restrictions"
+"Новые и редкие форматы: AV1, MPEG-TS, HEVC и другие" = "New and rare formats: AV1, MPEG-TS, HEVC and more"
+"Кодеки FFmpeg: WMV, WMA, H.264, MPEG-4, AAC, Indeo, Cinepak и другие" = "FFmpeg codecs: WMV, WMA, H.264, MPEG-4, AAC, Indeo, Cinepak and more"
+"Базовые модули: Ogg, Vorbis, Theora, Opus, преобразование видео и звука" = "Base modules: Ogg, Vorbis, Theora, Opus, video and audio conversion"
+
+# src/main.rs (gst-missing)
+"модули GStreamer для {w}: подходящие пакеты уже установлены" = "GStreamer modules for {w}: matching packages are already installed"
+
+# src/ui/gst.rs
+"Установка {p}…" = "Installing {p}…"
+"Модули установлены. Перезапустите программу, чтобы видео и звук заработали." = "Modules installed. Restart the program to get video and sound working."
+"программа" = "the program"
+"Нечем воспроизвести видео" = "Can’t play video"
+"«{p}» не может открыть видео или звук: в системе нет модулей GStreamer для этого формата." = "“{p}” can’t open video or sound: the system has no GStreamer modules for this format."
+"Формат: {f}" = "Format: {f}"
+"Пакеты ставятся в систему из репозиториев (pacman) и нужны всем программам Wine. Понадобится пароль администратора." = "Packages are installed system-wide from the repositories (pacman) and serve all Wine programs. The administrator password will be required."
+
+# src/ui/mod.rs (gst)
+"Модули видео и звука" = "Video and sound modules"

@@ -7000,6 +7000,7 @@ dependencies = [
  "sha2",
  "syngui",
  "synshell-common",
+ "synsystem",
  "toml",
  "tracing",
  "tracing-subscriber",
