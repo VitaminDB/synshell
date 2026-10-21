@@ -216,3 +216,5 @@
 "Сбросить всё" = "Reset everything"
 "Все настройки — по умолчанию; помощник пересоберёт функции" = "Every setting to its default; the helper rebuilds its features"
 "Сбросить…" = "Reset…"
+"Игры syn-wine" = "syn-wine games"
+"Слой DLSS 5 в программах нашего Wine без переменной VKLayer_DLSS5=1 — с их следующего запуска. Нужны кадры Vulkan: для Direct3D 8–11 — DXVK" = "The DLSS 5 layer in programs of our Wine without the VKLayer_DLSS5=1 variable — from their next start. Needs Vulkan frames: DXVK for Direct3D 8–11"

@@ -1,0 +1,37 @@
+--- a/dlls/win32u/vulkan.c
++++ b/dlls/win32u/vulkan.c
+@@ -3140,6 +3140,25 @@
+     .p_map_device_extensions = lazydrv_map_device_extensions,
+ };
+ 
++/* syn-wine: DLSS 5 (crates/syn-wine/dlss5, window syn-dlss) in the programs of this Wine. Its Vulkan layer
++ * VK_LAYER_NV_dlssnr loads only with VKLayer_DLSS5=1; syn-dlss turns it on for syn-wine with the flag file
++ * $XDG_CONFIG_HOME/dlssnr/syn-wine, read before the Vulkan loader. An explicit variable wins, and the
++ * layer's DLSSNR_DISABLE=1 (the DLSS helper itself runs under Wine) keeps it off. */
++static void enable_dlss5_layer(void)
++{
++    const char *config = getenv( "XDG_CONFIG_HOME" ), *home = getenv( "HOME" );
++    char path[1024];
++
++    if (config && *config) snprintf( path, sizeof(path), "%s/dlssnr/syn-wine", config );
++    else if (home && *home) snprintf( path, sizeof(path), "%s/.config/dlssnr/syn-wine", home );
++    else return;
++    if (!access( path, F_OK ))
++    {
++        TRACE( "DLSS 5 layer on (%s)\n", path );
++        setenv( "VKLayer_DLSS5", "1", 0 );
++    }
++}
++
+ static void vulkan_init_once(void)
+ {
+     struct vulkan_instance_extensions extensions = {0};
+@@ -3147,6 +3166,8 @@
+     uint32_t count = 0;
+     VkResult res;
+ 
++    enable_dlss5_layer();
++
+ #ifdef SONAME_LIBVULKAN
+     vulkan_handle = dlopen( SONAME_LIBVULKAN, RTLD_NOW );
+     if (!vulkan_handle) ERR( "Failed to load %s\n", SONAME_LIBVULKAN );

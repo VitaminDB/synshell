@@ -347,6 +347,21 @@ pub fn helper(st: St) -> Vec<W> {
             t!("Запуск"),
             vec![
                 c::row(t!("Среда помощника"), t!("Помощник — Windows-программа (модель — Windows DLL), ему нужен Wine или Proton; от игры это не зависит"), runner),
+                c::row(
+                    t!("Игры syn-wine"),
+                    t!("Слой DLSS 5 в программах нашего Wine без переменной VKLayer_DLSS5=1 — с их следующего запуска. Нужны кадры Vulkan: для Direct3D 8–11 — DXVK"),
+                    Toggle::with_state(crate::paths::syn_wine_flag().exists()).on_change(|on| {
+                        let flag = crate::paths::syn_wine_flag();
+                        let r = if on {
+                            std::fs::create_dir_all(crate::paths::config_dir()).and_then(|_| std::fs::write(&flag, b""))
+                        } else {
+                            std::fs::remove_file(&flag).or_else(|e| if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) })
+                        };
+                        if let Err(e) = r {
+                            tracing::warn!(?e, "флаг syn-wine");
+                        }
+                    }),
+                ),
                 c::int_row(st, t!("Пауза пересборки, мс"), t!("Сколько помощник ждёт после смены настройки модели перед пересборкой; поднимите, если модель перестаёт отвечать"), fld!(rebuild_settle_ms), 0, 5000, Live),
                 c::row(
                     t!("Журнал помощника"),

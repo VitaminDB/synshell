@@ -8,7 +8,7 @@
 
 pkgname=syn-wine-dlss5
 pkgver=0.3.1
-pkgrel=2
+pkgrel=3
 # коммит upstream bmitch87/DLSS5VKLayer, от которого идёт форк
 _upstream=ab722b091071d6d59df56f10d86d4f3005bcad86
 _nvapi=0.9.2

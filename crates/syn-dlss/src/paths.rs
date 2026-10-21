@@ -22,6 +22,12 @@ pub fn config_file() -> PathBuf {
     config_dir().join("config.ini")
 }
 
+/// Флаг «DLSS 5 в играх syn-wine»: наш Wine, видя его, включает слой (VKLayer_DLSS5=1) своим программам
+/// (crates/syn-wine/win32u-dlss5-layer.patch).
+pub fn syn_wine_flag() -> PathBuf {
+    config_dir().join("syn-wine")
+}
+
 pub fn profiles_dir() -> PathBuf {
     config_dir().join("profiles")
 }
