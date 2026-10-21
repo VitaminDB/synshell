@@ -1,0 +1,87 @@
+--- a/dlls/netapi32/nbcmdqueue.c
++++ b/dlls/netapi32/nbcmdqueue.c
+@@ -98,8 +98,9 @@
+     else
+     {
+         ret = &queue->head;
+-        while (ret && *ret != ncb)
++        while (*ret && *ret != ncb)
+             ret = NEXT_PTR(*ret);
++        if (!*ret) ret = NULL; /* not queued (any more): the end of the list is no ncb */
+     }
+     return ret;
+ }
+@@ -108,6 +109,7 @@
+ {
+     UCHAR ret;
+     PNCB *spot;
++    HANDLE event = NULL;
+ 
+     TRACE(": queue %p, ncb %p\n", queue, ncb);
+ 
+@@ -120,18 +122,30 @@
+     spot = NBCmdQueueFindNBC(queue, ncb);
+     if (spot)
+     {
+-        *CANCEL_EVENT_PTR(*spot) = CreateEventW(NULL, FALSE, FALSE, NULL);
+-        WaitForSingleObject(*CANCEL_EVENT_PTR(*spot), INFINITE);
+-        CloseHandle(*CANCEL_EVENT_PTR(*spot));
+-        *spot = *NEXT_PTR(*spot);
+-        if (ncb->ncb_retcode == NRC_CMDCAN)
+-            ret = NRC_CMDCAN;
+-        else
+-            ret = NRC_CANOCCR;
++        event = CreateEventW(NULL, FALSE, FALSE, NULL);
++        *CANCEL_EVENT_PTR(*spot) = event;
+     }
+-    else
+-        ret = NRC_INVADDRESS;
+     LeaveCriticalSection(&queue->cs);
++    if (!event)
++    {
++        TRACE("returning 0x%02x\n", NRC_INVADDRESS);
++        return NRC_INVADDRESS;
++    }
++
++    /* Wait without the lock, as the comment above says: NBCmdQueueComplete takes it to set the event. Waiting
++     * with it held deadlocked a command cancelled (NCBRESET) while another thread completed it -- SecuROM's
++     * loader asks for the adapter address from several threads, and Fable TLC hung at start. */
++    WaitForSingleObject(event, INFINITE);
++
++    EnterCriticalSection(&queue->cs);
++    if ((spot = NBCmdQueueFindNBC(queue, ncb)))
++        *spot = *NEXT_PTR(*spot);
++    LeaveCriticalSection(&queue->cs);
++    CloseHandle(event);
++    if (ncb->ncb_retcode == NRC_CMDCAN)
++        ret = NRC_CMDCAN;
++    else
++        ret = NRC_CANOCCR;
+     TRACE("returning 0x%02x\n", ret);
+     return ret;
+ }
+@@ -174,14 +188,18 @@
+     if (!queue)
+         return NRC_BADDR;
+ 
+-    EnterCriticalSection(&queue->cs);
+-    while (queue->head)
++    for (;;)
+     {
+-        TRACE(": waiting for ncb %p (command 0x%02x)\n", queue->head,
+-         queue->head->ncb_command);
+-        NBCmdQueueCancel(queue, queue->head);
++        PNCB head;
++
++        /* NBCmdQueueCancel waits without the lock: do not hold it around the call */
++        EnterCriticalSection(&queue->cs);
++        head = queue->head;
++        LeaveCriticalSection(&queue->cs);
++        if (!head) break;
++        TRACE(": waiting for ncb %p (command 0x%02x)\n", head, head->ncb_command);
++        NBCmdQueueCancel(queue, head);
+     }
+-    LeaveCriticalSection(&queue->cs);
+     ret = NRC_GOODRET;
+     TRACE("returning 0x%02x\n", ret);
+     return ret;

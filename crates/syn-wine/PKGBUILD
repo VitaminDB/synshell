@@ -7,7 +7,7 @@
 
 pkgname=syn-wine
 pkgver=11.19
-pkgrel=21
+pkgrel=22
 # мост Steam API из Proton (lsteamclient, steam.exe) — фиксированный коммит ValveSoftware/Proton
 _proton=ce53dd45cef6e51fbdb88524581dc1b0b11669fe
 # DXVK: x86_64 — релиз Valve/doitsujin; aarch64 — x64/aarch64/x32 из Hangover, arm64ec — своя сборка
@@ -64,6 +64,7 @@ source=(
   winex11-touch-dinput.patch
   winex11-wm-state-race.patch
   win32u-dlss5-layer.patch
+  netapi32-netbios-cancel-deadlock.patch
   win32u-dpi-ratio.patch
   win32u-emulated-mode-dpi.patch
   winex11-present-margins.patch
@@ -85,7 +86,7 @@ source_aarch64=(
 )
 noextract=("proton-${_proton:0:7}.tar.gz" "dxvk-$_dxvk.tar.gz" "hangover_${_hangover}_dlls.tar" "dxvk-$_dxvk_arm64ec-arm64ec.tar.gz")
 sha256sums=('4820066eda68e553d330239ffc628164a348d1c623e49d058e011c5a7cda95f1'
-            SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP)
+            SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP)
 sha256sums_x86_64=(SKIP)
 sha256sums_aarch64=(SKIP SKIP SKIP)
 
@@ -148,6 +149,10 @@ prepare() {
   # libvulkan выставляет VKLayer_DLSS5=1 — слой VK_LAYER_NV_dlssnr встаёт в цепочку игры (кадры Vulkan: DXVK и т.п.)
   # без переменной при запуске; явная переменная главнее, DLSSNR_DISABLE=1 (сам помощник) — выключен.
   patch -Np1 -i "$srcdir/win32u-dlss5-layer.patch"
+  # NetBIOS (netapi32): отмена команды ждала её завершения, держа блокировку очереди, а завершению нужна та же
+  # блокировка — загрузчик SecuROM (Fable TLC), читающий адрес адаптера из нескольких потоков, вис при запуске.
+  # Ожидание — без блокировки; CancelAll не держит её вокруг отмены; поиск в очереди не разыменовывает конец списка.
+  patch -Np1 -i "$srcdir/netapi32-netbios-cancel-deadlock.patch"
   # Эмулированный режим «неудобной» ширины (1334x600 на экране 2712x1220): DPI = 96 * 2712 / 1334 не сокращается
   # до 16 бит, make_ratio падал по assert (Fable при выборе разрешения) — дробь приближается.
   patch -Np1 -i "$srcdir/win32u-dpi-ratio.patch"
