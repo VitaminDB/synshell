@@ -8,6 +8,8 @@
 "Скопировано: {v}" = "Copied: {v}"
 "Буфер обмена пуст" = "Clipboard is empty"
 "Путь скопирован" = "Path copied"
+"Нечего копировать" = "Nothing to copy"
+"Изменить путь" = "Edit Path"
 "Скопировано путей: {n}" = "Paths copied: {n}"
 "В корзину: {v}" = "Moved to Trash: {v}"
 "Нечего отменять" = "Nothing to undo"

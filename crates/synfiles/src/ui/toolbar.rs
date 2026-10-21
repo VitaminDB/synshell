@@ -122,6 +122,28 @@ fn more_menu() -> Vec<MenuItem> {
     ]
 }
 
+/// Меню крошки (или пустого места адреса): копировать путь, открыть, изменить.
+fn crumb_menu(target: Location, at: Point) {
+    let mut items = Vec::new();
+    if target.dir().is_some() {
+        items.push(MenuItem::new("copy-path", t!("Копировать путь")).icon(icons::COPY_PATH));
+    }
+    items.push(MenuItem::new("open-tab", t!("Открыть в новой вкладке")).icon(icons::TAB));
+    items.push(MenuItem::new("edit", t!("Изменить путь")).icon(icons::RENAME).shortcut("Ctrl+L"));
+    state::show_menu(items, at, move |id| match id {
+        "copy-path" => {
+            if let Some(d) = target.dir() {
+                actions::copy_paths_text(&[d.to_path_buf()]);
+            }
+        }
+        "open-tab" => {
+            state::new_tab(target.clone(), true);
+        }
+        "edit" => state::ctx().address_edit.set(true),
+        _ => {}
+    });
+}
+
 /// Хлебные крошки или поле ввода пути.
 fn address() -> W {
     boxed(Reactive::new(move || -> Vec<W> {
@@ -187,16 +209,18 @@ fn address() -> W {
                             state::navigate(p, target.clone(), true);
                         }
                     })
+                    .on_secondary_click(move |at| crumb_menu(target2.clone(), at))
                     .child(
                         DecoratedBox::new()
                             .class(if last { "crumb last" } else { "crumb" })
                             .child(Text::new(title).max_lines(1).class("crumb-text")),
                     ),
             );
-            let _ = target2;
         }
+        let here = loc.clone();
         let bar = GestureDetector::new()
             .on_click(move || state::ctx().address_edit.set(true))
+            .on_secondary_click(move |at| crumb_menu(here.clone(), at))
             .child(DecoratedBox::new().class("address").clip(true).child(Row::new().child(row).child(DecoratedBox::new().class("grow"))));
         vec![boxed(bar)]
     }))

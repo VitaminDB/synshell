@@ -308,6 +308,10 @@ pub fn paste_into(dir: &Path) {
 }
 
 pub fn copy_paths_text(paths: &[PathBuf]) {
+    if paths.is_empty() {
+        state::toast(t!("Нечего копировать"));
+        return;
+    }
     let text = paths.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join("\n");
     syngui::clipboard::copy(&text);
     state::toast(if paths.len() == 1 { t!("Путь скопирован").to_string() } else { t!("Скопировано путей: {n}", n = paths.len()) });
@@ -1064,7 +1068,14 @@ pub fn key(k: Key, m: Modifiers) -> bool {
             let exe = synshell_common::paths::self_exe("synfiles");
             spawn_shell(&format!("'{}' '{}'", exe.display(), dir.replace('\'', "'\\''")), None);
         }
-        Key::C if ctrl && m.shift => copy_paths_text(&state::selected_paths(p)),
+        Key::C if ctrl && m.shift => {
+            // Ничего не выделено — путь открытой папки.
+            let mut paths = state::selected_paths(p);
+            if paths.is_empty() {
+                paths.extend(p.loc.get_untracked().dir().map(Path::to_path_buf));
+            }
+            copy_paths_text(&paths)
+        }
         Key::C if ctrl => set_clipboard(state::selected_paths(p), false),
         Key::X if ctrl => set_clipboard(state::selected_paths(p), true),
         Key::V if ctrl => run(p, "paste"),
