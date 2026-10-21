@@ -4,6 +4,7 @@
 //! Модель партии живёт в `GameCtx::game` (RwSignal) — так её видят тесты и
 //! другие экраны; элемент хранит только презентационное состояние.
 
+pub mod chrome;
 pub mod cube;
 mod demo;
 pub mod finish;
@@ -62,12 +63,37 @@ pub struct GameCtx {
     pub screen: RwSignal<Screen>,
     /// Вид игры (стартовая страница переключает).
     pub variant: RwSignal<Variant>,
+    /// Состояние окна (развёрнуто, во весь экран, в фокусе) — от `App::with_window_state`.
+    pub window: RwSignal<syngui::window::WindowState>,
 }
 
 impl GameCtx {
     pub fn new(seed: u64, stats: Stats) -> Self {
-        GameCtx { game: use_signal(Game::new(seed)), stats: use_signal(stats), screen: use_signal(Screen::Game), variant: use_signal(Variant::Standard) }
+        GameCtx { game: use_signal(Game::new(seed)), stats: use_signal(stats), screen: use_signal(Screen::Game), variant: use_signal(Variant::Standard), window: use_signal(syngui::window::WindowState::default()) }
     }
+}
+
+/// Полноэкранный режим переключается самим приложением (на Android оно всегда во весь экран).
+pub fn fullscreen_supported() -> bool {
+    !cfg!(target_os = "android")
+}
+
+/// Во весь экран или в окно; выбор запоминается (`Stats::fullscreen`).
+pub fn set_fullscreen(ctx: GameCtx, on: bool) {
+    if !fullscreen_supported() {
+        return;
+    }
+    syngui::signal::set_fullscreen(on);
+    let mut s = ctx.stats.get_untracked();
+    if s.fullscreen != Some(on) {
+        s.fullscreen = Some(on);
+        ctx.stats.set(s);
+        persist::save(&s);
+    }
+}
+
+pub fn toggle_fullscreen(ctx: GameCtx) {
+    set_fullscreen(ctx, !ctx.window.get_untracked().fullscreen);
 }
 
 /// Виджет-обёртка (без данных: всё берётся из контекста).
@@ -348,6 +374,7 @@ impl View {
             StartAction::ToggleSound => self.apply(Action::ToggleSound),
             StartAction::ToggleMusic => self.apply(Action::ToggleMusic),
             StartAction::ToggleVoice => self.apply(Action::ToggleVoice),
+            StartAction::ToggleFullscreen => self.apply(Action::ToggleFullscreen),
         }
     }
 
@@ -1144,6 +1171,7 @@ impl View {
             Action::ViewBoard => self.over_card = false,
             Action::NewGame => self.new_game(),
             Action::Home => self.go_home(),
+            Action::ToggleFullscreen => toggle_fullscreen(self.ctx),
             Action::ToggleVoice => {
                 let mut s = self.stats();
                 s.voice = !s.voice;
@@ -1294,8 +1322,16 @@ impl View {
     }
 
     fn on_key(&mut self, key: Key) -> EventResult {
+        if key == Key::F11 && fullscreen_supported() {
+            toggle_fullscreen(self.ctx);
+            return EventResult::Handled;
+        }
         if self.screen == Screen::Start {
             return match key {
+                Key::Escape if self.ctx.window.get_untracked().fullscreen => {
+                    set_fullscreen(self.ctx, false);
+                    EventResult::Handled
+                }
                 Key::Enter | Key::Space | Key::Num1 => {
                     self.on_start_action(StartAction::Play(Variant::Standard));
                     EventResult::Handled

@@ -97,6 +97,8 @@ pub const ICON_CHECK_ON: &str = "\u{E834}"; // check_box
 pub const ICON_CHECK_OFF: &str = "\u{E835}"; // check_box_outline_blank
 pub const ICON_KEYBOARD: &str = "\u{E312}"; // не использовать с Inter (PUA)
 pub const ICON_HOME: &str = "\u{E88A}"; // home
+pub const ICON_FULLSCREEN: &str = "\u{E5D0}"; // fullscreen
+pub const ICON_FULLSCREEN_EXIT: &str = "\u{E5D1}"; // fullscreen_exit
 
 /// Слова похвалы по числу линий за ход.
 pub fn praise(lines: usize) -> Option<&'static str> {

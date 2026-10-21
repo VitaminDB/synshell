@@ -67,6 +67,8 @@ pub struct Stats {
     pub loop_all: bool,
     /// Последний выбранный вид игры (индекс `Variant`).
     pub variant: u8,
+    /// Полноэкранный режим, выбранный пользователем; `None` — ещё не выбирал (на телефоне — во весь экран).
+    pub fullscreen: Option<bool>,
 }
 
 impl Default for Stats {
@@ -86,6 +88,7 @@ impl Default for Stats {
             track: 0,
             loop_all: false,
             variant: 0,
+            fullscreen: None,
         }
     }
 }
@@ -108,7 +111,7 @@ impl Stats {
             self.best, self.games, self.best_combo, self.total_lines, self.total_score, self.perfects,
             self.sound as u8, self.music as u8, self.voice as u8, self.difficulty, b[0][0], b[0][1], b[0][2], b[1][0], b[1][1], b[1][2], self.track,
             self.loop_all as u8, self.variant
-        )
+        ) + &self.fullscreen.map(|f| format!("fullscreen={}\n", f as u8)).unwrap_or_default()
     }
 
     pub fn from_text(text: &str) -> Self {
@@ -144,6 +147,7 @@ impl Stats {
                 "deluxe_best_hard" => s.best_by[1][2] = v.parse().unwrap_or(0),
                 "track" => s.track = v.parse().unwrap_or(0),
                 "loop_all" => s.loop_all = v != "0",
+                "fullscreen" => s.fullscreen = Some(v != "0"),
                 "variant" => s.variant = v.parse::<u8>().unwrap_or(0).min(1),
                 _ => {}
             }
@@ -368,7 +372,7 @@ mod tests {
 
     #[test]
     fn roundtrip() {
-        let s = Stats { best: 1234, games: 7, best_combo: 5, total_lines: 88, total_score: 9999, perfects: 2, sound: false, music: true, voice: false, difficulty: 2, best_by: [[10, 1234, 77], [5, 6, 7]], track: 3, loop_all: true, variant: 1 };
+        let s = Stats { best: 1234, games: 7, best_combo: 5, total_lines: 88, total_score: 9999, perfects: 2, sound: false, music: true, voice: false, difficulty: 2, best_by: [[10, 1234, 77], [5, 6, 7]], track: 3, loop_all: true, variant: 1, fullscreen: Some(true) };
         assert_eq!(Stats::from_text(&s.to_text()), s);
         assert_eq!(Stats::from_text("garbage\nbest=x\n"), Stats::default());
         // старый файл без ключей Люкса/голоса

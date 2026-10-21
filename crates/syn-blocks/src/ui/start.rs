@@ -22,6 +22,7 @@ pub enum StartAction {
     ToggleSound,
     ToggleMusic,
     ToggleVoice,
+    ToggleFullscreen,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -33,6 +34,8 @@ pub struct StartGeo {
     /// Переключатели: звуки, музыка, голос.
     pub toggles: [Rect; 3],
     pub version: Rect,
+    /// Кнопка «во весь экран» в правом верхнем углу (нет на Android).
+    pub fullscreen: Option<Rect>,
 }
 
 pub const CARD_STD_H: f32 = 166.0;
@@ -65,10 +68,17 @@ pub fn layout(geo: &Geo) -> StartGeo {
     ];
     y += toggles_h + 8.0;
     let version = Rect::new(Point::new(x, y), Size::new(w, 16.0));
-    StartGeo { title, subtitle, cards: [card_std, card_elv], toggles, version }
+    let fullscreen = super::fullscreen_supported().then(|| {
+        let s = 40.0;
+        Rect::new(Point::new(content.origin.x + content.width() - s - 16.0, content.origin.y + 16.0), Size::new(s, s))
+    });
+    StartGeo { title, subtitle, cards: [card_std, card_elv], toggles, version, fullscreen }
 }
 
 pub fn action_at(sg: &StartGeo, p: Point) -> Option<StartAction> {
+    if sg.fullscreen.is_some_and(|r| r.contains(p)) {
+        return Some(StartAction::ToggleFullscreen);
+    }
     if sg.cards[0].contains(p) {
         return Some(StartAction::Play(Variant::Standard));
     }
@@ -192,6 +202,15 @@ pub fn draw(v: &View, list: &mut DisplayList, alpha: f32, dy: f32) {
         icon(list, if on[i] { theme::ICON_CHECK_ON } else { theme::ICON_CHECK_OFF }, ir, Color::WHITE.with_alpha(if on[i] { 1.0 } else { 0.5 }), 18.0);
         let lr = Rect::new(Point::new(rect.origin.x + 34.0, rect.origin.y), Size::new(rect.width() - 40.0, rect.height()));
         text_nowrap(list, labels[i], lr, Color::WHITE.with_alpha(if on[i] { 1.0 } else { 0.6 }), 13.5, 800, TextAlign::LEFT | TextAlign::VCENTER);
+    }
+    // во весь экран / в окно
+    if let Some(fr) = sg.fullscreen {
+        let rect = offset(fr, 0.0, dy);
+        let hot = fr.contains(v.pointer);
+        let col = hex(if hot { theme::BTN_SECONDARY_HOVER } else { theme::BTN_SECONDARY });
+        list.push_rect_bordered(rect, col.with_alpha(0.85), [rect.height() * 0.5; 4], Border { width: 1.0, color: Color::WHITE.with_alpha(0.18) });
+        let glyph = if v.ctx.window.get_untracked().fullscreen { theme::ICON_FULLSCREEN_EXIT } else { theme::ICON_FULLSCREEN };
+        icon(list, glyph, rect, Color::WHITE.with_alpha(0.92), 22.0);
     }
     let ver = offset(sg.version, 0.0, dy);
     text_nowrap(list, &format!("Syn Blocks {}  ·  syngui", env!("CARGO_PKG_VERSION")), ver, hex(theme::TEXT_DIM).with_alpha(0.55), 10.5, 600, TextAlign::CENTER);

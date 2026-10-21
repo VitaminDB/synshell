@@ -889,6 +889,7 @@ fn card_buttons(v: &View, list: &mut DisplayList, card: &Card, t: f32, dy: f32) 
             overlay::Action::ToggleSound => (if stats.sound { "Звуки: вкл" } else { "Звуки: выкл" }, if stats.sound { theme::ICON_CHECK_ON } else { theme::ICON_CHECK_OFF }),
             overlay::Action::ToggleMusic => (if stats.music { "Музыка: вкл" } else { "Музыка: выкл" }, if stats.music { theme::ICON_CHECK_ON } else { theme::ICON_CHECK_OFF }),
             overlay::Action::ToggleVoice => (if stats.voice { "Голос: вкл" } else { "Голос: выкл" }, if stats.voice { theme::ICON_CHECK_ON } else { theme::ICON_CHECK_OFF }),
+            overlay::Action::ToggleFullscreen => ("", if v.ctx.window.get_untracked().fullscreen { theme::ICON_FULLSCREEN_EXIT } else { theme::ICON_FULLSCREEN }),
             overlay::Action::TrackNext if !b.label.is_empty() => {
                 track_label = format!("{}/{}  {}", stats.track as usize + 1, crate::audio::track_count(), crate::audio::track_name(stats.track as usize));
                 (track_label.as_str(), "")

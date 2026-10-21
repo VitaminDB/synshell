@@ -19,6 +19,8 @@ pub enum Action {
     /// На стартовую страницу (партия сохраняется).
     Home,
     ToggleVoice,
+    /// Во весь экран / в окно (не на Android: там приложение всегда во весь экран).
+    ToggleFullscreen,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -92,7 +94,11 @@ pub fn menu_card(geo: &Geo) -> Card {
         title_h,
         body_h,
         &[
-            &[(Action::Resume, true, "Продолжить", ICON_PLAY, 1.0)],
+            if super::fullscreen_supported() {
+                &[(Action::Resume, true, "Продолжить", ICON_PLAY, 1.0), (Action::ToggleFullscreen, false, "", super::theme::ICON_FULLSCREEN, 0.2)]
+            } else {
+                &[(Action::Resume, true, "Продолжить", ICON_PLAY, 1.0)]
+            },
             &[(Action::NewGame, false, "Новая игра", ICON_REPLAY, 1.3), (Action::Home, false, "В начало", ICON_HOME, 1.0)],
             &[
                 (Action::Difficulty(0), false, "Легко", "", 1.0),

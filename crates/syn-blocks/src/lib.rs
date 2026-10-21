@@ -34,19 +34,26 @@ fn build_ctx() -> GameCtx {
 
 pub fn run_desktop() {
     let ctx = build_ctx();
+    // своё окно (заголовок, кнопки, рамка — ui::chrome) и полноэкранный режим
     App::new()
         .title("Syn Blocks")
-        .size(WINDOW_W, WINDOW_H)
-        .min_size(340, 600)
+        .app_id("syn-blocks")
+        .size(WINDOW_W, WINDOW_H + 42)
+        .min_size(340, 640)
+        .frameless()
+        .transparent(true)
+        .fullscreen(ui::chrome::start_fullscreen(ctx))
         .vsync(true)
         .gpu_backend(GpuBackend::Auto)
         .gpu_power(GpuPowerPreference::HighPerformance)
-        .background(Color::from_hex(ui::theme::BG_BOTTOM))
+        .background(Color::from_srgb(0, 0, 0, 0.0))
         .with_font_family(ui::theme::FONT)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
+        .with_styles_str(&ui::chrome::mss())
+        .with_window_state(ctx.window)
         .run(move |_| {
             provide_context(ctx);
-            Box::new(GameView)
+            ui::chrome::root(ctx)
         });
 }
 

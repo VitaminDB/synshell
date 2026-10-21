@@ -2,7 +2,7 @@
 
 > Проект: `synshell/crates/syn-blocks` (крейт workspace synshell, бывший `elle_block`) · фреймворк `syngui`
 > (`../syngui/syngui`, гайд `../syngui/syngui.md`). Референс жанра —
-> Block Blast (`docs/reference/*.jpeg`). Перед работой читать `../memory.md`.
+> Block Blast (`docs/reference/*.jpeg`).
 
 ## 1. Что это
 
@@ -153,7 +153,7 @@ cargo run                  # окно 460×820
 SYN_BLOCKS_DATA=/tmp/x cargo run   # отдельный файл статистики
 SYN_BLOCKS_DEMO=drag|over|menu|board|clear|start|finishes cargo run # демо-состояния (clear — ход с очисткой через 3.6 с)
 SYN_BLOCKS_VARIANT=deluxe SYN_BLOCKS_DEMO=finishes ./run-phone.sh        # витрина всех отделок на телефоне
-./run-phone.sh             # APK → телефон (см. memory.md G24)
+./run-phone.sh             # APK → телефон (cargo ndk arm64 + gradle, adb install)
 python3 tools/gen_sfx.py   # пересинтезировать эффекты
 tools/gen_textures.sh [id] # текстуры отделок: synaptix imagine, FLUX.2 klein 9B (~17 с/шт)
 python3 tools/build_atlas.py --sheet /tmp/blocks.png # отрендерить блоки в assets/tex/atlas.png (+ контрольный лист)
@@ -164,7 +164,7 @@ timeout 120 synaptix transcribe ~/Storage/Нейросети/Модели/whispe
 ffmpeg -i yue_x.wav -af loudnorm=I=-19:TP=-2:LRA=9 -ac 1 -ar 22050 -sample_fmt s16 assets/music/trackN.wav
 ```
 
-Скриншот из скрипта — см. рецепт в `memory.md` (timeout + spectacle).
+Скриншот из скрипта: запуск с `timeout` и снимок `spectacle -b -n -o файл.png`.
 
 ## 4. Дальше (не сделано)
 

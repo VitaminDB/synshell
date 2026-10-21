@@ -19,4 +19,4 @@ cargo test -p syn-blocks  # модель + интеграционные тест
 ./run-phone.sh            # APK arm64 → телефон по USB/Wi-Fi
 ```
 
-Архитектура — `docs/PLAN.md`, накопленные «грабли» — `memory.md`.
+Архитектура — `docs/PLAN.md`.

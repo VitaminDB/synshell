@@ -255,7 +255,9 @@ docs/15-sensors.md), политика — `synshell-ui/src/rotation.rs`. Ком�
   `~/.config/synshell/compass.toml`). Без датчиков — `SYN_COMPASS_DEMO=градусы`; снимок —
   `syn-compass --screenshot out.png` (`syngui::shot`).
 - **syn-blocks** «Syn Blocks» (бывший отдельный проект Elle Block): головоломка 8×8 в духе Block Blast, виды
-  «Стандарт» и «Люкс», музыка и озвучка вшиты в бинарник. Сохранения — `~/.local/share/syn-blocks/` (старый каталог
+  «Стандарт» и «Люкс», музыка и озвучка вшиты в бинарник. Своё окно (заголовок, кнопки окна, рамка — `ui/chrome.rs`) и полноэкранный
+  режим: кнопки в заголовке, на стартовой странице и в меню паузы, F11; на телефоне — во весь экран по умолчанию,
+  выбор запоминается (`fullscreen=` в `stats.txt`). Сохранения — `~/.local/share/syn-blocks/` (старый каталог
   `elle_block` переезжает сам), `SYN_BLOCKS_DATA` — другой; демо-состояния `SYN_BLOCKS_DEMO=…`. Тот же крейт
   собирается в APK для Android: `crates/syn-blocks/run-phone.sh` (`com.syngui.synblocks`, `syn-blocks-release.apk`).
 - **syn-remote** «Пульт»: ИК-пульт для бытовой техники. Передача — платформенной `syn-ir raw ЧАСТОТА -`
