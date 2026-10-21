@@ -7945,6 +7945,7 @@ name = "synfiles"
 version = "0.1.42"
 dependencies = [
  "anyhow",
+ "fuser",
  "image",
  "libc",
  "md5",

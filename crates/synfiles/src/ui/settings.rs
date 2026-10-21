@@ -208,6 +208,12 @@ fn behaviour_section(phone: bool) -> W {
         |on| actions::set_files("confirm_trash", on, |f| f.confirm_trash = on),
     ));
     rows.push(toggle_row(
+        &t!("Открывать архивы как папки"),
+        &t!("Zip, 7z, rar, tar и другие архивы открываются внутри Проводника, только для чтения. Выключено — программой для этого типа."),
+        cfg.files.archives_as_folders,
+        |on| actions::set_files("archives_as_folders", on, |f| f.archives_as_folders = on),
+    ));
+    rows.push(toggle_row(
         &t!("Восстанавливать вкладки"),
         &t!("При запуске открыть папки, где остановились."),
         cfg.files.restore_tabs,

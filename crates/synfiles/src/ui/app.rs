@@ -104,6 +104,7 @@ fn status_bar() -> W {
             }
         }
         let right = match &loc {
+            Location::Dir(d) if crate::archive::root_of(d).is_some() => t!("Архив, только чтение").into(),
             Location::Dir(d) => crate::places::space(d)
                 .map(|(free, total)| t!("Свободно {v} из {v2}", v = model::format_size(free), v2 = model::format_size(total)))
                 .unwrap_or_default(),

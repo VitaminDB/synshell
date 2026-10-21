@@ -1,12 +1,12 @@
 # Maintainer: Alexeyev Vitaly
 pkgname=synshell
 pkgver=0.1.42
-pkgrel=130
+pkgrel=131
 pkgdesc="Окружение рабочего стола для Wayland на Rust и syngui: композитор, оболочка, параметры"
 arch=('x86_64')
 license=('GPL-3.0-only')
 depends=('mesa' 'libinput' 'seatd' 'systemd-libs' 'libxkbcommon' 'libdrm' 'vulkan-icd-loader'
-         'fontconfig' 'freetype2' 'dbus' 'ffmpeg' 'sqlite')
+         'fontconfig' 'freetype2' 'dbus' 'ffmpeg' 'sqlite' 'libarchive')
 optdepends=('xorg-xwayland: X11-программы'
             'openvino-intel-npu-plugin: нейросети на Intel NPU (Core Ultra), вместе с intel-npu-driver и intel-npu-compiler'
             'intel-npu-driver: драйвер Intel NPU'
@@ -39,9 +39,8 @@ optdepends=('xorg-xwayland: X11-программы'
             'gvfs-gphoto2: камеры в проводнике (PTP)'
             'gvfs-afc: iPhone в проводнике'
             'gvfs-smb: сетевые папки Windows и Samba в проводнике (smb://)'
-            'libarchive: архивы в проводнике (bsdtar)'
             'git: метки git в проводнике'
-            'fuse3: файлы связанных устройств (synlink) в проводнике'
+            'fuse3: архивы как папки и файлы связанных устройств (synlink) в проводнике'
             'openssh: ssh на связанные устройства (synlink)'
             'intel-media-driver: аппаратное видео на Intel (трансляция экрана, «Видео»)'
             'libva-mesa-driver: аппаратное видео на AMD'

@@ -309,6 +309,7 @@ pub fn close_tab(i: usize) {
         for p in t.panes {
             PANES.with(|m| m.borrow_mut().remove(&p.id));
             crate::dirsize::forget(p.id);
+            crate::archive::hold(p.id, None);
         }
     }
     ctx.tabs.update(|t| {
@@ -398,7 +399,7 @@ pub fn go_back(p: Pane) {
     let cur = p.loc.get_untracked();
     p.fwd.update(|f| f.push(cur.clone()));
     // Вернулись из папки — выделить её (как в Проводнике).
-    let select = cur.path().map(Path::to_path_buf);
+    let select = cur.path().map(crate::archive::entry_path);
     navigate(p, prev, false);
     if let Some(s) = select {
         select_later(p, s);
@@ -418,7 +419,7 @@ pub fn go_forward(p: Pane) {
 pub fn go_up(p: Pane) {
     let cur = p.loc.get_untracked();
     if let Some(parent) = cur.parent() {
-        let child = cur.path().map(Path::to_path_buf);
+        let child = cur.path().map(crate::archive::entry_path);
         navigate(p, parent, true);
         if let Some(c) = child {
             select_later(p, c);
@@ -489,9 +490,19 @@ pub fn load(p: Pane, keep: Option<Vec<PathBuf>>) {
     std::thread::spawn(move || {
         let current = |t: u64| LOAD_TOKENS.lock().unwrap().iter().any(|(id, tok)| *id == pid && *tok == t);
         let result: std::result::Result<Vec<Entry>, String> = match &loc {
-            Location::Dir(d) => model::read_dir(d).map_err(|e| io_message(&e, d)),
-            Location::Trash => Ok(crate::trash::list()),
+            Location::Dir(d) => match crate::archive::ensure(d) {
+                Ok(()) => {
+                    crate::archive::hold(pid, Some(d));
+                    model::read_dir(d).map_err(|e| io_message(&e, &crate::archive::display(d)))
+                }
+                Err(e) => Err(e),
+            },
+            Location::Trash => {
+                crate::archive::hold(pid, None);
+                Ok(crate::trash::list())
+            }
             Location::Search { root, query, content } => {
+                crate::archive::hold(pid, Some(root));
                 // Результаты приходят порциями — показываем по мере нахождения.
                 let mut batch = Vec::new();
                 let mut last = std::time::Instant::now();
@@ -889,9 +900,9 @@ pub fn save_session() {
         .get_untracked()
         .iter()
         .filter_map(|t| match t.panes[0].loc.get_untracked() {
-            Location::Dir(d) => Some(d.display().to_string()),
+            Location::Dir(d) => Some(crate::archive::display(&d).display().to_string()),
             Location::Trash => Some("trash:".into()),
-            Location::Search { root, .. } => Some(root.display().to_string()),
+            Location::Search { root, .. } => Some(crate::archive::display(&root).display().to_string()),
         })
         .collect();
     let s = Session {
@@ -918,7 +929,7 @@ pub fn load_session() -> Option<(Vec<Location>, usize)> {
         .tabs
         .iter()
         .filter_map(|x| Location::parse(x))
-        .filter(|l| l.dir().map(Path::is_dir).unwrap_or(true))
+        .filter(|l| l.dir().map(|d| d.is_dir() || crate::archive::root_of(d).is_some()).unwrap_or(true))
         .collect();
     (!locs.is_empty()).then(|| {
         let cur = s.current.min(locs.len() - 1);

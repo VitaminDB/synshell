@@ -7,10 +7,15 @@
 //! `synfiles --viewer ФАЙЛ` — просмотрщик картинок (листает
 //! картинки папки файла).
 //!
+//! `synfiles АРХИВ` — архив как папка (zip, 7z, rar, tar.*…; только чтение).
+//! `synfiles --archive-mount АРХИВ ПАПКА` — служебный помощник: монтирует
+//! архив (запускает сам Проводник).
+//!
 //! Проверка без окна: `synfiles --screenshot out.png [--size 1280x800]
 //! [--scale 1] [--script 'key:ctrl+a;click:300,200'] [ПУТЬ…]`.
 
 mod actions;
+mod archive;
 mod chooser;
 mod dirsize;
 mod drives;
@@ -64,7 +69,10 @@ fn parse_args() -> Args {
         choose: None,
     };
     let mut it = std::env::args().skip(1);
+    // `--select ПУТЬ` — показать файл в папке (архив тоже не открывать).
+    let mut select_next = false;
     while let Some(arg) = it.next() {
+        let select_this = std::mem::take(&mut select_next);
         match arg.as_str() {
             "--screenshot" => a.screenshot = it.next(),
             "--size" => {
@@ -88,9 +96,18 @@ fn parse_args() -> Args {
                 std::process::exit(0);
             }
             // Совместимость с вызовами «как у Dolphin/Nautilus».
-            "--new-window" | "-w" | "--select" | "--" => {}
+            "--select" => select_next = true,
+            "--new-window" | "-w" | "--" => {}
             other if other.starts_with("--") => {}
+            other if select_this && std::path::Path::new(&cwd_relative(other)).is_file() => {
+                let p = PathBuf::from(cwd_relative(other));
+                if let Some(parent) = p.parent() {
+                    a.locations.push(Location::Dir(parent.to_path_buf()));
+                }
+                a.select.push(p);
+            }
             other => match Location::parse(&cwd_relative(other)) {
+                Some(Location::Dir(p)) if archive::root_of(&p).is_some() => a.locations.push(Location::Dir(p)),
                 Some(Location::Dir(p)) if p.is_file() || (!p.exists() && p.parent().map(|d| d.is_dir()).unwrap_or(false)) => {
                     if let Some(parent) = p.parent() {
                         a.locations.push(Location::Dir(parent.to_path_buf()));
@@ -177,6 +194,10 @@ fn main() {
         .with_writer(std::io::stderr)
         .init();
     synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
+    let raw: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    if raw.len() == 4 && raw[1] == "--archive-mount" {
+        std::process::exit(archive::fs::run(std::path::Path::new(&raw[2]), std::path::Path::new(&raw[3])));
+    }
     let args = parse_args();
     if let Some(j) = &args.choose {
         if let Err(e) = chooser::init(j) {

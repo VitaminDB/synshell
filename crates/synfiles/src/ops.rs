@@ -552,7 +552,11 @@ fn run_tool(r: &mut Runner, mut c: std::process::Command) -> Result<(), String> 
 pub fn archive_stem(p: &Path) -> String {
     let name = name_of(p);
     let lower = name.to_lowercase();
-    for ext in [".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst", ".tar.lz4", ".tgz", ".tbz2", ".txz", ".zip", ".7z", ".rar", ".tar", ".gz", ".xz", ".zst", ".bz2", ".iso", ".cpio", ".jar", ".apk"] {
+    for ext in [
+        ".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst", ".tar.lz4", ".tar.lzma", ".tar.lz", ".tar.z", ".cpio.gz", ".tgz", ".tbz2", ".tb2", ".txz",
+        ".tzst", ".tlz", ".taz", ".zip", ".zipx", ".7z", ".rar", ".tar", ".gz", ".xz", ".zst", ".bz2", ".lzma", ".lz4", ".lz", ".z", ".iso", ".cpio",
+        ".jar", ".apk", ".cab", ".lha", ".lzh", ".xar", ".deb", ".udeb", ".rpm",
+    ] {
         if lower.ends_with(ext) && name.len() > ext.len() {
             return name[..name.len() - ext.len()].to_string();
         }
@@ -562,13 +566,53 @@ pub fn archive_stem(p: &Path) -> String {
 
 /// Архив, который распаковывает bsdtar (по типу или имени).
 pub fn is_archive(mime: &str, name: &str) -> bool {
-    matches!(
-        mime,
-        "application/zip" | "application/x-tar" | "application/x-compressed-tar" | "application/x-bzip-compressed-tar" | "application/x-xz-compressed-tar"
-            | "application/x-zstd-compressed-tar" | "application/x-7z-compressed" | "application/vnd.rar" | "application/x-rar" | "application/x-cpio"
-            | "application/gzip" | "application/x-iso9660-image" | "application/java-archive" | "application/vnd.android.package-archive"
-    ) || archive_stem(Path::new(name)) != name
+    ARCHIVE_MIMES.contains(&mime) || archive_stem(Path::new(name)) != name
 }
+
+/// Типы архивов, которые читает libarchive (основные имена и псевдонимы).
+pub const ARCHIVE_MIMES: &[&str] = &[
+    "application/zip",
+    "application/x-zip-compressed",
+    "application/x-tar",
+    "application/x-compressed-tar",
+    "application/x-bzip-compressed-tar",
+    "application/x-bzip2-compressed-tar",
+    "application/x-xz-compressed-tar",
+    "application/x-zstd-compressed-tar",
+    "application/x-lzma-compressed-tar",
+    "application/x-lz4-compressed-tar",
+    "application/x-lzip-compressed-tar",
+    "application/x-tarz",
+    "application/x-7z-compressed",
+    "application/vnd.rar",
+    "application/x-rar",
+    "application/x-rar-compressed",
+    "application/gzip",
+    "application/x-gzip",
+    "application/x-bzip",
+    "application/x-bzip2",
+    "application/x-xz",
+    "application/zstd",
+    "application/x-zstd",
+    "application/x-lzma",
+    "application/x-lz4",
+    "application/x-lzip",
+    "application/x-compress",
+    "application/x-cpio",
+    "application/x-cpio-compressed",
+    "application/vnd.ms-cab-compressed",
+    "application/x-lha",
+    "application/x-lzh-compressed",
+    "application/x-xar",
+    "application/vnd.debian.binary-package",
+    "application/x-rpm",
+    "application/x-source-rpm",
+    "application/x-iso9660-image",
+    "application/x-cd-image",
+    "application/java-archive",
+    "application/x-java-archive",
+    "application/vnd.android.package-archive",
+];
 
 fn same_device(a: &Path, b: &Path) -> bool {
     match (std::fs::symlink_metadata(a), std::fs::metadata(b)) {

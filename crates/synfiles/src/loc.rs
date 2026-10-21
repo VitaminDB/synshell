@@ -28,7 +28,8 @@ impl Location {
         }
         let p = paths::expand_tilde(s);
         let p = if p.is_relative() { paths::home().join(p) } else { p };
-        Some(Location::Dir(normalize(&p)))
+        // Путь через архив (`~/a.zip/папка`) и сам архив — папкой.
+        Some(Location::Dir(crate::archive::resolve(&normalize(&p), true)))
     }
 
     pub fn path(&self) -> Option<&Path> {
@@ -65,6 +66,7 @@ impl Location {
         match self {
             Location::Trash => crate::ui::icons::TRASH,
             Location::Search { .. } => crate::ui::icons::SEARCH,
+            Location::Dir(p) if crate::archive::root_of(p).as_deref() == Some(p.as_path()) => crate::ui::icons::ARCHIVE,
             Location::Dir(p) => crate::places::known(p).map(|(i, _)| i).unwrap_or(crate::ui::icons::FOLDER),
         }
     }
@@ -73,13 +75,13 @@ impl Location {
     pub fn address(&self) -> String {
         match self {
             Location::Trash => "trash:".into(),
-            Location::Dir(p) | Location::Search { root: p, .. } => p.display().to_string(),
+            Location::Dir(p) | Location::Search { root: p, .. } => crate::archive::display(p).display().to_string(),
         }
     }
 
     pub fn parent(&self) -> Option<Location> {
         match self {
-            Location::Dir(p) => p.parent().map(|p| Location::Dir(p.to_path_buf())),
+            Location::Dir(p) => crate::archive::parent(p).map(Location::Dir),
             Location::Search { root, .. } => Some(Location::Dir(root.clone())),
             Location::Trash => None,
         }
@@ -94,6 +96,21 @@ impl Location {
                 let mut v = Location::Dir(root.clone()).crumbs();
                 v.push((self.title(), self.clone()));
                 v
+            }
+            Location::Dir(p) if crate::archive::root_of(p).is_some() => {
+                // Внутри архива — крошки пути через архив.
+                let v = crate::archive::display(p);
+                if v == *p {
+                    return vec![(self.title(), self.clone())];
+                }
+                Location::Dir(v)
+                    .crumbs()
+                    .into_iter()
+                    .map(|(t, l)| match l {
+                        Location::Dir(d) => (t, Location::Dir(crate::archive::resolve(&d, true))),
+                        l => (t, l),
+                    })
+                    .collect()
             }
             Location::Dir(p) => {
                 let home = paths::home();

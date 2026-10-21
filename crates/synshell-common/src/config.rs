@@ -1786,6 +1786,9 @@ pub struct Files {
     pub dir_sizes: bool,
     /// Боковая панель мест (компьютер).
     pub sidebar: bool,
+    /// Входить в архивы (zip, 7z, rar, tar.*…) как в папки, а не открывать
+    /// их программой.
+    pub archives_as_folders: bool,
 }
 
 impl Default for Files {
@@ -1806,6 +1809,7 @@ impl Default for Files {
             restore_tabs: true,
             dir_sizes: false,
             sidebar: true,
+            archives_as_folders: true,
         }
     }
 }

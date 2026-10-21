@@ -158,8 +158,8 @@ pub fn open_entry(p: Pane, e: &Entry, new_tab: bool) {
     if crate::chooser::activate(p, e) {
         return;
     }
-    if e.is_dir {
-        let loc = Location::Dir(e.path.clone());
+    if e.is_dir || crate::archive::browse(e) {
+        let loc = Location::Dir(if e.is_dir { e.path.clone() } else { crate::archive::folder(&e.path) });
         if new_tab {
             state::new_tab(loc, false);
         } else {
@@ -212,7 +212,8 @@ pub fn open_files(files: &[PathBuf], mime_type: &str) {
 /// файлы — группами по типу.
 pub fn open_selected(p: Pane) {
     let sel = state::selected_entries(p);
-    let (dirs, files): (Vec<Entry>, Vec<Entry>) = sel.into_iter().partition(|e| e.is_dir);
+    // Архивы — как папки (если так настроено).
+    let (dirs, files): (Vec<Entry>, Vec<Entry>) = sel.into_iter().partition(|e| e.is_dir || crate::archive::browse(e));
     let mut by_mime: Vec<(String, Vec<PathBuf>)> = Vec::new();
     for f in files {
         match by_mime.iter_mut().find(|(m, _)| *m == f.mime) {
@@ -758,6 +759,13 @@ pub fn context_menu(p: Pane, on_item: bool) -> Vec<MenuItem> {
     if loc.dir().is_some() && sel.iter().all(|e| runner(e).is_some()) {
         v.push(item("run-terminal", &t!("Выполнить в терминале"), icons::TERMINAL));
     }
+    let archives = !all_dirs && sel.iter().all(|e| !e.is_dir && !e.broken && ops::is_archive(&e.mime, &e.name));
+    if archives {
+        if !sel.iter().all(crate::archive::browse) {
+            v.push(item("open-archive", &t!("Открыть как папку"), icons::FOLDER));
+        }
+        v.push(item("open-tab", &t!("Открыть в новой вкладке"), icons::TAB));
+    }
     if all_dirs {
         v.push(item("open-tab", &t!("Открыть в новой вкладке"), icons::TAB));
         if one {
@@ -817,8 +825,11 @@ pub fn context_menu(p: Pane, on_item: bool) -> Vec<MenuItem> {
             let to = if one { t!("Извлечь в «{v}»", v = ops::archive_stem(&first.path)) } else { t!("Извлечь каждый в свою папку") };
             v.push(item("extract-sub", &to, icons::UNARCHIVE));
         }
-        let zip = if one { t!("Сжать в «{v}»", v = format!("{}.zip", zip_stem(first))) } else { t!("Сжать в ZIP") };
-        v.push(item("compress", &zip, icons::ARCHIVE));
+        // Внутри архива (только чтение) сжимать некуда.
+        if loc.dir().is_some_and(|d| crate::archive::root_of(d).is_none()) {
+            let zip = if one { t!("Сжать в «{v}»", v = format!("{}.zip", zip_stem(first))) } else { t!("Сжать в ZIP") };
+            v.push(item("compress", &zip, icons::ARCHIVE));
+        }
     }
     v.push(MenuItem::separator());
     if one {
@@ -860,8 +871,22 @@ pub fn run(p: Pane, id: &str) {
     match id {
         "open" => open_selected(p),
         "open-tab" => {
-            for e in sel.iter().filter(|e| e.is_dir) {
-                state::new_tab(Location::Dir(e.path.clone()), false);
+            for e in &sel {
+                if e.is_dir {
+                    state::new_tab(Location::Dir(e.path.clone()), false);
+                } else if ops::is_archive(&e.mime, &e.name) {
+                    state::new_tab(Location::Dir(crate::archive::folder(&e.path)), false);
+                }
+            }
+        }
+        "open-archive" => {
+            for (i, e) in sel.iter().enumerate() {
+                let loc = Location::Dir(crate::archive::folder(&e.path));
+                if i == 0 {
+                    state::navigate(p, loc, true);
+                } else {
+                    state::new_tab(loc, false);
+                }
             }
         }
         "open-terminal" => {

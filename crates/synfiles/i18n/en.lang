@@ -436,3 +436,13 @@
 "Панель просмотра (F11)" = "Preview panel (F11)"
 "Не удалось запустить терминал: {e}" = "Could not start the terminal: {e}"
 "Терминал" = "Terminal"
+
+# src/archive/mod.rs
+"Архив для «{p}» не найден" = "Archive for “{p}” not found"
+"Архив «{p}» не найден" = "Archive “{p}” not found"
+"Не удалось открыть архив «{p}»" = "Couldn’t open archive “{p}”"
+"Не удалось открыть архив «{p}»: {e}" = "Couldn’t open archive “{p}”: {e}"
+"Открыть как папку" = "Open as Folder"
+"Открывать архивы как папки" = "Open archives as folders"
+"Zip, 7z, rar, tar и другие архивы открываются внутри Проводника, только для чтения. Выключено — программой для этого типа." = "Zip, 7z, rar, tar and other archives open inside Files, read-only. When off, they open in the app set for their type."
+"Архив, только чтение" = "Archive, read-only"
