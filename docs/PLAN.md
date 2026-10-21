@@ -158,9 +158,9 @@ python3 tools/gen_sfx.py   # пересинтезировать эффекты
 tools/gen_textures.sh [id] # текстуры отделок: synaptix imagine, FLUX.2 klein 9B (~17 с/шт)
 python3 tools/build_atlas.py --sheet /tmp/blocks.png # отрендерить блоки в assets/tex/atlas.png (+ контрольный лист)
 tools/gen_voice.sh [id]    # реплики: synaptix speak (VoxCPM2) + ffmpeg
-synaptix song "instrumental, no vocals, ..." --lyrics "" --cot off --models ~/Storage/syn_models \
+synaptix song "instrumental, no vocals, ..." --lyrics "" --cot off --models ~/Storage/Нейросети/Модели \
     -o assets/music/yue_x.wav --max-tokens 1600   # 25 токенов = 1 с; --cot off = без вокала
-timeout 120 synaptix transcribe ~/Storage/syn_models/whisper-large-v3-turbo.syn yue_x.wav  # пусто = нет слов
+timeout 120 synaptix transcribe ~/Storage/Нейросети/Модели/whisper-large-v3-turbo.syn yue_x.wav  # пусто = нет слов
 ffmpeg -i yue_x.wav -af loudnorm=I=-19:TP=-2:LRA=9 -ac 1 -ar 22050 -sample_fmt s16 assets/music/trackN.wav
 ```
 
