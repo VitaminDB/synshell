@@ -285,7 +285,12 @@ pub fn spawn(program: &Path, args: &[&std::ffi::OsStr]) {
             Ok(())
         });
     }
-    let _ = c.spawn();
+    // ждём в отдельном потоке: иначе закрытый просмотрщик остаётся зомби, пока открыт проводник
+    if let Ok(mut child) = c.spawn() {
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+    }
 }
 
 /// Открыть картинки просмотрщиком (новым процессом): из проводника.

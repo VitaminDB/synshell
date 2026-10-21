@@ -31,8 +31,14 @@ pub fn spawn_shell(cmd: &str, cwd: Option<&Path>) {
             Ok(())
         });
     }
-    if let Err(e) = c.spawn() {
-        state::toast_error(t!("Не удалось запустить: {e}", e = e));
+    match c.spawn() {
+        // ждём в отдельном потоке: иначе завершившиеся программы копятся зомби, пока открыт проводник
+        Ok(mut child) => {
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        }
+        Err(e) => state::toast_error(t!("Не удалось запустить: {e}", e = e)),
     }
 }
 
