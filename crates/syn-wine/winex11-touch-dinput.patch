@@ -1,214 +1,503 @@
+--- a/dlls/win32u/message.c
++++ b/dlls/win32u/message.c
+@@ -4056,6 +4056,10 @@
+             case SYSTEM_TIMER_TRACK_MOUSE:
+                 update_mouse_tracking_info( msg->hwnd );
+                 return 0;
++
++            case WINE_SYSTEM_TIMER_DRIVER:
++                user_driver->pWindowMessage( msg->hwnd, WM_SYSTIMER, msg->wParam, 0 );
++                return 0;
+         }
+     }
+ 
+--- a/dlls/winex11.drv/event.c
++++ b/dlls/winex11.drv/event.c
+@@ -384,6 +384,7 @@
+ 
+     XFlush( gdi_display );
+     if (count) TRACE( "processed %d events\n", count );
++    x11drv_touch_poll(); /* a finger acting as the mouse: next step, one per pump (frame) of the program */
+     NtUserSendHardwareInput( NULL, SEND_HWMSG_RAWINPUT, &input, 0 ); /* flush win32u accumulated motion */
+ 
+     if (mask != QS_ALLINPUT || check_fd_events( ConnectionNumber( data->display ), POLLIN )) return FALSE;
 --- a/dlls/winex11.drv/mouse.c
 +++ b/dlls/winex11.drv/mouse.c
-@@ -1427,6 +1427,58 @@
- /***********************************************************************
-  *		SetCursorPos (X11DRV.@)
-  */
+@@ -339,16 +339,29 @@
+         return;
+     }
+ 
+-    mask.mask     = mask_bits;
+-    mask.mask_len = sizeof(mask_bits);
+-    mask.deviceid = XIAllMasterDevices;
+-    memset( mask_bits, 0, sizeof(mask_bits) );
+-
+-    XISetMask( mask_bits, XI_TouchBegin );
+-    XISetMask( mask_bits, XI_TouchUpdate );
+-    XISetMask( mask_bits, XI_TouchEnd );
++    /* syn-wine: fingers are not selected as XI2 touch events on the window (they would bypass cursor clipping
++     * grabs only sometimes): the X server emulates the pointer for them, and raw touch events on the root window
++     * -- delivered whatever grabs are active, ahead of the emulated pointer events on the same connection -- tell
++     * that the pointer is a finger now (see touch below). The window is marked for the compositor (synshell
++     * synwm): it passes real touches to it instead of driving the pointer with the finger itself, which Wine
++     * could not tell from a mouse. */
++    {
++        struct x11drv_thread_data *data = x11drv_thread_data();
++        static Atom touch_atom;
++        unsigned long one = 1;
+ 
+-    pXISelectEvents( display, window, &mask, 1 );
++        if (data && data->display == display && !XIMaskIsSet( data->root_mask, XI_RawTouchBegin ))
++        {
++            XISetMask( data->root_mask, XI_RawTouchBegin );
++            XISetMask( data->root_mask, XI_RawTouchUpdate );
++            XISetMask( data->root_mask, XI_RawTouchEnd );
++            pXISelectEvents( display, DefaultRootWindow( display ), &data->root_events, 1 );
++        }
++        if (!touch_atom) touch_atom = XInternAtom( display, "_SYN_WINE_TOUCH", False );
++        XChangeProperty( display, window, touch_atom, XA_CARDINAL, 32, PropModeReplace, (unsigned char *)&one, 1 );
++    }
++    (void)mask;
++    (void)mask_bits;
+ }
+ 
+ 
+@@ -1424,6 +1437,211 @@
+     if (clipping_cursor) set_window_cursor( x11drv_thread_data()->clip_window, handle );
+ }
+ 
 +#ifdef HAVE_X11_EXTENSIONS_XINPUT2_H
-+static void send_absolute_raw_pending(void);
++/***********************************************************************
++ *           touchscreen as a mouse (syn-wine)
++ *
++ * The compositor passes real touches to windows marked _SYN_WINE_TOUCH; the X server emulates the pointer for
++ * them and raw touch events (XI_RawTouchBegin/End on the root window, delivered whatever grabs are active and
++ * ahead of the emulated pointer events) say a finger is down: while it is, the pointer is that finger, never a
++ * mouse -- no guessing from the events themselves. Games want a mouse: the first finger moves the cursor and
++ * holds the left button, other fingers are ignored. A real mouse moving (raw motion without XIPointerEmulated)
++ * ends the finger. Raw input (WM_INPUT, DirectInput) gets the motion too, in the
++ * game's client coordinates (emulated display modes included): a game drawing its own cursor from DirectInput
++ * deltas follows the finger. Where that cursor is, is unknown (Fable resets it between screens), so a touch
++ * sends it to the bottom-right corner first and on to the finger in a later frame -- a game sums the deltas of
++ * one frame -- and presses the button in a frame after that. Not the top-left corner: Fable lets its cursor go a
++ * menu row above the top edge while the drawn one stops there, and every touch then hit the item above. A frame is a message pump of the program's thread
++ * (x11drv_touch_poll), or the program putting the cursor onto the corner (SetCursorPos onto its own cursor: it
++ * has consumed the corner delta). The window's thread pumps X events only when some come, so the steps go by
++ * a driver system timer of the window (WINE_SYSTEM_TIMER_DRIVER): its WM_SYSTIMER comes at a message pump of
++ * the program. Raw frames are sent at once (MOUSEEVENTF_MOVE_NOCOALESCE): win32u would keep them until the
++ * thread pumps events, and SetCursorPos may come from a thread that never does.
++ */
++#define TOUCH_STEP_MS  16   /* between the steps of a touch */
++#define TOUCH_START_MS 500  /* a finger with no position by then is dropped */
 +
-+/* A touchscreen driven by the compositor as an absolute pointer, fed to raw input (DirectInput): see
-+ * send_absolute_raw. Shared by the thread pumping X events and the one calling SetCursorPos (usually the same). */
 +static struct
 +{
 +    pthread_mutex_t mutex;
-+    Time  raw_time;      /* X time of the last XI_RawMotion with relative motion (a mouse) */
-+    BOOL  abs_pending;   /* touch down: game cursor sent to the corner, abs_to not yet */
-+    POINT abs_to;        /* where the touch put the game cursor (game client coordinates) */
-+    struct { POINT pos; DWORD tick; } warp[8]; /* recent cursor warps: root coordinates, time */
-+    UINT  warp_next;
++    BOOL  active;          /* a finger acts as the mouse: from XI_RawTouchBegin until it is released */
++    BOOL  started;         /* its first position came (emulated pointer motion) */
++    int   id;              /* its XI2 touch id */
++    HWND  hwnd;            /* window it touched */
++    POINT pt;              /* where it is: virtual screen coordinates, for mouse messages */
++    BOOL  abs_pending;     /* raw: game cursor sent to the corner, not yet on to abs_to */
++    POINT abs_to;          /* raw: where the finger puts the game cursor (game client coordinates) */
++    SIZE  client;          /* game client area size: the corner is its bottom-right pixel */
++    BOOL  press_pending;   /* the left button is not pressed yet */
++    BOOL  release_pending; /* the finger is up: release once pressed */
++    DWORD step_tick;       /* when the last step was made (the touch began, before any) */
++    HWND  timer;           /* window with the driver timer making the steps */
 +} touch = { PTHREAD_MUTEX_INITIALIZER };
 +
-+/* the echo of a warp comes within a few frames; an older warp target is a place a finger may touch */
-+#define WARP_ECHO_MS 300
-+
-+/* motion to where the program has recently put the cursor (its echo may come after later warps), not a touch */
-+static BOOL is_warp_target( POINT pt )
++/* steps of the finger are left: mutex held */
++static BOOL touch_pending_locked(void)
 +{
-+    DWORD now = NtGetTickCount();
-+    BOOL ret = FALSE;
-+    UINT i;
-+
-+    pthread_mutex_lock( &touch.mutex );
-+    for (i = 0; i < ARRAY_SIZE(touch.warp) && !ret; i++)
-+    {
-+        POINT warp = root_to_virtual_screen( touch.warp[i].pos.x, touch.warp[i].pos.y );
-+        if (now - touch.warp[i].tick > WARP_ECHO_MS) continue;
-+        ret = pt.x == warp.x && pt.y == warp.y;
-+    }
-+    pthread_mutex_unlock( &touch.mutex );
-+    return ret;
++    return touch.active && touch.started && (touch.abs_pending || touch.press_pending || touch.release_pending);
 +}
 +
-+/* the program puts the cursor on the top-left corner of its client area: its own cursor is there, so it has
-+ * consumed the corner delta of a touch. Its SetCursorPos alone proves nothing: a game puts the cursor on its own
-+ * every frame, before or after reading the deltas (raw input is parsed by another thread). */
-+static BOOL is_client_corner( INT x, INT y )
++/* the window to start the step timer on, if it is not running; mutex held */
++static HWND touch_kick_locked(void)
++{
++    if (touch.timer || !touch_pending_locked() || !touch.hwnd) return 0;
++    return touch.timer = touch.hwnd;
++}
++
++static void touch_kick( HWND hwnd )
++{
++    if (hwnd) NtUserSetSystemTimer( hwnd, WINE_SYSTEM_TIMER_DRIVER, TOUCH_STEP_MS );
++}
++
++static void touch_cancel(void);
++static BOOL touch_pointer_motion( HWND hwnd, POINT pt, UINT time );
++
++/* finger position (virtual screen) in the client coordinates of the foreground window, which the game sees in
++ * its own (possibly emulated) display mode */
++static BOOL touch_client_pos( POINT pt, POINT *pos, SIZE *size )
 +{
 +    HWND foreground = NtUserGetForegroundWindow();
 +    struct x11drv_win_data *win;
++    RECT client, phys;
++    UINT dpi;
++
++    /* a window being recreated (display mode change) has no DPI yet, win32u asserts on it */
++    if (!foreground || !(dpi = NtUserGetDpiForWindow( foreground ))) return FALSE;
++    if (!NtUserGetClientRect( foreground, &client, dpi )) return FALSE;
++    if (!(win = get_win_data( foreground ))) return FALSE;
++    phys = win->rects.client;
++    release_win_data( win );
++    if (phys.right <= phys.left || phys.bottom <= phys.top || client.right <= 0 || client.bottom <= 0) return FALSE;
++    pos->x = (LONGLONG)(pt.x - phys.left) * client.right / (phys.right - phys.left);
++    pos->y = (LONGLONG)(pt.y - phys.top) * client.bottom / (phys.bottom - phys.top);
++    pos->x = max( 0, min( pos->x, client.right - 1 ) );
++    pos->y = max( 0, min( pos->y, client.bottom - 1 ) );
++    size->cx = client.right;
++    size->cy = client.bottom;
++    return TRUE;
++}
++
++/* the finger's button to raw input (DirectInput): as X11DRV_RawButtonEvent does for a mouse button -- the
++ * emulated raw buttons of a finger are dropped */
++static void touch_send_raw_button( DWORD flags )
++{
++    struct raw_mouse raw = { .count = 1 };
++    send_mouse_input( NULL, (POINT){ 0, 0 }, flags, 0, NtGetTickCount(), &raw );
++}
++
++static void touch_send_raw( LONG dx, LONG dy )
++{
++    struct raw_mouse raw = { .count = 1 };
++
++    if (!dx && !dy) return;
++    raw.data[0].x = dx;
++    raw.data[0].y = dy;
++    send_mouse_input( NULL, (POINT){ 0, 0 }, MOUSEEVENTF_MOVE_NOCOALESCE, 0, NtGetTickCount(), &raw );
++}
++
++/* the game cursor is in the corner (or should be by now): on to the finger; mutex held, released */
++static void touch_leave_corner_locked(void)
++{
++    POINT to = touch.abs_to;
++    SIZE size = touch.client;
++
++    touch.abs_pending = FALSE;
++    touch.step_tick = NtGetTickCount();
++    pthread_mutex_unlock( &touch.mutex );
++    TRACE( "client pos %s from the corner of %dx%d\n", wine_dbgstr_point( &to ), (int)size.cx, (int)size.cy );
++    touch_send_raw( to.x - (size.cx - 1), to.y - (size.cy - 1) );
++}
++
++/* the program puts the cursor onto the bottom-right corner of its client area: its own cursor is there, so it has
++ * consumed the corner delta. Its SetCursorPos alone proves nothing: a game puts the cursor on its own every frame */
++static void touch_cursor_set( INT x, INT y )
++{
++    HWND foreground;
++    struct x11drv_win_data *win;
 +    RECT client;
 +
-+    if (!foreground || !(win = get_win_data( foreground ))) return FALSE;
++    if (!touch.abs_pending) return; /* unlocked peek: the usual case, no touch */
++    if (!(foreground = NtUserGetForegroundWindow()) || !(win = get_win_data( foreground ))) return;
 +    client = win->rects.client;
 +    release_win_data( win );
-+    return x >= client.left - 2 && x <= client.left + 2 && y >= client.top - 2 && y <= client.top + 2;
++    if (x < client.right - 3 || x > client.right + 1 || y < client.bottom - 3 || y > client.bottom + 1) return;
++
++    pthread_mutex_lock( &touch.mutex );
++    if (touch.abs_pending) touch_leave_corner_locked();
++    else pthread_mutex_unlock( &touch.mutex );
 +}
++
++/* one step of a touch: corner -> finger -> press -> release, at least min_ms after the previous one */
++static void touch_step( DWORD min_ms )
++{
++    HWND hwnd;
++    POINT pt;
++    DWORD now;
++
++    if (!touch.active) return; /* unlocked peek */
++    pthread_mutex_lock( &touch.mutex );
++    now = NtGetTickCount();
++    if (touch.active && !touch.started && now - touch.step_tick >= TOUCH_START_MS) touch.active = FALSE;
++    if (!touch.active || !touch.started || now - touch.step_tick < min_ms)
++    {
++        pthread_mutex_unlock( &touch.mutex );
++        return;
++    }
++    if (touch.abs_pending)
++    {
++        touch_leave_corner_locked();
++        return;
++    }
++    hwnd = touch.hwnd;
++    pt = touch.pt;
++    touch.step_tick = now;
++    if (touch.press_pending)
++    {
++        touch.press_pending = FALSE;
++        pthread_mutex_unlock( &touch.mutex );
++        TRACE( "press at %s\n", wine_dbgstr_point( &pt ) );
++        send_mouse_input( hwnd, pt, MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTDOWN, 0, now, NULL );
++        touch_send_raw_button( MOUSEEVENTF_LEFTDOWN );
++        return;
++    }
++    if (touch.release_pending)
++    {
++        touch.release_pending = FALSE;
++        touch.active = FALSE;
++        pthread_mutex_unlock( &touch.mutex );
++        TRACE( "release at %s\n", wine_dbgstr_point( &pt ) );
++        send_mouse_input( hwnd, pt, MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTUP, 0, now, NULL );
++        touch_send_raw_button( MOUSEEVENTF_LEFTUP );
++        return;
++    }
++    pthread_mutex_unlock( &touch.mutex );
++}
++
++/* at a pump of a thread: the program has had a frame */
++void x11drv_touch_poll(void)
++{
++    touch_step( TOUCH_STEP_MS );
++}
++
++/* the step timer of the window (WM_SYSTIMER WINE_SYSTEM_TIMER_DRIVER): the next step; off when none is left */
++void x11drv_touch_timer( HWND hwnd )
++{
++    BOOL done;
++
++    touch_step( TOUCH_STEP_MS );
++    pthread_mutex_lock( &touch.mutex );
++    done = !touch_pending_locked() || touch.timer != hwnd;
++    if (done && touch.timer == hwnd) touch.timer = 0;
++    pthread_mutex_unlock( &touch.mutex );
++    if (done) NtUserKillSystemTimer( hwnd, WINE_SYSTEM_TIMER_DRIVER );
++}
++#else
++void x11drv_touch_poll(void) {}
 +#endif
 +
- BOOL X11DRV_SetCursorPos( INT x, INT y )
- {
-     struct x11drv_thread_data *data = x11drv_init_thread_data();
-@@ -1456,6 +1508,17 @@
+ /***********************************************************************
+  *		SetCursorPos (X11DRV.@)
+  */
+@@ -1456,6 +1674,9 @@
      XNoOp( data->display );
      XFlush( data->display ); /* avoids bad mouse lag in games that do their own mouse warping */
      TRACE( "warped to %d,%d serial %lu\n", x, y, data->warp_serial );
 +#ifdef HAVE_X11_EXTENSIONS_XINPUT2_H
-+    {
-+        UINT i;
-+        pthread_mutex_lock( &touch.mutex );
-+        i = touch.warp_next++ % ARRAY_SIZE(touch.warp);
-+        touch.warp[i].pos = pos;
-+        touch.warp[i].tick = NtGetTickCount();
-+        pthread_mutex_unlock( &touch.mutex );
-+    }
-+    if (is_client_corner( x, y )) send_absolute_raw_pending();
++    touch_cursor_set( x, y );
 +#endif
      return TRUE;
  }
  
-@@ -1586,6 +1649,10 @@
-     }
+@@ -1576,6 +1797,9 @@
  
-     pt = map_event_coords( hwnd, event->window, event->root, root, pt );
+     if (button >= NB_BUTTONS) return FALSE;
+     flags = button_down_flags[button];
 +#ifdef HAVE_X11_EXTENSIONS_XINPUT2_H
-+    /* a touch (the compositor presses a few frames after it): the game cursor goes under the finger first */
-+    send_absolute_raw_pending();
++    if (touch.active && !button) return TRUE; /* the finger's emulated press: x11drv_touch_poll presses */
 +#endif
-     send_mouse_input( hwnd, pt, MOUSEEVENTF_ABSOLUTE | flags, button_down_data[button], time, NULL );
-     return TRUE;
- }
-@@ -1610,6 +1677,92 @@
- }
  
+     TRACE( "hwnd %p/%lx button %u pos %s\n", hwnd, event->window, button, wine_dbgstr_point( &pt ) );
  
+@@ -1601,6 +1825,9 @@
+     POINT pt = { event->x, event->y }, root = { event->x_root, event->y_root };
+ 
+     if (button >= NB_BUTTONS || !(flags = button_up_flags[button])) return FALSE;
 +#ifdef HAVE_X11_EXTENSIONS_XINPUT2_H
-+/***********************************************************************
-+ *           send_absolute_raw
-+ *
-+ * Raw input (WM_INPUT, DirectInput) carries only XI2 raw motion, and an absolute pointer without it (a
-+ * touchscreen driven as a mouse by the compositor) moved the cursor but gave raw input zero deltas: a game
-+ * drawing its own cursor from DirectInput deltas never moved. Feed raw input the touch in the game's client
-+ * coordinates (emulated display modes included). Where the game cursor is, is unknown (Fable resets it between
-+ * screens), so a touch first sends it to the top-left corner and then on to the touch — in a later frame, the
-+ * game sums the deltas of one frame: when the game puts the cursor on the corner (SetCursorPos onto its own
-+ * cursor: it has consumed the corner delta), or at the press (the compositor sends it a few frames after the
-+ * touch). Dragging moves it along. The raw frames are sent at once (MOUSEEVENTF_MOVE_NOCOALESCE): win32u would
-+ * otherwise keep them until the thread pumps events, and SetCursorPos may come from a thread that never does.
-+ */
-+static void send_absolute_raw( POINT pos, BOOL down )
-+{
-+    struct raw_mouse raw = { 0 };
-+    HWND foreground = NtUserGetForegroundWindow();
-+    struct x11drv_win_data *win;
-+    RECT client, phys;
-+    BOOL corner = FALSE;
-+    UINT dpi;
-+
-+    /* the event position is physical; the game sees its client area in its own (possibly emulated) mode;
-+     * a window being recreated (display mode change) has no DPI yet, win32u asserts on it */
-+    if (!foreground || !(dpi = NtUserGetDpiForWindow( foreground ))) return;
-+    if (!NtUserGetClientRect( foreground, &client, dpi )) return;
-+    if (!(win = get_win_data( foreground ))) return;
-+    phys = win->rects.client;
-+    release_win_data( win );
-+    if (phys.right <= phys.left || phys.bottom <= phys.top || client.right <= 0 || client.bottom <= 0) return;
-+    pos.x = (LONGLONG)(pos.x - phys.left) * client.right / (phys.right - phys.left);
-+    pos.y = (LONGLONG)(pos.y - phys.top) * client.bottom / (phys.bottom - phys.top);
-+    pos.x = max( 0, min( pos.x, client.right - 1 ) );
-+    pos.y = max( 0, min( pos.y, client.bottom - 1 ) );
-+
-+    pthread_mutex_lock( &touch.mutex );
-+    if (down)
-+    {
-+        /* to the corner once per touch: more motion before the press only moves the target */
-+        if (!touch.abs_pending)
-+        {
-+            raw.data[0].x = raw.data[0].y = -0x10000;
-+            corner = TRUE;
-+        }
-+        touch.abs_pending = TRUE;
-+    }
-+    else if (touch.abs_pending) /* still on the way from the corner */
-+    {
-+        touch.abs_to = pos;
-+        pthread_mutex_unlock( &touch.mutex );
-+        return;
-+    }
-+    else
-+    {
-+        raw.data[0].x = pos.x - touch.abs_to.x;
-+        raw.data[0].y = pos.y - touch.abs_to.y;
-+    }
-+    touch.abs_to = pos;
-+    pthread_mutex_unlock( &touch.mutex );
-+    raw.count = 1;
-+    TRACE( "client pos %s%s in %s (physical %s)\n", wine_dbgstr_point( &pos ), corner ? " via the corner" : "",
-+           wine_dbgstr_rect( &client ), wine_dbgstr_rect( &phys ) );
-+    if (raw.data[0].x || raw.data[0].y)
-+        send_mouse_input( NULL, (POINT){ 0, 0 }, MOUSEEVENTF_MOVE_NOCOALESCE, 0, NtGetTickCount(), &raw );
-+}
-+
-+/* the game cursor is in the corner (or should be by now): move it on to the touch */
-+static void send_absolute_raw_pending(void)
-+{
-+    struct raw_mouse raw = { .count = 1 };
-+
-+    pthread_mutex_lock( &touch.mutex );
-+    if (!touch.abs_pending)
-+    {
-+        pthread_mutex_unlock( &touch.mutex );
-+        return;
-+    }
-+    touch.abs_pending = FALSE;
-+    raw.data[0] = touch.abs_to;
-+    pthread_mutex_unlock( &touch.mutex );
-+    TRACE( "client pos %s from the corner\n", wine_dbgstr_point( &raw.data[0] ) );
-+    send_mouse_input( NULL, (POINT){ 0, 0 }, MOUSEEVENTF_MOVE_NOCOALESCE, 0, NtGetTickCount(), &raw );
-+}
++    if (touch.active && !button) return TRUE; /* the finger's emulated release: x11drv_touch_poll releases */
 +#endif
-+
- /***********************************************************************
-  *           X11DRV_MotionNotify
-  */
-@@ -1622,6 +1775,21 @@
+ 
+     TRACE( "hwnd %p/%lx button %u pos %s\n", hwnd, event->window, button, wine_dbgstr_point( &pt ) );
+ 
+@@ -1622,6 +1849,14 @@
      TRACE( "hwnd %p/%lx pos %s is_hint %d serial %lu\n", hwnd, event->window, wine_dbgstr_point( &pt ),
             event->is_hint, event->serial );
  
 +#ifdef HAVE_X11_EXTENSIONS_XINPUT2_H
-+    /* not a mouse with its own raw motion (a touchscreen) nor an echo of a cursor warp: a game putting the cursor
-+     * on its own one every frame (Fable) would make every touch an "old" motion event */
-+    if (event->time != touch.raw_time)
++    if (touch.active) /* the pointer is a finger now (emulated): warps and their echoes do not matter */
 +    {
-+        POINT mapped = map_event_coords( hwnd, event->window, event->root, root, pt );
-+        if (!is_warp_target( mapped ))
-+        {
-+            send_absolute_raw( mapped, !(event->state & (Button1Mask | Button2Mask | Button3Mask)) );
-+            send_mouse_input( hwnd, mapped, MOUSEEVENTF_ABSOLUTE, 0, time, NULL );
-+            return TRUE;
-+        }
++        pt = map_event_coords( hwnd, event->window, event->root, root, pt );
++        if (touch_pointer_motion( hwnd, pt, time )) return TRUE;
 +    }
 +#endif
 +
      if (is_old_motion_event( event->serial ))
      {
          TRACE( "pos %d,%d old serial %lu, ignoring\n", event->x, event->y, event->serial );
-@@ -1762,6 +1930,8 @@
+@@ -1760,6 +1995,8 @@
+         TRACE( "old serial %lu, ignoring\n", xev->serial );
+         return FALSE;
      }
++    if (event->flags & XIPointerEmulated) return FALSE; /* a finger: see touch */
++    touch_cancel(); /* a mouse moves */
  
      pt = map_raw_event_coords( event, raw.data );
-+    /* only relative valuators move (the absolute Xwayland pointer, driven by a touchscreen, gives none) */
-+    if (pt.x || pt.y || raw.data[0].x || raw.data[0].y) touch.raw_time = event->time;
      send_mouse_input( NULL, pt, 0, 0, time, &raw );
+@@ -1778,6 +2015,7 @@
+     int button = event->detail - 1;
+     POINT pt;
+ 
++    if (event->flags & XIPointerEmulated) return FALSE; /* a finger: see touch */
+     if (!device_mapping || device_mapping->deviceid != event->sourceid)
+         update_device_mapping( event->display, event->sourceid );
+     if (event->deviceid != thread_data->xinput2_pointer) return FALSE;
+@@ -1804,6 +2042,116 @@
      return TRUE;
  }
+ 
++/* raw touch event (root window): a finger is down or up */
++static BOOL X11DRV_RawTouchEvent( XGenericEventCookie *xev )
++{
++    XIRawEvent *event = xev->data;
++    HWND foreground = NtUserGetForegroundWindow(), kick;
++
++    /* every thread with windows gets raw touches on its own connection; only on the connection that gets the
++     * window's pointer events do they come ahead of them: the thread of the foreground window drives the finger */
++    if (!foreground || NtUserGetWindowThread( foreground, NULL ) != GetCurrentThreadId()) return FALSE;
++
++    pthread_mutex_lock( &touch.mutex );
++    switch (event->evtype)
++    {
++    case XI_RawTouchBegin:
++        if (touch.active) break; /* another finger */
++        touch.active = TRUE;
++        touch.started = FALSE;
++        touch.id = event->detail;
++        touch.press_pending = TRUE;
++        touch.release_pending = FALSE;
++        touch.abs_pending = FALSE;
++        touch.step_tick = NtGetTickCount();
++        TRACE( "finger %u down\n", event->detail );
++        break;
++    case XI_RawTouchEnd:
++        if (!touch.active || touch.id != event->detail) break;
++        TRACE( "finger %u up\n", event->detail );
++        if (touch.started) touch.release_pending = TRUE; /* x11drv_touch_poll releases it */
++        else touch.active = FALSE; /* never got a position: nothing was sent */
++        break;
++    }
++    kick = touch_kick_locked();
++    pthread_mutex_unlock( &touch.mutex );
++    touch_kick( kick );
++    return TRUE;
++}
++
++/* a real mouse moved: the pointer is no finger any more */
++static void touch_cancel(void)
++{
++    HWND kick;
++
++    if (!touch.active) return; /* unlocked peek */
++    pthread_mutex_lock( &touch.mutex );
++    if (touch.active && touch.press_pending) touch.active = FALSE; /* nothing pressed yet: just forget it */
++    else if (touch.active) touch.release_pending = TRUE;
++    kick = touch_kick_locked();
++    pthread_mutex_unlock( &touch.mutex );
++    touch_kick( kick );
++}
++
++/* pointer motion while a finger is down: it is the finger's (emulated); TRUE -- consumed */
++static BOOL touch_pointer_motion( HWND hwnd, POINT pt, UINT time )
++{
++    POINT pos, prev;
++    SIZE size;
++    BOOL have_pos;
++    HWND kick;
++
++    if (!touch.active) return FALSE; /* unlocked peek: the usual case */
++    have_pos = touch_client_pos( pt, &pos, &size );
++    if (!hwnd) hwnd = NtUserGetForegroundWindow(); /* the cursor clipping window has none */
++
++    pthread_mutex_lock( &touch.mutex );
++    if (!touch.active)
++    {
++        pthread_mutex_unlock( &touch.mutex );
++        return FALSE;
++    }
++    if (!touch.started)
++    {
++        touch.started = TRUE;
++        touch.hwnd = hwnd;
++        touch.pt = pt;
++        touch.abs_pending = have_pos;
++        if (have_pos)
++        {
++            touch.abs_to = pos;
++            touch.client = size;
++        }
++        touch.step_tick = NtGetTickCount();
++        kick = touch_kick_locked();
++        pthread_mutex_unlock( &touch.mutex );
++        touch_kick( kick );
++        TRACE( "finger %u at %s, client %s\n", touch.id, wine_dbgstr_point( &pt ), wine_dbgstr_point( &pos ) );
++        send_mouse_input( hwnd, pt, MOUSEEVENTF_ABSOLUTE, 0, time, NULL );
++        if (have_pos) touch_send_raw( 0x10000, 0x10000 ); /* game cursor to the bottom-right corner */
++        return TRUE;
++    }
++    if (touch.release_pending)
++    {
++        pthread_mutex_unlock( &touch.mutex );
++        return TRUE;
++    }
++    touch.pt = pt;
++    touch.hwnd = hwnd;
++    prev = touch.abs_to;
++    if (have_pos) touch.abs_to = pos;
++    if (touch.abs_pending || !have_pos)
++    {
++        pthread_mutex_unlock( &touch.mutex ); /* still on the way from the corner: only the target moves */
++        send_mouse_input( hwnd, pt, MOUSEEVENTF_ABSOLUTE, 0, time, NULL );
++        return TRUE;
++    }
++    pthread_mutex_unlock( &touch.mutex );
++    send_mouse_input( hwnd, pt, MOUSEEVENTF_ABSOLUTE, 0, time, NULL );
++    touch_send_raw( pos.x - prev.x, pos.y - prev.y );
++    return TRUE;
++}
++
+ static BOOL X11DRV_TouchEvent( HWND hwnd, XGenericEventCookie *xev )
+ {
+     RECT virtual = NtUserGetVirtualScreenRect( MDT_RAW_DPI );
+@@ -1917,6 +2265,11 @@
+     case XI_TouchEnd:
+         ret = X11DRV_TouchEvent( hwnd, event );
+         break;
++    case XI_RawTouchBegin:
++    case XI_RawTouchUpdate:
++    case XI_RawTouchEnd:
++        ret = X11DRV_RawTouchEvent( event );
++        break;
+ 
+     default:
+         TRACE( "Unhandled event %#x\n", event->evtype );
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -3546,6 +3546,9 @@
+     {
+     case WM_X11DRV_UPDATE_CLIPBOARD:
+         return update_clipboard( hwnd );
++    case WM_SYSTIMER:
++        if (wp == WINE_SYSTEM_TIMER_DRIVER) x11drv_touch_timer( hwnd );
++        return 0;
+     case WM_X11DRV_SET_WIN_REGION:
+         if ((data = get_win_data( hwnd )))
+         {
+--- a/dlls/winex11.drv/x11drv.h
++++ b/dlls/winex11.drv/x11drv.h
+@@ -774,6 +774,8 @@
+ extern void x11drv_init_keyboard( Display *display );
+ extern void x11drv_init_mouse( Display *display );
+ extern BOOL X11DRV_ProcessEvents( DWORD mask );
++extern void x11drv_touch_poll(void);
++extern void x11drv_touch_timer( HWND hwnd );
+ 
+ typedef int (*x11drv_error_callback)( Display *display, XErrorEvent *event, void *arg );
+ 
+--- a/include/wine/gdi_driver.h
++++ b/include/wine/gdi_driver.h
+@@ -362,6 +362,10 @@
+ #define WINE_SWP_FULLSCREEN 0x80000000
+ #define WINE_SWP_RESIZABLE  0x40000000
+ 
++/* system timer of the user driver (NtUserSetSystemTimer): its WM_SYSTIMER goes to pWindowMessage, not to the
++ * program -- driver work in the window's thread, a step per message pump (syn-wine) */
++#define WINE_SYSTEM_TIMER_DRIVER 0xfff8
++
+ struct vulkan_driver_funcs;
+ struct opengl_driver_funcs;
+ 

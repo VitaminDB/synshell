@@ -118,6 +118,9 @@ pub struct Managed {
     pub skip_taskbar: bool,
     /// Касания окну идут как мышь (правило `touch_as_mouse`); None — по умолчанию.
     pub touch_as_mouse: Option<bool>,
+    /// X11-окно само делает мышь из касаний XI2 (метка `_SYN_WINE_TOUCH` от syn-wine); читается при первом
+    /// касании, None — ещё не читали.
+    pub x11_own_touch: std::cell::Cell<Option<bool>>,
     /// Размер (пиксели X11), который полноэкранная X11-игра выбрала режимом
     /// экрана: Xwayland растягивает такое окно на экран (wp_viewporter).
     pub x11_mode: Option<(i32, i32)>,
@@ -179,6 +182,7 @@ impl Managed {
             opacity: 1.0,
             skip_taskbar: false,
             touch_as_mouse: None,
+            x11_own_touch: std::cell::Cell::new(None),
             x11_mode: None,
             no_focus: false,
             mapped: false,
@@ -225,11 +229,24 @@ impl Managed {
     }
 
     /// Касания окну идут как мышь: правило, иначе — у X11-окон Wine (класс
-    /// `*.exe`: его x11drv переводит касания в WM_POINTER, игры ждут мышь).
+    /// `*.exe`: обычный x11drv переводит касания в WM_POINTER, игры ждут мышь).
+    /// Кроме окон syn-wine (метка `_SYN_WINE_TOUCH`): он получает настоящие касания XI2 и сам делает из них
+    /// мышь — подделанный пальцем указатель Wine не отличил бы от настоящей мыши.
     /// Считается при касании — класс X11-окна известен не сразу.
     pub fn touch_as_mouse(&self) -> bool {
-        self.touch_as_mouse
-            .unwrap_or_else(|| self.window.is_x11() && self.app_id().to_ascii_lowercase().ends_with(".exe"))
+        self.touch_as_mouse.unwrap_or_else(|| {
+            self.window.is_x11() && self.app_id().to_ascii_lowercase().ends_with(".exe") && !self.x11_own_touch()
+        })
+    }
+
+    /// X11-окно syn-wine: касания XI2 — ему (см. [`Self::touch_as_mouse`]).
+    pub fn x11_own_touch(&self) -> bool {
+        if let Some(v) = self.x11_own_touch.get() {
+            return v;
+        }
+        let v = self.window.x11_surface().and_then(|x| x.cardinal_property("_SYN_WINE_TOUCH")) == Some(1);
+        self.x11_own_touch.set(Some(v));
+        v
     }
 
     pub fn app_id(&self) -> String {
