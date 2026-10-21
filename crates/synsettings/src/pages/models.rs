@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use syngui::prelude::*;
 use synaptixd::{
-    Client, DefaultModel, DeviceKind, EngineProfile, LibraryInfo, LoadState, ModelEntry, ModelKind, ModelSettings, ParamKind, ParamSpec, ParamValue, Params, QuantOption,
-    SettingsChange, Status,
+    Client, DefaultModel, DeviceKind, EngineProfile, LibraryInfo, LoadState, LoraEntry, LoraUse, ModelEntry, ModelKind, ModelSettings, ParamKind, ParamSpec, ParamValue, Params,
+    QuantOption, SettingsChange, Status,
 };
 
 use crate::state;
@@ -18,6 +18,7 @@ struct Snapshot {
     models: Vec<ModelEntry>,
     defaults: Vec<DefaultModel>,
     libraries: Vec<LibraryInfo>,
+    loras: Vec<LoraEntry>,
     error: Option<String>,
 }
 
@@ -57,9 +58,9 @@ static ACTIVE: AtomicBool = AtomicBool::new(false);
 const SUB: &str = "models/";
 
 fn fetch() -> Snapshot {
-    let r = Client::connect().and_then(|mut c| Ok((c.status()?, c.list()?, c.defaults()?, c.libraries().unwrap_or_default())));
+    let r = Client::connect().and_then(|mut c| Ok((c.status()?, c.list()?, c.defaults()?, c.libraries().unwrap_or_default(), c.loras().unwrap_or_default())));
     match r {
-        Ok((status, models, defaults, libraries)) => Snapshot { status: Some(status), models, defaults, libraries, error: None },
+        Ok((status, models, defaults, libraries, loras)) => Snapshot { status: Some(status), models, defaults, libraries, loras, error: None },
         Err(e) => Snapshot { error: Some(e.to_string()), ..Default::default() },
     }
 }
@@ -1367,6 +1368,84 @@ fn voice_presets_row(sig: RwSignal<Snapshot>, id: &str, presets: &'static super:
     )
 }
 
+/// Набор адаптеров модели с правкой одного (`None` — убрать из набора).
+fn set_lora(sig: RwSignal<Snapshot>, id: &str, name: &str, f: impl FnOnce(Option<LoraUse>) -> Option<LoraUse>) {
+    let Some(cfg) = cfg_signal(id).get_untracked() else { return };
+    let mut set = cfg.settings.loras.clone();
+    let cur = set.iter().position(|u| u.name == name).map(|i| set.remove(i));
+    if let Some(u) = f(cur) {
+        set.push(u);
+    }
+    change(sig, id, SettingsChange { loras: Some(set), ..Default::default() });
+}
+
+/// Отложенная отправка силы адаптера: ползунок шлёт значения на каждый
+/// сдвиг, служба получает последнее через 0.4 с покоя.
+fn strength_later(sig: RwSignal<Snapshot>, id: String, name: String, v: f32) {
+    static GEN: AtomicU64 = AtomicU64::new(0);
+    let g = GEN.fetch_add(1, Ordering::Relaxed) + 1;
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        if GEN.load(Ordering::Relaxed) != g {
+            return;
+        }
+        syngui::async_runtime::run_on_main_thread(move || {
+            set_lora(sig, &id, &name, |cur| Some(LoraUse { strength: (v * 20.0).round() / 20.0, ..cur.unwrap_or_else(|| LoraUse::on(name.clone())) }));
+        });
+    });
+}
+
+fn lora_card(sig: RwSignal<Snapshot>, id: &str, cfg: &Cfg, loras: &[LoraEntry]) -> W {
+    let mine: Vec<&LoraEntry> = loras.iter().filter(|l| l.base.as_deref() == Some(id) || cfg.settings.loras.iter().any(|u| u.name == l.name)).collect();
+    let mut rows: Vec<W> = Vec::new();
+    for l in &mine {
+        let used = cfg.settings.loras.iter().find(|u| u.name == l.name);
+        let on = used.is_some_and(|u| u.enabled);
+        let strength = used.map(|u| u.strength).unwrap_or(1.0);
+        let mut hint = vec![format!("r={}", l.rank)];
+        if let Some(e) = l.train.get("eval_loss").and_then(|v| v.as_f64()) {
+            hint.push(t!("оценка {v}", v = format!("{e:.3}")));
+        }
+        if let Some(d) = l.train.get("dataset").and_then(|v| v.as_str()) {
+            hint.push(std::path::Path::new(d).file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+        }
+        hint.push(mb(l.bytes));
+        if l.base.as_deref() != Some(id) {
+            hint.push(t!("обучен на другой модели"));
+        }
+        let (i1, n1, i2, n2) = (id.to_string(), l.name.clone(), id.to_string(), l.name.clone());
+        let controls = Row::new()
+            .gap(14.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(
+                Slider::new()
+                    .range(0.0, 2.0)
+                    .step(0.05)
+                    .value(strength)
+                    .show_value(2)
+                    .width(180.0)
+                    .disabled(!on)
+                    .on_change(move |v| strength_later(sig, i1.clone(), n1.clone(), v)),
+            )
+            .child(Toggle::with_state(on).on_change(move |v| {
+                set_lora(sig, &i2, &n2, |cur| Some(LoraUse { enabled: v, ..cur.unwrap_or_else(|| LoraUse::on(n2.clone())) }))
+            }));
+        rows.push(row_inline(l.name.clone(), hint.join(" · "), controls));
+    }
+    let hint = if rows.is_empty() {
+        t!("Адаптеров для этой модели нет. Их обучают в Synthos (раздел «Обучение») или командой synaptixctl train; лежат они в папке lora библиотеки моделей.")
+    } else {
+        t!("Включённые адаптеры накладываются при генерации поверх весов модели. Сила — множитель влияния адаптера: 1 — как обучен, 0 — выключен. Программа может выбрать свой набор для чата.")
+    };
+    let mut col = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+    if !rows.is_empty() {
+        col = col.child(group(t!("Адаптеры LoRA"), rows));
+    } else {
+        col = col.child(Text::new(t!("Адаптеры LoRA")).class("group-title"));
+    }
+    boxed(col.child(note(hint)))
+}
+
 fn model_page(ctx: state::Ctx, sig: RwSignal<Snapshot>, id: String) -> W {
     let cfg = cfg_signal(&id);
     let i = id.clone();
@@ -1381,6 +1460,9 @@ fn model_page(ctx: state::Ctx, sig: RwSignal<Snapshot>, id: String) -> W {
     let settings = Reactive::new(move || -> Vec<W> {
         let Some(c) = cfg.get() else { return Vec::new() };
         let mut col = Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(settings_card(sig, &i, &c));
+        if c.engine.is_some() {
+            col = col.child(lora_card(sig, &i, &c, &sig.get().loras));
+        }
         if let Some(e) = engine_card(sig, &i, &c) {
             col = col.child(e);
         }
