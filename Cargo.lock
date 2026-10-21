@@ -6826,6 +6826,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-dlss"
+version = "0.1.42"
+dependencies = [
+ "libc",
+ "syngui",
+ "synshell-common",
+ "synsystem",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "syn-health"
 version = "0.1.42"
 dependencies = [

@@ -1,0 +1,19 @@
+[package]
+name = "syn-dlss"
+description = "DLSS 5 synshell: настройки нейрорендеринга и помощник NGX под syn-wine (окно форка DLSS5VKLayer)"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "syn-dlss"
+path = "src/main.rs"
+
+[dependencies]
+synshell-common = { workspace = true, features = ["i18n"] }
+synsystem.workspace = true
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "clipboard", "image"] }
+libc.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=DLSS 5
+GenericName=Neural rendering
+GenericName[ru]=Нейрорендеринг
+Comment=DLSS 5 neural rendering for games: helper, settings, profiles
+Comment[ru]=Нейрорендеринг DLSS 5 в играх: помощник, настройки, профили
+Exec=syn-dlss
+Icon=syn-dlss
+Terminal=false
+Categories=Game;Settings;
+Keywords=dlss;nvidia;ngx;neural;rendering;
+StartupWMClass=syn-dlss

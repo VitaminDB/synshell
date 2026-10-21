@@ -26,8 +26,14 @@ setup_build() {
     printf '%s' "$requested_config" > "$config_stamp"
 }
 
+# DLSSNR_GUI=0: без Qt-окна (synshell ставит своё, syn-dlss).
+NATIVE_OPTS=()
+if [ "${DLSSNR_GUI:-1}" = "0" ]; then
+    NATIVE_OPTS+=(-Dgui=false)
+fi
+
 build_all() {
-    setup_build "$BUILD_ROOT/native" --native-file meson/native-clang.ini
+    setup_build "$BUILD_ROOT/native" --native-file meson/native-clang.ini "${NATIVE_OPTS[@]}"
     setup_build "$BUILD_ROOT/linux32" \
     --native-file meson/native-clang.ini \
     --cross-file meson/cross-clang-linux32.ini

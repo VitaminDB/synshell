@@ -22,8 +22,10 @@ host_cpu = host_machine.cpu_family()
 if host_system == 'linux' and host_cpu == 'x86_64'
   subdir('layer_linux')
   subdir('tools')
-  subdir('gui')
-  subdir('test_gui')
+  if get_option('gui')
+    subdir('gui')
+    subdir('test_gui')
+  endif
 elif host_system == 'linux' and host_cpu in ['x86', 'i686']
   subdir('layer_linux')
 elif host_system == 'windows' and host_cpu == 'x86_64'

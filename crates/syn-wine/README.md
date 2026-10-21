@@ -24,5 +24,5 @@ Wine synshell — пакет pacman (не крейт Cargo) для x86_64 и aar
 
 - Связка с syn-wine: DXVK `dxgi.dll` — из `/usr/share/dxvk/x64`, DXVK-NVAPI — в пакете (`/usr/lib/dlssnr/nvapi`),
   `nvngx.dll`/`_nvngx.dll` — из драйвера (`/usr/lib/nvidia/wine`); ничего не скачивается при запуске.
-- Модели `nvngx_dlssnr.dll` в пакете нет: `dlssnr-helper import-binaries <каталог>` или GUI `dlssnr-gui`.
+- Модели `nvngx_dlssnr.dll` в пакете нет: `dlssnr-helper import-binaries <каталог>` или окно `syn-dlss` (crates/syn-dlss, syngui; Qt-окно форка в пакет не входит).
 - Включение в игре: `VKLayer_DLSS5=1 %command%`; помощник — `dlssnr-helper start`.
