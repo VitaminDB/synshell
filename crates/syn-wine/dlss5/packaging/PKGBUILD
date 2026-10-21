@@ -1,0 +1,68 @@
+# DLSS 5 Neural Rendering для Linux поверх syn-wine — форк DLSS5VKLayer (crates/syn-wine/dlss5).
+#   Vulkan-слой (64 и 32 бит) отдаёт кадры игры помощнику dlssnr_helper.exe, который под syn-wine грузит NGX
+#   и модель nvngx_dlssnr.dll. Слой неявный, но включается только переменной VKLayer_DLSS5=1.
+#   DXVK — из syn-wine (/usr/share/dxvk), DXVK-NVAPI — в этом пакете, ядро NGX — из драйвера NVIDIA.
+#   Модели nvngx_dlssnr.dll в пакете нет (проприетарная NVIDIA): dlssnr-helper import-binaries <каталог>.
+# Сборка из рабочего дерева: cd crates/syn-wine/dlss5/packaging && makepkg -si
+
+pkgname=syn-wine-dlss5
+pkgver=0.3.1
+pkgrel=1
+# коммит upstream bmitch87/DLSS5VKLayer, от которого идёт форк
+_upstream=ab722b091071d6d59df56f10d86d4f3005bcad86
+_nvapi=0.9.2
+pkgdesc="DLSS 5 Neural Rendering Vulkan layer and NGX helper for syn-wine (fork of DLSS5VKLayer)"
+arch=(x86_64)
+url="https://github.com/bmitch87/DLSS5VKLayer"
+license=(AGPL-3.0-only Zlib MIT)
+depends=(bash syn-wine vulkan-icd-loader qt6-base pciutils nvidia-utils)
+makedepends=(clang llvm meson ninja gcc-multilib lib32-glibc mingw-w64-gcc)
+optdepends=('lib32-vulkan-icd-loader: 32-битные Vulkan-игры')
+provides=(dlssnr)
+conflicts=(dlssnr dlssnr-personal)
+options=(!lto !debug)
+source=("https://github.com/jp7677/dxvk-nvapi/releases/download/v$_nvapi/dxvk-nvapi-v$_nvapi.tar.gz")
+noextract=("dxvk-nvapi-v$_nvapi.tar.gz")
+sha256sums=('60c284223530d643c446c263f1e1a96c6de7b5ff21796219646da734d97a70d6')
+
+_tree() { realpath "$startdir/.."; }
+
+build() {
+  DLSSNR_BUILD_ROOT="$srcdir/build" "$(_tree)/tools/meson-build.sh"
+}
+
+package() {
+  local t b lib=/usr/lib/dlssnr
+  t="$(_tree)"
+  b="$srcdir/build"
+
+  install -Dm755 "$b/native/layer_linux/libVkLayer_NV_dlssnr.so" "$pkgdir$lib/layer/libVkLayer_NV_dlssnr.so"
+  install -Dm755 "$b/linux32/layer_linux/libVkLayer_NV_dlssnr.so" "$pkgdir$lib/layer32/libVkLayer_NV_dlssnr.so"
+  install -Dm755 "$b/windows/windows/dlssnr_helper.exe" "$pkgdir$lib/helper/dlssnr_helper.exe"
+  install -Dm755 "$b/native/tools/runner_probe" "$pkgdir$lib/bin/runner_probe"
+  install -Dm755 "$b/native/tools/dlssnr-shmctl" "$pkgdir$lib/bin/dlssnr-shmctl"
+  install -Dm755 "$b/native/gui/dlssnr_gui" "$pkgdir/usr/bin/dlssnr-gui"
+  install -Dm755 "$t/dlssnr-helper" "$pkgdir/usr/bin/dlssnr-helper"
+  ln -s ../lib/dlssnr/bin/runner_probe "$pkgdir/usr/bin/dlssnr-runner-probe"
+  ln -s ../lib/dlssnr/bin/dlssnr-shmctl "$pkgdir/usr/bin/dlssnr-shmctl"
+
+  install -Dm644 "$t/third_party/dxvk/2.7.1/x64/vulkan-1.dll" "$pkgdir$lib/dxvk/2.7.1/vulkan-1.dll"
+  install -d "$pkgdir$lib/nvapi/x64"
+  bsdtar -xOf "$srcdir/dxvk-nvapi-v$_nvapi.tar.gz" ./x64/nvapi64.dll > "$pkgdir$lib/nvapi/x64/nvapi64.dll"
+  chmod 644 "$pkgdir$lib/nvapi/x64/nvapi64.dll"
+
+  install -Dm644 "$t/packaging/dlssnr.desktop" "$pkgdir/usr/share/applications/dlssnr.desktop"
+  install -Dm644 "$t/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 "$t/ATTRIBUTION.md" "$pkgdir/usr/share/licenses/$pkgname/ATTRIBUTION.md"
+  install -Dm644 "$t/third_party/dxvk/2.7.1/LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/dxvk-license.txt"
+
+  local m="$pkgdir/usr/share/vulkan/implicit_layer.d"
+  install -d "$m"
+  sed -e "s#./libVkLayer_NV_dlssnr.so#$lib/layer/libVkLayer_NV_dlssnr.so#" \
+      -e 's#"implementation_version"#"library_arch": "64",\n    "implementation_version"#' \
+      "$t/layer_linux/manifest/VK_LAYER_NV_dlssnr.json" > "$m/VK_LAYER_NV_dlssnr.x86_64.json"
+  sed -e "s#./libVkLayer_NV_dlssnr.so#$lib/layer32/libVkLayer_NV_dlssnr.so#" \
+      -e 's#"VK_LAYER_NV_dlssnr"#"VK_LAYER_NV_dlssnr_32"#' \
+      -e 's#"implementation_version"#"library_arch": "32",\n    "implementation_version"#' \
+      "$t/layer_linux/manifest/VK_LAYER_NV_dlssnr.json" > "$m/VK_LAYER_NV_dlssnr.i686.json"
+}
