@@ -174,12 +174,26 @@ pub fn lock_now(ctx: ShellCtx) {
     ctx.close_popup();
     syngui_layer::lock_session(move |out: &OutputInfo| {
         let ctx = ShellCtx::get();
-        if ctx.is_phone() {
+        if touch_lock(ctx) {
             Box::new(phone_view(ctx, out.clone(), Stage::Cover))
         } else {
             Box::new(view(ctx, out.clone()))
         }
     });
+}
+
+/// Телефонный экран блокировки (своя клавиатура и PIN-панель): режим «телефон» или игровой режим на телефоне.
+/// Экранная клавиатура synkeyboard поверх блокировки не показывается, а у настольного вида своей нет — в игровом
+/// режиме на телефоне поле пароля было не заполнить ничем (только перезагрузка).
+fn touch_lock(ctx: ShellCtx) -> bool {
+    use synshell_common::config::FormFactor;
+    static DEVICE_PHONE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    ctx.is_phone()
+        || ctx.form_factor == FormFactor::Game
+            && *DEVICE_PHONE.get_or_init(|| {
+                use synshell_common::ipc::{Client, Request, Response};
+                matches!(Client::connect().and_then(|mut c| c.request(&Request::FormFactor)), Ok(Response::FormFactor { device, .. }) if device == "phone")
+            })
 }
 
 fn submit(password: String) {
