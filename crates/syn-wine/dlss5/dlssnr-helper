@@ -733,6 +733,10 @@ cmd_start() {
   if [ "$runner_type" = "wine" ]; then
     export DXVK_ENABLE_NVAPI=1
     unset DLSSNR_SKIP_NVAPI
+    # syn-wine (winevulkan-host-fd.patch): VK_KHR_external_memory_fd/VK_EXT_external_memory_dma_buf для
+    # обмена кадрами через dma-buf и разрешение слою забирать fd помощника (Yama ptrace_scope 1);
+    # прочие сборки Wine переменную не знают — помощник остаётся на общей памяти
+    export WINE_VULKAN_HOST_FD=1
     export WINEDLLOVERRIDES="vulkan-1=n,b;nvapi64=n,b;dxgi=n,b;d3d11=n,b${WINEDLLOVERRIDES:+;$WINEDLLOVERRIDES}"
   fi
 

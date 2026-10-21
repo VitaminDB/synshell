@@ -1,0 +1,461 @@
+--- a/dlls/win32u/vulkan.c
++++ b/dlls/win32u/vulkan.c
+@@ -27,6 +27,9 @@
+ #include <dlfcn.h>
+ #include <pthread.h>
+ #include <unistd.h>
++#ifdef __linux__
++#include <sys/prctl.h>
++#endif
+ 
+ #include "ntstatus.h"
+ #include "win32u_private.h"
+@@ -52,6 +55,9 @@
+                                                VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_KMT_BIT |
+                                                VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_HEAP_BIT |
+                                                VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_RESOURCE_BIT;
++/* host fd memory types, shown to applications only with WINE_VULKAN_HOST_FD=1 (syn-wine) */
++static const UINT EXTERNAL_MEMORY_HOST_FD_BITS = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT |
++                                                 VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT;
+ static const UINT EXTERNAL_SEMAPHORE_WIN32_BITS = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT |
+                                                   VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT |
+                                                   VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT;
+@@ -469,6 +475,26 @@
+     return VK_SUCCESS;
+ }
+ 
++/* syn-wine: VK_KHR_external_memory_fd and VK_EXT_external_memory_dma_buf are shown to applications only with
++ * WINE_VULKAN_HOST_FD=1 (Linux-aware helpers such as the DLSS 5 helper share images with host processes as dma-buf);
++ * the descriptors are host fds of this process. */
++static BOOL expose_host_fd(void)
++{
++    static int expose = -1;
++    if (expose == -1)
++    {
++        const char *env = getenv( "WINE_VULKAN_HOST_FD" );
++        expose = env && *env && *env != '0';
++#if defined(__linux__) && defined(PR_SET_PTRACER)
++        /* the peer takes its own reference with pidfd_getfd, which Yama (ptrace_scope 1) allows
++         * only to declared tracers */
++        if (expose && prctl( PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0 ))
++            WARN( "PR_SET_PTRACER failed, peers may not be able to take exported fds\n" );
++#endif
++    }
++    return expose;
++}
++
+ static VkResult init_physical_device( struct vulkan_physical_device *physical_device, VkPhysicalDevice host_physical_device,
+                                       VkPhysicalDevice client_physical_device, struct vulkan_instance *instance )
+ {
+@@ -538,6 +564,11 @@
+     }
+     extensions.has_VK_KHR_win32_keyed_mutex = extensions.has_VK_KHR_timeline_semaphore &&
+                                               extensions.has_VK_KHR_external_semaphore_fd;
++    if (!expose_host_fd() || zero_bits)
++    {
++        extensions.has_VK_KHR_external_memory_fd = 0;
++        extensions.has_VK_EXT_external_memory_dma_buf = 0;
++    }
+ 
+     /* filter out unsupported client device extensions */
+ #define USE_VK_EXT(x) client_physical_device->extensions.has_ ## x = extensions.has_ ## x;
+@@ -890,7 +921,11 @@
+         case VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO:
+             export_info = (VkExportMemoryAllocateInfo *)*next;
+             if (!(export_info->handleTypes & EXTERNAL_MEMORY_WIN32_BITS))
+-                FIXME( "Unsupported handle types %#x\n", export_info->handleTypes );
++            {
++                if (!(export_info->handleTypes & EXTERNAL_MEMORY_HOST_FD_BITS))
++                    FIXME( "Unsupported handle types %#x\n", export_info->handleTypes );
++                export_info = NULL; /* host fd export: exported by the driver, vkGetMemoryFdKHR */
++            }
+             else
+             {
+                 nt_shared = !(export_info->handleTypes & (VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT |
+@@ -1263,7 +1298,7 @@
+         case VK_STRUCTURE_TYPE_DEDICATED_ALLOCATION_BUFFER_CREATE_INFO_NV: break;
+         case VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO:
+             external_info = (VkExternalMemoryBufferCreateInfo *)*next;
+-            if (!(external_info->handleTypes & EXTERNAL_MEMORY_WIN32_BITS))
++            if (!(external_info->handleTypes & (EXTERNAL_MEMORY_WIN32_BITS | EXTERNAL_MEMORY_HOST_FD_BITS)))
+                 FIXME( "Unsupported handle types %#x\n", external_info->handleTypes );
+             else
+                 external_info->handleTypes = get_host_external_memory_type();
+@@ -1304,7 +1339,7 @@
+         case VK_STRUCTURE_TYPE_DEDICATED_ALLOCATION_BUFFER_CREATE_INFO_NV: break;
+         case VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO:
+             external_info = (VkExternalMemoryBufferCreateInfo *)*next;
+-            if (!(external_info->handleTypes & EXTERNAL_MEMORY_WIN32_BITS))
++            if (!(external_info->handleTypes & (EXTERNAL_MEMORY_WIN32_BITS | EXTERNAL_MEMORY_HOST_FD_BITS)))
+                 FIXME( "Unsupported handle types %#x\n", external_info->handleTypes );
+             else
+                 external_info->handleTypes = get_host_external_memory_type();
+@@ -1328,6 +1363,7 @@
+     if (handle_type & EXTERNAL_MEMORY_WIN32_BITS) buffer_info->handleType = get_host_external_memory_type();
+ 
+     p_vkGetPhysicalDeviceExternalBufferProperties( physical_device->host.physical_device, buffer_info, buffer_properties );
++    if (handle_type & EXTERNAL_MEMORY_HOST_FD_BITS) return;
+     buffer_properties->externalMemoryProperties.compatibleHandleTypes = handle_type;
+     buffer_properties->externalMemoryProperties.exportFromImportedHandleTypes = handle_type;
+ }
+@@ -1369,7 +1405,7 @@
+         case VK_STRUCTURE_TYPE_DEDICATED_ALLOCATION_IMAGE_CREATE_INFO_NV: break;
+         case VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO:
+             external_info = (VkExternalMemoryImageCreateInfo *)*next;
+-            if (!(external_info->handleTypes & EXTERNAL_MEMORY_WIN32_BITS))
++            if (!(external_info->handleTypes & (EXTERNAL_MEMORY_WIN32_BITS | EXTERNAL_MEMORY_HOST_FD_BITS)))
+                 FIXME( "Unsupported handle types %#x\n", external_info->handleTypes );
+             else
+                 external_info->handleTypes = get_host_external_memory_type();
+@@ -1413,7 +1449,7 @@
+         case VK_STRUCTURE_TYPE_DEDICATED_ALLOCATION_IMAGE_CREATE_INFO_NV: break;
+         case VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO:
+             external_info = (VkExternalMemoryImageCreateInfo *)*next;
+-            if (!(external_info->handleTypes & EXTERNAL_MEMORY_WIN32_BITS))
++            if (!(external_info->handleTypes & (EXTERNAL_MEMORY_WIN32_BITS | EXTERNAL_MEMORY_HOST_FD_BITS)))
+                 FIXME( "Unsupported handle types %#x\n", external_info->handleTypes );
+             else
+                 external_info->handleTypes = get_host_external_memory_type();
+@@ -1471,6 +1507,7 @@
+         case VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES:
+         {
+             VkExternalImageFormatProperties *props = (VkExternalImageFormatProperties *)*next;
++            if (handle_type & EXTERNAL_MEMORY_HOST_FD_BITS) break;
+             props->externalMemoryProperties.compatibleHandleTypes = handle_type;
+             props->externalMemoryProperties.exportFromImportedHandleTypes = handle_type;
+             break;
+--- a/dlls/winevulkan/loader_thunks.c
++++ b/dlls/winevulkan/loader_thunks.c
+@@ -5283,6 +5283,27 @@
+     UNIX_CALL_CHECKED(vkGetLatencyTimingsNV, &params);
+ }
+ 
++VkResult WINAPI vkGetMemoryFdKHR(VkDevice device, const VkMemoryGetFdInfoKHR *pGetFdInfo, int *pFd)
++{
++    struct vkGetMemoryFdKHR_params params;
++    params.device = device;
++    params.pGetFdInfo = pGetFdInfo;
++    params.pFd = pFd;
++    UNIX_CALL_CHECKED(vkGetMemoryFdKHR, &params);
++    return params.result;
++}
++
++VkResult WINAPI vkGetMemoryFdPropertiesKHR(VkDevice device, VkExternalMemoryHandleTypeFlagBits handleType, int fd, VkMemoryFdPropertiesKHR *pMemoryFdProperties)
++{
++    struct vkGetMemoryFdPropertiesKHR_params params;
++    params.device = device;
++    params.handleType = handleType;
++    params.fd = fd;
++    params.pMemoryFdProperties = pMemoryFdProperties;
++    UNIX_CALL_CHECKED(vkGetMemoryFdPropertiesKHR, &params);
++    return params.result;
++}
++
+ VkResult WINAPI vkGetMemoryHostPointerPropertiesEXT(VkDevice device, VkExternalMemoryHandleTypeFlagBits handleType, const void *pHostPointer, VkMemoryHostPointerPropertiesEXT *pMemoryHostPointerProperties)
+ {
+     struct vkGetMemoryHostPointerPropertiesEXT_params params;
+@@ -7650,6 +7671,8 @@
+     {"vkGetImageViewOpaqueCaptureDescriptorDataEXT", vkGetImageViewOpaqueCaptureDescriptorDataEXT},
+     {"vkGetLatencyTimingsLegacyNV", vkGetLatencyTimingsLegacyNV},
+     {"vkGetLatencyTimingsNV", vkGetLatencyTimingsNV},
++    {"vkGetMemoryFdKHR", vkGetMemoryFdKHR},
++    {"vkGetMemoryFdPropertiesKHR", vkGetMemoryFdPropertiesKHR},
+     {"vkGetMemoryHostPointerPropertiesEXT", vkGetMemoryHostPointerPropertiesEXT},
+     {"vkGetMemoryWin32HandleKHR", vkGetMemoryWin32HandleKHR},
+     {"vkGetMemoryWin32HandlePropertiesKHR", vkGetMemoryWin32HandlePropertiesKHR},
+--- a/dlls/winevulkan/loader_thunks.h
++++ b/dlls/winevulkan/loader_thunks.h
+@@ -581,6 +581,8 @@
+     unix_vkGetImageViewOpaqueCaptureDescriptorDataEXT,
+     unix_vkGetLatencyTimingsLegacyNV,
+     unix_vkGetLatencyTimingsNV,
++    unix_vkGetMemoryFdKHR,
++    unix_vkGetMemoryFdPropertiesKHR,
+     unix_vkGetMemoryHostPointerPropertiesEXT,
+     unix_vkGetMemoryWin32HandleKHR,
+     unix_vkGetMemoryWin32HandlePropertiesKHR,
+@@ -5021,6 +5023,23 @@
+     VkGetLatencyMarkerInfoNV *pLatencyMarkerInfo;
+ };
+ 
++struct vkGetMemoryFdKHR_params
++{
++    VkDevice device;
++    const VkMemoryGetFdInfoKHR *pGetFdInfo;
++    int *pFd;
++    VkResult result;
++};
++
++struct vkGetMemoryFdPropertiesKHR_params
++{
++    VkDevice device;
++    VkExternalMemoryHandleTypeFlagBits handleType;
++    int fd;
++    VkMemoryFdPropertiesKHR *pMemoryFdProperties;
++    VkResult result;
++};
++
+ struct vkGetMemoryHostPointerPropertiesEXT_params
+ {
+     VkDevice device;
+--- a/dlls/winevulkan/make_vulkan
++++ b/dlls/winevulkan/make_vulkan
+@@ -126,12 +126,10 @@
+     "VK_EXT_map_memory_placed",
+     "VK_EXT_headless_surface",
+     # Extensions for other platforms
+-    "VK_EXT_external_memory_dma_buf",
+     "VK_EXT_image_drm_format_modifier",
+     "VK_EXT_metal_surface",
+     "VK_EXT_physical_device_drm",
+     "VK_KHR_external_fence_fd",
+-    "VK_KHR_external_memory_fd",
+     "VK_EXT_external_memory_metal",
+     "VK_KHR_external_semaphore_fd",
+     "VK_KHR_wayland_surface",
+--- a/dlls/winevulkan/vulkan_thunks.c
++++ b/dlls/winevulkan/vulkan_thunks.c
+@@ -4353,6 +4353,14 @@
+     PTR32 name;
+ } VkImportFenceWin32HandleInfoKHR32;
+ 
++typedef struct VkImportMemoryFdInfoKHR32
++{
++    VkStructureType sType;
++    PTR32 pNext;
++    VkExternalMemoryHandleTypeFlagBits handleType;
++    int fd;
++} VkImportMemoryFdInfoKHR32;
++
+ typedef struct VkImportMemoryHostPointerInfoEXT32
+ {
+     VkStructureType sType;
+@@ -4547,6 +4555,21 @@
+ } VkMemoryDedicatedRequirements32;
+ typedef VkMemoryDedicatedRequirements32 VkMemoryDedicatedRequirementsKHR32;
+ 
++typedef struct VkMemoryFdPropertiesKHR32
++{
++    VkStructureType sType;
++    PTR32 pNext;
++    uint32_t memoryTypeBits;
++} VkMemoryFdPropertiesKHR32;
++
++typedef struct VkMemoryGetFdInfoKHR32
++{
++    VkStructureType sType;
++    PTR32 pNext;
++    VkDeviceMemory DECLSPEC_ALIGN(8) memory;
++    VkExternalMemoryHandleTypeFlagBits handleType;
++} VkMemoryGetFdInfoKHR32;
++
+ typedef struct VkMemoryGetWin32HandleInfoKHR32
+ {
+     VkStructureType sType;
+@@ -11302,6 +11325,18 @@
+             out_header = (void *)out_ext;
+             break;
+         }
++        case VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR:
++        {
++            VkImportMemoryFdInfoKHR *out_ext = conversion_context_alloc(ctx, sizeof(*out_ext));
++            const VkImportMemoryFdInfoKHR *in_ext = (const VkImportMemoryFdInfoKHR *)in_header;
++            out_ext->sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR;
++            out_ext->pNext = NULL;
++            out_ext->handleType = in_ext->handleType;
++            out_ext->fd = in_ext->fd;
++            out_header->pNext = (void *)out_ext;
++            out_header = (void *)out_ext;
++            break;
++        }
+         case VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT:
+         {
+             VkImportMemoryHostPointerInfoEXT *out_ext = conversion_context_alloc(ctx, sizeof(*out_ext));
+@@ -11480,6 +11515,18 @@
+             out_header = (void *)out_ext;
+             break;
+         }
++        case VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR:
++        {
++            VkImportMemoryFdInfoKHR *out_ext = conversion_context_alloc(ctx, sizeof(*out_ext));
++            const VkImportMemoryFdInfoKHR32 *in_ext = (const VkImportMemoryFdInfoKHR32 *)in_header;
++            out_ext->sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR;
++            out_ext->pNext = NULL;
++            out_ext->handleType = in_ext->handleType;
++            out_ext->fd = in_ext->fd;
++            out_header->pNext = (void *)out_ext;
++            out_header = (void *)out_ext;
++            break;
++        }
+         case VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT:
+         {
+             VkImportMemoryHostPointerInfoEXT *out_ext = conversion_context_alloc(ctx, sizeof(*out_ext));
+@@ -32740,6 +32787,47 @@
+     convert_VkLatencyTimingsFrameReportNV_array_host_to_win32(in->pTimings, (VkLatencyTimingsFrameReportNV32 *)UlongToPtr(out->pTimings), in->timingCount);
+ }
+ 
++#ifdef _WIN64
++static void convert_VkMemoryGetFdInfoKHR_win64_to_host(const VkMemoryGetFdInfoKHR *in, VkMemoryGetFdInfoKHR *out)
++{
++    if (!in) return;
++
++    out->sType = in->sType;
++    out->pNext = in->pNext;
++    out->memory = vulkan_device_memory_from_handle(in->memory)->host.device_memory;
++    out->handleType = in->handleType;
++}
++#endif /* _WIN64 */
++
++static void convert_VkMemoryGetFdInfoKHR_win32_to_host(const VkMemoryGetFdInfoKHR32 *in, VkMemoryGetFdInfoKHR *out)
++{
++    if (!in) return;
++
++    out->sType = in->sType;
++    out->pNext = NULL;
++    out->memory = vulkan_device_memory_from_handle(in->memory)->host.device_memory;
++    out->handleType = in->handleType;
++    if (in->pNext)
++        FIXME("Unexpected pNext\n");
++}
++
++static void convert_VkMemoryFdPropertiesKHR_win32_to_host(const VkMemoryFdPropertiesKHR32 *in, VkMemoryFdPropertiesKHR *out)
++{
++    if (!in) return;
++
++    out->sType = in->sType;
++    out->pNext = NULL;
++    if (in->pNext)
++        FIXME("Unexpected pNext\n");
++}
++
++static void convert_VkMemoryFdPropertiesKHR_host_to_win32(const VkMemoryFdPropertiesKHR *in, VkMemoryFdPropertiesKHR32 *out)
++{
++    if (!in) return;
++
++    out->memoryTypeBits = in->memoryTypeBits;
++}
++
+ static void convert_VkMemoryHostPointerPropertiesEXT_win32_to_host(const VkMemoryHostPointerPropertiesEXT32 *in, VkMemoryHostPointerPropertiesEXT *out)
+ {
+     if (!in) return;
+@@ -66141,6 +66229,70 @@
+ }
+ 
+ #ifdef _WIN64
++static NTSTATUS thunk64_vkGetMemoryFdKHR(void *args)
++{
++    struct vkGetMemoryFdKHR_params *params = args;
++    VkMemoryGetFdInfoKHR pGetFdInfo_host;
++
++    TRACE("%p, %p, %p\n", params->device, params->pGetFdInfo, params->pFd);
++
++    convert_VkMemoryGetFdInfoKHR_win64_to_host(params->pGetFdInfo, &pGetFdInfo_host);
++    params->result = vulkan_device_from_handle(params->device)->p_vkGetMemoryFdKHR(vulkan_device_from_handle(params->device)->host.device, &pGetFdInfo_host, params->pFd);
++    return STATUS_SUCCESS;
++}
++#endif /* _WIN64 */
++
++static NTSTATUS thunk32_vkGetMemoryFdKHR(void *args)
++{
++    struct
++    {
++        PTR32 device;
++        PTR32 pGetFdInfo;
++        PTR32 pFd;
++        VkResult result;
++    } *params = args;
++    VkMemoryGetFdInfoKHR pGetFdInfo_host;
++
++    TRACE("%#x, %#x, %#x\n", params->device, params->pGetFdInfo, params->pFd);
++
++    convert_VkMemoryGetFdInfoKHR_win32_to_host((const VkMemoryGetFdInfoKHR32 *)UlongToPtr(params->pGetFdInfo), &pGetFdInfo_host);
++    params->result = vulkan_device_from_handle((VkDevice)UlongToPtr(params->device))->p_vkGetMemoryFdKHR(vulkan_device_from_handle((VkDevice)UlongToPtr(params->device))->host.device, &pGetFdInfo_host, (int *)UlongToPtr(params->pFd));
++    return STATUS_SUCCESS;
++}
++
++#ifdef _WIN64
++static NTSTATUS thunk64_vkGetMemoryFdPropertiesKHR(void *args)
++{
++    struct vkGetMemoryFdPropertiesKHR_params *params = args;
++
++    TRACE("%p, %#x, %d, %p\n", params->device, params->handleType, params->fd, params->pMemoryFdProperties);
++
++    params->result = vulkan_device_from_handle(params->device)->p_vkGetMemoryFdPropertiesKHR(vulkan_device_from_handle(params->device)->host.device, params->handleType, params->fd, params->pMemoryFdProperties);
++    return STATUS_SUCCESS;
++}
++#endif /* _WIN64 */
++
++static NTSTATUS thunk32_vkGetMemoryFdPropertiesKHR(void *args)
++{
++    struct
++    {
++        PTR32 device;
++        VkExternalMemoryHandleTypeFlagBits handleType;
++        int fd;
++        PTR32 pMemoryFdProperties;
++        VkResult result;
++    } *params = args;
++    VkMemoryFdPropertiesKHR pMemoryFdProperties_host;
++
++    TRACE("%#x, %#x, %d, %#x\n", params->device, params->handleType, params->fd, params->pMemoryFdProperties);
++
++    convert_VkMemoryFdPropertiesKHR_win32_to_host((VkMemoryFdPropertiesKHR32 *)UlongToPtr(params->pMemoryFdProperties), &pMemoryFdProperties_host);
++    params->result = vulkan_device_from_handle((VkDevice)UlongToPtr(params->device))->p_vkGetMemoryFdPropertiesKHR(vulkan_device_from_handle((VkDevice)UlongToPtr(params->device))->host.device, params->handleType, params->fd, &pMemoryFdProperties_host);
++    convert_VkMemoryFdPropertiesKHR_host_to_win32(&pMemoryFdProperties_host, (VkMemoryFdPropertiesKHR32 *)UlongToPtr(params->pMemoryFdProperties));
++    return STATUS_SUCCESS;
++}
++
++#ifdef _WIN64
+ static NTSTATUS thunk64_vkGetMemoryHostPointerPropertiesEXT(void *args)
+ {
+     struct vkGetMemoryHostPointerPropertiesEXT_params *params = args;
+@@ -72655,6 +72807,8 @@
+     thunk64_vkGetImageViewOpaqueCaptureDescriptorDataEXT,
+     thunk64_vkGetLatencyTimingsLegacyNV,
+     thunk64_vkGetLatencyTimingsNV,
++    thunk64_vkGetMemoryFdKHR,
++    thunk64_vkGetMemoryFdPropertiesKHR,
+     thunk64_vkGetMemoryHostPointerPropertiesEXT,
+     thunk64_vkGetMemoryWin32HandleKHR,
+     thunk64_vkGetMemoryWin32HandlePropertiesKHR,
+@@ -73412,6 +73566,8 @@
+     thunk32_vkGetImageViewOpaqueCaptureDescriptorDataEXT,
+     thunk32_vkGetLatencyTimingsLegacyNV,
+     thunk32_vkGetLatencyTimingsNV,
++    thunk32_vkGetMemoryFdKHR,
++    thunk32_vkGetMemoryFdPropertiesKHR,
+     thunk32_vkGetMemoryHostPointerPropertiesEXT,
+     thunk32_vkGetMemoryWin32HandleKHR,
+     thunk32_vkGetMemoryWin32HandlePropertiesKHR,
+--- a/include/wine/vulkan.h
++++ b/include/wine/vulkan.h
+@@ -23555,6 +23555,7 @@
+     USE_VK_EXT(VK_EXT_extended_dynamic_state2) \
+     USE_VK_EXT(VK_EXT_extended_dynamic_state3) \
+     USE_VK_EXT(VK_EXT_external_memory_acquire_unmodified) \
++    USE_VK_EXT(VK_EXT_external_memory_dma_buf) \
+     USE_VK_EXT(VK_EXT_external_memory_host) \
+     USE_VK_EXT(VK_EXT_filter_cubic) \
+     USE_VK_EXT(VK_EXT_fragment_density_map) \
+@@ -23691,6 +23692,7 @@
+     USE_VK_EXT(VK_KHR_external_fence) \
+     USE_VK_EXT(VK_KHR_external_fence_win32) \
+     USE_VK_EXT(VK_KHR_external_memory) \
++    USE_VK_EXT(VK_KHR_external_memory_fd) \
+     USE_VK_EXT(VK_KHR_external_memory_win32) \
+     USE_VK_EXT(VK_KHR_external_semaphore) \
+     USE_VK_EXT(VK_KHR_external_semaphore_win32) \
+@@ -23878,13 +23880,11 @@
+     USE_VK_EXT(VK_VALVE_video_encode_rgb_conversion)
+ 
+ #define ALL_VK_DEVICE_EXTS ALL_VK_CLIENT_DEVICE_EXTS \
+-    USE_VK_EXT(VK_EXT_external_memory_dma_buf) \
+     USE_VK_EXT(VK_EXT_external_memory_metal) \
+     USE_VK_EXT(VK_EXT_image_drm_format_modifier) \
+     USE_VK_EXT(VK_EXT_map_memory_placed) \
+     USE_VK_EXT(VK_EXT_physical_device_drm) \
+     USE_VK_EXT(VK_KHR_external_fence_fd) \
+-    USE_VK_EXT(VK_KHR_external_memory_fd) \
+     USE_VK_EXT(VK_KHR_external_semaphore_fd)
+ 
+ #define ALL_VK_INSTANCE_FUNCS \

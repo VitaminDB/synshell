@@ -7,7 +7,7 @@
 
 pkgname=syn-wine
 pkgver=11.19
-pkgrel=15
+pkgrel=16
 # мост Steam API из Proton (lsteamclient, steam.exe) — фиксированный коммит ValveSoftware/Proton
 _proton=ce53dd45cef6e51fbdb88524581dc1b0b11669fe
 # DXVK: x86_64 — релиз Valve/doitsujin; aarch64 — x64/aarch64/x32 из Hangover, arm64ec — своя сборка
@@ -64,6 +64,7 @@ source=(
   winex11-present-margins.patch
   proton-steamclient.patch
   syn-wine-helper.patch
+  winevulkan-host-fd.patch
   lsteamclient-unix-compat.h
   compatibilitytool.vdf
   toolmanifest.vdf
@@ -78,7 +79,7 @@ source_aarch64=(
 )
 noextract=("proton-${_proton:0:7}.tar.gz" "dxvk-$_dxvk.tar.gz" "hangover_${_hangover}_dlls.tar" "dxvk-$_dxvk_arm64ec-arm64ec.tar.gz")
 sha256sums=('4820066eda68e553d330239ffc628164a348d1c623e49d058e011c5a7cda95f1'
-            SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP)
+            SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP)
 sha256sums_x86_64=(SKIP)
 sha256sums_aarch64=(SKIP SKIP SKIP)
 
@@ -145,6 +146,12 @@ prepare() {
   # system32\<имя>; не нашлась DLL из таблицы импорта (старт exe или LoadLibrary DLL без зависимости) — загрузчик
   # зовёт syn-wine-helper (окно «поставить?», затем запуск заново). Без syn-wine-helper — как раньше.
   patch -Np1 -i "$srcdir/syn-wine-helper.patch"
+  # DLSS 5 (dlss5/, пакет syn-wine-dlss5): помощник NGX под Wine обменивается кадрами с Vulkan-слоем игры через
+  # dma-buf. С WINE_VULKAN_HOST_FD=1 winevulkan показывает VK_KHR_external_memory_fd и VK_EXT_external_memory_dma_buf
+  # (make_vulkan: расширения из «невидимых» в видимые, прокладки сгенерированы для vk.xml 1.4.362), экспорт
+  # host-типов памяти идёт в драйвер как есть (без D3DKMT), процесс объявляет prctl(PR_SET_PTRACER_ANY) — иначе
+  # при Yama ptrace_scope 1 слой не заберёт fd через pidfd_getfd. Без переменной всё как в upstream.
+  patch -Np1 -i "$srcdir/winevulkan-host-fd.patch"
   bsdtar -xf "$srcdir/proton-${_proton:0:7}.tar.gz" --strip-components=1 -C dlls "Proton-$_proton/lsteamclient"
   mkdir -p programs/steam
   bsdtar -xf "$srcdir/proton-${_proton:0:7}.tar.gz" --strip-components=2 -C programs/steam "Proton-$_proton/steam_helper"

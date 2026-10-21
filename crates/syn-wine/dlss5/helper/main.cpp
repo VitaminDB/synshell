@@ -734,7 +734,9 @@ static bool CreateExportable(VkCtx& c, GpuImage& img, int& exportFd, uint32_t w,
     if (img.image && img.width == w && img.height == h && img.format == fmt && exportFd >= 0)
         return true;
     DestroyImage2D(c, img);
-    if (exportFd >= 0) close(exportFd);
+    // The descriptor is a host fd from vkGetMemoryFdKHR, not a CRT one: close() here would close
+    // whatever CRT descriptor has the same number. Windows code has no way to close a host fd, so it
+    // stays open until the process exits (one per resize).
     exportFd = -1;
     if (!vkGetMemoryFdKHR || !w || !h) return false;
 
@@ -2498,21 +2500,50 @@ static void MaintainPasses(NeuralState& ns, ShmMap& shm, uint32_t wanted) {
     }
 }
 
-// The first field of /proc/self/stat is the kernel's pid for this process -- the number /proc is
-// keyed by, which is what the layer needs to open an exported fd. Wine's Z: drive is the host's
-// root, so the file is reachable through the ordinary file API.
-static uint32_t ReadLinuxPid() {
-    HANDLE h = CreateFileA("Z:\\proc\\self\\stat", GENERIC_READ,
-                           FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) return 0;
-    char buf[256];
+// The kernel's pid of this process -- the number the layer hands to pidfd_open to take its own
+// reference on an exported fd. GetCurrentProcessId is the Win32 pid, and /proc/self cannot answer
+// either: Wine opens files in wineserver, so Z:\proc\self is the server. Directory listing runs in
+// this process, so the helper finds itself among /proc entries named after it ("dlssnr_helper.exe"
+// cut to the kernel's 15 characters) whose environment carries this helper's DLSSNR_SHM -- one
+// helper per shared-memory file. Anything ambiguous answers 0 and the shared-memory transport stays.
+static bool ReadHostFile(const std::string& path, std::string& out, size_t limit) {
+    HANDLE h = CreateFileA(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                           nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    out.clear();
+    char buf[4096];
     DWORD got = 0;
-    const bool ok = ReadFile(h, buf, sizeof(buf) - 1, &got, nullptr) && got > 0;
+    while (out.size() < limit && ReadFile(h, buf, sizeof(buf), &got, nullptr) && got > 0) out.append(buf, got);
     CloseHandle(h);
-    if (!ok) return 0;
-    buf[got] = '\0';
-    return (uint32_t)strtoul(buf, nullptr, 10);
+    return !out.empty();
+}
+
+static uint32_t ReadLinuxPid() {
+    const char* shm = getenv("DLSSNR_SHM");
+    if (!shm || !*shm) return 0;
+    const std::string want = std::string("DLSSNR_SHM=") + shm;
+    WIN32_FIND_DATAA fd;
+    HANDLE f = FindFirstFileA("Z:\\proc\\*", &fd);
+    if (f == INVALID_HANDLE_VALUE) return 0;
+    uint32_t found = 0, matches = 0;
+    do {
+        char* end = nullptr;
+        const unsigned long pid = strtoul(fd.cFileName, &end, 10);
+        if (!pid || !end || *end) continue;
+        const std::string dir = std::string("Z:\\proc\\") + fd.cFileName;
+        std::string comm, env;
+        if (!ReadHostFile(dir + "\\comm", comm, 64) || comm.compare(0, 13, "dlssnr_helper") != 0) continue;
+        if (!ReadHostFile(dir + "\\environ", env, 1u << 20)) continue;
+        for (size_t at = 0; at < env.size();) {
+            const size_t nul = env.find('\0', at);
+            const size_t len = (nul == std::string::npos ? env.size() : nul) - at;
+            if (len == want.size() && !env.compare(at, len, want)) { found = (uint32_t)pid; ++matches; break; }
+            if (nul == std::string::npos) break;
+            at = nul + 1;
+        }
+    } while (FindNextFileA(f, &fd));
+    FindClose(f);
+    return matches == 1 ? found : 0;
 }
 
 static bool ProcessFrame(NeuralState& ns, ShmMap& shm) {
@@ -2986,8 +3017,6 @@ int main() {
     vkDeviceWaitIdle(ns.vk.device);
     DestroyImage2D(ns.vk, ns.vk.proxyIn);
     DestroyImage2D(ns.vk, ns.vk.answerOut);
-    if (ns.vk.proxyExportFd >= 0) close(ns.vk.proxyExportFd);
-    if (ns.vk.answerExportFd >= 0) close(ns.vk.answerExportFd);
     DestroyOpticalFlow(ns.vk, ns.flow);
     if (ns.vk.mvPipeLayout && vkDestroyPipelineLayout) vkDestroyPipelineLayout(ns.vk.device, ns.vk.mvPipeLayout, nullptr);
     if (ns.vk.mvDescLayout && vkDestroyDescriptorSetLayout) vkDestroyDescriptorSetLayout(ns.vk.device, ns.vk.mvDescLayout, nullptr);
