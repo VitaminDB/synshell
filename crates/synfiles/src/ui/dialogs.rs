@@ -515,6 +515,98 @@ fn connect(uri0: String, auto: bool) -> W {
     )
 }
 
+/// Пароль архива: проверка — в фоне (распаковка самого маленького
+/// зашифрованного файла), неверный — сказать и спросить снова.
+fn archive_password(root: PathBuf, wrong0: bool) -> W {
+    let pw = use_signal(String::new());
+    let busy = use_signal(false);
+    let wrong = use_signal(wrong0);
+    let fail = use_signal(None::<String>);
+    let r2 = use_signal(root.clone());
+    let go = move || {
+        let p = pw.get_untracked();
+        if p.is_empty() || busy.get_untracked() {
+            return;
+        }
+        busy.set(true);
+        let root = r2.get_untracked();
+        std::thread::spawn(move || {
+            let res = crate::archive::unlock(&root, &p);
+            syngui::async_runtime::run_on_main_thread(move || {
+                if !state::ctx().dialog.with_untracked(|d| matches!(d, Some(Dialog::ArchivePassword { .. }))) {
+                    return;
+                }
+                busy.set(false);
+                match res {
+                    Ok(()) => {
+                        close();
+                        state::archive_unlocked(&root);
+                        state::toast(t!("Пароль принят — файлы архива доступны"));
+                    }
+                    Err(crate::archive::MountError::Password { .. }) => {
+                        fail.set(None);
+                        wrong.set(true);
+                    }
+                    Err(crate::archive::MountError::Failed(e)) => fail.set(Some(e)),
+                }
+            });
+        });
+    };
+    let name = crate::archive::source(&root).map(|s| ops::name_of(&s)).unwrap_or_else(|| ops::name_of(&root));
+    let head = Row::new()
+        .gap(14.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(DecoratedBox::new().class("pw-badge").child(Icon::new(icons::LOCK).class("icon")))
+        .child(
+            Column::new()
+                .gap(3.0)
+                .class("grow")
+                .child(Text::new(name).max_lines(2).class("pw-name"))
+                .child(Text::new(t!("Файлы этого архива зашифрованы. Введите пароль, чтобы открывать и копировать их.")).class("meta")),
+        );
+    let status = Reactive::new(move || -> Vec<W> {
+        if busy.get() {
+            return vec![boxed(Text::new(t!("Проверка пароля…")).class("meta"))];
+        }
+        if let Some(e) = fail.get() {
+            return vec![boxed(Text::new(e).class("rename-bad"))];
+        }
+        if wrong.get() {
+            return vec![boxed(Text::new(t!("Пароль не подошёл — попробуйте ещё раз")).class("rename-bad"))];
+        }
+        vec![]
+    });
+    let body = Column::new()
+        .gap(14.0)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(head)
+        .child(field(
+            &t!("Пароль"),
+            TextField::new()
+                .obscure(true)
+                .autofocus(true)
+                .prefix_icon(icons::KEY)
+                .on_change(move |s: &str| {
+                    pw.set(s.to_string());
+                    if wrong.get_untracked() {
+                        wrong.set(false);
+                    }
+                })
+                .on_submit(move |_| go()),
+        ))
+        .child(status);
+    card(
+        &t!("Архив защищён паролем"),
+        boxed(body),
+        vec![
+            boxed(Button::new(t!("Отмена")).on_click(close)),
+            boxed(Reactive::new(move || -> Vec<W> {
+                vec![boxed(Button::new(t!("Открыть")).class("primary").disabled(busy.get() || pw.get().is_empty()).on_click(go))]
+            })),
+        ],
+    )
+}
+
 /// Слой модальных окон (затемнение + карточка по центру). `Reactive`
 /// отдаёт детям свободные ограничения, поэтому растягивающий слой и
 /// центрирующая колонка — снаружи, а затемнению размер задан по окну.
@@ -540,6 +632,7 @@ pub fn dialogs() -> W {
             Dialog::Properties { paths } if !paths.is_empty() => properties(paths),
             Dialog::BatchRename { paths } if !paths.is_empty() => batch_rename(paths),
             Dialog::Connect { uri, auto } => connect(uri, auto),
+            Dialog::ArchivePassword { root, wrong } => archive_password(root, wrong),
             _ => return vec![],
         };
         vec![boxed(GestureDetector::new().cursor(CursorIcon::Default).child(content))]

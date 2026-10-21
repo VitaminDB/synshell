@@ -5,11 +5,17 @@
 //! (открытый из архива файл остаётся доступен и после закрытия Проводника)
 //! и снимает себя, когда ни один файл и ни одна папка внутри не открыты
 //! [`IDLE`].
+//!
+//! Зашифрованные архивы: пароль приходит строкой в stdin при запуске или
+//! позже через управляющий сокет `<ключ>/ctl` (см. [`super::unlock`]).
+//! Zip с паролем расшифровывает libarchive; 7z и rar с паролем (и 7z с
+//! зашифрованным оглавлением) — программа `7z`.
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufRead, Read, Write};
+use std::os::unix::net::UnixListener;
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -50,6 +56,8 @@ struct Node {
     entry: Option<usize>,
     link: Option<String>,
     encrypted: bool,
+    /// Путь записи в архиве как есть (для распаковки через `7z`).
+    apath: String,
 }
 
 struct Index {
@@ -59,6 +67,12 @@ struct Index {
     /// Номер записи → ino файла.
     by_entry: HashMap<usize, u64>,
     sequential: bool,
+    /// Zip — его шифрование libarchive снимает сам; иначе зашифрованные
+    /// записи распаковывает `7z`.
+    zip: bool,
+    /// Оглавление прочитано через `7z` (оглавление 7z зашифровано): все
+    /// файлы распаковывает он.
+    seven: bool,
 }
 
 impl Index {
@@ -82,6 +96,7 @@ impl Index {
             entry: None,
             link: None,
             encrypted: false,
+            apath: String::new(),
         });
         self.nodes[parent as usize - 1].children.push(ino);
         self.names.insert((parent, name.to_string()), ino);
@@ -99,6 +114,45 @@ impl Index {
             }
         }
         cur
+    }
+
+    fn new(mtime: i64) -> Index {
+        Index {
+            nodes: vec![Node {
+                name: String::new(),
+                parent: 1,
+                kind: Kind::Dir,
+                perm: 0o755,
+                size: 0,
+                mtime,
+                children: Vec::new(),
+                entry: None,
+                link: None,
+                encrypted: false,
+                apath: String::new(),
+            }],
+            names: HashMap::new(),
+            by_entry: HashMap::new(),
+            sequential: false,
+            zip: false,
+            seven: false,
+        }
+    }
+
+    /// Файлов, папок, байт распакованного, зашифрованных файлов.
+    fn stats(&self) -> (usize, usize, u64, usize) {
+        let mut v = (0, 0, 0, 0);
+        for n in &self.nodes[1..] {
+            match n.kind {
+                Kind::Dir => v.1 += 1,
+                Kind::File | Kind::Link => {
+                    v.0 += 1;
+                    v.2 += n.size;
+                    v.3 += n.encrypted as usize;
+                }
+            }
+        }
+        v
     }
 
     fn lookup_path(&self, parts: &[&str]) -> Option<u64> {
@@ -145,6 +199,10 @@ struct Shared {
     next_fh: AtomicU64,
     open: AtomicUsize,
     last: Mutex<Instant>,
+    /// Пароль зашифрованных записей (проверенный).
+    password: Mutex<Option<String>>,
+    /// Зашифрованных файлов в архиве.
+    encrypted: usize,
 }
 
 impl Shared {
@@ -158,14 +216,26 @@ impl Shared {
             return Ok(p.clone());
         }
         let node = self.index.node(ino).ok_or(libc::ENOENT)?;
-        if node.encrypted {
-            return Err(libc::EACCES);
-        }
         let Some(want) = node.entry else {
             // Записи без данных (пустой файл из жёсткой ссылки в никуда).
             return self.store(ino, &mut |_| Ok(0));
         };
         let target = self.index.by_entry.get(&want).copied().unwrap_or(ino);
+        let encrypted = node.encrypted || self.index.node(target).is_some_and(|n| n.encrypted);
+        // Без пароля зашифрованное не прочитать.
+        let password = self.password.lock().unwrap().clone();
+        if encrypted && password.is_none() {
+            return Err(libc::EACCES);
+        }
+        if self.index.seven || (encrypted && !self.index.zip) {
+            let p = self.extract_7z(target, password.as_deref())?;
+            if target != ino {
+                self.ready.lock().unwrap().insert(ino, p.clone());
+            }
+            return Ok(p);
+        }
+        // Ошибка чтения зашифрованного — неверный пароль.
+        let fail = if encrypted { libc::EACCES } else { libc::EIO };
         let mut cur = self.cursor.lock().unwrap();
         // Пока ждали замок, его мог распаковать другой поток.
         if let Some(p) = self.ready.lock().unwrap().get(&ino) {
@@ -173,7 +243,7 @@ impl Shared {
         }
         let reuse = matches!(&*cur, Some(r) if r.index != usize::MAX && r.index < want);
         if !reuse {
-            *cur = Some(Reader::open(&self.archive).map_err(|e| {
+            *cur = Some(Reader::open(&self.archive, password.as_deref()).map_err(|e| {
                 tracing::warn!("{}: {e}", self.archive.display());
                 libc::EIO
             })?);
@@ -194,7 +264,7 @@ impl Shared {
             };
             let idx = r.index;
             if idx == want {
-                let res = self.store(target, &mut |b| r.read(b).map_err(|_| libc::EIO));
+                let res = self.store(target, &mut |b| r.read(b).map_err(|_| fail));
                 if res.is_err() {
                     *cur = None;
                 }
@@ -222,12 +292,25 @@ impl Shared {
     }
 
     fn store(&self, ino: u64, read: &mut dyn FnMut(&mut [u8]) -> Result<usize, i32>) -> Result<PathBuf, i32> {
+        let path = self.write_part(ino, read)?;
+        self.ready.lock().unwrap().insert(ino, path.clone());
+        Ok(path)
+    }
+
+    /// Записать данные в кэш (`ino.part` → `ino`), не отмечая готовым.
+    fn write_part(&self, ino: u64, read: &mut dyn FnMut(&mut [u8]) -> Result<usize, i32>) -> Result<PathBuf, i32> {
         let path = self.cache.join(ino.to_string());
         let part = self.cache.join(format!("{ino}.part"));
         let mut f = File::create(&part).map_err(|e| e.raw_os_error().unwrap_or(libc::EIO))?;
         let mut buf = vec![0u8; 1 << 18];
         loop {
-            let n = read(&mut buf)?;
+            let n = match read(&mut buf) {
+                Ok(n) => n,
+                Err(e) => {
+                    let _ = std::fs::remove_file(&part);
+                    return Err(e);
+                }
+            };
             if n == 0 {
                 break;
             }
@@ -235,33 +318,98 @@ impl Shared {
         }
         drop(f);
         std::fs::rename(&part, &path).map_err(|e| e.raw_os_error().unwrap_or(libc::EIO))?;
-        self.ready.lock().unwrap().insert(ino, path.clone());
         Ok(path)
+    }
+
+    /// Распаковать файл программой `7z` (пароль — в её stdin).
+    fn extract_7z(&self, ino: u64, password: Option<&str>) -> Result<PathBuf, i32> {
+        if let Some(p) = self.ready.lock().unwrap().get(&ino) {
+            return Ok(p.clone());
+        }
+        let node = self.index.node(ino).ok_or(libc::ENOENT)?;
+        let mut child = seven_cmd(&["x", "-so", "-y", "-spd"], &self.archive, Some(&node.apath)).spawn().map_err(|e| {
+            tracing::warn!("7z: {e}");
+            libc::EIO
+        })?;
+        feed_password(&mut child, password);
+        let err = drain_stderr(&mut child);
+        let mut out = child.stdout.take().ok_or(libc::EIO)?;
+        let res = self.write_part(ino, &mut |b| out.read(b).map_err(|_| libc::EIO));
+        drop(out);
+        let ok = child.wait().is_ok_and(|s| s.success());
+        let err = err.join().unwrap_or_default();
+        match res {
+            Ok(p) if ok => {
+                self.ready.lock().unwrap().insert(ino, p.clone());
+                Ok(p)
+            }
+            Ok(p) => {
+                let _ = std::fs::remove_file(p);
+                Err(seven_errno(&err))
+            }
+            Err(_) if !ok => Err(seven_errno(&err)),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Пароль подходит: самый маленький зашифрованный файл распаковывается
+    /// целиком (контрольная сумма сходится).
+    fn verify(&self) -> bool {
+        let Some(ino) = (1..=self.index.nodes.len() as u64).filter(|&i| self.index.node(i).is_some_and(|n| n.encrypted && n.kind == Kind::File && n.entry.is_some())).min_by_key(|&i| self.index.node(i).map_or(0, |n| n.size)) else {
+            return true;
+        };
+        self.ready.lock().unwrap().remove(&ino);
+        self.extract(ino).is_ok()
+    }
+
+    /// Принять пароль, если подходит.
+    fn set_password(&self, pw: &str) -> bool {
+        let old = self.password.lock().unwrap().replace(pw.to_string());
+        *self.cursor.lock().unwrap() = None;
+        if self.verify() {
+            return true;
+        }
+        *self.password.lock().unwrap() = old;
+        *self.cursor.lock().unwrap() = None;
+        false
+    }
+
+    fn info(&self) -> String {
+        let (files, dirs, size, _) = self.index.stats();
+        let locked = self.encrypted > 0 && self.password.lock().unwrap().is_none();
+        format!("encrypted={} locked={} files={files} dirs={dirs} size={size}\n", self.encrypted, locked as u8)
+    }
+}
+
+/// Почему архив не открылся.
+#[derive(Debug)]
+pub enum ScanError {
+    /// Оглавление зашифровано — нужен пароль.
+    NeedPassword,
+    BadPassword,
+    Other(String),
+}
+
+impl From<String> for ScanError {
+    fn from(e: String) -> Self {
+        ScanError::Other(e)
     }
 }
 
 /// Прочитать оглавление. Файлы без размера в заголовке (одиночный .gz)
 /// распаковываются сразу — иначе размер не узнать.
-fn scan(archive: &Path, cache: &Path) -> Result<(Index, HashMap<u64, PathBuf>), String> {
-    let mut r = Reader::open(archive)?;
+fn scan(archive: &Path, cache: &Path, password: Option<&str>) -> Result<(Index, HashMap<u64, PathBuf>), ScanError> {
+    match scan_la(archive, cache, password) {
+        // Зашифрованное оглавление (7z -mhe) libarchive не читает.
+        Err(e) if e.contains("encrypted") || e.contains("assphrase") => scan_7z(archive, password),
+        r => r.map_err(ScanError::Other),
+    }
+}
+
+fn scan_la(archive: &Path, cache: &Path, password: Option<&str>) -> Result<(Index, HashMap<u64, PathBuf>), String> {
+    let mut r = Reader::open(archive, password)?;
     let mtime0 = std::fs::metadata(archive).ok().and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs() as i64);
-    let mut ix = Index {
-        nodes: vec![Node {
-            name: String::new(),
-            parent: 1,
-            kind: Kind::Dir,
-            perm: 0o755,
-            size: 0,
-            mtime: mtime0,
-            children: Vec::new(),
-            entry: None,
-            link: None,
-            encrypted: false,
-        }],
-        names: HashMap::new(),
-        by_entry: HashMap::new(),
-        sequential: false,
-    };
+    let mut ix = Index::new(mtime0);
     let mut ready = HashMap::new();
     let mut hardlinks: Vec<(u64, String)> = Vec::new();
     let mut first = true;
@@ -269,6 +417,7 @@ fn scan(archive: &Path, cache: &Path) -> Result<(Index, HashMap<u64, PathBuf>), 
         if first {
             first = false;
             ix.sequential = !super::seekable_name(archive);
+            ix.zip = r.is_zip();
         }
         let raw = r.is_raw();
         let path = if raw { raw_name(archive) } else { h.path.clone() };
@@ -294,6 +443,7 @@ fn scan(archive: &Path, cache: &Path) -> Result<(Index, HashMap<u64, PathBuf>), 
             n.perm = h.perm;
             n.mtime = h.mtime;
             n.encrypted = h.encrypted;
+            n.apath = h.path.clone();
             match kind {
                 Kind::Link => {
                     let t = h.symlink.clone().unwrap_or_default();
@@ -344,6 +494,112 @@ fn scan(archive: &Path, cache: &Path) -> Result<(Index, HashMap<u64, PathBuf>), 
         }
     }
     Ok((ix, ready))
+}
+
+/// Оглавление через `7z l -slt` (зашифрованное оглавление 7z).
+fn scan_7z(archive: &Path, password: Option<&str>) -> Result<(Index, HashMap<u64, PathBuf>), ScanError> {
+    let Some(pw) = password else { return Err(ScanError::NeedPassword) };
+    let mut child = seven_cmd(&["l", "-slt"], archive, None)
+        .spawn()
+        .map_err(|_| ScanError::Other(syngui::t!("Оглавление архива зашифровано — для него нужен 7-Zip (пакет 7zip)").into()))?;
+    feed_password(&mut child, Some(pw));
+    let err = drain_stderr(&mut child);
+    let mut text = String::new();
+    if let Some(mut o) = child.stdout.take() {
+        let _ = o.read_to_string(&mut text);
+    }
+    let ok = child.wait().is_ok_and(|s| s.success());
+    let err = err.join().unwrap_or_default();
+    if !ok {
+        return Err(if seven_errno(&err) == libc::EACCES { ScanError::BadPassword } else { ScanError::Other(err.trim().to_string()) });
+    }
+    let mtime0 = std::fs::metadata(archive).ok().and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs() as i64);
+    let mut ix = Index::new(mtime0);
+    ix.seven = true;
+    // Записи — после строки «----------», через пустую строку.
+    let body = text.split_once("\n----------\n").map_or("", |(_, b)| b);
+    for (idx, block) in body.split("\n\n").enumerate() {
+        let get = |k: &str| block.lines().find_map(|l| l.strip_prefix(k).and_then(|v| v.strip_prefix(" = ")));
+        let Some(path) = get("Path") else { continue };
+        let parts = split(path);
+        let Some((name, dirs)) = parts.split_last() else { continue };
+        let mtime = get("Modified").and_then(parse_7z_time).unwrap_or(mtime0);
+        let is_dir = get("Folder") == Some("+") || get("Attributes").is_some_and(|a| a.starts_with('D'));
+        if is_dir {
+            ix.dirs(&parts, mtime);
+            continue;
+        }
+        let parent = ix.dirs(dirs, mtime);
+        let ino = ix.child(parent, name, Kind::File, mtime);
+        let n = &mut ix.nodes[ino as usize - 1];
+        if n.kind == Kind::Dir {
+            continue;
+        }
+        n.size = get("Size").and_then(|v| v.trim().parse().ok()).unwrap_or(0);
+        n.encrypted = get("Encrypted") == Some("+");
+        n.entry = Some(idx);
+        n.apath = path.to_string();
+        ix.by_entry.insert(idx, ino);
+    }
+    Ok((ix, HashMap::new()))
+}
+
+/// «2026-10-21 15:05:38.4106500» (местное время) → секунды Unix.
+fn parse_7z_time(s: &str) -> Option<i64> {
+    let (d, t) = s.trim().split_once(' ')?;
+    let mut d = d.split('-').map(|x| x.parse::<i32>().ok());
+    let mut t = t.split(['.', ':']).map(|x| x.parse::<i32>().ok());
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    tm.tm_year = d.next()?? - 1900;
+    tm.tm_mon = d.next()?? - 1;
+    tm.tm_mday = d.next()??;
+    tm.tm_hour = t.next()??;
+    tm.tm_min = t.next()??;
+    tm.tm_sec = t.next()??;
+    tm.tm_isdst = -1;
+    let v = unsafe { libc::mktime(&mut tm) };
+    (v >= 0).then_some(v as i64)
+}
+
+/// `7z` с общими ключами: без индикатора, имена в UTF-8, пароль из stdin.
+fn seven_cmd(args: &[&str], archive: &Path, entry: Option<&str>) -> std::process::Command {
+    let mut c = std::process::Command::new("7z");
+    c.args(args).arg("-bd").arg("-sccUTF-8").arg("--").arg(archive);
+    if let Some(e) = entry {
+        c.arg(e);
+    }
+    c.env("LC_ALL", "C.UTF-8")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    c
+}
+
+fn feed_password(child: &mut std::process::Child, password: Option<&str>) {
+    if let Some(mut i) = child.stdin.take() {
+        let _ = writeln!(i, "{}", password.unwrap_or(""));
+    }
+}
+
+/// Читать stderr в отдельном потоке (не упереться в полный канал).
+fn drain_stderr(child: &mut std::process::Child) -> std::thread::JoinHandle<String> {
+    let e = child.stderr.take();
+    std::thread::spawn(move || {
+        let mut s = String::new();
+        if let Some(mut e) = e {
+            let _ = e.read_to_string(&mut s);
+        }
+        s
+    })
+}
+
+fn seven_errno(err: &str) -> i32 {
+    if err.contains("password") || err.contains("encrypted") {
+        libc::EACCES
+    } else {
+        tracing::warn!("7z: {}", err.trim());
+        libc::EIO
+    }
 }
 
 struct ArchiveFs {
@@ -521,19 +777,19 @@ struct Mounted {
     _keep: File,
 }
 
-fn prepare(archive: &Path, mp: &Path) -> Result<Mounted, String> {
+fn prepare(archive: &Path, mp: &Path, password: Option<&str>) -> Result<Mounted, ScanError> {
     let keep = File::open(archive).map_err(|e| format!("{}: {e}", archive.display()))?;
     let cache = super::cache_dir(archive);
     let _ = std::fs::remove_dir_all(&cache);
     std::fs::create_dir_all(&cache).map_err(|e| format!("{}: {e}", cache.display()))?;
-    let (index, ready) = match scan(archive, &cache) {
+    let (index, ready) = match scan(archive, &cache, password) {
         Ok(v) => v,
         Err(e) => {
             let _ = std::fs::remove_dir_all(&cache);
             return Err(e);
         }
     };
-    std::fs::create_dir_all(mp).map_err(|e| format!("{}: {e}", mp.display()))?;
+    let encrypted = index.stats().3;
     let size = keep.metadata().map(|m| m.len()).unwrap_or(0);
     let s = Arc::new(Shared {
         archive: archive.to_path_buf(),
@@ -546,7 +802,15 @@ fn prepare(archive: &Path, mp: &Path) -> Result<Mounted, String> {
         next_fh: AtomicU64::new(1),
         open: AtomicUsize::new(0),
         last: Mutex::new(Instant::now()),
+        password: Mutex::new(password.map(str::to_string)),
+        encrypted,
     });
+    // Пароль дан при запуске — проверить сразу (не монтировать с неверным).
+    if password.is_some() && encrypted > 0 && !s.index.seven && !s.verify() {
+        let _ = std::fs::remove_dir_all(&cache);
+        return Err(ScanError::BadPassword);
+    }
+    std::fs::create_dir_all(mp).map_err(|e| format!("{}: {e}", mp.display()))?;
     let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
     let fs = ArchiveFs { s: s.clone(), uid, gid, blocks: size.div_ceil(512) };
     let name = archive.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
@@ -562,26 +826,50 @@ fn prepare(archive: &Path, mp: &Path) -> Result<Mounted, String> {
         Ok(session) => Ok(Mounted { session, shared: s, cache, _keep: keep }),
         Err(e) => {
             let _ = std::fs::remove_dir_all(&cache);
-            Err(format!("fusermount3: {e}"))
+            Err(ScanError::Other(format!("fusermount3: {e}")))
         }
     }
 }
 
-/// Точка входа помощника. Печатает `ready` в stdout, когда смонтировано
-/// (или ошибку в stderr и код 1), и дальше живёт сам по себе.
+/// Точка входа помощника. Пароль (если есть) — первой строкой stdin.
+/// Печатает в stdout `ready`, когда смонтировано, `password` — нужен
+/// пароль, `badpassword` — пароль не подошёл (или ошибку в stderr и код 1),
+/// и дальше живёт сам по себе.
 pub fn run(archive: &Path, mp: &Path) -> i32 {
     if super::is_mounted(mp) {
         println!("ready");
         return 0;
     }
+    let mut password = None;
+    if unsafe { libc::isatty(0) } == 0 {
+        let mut line = String::new();
+        if std::io::stdin().lock().read_line(&mut line).is_ok() {
+            let pw = line.strip_suffix('\n').unwrap_or(&line);
+            if !pw.is_empty() {
+                password = Some(pw.to_string());
+            }
+        }
+    }
     sweep_cache();
-    let Mounted { mut session, shared: s, cache, _keep } = match prepare(archive, mp) {
+    let Mounted { mut session, shared: s, cache, _keep } = match prepare(archive, mp, password.as_deref()) {
         Ok(m) => m,
-        Err(e) => {
+        Err(ScanError::NeedPassword) => {
+            println!("password");
+            return 3;
+        }
+        Err(ScanError::BadPassword) => {
+            println!("badpassword");
+            return 3;
+        }
+        Err(ScanError::Other(e)) => {
             eprintln!("{e}");
             return 1;
         }
     };
+    let ctl = mp.parent().map(|k| k.join("ctl"));
+    if let Some(ctl) = &ctl {
+        serve_ctl(ctl, s.clone());
+    }
     println!("ready");
     detach_stdio();
     let mp2 = mp.to_path_buf();
@@ -612,9 +900,45 @@ pub fn run(archive: &Path, mp: &Path) -> i32 {
     let _ = std::fs::remove_dir(mp);
     if let Some(key) = mp.parent() {
         let _ = std::fs::remove_file(key.join("source"));
+        let _ = std::fs::remove_file(key.join("ctl"));
         let _ = std::fs::remove_dir(key);
     }
     0
+}
+
+/// Управляющий сокет: `info` — сведения об архиве ([`Shared::info`]),
+/// `password <пароль>` — проверить и принять пароль (`ok` / `bad`).
+fn serve_ctl(path: &Path, s: Arc<Shared>) {
+    let _ = std::fs::remove_file(path);
+    // Относительно папки ключа: длина пути сокета ограничена 108 байтами.
+    let bound = match (path.parent(), path.file_name()) {
+        (Some(d), Some(n)) if std::env::set_current_dir(d).is_ok() => UnixListener::bind(n),
+        _ => UnixListener::bind(path),
+    };
+    let Ok(l) = bound else { return };
+    std::thread::spawn(move || {
+        for conn in l.incoming().flatten() {
+            let s = s.clone();
+            std::thread::spawn(move || {
+                let mut r = std::io::BufReader::new(&conn);
+                let mut line = String::new();
+                if r.read_line(&mut line).is_err() {
+                    return;
+                }
+                s.touch();
+                let line = line.strip_suffix('\n').unwrap_or(&line);
+                let reply = if line == "info" {
+                    s.info()
+                } else if let Some(pw) = line.strip_prefix("password ") {
+                    if s.set_password(pw) { "ok\n".into() } else { "bad\n".into() }
+                } else {
+                    "?\n".into()
+                };
+                let _ = (&conn).write_all(reply.as_bytes());
+                s.touch();
+            });
+        }
+    });
 }
 
 /// Убрать кэш помощников, которых убили (выход из сеанса): ключи без
@@ -684,7 +1008,7 @@ mod tests {
                 assert!(st.success());
             }
             let mp = d.path().join(format!("mnt-{name}"));
-            let m = prepare(&arc, &mp).unwrap();
+            let m = prepare(&arc, &mp, None).unwrap();
             let bg = m.session.spawn().unwrap();
             if name.ends_with(".zst") {
                 assert_eq!(std::fs::read_to_string(mp.join("один.txt")).unwrap(), "сжатый");
@@ -698,4 +1022,29 @@ mod tests {
             let _ = std::fs::remove_dir_all(&m.cache);
         }
     }
+
+    #[test]
+    fn encrypted_zip() {
+        if !Path::new("/dev/fuse").exists() || std::process::Command::new("zip").arg("-v").output().is_err() {
+            return;
+        }
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("a.txt"), "секрет").unwrap();
+        let arc = d.path().join("e.zip");
+        let st = std::process::Command::new("zip").current_dir(d.path()).args(["-q", "-P", "pw"]).arg(&arc).arg("a.txt").status().unwrap();
+        assert!(st.success());
+        assert!(matches!(prepare(&arc, &d.path().join("m0"), Some("wrong")), Err(ScanError::BadPassword)));
+        let mp = d.path().join("m");
+        let m = prepare(&arc, &mp, None).unwrap();
+        let s = m.shared.clone();
+        let bg = m.session.spawn().unwrap();
+        assert!(s.info().contains("locked=1"));
+        assert_eq!(std::fs::read(mp.join("a.txt")).unwrap_err().kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(!s.set_password("nope"));
+        assert!(s.set_password("pw"));
+        assert_eq!(std::fs::read_to_string(mp.join("a.txt")).unwrap(), "секрет");
+        drop(bg);
+        let _ = std::fs::remove_dir_all(&m.cache);
+    }
+
 }

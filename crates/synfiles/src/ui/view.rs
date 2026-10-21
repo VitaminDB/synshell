@@ -354,6 +354,99 @@ fn header_view(p: Pane, fit: RwSignal<items::ColumnsFit>) -> W {
     }))
 }
 
+/// Полоса архива над файлами: видно, что панель внутри архива, а не на
+/// диске, — что за архив, сколько в нём, зашифрован ли; извлечь, закрыть.
+fn archive_bar(p: Pane) -> W {
+    boxed(Reactive::new(move || -> Vec<W> {
+        let Some(info) = p.archive.get() else { return vec![] };
+        let phone = state::is_phone();
+        let name = crate::ops::name_of(&info.source);
+        let mut meta = Vec::new();
+        if info.files + info.dirs > 0 {
+            meta.push(syngui::tn!(info.files, "{n} файл", "{n} файла", "{n} файлов"));
+            if info.dirs > 0 {
+                meta.push(syngui::tn!(info.dirs, "{n} папка", "{n} папки", "{n} папок"));
+            }
+            if !phone {
+                meta.push(format!("{} → {}", crate::model::format_size(info.packed), crate::model::format_size(info.size)));
+            }
+        } else if info.packed > 0 {
+            meta.push(crate::model::format_size(info.packed));
+        }
+        if !phone {
+            meta.push(t!("только чтение").into());
+        }
+        let title = Row::new()
+            .gap(8.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(Text::new(name).max_lines(1).class("abar-name"))
+            .child(DecoratedBox::new().class("abar-format").child(Text::new(info.format()).class("abar-format-text")));
+        let title = if info.encrypted {
+            let (glyph, text, cls) = if info.locked { (icons::LOCK, t!("Защищён паролем"), "abar-lock locked") } else { (icons::LOCK_OPEN, t!("Пароль введён"), "abar-lock") };
+            title.child(
+                DecoratedBox::new().class(cls).child(
+                    Row::new()
+                        .gap(4.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(Icon::new(glyph).class("icon"))
+                        .child(Text::new(text).class("abar-lock-text")),
+                ),
+            )
+        } else {
+            title
+        };
+        let text = Column::new()
+            .gap(2.0)
+            .class("grow")
+            .child(title)
+            .child(Text::new(meta.join(" · ")).max_lines(1).class("abar-meta"));
+        let mut row = Row::new()
+            .gap(12.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(DecoratedBox::new().class("abar-tile").child(Icon::new(icons::ARCHIVE).class("icon")))
+            .child(text);
+        let root = info.root.clone();
+        if info.locked {
+            let r = root.clone();
+            row = row.child(super::text_button(icons::KEY, &t!("Ввести пароль"), "abar-btn abar-primary", move || {
+                state::ctx().dialog.set(Some(state::Dialog::ArchivePassword { root: r.clone(), wrong: false }))
+            }));
+        } else if crate::actions::can_extract_archive(&info) {
+            let i2 = info.clone();
+            let label = if phone { String::new() } else { t!("Извлечь") };
+            let mut b = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(icons::UNARCHIVE).class("icon"));
+            if !label.is_empty() {
+                b = b.child(Text::new(label).class("cmd-label"));
+            }
+            row = row.child(boxed(
+                GestureDetector::new()
+                    .on_click_with_bounds(move |_, r| {
+                        let i3 = i2.clone();
+                        let stem = crate::ops::archive_stem(&i3.source);
+                        let items = vec![
+                            MenuItem::new("x-sub", t!("Извлечь всё в «{v}»", v = stem)).icon(icons::UNARCHIVE),
+                            MenuItem::new("x-here", t!("Извлечь всё рядом с архивом")).icon(icons::UNARCHIVE),
+                        ];
+                        state::show_menu(items, Point::new(r.origin.x, r.origin.y + r.size.height + 4.0), move |id| match id {
+                            "x-sub" => crate::actions::extract_archive(&i3, true),
+                            "x-here" => crate::actions::extract_archive(&i3, false),
+                            _ => {}
+                        });
+                    })
+                    .child(DecoratedBox::new().class("cmd-btn abar-btn").child(b.child(Icon::new(icons::EXPAND).class("icon chevron")))),
+            ));
+        }
+        let src = info.source.clone();
+        row = row.child(super::icon_button(icons::CLOSE, &t!("Закрыть архив"), "abar-close", true, move || {
+            if let Some(parent) = src.parent() {
+                state::navigate(p, Location::Dir(parent.to_path_buf()), true);
+                state::select_later(p, src.clone());
+            }
+        }));
+        vec![bx(if info.locked { "archive-bar locked" } else { "archive-bar" }, row)]
+    }))
+}
+
 /// Панель целиком: заголовок таблицы (в виде «Таблица») и элементы.
 pub fn pane_view(tab: Tab, idx: usize) -> W {
     let p = tab.panes[idx];
@@ -364,6 +457,7 @@ pub fn pane_view(tab: Tab, idx: usize) -> W {
             DecoratedBox::new().class(cls).child(
                 Column::new()
                     .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                    .child(archive_bar(p))
                     .child(header_view(p, fit))
                     .child(Stack::new().fit(StackFit::Expand).child(backdrop(p)).child(items_view(tab, idx, fit)).class("grow")),
             ),

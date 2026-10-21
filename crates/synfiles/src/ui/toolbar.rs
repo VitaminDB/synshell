@@ -202,6 +202,7 @@ fn address() -> W {
             row = row.child(Icon::new(icons::CHEVRON).class("icon crumb-sep"));
             let last = i + 1 == n;
             let target2 = target.clone();
+            let target3 = target.clone();
             row = row.child(
                 GestureDetector::new()
                     .on_click(move || {
@@ -210,18 +211,15 @@ fn address() -> W {
                         }
                     })
                     .on_secondary_click(move |at| crumb_menu(target2.clone(), at))
-                    .child(
-                        DecoratedBox::new()
-                            .class(if last { "crumb last" } else { "crumb" })
-                            .child(Text::new(title).max_lines(1).class("crumb-text")),
-                    ),
+                    .child(super::crumb_box("crumb", last, title, &target3)),
             );
         }
         let here = loc.clone();
+        let in_archive = loc.dir().and_then(crate::archive::root_of).is_some();
         let bar = GestureDetector::new()
             .on_click(move || state::ctx().address_edit.set(true))
             .on_secondary_click(move |at| crumb_menu(here.clone(), at))
-            .child(DecoratedBox::new().class("address").clip(true).child(Row::new().child(row).child(DecoratedBox::new().class("grow"))));
+            .child(DecoratedBox::new().class(if in_archive { "address in-archive" } else { "address" }).clip(true).child(Row::new().child(row).child(DecoratedBox::new().class("grow"))));
         vec![boxed(bar)]
     }))
 }

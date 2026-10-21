@@ -239,6 +239,7 @@ fn path_bar() -> W {
             row = row.child(Text::new("…").class("crumb-more"));
         }
         for (i, (title, target)) in crumbs.into_iter().enumerate().skip(skip) {
+            let target3 = target.clone();
             if i > skip || skip > 0 {
                 row = row.child(Icon::new(icons::CHEVRON).class("icon crumb-sep"));
             }
@@ -250,7 +251,7 @@ fn path_bar() -> W {
                             state::navigate(p, target.clone(), true);
                         }
                     })
-                    .child(DecoratedBox::new().class(if last { "pcrumb last" } else { "pcrumb" }).child(Text::new(title).max_lines(1).class("crumb-text"))),
+                    .child(super::crumb_box("pcrumb", last, title, &target3)),
             );
         }
         let right = if loading { "…".to_string() } else { model::format_count(count as u32) };

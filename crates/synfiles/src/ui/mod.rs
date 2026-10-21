@@ -55,6 +55,37 @@ pub fn text_button(glyph: &str, label: &str, class: &str, on: impl FnMut() + Sen
     )
 }
 
+/// Содержимое крошки: сегмент архива — со значком архива и своим цветом,
+/// сегменты внутри архива — подкрашены. `base` — «crumb» или «pcrumb».
+pub fn crumb_box(base: &str, last: bool, title: String, target: &crate::loc::Location) -> W {
+    let dir = target.dir();
+    let root = dir.and_then(crate::archive::root_of);
+    let is_root = root.is_some() && root.as_deref() == dir;
+    let mut cls = base.to_string();
+    if last {
+        cls.push_str(" last");
+    }
+    if is_root {
+        cls.push_str(" archive-crumb");
+    } else if root.is_some() {
+        cls.push_str(" in-archive");
+    }
+    let text = Text::new(title).max_lines(1).class("crumb-text");
+    if is_root {
+        boxed(
+            DecoratedBox::new().class(cls).child(
+                Row::new()
+                    .gap(5.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(Icon::new(icons::ARCHIVE).class("icon crumb-archive-icon"))
+                    .child(text),
+            ),
+        )
+    } else {
+        boxed(DecoratedBox::new().class(cls).child(text))
+    }
+}
+
 /// Глифы Material Icons (набор на все этапы — часть пока не используется).
 #[allow(dead_code)]
 pub mod icons {
@@ -83,6 +114,9 @@ pub mod icons {
     pub const FIND_IN_PAGE: &str = "\u{e880}";
     pub const ARCHIVE: &str = "\u{e149}";
     pub const UNARCHIVE: &str = "\u{e169}";
+    pub const LOCK: &str = "\u{e897}";
+    pub const LOCK_OPEN: &str = "\u{e898}";
+    pub const KEY: &str = "\u{e0da}";
     pub const SORT: &str = "\u{e164}";
     pub const VIEW_DETAILS: &str = "\u{e8ee}";
     pub const VIEW_LIST: &str = "\u{e896}";

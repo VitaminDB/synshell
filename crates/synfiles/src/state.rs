@@ -63,6 +63,8 @@ pub struct Pane {
     pub renaming: RwSignal<Option<PathBuf>>,
     /// Быстрый фильтр по имени в текущей папке.
     pub filter: RwSignal<String>,
+    /// Панель внутри архива — сведения о нём (полоса архива над файлами).
+    pub archive: RwSignal<Option<crate::archive::Info>>,
 }
 
 #[derive(Clone, Copy)]
@@ -113,6 +115,8 @@ pub enum Dialog {
     BatchRename { paths: Vec<PathBuf> },
     /// Подключение к серверу; `auto` — сразу подключаться (адрес введён в строке пути).
     Connect { uri: String, auto: bool },
+    /// Пароль архива с корнем монтирования `root`; `wrong` — прошлый не подошёл.
+    ArchivePassword { root: PathBuf, wrong: bool },
 }
 
 #[derive(Clone, Copy)]
@@ -279,6 +283,7 @@ fn new_pane(cfg: &Config) -> Pane {
         scroll_to: use_signal(None),
         renaming: use_signal(None),
         filter: use_signal(String::new()),
+        archive: use_signal(None),
     }
 }
 
@@ -489,13 +494,22 @@ pub fn load(p: Pane, keep: Option<Vec<PathBuf>>) {
     }
     std::thread::spawn(move || {
         let current = |t: u64| LOAD_TOKENS.lock().unwrap().iter().any(|(id, tok)| *id == pid && *tok == t);
+        let mut archive = None;
         let result: std::result::Result<Vec<Entry>, String> = match &loc {
             Location::Dir(d) => match crate::archive::ensure(d) {
                 Ok(()) => {
                     crate::archive::hold(pid, Some(d));
+                    archive = crate::archive::info(d);
                     model::read_dir(d).map_err(|e| io_message(&e, &crate::archive::display(d)))
                 }
-                Err(e) => Err(e),
+                Err(e) => {
+                    // Оглавление зашифровано — полоса архива с кнопкой пароля.
+                    if let (crate::archive::MountError::Password { .. }, Some(root)) = (&e, crate::archive::root_of(d)) {
+                        let source = crate::archive::source(&root).unwrap_or_default();
+                        archive = Some(crate::archive::Info { source, root, encrypted: true, locked: true, ..Default::default() });
+                    }
+                    Err(e.to_string())
+                }
             },
             Location::Trash => {
                 crate::archive::hold(pid, None);
@@ -503,6 +517,8 @@ pub fn load(p: Pane, keep: Option<Vec<PathBuf>>) {
             }
             Location::Search { root, query, content } => {
                 crate::archive::hold(pid, Some(root));
+                let info = crate::archive::info(root);
+                run_on_main_thread(move || set_archive(pid, info));
                 // Результаты приходят порциями — показываем по мере нахождения.
                 let mut batch = Vec::new();
                 let mut last = std::time::Instant::now();
@@ -529,8 +545,58 @@ pub fn load(p: Pane, keep: Option<Vec<PathBuf>>) {
         if !current(token) {
             return;
         }
-        run_on_main_thread(move || apply(pid, token, result, keep));
+        run_on_main_thread(move || {
+            if token_ok(pid, token) {
+                set_archive(pid, archive);
+            }
+            apply(pid, token, result, keep)
+        });
     });
+}
+
+thread_local! {
+    /// Корни архивов, у которых уже спрашивали пароль (не спрашивать снова
+    /// при каждом переходе по папкам, если отказались).
+    static ASKED: RefCell<std::collections::HashSet<PathBuf>> = RefCell::new(Default::default());
+}
+
+/// Сведения об архиве панели; зашифрованный без пароля — спросить пароль
+/// (один раз за вход в архив).
+fn set_archive(pid: u64, info: Option<crate::archive::Info>) {
+    let Some(p) = pane_by_id(pid) else { return };
+    match &info {
+        Some(i) if i.locked => {
+            let first = ASKED.with(|a| a.borrow_mut().insert(i.root.clone()));
+            if first && ctx().dialog.with_untracked(|d| d.is_none()) {
+                ctx().dialog.set(Some(Dialog::ArchivePassword { root: i.root.clone(), wrong: false }));
+            }
+        }
+        Some(_) => {}
+        // Вышли из архива — при следующем входе спросить снова.
+        None => {
+            if let Some(old) = p.archive.get_untracked() {
+                ASKED.with(|a| a.borrow_mut().remove(&old.root));
+            }
+        }
+    }
+    if p.archive.get_untracked() != info {
+        p.archive.set(info);
+    }
+}
+
+/// Пароль архива принят — перечитать все панели внутри него.
+pub fn archive_unlocked(root: &Path) {
+    let Some(ctx) = try_ctx() else { return };
+    for p in ctx.tabs.get_untracked().iter().flat_map(|t| t.panes) {
+        let inside = p.loc.with_untracked(|l| match l {
+            Location::Dir(d) | Location::Search { root: d, .. } => d.starts_with(root),
+            Location::Trash => false,
+        });
+        if inside {
+            load(p, None);
+        }
+    }
+    ctx.thumbs_rev.update(|v| *v += 1);
 }
 
 fn io_message(e: &std::io::Error, p: &Path) -> String {
@@ -800,6 +866,18 @@ pub fn theme_mss(c: &Config) -> String {
         if dark { "#00000080" } else { "#1a203024" },
         p.border.fade(0.7).hex(),
         c.decorations.corner_radius.max(0.0),
+    ));
+    // Свой тёплый цвет «внутри архива» (полоса, крошка, рамка адреса) —
+    // не путается ни с акцентом темы, ни с выделением.
+    let (arc, deep) = if dark { (Rgba(0xf2, 0xb0, 0x4c), Rgba(0xd9, 0x7a, 0x26)) } else { (Rgba(0xc2, 0x7a, 0x12), Rgba(0xa0, 0x55, 0x0a)) };
+    s.push_str(&format!(
+        ":root {{\n  --archive: {};\n  --archive-deep: {};\n  --archive-soft: {};\n  --archive-faint: {};\n  --archive-line: {};\n  --archive-glow: {};\n}}\n",
+        arc.hex(),
+        deep.hex(),
+        arc.with_alpha(if dark { 0.17 } else { 0.15 }).hex(),
+        arc.with_alpha(0.04).hex(),
+        arc.with_alpha(if dark { 0.32 } else { 0.38 }).hex(),
+        deep.with_alpha(0.40).hex(),
     ));
     s.push_str(&a.theme_mss_variables());
     s.push_str(STYLES);

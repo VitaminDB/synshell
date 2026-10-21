@@ -66,7 +66,8 @@ impl Location {
         match self {
             Location::Trash => crate::ui::icons::TRASH,
             Location::Search { .. } => crate::ui::icons::SEARCH,
-            Location::Dir(p) if crate::archive::root_of(p).as_deref() == Some(p.as_path()) => crate::ui::icons::ARCHIVE,
+            // Везде внутри архива — значок архива (вкладка, адрес).
+            Location::Dir(p) if crate::archive::root_of(p).is_some() => crate::ui::icons::ARCHIVE,
             Location::Dir(p) => crate::places::known(p).map(|(i, _)| i).unwrap_or(crate::ui::icons::FOLDER),
         }
     }

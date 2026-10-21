@@ -15,6 +15,7 @@ unsafe extern "C" {
     fn archive_read_support_format_all(a: *mut c_void) -> c_int;
     fn archive_read_support_format_raw(a: *mut c_void) -> c_int;
     fn archive_read_set_options(a: *mut c_void, opts: *const c_char) -> c_int;
+    fn archive_read_add_passphrase(a: *mut c_void, pass: *const c_char) -> c_int;
     fn archive_read_open_filename(a: *mut c_void, name: *const c_char, block: usize) -> c_int;
     fn archive_read_next_header(a: *mut c_void, entry: *mut *mut c_void) -> c_int;
     fn archive_read_data(a: *mut c_void, buf: *mut c_void, len: usize) -> la_ssize_t;
@@ -38,6 +39,9 @@ const EOF: c_int = 1;
 const WARN: c_int = -20;
 /// `ARCHIVE_FORMAT_RAW` — не архив, а один сжатый файл.
 const FORMAT_RAW: c_int = 0x90000;
+/// `ARCHIVE_FORMAT_ZIP` (старшие биты кода формата).
+const FORMAT_ZIP: c_int = 0x50000;
+const FORMAT_BASE_MASK: c_int = 0xff0000;
 
 pub const IFMT: u32 = 0o170000;
 pub const IFDIR: u32 = 0o040000;
@@ -75,7 +79,9 @@ impl Drop for Reader {
 }
 
 impl Reader {
-    pub fn open(path: &Path) -> Result<Reader, String> {
+    /// `password` — пароль зашифрованных записей (zip; 7z и rar с паролем
+    /// libarchive не читает — их распаковывает `7z`, см. `fs`).
+    pub fn open(path: &Path, password: Option<&str>) -> Result<Reader, String> {
         // В локали «C» libarchive не перекодирует имена (zip с флагом UTF-8
         // давал пустые русские имена) — читать в UTF-8.
         static LOCALE: std::sync::Once = std::sync::Once::new();
@@ -99,6 +105,9 @@ impl Reader {
             if cyrillic_locale() {
                 archive_read_set_options(a, c"zip:hdrcharset=CP866".as_ptr());
             }
+            if let Some(pw) = password.and_then(|p| CString::new(p).ok()) {
+                archive_read_add_passphrase(a, pw.as_ptr());
+            }
             let r = Reader { a, entry: std::ptr::null_mut(), index: usize::MAX };
             if archive_read_open_filename(a, c.as_ptr(), 1 << 16) != OK {
                 return Err(r.error());
@@ -121,6 +130,11 @@ impl Reader {
     /// Один сжатый файл, а не архив (известно после первого заголовка).
     pub fn is_raw(&self) -> bool {
         unsafe { archive_format(self.a) == FORMAT_RAW }
+    }
+
+    /// Zip: его шифрование libarchive расшифровывает сам.
+    pub fn is_zip(&self) -> bool {
+        unsafe { archive_format(self.a) & FORMAT_BASE_MASK == FORMAT_ZIP }
     }
 
     /// Следующий заголовок; `None` — конец архива.

@@ -854,6 +854,35 @@ pub fn context_menu(p: Pane, on_item: bool) -> Vec<MenuItem> {
     v
 }
 
+/// Извлечь весь архив можно: он лежит не внутри другого архива.
+pub fn can_extract_archive(info: &crate::archive::Info) -> bool {
+    info.source.parent().is_some_and(|d| crate::archive::root_of(d).is_none())
+}
+
+/// Извлечь весь архив рядом с ним (`subfolder` — в папку по его имени).
+/// Зашифрованный — копированием из смонтированного (пароль уже у помощника),
+/// иначе — bsdtar.
+pub fn extract_archive(info: &crate::archive::Info, subfolder: bool) {
+    let Some(parent) = info.source.parent().map(Path::to_path_buf) else { return };
+    if info.locked {
+        state::ctx().dialog.set(Some(state::Dialog::ArchivePassword { root: info.root.clone(), wrong: false }));
+        return;
+    }
+    if !info.encrypted {
+        ops::start(ops::Op::Extract { archives: vec![info.source.clone()], dest: parent, subfolder });
+        return;
+    }
+    let dest = if subfolder { ops::free_name(&parent.join(ops::archive_stem(&info.source))) } else { parent };
+    if let Err(e) = std::fs::create_dir_all(&dest) {
+        state::toast_error(format!("{}: {e}", dest.display()));
+        return;
+    }
+    let srcs: Vec<PathBuf> = std::fs::read_dir(&info.root).map(|d| d.flatten().map(|e| e.path()).collect()).unwrap_or_default();
+    if !srcs.is_empty() {
+        ops::start(ops::Op::Copy { srcs, dest });
+    }
+}
+
 /// Имя архива для одного файла: без расширения (`отчёт.pdf` → `отчёт`).
 fn zip_stem(e: &Entry) -> String {
     crate::rename::split_ext(&e.name, e.is_dir).0.to_string()

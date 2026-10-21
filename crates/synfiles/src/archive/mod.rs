@@ -10,7 +10,7 @@ pub mod fs;
 mod la;
 
 use std::collections::HashMap;
-use std::io::{BufRead, Read};
+use std::io::{BufRead, Read, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Component, Path, PathBuf};
@@ -171,14 +171,130 @@ pub(crate) fn is_mounted(mp: &Path) -> bool {
     t.lines().any(|l| l.split(' ').nth(4).is_some_and(|m| unescape_mount(m) == want))
 }
 
+/// Почему архив не открылся.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MountError {
+    /// Нужен пароль (оглавление зашифровано); `wrong` — данный не подошёл.
+    Password { wrong: bool },
+    Failed(String),
+}
+
+impl From<String> for MountError {
+    fn from(e: String) -> Self {
+        MountError::Failed(e)
+    }
+}
+
+impl std::fmt::Display for MountError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MountError::Password { wrong: false } => f.write_str(&t!("Архив защищён паролем")),
+            MountError::Password { wrong: true } => f.write_str(&t!("Неверный пароль архива")),
+            MountError::Failed(e) => f.write_str(e),
+        }
+    }
+}
+
+/// Пароли архивов на время работы Проводника (по пути архива): помощник
+/// снимается без дела через 20 с, при новом монтировании пароль — ему же.
+static PASSWORDS: Mutex<Option<HashMap<PathBuf, String>>> = Mutex::new(None);
+
+fn password_of(src: &Path) -> Option<String> {
+    PASSWORDS.lock().unwrap().as_ref().and_then(|m| m.get(src).cloned())
+}
+
+fn set_password_of(src: &Path, pw: Option<&str>) {
+    let mut g = PASSWORDS.lock().unwrap();
+    let m = g.get_or_insert_with(HashMap::new);
+    match pw {
+        Some(p) => m.insert(src.to_path_buf(), p.to_string()),
+        None => m.remove(src),
+    };
+}
+
+/// Сведения об архиве от помощника.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Info {
+    /// Путь самого архива и корень его монтирования.
+    pub source: PathBuf,
+    pub root: PathBuf,
+    pub files: u64,
+    pub dirs: u64,
+    /// Байт распакованного и размер самого архива.
+    pub size: u64,
+    pub packed: u64,
+    /// Есть зашифрованные файлы; пароль ещё не введён.
+    pub encrypted: bool,
+    pub locked: bool,
+}
+
+impl Info {
+    /// Формат по имени: `TAR.GZ`, `ZIP`, `7Z`.
+    pub fn format(&self) -> String {
+        let name = crate::ops::name_of(&self.source);
+        let stem = crate::ops::archive_stem(&self.source);
+        name.get(stem.len()..).map(|e| e.trim_start_matches('.').to_uppercase()).filter(|e| !e.is_empty()).unwrap_or_else(|| t!("Архив").into())
+    }
+}
+
+fn ctl(root: &Path, cmd: &str) -> Option<String> {
+    let path = root.parent()?.join("ctl");
+    let mut s = std::os::unix::net::UnixStream::connect(path).ok()?;
+    // Проверка пароля распаковывает файл — может занять время.
+    let _ = s.set_read_timeout(Some(std::time::Duration::from_secs(if cmd.starts_with("password ") { 600 } else { 2 })));
+    s.write_all(format!("{cmd}\n").as_bytes()).ok()?;
+    let mut line = String::new();
+    std::io::BufReader::new(s).read_line(&mut line).ok()?;
+    Some(line.trim().to_string())
+}
+
+/// Сведения об архиве, внутри которого лежит `p` (смонтированном).
+pub fn info(p: &Path) -> Option<Info> {
+    let root = root_of(p)?;
+    let line = ctl(&root, "info")?;
+    let source = source(&root)?;
+    let mut i = Info { packed: std::fs::metadata(&source).map(|m| m.len()).unwrap_or(0), source, root, ..Default::default() };
+    for kv in line.split_whitespace() {
+        let Some((k, v)) = kv.split_once('=') else { continue };
+        let n: u64 = v.parse().unwrap_or(0);
+        match k {
+            "files" => i.files = n,
+            "dirs" => i.dirs = n,
+            "size" => i.size = n,
+            "encrypted" => i.encrypted = n > 0,
+            "locked" => i.locked = n > 0,
+            _ => {}
+        }
+    }
+    Some(i)
+}
+
+/// Ввести пароль архива с корнем `root`: смонтированному помощнику — через
+/// сокет, иначе — смонтировать с ним. Долго — не из потока интерфейса.
+pub fn unlock(root: &Path, pw: &str) -> Result<(), MountError> {
+    let src = source(root).ok_or_else(|| MountError::Failed(t!("Архив не найден").into()))?;
+    if is_mounted(root) && std::fs::metadata(root).is_ok() {
+        return match ctl(root, &format!("password {pw}")).as_deref() {
+            Some("ok") => {
+                set_password_of(&src, Some(pw));
+                Ok(())
+            }
+            Some("bad") => Err(MountError::Password { wrong: true }),
+            _ => Err(MountError::Failed(t!("Помощник архива не отвечает").into())),
+        };
+    }
+    set_password_of(&src, Some(pw));
+    ensure(root)
+}
+
 /// Монтирования, которые сейчас поднимаются (две панели в один архив).
 static MOUNTING: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
 /// Смонтировать архив, внутри которого лежит `p` (если ещё нет). Долго для
 /// больших сжатых архивов — вызывать не из потока интерфейса.
-pub fn ensure(p: &Path) -> Result<(), String> {
+pub fn ensure(p: &Path) -> Result<(), MountError> {
     let Some(root) = root_of(p) else { return Ok(()) };
-    let Some(src) = source(&root) else { return Err(t!("Архив для «{p}» не найден", p = p.display()).into()) };
+    let Some(src) = source(&root) else { return Err(MountError::Failed(t!("Архив для «{p}» не найден", p = p.display()).into())) };
     // Архив во вложенном архиве — сначала внешний.
     ensure(&src)?;
     loop {
@@ -195,7 +311,7 @@ pub fn ensure(p: &Path) -> Result<(), String> {
     r
 }
 
-fn mount(src: &Path, root: &Path) -> Result<(), String> {
+fn mount(src: &Path, root: &Path) -> Result<(), MountError> {
     if is_mounted(root) {
         match std::fs::metadata(root) {
             Ok(_) => return Ok(()),
@@ -206,11 +322,11 @@ fn mount(src: &Path, root: &Path) -> Result<(), String> {
         }
     }
     if !src.is_file() {
-        return Err(t!("Архив «{p}» не найден", p = display(src).display()).into());
+        return Err(MountError::Failed(t!("Архив «{p}» не найден", p = display(src).display()).into()));
     }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut c = Command::new(exe);
-    c.arg("--archive-mount").arg(src).arg(root).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    c.arg("--archive-mount").arg(src).arg(root).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     // Своя сессия: помощник переживает окно Проводника.
     unsafe {
         c.pre_exec(|| {
@@ -219,6 +335,10 @@ fn mount(src: &Path, root: &Path) -> Result<(), String> {
         });
     }
     let mut child = c.spawn().map_err(|e| e.to_string())?;
+    // Пароль — первой строкой (пустая — нет пароля).
+    if let Some(mut i) = child.stdin.take() {
+        let _ = writeln!(i, "{}", password_of(src).unwrap_or_default());
+    }
     let mut out = std::io::BufReader::new(child.stdout.take().unwrap());
     let mut line = String::new();
     let _ = out.read_line(&mut line);
@@ -229,17 +349,25 @@ fn mount(src: &Path, root: &Path) -> Result<(), String> {
         });
         return Ok(());
     }
+    if matches!(line.trim(), "password" | "badpassword") {
+        let _ = child.wait();
+        let wrong = line.trim() == "badpassword";
+        if wrong {
+            set_password_of(src, None);
+        }
+        return Err(MountError::Password { wrong });
+    }
     let mut err = String::new();
     if let Some(mut e) = child.stderr.take() {
         let _ = e.read_to_string(&mut err);
     }
     let _ = child.wait();
     let err = err.trim();
-    Err(if err.is_empty() {
+    Err(MountError::Failed(if err.is_empty() {
         t!("Не удалось открыть архив «{p}»", p = display(src).display()).into()
     } else {
         t!("Не удалось открыть архив «{p}»: {e}", p = display(src).display(), e = err).into()
-    })
+    }))
 }
 
 /// Открытые корни архивов по панелям: пока панель внутри архива, помощник

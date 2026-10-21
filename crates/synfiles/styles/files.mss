@@ -179,6 +179,81 @@ SystemWindowControls {
 .crumb-text { font-size: 13px; color: var(--fg); }
 .crumb.last .crumb-text { font-weight: 600; }
 
+/* ── Внутри архива ─────────────────────────────────────────────── */
+/* Рамка адреса и крошки в цвет архива: видно, что это не папка на диске. */
+.address.in-archive {
+    border-color: var(--archive-line);
+    &:hover { border-color: var(--archive); }
+}
+.archive-crumb, .pcrumb.archive-crumb {
+    background: var(--archive-soft);
+    border: 1px solid var(--archive-line);
+    &:hover { background: var(--archive-line); }
+}
+.archive-crumb .crumb-text { color: var(--archive); font-weight: 600; }
+.crumb-archive-icon { color: var(--archive); font-size: 15px; icon-size: 15px; }
+.in-archive .crumb-text { color: var(--fg); }
+
+/* Полоса над файлами панели. */
+.archive-bar {
+    padding: 9px 10px 9px 12px;
+    background: linear-gradient(90deg, var(--archive-soft) 0%, var(--archive-faint) 60%, transparent 100%);
+    border-left: 3px solid var(--archive);
+    border-bottom: 1px solid var(--archive-line);
+}
+.abar-tile {
+    width: 40px;
+    height: 40px;
+    border-radius: 11px;
+    justify-content: center;
+    align-items: center;
+    background: linear-gradient(135deg, var(--archive) 0%, var(--archive-deep) 100%);
+    box-shadow: 0 3px 10px var(--archive-glow);
+}
+.abar-tile .icon { color: #ffffff; font-size: 22px; icon-size: 22px; }
+.abar-name { font-size: 14px; font-weight: 600; color: var(--fg); }
+.abar-meta { font-size: 12px; color: var(--muted); }
+.abar-format {
+    padding: 1px 7px;
+    border-radius: 9px;
+    border: 1px solid var(--archive-line);
+    align-items: center;
+}
+.abar-format-text { font-size: 10px; font-weight: 700; color: var(--archive); letter-spacing: 0.6px; }
+.abar-lock {
+    padding: 1px 8px 1px 6px;
+    border-radius: 9px;
+    background: var(--accent-soft);
+    align-items: center;
+}
+.abar-lock .icon { color: var(--accent); font-size: 13px; icon-size: 13px; }
+.abar-lock-text { font-size: 11px; font-weight: 600; color: var(--accent); }
+.abar-lock.locked { background: var(--archive-soft); }
+.abar-lock.locked .icon, .abar-lock.locked .abar-lock-text { color: var(--archive); }
+.abar-btn { border: 1px solid var(--archive-line); }
+.abar-btn .icon { color: var(--archive); }
+.abar-primary {
+    background: linear-gradient(135deg, var(--archive) 0%, var(--archive-deep) 100%);
+    border-width: 0px;
+    &:hover { background: var(--archive-deep); }
+}
+.abar-primary .icon, .abar-primary .cmd-label { color: #ffffff; }
+.abar-primary .cmd-label { font-weight: 600; }
+.abar-close .icon { color: var(--muted); }
+
+/* Окно пароля архива. */
+.pw-badge {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    justify-content: center;
+    align-items: center;
+    background: linear-gradient(135deg, var(--archive) 0%, var(--archive-deep) 100%);
+    box-shadow: 0 4px 14px var(--archive-glow);
+}
+.pw-badge .icon { color: #ffffff; font-size: 26px; icon-size: 26px; }
+.pw-name { font-size: 14px; font-weight: 600; color: var(--fg); }
+
 /* ── Командная панель ──────────────────────────────────────────── */
 
 .command-bar {

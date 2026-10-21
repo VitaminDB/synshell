@@ -287,6 +287,17 @@ pub fn start(op: Op) -> Arc<Job> {
     job
 }
 
+/// Ошибка копирования; из архива — путь через архив, а «нет доступа» у
+/// зашифрованного — понятными словами.
+fn copy_error(src: &Path, e: &std::io::Error) -> String {
+    let shown = crate::archive::display(src);
+    if crate::archive::root_of(src).is_some() && e.kind() == std::io::ErrorKind::PermissionDenied {
+        t!("{p}: архив защищён паролем — введите пароль в полосе архива", p = shown.display())
+    } else {
+        format!("{}: {e}", shown.display())
+    }
+}
+
 fn err(p: &Progress, msg: String) {
     p.errors.lock().unwrap().push(msg);
 }
@@ -417,7 +428,7 @@ fn run(job: &Job) -> Option<Undo> {
                             created.push(dst);
                         }
                     }
-                    Err(e) => err(p, format!("{}: {e}", src.display())),
+                    Err(e) => err(p, copy_error(src, &e)),
                 }
                 r.tick(src);
             }
