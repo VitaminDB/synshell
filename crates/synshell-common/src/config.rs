@@ -518,6 +518,34 @@ impl Rgba {
         self.with_alpha(self.a as f32 / 255.0 * k)
     }
 
+    /// Альфа, пересчитанная под смешивание syngui. syngui складывает слои в
+    /// линейном пространстве, и «7 % белого» над тёмным фоном выглядит там
+    /// как ~25 %: полупрозрачные наведения, кромки и сетки выходят серыми и
+    /// резкими. Здесь своя альфа понимается как в CSS (смешивание в sRGB), и
+    /// подбирается такая, чтобы над `base` получился тот же видимый цвет.
+    pub fn perceptual_over(self, base: Rgba) -> Self {
+        let a = self.a as f32 / 255.0;
+        if a <= 0.0 || a >= 1.0 {
+            return self;
+        }
+        let lin = |v: f32| if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) };
+        let (c, b) = (self.to_f32(), base.to_f32());
+        let (mut num, mut den) = (0.0, 0.0);
+        for (i, w) in [0.2126, 0.7152, 0.0722].into_iter().enumerate() {
+            let span = lin(c[i]) - lin(b[i]);
+            if span.abs() < 1e-4 {
+                continue;
+            }
+            let want = lin(b[i] + a * (c[i] - b[i])) - lin(b[i]);
+            num += w * span.abs() * (want / span);
+            den += w * span.abs();
+        }
+        if den <= 0.0 {
+            return self;
+        }
+        self.with_alpha((num / den).clamp(1.0 / 255.0, 1.0))
+    }
+
     pub fn hex(self) -> String {
         if self.a == 255 {
             format!("#{:02x}{:02x}{:02x}", self.r, self.g, self.b)
@@ -3331,6 +3359,18 @@ mod tests {
         assert_eq!(a.kind, "clock");
         assert_eq!(a.str("format"), Some("%H:%M"));
         assert!(a.bool_or("seconds", false));
+    }
+
+    #[test]
+    fn perceptual_alpha_matches_srgb_mix() {
+        // Светлое над тёмным при линейном смешивании ярче — альфа меньше;
+        // тёмное над светлым — наоборот.
+        let dark = Rgba::rgb(0x0a, 0x16, 0x24);
+        let a = Rgba::rgb(0xff, 0xff, 0xff).with_alpha(0.07).perceptual_over(dark).a;
+        assert!((2..=6).contains(&a), "{a}");
+        let b = Rgba::rgb(0, 0, 0).with_alpha(0.07).perceptual_over(Rgba::rgb(0xff, 0xff, 0xff)).a;
+        assert!(b > 18 && b < 45, "{b}");
+        assert_eq!(Rgba::rgb(1, 2, 3).perceptual_over(dark), Rgba::rgb(1, 2, 3));
     }
 
     #[test]
