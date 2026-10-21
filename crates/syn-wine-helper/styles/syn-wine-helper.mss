@@ -49,3 +49,17 @@ Button.primary {
 }
 Button.flat { background: transparent; }
 Button.round { padding: 8px; }
+
+/* ── Своя рамка окна: заголовок со знаком, перетаскивание, кнопки окна ── */
+.window-frame { border-radius: var(--window-radius); border: 1px solid var(--border); background-color: var(--bg); }
+.window-frame:window-maximized, .window-frame:window-fullscreen { border-radius: 0px; border-width: 0px; }
+.titlebar { height: 46px; background: var(--titlebar); }
+.tb-left { height: 46px; padding: 0px 10px 0px 12px; align-items: center; }
+.drag-wrap { height: 46px; }
+.drag-space { height: 46px; flex-grow: 1; min-width: 40px; align-items: center; justify-content: center; }
+.tb-title { font-size: 13px; font-weight: 600; color: var(--muted); max-width: 260px; }
+.window-controls { height: 46px; padding: 0px 4px; align-items: center; }
+SystemWindowControls { color: var(--fg); background-color: var(--hover); }
+.brand { width: 28px; height: 28px; border-radius: 9px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); justify-content: center; align-items: center; }
+.brand-ic { font-size: 18px; color: #ffffff; }
+.brand-title { font-size: 14px; font-weight: 600; color: var(--fg); }

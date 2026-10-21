@@ -8,7 +8,9 @@ pub use gst::GstAsk;
 
 use std::sync::Arc;
 
+use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 use syngui::prelude::*;
+use syngui::window::WindowState;
 use synshell_common::Config;
 
 use crate::db::Db;
@@ -114,6 +116,8 @@ pub struct St {
     pub plan: RwSignal<Arc<Plan>>,
     /// Режим [`Mode::Gst`]: что не нашлось и какие пакеты поставить.
     pub gst: RwSignal<Option<Arc<GstAsk>>>,
+    /// Окно (развёрнуто, в фокусе) — для своей рамки.
+    pub window: RwSignal<WindowState>,
 }
 
 thread_local! {
@@ -127,7 +131,7 @@ pub fn db() -> Arc<Db> {
 impl St {
     pub fn new(mode: Mode, failed: Option<Failed>) -> St {
         let plan = failed.as_ref().map(|f| Plan::new(&db(), f)).unwrap_or_default();
-        St { mode, phase: use_signal(Phase::Idle), changed: use_signal(0), failed: use_signal(failed.map(Arc::new)), plan: use_signal(Arc::new(plan)), gst: use_signal(None) }
+        St { mode, phase: use_signal(Phase::Idle), changed: use_signal(0), failed: use_signal(failed.map(Arc::new)), plan: use_signal(Arc::new(plan)), gst: use_signal(None), window: use_signal(WindowState::default()) }
     }
 
     pub fn busy(&self) -> bool {
@@ -167,8 +171,19 @@ impl St {
 }
 
 pub fn theme(cfg: &Config) -> String {
+    use synshell_common::config::Rgba;
     let a = &cfg.appearance;
+    let p = a.palette();
     let mut s = a.mss_variables();
+    // своя рамка: заголовок, второй цвет знака, скругление окна как у рамок рабочего стола
+    let titlebar = if a.is_dark() { p.bg.mix(Rgba::rgb(0, 0, 0), 0.22) } else { p.surface_alt.mix(p.bg, 0.5) };
+    let accent2 = p.accent.mix(Rgba::rgb(0x8e, 0x24, 0xaa), 0.45);
+    s.push_str(&format!(
+        ":root {{\n  --titlebar: {};\n  --accent-2: {};\n  --window-radius: {}px;\n}}\n",
+        titlebar.hex(),
+        accent2.hex(),
+        cfg.decorations.corner_radius.max(0.0),
+    ));
     s.push_str(&a.theme_mss_variables());
     s.push_str(include_str!("../../styles/syn-wine-helper.mss"));
     if !a.font.trim().is_empty() {
@@ -204,13 +219,51 @@ pub fn progress(st: St) -> W {
     }))
 }
 
+/// Заголовок окна в рамке: «пользователь сам двигает окно» — свой заголовок со знаком, перетаскивание,
+/// кнопки окна из настроек рабочего стола.
+fn titlebar(st: St) -> W {
+    let controls = Reactive::new(move || -> Vec<W> {
+        let w = st.window.get();
+        vec![boxed(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused))]
+    });
+    let title = Reactive::new(move || -> Vec<W> {
+        syngui::i18n::subscribe();
+        let text = match st.mode {
+            Mode::List => String::new(),
+            Mode::Gst => t!("Модули видео и звука"),
+            Mode::Ask | Mode::AskBeforeRun => st.failed.get().map(|f| f.title()).unwrap_or_default(),
+        };
+        vec![boxed(Text::new(text).max_lines(1).elide(Elide::End).class("tb-title"))]
+    });
+    boxed(
+        DecoratedBox::new().class("titlebar").child(
+            Row::new()
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(DecoratedBox::new().class("tb-left").child(
+                    Row::new()
+                        .gap(10.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(DecoratedBox::new().class("brand").child(icon(icons::EXTENSION).class("ic brand-ic")))
+                        .child(Text::new(t!("Компоненты Wine")).max_lines(1).class("brand-title")),
+                ))
+                .child(DecoratedBox::new().class("grow drag-wrap").child(WindowDragRegion::new().child(DecoratedBox::new().class("drag-space").child(title))))
+                .child(DecoratedBox::new().class("window-controls").child(controls)),
+        ),
+    )
+}
+
 fn root(st: St) -> W {
     let page = match st.mode {
         Mode::List => list::page(st),
         Mode::Ask | Mode::AskBeforeRun => ask::page(st),
         Mode::Gst => gst::page(st),
     };
-    boxed(DecoratedBox::new().class("root").child(page))
+    let main = Column::new()
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(titlebar(st))
+        .child(DecoratedBox::new().class("grow root").child(page));
+    let frame = DecoratedBox::new().class("window-frame").clip(true).child(main);
+    boxed(WindowResizeRegion::new().over_content(true).inset(5.0).child(frame))
 }
 
 /// Окно; `false` — пользователь отказался (для `run`).
@@ -225,6 +278,7 @@ pub fn run_gst(ask: GstAsk) {
 
 fn run_with(mode: Mode, failed: Option<Failed>, gst: Option<GstAsk>) -> bool {
     let gst = gst.map(Arc::new);
+    let window = use_signal(WindowState::default());
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);
     let (title, size) = match mode {
@@ -237,10 +291,15 @@ fn run_with(mode: Mode, failed: Option<Failed>, gst: Option<GstAsk>) -> bool {
         .app_id("syn-wine-helper")
         .size(size.0, size.1)
         .min_size(340, 420)
+        .frameless()
+        .transparent(true)
+        .background(Color::from_srgb(0, 0, 0, 0.0))
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_styles_str(&mss)
+        .with_window_state(window)
         .run(move |_| {
-            let st = St::new(mode, failed.clone());
+            let mut st = St::new(mode, failed.clone());
+            st.window = window;
             st.gst.set(gst.clone());
             root(st)
         });
