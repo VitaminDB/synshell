@@ -18,6 +18,7 @@ pub mod anim;
 pub mod app_colors;
 pub mod applets;
 pub mod appmenu;
+pub mod clipboard;
 pub mod clock;
 pub mod incall;
 pub mod input_mode;
@@ -158,6 +159,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
         usb_notify::start(ctx);
         autonomy::start(ctx);
         link::start(ctx);
+        clipboard::start(ctx);
         modem::start(ctx);
         incall::start(ctx);
         location::start(ctx);
@@ -327,10 +329,13 @@ pub fn reload_config() {
         // сменили вид) не пересобирает поверхности и не закрывает окно настроек.
         probe.widgets = old.widgets.clone();
         probe.desktop = old.desktop.clone();
+        // История буфера читает [clipboard] на лету.
+        probe.clipboard = old.clipboard.clone();
         probe == *old
     };
     if behavior_only {
         ctx.config.set_always(Arc::new(cfg));
+        clipboard::apply_config(&ctx);
         RELOAD_HOOKS.with(|h| {
             for f in h.borrow().iter() {
                 f(ctx, false);
@@ -358,6 +363,7 @@ pub fn reload_config() {
     ctx.dnd.set(cfg.notifications.do_not_disturb);
     synshell_common::haptics::set_config(&cfg.haptics);
     ctx.config.set_always(Arc::new(cfg));
+    clipboard::apply_config(&ctx);
     if structural {
         if !ctx.popup.get_untracked().is_some_and(|p| p.kind.survives_reload()) {
             ctx.close_popup();

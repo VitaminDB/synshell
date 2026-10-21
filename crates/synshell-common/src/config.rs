@@ -49,6 +49,8 @@ pub struct Config {
     pub launcher: Launcher,
     pub files: Files,
     pub notifications: Notifications,
+    /// История буфера обмена (`[clipboard]`): окно апплета `clipboard`, Super+V.
+    pub clipboard: Clipboard,
     pub lock: Lock,
     pub idle: Idle,
     pub mobile: Mobile,
@@ -97,6 +99,7 @@ impl Default for Config {
             launcher: Launcher::default(),
             files: Files::default(),
             notifications: Notifications::default(),
+            clipboard: Clipboard::default(),
             lock: Lock::default(),
             idle: Idle::default(),
             mobile: Mobile::default(),
@@ -1452,6 +1455,7 @@ impl Default for Panel {
                 Applet::new("link"),
                 Applet::new("network"),
                 Applet::new("battery"),
+                Applet::new("clipboard"),
                 Applet::new("notifications"),
                 Applet::new("clock"),
                 Applet::new("power"),
@@ -1933,6 +1937,28 @@ impl Launcher {
 }
 
 // ─── notifications ──────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Clipboard {
+    /// Запоминать скопированное (пароли из менеджеров паролей — никогда).
+    pub history: bool,
+    /// Сколько записей хранить (закреплённые — сверх этого).
+    pub max_items: u32,
+    /// Запоминать картинки.
+    pub images: bool,
+    /// Картинки больше — не запоминать, МБ.
+    pub max_image_mb: u32,
+    /// Программы (id .desktop или app_id окна), скопированное из которых не
+    /// запоминается.
+    pub ignore_apps: Vec<String>,
+}
+
+impl Default for Clipboard {
+    fn default() -> Self {
+        Self { history: true, max_items: 200, images: true, max_image_mb: 32, ignore_apps: Vec::new() }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]

@@ -51,6 +51,8 @@ pub enum PopupKind {
     HomeAppMenu(String),
     /// Устройства (synlink): соединённые, спаренные, рядом.
     Link,
+    /// История буфера обмена (апплет `clipboard`, Super+V).
+    Clipboard,
     /// Запрос спаривания с устройством (id).
     LinkPair(String),
     /// Программа запрашивает местоположение (вопрос агента GeoClue, id).

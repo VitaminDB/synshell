@@ -280,11 +280,13 @@ applets = [
     { type = "link" },
     { type = "network" },
     { type = "battery" },
+    { type = "clipboard" },
     { type = "notifications" },
     { type = "clock" },
     { type = "power" },
 ]
 # link — связанные устройства (synlink): телефон по USB/Wi-Fi, экран, файлы, снимок, ssh.
+# clipboard — история буфера обмена (Super+V): текст, Markdown, ссылки, цвета, картинки, файлы.
 # Другие апплеты: separator, show-desktop, layout, cpu, memory,
 # button (icon, label, action), command (command, interval, action),
 # clock (format = "%H:%M", date_format = "%a, %d %b", seconds = false),
@@ -374,6 +376,13 @@ history = true
 history_size = 100
 swipe_dismiss = "both"         # смахнуть карточку, чтобы закрыть: both | left | right | off
 usb_devices = true             # уведомлять о подключении и отключении USB-устройств (VID:PID и имя)
+
+[clipboard]
+history = true                 # история буфера обмена: апплет clipboard на панели, Super+V
+max_items = 200                # сколько записей хранить (закреплённые — сверх этого)
+images = true                  # запоминать картинки
+max_image_mb = 32              # картинки больше — не запоминать
+ignore_apps = []               # программы, из которых не запоминать (id .desktop или app_id)
 
 [lock]
 command = ""                   # пусто — встроенный экран блокировки; или "swaylock -f"

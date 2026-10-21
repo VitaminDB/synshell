@@ -31,6 +31,7 @@ pub fn build(a: &Applet, pc: &PanelCtx, index: usize) -> Box<dyn Widget> {
         "battery" => battery(a, pc),
         "network" => network(a, pc),
         "link" => crate::link::applet(pc),
+        "clipboard" => simple_popup(pc, a.str_or("icon", "\u{E14F}"), "clipboard", PopupKind::Clipboard),
         "notifications" => notifications(a, pc),
         "power" => simple_popup(pc, a.str_or("icon", mi::POWER), "power", PopupKind::Power),
         "button" => button(a),

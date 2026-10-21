@@ -79,6 +79,8 @@ struct Shared {
     pool: Mutex<Pool>,
     cv: Condvar,
     notify: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Постоянные слушатели ([`add_notify`]) — рядом со слотом `notify`.
+    listeners: Mutex<Vec<Arc<dyn Fn() + Send + Sync>>>,
     max_bytes: Mutex<u64>,
 }
 
@@ -88,6 +90,7 @@ fn shared() -> &'static Shared {
         pool: Mutex::new(Pool::default()),
         cv: Condvar::new(),
         notify: Mutex::new(None),
+        listeners: Mutex::new(Vec::new()),
         max_bytes: Mutex::new(64 << 20),
     })
 }
@@ -95,6 +98,13 @@ fn shared() -> &'static Shared {
 /// Колбэк «появились новые миниатюры» (из рабочих потоков).
 pub fn set_notify(f: impl Fn() + Send + Sync + 'static) {
     *shared().notify.lock().unwrap() = Some(Arc::new(f));
+}
+
+/// Ещё один слушатель «появились новые миниатюры», не вытесняющий
+/// [`set_notify`]: части одного процесса (окно ассистента и история буфера
+/// оболочки) ждут миниатюр независимо. Вызывать один раз на слушателя.
+pub fn add_notify(f: impl Fn() + Send + Sync + 'static) {
+    shared().listeners.lock().unwrap().push(Arc::new(f));
 }
 
 pub fn set_max_mb(mb: u64) {
@@ -168,6 +178,10 @@ fn worker() {
         }
         let f = s.notify.lock().unwrap().clone();
         if let Some(f) = f {
+            f();
+        }
+        let ls = s.listeners.lock().unwrap().clone();
+        for f in ls {
             f();
         }
     }

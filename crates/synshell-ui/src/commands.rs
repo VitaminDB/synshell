@@ -193,11 +193,8 @@ pub fn handle(cmd: &str) {
         "lock-preview" => crate::lock::preview(arg.trim()),
         "rotate-suggest-preview" => crate::rotation::preview(ctx),
         "dnd" => ctx.dnd.set(!ctx.dnd.get_untracked()),
-        "clipboard" => {
-            // История буфера обмена требует wlr-data-control-клиента —
-            // пока открываем меню запуска с подсказкой.
-            log::info!("история буфера обмена пока не реализована");
-        }
+        // История буфера: у апплета `clipboard`, иначе по центру.
+        "clipboard" => ctx.open_popup(PopupKind::Clipboard, crate::panel::applet_anchor("clipboard").unwrap_or_else(centered)),
         "reload" => crate::reload_config(),
         "quit-shell" => syngui_layer::quit(),
         other => log::warn!("неизвестная команда оболочки «{other}»"),

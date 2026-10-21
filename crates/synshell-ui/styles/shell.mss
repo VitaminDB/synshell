@@ -1728,3 +1728,141 @@ TextField {
 .desk-view-icon { icon-size: 16px; color: var(--muted); }
 .desk-view-btn.on .desk-view-icon { color: var(--accent); }
 .desk-view-label { font-size: 12px; color: var(--fg); }
+
+/* ─── История буфера обмена (апплет clipboard, Super+V) ─────────────────── */
+
+.applet-clipboard .icon { icon-size: 20px; }
+.clip-head-badge {
+    width: 38px; height: 38px; border-radius: 12px;
+    background-color: var(--accent-soft);
+    justify-content: center; align-items: center;
+}
+.clip-head-icon { icon-size: 21px; icon-color: var(--accent); }
+.clip-subtitle { font-size: 12px; color: var(--muted); }
+.clip-clear { padding: 6px 10px; border-radius: 999px; transition: background-color 120ms; }
+.clip-clear:hover { background-color: var(--danger-soft); }
+.clip-clear:active { scale: 0.95; }
+.clip-clear-icon { icon-size: 17px; icon-color: var(--muted); }
+.clip-clear-label { font-size: 12px; color: var(--muted); }
+.clip-clear:hover .clip-clear-icon { icon-color: var(--danger); }
+.clip-clear:hover .clip-clear-label { color: var(--danger); }
+
+.clip-chip {
+    padding: 5px 11px; border-radius: 999px;
+    background-color: var(--surface-alt);
+    border-width: 1px; border-color: #00000000;
+    transition: background-color 140ms, border-color 140ms;
+}
+.clip-chip:hover { background-color: var(--hover); }
+.clip-chip:active { scale: 0.95; }
+.clip-chip-on, .clip-chip-on:hover { background-color: var(--accent-soft); border-color: var(--accent); }
+.clip-chip-text { font-size: 12px; font-weight: 600; color: var(--muted); }
+.clip-chip-on .clip-chip-text { color: var(--accent); }
+.clip-chip-icon { icon-size: 15px; icon-color: var(--muted); }
+.clip-chip-on .clip-chip-icon { icon-color: var(--accent); }
+
+.clip-scroll { padding-right: 4px; }
+.clip-card {
+    padding: 12px;
+    border-radius: 16px;
+    background-color: var(--surface-alt);
+    border-width: 1px; border-color: #00000000;
+    transition: background-color 140ms, border-color 140ms, scale 120ms;
+}
+.clip-card:hover { background-color: var(--hover); border-color: var(--border); }
+.clip-card:active { scale: 0.985; }
+.clip-card-sel, .clip-card-sel:hover { border-color: var(--accent); background-color: var(--hover); }
+.clip-card-pinned { border-color: var(--accent-soft); }
+
+.clip-src-icon { width: 16px; height: 16px; }
+.clip-src-glyph { icon-size: 15px; icon-color: var(--accent); }
+.clip-meta { font-size: 11px; color: var(--muted); }
+.clip-kind { padding: 2px 8px; border-radius: 999px; background-color: var(--accent-soft); }
+.clip-kind-text { font-size: 10px; font-weight: bold; color: var(--accent); }
+.clip-count { font-size: 11px; font-weight: bold; color: var(--muted); }
+
+.clip-act {
+    width: 26px; height: 26px; border-radius: 999px;
+    justify-content: center; align-items: center;
+    opacity: 0.0;
+    transition: opacity 140ms, background-color 120ms;
+}
+.clip-card:hover .clip-act, .clip-card-sel .clip-act { opacity: 1.0; }
+.clip-act:hover { background-color: var(--pressed); }
+.clip-act:active { scale: 0.9; }
+.clip-act-icon { icon-size: 16px; icon-color: var(--muted); }
+.clip-act-on { opacity: 1.0; }
+.clip-act-on .clip-act-icon { icon-color: var(--accent); }
+.clip-act-del:hover .clip-act-icon { icon-color: var(--danger); }
+.clip-act-open:hover .clip-act-icon, .clip-act-pin:hover .clip-act-icon { icon-color: var(--accent); }
+
+.clip-text { font-size: 13px; color: var(--fg); line-height: 1.35; }
+.clip-more { font-size: 12px; color: var(--muted); }
+.clip-md { max-height: 220px; }
+.clip-md-view {
+    font-size: 13px; color: var(--fg);
+    --md-heading-color: var(--fg); --md-h1-size: 17px; --md-h2-size: 15px; --md-h3-size: 14px; --md-heading-spacing: 4px;
+    --md-link-color: var(--accent); --md-bullet-color: var(--accent); --md-checkbox-color: var(--accent);
+    --md-code-bg: var(--bg); --md-code-color: var(--fg); --md-code-block-bg: var(--bg); --md-code-block-color: var(--fg);
+    --md-quote-bg: var(--accent-soft); --md-quote-text-color: var(--fg); --md-quote-border-color: var(--accent);
+    --md-table-border-color: var(--border); --md-table-header-bg: var(--bg); --md-table-header-color: var(--fg); --md-table-stripe-bg: var(--hover);
+    --md-hr-color: var(--border);
+}
+.clip-code-box {
+    padding: 8px 10px; border-radius: 10px;
+    background-color: var(--bg);
+    border-width: 1px; border-color: var(--border);
+}
+.clip-code { font-family: monospace; font-size: 12px; color: var(--fg); }
+
+.clip-link-badge {
+    width: 38px; height: 38px; border-radius: 11px;
+    background-color: var(--accent-soft);
+    justify-content: center; align-items: center;
+}
+.clip-link-icon { icon-size: 20px; icon-color: var(--accent); }
+.clip-link-host { font-size: 14px; font-weight: 600; color: var(--fg); }
+.clip-link-url { font-size: 11px; color: var(--accent); }
+
+.clip-swatch {
+    width: 44px; height: 44px; border-radius: 12px;
+    border-width: 1px; border-color: var(--border);
+}
+.clip-color-hex { font-size: 15px; font-weight: bold; font-family: monospace; color: var(--fg); }
+.clip-color-rgb { font-size: 11px; font-family: monospace; color: var(--muted); }
+
+.clip-image-box {
+    border-radius: 12px;
+    background-color: var(--bg);
+    border-width: 1px; border-color: var(--border);
+}
+.clip-image { width: 100%; height: 100%; }
+.clip-dim { font-size: 11px; color: var(--muted); }
+.clip-play {
+    width: 46px; height: 46px; border-radius: 999px;
+    background-color: #000000aa;
+    justify-content: center; align-items: center;
+}
+.clip-play.small { width: 26px; height: 26px; }
+.clip-play-icon { icon-size: 24px; icon-color: #ffffff; }
+.clip-play.small .clip-play-icon { icon-size: 16px; }
+
+.clip-tile {
+    border-radius: 10px;
+    background-color: var(--bg);
+    border-width: 1px; border-color: var(--border);
+}
+.clip-tile-glyph { icon-size: 26px; icon-color: var(--accent); }
+.clip-tile-more { background-color: var(--accent-soft); }
+.clip-more-count { font-size: 14px; font-weight: bold; color: var(--accent); }
+.clip-app-plate { padding: 6px; border-radius: 14px; background-color: var(--bg); }
+.clip-app-icon { width: 40px; height: 40px; }
+.clip-file-name { font-size: 13px; font-weight: 600; color: var(--fg); }
+.clip-file-dir { font-size: 11px; color: var(--muted); }
+.clip-gone { color: var(--muted); }
+
+.clip-empty { padding: 60px 20px; }
+.clip-empty-icon { icon-size: 44px; icon-color: var(--muted); opacity: 0.6; }
+.clip-empty-title { font-size: 14px; font-weight: 600; color: var(--fg); }
+.clip-empty-hint { font-size: 12px; color: var(--muted); }
+.clip-footer { font-size: 11px; color: var(--muted); }
