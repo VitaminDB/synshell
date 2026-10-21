@@ -4,22 +4,22 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
     <application
-        android:label="Elle Block"
+        android:label="Syn Blocks"
         android:icon="@mipmap/ic_launcher"
         android:hasCode="true"
         android:allowBackup="true"
         android:isGame="true"
-        android:theme="@style/Theme.ElleBlock">
+        android:theme="@style/Theme.SynBlocks">
 
         <activity
-            android:name="com.syngui.elleblock.MainActivity"
+            android:name="com.syngui.synblocks.MainActivity"
             android:exported="true"
             android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|density">
 
             <meta-data
                 android:name="android.app.lib_name"
-                android:value="elle_block" />
+                android:value="syn_blocks" />
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

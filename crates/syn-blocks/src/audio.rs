@@ -295,7 +295,7 @@ pub fn init_with_voice(music_on: bool, sfx_on: bool, voice_on: bool, track: usiz
     let (tx, rx) = mpsc::channel();
     CURRENT_TRACK.store(track % TRACKS.len(), Ordering::Relaxed);
     let spawned = thread::Builder::new()
-        .name("elle-audio-mixer".into())
+        .name("syn-blocks-audio".into())
         .spawn(move || Mixer::run(rx, music_on, sfx_on, voice_on, track, loop_all));
     match spawned {
         Ok(_) => {

@@ -6803,6 +6803,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-blocks"
+version = "0.2.0"
+dependencies = [
+ "android_logger",
+ "hound",
+ "log",
+ "syngui",
+]
+
+[[package]]
 name = "syn-compass"
 version = "0.1.42"
 dependencies = [

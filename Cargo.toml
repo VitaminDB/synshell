@@ -47,6 +47,7 @@ members = [
     "crates/synassistant",
     "crates/syn-notes",
     "crates/syn-notes-proto",
+    "crates/syn-blocks",
 ]
 
 [workspace.package]

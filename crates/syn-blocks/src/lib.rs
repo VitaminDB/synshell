@@ -1,4 +1,4 @@
-//! Elle Block — головоломка 8×8 в духе Block Blast на syngui.
+//! Syn Blocks — головоломка 8×8 в духе Block Blast на syngui.
 //!
 //! * `game` — чистая модель (поле, фигуры, правила, честный генератор);
 //! * `ui` — единственный элемент `GameView`: ввод, эффекты, отрисовка;
@@ -35,7 +35,7 @@ fn build_ctx() -> GameCtx {
 pub fn run_desktop() {
     let ctx = build_ctx();
     App::new()
-        .title("Elle Block")
+        .title("Syn Blocks")
         .size(WINDOW_W, WINDOW_H)
         .min_size(340, 600)
         .vsync(true)
@@ -56,14 +56,14 @@ fn android_main(app: syngui::app::AndroidApp) {
     use android_logger::Config;
     use log::LevelFilter;
 
-    android_logger::init_once(Config::default().with_max_level(LevelFilter::Info).with_tag("elle_block"));
+    android_logger::init_once(Config::default().with_max_level(LevelFilter::Info).with_tag("syn_blocks"));
     // Рекорд и статистика — во внутренней папке приложения (HOME на Android нет).
     if let Some(dir) = app.internal_data_path() {
-        std::env::set_var("ELLE_BLOCK_DATA", dir);
+        std::env::set_var("SYN_BLOCKS_DATA", dir);
     }
     let ctx = build_ctx();
     App::new()
-        .title("Elle Block")
+        .title("Syn Blocks")
         .vsync(true)
         .gpu_backend(GpuBackend::Gl)
         .gpu_power(GpuPowerPreference::LowPower)

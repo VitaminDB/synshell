@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Syn Blocks
+GenericName=Головоломка с блоками
+GenericName[en]=Block Puzzle
+Comment=Головоломка 8×8: расставляйте фигуры и собирайте линии
+Comment[en]=8×8 puzzle: place pieces and clear lines
+Exec=syn-blocks
+Icon=syn-blocks
+Categories=Game;LogicGame;
+Keywords=blocks;puzzle;block blast;game;блоки;головоломка;игра;
+StartupNotify=true

@@ -1,4 +1,4 @@
 //! Точка входа desktop-сборки.
 fn main() {
-    elle_block::run_desktop();
+    syn_blocks::run_desktop();
 }

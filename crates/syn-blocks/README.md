@@ -1,6 +1,9 @@
-# Elle Block
+# Syn Blocks
 
-Головоломка 8×8 в духе Block Blast на собственном GUI-фреймворке [syngui](../syngui):
+Крейт workspace synshell (`crates/syn-blocks`, бывший Elle Block): бинарник `syn-blocks` ставится в образ synmobile
+вместе с остальными программами synshell, APK для Android — `run-phone.sh` (`syn-blocks-release.apk`).
+
+Головоломка 8×8 в духе Block Blast на собственном GUI-фреймворке [syngui](../../../syngui):
 desktop (Linux) и Android, интерфейс на русском.
 
 - стартовая страница с двумя видами игры: **Стандарт** и **Люкс** (24 материала-отделки
@@ -11,8 +14,8 @@ desktop (Linux) и Android, интерфейс на русском.
 - пять фоновых треков (YuE2 через `synaptix song`), эффекты синтезированы `tools/gen_sfx.py`.
 
 ```bash
-cargo run                 # окно 460×820
-cargo test                # модель + интеграционные тесты без GPU
+cargo run -p syn-blocks   # окно 460×820
+cargo test -p syn-blocks  # модель + интеграционные тесты без GPU
 ./run-phone.sh            # APK arm64 → телефон по USB/Wi-Fi
 ```
 

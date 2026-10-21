@@ -1,6 +1,6 @@
 //! Сохранение рекорда, статистики и текущей партии в простые текстовые файлы.
 //!
-//! Путь: `$XDG_DATA_HOME/elle_block/{stats,game,game_deluxe}.txt` или
+//! Путь: `$XDG_DATA_HOME/syn-blocks/{stats,game,game_deluxe}.txt` или
 //! `~/.local/share/...`. Без каталога данных (например, на Android без HOME) —
 //! работает в памяти.
 
@@ -153,13 +153,19 @@ impl Stats {
 }
 
 fn data_dir() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("ELLE_BLOCK_DATA") {
+    if let Ok(p) = std::env::var("SYN_BLOCKS_DATA") {
         return Some(PathBuf::from(p));
     }
     let base = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))?;
-    Some(base.join("elle_block"))
+    let dir = base.join("syn-blocks");
+    // Игра называлась Syn Blocks: сохранения из прежнего каталога переезжают в новый (один раз).
+    let old = base.join("elle_block");
+    if !dir.exists() && old.is_dir() {
+        let _ = std::fs::rename(&old, &dir);
+    }
+    Some(dir)
 }
 
 pub fn path() -> Option<PathBuf> {
@@ -426,7 +432,7 @@ mod tests {
 
     #[test]
     fn legacy_deluxe_game_file_is_renamed() {
-        let dir = std::env::temp_dir().join(format!("elle_block_migrate_test_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("syn_blocks_migrate_test_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let old = dir.join(format!("game_{LEGACY_DELUXE}.txt"));
@@ -444,7 +450,7 @@ mod tests {
 
     #[test]
     fn game_paths_differ_by_variant() {
-        std::env::set_var("ELLE_BLOCK_DATA", std::env::temp_dir().join("elle_block_paths_test"));
+        std::env::set_var("SYN_BLOCKS_DATA", std::env::temp_dir().join("syn_blocks_paths_test"));
         let a = game_path(Variant::Standard).unwrap();
         let b = game_path(Variant::Deluxe).unwrap();
         assert_ne!(a, b);

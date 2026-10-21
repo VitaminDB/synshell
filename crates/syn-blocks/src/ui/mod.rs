@@ -1907,7 +1907,7 @@ impl Element for View {
         // атлас отделок: декодируется в фоне, готовность опрашивает `poll_atlas`
         if let Some(store) = tree.image_store.clone() {
             if let Ok(mut st) = store.lock() {
-                let (h, _) = st.request(&ImageSource::Bytes { key: "elle/atlas".into(), data: Arc::new(ATLAS_BYTES.to_vec()) });
+                let (h, _) = st.request(&ImageSource::Bytes { key: "syn-blocks/atlas".into(), data: Arc::new(ATLAS_BYTES.to_vec()) });
                 self.atlas_handle = Some(h);
             }
             self.image_store = Some(store);

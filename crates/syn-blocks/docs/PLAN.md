@@ -1,6 +1,6 @@
-# Elle Block — архитектура и план
+# Syn Blocks — архитектура и план
 
-> Проект: `/home/master/Projects/2027/elle_block` · фреймворк `syngui`
+> Проект: `synshell/crates/syn-blocks` (крейт workspace synshell, бывший `elle_block`) · фреймворк `syngui`
 > (`../syngui/syngui`, гайд `../syngui/syngui.md`). Референс жанра —
 > Block Blast (`docs/reference/*.jpeg`). Перед работой читать `../memory.md`.
 
@@ -106,7 +106,7 @@
 
 ```
 src/
-├── main.rs            fn main → elle_block::run_desktop()
+├── main.rs            fn main → syn_blocks::run_desktop()
 ├── lib.rs             App-билдер (desktop + android_main), GameCtx
 ├── anim.rs            easing, damp, частицы, всплывающие подписи
 ├── lang.rs            словарь en/ru: реплики похвалы по уровням, служебные слова
@@ -150,9 +150,9 @@ tests/play_flow.rs     TestHarness: drag, snap, возврат, клавиату
 ```bash
 cargo test                 # модель + интеграционные тесты (без GPU)
 cargo run                  # окно 460×820
-ELLE_BLOCK_DATA=/tmp/x cargo run   # отдельный файл статистики
-ELLE_DEMO=drag|over|menu|board|clear|start|finishes cargo run # демо-состояния (clear — ход с очисткой через 3.6 с)
-ELLE_VARIANT=deluxe ELLE_DEMO=finishes ./run-phone.sh        # витрина всех отделок на телефоне
+SYN_BLOCKS_DATA=/tmp/x cargo run   # отдельный файл статистики
+SYN_BLOCKS_DEMO=drag|over|menu|board|clear|start|finishes cargo run # демо-состояния (clear — ход с очисткой через 3.6 с)
+SYN_BLOCKS_VARIANT=deluxe SYN_BLOCKS_DEMO=finishes ./run-phone.sh        # витрина всех отделок на телефоне
 ./run-phone.sh             # APK → телефон (см. memory.md G24)
 python3 tools/gen_sfx.py   # пересинтезировать эффекты
 tools/gen_textures.sh [id] # текстуры отделок: synaptix imagine, FLUX.2 klein 9B (~17 с/шт)

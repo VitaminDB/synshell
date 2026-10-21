@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "elle_block"
+rootProject.name = "syn-blocks"
 include(":app")

@@ -3,10 +3,10 @@
 
 use std::time::Duration;
 
-use elle_block::game::{cell_color, Board, Family, Game, Piece, SIZE};
-use elle_block::persist::Stats;
-use elle_block::ui::layout::{self, Geo};
-use elle_block::{GameCtx, GameView};
+use syn_blocks::game::{cell_color, Board, Family, Game, Piece, SIZE};
+use syn_blocks::persist::Stats;
+use syn_blocks::ui::layout::{self, Geo};
+use syn_blocks::{GameCtx, GameView};
 use syngui::prelude::*;
 use syngui::testing::{press_key, TestHarness};
 
@@ -14,8 +14,8 @@ const W: f32 = 460.0;
 const H: f32 = 820.0;
 
 fn isolate_stats() {
-    let dir = std::env::temp_dir().join(format!("elle_block_test_{}", std::process::id()));
-    std::env::set_var("ELLE_BLOCK_DATA", &dir);
+    let dir = std::env::temp_dir().join(format!("syn_blocks_test_{}", std::process::id()));
+    std::env::set_var("SYN_BLOCKS_DATA", &dir);
 }
 
 /// Пустое поле; в слотах — Mono, I2 (горизонтальное домино), O2.
@@ -217,8 +217,8 @@ fn game_over_flow_shows_card_and_restarts_on_click() {
         }
         let _ = h.paint();
     };
-    let card = elle_block::ui::overlay::over_card(&geo);
-    let btn = card.buttons.iter().find(|b| b.action == elle_block::ui::overlay::Action::NewGame).unwrap().rect;
+    let card = syn_blocks::ui::overlay::over_card(&geo);
+    let btn = card.buttons.iter().find(|b| b.action == syn_blocks::ui::overlay::Action::NewGame).unwrap().rect;
     let p = Point::new(btn.origin.x + btn.width() * 0.5, btn.origin.y + btn.height() * 0.5);
     let click = |h: &mut TestHarness, p: Point| {
         h.send_event(&Event::MouseDown { button: MouseButton::Left, position: p });
@@ -279,7 +279,7 @@ fn paints_every_state_without_panic() {
 
 #[test]
 fn abilities_hammer_and_reroll() {
-    use elle_block::game::MAX_ENERGY;
+    use syn_blocks::game::MAX_ENERGY;
     let (mut h, ctx, geo) = setup(12);
     let mut g0 = game(&ctx);
     g0.board.set(3, 3, 5);
@@ -321,8 +321,8 @@ fn abilities_hammer_and_reroll() {
 fn difficulty_choice_applies_to_new_game() {
     let (mut h, ctx, geo) = setup(13);
     h.send_events(&press_key(Key::Escape));
-    let card = elle_block::ui::overlay::menu_card(&geo);
-    let hard = card.buttons.iter().find(|b| b.action == elle_block::ui::overlay::Action::Difficulty(2)).unwrap().rect;
+    let card = syn_blocks::ui::overlay::menu_card(&geo);
+    let hard = card.buttons.iter().find(|b| b.action == syn_blocks::ui::overlay::Action::Difficulty(2)).unwrap().rect;
     let p = Point::new(hard.origin.x + hard.width() * 0.5, hard.origin.y + hard.height() * 0.5);
     h.send_event(&Event::MouseDown { button: MouseButton::Left, position: p });
     h.send_event(&Event::MouseUp { button: MouseButton::Left, position: p });
@@ -330,7 +330,7 @@ fn difficulty_choice_applies_to_new_game() {
     h.send_events(&press_key(Key::Escape));
     h.send_events(&press_key(Key::N));
     let g = game(&ctx);
-    assert_eq!(g.difficulty, elle_block::game::Difficulty::Hard);
+    assert_eq!(g.difficulty, syn_blocks::game::Difficulty::Hard);
     assert_eq!(g.scoring.grace, 1);
 }
 
@@ -342,6 +342,6 @@ fn game_is_saved_after_move_and_restored() {
     h.animate(Duration::from_millis(16));
     // папка данных общая для параллельных тестов процесса, поэтому здесь
     // только «записано и читается»; точный формат — persist::tests::game_roundtrip
-    assert!(elle_block::persist::load_game(elle_block::Variant::Standard).is_some(), "партия записана");
+    assert!(syn_blocks::persist::load_game(syn_blocks::Variant::Standard).is_some(), "партия записана");
     assert_eq!(cell_color(game(&ctx).board.get(3, 3)), Family::I2.color());
 }

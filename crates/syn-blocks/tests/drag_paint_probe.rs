@@ -1,14 +1,14 @@
-use elle_block::game::{Board, Family, Piece};
-use elle_block::persist::Stats;
-use elle_block::ui::layout;
-use elle_block::{GameCtx, GameView};
+use syn_blocks::game::{Board, Family, Piece};
+use syn_blocks::persist::Stats;
+use syn_blocks::ui::layout;
+use syn_blocks::{GameCtx, GameView};
 use syngui::prelude::*;
 use syngui::render::display_list::DrawCommand;
 use syngui::testing::TestHarness;
 
 #[test]
 fn dragged_piece_commands_are_emitted_after_preview() {
-    std::env::set_var("ELLE_BLOCK_DATA", std::env::temp_dir().join("elle_probe"));
+    std::env::set_var("SYN_BLOCKS_DATA", std::env::temp_dir().join("syn_blocks_probe"));
     syngui::signal::allow_signal_reads_on_this_thread();
     let ctx = GameCtx::new(1, Stats::default());
     let mut g = ctx.game.get_untracked();

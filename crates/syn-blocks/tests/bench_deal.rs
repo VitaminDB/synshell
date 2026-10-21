@@ -1,4 +1,4 @@
-use elle_block::game::{generator, Board, Difficulty, Rng, SIZE};
+use syn_blocks::game::{generator, Board, Difficulty, Rng, SIZE};
 use std::time::Instant;
 
 /// Запуск: cargo test --release --test bench_deal -- --ignored --nocapture
@@ -36,7 +36,7 @@ fn bench_deal_near_empty_boards() {
 #[test]
 #[ignore]
 fn sim_helpful_vs_random() {
-    use elle_block::game::Game;
+    use syn_blocks::game::Game;
     for d in [Difficulty::Easy, Difficulty::Normal, Difficulty::Hard] {
         for helpful in [false, true] {
             generator::set_helpful(helpful);

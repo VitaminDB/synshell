@@ -3,15 +3,17 @@ plugins {
 }
 
 android {
-    namespace = "com.syngui.elleblock"
+    namespace = "com.syngui.synblocks"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.syngui.elleblock"
+        applicationId = "com.syngui.synblocks"
         minSdk = 30
         targetSdk = 35
         versionCode = 1
         versionName = "0.2.0"
+        // APK: syn-blocks-release.apk / syn-blocks-debug.apk
+        setProperty("archivesBaseName", "syn-blocks")
         ndk {
             abiFilters += listOf("arm64-v8a")
         }

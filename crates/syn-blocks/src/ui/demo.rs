@@ -1,6 +1,6 @@
-//! Демо-состояния для скриншотов: `ELLE_DEMO=start|board|drag|over|lost|menu|clear|finishes`;
-//! дополнительно `ELLE_WORLD=1..9` (мир/уровень), `ELLE_SKIN=wood|crystal|gold|lava`
-//! и `ELLE_VARIANT=deluxe` (вид игры). Не влияет на обычный запуск.
+//! Демо-состояния для скриншотов: `SYN_BLOCKS_DEMO=start|board|drag|over|lost|menu|clear|finishes`;
+//! дополнительно `SYN_BLOCKS_WORLD=1..9` (мир/уровень), `SYN_BLOCKS_SKIN=wood|crystal|gold|lava`
+//! и `SYN_BLOCKS_VARIANT=deluxe` (вид игры). Не влияет на обычный запуск.
 
 use super::{Drag, Screen, View};
 use crate::game::{cell_color, make_cell, make_cell_full, Board, Cell, Family, Game, Material, Piece, FINISH_COUNT, SIZE};
@@ -8,25 +8,25 @@ use crate::persist::Variant;
 use syngui::prelude::*;
 
 /// Переменная окружения; на Android окружения нет, поэтому значение можно
-/// «вшить» при сборке: `ELLE_DEMO=board ELLE_WORLD=3 ./run-phone.sh`.
+/// «вшить» при сборке: `SYN_BLOCKS_DEMO=board SYN_BLOCKS_WORLD=3 ./run-phone.sh`.
 fn var(name: &str) -> Option<String> {
     if let Ok(v) = std::env::var(name) {
         return Some(v);
     }
     let built = match name {
-        "ELLE_DEMO" => option_env!("ELLE_DEMO"),
-        "ELLE_WORLD" => option_env!("ELLE_WORLD"),
-        "ELLE_SKIN" => option_env!("ELLE_SKIN"),
-        "ELLE_VARIANT" => option_env!("ELLE_VARIANT"),
+        "SYN_BLOCKS_DEMO" => option_env!("SYN_BLOCKS_DEMO"),
+        "SYN_BLOCKS_WORLD" => option_env!("SYN_BLOCKS_WORLD"),
+        "SYN_BLOCKS_SKIN" => option_env!("SYN_BLOCKS_SKIN"),
+        "SYN_BLOCKS_VARIANT" => option_env!("SYN_BLOCKS_VARIANT"),
         _ => None,
     };
     built.filter(|s| !s.is_empty()).map(str::to_string)
 }
 
 pub fn apply(v: &mut View) {
-    let Some(mode) = var("ELLE_DEMO") else { return };
+    let Some(mode) = var("SYN_BLOCKS_DEMO") else { return };
     v.frozen = true;
-    let variant = if var("ELLE_VARIANT").as_deref() == Some("deluxe") { Variant::Deluxe } else { Variant::Standard };
+    let variant = if var("SYN_BLOCKS_VARIANT").as_deref() == Some("deluxe") { Variant::Deluxe } else { Variant::Standard };
     v.variant = variant;
     v.ctx.variant.set(variant);
     if mode == "start" {
@@ -81,14 +81,14 @@ pub fn apply(v: &mut View) {
     v.ctx.stats.set(stats);
     v.fx.score_shown = g.scoring.score as f32;
 
-    if let Some(l) = var("ELLE_WORLD").and_then(|s| s.parse::<u32>().ok()) {
+    if let Some(l) = var("SYN_BLOCKS_WORLD").and_then(|s| s.parse::<u32>().ok()) {
         let l = l.max(1);
         v.level = l;
         let wi = super::world::world_index_for(l, variant);
         v.world = super::world::WorldFade { from: wi, to: wi, born: -100.0 };
         g.scoring.score = super::world::threshold(l) + 600;
     }
-    if let Some(sk) = var("ELLE_SKIN") {
+    if let Some(sk) = var("SYN_BLOCKS_SKIN") {
         let m = match sk.as_str() {
             "wood" => Some(Material::Wood),
             "crystal" => Some(Material::Crystal),

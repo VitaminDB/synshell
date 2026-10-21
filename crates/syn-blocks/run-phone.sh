@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Собрать, установить и запустить Elle Block на телефоне (arm64-v8a) по USB.
+# Собрать, установить и запустить Syn Blocks на телефоне (arm64-v8a) по USB.
+# Крейт workspace synshell (crates/syn-blocks); cargo ndk кладёт библиотеку в android/app/src/main/jniLibs.
 # Usage: ./run-phone.sh [--no-build] [--debug]
 # Телефон: переменная PHONE (по умолчанию — первое USB-устройство adb).
 set -euo pipefail
@@ -7,13 +8,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ANDROID_DIR="$SCRIPT_DIR/android"
 JNILIBS="$ANDROID_DIR/app/src/main/jniLibs"
-PACKAGE="com.syngui.elleblock"
-ACTIVITY="com.syngui.elleblock.MainActivity"
+PACKAGE="com.syngui.synblocks"
+ACTIVITY="com.syngui.synblocks.MainActivity"
 ABI="arm64-v8a"
 
 export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk}"
 export ANDROID_HOME="${ANDROID_HOME_OVERRIDE:-$HOME/Android/Sdk}"
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
+[[ -n "${ANDROID_NDK_HOME:-}" || ! -d /opt/android-ndk ]] || export ANDROID_NDK_HOME=/opt/android-ndk
 
 BUILD=1
 CARGO_FLAGS="--release"
@@ -49,7 +51,7 @@ if [[ "$BUILD" == 1 ]]; then
     ./gradlew --offline "$GRADLE_TASK"
 fi
 
-APK="$ANDROID_DIR/app/build/outputs/apk/$APK_KIND/app-$APK_KIND.apk"
+APK="$ANDROID_DIR/app/build/outputs/apk/$APK_KIND/syn-blocks-$APK_KIND.apk"
 echo "==> Installing to $PHONE..."
 adb -s "$PHONE" install -r "$APK"
 echo "==> Launching..."

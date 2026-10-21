@@ -254,6 +254,10 @@ docs/15-sensors.md), политика — `synshell-ui/src/rotation.rs`. Ком�
   координаты GeoClue. Калибровка: поправка SLPI `mag_cal` (строки `B`), иначе своя «восьмёркой» (сфера по точкам,
   `~/.config/synshell/compass.toml`). Без датчиков — `SYN_COMPASS_DEMO=градусы`; снимок —
   `syn-compass --screenshot out.png` (`syngui::shot`).
+- **syn-blocks** «Syn Blocks» (бывший отдельный проект Elle Block): головоломка 8×8 в духе Block Blast, виды
+  «Стандарт» и «Люкс», музыка и озвучка вшиты в бинарник. Сохранения — `~/.local/share/syn-blocks/` (старый каталог
+  `elle_block` переезжает сам), `SYN_BLOCKS_DATA` — другой; демо-состояния `SYN_BLOCKS_DEMO=…`. Тот же крейт
+  собирается в APK для Android: `crates/syn-blocks/run-phone.sh` (`com.syngui.synblocks`, `syn-blocks-release.apk`).
 - **syn-remote** «Пульт»: ИК-пульт для бытовой техники. Передача — платформенной `syn-ir raw ЧАСТОТА -`
   (synmobile, hw/ir; `SYN_REMOTE_IR` — другая программа), кодирование протоколов (NEC/NECext/NEC42, Samsung32,
   RC5/RC5X, RC6, SIRC 12/15/20, Kaseikyo, RCA, Pioneer, raw) — в `src/ir.rs` по таймингам прошивки Flipper Zero.

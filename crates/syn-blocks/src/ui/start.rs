@@ -115,7 +115,7 @@ pub fn draw(v: &View, list: &mut DisplayList, alpha: f32, dy: f32) {
     let gold = hex(theme::GOLD);
     let glow_r = inset(Rect::new(Point::new(title.origin.x + title.width() * 0.15, title.origin.y + 8.0), Size::new(title.width() * 0.7, title.height() - 16.0)), 0.0);
     list.push_glow_shadow(glow_r, gold.with_alpha(0.10 + 0.08 * breathe), 34.0, (0.0, 0.0), [30.0; 4]);
-    text_shadowed(list, "ELLE BLOCK", title, gold.lerp(&Color::WHITE, 0.15 + 0.25 * breathe), 46.0, 800, TextAlign::CENTER);
+    text_shadowed(list, "SYN BLOCKS", title, gold.lerp(&Color::WHITE, 0.15 + 0.25 * breathe), 46.0, 800, TextAlign::CENTER);
     let sub = offset(sg.subtitle, 0.0, dy);
     text_nowrap(list, "головоломка 8×8  ·  выберите вид игры", sub, hex(theme::TEXT_DIM).with_alpha(0.9), 13.0, 600, TextAlign::CENTER);
 
@@ -194,7 +194,7 @@ pub fn draw(v: &View, list: &mut DisplayList, alpha: f32, dy: f32) {
         text_nowrap(list, labels[i], lr, Color::WHITE.with_alpha(if on[i] { 1.0 } else { 0.6 }), 13.5, 800, TextAlign::LEFT | TextAlign::VCENTER);
     }
     let ver = offset(sg.version, 0.0, dy);
-    text_nowrap(list, &format!("Elle Block {}  ·  syngui", env!("CARGO_PKG_VERSION")), ver, hex(theme::TEXT_DIM).with_alpha(0.55), 10.5, 600, TextAlign::CENTER);
+    text_nowrap(list, &format!("Syn Blocks {}  ·  syngui", env!("CARGO_PKG_VERSION")), ver, hex(theme::TEXT_DIM).with_alpha(0.55), 10.5, 600, TextAlign::CENTER);
     if alpha < 0.999 {
         list.pop_opacity();
     }

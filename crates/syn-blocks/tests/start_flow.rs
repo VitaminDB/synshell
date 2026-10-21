@@ -3,11 +3,11 @@
 
 use std::time::Duration;
 
-use elle_block::persist::{self, Stats};
-use elle_block::ui::layout;
-use elle_block::ui::overlay::{self, Action};
-use elle_block::ui::start;
-use elle_block::{GameCtx, GameView, Screen, Variant};
+use syn_blocks::persist::{self, Stats};
+use syn_blocks::ui::layout;
+use syn_blocks::ui::overlay::{self, Action};
+use syn_blocks::ui::start;
+use syn_blocks::{GameCtx, GameView, Screen, Variant};
 use syngui::prelude::*;
 use syngui::testing::{press_key, TestHarness};
 
@@ -15,9 +15,9 @@ const W: f32 = 460.0;
 const H: f32 = 820.0;
 
 fn setup(tag: &str) -> (TestHarness, GameCtx) {
-    let dir = std::env::temp_dir().join(format!("elle_block_start_{}_{tag}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("syn_blocks_start_{}_{tag}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    std::env::set_var("ELLE_BLOCK_DATA", &dir);
+    std::env::set_var("SYN_BLOCKS_DATA", &dir);
     syngui::signal::allow_signal_reads_on_this_thread();
     let ctx = GameCtx::new(3, Stats::default());
     ctx.screen.set(Screen::Start);
@@ -57,7 +57,7 @@ fn start_page_opens_chosen_variant_and_home_returns() {
     assert_eq!(ctx.stats.get_untracked().variant, 1, "выбор вида запоминается");
     let g = ctx.game.get_untracked();
     assert!(!g.over && g.tray.iter().all(|p| p.is_some()));
-    assert!(g.tray.iter().flatten().all(|p| (1..=elle_block::game::FINISH_COUNT).contains(&p.finish)), "у фигур есть отделка");
+    assert!(g.tray.iter().flatten().all(|p| (1..=syn_blocks::game::FINISH_COUNT).contains(&p.finish)), "у фигур есть отделка");
     frames(&mut h, 40);
     let _ = h.paint();
     // меню паузы → «В начало»
@@ -116,14 +116,14 @@ fn deluxe_paints_every_state_without_atlas() {
     }
     // ход с очисткой: ряд 7 почти полон, домино его закрывает
     let mut g = ctx.game.get_untracked();
-    g.board = elle_block::game::Board::new();
+    g.board = syn_blocks::game::Board::new();
     for c in 0..6 {
-        g.board.set(7, c, elle_block::game::make_cell_full(2, elle_block::game::Material::Plain, 5));
+        g.board.set(7, c, syn_blocks::game::make_cell_full(2, syn_blocks::game::Material::Plain, 5));
     }
-    g.tray = [Some(elle_block::game::Piece::of(elle_block::game::Family::I2).with_finish(1)), None, Some(elle_block::game::Piece::of(elle_block::game::Family::Mono).with_finish(7))];
+    g.tray = [Some(syn_blocks::game::Piece::of(syn_blocks::game::Family::I2).with_finish(1)), None, Some(syn_blocks::game::Piece::of(syn_blocks::game::Family::Mono).with_finish(7))];
     g.scoring.combo = 2;
     ctx.game.set(g);
-    let o = geo.piece_origin_in_slot(0, &elle_block::game::Family::I2.base());
+    let o = geo.piece_origin_in_slot(0, &syn_blocks::game::Family::I2.base());
     let from = Point::new(o.x + geo.tray_cell * 0.5, o.y + geo.tray_cell * 0.5);
     let to = Point::new(geo.grid.x + 6.0 * geo.cell + geo.tray_cell * 0.5, geo.grid.y + 7.0 * geo.cell + geo.tray_cell * 0.5);
     h.send_event(&Event::MouseDown { button: MouseButton::Left, position: from });
