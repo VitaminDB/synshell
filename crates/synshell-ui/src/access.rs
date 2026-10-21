@@ -71,6 +71,12 @@ pub fn start(ctx: ShellCtx) {
     if STARTED.swap(true, Ordering::SeqCst) {
         return;
     }
+    // во вложенной оболочке портал не нужен: окна выбора открывались бы в её
+    // композиторе, невидимые для программ основного сеанса
+    if std::env::var_os("SYNSHELL_NESTED").is_some() {
+        log::info!("бэкенд портала: вложенная оболочка — не регистрируется");
+        return;
+    }
     let _ = ctx;
     std::thread::Builder::new()
         .name("shell-portal-access".into())

@@ -315,6 +315,13 @@ fn run(args: &[String]) -> anyhow::Result<bool> {
     std::env::set_var("SYNSHELL_SOCKET", state.core.ipc.path());
     std::env::set_var("XDG_CURRENT_DESKTOP", "synshell");
     std::env::set_var("SYNSHELL_FORM_FACTOR", state.core.form_factor.as_str());
+    // Вложенная оболочка (отладка внутри основной) не занимает общесеансовые
+    // службы шины — портал выбора файлов и доступа остаётся у основной.
+    if nested {
+        std::env::set_var("SYNSHELL_NESTED", "1");
+    } else {
+        std::env::remove_var("SYNSHELL_NESTED");
+    }
 
     state.start_xwayland();
     if !nested {

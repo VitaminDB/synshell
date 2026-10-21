@@ -126,12 +126,18 @@ impl Access {
 /// ([`crate::portal_files`]: окно выбора — Проводник).
 /// Соединение живёт, пока жив возвращённый [`Connection`].
 pub fn start(prompter: impl Prompter + 'static) -> Result<Connection, String> {
-    zbus::blocking::connection::Builder::session()
-        .and_then(|b| b.name(BUS_NAME))
+    let conn = zbus::blocking::connection::Builder::session()
         .and_then(|b| b.serve_at(PATH, Access { prompter: Arc::new(prompter) }))
         .and_then(|b| b.serve_at(PATH, crate::portal_files::FileChooser))
         .and_then(|b| b.build())
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    // без вытеснения: имя уже у другой оболочки — она и обслуживает
+    // (по умолчанию zbus отбирает имя у владельца)
+    match conn.request_name_with_flags(BUS_NAME, zbus::fdo::RequestNameFlags::DoNotQueue.into()) {
+        Ok(zbus::fdo::RequestNameReply::PrimaryOwner | zbus::fdo::RequestNameReply::AlreadyOwner) => Ok(conn),
+        Ok(r) => Err(format!("имя {BUS_NAME} занято ({r:?})")),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 // --- решения порталов (хранилище разрешений xdg-desktop-portal) -------------------------------------------
