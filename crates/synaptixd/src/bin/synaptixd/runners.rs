@@ -916,6 +916,43 @@ impl Loaded {
         Ok(synaptixd::Transcript { text: text.trim().to_string(), segments: Vec::new() })
     }
 
+    /// Привести адаптеры LoRA языковой модели к набору `want`: недостающие
+    /// загрузить, силу выставить, остальные выключить. Ничего не меняется —
+    /// модель не трогается (смена набора сбрасывает KV-кэш чатов).
+    pub fn apply_loras(&self, want: &crate::lora::Resolved) -> anyhow::Result<()> {
+        let Loaded::Llm(b) = self else {
+            if want.is_empty() {
+                return Ok(());
+            }
+            anyhow::bail!("адаптеры LoRA — только у языковых моделей");
+        };
+        let llm = &b.llm;
+        let have = llm.loras();
+        for (u, dir) in want {
+            match have.iter().find(|l| l.name == u.name) {
+                Some(l) if l.path == *dir => {}
+                _ => {
+                    llm.load_lora(&u.name, dir).map_err(|e| anyhow::anyhow!("LoRA «{}»: {e}", u.name))?;
+                }
+            }
+            llm.set_lora_strength(&u.name, u.strength).map_err(|e| anyhow::anyhow!("{e}"))?;
+            llm.set_lora_enabled(&u.name, true).map_err(|e| anyhow::anyhow!("{e}"))?;
+        }
+        let keep: Vec<&str> = want.iter().map(|(u, _)| u.name.as_str()).collect();
+        let idle: Vec<_> = llm.loras().into_iter().filter(|l| !keep.contains(&l.name.as_str())).collect();
+        for l in &idle {
+            if l.enabled {
+                llm.set_lora_enabled(&l.name, false).map_err(|e| anyhow::anyhow!("{e}"))?;
+            }
+        }
+        // Выключенные держатся на карте для быстрого переключения, но не больше восьми.
+        for l in idle.iter().skip(8) {
+            let _ = llm.unload_lora(&l.name);
+        }
+        Ok(())
+    }
+
+
     pub fn generate(&self, messages: &[synaptixd::Message], params: &Params, tools: &[serde_json::Value], on_event: &dyn Fn(synaptixd::Event), cancel: &std::sync::atomic::AtomicBool) -> anyhow::Result<synaptixd::Generated> {
         use synaptix::facade::chat::{history_tokens, prompt_for_model, StreamParser};
         use synaptix::facade::llm::{GenerationOptions, LlmGeneration, Message};

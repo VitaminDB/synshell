@@ -429,6 +429,79 @@ fn run(args: &[String]) -> Result<(), String> {
             std::fs::write(out, wav).map_err(|e| e.to_string())?;
             println!("{:.1} с звука за {:.1} с → {out}", pcm.len() as f32 / sp.sample_rate as f32, t0.elapsed().as_secs_f32());
         }
+        "loras" => {
+            for l in c.loras().map_err(|e| e.to_string())? {
+                let eval = l.train.get("eval_loss").and_then(|v| v.as_f64()).map(|v| format!(" eval {v:.3}")).unwrap_or_default();
+                println!("{:<28} r={:<3} α={:<5} {:>8}  база {}{eval}", l.name, l.rank, l.alpha, mb(l.bytes), l.base.clone().unwrap_or(l.base_path.clone()));
+            }
+        }
+        // lora <модель> <имя> on|off|<сила>|remove — набор адаптеров модели по умолчанию.
+        "lora" => {
+            let model = arg(1)?;
+            let name = arg(2)?;
+            let what = args.get(3).map(String::as_str).unwrap_or("on");
+            let entry = c.list().map_err(|e| e.to_string())?.into_iter().find(|m| m.id == model).ok_or("нет такой модели")?;
+            let mut set = entry.settings.loras.clone();
+            set.retain(|u| u.name != name);
+            match what {
+                "remove" => {}
+                "on" => set.push(synaptixd::LoraUse::on(name)),
+                "off" => set.push(synaptixd::LoraUse { name: name.into(), enabled: false, strength: 1.0 }),
+                v => set.push(synaptixd::LoraUse { name: name.into(), enabled: true, strength: v.parse().map_err(|_| "on | off | remove | сила")? }),
+            }
+            let m = c.set(model, SettingsChange { loras: Some(set), ..Default::default() }).map_err(|e| e.to_string())?;
+            for u in &m.settings.loras {
+                println!("{} {} ×{}", if u.enabled { "●" } else { "○" }, u.name, u.strength);
+            }
+        }
+        "lora-delete" => c.delete_lora(arg(1)?).map_err(|e| e.to_string())?,
+        "datasets" => {
+            for d in c.datasets().map_err(|e| e.to_string())? {
+                println!("{:<32} {:>7} примеров {:>9}  {}", d.name, d.rows, mb(d.bytes), d.path);
+            }
+        }
+        // dataset-check <модель> <файл> [max_len]
+        "dataset-check" => {
+            let o = synaptixd::TrainOptions { max_len: args.get(3).and_then(|v| v.parse().ok()), ..Default::default() };
+            let r = c.dataset_check(arg(1)?, arg(2)?, o).map_err(|e| e.to_string())?;
+            println!("примеров {}, пропущено {}, обрезано {}, токенов {}, учится {}, только последний ответ {}", r.samples, r.skipped, r.truncated, r.tokens, r.target_tokens, r.last_turn_only);
+        }
+        // train <модель> <датасет> <имя> [ключ=значение …] (lora_r, lr, epochs, max_len, quant, …)
+        "train" => {
+            let mut o = serde_json::Map::new();
+            for kv in &args[4.min(args.len())..] {
+                let (k, v) = kv.split_once('=').ok_or("параметры — ключ=значение")?;
+                let val = v.parse::<f64>().map(|n| serde_json::json!(n)).or_else(|_| v.parse::<bool>().map(serde_json::Value::Bool)).unwrap_or_else(|_| serde_json::Value::String(v.into()));
+                let val = match (k, &val) {
+                    ("lora_r" | "epochs" | "max_len" | "grad_accum" | "eval_every" | "save_every" | "max_samples" | "seed", serde_json::Value::Number(n)) => serde_json::json!(n.as_f64().unwrap_or(0.0) as u64),
+                    _ => val,
+                };
+                o.insert(k.into(), val);
+            }
+            let options: synaptixd::TrainOptions = serde_json::from_value(serde_json::Value::Object(o)).map_err(|e| e.to_string())?;
+            let dataset = std::fs::canonicalize(arg(2)?).map_err(|e| format!("{}: {e}", arg(2).unwrap_or_default()))?;
+            let j = c.train_start(arg(1)?, &dataset.to_string_lossy(), arg(3)?, options).map_err(|e| e.to_string())?;
+            println!("задача #{} в очереди: {} → {}", j.id, j.model, j.out);
+        }
+        "jobs" => {
+            for j in c.train_jobs().map_err(|e| e.to_string())? {
+                let eval = j.eval_loss.map(|v| format!(" eval {v:.4}")).unwrap_or_default();
+                println!(
+                    "#{:<3} {:<10} {} ← {}  шаг {}/{} loss {:.4}{eval} {:.0} ток/с осталось {:.0} с{}",
+                    j.id,
+                    format!("{:?}", j.state).to_lowercase(),
+                    j.name,
+                    j.model,
+                    j.step,
+                    j.total_steps,
+                    j.loss,
+                    j.tokens_per_sec,
+                    j.eta_secs,
+                    j.error.as_ref().map(|e| format!(" ошибка: {e}")).unwrap_or_default()
+                );
+            }
+        }
+        "train-stop" => c.train_stop(arg(1)?.parse().map_err(|_| "номер задачи")?).map_err(|e| e.to_string())?,
         "watch" => {
             c.subscribe(|ev| {
                 match ev {
@@ -439,7 +512,7 @@ fn run(args: &[String]) -> Result<(), String> {
             })
             .map_err(|e| e.to_string())?;
         }
-        other => return Err(format!("неизвестная команда {other}: list|status|defaults|default|params|libraries|library-add|library-remove|delete|load|unload|set|ctc|asr|gen|image|music|say|watch|rescan")),
+        other => return Err(format!("неизвестная команда {other}: list|status|defaults|default|params|libraries|library-add|library-remove|delete|load|unload|set|ctc|asr|gen|image|music|say|watch|rescan|loras|lora|lora-delete|datasets|dataset-check|train|jobs|train-stop")),
     }
     Ok(())
 }

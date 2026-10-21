@@ -2,6 +2,7 @@ mod activity;
 mod config;
 mod defaults;
 mod library;
+mod lora;
 mod devices;
 mod flow;
 mod gen;
@@ -10,6 +11,7 @@ mod stages;
 mod manager;
 mod registry;
 mod runners;
+mod train;
 
 use std::ffi::CStr;
 use std::os::fd::{AsFd, AsRawFd, OwnedFd};
@@ -151,11 +153,11 @@ impl Conn {
                 mgr.unload(&model);
                 (data(mgr.entry(&model)?), none())
             }
-            Request::Set { model, device, pinned, idle_unload_min, kv_keep_min, preload, quant, params, engine } => {
+            Request::Set { model, device, pinned, idle_unload_min, kv_keep_min, preload, quant, params, engine, loras } => {
                 if !self.admin {
                     return Err(denied());
                 }
-                (data(mgr.set(&model, SettingsChange { device, pinned, idle_unload_min, kv_keep_min, preload, quant, params, engine })?), none())
+                (data(mgr.set(&model, SettingsChange { device, pinned, idle_unload_min, kv_keep_min, preload, quant, params, engine, loras })?), none())
             }
             Request::Defaults => (data(mgr.defaults()), none()),
             Request::SetDefault { kind, model } => {
@@ -325,8 +327,10 @@ impl Conn {
                 let fd = wire::memfd_f32("speech", &wav)?;
                 (data(synaptixd::SpeechReply { samples: wav.len(), sample_rate: sr, audio: FdRef { fd: 0 }, seed }), vec![fd])
             }
-            Request::Generate { model, messages, max_tokens, temperature, params, tools } => {
+            Request::Generate { model, messages, max_tokens, temperature, params, tools, loras } => {
                 let model = mgr.resolve_id(&model, ModelKind::Llm)?;
+                let want = loras.unwrap_or_else(|| mgr.model_loras(&model));
+                let loras = lora::resolve(&mgr.library_paths(), &want).map_err(|e| Error::new(ErrorCode::Failed, e))?;
                 let mut call = params;
                 if let Some(v) = max_tokens {
                     call.set("max_tokens", Some((v as i64).into()));
@@ -372,7 +376,10 @@ impl Conn {
                         cancel.store(true, std::sync::atomic::Ordering::SeqCst);
                     }
                 };
-                let g = mgr.run(&model, |m| m.generate(&messages, &params, &tools, &send, &cancel))?;
+                let g = mgr.run(&model, |m| {
+                    m.apply_loras(&loras)?;
+                    m.generate(&messages, &params, &tools, &send, &cancel)
+                })?;
                 if let Some(l) = &live {
                     l.generated(&g);
                 }
@@ -425,6 +432,44 @@ impl Conn {
             Request::Cancel { activity } => {
                 let uid = wire::peer(self.sock.as_fd()).map(|p| p.uid).unwrap_or(u32::MAX);
                 activity::cancel(activity, uid, self.admin).map_err(|e| Error::new(ErrorCode::Denied, e))?;
+                (Value::Null, none())
+            }
+            Request::Loras => {
+                let libs = mgr.library_paths();
+                let mut list = lora::scan_loras(&libs);
+                // Модель, на которой учился адаптер, — по файлу базы.
+                for l in &mut list {
+                    if l.base.is_none() && !l.base_path.is_empty() {
+                        l.base = mgr.id_of_file(std::path::Path::new(&l.base_path));
+                    }
+                }
+                (data(list), none())
+            }
+            Request::DeleteLora { name } => {
+                let e = lora::find_lora(&mgr.library_paths(), &name).ok_or_else(|| Error::new(ErrorCode::Failed, format!("нет адаптера «{name}»")))?;
+                let peer = wire::peer(self.sock.as_fd()).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))?;
+                as_peer(peer.uid, peer.gid, || std::fs::remove_dir_all(&e.path)).map_err(|x| Error::new(ErrorCode::Denied, format!("{}: {x}", e.path)))?;
+                mgr.notify(synaptixd::Event::LorasChanged);
+                (Value::Null, none())
+            }
+            Request::Datasets => (data(lora::scan_datasets(&mgr.library_paths())), none()),
+            Request::DatasetCheck { model, path, options } => {
+                let peer = wire::peer(self.sock.as_fd()).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))?;
+                (data(train::check_dataset(&mgr, &model, &path, &options, peer.uid, peer.gid)?), none())
+            }
+            Request::TrainStart { model, dataset, name, options } => {
+                let peer = wire::peer(self.sock.as_fd()).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))?;
+                (data(train::start(&model, &dataset, &name, options, peer.uid, peer.gid, self.app.clone())?), none())
+            }
+            Request::TrainJobs => (data(train::jobs()), none()),
+            Request::TrainStop { job } => {
+                let uid = wire::peer(self.sock.as_fd()).map(|p| p.uid).unwrap_or(u32::MAX);
+                train::stop(job, uid, self.admin)?;
+                (Value::Null, none())
+            }
+            Request::TrainForget { job } => {
+                let uid = wire::peer(self.sock.as_fd()).map(|p| p.uid).unwrap_or(u32::MAX);
+                train::forget(job, uid, self.admin)?;
                 (Value::Null, none())
             }
             Request::Subscribe => unreachable!(),
@@ -532,6 +577,7 @@ fn main() -> anyhow::Result<()> {
     std::fs::set_permissions(&cfg.socket, std::fs::Permissions::from_mode(0o666))?;
     tracing::info!("слушаю {}", cfg.socket.display());
     let mgr = Manager::new(cfg);
+    train::init(mgr.clone());
     {
         let m = mgr.clone();
         std::thread::Builder::new().name("monitor".into()).spawn(move || m.monitor())?;

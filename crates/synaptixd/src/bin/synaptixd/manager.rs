@@ -165,6 +165,12 @@ impl Slot {
     }
 }
 
+pub struct ModelFile {
+    pub path: std::path::PathBuf,
+    pub library: Option<std::path::PathBuf>,
+    pub title: String,
+}
+
 pub struct Manager {
     pub cfg: Config,
     slots: Mutex<BTreeMap<String, Slot>>,
@@ -436,6 +442,11 @@ impl Manager {
             .ok_or_else(|| Error::new(ErrorCode::NoModel, format!("{}: такой модели нет в библиотеке службы", path.display())))
     }
 
+    /// Id модели по её файлу (`None` — нет такой).
+    pub fn id_of_file(&self, path: &std::path::Path) -> Option<String> {
+        self.id_by_path_of(path, Some(ModelKind::Llm)).ok()
+    }
+
     pub fn defaults(&self) -> Vec<DefaultModel> {
         let chosen = self.defaults.lock().unwrap().clone();
         ModelKind::DEFAULTABLE
@@ -582,6 +593,10 @@ impl Manager {
             if let Some(p) = ch.params {
                 s.settings.params = p.sanitize(&s.schema);
             }
+            if let Some(l) = ch.loras {
+                // Адаптеры применяются перед следующей генерацией, без перезагрузки.
+                s.settings.loras = l;
+            }
             if let Some(e) = ch.engine {
                 if e != s.settings.engine {
                     let differs = e.reload_differs(&s.settings.engine);
@@ -610,6 +625,30 @@ impl Manager {
         }
         self.notify_slot(id);
         Ok(if reload { self.entry(id)? } else { entry })
+    }
+
+    /// Корни библиотек (существующие).
+    pub fn library_paths(&self) -> Vec<std::path::PathBuf> {
+        self.libraries.lock().unwrap().0.iter().map(|l| std::path::PathBuf::from(&l.path)).filter(|p| p.is_dir()).collect()
+    }
+
+    pub fn default_library(&self) -> Option<std::path::PathBuf> {
+        let l = self.libraries.lock().unwrap();
+        l.1.clone().or_else(|| l.0.first().map(|c| c.path.clone())).map(std::path::PathBuf::from)
+    }
+
+    /// Основной файл модели (вариант для CUDA или первый), её библиотека и название.
+    pub fn model_file(&self, id: &str) -> Option<ModelFile> {
+        let slots = self.slots.lock().unwrap();
+        let s = slots.get(id)?;
+        let m = &s.manifest;
+        let v = m.variant_quant(DeviceKind::Cuda, s.settings.quant.as_deref()).or(m.variants.first())?;
+        Some(ModelFile { path: m.path(v), library: m.library.clone(), title: m.title.clone() })
+    }
+
+    /// Набор адаптеров LoRA модели из её настроек.
+    pub fn model_loras(&self, id: &str) -> Vec<synaptixd::LoraUse> {
+        self.slots.lock().unwrap().get(id).map(|s| s.settings.loras.clone()).unwrap_or_default()
     }
 
     fn save_state(&self) {

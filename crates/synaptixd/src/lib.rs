@@ -168,6 +168,199 @@ pub struct ModelSettings {
     /// Профиль движка языковой модели (ручные правки поверх выверенного).
     #[serde(default, skip_serializing_if = "EngineProfile::is_default")]
     pub engine: EngineProfile,
+    /// Адаптеры LoRA языковой модели по умолчанию (запрос может задать свой
+    /// набор). Накладываются при генерации поверх весов, без слияния.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub loras: Vec<LoraUse>,
+}
+
+fn one() -> f32 {
+    1.0
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// Адаптер LoRA в наборе модели: имя в библиотеке, включён ли, сила.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct LoraUse {
+    pub name: String,
+    #[serde(default = "yes")]
+    pub enabled: bool,
+    /// Множитель масштаба адаптера (1 — как учился).
+    #[serde(default = "one")]
+    pub strength: f32,
+}
+
+impl LoraUse {
+    pub fn on(name: impl Into<String>) -> Self {
+        Self { name: name.into(), enabled: true, strength: 1.0 }
+    }
+}
+
+/// Адаптер LoRA в библиотеке (`<библиотека>/lora/<имя>/`).
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct LoraEntry {
+    pub name: String,
+    pub path: String,
+    #[serde(default)]
+    pub library: Option<String>,
+    /// Модель, на которой учился (id в службе, если нашлась), и её файл.
+    #[serde(default)]
+    pub base: Option<String>,
+    #[serde(default)]
+    pub base_path: String,
+    pub rank: usize,
+    pub alpha: f32,
+    #[serde(default)]
+    pub targets: Vec<String>,
+    pub bytes: u64,
+    #[serde(default)]
+    pub modified_ms: i64,
+    /// Сведения обучения (`synaptix_train.json`): датасет, шаги, лосс…
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub train: Value,
+}
+
+/// Датасет в библиотеке (`<библиотека>/datasets/*.jsonl|json`).
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct DatasetEntry {
+    pub name: String,
+    pub path: String,
+    #[serde(default)]
+    pub library: Option<String>,
+    pub bytes: u64,
+    /// Строк JSONL (примеров), у JSON-массива — его длина.
+    pub rows: usize,
+    #[serde(default)]
+    pub modified_ms: i64,
+}
+
+/// Проверка датасета токенизатором модели.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct DatasetCheck {
+    pub samples: usize,
+    pub skipped: usize,
+    pub truncated: usize,
+    pub tokens: usize,
+    pub target_tokens: usize,
+    pub last_turn_only: usize,
+}
+
+/// Параметры обучения адаптера (пустое — по умолчанию движка).
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct TrainOptions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lora_r: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lora_alpha: Option<f32>,
+    /// `all`, `attn` или список проекций.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub targets: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lr: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub epochs: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_len: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grad_accum: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warmup: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eval_fraction: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eval_every: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub save_every: Option<usize>,
+    /// Формат базы: `nvfp4` (по умолчанию), `mxfp8`, `sqN`, `bf16`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quant: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub thinking: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_samples: Option<usize>,
+    /// Продолжить с адаптера библиотеки (то же имя — дообучить его).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TrainState {
+    /// Ждёт своей очереди (обучение идёт по одному).
+    #[default]
+    Queued,
+    /// Разметка датасета и загрузка базы.
+    Preparing,
+    Running,
+    Done,
+    Failed,
+    Cancelled,
+}
+
+impl TrainState {
+    pub fn finished(self) -> bool {
+        matches!(self, TrainState::Done | TrainState::Failed | TrainState::Cancelled)
+    }
+}
+
+/// Точка кривой обучения.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Default)]
+pub struct TrainPoint {
+    pub step: usize,
+    pub loss: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eval_loss: Option<f32>,
+}
+
+/// Задача обучения адаптера в службе.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct TrainJob {
+    pub id: u64,
+    pub model: String,
+    #[serde(default)]
+    pub model_title: String,
+    pub dataset: String,
+    /// Имя адаптера и куда он пишется.
+    pub name: String,
+    pub out: String,
+    pub options: TrainOptions,
+    pub state: TrainState,
+    pub created_ms: i64,
+    #[serde(default)]
+    pub started_ms: Option<i64>,
+    #[serde(default)]
+    pub finished_ms: Option<i64>,
+    pub step: usize,
+    pub total_steps: usize,
+    pub epoch: usize,
+    pub loss: f32,
+    #[serde(default)]
+    pub eval_loss: Option<f32>,
+    pub lr: f32,
+    pub grad_norm: f32,
+    pub tokens_per_sec: f32,
+    pub eta_secs: f32,
+    pub elapsed_secs: f32,
+    #[serde(default)]
+    pub history: Vec<TrainPoint>,
+    #[serde(default)]
+    pub dataset_check: Option<DatasetCheck>,
+    #[serde(default)]
+    pub train_samples: usize,
+    #[serde(default)]
+    pub eval_samples: usize,
+    #[serde(default)]
+    pub trainable_params: u64,
+    #[serde(default)]
+    pub error: Option<String>,
+    /// Кто запустил.
+    #[serde(default)]
+    pub app: AppInfo,
 }
 
 /// Профиль движка языковой модели. В настройках — только ручные правки
@@ -664,6 +857,8 @@ pub enum Request {
         params: Option<Params>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         engine: Option<EngineProfile>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        loras: Option<Vec<LoraUse>>,
     },
     Rescan,
     Defaults,
@@ -833,6 +1028,10 @@ pub enum Request {
         params: Params,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         tools: Vec<Value>,
+        /// Свой набор адаптеров LoRA на этот запрос (`None` — из настроек
+        /// модели; пустой — без адаптеров).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        loras: Option<Vec<LoraUse>>,
     },
     /// Оценки пар (запрос, документ) кросс-энкодером.
     Rerank {
@@ -880,6 +1079,42 @@ pub enum Request {
     /// Остановить работу (свою — любой, чужую — root и wheel).
     Cancel {
         activity: u64,
+    },
+    /// Адаптеры LoRA в библиотеках.
+    Loras,
+    /// Удалить адаптер из библиотеки (с правами программы-клиента).
+    DeleteLora {
+        name: String,
+    },
+    /// Датасеты в библиотеках.
+    Datasets,
+    /// Разметить датасет токенизатором модели и посчитать примеры и токены.
+    DatasetCheck {
+        model: String,
+        path: String,
+        #[serde(default)]
+        options: TrainOptions,
+    },
+    /// Поставить обучение адаптера в очередь. Файлы читаются и пишутся с
+    /// правами программы-клиента; задача живёт в службе и после отключения
+    /// программы, ход — событиями `train` у подписчиков.
+    TrainStart {
+        model: String,
+        dataset: String,
+        name: String,
+        #[serde(default)]
+        options: TrainOptions,
+    },
+    /// Задачи обучения: идущие, в очереди и завершённые.
+    TrainJobs,
+    /// Остановить задачу (адаптер на этом шаге сохраняется); в очереди —
+    /// убрать. Свою — любой, чужую — root и wheel.
+    TrainStop {
+        job: u64,
+    },
+    /// Убрать завершённую задачу из истории.
+    TrainForget {
+        job: u64,
     },
 }
 
@@ -937,6 +1172,10 @@ pub enum Event {
     FlowFiles { first: usize, names: Vec<String> },
     /// Ход упаковки: событие `synaptix_bundle::ProgressEvent` в JSON.
     Pack { progress: Value },
+    /// Задача обучения изменилась (шаг, состояние).
+    Train { job: TrainJob },
+    /// Изменился список адаптеров или датасетов в библиотеках.
+    LorasChanged,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
@@ -1333,6 +1572,7 @@ impl Client {
             quant: change.quant,
             params: change.params,
             engine: change.engine,
+            loras: change.loras,
         })
     }
 
@@ -1576,9 +1816,55 @@ impl Client {
     }
 
     pub fn chat(&mut self, model: &str, messages: Vec<Message>, tools: Vec<Value>, params: &Params, on_event: impl FnMut(Event)) -> Result<Generated> {
-        let req = Request::Generate { model: model.into(), messages, max_tokens: None, temperature: None, params: params.clone(), tools };
+        self.chat_loras(model, messages, tools, params, None, on_event)
+    }
+
+    /// Как [`Self::chat`], но со своим набором адаптеров LoRA на этот запрос
+    /// (`None` — из настроек модели).
+    pub fn chat_loras(
+        &mut self,
+        model: &str,
+        messages: Vec<Message>,
+        tools: Vec<Value>,
+        params: &Params,
+        loras: Option<Vec<LoraUse>>,
+        on_event: impl FnMut(Event),
+    ) -> Result<Generated> {
+        let req = Request::Generate { model: model.into(), messages, max_tokens: None, temperature: None, params: params.clone(), tools, loras };
         let (v, _) = self.call_events(req, &[], on_event)?;
         serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))
+    }
+
+    pub fn loras(&mut self) -> Result<Vec<LoraEntry>> {
+        self.call_typed(Request::Loras)
+    }
+
+    pub fn delete_lora(&mut self, name: &str) -> Result<()> {
+        self.call(Request::DeleteLora { name: name.into() }, &[]).map(|_| ())
+    }
+
+    pub fn datasets(&mut self) -> Result<Vec<DatasetEntry>> {
+        self.call_typed(Request::Datasets)
+    }
+
+    pub fn dataset_check(&mut self, model: &str, path: &str, options: TrainOptions) -> Result<DatasetCheck> {
+        self.call_typed(Request::DatasetCheck { model: model.into(), path: path.into(), options })
+    }
+
+    pub fn train_start(&mut self, model: &str, dataset: &str, name: &str, options: TrainOptions) -> Result<TrainJob> {
+        self.call_typed(Request::TrainStart { model: model.into(), dataset: dataset.into(), name: name.into(), options })
+    }
+
+    pub fn train_jobs(&mut self) -> Result<Vec<TrainJob>> {
+        self.call_typed(Request::TrainJobs)
+    }
+
+    pub fn train_stop(&mut self, job: u64) -> Result<()> {
+        self.call(Request::TrainStop { job }, &[]).map(|_| ())
+    }
+
+    pub fn train_forget(&mut self, job: u64) -> Result<()> {
+        self.call(Request::TrainForget { job }, &[]).map(|_| ())
     }
 
     /// Оценки пар (запрос, документ); пачками по 32.
@@ -1633,6 +1919,7 @@ pub struct SettingsChange {
     pub quant: Option<Option<String>>,
     pub params: Option<Params>,
     pub engine: Option<EngineProfile>,
+    pub loras: Option<Vec<LoraUse>>,
 }
 
 pub fn model_id_from_file(name: &str) -> String {
@@ -1663,6 +1950,7 @@ mod tests {
                 quant: Some(None),
                 params: None,
                 engine: Some(EngineProfile { custom: true, graph_decode: Some(false), kv_dtype: Some("bf16".into()), ..Default::default() }),
+                loras: Some(vec![LoraUse::on("стиль")]),
             },
         };
         let s = serde_json::to_string(&e).unwrap();
