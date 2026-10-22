@@ -30,6 +30,7 @@ pub mod time;
 pub mod torch;
 pub mod usb;
 pub mod usbc;
+pub mod uevent;
 pub mod util;
 pub mod volume;
 pub mod vpn;

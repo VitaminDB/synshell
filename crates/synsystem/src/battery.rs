@@ -63,7 +63,7 @@ pub fn batteries(sys: &Sys) -> Vec<BatteryInfo> {
             let micro = |k: &str| sys.read_num::<f64>(f(k)).map(|v| (v / 1e6) as f32);
             let voltage_v = micro("voltage_now");
             let current_a = micro("current_now");
-            let power_w = micro("power_now").or_else(|| Some(voltage_v? * current_a?.abs()));
+            let power_w = power_of(voltage_v.map(f64::from), current_a.map(f64::from), micro("power_now").map(f64::from)).map(|p| p as f32);
             let (full, full_design) = match micro("energy_full") {
                 Some(e) => (Some(e), micro("energy_full_design")),
                 None => (micro("charge_full"), micro("charge_full_design")),
@@ -105,14 +105,59 @@ pub fn adc_voltage(sys: &Sys) -> Option<f32> {
     None
 }
 
+/// Подключено ли внешнее питание (сеть, USB, беспроводная зарядка):
+/// `None` — источников питания нет вовсе (настольный компьютер) или нет
+/// системной батареи, которую они заряжали бы.
+pub fn external_power(sys: &Sys) -> Option<bool> {
+    let names = sys.list(PS);
+    if !names.iter().any(|n| is_system_battery(sys, n)) {
+        return None;
+    }
+    let mut seen = false;
+    let mut online = false;
+    for n in &names {
+        let ty = sys.read(format!("{PS}/{n}/type")).unwrap_or_default();
+        if ty == "Battery" || sys.read(format!("{PS}/{n}/scope")).as_deref() == Some("Device") {
+            continue;
+        }
+        let Some(on) = sys.read_num::<u32>(format!("{PS}/{n}/online")) else { continue };
+        seen = true;
+        online |= on > 0;
+    }
+    seen.then_some(online)
+}
+
+/// Слушать изменения источников питания (подключили/отключили кабель):
+/// `changed` зовётся из потока чтения uevent.
+pub fn watch(changed: impl FnMut() + Send + 'static) -> std::io::Result<()> {
+    crate::uevent::watch("power-uevent", |m| crate::uevent::has(m, b"SUBSYSTEM=power_supply"), changed)
+}
+
+/// Мощность батареи, Вт: U×I, если драйвер даёт напряжение и ток, иначе
+/// `power_now`. Драйверы телефонов (qcom battmgr) держат в `power_now`
+/// константу (10 Вт), а ток и напряжение у них настоящие.
+fn power_of(voltage_v: Option<f64>, current_a: Option<f64>, power_now_w: Option<f64>) -> Option<f64> {
+    match (voltage_v, current_a) {
+        (Some(v), Some(i)) if v > 0.0 => Some(v * i.abs()),
+        _ => power_now_w.map(f64::abs),
+    }
+}
+
 /// Сводка: сумма по батареям.
+///
+/// Запас и мощность сводятся к Вт·ч и Вт, чтобы оценка времени не смешивала
+/// единицы: у части драйверов есть только `capacity` и `charge_full`
+/// (без `charge_now`/`energy_now`).
 pub fn read(sys: &Sys) -> Option<Battery> {
-    let mut total_now = 0f64;
-    let mut total_full = 0f64;
+    // Сумма процентов, взвешенных ёмкостью (Вт·ч), и сами ёмкости.
+    let mut pct_sum = 0f64;
+    let mut pct_weight = 0f64;
+    let mut now_wh = 0f64;
+    let mut full_wh = 0f64;
+    let mut energy_known = true;
     let mut charging = false;
     let mut full = true;
-    let mut power = 0f64;
-    let mut power_w = None::<f32>;
+    let mut power_w = None::<f64>;
     let mut found = false;
     for name in sys.list(PS) {
         if !is_system_battery(sys, &name) {
@@ -120,35 +165,48 @@ pub fn read(sys: &Sys) -> Option<Battery> {
         }
         found = true;
         let num = |k: &str| sys.read_num::<f64>(format!("{PS}/{name}/{k}"));
-        let (now, fl) = match (num("energy_now"), num("energy_full")) {
-            (Some(n), Some(f)) => (n, f),
-            _ => match (num("charge_now"), num("charge_full")) {
-                (Some(n), Some(f)) => (n, f),
-                _ => (num("capacity").unwrap_or(0.0), 100.0),
-            },
+        let micro = |k: &str| num(k).map(|v| v / 1e6);
+        let volt = micro("voltage_now").filter(|v| *v > 0.0).or_else(|| micro("voltage_min_design")).filter(|v| *v > 0.0);
+        let pw = power_of(micro("voltage_now"), micro("current_now"), micro("power_now"));
+        // Ёмкость полная и текущая, Вт·ч (по заряду — через напряжение).
+        let full_e = micro("energy_full").or_else(|| Some(micro("charge_full")? * volt?)).filter(|f| *f > 0.0);
+        let now_e = micro("energy_now").or_else(|| Some(micro("charge_now")? * volt?));
+        let cap = num("capacity");
+        let pct = match (now_e, full_e) {
+            (Some(n), Some(f)) => Some(n / f * 100.0),
+            _ => cap,
         };
-        total_now += now;
-        total_full += fl;
-        let p = num("power_now").or_else(|| num("current_now").map(f64::abs)).unwrap_or(0.0);
-        power += p;
-        if let Some(pw) = num("power_now") {
-            power_w = Some(power_w.unwrap_or(0.0) + (pw.abs() / 1e6) as f32);
-        } else if let (Some(v), Some(c)) = (num("voltage_now"), num("current_now")) {
-            power_w = Some(power_w.unwrap_or(0.0) + (v / 1e6 * c.abs() / 1e6) as f32);
+        let Some(pct) = pct else { continue };
+        let w = full_e.unwrap_or(1.0);
+        pct_sum += pct.clamp(0.0, 100.0) * w;
+        pct_weight += w;
+        match full_e {
+            Some(f) => {
+                full_wh += f;
+                now_wh += now_e.unwrap_or(f * pct / 100.0);
+            }
+            None => energy_known = false,
+        }
+        if let Some(p) = pw {
+            power_w = Some(power_w.unwrap_or(0.0) + p);
         }
         let st = sys.read(format!("{PS}/{name}/status")).unwrap_or_default();
         charging |= st == "Charging";
         full &= st == "Full" || st == "Not charging";
     }
-    if !found || total_full <= 0.0 {
+    if !found || pct_weight <= 0.0 {
         return None;
     }
-    let percent = (total_now / total_full * 100.0).round().clamp(0.0, 100.0) as u32;
-    let minutes = (power > 0.0).then(|| {
-        let hours = if charging { (total_full - total_now) / power } else { total_now / power };
-        (hours * 60.0) as u32
-    });
-    Some(Battery { percent, charging, full, minutes, power_w })
+    let percent = (pct_sum / pct_weight).round().clamp(0.0, 100.0) as u32;
+    let minutes = match power_w {
+        Some(p) if p > 0.05 && energy_known && full_wh > 0.0 && !full => {
+            let hours = if charging { (full_wh - now_wh).max(0.0) / p } else { now_wh / p };
+            // Больше суток — оценка бессмысленна (ток почти нулевой).
+            Some((hours * 60.0).round() as u32).filter(|m| *m < 48 * 60)
+        }
+        _ => None,
+    };
+    Some(Battery { percent, charging, full, minutes, power_w: power_w.map(|p| p as f32) })
 }
 
 #[cfg(test)]
@@ -187,6 +245,54 @@ mod tests {
         assert_eq!(d.len(), 1);
         assert_eq!(d[0].wear_percent(), Some(75));
         assert_eq!(d[0].cycles, Some(120));
+    }
+
+    #[test]
+    fn phone_battery_without_charge_now() {
+        // qcom battmgr: нет charge_now, power_now — константа 10 Вт.
+        let dir = tempfile::tempdir().unwrap();
+        let b = dir.path().join("sys/class/power_supply/battery");
+        fs::create_dir_all(&b).unwrap();
+        for (k, v) in [
+            ("type", "Battery"),
+            ("status", "Charging"),
+            ("capacity", "50"),
+            ("charge_full", "4000000"),
+            ("current_now", "-2000000"),
+            ("voltage_now", "4000000"),
+            ("power_now", "10000000"),
+        ] {
+            fs::write(b.join(k), v).unwrap();
+        }
+        let s = read(&Sys::at(dir.path())).unwrap();
+        assert_eq!(s.percent, 50);
+        assert!(s.charging);
+        assert_eq!(s.power_w, Some(8.0));
+        // 2 А·ч × 4 В = 8 Вт·ч до полного при 8 Вт — час.
+        assert_eq!(s.minutes, Some(60));
+        assert_eq!(batteries(&Sys::at(dir.path()))[0].power_w, Some(8.0));
+    }
+
+    #[test]
+    fn external_power_online() {
+        let dir = tempfile::tempdir().unwrap();
+        let ps = dir.path().join("sys/class/power_supply");
+        for (n, kv) in [
+            ("battery", &[("type", "Battery"), ("capacity", "50")][..]),
+            ("usb", &[("type", "USB_PD"), ("online", "1")][..]),
+            ("wireless", &[("type", "Wireless"), ("online", "0")][..]),
+        ] {
+            fs::create_dir_all(ps.join(n)).unwrap();
+            for (k, v) in kv {
+                fs::write(ps.join(n).join(k), v).unwrap();
+            }
+        }
+        let sys = Sys::at(dir.path());
+        assert_eq!(external_power(&sys), Some(true));
+        fs::write(ps.join("usb/online"), "0").unwrap();
+        assert_eq!(external_power(&sys), Some(false));
+        fs::remove_dir_all(ps.join("battery")).unwrap();
+        assert_eq!(external_power(&sys), None);
     }
 
     #[test]
