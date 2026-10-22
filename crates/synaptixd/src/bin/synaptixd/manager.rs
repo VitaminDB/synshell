@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::mem::ManuallyDrop;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
@@ -183,6 +183,9 @@ pub struct Manager {
     since_ms: i64,
     /// Кому уступать видеокарту (`yield_vram_to`, меняется из «Параметров»).
     vram_yield: Mutex<Vec<String>>,
+    /// Сведения о языковых моделях с прошлой загрузки: `llm_info` для
+    /// выгруженной модели отвечает из них, а не поднимает её в память.
+    llm_infos: Mutex<HashMap<String, synaptixd::LlmInfo>>,
 }
 
 fn scan_all(cfg: &Config, libs: &[LibraryConf]) -> BTreeMap<String, Manifest> {
@@ -321,6 +324,7 @@ impl Manager {
             evictions: AtomicU64::new(0),
             since_ms: now_ms(),
             vram_yield: Mutex::new(state.vram_yield.clone().unwrap_or_else(|| cfg.yield_vram_to.clone())),
+            llm_infos: Mutex::new(HashMap::new()),
             cfg,
         })
     }
@@ -521,6 +525,21 @@ impl Manager {
         *self.vram_yield.lock().unwrap() = list;
         self.save_state();
         self.status()
+    }
+
+    /// Сведения о языковой модели. Загруженная отвечает сама (и обновляет
+    /// запомненное); выгруженная — из запомненного при прошлой загрузке:
+    /// окно и пресеты не стоят того, чтобы поднимать модель на карту.
+    pub fn llm_info(self: &Arc<Self>, id: &str) -> Result<synaptixd::LlmInfo, Error> {
+        let loaded = self.slots.lock().unwrap().get(id).is_some_and(|s| s.model.is_some());
+        if !loaded {
+            if let Some(info) = self.llm_infos.lock().unwrap().get(id) {
+                return Ok(info.clone());
+            }
+        }
+        let info = self.run(id, |m| m.llm_info())?;
+        self.llm_infos.lock().unwrap().insert(id.to_string(), info.clone());
+        Ok(info)
     }
 
     /// Память загруженных моделей: (RAM, видеопамять), байт.
@@ -1005,6 +1024,9 @@ impl Manager {
                     } else {
                         tracing::info!("{id}: удержанный KV-кэш не подошёл (другое устройство или точность) — сброшен");
                     }
+                }
+                if let Ok(info) = model.llm_info() {
+                    self.llm_infos.lock().unwrap().insert(id.to_string(), info);
                 }
                 s.model = Some(Arc::new(model));
                 s.device = Some(dev);

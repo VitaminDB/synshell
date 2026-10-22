@@ -413,7 +413,7 @@ impl Conn {
             }
             Request::LlmInfo { model } => {
                 let model = mgr.resolve_id(&model, ModelKind::Llm)?;
-                let info = mgr.run(&model, |m| m.llm_info())?;
+                let info = mgr.llm_info(&model)?;
                 (data(info), none())
             }
             Request::Flow { flow, inputs, files } => flow::serve(&mgr, self.sock.as_fd(), self.current, flow, inputs, files, fds.into_iter().flatten().collect())?,
