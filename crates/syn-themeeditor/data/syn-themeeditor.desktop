@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Theme Editor
+Name[ru]=Редактор тем
+GenericName=Theme editor
+GenericName[ru]=Редактор оформления
+Comment=Create and edit synshell themes: palette, live preview, try-on
+Comment[ru]=Создание и правка тем synshell: палитра, живой предпросмотр, примерка
+Exec=syn-themeeditor %f
+Icon=syn-themeeditor
+Terminal=false
+Categories=Settings;DesktopSettings;
+Keywords=theme;colors;palette;appearance;mss;тема;цвета;палитра;оформление;
+MimeType=application/x-syntheme;
+StartupWMClass=syn-themeeditor

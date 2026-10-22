@@ -49,6 +49,7 @@ members = [
     "crates/syn-notes-proto",
     "crates/syn-blocks",
     "crates/syn-dlss",
+    "crates/syn-themeeditor",
 ]
 
 [workspace.package]

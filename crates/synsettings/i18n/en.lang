@@ -1895,3 +1895,12 @@
 "Как в «Звук → Звуки событий»" = "Same as Sound → Event sounds"
 "Навигация, выбор, вкладка, меню, запуск" = "Navigation, select, tab, menu, launch"
 "звуки событий звуковая тема уведомления щелчки громкость динамик наушники гарнитура микрофон вывод ввод устройство программы dolby atmos профиль музыка кино pipewire" = "event sounds sound theme notifications clicks volume speaker headphones headset microphone output input device apps dolby atmos profile music movie pipewire"
+
+# src/pages/themes.rs (редактор тем)
+"Редактор тем" = "Theme editor"
+"Палитра, генератор по акценту и обоям, живой предпросмотр и примерка" = "Palette, generator from accent and wallpaper, live preview and try-on"
+"Изменить текущую" = "Edit current"
+"Новая тема" = "New theme"
+"Копия текущей — правьте её, не трогая оригинал" = "A copy of the current one — edit it without touching the original"
+"Создать тему" = "Create theme"
+"Не удалось запустить редактор тем: {e}" = "Could not start the theme editor: {e}"

@@ -281,6 +281,13 @@ pub fn apply(t: Option<&Theme>) {
     state::bump();
 }
 
+/// Запустить редактор тем (`syn-themeeditor`) с аргументами.
+fn open_editor<S: AsRef<std::ffi::OsStr>>(args: &[S]) {
+    if let Err(e) = std::process::Command::new("syn-themeeditor").args(args).spawn() {
+        state::toast(t!("Не удалось запустить редактор тем: {e}", e = e));
+    }
+}
+
 pub fn themes() -> W {
     let c = store::config();
     let a = &c.appearance;
@@ -332,6 +339,19 @@ pub fn themes() -> W {
                     state::bump();
                 }),
             ),
+            row(
+                &t!("Редактор тем"),
+                &t!("Палитра, генератор по акценту и обоям, живой предпросмотр и примерка"),
+                button(&t!("Изменить текущую"), || {
+                    let cur = store::config().appearance.theme;
+                    if cur.trim().is_empty() {
+                        open_editor(&["--new"]);
+                    } else {
+                        open_editor(&[cur]);
+                    }
+                }),
+            ),
+            row(&t!("Новая тема"), &t!("Копия текущей — правьте её, не трогая оригинал"), button(&t!("Создать тему"), || open_editor(&["--new"]))),
             row(
                 &t!("Свои темы"),
                 &t!("{v}/<имя>/theme.toml + shell.mss", v = home_short(&theme::user_dir())),
