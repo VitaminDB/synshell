@@ -289,6 +289,13 @@ fn is_oom(e: &anyhow::Error) -> bool {
     s.contains("out of memory") || s.contains(": oom") || s.contains("alloc_zeros")
 }
 
+fn no_device(id: &str) -> Error {
+    match devices::cuda_yielded() {
+        Some(who) => Error::new(ErrorCode::Device, format!("{id} работает только на видеокарте, а она отдана программе «{who}» — модель загрузится, когда программа закроется")),
+        None => Error::new(ErrorCode::Device, format!("нет доступного устройства для {id}")),
+    }
+}
+
 fn no_model(id: &str) -> Error {
     Error::new(ErrorCode::NoModel, format!("модель {id} не установлена"))
 }
@@ -1002,10 +1009,8 @@ impl Manager {
         let supported = m.devices();
         let dev = match devices::resolve(want, &supported) {
             Some(d) => d,
-            None if want != DeviceKind::Auto => devices::resolve(DeviceKind::Auto, &supported).ok_or_else(|| {
-                Error::new(ErrorCode::Device, format!("нет доступного устройства для {}", m.id))
-            })?,
-            None => return Err(Error::new(ErrorCode::Device, format!("нет доступного устройства для {}", m.id))),
+            None if want != DeviceKind::Auto => devices::resolve(DeviceKind::Auto, &supported).ok_or_else(|| no_device(&m.id))?,
+            None => return Err(no_device(&m.id)),
         };
         let variant = m.variant_quant(dev, quant).ok_or_else(|| Error::new(ErrorCode::Device, "нет варианта весов для устройства"))?;
         let path = m.path(variant);
@@ -1121,6 +1126,58 @@ impl Manager {
         any
     }
 
+    /// Уступить видеокарту программе: выгрузить с неё все модели (и
+    /// закреплённые), отпустить стадии LTX. Занятая модель вернёт память,
+    /// закончив текущую работу; KV-кэш чатов ждёт в RAM.
+    fn yield_cuda(&self, who: &str) {
+        crate::stages::release_ltx(None);
+        let ids: Vec<String> = self
+            .slots
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, s)| s.model.is_some() && s.device == Some(DeviceKind::Cuda))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ids {
+            if self.unload_with(&id, true) {
+                self.evictions.fetch_add(1, Ordering::Relaxed);
+                tracing::info!("{id}: выгружена (видеокарта нужна программе «{who}»)");
+            }
+        }
+        release_vram(Some(DeviceKind::Cuda));
+    }
+
+    /// Следить за программами из `yield_vram_to`: запущена — карта её,
+    /// модели грузятся на CPU/NPU; закрылась — карта снова нейросетям.
+    pub fn watch_vram_yield(self: &Arc<Self>) {
+        if self.cfg.yield_vram_to.is_empty() {
+            return;
+        }
+        loop {
+            let found = find_process(&self.cfg.yield_vram_to);
+            match (found, devices::cuda_yielded()) {
+                (Some(who), None) => {
+                    tracing::info!("запущена «{who}» — видеокарта уступлена ей");
+                    devices::set_cuda_yielded(Some(who.clone()));
+                    self.yield_cuda(&who);
+                }
+                // Загрузка, начатая до уступки, могла закончиться на карте.
+                (Some(_), Some(who)) => {
+                    if self.slots.lock().unwrap().values().any(|s| s.model.is_some() && s.device == Some(DeviceKind::Cuda)) {
+                        self.yield_cuda(&who);
+                    }
+                }
+                (None, Some(who)) => {
+                    devices::set_cuda_yielded(None);
+                    tracing::info!("«{who}» закрыта — видеокарта снова у нейросетей");
+                }
+                (None, None) => {}
+            }
+            std::thread::sleep(Duration::from_secs(2));
+        }
+    }
+
     pub fn monitor(self: &Arc<Self>) {
         let min = self.cfg.min_available_mb << 20;
         loop {
@@ -1159,3 +1216,18 @@ impl Manager {
     }
 }
 
+/// Первый процесс, чьё имя (`comm`, до 15 символов) есть в `names`;
+/// возвращает имя программы по её ярлыку (`DaVinci Resolve`).
+fn find_process(names: &[String]) -> Option<String> {
+    use std::os::unix::fs::MetadataExt;
+    let names: Vec<String> = names.iter().map(|n| n.chars().take(15).collect()).collect();
+    for e in std::fs::read_dir("/proc").ok()?.flatten() {
+        let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<i32>().ok()) else { continue };
+        let Ok(comm) = std::fs::read_to_string(format!("/proc/{pid}/comm")) else { continue };
+        if names.iter().any(|n| n == comm.trim()) {
+            let uid = e.metadata().map(|m| m.uid()).unwrap_or(0);
+            return Some(crate::activity::app_of(pid, uid).name);
+        }
+    }
+    None
+}

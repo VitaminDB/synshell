@@ -2,3 +2,6 @@ min_available_mb = 1024
 idle_unload_min = 10
 kv_keep_min = 60
 max_loaded = 0
+# Программы (имя процесса), которым на время работы отдаётся вся видеокарта:
+# модели уходят с неё, новые грузятся на CPU/NPU; [] — не уступать.
+yield_vram_to = ["resolve"]

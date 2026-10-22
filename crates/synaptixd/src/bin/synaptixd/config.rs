@@ -14,6 +14,9 @@ pub struct Config {
     /// Сколько минут держать в RAM KV-кэш чатов выгруженной модели (0 — нет).
     pub kv_keep_min: u32,
     pub max_loaded: usize,
+    /// Программы (имя процесса), которым на время работы отдаётся вся
+    /// видеокарта: модели уходят с неё, новые грузятся на CPU/NPU.
+    pub yield_vram_to: Vec<String>,
     pub model_dirs: Vec<PathBuf>,
     pub state: PathBuf,
     pub socket: PathBuf,
@@ -26,6 +29,7 @@ impl Default for Config {
             idle_unload_min: 10,
             kv_keep_min: 60,
             max_loaded: 0,
+            yield_vram_to: vec!["resolve".into()],
             model_dirs: Vec::new(),
             state: PathBuf::from(STATE),
             socket: synaptixd::socket_path(),

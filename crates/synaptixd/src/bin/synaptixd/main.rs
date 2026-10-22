@@ -581,6 +581,10 @@ fn main() -> anyhow::Result<()> {
     {
         let m = mgr.clone();
         std::thread::Builder::new().name("monitor".into()).spawn(move || m.monitor())?;
+    }
+    {
+        let m = mgr.clone();
+        std::thread::Builder::new().name("vram-yield".into()).spawn(move || m.watch_vram_yield())?;
         let m = mgr.clone();
         std::thread::Builder::new().name("preload".into()).spawn(move || m.preload())?;
         let m = mgr.clone();

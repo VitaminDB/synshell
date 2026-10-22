@@ -15,6 +15,18 @@ static PROBE: Mutex<Probe> = Mutex::new(Probe { npu: None, npu_at: None, cuda: N
 pub static NPU_LOCK: Mutex<()> = Mutex::new(());
 pub static CUDA_LOCK: Mutex<()> = Mutex::new(());
 
+/// Программа, которой служба уступила видеокарту (DaVinci Resolve и др.):
+/// пока она запущена, CUDA для моделей недоступна.
+static CUDA_YIELDED: Mutex<Option<String>> = Mutex::new(None);
+
+pub fn cuda_yielded() -> Option<String> {
+    CUDA_YIELDED.lock().unwrap().clone()
+}
+
+pub fn set_cuda_yielded(who: Option<String>) {
+    *CUDA_YIELDED.lock().unwrap() = who;
+}
+
 pub fn init() {
     synaptix_kernels_cpu::ensure_registered();
 }
@@ -49,7 +61,7 @@ pub fn available(kind: DeviceKind) -> bool {
     match kind {
         DeviceKind::Auto | DeviceKind::Cpu => true,
         DeviceKind::Gpu => false,
-        DeviceKind::Cuda => *p.cuda.get_or_insert_with(cuda_ok),
+        DeviceKind::Cuda => cuda_yielded().is_none() && *p.cuda.get_or_insert_with(cuda_ok),
         DeviceKind::Npu => {
             let retry = p.npu == Some(false) && p.npu_at.is_none_or(|t| t.elapsed() > Duration::from_secs(30));
             if p.npu.is_none() || retry {
