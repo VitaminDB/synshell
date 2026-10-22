@@ -283,6 +283,12 @@ pub fn release_vram(dev: Option<DeviceKind>) {
     );
 }
 
+/// Ошибка — нехватка памяти карты (аллокаторы CUDA пишут её по-разному).
+fn is_oom(e: &anyhow::Error) -> bool {
+    let s = e.to_string().to_ascii_lowercase();
+    s.contains("out of memory") || s.contains(": oom") || s.contains("alloc_zeros")
+}
+
 fn no_model(id: &str) -> Error {
     Error::new(ErrorCode::NoModel, format!("модель {id} не установлена"))
 }
@@ -1042,13 +1048,21 @@ impl Manager {
         let live = crate::activity::current();
         let lease = self.acquire(id)?;
         let dev = lease.device;
-        let r = {
+        let mut r = {
             let _dl = devices::lock(dev);
             if let Some(l) = &live {
                 l.running();
             }
             f(&lease.model)
         };
+        // Нехватка видеопамяти — не повод уходить на CPU: модель отдаёт
+        // хосту часть блоков и ход повторяется на карте.
+        while dev == DeviceKind::Cuda && r.as_ref().err().is_some_and(is_oom) && lease.model.shed_vram() {
+            tracing::warn!("{id}: ход упёрся в видеопамять ({}); часть блоков — на хост, повтор на cuda", r.as_ref().err().unwrap());
+            release_vram(Some(DeviceKind::Cuda));
+            let _dl = devices::lock(dev);
+            r = f(&lease.model);
+        }
         match r {
             Ok(v) => Ok(v),
             Err(e) if dev != DeviceKind::Cpu && lease.model.cpu_fallback() => {

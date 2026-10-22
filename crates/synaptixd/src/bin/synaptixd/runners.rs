@@ -695,6 +695,15 @@ impl Loaded {
 
     /// Повторять ли на CPU после ошибки на ускорителе: генерацию — нет (на
     /// CPU это часы; ошибка — обычно отмена или нехватка памяти).
+    /// Ход упёрся в видеопамять: языковая модель отдаёт хосту часть блоков
+    /// (дальше они стримятся), чтобы повторить ход на карте. `false` — нечего.
+    pub fn shed_vram(&self) -> bool {
+        match self {
+            Loaded::Llm(b) => b.llm.shed_blocks(),
+            _ => false,
+        }
+    }
+
     pub fn cpu_fallback(&self) -> bool {
         !matches!(self, Loaded::Image(..) | Loaded::Music(..) | Loaded::Video(..))
     }
