@@ -1065,6 +1065,8 @@ impl Manager {
         }
         match r {
             Ok(v) => Ok(v),
+            // Отмена хода — не сбой устройства: повторять её на CPU незачем.
+            Err(e) if e.to_string().contains(synaptix_llm_common::generate::INTERRUPTED) => Err(Error::new(ErrorCode::Failed, e.to_string())),
             Err(e) if dev != DeviceKind::Cpu && lease.model.cpu_fallback() => {
                 tracing::warn!("{id}: ошибка на {} ({e}); повтор на CPU", dev.id());
                 drop(lease);
