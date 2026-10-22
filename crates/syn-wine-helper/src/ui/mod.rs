@@ -172,24 +172,17 @@ impl St {
 
 pub fn theme(cfg: &Config) -> String {
     use synshell_common::config::Rgba;
+    use synshell_common::style::{px, AppStyle};
     let a = &cfg.appearance;
     let p = a.palette();
-    let mut s = a.mss_variables();
     // своя рамка: заголовок, второй цвет знака, скругление окна как у рамок рабочего стола
     let titlebar = if a.is_dark() { p.bg.mix(Rgba::rgb(0, 0, 0), 0.22) } else { p.surface_alt.mix(p.bg, 0.5) };
     let accent2 = p.accent.mix(Rgba::rgb(0x8e, 0x24, 0xaa), 0.45);
-    s.push_str(&format!(
-        ":root {{\n  --titlebar: {};\n  --accent-2: {};\n  --window-radius: {}px;\n}}\n",
-        titlebar.hex(),
-        accent2.hex(),
-        cfg.decorations.corner_radius.max(0.0),
-    ));
-    s.push_str(&a.theme_mss_variables());
-    s.push_str(include_str!("../../styles/syn-wine-helper.mss"));
-    if !a.font.trim().is_empty() {
-        s.push_str(&format!("Text, Button {{ font-family: \"{}\"; }}\n", a.font.trim()));
-    }
-    s
+    AppStyle::new(cfg, "syn-wine-helper")
+        .font_selector("Text, Button")
+        .vars(&[("titlebar", titlebar.hex()), ("accent-2", accent2.hex()), ("window-radius", px(cfg.decorations.corner_radius.max(0.0)))])
+        .base(include_str!("../../styles/syn-wine-helper.mss"))
+        .build()
 }
 
 /// «13,3 МБ»
@@ -295,7 +288,7 @@ fn run_with(mode: Mode, failed: Option<Failed>, gst: Option<GstAsk>) -> bool {
         .transparent(true)
         .background(Color::from_srgb(0, 0, 0, 0.0))
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
-        .with_styles_str(&mss)
+        .with_live_styles(synshell_common::live::styles(mss, theme))
         .with_window_state(window)
         .run(move |_| {
             let mut st = St::new(mode, failed.clone());

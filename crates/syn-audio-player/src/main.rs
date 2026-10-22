@@ -61,7 +61,7 @@ fn main() {
         .size(420, 720)
         .min_size(320, 420)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
-        .with_styles_str(&mss)
+        .with_live_styles(synshell_common::live::styles(mss.clone(), theme))
         .run(move |_| {
             let st = ui::St {
                 tracks: use_signal(Vec::new()),
@@ -91,12 +91,5 @@ fn main() {
 }
 
 fn theme(cfg: &Config) -> String {
-    let a = &cfg.appearance;
-    let mut s = a.mss_variables();
-    s.push_str(&a.theme_mss_variables());
-    s.push_str(include_str!("../styles/syn-audio-player.mss"));
-    if !a.font.trim().is_empty() {
-        s.push_str(&format!("Text, Button {{ font-family: \"{}\"; }}\n", a.font.trim()));
-    }
-    s
+    synshell_common::style::AppStyle::new(cfg, "syn-audio-player").font_selector("Text, Button").base(include_str!("../styles/syn-audio-player.mss")).build()
 }

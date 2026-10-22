@@ -36,16 +36,10 @@ const HINT_TOP: f32 = 28.0;
 
 pub const STYLES: &str = include_str!("../styles/screenshot.mss");
 
-/// Таблица стилей: палитра рабочего стола + свои правила.
+/// Таблица стилей: палитра рабочего стола + свои правила. Оверлей живёт
+/// секунды — без живого обновления темы.
 pub fn stylesheet(cfg: &synshell_common::Config) -> String {
-    let a = &cfg.appearance;
-    let mut out = a.mss_variables();
-    out.push_str(&a.theme_mss_variables());
-    out.push_str(STYLES);
-    if !a.font.trim().is_empty() {
-        out.push_str(&format!("Text, Button {{\n  font-family: \"{}\";\n}}\n", a.font.trim()));
-    }
-    out
+    synshell_common::style::AppStyle::new(cfg, "synshot").font_selector("Text, Button").base(STYLES).build()
 }
 
 pub fn open_surfaces() {

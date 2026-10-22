@@ -259,7 +259,8 @@ pub fn run(file: PathBuf, cfg: synshell_common::Config) {
         std::process::exit(1);
     }
     let v = init(&file, &cfg);
-    let initial = v.theme.get_untracked();
+    // Тема и примерка из редактора тем — сразу.
+    synshell_common::live::bind(v.theme, v.theme.get_untracked(), theme_mss);
     let title = file.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     App::new()
         .title(t!("{title} — Просмотр", title = title))
@@ -268,8 +269,7 @@ pub fn run(file: PathBuf, cfg: synshell_common::Config) {
         .min_size(340, 360)
         .frameless()
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
-        .with_styles_str(&initial)
-        .with_dynamic_theme(v.theme)
+        .with_live_styles(v.theme)
         .with_window_state(v.window)
         .run(move |_| ui::root());
 }

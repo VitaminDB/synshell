@@ -843,8 +843,8 @@ pub const STYLES: &str = include_str!("../styles/files.mss");
 /// Таблица стилей окна: палитра `[appearance]`, производные цвета, свой MSS,
 /// `files.mss` темы и пользовательский `theme.mss`.
 pub fn theme_mss(c: &Config) -> String {
+    use synshell_common::style::{px, AppStyle};
     let a = &c.appearance;
-    let mut s = a.mss_variables();
     let p = a.palette();
     let dark = a.is_dark();
     // Слои как в Проводнике Windows 11: заголовок с вкладками темнее,
@@ -853,35 +853,36 @@ pub fn theme_mss(c: &Config) -> String {
     let chrome = if dark { p.bg.mix(p.surface, 0.55) } else { p.surface };
     let content = if dark { p.bg.mix(p.surface, 0.2) } else { p.bg.mix(p.surface, 0.35) };
     let sidebar = if dark { p.bg.mix(p.surface, 0.2) } else { p.bg.mix(p.surface, 0.35) };
-    s.push_str(&format!(
-        ":root {{\n  --titlebar: {};\n  --chrome: {};\n  --content: {};\n  --sidebar: {};\n  --row-hover: {};\n  --row-selected: {};\n  --row-selected-hover: {};\n  --field: {};\n  --shadow: {};\n  --divider: {};\n  --window-radius: {}px;\n}}\n",
-        titlebar.hex(),
-        chrome.hex(),
-        content.hex(),
-        sidebar.hex(),
-        p.fg.with_alpha(0.06).hex(),
-        p.accent.with_alpha(if dark { 0.28 } else { 0.18 }).hex(),
-        p.accent.with_alpha(if dark { 0.36 } else { 0.26 }).hex(),
-        if dark { p.bg.mix(p.surface, 0.8).hex() } else { p.surface.hex() },
-        if dark { "#00000080" } else { "#1a203024" },
-        p.border.fade(0.7).hex(),
-        c.decorations.corner_radius.max(0.0),
-    ));
     // Свой тёплый цвет «внутри архива» (полоса, крошка, рамка адреса) —
     // не путается ни с акцентом темы, ни с выделением.
     let (arc, deep) = if dark { (Rgba(0xf2, 0xb0, 0x4c), Rgba(0xd9, 0x7a, 0x26)) } else { (Rgba(0xc2, 0x7a, 0x12), Rgba(0xa0, 0x55, 0x0a)) };
-    s.push_str(&format!(
-        ":root {{\n  --archive: {};\n  --archive-deep: {};\n  --archive-soft: {};\n  --archive-faint: {};\n  --archive-line: {};\n  --archive-glow: {};\n}}\n",
-        arc.hex(),
-        deep.hex(),
-        arc.with_alpha(if dark { 0.17 } else { 0.15 }).hex(),
-        arc.with_alpha(0.04).hex(),
-        arc.with_alpha(if dark { 0.32 } else { 0.38 }).hex(),
-        deep.with_alpha(0.40).hex(),
-    ));
-    s.push_str(&a.theme_mss_variables());
-    s.push_str(STYLES);
-    s.push_str(a.theme_files_mss());
+    let mut s = AppStyle::new(c, "files")
+        // Шрифт интерфейса Проводник не ставит.
+        .font_selector("")
+        .vars(&[
+            ("titlebar", titlebar.hex()),
+            ("chrome", chrome.hex()),
+            ("content", content.hex()),
+            ("sidebar", sidebar.hex()),
+            ("row-hover", p.fg.with_alpha(0.06).hex()),
+            ("row-selected", p.accent.with_alpha(if dark { 0.28 } else { 0.18 }).hex()),
+            ("row-selected-hover", p.accent.with_alpha(if dark { 0.36 } else { 0.26 }).hex()),
+            ("field", if dark { p.bg.mix(p.surface, 0.8).hex() } else { p.surface.hex() }),
+            ("shadow", (if dark { "#00000080" } else { "#1a203024" }).to_string()),
+            ("divider", p.border.fade(0.7).hex()),
+            ("window-radius", px(c.decorations.corner_radius.max(0.0))),
+        ])
+        .vars(&[
+            ("archive", arc.hex()),
+            ("archive-deep", deep.hex()),
+            ("archive-soft", arc.with_alpha(if dark { 0.17 } else { 0.15 }).hex()),
+            ("archive-faint", arc.with_alpha(0.04).hex()),
+            ("archive-line", arc.with_alpha(if dark { 0.32 } else { 0.38 }).hex()),
+            ("archive-glow", deep.with_alpha(0.40).hex()),
+        ])
+        .push(STYLES)
+        .build();
+    // Пользовательский `theme.mss` — поверх всего, как и раньше.
     if let Ok(user) = std::fs::read_to_string(synshell_common::paths::user_theme_file()) {
         s.push('\n');
         s.push_str(&user);

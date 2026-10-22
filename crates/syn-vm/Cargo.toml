@@ -11,7 +11,7 @@ name = "syn-vm"
 path = "src/main.rs"
 
 [dependencies]
-synshell-common = { workspace = true, features = ["i18n"] }
+synshell-common = { workspace = true, features = ["i18n", "style"] }
 syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "image", "clipboard"] }
 flate2 = "1"
 serde.workspace = true

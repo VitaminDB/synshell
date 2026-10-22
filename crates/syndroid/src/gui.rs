@@ -124,7 +124,7 @@ pub fn run(images: bool) {
         .size(1040, 720)
         .min_size(340, 480)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
-        .with_styles_str(&mss)
+        .with_live_styles(synshell_common::live::styles(mss, theme))
         .run(move |_| {
             let st = St {
                 tab: use_signal(if images { Tab::Images } else { Tab::Overview }),
@@ -178,21 +178,16 @@ pub fn run(images: bool) {
 
 fn theme(cfg: &ShellConfig) -> String {
     let a = &cfg.appearance;
-    let mut s = a.mss_variables();
     let p = a.palette();
     let dark = a.is_dark();
-    s.push_str(&format!(
-        ":root {{\n  --input-bg: {};\n  --accent-hover: {};\n  --danger-soft: {};\n}}\n",
-        if dark { p.bg.mix(p.surface, 0.35) } else { p.surface }.hex(),
-        p.accent.mix(p.fg, 0.15).hex(),
-        p.danger.with_alpha(0.16).hex(),
-    ));
-    s.push_str(&a.theme_mss_variables());
-    s.push_str(include_str!("../styles/syndroid.mss"));
-    if !a.font.trim().is_empty() {
-        s.push_str(&format!("Text, Button, TextField {{ font-family: \"{}\"; }}\n", a.font.trim()));
-    }
-    s
+    synshell_common::style::AppStyle::new(cfg, "syndroid")
+        .vars(&[
+            ("input-bg", if dark { p.bg.mix(p.surface, 0.35) } else { p.surface }.hex()),
+            ("accent-hover", p.accent.mix(p.fg, 0.15).hex()),
+            ("danger-soft", p.danger.with_alpha(0.16).hex()),
+        ])
+        .base(include_str!("../styles/syndroid.mss"))
+        .build()
 }
 
 // ─── Фоновые запросы ─────────────────────────────────────────────────────────

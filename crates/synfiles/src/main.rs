@@ -241,7 +241,6 @@ fn main() {
 
     let ctx = make_state(&args, cfg);
     let theme = ctx.theme;
-    let initial = theme.get_untracked();
     watch_config();
 
     let title = if choosing { chooser::title() } else { t!("Проводник").to_string() };
@@ -255,8 +254,7 @@ fn main() {
         .transparent(true)
         .background(Color::from_srgb(0, 0, 0, 0.0))
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
-        .with_styles_str(&initial)
-        .with_dynamic_theme(theme)
+        .with_live_styles(theme)
         .with_window_state(ctx.window)
         .on_close_request(move || {
             if choosing {
@@ -277,28 +275,8 @@ fn main() {
     state::save_session();
 }
 
-/// Перечитывать config.toml и файлы темы при изменении.
+/// Перечитывать config.toml и файлы темы при изменении (тема, примерка из
+/// редактора тем, настройки Проводника).
 fn watch_config() {
-    std::thread::spawn(|| {
-        let mtime = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
-        let files = || {
-            let mut v = vec![synshell_common::paths::config_file(), synshell_common::paths::user_theme_file()];
-            v.extend(synshell_common::Config::load().0.appearance.theme_files());
-            v
-        };
-        let mut watched = files();
-        let mut stamps: Vec<_> = watched.iter().map(|p| mtime(p)).collect();
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            let now: Vec<_> = watched.iter().map(|p| mtime(p)).collect();
-            if now != stamps {
-                watched = files();
-                stamps = watched.iter().map(|p| mtime(p)).collect();
-                let (cfg, err) = synshell_common::Config::load();
-                if err.is_none() {
-                    run_on_main_thread(move || state::config_changed(cfg));
-                }
-            }
-        }
-    });
+    synshell_common::live::spawn(Vec::new(), |cfg| run_on_main_thread(move || state::config_changed(cfg)));
 }

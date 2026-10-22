@@ -53,9 +53,8 @@ pub fn run() {
     synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
     synshell_common::i18n::apply(&system_config());
     let (cfg, _) = synshell_common::Config::load();
-    let mut mss = cfg.appearance.mss_variables();
-    mss.push_str(&cfg.appearance.theme_mss_variables());
-    mss.push_str(include_str!("../styles/greeter.mss"));
+    // Экран входа живёт недолго — тема без живого обновления; шрифт интерфейса не ставится.
+    let mss = synshell_common::style::AppStyle::new(&cfg, "synlogin").font_selector("").base(include_str!("../styles/greeter.mss")).build();
     let r = syngui_layer::run(syngui_layer::RunOptions::default(), &mss, move || {
         let st = St {
             stage: use_signal(Stage::Users),

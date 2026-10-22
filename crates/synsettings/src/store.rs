@@ -445,6 +445,17 @@ pub fn reload() {
     }
 }
 
+/// Заново разобрать документ в памяти (без чтения файла): изменились файлы
+/// темы или примерка из редактора тем, а config.toml — нет.
+pub fn reparse() {
+    let mut g = lock();
+    if let Some(s) = g.as_mut() {
+        if let Ok(c) = Config::parse(&s.doc.to_string()) {
+            s.config = c;
+        }
+    }
+}
+
 static PENDING: AtomicU64 = AtomicU64::new(0);
 
 fn save_pending() -> bool {

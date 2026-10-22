@@ -88,33 +88,23 @@ pub fn theme(cfg: &Config, dark: bool) -> String {
 
 /// Применить тему по текущим настройкам приложения и оболочки.
 pub fn apply_theme(st: state::St) {
-    let (cfg, _) = Config::load();
-    let dark = is_dark(&cfg, st.data.get_untracked().settings.theme);
-    st.dark.set(dark);
-    st.theme.set(theme(&cfg, dark));
+    apply_theme_with(st, &Config::load().0);
 }
 
-/// Тема «как в системе» меняется вместе с настройками оболочки.
+fn apply_theme_with(st: state::St, cfg: &Config) {
+    let dark = is_dark(cfg, st.data.get_untracked().settings.theme);
+    st.dark.set(dark);
+    let mss = theme(cfg, dark);
+    if st.theme.get_untracked() != mss {
+        st.theme.set(mss);
+    }
+}
+
+/// Тема «как в системе» меняется вместе с настройками оболочки. Своя
+/// дизайн-система: таблица собирается без `AppStyle` (палитра и переменные
+/// темы оболочки перекрыли бы свои цвета программы).
 fn watch_config(st: state::St) {
-    std::thread::spawn(move || {
-        let mtime = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
-        let files = || {
-            let mut v = vec![synshell_common::paths::config_file(), synshell_common::paths::user_theme_file()];
-            v.extend(Config::load().0.appearance.theme_files());
-            v
-        };
-        let mut watched = files();
-        let mut stamps: Vec<_> = watched.iter().map(|p| mtime(p)).collect();
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            let now: Vec<_> = watched.iter().map(|p| mtime(p)).collect();
-            if now != stamps {
-                watched = files();
-                stamps = watched.iter().map(|p| mtime(p)).collect();
-                run_on_main_thread(move || apply_theme(st));
-            }
-        }
-    });
+    synshell_common::live::spawn(Vec::new(), move |cfg| run_on_main_thread(move || apply_theme_with(st, &cfg)));
 }
 
 /// Пример истории для снимков экрана: три цикла по 28–30 дней.
@@ -204,7 +194,7 @@ fn main() {
     let dark = is_dark(&cfg, set.theme);
     let mss = theme(&cfg, dark);
     st.dark.set(dark);
-    st.theme.set(mss.clone());
+    st.theme.set(mss);
     watch_config(st);
     App::new()
         .title(t!("Цикл"))
@@ -217,8 +207,7 @@ fn main() {
         .ui_scale(set.scale)
         .background(Color::from_srgb(0, 0, 0, 0.0))
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
-        .with_styles_str(&mss)
-        .with_dynamic_theme(st.theme)
+        .with_live_styles(st.theme)
         .with_theme_transition(320)
         .with_window_state(st.window)
         .run(move |_| {

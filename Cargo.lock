@@ -3897,6 +3897,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "mss-lang"
+version = "0.1.0"
+
+[[package]]
 name = "multiversion_no_op"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6953,6 +6957,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-themeeditor"
+version = "0.1.42"
+dependencies = [
+ "image",
+ "serde",
+ "syngui",
+ "synshell-common",
+ "toml",
+ "toml_edit 0.23.10+spec-1.0.0",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "syn-video-player"
 version = "0.1.42"
 dependencies = [
@@ -8073,6 +8091,7 @@ dependencies = [
  "khronos-egl",
  "libc",
  "log",
+ "mss-lang",
  "oboe",
  "percent-encoding",
  "pollster",

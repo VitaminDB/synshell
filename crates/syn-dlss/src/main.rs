@@ -16,61 +16,30 @@ use synshell_common::config::Rgba;
 use synshell_common::Config;
 
 pub fn theme(cfg: &Config) -> String {
+    use synshell_common::style::{px, AppStyle};
     let a = &cfg.appearance;
     let p = a.palette();
     let dark = a.is_dark();
-    let mut s = a.mss_variables();
     let titlebar = if dark { p.bg.mix(Rgba::rgb(0, 0, 0), 0.22) } else { p.surface_alt.mix(p.bg, 0.5) };
     let content = if dark { p.bg.mix(p.surface, 0.12) } else { p.bg.mix(p.surface, 0.4) };
     let card = if dark { p.surface.mix(Rgba::rgb(255, 255, 255), 0.03) } else { p.surface };
     // зелёный NVIDIA как второй цвет знака
     let accent2 = p.accent.mix(Rgba::rgb(0x76, 0xb9, 0x00), 0.6);
     let input = if dark { p.bg.mix(p.surface, 0.35) } else { p.surface };
-    s.push_str(&format!(
-        ":root {{\n  --titlebar: {};\n  --content: {};\n  --card: {};\n  --input-bg: {};\n  --accent-2: {};\n  --accent-dim: {};\n  --shadow: {};\n  --scrim: {};\n  --window-radius: {}px;\n}}\n",
-        titlebar.hex(),
-        content.hex(),
-        card.hex(),
-        input.hex(),
-        accent2.hex(),
-        p.accent.with_alpha(0.14).hex(),
-        if dark { "#00000080" } else { "#1a203024" },
-        p.bg.with_alpha(0.86).hex(),
-        cfg.decorations.corner_radius.max(0.0),
-    ));
-    s.push_str(&a.theme_mss_variables());
-    s.push_str(include_str!("../styles/syn-dlss.mss"));
-    if !a.font.trim().is_empty() {
-        s.push_str(&format!("Text, Button, TextField {{ font-family: \"{}\"; }}\n", a.font.trim()));
-    }
-    s
-}
-
-/// Тема меняется вместе с настройками оболочки.
-fn watch_config(st: state::St) {
-    std::thread::spawn(move || {
-        let mtime = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
-        let files = || {
-            let mut v = vec![synshell_common::paths::config_file(), synshell_common::paths::user_theme_file()];
-            v.extend(Config::load().0.appearance.theme_files());
-            v
-        };
-        let mut watched = files();
-        let mut stamps: Vec<_> = watched.iter().map(|p| mtime(p)).collect();
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            let now: Vec<_> = watched.iter().map(|p| mtime(p)).collect();
-            if now != stamps {
-                watched = files();
-                stamps = watched.iter().map(|p| mtime(p)).collect();
-                let (cfg, err) = Config::load();
-                if err.is_none() {
-                    let mss = theme(&cfg);
-                    run_on_main_thread(move || st.theme.set(mss));
-                }
-            }
-        }
-    });
+    AppStyle::new(cfg, "syn-dlss")
+        .vars(&[
+            ("titlebar", titlebar.hex()),
+            ("content", content.hex()),
+            ("card", card.hex()),
+            ("input-bg", input.hex()),
+            ("accent-2", accent2.hex()),
+            ("accent-dim", p.accent.with_alpha(0.14).hex()),
+            ("shadow", (if dark { "#00000080" } else { "#1a203024" }).to_string()),
+            ("scrim", p.bg.with_alpha(0.86).hex()),
+            ("window-radius", px(cfg.decorations.corner_radius.max(0.0))),
+        ])
+        .base(include_str!("../styles/syn-dlss.mss"))
+        .build()
 }
 
 fn main() {
@@ -124,7 +93,8 @@ fn main() {
     }
     let st = state::St::new();
     st.theme.set(mss.clone());
-    watch_config(st);
+    // Тема меняется вместе с настройками оболочки и примеркой из редактора тем.
+    synshell_common::live::bind(st.theme, mss, theme);
     App::new()
         .title("DLSS 5")
         .app_id("syn-dlss")
@@ -134,8 +104,7 @@ fn main() {
         .transparent(true)
         .background(Color::from_srgb(0, 0, 0, 0.0))
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
-        .with_styles_str(&mss)
-        .with_dynamic_theme(st.theme)
+        .with_live_styles(st.theme)
         .with_window_state(st.window)
         .run(move |_| {
             st.start();

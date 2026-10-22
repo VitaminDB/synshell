@@ -99,7 +99,7 @@ pub fn run() {
         .size(1280, 820)
         .min_size(720, 480)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
-        .with_dynamic_theme(theme)
+        .with_live_styles(theme)
         .start_hidden(args.background)
         .hide_on_close(true)
         .run(|_| Box::new(root()));
@@ -155,31 +155,17 @@ fn install_state_autosave(app: AppCtx) {
     });
 }
 
-/// Тема меняется вместе с оформлением оболочки.
+/// Тема (и примерка из редактора тем) и язык меняются вместе с оформлением
+/// оболочки. Таблица — своя (`theme::mss`, переменные synthos), не `AppStyle`.
 fn watch_shell_config(theme: RwSignal<String>) {
-    std::thread::spawn(move || {
-        let mtime = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
-        let files = || {
-            let mut v = vec![synshell_common::paths::config_file(), synshell_common::paths::user_theme_file()];
-            v.extend(Config::load().0.appearance.theme_files());
-            v
-        };
-        let mut watched = files();
-        let mut stamps: Vec<_> = watched.iter().map(|p| mtime(p)).collect();
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            let now: Vec<_> = watched.iter().map(|p| mtime(p)).collect();
-            if now != stamps {
-                watched = files();
-                stamps = watched.iter().map(|p| mtime(p)).collect();
-                let (cfg, _) = Config::load();
-                let mss = theme::mss(&cfg);
-                syngui::async_runtime::run_on_main_thread(move || {
-                    synshell_common::i18n::apply(&cfg);
-                    theme.set(mss);
-                });
+    synshell_common::live::spawn(Vec::new(), move |cfg| {
+        let mss = theme::mss(&cfg);
+        syngui::async_runtime::run_on_main_thread(move || {
+            synshell_common::i18n::apply(&cfg);
+            if theme.get_untracked() != mss {
+                theme.set(mss);
             }
-        }
+        });
     });
 }
 

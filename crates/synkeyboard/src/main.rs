@@ -96,6 +96,7 @@ fn daemon() {
     let mss = build_mss(&config);
     let font = Some(config.appearance.font.trim().to_string()).filter(|f| !f.is_empty());
 
+    let initial = mss.clone();
     let scale = config.osk.scale;
     let placement = config.osk.placement;
     let result = syngui_layer::run(syngui_layer::RunOptions { font_family: font }, &mss, move || {
@@ -103,7 +104,7 @@ fn daemon() {
         let kb = ui::Keyboard::new(placement);
         ui::install(kb);
         listen(kb);
-        watch_config(kb);
+        watch_config(kb, initial);
     });
     let _ = std::fs::remove_file(socket_path());
     if let Err(e) = result {
@@ -112,27 +113,27 @@ fn daemon() {
     }
 }
 
-/// `[osk] scale` и `placement` меняются на лету («Параметры → Телефон → Экранная клавиатура»):
-/// конфиг проверяется раз в 2 с.
-fn watch_config(kb: ui::Keyboard) {
-    let path = synshell_common::paths::config_file();
-    let mtime = move || std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-    let mut last = mtime();
-    syngui_layer::add_timer(std::time::Duration::from_secs(2), move || {
-        let now = mtime();
-        if now != last {
-            last = now;
-            let (cfg, err) = Config::load();
-            if err.is_none() {
-                syngui_layer::set_ui_zoom(cfg.osk.scale);
-                if kb.placement.get_untracked() != cfg.osk.placement {
-                    kb.placement.set(cfg.osk.placement);
-                    // Настройку сменили — своё прежнее «⧉» забыть, показывать по ней.
-                    kb.chosen.set(None);
-                }
+/// `[osk] scale` и `placement` меняются на лету («Параметры → Телефон → Экранная клавиатура»),
+/// тема (и примерка из редактора тем) — тоже.
+fn watch_config(kb: ui::Keyboard, initial: String) {
+    let mut last = initial;
+    synshell_common::live::spawn(vec![user_mss_file()], move |cfg| {
+        let mss = build_mss(&cfg);
+        let mss = (mss != last).then(|| {
+            last = mss.clone();
+            mss
+        });
+        syngui::prelude::run_on_main_thread(move || {
+            if let Some(mss) = mss {
+                syngui_layer::set_stylesheet(mss);
             }
-        }
-        Some(std::time::Duration::from_secs(2))
+            syngui_layer::set_ui_zoom(cfg.osk.scale);
+            if kb.placement.get_untracked() != cfg.osk.placement {
+                kb.placement.set(cfg.osk.placement);
+                // Настройку сменили — своё прежнее «⧉» забыть, показывать по ней.
+                kb.chosen.set(None);
+            }
+        });
     });
 }
 
@@ -156,17 +157,16 @@ fn parse_show(arg: &str) -> Result<(Option<bool>, Option<String>), String> {
 }
 
 fn build_mss(config: &Config) -> String {
-    let a = &config.appearance;
-    let mut out = a.mss_variables();
-    out.push_str(&a.theme_mss_variables());
-    out.push_str(BUILTIN_MSS);
-    if !a.font.trim().is_empty() {
-        out.push_str(&format!("Text {{ font-family: \"{}\"; }}\n", a.font.trim()));
-    }
-    if let Ok(user) = std::fs::read_to_string(synshell_common::paths::config_dir().join("keyboard.mss")) {
+    let mut out = synshell_common::style::AppStyle::new(config, "synkeyboard").font_selector("Text").base(BUILTIN_MSS).build();
+    // Прежний пользовательский слой `keyboard.mss` в каталоге настроек — поверх всего.
+    if let Ok(user) = std::fs::read_to_string(user_mss_file()) {
         out.push_str(&user);
     }
     out
+}
+
+fn user_mss_file() -> PathBuf {
+    synshell_common::paths::config_dir().join("keyboard.mss")
 }
 
 /// Управляющий сокет: одна команда на соединение, ответ `ok`.

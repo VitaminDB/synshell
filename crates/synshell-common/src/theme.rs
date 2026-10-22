@@ -6,7 +6,10 @@
 //!   `[appearance]`/`[decorations]`/`[panel]` (их записывают «Параметры системы»
 //!   при выборе темы);
 //! - `shell.mss` — правила поверх встроенного стиля оболочки (необязательно);
-//! - `settings.mss` — то же для «Параметров системы» (необязательно).
+//! - `settings.mss` — то же для «Параметров системы» (необязательно);
+//! - `files.mss` — проводник и терминал (необязательно);
+//! - `apps/<программа>.mss` — слой любой другой программы (`synpkg.mss`,
+//!   `syn-remote.mss`, …), его подключает [`crate::style::AppStyle`].
 //!
 //! Где ищутся (первая найденная побеждает): `~/.config/synshell/themes/`,
 //! `$XDG_DATA_HOME|$XDG_DATA_DIRS/synshell/themes/`, затем встроенные.
@@ -14,40 +17,58 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::paths;
 use crate::t;
 
 /// Вариант темы — палитра одной схемы (тёмной или светлой).
-#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Variant {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub bg: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub surface: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub surface_alt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub fg: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub muted: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub border: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub accent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub accent_fg: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub danger: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub success: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
     /// Фон рабочего стола без картинки — любое значение MSS `background`
     /// (`linear-gradient(...)`, `radial-gradient(...)`, `#rrggbb`).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub wallpaper: Option<String>,
     /// Сплошной цвет под обоями (очистка кадра композитором, превью).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub wallpaper_color: Option<String>,
     /// Цвет заголовка активного/неактивного окна: имя цвета палитры
     /// (`accent`, `surface`, `surface_alt`, `bg`) или `#rrggbb`.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub titlebar: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub titlebar_inactive: Option<String>,
     /// Цвет теней меню и уведомлений (`--shadow`) и затемнения (`--scrim`).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub shadow: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub scrim: Option<String>,
     /// Свои MSS-переменные: `glow = "#88c0d066"` → `--glow: #88c0d066;`.
     /// Могут переопределять и встроенные (`--panel-bg`, `--radius`, …).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub vars: BTreeMap<String, String>,
 }
 
@@ -107,10 +128,11 @@ pub struct Theme {
     /// Рекомендуемые значения панелей `[[panel]]` (ключи [`PANEL_KEYS`]),
     /// записываются во все панели, кроме доков.
     pub panel: toml::Table,
-    pub shell_mss: String,
-    pub settings_mss: String,
-    /// Свой MSS для проводника (`files.mss`, необязательный).
-    pub files_mss: String,
+    /// Слои MSS по программам: `shell` (`shell.mss`), `settings`, `files`
+    /// и `apps/<id>.mss` → `<id>`.
+    pub mss: BTreeMap<String, String>,
+    /// Исходный текст `theme.toml` (копия темы в редакторе сохраняет комментарии).
+    pub toml_text: String,
 }
 
 /// Какие ключи `[appearance]` тема может рекомендовать.
@@ -123,7 +145,7 @@ pub const DECORATION_KEYS: &[&str] =
     &["title_height", "font_size", "title_align", "buttons", "corner_radius", "shadow", "shadow_size", "shadow_opacity"];
 
 impl Theme {
-    fn from_parts(id: &str, source: Source, toml_text: &str, shell_mss: String, settings_mss: String) -> Result<Theme, String> {
+    fn from_parts(id: &str, source: Source, toml_text: &str, mss: BTreeMap<String, String>) -> Result<Theme, String> {
         let f: ThemeFile = toml::from_str(toml_text).map_err(|e| t!("тема {id}: {e}", id = id, e = e))?;
         if f.dark.is_none() && f.light.is_none() {
             return Err(t!("тема {id}: нет ни [dark], ни [light]", id = id));
@@ -142,25 +164,55 @@ impl Theme {
             appearance: keep(f.appearance, APPEARANCE_KEYS),
             decorations: keep(f.decorations, DECORATION_KEYS),
             panel: keep(f.panel, PANEL_KEYS),
-            shell_mss,
-            settings_mss,
-            files_mss: String::new(),
+            mss: mss.into_iter().filter(|(_, v)| !v.trim().is_empty()).collect(),
+            toml_text: toml_text.to_string(),
         })
     }
 
-    fn load_dir(id: &str, dir: &Path) -> Result<Theme, String> {
+    /// Загрузить тему из каталога `dir` (с `theme.toml`) под именем `id`.
+    pub fn load_dir(id: &str, dir: &Path) -> Result<Theme, String> {
         let toml_text = std::fs::read_to_string(dir.join("theme.toml")).map_err(|e| format!("{}: {e}", dir.display()))?;
-        let read = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap_or_default();
-        let mut t = Self::from_parts(id, Source::Dir(dir.to_path_buf()), &toml_text, read("shell.mss"), read("settings.mss"))?;
-        t.files_mss = read("files.mss");
-        Ok(t)
+        let mut mss = BTreeMap::new();
+        for (sub, prefix) in [(dir.to_path_buf(), ""), (dir.join("apps"), "apps/")] {
+            let Ok(rd) = std::fs::read_dir(&sub) else { continue };
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.extension().is_some_and(|x| x == "mss") {
+                    let name = format!("{prefix}{}", e.file_name().to_string_lossy());
+                    mss.insert(layer_of(&name), std::fs::read_to_string(&p).unwrap_or_default());
+                }
+            }
+        }
+        Self::from_parts(id, Source::Dir(dir.to_path_buf()), &toml_text, mss)
+    }
+
+    /// Тема из файлов в памяти (`theme.toml`, `shell.mss`, `apps/x.mss`) —
+    /// черновик редактора тем.
+    pub fn from_files(id: &str, source: Source, files: &[(String, String)]) -> Result<Theme, String> {
+        let toml_text = files.iter().find(|(n, _)| n == "theme.toml").map(|(_, t)| t.as_str()).unwrap_or("");
+        let mss = files.iter().filter(|(n, _)| n.ends_with(".mss")).map(|(n, t)| (layer_of(n), t.clone())).collect();
+        Self::from_parts(id, source, toml_text, mss)
     }
 
     fn builtin(id: &str) -> Option<Result<Theme, String>> {
-        BUILTIN
-            .iter()
-            .find(|b| b.0 == id)
-            .map(|(id, t, shell, settings)| Self::from_parts(id, Source::Builtin, t, shell.to_string(), settings.to_string()))
+        BUILTIN.iter().find(|b| b.0 == id).map(|(id, t, files)| {
+            let mss = files.iter().map(|(name, text)| (layer_of(name), text.to_string())).collect();
+            Self::from_parts(id, Source::Builtin, t, mss)
+        })
+    }
+
+    /// Файлы темы как есть: `theme.toml`, `shell.mss`, `apps/x.mss`, … —
+    /// для копии в редакторе тем.
+    pub fn source_files(&self) -> Vec<(String, String)> {
+        let mut v = vec![("theme.toml".to_string(), self.toml_text.clone())];
+        v.extend(self.mss.iter().map(|(layer, text)| (file_of_layer(layer), text.clone())));
+        v
+    }
+
+    /// Слой MSS темы для программы `app` (`shell`, `settings`, `files`,
+    /// `synpkg`, …); пусто, если его нет.
+    pub fn app_mss(&self, app: &str) -> &str {
+        self.mss.get(app).map(String::as_str).unwrap_or("")
     }
 
     /// Найти тему по идентификатору (имени каталога).
@@ -197,7 +249,13 @@ impl Theme {
     pub fn files(&self) -> Vec<PathBuf> {
         match &self.source {
             Source::Builtin => Vec::new(),
-            Source::Dir(d) => ["theme.toml", "shell.mss", "settings.mss", "files.mss"].iter().map(|f| d.join(f)).collect(),
+            Source::Dir(d) => {
+                let mut v: Vec<PathBuf> = ["theme.toml", "shell.mss", "settings.mss", "files.mss"].iter().map(|f| d.join(f)).collect();
+                v.extend(self.mss.keys().map(|l| d.join(file_of_layer(l))));
+                v.sort();
+                v.dedup();
+                v
+            }
         }
     }
 }
@@ -242,34 +300,28 @@ pub fn list() -> Vec<Theme> {
         .collect()
 }
 
-macro_rules! builtin {
-    ($($id:literal),* $(,)?) => {
-        &[$((
-            $id,
-            include_str!(concat!("../themes/", $id, "/theme.toml")),
-            include_str!(concat!("../themes/", $id, "/shell.mss")),
-            include_str!(concat!("../themes/", $id, "/settings.mss")),
-        )),*]
-    };
+/// Имя слоя по имени файла темы: `shell.mss` → `shell`, `apps/synpkg.mss` → `synpkg`.
+pub fn layer_of(file: &str) -> String {
+    let f = file.strip_prefix("apps/").unwrap_or(file);
+    f.strip_suffix(".mss").unwrap_or(f).to_string()
 }
 
-/// Встроенные темы: (id, theme.toml, shell.mss, settings.mss).
-const BUILTIN: &[(&str, &str, &str, &str)] = builtin![
-    "nord",
-    "catppuccin",
-    "tokyo-night",
-    "gruvbox",
-    "rose-pine",
-    "everforest",
-    "dracula",
-    "kanagawa",
-    "solarized",
-    "synthwave",
-    "aurora",
-    "sakura",
-    "brutal",
-    "terminal",
-];
+/// Имя файла слоя: свои слои оболочки, настроек и проводника — в корне темы,
+/// остальные программы — в `apps/`.
+pub fn file_of_layer(layer: &str) -> String {
+    match layer {
+        "shell" | "settings" | "files" => format!("{layer}.mss"),
+        other => format!("apps/{other}.mss"),
+    }
+}
+
+/// Встроенные темы: (id, theme.toml, [(файл, текст)]) — собирает build.rs.
+const BUILTIN: &[(&str, &str, &[(&str, &str)])] = include!(concat!(env!("OUT_DIR"), "/builtin_themes.rs"));
+
+/// Идентификаторы встроенных тем в порядке галереи.
+pub fn builtin_ids() -> impl Iterator<Item = &'static str> {
+    BUILTIN.iter().map(|b| b.0)
+}
 
 #[cfg(test)]
 mod tests {
@@ -295,6 +347,19 @@ mod tests {
     }
 
     #[test]
+    fn builtin_order_and_layers() {
+        let ids: Vec<_> = builtin_ids().collect();
+        assert_eq!(ids.first(), Some(&"nord"));
+        assert_eq!(ids.len(), 14);
+        let t = Theme::builtin("tokyo-night").unwrap().unwrap();
+        assert!(t.app_mss("shell").contains(".ws-active"));
+        assert!(t.app_mss("settings").contains(".nav-item"));
+        assert_eq!(layer_of("apps/synpkg.mss"), "synpkg");
+        assert_eq!(file_of_layer("synpkg"), "apps/synpkg.mss");
+        assert!(t.source_files().iter().any(|(f, _)| f == "shell.mss"));
+    }
+
+    #[test]
     fn variant_fallback() {
         let t = Theme::builtin("dracula").unwrap().unwrap();
         assert!(t.light.is_none());
@@ -308,8 +373,7 @@ mod tests {
             "x",
             Source::Builtin,
             "[dark]\nbg = \"#000000\"\n[appearance]\ncorner_radius = 4.0\nui_scale = 3.0\n",
-            String::new(),
-            String::new(),
+            BTreeMap::new(),
         )
         .unwrap();
         assert!(t.appearance.contains_key("corner_radius"));

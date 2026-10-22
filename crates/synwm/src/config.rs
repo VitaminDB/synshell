@@ -8,7 +8,8 @@ use synshell_tr::t;
 
 /// Конфиг и файлы активной темы.
 pub fn watched_files(config: &Config) -> Vec<std::path::PathBuf> {
-    let mut v = vec![synshell_common::paths::config_file()];
+    // Каталог примерки темы подменяется целиком — у нового другое mtime.
+    let mut v = vec![synshell_common::paths::config_file(), synshell_common::preview::dir()];
     v.extend(config.appearance.theme_files());
     v
 }

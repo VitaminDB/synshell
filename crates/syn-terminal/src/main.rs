@@ -73,30 +73,11 @@ fn parse_args() -> Args {
     a
 }
 
-/// Перечитывать config.toml и файлы темы при изменении.
+/// Перечитывать config.toml и файлы темы (и примерку из редактора тем) при изменении.
 fn watch_config(st: state::St) {
-    std::thread::spawn(move || {
-        let mtime = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
-        let files = || {
-            let mut v = vec![synshell_common::paths::config_file(), synshell_common::paths::user_theme_file()];
-            v.extend(Config::load().0.appearance.theme_files());
-            v
-        };
-        let mut watched = files();
-        let mut stamps: Vec<_> = watched.iter().map(|p| mtime(p)).collect();
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            let now: Vec<_> = watched.iter().map(|p| mtime(p)).collect();
-            if now != stamps {
-                watched = files();
-                stamps = watched.iter().map(|p| mtime(p)).collect();
-                let (cfg, err) = Config::load();
-                if err.is_none() {
-                    state::set_config(cfg);
-                    run_on_main_thread(move || st.retheme());
-                }
-            }
-        }
+    synshell_common::live::spawn(Vec::new(), move |cfg| {
+        state::set_config(cfg);
+        run_on_main_thread(move || st.retheme());
     });
 }
 
@@ -147,7 +128,6 @@ fn main() {
     }
 
     let st = state::St::new(settings::Settings::load());
-    let mss = st.theme.get_untracked();
     App::new()
         .title(t!("Терминал"))
         .app_id("syn-terminal")
@@ -159,8 +139,7 @@ fn main() {
         .transparent(true)
         .background(Color::from_srgb(0, 0, 0, 0.0))
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
-        .with_styles_str(&mss)
-        .with_dynamic_theme(st.theme)
+        .with_live_styles(st.theme)
         .with_window_state(st.window)
         .on_close_request(move || st.request_quit())
         .run(move |_| {

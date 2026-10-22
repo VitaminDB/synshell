@@ -23,7 +23,7 @@ mod net;
 mod panels;
 mod power;
 mod system;
-mod themes;
+pub(crate) mod themes;
 mod usb;
 mod voice_presets;
 mod wallpaper;

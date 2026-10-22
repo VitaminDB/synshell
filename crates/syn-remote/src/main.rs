@@ -20,10 +20,10 @@ use synshell_common::config::Rgba;
 use synshell_common::Config;
 
 pub fn theme(cfg: &Config) -> String {
+    use synshell_common::style::{px, AppStyle};
     let a = &cfg.appearance;
     let p = a.palette();
     let dark = a.is_dark();
-    let mut s = a.mss_variables();
     let titlebar = if dark { p.bg.mix(Rgba::rgb(0, 0, 0), 0.22) } else { p.surface_alt.mix(p.bg, 0.5) };
     let sidebar = if dark { p.bg.mix(Rgba::rgb(0, 0, 0), 0.12) } else { p.surface_alt.mix(p.bg, 0.3) };
     let content = if dark { p.bg.mix(p.surface, 0.12) } else { p.bg.mix(p.surface, 0.4) };
@@ -31,54 +31,23 @@ pub fn theme(cfg: &Config) -> String {
     let key = if dark { p.surface.mix(Rgba::rgb(255, 255, 255), 0.06) } else { p.surface_alt.mix(p.bg, 0.2) };
     let key_hi = if dark { p.surface.mix(Rgba::rgb(255, 255, 255), 0.14) } else { p.surface_alt.mix(Rgba::rgb(0, 0, 0), 0.06) };
     let accent2 = p.accent.mix(Rgba::rgb(0x8b, 0x5c, 0xf6), 0.55);
-    s.push_str(&format!(
-        ":root {{\n  --titlebar: {};\n  --sidebar: {};\n  --content: {};\n  --remote-body: {};\n  --key: {};\n  --key-hi: {};\n  --accent-2: {};\n  --accent-glow: {};\n  --accent-dim: {};\n  --shadow: {};\n  --scrim: {};\n  --window-radius: {}px;\n}}\n",
-        titlebar.hex(),
-        sidebar.hex(),
-        content.hex(),
-        body.hex(),
-        key.hex(),
-        key_hi.hex(),
-        accent2.hex(),
-        p.accent.with_alpha(0.45).hex(),
-        p.accent.with_alpha(0.14).hex(),
-        if dark { "#00000080" } else { "#1a203024" },
-        p.bg.with_alpha(0.86).hex(),
-        cfg.decorations.corner_radius.max(0.0),
-    ));
-    s.push_str(&a.theme_mss_variables());
-    s.push_str(include_str!("../styles/syn-remote.mss"));
-    if !a.font.trim().is_empty() {
-        s.push_str(&format!("Text, Button, TextField {{ font-family: \"{}\"; }}\n", a.font.trim()));
-    }
-    s
-}
-
-/// Тема меняется вместе с настройками оболочки.
-fn watch_config(st: state::St) {
-    std::thread::spawn(move || {
-        let mtime = |p: &std::path::Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
-        let files = || {
-            let mut v = vec![synshell_common::paths::config_file(), synshell_common::paths::user_theme_file()];
-            v.extend(Config::load().0.appearance.theme_files());
-            v
-        };
-        let mut watched = files();
-        let mut stamps: Vec<_> = watched.iter().map(|p| mtime(p)).collect();
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            let now: Vec<_> = watched.iter().map(|p| mtime(p)).collect();
-            if now != stamps {
-                watched = files();
-                stamps = watched.iter().map(|p| mtime(p)).collect();
-                let (cfg, err) = Config::load();
-                if err.is_none() {
-                    let mss = theme(&cfg);
-                    run_on_main_thread(move || st.theme.set(mss));
-                }
-            }
-        }
-    });
+    AppStyle::new(cfg, "syn-remote")
+        .vars(&[
+            ("titlebar", titlebar.hex()),
+            ("sidebar", sidebar.hex()),
+            ("content", content.hex()),
+            ("remote-body", body.hex()),
+            ("key", key.hex()),
+            ("key-hi", key_hi.hex()),
+            ("accent-2", accent2.hex()),
+            ("accent-glow", p.accent.with_alpha(0.45).hex()),
+            ("accent-dim", p.accent.with_alpha(0.14).hex()),
+            ("shadow", (if dark { "#00000080" } else { "#1a203024" }).to_string()),
+            ("scrim", p.bg.with_alpha(0.86).hex()),
+            ("window-radius", px(cfg.decorations.corner_radius.max(0.0))),
+        ])
+        .base(include_str!("../styles/syn-remote.mss"))
+        .build()
 }
 
 /// Кнопки пульта: из «Моих пультов» по имени (без учёта регистра) или из файла .ir.
@@ -192,7 +161,8 @@ fn main() {
     }
     let st = state::St::new();
     st.theme.set(mss.clone());
-    watch_config(st);
+    // Тема меняется вместе с настройками оболочки и примеркой из редактора тем.
+    synshell_common::live::bind(st.theme, mss, theme);
     App::new()
         .title(t!("Пульт"))
         .app_id("syn-remote")
@@ -202,8 +172,7 @@ fn main() {
         .transparent(true)
         .background(Color::from_srgb(0, 0, 0, 0.0))
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
-        .with_styles_str(&mss)
-        .with_dynamic_theme(st.theme)
+        .with_live_styles(st.theme)
         .with_window_state(st.window)
         .run(move |_| {
             st.start();

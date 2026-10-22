@@ -115,10 +115,12 @@ fn daemon() {
     }
     let mss = build_mss(&config);
     let font = Some(config.appearance.font.trim().to_string()).filter(|f| !f.is_empty());
+    let initial = mss.clone();
     let result = syngui_layer::run(syngui_layer::RunOptions { font_family: font }, &mss, move || {
         let pad = ui::Pad::new("standard");
         ui::install(pad);
         listen(pad);
+        watch_theme(initial);
     });
     let _ = std::fs::remove_file(socket_path());
     if let Err(e) = result {
@@ -128,17 +130,28 @@ fn daemon() {
 }
 
 fn build_mss(config: &Config) -> String {
-    let a = &config.appearance;
-    let mut out = a.mss_variables();
-    out.push_str(&a.theme_mss_variables());
-    out.push_str(BUILTIN_MSS);
-    if !a.font.trim().is_empty() {
-        out.push_str(&format!("Text {{ font-family: \"{}\"; }}\n", a.font.trim()));
-    }
-    if let Ok(user) = std::fs::read_to_string(synshell_common::paths::config_dir().join("gamepad.mss")) {
+    let mut out = synshell_common::style::AppStyle::new(config, "syngamepad").font_selector("Text").base(BUILTIN_MSS).build();
+    // Прежний пользовательский слой `gamepad.mss` в каталоге настроек — поверх всего.
+    if let Ok(user) = std::fs::read_to_string(user_mss_file()) {
         out.push_str(&user);
     }
     out
+}
+
+/// Тема (и примерка из редактора тем) — сразу, без перезапуска.
+fn watch_theme(initial: String) {
+    let mut last = initial;
+    synshell_common::live::spawn(vec![user_mss_file()], move |cfg| {
+        let mss = build_mss(&cfg);
+        if mss != last {
+            last = mss.clone();
+            syngui::prelude::run_on_main_thread(move || syngui_layer::set_stylesheet(mss));
+        }
+    });
+}
+
+fn user_mss_file() -> PathBuf {
+    synshell_common::paths::config_dir().join("gamepad.mss")
 }
 
 /// Управляющий сокет: одна команда на соединение, ответ — строка.

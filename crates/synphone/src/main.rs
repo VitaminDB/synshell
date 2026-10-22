@@ -53,7 +53,7 @@ fn main() {
         .size(420, 760)
         .min_size(320, 520)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
-        .with_styles_str(&mss)
+        .with_live_styles(synshell_common::live::styles(mss.clone(), theme))
         .run(move |_| {
             let st = St {
                 tab: use_signal(if log { Tab::Log } else { Tab::Dial }),
@@ -86,14 +86,7 @@ fn main() {
 }
 
 fn theme(cfg: &Config) -> String {
-    let a = &cfg.appearance;
-    let mut s = a.mss_variables();
-    s.push_str(&a.theme_mss_variables());
-    s.push_str(include_str!("../styles/synphone.mss"));
-    if !a.font.trim().is_empty() {
-        s.push_str(&format!("Text, Button, TextField {{ font-family: \"{}\"; }}\n", a.font.trim()));
-    }
-    s
+    synshell_common::style::AppStyle::new(cfg, "synphone").base(include_str!("../styles/synphone.mss")).build()
 }
 
 // ─── Данные ─────────────────────────────────────────────────────────────────

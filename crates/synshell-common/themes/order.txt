@@ -1,0 +1,15 @@
+# Порядок встроенных тем в галерее; не перечисленные — после, по имени.
+nord
+catppuccin
+tokyo-night
+gruvbox
+rose-pine
+everforest
+dracula
+kanagawa
+solarized
+synthwave
+aurora
+sakura
+brutal
+terminal

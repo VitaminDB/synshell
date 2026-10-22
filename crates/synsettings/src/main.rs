@@ -19,6 +19,9 @@ mod ui_tests;
 use syngui::prelude::*;
 
 struct Args {
+    /// `--apply-theme ID`: применить тему как на странице «Темы» и выйти
+    /// (редактор тем, сценарии).
+    apply_theme: Option<String>,
     page: String,
     screenshot: Option<String>,
     size: (u32, u32),
@@ -27,13 +30,14 @@ struct Args {
 }
 
 fn parse_args() -> Args {
-    let mut a = Args { page: "appearance".into(), screenshot: None, size: (1180, 800), scale: 1.0, config: None };
+    let mut a = Args { apply_theme: None, page: "appearance".into(), screenshot: None, size: (1180, 800), scale: 1.0, config: None };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--page" => a.page = it.next().unwrap_or_default(),
             "--screenshot" => a.screenshot = it.next(),
             "--config" => a.config = it.next(),
+            "--apply-theme" => a.apply_theme = it.next(),
             "--size" => {
                 if let Some((w, h)) = it.next().as_deref().and_then(|s| s.split_once('x')) {
                     a.size = (w.parse().unwrap_or(1180), h.parse().unwrap_or(800));
@@ -57,7 +61,7 @@ fn parse_args() -> Args {
                 std::process::exit(0);
             }
             "-h" | "--help" => {
-                println!("synsettings [--page <id>] [--config <path>] [--list-pages] [--list-themes]");
+                println!("synsettings [--page <id>] [--config <path>] [--list-pages] [--list-themes] [--apply-theme <id>]");
                 std::process::exit(0);
             }
             // Страница без ключа: `synsettings keyboard`.
@@ -83,6 +87,24 @@ fn main() {
         .unwrap_or_else(synshell_common::paths::config_file);
     store::init(&path);
 
+    if let Some(id) = &args.apply_theme {
+        let theme = if id.is_empty() { None } else {
+            match synshell_common::theme::Theme::find(id) {
+                Ok(t) => Some(t),
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            }
+        };
+        pages::themes::apply(theme.as_ref());
+        if let Err(e) = store::save_now() {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     if let Some(out) = &args.screenshot {
         if let Err(e) = shot::screenshot(out, &args.page, args.size, args.scale) {
             eprintln!("{}", t!("снимок не удался: {e}", e = format!("{:#}", e)));
@@ -99,7 +121,6 @@ fn main() {
         ctx.page_open.set(true);
     }
     let theme = ctx.theme;
-    let initial = theme.get_untracked();
 
     // Внешняя правка файла (редактор, `synwm msg`) — перечитать.
     std::thread::spawn(|| loop {
@@ -113,6 +134,14 @@ fn main() {
                 state::toast(t!("config.toml изменён снаружи — перечитан"));
             });
         }
+    });
+
+    // Файлы темы и примерка из редактора тем — сразу пересобрать вид окна.
+    synshell_common::live::spawn(Vec::new(), |_| {
+        run_on_main_thread(|| {
+            store::reparse();
+            state::notify_changed();
+        });
     });
 
     // Виброотклик касаний — по текущим (в том числе только что изменённым) настройкам.
@@ -129,8 +158,7 @@ fn main() {
         .size(args.size.0, args.size.1)
         .min_size(340, 480)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
-        .with_styles_str(&initial)
-        .with_dynamic_theme(theme)
+        .with_live_styles(theme)
         .run(move |_| {
             provide_context(ctx);
             app::root(ctx)

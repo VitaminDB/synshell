@@ -386,7 +386,7 @@ fn main() {
         .background(syngui::core::Color::from_srgb(0, 0, 0, 0.0))
         .with_window_state(window)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
-        .with_styles_str(&mss)
+        .with_live_styles(synshell_common::live::styles(mss, theme))
         .run(move |_| {
             let st = new_state(cfg.clone(), query.clone(), window);
             polkit_agent::set_prompter(AuthPrompter(st.auth));
@@ -401,27 +401,24 @@ fn main() {
 }
 
 pub fn theme(cfg: &Config) -> String {
+    use synshell_common::config::Rgba;
+    use synshell_common::style::{px, AppStyle};
     let a = &cfg.appearance;
-    let mut s = a.mss_variables();
     // Производные цвета полей и кнопок — как в «Параметрах», чтобы окна были одного вида.
     let p = a.palette();
     let dark = a.is_dark();
-    s.push_str(&format!(
-        ":root {{\n  --input-bg: {};\n  --accent-hover: {};\n  --danger-soft: {};\n  --titlebar: {};\n  --sidebar: {};\n  --content: {};\n  --window-radius: {}px;\n}}\n",
-        if dark { p.bg.mix(p.surface, 0.35) } else { p.surface }.hex(),
-        p.accent.mix(p.fg, 0.15).hex(),
-        p.danger.with_alpha(0.16).hex(),
-        if dark { p.bg.mix(synshell_common::config::Rgba::rgb(0, 0, 0), 0.25) } else { p.surface_alt.mix(p.bg, 0.5) }.hex(),
-        if dark { p.bg.mix(synshell_common::config::Rgba::rgb(0, 0, 0), 0.12) } else { p.surface_alt.mix(p.bg, 0.7) }.hex(),
-        if dark { p.bg.mix(p.surface, 0.2) } else { p.bg.mix(p.surface, 0.35) }.hex(),
-        cfg.decorations.corner_radius.max(0.0),
-    ));
-    s.push_str(&a.theme_mss_variables());
-    s.push_str(include_str!("../styles/synpkg.mss"));
-    if !a.font.trim().is_empty() {
-        s.push_str(&format!("Text, Button, TextField {{ font-family: \"{}\"; }}\n", a.font.trim()));
-    }
-    s
+    AppStyle::new(cfg, "synpkg")
+        .vars(&[
+            ("input-bg", if dark { p.bg.mix(p.surface, 0.35) } else { p.surface }.hex()),
+            ("accent-hover", p.accent.mix(p.fg, 0.15).hex()),
+            ("danger-soft", p.danger.with_alpha(0.16).hex()),
+            ("titlebar", if dark { p.bg.mix(Rgba::rgb(0, 0, 0), 0.25) } else { p.surface_alt.mix(p.bg, 0.5) }.hex()),
+            ("sidebar", if dark { p.bg.mix(Rgba::rgb(0, 0, 0), 0.12) } else { p.surface_alt.mix(p.bg, 0.7) }.hex()),
+            ("content", if dark { p.bg.mix(p.surface, 0.2) } else { p.bg.mix(p.surface, 0.35) }.hex()),
+            ("window-radius", px(cfg.decorations.corner_radius.max(0.0))),
+        ])
+        .base(include_str!("../styles/synpkg.mss"))
+        .build()
 }
 
 // ─── Фоновые запросы ─────────────────────────────────────────────────────────

@@ -93,12 +93,8 @@ fn animation_overrides(cfg: &Config) -> String {
     s
 }
 
-/// Файлы, при изменении которых тема пересобирается.
-pub fn watched_files(cfg: &Config) -> Vec<std::path::PathBuf> {
-    let mut v = vec![paths::config_file(), paths::user_theme_file()];
-    if let Some(f) = layer().1 {
-        v.push(paths::config_dir().join(f));
-    }
-    v.extend(cfg.appearance.theme_files());
-    v
+/// Свои файлы оболочки сверх общих ([`synshell_common::live`] сам следит за
+/// config.toml, theme.mss, файлами темы и примеркой): `mobile.mss` и т. п.
+pub fn extra_watched_files() -> Vec<std::path::PathBuf> {
+    layer().1.map(|f| paths::config_dir().join(f)).into_iter().collect()
 }

@@ -469,8 +469,10 @@ pub fn shortcut(st: St, key: Key, m: Modifiers) -> bool {
 
 // ─── оформление ────────────────────────────────────────────────────────────
 
-/// Таблица стилей окна: палитра `[appearance]`, цвета схемы, `syn-terminal.mss`, `theme.mss`.
+/// Таблица стилей окна: палитра `[appearance]`, цвета схемы, `syn-terminal.mss`,
+/// слой Проводника темы (`files.mss` — общая рамка окна), `theme.mss`.
 pub fn theme(cfg: &Config, s: &Settings) -> String {
+    use synshell_common::style::{px, AppStyle};
     let a = &cfg.appearance;
     let p = a.palette();
     let dark = a.is_dark();
@@ -480,27 +482,25 @@ pub fn theme(cfg: &Config, s: &Settings) -> String {
     // терминала; активная вкладка сливается с терминалом.
     let titlebar = if term_dark { sc.bg.mix(Rgba::rgb(0, 0, 0), 0.32) } else { sc.bg.mix(Rgba::rgb(0, 0, 0), 0.07) };
     let alpha = s.opacity.clamp(0.5, 1.0);
-    let mut out = a.mss_variables();
-    out.push_str(&format!(
-        ":root {{\n  --term-bg: {};\n  --term-fg: {};\n  --term-cursor: {};\n  --term-muted: {};\n  --term-hover: {};\n  --term-pressed: {};\n  --titlebar: {};\n  --tab-active: {};\n  --divider: {};\n  --scrim: {};\n  --window-radius: {}px;\n}}\n",
-        sc.bg.with_alpha(alpha).hex(),
-        sc.fg.hex(),
-        sc.cursor.hex(),
-        sc.fg.mix(sc.bg, 0.45).hex(),
-        sc.fg.with_alpha(0.08).hex(),
-        sc.fg.with_alpha(0.14).hex(),
-        titlebar.with_alpha(alpha).hex(),
-        sc.bg.with_alpha(alpha).hex(),
-        sc.fg.with_alpha(0.12).hex(),
-        if dark { "#00000080" } else { "#00000040" },
-        cfg.decorations.corner_radius.max(0.0),
-    ));
-    out.push_str(&a.theme_mss_variables());
-    out.push_str(include_str!("../styles/syn-terminal.mss"));
-    out.push_str(a.theme_files_mss());
-    if !a.font.trim().is_empty() {
-        out.push_str(&format!("Text, Button {{ font-family: \"{}\"; }}\n", a.font.trim()));
-    }
+    let mut out = AppStyle::new(cfg, "syn-terminal")
+        .font_selector("Text, Button")
+        .vars(&[
+            ("term-bg", sc.bg.with_alpha(alpha).hex()),
+            ("term-fg", sc.fg.hex()),
+            ("term-cursor", sc.cursor.hex()),
+            ("term-muted", sc.fg.mix(sc.bg, 0.45).hex()),
+            ("term-hover", sc.fg.with_alpha(0.08).hex()),
+            ("term-pressed", sc.fg.with_alpha(0.14).hex()),
+            ("titlebar", titlebar.with_alpha(alpha).hex()),
+            ("tab-active", sc.bg.with_alpha(alpha).hex()),
+            ("divider", sc.fg.with_alpha(0.12).hex()),
+            ("scrim", (if dark { "#00000080" } else { "#00000040" }).to_string()),
+            ("window-radius", px(cfg.decorations.corner_radius.max(0.0))),
+        ])
+        .push(include_str!("../styles/syn-terminal.mss"))
+        .push(a.theme_files_mss())
+        .build();
+    // Пользовательский `theme.mss` — поверх всего, как и раньше.
     if let Ok(user) = std::fs::read_to_string(synshell_common::paths::user_theme_file()) {
         out.push('\n');
         out.push_str(&user);

@@ -28,6 +28,8 @@ syngui = { workspace = true, optional = true, features = ["i18n"] }
 thumbs = ["dep:image", "dep:png", "dep:md5"]
 drives = ["dep:zbus"]
 i18n = ["dep:syngui"]
+# `live::bind` — пересборка таблицы стилей окна syngui при правке темы.
+style = ["dep:syngui"]
 
 [dev-dependencies]
 tempfile = "3"

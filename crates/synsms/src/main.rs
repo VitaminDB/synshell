@@ -79,7 +79,7 @@ fn main() {
         .size(960, 680)
         .min_size(340, 480)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
-        .with_styles_str(&mss)
+        .with_live_styles(synshell_common::live::styles(mss, theme))
         .run(move |_| {
             let st = St {
                 msgs: use_signal(Vec::new()),
@@ -100,20 +100,15 @@ fn main() {
 
 fn theme(cfg: &Config) -> String {
     let a = &cfg.appearance;
-    let mut s = a.mss_variables();
     let p = a.palette();
     let dark = a.is_dark();
-    s.push_str(&format!(
-        ":root {{\n  --input-bg: {};\n  --bubble-in: {};\n}}\n",
-        if dark { p.bg.mix(p.surface, 0.35) } else { p.surface }.hex(),
-        if dark { p.surface.mix(p.fg, 0.08) } else { p.surface.mix(p.fg, 0.06) }.hex(),
-    ));
-    s.push_str(&a.theme_mss_variables());
-    s.push_str(include_str!("../styles/synsms.mss"));
-    if !a.font.trim().is_empty() {
-        s.push_str(&format!("Text, Button, TextField {{ font-family: \"{}\"; }}\n", a.font.trim()));
-    }
-    s
+    synshell_common::style::AppStyle::new(cfg, "synsms")
+        .vars(&[
+            ("input-bg", if dark { p.bg.mix(p.surface, 0.35) } else { p.surface }.hex()),
+            ("bubble-in", if dark { p.surface.mix(p.fg, 0.08) } else { p.surface.mix(p.fg, 0.06) }.hex()),
+        ])
+        .base(include_str!("../styles/synsms.mss"))
+        .build()
 }
 
 // ─── Данные ─────────────────────────────────────────────────────────────────

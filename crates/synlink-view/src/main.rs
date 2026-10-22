@@ -129,10 +129,7 @@ fn main() {
     let (win_w, win_h) = window_size(w, h);
 
     let cfg = synshell_common::Config::load().0;
-    let a = &cfg.appearance;
-    let mut mss = a.mss_variables();
-    mss.push_str(&a.theme_mss_variables());
-    mss.push_str(STYLES);
+    let mss = theme(&cfg);
 
     let device: &'static str = Box::leak(peer.id.clone().into_boxed_str());
     let peer: &'static PeerInfo = Box::leak(Box::new(peer));
@@ -145,7 +142,7 @@ fn main() {
         .size(win_w, win_h)
         .min_size(240, 240)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
-        .with_styles_str(&mss)
+        .with_live_styles(synshell_common::live::styles(mss, theme))
         .with_window_state(win)
         .run(move |_| {
             let ctx = Ctx {
@@ -183,6 +180,11 @@ static STOP: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn on_stop(_: libc::c_int) {
     STOP.store(true, Ordering::Relaxed);
+}
+
+/// Таблица стилей окна; шрифт интерфейса окно не ставит.
+fn theme(cfg: &synshell_common::Config) -> String {
+    synshell_common::style::AppStyle::new(cfg, "synlink-view").font_selector("").base(STYLES).build()
 }
 
 fn emit(v: serde_json::Value) {

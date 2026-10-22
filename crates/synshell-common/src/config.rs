@@ -435,16 +435,17 @@ impl Appearance {
 
     /// Свой MSS темы для оболочки (`shell.mss`) или настроек (`settings.mss`).
     pub fn theme_mss(&self, settings: bool) -> &str {
-        match self.resolved.as_deref() {
-            Some(t) if settings => &t.settings_mss,
-            Some(t) => &t.shell_mss,
-            None => "",
-        }
+        self.theme_app_mss(if settings { "settings" } else { "shell" })
     }
 
     /// Свой MSS темы для проводника (`files.mss`).
     pub fn theme_files_mss(&self) -> &str {
-        self.resolved.as_deref().map(|t| t.files_mss.as_str()).unwrap_or("")
+        self.theme_app_mss("files")
+    }
+
+    /// Слой MSS активной темы для программы `app` (`apps/<app>.mss`).
+    pub fn theme_app_mss(&self, app: &str) -> &str {
+        self.resolved.as_deref().map(|t| t.app_mss(app)).unwrap_or("")
     }
 
     /// Файлы активной темы на диске (для слежения за изменениями).
@@ -452,33 +453,10 @@ impl Appearance {
         self.resolved.as_deref().map(Theme::files).unwrap_or_default()
     }
 
-    /// MSS-переменные палитры для `:root { ... }` оболочки и настроек.
+    /// MSS-переменные палитры для `:root { ... }` оболочки и программ —
+    /// из реестра токенов ([`crate::tokens`]).
     pub fn mss_variables(&self) -> String {
-        let p = self.palette();
-        let a = self.panel_opacity.clamp(0.0, 1.0);
-        let r = self.corner_radius.max(0.0);
-        format!(
-            ":root {{\n  --bg: {};\n  --surface: {};\n  --surface-alt: {};\n  --panel-bg: {};\n  --menu-bg: {};\n  --fg: {};\n  --muted: {};\n  --border: {};\n  --accent: {};\n  --accent-fg: {};\n  --accent-soft: {};\n  --hover: {};\n  --pressed: {};\n  --danger: {};\n  --danger-soft: {};\n  --success: {};\n  --warning: {};\n  --radius: {r}px;\n  --radius-sm: {}px;\n  --font-size: {}px;\n}}\n",
-            p.bg.hex(),
-            p.surface.hex(),
-            p.surface_alt.hex(),
-            p.bg.with_alpha(a).hex(),
-            p.surface.with_alpha(a.max(0.96)).hex(),
-            p.fg.hex(),
-            p.muted.hex(),
-            p.border.hex(),
-            p.accent.hex(),
-            p.accent_fg.hex(),
-            p.accent.with_alpha(0.22).hex(),
-            p.fg.with_alpha(0.08).hex(),
-            p.fg.with_alpha(0.14).hex(),
-            p.danger.hex(),
-            p.danger.with_alpha(0.18).hex(),
-            p.success.hex(),
-            p.warning.hex(),
-            (r * 0.6).round(),
-            self.font_size,
-        )
+        crate::tokens::root_block(self)
     }
 }
 
@@ -2348,6 +2326,7 @@ impl Config {
             }
         }
         c.appearance.load_theme();
+        crate::preview::apply(&mut c.appearance);
         Ok(c)
     }
 

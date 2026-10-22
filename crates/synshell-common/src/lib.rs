@@ -12,11 +12,15 @@ pub mod drives;
 pub mod haptics;
 pub mod ipc;
 pub mod link;
+pub mod live;
 pub mod mime;
 pub mod paths;
+pub mod preview;
 pub mod sound_theme;
 pub mod text;
 pub mod theme;
+pub mod tokens;
+pub mod style;
 #[cfg(feature = "thumbs")]
 pub mod pe_icon;
 #[cfg(feature = "thumbs")]
