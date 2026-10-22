@@ -4,7 +4,7 @@
 use syngui::prelude::*;
 use syngui::widgets::buttons::Segment;
 use syngui::widgets::input::code_editor::syntax::Language;
-use syngui::widgets::input::code_editor::{CodeEditor, Diagnostic, DiagnosticSeverity as Severity};
+use syngui::widgets::input::code_editor::{CodeEditor, CompletionItem, CompletionList, Diagnostic, DiagnosticSeverity as Severity, EditorCommand, HoverInfo};
 use syngui::GestureDetector;
 use synshell_common::config::Rgba;
 use synshell_common::tokens::{self, Group, Kind, Source};
@@ -429,13 +429,24 @@ fn layer_label(id: &str) -> String {
     LAYERS.iter().find(|(l, _)| *l == id).map(|(_, n)| synshell_tr::t(n)).unwrap_or_else(|| id.to_string())
 }
 
-/// Ошибки разбора MSS для редактора кода.
-fn diagnostics(text: &str) -> Vec<Diagnostic> {
-    let diag = |line: usize, col: usize, len: usize, severity: Severity, message: String| Diagnostic { line, col, end_line: line, end_col: col + len.max(1), severity, message };
-    match syngui::mss::MssParser::new(text).parse() {
-        Ok((_, warnings)) => warnings.iter().map(|w| diag(w.line, w.column, w.span.len().min(80), Severity::Warning, w.message.clone())).collect(),
-        Err(e) => vec![diag(e.line, e.column, e.span.len().min(80), Severity::Error, e.to_string())],
-    }
+/// Диагностики `mss-analysis` в формате `CodeEditor`.
+fn diagnostics(text: &str, ctx: &mss_analysis::Context) -> Vec<Diagnostic> {
+    mss_analysis::diagnostics(text, ctx)
+        .into_iter()
+        .map(|d| Diagnostic {
+            line: d.range.start.line,
+            col: d.range.start.col,
+            end_line: d.range.end.line,
+            end_col: d.range.end.col,
+            severity: match d.severity {
+                mss_analysis::Severity::Error => Severity::Error,
+                mss_analysis::Severity::Warning => Severity::Warning,
+                mss_analysis::Severity::Info => Severity::Info,
+                mss_analysis::Severity::Hint => Severity::Hint,
+            },
+            message: d.message,
+        })
+        .collect()
 }
 
 fn code(st: St) -> W {
@@ -482,16 +493,32 @@ fn code(st: St) -> W {
         }
         vec![boxed(col)]
     });
+    let cmd = use_signal(None::<EditorCommand>);
     let editor = Reactive::new(move || -> Vec<W> {
         let _ = st.ext.get();
         let layer = st.layer.get();
         let text = with_draft(|d| d.mss.get(&layer).cloned().unwrap_or_default());
-        let diags = use_signal(diagnostics(&text));
+        let ctx = crate::lang::context(&values(&st));
+        let diags = use_signal(diagnostics(&text, &ctx));
+        let completion = use_signal(None::<CompletionList>);
+        let hover = use_signal(None::<HoverInfo>);
+        // Текущий текст — для дополнения и подсказок между правками.
+        let cur = std::sync::Arc::new(std::sync::Mutex::new(text.clone()));
         let l2 = layer.clone();
+        let (cur_ch, cur_co, cur_ho, cur_go) = (cur.clone(), cur.clone(), cur.clone(), cur.clone());
+        let (ctx_ch, ctx_co, ctx_ho) = (ctx.clone(), ctx.clone(), ctx.clone());
         let inner = Reactive::new(move || -> Vec<W> {
             let d = diags.get();
+            let errors = d.iter().filter(|x| x.severity == Severity::Error).count();
             let count = d.len();
-            vec![boxed(Text::new(if count == 0 { t!("Без ошибок") } else { t!("Замечаний: {n}", n = count) }).class(if count == 0 { "te-row-sub" } else { "te-error-text" }))]
+            let text = if count == 0 { t!("Без ошибок") } else { t!("Ошибок: {e}, замечаний: {w}", e = errors, w = count - errors) };
+            vec![boxed(
+                Row::new()
+                    .gap(8.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(DecoratedBox::new().class("grow").child(Text::new(text).class(if count == 0 { "te-row-sub" } else { "te-error-text" })))
+                    .child(Text::new(t!("Ctrl+Space — подсказки, F12 — к определению")).class("te-row-sub")),
+            )]
         });
         let ed = CodeEditor::new()
             .text(text)
@@ -501,7 +528,10 @@ fn code(st: St) -> W {
             .insert_spaces(true)
             .on_change(move |ch| {
                 let text = ch.full_text.to_string();
-                diags.set(diagnostics(&text));
+                if let Ok(mut c) = cur_ch.lock() {
+                    c.clone_from(&text);
+                }
+                diags.set(diagnostics(&text, &ctx_ch));
                 let l = l2.clone();
                 st.edit_quiet(&format!("code:{l}"), move |d| {
                     if text.trim().is_empty() {
@@ -513,15 +543,67 @@ fn code(st: St) -> W {
             })
             .on_save(move |_| st.save())
             .diagnostics_signal(diags)
+            .completion(completion)
+            .completion_triggers(vec!['-', ':', '.', '(', '@'])
+            .on_completion_request(move |tr| {
+                let text = cur_co.lock().map(|c| c.clone()).unwrap_or_default();
+                let res = mss_analysis::completion(&text, mss_analysis::Position { line: tr.line, col: tr.col }, &ctx_co);
+                completion.set(res.filter(|c| !c.items.is_empty()).map(|c| CompletionList {
+                    line: c.range.start.line,
+                    start_col: c.range.start.col,
+                    items: c
+                        .items
+                        .into_iter()
+                        .map(|i| CompletionItem { label: i.label, detail: i.detail, insert_text: i.insert_text, kind: i.kind.short().to_string() })
+                        .collect(),
+                }));
+            })
+            .hover(hover)
+            .on_hover(move |line, col| {
+                let text = cur_ho.lock().map(|c| c.clone()).unwrap_or_default();
+                if let Some(h) = mss_analysis::hover(&text, mss_analysis::Position { line, col }, &ctx_ho) {
+                    hover.set(Some(HoverInfo { line, col, text: h.markdown }));
+                }
+            })
+            .on_goto(move |line, col| {
+                let text = cur_go.lock().map(|c| c.clone()).unwrap_or_default();
+                if let Some(r) = mss_analysis::definition(&text, mss_analysis::Position { line, col }) {
+                    cmd.set(Some(EditorCommand::SetCursor { line: r.start.line, col: r.start.col }));
+                }
+            })
+            .command_signal(cmd)
             .class("te-code");
         vec![boxed(Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("grow").child(DecoratedBox::new().class("grow te-code-wrap").child(ed)).child(inner))]
     });
+    // Причесать: форматирование без потери комментариев.
+    let format_btn = tip(
+        Button::new(t!("Причесать")).icon(icons::BRUSH).class("te-btn te-flat").on_click(move || {
+            let layer = st.layer.get_untracked();
+            let text = with_draft(|d| d.mss.get(&layer).cloned().unwrap_or_default());
+            let formatted = mss_analysis::format(&text);
+            if formatted != text {
+                st.edit(&format!("format:{layer}"), move |d| {
+                    d.mss.insert(layer.clone(), formatted);
+                });
+            }
+        }),
+        t!("Отступы и переносы по правилам; документ с ошибками не меняется"),
+    );
     let hint = Reactive::new(move || -> Vec<W> {
         syngui::i18n::subscribe();
         let l = st.layer.get();
         vec![boxed(Text::new(t!("Правила поверх встроенных стилей ({app}). Цвета берите из переменных: var(--accent), var(--surface)…", app = layer_label(&l))).max_lines(3).class("te-hint"))]
     });
-    boxed(Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("grow").child(tabs).child(add).child(hint).child(DecoratedBox::new().class("grow").child(editor)))
+    boxed(
+        Column::new()
+            .gap(8.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .class("grow")
+            .child(tabs)
+            .child(Row::new().gap(6.0).child(add).child(DecoratedBox::new().class("grow")).child(format_btn))
+            .child(hint)
+            .child(DecoratedBox::new().class("grow").child(editor)),
+    )
 }
 
 // ── О теме ──────────────────────────────────────────────────────────────

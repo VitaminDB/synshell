@@ -4,7 +4,7 @@
 //! - `:root`-переменных палитры ([`crate::config::Appearance::mss_variables`]);
 //! - редактора тем (группы, подписи, тип значения, откуда берётся);
 //! - языкового сервиса MSS (автодополнение `var(--…)`, подсказки) —
-//!   [`mss_context_json`].
+//!   контекст собирает редактор тем (`syn-themeeditor --mss-context`).
 //!
 //! Подписи и описания помечены `n_!` и переводятся при показе (`t(label)`).
 
@@ -185,23 +185,6 @@ pub fn root_block(a: &Appearance) -> String {
     }
     s.push_str("}\n");
     s
-}
-
-/// Контекст для языкового сервиса MSS (`.mss-context.json` для `mss-lsp`):
-/// переменные с описанием и текущим значением.
-pub fn mss_context_json(a: &Appearance) -> serde_json::Value {
-    let c = Ctx::new(a);
-    let vars: Vec<serde_json::Value> = TOKENS
-        .iter()
-        .map(|t| {
-            serde_json::json!({
-                "name": format!("--{}", t.name),
-                "value": t.value(&c),
-                "doc": format!("{} — {}", synshell_tr::t(t.label), synshell_tr::t(t.doc)),
-            })
-        })
-        .collect();
-    serde_json::json!({ "variables": vars })
 }
 
 #[cfg(test)]

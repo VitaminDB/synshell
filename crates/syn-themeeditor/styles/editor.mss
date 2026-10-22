@@ -168,7 +168,7 @@ SystemWindowControls { color: var(--fg); background-color: var(--hover); }
 .te-grade-bad { background-color: var(--danger-soft); }
 .te-grade-bad .te-grade-text { color: var(--danger); }
 
-.te-presets { padding: 8px 6px; flex-wrap: wrap; }
+.te-presets { padding: 8px 6px; }
 .te-preset { width: 26px; height: 26px; border-radius: 13px; border-width: 2px; border-color: #00000000; }
 .te-preset-on { border-color: var(--fg); }
 
@@ -180,10 +180,10 @@ SystemWindowControls { color: var(--fg); background-color: var(--hover); }
     padding: 8px;
 }
 .te-pick-ic { icon-color: var(--accent); }
-.te-sel-row { flex-wrap: wrap; }
+.te-sel-row { padding: 0px; }
 .te-wall-preview { height: 48px; border-radius: var(--radius-sm); border-width: 1px; border-color: var(--divider); }
 
-.te-layer-tabs { flex-wrap: wrap; }
+.te-layer-tabs { padding: 0px; }
 .te-code-wrap { border-radius: var(--radius-sm); border-width: 1px; border-color: var(--divider); min-height: 240px; }
 .te-code {
     font-size: 13px;

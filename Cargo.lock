@@ -3909,6 +3909,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mss-analysis"
+version = "0.1.0"
+dependencies = [
+ "mss-lang",
+]
+
+[[package]]
 name = "mss-lang"
 version = "0.1.0"
 
@@ -6995,6 +7002,7 @@ name = "syn-themeeditor"
 version = "0.1.42"
 dependencies = [
  "image",
+ "mss-analysis",
  "serde",
  "serde_json",
  "syngui",

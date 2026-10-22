@@ -3,7 +3,8 @@
 //!   syn-themeeditor [ТЕМА] [--new [ОБРАЗЕЦ]] [--import ФАЙЛ.syntheme]
 //!                   [--screenshot out.png [--size 1400x900] [--scale 1] [--mode quick|palette|shape|code|about]
 //!                    [--scene desktop|settings] [--light]]
-//!   syn-themeeditor --mss-context [ФАЙЛ]   контекст для mss-lsp (переменные темы) — в файл или stdout
+//!   syn-themeeditor --mss-context [ФАЙЛ] [--scan КАТАЛОГ]   контекст для mss-lsp (переменные, классы,
+//!                   анимации) — в файл или stdout; --scan — ещё переменные всех тем и программ (для репозитория)
 //!
 //! Тема — каталог `~/.config/synshell/themes/<id>/` (`theme.toml` и MSS-слои).
 //! Встроенная тема при правке сохраняется своей копией с тем же именем
@@ -13,6 +14,7 @@ mod color;
 mod draft;
 mod files;
 mod icons;
+mod lang;
 mod preview_style;
 mod scope;
 mod state;
@@ -90,8 +92,20 @@ fn parse_args() -> Args {
             "--scene" => a.scene = if it.next().as_deref() == Some("settings") { Scene::Settings } else { Scene::Desktop },
             "--light" => a.light = true,
             "--mss-context" => {
-                let json = synshell_common::tokens::mss_context_json(&Config::load().0.appearance);
-                let text = serde_json_pretty(&json);
+                // Значения токенов — из темы системы.
+                let st = St::new();
+                let cfg = Config::load().0;
+                if !cfg.appearance.theme.is_empty() {
+                    st.open(&cfg.appearance.theme);
+                }
+                // `--scan КАТАЛОГ` — контекст для всего репозитория.
+                let rest: Vec<String> = it.by_ref().collect();
+                let scan = rest.iter().position(|a| a == "--scan").and_then(|i| rest.get(i + 1)).cloned();
+                let text = match &scan {
+                    Some(dir) => lang::repo_context_json(&state::values(&st), std::path::Path::new(dir)),
+                    None => lang::context_json(&state::values(&st)),
+                };
+                let mut it = rest.into_iter().filter(|a| !a.starts_with("--") && Some(a) != scan.as_ref());
                 match it.next() {
                     Some(f) => {
                         if let Err(e) = std::fs::write(&f, text) {
@@ -112,10 +126,6 @@ fn parse_args() -> Args {
         }
     }
     a
-}
-
-fn serde_json_pretty(v: &serde_json::Value) -> String {
-    serde_json::to_string_pretty(v).unwrap_or_default()
 }
 
 /// Подготовить состояние: тема из аргументов, иначе активная в системе.
