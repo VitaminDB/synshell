@@ -139,6 +139,12 @@ pub fn start(ctx: ShellCtx) {
         return;
     }
     std::thread::Builder::new().name("shell-volume".into()).spawn(move || watch_volume(ctx)).ok();
+    // Кабель питания: сразу по uevent, плюс опрос раз в 2 с (на случай,
+    // если драйвер не шлёт событий).
+    update_power(ctx);
+    if let Err(e) = synsystem::battery::watch(move || update_power(ctx)) {
+        log::warn!("питание: нет uevent ({e})");
+    }
     std::thread::Builder::new()
         .name("shell-sys".into())
         .spawn(move || {
@@ -150,6 +156,7 @@ pub fn start(ctx: ShellCtx) {
                 if tick % 15 == 0 {
                     ctx.battery.set(synsystem::battery::read(&sys));
                 }
+                update_power(ctx);
                 if tick % 3 == 0 {
                     ctx.network.set(synsystem::network::read(&sys));
                 }
@@ -162,6 +169,31 @@ pub fn start(ctx: ShellCtx) {
             }
         })
         .ok();
+}
+
+/// Перечитать внешнее питание; сменилось — обновить и батарею (сразу и
+/// через пару секунд, когда драйвер сменит её статус).
+fn update_power(ctx: ShellCtx) {
+    use std::sync::Mutex;
+    static LAST: Mutex<Option<Option<bool>>> = Mutex::new(None);
+    let sys = synsystem::Sys::host();
+    let now = synsystem::battery::external_power(&sys);
+    {
+        let mut last = LAST.lock().unwrap();
+        if *last == Some(now) {
+            return;
+        }
+        *last = Some(now);
+    }
+    log::info!("питание: внешнее {now:?}");
+    ctx.battery.set(synsystem::battery::read(&sys));
+    ctx.external_power.set(now);
+    std::thread::spawn(move || {
+        for _ in 0..3 {
+            std::thread::sleep(Duration::from_millis(1500));
+            ctx.battery.set(synsystem::battery::read(&synsystem::Sys::host()));
+        }
+    });
 }
 
 // ─── Медиаплееры (MPRIS) ─────────────────────────────────────────────────────

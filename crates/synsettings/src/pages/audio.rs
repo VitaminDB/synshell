@@ -289,8 +289,8 @@ fn events_group() -> W {
             switch_row(t!("Звуки событий"), t!("Общий выключатель"), op!["sound", "events"], s.events),
             int_row(t!("Громкость звуков, %"), t!("Поверх системной громкости"), op!["sound", "volume"], s.volume as i64, 0, 150, 5),
             switch_row(t!("Уведомления"), t!("Новое уведомление (кроме «Не беспокоить»)"), op!["sound", "notifications"], s.notifications),
-            switch_row(t!("Система"), t!("Щелчок громкости, снимок экрана, блокировка, вход в сеанс"), op!["sound", "system"], s.system),
-            switch_row(t!("Устройства"), t!("Подключение USB, зарядка, низкий заряд"), op!["sound", "devices"], s.devices),
+            switch_row(t!("Система"), t!("Щелчок громкости, снимок экрана, блокировка, вход в сеанс, зарядка"), op!["sound", "system"], s.system),
+            switch_row(t!("Устройства"), t!("Подключение и отключение USB-устройств"), op!["sound", "devices"], s.devices),
             switch_row(t!("Нажатия"), t!("Тихие щелчки по кнопкам оболочки"), op!["sound", "clicks"], s.clicks),
         ],
     )

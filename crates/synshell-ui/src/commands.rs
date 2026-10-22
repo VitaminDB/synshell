@@ -74,6 +74,11 @@ pub fn handle(cmd: &str) {
         "assistant" if ctx.cfg().assistant.enabled => crate::assistant::toggle(ctx),
         "assistant-window" if ctx.cfg().assistant.enabled => crate::actions::spawn("synassistant"),
         "power-menu" | "power" => ctx.open_popup(PopupKind::Power, centered()),
+        // Проверка анимации зарядки: `charging-preview [процент]`.
+        "charging-preview" => {
+            crate::sounds::play(crate::sounds::Ev::PowerPlug);
+            crate::charge_anim::show(ctx, arg.trim().parse().unwrap_or_else(|_| ctx.battery.get_untracked().map(|b| b.percent).unwrap_or(57)));
+        }
         "resources" => crate::actions::open_resources(if arg.trim().is_empty() { "overview" } else { arg.trim() }),
         // Телефон — шторка уведомлений, компьютер — окно апплета.
         "notifications" if ctx.is_phone() => crate::shade::show(crate::shade::Panel::Notifications),

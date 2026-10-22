@@ -186,14 +186,18 @@ pub fn lock_now(ctx: ShellCtx) {
 /// Экранная клавиатура synkeyboard поверх блокировки не показывается, а у настольного вида своей нет — в игровом
 /// режиме на телефоне поле пароля было не заполнить ничем (только перезагрузка).
 fn touch_lock(ctx: ShellCtx) -> bool {
+    ctx.is_phone() || device_is_phone(&ctx)
+}
+
+/// Игровой режим на телефоне (композитор считает устройство телефоном).
+pub fn device_is_phone(ctx: &ShellCtx) -> bool {
     use synshell_common::config::FormFactor;
     static DEVICE_PHONE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    ctx.is_phone()
-        || ctx.form_factor == FormFactor::Game
-            && *DEVICE_PHONE.get_or_init(|| {
-                use synshell_common::ipc::{Client, Request, Response};
-                matches!(Client::connect().and_then(|mut c| c.request(&Request::FormFactor)), Ok(Response::FormFactor { device, .. }) if device == "phone")
-            })
+    ctx.form_factor == FormFactor::Game
+        && *DEVICE_PHONE.get_or_init(|| {
+            use synshell_common::ipc::{Client, Request, Response};
+            matches!(Client::connect().and_then(|mut c| c.request(&Request::FormFactor)), Ok(Response::FormFactor { device, .. }) if device == "phone")
+        })
 }
 
 fn submit(password: String) {
@@ -433,6 +437,7 @@ fn phone_view(ctx: ShellCtx, out: OutputInfo, initial: Stage) -> impl Widget {
         .child(crate::manager::wallpaper_view(out.name.clone(), use_signal(0u64), None))
         .child(DecoratedBox::new().class("lock-scrim"))
         .child(gestures)
+        .child(crate::charge_anim::layer())
 }
 
 /// Разблокировка свайпом: так настроено или у пользователя нет пароля

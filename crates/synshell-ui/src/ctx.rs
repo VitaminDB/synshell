@@ -161,6 +161,9 @@ pub struct ShellCtx {
     /// Экраны горят (композитор: событие `screen-power`); погашены — датчики отпущены.
     pub screen_on: RwSignal<bool>,
     pub battery: RwSignal<Option<Battery>>,
+    /// Подключено внешнее питание (кабель, беспроводная зарядка); `None` —
+    /// батареи или источников питания нет.
+    pub external_power: RwSignal<Option<bool>>,
     pub network: RwSignal<Network>,
     /// Модем телефона (synmodemd); `None` — демона нет (компьютер или модем не поднят).
     pub modem: RwSignal<Option<synmodem::api::Status>>,
@@ -216,6 +219,7 @@ impl ShellCtx {
             brightness: use_signal(None),
             screen_on: use_signal(true),
             battery: use_signal(None),
+            external_power: use_signal(None),
             network: use_signal(Network::default()),
             modem: use_signal(None),
             camera: use_signal(None),

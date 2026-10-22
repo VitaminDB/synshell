@@ -1866,3 +1866,7 @@ TextField {
 .clip-empty-title { font-size: 14px; font-weight: 600; color: var(--fg); }
 .clip-empty-hint { font-size: 12px; color: var(--muted); }
 .clip-footer { font-size: 11px; color: var(--muted); }
+
+/* Анимация подключения зарядки (телефон) */
+.charge-anim-pct { font-size: 64px; font-weight: bold; color: #ffffff; }
+.charge-anim-label { font-size: 17px; color: rgba(255, 255, 255, 0.72); }

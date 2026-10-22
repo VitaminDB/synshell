@@ -19,6 +19,7 @@ pub mod app_colors;
 pub mod applets;
 pub mod appmenu;
 pub mod clipboard;
+pub mod charge_anim;
 pub mod clock;
 pub mod incall;
 pub mod input_mode;

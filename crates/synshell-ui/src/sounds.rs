@@ -83,8 +83,9 @@ impl Ev {
     fn group(self) -> Group {
         match self {
             Ev::Notification => Group::Notifications,
-            Ev::Volume | Ev::ScreenCapture | Ev::Lock | Ev::Unlock | Ev::Login | Ev::Error => Group::System,
-            Ev::DeviceAdded | Ev::DeviceRemoved | Ev::PowerPlug | Ev::PowerUnplug | Ev::BatteryLow => Group::Devices,
+            // Зарядка — системный звук (включён по умолчанию, как в других ОС).
+            Ev::Volume | Ev::ScreenCapture | Ev::Lock | Ev::Unlock | Ev::Login | Ev::Error | Ev::PowerPlug | Ev::PowerUnplug | Ev::BatteryLow => Group::System,
+            Ev::DeviceAdded | Ev::DeviceRemoved => Group::Devices,
             Ev::Click => Group::Clicks,
             _ => Group::Game,
         }
@@ -246,6 +247,20 @@ pub fn session_start() {
     play(Ev::Login);
 }
 
+/// Телефон: разбудить экран (как у Android) и показать анимацию зарядки.
+fn plug_animation(ctx: ShellCtx) {
+    let percent = ctx.battery.get_untracked().map(|b| b.percent).unwrap_or(0);
+    if !ctx.screen_on.get_untracked() {
+        std::thread::spawn(|| {
+            use synshell_common::ipc::{Client, Request};
+            if let Err(e) = Client::connect().and_then(|mut c| c.request(&Request::Action { action: synshell_common::Action::ScreenOn })) {
+                log::warn!("зарядка: screen-on: {e}");
+            }
+        });
+    }
+    crate::charge_anim::show(ctx, percent);
+}
+
 /// Наблюдатели: блокировка и разблокировка, зарядка и низкий заряд, вход в
 /// сеанс; смена темы — сбросить кэш.
 pub fn start(ctx: ShellCtx) {
@@ -260,15 +275,39 @@ pub fn start(ctx: ShellCtx) {
             play(if l { Ev::Lock } else { Ev::Unlock });
         }
     });
+    // Кабель: по источникам питания (online), а не по статусу батареи —
+    // «Заряжается» → «Заряжена» на кабеле не звучит как отключение.
+    let plugged: Cell<Option<bool>> = Cell::new(ctx.external_power.get_untracked());
+    create_effect(move || {
+        let now = ctx.external_power.get();
+        let was = plugged.replace(now);
+        match (was, now) {
+            (Some(false), Some(true)) => {
+                play(Ev::PowerPlug);
+                if crate::charge_anim::wanted(&ctx) {
+                    plug_animation(ctx);
+                }
+            }
+            (Some(true), Some(false)) => {
+                play(Ev::PowerUnplug);
+                crate::charge_anim::hide();
+            }
+            _ => {}
+        }
+    });
     let prev: Cell<Option<(bool, u32)>> = Cell::new(ctx.battery.get_untracked().map(|b| (b.charging, b.percent)));
     create_effect(move || {
         let Some(b) = ctx.battery.get() else { return };
         if let Some((charging, percent)) = prev.get() {
-            if b.charging && !charging {
-                play(Ev::PowerPlug);
-            } else if !b.charging && charging {
-                play(Ev::PowerUnplug);
-            } else if !b.charging && percent > 10 && b.percent <= 10 {
+            // Источники питания не видны — судить по статусу батареи.
+            if ctx.external_power.get_untracked().is_none() {
+                if b.charging && !charging {
+                    play(Ev::PowerPlug);
+                } else if !b.charging && charging {
+                    play(Ev::PowerUnplug);
+                }
+            }
+            if !b.charging && percent > 10 && b.percent <= 10 {
                 play(Ev::BatteryLow);
             }
         }
