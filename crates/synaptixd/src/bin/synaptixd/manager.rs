@@ -1110,7 +1110,11 @@ impl Manager {
         };
         // Нехватка видеопамяти — не повод уходить на CPU: модель отдаёт
         // хосту часть блоков и ход повторяется на карте.
-        while dev == DeviceKind::Cuda && r.as_ref().err().is_some_and(is_oom) && lease.model.shed_vram() {
+        // Повторов — не больше восьми: модель запоминает отданное и следующий
+        // план его учитывает, но круг «отдал — вернул — упал» недопустим.
+        let mut retries = 0;
+        while dev == DeviceKind::Cuda && retries < 8 && r.as_ref().err().is_some_and(is_oom) && lease.model.shed_vram() {
+            retries += 1;
             tracing::warn!("{id}: ход упёрся в видеопамять ({}); часть блоков — на хост, повтор на cuda", r.as_ref().err().unwrap());
             release_vram(Some(DeviceKind::Cuda));
             let _dl = devices::lock(dev);

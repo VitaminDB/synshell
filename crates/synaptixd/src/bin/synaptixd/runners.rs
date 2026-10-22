@@ -1127,6 +1127,18 @@ impl Loaded {
                 }
             }
         }
+        // Сессия намного больше хода, а из её кэша почти ничего не годится
+        // (другой разговор под тем же ключом): держать её буфер — значит
+        // гнать веса на хост ради пустого места (после хода на 128К короткий
+        // ход шёл 3.5 ток/с вместо 31). Пересоздаём по размеру хода.
+        if let Some(e) = entry.as_ref() {
+            let want = need.div_ceil(SESSION_STEP).saturating_mul(SESSION_STEP).clamp(need, window);
+            if e.kv.ctx_tokens() > want && e.kv.reusable(&ids) * 2 < ids.len() {
+                tracing::info!("generate: кэш «{key}» на {} токенов почти не подходит к ходу — заново на {want}", e.kv.ctx_tokens());
+                entry = None;
+                crate::manager::release_vram(None);
+            }
+        }
         // Ход длиннее, чем рассчитана сессия, — доращиваем её, посчитанный
         // префикс остаётся; не вышло — заводим новую.
         if let Some(e) = entry.as_mut().filter(|e| e.kv.ctx_tokens() < need) {
