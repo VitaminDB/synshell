@@ -888,8 +888,9 @@ Text {
 .res-badge-cpu { background-color: #26a69a; }
 .res-badge-hot { background-color: #ef5350; }
 
-/* Половины строки — поровну, независимо от содержимого. */
-.res-half { flex-grow: 1; flex-basis: 0px; }
+/* Половины строки — поровну, независимо от содержимого: flex-grow в syngui
+ * делит свободное место без учёта содержимого (как flex-basis: 0). */
+.res-half { flex-grow: 1; }
 
 .switcher {
     padding: 12px;

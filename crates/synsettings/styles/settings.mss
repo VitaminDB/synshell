@@ -455,7 +455,7 @@ Button.accent-swatch.selected {
     width: 46%;
     height: 7%;
     min-height: 8px;
-    margin: 0px 0px 4% 0px;
+    margin: 0px 0px 10px 0px;
     border-radius: 6px;
     background: #ffffff38;
     border: 1px solid #ffffff30;

@@ -217,51 +217,6 @@ MultilineTextEdit:focus {
     border-color: var(--primary);
 }
 
-/* CodeEditor — глобальный мост к теме. `--editor-*`/`--token-*` живут в
- * `:root` (см. theme_data::SynthosTheme::to_mss()); здесь они проецируются
- * в custom-MSS-поля виджета (`editor-bg`, `token-keyword`, …), которые
- * читает `CodeEditorPalette::from_style()` в syngui.
- *
- * Делаем глобально, чтобы любой CodeEditor в приложении (страница code,
- * редактор скила, будущие места) автоматически попадал в тему — точно
- * так же, как глобальный `TextField {}` выше. Локальные `.code-editor-mle`
- * / `.skill-code-editor` оставляем только для геометрии/font-family. */
-CodeEditor {
-    background-color:      var(--editor-bg);
-    color:                 var(--editor-fg);
-    font-family:           var(--code-editor-font-family);
-    font-size:             var(--code-editor-font-size);
-
-    editor-bg:             var(--editor-bg);
-    editor-fg:             var(--editor-fg);
-    editor-gutter-bg:      var(--editor-gutter-bg);
-    editor-gutter-fg:      var(--editor-gutter-fg);
-    editor-cursor:         var(--editor-cursor);
-    editor-selection:      var(--editor-selection);
-    editor-current-line:   var(--editor-current-line);
-    editor-bracket-match:  var(--editor-bracket-match);
-    editor-whitespace:     var(--editor-whitespace);
-
-    token-keyword:         var(--token-keyword);
-    token-keyword-control: var(--token-keyword-control);
-    token-type:            var(--token-type);
-    token-type-builtin:    var(--token-type-builtin);
-    token-function:        var(--token-function);
-    token-function-macro:  var(--token-function-macro);
-    token-constant:        var(--token-constant);
-    token-string:          var(--token-string);
-    token-string-special:  var(--token-string-special);
-    token-number:          var(--token-number);
-    token-comment:         var(--token-comment);
-    token-operator:        var(--token-operator);
-    token-punctuation:     var(--token-punctuation);
-    token-variable:        var(--token-variable);
-    token-property:        var(--token-property);
-    token-attribute:       var(--token-attribute);
-    token-namespace:       var(--token-namespace);
-    token-tag:             var(--token-tag);
-}
-
 /* PopupMenu — popup всех ContextMenu / Dropdown / overflow-menu в приложении.
  * Виджет читает `--popup-*` переменные через ComputedStyle (см.
  * syngui/widgets/overlay/menu.rs:574-578); привязываем их к токенам темы,
