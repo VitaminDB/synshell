@@ -101,6 +101,16 @@ fn work_op(req: &Request) -> Option<&'static str> {
     })
 }
 
+/// Имя операции запроса для журнала загрузок.
+fn req_name(req: &Request) -> &'static str {
+    work_op(req).unwrap_or(match req {
+        Request::Open { .. } => "open",
+        Request::LlmInfo { .. } => "llm_info",
+        Request::Tokenize { .. } => "tokenize",
+        _ => "запрос",
+    })
+}
+
 impl Conn {
     fn send(&self, reply: &Reply, fds: &[OwnedFd]) -> std::io::Result<()> {
         let bytes = serde_json::to_vec(reply).unwrap_or_default();
@@ -519,6 +529,7 @@ impl Conn {
             }
             let id = env.id;
             self.current = id;
+            activity::set_requester(&self.app, req_name(&env.req));
             let work = work_op(&env.req).map(|op| activity::begin(&self.app, op));
             let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.dispatch(env.req, fds)))
                 .unwrap_or_else(|_| Err(Error::new(ErrorCode::Failed, "сбой модели")));

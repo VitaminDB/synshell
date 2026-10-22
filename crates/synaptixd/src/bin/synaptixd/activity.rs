@@ -137,6 +137,19 @@ static REG: LazyLock<Mutex<Registry>> = LazyLock::new(Default::default);
 
 thread_local! {
     static CURRENT: RefCell<Option<Arc<Live>>> = const { RefCell::new(None) };
+    /// Чей запрос обслуживает поток соединения: «программа (роль), pid».
+    static REQUESTER: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// Запомнить, чей запрос сейчас обслуживает поток (для журнала загрузок).
+pub fn set_requester(app: &AppInfo, op: &str) {
+    let who = if app.label.is_empty() { app.name.clone() } else { format!("{} ({})", app.name, app.label) };
+    REQUESTER.with(|r| *r.borrow_mut() = Some(format!("«{who}», pid {}, {op}", app.pid)));
+}
+
+/// Чей запрос обслуживает поток, если это поток соединения.
+pub fn requester() -> Option<String> {
+    REQUESTER.with(|r| r.borrow().clone())
 }
 
 /// Работа этого потока (соединения), если идёт.

@@ -982,6 +982,10 @@ impl Manager {
             let want = force.unwrap_or(s.settings.device);
             (s.manifest.clone(), want, s.settings.quant.clone(), s.settings.engine.clone())
         };
+        match crate::activity::requester() {
+            Some(who) => tracing::info!("{id}: загрузка по запросу {who}"),
+            None => tracing::info!("{id}: загрузка (служба сама)"),
+        }
         self.notify_slot(id);
         let result = self.load_inner(&manifest, want, quant.as_deref(), &engine);
         let mut slots = self.slots.lock().unwrap();
