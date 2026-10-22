@@ -689,6 +689,12 @@ pub struct Status {
     pub evictions: u64,
     pub devices: Vec<DeviceKind>,
     pub min_available_mb: u64,
+    /// Программы (имя процесса), которым служба уступает видеокарту.
+    #[serde(default)]
+    pub vram_yield: Vec<String>,
+    /// Кому видеокарта отдана сейчас (имя программы по ярлыку).
+    #[serde(default)]
+    pub vram_yielded_to: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
@@ -881,6 +887,10 @@ pub enum Request {
     },
     SetDefaultLibrary {
         path: String,
+    },
+    /// Программы (имя процесса), которым уступать видеокарту; отвечает [`Status`].
+    SetVramYield {
+        programs: Vec<String>,
     },
     DeleteModel {
         model: String,
@@ -1586,6 +1596,10 @@ impl Client {
 
     pub fn resolve(&mut self, kind: ModelKind) -> Result<ModelEntry> {
         self.call_typed(Request::Resolve { kind })
+    }
+
+    pub fn set_vram_yield(&mut self, programs: Vec<String>) -> Result<Status> {
+        self.call_typed(Request::SetVramYield { programs })
     }
 
     pub fn libraries(&mut self) -> Result<Vec<LibraryInfo>> {

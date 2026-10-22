@@ -173,6 +173,9 @@ pub struct StateFile {
     pub libraries: Vec<LibraryConf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_library: Option<String>,
+    /// Заданный в «Параметрах» список `yield_vram_to` (иначе — из конфига).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vram_yield: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

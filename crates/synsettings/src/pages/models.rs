@@ -9,6 +9,8 @@ use synaptixd::{
     QuantOption, SettingsChange, Status,
 };
 
+use synshell_common::xdg::{self, DesktopEntry};
+
 use crate::state;
 use crate::ui::*;
 
@@ -477,6 +479,7 @@ fn menu(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
                 "\u{E1DB}",
                 snap.libraries.iter().any(|l| !l.online),
             ),
+            nav_item(ctx, "vram".into(), t!("Видеокарта для программ"), vram_summary(st), "\u{e30d}", false),
             nav_item(
                 ctx,
                 "service".into(),
@@ -1504,6 +1507,7 @@ pub fn models() -> W {
             AnimatedSwitcher::new(key, move || match sub.as_deref() {
                 Some("defaults") => defaults_page(ctx, sig),
                 Some("service") => service_page(ctx, sig),
+                Some("vram") => vram_page(ctx, sig),
                 Some("storage") => storage_page(ctx, sig),
                 Some(k) if k.starts_with("m/") => model_page(ctx, sig, k[2..].to_string()),
                 Some(k) if k.starts_with("k/") => match ModelKind::parse(&k[2..]) {
@@ -1522,3 +1526,194 @@ pub fn models() -> W {
     });
     boxed(view)
 }
+
+// ─── Видеокарта для программ ────────────────────────────────────────────────
+
+/// Программы, которым обычно нужна вся видеокарта (имя процесса). Steam
+/// нет: клиент висит в фоне, а игры из ярлыков запускаются через него.
+const VRAM_HUNGRY: &[&str] = &[
+    "resolve", "blender", "kdenlive", "obs", "shotcut", "olive-editor", "natron", "flowblade", "openshot-qt", "pitivi", "UnrealEditor", "godot",
+];
+
+/// Имя процесса программы по её команде: `/opt/resolve/bin/resolve %u` → `resolve`.
+fn exe_of(e: &DesktopEntry) -> String {
+    let w = e.exec.split_whitespace().find(|w| !w.contains('=') && *w != "env").unwrap_or("");
+    w.rsplit('/').next().unwrap_or(w).to_string()
+}
+
+/// Программы из меню, по одной на процесс.
+fn menu_apps() -> Vec<DesktopEntry> {
+    let mut v: Vec<DesktopEntry> =
+        xdg::apps().iter().filter(|e| !e.no_display && e.android.is_none() && !exe_of(e).is_empty()).cloned().collect();
+    v.sort_by_key(|e| e.name.to_lowercase());
+    let mut seen = std::collections::HashSet::new();
+    v.retain(|e| seen.insert(exe_of(e)));
+    v
+}
+
+fn app_for_exe(exe: &str) -> Option<DesktopEntry> {
+    xdg::apps().iter().find(|e| exe_of(e) == exe).cloned()
+}
+
+fn app_icon(e: Option<&DesktopEntry>) -> W {
+    match e.and_then(|e| xdg::lookup_icon(&e.icon)) {
+        Some(p) => boxed(Image::new(p.to_string_lossy()).placeholder(false).class("da-app-icon")),
+        None => boxed(Icon::new(icons::APPS).class("da-app-icon da-icon-fallback")),
+    }
+}
+
+fn vram_names(list: &[String]) -> String {
+    list.iter().map(|x| app_for_exe(x).map(|e| e.name).unwrap_or_else(|| x.clone())).collect::<Vec<_>>().join(", ")
+}
+
+fn vram_summary(st: &Status) -> String {
+    match (&st.vram_yielded_to, st.vram_yield.is_empty()) {
+        (Some(who), _) => t!("Сейчас отдана программе «{w}»", w = who),
+        (None, true) => t!("Нейросети не уступают видеокарту"),
+        (None, false) => t!("Уступается: {p}", p = vram_names(&st.vram_yield)),
+    }
+}
+
+fn set_vram_yield(sig: RwSignal<Snapshot>, list: Vec<String>) {
+    act(sig, move |c| c.set_vram_yield(list).map(|_| ()));
+}
+
+/// Строка программы: значок, имя, пояснение, кнопка справа.
+fn vram_app_row(e: Option<&DesktopEntry>, exe: &str, hint: String, control: W) -> W {
+    let name = e.map(|e| e.name.clone()).unwrap_or_else(|| exe.to_string());
+    boxed(
+        DecoratedBox::new().class("da-item").child(
+            Row::new()
+                .gap(14.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(app_icon(e))
+                .child(
+                    Column::new()
+                        .gap(2.0)
+                        .class("grow")
+                        .child(Text::new(name).max_lines(1).class("da-title"))
+                        .child(Text::new(hint).max_lines(1).class("row-hint")),
+                )
+                .child(control),
+        ),
+    )
+}
+
+fn vram_page(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
+    let show_all = use_signal(false);
+    let filter = use_signal(String::new());
+    let body = Reactive::new(move || -> Vec<W> {
+        let snap = sig.get();
+        let Some(st) = snap.status.clone() else { return vec![note(t!("Служба нейросетей не отвечает"))] };
+        if !st.devices.contains(&DeviceKind::Cuda) {
+            return vec![note(t!("Видеокарта NVIDIA (CUDA) службе недоступна — уступать нечего."))];
+        }
+        let list = st.vram_yield.clone();
+        let mut out: Vec<W> = Vec::new();
+
+        // Кто сейчас владеет картой.
+        let (icon, title, hint) = match &st.vram_yielded_to {
+            Some(who) => (
+                "\u{e30d}",
+                t!("Видеокарта у программы «{w}»", w = who),
+                t!("Модели работают на процессоре и NPU, генерация картинок и видео подождёт. Закроете программу — карта вернётся нейросетям сама."),
+            ),
+            None => (
+                "\u{e322}",
+                t!("Видеокарта у нейросетей"),
+                if list.is_empty() {
+                    t!("Добавьте программы ниже — служба освободит для них видеопамять.")
+                } else {
+                    t!("Как только запустится программа из списка, модели уйдут с карты.")
+                },
+            ),
+        };
+        out.push(card(vec![boxed(
+            DecoratedBox::new().class("setting-row").child(
+                Row::new()
+                    .gap(14.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(DecoratedBox::new().class("hw-badge").child(Icon::new(icon).class("hw-icon")))
+                    .child(
+                        Column::new()
+                            .gap(2.0)
+                            .class("grow")
+                            .child(Text::new(title).class("row-label"))
+                            .child(Text::new(hint).class("row-hint")),
+                    ),
+            ),
+        )]));
+
+        // Список программ.
+        let rows: Vec<W> = list
+            .iter()
+            .map(|exe| {
+                let e = app_for_exe(exe);
+                let running = st.vram_yielded_to.is_some() && e.as_ref().map(|e| Some(&e.name) == st.vram_yielded_to.as_ref()).unwrap_or(false);
+                let hint = if running { t!("Запущена — видеокарта у неё") } else { t!("Процесс {p}", p = exe) };
+                let (l, x) = (list.clone(), exe.clone());
+                let remove = boxed(danger_icon_button(icons::DELETE, move || {
+                    set_vram_yield(sig, l.iter().filter(|p| **p != x).cloned().collect());
+                }));
+                vram_app_row(e.as_ref(), exe, hint, remove)
+            })
+            .collect();
+        out.push(titled(
+            t!("Уступать видеокарту"),
+            if rows.is_empty() { note(t!("Список пуст — модели держат видеокарту, даже когда она нужна другим программам.")) } else { card(rows) },
+        ));
+
+        // Добавить: сначала установленные «тяжёлые», затем по кнопке — все.
+        let hungry: Vec<W> =
+            menu_apps().iter().filter(|e| VRAM_HUNGRY.contains(&exe_of(e).as_str()) && !list.contains(&exe_of(e))).map(|e| vram_add_row(sig, &list, e)).collect();
+        if !hungry.is_empty() {
+            out.push(titled(t!("Часто нужна видеокарта"), card(hungry)));
+        }
+        vec![boxed(Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Stretch).children(out))]
+    });
+    // Остальные программы — по кнопке, с поиском (поле вне `Reactive` списка,
+    // чтобы не терять фокус при наборе).
+    let more = Reactive::new(move || -> Vec<W> {
+        if !show_all.get() {
+            return vec![boxed(Row::new().child(button(t!("Добавить другую программу"), move || show_all.set(true))))];
+        }
+        let list = Reactive::new(move || -> Vec<W> {
+            let snap = sig.get();
+            let Some(st) = snap.status.as_ref() else { return vec![] };
+            let q = filter.get().to_lowercase();
+            let rows: Vec<W> = menu_apps()
+                .iter()
+                .filter(|e| !VRAM_HUNGRY.contains(&exe_of(e).as_str()) && !st.vram_yield.contains(&exe_of(e)))
+                .filter(|e| q.is_empty() || e.name.to_lowercase().contains(&q) || exe_of(e).to_lowercase().contains(&q))
+                .map(|e| vram_add_row(sig, &st.vram_yield, e))
+                .collect();
+            vec![if rows.is_empty() { note(t!("Ничего не найдено")) } else { card(rows) }]
+        });
+        vec![titled(
+            t!("Все программы"),
+            boxed(
+                Column::new()
+                    .gap(8.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                    .child(TextField::new().placeholder(t!("Найти программу")).on_change(move |v| filter.set(v.to_string())))
+                    .child(list),
+            ),
+        )]
+    });
+    sub_page(
+        ctx,
+        t!("Видеокарта для программ"),
+        t!("Монтаж, 3D и игры работают быстрее, когда им достаётся вся видеопамять. Пока такая программа открыта, нейросети уходят с видеокарты: языковые модели и распознавание речи работают на процессоре и NPU, а чаты продолжатся с того же места."),
+        vec![boxed(Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(body).child(more))],
+    )
+}
+
+/// Строка «добавить программу в список».
+fn vram_add_row(sig: RwSignal<Snapshot>, list: &[String], e: &DesktopEntry) -> W {
+    let exe = exe_of(e);
+    let mut l = list.to_vec();
+    l.push(exe.clone());
+    let hint = [&e.generic_name, &e.comment].into_iter().find(|h| !h.is_empty() && **h != e.name).cloned().unwrap_or_else(|| t!("Процесс {p}", p = exe));
+    vram_app_row(Some(e), &exe, hint, boxed(icon_button(icons::ADD, move || set_vram_yield(sig, l.clone()))))
+}
+

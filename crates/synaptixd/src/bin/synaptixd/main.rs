@@ -186,6 +186,12 @@ impl Conn {
                 }
                 (data(mgr.set_default_library(&path)?), none())
             }
+            Request::SetVramYield { programs } => {
+                if !self.admin {
+                    return Err(denied());
+                }
+                (data(mgr.set_vram_yield(programs)), none())
+            }
             Request::DeleteModel { model } => {
                 if !self.admin {
                     return Err(denied());

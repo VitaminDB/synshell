@@ -16,7 +16,7 @@ pub static NPU_LOCK: Mutex<()> = Mutex::new(());
 pub static CUDA_LOCK: Mutex<()> = Mutex::new(());
 
 /// Программа, которой служба уступила видеокарту (DaVinci Resolve и др.):
-/// пока она запущена, CUDA для моделей недоступна.
+/// пока она запущена, модели не грузятся на CUDA (см. [`resolve`]).
 static CUDA_YIELDED: Mutex<Option<String>> = Mutex::new(None);
 
 pub fn cuda_yielded() -> Option<String> {
@@ -61,7 +61,7 @@ pub fn available(kind: DeviceKind) -> bool {
     match kind {
         DeviceKind::Auto | DeviceKind::Cpu => true,
         DeviceKind::Gpu => false,
-        DeviceKind::Cuda => cuda_yielded().is_none() && *p.cuda.get_or_insert_with(cuda_ok),
+        DeviceKind::Cuda => *p.cuda.get_or_insert_with(cuda_ok),
         DeviceKind::Npu => {
             let retry = p.npu == Some(false) && p.npu_at.is_none_or(|t| t.elapsed() > Duration::from_secs(30));
             if p.npu.is_none() || retry {
@@ -78,7 +78,8 @@ pub fn list() -> Vec<DeviceKind> {
 }
 
 pub fn resolve(want: DeviceKind, supported: &[DeviceKind]) -> Option<DeviceKind> {
-    let ok = |k: DeviceKind| supported.contains(&k) && available(k);
+    // Видеокарта уступлена программе — модели идут на NPU/CPU.
+    let ok = |k: DeviceKind| supported.contains(&k) && available(k) && !(k == DeviceKind::Cuda && cuda_yielded().is_some());
     match want {
         DeviceKind::Auto => [DeviceKind::Cuda, DeviceKind::Npu, DeviceKind::Cpu].into_iter().find(|&k| ok(k)),
         k if ok(k) => Some(k),

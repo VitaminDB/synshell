@@ -181,6 +181,8 @@ pub struct Manager {
     libraries: Mutex<(Vec<LibraryConf>, Option<String>)>,
     evictions: AtomicU64,
     since_ms: i64,
+    /// Кому уступать видеокарту (`yield_vram_to`, меняется из «Параметров»).
+    vram_yield: Mutex<Vec<String>>,
 }
 
 fn scan_all(cfg: &Config, libs: &[LibraryConf]) -> BTreeMap<String, Manifest> {
@@ -310,7 +312,6 @@ impl Manager {
         }
         tracing::info!("моделей: {}", slots.len());
         Arc::new(Self {
-            cfg,
             slots: Mutex::new(slots),
             changed: Condvar::new(),
             load_lock: Mutex::new(()),
@@ -319,6 +320,8 @@ impl Manager {
             libraries: Mutex::new((state.libraries.clone(), state.default_library.clone())),
             evictions: AtomicU64::new(0),
             since_ms: now_ms(),
+            vram_yield: Mutex::new(state.vram_yield.clone().unwrap_or_else(|| cfg.yield_vram_to.clone())),
+            cfg,
         })
     }
 
@@ -500,7 +503,24 @@ impl Manager {
             evictions: self.evictions.load(Ordering::Relaxed),
             devices: devices::list(),
             min_available_mb: self.cfg.min_available_mb,
+            vram_yield: self.vram_yield.lock().unwrap().clone(),
+            vram_yielded_to: devices::cuda_yielded(),
         }
+    }
+
+    /// Задать, кому уступать видеокарту; пустые и повторы отбрасываются.
+    pub fn set_vram_yield(&self, programs: Vec<String>) -> Status {
+        let mut list: Vec<String> = Vec::new();
+        for p in programs {
+            let p = p.trim().to_string();
+            if !p.is_empty() && !list.contains(&p) {
+                list.push(p);
+            }
+        }
+        tracing::info!("уступать видеокарту: {list:?}");
+        *self.vram_yield.lock().unwrap() = list;
+        self.save_state();
+        self.status()
     }
 
     /// Память загруженных моделей: (RAM, видеопамять), байт.
@@ -679,6 +699,8 @@ impl Manager {
             state.libraries = l.0.clone();
             state.default_library = l.1.clone();
         }
+        let vy = self.vram_yield.lock().unwrap().clone();
+        state.vram_yield = (vy != self.cfg.yield_vram_to).then_some(vy);
         if let Err(e) = state.save(&self.cfg.state) {
             tracing::warn!("{}: {e}", self.cfg.state.display());
         }
@@ -1151,11 +1173,9 @@ impl Manager {
     /// Следить за программами из `yield_vram_to`: запущена — карта её,
     /// модели грузятся на CPU/NPU; закрылась — карта снова нейросетям.
     pub fn watch_vram_yield(self: &Arc<Self>) {
-        if self.cfg.yield_vram_to.is_empty() {
-            return;
-        }
         loop {
-            let found = find_process(&self.cfg.yield_vram_to);
+            let names = self.vram_yield.lock().unwrap().clone();
+            let found = if names.is_empty() { None } else { find_process(&names) };
             match (found, devices::cuda_yielded()) {
                 (Some(who), None) => {
                     tracing::info!("запущена «{who}» — видеокарта уступлена ей");
