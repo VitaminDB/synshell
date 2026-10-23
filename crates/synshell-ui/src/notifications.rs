@@ -679,7 +679,7 @@ fn popups(ctx: ShellCtx, bounds: Arc<syngui::core::sync::Mutex<Rect>>) -> impl W
             };
             col = col.child(Keyed::new(id as u64, version, move || {
                 // Смахнуть вбок — закрыть (на телефоне; сторона — `[notifications] swipe_dismiss`)
-                let swipe = Dismissible::new(card(ctx, n.clone(), false))
+                let swipe = Dismissible::new(card(ctx, n.clone(), false, ""))
                     .direction(dismiss_direction(&ctx))
                     .on_dismiss(move |_| close(ShellCtx::get(), id, 2));
                 let presence = Presence::new(visible, swipe)
@@ -708,7 +708,18 @@ fn app_title(app: &str) -> String {
     }
 }
 
-fn card(ctx: ShellCtx, n: Notification, in_center: bool) -> impl Widget {
+/// Место карточки в ленте истории: крайние скруглены сильнее, лента
+/// читается одной группой.
+fn group_pos(i: usize, len: usize) -> &'static str {
+    match (i == 0, i + 1 == len) {
+        (true, true) => " notif-single",
+        (true, false) => " notif-first",
+        (false, true) => " notif-last",
+        (false, false) => " notif-mid",
+    }
+}
+
+fn card(ctx: ShellCtx, n: Notification, in_center: bool, pos: &'static str) -> impl Widget {
     let mut head = Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Start);
     if let Some((w, h, rgba)) = &n.image {
         head = head.child(
@@ -726,9 +737,11 @@ fn card(ctx: ShellCtx, n: Notification, in_center: bool) -> impl Widget {
     }
     let mut text = Column::new().gap(2.0).child(
         Row::new()
-            .gap(6.0)
-            .child(Text::new(app_title(&n.app_name)).max_lines(1).class("notif-app grow"))
-            .child(Text::new(crate::clock::format(n.time, "%H:%M")).class("notif-time")),
+            .gap(5.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(Text::new(app_title(&n.app_name)).max_lines(1).class("notif-app"))
+            .child(Text::new("·").class("notif-time"))
+            .child(Text::new(crate::clock::format(n.time, "%H:%M")).class("notif-time grow")),
     );
     if !n.summary.is_empty() {
         text = text.child(Text::new(n.summary.clone()).max_lines(2).class("notif-summary"));
@@ -737,13 +750,18 @@ fn card(ctx: ShellCtx, n: Notification, in_center: bool) -> impl Widget {
         text = text.child(Text::new(n.body.clone()).max_lines(if in_center { 3 } else { 5 }).class("notif-body"));
     }
     let id = n.id;
-    head = head.child(text.class("grow")).child(
-        InputArea::new(DecoratedBox::new().child(icon(mi::CLOSE)).class("notif-close")).pointer().on_click(move |b, _, _| {
-            if b == MouseButton::Left {
-                dismiss(ShellCtx::get(), id);
-            }
-        }),
-    );
+    head = head.child(text.class("grow"));
+    // На телефоне карточки в ленте смахивают — «×» там лишний.
+    let swipe_only = in_center && ctx.is_phone() && dismiss_direction(&ctx) != DismissDirection::Off;
+    if !swipe_only {
+        head = head.child(
+            InputArea::new(DecoratedBox::new().child(icon(mi::CLOSE)).class("notif-close")).pointer().on_click(move |b, _, _| {
+                if b == MouseButton::Left {
+                    dismiss(ShellCtx::get(), id);
+                }
+            }),
+        );
+    }
     let mut col = Column::new().gap(8.0).child(head);
     match n.progress {
         Some(p) if p >= 0 => col = col.child(ProgressBar::with_value(p as f32 / 100.0).class("notif-progress")),
@@ -773,8 +791,7 @@ fn card(ctx: ShellCtx, n: Notification, in_center: bool) -> impl Widget {
         _ => "notif",
     };
     let nn = n.clone();
-    let _ = ctx;
-    InputArea::new(DecoratedBox::new().child(col).class(if in_center { format!("{cls} notif-in-center") } else { cls.to_string() }))
+    InputArea::new(DecoratedBox::new().child(col).class(if in_center { format!("{cls} notif-in-center{pos}") } else { cls.to_string() }))
         .absorb()
         .on_click(move |b, _, _| {
             let ctx = ShellCtx::get();
@@ -854,20 +871,22 @@ pub fn history_list(ctx: ShellCtx) -> impl Widget {
         // смена `[notifications] swipe_dismiss` — сразу, без переоткрытия
         let _ = ctx.config.get();
         let dir = dismiss_direction(&ctx);
-        let mut col = Column::new().gap(6.0);
+        let mut col = Column::new().gap(3.0);
+        let len = list.len();
         if list.is_empty() {
             col = col.child(Text::new(t!("Нет уведомлений")).class("launcher-empty"));
         }
-        for n in list {
+        for (i, n) in list.into_iter().enumerate() {
             let id = n.id;
+            let pos = group_pos(i, len);
             let version = {
                 use std::hash::{Hash, Hasher};
                 let mut h = std::collections::hash_map::DefaultHasher::new();
-                (n.time, &n.summary, &n.body, n.progress, &n.actions, format!("{dir:?}")).hash(&mut h);
+                (n.time, &n.summary, &n.body, n.progress, &n.actions, format!("{dir:?}"), pos).hash(&mut h);
                 h.finish()
             };
             col = col.child(Keyed::new(id as u64, version, move || {
-                let card = Dismissible::new(card(ctx, n.clone(), true)).direction(dir).on_dismiss(move |_| dismiss(ShellCtx::get(), id));
+                let card = Dismissible::new(card(ctx, n.clone(), true, pos)).direction(dir).on_dismiss(move |_| dismiss(ShellCtx::get(), id));
                 Box::new(AnimatedPosition::new(card))
             }));
         }

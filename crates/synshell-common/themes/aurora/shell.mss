@@ -47,7 +47,7 @@
     border-color: var(--glass-edge);
 }
 .launcher-icon-glyph, .grid-icon-glyph, .popup-big-icon, .osd-icon { icon-color: var(--accent); }
-.notif-in-center { background-color: var(--glass-hi); }
+.notif.notif-in-center { background-color: var(--glass-hi); }
 .notif-action, .round-btn, .power-btn, .chip { background-color: var(--glass-hi); }
 .meter-fill { background: linear-gradient(90deg, var(--accent), var(--violet)); }
 .meter-rest { background-color: var(--glass-hi); }

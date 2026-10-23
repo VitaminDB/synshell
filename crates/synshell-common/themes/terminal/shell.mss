@@ -52,3 +52,7 @@ Text, TextField { font-family: "Hack"; }
 .lock-time { color: var(--phosphor); text-shadow: 0 0 22px var(--phosphor-glow); }
 .lock-avatar { border-radius: 0px; background-color: var(--phosphor); }
 .lock-field { border-radius: 0px; border-color: var(--phosphor); }
+
+/* лента уведомлений — тоже без скруглений */
+.notif.notif-in-center, .notif.notif-first, .notif.notif-last, .notif.notif-single { border-radius: 0px; }
+.notif-plate { border-radius: 0px; }

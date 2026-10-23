@@ -686,19 +686,33 @@ Text {
     box-shadow: 0 8px 24px var(--shadow);
 }
 .notif-popups { padding: 56px; } /* = NOTIF_PAD в notifications.rs: место под тень */
-.notif-in-center { box-shadow: none; background-color: var(--surface-alt); border-radius: var(--radius); }
 .notif-critical { border-color: var(--danger); border-width: 2px; }
 .notif-low { opacity: 0.92; }
-/* Значок приложения — в плашке акцента */
-.notif-plate { padding: 8px; border-radius: 14px; background-color: var(--accent-soft); }
+/* Лента в шторке и центре уведомлений — одна группа карточек: без рамок и
+   свечения тем, крупное скругление по краям группы, мелкое между карточками.
+   Двойной класс — сильнее правил `.notif` в темах. */
+.notif.notif-in-center {
+    padding: 14px 16px;
+    border-width: 0px;
+    border-radius: 8px;
+    box-shadow: none;
+    background-color: var(--surface-alt);
+}
+.notif.notif-first { border-top-left-radius: 24px; border-top-right-radius: 24px; }
+.notif.notif-last { border-bottom-left-radius: 24px; border-bottom-right-radius: 24px; }
+.notif.notif-single { border-radius: 24px; }
+.notif.notif-in-center.notif-critical { border-width: 2px; border-color: var(--danger); }
+/* Значок приложения — в круге */
+.notif-plate { padding: 8px; border-radius: 999px; background-color: var(--accent-soft); }
 .notif-critical .notif-plate { background-color: var(--danger); }
-.notif-image { width: 52px; height: 52px; border-radius: 14px; }
-.notif-icon { width: 26px; height: 26px; }
-.notif-glyph { icon-size: 26px; icon-color: var(--accent); }
-.notif-app { font-size: 12px; font-weight: 600; color: var(--muted); }
+.notif-image { width: 44px; height: 44px; border-radius: 12px; }
+.notif-icon { width: 24px; height: 24px; }
+.notif-glyph { icon-size: 24px; icon-color: var(--accent); }
+.notif-app { font-size: 12px; font-weight: 500; color: var(--muted); }
 .notif-time { font-size: 12px; color: var(--muted); }
-.notif-summary { font-size: 15px; font-weight: bold; }
-.notif-body { font-size: 13px; color: var(--fg); opacity: 0.85; }
+/* Заголовок — цветом текста, не акцентом темы */
+.notif .notif-summary { font-size: 15px; font-weight: 600; color: var(--fg); }
+.notif-body { font-size: 14px; color: var(--fg); opacity: 0.72; }
 .notif-close {
     padding: 2px;
     border-radius: 10px;

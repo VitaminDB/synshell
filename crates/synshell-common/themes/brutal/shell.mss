@@ -60,3 +60,7 @@
 .notif-image { border-radius: 0px; }
 .lock-avatar { border-radius: 0px; border-width: 3px; border-color: var(--border); box-shadow: 6px 6px 0 var(--hard); }
 .lock-field { border-radius: 0px; border-width: 2px; }
+
+/* лента уведомлений — тоже без скруглений */
+.notif.notif-in-center, .notif.notif-first, .notif.notif-last, .notif.notif-single { border-radius: 0px; }
+.notif-plate { border-radius: 0px; }
