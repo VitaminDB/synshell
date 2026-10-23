@@ -332,6 +332,40 @@ fn init_main(spec: &Spec) -> anyhow::Error {
     anyhow::anyhow!("execve /init: {}", std::io::Error::last_os_error())
 }
 
+/// Исправленные файлы образов: подставляются, только если файл образа — ровно тот, из которого сделано
+/// исправление (по sha256); в других сборках образа файл остаётся как есть.
+const IMAGE_FIXES: &[(&str, &str, &[u8])] = &[
+    // Мост уведомлений Waydroid брал заголовок и текст через Bundle.getString — у SpannableString (Google,
+    // многие приложения) приходила пустая строка; пересылал и сводки групп пустыми карточками.
+    // Как собрано — patches/waydroid-notifications/build.sh.
+    (
+        "system/framework/org.lineageos.platform.jar",
+        "a45e4836805df5d11530f1f424565a86a0540a88989d00a8c3ab327b7ec21af2",
+        include_bytes!("../patches/waydroid-notifications/org.lineageos.platform.jar"),
+    ),
+];
+
+fn apply_image_fixes(image: &Path, root: &Path) {
+    use sha2::{Digest, Sha256};
+    for (rel, orig, data) in IMAGE_FIXES {
+        let Ok(bytes) = fs::read(image.join(rel)) else { continue };
+        let hash: String = Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+        if hash != *orig {
+            continue;
+        }
+        let file = Path::new(paths::RUN).join("fixes").join(rel);
+        let res = file
+            .parent()
+            .map_or(Ok(()), fs::create_dir_all)
+            .map_err(anyhow::Error::from)
+            .and_then(|_| fs::write(&file, data).map_err(anyhow::Error::from))
+            .and_then(|_| sys::bind(&file, root.join(rel), false));
+        if let Err(e) = res {
+            eprintln!("syndroid: исправление {rel}: {e:#}");
+        }
+    }
+}
+
 fn setup_root(spec: &Spec) -> Result<()> {
     // Монтирования контейнера не уходят на хост
     sys::mount("", "/", "", libc::MS_REC | libc::MS_PRIVATE, "")?;
@@ -361,6 +395,7 @@ fn setup_root(spec: &Spec) -> Result<()> {
     };
     ovl(paths::overlay("system"), &msys, "system", &r)?;
     ovl(paths::overlay("vendor"), &mven, "vendor", &r.join("vendor"))?;
+    apply_image_fixes(&msys, &r);
     let prop = r.join("vendor/waydroid.prop");
     sys::touch(&prop)?;
     sys::bind(paths::props(), &prop, false)?;

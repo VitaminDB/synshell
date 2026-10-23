@@ -146,15 +146,24 @@ impl ShellProcess {
     pub fn stop(&mut self) {
         self.stopping = true;
         if let Some(c) = &mut self.child {
+            // Оболочка — в своей группе процессов (setsid в `command`), а `[general] shell` — строка для
+            // `sh -c`: с переменными окружения или перенаправлением sh не делает exec, и сигнал одному sh
+            // оставлял саму оболочку жить сиротой поверх новой. Поэтому сигнал — всей группе.
+            let pg = -(c.id() as i32);
             unsafe {
-                libc::kill(c.id() as i32, libc::SIGTERM);
+                libc::kill(pg, libc::SIGTERM);
             }
             let deadline = Instant::now() + Duration::from_millis(500);
             while Instant::now() < deadline {
-                if let Ok(Some(_)) = c.try_wait() {
+                // Группа опустела — все вышли.
+                if unsafe { libc::kill(pg, 0) } != 0 {
                     break;
                 }
+                let _ = c.try_wait();
                 std::thread::sleep(Duration::from_millis(20));
+            }
+            unsafe {
+                libc::kill(pg, libc::SIGKILL);
             }
             let _ = c.kill();
             let _ = c.wait();

@@ -136,7 +136,7 @@ impl Server {
             .map(|p| p.trim_start_matches("file://").to_string())
             .filter(|p| !p.is_empty())
             .or_else(|| (!app_icon.is_empty()).then(|| app_icon.trim_start_matches("file://").to_string()))
-            .or_else(|| desktop.and_then(|d| crate::xdg::app_by_id(&d)).map(|e| e.icon));
+            .or_else(|| desktop.and_then(|d| app_for_entry(&d)).map(|e| e.icon));
         let icon = icon_name.and_then(|n| crate::xdg::lookup_icon(&n)).map(|p| p.to_string_lossy().into_owned());
         let bool_hint = |k: &str| hints.get(k).and_then(|v| bool::try_from(v).ok()).unwrap_or(false);
         // `value` — int32 по спецификации, но некоторые шлют uint32/int64
@@ -699,6 +699,16 @@ fn popups(ctx: ShellCtx, bounds: Arc<syngui::core::sync::Mutex<Rect>>) -> impl W
     Column::new().class("notif-popups").child(EventHook::new().report_bounds(bounds).child(list))
 }
 
+/// Программа по подсказке `desktop-entry`. Мост Android (syndroid) шлёт `waydroid.<пакет>`, а ярлыки
+/// приложений Android — `android-<экземпляр>-<пакет>`.
+fn app_for_entry(id: &str) -> Option<crate::xdg::DesktopEntry> {
+    crate::xdg::app_by_id(id).or_else(|| {
+        let pkg = id.strip_prefix("waydroid.")?;
+        let tail = format!("-{pkg}");
+        crate::xdg::apps().iter().find(|e| e.android.is_some() && e.id.ends_with(&tail)).cloned()
+    })
+}
+
 /// Подпись отправителя: у своих уведомлений оболочки (`synshell:КЛЮЧ`) — без ключа.
 fn app_title(app: &str) -> String {
     match app.strip_prefix("synshell:") {
@@ -720,21 +730,13 @@ fn group_pos(i: usize, len: usize) -> &'static str {
 }
 
 fn card(ctx: ShellCtx, n: Notification, in_center: bool, pos: &'static str) -> impl Widget {
+    // Слева — значок программы, справа — картинка уведомления (обложка, фото отправителя).
     let mut head = Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Start);
-    if let Some((w, h, rgba)) = &n.image {
-        head = head.child(
-            Image::from_rgba(format!("notif-img-{}-{}", n.id, n.time), *w, *h, rgba.as_ref().clone())
-                .fit(ImageFit::Cover)
-                .placeholder(false)
-                .class("notif-image"),
-        );
-    } else if let Some(p) = &n.icon {
-        head = head.child(
-            DecoratedBox::new().child(Image::new(p.clone()).fit(ImageFit::Contain).placeholder(false).class("notif-icon")).class("notif-plate"),
-        );
-    } else {
-        head = head.child(DecoratedBox::new().child(icon(mi::BELL).class("notif-glyph")).class("notif-plate"));
-    }
+    let plate = match &n.icon {
+        Some(p) => DecoratedBox::new().child(Image::new(p.clone()).fit(ImageFit::Contain).placeholder(false).class("notif-icon")),
+        None => DecoratedBox::new().child(icon(mi::BELL).class("notif-glyph")),
+    };
+    head = head.child(plate.class("notif-plate"));
     let mut text = Column::new().gap(2.0).child(
         Row::new()
             .gap(5.0)
@@ -749,8 +751,38 @@ fn card(ctx: ShellCtx, n: Notification, in_center: bool, pos: &'static str) -> i
     if !n.body.is_empty() {
         text = text.child(Text::new(n.body.clone()).max_lines(if in_center { 3 } else { 5 }).class("notif-body"));
     }
-    let id = n.id;
+    match n.progress {
+        Some(p) if p >= 0 => text = text.child(ProgressBar::with_value(p as f32 / 100.0).class("notif-progress")),
+        Some(_) => text = text.child(ProgressBar::new().indeterminate().class("notif-progress")),
+        None => {}
+    }
+    let buttons: Vec<(String, String)> = n.actions.iter().filter(|(k, _)| k != "default").cloned().collect();
+    if !buttons.is_empty() {
+        let mut row = Row::new().gap(8.0).class("notif-actions");
+        for (key, label) in buttons {
+            let nn = n.clone();
+            row = row.child(
+                InputArea::new(DecoratedBox::new().child(Text::new(label).max_lines(1).class("notif-action-label")).class("notif-action"))
+                    .pointer()
+                    .on_click(move |b, _, _| {
+                        if b == MouseButton::Left {
+                            invoke(ShellCtx::get(), &nn, &key);
+                        }
+                    }),
+            );
+        }
+        text = text.child(row);
+    }
     head = head.child(text.class("grow"));
+    if let Some((w, h, rgba)) = &n.image {
+        head = head.child(
+            Image::from_rgba(format!("notif-img-{}-{}", n.id, n.time), *w, *h, rgba.as_ref().clone())
+                .fit(ImageFit::Cover)
+                .placeholder(false)
+                .class("notif-image"),
+        );
+    }
+    let id = n.id;
     // На телефоне карточки в ленте смахивают — «×» там лишний.
     let swipe_only = in_center && ctx.is_phone() && dismiss_direction(&ctx) != DismissDirection::Off;
     if !swipe_only {
@@ -762,29 +794,7 @@ fn card(ctx: ShellCtx, n: Notification, in_center: bool, pos: &'static str) -> i
             }),
         );
     }
-    let mut col = Column::new().gap(8.0).child(head);
-    match n.progress {
-        Some(p) if p >= 0 => col = col.child(ProgressBar::with_value(p as f32 / 100.0).class("notif-progress")),
-        Some(_) => col = col.child(ProgressBar::new().indeterminate().class("notif-progress")),
-        None => {}
-    }
-    let buttons: Vec<(String, String)> = n.actions.iter().filter(|(k, _)| k != "default").cloned().collect();
-    if !buttons.is_empty() {
-        let mut row = Row::new().gap(6.0);
-        for (key, label) in buttons {
-            let nn = n.clone();
-            row = row.child(
-                InputArea::new(DecoratedBox::new().child(Text::new(label).class("notif-action-label")).class("notif-action"))
-                    .pointer()
-                    .on_click(move |b, _, _| {
-                        if b == MouseButton::Left {
-                            invoke(ShellCtx::get(), &nn, &key);
-                        }
-                    }),
-            );
-        }
-        col = col.child(row);
-    }
+    let col = head;
     let cls = match n.urgency {
         2 => "notif notif-critical",
         0 => "notif notif-low",

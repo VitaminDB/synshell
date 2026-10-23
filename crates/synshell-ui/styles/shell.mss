@@ -702,12 +702,19 @@ Text {
 .notif.notif-last { border-bottom-left-radius: 24px; border-bottom-right-radius: 24px; }
 .notif.notif-single { border-radius: 24px; }
 .notif.notif-in-center.notif-critical { border-width: 2px; border-color: var(--danger); }
-/* Значок приложения — в круге */
-.notif-plate { padding: 8px; border-radius: 999px; background-color: var(--accent-soft); }
+/* Значок программы — в нейтральном круге 40 px; картинка уведомления — миниатюрой справа */
+.notif-plate {
+    width: 40px;
+    height: 40px;
+    border-radius: 999px;
+    background-color: #ffffff14;
+    align-items: center;
+    justify-content: center;
+}
 .notif-critical .notif-plate { background-color: var(--danger); }
-.notif-image { width: 44px; height: 44px; border-radius: 12px; }
-.notif-icon { width: 24px; height: 24px; }
-.notif-glyph { icon-size: 24px; icon-color: var(--accent); }
+.notif-image { width: 52px; height: 52px; border-radius: 12px; }
+.notif-icon { width: 28px; height: 28px; }
+.notif-glyph { icon-size: 22px; icon-color: var(--muted); }
 .notif-app { font-size: 12px; font-weight: 500; color: var(--muted); }
 .notif-time { font-size: 12px; color: var(--muted); }
 /* Заголовок — цветом текста, не акцентом темы */
@@ -720,13 +727,17 @@ Text {
 }
 .notif-close .icon { icon-size: 16px; icon-color: var(--muted); }
 .notif-close:hover { background-color: var(--hover); }
+.notif-actions { padding-top: 8px; }
+/* Кнопки действий — тональные «таблетки» */
 .notif-action {
-    padding: 5px 12px;
-    border-radius: var(--radius-sm);
-    background-color: var(--surface-alt);
+    padding: 7px 16px;
+    border-radius: 999px;
+    background-color: #ffffff12;
+    transition: background-color 120ms ease-out, scale 200ms spring(420, 26);
 }
-.notif-action:hover { background-color: var(--accent-soft); }
-.notif-action-label { font-size: 12px; }
+.notif-action:hover { background-color: #ffffff1f; }
+.notif-action:active { scale: 0.95; background-color: #ffffff26; }
+.notif-action-label { font-size: 13px; font-weight: 500; color: var(--fg); }
 .notif-center-list { height: 420px; }
 
 /* ─── Переключатель окон ─────────────────────────────────────────────────── */
