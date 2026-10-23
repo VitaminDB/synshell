@@ -246,7 +246,8 @@ impl Agent {
         out
     }
 
-    fn schemas(&self) -> Vec<Value> {
+    /// Схемы инструментов, которые уходят модели вместе с запросом (пул — одним autotools).
+    pub fn schemas(&self) -> Vec<Value> {
         let mut v: Vec<Value> = self.tools.iter().filter(|t| !t.pooled()).map(|t| crate::tools::schema(t.as_ref())).collect();
         let pool: Vec<&Arc<dyn Tool>> = self.tools.iter().filter(|t| t.pooled()).collect();
         if !pool.is_empty() {
