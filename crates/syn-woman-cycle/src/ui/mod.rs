@@ -7,7 +7,6 @@ mod day;
 mod history;
 mod intro;
 mod settings;
-mod today;
 
 use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 use syngui::prelude::*;
@@ -34,16 +33,14 @@ pub fn icon_button(glyph: &str, class: &str, on_click: impl FnMut() + Send + 'st
 
 pub fn tab_title(t: Tab) -> String {
     match t {
-        Tab::Today => t!("Сегодня"),
         Tab::Calendar => t!("Календарь"),
-        Tab::History => t!("Мой цикл"),
+        Tab::History => t!("Статистика"),
         Tab::Settings => t!("Настройки"),
     }
 }
 
 fn tab_icon(t: Tab) -> &'static str {
     match t {
-        Tab::Today => icons::FLOWER,
         Tab::Calendar => icons::CALENDAR,
         Tab::History => icons::INSIGHTS,
         Tab::Settings => icons::SETTINGS,
@@ -197,7 +194,6 @@ fn content(st: St, wide: bool) -> W {
             AnimatedSwitcher::new(tab.index(), move || -> W {
                 syngui::i18n::subscribe();
                 match st.tab.get_untracked() {
-                    Tab::Today => today::page(st, wide),
                     Tab::Calendar => calendar::page(st, wide),
                     Tab::History => history::page(st, wide),
                     Tab::Settings => settings::page(st, wide),
@@ -226,7 +222,7 @@ fn toast_layer(st: St) -> W {
 }
 
 /// Клавиатура: F11 — полный экран, Esc — назад или выход из полного экрана,
-/// ←/→ — месяцы календаря, 1–4 — вкладки.
+/// 1–3 — вкладки.
 fn keys(st: St, inner: impl Widget + 'static) -> W {
     boxed(
         EventHook::new()
@@ -250,12 +246,9 @@ fn keys(st: St, inner: impl Widget + 'static) -> W {
                     return KeyReply::Ignore;
                 }
                 match k {
-                    Key::Num1 => st.go(Tab::Today),
-                    Key::Num2 => st.go(Tab::Calendar),
-                    Key::Num3 => st.go(Tab::History),
-                    Key::Num4 => st.go(Tab::Settings),
-                    Key::Left if st.tab.get_untracked() == Tab::Calendar => st.shift_month(-1),
-                    Key::Right if st.tab.get_untracked() == Tab::Calendar => st.shift_month(1),
+                    Key::Num1 => st.go(Tab::Calendar),
+                    Key::Num2 => st.go(Tab::History),
+                    Key::Num3 => st.go(Tab::Settings),
                     _ => return KeyReply::Ignore,
                 }
                 KeyReply::Handled
@@ -292,7 +285,7 @@ pub fn root(st: St) -> W {
             boxed(col)
         };
         main = main.child(body);
-        let stack = Stack::new().fit(StackFit::Expand).child(main).child(day::layer(st, w)).child(settings::reset_dialog(st)).child(toast_layer(st));
+        let stack = Stack::new().fit(StackFit::Expand).child(main).child(calendar::menu_layer(st)).child(day::layer(st, w)).child(settings::reset_dialog(st)).child(toast_layer(st));
         let frame = DecoratedBox::new().class(if w && !fs { "window-frame" } else { "window-frame flat" }).clip(true).child(keys(st, stack));
         vec![boxed(WindowResizeRegion::new().over_content(true).inset(5.0).enabled(w && !fs).child(frame))]
     }))

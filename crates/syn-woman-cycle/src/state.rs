@@ -10,14 +10,13 @@ use crate::model::{self, Data, DayLog, Forecast, Settings};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
-    Today,
     Calendar,
     History,
     Settings,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 4] = [Tab::Today, Tab::Calendar, Tab::History, Tab::Settings];
+    pub const ALL: [Tab; 3] = [Tab::Calendar, Tab::History, Tab::Settings];
 
     pub fn index(self) -> u64 {
         Tab::ALL.iter().position(|t| *t == self).unwrap_or(0) as u64
@@ -38,6 +37,10 @@ pub struct St {
     pub sheet: RwSignal<Option<Day>>,
     pub sheet_open: RwSignal<bool>,
     pub confirm_reset: RwSignal<bool>,
+    /// Меню отметок у даты: день, открыто ли, прямоугольник даты (якорь).
+    pub menu_day: RwSignal<Option<Day>>,
+    pub menu_open: RwSignal<bool>,
+    pub menu_rect: RwSignal<syngui::core::Rect>,
     /// Отметка близости, открытая для правки (время, защита).
     pub love_edit: RwSignal<Option<u64>>,
     /// Шаг знакомства (0..3) и выбранная в нём дата.
@@ -64,11 +67,14 @@ impl St {
             fc: use_signal(fc),
             rev: use_signal(0),
             today: use_signal(today),
-            tab: use_signal(Tab::Today),
+            tab: use_signal(Tab::Calendar),
             month: use_signal(date::month_index(today)),
             sheet: use_signal(None),
             sheet_open: use_signal(false),
             confirm_reset: use_signal(false),
+            menu_day: use_signal(None),
+            menu_open: use_signal(false),
+            menu_rect: use_signal(syngui::core::Rect::zero()),
             love_edit: use_signal(None),
             intro_step: use_signal(0),
             intro_day: use_signal(None),
@@ -162,11 +168,10 @@ impl St {
         });
     }
 
-    /// Отметить близость в день; сегодня — с текущим временем (его можно убрать).
+    /// Отметить близость в день (время и защиту можно указать потом).
     pub fn add_intimacy(&self, day: Day) -> u64 {
         let id = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
-        let time = (day == date::today()).then(date::now_minutes);
-        self.edit(|d| d.intimacy.push(crate::model::Intimacy { id, day, time, protected: None }));
+        self.edit(|d| d.intimacy.push(crate::model::Intimacy { id, day, time: None, protected: None }));
         id
     }
 
@@ -185,7 +190,49 @@ impl St {
         }
     }
 
+    /// Меню отметок у даты (прямоугольник — якорь панели).
+    pub fn open_menu(&self, d: Day, rect: syngui::core::Rect) {
+        self.menu_day.set(Some(d));
+        self.menu_rect.set(rect);
+        self.menu_open.set(true);
+    }
+
+    /// Месячные начались в этот день: отметить длину месячных (не дальше сегодняшнего дня).
+    pub fn start_period(&self, day: Day) {
+        let today = date::today();
+        self.edit(|d| {
+            for i in 0..d.settings.period_len {
+                if day + i > today {
+                    break;
+                }
+                d.days.entry(day + i).or_default().flow = 3;
+            }
+            if d.ended.is_some_and(|e| e >= day) {
+                d.ended = None;
+            }
+        });
+    }
+
+    /// Овуляция в этот день: отметить или снять (отметка заменяет расчётную в цикле).
+    pub fn toggle_ovulation(&self, day: Day) {
+        self.edit(|d| {
+            if !d.ovulations.remove(&day) {
+                d.ovulations.insert(day);
+            }
+        });
+    }
+
+    /// Близость в этот день: поставить (без времени) или снять все отметки дня.
+    pub fn toggle_intimacy(&self, day: Day) {
+        if self.fc.get_untracked().intimacy(day).is_empty() {
+            self.add_intimacy(day);
+        } else {
+            self.edit(|d| d.intimacy.retain(|i| i.day != day));
+        }
+    }
+
     pub fn open_day(&self, d: Day) {
+        self.menu_open.set(false);
         self.love_edit.set(None);
         self.sheet.set(Some(d));
         self.sheet_open.set(true);
@@ -198,6 +245,10 @@ impl St {
 
     /// «Назад»: закрыть карточку или диалог, вернуться на «Сегодня»; `false` — некуда.
     pub fn back(&self) -> bool {
+        if self.menu_open.get_untracked() {
+            self.menu_open.set(false);
+            return true;
+        }
         if self.confirm_reset.get_untracked() {
             self.confirm_reset.set(false);
             return true;
@@ -214,8 +265,8 @@ impl St {
             }
             return false;
         }
-        if self.tab.get_untracked() != Tab::Today {
-            self.go(Tab::Today);
+        if self.tab.get_untracked() != Tab::Calendar {
+            self.go(Tab::Calendar);
             return true;
         }
         false
@@ -266,7 +317,7 @@ impl St {
         model::save(&d);
         self.data.set(d);
         self.recompute();
-        self.tab.set(Tab::Today);
+        self.tab.set(Tab::Calendar);
     }
 
     pub fn reset(&self) {

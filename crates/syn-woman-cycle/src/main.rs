@@ -1,7 +1,7 @@
 //! syn-woman-cycle — «Цикл» synshell: календарь месячных, овуляции и фертильного окна.
 //! Отметки по дням, прогноз по истории циклов, самочувствие. Данные — только на устройстве.
 //!
-//!   syn-woman-cycle [--screenshot out.png [--size 420x900] [--scale 2] [--page today|calendar|history|settings|intro|cycle|day] [--dark]]
+//!   syn-woman-cycle [--screenshot out.png [--size 420x900] [--scale 2] [--page calendar|menu|history|settings|intro|cycle|day] [--dark]]
 
 mod date;
 mod icons;
@@ -23,13 +23,44 @@ pub struct Pal {
     pub track: Color,
     pub fg: Color,
     pub surface: Color,
+    /// Чернила обводки «ручкой».
+    pub ink: Color,
+    /// Фазы на полосе цикла.
+    pub folli: Color,
+    pub fert: Color,
+    pub fert_strong: Color,
+    pub lute: Color,
 }
 
 pub fn pal(dark: bool) -> Pal {
     if dark {
-        Pal { rose: Color::from_hex("#ff5c8a"), plum: Color::from_hex("#a974f0"), teal: Color::from_hex("#35d0be"), track: Color::from_hex("#3a2b3f"), fg: Color::from_hex("#f7ecf3"), surface: Color::from_hex("#211823") }
+        Pal {
+            rose: Color::from_hex("#f0577f"),
+            plum: Color::from_hex("#a98ce0"),
+            teal: Color::from_hex("#35d0be"),
+            track: Color::from_hex("#2c272d"),
+            fg: Color::from_hex("#f3eef1"),
+            surface: Color::from_hex("#1c191d"),
+            ink: Color::from_hex("#8fa8ff"),
+            folli: Color::from_hex("#5f7fa8"),
+            fert: Color::from_hex("#8a6d1a"),
+            fert_strong: Color::from_hex("#f2b300"),
+            lute: Color::from_hex("#6f5f96"),
+        }
     } else {
-        Pal { rose: Color::from_hex("#f0507a"), plum: Color::from_hex("#9b5de5"), teal: Color::from_hex("#22b8a7"), track: Color::from_hex("#f6e3ea"), fg: Color::from_hex("#2a1a2e"), surface: Color::from_hex("#ffffff") }
+        Pal {
+            rose: Color::from_hex("#e0466f"),
+            plum: Color::from_hex("#7e63c2"),
+            teal: Color::from_hex("#22b8a7"),
+            track: Color::from_hex("#ece7ea"),
+            fg: Color::from_hex("#1e1a1d"),
+            surface: Color::from_hex("#ffffff"),
+            ink: Color::from_hex("#2f55b8"),
+            folli: Color::from_hex("#a9c1e0"),
+            fert: Color::from_hex("#f7dc8a"),
+            fert_strong: Color::from_hex("#e6a800"),
+            lute: Color::from_hex("#cbbde8"),
+        }
     }
 }
 
@@ -44,35 +75,45 @@ pub fn is_dark(cfg: &Config, mode: ThemeMode) -> bool {
 pub fn theme(cfg: &Config, dark: bool) -> String {
     let vars: &[(&str, &str, &str)] = &[
         // имя, светлая, тёмная
-        ("bg", "#fff6f8", "#151017"),
-        ("bg-2", "#ffe8ef", "#25162b"),
-        ("surface", "#ffffff", "#211823"),
-        ("surface-alt", "#fbeff3", "#2b1f2f"),
-        ("fg", "#2a1a2e", "#f7ecf3"),
-        ("muted", "#8c7a90", "#ae98ae"),
-        ("faint", "#c9b6c4", "#6d5a70"),
-        ("border", "#f0dce4", "#3a2b3f"),
-        ("hover", "#2a1a2e0d", "#ffffff12"),
-        ("pressed", "#2a1a2e1a", "#ffffff1f"),
-        ("rose", "#f0507a", "#ff5c8a"),
-        ("rose-2", "#ff8ba7", "#ff8fb0"),
-        ("rose-soft", "#f0507a24", "#ff5c8a30"),
-        ("rose-line", "#f0507a8c", "#ff5c8a99"),
-        ("plum", "#9b5de5", "#a974f0"),
-        ("plum-soft", "#9b5de51f", "#a974f02e"),
+        ("bg", "#fbfafa", "#121013"),
+        ("bg-2", "#fbfafa", "#121013"),
+        ("surface", "#ffffff", "#1c191d"),
+        ("surface-alt", "#f4f1f3", "#252126"),
+        ("fg", "#1e1a1d", "#f3eef1"),
+        ("muted", "#857c83", "#9c939a"),
+        ("faint", "#c4bcc1", "#5a5259"),
+        ("border", "#ece7ea", "#2c272d"),
+        ("hover", "#1e1a1d0d", "#ffffff10"),
+        ("pressed", "#1e1a1d1a", "#ffffff1c"),
+        ("rose", "#e0466f", "#f0577f"),
+        ("rose-2", "#e85c81", "#f36b8f"),
+        ("rose-soft", "#f7dfe5", "#43202b"),
+        ("rose-line", "#e0466f80", "#f0577f99"),
+        ("plum", "#7e63c2", "#a98ce0"),
+        ("plum-soft", "#7e63c21f", "#a98ce02a"),
         ("teal", "#22b8a7", "#35d0be"),
         ("teal-soft", "#22b8a72a", "#35d0be30"),
-        ("gold", "#f2a93b", "#f5b85a"),
+        ("gold", "#e6a800", "#f2b300"),
+        ("fert", "#f9e9be", "#3f310f"),
+        ("ovul", "#f6d370", "#7e5e0a"),
+        ("ovul-line", "#c98f00", "#ffd04d"),
+        ("fert-text", "#8a6400", "#ffd36b"),
+        ("ink", "#2f55b8", "#8fa8ff"),
+        ("folli", "#a9c1e0", "#5f7fa8"),
+        ("folli-soft", "#d6e0ee", "#354256"),
+        ("lute-soft", "#e3dcf1", "#403854"),
+        ("lute", "#cbbde8", "#6f5f96"),
         ("on-accent", "#ffffff", "#ffffff"),
-        ("shadow", "#8a2a4a1f", "#00000070"),
-        ("shadow-strong", "#8a2a4a40", "#000000a0"),
-        ("scrim", "#2a1a2e59", "#000000a6"),
-        ("menu-bg", "#ffffff", "#251b28"),
-        ("titlebar", "#ffeef3", "#1b131e"),
-        ("sidebar", "#fff0f4", "#1a121c"),
-        ("nav", "#fffffff2", "#1f1622f2"),
-        ("danger", "#e5484d", "#ff6b6f"),
+        ("shadow", "#1e1a1d14", "#00000066"),
+        ("shadow-strong", "#1e1a1d29", "#00000099"),
+        ("scrim", "#1e1a1d4d", "#000000a0"),
+        ("menu-bg", "#ffffff", "#211d22"),
+        ("titlebar", "#f6f3f5", "#171418"),
+        ("sidebar", "#f6f3f5", "#171418"),
+        ("nav", "#fffffff5", "#1a171bf5"),
+        ("danger", "#d93d47", "#ff6b6f"),
     ];
+
     let mut s = String::from(":root {\n");
     for (k, l, d) in vars {
         s.push_str(&format!("  --{k}: {};\n", if dark { d } else { l }));
@@ -129,13 +170,13 @@ fn main() {
     let mut shot: Option<String> = None;
     let mut size = (420u32, 900u32);
     let mut scale = 2.0f64;
-    let mut page = String::from("today");
+    let mut page = String::from("calendar");
     let mut dark_shot = false;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "-h" | "--help" => {
-                println!("{}", t!("syn-woman-cycle [--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page today|calendar|history|settings|intro|cycle|day] [--dark]]"));
+                println!("{}", t!("syn-woman-cycle [--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page calendar|menu|history|settings|intro|cycle|day] [--dark]]"));
                 return;
             }
             "--screenshot" => shot = args.next(),
@@ -159,7 +200,7 @@ fn main() {
                 let st = state::St::new(data);
                 st.dark.set(dark_shot);
                 match page.as_str() {
-                    "calendar" => st.tab.set(state::Tab::Calendar),
+                    "menu" => st.open_menu(date::today(), syngui::core::Rect::new(syngui::core::Point::new(330.0, 300.0), syngui::core::Size::new(40.0, 40.0))),
                     "history" => st.tab.set(state::Tab::History),
                     "settings" => st.tab.set(state::Tab::Settings),
                     "cycle" => {

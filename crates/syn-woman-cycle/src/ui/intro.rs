@@ -84,7 +84,7 @@ fn summary(st: St) -> W {
         col = col.child(line(icons::EVENT, "rose-o", t!("Следующие месячные"), date::long(next)));
     }
     if let Some(ov) = fc.next_ovulation() {
-        col = col.child(line(icons::EGG, "teal", t!("Овуляция"), date::long(ov)));
+        col = col.child(line(icons::EGG, "fert", t!("Овуляция"), date::long(ov)));
     }
     boxed(col)
 }

@@ -21,7 +21,7 @@ fn bar(st: St, fc: &Forecast, c: Cycle, i: usize, max_len: i32, w: f32) -> W {
     let p = crate::pal(st.dark.get_untracked());
     let len = c.len.unwrap_or_else(|| (fc.today - c.start + 1).max(fc.cycle)) as f32;
     let next = c.start + len as i32;
-    let ov = (fc.ovulation(next) - c.start) as f32;
+    let ov = (fc.cycle_ovulation(c.start).map(|o| o.0).unwrap_or_else(|| fc.ovulation(next)) - c.start) as f32;
     let elapsed = c.len.map(|_| len).unwrap_or((fc.today - c.start + 1) as f32);
     let period = c.period as f32;
     let full = w * (len / max_len as f32).min(1.0);
@@ -42,10 +42,10 @@ fn bar(st: St, fc: &Forecast, c: Cycle, i: usize, max_len: i32, w: f32) -> W {
         if c.len.is_none() {
             seg(cv, 0.0, elapsed, p.plum.lerp(&p.track, 0.75));
         }
-        seg(cv, (ov - 5.0).max(period), ov + 2.0, p.teal.lerp(&p.track, 0.5));
+        seg(cv, (ov - 5.0).max(period), ov + 2.0, p.fert);
         seg(cv, 0.0, period, p.rose);
         if px(ov + 0.5) <= lim {
-            cv.set_color(p.teal);
+            cv.set_color(p.fert_strong);
             cv.fill_circle(px(ov + 0.5), h / 2.0, h / 2.0 + 1.0);
         }
     })
@@ -74,7 +74,7 @@ pub fn page(st: St, wide: bool) -> W {
         let fc = st.fc.get();
         let _ = st.dark.get();
         let w = super::content_width(wide);
-        let mut blocks: Vec<W> = vec![page_header(st, wide, t!("Статистика и история"), t!("Мой цикл"), vec![])];
+        let mut blocks: Vec<W> = vec![page_header(st, wide, t!("Средние, регулярность и история"), t!("Статистика"), vec![])];
         if !fc.has_data() {
             blocks.push(rise(
                 0,

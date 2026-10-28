@@ -1,7 +1,7 @@
 //! Отметки по дням, настройки и прогноз цикла. Хранится локально:
 //! `~/.local/share/synshell/woman-cycle/data.json`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -108,6 +108,8 @@ pub struct Data {
     pub ended: Option<Day>,
     /// Близость по дням (в порядке дня и времени).
     pub intimacy: Vec<Intimacy>,
+    /// Овуляции, отмеченные вручную (тест, температура): заменяют расчётную в своём цикле.
+    pub ovulations: BTreeSet<Day>,
 }
 
 fn store_path() -> std::path::PathBuf {
@@ -185,6 +187,20 @@ pub struct Forecast {
     pub show_intimacy: bool,
     days: BTreeMap<Day, DayLog>,
     intimacy: Vec<Intimacy>,
+    ovulations: BTreeSet<Day>,
+}
+
+/// Фазы цикла, в который входит день: границы включительно.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Phases {
+    pub start: Day,
+    /// Начало следующего цикла (факт или прогноз).
+    pub next: Day,
+    pub period_end: Day,
+    pub fertile: (Day, Day),
+    pub ovulation: Day,
+    /// Овуляция отмечена вручную.
+    pub confirmed: bool,
 }
 
 /// Подряд идущие дни месячных (разрыв до 2 дней — тот же период): (начало, конец).
@@ -235,7 +251,11 @@ impl Forecast {
                 ongoing = true;
                 ongoing_end = Some((last.start + period - 1).max(end).max(today));
             }
-            let mut p = last.start + cycle;
+            // отмеченная овуляция текущего цикла: следующие месячные — через лютеиновую фазу после неё
+            let mut p = match data.ovulations.range(last.start..).next_back() {
+                Some(&ov) => ov + luteal,
+                None => last.start + cycle,
+            };
             if p <= today {
                 late = today - p + 1;
                 p = today + 1;
@@ -245,7 +265,7 @@ impl Forecast {
                 p += cycle;
             }
         }
-        Forecast { today, cycle, period, luteal, cycles, next, late, ongoing, ongoing_end, show_fertile: s.show_fertile, show_ovulation: s.show_ovulation, show_intimacy: s.show_intimacy, days: data.days.clone(), intimacy: data.intimacy.clone() }
+        Forecast { today, cycle, period, luteal, cycles, next, late, ongoing, ongoing_end, show_fertile: s.show_fertile, show_ovulation: s.show_ovulation, show_intimacy: s.show_intimacy, days: data.days.clone(), intimacy: data.intimacy.clone(), ovulations: data.ovulations.clone() }
     }
 
     pub fn has_data(&self) -> bool {
@@ -281,9 +301,37 @@ impl Forecast {
         Some((starts[i], next))
     }
 
-    /// День овуляции цикла с началом следующего `next`.
+    /// День овуляции цикла с началом следующего `next` (расчётный).
     pub fn ovulation(&self, next: Day) -> Day {
         next - self.luteal
+    }
+
+    /// Овуляция цикла, в который входит день: отмеченная вручную или расчётная; `true` — отмечена.
+    pub fn cycle_ovulation(&self, d: Day) -> Option<(Day, bool)> {
+        let (start, next) = self.cycle_of(d)?;
+        Some(match self.ovulations.range(start..next).next_back() {
+            Some(&ov) => (ov, true),
+            None => (self.ovulation(next), false),
+        })
+    }
+
+    /// Овуляция в этот день отмечена вручную.
+    pub fn ovulation_marked(&self, d: Day) -> bool {
+        self.ovulations.contains(&d)
+    }
+
+    /// Фазы цикла, в который входит день.
+    pub fn phases(&self, d: Day) -> Option<Phases> {
+        let (start, next) = self.cycle_of(d)?;
+        let (ov, confirmed) = self.cycle_ovulation(d)?;
+        let actual = self.cycles.iter().find(|c| c.start == start).map(|c| start + c.period - 1);
+        let mut period_end = actual.unwrap_or(start + self.period - 1);
+        if let (Some(e), Some(last)) = (self.ongoing_end, self.cycles.last()) {
+            if last.start == start {
+                period_end = period_end.max(e);
+            }
+        }
+        Some(Phases { start, next, period_end, fertile: (ov - 5, ov + 1), ovulation: ov, confirmed })
     }
 
     /// День цикла (с 1).
@@ -305,10 +353,9 @@ impl Forecast {
                 return Kind::Predicted;
             }
         }
-        let Some((_, next)) = self.cycle_of(d) else {
+        let Some((ov, _)) = self.cycle_ovulation(d) else {
             return Kind::None;
         };
-        let ov = self.ovulation(next);
         if self.show_ovulation && d == ov {
             return Kind::Ovulation;
         }
@@ -326,8 +373,7 @@ impl Forecast {
         if self.late > 0 {
             return Some(Phase::Late);
         }
-        let (_, next) = self.cycle_of(t)?;
-        let ov = self.ovulation(next);
+        let (ov, _) = self.cycle_ovulation(t)?;
         Some(if t == ov {
             Phase::Ovulation
         } else if t >= ov - 5 && t <= ov + 1 {
@@ -341,21 +387,19 @@ impl Forecast {
 
     /// Ближайшая овуляция начиная с сегодняшнего дня.
     pub fn next_ovulation(&self) -> Option<Day> {
-        let (_, next) = self.cycle_of(self.today)?;
-        let ov = self.ovulation(next);
+        let (ov, _) = self.cycle_ovulation(self.today)?;
         if ov >= self.today {
             Some(ov)
         } else {
-            self.next.iter().map(|&p| self.ovulation(p + self.cycle)).find(|&o| o >= self.today)
+            self.next.iter().filter_map(|&p| self.cycle_ovulation(p).map(|o| o.0)).find(|&o| o >= self.today)
         }
     }
 
     /// Вероятность зачатия в день: 0 — низкая, 1 — средняя, 2 — высокая.
     pub fn chance(&self, d: Day) -> u8 {
-        let Some((_, next)) = self.cycle_of(d) else {
+        let Some((ov, _)) = self.cycle_ovulation(d) else {
             return 0;
         };
-        let ov = self.ovulation(next);
         match d - ov {
             -2..=0 => 2,
             -5..=-3 | 1 => 1,
@@ -404,6 +448,40 @@ mod tests {
         assert_eq!(day[0].time_text().as_deref(), Some("08:00"));
         // цикл с 160: 165 — обычный день, 172 — фертильное окно (овуляция 176)
         assert_eq!(f.intimacy_stats(160, 175), (3, 2));
+    }
+
+    #[test]
+    fn marked_ovulation_moves_window_and_forecast() {
+        let mut d = data(&[100, 130, 160], 4);
+        d.ovulations.insert(170);
+        let f = Forecast::new(&d, 172);
+        assert_eq!(f.kind(170), Kind::Ovulation);
+        assert_eq!(f.kind(176), Kind::None);
+        assert_eq!(f.kind(165), Kind::Fertile);
+        // следующие месячные — через лютеиновую фазу после отмеченной овуляции
+        assert_eq!(f.next[0], 184);
+        let ph = f.phases(172).unwrap();
+        assert_eq!((ph.start, ph.next, ph.period_end, ph.ovulation, ph.confirmed), (160, 184, 163, 170, true));
+        // в прошлом цикле отмеченная овуляция не влияет на текущий
+        let mut d2 = data(&[100, 130, 160], 4);
+        d2.ovulations.insert(140);
+        let f2 = Forecast::new(&d2, 172);
+        assert_eq!(f2.next[0], 190);
+        assert_eq!(f2.cycle_ovulation(135), Some((140, true)));
+    }
+
+    /// Файл прежней версии (без `ovulations`, `show_intimacy`) читается без потерь.
+    #[test]
+    fn old_data_file_loads() {
+        let old = r#"{"onboarded":true,"settings":{"cycle_len":27,"period_len":6,"luteal":14,"auto":true,"theme":"system","scale":1.0,"fullscreen":true,"monday":true,"show_fertile":true,"show_ovulation":true},"days":{"20727":{"flow":3,"sym":1,"mood":0},"20728":{"flow":2}},"ended":null,"intimacy":[{"id":5,"day":20740,"time":1215,"protected":true}]}"#;
+        let d: Data = serde_json::from_str(old).unwrap();
+        assert!(d.onboarded);
+        assert_eq!((d.settings.cycle_len, d.settings.period_len), (27, 6));
+        assert!(d.settings.show_intimacy);
+        assert_eq!(d.days.len(), 2);
+        assert_eq!(d.days[&20727].sym, 1);
+        assert_eq!(d.intimacy[0].time, Some(1215));
+        assert!(d.ovulations.is_empty());
     }
 
     #[test]
