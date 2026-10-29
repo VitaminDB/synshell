@@ -355,7 +355,10 @@ impl Agent {
                     break;
                 }
                 let model = chat.model.clone();
-                let sig = (call.name.clone(), call.arguments.clone());
+                // нормализуем пробелы в аргументах: почти одинаковые команды (bash:
+                // та же команда с другими отступами/переносами) считаются повтором
+                let norm_args = call.arguments.split_whitespace().collect::<Vec<_>>().join(" ");
+                let sig = (call.name.clone(), norm_args);
                 let repeats = recent.iter().filter(|s| **s == sig).count();
                 recent.push(sig);
                 let msg = if repeats >= 2 {
@@ -366,7 +369,7 @@ impl Agent {
                         &call.name,
                         "повтор — пропущено".into(),
                         false,
-                        "Этот вызов с теми же аргументами уже выполнялся дважды с тем же результатом — повтор пропущен. Смени подход: данные по имени символа читай инструментом read_data (не bytes/search/strings); «кто ссылается/вызывает» — decompile_export с refs_to/calls; адреса ядра — это VA (0xffffff80…), не файловые смещения. Если нужного здесь нет — переходи к следующему пункту запроса и сохрани уже полученное (decompile_export).".into(),
+                        "Этот вызов с теми же аргументами уже выполнялся дважды с тем же результатом — повтор пропущен. Смени подход (не повторяй grep/bash по дизассемблеру): данные по имени символа читай инструментом read_data (не bytes/search/strings); «кто вызывает функцию и с какими аргументами-константами» — run_rhai call_args(\"имя\", N) (напр. вызовы с reg=0x22); «кто ссылается/вызывает» — decompile_export с refs_to/calls; декомпиляция функции — decompile/decompile_export; адреса ядра — это VA (0xffffff80…), не файловые смещения. Если нужного здесь нет — переходи к следующему пункту запроса и сохрани уже полученное.".into(),
                         Vec::new(),
                     )
                 } else {
