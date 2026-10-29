@@ -109,7 +109,7 @@ pub struct Agent {
 
 const TOOL_RESULT_LIMIT: usize = 12_000;
 const SUBAGENT: &str = "subagent";
-const LIMIT_PROMPT: &str = "Лимит шагов исчерпан. Больше не вызывай инструменты. Коротко подведи итог: что удалось сделать и узнать, что осталось нерешённым. Без вступления.";
+const LIMIT_PROMPT: &str = "Лимит шагов исчерпан. Больше не вызывай инструменты. Подведи итог ПО КАЖДОМУ пункту запроса: что удалось и где результат (сохранённые файлы, найденные значения), что осталось нерешённым. Если что-то получил, но не сохранил — так и скажи. Без вступления.";
 const SUBAGENT_PROMPT: &str = "Ты — субагент: выполняешь одну узкую подзадачу инструментами и возвращаешь только краткий итог в 1–3 абзаца, без вступления. Истории основного разговора у тебя нет — опирайся только на текст задачи.";
 
 impl Agent {
@@ -327,6 +327,10 @@ impl Agent {
     pub fn continue_turn(&self, chat: &mut Chat, confirm: &dyn Confirm, cancel: &AtomicBool, on: &mut dyn FnMut(AgentEvent)) -> Result<(), String> {
         let schemas = self.schemas();
         let mut pending_tools = false;
+        // недавние вызовы инструментов (имя+аргументы) — защита от зацикливания:
+        // один и тот же вызов снова и снова не выполняется, а разворачивается в
+        // подсказку сменить подход
+        let mut recent: Vec<(String, String)> = Vec::new();
         for _ in 0..self.max_steps {
             if cancel.load(Ordering::Relaxed) {
                 break;
@@ -351,9 +355,25 @@ impl Agent {
                     break;
                 }
                 let model = chat.model.clone();
-                let msg = match self.pool_gate(chat, &call.name) {
-                    Some(msg) => msg,
-                    None => self.execute(&model, &call.name, &call.arguments, confirm, cancel, on),
+                let sig = (call.name.clone(), call.arguments.clone());
+                let repeats = recent.iter().filter(|s| **s == sig).count();
+                recent.push(sig);
+                let msg = if repeats >= 2 {
+                    // один и тот же вызов уже делался дважды — не повторять,
+                    // подсказать сменить подход (частая петля у малых моделей)
+                    on(AgentEvent::ToolStart { name: call.name.clone(), summary: "повтор".into() });
+                    ChatMsg::tool(
+                        &call.name,
+                        "повтор — пропущено".into(),
+                        false,
+                        "Этот вызов с теми же аргументами уже выполнялся дважды с тем же результатом — повтор пропущен. Смени подход: данные по имени символа читай инструментом read_data (не bytes/search/strings); «кто ссылается/вызывает» — decompile_export с refs_to/calls; адреса ядра — это VA (0xffffff80…), не файловые смещения. Если нужного здесь нет — переходи к следующему пункту запроса и сохрани уже полученное (decompile_export).".into(),
+                        Vec::new(),
+                    )
+                } else {
+                    match self.pool_gate(chat, &call.name) {
+                        Some(msg) => msg,
+                        None => self.execute(&model, &call.name, &call.arguments, confirm, cancel, on),
+                    }
                 };
                 chat.messages.push(msg.clone());
                 on(AgentEvent::Message(msg));
