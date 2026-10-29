@@ -331,6 +331,10 @@ impl Agent {
         // один и тот же вызов снова и снова не выполняется, а разворачивается в
         // подсказку сменить подход
         let mut recent: Vec<(String, String)> = Vec::new();
+        // «форма» вызова: числа (0x… и десятичные) свёрнуты в N — чтобы ловить
+        // churn из почти одинаковых вызовов с разными адресами/диапазонами
+        // (hexdump кусков, disasm соседних адресов): структурно это один и тот же приём
+        let mut recent_shapes: Vec<String> = Vec::new();
         for _ in 0..self.max_steps {
             if cancel.load(Ordering::Relaxed) {
                 break;
@@ -358,10 +362,36 @@ impl Agent {
                 // нормализуем пробелы в аргументах: почти одинаковые команды (bash:
                 // та же команда с другими отступами/переносами) считаются повтором
                 let norm_args = call.arguments.split_whitespace().collect::<Vec<_>>().join(" ");
-                let sig = (call.name.clone(), norm_args);
+                let sig = (call.name.clone(), norm_args.clone());
                 let repeats = recent.iter().filter(|s| **s == sig).count();
                 recent.push(sig);
-                let msg = if repeats >= 2 {
+                // форма: все числа → N (0x1F0 и 0x240 → одно и то же), ловит churn
+                let shape = {
+                    let mut s = String::with_capacity(norm_args.len());
+                    let mut it = norm_args.chars().peekable();
+                    while let Some(c) = it.next() {
+                        if c == '0' && matches!(it.peek(), Some('x' | 'X')) {
+                            it.next();
+                            while it.peek().is_some_and(|d| d.is_ascii_hexdigit()) {
+                                it.next();
+                            }
+                            s.push('N');
+                        } else if c.is_ascii_digit() {
+                            while it.peek().is_some_and(|d| d.is_ascii_digit()) {
+                                it.next();
+                            }
+                            s.push('N');
+                        } else {
+                            s.push(c);
+                        }
+                    }
+                    format!("{}\u{1}{s}", call.name)
+                };
+                let churn = recent_shapes.iter().filter(|s| **s == shape).count();
+                recent_shapes.push(shape);
+                // повтор того же вызова (≥2) ИЛИ пятый структурно-одинаковый приём с
+                // другими числами (churn ≥4) — не выполнять, подсказать сменить подход
+                let msg = if repeats >= 2 || churn >= 4 {
                     // один и тот же вызов уже делался дважды — не повторять,
                     // подсказать сменить подход (частая петля у малых моделей)
                     on(AgentEvent::ToolStart { name: call.name.clone(), summary: "повтор".into() });
@@ -369,7 +399,7 @@ impl Agent {
                         &call.name,
                         "повтор — пропущено".into(),
                         false,
-                        "Этот вызов с теми же аргументами уже выполнялся дважды с тем же результатом — повтор пропущен. Смени подход (не повторяй grep/bash по дизассемблеру): данные по имени символа читай инструментом read_data (не bytes/search/strings); «кто вызывает функцию и с какими аргументами-константами» — run_rhai call_args(\"имя\", N) (напр. вызовы с reg=0x22); «кто ссылается/вызывает» — decompile_export с refs_to/calls; декомпиляция функции — decompile/decompile_export; адреса ядра — это VA (0xffffff80…), не файловые смещения. Если нужного здесь нет — переходи к следующему пункту запроса и сохрани уже полученное.".into(),
+                        "Похожий вызов уже повторялся — пропущен. Не долби одно и то же (hexdump кусков, disasm соседних адресов): много проверок делай ОДНИМ run_rhai (цикл внутри скрипта), а не десятком вызовов. Сведения о файле — file_info() (формат, сегменты, VA, entry, энтропия), не hexdump заголовка и не bash (file/struct/xxd/readelf). Данные по имени символа — read_data (не bytes/search/strings); строки с подстрокой и их функции-ссылатели — run_rhai string_refs(\"…\"); кто вызывает функцию с аргументами-константами — call_args(\"имя\", N); кто ссылается/вызывает — decompile_export refs_to/calls; декомпиляция — decompile/decompile_export. Адреса — это VA (0xffffff80…/0x8004…), не файловые смещения. Если нужного здесь нет — переходи к следующему пункту запроса и сохрани уже полученное.".into(),
                         Vec::new(),
                     )
                 } else {
