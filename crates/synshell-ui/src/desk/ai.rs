@@ -299,6 +299,16 @@ fn device_bar(name: String, models: u64, used: u64, total: u64, cx: &Cx) -> impl
         .child(canvas)
 }
 
+/// Версия строки модели для `Keyed`: всё, что строка показывает, — сама
+/// модель, её работы (токены, скорость, шаг), программы и контекст. Без неё
+/// строка собиралась один раз и застывала на первом снимке.
+fn row_version(s: &AiSnap, m: &ModelEntry) -> u64 {
+    let acts: Vec<&Activity> = s.metrics.running.iter().filter(|a| a.models.contains(&m.id)).collect();
+    let apps: Vec<_> = s.metrics.apps.iter().filter(|u| u.models.contains(&m.id)).map(|u| u.app.title()).collect();
+    let kv: u64 = s.metrics.kv.iter().filter(|k| k.model == m.id).map(|k| k.bytes).sum();
+    key_of(&format!("{m:?}{acts:?}{apps:?}{kv}"))
+}
+
 fn model_row(s: &AiSnap, m: &ModelEntry, cx: &Cx) -> Box<dyn Widget> {
     let id = m.id.clone();
     let bytes = if m.device == Some(DeviceKind::Cuda) && m.vram_bytes > 0 { m.vram_bytes } else { m.mem_bytes };
@@ -393,7 +403,7 @@ pub fn models(cx: Cx) -> Box<dyn Widget> {
             let mut list = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
             for m in loaded {
                 let (s2, m2, cx2) = (s.clone(), m.clone(), cx.clone());
-                list = list.child(Keyed::new(key_of(&m.id), 0, move || model_row(&s2, &m2, &cx2)));
+                list = list.child(Keyed::new(key_of(&m.id), row_version(&s, m), move || model_row(&s2, &m2, &cx2)));
             }
             col = col.child(ScrollView::new().vertical().child(list).class("grow desk-ai-list"));
         }
