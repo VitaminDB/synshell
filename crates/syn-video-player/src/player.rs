@@ -62,7 +62,9 @@ pub fn view(st: St) -> W {
             .fit(StackFit::Expand)
             .child(DecoratedBox::new().class("player-bg"))
             .child(body)
-            .child(panel),
+            .child(panel)
+            .child(crate::tracks::panel(st))
+            .child(crate::vram::dialog(st)),
     )
 }
 
@@ -86,6 +88,7 @@ fn header(st: St, title: String) -> W {
         )
         .child(Text::new(title).max_lines(1).class("player-title"))
         .child(DecoratedBox::new().class("grow"))
+        .child(crate::tracks::button(st))
         .child(
             ToolButton::new(icons::CUT)
                 .tooltip(t!("Монтаж: резать и склеивать"))

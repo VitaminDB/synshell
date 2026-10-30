@@ -115,3 +115,10 @@ Text { color: var(--fg); font-size: 14px; }
 .ed-add-row:hover { background-color: var(--hover); }
 .ed-add-thumb { width: 96px; height: 54px; border-radius: 8px; overflow: hidden; }
 .ed-dur-place { padding: 3px; }
+
+/* Выбор звуковой дорожки (панель как у настроек). */
+.track-row { padding: 10px 12px; border-radius: 12px; background: var(--surface); border: 2px solid transparent; }
+.track-row:hover { background: var(--hover); }
+.track-row-active { border-color: var(--accent); }
+.track-radio { font-size: 22px; icon-size: 22px; color: var(--muted); }
+.track-row-active .track-radio { color: var(--accent); }

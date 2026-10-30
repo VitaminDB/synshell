@@ -11,6 +11,7 @@ name = "syn-video-player"
 path = "src/main.rs"
 
 [dependencies]
+synaptixd.workspace = true
 synshell-common = { workspace = true, features = ["i18n", "style"] }
 syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "ffmpeg", "wayland-dnd"] }
 anyhow.workspace = true

@@ -391,7 +391,7 @@ fn tool_icon(icon: &'static str, tip: &str, enabled: bool, f: impl Fn() + Send +
 }
 
 /// Кнопка-«таблетка»: основная (акцент) или обычная.
-fn pill(icon: &'static str, label: &str, primary: bool, f: impl Fn() + Send + Sync + 'static) -> W {
+pub(crate) fn pill(icon: &'static str, label: &str, primary: bool, f: impl Fn() + Send + Sync + 'static) -> W {
     let class = if primary { "ed-btn ed-btn-primary" } else { "ed-btn" };
     let mut row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center);
     if !icon.is_empty() {

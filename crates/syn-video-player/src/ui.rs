@@ -57,6 +57,14 @@ pub struct St {
     /// Как идёт воспроизведение открытого ролика (чип в шапке).
     pub info: RwSignal<Option<DecodeInfo>>,
     pub settings_open: RwSignal<bool>,
+    /// Открыта панель выбора звуковой дорожки.
+    pub tracks_open: RwSignal<bool>,
+    /// Озвучка, выбранная в этом сеансе: следующие ролики открываются с ней.
+    pub audio_pref: RwSignal<Option<crate::tracks::AudioPref>>,
+    /// Вопрос «освободить видеопамять от нейросетей?» (аппаратный декодер не запустился).
+    pub vram: RwSignal<crate::vram::Vram>,
+    /// Состояние DLSS 5 открытого ролика (чип в шапке, настройки).
+    pub dlss: RwSignal<crate::dlss::Status>,
     pub cards: RwSignal<Vec<Card>>,
     /// Видео каталога открытого ролика: листание и лента миниатюр в плеере.
     pub siblings: RwSignal<Vec<Card>>,
@@ -223,6 +231,8 @@ pub fn open_at(st: St, path: PathBuf, start: Option<f64>, keep_old: bool) {
                         if let Some(t) = start.filter(|t| *t > 1.0 && *t < p.duration_sec() - 1.0) {
                             let _ = p.seek(t);
                         }
+                        crate::tracks::apply_pref(st, &mut p);
+                        crate::dlss::attach(st, &p);
                         p.play();
                         let playing = Playing { path, player: Arc::new(Mutex::new(p)) };
                         watch(st, &playing);
@@ -241,6 +251,10 @@ pub fn open_at(st: St, path: PathBuf, start: Option<f64>, keep_old: bool) {
 pub fn close(st: St) {
     st.opening.set(None);
     st.settings_open.set(false);
+    st.tracks_open.set(false);
+    if st.vram.get_untracked() != crate::vram::Vram::Freeing {
+        st.vram.set(crate::vram::Vram::None);
+    }
     st.info.set(None);
     if let Some(p) = st.playing.get_untracked() {
         st.playing.set(None);
@@ -302,9 +316,15 @@ fn watch(st: St, playing: &Playing) {
                     Err(_) => break,
                 };
                 if last.as_ref() != Some(&info) {
+                    if let (Some(reason), None, true) = (&info.hw_fallback, &info.hardware, info.known) {
+                        if last.as_ref().is_none_or(|l| l.hw_fallback.is_none() || !l.known) {
+                            crate::vram::on_fallback(st, &path, reason.clone());
+                        }
+                    }
                     last = Some(info.clone());
                     run_on_main_thread(move || st.info.set(Some(info)));
                 }
+                crate::dlss::poll(st);
                 tick += 1;
                 if s.resume && tick % 10 == 0 {
                     settings::save_position(&path, pos, dur);
@@ -491,4 +511,8 @@ pub mod icons {
     pub const RIGHT: &str = "\u{E5CC}";
     pub const ADD: &str = "\u{E145}";
     pub const PLAY: &str = "\u{E037}";
+    /// record_voice_over: озвучка
+    pub const VOICE: &str = "\u{E91F}";
+    pub const RADIO_ON: &str = "\u{E837}";
+    pub const RADIO_OFF: &str = "\u{E836}";
 }

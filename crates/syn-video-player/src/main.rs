@@ -13,7 +13,9 @@ mod editor;
 mod library;
 mod player;
 mod settings;
+mod tracks;
 mod ui;
+mod vram;
 
 use syngui::prelude::*;
 use syngui::video::HwAccel;
@@ -119,6 +121,9 @@ fn main() {
                 settings: use_signal(settings::Settings::load()),
                 info: use_signal(None),
                 settings_open: use_signal(false),
+                tracks_open: use_signal(false),
+                audio_pref: use_signal(None),
+                vram: use_signal(vram::Vram::None),
                 cards: use_signal(Vec::new()),
                 siblings: use_signal(Vec::new()),
                 scanning: use_signal(true),
