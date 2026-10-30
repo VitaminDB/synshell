@@ -170,7 +170,7 @@ impl FrameFilter for DlssFilter {
 }
 
 /// Итоговый кадр: ответ модели с долей `strength` поверх исходного, при сравнении левая половина —
-/// исходный кадр и светлая черта посередине.
+/// исходный кадр и светлая черта посередине (ширина — по ширине кадра).
 fn compose(orig: &[u8], answer: &[u8], dst: &mut [u8], w: usize, o: Opts) {
     let k = (o.strength.clamp(0.0, 1.0) * 256.0).round() as i32;
     let row = w * 4;
@@ -190,7 +190,12 @@ fn compose(orig: &[u8], answer: &[u8], dst: &mut [u8], w: usize, o: Opts) {
             }
         }
         if o.compare && w >= 2 {
-            dr[(mid - 1) * 4..(mid + 1) * 4].copy_from_slice(&[235, 235, 235, 255, 235, 235, 235, 255]);
+            // черта видна и в уменьшенном окне: ~2 px на каждые 960 px ширины кадра (4K — 8 px)
+            let half = (w / 960).max(1);
+            let (l, r) = (mid.saturating_sub(half), (mid + half).min(w));
+            for px in dr[l * 4..r * 4].chunks_exact_mut(4) {
+                px.copy_from_slice(&[235, 235, 235, 255]);
+            }
         }
     }
 }
@@ -328,6 +333,16 @@ mod tests {
         assert_eq!(&d[4 * 4..4 * 4 + 4], &[235, 235, 235, 255]);
         assert_eq!(&d[6 * 4..6 * 4 + 4], &[200, 200, 200, 200]); // справа модель
         assert_eq!(&d[w * 4..w * 4 + 4], &[100, 100, 100, 100]); // вторая строка
+        // 4K: черта 8 px по центру
+        let (w4, h4) = (3840usize, 1usize);
+        let (o4, a4) = (vec![100u8; w4 * h4 * 4], vec![200u8; w4 * h4 * 4]);
+        let mut d4 = vec![0u8; w4 * h4 * 4];
+        compose(&o4, &a4, &mut d4, w4, Opts { strength: 1.0, compare: true });
+        let line = d4.chunks_exact(4).filter(|p| p == &[235, 235, 235, 255]).count();
+        assert_eq!(line, 8);
+        assert_eq!(&d4[1915 * 4..1916 * 4], &[100, 100, 100, 100]);
+        assert_eq!(&d4[1916 * 4..1917 * 4], &[235, 235, 235, 255]);
+        assert_eq!(&d4[1924 * 4..1925 * 4], &[200, 200, 200, 200]);
         // тёмнее исходного — без переполнения
         let ans0 = vec![0u8; w * h * 4];
         compose(&orig, &ans0, &mut d, w, Opts { strength: 0.5, compare: false });
