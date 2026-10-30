@@ -64,7 +64,7 @@ pub fn run(file: &str, hw: HwAccel, yuv: bool, dlss: bool) -> i32 {
                     println!("кадр {frames}: DLSS 5 {:?}", d.status());
                 }
                 // перемотка на середину: проверка сброса декодера
-                if frames == 30 && meta.duration_sec > 2.0 {
+                if frames == 30 && meta.duration_sec > 2.0 && std::env::var_os("SVP_BENCH_NOSEEK").is_none() {
                     let to = meta.duration_sec / 2.0;
                     println!("перемотка на {to:.2} с с {:.2} с", f.pts_sec);
                     dec.seek(to);
