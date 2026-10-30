@@ -63,6 +63,8 @@ pub struct St {
     pub audio_pref: RwSignal<Option<crate::tracks::AudioPref>>,
     /// Вопрос «освободить видеопамять от нейросетей?» (аппаратный декодер не запустился).
     pub vram: RwSignal<crate::vram::Vram>,
+    /// Состояние DLSS 5 открытого ролика (чип в шапке, настройки).
+    pub dlss: RwSignal<crate::dlss::Status>,
     pub cards: RwSignal<Vec<Card>>,
     /// Видео каталога открытого ролика: листание и лента миниатюр в плеере.
     pub siblings: RwSignal<Vec<Card>>,
@@ -230,6 +232,7 @@ pub fn open_at(st: St, path: PathBuf, start: Option<f64>, keep_old: bool) {
                             let _ = p.seek(t);
                         }
                         crate::tracks::apply_pref(st, &mut p);
+                        crate::dlss::attach(st, &p);
                         p.play();
                         let playing = Playing { path, player: Arc::new(Mutex::new(p)) };
                         watch(st, &playing);
@@ -321,6 +324,7 @@ fn watch(st: St, playing: &Playing) {
                     last = Some(info.clone());
                     run_on_main_thread(move || st.info.set(Some(info)));
                 }
+                crate::dlss::poll(st);
                 tick += 1;
                 if s.resume && tick % 10 == 0 {
                     settings::save_position(&path, pos, dur);
@@ -511,4 +515,7 @@ pub mod icons {
     pub const VOICE: &str = "\u{E91F}";
     pub const RADIO_ON: &str = "\u{E837}";
     pub const RADIO_OFF: &str = "\u{E836}";
+    /// auto_awesome: DLSS 5
+    pub const DLSS: &str = "\u{E65F}";
+    pub const OPEN_IN_NEW: &str = "\u{E89E}";
 }

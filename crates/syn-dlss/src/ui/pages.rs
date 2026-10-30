@@ -5,7 +5,7 @@ use syngui::prelude::*;
 
 use super::controls::{self as c, Latch::*};
 use super::{boxed, icon_button, W};
-use crate::config::{fld, pfld};
+use syn_dlss::{fld, pfld};
 use crate::icons;
 use crate::shm::{self, b2f, f2b};
 use crate::state::{header, open_path, Dialog, St};

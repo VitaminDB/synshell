@@ -73,6 +73,7 @@ pub struct Setting {
     pub invert: bool,
 }
 
+#[macro_export]
 macro_rules! fld {
     ($n:ident) => {{
         fn g(h: &$crate::shm::ShmHeader) -> &std::sync::atomic::AtomicU32 {
@@ -81,8 +82,8 @@ macro_rules! fld {
         g as $crate::shm::Field
     }};
 }
-pub(crate) use fld;
 
+#[macro_export]
 macro_rules! pfld {
     ($n:ident) => {{
         fn g(p: &$crate::shm::PassControl) -> &std::sync::atomic::AtomicU32 {
@@ -91,7 +92,6 @@ macro_rules! pfld {
         g as $crate::shm::PassField
     }};
 }
-pub(crate) use pfld;
 
 const fn s(key: &'static str, field: Field, float: bool) -> Setting {
     Setting { key, field, float, invert: false }

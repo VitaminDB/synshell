@@ -122,3 +122,9 @@ Text { color: var(--fg); font-size: 14px; }
 .track-row-active { border-color: var(--accent); }
 .track-radio { font-size: 22px; icon-size: 22px; color: var(--muted); }
 .track-row-active .track-radio { color: var(--accent); }
+
+/* DLSS 5: зелёный NVIDIA — кадры идут через модель */
+.chip-mode-dlss { background: #5e8f00; }
+.info-chip-dlss { padding: 4px; }
+.set-dlss-state { color: var(--accent); }
+.set-dlss-open { align-self: flex-start; }

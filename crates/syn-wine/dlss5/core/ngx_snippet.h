@@ -45,6 +45,14 @@ struct NgxSnippet {
     // every switch; NgxCreatePass rewrites the create flags and the tonemap hint from it, so a
     // rebuild after a toggle carries the new contract without re-running init.
     bool hdrActive = false;
+    // The snippet is loaded and Init_Ext has succeeded. A new raster then needs only a new feature:
+    // loading and initialising again for every size change leaks a parameter block per call and, after
+    // a handful of them, the snippet answers CreateFeature with 0xbad00002 for the rest of the process
+    // -- which a video player, opening one file after another, reaches within minutes.
+    bool initDone = false;
+    // A feature has been built at least once in this process: the model works, so a later create
+    // that fails is a resource refusal (video memory, most often) at that raster, not a dead model.
+    bool everCreated = false;
 
     // Last values the evaluate contract reported, so it says something only when it changes.
     unsigned int loggedAutoMask = 0xFFFFFFFFu;

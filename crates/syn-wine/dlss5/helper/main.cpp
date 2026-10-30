@@ -1200,6 +1200,12 @@ struct NeuralState {
     VkCtx vk{};
     NgxSnippet ngx{};
 
+    // The raster the model last refused to build at, and when it may be tried again. A video player
+    // opening a 4K file on a card whose memory is mostly taken gets "no" for that size -- which must
+    // not end the helper for the 1080p file opened next, nor be retried at 200 ms a frame.
+    uint32_t refusedW = 0, refusedH = 0;
+    double refusedUntilMs = 0.0;
+
     // The proxy the layer sent (8-bit display-referred, or float16 normalised linear light when the
     // HDR path is on), and two surfaces the chain alternates between. Two, not one, because
     // a pass must read the previous pass's answer while writing its own: with a single surface the
@@ -2238,6 +2244,7 @@ static bool EnsureNeural(NeuralState& ns, ShmMap& shm, uint32_t w, uint32_t h) {
     const bool wantSdr16 = !ns.hdrBuilt && shm.hdr->sdr16Multipass.load() != 0;
     if (ns.ready && ns.w == w && ns.h == h && ns.sdr16Built == wantSdr16) return true;
     if (ns.ngx.disabled) return false;
+    if (w == ns.refusedW && h == ns.refusedH && NowMs() < ns.refusedUntilMs) return false;
 
     if (ns.ngx.snippet) NgxReleaseAllPasses(ns.ngx, ns.vk.device);
     DestroyOpticalFlow(ns.vk, ns.flow);
@@ -2337,6 +2344,19 @@ static bool EnsureNeural(NeuralState& ns, ShmMap& shm, uint32_t w, uint32_t h) {
                            "model refused float input; 8-bit proxy in use");
             return false;
         }
+        if (!ns.ngx.disabled) {
+            // The model has worked in this process; this raster was refused. Keep running, pass
+            // these frames through, and try the size again later.
+            ns.ready = false;
+            ns.refusedW = w;
+            ns.refusedH = h;
+            ns.refusedUntilMs = NowMs() + 5000.0;
+            char why[kReasonBytes];
+            snprintf(why, sizeof(why), "the model could not be built at %ux%u (out of video memory?)", w, h);
+            Log("[helper] %s; retrying in 5 s", why);
+            ShmStoreString(shm.hdr->helperReasonSeq, shm.hdr->helperReason, kReasonBytes, why);
+            return false;
+        }
         Log("[helper] snippet init/create failed at %ux%u", w, h);
         ShmStoreString(shm.hdr->helperReasonSeq, shm.hdr->helperReason, kReasonBytes,
                        "the model would not initialise; see the helper log");
@@ -2345,6 +2365,7 @@ static bool EnsureNeural(NeuralState& ns, ShmMap& shm, uint32_t w, uint32_t h) {
         return false;
     }
 
+    ns.refusedW = ns.refusedH = 0;
     ns.tuning[0] = first;
     ns.lastSeenTuning[0] = first;
     ns.passNeedsReset[0] = true;

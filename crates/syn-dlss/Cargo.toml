@@ -6,6 +6,9 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "syn-dlss"
 path = "src/main.rs"

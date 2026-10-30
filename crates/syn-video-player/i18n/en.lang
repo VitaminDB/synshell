@@ -3,7 +3,7 @@
 
 # src/main.rs
 "неизвестное ускорение «{v}» (auto|none|v4l2|vaapi|nvdec|vulkan)" = "unknown acceleration “{v}” (auto|none|v4l2|vaapi|nvdec|vulkan)"
-"syn-video-player [--hw auto|none|v4l2|vaapi|nvdec|vulkan] [--bench [--yuv]] [ФАЙЛ|URI]" = "syn-video-player [--hw auto|none|v4l2|vaapi|nvdec|vulkan] [--bench [--yuv]] [FILE|URI]"
+"syn-video-player [--hw auto|none|v4l2|vaapi|nvdec|vulkan] [--bench [--yuv] [--dlss]] [ФАЙЛ|URI]" = "syn-video-player [--hw auto|none|v4l2|vaapi|nvdec|vulkan] [--bench [--yuv] [--dlss]] [FILE|URI]"
 "--bench: нужен файл" = "--bench: a file is required"
 "Видео" = "Videos"
 
@@ -92,3 +92,29 @@
 "{name} — монтаж" = "{name} — edit"
 "Отменено" = "Cancelled"
 "ffmpeg завершился с ошибкой: {e}" = "ffmpeg failed: {e}"
+
+# src/dlss.rs, src/player.rs — DLSS 5
+"DLSS 5 · {ms} мс" = "DLSS 5 · {ms} ms"
+"DLSS 5 · запуск…" = "DLSS 5 · starting…"
+"DLSS 5 · как есть" = "DLSS 5 · bypassed"
+"DLSS 5 сейчас занят: {game}" = "DLSS 5 is busy: {game}"
+"Видеоплеер" = "Video player"
+"Запускаю помощник DLSS 5…" = "Starting the DLSS 5 helper…"
+"Кадры {w}×{h} идут через DLSS 5: {ms} мс на кадр, {fps} кадр/с" = "{w}×{h} frames go through DLSS 5: {ms} ms per frame, {fps} fps"
+"Меньше 100% — ответ модели смешивается с исходным кадром." = "Below 100%, the model's output is blended with the original frame."
+"Модель DLSS 5 не загрузилась: {r}" = "The DLSS 5 model did not load: {r}"
+"Модель DLSS 5 не загрузилась — откройте окно DLSS 5." = "The DLSS 5 model did not load — open the DLSS 5 window."
+"Модель не успевает — кадры идут как есть" = "The model can't keep up — frames are shown as is"
+"Модель пересобирается…" = "The model is rebuilding…"
+"Нейрорендеринг NVIDIA (RTX 50): свет, тон и детали каждого кадра ролика." = "NVIDIA neural rendering (RTX 50): light, tone and detail of every video frame."
+"Помощник DLSS 5 готовит модель" = "The DLSS 5 helper is preparing the model"
+"Помощник DLSS 5 готовит модель…" = "The DLSS 5 helper is preparing the model…"
+"Размер кадра не подходит модели" = "The frame size doesn't suit the model"
+"Работает: {w}×{h}, {ms} мс на кадр (модель и оптический поток — {hms} мс)." = "Running: {w}×{h}, {ms} ms per frame (model and optical flow — {hms} ms)."
+"Сила эффекта" = "Effect strength"
+"Слева — исходный кадр, справа — DLSS 5." = "Original frame on the left, DLSS 5 on the right."
+"Сравнение" = "Compare"
+"Стиль и тонкая настройка…" = "Style and fine tuning…"
+"Стиль (обычный, естественный, кинематографичный), интенсивность и проходы модели — в окне DLSS 5, они общие с играми." = "Style (default, natural, cinematic), intensity and model passes are in the DLSS 5 window; they are shared with games."
+"Улучшать кадры DLSS 5" = "Enhance frames with DLSS 5"
+"DLSS 5" = "DLSS 5"

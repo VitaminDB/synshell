@@ -70,9 +70,11 @@ pub fn view(st: St) -> W {
 
 fn header(st: St, title: String) -> W {
     let chip = Reactive::new(move || -> Vec<W> {
+        let dlss = dlss_chip(&st.dlss.get());
         match (st.settings.get().show_info, st.info.get()) {
-            (true, Some(i)) if !i.codec.is_empty() => vec![info_chip(&i)],
-            _ => vec![],
+            (true, Some(i)) if !i.codec.is_empty() => vec![info_chip(&i, dlss)],
+            // способ воспроизведения скрыт — DLSS 5 всё равно видно, пока он включён
+            _ => dlss.map(|d| -> W { Box::new(DecoratedBox::new().child(d).class("info-chip info-chip-dlss")) }).into_iter().collect(),
         }
     });
     let top = Row::new()
@@ -112,7 +114,7 @@ fn header(st: St, title: String) -> W {
 }
 
 /// «H.264 · 1080p | ⚙ Аппаратно · V4L2» — кодек и размер, затем чем декодируется.
-fn info_chip(i: &DecodeInfo) -> W {
+fn info_chip(i: &DecodeInfo, dlss: Option<W>) -> W {
     let res = resolution_label(i.width, i.height);
     let what = match &i.audio_codec {
         Some(a) => format!("{} · {res} · {a}", i.codec),
@@ -141,10 +143,37 @@ fn info_chip(i: &DecodeInfo) -> W {
                                     .child(Text::new(mode).max_lines(1).class("chip-mode-text")),
                             )
                             .class(class),
-                    ),
+                    )
+                    .children(dlss),
             )
             .class("info-chip"),
     )
+}
+
+/// «✦ DLSS 5 · 8 мс» — зелёный, пока кадры идут через модель; серый — запуск; янтарный — кадры как
+/// есть (причина — во всплывающей подсказке). Выключен — чипа нет.
+fn dlss_chip(s: &crate::dlss::Status) -> Option<W> {
+    use crate::dlss::Status;
+    let (text, class, tip) = match s {
+        Status::Off => return None,
+        Status::Starting => (t!("DLSS 5 · запуск…").to_string(), "chip-mode chip-mode-wait", t!("Помощник DLSS 5 готовит модель").to_string()),
+        Status::Active { total_ms, fps, size, .. } => (
+            t!("DLSS 5 · {ms} мс", ms = format!("{total_ms:.0}")),
+            "chip-mode chip-mode-dlss",
+            t!("Кадры {w}×{h} идут через DLSS 5: {ms} мс на кадр, {fps} кадр/с", w = size.0, h = size.1, ms = format!("{total_ms:.1}"), fps = format!("{fps:.0}")),
+        ),
+        Status::Bypass(e) => (t!("DLSS 5 · как есть").to_string(), "chip-mode chip-mode-sw", crate::dlss::reason(e)),
+    };
+    let chip = DecoratedBox::new()
+        .child(
+            Row::new()
+                .gap(5.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(Icon::new(icons::DLSS).class("chip-mode-icon"))
+                .child(Text::new(text).max_lines(1).class("chip-mode-text")),
+        )
+        .class(class);
+    Some(Box::new(Tooltip::new(chip, &tip)))
 }
 
 fn resolution_label(w: u32, h: u32) -> String {
@@ -307,6 +336,8 @@ fn settings_panel(st: St) -> W {
         ],
     );
 
+    let dlss = dlss_section(st, &s);
+
     let picture = section(
         icons::ASPECT,
         &t!("Изображение"),
@@ -383,6 +414,7 @@ fn settings_panel(st: St) -> W {
                         .gap(10.0)
                         .cross_axis_alignment(CrossAxisAlignment::Stretch)
                         .child(decoding)
+                        .child(dlss)
                         .child(picture)
                         .child(seek)
                         .child(playback)
@@ -405,6 +437,70 @@ fn settings_panel(st: St) -> W {
                     .child(GestureDetector::new().on_click(|| {}).child(panel)),
             ),
     )
+}
+
+/// Доли правки DLSS 5 на выбор, %.
+const DLSS_STRENGTHS: [u32; 4] = [25, 50, 75, 100];
+
+/// DLSS 5: включение, сила, сравнение, состояние помощника; стиль и тонкая настройка модели — в окне
+/// DLSS 5 (syn-dlss), они общие с играми.
+fn dlss_section(st: St, s: &Settings) -> W {
+    let set = move |f: Box<dyn FnOnce(&mut Settings)>| {
+        update(st, f);
+        crate::dlss::apply(st);
+    };
+    let mut rows: Vec<W> = vec![toggle_row(
+        &t!("Улучшать кадры DLSS 5"),
+        &t!("Нейрорендеринг NVIDIA (RTX 50): свет, тон и детали каждого кадра ролика."),
+        s.dlss,
+        move |on| set(Box::new(move |s| s.dlss = on)),
+    )];
+    rows.push(Box::new(Reactive::new(move || -> Vec<W> {
+        use crate::dlss::Status;
+        let text = match st.dlss.get() {
+            Status::Off => return vec![],
+            Status::Starting => t!("Помощник DLSS 5 готовит модель…").to_string(),
+            Status::Active { total_ms, helper_ms, size, .. } => t!(
+                "Работает: {w}×{h}, {ms} мс на кадр (модель и оптический поток — {hms} мс).",
+                w = size.0,
+                h = size.1,
+                ms = format!("{total_ms:.1}"),
+                hms = format!("{helper_ms:.1}")
+            ),
+            Status::Bypass(e) => crate::dlss::reason(&e),
+        };
+        vec![Box::new(Text::new(text).max_lines(4).class("set-hint set-dlss-state"))]
+    })));
+    if s.dlss {
+        rows.push(Box::new(Text::new(t!("Сила эффекта")).class("set-row-title")));
+        rows.push(Box::new(
+            SegmentedButton::new(DLSS_STRENGTHS.iter().map(|v| format!("{v}%")).collect::<Vec<_>>())
+                .selected(DLSS_STRENGTHS.iter().position(|v| *v == s.dlss_strength).unwrap_or(DLSS_STRENGTHS.len() - 1))
+                .on_change(move |i| {
+                    let v = DLSS_STRENGTHS[i.min(DLSS_STRENGTHS.len() - 1)];
+                    set(Box::new(move |s| s.dlss_strength = v));
+                }),
+        ));
+        rows.push(hint(&t!("Меньше 100% — ответ модели смешивается с исходным кадром.")));
+        rows.push(toggle_row(
+            &t!("Сравнение"),
+            &t!("Слева — исходный кадр, справа — DLSS 5."),
+            s.dlss_compare,
+            move |on| set(Box::new(move |s| s.dlss_compare = on)),
+        ));
+        rows.push(Box::new(
+            Button::new(t!("Стиль и тонкая настройка…"))
+                .icon(icons::OPEN_IN_NEW)
+                .on_click(|| {
+                    if let Err(e) = std::process::Command::new("syn-dlss").spawn() {
+                        tracing::warn!("syn-dlss: {e}");
+                    }
+                })
+                .class("set-dlss-open"),
+        ));
+        rows.push(hint(&t!("Стиль (обычный, естественный, кинематографичный), интенсивность и проходы модели — в окне DLSS 5, они общие с играми.")));
+    }
+    section(icons::DLSS, &t!("DLSS 5"), rows)
 }
 
 fn section(icon: &'static str, title: &str, rows: Vec<W>) -> W {

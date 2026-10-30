@@ -3,7 +3,8 @@
 //! Qualcomm `msm_vidc`), на компьютерах — VAAPI/NVDEC; иначе — программно.
 //!
 //!   syn-video-player [--hw auto|none|v4l2|vaapi|nvdec|vulkan] [ФАЙЛ|URI]
-//!   syn-video-player --bench [--hw …] ФАЙЛ   — декодировать полным ходом без окна, напечатать fps
+//!   syn-video-player --bench [--hw …] [--dlss] ФАЙЛ   — декодировать полным ходом без окна, напечатать fps
+//!                                                    (`--dlss` — через DLSS 5, время модели)
 //!
 //! Без файла — список видео из «Видео» (XDG_VIDEOS_DIR).
 
@@ -11,6 +12,7 @@ mod bench;
 mod edit;
 mod editor;
 mod library;
+mod dlss;
 mod player;
 mod settings;
 mod tracks;
@@ -28,6 +30,8 @@ pub struct Args {
     pub bench: bool,
     /// `--bench --yuv`: кадры в YUV (перевод цвета на GPU), как при показе.
     pub yuv: bool,
+    /// `--bench --dlss`: кадры через DLSS 5 (помощник должен быть запущен).
+    pub dlss: bool,
 }
 
 fn parse_hw(s: &str) -> Option<HwAccel> {
@@ -69,12 +73,13 @@ fn percent_decode(s: &str) -> String {
 }
 
 fn parse_args() -> Args {
-    let mut a = Args { file: None, hw: None, bench: false, yuv: false };
+    let mut a = Args { file: None, hw: None, bench: false, yuv: false, dlss: false };
     let mut it = std::env::args().skip(1);
     while let Some(s) = it.next() {
         match s.as_str() {
             "--bench" => a.bench = true,
             "--yuv" => a.yuv = true,
+            "--dlss" => a.dlss = true,
             "--hw" => {
                 let v = it.next().unwrap_or_default();
                 a.hw = Some(parse_hw(&v).unwrap_or_else(|| {
@@ -83,7 +88,7 @@ fn parse_args() -> Args {
                 }));
             }
             "-h" | "--help" => {
-                println!("{}", t!("syn-video-player [--hw auto|none|v4l2|vaapi|nvdec|vulkan] [--bench [--yuv]] [ФАЙЛ|URI]"));
+                println!("{}", t!("syn-video-player [--hw auto|none|v4l2|vaapi|nvdec|vulkan] [--bench [--yuv] [--dlss]] [ФАЙЛ|URI]"));
                 std::process::exit(0)
             }
             _ if a.file.is_none() => a.file = Some(input_of(&s)),
@@ -104,7 +109,7 @@ fn main() {
             eprintln!("{}", t!("--bench: нужен файл"));
             std::process::exit(2)
         };
-        std::process::exit(bench::run(file, args.hw.unwrap_or(HwAccel::Auto), args.yuv));
+        std::process::exit(bench::run(file, args.hw.unwrap_or(HwAccel::Auto), args.yuv, args.dlss));
     }
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);
@@ -124,6 +129,7 @@ fn main() {
                 tracks_open: use_signal(false),
                 audio_pref: use_signal(None),
                 vram: use_signal(vram::Vram::None),
+                dlss: use_signal(dlss::Status::Off),
                 cards: use_signal(Vec::new()),
                 siblings: use_signal(Vec::new()),
                 scanning: use_signal(true),

@@ -23,11 +23,17 @@ pub struct Settings {
     pub resume: bool,
     /// Чип «как идёт воспроизведение» в шапке плеера.
     pub show_info: bool,
+    /// Кадры через DLSS 5 (нейрорендеринг NVIDIA, помощник syn-dlss).
+    pub dlss: bool,
+    /// Доля правки DLSS 5, %: 100 — ответ модели как есть.
+    pub dlss_strength: u32,
+    /// Сравнение: левая половина — исходный кадр, правая — DLSS 5.
+    pub dlss_compare: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { hardware: true, fill: false, seek_step: 10, repeat: false, autoplay_next: false, resume: true, show_info: true }
+        Self { hardware: true, fill: false, seek_step: 10, repeat: false, autoplay_next: false, resume: true, show_info: true, dlss: false, dlss_strength: 100, dlss_compare: false }
     }
 }
 

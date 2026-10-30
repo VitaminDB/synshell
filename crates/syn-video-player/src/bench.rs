@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use syngui::video::{HwAccel, VideoDecoder};
 
 /// `yuv` — кадры в YUV для шейдера (как при показе в окне), иначе swscale в RGBA.
-pub fn run(file: &str, hw: HwAccel, yuv: bool) -> i32 {
+pub fn run(file: &str, hw: HwAccel, yuv: bool, dlss: bool) -> i32 {
     let t0 = Instant::now();
     let mut dec = match VideoDecoder::open_with_hwaccel(file, hw) {
         Ok(d) => d,
@@ -18,6 +18,24 @@ pub fn run(file: &str, hw: HwAccel, yuv: bool) -> i32 {
     // звук не нужен — канал забираем и бросаем, чтобы декодер не ждал его
     drop(dec.take_audio_rx());
     dec.set_yuv_frames(yuv);
+    let filter = if dlss {
+        match crate::dlss::DlssFilter::new("syn-video-player --bench") {
+            Ok(f) => {
+                if let Err(e) = f.ready() {
+                    eprintln!("DLSS 5: {}", crate::dlss::reason(&e));
+                    return 1;
+                }
+                dec.set_frame_filter(Some(f.clone()));
+                Some(f)
+            }
+            Err(e) => {
+                eprintln!("DLSS 5: {e}");
+                return 1;
+            }
+        }
+    } else {
+        None
+    };
     let meta = dec.meta().clone();
     println!("{file}: {}x{} {:.1} с", meta.width, meta.height, meta.duration_sec);
     let cpu0 = cpu_time();
@@ -33,6 +51,18 @@ pub fn run(file: &str, hw: HwAccel, yuv: bool) -> i32 {
                 }
                 frames += 1;
                 last_pts = f.pts_sec;
+                // SVP_BENCH_DUMP=кадр.png — сохранить 90-й кадр (с --dlss — ответ модели)
+                if frames == 90 {
+                    if let Some(p) = std::env::var_os("SVP_BENCH_DUMP") {
+                        if !f.rgba.is_empty() {
+                            let n = f.width as usize * f.height as usize * 4;
+                            let _ = image::save_buffer(&p, &f.rgba[..n], f.width, f.height, image::ExtendedColorType::Rgba8);
+                        }
+                    }
+                }
+                if let Some(d) = filter.as_ref().filter(|_| frames % 60 == 0) {
+                    println!("кадр {frames}: DLSS 5 {:?}", d.status());
+                }
                 // перемотка на середину: проверка сброса декодера
                 if frames == 30 && meta.duration_sec > 2.0 {
                     let to = meta.duration_sec / 2.0;
@@ -61,6 +91,9 @@ pub fn run(file: &str, hw: HwAccel, yuv: bool) -> i32 {
             }
             Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
         }
+    }
+    if let Some(f) = &filter {
+        println!("DLSS 5: {:?}", f.status());
     }
     let wall = t0.elapsed().as_secs_f64();
     let cpu = cpu_time() - cpu0;

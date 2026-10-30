@@ -183,6 +183,55 @@ static void RegisterPeRange(const char* name, HMODULE mod) {
     RegisterModuleRange(name, (uintptr_t)mod, nt->OptionalHeader.SizeOfImage);
 }
 
+// The create contract (extracted_pipeline_notes.md section 4): the raster and the fixed create
+// flags. Written before every first-pass build, at init and on every size change after it.
+static void ApplyCreateContract(NgxSnippet& s, uint32_t width, uint32_t height, bool wantHdr) {
+    DWORD seh = 0;
+    bool ps = true;
+    ps &= ParamSetUI(s.params, "DLSSNR.Width", width, &seh);
+    ps &= ParamSetUI(s.params, "DLSSNR.Height", height, &seh);
+    ps &= ParamSetUI(s.params, "DLSSNR.InputWidth", width, &seh);
+    ps &= ParamSetUI(s.params, "DLSSNR.InputHeight", height, &seh);
+    ps &= ParamSetUI(s.params, "DLSSNR.OutputWidth", width, &seh);
+    ps &= ParamSetUI(s.params, "DLSSNR.OutputHeight", height, &seh);
+    ps &= ParamSetUI(s.params, "DLSSNR.Output.Width", width, &seh);
+    ps &= ParamSetUI(s.params, "DLSSNR.Output.Height", height, &seh);
+    ps &= ParamSetUI(s.params, "DLSSNR.Upscaling", 0u, &seh);
+    ps &= ParamSetF(s.params, "DLSSNR.Scale", 1.0f, &seh);
+    ps &= ParamSetF(s.params, "DLSSNR.ScalingRatio", 1.0f, &seh);
+    ps &= ParamSetULL(s.params, "DLSSNRComputeScalingRatioCallback",
+                      (unsigned long long)(void*)&ScalingRatioCallback, &seh);
+    ps &= ParamSetUI(s.params, "DLSSNR.Hint.Render.Preset", 0u, &seh);
+    ps &= ParamSetUI(s.params, "Width", width, &seh);
+    ps &= ParamSetUI(s.params, "Height", height, &seh);
+    ps &= ParamSetUI(s.params, "PerfQualityValue", 3u, &seh);  // Balanced
+    ps &= ParamSetUI(s.params, "CreationNodeMask", 1u, &seh);
+    ps &= ParamSetUI(s.params, "VisibilityNodeMask", 1u, &seh);
+    ps &= ParamSetUI(s.params, "NVSDK_NGX_Parameter_PerfQualityValue", 3u, &seh);
+    ps &= ParamSetUI(s.params, "NVSDK_NGX_Parameter_CreationNodeMask", 1u, &seh);
+    ps &= ParamSetUI(s.params, "NVSDK_NGX_Parameter_VisibilityNodeMask", 1u, &seh);
+
+    // Create flags: sharpening is applied by the net when the runtime float is
+    // nonzero (see NgxSetSharpness); auto-exposure keeps adaptation state in the
+    // DLL so it survives normal dynamic lighting without host-side resets.
+    unsigned int createFlags = NVSDK_NGX_DLSS_Feature_Flags_DoSharpening |
+                               NVSDK_NGX_DLSS_Feature_Flags_AutoExposure;
+    if (wantHdr) createFlags |= NVSDK_NGX_DLSS_Feature_Flags_IsHDR;
+    ps &= ParamSetUI(s.params, "Feature_Flags", createFlags, &seh);
+    ps &= ParamSetUI(s.params, "NVSDK_NGX_Parameter_Feature_Flags", createFlags, &seh);
+
+    // Non-destructive exposure: identity pre-exposure/exposure-scale (never
+    // re-pinned per frame) + SDR tonemapped hint unless the HDR path is asked
+    // for and the snippet's feature flags advertise HDR.
+    ps &= ParamSetF(s.params, "InPreExposure", 1.0f, &seh);
+    ps &= ParamSetF(s.params, "InExposureScale", 1.0f, &seh);
+    ps &= ParamSetF(s.params, "NVSDK_NGX_Parameter_PreExposure", 1.0f, &seh);
+    ps &= ParamSetF(s.params, "NVSDK_NGX_Parameter_ExposureScale", 1.0f, &seh);
+    ps &= ParamSetUI(s.params, "DLSSNR.AutoExposure", 1u, &seh);
+    Log("[params] create contract set: %s (seh=%#x) flags=%#x hdr=%d",
+        ps ? "ok" : "FAILED", seh, createFlags, int(wantHdr));
+}
+
 // ---------------------------------------------------------------------------
 // Load + init (everything up to and including CreateFeature(18))
 // ---------------------------------------------------------------------------
@@ -190,6 +239,13 @@ bool NgxLoadAndInit(NgxSnippet& s, VkInstance instance, VkPhysicalDevice pd, VkD
                     uint32_t width, uint32_t height, VkCommandBuffer recordingCmd,
                     const NgxTuning& tuning) {
     if (s.disabled) return false;
+    if (s.initDone && s.snippet && s.params) {
+        // Already initialised: only the raster changed. Rebuild pass 0 at the new size.
+        Log("[ngx] reusing the initialised snippet for %ux%u", width, height);
+        ApplyCreateContract(s, width, height, s.hdrActive);
+        NgxSetCreateTuning(s, tuning);
+        return NgxCreatePass(s, 0, width, height, recordingCmd);
+    }
     s.binDir = ResolveBinDir();
     if (s.binDir.empty()) { Log("[ngx] nvngx_dlssnr.dll not found (set DLSSNR_BIN_DIR)"); s.disabled = true; return false; }
     Log("[ngx] bin dir: %ls", s.binDir.c_str());
@@ -338,53 +394,10 @@ bool NgxLoadAndInit(NgxSnippet& s, VkInstance instance, VkPhysicalDevice pd, VkD
         if (!ok) { s.disabled = true; return false; }
     }
 
-    // Create parameters (extracted_pipeline_notes.md section 4).
-    DWORD seh = 0;
-    bool ps = true;
-    ps &= ParamSetUI(s.params, "DLSSNR.Width", width, &seh);
-    ps &= ParamSetUI(s.params, "DLSSNR.Height", height, &seh);
-    ps &= ParamSetUI(s.params, "DLSSNR.InputWidth", width, &seh);
-    ps &= ParamSetUI(s.params, "DLSSNR.InputHeight", height, &seh);
-    ps &= ParamSetUI(s.params, "DLSSNR.OutputWidth", width, &seh);
-    ps &= ParamSetUI(s.params, "DLSSNR.OutputHeight", height, &seh);
-    ps &= ParamSetUI(s.params, "DLSSNR.Output.Width", width, &seh);
-    ps &= ParamSetUI(s.params, "DLSSNR.Output.Height", height, &seh);
-    ps &= ParamSetUI(s.params, "DLSSNR.Upscaling", 0u, &seh);
-    ps &= ParamSetF(s.params, "DLSSNR.Scale", 1.0f, &seh);
-    ps &= ParamSetF(s.params, "DLSSNR.ScalingRatio", 1.0f, &seh);
-    ps &= ParamSetULL(s.params, "DLSSNRComputeScalingRatioCallback",
-                      (unsigned long long)(void*)&ScalingRatioCallback, &seh);
-    ps &= ParamSetUI(s.params, "DLSSNR.Hint.Render.Preset", 0u, &seh);
-    ps &= ParamSetUI(s.params, "Width", width, &seh);
-    ps &= ParamSetUI(s.params, "Height", height, &seh);
-    ps &= ParamSetUI(s.params, "PerfQualityValue", 3u, &seh);  // Balanced
-    ps &= ParamSetUI(s.params, "CreationNodeMask", 1u, &seh);
-    ps &= ParamSetUI(s.params, "VisibilityNodeMask", 1u, &seh);
-    ps &= ParamSetUI(s.params, "NVSDK_NGX_Parameter_PerfQualityValue", 3u, &seh);
-    ps &= ParamSetUI(s.params, "NVSDK_NGX_Parameter_CreationNodeMask", 1u, &seh);
-    ps &= ParamSetUI(s.params, "NVSDK_NGX_Parameter_VisibilityNodeMask", 1u, &seh);
-
-    // Create flags: sharpening is applied by the net when the runtime float is
-    // nonzero (see NgxSetSharpness); auto-exposure keeps adaptation state in the
-    // DLL so it survives normal dynamic lighting without host-side resets.
-    unsigned int createFlags = NVSDK_NGX_DLSS_Feature_Flags_DoSharpening |
-                               NVSDK_NGX_DLSS_Feature_Flags_AutoExposure;
     const char* hdrEnv = getenv("DLSSNR_HDR");
     const bool wantHdr = s.hdrActive || (hdrEnv && hdrEnv[0] == '1');
-    if (wantHdr) createFlags |= NVSDK_NGX_DLSS_Feature_Flags_IsHDR;
-    ps &= ParamSetUI(s.params, "Feature_Flags", createFlags, &seh);
-    ps &= ParamSetUI(s.params, "NVSDK_NGX_Parameter_Feature_Flags", createFlags, &seh);
-
-    // Non-destructive exposure: identity pre-exposure/exposure-scale (never
-    // re-pinned per frame) + SDR tonemapped hint unless the HDR path is asked
-    // for and the snippet's feature flags advertise HDR.
-    ps &= ParamSetF(s.params, "InPreExposure", 1.0f, &seh);
-    ps &= ParamSetF(s.params, "InExposureScale", 1.0f, &seh);
-    ps &= ParamSetF(s.params, "NVSDK_NGX_Parameter_PreExposure", 1.0f, &seh);
-    ps &= ParamSetF(s.params, "NVSDK_NGX_Parameter_ExposureScale", 1.0f, &seh);
-    ps &= ParamSetUI(s.params, "DLSSNR.AutoExposure", 1u, &seh);
-    Log("[params] create contract set: %s (seh=%#x) flags=%#x hdr=%d",
-        ps ? "ok" : "FAILED", seh, createFlags, int(wantHdr));
+    ApplyCreateContract(s, width, height, wantHdr);
+    DWORD seh = 0;
 
     // Snippet Init_Ext: (appId, path, instance, pd, device, version, featureInfo=nullptr)
     NVSDK_NGX_Result initResult = NVSDK_NGX_Result_FAIL_NotInitialized;
@@ -413,6 +426,7 @@ bool NgxLoadAndInit(NgxSnippet& s, VkInstance instance, VkPhysicalDevice pd, VkD
         s.disabled = true;
         return false;
     }
+    s.initDone = true;
 
 // Public Vulkan NGX contract: query Feature-18 requirements before create.
     {
@@ -550,11 +564,13 @@ bool NgxCreatePass(NgxSnippet& s, uint32_t pass, uint32_t width, uint32_t height
         // what a memory ceiling looks like and is not a reason to lose the pass altogether.
         // A failed HDR create is not a dead snippet -- it is the model refusing float input, and
         // the helper answers by rebuilding at 8-bit. Only an SDR create failure is fatal.
-        if (pass == 0 && !s.hdrActive) s.disabled = true;
+        // A model that has already built a feature is not dead: the caller backs off at this raster.
+        if (pass == 0 && !s.hdrActive && !s.everCreated) s.disabled = true;
         return false;
     }
     s.featureW = width;
     s.featureH = height;
+    s.everCreated = true;
     if (pass + 1 > s.featureCount) s.featureCount = pass + 1;
     s.ready = true;
     if (pass == 0)
@@ -729,6 +745,7 @@ void NgxTeardown(NgxSnippet& s, VkDevice device) {
     if (s.core) { FreeLibrary(s.core); s.core = nullptr; }
     if (s.snippet) { FreeLibrary(s.snippet); s.snippet = nullptr; }
     s.ready = false;
+    s.initDone = false;
 }
 
 }  // namespace dlssnr

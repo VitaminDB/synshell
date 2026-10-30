@@ -4,12 +4,11 @@
 //!
 //!   syn-dlss [--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--tab rendering|quality|composition|inspect|helper]]
 
-mod config;
 mod icons;
-mod paths;
-mod shm;
 mod state;
 mod ui;
+
+use syn_dlss::{config, paths, shm};
 
 use syngui::prelude::*;
 use synshell_common::config::Rgba;

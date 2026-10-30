@@ -7023,6 +7023,7 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "syn-dlss",
  "synaptixd",
  "syngui",
  "synshell-common",
