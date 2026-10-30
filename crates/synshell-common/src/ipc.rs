@@ -351,6 +351,15 @@ pub struct OutputInfo {
     /// Встроенный экран (панель телефона/планшета/ноутбука) — его поворачивает автоповорот.
     #[serde(default)]
     pub internal: bool,
+    /// Монитор умеет HDR (PQ, BT.2020 — по EDID и свойствам коннектора).
+    #[serde(default)]
+    pub hdr_capable: bool,
+    /// HDR-режим сейчас включён.
+    #[serde(default)]
+    pub hdr: bool,
+    /// Пик яркости монитора по EDID, нит (0 — не сообщает).
+    #[serde(default)]
+    pub peak_nits: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

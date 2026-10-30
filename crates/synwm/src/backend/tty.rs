@@ -87,6 +87,144 @@ struct Surface {
     direct: bool,
     /// Обратная связь dmabuf для поверхностей этого вывода.
     feedback: Option<crate::backend::OutputFeedback>,
+    /// HDR по EDID и есть ли у коннектора нужные свойства.
+    edid_hdr: crate::hdr::EdidHdr,
+    hdr_props: bool,
+    /// HDR-режим включён: кадр собирается во внеэкранной текстуре и идёт в PQ.
+    hdr: Option<crate::hdr::HdrOut>,
+}
+
+/// HDR вывода для IPC (`synwm msg outputs`, настройки): (умеет, включён, пик нит).
+#[derive(Default)]
+pub struct HdrStatus(pub std::sync::Mutex<(bool, bool, f32)>);
+
+/// Свойства коннектора, без которых HDR не включить.
+const HDR_PROPS: [&str; 3] = ["HDR_OUTPUT_METADATA", "Colorspace", "max bpc"];
+
+/// Форматы кадра HDR-вывода: 10 бит на канал.
+const HDR_FORMATS: [Fourcc; 2] = [Fourcc::Xrgb2101010, Fourcc::Xbgr2101010];
+
+fn connector_props(drm: &DrmDevice, conn: connector::Handle) -> Vec<(String, property::Info, u64)> {
+    let Ok(props) = drm.get_properties(conn) else { return Vec::new() };
+    let (handles, values) = props.as_props_and_values();
+    handles
+        .iter()
+        .zip(values)
+        .filter_map(|(h, v)| {
+            let info = drm.get_property(*h).ok()?;
+            Some((info.name().to_string_lossy().into_owned(), info, *v))
+        })
+        .collect()
+}
+
+/// EDID коннектора целиком.
+fn connector_edid(drm: &DrmDevice, conn: connector::Handle) -> Vec<u8> {
+    for (name, info, v) in connector_props(drm, conn) {
+        if name != "EDID" {
+            continue;
+        }
+        if let property::Value::Blob(blob) = info.value_type().convert_value(v) {
+            return drm.get_property_blob(blob).unwrap_or_default();
+        }
+    }
+    Vec::new()
+}
+
+/// Значение варианта перечисления свойства коннектора (`Colorspace` → `BT2020_RGB`).
+fn enum_value(drm: &DrmDevice, conn: connector::Handle, prop: &str, entry: &str) -> Option<u64> {
+    let (_, info, _) = connector_props(drm, conn).into_iter().find(|(n, _, _)| n == prop)?;
+    let property::ValueType::Enum(values) = info.value_type() else { return None };
+    let (vals, entries) = values.values();
+    vals.iter().zip(entries).find(|(_, e)| e.name().to_str() == Ok(entry)).map(|(v, _)| *v)
+}
+
+/// Включить или выключить HDR-режим вывода: формат кадра, свойства коннектора (применяются
+/// следующим кадром — полным коммитом), внеэкранный кадр для перевода в PQ.
+fn set_hdr(
+    gpus: &mut GpuManager<GbmGlesBackend<GlesRenderer, DrmDeviceFd>>,
+    primary: DrmNode,
+    device: &mut Device,
+    crtc: crtc::Handle,
+    want: bool,
+    sdr_nits: f32,
+) {
+    let Some(s) = device.surfaces.get_mut(&crtc) else { return };
+    let name = s.output.name();
+    let capable = s.edid_hdr.pq && s.hdr_props;
+    let on = want && capable;
+    if want && !capable {
+        tracing::warn!(name, pq = s.edid_hdr.pq, props = s.hdr_props, "HDR не включить: монитор или драйвер не умеют");
+    }
+    let status = s.output.user_data().get::<HdrStatus>().map(|st| st.0.lock().map(|g| g.1).unwrap_or(false)).unwrap_or(false);
+    if on == status {
+        if let (true, Some(h)) = (on, s.hdr.as_mut()) {
+            h.sdr_nits = sdr_nits;
+        }
+        return;
+    }
+    let drm = device.manager.device();
+    let allocator = device.manager.allocator().clone();
+    let render_node = s.render_node;
+    let formats: Vec<(Fourcc, Vec<Modifier>)> = {
+        let r = if render_node == primary { gpus.single_renderer(&render_node) } else { gpus.single_renderer(&primary) };
+        let Ok(mut r) = r else { return };
+        let set = r.as_mut().egl_context().dmabuf_render_formats().clone();
+        let codes: &[Fourcc] = if on { &HDR_FORMATS } else { COLOR_FORMATS };
+        codes.iter().map(|c| (*c, set.iter().filter(|f| f.code == *c).map(|f| f.modifier).collect())).collect()
+    };
+    let mut switched = false;
+    for (code, mods) in formats {
+        if mods.is_empty() {
+            continue;
+        }
+        match s.drm_output.with_compositor(|c| c.set_format(allocator.clone(), code, mods.clone())) {
+            Ok(()) => {
+                tracing::info!(name, ?code, "формат кадра");
+                switched = true;
+                break;
+            }
+            Err(e) => tracing::debug!(name, ?code, ?e, "формат не подошёл"),
+        }
+    }
+    if !switched {
+        tracing::warn!(name, on, "HDR: формат кадра не сменить");
+        return;
+    }
+    let conn = s.connector;
+    let colorspace = enum_value(drm, conn, "Colorspace", if on { "BT2020_RGB" } else { "Default" }).unwrap_or(0);
+    let metadata = if on {
+        let e = s.edid_hdr;
+        let peak = if e.max_nits > 0.0 { e.max_nits } else { 1000.0 };
+        let fall = if e.max_fall > 0.0 { e.max_fall } else { peak / 2.0 };
+        let blob = crate::hdr::metadata_blob(peak, e.min_nits.max(0.0005), peak, fall);
+        match drm.create_property_blob(&blob) {
+            Ok(v) => v,
+            Err(err) => {
+                tracing::warn!(name, ?err, "HDR: метаданные не созданы");
+                return;
+            }
+        }
+    } else {
+        property::Value::Blob(0)
+    };
+    let set = |n: &'static str, v: property::Value<'static>| {
+        s.drm_output.with_compositor(|c| c.surface().set_connector_property(conn, n, Some(v)))
+    };
+    let res = set("Colorspace", property::Value::UnsignedRange(colorspace))
+        .and_then(|_| set("HDR_OUTPUT_METADATA", metadata))
+        .and_then(|_| set("max bpc", property::Value::UnsignedRange(if on { 10 } else { 8 })));
+    if let Err(e) = res {
+        tracing::warn!(name, ?e, "HDR: свойства коннектора не заданы");
+        return;
+    }
+    s.hdr = on.then(|| crate::hdr::HdrOut::new(sdr_nits));
+    let _ = s.drm_output.with_compositor(|c| c.reset_buffers());
+    if let Some(st) = s.output.user_data().get::<HdrStatus>() {
+        if let Ok(mut g) = st.0.lock() {
+            g.1 = on;
+        }
+    }
+    tracing::info!(name, on, sdr_nits, "HDR-режим вывода");
 }
 
 /// Сколько ждать vblank после отправки кадра, прежде чем считать событие потерянным.
@@ -111,6 +249,9 @@ pub struct TtyBackend {
     tokens: Vec<RegistrationToken>,
     /// Сколько мониторов не удалось включить: все не включились — повод откатиться на CPU.
     pub failed_outputs: usize,
+    /// Выводы, где HDR-кадр не прошёл (драйвер не принял коммит): HDR выключается до следующей смены
+    /// настроек, чтобы экран не застыл.
+    hdr_fallback: Vec<(DrmNode, crtc::Handle)>,
 }
 
 /// Узел рендеринга DRM-устройства, если он есть: основной GPU, узел EGL и
@@ -187,6 +328,7 @@ impl TtyBackend {
             active: true,
             tokens: vec![input_token, session_token],
             failed_outputs: 0,
+            hdr_fallback: Vec::new(),
         })
     }
 
@@ -534,6 +676,18 @@ pub fn scan_connectors(state: &mut State, node: DrmNode) {
             }
         };
         tracing::info!(name, make, model, mode = ?wl_mode, scale, "монитор подключён");
+        let edid_hdr = crate::hdr::parse_edid_hdr(&connector_edid(device.manager.device(), info.handle()));
+        let props = connector_props(device.manager.device(), info.handle());
+        let hdr_props = HDR_PROPS.iter().all(|p| props.iter().any(|(n, _, _)| n == p));
+        output.user_data().insert_if_missing_threadsafe(HdrStatus::default);
+        if let Some(st) = output.user_data().get::<HdrStatus>() {
+            if let Ok(mut g) = st.0.lock() {
+                *g = (edid_hdr.pq && hdr_props, false, edid_hdr.max_nits);
+            }
+        }
+        if edid_hdr.pq {
+            tracing::info!(name, peak = edid_hdr.max_nits, hdr_props, "монитор умеет HDR (PQ)");
+        }
         let feedback = output_feedback(t.primary_gpu, &mut t.gpus, &drm_output, downstream);
         let global = output.create_global::<State>(&state.core.display_handle);
         device.surfaces.insert(
@@ -548,7 +702,18 @@ pub fn scan_connectors(state: &mut State, node: DrmNode) {
                 flip_watchdog: None,
                 direct: false,
                 feedback,
+                edid_hdr,
+                hdr_props,
+                hdr: None,
             },
+        );
+        set_hdr(
+            &mut t.gpus,
+            t.primary_gpu,
+            device,
+            crtc,
+            cfg.as_ref().is_some_and(|c| c.hdr),
+            cfg.as_ref().map(|c| c.sdr_nits).unwrap_or(synshell_common::config::DEFAULT_SDR_NITS),
         );
         // Положение: из конфига или справа от остальных.
         let pos = cfg.as_ref().and_then(|c| c.position).map(|[x, y]| (x, y).into()).unwrap_or_else(|| {
@@ -718,6 +883,47 @@ fn output_feedback(primary: DrmNode, gpus: &mut GpuManager<GbmGlesBackend<GlesRe
     Some(crate::backend::OutputFeedback { render, scanout })
 }
 
+/// Итог кадра: были ли повреждения и состояния элементов (для frame callbacks).
+struct RenderOk {
+    is_empty: bool,
+    states: smithay::backend::renderer::element::RenderElementStates,
+}
+
+/// HDR: кадр вывода — во внеэкранную текстуру (тот же damage и смешивание, что у SDR), на вывод —
+/// она же через шейдер PQ.
+fn render_hdr_offscreen<'a>(
+    h: &mut crate::hdr::HdrOut,
+    renderer: &mut TtyRenderer<'a>,
+    output: &Output,
+    elements: &[OutputElement<TtyRenderer<'a>>],
+    clear: smithay::backend::renderer::Color32F,
+) -> anyhow::Result<(smithay::backend::renderer::element::RenderElementStates, crate::hdr::HdrElement)> {
+    use smithay::backend::renderer::Texture;
+    let mode = output.current_mode().ok_or_else(|| anyhow::anyhow!("нет режима"))?;
+    let size = mode.size;
+    let transform = output.current_transform();
+    let fresh = h.texture.as_ref().is_none_or(|t| t.size() != (size.w, size.h).into());
+    if fresh {
+        let tex: GlesTexture = Offscreen::<GlesTexture>::create_buffer(renderer, Fourcc::Abgr8888, (size.w, size.h).into())
+            .map_err(|e| anyhow::anyhow!("текстура кадра: {e:?}"))?;
+        h.texture = Some(tex);
+        h.damage = Some(OutputDamageTracker::from_output(output));
+    }
+    h.program(renderer.as_mut()).map_err(|e| anyhow::anyhow!("шейдер PQ: {e:?}"))?;
+    let mut tex = h.texture.clone().expect("создана выше");
+    let damage = h.damage.as_mut().expect("создан выше");
+    let (states, changed) = {
+        let mut fb = renderer.bind(&mut tex).map_err(|e| anyhow::anyhow!("привязка текстуры: {e:?}"))?;
+        let r = damage
+            .render_output(renderer, &mut fb, if fresh { 0 } else { 1 }, elements, clear)
+            .map_err(|e| anyhow::anyhow!("кадр: {e:?}"))?;
+        (r.states, r.damage.is_some_and(|d| !d.is_empty()) || fresh)
+    };
+    let out_size = transform.transform_size(size);
+    let el = h.element(out_size, transform, changed).ok_or_else(|| anyhow::anyhow!("нет программы PQ"))?;
+    Ok((states, el))
+}
+
 fn find_surface<'a>(t: &'a mut TtyBackend, output: &Output) -> Option<(&'a mut Surface, DrmNode)> {
     let id = *output.user_data().get::<OutputId>()?;
     let d = t.devices.get_mut(&id.node)?;
@@ -736,6 +942,12 @@ impl TtyBackend {
             return;
         }
         let primary = self.primary_gpu;
+        for (node, crtc) in std::mem::take(&mut self.hdr_fallback) {
+            if let Some(d) = self.devices.get_mut(&node) {
+                tracing::warn!("HDR-кадр не принят драйвером — вывод возвращён в SDR");
+                set_hdr(&mut self.gpus, primary, d, crtc, false, synshell_common::config::DEFAULT_SDR_NITS);
+            }
+        }
         let Some(id) = output.user_data().get::<OutputId>().copied() else { return };
         let Some(device) = self.devices.get_mut(&id.node) else { return };
         let Some(surface) = device.surfaces.get_mut(&id.crtc) else { return };
@@ -754,22 +966,44 @@ impl TtyBackend {
             }
         };
         let (elements, clear) = crate::render::output_elements(core, &mut renderer, output, true);
+        // HDR: кадр собирается как обычно во внеэкранной текстуре, на вывод идёт она же в PQ.
+        let mut hdr_states = None;
+        let mut hdr_element = None;
+        if let Some(h) = surface.hdr.as_mut() {
+            match render_hdr_offscreen(h, &mut renderer, output, &elements, clear) {
+                Ok((states, el)) => {
+                    hdr_states = Some(states);
+                    hdr_element = Some(el);
+                }
+                Err(e) => tracing::warn!(output = output.name(), "HDR-кадр: {e}"),
+            }
+        }
         // Полноэкранный клиент — прямо на primary-план (без композитинга), формат его буфера может отличаться от
         // формата swapchain (Vulkan-клиенты рисуют в ABGR8888): годность плана проверяет тестовый коммит.
         let flags = FrameFlags::DEFAULT | FrameFlags::ALLOW_PRIMARY_PLANE_SCANOUT_ANY;
-        let res = surface.drm_output.render_frame(&mut renderer, &elements, clear, flags);
+        let res = match hdr_element.take() {
+            Some(el) => surface
+                .drm_output
+                .render_frame(&mut renderer, &[el], [0.0, 0.0, 0.0, 1.0], FrameFlags::DEFAULT)
+                .map(|r| (r.is_empty, r.needs_sync(), matches!(r.primary_element, smithay::backend::drm::compositor::PrimaryPlaneElement::Element(_)), hdr_states.take().unwrap_or(r.states), None)),
+            None => surface.drm_output.render_frame(&mut renderer, &elements, clear, flags).map(|r| {
+                let sync = match r.primary_element {
+                    smithay::backend::drm::compositor::PrimaryPlaneElement::Swapchain(ref el) if !r.is_empty && r.needs_sync() => Some(el.sync.clone()),
+                    _ => None,
+                };
+                (r.is_empty, r.needs_sync(), matches!(r.primary_element, smithay::backend::drm::compositor::PrimaryPlaneElement::Element(_)), r.states, sync)
+            }),
+        };
         let (rendered, states) = match res {
-            Ok(r) => {
+            Ok((is_empty, _needs_sync, direct, states, sync)) => {
                 // Нет явной синхронизации с KMS (у msm_drm/sde нет syncobj и
                 // IN_FENCE_FD), а неявной у turnip/KGSL на dma-buf нет: без
                 // ожидания панель показывает недорисованный кадр — артефакты,
                 // заметные под нагрузкой GPU (трансляция экрана, игры).
-                if !r.is_empty && r.needs_sync() {
-                    if let smithay::backend::drm::compositor::PrimaryPlaneElement::Swapchain(ref el) = r.primary_element {
-                        let _ = el.sync.wait();
-                    }
+                if let Some(sync) = sync {
+                    let _ = sync.wait();
                 }
-                let direct = matches!(r.primary_element, smithay::backend::drm::compositor::PrimaryPlaneElement::Element(_));
+                let r = RenderOk { is_empty, states };
                 if direct != surface.direct {
                     surface.direct = direct;
                     tracing::info!(output = output.name(), "{}", if direct { "прямой вывод клиента на план" } else { "композитинг" });
@@ -778,6 +1012,11 @@ impl TtyBackend {
             }
             Err(e) => {
                 tracing::warn!(?e, output = output.name(), "кадр не нарисован");
+                if surface.hdr.is_some() {
+                    self.hdr_fallback.push((id.node, id.crtc));
+                    let o = output.clone();
+                    self.loop_handle.insert_idle(move |state| state.core.queue_redraw(&o));
+                }
                 if let Some(d) = core.output_data.get_mut(output) {
                     d.redraw = RedrawState::Idle;
                 }
@@ -903,6 +1142,7 @@ impl TtyBackend {
     /// Применить `[[output]]`: масштаб, поворот, положение, режим.
     pub fn apply_output_config(&mut self, core: &mut Core) {
         let primary = self.primary_gpu;
+        let mut hdr_updates: Vec<(DrmNode, crtc::Handle, bool, f32)> = Vec::new();
         for (node, d) in self.devices.iter_mut() {
             let render_node = d.render_node.unwrap_or(primary);
             for s in d.surfaces.values_mut() {
@@ -915,8 +1155,13 @@ impl TtyBackend {
             }
             s.output.change_current_state(None, Some(transform), None, None);
                 let Some(cfg) = crate::backend::output_config_for(&core.config.outputs, &s.output) else {
+                    // записи нет — HDR выключен
+                    if let Some(crtc) = s.drm_output.with_compositor(|c| Some(c.crtc())) {
+                        hdr_updates.push((*node, crtc, false, synshell_common::config::DEFAULT_SDR_NITS));
+                    }
                     continue;
                 };
+                hdr_updates.push((*node, s.drm_output.crtc(), cfg.hdr, cfg.sdr_nits));
                 if cfg.scale > 0.0 {
                     s.output.change_current_state(None, None, Some(Scale::Fractional(cfg.scale)), None);
                 }
@@ -952,6 +1197,12 @@ impl TtyBackend {
                 let _ = node;
             }
         }
+        for (node, crtc, want, nits) in hdr_updates {
+            if let Some(d) = self.devices.get_mut(&node) {
+                set_hdr(&mut self.gpus, primary, d, crtc, want, nits);
+            }
+        }
+        core.queue_redraw_all();
     }
 }
 

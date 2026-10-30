@@ -148,6 +148,34 @@ fn output_card(title: String, name: String, info: Option<&OutputInfo>, cfg: &Out
     ));
     let n = name.clone();
     rows.push(row(&t!("Переменная частота (VRR)"), "", Toggle::with_state(cfg.vrr).on_change(move |v| oset(&n, "vrr", v))));
+    // HDR — только если монитор и драйвер умеют (по сведениям композитора).
+    if let Some(i) = info.filter(|i| i.hdr_capable) {
+        let n = name.clone();
+        let peak = if i.peak_nits > 0.0 { t!("пик {nits} нит", nits = i.peak_nits.round() as i64) } else { String::new() };
+        rows.push(row(
+            t!("HDR"),
+            if peak.is_empty() {
+                t!("PQ и BT.2020: HDR-видео и игры ярче и насыщеннее; обычные окна — с яркостью ниже").to_string()
+            } else {
+                t!("PQ и BT.2020, {peak}: HDR-видео и игры ярче и насыщеннее; обычные окна — с яркостью ниже", peak = peak)
+            },
+            Toggle::with_state(cfg.hdr).on_change(move |v| {
+                oset(&n, "hdr", v);
+                state::bump();
+            }),
+        ));
+        if cfg.hdr {
+            let n = name.clone();
+            let max = if i.peak_nits > 0.0 { i.peak_nits.clamp(300.0, 1000.0) } else { 600.0 };
+            rows.push(row(
+                t!("Яркость обычных окон"),
+                t!("Белый SDR в HDR-режиме, нит"),
+                Slider::new().range(80.0, max).step(10.0).value(cfg.sdr_nits.clamp(80.0, max)).show_value(0).width(220.0).on_change(move |v| {
+                    oset(&n, "sdr_nits", v.round() as i64)
+                }),
+            ));
+        }
+    }
     let n = name.clone();
     rows.push(row(
         t!("Основной монитор"),

@@ -532,6 +532,11 @@ pub fn output_infos(state: &State) -> Vec<OutputInfo> {
                 .map(|m| ModeInfo { width: m.size.w, height: m.size.h, refresh_mhz: m.refresh, preferred: Some(m) == preferred })
                 .collect();
             let current_idx = current.and_then(|c| o.modes().iter().position(|m| *m == c));
+            let hdr = o
+                .user_data()
+                .get::<crate::backend::tty::HdrStatus>()
+                .and_then(|st| st.0.lock().ok().map(|g| *g))
+                .unwrap_or_default();
             OutputInfo {
                 name: o.name(),
                 description: format!("{} {}", p.make, p.model),
@@ -548,6 +553,9 @@ pub fn output_infos(state: &State) -> Vec<OutputInfo> {
                 focused: focused.as_ref() == Some(o),
                 keyboard: keyboard_height(o),
                 internal: crate::backend::is_internal(o),
+                hdr_capable: hdr.0,
+                hdr: hdr.1,
+                peak_nits: hdr.2,
             }
         })
         .collect()

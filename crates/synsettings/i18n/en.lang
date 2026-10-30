@@ -1904,3 +1904,11 @@
 "Копия текущей — правьте её, не трогая оригинал" = "A copy of the current one — edit it without touching the original"
 "Создать тему" = "Create theme"
 "Не удалось запустить редактор тем: {e}" = "Could not start the theme editor: {e}"
+
+# pages/system.rs — HDR
+"HDR" = "HDR"
+"пик {nits} нит" = "peak {nits} nits"
+"PQ и BT.2020: HDR-видео и игры ярче и насыщеннее; обычные окна — с яркостью ниже" = "PQ and BT.2020: HDR video and games are brighter and richer; regular windows use the brightness below"
+"PQ и BT.2020, {peak}: HDR-видео и игры ярче и насыщеннее; обычные окна — с яркостью ниже" = "PQ and BT.2020, {peak}: HDR video and games are brighter and richer; regular windows use the brightness below"
+"Яркость обычных окон" = "Regular window brightness"
+"Белый SDR в HDR-режиме, нит" = "SDR white in HDR mode, nits"
