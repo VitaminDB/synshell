@@ -104,7 +104,7 @@ impl Element for RotateElement {
 }
 
 /// Рендереры, умеющие нарисовать снимок под произвольным углом.
-pub trait RotateDraw: Renderer {
+pub trait RotateDraw: Renderer + crate::color::ColorDraw {
     fn draw_rotate(frame: &mut Self::Frame<'_, '_>, e: &RotateElement);
 }
 

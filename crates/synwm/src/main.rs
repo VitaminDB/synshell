@@ -8,6 +8,7 @@ mod appmenu;
 mod backend;
 mod bindings;
 mod config;
+mod color;
 mod cursor;
 mod deco;
 mod encode;

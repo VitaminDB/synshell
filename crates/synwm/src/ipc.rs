@@ -553,9 +553,9 @@ pub fn output_infos(state: &State) -> Vec<OutputInfo> {
                 focused: focused.as_ref() == Some(o),
                 keyboard: keyboard_height(o),
                 internal: crate::backend::is_internal(o),
-                hdr_capable: hdr.0,
-                hdr: hdr.1,
-                peak_nits: hdr.2,
+                hdr_capable: hdr.capable,
+                hdr: hdr.active,
+                peak_nits: hdr.peak_nits,
             }
         })
         .collect()

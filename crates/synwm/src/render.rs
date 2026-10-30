@@ -22,6 +22,7 @@ use synshell_common::config::Rgba;
 
 use crate::rotate_anim::RotateDraw;
 
+use crate::color::ColorDraw;
 use crate::{
     deco::TitleKey,
     state::Core,
@@ -30,8 +31,10 @@ use crate::{
 
 smithay::backend::renderer::element::render_elements! {
     /// Элементы одного окна (содержимое, рамка, тень, обводка).
-    pub WinElement<R> where R: ImportAll + ImportMem;
+    pub WinElement<R> where R: ImportAll + ImportMem + ColorDraw;
     Surface = WaylandSurfaceRenderElement<R>,
+    /// Поверхность с цветом не sRGB (scRGB, HDR10, HLG) — через шейдер управления цветом.
+    Managed = crate::color::ManagedElement<R>,
     Memory = MemoryRenderBufferRenderElement<R>,
     Solid = SolidColorRenderElement,
 }
@@ -409,6 +412,8 @@ where
 
     // Содержимое (со всплывающими меню сверху).
     let origin = rel(m.loc - m.window.geometry().loc);
+    let color_prog = if crate::color::any_managed() { renderer.color_program() } else { None };
+    let hdr_out = crate::color::output_hdr(output);
     parts.extend(
         AsRenderElements::<R>::render_elements::<WaylandSurfaceRenderElement<R>>(
             &m.window,
@@ -418,7 +423,10 @@ where
             alpha,
         )
         .into_iter()
-        .map(WinElement::Surface),
+        .map(|e| match crate::color::wrap(e, hdr_out, color_prog.as_ref()) {
+            Ok(m) => WinElement::Managed(m),
+            Err(e) => WinElement::Surface(e),
+        }),
     );
 
     // Затемнение неактивного.

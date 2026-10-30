@@ -1,7 +1,9 @@
 //! HDR-вывод: коннектор в режиме PQ (SMPTE ST 2084) / BT.2020 с 10-битным кадром, а всё, что
 //! рисует композитор (обычные SDR-окна в sRGB), переводится в PQ одним проходом: кадр сначала
 //! собирается как обычно во внеэкранную текстуру (тот же damage, то же смешивание, что в SDR), затем
-//! шейдер: sRGB → линейный свет → BT.709 → BT.2020 → яркость белого `sdr_nits` → PQ.
+//! шейдер: sRGB → линейный свет → BT.709 → BT.2020 → яркость белого `sdr_nits` → PQ. Кадр — FP16 в
+//! extended sRGB: HDR-окна (`color::ManagedElement`) кладут в него света выше белого и цвета вне
+//! BT.709, обычные окна смешиваются с ними как всегда.
 //!
 //! Монитору сообщаются метаданные HDR10 (`HDR_OUTPUT_METADATA`), `Colorspace=BT2020_RGB` и
 //! `max bpc` 10. Возможности монитора — из EDID (блок «HDR Static Metadata», EOTF ST 2084).
@@ -99,10 +101,12 @@ uniform float alpha;
 uniform float white;
 varying vec2 v_coords;
 
+// extended sRGB: выше 1.0 — света HDR-окон, меньше 0 — их цвет вне BT.709 (знак сохраняется)
 vec3 srgb_to_linear(vec3 c) {
-    vec3 lo = c / 12.92;
-    vec3 hi = pow((c + 0.055) / 1.055, vec3(2.4));
-    return mix(lo, hi, step(vec3(0.04045), c));
+    vec3 a = abs(c);
+    vec3 lo = a / 12.92;
+    vec3 hi = pow((a + 0.055) / 1.055, vec3(2.4));
+    return sign(c) * mix(lo, hi, step(vec3(0.04045), a));
 }
 
 vec3 pq(vec3 l) {
@@ -119,7 +123,7 @@ void main() {
         dot(l, vec3(0.0691, 0.9195, 0.0114)),
         dot(l, vec3(0.0164, 0.0880, 0.8956))
     );
-    gl_FragColor = vec4(pq(w * white), 1.0);
+    gl_FragColor = vec4(pq(max(w, vec3(0.0)) * white), 1.0);
 }
 "#;
 

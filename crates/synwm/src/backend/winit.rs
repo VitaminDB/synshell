@@ -45,8 +45,15 @@ impl WinitBackend {
             .with_title(t!("synwm (вложенный)"))
             .with_inner_size(LogicalSize::new(w, h))
             .with_visible(true);
-        let (backend, winit_loop) = winit::init_from_attributes::<GlesRenderer>(attrs)
+        let (mut backend, winit_loop) = winit::init_from_attributes::<GlesRenderer>(attrs)
             .map_err(|e| anyhow::anyhow!("winit: {e}"))?;
+        // `SYNWM_CHECK_SHADERS=1`: собрать шейдеры HDR-вывода и управления цветом на этом GL —
+        // проверка без настоящего HDR-монитора.
+        if std::env::var_os("SYNWM_CHECK_SHADERS").is_some() {
+            let pq = crate::hdr::HdrOut::new(250.0).program(backend.renderer()).map(|_| ());
+            let color = crate::color::ColorDraw::color_program(backend.renderer()).map(|_| ()).ok_or("не собран");
+            tracing::info!(?pq, ?color, "проверка шейдеров HDR");
+        }
         let size = backend.window_size();
         let mode = Mode { size, refresh: 60_000 };
         let output = Output::new(

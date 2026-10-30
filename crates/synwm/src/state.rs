@@ -360,6 +360,7 @@ impl Core {
         VirtualKeyboardManagerState::new::<State, _>(&dh, |_| true);
         crate::appmenu::init(&dh);
         crate::gtk_shell::init(&dh);
+        crate::color::init(&dh);
         smithay::wayland::security_context::SecurityContextState::new::<State, _>(&dh, |client| {
             client
                 .get_data::<ClientState>()

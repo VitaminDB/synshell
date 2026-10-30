@@ -1492,6 +1492,7 @@ impl State {
         for o in &outputs {
             layer_map_for_output(o).arrange();
         }
+        crate::color::set_outputs(outputs.clone());
         // Окна за пределами всех выводов — вернуть на основной.
         let rects: Vec<Rect> = outputs.iter().filter_map(|o| self.core.space.output_geometry(o)).collect();
         let primary = self.core.primary_output();

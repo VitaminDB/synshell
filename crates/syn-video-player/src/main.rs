@@ -111,6 +111,7 @@ fn main() {
         };
         std::process::exit(bench::run(file, args.hw.unwrap_or(HwAccel::Auto), args.yuv, args.dlss));
     }
+    hdr_watch();
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);
     App::new()
@@ -153,4 +154,30 @@ fn main() {
 
 fn theme(cfg: &Config) -> String {
     synshell_common::style::AppStyle::new(cfg, "syn-video-player").font_selector("Text, Button").base(include_str!("../styles/syn-video-player.mss")).build()
+}
+
+/// HDR: окно плеера — FP16 (если композитор умеет управление цветом), а пока монитор в HDR-режиме,
+/// HDR-видео идёт в него светом без тонмаппинга. Режим монитора спрашивается у synwm раз в 2 с.
+fn hdr_watch() {
+    syngui::gpu::request_hdr_surface(true);
+    std::thread::Builder::new()
+        .name("svp-hdr".into())
+        .spawn(|| {
+            use synshell_common::ipc::{Client, Request, Response};
+            let mut last = None;
+            loop {
+                let hdr = Client::connect()
+                    .ok()
+                    .and_then(|mut c| c.request(&Request::Outputs).ok())
+                    .map(|r| matches!(r, Response::Outputs { outputs } if outputs.iter().any(|o| o.hdr)))
+                    .unwrap_or(false);
+                if last != Some(hdr) {
+                    tracing::info!(hdr, "монитор в HDR-режиме");
+                    syngui::gpu::set_hdr_output(hdr);
+                    last = Some(hdr);
+                }
+                std::thread::sleep(std::time::Duration::from_secs(2));
+            }
+        })
+        .ok();
 }

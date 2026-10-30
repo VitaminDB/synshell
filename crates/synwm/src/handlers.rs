@@ -132,6 +132,7 @@ impl CompositorHandler for State {
 
     fn commit(&mut self, surface: &WlSurface) {
         on_commit_buffer_handler::<Self>(surface);
+        crate::color::on_commit(surface);
         self.backend.early_import(surface);
 
         if !is_sync_subsurface(surface) {

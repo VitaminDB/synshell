@@ -94,9 +94,21 @@ struct Surface {
     hdr: Option<crate::hdr::HdrOut>,
 }
 
-/// HDR вывода для IPC (`synwm msg outputs`, настройки): (умеет, включён, пик нит).
+/// HDR вывода для IPC (`synwm msg outputs`, настройки) и управления цветом.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct HdrState {
+    /// Монитор и драйвер умеют HDR.
+    pub capable: bool,
+    /// HDR-режим включён.
+    pub active: bool,
+    /// Пик яркости по EDID, нит.
+    pub peak_nits: f32,
+    /// Белый обычных окон в HDR-режиме, нит.
+    pub sdr_nits: f32,
+}
+
 #[derive(Default)]
-pub struct HdrStatus(pub std::sync::Mutex<(bool, bool, f32)>);
+pub struct HdrStatus(pub std::sync::Mutex<HdrState>);
 
 /// Свойства коннектора, без которых HDR не включить.
 const HDR_PROPS: [&str; 3] = ["HDR_OUTPUT_METADATA", "Colorspace", "max bpc"];
@@ -155,10 +167,18 @@ fn set_hdr(
     if want && !capable {
         tracing::warn!(name, pq = s.edid_hdr.pq, props = s.hdr_props, "HDR не включить: монитор или драйвер не умеют");
     }
-    let status = s.output.user_data().get::<HdrStatus>().map(|st| st.0.lock().map(|g| g.1).unwrap_or(false)).unwrap_or(false);
+    let status = s.output.user_data().get::<HdrStatus>().map(|st| st.0.lock().map(|g| g.active).unwrap_or(false)).unwrap_or(false);
     if on == status {
         if let (true, Some(h)) = (on, s.hdr.as_mut()) {
-            h.sdr_nits = sdr_nits;
+            if h.sdr_nits != sdr_nits {
+                h.sdr_nits = sdr_nits;
+                if let Some(st) = s.output.user_data().get::<HdrStatus>() {
+                    if let Ok(mut g) = st.0.lock() {
+                        g.sdr_nits = sdr_nits;
+                    }
+                }
+                crate::color::outputs_changed();
+            }
         }
         return;
     }
@@ -221,9 +241,11 @@ fn set_hdr(
     let _ = s.drm_output.with_compositor(|c| c.reset_buffers());
     if let Some(st) = s.output.user_data().get::<HdrStatus>() {
         if let Ok(mut g) = st.0.lock() {
-            g.1 = on;
+            g.active = on;
+            g.sdr_nits = sdr_nits;
         }
     }
+    crate::color::outputs_changed();
     tracing::info!(name, on, sdr_nits, "HDR-режим вывода");
 }
 
@@ -682,7 +704,7 @@ pub fn scan_connectors(state: &mut State, node: DrmNode) {
         output.user_data().insert_if_missing_threadsafe(HdrStatus::default);
         if let Some(st) = output.user_data().get::<HdrStatus>() {
             if let Ok(mut g) = st.0.lock() {
-                *g = (edid_hdr.pq && hdr_props, false, edid_hdr.max_nits);
+                *g = HdrState { capable: edid_hdr.pq && hdr_props, active: false, peak_nits: edid_hdr.max_nits, sdr_nits: 0.0 };
             }
         }
         if edid_hdr.pq {
@@ -904,7 +926,12 @@ fn render_hdr_offscreen<'a>(
     let transform = output.current_transform();
     let fresh = h.texture.as_ref().is_none_or(|t| t.size() != (size.w, size.h).into());
     if fresh {
-        let tex: GlesTexture = Offscreen::<GlesTexture>::create_buffer(renderer, Fourcc::Abgr8888, (size.w, size.h).into())
+        // FP16 — света HDR-окон выше белого; нет — 8 бит (света обрежутся на белом).
+        let tex: GlesTexture = Offscreen::<GlesTexture>::create_buffer(renderer, Fourcc::Abgr16161616f, (size.w, size.h).into())
+            .or_else(|e| {
+                tracing::warn!(?e, "HDR: кадр FP16 не создан, 8 бит");
+                Offscreen::<GlesTexture>::create_buffer(renderer, Fourcc::Abgr8888, (size.w, size.h).into())
+            })
             .map_err(|e| anyhow::anyhow!("текстура кадра: {e:?}"))?;
         h.texture = Some(tex);
         h.damage = Some(OutputDamageTracker::from_output(output));
