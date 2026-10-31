@@ -756,6 +756,9 @@ Button.accent-swatch.selected {
 .pos-dot { width: 18px; height: 18px; border-radius: 9px; background: var(--border); }
 .pos-dot:hover { background: var(--muted); }
 .pos-dot-on { background: var(--accent); }
+/* режимы E Ink: строка на режим, точка — выбранный */
+.eink-mode { padding: 8px 0; }
+.eink-mode-on .row-label { color: var(--accent); }
 
 /* Программы по умолчанию */
 .da-item {

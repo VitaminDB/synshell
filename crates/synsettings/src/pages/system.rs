@@ -303,25 +303,36 @@ fn warmth_row(sysfs: &synsystem::Sys) -> Option<W> {
     ))
 }
 
+/// Раскрыт ли блок «Расширенные» раздела «Экран E Ink» (переживает пересборку страницы).
+static EINK_ADVANCED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Запись в sysfs E Ink в фоне (драйвер может ждать замок и перерисовывать экран); ошибка —
+/// всплывающим сообщением, `then` — на главном потоке после записи.
+fn eink_write(f: Box<dyn FnOnce(&synshell_common::display::Eink) -> std::io::Result<()> + Send>, then: Option<fn()>) {
+    std::thread::spawn(move || {
+        if let Some(e) = synshell_common::display::Eink::find() {
+            if let Err(err) = f(&e) {
+                syngui::async_runtime::run_on_main_thread(move || state::toast(t!("Экран E Ink: {e}", e = err)));
+            }
+        }
+        if let Some(then) = then {
+            syngui::async_runtime::run_on_main_thread(then);
+        }
+    });
+}
+
 /// Раздел «Экран E Ink» (только на E Ink с каталогом управления драйвера): цвет/монохром
-/// (цветная панель), режим обновления, полная очистка. Значение — из драйвера (что на экране
-/// сейчас); выбор пишется сразу в драйвер и в `[eink]` — его synwm применяет при старте сеанса.
+/// (цветная панель), режим обновления (список — из драйвера: HD, Сбалансированный, Быстрый,
+/// Сверхбыстрый, X), полная очистка и раскрываемые «Расширенные» (контраст, насыщенность,
+/// A2, автоочистка). Значение — из конфига, иначе из драйвера; выбор пишется сразу в драйвер
+/// и в `[eink]` — его synwm применяет при старте сеанса.
 fn eink_group() -> Option<W> {
-    use synshell_common::display::{self, Eink, UpdateMode};
+    use synshell_common::display::{self, Eink, Tuning};
     let kind = display::display_kind();
     if !kind.is_eink() {
         return None;
     }
     let e = Eink::find()?;
-    let sysfs = |f: Box<dyn FnOnce(&Eink) -> std::io::Result<()> + Send>| {
-        std::thread::spawn(move || {
-            if let Some(e) = Eink::find() {
-                if let Err(err) = f(&e) {
-                    syngui::async_runtime::run_on_main_thread(move || state::toast(t!("Экран E Ink: {e}", e = err)));
-                }
-            }
-        });
-    };
     // сначала выбор из конфига: запись в драйвер идёт в фоне и после правки может не успеть
     let cfg = store::config().eink;
     let mut rows: Vec<W> = Vec::new();
@@ -331,30 +342,132 @@ fn eink_group() -> Option<W> {
             t!("Цветной вывод"),
             t!("Панель {p}: цветной фильтр поверх ч/б E Ink; выключено — монохром, чётче текст", p = panel),
             Toggle::with_state(on).on_change(move |v| {
-                sysfs(Box::new(move |e| e.set_color(v)));
+                eink_write(Box::new(move |e| e.set_color(v)), None);
                 set(&op!["eink", "color"], v);
             }),
         ));
     }
-    let cur = cfg.update_mode.or_else(|| e.update_mode()).unwrap_or(UpdateMode::Quality);
-    let mut dd = Dropdown::new().width(220.0);
-    for m in UpdateMode::ALL {
-        dd = dd.item(DropdownItem::new(m.as_str(), m.title()));
-    }
-    let dd = dd.selected(cur.as_str()).on_change(move |v: &str| {
-        if let Some(m) = UpdateMode::from_name(v) {
-            sysfs(Box::new(move |e| e.set_update_mode(m)));
+
+    // режимы обновления: строка на режим с пояснением, нажатие — выбрать
+    let modes = e.update_modes();
+    let cur = cfg.update_mode.clone().or_else(|| e.update_mode());
+    let sel = use_signal(cur.as_ref().map(|m| m.as_str().to_string()).unwrap_or_default());
+    let mut list = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+    for m in modes {
+        let key = m.as_str().to_string();
+        let (title, hint) = (m.title(), m.hint());
+        let k2 = key.clone();
+        let line = Reactive::new(move || -> Vec<W> {
+            let on = sel.get() == k2;
+            let mut text = Column::new().gap(2.0).class("row-text").child(Text::new(title.clone()).class("row-label"));
+            if !hint.is_empty() {
+                text = text.child(Text::new(hint.clone()).class("row-hint"));
+            }
+            vec![boxed(
+                Row::new()
+                    .gap(12.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .class(if on { "eink-mode eink-mode-on" } else { "eink-mode" })
+                    .child(DecoratedBox::new().class(if on { "pos-dot pos-dot-on" } else { "pos-dot" }))
+                    .child(text),
+            )]
+        });
+        list = list.child(GestureDetector::new().on_click(move || {
+            if sel.get_untracked() == key {
+                return;
+            }
+            sel.set(key.clone());
             set(&op!["eink", "update_mode"], m.as_str());
-            state::bump();
-        }
-    });
-    rows.push(row(t!("Режим обновления"), cur.hint(), dd));
+            // режим сбрасывает a2_frames/full_every/full_pct — apply вернёт переопределения
+            let mut c = store::config().eink;
+            c.update_mode = Some(m.clone());
+            c.color = None;
+            // после записи — пересобрать: ползунки покажут значения нового режима
+            eink_write(Box::new(move |e| e.apply(&c)), Some(state::bump));
+        }).child(line));
+    }
+    rows.push(row_wide(t!("Режим обновления"), t!("Чем быстрее режим, тем больше следов прошлых картинок"), list));
     rows.push(row_inline(
         t!("Очистить экран"),
         t!("Полное обновление — убирает следы прошлых картинок"),
-        button(&t!("Очистить"), move || sysfs(Box::new(|e| e.refresh()))),
+        button(&t!("Очистить"), move || eink_write(Box::new(|e| e.refresh()), None)),
     ));
+
+    // «Расширенные»: ползунки атрибутов, которые есть у драйвера
+    let color = kind.is_color_eink();
+    let tunings: Vec<(Tuning, u32)> = Tuning::ALL
+        .into_iter()
+        .filter(|t| e.has(*t) && (color || !t.color_only()))
+        .map(|t| (t, t.get(&cfg).or_else(|| e.tuning(t)).or(t.default_value()).unwrap_or(t.range().0)))
+        .collect();
+    if !tunings.is_empty() {
+        let open = use_signal(EINK_ADVANCED.load(std::sync::atomic::Ordering::Relaxed));
+        let toggle = Reactive::new(move || -> Vec<W> {
+            let label = if open.get() { t!("Скрыть") } else { t!("Показать") };
+            vec![boxed(button(&label, move || {
+                let v = !open.get_untracked();
+                EINK_ADVANCED.store(v, std::sync::atomic::Ordering::Relaxed);
+                open.set(v);
+            }))]
+        });
+        rows.push(row_inline(t!("Расширенные"), t!("Контраст, насыщенность, волна A2, автоочистка"), toggle));
+        let mode_for_reset = cur.clone();
+        rows.push(boxed(Reactive::new(move || -> Vec<W> {
+            if !open.get() {
+                return Vec::new();
+            }
+            let mut col = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+            for (t, v) in tunings.iter().copied() {
+                col = col.child(DecoratedBox::new().class("row-sep")).child(eink_tuning_row(t, v));
+            }
+            let mode = mode_for_reset.clone();
+            col = col.child(DecoratedBox::new().class("row-sep")).child(row_inline(
+                t!("Сбросить по умолчанию"),
+                t!("Значения драйвера и выбранного режима"),
+                button(&t!("Сбросить"), move || {
+                    for t in Tuning::ALL {
+                        unset(&op!["eink", t.attr()]);
+                    }
+                    let mode = store::config().eink.update_mode.or_else(|| mode.clone());
+                    eink_write(Box::new(move |e| e.reset_tunings(mode.as_ref())), Some(state::bump));
+                }),
+            ));
+            vec![boxed(col)]
+        })));
+    }
     Some(group(&t!("Экран E Ink"), rows))
+}
+
+/// Ползунок расширенной настройки E Ink: значение — сразу в драйвер (в фоне, последнее
+/// побеждает) и в `[eink] <атрибут>`.
+fn eink_tuning_row(t: synshell_common::display::Tuning, value: u32) -> W {
+    let val = use_signal(value);
+    let label = Reactive::new(move || -> Vec<W> { vec![boxed(Text::new(t.format(val.get())).class("row-value"))] });
+    let pending: std::sync::Arc<std::sync::Mutex<Option<u32>>> = Default::default();
+    let (lo, hi) = t.range();
+    let slider = Slider::new().range(lo as f32, hi as f32).step(1.0).value(value as f32).width(220.0).on_change(move |v| {
+        let v = t.clamp(v.round().max(0.0) as u32);
+        if val.get_untracked() == v {
+            return;
+        }
+        val.set(v);
+        set(&op!["eink", t.attr()], v as i64);
+        if pending.lock().unwrap().replace(v).is_none() {
+            let p = pending.clone();
+            std::thread::spawn(move || {
+                let e = synshell_common::display::Eink::find();
+                loop {
+                    let next = p.lock().unwrap().take();
+                    let Some(v) = next else { break };
+                    let Some(e) = &e else { continue };
+                    if let Err(err) = e.set_tuning(t, v) {
+                        syngui::async_runtime::run_on_main_thread(move || state::toast(t!("Экран E Ink: {e}", e = err)));
+                    }
+                }
+            });
+        }
+    });
+    row(t.title(), t.hint(), Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(slider).child(label))
 }
 
 pub fn displays() -> W {

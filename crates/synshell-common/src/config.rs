@@ -137,9 +137,32 @@ pub struct EinkSettings {
     /// Цветной вывод на цветной панели (Kaleido); `false` — монохром.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<bool>,
-    /// Режим обновления: `quality`, `balanced`, `fast`, `a2`.
+    /// Режим обновления — имя драйвера: `hd`, `balanced`, `fast`, `ultrafast`, `x`
+    /// (старые `quality` → hd, `a2` → ultrafast).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub update_mode: Option<crate::display::UpdateMode>,
+    // Расширенные (см. [`crate::display::Tuning`]); применяются после режима.
+    /// Контраст контроллера (0..255, по умолчанию драйвера 0).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contrast: Option<u8>,
+    /// Насыщенность цвета, % (0..400, драйвер — 150; только цветная панель).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub saturation: Option<u16>,
+    /// Кадров волны A2 (0..6; режим `x` ставит 2).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub a2_frames: Option<u8>,
+    /// Порог белого A2 (0..255, драйвер — 255).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub a2_white: Option<u8>,
+    /// Порог чёрного A2 (0..255, драйвер — 0).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub a2_black: Option<u8>,
+    /// Полная очистка после N быстрых обновлений, 0 — никогда (иначе — как задаёт режим).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_every: Option<u32>,
+    /// Доля сменившегося экрана, %, с которой обновление сразу полное (101 — никогда; иначе — режим).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_pct: Option<u32>,
 }
 
 // ─── general ────────────────────────────────────────────────────────────────
@@ -3394,11 +3417,20 @@ mod tests {
 
     #[test]
     fn eink_section() {
+        use crate::display::UpdateMode;
         let c = Config::parse("[eink]\ncolor = true\nupdate_mode = \"a2\"\n").unwrap();
         assert_eq!(c.eink.color, Some(true));
-        assert_eq!(c.eink.update_mode, Some(crate::display::UpdateMode::A2));
+        assert_eq!(c.eink.update_mode, UpdateMode::from_name("ultrafast"));
+        let c = Config::parse("[eink]\nupdate_mode = \"quality\"\ncontrast = 2\nsaturation = 180\na2_frames = 3\na2_white = 220\na2_black = 20\nfull_every = 0\nfull_pct = 101\n").unwrap();
+        assert_eq!(c.eink.update_mode, Some(UpdateMode::hd()));
+        assert_eq!((c.eink.contrast, c.eink.saturation, c.eink.a2_frames), (Some(2), Some(180), Some(3)));
+        assert_eq!((c.eink.a2_white, c.eink.a2_black, c.eink.full_every, c.eink.full_pct), (Some(220), Some(20), Some(0), Some(101)));
         assert_eq!(Config::parse("").unwrap().eink, EinkSettings::default());
-        assert!(Config::parse("[eink]\nupdate_mode = \"slow\"\n").is_err());
+        // неизвестный режим — как есть (список режимов даёт драйвер), пустое — ошибка
+        assert_eq!(Config::parse("[eink]\nupdate_mode = \"night\"\n").unwrap().eink.update_mode, UpdateMode::from_name("night"));
+        assert!(Config::parse("[eink]\nupdate_mode = \"\"\n").is_err());
+        assert!(Config::parse("[eink]\ncontrast = 300\n").is_err());
+        assert!(Config::parse("[eink]\nsharpness = 1\n").is_err());
     }
 
     #[test]

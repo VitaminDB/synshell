@@ -553,13 +553,21 @@ fn eink_tiles(mut grid: Grid, rev: RwSignal<u32>) -> Grid {
             }
         }));
     }
-    if let Some(mode) = e.update_mode() {
+    // режимы — из драйвера (hd, balanced, fast, ultrafast, x); текущий драйвер не назовёт, если
+    // `full_every`/`full_pct` переопределены — тогда выбор из конфига
+    let cfg = synshell_common::Config::load().0.eink;
+    let modes = e.update_modes();
+    if let Some(mode) = e.update_mode().or_else(|| cfg.update_mode.clone()) {
         grid = grid.child(tile(GLYPH_SPEED, t!("Режим E Ink").into(), mode.title(), false, move || {
-            let next = mode.next();
-            write(Box::new(move |e| e.set_update_mode(next)));
+            let next = mode.next_in(&modes);
+            // режим сбрасывает часть расширенных настроек — apply вернёт переопределения из `[eink]`
+            let mut cfg = cfg.clone();
+            cfg.update_mode = Some(next.clone());
+            cfg.color = None;
             if let Err(err) = synshell_common::config_edit::set_value(&["eink", "update_mode"], toml_edit::Value::from(next.as_str())) {
                 log::warn!("[eink] update_mode: {err:#}");
             }
+            write(Box::new(move |e| e.apply(&cfg)));
         }));
     }
     grid.child(tile(GLYPH_REFRESH, t!("Очистить экран").into(), t!("Убрать следы").into(), false, move || {

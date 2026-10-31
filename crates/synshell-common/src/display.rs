@@ -4,7 +4,10 @@
 //! устройства каталог управления:
 //! - `panel` — тип панели: `kaleido` (цветной фильтр поверх ч/б E Ink) или `carta` (монохромная);
 //! - `color` — `1` цветной вывод (CFA Kaleido накладывает FPGA), `0` — монохром;
-//! - `update_mode` — `quality` / `balanced` / `fast` / `a2`, чтение — `[quality] balanced fast a2`;
+//! - `update_mode` — режимы как у BOOX: чтение `hd [balanced] fast ultrafast x` (текущий в скобках),
+//!   запись — имя (`quality` → hd и `a2` → ultrafast — синонимы);
+//! - расширенные (числа): `contrast`, `saturation` (%), `a2_frames`, `a2_white`, `a2_black`,
+//!   `full_every`, `full_pct` — см. [`Tuning`];
 //! - `refresh` — запись `1`: полная очистка экрана («призраки»).
 //!
 //! Права — группа `video` (udev), пользователю сеанса root не нужен. На обычном компьютере
@@ -51,75 +54,268 @@ impl DisplayKind {
     }
 }
 
-/// Режим обновления E Ink (волна драйвера).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum UpdateMode {
-    /// 16 оттенков, частая полная очистка.
-    Quality,
-    /// Реже полная очистка.
-    Balanced,
-    /// Быстрая ч/б волна (серые слабее).
-    Fast,
-    /// Самая быстрая, без автоочистки (видео, прокрутка).
-    A2,
-}
+/// Режим обновления E Ink — имя из `update_mode` драйвера. Список режимов даёт драйвер
+/// ([`Eink::update_modes`]); известные (как у BOOX: [`UpdateMode::KNOWN`]) — с названием
+/// и пояснением, неизвестные показываются как есть. Старые имена — синонимы:
+/// `quality` → `hd`, `a2` → `ultrafast` (драйвер их тоже принимает).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct UpdateMode(String);
 
 impl UpdateMode {
-    pub const ALL: [UpdateMode; 4] = [UpdateMode::Quality, UpdateMode::Balanced, UpdateMode::Fast, UpdateMode::A2];
+    /// Режимы драйвера onyx-tcon-fpga по порядку: от качества к скорости.
+    pub const KNOWN: [&'static str; 5] = ["hd", "balanced", "fast", "ultrafast", "x"];
+
+    /// Имя режима (без учёта регистра, с синонимами); `None` — пустое или не похожее на имя.
+    pub fn from_name(s: &str) -> Option<UpdateMode> {
+        let s = s.trim().to_ascii_lowercase();
+        if s.is_empty() || !s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
+            return None;
+        }
+        let s = match s.as_str() {
+            "quality" => "hd".to_string(),
+            "a2" => "ultrafast".to_string(),
+            _ => s,
+        };
+        Some(UpdateMode(s))
+    }
+
+    pub fn hd() -> UpdateMode {
+        UpdateMode("hd".into())
+    }
+
+    pub fn balanced() -> UpdateMode {
+        UpdateMode("balanced".into())
+    }
+
+    /// Известные режимы ([`UpdateMode::KNOWN`]) — если драйвер списка не дал.
+    pub fn known() -> Vec<UpdateMode> {
+        UpdateMode::KNOWN.iter().map(|s| UpdateMode((*s).into())).collect()
+    }
 
     /// Имя в sysfs и в конфиге.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            UpdateMode::Quality => "quality",
-            UpdateMode::Balanced => "balanced",
-            UpdateMode::Fast => "fast",
-            UpdateMode::A2 => "a2",
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn is_known(&self) -> bool {
+        UpdateMode::KNOWN.contains(&self.0.as_str())
+    }
+
+    /// Название для интерфейса (неизвестный режим — имя драйвера).
+    pub fn title(&self) -> String {
+        match self.0.as_str() {
+            "hd" => "HD".into(),
+            "balanced" => t!("Сбалансированный"),
+            "fast" => t!("Быстрый"),
+            "ultrafast" => t!("Сверхбыстрый"),
+            "x" => "X".into(),
+            other => other.to_string(),
         }
     }
 
-    pub fn from_name(s: &str) -> Option<UpdateMode> {
-        let s = s.trim();
-        UpdateMode::ALL.into_iter().find(|m| m.as_str().eq_ignore_ascii_case(s))
+    /// Пояснение для интерфейса (неизвестный режим — пусто).
+    pub fn hint(&self) -> String {
+        match self.0.as_str() {
+            "hd" => t!("16 оттенков, частая полная очистка — текст и картинки"),
+            "balanced" => t!("Оттенки, полная очистка реже — на каждый день"),
+            "fast" => t!("Ч/б быстрее, серые слабее — листание и набор"),
+            "ultrafast" => t!("Авторежим панели — видео и прокрутка"),
+            "x" => t!("A2, самый быстрый — с артефактами"),
+            _ => String::new(),
+        }
+    }
+
+    /// Следующий по кругу в списке `modes` (плитка шторки); нет в списке — первый.
+    pub fn next_in(&self, modes: &[UpdateMode]) -> UpdateMode {
+        match modes.iter().position(|m| m == self) {
+            Some(i) => modes[(i + 1) % modes.len()].clone(),
+            None => modes.first().cloned().unwrap_or_else(|| self.clone()),
+        }
+    }
+}
+
+impl TryFrom<String> for UpdateMode {
+    type Error = String;
+    fn try_from(s: String) -> Result<Self, String> {
+        UpdateMode::from_name(&s).ok_or_else(|| format!("недопустимое имя режима E Ink: {s:?}"))
+    }
+}
+
+impl From<UpdateMode> for String {
+    fn from(m: UpdateMode) -> String {
+        m.0
+    }
+}
+
+impl std::fmt::Display for UpdateMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// Чтение `update_mode`: все режимы по порядку (синонимы сведены, без повторов) и текущий —
+/// в скобках (`hd [balanced] fast ultrafast x`). Без скобок: одно имя — оно и текущее;
+/// несколько — текущий неизвестен (драйвер так пишет, если `full_every`/`full_pct`
+/// переопределены и не совпадают ни с одним режимом).
+pub fn parse_update_modes(s: &str) -> (Vec<UpdateMode>, Option<UpdateMode>) {
+    let mut all: Vec<UpdateMode> = Vec::new();
+    let mut current = None;
+    let mut n = 0;
+    for tok in s.split_whitespace() {
+        n += 1;
+        let bracketed = tok.starts_with('[') && tok.ends_with(']') && tok.len() > 2;
+        let name = if bracketed { &tok[1..tok.len() - 1] } else { tok };
+        let Some(m) = UpdateMode::from_name(name) else { continue };
+        if bracketed {
+            current = Some(m.clone());
+        }
+        if !all.contains(&m) {
+            all.push(m);
+        }
+    }
+    if current.is_none() && n == 1 {
+        current = all.first().cloned();
+    }
+    (all, current)
+}
+
+/// Текущий режим из чтения `update_mode` (см. [`parse_update_modes`]).
+pub fn parse_update_mode(s: &str) -> Option<UpdateMode> {
+    parse_update_modes(s).1
+}
+
+/// Расширенная настройка экрана E Ink — числовой атрибут драйвера (`[eink]` с тем же именем).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Tuning {
+    /// Контраст (регистр TCON 0x05), 0 — по умолчанию.
+    Contrast,
+    /// Насыщенность цветного кадра, % (100 — как есть, по умолчанию 150; только Kaleido).
+    Saturation,
+    /// Кадров волны A2 (регистр 0x04, 0..6); режим `x` ставит 2.
+    A2Frames,
+    /// Порог белого A2 (0x0C, по умолчанию 255).
+    A2White,
+    /// Порог чёрного A2 (0x0D, по умолчанию 0).
+    A2Black,
+    /// Полная очистка после N быстрых обновлений, 0 — нет (задаёт режим).
+    FullEvery,
+    /// Доля сменившегося экрана, %, с которой обновление сразу полное (задаёт режим; >100 — никогда).
+    FullPct,
+}
+
+impl Tuning {
+    pub const ALL: [Tuning; 7] =
+        [Tuning::Contrast, Tuning::Saturation, Tuning::A2Frames, Tuning::A2White, Tuning::A2Black, Tuning::FullEvery, Tuning::FullPct];
+
+    /// Имя атрибута sysfs и ключа `[eink]`.
+    pub fn attr(self) -> &'static str {
+        match self {
+            Tuning::Contrast => "contrast",
+            Tuning::Saturation => "saturation",
+            Tuning::A2Frames => "a2_frames",
+            Tuning::A2White => "a2_white",
+            Tuning::A2Black => "a2_black",
+            Tuning::FullEvery => "full_every",
+            Tuning::FullPct => "full_pct",
+        }
+    }
+
+    /// Допустимые значения (включительно).
+    pub fn range(self) -> (u32, u32) {
+        match self {
+            Tuning::Contrast | Tuning::A2White | Tuning::A2Black => (0, 255),
+            Tuning::Saturation => (0, 400),
+            Tuning::A2Frames => (0, 6),
+            Tuning::FullEvery => (0, 100),
+            Tuning::FullPct => (0, 101),
+        }
+    }
+
+    /// Значение драйвера по умолчанию; `None` — его задаёт режим обновления
+    /// (`a2_frames`, `full_every`, `full_pct`: восстанавливаются повторной записью режима).
+    pub fn default_value(self) -> Option<u32> {
+        match self {
+            Tuning::Contrast => Some(0),
+            Tuning::Saturation => Some(150),
+            Tuning::A2White => Some(255),
+            Tuning::A2Black => Some(0),
+            Tuning::A2Frames | Tuning::FullEvery | Tuning::FullPct => None,
+        }
+    }
+
+    /// Только для цветной панели.
+    pub fn color_only(self) -> bool {
+        self == Tuning::Saturation
     }
 
     /// Название для интерфейса.
     pub fn title(self) -> String {
         match self {
-            UpdateMode::Quality => t!("Качество"),
-            UpdateMode::Balanced => t!("Сбалансированный"),
-            UpdateMode::Fast => t!("Быстрый"),
-            UpdateMode::A2 => "A2".into(),
+            Tuning::Contrast => t!("Контраст"),
+            Tuning::Saturation => t!("Насыщенность цвета"),
+            Tuning::A2Frames => t!("Кадров A2"),
+            Tuning::A2White => t!("Порог белого A2"),
+            Tuning::A2Black => t!("Порог чёрного A2"),
+            Tuning::FullEvery => t!("Полная очистка через N обновлений"),
+            Tuning::FullPct => t!("Полная очистка от доли экрана"),
         }
     }
 
     /// Пояснение для интерфейса.
     pub fn hint(self) -> String {
         match self {
-            UpdateMode::Quality => t!("16 оттенков, частая полная очистка"),
-            UpdateMode::Balanced => t!("Оттенки, полная очистка реже"),
-            UpdateMode::Fast => t!("Быстрая ч/б волна, серые слабее"),
-            UpdateMode::A2 => t!("Самая быстрая, без автоочистки — видео и прокрутка"),
+            Tuning::Contrast => t!("Регистр контраста контроллера; 0 — по умолчанию"),
+            Tuning::Saturation => t!("Усиление цвета под фильтром Kaleido, %; 100 — как есть"),
+            Tuning::A2Frames => t!("Длина быстрой волны A2: больше — чище, но медленнее"),
+            Tuning::A2White => t!("Яркость, начиная с которой точка в A2 белая"),
+            Tuning::A2Black => t!("Яркость, до которой точка в A2 чёрная"),
+            Tuning::FullEvery => t!("После стольких быстрых обновлений — полная очистка; 0 — никогда"),
+            Tuning::FullPct => t!("Если сменилось столько % экрана — сразу полное обновление; 101 — никогда"),
         }
     }
 
-    /// Следующий по кругу (плитка шторки).
-    pub fn next(self) -> UpdateMode {
-        let i = UpdateMode::ALL.iter().position(|m| *m == self).unwrap_or(0);
-        UpdateMode::ALL[(i + 1) % UpdateMode::ALL.len()]
+    /// Значение для показа (`0` у очистки — «никогда», проценты).
+    pub fn format(self, v: u32) -> String {
+        match self {
+            Tuning::FullEvery if v == 0 => t!("никогда"),
+            Tuning::FullPct if v > 100 => t!("никогда"),
+            Tuning::Saturation | Tuning::FullPct => format!("{v}%"),
+            _ => v.to_string(),
+        }
     }
-}
 
-/// Текущий режим из чтения `update_mode` (`[quality] balanced fast a2`); без скобок —
-/// единственное имя.
-pub fn parse_update_mode(s: &str) -> Option<UpdateMode> {
-    let s = s.trim();
-    if let Some(start) = s.find('[') {
-        let rest = &s[start + 1..];
-        let end = rest.find(']')?;
-        return UpdateMode::from_name(&rest[..end]);
+    /// Значение из `[eink]`.
+    pub fn get(self, cfg: &crate::config::EinkSettings) -> Option<u32> {
+        match self {
+            Tuning::Contrast => cfg.contrast.map(u32::from),
+            Tuning::Saturation => cfg.saturation.map(u32::from),
+            Tuning::A2Frames => cfg.a2_frames.map(u32::from),
+            Tuning::A2White => cfg.a2_white.map(u32::from),
+            Tuning::A2Black => cfg.a2_black.map(u32::from),
+            Tuning::FullEvery => cfg.full_every,
+            Tuning::FullPct => cfg.full_pct,
+        }
     }
-    UpdateMode::from_name(s)
+
+    /// Записать в `[eink]` (значение приводится к [`Tuning::range`]).
+    pub fn put(self, cfg: &mut crate::config::EinkSettings, v: Option<u32>) {
+        let v = v.map(|v| self.clamp(v));
+        match self {
+            Tuning::Contrast => cfg.contrast = v.map(|v| v as u8),
+            Tuning::Saturation => cfg.saturation = v.map(|v| v as u16),
+            Tuning::A2Frames => cfg.a2_frames = v.map(|v| v as u8),
+            Tuning::A2White => cfg.a2_white = v.map(|v| v as u8),
+            Tuning::A2Black => cfg.a2_black = v.map(|v| v as u8),
+            Tuning::FullEvery => cfg.full_every = v,
+            Tuning::FullPct => cfg.full_pct = v,
+        }
+    }
+
+    pub fn clamp(self, v: u32) -> u32 {
+        let (lo, hi) = self.range();
+        v.clamp(lo, hi)
+    }
 }
 
 /// Каталог управления экраном E Ink в sysfs.
@@ -185,12 +381,54 @@ impl Eink {
         self.write("color", if on { "1" } else { "0" })
     }
 
+    /// Текущий режим; `None` — нет файла или текущий не совпадает ни с одним режимом
+    /// (переопределены `full_every`/`full_pct`).
     pub fn update_mode(&self) -> Option<UpdateMode> {
         parse_update_mode(&self.read("update_mode")?)
     }
 
-    pub fn set_update_mode(&self, m: UpdateMode) -> std::io::Result<()> {
+    /// Режимы, которые знает драйвер (по порядку); пустое чтение — [`UpdateMode::known`].
+    pub fn update_modes(&self) -> Vec<UpdateMode> {
+        let all = self.read("update_mode").map(|s| parse_update_modes(&s).0).unwrap_or_default();
+        if all.is_empty() { UpdateMode::known() } else { all }
+    }
+
+    /// Запись режима. Драйвер при этом сбрасывает `a2_frames`, `full_every`, `full_pct`
+    /// к значениям режима — переопределения из конфига возвращает [`Eink::apply`].
+    pub fn set_update_mode(&self, m: &UpdateMode) -> std::io::Result<()> {
         self.write("update_mode", m.as_str())
+    }
+
+    /// Есть ли у драйвера расширенная настройка.
+    pub fn has(&self, t: Tuning) -> bool {
+        self.dir.join(t.attr()).is_file()
+    }
+
+    /// Значение расширенной настройки; `None` — нет файла или драйвер не готов (`-1`).
+    pub fn tuning(&self, t: Tuning) -> Option<u32> {
+        self.read(t.attr())?.parse::<i64>().ok().and_then(|v| u32::try_from(v).ok())
+    }
+
+    /// Записать расширенную настройку (приводится к [`Tuning::range`]); нет файла — ничего.
+    pub fn set_tuning(&self, t: Tuning, v: u32) -> std::io::Result<()> {
+        if !self.has(t) {
+            return Ok(());
+        }
+        self.write(t.attr(), &t.clamp(v).to_string())
+    }
+
+    /// «Сбросить по умолчанию»: настройки с умолчанием драйвера — к нему, остальные (задаёт
+    /// режим) — повторной записью режима `mode` (нет — текущий или `balanced`).
+    pub fn reset_tunings(&self, mode: Option<&UpdateMode>) -> std::io::Result<()> {
+        for t in Tuning::ALL {
+            if let Some(d) = t.default_value() {
+                if self.has(t) && self.tuning(t) != Some(d) {
+                    self.set_tuning(t, d)?;
+                }
+            }
+        }
+        let m = mode.cloned().or_else(|| self.update_mode()).unwrap_or_else(UpdateMode::balanced);
+        self.set_update_mode(&m)
     }
 
     /// Есть ли у драйвера режим пера (файл `pen`).
@@ -223,16 +461,29 @@ impl Eink {
     }
 
     /// Применить выбор пользователя (`[eink]`): пишется только то, что задано и отличается
-    /// от текущего (запись `color` перерисовывает экран). Цвет — только на цветной панели.
+    /// от текущего (запись `color` перерисовывает экран). Цвет и насыщенность — только на
+    /// цветной панели; расширенные — только если у драйвера есть атрибут. Порядок: цвет,
+    /// режим, расширенные (режим сбрасывает часть из них).
     pub fn apply(&self, cfg: &crate::config::EinkSettings) -> std::io::Result<()> {
         if let Some(on) = cfg.color {
             if self.is_color_panel() && self.color() != Some(on) {
                 self.set_color(on)?;
             }
         }
-        if let Some(m) = cfg.update_mode {
-            if self.update_mode() != Some(m) {
+        if let Some(m) = &cfg.update_mode {
+            if self.update_mode().as_ref() != Some(m) {
                 self.set_update_mode(m)?;
+            }
+        }
+        // после режима: запись режима сбрасывает a2_frames/full_every/full_pct
+        let color = self.is_color_panel();
+        for t in Tuning::ALL {
+            let Some(v) = t.get(cfg) else { continue };
+            if (t.color_only() && !color) || !self.has(t) {
+                continue;
+            }
+            if self.tuning(t) != Some(t.clamp(v)) {
+                self.set_tuning(t, v)?;
             }
         }
         Ok(())
@@ -299,26 +550,79 @@ mod tests {
     use super::*;
     use std::fs;
 
+    fn m(s: &str) -> UpdateMode {
+        UpdateMode::from_name(s).unwrap()
+    }
+
     #[test]
     fn update_mode_parse() {
-        assert_eq!(parse_update_mode("[quality] balanced fast a2\n"), Some(UpdateMode::Quality));
-        assert_eq!(parse_update_mode("quality balanced [fast] a2"), Some(UpdateMode::Fast));
-        assert_eq!(parse_update_mode("quality balanced fast [a2]"), Some(UpdateMode::A2));
-        assert_eq!(parse_update_mode("balanced"), Some(UpdateMode::Balanced));
-        assert_eq!(parse_update_mode("[nope] quality"), None);
+        let (all, cur) = parse_update_modes("hd [balanced] fast ultrafast x\n");
+        assert_eq!(all.iter().map(|m| m.as_str()).collect::<Vec<_>>(), UpdateMode::KNOWN);
+        assert_eq!(cur, Some(m("balanced")));
+        assert_eq!(parse_update_mode("hd balanced fast ultrafast [x]"), Some(m("x")));
+        assert_eq!(parse_update_mode("[hd] balanced"), Some(UpdateMode::hd()));
+        // текущий неизвестен (переопределены full_every/full_pct) — список есть, текущего нет
+        let (all, cur) = parse_update_modes("hd balanced fast ultrafast x");
+        assert_eq!(all.len(), 5);
+        assert_eq!(cur, None);
+        assert_eq!(parse_update_mode("balanced"), Some(m("balanced")));
         assert_eq!(parse_update_mode(""), None);
-        assert_eq!(UpdateMode::A2.next(), UpdateMode::Quality);
-        assert_eq!(UpdateMode::Quality.next(), UpdateMode::Balanced);
+        // старый драйвер: синонимы сводятся, без повторов
+        let (all, cur) = parse_update_modes("[quality] balanced fast a2");
+        assert_eq!(all, vec![m("hd"), m("balanced"), m("fast"), m("ultrafast")]);
+        assert_eq!(cur, Some(UpdateMode::hd()));
+        // неизвестный режим драйвера — как есть
+        let (all, cur) = parse_update_modes("hd [night]");
+        assert_eq!(all, vec![m("hd"), m("night")]);
+        assert_eq!(cur.as_ref().map(|m| m.as_str()), Some("night"));
+        assert!(!m("night").is_known());
+        assert_eq!(m("night").title(), "night");
+        assert!(m("x").is_known());
+    }
+
+    #[test]
+    fn update_mode_names_and_cycle() {
+        assert_eq!(m("Quality"), UpdateMode::hd());
+        assert_eq!(m(" A2 "), m("ultrafast"));
+        assert_eq!(UpdateMode::from_name(""), None);
+        assert_eq!(UpdateMode::from_name("a b"), None);
+        assert_eq!(UpdateMode::from_name("[hd]"), None);
+        let all = UpdateMode::known();
+        assert_eq!(m("hd").next_in(&all), m("balanced"));
+        assert_eq!(m("x").next_in(&all), m("hd"));
+        assert_eq!(m("night").next_in(&all), m("hd"));
+        assert_eq!(m("hd").title(), "HD");
     }
 
     #[test]
     fn update_mode_serde() {
-        #[derive(Deserialize)]
+        #[derive(Deserialize, Serialize)]
         struct T {
             m: UpdateMode,
         }
-        assert_eq!(toml::from_str::<T>("m = \"a2\"").unwrap().m, UpdateMode::A2);
-        assert_eq!(toml::from_str::<T>("m = \"balanced\"").unwrap().m, UpdateMode::Balanced);
+        assert_eq!(toml::from_str::<T>("m = \"a2\"").unwrap().m, m("ultrafast"));
+        assert_eq!(toml::from_str::<T>("m = \"quality\"").unwrap().m, UpdateMode::hd());
+        assert_eq!(toml::from_str::<T>("m = \"x\"").unwrap().m, m("x"));
+        assert!(toml::from_str::<T>("m = \"\"").is_err());
+        assert_eq!(toml::to_string(&T { m: m("ultrafast") }).unwrap().trim(), "m = \"ultrafast\"");
+    }
+
+    #[test]
+    fn tuning_ranges_and_config() {
+        let mut cfg = crate::config::EinkSettings::default();
+        for t in Tuning::ALL {
+            assert_eq!(t.get(&cfg), None);
+            let (lo, hi) = t.range();
+            t.put(&mut cfg, Some(hi + 1000));
+            assert_eq!(t.get(&cfg), Some(hi), "{t:?}");
+            t.put(&mut cfg, Some(lo));
+            assert_eq!(t.get(&cfg), Some(lo));
+            t.put(&mut cfg, None);
+            assert_eq!(t.get(&cfg), None);
+        }
+        assert_eq!(Tuning::FullEvery.format(0), t!("никогда"));
+        assert_eq!(Tuning::FullPct.format(101), t!("никогда"));
+        assert_eq!(Tuning::Saturation.format(150), "150%");
     }
 
     /// Подставное дерево: устройство драйвера onyx-tcon-fpga и карта DRM под ним.
@@ -339,7 +643,7 @@ mod tests {
         if let Some(p) = panel {
             fs::write(dev.join("panel"), format!("{p}\n")).unwrap();
             fs::write(dev.join("color"), "0\n").unwrap();
-            fs::write(dev.join("update_mode"), "[quality] balanced fast a2\n").unwrap();
+            fs::write(dev.join("update_mode"), "hd [balanced] fast ultrafast x\n").unwrap();
         }
         sys
     }
@@ -370,11 +674,13 @@ mod tests {
         let e = Eink::find_in(sys.path()).unwrap();
         assert_eq!(e.panel().as_deref(), Some("kaleido"));
         assert_eq!(e.color(), Some(false));
-        assert_eq!(e.update_mode(), Some(UpdateMode::Quality));
-        let cfg = crate::config::EinkSettings { color: Some(true), update_mode: Some(UpdateMode::A2) };
+        assert_eq!(e.update_mode(), Some(UpdateMode::balanced()));
+        assert_eq!(e.update_modes(), UpdateMode::known());
+        // старое имя в конфиге — синоним
+        let cfg: crate::config::EinkSettings = toml::from_str("color = true\nupdate_mode = \"a2\"").unwrap();
         e.apply(&cfg).unwrap();
         assert_eq!(fs::read_to_string(e.dir().join("color")).unwrap(), "1");
-        assert_eq!(fs::read_to_string(e.dir().join("update_mode")).unwrap(), "a2");
+        assert_eq!(fs::read_to_string(e.dir().join("update_mode")).unwrap(), "ultrafast");
         e.refresh().unwrap();
         assert_eq!(fs::read_to_string(e.dir().join("refresh")).unwrap(), "1");
         // режим пера: нет файла — ничего не делаем
@@ -389,10 +695,69 @@ mod tests {
         assert_eq!(e.pen(), Some(true));
         e.set_pen(false).unwrap();
         assert_eq!(fs::read_to_string(e.dir().join("pen")).unwrap(), "0");
-        // монохромная панель: цвет не трогаем
+        // монохромная панель: цвет и насыщенность не трогаем
         let sys = fake_sys(Some("carta"));
         let e = Eink::find_in(sys.path()).unwrap();
-        e.apply(&crate::config::EinkSettings { color: Some(true), update_mode: None }).unwrap();
+        fs::write(e.dir().join("saturation"), "150\n").unwrap();
+        let cfg = crate::config::EinkSettings { color: Some(true), saturation: Some(300), ..Default::default() };
+        e.apply(&cfg).unwrap();
         assert_eq!(e.color(), Some(false));
+        assert_eq!(e.tuning(Tuning::Saturation), Some(150));
+    }
+
+    #[test]
+    fn eink_tunings_apply_and_reset() {
+        let sys = fake_sys(Some("kaleido"));
+        let e = Eink::find_in(sys.path()).unwrap();
+        let dir = e.dir().to_path_buf();
+        let rd = |n: &str| fs::read_to_string(dir.join(n)).unwrap().trim().to_string();
+        // у драйвера есть всё, кроме full_pct
+        for (n, v) in [("contrast", "0"), ("saturation", "150"), ("a2_frames", "0"), ("a2_white", "255"), ("a2_black", "0"), ("full_every", "25")] {
+            fs::write(dir.join(n), format!("{v}\n")).unwrap();
+        }
+        assert!(e.has(Tuning::Contrast) && !e.has(Tuning::FullPct));
+        assert_eq!(e.tuning(Tuning::A2White), Some(255));
+        assert_eq!(e.tuning(Tuning::FullPct), None);
+        // драйвер не готов
+        fs::write(dir.join("contrast"), "-1\n").unwrap();
+        assert_eq!(e.tuning(Tuning::Contrast), None);
+        fs::write(dir.join("contrast"), "0\n").unwrap();
+
+        let cfg: crate::config::EinkSettings = toml::from_str(
+            "update_mode = \"x\"\ncontrast = 3\nsaturation = 200\na2_frames = 4\na2_white = 200\na2_black = 40\nfull_every = 7\nfull_pct = 60\n",
+        )
+        .unwrap();
+        e.apply(&cfg).unwrap();
+        assert_eq!(rd("update_mode"), "x");
+        assert_eq!(rd("contrast"), "3");
+        assert_eq!(rd("saturation"), "200");
+        assert_eq!(rd("a2_frames"), "4");
+        assert_eq!(rd("a2_white"), "200");
+        assert_eq!(rd("a2_black"), "40");
+        assert_eq!(rd("full_every"), "7");
+        assert!(!dir.join("full_pct").exists(), "нет атрибута — не создаём");
+        // совпадающее не переписывается: файлы только для чтения — запись дала бы ошибку
+        use std::os::unix::fs::PermissionsExt;
+        fs::write(dir.join("update_mode"), "hd balanced fast ultrafast [x]\n").unwrap();
+        let ro = ["update_mode", "contrast", "saturation", "a2_frames", "a2_white", "a2_black", "full_every"];
+        for n in ro {
+            fs::set_permissions(dir.join(n), fs::Permissions::from_mode(0o444)).unwrap();
+        }
+        e.apply(&cfg).unwrap();
+        for n in ro {
+            fs::set_permissions(dir.join(n), fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        // запись приводится к диапазону
+        e.set_tuning(Tuning::A2Frames, 99).unwrap();
+        assert_eq!(rd("a2_frames"), "6");
+        // сброс: умолчания драйвера + повторная запись режима
+        e.reset_tunings(None).unwrap();
+        assert_eq!(rd("contrast"), "0");
+        assert_eq!(rd("saturation"), "150");
+        assert_eq!(rd("a2_white"), "255");
+        assert_eq!(rd("a2_black"), "0");
+        assert_eq!(rd("update_mode"), "x");
+        e.reset_tunings(Some(&UpdateMode::hd())).unwrap();
+        assert_eq!(rd("update_mode"), "hd");
     }
 }
