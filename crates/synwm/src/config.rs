@@ -19,8 +19,29 @@ pub fn watched_files(config: &Config) -> Vec<std::path::PathBuf> {
 pub fn apply_eink(cfg: &synshell_common::config::EinkSettings) {
     let Some(e) = synshell_common::display::Eink::find() else { return };
     match e.apply(cfg) {
-        Ok(()) => tracing::info!(?cfg, "режимы экрана E Ink"),
+        Ok(()) => {
+            tracing::info!(?cfg, "режимы экрана E Ink");
+            remember_eink(cfg);
+        }
         Err(err) => tracing::warn!(%err, dir = %e.dir().display(), "режимы экрана E Ink не применены"),
+    }
+}
+
+/// Своё `[eink]` — в общий файл для экрана входа (`eink_state`; применяет `synlogin daemon` до synwm).
+/// Только файл: в sysfs здесь ничего не пишется.
+fn remember_eink(own: &synshell_common::config::EinkSettings) {
+    use synshell_common::eink_state;
+    if eink_state::is_empty(own) {
+        return;
+    }
+    let saved = eink_state::load();
+    let merged = eink_state::merge(own, &saved);
+    if merged == saved {
+        return;
+    }
+    match eink_state::save(&merged) {
+        Ok(path) => tracing::info!(path = %path.display(), "режимы экрана E Ink запомнены для экрана входа"),
+        Err(err) => tracing::warn!(%err, "режимы экрана E Ink не запомнены"),
     }
 }
 
