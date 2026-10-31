@@ -207,6 +207,11 @@ impl State {
                 }
             }
             InputEvent::DeviceAdded { device } => self.device_added_generic::<B>(&device),
+            InputEvent::DeviceRemoved { device } => self.tablet_removed::<B>(&device),
+            InputEvent::TabletToolAxis { event } => self.on_tablet_tool_axis::<B>(event),
+            InputEvent::TabletToolProximity { event } => self.on_tablet_tool_proximity::<B>(event),
+            InputEvent::TabletToolTip { event } => self.on_tablet_tool_tip::<B>(event),
+            InputEvent::TabletToolButton { event } => self.on_tablet_tool_button::<B>(event),
             _ => {}
         }
     }
@@ -216,6 +221,7 @@ impl State {
         if device.has_capability(DeviceCapability::Touch) && self.core.seat.get_touch().is_none() {
             self.core.seat.add_touch();
         }
+        self.tablet_added::<B>(device);
     }
 
     /// Кнопка питания: `true` — событие обработано здесь. Нажатие на погашенном
@@ -797,9 +803,10 @@ impl State {
     }
 
     /// Общая часть движения указателя: рамки, фокус за мышью, обзор.
-    fn pointer_moved(&mut self, pos: Point<f64, Logical>, under: Under, serial: smithay::utils::Serial, time: u32) {
+    pub(crate) fn pointer_moved(&mut self, pos: Point<f64, Logical>, under: Under, serial: smithay::utils::Serial, time: u32) {
         self.core.last_pointer_motion = Instant::now();
-        if self.core.cursor_hidden {
+        // Пером указатель ведётся без курсора.
+        if self.core.cursor_hidden && !self.core.pen.near {
             self.core.cursor_hidden = false;
         }
         let pointer = self.core.pointer.clone();
@@ -869,8 +876,10 @@ impl State {
                 _ => {}
             }
         }
-        // Курсор рисуется композитором — нужен кадр.
-        self.core.queue_redraw_all();
+        // Курсор рисуется композитором — нужен кадр (под пером курсора нет — и кадр не нужен: E Ink).
+        if !self.core.pen.near {
+            self.core.queue_redraw_all();
+        }
     }
 
     fn schedule_autoraise(&mut self, id: WindowId) {
@@ -919,9 +928,12 @@ impl State {
     }
 
     fn on_pointer_button<B: InputBackend>(&mut self, event: B::PointerButtonEvent) {
+        self.pointer_button(event.button_code(), event.state(), event.time_msec());
+    }
+
+    /// Кнопка указателя (мышь или эмуляция пером).
+    pub(crate) fn pointer_button(&mut self, button: u32, state: ButtonState, time: u32) {
         let serial = SERIAL_COUNTER.next_serial();
-        let button = event.button_code();
-        let state = event.state();
         let pointer = self.core.pointer.clone();
         let pos = pointer.current_location();
         let mods = mods_from_state(&self.core.keyboard.modifier_state());
@@ -959,21 +971,21 @@ impl State {
                         _ => {}
                     }
                     // Нажатие не уходит клиенту; отпускание обработает захват.
-                    pointer.button(self, &ButtonEvent { button, state: state.into(), serial, time: event.time_msec() });
+                    pointer.button(self, &ButtonEvent { button, state: state.into(), serial, time: time });
                     pointer.frame(self);
                     return;
                 }
             }
             match under {
                 Under::Deco(id, hit) => {
-                    self.deco_press(id, hit, button, pos, serial, event.time_msec());
-                    pointer.button(self, &ButtonEvent { button, state: state.into(), serial, time: event.time_msec() });
+                    self.deco_press(id, hit, button, pos, serial, time);
+                    pointer.button(self, &ButtonEvent { button, state: state.into(), serial, time: time });
                     pointer.frame(self);
                     return;
                 }
                 Under::Resize(id, edges) => {
                     self.focus_window(Some(id));
-                    pointer.button(self, &ButtonEvent { button, state: state.into(), serial, time: event.time_msec() });
+                    pointer.button(self, &ButtonEvent { button, state: state.into(), serial, time: time });
                     if button == BTN_LEFT {
                         let start = GrabStartData { focus: None, button, location: pos };
                         self.start_resize(id, edges, start, serial);
@@ -1005,7 +1017,7 @@ impl State {
             }
         }
 
-        pointer.button(self, &ButtonEvent { button, state: state.into(), serial, time: event.time_msec() });
+        pointer.button(self, &ButtonEvent { button, state: state.into(), serial, time: time });
         pointer.frame(self);
     }
 
@@ -1195,7 +1207,7 @@ impl State {
 
     // ─── сенсорный экран ────────────────────────────────────────────────────
 
-    fn touch_location<B: InputBackend, E: AbsolutePositionEvent<B>>(&self, evt: &E) -> Point<f64, Logical> {
+    pub(crate) fn touch_location<B: InputBackend, E: AbsolutePositionEvent<B>>(&self, evt: &E) -> Point<f64, Logical> {
         let output = self.absolute_input_output();
         let geo = output.as_ref().and_then(|o| self.core.space.output_geometry(o)).unwrap_or_default();
         // Сенсор привязан к панели, а не к повёрнутому изображению: точку

@@ -26,6 +26,7 @@ mod rotate_anim;
 mod screencopy;
 mod screenshot;
 mod sleep;
+mod tablet;
 mod spawn;
 mod state;
 mod stream;
