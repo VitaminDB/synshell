@@ -59,6 +59,12 @@ impl Model {
             "nanovsr" => format!("NanoVSR {}", self.id.trim_start_matches("nanovsr-").replace('-', ".")),
             "span" if self.id.ends_with("liveaction") => "SPAN LiveAction".into(),
             "span" if self.id.ends_with("nomosuni") => "SPAN NomosUni".into(),
+            "realplksr" if self.id.ends_with("public-real") => "RealPLKSR Public".into(),
+            "realplksr" if self.id.ends_with("vhs2hd") => "RealPLKSR VHS2HD".into(),
+            "compact" if self.id.ends_with("animevideov3") => "Real-ESRGAN animevideov3".into(),
+            "compact" if self.id.ends_with("superultracompact") => "AnimeJaNai V3 SuperUltraCompact".into(),
+            "compact" if self.id.ends_with("ultracompact") => "AnimeJaNai V3 UltraCompact".into(),
+            "compact" if self.id.ends_with("animejanai-compact") => "AnimeJaNai V3 Compact".into(),
             _ => self.id.clone(),
         };
         format!("{name} · ×{}", self.scale)
@@ -77,6 +83,15 @@ fn describe(id: &str, arch: &str) -> Option<(u32, bool, u32)> {
             let scale = if id.contains("-4x-") { 4 } else { 2 };
             let rank = ["liveaction", "nomosuni"].iter().position(|s| id.ends_with(s)).unwrap_or(9) as u32;
             Some((scale, false, rank))
+        }
+        "realplksr" => {
+            let rank = ["public-real", "vhs2hd"].iter().position(|s| id.ends_with(s)).unwrap_or(9) as u32;
+            Some((if id.contains("-4x-") { 4 } else { 2 }, false, rank))
+        }
+        "compact" => {
+            let scale = if id.contains("-4x-") { 4 } else { 2 };
+            let rank = ["superultracompact", "ultracompact", "animejanai-compact", "animevideov3"].iter().position(|s| id.ends_with(s)).unwrap_or(9) as u32;
+            Some((scale, true, rank))
         }
         _ => None,
     }
@@ -348,9 +363,10 @@ impl FrameFilter for UpscaleFilter {
 
 static FILTER: Mutex<Option<Arc<UpscaleFilter>>> = Mutex::new(None);
 
-/// Модель по настройке; пусто — «Авто» под высоту кадра `h`: до 540p — видеомодель ×4 (NanoVSR
-/// 644k, иначе первая ×4), до 1080p — ×2 (SPAN LiveAction первым), больше — ничего.
-pub fn pick(id: &str, h: u32) -> Option<Model> {
+/// Модель по настройке; пусто — «Авто» под высоту кадра `h`: до 540p — ×4, до 1080p — ×2; кино —
+/// NanoVSR 644k / SPAN LiveAction, аниме — animevideov3 / AnimeJaNai UltraCompact. Тяжёлая RealPLKSR
+/// сама не выбирается.
+pub fn pick(id: &str, h: u32, anime: bool) -> Option<Model> {
     let list = models();
     if !id.is_empty() {
         if let Some(m) = list.iter().find(|m| m.id == id) {
@@ -358,14 +374,25 @@ pub fn pick(id: &str, h: u32) -> Option<Model> {
         }
     }
     let want = if h > 0 && h <= 540 { 4 } else { 2 };
-    let fits = |m: &&Model| !m.anime && m.scale == want;
-    list.iter().find(|m| fits(m) && m.id == "nanovsr-644k").or_else(|| list.iter().find(fits)).or_else(|| list.iter().find(|m| !m.anime && h > 0 && h * m.scale <= MAX_OUT_H)).cloned()
+    let prefer: &[&str] = match (anime, want) {
+        (false, 4) => &["nanovsr-644k", "nanovsr-226k"],
+        (false, _) => &["span-2x-liveaction", "span-2x-nomosuni"],
+        (true, 4) => &["compact-4x-animevideov3"],
+        (true, _) => &["compact-2x-animejanai-ultracompact", "compact-2x-animejanai-superultracompact"],
+    };
+    let ok = |m: &&Model| m.anime == anime && m.arch != "realplksr";
+    prefer
+        .iter()
+        .find_map(|p| list.iter().find(|m| m.id == *p))
+        .or_else(|| list.iter().find(|m| ok(m) && m.scale == want))
+        .or_else(|| list.iter().find(|m| ok(m) && h > 0 && h * m.scale <= MAX_OUT_H))
+        .cloned()
 }
 
 /// Поставить или снять увеличение на плеере по настройкам.
 pub fn attach(st: crate::ui::St, p: &VideoPlayer) {
     let s = st.settings.get_untracked();
-    let model = if s.sr { pick(&s.sr_model, p.meta().height) } else { None };
+    let model = if s.sr { pick(&s.sr_model, p.meta().height, s.sr_anime) } else { None };
     let Some(model) = model else {
         chain::set(p, Stage::Upscale, None);
         *FILTER.lock().unwrap() = None;

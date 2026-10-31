@@ -298,9 +298,9 @@ fn sr_card(st: St) -> W {
         } else {
             let h = st.info.get_untracked().map(|i| i.height).unwrap_or(0);
             let auto = s.sr_model.is_empty() || !list.iter().any(|m| m.id == s.sr_model);
-            let cur = crate::neural::pick(&s.sr_model, h).map(|m| m.id).unwrap_or_default();
+            let cur = crate::neural::pick(&s.sr_model, h, s.sr_anime).map(|m| m.id).unwrap_or_default();
             rows.push(label(&t!("Модель")));
-            let auto_sub = match crate::neural::pick("", h) {
+            let auto_sub = match crate::neural::pick("", h, s.sr_anime) {
                 Some(m) if h > 0 => t!("Под размер ролика: сейчас {m}", m = m.title()).to_string(),
                 _ => t!("Под размер ролика: до 540p — ×4, до 1080p — ×2").to_string(),
             };
@@ -331,6 +331,25 @@ fn sr_card(st: St) -> W {
                         ),
                 ));
             }
+        }
+        if !list.is_empty() {
+            rows.push(Box::new(
+                Row::new()
+                    .gap(12.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(
+                        Column::new()
+                            .gap(2.0)
+                            .child(Text::new(t!("Аниме")).class("set-row-title"))
+                            .child(Text::new(t!("«Авто» берёт модели для рисованной анимации: чёткие линии, ровные заливки")).max_lines(3).class("set-hint"))
+                            .class("grow"),
+                    )
+                    .child(Toggle::with_state(s.sr_anime).on_change(move |on| {
+                        crate::player::update(st, |s| s.sr_anime = on);
+                        crate::neural::apply(st);
+                        st.filters_rev.update(|r| *r += 1);
+                    })),
+            ));
         }
         rows.push(Box::new(Reactive::new(move || -> Vec<W> {
             let (text, warn) = match st.sr.get() {
@@ -374,6 +393,12 @@ fn model_hint(m: &crate::neural::Model) -> String {
         ("nanovsr", _) => t!("Видео, максимум качества, только для маленьких роликов").into(),
         ("span", 0) => t!("Живое видео до 1080p: убирает артефакты сжатия H.264/H.265, зерно сохраняет (jcj83429, Apache-2.0)").into(),
         ("span", _) => t!("Фото и сжатие JPEG, мягче (Phhofm, CC BY 4.0)").into(),
+        ("realplksr", 0) => t!("Реальные съёмки, максимум деталей. Очень тяжёлая: в реальном времени — только маленькие ролики на мощной карте (Phhofm, Apache-2.0)").into(),
+        ("realplksr", _) => t!("Оцифровки VHS и старые записи. Очень тяжёлая (starinspace, CC BY-SA 4.0)").into(),
+        ("compact", 0) => t!("Аниме, самая лёгкая — 1080p в реальном времени (AnimeJaNai, CC BY-NC-SA 4.0)").into(),
+        ("compact", 1) => t!("Аниме, баланс скорости и чёткости (AnimeJaNai, CC BY-NC-SA 4.0)").into(),
+        ("compact", 2) => t!("Аниме, максимум чёткости, нужна мощная карта (AnimeJaNai, CC BY-NC-SA 4.0)").into(),
+        ("compact", _) => t!("Аниме до 540p, ×4 (Real-ESRGAN, BSD-3)").into(),
         _ => String::new(),
     }
 }

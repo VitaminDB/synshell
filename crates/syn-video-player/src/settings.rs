@@ -33,13 +33,15 @@ pub struct Settings {
     pub dlss_split: f32,
     /// Увеличение разрешения нейросетью (synaptix-vfx).
     pub sr: bool,
-    /// Модель увеличения (id бандла); пусто — первая подходящая.
+    /// Модель увеличения (id бандла); пусто — «Авто».
     pub sr_model: String,
+    /// «Авто» подбирает модели для аниме.
+    pub sr_anime: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { hardware: true, fill: false, seek_step: 10, repeat: false, autoplay_next: false, resume: true, show_info: true, dlss: false, dlss_strength: 100, dlss_compare: false, dlss_split: 0.5, sr: false, sr_model: String::new() }
+        Self { hardware: true, fill: false, seek_step: 10, repeat: false, autoplay_next: false, resume: true, show_info: true, dlss: false, dlss_strength: 100, dlss_compare: false, dlss_split: 0.5, sr: false, sr_model: String::new(), sr_anime: false }
     }
 }
 
