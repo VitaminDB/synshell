@@ -18,10 +18,12 @@ pub struct ShotArgs {
     pub scale: f64,
     pub open: Option<String>,
     pub list: bool,
+    /// Книги для импорта (последняя открывается, если `--open book`).
+    pub books: Vec<PathBuf>,
 }
 
 pub fn parse(out: String, rest: &[String]) -> ShotArgs {
-    let mut a = ShotArgs { out, size: (1240, 930), scale: 1.0, open: None, list: false };
+    let mut a = ShotArgs { out, size: (1240, 930), scale: 1.0, open: None, list: false, books: Vec::new() };
     let mut it = rest.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -34,6 +36,7 @@ pub fn parse(out: String, rest: &[String]) -> ShotArgs {
             "--open" => a.open = it.next().cloned(),
             "--eink" => std::env::set_var("SYNSHELL_EINK", "1"),
             "--list" => a.list = true,
+            "--book" => a.books.push(PathBuf::from(it.next().cloned().unwrap_or_default())),
             _ => {}
         }
     }
@@ -68,10 +71,8 @@ fn populate(ctx: NotesCtx) {
     let study = ctx.insert_page_of_kind(None, None, "Учёба", PageKind::Folder, false);
     ctx.insert_page_of_kind(Some(&study), None, "Матанализ — лекции", PageKind::Notebook, false);
     ctx.insert_page_of_kind(Some(&study), None, "Физика", PageKind::Notebook, false);
-    ctx.insert_page_of_kind(Some(&study), None, "Учебник Фихтенгольца", PageKind::Book, false);
     ctx.insert_page_of_kind(None, None, "Ежедневник", PageKind::Notebook, false);
     ctx.insert_page_of_kind(None, None, "Эскиз обложки", PageKind::Drawing, false);
-    ctx.insert_page_of_kind(None, None, "Мастер и Маргарита", PageKind::Book, false);
     let doc = ctx.insert_page(None, None, "Идеи", false);
     ctx.set_page_markdown(&doc, "# Идеи\n\nРукописный ввод с распознаванием, шаблоны страниц, синхронизация.\n");
 }
@@ -88,7 +89,16 @@ pub fn run(args: ShotArgs) {
         std::process::exit(1);
     }
     populate(ctx);
-    if let Some(kind) = args.open.as_deref().and_then(PageKind::from_name) {
+    let lib = use_context::<Library>();
+    let open_book = args.open.as_deref() == Some("book") && !args.books.is_empty();
+    for b in &args.books {
+        crate::notes::reader::import_book(ctx, lib, None, b.clone());
+    }
+    let books_before = crate::notes::library::count_by_kind(&ctx.tree.get_untracked()).get(&PageKind::Book).copied().unwrap_or(0);
+    let want_books = books_before + args.books.len();
+    if !args.books.is_empty() {
+        // Импорт идёт в фоне и сам открывает книгу — см. `ready` ниже.
+    } else if let Some(kind) = args.open.as_deref().and_then(PageKind::from_name) {
         let tree = ctx.tree.get_untracked();
         let mut found = None;
         fn walk(nodes: &[crate::notes::project::PageNode], kind: PageKind, found: &mut Option<String>) {
@@ -113,7 +123,23 @@ pub fn run(args: ShotArgs) {
         use_context::<Library>().grid.set(false);
     }
     let mss = super::theme::mss(&cfg);
-    let r = syngui::shot::render_png(|| Box::new(super::root()), &mss, args.size, args.scale, &args.out);
+    let opts = syngui::shot::ShotOptions {
+        wait: std::time::Duration::from_millis(if args.books.is_empty() { 0 } else { 2500 }),
+        ready: (!args.books.is_empty()).then(|| {
+            Box::new(move || {
+                let n = crate::notes::library::count_by_kind(&ctx.tree.get_untracked()).get(&PageKind::Book).copied().unwrap_or(0);
+                if n < want_books {
+                    return false;
+                }
+                if !open_book && lib.screen.get_untracked() != Screen::Library {
+                    lib.screen.set(Screen::Library);
+                }
+                true
+            }) as Box<dyn Fn() -> bool>
+        }),
+        ..Default::default()
+    };
+    let r = syngui::shot::render_png_with(|| Box::new(super::root()), &mss, args.size, args.scale, &args.out, opts);
     let _ = std::fs::remove_dir_all(&home);
     match r {
         Ok((w, h)) => println!("{}: {w}x{h}", args.out),

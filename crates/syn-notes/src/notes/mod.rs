@@ -38,6 +38,7 @@ pub mod gantt;
 pub mod graph;
 pub mod icon_picker;
 pub mod index;
+pub mod kinds;
 pub mod kanban;
 pub mod links;
 pub mod library;

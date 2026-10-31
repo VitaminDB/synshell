@@ -127,6 +127,7 @@ pub(crate) fn install_state() {
     provide_context(app.clone());
     provide_context(NotesCtx::new_or_restore(&cfg));
     provide_context(notes::library::Library::new());
+    notes::kinds::install();
     provide_context(WindowCtx { state: use_signal(syngui::window::WindowState::default()) });
     notes::autosave::install_notes_autosave();
     notes::reminders::install_reminders();
