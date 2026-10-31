@@ -266,7 +266,7 @@ pub fn add_menu_items() -> Vec<MenuItem> {
 }
 
 /// Меню проекта в шапке «Содержимого».
-fn project_menu_items(ctx: NotesCtx) -> Vec<MenuItem> {
+pub fn project_menu_items(ctx: NotesCtx) -> Vec<MenuItem> {
     let has = !ctx.project_path.get().as_os_str().is_empty();
     let recent = recent_items(ctx);
     let mut items = vec![

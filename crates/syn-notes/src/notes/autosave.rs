@@ -211,6 +211,8 @@ pub fn has_pending(project: &Path) -> bool {
 
 /// Записать всё ожидающее прямо сейчас (выход из приложения).
 pub fn flush_all() -> std::result::Result<(), String> {
+    // Рукописи копят правки у себя (запись через секунду после штриха).
+    super::ink::flush_all();
     let _w = lock(write_lock());
     let due: Vec<(Key, PendingSave)> = lock(pending()).drain().collect();
     write_batch(due)
@@ -219,6 +221,7 @@ pub fn flush_all() -> std::result::Result<(), String> {
 /// Записать очередь одного проекта прямо сейчас (Ctrl+S, закрытие,
 /// «Сохранить как»). Ошибка — очередь остаётся на месте.
 pub fn flush_project(project: &Path) -> std::result::Result<(), String> {
+    super::ink::flush_all();
     let _w = lock(write_lock());
     let due: Vec<(Key, PendingSave)> = {
         let mut map = lock(pending());

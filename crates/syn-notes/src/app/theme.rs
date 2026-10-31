@@ -21,6 +21,7 @@ const STYLES: &[&str] = &[
     include_str!("../../styles/app.mss"),
     include_str!("../../styles/library.mss"),
     crate::notes::reader::READER_MSS,
+    crate::notes::ink::INK_MSS,
 ];
 
 /// Поверх всего на E Ink.

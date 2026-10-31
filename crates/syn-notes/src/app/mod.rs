@@ -320,8 +320,10 @@ fn frame(wide: RwSignal<bool>, chrome: bool) -> W {
             vec![Box::new(notes::project_ui::start_screen())]
         }
     })));
+    // Проекты переключаются в боковой панели библиотеки; без проекта —
+    // прежний ряд плиток (создать / открыть).
     let mut row = Row::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("grow");
-    if chrome {
+    if chrome && !ctx.has_project() {
         row = row.child(rail_view::view());
     }
     let mut col = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
