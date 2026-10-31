@@ -311,3 +311,4 @@
 "Чтобы успевать, DLSS 5 работает в 1 проход вместо {n}." = "To keep up, DLSS 5 runs in 1 pass instead of {n}."
 "DLSS 5 · {ms} мс · 1 проход" = "DLSS 5 · {ms} ms · 1 pass"
 "Кадры {w}×{h} идут через DLSS 5 в 1 проход вместо {n}, чтобы успевать: {ms} мс на кадр, {fps} кадр/с" = "{w}×{h} frames go through DLSS 5 in 1 pass instead of {n} to keep up: {ms} ms per frame, {fps} fps"
+"Точность оценки движения: быстро, баланс или максимум. Модель — один проход: 4K укладывается в ~25 мс на кадр." = "Motion estimate accuracy: fast, balanced or maximum. The model runs one pass: 4K fits in ~25 ms per frame."

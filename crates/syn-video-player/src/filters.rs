@@ -21,12 +21,12 @@ fn styles() -> Vec<String> {
     vec![t!("Обычный").into(), t!("Естественный").into(), t!("Кино").into()]
 }
 
-/// Качество DLSS 5: (проходы, точность оптического потока). Время модели растёт с проходами почти
-/// линейно (4K: ~16 мс на проход), разрешение модели на скорость не влияет — его не трогаем.
-const QUALITY: [(u32, u32); 3] = [(1, 0), (1, 1), (2, 2)];
+/// Качество DLSS 5 — точность оптического потока (быстро, баланс, качество). Модель всегда в один
+/// проход: второй вдвое дороже и картинку заметно не улучшает.
+const QUALITY: [u32; 3] = [0, 1, 2];
 
-fn quality_index(passes: u32, mvec: u32) -> usize {
-    QUALITY.iter().position(|q| *q == (passes, mvec)).unwrap_or(if passes >= 2 { 2 } else if mvec == 0 { 0 } else { 1 })
+fn quality_index(mvec: u32) -> usize {
+    QUALITY.iter().position(|q| *q == mvec).unwrap_or(1)
 }
 
 /// Кнопка в шапке: светится, пока включён хоть один фильтр.
@@ -234,18 +234,18 @@ fn dlss_card(st: St) -> W {
             redraw_paused(st);
         })));
 
-        let q = quality_index(crate::dlss::profile_value("set_passes").unwrap_or(1.0) as u32, crate::dlss::profile_value("set_motion_quality").unwrap_or(1.0) as u32);
+        let q = quality_index(crate::dlss::profile_value("set_motion_quality").unwrap_or(1.0) as u32);
         rows.push(label(&t!("Качество")));
         rows.push(Box::new(
             SegmentedButton::new(vec![Segment::new(t!("Быстро")), Segment::new(t!("Баланс")), Segment::new(t!("Максимум"))])
                 .selected(q)
                 .on_change(move |i| {
-                    let (passes, mvec) = QUALITY[i.min(2)];
-                    crate::dlss::set_profile(&[("set_passes", passes.to_string()), ("set_motion_quality", mvec.to_string()), ("set_model_resolution", "1".into())], true);
+                    let mvec = QUALITY[i.min(2)];
+                    crate::dlss::set_profile(&[("set_passes", "1".into()), ("set_motion_quality", mvec.to_string()), ("set_model_resolution", "1".into())], true);
                     redraw_paused(st);
                 }),
         ));
-        rows.push(hint(&t!("Быстро и Баланс — один проход модели (отличается точность оценки движения), Максимум — два прохода, вдвое дороже: для 4K в 24 кадра/с хватает одного. Не успевает — плеер сам переходит на один проход, без мигания.")));
+        rows.push(hint(&t!("Точность оценки движения: быстро, баланс или максимум. Модель — один проход: 4K укладывается в ~25 мс на кадр.")));
 
         let strength = use_signal(s.dlss_strength.min(100));
         rows.push(Box::new(
@@ -574,9 +574,9 @@ mod tests {
 
     #[test]
     fn quality_nearest() {
-        assert_eq!(quality_index(2, 2), 2);
-        assert_eq!(quality_index(1, 1), 1);
-        assert_eq!(quality_index(1, 0), 0);
-        assert_eq!(quality_index(3, 1), 2);
+        assert_eq!(quality_index(2), 2);
+        assert_eq!(quality_index(1), 1);
+        assert_eq!(quality_index(0), 0);
+        assert_eq!(quality_index(7), 1);
     }
 }
