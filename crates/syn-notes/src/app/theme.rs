@@ -19,7 +19,11 @@ const STYLES: &[&str] = &[
     include_str!("../../styles/code_editor_dialogs.mss"),
     include_str!("../../styles/notes.mss"),
     include_str!("../../styles/app.mss"),
+    include_str!("../../styles/library.mss"),
 ];
+
+/// Поверх всего на E Ink.
+const EINK: &str = include_str!("../../styles/eink.mss");
 
 /// Переменные synthos из палитры synshell: имя → значение.
 fn variables(cfg: &Config) -> Vec<(&'static str, String)> {
@@ -96,6 +100,10 @@ pub fn mss(cfg: &Config) -> String {
     s.push_str(&cfg.appearance.mss_variables());
     for part in &STYLES[1..] {
         s.push_str(part);
+        s.push('\n');
+    }
+    if synshell_common::display::is_eink() {
+        s.push_str(EINK);
         s.push('\n');
     }
     let font = cfg.appearance.font.trim();

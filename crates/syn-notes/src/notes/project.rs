@@ -121,11 +121,56 @@ impl PageLayout {
     }
 }
 
+/// Тип страницы. `Doc` — markdown-документ (холст блоков); остальные —
+/// рукописные и книжные страницы, их содержимое — объект
+/// `notes/objects/<id страницы>.<kind>.…` (markdown страницы при этом —
+/// текст для поиска и ассистента: распознанное, оглавление книги).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PageKind {
+    #[default]
+    Doc,
+    /// Блокнот: рукописные страницы фиксированного формата с шаблоном.
+    Notebook,
+    /// Рисунок: бесконечный холст со слоями.
+    Drawing,
+    /// Книга: PDF / EPUB / FB2 / TXT / MD с пометками пером.
+    Book,
+    /// Папка библиотеки: только дети, своего содержимого нет.
+    Folder,
+}
+
+impl PageKind {
+    pub const ALL: [PageKind; 5] =
+        [PageKind::Doc, PageKind::Notebook, PageKind::Drawing, PageKind::Book, PageKind::Folder];
+
+    pub fn is_doc(&self) -> bool {
+        *self == PageKind::Doc
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PageKind::Doc => "doc",
+            PageKind::Notebook => "notebook",
+            PageKind::Drawing => "drawing",
+            PageKind::Book => "book",
+            PageKind::Folder => "folder",
+        }
+    }
+
+    pub fn from_name(s: &str) -> Option<PageKind> {
+        PageKind::ALL.into_iter().find(|k| k.as_str() == s)
+    }
+}
+
 /// Узел дерева «Содержимое»: страница с детьми.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PageNode {
     pub id: String,
     pub title: String,
+    /// Тип страницы; документ в файл не пишется (старые проекты — документы).
+    #[serde(default, skip_serializing_if = "PageKind::is_doc")]
+    pub kind: PageKind,
     /// Иконка страницы: эмодзи либо глиф Material-шрифта (PUA).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
@@ -141,6 +186,7 @@ impl PageNode {
         Self {
             id: new_id(),
             title: title.into(),
+            kind: PageKind::Doc,
             icon: None,
             layout: PageLayout::default(),
             children: Vec::new(),
@@ -161,6 +207,7 @@ pub struct ProjectTree {
 pub struct TreeRow {
     pub id: String,
     pub title: String,
+    pub kind: PageKind,
     pub icon: Option<String>,
     pub depth: usize,
     pub has_children: bool,
@@ -220,6 +267,11 @@ impl ProjectTree {
     /// Раскладка страницы (дефолт — если узла нет).
     pub fn layout_of(&self, id: &str) -> PageLayout {
         self.find(id).map(|n| n.layout.clone()).unwrap_or_default()
+    }
+
+    /// Тип страницы (документ — если узла нет).
+    pub fn kind_of(&self, id: &str) -> PageKind {
+        self.find(id).map(|n| n.kind).unwrap_or_default()
     }
 
     pub fn icon_of(&self, id: &str) -> Option<String> {
@@ -311,6 +363,7 @@ impl ProjectTree {
                 out.push(TreeRow {
                     id: n.id.clone(),
                     title: n.title.clone(),
+                    kind: n.kind,
                     icon: n.icon.clone(),
                     depth,
                     has_children: !n.children.is_empty(),
@@ -384,6 +437,7 @@ pub fn clone_subtree(node: &PageNode, map: &mut Vec<(String, String)>) -> PageNo
     PageNode {
         id,
         title: node.title.clone(),
+        kind: node.kind,
         icon: node.icon.clone(),
         layout: node.layout.clone(),
         children: node.children.iter().map(|c| clone_subtree(c, map)).collect(),
@@ -709,6 +763,7 @@ fn salvage_tree(path: &Path, bytes: &[u8]) -> ProjectTree {
         let str_of = |k: &str| v.get(k).and_then(|x| x.as_str()).map(str::to_string);
         Some(PageNode {
             title: str_of("title").unwrap_or_else(|| id.clone()),
+            kind: str_of("kind").and_then(|k| PageKind::from_name(&k)).unwrap_or_default(),
             icon: str_of("icon"),
             layout: v
                 .get("layout")

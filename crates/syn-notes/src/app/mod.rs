@@ -10,8 +10,11 @@
 //! Второй запуск (`syn-notes`, `syn-notes open <страница>`) не открывает
 //! проекты сам, а передаёт команду хозяину по сокету — см. [`server`].
 
+use syngui::input::Key;
+use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 use syngui::prelude::*;
 use syngui::widgets::feedback::NotificationHost;
+use syngui::widgets::{EventHook, KeyReply, ToolButton};
 use syngui::widgets::overlay::PortalAnchor;
 use synshell_common::Config;
 
@@ -22,6 +25,7 @@ use crate::notes::{self, NotesCtx};
 pub mod desk;
 mod rail_view;
 pub mod server;
+mod shot;
 pub mod theme;
 
 const APP_ID: &str = "syn-notes";
@@ -31,10 +35,11 @@ struct Args {
     background: bool,
     command: Option<server::Command>,
     screenshot: Option<String>,
+    rest: Vec<String>,
 }
 
 fn parse_args() -> Args {
-    let mut a = Args { background: false, command: None, screenshot: None };
+    let mut a = Args { background: false, command: None, screenshot: None, rest: std::env::args().skip(1).collect() };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -62,6 +67,10 @@ pub fn run() {
         )
         .try_init();
     let args = parse_args();
+    if let Some(out) = args.screenshot.clone() {
+        shot::run(shot::parse(out, &args.rest));
+        return;
+    }
 
     // Хозяин уже работает — передать ему команду и выйти.
     if args.screenshot.is_none() {
@@ -93,13 +102,18 @@ pub fn run() {
     server::start();
     watch_shell_config(theme);
 
+    let window = use_context::<WindowCtx>().state;
     App::new()
         .title(syngui::tr!("notes.title"))
         .app_id(APP_ID)
         .size(1280, 820)
-        .min_size(720, 480)
+        .min_size(360, 480)
+        .frameless()
+        .transparent(true)
+        .background(Color::from_srgb(0, 0, 0, 0.0))
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(theme)
+        .with_window_state(window)
         .start_hidden(args.background)
         .hide_on_close(true)
         .run(|_| Box::new(root()));
@@ -107,11 +121,13 @@ pub fn run() {
 
 /// Контексты, автосохранение, напоминания и память о проектах — один раз
 /// на процесс.
-fn install_state() {
+pub(crate) fn install_state() {
     let cfg = AppConfig::load();
     let app = AppCtx::new(&cfg);
     provide_context(app.clone());
     provide_context(NotesCtx::new_or_restore(&cfg));
+    provide_context(notes::library::Library::new());
+    provide_context(WindowCtx { state: use_signal(syngui::window::WindowState::default()) });
     notes::autosave::install_notes_autosave();
     notes::reminders::install_reminders();
     notes::right_panel::install_props_panel_memory();
@@ -169,28 +185,152 @@ fn watch_shell_config(theme: RwSignal<String>) {
     });
 }
 
-/// Корень окна: панель проектов, заметки, диалоги и тосты.
-fn root() -> impl Widget {
+/// Состояние окна (развёрнуто, фокус, полный экран) — для своего заголовка.
+#[derive(Clone, Copy)]
+pub struct WindowCtx {
+    pub state: RwSignal<syngui::window::WindowState>,
+}
+
+type W = Box<dyn Widget>;
+
+/// Широкое окно (заголовок с кнопками окна, панель проектов).
+fn wide_signal() -> RwSignal<bool> {
+    let narrow = viewport_below(720.0);
+    let w = use_signal(!narrow.get_untracked());
+    create_effect(move || {
+        let v = !narrow.get();
+        if w.get_untracked() != v {
+            w.set(v);
+        }
+    });
+    w
+}
+
+/// Свой заголовок окна (CSD): значок и имя, заголовок открытого, полный
+/// экран, кнопки окна из настроек рабочего стола.
+fn titlebar() -> W {
+    let window = use_context::<WindowCtx>().state;
+    let ctx = use_context::<NotesCtx>();
+    let lib = use_context::<notes::library::Library>();
+    let title = Reactive::new(move || -> Vec<W> {
+        syngui::i18n::subscribe();
+        let tree = ctx.tree.get();
+        let t = match lib.screen.get() {
+            notes::library::Screen::Open(id) => tree.title_of(&id).unwrap_or_default(),
+            notes::library::Screen::Library => ctx.project_title.get(),
+        };
+        vec![Box::new(Text::new(t).max_lines(1).elide(Elide::End).class("tb-title"))]
+    });
+    let controls = Reactive::new(move || -> Vec<W> {
+        let w = window.get();
+        vec![Box::new(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused))]
+    });
+    Box::new(
+        DecoratedBox::new().class("titlebar").child(
+            Row::new()
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(
+                    Row::new()
+                        .gap(8.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(Icon::new(crate::icons::MI_EDIT_NOTE).class("tb-brand-icon"))
+                        .child(Text::new(syngui::tr!("notes.title")).class("tb-brand")),
+                )
+                .child(
+                    DecoratedBox::new()
+                        .class("grow")
+                        .child(WindowDragRegion::new().child(DecoratedBox::new().class("drag-space").child(title))),
+                )
+                .child(fullscreen_button())
+                .child(DecoratedBox::new().class("window-controls").child(controls)),
+        ),
+    )
+}
+
+fn fullscreen_button() -> W {
+    let window = use_context::<WindowCtx>().state;
+    Box::new(Reactive::new(move || -> Vec<W> {
+        syngui::i18n::subscribe();
+        let fs = window.get().fullscreen;
+        vec![Box::new(
+            ToolButton::new(if fs { crate::icons::MI_FULLSCREEN_EXIT } else { crate::icons::MI_FULLSCREEN })
+                .tooltip(if fs { syngui::tr!("notes.fullscreen.exit") } else { syngui::tr!("notes.fullscreen.enter") })
+                .on_click(syngui::signal::toggle_fullscreen)
+                .class("tb-btn"),
+        )]
+    }))
+}
+
+/// Клавиши окна: F11 — полный экран; Esc / «назад» — выход из полного
+/// экрана, затем назад по библиотеке.
+fn keys(inner: impl Widget + 'static) -> W {
+    let window = use_context::<WindowCtx>().state;
+    let back = move || -> bool {
+        if window.get_untracked().fullscreen {
+            syngui::signal::set_fullscreen(false);
+            return true;
+        }
+        let ctx = use_context::<NotesCtx>();
+        use_context::<notes::library::Library>().back(ctx)
+    };
+    Box::new(
+        EventHook::new()
+            .on_back(back)
+            .on_key_down(move |k, _m| {
+                if k == Key::F11 {
+                    syngui::signal::toggle_fullscreen();
+                    return KeyReply::Handled;
+                }
+                KeyReply::Ignore
+            })
+            .child(inner),
+    )
+}
+
+/// Корень окна: заголовок, панель проектов, библиотека или открытая
+/// страница, диалоги и тосты. Дерево перестраивается только при смене
+/// ширины окна или полноэкранного режима.
+pub(crate) fn root() -> impl Widget {
+    let window = use_context::<WindowCtx>().state;
+    let wide = wide_signal();
+    let full = use_signal(false);
+    create_effect(move || {
+        let v = window.get().fullscreen;
+        if full.get_untracked() != v {
+            full.set(v);
+        }
+    });
+    Reactive::new(move || -> Vec<W> {
+        let w = wide.get();
+        let fs = full.get();
+        vec![frame(wide, w && !fs)]
+    })
+}
+
+fn frame(wide: RwSignal<bool>, chrome: bool) -> W {
     let app = use_context::<AppCtx>();
-    let notes_view = DecoratedBox::new().class("grow").child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
+    let ctx = use_context::<NotesCtx>();
+    let notes_view = DecoratedBox::new().class("grow").child(Stack::new().fit(StackFit::Expand).child(Reactive::new(move || -> Vec<W> {
         syngui::i18n::subscribe();
         let ctx = use_context::<NotesCtx>();
         if ctx.has_project() {
-            vec![Box::new(notes::view())]
+            vec![Box::new(notes::library::view(wide))]
         } else {
             vec![Box::new(notes::project_ui::start_screen())]
         }
-    }));
+    })));
+    let mut row = Row::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("grow");
+    if chrome {
+        row = row.child(rail_view::view());
+    }
+    let mut col = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
+    if chrome {
+        col = col.child(titlebar());
+    }
     let shell = notes::project_ui::hotkey_scope(
-        DecoratedBox::new().class("window-backdrop").child(
-            DecoratedBox::new().clip(true).class("shell").child(
-                Row::new()
-                    .gap(0.0)
-                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                    .child(rail_view::view())
-                    .child(notes_view),
-            ),
-        ),
+        DecoratedBox::new()
+            .class("window-backdrop")
+            .child(DecoratedBox::new().clip(true).class("shell").child(col.child(row.child(notes_view)))),
     );
     let always = use_signal(true);
     let toasts = Portal::new()
@@ -199,9 +339,19 @@ fn root() -> impl Widget {
         .backdrop(false)
         .anchor(PortalAnchor::BottomEnd { margin_bottom: 16.0, margin_right: 16.0 })
         .child(NotificationHost::new(app.notifications.clone()).grow_up(true).class("synthos-notification-host"));
-    Stack::new()
+    let stack = Stack::new()
         .clip(false)
+        .fit(StackFit::Expand)
         .child(shell)
         .child(notes::project_ui::rename_dialog())
-        .child(toasts)
+        .child(notes::library::rename_dialog(ctx))
+        .child(toasts);
+    Box::new(
+        WindowResizeRegion::new().over_content(true).inset(5.0).enabled(chrome).child(
+            DecoratedBox::new()
+                .class(if chrome { "window-frame" } else { "window-frame flat" })
+                .clip(true)
+                .child(keys(stack)),
+        ),
+    )
 }

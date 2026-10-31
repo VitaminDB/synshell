@@ -318,3 +318,12 @@ pub const MI_SWAP_VERT: &str           = "\u{E8D5}";
 pub const MI_OPEN_IN_FULL: &str        = "\u{F1CE}";
 /// «zoom_out_map» — заполнить область картинкой.
 pub const MI_ZOOM_OUT_MAP: &str        = "\u{E56B}";
+// ─── Библиотека (блокноты, рисунки, книги) ───
+pub const MI_ARROW_BACK: &str          = "\u{E5C4}";
+pub const MI_MORE_VERT: &str           = "\u{E5D4}";
+pub const MI_DRAW: &str                = "\u{E746}";
+pub const MI_SORT: &str                = "\u{E164}";
+pub const MI_AUTO_STORIES: &str        = "\u{E666}";
+pub const MI_UPLOAD_FILE: &str         = "\u{E9FC}";
+pub const MI_HOME: &str                = "\u{E88A}";
+pub const MI_LIBRARY_BOOKS: &str       = "\u{E02F}";

@@ -33,7 +33,7 @@ use super::kanban::KanbanHandle;
 use super::mindmap::model::MindmapDoc;
 use super::mindmap::MindmapHandle;
 use super::gantt::calendar::{days_to_iso, parse_days};
-use super::project::{self, PageGrid, PageLayout, PageNode, ProjectTree};
+use super::project::{self, PageGrid, PageKind, PageLayout, PageNode, ProjectTree};
 use super::projects::OpenProject;
 use super::reminders::{Reminder, ReminderStateHandle};
 
@@ -332,8 +332,22 @@ impl NotesCtx {
         base_title: &str,
         activate: bool,
     ) -> String {
+        self.insert_page_of_kind(parent, index, base_title, PageKind::Doc, activate)
+    }
+
+    /// Новая страница заданного типа (блокнот, рисунок, книга — содержимое
+    /// их объекта создаёт вызывающий). Возвращает id.
+    pub fn insert_page_of_kind(
+        &self,
+        parent: Option<&str>,
+        index: Option<usize>,
+        base_title: &str,
+        kind: PageKind,
+        activate: bool,
+    ) -> String {
         let title = self.unique_title(parent, base_title);
-        let node = PageNode::new(title.clone());
+        let mut node = PageNode::new(title.clone());
+        node.kind = kind;
         let id = node.id.clone();
         self.edit_tree(|t| {
             t.insert(parent, index, node);

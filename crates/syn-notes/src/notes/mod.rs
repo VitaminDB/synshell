@@ -40,12 +40,14 @@ pub mod icon_picker;
 pub mod index;
 pub mod kanban;
 pub mod links;
+pub mod library;
 pub mod lock;
 pub mod media;
 pub mod mindmap;
 pub mod project;
 pub mod project_ui;
 pub mod projects;
+pub mod reader;
 pub mod reminders;
 pub mod right_panel;
 pub mod state;
@@ -152,9 +154,14 @@ fn center_header() -> impl Widget {
                     .class("panel-header-icon-bubble notes-header-icon-bubble")
                     .child(Center::new().child(icon_picker::render_icon(&icon, "panel-header-icon notes-header-icon"))),
             );
-        let leading = Row::new()
-            .gap(8.0)
-            .cross_axis_alignment(CrossAxisAlignment::Center)
+        let mut leading = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        // Окно syn-notes: документ открыт из библиотеки — «Назад» к ней.
+        if let Some(lib) = syngui::context_provider::try_use_context::<library::Library>() {
+            if matches!(lib.screen.get_untracked(), library::Screen::Open(_)) {
+                leading = leading.child(library::back_button(ctx, lib));
+            }
+        }
+        let leading = leading
             .child(history_buttons(ctx))
             .child(bubble);
         vec![Box::new(panel_header::center(
