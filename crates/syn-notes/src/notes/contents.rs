@@ -20,7 +20,7 @@ use crate::rail;
 use std::collections::HashSet;
 
 use super::icon_picker;
-use super::project::{ProjectTree, TreeRow};
+use super::project::{PageKind, ProjectTree, TreeRow};
 use super::state::{NotesCtx, TreeDropHint, TAB_BLOCKS, TAB_PAGES};
 
 pub const DRAG_TYPE_PAGE: &str = "notes-page";
@@ -283,11 +283,22 @@ fn pages() -> impl Widget {
     // на строке первым сработает её собственное меню (события идут
     // от внутреннего элемента наружу).
     ContextMenu::new()
-        .items(vec![MenuItem::new("root", tr!("notes.tree.new_root")).icon(MI_NOTE_ADD)])
-        .on_select(move |action| {
-            if action == "root" {
+        .items(vec![
+            MenuItem::new("root", tr!("notes.tree.new_root")).icon(MI_NOTE_ADD),
+            MenuItem::new("root_notebook", tr!("notes.lib.kind.notebook")).icon(MI_EDIT_NOTE),
+            MenuItem::new("root_drawing", tr!("notes.lib.kind.drawing")).icon(MI_BRUSH),
+        ])
+        .on_select(move |action| match action {
+            "root" => {
                 ctx.create_page(None, &tr!("notes.untitled"));
             }
+            "root_notebook" => {
+                ctx.insert_page_of_kind(None, None, &tr!("notes.lib.new.notebook"), PageKind::Notebook, true);
+            }
+            "root_drawing" => {
+                ctx.insert_page_of_kind(None, None, &tr!("notes.lib.new.drawing"), PageKind::Drawing, true);
+            }
+            _ => {}
         })
         .child(ScrollView::new().vertical().class("notes-tree-scroll").child(list))
 }
@@ -308,7 +319,7 @@ fn row(
     // клонируются. `Draggable`/`DropArea` снаружи живут — перенос и его
     // призрак-снимок не рвутся.
     let has_children = r.has_children;
-    let icon_glyph = r.icon.clone().unwrap_or_else(|| MI_DESCRIPTION.to_string());
+    let icon_glyph = r.icon.clone().unwrap_or_else(|| super::library::kind_icon(r.kind).to_string());
     let title = r.title.clone();
     let id_content = id.clone();
     let content = move || {
@@ -433,6 +444,9 @@ fn row(
         ContextMenu::new()
             .items(vec![
                 MenuItem::new("child", tr!("notes.tree.new_child")).icon(MI_NOTE_ADD),
+                MenuItem::new("child_notebook", tr!("notes.lib.kind.notebook")).icon(MI_EDIT_NOTE),
+                MenuItem::new("child_drawing", tr!("notes.lib.kind.drawing")).icon(MI_BRUSH),
+                MenuItem::separator(),
                 MenuItem::new("rename", tr!("notes.tree.rename")).icon(MI_DRIVE_FILE_RENAME_OUTLINE),
                 MenuItem::new("duplicate", tr!("notes.tree.duplicate")).icon(MI_CONTENT_COPY),
                 MenuItem::separator(),
@@ -441,6 +455,12 @@ fn row(
             .on_select(move |action| match action {
                 "child" => {
                     ctx.create_page(Some(&id_menu), &tr!("notes.untitled"));
+                }
+                "child_notebook" => {
+                    ctx.insert_page_of_kind(Some(&id_menu), None, &tr!("notes.lib.new.notebook"), PageKind::Notebook, true);
+                }
+                "child_drawing" => {
+                    ctx.insert_page_of_kind(Some(&id_menu), None, &tr!("notes.lib.new.drawing"), PageKind::Drawing, true);
                 }
                 "rename" => ctx.renaming.set(Some(id_menu.clone())),
                 "duplicate" => ctx.duplicate_page(&id_menu),

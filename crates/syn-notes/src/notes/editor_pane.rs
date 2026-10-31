@@ -36,6 +36,10 @@ pub fn body() -> impl Widget {
             return vec![Box::new(empty_state())];
         };
         let page_id = page.id.clone();
+        let kind = ctx.tree.get_untracked().kind_of(&page_id);
+        if kind != super::project::PageKind::Doc {
+            return vec![super::library::kind_body(ctx, &page_id, kind)];
+        }
         let layout = ctx.active_doc_layout();
         let editor = DocumentEditor::new()
             .inline_toolbar(false)

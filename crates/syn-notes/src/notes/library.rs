@@ -368,6 +368,15 @@ fn fill<M>(w: impl syngui::widgets::containers::IntoWidget<M>) -> Stack {
     Stack::new().fit(StackFit::Expand).child(w)
 }
 
+/// Тело страницы-не-документа (для центра трёхпанельного редактора).
+pub fn kind_body(ctx: NotesCtx, id: &str, kind: PageKind) -> W {
+    let lib = syngui::context_provider::try_use_context::<Library>().unwrap_or_default();
+    if kind == PageKind::Folder {
+        return Box::new(placeholder(kind));
+    }
+    views().and_then(|v| (v.view)(ctx, lib, id, kind)).unwrap_or_else(|| Box::new(placeholder(kind)))
+}
+
 /// Открытая страница.
 fn open_view(ctx: NotesCtx, lib: Library, wide: RwSignal<bool>, id: String) -> W {
     let kind = ctx.tree.get_untracked().kind_of(&id);
