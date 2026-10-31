@@ -529,3 +529,9 @@
     background-color: var(--primary);
     color: var(--on-primary);
 }
+.lib-doc-icon {
+    font-size: 40px;
+    icon-size: 40px;
+    color: #9AA0AA;
+    padding: 24px 0px 0px 0px;
+}

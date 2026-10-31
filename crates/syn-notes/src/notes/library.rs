@@ -151,8 +151,10 @@ impl Library {
 
     /// Открыть страницу на весь экран (папка — войти в неё).
     pub fn open(&self, ctx: NotesCtx, id: &str) {
-        let kind = ctx.tree.get_untracked().kind_of(id);
-        if kind == PageKind::Folder {
+        let tree = ctx.tree.get_untracked();
+        let container = tree.find(id).is_some_and(|n| is_container(ctx, n));
+        drop(tree);
+        if container {
             self.go_folder(Some(id.to_string()));
             return;
         }
@@ -196,7 +198,8 @@ impl Library {
                 }
                 if let Some(f) = self.folder.get_untracked() {
                     let tree = ctx.tree.get_untracked();
-                    self.folder.set(tree.parent_of(&f).filter(|p| tree.kind_of(p) == PageKind::Folder));
+                    let parent = tree.parent_of(&f).filter(|p| tree.find(p).is_some_and(|n| is_container(ctx, n)));
+                    self.folder.set(parent);
                     return true;
                 }
                 if self.section.get_untracked() != Section::All {
@@ -280,6 +283,16 @@ fn save_recent(project: &std::path::Path, list: &[String]) {
 }
 
 // ─── Типы ───────────────────────────────────────────────────────────────────
+
+/// Узел ведёт себя как папка: папка или документ без своего текста, но с
+/// подстраницами (так раскладывают проекты, перенесённые из synthos).
+pub fn is_container(ctx: NotesCtx, n: &PageNode) -> bool {
+    match n.kind {
+        PageKind::Folder => true,
+        PageKind::Doc if !n.children.is_empty() => doc_preview(&ctx.page_markdown(&n.id)).lines().all(|l| l.trim() == n.title.trim()),
+        _ => false,
+    }
+}
 
 /// Значок типа страницы.
 pub fn kind_icon(kind: PageKind) -> &'static str {
@@ -728,15 +741,15 @@ fn sidebar(ctx: NotesCtx, lib: Library) -> impl Widget {
         }
         // Папки — деревом (вложенные — с отступом).
         let mut folders = Vec::new();
-        fn walk(nodes: &[PageNode], depth: usize, out: &mut Vec<(String, String, usize)>) {
+        fn walk(ctx: NotesCtx, nodes: &[PageNode], depth: usize, out: &mut Vec<(String, String, usize)>) {
             for n in nodes {
-                if n.kind == PageKind::Folder {
+                if is_container(ctx, n) {
                     out.push((n.id.clone(), n.title.clone(), depth));
-                    walk(&n.children, depth + 1, out);
+                    walk(ctx, &n.children, depth + 1, out);
                 }
             }
         }
-        walk(&tree.roots, 0, &mut folders);
+        walk(ctx, &tree.roots, 0, &mut folders);
         col = col.child(
             Row::new()
                 .cross_axis_alignment(CrossAxisAlignment::Center)
@@ -1011,7 +1024,7 @@ fn home(ctx: NotesCtx, lib: Library, tree: &ProjectTree, recent: &[String], cols
     let cont: Vec<Item> = recent
         .iter()
         .filter_map(|id| tree.find(id))
-        .filter(|n| n.kind != PageKind::Folder)
+        .filter(|n| !is_container(ctx, n))
         .take(cols.max(4))
         .map(item_of)
         .collect();
@@ -1221,6 +1234,14 @@ fn cover(ctx: NotesCtx, it: &Item, details: &str) -> W {
             let body = if text.starts_with(&it.title) { body } else { text.clone() };
             if !body.trim().is_empty() {
                 col = col.child(Text::new(body).max_lines(12).elide(Elide::End).class("lib-doc-text"));
+            } else {
+                // Без текста (календарь, доска) — значок страницы на листе.
+                let icon = it.icon.clone().unwrap_or_else(|| MI_DESCRIPTION.to_string());
+                col = col.child(
+                    DecoratedBox::new()
+                        .class("grow")
+                        .child(Center::new().child(super::icon_picker::render_icon(&icon, "lib-doc-icon"))),
+                );
             }
             Box::new(DecoratedBox::new().class("lib-cover doc").clip(true).child(col))
         }
@@ -1272,7 +1293,19 @@ fn card_action(ctx: NotesCtx, lib: Library, id: String) -> impl FnMut(&str) + Se
     }
 }
 
+/// Документ-контейнер показывается папкой.
+fn as_shown(ctx: NotesCtx, mut it: Item) -> Item {
+    if it.kind == PageKind::Doc && it.children > 0 {
+        let tree = ctx.tree.get_untracked();
+        if tree.find(&it.id).is_some_and(|n| is_container(ctx, n)) {
+            it.kind = PageKind::Folder;
+        }
+    }
+    it
+}
+
 fn card(ctx: NotesCtx, lib: Library, it: Item) -> W {
+    let it = as_shown(ctx, it);
     let id = it.id.clone();
     let det = details(ctx, &it);
     let progress = (it.kind == PageKind::Book).then(|| progress_of(&det)).flatten();
@@ -1304,6 +1337,7 @@ fn card(ctx: NotesCtx, lib: Library, it: Item) -> W {
 }
 
 fn list_row(ctx: NotesCtx, lib: Library, it: Item) -> W {
+    let it = as_shown(ctx, it);
     let id = it.id.clone();
     let det = details(ctx, &it);
     let row = Row::new()
