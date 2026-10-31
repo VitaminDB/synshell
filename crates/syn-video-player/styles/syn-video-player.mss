@@ -152,3 +152,12 @@ Text { color: var(--fg); font-size: 14px; }
 .sub-step { padding: 6px 10px; border-radius: 10px; }
 .sub-delay-box { padding: 7px 4px; border-radius: 10px; background: var(--bg); }
 .sub-delay { font-size: 14px; font-weight: 600; text-align: center; }
+
+/* ── Фильтры ─────────────────────────────────────────────────────── */
+.flt-btn-on { color: var(--accent); }
+.flt-panel { width: 400px; }
+.flt-load { height: 6px; }
+.flt-warn { color: #e0a030; }
+.flt-grip-area { flex-grow: 1; }
+.flt-grip { width: 30px; height: 30px; border-radius: 15px; background: #ebebebe6; box-shadow: 0px 2px 8px #00000066; }
+.flt-grip-icon { font-size: 18px; color: #202020; }

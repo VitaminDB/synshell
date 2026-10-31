@@ -78,6 +78,8 @@ pub struct Status {
     pub dmabuf: bool,
     pub hdr: bool,
     pub model_missing: bool,
+    /// Канал держит видеоплеер со своим видеопрофилем: правки идут в него, игры не трогаются.
+    pub video: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -147,7 +149,11 @@ impl St {
         // Сохранённые настройки — в общую память до первой страницы: окно открывается на том, что
         // оставил прошлый сеанс (как restoreSettings Qt-окна).
         if let Some(h) = header() {
-            config::apply_settings(h, &ini);
+            // пока видеоплеер держит канал, в общей памяти его видеопрофиль — не перебивать играми
+            if config::video_owner(h).is_none() {
+                config::restore_after_video(h);
+                config::apply_settings(h, &ini);
+            }
             st.bypass.set(h.composition_bypass.load(std::sync::atomic::Ordering::SeqCst) != 0);
             POLL.lock().unwrap().blob = config::settings_blob(h);
         }
@@ -198,12 +204,16 @@ impl St {
             dmabuf: ld(&h.layer_proxy_seq) != 0 && ld(&h.layer_proxy_seq) == ld(&h.proxy_export_seq),
             hdr: ld(&h.hdr_active) != 0,
             model_missing: self.model_missing(),
+            video: config::video_owner(h).is_some(),
         };
         if self.status.get_untracked() != st {
             self.status.set(st);
         }
         if mismatch.is_some() {
             return; // в чужую раскладку ничего не сохраняем
+        }
+        if config::restore_after_video(h) {
+            tracing::info!("видеоплеер закрылся, не вернув настройки игр — вернул из config.ini");
         }
         let blob = config::settings_blob(h);
         if blob != p.blob {
@@ -264,7 +274,13 @@ impl St {
         let (rt, rp) = self.runner.get_untracked();
         let profile = self.profile.get_untracked();
         let profile = if profile.is_empty() { String::new() } else { config::profile_path(&profile).display().to_string() };
-        config::save_config(header(), &[("runner_type", rt), ("runner_path", rp), ("profile", profile)]);
+        let h = header();
+        // видеоплеер держит канал: в общей памяти видеопрофиль — он и сохраняется, config.ini игр не трогаем
+        let video = h.filter(|h| config::video_owner(h).is_some());
+        config::save_config(if video.is_some() { None } else { h }, &[("runner_type", rt), ("runner_path", rp), ("profile", profile)]);
+        if let Some(h) = video {
+            config::save_video_profile(h);
+        }
     }
 
     pub fn toast(self, text: impl Into<String>) {

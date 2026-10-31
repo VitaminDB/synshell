@@ -25,7 +25,7 @@ pub fn view(st: St) -> W {
             }];
         };
         // масштаб и шаг перемотки — свойства виджета: сменились — пересобрать
-        let s = st.settings.get();
+        let (fill, seek_step) = st.view_key.get();
         let full = st.fullscreen.get();
         let fs = FullscreenCtl {
             active: full,
@@ -39,10 +39,12 @@ pub fn view(st: St) -> W {
         let title = p.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         let mut view = VideoPlayerView::file(p.player.clone())
             .fullscreen(fs)
-            .fit(if s.fill { ImageFit::Cover } else { ImageFit::Contain })
-            .seek_step(s.seek_step as f64)
+            .fit(if fill { ImageFit::Cover } else { ImageFit::Contain })
+            .seek_step(seek_step as f64)
             .subtitles(st.sub_style)
-            .keys(crate::subs::KEYS.to_vec(), move |k, m| crate::subs::on_key(st, k, m))
+            .keys(crate::subs::KEYS.iter().copied().chain([crate::filters::COMPARE_KEY]).collect(), move |k, m| {
+                crate::subs::on_key(st, k, m) || crate::filters::on_key(st, k, m)
+            })
             .header(move || header(st, title.clone()))
             .on_ended(move || ended(st, &done));
         // в каталоге есть другие ролики — листание, как в просмотрщике картинок
@@ -64,9 +66,11 @@ pub fn view(st: St) -> W {
             .fit(StackFit::Expand)
             .child(DecoratedBox::new().class("player-bg"))
             .child(body)
+            .child(crate::filters::compare_handle(st))
             .child(panel)
             .child(crate::tracks::panel(st))
             .child(crate::subs::panel(st))
+            .child(crate::filters::panel(st))
             .child(crate::vram::dialog(st)),
     )
 }
@@ -93,6 +97,7 @@ fn header(st: St, title: String) -> W {
         )
         .child(Text::new(title).max_lines(1).class("player-title"))
         .child(DecoratedBox::new().class("grow"))
+        .child(crate::filters::button(st))
         .child(crate::subs::button(st))
         .child(crate::tracks::button(st))
         .child(
@@ -161,10 +166,20 @@ fn dlss_chip(s: &crate::dlss::Status) -> Option<W> {
     let (text, class, tip) = match s {
         Status::Off => return None,
         Status::Starting => (t!("DLSS 5 · запуск…").to_string(), "chip-mode chip-mode-wait", t!("Помощник DLSS 5 готовит модель").to_string()),
+        Status::Active { total_ms, fps, size, scale: Some(sc), .. } => (
+            t!("DLSS 5 · {ms} мс · {p}%", ms = format!("{total_ms:.0}"), p = format!("{:.0}", sc * 100.0)),
+            "chip-mode chip-mode-dlss",
+            t!("Кадры {w}×{h} идут через DLSS 5 на {p}% разрешения модели, чтобы успевать: {ms} мс на кадр, {fps} кадр/с", w = size.0, h = size.1, p = format!("{:.0}", sc * 100.0), ms = format!("{total_ms:.1}"), fps = format!("{fps:.0}")),
+        ),
         Status::Active { total_ms, fps, size, .. } => (
             t!("DLSS 5 · {ms} мс", ms = format!("{total_ms:.0}")),
             "chip-mode chip-mode-dlss",
             t!("Кадры {w}×{h} идут через DLSS 5: {ms} мс на кадр, {fps} кадр/с", w = size.0, h = size.1, ms = format!("{total_ms:.1}"), fps = format!("{fps:.0}")),
+        ),
+        Status::Slow { total_ms, budget_ms } => (
+            t!("DLSS 5 · не успевает").to_string(),
+            "chip-mode chip-mode-sw",
+            t!("Модели нужно {a} мс, а кадр ролика — {b} мс: кадры идут как есть, повтор — после перемотки", a = format!("{total_ms:.0}"), b = format!("{budget_ms:.0}")).to_string(),
         ),
         Status::Bypass(e) => (t!("DLSS 5 · как есть").to_string(), "chip-mode chip-mode-sw", crate::dlss::reason(e)),
     };
@@ -292,12 +307,16 @@ mod tests {
 
 // ─── настройки ──────────────────────────────────────────────────────────────
 
-fn update(st: St, f: impl FnOnce(&mut Settings)) {
+pub fn update(st: St, f: impl FnOnce(&mut Settings)) {
     let mut s = st.settings.get_untracked();
     f(&mut s);
     if s != st.settings.get_untracked() {
         s.save();
+        let key = (s.fill, s.seek_step);
         st.settings.set(s);
+        if st.view_key.get_untracked() != key {
+            st.view_key.set(key);
+        }
     }
 }
 
@@ -340,7 +359,7 @@ fn settings_panel(st: St) -> W {
         ],
     );
 
-    let dlss = dlss_section(st, &s);
+    let dlss = filters_section(st);
 
     let picture = section(
         icons::ASPECT,
@@ -460,68 +479,19 @@ fn settings_panel(st: St) -> W {
     )
 }
 
-/// Доли правки DLSS 5 на выбор, %.
-const DLSS_STRENGTHS: [u32; 4] = [25, 50, 75, 100];
-
-/// DLSS 5: включение, сила, сравнение, состояние помощника; стиль и тонкая настройка модели — в окне
-/// DLSS 5 (syn-dlss), они общие с играми.
-fn dlss_section(st: St, s: &Settings) -> W {
-    let set = move |f: Box<dyn FnOnce(&mut Settings)>| {
-        update(st, f);
-        crate::dlss::apply(st);
-    };
-    let mut rows: Vec<W> = vec![toggle_row(
-        &t!("Улучшать кадры DLSS 5"),
-        &t!("Нейрорендеринг NVIDIA (RTX 50): свет, тон и детали каждого кадра ролика."),
-        s.dlss,
-        move |on| set(Box::new(move |s| s.dlss = on)),
-    )];
-    rows.push(Box::new(Reactive::new(move || -> Vec<W> {
-        use crate::dlss::Status;
-        let text = match st.dlss.get() {
-            Status::Off => return vec![],
-            Status::Starting => t!("Помощник DLSS 5 готовит модель…").to_string(),
-            Status::Active { total_ms, helper_ms, size, .. } => t!(
-                "Работает: {w}×{h}, {ms} мс на кадр (модель и оптический поток — {hms} мс).",
-                w = size.0,
-                h = size.1,
-                ms = format!("{total_ms:.1}"),
-                hms = format!("{helper_ms:.1}")
-            ),
-            Status::Bypass(e) => crate::dlss::reason(&e),
-        };
-        vec![Box::new(Text::new(text).max_lines(4).class("set-hint set-dlss-state"))]
-    })));
-    if s.dlss {
-        rows.push(Box::new(Text::new(t!("Сила эффекта")).class("set-row-title")));
-        rows.push(Box::new(
-            SegmentedButton::new(DLSS_STRENGTHS.iter().map(|v| format!("{v}%")).collect::<Vec<_>>())
-                .selected(DLSS_STRENGTHS.iter().position(|v| *v == s.dlss_strength).unwrap_or(DLSS_STRENGTHS.len() - 1))
-                .on_change(move |i| {
-                    let v = DLSS_STRENGTHS[i.min(DLSS_STRENGTHS.len() - 1)];
-                    set(Box::new(move |s| s.dlss_strength = v));
-                }),
-        ));
-        rows.push(hint(&t!("Меньше 100% — ответ модели смешивается с исходным кадром.")));
-        rows.push(toggle_row(
-            &t!("Сравнение"),
-            &t!("Слева — исходный кадр, справа — DLSS 5."),
-            s.dlss_compare,
-            move |on| set(Box::new(move |s| s.dlss_compare = on)),
-        ));
-        rows.push(Box::new(
-            Button::new(t!("Стиль и тонкая настройка…"))
-                .icon(icons::OPEN_IN_NEW)
-                .on_click(|| {
-                    if let Err(e) = std::process::Command::new("syn-dlss").spawn() {
-                        tracing::warn!("syn-dlss: {e}");
-                    }
-                })
-                .class("set-dlss-open"),
-        ));
-        rows.push(hint(&t!("Стиль (обычный, естественный, кинематографичный), интенсивность и проходы модели — в окне DLSS 5, они общие с играми.")));
-    }
-    section(icons::DLSS, &t!("DLSS 5"), rows)
+/// DLSS 5 и нейросети — в панели «Фильтры»; здесь ссылка на неё.
+fn filters_section(st: St) -> W {
+    section(
+        icons::TUNE,
+        &t!("Фильтры"),
+        vec![
+            Box::new(Button::new(t!("DLSS 5 и нейросети…")).icon(icons::DLSS).on_click(move || {
+                st.settings_open.set(false);
+                st.filters_open.set(true);
+            })),
+            hint(&t!("Улучшение кадров DLSS 5, сравнение с исходным и нагрузка — в панели фильтров (кнопка в шапке плеера).")),
+        ],
+    )
 }
 
 fn section(icon: &'static str, title: &str, rows: Vec<W>) -> W {

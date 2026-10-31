@@ -43,7 +43,12 @@ pub fn run(file: &str, hw: HwAccel, yuv: bool, dlss: bool) -> i32 {
     let mut first: Option<Duration> = None;
     let mut last_pts = 0.0;
     let mut seek_at: Option<(Instant, u64)> = None;
+    // SVP_BENCH_FRAMES=N — остановиться после N кадров (фильм целиком — долго)
+    let limit: u64 = std::env::var("SVP_BENCH_FRAMES").ok().and_then(|v| v.parse().ok()).unwrap_or(u64::MAX);
     loop {
+        if frames >= limit {
+            break;
+        }
         match dec.try_recv_video() {
             Ok(f) => {
                 if first.is_none() {
@@ -94,6 +99,8 @@ pub fn run(file: &str, hw: HwAccel, yuv: bool, dlss: bool) -> i32 {
     }
     if let Some(f) = &filter {
         println!("DLSS 5: {:?}", f.status());
+        // видеопрофиль — в video.ini, в общую память — настройки игр
+        f.release();
     }
     let wall = t0.elapsed().as_secs_f64();
     let cpu = cpu_time() - cpu0;

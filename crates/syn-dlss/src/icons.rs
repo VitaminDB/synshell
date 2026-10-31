@@ -13,3 +13,4 @@ pub const DELETE: &str = "\u{E872}";
 pub const LOG: &str = "\u{E873}"; // description
 pub const COPY: &str = "\u{E14D}"; // content_copy
 pub const CAMERA: &str = "\u{E3AF}"; // photo_camera
+pub const MOVIE: &str = "\u{E02C}";

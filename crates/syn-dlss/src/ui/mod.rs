@@ -60,6 +60,8 @@ fn titlebar(st: St) -> W {
 fn layer_badge(s: &Status) -> (&'static str, String) {
     let game = if s.game.is_empty() { String::new() } else { format!(" — {}", s.game) };
     match s.layer {
+        Layer::Active if s.video => ("dot ok", format!("{}{game}", t!("Видео обрабатывается"))),
+        Layer::Idle if s.video => ("dot idle", format!("{}{game}", t!("Видео на паузе"))),
         Layer::Active => ("dot ok", format!("{}{game}", t!("Игра обрабатывается"))),
         Layer::Idle => ("dot idle", format!("{}{game}", t!("Игра на паузе"))),
         Layer::None => ("dot off", t!("Нет игры со слоем")),
@@ -135,6 +137,23 @@ fn status_card(st: St) -> W {
             boxed(Button::new(t!("Запустить помощник")).icon(icons::PLAY).class("btn primary").on_click(move || st.helper("start")))
         };
         let mut col = Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(Row::new().gap(16.0).cross_axis_alignment(CrossAxisAlignment::Center).child(info).child(action));
+        if s.video {
+            col = col.child(
+                DecoratedBox::new().class("banner banner-info").child(
+                    Row::new()
+                        .gap(12.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(icon(icons::MOVIE).class("ic info-ic"))
+                        .child(
+                            Column::new()
+                                .gap(2.0)
+                                .class("grow")
+                                .child(Text::new(t!("Видеопрофиль")).class("banner-title"))
+                                .child(Text::new(t!("Сейчас кадры даёт видеоплеер: правки здесь сохраняются в его собственный профиль и не меняют настройки игр.")).max_lines(3).class("hint")),
+                        ),
+                ),
+            );
+        }
         if s.model_missing {
             col = col.child(
                 DecoratedBox::new().class("banner").child(

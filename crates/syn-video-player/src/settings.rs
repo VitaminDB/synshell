@@ -27,13 +27,15 @@ pub struct Settings {
     pub dlss: bool,
     /// Доля правки DLSS 5, %: 100 — ответ модели как есть.
     pub dlss_strength: u32,
-    /// Сравнение: левая половина — исходный кадр, правая — DLSS 5.
+    /// Сравнение: слева от черты — исходный кадр, справа — с фильтрами.
     pub dlss_compare: bool,
+    /// Где черта сравнения: доля ширины кадра.
+    pub dlss_split: f32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { hardware: true, fill: false, seek_step: 10, repeat: false, autoplay_next: false, resume: true, show_info: true, dlss: false, dlss_strength: 100, dlss_compare: false }
+        Self { hardware: true, fill: false, seek_step: 10, repeat: false, autoplay_next: false, resume: true, show_info: true, dlss: false, dlss_strength: 100, dlss_compare: false, dlss_split: 0.5 }
     }
 }
 

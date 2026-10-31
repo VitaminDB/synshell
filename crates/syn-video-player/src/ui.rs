@@ -66,6 +66,15 @@ pub struct St {
     pub sub_style: RwSignal<syngui::video::SubtitleStyle>,
     /// Открыта панель субтитров.
     pub subs_open: RwSignal<bool>,
+    /// Открыта панель фильтров (DLSS 5 и нейросети).
+    pub filters_open: RwSignal<bool>,
+    /// Растёт, когда панель фильтров надо перестроить (включили фильтр, сравнение).
+    pub filters_rev: RwSignal<u32>,
+    /// Черта сравнения (доля ширины кадра) — пока её тянут, настройки не трогаются.
+    pub split: RwSignal<f32>,
+    /// Что из настроек нужно виджету плеера: «заполнить», шаг перемотки. Отдельно от настроек —
+    /// ползунки фильтров не пересобирают плеер.
+    pub view_key: RwSignal<(bool, u32)>,
     /// Дорожка субтитров, выбранная в этом сеансе (или «выключены»).
     pub sub_pref: RwSignal<Option<crate::subs::SubPref>>,
     /// Последняя включённая дорожка — её возвращает клавиша C.
@@ -267,10 +276,15 @@ pub fn close(st: St) {
     st.settings_open.set(false);
     st.tracks_open.set(false);
     st.subs_open.set(false);
+    st.filters_open.set(false);
     if st.vram.get_untracked() != crate::vram::Vram::Freeing {
         st.vram.set(crate::vram::Vram::None);
     }
     st.info.set(None);
+    // ролик закрыт — канал DLSS 5 играм; следующий ролик займёт его снова
+    if st.dlss.get_untracked() != crate::dlss::Status::Off {
+        std::thread::spawn(crate::dlss::shutdown);
+    }
     if let Some(p) = st.playing.get_untracked() {
         st.playing.set(None);
         // остановка декодера ждёт его потоки — не в главном потоке
@@ -532,6 +546,10 @@ pub mod icons {
     pub const RADIO_OFF: &str = "\u{E836}";
     /// auto_awesome: DLSS 5
     pub const DLSS: &str = "\u{E65F}";
+    /// tune — кнопка фильтров
+    pub const TUNE: &str = "\u{E429}";
+    pub const COMPARE: &str = "\u{E3B9}";
+    pub const SPEED: &str = "\u{E9E4}";
     pub const OPEN_IN_NEW: &str = "\u{E89E}";
     /// subtitles
     pub const SUBTITLES: &str = "\u{E048}";

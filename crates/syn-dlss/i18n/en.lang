@@ -218,3 +218,7 @@
 "Сбросить…" = "Reset…"
 "Игры syn-wine" = "syn-wine games"
 "Слой DLSS 5 в программах нашего Wine без переменной VKLayer_DLSS5=1 — с их следующего запуска. Нужны кадры Vulkan: для Direct3D 8–11 — DXVK" = "The DLSS 5 layer in programs of our Wine without the VKLayer_DLSS5=1 variable — from their next start. Needs Vulkan frames: DXVK for Direct3D 8–11"
+"Видеопрофиль" = "Video profile"
+"Сейчас кадры даёт видеоплеер: правки здесь сохраняются в его собственный профиль и не меняют настройки игр." = "Frames now come from the video player: changes here go to its own profile and don't change game settings."
+"Видео обрабатывается" = "Video is being processed"
+"Видео на паузе" = "Video is paused"

@@ -28,6 +28,17 @@ pub fn syn_wine_flag() -> PathBuf {
     config_dir().join("syn-wine")
 }
 
+/// Видеопрофиль: настройки модели для видеоплеера, отдельно от игр (config.ini).
+pub fn video_profile() -> PathBuf {
+    config_dir().join("video.ini")
+}
+
+/// Pid видеоплеера, который держит канал со своим видеопрофилем: пока он жив и он же — слой в общей
+/// памяти, окно DLSS 5 сохраняет настройки в видеопрофиль, а не в config.ini.
+pub fn video_lock() -> PathBuf {
+    runtime_dir().join("video.pid")
+}
+
 pub fn profiles_dir() -> PathBuf {
     config_dir().join("profiles")
 }

@@ -39,6 +39,8 @@ SystemWindowControls { color: var(--fg); background-color: var(--hover); }
 
 .banner { padding: 12px 14px; border-radius: 12px; background-color: var(--content); border: 1px solid var(--warning); }
 .banner-title { font-size: 13px; font-weight: 600; color: var(--fg); }
+.banner-info { border-color: var(--accent); }
+.info-ic { icon-color: var(--accent); icon-size: 22px; }
 .warn-ic { icon-color: var(--warning); icon-size: 22px; }
 
 /* ── Вкладки ──────────────────────────────────────────────────────── */

@@ -70,12 +70,16 @@ pub struct VideoClient {
     name: String,
     pid: u32,
     state: Mutex<ClientState>,
+    /// Канал наш (то же, что `ClientState::claimed`, но без ожидания кадра под замком).
+    claimed_flag: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Default)]
 struct ClientState {
     frames: u64,
     claimed: bool,
+    /// Разрешение модели из профиля, пока плеер временно его снизил.
+    base_scale: Option<u32>,
 }
 
 impl VideoClient {
@@ -105,6 +109,7 @@ impl VideoClient {
             // SAFETY: getpid не может завершиться ошибкой.
             pid: unsafe { libc::getpid() } as u32,
             state: Mutex::new(ClientState::default()),
+            claimed_flag: std::sync::atomic::AtomicBool::new(false),
         };
         let h = c.header();
         if !h.valid() || h.passes.load(SC) == 0 {
@@ -112,6 +117,8 @@ impl VideoClient {
             h.init_defaults();
             crate::config::apply_settings(h, &crate::config::Ini::load());
         }
+        // прошлый плеер упал, не вернув настройки игр
+        crate::config::restore_after_video(h);
         Ok(c)
     }
 
@@ -191,6 +198,8 @@ impl VideoClient {
             hd.layer_composition_up.store(1, SC);
             hd.layer_format.store(37, SC); // VK_FORMAT_R8G8B8A8_UNORM
             store_string(&hd.game_name_seq, &hd.game_name, &self.name);
+            self.enter_video_profile();
+            self.claimed_flag.store(true, SC);
         }
         hd.layer_width.store(w, SC);
         hd.layer_height.store(h, SC);
@@ -234,17 +243,83 @@ impl VideoClient {
         Ok(FrameTiming { total_ms, helper_ms })
     }
 
-    /// Снять подпись слоя (плеер выключил DLSS 5 или закрылся).
+    /// Снять подпись слоя (плеер выключил DLSS 5 или закрылся): видеопрофиль — в video.ini,
+    /// в общую память — настройки игр.
     pub fn release(&self) {
         let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if st.claimed {
             st.claimed = false;
             let h = self.header();
+            self.claimed_flag.store(false, SC);
+            self.leave_video_profile(st.base_scale.take());
             if h.layer_pid.compare_exchange(self.pid, 0, SC, SC).is_ok() {
                 h.layer_composition_up.store(0, SC);
                 store_string(&h.game_name_seq, &h.game_name, "");
             }
         }
+    }
+
+    /// Канал наш: метка видеоплеера (окно DLSS 5 сохраняет настройки в видеопрофиль) и видеопрофиль
+    /// в общую память. Пересборка модели — только если он отличается от того, что там уже стоит.
+    fn enter_video_profile(&self) {
+        if let Err(e) = std::fs::write(paths::video_lock(), self.pid.to_string()) {
+            tracing::warn!("метка видеоплеера DLSS 5: {e}");
+        }
+        crate::config::apply_if_changed(self.header(), &crate::config::video_profile());
+    }
+
+    fn leave_video_profile(&self, base_scale: Option<u32>) {
+        let lock = paths::video_lock();
+        let ours = std::fs::read_to_string(&lock).ok().and_then(|s| s.trim().parse::<u32>().ok()) == Some(self.pid);
+        if !ours {
+            return;
+        }
+        let h = self.header();
+        if let Some(raw) = base_scale {
+            // разрешение модели снижали, чтобы успевать — в профиль идёт выбранное пользователем
+            h.working_scale_bits.store(raw, SC);
+        }
+        crate::config::save_video_profile(h);
+        let _ = std::fs::remove_file(&lock);
+        crate::config::apply_if_changed(h, &crate::config::Ini::load());
+    }
+
+    /// Держит ли плеер канал (настройки модели сейчас — видеопрофиль в общей памяти).
+    pub fn claimed(&self) -> bool {
+        self.claimed_flag.load(SC)
+    }
+
+    /// Поменять значения видеопрофиля: в video.ini и, пока канал наш, сразу в общую память.
+    /// `latch` — значение модель читает при сборке функции (стиль, проходы).
+    pub fn set_profile(&self, pairs: &[(&str, String)], latch: bool) {
+        crate::config::set_video_values(pairs);
+        if self.claimed() {
+            let ini = crate::config::Ini { entries: pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect() };
+            crate::config::apply_pairs(self.header(), &ini, latch);
+        }
+    }
+
+    /// Разрешение модели на ходу, без записи в профиль: плеер снижает его (`factor` — доля от
+    /// выбранного в профиле), когда модель не успевает за роликом. `None` — вернуть выбранное.
+    pub fn set_auto_scale(&self, factor: Option<f32>) {
+        let Ok(mut st) = self.state.lock() else { return };
+        if !st.claimed {
+            return;
+        }
+        let h = self.header();
+        match factor {
+            Some(f) => {
+                let base = *st.base_scale.get_or_insert_with(|| h.working_scale_bits.load(SC));
+                // меньше 25% помощник не берёт
+                h.working_scale_bits.store(shm::f2b((shm::b2f(base) * f).max(0.25)), SC);
+            }
+            None => {
+                if let Some(raw) = st.base_scale.take() {
+                    h.working_scale_bits.store(raw, SC);
+                }
+            }
+        }
+        h.control_seq.fetch_add(1, SC);
     }
 }
 

@@ -4,6 +4,7 @@
 //!
 //!   syn-video-player [--hw auto|none|v4l2|vaapi|nvdec|vulkan] [ФАЙЛ|URI]
 //!   syn-video-player --bench [--hw …] [--dlss] ФАЙЛ   — декодировать полным ходом без окна, напечатать fps
+//!                                                    (SVP_BENCH_FRAMES=N — только N кадров)
 //!                                                    (`--dlss` — через DLSS 5, время модели)
 //!
 //! Без файла — список видео из «Видео» (XDG_VIDEOS_DIR).
@@ -13,6 +14,7 @@ mod edit;
 mod editor;
 mod library;
 mod dlss;
+mod filters;
 mod player;
 mod settings;
 mod subs;
@@ -99,7 +101,32 @@ fn parse_args() -> Args {
     a
 }
 
+/// SIGTERM и SIGINT ловит отдельный поток (sigwait): до выхода вернуть играм настройки DLSS 5 в общей
+/// памяти. Маска ставится до любых других потоков — они её наследуют.
+fn catch_term() {
+    // SAFETY: sigset заполняется sigemptyset/sigaddset, маска главного потока меняется до порождения
+    // потоков; sigwait в своём потоке — обычный вызов, не обработчик сигнала.
+    unsafe {
+        let mut set: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut set);
+        libc::sigaddset(&mut set, libc::SIGTERM);
+        libc::sigaddset(&mut set, libc::SIGINT);
+        libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
+        let set = set;
+        std::thread::Builder::new()
+            .name("svp-signals".into())
+            .spawn(move || {
+                let mut sig = 0;
+                libc::sigwait(&set, &mut sig);
+                dlss::shutdown();
+                std::process::exit(128 + sig);
+            })
+            .ok();
+    }
+}
+
 fn main() {
+    catch_term();
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "syn_video_player=info,syngui::video=info".into());
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
@@ -122,11 +149,17 @@ fn main() {
         .min_size(320, 400)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(synshell_common::live::styles(mss.clone(), theme))
+        .on_close_request(|| {
+            // настройки DLSS 5 в общей памяти — снова игровые
+            dlss::shutdown();
+            true
+        })
         .run(move |_| {
             let subs = subs::SubSettings::load();
+            let settings = settings::Settings::load();
             let st = ui::St {
                 hw: args.hw,
-                settings: use_signal(settings::Settings::load()),
+                settings: use_signal(settings.clone()),
                 info: use_signal(None),
                 settings_open: use_signal(false),
                 tracks_open: use_signal(false),
@@ -134,6 +167,10 @@ fn main() {
                 subs: use_signal(subs.clone()),
                 sub_style: use_signal(subs.style()),
                 subs_open: use_signal(false),
+                filters_open: use_signal(false),
+                filters_rev: use_signal(0),
+                split: use_signal(settings.dlss_split),
+                view_key: use_signal((settings.fill, settings.seek_step)),
                 sub_pref: use_signal(None),
                 sub_last: use_signal(None),
                 sub_rev: use_signal(0),

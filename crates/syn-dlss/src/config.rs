@@ -212,10 +212,9 @@ pub fn settings_blob(h: &ShmHeader) -> String {
     settings_pairs(h).into_iter().map(|(k, v)| format!("{k}={v};")).collect()
 }
 
-/// Применить `set_*` из файла к заголовку. Возвращает число применённых ключей.
-pub fn apply_settings(h: &ShmHeader, ini: &Ini) -> usize {
-    use std::sync::atomic::Ordering::SeqCst;
-    let mut n = 0;
+/// Поля заголовка и значения для `set_*` из файла (неизвестные ключи и мусор пропускаются).
+fn resolve<'a>(h: &'a ShmHeader, ini: &Ini) -> Vec<(&'a std::sync::atomic::AtomicU32, u32)> {
+    let mut out = Vec::new();
     for (k, v) in &ini.entries {
         if let Some(e) = settings().iter().find(|e| e.key == k) {
             let raw = if e.invert {
@@ -224,8 +223,7 @@ pub fn apply_settings(h: &ShmHeader, ini: &Ini) -> usize {
                 parse_raw(v, e.float)
             };
             if let Some(raw) = raw {
-                (e.field)(h).store(raw, SeqCst);
-                n += 1;
+                out.push(((e.field)(h), raw));
             }
         } else if let Some(rest) = k.strip_prefix("set_pass_") {
             let Some((idx, suffix)) = rest.split_once('_') else { continue };
@@ -235,17 +233,44 @@ pub fn apply_settings(h: &ShmHeader, ini: &Ini) -> usize {
             }
             if let Some(e) = pass_settings().iter().find(|e| e.suffix == suffix) {
                 if let Some(raw) = parse_raw(v, e.float) {
-                    (e.field)(&h.pass[i]).store(raw, SeqCst);
-                    n += 1;
+                    out.push(((e.field)(&h.pass[i]), raw));
                 }
             }
         }
     }
-    if n > 0 {
-        h.control_seq.fetch_add(1, SeqCst);
-        h.tuning_seq.fetch_add(1, SeqCst);
+    out
+}
+
+/// Применить `set_*` из файла к заголовку. Возвращает число применённых ключей.
+pub fn apply_settings(h: &ShmHeader, ini: &Ini) -> usize {
+    apply_pairs(h, ini, true)
+}
+
+/// Как [`apply_settings`]; `latch` — поднять `tuningSeq` (пересборка функции у помощника). Поля,
+/// которые модель читает каждый кадр (разрешение модели, резкость), пересборки не требуют.
+pub fn apply_pairs(h: &ShmHeader, ini: &Ini, latch: bool) -> usize {
+    use std::sync::atomic::Ordering::SeqCst;
+    let list = resolve(h, ini);
+    for (a, raw) in &list {
+        a.store(*raw, SeqCst);
     }
-    n
+    if !list.is_empty() {
+        h.control_seq.fetch_add(1, SeqCst);
+        if latch {
+            h.tuning_seq.fetch_add(1, SeqCst);
+        }
+    }
+    list.len()
+}
+
+/// Применить, только если что-то в заголовке отличается: лишняя пересборка модели — пауза в кадрах.
+pub fn apply_if_changed(h: &ShmHeader, ini: &Ini) -> bool {
+    use std::sync::atomic::Ordering::SeqCst;
+    if resolve(h, ini).iter().all(|(a, raw)| a.load(SeqCst) == *raw) {
+        return false;
+    }
+    apply_settings(h, ini);
+    true
 }
 
 /// Сохранить config.ini: ключи помощника как есть, настройки — из заголовка.
@@ -295,6 +320,91 @@ pub fn save_profile(h: &ShmHeader, name: &str) -> std::io::Result<()> {
 
 pub fn load_profile(h: &ShmHeader, name: &str) -> usize {
     apply_settings(h, &Ini::load_from(&profile_path(name)))
+}
+
+// ─── видеопрофиль ───────────────────────────────────────────────────────────
+
+/// Стиль видео по умолчанию — «Естественный»: «Обычный» дорисовывает лица под игровую картинку.
+pub const VIDEO_DEFAULT_STYLE: u32 = 1;
+
+/// Заголовок в куче со значениями по умолчанию — посчитать настройки, не трогая общую память.
+fn with_scratch<R>(f: impl FnOnce(&ShmHeader) -> R) -> R {
+    let layout = std::alloc::Layout::new::<ShmHeader>();
+    // SAFETY: размер заголовка не нулевой; нули допустимы для всех его полей (атомики), память
+    // освобождается тем же layout.
+    unsafe {
+        let p = std::alloc::alloc_zeroed(layout);
+        if p.is_null() {
+            std::alloc::handle_alloc_error(layout);
+        }
+        let h = &*(p as *const ShmHeader);
+        h.init_defaults();
+        let r = f(h);
+        std::alloc::dealloc(p, layout);
+        r
+    }
+}
+
+/// Pid видеоплеера, который сейчас держит канал со своим видеопрофилем.
+pub fn video_owner(h: &ShmHeader) -> Option<u32> {
+    let pid = video_lock_pid()?;
+    (crate::paths::pid_alive(pid) && h.layer_pid.load(std::sync::atomic::Ordering::SeqCst) == pid).then_some(pid)
+}
+
+fn video_lock_pid() -> Option<u32> {
+    std::fs::read_to_string(crate::paths::video_lock()).ok()?.trim().parse().ok()
+}
+
+/// Плеер закрылся аварийно, не вернув настройки игр: метка осталась, процесса нет. Вернуть config.ini
+/// в общую память и снять метку. `true` — вернули.
+pub fn restore_after_video(h: &ShmHeader) -> bool {
+    let Some(pid) = video_lock_pid() else { return false };
+    if crate::paths::pid_alive(pid) {
+        return false;
+    }
+    let _ = std::fs::remove_file(crate::paths::video_lock());
+    apply_if_changed(h, &Ini::load());
+    true
+}
+
+/// Видеопрофиль целиком: video.ini поверх значений по умолчанию; файла нет — настройки игр
+/// (config.ini) со стилем «Естественный».
+pub fn video_profile() -> Ini {
+    let p = crate::paths::video_profile();
+    with_scratch(|h| {
+        if p.is_file() {
+            apply_settings(h, &Ini::load_from(&p));
+        } else {
+            apply_settings(h, &Ini::load());
+            h.style.store(VIDEO_DEFAULT_STYLE, std::sync::atomic::Ordering::SeqCst);
+        }
+        Ini { entries: settings_pairs(h) }
+    })
+}
+
+/// Одно значение видеопрофиля: прочитать (`None` — нет такого ключа).
+pub fn video_value(key: &str) -> Option<String> {
+    video_profile().get(key).map(str::to_string)
+}
+
+/// Сохранить видеопрофиль из заголовка (плеер держал канал, настройки могли меняться в окне DLSS 5).
+pub fn save_video_profile(h: &ShmHeader) {
+    write_video(&Ini { entries: settings_pairs(h) });
+}
+
+/// Поменять значения видеопрофиля в файле.
+pub fn set_video_values(pairs: &[(&str, String)]) {
+    let mut ini = video_profile();
+    for (k, v) in pairs {
+        ini.set(k, v.clone());
+    }
+    write_video(&ini);
+}
+
+fn write_video(ini: &Ini) {
+    if let Err(e) = ini.save_to(&crate::paths::video_profile(), "# DLSS 5: видеопрофиль syn-video-player\n\n") {
+        tracing::warn!("video.ini: {e}");
+    }
 }
 
 #[cfg(test)]
