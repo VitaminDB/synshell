@@ -56,6 +56,11 @@ const ZOOM_STEP: f32 = 0.25;
 /// конфига композитором и пересборка экрана (на E Ink — полное обновление).
 const ZOOM_APPLY_DELAY: std::time::Duration = std::time::Duration::from_millis(800);
 
+/// Экран E Ink (каталог драйвера в sysfs или `SYNSHELL_EINK=1` от synwm).
+fn eink() -> bool {
+    synshell_common::display::is_eink()
+}
+
 fn phone() -> bool {
     std::env::var("SYNSHELL_FORM_FACTOR").as_deref() == Ok("phone")
 }
@@ -85,7 +90,17 @@ pub fn run() {
         synshell_ui::rotation::watch_sensor(rotate_by_sensor);
     }
     // Экран входа живёт недолго — тема без живого обновления; шрифт интерфейса не ставится.
-    let mss = synshell_common::style::AppStyle::new(&cfg, "synlogin").font_selector("").base(include_str!("../styles/greeter.mss")).build();
+    // E Ink: светлый контрастный экран без анимаций (тема — светлая по умолчаниям устройства,
+    // `Config::apply_device_defaults`); каждый кадр анимации — обновление панели.
+    let eink = eink();
+    if eink {
+        syngui::animation::set_enabled(false);
+    }
+    let mut style = synshell_common::style::AppStyle::new(&cfg, "synlogin").font_selector("").base(include_str!("../styles/greeter.mss"));
+    if eink {
+        style = style.base(include_str!("../styles/greeter-eink.mss"));
+    }
+    let mss = style.build();
     let outputs_cfg = cfg.outputs.clone();
     let r = syngui_layer::run(syngui_layer::RunOptions::default(), &mss, move || {
         let st = St {
@@ -139,7 +154,7 @@ pub fn run() {
                 keyboard: KeyboardInteractivity::Exclusive,
                 output: Some(o.name.clone()),
                 auto_size: false,
-                clear_color: [0.0, 0.0, 0.0, 1.0],
+                clear_color: if eink { [1.0; 4] } else { [0.0, 0.0, 0.0, 1.0] },
             };
             syngui_layer::create_surface(spec, move || Box::new(view(st)));
         }
@@ -369,7 +384,7 @@ fn view(st: St) -> impl Widget {
             })
             .directional(true)
             .slide(40.0, 0.0)
-            .duration_ms(260)
+            .duration_ms(if eink() { 0 } else { 260 })
             .animate_size(false),
         )]
     });
