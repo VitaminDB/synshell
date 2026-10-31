@@ -6929,8 +6929,11 @@ dependencies = [
 name = "syn-notes"
 version = "0.1.42"
 dependencies = [
+ "encoding_rs",
  "libc",
+ "libloading 0.8.9",
  "log",
+ "pulldown-cmark",
  "rand 0.8.8",
  "rfd",
  "serde",
@@ -6948,6 +6951,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "zbus",
+ "zip",
 ]
 
 [[package]]

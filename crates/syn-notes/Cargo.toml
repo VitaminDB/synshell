@@ -54,6 +54,12 @@ sha2 = "0.10"
 rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "macros", "sync"] }
 symphonia = { version = "0.5", default-features = false, features = ["mp3", "flac", "wav", "pcm", "isomp4", "aac", "vorbis", "ogg"] }
+# Читалка (notes/reader): EPUB/FB2-архивы, кодировки TXT/FB2, Markdown;
+# PDF — poppler-glib через dlopen (без него PDF недоступен, остальное работает).
+zip = { version = "2", default-features = false, features = ["deflate"] }
+encoding_rs = "0.8"
+libloading = "0.8"
+pulldown-cmark = { version = "0.13", default-features = false }
 zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
 
 [dev-dependencies]

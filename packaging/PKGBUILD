@@ -8,6 +8,7 @@ license=('GPL-3.0-only')
 depends=('mesa' 'libinput' 'seatd' 'systemd-libs' 'libxkbcommon' 'libdrm' 'vulkan-icd-loader'
          'fontconfig' 'freetype2' 'dbus' 'ffmpeg' 'sqlite' 'libarchive')
 optdepends=('xorg-xwayland: X11-программы'
+            'poppler-glib: PDF в читалке заметок'
             'openvino-intel-npu-plugin: нейросети на Intel NPU (Core Ultra), вместе с intel-npu-driver и intel-npu-compiler'
             'intel-npu-driver: драйвер Intel NPU'
             'intel-npu-compiler: компилятор графов Intel NPU'
