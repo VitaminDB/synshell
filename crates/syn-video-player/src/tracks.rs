@@ -131,6 +131,7 @@ fn select(st: St, t: &AudioStreamInfo) {
         return;
     }
     st.audio_pref.set(Some(AudioPref::of(t)));
+    crate::subs::on_audio_changed(st, t.language.as_deref());
 }
 
 /// Панель выбора дорожки — справа, как настройки.

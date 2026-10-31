@@ -41,6 +41,8 @@ pub fn view(st: St) -> W {
             .fullscreen(fs)
             .fit(if s.fill { ImageFit::Cover } else { ImageFit::Contain })
             .seek_step(s.seek_step as f64)
+            .subtitles(st.sub_style)
+            .keys(crate::subs::KEYS.to_vec(), move |k, m| crate::subs::on_key(st, k, m))
             .header(move || header(st, title.clone()))
             .on_ended(move || ended(st, &done));
         // в каталоге есть другие ролики — листание, как в просмотрщике картинок
@@ -64,6 +66,7 @@ pub fn view(st: St) -> W {
             .child(body)
             .child(panel)
             .child(crate::tracks::panel(st))
+            .child(crate::subs::panel(st))
             .child(crate::vram::dialog(st)),
     )
 }
@@ -90,6 +93,7 @@ fn header(st: St, title: String) -> W {
         )
         .child(Text::new(title).max_lines(1).class("player-title"))
         .child(DecoratedBox::new().class("grow"))
+        .child(crate::subs::button(st))
         .child(crate::tracks::button(st))
         .child(
             ToolButton::new(icons::CUT)
@@ -384,6 +388,22 @@ fn settings_panel(st: St) -> W {
         ],
     );
 
+    let subtitles = section(
+        icons::SUBTITLES,
+        &t!("Субтитры"),
+        vec![
+            Box::new(
+                Button::new(t!("Дорожки и оформление…"))
+                    .icon(icons::PALETTE)
+                    .on_click(move || {
+                        st.settings_open.set(false);
+                        st.subs_open.set(true);
+                    }),
+            ),
+            hint(&t!("Шрифт, размер, цвет, контур, тень, анимация; язык и автовключение. Клавиши: C — вкл/выкл, Z/X — раньше/позже.")),
+        ],
+    );
+
     let view = section(
         icons::INFO,
         &t!("Интерфейс"),
@@ -418,6 +438,7 @@ fn settings_panel(st: St) -> W {
                         .child(picture)
                         .child(seek)
                         .child(playback)
+                        .child(subtitles)
                         .child(view)
                         .class("set-body"),
                 )

@@ -61,6 +61,19 @@ pub struct St {
     pub tracks_open: RwSignal<bool>,
     /// Озвучка, выбранная в этом сеансе: следующие ролики открываются с ней.
     pub audio_pref: RwSignal<Option<crate::tracks::AudioPref>>,
+    /// Настройки субтитров и оформление для слоя плеера (меняются вместе).
+    pub subs: RwSignal<crate::subs::SubSettings>,
+    pub sub_style: RwSignal<syngui::video::SubtitleStyle>,
+    /// Открыта панель субтитров.
+    pub subs_open: RwSignal<bool>,
+    /// Дорожка субтитров, выбранная в этом сеансе (или «выключены»).
+    pub sub_pref: RwSignal<Option<crate::subs::SubPref>>,
+    /// Последняя включённая дорожка — её возвращает клавиша C.
+    pub sub_last: RwSignal<Option<syngui::video::SubtitleSource>>,
+    /// Растёт при смене дорожки и сдвига — перестроить панель и кнопку.
+    pub sub_rev: RwSignal<u32>,
+    /// Растёт при смене набора оформления — перестроить ползунки.
+    pub sub_gen: RwSignal<u32>,
     /// Вопрос «освободить видеопамять от нейросетей?» (аппаратный декодер не запустился).
     pub vram: RwSignal<crate::vram::Vram>,
     /// Состояние DLSS 5 открытого ролика (чип в шапке, настройки).
@@ -232,6 +245,7 @@ pub fn open_at(st: St, path: PathBuf, start: Option<f64>, keep_old: bool) {
                             let _ = p.seek(t);
                         }
                         crate::tracks::apply_pref(st, &mut p);
+                        crate::subs::on_open(st, &path, &mut p);
                         crate::dlss::attach(st, &p);
                         p.play();
                         let playing = Playing { path, player: Arc::new(Mutex::new(p)) };
@@ -252,6 +266,7 @@ pub fn close(st: St) {
     st.opening.set(None);
     st.settings_open.set(false);
     st.tracks_open.set(false);
+    st.subs_open.set(false);
     if st.vram.get_untracked() != crate::vram::Vram::Freeing {
         st.vram.set(crate::vram::Vram::None);
     }
@@ -518,4 +533,10 @@ pub mod icons {
     /// auto_awesome: DLSS 5
     pub const DLSS: &str = "\u{E65F}";
     pub const OPEN_IN_NEW: &str = "\u{E89E}";
+    /// subtitles
+    pub const SUBTITLES: &str = "\u{E048}";
+    pub const SYNC: &str = "\u{E627}";
+    pub const PALETTE: &str = "\u{E40A}";
+    /// auto_mode → hdr_auto нет в шрифте: brightness_auto
+    pub const AUTO: &str = "\u{E1AB}";
 }

@@ -1,7 +1,7 @@
 # Maintainer: Alexeyev Vitaly
 pkgname=synshell
 pkgver=0.1.42
-pkgrel=154
+pkgrel=155
 pkgdesc="Окружение рабочего стола для Wayland на Rust и syngui: композитор, оболочка, параметры"
 arch=('x86_64')
 license=('GPL-3.0-only')
@@ -114,6 +114,9 @@ package() {
         "$pkgdir/usr/share/applications/syn-video-player.desktop"
     install -Dm644 crates/syn-video-player/data/icons/syn-video-player.svg \
         "$pkgdir/usr/share/icons/hicolor/scalable/apps/syn-video-player.svg"
+    # Шрифты субтитров (OFL): в каталоге fontconfig — их видят и плеер, и образцы в настройках.
+    install -Dm644 -t "$pkgdir/usr/share/fonts/synshell" crates/syn-video-player/data/fonts/*.ttf
+    install -Dm644 crates/syn-video-player/data/fonts/OFL.txt "$pkgdir/usr/share/licenses/$pkgname/fonts-OFL.txt"
     install -Dm644 crates/syn-audio-player/data/syn-audio-player.desktop \
         "$pkgdir/usr/share/applications/syn-audio-player.desktop"
     install -Dm644 crates/syn-audio-player/data/icons/syn-audio-player.svg \

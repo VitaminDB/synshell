@@ -128,3 +128,27 @@ Text { color: var(--fg); font-size: 14px; }
 .info-chip-dlss { padding: 4px; }
 .set-dlss-state { color: var(--accent); }
 .set-dlss-open { align-self: flex-start; }
+
+/* Субтитры: кнопка в шапке, панель (дорожки, синхронизация, оформление). */
+.sub-btn-off { opacity: 0.5; }
+.sub-scrim { background: #00000038; }
+.sub-panel { width: 400px; }
+.sub-panel .track-row { background: var(--bg); }
+.sub-panel .track-row:hover { background: var(--hover); }
+.sub-preview {
+    width: 100%; height: 150px; padding: 10px; border-radius: 12px; overflow: hidden;
+    background: linear-gradient(170deg, #8fb4d9 0%, #5d7f9e 45%, #2b3a2c 78%, #151a14 100%);
+}
+.sub-chip { padding: 6px 14px; border-radius: 999px; background: var(--bg); border: 2px solid transparent; }
+.sub-chip-on { border-color: var(--accent); }
+.sub-font { padding: 8px 12px; border-radius: 10px; background: var(--bg); border: 2px solid transparent; }
+.sub-font:hover { background: var(--hover); }
+.sub-font-on { border-color: var(--accent); }
+.sub-font-name { font-size: 17px; font-weight: 600; }
+.sub-swatch { width: 32px; height: 32px; padding: 3px; border-radius: 16px; border: 2px solid transparent; }
+.sub-swatch-on { border-color: var(--accent); }
+.sub-swatch-dot { flex-grow: 1; border-radius: 12px; border: 1px solid #8080808c; }
+.sub-value { font-size: 12px; color: var(--muted); }
+.sub-step { padding: 6px 10px; border-radius: 10px; }
+.sub-delay-box { padding: 7px 4px; border-radius: 10px; background: var(--bg); }
+.sub-delay { font-size: 14px; font-weight: 600; text-align: center; }

@@ -15,6 +15,7 @@ mod library;
 mod dlss;
 mod player;
 mod settings;
+mod subs;
 mod tracks;
 mod ui;
 mod vram;
@@ -122,6 +123,7 @@ fn main() {
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(synshell_common::live::styles(mss.clone(), theme))
         .run(move |_| {
+            let subs = subs::SubSettings::load();
             let st = ui::St {
                 hw: args.hw,
                 settings: use_signal(settings::Settings::load()),
@@ -129,6 +131,13 @@ fn main() {
                 settings_open: use_signal(false),
                 tracks_open: use_signal(false),
                 audio_pref: use_signal(None),
+                subs: use_signal(subs.clone()),
+                sub_style: use_signal(subs.style()),
+                subs_open: use_signal(false),
+                sub_pref: use_signal(None),
+                sub_last: use_signal(None),
+                sub_rev: use_signal(0),
+                sub_gen: use_signal(0),
                 vram: use_signal(vram::Vram::None),
                 dlss: use_signal(dlss::Status::Off),
                 cards: use_signal(Vec::new()),
