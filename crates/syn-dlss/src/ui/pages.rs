@@ -38,18 +38,21 @@ fn syn_wine_row() -> W {
     )
 }
 
-/// Качество: разрешение модели и качество оптического потока.
-const QUALITY: [(f32, u32); 3] = [(0.5, 0), (0.75, 1), (1.0, 2)];
+/// Качество: проходы модели и точность оптического потока. Время модели растёт с проходами почти
+/// линейно (4K: ~16 мс на проход); разрешение модели на скорость не влияет — его оставляем 100%.
+const QUALITY: [(u32, u32); 3] = [(1, 0), (1, 1), (2, 2)];
 
 /// Страница «Главное»: то, что нужно, чтобы включить и настроить на глаз.
 pub fn simple(st: St) -> Vec<W> {
     let h = header();
-    let scale = h.map(|h| b2f(h.get(fld!(working_scale_bits)))).unwrap_or(1.0);
-    let q = QUALITY.iter().enumerate().min_by(|a, b| (a.1 .0 - scale).abs().total_cmp(&(b.1 .0 - scale).abs())).map(|(i, _)| i).unwrap_or(2);
+    let passes = h.map(|h| h.get(fld!(passes))).unwrap_or(1);
+    let mq = h.map(|h| h.get(fld!(mvec_quality))).unwrap_or(1);
+    let q = QUALITY.iter().position(|x| *x == (passes, mq)).unwrap_or(if passes >= 2 { 2 } else if mq == 0 { 0 } else { 1 });
     let quality = SegmentedButton::new(vec![t!("Быстро"), t!("Баланс"), t!("Максимум")]).selected(q).on_change(move |i| {
-        let (sc, mq) = QUALITY[i.min(2)];
-        st.write(fld!(working_scale_bits), f2b(sc), false);
-        st.write(fld!(mvec_quality), mq, false);
+        let (p, m) = QUALITY[i.min(2)];
+        st.write(fld!(passes), p, true);
+        st.write(fld!(mvec_quality), m, false);
+        st.write(fld!(working_scale_bits), f2b(1.0), false);
     });
     let compare_on = h.map(|h| h.get(fld!(compare_mode)) != 0).unwrap_or(false);
     let compare = Toggle::with_state(compare_on).on_change(move |on| {
@@ -59,7 +62,7 @@ pub fn simple(st: St) -> Vec<W> {
     let mut look = vec![
         c::bool_row(st, t!("Включено"), t!("Выключено — игры и видео показывают свои кадры без изменений"), fld!(enabled), Live),
         c::choice_row(st, t!("Стиль"), t!("«Естественный» бережнее к лицам, «Кинематографичный» — с плёночным тоном"), fld!(style), &styles(), AtCreate),
-        c::row(t!("Качество"), t!("Разрешение модели 50, 75 или 100% кадра и точность оценки движения. Ниже — быстрее"), quality),
+        c::row(t!("Качество"), t!("Быстро и Баланс — один проход модели, Максимум — два (вдвое дороже). Разница Быстро/Баланс — точность оценки движения"), quality),
         c::slider_row(st, t!("Сила эффекта"), t!("0 — кадр как есть, 1 — как задумано моделью"), fld!(intensity_bits), (0.0, 2.0, 0.05), 2, AtCreate),
         c::slider_row(st, t!("Резкость"), t!("Действует сразу"), fld!(sharpness_bits), (0.0, 1.0, 0.05), 2, Live),
         c::row(t!("Сравнение"), t!("Шторка в кадре: слева — без DLSS 5"), compare),

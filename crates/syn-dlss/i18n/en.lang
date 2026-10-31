@@ -265,3 +265,4 @@
 "Не хватает видеопамяти" = "Not enough video memory"
 "Нейросети synaptixd держат на видеокарте {gb} ГБ — модели DLSS 5 не хватило места. Они загрузятся снова, когда понадобятся." = "synaptixd neural networks hold {gb} GB on the GPU — the DLSS 5 model didn't fit. They will load again when needed."
 "Освободить" = "Free"
+"Быстро и Баланс — один проход модели, Максимум — два (вдвое дороже). Разница Быстро/Баланс — точность оценки движения" = "Fast and Balanced — one model pass, Maximum — two (twice the cost). Fast vs Balanced differ in motion estimate accuracy"

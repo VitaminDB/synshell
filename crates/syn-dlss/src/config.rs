@@ -388,7 +388,11 @@ pub fn video_profile() -> Ini {
             apply_settings(h, &Ini::load_from(&p));
         } else {
             apply_settings(h, &Ini::load());
+            // видео: стиль «Естественный», один проход (второй вдвое дороже — 4K не успевает),
+            // разрешение модели 100% (на скорость не влияет)
             h.style.store(VIDEO_DEFAULT_STYLE, std::sync::atomic::Ordering::SeqCst);
+            h.passes.store(1, std::sync::atomic::Ordering::SeqCst);
+            h.working_scale_bits.store(crate::shm::f2b(1.0), std::sync::atomic::Ordering::SeqCst);
         }
         Ini { entries: settings_pairs(h) }
     })

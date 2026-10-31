@@ -21,11 +21,12 @@ fn styles() -> Vec<String> {
     vec![t!("Обычный").into(), t!("Естественный").into(), t!("Кино").into()]
 }
 
-/// Качество DLSS 5 — разрешение модели (`set_model_resolution`): быстро, баланс, максимум.
-const QUALITY: [f32; 3] = [0.5, 0.75, 1.0];
+/// Качество DLSS 5: (проходы, точность оптического потока). Время модели растёт с проходами почти
+/// линейно (4K: ~16 мс на проход), разрешение модели на скорость не влияет — его не трогаем.
+const QUALITY: [(u32, u32); 3] = [(1, 0), (1, 1), (2, 2)];
 
-fn quality_index(scale: f32) -> usize {
-    QUALITY.iter().enumerate().min_by(|a, b| (a.1 - scale).abs().total_cmp(&(b.1 - scale).abs())).map(|(i, _)| i).unwrap_or(2)
+fn quality_index(passes: u32, mvec: u32) -> usize {
+    QUALITY.iter().position(|q| *q == (passes, mvec)).unwrap_or(if passes >= 2 { 2 } else if mvec == 0 { 0 } else { 1 })
 }
 
 /// Кнопка в шапке: светится, пока включён хоть один фильтр.
@@ -157,13 +158,13 @@ fn load_card(st: St) -> W {
             Status::Off if st.sr.get() == crate::neural::Status::Off && st.rife.get() == crate::interp::Status::Off => (t!("Фильтры выключены — кадры идут как есть.").to_string(), None, false),
             Status::Off => (String::new(), None, false),
             Status::Starting => (t!("Готовлю модели…").to_string(), None, false),
-            Status::Active { total_ms, budget_ms, scale, .. } if budget_ms > 0.0 => {
+            Status::Active { total_ms, budget_ms, cut, .. } if budget_ms > 0.0 => {
                 let mut t = t!("Обработка кадра: {a} мс из {b} мс.", a = ms(total_ms), b = ms(budget_ms)).to_string();
-                if let Some(s) = scale {
+                if let Some(n) = cut {
                     t.push(' ');
-                    t.push_str(&t!("Чтобы успевать, DLSS 5 работает на {p}% разрешения.", p = format!("{:.0}", s * 100.0)));
+                    t.push_str(&t!("Чтобы успевать, DLSS 5 работает в 1 проход вместо {n}.", n = n));
                 }
-                (t, Some(total_ms / budget_ms), scale.is_some())
+                (t, Some(total_ms / budget_ms), cut.is_some())
             }
             Status::Active { total_ms, .. } => (t!("Обработка кадра: {a} мс.", a = ms(total_ms)).to_string(), None, false),
             Status::Slow { total_ms, budget_ms } => (
@@ -233,17 +234,18 @@ fn dlss_card(st: St) -> W {
             redraw_paused(st);
         })));
 
-        let q = quality_index(crate::dlss::profile_value("set_model_resolution").unwrap_or(1.0));
+        let q = quality_index(crate::dlss::profile_value("set_passes").unwrap_or(1.0) as u32, crate::dlss::profile_value("set_motion_quality").unwrap_or(1.0) as u32);
         rows.push(label(&t!("Качество")));
         rows.push(Box::new(
             SegmentedButton::new(vec![Segment::new(t!("Быстро")), Segment::new(t!("Баланс")), Segment::new(t!("Максимум"))])
                 .selected(q)
                 .on_change(move |i| {
-                    crate::dlss::set_profile(&[("set_model_resolution", QUALITY[i.min(2)].to_string())], false);
+                    let (passes, mvec) = QUALITY[i.min(2)];
+                    crate::dlss::set_profile(&[("set_passes", passes.to_string()), ("set_motion_quality", mvec.to_string()), ("set_model_resolution", "1".into())], true);
                     redraw_paused(st);
                 }),
         ));
-        rows.push(hint(&t!("Разрешение модели: 50, 75 или 100% кадра. Не успевает за роликом — плеер сам снижает его на время, без мигания.")));
+        rows.push(hint(&t!("Быстро и Баланс — один проход модели (отличается точность оценки движения), Максимум — два прохода, вдвое дороже: для 4K в 24 кадра/с хватает одного. Не успевает — плеер сам переходит на один проход, без мигания.")));
 
         let strength = use_signal(s.dlss_strength.min(100));
         rows.push(Box::new(
@@ -572,8 +574,9 @@ mod tests {
 
     #[test]
     fn quality_nearest() {
-        assert_eq!(quality_index(1.0), 2);
-        assert_eq!(quality_index(0.8), 1);
-        assert_eq!(quality_index(0.3), 0);
+        assert_eq!(quality_index(2, 2), 2);
+        assert_eq!(quality_index(1, 1), 1);
+        assert_eq!(quality_index(1, 0), 0);
+        assert_eq!(quality_index(3, 1), 2);
     }
 }

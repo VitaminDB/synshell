@@ -21,9 +21,9 @@ pub enum Status {
     Off,
     /// Ждём помощник или сборку модели.
     Starting,
-    /// Кадры идут через модель; `scale` — доля разрешения модели, если плеер снизил его, чтобы
-    /// успевать (`None` — как в профиле); `budget_ms` — время кадра ролика.
-    Active { total_ms: f32, helper_ms: f32, fps: f32, size: (u32, u32), scale: Option<f32>, budget_ms: f32 },
+    /// Кадры идут через модель; `cut` — сколько проходов в профиле, если плеер снизил их до одного,
+    /// чтобы успевать (`None` — как в профиле); `budget_ms` — время кадра ролика.
+    Active { total_ms: f32, helper_ms: f32, fps: f32, size: (u32, u32), cut: Option<u32>, budget_ms: f32 },
     /// Модель не успевает даже на самом низком разрешении: кадры идут как есть, без мигания,
     /// следующая попытка — после перемотки или через [`SLOW_RETRY`].
     Slow { total_ms: f32, budget_ms: f32 },
@@ -31,14 +31,15 @@ pub enum Status {
     Bypass(FrameError),
 }
 
-/// Ступени разрешения модели (доля от выбранного в профиле), когда она не успевает за роликом.
-const AUTO_STEPS: [f32; 4] = [1.0, 0.75, 0.5, 0.35];
-/// Время модели больше этой доли времени кадра — не успевает (нужен запас на копирование и показ).
-const BUDGET: f32 = 0.85;
-/// Меньше этой доли — можно поднять разрешение обратно.
+// Ступени: 0 — проходы из профиля, 1 — один проход (если в профиле больше).
+/// Время кадра через DLSS больше этой доли времени кадра ролика — не успевает. Фильтр работает в своём
+/// потоке параллельно декодеру, поэтому почти весь кадр — его.
+const BUDGET: f32 = 0.95;
+/// Меньше этой доли — можно вернуть проходы профиля.
 const HEADROOM: f32 = 0.5;
-/// Не менять ступень чаще: модель после смены разрешения пару кадров дольше.
-const STEP_HOLD: Duration = Duration::from_millis(1500);
+/// Не менять ступень чаще и не решать раньше: модель после пересборки пару кадров дольше, ноутбучная
+/// карта на первых кадрах ещё на низких частотах.
+const STEP_HOLD: Duration = Duration::from_millis(2500);
 /// Через сколько снова пробовать модель после «не успевает».
 const SLOW_RETRY: Duration = Duration::from_secs(20);
 
@@ -49,21 +50,24 @@ struct Pace {
     last_pts: Option<f64>,
     /// Время кадра через модель (сглаженное), мс.
     cost_ms: f32,
-    /// Ступень `AUTO_STEPS`.
+    /// Ступень: 0 — как в профиле, 1 — один проход.
     step: usize,
+    /// Последняя доступная ступень (0 — в профиле и так один проход).
+    max_step: usize,
     changed: Instant,
     /// Модель не успевает: с какого момента кадры идут мимо неё и на какой перемотке.
     slow: Option<(Instant, u64, f32)>,
     /// Таймауты подряд: их считаем как «не успевает».
     timeouts: u32,
-    /// Время кадра до последнего снижения разрешения: не стало заметно быстрее — время уходит не на
-    /// модель (копирование кадров), снижать дальше бессмысленно.
+    /// Время кадра до последнего снижения: не стало заметно быстрее — снижать дальше бессмысленно.
     before_step: f32,
+    /// Время кадра за последние кадры: медиана не боится одиночных выбросов (декодер, перерисовка).
+    recent: std::collections::VecDeque<f32>,
 }
 
 impl Pace {
     fn new() -> Self {
-        Self { period_ms: 0.0, last_pts: None, cost_ms: 0.0, step: 0, changed: Instant::now(), slow: None, timeouts: 0, before_step: 0.0 }
+        Self { period_ms: 0.0, last_pts: None, cost_ms: 0.0, step: 0, max_step: 0, changed: Instant::now(), slow: None, timeouts: 0, before_step: 0.0, recent: std::collections::VecDeque::new() }
     }
 
     fn budget(&self) -> f32 {
@@ -83,7 +87,13 @@ impl Pace {
 
     fn note_cost(&mut self, ms: f32) {
         self.timeouts = 0;
-        self.cost_ms = if self.cost_ms == 0.0 { ms } else { self.cost_ms * 0.8 + ms * 0.2 };
+        self.recent.push_back(ms);
+        if self.recent.len() > 36 {
+            self.recent.pop_front();
+        }
+        let mut v: Vec<f32> = self.recent.iter().copied().collect();
+        v.sort_by(f32::total_cmp);
+        self.cost_ms = v[v.len() / 2];
     }
 
     /// Новая ступень, если пора её сменить: `Some(step)`.
@@ -92,7 +102,7 @@ impl Pace {
             return None;
         }
         let budget = self.budget();
-        let next = if self.cost_ms > budget && self.step + 1 < AUTO_STEPS.len() {
+        let next = if self.cost_ms > budget && self.step < self.max_step {
             self.before_step = self.cost_ms;
             self.step + 1
         } else if self.cost_ms < self.period_ms * HEADROOM && self.step > 0 {
@@ -104,15 +114,16 @@ impl Pace {
         self.changed = Instant::now();
         // время на новой ступени ещё не известно
         self.cost_ms = 0.0;
+        self.recent.clear();
         Some(next)
     }
 
-    /// Не успевает и снижать разрешение дальше нечего или бесполезно (стало быстрее меньше чем на 10%).
+    /// Не успевает и снижать дальше нечего или бесполезно (стало быстрее меньше чем на 10%).
     fn hopeless(&self) -> bool {
         if self.period_ms == 0.0 || self.cost_ms == 0.0 || self.changed.elapsed() < STEP_HOLD || self.cost_ms <= self.budget() {
             return false;
         }
-        self.step + 1 == AUTO_STEPS.len() || (self.step > 0 && self.cost_ms > self.before_step * 0.9)
+        self.step == self.max_step || (self.step > 0 && self.cost_ms > self.before_step * 0.9)
     }
 }
 
@@ -193,7 +204,7 @@ impl DlssFilter {
     pub fn release(&self) {
         let mut gate = self.gate.lock().unwrap();
         *gate = false;
-        self.client.set_auto_scale(None);
+        self.client.set_auto_passes(None);
         *self.pace.lock().unwrap() = Pace::new();
         self.client.release();
     }
@@ -208,7 +219,7 @@ impl DlssFilter {
         // выбранное разрешение — новая точка отсчёта подстройки
         let mut p = self.pace.lock().unwrap();
         if p.step != 0 || p.slow.is_some() {
-            self.client.set_auto_scale(None);
+            self.client.set_auto_passes(None);
             *p = Pace::new();
         }
     }
@@ -260,31 +271,37 @@ impl DlssFilter {
         p.slow = None;
         p.changed = Instant::now();
         p.cost_ms = 0.0;
+        p.recent.clear();
         false
     }
 
-    /// После кадра: подстроить разрешение модели под время кадра ролика.
-    fn pace_after(&self, generation: u64) -> Option<f32> {
+    /// После кадра: подстроить проходы модели под время кадра ролика. `Some(n)` — снижено с n проходов.
+    fn pace_after(&self, generation: u64) -> Option<u32> {
         let mut p = self.pace.lock().unwrap();
-        if p.hopeless() || p.timeouts >= 3 && p.step + 1 == AUTO_STEPS.len() {
+        let base = self.client.profile_passes();
+        if p.step == 0 {
+            p.max_step = usize::from(base > 1);
+        }
+        if p.hopeless() || p.timeouts >= 3 && p.step == p.max_step {
             tracing::info!("DLSS 5: модель не успевает ({:.1} мс при кадре {:.1} мс) — кадры как есть", p.cost_ms, p.period_ms);
             p.slow = Some((Instant::now(), generation, p.cost_ms));
-            // кадры пойдут мимо модели — разрешение вернуть выбранное, следующая попытка начнёт с него
+            // кадры пойдут мимо модели — проходы вернуть выбранные, следующая попытка начнёт с них
             p.step = 0;
-            self.client.set_auto_scale(None);
+            self.client.set_auto_passes(None);
             return None;
         }
-        if p.timeouts >= 3 && p.step + 1 < AUTO_STEPS.len() {
+        if p.timeouts >= 3 && p.step < p.max_step {
             // таймауты подряд — то же «не успевает»
             p.cost_ms = f32::MAX;
             p.changed = Instant::now() - STEP_HOLD;
         }
         if let Some(step) = p.adjust() {
-            let f = AUTO_STEPS[step];
-            tracing::info!("DLSS 5: разрешение модели ×{f} (кадр {:.1} мс)", p.period_ms);
-            self.client.set_auto_scale(if step == 0 { None } else { Some(f) });
+            tracing::info!("DLSS 5: {} (кадр {:.1} мс)", if step == 0 { format!("снова {base} прохода") } else { format!("1 проход вместо {base}") }, p.period_ms);
+            // проходы читаются при сборке функции — следующему кадру дать время на пересборку
+            *self.warm.lock().unwrap() = None;
+            self.client.set_auto_passes(if step == 0 { None } else { Some(1) });
         }
-        (p.step > 0).then(|| AUTO_STEPS[p.step])
+        (p.step > 0).then_some(base)
     }
 }
 
@@ -329,9 +346,9 @@ impl FrameFilter for DlssFilter {
                 if !first {
                     self.pace.lock().unwrap().note_cost(t.total_ms);
                 }
-                let scale = self.pace_after(f.seek_generation);
+                let cut = self.pace_after(f.seek_generation);
                 let budget_ms = self.pace.lock().unwrap().period_ms;
-                self.set_status(Status::Active { total_ms: t.total_ms, helper_ms: t.helper_ms, fps, size, scale, budget_ms });
+                self.set_status(Status::Active { total_ms: t.total_ms, helper_ms: t.helper_ms, fps, size, cut, budget_ms });
             }
             (Ok(_), None) => {}
             (Err(e), _) => {
@@ -574,6 +591,7 @@ mod tests {
     #[test]
     fn pace_steps_down_and_up() {
         let mut p = Pace::new();
+        p.max_step = 1;
         for i in 0..20 {
             p.note_pts(i as f64 / 24.0); // ~41,7 мс
         }
@@ -584,12 +602,13 @@ mod tests {
         p.changed = Instant::now() - STEP_HOLD;
         p.note_cost(10.0);
         assert_eq!(p.adjust(), Some(0));
-        p.step = AUTO_STEPS.len() - 1;
+        p.step = p.max_step;
         p.changed = Instant::now() - STEP_HOLD;
         p.note_cost(80.0);
         assert!(p.hopeless());
         // снизили, а быстрее не стало — дальше не снижать
         let mut p = Pace::new();
+        p.max_step = 1;
         for i in 0..20 {
             p.note_pts(i as f64 / 24.0);
         }

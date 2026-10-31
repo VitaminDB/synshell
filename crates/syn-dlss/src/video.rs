@@ -78,8 +78,8 @@ pub struct VideoClient {
 struct ClientState {
     frames: u64,
     claimed: bool,
-    /// Разрешение модели из профиля, пока плеер временно его снизил.
-    base_scale: Option<u32>,
+    /// Проходы из профиля, пока плеер временно их снизил.
+    base_passes: Option<u32>,
 }
 
 impl VideoClient {
@@ -252,7 +252,7 @@ impl VideoClient {
             st.claimed = false;
             let h = self.header();
             self.claimed_flag.store(false, SC);
-            self.leave_video_profile(st.base_scale.take());
+            self.leave_video_profile(st.base_passes.take());
             if h.layer_pid.compare_exchange(self.pid, 0, SC, SC).is_ok() {
                 h.layer_composition_up.store(0, SC);
                 store_string(&h.game_name_seq, &h.game_name, "");
@@ -269,16 +269,16 @@ impl VideoClient {
         crate::config::apply_if_changed(self.header(), &crate::config::video_profile());
     }
 
-    fn leave_video_profile(&self, base_scale: Option<u32>) {
+    fn leave_video_profile(&self, base_passes: Option<u32>) {
         let lock = paths::video_lock();
         let ours = std::fs::read_to_string(&lock).ok().and_then(|s| s.trim().parse::<u32>().ok()) == Some(self.pid);
         if !ours {
             return;
         }
         let h = self.header();
-        if let Some(raw) = base_scale {
-            // разрешение модели снижали, чтобы успевать — в профиль идёт выбранное пользователем
-            h.working_scale_bits.store(raw, SC);
+        if let Some(n) = base_passes {
+            // проходы снижали, чтобы успевать — в профиль идёт выбранное пользователем
+            h.passes.store(n, SC);
         }
         crate::config::save_video_profile(h);
         let _ = std::fs::remove_file(&lock);
@@ -300,27 +300,33 @@ impl VideoClient {
         }
     }
 
-    /// Разрешение модели на ходу, без записи в профиль: плеер снижает его (`factor` — доля от
-    /// выбранного в профиле), когда модель не успевает за роликом. `None` — вернуть выбранное.
-    pub fn set_auto_scale(&self, factor: Option<f32>) {
+    /// Проходы модели на ходу, без записи в профиль: плеер снижает их до `n`, когда модель не
+    /// успевает за роликом (время модели растёт с числом проходов почти линейно; разрешение модели на
+    /// скорость не влияет). `None` — вернуть выбранное.
+    pub fn set_auto_passes(&self, n: Option<u32>) {
         let Ok(mut st) = self.state.lock() else { return };
         if !st.claimed {
             return;
         }
         let h = self.header();
-        match factor {
-            Some(f) => {
-                let base = *st.base_scale.get_or_insert_with(|| h.working_scale_bits.load(SC));
-                // меньше 25% помощник не берёт
-                h.working_scale_bits.store(shm::f2b((shm::b2f(base) * f).max(0.25)), SC);
+        match n {
+            Some(n) => {
+                st.base_passes.get_or_insert_with(|| h.passes.load(SC));
+                h.passes.store(n.max(1), SC);
             }
-            None => {
-                if let Some(raw) = st.base_scale.take() {
-                    h.working_scale_bits.store(raw, SC);
-                }
-            }
+            None => match st.base_passes.take() {
+                Some(b) => h.passes.store(b, SC),
+                None => return,
+            },
         }
         h.control_seq.fetch_add(1, SC);
+        h.tuning_seq.fetch_add(1, SC);
+    }
+
+    /// Проходы, выбранные в профиле (не сниженные плеером).
+    pub fn profile_passes(&self) -> u32 {
+        let st = self.state.lock().map(|s| s.base_passes).ok().flatten();
+        st.unwrap_or_else(|| self.header().passes.load(SC)).max(1)
     }
 }
 

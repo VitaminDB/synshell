@@ -166,10 +166,10 @@ fn dlss_chip(s: &crate::dlss::Status) -> Option<W> {
     let (text, class, tip) = match s {
         Status::Off => return None,
         Status::Starting => (t!("DLSS 5 · запуск…").to_string(), "chip-mode chip-mode-wait", t!("Помощник DLSS 5 готовит модель").to_string()),
-        Status::Active { total_ms, fps, size, scale: Some(sc), .. } => (
-            t!("DLSS 5 · {ms} мс · {p}%", ms = format!("{total_ms:.0}"), p = format!("{:.0}", sc * 100.0)),
+        Status::Active { total_ms, fps, size, cut: Some(n), .. } => (
+            t!("DLSS 5 · {ms} мс · 1 проход", ms = format!("{total_ms:.0}")),
             "chip-mode chip-mode-dlss",
-            t!("Кадры {w}×{h} идут через DLSS 5 на {p}% разрешения модели, чтобы успевать: {ms} мс на кадр, {fps} кадр/с", w = size.0, h = size.1, p = format!("{:.0}", sc * 100.0), ms = format!("{total_ms:.1}"), fps = format!("{fps:.0}")),
+            t!("Кадры {w}×{h} идут через DLSS 5 в 1 проход вместо {n}, чтобы успевать: {ms} мс на кадр, {fps} кадр/с", w = size.0, h = size.1, n = n, ms = format!("{total_ms:.1}"), fps = format!("{fps:.0}")),
         ),
         Status::Active { total_ms, fps, size, .. } => (
             t!("DLSS 5 · {ms} мс", ms = format!("{total_ms:.0}")),

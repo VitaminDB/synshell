@@ -307,3 +307,7 @@
 "Модели RIFE не установлены" = "No RIFE models installed"
 "Плавность: {f} кадров/с, {a} мс на исходный кадр." = "Smoothness: {f} fps, {a} ms per source frame."
 "Плавность не успевает: {a} мс при кадре {b} мс." = "Smoothness can't keep up: {a} ms for a {b} ms frame."
+"Быстро и Баланс — один проход модели (отличается точность оценки движения), Максимум — два прохода, вдвое дороже: для 4K в 24 кадра/с хватает одного. Не успевает — плеер сам переходит на один проход, без мигания." = "Fast and Balanced — one model pass (they differ in motion estimate accuracy), Maximum — two passes, twice the cost: one is enough for 4K at 24 fps. If it can't keep up, the player switches to one pass by itself, without flicker."
+"Чтобы успевать, DLSS 5 работает в 1 проход вместо {n}." = "To keep up, DLSS 5 runs in 1 pass instead of {n}."
+"DLSS 5 · {ms} мс · 1 проход" = "DLSS 5 · {ms} ms · 1 pass"
+"Кадры {w}×{h} идут через DLSS 5 в 1 проход вместо {n}, чтобы успевать: {ms} мс на кадр, {fps} кадр/с" = "{w}×{h} frames go through DLSS 5 in 1 pass instead of {n} to keep up: {ms} ms per frame, {fps} fps"
