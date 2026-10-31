@@ -1286,6 +1286,11 @@ impl Element for PageElement {
     fn element_type_name(&self) -> &str {
         "reader-page"
     }
+    /// Палец ведёт страницу как мышь: свайп листает, тап и удержание
+    /// разбирает сама страница (по времени и смещению).
+    fn drags_with_touch(&self, pos: Point) -> bool {
+        self.bounds.contains(pos)
+    }
     fn set_classes(&mut self, c: Vec<String>) {
         self.classes = c;
     }

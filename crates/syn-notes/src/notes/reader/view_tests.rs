@@ -215,3 +215,23 @@ fn pdf_pages_render_and_turn() {
     assert_eq!(hits[0].loc, Location::Pdf { page: 2 });
     assert_eq!(f.r.book().unwrap().toc().len(), 3);
 }
+
+#[test]
+fn finger_swipe_turns_one_page() {
+    let mut f = Fixture::new("книга.txt", long_txt());
+    let start = f.pos();
+    // Палец (не мышь и не перо): касание, движение влево, отпускание.
+    f.h.touch_down(1, Point::new(420.0, 400.0));
+    for x in [380.0, 320.0, 260.0, 200.0] {
+        f.h.touch_move(1, Point::new(x, 404.0));
+    }
+    f.h.touch_up(1);
+    f.settle();
+    let p1 = f.pos();
+    assert!(p1.pos() > start.pos(), "свайп пальцем не листает: {p1:?}");
+    // Тап пальцем справа — тоже вперёд, ровно на страницу.
+    f.h.touch_down(2, Point::new(560.0, 400.0));
+    f.h.touch_up(2);
+    f.settle();
+    assert!(f.pos().pos() > p1.pos(), "тап пальцем не листает");
+}
