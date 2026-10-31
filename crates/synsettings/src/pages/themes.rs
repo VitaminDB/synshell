@@ -335,7 +335,7 @@ pub fn themes() -> W {
                 &t!("Вариант"),
                 if single { t!("У этой темы один вариант") } else { t!("Тёмный или светлый вариант темы") },
                 SegmentedButton::new(vec![t!("Тёмный"), t!("Светлый")]).selected(scheme_idx).on_change(|i| {
-                    set(&op!["appearance", "color_scheme"], if i == 0 { "dark" } else { "light" });
+                    set_color_scheme(i == 0);
                     state::bump();
                 }),
             ),

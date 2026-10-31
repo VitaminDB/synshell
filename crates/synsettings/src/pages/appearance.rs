@@ -168,7 +168,7 @@ pub fn appearance() -> W {
                         &t!("Цветовая схема"),
                         "",
                         SegmentedButton::new(vec![t!("Тёмная"), t!("Светлая")]).selected(scheme_idx).on_change(|i| {
-                            set(&op!["appearance", "color_scheme"], if i == 0 { "dark" } else { "light" });
+                            set_color_scheme(i == 0);
                         }),
                     ),
                     row_wide(t!("Акцентный цвет"), t!("Кнопки, выделение, активные элементы"), swatches),

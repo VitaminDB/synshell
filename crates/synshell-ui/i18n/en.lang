@@ -596,6 +596,11 @@
 "нет акселерометра" = "no accelerometer"
 
 # src/shade.rs
+"Цветной" = "Color"
+"Монохром" = "Mono"
+"Режим E Ink" = "E Ink mode"
+"Очистить экран" = "Clear screen"
+"Убрать следы" = "Remove ghosting"
 "{n} уведомление".one = "{n} notification"
 "{n} уведомление".other = "{n} notifications"
 "Мобильная связь" = "Mobile network"

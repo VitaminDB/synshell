@@ -267,10 +267,67 @@ fn brightness_group(c: &synshell_common::Config) -> Option<W> {
     ))
 }
 
+/// Раздел «Экран E Ink» (только на E Ink с каталогом управления драйвера): цвет/монохром
+/// (цветная панель), режим обновления, полная очистка. Значение — из драйвера (что на экране
+/// сейчас); выбор пишется сразу в драйвер и в `[eink]` — его synwm применяет при старте сеанса.
+fn eink_group() -> Option<W> {
+    use synshell_common::display::{self, Eink, UpdateMode};
+    let kind = display::display_kind();
+    if !kind.is_eink() {
+        return None;
+    }
+    let e = Eink::find()?;
+    let sysfs = |f: Box<dyn FnOnce(&Eink) -> std::io::Result<()> + Send>| {
+        std::thread::spawn(move || {
+            if let Some(e) = Eink::find() {
+                if let Err(err) = f(&e) {
+                    syngui::async_runtime::run_on_main_thread(move || state::toast(t!("Экран E Ink: {e}", e = err)));
+                }
+            }
+        });
+    };
+    // сначала выбор из конфига: запись в драйвер идёт в фоне и после правки может не успеть
+    let cfg = store::config().eink;
+    let mut rows: Vec<W> = Vec::new();
+    if let display::DisplayKind::EinkColor { panel } = &kind {
+        let on = cfg.color.or_else(|| e.color()).unwrap_or(false);
+        rows.push(row_inline(
+            t!("Цветной вывод"),
+            t!("Панель {p}: цветной фильтр поверх ч/б E Ink; выключено — монохром, чётче текст", p = panel),
+            Toggle::with_state(on).on_change(move |v| {
+                sysfs(Box::new(move |e| e.set_color(v)));
+                set(&op!["eink", "color"], v);
+            }),
+        ));
+    }
+    let cur = cfg.update_mode.or_else(|| e.update_mode()).unwrap_or(UpdateMode::Quality);
+    let mut dd = Dropdown::new().width(220.0);
+    for m in UpdateMode::ALL {
+        dd = dd.item(DropdownItem::new(m.as_str(), m.title()));
+    }
+    let dd = dd.selected(cur.as_str()).on_change(move |v: &str| {
+        if let Some(m) = UpdateMode::from_name(v) {
+            sysfs(Box::new(move |e| e.set_update_mode(m)));
+            set(&op!["eink", "update_mode"], m.as_str());
+            state::bump();
+        }
+    });
+    rows.push(row(t!("Режим обновления"), cur.hint(), dd));
+    rows.push(row_inline(
+        t!("Очистить экран"),
+        t!("Полное обновление — убирает следы прошлых картинок"),
+        button(&t!("Очистить"), move || sysfs(Box::new(|e| e.refresh()))),
+    ));
+    Some(group(&t!("Экран E Ink"), rows))
+}
+
 pub fn displays() -> W {
     let c = store::config();
     let live = sys::outputs();
     let mut body: Vec<W> = Vec::new();
+    if let Some(g) = eink_group() {
+        body.push(g);
+    }
     if let Some(g) = brightness_group(&c) {
         body.push(g);
     }

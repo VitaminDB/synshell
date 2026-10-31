@@ -458,6 +458,7 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
                 rev.set(rev.get_untracked() + 1);
             }));
         }
+        grid = eink_tiles(grid, rev);
         grid = if ctx.is_phone() {
             // Экранный ввод приложения в фокусе: клавиатура, контроллер или ничего.
             let _ = ctx.focused.get();
@@ -495,6 +496,63 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
             }));
         Box::new(grid)
     })
+}
+
+// ─── Экран E Ink ─────────────────────────────────────────────────────────────
+
+const GLYPH_COLOR: &str = "\u{E40A}"; // palette
+const GLYPH_MONO: &str = "\u{E3DB}"; // filter_b_and_w
+const GLYPH_SPEED: &str = "\u{E9E4}"; // speed
+const GLYPH_REFRESH: &str = "\u{E5D5}"; // refresh
+
+/// Плитки экрана E Ink (только на E Ink): цвет/монохром (цветная панель), режим обновления
+/// по кругу, полная очистка. Состояние — из sysfs драйвера; выбор пишется сразу в драйвер
+/// и в `[eink]` (synwm применит его при следующем старте сеанса).
+fn eink_tiles(mut grid: Grid, rev: RwSignal<u32>) -> Grid {
+    use synshell_common::display::{self, Eink};
+    let kind = display::display_kind();
+    if !kind.is_eink() {
+        return grid;
+    }
+    let Some(e) = Eink::find() else { return grid };
+    // запись в sysfs — в фоне (драйвер может перерисовать экран), потом пересборка плиток
+    let write = move |f: Box<dyn FnOnce(&Eink) -> std::io::Result<()> + Send>| {
+        std::thread::spawn(move || {
+            if let Some(e) = Eink::find() {
+                if let Err(err) = f(&e) {
+                    log::warn!("экран E Ink: {err}");
+                }
+            }
+            syngui::async_runtime::run_on_main_thread(move || rev.set(rev.get_untracked() + 1));
+        });
+    };
+    if kind.is_color_eink() {
+        let on = e.color().unwrap_or(false);
+        let (glyph, state) = if on { (GLYPH_COLOR, t!("Цветной")) } else { (GLYPH_MONO, t!("Монохром")) };
+        grid = grid.child(tile(glyph, t!("Цвет").into(), state.into(), on, move || {
+            write(Box::new(move |e| e.set_color(!on)));
+            if let Err(err) = synshell_common::config_edit::set_value(&["eink", "color"], toml_edit::Value::from(!on)) {
+                log::warn!("[eink] color: {err:#}");
+            }
+        }));
+    }
+    if let Some(mode) = e.update_mode() {
+        grid = grid.child(tile(GLYPH_SPEED, t!("Режим E Ink").into(), mode.title(), false, move || {
+            let next = mode.next();
+            write(Box::new(move |e| e.set_update_mode(next)));
+            if let Err(err) = synshell_common::config_edit::set_value(&["eink", "update_mode"], toml_edit::Value::from(next.as_str())) {
+                log::warn!("[eink] update_mode: {err:#}");
+            }
+        }));
+    }
+    grid.child(tile(GLYPH_REFRESH, t!("Очистить экран").into(), t!("Убрать следы").into(), false, move || {
+        close();
+        // очистка — когда шторка уже ушла с экрана
+        syngui_layer::add_timer(std::time::Duration::from_millis(450), move || {
+            write(Box::new(|e| e.refresh()));
+            None
+        });
+    }))
 }
 
 // ─── Открытые приложения ─────────────────────────────────────────────────────

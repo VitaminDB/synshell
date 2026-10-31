@@ -58,6 +58,13 @@ pub fn set(p: &[O], v: impl Into<toml_edit::Value>) {
     store::set(&segs(p), v);
 }
 
+/// Цветовая схема, выбранная пользователем: с признаком `color_scheme_chosen` — иначе на
+/// экране E Ink умолчание (светлая) перекрыло бы выбор.
+pub fn set_color_scheme(dark: bool) {
+    set(&crate::op!["appearance", "color_scheme"], if dark { "dark" } else { "light" });
+    set(&crate::op!["appearance", "color_scheme_chosen"], true);
+}
+
 pub fn unset(p: &[O]) {
     store::remove(&segs(p));
 }

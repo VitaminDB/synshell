@@ -681,7 +681,7 @@
 "сочетания горячие клавиши действия hotkeys" = "shortcuts hotkeys keys actions hotkeys"
 "указатель ускорение прокрутка естественная касание тачпад левша" = "pointer acceleration scrolling natural tap touchpad left-handed"
 "Мониторы" = "Displays"
-"экран разрешение частота масштаб поворот положение vrr основной яркость ниты подсветка" = "screen resolution refresh rate scale rotation position vrr primary brightness nits backlight"
+"экран разрешение частота масштаб поворот положение vrr основной яркость ниты подсветка e ink eink электронные чернила цвет монохром режим обновления a2 очистить призраки" = "screen resolution refresh rate scale rotation position vrr primary brightness nits backlight e ink eink electronic paper color monochrome refresh mode a2 clear ghosting"
 "беспроводная сеть интернет пароль подключение iwd networkmanager точка доступа" = "wireless network internet password connection iwd networkmanager hotspot access point"
 "громкость динамик наушники гарнитура микрофон вывод ввод устройство программы dolby atmos профиль музыка кино pipewire" = "volume speaker headphones headset microphone output input device apps dolby atmos profile music movie pipewire"
 "наушники колонка сопряжение устройство клавиатура мышь bluez" = "headphones speaker pairing device keyboard mouse bluez"
@@ -1348,6 +1348,14 @@
 "Аккумулятор, частота процессора, гашение экрана и сон." = "Battery, CPU frequency, screen blanking and sleep."
 
 # src/pages/system.rs
+"Экран E Ink" = "E Ink screen"
+"Экран E Ink: {e}" = "E Ink screen: {e}"
+"Цветной вывод" = "Color output"
+"Панель {p}: цветной фильтр поверх ч/б E Ink; выключено — монохром, чётче текст" = "{p} panel: color filter over black-and-white E Ink; off — monochrome, sharper text"
+"Режим обновления" = "Refresh mode"
+"Очистить экран" = "Clear screen"
+"Полное обновление — убирает следы прошлых картинок" = "Full refresh — removes ghosting of previous images"
+"Очистить" = "Clear"
 "Смахнуть, чтобы закрыть" = "Swipe to dismiss"
 "Куда вести карточку пальцем — во всплывающих и в шторке" = "Which way to swipe a card — in popups and in the shade"
 "Влево или вправо" = "Left or right"
