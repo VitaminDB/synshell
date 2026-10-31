@@ -135,6 +135,10 @@ fn run_greeter() {
     if let Err(e) = synshell_common::rotation_state::ensure_system_file() {
         log::warn!("файл ориентации экрана: {e}");
     }
+    // И последние режимы экрана E Ink: экран входа без своего [eink] ставит их.
+    if let Err(e) = synshell_common::eink_state::ensure_system_file() {
+        log::warn!("файл режимов E Ink: {e}");
+    }
     let _ = std::fs::remove_file(REQUEST);
     let rt = "/run/synlogin/greeter";
     let _ = std::fs::create_dir_all(rt);

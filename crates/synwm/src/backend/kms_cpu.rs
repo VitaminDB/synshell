@@ -462,6 +462,10 @@ pub fn scan_connectors(state: &mut State) {
         state.core.output_data.entry(output.clone()).or_default().redraw = RedrawState::Queued;
         added = true;
     }
+    if added {
+        // Вывод создан с transform из `[[output]]`; ориентация с прошлого запуска — тем же путём, что `rotate`.
+        state.apply_restored_rotation();
+    }
     if added || !removed.is_empty() {
         state.outputs_changed();
         state.core.queue_redraw_all();
