@@ -57,6 +57,19 @@ impl LivePage {
     }
 }
 
+/// Живое содержимое страниц-не-документов (рукописи, книги) — ставят их
+/// модули: несохранённые правки для копии страницы, забыть при удалении.
+pub struct PageData {
+    pub bytes: fn(NotesCtx, PageKind, &str) -> Option<Vec<u8>>,
+    pub forget: fn(&str),
+}
+
+static PAGE_DATA: std::sync::OnceLock<PageData> = std::sync::OnceLock::new();
+
+pub fn set_page_data(d: PageData) {
+    let _ = PAGE_DATA.set(d);
+}
+
 /// Виды объектов-примитивов (`![[<kind>:<id>]]`).
 pub const OBJECT_KINDS: [&str; 5] = ["kanban", "gantt", "mindmap", "calendar", "chart"];
 
@@ -542,7 +555,7 @@ impl NotesCtx {
                 .or(parent.clone())
                 .or_else(|| tree.roots.iter().map(|n| n.id.clone()).find(|i| !doomed.contains(i)))
         };
-        drop(tree);
+        let tree_kinds = tree;
         self.activity().record(
             LogEntry::now("page", "delete")
                 .item(id.to_string())
@@ -550,6 +563,12 @@ impl NotesCtx {
                 .from_to(if doomed.len() > 1 { format!("{} sub-pages", doomed.len() - 1) } else { String::new() }, String::new()),
         );
         for pid in &doomed {
+            if let Some(path) = project::page_object_path(tree_kinds.kind_of(pid), pid) {
+                autosave::queue_remove(&path);
+                if let Some(f) = PAGE_DATA.get() {
+                    (f.forget)(pid);
+                }
+            }
             let md = self.page_markdown(pid);
             for (kind, oid) in object_refs(&md) {
                 let path = project::object_path(&kind, &oid);
@@ -592,11 +611,19 @@ impl NotesCtx {
         let node = tree.find(id).cloned()?;
         let parent = tree.parent_of(id);
         let idx = tree.index_in_parent(id).unwrap_or(0);
-        drop(tree);
         let mut map: Vec<(String, String)> = Vec::new();
         let mut copy = project::clone_subtree(&node, &mut map);
         copy.title = self.unique_title(parent.as_deref(), &format!("{} (копия)", node.title));
         for (old, new) in &map {
+            // Содержимое блокнота/книги — копия объекта под новым id.
+            let kind = tree.kind_of(old);
+            if let Some(src) = project::page_object_path(kind, old) {
+                let live = PAGE_DATA.get().and_then(|f| (f.bytes)(*self, kind, old));
+                let bytes = live.or_else(|| project::read_bytes(&self.project_path.get_untracked(), &src));
+                if let (Some(bytes), Some(dst)) = (bytes, project::page_object_path(kind, new)) {
+                    autosave::queue_bytes(&dst, bytes);
+                }
+            }
             let mut md = self.page_markdown(old);
             for (kind, oid) in object_refs(&md) {
                 let new_oid = project::new_id();
@@ -615,6 +642,7 @@ impl NotesCtx {
             }
             autosave::queue_bytes(&project::page_path(new), md.into_bytes());
         }
+        drop(tree);
         let new_id = copy.id.clone();
         self.edit_tree(|t| {
             t.insert(parent.as_deref(), Some(idx + 1), copy);

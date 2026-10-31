@@ -455,6 +455,16 @@ pub fn object_path(kind: &str, id: &str) -> String {
     format!("{OBJECTS_DIR}/{id}.{kind}.json")
 }
 
+/// Объект с содержимым страницы не-документа: рукописи — `<id>.ink`,
+/// книги — `<id>.book.json` (файл книги — вложение, на него ссылается объект).
+pub fn page_object_path(kind: PageKind, id: &str) -> Option<String> {
+    match kind {
+        PageKind::Notebook | PageKind::Drawing => Some(format!("{OBJECTS_DIR}/{id}.ink")),
+        PageKind::Book => Some(format!("{OBJECTS_DIR}/{id}.book.json")),
+        PageKind::Doc | PageKind::Folder => None,
+    }
+}
+
 pub fn asset_path(name: &str) -> String {
     format!("{ASSETS_DIR}/{name}")
 }
