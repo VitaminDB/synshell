@@ -623,21 +623,23 @@ impl State {
         // Все поверхности слоя сверху вниз, а не только верхняя по рамке:
         // у дока область ввода — полоса значков, над ней (запас под
         // увеличение) указатель должен доходить до поверхностей и окон ниже.
-        let layer_hit = |layer: Layer| -> Option<Under> {
-            layers.layers_on(layer).rev().find_map(|l| {
+        let layer_hit_where = |layer: Layer, only_osk: bool| -> Option<Under> {
+            layers.layers_on(layer).rev().filter(|l| !only_osk || crate::ipc::is_osk_namespace(l.namespace())).find_map(|l| {
                 let lg = layers.layer_geometry(l)?;
                 let (s, loc) = l.surface_under(rel - lg.loc.to_f64(), WindowSurfaceType::ALL)?;
                 Some(Under::Surface(FocusTarget(s), (loc + lg.loc + output_geo.loc).to_f64()))
             })
         };
+        let layer_hit = |layer: Layer| layer_hit_where(layer, false);
         if let Some(u) = layer_hit(Layer::Overlay) {
             return u;
         }
+        // Окно во весь экран закрывает слои top, кроме экранной клавиатуры: она рисуется поверх
+        // него (render.rs) — и касания по ней её, а не окна (иначе касание клавиши шло в окно мимо
+        // поля ввода, поле теряло фокус, клавиатура пряталась).
         let fullscreen_on_top = self.fullscreen_on_output(&output).is_some();
-        if !fullscreen_on_top {
-            if let Some(u) = layer_hit(Layer::Top) {
-                return u;
-            }
+        if let Some(u) = layer_hit_where(Layer::Top, fullscreen_on_top) {
+            return u;
         }
 
         // Окна сверху вниз. Уменьшенный стол (щипок) рисует окна не там, где
