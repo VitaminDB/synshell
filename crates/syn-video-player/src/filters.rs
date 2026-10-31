@@ -31,7 +31,7 @@ fn quality_index(scale: f32) -> usize {
 /// Кнопка в шапке: светится, пока включён хоть один фильтр.
 pub fn button(st: St) -> W {
     Box::new(Reactive::new(move || -> Vec<W> {
-        let on = st.settings.with(|s| s.dlss);
+        let on = st.settings.with(|s| s.dlss || s.sr);
         vec![Box::new(
             ToolButton::new(icons::TUNE)
                 .tooltip(t!("Фильтры: DLSS 5 и нейросети"))
@@ -90,6 +90,7 @@ pub fn panel(st: St) -> W {
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .child(load_card(st))
             .child(dlss_card(st))
+            .child(sr_card(st))
             .child(compare_card(st))
             .class("set-body");
         let panel = Column::new()
@@ -152,7 +153,8 @@ fn ms(v: f32) -> String {
 fn load_card(st: St) -> W {
     Box::new(Reactive::new(move || -> Vec<W> {
         let (text, frac, warn) = match st.dlss.get() {
-            Status::Off => (t!("Фильтры выключены — кадры идут как есть.").to_string(), None, false),
+            Status::Off if st.sr.get() == crate::neural::Status::Off => (t!("Фильтры выключены — кадры идут как есть.").to_string(), None, false),
+            Status::Off => (String::new(), None, false),
             Status::Starting => (t!("Готовлю модели…").to_string(), None, false),
             Status::Active { total_ms, budget_ms, scale, .. } if budget_ms > 0.0 => {
                 let mut t = t!("Обработка кадра: {a} мс из {b} мс.", a = ms(total_ms), b = ms(budget_ms)).to_string();
@@ -170,11 +172,29 @@ fn load_card(st: St) -> W {
             ),
             Status::Bypass(e) => (crate::dlss::reason(&e), None, true),
         };
+        let (text, frac, warn) = match st.sr.get() {
+            crate::neural::Status::Active { ms: sr_ms, budget_ms, .. } if budget_ms > 0.0 => {
+                let dl = match st.dlss.get() {
+                    Status::Active { total_ms, .. } => total_ms,
+                    _ => 0.0,
+                };
+                let total = dl + sr_ms;
+                let t = if dl > 0.0 {
+                    t!("Обработка кадра: {a} мс из {b} мс (DLSS 5 — {d}, увеличение — {s}).", a = ms(total), b = ms(budget_ms), d = ms(dl), s = ms(sr_ms)).to_string()
+                } else {
+                    t!("Обработка кадра: {a} мс из {b} мс.", a = ms(sr_ms), b = ms(budget_ms)).to_string()
+                };
+                (t, Some(total / budget_ms), warn || total > budget_ms * 0.9)
+            }
+            _ => (text, frac, warn),
+        };
         let mut rows: Vec<W> = Vec::new();
         if let Some(f) = frac {
             rows.push(Box::new(ProgressBar::new().value(f.clamp(0.0, 1.0)).class(if warn { "flt-load flt-load-warn" } else { "flt-load" })));
         }
-        rows.push(Box::new(Text::new(text).max_lines(4).class(if warn { "set-hint flt-warn" } else { "set-hint" })));
+        if !text.is_empty() {
+            rows.push(Box::new(Text::new(text).max_lines(4).class(if warn { "set-hint flt-warn" } else { "set-hint" })));
+        }
         vec![card(icons::SPEED, &t!("Нагрузка"), None, rows)]
     }))
 }
@@ -255,6 +275,76 @@ fn dlss_card(st: St) -> W {
         rows.push(hint(&t!("У видео свой профиль DLSS 5: что меняете здесь и в окне DLSS 5, пока идёт ролик, не трогает настройки игр.")));
     }
     card(icons::DLSS, &t!("Улучшение · DLSS 5"), Some(Box::new(toggle)), rows)
+}
+
+/// «Чёткость»: увеличение разрешения нейросетью synaptix (модели в папке vfx библиотеки).
+fn sr_card(st: St) -> W {
+    use crate::neural::Status as Sr;
+    let s = st.settings.get_untracked();
+    let toggle = Toggle::with_state(s.sr).on_change(move |on| {
+        crate::player::update(st, |s| s.sr = on);
+        crate::neural::apply(st);
+        st.filters_rev.update(|r| *r += 1);
+    });
+    let mut rows: Vec<W> = vec![hint(&t!("Нейросеть дорисовывает детали маленьким роликам: 480p становится чётким на большом экране. Свои ядра synaptix на видеокарте NVIDIA."))];
+    if s.sr {
+        let list = crate::neural::models();
+        if list.is_empty() {
+            rows.push(hint(&t!("Модели не установлены: положите файлы .syn в папку vfx библиотеки нейросетей.")));
+        } else {
+            let cur = crate::neural::pick(&s.sr_model).map(|m| m.id).unwrap_or_default();
+            rows.push(label(&t!("Модель")));
+            for m in list {
+                let active = m.id == cur;
+                let id = m.id.clone();
+                let sub = model_hint(&m);
+                rows.push(Box::new(
+                    GestureDetector::new()
+                        .on_click(move || {
+                            let id = id.clone();
+                            crate::player::update(st, |s| s.sr_model = id);
+                            crate::neural::apply(st);
+                            st.filters_rev.update(|r| *r += 1);
+                        })
+                        .cursor(syngui::CursorIcon::Pointer)
+                        .child(
+                            DecoratedBox::new()
+                                .child(
+                                    Row::new()
+                                        .gap(12.0)
+                                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                                        .child(Icon::new(if active { icons::RADIO_ON } else { icons::RADIO_OFF }).class("track-radio"))
+                                        .child(Column::new().gap(2.0).child(Text::new(m.title()).class("set-row-title")).child(Text::new(sub).max_lines(2).class("set-hint")).class("grow")),
+                                )
+                                .class(if active { "track-row track-row-active" } else { "track-row" }),
+                        ),
+                ));
+            }
+        }
+        rows.push(Box::new(Reactive::new(move || -> Vec<W> {
+            let (text, warn) = match st.sr.get() {
+                Sr::Off => return vec![],
+                Sr::Loading => (t!("Готовлю модель…").to_string(), false),
+                Sr::Active { ms: m, from, to, .. } => (t!("Работает: {a}×{b} → {c}×{d}, {ms} мс на кадр.", a = from.0, b = from.1, c = to.0, d = to.1, ms = ms(m)).to_string(), false),
+                Sr::Skipped(h) => (t!("Ролик {h}p — увеличивать некуда: вышло бы больше 4K.", h = h).to_string(), false),
+                Sr::Slow { ms: m, budget_ms } => (t!("Не успевает: {a} мс при кадре {b} мс — кадры как есть до перемотки. Выберите модель полегче.", a = ms(m), b = ms(budget_ms)).to_string(), true),
+                Sr::Failed(e) => (e, true),
+            };
+            vec![Box::new(Text::new(text).max_lines(4).class(if warn { "set-hint flt-warn" } else { "set-hint set-dlss-state" }))]
+        })));
+    }
+    card(icons::SR, &t!("Чёткость · увеличение"), Some(Box::new(toggle)), rows)
+}
+
+/// Подпись модели: для чего и насколько тяжёлая.
+fn model_hint(m: &crate::neural::Model) -> String {
+    match (m.arch.as_str(), m.rank) {
+        ("nanovsr", 0) => t!("Видео, самая лёгкая: для слабых карт").into(),
+        ("nanovsr", 1) => t!("Видео, баланс скорости и качества").into(),
+        ("nanovsr", 2) => t!("Видео, качественнее, нужна мощная карта").into(),
+        ("nanovsr", _) => t!("Видео, максимум качества, только для маленьких роликов").into(),
+        _ => String::new(),
+    }
 }
 
 fn compare_card(st: St) -> W {

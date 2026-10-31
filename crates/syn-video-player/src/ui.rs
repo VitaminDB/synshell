@@ -87,6 +87,8 @@ pub struct St {
     pub vram: RwSignal<crate::vram::Vram>,
     /// Состояние DLSS 5 открытого ролика (чип в шапке, настройки).
     pub dlss: RwSignal<crate::dlss::Status>,
+    /// Состояние увеличения разрешения нейросетью.
+    pub sr: RwSignal<crate::neural::Status>,
     pub cards: RwSignal<Vec<Card>>,
     /// Видео каталога открытого ролика: листание и лента миниатюр в плеере.
     pub siblings: RwSignal<Vec<Card>>,
@@ -256,6 +258,7 @@ pub fn open_at(st: St, path: PathBuf, start: Option<f64>, keep_old: bool) {
                         crate::tracks::apply_pref(st, &mut p);
                         crate::subs::on_open(st, &path, &mut p);
                         crate::dlss::attach(st, &p);
+                        crate::neural::attach(st, &p);
                         p.play();
                         let playing = Playing { path, player: Arc::new(Mutex::new(p)) };
                         watch(st, &playing);
@@ -354,6 +357,7 @@ fn watch(st: St, playing: &Playing) {
                     run_on_main_thread(move || st.info.set(Some(info)));
                 }
                 crate::dlss::poll(st);
+                crate::neural::poll(st);
                 tick += 1;
                 if s.resume && tick % 10 == 0 {
                     settings::save_position(&path, pos, dur);
@@ -550,6 +554,8 @@ pub mod icons {
     pub const TUNE: &str = "\u{E429}";
     pub const COMPARE: &str = "\u{E3B9}";
     pub const SPEED: &str = "\u{E9E4}";
+    /// hd — увеличение разрешения
+    pub const SR: &str = "\u{E052}";
     pub const OPEN_IN_NEW: &str = "\u{E89E}";
     /// subtitles
     pub const SUBTITLES: &str = "\u{E048}";

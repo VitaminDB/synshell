@@ -77,6 +77,7 @@ synaptix-flow = { path = "crates/synaptix-flow" }
 synaptix = { path = "../synaptix/crates/synaptix", default-features = false }
 synaptix-core = { path = "../synaptix/crates/synaptix-core" }
 synaptix-bundle = { path = "../synaptix/crates/synaptix-bundle" }
+synaptix-vfx = { path = "../synaptix/crates/synaptix-vfx" }
 synaptix-kernels-cpu = { path = "../synaptix/crates/synaptix-kernels-cpu" }
 synaptix-kernels-cuda = { path = "../synaptix/crates/synaptix-kernels-cuda" }
 synaptix-kernels-npu = { path = "../synaptix/crates/synaptix-kernels-npu" }

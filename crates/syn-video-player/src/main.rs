@@ -13,8 +13,10 @@ mod bench;
 mod edit;
 mod editor;
 mod library;
+mod chain;
 mod dlss;
 mod filters;
+mod neural;
 mod player;
 mod settings;
 mod subs;
@@ -177,6 +179,7 @@ fn main() {
                 sub_gen: use_signal(0),
                 vram: use_signal(vram::Vram::None),
                 dlss: use_signal(dlss::Status::Off),
+                sr: use_signal(neural::Status::Off),
                 cards: use_signal(Vec::new()),
                 siblings: use_signal(Vec::new()),
                 scanning: use_signal(true),

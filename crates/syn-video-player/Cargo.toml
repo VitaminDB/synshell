@@ -23,3 +23,8 @@ syn-dlss.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
+
+# нейросетевые фильтры (synaptix-vfx: ядра CUDA) — только на компьютере
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+synaptix-vfx.workspace = true
+synaptix-bundle.workspace = true

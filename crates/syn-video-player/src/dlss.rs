@@ -447,7 +447,7 @@ pub fn set_opts(st: crate::ui::St) {
 pub fn attach(st: crate::ui::St, p: &VideoPlayer) {
     let s = st.settings.get_untracked();
     if !s.dlss {
-        p.set_frame_filter(None);
+        crate::chain::set(p, crate::chain::Stage::Dlss, None);
         ATTACHED.store(false, std::sync::atomic::Ordering::Release);
         if let Some(f) = FILTER.lock().unwrap().as_ref() {
             f.release();
@@ -462,7 +462,7 @@ pub fn attach(st: crate::ui::St, p: &VideoPlayer) {
             if f.ready().is_err() {
                 std::thread::spawn(ensure_helper);
             }
-            p.set_frame_filter(Some(f.clone()));
+            crate::chain::set(p, crate::chain::Stage::Dlss, Some(f.clone()));
             ATTACHED.store(true, std::sync::atomic::Ordering::Release);
             st.dlss.set(f.status());
         }

@@ -7025,6 +7025,8 @@ dependencies = [
  "serde",
  "serde_json",
  "syn-dlss",
+ "synaptix-bundle",
+ "synaptix-vfx",
  "synaptixd",
  "syngui",
  "synshell-common",
@@ -7831,6 +7833,21 @@ dependencies = [
  "synaptix-nn",
  "synaptix-ops",
  "synaptix-tokenizer",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-vfx"
+version = "0.1.1"
+dependencies = [
+ "cudarc",
+ "half",
+ "memmap2 0.9.11",
+ "safetensors",
+ "serde_json",
+ "synaptix-bundle",
+ "synaptix-core",
+ "synaptix-kernels-cuda",
  "thiserror 2.0.21",
 ]
 
