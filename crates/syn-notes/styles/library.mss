@@ -103,6 +103,7 @@
 }
 .lib-create-text {
     font-size: 15px;
+    text-box-edge: text;
     font-weight: 600;
     color: var(--bg-shell);
 }
@@ -117,12 +118,13 @@
 }
 .lib-tab {
     height: 38px;
-    padding: 9px 16px 0px 16px;
+    padding: 0px 16px;
     border-radius: 19px;
     border: 1px solid var(--border-strong);
 }
 .lib-tab-text {
     font-size: 15px;
+    text-box-edge: text;
     color: var(--text);
 }
 .lib-tab.active {
@@ -241,4 +243,14 @@
     background-color: var(--text);
     color: var(--bg-shell);
     border: 1px solid var(--text);
+}
+.lib-create.compact {
+    width: 44px;
+    padding: 0px 0px 0px 11px;
+}
+.lib-tabs {
+    height: 56px;
+}
+.lib-tabs-row {
+    padding: 0px 16px 0px 0px;
 }

@@ -468,6 +468,15 @@ fn placeholder(kind: PageKind) -> impl Widget {
 
 /// Сама библиотека.
 fn library(ctx: NotesCtx, lib: Library, wide: RwSignal<bool>) -> impl Widget {
+    // Колонки по ширине: пересборка только при смене числа колонок.
+    let vp = syngui::viewport::viewport_size();
+    let cols = use_signal(columns_for(vp.get_untracked().width));
+    create_effect(move || {
+        let c = columns_for(vp.get().width);
+        if cols.get_untracked() != c {
+            cols.set(c);
+        }
+    });
     let grid = Reactive::new(move || -> Vec<W> {
         syngui::i18n::subscribe();
         let tree = ctx.tree.get();
@@ -476,15 +485,13 @@ fn library(ctx: NotesCtx, lib: Library, wide: RwSignal<bool>) -> impl Widget {
         let query = lib.search.get();
         let sort = lib.sort.get();
         let as_grid = lib.grid.get();
-        let w = wide.get();
         let list = items(&tree, section, folder.as_deref(), &query, sort);
         if list.is_empty() {
             return vec![Box::new(empty(lib, section, !query.trim().is_empty()))];
         }
         let cards: Vec<W> = list.into_iter().map(|it| card(ctx, lib, it, as_grid)).collect();
         if as_grid {
-            let cols = if w { 5 } else { 3 };
-            vec![Box::new(Grid::new(cols).gap(16.0).children(cards))]
+            vec![Box::new(Grid::new(cols.get()).gap(16.0).children(cards))]
         } else {
             vec![Box::new(Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).children(cards))]
         }
@@ -502,6 +509,11 @@ fn library(ctx: NotesCtx, lib: Library, wide: RwSignal<bool>) -> impl Widget {
                     .child(DecoratedBox::new().class("lib-grid").child(grid)),
             )),
         )
+}
+
+/// Колонок карточек при ширине окна (логические px): карточка ~180–220.
+pub fn columns_for(width: f32) -> usize {
+    (((width - 40.0) / 200.0).floor() as usize).clamp(2, 7)
 }
 
 /// Шапка библиотеки: проект, поиск, вид, «Создать».
@@ -536,19 +548,26 @@ fn library_bar(ctx: NotesCtx, lib: Library, wide: RwSignal<bool>) -> impl Widget
                     DecoratedBox::new()
                         .class("grow")
                         .child(Text::new(if wide.get() { title } else { tr!("notes.lib.title") }).max_lines(1).elide(Elide::End).class("lib-title")),
-                )
-                .child(super::project_ui::menu_button())
+                );
+            if wide.get() {
+                row = row.child(super::project_ui::menu_button());
+            }
+            row = row
                 .child(ToolButton::new(MI_SEARCH).tooltip(tr!("notes.lib.search")).on_click(move || lib.search_open.set(true)).class("lib-btn"));
         }
-        row = row
-            .child(sort_menu(lib))
-            .child(
-                ToolButton::new(if as_grid { MI_VIEW_LIST } else { MI_GRID_VIEW })
-                    .tooltip(if as_grid { tr!("notes.lib.as_list") } else { tr!("notes.lib.as_grid") })
-                    .on_click(move || lib.grid.update(|g| *g = !*g))
-                    .class("lib-btn"),
-            )
-            .child(create_menu(ctx, lib));
+        if wide.get() {
+            row = row
+                .child(sort_menu(lib))
+                .child(
+                    ToolButton::new(if as_grid { MI_VIEW_LIST } else { MI_GRID_VIEW })
+                        .tooltip(if as_grid { tr!("notes.lib.as_list") } else { tr!("notes.lib.as_grid") })
+                        .on_click(move || lib.grid.update(|g| *g = !*g))
+                        .class("lib-btn"),
+                )
+                .child(create_menu(ctx, lib, false));
+        } else {
+            row = row.child(create_menu(ctx, lib, true)).child(more_menu(lib));
+        }
         vec![Box::new(DecoratedBox::new().class("lib-bar").child(row))]
     })
 }
@@ -569,8 +588,29 @@ fn sort_menu(lib: Library) -> impl Widget {
     })
 }
 
+/// «⋮» узкого окна: порядок и вид.
+fn more_menu(lib: Library) -> impl Widget {
+    let mark = |s: Sort| if lib.sort.get_untracked() == s { MI_CHECK } else { "" };
+    let as_grid = lib.grid.get_untracked();
+    let items = vec![
+        MenuItem::new("manual", tr!("notes.lib.sort.manual")).icon(mark(Sort::Manual)),
+        MenuItem::new("name", tr!("notes.lib.sort.name")).icon(mark(Sort::Name)),
+        MenuItem::new("kind", tr!("notes.lib.sort.kind")).icon(mark(Sort::Kind)),
+        MenuItem::new("view", if as_grid { tr!("notes.lib.as_list") } else { tr!("notes.lib.as_grid") })
+            .icon(if as_grid { MI_VIEW_LIST } else { MI_GRID_VIEW }),
+    ];
+    menu_button(MI_MORE_VERT, tr!("notes.lib.more"), items, move |k: &str| match k {
+        "name" => lib.sort.set(Sort::Name),
+        "kind" => lib.sort.set(Sort::Kind),
+        "manual" => lib.sort.set(Sort::Manual),
+        "view" => lib.grid.update(|g| *g = !*g),
+        _ => {}
+    })
+}
+
 /// «+ Создать»: блокнот, рисунок, документ, книга (импорт), папка.
-fn create_menu(ctx: NotesCtx, lib: Library) -> impl Widget {
+/// `compact` — только «+» (узкое окно).
+fn create_menu(ctx: NotesCtx, lib: Library, compact: bool) -> impl Widget {
     let items = vec![
         MenuItem::new("notebook", tr!("notes.lib.kind.notebook")).icon(MI_EDIT_NOTE),
         MenuItem::new("drawing", tr!("notes.lib.kind.drawing")).icon(MI_BRUSH),
@@ -578,14 +618,12 @@ fn create_menu(ctx: NotesCtx, lib: Library) -> impl Widget {
         MenuItem::new("book", tr!("notes.lib.import_book")).icon(MI_UPLOAD_FILE),
         MenuItem::new("folder", tr!("notes.lib.kind.folder")).icon(MI_CREATE_NEW_FOLDER),
     ];
+    let mut face = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(MI_ADD).class("lib-create-icon"));
+    if !compact {
+        face = face.child(Text::new(tr!("notes.lib.create")).class("lib-create-text"));
+    }
     menu_on(
-        DecoratedBox::new().class("lib-create").child(
-            Row::new()
-                .gap(6.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(Icon::new(MI_ADD).class("lib-create-icon"))
-                .child(Text::new(tr!("notes.lib.create")).class("lib-create-text")),
-        ),
+        DecoratedBox::new().class(if compact { "lib-create compact" } else { "lib-create" }).child(face),
         items,
         move |k: &str| match k {
             "book" => import_book_dialog(ctx, lib),
@@ -640,10 +678,16 @@ fn sections(lib: Library) -> impl Widget {
                             lib.folder.set(None);
                         }
                     })
-                    .child(DecoratedBox::new().class(class).child(Text::new(s.title()).class("lib-tab-text"))),
+                    .child(
+                        DecoratedBox::new().class(class).child(
+                            Row::new()
+                                .cross_axis_alignment(CrossAxisAlignment::Center)
+                                .child(Text::new(s.title()).class("lib-tab-text")),
+                        ),
+                    ),
             );
         }
-        vec![Box::new(DecoratedBox::new().class("lib-tabs").child(row))]
+        vec![Box::new(DecoratedBox::new().class("lib-tabs").child(ScrollView::new().horizontal().child(DecoratedBox::new().class("lib-tabs-row").child(row))))]
     })
 }
 
