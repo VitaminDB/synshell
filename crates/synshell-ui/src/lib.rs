@@ -289,9 +289,11 @@ fn config_mtime() -> Option<std::time::SystemTime> {
 /// «Анимации» из `[animations] enabled` — для всего syngui в этом процессе (переходы MSS, Presence, пружины) и для
 /// программ, которые оболочка запускает сама (`SYNGUI_ANIMATIONS`; запуск через synwm — то же из его конфига).
 pub fn apply_animations(cfg: &synshell_common::Config) {
-    syngui::animation::set_enabled(cfg.animations.enabled);
+    // E Ink: каждый кадр анимации — обновление панели
+    let on = cfg.animations.enabled && !synshell_common::config::eink();
+    syngui::animation::set_enabled(on);
     syngui::animation::set_speed(cfg.animations.speed);
-    std::env::set_var("SYNGUI_ANIMATIONS", if cfg.animations.enabled { "1" } else { "0" });
+    std::env::set_var("SYNGUI_ANIMATIONS", if on { "1" } else { "0" });
     std::env::set_var("SYNGUI_ANIMATION_SPEED", cfg.animations.speed.to_string());
 }
 

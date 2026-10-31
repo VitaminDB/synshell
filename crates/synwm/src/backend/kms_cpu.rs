@@ -42,7 +42,10 @@ use smithay::{
             timer::{TimeoutAction, Timer},
             EventLoop, LoopHandle, RegistrationToken,
         },
-        drm::control::{connector, crtc, Device as ControlDevice, ModeTypeFlags},
+        drm::{
+            control::{connector, crtc, Device as ControlDevice, ModeTypeFlags},
+            Device as _,
+        },
         gbm::Device as GbmDevice,
         input::Libinput,
         rustix::fs::OFlags,
@@ -62,6 +65,9 @@ use crate::{
 type Alloc = Arc<Mutex<DumbAllocator>>;
 type Manager = DrmOutputManager<Alloc, DrmDeviceFd, Option<OutputPresentationFeedback>, DrmDeviceFd>;
 type Out = DrmOutput<Alloc, DrmDeviceFd, Option<OutputPresentationFeedback>, DrmDeviceFd>;
+
+/// Драйверы DRM экранов E Ink: каждое обновление — видимая волна на панели.
+const EINK_DRIVERS: &[&str] = &["onyx-epd"];
 
 const COLOR_FORMATS: &[Fourcc] = &[Fourcc::Xrgb8888, Fourcc::Argb8888, Fourcc::Xbgr8888, Fourcc::Abgr8888];
 
@@ -89,6 +95,8 @@ pub struct KmsCpuBackend {
     surfaces: HashMap<crtc::Handle, Surface>,
     loop_handle: LoopHandle<'static, State>,
     active: bool,
+    /// Экран E Ink (`EINK_DRIVERS`): драйверу — только изменённые пиксели.
+    eink: bool,
 }
 
 /// Путь к DRM-устройству: `SYNSHELL_DRM_DEVICE`, иначе основной GPU по udev.
@@ -150,6 +158,7 @@ impl KmsCpuBackend {
             surfaces: HashMap::new(),
             loop_handle: event_loop.handle(),
             active: true,
+            eink: false,
         })
     }
 
@@ -177,6 +186,17 @@ pub fn init(state: &mut State, _event_loop: &EventLoop<'static, State>) -> anyho
         .map_err(|e| anyhow::anyhow!("open {}: {e}", b.path.display()))?;
     let fd = DrmDeviceFd::new(DeviceFd::from(fd));
     let (drm, notifier) = DrmDevice::new(fd.clone(), true)?;
+    let driver = drm.get_driver().map(|d| d.name().to_string_lossy().into_owned()).unwrap_or_default();
+    if EINK_DRIVERS.contains(&driver.as_str()) {
+        // Любой кадр на E Ink — обновление панели: без анимаций (и у программ — SYNSHELL_EINK),
+        // FB_DAMAGE_CLIPS — по реально изменённым пикселям.
+        tracing::info!(driver, "экран E Ink: анимации выключены, точная область изменений");
+        b.eink = true;
+        state.core.eink = true;
+        state.core.config.animations.enabled = false;
+        // курсор — с первым движением мыши, а не в углу экрана до первого касания
+        state.core.cursor_hidden = true;
+    }
     let node = b.node;
     b.loop_handle.insert_source(notifier, move |event, meta, state| match event {
         DrmEvent::VBlank(crtc) => on_vblank(state, crtc, meta),
@@ -349,6 +369,9 @@ pub fn scan_connectors(state: &mut State) {
                 continue;
             }
         };
+        if b.eink {
+            drm_output.with_compositor(|c| c.set_exact_damage(true));
+        }
         tracing::info!(name, mode = ?wl_mode, scale, "вывод подключён (CPU-рендер)");
         let global = output.create_global::<State>(&state.core.display_handle);
         b.surfaces.insert(

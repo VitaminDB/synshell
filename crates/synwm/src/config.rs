@@ -29,6 +29,9 @@ impl State {
         // и после перечитывания, иначе правка config.toml возвращала бы
         // десктопные умолчания.
         config.apply_form_factor(self.core.form_factor);
+        if self.core.eink {
+            config.animations.enabled = false;
+        }
         if let Some(e) = &error {
             tracing::warn!(error = e, "конфиг не разобран — остаётся прежний");
             self.core.config_error = Some(e.clone());

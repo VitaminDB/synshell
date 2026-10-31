@@ -27,6 +27,10 @@ pub fn session_env(core: &Core) -> Vec<(String, String)> {
         ("SYNGUI_ANIMATIONS".to_string(), if core.config.animations.enabled { "1" } else { "0" }.to_string()),
         ("SYNGUI_ANIMATION_SPEED".to_string(), core.config.animations.speed.to_string()),
     ];
+    if core.eink {
+        // программы оболочки на E Ink не включают анимации и из своего конфига
+        env.push((synshell_common::config::EINK_ENV.to_string(), "1".to_string()));
+    }
     if std::env::var_os("QT_QPA_PLATFORMTHEME").is_none() {
         if let Some(theme) = qt_platform_theme() {
             env.push(("QT_QPA_PLATFORMTHEME".to_string(), theme.to_string()));

@@ -60,6 +60,17 @@ fn phone() -> bool {
     std::env::var("SYNSHELL_FORM_FACTOR").as_deref() == Ok("phone")
 }
 
+/// Текущее время, округлённое вниз до минуты (часы экрана входа без секунд).
+fn minute_now() -> i64 {
+    synshell_ui::clock::unix_now() / 60 * 60
+}
+
+/// Сколько ждать до смены минуты (с запасом, чтобы не проснуться за миг до неё).
+fn until_next_minute() -> std::time::Duration {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+    std::time::Duration::from_millis(60_000 - (now.as_millis() % 60_000) as u64 + 50)
+}
+
 pub fn run() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,wgpu_core=warn,wgpu_hal=warn,naga=warn")).init();
     // Язык экрана входа — системный: /etc/synshell/config.toml ([general] language), иначе LANG;
@@ -87,14 +98,15 @@ pub fn run() {
                 k
             },
             osk_rev: use_signal(0),
-            now: use_signal(synshell_ui::clock::unix_now()),
+            now: use_signal(minute_now()),
             zoom_open: use_signal(false),
             zoom: use_signal(current_zoom(&outputs_cfg)),
             zoom_rev: use_signal(0),
         };
-        syngui_layer::add_timer(std::time::Duration::from_secs(5), move || {
-            st.now.set(synshell_ui::clock::unix_now());
-            Some(std::time::Duration::from_secs(5))
+        // Часы — с точностью до минуты и по её смене: лишний кадр на E Ink — обновление панели.
+        syngui_layer::add_timer(until_next_minute(), move || {
+            st.now.set(minute_now());
+            Some(until_next_minute())
         });
         // Язык: у выбранного пользователя — его, иначе системный.
         create_effect(move || {

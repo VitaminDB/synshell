@@ -149,6 +149,9 @@ pub struct Core {
     /// Режим устройства (по мониторам или `[platform]`): масштаб экранов,
     /// кнопка питания — не меняется с режимом оболочки.
     pub device_form_factor: synshell_common::config::FormFactor,
+    /// Экран E Ink (драйвер DRM из `EINK_DRIVERS`): каждый кадр — видимое обновление панели,
+    /// поэтому анимации выключены, а драйверу уходит только реально изменённая область.
+    pub eink: bool,
     /// Откуда пришли в текущий режим (`form-factor toggle-game`).
     pub prev_form_factor: synshell_common::config::FormFactor,
     /// Последнее прочитанное `[platform] form_factor` — правка в конфиге
@@ -418,6 +421,7 @@ impl Core {
             nested,
             form_factor,
             device_form_factor: form_factor,
+            eink: false,
             prev_form_factor: form_factor,
             form_factor_setting: None,
             config_watcher: FileWatcher::new(crate::config::watched_files(&config)),

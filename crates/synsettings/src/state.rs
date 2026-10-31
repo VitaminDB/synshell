@@ -102,7 +102,7 @@ fn try_ctx() -> Option<Ctx> {
 /// Полная таблица стилей окна: палитра из `[appearance]` + свой MSS.
 pub fn theme_mss(c: &Config) -> String {
     // «Анимации» сразу и в самом окне настроек (переключатель на странице анимаций)
-    syngui::animation::set_enabled(c.animations.enabled);
+    syngui::animation::set_enabled(c.animations.enabled && !synshell_common::config::eink());
     syngui::animation::set_speed(c.animations.speed);
     let a = &c.appearance;
     let mut s = a.mss_variables();

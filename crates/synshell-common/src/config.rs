@@ -2049,6 +2049,14 @@ pub enum FormFactor {
     Game,
 }
 
+/// Переменная окружения сеанса на экране E Ink (её ставит synwm): анимации выключены.
+pub const EINK_ENV: &str = "SYNSHELL_EINK";
+
+/// Сеанс на экране E Ink (см. [`EINK_ENV`]).
+pub fn eink() -> bool {
+    std::env::var_os(EINK_ENV).is_some_and(|v| v == "1")
+}
+
 impl FormFactor {
     pub fn as_str(self) -> &'static str {
         match self {
