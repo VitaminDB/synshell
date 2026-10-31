@@ -11,6 +11,7 @@ mod config;
 mod color;
 mod cursor;
 mod deco;
+mod eink_hold;
 mod encode;
 mod focus;
 mod grabs;
