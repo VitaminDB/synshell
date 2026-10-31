@@ -111,6 +111,15 @@ pub fn run() {
     }
     server::start();
     watch_shell_config(theme);
+    // Настройки приложения (чёрный текст и т. п.) — тут же в теме.
+    create_effect(move || {
+        let _ = notes::prefs::rev().get();
+        let (cfg, _) = Config::load();
+        let mss = theme::mss(&cfg);
+        if theme.get_untracked() != mss {
+            theme.set(mss);
+        }
+    });
 
     let window = use_context::<WindowCtx>().state;
     App::new()
@@ -229,6 +238,7 @@ fn titlebar() -> W {
         let t = match lib.screen.get() {
             notes::library::Screen::Open(id) => tree.title_of(&id).unwrap_or_default(),
             notes::library::Screen::Library => ctx.project_title.get(),
+            notes::library::Screen::Settings => syngui::tr!("notes.lib.settings"),
         };
         vec![Box::new(Text::new(t).max_lines(1).elide(Elide::End).class("tb-title"))]
     });
@@ -338,7 +348,15 @@ fn frame(wide: RwSignal<bool>, chrome: bool) -> W {
     }
     let mut col = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
     if chrome {
-        col = col.child(titlebar());
+        // Чтение на весь экран — без заголовка окна (меню читалки — тапом).
+        let lib = use_context::<notes::library::Library>();
+        col = col.child(Reactive::new(move || -> Vec<W> {
+            if lib.immersive.get() {
+                vec![]
+            } else {
+                vec![titlebar()]
+            }
+        }));
     }
     let shell = notes::project_ui::hotkey_scope(
         DecoratedBox::new()

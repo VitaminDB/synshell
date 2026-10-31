@@ -45,6 +45,8 @@ pub enum Screen {
     Library,
     /// Открытая страница (id).
     Open(String),
+    /// Настройки приложения.
+    Settings,
 }
 
 /// Раздел библиотеки.
@@ -131,6 +133,9 @@ pub struct Library {
     pub card_menu: RwSignal<Option<String>>,
     /// Недавно открытые страницы текущего проекта, свежие первыми.
     pub recent: RwSignal<Vec<String>>,
+    /// Чтение на весь экран: открыта книга и её меню закрыто — без шапки
+    /// страницы и заголовка окна.
+    pub immersive: RwSignal<bool>,
 }
 
 impl Library {
@@ -146,6 +151,7 @@ impl Library {
             create_open: use_signal(false),
             card_menu: use_signal(None),
             recent: use_signal(Vec::new()),
+            immersive: use_signal(false),
         }
     }
 
@@ -159,6 +165,7 @@ impl Library {
             return;
         }
         ctx.show_graph.set(false);
+        self.immersive.set(false);
         ctx.activate(id);
         self.touch_recent(ctx, id);
         self.screen.set(Screen::Open(id.to_string()));
@@ -186,7 +193,8 @@ impl Library {
     /// к родителю, из раздела — на главную.
     pub fn back(&self, ctx: NotesCtx) -> bool {
         match self.screen.get_untracked() {
-            Screen::Open(_) => {
+            Screen::Open(_) | Screen::Settings => {
+                self.immersive.set(false);
                 self.screen.set(Screen::Library);
                 true
             }
@@ -545,6 +553,7 @@ pub fn view(wide: RwSignal<bool>) -> impl Widget {
         match lib.screen.get() {
             Screen::Library => vec![Box::new(fill(library(ctx, lib, w)))],
             Screen::Open(id) => vec![Box::new(fill(open_view(ctx, lib, id)))],
+            Screen::Settings => vec![Box::new(fill(super::settings::view(lib, w)))],
         }
     }))
 }
@@ -566,6 +575,11 @@ fn open_view(ctx: NotesCtx, lib: Library, id: String) -> W {
         PageKind::Doc => Box::new(super::editor_pane::body()),
         _ => views().and_then(|v| (v.view)(ctx, lib, &id, kind)).unwrap_or_else(|| Box::new(placeholder(kind))),
     };
+    // Книга — на весь экран: назад, оглавление и прочее — в меню читалки
+    // (тап по центру страницы).
+    if kind == PageKind::Book {
+        return Box::new(DecoratedBox::new().class("lib-open-body").clip(true).child(fill(body)));
+    }
     Box::new(
         Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
@@ -698,13 +712,24 @@ fn placeholder(kind: PageKind) -> impl Widget {
 // ─── Библиотека ─────────────────────────────────────────────────────────────
 
 fn library(ctx: NotesCtx, lib: Library, wide: bool) -> W {
-    let content = Column::new()
-        .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .class("lib-main")
-        .child(header(ctx, lib, wide))
-        .child(DecoratedBox::new().class("grow").child(fill(
-            ScrollView::new().vertical().child(DecoratedBox::new().class("lib-content").child(content(ctx, lib, wide))),
-        )));
+    library_with(ctx, lib, wide, None)
+}
+
+/// Каркас библиотеки (боковая панель / нижняя навигация) вокруг своего
+/// содержимого — для экрана настроек.
+pub(super) fn library_with(ctx: NotesCtx, lib: Library, wide: bool, body: Option<W>) -> W {
+    let content: W = match body {
+        Some(b) => b,
+        None => Box::new(
+            Column::new()
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .class("lib-main")
+                .child(header(ctx, lib, wide))
+                .child(DecoratedBox::new().class("grow").child(fill(
+                    ScrollView::new().vertical().child(DecoratedBox::new().class("lib-content").child(content(ctx, lib, wide))),
+                ))),
+        ),
+    };
     if wide {
         Box::new(
             Row::new()
@@ -731,11 +756,12 @@ fn sidebar(ctx: NotesCtx, lib: Library) -> impl Widget {
         syngui::i18n::subscribe();
         let cur = lib.section.get();
         let folder = lib.folder.get();
+        let on_settings = lib.screen.get() == Screen::Settings;
         let tree = ctx.tree.get();
         let counts = count_by_kind(&tree);
         let mut col = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
         for s in Section::ALL {
-            let active = s == cur && (s != Section::All || folder.is_none());
+            let active = !on_settings && s == cur && (s != Section::All || folder.is_none());
             let n = s.kind().map(|k| counts.get(&k).copied().unwrap_or(0));
             col = col.child(nav_row(s.icon(), s.title(), n, active, 0, move || lib.go_section(s)));
         }
@@ -766,17 +792,23 @@ fn sidebar(ctx: NotesCtx, lib: Library) -> impl Widget {
             col = col.child(Text::new(tr!("notes.lib.folders.none")).max_lines(2).class("lib-side-hint"));
         }
         for (id, title, depth) in folders {
-            let active = folder.as_deref() == Some(id.as_str());
+            let active = !on_settings && folder.as_deref() == Some(id.as_str());
             let fid = id.clone();
             col = col.child(nav_row(MI_FOLDER, title, None, active, depth, move || lib.go_folder(Some(fid.clone()))));
         }
         vec![Box::new(col)]
     });
+    let settings = Reactive::new(move || -> Vec<W> {
+        syngui::i18n::subscribe();
+        let active = lib.screen.get() == Screen::Settings;
+        vec![nav_row(MI_SETTINGS, tr!("notes.lib.settings"), None, active, 0, move || lib.screen.set(Screen::Settings))]
+    });
     DecoratedBox::new().class("lib-side").child(
         Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .child(project_switcher(ctx))
-            .child(DecoratedBox::new().class("grow").child(fill(ScrollView::new().vertical().child(DecoratedBox::new().class("lib-side-nav").child(nav))))),
+            .child(DecoratedBox::new().class("grow").child(fill(ScrollView::new().vertical().child(DecoratedBox::new().class("lib-side-nav").child(nav)))))
+            .child(DecoratedBox::new().class("lib-side-foot").child(settings)),
     )
 }
 
@@ -918,6 +950,7 @@ fn header(ctx: NotesCtx, lib: Library, wide: bool) -> impl Widget {
                 top = top.child(DecoratedBox::new().class("lib-search-box").child(search_field(lib, false)));
             } else {
                 top = top.child(ToolButton::new(MI_SEARCH).tooltip(tr!("notes.lib.search")).on_click(move || lib.search_open.set(true)).class("lib-icon-btn"));
+                top = top.child(ToolButton::new(MI_SETTINGS).tooltip(tr!("notes.lib.settings")).on_click(move || lib.screen.set(Screen::Settings)).class("lib-icon-btn"));
             }
             top = top.child(view_menu(lib, as_grid));
             top = top.child(create_button(ctx, lib, !wide));

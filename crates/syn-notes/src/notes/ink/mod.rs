@@ -234,6 +234,11 @@ impl InkHandle {
     pub fn new(doc: InkDoc) -> Self {
         register_i18n();
         let mut tool = ToolState::default();
+        // Настройки приложения: палец, чёткие края, фигура удержанием.
+        let prefs = crate::notes::prefs::get();
+        tool.finger_draw = prefs.ink_finger;
+        tool.crisp = prefs.ink_crisp;
+        tool.hold_to_shape = prefs.ink_hold_shape;
         if doc.kind == DocKind::Drawing {
             tool.brush = Brush::Brush;
             tool.width_steps = [1, 1, 1, 1, 2, 1];

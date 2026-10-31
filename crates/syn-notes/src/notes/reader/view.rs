@@ -724,6 +724,8 @@ impl Widget for PageCanvas {
             press: None,
             selecting: None,
             wheel: 0.0,
+            wheel_at: None,
+            wheel_done: false,
             focus_request: true,
             touch_down: None,
         })
@@ -759,6 +761,10 @@ pub struct PageElement {
     /// Якорь выделения (символ, с которого начали).
     selecting: Option<Sel>,
     wheel: f32,
+    /// Последнее событие прокрутки — граница жеста.
+    wheel_at: Option<Instant>,
+    /// В этом жесте страница уже перевёрнута.
+    wheel_done: bool,
     focus_request: bool,
     touch_down: Option<Instant>,
 }
@@ -922,13 +928,12 @@ impl PageElement {
             return;
         }
         let w = self.bounds.size.width.max(1.0);
-        let fx = lp.x / w;
-        if fx < 0.3 {
-            self.reader.prev();
-        } else if fx > 0.7 {
-            self.reader.next();
-        } else {
-            ctl.panel.set(Panel::Menu);
+        let h = self.bounds.size.height.max(1.0);
+        // Зоны касания — из настроек приложения (лево/право, верх/низ, вперёд).
+        match crate::notes::prefs::tap_turn(lp.x / w, lp.y / h) {
+            -1 => self.reader.prev(),
+            1 => self.reader.next(),
+            _ => ctl.panel.set(Panel::Menu),
         }
     }
 
@@ -1192,18 +1197,20 @@ impl Element for PageElement {
                 let dx = position.x - press.at.x;
                 let dy = position.y - press.at.y;
                 if press.moved {
-                    if dx.abs() > 40.0 && dx.abs() > dy.abs() {
-                        if dx < 0.0 {
-                            self.reader.next();
-                        } else {
-                            self.reader.prev();
-                        }
-                    } else if dy.abs() > 60.0 && dy.abs() > dx.abs() * 1.5 && self.reader.ctl.state.get_untracked().pdf_fit == PdfFit::Width {
-                        if dy < 0.0 {
-                            self.reader.next();
-                        } else {
-                            self.reader.prev();
-                        }
+                    // Один свайп — одна страница; направление — из настроек
+                    // (PDF «по ширине» листает частями и вертикально).
+                    let mut turn = crate::notes::prefs::swipe_turn(dx, dy);
+                    if turn == 0
+                        && dy.abs() > 60.0
+                        && dy.abs() > dx.abs() * 1.5
+                        && self.reader.ctl.state.get_untracked().pdf_fit == PdfFit::Width
+                    {
+                        turn = if dy < 0.0 { 1 } else { -1 };
+                    }
+                    match turn {
+                        1 => self.reader.next(),
+                        -1 => self.reader.prev(),
+                        _ => {}
                     }
                     return EventResult::Handled;
                 }
@@ -1219,14 +1226,27 @@ impl Element for PageElement {
                 if !self.bounds.contains(*position) {
                     return EventResult::Ignored;
                 }
+                // Прокрутка жестом приходит десятками событий подряд: листать
+                // только если включено, и не чаще страницы за жест (пауза
+                // в прокрутке ≥ 350 мс начинает новый жест).
+                if !crate::notes::prefs::get().wheel_turns {
+                    return EventResult::Handled;
+                }
+                let now = Instant::now();
+                let new_gesture = self.wheel_at.map_or(true, |t| now.duration_since(t) >= Duration::from_millis(350));
+                self.wheel_at = Some(now);
+                if new_gesture {
+                    self.wheel = 0.0;
+                    self.wheel_done = false;
+                }
                 self.wheel += delta;
-                if self.wheel.abs() >= 1.0 {
+                if !self.wheel_done && self.wheel.abs() >= 1.0 {
                     if self.wheel < 0.0 {
                         self.reader.next();
                     } else {
                         self.reader.prev();
                     }
-                    self.wheel = 0.0;
+                    self.wheel_done = true;
                 }
                 EventResult::Handled
             }
@@ -1841,6 +1861,40 @@ fn text_panel(r: Reader) -> impl Widget {
     let (a, b) = (set.clone(), set.clone());
     let every = if s.refresh_every == 0 { tr!("notes.reader.never") } else { s.refresh_every.to_string() };
     col = col.child(stepper(tr!("notes.reader.refresh_every"), every, move || a(Box::new(|s| s.refresh_every = s.refresh_every.saturating_sub(1))), move || b(Box::new(|s| s.refresh_every = (s.refresh_every + 1).min(50)))));
+    // Листание — общие настройки приложения (те же, что в «Настройках»).
+    {
+        use crate::notes::prefs::{self, SwipeDir, TapMode};
+        let p = prefs::get();
+        col = col.child(Text::new(tr!("notes.set.tap")).class("reader-row-sub"));
+        col = col.child(chips(
+            vec![
+                (tr!("notes.set.tap.lr"), p.tap_mode == TapMode::LeftRight),
+                (tr!("notes.set.tap.tb"), p.tap_mode == TapMode::TopBottom),
+                (tr!("notes.set.tap.fwd"), p.tap_mode == TapMode::Forward),
+            ],
+            move |i| {
+                prefs::update(|p| p.tap_mode = [TapMode::LeftRight, TapMode::TopBottom, TapMode::Forward][i]);
+                ctl.panel.set(Panel::None);
+                ctl.panel.set(Panel::Text);
+            },
+        ));
+        col = col.child(Text::new(tr!("notes.set.swipe")).class("reader-row-sub"));
+        col = col.child(chips(
+            vec![
+                (tr!("notes.set.swipe.h"), p.swipe == SwipeDir::Horizontal),
+                (tr!("notes.set.swipe.v"), p.swipe == SwipeDir::Vertical),
+                (tr!("notes.set.swipe.both"), p.swipe == SwipeDir::Both),
+                (tr!("notes.set.swipe.off"), p.swipe == SwipeDir::Off),
+            ],
+            move |i| {
+                prefs::update(|p| p.swipe = [SwipeDir::Horizontal, SwipeDir::Vertical, SwipeDir::Both, SwipeDir::Off][i]);
+                ctl.panel.set(Panel::None);
+                ctl.panel.set(Panel::Text);
+            },
+        ));
+        col = col.child(switch(tr!("notes.set.wheel"), p.wheel_turns, move |v| prefs::update(|p| p.wheel_turns = v)));
+        col = col.child(switch(tr!("notes.set.pure_black"), p.pure_black, move |v| prefs::update(|p| p.pure_black = v)));
+    }
     Column::new()
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .class("grow")

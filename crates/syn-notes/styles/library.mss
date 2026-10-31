@@ -535,3 +535,54 @@
     color: #9AA0AA;
     padding: 24px 0px 0px 0px;
 }
+
+/* ── Настройки ── */
+.lib-side-foot {
+    padding: 8px 12px 12px 12px;
+    border-top: 1px solid var(--border-soft);
+}
+.set-card {
+    border-radius: 16px;
+    border: 1px solid var(--border-soft);
+    background-color: var(--bg-panel);
+}
+.set-row {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border-soft);
+}
+.set-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+}
+.set-hint {
+    font-size: 13px;
+    color: var(--text-muted);
+}
+.set-sec-icon {
+    icon-size: 22px;
+    color: var(--primary);
+}
+.set-chip {
+    height: 36px;
+    padding: 0px 16px;
+    border-radius: 18px;
+    border: 1px solid var(--border-strong);
+}
+.set-chip.active {
+    background-color: var(--primary);
+    border: 1px solid var(--primary);
+}
+.set-chip-text {
+    font-size: 14px;
+    color: var(--text);
+    text-box-edge: text;
+    padding: 9px 0px 0px 0px;
+}
+.set-chip.active .set-chip-text {
+    color: var(--on-primary);
+    font-weight: 600;
+}
+.set-reset {
+    padding: 24px 4px;
+}

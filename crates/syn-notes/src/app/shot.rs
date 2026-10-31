@@ -114,6 +114,8 @@ pub fn run(args: ShotArgs) {
         if let Some(id) = found {
             use_context::<Library>().open(ctx, &id);
         }
+    } else if args.open.as_deref() == Some("settings") {
+        use_context::<Library>().screen.set(Screen::Settings);
     } else if args.open.as_deref() == Some("folder") {
         let id = ctx.tree.get_untracked().roots.iter().find(|n| n.kind == PageKind::Folder).map(|n| n.id.clone());
         use_context::<Library>().folder.set(id);

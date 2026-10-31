@@ -97,6 +97,14 @@ pub fn page_view(ctx: NotesCtx, lib: Library, page_id: &str, kind: PageKind) -> 
         return None;
     }
     let r = reader_for(ctx, lib, page_id)?;
+    // На весь экран, пока меню читалки закрыто (шапку окна прячет хозяин).
+    let ctl = r.ctl;
+    create_effect(move || {
+        let v = ctl.panel.get() == super::view::Panel::None;
+        if lib.immersive.get_untracked() != v {
+            lib.immersive.set(v);
+        }
+    });
     Some(Box::new(reader_view(r)))
 }
 

@@ -46,12 +46,14 @@ pub mod ink;
 pub mod lock;
 pub mod media;
 pub mod mindmap;
+pub mod prefs;
 pub mod project;
 pub mod project_ui;
 pub mod projects;
 pub mod reader;
 pub mod reminders;
 pub mod right_panel;
+pub mod settings;
 pub mod state;
 pub mod sysnotify;
 

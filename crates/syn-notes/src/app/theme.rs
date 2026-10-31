@@ -108,6 +108,7 @@ pub fn mss(cfg: &Config) -> String {
         s.push_str(EINK);
         s.push('\n');
     }
+    s.push_str(&crate::notes::prefs::mss());
     let font = cfg.appearance.font.trim();
     if !font.is_empty() {
         s.push_str(&format!("Text, Button, TextField {{ font-family: \"{font}\"; }}\n"));
