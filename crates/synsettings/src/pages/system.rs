@@ -251,10 +251,11 @@ fn brightness_group(c: &synshell_common::Config) -> Option<W> {
         t!("Подсветка {name} · ниты — задайте яркость панели на максимуме ниже", name = bl.name)
     };
     let b = &c.brightness;
-    Some(group(
-        &t!("Яркость"),
-        vec![
-            row(&t!("Яркость экрана"), &hint, Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(slider).child(label)),
+    let mut rows = vec![row(&t!("Яркость экрана"), &hint, Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(slider).child(label))];
+    if let Some(r) = warmth_row(&sysfs) {
+        rows.push(r);
+    }
+    rows.extend([
             switch_row(
                 t!("Автояркость"),
                 t!("По датчику освещённости; сдвиг ползунка запоминается как поправка"),
@@ -263,7 +264,40 @@ fn brightness_group(c: &synshell_common::Config) -> Option<W> {
             ),
             int_row(t!("Минимум автояркости, %"), t!("В темноте"), op!["brightness", "min_pct"], b.min_pct as i64, 1, 50, 1),
             int_row(t!("Максимум автояркости, %"), t!("На солнце"), op!["brightness", "max_pct"], b.max_pct as i64, 20, 100, 5),
-        ],
+    ]);
+    Some(group(&t!("Яркость"), rows))
+}
+
+/// Тепло передней подсветки из двух каналов (белый + тёплый, E Ink): каналы — сразу,
+/// значение — в `[brightness] warmth` (оболочка применяет его при старте сеанса).
+fn warmth_row(sysfs: &synsystem::Sys) -> Option<W> {
+    let fl = synsystem::backlight::front_light(sysfs)?;
+    let w = fl.state(sysfs).1;
+    let val = use_signal(w);
+    let label = Reactive::new(move || -> Vec<W> { vec![boxed(Text::new(format!("{:.0}%", val.get())).class("row-value"))] });
+    // запись в sysfs — в фоне, последнее значение побеждает
+    let pending: std::sync::Arc<std::sync::Mutex<Option<f32>>> = Default::default();
+    let slider = Slider::new().range(0.0, 100.0).step(1.0).value(w).width(220.0).on_change(move |v| {
+        val.set(v);
+        set(&op!["brightness", "warmth"], v.round() as f64);
+        if pending.lock().unwrap().replace(v).is_none() {
+            let p = pending.clone();
+            std::thread::spawn(move || {
+                let sys = synsystem::Sys::host();
+                loop {
+                    let next = p.lock().unwrap().take();
+                    let Some(v) = next else { break };
+                    if let Err(e) = synsystem::backlight::set_warmth(&sys, v) {
+                        syngui::async_runtime::run_on_main_thread(move || state::toast(t!("Тепло подсветки: {e}", e = e)));
+                    }
+                }
+            });
+        }
+    });
+    Some(row(
+        &t!("Тепло подсветки"),
+        &t!("Холодный белый ↔ тёплый: смешивание каналов {white} и {warm}", white = fl.white.name, warm = fl.warm.name),
+        Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(slider).child(label),
     ))
 }
 

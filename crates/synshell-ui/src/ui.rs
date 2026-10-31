@@ -429,6 +429,8 @@ pub mod mi {
     /// videocam — камера включена.
     pub const CAMERA: &str = "\u{E04B}";
     pub const BRIGHTNESS: &str = "\u{E1AE}";
+    /// device_thermostat — тепло подсветки.
+    pub const WARMTH: &str = "\u{E1FF}";
     pub const BELL: &str = "\u{E7F4}";
     pub const BELL_OFF: &str = "\u{E7F6}";
     pub const WIFI: &str = "\u{E63E}";

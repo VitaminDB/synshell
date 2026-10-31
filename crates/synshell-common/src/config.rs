@@ -2850,11 +2850,16 @@ pub struct Brightness {
     /// Поправка к кривой, % (−50…50): её задаёт сдвиг ползунка при включённой
     /// автояркости, оболочка сохраняет сама.
     pub offset: f32,
+    /// Тепло передней подсветки из двух каналов (белый + тёплый, E Ink), %:
+    /// 0 — холодный белый, 100 — тёплый. Оболочка применяет при старте сеанса
+    /// поверх каналов, восстановленных systemd-backlight (яркость — от них);
+    /// не задано — тепло остаётся как восстановлено. Пишет ползунок «Тепло».
+    pub warmth: Option<f32>,
 }
 
 impl Default for Brightness {
     fn default() -> Self {
-        Self { auto: false, min_pct: 2, max_pct: 100, smooth_ms: 800, offset: 0.0 }
+        Self { auto: false, min_pct: 2, max_pct: 100, smooth_ms: 800, offset: 0.0, warmth: None }
     }
 }
 

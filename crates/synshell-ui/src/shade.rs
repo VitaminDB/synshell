@@ -712,6 +712,9 @@ fn sliders(ctx: ShellCtx) -> impl Widget {
         });
         col = col.child(row);
     }
+    if let Some(w) = synsystem::backlight::front_light(&sys).map(|fl| fl.state(&sys).1) {
+        col = col.child(warmth_row(w));
+    }
     let vol = rx(move || {
         let v = ctx.volume.get();
         let Some(v) = v else { return Box::new(DecoratedBox::new()) as Box<dyn Widget> };
@@ -745,6 +748,26 @@ fn sliders(ctx: ShellCtx) -> impl Widget {
         )
     });
     col.child(vol).child(torch_row(ctx)).style("padding", StyleValue::px(0.0))
+}
+
+/// Тепло передней подсветки из двух каналов (белый + тёплый, E Ink): холодно ↔ тепло.
+fn warmth_row(w: f32) -> impl Widget {
+    let val = use_signal(w);
+    let text = rx(move || Box::new(Text::new(format!("{:.0}%", val.get())).class("shade-slider-value")) as Box<dyn Widget>);
+    let slider = Slider::new().range(0.0, 100.0).step(1.0).value(w).on_change(move |v| {
+        val.set(v);
+        crate::frontlight::set(v);
+    });
+    DecoratedBox::new()
+        .child(
+            Row::new()
+                .gap(10.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(DecoratedBox::new().child(icon(mi::WARMTH).class("shade-slider-icon")).class("shade-auto"))
+                .child(slider.class("grow"))
+                .child(text),
+        )
+        .class("shade-slider")
 }
 
 // ─── Фонарик ─────────────────────────────────────────────────────────────────
