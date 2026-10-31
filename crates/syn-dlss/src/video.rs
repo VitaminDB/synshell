@@ -117,8 +117,9 @@ impl VideoClient {
             h.init_defaults();
             crate::config::apply_settings(h, &crate::config::Ini::load());
         }
-        // прошлый плеер упал, не вернув настройки игр
+        // прошлый плеер упал, не вернув настройки игр; игра с профилем ушла без окна DLSS 5
         crate::config::restore_after_video(h);
+        crate::config::restore_after_game(h);
         Ok(c)
     }
 

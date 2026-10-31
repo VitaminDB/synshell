@@ -39,6 +39,12 @@ pub fn video_lock() -> PathBuf {
     runtime_dir().join("video.pid")
 }
 
+/// Имя игры, чей профиль сейчас в общей памяти (окно DLSS 5 применило его): игра ушла — вернуть
+/// общие настройки, даже если окно к тому времени закрыли.
+pub fn game_profile_mark() -> PathBuf {
+    runtime_dir().join("game-profile")
+}
+
 pub fn profiles_dir() -> PathBuf {
     config_dir().join("profiles")
 }

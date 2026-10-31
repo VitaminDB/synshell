@@ -36,6 +36,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <sys/syscall.h>
+#include <spawn.h>
+#include <sys/wait.h>
 
 // The layer's name has to differ per architecture.
 //
@@ -334,6 +336,89 @@ static int AdoptPeerFd(uint32_t pid, uint32_t fd) {
     return open(p, O_RDWR | O_CLOEXEC);
 }
 
+// No helper is attached: start one (`dlssnr-helper start`), so a game is enhanced without the user
+// opening the DLSS 5 window first. At most once every 20 s per process; DLSSNR_AUTOSTART=0 turns it
+// off. The child gets a clean environment -- the game's WINEPREFIX, WINEDLLOVERRIDES, LD_PRELOAD and
+// VKLayer_DLSS5 would otherwise follow the helper into its own prefix. Inside a container without
+// the command (Steam runtime) the spawn simply fails.
+static void MaybeStartHelper() {
+    static const bool on = [] {
+        const char* v = getenv("DLSSNR_AUTOSTART");
+        return !(v && !strcmp(v, "0"));
+    }();
+    if (!on) return;
+    // a mutex, not atomic<double>: the 32-bit build has no lock-free 8-byte compare-exchange
+    static std::mutex m;
+    static double last = -1e12;
+    {
+        std::lock_guard<std::mutex> g(m);
+        const double now = NowMs();
+        if (now - last < 20000.0) return;
+        last = now;
+    }
+    std::thread([] {
+        static const char* keep[] = {"HOME", "USER", "LOGNAME", "PATH", "LANG", "DISPLAY", "WAYLAND_DISPLAY",
+                                     "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME",
+                                     "XDG_CACHE_HOME", "DBUS_SESSION_BUS_ADDRESS", "DLSSNR_UID", "DLSSNR_SHM",
+                                     "DLSSNR_LOG", "DLSSNR_HELPER_CLI"};
+        std::vector<std::string> env;
+        for (const char* k : keep)
+            if (const char* v = getenv(k)) env.push_back(std::string(k) + "=" + v);
+        std::vector<char*> envp;
+        for (auto& e : env) envp.push_back(e.data());
+        envp.push_back(nullptr);
+        const char* cli = getenv("DLSSNR_HELPER_CLI");
+        if (!cli || !*cli) cli = "dlssnr-helper";
+        char* argv[] = {const_cast<char*>(cli), const_cast<char*>("start"), nullptr};
+        posix_spawnattr_t attr;
+        posix_spawnattr_init(&attr);
+        posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSID);
+        pid_t pid = 0;
+        const int rc = posix_spawnp(&pid, cli, nullptr, &attr, argv, envp.data());
+        posix_spawnattr_destroy(&attr);
+        if (rc != 0) {
+            Log("helper autostart: %s: %s", cli, strerror(rc));
+            return;
+        }
+        Log("helper autostart: %s start (pid %d)", cli, (int)pid);
+        int status = 0;
+        waitpid(pid, &status, 0);
+    }).detach();
+}
+
+// The program's name for the DLSS 5 window (and its per-game profiles): argv[0] without directory and
+// ".exe". Under Wine argv[0] is the Windows path of the game ("C:\\Games\\Fable.exe"), so both
+// separators count; DLSSNR_GAME_NAME overrides.
+static const std::string& GameName() {
+    static const std::string name = [] {
+        if (const char* v = getenv("DLSSNR_GAME_NAME"); v && *v) return std::string(v);
+        std::string arg0;
+        if (FILE* f = fopen("/proc/self/cmdline", "rb")) {
+            int c;
+            while ((c = fgetc(f)) != EOF && c != 0) arg0.push_back(char(c));
+            fclose(f);
+        }
+        const size_t cut = arg0.find_last_of("/\\");
+        if (cut != std::string::npos) arg0 = arg0.substr(cut + 1);
+        if (arg0.size() > 4) {
+            std::string tail = arg0.substr(arg0.size() - 4);
+            for (auto& ch : tail) ch = char(tolower((unsigned char)ch));
+            if (tail == ".exe") arg0.resize(arg0.size() - 4);
+        }
+        if (arg0.size() >= kNameBytes) arg0.resize(kNameBytes - 1);
+        return arg0;
+    }();
+    return name;
+}
+
+static void PublishGameName(ShmHeader* hdr) {
+    const std::string& n = GameName();
+    memset(hdr->gameName, 0, sizeof(hdr->gameName));
+    memcpy(hdr->gameName, n.data(), std::min(n.size(), sizeof(hdr->gameName) - 1));
+    std::atomic_thread_fence(std::memory_order_release);
+    hdr->gameNameSeq.fetch_add(1);
+}
+
 // The exchange is on unless the environment says off; the helper and driver get the final say by
 // what they publish.
 static bool DmaBufEnabled() {
@@ -384,6 +469,8 @@ static bool ShmProcessFrame(ShmMap& s, uint32_t w, uint32_t h, size_t bytes, con
     // which is the only signal that stays true while it is busy. Heartbeats do not: it stops ticking
     // them precisely while it is building the model's feature.
     const bool helperPresent = s.hdr->helperState.load() != kHelperStopped;
+    // остановлен пользователем (quit) — не поднимать
+    if (!helperPresent && !s.hdr->quit.load()) MaybeStartHelper();
 
     // The first frame of a size is not like the others. It makes the helper load the model and build
     // a feature -- measured at 194 ms for a small frame and more for a large one -- against about 4 ms
@@ -1629,7 +1716,8 @@ static bool ProcessPresent(DeviceChain* dc, SwapchainState& sc, VkQueue queue,
         dc->shm.hdr->layerHeight.store(sc.height);
         dc->shm.hdr->layerFormat.store(uint32_t(sc.format));
         dc->shm.hdr->layerCompositionUp.store(1);
-        dc->shm.hdr->layerPid.store(uint32_t(getpid()));
+        // the channel just became ours: say who we are (the video player writes its own name)
+        if (dc->shm.hdr->layerPid.exchange(uint32_t(getpid())) != uint32_t(getpid())) PublishGameName(dc->shm.hdr);
         dc->shm.hdr->layerMsBits.store(FloatToBits(float(tReturn - t0)));
         dc->shm.hdr->layerMeasuredWhiteBits.store(FloatToBits(sc.comp->MeasuredWhitePoint()));
         dc->shm.hdr->layerHeartbeat.fetch_add(1);

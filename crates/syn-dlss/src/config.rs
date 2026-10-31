@@ -367,6 +367,18 @@ pub fn restore_after_video(h: &ShmHeader) -> bool {
     true
 }
 
+/// Профиль игры остался в общей памяти, а игры со слоем уже нет (окно DLSS 5 закрыли раньше неё) —
+/// вернуть общие настройки и снять метку. `true` — вернули.
+pub fn restore_after_game(h: &ShmHeader) -> bool {
+    let mark = crate::paths::game_profile_mark();
+    if !mark.exists() || crate::paths::pid_alive(h.layer_pid.load(std::sync::atomic::Ordering::SeqCst)) {
+        return false;
+    }
+    let _ = std::fs::remove_file(mark);
+    apply_if_changed(h, &Ini::load());
+    true
+}
+
 /// Видеопрофиль целиком: video.ini поверх значений по умолчанию; файла нет — настройки игр
 /// (config.ini) со стилем «Естественный».
 pub fn video_profile() -> Ini {

@@ -125,3 +125,7 @@ TextField.field:focus { border-color: var(--accent); }
 .toast-wrap { width: 100%; height: 100%; padding: 0px 24px 28px 24px; }
 .toast { padding: 10px 16px; border-radius: 12px; background-color: var(--menu-bg); border: 1px solid var(--border); box-shadow: 0 8px 24px var(--shadow); max-width: 560px; }
 .toast-text { font-size: 13px; color: var(--fg); }
+
+/* SegmentedButton — без правила виджет рисует белую подложку и чужой синий акцент. */
+SegmentedButton { background-color: var(--input-bg); color: var(--fg); border-width: 1px; border-color: var(--border); border-radius: 10px; accent-color: var(--accent); font-size: 13px; }
+.link { color: var(--accent); }

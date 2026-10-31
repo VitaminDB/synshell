@@ -2,6 +2,7 @@
 //! инструменты проверки) плюс «Помощник»: среда запуска, профили, DLL NGX, журнал, сброс.
 
 use syngui::prelude::*;
+use syngui::widgets::SegmentedButton;
 
 use super::controls::{self as c, Latch::*};
 use super::{boxed, icon_button, W};
@@ -16,6 +17,100 @@ fn opts(list: &[String]) -> Vec<String> {
 
 fn styles() -> Vec<String> {
     vec![t!("Обычный"), t!("Естественный"), t!("Кинематографичный")]
+}
+
+/// «Игры syn-wine»: флаг, по которому наш Wine сам включает слой своим программам.
+fn syn_wine_row() -> W {
+    c::row(
+        t!("Игры syn-wine"),
+        t!("Слой DLSS 5 в программах нашего Wine без переменной VKLayer_DLSS5=1 — с их следующего запуска. Нужны кадры Vulkan: для Direct3D 8–11 — DXVK"),
+        Toggle::with_state(crate::paths::syn_wine_flag().exists()).on_change(|on| {
+            let flag = crate::paths::syn_wine_flag();
+            let r = if on {
+                std::fs::create_dir_all(crate::paths::config_dir()).and_then(|_| std::fs::write(&flag, b""))
+            } else {
+                std::fs::remove_file(&flag).or_else(|e| if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) })
+            };
+            if let Err(e) = r {
+                tracing::warn!(?e, "флаг syn-wine");
+            }
+        }),
+    )
+}
+
+/// Качество: разрешение модели и качество оптического потока.
+const QUALITY: [(f32, u32); 3] = [(0.5, 0), (0.75, 1), (1.0, 2)];
+
+/// Страница «Главное»: то, что нужно, чтобы включить и настроить на глаз.
+pub fn simple(st: St) -> Vec<W> {
+    let h = header();
+    let scale = h.map(|h| b2f(h.get(fld!(working_scale_bits)))).unwrap_or(1.0);
+    let q = QUALITY.iter().enumerate().min_by(|a, b| (a.1 .0 - scale).abs().total_cmp(&(b.1 .0 - scale).abs())).map(|(i, _)| i).unwrap_or(2);
+    let quality = SegmentedButton::new(vec![t!("Быстро"), t!("Баланс"), t!("Максимум")]).selected(q).on_change(move |i| {
+        let (sc, mq) = QUALITY[i.min(2)];
+        st.write(fld!(working_scale_bits), f2b(sc), false);
+        st.write(fld!(mvec_quality), mq, false);
+    });
+    let compare_on = h.map(|h| h.get(fld!(compare_mode)) != 0).unwrap_or(false);
+    let compare = Toggle::with_state(compare_on).on_change(move |on| {
+        st.write(fld!(compare_mode), if on { 2 } else { 0 }, false);
+        st.rev.update(|r| *r += 1);
+    });
+    let mut look = vec![
+        c::bool_row(st, t!("Включено"), t!("Выключено — игры и видео показывают свои кадры без изменений"), fld!(enabled), Live),
+        c::choice_row(st, t!("Стиль"), t!("«Естественный» бережнее к лицам, «Кинематографичный» — с плёночным тоном"), fld!(style), &styles(), AtCreate),
+        c::row(t!("Качество"), t!("Разрешение модели 50, 75 или 100% кадра и точность оценки движения. Ниже — быстрее"), quality),
+        c::slider_row(st, t!("Сила эффекта"), t!("0 — кадр как есть, 1 — как задумано моделью"), fld!(intensity_bits), (0.0, 2.0, 0.05), 2, AtCreate),
+        c::slider_row(st, t!("Резкость"), t!("Действует сразу"), fld!(sharpness_bits), (0.0, 1.0, 0.05), 2, Live),
+        c::row(t!("Сравнение"), t!("Шторка в кадре: слева — без DLSS 5"), compare),
+    ];
+    if compare_on {
+        look.push(c::slider_row(st, t!("Граница"), "", fld!(compare_split_bits), (0.0, 1.0, 0.01), 2, Live));
+    }
+
+    let steam = "VKLayer_DLSS5=1 %command%";
+    let where_rows = vec![
+        syn_wine_row(),
+        c::row(
+            t!("Игры Steam"),
+            t!("Параметры запуска игры: {c}. Игре нужен Vulkan (для Direct3D — DXVK, в Proton он есть)", c = steam),
+            icon_button(icons::COPY, t!("Копировать"), "tb-btn", move || {
+                syngui::clipboard::copy(steam);
+                st.toast(t!("Строка скопирована — вставьте её в «Параметры запуска» игры"));
+            }),
+        ),
+        c::row(t!("Видеоплеер"), t!("Кнопка «Фильтры» в шапке плеера. У видео свой профиль — эти настройки на него не действуют"), Text::new("").class("hint")),
+    ];
+
+    let mut out = vec![c::group(t!("Картинка"), look), c::group(t!("Где работает"), where_rows)];
+
+    // игра со слоем (не видеоплеер): свои настройки для неё
+    let s = st.status.get_untracked();
+    if !s.game.is_empty() && !s.video {
+        let row = match st.game_profile.get_untracked() {
+            Some(g) => c::row(
+                t!("Свои настройки «{g}»", g = g),
+                t!("Правки сейчас сохраняются только для этой игры; остальные игры — на общих"),
+                Button::new(t!("Забыть")).class("btn ghost").on_click(move || st.forget_game_profile()),
+            ),
+            None => c::row(
+                t!("Игра «{g}»", g = s.game),
+                t!("Сейчас общие настройки. Сохраните — и в следующий раз эта игра откроется со своими"),
+                Button::new(t!("Сохранить для игры")).icon(icons::SAVE).class("btn").on_click(move || st.save_game_profile()),
+            ),
+        };
+        out.push(c::group(t!("Эта игра"), vec![row]));
+    }
+
+    let adv = Toggle::with_state(st.advanced.get_untracked()).on_change(move |on| {
+        st.advanced.set(on);
+        if on {
+            st.tab.set(crate::state::Tab::Simple);
+        }
+        st.save();
+    });
+    out.push(c::group(t!("Ещё"), vec![c::row(t!("Все настройки"), t!("Вкладки с тонкой настройкой модели, движения, композиции, отладки и помощника"), adv)]));
+    out
 }
 
 pub fn rendering(st: St) -> Vec<W> {
@@ -347,21 +442,7 @@ pub fn helper(st: St) -> Vec<W> {
             t!("Запуск"),
             vec![
                 c::row(t!("Среда помощника"), t!("Помощник — Windows-программа (модель — Windows DLL), ему нужен Wine или Proton; от игры это не зависит"), runner),
-                c::row(
-                    t!("Игры syn-wine"),
-                    t!("Слой DLSS 5 в программах нашего Wine без переменной VKLayer_DLSS5=1 — с их следующего запуска. Нужны кадры Vulkan: для Direct3D 8–11 — DXVK"),
-                    Toggle::with_state(crate::paths::syn_wine_flag().exists()).on_change(|on| {
-                        let flag = crate::paths::syn_wine_flag();
-                        let r = if on {
-                            std::fs::create_dir_all(crate::paths::config_dir()).and_then(|_| std::fs::write(&flag, b""))
-                        } else {
-                            std::fs::remove_file(&flag).or_else(|e| if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) })
-                        };
-                        if let Err(e) = r {
-                            tracing::warn!(?e, "флаг syn-wine");
-                        }
-                    }),
-                ),
+                syn_wine_row(),
                 c::int_row(st, t!("Пауза пересборки, мс"), t!("Сколько помощник ждёт после смены настройки модели перед пересборкой; поднимите, если модель перестаёт отвечать"), fld!(rebuild_settle_ms), 0, 5000, Live),
                 c::row(
                     t!("Журнал помощника"),

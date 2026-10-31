@@ -16,6 +16,7 @@ path = "src/main.rs"
 [dependencies]
 synshell-common = { workspace = true, features = ["i18n", "style"] }
 synsystem.workspace = true
+synaptixd.workspace = true
 syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "clipboard", "image"] }
 libc.workspace = true
 tracing.workspace = true

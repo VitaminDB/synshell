@@ -14,6 +14,8 @@ use crate::shm::{self, Field, ShmHeader};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
+    /// Главное: включение, стиль, качество, сила, где работает, профиль игры — без технических полей.
+    Simple,
     Rendering,
     Quality,
     Composition,
@@ -22,10 +24,11 @@ pub enum Tab {
 }
 
 impl Tab {
-    pub const ALL: [Tab; 5] = [Tab::Rendering, Tab::Quality, Tab::Composition, Tab::Inspect, Tab::Helper];
+    pub const ALL: [Tab; 6] = [Tab::Simple, Tab::Rendering, Tab::Quality, Tab::Composition, Tab::Inspect, Tab::Helper];
 
     pub fn label(self) -> String {
         match self {
+            Tab::Simple => t!("Главное"),
             Tab::Rendering => t!("Рендеринг"),
             Tab::Quality => t!("Качество"),
             Tab::Composition => t!("Композиция"),
@@ -36,6 +39,7 @@ impl Tab {
 
     pub fn parse(s: &str) -> Option<Tab> {
         Some(match s {
+            "simple" => Tab::Simple,
             "rendering" => Tab::Rendering,
             "quality" => Tab::Quality,
             "composition" => Tab::Composition,
@@ -80,6 +84,8 @@ pub struct Status {
     pub model_missing: bool,
     /// Канал держит видеоплеер со своим видеопрофилем: правки идут в него, игры не трогаются.
     pub video: bool,
+    /// Модель не поднялась, а видеокарту держат нейросети synaptixd: их id и байты.
+    pub vram_hog: Option<(Vec<String>, u64)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -108,6 +114,12 @@ pub struct St {
     pub binaries: RwSignal<String>,
     pub window: RwSignal<syngui::window::WindowState>,
     pub theme: RwSignal<String>,
+    /// Показаны все вкладки (технические настройки); иначе — только «Главное».
+    pub advanced: RwSignal<bool>,
+    /// Карточка состояния развёрнута: кадры, время, видеопамять, слой.
+    pub details: RwSignal<bool>,
+    /// Применён профиль игры (профиль с её именем): правки сохраняются в него, а не в config.ini.
+    pub game_profile: RwSignal<Option<String>>,
 }
 
 struct Poll {
@@ -130,7 +142,7 @@ impl St {
         let runner = (ini.get("runner_type").unwrap_or("").to_string(), ini.get("runner_path").unwrap_or("").to_string());
         let binaries = ini.get("binaries").filter(|b| !b.is_empty()).map(str::to_string).unwrap_or_else(|| paths::default_binaries().display().to_string());
         let st = Self {
-            tab: use_signal(Tab::Rendering),
+            tab: use_signal(if ini.get("ui_advanced") == Some("1") { Tab::Rendering } else { Tab::Simple }),
             status: use_signal(Status::default()),
             rev: use_signal(0),
             bypass: use_signal(true),
@@ -145,6 +157,9 @@ impl St {
             binaries: use_signal(binaries),
             window: use_signal(syngui::window::WindowState::default()),
             theme: use_signal(String::new()),
+            advanced: use_signal(ini.get("ui_advanced") == Some("1")),
+            details: use_signal(false),
+            game_profile: use_signal(std::fs::read_to_string(paths::game_profile_mark()).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())),
         };
         // Сохранённые настройки — в общую память до первой страницы: окно открывается на том, что
         // оставил прошлый сеанс (как restoreSettings Qt-окна).
@@ -152,7 +167,18 @@ impl St {
             // пока видеоплеер держит канал, в общей памяти его видеопрофиль — не перебивать играми
             if config::video_owner(h).is_none() {
                 config::restore_after_video(h);
-                config::apply_settings(h, &ini);
+                // игра с профилем ещё идёт — оставить её профиль; ушла — общие настройки
+                let live = paths::pid_alive(h.layer_pid.load(std::sync::atomic::Ordering::SeqCst)).then(|| h.game_name());
+                match st.game_profile.get_untracked() {
+                    Some(g) if live.as_deref() == Some(g.as_str()) => {
+                        config::load_profile(h, &g);
+                    }
+                    _ => {
+                        let _ = std::fs::remove_file(paths::game_profile_mark());
+                        st.game_profile.set(None);
+                        config::apply_settings(h, &ini);
+                    }
+                }
             }
             st.bypass.set(h.composition_bypass.load(std::sync::atomic::Ordering::SeqCst) != 0);
             POLL.lock().unwrap().blob = config::settings_blob(h);
@@ -205,7 +231,12 @@ impl St {
             hdr: ld(&h.hdr_active) != 0,
             model_missing: self.model_missing(),
             video: config::video_owner(h).is_some(),
+            vram_hog: None,
         };
+        let mut st = st;
+        if st.running && !st.model_up && st.helper_state == shm::HELPER_MODEL_FAILED {
+            st.vram_hog = vram_hog_cached();
+        }
         if self.status.get_untracked() != st {
             self.status.set(st);
         }
@@ -215,6 +246,9 @@ impl St {
         if config::restore_after_video(h) {
             tracing::info!("видеоплеер закрылся, не вернув настройки игр — вернул из config.ini");
         }
+        drop(p);
+        self.follow_game(h);
+        let mut p = POLL.lock().unwrap();
         let blob = config::settings_blob(h);
         if blob != p.blob {
             // настройку поменяли не из окна — страницы перечитывают значения
@@ -277,10 +311,81 @@ impl St {
         let h = header();
         // видеоплеер держит канал: в общей памяти видеопрофиль — он и сохраняется, config.ini игр не трогаем
         let video = h.filter(|h| config::video_owner(h).is_some());
-        config::save_config(if video.is_some() { None } else { h }, &[("runner_type", rt), ("runner_path", rp), ("profile", profile)]);
+        // у игры свой профиль — правки в него
+        let game = if video.is_none() { self.game_profile.get_untracked() } else { None };
+        let adv = if self.advanced.get_untracked() { "1" } else { "0" }.to_string();
+        let own = video.is_some() || game.is_some();
+        config::save_config(if own { None } else { h }, &[("runner_type", rt), ("runner_path", rp), ("profile", profile), ("ui_advanced", adv)]);
         if let Some(h) = video {
             config::save_video_profile(h);
+        } else if let (Some(h), Some(g)) = (h, game) {
+            if let Err(e) = config::save_profile(h, &g) {
+                tracing::warn!("профиль игры «{g}»: {e}");
+            }
         }
+    }
+
+    /// Профиль игры: появилась игра, у которой есть профиль с её именем, — применить; игра ушла —
+    /// вернуть общие настройки (config.ini). Видеоплеер не трогается — у него свой профиль.
+    fn follow_game(self, h: &ShmHeader) {
+        let ld = |a: &std::sync::atomic::AtomicU32| a.load(std::sync::atomic::Ordering::SeqCst);
+        let alive = paths::pid_alive(ld(&h.layer_pid));
+        let game = if alive && config::video_owner(h).is_none() { h.game_name() } else { String::new() };
+        let cur = self.game_profile.get_untracked();
+        match cur {
+            Some(g) if g != game => {
+                self.game_profile.set(None);
+                let _ = std::fs::remove_file(paths::game_profile_mark());
+                // в config.ini — общие настройки, профиль игры уже сохранён
+                config::apply_if_changed(h, &config::Ini::load());
+                POLL.lock().unwrap().blob = config::settings_blob(h);
+                self.rev.update(|r| *r += 1);
+                self.follow_game(h);
+            }
+            None if !game.is_empty() && config::profile_path(&game).is_file() => {
+                // правки до этой минуты — общие
+                self.save();
+                config::load_profile(h, &game);
+                POLL.lock().unwrap().blob = config::settings_blob(h);
+                let _ = std::fs::write(paths::game_profile_mark(), &game);
+                self.game_profile.set(Some(game.clone()));
+                self.rev.update(|r| *r += 1);
+                self.toast(t!("Свои настройки игры «{g}»", g = game));
+            }
+            _ => {}
+        }
+    }
+
+    /// Запомнить нынешние настройки для игры, что сейчас со слоем.
+    pub fn save_game_profile(self) {
+        let Some(h) = header() else { return };
+        let game = self.status.get_untracked().game;
+        if game.is_empty() {
+            return;
+        }
+        match config::save_profile(h, &game) {
+            Ok(()) => {
+                let _ = std::fs::write(paths::game_profile_mark(), &game);
+                self.game_profile.set(Some(game.clone()));
+                self.profiles.set(config::profiles());
+                self.toast(t!("Настройки сохранены для «{g}»", g = game));
+            }
+            Err(e) => self.toast(t!("Профиль не сохранён: {e}", e = e)),
+        }
+    }
+
+    /// Убрать профиль игры: снова общие настройки.
+    pub fn forget_game_profile(self) {
+        let Some(g) = self.game_profile.get_untracked() else { return };
+        let _ = std::fs::remove_file(config::profile_path(&g));
+        let _ = std::fs::remove_file(paths::game_profile_mark());
+        self.game_profile.set(None);
+        self.profiles.set(config::profiles());
+        if let Some(h) = header() {
+            config::apply_if_changed(h, &config::Ini::load());
+        }
+        self.reloaded();
+        self.toast(t!("Игра «{g}» снова на общих настройках", g = g));
     }
 
     pub fn toast(self, text: impl Into<String>) {
@@ -362,9 +467,15 @@ impl St {
         self.save();
     }
 
-    /// Копирование DLL NGX из каталога пользователя — как `dlssnr-helper import-binaries`.
+    /// Копирование DLL NGX из каталога пользователя — как `dlssnr-helper import-binaries`. Можно
+    /// указать и сам файл nvngx_dlssnr.dll — берётся его каталог.
     pub fn import(self, src: &str) {
-        let src = PathBuf::from(src.trim());
+        let mut src = PathBuf::from(src.trim());
+        if src.is_file() {
+            if let Some(d) = src.parent() {
+                src = d.to_path_buf();
+            }
+        }
         let dest = paths::default_binaries();
         if !src.is_dir() {
             return self.toast(t!("Каталог не найден: {p}", p = src.display()));
@@ -418,6 +529,49 @@ impl St {
         self.poll();
     }
 
+    /// Поиск модели в играх Steam: найдена — в поле импорта.
+    pub fn search_model(self, found: RwSignal<String>, typed: RwSignal<String>) {
+        self.busy.set(Some(t!("Ищу nvngx_dlssnr.dll в играх Steam и загрузках…")));
+        std::thread::spawn(move || {
+            let list = find_models();
+            run_on_main_thread(move || {
+                self.busy.set(None);
+                match list.first() {
+                    Some(d) => {
+                        let p = d.display().to_string();
+                        typed.set(p.clone());
+                        found.set(p);
+                        if list.len() > 1 {
+                            self.toast(t!("Найдено каталогов: {n}; подставлен первый", n = list.len()));
+                        }
+                    }
+                    None => self.toast(t!("nvngx_dlssnr.dll не нашлась ни в играх Steam, ни в загрузках — укажите файл вручную")),
+                }
+            });
+        });
+    }
+
+    /// Выгрузить модели synaptixd с видеокарты и перезапустить помощник.
+    pub fn free_vram(self, models: Vec<String>) {
+        self.busy.set(Some(t!("Освобождаю видеопамять…")));
+        std::thread::spawn(move || {
+            let r = (|| -> std::result::Result<(), String> {
+                let mut c = synaptixd::Client::connect().map_err(|e| e.to_string())?;
+                for id in &models {
+                    c.unload(id).map_err(|e| format!("{id}: {e}"))?;
+                }
+                Ok(())
+            })();
+            run_on_main_thread(move || {
+                self.busy.set(None);
+                match r {
+                    Ok(()) => self.restart_helper(),
+                    Err(e) => self.toast(t!("synaptixd не выгрузил модели: {e}", e = e)),
+                }
+            });
+        });
+    }
+
     pub fn reset_all(self) {
         if let Some(h) = header() {
             h.reset_settings();
@@ -467,6 +621,90 @@ impl St {
     }
 }
 
+/// Каталоги игр Steam: библиотеки из libraryfolders.vdf и стандартные места.
+fn steam_libraries() -> Vec<PathBuf> {
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    let roots = [home.join(".local/share/Steam"), home.join(".steam/root"), home.join(".steam/steam")];
+    let mut out: Vec<PathBuf> = Vec::new();
+    let mut push = |p: PathBuf| {
+        let p = p.canonicalize().unwrap_or(p);
+        if p.is_dir() && !out.contains(&p) {
+            out.push(p);
+        }
+    };
+    for r in &roots {
+        push(r.join("steamapps/common"));
+        if let Ok(vdf) = std::fs::read_to_string(r.join("steamapps/libraryfolders.vdf")) {
+            for line in vdf.lines() {
+                let l = line.trim();
+                if let Some(rest) = l.strip_prefix("\"path\"") {
+                    let p = rest.trim().trim_matches('"').replace("\\\\", "/");
+                    push(PathBuf::from(p).join("steamapps/common"));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Найти nvngx_dlssnr.dll в играх Steam и в загрузках (не глубже 6 уровней) — каталоги с моделью.
+pub fn find_models() -> Vec<PathBuf> {
+    fn walk(dir: &std::path::Path, depth: u32, out: &mut Vec<PathBuf>) {
+        if depth > 6 || out.len() >= 20 {
+            return;
+        }
+        let Ok(rd) = std::fs::read_dir(dir) else { return };
+        for e in rd.flatten() {
+            let Ok(ft) = e.file_type() else { continue };
+            if ft.is_dir() {
+                walk(&e.path(), depth + 1, out);
+            } else if e.file_name().to_string_lossy().eq_ignore_ascii_case("nvngx_dlssnr.dll") {
+                out.push(dir.to_path_buf());
+            }
+        }
+    }
+    let mut out = Vec::new();
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    let mut roots = steam_libraries();
+    // SDK Streamline и архивы обычно распаковывают в загрузки
+    for d in ["Downloads", "Загрузки"] {
+        roots.push(home.join(d));
+    }
+    let own = paths::default_binaries();
+    for r in roots {
+        walk(&r, 0, &mut out);
+    }
+    // свой каталог импорта — не находка
+    out.retain(|d| d != &own);
+    out
+}
+
+/// [`synaptixd_vram`] не чаще раза в 5 с (опрос окна — дважды в секунду); меньше 2 ГБ — не мешает.
+fn vram_hog_cached() -> Option<(Vec<String>, u64)> {
+    static CACHE: Mutex<Option<(std::time::Instant, Option<(Vec<String>, u64)>)>> = Mutex::new(None);
+    let mut c = CACHE.lock().unwrap();
+    if let Some((t, v)) = c.as_ref() {
+        if t.elapsed() < Duration::from_secs(5) {
+            return v.clone();
+        }
+    }
+    let v = synaptixd_vram().filter(|(_, b)| *b >= 2 << 30);
+    *c = Some((std::time::Instant::now(), v.clone()));
+    v
+}
+
+/// Модели synaptixd на видеокарте: id и сколько держат (байты).
+pub fn synaptixd_vram() -> Option<(Vec<String>, u64)> {
+    let mut c = synaptixd::Client::connect().ok()?;
+    let list = c.list().ok()?;
+    let models: Vec<_> = list
+        .into_iter()
+        .filter(|m| m.state == synaptixd::LoadState::Loaded && m.device == Some(synaptixd::DeviceKind::Cuda) && m.vram_bytes > 0)
+        .collect();
+    let bytes = models.iter().map(|m| m.vram_bytes).sum();
+    Some((models.into_iter().map(|m| m.id).collect(), bytes))
+}
+
 /// `profile=` в config.ini хранит путь к файлу профиля (как Qt-окно) — показывается имя.
 fn profile_name(path: &str) -> String {
     std::path::Path::new(path).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
@@ -498,4 +736,15 @@ pub fn pick_dir(start: &std::path::Path) -> Option<String> {
     };
     let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
     (out.status.success() && !s.is_empty()).then_some(s)
+}
+
+#[cfg(test)]
+mod tests {
+    /// Живой поиск по библиотекам Steam этой машины: `cargo test -p syn-dlss -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn find_models_live() {
+        let found = super::find_models();
+        println!("{found:?}");
+    }
 }

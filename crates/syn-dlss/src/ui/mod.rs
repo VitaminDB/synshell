@@ -101,16 +101,26 @@ fn status_card(st: St) -> W {
             Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class(dot)).child(Text::new(text).max_lines(2).class("status-title")),
         );
         let mut details = Vec::new();
-        if !s.reason.is_empty() {
+        let open = st.details.get();
+        if open && !s.reason.is_empty() {
             details.push(s.reason.clone());
         }
-        if s.running && s.helper_frames > 0 {
+        if !open {
+            // кратко: время кадра у программы со слоем
+            if s.layer != Layer::None && s.layer_ms > 0.0 {
+                details.push(t!("{ms} мс на кадр · {w}×{h}", ms = format!("{:.1}", s.layer_ms).replace('.', ","), w = s.layer_size.0, h = s.layer_size.1));
+            }
+            if !s.layer_reason.is_empty() && s.layer != Layer::None {
+                details.push(s.layer_reason.clone());
+            }
+        }
+        if open && s.running && s.helper_frames > 0 {
             details.push(t!("кадров {n} · модель {e} мс · туда {u} мс · обратно {r} мс", n = s.helper_frames, e = format!("{:.1}", s.eval_ms), u = format!("{:.1}", s.upload_ms), r = format!("{:.1}", s.readback_ms)));
         }
-        if s.running && (s.vram_mb > 0 || s.features > 0) {
+        if open && s.running && (s.vram_mb > 0 || s.features > 0) {
             details.push(t!("видеопамять {v} МБ · функций NGX {f}", v = s.vram_mb, f = s.features));
         }
-        if s.layer != Layer::None {
+        if open && s.layer != Layer::None {
             let mut l = t!("слой {w}×{h} · {ms} мс", w = s.layer_size.0, h = s.layer_size.1, ms = format!("{:.1}", s.layer_ms));
             l.push_str(if s.dmabuf { " · dma-buf" } else { "" });
             if s.hdr {
@@ -124,6 +134,12 @@ fn status_card(st: St) -> W {
         for d in details {
             info = info.child(Text::new(d).max_lines(2).elide(Elide::End).class("hint"));
         }
+        info = info.child(
+            GestureDetector::new()
+                .on_click(move || st.details.update(|d| *d = !*d))
+                .cursor(syngui::CursorIcon::Pointer)
+                .child(Text::new(if open { t!("Скрыть подробности") } else { t!("Подробнее") }).class("hint link")),
+        );
         let action: W = if let Some(b) = busy {
             boxed(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(CircularProgress::new().indeterminate().size(18.0).stroke_width(2.5).class("spin")).child(Text::new(b).class("hint")))
         } else if s.running {
@@ -137,6 +153,24 @@ fn status_card(st: St) -> W {
             boxed(Button::new(t!("Запустить помощник")).icon(icons::PLAY).class("btn primary").on_click(move || st.helper("start")))
         };
         let mut col = Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(Row::new().gap(16.0).cross_axis_alignment(CrossAxisAlignment::Center).child(info).child(action));
+        if let Some((models, bytes)) = s.vram_hog.clone() {
+            col = col.child(
+                DecoratedBox::new().class("banner").child(
+                    Row::new()
+                        .gap(12.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(icon(icons::WARNING).class("ic warn-ic"))
+                        .child(
+                            Column::new()
+                                .gap(2.0)
+                                .class("grow")
+                                .child(Text::new(t!("Не хватает видеопамяти")).class("banner-title"))
+                                .child(Text::new(t!("Нейросети synaptixd держат на видеокарте {gb} ГБ — модели DLSS 5 не хватило места. Они загрузятся снова, когда понадобятся.", gb = format!("{:.1}", bytes as f64 / (1u64 << 30) as f64).replace('.', ","))).max_lines(3).class("hint")),
+                        )
+                        .child(Button::new(t!("Освободить")).class("btn primary").on_click(move || st.free_vram(models.clone()))),
+                ),
+            );
+        }
         if s.video {
             col = col.child(
                 DecoratedBox::new().class("banner banner-info").child(
@@ -179,6 +213,10 @@ fn status_card(st: St) -> W {
 fn tabs(st: St) -> W {
     boxed(Reactive::new(move || -> Vec<W> {
         syngui::i18n::subscribe();
+        // без «всех настроек» вкладок нет — одна страница «Главное»
+        if !st.advanced.get() {
+            return vec![];
+        }
         let cur = st.tab.get();
         let mut row = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).class("tabs");
         for t in Tab::ALL {
@@ -191,9 +229,10 @@ fn tabs(st: St) -> W {
 fn content(st: St) -> W {
     boxed(Reactive::new(move || -> Vec<W> {
         syngui::i18n::subscribe();
-        let tab = st.tab.get();
+        let tab = if st.advanced.get() { st.tab.get() } else { Tab::Simple };
         let _ = st.rev.get();
         let groups = match tab {
+            Tab::Simple => pages::simple(st),
             Tab::Rendering => pages::rendering(st),
             Tab::Quality => pages::quality(st),
             Tab::Composition => pages::composition(st),
@@ -238,7 +277,7 @@ fn dialogs(st: St) -> W {
                     vec![boxed(
                         TextField::new()
                             .text(p)
-                            .placeholder(t!("Каталог с nvngx_dlssnr.dll"))
+                            .placeholder(t!("Каталог или файл nvngx_dlssnr.dll"))
                             .autofocus(true)
                             .on_change(move |t| typed.set(t.to_string()))
                             .on_submit(move |t| st.import(t))
@@ -257,12 +296,14 @@ fn dialogs(st: St) -> W {
                         }
                     });
                 });
+                let search = Button::new(t!("Найти на диске")).icon(icons::SEARCH).class("btn flat").on_click(move || st.search_model(picked, typed));
                 let card = Column::new()
                     .gap(14.0)
                     .cross_axis_alignment(CrossAxisAlignment::Stretch)
                     .child(Text::new(t!("Импорт DLL NVIDIA NGX")).class("card-title"))
                     .child(Text::new(t!("Нужен каталог с nvngx_dlssnr.dll; вместе с ней копируются nvngx.dll, nvapi64.dll, sl.*.dll и лицензии, если есть. Файлы попадают в {p}.", p = crate::paths::default_binaries().display())).max_lines(5).class("hint"))
                     .child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class("grow").child(field)).child(browse))
+                    .child(Row::new().child(search))
                     .child(
                         Row::new()
                             .gap(8.0)
@@ -334,12 +375,16 @@ fn keys(st: St, inner: impl Widget + 'static) -> W {
                     return KeyReply::Handled;
                 }
                 if m.ctrl && !m.alt {
+                    if !st.advanced.get_untracked() {
+                        return KeyReply::Ignore;
+                    }
                     let tab = match k {
-                        Key::Num1 => Tab::Rendering,
-                        Key::Num2 => Tab::Quality,
-                        Key::Num3 => Tab::Composition,
-                        Key::Num4 => Tab::Inspect,
-                        Key::Num5 => Tab::Helper,
+                        Key::Num1 => Tab::Simple,
+                        Key::Num2 => Tab::Rendering,
+                        Key::Num3 => Tab::Quality,
+                        Key::Num4 => Tab::Composition,
+                        Key::Num5 => Tab::Inspect,
+                        Key::Num6 => Tab::Helper,
                         _ => return KeyReply::Ignore,
                     };
                     st.tab.set(tab);

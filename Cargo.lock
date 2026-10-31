@@ -6875,6 +6875,7 @@ name = "syn-dlss"
 version = "0.1.42"
 dependencies = [
  "libc",
+ "synaptixd",
  "syngui",
  "synshell-common",
  "synsystem",
