@@ -109,7 +109,26 @@ const fn cmsg_space(n: usize) -> usize {
 #[repr(C, align(8))]
 struct CmsgBuf([u8; cmsg_space(MAX_FDS)]);
 
+/// Сообщения больше этого — через memfd: большой SEQPACKET ядро кладёт в один
+/// непрерывный буфер, и при фрагментированной памяти sendmsg падает с ENOBUFS
+/// (запрос чата с длинной историей инструментов — сотни КБ).
+const BIG_MSG: usize = 64 << 10;
+/// Само сообщение — маркер, его тело — последний переданный файл (memfd).
+const MEMFD_MARK: &[u8] = b"\0synaptix-memfd";
+/// Предел тела в memfd.
+const MAX_MEMFD_MSG: usize = 256 << 20;
+
 pub fn send(sock: BorrowedFd, data: &[u8], fds: &[BorrowedFd]) -> io::Result<()> {
+    if data.len() > BIG_MSG && data.len() <= MAX_MEMFD_MSG && fds.len() < MAX_FDS {
+        let body = memfd("msg", data)?;
+        let mut all: Vec<BorrowedFd> = fds.to_vec();
+        all.push(std::os::fd::AsFd::as_fd(&body));
+        return send_raw(sock, MEMFD_MARK, &all);
+    }
+    send_raw(sock, data, fds)
+}
+
+fn send_raw(sock: BorrowedFd, data: &[u8], fds: &[BorrowedFd]) -> io::Result<()> {
     if data.len() > MAX_MSG {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "сообщение больше 4 МБ"));
     }
@@ -201,6 +220,18 @@ pub fn recv(sock: BorrowedFd) -> io::Result<(Vec<u8>, Vec<OwnedFd>)> {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "сообщение обрезано"));
     }
     buf.truncate(n);
+    if buf == MEMFD_MARK {
+        if let Some(body) = fds.pop() {
+            let mut f = std::fs::File::from(body);
+            let mut data = Vec::new();
+            std::io::Seek::seek(&mut f, std::io::SeekFrom::Start(0))?;
+            std::io::Read::read_to_end(&mut std::io::Read::take(&mut f, MAX_MEMFD_MSG as u64 + 1), &mut data)?;
+            if data.len() > MAX_MEMFD_MSG {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "сообщение в memfd больше предела"));
+            }
+            return Ok((data, fds));
+        }
+    }
     Ok((buf, fds))
 }
 
@@ -292,5 +323,19 @@ mod tests {
         let (msg, fds) = recv(b.as_fd()).unwrap();
         assert_eq!(msg, b"second");
         assert!(fds.is_empty());
+    }
+
+    /// Большое сообщение идёт через memfd и приходит целиком; свои файлы — на месте.
+    #[test]
+    fn big_message_via_memfd() {
+        let mut sv = [0; 2];
+        assert_eq!(unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_SEQPACKET, 0, sv.as_mut_ptr()) }, 0);
+        let (a, b) = unsafe { (OwnedFd::from_raw_fd(sv[0]), OwnedFd::from_raw_fd(sv[1])) };
+        let big: Vec<u8> = (0..(6usize << 20)).map(|i| (i % 251) as u8).collect();
+        let m = memfd("x", b"attach").unwrap();
+        send(a.as_fd(), &big, &[m.as_fd()]).unwrap();
+        let (msg, fds) = recv(b.as_fd()).unwrap();
+        assert_eq!(msg, big);
+        assert_eq!(fds.len(), 1);
     }
 }
