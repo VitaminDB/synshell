@@ -434,9 +434,48 @@ fn popup(h: &InkHandle, which: Pop, ts: &super::ToolState, pop: RwSignal<Option<
                     })
                     .class("ink-pop-item"),
             ));
+            // Очистка — отменяется, как любая правка (↶).
+            let (hh, cl) = (h.clone(), close.clone());
+            col.push(Box::new(
+                ToolButton::new(ic::CLEAR_PAGE)
+                    .text(tr("notes.ink.clear_page"))
+                    .on_click(move || {
+                        hh.clear_page();
+                        cl();
+                    })
+                    .class("ink-pop-item"),
+            ));
+            if h.kind() == DocKind::Notebook && h.page_count() > 1 {
+                let hh = h.clone();
+                col.push(Box::new(
+                    ToolButton::new(ic::DELETE)
+                        .text(tr("notes.ink.clear_notebook"))
+                        .on_click(move || {
+                            clear_notebook(&hh);
+                            close();
+                        })
+                        .class("ink-pop-item"),
+                ));
+            }
         }
     }
     Box::new(Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Stretch).children(col).class("ink-pop-body"))
+}
+
+/// Очистить блокнот: остаётся одна пустая страница (шаблон первой) — одной
+/// правкой, которую можно отменить.
+fn clear_notebook(h: &InkHandle) {
+    let op = {
+        let d = h.lock();
+        let before = d.pages.clone();
+        let Some(mut first) = before.first().cloned() else { return };
+        for l in &mut first.layers {
+            l.items.clear();
+        }
+        super::model::Op::Pages { before, after: vec![first] }
+    };
+    h.commit(op);
+    h.go_to(0);
 }
 
 /// Пять ступеней толщины — точки растущего размера.
@@ -591,4 +630,37 @@ pub fn templates(h: &InkHandle, close: impl Fn() + Clone + Send + 'static) -> Bo
     let _ = Point::zero();
     let _ = Size::zero();
     Box::new(Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch).children(col))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::model::{Brush, InkDoc, InkPoint, Item, Rgba, Stroke};
+    use super::*;
+
+    fn line(y: f32) -> Item {
+        Item::Stroke(Stroke {
+            id: 0,
+            brush: Brush::Ballpoint,
+            color: Rgba::BLACK,
+            width: 3.0,
+            points: (0..5).map(|i| InkPoint { x: 10.0 + i as f32 * 10.0, y, p: 0.6, tx: 0.0, ty: 0.0, t: i * 8 }).collect(),
+        })
+    }
+
+    #[test]
+    fn clear_notebook_leaves_one_empty_page_and_undoes() {
+        let h = InkHandle::new(InkDoc::notebook());
+        h.ensure_pages(3);
+        for i in 0..3 {
+            h.go_to(i);
+            h.add_item(line(20.0 + i as f32));
+        }
+        assert_eq!(h.page_count(), 3);
+        clear_notebook(&h);
+        assert_eq!(h.page_count(), 1);
+        assert!(h.lock().pages[0].layers.iter().all(|l| l.items.is_empty()));
+        h.undo();
+        assert_eq!(h.page_count(), 3);
+        assert!(h.lock().pages.iter().all(|p| p.layers.iter().any(|l| !l.items.is_empty())));
+    }
 }
