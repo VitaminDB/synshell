@@ -654,6 +654,8 @@ pub fn scan_connectors(state: &mut State, node: DrmNode) {
                 }
             });
         let transform = cfg.as_ref().map(|c| crate::backend::parse_transform(&c.transform)).unwrap_or(Transform::Normal);
+        // Запомненная ориентация — сразу, до первого кадра (без reset_buffers и второго коммита).
+        let transform = crate::backend::restored_transform_on_connect(&mut state.core, &output, transform);
         output.change_current_state(Some(wl_mode), Some(transform), Some(Scale::Fractional(scale)), None);
         output.user_data().insert_if_missing(|| OutputId { node, crtc });
 

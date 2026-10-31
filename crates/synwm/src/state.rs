@@ -117,13 +117,11 @@ pub struct OutputData {
     pub powered_off: bool,
     /// Последний кадр был с изменениями (для copy_with_damage).
     pub damaged: bool,
-    /// E Ink: кадры придержаны до перерисовки клиентов после поворота/масштаба (`eink_hold`).
-    pub eink_hold: Option<crate::eink_hold::EinkHold>,
 }
 
 impl Default for OutputData {
     fn default() -> Self {
-        Self { redraw: RedrawState::Idle, last_frame: Instant::now(), frames: 0, powered_off: false, damaged: false, eink_hold: None }
+        Self { redraw: RedrawState::Idle, last_frame: Instant::now(), frames: 0, powered_off: false, damaged: false }
     }
 }
 

@@ -435,6 +435,23 @@ pub fn current_rotation(core: &Core, output: &Output) -> synshell_common::action
     startup_rotation(&core.config.rotation, core.saved_rotation.get(&name).copied())
 }
 
+/// `transform` нового вывода с запомненной ориентацией ([`startup_rotation`]), если его поворачивает
+/// `rotate`: встроенная панель или первый вывод. Ставится при создании вывода, до первого кадра:
+/// поворот уже включённого вывода (`apply_output_config`) сбрасывает буферы и даёт лишний коммит.
+pub fn restored_transform_on_connect(core: &mut Core, output: &Output, base: smithay::utils::Transform) -> smithay::utils::Transform {
+    let name = output.name();
+    if core.rotation.contains_key(&name) || !(is_internal(output) || core.space.outputs().next().is_none()) {
+        return base;
+    }
+    let r = startup_rotation(&core.config.rotation, core.saved_rotation.get(&name).copied());
+    if r == synshell_common::action::Rotation::Normal {
+        return base;
+    }
+    tracing::info!(output = name, rotation = r.as_str(), "поворот экрана при старте");
+    core.rotation.insert(name, r);
+    rotate_transform(base, r.quarters())
+}
+
 /// Ориентация при старте: см. [`current_rotation`].
 pub fn startup_rotation(
     cfg: &synshell_common::config::ScreenRotation,
@@ -771,7 +788,7 @@ impl State {
             return;
         }
         let r = current_rotation(&self.core, &o);
-        tracing::info!(output = o.name(), rotation = r.as_str(), "поворот экрана при старте");
+        tracing::info!(output = o.name(), rotation = r.as_str(), "поворот экрана при старте (после подключения)");
         self.core.rotation.insert(o.name(), r);
         self.backend.apply_output_config(&mut self.core);
     }

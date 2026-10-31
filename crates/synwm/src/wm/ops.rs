@@ -1492,13 +1492,6 @@ impl State {
         for o in &outputs {
             layer_map_for_output(o).arrange();
         }
-        // Поверхность блокировки — во весь вывод и после поворота/масштаба (без изменений configure не уходит).
-        for (o, ls) in &self.core.lock_surfaces {
-            if let Some(g) = self.core.space.output_geometry(o) {
-                ls.with_pending_state(|s| s.size = Some((g.size.w as u32, g.size.h as u32).into()));
-                ls.send_configure();
-            }
-        }
         crate::color::set_outputs(outputs.clone());
         // Окна за пределами всех выводов — вернуть на основной.
         let rects: Vec<Rect> = outputs.iter().filter_map(|o| self.core.space.output_geometry(o)).collect();
