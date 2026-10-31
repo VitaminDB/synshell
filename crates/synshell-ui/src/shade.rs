@@ -36,6 +36,8 @@ thread_local! {
     static SURFACE: Cell<Option<SurfaceId>> = const { Cell::new(None) };
     static OPEN: Cell<Option<RwSignal<bool>>> = const { Cell::new(None) };
     static PANEL: Cell<Option<RwSignal<Panel>>> = const { Cell::new(None) };
+    /// Открытый список вариантов плитки (удержание плитки).
+    static MENU: Cell<Option<RwSignal<Option<TileMenu>>>> = const { Cell::new(None) };
 }
 
 pub fn is_open() -> bool {
@@ -87,6 +89,7 @@ fn close_now() {
     }
     OPEN.with(|o| o.set(None));
     PANEL.with(|p| p.set(None));
+    MENU.with(|m| m.set(None));
 }
 
 fn open(panel: Panel) {
@@ -177,7 +180,16 @@ fn view(ctx: ShellCtx, open: RwSignal<bool>, which: RwSignal<Panel>) -> impl Wid
     .exit_duration_ms(dur * 2 / 3)
     .initial(dur > 0)
     .on_exit_complete(close_now);
-    Stack::new().fit(StackFit::Expand).child(scrim).child(panel)
+    let menu = use_signal(None::<TileMenu>);
+    MENU.with(|m| m.set(Some(menu)));
+    // смена шторки или её уход — список вариантов закрыт
+    create_effect(move || {
+        let _ = which.get();
+        if !open.get() {
+            menu.set(None);
+        }
+    });
+    Stack::new().fit(StackFit::Expand).child(scrim).child(panel).child(tile_menu_layer(ctx, menu))
 }
 
 fn handle() -> impl Widget {
@@ -328,26 +340,224 @@ fn header(ctx: ShellCtx) -> impl Widget {
         }))
 }
 
+// ─── Плитки и их варианты ────────────────────────────────────────────────────
+//
+// Плитка — [`Tile`]: короткое нажатие делает своё (переключает, открывает), удержание или
+// правый щелчок открывают список вариантов плитки ([`TileMenu`]) поверх шторки: режимы,
+// «Включить»/«Выключить», «Настройки…» (раздел «Параметров»). Варианты задаёт сама плитка
+// ([`Tile::option`], [`Tile::switch`], [`Tile::settings`]); без своих — хотя бы «Настройки…».
+
+type Act = Arc<dyn Fn() + Send + Sync>;
+
+/// Пункт списка вариантов плитки.
+#[derive(Clone)]
+struct TileOption {
+    glyph: &'static str,
+    title: String,
+    hint: String,
+    /// Текущий вариант — с отметкой.
+    checked: bool,
+    /// Черта перед пунктом: отделяет действия («Очистить экран», «Настройки…») от вариантов.
+    divider: bool,
+    action: Act,
+}
+
+impl TileOption {
+    fn new(glyph: &'static str, title: impl Into<String>, action: impl Fn() + Send + Sync + 'static) -> Self {
+        Self { glyph, title: title.into(), hint: String::new(), checked: false, divider: false, action: Arc::new(action) }
+    }
+
+    fn hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = hint.into();
+        self
+    }
+
+    fn checked(mut self, on: bool) -> Self {
+        self.checked = on;
+        self
+    }
+
+    fn divider(mut self) -> Self {
+        self.divider = true;
+        self
+    }
+}
+
+/// Список вариантов плитки: заголовок (подпись плитки) и пункты.
+#[derive(Clone)]
+struct TileMenu {
+    /// Номер показа: сигнал сравнивает списки по нему (пункты с замыканиями не сравнить).
+    seq: u64,
+    glyph: String,
+    title: String,
+    options: Vec<TileOption>,
+}
+
+impl PartialEq for TileMenu {
+    fn eq(&self, o: &Self) -> bool {
+        self.seq == o.seq
+    }
+}
+
 /// Плитка быстрой настройки: значок, подпись, состояние; `on` — включена.
-fn tile(glyph: &str, label: String, state: String, on: bool, f: impl Fn() + Send + Sync + 'static) -> impl Widget {
-    let class = if on { "shade-tile shade-tile-on" } else { "shade-tile" };
-    GestureDetector::new().on_click(f).child(
-        DecoratedBox::new()
+struct Tile {
+    glyph: String,
+    label: String,
+    state: String,
+    on: bool,
+    tap: Act,
+    options: Vec<TileOption>,
+}
+
+impl Tile {
+    fn new(glyph: &str, label: impl Into<String>, state: impl Into<String>, on: bool, tap: impl Fn() + Send + Sync + 'static) -> Self {
+        Self { glyph: glyph.to_string(), label: label.into(), state: state.into(), on, tap: Arc::new(tap), options: Vec::new() }
+    }
+
+    fn option(mut self, o: TileOption) -> Self {
+        self.options.push(o);
+        self
+    }
+
+    /// «Включить» и «Выключить» (отметка — у текущего; `None` — состояние неизвестно).
+    fn switch(self, on: Option<bool>, set: impl Fn(bool) + Send + Sync + 'static) -> Self {
+        let set = Arc::new(set);
+        let s2 = set.clone();
+        self.option(TileOption::new(GLYPH_ON, t!("Включить"), move || set(true)).checked(on == Some(true)))
+            .option(TileOption::new(GLYPH_OFF, t!("Выключить"), move || s2(false)).checked(on == Some(false)))
+    }
+
+    /// «Настройки…» — раздел `page` «Параметров» (`synsettings <page>`); шторка закрывается.
+    fn settings(self, page: &'static str) -> Self {
+        self.option(
+            TileOption::new(mi::SETTINGS, t!("Настройки…"), move || {
+                close();
+                crate::actions::spawn(&format!("synsettings {page}"));
+            })
+            .divider(),
+        )
+    }
+
+    fn build(self) -> impl Widget {
+        let class = if self.on { "shade-tile shade-tile-on" } else { "shade-tile" };
+        let tap = self.tap;
+        let menu = TileMenu { seq: 0, glyph: self.glyph.clone(), title: self.label.clone(), options: self.options };
+        GestureDetector::new()
+            .on_click(move || tap())
+            // без своего `on_long_press` удержание пальцем приходит сюда же
+            .on_secondary_click(move |_| open_menu(menu.clone()))
             .child(
-                Row::new()
-                    .gap(10.0)
-                    .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(DecoratedBox::new().child(icon(glyph).class("shade-tile-icon")).class("shade-tile-badge"))
+                DecoratedBox::new()
                     .child(
-                        Column::new()
-                            .gap(0.0)
-                            .child(Text::new(label).max_lines(1).class("shade-tile-label"))
-                            .child(Text::new(state).max_lines(1).class("shade-tile-state"))
-                            .class("grow"),
-                    ),
+                        Row::new()
+                            .gap(10.0)
+                            .cross_axis_alignment(CrossAxisAlignment::Center)
+                            .child(DecoratedBox::new().child(icon(&self.glyph).class("shade-tile-icon")).class("shade-tile-badge"))
+                            .child(
+                                Column::new()
+                                    .gap(0.0)
+                                    .child(Text::new(self.label).max_lines(1).class("shade-tile-label"))
+                                    .child(Text::new(self.state).max_lines(1).class("shade-tile-state"))
+                                    .class("grow"),
+                            ),
+                    )
+                    .class(class),
             )
-            .class(class),
-    )
+    }
+}
+
+const GLYPH_ON: &str = "\u{E9F6}"; // toggle_on
+const GLYPH_OFF: &str = "\u{E9F5}"; // toggle_off
+const GLYPH_CHECK: &str = "\u{E5CA}"; // check
+const GLYPH_TUNE: &str = "\u{E429}"; // tune
+
+/// Показать список вариантов плитки поверх шторки.
+fn open_menu(mut m: TileMenu) {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    m.seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    if m.options.is_empty() {
+        return;
+    }
+    if let Some(sig) = MENU.with(|s| s.get()) {
+        sig.set(Some(m));
+    }
+}
+
+fn close_menu() {
+    if let Some(sig) = MENU.with(|s| s.get()) {
+        sig.set(None);
+    }
+}
+
+/// Слой списка вариантов над шторкой: затемнение (тап — закрыть) и карточка по центру.
+/// На E Ink — без анимации и полупрозрачности: белая карточка в тёмной рамке, отметка текущего —
+/// инверсией строки.
+fn tile_menu_layer(ctx: ShellCtx, menu: RwSignal<Option<TileMenu>>) -> impl Widget {
+    let eink = synshell_common::display::is_eink();
+    rx(move || -> Box<dyn Widget> {
+        let Some(m) = menu.get() else { return Box::new(DecoratedBox::new()) };
+        let (w, h) = crate::manager::output_size(crate::manager::focused_output(&ctx).as_deref());
+        let width = (w - 32.0).clamp(240.0, 420.0);
+        let mut rows = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+        for (i, o) in m.options.into_iter().enumerate() {
+            if o.divider && i > 0 {
+                rows = rows.child(DecoratedBox::new().class("tile-menu-sep"));
+            }
+            let act = o.action.clone();
+            let mut text = Column::new().gap(1.0).child(Text::new(o.title).class("tile-menu-label"));
+            if !o.hint.is_empty() {
+                text = text.child(Text::new(o.hint).max_lines(2).class("tile-menu-hint"));
+            }
+            let mut row = Row::new()
+                .gap(12.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(icon(o.glyph).class("tile-menu-icon"))
+                .child(text.class("grow"));
+            if o.checked {
+                row = row.child(icon(GLYPH_CHECK).class("tile-menu-check"));
+            }
+            rows = rows.child(
+                GestureDetector::new()
+                    .on_click(move || {
+                        close_menu();
+                        act();
+                    })
+                    .child(DecoratedBox::new().child(row).class(if o.checked { "tile-menu-row tile-menu-row-on" } else { "tile-menu-row" })),
+            );
+        }
+        let head = Row::new()
+            .gap(10.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(icon(&m.glyph).class("tile-menu-head-icon"))
+            .child(Text::new(m.title).max_lines(1).class("tile-menu-title grow"))
+            .child(GestureDetector::new().on_click(close_menu).child(DecoratedBox::new().child(icon(mi::CLOSE).class("tile-menu-icon")).class("tile-menu-close")));
+        let card = Column::new()
+            .gap(8.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(head)
+            .child(ScrollView::new().vertical().child(rows).style("max-height", StyleValue::px((h - 140.0).max(200.0))))
+            .class(if eink { "tile-menu tile-menu-eink" } else { "tile-menu" })
+            .style("width", StyleValue::px(width));
+        // тап по карточке мимо пунктов не закрывает список
+        let card = GestureDetector::new().on_click(|| {}).child(card);
+        let card: Box<dyn Widget> = if eink {
+            Box::new(card)
+        } else {
+            let dur = crate::anim::group_ms(&ctx, "menu", 160);
+            Box::new(Presence::new(true, card).enter(Motion::fade().scale(0.94)).duration_ms(dur).initial(dur > 0))
+        };
+        Box::new(
+            Stack::new()
+                .fit(StackFit::Expand)
+                .child(GestureDetector::new().on_click(close_menu).child(DecoratedBox::new().class(if eink { "tile-menu-scrim-eink" } else { "tile-menu-scrim" })))
+                .child(
+                    Column::new()
+                        .main_axis_alignment(MainAxisAlignment::Center)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(card),
+                ),
+        )
+    })
 }
 
 fn mode_label(m: MobileMode) -> String {
@@ -357,9 +567,40 @@ fn mode_label(m: MobileMode) -> String {
     }
 }
 
+fn mode_hint(m: MobileMode) -> String {
+    match m {
+        MobileMode::Pages => t!("Каждое приложение во весь экран, листание вбок"),
+        MobileMode::Free => t!("Свободные окна на большом столе"),
+    }
+}
+
+fn rotation_option(r: synshell_common::action::Rotation, cur: synshell_common::action::Rotation) -> TileOption {
+    use synshell_common::action::Rotation;
+    let (title, hint) = match r {
+        Rotation::Normal => (t!("Обычная"), t!("0°")),
+        Rotation::R90 => (t!("Повернуть вправо"), t!("90° по часовой")),
+        Rotation::R180 => (t!("Вверх ногами"), "180°".to_string()),
+        Rotation::R270 => (t!("Повернуть влево"), t!("90° против часовой")),
+    };
+    TileOption::new(GLYPH_ROTATE, title, move || crate::rotation::rotate_manual(r)).hint(hint).checked(r == cur)
+}
+
+/// Bluetooth вкл/выкл (BlueZ, в фоне).
+fn bluetooth_power(on: bool) {
+    std::thread::spawn(move || match synsystem::bluetooth::Bluetooth::new() {
+        Some(bt) => {
+            if let Err(e) = bt.set_powered(on) {
+                log::warn!("Bluetooth: {e}");
+            }
+        }
+        None => log::warn!("Bluetooth: нет адаптера или службы bluetoothd"),
+    });
+}
+
 fn tiles(ctx: ShellCtx) -> impl Widget {
     // не из построения вида: запись сигнала посреди реактивного построения вешает оболочку
     syngui::async_runtime::run_on_main_thread(move || torch_refresh(ctx));
+    crate::netmenu::refresh_state();
     // Состояния вне сигналов — пересобрать плитки по счётчику.
     let rev = use_signal(0u32);
     rx(move || {
@@ -367,29 +608,37 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
         let net = ctx.network.get();
         let dnd = ctx.dnd.get();
         let cfg = ctx.config.get();
-        let _ = &cfg;
         let mode = ctx.mobile_mode();
         let wifi_state = if net.online { net.connection.clone() } else { t!("Нет подключения").into() };
         let torch = ctx.torch.get();
+        let wifi_on = crate::netmenu::powered();
         let mut grid = Grid::new(2).gap(8.0);
-        grid = grid.child(tile(crate::applets::network_glyph(&net), t!("Сеть").into(), wifi_state, net.online, || {
+        let open_network = || {
             // Окно сети: Wi-Fi, подключение, «Параметры сети…».
             close();
             ShellCtx::get().open_popup(crate::ctx::PopupKind::Network, crate::commands::centered());
-        }));
+        };
+        grid = grid.child(
+            Tile::new(crate::applets::network_glyph(&net), t!("Сеть"), wifi_state, net.online, open_network)
+                .option(TileOption::new(mi::WIFI, t!("Сети Wi-Fi…"), open_network).hint(t!("Список сетей и подключение")))
+                .switch(wifi_on, crate::netmenu::set_powered)
+                .settings("wifi")
+                .build(),
+        );
         // Мобильная связь (есть модем): тап — радио модема вкл/выкл
+        let set_radio = |on: bool| {
+            std::thread::spawn(move || {
+                if let Err(e) = synmodem::api::request(&synmodem::api::Request::SetRadio { on }) {
+                    log::warn!("радио модема: {e:#}");
+                }
+            });
+        };
         if let Some(m) = ctx.modem.get().filter(|m| m.present) {
             let (title, sub) = crate::modem::summary(&m);
             let on = m.radio;
             let glyph = if !on { "\u{E195}" } else if m.registration.registered() { "\u{E1C8}" } else { "\u{E1D0}" };
             let state = if sub.is_empty() { title.clone() } else if on { format!("{title} · {sub}") } else { sub };
-            grid = grid.child(tile(glyph, t!("Мобильная связь").into(), state, on, move || {
-                std::thread::spawn(move || {
-                    if let Err(e) = synmodem::api::request(&synmodem::api::Request::SetRadio { on: !on }) {
-                        log::warn!("радио модема: {e:#}");
-                    }
-                });
-            }));
+            grid = grid.child(Tile::new(glyph, t!("Мобильная связь"), state, on, move || set_radio(!on)).switch(Some(on), set_radio).settings("mobile-network").build());
         }
         // Мобильный интернет (передача данных по сотовой сети), отдельно от режима полёта
         if let Some(m) = ctx.modem.get().filter(|m| m.present) {
@@ -404,13 +653,14 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
                 DataState::Connected => if m.technology.is_empty() { t!("Подключён").into() } else { m.technology.clone() },
                 DataState::Error => t!("Ошибка").into(),
             };
-            grid = grid.child(tile("\u{E8D5}", t!("Моб. интернет").into(), state, on, move || {
+            let set_data = |on: bool| {
                 std::thread::spawn(move || {
-                    if let Err(e) = synmodem::api::request(&synmodem::api::Request::SetData { on: !on }) {
+                    if let Err(e) = synmodem::api::request(&synmodem::api::Request::SetData { on }) {
                         log::warn!("передача данных: {e:#}");
                     }
                 });
-            }));
+            };
+            grid = grid.child(Tile::new("\u{E8D5}", t!("Моб. интернет"), state, on, move || set_data(!on)).switch(Some(on), set_data).settings("mobile-network").build());
         }
         // Местоположение для программ (агент GeoClue): тап — выключатель [location] enabled
         {
@@ -422,28 +672,47 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
             } else {
                 t!("Включено").into()
             };
-            grid = grid.child(tile(crate::location::GLYPH, t!("Местоположение").into(), state, on, move || {
-                if let Err(e) = synshell_common::config_edit::set_value(&["location", "enabled"], toml_edit::Value::from(!on)) {
+            let set = |on: bool| {
+                if let Err(e) = synshell_common::config_edit::set_value(&["location", "enabled"], toml_edit::Value::from(on)) {
                     log::warn!("[location] enabled: {e:#}");
                 }
-            }));
+            };
+            grid = grid.child(Tile::new(crate::location::GLYPH, t!("Местоположение"), state, on, move || set(!on)).switch(Some(on), set).settings("location").build());
         }
+        let set_dnd = |on: bool| ShellCtx::get().dnd.set(on);
         grid = grid
-            .child(tile("\u{E1A7}", "Bluetooth".into(), t!("Параметры").into(), false, || {
-                close();
-                crate::actions::spawn("synsettings bluetooth");
-            }))
-            .child(tile(if dnd { mi::BELL_OFF } else { mi::BELL }, t!("Не беспокоить").into(), if dnd { t!("Включено") } else { t!("Выключено") }.into(), dnd, || {
-                let c = ShellCtx::get();
-                c.dnd.set(!c.dnd.get_untracked());
-            }))
-            .child(tile(mi::WINDOW, t!("Режим окон").into(), mode_label(mode).into(), true, move || {
-                crate::actions::run(Action::MobileModeCycle);
-            }))
-            .child(tile(crate::input_mode::GAMEPAD, t!("Игровой режим").into(), t!("Лаунчер игр").into(), false, || {
-                close();
-                crate::actions::run(Action::FormFactor(synshell_common::action::FormFactorTarget::Game));
-            }))
+            .child(
+                Tile::new("\u{E1A7}", "Bluetooth", t!("Параметры"), false, || {
+                    close();
+                    crate::actions::spawn("synsettings bluetooth");
+                })
+                .switch(None, bluetooth_power)
+                .settings("bluetooth")
+                .build(),
+            )
+            .child(
+                Tile::new(if dnd { mi::BELL_OFF } else { mi::BELL }, t!("Не беспокоить"), if dnd { t!("Включено") } else { t!("Выключено") }, dnd, move || set_dnd(!dnd))
+                    .switch(Some(dnd), set_dnd)
+                    .settings("notifications")
+                    .build(),
+            )
+            .child({
+                let mut t = Tile::new(mi::WINDOW, t!("Режим окон"), mode_label(mode), true, move || crate::actions::run(Action::MobileModeCycle));
+                for m in MobileMode::ALL {
+                    t = t.option(TileOption::new(mi::WINDOW, mode_label(m), move || crate::actions::run(Action::MobileMode(m))).hint(mode_hint(m)).checked(m == mode));
+                }
+                t.settings("phone").build()
+            })
+            .child({
+                let game = || {
+                    close();
+                    crate::actions::run(Action::FormFactor(synshell_common::action::FormFactorTarget::Game));
+                };
+                Tile::new(crate::input_mode::GAMEPAD, t!("Игровой режим"), t!("Лаунчер игр"), false, game)
+                    .option(TileOption::new(crate::input_mode::GAMEPAD, t!("Открыть лаунчер игр"), game))
+                    .settings("gameshell")
+                    .build()
+            })
             .child({
                 // Автоповорот: выключен — ориентация зафиксирована; без акселерометра — неактивен.
                 let sensor = crate::rotation::has_sensor();
@@ -453,63 +722,100 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
                     (true, true) => ("\u{E1C1}", t!("Включён")),
                     (true, false) => ("\u{E1C0}", t!("Фиксация")),
                 };
-                tile(glyph, t!("Автоповорот").into(), state.into(), auto, move || {
+                let t = Tile::new(glyph, t!("Автоповорот"), state, auto, move || {
                     if sensor {
                         crate::rotation::set_auto(!auto)
                     }
-                })
+                });
+                let t = if sensor { t.switch(Some(auto), crate::rotation::set_auto) } else { t };
+                t.settings("phone").build()
             })
             .child({
                 // Ручной поворот на четверть оборота по часовой (запоминается, фиксирует ориентацию).
                 let _ = ctx.comp_outputs.get();
                 let r = crate::rotation::current_rotation(&ctx);
                 let state = if r == synshell_common::action::Rotation::Normal { t!("Обычная").to_string() } else { format!("{}°", r.as_str()) };
-                tile(GLYPH_ROTATE, t!("Повернуть экран").into(), state, false, || crate::rotation::rotate_next(&ShellCtx::get()))
+                let mut t = Tile::new(GLYPH_ROTATE, t!("Повернуть экран"), state, false, || crate::rotation::rotate_next(&ShellCtx::get()));
+                for o in synshell_common::action::Rotation::ALL {
+                    t = t.option(rotation_option(o, r));
+                }
+                t.settings("displays").build()
             });
         if let Some(t) = torch {
             let on = t.on;
             let state = if on { t!("Включён · {v}%", v = format!("{:.0}", t.level * 100.0)) } else { t!("Выключен").into() };
-            grid = grid.child(tile(GLYPH_TORCH, t!("Фонарик").into(), state, on, move || {
-                torch_toggle(ShellCtx::get());
+            let set = move |want: bool| {
+                if ShellCtx::get().torch.get_untracked().is_some_and(|s| s.on) != want {
+                    torch_toggle(ShellCtx::get());
+                }
                 rev.set(rev.get_untracked() + 1);
-            }));
+            };
+            grid = grid.child(
+                Tile::new(GLYPH_TORCH, t!("Фонарик"), state, on, move || {
+                    torch_toggle(ShellCtx::get());
+                    rev.set(rev.get_untracked() + 1);
+                })
+                .switch(Some(on), set)
+                .build(),
+            );
         }
         grid = eink_tiles(grid, rev);
         grid = if ctx.is_phone() {
             // Экранный ввод приложения в фокусе: клавиатура, контроллер или ничего.
+            use synshell_common::config::InputMode;
             let _ = ctx.focused.get();
             let mode = crate::input_mode::current(&ctx);
             let state = match crate::input_mode::focused_app_name(&ctx) {
                 Some(n) => format!("{} · {n}", mode.title()),
                 None => mode.title().to_string(),
             };
-            grid.child(tile(crate::input_mode::glyph(mode), t!("Ввод").into(), state, mode == synshell_common::config::InputMode::Controller, || {
+            let mut t = Tile::new(crate::input_mode::glyph(mode), t!("Ввод"), state, mode == InputMode::Controller, || {
                 close();
                 ShellCtx::get().open_popup(crate::ctx::PopupKind::InputMode, crate::commands::centered());
-            }))
+            });
+            for m in [InputMode::Keyboard, InputMode::Controller, InputMode::Off] {
+                t = t.option(TileOption::new(crate::input_mode::glyph(m), m.title(), move || crate::input_mode::set_for_focused(&ShellCtx::get(), m)).checked(m == mode));
+            }
+            grid.child(t.option(TileOption::new(mi::KEYBOARD, t!("Показать клавиатуру"), || crate::actions::spawn("synkeyboard show"))).settings("keyboard").build())
         } else {
-            grid.child(tile(mi::KEYBOARD, t!("Клавиатура").into(), t!("Показать").into(), false, || {
-                close();
-                crate::actions::spawn("synkeyboard toggle");
-            }))
+            grid.child(
+                Tile::new(mi::KEYBOARD, t!("Клавиатура"), t!("Показать"), false, || {
+                    close();
+                    crate::actions::spawn("synkeyboard toggle");
+                })
+                .settings("keyboard")
+                .build(),
+            )
         };
-        grid = grid
-            .child(tile("\u{E3B0}", t!("Снимок").into(), t!("Экрана").into(), false, || {
+        // снимок — когда шторка уже ушла с экрана
+        let shot = |a: Action| {
+            move || {
                 close();
-                // Шторка должна успеть уйти с экрана.
-                syngui_layer::add_timer(std::time::Duration::from_millis(450), || {
-                    crate::actions::run(Action::Screenshot);
+                let a = a.clone();
+                syngui_layer::add_timer(std::time::Duration::from_millis(450), move || {
+                    crate::actions::run(a.clone());
                     None
                 });
-            }))
-            .child(tile(mi::LAYERS, t!("Недавние").into(), t!("Приложения").into(), false, || {
-                close();
-                crate::recents::open();
-            }))
-            .child(tile(mi::LOCK, t!("Блокировка").into(), t!("Экрана").into(), false, || {
-                close();
-                crate::commands::handle("lock");
-            }));
+            }
+        };
+        let recents = || {
+            close();
+            crate::recents::open();
+        };
+        let lock = || {
+            close();
+            crate::commands::handle("lock");
+        };
+        grid = grid
+            .child(
+                Tile::new("\u{E3B0}", t!("Снимок"), t!("Экрана"), false, shot(Action::Screenshot))
+                    .option(TileOption::new("\u{E3B0}", t!("Весь экран"), shot(Action::Screenshot)))
+                    .option(TileOption::new(mi::WINDOW, t!("Окно"), shot(Action::ScreenshotWindow)))
+                    .option(TileOption::new("\u{E3C2}", t!("Область…"), shot(Action::ScreenshotInteractive)).hint(t!("Выделить часть экрана")))
+                    .build(),
+            )
+            .child(Tile::new(mi::LAYERS, t!("Недавние"), t!("Приложения"), false, recents).option(TileOption::new(mi::LAYERS, t!("Открыть «Недавние»"), recents)).settings("phone").build())
+            .child(Tile::new(mi::LOCK, t!("Блокировка"), t!("Экрана"), false, lock).option(TileOption::new(mi::LOCK, t!("Заблокировать"), lock)).settings("lock").build());
         Box::new(grid)
     })
 }
@@ -523,10 +829,11 @@ const GLYPH_SPEED: &str = "\u{E9E4}"; // speed
 const GLYPH_REFRESH: &str = "\u{E5D5}"; // refresh
 
 /// Плитки экрана E Ink (только на E Ink): цвет/монохром (цветная панель), режим обновления
-/// по кругу, полная очистка. Состояние — из sysfs драйвера; выбор пишется сразу в драйвер
-/// и в `[eink]` (synwm применит его при следующем старте сеанса).
+/// по кругу (удержание — список режимов с пояснениями), полная очистка. Состояние — из sysfs
+/// драйвера; выбор пишется сразу в драйвер и в `[eink]` (synwm применит его при следующем
+/// старте сеанса).
 fn eink_tiles(mut grid: Grid, rev: RwSignal<u32>) -> Grid {
-    use synshell_common::display::{self, Eink};
+    use synshell_common::display::{self, Eink, UpdateMode};
     let kind = display::display_kind();
     if !kind.is_eink() {
         return grid;
@@ -543,41 +850,74 @@ fn eink_tiles(mut grid: Grid, rev: RwSignal<u32>) -> Grid {
             syngui::async_runtime::run_on_main_thread(move || rev.set(rev.get_untracked() + 1));
         });
     };
-    if kind.is_color_eink() {
-        let on = e.color().unwrap_or(false);
-        let (glyph, state) = if on { (GLYPH_COLOR, t!("Цветной")) } else { (GLYPH_MONO, t!("Монохром")) };
-        grid = grid.child(tile(glyph, t!("Цвет").into(), state.into(), on, move || {
-            write(Box::new(move |e| e.set_color(!on)));
-            if let Err(err) = synshell_common::config_edit::set_value(&["eink", "color"], toml_edit::Value::from(!on)) {
-                log::warn!("[eink] color: {err:#}");
-            }
-        }));
-    }
-    // режимы — из драйвера (hd, balanced, fast, ultrafast, x); текущий драйвер не назовёт, если
-    // `full_every`/`full_pct` переопределены — тогда выбор из конфига
-    let cfg = synshell_common::Config::load().0.eink;
-    let modes = e.update_modes();
-    if let Some(mode) = e.update_mode().or_else(|| cfg.update_mode.clone()) {
-        grid = grid.child(tile(GLYPH_SPEED, t!("Режим E Ink").into(), mode.title(), false, move || {
-            let next = mode.next_in(&modes);
-            // режим сбрасывает часть расширенных настроек — apply вернёт переопределения из `[eink]`
-            let mut cfg = cfg.clone();
-            cfg.update_mode = Some(next.clone());
-            cfg.color = None;
-            if let Err(err) = synshell_common::config_edit::set_value(&["eink", "update_mode"], toml_edit::Value::from(next.as_str())) {
-                log::warn!("[eink] update_mode: {err:#}");
-            }
-            write(Box::new(move |e| e.apply(&cfg)));
-        }));
-    }
-    grid.child(tile(GLYPH_REFRESH, t!("Очистить экран").into(), t!("Убрать следы").into(), false, move || {
+    // очистка — когда шторка уже ушла с экрана
+    let clear = move || {
         close();
-        // очистка — когда шторка уже ушла с экрана
         syngui_layer::add_timer(std::time::Duration::from_millis(450), move || {
             write(Box::new(|e| e.refresh()));
             None
         });
-    }))
+    };
+    let advanced = TileOption::new(GLYPH_TUNE, t!("Расширенные…"), || {
+        close();
+        crate::actions::spawn("synsettings displays");
+    })
+    .hint(t!("Параметры → Мониторы → Экран E Ink"))
+    .divider();
+    if kind.is_color_eink() {
+        let on = e.color().unwrap_or(false);
+        let set = move |c: bool| {
+            write(Box::new(move |e| e.set_color(c)));
+            if let Err(err) = synshell_common::config_edit::set_value(&["eink", "color"], toml_edit::Value::from(c)) {
+                log::warn!("[eink] color: {err:#}");
+            }
+        };
+        let (glyph, state) = if on { (GLYPH_COLOR, t!("Цветной")) } else { (GLYPH_MONO, t!("Монохром")) };
+        grid = grid.child(
+            Tile::new(glyph, t!("Цвет"), state, on, move || set(!on))
+                .option(TileOption::new(GLYPH_COLOR, t!("Цветной"), move || set(true)).hint(t!("Цветной фильтр Kaleido")).checked(on))
+                .option(TileOption::new(GLYPH_MONO, t!("Монохром"), move || set(false)).hint(t!("Чёрно-белый, чётче текст")).checked(!on))
+                .option(advanced.clone())
+                .build(),
+        );
+    }
+    // режимы — из драйвера (hd, balanced, fast, ultrafast, x); текущий драйвер не назовёт, если
+    // `full_every`/`full_pct` переопределены — тогда выбор из конфига
+    let cfg = synshell_common::Config::load().0.eink;
+    let cfg_mode = cfg.update_mode.clone();
+    let modes = e.update_modes();
+    let set_mode = move |m: UpdateMode| {
+        // режим сбрасывает часть расширенных настроек — apply вернёт переопределения из `[eink]`
+        let mut cfg = cfg.clone();
+        cfg.update_mode = Some(m.clone());
+        cfg.color = None;
+        if let Err(err) = synshell_common::config_edit::set_value(&["eink", "update_mode"], toml_edit::Value::from(m.as_str())) {
+            log::warn!("[eink] update_mode: {err:#}");
+        }
+        write(Box::new(move |e| e.apply(&cfg)));
+    };
+    let set_mode = Arc::new(set_mode);
+    if let Some(mode) = e.update_mode().or(cfg_mode) {
+        let next = mode.next_in(&modes);
+        let s = set_mode.clone();
+        let mut t = Tile::new(GLYPH_SPEED, t!("Режим E Ink"), mode.title(), false, move || s(next.clone()));
+        for m in &modes {
+            let s = set_mode.clone();
+            let m2 = m.clone();
+            t = t.option(TileOption::new(GLYPH_SPEED, m.title(), move || s(m2.clone())).hint(m.hint()).checked(*m == mode));
+        }
+        grid = grid.child(
+            t.option(TileOption::new(GLYPH_REFRESH, t!("Очистить экран"), clear).hint(t!("Убрать следы")).divider())
+                .option(TileOption { divider: false, ..advanced.clone() })
+                .build(),
+        );
+    }
+    grid.child(
+        Tile::new(GLYPH_REFRESH, t!("Очистить экран"), t!("Убрать следы"), false, clear)
+            .option(TileOption::new(GLYPH_REFRESH, t!("Очистить сейчас"), clear))
+            .option(advanced)
+            .build(),
+    )
 }
 
 // ─── Открытые приложения ─────────────────────────────────────────────────────

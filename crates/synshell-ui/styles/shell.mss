@@ -674,6 +674,57 @@ Text {
 .shade-notif-side { width: 260px; }
 .shade-handle { width: 44px; height: 5px; border-radius: 3px; background-color: var(--border); }
 
+/* Список вариантов плитки (удержание или правый щелчок по плитке): карточка по центру */
+.tile-menu-scrim { background-color: var(--scrim); }
+/* E Ink: без полупрозрачного затемнения — шторка под списком остаётся как есть */
+.tile-menu-scrim-eink { background-color: #00000000; }
+.tile-menu {
+    padding: 14px 10px 10px 10px;
+    border-radius: 24px;
+    background-color: var(--surface);
+    box-shadow: 0 16px 40px var(--shadow);
+}
+.tile-menu-head-icon { icon-size: 22px; icon-color: var(--accent); }
+.tile-menu-title { font-size: 17px; font-weight: 600; color: var(--fg); }
+.tile-menu-close { padding: 6px; border-radius: 999px; }
+.tile-menu-row {
+    padding: 10px 12px;
+    border-radius: 16px;
+    background-color: #00000000;
+    transition: background-color 100ms ease-out;
+}
+.tile-menu-row:hover { background-color: var(--hover); }
+.tile-menu-row:active { background-color: var(--pressed); }
+.tile-menu-row-on { background-color: var(--accent-soft); }
+.tile-menu-sep { height: 1px; margin: 4px 12px; background-color: var(--border); }
+.tile-menu-icon { icon-size: 20px; icon-color: var(--muted); }
+.tile-menu-label { font-size: 15px; color: var(--fg); }
+.tile-menu-hint { font-size: 12px; color: var(--muted); }
+.tile-menu-check { icon-size: 22px; icon-color: var(--accent); }
+.tile-menu-row-on .tile-menu-icon { icon-color: var(--accent); }
+.tile-menu-row-on .tile-menu-label { font-weight: 600; }
+/* E Ink: белая карточка в чёрной рамке, без теней и переходов; текущий пункт — инверсией */
+.tile-menu.tile-menu-eink {
+    background-color: #ffffff;
+    border: 3px solid #000000;
+    border-radius: 16px;
+    box-shadow: none;
+}
+.tile-menu-eink .tile-menu-head-icon { icon-color: #000000; }
+.tile-menu-eink .tile-menu-title { color: #000000; font-weight: 700; }
+.tile-menu-eink .tile-menu-row { border-radius: 10px; }
+.tile-menu-eink .tile-menu-row:hover { background-color: #00000000; }
+.tile-menu-eink .tile-menu-row:active { background-color: #000000; }
+.tile-menu-eink .tile-menu-icon { icon-color: #000000; }
+.tile-menu-eink .tile-menu-label { color: #000000; }
+.tile-menu-eink .tile-menu-hint { color: #000000; }
+.tile-menu-eink .tile-menu-row-on { background-color: #000000; }
+.tile-menu-eink .tile-menu-row-on .tile-menu-icon { icon-color: #ffffff; }
+.tile-menu-eink .tile-menu-row-on .tile-menu-label { color: #ffffff; font-weight: 700; }
+.tile-menu-eink .tile-menu-row-on .tile-menu-hint { color: #ffffff; }
+.tile-menu-eink .tile-menu-check { icon-color: #ffffff; }
+.tile-menu-eink .tile-menu-sep { height: 2px; background-color: #000000; }
+
 /* ─── Уведомления ────────────────────────────────────────────────────────── */
 
 .notif {

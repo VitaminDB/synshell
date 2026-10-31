@@ -190,6 +190,22 @@ fn start_polling() {
     });
 }
 
+/// Включить или выключить Wi-Fi (список вариантов плитки «Сеть» в шторке).
+pub fn set_powered(on: bool) {
+    wifi_do(if on { n_!("Включение Wi-Fi") } else { n_!("Выключение Wi-Fi") }, move |b| b.set_powered(on));
+}
+
+/// Wi-Fi включён — по последнему опросу ([`refresh_state`] или окно сети; `None` — ещё не
+/// опрашивали). Читается с подпиской: вид пересоберётся, когда придёт ответ.
+pub fn powered() -> Option<bool> {
+    wifi_sig().get().and_then(|r| r.ok()).map(|s| s.powered)
+}
+
+/// Перечитать состояние Wi-Fi в фоне (шторка: отметка «Включить»/«Выключить» у плитки «Сеть»).
+pub fn refresh_state() {
+    refresh();
+}
+
 /// Действие с Wi-Fi в фоне, затем перечитать состояние.
 fn wifi_do(label: &'static str, f: impl FnOnce(&dyn wifi::WifiBackend) -> Result<(), String> + Send + 'static) {
     let toast = toast_sig();
