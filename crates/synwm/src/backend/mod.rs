@@ -421,15 +421,28 @@ pub fn rotation_target(core: &Core) -> Option<Output> {
 }
 
 /// Поворот вывода поверх `transform` из конфига: заданный на лету (`rotate`),
-/// а пока его не было — выбранный вручную и сохранённый (`[rotation]
-/// orientation`, только для [`rotation_target`]).
+/// а пока его не было (старт) — только для [`rotation_target`]: при выключенном
+/// автоповороте — выбранный вручную (`[rotation] orientation`), иначе — последний
+/// применённый в прошлый раз (`rotation_state`, по датчику или вручную), нет его — ручной.
 pub fn current_rotation(core: &Core, output: &Output) -> synshell_common::action::Rotation {
-    if let Some(r) = core.rotation.get(&output.name()) {
+    let name = output.name();
+    if let Some(r) = core.rotation.get(&name) {
         return *r;
     }
-    match core.config.rotation.orientation {
-        Some(r) if rotation_target(core).is_some_and(|t| &t == output) => r,
-        _ => Default::default(),
+    if !rotation_target(core).is_some_and(|t| &t == output) {
+        return Default::default();
+    }
+    startup_rotation(&core.config.rotation, core.saved_rotation.get(&name).copied())
+}
+
+/// Ориентация при старте: см. [`current_rotation`].
+pub fn startup_rotation(
+    cfg: &synshell_common::config::ScreenRotation,
+    saved: Option<synshell_common::action::Rotation>,
+) -> synshell_common::action::Rotation {
+    match (cfg.auto, cfg.orientation) {
+        (false, Some(r)) => r,
+        (_, manual) => saved.or(manual).unwrap_or_default(),
     }
 }
 
@@ -735,6 +748,14 @@ impl State {
                 self.core.rotate_anim = Some(anim);
             }
         }
+        // Запомнить для следующего старта (и экрана входа) — состояние, не конфиг.
+        if self.core.saved_rotation.get(&name) != Some(&r) {
+            match synshell_common::rotation_state::save(&name, r) {
+                Ok(path) => tracing::debug!(output = name, rotation = r.as_str(), path = %path.display(), "ориентация запомнена"),
+                Err(e) => tracing::warn!(output = name, ?e, "ориентация не запомнена"),
+            }
+            self.core.saved_rotation.insert(name.clone(), r);
+        }
         self.core.rotation.insert(name, r);
         self.backend.apply_output_config(&mut self.core);
         self.outputs_changed();
@@ -776,5 +797,22 @@ mod rotation_tests {
             let w = compose_transform(r, T::Flipped180);
             assert_eq!(compose_transform(w, T::Flipped180), r);
         }
+    }
+
+    #[test]
+    fn startup_rotation_policy() {
+        use synshell_common::action::Rotation as R;
+        let mut cfg = synshell_common::config::ScreenRotation::default();
+        // автоповорот: последняя применённая, нет её — ручная, нет и её — без поворота
+        assert_eq!(startup_rotation(&cfg, None), R::Normal);
+        assert_eq!(startup_rotation(&cfg, Some(R::R90)), R::R90);
+        cfg.orientation = Some(R::R270);
+        assert_eq!(startup_rotation(&cfg, Some(R::R90)), R::R90);
+        assert_eq!(startup_rotation(&cfg, None), R::R270);
+        // зафиксировано вручную — ручная
+        cfg.auto = false;
+        assert_eq!(startup_rotation(&cfg, Some(R::R90)), R::R270);
+        cfg.orientation = None;
+        assert_eq!(startup_rotation(&cfg, Some(R::R90)), R::R90);
     }
 }

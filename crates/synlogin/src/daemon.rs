@@ -131,6 +131,10 @@ const KEEP_ROOT_OWNER: [&str; 1] = ["/dev/rfkill"];
 
 fn run_greeter() {
     let _ = std::fs::create_dir_all("/run/synlogin");
+    // Последняя ориентация экрана — общая для экрана входа и сеансов (пишут композиторы).
+    if let Err(e) = synshell_common::rotation_state::ensure_system_file() {
+        log::warn!("файл ориентации экрана: {e}");
+    }
     let _ = std::fs::remove_file(REQUEST);
     let rt = "/run/synlogin/greeter";
     let _ = std::fs::create_dir_all(rt);

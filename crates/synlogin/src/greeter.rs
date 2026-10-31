@@ -79,6 +79,11 @@ pub fn run() {
     synshell_common::i18n::apply(&system_config());
     let (cfg, _) = synshell_common::Config::load();
     std::thread::spawn(restore_backlight);
+    // Автоповорот, как в оболочке: датчик (iio-sensor-proxy) может появиться и позже экрана входа.
+    if cfg.rotation.auto {
+        let _ = ROTATION_CFG.set(cfg.rotation.clone());
+        synshell_ui::rotation::watch_sensor(rotate_by_sensor);
+    }
     // Экран входа живёт недолго — тема без живого обновления; шрифт интерфейса не ставится.
     let mss = synshell_common::style::AppStyle::new(&cfg, "synlogin").font_selector("").base(include_str!("../styles/greeter.mss")).build();
     let outputs_cfg = cfg.outputs.clone();
@@ -143,6 +148,33 @@ pub fn run() {
         log::error!("экран входа: {e:#}");
         std::process::exit(1);
     }
+}
+
+/// `[rotation]` композитора экрана входа (конфиг root).
+static ROTATION_CFG: std::sync::OnceLock<synshell_common::config::ScreenRotation> = std::sync::OnceLock::new();
+/// Номер последней ориентации датчика: поворот после `delay_ms` — только если за это время она не сменилась.
+static ROTATION_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Ориентация от датчика (поток датчика): повернуть экран входа через композитор (`rotate`). Первая после
+/// подключения датчика — сразу, дальше — продержавшаяся `delay_ms`; «вверх ногами» — если разрешено.
+fn rotate_by_sensor(orientation: &str) {
+    use std::sync::atomic::Ordering;
+    let r = synshell_ui::rotation::parse_orientation(orientation);
+    let fresh = synshell_ui::rotation::take_fresh(r);
+    let seq = ROTATION_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
+    let Some(cfg) = ROTATION_CFG.get() else { return };
+    let Some(r) = r.filter(|r| *r != synshell_common::action::Rotation::R180 || cfg.upside_down) else { return };
+    let delay = if fresh { 0 } else { cfg.delay_ms };
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(delay as u64));
+        if ROTATION_SEQ.load(Ordering::SeqCst) != seq {
+            return;
+        }
+        log::info!("поворот экрана входа: {r}");
+        if let Err(e) = synshell_common::ipc::send_action(synshell_common::Action::Rotate(r)) {
+            log::warn!("поворот экрана входа: {e}");
+        }
+    });
 }
 
 /// Системный конфиг оболочки (`/etc/synshell/config.toml`; нет — умолчания).

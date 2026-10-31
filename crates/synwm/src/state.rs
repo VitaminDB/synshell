@@ -249,6 +249,9 @@ pub struct Core {
     /// Поворот выводов на лету (действие `rotate`, автоповорот оболочки)
     /// поверх `transform` из `[[output]]`; по имени вывода.
     pub rotation: HashMap<String, synshell_common::action::Rotation>,
+    /// Последняя применённая ориентация выводов с прошлых запусков (`synshell_common::rotation_state`):
+    /// ставится при старте, пока датчик или пользователь не повернули экран.
+    pub saved_rotation: std::collections::BTreeMap<String, synshell_common::action::Rotation>,
     /// Идущая анимация поворота встроенной панели.
     pub rotate_anim: Option<crate::rotate_anim::RotateAnim>,
     /// Кнопка питания зажата: (номер нажатия, экран был погашен и включён
@@ -486,6 +489,7 @@ impl Core {
             remote_output: None,
             remote_input_active: false,
             rotation: HashMap::new(),
+            saved_rotation: synshell_common::rotation_state::load(),
             rotate_anim: None,
             power_key: None,
             power_key_seq: 0,

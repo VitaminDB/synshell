@@ -17,6 +17,7 @@ pub mod live;
 pub mod mime;
 pub mod paths;
 pub mod preview;
+pub mod rotation_state;
 pub mod sound_theme;
 pub mod text;
 pub mod theme;

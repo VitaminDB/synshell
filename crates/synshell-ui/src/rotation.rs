@@ -57,8 +57,16 @@ fn screen_power(on: bool) {
     });
 }
 
+/// После (пере)подключения к датчику первая определённая ориентация ещё не применена: её — сразу, без `delay_ms`.
+static FRESH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Ориентация `r` — первая после подключения датчика (сбрасывает признак): применять сразу.
+pub fn take_fresh(r: Option<Rotation>) -> bool {
+    r.is_some() && FRESH.swap(false, std::sync::atomic::Ordering::SeqCst)
+}
+
 /// Слушать датчик в фоне; без iio-sensor-proxy или акселерометра — молча
-/// ничего не делать (проверка раз в минуту: служба может появиться позже).
+/// ничего не делать.
 pub fn start(ctx: ShellCtx) {
     // Включили автоповорот или поворот сменился не по датчику (действие
     // `rotate`, перезапуск композитора) — встать по датчику. Кнопку
@@ -76,25 +84,76 @@ pub fn start(ctx: ShellCtx) {
             apply_policy(ctx);
         }
     });
+    watch_sensor(deliver);
+}
+
+/// Поток датчика: подключиться к iio-sensor-proxy и передавать `deliver` каждую ориентацию
+/// (`AccelerometerOrientation`). Нет службы или акселерометра — ждать, пока служба появится на шине
+/// или у неё появится акселерометр (служба датчиков поднимается позже оболочки), но не дольше минуты.
+/// Общий для оболочки и экрана входа (synlogin greeter).
+pub fn watch_sensor(deliver: fn(&str)) {
     std::thread::Builder::new()
         .name("rotation".into())
-        .spawn(|| {
+        .spawn(move || {
+            let wake = sensor_wakeups();
             let mut logged = false;
             loop {
-                if let Err(e) = listen() {
+                if let Err(e) = listen(deliver) {
                     HAS_SENSOR.store(false, std::sync::atomic::Ordering::SeqCst);
                     if !logged {
-                        log::info!("поворот экрана: датчика нет ({e})");
+                        log::info!("поворот экрана: датчика нет ({e}) — жду службу датчиков");
                         logged = true;
                     }
                 }
-                std::thread::sleep(Duration::from_secs(60));
+                while wake.try_recv().is_ok() {}
+                if wake.recv_timeout(Duration::from_secs(60)).is_ok() {
+                    // служба только что заняла имя — дать ей зарегистрировать объект и свойства
+                    std::thread::sleep(Duration::from_millis(300));
+                }
             }
         })
         .ok();
 }
 
-fn listen() -> zbus::Result<()> {
+/// Будильник ожидания датчика: служба `net.hadess.SensorProxy` заняла имя на системной шине или
+/// у неё сменились свойства (`HasAccelerometer`). Сигналы — в канал на одно место: пока датчик
+/// работает, частые смены свойств (освещённость) не копятся.
+fn sensor_wakeups() -> std::sync::mpsc::Receiver<()> {
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let rules = [
+        zbus::MatchRule::builder()
+            .msg_type(zbus::message::Type::Signal)
+            .sender("org.freedesktop.DBus")
+            .and_then(|b| b.interface("org.freedesktop.DBus"))
+            .and_then(|b| b.member("NameOwnerChanged"))
+            .and_then(|b| b.arg(0, "net.hadess.SensorProxy"))
+            .map(|b| b.build()),
+        zbus::MatchRule::builder()
+            .msg_type(zbus::message::Type::Signal)
+            .interface("org.freedesktop.DBus.Properties")
+            .and_then(|b| b.member("PropertiesChanged"))
+            .and_then(|b| b.path("/net/hadess/SensorProxy"))
+            .map(|b| b.build()),
+    ];
+    for rule in rules.into_iter().flatten() {
+        let tx = tx.clone();
+        std::thread::Builder::new()
+            .name("rotation-wait".into())
+            .spawn(move || {
+                let Ok(conn) = zbus::blocking::Connection::system() else { return };
+                let Ok(it) = zbus::blocking::MessageIterator::for_match_rule(rule, &conn, Some(16)) else { return };
+                for m in it {
+                    if m.is_ok() && matches!(tx.try_send(()), Err(std::sync::mpsc::TrySendError::Disconnected(_))) {
+                        return;
+                    }
+                }
+            })
+            .ok();
+    }
+    rx
+}
+
+fn listen(deliver: fn(&str)) -> zbus::Result<()> {
     let conn = zbus::blocking::Connection::system()?;
     let proxy = zbus::blocking::Proxy::new(&conn, "net.hadess.SensorProxy", "/net/hadess/SensorProxy", "net.hadess.SensorProxy")?;
     let has: bool = proxy.get_property("HasAccelerometer")?;
@@ -106,6 +165,7 @@ fn listen() -> zbus::Result<()> {
     }
     *PROXY.lock().unwrap() = Some(proxy.clone());
     HAS_SENSOR.store(true, std::sync::atomic::Ordering::SeqCst);
+    FRESH.store(true, std::sync::atomic::Ordering::SeqCst);
     log::info!("поворот экрана: акселерометр подключён");
     set_threshold(&proxy, synshell_common::Config::load().0.rotation.threshold_deg);
     // Служба перезапустилась — захват был за прежним владельцем имени: занять заново.
@@ -121,6 +181,7 @@ fn listen() -> zbus::Result<()> {
                     && p2.call_method("ClaimAccelerometer", &()).is_ok()
                 {
                     set_threshold(&p2, synshell_common::Config::load().0.rotation.threshold_deg);
+                    FRESH.store(true, std::sync::atomic::Ordering::SeqCst);
                     log::info!("поворот экрана: служба датчиков перезапущена, акселерометр занят снова");
                     if let Ok(v) = p2.get_property::<String>("AccelerometerOrientation") {
                         deliver(&v);
@@ -168,17 +229,23 @@ fn send_threshold(degrees: u32) {
     });
 }
 
-fn deliver(orientation: &str) {
+/// Ориентация iio-sensor-proxy → поворот экрана (`undefined` и прочее — `None`).
+pub fn parse_orientation(orientation: &str) -> Option<Rotation> {
     // Как в Mutter: левый край вверху — поворот 90°, правый — 270°.
-    let r = match orientation {
+    match orientation {
         "normal" => Some(Rotation::Normal),
         "left-up" => Some(Rotation::R90),
         "bottom-up" => Some(Rotation::R180),
         "right-up" => Some(Rotation::R270),
         _ => None,
-    };
+    }
+}
+
+fn deliver(orientation: &str) {
+    let r = parse_orientation(orientation);
+    let fresh = take_fresh(r);
     run_on_main_thread(move || {
-        if SENSOR.with(|s| s.replace(r)) == r && PENDING.with(|p| p.get()).is_none() {
+        if SENSOR.with(|s| s.replace(r)) == r && PENDING.with(|p| p.get()).is_none() && !fresh {
             return;
         }
         // Новое положение — ждать `delay_ms`: вернули телефон раньше — таймер
@@ -187,7 +254,8 @@ fn deliver(orientation: &str) {
             syngui_layer::cancel_timer(t);
         }
         let ctx = ShellCtx::get();
-        let delay = ctx.cfg().rotation.delay_ms;
+        // Датчик только что подключился (служба поднялась позже оболочки) — его ориентацию сразу.
+        let delay = if fresh { 0 } else { ctx.cfg().rotation.delay_ms };
         if delay == 0 || r.is_none() {
             STABLE.with(|s| s.set(r));
             apply_policy(ctx);
