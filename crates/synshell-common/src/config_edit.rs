@@ -4,13 +4,25 @@
 
 use crate::config::{Applet, Config, DeskWidget, Panel};
 use crate::paths;
+use std::path::Path;
 use toml_edit::{DocumentMut, InlineTable, Item, Table, Value};
 
 /// Прочитать документ, применить правку и записать атомарно. `f` возвращает
 /// `false` — ничего не менять.
 pub fn edit(f: impl FnOnce(&mut DocumentMut) -> bool) -> anyhow::Result<bool> {
-    let path = paths::config_file();
-    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    edit_file(&paths::config_file(), f)
+}
+
+/// [`edit`] для любого файла конфигурации (например, системного
+/// `/etc/synshell/config.toml`). Файла нет — правка ложится на текст по умолчанию
+/// ([`Config::default_config_text`]), иначе новый файл потерял бы настройки,
+/// которые до него действовали.
+pub fn edit_file(path: &Path, f: impl FnOnce(&mut DocumentMut) -> bool) -> anyhow::Result<bool> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Config::default_config_text(),
+        Err(e) => return Err(e.into()),
+    };
     let mut doc: DocumentMut = text.parse()?;
     if !f(&mut doc) {
         return Ok(false);
@@ -23,8 +35,50 @@ pub fn edit(f: impl FnOnce(&mut DocumentMut) -> bool) -> anyhow::Result<bool> {
     }
     let tmp = path.with_extension("toml.tmp");
     std::fs::write(&tmp, &out)?;
-    std::fs::rename(&tmp, &path)?;
+    std::fs::rename(&tmp, path)?;
     Ok(true)
+}
+
+/// Задать `scale` в `[[output]]` для выводов `names`: есть запись — меняется,
+/// нет — добавляется `{ name, scale }`. `names` пуст — меняются все записи.
+/// Возвращает `false`, если менять нечего.
+pub fn doc_set_output_scale(doc: &mut DocumentMut, names: &[&str], scale: f64) -> bool {
+    let scale = (scale * 100.0).round() / 100.0;
+    if !matches!(doc.get("output"), Some(Item::ArrayOfTables(_))) {
+        if names.is_empty() {
+            return false;
+        }
+        doc.insert("output", Item::ArrayOfTables(toml_edit::ArrayOfTables::new()));
+    }
+    let Some(aot) = doc.get_mut("output").and_then(Item::as_array_of_tables_mut) else { return false };
+    let same = |t: &Table| t.get("scale").and_then(Item::as_value).and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64))) == Some(scale);
+    let mut changed = false;
+    let mut missing: Vec<&str> = names.to_vec();
+    for t in aot.iter_mut() {
+        let name = t.get("name").and_then(Item::as_str).unwrap_or("").trim().to_string();
+        let hit = names.is_empty() || names.iter().any(|n| n.eq_ignore_ascii_case(&name));
+        if !hit {
+            continue;
+        }
+        missing.retain(|n| !n.eq_ignore_ascii_case(&name));
+        if !same(t) {
+            t.insert("scale", toml_edit::value(scale));
+            changed = true;
+        }
+    }
+    for n in missing {
+        let mut t = Table::new();
+        t.insert("name", toml_edit::value(n));
+        t.insert("scale", toml_edit::value(scale));
+        aot.push(t);
+        changed = true;
+    }
+    changed
+}
+
+/// [`doc_set_output_scale`] в файле `path`.
+pub fn set_output_scale(path: &Path, names: &[&str], scale: f64) -> anyhow::Result<bool> {
+    edit_file(path, |doc| doc_set_output_scale(doc, names, scale))
 }
 
 /// Записать значение по пути таблиц (`["files", "view"]`), создавая
@@ -233,5 +287,46 @@ mod tests {
         let empty = Config::parse("widget = []").unwrap();
         assert_eq!(empty.widgets, Some(vec![]));
         assert_eq!(Config::parse("").unwrap().widgets, None);
+    }
+
+    #[test]
+    fn output_scale_set_and_add() {
+        let text = "# экран\n[[output]]\nname = \"Unknown-1\"\nscale = 2.0 # вручную\n\n[[output]]\nname = \"HDMI-A-1\"\n";
+        let mut doc: DocumentMut = text.parse().unwrap();
+        // та же величина — без изменений
+        assert!(!doc_set_output_scale(&mut doc, &["unknown-1"], 2.0));
+        assert!(doc_set_output_scale(&mut doc, &["Unknown-1"], 1.5));
+        let cfg = Config::parse(&doc.to_string()).unwrap();
+        assert_eq!(cfg.outputs[0].scale, 1.5);
+        assert_eq!(cfg.outputs[1].scale, 0.0);
+        assert!(doc.to_string().starts_with("# экран"));
+        // нового вывода нет — запись добавляется
+        assert!(doc_set_output_scale(&mut doc, &["DSI-1"], 2.25));
+        let cfg = Config::parse(&doc.to_string()).unwrap();
+        assert_eq!((cfg.outputs[2].name.as_str(), cfg.outputs[2].scale), ("DSI-1", 2.25));
+        // имя неизвестно — все записи
+        assert!(doc_set_output_scale(&mut doc, &[], 3.0));
+        assert!(Config::parse(&doc.to_string()).unwrap().outputs.iter().all(|o| o.scale == 3.0));
+    }
+
+    #[test]
+    fn output_scale_into_empty_doc() {
+        let mut doc = DocumentMut::new();
+        assert!(!doc_set_output_scale(&mut doc, &[], 2.0));
+        assert!(doc_set_output_scale(&mut doc, &["Unknown-1"], 2.0));
+        let cfg = Config::parse(&doc.to_string()).unwrap();
+        assert_eq!((cfg.outputs[0].name.as_str(), cfg.outputs[0].scale), ("Unknown-1", 2.0));
+    }
+
+    #[test]
+    fn set_output_scale_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("config.toml");
+        std::fs::write(&p, "[general]\nlanguage = \"ru\"\n").unwrap();
+        assert!(set_output_scale(&p, &["Unknown-1"], 1.75).unwrap());
+        let (cfg, err) = Config::load_from(&p);
+        assert!(err.is_none());
+        assert_eq!(cfg.outputs[0].scale, 1.75);
+        assert_eq!(cfg.general.language, "ru");
     }
 }

@@ -30,6 +30,8 @@
 .round { padding: 12px; border-radius: 999px; background-color: #ffffff1c; transition: scale 200ms spring(420, 26); }
 .round:active { scale: 0.9; }
 .round-icon { font-size: 22px; color: #ffffff; }
+.zoom-box { padding: 8px 16px; border-radius: 999px; background-color: #ffffff1c; }
+.zoom-value { font-size: 14px; color: #ffffff; min-width: 52px; }
 .osk { padding: 6px 4px; border-radius: 18px; background-color: #000000a8; }
 .osk-key {
     border-radius: 8px;

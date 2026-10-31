@@ -40,7 +40,21 @@ struct St {
     /// новым текстом; ввод с физической клавиатуры их не пересобирает.
     osk_rev: RwSignal<u64>,
     now: RwSignal<i64>,
+    /// Ползунок масштаба экрана открыт.
+    zoom_open: RwSignal<bool>,
+    /// Масштаб выводов (как `scale` в `[[output]]`).
+    zoom: RwSignal<f64>,
+    /// Растёт при каждом сдвиге ползунка — запись в конфиг после паузы.
+    zoom_rev: RwSignal<u64>,
 }
+
+/// Пределы и шаг ползунка масштаба.
+const ZOOM_MIN: f32 = 1.0;
+const ZOOM_MAX: f32 = 4.0;
+const ZOOM_STEP: f32 = 0.25;
+/// Пауза после последнего сдвига до записи: каждая запись — перечитывание
+/// конфига композитором и пересборка экрана (на E Ink — полное обновление).
+const ZOOM_APPLY_DELAY: std::time::Duration = std::time::Duration::from_millis(800);
 
 fn phone() -> bool {
     std::env::var("SYNSHELL_FORM_FACTOR").as_deref() == Ok("phone")
@@ -55,6 +69,7 @@ pub fn run() {
     let (cfg, _) = synshell_common::Config::load();
     // Экран входа живёт недолго — тема без живого обновления; шрифт интерфейса не ставится.
     let mss = synshell_common::style::AppStyle::new(&cfg, "synlogin").font_selector("").base(include_str!("../styles/greeter.mss")).build();
+    let outputs_cfg = cfg.outputs.clone();
     let r = syngui_layer::run(syngui_layer::RunOptions::default(), &mss, move || {
         let st = St {
             stage: use_signal(Stage::Users),
@@ -73,6 +88,9 @@ pub fn run() {
             },
             osk_rev: use_signal(0),
             now: use_signal(synshell_ui::clock::unix_now()),
+            zoom_open: use_signal(false),
+            zoom: use_signal(current_zoom(&outputs_cfg)),
+            zoom_rev: use_signal(0),
         };
         syngui_layer::add_timer(std::time::Duration::from_secs(5), move || {
             st.now.set(synshell_ui::clock::unix_now());
@@ -125,6 +143,33 @@ fn user_config(u: &User) -> Option<synshell_common::Config> {
     let path = ["synshell", "syndesktop"].iter().map(|d| home.join(".config").join(d).join("config.toml")).find(|p| p.exists())?;
     let (cfg, err) = synshell_common::Config::load_from(&path);
     (err.is_none() && !cfg.general.language.trim().is_empty()).then_some(cfg)
+}
+
+/// Масштаб первого вывода: из `[[output]]`, а если там «авто» (0) — тот, что
+/// сообщил композитор (целый, `wl_output.scale`).
+fn current_zoom(outputs_cfg: &[synshell_common::config::OutputConfig]) -> f64 {
+    let Some(o) = syngui_layer::outputs().get_untracked().into_iter().next() else { return 2.0 };
+    synshell_common::config::output_config_index(outputs_cfg, &o.name, &o.make, &o.model)
+        .map(|i| outputs_cfg[i].scale)
+        .filter(|s| *s > 0.0)
+        .unwrap_or(o.scale.max(1) as f64)
+}
+
+/// Записать масштаб в `[[output]]` текущих выводов: в конфиг, который читает
+/// композитор экрана входа (`~/.config/synshell/config.toml` root), и в
+/// системный — его копируют новые пользователи.
+fn apply_zoom(scale: f64) {
+    let names: Vec<String> = syngui_layer::outputs().get_untracked().into_iter().map(|o| o.name).filter(|n| !n.is_empty()).collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let mut files = vec![synshell_common::paths::config_file(), synshell_common::paths::system_config_file()];
+    files.dedup();
+    for f in files {
+        match synshell_common::config_edit::set_output_scale(&f, &names, scale) {
+            Ok(true) => log::info!("масштаб {scale} для {names:?} записан в {}", f.display()),
+            Ok(false) => {}
+            Err(e) => log::warn!("масштаб не записан в {}: {e:#}", f.display()),
+        }
+    }
 }
 
 fn set_value(st: St, i: usize, v: String) {
@@ -288,7 +333,14 @@ fn view(st: St) -> impl Widget {
         .gap(10.0)
         .child(round_btn("\u{E8AC}", || finish("!poweroff")))
         .child(round_btn("\u{E5D5}", || finish("!reboot")))
-        .child(round_btn("\u{E312}", move || st.osk.set(!st.osk.get_untracked())));
+        .child(round_btn("\u{E312}", move || st.osk.set(!st.osk.get_untracked())))
+        .child(round_btn("\u{E8FF}", move || st.zoom_open.set(!st.zoom_open.get_untracked())));
+    let zoom = Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        if !st.zoom_open.get() {
+            return vec![];
+        }
+        vec![Box::new(zoom_view(st))]
+    });
     Stack::new()
         .fit(StackFit::Expand)
         .child(DecoratedBox::new().class("bg"))
@@ -298,7 +350,7 @@ fn view(st: St) -> impl Widget {
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(clock)
                 .child(body)
-                .child(Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(keyboard).child(power))
+                .child(Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(keyboard).child(zoom).child(power))
                 .class("root"),
         )
 }
@@ -317,6 +369,45 @@ fn submit(st: St) {
         }
         Stage::Users => {}
     }
+}
+
+/// Ползунок масштаба экрана с подписью «200 %». Значение пишется в конфиг
+/// после паузы — композитор перечитывает его и меняет масштаб на лету.
+fn zoom_view(st: St) -> impl Widget {
+    let label = Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let pct = (st.zoom.get() * 100.0).round() as i64;
+        vec![Box::new(Text::new(format!("{pct} %")).class("zoom-value"))]
+    });
+    let slider = Slider::new()
+        .range(ZOOM_MIN, ZOOM_MAX)
+        .step(ZOOM_STEP)
+        .value(st.zoom.get_untracked() as f32)
+        .width(220.0)
+        .on_change(move |v| {
+            let v = ((v / ZOOM_STEP).round() * ZOOM_STEP).clamp(ZOOM_MIN, ZOOM_MAX) as f64;
+            if v == st.zoom.get_untracked() {
+                return;
+            }
+            st.zoom.set(v);
+            let rev = st.zoom_rev.get_untracked() + 1;
+            st.zoom_rev.set(rev);
+            syngui_layer::add_timer(ZOOM_APPLY_DELAY, move || {
+                if st.zoom_rev.get_untracked() == rev {
+                    apply_zoom(st.zoom.get_untracked());
+                }
+                None
+            });
+        });
+    DecoratedBox::new()
+        .child(
+            Row::new()
+                .gap(12.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(Text::new(t!("Масштаб")).class("hint"))
+                .child(slider)
+                .child(label),
+        )
+        .class("zoom-box")
 }
 
 fn round_btn(glyph: &'static str, f: impl Fn() + Send + Sync + 'static) -> impl Widget {

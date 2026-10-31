@@ -17,6 +17,7 @@
 "Администратор (sudo, установка программ)" = "Administrator (sudo, installing software)"
 "Отмена" = "Cancel"
 "Создать" = "Create"
+"Масштаб" = "Scale"
 
 # src/users.rs
 "Логин: латинские строчные буквы, цифры, _ и -, начинается с буквы" = "Username: lowercase Latin letters, digits, _ and -, starting with a letter"
