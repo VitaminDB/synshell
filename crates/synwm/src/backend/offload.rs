@@ -225,7 +225,13 @@ impl GpuFrame {
             Err(_) => (<GlesRenderer as Offscreen<GlesTexture>>::create_buffer(&mut gpu.renderer, Fourcc::Abgr8888, buf)?, false),
         };
         let transform = output.current_transform();
-        let diff = gpu.renderer.with_context(|gl| super::tilediff::TileDiff::new(gl, buf, bgra)).ok().flatten();
+        // Пока только по SYNWM_TILE_DIFF=1: на freedreno (Adreno 619) сравнение давало ложное «изменений нет» —
+        // экран переставал обновляться (synmobile docs/28 §28.12ж).
+        let diff = if std::env::var("SYNWM_TILE_DIFF").is_ok_and(|v| v == "1") {
+            gpu.renderer.with_context(|gl| super::tilediff::TileDiff::new(gl, buf, bgra)).ok().flatten()
+        } else {
+            None
+        };
         tracing::info!(diff = diff.is_some(), "кадр GPU: сравнение с прошлым кадром по плиткам");
         Ok(Self {
             diff,
@@ -438,6 +444,7 @@ mod tests {
             eprintln!("пропуск: нет GPU");
             return;
         };
+        std::env::set_var("SYNWM_TILE_DIFF", "1");
         let mode = Mode { size: (200, 120).into(), refresh: 60_000 };
         let output = Output::new(
             "test".into(),
