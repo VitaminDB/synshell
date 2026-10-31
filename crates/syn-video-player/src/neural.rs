@@ -13,6 +13,32 @@ use syngui::video::{FrameFilter, VideoFrame, VideoPlayer};
 
 use crate::chain::{self, Stage};
 
+/// На телефонах (aarch64) synaptix-vfx нет: тот же интерфейс без моделей — `models()` пуст, и до
+/// загрузки дело не доходит.
+#[cfg(not(target_arch = "x86_64"))]
+mod synaptix_vfx {
+    #[derive(Debug)]
+    pub struct Error;
+    impl std::fmt::Display for Error {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("нейросетевые фильтры есть только на компьютере")
+        }
+    }
+    pub struct Frame<'a> {
+        pub rgba: &'a [u8],
+        pub width: u32,
+        pub height: u32,
+    }
+    pub trait Upscaler: Send {
+        fn name(&self) -> &str;
+        fn push(&mut self, rgba: &[u8], width: u32, height: u32, emit: &mut dyn FnMut(Frame)) -> Result<(), Error>;
+        fn reset(&mut self);
+    }
+    pub fn open_upscaler(_path: &std::path::Path, _ordinal: usize) -> Result<Box<dyn Upscaler>, Error> {
+        Err(Error)
+    }
+}
+
 /// Модель повышения разрешения из библиотеки.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Model {
