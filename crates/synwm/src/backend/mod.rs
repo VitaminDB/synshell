@@ -509,12 +509,19 @@ impl Core {
     pub fn post_repaint(&mut self, output: &Output, states: &RenderElementStates) {
         let time = self.clock.now();
         let throttle = Some(Duration::from_secs(1));
+        // Режим пера E Ink: окнам на выводе — frame callback каждым кадром, без секундного
+        // throttle (как send_frames_headless), даже если основной вывод поверхности сброшен.
+        let pen_geo = self.pen.fast().then(|| self.space.output_geometry(output).unwrap_or_default());
 
         for w in self.space.elements() {
             w.with_surfaces(|surface, s| {
                 update_surface_primary_scanout_output(surface, output, s, states, smithay::backend::renderer::element::default_primary_scanout_output_compare);
             });
-            w.send_frame(output, time, throttle, surface_primary_scanout_output);
+            if pen_geo.is_some_and(|geo| self.space.element_geometry(w).is_some_and(|g| g.overlaps(geo))) {
+                w.send_frame(output, time, throttle, |_, _| Some(output.clone()));
+            } else {
+                w.send_frame(output, time, throttle, surface_primary_scanout_output);
+            }
         }
         // Окна в анимации переключения столов (не в Space) тоже получают кадры.
         if self.wm.switch.is_some() {

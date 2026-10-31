@@ -80,6 +80,8 @@ struct Surface {
     /// Сторож потерянного page-flip: downstream-драйверы (sde) иногда не
     /// присылают событие vblank, и без него кадры остановились бы навсегда.
     flip_watchdog: Option<RegistrationToken>,
+    /// Когда отправлен кадр, ждущий vblank (замер в режиме пера).
+    queued_at: Option<std::time::Instant>,
 }
 
 /// Сколько ждать vblank после отправки кадра, прежде чем считать событие потерянным.
@@ -234,6 +236,8 @@ pub fn init(state: &mut State, _event_loop: &EventLoop<'static, State>) -> anyho
         .dmabuf_state
         .create_global::<State>(&state.core.display_handle, linear_formats.iter().copied());
     state.core.dmabuf_global = Some(global);
+    // E Ink: режим пера драйвера (`pen`), если есть
+    state.init_pen_mode();
 
     scan_connectors(state);
     Ok(())
@@ -385,6 +389,7 @@ pub fn scan_connectors(state: &mut State) {
                 connector: info.handle(),
                 estimated_vblank: None,
                 flip_watchdog: None,
+                queued_at: None,
             },
         );
         let pos = cfg.as_ref().and_then(|c| c.position).map(|[x, y]| (x, y).into()).unwrap_or_else(|| {
@@ -427,6 +432,13 @@ impl KmsCpuBackend {
         }
         let Some(crtc) = output.user_data().get::<crtc::Handle>().copied() else { return };
         let Some(surface) = self.surfaces.get_mut(&crtc) else { return };
+        // Перерисовка раньше расчётного vblank пустого кадра (режим пера E Ink): его таймер
+        // снять, иначе он сбросил бы состояние уже отправленного кадра. Frame callbacks
+        // разошлёт этот кадр (или таймер следующего пустого).
+        if let Some(t) = surface.estimated_vblank.take() {
+            self.loop_handle.remove(t);
+        }
+        let render_start = std::time::Instant::now();
         let (elements, clear) = crate::render::output_elements(core, &mut self.renderer, output, true);
         // Всё в один primary-кадр: прямой вывод клиентских буферов на планы
         // downstream-драйверов ненадёжен.
@@ -450,6 +462,11 @@ impl KmsCpuBackend {
             let feedback = core.take_presentation_feedback(output, &states);
             match surface.drm_output.queue_frame(Some(feedback)) {
                 Ok(()) => {
+                    if core.pen.fast() {
+                        let now = core.clock.now().as_millis();
+                        core.pen.frame_queued(now, render_start.elapsed().as_micros() as u64);
+                        surface.queued_at = Some(std::time::Instant::now());
+                    }
                     let data = core.output_data.entry(output.clone()).or_default();
                     data.redraw = RedrawState::WaitingForVBlank { redraw_needed: false };
                     data.frames += 1;
@@ -628,6 +645,9 @@ fn on_vblank(state: &mut State, crtc: crtc::Handle, meta: &mut Option<DrmEventMe
         _ => (state.core.clock.now(), wp_presentation_feedback::Kind::Vsync),
     };
     let seq = meta.as_ref().map(|m| m.sequence).unwrap_or(0);
+    if let Some(t) = surface.queued_at.take() {
+        tracing::debug!(target: "synwm::pen", ms = t.elapsed().as_millis() as u64, "перо: queue_frame → page flip");
+    }
     match surface.drm_output.frame_submitted() {
         Ok(Some(Some(mut feedback))) => {
             feedback.presented(clock, Refresh::fixed(frame_duration), seq as u64, flags);

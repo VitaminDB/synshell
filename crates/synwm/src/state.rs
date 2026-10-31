@@ -595,6 +595,15 @@ impl Core {
 
     /// Перерисовать выводы, на которых видна поверхность.
     pub fn queue_redraw_for_surface(&mut self, _surface: &WlSurface) {
+        // Режим пера E Ink: коммит клиента не ждёт расчётного vblank прошлого пустого кадра
+        // (до 1/частоты — 26 мс при 38 Гц) — рисуем сразу, бэкенд снимет таймер.
+        if self.pen.fast() {
+            for d in self.output_data.values_mut() {
+                if matches!(d.redraw, RedrawState::WaitingForEstimatedVBlank { .. }) {
+                    d.redraw = RedrawState::Queued;
+                }
+            }
+        }
         // Проще и надёжнее перерисовать все: трекер повреждений сам отсечёт
         // неизменившиеся выводы, а лишний кадр без повреждений ничего не стоит.
         self.queue_redraw_all();

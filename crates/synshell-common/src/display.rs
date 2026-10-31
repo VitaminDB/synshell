@@ -193,6 +193,30 @@ impl Eink {
         self.write("update_mode", m.as_str())
     }
 
+    /// Есть ли у драйвера режим пера (файл `pen`).
+    pub fn has_pen(&self) -> bool {
+        self.dir.join("pen").is_file()
+    }
+
+    /// Режим пера включён; `None` — нет файла или драйвер не готов (`-1`).
+    pub fn pen(&self) -> Option<bool> {
+        match self.read("pen")?.as_str() {
+            "1" => Some(true),
+            "0" => Some(false),
+            _ => None,
+        }
+    }
+
+    /// Режим пера: 1 — быстрые ч/б обновления без ожидания прошлой волны и без автоочистки,
+    /// 0 — выход (затронутое пером драйвер перерисует качественно). Нет файла `pen` — ничего
+    /// не делает. Запись может ждать замок драйвера — с главного потока не звать.
+    pub fn set_pen(&self, on: bool) -> std::io::Result<()> {
+        if !self.has_pen() {
+            return Ok(());
+        }
+        self.write("pen", if on { "1" } else { "0" })
+    }
+
     /// Полная очистка экрана сейчас.
     pub fn refresh(&self) -> std::io::Result<()> {
         self.write("refresh", "1")
@@ -353,6 +377,18 @@ mod tests {
         assert_eq!(fs::read_to_string(e.dir().join("update_mode")).unwrap(), "a2");
         e.refresh().unwrap();
         assert_eq!(fs::read_to_string(e.dir().join("refresh")).unwrap(), "1");
+        // режим пера: нет файла — ничего не делаем
+        assert!(!e.has_pen());
+        assert_eq!(e.pen(), None);
+        e.set_pen(true).unwrap();
+        assert!(!e.dir().join("pen").exists());
+        fs::write(e.dir().join("pen"), "0\n").unwrap();
+        assert!(e.has_pen());
+        assert_eq!(e.pen(), Some(false));
+        e.set_pen(true).unwrap();
+        assert_eq!(e.pen(), Some(true));
+        e.set_pen(false).unwrap();
+        assert_eq!(fs::read_to_string(e.dir().join("pen")).unwrap(), "0");
         // монохромная панель: цвет не трогаем
         let sys = fake_sys(Some("carta"));
         let e = Eink::find_in(sys.path()).unwrap();
