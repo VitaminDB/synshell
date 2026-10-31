@@ -404,7 +404,8 @@ pub fn scan_connectors(state: &mut State) {
                 }
             });
         let transform = cfg.as_ref().map(|c| crate::backend::parse_transform(&c.transform)).unwrap_or(Transform::Normal);
-        // Запомненная ориентация — сразу, до первого кадра (без reset_buffers и второго коммита).
+        // Запомненная ориентация — в transform при создании вывода, как `[[output]] transform`:
+        // до первого кадра, без поворота уже включённого вывода.
         let transform = crate::backend::restored_transform_on_connect(&mut state.core, &output, transform);
         output.change_current_state(Some(wl_mode), Some(transform), Some(Scale::Fractional(scale)), None);
         output.user_data().insert_if_missing(|| crtc);
@@ -464,10 +465,6 @@ pub fn scan_connectors(state: &mut State) {
         state.core.output_data.entry(output.clone()).or_default().redraw = RedrawState::Queued;
         added = true;
     }
-    if added {
-        // Вывод создан с transform из `[[output]]`; ориентация с прошлого запуска — тем же путём, что `rotate`.
-        state.apply_restored_rotation();
-    }
     if added || !removed.is_empty() {
         state.outputs_changed();
         state.core.queue_redraw_all();
@@ -497,6 +494,25 @@ impl KmsCpuBackend {
         // разошлёт этот кадр (или таймер следующего пустого).
         if let Some(t) = surface.estimated_vblank.take() {
             self.loop_handle.remove(t);
+        }
+        // E Ink после поворота/масштаба: кадр — только когда клиенты перерисовались (`eink_hold`).
+        if core.output_data.get(output).is_some_and(|d| d.eink_hold.is_some()) {
+            let pending = core.eink_hold_pending(output);
+            let data = core.output_data.entry(output.clone()).or_default();
+            let hold = data.eink_hold.as_mut().unwrap();
+            match hold.step(std::time::Instant::now(), pending) {
+                crate::eink_hold::Step::Wait => {
+                    data.damaged = false;
+                    data.redraw = RedrawState::WaitingForEstimatedVBlank { redraw_needed: false };
+                    schedule_estimated_vblank(&self.loop_handle, surface, output);
+                    return;
+                }
+                crate::eink_hold::Step::Release { ms, waited, left } => {
+                    let reason = hold.reason;
+                    data.eink_hold = None;
+                    tracing::info!(output = output.name(), reason, left, "{reason} E Ink: кадр после {ms} мс, ждали {waited} поверхностей");
+                }
+            }
         }
         let render_start = std::time::Instant::now();
         let res = match self.gpu.as_mut() {
@@ -574,28 +590,7 @@ impl KmsCpuBackend {
             }
         } else {
             data.redraw = RedrawState::WaitingForEstimatedVBlank { redraw_needed: false };
-            let refresh = output.current_mode().map(|m| m.refresh).unwrap_or(60_000).max(1000);
-            let dur = Duration::from_micros(1_000_000_000 / refresh as u64);
-            if surface.estimated_vblank.is_none() {
-                let o = output.clone();
-                let token = self
-                    .loop_handle
-                    .insert_source(Timer::from_duration(dur), move |_, _, state| {
-                        if let crate::backend::Backend::KmsCpu(b) = &mut state.backend {
-                            if let Some(s) = surface_of(b, &o) {
-                                s.estimated_vblank = None;
-                            }
-                        }
-                        // Кадр без видимых изменений: frame callbacks всем поверхностям вывода. post_repaint с пустыми
-                        // states сбросил бы им основной вывод — и следующий кадр клиент получал бы только через
-                        // секундный throttle (E Ink, анимации выключены: переход из нескольких кадров «залипал» на секунды).
-                        state.core.send_frames_headless(&o);
-                        super::tty::after_frame(&mut state.core, &o);
-                        TimeoutAction::Drop
-                    })
-                    .ok();
-                surface.estimated_vblank = token;
-            }
+            schedule_estimated_vblank(&self.loop_handle, surface, output);
         }
     }
 
@@ -681,12 +676,17 @@ impl KmsCpuBackend {
             // экране оставались куски прошлой ориентации (SM-T295)
             if s.output.current_transform() != transform {
                 let _ = s.drm_output.with_compositor(|c| c.reset_buffers());
+                // E Ink: один кадр, когда клиенты перерисуются под новую ориентацию, а не два моргания
+                core.start_eink_hold(&s.output, "поворот");
             }
             s.output.change_current_state(None, Some(transform), None, None);
-            let Some(cfg) = crate::backend::output_config_for(&core.config.outputs, &s.output) else {
+            let Some(cfg) = crate::backend::output_config_for(&core.config.outputs, &s.output).cloned() else {
                 continue;
             };
             if cfg.scale > 0.0 {
+                if s.output.current_scale().fractional_scale() != cfg.scale {
+                    core.start_eink_hold(&s.output, "масштаб");
+                }
                 s.output.change_current_state(None, None, Some(Scale::Fractional(cfg.scale)), None);
             }
             if let Some([x, y]) = cfg.position {
@@ -701,6 +701,7 @@ impl KmsCpuBackend {
                             match s.drm_output.use_mode::<_, OutputElement<PixmanRenderer>>(mode, &mut self.renderer, &DrmOutputRenderElements::default()) {
                                 Ok(()) => {
                                     s.output.change_current_state(Some(WlMode::from(mode)), None, None, None);
+                                    core.start_eink_hold(&s.output, "режим");
                                     tracing::info!(name, ?mode, "режим изменён");
                                 }
                                 Err(e) => tracing::warn!(name, ?e, "режим не применён"),
@@ -711,6 +712,31 @@ impl KmsCpuBackend {
             }
         }
     }
+}
+
+/// Кадр без показа: через период вывода — frame callbacks его поверхностям и решение о следующем кадре.
+fn schedule_estimated_vblank(loop_handle: &LoopHandle<'static, State>, surface: &mut Surface, output: &Output) {
+    if surface.estimated_vblank.is_some() {
+        return;
+    }
+    let refresh = output.current_mode().map(|m| m.refresh).unwrap_or(60_000).max(1000);
+    let dur = Duration::from_micros(1_000_000_000 / refresh as u64);
+    let o = output.clone();
+    surface.estimated_vblank = loop_handle
+        .insert_source(Timer::from_duration(dur), move |_, _, state| {
+            if let crate::backend::Backend::KmsCpu(b) = &mut state.backend {
+                if let Some(s) = surface_of(b, &o) {
+                    s.estimated_vblank = None;
+                }
+            }
+            // Кадр без видимых изменений: frame callbacks всем поверхностям вывода. post_repaint с пустыми
+            // states сбросил бы им основной вывод — и следующий кадр клиент получал бы только через
+            // секундный throttle (E Ink, анимации выключены: переход из нескольких кадров «залипал» на секунды).
+            state.core.send_frames_headless(&o);
+            super::tty::after_frame(&mut state.core, &o);
+            TimeoutAction::Drop
+        })
+        .ok();
 }
 
 /// vblank не пришёл вовремя: считаем кадр показанным, чтобы не зависнуть.

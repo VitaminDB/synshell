@@ -109,31 +109,24 @@ pub fn save_to(system: Option<&Path>, user: &Path, output: &str, r: Rotation) ->
 /// Общий файл с правами для сеансов (от root, `synlogin daemon`): каталог `2775 root:video`,
 /// файл `0664 root:video`. Без группы `video` — только root (`0755`/`0644`).
 pub fn ensure_system_file() -> std::io::Result<()> {
-    match system_file() {
-        Some(f) => ensure_shared_file(&f),
-        None => Ok(()),
-    }
-}
-
-/// Общий файл состояния (см. [`ensure_system_file`]) по пути `file`.
-pub fn ensure_shared_file(file: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
+    let Some(file) = system_file() else { return Ok(()) };
     let Some(dir) = file.parent() else { return Ok(()) };
     std::fs::create_dir_all(dir)?;
     if !file.exists() {
-        std::fs::write(file, "")?;
+        std::fs::write(&file, "")?;
     }
     let gid = group_id("video");
     let (dmode, fmode) = if gid.is_some() { (0o2775, 0o664) } else { (0o755, 0o644) };
     if let Some(gid) = gid {
-        for p in [dir, file] {
+        for p in [dir, file.as_path()] {
             let c = std::ffi::CString::new(p.as_os_str().as_encoded_bytes()).map_err(std::io::Error::other)?;
             // SAFETY: путь — нуль-терминированная строка; uid -1 — владелец не меняется.
             unsafe { libc::chown(c.as_ptr(), u32::MAX, gid) };
         }
     }
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(dmode))?;
-    std::fs::set_permissions(file, std::fs::Permissions::from_mode(fmode))?;
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(fmode))?;
     Ok(())
 }
 

@@ -654,7 +654,8 @@ pub fn scan_connectors(state: &mut State, node: DrmNode) {
                 }
             });
         let transform = cfg.as_ref().map(|c| crate::backend::parse_transform(&c.transform)).unwrap_or(Transform::Normal);
-        // Запомненная ориентация — сразу, до первого кадра (без reset_buffers и второго коммита).
+        // Запомненная ориентация — в transform при создании вывода, как `[[output]] transform`:
+        // до первого кадра, без поворота уже включённого вывода.
         let transform = crate::backend::restored_transform_on_connect(&mut state.core, &output, transform);
         output.change_current_state(Some(wl_mode), Some(transform), Some(Scale::Fractional(scale)), None);
         output.user_data().insert_if_missing(|| OutputId { node, crtc });
@@ -755,10 +756,6 @@ pub fn scan_connectors(state: &mut State, node: DrmNode) {
         state.core.space.map_output(&output, pos);
         state.core.output_data.entry(output.clone()).or_default().redraw = RedrawState::Queued;
         added = true;
-    }
-    if added {
-        // Вывод создан с transform из `[[output]]`; ориентация с прошлого запуска — тем же путём, что `rotate`.
-        state.apply_restored_rotation();
     }
     if added || !removed.is_empty() {
         state.outputs_changed();

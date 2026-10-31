@@ -16,22 +16,10 @@ pub fn watched_files(config: &Config) -> Vec<std::path::PathBuf> {
 
 /// Режимы экрана E Ink из `[eink]` — в sysfs драйвера (пишется только отличающееся,
 /// поэтому шторка и «Параметры», уже записавшие значение сами, лишней перерисовки не дают).
-///
-/// Не заданное в своём `[eink]` — из запомненного в прошлый раз (`eink_state`: драйвер после загрузки
-/// монохромный, у экрана входа своего `[eink]` нет); применённое запоминается снова.
-pub fn apply_eink(own: &synshell_common::config::EinkSettings) {
+pub fn apply_eink(cfg: &synshell_common::config::EinkSettings) {
     let Some(e) = synshell_common::display::Eink::find() else { return };
-    let saved = synshell_common::eink_state::load();
-    let cfg = synshell_common::eink_state::merge(own, &saved);
-    match e.apply(&cfg) {
-        Ok(()) => {
-            tracing::info!(?cfg, "режимы экрана E Ink");
-            if cfg != saved {
-                if let Err(err) = synshell_common::eink_state::save(&cfg) {
-                    tracing::warn!(%err, "режимы экрана E Ink не запомнены");
-                }
-            }
-        }
+    match e.apply(cfg) {
+        Ok(()) => tracing::info!(?cfg, "режимы экрана E Ink"),
         Err(err) => tracing::warn!(%err, dir = %e.dir().display(), "режимы экрана E Ink не применены"),
     }
 }
