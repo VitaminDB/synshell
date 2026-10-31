@@ -14,6 +14,16 @@ pub fn watched_files(config: &Config) -> Vec<std::path::PathBuf> {
     v
 }
 
+/// Режимы экрана E Ink из `[eink]` — в sysfs драйвера (пишется только отличающееся,
+/// поэтому шторка и «Параметры», уже записавшие значение сами, лишней перерисовки не дают).
+pub fn apply_eink(cfg: &synshell_common::config::EinkSettings) {
+    let Some(e) = synshell_common::display::Eink::find() else { return };
+    match e.apply(cfg) {
+        Ok(()) => tracing::info!(?cfg, "режимы экрана E Ink"),
+        Err(err) => tracing::warn!(%err, dir = %e.dir().display(), "режимы экрана E Ink не применены"),
+    }
+}
+
 impl State {
     /// Раз в секунду: не изменился ли файл конфигурации или темы.
     pub fn poll_config(&mut self) {
@@ -42,6 +52,9 @@ impl State {
         let setting_changed = config.form_factor_setting() != self.core.form_factor_setting;
         synshell_common::haptics::set_config(&config.haptics);
         let old = std::mem::replace(&mut self.core.config, config);
+        if self.core.eink && old.eink != self.core.config.eink {
+            apply_eink(&self.core.config.eink);
+        }
         let mut errors = Vec::new();
 
         let (bindings, be) = Bindings::from_config(&self.core.config);

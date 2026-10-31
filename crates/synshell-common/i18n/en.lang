@@ -456,3 +456,12 @@
 "Слабая подложка акцента." = "Faint accent background."
 "Скругление окна" = "Window radius"
 "Скругление углов окна программы (из «Декораций»)." = "App window corner radius (from “Decorations”)."
+
+# src/display.rs
+"Качество" = "Quality"
+"Сбалансированный" = "Balanced"
+"Быстрый" = "Fast"
+"16 оттенков, частая полная очистка" = "16 gray levels, frequent full refresh"
+"Оттенки, полная очистка реже" = "Gray levels, less frequent full refresh"
+"Быстрая ч/б волна, серые слабее" = "Fast black-and-white waveform, weaker grays"
+"Самая быстрая, без автоочистки — видео и прокрутка" = "Fastest, no auto refresh — video and scrolling"

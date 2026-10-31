@@ -66,8 +66,8 @@ type Alloc = Arc<Mutex<DumbAllocator>>;
 type Manager = DrmOutputManager<Alloc, DrmDeviceFd, Option<OutputPresentationFeedback>, DrmDeviceFd>;
 type Out = DrmOutput<Alloc, DrmDeviceFd, Option<OutputPresentationFeedback>, DrmDeviceFd>;
 
-/// Драйверы DRM экранов E Ink: каждое обновление — видимая волна на панели.
-const EINK_DRIVERS: &[&str] = &["onyx-epd"];
+// Драйверы DRM экранов E Ink: каждое обновление — видимая волна на панели.
+use synshell_common::display::EINK_DRM_DRIVERS as EINK_DRIVERS;
 
 const COLOR_FORMATS: &[Fourcc] = &[Fourcc::Xrgb8888, Fourcc::Argb8888, Fourcc::Xbgr8888, Fourcc::Abgr8888];
 
@@ -196,6 +196,8 @@ pub fn init(state: &mut State, _event_loop: &EventLoop<'static, State>) -> anyho
         state.core.config.animations.enabled = false;
         // курсор — с первым движением мыши, а не в углу экрана до первого касания
         state.core.cursor_hidden = true;
+        // режимы экрана, выбранные пользователем (`[eink]`)
+        crate::config::apply_eink(&state.core.config.eink);
     }
     let node = b.node;
     b.loop_handle.insert_source(notifier, move |event, meta, state| match event {
@@ -484,8 +486,10 @@ impl KmsCpuBackend {
                                 s.estimated_vblank = None;
                             }
                         }
-                        let states = smithay::backend::renderer::element::RenderElementStates::default();
-                        state.core.post_repaint(&o, &states);
+                        // Кадр без видимых изменений: frame callbacks всем поверхностям вывода. post_repaint с пустыми
+                        // states сбросил бы им основной вывод — и следующий кадр клиент получал бы только через
+                        // секундный throttle (E Ink, анимации выключены: переход из нескольких кадров «залипал» на секунды).
+                        state.core.send_frames_headless(&o);
                         super::tty::after_frame(&mut state.core, &o);
                         TimeoutAction::Drop
                     })

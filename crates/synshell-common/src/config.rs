@@ -76,6 +76,8 @@ pub struct Config {
     /// Своё разрешение для отдельных X11-программ (`[[x11_app]]`).
     #[serde(rename = "x11_app")]
     pub x11_apps: Vec<X11App>,
+    /// Режимы экрана E Ink (`[eink]`): выбор пользователя, synwm применяет при старте.
+    pub eink: EinkSettings,
 }
 
 impl Default for Config {
@@ -120,8 +122,24 @@ impl Default for Config {
             assistant: Assistant::default(),
             x11: X11::default(),
             x11_apps: Vec::new(),
+            eink: EinkSettings::default(),
         }
     }
+}
+
+// ─── eink ───────────────────────────────────────────────────────────────────
+
+/// Режимы экрана E Ink (`[eink]`, см. [`crate::display`]). Не задано — как оставил драйвер.
+/// Применяет synwm при старте сеанса и при правке конфига — только на экране E Ink.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct EinkSettings {
+    /// Цветной вывод на цветной панели (Kaleido); `false` — монохром.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<bool>,
+    /// Режим обновления: `quality`, `balanced`, `fast`, `a2`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub update_mode: Option<crate::display::UpdateMode>,
 }
 
 // ─── general ────────────────────────────────────────────────────────────────
@@ -190,6 +208,9 @@ pub struct Appearance {
     /// Тема оформления (каталог в `themes/` или встроенная). Пусто — стандартная.
     pub theme: String,
     pub color_scheme: ColorScheme,
+    /// Схему выбрал пользователь (в «Параметрах» или вручную). Пока `false`, `color_scheme` —
+    /// умолчание и устройство может его заменить: на экране E Ink — светлая.
+    pub color_scheme_chosen: bool,
     /// Цвет акцента: `#rrggbb`. Пусто — акцент темы.
     pub accent: String,
     /// Семейство шрифта интерфейса (пусто — системный по fontconfig).
@@ -223,6 +244,7 @@ impl Default for Appearance {
         Self {
             theme: String::new(),
             color_scheme: ColorScheme::Dark,
+            color_scheme_chosen: false,
             accent: String::new(),
             font: String::new(),
             font_size: 13.0,
@@ -2319,10 +2341,10 @@ impl Config {
         match std::fs::read_to_string(path) {
             Ok(text) => match Self::parse(&text) {
                 Ok(c) => (c, None),
-                Err(e) => (Config::default(), Some(format!("{}: {e}", path.display()))),
+                Err(e) => (Self::device_default(), Some(format!("{}: {e}", path.display()))),
             },
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Config::default(), None),
-            Err(e) => (Config::default(), Some(format!("{}: {e}", path.display()))),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Self::device_default(), None),
+            Err(e) => (Self::device_default(), Some(format!("{}: {e}", path.display()))),
         }
     }
 
@@ -2343,9 +2365,25 @@ impl Config {
                 c.gestures.edge_top = Gestures::default().edge_top;
             }
         }
+        c.apply_device_defaults(crate::display::is_eink());
         c.appearance.load_theme();
         crate::preview::apply(&mut c.appearance);
         Ok(c)
+    }
+
+    /// Умолчания без файла конфига — с поправками устройства ([`Self::apply_device_defaults`]).
+    fn device_default() -> Config {
+        let mut c = Config::default();
+        c.apply_device_defaults(crate::display::is_eink());
+        c
+    }
+
+    /// Поправки умолчаний под экран: на E Ink светлая схема, пока пользователь не выбрал свою
+    /// (`[appearance] color_scheme_chosen`).
+    pub fn apply_device_defaults(&mut self, eink: bool) {
+        if eink && !self.appearance.color_scheme_chosen {
+            self.appearance.color_scheme = ColorScheme::Light;
+        }
     }
 
     /// Создать файл конфигурации с комментариями, если его ещё нет.
@@ -3320,6 +3358,30 @@ mod tests {
         assert_eq!(c.wallpaper, d.wallpaper);
         assert_eq!(c.gameshell, d.gameshell);
         assert_eq!(c.panels.len(), 1);
+    }
+
+    #[test]
+    fn eink_light_scheme_unless_chosen() {
+        // старый конфиг (схема из шаблона, признака нет): на E Ink — светлая, на обычном — как есть
+        let mut c = Config::parse("[appearance]\ncolor_scheme = \"dark\"\n").unwrap();
+        assert!(!c.appearance.color_scheme_chosen);
+        c.apply_device_defaults(false);
+        assert_eq!(c.appearance.color_scheme, ColorScheme::Dark);
+        c.apply_device_defaults(true);
+        assert_eq!(c.appearance.color_scheme, ColorScheme::Light);
+        // выбрал пользователь — его выбор
+        let mut c = Config::parse("[appearance]\ncolor_scheme = \"dark\"\ncolor_scheme_chosen = true\n").unwrap();
+        c.apply_device_defaults(true);
+        assert_eq!(c.appearance.color_scheme, ColorScheme::Dark);
+    }
+
+    #[test]
+    fn eink_section() {
+        let c = Config::parse("[eink]\ncolor = true\nupdate_mode = \"a2\"\n").unwrap();
+        assert_eq!(c.eink.color, Some(true));
+        assert_eq!(c.eink.update_mode, Some(crate::display::UpdateMode::A2));
+        assert_eq!(Config::parse("").unwrap().eink, EinkSettings::default());
+        assert!(Config::parse("[eink]\nupdate_mode = \"slow\"\n").is_err());
     }
 
     #[test]

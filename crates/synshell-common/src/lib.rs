@@ -7,6 +7,7 @@ pub mod action;
 pub mod app_theme;
 pub mod config;
 pub mod config_edit;
+pub mod display;
 #[cfg(feature = "drives")]
 pub mod drives;
 pub mod haptics;
