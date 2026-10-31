@@ -42,6 +42,7 @@ pub mod kinds;
 pub mod kanban;
 pub mod links;
 pub mod library;
+pub mod ink;
 pub mod lock;
 pub mod media;
 pub mod mindmap;

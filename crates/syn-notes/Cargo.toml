@@ -39,6 +39,7 @@ syngui = { workspace = true, features = [
     "document-editor",
     "i18n",
     "single-instance",
+    "pen",
 ] }
 synaptix-bundle = { workspace = true, features = ["sha256", "blake3"] }
 serde.workspace = true
@@ -60,6 +61,11 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 encoding_rs = "0.8"
 libloading = "0.8"
 pulldown-cmark = { version = "0.13", default-features = false }
+# Рукописный ввод (notes/ink): файл .ink, растр страницы, вставка картинок.
+postcard = { version = "1", default-features = false, features = ["alloc"] }
+flate2 = "1"
+tiny-skia = "0.11"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
 
 [dev-dependencies]

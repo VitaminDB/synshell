@@ -6930,9 +6930,12 @@ name = "syn-notes"
 version = "0.1.42"
 dependencies = [
  "encoding_rs",
+ "flate2",
+ "image",
  "libc",
  "libloading 0.8.9",
  "log",
+ "postcard",
  "pulldown-cmark",
  "rand 0.8.8",
  "rfd",
@@ -6945,6 +6948,7 @@ dependencies = [
  "syngui",
  "synshell-common",
  "tempfile",
+ "tiny-skia",
  "tokio",
  "toml",
  "toml_edit 0.23.10+spec-1.0.0",
@@ -8185,6 +8189,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wayland-backend",
  "wayland-client",
+ "wayland-protocols",
  "web-sys",
  "web-time",
  "webbrowser",
