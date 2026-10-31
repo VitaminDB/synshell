@@ -29,6 +29,8 @@ thread_local! {
     static CURRENT: RefCell<Option<Popup>> = const { RefCell::new(None) };
     /// Перехватчик клавиш содержимого (меню запуска: стрелки, Enter).
     static KEY_HANDLER: RefCell<Option<Box<dyn FnMut(&KeyInfo) -> bool>>> = RefCell::new(None);
+    /// Вывод открытого окна и его размер, по которому окно разложено (ширина листа, места).
+    static BUILT_FOR: RefCell<Option<(Option<String>, (f32, f32))>> = const { RefCell::new(None) };
 }
 
 /// Задать перехватчик клавиш текущего окна.
@@ -98,6 +100,18 @@ pub fn install(ctx: ShellCtx) {
             request_keyboard();
         }
     });
+    // Вывод сменил размер при открытом окне (поворот телефона 90°/270° ↔ normal): ширина листа, места
+    // и сетка «Пуска» посчитаны по прежнему размеру — окно открывается заново под новый.
+    create_effect(move || {
+        let _ = syngui_layer::outputs().get();
+        let Some((output, size)) = BUILT_FOR.with(|b| b.borrow().clone()) else { return };
+        if crate::manager::output_size(output.as_deref()) == size {
+            return;
+        }
+        let Some(p) = ctx.popup.get_untracked() else { return };
+        CURRENT.with(|c| c.borrow_mut().take());
+        ctx.popup.set_always(Some(p));
+    });
     create_effect(move || {
         let p = ctx.popup.get();
         let same = CURRENT.with(|c| *c.borrow() == p);
@@ -122,8 +136,12 @@ pub fn install(ctx: ShellCtx) {
                 _ => syngui_layer::close_surface(id),
             }
         }
-        let Some(p) = p else { return };
+        let Some(p) = p else {
+            BUILT_FOR.with(|b| b.borrow_mut().take());
+            return;
+        };
         let output = p.anchor.output.clone().or_else(|| crate::manager::focused_output(&ctx));
+        BUILT_FOR.with(|b| *b.borrow_mut() = Some((output.clone(), crate::manager::output_size(output.as_deref()))));
         let fullscreen_launcher = matches!(p.kind, PopupKind::Launcher) && ctx.cfg().launcher.style == "fullscreen";
         let my_id: Arc<Mutex<Option<SurfaceId>>> = Arc::new(Mutex::new(None));
         let hook_id = my_id.clone();
