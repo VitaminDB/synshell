@@ -6,9 +6,14 @@
 //! - `color` — `1` цветной вывод (CFA Kaleido накладывает FPGA), `0` — монохром;
 //! - `update_mode` — режимы как у BOOX: чтение `hd [balanced] fast ultrafast x` (текущий в скобках),
 //!   запись — имя (`quality` → hd и `a2` → ultrafast — синонимы);
+//! - `scheme` — режим волны: `ui <hex>` (волну выбирает драйвер командой) или `auto <n>`
+//!   (авторежим FPGA), см. [`Scheme`]; запись `update_mode` его сбрасывает;
 //! - расширенные (числа): `contrast`, `saturation` (%), `a2_frames`, `a2_white`, `a2_black`,
 //!   `full_every`, `full_pct` — см. [`Tuning`];
 //! - `refresh` — запись `1`: полная очистка экрана («призраки»).
+//!
+//! Выбор пользователя — профили ([`crate::eink_profiles`]): `scheme` и заданные настройки;
+//! встроенные режимы `update_mode` больше не показываются (драйвер — источник умолчания).
 //!
 //! Права — группа `video` (udev), пользователю сеанса root не нужен. На обычном компьютере
 //! этих файлов нет: всё молча даёт [`DisplayKind::Lcd`] и `None`.
@@ -207,6 +212,9 @@ pub enum Tuning {
 impl Tuning {
     pub const ALL: [Tuning; 7] =
         [Tuning::Contrast, Tuning::Saturation, Tuning::A2Frames, Tuning::A2White, Tuning::A2Black, Tuning::FullEvery, Tuning::FullPct];
+    /// Порядок в редакторе профилей: автоочистка, A2, контраст и цвет.
+    pub const EDITOR: [Tuning; 7] =
+        [Tuning::FullEvery, Tuning::FullPct, Tuning::A2Frames, Tuning::A2White, Tuning::A2Black, Tuning::Contrast, Tuning::Saturation];
 
     /// Имя атрибута sysfs и ключа `[eink]`.
     pub fn attr(self) -> &'static str {
@@ -285,33 +293,6 @@ impl Tuning {
         }
     }
 
-    /// Значение из `[eink]`.
-    pub fn get(self, cfg: &crate::config::EinkSettings) -> Option<u32> {
-        match self {
-            Tuning::Contrast => cfg.contrast.map(u32::from),
-            Tuning::Saturation => cfg.saturation.map(u32::from),
-            Tuning::A2Frames => cfg.a2_frames.map(u32::from),
-            Tuning::A2White => cfg.a2_white.map(u32::from),
-            Tuning::A2Black => cfg.a2_black.map(u32::from),
-            Tuning::FullEvery => cfg.full_every,
-            Tuning::FullPct => cfg.full_pct,
-        }
-    }
-
-    /// Записать в `[eink]` (значение приводится к [`Tuning::range`]).
-    pub fn put(self, cfg: &mut crate::config::EinkSettings, v: Option<u32>) {
-        let v = v.map(|v| self.clamp(v));
-        match self {
-            Tuning::Contrast => cfg.contrast = v.map(|v| v as u8),
-            Tuning::Saturation => cfg.saturation = v.map(|v| v as u16),
-            Tuning::A2Frames => cfg.a2_frames = v.map(|v| v as u8),
-            Tuning::A2White => cfg.a2_white = v.map(|v| v as u8),
-            Tuning::A2Black => cfg.a2_black = v.map(|v| v as u8),
-            Tuning::FullEvery => cfg.full_every = v,
-            Tuning::FullPct => cfg.full_pct = v,
-        }
-    }
-
     pub fn clamp(self, v: u32) -> u32 {
         let (lo, hi) = self.range();
         v.clamp(lo, hi)
@@ -348,6 +329,19 @@ impl Scheme {
             "auto" => Some(Scheme::Auto(n)),
             _ => None,
         }
+    }
+}
+
+impl Serialize for Scheme {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for Scheme {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        Scheme::parse(&s).ok_or_else(|| serde::de::Error::custom(format!("режим волны E Ink: {s:?}, нужно «ui <hex>» или «auto <n>»")))
     }
 }
 
@@ -460,20 +454,6 @@ impl Eink {
         self.write(t.attr(), &t.clamp(v).to_string())
     }
 
-    /// «Сбросить по умолчанию»: настройки с умолчанием драйвера — к нему, остальные (задаёт
-    /// режим) — повторной записью режима `mode` (нет — текущий или `balanced`).
-    pub fn reset_tunings(&self, mode: Option<&UpdateMode>) -> std::io::Result<()> {
-        for t in Tuning::ALL {
-            if let Some(d) = t.default_value() {
-                if self.has(t) && self.tuning(t) != Some(d) {
-                    self.set_tuning(t, d)?;
-                }
-            }
-        }
-        let m = mode.cloned().or_else(|| self.update_mode()).unwrap_or_else(UpdateMode::balanced);
-        self.set_update_mode(&m)
-    }
-
     /// Есть ли у драйвера режим пера (файл `pen`).
     pub fn has_pen(&self) -> bool {
         self.dir.join("pen").is_file()
@@ -519,25 +499,27 @@ impl Eink {
         self.write("refresh", "1")
     }
 
-    /// Применить выбор пользователя (`[eink]`): пишется только то, что задано и отличается
-    /// от текущего (запись `color` перерисовывает экран). Цвет и насыщенность — только на
-    /// цветной панели; расширенные — только если у драйвера есть атрибут. Порядок: цвет,
-    /// режим, расширенные (режим сбрасывает часть из них).
-    pub fn apply(&self, cfg: &crate::config::EinkSettings) -> std::io::Result<()> {
-        if let Some(on) = cfg.color {
+    /// Цвет/монохром (только цветная панель; пишется, если отличается — запись перерисовывает экран).
+    pub fn apply_color(&self, on: Option<bool>) -> std::io::Result<()> {
+        if let Some(on) = on {
             if self.is_color_panel() && self.color() != Some(on) {
                 self.set_color(on)?;
             }
         }
-        if let Some(m) = &cfg.update_mode {
-            if self.update_mode().as_ref() != Some(m) {
-                self.set_update_mode(m)?;
-            }
+        Ok(())
+    }
+
+    /// Применить профиль: сначала `scheme`, затем заданные в нём настройки (только отличающиеся
+    /// от драйвера; насыщенность — только на цветной панели; нет атрибута — пропуск).
+    /// `update_mode` не пишется: в драйвере он сбрасывает `scheme`, `full_*` и `a2_frames`.
+    /// Запись может ждать замок драйвера — с главного потока не звать.
+    pub fn apply_profile(&self, p: &crate::eink_profiles::Profile) -> std::io::Result<()> {
+        if self.has_scheme() && self.scheme() != Some(p.scheme) {
+            self.set_scheme(p.scheme)?;
         }
-        // после режима: запись режима сбрасывает a2_frames/full_every/full_pct
         let color = self.is_color_panel();
         for t in Tuning::ALL {
-            let Some(v) = t.get(cfg) else { continue };
+            let Some(v) = p.get(t) else { continue };
             if (t.color_only() && !color) || !self.has(t) {
                 continue;
             }
@@ -546,6 +528,13 @@ impl Eink {
             }
         }
         Ok(())
+    }
+
+    /// Выбор пользователя целиком: цвет `[eink]`, затем профиль `cfg.profile` (нет — встроенный)
+    /// из `profiles`.
+    pub fn apply(&self, cfg: &crate::config::EinkSettings, profiles: &crate::eink_profiles::Profiles) -> std::io::Result<()> {
+        self.apply_color(cfg.color)?;
+        self.apply_profile(&profiles.resolve(cfg.profile.as_deref()))
     }
 }
 
@@ -681,21 +670,35 @@ mod tests {
     }
 
     #[test]
-    fn tuning_ranges_and_config() {
-        let mut cfg = crate::config::EinkSettings::default();
+    fn tuning_ranges_and_profile() {
+        let mut p = crate::eink_profiles::Profile { name: "x".into(), scheme: Scheme::Ui(0x15), full_every: None, full_pct: None, a2_frames: None, a2_white: None, a2_black: None, contrast: None, saturation: None };
         for t in Tuning::ALL {
-            assert_eq!(t.get(&cfg), None);
+            assert_eq!(p.get(t), None);
             let (lo, hi) = t.range();
-            t.put(&mut cfg, Some(hi + 1000));
-            assert_eq!(t.get(&cfg), Some(hi), "{t:?}");
-            t.put(&mut cfg, Some(lo));
-            assert_eq!(t.get(&cfg), Some(lo));
-            t.put(&mut cfg, None);
-            assert_eq!(t.get(&cfg), None);
+            p.put(t, Some(hi + 1000));
+            assert_eq!(p.get(t), Some(hi), "{t:?}");
+            p.put(t, Some(lo));
+            assert_eq!(p.get(t), Some(lo));
+            p.put(t, None);
+            assert_eq!(p.get(t), None);
         }
         assert_eq!(Tuning::FullEvery.format(0), t!("никогда"));
         assert_eq!(Tuning::FullPct.format(101), t!("никогда"));
         assert_eq!(Tuning::Saturation.format(150), "150%");
+        let mut e = Tuning::EDITOR.to_vec();
+        e.sort_by_key(|t| Tuning::ALL.iter().position(|x| x == t));
+        assert_eq!(e, Tuning::ALL);
+    }
+
+    #[test]
+    fn scheme_serde() {
+        #[derive(Deserialize, Serialize)]
+        struct T {
+            s: Scheme,
+        }
+        assert_eq!(toml::from_str::<T>("s = \"auto 0x05\"").unwrap().s, Scheme::Auto(5));
+        assert_eq!(toml::to_string(&T { s: Scheme::Ui(0x15) }).unwrap().trim(), "s = \"ui 0x15\"");
+        assert!(toml::from_str::<T>("s = \"fast\"").is_err());
     }
 
     /// Подставное дерево: устройство драйвера onyx-tcon-fpga и карта DRM под ним.
@@ -749,11 +752,13 @@ mod tests {
         assert_eq!(e.color(), Some(false));
         assert_eq!(e.update_mode(), Some(UpdateMode::balanced()));
         assert_eq!(e.update_modes(), UpdateMode::known());
-        // старое имя в конфиге — синоним
+        // устаревший update_mode в конфиге не применяется; цвет — да, профиля нет — встроенный
         let cfg: crate::config::EinkSettings = toml::from_str("color = true\nupdate_mode = \"a2\"").unwrap();
-        e.apply(&cfg).unwrap();
+        fs::write(e.dir().join("scheme"), "ui 0x15\n").unwrap();
+        e.apply(&cfg, &Default::default()).unwrap();
         assert_eq!(fs::read_to_string(e.dir().join("color")).unwrap(), "1");
-        assert_eq!(fs::read_to_string(e.dir().join("update_mode")).unwrap(), "ultrafast");
+        assert_eq!(fs::read_to_string(e.dir().join("update_mode")).unwrap(), "hd [balanced] fast ultrafast x\n");
+        assert_eq!(fs::read_to_string(e.dir().join("scheme")).unwrap(), "auto 5");
         e.refresh().unwrap();
         assert_eq!(fs::read_to_string(e.dir().join("refresh")).unwrap(), "1");
         // режим пера: нет файла — ничего не делаем
@@ -772,20 +777,24 @@ mod tests {
         let sys = fake_sys(Some("carta"));
         let e = Eink::find_in(sys.path()).unwrap();
         fs::write(e.dir().join("saturation"), "150\n").unwrap();
-        let cfg = crate::config::EinkSettings { color: Some(true), saturation: Some(300), ..Default::default() };
-        e.apply(&cfg).unwrap();
+        let cfg = crate::config::EinkSettings { color: Some(true), profile: Some("Цвет".into()), ..Default::default() };
+        let mut profiles = crate::eink_profiles::Profiles::default();
+        let p = crate::eink_profiles::Profile { saturation: Some(300), ..crate::eink_profiles::Profile::builtin() };
+        profiles.add("Цвет", &p).unwrap();
+        e.apply(&cfg, &profiles).unwrap();
         assert_eq!(e.color(), Some(false));
         assert_eq!(e.tuning(Tuning::Saturation), Some(150));
     }
 
     #[test]
-    fn eink_tunings_apply_and_reset() {
+    fn eink_profile_apply() {
+        use crate::eink_profiles::{Profile, Profiles};
         let sys = fake_sys(Some("kaleido"));
         let e = Eink::find_in(sys.path()).unwrap();
         let dir = e.dir().to_path_buf();
         let rd = |n: &str| fs::read_to_string(dir.join(n)).unwrap().trim().to_string();
         // у драйвера есть всё, кроме full_pct
-        for (n, v) in [("contrast", "0"), ("saturation", "150"), ("a2_frames", "0"), ("a2_white", "255"), ("a2_black", "0"), ("full_every", "25")] {
+        for (n, v) in [("scheme", "auto 0x04"), ("contrast", "0"), ("saturation", "150"), ("a2_frames", "0"), ("a2_white", "255"), ("a2_black", "0"), ("full_every", "25")] {
             fs::write(dir.join(n), format!("{v}\n")).unwrap();
         }
         assert!(e.has(Tuning::Contrast) && !e.has(Tuning::FullPct));
@@ -796,12 +805,12 @@ mod tests {
         assert_eq!(e.tuning(Tuning::Contrast), None);
         fs::write(dir.join("contrast"), "0\n").unwrap();
 
-        let cfg: crate::config::EinkSettings = toml::from_str(
-            "update_mode = \"x\"\ncontrast = 3\nsaturation = 200\na2_frames = 4\na2_white = 200\na2_black = 40\nfull_every = 7\nfull_pct = 60\n",
+        let p: Profile = toml::from_str(
+            "name = \"Видео\"\nscheme = \"ui 0x07\"\ncontrast = 3\nsaturation = 200\na2_frames = 4\na2_white = 200\na2_black = 40\nfull_every = 7\nfull_pct = 60\n",
         )
         .unwrap();
-        e.apply(&cfg).unwrap();
-        assert_eq!(rd("update_mode"), "x");
+        e.apply_profile(&p).unwrap();
+        assert_eq!(rd("scheme"), "ui 0x07");
         assert_eq!(rd("contrast"), "3");
         assert_eq!(rd("saturation"), "200");
         assert_eq!(rd("a2_frames"), "4");
@@ -809,28 +818,31 @@ mod tests {
         assert_eq!(rd("a2_black"), "40");
         assert_eq!(rd("full_every"), "7");
         assert!(!dir.join("full_pct").exists(), "нет атрибута — не создаём");
+        assert!(!dir.join("refresh").exists());
+        assert_eq!(rd("update_mode"), "hd [balanced] fast ultrafast x", "update_mode не пишется");
         // совпадающее не переписывается: файлы только для чтения — запись дала бы ошибку
         use std::os::unix::fs::PermissionsExt;
-        fs::write(dir.join("update_mode"), "hd balanced fast ultrafast [x]\n").unwrap();
-        let ro = ["update_mode", "contrast", "saturation", "a2_frames", "a2_white", "a2_black", "full_every"];
+        fs::write(dir.join("scheme"), "ui 0x07\n").unwrap();
+        let ro = ["scheme", "contrast", "saturation", "a2_frames", "a2_white", "a2_black", "full_every"];
         for n in ro {
             fs::set_permissions(dir.join(n), fs::Permissions::from_mode(0o444)).unwrap();
         }
-        e.apply(&cfg).unwrap();
+        e.apply_profile(&p).unwrap();
         for n in ro {
             fs::set_permissions(dir.join(n), fs::Permissions::from_mode(0o644)).unwrap();
         }
+        // профиль только со scheme: остальное остаётся как было
+        let only = Profile { name: "x".into(), scheme: Scheme::Auto(3), full_every: None, full_pct: None, a2_frames: None, a2_white: None, a2_black: None, contrast: None, saturation: None };
+        e.apply_profile(&only).unwrap();
+        assert_eq!(rd("scheme"), "auto 3");
+        assert_eq!(rd("contrast"), "3");
+        assert_eq!(rd("full_every"), "7");
+        // встроенный: auto 5 и без автоочистки
+        e.apply(&Default::default(), &Profiles::default()).unwrap();
+        assert_eq!(rd("scheme"), "auto 5");
+        assert_eq!(rd("full_every"), "0");
         // запись приводится к диапазону
         e.set_tuning(Tuning::A2Frames, 99).unwrap();
         assert_eq!(rd("a2_frames"), "6");
-        // сброс: умолчания драйвера + повторная запись режима
-        e.reset_tunings(None).unwrap();
-        assert_eq!(rd("contrast"), "0");
-        assert_eq!(rd("saturation"), "150");
-        assert_eq!(rd("a2_white"), "255");
-        assert_eq!(rd("a2_black"), "0");
-        assert_eq!(rd("update_mode"), "x");
-        e.reset_tunings(Some(&UpdateMode::hd())).unwrap();
-        assert_eq!(rd("update_mode"), "hd");
     }
 }

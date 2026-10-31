@@ -159,23 +159,26 @@ fn run_greeter() {
     note_compositor_exit(&st, started);
 }
 
-/// Последние режимы экрана E Ink, выбранные в сеансе (`/var/lib/synshell/eink`), — в sysfs драйвера до
-/// запуска synwm экрана входа: у root своего `[eink]` нет, а драйвер после загрузки монохромный.
-/// Пишется только сейчас, пока DRM-устройство никто не держит; сеанс без своего `[eink]` остаётся в них же.
-/// Порядок (цвет, режим, расширенные; только изменившееся) — в `Eink::apply`.
+/// Последний выбор экрана E Ink в сеансе (`/var/lib/synshell/eink`: цвет и профиль) — в sysfs драйвера до
+/// запуска synwm экрана входа: у root своего `[eink]` нет, а драйвер после загрузки монохромный и в своём
+/// режиме. Профиль — из общего `/var/lib/synshell/eink-profiles.toml` (не выбран или нет такого — встроенный
+/// «По умолчанию»). Пишется только сейчас, пока DRM-устройство никто не держит; сеанс без своего `[eink]`
+/// остаётся в нём же. Порядок (цвет, `scheme`, заданные настройки; только изменившееся) — в `Eink::apply`.
 fn restore_eink() {
-    use synshell_common::eink_state;
+    use synshell_common::{eink_profiles, eink_state};
     if let Err(e) = eink_state::ensure_system_file() {
         log::warn!("файл режимов E Ink: {e}");
     }
+    if let Err(e) = eink_profiles::ensure_system_file() {
+        log::warn!("файл профилей E Ink: {e}");
+    }
     let Some(e) = synshell_common::display::Eink::find() else { return };
     let saved = eink_state::load();
-    if eink_state::is_empty(&saved) {
-        return;
-    }
-    match e.apply(&saved) {
-        Ok(()) => log::info!("экран E Ink: режимы сеанса восстановлены ({saved:?})"),
-        Err(err) => log::warn!("экран E Ink: режимы не восстановлены: {err}"),
+    let profiles = eink_profiles::load();
+    let p = profiles.resolve(saved.profile.as_deref());
+    match e.apply(&saved, &profiles) {
+        Ok(()) => log::info!("экран E Ink: цвет {:?}, профиль {:?} ({})", saved.color, p.name, p.summary()),
+        Err(err) => log::warn!("экран E Ink: профиль не применён: {err}"),
     }
 }
 

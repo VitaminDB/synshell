@@ -1,13 +1,13 @@
 [Desktop Entry]
 Type=Application
-Name=Тест экрана E Ink
-Name[en]=E Ink Screen Test
-GenericName=Подбор режимов E Ink
-GenericName[en]=E Ink Mode Tuning
-Comment=Режимы обновления панели E Ink: серое, цвет, текст, движение, следы, прокрутка
-Comment[en]=E Ink panel update modes: grays, color, text, motion, ghosting, scrolling
+Name=Профили экрана E Ink
+Name[en]=E Ink Screen Profiles
+GenericName=Редактор профилей и тест E Ink
+GenericName[en]=E Ink profile editor and test
+Comment=Профили экрана E Ink: режим волны и очистка, с проверкой на серое, цвет, текст, движение, следы, прокрутку
+Comment[en]=E Ink screen profiles: waveform and refresh, checked on grays, color, text, motion, ghosting, scrolling
 Exec=syn-epdtest
 Icon=syn-epdtest
 Categories=Utility;System;
-Keywords=eink;e-ink;epd;kaleido;ghosting;refresh;waveform;экран;режим;следы;волна;
+Keywords=eink;e-ink;epd;kaleido;ghosting;refresh;waveform;экран;режим;следы;волна;профиль;profile;
 StartupNotify=true

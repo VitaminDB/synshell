@@ -14,16 +14,19 @@ pub fn watched_files(config: &Config) -> Vec<std::path::PathBuf> {
     v
 }
 
-/// Режимы экрана E Ink из `[eink]` — в sysfs драйвера (пишется только отличающееся,
-/// поэтому шторка и «Параметры», уже записавшие значение сами, лишней перерисовки не дают).
+/// Экран E Ink из `[eink]`: цвет и активный профиль (`eink_profiles`) — в sysfs драйвера (пишется
+/// только отличающееся, поэтому шторка, «Параметры» и редактор профилей, уже записавшие значение
+/// сами, лишней перерисовки не дают). Профиль не выбран — остаётся выбранный для экрана входа.
 pub fn apply_eink(cfg: &synshell_common::config::EinkSettings) {
     let Some(e) = synshell_common::display::Eink::find() else { return };
-    match e.apply(cfg) {
+    let profile = cfg.profile.as_deref().map(|n| synshell_common::eink_profiles::load().resolve(Some(n)));
+    let r = e.apply_color(cfg.color).and_then(|_| profile.as_ref().map_or(Ok(()), |p| e.apply_profile(p)));
+    match r {
         Ok(()) => {
-            tracing::info!(?cfg, "режимы экрана E Ink");
+            tracing::info!(color = ?cfg.color, profile = ?profile, "экран E Ink");
             remember_eink(cfg);
         }
-        Err(err) => tracing::warn!(%err, dir = %e.dir().display(), "режимы экрана E Ink не применены"),
+        Err(err) => tracing::warn!(%err, dir = %e.dir().display(), "экран E Ink: профиль не применён"),
     }
 }
 

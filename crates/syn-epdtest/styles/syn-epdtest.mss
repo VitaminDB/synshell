@@ -76,3 +76,12 @@ SystemWindowControls { color: #000000; background-color: #e0e0e0; }
 .list-row { padding: 10px 0px; border-bottom: 1px solid #c0c0c0; }
 .row-title { font-size: 16px; font-weight: 600; }
 .row-text { font-size: 13px; color: #202020; }
+
+/* ── Редактор профилей ────────────────────────────────────────────── */
+
+.dialog { padding: 8px; border: 2px solid #000000; border-radius: 8px; }
+.param { width: 270px; padding: 6px 8px; border: 1px solid #a0a0a0; border-radius: 8px; }
+.param-title { font-size: 13px; font-weight: 600; }
+.param-value { font-size: 13px; font-family: monospace; }
+.param-unset { font-size: 12px; color: #606060; }
+.btn.flat.small { padding: 2px; icon-size: 16px; }

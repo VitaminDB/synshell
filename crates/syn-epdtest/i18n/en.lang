@@ -2,7 +2,7 @@
 @name = "English"
 
 # src/main.rs
-"syn-epdtest [--screenshot СНИМОК.png [--tab gray|color|text|motion|ghost|scroll] [--expert] [--size ШxВ] [--scale N]]" = "syn-epdtest [--screenshot SHOT.png [--tab gray|color|text|motion|ghost|scroll] [--expert] [--size WxH] [--scale N]]"
+"syn-epdtest [--screenshot СНИМОК.png [--tab gray|color|text|motion|ghost|scroll] [--profile ИМЯ] [--dialog new|rename|delete] [--size ШxВ] [--scale N]]" = "syn-epdtest [--screenshot SHOT.png [--tab gray|color|text|motion|ghost|scroll] [--profile NAME] [--dialog new|rename|delete] [--size WxH] [--scale N]]"
 "Тест экрана E Ink" = "E Ink Screen Test"
 
 # src/state.rs
@@ -90,3 +90,26 @@
 "Маленький текст и цветные миниатюры — самое трудное для E Ink при прокрутке." = "Small text and color thumbnails are the hardest for E Ink while scrolling."
 "120 строк с текстом и картинками" = "120 rows with text and pictures"
 "Строка {n}" = "Row {n}"
+
+# профили
+"Профили экрана E Ink" = "E Ink Screen Profiles"
+"Профиль:" = "Profile:"
+"Новый" = "New"
+"Переименовать" = "Rename"
+"Удалить" = "Delete"
+"Отмена" = "Cancel"
+"Создать" = "Create"
+"Новый профиль — копия «{p}». Имя:" = "New profile — a copy of “{p}”. Name:"
+"Новое имя «{p}»:" = "New name for “{p}”:"
+"Удалить профиль «{p}»? Активным станет «По умолчанию»." = "Delete profile “{p}”? “Default” becomes active."
+"«По умолчанию» — встроенный профиль: {s}. Он не меняется — «Новый» создаст копию для правки." = "“Default” is the built-in profile: {s}. It does not change — “New” makes a copy to edit."
+"ui — волну выбирает драйвер командой для каждого обновления. auto — FPGA сам сравнивает пиксели с прошлым кадром и выбирает переходы; n — набор волн." = "ui — the driver picks the waveform by command for every update. auto — the FPGA compares pixels with the previous frame and picks transitions itself; n is the waveform set."
+"Вернуть" = "Revert"
+"Изменения сохраняются и применяются сразу" = "Changes are saved and applied immediately"
+"Изменения уже сохранены и применены; «Вернуть» — как было при выборе профиля" = "Changes are already saved and applied; “Revert” restores the profile as it was when selected"
+"Настройки" = "Settings"
+"не задано" = "not set"
+"Нет у драйвера — не применяется" = "Not in the driver — not applied"
+"Драйвер сейчас — {v}" = "Driver now — {v}"
+"Драйвер E Ink не найден — профили не применяются (проверка: SYNSHELL_SYSFS)" = "E Ink driver not found — profiles are not applied (testing: SYNSHELL_SYSFS)"
+"профили не сохранены: {e}" = "profiles not saved: {e}"

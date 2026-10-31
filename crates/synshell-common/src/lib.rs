@@ -8,6 +8,7 @@ pub mod app_theme;
 pub mod config;
 pub mod config_edit;
 pub mod display;
+pub mod eink_profiles;
 pub mod eink_state;
 #[cfg(feature = "drives")]
 pub mod drives;

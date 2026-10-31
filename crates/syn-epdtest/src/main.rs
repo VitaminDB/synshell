@@ -1,12 +1,14 @@
-//! syn-epdtest — «Тест экрана E Ink»: подбор режимов обновления панели (драйвер
-//! onyx-tcon-fpga, ONYX BOOX). Сверху — режимы `update_mode` и сырой `scheme` («Эксперт»),
-//! цвет/монохром, полная очистка; вкладки с тестами: серое, цвет, текст, движение, следы,
-//! прокрутка.
+//! syn-epdtest — «Тест экрана E Ink» и редактор профилей экрана (драйвер onyx-tcon-fpga,
+//! ONYX BOOX). Сверху — профили (`synshell_common::eink_profiles`: выбор — сразу применить,
+//! «Новый», «Переименовать», «Удалить»), редактор выбранного (режим волны `scheme` ui/auto,
+//! автоочистка, A2, контраст, насыщенность — сразу в драйвер и в файл профилей), цвет/монохром,
+//! полная очистка; вкладки с тестами: серое, цвет, текст, движение, следы, прокрутка.
 //!
-//!   syn-epdtest [--screenshot СНИМОК.png [--tab gray|color|text|motion|ghost|scroll] [--expert]
-//!               [--size ШxВ] [--scale N]]
+//!   syn-epdtest [--screenshot СНИМОК.png [--tab gray|color|text|motion|ghost|scroll]
+//!               [--profile ИМЯ] [--dialog new|rename|delete] [--size ШxВ] [--scale N]]
 //!
-//! На компьютере — подставной sysfs: `SYNSHELL_SYSFS=/tmp/sys` (см. `synshell_common::display`).
+//! На компьютере — подставной sysfs: `SYNSHELL_SYSFS=/tmp/sys` (см. `synshell_common::display`),
+//! файл профилей — `SYNSHELL_EINK_PROFILES_FILE`.
 
 mod patterns;
 mod state;
@@ -21,19 +23,28 @@ fn main() {
     synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
     let mut shot: Option<String> = None;
     let mut tab = state::Tab::Gray;
-    let mut expert = false;
+    let mut profile: Option<String> = None;
+    let mut dialog: Option<state::Dialog> = None;
     let mut size = (1240u32, 930u32);
     let mut scale = 1.0f64;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "-h" | "--help" => {
-                println!("{}", t!("syn-epdtest [--screenshot СНИМОК.png [--tab gray|color|text|motion|ghost|scroll] [--expert] [--size ШxВ] [--scale N]]"));
+                println!("{}", t!("syn-epdtest [--screenshot СНИМОК.png [--tab gray|color|text|motion|ghost|scroll] [--profile ИМЯ] [--dialog new|rename|delete] [--size ШxВ] [--scale N]]"));
                 return;
             }
             "--screenshot" => shot = args.next(),
             "--tab" => tab = args.next().as_deref().and_then(state::Tab::from_name).unwrap_or(tab),
-            "--expert" => expert = true,
+            "--profile" => profile = args.next(),
+            "--dialog" => {
+                dialog = match args.next().as_deref() {
+                    Some("new") => Some(state::Dialog::New),
+                    Some("rename") => Some(state::Dialog::Rename),
+                    Some("delete") => Some(state::Dialog::Delete),
+                    _ => None,
+                }
+            }
             "--size" => {
                 if let Some((w, h)) = args.next().as_deref().and_then(|s| s.split_once('x')) {
                     size = (w.parse().unwrap_or(size.0), h.parse().unwrap_or(size.1));
@@ -49,10 +60,13 @@ fn main() {
     if let Some(out) = shot {
         let r = syngui::shot::render_png(
             move || {
-                let st = state::St::new();
+                let st = state::St::new(false);
                 st.tab.set(tab);
-                if expert {
-                    st.expert.set(true);
+                if let Some(p) = &profile {
+                    st.select(p);
+                }
+                if let Some(d) = dialog {
+                    st.open_dialog(d);
                 }
                 if tab == state::Tab::Motion {
                     st.tick.set(137);
@@ -80,7 +94,7 @@ fn main() {
         return;
     }
     let fullscreen = state::fullscreen_saved();
-    let st = state::St::new();
+    let st = state::St::new(true);
     // значения драйвера могли поменять другие (шторка, настройки) — перечитывать раз в 2 с
     // (сигнал меняется только при отличии: лишней перерисовки нет)
     std::thread::spawn(move || loop {
@@ -88,7 +102,7 @@ fn main() {
         run_on_main_thread(move || st.reload());
     });
     App::new()
-        .title(t!("Тест экрана E Ink"))
+        .title(t!("Профили экрана E Ink"))
         .app_id("syn-epdtest")
         .size(1240, 900)
         .min_size(480, 520)

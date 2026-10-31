@@ -828,12 +828,13 @@ const GLYPH_MONO: &str = "\u{E3DB}"; // filter_b_and_w
 const GLYPH_SPEED: &str = "\u{E9E4}"; // speed
 const GLYPH_REFRESH: &str = "\u{E5D5}"; // refresh
 
-/// Плитки экрана E Ink (только на E Ink): цвет/монохром (цветная панель), режим обновления
-/// по кругу (удержание — список режимов с пояснениями), полная очистка. Состояние — из sysfs
-/// драйвера; выбор пишется сразу в драйвер и в `[eink]` (synwm применит его при следующем
-/// старте сеанса).
+/// Плитки экрана E Ink (только на E Ink): цвет/монохром (цветная панель), профиль по кругу
+/// (удержание — список профилей, «Редактор профилей…» и очистка), полная очистка. Профили —
+/// из общего файла (`eink_profiles`), активный — `[eink] profile`; выбор пишется сразу в драйвер
+/// (в фоне) и в конфиг (synwm применит его же — без лишней записи — и запомнит для экрана входа).
 fn eink_tiles(mut grid: Grid, rev: RwSignal<u32>) -> Grid {
-    use synshell_common::display::{self, Eink, UpdateMode};
+    use synshell_common::display::{self, Eink};
+    use synshell_common::eink_profiles::{self, Profile};
     let kind = display::display_kind();
     if !kind.is_eink() {
         return grid;
@@ -858,11 +859,11 @@ fn eink_tiles(mut grid: Grid, rev: RwSignal<u32>) -> Grid {
             None
         });
     };
-    let advanced = TileOption::new(GLYPH_TUNE, t!("Расширенные…"), || {
+    let editor = TileOption::new(GLYPH_TUNE, t!("Редактор профилей…"), || {
         close();
-        crate::actions::spawn("synsettings displays");
+        crate::actions::spawn("syn-epdtest");
     })
-    .hint(t!("Параметры → Мониторы → Экран E Ink"))
+    .hint(t!("Создать, назвать и настроить профили"))
     .divider();
     if kind.is_color_eink() {
         let on = e.color().unwrap_or(false);
@@ -877,45 +878,38 @@ fn eink_tiles(mut grid: Grid, rev: RwSignal<u32>) -> Grid {
             Tile::new(glyph, t!("Цвет"), state, on, move || set(!on))
                 .option(TileOption::new(GLYPH_COLOR, t!("Цветной"), move || set(true)).hint(t!("Цветной фильтр Kaleido")).checked(on))
                 .option(TileOption::new(GLYPH_MONO, t!("Монохром"), move || set(false)).hint(t!("Чёрно-белый, чётче текст")).checked(!on))
-                .option(advanced.clone())
+                .settings("displays")
                 .build(),
         );
     }
-    // режимы — из драйвера (hd, balanced, fast, ultrafast, x); текущий драйвер не назовёт, если
-    // `full_every`/`full_pct` переопределены — тогда выбор из конфига
-    let cfg = synshell_common::Config::load().0.eink;
-    let cfg_mode = cfg.update_mode.clone();
-    let modes = e.update_modes();
-    let set_mode = move |m: UpdateMode| {
-        // режим сбрасывает часть расширенных настроек — apply вернёт переопределения из `[eink]`
-        let mut cfg = cfg.clone();
-        cfg.update_mode = Some(m.clone());
-        cfg.color = None;
-        if let Err(err) = synshell_common::config_edit::set_value(&["eink", "update_mode"], toml_edit::Value::from(m.as_str())) {
-            log::warn!("[eink] update_mode: {err:#}");
+    // профили: встроенный «По умолчанию» и созданные в редакторе
+    let profiles = eink_profiles::load();
+    let active = profiles.resolve(Some(&eink_profiles::active_name(&synshell_common::Config::load().0.eink)));
+    let select = Arc::new(move |p: Profile| {
+        if let Err(err) = eink_profiles::set_active(&p.name) {
+            log::warn!("[eink] profile: {err:#}");
         }
-        write(Box::new(move |e| e.apply(&cfg)));
-    };
-    let set_mode = Arc::new(set_mode);
-    if let Some(mode) = e.update_mode().or(cfg_mode) {
-        let next = mode.next_in(&modes);
-        let s = set_mode.clone();
-        let mut t = Tile::new(GLYPH_SPEED, t!("Режим E Ink"), mode.title(), false, move || s(next.clone()));
-        for m in &modes {
-            let s = set_mode.clone();
-            let m2 = m.clone();
-            t = t.option(TileOption::new(GLYPH_SPEED, m.title(), move || s(m2.clone())).hint(m.hint()).checked(*m == mode));
-        }
-        grid = grid.child(
-            t.option(TileOption::new(GLYPH_REFRESH, t!("Очистить экран"), clear).hint(t!("Убрать следы")).divider())
-                .option(TileOption { divider: false, ..advanced.clone() })
-                .build(),
-        );
+        write(Box::new(move |e| e.apply_profile(&p)));
+    });
+    let next = profiles.next_after(&active.name);
+    let s = select.clone();
+    let mut t = Tile::new(GLYPH_SPEED, t!("Режим E Ink"), active.title(), false, move || s(next.clone()));
+    for p in profiles.all() {
+        let s = select.clone();
+        let on = p.name == active.name;
+        let (title, hint) = (p.title(), p.summary());
+        t = t.option(TileOption::new(GLYPH_SPEED, title, move || s(p.clone())).hint(hint).checked(on));
     }
+    grid = grid.child(
+        t.option(editor.clone())
+            .option(TileOption::new(GLYPH_REFRESH, t!("Очистить экран"), clear).hint(t!("Убрать следы")))
+            .settings("displays")
+            .build(),
+    );
     grid.child(
         Tile::new(GLYPH_REFRESH, t!("Очистить экран"), t!("Убрать следы"), false, clear)
             .option(TileOption::new(GLYPH_REFRESH, t!("Очистить сейчас"), clear))
-            .option(advanced)
+            .option(editor)
             .build(),
     )
 }

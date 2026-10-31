@@ -1936,3 +1936,11 @@
 "PQ и BT.2020, {peak}: HDR-видео и игры ярче и насыщеннее; обычные окна — с яркостью ниже" = "PQ and BT.2020, {peak}: HDR video and games are brighter and richer; regular windows use the brightness below"
 "Яркость обычных окон" = "Regular window brightness"
 "Белый SDR в HDR-режиме, нит" = "SDR white in HDR mode, nits"
+
+# src/pages/system.rs — профили E Ink
+"Профиль" = "Profile"
+"Режим волны и автоочистка; свои профили создаются и настраиваются в редакторе" = "Waveform mode and auto refresh; your own profiles are created and tuned in the editor"
+"Редактор профилей" = "Profile editor"
+"Создать, назвать и настроить профили с живым просмотром на тестовых картинках" = "Create, name and tune profiles with a live preview on test pictures"
+"Открыть…" = "Open…"
+"Не запустить syn-epdtest: {e}" = "Cannot start syn-epdtest: {e}"

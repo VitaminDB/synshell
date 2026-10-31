@@ -8,10 +8,11 @@ use syngui::mss::StyleValue;
 use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 use syngui::prelude::*;
 use syngui::widgets::{EventHook, KeyReply};
-use synshell_common::display::{Scheme, UpdateMode};
+use synshell_common::display::{Scheme, Tuning};
+use synshell_common::eink_profiles::DEFAULT_ID;
 
 use crate::patterns::{self, Pic};
-use crate::state::{self, St, Tab, AUTO_MAX, DRAWN, GHOST_EVERY, MOTION_HZ, UI_WAVES};
+use crate::state::{self, Dialog, St, Tab, AUTO_MAX, DRAWN, GHOST_EVERY, MOTION_HZ, UI_WAVES};
 
 pub type W = Box<dyn Widget>;
 
@@ -29,6 +30,10 @@ mod icons {
     pub const ADD: &str = "\u{E145}";
     pub const SWAP: &str = "\u{E8D4}";
     pub const SCREEN: &str = "\u{E30C}";
+    pub const EDIT: &str = "\u{E3C9}";
+    pub const DELETE: &str = "\u{E872}";
+    pub const UNDO: &str = "\u{E166}";
+    pub const CLOSE: &str = "\u{E5CD}";
 }
 
 fn btn(label: impl Into<String>, class: &str, f: impl FnMut() + Send + 'static) -> W {
@@ -83,7 +88,7 @@ fn titlebar(st: St, fs: bool) -> W {
         .gap(10.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(Icon::new(icons::SCREEN).class("brand-ic"))
-        .child(Text::new(t!("Тест экрана E Ink")).class("app-title"));
+        .child(Text::new(t!("Профили экрана E Ink")).class("app-title"));
     row = row.child(DecoratedBox::new().class("grow").child(WindowDragRegion::new().child(DecoratedBox::new().class("drag").child(title))));
     row = row.child(icon_btn(
         if fs { icons::FULLSCREEN_EXIT } else { icons::FULLSCREEN },
@@ -101,79 +106,244 @@ fn titlebar(st: St, fs: bool) -> W {
     boxed(row)
 }
 
-/// Режимы `update_mode` + «Эксперт», цвет, очистка, текущие значения драйвера.
-fn modes_panel(st: St) -> W {
-    boxed(Reactive::new(move || -> Vec<W> {
-        let d = st.drv.get();
-        let expert = st.expert.get();
-        let mut col = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("panel");
-
+/// Профили: список (выбор — сразу применить), «Новый», «Переименовать», «Удалить», цвет, очистка;
+/// под ним — диалог имени и редактор выбранного профиля.
+fn profiles_panel(st: St) -> W {
+    let list = Reactive::new(move || -> Vec<W> {
+        let _ = st.list_rev.get();
+        let active = st.active.get();
+        let color = st.drv.get().color;
         let mut row = Flex::row().wrap().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center);
-        row = row.child(Text::new(t!("Режим:")).class("label"));
-        let modes = if d.modes.is_empty() { UpdateMode::KNOWN.iter().map(|s| s.to_string()).collect() } else { d.modes.clone() };
-        for m in modes {
-            let on = !expert && d.mode.as_deref() == Some(m.as_str());
-            let title = UpdateMode::from_name(&m).map(|u| u.title()).unwrap_or_else(|| m.clone());
-            row = row.child(chip(title, on, move || {
-                st.expert.set(false);
-                st.set_mode(m.clone());
+        row = row.child(Text::new(t!("Профиль:")).class("label"));
+        for p in st.profiles() {
+            let on = p.name == active;
+            let name = p.name.clone();
+            row = row.child(chip(p.title(), on, move || {
+                if st.active.get_untracked() != name {
+                    st.select(&name);
+                }
             }));
         }
-        row = row.child(chip(t!("Эксперт"), expert, move || st.expert.set(!st.expert.get_untracked())));
         row = row.child(DecoratedBox::new().class("sep"));
-        if let Some(c) = d.color {
+        row = row.child(icon_btn(icons::ADD, t!("Новый"), "", move || st.open_dialog(Dialog::New)));
+        let builtin = active == DEFAULT_ID;
+        if !builtin {
+            row = row.child(icon_btn(icons::EDIT, t!("Переименовать"), "", move || st.open_dialog(Dialog::Rename)));
+            row = row.child(icon_btn(icons::DELETE, t!("Удалить"), "", move || st.open_dialog(Dialog::Delete)));
+        }
+        row = row.child(DecoratedBox::new().class("sep"));
+        if let Some(c) = color {
             row = row.child(chip(t!("Цвет"), c, move || st.set_color(true)));
             row = row.child(chip(t!("Монохром"), !c, move || st.set_color(false)));
             row = row.child(DecoratedBox::new().class("sep"));
         }
         row = row.child(icon_btn(icons::REFRESH, t!("Очистить"), "", move || st.refresh()));
-        col = col.child(row);
-
-        if expert {
-            let mut ex = Flex::row().wrap().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center);
-            ex = ex.child(Text::new(t!("Волна ui:")).class("label"));
-            for v in UI_WAVES {
-                let on = d.scheme == Some(Scheme::Ui(v));
-                ex = ex.child(chip(format!("0x{v:02x}"), on, move || st.set_scheme(Scheme::Ui(v))));
+        vec![boxed(row)]
+    });
+    let status = Reactive::new(move || -> Vec<W> {
+        let d = st.drv.get();
+        let mut col = Column::new().gap(2.0);
+        let text = if d.found {
+            let mut parts = vec![format!("scheme: {}", or_dash(&d.scheme_raw))];
+            for (t, v) in &d.tunings {
+                parts.push(format!("{}: {}", t.attr(), v.map(|v| v.to_string()).unwrap_or_else(|| "—".into())));
             }
-            ex = ex.child(DecoratedBox::new().class("sep"));
-            let n = st.auto_n.get();
-            let auto_on = d.scheme == Some(Scheme::Auto(n));
-            ex = ex.child(Text::new(t!("Авто FPGA:")).class("label"));
-            ex = ex.child(icon_btn(icons::REMOVE, "", "", move || {
-                let n = st.auto_n.get_untracked().saturating_sub(1);
-                st.set_scheme(Scheme::Auto(n));
-            }));
-            ex = ex.child(chip(format!("auto {n}"), auto_on, move || st.set_scheme(Scheme::Auto(st.auto_n.get_untracked()))));
-            ex = ex.child(icon_btn(icons::ADD, "", "", move || {
-                let n = (st.auto_n.get_untracked() + 1).min(AUTO_MAX);
-                st.set_scheme(Scheme::Auto(n));
-            }));
-            ex = ex.child(DecoratedBox::new().class("sep"));
-            ex = ex.child(
-                TextField::new()
-                    .placeholder(t!("ui 0x15 / auto 4"))
-                    .width(170.0)
-                    .on_submit(move |s| match Scheme::parse(s) {
-                        Some(sc) => st.set_scheme(sc),
-                        None => st.error.set(Some(t!("Не разобрать «{s}»: нужно ui <hex> или auto <n>", s = s))),
-                    })
-                    .class("field"),
-            );
-            col = col.child(ex);
-        }
-
-        let status = if d.found {
-            format!("update_mode: {}    scheme: {}", or_dash(&d.mode_raw), or_dash(&d.scheme_raw))
+            t!("Драйвер сейчас — {v}", v = parts.join("  "))
         } else {
-            t!("Драйвер E Ink не найден — режимы не применяются (проверка: SYNSHELL_SYSFS)")
+            t!("Драйвер E Ink не найден — профили не применяются (проверка: SYNSHELL_SYSFS)")
         };
-        col = col.child(Text::new(status).class("status"));
+        col = col.child(Text::new(text).class("status"));
         if let Some(e) = st.error.get() {
             col = col.child(Text::new(t!("Ошибка записи: {e}", e = e)).class("error"));
         }
         vec![boxed(col)]
+    });
+    boxed(
+        Column::new()
+            .gap(8.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .class("panel")
+            .child(list)
+            .child(dialog(st))
+            .child(editor(st))
+            .child(status),
+    )
+}
+
+/// Диалог «Новый» / «Переименовать» (поле имени) или «Удалить?».
+fn dialog(st: St) -> W {
+    boxed(Reactive::new(move || -> Vec<W> {
+        let Some(d) = st.dialog.get() else { return Vec::new() };
+        let cur = st.cur.get_untracked();
+        let mut row = Flex::row().wrap().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        let submit = move |s: &str| match d {
+            Dialog::New => st.create(s),
+            Dialog::Rename => st.rename(s),
+            Dialog::Delete => {}
+        };
+        match d {
+            Dialog::New | Dialog::Rename => {
+                let label = if d == Dialog::New { t!("Новый профиль — копия «{p}». Имя:", p = cur.title()) } else { t!("Новое имя «{p}»:", p = cur.title()) };
+                row = row.child(Text::new(label).class("label"));
+                let text = state::NAME_INPUT.lock().unwrap().clone();
+                let n = text.len();
+                row = row.child(
+                    TextField::with_text(text)
+                        .width(260.0)
+                        .autofocus(true)
+                        .select_range(0, n)
+                        .on_change(|s| *state::NAME_INPUT.lock().unwrap() = s.to_string())
+                        .on_submit(submit)
+                        .on_escape(move || st.close_dialog())
+                        .class("field"),
+                );
+                let ok = if d == Dialog::New { t!("Создать") } else { t!("Переименовать") };
+                row = row.child(btn(ok, "primary", move || submit(&state::NAME_INPUT.lock().unwrap().clone())));
+            }
+            Dialog::Delete => {
+                row = row.child(Text::new(t!("Удалить профиль «{p}»? Активным станет «По умолчанию».", p = cur.title())).class("label"));
+                row = row.child(btn(t!("Удалить"), "primary", move || st.delete()));
+            }
+        }
+        row = row.child(btn(t!("Отмена"), "", move || st.close_dialog()));
+        let mut col = Column::new().gap(4.0).class("dialog").child(row);
+        if let Some(e) = st.dialog_err.get() {
+            col = col.child(Text::new(e).class("error"));
+        }
+        vec![boxed(col)]
     }))
+}
+
+/// Редактор выбранного профиля: режим волны, настройки ползунками, «Вернуть». Встроенный —
+/// только описание.
+fn editor(st: St) -> W {
+    boxed(Reactive::new(move || -> Vec<W> {
+        let active = st.active.get();
+        if active == DEFAULT_ID {
+            let p = st.cur.get_untracked();
+            return vec![boxed(
+                Column::new()
+                    .gap(2.0)
+                    .child(Text::new(t!("«По умолчанию» — встроенный профиль: {s}. Он не меняется — «Новый» создаст копию для правки.", s = p.summary())).class("hint"))
+                    .child(Text::new(scheme_help()).class("hint")),
+            )];
+        }
+        vec![
+            scheme_row(st),
+            boxed(Reactive::new(move || -> Vec<W> {
+                let _ = st.form_rev.get();
+                if !st.show_params.get() {
+                    return Vec::new();
+                }
+                vec![params_grid(st)]
+            })),
+            boxed(Text::new(scheme_help()).class("hint")),
+            boxed(Reactive::new(move || -> Vec<W> {
+                let changed = st.cur.get() != st.orig.get();
+                let mut row = Flex::row().wrap().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center);
+                if changed {
+                    row = row.child(icon_btn(icons::UNDO, t!("Вернуть"), "", move || st.revert()));
+                }
+                row = row.child(Text::new(if changed { t!("Изменения уже сохранены и применены; «Вернуть» — как было при выборе профиля") } else { t!("Изменения сохраняются и применяются сразу") }).class("hint"));
+                vec![boxed(row)]
+            })),
+        ]
+    }))
+}
+
+fn scheme_help() -> String {
+    t!("ui — волну выбирает драйвер командой для каждого обновления. auto — FPGA сам сравнивает пиксели с прошлым кадром и выбирает переходы; n — набор волн.")
+}
+
+/// Режим волны: ui-волны списком, auto N через − / + и ввод.
+fn scheme_row(st: St) -> W {
+    boxed(Reactive::new(move || -> Vec<W> {
+        let cur = st.cur.get().scheme;
+        let show = st.show_params.get();
+        let mut ex = Flex::row().wrap().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        ex = ex.child(Text::new(t!("Волна ui:")).class("label"));
+        for v in UI_WAVES {
+            ex = ex.child(chip(format!("0x{v:02x}"), cur == Scheme::Ui(v), move || st.set_scheme(Scheme::Ui(v))));
+        }
+        if let Scheme::Ui(v) = cur {
+            if !UI_WAVES.contains(&v) {
+                ex = ex.child(chip(format!("0x{v:02x}"), true, || {}));
+            }
+        }
+        ex = ex.child(DecoratedBox::new().class("sep"));
+        let n = match cur {
+            Scheme::Auto(n) => n,
+            _ => st.auto_n.get(),
+        };
+        ex = ex.child(Text::new(t!("Авто FPGA:")).class("label"));
+        ex = ex.child(icon_btn(icons::REMOVE, "", "", move || st.set_scheme(Scheme::Auto(n.saturating_sub(1)))));
+        ex = ex.child(chip(format!("auto {n}"), cur == Scheme::Auto(n), move || st.set_scheme(Scheme::Auto(n))));
+        ex = ex.child(icon_btn(icons::ADD, "", "", move || st.set_scheme(Scheme::Auto((n + 1).min(AUTO_MAX)))));
+        ex = ex.child(DecoratedBox::new().class("sep"));
+        ex = ex.child(
+            TextField::new()
+                .placeholder(t!("ui 0x15 / auto 4"))
+                .width(150.0)
+                .on_submit(move |s| match Scheme::parse(s) {
+                    Some(sc @ (Scheme::Ui(_) | Scheme::Auto(_))) => st.set_scheme(sc),
+                    _ => st.error.set(Some(t!("Не разобрать «{s}»: нужно ui <hex> или auto <n>", s = s))),
+                })
+                .class("field"),
+        );
+        ex = ex.child(DecoratedBox::new().class("sep"));
+        ex = ex.child(chip(t!("Настройки"), show, move || st.show_params.set(!st.show_params.get_untracked())));
+        vec![boxed(ex)]
+    }))
+}
+
+/// Ползунки настроек профиля. Не заданная — «не задано» и ползунок на значении драйвера:
+/// тронуть — задать; «×» — снять (при применении не пишется, остаётся как было).
+fn params_grid(st: St) -> W {
+    let p = st.cur.get_untracked();
+    let d = st.drv.get_untracked();
+    let mut grid = Flex::row().wrap().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Start);
+    for t in Tuning::EDITOR {
+        if t.color_only() && d.color.is_none() && d.found {
+            continue;
+        }
+        let (lo, hi) = t.range();
+        let start = p.get(t).or_else(|| d.tuning(t)).or(t.default_value()).unwrap_or(lo);
+        let head = Reactive::new(move || -> Vec<W> {
+            let v = st.cur.get().get(t);
+            let mut row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center);
+            row = row.child(Text::new(t.title()).max_lines(2).class("param-title grow"));
+            match v {
+                Some(v) => {
+                    row = row.child(Text::new(t.format(v)).class("param-value"));
+                    row = row.child(icon_btn(icons::CLOSE, "", "flat small", move || st.put(t, None)));
+                }
+                None => {
+                    row = row.child(Text::new(t!("не задано")).class("param-unset"));
+                }
+            }
+            vec![boxed(row)]
+        });
+        let slider = Slider::new().range(lo as f32, hi as f32).step(1.0).value(start as f32).width(250.0).on_change(move |v| {
+            let v = t.clamp(v.round().max(0.0) as u32);
+            // не заданная задаётся первым же движением (заголовок покажет значение и «×»)
+            if st.cur.get_untracked().get(t) != Some(v) {
+                st.edit(|p| p.put(t, Some(v)));
+            }
+        });
+        let mut hint = t.hint();
+        if d.found && !d.has(t) {
+            hint = t!("Нет у драйвера — не применяется");
+        }
+        grid = grid.child(
+            Column::new()
+                .gap(2.0)
+                .class("param")
+                .child(head)
+                .child(slider)
+                .child(Text::new(hint).max_lines(2).class("hint")),
+        );
+    }
+    boxed(grid)
 }
 
 fn or_dash(s: &str) -> &str {
@@ -608,7 +778,7 @@ pub fn root(st: St) -> W {
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .class("window")
             .child(titlebar(st, fs))
-            .child(modes_panel(st))
+            .child(profiles_panel(st))
             .child(tabs(st))
             .child(DecoratedBox::new().class("grow body").child(page(st)));
         let frame = DecoratedBox::new().class(if fs { "window-frame full" } else { "window-frame" }).clip(true).child(keys(st, main));

@@ -129,19 +129,25 @@ impl Default for Config {
 
 // ─── eink ───────────────────────────────────────────────────────────────────
 
-/// Режимы экрана E Ink (`[eink]`, см. [`crate::display`]). Не задано — как оставил драйвер.
-/// Применяет synwm при старте сеанса и при правке конфига — только на экране E Ink.
+/// Экран E Ink (`[eink]`, см. [`crate::display`], [`crate::eink_profiles`]): цвет и активный профиль.
+/// Не задано — как оставил экран входа (последний выбор) или драйвер. Применяет synwm при старте
+/// сеанса и при правке конфига — только на экране E Ink.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct EinkSettings {
     /// Цветной вывод на цветной панели (Kaleido); `false` — монохром.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<bool>,
+    /// Активный профиль (имя из `/var/lib/synshell/eink-profiles.toml`; `default` — встроенный
+    /// «По умолчанию»). Нет такого — встроенный.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    // Устаревшее (до профилей): разбирается, чтобы старый конфиг не ломался, но не применяется;
+    // выбор профиля убирает эти ключи (`eink_profiles::set_active`).
     /// Режим обновления — имя драйвера: `hd`, `balanced`, `fast`, `ultrafast`, `x`
     /// (старые `quality` → hd, `a2` → ultrafast).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub update_mode: Option<crate::display::UpdateMode>,
-    // Расширенные (см. [`crate::display::Tuning`]); применяются после режима.
     /// Контраст контроллера (0..255, по умолчанию драйвера 0).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contrast: Option<u8>,
@@ -3431,6 +3437,8 @@ mod tests {
         assert!(Config::parse("[eink]\nupdate_mode = \"\"\n").is_err());
         assert!(Config::parse("[eink]\ncontrast = 300\n").is_err());
         assert!(Config::parse("[eink]\nsharpness = 1\n").is_err());
+        let c = Config::parse("[eink]\nprofile = \"Чтение\"\nupdate_mode = \"fast\"\n").unwrap();
+        assert_eq!(c.eink.profile.as_deref(), Some("Чтение"));
     }
 
     #[test]

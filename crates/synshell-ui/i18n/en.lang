@@ -842,3 +842,7 @@
 "Код" = "Code"
 "Текст · {n} симв." = "Text · {n} chars"
 "Файла больше нет" = "File no longer exists"
+
+# src/shade.rs — профили E Ink
+"Редактор профилей…" = "Profile editor…"
+"Создать, назвать и настроить профили" = "Create, name and tune profiles"

@@ -1,4 +1,4 @@
-//! Последние применённые режимы экрана E Ink (`[eink]`: цвет, режим обновления, расширенные) — для
+//! Последний выбор экрана E Ink (`[eink]`: цвет и активный профиль, см. [`crate::eink_profiles`]) — для
 //! экрана входа и сеансов без своего `[eink]`.
 //!
 //! Драйвер после загрузки стартует со своими умолчаниями (монохром, `balanced`), а у экрана входа (root)
@@ -7,7 +7,8 @@
 //! `$XDG_STATE_HOME/synshell/eink`; только файл, в sysfs synwm пишет лишь своё `[eink]`. Применяет
 //! запомненное `synlogin daemon` от root — ДО запуска synwm экрана входа, пока DRM-устройство никто не
 //! держит (запись в sysfs драйвера при работающем выводе ломала состояние CRTC: «active without enabled»).
-//! Формат — TOML полей [`EinkSettings`].
+//! Формат — TOML полей [`EinkSettings`] (`color`, `profile`; устаревшие ключи режимов читаются, но не
+//! применяются и при следующей записи пропадают).
 
 use std::path::{Path, PathBuf};
 
@@ -37,17 +38,12 @@ pub fn ensure_system_file() -> std::io::Result<()> {
 }
 
 /// Поля `cfg`, а не заданные в нём — из `saved`.
+/// Только `color` и `profile`: устаревшие ключи режимов не переносятся.
 pub fn merge(cfg: &EinkSettings, saved: &EinkSettings) -> EinkSettings {
     EinkSettings {
         color: cfg.color.or(saved.color),
-        update_mode: cfg.update_mode.clone().or_else(|| saved.update_mode.clone()),
-        contrast: cfg.contrast.or(saved.contrast),
-        saturation: cfg.saturation.or(saved.saturation),
-        a2_frames: cfg.a2_frames.or(saved.a2_frames),
-        a2_white: cfg.a2_white.or(saved.a2_white),
-        a2_black: cfg.a2_black.or(saved.a2_black),
-        full_every: cfg.full_every.or(saved.full_every),
-        full_pct: cfg.full_pct.or(saved.full_pct),
+        profile: cfg.profile.clone().or_else(|| saved.profile.clone()),
+        ..Default::default()
     }
 }
 
@@ -57,9 +53,9 @@ fn read(path: &Path) -> Option<(std::time::SystemTime, EinkSettings)> {
     Some((mtime, toml::from_str(&text).ok()?))
 }
 
-/// Ничего не задано (пустое `[eink]` или файл).
+/// Нечего запоминать или применять: не заданы ни цвет, ни профиль (устаревшие ключи не в счёт).
 pub fn is_empty(s: &EinkSettings) -> bool {
-    *s == EinkSettings::default()
+    s.color.is_none() && s.profile.is_none()
 }
 
 /// Запомненные режимы: из более свежего файла (нет — пустые).
@@ -79,13 +75,31 @@ pub fn save(s: &EinkSettings) -> std::io::Result<PathBuf> {
 
 pub fn save_to(system: Option<&Path>, user: &Path, s: &EinkSettings) -> std::io::Result<PathBuf> {
     let text = toml::to_string(s).map_err(std::io::Error::other)?;
+    write_shared(system, user, &text)
+}
+
+/// Записать общий файл `system` (`root:video 0664` в каталоге `2775`): атомарно — новым файлом
+/// рядом с правами `0664` (группа — от каталога с setgid); каталог не даёт — на месте (права
+/// остаются); файла нет — создать, если можно; иначе — в файл пользователя `user`.
+pub(crate) fn write_shared(system: Option<&Path>, user: &Path, text: &str) -> std::io::Result<PathBuf> {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
     if let Some(sys) = system {
+        if sys.is_file() {
+            let tmp = sys.with_extension(format!("tmp{}", std::process::id()));
+            let atomic = std::fs::write(&tmp, text)
+                .and_then(|_| std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o664)))
+                .and_then(|_| std::fs::rename(&tmp, sys));
+            if atomic.is_ok() {
+                return Ok(sys.to_path_buf());
+            }
+            let _ = std::fs::remove_file(&tmp);
+        }
         if let Ok(mut f) = std::fs::OpenOptions::new().write(true).truncate(true).open(sys) {
-            use std::io::Write;
             f.write_all(text.as_bytes())?;
             return Ok(sys.to_path_buf());
         }
-        if sys.parent().is_some_and(|d| d.is_dir()) && std::fs::write(sys, &text).is_ok() {
+        if sys.parent().is_some_and(|d| d.is_dir()) && std::fs::write(sys, text).is_ok() {
             return Ok(sys.to_path_buf());
         }
     }
@@ -105,13 +119,16 @@ mod tests {
 
     #[test]
     fn own_settings_win_saved_fill_gaps() {
-        let saved = EinkSettings { color: Some(true), update_mode: UpdateMode::from_name("fast"), contrast: Some(10), ..Default::default() };
-        let own = EinkSettings { update_mode: UpdateMode::from_name("balanced"), ..Default::default() };
+        let saved = EinkSettings { color: Some(true), profile: Some("Чтение".into()), ..Default::default() };
+        let own = EinkSettings { profile: Some("Видео".into()), ..Default::default() };
         let m = merge(&own, &saved);
         assert_eq!(m.color, Some(true));
-        assert_eq!(m.update_mode, UpdateMode::from_name("balanced"));
-        assert_eq!(m.contrast, Some(10));
+        assert_eq!(m.profile.as_deref(), Some("Видео"));
         assert_eq!(merge(&EinkSettings::default(), &saved), saved);
+        // устаревшие ключи не переносятся и не считаются выбором
+        let legacy = EinkSettings { update_mode: UpdateMode::from_name("fast"), contrast: Some(3), ..Default::default() };
+        assert!(is_empty(&legacy));
+        assert_eq!(merge(&legacy, &saved), saved);
     }
 
     #[test]
@@ -121,9 +138,16 @@ mod tests {
         std::fs::create_dir_all(dir.join("sys")).unwrap();
         let sys = dir.join("sys/eink");
         let user = dir.join("state/synshell/eink");
-        let s = EinkSettings { color: Some(true), update_mode: UpdateMode::from_name("fast"), saturation: Some(200), ..Default::default() };
+        let s = EinkSettings { color: Some(true), profile: Some("Чтение".into()), ..Default::default() };
         assert_eq!(save_to(Some(&sys), &user, &s).unwrap(), sys);
         assert_eq!(load_from(Some(&sys), &user), s);
+        // второй раз — атомарно поверх, права 0664
+        assert_eq!(save_to(Some(&sys), &user, &s).unwrap(), sys);
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(&sys).unwrap().permissions().mode() & 0o777, 0o664);
+        // старый файл с режимами — читается
+        std::fs::write(&sys, "update_mode = \"fast\"\ncontrast = 2\n").unwrap();
+        assert_eq!(load_from(Some(&sys), &user).update_mode, UpdateMode::from_name("fast"));
         // общий недоступен — файл пользователя, он свежее
         std::thread::sleep(std::time::Duration::from_millis(20));
         let s2 = EinkSettings { color: Some(false), ..Default::default() };
