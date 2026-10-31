@@ -31,6 +31,8 @@ impl Model {
     pub fn title(&self) -> String {
         let name = match self.arch.as_str() {
             "nanovsr" => format!("NanoVSR {}", self.id.trim_start_matches("nanovsr-").replace('-', ".")),
+            "span" if self.id.ends_with("liveaction") => "SPAN LiveAction".into(),
+            "span" if self.id.ends_with("nomosuni") => "SPAN NomosUni".into(),
             _ => self.id.clone(),
         };
         format!("{name} · ×{}", self.scale)
@@ -44,6 +46,11 @@ fn describe(id: &str, arch: &str) -> Option<(u32, bool, u32)> {
         "nanovsr" => {
             let rank = ["226k", "644k", "1-7m", "5-4m"].iter().position(|s| id.ends_with(s)).unwrap_or(9) as u32;
             Some((4, false, rank))
+        }
+        "span" => {
+            let scale = if id.contains("-4x-") { 4 } else { 2 };
+            let rank = ["liveaction", "nomosuni"].iter().position(|s| id.ends_with(s)).unwrap_or(9) as u32;
+            Some((scale, false, rank))
         }
         _ => None,
     }
@@ -107,7 +114,14 @@ pub enum Status {
     Skipped(u32),
     /// Не успевает за роликом: кадры как есть до перемотки.
     Slow { ms: f32, budget_ms: f32 },
+    /// Не хватило видеопамяти (её держат другие программы, обычно synaptixd).
+    NoVram,
     Failed(String),
+}
+
+fn failure(e: &synaptix_vfx::Error) -> Status {
+    let t = e.to_string();
+    if t.contains("OUT_OF_MEMORY") { Status::NoVram } else { Status::Failed(t) }
 }
 
 /// Больше этого по высоте кадр на выходе не делаем (4K).
@@ -130,6 +144,8 @@ struct Inner {
     failed: bool,
     /// Окна, посчитанные после перемотки: первое — с выделением памяти, его время не в счёт.
     batches: u32,
+    /// Время модели на кадр за последние кадры — медиана не боится одиночных выбросов.
+    recent: VecDeque<f32>,
 }
 
 pub struct UpscaleFilter {
@@ -144,7 +160,7 @@ impl UpscaleFilter {
         Arc::new_cyclic(|me| Self {
             me: me.clone(),
             model,
-            inner: Mutex::new(Inner { up: None, loading: false, gen: u64::MAX, queue: VecDeque::new(), last_pts: None, period_ms: 0.0, cost_ms: 0.0, slow_gen: None, failed: false, batches: 0 }),
+            inner: Mutex::new(Inner { up: None, loading: false, gen: u64::MAX, queue: VecDeque::new(), last_pts: None, period_ms: 0.0, cost_ms: 0.0, slow_gen: None, failed: false, batches: 0, recent: VecDeque::new() }),
             status: Mutex::new(Status::Loading),
         })
     }
@@ -182,7 +198,7 @@ impl UpscaleFilter {
                         tracing::warn!("увеличение: {}: {e}", path.display());
                         inner.failed = true;
                         drop(inner);
-                        me.set_status(Status::Failed(e.to_string()));
+                        me.set_status(failure(&e));
                     }
                 }
             })
@@ -220,6 +236,7 @@ impl FrameFilter for UpscaleFilter {
             inner.queue.clear();
             inner.cost_ms = 0.0;
             inner.batches = 0;
+            inner.recent.clear();
             if let Some(up) = inner.up.as_mut() {
                 up.reset();
             }
@@ -242,16 +259,21 @@ impl FrameFilter for UpscaleFilter {
         let t0 = Instant::now();
         let mut outs: Vec<VideoFrame> = Vec::new();
         let Inner { up, queue, .. } = &mut *inner;
+        let mut t_copy = 0f32;
         let r = up.as_mut().unwrap().push(&frame.rgba, w, h, &mut |f| {
             let pts = queue.pop_front().unwrap_or(frame.pts_sec);
-            outs.push(VideoFrame { width: f.width, height: f.height, rgba: Arc::from(f.rgba), pts_sec: pts, seek_generation: gen, surface: None, yuv: None });
+            let tc = Instant::now();
+            let rgba: Arc<[u8]> = Arc::from(f.rgba);
+            t_copy += tc.elapsed().as_secs_f32() * 1000.0;
+            outs.push(VideoFrame { width: f.width, height: f.height, rgba, pts_sec: pts, seek_generation: gen, surface: None, yuv: None });
         });
+        tracing::trace!("увеличение: кадр {:.1} мс, из них копия {:.1} мс", t0.elapsed().as_secs_f32() * 1000.0, t_copy);
         if let Err(e) = r {
             tracing::warn!("увеличение: {e}");
             inner.failed = true;
             inner.up = None;
             drop(inner);
-            self.set_status(Status::Failed(e.to_string()));
+            self.set_status(failure(&e));
             emit(frame);
             return;
         }
@@ -260,11 +282,19 @@ impl FrameFilter for UpscaleFilter {
             let per = t0.elapsed().as_secs_f32() * 1000.0 / outs.len() as f32;
             inner.batches += 1;
             if inner.batches > 1 {
-                inner.cost_ms = if inner.cost_ms == 0.0 { per } else { inner.cost_ms * 0.7 + per * 0.3 };
+                inner.recent.push_back(per);
+                if inner.recent.len() > 48 {
+                    inner.recent.pop_front();
+                }
+                let mut v: Vec<f32> = inner.recent.iter().copied().collect();
+                v.sort_by(f32::total_cmp);
+                inner.cost_ms = v[v.len() / 2];
             }
             let (cost, period) = (inner.cost_ms, inner.period_ms);
             let to = (outs[0].width, outs[0].height);
-            if period > 0.0 && cost > period * BUDGET && inner.batches > 2 {
+            // решать не раньше чем через ~2 с работы: ноутбучная карта на первых кадрах ещё на низких частотах
+            let warm = period > 0.0 && inner.batches as f32 * period * outs.len() as f32 > 2000.0;
+            if warm && cost > period * BUDGET {
                 tracing::info!("увеличение не успевает: {cost:.1} мс при кадре {period:.1} мс — кадры как есть до перемотки");
                 inner.slow_gen = Some(gen);
                 inner.queue.clear();
@@ -292,16 +322,24 @@ impl FrameFilter for UpscaleFilter {
 
 static FILTER: Mutex<Option<Arc<UpscaleFilter>>> = Mutex::new(None);
 
-/// Модель по настройке: выбранная или первая подходящая (кино, самая быстрая).
-pub fn pick(id: &str) -> Option<Model> {
+/// Модель по настройке; пусто — «Авто» под высоту кадра `h`: до 540p — видеомодель ×4 (NanoVSR
+/// 644k, иначе первая ×4), до 1080p — ×2 (SPAN LiveAction первым), больше — ничего.
+pub fn pick(id: &str, h: u32) -> Option<Model> {
     let list = models();
-    list.iter().find(|m| m.id == id).cloned().or_else(|| list.into_iter().find(|m| !m.anime))
+    if !id.is_empty() {
+        if let Some(m) = list.iter().find(|m| m.id == id) {
+            return Some(m.clone());
+        }
+    }
+    let want = if h > 0 && h <= 540 { 4 } else { 2 };
+    let fits = |m: &&Model| !m.anime && m.scale == want;
+    list.iter().find(|m| fits(m) && m.id == "nanovsr-644k").or_else(|| list.iter().find(fits)).or_else(|| list.iter().find(|m| !m.anime && h > 0 && h * m.scale <= MAX_OUT_H)).cloned()
 }
 
 /// Поставить или снять увеличение на плеере по настройкам.
 pub fn attach(st: crate::ui::St, p: &VideoPlayer) {
     let s = st.settings.get_untracked();
-    let model = if s.sr { pick(&s.sr_model) } else { None };
+    let model = if s.sr { pick(&s.sr_model, p.meta().height) } else { None };
     let Some(model) = model else {
         chain::set(p, Stage::Upscale, None);
         *FILTER.lock().unwrap() = None;
@@ -331,6 +369,12 @@ pub fn poll(st: crate::ui::St) {
             st.sr.set(s);
         }
     });
+}
+
+/// Повторить с нуля (после освобождения видеопамяти): новый фильтр с той же моделью.
+pub fn retry(st: crate::ui::St) {
+    *FILTER.lock().unwrap() = None;
+    apply(st);
 }
 
 /// Настройки сменились: применить к открытому ролику.

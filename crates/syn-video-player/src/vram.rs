@@ -86,6 +86,36 @@ fn process_vram(name: &str) -> Option<u64> {
     (mib > 0).then_some(mib << 20)
 }
 
+/// Сколько держит synaptixd на видеокарте (байты) — для подсказки фильтров; `None` — меньше 1 ГБ
+/// или службы нет.
+pub fn synaptixd_bytes() -> Option<u64> {
+    let models = cuda_models().ok()?;
+    let bytes = process_vram("synaptixd").unwrap_or_else(|| models.iter().map(|m| m.vram_bytes).sum());
+    (bytes >= MIN_BYTES).then_some(bytes)
+}
+
+/// Фильтрам не хватило видеопамяти: выгрузить модели synaptixd с видеокарты (в фоне) и вызвать
+/// `then` в главном потоке с итогом.
+pub fn free_for_filters(then: impl FnOnce(std::result::Result<(), String>) + Send + 'static) {
+    std::thread::Builder::new()
+        .name("svp-vram".into())
+        .spawn(move || {
+            let r = (|| -> std::result::Result<(), String> {
+                let mut c = synaptixd::Client::connect().map_err(|e| e.to_string())?;
+                for m in cuda_models()? {
+                    c.unload(&m.id).map_err(|e| format!("{}: {e}", m.id))?;
+                }
+                Ok(())
+            })();
+            run_on_main_thread(move || then(r));
+        })
+        .ok();
+}
+
+pub fn gib_text(bytes: u64) -> String {
+    gib(bytes)
+}
+
 fn free(st: St, models: Vec<(String, String)>) {
     st.vram.set(Vram::Freeing);
     std::thread::Builder::new()

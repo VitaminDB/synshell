@@ -186,6 +186,10 @@ fn load_card(st: St) -> W {
                 };
                 (t, Some(total / budget_ms), warn || total > budget_ms * 0.9)
             }
+            crate::neural::Status::Slow { ms: m, budget_ms } if matches!(st.dlss.get(), Status::Off) => {
+                (t!("Увеличение не успевает: {a} мс при кадре {b} мс.", a = ms(m), b = ms(budget_ms)).to_string(), Some(1.0), true)
+            }
+            crate::neural::Status::Loading if matches!(st.dlss.get(), Status::Off) => (t!("Готовлю модели…").to_string(), None, false),
             _ => (text, frac, warn),
         };
         let mut rows: Vec<W> = Vec::new();
@@ -292,12 +296,19 @@ fn sr_card(st: St) -> W {
         if list.is_empty() {
             rows.push(hint(&t!("Модели не установлены: положите файлы .syn в папку vfx библиотеки нейросетей.")));
         } else {
-            let cur = crate::neural::pick(&s.sr_model).map(|m| m.id).unwrap_or_default();
+            let h = st.info.get_untracked().map(|i| i.height).unwrap_or(0);
+            let auto = s.sr_model.is_empty() || !list.iter().any(|m| m.id == s.sr_model);
+            let cur = crate::neural::pick(&s.sr_model, h).map(|m| m.id).unwrap_or_default();
             rows.push(label(&t!("Модель")));
-            for m in list {
-                let active = m.id == cur;
-                let id = m.id.clone();
-                let sub = model_hint(&m);
+            let auto_sub = match crate::neural::pick("", h) {
+                Some(m) if h > 0 => t!("Под размер ролика: сейчас {m}", m = m.title()).to_string(),
+                _ => t!("Под размер ролика: до 540p — ×4, до 1080p — ×2").to_string(),
+            };
+            let mut entries: Vec<(String, String, String, bool)> = vec![(String::new(), t!("Авто").to_string(), auto_sub, auto)];
+            for m in &list {
+                entries.push((m.id.clone(), m.title(), model_hint(m), !auto && m.id == cur));
+            }
+            for (id, title, sub, active) in entries {
                 rows.push(Box::new(
                     GestureDetector::new()
                         .on_click(move || {
@@ -314,7 +325,7 @@ fn sr_card(st: St) -> W {
                                         .gap(12.0)
                                         .cross_axis_alignment(CrossAxisAlignment::Center)
                                         .child(Icon::new(if active { icons::RADIO_ON } else { icons::RADIO_OFF }).class("track-radio"))
-                                        .child(Column::new().gap(2.0).child(Text::new(m.title()).class("set-row-title")).child(Text::new(sub).max_lines(2).class("set-hint")).class("grow")),
+                                        .child(Column::new().gap(2.0).child(Text::new(title).class("set-row-title")).child(Text::new(sub).max_lines(2).class("set-hint")).class("grow")),
                                 )
                                 .class(if active { "track-row track-row-active" } else { "track-row" }),
                         ),
@@ -328,6 +339,24 @@ fn sr_card(st: St) -> W {
                 Sr::Active { ms: m, from, to, .. } => (t!("Работает: {a}×{b} → {c}×{d}, {ms} мс на кадр.", a = from.0, b = from.1, c = to.0, d = to.1, ms = ms(m)).to_string(), false),
                 Sr::Skipped(h) => (t!("Ролик {h}p — увеличивать некуда: вышло бы больше 4K.", h = h).to_string(), false),
                 Sr::Slow { ms: m, budget_ms } => (t!("Не успевает: {a} мс при кадре {b} мс — кадры как есть до перемотки. Выберите модель полегче.", a = ms(m), b = ms(budget_ms)).to_string(), true),
+                Sr::NoVram => {
+                    let held = crate::vram::synaptixd_bytes();
+                    let text = match held {
+                        Some(b) => t!("Не хватает видеопамяти: нейросети synaptixd держат {gb} ГБ. Освободить? Они загрузятся снова, когда понадобятся.", gb = crate::vram::gib_text(b)).to_string(),
+                        None => t!("Не хватает видеопамяти — её заняли другие программы. Закройте их или выберите модель полегче.").to_string(),
+                    };
+                    let mut out: Vec<W> = vec![Box::new(Text::new(text).max_lines(5).class("set-hint flt-warn"))];
+                    if held.is_some() {
+                        out.push(Box::new(Row::new().child(Button::new(t!("Освободить видеопамять")).icon(icons::MEMORY).on_click(move || {
+                            st.sr.set(Sr::Loading);
+                            crate::vram::free_for_filters(move |r| match r {
+                                Ok(()) => crate::neural::retry(st),
+                                Err(e) => st.sr.set(Sr::Failed(t!("synaptixd не выгрузил модели: {e}", e = e).into())),
+                            });
+                        }))));
+                    }
+                    return out;
+                }
                 Sr::Failed(e) => (e, true),
             };
             vec![Box::new(Text::new(text).max_lines(4).class(if warn { "set-hint flt-warn" } else { "set-hint set-dlss-state" }))]
@@ -343,6 +372,8 @@ fn model_hint(m: &crate::neural::Model) -> String {
         ("nanovsr", 1) => t!("Видео, баланс скорости и качества").into(),
         ("nanovsr", 2) => t!("Видео, качественнее, нужна мощная карта").into(),
         ("nanovsr", _) => t!("Видео, максимум качества, только для маленьких роликов").into(),
+        ("span", 0) => t!("Живое видео до 1080p: убирает артефакты сжатия H.264/H.265, зерно сохраняет (jcj83429, Apache-2.0)").into(),
+        ("span", _) => t!("Фото и сжатие JPEG, мягче (Phhofm, CC BY 4.0)").into(),
         _ => String::new(),
     }
 }
