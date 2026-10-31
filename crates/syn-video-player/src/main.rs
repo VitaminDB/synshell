@@ -16,6 +16,7 @@ mod library;
 mod chain;
 mod dlss;
 mod filters;
+mod interp;
 mod neural;
 mod player;
 mod settings;
@@ -180,6 +181,7 @@ fn main() {
                 vram: use_signal(vram::Vram::None),
                 dlss: use_signal(dlss::Status::Off),
                 sr: use_signal(neural::Status::Off),
+                rife: use_signal(interp::Status::Off),
                 cards: use_signal(Vec::new()),
                 siblings: use_signal(Vec::new()),
                 scanning: use_signal(true),

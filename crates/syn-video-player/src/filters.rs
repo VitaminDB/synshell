@@ -31,7 +31,7 @@ fn quality_index(scale: f32) -> usize {
 /// Кнопка в шапке: светится, пока включён хоть один фильтр.
 pub fn button(st: St) -> W {
     Box::new(Reactive::new(move || -> Vec<W> {
-        let on = st.settings.with(|s| s.dlss || s.sr);
+        let on = st.settings.with(|s| s.dlss || s.sr || s.rife);
         vec![Box::new(
             ToolButton::new(icons::TUNE)
                 .tooltip(t!("Фильтры: DLSS 5 и нейросети"))
@@ -91,6 +91,7 @@ pub fn panel(st: St) -> W {
             .child(load_card(st))
             .child(dlss_card(st))
             .child(sr_card(st))
+            .child(rife_card(st))
             .child(compare_card(st))
             .class("set-body");
         let panel = Column::new()
@@ -153,7 +154,7 @@ fn ms(v: f32) -> String {
 fn load_card(st: St) -> W {
     Box::new(Reactive::new(move || -> Vec<W> {
         let (text, frac, warn) = match st.dlss.get() {
-            Status::Off if st.sr.get() == crate::neural::Status::Off => (t!("Фильтры выключены — кадры идут как есть.").to_string(), None, false),
+            Status::Off if st.sr.get() == crate::neural::Status::Off && st.rife.get() == crate::interp::Status::Off => (t!("Фильтры выключены — кадры идут как есть.").to_string(), None, false),
             Status::Off => (String::new(), None, false),
             Status::Starting => (t!("Готовлю модели…").to_string(), None, false),
             Status::Active { total_ms, budget_ms, scale, .. } if budget_ms > 0.0 => {
@@ -190,6 +191,20 @@ fn load_card(st: St) -> W {
                 (t!("Увеличение не успевает: {a} мс при кадре {b} мс.", a = ms(m), b = ms(budget_ms)).to_string(), Some(1.0), true)
             }
             crate::neural::Status::Loading if matches!(st.dlss.get(), Status::Off) => (t!("Готовлю модели…").to_string(), None, false),
+            _ => (text, frac, warn),
+        };
+        // плавность считается на исходный кадр отдельно (её время входит в тот же бюджет)
+        let (text, frac, warn) = match st.rife.get() {
+            crate::interp::Status::Active { ms: rm, budget_ms, fps } if budget_ms > 0.0 => {
+                let used = frac.map(|f| f * budget_ms).unwrap_or(0.0) + rm;
+                let line = t!("Плавность: {f} кадров/с, {a} мс на исходный кадр.", f = format!("{fps:.0}"), a = ms(rm)).to_string();
+                let t = if text.is_empty() { line } else { format!("{text} {line}") };
+                (t, Some(used / budget_ms), warn || used > budget_ms * 0.9)
+            }
+            crate::interp::Status::Slow { ms: rm, budget_ms } => {
+                let line = t!("Плавность не успевает: {a} мс при кадре {b} мс.", a = ms(rm), b = ms(budget_ms)).to_string();
+                (if text.is_empty() { line } else { format!("{text} {line}") }, Some(1.0), true)
+            }
             _ => (text, frac, warn),
         };
         let mut rows: Vec<W> = Vec::new();
@@ -401,6 +416,58 @@ fn model_hint(m: &crate::neural::Model) -> String {
         ("compact", _) => t!("Аниме до 540p, ×4 (Real-ESRGAN, BSD-3)").into(),
         _ => String::new(),
     }
+}
+
+/// «Плавность»: промежуточные кадры RIFE.
+fn rife_card(st: St) -> W {
+    use crate::interp::Status as Rf;
+    let s = st.settings.get_untracked();
+    let toggle = Toggle::with_state(s.rife).on_change(move |on| {
+        crate::player::update(st, |s| s.rife = on);
+        crate::interp::apply(st);
+        st.filters_rev.update(|r| *r += 1);
+    });
+    let mut rows: Vec<W> = vec![hint(&t!("Нейросеть RIFE дорисовывает кадры между соседними: 24 кадра в секунду становятся 48 или 60, движение — плавным. На склейках сцен кадры не дорисовываются."))];
+    if s.rife {
+        let list = crate::interp::models();
+        if list.is_empty() {
+            rows.push(hint(&t!("Модели RIFE не установлены: положите rife-*.syn в папку vfx библиотеки нейросетей.")));
+        } else {
+            rows.push(label(&t!("Частота")));
+            let modes = vec![t!("Вдвое").to_string(), t!("60 кадров/с").to_string()];
+            let cur = crate::interp::MODES.iter().position(|(k, _)| *k == s.rife_mode).unwrap_or(0);
+            rows.push(Box::new(SegmentedButton::new(modes).selected(cur).on_change(move |i| {
+                let m = crate::interp::MODES[i.min(1)].0.to_string();
+                crate::player::update(st, |s| s.rife_mode = m);
+                crate::interp::apply(st);
+            })));
+            let cur_id = crate::interp::pick(&s.rife_model).map(|m| m.id).unwrap_or_default();
+            if list.len() > 1 {
+                rows.push(label(&t!("Модель")));
+                let titles: Vec<String> = list.iter().map(|m| m.title()).collect();
+                let ids: Vec<String> = list.iter().map(|m| m.id.clone()).collect();
+                let sel = ids.iter().position(|i| *i == cur_id).unwrap_or(0);
+                rows.push(Box::new(SegmentedButton::new(titles).selected(sel).on_change(move |i| {
+                    let id = ids[i.min(ids.len() - 1)].clone();
+                    crate::player::update(st, |s| s.rife_model = id);
+                    crate::interp::apply(st);
+                })));
+                rows.push(hint(&t!("4.25 — основная; lite — быстрее, для 4K и слабых карт; 4.26 — новее, чуть иначе на быстром движении (hzwer, MIT).")));
+            }
+        }
+        rows.push(Box::new(Reactive::new(move || -> Vec<W> {
+            let (text, warn) = match st.rife.get() {
+                Rf::Off => return vec![],
+                Rf::Loading => (t!("Готовлю модель…").to_string(), false),
+                Rf::Active { ms: m, budget_ms, fps } => (t!("Работает: {f} кадров/с на выходе, {a} мс из {b} мс на исходный кадр.", f = format!("{fps:.0}"), a = ms(m), b = ms(budget_ms)).to_string(), false),
+                Rf::Slow { ms: m, budget_ms } => (t!("Не успевает: {a} мс при кадре {b} мс — кадры как есть до перемотки. Попробуйте lite или выключите увеличение.", a = ms(m), b = ms(budget_ms)).to_string(), true),
+                Rf::NoVram => (t!("Не хватает видеопамяти — освободите её в карточке «Чёткость» или закройте программы на видеокарте.").to_string(), true),
+                Rf::Failed(e) => (e, true),
+            };
+            vec![Box::new(Text::new(text).max_lines(4).class(if warn { "set-hint flt-warn" } else { "set-hint set-dlss-state" }))]
+        })));
+    }
+    card(icons::SMOOTH, &t!("Плавность · RIFE"), Some(Box::new(toggle)), rows)
 }
 
 fn compare_card(st: St) -> W {

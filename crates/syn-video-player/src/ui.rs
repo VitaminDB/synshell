@@ -89,6 +89,8 @@ pub struct St {
     pub dlss: RwSignal<crate::dlss::Status>,
     /// Состояние увеличения разрешения нейросетью.
     pub sr: RwSignal<crate::neural::Status>,
+    /// Состояние промежуточных кадров RIFE.
+    pub rife: RwSignal<crate::interp::Status>,
     pub cards: RwSignal<Vec<Card>>,
     /// Видео каталога открытого ролика: листание и лента миниатюр в плеере.
     pub siblings: RwSignal<Vec<Card>>,
@@ -259,6 +261,7 @@ pub fn open_at(st: St, path: PathBuf, start: Option<f64>, keep_old: bool) {
                         crate::subs::on_open(st, &path, &mut p);
                         crate::dlss::attach(st, &p);
                         crate::neural::attach(st, &p);
+                        crate::interp::attach(st, &p);
                         p.play();
                         let playing = Playing { path, player: Arc::new(Mutex::new(p)) };
                         watch(st, &playing);
@@ -358,6 +361,7 @@ fn watch(st: St, playing: &Playing) {
                 }
                 crate::dlss::poll(st);
                 crate::neural::poll(st);
+                crate::interp::poll(st);
                 tick += 1;
                 if s.resume && tick % 10 == 0 {
                     settings::save_position(&path, pos, dur);
@@ -556,6 +560,8 @@ pub mod icons {
     pub const SPEED: &str = "\u{E9E4}";
     /// hd — увеличение разрешения
     pub const SR: &str = "\u{E052}";
+    /// slow_motion_video — плавность
+    pub const SMOOTH: &str = "\u{E068}";
     pub const OPEN_IN_NEW: &str = "\u{E89E}";
     /// subtitles
     pub const SUBTITLES: &str = "\u{E048}";

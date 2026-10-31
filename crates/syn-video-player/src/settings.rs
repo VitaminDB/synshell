@@ -37,11 +37,17 @@ pub struct Settings {
     pub sr_model: String,
     /// «Авто» подбирает модели для аниме.
     pub sr_anime: bool,
+    /// Промежуточные кадры RIFE.
+    pub rife: bool,
+    /// Модель RIFE (id); пусто — основная.
+    pub rife_model: String,
+    /// Частота: "x2" — вдвое, "60" — 60 кадров в секунду.
+    pub rife_mode: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { hardware: true, fill: false, seek_step: 10, repeat: false, autoplay_next: false, resume: true, show_info: true, dlss: false, dlss_strength: 100, dlss_compare: false, dlss_split: 0.5, sr: false, sr_model: String::new(), sr_anime: false }
+        Self { hardware: true, fill: false, seek_step: 10, repeat: false, autoplay_next: false, resume: true, show_info: true, dlss: false, dlss_strength: 100, dlss_compare: false, dlss_split: 0.5, sr: false, sr_model: String::new(), sr_anime: false, rife: false, rife_model: String::new(), rife_mode: "x2".into() }
     }
 }
 

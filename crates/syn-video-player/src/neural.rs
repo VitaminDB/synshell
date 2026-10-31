@@ -118,10 +118,10 @@ fn dirs() -> Vec<PathBuf> {
     out
 }
 
-/// Найденные модели, по семейству и рангу.
+/// Бандлы видеофильтров из папок `vfx`: (id, путь, arch), без повторов id.
 #[cfg(target_arch = "x86_64")]
-pub fn models() -> Vec<Model> {
-    let mut out = Vec::new();
+pub fn bundles() -> Vec<(String, PathBuf, String)> {
+    let mut out: Vec<(String, PathBuf, String)> = Vec::new();
     for d in dirs() {
         let Ok(rd) = std::fs::read_dir(&d) else { continue };
         for e in rd.flatten() {
@@ -131,13 +131,26 @@ pub fn models() -> Vec<Model> {
             }
             let Ok(b) = synaptix_bundle::Bundle::open(&p) else { continue };
             let (id, arch) = (b.id().to_string(), b.meta().arch.clone());
-            if let Some((scale, anime, rank)) = describe(&id, &arch) {
-                if !out.iter().any(|m: &Model| m.id == id) {
-                    out.push(Model { id, path: p, arch, scale, anime, rank });
-                }
+            if !out.iter().any(|m| m.0 == id) {
+                out.push((id, p, arch));
             }
         }
     }
+    out
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+pub fn bundles() -> Vec<(String, PathBuf, String)> {
+    Vec::new()
+}
+
+/// Найденные модели увеличения, по семейству и рангу.
+#[cfg(target_arch = "x86_64")]
+pub fn models() -> Vec<Model> {
+    let mut out: Vec<Model> = bundles()
+        .into_iter()
+        .filter_map(|(id, path, arch)| describe(&id, &arch).map(|(scale, anime, rank)| Model { id, path, arch, scale, anime, rank }))
+        .collect();
     out.sort_by(|a, b| (a.anime, &a.arch, a.rank).cmp(&(b.anime, &b.arch, b.rank)));
     out
 }
