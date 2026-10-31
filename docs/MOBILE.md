@@ -51,6 +51,18 @@ turnip) без них не было бы glamor/DRI3. Особенности т�
 3. композитор дважды подряд упал в первые 20 с — `synlogin daemon` запускает дальше с
    `SYNSHELL_RENDERER=cpu` (до перезапуска демона).
 
+**Отдельный GPU для вывода без рендеринга** (`backend/offload.rs`): вывод умеет только dumb-буферы (E Ink
+`onyx-epd`, simpledrm без kmsro), а GPU поднят отдельным устройством (Adreno при `msm.separate_gpu_kms=1`: card1 без
+коннекторов + renderD128). В режиме `auto` после неудачной пробы вывода `kms_cpu` пробует render-узлы
+(`/dev/dri/renderD*`, та же проба в отдельном процессе) или берёт `SYNSHELL_RENDER_NODE=/dev/dri/renderD128`
+(`none` — без GPU). Найден — кадр собирает GLES на нём во внеэкранной текстуре (ориентация буфера вывода), изменённые
+прямоугольники читаются `glReadPixels` в тень (pixman-образ), дальше прежний путь: pixman копирует повреждения тени в
+dumb-буфер, точные повреждения E Ink, режим пера, сторожа vblank. linux-dmabuf — v4 с feedback на этот render-узел и
+всеми форматами GLES (клиенты Mesa берут GPU, а не llvmpipe). GPU прямо в dumb-буфер вывода (как kmsro) не пишет:
+некогерентный IOMMU против чтения кадра процессором драйвера — куски прошлых кадров (synmobile docs/27 §27.10).
+Явный `cpu` и откаты 2–3 — без GPU. Устройство сеанса без `SYNSHELL_DRM_DEVICE` — то, у которого есть коннекторы
+(card1 отдельного GPU их не имеет). Замер кадра: `RUST_LOG=synwm=info,synwm::frame=debug`.
+
 Замер на Redmi K50 Ultra (vkcube на весь экран, `synmobile/hw/gpu/fps.sh`): GPU — 60 fps,
 synwm ≈3 % одного ядра; CPU — 30 fps, ≈54 %.
 

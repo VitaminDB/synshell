@@ -9,6 +9,10 @@
 //! Одно DRM-устройство (`SYNSHELL_DRM_DEVICE` или основное по udev), без
 //! горячего подключения GPU. Ввод — libinput через libseat (на телефоне
 //! `LIBSEAT_BACKEND=noop`, VT в ядре нет).
+//!
+//! Если у вывода нет своего рендеринга, но в системе есть отдельный GPU (render-узел без вывода),
+//! кадр собирает GLES на нём, а сюда приходит готовая картинка (`offload`): клиенты рисуют на GPU,
+//! dumb-буферы, точные повреждения E Ink и режим пера остаются прежними.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -61,6 +65,8 @@ use crate::{
     state::{Core, RedrawState, State},
 };
 
+use super::offload::{GpuCompose, GpuFrame};
+
 // DrmOutputManager требует Clone-аллокатор — оборачиваем dumb в Arc<Mutex<_>>.
 type Alloc = Arc<Mutex<DumbAllocator>>;
 type Manager = DrmOutputManager<Alloc, DrmDeviceFd, Option<OutputPresentationFeedback>, DrmDeviceFd>;
@@ -82,6 +88,8 @@ struct Surface {
     flip_watchdog: Option<RegistrationToken>,
     /// Когда отправлен кадр, ждущий vblank (замер в режиме пера).
     queued_at: Option<std::time::Instant>,
+    /// Внеэкранный кадр GLES и его тень (композиция на отдельном GPU).
+    gpu_frame: Option<GpuFrame>,
 }
 
 /// Сколько ждать vblank после отправки кадра, прежде чем считать событие потерянным.
@@ -99,12 +107,14 @@ pub struct KmsCpuBackend {
     active: bool,
     /// Экран E Ink (`EINK_DRIVERS`): драйверу — только изменённые пиксели.
     eink: bool,
+    /// Композиция на отдельном GPU (`offload`); `None` — всё на CPU (pixman).
+    gpu: Option<GpuCompose>,
 }
 
-/// Путь к DRM-устройству: `SYNSHELL_DRM_DEVICE`, иначе основной GPU по udev.
+/// Путь к DRM-устройству: `SYNSHELL_DRM_DEVICE`, иначе устройство вывода по udev.
 pub fn device_path(seat: &str) -> anyhow::Result<PathBuf> {
-    if let Ok(p) = std::env::var("SYNSHELL_DRM_DEVICE") {
-        return Ok(PathBuf::from(p));
+    if let Some(p) = super::kms_cpu_device_path() {
+        return Ok(p);
     }
     primary_gpu(seat)?
         .or_else(|| all_gpus(seat).ok()?.into_iter().next())
@@ -112,12 +122,26 @@ pub fn device_path(seat: &str) -> anyhow::Result<PathBuf> {
 }
 
 impl KmsCpuBackend {
-    pub fn new(event_loop: &EventLoop<'static, State>) -> anyhow::Result<Self> {
+    /// `offload` — искать отдельный GPU для композиции (режим `auto`; `cpu` и откаты — без него).
+    pub fn new(event_loop: &EventLoop<'static, State>, offload: bool) -> anyhow::Result<Self> {
         let (session, notifier) = LibSeatSession::new().map_err(|e| anyhow::anyhow!("libseat: {e}"))?;
         let seat = session.seat();
         let path = device_path(&seat)?;
         let node = DrmNode::from_path(&path)?;
-        tracing::info!(path = %path.display(), "DRM-устройство (CPU-рендер)");
+        let gpu = offload
+            .then(|| super::offload::find_render_node(&path))
+            .flatten()
+            .and_then(|rn| match GpuCompose::new(&rn) {
+                Ok(g) => Some(g),
+                Err(e) => {
+                    tracing::warn!(node = %rn.display(), ?e, "отдельный GPU не поднялся — композиция на CPU");
+                    None
+                }
+            });
+        match &gpu {
+            Some(g) => tracing::info!(path = %path.display(), render_node = %g.node, "DRM-устройство: вывод dumb-буферами, композиция на GPU (GLES, отдельный render-узел)"),
+            None => tracing::info!(path = %path.display(), "DRM-устройство (CPU-рендер)"),
+        }
         let renderer = PixmanRenderer::new().map_err(|e| anyhow::anyhow!("pixman: {e}"))?;
         let (libinput, _) = super::init_libinput(event_loop, &session)?;
 
@@ -161,6 +185,7 @@ impl KmsCpuBackend {
             loop_handle: event_loop.handle(),
             active: true,
             eink: false,
+            gpu,
         })
     }
 
@@ -169,7 +194,21 @@ impl KmsCpuBackend {
     }
 
     pub fn import_dmabuf(&mut self, dmabuf: &smithay::backend::allocator::dmabuf::Dmabuf) -> bool {
-        self.renderer.import_dmabuf(dmabuf, None).is_ok()
+        match self.gpu.as_mut() {
+            Some(g) => {
+                let ok = g.renderer.import_dmabuf(dmabuf, None).is_ok();
+                if ok {
+                    dmabuf.set_node(g.node);
+                }
+                ok
+            }
+            None => self.renderer.import_dmabuf(dmabuf, None).is_ok(),
+        }
+    }
+
+    /// GLES отдельного GPU, если композиция идёт на нём.
+    pub fn with_gles<T>(&mut self, f: impl FnOnce(&mut smithay::backend::renderer::gles::GlesRenderer) -> T) -> Option<T> {
+        self.gpu.as_mut().map(|g| f(&mut g.renderer))
     }
 
     pub fn change_vt(&mut self, vt: i32) {
@@ -224,18 +263,32 @@ pub fn init(state: &mut State, _event_loop: &EventLoop<'static, State>) -> anyho
         render_formats,
     ));
 
-    // Глобалы: shm и linux-dmabuf (линейные форматы — клиенты на GPU отдают
-    // кадры, которые можно прочитать через mmap). Версия 3, без feedback:
-    // с feedback Mesa WSI сравнивает «главное устройство» композитора с DRM-узлом
-    // Vulkan-драйвера, а у turnip/KGSL его нет — WSI уходит в prime-blit и падает.
-    // Без feedback same_gpu = true и клиент отдаёт свой линейный dma-buf напрямую.
-    state.core.shm_state.update_formats(b.renderer.shm_formats());
     let _ = node;
-    let global = state
-        .core
-        .dmabuf_state
-        .create_global::<State>(&state.core.display_handle, linear_formats.iter().copied());
-    state.core.dmabuf_global = Some(global);
+    if let Some(gpu) = b.gpu.as_mut() {
+        // Композиция на отдельном GPU: linux-dmabuf с feedback — главное устройство = его render-узел, форматы —
+        // всё, что GLES импортирует (с модификаторами). Клиенты Mesa по feedback выбирают этот GPU, а не llvmpipe.
+        state.core.shm_state.update_formats(gpu.renderer.shm_formats());
+        let formats = gpu.dmabuf_formats();
+        let feedback = smithay::wayland::dmabuf::DmabufFeedbackBuilder::new(gpu.node.dev_id(), formats.clone()).build()?;
+        let global = state
+            .core
+            .dmabuf_state
+            .create_global_with_default_feedback::<State>(&state.core.display_handle, &feedback);
+        state.core.dmabuf_global = Some(global);
+        tracing::info!(render_node = %gpu.node, formats = formats.iter().count(), "linux-dmabuf: feedback на отдельный GPU");
+    } else {
+        // Глобалы: shm и linux-dmabuf (линейные форматы — клиенты на GPU отдают
+        // кадры, которые можно прочитать через mmap). Версия 3, без feedback:
+        // с feedback Mesa WSI сравнивает «главное устройство» композитора с DRM-узлом
+        // Vulkan-драйвера, а у turnip/KGSL его нет — WSI уходит в prime-blit и падает.
+        // Без feedback same_gpu = true и клиент отдаёт свой линейный dma-buf напрямую.
+        state.core.shm_state.update_formats(b.renderer.shm_formats());
+        let global = state
+            .core
+            .dmabuf_state
+            .create_global::<State>(&state.core.display_handle, linear_formats.iter().copied());
+        state.core.dmabuf_global = Some(global);
+    }
     // E Ink: режим пера драйвера (`pen`), если есть
     state.init_pen_mode();
 
@@ -390,6 +443,7 @@ pub fn scan_connectors(state: &mut State) {
                 estimated_vblank: None,
                 flip_watchdog: None,
                 queued_at: None,
+                gpu_frame: None,
             },
         );
         let pos = cfg.as_ref().and_then(|c| c.position).map(|[x, y]| (x, y).into()).unwrap_or_else(|| {
@@ -439,12 +493,34 @@ impl KmsCpuBackend {
             self.loop_handle.remove(t);
         }
         let render_start = std::time::Instant::now();
-        let (elements, clear) = crate::render::output_elements(core, &mut self.renderer, output, true);
-        // Всё в один primary-кадр: прямой вывод клиентских буферов на планы
-        // downstream-драйверов ненадёжен.
-        let res = surface.drm_output.render_frame(&mut self.renderer, &elements, clear, FrameFlags::empty());
+        let res = match self.gpu.as_mut() {
+            // Кадр собирает GLES на отдельном GPU, сюда — тень с повреждениями; состояния элементов — от GLES.
+            Some(gpu) => (|| {
+                if surface.gpu_frame.as_ref().is_none_or(|f| !f.matches(output)) {
+                    surface.gpu_frame = Some(GpuFrame::new(gpu, output)?);
+                }
+                let frame = surface.gpu_frame.as_mut().unwrap();
+                let (elements, clear) = crate::render::output_elements(core, &mut gpu.renderer, output, true);
+                let (_, states) = gpu.render(frame, &elements, clear)?;
+                drop(elements);
+                let shadow = [frame.shadow.element()];
+                let r = surface.drm_output.render_frame(&mut self.renderer, &shadow, clear, FrameFlags::empty())?;
+                let shown = !r.is_empty;
+                Ok((shown, states))
+            })(),
+            None => {
+                let (elements, clear) = crate::render::output_elements(core, &mut self.renderer, output, true);
+                // Всё в один primary-кадр: прямой вывод клиентских буферов на планы
+                // downstream-драйверов ненадёжен.
+                surface
+                    .drm_output
+                    .render_frame(&mut self.renderer, &elements, clear, FrameFlags::empty())
+                    .map(|r| (!r.is_empty, r.states))
+                    .map_err(anyhow::Error::from)
+            }
+        };
         let (rendered, states) = match res {
-            Ok(r) => (!r.is_empty, r.states),
+            Ok(r) => r,
             Err(e) => {
                 tracing::warn!(?e, output = output.name(), "кадр не нарисован");
                 if let Some(d) = core.output_data.get_mut(output) {
@@ -453,7 +529,8 @@ impl KmsCpuBackend {
                 return;
             }
         };
-        drop(elements);
+        // замер: RUST_LOG=synwm=info,synwm::frame=debug
+        tracing::debug!(target: "synwm::frame", us = render_start.elapsed().as_micros() as u64, rendered, gpu = self.gpu.is_some(), "кадр собран");
         core.post_repaint(output, &states);
 
         let data = core.output_data.entry(output.clone()).or_default();
@@ -533,6 +610,9 @@ impl KmsCpuBackend {
     }
 
     pub fn thumbnail(&mut self, core: &mut Core, id: crate::wm::WindowId, max: (i32, i32)) -> anyhow::Result<Option<(u32, u32, Vec<u8>)>> {
+        if let Some(g) = self.gpu.as_mut() {
+            return crate::render::thumbnail::<_, smithay::backend::renderer::gles::GlesTexture>(core, &mut g.renderer, id, max);
+        }
         crate::render::thumbnail::<_, smithay::reexports::pixman::Image<'static, 'static>>(core, &mut self.renderer, id, max)
     }
 
@@ -540,6 +620,21 @@ impl KmsCpuBackend {
         let size = output.current_mode().map(|m| m.size).unwrap_or_default();
         let transformed = output.current_transform().transform_size(size);
         let buffer_size = Size::from((transformed.w, transformed.h));
+        if let Some(g) = self.gpu.as_mut() {
+            use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
+            let r: &mut GlesRenderer = &mut g.renderer;
+            let mut texture: GlesTexture = r.create_buffer(Fourcc::Abgr8888, buffer_size)?;
+            let (elements, clear) = crate::render::output_elements(core, r, output, cursor);
+            {
+                let mut fb = r.bind(&mut texture)?;
+                let mut tracker = OutputDamageTracker::new(transformed, output.current_scale().fractional_scale(), Transform::Normal);
+                tracker.render_output(r, &mut fb, 0, &elements, clear)?;
+            }
+            let fb = r.bind(&mut texture)?;
+            let mapping = r.copy_framebuffer(&fb, Rectangle::from_size(buffer_size), Fourcc::Abgr8888)?;
+            let data = r.map_texture(&mapping)?.to_vec();
+            return Ok((buffer_size.w as u32, buffer_size.h as u32, data));
+        }
         let r = &mut self.renderer;
         let mut image = <PixmanRenderer as Offscreen<_>>::create_buffer(r, Fourcc::Abgr8888, buffer_size)?;
         let (elements, clear) = crate::render::output_elements(core, r, output, cursor);
@@ -562,6 +657,9 @@ impl KmsCpuBackend {
         cursor: bool,
         opts: &mut crate::stream::StreamOpts,
     ) -> anyhow::Result<crate::stream::Rendered> {
+        if let Some(g) = self.gpu.as_mut() {
+            return crate::encode::stream_render(core, &mut g.renderer, output, slot, cursor, opts);
+        }
         crate::stream::render(core, &mut self.renderer, output, slot, cursor, opts, |r, size| {
             Ok(<PixmanRenderer as Offscreen<smithay::reexports::pixman::Image<'static, 'static>>>::create_buffer(r, Fourcc::Abgr8888, size)?)
         }, None)

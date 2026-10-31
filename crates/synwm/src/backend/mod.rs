@@ -3,6 +3,8 @@
 
 #[cfg(feature = "pixman")]
 pub mod kms_cpu;
+#[cfg(feature = "pixman")]
+pub mod offload;
 pub mod tty;
 pub mod winit;
 
@@ -142,7 +144,7 @@ impl Backend {
             Backend::Winit(w) => Some(gles(core, w.gles())),
             Backend::Tty(t) => t.with_gles(|r| gles(core, r)),
             #[cfg(feature = "pixman")]
-            Backend::KmsCpu(_) => None,
+            Backend::KmsCpu(b) => b.with_gles(|r| gles(core, r)),
         }
     }
 
@@ -169,7 +171,7 @@ impl Backend {
             Backend::Winit(w) => Some(f(w.gles())),
             Backend::Tty(t) => t.with_gles(f),
             #[cfg(feature = "pixman")]
-            Backend::KmsCpu(_) => None,
+            Backend::KmsCpu(b) => b.with_gles(f),
         }
     }
 
@@ -231,15 +233,32 @@ pub(crate) fn init_libinput(
 
 /// Путь к DRM-устройству сеанса: `SYNSHELL_DRM_DEVICE`, иначе основной GPU по udev
 /// (seat0 — до открытия сеанса libseat).
+///
+/// Предпочтение — устройству с коннекторами: отдельный GPU без вывода (Adreno как
+/// `msm.separate_gpu_kms=1`: card1 без коннекторов рядом с дисплейным card0) не годится
+/// как устройство сеанса, даже если udev назвал основным его.
 pub fn kms_cpu_device_path() -> Option<std::path::PathBuf> {
     if let Ok(p) = std::env::var("SYNSHELL_DRM_DEVICE") {
         return Some(std::path::PathBuf::from(p));
     }
     let seat = std::env::var("XDG_SEAT").unwrap_or_else(|_| "seat0".into());
-    smithay::backend::udev::primary_gpu(&seat)
-        .ok()
-        .flatten()
-        .or_else(|| smithay::backend::udev::all_gpus(&seat).ok()?.into_iter().next())
+    let primary = smithay::backend::udev::primary_gpu(&seat).ok().flatten();
+    let all = smithay::backend::udev::all_gpus(&seat).unwrap_or_default();
+    primary
+        .iter()
+        .chain(all.iter())
+        .find(|p| has_connectors(p))
+        .cloned()
+        .or(primary)
+        .or_else(|| all.into_iter().next())
+}
+
+/// Есть ли у DRM-устройства коннекторы (устройство вывода, а не только GPU).
+fn has_connectors(path: &std::path::Path) -> bool {
+    use smithay::reexports::drm::control::Device as _;
+    let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(path) else { return false };
+    let fd = smithay::backend::drm::DrmDeviceFd::new(smithay::utils::DeviceFd::from(std::os::fd::OwnedFd::from(file)));
+    fd.resource_handles().is_ok_and(|r| !r.connectors().is_empty())
 }
 
 /// Есть ли на устройстве GPU-рендеринг (EGL поверх GBM). Без него сеанс

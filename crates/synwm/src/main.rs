@@ -184,14 +184,15 @@ fn init_logging() {
 }
 
 /// `Ok(true)` — запрошен перезапуск.
-fn cpu_backend(event_loop: &EventLoop<'static, State>) -> anyhow::Result<Backend> {
+/// `offload` — композиция на отдельном GPU, если у вывода нет своего рендеринга (см. `backend::offload`).
+fn cpu_backend(event_loop: &EventLoop<'static, State>, offload: bool) -> anyhow::Result<Backend> {
     #[cfg(feature = "pixman")]
     {
-        Ok(Backend::KmsCpu(backend::kms_cpu::KmsCpuBackend::new(event_loop)?))
+        Ok(Backend::KmsCpu(backend::kms_cpu::KmsCpuBackend::new(event_loop, offload)?))
     }
     #[cfg(not(feature = "pixman"))]
     {
-        let _ = event_loop;
+        let _ = (event_loop, offload);
         anyhow::bail!("сборка без CPU-рендерера (feature pixman)");
     }
 }
@@ -245,6 +246,8 @@ fn run(args: &[String]) -> anyhow::Result<bool> {
         if device_ff.is_none() {
             device_ff = device.as_deref().and_then(backend::probe_form_factor);
         }
+        // `auto` без GPU у вывода — ещё поиск отдельного GPU для композиции; явный `cpu` — только pixman.
+        let offload = !matches!(renderer.as_str(), "cpu" | "pixman");
         let cpu = match renderer.as_str() {
             "cpu" | "pixman" => true,
             "gpu" | "gles" => false,
@@ -260,13 +263,13 @@ fn run(args: &[String]) -> anyhow::Result<bool> {
             },
         };
         if cpu {
-            cpu_backend(&event_loop)?
+            cpu_backend(&event_loop, offload)?
         } else {
             match backend::tty::TtyBackend::new(&event_loop) {
                 Ok(t) => Backend::Tty(t),
                 Err(e) if cfg!(feature = "pixman") => {
                     tracing::error!(?e, "GPU-бэкенд не поднялся — CPU (pixman)");
-                    cpu_backend(&event_loop)?
+                    cpu_backend(&event_loop, false)?
                 }
                 Err(e) => return Err(e),
             }
@@ -300,7 +303,7 @@ fn run(args: &[String]) -> anyhow::Result<bool> {
                 if let Some(g) = state.core.dmabuf_global.take() {
                     state.core.dmabuf_state.destroy_global::<State>(&state.core.display_handle, g);
                 }
-                state.backend = cpu_backend(&event_loop)?;
+                state.backend = cpu_backend(&event_loop, false)?;
                 #[cfg(feature = "pixman")]
                 backend::kms_cpu::init(&mut state, &event_loop)?;
             } else {
