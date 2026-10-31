@@ -253,6 +253,23 @@ pub fn kms_cpu_device_path() -> Option<std::path::PathBuf> {
         .or_else(|| all.into_iter().next())
 }
 
+/// Имя DRM-драйвера устройства (`drmGetVersion`), например `onyx-epd`, `simpledrm`, `msm`.
+pub fn drm_driver_name(path: &std::path::Path) -> Option<String> {
+    use smithay::reexports::drm::Device as _;
+    let file = std::fs::OpenOptions::new().read(true).write(true).open(path).ok()?;
+    let fd = smithay::backend::drm::DrmDeviceFd::new(smithay::utils::DeviceFd::from(std::os::fd::OwnedFd::from(file)));
+    fd.get_driver().ok().map(|d| d.name().to_string_lossy().into_owned())
+}
+
+/// Вывод — экран E Ink (драйвер из [`synshell_common::display::EINK_DRM_DRIVERS`]).
+///
+/// Такой вывод ведёт только `kms_cpu` (с композицией на отдельном GPU, если он есть): там точная
+/// область изменений, режим пера и E Ink-настройки. GPU-путь `tty` их не умеет, а проба GPU на
+/// дисплейном устройстве без render-узла может пройти — Mesa kmsro/renderonly подставит отдельный GPU.
+pub fn is_eink_output(path: &std::path::Path) -> bool {
+    drm_driver_name(path).is_some_and(|d| synshell_common::display::EINK_DRM_DRIVERS.contains(&d.as_str()))
+}
+
 /// Есть ли у DRM-устройства коннекторы (устройство вывода, а не только GPU).
 fn has_connectors(path: &std::path::Path) -> bool {
     use smithay::reexports::drm::control::Device as _;

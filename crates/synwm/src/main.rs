@@ -248,7 +248,15 @@ fn run(args: &[String]) -> anyhow::Result<bool> {
         }
         // `auto` без GPU у вывода — ещё поиск отдельного GPU для композиции; явный `cpu` — только pixman.
         let offload = !matches!(renderer.as_str(), "cpu" | "pixman");
-        let cpu = match renderer.as_str() {
+        // E Ink — всегда kms_cpu (точная область изменений, режим пера); GPU — через offload.
+        let eink = device.as_deref().is_some_and(backend::is_eink_output);
+        if eink {
+            if matches!(renderer.as_str(), "gpu" | "gles") {
+                tracing::warn!(renderer, "экран E Ink: GPU-бэкенд tty не поддерживается — kms_cpu с композицией на GPU");
+            }
+            tracing::info!(path = ?device, offload, "экран E Ink: бэкенд kms_cpu");
+        }
+        let cpu = eink || match renderer.as_str() {
             "cpu" | "pixman" => true,
             "gpu" | "gles" => false,
             _ => match device.as_deref() {
