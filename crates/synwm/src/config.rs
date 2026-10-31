@@ -108,6 +108,11 @@ impl State {
 
         // Столы, выводы, раскладки.
         self.core.wm.apply_config(&self.core.config);
+        // Ориентацию выбрали вручную (оболочка записала `[rotation] orientation`) — повернуть.
+        let orientation = self.core.config.rotation.orientation;
+        if let Some(r) = orientation.filter(|_| orientation != old.rotation.orientation) {
+            self.rotate(r);
+        }
         self.backend.apply_output_config(&mut self.core);
         self.outputs_changed();
         for id in self.core.wm.windows.iter().map(|w| w.id).collect::<Vec<_>>() {

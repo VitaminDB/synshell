@@ -351,6 +351,10 @@ pub struct OutputInfo {
     /// Встроенный экран (панель телефона/планшета/ноутбука) — его поворачивает автоповорот.
     #[serde(default)]
     pub internal: bool,
+    /// Поворот поверх `transform` из `[[output]]` (действие `rotate`, `[rotation]
+    /// orientation`); у выводов, которые `rotate` не поворачивает, — `normal`.
+    #[serde(default)]
+    pub rotation: crate::action::Rotation,
     /// Монитор умеет HDR (PQ, BT.2020 — по EDID и свойствам коннектора).
     #[serde(default)]
     pub hdr_capable: bool,

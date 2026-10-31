@@ -2825,11 +2825,17 @@ pub struct ScreenRotation {
     /// телефон повернули; меньше — чувствительнее. Нужна служба датчиков с
     /// методом `SetOrientationThreshold` (патч synmobile), иначе — 35°.
     pub threshold_deg: u32,
+    /// Ориентация встроенного экрана, выбранная вручную (плитка «Повернуть
+    /// экран», кнопка «повернуть»): `normal`, `90`, `180`, `270` поверх
+    /// `transform` из `[[output]]`. Пишет оболочка, synwm ставит при старте
+    /// сеанса и при смене значения в конфиге. Не задано — без поворота.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orientation: Option<crate::action::Rotation>,
 }
 
 impl Default for ScreenRotation {
     fn default() -> Self {
-        Self { auto: true, suggest: true, upside_down: false, delay_ms: 1000, animation_ms: 300, threshold_deg: 35 }
+        Self { auto: true, suggest: true, upside_down: false, delay_ms: 1000, animation_ms: 300, threshold_deg: 35, orientation: None }
     }
 }
 

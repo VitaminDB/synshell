@@ -207,7 +207,8 @@ impl State {
             .remote_output
             .clone()
             .filter(|o| self.core.space.outputs().any(|x| x == o))
-            .or_else(|| self.core.space.outputs().next().cloned())
+            // Сенсор и перо — у встроенной панели, даже если подключён ещё монитор.
+            .or_else(|| crate::backend::rotation_target(&self.core))
     }
 
     /// IPC `input`: выполнить пачку событий удалённого ввода.

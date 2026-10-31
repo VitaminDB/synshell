@@ -113,11 +113,13 @@ impl State {
                     if evt.distance_has_changed() {
                         tool.distance(evt.distance());
                     }
+                    // Наклон и поворот пера — в осях повёрнутого изображения, как и точка.
+                    let t = self.input_transform();
                     if evt.tilt_has_changed() {
-                        tool.tilt(evt.tilt());
+                        tool.tilt(rotate_vec(t, evt.tilt()));
                     }
                     if evt.rotation_has_changed() {
-                        tool.rotation(evt.rotation());
+                        tool.rotation(rotate_angle(t, evt.rotation()));
                     }
                     if evt.slider_has_changed() {
                         tool.slider_position(evt.slider_position());
@@ -293,5 +295,42 @@ impl State {
         }
         self.core.pen.held = 0;
         self.core.pen.grab = None;
+    }
+}
+
+/// Вектор в осях панели (x вправо, y вниз) — в оси изображения под поворотом `t`.
+fn rotate_vec(t: smithay::utils::Transform, (x, y): (f64, f64)) -> (f64, f64) {
+    let zero = smithay::utils::Size::<f64, Logical>::from((0.0, 0.0));
+    let p = t.transform_point_in(Point::<f64, Logical>::from((x, y)), &zero);
+    (p.x, p.y)
+}
+
+/// Угол поворота пера (градусы по часовой) — в оси изображения под поворотом `t`.
+fn rotate_angle(t: smithay::utils::Transform, deg: f64) -> f64 {
+    if t == smithay::utils::Transform::Normal {
+        return deg;
+    }
+    let a = deg.to_radians();
+    let (x, y) = rotate_vec(t, (a.cos(), a.sin()));
+    y.atan2(x).to_degrees().rem_euclid(360.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use smithay::utils::Transform as T;
+
+    #[test]
+    fn tilt_follows_output_rotation() {
+        assert_eq!(rotate_vec(T::Normal, (10.0, -5.0)), (10.0, -5.0));
+        // Вывод повёрнут на 90°: x панели смотрит вниз изображения (как и точки касания).
+        let p = T::_90.transform_point_in(Point::<f64, Logical>::from((1.0, 0.0)), &smithay::utils::Size::from((0.0, 0.0)));
+        assert_eq!(rotate_vec(T::_90, (1.0, 0.0)), (p.x, p.y));
+        let (x, y) = rotate_vec(T::_180, (3.0, 4.0));
+        assert_eq!((x, y), (-3.0, -4.0));
+        assert_eq!(rotate_angle(T::Normal, 30.0), 30.0);
+        assert!((rotate_angle(T::_180, 30.0) - 210.0).abs() < 1e-9);
+        let q = rotate_angle(T::_90, 30.0);
+        assert!((q - 120.0).abs() < 1e-9 || (q - 300.0).abs() < 1e-9, "{q}");
     }
 }

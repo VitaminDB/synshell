@@ -360,8 +360,41 @@ pub fn output_transform(core: &Core, output: &Output) -> smithay::utils::Transfo
     let base = output_config_for(&core.config.outputs, output)
         .map(|c| parse_transform(&c.transform))
         .unwrap_or(smithay::utils::Transform::Normal);
-    let q = core.rotation.get(&output.name()).map(|r| r.quarters()).unwrap_or(0);
-    rotate_transform(base, q)
+    rotate_transform(base, current_rotation(core, output).quarters())
+}
+
+/// Линейная часть поворота: куда он переводит вектор `v`.
+fn transform_vec(t: smithay::utils::Transform, v: (f64, f64)) -> (f64, f64) {
+    let p = t.transform_point_in(smithay::utils::Point::<f64, smithay::utils::Logical>::from(v), &smithay::utils::Size::from((0.0, 0.0)));
+    (p.x, p.y)
+}
+
+/// Поворот «сначала `b`, потом `a`».
+pub fn compose_transform(a: smithay::utils::Transform, b: smithay::utils::Transform) -> smithay::utils::Transform {
+    use smithay::utils::Transform as T;
+    let want = |v| transform_vec(a, transform_vec(b, v));
+    [T::Normal, T::_90, T::_180, T::_270, T::Flipped, T::Flipped90, T::Flipped180, T::Flipped270]
+        .into_iter()
+        .find(|c| transform_vec(*c, (1.0, 0.0)) == want((1.0, 0.0)) && transform_vec(*c, (0.0, 1.0)) == want((0.0, 1.0)))
+        .unwrap_or(T::Normal)
+}
+
+/// Вывод, который поворачивает `rotate`: встроенная панель, нет её — основной.
+pub fn rotation_target(core: &Core) -> Option<Output> {
+    core.space.outputs().find(|o| is_internal(o)).cloned().or_else(|| core.primary_output())
+}
+
+/// Поворот вывода поверх `transform` из конфига: заданный на лету (`rotate`),
+/// а пока его не было — выбранный вручную и сохранённый (`[rotation]
+/// orientation`, только для [`rotation_target`]).
+pub fn current_rotation(core: &Core, output: &Output) -> synshell_common::action::Rotation {
+    if let Some(r) = core.rotation.get(&output.name()) {
+        return *r;
+    }
+    match core.config.rotation.orientation {
+        Some(r) if rotation_target(core).is_some_and(|t| &t == output) => r,
+        _ => Default::default(),
+    }
 }
 
 /// Довернуть `t` на `q` четвертей по часовой стрелке (отражение сохраняется).
@@ -640,17 +673,17 @@ impl State {
     /// Действие `rotate`: повернуть встроенную панель (нет её — вывод в
     /// фокусе) поверх `transform` из конфига.
     pub fn rotate(&mut self, r: synshell_common::action::Rotation) {
-        let outs: Vec<Output> = self.core.space.outputs().cloned().collect();
-        let Some(o) = outs.iter().find(|o| is_internal(o)).cloned().or_else(|| self.core.primary_output()) else { return };
+        let Some(o) = rotation_target(&self.core) else { return };
         let name = o.name();
-        if self.core.rotation.get(&name).copied().unwrap_or_default() == r {
+        let old = current_rotation(&self.core, &o);
+        if old == r {
             return;
         }
         tracing::info!(output = name, rotation = r.as_str(), "поворот экрана");
-        let old = self.core.rotation.get(&name).copied().unwrap_or_default();
         let ms = self.core.config.rotation.animation_ms;
         self.core.rotate_anim = None;
-        if ms > 0 {
+        // На E Ink каждый кадр анимации — обновление панели: сразу новый кадр.
+        if ms > 0 && !self.core.eink {
             // Снимок до поворота: только на GPU (на CPU поворот сразу).
             let quarters = (r.quarters() + 4 - old.quarters()) % 4;
             if let Some(Ok(anim)) = self.backend.snapshot(&mut self.core, &o).map(|s| {
@@ -680,5 +713,25 @@ impl State {
             crate::sleep::screen_power(on, self.core.config.idle.sleep_delay);
         }
         self.core.ipc.broadcast(&synshell_common::ipc::Event::ScreenPower { on });
+    }
+}
+
+#[cfg(test)]
+mod rotation_tests {
+    use super::*;
+    use smithay::utils::Transform as T;
+
+    #[test]
+    fn compose() {
+        assert_eq!(compose_transform(T::Normal, T::Flipped180), T::Flipped180);
+        assert_eq!(compose_transform(T::_90, T::_90), T::_180);
+        assert_eq!(compose_transform(T::_270, T::_90), T::Normal);
+        assert_eq!(compose_transform(T::Flipped180, T::Flipped180), T::Normal);
+        // Вложенное окно: поворот поверх переворота GL и обратно.
+        for q in 0..4 {
+            let r = rotate_transform(T::Normal, q);
+            let w = compose_transform(r, T::Flipped180);
+            assert_eq!(compose_transform(w, T::Flipped180), r);
+        }
     }
 }

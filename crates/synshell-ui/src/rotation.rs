@@ -37,6 +37,8 @@ thread_local! {
 /// Прокси, через который занят акселерометр: отпускать и занимать снова надо с того же
 /// соединения D-Bus (захват — по отправителю).
 static PROXY: std::sync::Mutex<Option<zbus::blocking::Proxy<'static>>> = std::sync::Mutex::new(None);
+/// Акселерометр есть и служба датчиков отвечает: без него плитка «Автоповорот» неактивна.
+static HAS_SENSOR: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// Экран горит; погашен — акселерометр отпущен (SLPI не будит телефон данными).
 static SCREEN_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
@@ -80,6 +82,7 @@ pub fn start(ctx: ShellCtx) {
             let mut logged = false;
             loop {
                 if let Err(e) = listen() {
+                    HAS_SENSOR.store(false, std::sync::atomic::Ordering::SeqCst);
                     if !logged {
                         log::info!("поворот экрана: датчика нет ({e})");
                         logged = true;
@@ -102,6 +105,7 @@ fn listen() -> zbus::Result<()> {
         proxy.call_method("ClaimAccelerometer", &())?;
     }
     *PROXY.lock().unwrap() = Some(proxy.clone());
+    HAS_SENSOR.store(true, std::sync::atomic::Ordering::SeqCst);
     log::info!("поворот экрана: акселерометр подключён");
     set_threshold(&proxy, synshell_common::Config::load().0.rotation.threshold_deg);
     // Служба перезапустилась — захват был за прежним владельцем имени: занять заново.
@@ -199,27 +203,12 @@ fn deliver(orientation: &str) {
     });
 }
 
-/// Текущий поворот встроенного экрана (по сведениям композитора) поверх
-/// `transform` из конфига.
+/// Текущий поворот встроенного экрана поверх `transform` из конфига (по
+/// сведениям композитора; нет встроенного — у вывода, который он поворачивает).
 fn current(ctx: &ShellCtx) -> Rotation {
-    let q = |t: &str| match t {
-        "90" | "flipped-90" => 1u8,
-        "180" | "flipped-180" => 2,
-        "270" | "flipped-270" => 3,
-        _ => 0,
-    };
     let outs = ctx.comp_outputs.get_untracked();
-    let Some(o) = outs.iter().find(|o| o.internal) else {
-        return Rotation::Normal;
-    };
-    let cfg = ctx.cfg();
-    let base = cfg
-        .outputs
-        .iter()
-        .find(|c| c.name.eq_ignore_ascii_case(&o.name))
-        .map(|c| q(&c.transform))
-        .unwrap_or(0);
-    Rotation::from_quarters(q(&o.transform) + 4 - base)
+    let o = outs.iter().find(|o| o.internal).or_else(|| outs.iter().find(|o| o.rotation != Rotation::Normal));
+    o.map(|o| o.rotation).unwrap_or_default()
 }
 
 /// Ориентация датчика, которую разрешено принять (без «вверх ногами», если
@@ -243,6 +232,47 @@ fn apply_policy(ctx: ShellCtx) {
     } else if cfg.rotation.suggest {
         show_suggestion(ctx, r);
     }
+}
+
+/// Есть ли акселерометр (служба датчиков ответила и `HasAccelerometer`).
+pub fn has_sensor() -> bool {
+    HAS_SENSOR.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Текущий поворот встроенного экрана (для плиток и меню).
+pub fn current_rotation(ctx: &ShellCtx) -> Rotation {
+    current(ctx)
+}
+
+/// Повернуть экран вручную (плитка «Повернуть экран», кнопка «повернуть»,
+/// «Параметры → Экраны»): ориентация запоминается в `[rotation] orientation`
+/// (synwm ставит её при старте сеанса), а автоповорот выключается — экран
+/// зафиксирован, как в Android.
+pub fn rotate_manual(r: Rotation) {
+    hide_suggestion();
+    crate::actions::run(Action::Rotate(r));
+    match synshell_common::config_edit::edit(|doc| set_orientation(doc, r)) {
+        Ok(true) => crate::reload_after_write(),
+        Ok(false) => {}
+        Err(e) => log::error!("поворот экрана: {e:#}"),
+    }
+}
+
+/// `[rotation] orientation = r` и `auto = false`; `false` — уже так.
+fn set_orientation(doc: &mut toml_edit::DocumentMut, r: Rotation) -> bool {
+    let cur = doc.get("rotation").and_then(|t| t.get("orientation")).and_then(|v| v.as_str()).map(str::to_owned);
+    let auto = doc.get("rotation").and_then(|t| t.get("auto")).and_then(|v| v.as_bool()).unwrap_or(true);
+    if cur.as_deref() == Some(r.as_str()) && !auto {
+        return false;
+    }
+    doc["rotation"]["orientation"] = toml_edit::value(r.as_str());
+    doc["rotation"]["auto"] = toml_edit::value(false);
+    true
+}
+
+/// Плитка шторки: на четверть оборота по часовой стрелке.
+pub fn rotate_next(ctx: &ShellCtx) {
+    rotate_manual(Rotation::from_quarters(current(ctx).quarters() + 1));
 }
 
 /// Включить/выключить автоповорот (плитка шторки) и запомнить в конфиге.
@@ -296,10 +326,7 @@ fn hide_suggestion() {
 
 fn button(r: Rotation) -> impl Widget {
     GestureDetector::new()
-        .on_click(move || {
-            hide_suggestion();
-            crate::actions::run(Action::Rotate(r));
-        })
+        .on_click(move || rotate_manual(r))
         // Центр — колонкой и рядом во весь круг (выравнивание MSS у бокса
         // без явного размера оставляло значок со смещением).
         .child(
@@ -307,4 +334,24 @@ fn button(r: Rotation) -> impl Widget {
                 .child(crate::ui::vcenter(Row::new().main_axis_alignment(MainAxisAlignment::Center).child(icon("\u{E1C1}").class("rotate-suggest-icon"))))
                 .class("rotate-suggest"),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manual_rotation_is_saved_and_locks() {
+        for text in ["[general]\nterminal = \"foot\"\n", "[rotation]\nauto = true\ndelay_ms = 500\n"] {
+            let mut doc: toml_edit::DocumentMut = text.parse().unwrap();
+            assert!(set_orientation(&mut doc, Rotation::R90));
+            let c = synshell_common::Config::parse(&doc.to_string()).unwrap();
+            assert_eq!(c.rotation.orientation, Some(Rotation::R90));
+            assert!(!c.rotation.auto);
+            assert!(!set_orientation(&mut doc, Rotation::R90));
+            assert!(set_orientation(&mut doc, Rotation::R180));
+            let c = synshell_common::Config::parse(&doc.to_string()).unwrap();
+            assert_eq!(c.rotation.orientation, Some(Rotation::R180));
+        }
+    }
 }

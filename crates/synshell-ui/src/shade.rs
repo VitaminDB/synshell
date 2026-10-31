@@ -445,10 +445,26 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
                 crate::actions::run(Action::FormFactor(synshell_common::action::FormFactorTarget::Game));
             }))
             .child({
-                // Автоповорот: выключен — ориентация зафиксирована.
-                let auto = cfg.rotation.auto;
-                let (glyph, state) = if auto { ("\u{E1C1}", t!("Включён")) } else { ("\u{E1C0}", t!("Фиксация")) };
-                tile(glyph, t!("Автоповорот").into(), state.into(), auto, move || crate::rotation::set_auto(!auto))
+                // Автоповорот: выключен — ориентация зафиксирована; без акселерометра — неактивен.
+                let sensor = crate::rotation::has_sensor();
+                let auto = cfg.rotation.auto && sensor;
+                let (glyph, state) = match (sensor, auto) {
+                    (false, _) => ("\u{E1C0}", t!("Нет датчика")),
+                    (true, true) => ("\u{E1C1}", t!("Включён")),
+                    (true, false) => ("\u{E1C0}", t!("Фиксация")),
+                };
+                tile(glyph, t!("Автоповорот").into(), state.into(), auto, move || {
+                    if sensor {
+                        crate::rotation::set_auto(!auto)
+                    }
+                })
+            })
+            .child({
+                // Ручной поворот на четверть оборота по часовой (запоминается, фиксирует ориентацию).
+                let _ = ctx.comp_outputs.get();
+                let r = crate::rotation::current_rotation(&ctx);
+                let state = if r == synshell_common::action::Rotation::Normal { t!("Обычная").to_string() } else { format!("{}°", r.as_str()) };
+                tile(GLYPH_ROTATE, t!("Повернуть экран").into(), state, false, || crate::rotation::rotate_next(&ShellCtx::get()))
             });
         if let Some(t) = torch {
             let on = t.on;
@@ -500,6 +516,7 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
 
 // ─── Экран E Ink ─────────────────────────────────────────────────────────────
 
+const GLYPH_ROTATE: &str = "\u{E41A}"; // rotate_right
 const GLYPH_COLOR: &str = "\u{E40A}"; // palette
 const GLYPH_MONO: &str = "\u{E3DB}"; // filter_b_and_w
 const GLYPH_SPEED: &str = "\u{E9E4}"; // speed

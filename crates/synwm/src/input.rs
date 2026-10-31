@@ -794,9 +794,12 @@ impl State {
     fn on_pointer_motion_absolute<B: InputBackend>(&mut self, event: B::PointerMotionAbsoluteEvent) {
         // Абсолютные события — у вложенного окна и планшетов: в пределах
         // первого вывода (у вложенного режима он один).
-        let Some(output) = self.absolute_input_output() else { return };
-        let geo = self.core.space.output_geometry(&output).unwrap_or_default();
-        let pos = event.position_transformed(geo.size) + geo.loc.to_f64();
+        // Координаты устройства — в осях буфера вывода (окно вложенного режима
+        // показывает его как есть): под повёрнутым выводом — как у сенсора.
+        if self.absolute_input_output().is_none() {
+            return;
+        }
+        let pos = self.touch_location(&event);
         let serial = SERIAL_COUNTER.next_serial();
         let under = self.under(pos);
         self.pointer_moved(pos, under, serial, event.time_msec());
@@ -1207,14 +1210,28 @@ impl State {
 
     // ─── сенсорный экран ────────────────────────────────────────────────────
 
+    /// Поворот, которым точки сенсора и пера переводятся из осей панели в оси
+    /// изображения: поворот вывода; у удалённого ввода — никакого (он уже в
+    /// координатах снимка).
+    pub(crate) fn input_transform(&self) -> smithay::utils::Transform {
+        if self.core.remote_input_active {
+            return smithay::utils::Transform::Normal;
+        }
+        let Some(o) = self.absolute_input_output() else { return Default::default() };
+        if matches!(self.backend, crate::backend::Backend::Winit(_)) {
+            // Вложенное окно: у вывода ещё переворот GL, окно хоста его не видит.
+            return crate::backend::rotate_transform(Default::default(), crate::backend::current_rotation(&self.core, &o).quarters());
+        }
+        o.current_transform()
+    }
+
     pub(crate) fn touch_location<B: InputBackend, E: AbsolutePositionEvent<B>>(&self, evt: &E) -> Point<f64, Logical> {
         let output = self.absolute_input_output();
         let geo = output.as_ref().and_then(|o| self.core.space.output_geometry(o)).unwrap_or_default();
         // Сенсор привязан к панели, а не к повёрнутому изображению: точку
-        // панели — в логические координаты поворотом вывода. Удалённый ввод
-        // уже в координатах изображения (снимка).
-        let t = output.as_ref().map(|o| o.current_transform()).unwrap_or_default();
-        if self.core.remote_input_active || t == smithay::utils::Transform::Normal {
+        // панели — в логические координаты поворотом вывода.
+        let t = self.input_transform();
+        if t == smithay::utils::Transform::Normal {
             return evt.position_transformed(geo.size) + geo.loc.to_f64();
         }
         let panel = t.invert().transform_size(geo.size);

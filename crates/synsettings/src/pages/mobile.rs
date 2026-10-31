@@ -32,6 +32,26 @@ fn mode_row(current: MobileMode) -> W {
     )
 }
 
+const ORIENTATIONS: &[(&str, &str)] =
+    &[("normal", n_!("Обычная")), ("90", n_!("90° по часовой")), ("180", n_!("180° (вверх ногами)")), ("270", n_!("270° (90° против часовой)"))];
+
+/// Ручная ориентация (`[rotation] orientation`): synwm поворачивает экран, как только
+/// конфиг сменился, и ставит её при старте; автоповорот при этом выключается (фиксация).
+fn orientation_row(current: Option<synshell_common::action::Rotation>) -> W {
+    let mut dd = Dropdown::new().width(260.0);
+    for (v, l) in ORIENTATIONS {
+        dd = dd.item(DropdownItem::new(*v, tl(l)));
+    }
+    row(
+        t!("Ориентация экрана"),
+        t!("Поворот вручную; выключает автоповорот и сохраняется после перезагрузки. То же — плитка «Повернуть экран» в шторке"),
+        dd.selected(current.unwrap_or_default().as_str().to_string()).on_change(|v: &str| {
+            set(&op!["rotation", "orientation"], v.to_string());
+            set(&op!["rotation", "auto"], false);
+        }),
+    )
+}
+
 pub fn phone() -> W {
     let c = store::config();
     let m = &c.mobile;
@@ -76,6 +96,7 @@ pub fn phone() -> W {
                 &t!("Поворот экрана"),
                 vec![
                     switch_row(t!("Автоповорот"), t!("Экран поворачивается за телефоном (акселерометр)"), op!["rotation", "auto"], rot.auto),
+                    orientation_row(rot.orientation),
                     switch_row(
                         t!("Кнопка «повернуть»"),
                         t!("Когда ориентация зафиксирована, а телефон повернули, — кнопка в углу на несколько секунд"),

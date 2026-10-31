@@ -224,7 +224,11 @@ impl WinitBackend {
             .map(|o| o.scale)
             .filter(|s| *s > 0.0)
             .unwrap_or(1.0);
-        self.output.change_current_state(None, None, Some(smithay::output::Scale::Fractional(scale)), None);
+        // Поворот (`rotate`, `[rotation] orientation`) — поверх переворота GL: окно хоста
+        // показывает буфер вверх ногами по y, `Flipped180` его возвращает.
+        let q = crate::backend::current_rotation(core, &self.output).quarters();
+        let t = crate::backend::compose_transform(crate::backend::rotate_transform(Transform::Normal, q), Transform::Flipped180);
+        self.output.change_current_state(None, Some(t), Some(smithay::output::Scale::Fractional(scale)), None);
     }
 }
 
