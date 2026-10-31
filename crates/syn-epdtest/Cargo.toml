@@ -1,0 +1,17 @@
+[package]
+name = "syn-epdtest"
+description = "Тест экрана E Ink synshell: режимы обновления драйвера (update_mode, scheme), серое, цвет, текст, движение, следы, прокрутка"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "syn-epdtest"
+path = "src/main.rs"
+
+[dependencies]
+synshell-common = { workspace = true, features = ["i18n", "style"] }
+syngui = { workspace = true, features = ["winit", "msdf", "material-icons", "i18n", "image"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true

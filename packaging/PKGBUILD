@@ -66,7 +66,7 @@ _profile=${SYNSHELL_PROFILE:-release}
 
 build() {
     cd "$startdir/.."
-    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p syngame-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player -p syn-terminal -p syn-maps -p syn-compass -p syngamepad -p synpass -p syncamera -p syndroid -p syn-health -p syn-systeminfo -p syn-vm -p synmodem -p syn-nfc -p syn-remote -p syn-wine-helper -p syn-woman-cycle -p synnfc -p synphone -p synsms -p synfsd -p synassistant -p syn-notes -p syn-blocks -p syn-themeeditor
+    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p syngame-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player -p syn-terminal -p syn-maps -p syn-compass -p syngamepad -p synpass -p syncamera -p syndroid -p syn-health -p syn-systeminfo -p syn-vm -p synmodem -p syn-nfc -p syn-remote -p syn-wine-helper -p syn-woman-cycle -p synnfc -p synphone -p synsms -p synfsd -p synassistant -p syn-notes -p syn-blocks -p syn-themeeditor -p syn-epdtest
     # Языковой сервер MSS (syngui): ошибки, дополнение, подсказки в Kate/Helix/VS Code.
     cargo build --profile "$_profile" --manifest-path ../syngui/Cargo.toml -p mss-lsp
     cargo build --profile "$_profile" -p synaptixd --bins --features "synaptixd/${SYNAPTIXD_FEATURES:-cuda},synaptixd/npu"
@@ -79,7 +79,7 @@ check() {
 
 package() {
     cd "$startdir/.."
-    for b in synwm syndesktop-shell synmobile-shell syngame-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player syn-terminal syn-maps syn-compass syngamepad synpass syncamera syndroid syndroidd syn-health syn-systeminfo syn-vm synmodem synmodemd syn-nfc syn-remote syn-wine-helper synnfc synnfcd syn-woman-cycle synphone synsms synfsd synaptixd synaptixctl synassistant syn-notes syn-blocks syn-themeeditor; do
+    for b in synwm syndesktop-shell synmobile-shell syngame-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player syn-terminal syn-maps syn-compass syngamepad synpass syncamera syndroid syndroidd syn-health syn-systeminfo syn-vm synmodem synmodemd syn-nfc syn-remote syn-wine-helper synnfc synnfcd syn-woman-cycle synphone synsms synfsd synaptixd synaptixctl synassistant syn-notes syn-blocks syn-themeeditor syn-epdtest; do
         install -Dm755 "target/$_profile/$b" "$pkgdir/usr/bin/$b"
     done
     install -Dm755 "../syngui/target/$_profile/mss-lsp" "$pkgdir/usr/bin/mss-lsp"
@@ -158,6 +158,10 @@ package() {
         "$pkgdir/usr/share/applications/syn-themeeditor.desktop"
     install -Dm644 crates/syn-themeeditor/data/icons/syn-themeeditor.svg \
         "$pkgdir/usr/share/icons/hicolor/scalable/apps/syn-themeeditor.svg"
+    install -Dm644 crates/syn-epdtest/data/syn-epdtest.desktop \
+        "$pkgdir/usr/share/applications/syn-epdtest.desktop"
+    install -Dm644 crates/syn-epdtest/data/icons/syn-epdtest.svg \
+        "$pkgdir/usr/share/icons/hicolor/scalable/apps/syn-epdtest.svg"
     # Компоненты Wine: DLL, которых нет в Wine, — в общий каталог; Wine с патчем зовёт при нехватке DLL.
     install -Dm644 crates/syn-wine-helper/data/syn-wine-helper.desktop \
         "$pkgdir/usr/share/applications/syn-wine-helper.desktop"

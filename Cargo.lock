@@ -6884,6 +6884,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-epdtest"
+version = "0.1.42"
+dependencies = [
+ "syngui",
+ "synshell-common",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "syn-health"
 version = "0.1.42"
 dependencies = [

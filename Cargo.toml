@@ -50,6 +50,7 @@ members = [
     "crates/syn-blocks",
     "crates/syn-dlss",
     "crates/syn-themeeditor",
+    "crates/syn-epdtest",
 ]
 
 [workspace.package]

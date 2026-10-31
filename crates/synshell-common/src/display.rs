@@ -318,6 +318,49 @@ impl Tuning {
     }
 }
 
+/// Сырой режим волны драйвера onyx-tcon-fpga (атрибут `scheme`): `ui <hex>` — режим волны
+/// UI_MODE_SET (0x10, 0x15, 0x12, 0x06, 0x07, 0x03…), `auto <n>` — авторежим FPGA
+/// (AUTO_MODE_CTRL n: 4 — «сверхбыстрый», 3 — качественнее и медленнее), `gc <n>` — полная
+/// волна. Чтение драйвера — `ui 0x15` / `auto 0x04`, запись — `ui 0x15` / `auto 4` (`%i`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Scheme {
+    Gc(u8),
+    Ui(u8),
+    Auto(u8),
+}
+
+impl Scheme {
+    /// Разбор `ui 0x15`, `ui 21`, `auto 0x04`, `auto 4` (регистр и пробелы — любые).
+    pub fn parse(s: &str) -> Option<Scheme> {
+        let mut it = s.split_whitespace();
+        let kind = it.next()?.to_ascii_lowercase();
+        let v = it.next()?;
+        if it.next().is_some() {
+            return None;
+        }
+        let n = match v.strip_prefix("0x").or_else(|| v.strip_prefix("0X")) {
+            Some(h) => u8::from_str_radix(h, 16).ok()?,
+            None => v.parse::<u8>().ok()?,
+        };
+        match kind.as_str() {
+            "gc" => Some(Scheme::Gc(n)),
+            "ui" => Some(Scheme::Ui(n)),
+            "auto" => Some(Scheme::Auto(n)),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for Scheme {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Scheme::Gc(v) => write!(f, "gc 0x{v:02x}"),
+            Scheme::Ui(v) => write!(f, "ui 0x{v:02x}"),
+            Scheme::Auto(n) => write!(f, "auto {n}"),
+        }
+    }
+}
+
 /// Каталог управления экраном E Ink в sysfs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Eink {
@@ -455,6 +498,22 @@ impl Eink {
         self.write("pen", if on { "1" } else { "0" })
     }
 
+    /// Есть ли у драйвера сырой режим волны (`scheme`).
+    pub fn has_scheme(&self) -> bool {
+        self.dir.join("scheme").is_file()
+    }
+
+    /// Сырой режим волны (`scheme`): `ui 0x15` или `auto 0x04`; `None` — нет файла или не разобрать.
+    pub fn scheme(&self) -> Option<Scheme> {
+        Scheme::parse(&self.read("scheme")?)
+    }
+
+    /// Записать сырой режим (`ui <hex>` / `auto <n>`) — для подбора режимов; обычные режимы —
+    /// [`Eink::set_update_mode`]. Запись может ждать замок драйвера — с главного потока не звать.
+    pub fn set_scheme(&self, s: Scheme) -> std::io::Result<()> {
+        self.write("scheme", &s.to_string())
+    }
+
     /// Полная очистка экрана сейчас.
     pub fn refresh(&self) -> std::io::Result<()> {
         self.write("refresh", "1")
@@ -578,6 +637,20 @@ mod tests {
         assert!(!m("night").is_known());
         assert_eq!(m("night").title(), "night");
         assert!(m("x").is_known());
+    }
+
+    #[test]
+    fn scheme_parse() {
+        assert_eq!(Scheme::parse("ui 0x15\n"), Some(Scheme::Ui(0x15)));
+        assert_eq!(Scheme::parse("auto 0x04"), Some(Scheme::Auto(4)));
+        assert_eq!(Scheme::parse(" AUTO  7 "), Some(Scheme::Auto(7)));
+        assert_eq!(Scheme::parse("gc 0x02"), Some(Scheme::Gc(2)));
+        assert_eq!(Scheme::parse("ui"), None);
+        assert_eq!(Scheme::parse("ui 0x1ff"), None);
+        assert_eq!(Scheme::parse("x 1"), None);
+        assert_eq!(Scheme::Ui(0x06).to_string(), "ui 0x06");
+        assert_eq!(Scheme::Auto(4).to_string(), "auto 4");
+        assert_eq!(Scheme::parse(&Scheme::Ui(0x10).to_string()), Some(Scheme::Ui(0x10)));
     }
 
     #[test]
