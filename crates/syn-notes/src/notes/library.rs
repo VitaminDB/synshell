@@ -818,8 +818,21 @@ pub fn doc_preview(md: &str) -> String {
         if l.is_empty() || l.starts_with("![[") || l.starts_with("```") || l.starts_with("<!--") {
             continue;
         }
+        // Атрибуты блоков холста (`{x=… w=…}`) и ограды `:::` — не текст.
+        let (_, l) = syngui::widgets::input::document_editor::attrs::split_leading_attrs(l);
+        let (l, _) = syngui::widgets::input::document_editor::attrs::split_trailing_attrs(&l);
+        let l = l.trim_start_matches(|c: char| c == ':' || c == ' ');
         let l = l.trim_start_matches(|c: char| c == '#' || c == '>' || c == '-' || c == '*' || c == ' ');
-        let l = l.replace("**", "").replace("__", "");
+        if l.chars().all(|c| c.is_ascii_digit() || c.is_whitespace()) {
+            continue;
+        }
+        let mut l = l.replace("**", "").replace("__", "").replace("[[", "").replace("]]", "");
+        // Выноска `[!note] …` — без метки.
+        if l.starts_with("[!") {
+            if let Some(end) = l.find(']') {
+                l = l[end + 1..].trim_start().to_string();
+            }
+        }
         if !l.is_empty() {
             out.push(l);
         }
@@ -1035,5 +1048,7 @@ mod tests {
     #[test]
     fn preview_strips_markup() {
         assert_eq!(doc_preview("# Заголовок\n\n![[kanban:x]]\n- **пункт**\n"), "Заголовок\nпункт");
+        assert_eq!(doc_preview("::: {x=1060 w=1630 y=0}\nТекст {color=red}\n:::\n"), "Текст");
+        assert_eq!(doc_preview("> [!note] Хаб\n[[Цели]] — миссия"), "Хаб\nЦели — миссия");
     }
 }
