@@ -85,7 +85,7 @@ fn catmull(p0: P2, p1: P2, p2: P2, p3: P2, t: f32) -> P2 {
 }
 
 /// Множитель ширины кисти от давления.
-fn pressure_factor(brush: Brush, p: f32) -> f32 {
+pub fn pressure_factor(brush: Brush, p: f32) -> f32 {
     let p = p.clamp(0.0, 1.0);
     match brush {
         Brush::Fountain => 0.3 + 0.95 * p.powf(0.8),

@@ -1443,6 +1443,7 @@ impl Element for InkElement {
         self.draw_overlay_items(list);
         list.pop_transform();
         list.pop_clip();
+        self.announce_direct_ink();
     }
 
     fn handle_event(&mut self, event: &Event, ctx: &mut EventContext) -> EventResult {
@@ -1666,7 +1667,34 @@ impl Element for InkElement {
     }
 }
 
+impl Drop for InkElement {
+    fn drop(&mut self) {
+        super::direct::set(self.id.0, None);
+    }
+}
+
 impl InkElement {
+    /// Прямое перо (E Ink): сообщить композитору холст, толщину и цвет текущего пера.
+    fn announce_direct_ink(&self) {
+        let ts = self.handle.tool.get_untracked();
+        let drawing = !self.readonly
+            && ts.tool == super::Tool::Pen
+            && ts.brush != super::model::Brush::Highlighter
+            && self.editing.is_none()
+            && self.bounds.size.width > 1.0;
+        let area = drawing.then(|| {
+            let w = (ts.width() * self.view.zoom) as f64;
+            let f = |p| super::brush::pressure_factor(ts.brush, p) as f64;
+            let b = self.bounds;
+            super::direct::Area {
+                rect: [b.origin.x as f64, b.origin.y as f64, b.size.width as f64, b.size.height as f64],
+                width: [w * f(0.0), w * f(1.0)],
+                color: ts.color.0,
+            }
+        });
+        super::direct::set(self.id.0, area);
+    }
+
     /// Подхватить сигналы ручки: страница, вписать, текст в правке.
     fn sync_signals(&mut self) {
         let fit = self.handle.fit_request.get_untracked();

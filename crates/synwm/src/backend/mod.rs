@@ -224,6 +224,7 @@ pub(crate) fn init_libinput(
             InputEvent::DeviceRemoved { device } => {
                 state.core.input_devices.retain(|d| d != device);
             }
+            InputEvent::TabletToolProximity { event } => crate::libinput_config::pen_pressure_range(event),
             _ => {}
         }
         state.process_input_event(event);
@@ -580,10 +581,18 @@ impl Core {
         // throttle (как send_frames_headless), даже если основной вывод поверхности сброшен.
         let pen_geo = self.pen.fast().then(|| self.space.output_geometry(output).unwrap_or_default());
 
+        let ink_app = self.pen.ink.app_id.clone().filter(|_| self.pen.ink.tip);
         for w in self.space.elements() {
             w.with_surfaces(|surface, s| {
                 update_surface_primary_scanout_output(surface, output, s, states, smithay::backend::renderer::element::default_primary_scanout_output_compare);
             });
+            // Прямое перо: окну холста кадры придержать (`Ink::hold_frames`).
+            if let Some(app) = &ink_app {
+                let id = w.toplevel().and_then(|t| self.wm.id_by_surface(t.wl_surface()));
+                if id.and_then(|id| self.wm.get(id)).is_some_and(|m| &m.app_id() == app) && self.pen.ink.hold_frames(app) {
+                    continue;
+                }
+            }
             if pen_geo.is_some_and(|geo| self.space.element_geometry(w).is_some_and(|g| g.overlaps(geo))) {
                 w.send_frame(output, time, throttle, |_, _| Some(output.clone()));
             } else {

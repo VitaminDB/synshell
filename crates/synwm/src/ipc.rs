@@ -274,6 +274,16 @@ impl State {
                 Ok(()) => Response::Ok,
                 Err(message) => Response::Error { message },
             },
+            Request::InkCanvas { app_id, rects, width, color } => {
+                let rects = rects
+                    .iter()
+                    .filter(|r| r[2] > 0.0 && r[3] > 0.0)
+                    .map(|r| smithay::utils::Rectangle::new((r[0], r[1]).into(), (r[2], r[3]).into()))
+                    .collect();
+                tracing::debug!(target: "synwm::pen", app_id, ?width, ?color, "перо: холст приложения");
+                self.core.pen.ink.set_canvas(crate::ink::Canvas { app_id, rects, width, color });
+                Response::Ok
+            }
             Request::EventStream | Request::FrameStream { .. } | Request::FrameNext { .. } => Response::Ok,
         }
     }

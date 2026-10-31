@@ -25,6 +25,7 @@
 pub mod brush;
 pub mod canvas;
 pub mod codec;
+pub mod direct;
 pub mod export;
 pub mod icons;
 pub mod input;

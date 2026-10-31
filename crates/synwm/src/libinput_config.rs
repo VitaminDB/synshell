@@ -45,3 +45,42 @@ fn profile(p: AccelProfile) -> LiAccel {
         AccelProfile::Adaptive => LiAccel::Adaptive,
     }
 }
+
+/// Рабочий диапазон давления пера из свойства udev устройства `SYNSHELL_PEN_PRESSURE_RANGE=мин:макс`
+/// (доли 0..1 аппаратного диапазона; правило — в оверлее устройства). Перо, которое шлёт давление
+/// уже в воздухе (ONYX Note Air 4C: 950–1270 из 4095 в ~5 мм от экрана, вместе с BTN_TOUCH), libinput
+/// иначе считает прижатым — штрих начинается до касания, а нажим почти не меняет толщину. Давление
+/// `мин` становится нулём (касание — чуть выше), `макс` — полным нажимом. libinput применяет новый
+/// диапазон со следующего поднесения пера.
+pub fn pen_pressure_range(event: &mut smithay::reexports::input::event::tablet_tool::TabletToolProximityEvent) {
+    use smithay::reexports::input::event::tablet_tool::TabletToolEventTrait;
+    use smithay::reexports::input::{event::EventTrait, AsRaw};
+    extern "C" {
+        fn libinput_tablet_tool_config_pressure_range_is_available(tool: *mut std::ffi::c_void) -> i32;
+        fn libinput_tablet_tool_config_pressure_range_set(tool: *mut std::ffi::c_void, min: f64, max: f64) -> i32;
+        fn libinput_tablet_tool_config_pressure_range_get_minimum(tool: *mut std::ffi::c_void) -> f64;
+        fn libinput_tablet_tool_config_pressure_range_get_maximum(tool: *mut std::ffi::c_void) -> f64;
+    }
+    let Some(range) = (unsafe { event.device().udev_device() })
+        .and_then(|d| d.property_value("SYNSHELL_PEN_PRESSURE_RANGE").map(|v| v.to_string_lossy().into_owned()))
+    else {
+        return;
+    };
+    let Some((min, max)) = range.split_once(':').and_then(|(a, b)| Some((a.trim().parse::<f64>().ok()?, b.trim().parse::<f64>().ok()?))) else {
+        tracing::warn!(range, "перо: SYNSHELL_PEN_PRESSURE_RANGE не мин:макс");
+        return;
+    };
+    let tool = event.tool();
+    let raw = tool.as_raw_mut() as *mut std::ffi::c_void;
+    unsafe {
+        if libinput_tablet_tool_config_pressure_range_is_available(raw) == 0 {
+            return;
+        }
+        let (cur_min, cur_max) = (libinput_tablet_tool_config_pressure_range_get_minimum(raw), libinput_tablet_tool_config_pressure_range_get_maximum(raw));
+        if (cur_min - min).abs() < 1e-6 && (cur_max - max).abs() < 1e-6 {
+            return;
+        }
+        let status = libinput_tablet_tool_config_pressure_range_set(raw, min, max);
+        tracing::info!(min, max, status, "перо: рабочий диапазон давления");
+    }
+}

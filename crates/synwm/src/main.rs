@@ -18,6 +18,7 @@ mod grabs;
 mod gtk_shell;
 mod handlers;
 mod hdr;
+mod ink;
 mod input;
 mod ipc;
 mod libinput_config;

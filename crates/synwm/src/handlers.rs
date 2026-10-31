@@ -143,6 +143,13 @@ impl CompositorHandler for State {
             if let Some(id) = self.core.wm.id_by_surface(&root) {
                 let window = self.core.wm.get(id).unwrap().window.clone();
                 window.on_commit();
+                // Кадр приложения после отрыва пера — в нём штрих уже есть: слой прямого пера стереть.
+                if self.core.pen.ink.app_id.is_some() {
+                    let app_id = self.core.wm.get(id).unwrap().app_id();
+                    if self.core.pen.ink.on_app_commit(&app_id) {
+                        self.core.queue_redraw_all();
+                    }
+                }
                 if &root == surface {
                     self.toplevel_commit(id, surface);
                     // Клиент принял новый размер (развернули, разместили) —

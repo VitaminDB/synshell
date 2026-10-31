@@ -172,6 +172,11 @@ pub struct PenState {
     ev_first: Option<u32>,
     ev_last: Option<u32>,
     latency: Latency,
+    /// Прямое перо (штрих рисует композитор).
+    pub ink: crate::ink::Ink,
+    ink_timer: Option<RegistrationToken>,
+    /// Давление за штрих: мин, макс, сумма, число событий (журнал при отрыве).
+    stroke_p: (f64, f64, f64, u32),
 }
 
 impl PenState {
@@ -265,6 +270,16 @@ impl State {
             tracing::info!(native, ?window, x = pos.x as i32, y = pos.y as i32, "перо: маршрут (native — tablet-v2, иначе указатель)");
         }
         let time = evt.time_msec();
+        if self.core.pen.ink.tip {
+            let p = evt.pressure();
+            let sp = &mut self.core.pen.stroke_p;
+            *sp = if sp.3 == 0 { (p, p, p, 1) } else { (sp.0.min(p), sp.1.max(p), sp.2 + p, sp.3 + 1) };
+        }
+        if let Route::Native(s, loc) = &route {
+            if self.core.pen.ink.tip {
+                self.ink_motion(pos, s, *loc, evt.pressure());
+            }
+        }
         match &route {
             Route::Native(s, loc) => {
                 if let Some(tablet) = tablet {
@@ -305,6 +320,55 @@ impl State {
             tracing::debug!(x = pos.x as i32, y = pos.y as i32, pressure = evt.pressure(), native, "перо: движение");
         }
         route
+    }
+
+    /// Прямое перо: точка штриха по холсту приложения — отрезок рисует композитор сразу ([`crate::ink`]).
+    fn ink_motion(&mut self, pos: Point<f64, Logical>, s: &WlSurface, loc: Point<f64, Logical>, pressure: f64) {
+        // Только верхняя поверхность окна: холст объявлен в её координатах.
+        if !self.core.eink || smithay::wayland::compositor::get_parent(s).is_some() {
+            return;
+        }
+        let Some(m) = self.core.wm.id_by_surface(s).and_then(|id| self.core.wm.get(id)) else { return };
+        let app_id = m.app_id();
+        let Some(canvas) = self.core.pen.ink.canvas(&app_id).cloned() else { return };
+        if !canvas.contains(pos - loc) {
+            self.core.pen.ink.break_stroke();
+            return;
+        }
+        let Some(output) = self.core.space.output_under(pos).next().cloned() else { return };
+        let Some(geo) = self.core.space.output_geometry(&output) else { return };
+        let scale = output.current_scale().fractional_scale();
+        let t = Instant::now();
+        self.core.pen.ink.app_id = Some(app_id);
+        if self.core.pen.ink.stroke_to(&output, geo, scale, &canvas, pos, pressure) {
+            self.core.queue_redraw_for_surface(s);
+            tracing::trace!(target: "synwm::pen", us = t.elapsed().as_micros() as u64, "перо: отрезок композитором");
+        }
+    }
+
+    /// Кончик отпущен: слой прямого пера сотрёт кадр приложения, иначе — таймер.
+    fn ink_tip_up(&mut self) {
+        let (min, max, sum, n) = std::mem::take(&mut self.core.pen.stroke_p);
+        if n > 0 {
+            tracing::info!(n, min, max, avg = sum / n as f64, "перо: штрих — давление мин {min:.2} / сред {:.2} / макс {max:.2}", sum / n as f64);
+        }
+        self.core.pen.ink.tip_up();
+        // Придержанные кадры — окну холста сразу: оно дорисует штрих.
+        self.core.queue_redraw_all();
+        if let Some(t) = self.core.pen.ink_timer.take() {
+            self.core.loop_handle.remove(t);
+        }
+        self.core.pen.ink_timer = self
+            .core
+            .loop_handle
+            .insert_source(Timer::from_duration(crate::ink::CLEAR_FALLBACK + Duration::from_millis(20)), |_, _, state| {
+                state.core.pen.ink_timer = None;
+                if state.core.pen.ink.clear_stale() {
+                    state.core.queue_redraw_all();
+                }
+                TimeoutAction::Drop
+            })
+            .ok();
     }
 
     /// Экран E Ink: включить режим пера, если драйвер его умеет (после `core.eink`).
@@ -405,6 +469,9 @@ impl State {
             }
             ProximityState::Out => {
                 tracing::info!("перо: ушло от экрана");
+                if self.core.pen.ink.tip {
+                    self.ink_tip_up();
+                }
                 self.pen_release_all(time);
                 if let Some(tool) = self.core.seat.tablet_seat().get_tool(&evt.tool()) {
                     tool.proximity_out(time);
@@ -424,6 +491,10 @@ impl State {
             TabletToolTipState::Down => {
                 self.pen_mode_arrive();
                 self.core.pen.note_event(time);
+                self.core.pen.ink.tip_down();
+                if let Some(t) = self.core.pen.ink_timer.take() {
+                    self.core.loop_handle.remove(t);
+                }
                 // Точка касания — своим кадром до нажатия (Xwayland иначе щёлкнет в старой точке).
                 let route = self.pen_motion::<B, _>(&evt);
                 tracing::info!(x = pos.x as i32, y = pos.y as i32, native = matches!(route, Route::Native(..)), "перо: касание");
@@ -432,6 +503,7 @@ impl State {
             TabletToolTipState::Up => {
                 self.core.pen.note_event(time);
                 tracing::info!(x = pos.x as i32, y = pos.y as i32, "перо: отпущено");
+                self.ink_tip_up();
                 self.pen_release(BTN_LEFT, &tool, time, true);
             }
         }

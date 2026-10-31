@@ -28,7 +28,7 @@ pub mod server;
 mod shot;
 pub mod theme;
 
-const APP_ID: &str = "syn-notes";
+pub const APP_ID: &str = "syn-notes";
 
 
 struct Args {

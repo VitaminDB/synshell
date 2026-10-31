@@ -169,6 +169,11 @@ where
         return (out, Color32F::new(0.0, 0.0, 0.0, 1.0));
     }
 
+    // Прямое перо — поверх окон (только курсор и отклики касаний выше).
+    if let Some(e) = core.pen.ink.element(renderer, output) {
+        out.push(OutputElement::Memory(e));
+    }
+
     let fullscreen = fullscreen_top(core, output);
     let overview = core.wm.overview.as_ref().map(|o| (o.anim.value(), o.slots.clone(), o.hovered, o.selected));
 
