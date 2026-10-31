@@ -96,6 +96,16 @@ pub fn run() {
             let _ = ctx.open_project_quietly(&main);
         }
     }
+    // Первый запуск (ни открытых, ни недавних проектов): сразу проект по
+    // умолчанию — как у читалки, открыл и пишешь, без экрана «создать/открыть».
+    {
+        let ctx = use_context::<NotesCtx>();
+        if ctx.projects.get_untracked().is_empty() && ctx.recent.get_untracked().is_empty() {
+            if let Err(e) = ctx.ensure_project() {
+                tracing::warn!("проект по умолчанию не создан: {}", e.message());
+            }
+        }
+    }
     if let Some(cmd) = args.command.clone() {
         server::handle(cmd);
     }
