@@ -43,6 +43,10 @@ impl Backlight {
 
 const BL: &str = "/sys/class/backlight";
 
+/// Экспоненциальная шкала кода фронтлайта: свет ∝ e^(K·код). TI LM3630A (ONYX BOOX и др.):
+/// I = I_full · 0.85^(44 − (код + 1)/5.8181) → K = −ln 0.85 / 5.8181 ≈ 0.02793 (×1,028 на код).
+const EXP_PER_CODE: f32 = 0.027_93;
+
 /// Все подсветки; первой — предпочтительная (`firmware` > `platform` > `raw`,
 /// как у systemd-backlight, но `raw` панели телефона — единственная).
 pub fn list(sys: &Sys) -> Vec<Backlight> {
@@ -164,22 +168,30 @@ impl FrontLight {
     pub fn codes(&self, brightness_pct: f32, warmth_pct: f32) -> (u32, u32) {
         let b = brightness_pct.clamp(0.0, 100.0) / 100.0;
         let w = warmth_pct.clamp(0.0, 100.0) / 100.0;
+        // Свет делится между каналами в линейных единицах: код у драйверов фронтлайта экспоненциальный
+        // (свет ∝ e^(K·код)), поэтому доля света share — это сдвиг кода на ln(share)/K, а не умножение кода.
         let code = |share: f32, max: u32| -> u32 {
-            let v = (b * share * max as f32).round() as u32;
+            if b <= 0.0 || share <= 0.0 {
+                return 0;
+            }
+            let v = (b * max as f32 + share.ln() / EXP_PER_CODE).round();
             // при B > 0 канал с ненулевой долей не гаснет совсем
-            if b > 0.0 && share > 0.0 { v.max(1).min(max) } else { v.min(max) }
+            (v.max(1.0) as u32).min(max)
         };
         (code(1.0 - w, self.white.max), code(w, self.warm.max))
     }
 
     /// Яркость и тепло (проценты) по кодам каналов; оба погашены — тепло `None`.
     pub fn from_codes(&self) -> (f32, Option<f32>) {
-        let (fw, fk) = (Self::frac(&self.white), Self::frac(&self.warm));
-        let sum = fw + fk;
+        let light = |b: &Backlight| if b.brightness == 0 { 0.0 } else { (EXP_PER_CODE * b.brightness as f32).exp() };
+        let (lw, lk) = (light(&self.white), light(&self.warm));
+        let sum = lw + lk;
         if sum <= 0.0 {
             return (0.0, None);
         }
-        ((sum * 100.0).min(100.0), Some(fk / sum * 100.0))
+        let max = self.white.max.max(self.warm.max).max(1) as f32;
+        let b = (sum.ln() / EXP_PER_CODE / max * 100.0).clamp(0.0, 100.0);
+        (b, Some(lk / sum * 100.0))
     }
 
     /// Яркость и тепло (проценты). Тепло — записанное самими, если коды
@@ -301,12 +313,13 @@ mod tests {
         assert_eq!(fl.white.name, "frontlight-white");
         assert_eq!(fl.codes(100.0, 0.0), (217, 0));
         assert_eq!(fl.codes(100.0, 100.0), (0, 217));
-        assert_eq!(fl.codes(50.0, 50.0), (54, 54));
+        // поровну света: каждый канал на ln(1/2)/K ≈ 25 кодов ниже общего
+        assert_eq!(fl.codes(50.0, 50.0), (84, 84));
         assert_eq!(fl.codes(0.0, 30.0), (0, 0));
         // малая яркость: канал с ненулевой долей не гаснет
-        assert_eq!(fl.codes(1.0, 10.0), (2, 1));
+        assert_eq!(fl.codes(1.0, 10.0), (1, 1));
         set_front_light(&sys, 80.0, 25.0).unwrap();
-        assert_eq!((code(&dir, "frontlight-white"), code(&dir, "frontlight-warm")), (130, 43));
+        assert_eq!((code(&dir, "frontlight-white"), code(&dir, "frontlight-warm")), (163, 124));
         let (b, w) = front_light_state(&sys).unwrap();
         assert!((b - 80.0).abs() < 0.5 && (w - 25.0).abs() < 0.01, "{b} {w}");
     }
@@ -316,8 +329,8 @@ mod tests {
         let (_dir, sys) = eink(150, 50);
         let fl = front_light(&sys).unwrap();
         let (b, w) = fl.from_codes();
-        assert!((b - 200.0 / 217.0 * 100.0).abs() < 0.01);
-        assert!((w.unwrap() - 25.0).abs() < 0.01);
+        assert!((b - 70.105).abs() < 0.01, "{b}");
+        assert!((w.unwrap() - 5.770).abs() < 0.01);
         let (_d, s0) = eink(0, 0);
         assert_eq!(front_light(&s0).unwrap().from_codes(), (0.0, None));
     }
@@ -327,9 +340,9 @@ mod tests {
         let (dir, sys) = eink(100, 100);
         let p = primary(&sys).unwrap();
         assert_eq!(p.kind, "front");
-        assert_eq!((p.brightness, p.max), (200, 217));
+        assert_eq!((p.brightness, p.max), (125, 217));
         set_percent(&sys, 40.0).unwrap();
-        assert_eq!((code(&dir, "frontlight-white"), code(&dir, "frontlight-warm")), (43, 43));
+        assert_eq!((code(&dir, "frontlight-white"), code(&dir, "frontlight-warm")), (62, 62));
         // много мелких шагов вниз и обратно: тепло не уплывает
         for _ in 0..30 {
             change(&sys, -1.0).unwrap();
