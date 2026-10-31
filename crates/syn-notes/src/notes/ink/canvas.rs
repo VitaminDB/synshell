@@ -1434,7 +1434,16 @@ impl Element for InkElement {
         let o = self.bounds.origin;
         if let Some((tex, region)) = self.sync_raster(dpr) {
             let a = self.view.to_local(P2::new(region.x0, region.y0));
-            let r = Rect::new(Point::new(o.x + a.x, o.y + a.y), Size::new(region.w() * self.view.zoom, region.h() * self.view.zoom));
+            let mut r = Rect::new(Point::new(o.x + a.x, o.y + a.y), Size::new(region.w() * self.view.zoom, region.h() * self.view.zoom));
+            // Растр в масштабе экрана — пиксель в пиксель: начало по сетке физических пикселей, размер — ровно
+            // размер растра. Дробное положение давало пересэмплирование: края штрихов «рваные» (особенно на E Ink).
+            if let Some(c) = self.raster.borrow().as_ref().filter(|c| (c.scale - self.view.zoom * dpr).abs() <= 0.005 * c.scale) {
+                let snap = |v: f32| (v * dpr).round() / dpr;
+                r = Rect::new(
+                    Point::new(snap(r.origin.x), snap(r.origin.y)),
+                    Size::new(c.pm.width() as f32 / dpr, c.pm.height() as f32 / dpr),
+                );
+            }
             list.push_image(r, TextureId(tex.0), Rect::new(Point::new(0.0, 0.0), Size::new(1.0, 1.0)), Color::WHITE);
         }
         // Остальное — в координатах страницы.

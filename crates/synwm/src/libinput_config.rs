@@ -52,7 +52,7 @@ fn profile(p: AccelProfile) -> LiAccel {
 /// иначе считает прижатым — штрих начинается до касания, а нажим почти не меняет толщину. Давление
 /// `мин` становится нулём (касание — чуть выше), `макс` — полным нажимом. libinput применяет новый
 /// диапазон со следующего поднесения пера.
-pub fn pen_pressure_range(event: &mut smithay::reexports::input::event::tablet_tool::TabletToolProximityEvent) {
+pub fn pen_pressure_range(event: &mut smithay::reexports::input::event::tablet_tool::TabletToolProximityEvent, pen: &synshell_common::config::Pen) {
     use smithay::reexports::input::event::tablet_tool::TabletToolEventTrait;
     use smithay::reexports::input::{event::EventTrait, AsRaw};
     extern "C" {
@@ -61,15 +61,16 @@ pub fn pen_pressure_range(event: &mut smithay::reexports::input::event::tablet_t
         fn libinput_tablet_tool_config_pressure_range_get_minimum(tool: *mut std::ffi::c_void) -> f64;
         fn libinput_tablet_tool_config_pressure_range_get_maximum(tool: *mut std::ffi::c_void) -> f64;
     }
-    let Some(range) = (unsafe { event.device().udev_device() })
+    // Умолчание устройства — из udev, настройки `[input.pen]` (не 0) — поверх.
+    let dev = (unsafe { event.device().udev_device() })
         .and_then(|d| d.property_value("SYNSHELL_PEN_PRESSURE_RANGE").map(|v| v.to_string_lossy().into_owned()))
-    else {
+        .and_then(|r| r.split_once(':').and_then(|(a, b)| Some((a.trim().parse::<f64>().ok()?, b.trim().parse::<f64>().ok()?))));
+    let (dmin, dmax) = dev.unwrap_or((0.0, 1.0));
+    let min = if pen.touch_threshold > 0.0 { pen.touch_threshold } else { dmin }.clamp(0.0, 0.9);
+    let max = if pen.full_pressure > 0.0 { pen.full_pressure } else { dmax }.clamp(min + 0.05, 1.0);
+    if dev.is_none() && pen.touch_threshold <= 0.0 && pen.full_pressure <= 0.0 {
         return;
-    };
-    let Some((min, max)) = range.split_once(':').and_then(|(a, b)| Some((a.trim().parse::<f64>().ok()?, b.trim().parse::<f64>().ok()?))) else {
-        tracing::warn!(range, "перо: SYNSHELL_PEN_PRESSURE_RANGE не мин:макс");
-        return;
-    };
+    }
     let tool = event.tool();
     let raw = tool.as_raw_mut() as *mut std::ffi::c_void;
     unsafe {

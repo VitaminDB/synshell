@@ -519,6 +519,9 @@ impl KmsCpuBackend {
             // Кадр собирает GLES на отдельном GPU, сюда — тень с повреждениями; состояния элементов — от GLES.
             Some(gpu) => (|| {
                 if surface.gpu_frame.as_ref().is_none_or(|f| !f.matches(output)) {
+                    if let Some(mut old) = surface.gpu_frame.take() {
+                        old.release(gpu);
+                    }
                     surface.gpu_frame = Some(GpuFrame::new(gpu, output)?);
                 }
                 let frame = surface.gpu_frame.as_mut().unwrap();

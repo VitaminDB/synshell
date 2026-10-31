@@ -624,6 +624,18 @@ pub struct Input {
     pub keyboard: Keyboard,
     pub mouse: Pointer,
     pub touchpad: Touchpad,
+    pub pen: Pen,
+}
+
+/// Перо (планшет): рабочий диапазон давления — доли 0..1 аппаратного диапазона. 0 — умолчание
+/// устройства (свойство udev `SYNSHELL_PEN_PRESSURE_RANGE=мин:макс`, иначе как есть у libinput).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct Pen {
+    /// Порог касания: давление ниже — перо в воздухе (ноль толщины).
+    pub touch_threshold: f64,
+    /// Давление полного нажима.
+    pub full_pressure: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

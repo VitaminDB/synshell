@@ -37,7 +37,9 @@ use smithay::{
 pub const ENV: &str = "SYNSHELL_RENDER_NODE";
 
 /// Больше прямоугольников повреждений — читаем их общую рамку одним `glReadPixels`.
-const MAX_READ_RECTS: usize = 8;
+const MAX_READ_RECTS: usize = 24;
+/// Повреждения клиентов больше этой доли кадра — сначала сравнить с прошлым кадром на GPU ([`super::tilediff`]).
+const DIFF_FROM: i64 = 20;
 
 /// Render-узел отдельного GPU для вывода `display` без своего рендеринга: `SYNSHELL_RENDER_NODE`, иначе первый
 /// `/dev/dri/renderD*`, на котором проба (`synwm --probe-gpu`, в дочернем процессе) нашла аппаратный EGL.
@@ -115,13 +117,17 @@ impl GpuCompose {
         let Some(damage) = damage.filter(|d| !d.is_empty()) else {
             return Ok((false, states));
         };
-        self.read_back(frame, &damage)?;
+        let damage = self.read_back(frame, &damage)?;
+        if damage.is_empty() {
+            return Ok((false, states));
+        }
         frame.shadow.damage.add(damage);
         Ok((true, states))
     }
 
     /// Прочитать повреждения (пространство вывода) из текстуры в тень.
-    fn read_back(&mut self, frame: &mut GpuFrame, damage: &[Rectangle<i32, Physical>]) -> anyhow::Result<()> {
+    /// Возвращает реально изменившееся (пространство вывода).
+    fn read_back(&mut self, frame: &mut GpuFrame, damage: &[Rectangle<i32, Physical>]) -> anyhow::Result<Vec<Rectangle<i32, Physical>>> {
         let started = std::time::Instant::now();
         let transform = frame.transform;
         let space = transform.transform_size(frame.size);
@@ -129,9 +135,31 @@ impl GpuCompose {
         // пространство вывода → буфер: обратный поворот (как у OutputDamageTracker/DrmCompositor)
         let mut rects: Vec<Rectangle<i32, Physical>> =
             damage.iter().filter_map(|d| transform.invert().transform_rect_in(*d, &space).intersection(bounds)).collect();
+        // Большие повреждения (wgpu помечает всю поверхность) — уточнить сравнением с прошлым кадром на GPU.
+        let to_buf = |r: &Rectangle<i32, Physical>| Rectangle::<i32, BufferCoords>::new((r.loc.x, r.loc.y).into(), (r.size.w, r.size.h).into());
+        let total: i64 = rects.iter().map(|r| r.size.w as i64 * r.size.h as i64).sum();
+        let tex = frame.texture.tex_id();
+        let mut diffed = false;
+        if total * DIFF_FROM > frame.size.w as i64 * frame.size.h as i64 {
+            if let Some(d) = frame.diff.as_mut() {
+                let within: Vec<_> = rects.iter().map(to_buf).collect();
+                if let Ok(Some(ch)) = self.renderer.with_context(|gl| d.changed(gl, tex, &within)) {
+                    rects = ch.iter().map(|r| Rectangle::new((r.loc.x, r.loc.y).into(), (r.size.w, r.size.h).into())).collect();
+                    diffed = true;
+                }
+            }
+        }
         if rects.len() > MAX_READ_RECTS {
             let all = rects.iter().skip(1).fold(rects[0], |a, r| a.merge(*r));
             rects = vec![all];
+        }
+        if let Some(d) = frame.diff.as_mut() {
+            let bufs: Vec<_> = rects.iter().map(to_buf).collect();
+            let _ = self.renderer.with_context(|gl| d.remember(gl, tex, &bufs));
+        }
+        if rects.is_empty() {
+            tracing::debug!(target: "synwm::frame", us = started.elapsed().as_micros() as u64, "чтение кадра GPU: изменений нет");
+            return Ok(Vec::new());
         }
         let fb = self.renderer.bind(&mut frame.texture)?;
         let mut maps = Vec::with_capacity(rects.len());
@@ -158,8 +186,19 @@ impl GpuCompose {
             frame.shadow.write(*r, data, !self.read_bgra);
             bytes += data.len();
         }
-        tracing::debug!(target: "synwm::frame", rects = rects.len(), bytes, us = started.elapsed().as_micros() as u64, "чтение кадра GPU");
-        Ok(())
+        tracing::debug!(target: "synwm::frame", rects = rects.len(), bytes, diffed, us = started.elapsed().as_micros() as u64, "чтение кадра GPU");
+        if !diffed {
+            return Ok(damage.to_vec());
+        }
+        // обратно в пространство вывода: преобразование, которое вперёд даёт тот же прямоугольник буфера
+        let to_out = |r: &Rectangle<i32, Physical>| {
+            [transform, transform.invert()]
+                .into_iter()
+                .flat_map(|t| [t.transform_rect_in(*r, &frame.size), t.transform_rect_in(*r, &space)])
+                .find(|o| transform.invert().transform_rect_in(*o, &space) == *r)
+                .unwrap_or_else(|| Rectangle::from_size(space))
+        };
+        Ok(rects.iter().map(to_out).collect())
     }
 }
 
@@ -172,6 +211,8 @@ pub struct GpuFrame {
     size: Size<i32, Physical>,
     transform: Transform,
     pub shadow: Shadow,
+    /// Сравнение с прошлым кадром на GPU (нет — если шейдер не собрался).
+    diff: Option<super::tilediff::TileDiff>,
 }
 
 impl GpuFrame {
@@ -179,16 +220,28 @@ impl GpuFrame {
         let mode = output.current_mode().ok_or_else(|| anyhow::anyhow!("у вывода нет режима"))?;
         let size: Size<i32, Physical> = mode.size;
         let buf = Size::<i32, BufferCoords>::from((size.w, size.h));
-        let texture = <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(&mut gpu.renderer, Fourcc::Argb8888, buf)
-            .or_else(|_| <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(&mut gpu.renderer, Fourcc::Abgr8888, buf))?;
+        let (texture, bgra) = match <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(&mut gpu.renderer, Fourcc::Argb8888, buf) {
+            Ok(t) => (t, true),
+            Err(_) => (<GlesRenderer as Offscreen<GlesTexture>>::create_buffer(&mut gpu.renderer, Fourcc::Abgr8888, buf)?, false),
+        };
         let transform = output.current_transform();
+        let diff = gpu.renderer.with_context(|gl| super::tilediff::TileDiff::new(gl, buf, bgra)).ok().flatten();
+        tracing::info!(diff = diff.is_some(), "кадр GPU: сравнение с прошлым кадром по плиткам");
         Ok(Self {
+            diff,
             texture,
             tracker: OutputDamageTracker::from_output(output),
             size,
             transform,
             shadow: Shadow::new(size, transform)?,
         })
+    }
+
+    /// Освободить объекты GL сравнения (кадр заменяется).
+    pub fn release(&mut self, gpu: &mut GpuCompose) {
+        if let Some(d) = self.diff.take() {
+            let _ = gpu.renderer.with_context(|gl| d.release(gl));
+        }
     }
 
     /// Кадр ещё подходит выводу (тот же режим и поворот).
@@ -374,6 +427,45 @@ mod tests {
                 assert_eq!(v, i as u32, "{transform:?}: пиксель {i}");
             }
         }
+    }
+
+    /// Повреждение всего кадра без изменения пикселей (как кадр wgpu) — сравнение на GPU находит: изменений нет;
+    /// изменённый угол — только его плитка.
+    #[test]
+    fn gpu_tile_diff_finds_real_changes() {
+        let node = std::env::var("SYNWM_TEST_RENDER_NODE").unwrap_or_else(|_| "/dev/dri/renderD128".into());
+        let Ok(mut gpu) = GpuCompose::new(Path::new(&node)) else {
+            eprintln!("пропуск: нет GPU");
+            return;
+        };
+        let mode = Mode { size: (200, 120).into(), refresh: 60_000 };
+        let output = Output::new(
+            "test".into(),
+            PhysicalProperties { size: (0, 0).into(), subpixel: Subpixel::Unknown, make: "t".into(), model: "t".into() },
+        );
+        output.change_current_state(Some(mode), Some(Transform::Normal), Some(smithay::output::Scale::Integer(1)), None);
+        let mut bg = SolidColorBuffer::new((200, 120), [1.0, 1.0, 1.0, 1.0]);
+        let mut dot = SolidColorBuffer::new((3, 3), [0.0, 0.0, 0.0, 1.0]);
+        let els = |bg: &SolidColorBuffer, dot: &SolidColorBuffer| {
+            vec![
+                SolidColorRenderElement::from_buffer(dot, (150, 100), 1.0, 1.0, Kind::Unspecified),
+                SolidColorRenderElement::from_buffer(bg, (0, 0), 1.0, 1.0, Kind::Unspecified),
+            ]
+        };
+        let mut frame = GpuFrame::new(&mut gpu, &output).unwrap();
+        assert!(frame.diff.is_some(), "шейдер сравнения не собрался");
+        let (shown, _) = gpu.render(&mut frame, &els(&bg, &dot), Color32F::BLACK).unwrap();
+        assert!(shown);
+        // тот же цвет — повреждение всего фона, пиксели те же
+        bg.update((200, 120), [1.0, 1.0, 1.0, 1.0]);
+        let (shown, _) = gpu.render(&mut frame, &els(&bg, &dot), Color32F::BLACK).unwrap();
+        assert!(!shown, "одинаковый кадр не должен давать изменений");
+        bg.update((200, 120), [1.0, 1.0, 1.0, 1.0]);
+        dot.update((3, 3), [1.0, 0.0, 0.0, 1.0]);
+        let (shown, _) = gpu.render(&mut frame, &els(&bg, &dot), Color32F::BLACK).unwrap();
+        assert!(shown);
+        let d = frame.shadow.damage.damage_since(None).map(|d| d.to_vec()).unwrap_or_default();
+        eprintln!("повреждения: {d:?}");
     }
 
     /// Кадр GLES на render-узле хоста → тень → буфер вывода pixman совпадает с тем же кадром, нарисованным

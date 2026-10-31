@@ -5,6 +5,7 @@
 pub mod kms_cpu;
 #[cfg(feature = "pixman")]
 pub mod offload;
+mod tilediff;
 pub mod tty;
 pub mod winit;
 
@@ -224,7 +225,7 @@ pub(crate) fn init_libinput(
             InputEvent::DeviceRemoved { device } => {
                 state.core.input_devices.retain(|d| d != device);
             }
-            InputEvent::TabletToolProximity { event } => crate::libinput_config::pen_pressure_range(event),
+            InputEvent::TabletToolProximity { event } => crate::libinput_config::pen_pressure_range(event, &state.core.config.input.pen),
             _ => {}
         }
         state.process_input_event(event);

@@ -558,6 +558,7 @@ pub fn mouse() -> W {
     let c = store::config();
     let m = &c.input.mouse;
     let t = &c.input.touchpad;
+    let p = &c.input.pen;
     let prof: &[(&str, &str)] = &[("adaptive", n_!("Адаптивное")), ("flat", n_!("Без ускорения"))];
     page(
         t!("Мышь и тачпад"),
@@ -600,6 +601,31 @@ pub fn mouse() -> W {
                     ),
                     switch_row(&t!("Для левой руки"), "", op!["input", "touchpad", "left_handed"], t.left_handed),
                     switch_row(&t!("Эмуляция средней кнопки"), "", op!["input", "touchpad", "middle_emulation"], t.middle_emulation),
+                ],
+            ),
+            group(
+                &t!("Перо"),
+                vec![
+                    slider_row(
+                        &t!("Порог касания"),
+                        &t!("Доля шкалы давления: ниже — перо в воздухе; 0 — по умолчанию устройства. Действует со следующего поднесения пера"),
+                        op!["input", "pen", "touch_threshold"],
+                        p.touch_threshold,
+                        0.0,
+                        0.6,
+                        0.01,
+                        2,
+                    ),
+                    slider_row(
+                        &t!("Полный нажим"),
+                        &t!("Давление самой толстой линии; 0 — по умолчанию устройства"),
+                        op!["input", "pen", "full_pressure"],
+                        p.full_pressure,
+                        0.0,
+                        1.0,
+                        0.01,
+                        2,
+                    ),
                 ],
             ),
         ],
