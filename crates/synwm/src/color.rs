@@ -575,7 +575,7 @@ impl Dispatch<WpImageDescriptionCreatorParamsV1, Mutex<Params>> for State {
 
 impl Dispatch<WpImageDescriptionV1, Arc<ImageDesc>> for State {
     fn request(
-        _state: &mut State,
+        state: &mut State,
         _client: &Client,
         resource: &WpImageDescriptionV1,
         request: wp_image_description_v1::Request,
@@ -589,7 +589,14 @@ impl Dispatch<WpImageDescriptionV1, Arc<ImageDesc>> for State {
                 resource.post_error(wp_image_description_v1::Error::NotReady, "описание не готово");
                 return;
             };
-            send_info(&info, &d);
+            // `done` — событие-деструктор: внутри запроса, создавшего объект, его слать нельзя —
+            // объект пропадает из карты раньше, чем wayland-backend запишет ему данные (паника
+            // в common_poll.rs). Отправляем после обработки запроса.
+            state.core.loop_handle.insert_idle(move |_| {
+                if info.is_alive() {
+                    send_info(&info, &d);
+                }
+            });
         }
     }
 }
