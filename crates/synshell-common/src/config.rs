@@ -2855,11 +2855,17 @@ pub struct Brightness {
     /// поверх каналов, восстановленных systemd-backlight (яркость — от них);
     /// не задано — тепло остаётся как восстановлено. Пишет ползунок «Тепло».
     pub warmth: Option<f32>,
+    /// Последняя ненулевая яркость, выставленная пользователем (ползунок,
+    /// клавиши, жесты), %. Оболочка пишет сама и возвращает при старте сеанса,
+    /// на экране входа и при включении экрана, если подсветка погашена:
+    /// systemd-backlight сохраняет погашенное (или не восстанавливает вовсе
+    /// после `reboot -f`). Не задано — яркость как восстановил systemd.
+    pub level: Option<f32>,
 }
 
 impl Default for Brightness {
     fn default() -> Self {
-        Self { auto: false, min_pct: 2, max_pct: 100, smooth_ms: 800, offset: 0.0, warmth: None }
+        Self { auto: false, min_pct: 2, max_pct: 100, smooth_ms: 800, offset: 0.0, warmth: None, level: None }
     }
 }
 

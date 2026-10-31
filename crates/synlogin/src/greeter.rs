@@ -78,6 +78,7 @@ pub fn run() {
     synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
     synshell_common::i18n::apply(&system_config());
     let (cfg, _) = synshell_common::Config::load();
+    std::thread::spawn(restore_backlight);
     // Экран входа живёт недолго — тема без живого обновления; шрифт интерфейса не ставится.
     let mss = synshell_common::style::AppStyle::new(&cfg, "synlogin").font_selector("").base(include_str!("../styles/greeter.mss")).build();
     let outputs_cfg = cfg.outputs.clone();
@@ -145,6 +146,28 @@ pub fn run() {
 }
 
 /// Системный конфиг оболочки (`/etc/synshell/config.toml`; нет — умолчания).
+/// Подсветка после загрузки погашена (systemd-backlight сохранил ноль или не
+/// восстановил её после `reboot -f`) — вернуть яркость и тепло, запомненные
+/// оболочкой (`[brightness] level`, `warmth`) у первого пользователя, у кого
+/// они есть. Горящую не трогаем.
+fn restore_backlight() {
+    let sys = synsystem::Sys::host();
+    for u in users::login_users() {
+        let path = std::path::Path::new(&u.home).join(".config/synshell/config.toml");
+        if !path.exists() {
+            continue;
+        }
+        let (c, _) = synshell_common::Config::load_from(&path);
+        let Some(level) = c.brightness.level else { continue };
+        match synsystem::backlight::restore(&sys, Some(level), c.brightness.warmth, true) {
+            Ok(true) => log::info!("подсветка: яркость {level}% пользователя {}", u.name),
+            Ok(false) => {}
+            Err(e) => log::warn!("подсветка: {e}"),
+        }
+        return;
+    }
+}
+
 fn system_config() -> synshell_common::Config {
     synshell_common::Config::load_from(&synshell_common::paths::system_config_file()).0
 }

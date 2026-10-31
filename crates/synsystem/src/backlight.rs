@@ -156,14 +156,6 @@ pub fn front_light(sys: &Sys) -> Option<FrontLight> {
 static LAST: std::sync::Mutex<Vec<(std::path::PathBuf, u32, u32, f32)>> = std::sync::Mutex::new(Vec::new());
 
 impl FrontLight {
-    fn frac(b: &Backlight) -> f32 {
-        if b.max == 0 {
-            0.0
-        } else {
-            b.brightness as f32 / b.max as f32
-        }
-    }
-
     /// Коды каналов для яркости и тепла (проценты).
     pub fn codes(&self, brightness_pct: f32, warmth_pct: f32) -> (u32, u32) {
         let b = brightness_pct.clamp(0.0, 100.0) / 100.0;
@@ -257,6 +249,43 @@ pub fn front_light_state(sys: &Sys) -> Option<(f32, f32)> {
 pub fn change(sys: &Sys, delta: f32) -> std::io::Result<Backlight> {
     let cur = primary(sys).ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, t!("нет подсветки")))?;
     set_percent(sys, cur.percent() + delta)
+}
+
+/// Вернуть подсветке запомненное оболочкой (`[brightness] level` и `warmth`, проценты).
+///
+/// `level` — общая яркость (у пары «белая + тёплая» — с теплом `warmth`); не задан —
+/// яркость остаётся как есть (восстановленная systemd-backlight), у пары
+/// пересмешивается только тепло. `only_if_dark` — трогать лишь погашенную
+/// подсветку (включение экрана, экран входа): уровень, выставленный кем-то
+/// после загрузки, не перебивается. Погашенная подсветка без `level`
+/// остаётся погашенной. Возвращает, было ли что записано.
+pub fn restore(sys: &Sys, level: Option<f32>, warmth: Option<f32>, only_if_dark: bool) -> std::io::Result<bool> {
+    let level = level.filter(|l| *l > 0.0).map(|l| l.min(100.0));
+    let all = list(sys);
+    if let Some(fl) = pair(&all) {
+        let (b, w) = fl.state(sys);
+        if only_if_dark && b > 0.0 {
+            return Ok(false);
+        }
+        let tb = level.unwrap_or(b);
+        let tw = warmth.map(|w| w.clamp(0.0, 100.0)).unwrap_or(w);
+        if tb <= 0.0 {
+            return Ok(false);
+        }
+        // те же коды — не писать (обратный расчёт по округлённым кодам неточен)
+        if fl.codes(tb, tw) == (fl.white.brightness, fl.warm.brightness) {
+            return Ok(false);
+        }
+        set_pair(sys, fl, tb, tw)?;
+        return Ok(true);
+    }
+    let Some(b) = all.into_iter().next() else { return Ok(false) };
+    let Some(l) = level else { return Ok(false) };
+    if (only_if_dark && b.brightness > 0) || b.value_for_percent(l) == b.brightness {
+        return Ok(false);
+    }
+    set_percent(sys, l)?;
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -358,5 +387,62 @@ mod tests {
         set_warmth(&sys, 100.0).unwrap();
         assert_eq!(code(&dir, "frontlight-white"), 0);
         assert!(code(&dir, "frontlight-warm") >= 1);
+    }
+    #[test]
+    fn restore_pair() {
+        // после загрузки оба канала погашены (systemd не восстановил)
+        let (dir, sys) = eink(0, 0);
+        assert!(!restore(&sys, None, Some(30.0), false).unwrap(), "без уровня погашенное не включается");
+        assert_eq!((code(&dir, "frontlight-white"), code(&dir, "frontlight-warm")), (0, 0));
+        assert!(restore(&sys, Some(60.0), Some(30.0), false).unwrap());
+        let fl = front_light(&sys).unwrap();
+        assert_eq!((code(&dir, "frontlight-white"), code(&dir, "frontlight-warm")), fl.codes(60.0, 30.0));
+        let (b, w) = front_light_state(&sys).unwrap();
+        assert!((b - 60.0).abs() < 0.5 && (w - 30.0).abs() < 0.01, "{b} {w}");
+        // повтор — ничего не пишет
+        assert!(!restore(&sys, Some(60.0), Some(30.0), false).unwrap());
+        // включение экрана: горит — не трогать, погашено — вернуть
+        assert!(!restore(&sys, Some(90.0), Some(30.0), true).unwrap());
+        assert_eq!((code(&dir, "frontlight-white"), code(&dir, "frontlight-warm")), fl.codes(60.0, 30.0));
+        set_code(&dir, "frontlight-white", 0);
+        set_code(&dir, "frontlight-warm", 0);
+        assert!(restore(&sys, Some(90.0), Some(30.0), true).unwrap());
+        assert_eq!((code(&dir, "frontlight-white"), code(&dir, "frontlight-warm")), fl.codes(90.0, 30.0));
+    }
+
+    #[test]
+    fn restore_pair_warmth_only() {
+        // systemd восстановил каналы, уровня в конфиге нет — только тепло, яркость прежняя
+        let (dir, sys) = eink(150, 50);
+        let (b0, _) = front_light_state(&sys).unwrap();
+        assert!(restore(&sys, None, Some(50.0), false).unwrap());
+        let (b, w) = front_light_state(&sys).unwrap();
+        assert!((b - b0).abs() < 0.5 && (w - 50.0).abs() < 0.01, "{b0} {b} {w}");
+        let (cw, ck) = (code(&dir, "frontlight-white"), code(&dir, "frontlight-warm"));
+        assert_eq!(cw, ck);
+    }
+
+    fn set_code(dir: &tempfile::TempDir, n: &str, v: u32) {
+        fs::write(dir.path().join("sys/class/backlight").join(n).join("brightness"), v.to_string()).unwrap();
+    }
+
+    #[test]
+    fn restore_single() {
+        let dir = tempfile::tempdir().unwrap();
+        let b = dir.path().join("sys/class/backlight/panel0-backlight");
+        fs::create_dir_all(&b).unwrap();
+        fs::write(b.join("brightness"), "0").unwrap();
+        fs::write(b.join("max_brightness"), "4095").unwrap();
+        let sys = Sys::at(dir.path());
+        let read = || fs::read_to_string(b.join("brightness")).unwrap();
+        assert!(!restore(&sys, None, None, false).unwrap());
+        assert!(!restore(&sys, Some(0.0), None, false).unwrap(), "ноль не уровень");
+        assert_eq!(read(), "0");
+        assert!(restore(&sys, Some(50.0), None, true).unwrap());
+        assert_eq!(read(), "2048");
+        assert!(!restore(&sys, Some(50.0), None, false).unwrap());
+        assert!(!restore(&sys, Some(80.0), None, true).unwrap(), "горит — не трогать");
+        assert!(restore(&sys, Some(80.0), None, false).unwrap(), "старт сеанса — уровень из конфига");
+        assert_eq!(read(), "3276");
     }
 }

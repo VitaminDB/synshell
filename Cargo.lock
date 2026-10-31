@@ -8275,6 +8275,7 @@ dependencies = [
  "syngui-layer",
  "synshell-common",
  "synshell-ui",
+ "synsystem",
 ]
 
 [[package]]

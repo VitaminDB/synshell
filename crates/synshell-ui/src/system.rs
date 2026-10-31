@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use crate::actions::{output, spawn, which};
+use crate::actions::{spawn, which};
 use crate::ctx::ShellCtx;
 use syngui::t;
 
@@ -108,26 +108,24 @@ fn watch_volume(ctx: ShellCtx) {
 
 pub fn change_brightness(ctx: ShellCtx, delta: i32) {
     std::thread::spawn(move || {
-        let pct = if which("brightnessctl") {
-            let arg = if delta >= 0 { format!("{delta}%+") } else { format!("{}%-", -delta) };
-            let _ = Command::new("brightnessctl").args(["-q", "set", &arg]).status();
-            let cur: f32 = output("brightnessctl", &["get"]).and_then(|s| s.trim().parse().ok()).unwrap_or(0.0);
-            let max: f32 = output("brightnessctl", &["max"]).and_then(|s| s.trim().parse().ok()).unwrap_or(1.0);
-            Some((cur / max.max(1.0) * 100.0).round() as u32)
-        } else {
-            sysfs_brightness(delta)
+        // synsystem сам уходит в brightnessctl, если sysfs не пускает; пара «белая + тёплая»
+        // (E Ink) — общей яркостью, а brightnessctl напрямую сдвигал бы один канал.
+        // Запись требует прав (udev-правило или группа video); без них — только показ.
+        let sys = synsystem::Sys::host();
+        let pct = match synsystem::backlight::change(&sys, delta as f32) {
+            Ok(b) => {
+                crate::backlight::remember_level(b.percent());
+                Some(b.percent())
+            }
+            Err(e) => {
+                log::warn!("яркость: {e}");
+                synsystem::backlight::primary(&sys).map(|b| b.percent())
+            }
         };
         if let Some(p) = pct {
-            crate::osd::show(ctx, crate::ui::mi::BRIGHTNESS, Some(p), String::new());
+            crate::osd::show(ctx, crate::ui::mi::BRIGHTNESS, Some(p.round() as u32), String::new());
         }
     });
-}
-
-fn sysfs_brightness(delta: i32) -> Option<u32> {
-    // Запись требует прав (udev-правило или группа video); без них — только показ.
-    let sys = synsystem::Sys::host();
-    let b = synsystem::backlight::change(&sys, delta as f32).ok().or_else(|| synsystem::backlight::primary(&sys))?;
-    Some(b.percent().round() as u32)
 }
 
 // ─── Батарея, сеть, процессор ────────────────────────────────────────────────

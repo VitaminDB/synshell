@@ -239,6 +239,8 @@ fn brightness_group(c: &synshell_common::Config) -> Option<W> {
     });
     let slider = Slider::new().range(1.0, 100.0).step(1.0).value(bl.percent()).width(220.0).on_change(move |v| {
         pct.set(v);
+        // оболочка вернёт её после перезагрузки и включения экрана, если подсветка погашена
+        set(&op!["brightness", "level"], (v as f64 * 10.0).round() / 10.0);
         std::thread::spawn(move || {
             if let Err(e) = synsystem::backlight::set_percent(&synsystem::Sys::host(), v) {
                 syngui::async_runtime::run_on_main_thread(move || state::toast(t!("Яркость: {e}", e = e)));

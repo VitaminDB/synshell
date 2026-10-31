@@ -684,8 +684,9 @@ fn sliders(ctx: ShellCtx) -> impl Widget {
                     std::thread::spawn(move || {
                         let sys = synsystem::Sys::host();
                         while let Some(v) = p3.lock().unwrap().take() {
-                            if let Err(e) = synsystem::backlight::set_percent(&sys, v) {
-                                log::warn!("яркость: {e}");
+                            match synsystem::backlight::set_percent(&sys, v) {
+                                Ok(_) => crate::backlight::remember_level(v),
+                                Err(e) => log::warn!("яркость: {e}"),
                             }
                         }
                     });
@@ -756,7 +757,7 @@ fn warmth_row(w: f32) -> impl Widget {
     let text = rx(move || Box::new(Text::new(format!("{:.0}%", val.get())).class("shade-slider-value")) as Box<dyn Widget>);
     let slider = Slider::new().range(0.0, 100.0).step(1.0).value(w).on_change(move |v| {
         val.set(v);
-        crate::frontlight::set(v);
+        crate::backlight::set_warmth(v);
     });
     DecoratedBox::new()
         .child(
