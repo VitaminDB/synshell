@@ -78,7 +78,7 @@ pub fn build(ctx: ShellCtx, slot: &Slot, w: &DeskWidget, iw: f32, ih: f32, editi
         "notes-page" => super::notes::page(w, cx.clone()),
         "note" => Box::new(Text::new(w.str_or("text", &t!("Новая заметка — коснитесь в режиме правки, чтобы изменить.")).to_string()).class("desk-note")),
         "app" => app_icon(ctx, slot, w, iw, ih, editing),
-        "file" => file_icon(slot, w, iw, ih, editing),
+        "file" => file_icon(&ctx, slot, w, iw, ih, editing),
         other => Box::new(Text::new(t!("Неизвестный виджет «{other}»", other = other)).class("desk-k")),
     };
     let mut col = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
@@ -966,8 +966,14 @@ fn icon_cell(icon: Box<dyn Widget>, label: String, ih: f32) -> impl Widget {
         .class("desk-item")
 }
 
-fn icon_size(iw: f32, ih: f32) -> f32 {
-    (iw.min(ih) * 0.5).clamp(24.0, 96.0)
+/// Размер значка: свой у значка, иначе общий (`[desktop] icon_size`), иначе половина клетки.
+/// Предела нет — только место в клетке (подпись снизу); значку крупнее клетки — растянуть его
+/// на несколько клеток.
+fn icon_size(ctx: &ShellCtx, w: &DeskWidget, iw: f32, ih: f32) -> f32 {
+    let own = w.int_or("icon_size", 0).max(0) as f32;
+    let all = ctx.config.get_untracked().desktop.icon_size as f32;
+    let want = if own > 0.0 { own } else if all > 0.0 { all } else { iw.min(ih) * 0.5 };
+    want.min(iw - 8.0).min(ih - (super::ICON_ROOM - 10.0)).max(16.0)
 }
 
 fn app_icon(ctx: ShellCtx, slot: &Slot, w: &DeskWidget, iw: f32, ih: f32, editing: bool) -> Box<dyn Widget> {
@@ -976,7 +982,7 @@ fn app_icon(ctx: ShellCtx, slot: &Slot, w: &DeskWidget, iw: f32, ih: f32, editin
         return Box::new(icon_cell(Box::new(icon(mi::APPS).class("desk-missing")), format!("{id}?"), ih));
     };
     let l = Launchable::from_entry(&e);
-    let size = icon_size(iw, ih);
+    let size = icon_size(&ctx, w, iw, ih);
     let cell = icon_cell(launchers::icon_widget(&l.icon, &None, "desk-icon", size), e.name.clone(), ih);
     if editing {
         return Box::new(cell);
@@ -990,9 +996,9 @@ fn app_icon(ctx: ShellCtx, slot: &Slot, w: &DeskWidget, iw: f32, ih: f32, editin
 }
 
 /// Значок файла или папки (`.desktop` — как значок запуска).
-fn file_icon(slot: &Slot, w: &DeskWidget, iw: f32, ih: f32, editing: bool) -> Box<dyn Widget> {
+fn file_icon(ctx: &ShellCtx, slot: &Slot, w: &DeskWidget, iw: f32, ih: f32, editing: bool) -> Box<dyn Widget> {
     let path: PathBuf = synshell_common::paths::expand_tilde(w.str("path").unwrap_or_default());
-    let size = icon_size(iw, ih);
+    let size = icon_size(ctx, w, iw, ih);
     let (label, icon_path, cmd) = if path.extension().is_some_and(|e| e == "desktop") {
         match crate::xdg::parse_desktop_file(&path, String::new(), &[]) {
             Some(e) => (e.name.clone(), crate::xdg::lookup_icon(&e.icon), e.command()),

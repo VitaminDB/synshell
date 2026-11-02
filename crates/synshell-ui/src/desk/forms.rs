@@ -270,6 +270,25 @@ pub fn edit_view(ctx: ShellCtx, index: usize) -> Box<dyn Widget> {
         ));
     }
 
+    // Размер значка.
+    if icon_like {
+        col = col.child(labeled(
+            &t!("Размер значка"),
+            rx(move || {
+                let _ = ctx.config.get();
+                let own = cur().map(|w| w.int_or("icon_size", 0)).unwrap_or(0);
+                let mut flex = Flex::new().wrap().gap(4.0).child(chip(t!("Как у всех"), own <= 0, move || super::update(index, |w| {
+                    w.options.remove("icon_size");
+                })));
+                for v in [32i64, 48, 64, 96, 128, 160, 192, 256] {
+                    flex = flex.child(chip(v.to_string(), own == v, move || set_icon_size(index, v)));
+                }
+                Box::new(flex)
+            }),
+        ));
+        col = col.child(Text::new(t!("Крупный значок сам займёт больше клеток, если рядом свободно; иначе растяните его ручкой в углу в режиме «Изменить рабочий стол».")).max_lines(3).class("add-hint"));
+    }
+
     // История графиков.
     if matches!(kind.as_str(), "cpu" | "memory" | "gpu" | "battery" | "network" | "temps") {
         col = col.child(labeled(
@@ -447,6 +466,26 @@ pub fn edit_view(ctx: ShellCtx, index: usize) -> Box<dyn Widget> {
             })),
     );
     Box::new(ScrollView::new().vertical().child(col).class("desk-form"))
+}
+
+/// Свой размер значка; не помещается в его клетки — значок занимает больше клеток, если рядом
+/// свободно.
+fn set_icon_size(index: usize, v: i64) {
+    let ctx = ShellCtx::get();
+    let g = super::grid(&ctx, &super::output_name(&ctx));
+    let Some(w) = items(&ctx).get(index).cloned() else { return };
+    let (x, y, ww, hh) = g.cells(&w);
+    let need = v as f32 + super::ICON_ROOM;
+    let nw = ww.max((need / g.cw).ceil() as u32);
+    let nh = hh.max((need / g.ch).ceil() as u32);
+    let grow = (nw, nh) != (ww, hh) && x + nw <= g.cols && super::fits(&ctx, &g, &items(&ctx), w.page, (x, y, nw, nh), Some(index));
+    super::update(index, |w| {
+        w.set("icon_size", v);
+        if grow {
+            w.w = nw;
+            w.h = nh;
+        }
+    });
 }
 
 /// Перенести виджет на другой стол (на свободное место, если там занято).

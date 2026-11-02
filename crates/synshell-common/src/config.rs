@@ -1586,11 +1586,14 @@ pub struct Desktop {
     /// Вид стола: `widgets` — виджеты из `[[widget]]`, `notes` — страница
     /// заметок (`[notes] desk_page`); переключатель внизу слева.
     pub view: String,
+    /// Размер значков приложений и файлов, логические px; 0 — по клетке (половина её
+    /// меньшей стороны). У значка можно задать свой — `icon_size` в его `[[widget]]`.
+    pub icon_size: u32,
 }
 
 impl Default for Desktop {
     fn default() -> Self {
-        Self { cell: 96, phone_row: 100, view: "widgets".into() }
+        Self { cell: 96, phone_row: 100, view: "widgets".into(), icon_size: 0 }
     }
 }
 

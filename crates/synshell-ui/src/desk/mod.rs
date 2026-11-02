@@ -37,6 +37,8 @@ use crate::ui::{icon, mi, rx};
 
 /// Зазор вокруг виджета в клетке, px.
 const GAP: f32 = 5.0;
+/// Место под подпись значка и отступы клетки: значку `s` px нужна клетка `s + ICON_ROOM`.
+pub const ICON_ROOM: f32 = 50.0;
 
 thread_local! {
     static EDITING: Cell<Option<RwSignal<bool>>> = const { Cell::new(None) };
@@ -379,13 +381,16 @@ pub fn grid(ctx: &ShellCtx, output: &str) -> Grid {
         let cols = phone_columns(&cfg);
         let cw = ((w.min(short) - 2.0 * pad) / cols as f32).floor().max(40.0);
         let ch = if cfg.desktop.phone_row > 0 { cfg.desktop.phone_row as f32 } else { cw };
+        // Строка не ниже общего размера значков с подписью.
+        let ch = if cfg.desktop.icon_size > 0 { ch.max(cfg.desktop.icon_size as f32 + ICON_ROOM) } else { ch };
         // сверху — точки столов
         let y0 = 34.0;
         let rows = ((h - y0 - pad) / ch).floor().max(1.0) as u32;
         let x0 = ((w - cols as f32 * cw) / 2.0).floor().max(pad);
         Grid { cols, rows, cw, ch, x0, y0, width: w, height: h }
     } else {
-        let cell = (cfg.desktop.cell.max(32)) as f32;
+        // Клетка не меньше общего размера значков с подписью.
+        let cell = (cfg.desktop.cell.max(32) as f32).max(if cfg.desktop.icon_size > 0 { cfg.desktop.icon_size as f32 + ICON_ROOM } else { 0.0 });
         let pad = 12.0;
         let (aw, ah) = (w - r[1] - r[3] - 2.0 * pad, h - r[0] - r[2] - 2.0 * pad);
         let cols = (aw / cell).floor().max(1.0) as u32;

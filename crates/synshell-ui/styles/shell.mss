@@ -302,8 +302,9 @@ Text {
     border-radius: 14px;
     background-color: var(--surface-alt);
 }
-.chip-on { background-color: var(--accent-soft); }
+.chip-on { background-color: var(--accent); }
 .chip-label { font-size: 12px; }
+.chip-on .chip-label { color: var(--accent-fg); }
 
 /* ─── OSD ────────────────────────────────────────────────────────────────── */
 
