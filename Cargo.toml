@@ -30,6 +30,7 @@ members = [
     "crates/synmedia",
     "crates/syn-video-player",
     "crates/syn-audio-player",
+    "crates/syn-audio-recorder",
     "crates/syn-terminal",
     "crates/syn-maps",
     "crates/syn-compass",

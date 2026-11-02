@@ -6848,6 +6848,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-audio-recorder"
+version = "0.1.42"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "syngui",
+ "synshell-common",
+ "synsystem",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "syn-blocks"
 version = "0.2.0"
 dependencies = [

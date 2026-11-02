@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Диктофон
+Name[en]=Voice Recorder
+GenericName=Запись звука
+GenericName[en]=Sound Recorder
+Comment=Запись с микрофона: живая волна, выбор микрофона, шумоподавление, Opus/FLAC/WAV
+Comment[en]=Record from the microphone: live waveform, mic selection, noise suppression, Opus/FLAC/WAV
+Exec=syn-audio-recorder
+Icon=syn-audio-recorder
+Categories=AudioVideo;Audio;Recorder;
+Keywords=recorder;voice;microphone;dictaphone;record;диктофон;запись;микрофон;голос;
+StartupNotify=true
