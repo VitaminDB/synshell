@@ -359,8 +359,49 @@ impl Conn {
                 if let Some(v) = steps {
                     call.set("steps", Some((v as i64).into()));
                 }
-                let params = mgr.params(&model, &call);
-                let (wav, sr, seed) = mgr.run(&model, |m| m.speak(&text, &params, fresh))?;
+                // Параметры запроса, а не настройки модели: у движков без
+                // своей скорости она — растяжением времени после синтеза.
+                let request_only: Vec<(&str, synaptixd::ParamValue)> =
+                    ["speaker", "stream", "speed"].into_iter().filter_map(|k| call.get(k).cloned().map(|v| (k, v))).collect();
+                let mut params = mgr.params(&model, &call);
+                for (k, v) in request_only {
+                    params.set(k, Some(v));
+                }
+                // Персонаж главнее голоса из настроек модели (описание, зерно,
+                // образец); заданное в самом запросе — главнее персонажа.
+                if call.get("speaker").is_some() {
+                    for k in ["voice", "seed", "ref_audio", "ref_text"] {
+                        if call.get(k).is_none() {
+                            params.set(k, None);
+                        }
+                    }
+                }
+                let stream = params.bool("stream").unwrap_or(false);
+                let (wav, sr, seed) = if stream {
+                    // По предложениям: каждый кусок — событием `audio` с PCM в
+                    // fd, как только готов; голос держится между кусками.
+                    let chunks = synaptix::facade::tts::speech_chunks(&text, 60);
+                    let (sock, id) = (self.sock.as_fd(), self.current);
+                    let mut all: Vec<f32> = Vec::new();
+                    let (mut rate, mut seed) = (24000u32, None);
+                    for (index, chunk) in chunks.iter().enumerate() {
+                        let (pcm, sr, sd) = mgr.run(&model, |m| m.speak(chunk, &params, fresh))?;
+                        (rate, seed) = (sr, sd);
+                        let fd = wire::memfd_f32("speech-chunk", &pcm)?;
+                        let ev = synaptixd::Event::Audio { index, text: chunk.clone(), samples: pcm.len(), sample_rate: sr };
+                        let r = Reply { id, event: Some(ev), ..Default::default() };
+                        if wire::send(sock, &serde_json::to_vec(&r).unwrap_or_default(), &[fd.as_fd()]).is_err() {
+                            return Err(Error::new(ErrorCode::Failed, "клиент отключился"));
+                        }
+                        if !all.is_empty() {
+                            all.extend(std::iter::repeat_n(0.0, sr as usize * 12 / 100));
+                        }
+                        all.extend_from_slice(&pcm);
+                    }
+                    (all, rate, seed)
+                } else {
+                    mgr.run(&model, |m| m.speak(&text, &params, fresh))?
+                };
                 let fd = wire::memfd_f32("speech", &wav)?;
                 (data(synaptixd::SpeechReply { samples: wav.len(), sample_rate: sr, audio: FdRef { fd: 0 }, seed }), vec![fd])
             }

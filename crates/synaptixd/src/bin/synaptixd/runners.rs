@@ -1247,9 +1247,18 @@ impl Loaded {
     /// запоминается. Возвращает и зерно (у движков, которые его используют).
     pub fn speak(&self, text: &str, params: &Params, fresh: bool) -> anyhow::Result<(Vec<f32>, u32, Option<u64>)> {
         let language = params.text("language");
-        let instruct = params.text("voice");
-        let (speed, steps) = (params.f32("speed"), params.u32("steps").map(|s| s as usize));
         let Loaded::Tts(p, dev) = self else { anyhow::bail!("модель не синтезирует речь") };
+        // Персонаж: описание голоса под движок и закреплённое зерно (своё
+        // описание и зерно запроса главнее).
+        let preset = params.text("speaker").and_then(synaptix::facade::tts::speaker);
+        if params.text("speaker").is_some() && preset.is_none() {
+            anyhow::bail!("неизвестный голос «{}»; есть: {}", params.text("speaker").unwrap_or(""), synaptixd::SPEAKERS.join(", "));
+        }
+        let is_vox = matches!(&p.lock().unwrap_or_else(|e| e.into_inner()).engine, TtsEngine::Vox(_));
+        let preset_voice = preset.map(|(omni, vox, _)| if is_vox { vox } else { omni });
+        let instruct = params.text("voice").or(preset_voice);
+        let (speed, steps) = (params.f32("speed"), params.u32("steps").map(|s| s as usize));
+        let stretch = speed.filter(|s| (s - 1.0).abs() > 1e-3);
         let mut guard = p.lock().unwrap_or_else(|e| e.into_inner());
         let st = &mut *guard;
         let speed = speed.unwrap_or(1.0) as f64;
@@ -1257,7 +1266,7 @@ impl Loaded {
         // Зерно: заданное — повторяемый результат; иначе случайное (с одним и
         // тем же зерном отдельные сочетания текста и образца дают брак).
         // Случайное — в пределах поля «Зерно», чтобы его можно было закрепить.
-        let pinned = params.i64("seed").filter(|s| *s >= 0).map(|s| s as u64);
+        let pinned = params.i64("seed").filter(|s| *s >= 0).map(|s| s as u64).or(preset.map(|p| p.2));
         let seed = pinned.unwrap_or_else(|| {
             let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(1);
             ((n ^ (n >> 32)) as u32 | 1) as u64
@@ -1364,7 +1373,11 @@ impl Loaded {
                 if let Some(v) = voice.filter(|_| !fresh) {
                     st.voices.insert(key, v);
                 }
-                Ok((out.audio, sr, Some(seed)))
+                let audio = match stretch {
+                    Some(r) => synaptix::facade::tts::time_stretch(&out.audio, sr, r),
+                    None => out.audio,
+                };
+                Ok((audio, sr, Some(seed)))
             }
             TtsEngine::Vox(p) => {
                 let opts = synaptix_tts_voxcpm::GenerateOptions {
@@ -1405,7 +1418,11 @@ impl Loaded {
                 if let Some(v) = voice.filter(|_| !fresh) {
                     st.voices.insert(key, v);
                 }
-                Ok((out.pcm, sr, Some(seed)))
+                let pcm = match stretch {
+                    Some(r) => synaptix::facade::tts::time_stretch(&out.pcm, sr, r),
+                    None => out.pcm,
+                };
+                Ok((pcm, sr, Some(seed)))
             }
         }
     }

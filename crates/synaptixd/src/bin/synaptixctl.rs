@@ -261,6 +261,7 @@ fn run(args: &[String]) -> Result<(), String> {
             println!("{}", text.join(" "));
         }
         "gen" => {
+            arg(2)?;
             let prompt = args[2..].join(" ");
             let mut params = synaptixd::Params::new();
             if let Some(n) = std::env::var("GEN_MAX").ok().and_then(|v| v.parse::<i64>().ok()) {
@@ -384,6 +385,16 @@ fn run(args: &[String]) -> Result<(), String> {
             let model = if arg(1)? == "-" { "" } else { arg(1)? };
             let t = c.transcribe(model, &pcm, sr, args.get(3).map(String::as_str)).map_err(|e| e.to_string())?;
             println!("{}\n[{:.1} с]", t.text, t0.elapsed().as_secs_f32());
+        }
+        "federation" => {
+            let f = match args.get(1) {
+                Some(p) => c.set_federation_prefer(p).map_err(|e| e.to_string())?,
+                None => c.federation().map_err(|e| e.to_string())?,
+            };
+            println!("федерация: {}, выбор: {}, synlink: {}", if f.enabled { "вкл" } else { "выкл" }, f.prefer, if f.synlink { "есть" } else { "нет" });
+            for d in &f.devices {
+                println!("  {:<24} {:<10} {} · моделей {}", d.device, d.kind, if d.connected { "на связи" } else { "не на связи" }, d.models);
+            }
         }
         "say" => {
             let out = arg(2)?;
@@ -513,7 +524,7 @@ fn run(args: &[String]) -> Result<(), String> {
             })
             .map_err(|e| e.to_string())?;
         }
-        other => return Err(format!("неизвестная команда {other}: list|status|defaults|default|params|libraries|library-add|library-remove|delete|load|unload|set|ctc|asr|gen|image|music|say|watch|rescan|loras|lora|lora-delete|datasets|dataset-check|train|jobs|train-stop")),
+        other => return Err(format!("неизвестная команда {other}: list|status|defaults|default|federation|params|libraries|library-add|library-remove|delete|load|unload|set|ctc|asr|gen|image|music|say|watch|rescan|loras|lora|lora-delete|datasets|dataset-check|train|jobs|train-stop")),
     }
     Ok(())
 }

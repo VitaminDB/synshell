@@ -407,6 +407,23 @@ impl Fed {
         Ok((list, defaults))
     }
 
+    /// Состояние одной модели устройства изменилось (загрузка, устройство).
+    fn update_model(&self, id: &str, epoch: u64, m: ModelEntry) {
+        let changed = {
+            let mut st = self.st.lock().unwrap();
+            match st.peers.get_mut(id).filter(|p| p.epoch == epoch).and_then(|p| p.models.iter_mut().find(|x| x.id == m.id)) {
+                Some(x) if *x != m => {
+                    *x = m;
+                    true
+                }
+                _ => false,
+            }
+        };
+        if changed {
+            self.mgr.notify(Event::ModelsChanged);
+        }
+    }
+
     /// `<устройство>:<id>` — модель вида `kind` спаренного устройства.
     pub fn knows(&self, id: &str, kind: ModelKind) -> bool {
         let Some((slug, rest)) = id.split_once(':') else { return false };
@@ -467,6 +484,9 @@ impl Fed {
             loop {
                 let Ok(Some(f)) = b.recv() else { break };
                 let Ok(r) = serde_json::from_slice::<Reply>(&f.json) else { continue };
+                if let Some(Event::ModelState { model }) = &r.event {
+                    self.update_model(&id, epoch, model.clone());
+                }
                 if matches!(r.event, Some(Event::ModelsChanged)) {
                     if let Ok(list) = self.fetch_list(&id) {
                         self.set_models(&id, epoch, list);
@@ -578,8 +598,25 @@ impl Fed {
                 }
             }
         }
+        // Модель той стороны, что ответит на запрос: названная или её умолчание.
+        fn remote_model<'a>(p: &'a Peer, model: &str, kind: Option<ModelKind>) -> Option<&'a ModelEntry> {
+            let id = match model {
+                "" | "auto" | "default" => p.defaults.iter().find(|d| Some(d.kind) == kind)?.resolved.clone()?,
+                id => id.to_string(),
+            };
+            p.models.iter().find(|m| m.id == id)
+        }
+        // Там модель ушла на процессор (видеокарта занята) — своя быстрее, если есть.
+        let degraded = |p: &Peer| {
+            remote_model(p, model, kind).is_some_and(|m| {
+                use synaptixd::DeviceKind as D;
+                // CPU, выбранный пользователем, — не резерв.
+                let on_cpu = m.state == synaptixd::LoadState::Loaded && m.device == Some(D::Cpu) && m.settings.device != D::Cpu;
+                m.fallback || (on_cpu && m.devices.iter().any(|d| !matches!(d, D::Cpu | D::Auto)))
+            })
+        };
         let me = st.me_kind.as_str();
-        if let Some(p) = live().find(|p| self.prefers_remote(me, p) && has(p)) {
+        if let Some(p) = live().find(|p| self.prefers_remote(me, p) && has(p) && !(local && degraded(p))) {
             return Route::Remote(Self::target(p, model, false));
         }
         if local {
@@ -644,8 +681,11 @@ impl Fed {
         };
         // Программа закрыла сокет (отмена) — оборвать мост: та служба
         // увидит закрытие и остановит работу.
+        let gone = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let _watch = bridge.handle().ok().map(|h| {
+            let gone = gone.clone();
             crate::hangup::watch(client.as_raw_fd(), move || {
+                gone.store(true, std::sync::atomic::Ordering::SeqCst);
                 let _ = h.shutdown(std::net::Shutdown::Both);
             })
         });
@@ -655,6 +695,11 @@ impl Fed {
                 Ok(Some(f)) => f,
                 other => {
                     bridges.remove(&to.peer);
+                    // Программа сама закрыла сокет (отмена) — не обрыв связи и не повод
+                    // выполнять здесь.
+                    if gone.load(std::sync::atomic::Ordering::SeqCst) {
+                        return Forwarded::Gone;
+                    }
                     let why = match other {
                         Err(e) => e.to_string(),
                         _ => "мост закрыт".into(),
