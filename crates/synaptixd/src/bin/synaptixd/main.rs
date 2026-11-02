@@ -4,6 +4,7 @@ mod defaults;
 mod library;
 mod lora;
 mod devices;
+mod federation;
 mod flow;
 mod gen;
 mod hangup;
@@ -79,6 +80,11 @@ struct Conn {
     /// Номер соединения и программа на том конце.
     conn: u64,
     app: synaptixd::AppInfo,
+    /// Соединение пришло с другого устройства (мост synlink): только свои
+    /// модели, без пересылки дальше и без смены настроек.
+    remote: bool,
+    /// Мосты к службам устройств (федерация), по id synlink.
+    bridges: std::collections::HashMap<String, federation::Bridge>,
 }
 
 /// Операция запроса, если это работа с моделью (для учёта работ).
@@ -125,15 +131,24 @@ impl Conn {
         Ok(match req {
             Request::Hello { client } => {
                 tracing::debug!("клиент {client}");
-                self.app.label = client;
+                if client.starts_with(synaptixd::bridge::REMOTE_PREFIX) {
+                    self.remote = true;
+                    self.admin = false;
+                }
+                if self.remote && !client.starts_with(synaptixd::bridge::REMOTE_PREFIX) {
+                    // Программа на том устройстве назвалась — метку моста не теряем.
+                    self.app.label = format!("{} {client}", self.app.label.split(' ').next().unwrap_or_default());
+                } else {
+                    self.app.label = client;
+                }
                 activity::relabel(self.conn, &self.app);
                 (data(Hello { version: synaptixd::VERSION, devices: devices::list() }), none())
             }
-            Request::List => (data(mgr.list()), none()),
+            Request::List => (data(self.with_remote(mgr.list())), none()),
             Request::Status => (data(mgr.status()), none()),
             Request::Rescan => {
                 mgr.rescan();
-                (data(mgr.list()), none())
+                (data(self.with_remote(mgr.list())), none())
             }
             Request::Open { model } => {
                 let model = mgr.resolve_any(&model)?;
@@ -488,8 +503,54 @@ impl Conn {
                 train::forget(job, uid, self.admin)?;
                 (Value::Null, none())
             }
+            Request::Federation { prefer } => {
+                let Some(fed) = federation::get() else {
+                    return Ok((data(synaptixd::FederationInfo::default()), none()));
+                };
+                if let Some(p) = prefer {
+                    if !self.admin {
+                        return Err(denied());
+                    }
+                    fed.set_prefer(&p)?;
+                }
+                (data(fed.info()), none())
+            }
             Request::Subscribe => unreachable!(),
         })
+    }
+
+    /// Свой список плюс модели спаренных устройств (не для моста).
+    fn with_remote(&self, mut list: Vec<synaptixd::ModelEntry>) -> Vec<synaptixd::ModelEntry> {
+        if !self.remote {
+            if let Some(f) = federation::get() {
+                list.extend(f.entries());
+            }
+        }
+        list
+    }
+
+    /// Запрос с другого устройства: входы-файлы из кадра — во временные
+    /// файлы; что удалённо нельзя — отказ.
+    fn remote_request(&self, bytes: &[u8], fds: &[OwnedFd], made: &mut Vec<std::path::PathBuf>) -> Result<Envelope, Reply> {
+        let fail = |id: u64, code: ErrorCode, e: String| Reply { id, ok: Some(false), error: Some(e), code: Some(code), ..Default::default() };
+        let mut v: Value = serde_json::from_slice(bytes).map_err(|e| fail(0, ErrorCode::Protocol, e.to_string()))?;
+        let id = v["id"].as_u64().unwrap_or(0);
+        let dir = self.mgr.cfg.socket.parent().map(|d| d.join("blobs")).unwrap_or_else(std::env::temp_dir);
+        *made = federation::materialize(&mut v, fds, &dir).map_err(|e| fail(id, ErrorCode::Protocol, format!("входной файл: {e}")))?;
+        let env: Envelope = serde_json::from_value(v).map_err(|e| fail(id, ErrorCode::Protocol, e.to_string()))?;
+        if matches!(
+            env.req,
+            Request::Pack { .. }
+                | Request::TrainStart { .. }
+                | Request::TrainStop { .. }
+                | Request::TrainForget { .. }
+                | Request::DeleteLora { .. }
+                | Request::DatasetCheck { .. }
+                | Request::Cancel { .. }
+        ) {
+            return Err(fail(id, ErrorCode::Denied, "с другого устройства это нельзя".into()));
+        }
+        Ok(env)
     }
 
     fn subscribe(&self, id: u64) {
@@ -513,16 +574,67 @@ impl Conn {
                 Ok(x) => x,
                 Err(_) => break,
             };
-            let env: Envelope = match serde_json::from_slice(&bytes) {
+            let mut blob_files = Vec::new();
+            let parsed = if self.remote {
+                self.remote_request(&bytes, &fds, &mut blob_files)
+            } else {
+                serde_json::from_slice::<Envelope>(&bytes)
+                    .map_err(|e| Reply { id: 0, ok: Some(false), error: Some(e.to_string()), code: Some(ErrorCode::Protocol), ..Default::default() })
+            };
+            // Временные входы моста живут до конца запроса.
+            struct Cleanup(Vec<std::path::PathBuf>);
+            impl Drop for Cleanup {
+                fn drop(&mut self) {
+                    for p in &self.0 {
+                        let _ = std::fs::remove_file(p);
+                    }
+                }
+            }
+            let _cleanup = Cleanup(blob_files);
+            let env = match parsed {
                 Ok(e) => e,
-                Err(e) => {
-                    let r = Reply { id: 0, ok: Some(false), error: Some(e.to_string()), code: Some(ErrorCode::Protocol), ..Default::default() };
+                Err(r) => {
                     if self.send(&r, &[]).is_err() {
                         break;
                     }
                     continue;
                 }
             };
+            // Федерация: модель на спаренном устройстве — переслать туда.
+            if !self.remote && !matches!(env.req, Request::Subscribe) {
+                if let Some(fed) = federation::get() {
+                    match fed.route(&env.req) {
+                        federation::Route::Local => {}
+                        federation::Route::Fail(e) => {
+                            let r = Reply { id: env.id, ok: Some(false), error: Some(e.message), code: Some(e.code), ..Default::default() };
+                            if self.send(&r, &[]).is_err() {
+                                break;
+                            }
+                            continue;
+                        }
+                        federation::Route::Remote(to) => {
+                            let cred = wire::peer(self.sock.as_fd()).ok();
+                            activity::set_requester(&self.app, req_name(&env.req));
+                            let res = fed.forward(&mut self.bridges, self.sock.as_fd(), cred, env.id, &env.req, &fds, &to);
+                            match res {
+                                federation::Forwarded::Done => continue,
+                                federation::Forwarded::Gone => break,
+                                federation::Forwarded::Link(why) => {
+                                    tracing::info!("федерация: {why}");
+                                    if to.explicit {
+                                        let r = Reply { id: env.id, ok: Some(false), error: Some(why), code: Some(ErrorCode::Unavailable), ..Default::default() };
+                                        if self.send(&r, &[]).is_err() {
+                                            break;
+                                        }
+                                        continue;
+                                    }
+                                    // Резерв — своя модель.
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             if matches!(env.req, Request::Subscribe) {
                 self.subscribe(env.id);
                 break;
@@ -593,7 +705,10 @@ fn main() -> anyhow::Result<()> {
     let listener = wire::listen(&cfg.socket)?;
     std::fs::set_permissions(&cfg.socket, std::fs::Permissions::from_mode(0o666))?;
     tracing::info!("слушаю {}", cfg.socket.display());
+    let fed_cfg = cfg.federation.clone();
+    let state_dir = cfg.state.parent().map(std::path::Path::to_path_buf).unwrap_or_else(|| "/var/lib/synaptix".into());
     let mgr = Manager::new(cfg);
+    federation::init(mgr.clone(), fed_cfg, state_dir);
     train::init(mgr.clone());
     {
         let m = mgr.clone();
@@ -620,7 +735,7 @@ fn main() -> anyhow::Result<()> {
         let app = peer.map(|p| activity::app_of(p.pid, p.uid)).unwrap_or_default();
         let id = NEXT_CONN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         activity::connect(id, &app);
-        let conn = Conn { mgr: mgr.clone(), sock, admin, opened: Vec::new(), current: 0, conn: id, app };
+        let conn = Conn { mgr: mgr.clone(), sock, admin, opened: Vec::new(), current: 0, conn: id, app, remote: false, bridges: Default::default() };
         let _ = std::thread::Builder::new().name("conn".into()).spawn(move || conn.serve());
     }
 }

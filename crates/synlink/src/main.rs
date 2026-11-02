@@ -23,6 +23,7 @@ mod rpc;
 mod screen;
 mod services;
 mod ssh;
+mod synaptix;
 
 use std::io::{Read, Write};
 

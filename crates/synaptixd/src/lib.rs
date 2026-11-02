@@ -1,3 +1,4 @@
+pub mod bridge;
 pub mod flow;
 pub mod params;
 pub mod wire;
@@ -511,6 +512,27 @@ pub struct ModelEntry {
     /// будет загружена).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub path: String,
+    /// Где модель работает: здесь или на спаренном устройстве (федерация).
+    #[serde(default, skip_serializing_if = "Origin::is_local")]
+    pub origin: Origin,
+}
+
+/// Откуда модель в списке службы.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Origin {
+    #[default]
+    Local,
+    /// На спаренном устройстве: запросы к ней служба пересылает через synlink.
+    /// `device` — короткое имя (префикс id: `<device>:<id>`), `name` — имя
+    /// устройства для людей.
+    Remote { device: String, name: String },
+}
+
+impl Origin {
+    pub fn is_local(&self) -> bool {
+        matches!(self, Origin::Local)
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -1126,6 +1148,36 @@ pub enum Request {
     TrainForget {
         job: u64,
     },
+    /// Федерация (модели спаренных устройств через synlink): состояние;
+    /// `prefer` — сменить выбор источника (`auto` | `remote` | `local`,
+    /// только root и wheel). Отвечает [`FederationInfo`].
+    Federation {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prefer: Option<String>,
+    },
+}
+
+/// Состояние федерации службы.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct FederationInfo {
+    pub enabled: bool,
+    /// `auto` — слабая машина (телефон) берёт модели сильной, если есть;
+    /// `remote` — удалённые всегда первыми; `local` — свои первыми.
+    pub prefer: String,
+    /// synlink найден.
+    #[serde(default)]
+    pub synlink: bool,
+    pub devices: Vec<FederationDevice>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+pub struct FederationDevice {
+    /// Префикс id моделей устройства (`<device>:<id>`).
+    pub device: String,
+    pub name: String,
+    pub kind: String,
+    pub connected: bool,
+    pub models: u32,
 }
 
 /// Готовое значение на входе ноды графа (с ноды вне графа).
@@ -1523,6 +1575,15 @@ impl Client {
 
     pub fn hello(&mut self, client: &str) -> Result<Hello> {
         self.call_typed(Request::Hello { client: client.into() })
+    }
+
+    pub fn federation(&mut self) -> Result<FederationInfo> {
+        self.call_typed(Request::Federation { prefer: None })
+    }
+
+    /// `auto` | `remote` | `local`.
+    pub fn set_federation_prefer(&mut self, prefer: &str) -> Result<FederationInfo> {
+        self.call_typed(Request::Federation { prefer: Some(prefer.into()) })
     }
 
     pub fn list(&mut self) -> Result<Vec<ModelEntry>> {

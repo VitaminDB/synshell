@@ -262,6 +262,10 @@ pub enum Request {
     Mount { device: String, mount: bool },
     /// Уведомления устройств (последние).
     Notifications { device: Option<String> },
+    /// Мост к службе нейросетей устройства (федерация synaptixd): после
+    /// `Ok` — кадры `synaptixd::bridge::Frame` (u64 длина + тело) в обе
+    /// стороны; закрытие соединения — отмена работы на устройстве.
+    Synaptix { device: String },
 }
 
 fn yes() -> bool {

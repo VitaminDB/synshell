@@ -14,8 +14,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// 2 — трансляция с видео (`Rpc::ScreenV2`), 3 — звук трансляции (`Rpc::Audio`),
 /// 4 — общий буфер обмена (`Ctl::Clipboard`), 5 — звук трансляции в Opus
-/// (`Rpc::AudioV2`).
-pub const PROTO: u32 = 5;
+/// (`Rpc::AudioV2`), 6 — мост службы нейросетей (`Rpc::Synaptix`).
+pub const PROTO: u32 = 6;
+/// С какой версии устройство понимает `Rpc::Synaptix`.
+pub const PROTO_SYNAPTIX: u32 = 6;
 /// С какой версии устройство понимает `Rpc::AudioV2`.
 pub const PROTO_OPUS: u32 = 5;
 /// С какой версии устройство понимает `Ctl::Clipboard` (старое на
@@ -99,6 +101,10 @@ pub enum Rpc {
     /// декодирует Opus. Первое сообщение после `Done` — `AudioMsg::Caps`
     /// с тем же о транслирующей стороне.
     AudioV2 { mic: bool, opus: bool },
+    /// Мост к службе нейросетей synaptixd (proto ≥ 6): ответ `Done`/`Err`,
+    /// дальше кадры `synaptixd::bridge::Frame` в обе стороны (сырые байты:
+    /// u64 длина + тело). Закрытие потока — отмена работы.
+    Synaptix,
 }
 
 /// Кадр звука трансляции. PCM s16le, 48 кГц, стерео, кусками по 10 мс.

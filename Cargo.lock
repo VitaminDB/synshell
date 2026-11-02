@@ -8258,6 +8258,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "synaptixd",
  "synshell-common",
  "synshell-tr",
  "tokio",

@@ -20,6 +20,33 @@ pub struct Config {
     pub model_dirs: Vec<PathBuf>,
     pub state: PathBuf,
     pub socket: PathBuf,
+    pub federation: FedConfig,
+}
+
+/// `[federation]`: модели спаренных устройств через synlink.
+#[derive(Deserialize, Debug, Clone)]
+#[serde(default)]
+pub struct FedConfig {
+    pub enabled: bool,
+    pub prefer: Prefer,
+    /// Только эти устройства (id или имя synlink); пусто — все спаренные.
+    pub devices: Vec<String>,
+    /// Сокет synlink (по умолчанию — первый `/run/user/<uid>/synlink.sock`).
+    pub synlink_socket: Option<PathBuf>,
+}
+
+impl Default for FedConfig {
+    fn default() -> Self {
+        Self { enabled: true, prefer: Prefer::Auto, devices: Vec::new(), synlink_socket: None }
+    }
+}
+
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Prefer {
+    Auto,
+    Remote,
+    Local,
 }
 
 impl Default for Config {
@@ -33,6 +60,7 @@ impl Default for Config {
             model_dirs: Vec::new(),
             state: PathBuf::from(STATE),
             socket: synaptixd::socket_path(),
+            federation: FedConfig::default(),
         }
     }
 }

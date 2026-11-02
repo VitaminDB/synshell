@@ -157,6 +157,8 @@ impl Slot {
                 .or(m.variants.first())
                 .map(|v| m.path(v).to_string_lossy().into_owned())
                 .unwrap_or_default(),
+
+            origin: synaptixd::Origin::Local,
         }
     }
 

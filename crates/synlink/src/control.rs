@@ -156,6 +156,33 @@ async fn conn(d: D, s: UnixStream) -> Result<()> {
                 let _ = tokio::io::copy_bidirectional(&mut local, &mut quic).await;
                 return Ok(());
             }
+            Request::Synaptix { device } => {
+                let opened = async {
+                    let Target::Remote(c) = target(&d, &device)? else { bail!("служба этой машины — в её сокете") };
+                    let id = d.resolve(&device).unwrap_or_default();
+                    if d.session_info(&id).is_some_and(|(v, _)| v < proto::PROTO_SYNAPTIX) {
+                        bail!("на «{device}» старый synlink без моста нейросетей");
+                    }
+                    let (w, mut r) = crate::rpc::open(&c, &Rpc::Synaptix).await?;
+                    match proto::recv::<Reply>(&mut r).await? {
+                        Some(Reply::Done) => Ok((w, r)),
+                        Some(Reply::Err(e)) => bail!("{e}"),
+                        _ => bail!("нет ответа"),
+                    }
+                };
+                let (w, r) = match opened.await {
+                    Ok(x) => x,
+                    Err(e) => {
+                        write_line(&mut wr, &Response::Error { message: format!("{e:#}") }).await?;
+                        continue;
+                    }
+                };
+                write_line(&mut wr, &Response::Ok).await?;
+                let mut local = tokio::io::join(rd, wr);
+                let mut quic = tokio::io::join(r, w);
+                let _ = tokio::io::copy_bidirectional(&mut local, &mut quic).await;
+                return Ok(());
+            }
             Request::Screen { device, output, cursor, video } => {
                 let c = match target(&d, &device) {
                     Ok(Target::Remote(c)) => c,
@@ -504,7 +531,7 @@ async fn handle(d: &D, req: Request) -> Result<Response> {
             let id = device.and_then(|x| d.resolve(&x));
             Response::Notifications { notifications: d.notes(id.as_deref()) }
         }
-        Request::Subscribe | Request::Tcp { .. } | Request::Screen { .. } | Request::Audio { .. } => {
+        Request::Subscribe | Request::Tcp { .. } | Request::Screen { .. } | Request::Audio { .. } | Request::Synaptix { .. } => {
             Response::Error { message: t!("не здесь").into() }
         }
     })
