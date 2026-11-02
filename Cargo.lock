@@ -8189,6 +8189,7 @@ dependencies = [
  "libc",
  "log",
  "mss-lang",
+ "objc2 0.6.4",
  "oboe",
  "percent-encoding",
  "pollster",

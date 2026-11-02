@@ -113,8 +113,7 @@ pub struct Data {
 }
 
 fn store_path() -> std::path::PathBuf {
-    let base = std::env::var_os("XDG_DATA_HOME").map(std::path::PathBuf::from).unwrap_or_else(|| synshell_common::paths::expand_tilde("~/.local/share"));
-    base.join("synshell/woman-cycle/data.json")
+    synshell_common::paths::data_home().join("synshell/woman-cycle/data.json")
 }
 
 pub fn load() -> Data {

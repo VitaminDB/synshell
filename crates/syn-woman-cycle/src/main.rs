@@ -66,6 +66,8 @@ pub fn pal(dark: bool) -> Pal {
 
 pub fn is_dark(cfg: &Config, mode: ThemeMode) -> bool {
     match mode {
+        // На iPhone «как в системе» — тёмная тема iOS, конфига оболочки там нет.
+        ThemeMode::System if cfg!(target_os = "ios") => syngui::appearance::read_system_appearance().is_dark(),
         ThemeMode::System => cfg.appearance.is_dark(),
         ThemeMode::Light => false,
         ThemeMode::Dark => true,
@@ -237,22 +239,32 @@ fn main() {
     st.dark.set(dark);
     st.theme.set(mss);
     watch_config(st);
-    App::new()
+    // iOS: смена тёмной темы системы приходит через сигнал syngui.
+    let system_look = use_signal(syngui::appearance::SystemAppearance::default());
+    if cfg!(target_os = "ios") {
+        create_effect(move || {
+            system_look.get();
+            apply_theme(st);
+        });
+    }
+    let app = App::new()
         .title(t!("Цикл"))
         .app_id("syn-woman-cycle")
         .size(460, 900)
         .min_size(340, 560)
         .frameless()
-        .transparent(true)
+        // На iPhone окно — весь экран, прозрачность не нужна.
+        .transparent(!cfg!(target_os = "ios"))
         .fullscreen(set.fullscreen)
         .ui_scale(set.scale)
         .background(Color::from_srgb(0, 0, 0, 0.0))
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(st.theme)
         .with_theme_transition(320)
-        .with_window_state(st.window)
-        .run(move |_| {
-            st.start();
-            ui::root(st)
-        });
+        .with_window_state(st.window);
+    let app = if cfg!(target_os = "ios") { app.with_system_appearance(system_look) } else { app };
+    app.run(move |_| {
+        st.start();
+        ui::root(st)
+    });
 }

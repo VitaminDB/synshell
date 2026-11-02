@@ -287,7 +287,13 @@ pub fn root(st: St) -> W {
         main = main.child(body);
         let stack = Stack::new().fit(StackFit::Expand).child(main).child(calendar::menu_layer(st)).child(day::layer(st, w)).child(settings::reset_dialog(st)).child(toast_layer(st));
         let frame = DecoratedBox::new().class(if w && !fs { "window-frame" } else { "window-frame flat" }).clip(true).child(keys(st, stack));
-        vec![boxed(WindowResizeRegion::new().over_content(true).inset(5.0).enabled(w && !fs).child(frame))]
+        let region = WindowResizeRegion::new().over_content(true).inset(5.0).enabled(w && !fs).child(frame);
+        // iPhone: фон корня — цвет окна под вырезом камеры и полоской «домой»
+        // (syngui берёт clear-color из корня и меняет его вместе с темой).
+        if cfg!(target_os = "ios") {
+            return vec![boxed(DecoratedBox::new().class("ios-root").child(region))];
+        }
+        vec![boxed(region)]
     }))
 }
 

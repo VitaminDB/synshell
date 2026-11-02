@@ -21,6 +21,7 @@ Text { color: var(--fg); font-size: 14px; }
 .window-frame.flat { border-radius: 0px; border-width: 0px; }
 .window-frame:window-maximized, .window-frame:window-fullscreen { border-radius: 0px; border-width: 0px; }
 .body { background-color: #00000000; }
+.ios-root { background-color: var(--bg); }
 
 .titlebar { height: 44px; background-color: var(--titlebar); border-bottom: 1px solid var(--border); }
 .tb-left { height: 44px; width: 250px; padding: 0px 10px 0px 14px; align-items: center; }

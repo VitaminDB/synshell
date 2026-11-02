@@ -8,8 +8,7 @@
 //! перечитывание.
 
 use std::collections::BTreeSet;
-use std::ffi::{CString, OsString};
-use std::os::unix::ffi::OsStrExt;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -61,6 +60,10 @@ fn targets(cfg: &Config, extra: &[PathBuf]) -> Vec<(PathBuf, BTreeSet<OsString>)
 /// свежий конфиг после каждой правки (из этого же потока). `extra` — свои
 /// файлы программы, при изменении которых тоже нужно перечитать.
 pub fn spawn(extra: Vec<PathBuf>, mut on_change: impl FnMut(Config) + Send + 'static) {
+    // На iPhone конфиг рабочего стола никто не правит — следить не за чем.
+    if cfg!(target_os = "ios") {
+        return;
+    }
     std::thread::Builder::new()
         .name("synshell-live".into())
         .spawn(move || {
@@ -86,7 +89,16 @@ pub fn spawn(extra: Vec<PathBuf>, mut on_change: impl FnMut(Config) + Send + 'st
 }
 
 /// Ждать изменения через inotify; `false` — inotify не работает.
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn wait_inotify(_targets: &[(PathBuf, BTreeSet<OsString>)]) -> bool {
+    false
+}
+
+/// Ждать изменения через inotify; `false` — inotify не работает.
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn wait_inotify(targets: &[(PathBuf, BTreeSet<OsString>)]) -> bool {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
     // SAFETY: обычные вызовы inotify, дескриптор закрывается в конце.
     let fd = unsafe { libc::inotify_init1(libc::IN_CLOEXEC) };
     if fd < 0 {

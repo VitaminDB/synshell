@@ -2,6 +2,16 @@
 
 use std::path::PathBuf;
 
+/// Каталог XDG по умолчанию: `~/<linux>`; на iOS — `~/Library/<ios>`
+/// (в песочнице приложения писать можно только в Documents, Library и tmp).
+fn xdg_default(linux: &str, ios: &str) -> PathBuf {
+    if cfg!(target_os = "ios") {
+        home().join("Library").join(ios)
+    } else {
+        home().join(linux)
+    }
+}
+
 /// Домашний каталог (`$HOME`).
 pub fn home() -> PathBuf {
     std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"))
@@ -27,7 +37,7 @@ pub fn config_dir() -> PathBuf {
 pub fn xdg_config_home() -> PathBuf {
     std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| home().join(".config"))
+        .unwrap_or_else(|| xdg_default(".config", "Application Support/config"))
 }
 
 /// Главный файл конфигурации.
@@ -58,21 +68,21 @@ pub fn runtime_dir() -> PathBuf {
 pub fn data_home() -> PathBuf {
     std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| home().join(".local/share"))
+        .unwrap_or_else(|| xdg_default(".local/share", "Application Support"))
 }
 
 /// `$XDG_STATE_HOME` (по умолчанию `~/.local/state`).
 pub fn state_home() -> PathBuf {
     std::env::var_os("XDG_STATE_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| home().join(".local/state"))
+        .unwrap_or_else(|| xdg_default(".local/state", "Application Support/state"))
 }
 
 /// `$XDG_CACHE_HOME` (по умолчанию `~/.cache`).
 pub fn cache_home() -> PathBuf {
     std::env::var_os("XDG_CACHE_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| home().join(".cache"))
+        .unwrap_or_else(|| xdg_default(".cache", "Caches"))
 }
 
 /// Все каталоги данных: `$XDG_DATA_HOME` + `$XDG_DATA_DIRS`.
