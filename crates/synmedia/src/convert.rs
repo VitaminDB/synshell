@@ -2,7 +2,8 @@
 //!
 //! - превью: RGBA с поворотом на четверти оборота, зеркалом (фронтальная) и прореживанием (шаг 1–4) — в
 //!   несколько потоков; целочисленная арифметика;
-//! - запись: NV12 с поворотом в буфер кодера (строка и число строк Y — его).
+//! - запись: NV12 с поворотом в буфер кодера (строка и число строк Y — его);
+//! - камеры компьютера: YUYV и RGB (из MJPEG) → NV12.
 
 /// Описание кадра-источника.
 #[derive(Clone, Copy, Debug)]
@@ -162,6 +163,65 @@ pub fn to_nv12(src: &Src, rot: u32, dst: &mut [u8], dst_stride: usize, dst_scan:
     }
 }
 
+/// YUYV 4:2:2 (`stride` байт в строке) → NV12 `w × h` (ширина и высота чётные).
+pub fn yuyv_to_nv12(src: &[u8], stride: usize, w: usize, h: usize, dst: &mut [u8]) {
+    let (w, h) = (w & !1, h & !1);
+    if dst.len() < w * h * 3 / 2 || src.len() < stride * h {
+        return;
+    }
+    let (yp, uvp) = dst.split_at_mut(w * h);
+    for y in 0..h {
+        let row = &src[y * stride..y * stride + w * 2];
+        let yd = &mut yp[y * w..(y + 1) * w];
+        for x in 0..w {
+            yd[x] = row[x * 2];
+        }
+        if y % 2 == 0 {
+            let next = &src[(y + 1) * stride..(y + 1) * stride + w * 2];
+            let d = &mut uvp[(y / 2) * w..(y / 2) * w + w];
+            for x in (0..w).step_by(2) {
+                d[x] = ((row[x * 2 + 1] as u16 + next[x * 2 + 1] as u16) / 2) as u8;
+                d[x + 1] = ((row[x * 2 + 3] as u16 + next[x * 2 + 3] as u16) / 2) as u8;
+            }
+        }
+    }
+}
+
+/// RGB (3 байта на пиксель) → NV12 `w × h`, полный диапазон BT.601 (как у камер телефона).
+pub fn rgb_to_nv12(rgb: &[u8], w: usize, h: usize, dst: &mut [u8]) {
+    let (w, h) = (w & !1, h & !1);
+    let sw = rgb.len() / 3 / h.max(1);
+    if dst.len() < w * h * 3 / 2 || sw < w {
+        return;
+    }
+    let (yp, uvp) = dst.split_at_mut(w * h);
+    let luma = |r: i32, g: i32, b: i32| ((77 * r + 150 * g + 29 * b + 128) >> 8).clamp(0, 255) as u8;
+    for y in 0..h {
+        let row = &rgb[y * sw * 3..];
+        for x in 0..w {
+            let p = &row[x * 3..x * 3 + 3];
+            yp[y * w + x] = luma(p[0] as i32, p[1] as i32, p[2] as i32);
+        }
+    }
+    for y in (0..h).step_by(2) {
+        for x in (0..w).step_by(2) {
+            let (mut r, mut g, mut b) = (0i32, 0i32, 0i32);
+            for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                let p = &rgb[((y + dy) * sw + x + dx) * 3..];
+                r += p[0] as i32;
+                g += p[1] as i32;
+                b += p[2] as i32;
+            }
+            let (r, g, b) = (r / 4, g / 4, b / 4);
+            let u = ((-43 * r - 85 * g + 128 * b + 128) >> 8) + 128;
+            let v = ((128 * r - 107 * g - 21 * b + 128) >> 8) + 128;
+            let d = (y / 2) * w + x;
+            uvp[d] = u.clamp(0, 255) as u8;
+            uvp[d + 1] = v.clamp(0, 255) as u8;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,5 +268,36 @@ mod tests {
                 assert_eq!(nv[i], rgba[i * 4], "rot {rot} px {i}");
             }
         }
+    }
+
+    #[test]
+    fn rgb_roundtrip_gray_and_red() {
+        let (w, h) = (4, 2);
+        let mut rgb = vec![128u8; w * h * 3];
+        for p in rgb.chunks_exact_mut(3).take(2) {
+            p.copy_from_slice(&[255, 0, 0]);
+        }
+        let mut nv = vec![0u8; w * h * 3 / 2];
+        rgb_to_nv12(&rgb, w, h, &mut nv);
+        let s = Src { data: &nv, width: w, height: h, stride: w, scanlines: h, vu: false };
+        let mut out = vec![0u8; w * h * 4];
+        to_rgba(&s, 0, false, 1, &mut out);
+        // серый остаётся серым
+        assert!((out[3 * 4] as i32 - 128).abs() <= 3, "{:?}", &out[12..16]);
+        // красный пиксель — красноватый (цветность общая на 2×2)
+        assert!(out[0] > out[1] && out[0] > out[2]);
+    }
+
+    #[test]
+    fn yuyv_plain() {
+        let (w, h) = (4, 2);
+        let mut yuyv = vec![0u8; w * h * 2];
+        for (i, px) in yuyv.chunks_exact_mut(4).enumerate() {
+            px.copy_from_slice(&[i as u8 * 10, 100, i as u8 * 10 + 5, 200]);
+        }
+        let mut nv = vec![0u8; w * h * 3 / 2];
+        yuyv_to_nv12(&yuyv, w * 2, w, h, &mut nv);
+        assert_eq!(&nv[..4], &[0, 5, 10, 15]);
+        assert_eq!(&nv[w * h..w * h + 4], &[100, 200, 100, 200]);
     }
 }

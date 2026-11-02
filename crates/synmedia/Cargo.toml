@@ -1,0 +1,19 @@
+[package]
+name = "synmedia"
+description = "Камера и запись видео synshell: источники кадров (syncamd телефона, V4L2 компьютера), превью, запись MP4 (V4L2 M2M, NVENC/VAAPI/x264) со звуком микрофона и внешних дорожек"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+syngui = { workspace = true, features = ["i18n"] }
+libc.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+ffmpeg-next = { version = "9.0", default-features = false, features = ["codec", "format"] }
+cpal = "0.15"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+
+[build-dependencies]
+cc = "1"

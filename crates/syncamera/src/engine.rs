@@ -1,20 +1,17 @@
-//! Сеанс камеры: поток кадров syncamd в фоне → превью (`LiveFrame`, RGBA с поворотом под окно) и запись
-//! видео; управление (зум, точка фокуса, EV…) — сообщениями CONTROL того же соединения, повторяется после
-//! переоткрытия. Камера занята или служба недоступна — повтор раз в секунду.
+//! Сеанс камеры «Камеры»: общий сеанс `synmedia::Engine` (превью, управление, запись) плюс своё поверх
+//! отвода кадров — поиск QR-кодов (режим «Фото») и серия кадров полного размера («Ночь»).
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use syngui::widgets::LiveFrame;
+use synmedia::convert::Src;
+use synmedia::recorder;
+use synmedia::syncamd::{Camera, Control, Meta};
 
-use crate::convert::{self, Src};
 use crate::night;
-use crate::proto::{self, Camera, Control, Meta, Stream};
-use crate::recorder::{self, Recorder};
-use syngui::t;
 
 /// Что открыть.
 #[derive(Clone, Debug)]
@@ -41,76 +38,60 @@ pub enum Note {
     Qr(String),
 }
 
-type NoteFn = Arc<dyn Fn(Note) + Send + Sync>;
-
-struct Inner {
-    preview: Arc<LiveFrame>,
-    note: NoteFn,
-    /// Номер сеанса: поток прежнего сеанса завершается, увидев другой.
-    gen: AtomicU64,
-    stream: Mutex<Option<Arc<Stream>>>,
-    ctl: Mutex<Control>,
-    recorder: Mutex<Option<Recorder>>,
-    /// Поворот превью по часовой и зеркало (фронтальная).
-    rot: AtomicU32,
-    mirror: AtomicBool,
-    /// Кадров превью в пути к интерфейсу (не взят — следующий не готовим).
-    pending: AtomicU32,
-    /// Последний кадр превью (миниатюра снимка).
-    last: Mutex<Option<(u32, u32, Arc<[u8]>)>>,
-    /// Серия кадров полного размера («Ночь»): сколько нужно, собранные, куда отдать.
-    burst: Mutex<Option<Burst>>,
-    /// Искать QR-коды в кадре (режим «Фото»).
-    qr: AtomicBool,
-    qr_tx: Mutex<Option<std::sync::mpsc::SyncSender<(Vec<u8>, usize, usize)>>>,
-}
-
 struct Burst {
     want: usize,
     frames: Vec<night::Frame>,
     tx: std::sync::mpsc::Sender<(Vec<night::Frame>, bool)>,
 }
 
+struct Extra {
+    /// Серия кадров полного размера («Ночь»): сколько нужно, собранные, куда отдать.
+    burst: Mutex<Option<Burst>>,
+    /// Искать QR-коды в кадре (режим «Фото»).
+    qr: AtomicBool,
+    qr_tx: Mutex<Option<std::sync::mpsc::SyncSender<(Vec<u8>, usize, usize)>>>,
+    qr_tick: AtomicU32,
+}
+
 #[derive(Clone)]
 pub struct Engine {
-    inner: Arc<Inner>,
+    e: synmedia::Engine,
+    x: Arc<Extra>,
+    note: Arc<dyn Fn(Note) + Send + Sync>,
 }
 
 impl PartialEq for Engine {
     fn eq(&self, o: &Self) -> bool {
-        Arc::ptr_eq(&self.inner, &o.inner)
+        self.e == o.e
     }
 }
 
 impl Engine {
     pub fn new(note: impl Fn(Note) + Send + Sync + 'static) -> Engine {
-        Engine {
-            inner: Arc::new(Inner {
-                preview: LiveFrame::new(),
-                note: Arc::new(note),
-                gen: AtomicU64::new(0),
-                stream: Mutex::new(None),
-                ctl: Mutex::new(Control::default()),
-                recorder: Mutex::new(None),
-                rot: AtomicU32::new(90),
-                mirror: AtomicBool::new(false),
-                pending: AtomicU32::new(0),
-                last: Mutex::new(None),
-                burst: Mutex::new(None),
-                qr: AtomicBool::new(false),
-                qr_tx: Mutex::new(None),
-            }),
-        }
+        let note: Arc<dyn Fn(Note) + Send + Sync> = Arc::new(note);
+        let n2 = note.clone();
+        let e = synmedia::Engine::new(move |n| {
+            n2(match n {
+                synmedia::Note::Frame => Note::Frame,
+                synmedia::Note::Meta(m) => Note::Meta(m),
+                synmedia::Note::Started(w, h) => Note::Started(w, h),
+                synmedia::Note::Status(s) => Note::Status(s),
+            })
+        });
+        let x = Arc::new(Extra { burst: Mutex::new(None), qr: AtomicBool::new(false), qr_tx: Mutex::new(None), qr_tick: AtomicU32::new(0) });
+        let xt = x.clone();
+        e.set_tap(Some(Arc::new(move |src: &Src, _ts: u64| tap(&xt, src))));
+        Engine { e, x, note }
     }
 
     /// Искать QR-коды (фоновый поток распознаёт уменьшенную яркость раз в ~0,3 с).
     pub fn set_qr(&self, on: bool) {
-        self.inner.qr.store(on, Ordering::Relaxed);
-        let mut tx = self.inner.qr_tx.lock().unwrap();
+        self.x.qr.store(on, Ordering::Relaxed);
+        let mut tx = self.x.qr_tx.lock().unwrap();
         if on && tx.is_none() {
             let (t, rx) = std::sync::mpsc::sync_channel::<(Vec<u8>, usize, usize)>(1);
             *tx = Some(t);
-            let note = self.inner.note.clone();
+            let note = self.note.clone();
             std::thread::Builder::new()
                 .name("qr".into())
                 .spawn(move || {
@@ -125,109 +106,101 @@ impl Engine {
     }
 
     pub fn preview(&self) -> Arc<LiveFrame> {
-        self.inner.preview.clone()
+        self.e.preview()
     }
 
-    /// Интерфейс взял кадр превью.
     pub fn frame_taken(&self) {
-        self.inner.pending.store(0, Ordering::Release);
+        self.e.frame_taken()
     }
 
     pub fn set_rotation(&self, rot: u32, mirror: bool) {
-        self.inner.rot.store(rot % 360, Ordering::Relaxed);
-        self.inner.mirror.store(mirror, Ordering::Relaxed);
+        self.e.set_rotation(rot, mirror)
     }
 
-    /// Последний кадр превью (RGBA).
     pub fn last_frame(&self) -> Option<(u32, u32, Arc<[u8]>)> {
-        self.inner.last.lock().unwrap().clone()
+        self.e.last_frame()
     }
 
-    /// Открыть камеру (прежний сеанс закрывается).
     pub fn open(&self, spec: OpenSpec, ctl: Control) {
-        let gen = self.inner.gen.fetch_add(1, Ordering::SeqCst) + 1;
-        self.shutdown_stream();
-        *self.inner.ctl.lock().unwrap() = ctl;
-        let inner = self.inner.clone();
-        std::thread::Builder::new()
-            .name("camera".into())
-            .spawn(move || session(inner, gen, spec))
-            .ok();
+        let s = synmedia::OpenSpec { cam: synmedia::Cam::Syncamd(spec.cam), width: spec.width, height: spec.height, fps: spec.fps, video: spec.video, jpeg: spec.jpeg };
+        self.e.open(s, ctl)
     }
 
-    /// Закрыть камеру (запись — остановить заранее).
     pub fn close(&self) {
-        self.inner.gen.fetch_add(1, Ordering::SeqCst);
-        self.shutdown_stream();
+        self.e.close()
     }
 
-    fn shutdown_stream(&self) {
-        if let Some(s) = self.inner.stream.lock().unwrap().take() {
-            s.shutdown();
-        }
-    }
-
-    /// Изменить управление и отправить поля `mask`.
     pub fn control(&self, mask: u32, f: impl FnOnce(&mut Control)) {
-        let c = {
-            let mut c = self.inner.ctl.lock().unwrap();
-            f(&mut c);
-            let mut c = *c;
-            c.mask = mask;
-            c
-        };
-        if let Some(s) = self.inner.stream.lock().unwrap().as_ref() {
-            s.control(&c);
-        }
+        self.e.control(mask, f)
     }
 
     pub fn ctl(&self) -> Control {
-        *self.inner.ctl.lock().unwrap()
+        self.e.ctl()
     }
 
     /// Собрать `n` следующих кадров потока целиком; ответ — кадры и «пары цветности V,U» (NV21).
     pub fn burst(&self, n: usize) -> std::sync::mpsc::Receiver<(Vec<night::Frame>, bool)> {
         let (tx, rx) = std::sync::mpsc::channel();
-        *self.inner.burst.lock().unwrap() = Some(Burst { want: n.max(1), frames: Vec::new(), tx });
+        *self.x.burst.lock().unwrap() = Some(Burst { want: n.max(1), frames: Vec::new(), tx });
         rx
     }
 
     pub fn recording(&self) -> bool {
-        self.inner.recorder.lock().unwrap().is_some()
+        self.e.recording()
     }
 
     pub fn start_recording(&self, s: recorder::Settings) -> Result<()> {
-        let stream = self.inner.stream.lock().unwrap().clone().ok_or_else(|| anyhow!("камера не включена"))?;
-        let r = Recorder::start(stream, s)?;
-        *self.inner.recorder.lock().unwrap() = Some(r);
-        Ok(())
+        self.e.start_recording(s)
     }
 
     pub fn pause_recording(&self, on: bool) {
-        if let Some(r) = self.inner.recorder.lock().unwrap().as_ref() {
-            r.set_paused(on);
-        }
+        self.e.pause_recording(on)
     }
 
     /// (длительность, мкс; байт; ошибка)
     pub fn record_stats(&self) -> Option<(u64, u64, Option<String>)> {
-        self.inner.recorder.lock().unwrap().as_ref().map(|r| {
-            (r.shared.duration_us.load(Ordering::Relaxed), r.shared.bytes.load(Ordering::Relaxed), r.failed())
-        })
+        self.e.record_stats()
     }
 
     pub fn stop_recording(&self) -> Result<PathBuf> {
-        let r = self.inner.recorder.lock().unwrap().take().ok_or_else(|| anyhow!("запись не идёт"))?;
-        r.stop()
+        self.e.stop_recording()
     }
 }
 
-/// Содержимое первого читаемого QR-кода в яркости `w × h`.
+/// Отвод кадра: серия «Ночи» и уменьшенная яркость для QR.
+fn tap(x: &Extra, src: &Src) {
+    {
+        let mut b = x.burst.lock().unwrap();
+        if let Some(bu) = b.as_mut() {
+            bu.frames.push(night::Frame::copy_from(src.data, src.width, src.height, src.stride, src.scanlines));
+            if bu.frames.len() >= bu.want {
+                let bu = b.take().unwrap();
+                let _ = bu.tx.send((bu.frames, src.vu));
+            }
+        }
+    }
+    // QR: уменьшенная яркость (до ~720 по ширине) — фоновому потоку, если он свободен
+    let tick = x.qr_tick.fetch_add(1, Ordering::Relaxed) + 1;
+    if x.qr.load(Ordering::Relaxed) && tick % 10 == 0 {
+        if let Some(tx) = x.qr_tx.lock().unwrap().as_ref() {
+            let k = src.width.div_ceil(720).max(1);
+            let (w, h) = (src.width / k, src.height / k);
+            let mut y = vec![0u8; w * h];
+            for r in 0..h {
+                let row = &src.data[r * k * src.stride..];
+                for c in 0..w {
+                    y[r * w + c] = row[c * k];
+                }
+            }
+            let _ = tx.try_send((y, w, h));
+        }
+    }
+}
+
 pub fn detect_qr(y: &[u8], w: usize, h: usize) -> Option<String> {
     let mut img = rqrr::PreparedImage::prepare_from_greyscale(w, h, |x, yy| y[yy * w + x]);
     img.detect_grids().into_iter().find_map(|g| g.decode().ok().map(|(_, s)| s))
 }
-
 #[cfg(test)]
 mod tests {
     #[test]
@@ -249,157 +222,5 @@ mod tests {
         }
         // поле вокруг кода — светлое
         assert_eq!(super::detect_qr(&y, w, h).as_deref(), Some("https://example.org/syncamera"));
-    }
-}
-
-fn session(inner: Arc<Inner>, gen: u64, spec: OpenSpec) {
-    let alive = || inner.gen.load(Ordering::SeqCst) == gen;
-    let mut busy_said = false;
-    while alive() {
-        let flags = proto::OPEN_META | if spec.video { proto::OPEN_VIDEO } else { 0 };
-        let mut r = Stream::open(spec.cam.id, spec.width, spec.height, spec.fps, flags, spec.jpeg);
-        if let (Err(e), Some(_)) = (&r, spec.jpeg) {
-            // поток JPEG рядом с большим видео HAL может не принять — без него (снимок перенастроит)
-            if !e.busy {
-                r = Stream::open(spec.cam.id, spec.width, spec.height, spec.fps, flags, None);
-            }
-        }
-        let stream = match r {
-            Ok(s) => Arc::new(s),
-            Err(e) => {
-                if !busy_said || !e.busy {
-                    (inner.note)(Note::Status(if e.busy { t!("Камера занята другой программой").into() } else { e.text }));
-                    busy_said = true;
-                }
-                std::thread::sleep(Duration::from_secs(1));
-                continue;
-            }
-        };
-        if !alive() {
-            return;
-        }
-        // управление — сразу (зум, EV, режим… сохраняются между переоткрытиями)
-        let mut c = *inner.ctl.lock().unwrap();
-        c.mask = proto::CTL_ZOOM | proto::CTL_EV | proto::CTL_TORCH | proto::CTL_MODE | proto::CTL_AWB | proto::CTL_MANUAL | proto::CTL_STAB | proto::CTL_AE_LOCK;
-        stream.control(&c);
-        *inner.stream.lock().unwrap() = Some(stream.clone());
-        (inner.note)(Note::Status(String::new()));
-        (inner.note)(Note::Started(stream.info.width, stream.info.height));
-        busy_said = false;
-        run(&inner, &stream, gen);
-        // поток кадров кончился: закрыли сами или камера остановилась
-        let mut cur = inner.stream.lock().unwrap();
-        if cur.as_ref().is_some_and(|s| Arc::ptr_eq(s, &stream)) {
-            *cur = None;
-        }
-        drop(cur);
-        if alive() {
-            (inner.note)(Note::Status(t!("Камера остановилась — включаю снова…").into()));
-            std::thread::sleep(Duration::from_millis(500));
-        }
-    }
-}
-
-fn run(inner: &Inner, stream: &Arc<Stream>, gen: u64) {
-    let info = stream.info;
-    let mut pool: Vec<Arc<[u8]>> = Vec::new();
-    let mut qr_tick = 0u32;
-    loop {
-        let ev = match stream.next() {
-            Ok(e) => e,
-            Err(_) => return,
-        };
-        if inner.gen.load(Ordering::SeqCst) != gen {
-            if let proto::Event::Frame(f) = ev {
-                stream.release(f.buf);
-            }
-            return;
-        }
-        let f = match ev {
-            proto::Event::Frame(f) => f,
-            proto::Event::Meta(m) => {
-                (inner.note)(Note::Meta(m));
-                continue;
-            }
-            proto::Event::Stopped => return,
-        };
-        // превью: только когда интерфейс взял прошлый кадр
-        if inner.pending.load(Ordering::Acquire) == 0 {
-            let rot = inner.rot.load(Ordering::Relaxed);
-            let mirror = inner.mirror.load(Ordering::Relaxed);
-            // превью не больше ~2,2 Мп: 1080p и 1440×1080 — как есть, 1:1 и 4K — через пиксель
-            let px = info.width as usize * info.height as usize;
-            let step = (1..4).find(|k| px / (k * k) <= 2_200_000).unwrap_or(4);
-            let (ow, oh) = convert::out_size(info.width as usize, info.height as usize, rot, step);
-            let need = ow * oh * 4;
-            // буфер из пула, который никто больше не держит
-            let mut buf = match pool.iter().position(|b| Arc::strong_count(b) == 1 && b.len() == need) {
-                Some(i) => pool.swap_remove(i),
-                None => Arc::from(vec![0u8; need]),
-            };
-            let data = Arc::get_mut(&mut buf).expect("буфер превью свободен");
-            stream.begin(f.buf);
-            let src = Src {
-                data: stream.data(f.buf),
-                width: info.width as usize,
-                height: info.height as usize,
-                stride: info.stride as usize,
-                scanlines: info.scanlines as usize,
-                vu: info.format == proto::FMT_NV21,
-            };
-            let t = std::time::Instant::now();
-            convert::to_rgba(&src, rot, mirror, step, data);
-            stream.end(f.buf);
-            if std::env::var_os("SYNCAMERA_TIMING").is_some() {
-                eprintln!("превью {}×{} шаг {step}: {:.1} мс", ow, oh, t.elapsed().as_secs_f64() * 1e3);
-            }
-            inner.preview.set(ow as u32, oh as u32, buf.clone());
-            *inner.last.lock().unwrap() = Some((ow as u32, oh as u32, buf.clone()));
-            pool.push(buf);
-            pool.truncate(4);
-            inner.pending.store(1, Ordering::Release);
-            (inner.note)(Note::Frame);
-        }
-        {
-            let mut b = inner.burst.lock().unwrap();
-            if let Some(bu) = b.as_mut() {
-                stream.begin(f.buf);
-                bu.frames.push(night::Frame::copy_from(
-                    stream.data(f.buf),
-                    info.width as usize,
-                    info.height as usize,
-                    info.stride as usize,
-                    info.scanlines as usize,
-                ));
-                stream.end(f.buf);
-                if bu.frames.len() >= bu.want {
-                    let bu = b.take().unwrap();
-                    let _ = bu.tx.send((bu.frames, info.format == proto::FMT_NV21));
-                }
-            }
-        }
-        // QR: уменьшенная яркость (до ~720 по ширине) — фоновому потоку, если он свободен
-        qr_tick += 1;
-        if inner.qr.load(Ordering::Relaxed) && qr_tick % 10 == 0 {
-            if let Some(tx) = inner.qr_tx.lock().unwrap().as_ref() {
-                let k = (info.width as usize).div_ceil(720).max(1);
-                let (w, h) = (info.width as usize / k, info.height as usize / k);
-                let mut y = vec![0u8; w * h];
-                stream.begin(f.buf);
-                let d = stream.data(f.buf);
-                for r in 0..h {
-                    let row = &d[r * k * info.stride as usize..];
-                    for c in 0..w {
-                        y[r * w + c] = row[c * k];
-                    }
-                }
-                stream.end(f.buf);
-                let _ = tx.try_send((y, w, h));
-            }
-        }
-        let taken = inner.recorder.lock().unwrap().as_mut().is_some_and(|r| r.push(f));
-        if !taken {
-            stream.release(f.buf);
-        }
     }
 }

@@ -8026,7 +8026,6 @@ name = "syncamera"
 version = "0.1.42"
 dependencies = [
  "anyhow",
- "cc",
  "cpal",
  "ffmpeg-next",
  "image",
@@ -8035,6 +8034,7 @@ dependencies = [
  "rqrr",
  "serde_json",
  "syngui",
+ "synmedia",
  "synshell-common",
  "synsystem",
  "tracing",
@@ -8296,6 +8296,20 @@ dependencies = [
  "synshell-common",
  "synshell-ui",
  "synsystem",
+]
+
+[[package]]
+name = "synmedia"
+version = "0.1.42"
+dependencies = [
+ "anyhow",
+ "cc",
+ "cpal",
+ "ffmpeg-next",
+ "image",
+ "libc",
+ "syngui",
+ "tracing",
 ]
 
 [[package]]

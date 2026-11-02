@@ -27,6 +27,7 @@ members = [
     "crates/synpass",
     "crates/synphone",
     "crates/syncamera",
+    "crates/synmedia",
     "crates/syn-video-player",
     "crates/syn-audio-player",
     "crates/syn-terminal",
@@ -68,6 +69,7 @@ synassist-voice = { path = "crates/synassist-voice" }
 syn-notes-proto = { path = "crates/syn-notes-proto" }
 syngui-layer = { path = "crates/syngui-layer" }
 synsystem = { path = "crates/synsystem" }
+synmedia = { path = "crates/synmedia" }
 syn-dlss = { path = "crates/syn-dlss" }
 synmodem = { path = "crates/synmodem" }
 synshell-ui = { path = "crates/synshell-ui" }

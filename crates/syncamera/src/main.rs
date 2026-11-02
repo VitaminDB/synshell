@@ -3,18 +3,14 @@
 //! звук, стабилизация, пауза, снимок во время записи, фонарик) и таймлапс; зум щипком и кнопками (переход на
 //! широкоугольную), фокус и экспозиция касанием (удержание — блокировка), смена камеры, просмотр снятого.
 //!
-//! Кадры, снимки и управление — служба камеры syncamd платформы (`proto`), запись — аппаратный кодер
-//! (`recorder`). Снимки — в «Изображения» (XDG_PICTURES_DIR), видео — в «Видео» (XDG_VIDEOS_DIR).
+//! Кадры, снимки и управление — служба камеры syncamd платформы (`synmedia::syncamd`), запись — аппаратный кодер
+//! (`synmedia::recorder`). Снимки — в «Изображения» (XDG_PICTURES_DIR), видео — в «Видео» (XDG_VIDEOS_DIR).
 
-mod convert;
 mod engine;
-mod media;
 mod modules;
 mod night;
 mod orientation;
 mod prefs;
-mod proto;
-mod recorder;
 mod sound;
 mod ui;
 mod viewer;
@@ -27,6 +23,7 @@ use syngui::prelude::*;
 use synshell_common::Config;
 
 use engine::{Engine, Note, OpenSpec};
+use synmedia::{media, recorder, syncamd as proto};
 use media::Kind;
 use prefs::Prefs;
 use proto::{Camera, Control, Meta};
@@ -1023,6 +1020,8 @@ pub fn start_recording(st: St) {
         hevc: st.hevc.get_untracked(),
         audio: st.mic.get_untracked() && mode == Mode::Video,
         timelapse: if mode == Mode::Timelapse { st.timelapse.get_untracked() } else { 1 },
+        tracks: false,
+        encoder: Default::default(),
     };
     if let Err(err) = e.start_recording(s) {
         st.toast.set(t!("Запись не началась: {err}", err = format!("{:#}", err)));

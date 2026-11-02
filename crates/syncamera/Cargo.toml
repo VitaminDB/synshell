@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 synshell-common = { workspace = true, features = ["i18n", "style"] }
 synsystem.workspace = true
+synmedia.workspace = true
 syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "ffmpeg", "image"] }
 libc.workspace = true
 anyhow.workspace = true
@@ -25,8 +26,6 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png"]
 rqrr = "0.11"
 serde_json.workspace = true
 
-[build-dependencies]
-cc = "1"
 
 [dev-dependencies]
 qrcode = { version = "0.14", default-features = false }
