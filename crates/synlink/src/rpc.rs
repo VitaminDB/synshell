@@ -26,10 +26,16 @@ pub async fn serve(d: D, peer: String, mut w: quinn::SendStream, mut r: quinn::R
         }
         Rpc::Input { output, events } => {
             let reply = match serde_json::from_str::<Vec<InputEvent>>(&events) {
-                Ok(ev) => match tokio::task::spawn_blocking(move || crate::services::input(output, ev)).await? {
-                    Ok(()) => Reply::Done,
-                    Err(e) => Reply::Err(format!("{e:#}")),
-                },
+                Ok(ev) => {
+                    // Кто нажимал: «призрачные» нажатия в программах ищутся по этой строке.
+                    let from = d.trusted(&peer).map(|t| t.name).unwrap_or_else(|| peer.clone());
+                    let first = ev.first().map(|e| format!("{e:?}")).unwrap_or_default();
+                    tracing::info!(from = %from, events = ev.len(), first = %first.chars().take(120).collect::<String>(), "удалённый ввод");
+                    match tokio::task::spawn_blocking(move || crate::services::input(output, ev)).await? {
+                        Ok(()) => Reply::Done,
+                        Err(e) => Reply::Err(format!("{e:#}")),
+                    }
+                }
                 Err(e) => Reply::Err(t!("события: {e}", e = e)),
             };
             proto::send(&mut w, &reply).await?;
