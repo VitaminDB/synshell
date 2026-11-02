@@ -21,6 +21,7 @@ struct Snapshot {
     defaults: Vec<DefaultModel>,
     libraries: Vec<LibraryInfo>,
     loras: Vec<LoraEntry>,
+    federation: Option<synaptixd::FederationInfo>,
     error: Option<String>,
 }
 
@@ -39,6 +40,8 @@ struct Cfg {
 struct Choices {
     defaults: Vec<DefaultModel>,
     models: Vec<(String, String, ModelKind)>,
+    /// Устройства федерации: (префикс, имя).
+    devices: Vec<(String, String)>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -60,9 +63,19 @@ static ACTIVE: AtomicBool = AtomicBool::new(false);
 const SUB: &str = "models/";
 
 fn fetch() -> Snapshot {
-    let r = Client::connect().and_then(|mut c| Ok((c.status()?, c.list()?, c.defaults()?, c.libraries().unwrap_or_default(), c.loras().unwrap_or_default())));
+    let r = Client::connect().and_then(|mut c| {
+        Ok((c.status()?, c.list()?, c.defaults()?, c.libraries().unwrap_or_default(), c.loras().unwrap_or_default(), c.federation().ok()))
+    });
     match r {
-        Ok((status, models, defaults, libraries, loras)) => Snapshot { status: Some(status), models, defaults, libraries, loras, error: None },
+        Ok((status, mut models, defaults, libraries, loras, federation)) => {
+            // Модели спаренных устройств — с пометкой устройства.
+            for m in &mut models {
+                if let synaptixd::Origin::Remote { name, .. } = &m.origin {
+                    m.title = format!("{} · {name}", m.title);
+                }
+            }
+            Snapshot { status: Some(status), models, defaults, libraries, loras, federation, error: None }
+        }
         Err(e) => Snapshot { error: Some(e.to_string()), ..Default::default() },
     }
 }
@@ -124,7 +137,8 @@ fn apply(sig: RwSignal<Snapshot>, s: Snapshot) {
         }
     }
     if s.status.is_some() {
-        let choices = Choices { defaults: s.defaults.clone(), models: s.models.iter().map(|m| (m.id.clone(), m.title.clone(), m.kind)).collect() };
+        let devices = s.federation.iter().flat_map(|f| f.devices.iter().map(|d| (d.device.clone(), d.name.clone()))).collect();
+        let choices = Choices { defaults: s.defaults.clone(), models: s.models.iter().map(|m| (m.id.clone(), m.title.clone(), m.kind)).collect(), devices };
         let c = choices_signal();
         if c.get_untracked().as_ref() != Some(&choices) {
             c.set(Some(choices));
@@ -436,7 +450,7 @@ fn menu(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
         let active: Vec<W> = snap
             .models
             .iter()
-            .filter(|m| matches!(m.state, LoadState::Loaded | LoadState::Loading))
+            .filter(|m| m.origin.is_local() && matches!(m.state, LoadState::Loaded | LoadState::Loading))
             .map(|m| {
                 let id = m.id.clone();
                 let mut hint = short_state(m);
@@ -480,6 +494,7 @@ fn menu(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
                 snap.libraries.iter().any(|l| !l.online),
             ),
             nav_item(ctx, "vram".into(), t!("Видеокарта для программ"), vram_summary(st), "\u{e30d}", false),
+            nav_item(ctx, "federation".into(), t!("Модели других устройств"), federation_summary(snap.federation.as_ref()), "\u{e1b1}", false),
             nav_item(
                 ctx,
                 "service".into(),
@@ -606,7 +621,10 @@ fn defaults_page(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
                 continue;
             }
             let auto = match (&d.model, &d.resolved) {
-                (None, Some(r)) => t!("Авто — {m}", m = title(r)),
+                (None, Some(r)) => match r.split_once(':').and_then(|(dev, _)| ch.devices.iter().find(|x| x.0 == dev)) {
+                    Some((_, name)) => t!("С устройства «{d}» — {m}", d = name, m = title(r)),
+                    None => t!("Авто — {m}", m = title(r)),
+                },
                 _ => t!("Авто"),
             };
             let mut dd = Dropdown::new().width(280.0).item(DropdownItem::new("", auto));
@@ -1455,12 +1473,22 @@ fn model_page(ctx: state::Ctx, sig: RwSignal<Snapshot>, id: String) -> W {
     let status = Reactive::new(move || -> Vec<W> {
         let snap = sig.get();
         match snap.models.iter().find(|m| m.id == i) {
+            Some(m) if !m.origin.is_local() => {
+                let name = match &m.origin {
+                    synaptixd::Origin::Remote { name, .. } => name.clone(),
+                    _ => String::new(),
+                };
+                vec![status_card(m), note(t!("Модель работает на устройстве «{d}»: запросы к ней идут через synlink. Настраивается она в «Параметрах» того устройства.", d = name))]
+            }
             Some(m) => vec![status_card(m), location_card(sig, m, &snap.libraries)],
             None => vec![note(t!("Модель {id} не найдена — возможно, удалена из библиотеки", id = i))],
         }
     });
     let i = id.clone();
     let settings = Reactive::new(move || -> Vec<W> {
+        if sig.get().models.iter().any(|m| m.id == i && !m.origin.is_local()) {
+            return Vec::new();
+        }
         let Some(c) = cfg.get() else { return Vec::new() };
         let mut col = Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(settings_card(sig, &i, &c));
         if c.engine.is_some() {
@@ -1485,7 +1513,11 @@ fn model_page(ctx: state::Ctx, sig: RwSignal<Snapshot>, id: String) -> W {
         parent,
         title,
         note_text,
-        vec![boxed(Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(status).child(settings).child(params_card(sig, &id)).children(test))],
+        {
+            let remote = snap.models.iter().any(|m| m.id == id && !m.origin.is_local());
+            let params = (!remote).then(|| params_card(sig, &id));
+            vec![boxed(Column::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(status).child(settings).children(params).children(test))]
+        },
     )
 }
 
@@ -1508,6 +1540,7 @@ pub fn models() -> W {
                 Some("defaults") => defaults_page(ctx, sig),
                 Some("service") => service_page(ctx, sig),
                 Some("vram") => vram_page(ctx, sig),
+                Some("federation") => federation_page(ctx, sig),
                 Some("storage") => storage_page(ctx, sig),
                 Some(k) if k.starts_with("m/") => model_page(ctx, sig, k[2..].to_string()),
                 Some(k) if k.starts_with("k/") => match ModelKind::parse(&k[2..]) {
@@ -1525,6 +1558,61 @@ pub fn models() -> W {
         )]
     });
     boxed(view)
+}
+
+// ─── Модели других устройств (федерация) ───────────────────────────────────
+
+fn federation_summary(f: Option<&synaptixd::FederationInfo>) -> String {
+    let Some(f) = f.filter(|f| f.enabled) else { return t!("Выключено") };
+    let live: Vec<String> = f.devices.iter().filter(|d| d.connected && d.models > 0).map(|d| t!("{n}: {m}", n = d.name, m = d.models)).collect();
+    if live.is_empty() {
+        return if f.synlink { t!("Спаренные устройства не на связи") } else { t!("synlink не запущен") };
+    }
+    t!("Моделей с устройств — {l}", l = live.join(" · "))
+}
+
+fn federation_page(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
+    let body = Reactive::new(move || -> Vec<W> {
+        let snap = sig.get();
+        let Some(f) = snap.federation.clone().filter(|f| f.enabled) else {
+            return vec![note(t!("Федерация выключена в /etc/synaptix/synaptixd.toml ([federation] enabled = false) или служба старая."))];
+        };
+        let prefer = Dropdown::new()
+            .width(260.0)
+            .item(DropdownItem::new("auto", t!("Авто")))
+            .item(DropdownItem::new("remote", t!("Предпочитать модели устройства")))
+            .item(DropdownItem::new("local", t!("Предпочитать свои модели")))
+            .selected(f.prefer.clone())
+            .on_change(move |v: &str| {
+                let v = v.to_string();
+                act(sig, move |c| c.set_federation_prefer(&v).map(|_| ()));
+            });
+        let mut rows = vec![row_inline(
+            t!("Где выполнять"),
+            t!("Авто: телефон и планшет берут модели компьютера, компьютер — свои. Действует на модель по умолчанию и на модели, что есть и здесь, и там. Без связи — всегда свои."),
+            prefer,
+        )];
+        if f.devices.is_empty() {
+            rows.push(note(t!("Спаренных устройств нет — спарьте их в «Устройствах» (synlink).")));
+        }
+        for d in &f.devices {
+            let state = if !d.connected {
+                t!("не на связи")
+            } else if d.models == 0 {
+                t!("на связи, моделей нет (или там старая служба)")
+            } else {
+                t!("на связи · моделей {n}", n = d.models)
+            };
+            rows.push(row_inline(d.name.clone(), t!("id моделей: {p}:<модель>", p = d.device), Text::new(state).class("row-value")));
+        }
+        vec![group(t!("Модели других устройств"), rows)]
+    });
+    sub_page(
+        ctx,
+        t!("Модели других устройств"),
+        t!("Нейросети спаренных устройств доступны здесь всем программам: запросы идут через synlink, программы ничего не меняют."),
+        vec![boxed(body)],
+    )
 }
 
 // ─── Видеокарта для программ ────────────────────────────────────────────────
