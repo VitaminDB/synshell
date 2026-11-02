@@ -108,6 +108,15 @@ fn main() {
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(st.theme)
         .with_window_state(st.window)
+        // закрытие во время записи (кнопка окна, двойной «назад» на телефоне) — дубль сохраняется, не теряется
+        .on_close_request(|| {
+            match engine::stop() {
+                Ok(Some(p)) => tracing::info!("закрытие: запись сохранена — {}", p.display()),
+                Ok(None) => {}
+                Err(e) => tracing::warn!("закрытие: запись не сохранилась — {e}"),
+            }
+            true
+        })
         .run(move |_| {
             st.start();
             ui::root(st)
