@@ -255,7 +255,8 @@ fn main() {
         .frameless()
         // На iPhone окно — весь экран, прозрачность не нужна.
         .transparent(!cfg!(target_os = "ios"))
-        .fullscreen(set.fullscreen)
+        // iPhone: всегда во весь экран, без строки состояния.
+        .fullscreen(set.fullscreen || cfg!(target_os = "ios"))
         .ui_scale(set.scale)
         .background(Color::from_srgb(0, 0, 0, 0.0))
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)

@@ -168,7 +168,12 @@ Slider { height: 6px; background: var(--pressed); color: var(--plum); accent-col
 .cell.fertile { background-color: var(--fert); }
 .cell.ovul { background-color: var(--ovul); }
 .cell.ovul.marked { border-color: var(--ovul-line); }
-.cell.today { border-color: var(--fg); }
+/* Сегодня — залитый бирюзовый кружок; отметка дня (месячные, прогноз, окно) остаётся кольцом вокруг. */
+.cell.today { background-color: var(--teal); border-color: var(--teal); border-width: 2.5px; }
+.cell.today.period { border-color: var(--rose); }
+.cell.today.predicted { border-color: var(--rose-line); }
+.cell.today.fertile { border-color: var(--ovul); }
+.cell.today.ovul { border-color: var(--ovul-line); }
 .cell.off { opacity: 0.35; }
 .cell.sel { scale: 1.08; border-color: var(--fg); }
 .cell-num { font-size: 15px; font-weight: 500; color: var(--fg); }
@@ -176,7 +181,7 @@ Slider { height: 6px; background: var(--pressed); color: var(--plum); accent-col
 .cell-num.rose { color: var(--rose); font-weight: 600; }
 .cell-num.fert { color: var(--fert-text); font-weight: 600; }
 .cell-num.teal { color: var(--teal); font-weight: 700; }
-.cell-num.today { color: var(--fg); font-weight: 800; }
+.cell-num.today { color: #ffffff; font-weight: 800; }
 .cell-num.off { color: var(--faint); }
 
 .legend { padding: 18px 2px 4px 2px; }

@@ -4,8 +4,8 @@
 #   packaging/ios/build-ipa.sh syn-woman-cycle [--release]
 #
 # Нужно: rustup target add aarch64-apple-ios; clang + lld (ld64.lld); rsvg-convert; zip;
-# iOS SDK (заголовки и .tbd) в $IOS_SDK (по умолчанию ~/.local/share/ios-sdk/src/iPhoneOS16.5.sdk,
-# из github.com/theos/sdks). Линковка под iOS настроена в ~/.cargo/config.toml.
+# iOS SDK (заголовки и .tbd) в $IOS_SDK (по умолчанию ~/.local/share/ios-sdk/src18/iPhoneOS18.6.sdk,
+# из github.com/xybp888/iOS-SDKs; SDK не ниже 18 — иначе на iPhone 16/17 Pro iOS показывает приложение в режиме совместимости, с рамками). Линковка под iOS настроена в ~/.cargo/config.toml.
 #
 # .ipa не подписан: подпись и установку делает установщик на Apple ID (Plume Impactor,
 # AltServer/SideStore, Sideloadly) — он же подставляет свой bundle id и профиль.
@@ -16,7 +16,7 @@ PROFILE=fast-release
 [[ ${2:-} == --release ]] && PROFILE=release
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-SDK=${IOS_SDK:-$HOME/.local/share/ios-sdk/src/iPhoneOS16.5.sdk}
+SDK=${IOS_SDK:-$HOME/.local/share/ios-sdk/src18/iPhoneOS18.6.sdk}
 MIN_IOS=14.0
 [[ -d $SDK ]] || { echo "нет iOS SDK: $SDK" >&2; exit 1; }
 
@@ -29,10 +29,12 @@ case $APP in
     ICON=$ROOT/crates/syn-woman-cycle/data/icons/syn-woman-cycle.svg
     ICON_VIEWBOX="8 8 112 112"
     ICON_UNROUND='rx="30"'
+    STATUS_BAR_HIDDEN=true
     ;;
   *) echo "неизвестное приложение: $APP (добавьте его в build-ipa.sh)" >&2; exit 1 ;;
 esac
 
+STATUS_BAR_HIDDEN=${STATUS_BAR_HIDDEN:-false}
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/Cargo.toml" | head -1)
 BUILD=$(git -C "$ROOT" rev-list --count HEAD)
 
@@ -85,6 +87,7 @@ cat > "$DOT_APP/Info.plist" <<PLIST
   <key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>
   <key>UIRequiredDeviceCapabilities</key><array><string>arm64</string><string>metal</string></array>
   <key>UILaunchScreen</key><dict/>
+  <key>UIStatusBarHidden</key><$STATUS_BAR_HIDDEN/>
   <key>UIRequiresFullScreen</key><true/>
   <key>UIApplicationSupportsIndirectInputEvents</key><true/>
   <key>UISupportedInterfaceOrientations</key>

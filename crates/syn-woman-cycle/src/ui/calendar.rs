@@ -66,12 +66,15 @@ fn cell_class(fc: &Forecast, d: Day, mode: Mode, sel: Option<Day>) -> String {
 }
 
 fn text_class(fc: &Forecast, d: Day, mode: Mode) -> &'static str {
+    // сегодня — белая цифра на залитом кружке
+    if d == fc.today {
+        return "cell-num today";
+    }
     match fc.kind(d) {
         Kind::Period => "cell-num strong",
         Kind::Predicted => "cell-num rose",
         Kind::Ovulation | Kind::Fertile => "cell-num fert",
         Kind::None if mode == Mode::Pick && d > fc.today => "cell-num off",
-        Kind::None if d == fc.today => "cell-num today",
         Kind::None => "cell-num",
     }
 }
