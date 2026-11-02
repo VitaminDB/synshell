@@ -1077,6 +1077,7 @@ impl Manager {
         let vram_before = synaptix_core::memory::cuda_pool::cuda_allocated_bytes() as u64;
         let t0 = Instant::now();
         let loaded = {
+            devices::set_model(&m.id);
             let _dl = devices::lock(dev);
             runners::load(m.kind, &m.arch, &path, &m.component_paths(), dev, quant, engine)
         };
@@ -1108,7 +1109,9 @@ impl Manager {
         f: impl Fn(&Loaded) -> anyhow::Result<T>,
     ) -> Result<T, Error> {
         let live = crate::activity::current();
+        devices::set_model(id);
         let lease = self.acquire(id)?;
+        devices::set_model(id);
         let dev = lease.device;
         let mut r = {
             let _dl = devices::lock(dev);
