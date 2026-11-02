@@ -1137,6 +1137,9 @@ impl Loaded {
             if !tool.is_empty() {
                 on_event(synaptixd::Event::ToolText { text: tool });
             }
+            // Между токенами — пропустить вперёд ждущие карту ASR/TTS
+            // (а фоновой генерации — и обычные запросы).
+            crate::devices::yield_point();
             !parser.borrow().tool_call_ready() && !stopped()
         };
         let need = ids.len() + max_tokens + 16;

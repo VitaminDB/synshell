@@ -107,6 +107,21 @@ fn work_op(req: &Request) -> Option<&'static str> {
     })
 }
 
+/// Приоритет запроса в очереди к устройству: короткие ответы живому
+/// человеку (ASR, TTS, выравнивание, эмбеддинги) — вперёд, генерация —
+/// обычный, `params.priority` (`interactive` | `normal` | `background`)
+/// меняет его у Generate и Speak.
+fn priority(req: &Request) -> devices::Prio {
+    use devices::Prio;
+    let asked = |p: &Params| p.text("priority").and_then(Prio::parse);
+    match req {
+        Request::Transcribe { .. } | Request::Ctc { .. } | Request::MfaAlign { .. } | Request::Embed { .. } | Request::Rerank { .. } | Request::Tokenize { .. } => Prio::Interactive,
+        Request::Speak { params, .. } => asked(params).unwrap_or(Prio::Interactive),
+        Request::Generate { params, .. } => asked(params).unwrap_or(Prio::Normal),
+        _ => Prio::Normal,
+    }
+}
+
 /// Имя операции запроса для журнала загрузок.
 fn req_name(req: &Request) -> &'static str {
     work_op(req).unwrap_or(match req {
@@ -125,6 +140,7 @@ impl Conn {
     }
 
     fn dispatch(&mut self, req: Request, fds: Vec<OwnedFd>) -> Result<(Value, Vec<OwnedFd>), Error> {
+        devices::set_priority(priority(&req));
         let mgr = self.mgr.clone();
         let mut fds: Vec<Option<OwnedFd>> = fds.into_iter().map(Some).collect();
         let none = Vec::new;
@@ -419,7 +435,7 @@ impl Conn {
                 }
                 // Параметры запроса, а не настройки модели: схема их не знает.
                 let request_only: Vec<(&str, synaptixd::ParamValue)> =
-                    ["session", "stop", "max_image_tokens", "json_schema"].into_iter().filter_map(|k| call.get(k).cloned().map(|v| (k, v))).collect();
+                    ["session", "stop", "max_image_tokens", "json_schema", "priority"].into_iter().filter_map(|k| call.get(k).cloned().map(|v| (k, v))).collect();
                 let mut params = mgr.params(&model, &call);
                 for (k, v) in request_only {
                     params.set(k, Some(v));
