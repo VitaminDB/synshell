@@ -4,6 +4,7 @@
 //!   syn-woman-cycle [--screenshot out.png [--size 420x900] [--scale 2] [--page calendar|menu|history|settings|intro|cycle|day] [--dark]]
 
 mod date;
+mod decor;
 mod icons;
 mod model;
 mod state;
@@ -64,8 +65,48 @@ pub fn pal(dark: bool) -> Pal {
     }
 }
 
-pub fn is_dark(cfg: &Config, mode: ThemeMode) -> bool {
-    match mode {
+/// Палитра холстов с поправками оформления.
+pub fn pal_for(dark: bool, d: decor::Decor) -> Pal {
+    let mut p = pal(dark);
+    let over = d.vars(dark);
+    let get = |k: &str| over.iter().find(|(o, _)| *o == k).map(|(_, v)| Color::from_hex(v));
+    if let Some(c) = get("rose") {
+        p.rose = c;
+    }
+    if let Some(c) = get("plum") {
+        p.plum = c;
+    }
+    if let Some(c) = get("surface") {
+        p.surface = c;
+    }
+    if let Some(c) = get("fg") {
+        p.fg = c;
+    }
+    if let Some(c) = get("border") {
+        p.track = c;
+    }
+    if let Some(c) = get("ovul") {
+        p.fert = c;
+    }
+    p
+}
+
+/// Палитра холстов для текущего состояния (тема и оформление).
+pub fn pal_st(st: state::St) -> Pal {
+    pal_for(st.dark.get_untracked(), st.data.get_untracked().settings.decor)
+}
+
+/// Цвет фона окна (для рисунков, которые «вырезают» фоном).
+pub fn bg_color(dark: bool, d: decor::Decor) -> Color {
+    let base = if dark { "#121013" } else { "#fbfafa" };
+    Color::from_hex(d.vars(dark).iter().find(|(k, _)| *k == "bg").map(|(_, v)| *v).unwrap_or(base))
+}
+
+pub fn is_dark(cfg: &Config, s: &model::Settings) -> bool {
+    if s.decor.always_dark() {
+        return true;
+    }
+    match s.theme {
         // На iPhone «как в системе» — тёмная тема iOS, конфига оболочки там нет.
         ThemeMode::System if cfg!(target_os = "ios") => syngui::appearance::read_system_appearance().is_dark(),
         ThemeMode::System => cfg.appearance.is_dark(),
@@ -74,7 +115,7 @@ pub fn is_dark(cfg: &Config, mode: ThemeMode) -> bool {
     }
 }
 
-pub fn theme(cfg: &Config, dark: bool) -> String {
+pub fn theme(cfg: &Config, dark: bool, decor: decor::Decor) -> String {
     let vars: &[(&str, &str, &str)] = &[
         // имя, светлая, тёмная
         ("bg", "#fbfafa", "#121013"),
@@ -114,11 +155,14 @@ pub fn theme(cfg: &Config, dark: bool) -> String {
         ("sidebar", "#f6f3f5", "#171418"),
         ("nav", "#fffffff5", "#1a171bf5"),
         ("danger", "#d93d47", "#ff6b6f"),
+        ("today", "#22b8a7", "#35d0be"),
     ];
 
     let mut s = String::from(":root {\n");
+    let over = decor.vars(dark);
     for (k, l, d) in vars {
-        s.push_str(&format!("  --{k}: {};\n", if dark { d } else { l }));
+        let v = over.iter().find(|(o, _)| o == k).map(|(_, v)| *v).unwrap_or(if dark { d } else { l });
+        s.push_str(&format!("  --{k}: {v};\n"));
     }
     s.push_str(&format!("  --window-radius: {}px;\n}}\n", cfg.decorations.corner_radius.max(0.0)));
     s.push_str(include_str!("../styles/syn-woman-cycle.mss"));
@@ -135,9 +179,10 @@ pub fn apply_theme(st: state::St) {
 }
 
 fn apply_theme_with(st: state::St, cfg: &Config) {
-    let dark = is_dark(cfg, st.data.get_untracked().settings.theme);
+    let s = st.data.get_untracked().settings;
+    let dark = is_dark(cfg, &s);
     st.dark.set(dark);
-    let mss = theme(cfg, dark);
+    let mss = theme(cfg, dark, s.decor);
     if st.theme.get_untracked() != mss {
         st.theme.set(mss);
     }
@@ -174,11 +219,12 @@ fn main() {
     let mut scale = 2.0f64;
     let mut page = String::from("calendar");
     let mut dark_shot = false;
+    let mut decor_shot = decor::Decor::Classic;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "-h" | "--help" => {
-                println!("{}", t!("syn-woman-cycle [--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page calendar|menu|history|settings|intro|cycle|day] [--dark]]"));
+                println!("{}", t!("syn-woman-cycle [--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page calendar|menu|history|settings|intro|cycle|day] [--dark] [--decor classic|sakura|berry|lavender|daisy|night]]"));
                 return;
             }
             "--screenshot" => shot = args.next(),
@@ -190,15 +236,21 @@ fn main() {
             "--scale" => scale = args.next().and_then(|s| s.parse().ok()).unwrap_or(scale),
             "--page" => page = args.next().unwrap_or(page),
             "--dark" => dark_shot = true,
+            "--decor" => {
+                let name = args.next().unwrap_or_default();
+                decor_shot = decor::Decor::ALL.into_iter().find(|d| format!("{d:?}").eq_ignore_ascii_case(&name)).unwrap_or(decor_shot);
+            }
             _ => {}
         }
     }
     let (cfg, _) = Config::load();
     if let Some(out) = shot {
-        let mss = theme(&cfg, dark_shot);
+        let dark_shot = dark_shot || decor_shot.always_dark();
+        let mss = theme(&cfg, dark_shot, decor_shot);
         let r = syngui::shot::render_png(
             || {
-                let data = if page == "intro" || page == "cycle" { model::Data::default() } else { demo() };
+                let mut data = if page == "intro" || page == "cycle" { model::Data::default() } else { demo() };
+                data.settings.decor = decor_shot;
                 let st = state::St::new(data);
                 st.dark.set(dark_shot);
                 match page.as_str() {
@@ -234,8 +286,8 @@ fn main() {
     let data = model::load();
     let set = data.settings.clone();
     let st = state::St::new(data);
-    let dark = is_dark(&cfg, set.theme);
-    let mss = theme(&cfg, dark);
+    let dark = is_dark(&cfg, &set);
+    let mss = theme(&cfg, dark, set.decor);
     st.dark.set(dark);
     st.theme.set(mss);
     watch_config(st);

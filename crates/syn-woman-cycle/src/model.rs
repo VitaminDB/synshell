@@ -82,6 +82,8 @@ pub struct Settings {
     /// Считать длины по истории (последние 6 циклов).
     pub auto: bool,
     pub theme: ThemeMode,
+    /// Оформление: палитра, узор фона, форма отметок.
+    pub decor: crate::decor::Decor,
     pub scale: f32,
     pub fullscreen: bool,
     pub monday: bool,
@@ -93,7 +95,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { cycle_len: 28, period_len: 5, luteal: 14, auto: true, theme: ThemeMode::System, scale: 1.0, fullscreen: true, monday: true, show_fertile: true, show_ovulation: true, show_intimacy: true }
+        Settings { cycle_len: 28, period_len: 5, luteal: 14, auto: true, theme: ThemeMode::System, decor: crate::decor::Decor::Classic, scale: 1.0, fullscreen: true, monday: true, show_fertile: true, show_ovulation: true, show_intimacy: true }
     }
 }
 

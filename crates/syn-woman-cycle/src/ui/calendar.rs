@@ -12,6 +12,7 @@ use syngui::{PopupAnchor, PopupPanel};
 
 use super::{boxed, icon, icon_button, W};
 use crate::date::{self, Day};
+use crate::decor::{self, Decor, Ink, OvulMark};
 use crate::icons;
 use crate::model::{Forecast, Kind, Phase, Phases};
 use crate::state::St;
@@ -39,7 +40,7 @@ pub fn phase_name(p: Phase) -> String {
     }
 }
 
-fn cell_class(fc: &Forecast, d: Day, mode: Mode, sel: Option<Day>) -> String {
+fn cell_class(fc: &Forecast, d: Day, mode: Mode, sel: Option<Day>, shape: bool) -> String {
     let mut c = String::from("cell");
     let k = fc.kind(d);
     c.push_str(match k {
@@ -62,7 +63,30 @@ fn cell_class(fc: &Forecast, d: Day, mode: Mode, sel: Option<Day>) -> String {
     if Some(d) == sel {
         c.push_str(" sel");
     }
+    // отметка нарисована фигурой (капля, цветок) — без заливки круга
+    if shape {
+        c.push_str(" shape");
+    }
     c
+}
+
+/// Фигура отметки под цифрой: капля месячных (бледная — прогноз), знак овуляции.
+fn shape_canvas(decor: Decor, kind: Kind, size: f32, ink: Ink) -> Canvas {
+    Canvas::new(move |c, _| {
+        let (cx, cy) = (size / 2.0, size / 2.0);
+        match kind {
+            Kind::Period => decor::paint_drop(c, cx, cy, size * 0.98, ink.blood, true),
+            Kind::Predicted => decor::paint_drop(c, cx, cy, size * 0.92, ink.blood_soft, false),
+            Kind::Ovulation => decor::paint_ovul(c, decor.ovul_mark(), size, &ink),
+            _ => {}
+        }
+    })
+    .size(size, size)
+}
+
+/// Сердечко близости в правом верхнем углу даты, с обводкой цветом фона.
+fn heart_badge(size: f32, fill: Color, edge: Color) -> Canvas {
+    Canvas::new(move |c, _| decor::paint_heart(c, size * 0.82, size * 0.2, size * 0.36, fill, Some(edge))).size(size, size)
 }
 
 fn text_class(fc: &Forecast, d: Day, mode: Mode) -> &'static str {
@@ -110,7 +134,11 @@ fn pen_ring(d: Day, size: f32, ink: Color) -> Canvas {
 /// Недели месяца `idx` шириной `w` (без заголовка дней недели).
 pub fn weeks(st: St, fc: &Forecast, idx: i32, w: f32, mode: Mode) -> W {
     let monday = st.data.get_untracked().settings.monday;
-    let ink = crate::pal(st.dark.get_untracked()).ink;
+    let ink = crate::pal_st(st).ink;
+    let decor = st.data.get_untracked().settings.decor;
+    let dark = st.dark.get_untracked();
+    let dink = decor.ink(dark);
+    let bg = crate::bg_color(dark, decor);
     let gap = 4.0;
     let cell = ((w - gap * 6.0) / 7.0).floor();
     let h = cell.min(48.0);
@@ -132,17 +160,35 @@ pub fn weeks(st: St, fc: &Forecast, idx: i32, w: f32, mode: Mode) -> W {
                 continue;
             }
             let d = first + k;
-            let num = Center::new().child(Text::new((k + 1).to_string()).class(text_class(fc, d, mode)));
-            let mut face = Stack::new().child(DecoratedBox::new().style("width", StyleValue::px(h)).style("height", StyleValue::px(h)).child(num));
+            let kind = fc.kind(d);
+            let shape = decor.shapes()
+                && d != fc.today
+                && match kind {
+                    Kind::Period | Kind::Predicted => true,
+                    Kind::Ovulation => decor.ovul_mark() != OvulMark::Circle,
+                    _ => false,
+                };
+            // цифра на значке овуляции — тёмная на светлом лепестке, белая на тёмном
+            let tc = if shape && kind == Kind::Ovulation {
+                if dink.petal.relative_luminance() > 0.4 { "cell-num on-mark-dark" } else { "cell-num on-mark-light" }
+            } else {
+                text_class(fc, d, mode)
+            };
+            let num = Center::new().child(Text::new((k + 1).to_string()).class(tc));
+            let mut face = Stack::new();
+            if shape {
+                face = face.child(shape_canvas(decor, kind, h, dink));
+            }
+            face = face.child(DecoratedBox::new().style("width", StyleValue::px(h)).style("height", StyleValue::px(h)).child(num));
             if mode == Mode::Main && fc.show_intimacy && !fc.intimacy(d).is_empty() {
-                face = face.child(pen_ring(d, h, ink));
+                face = if decor.shapes() { face.child(heart_badge(h, dink.heart, bg)) } else { face.child(pen_ring(d, h, ink)) };
             }
             let disabled = mode == Mode::Pick && d > fc.today;
             let body = DecoratedBox::new()
                 .class("cell-slot")
                 .style("width", StyleValue::px(cell))
                 .style("height", StyleValue::px(h))
-                .child(DecoratedBox::new().class(&cell_class(fc, d, mode, sel)).style("width", StyleValue::px(h)).style("height", StyleValue::px(h)).child(face));
+                .child(DecoratedBox::new().class(&cell_class(fc, d, mode, sel, shape)).style("width", StyleValue::px(h)).style("height", StyleValue::px(h)).child(face));
             let tap = match mode {
                 Mode::Main => GestureDetector::new().on_click_with_bounds(move |_, r| st.open_menu(d, r)),
                 Mode::Pick => GestureDetector::new().on_click(move || {
@@ -228,7 +274,7 @@ fn phase_segments(p: &Phases) -> Vec<(&'static str, String, Day, Day)> {
 
 /// Полоса текущего цикла: фазы цветом, сегодня — метка.
 fn phase_bar(st: St, p: Phases, today: Day, w: f32) -> W {
-    let pal = crate::pal(st.dark.get_untracked());
+    let pal = crate::pal_st(st);
     let segs: Vec<(Color, Day, Day)> = phase_segments(&p)
         .into_iter()
         .map(|(k, _, a, b)| {
@@ -350,19 +396,37 @@ fn legend_item(class: &str, label: String) -> W {
     boxed(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class(&format!("legend-dot {class}"))).child(Text::new(label).class("legend-text")))
 }
 
+/// Пункт легенды с фигурой оформления (капля, цветок, сердечко).
+fn legend_shape(canvas: Canvas, label: String) -> W {
+    boxed(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(canvas).child(Text::new(label).class("legend-text")))
+}
+
 fn legend(st: St) -> W {
     let s = st.data.get_untracked().settings;
+    let decor = s.decor;
+    let ink = decor.ink(st.dark.get_untracked());
+    let shapes = decor.shapes();
     let mut f = Flex::new().direction(FlexDirection::Row).wrap().gap(12.0);
-    f = f.child(legend_item("period", t!("Месячные")));
-    f = f.child(legend_item("predicted", t!("Прогноз")));
+    f = f.child(legend_item("today", t!("Сегодня")));
+    if shapes {
+        f = f.child(legend_shape(shape_canvas(decor, Kind::Period, 18.0, ink), t!("Месячные")));
+        f = f.child(legend_shape(shape_canvas(decor, Kind::Predicted, 18.0, ink), t!("Прогноз")));
+    } else {
+        f = f.child(legend_item("period", t!("Месячные")));
+        f = f.child(legend_item("predicted", t!("Прогноз")));
+    }
     if s.show_fertile {
         f = f.child(legend_item("fertile", t!("Фертильное окно")));
     }
     if s.show_ovulation {
-        f = f.child(legend_item("ovul", t!("Овуляция")));
+        f = f.child(if shapes && decor.ovul_mark() != OvulMark::Circle { legend_shape(shape_canvas(decor, Kind::Ovulation, 18.0, ink), t!("Овуляция")) } else { legend_item("ovul", t!("Овуляция")) });
     }
     if s.show_intimacy {
-        f = f.child(legend_item("love", t!("Близость")));
+        f = f.child(if shapes {
+            legend_shape(Canvas::new(move |c, _| decor::paint_heart(c, 9.0, 9.0, 16.0, ink.heart, None)).size(18.0, 18.0), t!("Близость"))
+        } else {
+            legend_item("love", t!("Близость"))
+        });
     }
     boxed(DecoratedBox::new().class("legend").child(f))
 }

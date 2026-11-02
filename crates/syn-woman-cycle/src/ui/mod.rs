@@ -257,6 +257,18 @@ fn keys(st: St, inner: impl Widget + 'static) -> W {
     )
 }
 
+/// Рисунок оформления под всем содержимым (SVG, растягивается с обрезкой краёв).
+fn art_layer(st: St) -> W {
+    boxed(Reactive::new(move || -> Vec<W> {
+        let decor = st.data.get().settings.decor;
+        let dark = st.dark.get();
+        match decor.background(dark) {
+            Some((key, bytes)) => vec![boxed(Image::from_bytes(key, bytes.to_vec()).fit(ImageFit::Cover))],
+            None => vec![],
+        }
+    }))
+}
+
 pub fn root(st: St) -> W {
     let wide = wide();
     // окно перестраивается только при смене полноэкранного режима, а не фокуса
@@ -285,7 +297,7 @@ pub fn root(st: St) -> W {
             boxed(col)
         };
         main = main.child(body);
-        let stack = Stack::new().fit(StackFit::Expand).child(main).child(calendar::menu_layer(st)).child(day::layer(st, w)).child(settings::reset_dialog(st)).child(toast_layer(st));
+        let stack = Stack::new().fit(StackFit::Expand).child(art_layer(st)).child(main).child(calendar::menu_layer(st)).child(day::layer(st, w)).child(settings::reset_dialog(st)).child(toast_layer(st));
         let frame = DecoratedBox::new().class(if w && !fs { "window-frame" } else { "window-frame flat" }).clip(true).child(keys(st, stack));
         let region = WindowResizeRegion::new().over_content(true).inset(5.0).enabled(w && !fs).child(frame);
         // iPhone: фон корня — цвет окна под вырезом камеры и полоской «домой»
@@ -311,7 +323,7 @@ mod tests {
         let st = St::new(data);
         let mut h = TestHarness::new(root(st));
         let (cfg, _) = synshell_common::Config::load();
-        let engine = h.apply_mss(&crate::theme(&cfg, false));
+        let engine = h.apply_mss(&crate::theme(&cfg, false, crate::decor::Decor::Classic));
         let (w, hh) = (420.0, 900.0);
         for _ in 0..4 {
             h.frame(Some(&engine), w, hh);
@@ -342,6 +354,40 @@ mod hidden_tests {
     use super::*;
     use syngui::testing::TestHarness;
 
+    /// Каждое оформление строит календарь с каплями, знаком овуляции и сердечками,
+    /// а карточки выбора стиля есть в настройках.
+    #[test]
+    fn every_decor_renders_calendar_and_picker() {
+        syngui::signal::allow_signal_reads_on_this_thread();
+        let (cfg, _) = synshell_common::Config::load();
+        for decor in crate::decor::Decor::ALL {
+            let t = crate::date::today();
+            let mut data = crate::model::Data { onboarded: true, ..Default::default() };
+            data.settings.decor = decor;
+            for i in 0..4 {
+                data.days.insert(t - 20 + i, crate::model::DayLog { flow: 3, ..Default::default() });
+            }
+            data.intimacy.push(crate::model::Intimacy { id: 1, day: t - 2, time: None, protected: None });
+            let st = St::new(data);
+            let mut h = TestHarness::new(root(st));
+            let dark = decor.always_dark();
+            let engine = h.apply_mss(&crate::theme(&cfg, dark, decor));
+            for _ in 0..4 {
+                h.frame(Some(&engine), 420.0, 900.0);
+            }
+            assert!(!h.find_by_class("cell").is_empty(), "{decor:?}: нет дат");
+            if decor.shapes() {
+                assert!(!h.find_by_class("shape").is_empty(), "{decor:?}: месячные не нарисованы каплями");
+            }
+            st.go(Tab::Settings);
+            for _ in 0..4 {
+                h.frame(Some(&engine), 420.0, 900.0);
+                h.animate(std::time::Duration::from_millis(200));
+            }
+            assert_eq!(h.find_by_class("decor-card").len(), crate::decor::Decor::ALL.len(), "{decor:?}: карточки оформлений");
+        }
+    }
+
     /// Скрытый диалог удаления не ловит касания.
     #[test]
     fn hidden_reset_dialog_is_not_clickable() {
@@ -351,7 +397,7 @@ mod hidden_tests {
         let st = St::new(data);
         let mut h = TestHarness::new(root(st));
         let (cfg, _) = synshell_common::Config::load();
-        let engine = h.apply_mss(&crate::theme(&cfg, false));
+        let engine = h.apply_mss(&crate::theme(&cfg, false, crate::decor::Decor::Classic));
         for _ in 0..4 {
             h.frame(Some(&engine), 420.0, 900.0);
         }

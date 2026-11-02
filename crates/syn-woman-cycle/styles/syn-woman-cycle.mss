@@ -16,8 +16,9 @@ Text { color: var(--fg); font-size: 14px; }
 
 /* ── Окно ─────────────────────────────────────────────────────────── */
 
-.window { background-color: var(--bg); color: var(--fg); }
-.window-frame { border-radius: var(--window-radius); border: 1px solid var(--border); }
+/* фон — у рамки: между ней и содержимым лежит рисунок оформления */
+.window { background-color: #00000000; color: var(--fg); }
+.window-frame { background-color: var(--bg); border-radius: var(--window-radius); border: 1px solid var(--border); }
 .window-frame.flat { border-radius: 0px; border-width: 0px; }
 .window-frame:window-maximized, .window-frame:window-fullscreen { border-radius: 0px; border-width: 0px; }
 .body { background-color: #00000000; }
@@ -169,7 +170,8 @@ Slider { height: 6px; background: var(--pressed); color: var(--plum); accent-col
 .cell.ovul { background-color: var(--ovul); }
 .cell.ovul.marked { border-color: var(--ovul-line); }
 /* Сегодня — залитый бирюзовый кружок; отметка дня (месячные, прогноз, окно) остаётся кольцом вокруг. */
-.cell.today { background-color: var(--teal); border-color: var(--teal); border-width: 2.5px; }
+.cell.today { background-color: var(--today); border-color: var(--today); border-width: 2.5px; }
+.cell.shape { background-color: #00000000; border-color: #00000000; }
 .cell.today.period { border-color: var(--rose); }
 .cell.today.predicted { border-color: var(--rose-line); }
 .cell.today.fertile { border-color: var(--ovul); }
@@ -183,6 +185,8 @@ Slider { height: 6px; background: var(--pressed); color: var(--plum); accent-col
 .cell-num.teal { color: var(--teal); font-weight: 700; }
 .cell-num.today { color: #ffffff; font-weight: 800; }
 .cell-num.off { color: var(--faint); }
+.cell-num.on-mark-dark { color: #3b2a12; font-weight: 700; }
+.cell-num.on-mark-light { color: #ffffff; font-weight: 700; }
 
 .legend { padding: 18px 2px 4px 2px; }
 .legend-dot { width: 14px; height: 14px; border-radius: 7px; }
@@ -192,6 +196,16 @@ Slider { height: 6px; background: var(--pressed); color: var(--plum); accent-col
 .legend-dot.ovul { background-color: var(--ovul); }
 .legend-dot.love { background-color: #00000000; border: 1.5px solid var(--ink); }
 .legend-text { font-size: 12px; color: var(--muted); }
+.legend-dot.today { background-color: var(--today); }
+
+/* оформление: карточки выбора стиля */
+.decor-card { border-radius: 18px; border: 2px solid var(--border); background-color: var(--surface); transition: border-color 200ms ease-out, scale 160ms spring(420, 26); }
+.decor-card:active { scale: 0.96; }
+.decor-card.on { border-color: var(--rose); }
+.decor-art { border-radius: 16px 16px 0px 0px; }
+.decor-name { padding: 6px 4px 8px 4px; align-items: center; }
+.decor-name-text { font-size: 12px; font-weight: 600; color: var(--muted); text-align: center; }
+.decor-card.on .decor-name-text { color: var(--fg); font-weight: 800; }
 
 /* меню отметок у даты */
 .day-menu { padding: 6px; border-radius: 18px; background-color: var(--menu-bg); border: 1px solid var(--border); box-shadow: 0 14px 36px var(--shadow-strong); transition: size 260ms spring(420, 34); }

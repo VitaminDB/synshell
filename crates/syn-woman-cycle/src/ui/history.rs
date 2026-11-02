@@ -18,7 +18,7 @@ fn stat(value: String, unit: String, label: String, tone: &str) -> W {
 
 /// Полоса цикла: месячные, фертильное окно, овуляция; растёт слева направо.
 fn bar(st: St, fc: &Forecast, c: Cycle, i: usize, max_len: i32, w: f32) -> W {
-    let p = crate::pal(st.dark.get_untracked());
+    let p = crate::pal_st(st);
     let len = c.len.unwrap_or_else(|| (fc.today - c.start + 1).max(fc.cycle)) as f32;
     let next = c.start + len as i32;
     let ov = (fc.cycle_ovulation(c.start).map(|o| o.0).unwrap_or_else(|| fc.ovulation(next)) - c.start) as f32;

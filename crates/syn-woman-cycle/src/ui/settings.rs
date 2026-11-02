@@ -4,9 +4,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use syngui::prelude::*;
 use syngui::GestureDetector;
+use syngui::StyleValue;
 
 use super::{boxed, icon, page_header, rise, scroll_page, W};
 use crate::icons;
+use crate::decor::{self, Decor};
 use crate::model::{Settings, ThemeMode};
 use crate::state::St;
 
@@ -115,6 +117,71 @@ fn scale_row(st: St) -> W {
     )
 }
 
+/// Цвет переменной темы оформления (или запасной).
+fn decor_color(d: Decor, dark: bool, key: &str, fallback: &str) -> Color {
+    Color::from_hex(d.vars(dark).iter().find(|(k, _)| *k == key).map(|(_, v)| *v).unwrap_or(fallback))
+}
+
+/// Карточка стиля: фон-рисунок, капля, кружок «сегодня», сердечко и название.
+fn decor_card(st: St, d: Decor, on: bool, w: f32, dark: bool) -> W {
+    let h = 78.0;
+    let dark = dark || d.always_dark();
+    let bg = crate::bg_color(dark, d);
+    let art: W = match d.background(dark) {
+        // правый верхний угол рисунка — там у всех фонов главное (ветка, ягоды, месяц)
+        Some((key, bytes)) => boxed(Image::from_bytes(key, bytes.to_vec()).fit(ImageFit::Cover).crop_uv(0.45, 0.0, 0.55, 0.2)),
+        None => boxed(DecoratedBox::new().style("background-color", StyleValue::from(bg))),
+    };
+    let ink = d.ink(dark);
+    let today = decor_color(d, dark, "today", if dark { "#35d0be" } else { "#22b8a7" });
+    let rose = decor_color(d, dark, "rose", if dark { "#f0577f" } else { "#e0466f" });
+    let shapes = d.shapes();
+    let sample = Canvas::new(move |c, _| {
+        let y = h * 0.62;
+        if shapes {
+            decor::paint_drop(c, w * 0.26, y, 30.0, ink.blood, true);
+            decor::paint_heart(c, w * 0.76, y - 2.0, 22.0, ink.heart, Some(bg));
+        } else {
+            c.set_color(rose);
+            c.fill_circle(w * 0.26, y, 12.0);
+            c.set_color(Color::from_hex("#2f55b8"));
+            c.set_stroke_width(1.8);
+            c.stroke_circle(w * 0.76, y, 12.0);
+        }
+        c.set_color(today);
+        c.fill_circle(w * 0.51, y, 12.0);
+    })
+    .size(w, h);
+    let face = Stack::new().child(DecoratedBox::new().class("decor-art").clip(true).style("width", StyleValue::px(w)).style("height", StyleValue::px(h)).child(art)).child(sample);
+    boxed(
+        GestureDetector::new()
+            .on_click(move || {
+                st.set_settings(|s| s.decor = d);
+                crate::apply_theme(st);
+            })
+            .child(
+                DecoratedBox::new()
+                    .class(if on { "decor-card on" } else { "decor-card" })
+                    .clip(true)
+                    .style("width", StyleValue::px(w + 4.0))
+                    .child(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(face).child(DecoratedBox::new().class("decor-name").child(Text::new(d.name()).max_lines(1).class("decor-name-text")))),
+            ),
+    )
+}
+
+fn decor_row(st: St, cur: Decor, width: f32) -> W {
+    let dark = st.dark.get_untracked();
+    let gap = 10.0;
+    let per = if width > 520.0 { 4.0 } else { 3.0 };
+    let w = ((width - 32.0 - gap * (per - 1.0)) / per - 4.0).floor();
+    let mut f = Flex::new().direction(FlexDirection::Row).wrap().gap(gap);
+    for d in Decor::ALL {
+        f = f.child(decor_card(st, d, d == cur, w, dark));
+    }
+    let hint = if cur.always_dark() { t!("«Звёздная ночь» всегда тёмная") } else { t!("Фон, цвета, капли и сердечки в календаре") };
+    boxed(DecoratedBox::new().class("set-row").child(Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(label(icons::FLOWER, t!("Оформление"), hint)).child(f)))
+}
+
 fn theme_row(st: St, cur: ThemeMode) -> W {
     let mut row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
     for (m, g, l) in [(ThemeMode::System, icons::AUTO, t!("Как в системе")), (ThemeMode::Light, icons::LIGHT, t!("Светлая")), (ThemeMode::Dark, icons::DARK, t!("Тёмная"))] {
@@ -163,6 +230,7 @@ pub fn page(st: St, wide: bool) -> W {
                 t!("Вид"),
                 vec![
                     scale_row(st),
+                    decor_row(st, s.decor, super::content_width(wide)),
                     theme_row(st, s.theme),
                     toggle_row(st, icons::CALENDAR, t!("Неделя с понедельника"), String::new(), s.monday, |x, v| x.monday = v),
                     toggle_row(st, icons::FLOWER, t!("Показывать фертильное окно"), String::new(), s.show_fertile, |x, v| x.show_fertile = v),
