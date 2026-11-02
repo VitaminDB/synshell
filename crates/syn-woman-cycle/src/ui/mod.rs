@@ -87,7 +87,7 @@ pub fn page_header(st: St, wide: bool, over: String, title: String, actions: Vec
         row = row.child(a);
     }
     let fs = st.window.get_untracked().fullscreen;
-    if !wide || fs {
+    if !cfg!(target_os = "ios") && (!wide || fs) {
         row = row.child(fullscreen_button(st));
     }
     boxed(DecoratedBox::new().class("page-header").child(row))

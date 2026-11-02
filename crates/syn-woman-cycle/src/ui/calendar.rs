@@ -313,7 +313,8 @@ fn header(st: St, wide: bool, w: f32) -> W {
     let mut top = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center);
     top = top.child(DecoratedBox::new().class("grow").child(Column::new().gap(4.0).child(title_row).child(Text::new(sub).max_lines(2).class("hint"))));
     top = top.child(Button::new(t!("Сегодня")).class("btn chip").on_click(move || scroll_to_named(format!("m{}", date::month_index(date::today())))));
-    if !wide || st.window.get_untracked().fullscreen {
+    // iPhone: окно всегда на весь экран, переключать нечего.
+    if !cfg!(target_os = "ios") && (!wide || st.window.get_untracked().fullscreen) {
         top = top.child(super::fullscreen_button(st));
     }
     let mut col = Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(syngui::overlay::WindowDragRegion::new().child(top));

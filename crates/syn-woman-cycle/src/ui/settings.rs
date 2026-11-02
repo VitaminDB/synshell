@@ -171,6 +171,8 @@ pub fn page(st: St, wide: bool) -> W {
                 ],
             ),
         ));
+        // iPhone: окно всегда на весь экран — раздела «Окно» нет.
+        if !cfg!(target_os = "ios") {
         blocks.push(rise(
             2,
             section(
@@ -181,6 +183,7 @@ pub fn page(st: St, wide: bool) -> W {
                 })],
             ),
         ));
+        }
         let n = data.days.len();
         blocks.push(rise(
             3,
