@@ -22,7 +22,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use synaptixd::bridge::{fd_bytes, Frame, BLOB_PATH};
 use synaptixd::wire;
-use synaptixd::{Envelope, Error, ErrorCode, Event, FederationDevice, FederationInfo, ModelEntry, ModelKind, Origin, Reply, Request};
+use synaptixd::{DefaultModel, Envelope, Error, ErrorCode, Event, FederationDevice, FederationInfo, ModelEntry, ModelKind, Origin, Reply, Request};
 
 use crate::config::{FedConfig, Prefer};
 use crate::manager::Manager;
@@ -72,6 +72,8 @@ struct Peer {
     connected: bool,
     /// Модели той службы (id без префикса).
     models: Vec<ModelEntry>,
+    /// Её умолчания (id без префикса).
+    defaults: Vec<DefaultModel>,
     /// Поколение соединения: поток устройства живёт, пока оно то же.
     epoch: u64,
 }
@@ -293,14 +295,18 @@ impl Fed {
             st.me_kind = status["me"]["kind"].as_str().unwrap_or("desktop").to_string();
             let empty = Vec::new();
             let mut live = std::collections::HashSet::new();
-            for p in status["peers"].as_array().unwrap_or(&empty) {
+            let all = status["peers"].as_array().unwrap_or(&empty);
+            // Короткий префикс — вид устройства (`laptop:`, `phone:`), если
+            // спаренное такого вида одно; иначе имя.
+            let kinds = |k: &str| all.iter().filter(|p| p["paired"].as_bool().unwrap_or(false) && p["kind"].as_str() == Some(k)).count();
+            for p in all {
                 let (Some(id), Some(name)) = (p["id"].as_str(), p["name"].as_str()) else { continue };
                 if !p["paired"].as_bool().unwrap_or(false) || !self.allowed(id, name) {
                     continue;
                 }
                 let kind = p["kind"].as_str().unwrap_or("desktop").to_string();
                 let connected = p["connected"].as_bool().unwrap_or(false);
-                let mut slug = slugify(name, &kind);
+                let mut slug = if kinds(&kind) == 1 { kind.clone() } else { slugify(name, &kind) };
                 if st.peers.values().any(|o| o.id != id && o.slug == slug) {
                     slug = format!("{slug}-{}", &id[..id.len().min(4)]);
                 }
@@ -311,6 +317,7 @@ impl Fed {
                     kind: kind.clone(),
                     connected: false,
                     models: Vec::new(),
+                    defaults: Vec::new(),
                     epoch: 0,
                 });
                 e.name = name.to_string();
@@ -367,13 +374,14 @@ impl Fed {
         self.st.lock().unwrap().sock.clone()
     }
 
-    fn set_models(&self, id: &str, epoch: u64, models: Vec<ModelEntry>) {
+    fn set_models(&self, id: &str, epoch: u64, (models, defaults): (Vec<ModelEntry>, Vec<DefaultModel>)) {
         let changed = {
             let mut st = self.st.lock().unwrap();
             match st.peers.get_mut(id) {
-                Some(p) if p.epoch == epoch && p.models != models => {
+                Some(p) if p.epoch == epoch && (p.models != models || p.defaults != defaults) => {
                     tracing::info!("федерация: {} — моделей {}", p.name, models.len());
                     p.models = models;
+                    p.defaults = defaults;
                     true
                 }
                 _ => false,
@@ -384,14 +392,56 @@ impl Fed {
         }
     }
 
-    fn fetch_list(&self, id: &str) -> io::Result<Vec<ModelEntry>> {
+    fn fetch_list(&self, id: &str) -> io::Result<(Vec<ModelEntry>, Vec<DefaultModel>)> {
         let sock = self.sock().ok_or_else(|| io::Error::other("нет synlink"))?;
         let mut b = Bridge::open(&sock, id)?;
-        let r = b.call(Request::List)?;
-        if r.ok != Some(true) {
-            return Err(io::Error::other(r.error.unwrap_or_default()));
+        let mut get = |req| -> io::Result<Value> {
+            let r = b.call(req)?;
+            if r.ok != Some(true) {
+                return Err(io::Error::other(r.error.unwrap_or_default()));
+            }
+            Ok(r.data)
+        };
+        let list = serde_json::from_value(get(Request::List)?).map_err(io::Error::other)?;
+        let defaults = serde_json::from_value(get(Request::Defaults)?).unwrap_or_default();
+        Ok((list, defaults))
+    }
+
+    /// `<устройство>:<id>` — модель вида `kind` спаренного устройства.
+    pub fn knows(&self, id: &str, kind: ModelKind) -> bool {
+        let Some((slug, rest)) = id.split_once(':') else { return false };
+        self.st.lock().unwrap().peers.values().any(|p| Self::named(p, slug) && p.models.iter().any(|m| m.id == rest && m.kind == kind))
+    }
+
+    fn named(p: &Peer, slug: &str) -> bool {
+        p.slug == slug || slugify(&p.name, &p.kind) == slug || (slug == "desktop" && is_big(&p.kind))
+    }
+
+    /// Умолчания для программ этой машины: без своей настройки при связи —
+    /// умолчание устройства, которому отдаётся работа.
+    pub fn defaults(&self, list: &mut [DefaultModel]) {
+        for d in list.iter_mut() {
+            if let Route::Remote(t) = self.route(&Request::Resolve { kind: d.kind }) {
+                let st = self.st.lock().unwrap();
+                let model = if t.model.is_empty() {
+                    st.peers.get(&t.peer).and_then(|p| p.defaults.iter().find(|x| x.kind == d.kind)).and_then(|x| x.resolved.clone())
+                } else {
+                    Some(t.model.clone())
+                };
+                if let Some(m) = model {
+                    d.resolved = Some(format!("{}:{m}", t.slug));
+                }
+            }
         }
-        serde_json::from_value(r.data).map_err(io::Error::other)
+    }
+
+    fn cached_entry(&self, t: &Target) -> Option<ModelEntry> {
+        let st = self.st.lock().unwrap();
+        let p = st.peers.get(&t.peer)?;
+        let mut e = p.models.iter().find(|m| m.id == t.model)?.clone();
+        e.id = format!("{}:{}", t.slug, e.id);
+        e.origin = Origin::Remote { device: t.slug.clone(), name: t.name.clone() };
+        Some(e)
     }
 
     /// Пока устройство на связи: его список и подписка на изменения.
@@ -492,9 +542,11 @@ impl Fed {
         // Сильные устройства — первыми.
         let mut peers: Vec<&Peer> = st.peers.values().collect();
         peers.sort_by_key(|p| (!is_big(&p.kind), p.slug.clone()));
-        // `<устройство>:<id>`
+        // `<устройство>:<id>`; синонимы — имя устройства и `desktop` для
+        // любого компьютера.
         if let Some((slug, rest)) = model.split_once(':') {
-            if let Some(p) = peers.iter().find(|p| p.slug == slug) {
+            let named = |p: &&&Peer| Self::named(p, slug);
+            if let Some(p) = peers.iter().filter(|p| p.connected).find(named).or_else(|| peers.iter().find(named)) {
                 if !p.connected {
                     return Route::Fail(Error::new(ErrorCode::Unavailable, format!("устройство «{}» не на связи", p.name)));
                 }
@@ -512,6 +564,20 @@ impl Fed {
             "" | "auto" | "default" => kind.is_some_and(|k| self.mgr.resolve(k).is_ok()),
             id => self.mgr.entry(id).is_ok(),
         };
+        // Умолчание, выбранное здесь, главнее: своя модель — здесь, модель
+        // устройства — там (без связи — своё умолчание).
+        if let (true, Some(k)) = (matches!(model, "" | "auto" | "default"), kind) {
+            if let Some(id) = self.mgr.chosen_default(k) {
+                if let Some((slug, rest)) = id.split_once(':') {
+                    if let Some(p) = live().find(|p| Self::named(p, slug)) {
+                        return Route::Remote(Self::target(p, rest, false));
+                    }
+                }
+                if self.mgr.entry(&id).is_ok() {
+                    return Route::Local;
+                }
+            }
+        }
         let me = st.me_kind.as_str();
         if let Some(p) = live().find(|p| self.prefers_remote(me, p) && has(p)) {
             return Route::Remote(Self::target(p, model, false));
@@ -538,6 +604,16 @@ impl Fed {
         to: &Target,
     ) -> Forwarded {
         let patch_entry = matches!(req, Request::Load { .. } | Request::Resolve { .. });
+        // Resolve на выбранную модель устройства — из его списка, без сети.
+        if let (Request::Resolve { .. }, false) = (req, to.model.is_empty()) {
+            if let Some(e) = self.cached_entry(to) {
+                let r = Reply { id, ok: Some(true), data: serde_json::to_value(e).unwrap_or(Value::Null), ..Default::default() };
+                return match wire::send(client, &serde_json::to_vec(&r).unwrap_or_default(), &[]) {
+                    Ok(()) => Forwarded::Done,
+                    Err(_) => Forwarded::Gone,
+                };
+            }
+        }
         let frame = match build_frame(id, req, fds, to, cred) {
             Ok(f) => f,
             Err(e) => return self.reply_err(client, id, ErrorCode::Protocol, e.to_string()),
@@ -650,34 +726,39 @@ fn build_frame(id: u64, req: &Request, fds: &[OwnedFd], to: &Target, cred: Optio
         v["model"] = Value::String(to.model.clone());
     }
     let mut blobs: Vec<Vec<u8>> = fds.iter().map(|f| fd_bytes(f.as_fd())).collect::<io::Result<_>>()?;
-    match v["op"].as_str().unwrap_or("") {
+    // Только существующие поля: `v["x"]` для записи вставил бы null.
+    fn field<'a>(v: &'a mut Value, k: &str) -> Option<&'a mut Value> {
+        v.get_mut(k).filter(|x| !x.is_null())
+    }
+    fn each(v: &mut Value, k: &str, f: &mut dyn FnMut(&mut Value) -> io::Result<()>) -> io::Result<()> {
+        match field(v, k) {
+            Some(Value::Array(a)) => a.iter_mut().try_for_each(f),
+            Some(x) => f(x),
+            None => Ok(()),
+        }
+    }
+    let op = v["op"].as_str().unwrap_or("").to_string();
+    let mut put = |x: &mut Value| embed(x, &mut blobs, cred);
+    match op.as_str() {
         "generate" => {
-            if let Some(msgs) = v["messages"].as_array_mut() {
+            if let Some(Value::Array(msgs)) = field(&mut v, "messages") {
                 for m in msgs {
-                    if let Some(media) = m["media"].as_array_mut() {
+                    if let Some(Value::Array(media)) = field(m, "media") {
                         for x in media {
-                            embed(&mut x["path"], &mut blobs, cred)?;
+                            each(x, "path", &mut put)?;
                         }
                     }
                 }
             }
         }
         "image" => {
-            if let Some(a) = v["images"].as_array_mut() {
-                for x in a {
-                    embed(x, &mut blobs, cred)?;
-                }
+            for k in ["images", "init"] {
+                each(&mut v, k, &mut put)?;
             }
-            embed(&mut v["init"], &mut blobs, cred)?;
         }
         "video" => {
-            for k in ["first_frame", "last_frame", "audio", "source_video", "control_video"] {
-                embed(&mut v[k], &mut blobs, cred)?;
-            }
-            if let Some(a) = v["refs"].as_array_mut() {
-                for x in a {
-                    embed(x, &mut blobs, cred)?;
-                }
+            for k in ["first_frame", "last_frame", "audio", "source_video", "control_video", "refs"] {
+                each(&mut v, k, &mut put)?;
             }
         }
         _ => {}
@@ -724,6 +805,17 @@ mod tests {
         assert_eq!(slugify("Мой Desktop", "desktop"), "мой-desktop");
         assert_eq!(slugify("archlinux", "desktop"), "archlinux");
         assert_eq!(slugify("  ", "phone"), "phone");
+    }
+
+    #[test]
+    fn generate_keeps_fields() {
+        let req = Request::Generate { model: "".into(), messages: vec![synaptixd::Message::user("hi")], max_tokens: None, temperature: None, params: Default::default(), tools: vec![], loras: None };
+        let to = Target { peer: "p".into(), slug: "laptop".into(), name: "L".into(), model: "".into(), explicit: false };
+        let f = build_frame(1, &req, &[], &to, None).unwrap();
+        let v: Value = serde_json::from_slice(&f.json).unwrap();
+        assert!(v["messages"][0].get("media").is_none());
+        let env: Envelope = serde_json::from_value(v).unwrap();
+        assert_eq!(env.req, req);
     }
 
     #[test]

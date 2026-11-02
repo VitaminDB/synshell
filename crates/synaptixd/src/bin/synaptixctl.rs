@@ -381,7 +381,8 @@ fn run(args: &[String]) -> Result<(), String> {
         "asr" => {
             let (pcm, sr) = read_wav(arg(2)?)?;
             let t0 = std::time::Instant::now();
-            let t = c.transcribe(arg(1)?, &pcm, sr, args.get(3).map(String::as_str)).map_err(|e| e.to_string())?;
+            let model = if arg(1)? == "-" { "" } else { arg(1)? };
+            let t = c.transcribe(model, &pcm, sr, args.get(3).map(String::as_str)).map_err(|e| e.to_string())?;
             println!("{}\n[{:.1} с]", t.text, t0.elapsed().as_secs_f32());
         }
         "say" => {

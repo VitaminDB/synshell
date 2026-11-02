@@ -477,8 +477,15 @@ impl Manager {
             .collect()
     }
 
+    /// Умолчание, выбранное пользователем (может быть моделью спаренного
+    /// устройства `<устройство>:<id>`).
+    pub fn chosen_default(&self, kind: ModelKind) -> Option<String> {
+        self.defaults.lock().unwrap().get(kind.id()).cloned()
+    }
+
     pub fn set_default(&self, kind: ModelKind, model: Option<String>) -> Result<Vec<DefaultModel>, Error> {
-        if let Some(id) = &model {
+        let remote = model.as_deref().is_some_and(|id| crate::federation::get().is_some_and(|f| f.knows(id, kind)));
+        if let Some(id) = model.as_ref().filter(|_| !remote) {
             let ok = self.slots.lock().unwrap().get(id).map(|s| s.manifest.kind == kind).ok_or_else(|| no_model(id))?;
             if !ok {
                 return Err(Error::new(ErrorCode::WrongKind, format!("{id}: модель другого вида")));

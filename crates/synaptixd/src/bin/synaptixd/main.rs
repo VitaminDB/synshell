@@ -184,7 +184,13 @@ impl Conn {
                 }
                 (data(mgr.set(&model, SettingsChange { device, pinned, idle_unload_min, kv_keep_min, preload, quant, params, engine, loras })?), none())
             }
-            Request::Defaults => (data(mgr.defaults()), none()),
+            Request::Defaults => {
+                let mut list = mgr.defaults();
+                if let (false, Some(f)) = (self.remote, federation::get()) {
+                    f.defaults(&mut list);
+                }
+                (data(list), none())
+            }
             Request::SetDefault { kind, model } => {
                 if !self.admin {
                     return Err(denied());
@@ -371,7 +377,7 @@ impl Conn {
                 }
                 // Параметры запроса, а не настройки модели: схема их не знает.
                 let request_only: Vec<(&str, synaptixd::ParamValue)> =
-                    ["session", "stop", "max_image_tokens"].into_iter().filter_map(|k| call.get(k).cloned().map(|v| (k, v))).collect();
+                    ["session", "stop", "max_image_tokens", "json_schema"].into_iter().filter_map(|k| call.get(k).cloned().map(|v| (k, v))).collect();
                 let mut params = mgr.params(&model, &call);
                 for (k, v) in request_only {
                     params.set(k, Some(v));

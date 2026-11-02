@@ -1033,6 +1033,30 @@ impl Loaded {
             .collect();
         let refs: Vec<&synaptix::facade::llm::MediaEmbedding> =
             order.iter().filter_map(|k| cache.iter().find(|(c, _)| c == k).map(|(_, e)| e)).collect();
+        // Вывод по JSON-схеме (`json_schema`: схема строкой; "json" или "{}" —
+        // любой JSON): маска токенов по грамматике, инструменты выключены,
+        // схема — в системный промпт, чтобы модель знала, что писать.
+        let schema = match params.text("json_schema") {
+            None => None,
+            Some("json") => Some(serde_json::Value::Null),
+            Some(s) => Some(serde_json::from_str::<serde_json::Value>(s).map_err(|e| anyhow::anyhow!("json_schema: не JSON ({e})"))?),
+        };
+        let mut msgs = msgs;
+        let tools: &[serde_json::Value] = if schema.is_some() { &[] } else { tools };
+        if let Some(sch) = &schema {
+            let hint = if sch.is_null() || sch.as_object().is_some_and(|o| o.is_empty()) {
+                "Respond with a single valid JSON value only — no code fences, no text before or after it.".to_string()
+            } else {
+                format!("Respond with a single JSON value that conforms to this JSON Schema — no code fences, no text before or after it.\nJSON Schema:\n{sch}")
+            };
+            match msgs.iter_mut().find(|m| m.role == "system") {
+                Some(m) => {
+                    m.content.push_str("\n\n");
+                    m.content.push_str(&hint);
+                }
+                None => msgs.insert(0, Message::system(hint)),
+            }
+        }
         let thinking = params.bool("thinking").unwrap_or(false);
         let tools_opt = (!tools.is_empty()).then_some(tools);
         let prompt = tok.apply_chat_template_reasoning(&msgs, true, thinking, params.text("reasoning"), tools_opt).map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -1070,6 +1094,12 @@ impl Loaded {
         synaptix_llm_common::model::set_prefill_prof(prof);
         let mut gen = LlmGeneration::new(llm, opts);
         gen.set_stop_tokens(tok.eos_ids().to_vec());
+        if let Some(sch) = &schema {
+            let t0 = std::time::Instant::now();
+            let trigger = parser.borrow().grammar_trigger(thinking);
+            gen.set_constraint(tok.json_constraint(sch, trigger).map_err(|e| anyhow::anyhow!("{e}"))?);
+            tracing::info!("generate: вывод по JSON-схеме (грамматика за {:.0} мс)", t0.elapsed().as_secs_f64() * 1e3);
+        }
         // Стоп-строки клиента: через U+001F.
         for stop in params.text("stop").unwrap_or("").split('\u{1f}') {
             gen.add_stop_sequence(stop);

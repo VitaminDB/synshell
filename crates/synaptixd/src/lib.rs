@@ -1890,6 +1890,17 @@ impl Client {
         })
     }
 
+    /// Ответ строго по JSON-схеме (грамматика на стороне службы): разобранное
+    /// значение и сам ответ. `schema = Value::Null` — любой JSON. Параметры
+    /// — как у [`Self::generate_with`] (`json_schema` ставится здесь).
+    pub fn generate_json(&mut self, model: &str, messages: Vec<Message>, schema: &Value, params: &Params, on_token: impl FnMut(&str)) -> Result<(Value, Generated)> {
+        let sch = if schema.is_null() { "json".to_string() } else { schema.to_string() };
+        let params = params.clone().with("json_schema", sch);
+        let g = self.generate_with(model, messages, &params, on_token)?;
+        let v = serde_json::from_str(g.text.trim()).map_err(|e| Error::new(ErrorCode::Failed, format!("ответ не JSON: {e}")))?;
+        Ok((v, g))
+    }
+
     pub fn chat(&mut self, model: &str, messages: Vec<Message>, tools: Vec<Value>, params: &Params, on_event: impl FnMut(Event)) -> Result<Generated> {
         self.chat_loras(model, messages, tools, params, None, on_event)
     }
