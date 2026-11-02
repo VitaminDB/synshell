@@ -105,6 +105,13 @@ pub enum Forwarded {
     Gone,
 }
 
+/// Id моделей сравниваются без учёта регистра и разделителей: одна и та же модель на разных
+/// устройствах бывает `minicpm-v-4.7-1b` и `minicpm-v-4-7-1b` (id из имени файла разных версий).
+fn same_id(a: &str, b: &str) -> bool {
+    let n = |s: &str| s.chars().filter_map(|c| if matches!(c, '.' | '_' | '-' | ' ') { Some('-') } else { Some(c.to_ascii_lowercase()) }).collect::<String>();
+    a == b || n(a) == n(b)
+}
+
 fn slugify(name: &str, kind: &str) -> String {
     let s: String = name
         .to_lowercase()
@@ -427,7 +434,7 @@ impl Fed {
     /// `<устройство>:<id>` — модель вида `kind` спаренного устройства.
     pub fn knows(&self, id: &str, kind: ModelKind) -> bool {
         let Some((slug, rest)) = id.split_once(':') else { return false };
-        self.st.lock().unwrap().peers.values().any(|p| Self::named(p, slug) && p.models.iter().any(|m| m.id == rest && m.kind == kind))
+        self.st.lock().unwrap().peers.values().any(|p| Self::named(p, slug) && p.models.iter().any(|m| same_id(&m.id, rest) && m.kind == kind))
     }
 
     fn named(p: &Peer, slug: &str) -> bool {
@@ -455,7 +462,7 @@ impl Fed {
     fn cached_entry(&self, t: &Target) -> Option<ModelEntry> {
         let st = self.st.lock().unwrap();
         let p = st.peers.get(&t.peer)?;
-        let mut e = p.models.iter().find(|m| m.id == t.model)?.clone();
+        let mut e = p.models.iter().find(|m| same_id(&m.id, &t.model))?.clone();
         e.id = format!("{}:{}", t.slug, e.id);
         e.origin = Origin::Remote { device: t.slug.clone(), name: t.name.clone() };
         Some(e)
@@ -548,6 +555,8 @@ impl Fed {
     }
 
     fn target(p: &Peer, model: &str, explicit: bool) -> Target {
+        // Id той стороны (написание может отличаться).
+        let model = p.models.iter().find(|m| same_id(&m.id, model)).map(|m| m.id.as_str()).unwrap_or(model);
         Target { peer: p.id.clone(), slug: p.slug.clone(), name: p.name.clone(), model: model.to_string(), explicit }
     }
 
@@ -577,7 +586,7 @@ impl Fed {
         let has = |p: &Peer| -> bool {
             p.models.iter().any(|m| match model {
                 "" | "auto" | "default" => kind.is_some_and(|k| m.kind == k),
-                id => m.id == id,
+                id => same_id(&m.id, id),
             })
         };
         let local = match model {
@@ -604,7 +613,7 @@ impl Fed {
                 "" | "auto" | "default" => p.defaults.iter().find(|d| Some(d.kind) == kind)?.resolved.clone()?,
                 id => id.to_string(),
             };
-            p.models.iter().find(|m| m.id == id)
+            p.models.iter().find(|m| same_id(&m.id, &id))
         }
         // Там модель ушла на процессор (видеокарта занята) — своя быстрее, если есть.
         let degraded = |p: &Peer| {
@@ -844,6 +853,13 @@ fn walk(v: &mut Value, f: &mut dyn FnMut(&mut String) -> io::Result<()>) -> io::
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ids_match_across_spellings() {
+        assert!(same_id("minicpm-v-4.7-1b", "minicpm-v-4-7-1b"));
+        assert!(same_id("Qwen3_1.7B", "qwen3-1-7b"));
+        assert!(!same_id("qwen3-1-7b", "qwen3-17b"));
+    }
 
     #[test]
     fn slugs() {
