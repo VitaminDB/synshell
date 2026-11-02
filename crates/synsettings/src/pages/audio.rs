@@ -1,5 +1,6 @@
 //! Звук: выходы и входы PipeWire (выбор по умолчанию, громкость, без звука), громкость программ и функции
-//! телефона через palaudiod (synmobile, docs/14-audio.md): динамик/наушники и Dolby Atmos с профилями.
+//! телефона через palaudiod (synmobile, docs/14-audio.md): динамик/наушники, Dolby Atmos с профилями,
+//! шумоподавление микрофона.
 //! Данные — `synsystem::sound`; перечитываются раз в 2 с, пока страница открыта.
 
 use syngui::async_runtime::run_on_main_thread;
@@ -197,6 +198,23 @@ fn phone_group(p: &PhoneAudio, profiles: &[DolbyProfile]) -> W {
             ));
         }
     }
+    if let Some(on) = p.mic_ns {
+        let hint = if on && p.mic_ns_active {
+            t!("Работает: два микрофона, верхний ловит шум. Для всех программ; полоса — как у звонка (до 8 кГц)")
+        } else {
+            t!("Сигнальный процессор гасит постоянный шум двумя микрофонами (верхний ловит шум) — для всех программ. Полоса — как у звонка; музыку лучше писать без него")
+        };
+        rows.push(row_inline(
+            &t!("Шумоподавление микрофона"),
+            &hint,
+            Toggle::with_state(on).on_change(|on| {
+                act(move || {
+                    sound::set_mic_ns(on);
+                });
+                state::toast(if on { t!("Шумоподавление включено") } else { t!("Шумоподавление выключено") });
+            }),
+        ));
+    }
     group(&t!("Телефон"), rows)
 }
 
@@ -233,7 +251,7 @@ pub fn audio() -> W {
         ));
         vec![boxed(col)]
     });
-    page(t!("Звук"), t!("Динамики, наушники, микрофон, громкость программ, Dolby Atmos, звуки событий."), vec![boxed(body), events_group()])
+    page(t!("Звук"), t!("Динамики, наушники, микрофон и шумоподавление, громкость программ, Dolby Atmos, звуки событий."), vec![boxed(body), events_group()])
 }
 
 /// Прослушать события темы по очереди.

@@ -1897,7 +1897,7 @@
 "gameshell игры игровой режим консоль steam big picture геймпад полный экран лаунчер обложки" = "gameshell games game mode console steam big picture gamepad fullscreen launcher covers"
 
 # src/pages/audio.rs, game.rs (звуки)
-"Динамики, наушники, микрофон, громкость программ, Dolby Atmos, звуки событий." = "Speakers, headphones, microphone, app volume, Dolby Atmos, event sounds."
+"Динамики, наушники, микрофон и шумоподавление, громкость программ, Dolby Atmos, звуки событий." = "Speakers, headphones, microphone and noise suppression, app volume, Dolby Atmos, event sounds."
 "{c} (не установлена)" = "{c} (not installed)"
 "Звуки событий" = "Event sounds"
 "Звуковая тема" = "Sound theme"
@@ -1944,3 +1944,8 @@
 "Создать, назвать и настроить профили с живым просмотром на тестовых картинках" = "Create, name and tune profiles with a live preview on test pictures"
 "Открыть…" = "Open…"
 "Не запустить syn-epdtest: {e}" = "Cannot start syn-epdtest: {e}"
+"Шумоподавление микрофона" = "Microphone noise suppression"
+"Работает: два микрофона, верхний ловит шум. Для всех программ; полоса — как у звонка (до 8 кГц)" = "Active: two microphones, the top one picks up the noise. For all apps; bandwidth as in a call (up to 8 kHz)"
+"Сигнальный процессор гасит постоянный шум двумя микрофонами (верхний ловит шум) — для всех программ. Полоса — как у звонка; музыку лучше писать без него" = "The signal processor removes steady noise with two microphones (the top one picks up the noise) — for all apps. Bandwidth as in a call; record music without it"
+"Шумоподавление включено" = "Noise suppression on"
+"Шумоподавление выключено" = "Noise suppression off"

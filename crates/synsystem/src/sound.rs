@@ -1,5 +1,5 @@
 //! Звук: устройства и потоки PipeWire (`pw-dump`, `wpctl`) и функции телефона через palaudiod
-//! (synmobile, docs/14-audio.md): маршрут динамик/наушники, Dolby Atmos и его профили.
+//! (synmobile, docs/14-audio.md): маршрут динамик/наушники, Dolby Atmos и его профили, шумоподавление микрофона.
 //!
 //! Всё блокирующее — звать из фонового потока. Громкость «в процентах» — как у `wpctl`
 //! (кубический корень из линейного множителя PipeWire).
@@ -164,6 +164,11 @@ pub struct PhoneAudio {
     pub dolby: Option<bool>,
     /// −1 — профиль по умолчанию.
     pub dolby_profile: i32,
+    /// Системное шумоподавление микрофона (Fluence в DSP: нижний и верхний микрофоны) — действует на источник
+    /// «Микрофон» по умолчанию, то есть на все программы. `None` — palaudiod его не умеет.
+    pub mic_ns: Option<bool>,
+    /// Шумоподавление работает сейчас (идёт запись с «Микрофона» и поток открыт с ним).
+    pub mic_ns_active: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -212,6 +217,8 @@ fn parse_status(v: &Value) -> Option<PhoneAudio> {
         recording: v["recording"].as_bool().unwrap_or(false),
         dolby: v["dolby"].as_bool(),
         dolby_profile: v["dolby_profile"].as_i64().unwrap_or(-1) as i32,
+        mic_ns: v["mic_ns"].as_bool(),
+        mic_ns_active: v["mic_ns_active"].as_bool().unwrap_or(false),
     })
 }
 
@@ -230,6 +237,12 @@ pub fn set_route(r: Route) -> Option<PhoneAudio> {
 
 pub fn set_dolby(on: bool) -> Option<PhoneAudio> {
     pal_status_cmd(if on { "dolby on" } else { "dolby off" })
+}
+
+/// Шумоподавление микрофона телефона (запоминается palaudiod; переключается и во время записи — через ~3 с
+/// подстройки шум уходит).
+pub fn set_mic_ns(on: bool) -> Option<PhoneAudio> {
+    pal_status_cmd(if on { "mic-ns on" } else { "mic-ns off" })
 }
 
 pub fn set_dolby_profile(id: i32) -> Option<PhoneAudio> {
@@ -285,6 +298,10 @@ mod tests {
         assert_eq!(s.route, Route::Auto);
         assert_eq!(s.dolby, Some(true));
         assert_eq!(s.dolby_profile, 2);
+        assert_eq!(s.mic_ns, None);
+        let v: Value = serde_json::from_str(r#"{"output":"speaker","route":"auto","mic_ns":true,"mic_ns_active":true}"#).unwrap();
+        let s = parse_status(&v).unwrap();
+        assert_eq!((s.mic_ns, s.mic_ns_active), (Some(true), true));
         let v: Value = serde_json::from_str(r#"{"output":"headphones","route":"headphones","jack":{"headphones":true,"mic":true},"dolby":null}"#).unwrap();
         let s = parse_status(&v).unwrap();
         assert_eq!(s.dolby, None);
