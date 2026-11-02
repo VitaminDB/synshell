@@ -106,9 +106,16 @@ SystemWindowControls { color: var(--fg); background-color: var(--hover); }
 .clip-text { font-size: 11px; font-weight: 600; color: #00000000; }
 .clip.on { background-color: var(--danger); }
 .clip.on .clip-text { color: #ffffff; }
+/* режим визуализации: «Авто» / «Всегда» */
+.vis-mode { padding: 4px 10px; border-radius: 12px; background-color: var(--surface); border: 1px solid var(--border); }
+.vis-mode.on { background-color: var(--rec-soft); border: 1px solid var(--rec); }
+.vis-mode-icon { icon-size: 14px; icon-color: var(--muted); }
+.vis-mode.on .vis-mode-icon { icon-color: var(--rec); }
+.vis-mode-text { font-size: 12px; font-weight: 600; color: var(--muted); }
+.vis-mode.on .vis-mode-text { color: var(--fg); }
 
 /* кнопки записи */
-.side-wrap { width: 76px; }
+.side-wrap { width: 92px; }
 .side-wrap.off { opacity: 0.35; }
 .btn.side { width: 56px; height: 56px; padding: 15px; border-radius: 28px; background-color: var(--surface); icon-size: 26px; icon-color: var(--fg); }
 .btn.side:hover { background-color: var(--hover); }
@@ -192,7 +199,8 @@ SegmentedButton.seg { height: 40px; background: var(--surface); color: var(--fg)
 TextField.field { background-color: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; font-size: 14px; color: var(--fg); }
 TextField.field:focus { border-color: var(--accent); }
 
-.toast-wrap { width: 100%; height: 100%; padding: 0px 16px 30px 16px; }
+/* подсказка — над кнопками записи и плеером внизу, не поверх них */
+.toast-wrap { width: 100%; height: 100%; padding: 0px 16px 150px 16px; }
 .toast { padding: 10px 12px 10px 18px; border-radius: 16px; background-color: var(--card); border: 1px solid var(--border); box-shadow: 0 8px 24px var(--shadow); max-width: 480px; min-height: 44px; }
 .toast.error { border-color: var(--danger); }
 .toast-text { font-size: 13px; color: var(--fg); }

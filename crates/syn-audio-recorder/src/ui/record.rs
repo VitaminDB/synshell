@@ -130,7 +130,28 @@ fn visual(st: St, wide: bool) -> W {
         let on = st.clip.get();
         vec![boxed(DecoratedBox::new().class(if on { "clip on" } else { "clip" }).child(Text::new(t!("Перегрузка")).class("clip-text")))]
     });
-    let meter_row = Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class("grow").child(wave::meter().class("meter"))).child(clip);
+    // режим визуализации: «Авто» — только во время записи, «Всегда» — живой уровень и до записи
+    let mode = Reactive::new(move || -> Vec<W> {
+        syngui::i18n::subscribe();
+        let always = st.settings.get().vis_always;
+        let (label, hint) = if always {
+            (t!("Всегда"), t!("Волна идёт и до записи (микрофон открыт). Нажмите — только во время записи"))
+        } else {
+            (t!("Авто"), t!("Волна идёт только во время записи. Нажмите — всегда, и до записи"))
+        };
+        let b = GestureDetector::new().on_click(move || st.set_settings(|s| s.vis_always = !s.vis_always)).child(
+            DecoratedBox::new().class(if always { "vis-mode on" } else { "vis-mode" }).child(
+                Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(icons::WAVE).class("vis-mode-icon")).child(Text::new(label).class("vis-mode-text")),
+            ),
+        );
+        vec![tip(b, hint)]
+    });
+    let meter_row = Row::new()
+        .gap(10.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(mode)
+        .child(DecoratedBox::new().class("grow").child(wave::meter().class("meter")))
+        .child(clip);
     boxed(DecoratedBox::new().class("vis-card").child(Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(canvas).child(meter_row)))
 }
 
@@ -149,7 +170,8 @@ fn controls(st: St) -> W {
                 .child(Text::new(label).class(if enabled { "side-label" } else { "side-label dim" }));
             boxed(DecoratedBox::new().class(if enabled { "side-wrap" } else { "side-wrap off" }).child(b))
         };
-        let cancel = side(icons::CLOSE, t!("Отменить"), active, Box::new(move || st.cancel()));
+        let undo_save = !active && st.just_saved.get().is_some();
+        let cancel = side(icons::CLOSE, if undo_save { t!("Удалить") } else { t!("Отменить") }, active || undo_save, Box::new(move || st.cancel()));
         let pause = if rec == Rec::Paused {
             side(icons::MIC, t!("Продолжить"), true, Box::new(move || st.toggle_pause()))
         } else {
@@ -159,11 +181,7 @@ fn controls(st: St) -> W {
         let core_class = if active { "rec-core stop" } else if busy { "rec-core busy" } else { "rec-core" };
         let ring_class = if rec == Rec::Recording { "rec-ring live" } else { "rec-ring" };
         let main = GestureDetector::new()
-            .on_click(move || match st.rec.get_untracked() {
-                Rec::Idle => st.record(),
-                Rec::Recording | Rec::Paused => st.stop(),
-                _ => {}
-            })
+            .on_click(move || st.main_button())
             .child(DecoratedBox::new().class(ring_class).child(DecoratedBox::new().class(core_class)));
         let main = tip(main, if active { t!("Остановить и сохранить (Enter)") } else { t!("Начать запись (Пробел)") });
         vec![boxed(Row::new().gap(28.0).main_axis_alignment(MainAxisAlignment::Center).cross_axis_alignment(CrossAxisAlignment::Center).child(cancel).child(main).child(pause))]

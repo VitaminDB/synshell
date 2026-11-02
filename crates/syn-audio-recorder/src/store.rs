@@ -55,13 +55,14 @@ pub struct Settings {
     pub folder: String,
     /// Узел PipeWire микрофона (`node.name`); пусто — по умолчанию.
     pub mic: String,
-    /// Живой уровень микрофона до записи (пока окно активно).
-    pub monitor: bool,
+    /// Визуализация «Всегда»: волна и уровень живые и до записи (микрофон открыт, пока окно активно).
+    /// `false` — «Авто»: волна идёт только во время записи, после «Стоп» замирает, микрофон закрыт.
+    pub vis_always: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { format: Format::Opus, opus_kbps: 64, folder: String::new(), mic: String::new(), monitor: true }
+        Settings { format: Format::Opus, opus_kbps: 64, folder: String::new(), mic: String::new(), vis_always: false }
     }
 }
 
@@ -488,7 +489,7 @@ mod tests {
 
     #[test]
     fn settings_roundtrip() {
-        let s = Settings { format: Format::Flac, opus_kbps: 96, folder: "~/Rec".into(), mic: "palaudio.mic.top".into(), monitor: false };
+        let s = Settings { format: Format::Flac, opus_kbps: 96, folder: "~/Rec".into(), mic: "palaudio.mic.top".into(), vis_always: true };
         let txt = toml::to_string_pretty(&s).unwrap();
         assert!(txt.contains("format = \"flac\""));
         assert_eq!(toml::from_str::<Settings>(&txt).unwrap(), s);
@@ -496,7 +497,7 @@ mod tests {
         let p: Settings = toml::from_str("format = \"wav\"").unwrap();
         assert_eq!(p.format, Format::Wav);
         assert_eq!(p.opus_kbps, 64);
-        assert!(p.monitor);
+        assert!(!p.vis_always);
         assert_eq!(s.dir(), paths::home().join("Rec"));
         assert_eq!(s.mic_node().as_deref(), Some("palaudio.mic.top"));
     }

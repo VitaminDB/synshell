@@ -159,11 +159,11 @@ fn settings(st: St, wide: bool) -> W {
                         DecoratedBox::new().class("grow").child(
                             Column::new()
                                 .gap(2.0)
-                                .child(Text::new(t!("Уровень до записи")).class("opt-title"))
-                                .child(Text::new(t!("Волна реагирует на голос, пока окно активно; через 2 минуты без фокуса микрофон закрывается")).max_lines(3).class("opt-sub")),
+                                .child(Text::new(t!("Визуализация всегда")).class("opt-title"))
+                                .child(Text::new(t!("Волна реагирует на голос и до записи, пока окно активно (через 2 минуты без фокуса микрофон закрывается). Выключено — «Авто»: только во время записи")).max_lines(4).class("opt-sub")),
                         ),
                     )
-                    .child(Toggle::with_state(s.monitor).on_change(move |on| st.set_settings(|s| s.monitor = on))),
+                    .child(Toggle::with_state(s.vis_always).on_change(move |on| st.set_settings(|s| s.vis_always = on))),
             ),
         );
         vec![boxed(col)]

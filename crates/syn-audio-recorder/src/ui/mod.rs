@@ -153,6 +153,8 @@ pub struct St {
     /// Открытый лист: выбор микрофона или настройки.
     pub sheet: RwSignal<Option<Sheet>>,
     pub rename: RwSignal<Option<PathBuf>>,
+    /// Только что сохранённая запись: «Отменить» ещё несколько секунд удаляет её (с возвратом).
+    pub just_saved: RwSignal<Option<PathBuf>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -170,7 +172,14 @@ static SEEKING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::n
 /// Окно не в фокусе дольше — монитор микрофона закрывается.
 const IDLE_CLOSE: Duration = Duration::from_secs(120);
 
+/// Повторное нажатие главной кнопки раньше — не «Стоп», а случайный двойной тап.
+const STOP_GUARD: Duration = Duration::from_millis(1000);
+/// Сколько после «Стоп» кнопка «Отменить» удаляет сохранённую запись.
+const UNDO_SAVE: Duration = Duration::from_secs(8);
+
 thread_local! {
+    static STARTED_AT: std::cell::Cell<Option<Instant>> = const { std::cell::Cell::new(None) };
+    static SAVED_AT: std::cell::Cell<Option<Instant>> = const { std::cell::Cell::new(None) };
     static UNFOCUSED_SINCE: std::cell::Cell<Option<Instant>> = const { std::cell::Cell::new(None) };
     static SUSPENDED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static LAST_NS: std::cell::Cell<Option<Instant>> = const { std::cell::Cell::new(None) };
@@ -198,6 +207,7 @@ impl St {
             theme: use_signal(String::new()),
             toast: use_signal(None),
             sheet: use_signal(None),
+            just_saved: use_signal(None),
             rename: use_signal(None),
         }
     }
@@ -252,7 +262,7 @@ impl St {
         s.save();
         let dir_changed = s.dir() != old.dir();
         let mic_changed = s.mic != old.mic;
-        let monitor_off = old.monitor && !s.monitor;
+        let monitor_off = old.vis_always && !s.vis_always;
         self.settings.set(s);
         if dir_changed {
             self.close_player();
@@ -375,6 +385,8 @@ impl St {
         }
         self.rec.set(Rec::Starting);
         self.tenths.set(0);
+        self.just_saved.set(None);
+        STARTED_AT.with(|c| c.set(Some(Instant::now())));
         let go = move |st: St| {
             let s = st.settings.get_untracked();
             match engine::start(&s, &st.mic_label()) {
@@ -410,6 +422,21 @@ impl St {
         }
     }
 
+    /// Главная кнопка: запись или «Стоп» (повтор в первую секунду — двойной тап, не стоп).
+    pub fn main_button(self) {
+        match self.rec.get_untracked() {
+            Rec::Idle => self.record(),
+            Rec::Recording | Rec::Paused => {
+                if STARTED_AT.with(|c| c.get()).is_some_and(|t| t.elapsed() < STOP_GUARD) {
+                    tracing::info!("стоп в первую секунду записи — пропущен (двойной тап)");
+                    return;
+                }
+                self.stop()
+            }
+            _ => {}
+        }
+    }
+
     pub fn stop(self) {
         if !self.rec.get_untracked().active() {
             return;
@@ -428,7 +455,9 @@ impl St {
                         self.drop_player();
                         self.pos.set(0.0);
                         self.dur.set(m.duration);
-                        self.selected.set(Some(p));
+                        self.selected.set(Some(p.clone()));
+                        self.just_saved.set(Some(p));
+                        SAVED_AT.with(|c| c.set(Some(Instant::now())));
                     }
                     Ok(None) => self.toast(t!("Пустая запись не сохранена")),
                     Err(e) => self.error(t!("Ошибка записи: {e}", e = e)),
@@ -441,6 +470,11 @@ impl St {
 
     pub fn cancel(self) {
         if !self.rec.get_untracked().active() {
+            // сразу после «Стоп» — удалить только что сохранённую (в корзину, с «Отменить» в подсказке)
+            if let Some(p) = self.just_saved.get_untracked() {
+                self.just_saved.set(None);
+                self.delete(p);
+            }
             return;
         }
         engine::cancel();
@@ -699,6 +733,9 @@ impl St {
         if !slow {
             return;
         }
+        if self.just_saved.get_untracked().is_some() && SAVED_AT.with(|c| c.get()).is_none_or(|t| t.elapsed() > UNDO_SAVE) {
+            self.just_saved.set(None);
+        }
         // монитор: открыт, пока окно активно; закрывается после 2 мин без фокуса и при сворачивании
         let w = self.window.get_untracked();
         let focused = w.focused && !SUSPENDED.with(|c| c.get());
@@ -714,10 +751,10 @@ impl St {
         // записи (на телефоне — единственный поток PAL: другой микрофон в других программах был бы тишиной)
         let shown = self.page.get_untracked() == Page::Record && !self.playing.get_untracked();
         if rec == Rec::Idle {
-            if (away || !s.monitor || !shown) && mic == MicState::Open {
+            if (away || !s.vis_always || !shown) && mic == MicState::Open {
                 self.mic.set(MicState::Closed);
                 std::thread::spawn(engine::close_mic);
-            } else if s.monitor && focused && shown && mic == MicState::Closed {
+            } else if s.vis_always && focused && shown && mic == MicState::Closed {
                 self.open_mic_then(|_| {});
             }
         }
