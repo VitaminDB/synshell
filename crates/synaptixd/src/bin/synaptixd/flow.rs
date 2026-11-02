@@ -576,7 +576,7 @@ fn transcribe(cx: &mut Cx) -> R {
         call = call.with("language", l);
     }
     let language = m.params(&model, &call).text("language").map(String::from);
-    let t = with_progress(cx, |_, _| m.run(&model, |l| l.transcribe(&pcm, 16000, language.as_deref()))).map_err(|e| stopped(cx, e.message))?;
+    let t = with_progress(cx, |_, _| m.run(&model, |l| l.transcribe(&pcm, 16000, language.as_deref(), None))).map_err(|e| stopped(cx, e.message))?;
     cx.out("text", Val::Text(t.text));
     Ok(())
 }

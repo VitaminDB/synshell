@@ -918,11 +918,22 @@ impl Loaded {
         Ok(synaptixd::RerankScores { scores, max_tokens: r.max_tokens() })
     }
 
-    pub fn transcribe(&self, pcm: &[f32], sample_rate: u32, language: Option<&str>) -> anyhow::Result<synaptixd::Transcript> {
+    /// `words` — слова с таймкодами: (verbatim, своя подсказка).
+    pub fn transcribe(&self, pcm: &[f32], sample_rate: u32, language: Option<&str>, words: Option<(bool, Option<String>)>) -> anyhow::Result<synaptixd::Transcript> {
         let Loaded::Asr(t) = self else { anyhow::bail!("модель не распознаёт речь") };
         let mut t = t.lock().unwrap_or_else(|e| e.into_inner());
-        let text = t.transcribe_pcm_text(pcm, sample_rate, language).map_err(|e| anyhow::anyhow!("{e}"))?;
-        Ok(synaptixd::Transcript { text: text.trim().to_string(), segments: Vec::new() })
+        let Some((verbatim, prompt)) = words else {
+            let text = t.transcribe_pcm_text(pcm, sample_rate, language).map_err(|e| anyhow::anyhow!("{e}"))?;
+            return Ok(synaptixd::Transcript { text: text.trim().to_string(), ..Default::default() });
+        };
+        let opts = synaptix::facade::asr::AsrWordsOptions { verbatim, initial_prompt: prompt.filter(|p| !p.trim().is_empty()), ..Default::default() };
+        let r = t.transcribe_pcm_words(pcm, sample_rate, language, &opts).map_err(|e| anyhow::anyhow!("{e}"))?;
+        Ok(synaptixd::Transcript {
+            text: r.text.trim().to_string(),
+            segments: Vec::new(),
+            words: r.words.into_iter().map(|w| synaptixd::Word { text: w.text, start: w.start, end: w.end, conf: w.prob }).collect(),
+            language: Some(r.language).filter(|l| !l.is_empty()),
+        })
     }
 
     /// Привести адаптеры LoRA языковой модели к набору `want`: недостающие

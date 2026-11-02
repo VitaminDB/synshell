@@ -1030,6 +1030,16 @@ pub enum Request {
         sample_rate: u32,
         #[serde(default)]
         language: Option<String>,
+        /// Слова с таймкодами и уверенностью (`Transcript::words`).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        words: bool,
+        /// Не выбрасывать заполнители пауз (um, uh) — подсказка Whisper;
+        /// только для английского.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        verbatim: bool,
+        /// Своя подсказка Whisper (термины, имена); перекрывает `verbatim`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prompt: Option<String>,
     },
     Speak {
         model: String,
@@ -1238,6 +1248,22 @@ pub enum Event {
     Train { job: TrainJob },
     /// Изменился список адаптеров или датасетов в библиотеках.
     LorasChanged,
+    /// Кусок потоковой озвучки (`Speak` с `stream`): PCM f32 моно — fd 0
+    /// этого же сообщения; `text` — что в нём сказано.
+    Audio { index: usize, text: String, samples: usize, sample_rate: u32 },
+}
+
+/// Готовые голоса-персонажи озвучки (параметр `speaker` у `Speak`):
+/// у OmniVoice и VoxCPM — пол и возраст по описанию, у VibeVoice — только
+/// закреплённый тембр. Голос одного персонажа одинаков от фразы к фразе.
+pub const SPEAKERS: &[&str] = &["female_young", "female_adult", "female_elderly", "male_young", "male_adult", "male_elderly", "girl", "boy"];
+
+/// Кусок потоковой озвучки (см. [`Client::speak_stream`]).
+pub struct AudioChunk {
+    pub index: usize,
+    pub text: String,
+    pub sample_rate: u32,
+    pub pcm: Vec<f32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
@@ -1384,11 +1410,27 @@ pub struct RerankScores {
     pub max_tokens: usize,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
 pub struct Transcript {
     pub text: String,
     #[serde(default)]
     pub segments: Vec<Segment>,
+    /// Слова (если запрошены): время в секундах от начала записи.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub words: Vec<Word>,
+    /// Язык (заданный или определённый моделью), если известен.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+}
+
+/// Слово распознанной речи; `conf` — средняя вероятность его токенов (0..1):
+/// у верно распознанных обычно 0,95+, у ошибочных заметно ниже.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Word {
+    pub text: String,
+    pub start: f32,
+    pub end: f32,
+    pub conf: f32,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
@@ -1544,6 +1586,16 @@ impl Client {
         fds: &[BorrowedFd],
         mut on_event: impl FnMut(Event),
     ) -> Result<(Value, Vec<OwnedFd>)> {
+        self.call_events_fds(req, fds, |ev, _| on_event(ev))
+    }
+
+    /// Как [`Self::call_events`], но с файлами событий (`Audio`, `FlowFiles`).
+    pub fn call_events_fds(
+        &mut self,
+        req: Request,
+        fds: &[BorrowedFd],
+        mut on_event: impl FnMut(Event, Vec<OwnedFd>),
+    ) -> Result<(Value, Vec<OwnedFd>)> {
         let id = self.send(req, fds)?;
         loop {
             let (reply, fds) = self.recv()?;
@@ -1551,7 +1603,7 @@ impl Client {
                 continue;
             }
             if let Some(ev) = reply.event {
-                on_event(ev);
+                on_event(ev, fds);
                 continue;
             }
             if reply.ok == Some(true) {
@@ -1713,6 +1765,27 @@ impl Client {
             samples: pcm.len(),
             sample_rate,
             language: language.map(Into::into),
+            words: false,
+            verbatim: false,
+            prompt: None,
+        };
+        let (v, _) = self.call(req, &[fd.as_fd()])?;
+        serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))
+    }
+
+    /// Распознавание со словами, таймкодами и уверенностью по слову.
+    /// `verbatim` — оставлять заполнители пауз (um, uh; английский).
+    pub fn transcribe_words(&mut self, model: &str, pcm: &[f32], sample_rate: u32, language: Option<&str>, verbatim: bool) -> Result<Transcript> {
+        let fd = wire::memfd_f32("pcm", pcm)?;
+        let req = Request::Transcribe {
+            model: model.into(),
+            pcm: FdRef { fd: 0 },
+            samples: pcm.len(),
+            sample_rate,
+            language: language.map(Into::into),
+            words: true,
+            verbatim,
+            prompt: None,
         };
         let (v, _) = self.call(req, &[fd.as_fd()])?;
         serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))
@@ -1851,8 +1924,48 @@ impl Client {
         self.speech(req)
     }
 
+    /// Потоковая озвучка: текст режется на предложения, каждый кусок
+    /// приходит в `on_chunk`, как только готов; итог — вся речь целиком.
+    /// В `params` — как у [`Self::speak_with`] (`speaker`, `speed`, `voice`,
+    /// `language`, `seed`…); `stream` ставится здесь.
+    pub fn speak_stream(&mut self, model: &str, text: &str, params: &Params, mut on_chunk: impl FnMut(AudioChunk)) -> Result<Speech> {
+        let req = Request::Speak {
+            model: model.into(),
+            text: text.into(),
+            language: None,
+            instruct: None,
+            speed: None,
+            steps: None,
+            params: params.clone().with("stream", true),
+            fresh: false,
+        };
+        let mut bad: Option<Error> = None;
+        let (v, fds) = self.call_events_fds(req, &[], |ev, mut fds| {
+            if let Event::Audio { index, text, samples, sample_rate } = ev {
+                if fds.is_empty() {
+                    bad.get_or_insert(Error::new(ErrorCode::Protocol, "нет файла с куском озвучки"));
+                    return;
+                }
+                match Mapped::map(fds.remove(0), samples * 4) {
+                    Ok(m) => on_chunk(AudioChunk { index, text, sample_rate, pcm: m.f32s().to_vec() }),
+                    Err(e) => {
+                        bad.get_or_insert(Error::new(ErrorCode::Protocol, e.to_string()));
+                    }
+                }
+            }
+        })?;
+        if let Some(e) = bad {
+            return Err(e);
+        }
+        self.speech_reply(v, fds)
+    }
+
     fn speech(&mut self, req: Request) -> Result<Speech> {
         let (v, fds) = self.call(req, &[])?;
+        self.speech_reply(v, fds)
+    }
+
+    fn speech_reply(&mut self, v: Value, fds: Vec<OwnedFd>) -> Result<Speech> {
         let r: SpeechReply = serde_json::from_value(v).map_err(|e| Error::new(ErrorCode::Protocol, e.to_string()))?;
         let fd = fds
             .into_iter()

@@ -333,7 +333,7 @@ impl Conn {
                 let e = mgr.run(&model, |m| m.embed(&texts))?;
                 (data(e), none())
             }
-            Request::Transcribe { model, pcm, samples, sample_rate, language } => {
+            Request::Transcribe { model, pcm, samples, sample_rate, language, words, verbatim, prompt } => {
                 let model = mgr.resolve_id(&model, ModelKind::Asr)?;
                 let mut call = Params::new();
                 if let Some(v) = language {
@@ -341,7 +341,8 @@ impl Conn {
                 }
                 let language = mgr.params(&model, &call).text("language").map(String::from);
                 let pcm = pcm_from(&mut fds, pcm, samples)?;
-                let t = mgr.run(&model, |m| m.transcribe(pcm.f32s(), sample_rate, language.as_deref()))?;
+                let words = words.then_some((verbatim, prompt));
+                let t = mgr.run(&model, |m| m.transcribe(pcm.f32s(), sample_rate, language.as_deref(), words.clone()))?;
                 (data(t), none())
             }
             Request::Speak { model, text, language, instruct, speed, steps, params, fresh } => {
