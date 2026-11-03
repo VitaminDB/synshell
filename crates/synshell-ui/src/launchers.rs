@@ -150,12 +150,17 @@ pub fn single_instance(ctx: &ShellCtx) -> bool {
 /// Режим одного экземпляра: у приложения `app_id` уже есть окно — развернуть
 /// и поднять его (свёрнутое — развернуть) и вернуть `true`. Режим выключен
 /// или окон нет — `false`, запускать как обычно.
-pub fn focus_existing(ctx: &ShellCtx, app_id: &str) -> bool {
+///
+/// Закрывающиеся окна не в счёт: окна, которым оболочка только что послала
+/// «закрыть», пропускаются, а если выбранное окно всё же исчезло вскоре после
+/// подъёма (закрылось само, через свой заголовок или `synwm msg`), вызывается
+/// `fallback` — запуск нового экземпляра.
+pub fn focus_existing(ctx: &ShellCtx, app_id: &str, fallback: impl FnOnce() + 'static) -> bool {
     if app_id.is_empty() || !single_instance(ctx) {
         return false;
     }
     let windows = ctx.windows.get_untracked();
-    let mine = windows_of(app_id, &windows);
+    let mine: Vec<&WindowInfo> = windows_of(app_id, &windows).into_iter().filter(|w| !crate::actions::is_closing(w.id)).collect();
     // окно в фокусе, иначе не свёрнутое окно текущего стола, иначе любое
     let ws = ctx.workspaces.get_untracked().iter().find(|w| w.active).map(|w| w.index);
     let Some(w) = mine
@@ -166,15 +171,32 @@ pub fn focus_existing(ctx: &ShellCtx, app_id: &str) -> bool {
     else {
         return false;
     };
-    log::info!("один экземпляр: {app_id} уже открыт — окно {} {}", w.id, if w.minimized { "разворачивается" } else { "поднимается" });
-    crate::actions::window_op(w.id, WindowOp::Activate);
+    let id = w.id;
+    log::info!("один экземпляр: {app_id} уже открыт — окно {id} {}", if w.minimized { "разворачивается" } else { "поднимается" });
+    crate::actions::window_op(id, WindowOp::Activate);
+    // окно закрывалось — через миг его нет: тогда запустить заново
+    let app = app_id.to_string();
+    let mut fallback = Some(fallback);
+    syngui_layer::add_timer(SINGLE_INSTANCE_RECHECK, move || {
+        if !ShellCtx::get().windows.get_untracked().iter().any(|w| w.id == id) {
+            log::info!("один экземпляр: окно {id} ({app}) закрылось — запуск заново");
+            if let Some(f) = fallback.take() {
+                f();
+            }
+        }
+        None
+    });
     true
 }
+
+/// Через сколько проверить, что поднятое окно не закрылось.
+const SINGLE_INSTANCE_RECHECK: Duration = Duration::from_millis(1500);
 
 /// Запустить приложение. В режиме одного экземпляра уже открытое
 /// приложение разворачивается ([`focus_existing`]), иначе — [`launch_new`].
 pub fn launch(ctx: ShellCtx, l: &Launchable) {
-    if focus_existing(&ctx, &l.app_id) {
+    let l2 = l.clone();
+    if focus_existing(&ctx, &l.app_id, move || launch_new(ShellCtx::get(), &l2)) {
         return;
     }
     launch_new(ctx, l);

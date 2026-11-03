@@ -75,7 +75,32 @@ pub fn open_resources(page: &str) {
 }
 
 pub fn window_op(id: u64, op: WindowOp) {
+    if matches!(op, WindowOp::Close | WindowOp::Kill) {
+        note_closing(id);
+    }
     send(Request::WindowAction { id, op });
+}
+
+thread_local! {
+    /// Окна, которым оболочка недавно послала «закрыть»: (id, когда).
+    static CLOSING: std::cell::RefCell<Vec<(u64, std::time::Instant)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Сколько окно после просьбы закрыться считается закрывающимся: программа может
+/// не сразу убрать окно, а может и не закрыться (спросить «сохранить?»).
+const CLOSING_FOR: std::time::Duration = std::time::Duration::from_secs(3);
+
+fn note_closing(id: u64) {
+    CLOSING.with(|c| {
+        let mut c = c.borrow_mut();
+        c.retain(|(i, t)| *i != id && t.elapsed() < CLOSING_FOR);
+        c.push((id, std::time::Instant::now()));
+    });
+}
+
+/// Окну недавно послали «закрыть» (из оболочки) — оно, скорее всего, вот-вот исчезнет.
+pub fn is_closing(id: u64) -> bool {
+    CLOSING.with(|c| c.borrow().iter().any(|(i, t)| *i == id && t.elapsed() < CLOSING_FOR))
 }
 
 /// Выполнить действие (кнопка панели, меню питания).

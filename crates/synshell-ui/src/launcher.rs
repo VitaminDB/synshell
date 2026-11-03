@@ -43,7 +43,8 @@ impl Item {
 /// (`[launcher] single_instance`) уже открытое приложение не запускается
 /// заново — его окно разворачивается и поднимается.
 pub fn launch(ctx: ShellCtx, e: &DesktopEntry) {
-    if crate::launchers::focus_existing(&ctx, &e.id) {
+    let e2 = e.clone();
+    if crate::launchers::focus_existing(&ctx, &e.id, move || launch_new(ShellCtx::get(), &e2)) {
         remember(&e.id);
         return;
     }
