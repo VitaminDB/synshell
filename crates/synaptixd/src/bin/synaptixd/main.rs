@@ -504,7 +504,13 @@ impl Conn {
                             }
                         }
                         if e > max_err {
-                            tracing::warn!("speak: проверка — оценка брака {:.0}%, попытка {}/3", e * 100.0, attempt + 1);
+                            let head: String = chunk.chars().take(60).collect();
+                            tracing::warn!("speak: проверка — оценка брака {:.0}% («{head}», язык {}), попытка {}/3", e * 100.0, language.as_deref().unwrap_or("—"), attempt + 1);
+                        }
+                        // Дважды подряд не узнано ничего — скорее язык не тот
+                        // (модель его не знает), третий раз не поможет.
+                        if attempt > 0 && e >= 0.95 && best.as_ref().is_some_and(|b| b.0 >= 0.95) {
+                            break;
                         }
                         if best.as_ref().is_none_or(|b| e < b.0) {
                             best = Some((e, pcm, rate, sd));
@@ -883,6 +889,11 @@ fn main() -> anyhow::Result<()> {
     let fed_cfg = cfg.federation.clone();
     let state_dir = cfg.state.parent().map(std::path::Path::to_path_buf).unwrap_or_else(|| "/var/lib/synaptix".into());
     let mgr = Manager::new(cfg);
+    // Нехватка видеопамяти (загрузка или работа модели) сперва выгружает
+    // простаивающие модели — раньше, чем загрузчик уведёт слои на хост или
+    // закреплённая модель ужмёт свой кэш: служба в реестре первая.
+    let vram_reclaimer: Arc<dyn synaptix_core::memory::reclaim::Reclaimable> = Arc::new(manager::IdleEvictor(Arc::downgrade(&mgr)));
+    synaptix_core::memory::reclaim::register(&vram_reclaimer);
     federation::init(mgr.clone(), fed_cfg, state_dir);
     train::init(mgr.clone());
     {

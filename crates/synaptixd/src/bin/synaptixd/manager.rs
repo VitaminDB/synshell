@@ -886,6 +886,17 @@ impl Manager {
         true
     }
 
+    /// Сколько видеопамяти держат модели, которые можно выгрузить (незанятые,
+    /// не закреплённые, на CUDA).
+    pub fn idle_vram(&self) -> u64 {
+        let Ok(slots) = self.slots.try_lock() else { return 0 };
+        slots
+            .values()
+            .filter(|s| s.model.is_some() && s.busy == 0 && !s.settings.pinned && s.device == Some(DeviceKind::Cuda))
+            .map(|s| s.vram_bytes)
+            .sum()
+    }
+
     /// Кого выгрузить: незанятая, не закреплённая, давно не использованная;
     /// `dev` — только модели на этом устройстве (освобождение видеопамяти).
     fn pick_victim(&self, except: &str, dev: Option<DeviceKind>) -> Option<String> {
@@ -910,7 +921,7 @@ impl Manager {
         self.evict_one_on(except, None, why)
     }
 
-    fn evict_one_on(&self, except: &str, dev: Option<DeviceKind>, why: &str) -> bool {
+    pub fn evict_one_on(&self, except: &str, dev: Option<DeviceKind>, why: &str) -> bool {
         let Some(victim) = self.pick_victim(except, dev) else { return false };
         // Ради видеопамяти KV-кэш уезжает ждать в RAM; ради самой RAM — нет.
         if self.unload_with(&victim, dev.is_some()) {
@@ -957,7 +968,8 @@ impl Manager {
     /// грузим как есть (оценка груба, а загрузчик сам умеет стримить слои);
     /// раньше при занятой карте загрузка падала и модель тихо уходила на CPU.
     pub fn make_vram_room(&self, id: &str, dev: DeviceKind, need: u64) {
-        if dev != DeviceKind::Cuda || need == 0 {
+        // SYNAPTIXD_VRAM_ROOM=0 — без него (проверка запроса места из загрузчика).
+        if dev != DeviceKind::Cuda || need == 0 || std::env::var("SYNAPTIXD_VRAM_ROOM").as_deref() == Ok("0") {
             return;
         }
         let free = || synaptix_core::device::cuda::mem_info(0).map(|(f, _)| f as u64).unwrap_or(u64::MAX);
@@ -1080,6 +1092,27 @@ impl Manager {
             devices::set_model(&m.id);
             let _dl = devices::lock(dev);
             runners::load(m.kind, &m.arch, &path, &m.component_paths(), dev, quant, engine)
+        };
+        // Карта занята моделями без запросов — выгрузить их все и повторить на
+        // карте, прежде чем падать на CPU (там та же модель в разы медленнее).
+        let loaded = match loaded {
+            Err(e) if dev == DeviceKind::Cuda && ["OUT_OF_MEMORY", "OOM", "out of memory"].iter().any(|k| e.to_string().contains(k)) => {
+                let mut evicted = false;
+                while self.evict_one_on(&m.id, Some(DeviceKind::Cuda), "не хватило видеопамяти при загрузке") {
+                    evicted = true;
+                }
+                if evicted {
+                    tracing::info!("{}: повтор загрузки на cuda после выгрузки простаивающих", m.id);
+                    let _ = synaptix_core::device::cuda::synchronize_all(0);
+                    let _ = synaptix_core::memory::cuda_pool::hard_trim_all_pools_device(0);
+                    devices::set_model(&m.id);
+                    let _dl = devices::lock(dev);
+                    runners::load(m.kind, &m.arch, &path, &m.component_paths(), dev, quant, engine)
+                } else {
+                    Err(e)
+                }
+            }
+            other => other,
         };
         let (model, dev, variant) = match loaded {
             Ok(model) => (model, dev, variant),
@@ -1292,4 +1325,44 @@ fn find_process(names: &[String]) -> Option<String> {
         }
     }
     None
+}
+
+/// Отдаваемая видеопамять службы для аллокатора synaptix: на нехватке —
+/// выгрузка простаивающих моделей с карты (по давности использования).
+pub struct IdleEvictor(pub std::sync::Weak<Manager>);
+
+impl synaptix_core::memory::reclaim::Reclaimable for IdleEvictor {
+    fn reclaim(&self, device: synaptix_core::device::Device, want: usize) -> usize {
+        if !matches!(device, synaptix_core::device::Device::Cuda(_)) {
+            return 0;
+        }
+        let Some(m) = self.0.upgrade() else { return 0 };
+        // Аллокатор может звать нас под чужими замками: список моделей занят
+        // (в том числе этим же потоком) — не ждём.
+        if m.slots.try_lock().is_err() {
+            return 0;
+        }
+        let mut freed = 0usize;
+        while freed < want {
+            let before = synaptix_core::device::cuda::mem_info(0).map(|(f, _)| f).unwrap_or(0);
+            if !m.evict_one_on("", Some(DeviceKind::Cuda), "не хватает видеопамяти") {
+                break;
+            }
+            let _ = synaptix_core::device::cuda::synchronize_all(0);
+            let _ = synaptix_core::memory::cuda_pool::hard_trim_all_pools_device(0);
+            let after = synaptix_core::device::cuda::mem_info(0).map(|(f, _)| f).unwrap_or(0);
+            freed += after.saturating_sub(before).max(1);
+        }
+        if freed > 0 {
+            tracing::info!("видеопамять: выгружены простаивающие модели (нужно было {} МБ)", want >> 20);
+        }
+        freed
+    }
+
+    fn reclaimable_bytes(&self, device: synaptix_core::device::Device) -> usize {
+        match (device, self.0.upgrade()) {
+            (synaptix_core::device::Device::Cuda(_), Some(m)) => m.idle_vram() as usize,
+            _ => 0,
+        }
+    }
 }

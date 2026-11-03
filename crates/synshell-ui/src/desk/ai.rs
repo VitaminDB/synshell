@@ -306,7 +306,16 @@ fn row_version(s: &AiSnap, m: &ModelEntry) -> u64 {
     let acts: Vec<&Activity> = s.metrics.running.iter().filter(|a| a.models.contains(&m.id)).collect();
     let apps: Vec<_> = s.metrics.apps.iter().filter(|u| u.models.contains(&m.id)).map(|u| u.app.title()).collect();
     let kv: u64 = s.metrics.kv.iter().filter(|k| k.model == m.id).map(|k| k.bytes).sum();
-    key_of(&format!("{m:?}{acts:?}{apps:?}{kv}"))
+    key_of(&format!("{m:?}{acts:?}{apps:?}{kv}{:?}", idle_min(m)))
+}
+
+/// Сколько минут модель без запросов (для незанятой загруженной).
+fn idle_min(m: &ModelEntry) -> Option<i64> {
+    if m.busy || m.last_used_ms <= 0 || m.state != LoadState::Loaded {
+        return None;
+    }
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+    Some(((now - m.last_used_ms) / 60_000).max(0))
 }
 
 fn model_row(s: &AiSnap, m: &ModelEntry, cx: &Cx) -> Box<dyn Widget> {
@@ -319,6 +328,9 @@ fn model_row(s: &AiSnap, m: &ModelEntry, cx: &Cx) -> Box<dyn Widget> {
     let apps: Vec<String> = s.metrics.apps.iter().filter(|u| u.models.contains(&m.id)).map(|u| u.app.title()).collect();
     let kv: u64 = s.metrics.kv.iter().filter(|k| k.model == m.id).map(|k| k.bytes).sum();
     let mut who = if apps.is_empty() { t!("не используется").to_string() } else { apps.join(", ") };
+    if let Some(min) = idle_min(m).filter(|_| apps.is_empty()) {
+        who.push_str(&t!(" · простаивает {v} мин", v = min));
+    }
     if kv > 0 {
         who.push_str(&t!(" · контекст {v}", v = human_bytes(kv)));
     }

@@ -725,6 +725,7 @@
 "Последний ответ: {app} · {m} · {n} ток · {v} ток/с · {w}" = "Last reply: {app} · {m} · {n} tok · {v} tok/s · {w}"
 "модели {m} · {u} из {t}" = "models {m} · {u} of {t}"
 " · контекст {v}" = " · context {v}"
+" · простаивает {v} мин" = " · idle {v} min"
 "загружается" = "loading"
 "ОЗУ" = "RAM"
 "Нет загруженных моделей — служба загрузит нужную при первом обращении" = "No models loaded — the service loads one on first use"
