@@ -96,6 +96,39 @@ impl State {
                 return;
             }
         }
+        // Обложка (датчик Холла): закрыли — как «screen-off» (блокировка и гашение, дальше сон), открыли — экран включить
+        if let InputEvent::SwitchToggle { event } = &event {
+            use smithay::backend::input::{Switch, SwitchState, SwitchToggleEvent};
+            if event.switch() == Some(Switch::Lid) {
+                let closed = event.state() == SwitchState::On;
+                tracing::info!(closed, "обложка");
+                self.core.lid_closed = closed;
+                if closed {
+                    self.do_action(Action::ScreenOff);
+                } else {
+                    self.note_activity();
+                    self.do_action(Action::ScreenOn);
+                }
+                return;
+            }
+        }
+        // Обложка закрыта: касания и перо — это сама обложка, не будят и не доходят до окон
+        if self.core.lid_closed
+            && matches!(
+                event,
+                InputEvent::TouchDown { .. }
+                    | InputEvent::TouchUp { .. }
+                    | InputEvent::TouchMotion { .. }
+                    | InputEvent::TouchFrame { .. }
+                    | InputEvent::TouchCancel { .. }
+                    | InputEvent::TabletToolAxis { .. }
+                    | InputEvent::TabletToolProximity { .. }
+                    | InputEvent::TabletToolTip { .. }
+                    | InputEvent::TabletToolButton { .. }
+            )
+        {
+            return;
+        }
         // Экран погашен датчиком приближения (у уха): касания щекой не будят и не доходят до окон
         if self.core.proximity_blank
             && matches!(

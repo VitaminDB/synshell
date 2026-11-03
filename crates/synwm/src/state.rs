@@ -235,6 +235,8 @@ pub struct Core {
     pub monitors_off: bool,
     /// Экран погасил датчик приближения (разговор у уха): касания отбрасываются, флаг сна не ставится.
     pub proximity_blank: bool,
+    /// Обложка закрыта (датчик Холла, SW_LID): касания и перо отбрасываются — обложка давит на экран.
+    pub lid_closed: bool,
     /// Вывод для абсолютных координат текущей пачки удалённого ввода.
     pub remote_output: Option<Output>,
     /// Идёт событие удалённого ввода (координаты — уже изображения).
@@ -488,6 +490,7 @@ impl Core {
             last_activity: Instant::now(),
             monitors_off: false,
             proximity_blank: false,
+            lid_closed: false,
             remote_output: None,
             remote_input_active: false,
             rotation: HashMap::new(),
