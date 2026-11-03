@@ -97,20 +97,6 @@ SystemWindowControls {
 .window.phone .tb-btn { width: 40px; height: 40px; border-radius: 20px; }
 .window.phone .ib-icon { font-size: 22px; icon-size: 22px; }
 
-.xkeys { background: var(--titlebar); padding: 6px 6px 8px 6px; }
-.xkey {
-    flex-grow: 1;
-    height: 40px;
-    border-radius: 9px;
-    background: var(--term-hover);
-    justify-content: center;
-    align-items: center;
-    transition: background 80ms ease;
-    &:pressed { background: var(--term-pressed); }
-}
-.xkey-text { font-size: 13px; font-weight: 600; color: var(--term-fg); }
-.xkey-icon { font-size: 20px; icon-size: 20px; color: var(--term-fg); }
-
 /* ── Настройки ─────────────────────────────────────────────────── */
 
 .set-scrim { background: var(--scrim); }

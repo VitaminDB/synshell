@@ -122,8 +122,7 @@ fn phone_root(st: St) -> W {
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .class("window phone")
         .child(phone_bar(st))
-        .child(terminal_view(st))
-        .child(extra_keys(st));
+        .child(terminal_view(st));
     keys(st, layers(st, boxed(main)))
 }
 
@@ -225,37 +224,10 @@ fn phone_bar(st: St) -> W {
                 .gap(4.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(DecoratedBox::new().class("grow").child(ScrollView::new().horizontal().child(tabs)))
+                // Esc, Tab, Ctrl и стрелки — в функциональных рядах экранной клавиатуры
+                .child(icon_button(icons::PASTE, t!("Вставить"), "tb-btn", move || st.command(TerminalCommand::Paste)))
                 .child(icon_button(icons::ADD, t!("Новая вкладка"), "tb-btn", move || st.new_tab_here()))
                 .child(icon_button(icons::SETTINGS, t!("Настройки"), "tb-btn", move || st.settings_open.set(true))),
-        ),
-    )
-}
-
-/// Клавиши, которых нет на экранной клавиатуре.
-fn extra_keys(st: St) -> W {
-    // Клавиши делят ширину поровну: растягивается обёртка, не сам жест.
-    let slot = |face: W, f: Box<dyn Fn() + Send + Sync>| -> W {
-        boxed(DecoratedBox::new().class("grow").child(
-            GestureDetector::new().on_click(move || f()).child(DecoratedBox::new().class("xkey").child(face)),
-        ))
-    };
-    let key = |label: &'static str, bytes: &'static [u8]| slot(boxed(Text::new(label).class("xkey-text")), Box::new(move || st.send(bytes)));
-    let arrow = |icon: &'static str, bytes: &'static [u8]| slot(boxed(Icon::new(icon).class("xkey-icon")), Box::new(move || st.send(bytes)));
-    let paste = slot(boxed(Icon::new(icons::PASTE).class("xkey-icon")), Box::new(move || st.command(TerminalCommand::Paste)));
-    boxed(
-        DecoratedBox::new().class("xkeys").child(
-            Row::new()
-                .gap(4.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(key("Esc", b"\x1b"))
-                .child(key("Tab", b"\t"))
-                .child(key("^C", b"\x03"))
-                .child(key("^D", b"\x04"))
-                .child(arrow(icons::LEFT, b"\x1b[D"))
-                .child(arrow(icons::UP, b"\x1b[A"))
-                .child(arrow(icons::DOWN, b"\x1b[B"))
-                .child(arrow(icons::RIGHT, b"\x1b[C"))
-                .child(paste),
         ),
     )
 }
