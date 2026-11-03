@@ -13,6 +13,7 @@ mod manager;
 mod registry;
 mod runners;
 mod train;
+mod voices;
 
 use std::ffi::CStr;
 use std::os::fd::{AsFd, AsRawFd, OwnedFd};
@@ -379,7 +380,7 @@ impl Conn {
                 // Параметры запроса, а не настройки модели: у движков без
                 // своей скорости она — растяжением времени после синтеза.
                 let request_only: Vec<(&str, synaptixd::ParamValue)> =
-                    ["speaker", "stream", "speed"].into_iter().filter_map(|k| call.get(k).cloned().map(|v| (k, v))).collect();
+                    ["speaker", "speakers", "stream", "speed", "verify"].into_iter().filter_map(|k| call.get(k).cloned().map(|v| (k, v))).collect();
                 let mut params = mgr.params(&model, &call);
                 for (k, v) in request_only {
                     params.set(k, Some(v));
@@ -394,31 +395,126 @@ impl Conn {
                     }
                 }
                 let stream = params.bool("stream").unwrap_or(false);
-                let (wav, sr, seed) = if stream {
-                    // По предложениям: каждый кусок — событием `audio` с PCM в
-                    // fd, как только готов; голос держится между кусками.
-                    let chunks = synaptix::facade::tts::speech_chunks(&text, 60);
-                    let (sock, id) = (self.sock.as_fd(), self.current);
-                    let mut all: Vec<f32> = Vec::new();
-                    let (mut rate, mut seed) = (24000u32, None);
-                    for (index, chunk) in chunks.iter().enumerate() {
-                        let (pcm, sr, sd) = mgr.run(&model, |m| m.speak(chunk, &params, fresh))?;
-                        (rate, seed) = (sr, sd);
+                let arch = mgr.entry(&model).map(|e| e.arch.to_ascii_lowercase()).unwrap_or_default();
+                let vibe = arch.contains("vibevoice");
+                // VoxCPM по описанию плохо держит пол и возраст (девочка и
+                // пожилой мужчина — одной высоты): у него голос персонажа тоже
+                // с опорного клипа, описание — манера поверх тембра.
+                let clone_voice = vibe || arch.starts_with("voxcpm");
+                let language = params.text("language").map(str::to_string);
+                // Многоголосие: «Speaker N: …» + speakers — N-й персонаж списка.
+                let cast = params.text("speakers").map(voices::parse_speakers).unwrap_or_default();
+                for sp in &cast {
+                    if synaptix::facade::tts::speaker(sp).is_none() {
+                        return Err(Error::new(ErrorCode::Failed, format!("неизвестный голос «{sp}»; есть: {}", synaptixd::SPEAKERS.join(", "))));
+                    }
+                }
+                if cast.len() > 4 {
+                    return Err(Error::new(ErrorCode::Failed, "speakers: не больше 4 голосов"));
+                }
+                params.set("speakers", None);
+                // Голос персонажа у VibeVoice и VoxCPM — клон с опорного клипа
+                // (пол и возраст задаёт клип, озвученный OmniVoice по описанию).
+                let own_ref = call.get("ref_audio").is_some();
+                let voice_for = |p: &mut Params, speaker: Option<&str>| -> Result<(), Error> {
+                    if let Some(sp) = speaker {
+                        p.set("speaker", Some(sp.into()));
+                    }
+                    if clone_voice && !own_ref {
+                        if let Some(sp) = p.text("speaker").map(str::to_string) {
+                            let clip = voices::persona_clip(&mgr, &sp, language.as_deref())?;
+                            p.set("ref_audio", Some(clip.to_string_lossy().into_owned().into()));
+                        }
+                    }
+                    Ok(())
+                };
+                // Части озвучки: (текст, параметры, номер реплики). Поток — по
+                // предложениям; сценарий с голосами — по репликам (кроме
+                // VibeVoice без потока: он читает весь сценарий за один проход).
+                let mut parts: Vec<(String, Params, usize)> = Vec::new();
+                if !cast.is_empty() && vibe && !stream {
+                    let reps = voices::replicas(&text);
+                    let (script, used) = voices::renumber(&reps);
+                    let mut p = params.clone();
+                    p.set("speaker", None);
+                    if call.get("seed").is_none() {
+                        // Зерно первого персонажа — повторяемый результат.
+                        let seed = synaptix::facade::tts::speaker(&cast[0]).map(|s| s.2 as i64).unwrap_or(1);
+                        p.set("seed", Some(seed.into()));
+                    }
+                    if !own_ref {
+                        let mut clips = Vec::new();
+                        for n in &used {
+                            let sp = cast.get(n.saturating_sub(1)).or(cast.last()).cloned().unwrap_or_default();
+                            clips.push(voices::persona_clip(&mgr, &sp, language.as_deref())?.to_string_lossy().into_owned());
+                        }
+                        p.set("ref_audio", Some(clips.join("\n").into()));
+                    }
+                    parts.push((script, p, 0));
+                } else if !cast.is_empty() {
+                    for (i, (n, line)) in voices::replicas(&text).into_iter().enumerate() {
+                        let mut p = params.clone();
+                        voice_for(&mut p, cast.get(n.saturating_sub(1)).or(cast.last()).map(String::as_str))?;
+                        let pieces = if stream { synaptix::facade::tts::speech_chunks(&line, 60) } else { vec![line] };
+                        parts.extend(pieces.into_iter().map(|t| (t, p.clone(), i)));
+                    }
+                } else {
+                    let mut p = params.clone();
+                    voice_for(&mut p, None)?;
+                    let pieces = if stream { synaptix::facade::tts::speech_chunks(&text, 60) } else { vec![text.clone()] };
+                    parts.extend(pieces.into_iter().map(|t| (t, p.clone(), 0)));
+                }
+                // Каждая часть в потоке — событием `audio` с PCM в fd, как
+                // только готова; между предложениями 120 мс, между репликами 350.
+                let (sock, id) = (self.sock.as_fd(), self.current);
+                let mut wav: Vec<f32> = Vec::new();
+                let (mut sr, mut seed) = (24000u32, None);
+                let mut last_rep = None;
+                // Проверка распознаванием: синтез иногда бормочет нормальной
+                // длины (по длительности не поймать) — кусок, где whisper не
+                // узнал и половины слов, озвучивается заново другим зерном (до
+                // двух раз), берётся лучший. verify=false — без проверки.
+                let verify = params.bool("verify").unwrap_or(true);
+                params.set("verify", None);
+                for (index, (chunk, p, rep)) in parts.iter().enumerate() {
+                    let base_seed = p.i64("seed").filter(|s| *s >= 0).or_else(|| p.text("speaker").and_then(synaptix::facade::tts::speaker).map(|s| s.2 as i64)).unwrap_or(1);
+                    let mut best: Option<(f32, Vec<f32>, u32, Option<u64>)> = None;
+                    for attempt in 0..3i64 {
+                        let mut p = p.clone();
+                        p.set("verify", None);
+                        if attempt > 0 {
+                            p.set("seed", Some((base_seed + attempt * 7919).into()));
+                        }
+                        let (pcm, rate, sd) = mgr.run(&model, |m| m.speak(chunk, &p, fresh))?;
+                        let err = if verify { voices::speech_error(&mgr, &pcm, rate, language.as_deref(), chunk) } else { None };
+                        let e = err.unwrap_or(0.0);
+                        if e > 0.5 {
+                            tracing::warn!("speak: проверка распознаванием — {:.0}% слов не узнано, попытка {}/3", e * 100.0, attempt + 1);
+                        }
+                        if best.as_ref().is_none_or(|b| e < b.0) {
+                            best = Some((e, pcm, rate, sd));
+                        }
+                        if e <= 0.5 {
+                            break;
+                        }
+                    }
+                    let (_, pcm, rate, sd) = best.expect("хотя бы одна попытка");
+                    (sr, seed) = (rate, sd);
+                    if stream {
                         let fd = wire::memfd_f32("speech-chunk", &pcm)?;
-                        let ev = synaptixd::Event::Audio { index, text: chunk.clone(), samples: pcm.len(), sample_rate: sr };
+                        let ev = synaptixd::Event::Audio { index, text: chunk.clone(), samples: pcm.len(), sample_rate: rate };
                         let r = Reply { id, event: Some(ev), ..Default::default() };
                         if wire::send(sock, &serde_json::to_vec(&r).unwrap_or_default(), &[fd.as_fd()]).is_err() {
                             return Err(Error::new(ErrorCode::Failed, "клиент отключился"));
                         }
-                        if !all.is_empty() {
-                            all.extend(std::iter::repeat_n(0.0, sr as usize * 12 / 100));
-                        }
-                        all.extend_from_slice(&pcm);
                     }
-                    (all, rate, seed)
-                } else {
-                    mgr.run(&model, |m| m.speak(&text, &params, fresh))?
-                };
+                    if !wav.is_empty() {
+                        let ms = if last_rep == Some(*rep) { 120 } else { 350 };
+                        wav.extend(std::iter::repeat_n(0.0, rate as usize * ms / 1000));
+                    }
+                    last_rep = Some(*rep);
+                    wav.extend_from_slice(&pcm);
+                }
                 let fd = wire::memfd_f32("speech", &wav)?;
                 (data(synaptixd::SpeechReply { samples: wav.len(), sample_rate: sr, audio: FdRef { fd: 0 }, seed }), vec![fd])
             }

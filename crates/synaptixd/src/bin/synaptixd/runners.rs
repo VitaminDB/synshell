@@ -154,7 +154,7 @@ pub struct TtsState {
 /// Образец ответами не дорастает: иначе голос уплывал бы с каждой фразой.
 /// Первая фраза — та же, что в проверке Параметров по умолчанию: закреплённое
 /// по ней зерно даёт тот же голос.
-fn anchor_text(language: Option<&str>) -> [&'static str; 2] {
+pub(crate) fn anchor_text(language: Option<&str>) -> [&'static str; 2] {
     match language.map(|l| l.trim().to_ascii_lowercase()).as_deref() {
         Some("en") => ["Hello! This is how this model sounds with the chosen settings.", "I will read any text in this voice."],
         Some("kk") => ["Сәлем! Бұл модель таңдалған параметрлермен осылай естіледі.", "Кез келген мәтінді осы дауыспен оқимын."],
@@ -1365,18 +1365,49 @@ impl Loaded {
                 // Голос без образца пользователя: запомненный по ключу, иначе
                 // опорная фраза зерна (она же — начало запоминаемого голоса).
                 let mut voice = None;
-                let sample = if let Some(path) = ref_audio {
-                    Some(VoiceSample::from_path(path).map_err(|e| anyhow::anyhow!("образец голоса {path}: {e}"))?)
+                // Несколько образцов (многоголосие: Speaker 1, 2, … по порядку) — строками.
+                let samples: Vec<VoiceSample> = if let Some(paths) = ref_audio {
+                    paths
+                        .lines()
+                        .map(str::trim)
+                        .filter(|l| !l.is_empty())
+                        .map(|path| VoiceSample::from_path(path).map_err(|e| anyhow::anyhow!("образец голоса {path}: {e}")))
+                        .collect::<anyhow::Result<_>>()?
                 } else {
                     let (pcm, vsr) = pcm_voice(&st.voices, &mut st.anchors, &key, akey, fresh, || {
                         let a = p.synthesize(&vibe_script(&anchor.join(" ")), &[], &cfg).map_err(|e| anyhow::anyhow!("{e}"))?;
                         Ok((a.audio, sr))
                     })?;
                     voice = Some(Voice::Pcm { pcm: pcm.clone(), sr: vsr });
-                    Some(VoiceSample::new(pcm, vsr))
+                    vec![VoiceSample::new(pcm, vsr)]
                 };
-                let voices: Vec<VoiceSample> = sample.into_iter().collect();
-                let out = p.synthesize(&script, &voices, &cfg).map_err(|e| anyhow::anyhow!("{e}"))?;
+                let voices = samples;
+                // Защита от «убегания» (бормотание посреди или после фразы):
+                // звук длиннее нормы по тексту — заново другим зерном, до трёх
+                // раз, иначе самый короткий вариант.
+                let chars: usize = synaptix_tts_vibevoice::processor::parse_script(&script)
+                    .map(|l| l.iter().map(|x| x.text.trim().chars().count()).sum())
+                    .unwrap_or_else(|_| text.chars().count());
+                let limit = chars as f32 * 0.12 + 1.2;
+                let mut out = None;
+                for attempt in 0..4u64 {
+                    let cfg = synaptix_tts_vibevoice::GenerationConfig { seed: seed.wrapping_add(attempt * 0x9E37_79B9), ..cfg.clone() };
+                    let o = p.synthesize(&script, &voices, &cfg).map_err(|e| anyhow::anyhow!("{e}"))?;
+                    let dur = o.audio.len() as f32 / sr as f32;
+                    let ok = dur <= limit && !o.reached_max;
+                    if !ok {
+                        tracing::warn!("vibevoice: брак ({dur:.1} с при пределе {limit:.1} с), попытка {}/4", attempt + 1);
+                    }
+                    let better = out.as_ref().is_none_or(|b: &synaptix_tts_vibevoice::GenerationOutput| o.audio.len() < b.audio.len());
+                    if ok {
+                        out = Some(o);
+                        break;
+                    }
+                    if better {
+                        out = Some(o);
+                    }
+                }
+                let out = out.expect("хотя бы одна попытка");
                 tracing::info!(
                     "vibevoice: образцов {}, токенов {}, звука {:.1} с{}",
                     voices.len(),
