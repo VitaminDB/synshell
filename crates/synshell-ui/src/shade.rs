@@ -704,6 +704,20 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
                 t.settings("phone").build()
             })
             .child({
+                // Один экземпляр: запуск открытого приложения разворачивает его окно.
+                let on = cfg.launcher.single_instance;
+                let set = |on: bool| {
+                    if let Err(e) = synshell_common::config_edit::set_value(&["launcher", "single_instance"], toml_edit::Value::from(on)) {
+                        log::warn!("[launcher] single_instance: {e:#}");
+                    }
+                };
+                Tile::new(GLYPH_SINGLE, t!("Один экземпляр"), if on { t!("Включён") } else { t!("Выключен") }, on, move || set(!on))
+                    .option(TileOption::new(GLYPH_SINGLE, t!("Один экземпляр"), move || set(true)).hint(t!("Открытое приложение разворачивается, а не запускается снова")).checked(on))
+                    .option(TileOption::new(mi::LAYERS, t!("Новые окна"), move || set(false)).hint(t!("Каждый запуск открывает новое окно")).checked(!on))
+                    .settings("launcher")
+                    .build()
+            })
+            .child({
                 let game = || {
                     close();
                     crate::actions::run(Action::FormFactor(synshell_common::action::FormFactorTarget::Game));
@@ -823,6 +837,7 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
 // ─── Экран E Ink ─────────────────────────────────────────────────────────────
 
 const GLYPH_ROTATE: &str = "\u{E41A}"; // rotate_right
+const GLYPH_SINGLE: &str = "\u{E3D0}"; // filter_1
 const GLYPH_COLOR: &str = "\u{E40A}"; // palette
 const GLYPH_MONO: &str = "\u{E3DB}"; // filter_b_and_w
 const GLYPH_SPEED: &str = "\u{E9E4}"; // speed

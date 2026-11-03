@@ -703,7 +703,7 @@ fn app_item(env: &ItemEnv, slot: usize, l: &Launchable, origin: ItemOrigin) -> B
                     let ctx = ShellCtx::get();
                     match b {
                         MouseButton::Left => launchers::activate_or_launch(ctx, &l1),
-                        MouseButton::Middle => launchers::launch(ctx, &l2),
+                        MouseButton::Middle => launchers::launch_new(ctx, &l2),
                         MouseButton::Right => {
                             let kind = match &origin {
                                 ItemOrigin::Applet(i) => PopupKind::ItemMenu { panel, index: *i },

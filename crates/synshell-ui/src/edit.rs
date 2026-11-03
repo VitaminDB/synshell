@@ -533,7 +533,7 @@ pub fn item_menu(ctx: ShellCtx, panel: usize, index: usize) -> impl Widget {
             col = col.child(title(l.name.clone()));
             col = window_items(ctx, col, &l.app_id);
             let l2 = l.clone();
-            col = col.child(menu_item("\u{E89E}", t!("Новое окно"), move || launchers::launch(ShellCtx::get(), &l2)));
+            col = col.child(menu_item("\u{E89E}", t!("Новое окно"), move || launchers::launch_new(ShellCtx::get(), &l2)));
             let app_id = l.app_id.clone();
             if !launchers::windows_of(&app_id, &ctx.windows.get_untracked()).is_empty() {
                 col = col.child(menu_item(mi::CLOSE, t!("Закрыть все окна"), move || close_all(&app_id)));
@@ -593,7 +593,7 @@ pub fn app_menu(ctx: ShellCtx, panel: usize, app_id: &str) -> impl Widget {
     col = window_items(ctx, col, app_id);
     if let Some(e) = entry {
         let l = Launchable::from_entry(&e);
-        col = col.child(menu_item("\u{E89E}", t!("Новое окно"), move || launchers::launch(ShellCtx::get(), &l)));
+        col = col.child(menu_item("\u{E89E}", t!("Новое окно"), move || launchers::launch_new(ShellCtx::get(), &l)));
         let id = app_id.to_string();
         col = col.child(menu_item(mi::PUSH_PIN, t!("Закрепить"), move || pin_app(panel, &id)));
     }

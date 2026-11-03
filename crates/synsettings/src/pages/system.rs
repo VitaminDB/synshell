@@ -561,6 +561,15 @@ pub fn launcher() -> W {
                 ],
             ),
             group(
+                &t!("Запуск"),
+                vec![switch_row(
+                    t!("Один экземпляр"),
+                    t!("Запуск уже открытого приложения разворачивает его окно, а не открывает новое. «Новое окно» в меню значка открывает новое всегда"),
+                    op!["launcher", "single_instance"],
+                    l.single_instance,
+                )],
+            ),
+            group(
                 &t!("Поиск"),
                 vec![
                     switch_row(&t!("Искать по ключевым словам и команде"), "", op!["launcher", "search_keywords"], l.search_keywords),

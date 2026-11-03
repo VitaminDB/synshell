@@ -142,13 +142,51 @@ fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
-/// Запустить (новый экземпляр): команда, «прыжок» значка до появления
-/// окна, всплеск частиц.
+/// Режим одного экземпляра включён (`[launcher] single_instance`).
+pub fn single_instance(ctx: &ShellCtx) -> bool {
+    ctx.cfg().launcher.single_instance
+}
+
+/// Режим одного экземпляра: у приложения `app_id` уже есть окно — развернуть
+/// и поднять его (свёрнутое — развернуть) и вернуть `true`. Режим выключен
+/// или окон нет — `false`, запускать как обычно.
+pub fn focus_existing(ctx: &ShellCtx, app_id: &str) -> bool {
+    if app_id.is_empty() || !single_instance(ctx) {
+        return false;
+    }
+    let windows = ctx.windows.get_untracked();
+    let mine = windows_of(app_id, &windows);
+    // окно в фокусе, иначе не свёрнутое окно текущего стола, иначе любое
+    let ws = ctx.workspaces.get_untracked().iter().find(|w| w.active).map(|w| w.index);
+    let Some(w) = mine
+        .iter()
+        .find(|w| w.focused)
+        .or_else(|| mine.iter().find(|w| !w.minimized && (Some(w.workspace) == ws || w.sticky)))
+        .or_else(|| mine.first())
+    else {
+        return false;
+    };
+    log::info!("один экземпляр: {app_id} уже открыт — окно {} {}", w.id, if w.minimized { "разворачивается" } else { "поднимается" });
+    crate::actions::window_op(w.id, WindowOp::Activate);
+    true
+}
+
+/// Запустить приложение. В режиме одного экземпляра уже открытое
+/// приложение разворачивается ([`focus_existing`]), иначе — [`launch_new`].
 pub fn launch(ctx: ShellCtx, l: &Launchable) {
+    if focus_existing(&ctx, &l.app_id) {
+        return;
+    }
+    launch_new(ctx, l);
+}
+
+/// Запустить новый экземпляр: команда, «прыжок» значка до появления
+/// окна, всплеск частиц.
+pub fn launch_new(ctx: ShellCtx, l: &Launchable) {
     if !l.app_id.is_empty() {
         if let Some(e) = xdg::app_by_id(&l.app_id) {
             if e.command() == l.command {
-                crate::launcher::launch(ctx, &e);
+                crate::launcher::launch_new(ctx, &e);
             } else {
                 spawn_command(ctx, l);
             }
@@ -216,7 +254,7 @@ pub fn activate_or_launch(ctx: ShellCtx, l: &Launchable) {
     let windows = ctx.windows.get_untracked();
     let mine = windows_of(&l.app_id, &windows);
     if mine.is_empty() {
-        launch(ctx, l);
+        launch_new(ctx, l);
         return;
     }
     if let Some(pos) = mine.iter().position(|w| w.focused) {

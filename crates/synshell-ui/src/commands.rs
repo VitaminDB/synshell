@@ -71,6 +71,11 @@ pub fn handle(cmd: &str) {
     match name {
         "launcher" | "menu" => ctx.open_popup(PopupKind::Launcher, at_applet("launcher")),
         "run" => ctx.open_popup(PopupKind::Run, centered()),
+        // запуск приложения по id .desktop (с учётом режима одного экземпляра)
+        "launch" => match crate::xdg::app_by_id(arg.trim()) {
+            Some(e) => crate::launcher::launch(ctx, &e),
+            None => log::warn!("launch: нет приложения {:?}", arg.trim()),
+        },
         "assistant" if ctx.cfg().assistant.enabled => crate::assistant::toggle(ctx),
         "assistant-window" if ctx.cfg().assistant.enabled => crate::actions::spawn("synassistant"),
         "power-menu" | "power" => ctx.open_popup(PopupKind::Power, centered()),

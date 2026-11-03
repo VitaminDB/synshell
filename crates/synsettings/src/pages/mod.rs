@@ -122,7 +122,7 @@ pub const PAGES: &[PageDef] = &[
         title: n_!("Меню запуска"),
         icon: icons::APPS,
         group: n_!("Рабочее пространство"),
-        keywords: n_!("приложения избранное поиск калькулятор категории"),
+        keywords: n_!("приложения избранное поиск калькулятор категории один экземпляр"),
         build: system::launcher,
     },
     PageDef {

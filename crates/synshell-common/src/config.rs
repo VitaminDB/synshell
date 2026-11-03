@@ -1896,6 +1896,10 @@ pub struct Launcher {
     pub calculator: bool,
     /// Запуск команды по `Enter`, если ничего не найдено.
     pub run_commands: bool,
+    /// Один экземпляр: запуск уже открытого приложения разворачивает и поднимает
+    /// его окно вместо нового (переключается плиткой в шторке). «Новое окно»
+    /// в меню значка и средняя кнопка на доке открывают новое окно всегда.
+    pub single_instance: bool,
 }
 
 impl Default for Launcher {
@@ -1917,6 +1921,7 @@ impl Default for Launcher {
             search_keywords: true,
             calculator: true,
             run_commands: true,
+            single_instance: false,
         }
     }
 }

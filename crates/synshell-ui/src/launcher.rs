@@ -39,8 +39,19 @@ impl Item {
     }
 }
 
-/// Запустить приложение из .desktop.
+/// Запустить приложение из .desktop. В режиме одного экземпляра
+/// (`[launcher] single_instance`) уже открытое приложение не запускается
+/// заново — его окно разворачивается и поднимается.
 pub fn launch(ctx: ShellCtx, e: &DesktopEntry) {
+    if crate::launchers::focus_existing(&ctx, &e.id) {
+        remember(&e.id);
+        return;
+    }
+    launch_new(ctx, e);
+}
+
+/// Запустить новый экземпляр приложения из .desktop (без проверки открытых окон).
+pub fn launch_new(ctx: ShellCtx, e: &DesktopEntry) {
     let cfg = ctx.cfg();
     let cmd = e.command();
     if e.terminal {
