@@ -126,7 +126,7 @@ fn clip_text(lang: &str) -> String {
 }
 
 /// Ожидаемая высота голоса персонажа (медиана F0, Гц).
-fn pitch_range(speaker: &str) -> (f32, f32) {
+pub fn pitch_range(speaker: &str) -> (f32, f32) {
     match speaker {
         "female_young" => (185.0, 260.0),
         "female_adult" => (160.0, 215.0),
@@ -141,10 +141,9 @@ fn pitch_range(speaker: &str) -> (f32, f32) {
 
 /// Медиана основного тона (YIN по окнам 40 мс с голосом), Гц.
 pub fn median_f0(pcm: &[f32], sr: u32) -> f32 {
-    // Хватает 16 кГц: прореживание целым шагом.
-    let step = (sr / 16000).max(1) as usize;
-    let x: Vec<f32> = pcm.iter().step_by(step).copied().collect();
-    let sr = sr as usize / step;
+    // Без прореживания: оно (без фильтра) давало ошибки на октаву вниз.
+    let x = pcm;
+    let sr = sr as usize;
     let win = sr * 40 / 1000;
     let (lo, hi) = (sr / 450, sr / 60);
     let mut f0s = Vec::new();

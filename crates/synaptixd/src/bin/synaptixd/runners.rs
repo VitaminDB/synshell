@@ -156,9 +156,11 @@ pub struct TtsState {
 /// по ней зерно даёт тот же голос.
 pub(crate) fn anchor_text(language: Option<&str>) -> [&'static str; 2] {
     match language.map(|l| l.trim().to_ascii_lowercase()).as_deref() {
-        Some("en") => ["Hello! This is how this model sounds with the chosen settings.", "I will read any text in this voice."],
-        Some("kk") => ["Сәлем! Бұл модель таңдалған параметрлермен осылай естіледі.", "Кез келген мәтінді осы дауыспен оқимын."],
-        _ => ["Привет! Так звучит эта модель с заданными настройками.", "Этим голосом я прочитаю любой текст."],
+        // Нейтральные: восклицание («Hello!») поднимало тон опоры, а с ним —
+        // всех фраз голоса (OmniVoice: женский голос на вопросах 249 → 213 Гц).
+        Some("en") => ["This is a short sample of my voice, recorded in a quiet room.", "I will read any text in this voice."],
+        Some("kk") => ["Бұл тыныш бөлмеде жазылған дауысымның қысқа үлгісі.", "Кез келген мәтінді осы дауыспен оқимын."],
+        _ => ["Это короткий образец моего голоса, записанный в тихой комнате.", "Этим голосом я прочитаю любой текст."],
     }
 }
 
@@ -173,6 +175,36 @@ fn remember_anchor(anchors: &mut std::collections::HashMap<String, Voice>, key: 
         anchors.clear();
     }
     anchors.insert(key, voice);
+}
+
+/// Язык текста по письму: кириллица с казахскими буквами — kk, кириллица —
+/// ru, иначе en.
+fn text_language(text: &str) -> &'static str {
+    if text.chars().any(|c| "әғқңөұүһіӘҒҚҢӨҰҮҺІ".contains(c)) {
+        "kk"
+    } else if text.chars().filter(|c| c.is_alphabetic()).filter(|c| matches!(c, 'а'..='я' | 'А'..='Я' | 'ё' | 'Ё')).count() * 2
+        > text.chars().filter(|c| c.is_alphabetic()).count()
+    {
+        "ru"
+    } else {
+        "en"
+    }
+}
+
+/// Ожидаемая высота голоса (медиана F0, Гц) по описанию OmniVoice: ребёнок,
+/// женщина, мужчина; `None` — описание пол не задаёт.
+fn expected_pitch(instruct: &str) -> Option<(f32, f32)> {
+    let d = instruct.to_ascii_lowercase();
+    let has = |w: &str| d.split(|c: char| !c.is_ascii_alphabetic()).any(|t| t == w);
+    if has("child") || has("girl") || has("boy") {
+        Some((220.0, 450.0))
+    } else if has("female") || has("woman") {
+        Some((145.0, 300.0))
+    } else if has("male") || has("man") {
+        Some((65.0, 165.0))
+    } else {
+        None
+    }
 }
 
 /// VibeVoice читает сценарий «Speaker N: …»; обычный текст — одним голосом.
@@ -475,8 +507,11 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
         }
         ModelKind::Tts => {
             let device = devices::device(dev);
-            let (q, dtype) = audio_precision(dev, quant, if dev == DeviceKind::Npu { DType::F16 } else { DType::BF16 });
             let a = arch.to_ascii_lowercase();
+            // OmniVoice — F16, как upstream (BF16 слишком груб для её CFG и
+            // выбора токенов); остальные — BF16.
+            let omni = !a.contains("vibevoice") && !a.starts_with("voxcpm");
+            let (q, dtype) = audio_precision(dev, quant, if dev == DeviceKind::Npu || omni { DType::F16 } else { DType::BF16 });
             let engine = if a.contains("vibevoice") {
                 TtsEngine::Vibe(synaptix_tts_vibevoice::VibeVoicePipeline::from_syn_quant(path, device, dtype, q).map_err(|e| anyhow::anyhow!("{e}"))?)
             } else if a.starts_with("voxcpm") {
@@ -774,7 +809,7 @@ impl Loaded {
                 use synaptix_tts_vibevoice::pipeline::VoiceSample;
                 let cfg = synaptix_tts_vibevoice::GenerationConfig {
                     cfg_scale: r.guidance.unwrap_or(1.3),
-                    ddpm_inference_steps: r.steps.unwrap_or(20).clamp(1, 200),
+                    ddpm_inference_steps: r.steps.unwrap_or(synaptix_tts_vibevoice::GenerationConfig::default().ddpm_inference_steps).clamp(1, 200),
                     max_length_times: r.max_length_times.unwrap_or(2.0),
                     seed: r.seed,
                     ..Default::default()
@@ -1285,6 +1320,9 @@ impl Loaded {
             let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(1);
             ((n ^ (n >> 32)) as u32 | 1) as u64
         });
+        // Повтор фразы (проверка службы забраковала прошлую): другое зерно
+        // только у самой фразы — опорный голос тот же.
+        let phrase_seed = seed.wrapping_add(params.i64("retry").unwrap_or(0).max(0) as u64 * 7919);
         let ref_audio = params.text("ref_audio").map(str::trim).filter(|s| !s.is_empty());
         let ref_text = params.text("ref_text").unwrap_or("").trim().to_string();
         // Голос для продолжения: фразы одной озвучки и все ответы — одним
@@ -1294,7 +1332,9 @@ impl Loaded {
         // зерно — другой голос, поэтому оно тоже в ключе.
         let key = format!("{}\x1f{}\x1f{}", language.unwrap_or(""), instruct.unwrap_or(""), pinned.map(|s| s.to_string()).unwrap_or_default());
         let akey = anchor_key(&key, seed);
-        let anchor = anchor_text(language);
+        // Язык опоры — заданный, иначе по письму текста: английский текст,
+        // клонированный с русской опоры, сдвигал голос и выговор.
+        let anchor = anchor_text(language.or_else(|| Some(text_language(text))));
         match &st.engine {
             TtsEngine::Omni(p) => {
                 let default_steps = if *dev == DeviceKind::Npu { 16 } else { 32 };
@@ -1333,17 +1373,45 @@ impl Loaded {
                         voice = Some(match st.anchors.get(&akey) {
                             Some(Voice::Omni(a)) => a.clone(),
                             _ => {
-                                let mut a = None;
-                                for s in anchor {
-                                    p.synthesize_continuing(s, &mut a, language, instruct, 1.0, &gen, f32::MAX).map_err(|e| anyhow::anyhow!("{e}"))?;
+                                // Одна неудачная опора портит все фразы голоса:
+                                // её высота должна совпасть с описанием (пол,
+                                // возраст), иначе — другое зерно (до 4 раз,
+                                // берётся ближайшая).
+                                let range = instruct.and_then(expected_pitch);
+                                let mut best: Option<(f32, synaptix_tts_omnivoice::VoiceClonePrompt)> = None;
+                                for attempt in 0..4u64 {
+                                    let gen = synaptix_tts_omnivoice::OmniVoiceGenerationConfig { seed: Some(seed.wrapping_add(attempt * 7919)), ..gen.clone() };
+                                    let mut a = None;
+                                    let mut pcm = Vec::new();
+                                    for s in anchor {
+                                        pcm.extend(p.synthesize_continuing(s, &mut a, language, instruct, 1.0, &gen, f32::MAX).map_err(|e| anyhow::anyhow!("{e}"))?);
+                                    }
+                                    let a = a.ok_or_else(|| anyhow::anyhow!("опорная фраза не озвучена"))?;
+                                    let miss = match range {
+                                        Some((lo, hi)) => {
+                                            let f0 = crate::voices::median_f0(&pcm, p.output_sample_rate() as u32);
+                                            if f0 < lo { lo - f0 } else if f0 > hi { f0 - hi } else { 0.0 }
+                                        }
+                                        None => 0.0,
+                                    };
+                                    if miss > 0.0 {
+                                        tracing::warn!("omnivoice: опора не по описанию «{}» ({miss:.0} Гц мимо), попытка {}/4", instruct.unwrap_or(""), attempt + 1);
+                                    }
+                                    if best.as_ref().is_none_or(|b| miss < b.0) {
+                                        best = Some((miss, a));
+                                    }
+                                    if miss == 0.0 {
+                                        break;
+                                    }
                                 }
-                                let a = a.ok_or_else(|| anyhow::anyhow!("опорная фраза не озвучена"))?;
+                                let a = best.expect("хотя бы одна попытка").1;
                                 remember_anchor(&mut st.anchors, akey, Voice::Omni(a.clone()));
                                 a
                             }
                         });
                     }
                     // Образец — только опорная запись (0 с дорастания).
+                    let gen = synaptix_tts_omnivoice::OmniVoiceGenerationConfig { seed: Some(phrase_seed), ..gen.clone() };
                     let r = p.synthesize_continuing(text, &mut voice, language, instruct, speed, &gen, 0.0);
                     if let Some(v) = voice.filter(|_| !fresh) {
                         st.voices.insert(key, Voice::Omni(v));
@@ -1356,7 +1424,7 @@ impl Loaded {
                 use synaptix_tts_vibevoice::pipeline::VoiceSample;
                 let cfg = synaptix_tts_vibevoice::GenerationConfig {
                     cfg_scale: guidance.unwrap_or(1.3),
-                    ddpm_inference_steps: steps.unwrap_or(20).clamp(1, 200),
+                    ddpm_inference_steps: steps.unwrap_or(synaptix_tts_vibevoice::GenerationConfig::default().ddpm_inference_steps).clamp(1, 200),
                     seed,
                     ..Default::default()
                 };
@@ -1388,10 +1456,14 @@ impl Loaded {
                 let chars: usize = synaptix_tts_vibevoice::processor::parse_script(&script)
                     .map(|l| l.iter().map(|x| x.text.trim().chars().count()).sum())
                     .unwrap_or_else(|_| text.chars().count());
-                let limit = chars as f32 * 0.12 + 1.2;
+                // Норма речи ~0,063 с/символ (99-й процентиль 0,104): предел
+                // ловит и выдуманное начало фразы при нормальной длине.
+                // + паузы между репликами сценария.
+                let turns = script.lines().filter(|l| !l.trim().is_empty()).count().max(1);
+                let limit = chars as f32 * 0.095 + 1.0 + 0.6 * (turns - 1) as f32;
                 let mut out = None;
                 for attempt in 0..4u64 {
-                    let cfg = synaptix_tts_vibevoice::GenerationConfig { seed: seed.wrapping_add(attempt * 0x9E37_79B9), ..cfg.clone() };
+                    let cfg = synaptix_tts_vibevoice::GenerationConfig { seed: phrase_seed.wrapping_add(attempt * 0x9E37_79B9), ..cfg.clone() };
                     let o = p.synthesize(&script, &voices, &cfg).map_err(|e| anyhow::anyhow!("{e}"))?;
                     let dur = o.audio.len() as f32 / sr as f32;
                     let ok = dur <= limit && !o.reached_max;
@@ -1453,14 +1525,38 @@ impl Loaded {
                         let styled_anchor = design.map(|d| format!("({d}){anchor}")).unwrap_or(anchor);
                         // Опорная фраза задаёт голос всем следующим: бормотание
                         // в ней перешло бы в каждую фразу — предел строже.
-                        let strict = synaptix_tts_voxcpm::GenerateOptions { max_sec_per_char: 0.12, extra_sec: 1.0, ..opts.clone() };
-                        let a = p.synthesize(&styled_anchor, &strict).map_err(|e| anyhow::anyhow!("{e}"))?;
-                        Ok((a.pcm, a.sample_rate as u32))
+                        // Высота опоры должна совпасть с описанием (пол, возраст):
+                        // иначе — другое зерно, до 4 раз, берётся ближайшая.
+                        let range = design.and_then(expected_pitch);
+                        let mut best: Option<(f32, Vec<f32>, u32)> = None;
+                        for attempt in 0..4u64 {
+                            let strict = synaptix_tts_voxcpm::GenerateOptions { max_sec_per_char: 0.12, extra_sec: 1.0, seed: seed.wrapping_add(attempt * 7919), ..opts.clone() };
+                            let a = p.synthesize(&styled_anchor, &strict).map_err(|e| anyhow::anyhow!("{e}"))?;
+                            let sr = a.sample_rate as u32;
+                            let miss = match range {
+                                Some((lo, hi)) => {
+                                    let f0 = crate::voices::median_f0(&a.pcm, sr);
+                                    if f0 < lo { lo - f0 } else if f0 > hi { f0 - hi } else { 0.0 }
+                                }
+                                None => 0.0,
+                            };
+                            if miss > 0.0 {
+                                tracing::warn!("voxcpm: опора не по описанию ({miss:.0} Гц мимо), попытка {}/4", attempt + 1);
+                            }
+                            if best.as_ref().is_none_or(|b| miss < b.0) {
+                                best = Some((miss, a.pcm, sr));
+                            }
+                            if miss == 0.0 {
+                                break;
+                            }
+                        }
+                        let (_, pcm, sr) = best.expect("хотя бы одна попытка");
+                        Ok((pcm, sr))
                     })?;
                     // Предел длительности — по темпу этого голоса (его опорной
                     // записи): так ловится и хвост бормотания после фразы.
                     let rate = pcm.len() as f32 / vsr as f32 / synaptix_tts_voxcpm::spoken_chars(&anchor.join(" ")).max(1) as f32;
-                    let opts = synaptix_tts_voxcpm::GenerateOptions { max_sec_per_char: (rate * 1.5).clamp(0.08, 0.2), extra_sec: 1.0, ..opts.clone() };
+                    let opts = synaptix_tts_voxcpm::GenerateOptions { max_sec_per_char: (rate * 1.5).clamp(0.08, 0.2), extra_sec: 1.0, seed: phrase_seed, ..opts.clone() };
                     let r = p.synthesize_with_reference_pcm(&styled, &pcm, vsr, &opts);
                     voice = Some(Voice::Pcm { pcm, sr: vsr });
                     r

@@ -400,7 +400,7 @@ impl Conn {
                 // VoxCPM по описанию плохо держит пол и возраст (девочка и
                 // пожилой мужчина — одной высоты): у него голос персонажа тоже
                 // с опорного клипа, описание — манера поверх тембра.
-                let clone_voice = vibe || arch.starts_with("voxcpm");
+                let clone_voice = vibe || (arch.starts_with("voxcpm") && std::env::var_os("SYNAPTIXD_VOX_CLIP").is_some());
                 let language = params.text("language").map(str::to_string);
                 // Многоголосие: «Speaker N: …» + speakers — N-й персонаж списка.
                 let cast = params.text("speakers").map(voices::parse_speakers).unwrap_or_default();
@@ -472,29 +472,44 @@ impl Conn {
                 let mut last_rep = None;
                 // Проверка распознаванием: синтез иногда бормочет нормальной
                 // длины (по длительности не поймать) — кусок, где whisper не
-                // узнал и половины слов, озвучивается заново другим зерном (до
+                // узнал заметную часть слов (en, ru — больше 25 %, иначе 50 %), — заново другим зерном (до
                 // двух раз), берётся лучший. verify=false — без проверки.
                 let verify = params.bool("verify").unwrap_or(true);
+                // Порог: где whisper точен (en, ru) — строже; казахский он сам
+                // распознаёт с WER ~26 %.
+                let max_err = if matches!(language.as_deref(), Some("en" | "ru")) { 0.25 } else { 0.5 };
                 params.set("verify", None);
                 for (index, (chunk, p, rep)) in parts.iter().enumerate() {
                     let base_seed = p.i64("seed").filter(|s| *s >= 0).or_else(|| p.text("speaker").and_then(synaptix::facade::tts::speaker).map(|s| s.2 as i64)).unwrap_or(1);
+                    // Высота голоса персонажа: OmniVoice и VoxCPM на отдельных
+                    // фразах уходят от неё (мужской голос — к 230 Гц).
+                    // У VibeVoice высоту задаёт клип-образец — повтор её не меняет.
+                    let pitch = p.text("speaker").filter(|_| !vibe).map(voices::pitch_range).filter(|r| r.1 < 1000.0);
                     let mut best: Option<(f32, Vec<f32>, u32, Option<u64>)> = None;
                     for attempt in 0..3i64 {
                         let mut p = p.clone();
                         p.set("verify", None);
                         if attempt > 0 {
-                            p.set("seed", Some((base_seed + attempt * 7919).into()));
+                            p.set("retry", Some(attempt.into()));
                         }
                         let (pcm, rate, sd) = mgr.run(&model, |m| m.speak(chunk, &p, fresh))?;
                         let err = if verify { voices::speech_error(&mgr, &pcm, rate, language.as_deref(), chunk) } else { None };
-                        let e = err.unwrap_or(0.0);
-                        if e > 0.5 {
-                            tracing::warn!("speak: проверка распознаванием — {:.0}% слов не узнано, попытка {}/3", e * 100.0, attempt + 1);
+                        let mut e = err.unwrap_or(0.0);
+                        if let (true, Some((lo, hi))) = (verify, pitch) {
+                            // С запасом: живая интонация гуляет.
+                            let f0 = voices::median_f0(&pcm, rate);
+                            if f0 > 0.0 && (f0 < lo * 0.8 || f0 > hi * 1.25) {
+                                tracing::warn!("speak: высота голоса {f0:.0} Гц вне {lo:.0}–{hi:.0} («{}»), попытка {}/3", p.text("speaker").unwrap_or(""), attempt + 1);
+                                e = e.max(max_err) + 0.01;
+                            }
+                        }
+                        if e > max_err {
+                            tracing::warn!("speak: проверка — оценка брака {:.0}%, попытка {}/3", e * 100.0, attempt + 1);
                         }
                         if best.as_ref().is_none_or(|b| e < b.0) {
                             best = Some((e, pcm, rate, sd));
                         }
-                        if e <= 0.5 {
+                        if e <= max_err {
                             break;
                         }
                     }
