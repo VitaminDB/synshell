@@ -243,7 +243,33 @@ fn mic_channels() -> Option<u16> {
     Some(dev.default_input_config().ok()?.channels().clamp(1, 2))
 }
 
+/// Узел PipeWire микрофона записи (`None` — системный по умолчанию).
+static MIC_NODE: Mutex<Option<String>> = Mutex::new(None);
+
+/// Писать звук записи с этого узла PipeWire (например, микрофон телефона без
+/// системного шумоподавления `palaudio.mic.bottom`): тот же, что у других
+/// записей приложения, — на телефоне одновременно пишет только один источник.
+pub fn set_mic_node(node: Option<String>) {
+    *MIC_NODE.lock().unwrap() = node.filter(|n| !n.is_empty());
+}
+
 fn open_mic(buf: Arc<Mutex<VecDeque<f32>>>, channels: u16) -> Result<cpal::Stream> {
+    // ALSA-плагин pipewire берёт источник из PIPEWIRE_NODE при открытии
+    // (переменная — только на время открытия, как в syngui).
+    let node = MIC_NODE.lock().unwrap().clone();
+    if let Some(n) = &node {
+        // SAFETY: переменная нужна лишь на время открытия устройства ниже
+        unsafe { std::env::set_var("PIPEWIRE_NODE", n) };
+    }
+    let r = open_mic_dev(buf, channels);
+    if node.is_some() {
+        // SAFETY: см. выше
+        unsafe { std::env::remove_var("PIPEWIRE_NODE") };
+    }
+    r
+}
+
+fn open_mic_dev(buf: Arc<Mutex<VecDeque<f32>>>, channels: u16) -> Result<cpal::Stream> {
     use cpal::traits::{DeviceTrait, StreamTrait};
     let dev = input_device().context("нет микрофона")?;
     let def = dev.default_input_config().context("настройки микрофона")?;
