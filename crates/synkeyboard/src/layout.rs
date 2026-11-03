@@ -88,24 +88,55 @@ pub struct Key {
     /// Ширина в долях обычной клавиши.
     pub width: f32,
     pub class: &'static str,
+    /// Варианты по долгому нажатию (полоска над клавишей, выбор скольжением):
+    /// цифры и символы у букв, ё/ъ, знаки препинания у точки — как в Gboard.
+    pub alts: Vec<String>,
 }
 
 impl Key {
     fn plain(label: &str, code: u32) -> Self {
-        Self { label: label.into(), shifted: None, action: Action::Key { code, shift: false, repeat: false, latin: true }, width: 1.0, class: "key" }
+        Self { label: label.into(), shifted: None, action: Action::Key { code, shift: false, repeat: false, latin: true }, width: 1.0, class: "key", alts: Vec::new() }
     }
     fn letter(label: &str, upper: &str, code: u32) -> Self {
-        Self { label: label.into(), shifted: Some(upper.into()), action: Action::Key { code, shift: false, repeat: false, latin: false }, width: 1.0, class: "key" }
+        Self { label: label.into(), shifted: Some(upper.into()), action: Action::Key { code, shift: false, repeat: false, latin: false }, width: 1.0, class: "key", alts: Vec::new() }
     }
     fn shifted(label: &str, code: u32) -> Self {
-        Self { label: label.into(), shifted: None, action: Action::Key { code, shift: true, repeat: false, latin: true }, width: 1.0, class: "key" }
+        Self { label: label.into(), shifted: None, action: Action::Key { code, shift: true, repeat: false, latin: true }, width: 1.0, class: "key", alts: Vec::new() }
     }
     fn special(label: &str, action: Action, width: f32) -> Self {
-        Self { label: label.into(), shifted: None, action, width, class: "key key-special" }
+        Self { label: label.into(), shifted: None, action, width, class: "key key-special", alts: Vec::new() }
     }
     fn repeat(label: &str, code: u32, width: f32) -> Self {
-        Self { label: label.into(), shifted: None, action: Action::Key { code, shift: false, repeat: true, latin: false }, width, class: "key key-special" }
+        Self { label: label.into(), shifted: None, action: Action::Key { code, shift: false, repeat: true, latin: false }, width, class: "key key-special", alts: Vec::new() }
     }
+    fn alts(mut self, list: &[&str]) -> Self {
+        self.alts = list.iter().map(|s| s.to_string()).collect();
+        self
+    }
+    fn with_alts(mut self, list: Vec<String>) -> Self {
+        self.alts = list;
+        self
+    }
+}
+
+/// Варианты буквы по долгому нажатию, как в Gboard: цифры на верхнем ряду,
+/// символы на среднем и нижнем; у «е» — «ё», у «ь» — «ъ» (их нет в рядах RU).
+fn letter_alts(row: usize, i: usize, ch: char) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    match ch {
+        'е' => out.push("ё".into()),
+        'ь' => out.push("ъ".into()),
+        _ => {}
+    }
+    let sym = match row {
+        0 => "1234567890".chars().nth(i),
+        1 => "@#$_&-+()".chars().nth(i),
+        _ => "*\"':;!?".chars().nth(i),
+    };
+    if let Some(s) = sym {
+        out.push(s.to_string());
+    }
+    out
 }
 
 /// Язык: имя, группа в keymap `us,ru` и три ряда букв по физическим клавишам.
@@ -200,7 +231,7 @@ fn pad_rows(rows: &mut [Vec<Key>], max: f32) {
     for row in rows.iter_mut() {
         let extra = max - units(row);
         if extra > 0.05 {
-            let spacer = || Key { label: String::new(), shifted: None, action: Action::Spacer, width: extra / 2.0, class: "key-spacer" };
+            let spacer = || Key { label: String::new(), shifted: None, action: Action::Spacer, width: extra / 2.0, class: "key-spacer", alts: Vec::new() };
             row.insert(0, spacer());
             row.push(spacer());
         }
@@ -222,7 +253,10 @@ fn page_rows(page: Page, lang: &Lang) -> Vec<Vec<Key>> {
                 let mut row: Vec<Key> = letters
                     .chars()
                     .zip(ROW_CODES[r].iter())
-                    .map(|(ch, code)| Key::letter(&ch.to_string(), &ch.to_uppercase().to_string(), *code))
+                    .enumerate()
+                    .map(|(i, (ch, code))| {
+                        Key::letter(&ch.to_string(), &ch.to_uppercase().to_string(), *code).with_alts(letter_alts(r, i, ch))
+                    })
                     .collect();
                 if r == 2 {
                     // ⇧ и ⌫ добирают ширину ряда до верхних, но не шире их.
@@ -262,8 +296,10 @@ fn page_rows(page: Page, lang: &Lang) -> Vec<Vec<Key>> {
         Key { width: 1.3, ..page_key },
         Key::special("⌨", Action::Fn, 1.0),
         Key::special(lang.name, Action::Layout, 1.0),
+        // Запятая и точка по сторонам пробела, как в Gboard; на точке — знаки препинания.
+        sym(","),
         Key::special("", Action::Key { code: KEY_SPACE, shift: false, repeat: false, latin: false }, 2.4),
-        sym("."),
+        sym(".").alts(&["!", "?", ",", ";", ":", "-", "\"", "'"]),
         Key::special("⏎", Action::Key { code: KEY_ENTER, shift: false, repeat: false, latin: false }, 1.5),
     ]);
     out
@@ -273,7 +309,7 @@ fn page_rows(page: Page, lang: &Lang) -> Vec<Vec<Key>> {
 /// F7–F12 со стрелками перевёрнутой «T» справа, как на клавиатуре.
 pub fn fn_rows() -> Vec<Vec<Key>> {
     fn k(label: &str, code: u32, width: f32, repeat: bool) -> Key {
-        Key { label: label.into(), shifted: None, action: Action::Key { code, shift: false, repeat, latin: false }, width, class: "key key-fn" }
+        Key { label: label.into(), shifted: None, action: Action::Key { code, shift: false, repeat, latin: false }, width, class: "key key-fn", alts: Vec::new() }
     }
     fn f(n: u32) -> Key {
         let code = match n {
@@ -281,10 +317,10 @@ pub fn fn_rows() -> Vec<Vec<Key>> {
             11 => KEY_F11,
             _ => KEY_F12,
         };
-        Key { label: format!("F{n}"), shifted: None, action: Action::Key { code, shift: false, repeat: false, latin: false }, width: 1.0, class: "key key-fn key-f" }
+        Key { label: format!("F{n}"), shifted: None, action: Action::Key { code, shift: false, repeat: false, latin: false }, width: 1.0, class: "key key-fn key-f", alts: Vec::new() }
     }
     fn m(label: &str, m: Modifier, width: f32) -> Key {
-        Key { label: label.into(), shifted: None, action: Action::Modifier(m), width, class: "key key-fn" }
+        Key { label: label.into(), shifted: None, action: Action::Modifier(m), width, class: "key key-fn", alts: Vec::new() }
     }
     let row1 = vec![
         k("Esc", KEY_ESC, 1.0, false),

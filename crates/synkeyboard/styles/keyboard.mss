@@ -62,3 +62,8 @@ Text { color: var(--fg); font-size: 18px; }
 
 .key-active { background-color: var(--accent); }
 .key-lock { border-width: 2px; border-color: var(--fg); }
+
+/* Полоска вариантов по долгому нажатию (цифры/символы, ё/ъ, знаки у точки). */
+.key-alt { border-radius: 11px; }
+.key-alt-label { font-size: 23px; text-box-edge: text; }
+.key-alt-sel { background-color: var(--accent); }

@@ -68,6 +68,20 @@ pub enum Shift {
     Lock,
 }
 
+/// Полоска вариантов по долгому нажатию (как в Gboard): подписи, положение,
+/// выбранный — скольжением пальца, ввод — отпусканием.
+#[derive(Clone, PartialEq)]
+pub struct AltPopup {
+    /// Код клавиши, открывшей полоску: её отпускание печатает выбранное.
+    pub owner: u32,
+    pub alts: Vec<String>,
+    pub left: f32,
+    pub top: f32,
+    /// Ширина ячейки (выбор по X пальца).
+    pub cell: f32,
+    pub sel: usize,
+}
+
 /// Состояние клавиатуры (копируется — внутри сигналы).
 #[derive(Clone, Copy)]
 pub struct Keyboard {
@@ -83,6 +97,8 @@ pub struct Keyboard {
     /// Буква над нажатой клавишей: подпись и прямоугольник клавиши
     /// (x, y, ширина, высота) в координатах поверхности.
     pub popup: RwSignal<Option<(String, [f32; 4])>>,
+    /// Открытая полоска вариантов (долгое нажатие).
+    pub alts: RwSignal<Option<AltPopup>>,
     /// Выезжать самой на текстовом поле (режим ввода приложения не «Выключен», `[osk] apps`).
     pub auto: RwSignal<bool>,
     /// Плавающая (иначе внизу).
@@ -117,6 +133,7 @@ impl Keyboard {
             sup: use_signal(false),
             fn_rows: use_signal(false),
             popup: use_signal(None),
+            alts: use_signal(None),
             auto: use_signal(true),
             floating: use_signal(false),
             pos: use_signal(Point::new(-1.0, -1.0)),
@@ -431,6 +448,7 @@ pub fn install(kb: Keyboard) {
                 if let Some((id, _)) = old {
                     stop_repeat();
                     kb.popup.set(None);
+                    kb.alts.set(None);
                     syngui_layer::close_surface(id);
                 }
                 let id = syngui_layer::create_surface(kb.spec(), move || view(kb));
@@ -441,6 +459,7 @@ pub fn install(kb: Keyboard) {
                 SURFACE.with(|s| s.set(None));
                 stop_repeat();
                 kb.popup.set(None);
+                kb.alts.set(None);
                 DRAG.with(|d| d.set(None));
                 syngui_layer::close_surface(id);
             }
@@ -482,7 +501,8 @@ fn view(kb: Keyboard) -> Box<dyn Widget> {
                     .child(DecoratedBox::new().style("height", StyleValue::px(HEADROOM as f32)))
                     .child(keys_view(kb)),
             )
-            .child(popup_view(kb)),
+            .child(popup_view(kb))
+            .child(alts_view(kb)),
     )
 }
 
@@ -508,7 +528,8 @@ fn floating_view(kb: Keyboard) -> impl Widget {
                         .style("height", StyleValue::px(h));
                     vec![Box::new(Positioned::new(body).offset_signal(kb.pos))]
                 }))
-                .child(popup_view(kb)),
+                .child(popup_view(kb))
+                .child(alts_view(kb)),
         )
 }
 
@@ -605,6 +626,91 @@ fn popup_view(kb: Keyboard) -> impl Widget {
             .style("height", StyleValue::px(POP_H));
         vec![Box::new(Positioned::new(bubble).at(left, top))]
     })
+}
+
+/// Полоска вариантов по долгому нажатию: ячейки в ряд, выбранная подсвечена;
+/// палец ведут по полоске (или вдоль ряда клавиш) и отпускают на нужном.
+fn alts_view(kb: Keyboard) -> impl Widget {
+    Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let Some(a) = kb.alts.get() else { return Vec::new() };
+        let mut row = Row::new().cross_axis_alignment(CrossAxisAlignment::Stretch).height(POP_H);
+        for (i, s) in a.alts.iter().enumerate() {
+            row = row.child(
+                Row::new()
+                    .main_axis_alignment(MainAxisAlignment::Center)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(Text::new(s.clone()).class("key-alt-label"))
+                    .class(if i == a.sel { "key-alt key-alt-sel" } else { "key-alt" })
+                    .style("width", StyleValue::px(a.cell)),
+            );
+        }
+        let bar = DecoratedBox::new().child(row).class("key-pop key-alts");
+        vec![Box::new(Positioned::new(bar).at(a.left, a.top))]
+    })
+}
+
+/// Открыть полоску вариантов над клавишей (прямоугольник — из popup буквы).
+fn open_alts(kb: Keyboard, owner: u32, alts: &[String], finger: Point) {
+    let Some((_, [x, y, w, _h])) = kb.popup.get_untracked() else { return };
+    let upper = kb.shift.get_untracked() != Shift::Off;
+    let alts: Vec<String> = alts.iter().map(|s| if upper { s.to_uppercase() } else { s.clone() }).collect();
+    let n = alts.len().max(1);
+    let vw = syngui::viewport::viewport_size().get_untracked().width;
+    let cell = (w * 1.1).max(POP_MIN_W).min(((vw - 4.0) / n as f32).max(24.0));
+    let bw = cell * n as f32;
+    // Полоска начинается над клавишей (первый вариант — над пальцем и выбран сразу,
+    // как в Gboard): отпустил не двигаясь — ввёлся главный вариант (ё, цифра).
+    let left = (x + w / 2.0 - cell / 2.0).clamp(2.0, (vw - bw - 2.0).max(2.0));
+    let top = (y - POP_H + POP_OVERLAP).max(0.0);
+    let sel = (((finger.x - left) / cell) as isize).clamp(0, n as isize - 1) as usize;
+    kb.popup.set(None);
+    kb.alts.set(Some(AltPopup { owner, alts, left, top, cell, sel }));
+}
+
+/// Палец едет при открытой полоске — выбранная ячейка по X.
+fn track_alts(kb: Keyboard, p: Point) {
+    let Some(mut a) = kb.alts.get_untracked() else { return };
+    let n = a.alts.len() as isize;
+    let sel = (((p.x - a.left) / a.cell).floor() as isize).clamp(0, n - 1) as usize;
+    if sel != a.sel {
+        haptics::play(Feedback::Tick);
+        a.sel = sel;
+        kb.alts.set(Some(a));
+    }
+}
+
+/// Напечатать выбранный вариант: при захвате — текстом по сокету, иначе клавишей
+/// (ASCII — US-раскладкой в группе 0; ё/ъ — кодами текущей группы RU). Shift —
+/// строго по регистру варианта: глобальный Caps не превращает цифру в символ.
+fn press_alt(kb: Keyboard, s: &str) {
+    if let Some(sock) = kb.capture.get_untracked() {
+        capture_send(&sock, format!("text {s}"));
+        return;
+    }
+    let Some(c) = s.chars().next() else { return };
+    let lower = c.to_lowercase().next().unwrap_or(c);
+    let upper = c != lower;
+    let (code, shift, latin) = match lower {
+        'ё' => (41, upper, false),
+        'ъ' => (27, upper, false),
+        c => match layout::us_char(c) {
+            Some((code, shift)) => (code, shift || upper, true),
+            None => {
+                log::warn!("нет клавиши для варианта {s:?}");
+                return;
+            }
+        },
+    };
+    let group = LANGS[kb.lang.get_untracked()].group;
+    let switch = latin && group != 0;
+    if switch {
+        syngui_layer::virtual_keyboard_group(0);
+    }
+    let mods: &[Modifier] = if shift { &[Modifier::Shift] } else { &[] };
+    tap_with(code, mods);
+    if switch {
+        syngui_layer::virtual_keyboard_group(group);
+    }
 }
 
 fn keys_view(kb: Keyboard) -> impl Widget {
@@ -714,13 +820,28 @@ fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: 
                 });
         }
         Action::Modifier(Modifier::Shift) => {
+            // Caps Lock — двойное нажатие или удержание (как в Gboard); тап при Caps выключает.
             gd = gd
                 .on_click(move || kb.act(action))
-                .on_double_click(move || kb.shift.set(Shift::Lock));
+                .on_double_click(move || kb.shift.set(Shift::Lock))
+                .on_long_press(move |_| kb.shift.set(Shift::Lock));
         }
         Action::Key { code, shift: with_shift, latin, .. } => {
+            if !key.alts.is_empty() {
+                // Долгое нажатие — полоска вариантов, выбор скольжением (ввод — в on_release).
+                let alts = key.alts.clone();
+                gd = gd
+                    .on_long_press(move |p| open_alts(kb, code, &alts, p))
+                    .on_pan_update(move |u| track_alts(kb, u.position));
+            }
             gd = gd.on_release(move |inside| {
                 kb.popup.set(None);
+                if let Some(a) = kb.alts.get_untracked().filter(|a| a.owner == code) {
+                    kb.alts.set(None);
+                    press_alt(kb, &a.alts[a.sel]);
+                    kb.release_oneshot();
+                    return;
+                }
                 if inside {
                     kb.press(code, with_shift, latin, typed.as_deref());
                     kb.release_oneshot();
