@@ -90,6 +90,7 @@ fn close_now() {
     OPEN.with(|o| o.set(None));
     PANEL.with(|p| p.set(None));
     MENU.with(|m| m.set(None));
+    *SOUND_SIG.lock().unwrap() = None;
 }
 
 fn open(panel: Panel) {
@@ -1090,39 +1091,268 @@ fn sliders(ctx: ShellCtx) -> impl Widget {
     if let Some(w) = synsystem::backlight::front_light(&sys).map(|fl| fl.state(&sys).1) {
         col = col.child(warmth_row(w));
     }
+    // Удержание строки громкости или шеврон — панель «Звук»: громкость каждого выхода,
+    // выбор выхода по умолчанию, маршруты играющих программ.
+    let snd_open = use_signal(false);
+    let snd = use_signal(None::<Vec<synsystem::sound::Node>>);
     let vol = rx(move || {
         let v = ctx.volume.get();
         let Some(v) = v else { return Box::new(DecoratedBox::new()) as Box<dyn Widget> };
-        Box::new(
-            DecoratedBox::new()
-                .child(
-                    Row::new()
-                        .gap(10.0)
-                        .cross_axis_alignment(CrossAxisAlignment::Center)
-                        .child(
-                            GestureDetector::new()
-                                .on_click(|| crate::system::toggle_mute(ShellCtx::get(), false))
-                                // в кружке той же высоты, что кнопка автояркости, — строки ползунков ровные
-                                .child(
-                                    DecoratedBox::new()
-                                        .child(icon(if v.muted { mi::VOLUME_OFF } else { mi::VOLUME_UP }).class("shade-slider-icon"))
-                                        .class("shade-auto"),
-                                ),
-                        )
-                        .child(
-                            Slider::new()
-                                .range(0.0, ShellCtx::get().config.get().sound.max_volume() as f32)
-                                .step(1.0)
-                                .value(v.percent as f32)
-                                .on_change(|x| crate::system::change_volume(ShellCtx::get(), 0, Some(x.round() as u32)))
-                                .class("grow"),
-                        )
-                        .child(Text::new(format!("{}%", v.percent)).class("shade-slider-value")),
-                )
-                .class("shade-slider"),
-        )
+        let open = snd_open.get();
+        let max = ShellCtx::get().config.get().sound.max_volume();
+        let row = Row::new()
+            .gap(10.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(
+                GestureDetector::new()
+                    .on_click(|| crate::system::toggle_mute(ShellCtx::get(), false))
+                    // в кружке той же высоты, что кнопка автояркости, — строки ползунков ровные
+                    .child(
+                        DecoratedBox::new()
+                            .child(icon(if v.muted { mi::VOLUME_OFF } else { mi::VOLUME_UP }).class("shade-slider-icon"))
+                            .class("shade-auto"),
+                    ),
+            )
+            .child(
+                Slider::new()
+                    .range(0.0, max as f32)
+                    .step(1.0)
+                    .value(v.percent as f32)
+                    .on_change(|x| crate::system::change_volume(ShellCtx::get(), 0, Some(x.round() as u32)))
+                    .class("grow"),
+            )
+            .child(Text::new(format!("{}%", v.percent)).class("shade-slider-value"))
+            .child(
+                GestureDetector::new()
+                    .on_click(move || toggle_sound_panel(snd_open, snd))
+                    .child(
+                        DecoratedBox::new()
+                            .child(icon(if open { mi::EXPAND_LESS } else { mi::EXPAND_MORE }).class("shade-slider-icon"))
+                            .class("shade-auto"),
+                    ),
+            );
+        // удержание/правый щелчок по строке — то же, что шеврон
+        let row = GestureDetector::new().on_secondary_click(move |_| toggle_sound_panel(snd_open, snd)).child(row);
+        let mut card = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(row);
+        if open {
+            card = card.child(sound_panel(snd, max));
+        }
+        Box::new(DecoratedBox::new().child(card).class("shade-slider"))
     });
     col.child(vol).child(torch_row(ctx)).style("padding", StyleValue::px(0.0))
+}
+
+// ─── Панель «Звук» ───────────────────────────────────────────────────────────
+// Раскрывается из строки громкости: каждый выход со своим ползунком (PipeWire помнит громкость
+// каждого узла), тап по имени — выход по умолчанию; ниже потоки программ — громкость и выбор
+// выхода (меню вариантов, `pw-metadata target.object`). Входы здесь не показываются и источник
+// по умолчанию не трогается (HFP-микрофон Bluetooth на телефоне пока глушит звук).
+
+/// Узлы PipeWire раскрытой панели (`None` — панель закрыта); пишет [`sound_changed`].
+static SOUND_SIG: Mutex<Option<RwSignal<Option<Vec<synsystem::sound::Node>>>>> = Mutex::new(None);
+
+/// Звук изменился (событие `pactl subscribe` в `system::watch_volume` или своё действие):
+/// перечитать узлы, пока панель раскрыта. Чтения сливаются: пока идёт `pw-dump`,
+/// залп событий даёт одно повторное чтение.
+pub fn sound_changed() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static BUSY: AtomicBool = AtomicBool::new(false);
+    static AGAIN: AtomicBool = AtomicBool::new(false);
+    if SOUND_SIG.lock().unwrap().is_none() {
+        return;
+    }
+    if BUSY.swap(true, Ordering::SeqCst) {
+        AGAIN.store(true, Ordering::SeqCst);
+        return;
+    }
+    std::thread::spawn(|| loop {
+        let nodes = synsystem::sound::nodes();
+        syngui::async_runtime::run_on_main_thread(move || {
+            let Some(sig) = *SOUND_SIG.lock().unwrap() else { return };
+            if let Some(n) = nodes {
+                if sig.get_untracked().as_ref() != Some(&n) {
+                    sig.set(Some(n));
+                }
+            }
+        });
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        if !AGAIN.swap(false, Ordering::SeqCst) {
+            BUSY.store(false, Ordering::SeqCst);
+            // событие могло прийти между swap и сбросом BUSY
+            if !AGAIN.swap(false, Ordering::SeqCst) {
+                break;
+            }
+            BUSY.store(true, Ordering::SeqCst);
+        }
+    });
+}
+
+fn toggle_sound_panel(open: RwSignal<bool>, snd: RwSignal<Option<Vec<synsystem::sound::Node>>>) {
+    let on = !open.get_untracked();
+    *SOUND_SIG.lock().unwrap() = if on { Some(snd) } else { None };
+    if on {
+        sound_changed();
+    }
+    open.set(on);
+}
+
+/// Громкость узла — в фоне, последнее значение побеждает.
+fn snd_set_volume(id: u32, percent: u32, max: u32) {
+    static PENDING: Mutex<Option<(u32, u32, u32)>> = Mutex::new(None);
+    let first = PENDING.lock().unwrap().replace((id, percent, max)).is_none();
+    if first {
+        std::thread::spawn(|| {
+            while let Some((id, p, max)) = PENDING.lock().unwrap().take() {
+                synsystem::sound::set_node_volume(id, p, max);
+            }
+        });
+    }
+}
+
+fn snd_glyph(n: &synsystem::sound::Node) -> &'static str {
+    match n.icon.as_deref() {
+        Some(i) if i.contains("headphone") || i.contains("headset") => mi::HEADPHONES,
+        Some(i) if i.contains("bluetooth") => mi::BLUETOOTH,
+        _ => mi::SPEAKER,
+    }
+}
+
+fn sound_panel(snd: RwSignal<Option<Vec<synsystem::sound::Node>>>, max: u32) -> Box<dyn Widget> {
+    use synsystem::sound::NodeKind;
+    let Some(nodes) = snd.get() else {
+        return Box::new(Text::new(t!("Чтение…")).class("shade-snd-hint"));
+    };
+    let mut col = Column::new()
+        .gap(2.0)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(DecoratedBox::new().class("shade-snd-sep"));
+    let outs: Vec<synsystem::sound::Node> = nodes.iter().filter(|n| n.kind == NodeKind::Output).cloned().collect();
+    if outs.is_empty() {
+        col = col.child(Text::new(t!("Нет устройств вывода.")).class("shade-snd-hint"));
+    }
+    for n in &outs {
+        col = col.child(snd_output_row(n, max));
+    }
+    let apps: Vec<&synsystem::sound::Node> = nodes.iter().filter(|n| n.kind == NodeKind::AppStream).collect();
+    if !apps.is_empty() {
+        col = col.child(Text::new(t!("Приложения")).class("shade-section shade-snd-head"));
+        for a in apps {
+            col = col.child(snd_app_row(a, &outs, max));
+        }
+    }
+    let settings = GestureDetector::new()
+        .on_click(|| {
+            close();
+            crate::actions::spawn("synsettings audio");
+        })
+        .child(
+            Row::new()
+                .gap(8.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(icon(mi::SETTINGS).class("shade-snd-icon"))
+                .child(Text::new(t!("Все настройки звука…")).class("shade-snd-hint")),
+        );
+    Box::new(col.child(DecoratedBox::new().child(settings).class("shade-snd-row")))
+}
+
+/// Выход: тап по имени — сделать выходом по умолчанию, ползунок — его собственная громкость.
+fn snd_output_row(n: &synsystem::sound::Node, max: u32) -> impl Widget {
+    let id = n.id;
+    let default = n.default;
+    let head = GestureDetector::new()
+        .on_click(move || {
+            if !default {
+                std::thread::spawn(move || {
+                    synsystem::sound::set_default(id);
+                    sound_changed();
+                });
+            }
+        })
+        .child(
+            Row::new()
+                .gap(8.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(icon(snd_glyph(n)).class(if default { "shade-snd-icon shade-snd-icon-on" } else { "shade-snd-icon" }))
+                .child(
+                    DecoratedBox::new()
+                        .child(
+                            Text::new(n.label.clone())
+                                .max_lines(1)
+                                .class(if default { "shade-snd-label shade-snd-label-on" } else { "shade-snd-label" }),
+                        )
+                        .class("shade-snd-name"),
+                ),
+        );
+    let mut row = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(head);
+    if let Some(p) = n.percent {
+        row = row
+            .child(
+                Slider::new()
+                    .range(0.0, max as f32)
+                    .step(1.0)
+                    .value(p.min(max) as f32)
+                    .on_change(move |x| snd_set_volume(id, x.round() as u32, max))
+                    .class("grow"),
+            )
+            .child(Text::new(format!("{}%", p.min(max))).class("shade-slider-value"));
+    } else {
+        row = row.child(DecoratedBox::new().class("grow"));
+    }
+    DecoratedBox::new().child(row).class("shade-snd-row")
+}
+
+/// Поток программы: громкость и выбор выхода («Авто» — выход по умолчанию).
+fn snd_app_row(n: &synsystem::sound::Node, outs: &[synsystem::sound::Node], max: u32) -> impl Widget {
+    let id = n.id;
+    let tgt = n.target.as_deref().and_then(|t| outs.iter().find(|o| o.is_target(t)));
+    let chip_text = tgt.map(|o| o.label.clone()).unwrap_or_else(|| t!("Авто").to_string());
+    let menu = {
+        let target = n.target.clone();
+        let mut options = vec![TileOption::new(mi::VOLUME_UP, t!("Как система"), move || {
+            std::thread::spawn(move || {
+                synsystem::sound::set_stream_target(id, None);
+                sound_changed();
+            });
+        })
+        .hint(t!("Выход по умолчанию"))
+        .checked(target.is_none())];
+        for o in outs {
+            let name = o.name.clone();
+            let checked = target.as_deref().is_some_and(|t| o.is_target(t));
+            options.push(
+                TileOption::new(snd_glyph(o), o.label.clone(), move || {
+                    let name = name.clone();
+                    std::thread::spawn(move || {
+                        synsystem::sound::set_stream_target(id, Some(&name));
+                        sound_changed();
+                    });
+                })
+                .checked(checked),
+            );
+        }
+        TileMenu { seq: 0, glyph: mi::APPS.to_string(), title: n.label.clone(), options }
+    };
+    let chip = GestureDetector::new()
+        .on_click(move || open_menu(menu.clone()))
+        .child(DecoratedBox::new().child(Text::new(chip_text).max_lines(1).class("shade-snd-target-text")).class("shade-snd-target"));
+    let mut row = Row::new()
+        .gap(8.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(icon(mi::APPS).class("shade-snd-icon"))
+        .child(DecoratedBox::new().child(Text::new(n.label.clone()).max_lines(1).class("shade-snd-label")).class("shade-snd-name"));
+    if let Some(p) = n.percent {
+        row = row.child(
+            Slider::new()
+                .range(0.0, max as f32)
+                .step(1.0)
+                .value(p.min(max) as f32)
+                .on_change(move |x| snd_set_volume(id, x.round() as u32, max))
+                .class("grow"),
+        );
+    } else {
+        row = row.child(DecoratedBox::new().class("grow"));
+    }
+    DecoratedBox::new().child(row.child(chip)).class("shade-snd-row")
 }
 
 /// Тепло передней подсветки из двух каналов (белый + тёплый, E Ink): холодно ↔ тепло.

@@ -669,6 +669,20 @@ Text {
 .shade-notif-panel { padding-bottom: 12px; }
 .shade-notif-list { overflow-clip-margin: 4px; }
 .shade-notif-link .shade-tile-label { font-weight: 500; }
+
+.shade-snd-sep { height: 1px; margin: 4px 2px; background-color: var(--border); }
+.shade-snd-row { padding: 5px 6px; border-radius: 12px; }
+.shade-snd-row:active { background-color: var(--pressed); }
+.shade-snd-icon { icon-size: 20px; icon-color: var(--muted); }
+.shade-snd-icon-on { icon-color: var(--accent); }
+.shade-snd-name { width: 108px; }
+.shade-snd-label { font-size: 13px; color: var(--fg); }
+.shade-snd-label-on { font-weight: 600; }
+.shade-snd-head { margin: 6px 0px 2px 6px; }
+.shade-snd-target { padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border); }
+.shade-snd-target:active { background-color: var(--pressed); }
+.shade-snd-target-text { font-size: 11px; color: var(--muted); }
+.shade-snd-hint { font-size: 13px; color: var(--muted); }
 /* горизонтально: поля по бокам шире, колонки прокручиваются; шапка уведомлений — колонкой слева */
 .shade-wide { padding: 14px 24px 8px 24px; }
 .shade-col { overflow-clip-margin: 4px; }

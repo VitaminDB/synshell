@@ -40,6 +40,18 @@ pub struct Node {
     pub default: bool,
     /// Узел сейчас играет/пишет.
     pub running: bool,
+    /// `object.serial` — на него может указывать `target.object` потока.
+    pub serial: Option<u64>,
+    /// Куда поток направлен вручную (`target.object` метаданных): `node.name` или serial выхода,
+    /// `None` — выход по умолчанию. Только у потоков программ.
+    pub target: Option<String>,
+}
+
+impl Node {
+    /// `target.object` потока (`target`) указывает на этот узел: имя или serial.
+    pub fn is_target(&self, target: &str) -> bool {
+        self.name == target || self.serial.is_some_and(|s| s.to_string() == target)
+    }
 }
 
 /// Узлы PipeWire (выходы, входы, потоки программ). `None` — нет PipeWire.
@@ -58,6 +70,8 @@ pub fn parse_pw_dump(text: &str) -> Vec<Node> {
     };
     let mut def_sink = String::new();
     let mut def_source = String::new();
+    // Ручные цели потоков: id потока → `target.object` (имя или serial выхода).
+    let mut targets: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
     for o in &objs {
         if o["type"] != "PipeWire:Interface:Metadata" || o["props"]["metadata.name"] != "default" {
             continue;
@@ -67,6 +81,13 @@ pub fn parse_pw_dump(text: &str) -> Vec<Node> {
             match m["key"].as_str() {
                 Some("default.audio.sink") => def_sink = name,
                 Some("default.audio.source") => def_source = name,
+                Some("target.object") => {
+                    let v = &m["value"];
+                    let t = v.as_str().map(str::to_string).or_else(|| v.as_u64().map(|n| n.to_string()));
+                    if let (Some(subj), Some(t)) = (m["subject"].as_u64(), t) {
+                        targets.insert(subj, t);
+                    }
+                }
                 _ => {}
             }
         }
@@ -108,7 +129,21 @@ pub fn parse_pw_dump(text: &str) -> Vec<Node> {
             NodeKind::AppStream => false,
         };
         let running = info["state"] == "running";
-        out.push(Node { id: o["id"].as_u64().unwrap_or(0) as u32, kind, name, label, icon, percent, muted, default, running });
+        let id = o["id"].as_u64().unwrap_or(0);
+        let target = if kind == NodeKind::AppStream { targets.get(&id).cloned() } else { None };
+        out.push(Node {
+            id: id as u32,
+            kind,
+            name,
+            label,
+            icon,
+            percent,
+            muted,
+            default,
+            running,
+            serial: p["object.serial"].as_u64(),
+            target,
+        });
     }
     out
 }
@@ -126,6 +161,18 @@ pub fn set_node_volume(id: u32, percent: u32, max: u32) {
 
 pub fn set_node_mute(id: u32, mute: bool) {
     let _ = Command::new("wpctl").args(["set-mute", &id.to_string(), if mute { "1" } else { "0" }]).status();
+}
+
+/// Направить поток программы в выход `target` (`node.name` или serial; `None` — выход по умолчанию).
+/// WirePlumber сразу переносит поток и запоминает выбор для программы (restore-stream).
+pub fn set_stream_target(stream_id: u32, target: Option<&str>) {
+    let id = stream_id.to_string();
+    let mut cmd = Command::new("pw-metadata");
+    match target {
+        Some(t) => cmd.args([id.as_str(), "target.object", t]),
+        None => cmd.args(["-d", id.as_str(), "target.object"]),
+    };
+    let _ = cmd.status();
 }
 
 // --- телефон: palaudiod ---------------------------------------------------------------------------
@@ -266,25 +313,34 @@ mod tests {
         let text = r#"[
           {"id":30,"type":"PipeWire:Interface:Metadata","props":{"metadata.name":"default"},
            "metadata":[{"subject":0,"key":"default.audio.sink","type":"Spa:String:JSON","value":{"name":"palaudio.speaker"}},
-                       {"subject":0,"key":"default.audio.source","type":"Spa:String:JSON","value":{"name":"palaudio.mic"}}]},
+                       {"subject":0,"key":"default.audio.source","type":"Spa:String:JSON","value":{"name":"palaudio.mic"}},
+                       {"subject":60,"key":"target.object","type":null,"value":"bluez_output.AA"},
+                       {"subject":61,"key":"target.object","type":null,"value":77}]},
           {"id":53,"type":"PipeWire:Interface:Node","info":{"state":"running","props":{"media.class":"Audio/Sink",
-            "node.name":"palaudio.speaker","node.description":"Встроенный звук","device.icon-name":"audio-speakers"},
+            "node.name":"palaudio.speaker","node.description":"Встроенный звук","device.icon-name":"audio-speakers","object.serial":77},
             "params":{"Props":[{"volume":1.0,"mute":false,"channelVolumes":[0.729,0.729]}]}}},
           {"id":54,"type":"PipeWire:Interface:Node","info":{"state":"suspended","props":{"media.class":"Audio/Source",
             "node.name":"palaudio.mic","node.description":"Микрофон"},"params":{"Props":[{"volume":1.0,"mute":true}]}}},
           {"id":60,"type":"PipeWire:Interface:Node","info":{"state":"running","props":{"media.class":"Stream/Output/Audio",
-            "node.name":"mpv","application.name":"mpv"},"params":{}}}
+            "node.name":"mpv","application.name":"mpv"},"params":{}}},
+          {"id":61,"type":"PipeWire:Interface:Node","info":{"state":"running","props":{"media.class":"Stream/Output/Audio",
+            "node.name":"deadbeef","application.name":"DeaDBeeF"},"params":{}}}
         ]"#;
         let n = parse_pw_dump(text);
-        assert_eq!(n.len(), 3);
+        assert_eq!(n.len(), 4);
         assert_eq!(n[0].kind, NodeKind::Output);
         assert_eq!(n[0].percent, Some(90));
         assert!(n[0].default && n[0].running);
         assert_eq!(n[0].icon.as_deref(), Some("audio-speakers"));
+        assert_eq!(n[0].serial, Some(77));
         assert!(n[1].muted && n[1].default && !n[1].running);
         assert_eq!(n[1].percent, Some(100));
         assert_eq!(n[2].label, "mpv");
         assert_eq!(n[2].percent, None);
+        // Цели потоков: именем выхода и его serial — обе указывают на узел.
+        assert_eq!(n[2].target.as_deref(), Some("bluez_output.AA"));
+        assert_eq!(n[3].target.as_deref(), Some("77"));
+        assert!(n[0].is_target("77") && n[0].is_target("palaudio.speaker") && !n[0].is_target("78"));
     }
 
     #[test]

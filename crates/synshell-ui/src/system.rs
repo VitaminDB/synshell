@@ -91,6 +91,8 @@ fn watch_volume(ctx: ShellCtx) {
                     let Ok(line) = line else { break };
                     if line.contains("sink") || line.contains("source") || line.contains("server") {
                         refresh_volume(ctx);
+                        // раскрытая панель «Звук» в шторке идёт за теми же событиями
+                        crate::shade::sound_changed();
                     }
                 }
             }
@@ -101,6 +103,7 @@ fn watch_volume(ctx: ShellCtx) {
     loop {
         std::thread::sleep(Duration::from_secs(3));
         refresh_volume(ctx);
+        crate::shade::sound_changed();
     }
 }
 

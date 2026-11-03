@@ -92,7 +92,8 @@ fn node_icon(n: &Node) -> &'static str {
     }
 }
 
-fn node_row(n: &Node, max: u32, choosable: bool) -> W {
+/// Строка узла; `outs` — выходы для выбора маршрута потока программы («Как система» + каждый выход).
+fn node_row(n: &Node, max: u32, choosable: bool, outs: &[Node]) -> W {
     let id = n.id;
     let mut hint = Vec::new();
     if n.default {
@@ -130,6 +131,22 @@ fn node_row(n: &Node, max: u32, choosable: bool) -> W {
     ctl = ctl.child(icon_button(mute_icon, move || act(move || sound::set_node_mute(id, !muted))));
     if choosable && !n.default {
         ctl = ctl.child(button(&t!("Выбрать"), move || act(move || sound::set_default(id))));
+    }
+    // Маршрут потока программы: «Как система» (выход по умолчанию) или конкретный выход
+    // (`pw-metadata target.object`; WirePlumber переносит поток и помнит выбор).
+    if n.kind == NodeKind::AppStream && !outs.is_empty() {
+        let mut dd = Dropdown::new().width(200.0).item(DropdownItem::new("", t!("Как система")));
+        let mut sel = String::new();
+        for o in outs {
+            if n.target.as_deref().is_some_and(|t| o.is_target(t)) {
+                sel = o.name.clone();
+            }
+            dd = dd.item(DropdownItem::new(o.name.clone(), o.label.clone()));
+        }
+        ctl = ctl.child(dd.selected(sel).on_change(move |v: &str| {
+            let v = v.to_string();
+            act(move || sound::set_stream_target(id, if v.is_empty() { None } else { Some(&v) }));
+        }));
     }
     boxed(
         Row::new()
@@ -229,14 +246,15 @@ pub fn audio() -> W {
         let max = snap.max;
         let mut col = Column::new().gap(18.0);
         let pick = |k: NodeKind| nodes.iter().filter(move |n| n.kind == k);
-        let outs: Vec<W> = pick(NodeKind::Output).map(|n| node_row(n, max, true)).collect();
+        let out_nodes: Vec<Node> = pick(NodeKind::Output).cloned().collect();
+        let outs: Vec<W> = out_nodes.iter().map(|n| node_row(n, max, true, &[])).collect();
         col = col.child(group(&t!("Вывод"), if outs.is_empty() { vec![note(&t!("Нет устройств вывода."))] } else { outs }));
         if let Some(p) = &snap.phone {
             col = col.child(phone_group(p, &snap.profiles));
         }
-        let ins: Vec<W> = pick(NodeKind::Input).map(|n| node_row(n, max, true)).collect();
+        let ins: Vec<W> = pick(NodeKind::Input).map(|n| node_row(n, max, true, &[])).collect();
         col = col.child(group(&t!("Ввод"), if ins.is_empty() { vec![note(&t!("Нет микрофонов."))] } else { ins }));
-        let apps: Vec<W> = pick(NodeKind::AppStream).map(|n| node_row(n, max, false)).collect();
+        let apps: Vec<W> = pick(NodeKind::AppStream).map(|n| node_row(n, max, false, &out_nodes)).collect();
         if !apps.is_empty() {
             col = col.child(group(&t!("Программы"), apps));
         }

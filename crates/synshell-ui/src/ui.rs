@@ -466,6 +466,12 @@ pub mod mi {
     pub const HOME: &str = "\u{E88A}";
     pub const CHEVRON_RIGHT: &str = "\u{E5CC}";
     pub const CHEVRON_LEFT: &str = "\u{E5CB}";
+    pub const EXPAND_MORE: &str = "\u{E5CF}";
+    pub const EXPAND_LESS: &str = "\u{E5CE}";
+    pub const SPEAKER: &str = "\u{E32D}";
+    /// headset — наушники/гарнитура.
+    pub const HEADPHONES: &str = "\u{E310}";
+    pub const BLUETOOTH: &str = "\u{E1A7}";
     pub const BACK: &str = "\u{E5C4}";
     pub const TERMINAL: &str = "\u{EB8E}";
     pub const CALC: &str = "\u{EA5F}";
