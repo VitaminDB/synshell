@@ -201,6 +201,11 @@ impl Engine {
         self.inner.recorder.lock().unwrap().as_ref().map(f)
     }
 
+    /// Заглушить микрофон в записи (см. [`crate::Recorder::set_mic_muted`]).
+    pub fn mute_mic(&self, on: bool) {
+        self.with_recorder(|r| r.set_mic_muted(on));
+    }
+
     pub fn pause_recording(&self, on: bool) {
         self.with_recorder(|r| r.set_paused(on));
     }

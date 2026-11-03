@@ -49,6 +49,9 @@ impl Settings {
 #[derive(Default)]
 pub struct Shared {
     pub paused: AtomicBool,
+    /// Микрофон в запись не идёт (тишина), дорожки — идут: пока звучит
+    /// собеседник из динамика, его эхо не попадает в запись.
+    pub mic_muted: AtomicBool,
     resumed: AtomicBool,
     /// Длительность записанного, мкс.
     pub duration_us: AtomicU64,
@@ -136,6 +139,11 @@ impl Recorder {
                 false
             }
         }
+    }
+
+    /// Заглушить микрофон в записи (дорожки и видео пишутся дальше).
+    pub fn set_mic_muted(&self, on: bool) {
+        self.shared.mic_muted.store(on, Ordering::SeqCst);
     }
 
     pub fn set_paused(&self, on: bool) {

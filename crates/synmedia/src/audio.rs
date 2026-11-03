@@ -359,6 +359,9 @@ fn audio_loop(
             };
             match take {
                 Some(mut s) => {
+                    if sh.mic_muted.load(Ordering::Relaxed) {
+                        s.iter_mut().for_each(|v| *v = 0.0);
+                    }
                     mixer.mix(pts as u64, &mut s, ch);
                     ffi::av_frame_make_writable(frame);
                     for c in 0..ch {
