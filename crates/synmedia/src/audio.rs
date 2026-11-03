@@ -18,11 +18,14 @@ use crate::mux::{averr, Mux};
 use crate::recorder::Shared;
 
 pub const RATE: u32 = 48000;
+/// Хвост приглушения микрофона после куска дорожки (задержка динамика и эхо), отсчёты.
+const DUCK_TAIL: u64 = RATE as u64 * 2 / 5;
 
 /// Смеситель: что и когда звучит поверх микрофона.
 pub struct Mixer {
-    /// Куски дорожек: (первый отсчёт на шкале записи, моно 48 кГц, громкость, номер дорожки).
-    parts: Mutex<Vec<(u64, Vec<f32>, f32, u64)>>,
+    /// Куски дорожек: (первый отсчёт на шкале записи, моно 48 кГц, громкость, номер дорожки,
+    /// приглушение микрофона на время куска: 1 — нет).
+    parts: Mutex<Vec<(u64, Vec<f32>, f32, u64, f32)>>,
     next_track: AtomicU64,
     /// Отсчётов (на канал) уже отдано кодеру.
     pos: AtomicU64,
@@ -51,7 +54,23 @@ impl Mixer {
     fn mix(&self, at: u64, out: &mut [f32], ch: usize) {
         let n = (out.len() / ch) as u64;
         let mut parts = self.parts.lock().unwrap();
-        for (start, data, gain, _) in parts.iter() {
+        // Сначала приглушить микрофон, пока звучит дорожка с приглушением (и
+        // хвост DUCK_TAIL: динамик слышен микрофону с задержкой) — иначе голос
+        // собеседника попадает в запись дважды: чисто и эхом из динамика.
+        for (start, data, _, _, duck) in parts.iter() {
+            if *duck >= 1.0 {
+                continue;
+            }
+            let end = start + data.len() as u64 + DUCK_TAIL;
+            let (from, to) = (at.max(*start), (at + n).min(end));
+            for t in from..to.max(from) {
+                let i = (t - at) as usize * ch;
+                for c in 0..ch {
+                    out[i + c] *= duck;
+                }
+            }
+        }
+        for (start, data, gain, _, _) in parts.iter() {
             let end = start + data.len() as u64;
             if end <= at || *start >= at + n {
                 continue;
@@ -66,7 +85,7 @@ impl Mixer {
                 }
             }
         }
-        parts.retain(|(start, data, _, _)| start + data.len() as u64 > at + n);
+        parts.retain(|(start, data, _, _, duck)| start + data.len() as u64 + if *duck < 1.0 { DUCK_TAIL } else { 0 } > at + n);
     }
 }
 
@@ -78,12 +97,21 @@ pub struct Track {
     end: Arc<AtomicU64>,
     gain: f32,
     id: u64,
+    /// Громкость микрофона, пока звучит дорожка (1 — не трогать).
+    duck: f32,
 }
 
 impl Track {
     pub(crate) fn new(mixer: Arc<Mixer>, gain: f32) -> Track {
         let id = mixer.next_track.fetch_add(1, Ordering::Relaxed);
-        Track { mixer, end: Arc::new(AtomicU64::new(0)), gain, id }
+        Track { mixer, end: Arc::new(AtomicU64::new(0)), gain, id, duck: 1.0 }
+    }
+
+    /// Приглушать микрофон, пока звучит эта дорожка (0..1; 0,05 — почти
+    /// тишина): голос из динамика не попадёт в запись второй раз эхом.
+    pub fn duck_mic(mut self, level: f32) -> Track {
+        self.duck = level.clamp(0.0, 1.0);
+        self
     }
 
     /// Добавить звук (моно, любая частота): сразу после прошлого куска этой дорожки, если он ещё
@@ -92,7 +120,7 @@ impl Track {
         let data = resample(pcm, sample_rate, RATE);
         let start = self.mixer.now().max(self.end.load(Ordering::SeqCst));
         self.end.store(start + data.len() as u64, Ordering::SeqCst);
-        self.mixer.parts.lock().unwrap().push((start, data, self.gain, self.id));
+        self.mixer.parts.lock().unwrap().push((start, data, self.gain, self.id, self.duck));
         Duration::from_micros(start * 1_000_000 / RATE as u64)
     }
 
@@ -105,7 +133,7 @@ impl Track {
     pub fn stop(&self) {
         let now = self.mixer.now();
         let mut parts = self.mixer.parts.lock().unwrap();
-        for (start, data, _, id) in parts.iter_mut() {
+        for (start, data, _, id, _) in parts.iter_mut() {
             if *id == self.id && *start + data.len() as u64 > now {
                 data.truncate(now.saturating_sub(*start) as usize);
             }
@@ -382,5 +410,31 @@ mod tests {
     fn resample_len() {
         assert_eq!(resample(&[0.0; 24000], 24000, 48000).len(), 48000);
         assert_eq!(resample(&[0.0; 16000], 16000, 48000).len(), 48000);
+    }
+}
+
+#[cfg(test)]
+mod duck_tests {
+    use super::*;
+
+    #[test]
+    fn mic_ducked_while_track_plays_and_tail() {
+        let m = Mixer::new();
+        let t = Track::new(m.clone(), 1.0).duck_mic(0.1);
+        // Кусок 0,1 с с начала шкалы.
+        t.play(&vec![0.5; (RATE / 10) as usize], RATE);
+        let n = (RATE as usize) / 10 + DUCK_TAIL as usize + 100;
+        let mut out = vec![1.0f32; n]; // «микрофон»: громкость 1, моно
+        m.mix(0, &mut out, 1);
+        let len = (RATE / 10) as usize;
+        assert!((out[10] - (0.1 + 0.5)).abs() < 1e-5, "{}", out[10]);
+        assert!((out[len + 10] - 0.1).abs() < 1e-5, "хвост: {}", out[len + 10]);
+        assert!((out[n - 1] - 1.0).abs() < 1e-5, "после хвоста: {}", out[n - 1]);
+        // Дорожка без приглушения микрофон не трогает.
+        let m2 = Mixer::new();
+        Track::new(m2.clone(), 1.0).play(&vec![0.5; 100], RATE);
+        let mut out2 = vec![0.2f32; 200];
+        m2.mix(0, &mut out2, 1);
+        assert!((out2[150] - 0.2).abs() < 1e-5);
     }
 }
