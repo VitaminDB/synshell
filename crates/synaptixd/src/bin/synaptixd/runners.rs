@@ -1420,9 +1420,16 @@ impl Loaded {
                     let (pcm, vsr) = pcm_voice(&st.voices, &mut st.anchors, &key, akey, fresh, || {
                         let anchor = anchor.join(" ");
                         let styled_anchor = design.map(|d| format!("({d}){anchor}")).unwrap_or(anchor);
-                        let a = p.synthesize(&styled_anchor, &opts).map_err(|e| anyhow::anyhow!("{e}"))?;
+                        // Опорная фраза задаёт голос всем следующим: бормотание
+                        // в ней перешло бы в каждую фразу — предел строже.
+                        let strict = synaptix_tts_voxcpm::GenerateOptions { max_sec_per_char: 0.12, extra_sec: 1.0, ..opts.clone() };
+                        let a = p.synthesize(&styled_anchor, &strict).map_err(|e| anyhow::anyhow!("{e}"))?;
                         Ok((a.pcm, a.sample_rate as u32))
                     })?;
+                    // Предел длительности — по темпу этого голоса (его опорной
+                    // записи): так ловится и хвост бормотания после фразы.
+                    let rate = pcm.len() as f32 / vsr as f32 / synaptix_tts_voxcpm::spoken_chars(&anchor.join(" ")).max(1) as f32;
+                    let opts = synaptix_tts_voxcpm::GenerateOptions { max_sec_per_char: (rate * 1.5).clamp(0.08, 0.2), extra_sec: 1.0, ..opts.clone() };
                     let r = p.synthesize_with_reference_pcm(&styled, &pcm, vsr, &opts);
                     voice = Some(Voice::Pcm { pcm, sr: vsr });
                     r
