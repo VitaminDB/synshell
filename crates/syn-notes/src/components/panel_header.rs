@@ -118,7 +118,9 @@ pub fn side_title(icon: &'static str, text: impl Into<String>) -> impl Widget {
             .gap(8.0)
             .cross_axis_alignment(CrossAxisAlignment::Center) => [
                 Icon::new(icon).class("panel-header-side-icon"),
-                Text::new(text).max_lines(1).class("panel-header-side-title"),
+                DecoratedBox::new().class("grow").child(
+                    Text::new(text).max_lines(1).elide(Elide::End).class("panel-header-side-title"),
+                ),
             ]
     }
 }

@@ -547,15 +547,66 @@ pub fn view(wide: RwSignal<bool>) -> impl Widget {
             }
         }
     });
+    // Документ открыт, а в дереве рабочего места выбрана другая страница —
+    // экран следует за выбором (недавние тоже).
+    create_effect(move || {
+        let Some(active) = ctx.active.get() else { return };
+        if let Screen::Open(cur) = lib.screen.get_untracked() {
+            if cur != active && ctx.tree.get_untracked().find(&active).is_some() {
+                lib.touch_recent(ctx, &active);
+                lib.screen.set(Screen::Open(active));
+            }
+        }
+    });
+    // Что показывать: перестраивать дерево только при смене вида, а не при
+    // каждом переходе между документами рабочего места (дерево и свойства
+    // не теряют прокрутку и фокус).
+    let mode = use_signal(Mode::Library);
+    create_effect(move || {
+        let w = wide.get();
+        let m = match lib.screen.get() {
+            Screen::Library => Mode::Library,
+            Screen::Settings => Mode::Settings,
+            Screen::Open(id) => {
+                let kind = ctx.tree.get_untracked().kind_of(&id);
+                if w && uses_workspace(kind) {
+                    Mode::Workspace
+                } else {
+                    Mode::Open(id)
+                }
+            }
+        };
+        if mode.get_untracked() != m {
+            mode.set(m);
+        }
+    });
     fill(Reactive::new(move || -> Vec<W> {
         syngui::i18n::subscribe();
-        let w = wide.get();
-        match lib.screen.get() {
-            Screen::Library => vec![Box::new(fill(library(ctx, lib, w)))],
-            Screen::Open(id) => vec![Box::new(fill(open_view(ctx, lib, id)))],
-            Screen::Settings => vec![Box::new(fill(super::settings::view(lib, w)))],
+        let w = wide.get_untracked();
+        match mode.get() {
+            Mode::Library => vec![Box::new(fill(library(ctx, lib, w)))],
+            Mode::Workspace => vec![Box::new(fill(super::view()))],
+            Mode::Open(id) => vec![Box::new(fill(open_view(ctx, lib, id)))],
+            Mode::Settings => vec![Box::new(fill(super::settings::view(lib, w)))],
         }
     }))
+}
+
+/// Вид экрана библиотеки.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Mode {
+    Library,
+    Settings,
+    /// Рабочее место: дерево документов, редактор, панель свойств.
+    Workspace,
+    /// Страница на весь экран (узкое окно, книга, блокнот, рисунок).
+    Open(String),
+}
+
+/// Страница открывается в рабочем месте с деревом и свойствами (на широком
+/// окне). Книга, блокнот и рисунок — на весь экран со своими инструментами.
+fn uses_workspace(kind: PageKind) -> bool {
+    matches!(kind, PageKind::Doc | PageKind::Folder)
 }
 
 /// Тело страницы-не-документа (для центра трёхпанельного редактора synthos).

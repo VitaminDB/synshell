@@ -52,7 +52,7 @@ pub struct AppConfig {
 }
 
 pub fn default_notes_left_split_ratio() -> f32 {
-    0.18
+    0.22
 }
 
 pub fn default_notes_right_split_ratio() -> f32 {
