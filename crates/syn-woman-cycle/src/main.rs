@@ -36,31 +36,31 @@ pub struct Pal {
 pub fn pal(dark: bool) -> Pal {
     if dark {
         Pal {
-            rose: Color::from_hex("#f0577f"),
-            plum: Color::from_hex("#a98ce0"),
-            teal: Color::from_hex("#35d0be"),
+            rose: Color::from_hex("#ff4d86"),
+            plum: Color::from_hex("#a77bff"),
+            teal: Color::from_hex("#1fe0c6"),
             track: Color::from_hex("#2c272d"),
             fg: Color::from_hex("#f3eef1"),
             surface: Color::from_hex("#1c191d"),
-            ink: Color::from_hex("#8fa8ff"),
-            folli: Color::from_hex("#5f7fa8"),
-            fert: Color::from_hex("#8a6d1a"),
-            fert_strong: Color::from_hex("#f2b300"),
-            lute: Color::from_hex("#6f5f96"),
+            ink: Color::from_hex("#7f9cff"),
+            folli: Color::from_hex("#4d9dff"),
+            fert: Color::from_hex("#ffc21a"),
+            fert_strong: Color::from_hex("#ffb000"),
+            lute: Color::from_hex("#8f66ff"),
         }
     } else {
         Pal {
-            rose: Color::from_hex("#e0466f"),
-            plum: Color::from_hex("#7e63c2"),
-            teal: Color::from_hex("#22b8a7"),
+            rose: Color::from_hex("#ff2d6f"),
+            plum: Color::from_hex("#8a4dff"),
+            teal: Color::from_hex("#00c2a8"),
             track: Color::from_hex("#ece7ea"),
             fg: Color::from_hex("#1e1a1d"),
             surface: Color::from_hex("#ffffff"),
-            ink: Color::from_hex("#2f55b8"),
-            folli: Color::from_hex("#a9c1e0"),
-            fert: Color::from_hex("#f7dc8a"),
-            fert_strong: Color::from_hex("#e6a800"),
-            lute: Color::from_hex("#cbbde8"),
+            ink: Color::from_hex("#2f5bff"),
+            folli: Color::from_hex("#4d9dff"),
+            fert: Color::from_hex("#ffcf33"),
+            fert_strong: Color::from_hex("#ff9500"),
+            lute: Color::from_hex("#a978ff"),
         }
     }
 }
@@ -84,9 +84,6 @@ pub fn pal_for(dark: bool, d: decor::Decor) -> Pal {
     }
     if let Some(c) = get("border") {
         p.track = c;
-    }
-    if let Some(c) = get("ovul") {
-        p.fert = c;
     }
     p
 }
@@ -128,24 +125,24 @@ pub fn theme(cfg: &Config, dark: bool, decor: decor::Decor) -> String {
         ("border", "#ece7ea", "#2c272d"),
         ("hover", "#1e1a1d0d", "#ffffff10"),
         ("pressed", "#1e1a1d1a", "#ffffff1c"),
-        ("rose", "#e0466f", "#f0577f"),
-        ("rose-2", "#e85c81", "#f36b8f"),
-        ("rose-soft", "#f7dfe5", "#43202b"),
-        ("rose-line", "#e0466f80", "#f0577f99"),
-        ("plum", "#7e63c2", "#a98ce0"),
-        ("plum-soft", "#7e63c21f", "#a98ce02a"),
-        ("teal", "#22b8a7", "#35d0be"),
-        ("teal-soft", "#22b8a72a", "#35d0be30"),
-        ("gold", "#e6a800", "#f2b300"),
-        ("fert", "#f9e9be", "#3f310f"),
-        ("ovul", "#f6d370", "#7e5e0a"),
-        ("ovul-line", "#c98f00", "#ffd04d"),
-        ("fert-text", "#8a6400", "#ffd36b"),
-        ("ink", "#2f55b8", "#8fa8ff"),
-        ("folli", "#a9c1e0", "#5f7fa8"),
-        ("folli-soft", "#d6e0ee", "#354256"),
-        ("lute-soft", "#e3dcf1", "#403854"),
-        ("lute", "#cbbde8", "#6f5f96"),
+        ("rose", "#ff2d6f", "#ff4d86"),
+        ("rose-2", "#ff5c91", "#ff6f9e"),
+        ("rose-soft", "#ffc2d6", "#6a1838"),
+        ("rose-line", "#ff2d6f99", "#ff4d86aa"),
+        ("plum", "#8a4dff", "#a77bff"),
+        ("plum-soft", "#8a4dff26", "#a77bff33"),
+        ("teal", "#00c2a8", "#1fe0c6"),
+        ("teal-soft", "#00c2a830", "#1fe0c638"),
+        ("gold", "#ffae00", "#ffc21a"),
+        ("fert", "#ffe27a", "#5c4300"),
+        ("ovul", "#ffd23f", "#a57800"),
+        ("ovul-line", "#f59b00", "#ffd23f"),
+        ("fert-text", "#8a5200", "#ffd866"),
+        ("ink", "#2f5bff", "#7f9cff"),
+        ("folli", "#4d9dff", "#4d9dff"),
+        ("folli-soft", "#d3e6ff", "#16335e"),
+        ("lute-soft", "#e8dcff", "#3a2670"),
+        ("lute", "#a978ff", "#8f66ff"),
         ("on-accent", "#ffffff", "#ffffff"),
         ("shadow", "#1e1a1d14", "#00000066"),
         ("shadow-strong", "#1e1a1d29", "#00000099"),
@@ -154,8 +151,8 @@ pub fn theme(cfg: &Config, dark: bool, decor: decor::Decor) -> String {
         ("titlebar", "#f6f3f5", "#171418"),
         ("sidebar", "#f6f3f5", "#171418"),
         ("nav", "#fffffff5", "#1a171bf5"),
-        ("danger", "#d93d47", "#ff6b6f"),
-        ("today", "#22b8a7", "#35d0be"),
+        ("danger", "#ff3b47", "#ff5c63"),
+        ("today", "#00c2a8", "#1fe0c6"),
     ];
 
     let mut s = String::from(":root {\n");

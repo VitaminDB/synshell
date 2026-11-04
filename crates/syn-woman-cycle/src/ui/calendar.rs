@@ -290,28 +290,72 @@ fn phase_bar(st: St, p: Phases, today: Day, w: f32) -> W {
     let len = (p.next - p.start).max(1) as f32;
     let ov = p.ovulation;
     let start = p.start;
-    let h = 22.0;
-    let canvas = Canvas::new(move |c, t| {
-        let e = 1.0 - (1.0 - (t / 0.6).clamp(0.0, 1.0)).powi(3);
-        let bar_y = 8.0;
-        let bh = 8.0;
-        let x = |d: Day| (d - start) as f32 / len * w;
-        for &(col, a, b) in &segs {
-            let (x0, x1) = (x(a) + 1.0, (x(b + 1) - 1.0).min(w * e));
-            if x1 > x0 {
-                c.set_color(col);
-                c.fill_rounded_rect(x0, bar_y, x1 - x0, bh, bh / 2.0);
+    let h = 26.0;
+    // Опорные цвета градиента — середины фаз.
+    let stops: Vec<(f32, Color)> = segs.iter().map(|&(col, a, b)| (((a - start) as f32 + (b + 1 - start) as f32) / 2.0 / len * w, col)).collect();
+    let grad = move |x: f32| -> Color {
+        let first = stops[0];
+        if x <= first.0 {
+            return first.1;
+        }
+        for pair in stops.windows(2) {
+            let ((x0, c0), (x1, c1)) = (pair[0], pair[1]);
+            if x <= x1 {
+                let k = ((x - x0) / (x1 - x0).max(1.0)).clamp(0.0, 1.0);
+                // плавный переход, без резких изломов на опорах
+                return c0.lerp(&c1, k * k * (3.0 - 2.0 * k));
             }
         }
-        // овуляция — точка, сегодня — вертикальная метка
-        let ox = x(ov) + (x(ov + 1) - x(ov)) / 2.0;
-        if ox <= w * e {
-            c.set_color(pal.fert_strong);
-            c.fill_circle(ox, bar_y + bh / 2.0, bh * 0.75);
+        stops[stops.len() - 1].1
+    };
+    let canvas = Canvas::new(move |c, t| {
+        let e = 1.0 - (1.0 - (t / 0.6).clamp(0.0, 1.0)).powi(3);
+        let bh = 12.0;
+        let cy = h / 2.0;
+        let r = bh / 2.0;
+        let x = |d: Day| (d - start) as f32 / len * w;
+        let end = (w * e).max(bh);
+        // тень-свечение под полосой
+        for i in 0..3 {
+            let k = (i + 1) as f32;
+            let mut sx = r;
+            while sx < end - r {
+                let col = grad(sx);
+                c.set_color(col.with_alpha(0.07));
+                c.fill_rect(sx, cy - r - k + 1.5, 4.0, bh + 2.0 * k);
+                sx += 4.0;
+            }
         }
-        let tx = (x(today) + (x(today + 1) - x(today)) / 2.0).clamp(2.0, w - 2.0);
-        c.set_color(pal.fg);
-        c.fill_rounded_rect(tx - 1.5, 2.0, 3.0, h - 4.0, 1.5);
+        c.set_color(grad(0.0));
+        c.fill_circle(r, cy, r);
+        c.set_color(grad(end - r));
+        c.fill_circle(end - r, cy, r);
+        let mut sx = r;
+        while sx < end - r {
+            let sw = (end - r - sx).min(1.0);
+            c.set_color(grad(sx + sw / 2.0));
+            c.fill_rect(sx, cy - r, sw + 0.4, bh);
+            sx += 1.0;
+        }
+        // блик сверху
+        c.set_color(Color::white().with_alpha(0.28));
+        c.fill_rounded_rect(r * 0.8, cy - r + 1.5, (end - r * 1.6).max(0.0), bh * 0.3, bh * 0.15);
+        // овуляция — точка в белом ободке
+        let ox = x(ov) + (x(ov + 1) - x(ov)) / 2.0;
+        if ox <= end {
+            c.set_color(Color::white());
+            c.fill_circle(ox, cy, r + 1.5);
+            c.set_color(pal.fert_strong);
+            c.fill_circle(ox, cy, r - 1.0);
+        }
+        // сегодня — кружок-бегунок
+        let tx = (x(today) + (x(today + 1) - x(today)) / 2.0).clamp(h / 2.0, w - h / 2.0);
+        c.set_color(Color::black().with_alpha(0.18));
+        c.fill_circle(tx, cy + 1.5, h / 2.0 - 1.0);
+        c.set_color(Color::white());
+        c.fill_circle(tx, cy, h / 2.0 - 2.0);
+        c.set_color(grad(tx));
+        c.fill_circle(tx, cy, h / 2.0 - 5.5);
     })
     .size(w, h)
     .animated_for(0.7)
