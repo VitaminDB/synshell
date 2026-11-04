@@ -277,10 +277,14 @@ fn titlebar() -> W {
             notes::library::Screen::Open(id) => tree.title_of(&id).unwrap_or_default(),
             notes::library::Screen::Library => ctx.project_title.get(),
             notes::library::Screen::Settings => syngui::tr!("notes.lib.settings"),
-            notes::library::Screen::Files => notes::files::Files::get().current_buf().map(|b| {
-                let _ = b.path.get();
-                b.name()
-            }).unwrap_or_default(),
+            notes::library::Screen::Files => {
+                let files = notes::files::Files::get();
+                let _ = files.current.get();
+                files.current_buf().map(|b| {
+                    let _ = b.path.get();
+                    b.name()
+                }).unwrap_or_default()
+            }
         };
         vec![Box::new(Text::new(t).max_lines(1).elide(Elide::End).class("tb-title"))]
     });

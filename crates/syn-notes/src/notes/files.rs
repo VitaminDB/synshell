@@ -1043,3 +1043,30 @@ mod tests {
         assert_eq!(line_col(t, "аб\nвг".len()), (1, 2));
     }
 }
+
+#[cfg(all(test, feature = "testing"))]
+mod harness_tests {
+    use super::*;
+    use syngui::core::Point;
+    use syngui::testing::{click_at, type_text, TestHarness};
+
+    /// Ввод в конце строки не трогает завершающий перевод строки файла,
+    /// и правка помечает файл изменённым.
+    #[test]
+    fn typing_keeps_trailing_newline() {
+        Files::install();
+        let files = Files::get();
+        let buf = Arc::new(FileBuf::new(1, None, "one\ntwo\n".into(), Format::default(), false));
+        files.list.update(|l| l.push(buf.clone()));
+        files.current.set(Some(1));
+        let mut h = TestHarness::new(editor(files, buf.clone()));
+        h.layout(600.0, 300.0);
+        let lh = (13.0f32 * 1.5).round();
+        h.send_events(&click_at(Point::new(500.0, lh * 1.5)));
+        h.send_events(&type_text(" ёж"));
+        assert_eq!(buf.text(), "one\ntwo ёж\n");
+        assert!(buf.dirty.get_untracked());
+        let (bytes, _) = encode(&buf.text(), Format { crlf: true, ..Format::default() });
+        assert_eq!(bytes, "one\r\ntwo ёж\r\n".as_bytes());
+    }
+}
