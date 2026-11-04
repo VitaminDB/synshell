@@ -134,8 +134,8 @@ pub fn theme(cfg: &Config, dark: bool, decor: decor::Decor) -> String {
         ("teal", "#00c2a8", "#1fe0c6"),
         ("teal-soft", "#00c2a830", "#1fe0c638"),
         ("gold", "#ffae00", "#ffc21a"),
-        ("fert", "#ffe27a", "#5c4300"),
-        ("ovul", "#ffd23f", "#a57800"),
+        ("fert", "#ffe27a", "#9a6a00"),
+        ("ovul", "#ffd23f", "#e6a400"),
         ("ovul-line", "#f59b00", "#ffd23f"),
         ("fert-text", "#8a5200", "#ffd866"),
         ("ink", "#2f5bff", "#7f9cff"),
@@ -153,6 +153,15 @@ pub fn theme(cfg: &Config, dark: bool, decor: decor::Decor) -> String {
         ("nav", "#fffffff5", "#1a171bf5"),
         ("danger", "#ff3b47", "#ff5c63"),
         ("today", "#00c2a8", "#1fe0c6"),
+        // объём: глянец, фаска, тиснение текста
+        ("gl-top", "#ffffffc0", "#ffffff3d"),
+        ("gl-mid", "#ffffff52", "#ffffff14"),
+        ("gl-low", "#00000033", "#00000066"),
+        ("sf-top", "#ffffffe6", "#ffffff14"),
+        ("sf-low", "#00000014", "#00000052"),
+        ("bevel-hi", "#ffffffd9", "#ffffff33"),
+        ("bevel-lo", "#0000002e", "#00000080"),
+        ("emboss", "#ffffffd9", "#000000b3"),
     ];
 
     let mut s = String::from(":root {\n");

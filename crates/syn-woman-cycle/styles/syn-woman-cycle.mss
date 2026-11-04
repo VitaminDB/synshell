@@ -317,3 +317,54 @@ Slider { height: 6px; background: var(--pressed); color: var(--plum); accent-col
 .btn.love-add { padding: 10px; background: linear-gradient(135deg, var(--rose), var(--plum)); icon-color: #ffffff; icon-size: 22px; box-shadow: 0 6px 16px var(--shadow-strong); }
 .tile-badge.fert { background-color: var(--fert); }
 .tile-badge.fert .tile-ic { icon-color: var(--fert-text); }
+
+/* ── Объём (стиль 2000-х): глянец сверху, тень снизу, фаска, тиснение ── */
+
+/* цветные заливки — стеклянная «капля»: блик до середины, затенённый низ */
+.cell.period, .cell.predicted, .cell.fertile, .cell.ovul, .cell.today,
+.btn.primary, .btn.love-add, .btn.danger-solid, .btn.pick.rose.on, .btn.pick.plum.on, .btn.pick.gold.on, .btn.chip, .btn.soft,
+.tile-badge, .mi-badge, .set-badge, .hero-badge, .brand, .intro-hero, .ph-pill, .nav-pill.on, .side-item.on,
+.legend-dot, .ph-dot, .step-dot.on, .status, .seg.on, .tip-badge {
+  background-image: linear-gradient(180deg, var(--gl-top) 0%, var(--gl-mid) 46%, #ffffff00 54%, #00000000 74%, var(--gl-low) 100%);
+}
+.cell.period, .cell.predicted, .cell.fertile, .cell.ovul, .cell.today {
+  box-shadow: 0px 2px 4px var(--shadow-strong), inset 0px -3px 5px var(--bevel-lo), inset 0px 2px 2px var(--bevel-hi);
+}
+.cell.shape { background-image: none; box-shadow: 0px 0px 0px #00000000; }
+.cell.sel { box-shadow: 0px 4px 10px var(--shadow-strong), inset 0px -3px 5px var(--bevel-lo), inset 0px 2px 2px var(--bevel-hi); }
+
+.tile-badge, .mi-badge, .set-badge, .tip-badge, .ph-pill, .nav-pill.on, .side-item.on, .status, .seg.on, .btn.chip, .btn.soft, .btn.pick.rose.on, .btn.pick.plum.on, .btn.pick.gold.on {
+  box-shadow: 0px 2px 4px var(--shadow), inset 0px -2px 3px var(--bevel-lo), inset 0px 1px 1px var(--bevel-hi);
+}
+.tile-badge.rose-o { background-image: none; box-shadow: 0px 0px 0px #00000000; }
+.legend-dot, .ph-dot { box-shadow: 0px 1px 2px var(--shadow-strong), inset 0px -1px 2px var(--bevel-lo); }
+.legend-dot.love { background-image: none; box-shadow: 0px 0px 0px #00000000; }
+.step-dot.on { box-shadow: 0px 1px 3px var(--shadow-strong); }
+.brand { box-shadow: 0px 3px 8px var(--shadow-strong), inset 0px -2px 3px var(--bevel-lo), inset 0px 1px 1px var(--bevel-hi); }
+.intro-hero { box-shadow: 0px 18px 40px var(--shadow-strong), inset 0px -10px 18px var(--bevel-lo), inset 0px 4px 6px var(--bevel-hi); }
+.hero-badge { box-shadow: 0px 6px 14px var(--shadow), inset 0px -4px 8px var(--bevel-lo), inset 0px 2px 3px var(--bevel-hi); }
+
+/* кнопки — выпуклые */
+.btn { background-image: linear-gradient(180deg, var(--sf-top) 0%, #ffffff00 52%, #00000000 70%, var(--sf-low) 100%); box-shadow: 0px 2px 5px var(--shadow), inset 0px 1px 1px var(--bevel-hi), inset 0px -2px 3px var(--bevel-lo); }
+.btn.primary, .btn.love-add, .btn.danger-solid { background-image: linear-gradient(180deg, var(--gl-top) 0%, var(--gl-mid) 46%, #ffffff00 54%, #00000000 74%, var(--gl-low) 100%); box-shadow: 0px 6px 14px var(--shadow-strong), inset 0px -3px 5px var(--bevel-lo), inset 0px 2px 2px var(--bevel-hi); }
+.btn.flat, .btn.ghost, .btn.tb-btn, .btn.nav-btn, .btn.danger-ic { background-image: none; box-shadow: 0px 0px 0px #00000000; }
+.btn.pick { box-shadow: 0px 1px 3px var(--shadow), inset 0px 1px 1px var(--bevel-hi), inset 0px -2px 3px var(--bevel-lo); }
+
+/* карточки — мягкая выпуклость */
+.tile, .row-card, .stat, .group, .cycle-row, .empty, .decor-card, .love-row, .period-row, .tip {
+  background-image: linear-gradient(180deg, var(--sf-top) 0%, #ffffff00 40%, #00000000 75%, var(--sf-low) 100%);
+  box-shadow: 0px 5px 14px var(--shadow), inset 0px 1px 1px var(--bevel-hi), inset 0px -3px 6px var(--bevel-lo);
+}
+.hero { background-image: linear-gradient(180deg, var(--sf-top) 0%, #ffffff00 40%, #00000000 75%, var(--sf-low) 100%); box-shadow: 0px 14px 36px var(--shadow-strong), inset 0px 2px 2px var(--bevel-hi), inset 0px -6px 12px var(--bevel-lo); }
+.day-menu, .dialog { background-image: linear-gradient(180deg, var(--sf-top) 0%, #ffffff00 30%); }
+
+/* углублённые дорожки */
+.segs { box-shadow: inset 0px 2px 4px var(--bevel-lo), inset 0px -1px 1px var(--bevel-hi); }
+
+/* панели — как стеклянные тулбары */
+.bottom-nav { background-image: linear-gradient(180deg, var(--sf-top) 0%, #ffffff00 55%, #00000000 80%, var(--sf-low) 100%); box-shadow: 0px -3px 12px var(--shadow); }
+.titlebar { background-image: linear-gradient(180deg, var(--sf-top) 0%, #ffffff00 60%, var(--sf-low) 100%); }
+
+/* тиснёный текст */
+.h1, .h2, .hd-title, .month-title, .ring-big, .stat-value, .sheet-title, .intro-title, .brand-title { text-shadow: 0px 1px 0px var(--emboss); }
+.cell-num.strong, .cell-num.today, .cell-num.on-mark-light { text-shadow: 0px 1px 1px #00000066; }

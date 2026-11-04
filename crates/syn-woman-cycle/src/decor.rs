@@ -310,13 +310,68 @@ pub fn drop_points(cx: f32, cy: f32, h: f32) -> Vec<(f32, f32)> {
 }
 
 pub fn paint_drop(c: &mut CanvasContext, cx: f32, cy: f32, h: f32, fill: Color, gloss: bool) {
-    c.set_color(fill);
-    c.fill_polygon_concave(&drop_points(cx, cy, h));
-    if gloss {
-        // блик на округлой части
-        c.set_color(Color::white().with_alpha(0.38));
-        c.fill_polygon(&ellipse(cx - h * 0.19, cy + h * 0.12, h * 0.075, h * 0.13, -0.4, 14));
+    if !gloss {
+        // прогноз — плоская бледная капля с лёгкой тенью снизу
+        c.set_color(fill.lerp(&Color::black(), 0.12));
+        c.fill_polygon_concave(&drop_points(cx, cy + 0.8, h));
+        c.set_color(fill);
+        c.fill_polygon_concave(&drop_points(cx, cy, h));
+        return;
     }
+    // тень под каплей
+    c.set_color(Color::black().with_alpha(0.22));
+    c.fill_polygon_concave(&drop_points(cx, cy + h * 0.05, h * 0.98));
+    // объём: слои от тёмного края к светлой середине (сдвиг к блику)
+    let dark = fill.lerp(&Color::black(), 0.32);
+    let n = 6;
+    for i in 0..n {
+        let k = i as f32 / (n - 1) as f32;
+        let hh = h * (1.0 - 0.34 * k);
+        let col = dark.lerp(&fill, (k * 1.6).min(1.0)).lerp(&Color::white(), (k - 0.6).max(0.0) * 0.45);
+        c.set_color(col);
+        c.fill_polygon_concave(&drop_points(cx - h * 0.05 * k, cy + h * 0.06 * k, hh));
+    }
+    // блики: большой мягкий и маленький яркий
+    c.set_color(Color::white().with_alpha(0.45));
+    c.fill_polygon(&ellipse(cx - h * 0.17, cy + h * 0.1, h * 0.08, h * 0.15, -0.4, 16));
+    c.set_color(Color::white().with_alpha(0.9));
+    c.fill_circle(cx - h * 0.2, cy + h * 0.02, h * 0.035);
+}
+
+/// Глянцевая «таблетка» в стиле 2000-х: тень, тёмный низ, блик сверху.
+pub fn paint_pill(c: &mut CanvasContext, x: f32, y: f32, w: f32, h: f32, fill: Color) {
+    if w <= 0.5 {
+        return;
+    }
+    let r = (h / 2.0).min(w / 2.0);
+    c.set_color(Color::black().with_alpha(0.18));
+    c.fill_rounded_rect(x, y + 1.5, w, h, r);
+    c.set_color(fill.lerp(&Color::black(), 0.25));
+    c.fill_rounded_rect(x, y, w, h, r);
+    c.set_color(fill);
+    c.fill_rounded_rect(x, y, w, h - h * 0.14, r);
+    c.set_color(fill.lerp(&Color::white(), 0.18));
+    c.fill_rounded_rect(x + 0.5, y + 0.5, w - 1.0, h * 0.55, r);
+    if w > h * 0.9 {
+        c.set_color(Color::white().with_alpha(0.55));
+        let gw = (w - r * 1.2).max(0.0);
+        c.fill_rounded_rect(x + r * 0.6, y + h * 0.1, gw, h * 0.32, h * 0.16);
+    }
+}
+
+/// Глянцевый шарик.
+pub fn paint_orb(c: &mut CanvasContext, cx: f32, cy: f32, r: f32, fill: Color) {
+    c.set_color(Color::black().with_alpha(0.22));
+    c.fill_circle(cx, cy + r * 0.18, r);
+    let dark = fill.lerp(&Color::black(), 0.3);
+    let n = 5;
+    for i in 0..n {
+        let k = i as f32 / (n - 1) as f32;
+        c.set_color(dark.lerp(&fill, (k * 1.5).min(1.0)).lerp(&Color::white(), (k - 0.7).max(0.0) * 0.5));
+        c.fill_circle(cx - r * 0.12 * k, cy - r * 0.12 * k, r * (1.0 - 0.45 * k));
+    }
+    c.set_color(Color::white().with_alpha(0.7));
+    c.fill_polygon(&ellipse(cx, cy - r * 0.5, r * 0.55, r * 0.3, 0.0, 16));
 }
 
 /// Сердечко: середина (cx, cy), ширина `w`.
@@ -338,8 +393,15 @@ pub fn paint_heart(c: &mut CanvasContext, cx: f32, cy: f32, w: f32, fill: Color,
         c.set_color(o);
         c.fill_polygon_concave(&heart_points(cx, cy, w + 3.0));
     }
-    c.set_color(fill);
-    c.fill_polygon_concave(&heart_points(cx, cy, w));
+    let dark = fill.lerp(&Color::black(), 0.3);
+    let n = 5;
+    for i in 0..n {
+        let k = i as f32 / (n - 1) as f32;
+        c.set_color(dark.lerp(&fill, (k * 1.6).min(1.0)).lerp(&Color::white(), (k - 0.7).max(0.0) * 0.45));
+        c.fill_polygon_concave(&heart_points(cx - w * 0.03 * k, cy - w * 0.04 * k, w * (1.0 - 0.3 * k)));
+    }
+    c.set_color(Color::white().with_alpha(0.6));
+    c.fill_polygon(&ellipse(cx - w * 0.22, cy - w * 0.2, w * 0.12, w * 0.07, -0.6, 14));
 }
 
 fn ellipse(cx: f32, cy: f32, rx: f32, ry: f32, rot: f32, n: usize) -> Vec<(f32, f32)> {

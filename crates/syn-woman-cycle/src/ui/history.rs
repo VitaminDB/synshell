@@ -25,7 +25,7 @@ fn bar(st: St, fc: &Forecast, c: Cycle, i: usize, max_len: i32, w: f32) -> W {
     let elapsed = c.len.map(|_| len).unwrap_or((fc.today - c.start + 1) as f32);
     let period = c.period as f32;
     let full = w * (len / max_len as f32).min(1.0);
-    let h = 12.0;
+    let h = 16.0;
     let delay = i as f32 * 0.06;
     let canvas = Canvas::new(move |cv, t| {
         let e = 1.0 - (1.0 - ((t - delay) / 0.7).clamp(0.0, 1.0)).powi(3);
@@ -34,8 +34,7 @@ fn bar(st: St, fc: &Forecast, c: Cycle, i: usize, max_len: i32, w: f32) -> W {
         let seg = |cv: &mut CanvasContext, a: f32, b: f32, col: Color| {
             let (x0, x1) = (px(a), px(b).min(lim));
             if x1 > x0 {
-                cv.set_color(col);
-                cv.fill_rounded_rect(x0, 0.0, x1 - x0, h, h / 2.0);
+                crate::decor::paint_pill(cv, x0, 0.0, x1 - x0, h - 2.0, col);
             }
         };
         seg(cv, 0.0, len, p.track);
@@ -45,8 +44,7 @@ fn bar(st: St, fc: &Forecast, c: Cycle, i: usize, max_len: i32, w: f32) -> W {
         seg(cv, (ov - 5.0).max(period), ov + 2.0, p.fert);
         seg(cv, 0.0, period, p.rose);
         if px(ov + 0.5) <= lim {
-            cv.set_color(p.fert_strong);
-            cv.fill_circle(px(ov + 0.5), h / 2.0, h / 2.0 + 1.0);
+            crate::decor::paint_orb(cv, px(ov + 0.5), (h - 2.0) / 2.0, h / 2.0, p.fert_strong);
         }
     })
     .size(w, h)
