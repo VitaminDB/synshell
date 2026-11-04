@@ -35,8 +35,18 @@ fn first_ask(path: &Path) -> bool {
     g.get_or_insert_with(HashSet::new).insert(path.to_path_buf())
 }
 
-/// Модели synaptixd на видеокарте.
+/// Своя видеокарта NVIDIA есть: только тогда модели CUDA делят видеопамять с декодером. Без неё
+/// (телефон) synaptixd показывает модели других машин федерации — выгружать их бесполезно, а программный
+/// декодер там значит лишь, что кодек (AV1 и т. п.) аппаратно не поддержан.
+fn local_nvidia() -> bool {
+    Path::new("/proc/driver/nvidia").exists() || Path::new("/dev/nvidia0").exists()
+}
+
+/// Модели synaptixd на видеокарте этой машины.
 fn cuda_models() -> std::result::Result<Vec<ModelEntry>, String> {
+    if !local_nvidia() {
+        return Ok(Vec::new());
+    }
     let mut c = synaptixd::Client::connect().map_err(|e| e.to_string())?;
     let list = c.list().map_err(|e| e.to_string())?;
     Ok(list
@@ -57,6 +67,9 @@ pub fn on_fallback(st: St, path: &Path, reason: String) {
             return;
         }
     };
+    if models.is_empty() {
+        return;
+    }
     // Процесс держит больше, чем веса моделей (KV, пулы CUDA) — по драйверу, если он скажет.
     let bytes = process_vram("synaptixd").unwrap_or_else(|| models.iter().map(|m| m.vram_bytes).sum());
     tracing::info!("аппаратный декодер не пошёл ({reason}); synaptixd держит на видеокарте {} МБ", bytes >> 20);

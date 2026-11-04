@@ -196,8 +196,16 @@ fn dlss_chip(s: &crate::dlss::Status) -> Option<W> {
 }
 
 fn resolution_label(w: u32, h: u32) -> String {
-    let short = w.min(h);
-    match short {
+    // Класс — по короткой стороне или по длинной (кино 2.39:1: 3840×1604 — это 4K, не 1440p).
+    let (short, long) = (w.min(h), w.max(h));
+    let by_long = match long {
+        3800.. => 2160,
+        2500..=3799 => 1440,
+        1900..=2499 => 1080,
+        1260..=1899 => 720,
+        _ => 0,
+    };
+    match short.max(by_long) {
         2160.. => "4K".into(),
         1440..=2159 => "1440p".into(),
         1080..=1439 => "1080p".into(),
