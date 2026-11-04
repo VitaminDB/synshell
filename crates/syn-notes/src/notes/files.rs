@@ -182,10 +182,11 @@ impl FileBuf {
         }
     }
 
-    /// Текущий текст (из оформленного вида — его Markdown).
+    /// Текущий текст (из оформленного вида — его Markdown: нетронутые
+    /// блоки — дословно как в файле, изменённые — в стиле документа).
     pub fn text(&self) -> String {
         if self.visual.get_untracked() {
-            self.handle.serialize()
+            self.handle.serialize_preserving()
         } else {
             self.text.lock().unwrap().clone()
         }
@@ -217,9 +218,9 @@ impl FileBuf {
             *self.visual_base.lock().unwrap() = self.handle.serialize();
             *self.visual_carry.lock().unwrap() = self.dirty.get_untracked();
         } else {
-            let md = self.handle.serialize();
-            let changed = *self.visual_base.lock().unwrap() != md;
+            let changed = *self.visual_base.lock().unwrap() != self.handle.serialize();
             if changed {
+                let md = self.handle.serialize_preserving();
                 self.set_source(&md);
                 self.cmd.set(Some(EditorCommand::Reload(md)));
             }
@@ -232,7 +233,10 @@ impl FileBuf {
         *self.saved.lock().unwrap() = text.to_string();
         *self.text.lock().unwrap() = text.to_string();
         if self.visual.get_untracked() {
-            *self.visual_base.lock().unwrap() = text.to_string();
+            // Сохранённое — новый исходник: следующая запись дословно
+            // держит и блоки, правленные до этого сохранения.
+            self.handle.rebase_source(text);
+            *self.visual_base.lock().unwrap() = self.handle.serialize();
             *self.visual_carry.lock().unwrap() = false;
         }
         self.dirty.set(false);
@@ -1029,6 +1033,18 @@ mod tests {
         let (t, f) = decode(&src).unwrap();
         assert_eq!(t, "hello");
         assert_eq!(encode(&t, f).0, src);
+    }
+
+    #[test]
+    fn markdown_visual_keeps_source_markup() {
+        let src = "Title\n=====\n\nЭто _курсив_ и __жирный__.\n\n* раз\n* два\n";
+        let buf = FileBuf::new(1, None, src.into(), Format::default(), true);
+        buf.set_visual(true);
+        assert_eq!(buf.text(), src);
+        assert!(!buf.dirty.get_untracked());
+        // Туда и обратно в исходник — без изменений.
+        buf.set_visual(false);
+        assert_eq!(buf.text(), src);
     }
 
     #[test]
