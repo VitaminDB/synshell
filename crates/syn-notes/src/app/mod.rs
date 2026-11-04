@@ -26,6 +26,7 @@ pub mod desk;
 mod rail_view;
 pub mod server;
 mod shot;
+mod takeover;
 pub mod theme;
 
 pub const APP_ID: &str = "syn-notes";
@@ -109,16 +110,19 @@ pub fn run() {
         return;
     }
 
-    // Хозяин уже работает — передать ему команду и выйти.
-    if args.screenshot.is_none() {
+    // Хозяин уже работает — передать ему команду и выйти. Завис — завершить
+    // его и стать хозяином; прежние копии без сокета — тоже завершить.
+    let start_guard = takeover::start_lock();
+    {
         let cmd = args.command.clone().unwrap_or(if args.background {
             server::Command::Ping
         } else {
             server::Command::Show
         });
-        if server::send(&cmd).is_ok() {
+        if let takeover::Forward::Done = takeover::forward(&server::request_json(&cmd)) {
             return;
         }
+        takeover::terminate(&takeover::strays());
     }
 
     synshell_common::i18n::init(&crate::i18n::CATALOGS);
@@ -147,6 +151,8 @@ pub fn run() {
         server::handle(cmd);
     }
     server::start();
+    drop(start_guard);
+    takeover::install_term_handler();
     watch_shell_config(theme);
     // Настройки приложения (чёрный текст и т. п.) — тут же в теме.
     create_effect(move || {

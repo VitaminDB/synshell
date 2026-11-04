@@ -40,13 +40,17 @@ pub enum Command {
 
 /// Передать команду работающему хозяину. Ошибка — хозяина нет.
 pub fn send(cmd: &Command) -> std::io::Result<()> {
-    let req = match cmd {
+    syn_notes_proto::request(&request_json(cmd), Duration::from_secs(5)).map(|_| ())
+}
+
+/// Строка запроса сокета для команды запуска.
+pub fn request_json(cmd: &Command) -> Value {
+    match cmd {
         Command::Ping => json!({"cmd": "ping"}),
         Command::Show => json!({"cmd": "show"}),
         Command::Open(t) => json!({"cmd": "open", "target": t}),
         Command::OpenFiles(v) => json!({"cmd": "open_files", "paths": v}),
-    };
-    syn_notes_proto::request(&req, Duration::from_secs(5)).map(|_| ())
+    }
 }
 
 /// Команда запуска (на главном потоке, до цикла событий или из сокета).
