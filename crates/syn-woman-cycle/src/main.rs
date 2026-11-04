@@ -1,7 +1,7 @@
 //! syn-woman-cycle — «Цикл» synshell: календарь месячных, овуляции и фертильного окна.
 //! Отметки по дням, прогноз по истории циклов, самочувствие. Данные — только на устройстве.
 //!
-//!   syn-woman-cycle [--screenshot out.png [--size 420x900] [--scale 2] [--page calendar|menu|history|settings|intro|cycle|day] [--dark]]
+//!   syn-woman-cycle [--screenshot out.png [--size 420x900] [--scale 2] [--page calendar|menu|history|settings|intro|cycle|day|phase[-period|-folli|-fert|-lute]] [--dark]]
 
 mod date;
 mod decor;
@@ -34,33 +34,34 @@ pub struct Pal {
 }
 
 pub fn pal(dark: bool) -> Pal {
+    let c = Color::from_hex;
     if dark {
         Pal {
-            rose: Color::from_hex("#ff4d86"),
-            plum: Color::from_hex("#a77bff"),
-            teal: Color::from_hex("#1fe0c6"),
-            track: Color::from_hex("#2c272d"),
-            fg: Color::from_hex("#f3eef1"),
-            surface: Color::from_hex("#1c191d"),
-            ink: Color::from_hex("#7f9cff"),
-            folli: Color::from_hex("#4d9dff"),
-            fert: Color::from_hex("#ffc21a"),
-            fert_strong: Color::from_hex("#ffb000"),
-            lute: Color::from_hex("#8f66ff"),
+            rose: c("#ff4767"),
+            plum: c("#a07dff"),
+            teal: c("#14d1ba"),
+            track: c("#2a282e"),
+            fg: c("#f3f1f4"),
+            surface: c("#1a191d"),
+            ink: c("#ff5a96"),
+            folli: c("#4f8dff"),
+            fert: c("#ffa31a"),
+            fert_strong: c("#ffd27a"),
+            lute: c("#9a72ff"),
         }
     } else {
         Pal {
-            rose: Color::from_hex("#ff2d6f"),
-            plum: Color::from_hex("#8a4dff"),
-            teal: Color::from_hex("#00c2a8"),
-            track: Color::from_hex("#ece7ea"),
-            fg: Color::from_hex("#1e1a1d"),
-            surface: Color::from_hex("#ffffff"),
-            ink: Color::from_hex("#2f5bff"),
-            folli: Color::from_hex("#4d9dff"),
-            fert: Color::from_hex("#ffcf33"),
-            fert_strong: Color::from_hex("#ff9500"),
-            lute: Color::from_hex("#a978ff"),
+            rose: c("#e8294f"),
+            plum: c("#7442f0"),
+            teal: c("#00a896"),
+            track: c("#ebe7e2"),
+            fg: c("#18171c"),
+            surface: c("#ffffff"),
+            ink: c("#f0357a"),
+            folli: c("#2f6ff5"),
+            fert: c("#ff9f0a"),
+            fert_strong: c("#b36f00"),
+            lute: c("#7442f0"),
         }
     }
 }
@@ -95,7 +96,7 @@ pub fn pal_st(st: state::St) -> Pal {
 
 /// Цвет фона окна (для рисунков, которые «вырезают» фоном).
 pub fn bg_color(dark: bool, d: decor::Decor) -> Color {
-    let base = if dark { "#121013" } else { "#fbfafa" };
+    let base = if dark { "#0f0e11" } else { "#f6f4f1" };
     Color::from_hex(d.vars(dark).iter().find(|(k, _)| *k == "bg").map(|(_, v)| *v).unwrap_or(base))
 }
 
@@ -115,53 +116,51 @@ pub fn is_dark(cfg: &Config, s: &model::Settings) -> bool {
 pub fn theme(cfg: &Config, dark: bool, decor: decor::Decor) -> String {
     let vars: &[(&str, &str, &str)] = &[
         // имя, светлая, тёмная
-        ("bg", "#fbfafa", "#121013"),
-        ("bg-2", "#fbfafa", "#121013"),
-        ("surface", "#ffffff", "#1c191d"),
-        ("surface-alt", "#f4f1f3", "#252126"),
-        ("fg", "#1e1a1d", "#f3eef1"),
-        ("muted", "#857c83", "#9c939a"),
-        ("faint", "#c4bcc1", "#5a5259"),
-        ("border", "#ece7ea", "#2c272d"),
-        ("hover", "#1e1a1d0d", "#ffffff10"),
-        ("pressed", "#1e1a1d1a", "#ffffff1c"),
-        ("rose", "#ff2d6f", "#ff4d86"),
-        ("rose-2", "#ff5c91", "#ff6f9e"),
-        ("rose-soft", "#ffc2d6", "#6a1838"),
-        ("rose-line", "#ff2d6f99", "#ff4d86aa"),
-        ("plum", "#8a4dff", "#a77bff"),
-        ("plum-soft", "#8a4dff26", "#a77bff33"),
-        ("teal", "#00c2a8", "#1fe0c6"),
-        ("teal-soft", "#00c2a830", "#1fe0c638"),
-        ("gold", "#ffae00", "#ffc21a"),
-        ("fert", "#ffe27a", "#9a6a00"),
-        ("ovul", "#ffd23f", "#e6a400"),
-        ("ovul-line", "#f59b00", "#ffd23f"),
-        ("fert-text", "#8a5200", "#ffd866"),
-        ("ink", "#2f5bff", "#7f9cff"),
-        ("folli", "#4d9dff", "#4d9dff"),
-        ("folli-soft", "#d3e6ff", "#16335e"),
-        ("lute-soft", "#e8dcff", "#3a2670"),
-        ("lute", "#a978ff", "#8f66ff"),
+        ("bg", "#f6f4f1", "#0f0e11"),
+        ("bg-2", "#f6f4f1", "#0f0e11"),
+        ("surface", "#ffffff", "#1a191d"),
+        ("surface-alt", "#f1eeea", "#232127"),
+        ("fg", "#18171c", "#f3f1f4"),
+        ("muted", "#6f6a73", "#9d98a3"),
+        ("faint", "#b5b0b6", "#5c5862"),
+        ("border", "#e9e5e0", "#2a282e"),
+        ("hover", "#18171c0a", "#ffffff0d"),
+        ("pressed", "#18171c14", "#ffffff17"),
+        // фазы: менструация — гранатовый, фолликулярная — синий, овуляция — янтарь, лютеиновая — фиолетовый
+        ("rose", "#e8294f", "#ff4767"),
+        ("rose-2", "#cc1f42", "#ff6680"),
+        ("rose-soft", "#ffcad5", "#5c1626"),
+        ("rose-line", "#e8294f", "#ff4767"),
+        ("plum", "#7442f0", "#a07dff"),
+        ("plum-soft", "#7442f022", "#a07dff2e"),
+        ("teal", "#00a896", "#14d1ba"),
+        ("teal-soft", "#00a89626", "#14d1ba30"),
+        ("gold", "#ff9f0a", "#ffb020"),
+        ("fert", "#ffd84d", "#d9a514"),
+        ("fert-soft", "#fef6e4", "#2a210f"),
+        ("ovul", "#ff9f0a", "#ffa31a"),
+        ("ovul-line", "#b35f00", "#ffd27a"),
+        ("fert-text", "#5c3a00", "#2a1c00"),
+        ("ink", "#f0357a", "#ff5a96"),
+        ("love", "#f0357a", "#ff5a96"),
+        ("folli", "#2f6ff5", "#4f8dff"),
+        ("folli-soft", "#cfe0ff", "#16316b"),
+        ("lute-soft", "#ddd0ff", "#2e1f6b"),
+        ("lute", "#7442f0", "#9a72ff"),
+        ("late", "#b0174a", "#ff6b8e"),
+        ("late-soft", "#ffd0dc", "#4a1626"),
         ("on-accent", "#ffffff", "#ffffff"),
-        ("shadow", "#1e1a1d14", "#00000066"),
-        ("shadow-strong", "#1e1a1d29", "#00000099"),
-        ("scrim", "#1e1a1d4d", "#000000a0"),
-        ("menu-bg", "#ffffff", "#211d22"),
-        ("titlebar", "#f6f3f5", "#171418"),
-        ("sidebar", "#f6f3f5", "#171418"),
-        ("nav", "#fffffff5", "#1a171bf5"),
-        ("danger", "#ff3b47", "#ff5c63"),
-        ("today", "#00c2a8", "#1fe0c6"),
-        // объём: глянец, фаска, тиснение текста
-        ("gl-top", "#ffffffc0", "#ffffff3d"),
-        ("gl-mid", "#ffffff52", "#ffffff14"),
-        ("gl-low", "#00000033", "#00000066"),
-        ("sf-top", "#ffffffe6", "#ffffff14"),
-        ("sf-low", "#00000014", "#00000052"),
-        ("bevel-hi", "#ffffffd9", "#ffffff33"),
-        ("bevel-lo", "#0000002e", "#00000080"),
-        ("emboss", "#ffffffd9", "#000000b3"),
+        ("primary", "#18171c", "#f3f1f4"),
+        ("on-primary", "#ffffff", "#18171c"),
+        ("shadow", "#2a1e140f", "#00000059"),
+        ("shadow-strong", "#2a1e1424", "#00000099"),
+        ("scrim", "#18171c66", "#000000a6"),
+        ("menu-bg", "#ffffff", "#1f1d23"),
+        ("titlebar", "#f6f4f1", "#0f0e11"),
+        ("sidebar", "#f1eeea", "#141317"),
+        ("nav", "#fffffff2", "#151418f2"),
+        ("danger", "#e5262f", "#ff5a5f"),
+        ("today", "#00a896", "#14d1ba"),
     ];
 
     let mut s = String::from(":root {\n");
@@ -226,11 +225,12 @@ fn main() {
     let mut page = String::from("calendar");
     let mut dark_shot = false;
     let mut decor_shot = decor::Decor::Classic;
+    let mut data_shot: Option<model::Data> = None;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "-h" | "--help" => {
-                println!("{}", t!("syn-woman-cycle [--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page calendar|menu|history|settings|intro|cycle|day] [--dark] [--decor classic|sakura|berry|lavender|daisy|night]]"));
+                println!("{}", t!("syn-woman-cycle [--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page calendar|menu|history|settings|intro|cycle|day|phase[-period|-folli|-fert|-lute]] [--dark] [--decor classic|sakura|berry|lavender|daisy|night] [--data data.json]]"));
                 return;
             }
             "--screenshot" => shot = args.next(),
@@ -242,6 +242,8 @@ fn main() {
             "--scale" => scale = args.next().and_then(|s| s.parse().ok()).unwrap_or(scale),
             "--page" => page = args.next().unwrap_or(page),
             "--dark" => dark_shot = true,
+            // снимок с настоящими отметками (data.json с устройства) вместо примера
+            "--data" => data_shot = args.next().and_then(|f| std::fs::read_to_string(f).ok()).and_then(|s| serde_json::from_str(&s).ok()),
             "--decor" => {
                 let name = args.next().unwrap_or_default();
                 decor_shot = decor::Decor::ALL.into_iter().find(|d| format!("{d:?}").eq_ignore_ascii_case(&name)).unwrap_or(decor_shot);
@@ -255,7 +257,7 @@ fn main() {
         let mss = theme(&cfg, dark_shot, decor_shot);
         let r = syngui::shot::render_png(
             || {
-                let mut data = if page == "intro" || page == "cycle" { model::Data::default() } else { demo() };
+                let mut data = if page == "intro" || page == "cycle" { model::Data::default() } else { data_shot.clone().unwrap_or_else(demo) };
                 data.settings.decor = decor_shot;
                 let st = state::St::new(data);
                 st.dark.set(dark_shot);
@@ -270,6 +272,16 @@ fn main() {
                     "day" => {
                         st.tab.set(state::Tab::Calendar);
                         st.open_day(date::today());
+                    }
+                    "phase" | "phase-period" | "phase-folli" | "phase-fert" | "phase-lute" => {
+                        use ui::PhaseKey;
+                        let k = match page.as_str() {
+                            "phase-period" => PhaseKey::Period,
+                            "phase-folli" => PhaseKey::Follicular,
+                            "phase-lute" => PhaseKey::Luteal,
+                            _ => PhaseKey::Fertile,
+                        };
+                        st.open_phase(k);
                     }
                     _ => {}
                 }

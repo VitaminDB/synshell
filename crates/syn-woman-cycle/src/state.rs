@@ -43,6 +43,9 @@ pub struct St {
     pub menu_rect: RwSignal<syngui::core::Rect>,
     /// Отметка близости, открытая для правки (время, защита).
     pub love_edit: RwSignal<Option<u64>>,
+    /// Карточка описания фазы: какая фаза и открыта ли.
+    pub phase_info: RwSignal<crate::ui::PhaseKey>,
+    pub phase_open: RwSignal<bool>,
     /// Шаг знакомства (0..3) и выбранная в нём дата.
     pub intro_step: RwSignal<u64>,
     pub intro_day: RwSignal<Option<Day>>,
@@ -76,6 +79,8 @@ impl St {
             menu_open: use_signal(false),
             menu_rect: use_signal(syngui::core::Rect::zero()),
             love_edit: use_signal(None),
+            phase_info: use_signal(crate::ui::PhaseKey::Period),
+            phase_open: use_signal(false),
             intro_step: use_signal(0),
             intro_day: use_signal(None),
             intro_month: use_signal(date::month_index(today)),
@@ -238,8 +243,16 @@ impl St {
         self.sheet_open.set(true);
     }
 
+    /// Описание фазы цикла.
+    pub fn open_phase(&self, k: crate::ui::PhaseKey) {
+        self.menu_open.set(false);
+        self.phase_info.set(k);
+        self.phase_open.set(true);
+    }
+
     pub fn go(&self, t: Tab) {
         self.sheet_open.set(false);
+        self.phase_open.set(false);
         self.tab.set(t);
     }
 
@@ -247,6 +260,10 @@ impl St {
     pub fn back(&self) -> bool {
         if self.menu_open.get_untracked() {
             self.menu_open.set(false);
+            return true;
+        }
+        if self.phase_open.get_untracked() {
+            self.phase_open.set(false);
             return true;
         }
         if self.confirm_reset.get_untracked() {

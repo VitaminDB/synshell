@@ -227,6 +227,10 @@ fn mean(v: &[i32]) -> Option<i32> {
     }
 }
 
+/// Отметка овуляции раньше 8-го дня цикла (на месячных) не бывает настоящей — скорее
+/// всего промах пальцем; прогноз её не учитывает, сама отметка остаётся.
+const EARLIEST_OVULATION: i32 = 7;
+
 impl Forecast {
     pub fn new(data: &Data, today: Day) -> Self {
         let s = &data.settings;
@@ -253,7 +257,7 @@ impl Forecast {
                 ongoing_end = Some((last.start + period - 1).max(end).max(today));
             }
             // отмеченная овуляция текущего цикла: следующие месячные — через лютеиновую фазу после неё
-            let mut p = match data.ovulations.range(last.start..).next_back() {
+            let mut p = match data.ovulations.range(last.start + EARLIEST_OVULATION..).next_back() {
                 Some(&ov) => ov + luteal,
                 None => last.start + cycle,
             };
@@ -310,7 +314,7 @@ impl Forecast {
     /// Овуляция цикла, в который входит день: отмеченная вручную или расчётная; `true` — отмечена.
     pub fn cycle_ovulation(&self, d: Day) -> Option<(Day, bool)> {
         let (start, next) = self.cycle_of(d)?;
-        Some(match self.ovulations.range(start..next).next_back() {
+        Some(match self.ovulations.range((start + EARLIEST_OVULATION).min(next)..next).next_back() {
             Some(&ov) => (ov, true),
             None => (self.ovulation(next), false),
         })
@@ -421,6 +425,26 @@ mod tests {
             }
         }
         d
+    }
+
+    /// Овуляция, отмеченная на месячных (день 2), не сдвигает прогноз и не даёт задержки;
+    /// случай с телефона: месячные 7 окт, цикл 27, отметка 8 окт, сегодня 4 ноя.
+    #[test]
+    fn ovulation_mark_during_period_is_ignored() {
+        let mut d = data(&[20733], 6);
+        d.settings.cycle_len = 27;
+        d.settings.auto = false;
+        d.ovulations.insert(20734);
+        let f = Forecast::new(&d, 20761);
+        assert_eq!(f.late, 2, "задержка считается от срока по длине цикла");
+        let (ov, marked) = f.cycle_ovulation(20761).unwrap();
+        assert!(!marked);
+        assert_eq!(ov, 20733 + 27 - 14);
+        // настоящая отметка (день 12) по-прежнему учитывается
+        d.ovulations.insert(20744);
+        let f = Forecast::new(&d, 20750);
+        assert_eq!(f.cycle_ovulation(20750), Some((20744, true)));
+        assert_eq!(f.next[0], 20744 + 14);
     }
 
     #[test]

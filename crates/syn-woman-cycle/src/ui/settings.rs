@@ -26,6 +26,19 @@ pub fn section(title: String, rows: Vec<W>) -> W {
     boxed(Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(Text::new(title).class("section")).child(DecoratedBox::new().class("group").child(col)))
 }
 
+/// Цвет значка строки настроек по смыслу.
+fn badge_tone(glyph: &str) -> &'static str {
+    match glyph {
+        g if g == icons::DROP => "rose",
+        g if g == icons::EVENT || g == icons::CALENDAR => "blue",
+        g if g == icons::EGG || g == icons::FLOWER => "amber",
+        g if g == icons::SPARK || g == icons::PALETTE || g == icons::DARK => "violet",
+        g if g == icons::HEART => "pink",
+        g if g == icons::ZOOM => "teal",
+        _ => "gray",
+    }
+}
+
 fn label(glyph: &str, title: String, hint: String) -> W {
     let mut texts = Column::new().gap(2.0).child(Text::new(title).max_lines(2).class("row-title"));
     if !hint.is_empty() {
@@ -34,7 +47,7 @@ fn label(glyph: &str, title: String, hint: String) -> W {
     boxed(
         DecoratedBox::new()
             .class("grow")
-            .child(Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class("set-badge").child(icon(glyph).class("ic set-ic"))).child(DecoratedBox::new().class("grow").child(texts))),
+            .child(Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class(&format!("set-badge {}", badge_tone(glyph))).child(icon(glyph).class("ic set-ic"))).child(DecoratedBox::new().class("grow").child(texts))),
     )
 }
 
@@ -127,14 +140,10 @@ fn decor_card(st: St, d: Decor, on: bool, w: f32, dark: bool) -> W {
     let h = 78.0;
     let dark = dark || d.always_dark();
     let bg = crate::bg_color(dark, d);
-    let art: W = match d.background(dark) {
-        // правый верхний угол рисунка — там у всех фонов главное (ветка, ягоды, месяц)
-        Some((key, bytes)) => boxed(Image::from_bytes(key, bytes.to_vec()).fit(ImageFit::Cover).crop_uv(0.45, 0.0, 0.55, 0.2)),
-        None => boxed(DecoratedBox::new().style("background-color", StyleValue::from(bg))),
-    };
+    let art: W = boxed(DecoratedBox::new().style("background-color", StyleValue::from(bg)));
     let ink = d.ink(dark);
-    let today = decor_color(d, dark, "today", if dark { "#35d0be" } else { "#22b8a7" });
-    let rose = decor_color(d, dark, "rose", if dark { "#f0577f" } else { "#e0466f" });
+    let today = decor_color(d, dark, "today", if dark { "#14d1ba" } else { "#00a896" });
+    let rose = decor_color(d, dark, "rose", if dark { "#ff4767" } else { "#e8294f" });
     let shapes = d.shapes();
     let sample = Canvas::new(move |c, _| {
         let y = h * 0.62;
@@ -144,9 +153,7 @@ fn decor_card(st: St, d: Decor, on: bool, w: f32, dark: bool) -> W {
         } else {
             c.set_color(rose);
             c.fill_circle(w * 0.26, y, 12.0);
-            c.set_color(Color::from_hex("#2f55b8"));
-            c.set_stroke_width(1.8);
-            c.stroke_circle(w * 0.76, y, 12.0);
+            decor::paint_heart(c, w * 0.76, y - 1.0, 20.0, ink.heart, None);
         }
         c.set_color(today);
         c.fill_circle(w * 0.51, y, 12.0);
@@ -173,28 +180,31 @@ fn decor_row(st: St, cur: Decor, width: f32) -> W {
     let dark = st.dark.get_untracked();
     let gap = 10.0;
     let per = if width > 520.0 { 4.0 } else { 3.0 };
-    let w = ((width - 32.0 - gap * (per - 1.0)) / per - 4.0).floor();
+    // место в строке: рамка группы (2) и поля строки (32); карточка = рисунок + 4 на рамку
+    let avail = width - 2.0 - 32.0;
+    let w = ((avail - gap * (per - 1.0)) / per).floor() - 4.0;
     let mut f = Flex::new().direction(FlexDirection::Row).wrap().gap(gap);
     for d in Decor::ALL {
         f = f.child(decor_card(st, d, d == cur, w, dark));
     }
-    let hint = if cur.always_dark() { t!("«Звёздная ночь» всегда тёмная") } else { t!("Фон, цвета, капли и сердечки в календаре") };
+    let hint = if cur.always_dark() { t!("«Звёздная ночь» всегда тёмная") } else { t!("Цвета, капли и сердечки в календаре") };
     boxed(DecoratedBox::new().class("set-row").child(Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(label(icons::FLOWER, t!("Оформление"), hint)).child(f)))
 }
 
-fn theme_row(st: St, cur: ThemeMode) -> W {
+fn theme_row(st: St, cur: ThemeMode, width: f32) -> W {
+    // три равные кнопки: рамка группы, поля строки, поля дорожки и промежутки
+    let seg_w = ((width - 2.0 - 32.0 - 6.0 - 6.0 * 2.0) / 3.0).floor();
     let mut row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
     for (m, g, l) in [(ThemeMode::System, icons::AUTO, t!("Как в системе")), (ThemeMode::Light, icons::LIGHT, t!("Светлая")), (ThemeMode::Dark, icons::DARK, t!("Тёмная"))] {
         let on = m == cur;
         row = row.child(
             GestureDetector::new()
-                .class("grow")
                 .on_click(move || {
                     st.set_settings(|s| s.theme = m);
                     crate::apply_theme(st);
                 })
-                .child(DecoratedBox::new().class(if on { "seg on" } else { "seg" }).child(
-                    Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(g).class(if on { "ic seg-ic on" } else { "ic seg-ic" })).child(Text::new(l).max_lines(1).class(if on { "seg-text on" } else { "seg-text" })),
+                .child(DecoratedBox::new().class(if on { "seg on" } else { "seg" }).style("width", StyleValue::px(seg_w)).child(
+                    Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(g).class(if on { "ic seg-ic on" } else { "ic seg-ic" })).child(Text::new(l).max_lines(1).class(if on { "seg-text on center" } else { "seg-text center" })),
                 )),
         );
     }
@@ -220,7 +230,7 @@ pub fn page(st: St, wide: bool) -> W {
                     toggle_row(st, icons::SPARK, t!("Считать по истории"), auto_hint, s.auto, |x, v| x.auto = v),
                     stepper(st, icons::EVENT, t!("Длина цикла"), t!("Обычно 21–35 дней"), s.cycle_len, 18, 45, t!("дн."), |x, v| x.cycle_len = v),
                     stepper(st, icons::DROP, t!("Длительность месячных"), t!("Обычно 3–7 дней"), s.period_len, 1, 10, t!("дн."), |x, v| x.period_len = v),
-                    stepper(st, icons::EGG, t!("Лютеиновая фаза"), t!("От овуляции до месячных, обычно 14"), s.luteal, 10, 16, t!("дн."), |x, v| x.luteal = v),
+                    stepper(st, icons::DARK, t!("Лютеиновая фаза"), t!("От овуляции до месячных, обычно 14"), s.luteal, 10, 16, t!("дн."), |x, v| x.luteal = v),
                 ],
             ),
         ));
@@ -231,7 +241,7 @@ pub fn page(st: St, wide: bool) -> W {
                 vec![
                     scale_row(st),
                     decor_row(st, s.decor, super::content_width(wide)),
-                    theme_row(st, s.theme),
+                    theme_row(st, s.theme, super::content_width(wide)),
                     toggle_row(st, icons::CALENDAR, t!("Неделя с понедельника"), String::new(), s.monday, |x, v| x.monday = v),
                     toggle_row(st, icons::FLOWER, t!("Показывать фертильное окно"), String::new(), s.show_fertile, |x, v| x.show_fertile = v),
                     toggle_row(st, icons::EGG, t!("Показывать овуляцию"), String::new(), s.show_ovulation, |x, v| x.show_ovulation = v),

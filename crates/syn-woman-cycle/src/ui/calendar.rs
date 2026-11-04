@@ -2,14 +2,13 @@
 //! Даты подсвечены целиком: месячные — заливкой, прогноз — бледной заливкой, фертильное окно и
 //! овуляция — жёлтым разной плотности, близость — обводкой «ручкой». Нажатие на дату — меню отметок.
 
-use std::f32::consts::TAU;
-
 use syngui::prelude::*;
 use syngui::widgets::{scroll_to_named, Named, SwipeDirection};
 use syngui::GestureDetector;
 use syngui::StyleValue;
 use syngui::{PopupAnchor, PopupPanel};
 
+use super::phase::{self, PhaseKey};
 use super::{boxed, icon, icon_button, W};
 use crate::date::{self, Day};
 use crate::decor::{self, Decor, Ink, OvulMark};
@@ -103,38 +102,9 @@ fn text_class(fc: &Forecast, d: Day, mode: Mode) -> &'static str {
     }
 }
 
-/// Обводка «ручкой»: чуть неровный овал с нахлёстом концов, у каждой даты свой.
-fn pen_ring(d: Day, size: f32, ink: Color) -> Canvas {
-    let seed = (d as u32).wrapping_mul(2_654_435_761) as f32 / u32::MAX as f32;
-    Canvas::new(move |c, _| {
-        let (cx, cy) = (size / 2.0, size / 2.0);
-        let tilt = (seed - 0.5) * 0.5;
-        let a0 = seed * TAU;
-        let n = 56;
-        let mut pts = Vec::with_capacity(n + 1);
-        for i in 0..=n {
-            let t = i as f32 / n as f32;
-            // чуть больше оборота, радиус слегка растёт — концы расходятся, как у росчерка
-            let a = a0 + t * TAU * 1.1;
-            let grow = 1.0 + 0.06 * t;
-            let rx = size * 0.45 * grow * (1.0 + 0.035 * (2.0 * a + seed * 9.0).sin());
-            let ry = size * 0.39 * grow * (1.0 + 0.04 * (3.0 * a + seed * 5.0).cos());
-            let (x, y) = (rx * a.cos(), ry * a.sin());
-            pts.push((cx + x * tilt.cos() - y * tilt.sin(), cy + x * tilt.sin() + y * tilt.cos()));
-        }
-        c.set_color(ink);
-        c.set_stroke_width(1.8);
-        c.set_line_cap(LineCap::Round);
-        c.set_line_join(LineJoin::Round);
-        c.stroke_path(&pts, false);
-    })
-    .size(size, size)
-}
-
 /// Недели месяца `idx` шириной `w` (без заголовка дней недели).
 pub fn weeks(st: St, fc: &Forecast, idx: i32, w: f32, mode: Mode) -> W {
     let monday = st.data.get_untracked().settings.monday;
-    let ink = crate::pal_st(st).ink;
     let decor = st.data.get_untracked().settings.decor;
     let dark = st.dark.get_untracked();
     let dink = decor.ink(dark);
@@ -181,7 +151,7 @@ pub fn weeks(st: St, fc: &Forecast, idx: i32, w: f32, mode: Mode) -> W {
             }
             face = face.child(DecoratedBox::new().style("width", StyleValue::px(h)).style("height", StyleValue::px(h)).child(num));
             if mode == Mode::Main && fc.show_intimacy && !fc.intimacy(d).is_empty() {
-                face = if decor.shapes() { face.child(heart_badge(h, dink.heart, bg)) } else { face.child(pen_ring(d, h, ink)) };
+                face = face.child(heart_badge(h, dink.heart, bg));
             }
             let disabled = mode == Mode::Pick && d > fc.today;
             let body = DecoratedBox::new()
@@ -259,123 +229,150 @@ pub fn swiper(month: RwSignal<i32>, version: impl Fn() -> u64 + Send + Sync + 's
 
 // ── Шапка: день и фаза, полоса фаз ────────────────────────────────────────
 
-/// Отрезки полосы фаз: (класс цвета, подпись, первый и последний день).
-fn phase_segments(p: &Phases) -> Vec<(&'static str, String, Day, Day)> {
-    let mut v = vec![("period", t!("Менструация"), p.start, p.period_end)];
-    if p.fertile.0 > p.period_end + 1 {
-        v.push(("folli", t!("Фолликулярная"), p.period_end + 1, p.fertile.0 - 1));
+fn phase_color(pal: &crate::Pal, k: PhaseKey) -> Color {
+    match k {
+        PhaseKey::Period => pal.rose,
+        PhaseKey::Follicular => pal.folli,
+        PhaseKey::Fertile => pal.fert,
+        PhaseKey::Luteal => pal.lute,
+        PhaseKey::Late => pal.track,
     }
-    v.push(("fert", t!("Овуляторная"), p.fertile.0.max(p.period_end + 1), p.fertile.1.min(p.next - 1)));
-    if p.next - 1 > p.fertile.1 {
-        v.push(("lute", t!("Лютеиновая"), p.fertile.1 + 1, p.next - 1));
-    }
-    v
 }
 
-/// Полоса текущего цикла: фазы цветом, сегодня — метка.
+/// Полоса текущего цикла: фазы цветными отрезками (прошедшие дни ярче), сегодня — кольцо,
+/// овуляция — точка. Нажатие на отрезок открывает описание фазы.
 fn phase_bar(st: St, p: Phases, today: Day, w: f32) -> W {
     let pal = crate::pal_st(st);
-    let segs: Vec<(Color, Day, Day)> = phase_segments(&p)
-        .into_iter()
-        .map(|(k, _, a, b)| {
-            let c = match k {
-                "period" => pal.rose,
-                "folli" => pal.folli,
-                "fert" => pal.fert,
-                _ => pal.lute,
-            };
-            (c, a, b)
-        })
-        .collect();
+    let segs: Vec<(Color, Day, Day)> = phase::segments(&p).into_iter().map(|(k, a, b)| (phase_color(&pal, k), a, b)).collect();
     let len = (p.next - p.start).max(1) as f32;
     let ov = p.ovulation;
     let start = p.start;
+    let surface = pal.surface;
     let h = 26.0;
     let canvas = Canvas::new(move |c, t| {
         let e = 1.0 - (1.0 - (t / 0.6).clamp(0.0, 1.0)).powi(3);
-        let bh = 14.0;
+        let bh = 12.0;
         let cy = h / 2.0;
         let x = |d: Day| (d - start) as f32 / len * w;
         let lim = w * e;
-        // каждая фаза — своя выпуклая глянцевая плашка
         for &(col, a, b) in &segs {
             let (x0, x1) = (x(a) + 1.5, (x(b + 1) - 1.5).min(lim));
-            if x1 > x0 {
-                decor::paint_pill(c, x0, cy - bh / 2.0, x1 - x0, bh, col);
+            if x1 <= x0 {
+                continue;
             }
+            c.set_color(col);
+            c.fill_rounded_rect(x0, cy - bh / 2.0, x1 - x0, bh, bh / 2.0);
         }
-        // овуляция — золотой шарик
         let ox = x(ov) + (x(ov + 1) - x(ov)) / 2.0;
         if ox <= lim {
-            decor::paint_orb(c, ox, cy, bh * 0.5, pal.fert_strong);
+            c.set_color(surface);
+            c.fill_circle(ox, cy, 4.0);
+            c.set_color(pal.fert_strong);
+            c.fill_circle(ox, cy, 2.4);
         }
-        // сегодня — шарик-бегунок в белом ободке
         let tx = (x(today) + (x(today + 1) - x(today)) / 2.0).clamp(h / 2.0, w - h / 2.0);
-        c.set_color(Color::black().with_alpha(0.2));
-        c.fill_circle(tx, cy + 2.0, h / 2.0 - 1.0);
-        c.set_color(Color::white());
-        c.fill_circle(tx, cy, h / 2.0 - 1.5);
-        decor::paint_orb(c, tx, cy, h / 2.0 - 4.5, pal.teal);
+        if tx <= lim + 1.0 {
+            c.set_color(pal.fg);
+            c.fill_circle(tx, cy, 11.0);
+            c.set_color(surface);
+            c.fill_circle(tx, cy, 7.5);
+            c.set_color(pal.fg);
+            c.fill_circle(tx, cy, 4.0);
+        }
     })
     .size(w, h)
     .animated_for(0.7)
     .replay((p.start as u64) << 20 ^ p.next as u64);
-    let mut legend = Flex::new().direction(FlexDirection::Row).wrap().gap(14.0);
-    for (k, label, a, b) in phase_segments(&p) {
+    let pc = p;
+    let bar = GestureDetector::new()
+        .on_click_with_bounds(move |pt, r| {
+            let f = ((pt.x - r.origin.x) / r.size.width.max(1.0)).clamp(0.0, 0.999);
+            let d = pc.start + (f * (pc.next - pc.start) as f32) as i32;
+            st.open_phase(phase::key_at(&pc, d));
+        })
+        .child(canvas);
+    // подписи под полосой: начало, сегодня, конец цикла
+    let ticks = Row::new()
+        .child(Text::new(date::short(p.start)).class("ph-tick"))
+        .child(DecoratedBox::new().class("grow"))
+        .child(Text::new(t!("до {d}", d = date::short(p.next - 1))).class("ph-tick"));
+    let cur = phase::key_at(&p, today);
+    let mut chips = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+    for (k, a, b) in phase::segments(&p) {
         let days = if a == b { format!("{}", a - p.start + 1) } else { format!("{}–{}", a - p.start + 1, b - p.start + 1) };
-        legend = legend.child(
-            Row::new()
-                .gap(6.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(DecoratedBox::new().class(&format!("ph-dot {k}")))
-                .child(Text::new(label).class("ph-label"))
-                .child(Text::new(days).class("ph-days")),
+        let on = k == cur;
+        chips = chips.child(
+            GestureDetector::new().class("grow").on_click(move || st.open_phase(k)).child(
+                DecoratedBox::new().class(&if on { format!("ph-chip on {}", k.tone()) } else { format!("ph-chip {}", k.tone()) }).child(
+                    Column::new()
+                        .gap(3.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Start)
+                        .child(Row::new().gap(5.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class(&format!("ph-dot {}", k.tone()))).child(Text::new(days).max_lines(1).class("ph-days")))
+                        .child(Text::new(k.tab()).max_lines(1).class(if on { "ph-label on" } else { "ph-label" })),
+                ),
+            ),
         );
     }
-    boxed(Column::new().gap(8.0).child(canvas).child(legend))
+    boxed(Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(bar).child(ticks)).child(chips))
+}
+
+/// Ближайшее событие: точка, подпись и когда.
+fn kv(dot: &str, label: String, value: String) -> W {
+    boxed(
+        Row::new()
+            .gap(6.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(DecoratedBox::new().class(&format!("ph-dot {dot}")))
+            .child(Text::new(label).max_lines(1).class("kv-label"))
+            .child(Text::new(value).max_lines(1).class("kv-value")),
+    )
 }
 
 fn header(st: St, wide: bool, w: f32) -> W {
     let fc = st.fc.get_untracked();
     let today = fc.today;
-    let (title, phase, sub) = match (fc.phase(), fc.cycle_day(today)) {
-        (Some(ph), Some(cd)) => {
-            let mut sub = Vec::new();
-            if fc.late > 0 {
-                sub.push(tn!(fc.late, "задержка {n} день", "задержка {n} дня", "задержка {n} дней"));
-            } else if let Some(&n) = fc.next.first() {
-                sub.push(t!("месячные {when}", when = date::relative(n, today)));
-            }
-            if let Some(ov) = fc.next_ovulation() {
-                sub.push(t!("овуляция {when}", when = date::relative(ov, today)));
-            }
-            let tone = match ph {
-                Phase::Period | Phase::Late => "period",
-                Phase::Follicular => "folli",
-                Phase::Fertile | Phase::Ovulation => "fert",
-                Phase::Luteal => "lute",
-            };
-            (t!("День {n}", n = cd), Some((phase_name(ph), tone)), sub.join(" · "))
-        }
-        _ => (t!("Цикл"), None, t!("Нажмите на первый день месячных и выберите «Начало месячных»")),
-    };
-    let mut title_row = Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(title).max_lines(1).class("hd-title"));
-    if let Some((name, tone)) = phase {
-        title_row = title_row.child(DecoratedBox::new().class(&format!("ph-pill {tone}")).child(Text::new(name).max_lines(1).class("ph-pill-text")));
-    }
-    let mut top = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center);
-    top = top.child(DecoratedBox::new().class("grow").child(Column::new().gap(4.0).child(title_row).child(Text::new(sub).max_lines(2).class("hint"))));
+    let cw = w - 40.0;
+    let over = format!("{}, {}", date::weekday_name(date::weekday(today)), date::long(today));
+    let mut top = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center);
+    top = top.child(DecoratedBox::new().class("grow").child(Text::new(over).max_lines(1).class("hd-over")));
     top = top.child(Button::new(t!("Сегодня")).class("btn chip").on_click(move || scroll_to_named(format!("m{}", date::month_index(date::today())))));
     // iPhone: окно всегда на весь экран, переключать нечего.
     if !cfg!(target_os = "ios") && (!wide || st.window.get_untracked().fullscreen) {
         top = top.child(super::fullscreen_button(st));
     }
-    let mut col = Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(syngui::overlay::WindowDragRegion::new().child(top));
-    if let Some(p) = fc.phases(today) {
-        col = col.child(phase_bar(st, p, today, w));
+    let mut col = Column::new().gap(14.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(syngui::overlay::WindowDragRegion::new().child(top));
+    match (fc.phase(), fc.cycle_day(today), fc.phases(today)) {
+        (Some(ph), Some(cd), Some(p)) => {
+            let k = PhaseKey::of(ph);
+            let name = if fc.late > 0 { phase_name(Phase::Late) } else { phase_name(ph) };
+            let mut big = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::End).child(Text::new(t!("День {n}", n = cd)).max_lines(1).class("hd-title"));
+            if fc.late == 0 {
+                big = big.child(Text::new(t!("из {n}", n = p.next - p.start)).max_lines(1).class("hd-of"));
+            }
+            let pill = GestureDetector::new().on_click(move || st.open_phase(k)).child(
+                DecoratedBox::new().class(&format!("ph-pill {}", k.tone())).child(
+                    Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class(&format!("ph-dot {}", k.tone()))).child(Text::new(name).max_lines(1).class("ph-pill-text")).child(icon(icons::NEXT).class("ic ph-pill-ic")),
+                ),
+            );
+            col = col.child(Column::new().gap(10.0).child(big).child(Row::new().child(pill)));
+            let mut kvs = Row::new().gap(18.0).cross_axis_alignment(CrossAxisAlignment::Center);
+            if fc.late > 0 {
+                kvs = kvs.child(kv("period", t!("Месячные"), tn!(fc.late, "задержка {n} день", "задержка {n} дня", "задержка {n} дней")));
+            } else if let Some(&n) = fc.next.first() {
+                kvs = kvs.child(kv("period", t!("Месячные"), date::relative(n, today)));
+            }
+            // при задержке срок овуляции неизвестен, пока не начнутся месячные
+            if let Some(ov) = fc.next_ovulation().filter(|_| fc.late == 0) {
+                kvs = kvs.child(kv("fert", t!("Овуляция"), date::relative(ov, today)));
+            }
+            col = col.child(kvs);
+            col = col.child(phase_bar(st, p, today, cw));
+        }
+        _ => {
+            col = col.child(Text::new(t!("Цикл")).class("hd-title")).child(Text::new(t!("Нажмите на первый день месячных и выберите «Начало месячных»")).max_lines(3).class("hint"));
+        }
     }
-    col = col.child(weekdays(st, w));
-    boxed(DecoratedBox::new().class("cal-head").child(col))
+    boxed(Column::new().gap(14.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(DecoratedBox::new().class("head-card").child(col)).child(weekdays(st, w)))
 }
 
 /// Лента месяцев: от первой отметки (не больше трёх лет назад) до девяти месяцев вперёд.
@@ -426,11 +423,7 @@ fn legend(st: St) -> W {
         f = f.child(if shapes && decor.ovul_mark() != OvulMark::Circle { legend_shape(shape_canvas(decor, Kind::Ovulation, 18.0, ink), t!("Овуляция")) } else { legend_item("ovul", t!("Овуляция")) });
     }
     if s.show_intimacy {
-        f = f.child(if shapes {
-            legend_shape(Canvas::new(move |c, _| decor::paint_heart(c, 9.0, 9.0, 16.0, ink.heart, None)).size(18.0, 18.0), t!("Близость"))
-        } else {
-            legend_item("love", t!("Близость"))
-        });
+        f = f.child(legend_shape(Canvas::new(move |c, _| decor::paint_heart(c, 9.0, 9.0, 14.0, ink.heart, None)).size(18.0, 18.0), t!("Близость")));
     }
     boxed(DecoratedBox::new().class("legend").child(f))
 }
