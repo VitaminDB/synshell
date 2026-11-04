@@ -60,8 +60,8 @@ pub fn start_lock() -> StartGuard {
 
 /// Итог попытки отдать команду.
 pub enum Forward {
-    /// Хозяин принял команду — этому процессу делать нечего.
-    Done,
+    /// Хозяин (pid) принял команду — этому процессу делать нечего.
+    Done(Option<u32>),
     /// Хозяина нет (или он завершён как зависший) — стать хозяином.
     BecomeHost,
 }
@@ -73,7 +73,7 @@ pub fn forward(req: &serde_json::Value) -> Forward {
     };
     let pid = peer_pid(&stream);
     match exchange(stream, req) {
-        Ok(()) => Forward::Done,
+        Ok(()) => Forward::Done(pid),
         Err(e) => {
             tracing::warn!("хозяин заметок (pid {pid:?}) не ответил: {e} — забираю управление");
             if let Some(pid) = pid.filter(|p| *p != std::process::id()) {

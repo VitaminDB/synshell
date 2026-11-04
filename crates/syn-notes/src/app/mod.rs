@@ -119,10 +119,16 @@ pub fn run() {
         } else {
             server::Command::Show
         });
-        if let takeover::Forward::Done = takeover::forward(&server::request_json(&cmd)) {
-            return;
+        match takeover::forward(&server::request_json(&cmd)) {
+            takeover::Forward::Done(host) => {
+                // Хозяин ответил; копии рядом с ним — брошенные.
+                drop(start_guard);
+                let strays: Vec<u32> = takeover::strays().into_iter().filter(|p| Some(*p) != host).collect();
+                takeover::terminate(&strays);
+                return;
+            }
+            takeover::Forward::BecomeHost => takeover::terminate(&takeover::strays()),
         }
-        takeover::terminate(&takeover::strays());
     }
 
     synshell_common::i18n::init(&crate::i18n::CATALOGS);
