@@ -29,7 +29,7 @@ mod view_tests;
 pub use book::{import_file, Book, BookState, Bookmark, Content, Cover, Highlight, Location, PdfFit, TocItem};
 pub use formats::Format;
 pub use layout::TextSettings;
-pub use integrate::{actions, details, import_book, page_view, thumbnail};
+pub use integrate::{actions, details, import_book, open_book_file, page_view, thumbnail};
 pub use view::{reader_view, set_overlay_factory, OverlayFactory, OverlayPage, Reader};
 /// Стили читалки (подключаются в теме окна).
 pub const READER_MSS: &str = include_str!("../../../styles/reader.mss");

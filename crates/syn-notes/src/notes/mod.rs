@@ -34,6 +34,7 @@ mod doc_bench;
 pub mod doc_menu;
 pub mod editor_pane;
 pub mod embeds;
+pub mod files;
 pub mod gantt;
 pub mod graph;
 pub mod icon_picker;

@@ -82,11 +82,18 @@ pub fn parse_flow(format: Format, data: &[u8]) -> Result<FlowDoc, String> {
 /// Текст неизвестной кодировки: BOM, UTF-8, иначе CP1251 или KOI8-R —
 /// что даёт больше частых русских букв.
 pub fn decode_text(data: &[u8]) -> String {
+    let (enc, bom) = detect_encoding(data);
+    enc.decode_without_bom_handling(&data[bom..]).0.into_owned()
+}
+
+/// Кодировка текста и длина BOM: BOM, затем UTF-8, затем CP1251 или
+/// KOI8-R — чей русский текст правдоподобнее.
+pub fn detect_encoding(data: &[u8]) -> (&'static encoding_rs::Encoding, usize) {
     if let Some((enc, bom)) = encoding_rs::Encoding::for_bom(data) {
-        return enc.decode_without_bom_handling(&data[bom..]).0.into_owned();
+        return (enc, bom);
     }
-    if let Ok(s) = std::str::from_utf8(data) {
-        return s.to_string();
+    if std::str::from_utf8(data).is_ok() {
+        return (encoding_rs::UTF_8, 0);
     }
     let score = |s: &str| -> i64 {
         s.chars()
@@ -101,7 +108,7 @@ pub fn decode_text(data: &[u8]) -> String {
     };
     let cp = encoding_rs::WINDOWS_1251.decode_without_bom_handling(data).0;
     let koi = encoding_rs::KOI8_R.decode_without_bom_handling(data).0;
-    if score(&koi) > score(&cp) { koi.into_owned() } else { cp.into_owned() }
+    if score(&koi) > score(&cp) { (encoding_rs::KOI8_R, 0) } else { (encoding_rs::WINDOWS_1251, 0) }
 }
 
 /// XML с кодировкой из пролога (`encoding="windows-1251"`).

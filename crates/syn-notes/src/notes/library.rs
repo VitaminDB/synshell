@@ -47,6 +47,8 @@ pub enum Screen {
     Open(String),
     /// Настройки приложения.
     Settings,
+    /// Файлы с диска в редакторе ([`super::files`]).
+    Files,
 }
 
 /// Раздел библиотеки.
@@ -193,7 +195,7 @@ impl Library {
     /// к родителю, из раздела — на главную.
     pub fn back(&self, ctx: NotesCtx) -> bool {
         match self.screen.get_untracked() {
-            Screen::Open(_) | Screen::Settings => {
+            Screen::Open(_) | Screen::Settings | Screen::Files => {
                 self.immersive.set(false);
                 self.screen.set(Screen::Library);
                 true
@@ -453,7 +455,7 @@ fn fill<M>(w: impl syngui::widgets::containers::IntoWidget<M>) -> Stack {
 }
 
 /// Кнопка с выпадающим меню под ней.
-fn menu_button(
+pub(super) fn menu_button(
     icon: &'static str,
     tooltip: String,
     class: &'static str,
@@ -508,12 +510,17 @@ fn create_items() -> Vec<MenuItem> {
         MenuItem::separator(),
         MenuItem::new("book", tr!("notes.lib.import_book")).icon(MI_UPLOAD_FILE),
         MenuItem::new("folder", tr!("notes.lib.kind.folder")).icon(MI_CREATE_NEW_FOLDER),
+        MenuItem::separator(),
+        MenuItem::new("open_file", tr!("notes.files.open")).icon(MI_FOLDER_OPEN),
+        MenuItem::new("new_text", tr!("notes.files.new_text")).icon(MI_NOTE_ADD),
     ]
 }
 
 fn on_create(ctx: NotesCtx, lib: Library) -> impl FnMut(&str) + Send + 'static {
     move |k: &str| match k {
         "book" => import_book_dialog(ctx, lib),
+        "open_file" => super::files::Files::get().open_dialog(),
+        "new_text" => super::files::Files::get().new_file(false),
         other => {
             if let Some(kind) = PageKind::from_name(other) {
                 lib.create(ctx, kind);
@@ -561,12 +568,13 @@ pub fn view(wide: RwSignal<bool>) -> impl Widget {
     // Что показывать: перестраивать дерево только при смене вида, а не при
     // каждом переходе между документами рабочего места (дерево и свойства
     // не теряют прокрутку и фокус).
-    let mode = use_signal(Mode::Library);
+    let mode = use_signal(Mode::Library(wide.get_untracked()));
     create_effect(move || {
         let w = wide.get();
         let m = match lib.screen.get() {
-            Screen::Library => Mode::Library,
-            Screen::Settings => Mode::Settings,
+            Screen::Library => Mode::Library(w),
+            Screen::Settings => Mode::Settings(w),
+            Screen::Files => Mode::Files(w),
             Screen::Open(id) => {
                 let kind = ctx.tree.get_untracked().kind_of(&id);
                 if w && uses_workspace(kind) {
@@ -582,12 +590,12 @@ pub fn view(wide: RwSignal<bool>) -> impl Widget {
     });
     fill(Reactive::new(move || -> Vec<W> {
         syngui::i18n::subscribe();
-        let w = wide.get_untracked();
         match mode.get() {
-            Mode::Library => vec![Box::new(fill(library(ctx, lib, w)))],
+            Mode::Library(w) => vec![Box::new(fill(library(ctx, lib, w)))],
             Mode::Workspace => vec![Box::new(fill(super::view()))],
             Mode::Open(id) => vec![Box::new(fill(open_view(ctx, lib, id)))],
-            Mode::Settings => vec![Box::new(fill(super::settings::view(lib, w)))],
+            Mode::Settings(w) => vec![Box::new(fill(super::settings::view(lib, w)))],
+            Mode::Files(w) => vec![Box::new(fill(super::files::view(w)))],
         }
     }))
 }
@@ -595,8 +603,9 @@ pub fn view(wide: RwSignal<bool>) -> impl Widget {
 /// Вид экрана библиотеки.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Mode {
-    Library,
-    Settings,
+    Library(bool),
+    Settings(bool),
+    Files(bool),
     /// Рабочее место: дерево документов, редактор, панель свойств.
     Workspace,
     /// Страница на весь экран (узкое окно, книга, блокнот, рисунок).
@@ -807,7 +816,9 @@ fn sidebar(ctx: NotesCtx, lib: Library) -> impl Widget {
         syngui::i18n::subscribe();
         let cur = lib.section.get();
         let folder = lib.folder.get();
-        let on_settings = lib.screen.get() == Screen::Settings;
+        let screen = lib.screen.get();
+        let on_settings = matches!(screen, Screen::Settings | Screen::Files);
+        let open_files = super::files::Files::get().list.get().len();
         let tree = ctx.tree.get();
         let counts = count_by_kind(&tree);
         let mut col = Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
@@ -815,6 +826,12 @@ fn sidebar(ctx: NotesCtx, lib: Library) -> impl Widget {
             let active = !on_settings && s == cur && (s != Section::All || folder.is_none());
             let n = s.kind().map(|k| counts.get(&k).copied().unwrap_or(0));
             col = col.child(nav_row(s.icon(), s.title(), n, active, 0, move || lib.go_section(s)));
+        }
+        // Файлы с диска, открытые в редакторе, — вернуться к ним.
+        if open_files > 0 {
+            col = col.child(nav_row(MI_INSERT_DRIVE_FILE, tr!("notes.files.opened"), Some(open_files), screen == Screen::Files, 0, move || {
+                lib.screen.set(Screen::Files)
+            }));
         }
         // Папки — деревом (вложенные — с отступом).
         let mut folders = Vec::new();

@@ -37,6 +37,7 @@ syngui = { workspace = true, features = [
     "audio",
     "ffmpeg",
     "document-editor",
+    "code-editor",
     "i18n",
     "single-instance",
     "pen",

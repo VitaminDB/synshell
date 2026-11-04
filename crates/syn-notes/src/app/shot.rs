@@ -20,10 +20,14 @@ pub struct ShotArgs {
     pub list: bool,
     /// Книги для импорта (последняя открывается, если `--open book`).
     pub books: Vec<PathBuf>,
+    /// Файлы для редактора (`--file`), последний — на экране.
+    pub files: Vec<PathBuf>,
+    /// Markdown — исходником, а не оформленным видом.
+    pub source: bool,
 }
 
 pub fn parse(out: String, rest: &[String]) -> ShotArgs {
-    let mut a = ShotArgs { out, size: (1240, 930), scale: 1.0, open: None, list: false, books: Vec::new() };
+    let mut a = ShotArgs { out, size: (1240, 930), scale: 1.0, open: None, list: false, books: Vec::new(), files: Vec::new(), source: false };
     let mut it = rest.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -36,6 +40,8 @@ pub fn parse(out: String, rest: &[String]) -> ShotArgs {
             "--open" => a.open = it.next().cloned(),
             "--eink" => std::env::set_var("SYNSHELL_EINK", "1"),
             "--list" => a.list = true,
+            "--file" => a.files.push(PathBuf::from(it.next().cloned().unwrap_or_default())),
+            "--source" => a.source = true,
             "--book" => a.books.push(PathBuf::from(it.next().cloned().unwrap_or_default())),
             _ => {}
         }
@@ -121,6 +127,17 @@ pub fn run(args: ShotArgs) {
         use_context::<Library>().folder.set(id);
     }
     let _ = Screen::Library;
+    for f in &args.files {
+        // Путь — до подмены HOME: относительный от каталога запуска.
+        if let Err(e) = crate::notes::files::Files::get().open_path(f) {
+            eprintln!("{}: {e}", f.display());
+        }
+    }
+    if args.source {
+        if let Some(b) = crate::notes::files::Files::get().current_buf() {
+            b.set_visual(false);
+        }
+    }
     if args.list {
         use_context::<Library>().grid.set(false);
     }

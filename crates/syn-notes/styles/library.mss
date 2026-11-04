@@ -586,3 +586,94 @@
 .set-reset {
     padding: 24px 4px;
 }
+
+/* ── Редактор файлов ── */
+.lib-icon-btn.on {
+    background-color: var(--surface-hover);
+    color: var(--primary);
+}
+.notes-file-tabs {
+    height: 44px;
+    padding: 6px 10px;
+    background-color: var(--bg-shell);
+    border-bottom: 1px solid var(--border-soft);
+}
+.notes-file-tab {
+    height: 32px;
+    padding: 0px 4px 0px 12px;
+    border-radius: 16px;
+}
+.notes-file-tab.active {
+    background-color: var(--surface-hover);
+}
+.notes-file-tab-text {
+    font-size: 13px;
+    color: var(--text-muted);
+}
+.notes-file-tab.active .notes-file-tab-text {
+    color: var(--text);
+}
+.notes-file-tab-close {
+    width: 24px;
+    height: 24px;
+    icon-size: 16px;
+    border-radius: 12px;
+    color: var(--text-muted);
+}
+.notes-file-tab-close:hover {
+    background-color: var(--surface-hover);
+    color: var(--text);
+}
+.notes-file-find {
+    padding: 6px 10px;
+    background-color: var(--bg-shell);
+    border-bottom: 1px solid var(--border-soft);
+}
+.notes-file-code {
+    background-color: var(--bg-shell);
+    color: var(--text);
+    font-size: 14px;
+    editor-bg: var(--bg-shell);
+    editor-fg: var(--text);
+    editor-gutter-bg: var(--bg-shell);
+    editor-gutter-fg: var(--text-muted);
+    editor-cursor: var(--primary);
+    editor-current-line: var(--surface-hover);
+    editor-selection: var(--primary-soft);
+    editor-bracket-match: var(--primary-soft);
+    editor-popup-bg: var(--bg-panel);
+    editor-popup-border: var(--border);
+    token-keyword: var(--primary);
+    token-keyword-control: var(--primary);
+    token-type: var(--warning);
+    token-type-builtin: var(--warning);
+    token-namespace: var(--warning);
+    token-function: var(--primary);
+    token-function-macro: var(--primary);
+    token-string: var(--success);
+    token-string-special: var(--success);
+    token-number: var(--warning);
+    token-constant: var(--warning);
+    token-constant-builtin: var(--warning);
+    token-comment: var(--text-muted);
+    token-operator: var(--text-muted);
+    token-punctuation: var(--text-muted);
+    token-variable: var(--error);
+    token-property: var(--error);
+    token-attribute: var(--warning);
+    token-tag: var(--error);
+}
+.notes-file-code.mono {
+    font-family: "monospace";
+    font-size: 13px;
+}
+.notes-file-status {
+    height: 28px;
+    padding: 0px 14px;
+    background-color: var(--bg-shell);
+    border-top: 1px solid var(--border-soft);
+}
+.notes-file-status-text {
+    font-size: 12px;
+    color: var(--text-muted);
+}

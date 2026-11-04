@@ -7,6 +7,8 @@
 //! {"cmd":"show"}                          — показать окно
 //! {"cmd":"open","target":"Страница"}      — страница (id, название, путь)
 //!                                           или файл проекта .syn
+//! {"cmd":"open_files","paths":["/…"]}   — файлы с диска: текст в редактор,
+//!                                           книга в читалку
 //! {"cmd":"tool","args":{…}}               — инструмент `notes` ассистента:
 //!                                           {"ok":true,"text":"…"} / {"ok":false,"error":"…"}
 //! ```
@@ -32,6 +34,8 @@ pub enum Command {
     Ping,
     Show,
     Open(String),
+    /// Файлы с диска: текст — в редактор, книга — в читалку.
+    OpenFiles(Vec<String>),
 }
 
 /// Передать команду работающему хозяину. Ошибка — хозяина нет.
@@ -40,6 +44,7 @@ pub fn send(cmd: &Command) -> std::io::Result<()> {
         Command::Ping => json!({"cmd": "ping"}),
         Command::Show => json!({"cmd": "show"}),
         Command::Open(t) => json!({"cmd": "open", "target": t}),
+        Command::OpenFiles(v) => json!({"cmd": "open_files", "paths": v}),
     };
     syn_notes_proto::request(&req, Duration::from_secs(5)).map(|_| ())
 }
@@ -53,6 +58,12 @@ pub fn handle(cmd: Command) {
         }
         Command::Open(target) => {
             let _ = open(&target);
+            syngui::app::show_main_window();
+        }
+        Command::OpenFiles(paths) => {
+            for p in paths {
+                crate::notes::files::open_any(std::path::Path::new(&p), None);
+            }
             syngui::app::show_main_window();
         }
     }
@@ -163,6 +174,17 @@ fn answer(req: Value) -> Value {
             }) {
                 Some(Ok(())) => json!({"ok": true}),
                 Some(Err(e)) => json!({"ok": false, "error": e}),
+                None => json!({"ok": false, "error": "timeout"}),
+            }
+        }
+        "open_files" => {
+            let paths: Vec<String> = req
+                .get("paths")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .unwrap_or_default();
+            match on_main(move || handle(Command::OpenFiles(paths))) {
+                Some(()) => json!({"ok": true}),
                 None => json!({"ok": false, "error": "timeout"}),
             }
         }

@@ -230,6 +230,40 @@ fn title_cover(s: &BookState) -> impl Widget {
 
 // ─────────────────────────── Импорт ───────────────────────────
 
+/// Открыть файл книги извне (Проводник): уже импортированная книга (то же
+/// содержимое) открывается с прежней позицией, новая — импортируется.
+pub fn open_book_file(ctx: NotesCtx, lib: Library, path: PathBuf) {
+    let project = ctx.project_path.get_untracked();
+    std::thread::Builder::new()
+        .name("reader-open".into())
+        .spawn(move || {
+            use sha2::{Digest, Sha256};
+            let sha = std::fs::read(&path).ok().map(|d| format!("asset:{:x}.", Sha256::digest(&d)));
+            syngui::async_runtime::run_on_main_thread(move || {
+                if let Some(sha) = sha {
+                    let tree = ctx.tree.get_untracked();
+                    let mut books = Vec::new();
+                    fn walk(nodes: &[project::PageNode], out: &mut Vec<String>) {
+                        for n in nodes {
+                            if n.kind == PageKind::Book {
+                                out.push(n.id.clone());
+                            }
+                            walk(&n.children, out);
+                        }
+                    }
+                    walk(&tree.roots, &mut books);
+                    drop(tree);
+                    if let Some(id) = books.into_iter().find(|id| load_state(&project, id).is_some_and(|s| s.asset.starts_with(&sha))) {
+                        lib.open(ctx, &id);
+                        return;
+                    }
+                }
+                import_book(ctx, lib, None, path);
+            });
+        })
+        .ok();
+}
+
 /// Импорт файла книги в проект: разбор в фоне, вложение, страница-книга с
 /// текстом для поиска (автор, оглавление) — и открыть её.
 pub fn import_book(ctx: NotesCtx, lib: Library, parent: Option<String>, path: PathBuf) {

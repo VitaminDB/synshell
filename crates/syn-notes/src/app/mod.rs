@@ -47,16 +47,53 @@ fn parse_args() -> Args {
             "--screenshot" => a.screenshot = it.next(),
             "open" => a.command = Some(server::Command::Open(it.next().unwrap_or_default())),
             "-h" | "--help" => {
-                println!("syn-notes [--background] [open СТРАНИЦА|ПРОЕКТ.syn]");
+                println!("syn-notes [--background] [open СТРАНИЦА|ПРОЕКТ.syn] [ФАЙЛ…]");
                 std::process::exit(0);
             }
             other if other.ends_with(".syn") => {
                 a.command = Some(server::Command::Open(other.to_string()));
             }
+            // Файл из Проводника (`%F`): текст — в редактор, книга — в читалку.
+            other if !other.starts_with('-') => {
+                if let Some(p) = file_arg(other) {
+                    let p = std::fs::canonicalize(&p).unwrap_or(p);
+                    match &mut a.command {
+                        Some(server::Command::OpenFiles(v)) => v.push(p.to_string_lossy().to_string()),
+                        _ => a.command = Some(server::Command::OpenFiles(vec![p.to_string_lossy().to_string()])),
+                    }
+                }
+            }
             _ => {}
         }
     }
     a
+}
+
+/// Путь файла из аргумента (`file://` — тоже). Только существующий файл.
+fn file_arg(arg: &str) -> Option<std::path::PathBuf> {
+    let p = match arg.strip_prefix("file://") {
+        Some(rest) => std::path::PathBuf::from(percent_decode(rest)),
+        None => std::path::PathBuf::from(arg),
+    };
+    p.is_file().then_some(p)
+}
+
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 pub fn run() {
@@ -147,6 +184,7 @@ pub(crate) fn install_state() {
     provide_context(NotesCtx::new_or_restore(&cfg));
     provide_context(notes::library::Library::new());
     notes::kinds::install();
+    notes::files::Files::install();
     provide_context(WindowCtx { state: use_signal(syngui::window::WindowState::default()) });
     notes::autosave::install_notes_autosave();
     notes::reminders::install_reminders();
@@ -239,6 +277,10 @@ fn titlebar() -> W {
             notes::library::Screen::Open(id) => tree.title_of(&id).unwrap_or_default(),
             notes::library::Screen::Library => ctx.project_title.get(),
             notes::library::Screen::Settings => syngui::tr!("notes.lib.settings"),
+            notes::library::Screen::Files => notes::files::Files::get().current_buf().map(|b| {
+                let _ = b.path.get();
+                b.name()
+            }).unwrap_or_default(),
         };
         vec![Box::new(Text::new(t).max_lines(1).elide(Elide::End).class("tb-title"))]
     });
