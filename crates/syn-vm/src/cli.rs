@@ -418,7 +418,13 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
                     let r = crate::gputools::install(&vm, &|s| eprintln!("{s}"))?;
                     println!("{r}");
                 }
-                _ => println!("{}", crate::gputools::status(&vm)?),
+                _ => {
+                    let s = crate::gputools::status(&vm)?;
+                    println!("{}", s.summary());
+                    for g in &s.games {
+                        println!("  {}\t{} {}-bit\tDXVK {}{}", g.path, g.api, g.bits, g.dxvk, if g.disabled { t!(" (отключено)") } else { String::new() });
+                    }
+                }
             }
             Ok(0)
         }

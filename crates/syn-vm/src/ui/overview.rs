@@ -26,7 +26,7 @@ pub fn page(st: St, narrow: bool) -> W {
         let vw = viewport_size().get().width;
         let wide = !narrow && vw >= 1180.0;
         let left = Column::new().gap(16.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(preview(st, &vm, &l, narrow)).child(stats(&vm, &l, narrow));
-        let right = Column::new().gap(16.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(info(&vm)).child(agent_card(st, &vm, &l)).child(actions(st, &vm, &l));
+        let right = Column::new().gap(16.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(info(&vm)).child(agent_card(st, &vm, &l)).child(gpu_card(st, &vm, &l)).child(actions(st, &vm, &l));
         let body: W = if wide {
             boxed(
                 Row::new()
@@ -241,6 +241,44 @@ fn agent_card(st: St, vm: &Vm, l: &Live) -> W {
             .gap(10.0)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .child(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(parts::badge(icons::TERMINAL, None, 30.0)).child(Text::new(t!("Гостевой агент")).class("card-title grow")))
+            .child(body),
+    )
+}
+
+/// Видеокарта syn-gpu (машины с 3D): драйвер, ICD и игры с переключателем DXVK.
+fn gpu_card(st: St, vm: &Vm, l: &Live) -> W {
+    if !l.power.on() || !vm.gpu3d || !vm.guest_agent {
+        return boxed(DecoratedBox::new());
+    }
+    let vid = vm.id.clone();
+    let body = Reactive::new(move || -> Vec<W> {
+        let mut rows: Vec<W> = Vec::new();
+        match st.gpu.get().filter(|(id, _)| *id == vid) {
+            None => {
+                rows.push(boxed(Text::new(t!("Гостевые инструменты syn-gpu не установлены — «Установить» в настройках машины")).max_lines(3).class("row-hint")));
+            }
+            Some((_, s)) => {
+                rows.push(boxed(Text::new(s.summary()).max_lines(3).class("row-hint")));
+                for g in s.games {
+                    let (id, path) = (vid.clone(), g.path.clone());
+                    let label = format!("{} · {} {}-bit", g.path, g.api, g.bits);
+                    rows.push(boxed(
+                        Row::new()
+                            .gap(10.0)
+                            .cross_axis_alignment(CrossAxisAlignment::Center)
+                            .child(DecoratedBox::new().class("grow").child(Text::new(label).max_lines(2)))
+                            .child(Toggle::with_state(g.dxvk == "on" && !g.disabled).on_change(move |b| state::gpu_game(st, &id, path.clone(), b))),
+                    ));
+                }
+            }
+        }
+        vec![boxed(Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch).children(rows))]
+    });
+    parts::card(
+        Column::new()
+            .gap(10.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(parts::badge(icons::DEVICES, None, 30.0)).child(Text::new(t!("Видеокарта syn-gpu")).class("card-title grow")))
             .child(body),
     )
 }

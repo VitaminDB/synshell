@@ -258,6 +258,8 @@ pub struct St {
     pub host_devs: RwSignal<Option<Vec<crate::devices::Avail>>>,
     /// Что в госте открытой машины (инструменты, видео, буфер) — проверяется раз в минуту.
     pub tools: RwSignal<Option<(String, GuestTools)>>,
+    /// Видеокарта syn-gpu в госте (драйвер, ICD, игры) — у машин с 3D, раз в минуту.
+    pub gpu: RwSignal<Option<(String, crate::gputools::Status)>>,
 }
 
 impl St {
@@ -287,6 +289,7 @@ impl St {
             guest: use_signal(None),
             host_devs: use_signal(None),
             tools: use_signal(None),
+            gpu: use_signal(None),
         }
     }
 
@@ -594,9 +597,15 @@ pub fn refresh_guest(st: St) {
             due
         };
         let tools = if due { guest_tools(&vm).ok() } else { None };
+        let gpu = if due && vm.gpu3d { crate::gputools::status(&vm).ok() } else { None };
         run_on_main_thread(move || {
             if st.sel.get_untracked().as_deref() == Some(vm.id.as_str()) && st.guest.get_untracked() != g {
                 st.guest.set(g);
+            }
+            if let Some(g) = gpu {
+                if st.gpu.get_untracked().as_ref().is_none_or(|(id, old)| id != &vm.id || *old != g) {
+                    st.gpu.set(Some((vm.id.clone(), g)));
+                }
             }
             if let Some(t) = tools {
                 if st.tools.get_untracked().as_ref().is_none_or(|(id, old)| id != &vm.id || *old != t) {
@@ -1126,7 +1135,19 @@ pub fn gpu_tools(st: St, id: &str, install: bool) {
             };
             Ok(Some(crate::gputools::install(&vm, &step)?))
         } else {
-            Ok(Some(crate::gputools::status(&vm)?))
+            Ok(Some(crate::gputools::status(&vm)?.summary()))
         }
+    });
+}
+
+/// Подключить или отключить DXVK в папке игры (syn-gpu-agent enable|disable) и обновить список.
+pub fn gpu_game(st: St, id: &str, path: String, on: bool) {
+    let Some(vm) = st.vm(id) else { return };
+    let id_s = id.to_string();
+    background(st, id, t!("Видеокарта syn-gpu…"), move || {
+        crate::gputools::set_game(&vm, &path, on)?;
+        let s = crate::gputools::status(&vm)?;
+        run_on_main_thread(move || st.gpu.set(Some((id_s, s))));
+        Ok(None)
     });
 }

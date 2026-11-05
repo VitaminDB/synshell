@@ -249,6 +249,44 @@ pub fn type_text(vm: &Vm, text: &str, delay: Duration) -> Result<()> {
     Ok(())
 }
 
+/// Сделать активной мышь по части имени в `info mice` («Tablet», «USB Mouse»). `false` — нет такой.
+pub fn set_mouse(vm: &Vm, name: &str) -> bool {
+    let Ok(list) = hmp(vm, "info mice") else { return false };
+    let Some(line) = list.lines().find(|l| l.contains(name)) else { return false };
+    if line.trim_start().starts_with('*') {
+        return true;
+    }
+    let idx = line.split('#').nth(1).and_then(|s| s.split(':').next()).and_then(|s| s.trim().parse::<u32>().ok());
+    idx.is_some_and(|i| hmp(vm, &format!("mouse_set {i}")).is_ok())
+}
+
+/// Ввод игр в режиме захвата: относительные смещения и кнопки — сразу, по одному соединению QMP.
+pub struct RelInput {
+    conn: Conn,
+}
+
+impl RelInput {
+    pub fn open(vm: &Vm) -> Result<Self> {
+        Ok(Self { conn: Conn::of(vm)? })
+    }
+
+    pub fn motion(&mut self, dx: i64, dy: i64) -> Result<()> {
+        if dx == 0 && dy == 0 {
+            return Ok(());
+        }
+        self.conn.call("input-send-event", json!({"events": [
+            {"type": "rel", "data": {"axis": "x", "value": dx}},
+            {"type": "rel", "data": {"axis": "y", "value": dy}}]}))?;
+        Ok(())
+    }
+
+    /// Кнопка: left, middle, right, wheel-up, wheel-down, side, extra.
+    pub fn button(&mut self, button: &str, down: bool) -> Result<()> {
+        self.conn.call("input-send-event", json!({"events": [{"type": "btn", "data": {"down": down, "button": button}}]}))?;
+        Ok(())
+    }
+}
+
 /// Сделать активной мышью планшет usb-tablet (абсолютный указатель). У машин, запущенных
 /// с каналом qemu-vdagent без mouse=off, активной становится «vdagent mouse», и указатель
 /// с кликами до гостя не доходит.
