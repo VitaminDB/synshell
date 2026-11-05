@@ -25,6 +25,7 @@ pub fn help() -> String {
 const EXTRA_HELP: &[&str] = &[
     n_!("  --optimize МАШИНА [--apply]            Windows: быстрое видео, агент, диск инструментов; советы по диску и сети"),
     n_!("  --present-dump МАШИНА ФАЙЛ.png         экран гостя с кадром игры syn-gpu поверх (проверка слоя без окна)"),
+    n_!("  --gpu-tools МАШИНА [install|status]    гостевые инструменты syn-gpu: драйвер 3D-видеокарты в Windows"),
 ];
 
 const HELP: &str = n_!("\
@@ -163,7 +164,7 @@ pub fn run(cmd: &str, rest: Vec<String>) -> Option<i32> {
     let known = [
         "--list", "--status", "--start", "--stop", "--kill", "--reset", "--pause", "--resume", "--wait-boot", "--new", "--delete", "--get", "--set", "--exec", "--sh", "--push",
         "--pull", "--exec-status", "--agent", "--sync-time", "--screendump", "--type", "--key", "--click", "--scroll", "--devices", "--usb", "--attach", "--detach", "--cdrom", "--tools", "--snapshot",
-        "--qmp", "--mcp", "--optimize", "--present-dump", "--vfio-helper", "--vfio-watch", "--usb-watch", "--record", "--record-stop", "--record-run",
+        "--qmp", "--mcp", "--optimize", "--present-dump", "--gpu-tools", "--vfio-helper", "--vfio-watch", "--usb-watch", "--record", "--record-stop", "--record-run",
     ];
     if !known.contains(&cmd) {
         return None;
@@ -407,6 +408,18 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
         "--sync-time" => {
             let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             qga::sync_time(&vm)?;
+            Ok(0)
+        }
+        "--gpu-tools" => {
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
+            running(&vm)?;
+            match a.pos.get(1).map(String::as_str).unwrap_or("status") {
+                "install" => {
+                    let r = crate::gputools::install(&vm, &|s| eprintln!("{s}"))?;
+                    println!("{r}");
+                }
+                _ => println!("{}", crate::gputools::status(&vm)?),
+            }
             Ok(0)
         }
         "--present-dump" => {

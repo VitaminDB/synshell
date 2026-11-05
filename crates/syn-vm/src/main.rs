@@ -16,6 +16,7 @@ mod record;
 mod keymap;
 mod model;
 mod present;
+mod gputools;
 mod qemu;
 mod qmp;
 mod state;

@@ -524,6 +524,10 @@ impl Vm {
             }
             return (v, changes, advice);
         }
+        if v.gpu3d && v.firmware == Firmware::UefiSecure {
+            changes.push(t!("Прошивка: UEFI без Secure Boot — драйверу syn-gpu нужна тестовая подпись"));
+            v.firmware = Firmware::Uefi;
+        }
         if v.display != DisplayModel::Virtio {
             changes.push(t!("Видео: {from} → virtio-vga (с драйвером VirtIO GPU из «Гостевых инструментов» — любое разрешение, разрешение подстраивается под окно, быстрая отрисовка)", from = syngui::i18n::t(v.display.title())));
             v.display = DisplayModel::Virtio;

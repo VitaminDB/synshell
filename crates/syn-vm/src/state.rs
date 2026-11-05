@@ -1113,3 +1113,20 @@ pub fn tools_status(st: St, id: &str) {
         Ok(Some(msg))
     });
 }
+
+/// Гостевые инструменты syn-gpu: установить (с ходом в подписи «занято») или показать состояние.
+pub fn gpu_tools(st: St, id: &str, install: bool) {
+    let Some(vm) = st.vm(id) else { return };
+    let id_s = id.to_string();
+    background(st, id, if install { t!("Гостевые инструменты syn-gpu…") } else { t!("Проверка гостя…") }, move || {
+        if install {
+            let step = move |s: String| {
+                let id = id_s.clone();
+                run_on_main_thread(move || set_busy(st, &id, Some(s)));
+            };
+            Ok(Some(crate::gputools::install(&vm, &step)?))
+        } else {
+            Ok(Some(crate::gputools::status(&vm)?))
+        }
+    });
+}

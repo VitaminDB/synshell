@@ -4,6 +4,7 @@
 # src/cli.rs
 "  --optimize МАШИНА [--apply]            Windows: быстрое видео, агент, диск инструментов; советы по диску и сети" = "  --optimize マシン [--apply]               Windows: 高速なビデオ、エージェント、ツールディスク。ディスクとネットワークの助言"
 "  --present-dump МАШИНА ФАЙЛ.png         экран гостя с кадром игры syn-gpu поверх (проверка слоя без окна)" = "  --present-dump マシン ファイル.png            ゲストの画面に syn-gpu のゲームフレームを重ねる（ウィンドウなしでレイヤーを確認）"
+"  --gpu-tools МАШИНА [install|status]    гостевые инструменты syn-gpu: драйвер 3D-видеокарты в Windows" = "  --gpu-tools マシン [install|status]       syn-gpu ゲストツール: Windows の 3D グラフィックスドライバー"
 "syn-vm — виртуальные машины QEMU/KVM\n\nОкно:\n  syn-vm [МАШИНА] [--tab screen|overview|settings|snapshots] [--new-window]\n  syn-vm --screenshot СНИМОК.png [--size ШxВ] [--scale N] [--open МАШИНА] [--tab …] [--wizard ШАГ]   снимок окна\n\nМашины (МАШИНА — имя или id):\n  --list [--json]                        машины и их состояние\n  --status МАШИНА [--json]               состояние, агент, система гостя, адреса, порты\n  --start МАШИНА [--wait-boot [СЕК]]     запустить без окна (и ждать гостевого агента)\n  --stop МАШИНА [--force] [--timeout СЕК]  выключить (агентом или ACPI); --force — выдернуть шнур по тайм-ауту\n  --kill МАШИНА                          выключить сразу\n  --reset | --pause | --resume МАШИНА\n  --wait-boot МАШИНА [--timeout СЕК]     ждать, пока ответит гостевой агент (300 с)\n  --new ИМЯ [--iso ОБРАЗ] [--os linux|windows11|windows10|bsd|android|other]\n        [--disk ФАЙЛ …] [--vars ФАЙЛ] [--tpm КАТАЛОГ] [--cpus N] [--memory МБ] [--disk-gb N]\n        [--firmware bios|uefi|uefi-secure] [--disk-bus virtio|sata|nvme] [--nic virtio|e1000e|rtl8139]\n        [--fwd [udp:]ХОСТ:ГОСТЬ …] [--public] [--share КАТАЛОГ] [--set КЛЮЧ=ЗНАЧЕНИЕ …]\n                                          новая машина; с --disk — импорт готовой (диск остаётся на месте,\n                                          переменные UEFI и TPM копируются в папку машины;\n                                          пробросы слушают 127.0.0.1, --public — все адреса)\n  --delete МАШИНА --yes                  удалить машину и диски в её папке\n  --get МАШИНА [КЛЮЧ]                    настройки (TOML) или одно значение\n  --set МАШИНА КЛЮЧ=ЗНАЧЕНИЕ …           изменить настройки (значение — TOML или строка)\n\nГость (через гостевой агент qemu-ga):\n  --exec МАШИНА [--timeout СЕК] [--env К=З …] [--stdin] [--raw] -- ПРОГРАММА [АРГ…]\n                                          (вывод Windows переводится из OEM-кодировки в UTF-8; --raw — как есть)\n  --sh МАШИНА [--timeout СЕК] 'КОМАНДА'  через оболочку гостя (sh -c / cmd /c)\n       --detach (у --exec и --sh) — не ждать, напечатать pid в госте\n  --exec-status МАШИНА PID [--wait СЕК]  итог фоновой команды: вывод и её код; 125 — ещё работает\n                                          (вывод агент отдаёт один раз)\n  --push МАШИНА ФАЙЛ ПУТЬ_В_ГОСТЕ        файл в гостя\n  --pull МАШИНА ПУТЬ_В_ГОСТЕ ФАЙЛ        файл из гостя\n  --agent МАШИНА КОМАНДА [JSON]          сырая команда агента (guest-info, guest-get-osinfo…)\n  --sync-time МАШИНА                     часы гостя по компьютеру\n\nЭкран и ввод (без окна, работает и без агента):\n  --screendump МАШИНА ФАЙЛ.png           кадр экрана гостя\n  --type МАШИНА 'ТЕКСТ'                  набрать текст (раскладка US, \\n — Enter)\n  --key МАШИНА СОЧЕТАНИЕ                 ctrl+alt+delete, alt+f4, win+r, enter…\n  --click МАШИНА X Y [--right|--middle] [--double] [--move]   щелчок в пикселях кадра\n  --scroll МАШИНА ШАГИ                   колесо (> 0 — вниз)\n\nУстройства:\n  --devices [--json]                     что можно отдать гостю: PCI, ввод, диски, порты, USB\n  --usb МАШИНА list|attach|detach [ПОРТ] USB по физическому порту (3-6, 1-2.4)\n  --attach МАШИНА ТИП:ИД                 pci:02:00.0, input:/dev/input/by-id/…, block:/dev/sdb,\n                                          block-ro:/dev/sdb1, serial:/dev/ttyUSB0, usb-id:VID:PID, usb:3-6\n  --detach МАШИНА ТИП:ИД\n  --cdrom МАШИНА ОБРАЗ|eject             образ в приводе\n  --tools МАШИНА [on|off|download|ОБРАЗ.iso]  диск «Гостевые инструменты» (virtio-win)\n\nЗапись экрана гостя (родное разрешение, ровная частота, ffmpeg: NVENC/VAAPI/x264):\n  --record МАШИНА [ФАЙЛ.mp4] [--fps 30|60] [--audio|--no-audio] [--duration СЕК]\n                                          без --duration — в фоне до --record-stop; звук — если он включён у машины\n  --record-stop МАШИНА                   остановить, дождаться файла, итог\n\nПрочее:\n  --snapshot МАШИНА list|create|restore|delete [ИМЯ]\n  --qmp МАШИНА КОМАНДА [JSON]            сырая команда QMP\n  --mcp                                   MCP-сервер (stdio): claude mcp add syn-vm -- syn-vm --mcp\n" = "syn-vm — QEMU/KVM 仮想マシン\n\nウィンドウ:\n  syn-vm [マシン] [--tab screen|overview|settings|snapshots] [--new-window]\n  syn-vm --screenshot 画像.png [--size 幅x高さ] [--scale N] [--open マシン] [--tab …] [--wizard ステップ]   ウィンドウのスクリーンショット\n\nマシン（マシン — 名前または id）:\n  --list [--json]                        マシンとその状態\n  --status マシン [--json]               状態、エージェント、ゲスト OS、アドレス、ポート\n  --start マシン [--wait-boot [秒]]      ウィンドウなしで起動（ゲストエージェントを待機）\n  --stop マシン [--force] [--timeout 秒]  シャットダウン（エージェントまたは ACPI）。--force — タイムアウトで強制切断\n  --kill マシン                          即座に電源オフ\n  --reset | --pause | --resume マシン\n  --wait-boot マシン [--timeout 秒]      ゲストエージェントが応答するまで待機（300 秒）\n  --new 名前 [--iso イメージ] [--os linux|windows11|windows10|bsd|android|other]\n        [--disk ファイル …] [--vars ファイル] [--tpm ディレクトリ] [--cpus N] [--memory MB] [--disk-gb N]\n        [--firmware bios|uefi|uefi-secure] [--disk-bus virtio|sata|nvme] [--nic virtio|e1000e|rtl8139]\n        [--fwd [udp:]ホスト:ゲスト …] [--public] [--share ディレクトリ] [--set キー=値 …]\n                                          新しいマシン。--disk 付きで既存マシンをインポート（ディスクはその場に残り、\n                                          UEFI 変数と TPM はマシンのフォルダーにコピー。\n                                          転送は 127.0.0.1 で待ち受け、--public — すべてのアドレス）\n  --delete マシン --yes                  マシンとそのフォルダー内のディスクを削除\n  --get マシン [キー]                    設定（TOML）または単一の値\n  --set マシン キー=値 …                 設定を変更（値 — TOML または文字列）\n\nゲスト（ゲストエージェント qemu-ga 経由）:\n  --exec マシン [--timeout 秒] [--env K=V …] [--stdin] [--raw] -- プログラム [引数…]\n                                          （Windows の出力は OEM コードページから UTF-8 に変換。--raw — そのまま）\n  --sh マシン [--timeout 秒] 'コマンド'  ゲストのシェル経由（sh -c / cmd /c）\n       --detach（--exec と --sh）— 待たずにゲスト内の pid を表示\n  --exec-status マシン PID [--wait 秒]  バックグラウンドコマンドの結果: 出力と終了コード。125 — 実行中\n                                          （エージェントは出力を一度だけ返す）\n  --push マシン ファイル ゲストのパス    ゲストへファイルを送る\n  --pull マシン ゲストのパス ファイル    ゲストからファイルを取得\n  --agent マシン コマンド [JSON]         エージェントの生コマンド（guest-info、guest-get-osinfo…）\n  --sync-time マシン                     ゲストの時計をコンピューターに合わせる\n\n画面と入力（ウィンドウなし、エージェントなしでも動作）:\n  --screendump マシン ファイル.png       ゲスト画面のフレーム\n  --type マシン 'テキスト'               テキストを入力（US 配列、\\n — Enter）\n  --key マシン 組み合わせ                ctrl+alt+delete、alt+f4、win+r、enter…\n  --click マシン X Y [--right|--middle] [--double] [--move]   フレームのピクセル座標でクリック\n  --scroll マシン ステップ数             ホイール（> 0 — 下）\n\nデバイス:\n  --devices [--json]                     ゲストに渡せるもの: PCI、入力、ディスク、ポート、USB\n  --usb マシン list|attach|detach [ポート] 物理ポート単位の USB（3-6、1-2.4）\n  --attach マシン 種類:ID                pci:02:00.0、input:/dev/input/by-id/…、block:/dev/sdb、\n                                          block-ro:/dev/sdb1、serial:/dev/ttyUSB0、usb-id:VID:PID、usb:3-6\n  --detach マシン 種類:ID\n  --cdrom マシン イメージ|eject          ドライブ内のイメージ\n  --tools マシン [on|off|download|イメージ.iso]  「ゲストツール」ディスク（virtio-win）\n\nゲスト画面の録画（ネイティブ解像度、一定のフレームレート、ffmpeg: NVENC/VAAPI/x264）:\n  --record マシン [ファイル.mp4] [--fps 30|60] [--audio|--no-audio] [--duration 秒]\n                                          --duration なし — --record-stop までバックグラウンド。音声 — マシンで有効な場合\n  --record-stop マシン                   停止してファイルを待ち、結果を表示\n\nその他:\n  --snapshot マシン list|create|restore|delete [名前]\n  --qmp マシン コマンド [JSON]           QMP の生コマンド\n  --mcp                                   MCP サーバー（stdio）: claude mcp add syn-vm -- syn-vm --mcp\n"
 "нет машины «{s}» (syn-vm --list)" = "マシン「{s}」がありません（syn-vm --list）"
 "«{name}» не запущена (syn-vm --start {id})" = "「{name}」は起動していません（syn-vm --start {id}）"
@@ -142,6 +143,18 @@
 "доступ к {list} не выдан (pkexec: {code})" = "{list} へのアクセスが許可されませんでした（pkexec: {code}）"
 "не удалось привязать {list} к vfio-pci (pkexec: {code})" = "{list} を vfio-pci にバインドできませんでした（pkexec: {code}）"
 
+# src/gputools.rs
+"Гостевые инструменты syn-gpu — только для Windows" = "syn-gpu ゲストツール: Windows の 3D グラフィックスドライバー"
+"Нет образа {iso} (SYN_GPU_TOOLS, /usr/share/syn-gpu или ~/.local/share/syn-gpu)" = "syn-gpu ゲストツールは Windows 専用です"
+"Образ в привод…" = "イメージ {iso} がありません（SYN_GPU_TOOLS、/usr/share/syn-gpu または ~/.local/share/syn-gpu）"
+"Ждём гостевой агент…" = "イメージをドライブへ…"
+"Гость не видит диск SYNGPU — образ вставлен?" = "ゲストエージェントを待機中…"
+"Установка в госте…" = "ゲストに SYNGPU ディスクが見えません — イメージは挿入されていますか？"
+"Перезагрузка гостя (тестовая подпись)…" = "ゲストにインストール中…"
+"Установка не удалась (код {code}):\n{tail}" = "ゲストを再起動中（テスト署名）…"
+"Установлено" = "インストールに失敗しました（コード {code}）:\n{tail}"
+"Гостевые инструменты syn-gpu не установлены" = "インストール済み"
+
 # src/main.rs
 "неизвестный ключ {k} (syn-vm --help)" = "不明なオプション {k}（syn-vm --help）"
 "Виртуальные машины" = "仮想マシン"
@@ -272,6 +285,7 @@
 "SMB" = "SMB"
 "Общий буфер обмена: включить (канал qemu-vdagent; в госте — служба spice-agent или spice-vdagent из «Гостевых инструментов»)" = "共有クリップボード：有効にする（qemu-vdagent チャネル。ゲストでは「ゲストツール」の spice-agent または spice-vdagent サービス）"
 "Гостевой агент: включить" = "ゲストエージェント: 有効にする"
+"Прошивка: UEFI без Secure Boot — драйверу syn-gpu нужна тестовая подпись" = "syn-gpu ゲストツールがインストールされていません"
 "Видео: {from} → virtio-vga (с драйвером VirtIO GPU из «Гостевых инструментов» — любое разрешение, разрешение подстраивается под окно, быстрая отрисовка)" = "ビデオ: {from} → virtio-vga（「ゲストツール」の VirtIO GPU ドライバーで — 任意の解像度、解像度がウィンドウに追従、高速描画）"
 "Диск «Гостевые инструменты»: вставлять при запуске" = "「ゲストツール」ディスク: 起動時に挿入"
 "Диск SATA медленнее virtio. Перевести на virtio можно после установки «Гостевых инструментов» (драйвер viostor): сделайте снимок, поменяйте шину диска в настройках и запустите машину; не загрузится — верните снимок." = "SATA ディスクは virtio より低速です。「ゲストツール」（viostor ドライバー）をインストールした後に virtio へ切り替えられます: スナップショットを作成し、設定でディスクのバスを変更してマシンを起動してください。起動しなければスナップショットに戻してください。"
@@ -376,6 +390,7 @@
 "нет" = "なし"
 "Инструменты: {tools}; видео: {video}; служба буфера обмена: {clip}" = "ツール：{tools}、映像：{video}、クリップボードサービス：{clip}"
 "не установлены" = "未インストール"
+"Гостевые инструменты syn-gpu…" = "ファームウェア: Secure Boot なしの UEFI — syn-gpu ドライバーにはテスト署名が必要です"
 
 # src/ui/library.rs
 "Создайте машину из образа системы — Linux, Windows, BSD" = "システムイメージからマシンを作成 — Linux、Windows、BSD"
@@ -578,6 +593,12 @@
 "3D-ускорение (syn-gpu)" = "3D アクセラレーション（syn-gpu）"
 "Своя видеокарта для игр: Vulkan и DirectX через DXVK, кадры игр — прямо в окно. Windows с драйвером syn-gpu: прошивка UEFI без Secure Boot, в госте bcdedit /set testsigning on" = "ゲーム用の専用グラフィックカード：DXVK 経由で Vulkan と DirectX、ゲームのフレームをウィンドウへ直接表示。syn-gpu ドライバー搭載の Windows：Secure Boot なしの UEFI ファームウェア、ゲストで bcdedit /set testsigning on"
 "Нужен сервер syn-gpu (проект qemu-vulkan-driver): переменная SYN_GPU или syn-gpu в PATH" = "syn-gpu サーバー（qemu-vulkan-driver プロジェクト）が必要です：SYN_GPU 変数または PATH 内の syn-gpu"
+"Secure Boot выключен: драйверу syn-gpu нужна тестовая подпись" = "syn-gpu ゲストツール…"
+"Установить" = "Secure Boot はオフ: syn-gpu ドライバーにはテスト署名が必要です"
+"Состояние в госте" = "ゲストの状態"
+"Гостевые инструменты syn-gpu" = "インストール"
+"Драйвер видеокарты в Windows: образ в привод, установка через гостевой агент, при необходимости — перезагрузка" = "syn-gpu ゲストツール"
+"Нет образа syn-gpu-guest-tools.iso (SYN_GPU_TOOLS, /usr/share/syn-gpu или ~/.local/share/syn-gpu)" = "Windows のグラフィックスドライバー: イメージをドライブへ、ゲストエージェント経由でインストール、必要なら再起動"
 "Через PipeWire компьютера" = "コンピューターの PipeWire 経由"
 "Вывод звука" = "音声出力"
 "Динамики или наушники для гостя" = "ゲスト用のスピーカーまたはヘッドフォン"
@@ -613,7 +634,6 @@
 "Вставлять при запуске" = "起動時に挿入"
 "Гостевые инструменты" = "ゲストツール"
 "Установить или обновить" = "インストールまたは更新"
-"Состояние в госте" = "ゲストの状態"
 "Установка в госте" = "ゲストへのインストール"
 "Образ в привод и virtio-win-guest-tools.exe — сам, если агент уже отвечает" = "イメージをドライブに入れて virtio-win-guest-tools.exe を実行 — エージェントが応答していれば自動"
 "qemu-guest-agent и spice-vdagent — через агент или вручную" = "qemu-guest-agent と spice-vdagent — エージェント経由または手動"

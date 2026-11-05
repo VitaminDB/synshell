@@ -430,8 +430,35 @@ fn devices(st: St, vm: &Vm) -> W {
                 } else {
                     t!("Нужен сервер syn-gpu (проект qemu-vulkan-driver): переменная SYN_GPU или syn-gpu в PATH")
                 },
-                Toggle::with_state(vm.gpu3d).on_change(move |b| state::edit(st, |v| v.gpu3d = b)),
+                Toggle::with_state(vm.gpu3d).on_change(move |b| {
+                    let mut sb = false;
+                    state::edit(st, |v| {
+                        v.gpu3d = b;
+                        // Драйверу syn-gpu нужна тестовая подпись — с Secure Boot она не включится.
+                        if b && v.firmware == model::Firmware::UefiSecure {
+                            v.firmware = model::Firmware::Uefi;
+                            sb = true;
+                        }
+                    });
+                    if sb {
+                        state::toast(st, t!("Secure Boot выключен: драйверу syn-gpu нужна тестовая подпись"));
+                    }
+                }),
             ),
+            {
+                // Гостевые инструменты syn-gpu: драйвер видеокарты в госте одной кнопкой.
+                let (a, b) = (vm.id.clone(), vm.id.clone());
+                let on = st.power(&vm.id).on();
+                let acts = Row::new()
+                    .gap(8.0)
+                    .child(if on { btn(icons::SYNC, t!("Установить"), "soft", move || state::gpu_tools(st, &a, true)) } else { parts::btn_disabled(icons::SYNC, t!("Установить"), "soft") })
+                    .child(if on { btn(icons::INFO, t!("Состояние в госте"), "ghost", move || state::gpu_tools(st, &b, false)) } else { parts::btn_disabled(icons::INFO, t!("Состояние в госте"), "ghost") });
+                row(
+                    t!("Гостевые инструменты syn-gpu"),
+                    if crate::gputools::iso().is_some() { t!("Драйвер видеокарты в Windows: образ в привод, установка через гостевой агент, при необходимости — перезагрузка") } else { t!("Нет образа syn-gpu-guest-tools.iso (SYN_GPU_TOOLS, /usr/share/syn-gpu или ~/.local/share/syn-gpu)") },
+                    acts,
+                )
+            },
             row(t!("Звук"), t!("Через PipeWire компьютера"), Toggle::with_state(vm.sound).on_change(move |b| state::edit(st, |v| v.sound = b))),
             row(t!("Вывод звука"), t!("Динамики или наушники для гостя"), DecoratedBox::new().child(audio(false, vm.audio_out.clone()))),
             row(t!("Микрофон"), t!("Что гость слышит как вход"), DecoratedBox::new().child(audio(true, vm.audio_in.clone()))),
