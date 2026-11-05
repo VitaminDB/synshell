@@ -44,6 +44,12 @@ pub fn socket_path() -> PathBuf {
     std::env::var_os("SYNAPTIXD_SOCKET").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(SOCKET))
 }
 
+/// Служба нейросетей установлена (её сокет есть или программа на месте). Нет — нейросетевые
+/// функции не «сломаны», их просто нет: synshell ставится и без synaptix.
+pub fn installed() -> bool {
+    socket_path().exists() || ["/usr/bin/synaptixd", "/usr/local/bin/synaptixd"].iter().any(|p| std::path::Path::new(p).exists())
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum DeviceKind {

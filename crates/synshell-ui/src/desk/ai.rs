@@ -154,7 +154,7 @@ fn offline(cx: &Cx) -> Box<dyn Widget> {
         Column::new()
             .main_axis_alignment(MainAxisAlignment::Center)
             .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(Text::new(t!("Служба нейросетей не отвечает")).max_lines(2).class("desk-k"))
+            .child(Text::new(if synaptixd::installed() { t!("Служба нейросетей не отвечает") } else { t!("Нейросети не установлены — нужен пакет synaptix") }).max_lines(2).class("desk-k"))
             .style("height", StyleValue::px(cx.h)),
     )
 }

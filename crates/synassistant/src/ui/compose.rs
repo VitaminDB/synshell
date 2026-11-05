@@ -107,7 +107,7 @@ pub fn compose(st: St) -> W {
         if s.online && s.llm.is_some() {
             return vec![];
         }
-        let text = if !s.online { t!("Служба нейросетей не отвечает — ответы недоступны") } else { t!("Языковая модель не установлена: Параметры → Нейросети") };
+        let text = if !s.online && !synaptixd::installed() { t!("Нейросети не установлены — нужен пакет synaptix") } else if !s.online { t!("Служба нейросетей не отвечает — ответы недоступны") } else { t!("Языковая модель не установлена: Параметры → Нейросети") };
         vec![boxed(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(icons::CLOUD).class("ic warn-ic")).child(Text::new(text).max_lines(2).class("warn-text")))]
     });
     boxed(

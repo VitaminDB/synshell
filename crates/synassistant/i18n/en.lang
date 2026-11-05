@@ -116,3 +116,4 @@
 "Вернуться к тексту (Esc)" = "Back to text (Esc)"
 "Завершить голосовой разговор" = "End the voice conversation"
 "Сейчас сделаю, это займёт немного времени." = "On it, this will take a little while."
+"Нейросети не установлены — нужен пакет synaptix" = "Neural networks are not installed — the synaptix package is needed"

@@ -1949,3 +1949,4 @@
 "Сигнальный процессор гасит постоянный шум двумя микрофонами (верхний ловит шум) — для всех программ. Полоса — как у звонка; музыку лучше писать без него" = "The signal processor removes steady noise with two microphones (the top one picks up the noise) — for all apps. Bandwidth as in a call; record music without it"
 "Шумоподавление включено" = "Noise suppression on"
 "Шумоподавление выключено" = "Noise suppression off"
+"Нейросети не установлены — нужен пакет synaptix" = "Neural networks are not installed — the synaptix package is needed"

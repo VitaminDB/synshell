@@ -573,7 +573,7 @@ fn kind_page(ctx: state::Ctx, sig: RwSignal<Snapshot>, kind: ModelKind) -> W {
     let body = Reactive::new(move || -> Vec<W> {
         let snap = sig.get();
         if snap.status.is_none() {
-            return vec![note(t!("Служба нейросетей не отвечает"))];
+            return vec![note(if synaptixd::installed() { t!("Служба нейросетей не отвечает") } else { t!("Нейросети не установлены — нужен пакет synaptix") })];
         }
         let items: Vec<W> = snap
             .models
@@ -610,7 +610,7 @@ fn task_row(kind: ModelKind, control: W, open: Option<W>) -> W {
 fn defaults_page(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
     let choices = choices_signal();
     let body = Reactive::new(move || -> Vec<W> {
-        let Some(ch) = choices.get() else { return vec![note(t!("Служба нейросетей не отвечает"))] };
+        let Some(ch) = choices.get() else { return vec![note(if synaptixd::installed() { t!("Служба нейросетей не отвечает") } else { t!("Нейросети не установлены — нужен пакет synaptix") })] };
         let mut rows: Vec<W> = Vec::new();
         for d in &ch.defaults {
             let kind = d.kind;
@@ -659,7 +659,7 @@ fn defaults_page(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
 fn service_page(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
     let body = Reactive::new(move || -> Vec<W> {
         let snap = sig.get();
-        let Some(st) = snap.status.as_ref() else { return vec![note(t!("Служба нейросетей не отвечает"))] };
+        let Some(st) = snap.status.as_ref() else { return vec![note(if synaptixd::installed() { t!("Служба нейросетей не отвечает") } else { t!("Нейросети не установлены — нужен пакет synaptix") })] };
         let devs: Vec<String> = st.devices.iter().map(|d| device_label(*d)).collect();
         vec![group(
             t!("Служба"),
@@ -1692,7 +1692,7 @@ fn vram_page(ctx: state::Ctx, sig: RwSignal<Snapshot>) -> W {
     let filter = use_signal(String::new());
     let body = Reactive::new(move || -> Vec<W> {
         let snap = sig.get();
-        let Some(st) = snap.status.clone() else { return vec![note(t!("Служба нейросетей не отвечает"))] };
+        let Some(st) = snap.status.clone() else { return vec![note(if synaptixd::installed() { t!("Служба нейросетей не отвечает") } else { t!("Нейросети не установлены — нужен пакет synaptix") })] };
         if !st.devices.contains(&DeviceKind::Cuda) {
             return vec![note(t!("Видеокарта NVIDIA (CUDA) службе недоступна — уступать нечего."))];
         }

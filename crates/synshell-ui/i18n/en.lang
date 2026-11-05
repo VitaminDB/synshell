@@ -847,3 +847,4 @@
 # src/shade.rs — профили E Ink
 "Редактор профилей…" = "Profile editor…"
 "Создать, назвать и настроить профили" = "Create, name and tune profiles"
+"Нейросети не установлены — нужен пакет synaptix" = "Neural networks are not installed — the synaptix package is needed"
