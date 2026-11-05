@@ -22,7 +22,7 @@ use std::time::Duration;
 use crate::pam_session;
 use crate::users;
 
-/// Запрос экрана входа: имя пользователя (или `!poweroff`, `!reboot`).
+/// Запрос экрана входа: имя пользователя (или `!poweroff`, `!reboot`, `!reboot-android`).
 pub const REQUEST: &str = "/run/synlogin/request";
 /// Каталоги XDG_RUNTIME_DIR сеансов: `/run/synlogin/session/UID`.
 const SESSIONS: &str = "/run/synlogin/session";
@@ -344,8 +344,24 @@ fn power_request(req: &str) {
         "!reboot" => {
             let _ = Command::new("systemctl").arg("reboot").status();
         }
+        "!reboot-android" => {
+            // Выбор системы следующей загрузки — syn-boot (меню boot.img или BCB в misc).
+            let bin = ["/usr/local/bin/syn-boot", "/usr/bin/syn-boot"].into_iter().find(|p| std::path::Path::new(p).exists()).unwrap_or("syn-boot");
+            match Command::new(bin).arg("android").status() {
+                Ok(st) if st.success() => {
+                    log::info!("следующая загрузка — Android");
+                    let _ = Command::new("systemctl").arg("reboot").status();
+                }
+                r => log::error!("syn-boot android не удался ({r:?}) — перезагрузка отменена"),
+            }
+        }
         _ => {}
     }
+}
+
+/// Можно ли перезагрузиться в Android: меню boot.img (diting) или BCB в разделе misc.
+pub fn android_boot_available() -> bool {
+    std::path::Path::new("/android/data/local/tmp/syn").is_dir() || std::path::Path::new("/etc/synmobile/boot-bcb").is_file()
 }
 
 pub fn run() -> ! {
@@ -363,7 +379,7 @@ pub fn run() -> ! {
                 // Экран входа упал или композитор не поднялся — не крутиться.
                 std::thread::sleep(Duration::from_secs(2));
             }
-            "!poweroff" | "!reboot" => power_request(req),
+            "!poweroff" | "!reboot" | "!reboot-android" => power_request(req),
             name => match users::find(name) {
                 Some(u) => run_session(&u),
                 None => log::warn!("нет пользователя {name}"),

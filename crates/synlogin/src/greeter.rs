@@ -1,7 +1,9 @@
 //! Экран входа (`synlogin greeter`) — «оболочка» композитора, запущенного
 //! демоном: часы, пользователи карточками, пароль, создание нового
-//! пользователя, перезагрузка и выключение. Своя экранная клавиатура
-//! (syngui `OnScreenKeyboard`) — отдельного демона клавиатуры здесь нет.
+//! пользователя, перезагрузка (в том числе в Android) и выключение. Нет ни
+//! одного пользователя (чистая установка) — сразу экран создания первого.
+//! Экранная клавиатура — та же, что в оболочке: демон synkeyboard в
+//! композиторе экрана входа, показ и скрытие — его командами.
 //!
 //! Вход: пароль проверяется PAM (`synshell_ui::lock::authenticate`), имя
 //! пишется в `/run/synlogin/request`, композитор завершается — демон
@@ -9,7 +11,6 @@
 
 use syngui::async_runtime::run_on_main_thread;
 use syngui::prelude::*;
-use syngui::widgets::input::on_screen_keyboard::{on_screen_keyboard, KeyboardLayout, KeyboardState};
 use syngui::GestureDetector;
 use syngui_layer::{Anchor, KeyboardInteractivity, Layer, SurfaceSpec};
 
@@ -34,11 +35,11 @@ struct St {
     values: RwSignal<Vec<String>>,
     admin: RwSignal<bool>,
     osk: RwSignal<bool>,
-    /// Состояние экранной клавиатуры (раскладка переживает смену поля).
-    kbd: KeyboardState,
-    /// Растёт при вводе с экранной клавиатуры — поля перестраиваются с
-    /// новым текстом; ввод с физической клавиатуры их не пересобирает.
+    /// Растёт, когда поля надо пересобрать (сброс, переход к следующему полю);
+    /// обычный ввод их не пересобирает.
     osk_rev: RwSignal<u64>,
+    /// Первое нажатие «в Android» — подсказка «нажмите ещё раз».
+    android_confirm: RwSignal<bool>,
     now: RwSignal<i64>,
     /// Ползунок масштаба экрана открыт.
     zoom_open: RwSignal<bool>,
@@ -102,6 +103,7 @@ pub fn run() {
     }
     let mss = style.build();
     let outputs_cfg = cfg.outputs.clone();
+    start_keyboard();
     let r = syngui_layer::run(syngui_layer::RunOptions::default(), &mss, move || {
         let st = St {
             stage: use_signal(Stage::Users),
@@ -112,13 +114,8 @@ pub fn run() {
             values: use_signal(vec![String::new(); 4]),
             admin: use_signal(true),
             osk: use_signal(phone()),
-            kbd: {
-                let k = KeyboardState::new("");
-                // D-pad не нужен: физическая клавиатура пишет в поле сама.
-                k.active.set(false);
-                k
-            },
             osk_rev: use_signal(0),
+            android_confirm: use_signal(false),
             now: use_signal(minute_now()),
             zoom_open: use_signal(false),
             zoom: use_signal(current_zoom(&outputs_cfg)),
@@ -136,21 +133,41 @@ pub fn run() {
                 _ => system_config(),
             };
             synshell_common::i18n::apply(&cfg);
+            // Смена экрана (и языка) перестраивает его с анимацией; уходящий экран снимает фокус
+            // с поля — после анимации поля пересобираются, и нужное снова получает фокус.
+            syngui_layer::add_timer(std::time::Duration::from_millis(if eink { 50 } else { 400 }), move || {
+                st.osk_rev.set(st.osk_rev.get_untracked() + 1);
+                None
+            });
         });
-        // Один пользователь — сразу к паролю.
+        // Один пользователь — сразу к паролю; ни одного (чистая установка) — создать первого.
         let us = st.users.get_untracked();
         if us.len() == 1 {
             st.stage.set(Stage::Password(us[0].clone()));
+        } else if us.is_empty() {
+            st.stage.set(Stage::Create);
         }
+        // Клавиатура оболочки: видна, когда есть что набирать (и не выключена кнопкой).
+        create_effect(move || {
+            let show = st.osk.get()
+                && match st.stage.get() {
+                    Stage::Users => false,
+                    Stage::Password(u) => !users::has_empty_password(&u.name),
+                    Stage::Create => true,
+                };
+            osk(if show { "show dock" } else { "hide" });
+        });
         let outs = syngui_layer::outputs().get_untracked();
         for o in outs {
+            // Слой Top и без своей исключительной зоны: клавиатура (тоже Top, создана позже —
+            // поверх) отнимает низ экрана, и поля остаются над ней.
             let spec = SurfaceSpec {
                 namespace: "synlogin".into(),
-                layer: Layer::Overlay,
+                layer: Layer::Top,
                 anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
                 size: (0, 0),
                 margin: [0; 4],
-                exclusive_zone: -1,
+                exclusive_zone: 0,
                 keyboard: KeyboardInteractivity::Exclusive,
                 output: Some(o.name.clone()),
                 auto_size: false,
@@ -159,10 +176,49 @@ pub fn run() {
             syngui_layer::create_surface(spec, move || Box::new(view(st)));
         }
     });
+    stop_keyboard();
     if let Err(e) = r {
         log::error!("экран входа: {e:#}");
         std::process::exit(1);
     }
+}
+
+/// Демон клавиатуры оболочки в композиторе экрана входа.
+static KEYBOARD: std::sync::Mutex<Option<std::process::Child>> = std::sync::Mutex::new(None);
+
+fn start_keyboard() {
+    let child = std::process::Command::new("synkeyboard")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .spawn();
+    match child {
+        Ok(c) => *KEYBOARD.lock().unwrap() = Some(c),
+        Err(e) => log::warn!("экранная клавиатура synkeyboard не запущена: {e}"),
+    }
+}
+
+fn stop_keyboard() {
+    if let Some(mut c) = KEYBOARD.lock().unwrap().take() {
+        let _ = c.kill();
+        let _ = c.wait();
+    }
+}
+
+/// Команда клавиатуре (`show dock`, `hide`) — в фоне: демон мог ещё не подняться.
+fn osk(cmd: &'static str) {
+    if KEYBOARD.lock().unwrap().is_none() {
+        return;
+    }
+    std::thread::spawn(move || {
+        for _ in 0..30 {
+            let ok = std::process::Command::new("synkeyboard").args(cmd.split(' ')).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success());
+            if ok {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        log::warn!("synkeyboard {cmd}: демон не ответил");
+    });
 }
 
 /// `[rotation]` композитора экрана входа (конфиг root).
@@ -269,10 +325,9 @@ fn reset_values(st: St) {
     st.osk_rev.set(st.osk_rev.get_untracked() + 1);
 }
 
-/// Экранная клавиатура переключается на поле `i`.
+/// Ввод идёт в поле `i`.
 fn select_field(st: St, i: usize) {
     st.field.set(i);
-    st.kbd.text.set(st.values.get_untracked().get(i).cloned().unwrap_or_default());
 }
 
 /// Войти: проверить пароль (пустой — вход без пароля), сообщить демону и
@@ -315,11 +370,21 @@ fn finish(request: &str) {
 fn create(st: St) {
     let v = st.values.get_untracked();
     let (login_name, full, p1, p2) = (v[0].trim().to_string(), v[1].trim().to_string(), v[2].clone(), v[3].clone());
+    let first = st.users.get_untracked().is_empty();
+    if !users::valid_login(&login_name) {
+        st.error.set(t!("Логин: латинские строчные буквы, цифры, _ и -, начинается с буквы").into());
+        return;
+    }
+    // Первый пользователь — администратор (sudo): без пароля ему нельзя.
+    if first && p1.is_empty() {
+        st.error.set(t!("Задайте пароль — он нужен для входа и для sudo").into());
+        return;
+    }
     if p1 != p2 {
         st.error.set(t!("Пароли не совпадают").into());
         return;
     }
-    let admin = st.admin.get_untracked();
+    let admin = first || st.admin.get_untracked();
     st.busy.set(true);
     std::thread::spawn(move || {
         let r = users::create(&login_name, &full, &p1, admin);
@@ -388,35 +453,33 @@ fn view(st: St) -> impl Widget {
             .animate_size(false),
         )]
     });
-    let keyboard = Reactive::new(move || -> Vec<Box<dyn Widget>> {
-        let show = st.osk.get()
-            && match st.stage.get() {
-                Stage::Users => false,
-                Stage::Password(u) => !users::has_empty_password(&u.name),
-                Stage::Create => true,
-            };
-        if !show {
-            return vec![];
-        }
-        let kb = on_screen_keyboard(st.kbd, KeyboardLayout::text_en_ru("OK"))
-            .gap(5.0)
-            .stretch(44.0)
-            .on_change(move |t| {
-                set_value(st, st.field.get_untracked(), t.to_string());
-                st.osk_rev.set(st.osk_rev.get_untracked() + 1);
-            })
-            .on_submit(move |_| submit(st))
-            .build();
-        // Во всю ширину экрана без полей корня.
-        let w = (syngui::viewport::viewport_size().get().width - 12.0).clamp(280.0, 720.0);
-        vec![Box::new(DecoratedBox::new().child(kb).class("osk").style("width", w))]
-    });
-    let power = Row::new()
+    let mut power = Row::new()
         .gap(10.0)
         .child(round_btn("\u{E8AC}", || finish("!poweroff")))
-        .child(round_btn("\u{E5D5}", || finish("!reboot")))
+        .child(round_btn("\u{E5D5}", || finish("!reboot")));
+    // Перезагрузка в Android — двумя нажатиями (первое — подсказка).
+    if crate::daemon::android_boot_available() {
+        power = power.child(round_btn("\u{E859}", move || {
+            if st.android_confirm.get_untracked() {
+                finish("!reboot-android");
+            } else {
+                st.android_confirm.set(true);
+                syngui_layer::add_timer(std::time::Duration::from_secs(4), move || {
+                    st.android_confirm.set(false);
+                    None
+                });
+            }
+        }));
+    }
+    let power = power
         .child(round_btn("\u{E312}", move || st.osk.set(!st.osk.get_untracked())))
         .child(round_btn("\u{E8FF}", move || st.zoom_open.set(!st.zoom_open.get_untracked())));
+    let android_hint = Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        if !st.android_confirm.get() {
+            return vec![];
+        }
+        vec![Box::new(Text::new(t!("Нажмите ещё раз — перезагрузка в Android")).class("hint"))]
+    });
     let zoom = Reactive::new(move || -> Vec<Box<dyn Widget>> {
         if !st.zoom_open.get() {
             return vec![];
@@ -432,7 +495,7 @@ fn view(st: St) -> impl Widget {
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(clock)
                 .child(body)
-                .child(Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(keyboard).child(zoom).child(power))
+                .child(Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(zoom).child(android_hint).child(power))
                 .class("root"),
         )
 }
@@ -537,12 +600,7 @@ fn field(st: St, i: usize, placeholder: &str, secret: bool) -> impl Widget {
             .placeholder(placeholder)
             .obscure(secret)
             .autofocus(focus)
-            .on_change(move |t| {
-                set_value(st, i, t.to_string());
-                if st.field.get_untracked() == i {
-                    st.kbd.text.set(t.to_string());
-                }
-            })
+            .on_change(move |t| set_value(st, i, t.to_string()))
             .on_submit(move |_| submit(st))
             .class("field"),
     )
@@ -583,6 +641,8 @@ fn password_view(st: St, u: User) -> impl Widget {
 }
 
 fn create_view(st: St) -> impl Widget {
+    // Чистая установка: пользователей нет — это первый, он же администратор, отменить нечего.
+    let first = st.users.get_untracked().is_empty();
     let fields = Reactive::new(move || -> Vec<Box<dyn Widget>> {
         let _ = st.osk_rev.get();
         vec![Box::new(
@@ -590,7 +650,7 @@ fn create_view(st: St) -> impl Widget {
                 .gap(10.0)
                 .child(field(st, 0, &t!("Логин (латиницей)"), false))
                 .child(field(st, 1, &t!("Полное имя"), false))
-                .child(field(st, 2, &t!("Пароль (можно пустой)"), true))
+                .child(field(st, 2, &String::from(if first { t!("Пароль") } else { t!("Пароль (можно пустой)") }), true))
                 .child(field(st, 3, &t!("Повтор пароля"), true)),
         )]
     });
@@ -605,20 +665,25 @@ fn create_view(st: St) -> impl Widget {
                 .child(Text::new(t!("Администратор (sudo, установка программ)")).class("hint")),
         )]
     });
-    Column::new()
-        .gap(14.0)
-        .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(Text::new(t!("Новый пользователь")).class("title"))
-        .child(DecoratedBox::new().child(fields).class("field-box"))
-        .child(admin)
-        .child(err)
-        .child(
-            Row::new()
-                .gap(10.0)
-                .child(GestureDetector::new().on_click(move || {
-                    reset_values(st);
-                    st.stage.set(Stage::Users);
-                }).child(DecoratedBox::new().child(Text::new(t!("Отмена")).class("pill-text")).class("pill")))
-                .child(GestureDetector::new().on_click(move || create(st)).child(DecoratedBox::new().child(Text::new(t!("Создать")).class("pill-text")).class("pill pill-primary"))),
-        )
+    let mut buttons = Row::new().gap(10.0);
+    if !first {
+        buttons = buttons.child(GestureDetector::new().on_click(move || {
+            reset_values(st);
+            st.stage.set(Stage::Users);
+        }).child(DecoratedBox::new().child(Text::new(t!("Отмена")).class("pill-text")).class("pill")));
+    }
+    buttons = buttons.child(GestureDetector::new().on_click(move || create(st)).child(DecoratedBox::new().child(Text::new(t!("Создать")).class("pill-text")).class("pill pill-primary")));
+    let mut col = Column::new().gap(14.0).cross_axis_alignment(CrossAxisAlignment::Center);
+    if first {
+        col = col
+            .child(Text::new(t!("Добро пожаловать")).class("title"))
+            .child(Text::new(t!("Создайте свою учётную запись. Она станет администратором: пароль от неё нужен для sudo и установки программ.")).max_lines(4).class("hint first-hint"));
+    } else {
+        col = col.child(Text::new(t!("Новый пользователь")).class("title"));
+    }
+    col = col.child(DecoratedBox::new().child(fields).class("field-box"));
+    if !first {
+        col = col.child(admin);
+    }
+    col.child(err).child(buttons)
 }

@@ -43,3 +43,6 @@
 .osk-key-on { background-color: var(--accent); }
 .osk-key-text { font-size: 18px; color: #ffffff; }
 .osk-key-action .osk-key-text { font-size: 13px; }
+
+/* Первый запуск: пояснение под «Добро пожаловать». */
+.first-hint { max-width: 420px; text-align: center; }

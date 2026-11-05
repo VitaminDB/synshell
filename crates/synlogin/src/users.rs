@@ -21,7 +21,9 @@ impl User {
 }
 
 pub fn all() -> Vec<User> {
-    let text = std::fs::read_to_string("/etc/passwd").unwrap_or_default();
+    // SYNLOGIN_PASSWD — свой файл пользователей (проверка экрана входа, например «чистая система»).
+    let file = std::env::var("SYNLOGIN_PASSWD").unwrap_or_else(|_| "/etc/passwd".into());
+    let text = std::fs::read_to_string(file).unwrap_or_default();
     text.lines()
         .filter_map(|l| {
             let f: Vec<&str> = l.split(':').collect();
@@ -45,16 +47,15 @@ pub fn find(name: &str) -> Option<User> {
 }
 
 /// Кого показывать на экране входа: обычные пользователи (UID 1000–59999 с
-/// оболочкой входа) и root последним.
+/// оболочкой входа). root не показывается: в сеанс под root не входят, а на
+/// чистой системе он заблокирован (`root:!*`) — пользователь видел бы вход,
+/// пароля от которого нет. Нет никого — экран создания первого пользователя.
 pub fn login_users() -> Vec<User> {
     let mut v: Vec<User> = all()
         .into_iter()
         .filter(|u| (1000..60000).contains(&u.uid) && !u.shell.ends_with("nologin") && !u.shell.ends_with("false"))
         .collect();
     v.sort_by(|a, b| a.name.cmp(&b.name));
-    if let Some(root) = find("root") {
-        v.push(root);
-    }
     v
 }
 
