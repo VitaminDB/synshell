@@ -122,13 +122,17 @@ impl Access {
     }
 }
 
-/// Занять имя бэкенда на шине сеанса и обслуживать `AccessDialog` и выбор файлов
-/// ([`crate::portal_files`]: окно выбора — Проводник).
+/// Занять имя бэкенда на шине сеанса и обслуживать `AccessDialog`, выбор файлов
+/// ([`crate::portal_files`]: окно выбора — Проводник), показ и снимки экрана
+/// ([`crate::portal_screencast`]: выбор монитора — диалог оболочки, захват — syn-screencast).
 /// Соединение живёт, пока жив возвращённый [`Connection`].
-pub fn start(prompter: impl Prompter + 'static) -> Result<Connection, String> {
+pub fn start(prompter: impl Prompter + 'static, picker: impl crate::portal_screencast::ScreenPicker + 'static) -> Result<Connection, String> {
+    let (cast, shot) = crate::portal_screencast::interfaces(picker);
     let conn = zbus::blocking::connection::Builder::session()
         .and_then(|b| b.serve_at(PATH, Access { prompter: Arc::new(prompter) }))
         .and_then(|b| b.serve_at(PATH, crate::portal_files::FileChooser))
+        .and_then(|b| b.serve_at(PATH, cast))
+        .and_then(|b| b.serve_at(PATH, shot))
         .and_then(|b| b.build())
         .map_err(|e| e.to_string())?;
     // без вытеснения: имя уже у другой оболочки — она и обслуживает

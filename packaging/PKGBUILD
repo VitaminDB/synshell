@@ -1,13 +1,13 @@
 # Maintainer: Alexeyev Vitaly
 pkgname=synshell
 pkgver=0.1.42
-pkgrel=174
+pkgrel=175
 pkgdesc="Окружение рабочего стола для Wayland на Rust и syngui: композитор, оболочка, параметры"
 arch=('x86_64')
 license=('GPL-3.0-only')
 depends=('mesa' 'libinput' 'seatd' 'systemd-libs' 'libxkbcommon' 'libdrm' 'vulkan-icd-loader'
          'fontconfig' 'freetype2' 'dbus' 'ffmpeg' 'sqlite' 'libarchive'
-         'xdg-desktop-portal' 'xdg-desktop-portal-wlr')
+         'xdg-desktop-portal' 'pipewire')
 optdepends=('xorg-xwayland: X11-программы'
             'poppler-glib: PDF в читалке заметок'
             'openvino-intel-npu-plugin: нейросети на Intel NPU (Core Ultra), вместе с intel-npu-driver и intel-npu-compiler'
@@ -23,7 +23,6 @@ optdepends=('xorg-xwayland: X11-программы'
             'playerctl: мультимедийные клавиши'
             'wl-clipboard: снимки и пути к ним в буфер обмена'
             'xdg-desktop-portal-kde: портал выбора файлов'
-            'grim: снимки экрана из командной строки'
             'shared-mime-info: типы файлов в проводнике'
             'ffmpegthumbnailer: миниатюры видео в проводнике'
             'libheif: HEIC/HEIF/AVIF в просмотрщике и миниатюрах'
@@ -69,7 +68,7 @@ _profile=${SYNSHELL_PROFILE:-release}
 
 build() {
     cd "$startdir/.."
-    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p syngame-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player -p syn-audio-recorder -p syn-terminal -p syn-maps -p syn-compass -p syngamepad -p synpass -p syncamera -p syndroid -p syn-health -p syn-systeminfo -p syn-vm -p synmodem -p syn-nfc -p syn-remote -p syn-wine-helper -p syn-woman-cycle -p synnfc -p synphone -p synsms -p synfsd -p synassistant -p syn-notes -p syn-blocks -p syn-themeeditor -p syn-epdtest
+    cargo build --profile "$_profile" -p synwm -p syndesktop-shell -p synmobile-shell -p syngame-shell -p synkeyboard -p synsettings -p synfiles -p synshot -p synpkg -p synlogin -p synlink -p synlink-view -p syn-video-player -p syn-audio-player -p syn-audio-recorder -p syn-terminal -p syn-maps -p syn-compass -p syngamepad -p synpass -p syncamera -p syndroid -p syn-health -p syn-systeminfo -p syn-vm -p syn-screencast -p synmodem -p syn-nfc -p syn-remote -p syn-wine-helper -p syn-woman-cycle -p synnfc -p synphone -p synsms -p synfsd -p synassistant -p syn-notes -p syn-blocks -p syn-themeeditor -p syn-epdtest
     # Языковой сервер MSS (syngui): ошибки, дополнение, подсказки в Kate/Helix/VS Code.
     cargo build --profile "$_profile" --manifest-path ../syngui/Cargo.toml -p mss-lsp
     cargo build --profile "$_profile" -p synaptixd --bins --features "synaptixd/${SYNAPTIXD_FEATURES:-cuda},synaptixd/npu"
@@ -82,7 +81,7 @@ check() {
 
 package() {
     cd "$startdir/.."
-    for b in synwm syndesktop-shell synmobile-shell syngame-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player syn-audio-recorder syn-terminal syn-maps syn-compass syngamepad synpass syncamera syndroid syndroidd syn-health syn-systeminfo syn-vm synmodem synmodemd syn-nfc syn-remote syn-wine-helper synnfc synnfcd syn-woman-cycle synphone synsms synfsd synaptixd synaptixctl synassistant syn-notes syn-blocks syn-themeeditor syn-epdtest; do
+    for b in synwm syndesktop-shell synmobile-shell syngame-shell synkeyboard synsettings synfiles synshot synpkg synlogin synlink synlink-view syn-video-player syn-audio-player syn-audio-recorder syn-terminal syn-maps syn-compass syngamepad synpass syncamera syndroid syndroidd syn-health syn-systeminfo syn-vm syn-screencast synmodem synmodemd syn-nfc syn-remote syn-wine-helper synnfc synnfcd syn-woman-cycle synphone synsms synfsd synaptixd synaptixctl synassistant syn-notes syn-blocks syn-themeeditor syn-epdtest; do
         install -Dm755 "target/$_profile/$b" "$pkgdir/usr/bin/$b"
     done
     install -Dm755 "../syngui/target/$_profile/mss-lsp" "$pkgdir/usr/bin/mss-lsp"
@@ -95,7 +94,6 @@ package() {
         install -Dm644 "data/sounds/themes/$t/index.theme" "$pkgdir/usr/share/sounds/$t/index.theme"
         install -Dm644 -t "$pkgdir/usr/share/sounds/$t/stereo" data/sounds/themes/$t/stereo/*
     done
-    install -Dm644 data/xdg-desktop-portal-wlr/synshell "$pkgdir/etc/xdg/xdg-desktop-portal-wlr/synshell"
     install -Dm644 data/synshell-portals.conf "$pkgdir/usr/share/xdg-desktop-portal/synshell-portals.conf"
     install -Dm644 data/synshell.portal "$pkgdir/usr/share/xdg-desktop-portal/portals/synshell.portal"
     install -Dm644 crates/synsettings/data/synsettings.desktop \

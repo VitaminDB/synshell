@@ -66,8 +66,9 @@ tested.
   re-stack, the launcher morphs between sections — all drawn by the shell with syngui animation
   primitives.
 - **Lock screen** built into the shell (ext-session-lock, password checked through PAM), idle
-  handling, screen capture for portals (`wlr-screencopy`, works with xdg-desktop-portal-wlr for
-  browsers and OBS).
+  handling, its own screen-sharing and screenshot portal (ScreenCast/Screenshot: monitor picked in a
+  shell dialog, frames from synwm over `wlr-screencopy` straight into PipeWire buffers by
+  `syn-screencast`) for browsers, OBS and other apps.
 
 | Launcher | Tile layout |
 |---|---|
@@ -92,7 +93,7 @@ cargo build --release                     # LTO build → target/release
 The workspace sets `rust-version = "1.85"`. Build and runtime dependencies (Arch package names):
 mesa, libinput, seatd, systemd-libs, libxkbcommon, libdrm, vulkan-icd-loader, fontconfig,
 freetype2, dbus. Optional ones — xorg-xwayland, wireplumber, brightnessctl, networkmanager,
-playerctl, wl-clipboard, xdg-desktop-portal-wlr, ffmpegthumbnailer, libheif, imagemagick,
+playerctl, wl-clipboard, ffmpegthumbnailer, libheif, imagemagick,
 breeze-icons — are listed with their purpose in the [PKGBUILD](packaging/PKGBUILD).
 
 **Nested, inside your current Wayland or X11 session** (it runs in a window):

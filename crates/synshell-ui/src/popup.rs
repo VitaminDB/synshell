@@ -81,6 +81,7 @@ fn width_of(kind: &PopupKind, ctx: &ShellCtx) -> f32 {
         PopupKind::DeskItem(_) | PopupKind::DeskFile(_) => 280.0,
         PopupKind::LinkPair(_) => 360.0,
         PopupKind::LocationAsk(_) | PopupKind::AccessAsk(_) => 400.0,
+        PopupKind::ScreenAsk(_) => 440.0,
     }
 }
 
@@ -477,6 +478,7 @@ fn content_inner(kind: &PopupKind, ctx: ShellCtx) -> Box<dyn Widget> {
         PopupKind::LinkPair(id) => Box::new(crate::link::pair_view(ctx, id.clone())),
         PopupKind::LocationAsk(id) => Box::new(crate::location::ask_view(ctx, *id)),
         PopupKind::AccessAsk(id) => Box::new(crate::access::ask_view(ctx, *id)),
+        PopupKind::ScreenAsk(id) => Box::new(crate::access::screen_view(ctx, *id)),
         PopupKind::WifiConnect { ssid } => Box::new(crate::netmenu::connect_view(ctx, ssid.clone())),
         PopupKind::Battery => Box::new(battery(ctx)),
         PopupKind::Power => Box::new(power()),

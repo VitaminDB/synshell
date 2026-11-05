@@ -1,0 +1,21 @@
+[package]
+name = "syn-screencast"
+description = "Демонстрация экрана для портала synshell: кадры synwm (wlr-screencopy) — видеоисточником PipeWire, снимки для портала Screenshot"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "syn-screencast"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+libc.workspace = true
+serde_json.workspace = true
+pipewire = { version = "0.9", features = ["v0_3_45"] }
+wayland-client = "0.31"
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+wayland-protocols = { version = "0.32", features = ["client"] }
+image = { version = "0.25", default-features = false, features = ["png"] }

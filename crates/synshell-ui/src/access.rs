@@ -12,6 +12,7 @@ use syngui::async_runtime::run_on_main_thread;
 use syngui::input::MouseButton;
 use syngui::prelude::*;
 use synsystem::portal_access::{self, AccessRequest, Prompter};
+use synsystem::portal_screencast::{ScreenAsk, ScreenPicker, ScreenRequest};
 
 use crate::ctx::{PopupKind, ShellCtx};
 use crate::ui::{icon, mi, InputArea};
@@ -80,7 +81,7 @@ pub fn start(ctx: ShellCtx) {
     let _ = ctx;
     std::thread::Builder::new()
         .name("shell-portal-access".into())
-        .spawn(|| match portal_access::start(UiPrompter) {
+        .spawn(|| match portal_access::start(UiPrompter, UiScreenPicker) {
             Ok(c) => {
                 let _ = CONN.set(c);
             }
@@ -159,4 +160,111 @@ fn view(id: u64) -> Box<dyn Widget> {
                 .child(button(grant.unwrap_or_else(|| t!("Разрешить").into()), true, move || answer(id, true))),
         ),
     )
+}
+
+// ─── Показ и снимок экрана (порталы ScreenCast и Screenshot) ────────────
+
+/// Вопросы «какой экран» в ожидании ответа (первый — на экране).
+static SCREEN_PENDING: Mutex<Vec<ScreenRequest>> = Mutex::new(Vec::new());
+
+struct UiScreenPicker;
+
+impl ScreenPicker for UiScreenPicker {
+    fn ask(&self, req: ScreenRequest) {
+        let first = {
+            let mut p = SCREEN_PENDING.lock().unwrap();
+            p.push(req);
+            p.len() == 1
+        };
+        if first {
+            run_on_main_thread(show_next_screen);
+        }
+    }
+
+    fn cancel(&self, id: u64) {
+        let had = {
+            let mut p = SCREEN_PENDING.lock().unwrap();
+            let n = p.len();
+            p.retain(|r| r.id != id);
+            n != p.len()
+        };
+        if !had {
+            return;
+        }
+        run_on_main_thread(move || {
+            let ctx = ShellCtx::get();
+            if ctx.popup.get_untracked().is_some_and(|p| p.kind == PopupKind::ScreenAsk(id)) {
+                ctx.close_popup();
+            }
+            show_next_screen();
+        });
+    }
+}
+
+fn show_next_screen() {
+    let ctx = ShellCtx::get();
+    let Some(id) = SCREEN_PENDING.lock().unwrap().first().map(|r| r.id) else { return };
+    if ctx.popup.get_untracked().is_some_and(|p| matches!(p.kind, PopupKind::ScreenAsk(_))) {
+        return;
+    }
+    crate::shade::close();
+    ctx.open_popup(PopupKind::ScreenAsk(id), crate::commands::centered());
+}
+
+/// Ответ: выводы (пусто — отказ).
+fn answer_screen(id: u64, outputs: Vec<String>) {
+    let req = {
+        let mut p = SCREEN_PENDING.lock().unwrap();
+        p.iter().position(|r| r.id == id).map(|i| p.remove(i))
+    };
+    if let Some(r) = req {
+        r.respond(outputs);
+    }
+    ShellCtx::get().close_popup();
+    show_next_screen();
+}
+
+/// Диалог «Программа хочет показывать экран»: монитор — кнопкой, «Отмена».
+pub fn screen_view(_ctx: ShellCtx, id: u64) -> impl Widget {
+    crate::ui::rx(move || screen_dialog(id))
+}
+
+fn screen_dialog(id: u64) -> Box<dyn Widget> {
+    let req = SCREEN_PENDING.lock().unwrap().iter().find(|r| r.id == id).map(|r| (r.app_id.clone(), r.kind, r.outputs.clone(), r.multiple));
+    let Some((app_id, kind, outputs, multiple)) = req else {
+        return Box::new(Text::new(t!("Запрос закрыт")).class("popup-text"));
+    };
+    let entry = (!app_id.is_empty()).then(|| crate::xdg::app_by_id(&app_id)).flatten();
+    let who = entry.as_ref().map(|e| e.name.clone()).unwrap_or_else(|| t!("Программа").into());
+    let pic: Box<dyn Widget> = match entry.as_ref().and_then(|e| crate::xdg::lookup_icon(&e.icon)) {
+        Some(p) => Box::new(Image::new(p.to_string_lossy()).fit(ImageFit::Contain).placeholder(false).class("location-app-icon")),
+        None => Box::new(DecoratedBox::new().child(icon(mi::DESKTOP).class("link-avatar-icon link-avatar-icon-big")).class("link-avatar link-avatar-big")),
+    };
+    let title = match kind {
+        ScreenAsk::Cast => t!("{who} хочет показывать экран", who = who),
+        ScreenAsk::Shot => t!("{who} хочет сделать снимок экрана", who = who),
+    };
+    let hint = match kind {
+        ScreenAsk::Cast => t!("Всё, что на выбранном мониторе, увидит программа (и те, кому она его покажет), пока показ не закончится."),
+        ScreenAsk::Shot => t!("Программа получит снимок выбранного монитора."),
+    };
+    let mut col = Column::new()
+        .gap(12.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(pic)
+        .child(Text::new(title).max_lines(3).class("link-pair-title"))
+        .child(Text::new(hint).max_lines(4).class("link-pair-text"));
+    let mut list = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+    for o in &outputs {
+        let name = o.name.clone();
+        let desc = o.description.split(" - ").filter(|s| *s != o.name).take(2).collect::<Vec<_>>().join(" ");
+        let label = if desc.is_empty() { format!("{} · {}×{}", o.name, o.width, o.height) } else { format!("{} · {} · {}×{}", o.name, desc, o.width, o.height) };
+        list = list.child(button(label, outputs.len() == 1, move || answer_screen(id, vec![name.clone()])));
+    }
+    if multiple && outputs.len() > 1 {
+        let all: Vec<String> = outputs.iter().map(|o| o.name.clone()).collect();
+        list = list.child(button(t!("Все мониторы").into(), false, move || answer_screen(id, all.clone())));
+    }
+    col = col.child(list);
+    Box::new(col.child(button(t!("Отмена").into(), false, move || answer_screen(id, Vec::new()))))
 }

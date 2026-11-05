@@ -23,6 +23,7 @@ pub mod packages;
 pub mod polkit_agent;
 pub mod portal_access;
 pub mod portal_files;
+pub mod portal_screencast;
 pub mod procs;
 pub mod sound;
 pub mod thermal;
