@@ -18,6 +18,8 @@ enum Ev {
 
 struct Cap {
     id: String,
+    vm: Vm,
+    st: crate::state::St,
     tx: Sender<Ev>,
     /// Блокировка указателя уже подтверждена (на Wayland — не сразу после запроса).
     locked_seen: bool,
@@ -51,7 +53,7 @@ pub fn active(id: &str) -> bool {
     if c.locked_seen {
         // Окно потеряло фокус — syngui уже отпустил указатель; привести своё в порядок.
         drop(g);
-        stop();
+        stop("указатель отпущен (окно потеряло фокус?)");
         return false;
     }
     true
@@ -60,7 +62,11 @@ pub fn active(id: &str) -> bool {
 /// Включить захват (в фоне: относительная мышь подключается около секунды): мышь гостя —
 /// относительной, указатель — запереть. Итог и ошибки — уведомлением и в журнал.
 pub fn start(st: crate::state::St, vm: &Vm) {
-    stop();
+    if CAP.lock().unwrap().as_ref().is_some_and(|c| c.id == vm.id) {
+        log(vm, "уже включён — повторный вход пропущен");
+        return;
+    }
+    stop("вход у другой машины");
     let v = vm.clone();
     std::thread::spawn(move || {
         log(&v, "подключаю относительную мышь");
@@ -138,14 +144,19 @@ fn lock(st: crate::state::St, vm: Vm) {
     syngui::signal::on_raw_motion(Some(Box::new(move |dx, dy| {
         let _ = mtx.send(Ev::Motion(dx, dy));
     })));
-    *CAP.lock().unwrap() = Some(Cap { id: vm.id.clone(), tx, locked_seen: false });
+    *CAP.lock().unwrap() = Some(Cap { id: vm.id.clone(), vm: vm.clone(), st, tx, locked_seen: false });
     log(&vm, "включён");
+    // Панель над экраном — скрыть (перерисовка).
+    st.frame_tick.update(|t| *t = t.wrapping_add(1));
     crate::state::toast(st, t!("Мышь захвачена игрой — Ctrl+Alt, чтобы освободить"));
 }
 
 /// Выключить захват: указатель и сочетания — системе, мышь гостя — снова планшет.
-pub fn stop() {
+pub fn stop(reason: &str) {
     let Some(c) = CAP.lock().unwrap().take() else { return };
+    log(&c.vm, &format!("выход: {reason}"));
+    let st = c.st;
+    run_on_main_thread(move || st.frame_tick.update(|t| *t = t.wrapping_add(1)));
     syngui::signal::on_raw_motion(None);
     let _ = syngui::signal::set_pointer_lock(false);
     let _ = syngui::signal::inhibit_shortcuts(false);

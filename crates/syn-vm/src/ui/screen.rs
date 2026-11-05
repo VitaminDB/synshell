@@ -52,14 +52,53 @@ pub fn page(st: St, full: bool) -> W {
             // Кадр игры (syn-gpu) — поверх, в месте окна игры на экране гостя, тем же масштабом.
             let Some(layer) = state::game_layer(&id) else { return vec![boxed(screen)] };
             let Some((x, y, w, h)) = game_rect(st, fit, layer.rect) else { return vec![boxed(screen)] };
-            let game = Positioned::new(LiveView::new(layer.frame.clone()).fit(ImageFit::Fill)).at(x, y).dimensions(w, h);
+            // Ввод над слоем — гостю: доли слоя → доли кадра гостя (окно игры x,y,w,h).
+            let (s3, id3) = (s.clone(), id.clone());
+            let (gw, gh) = st.guest_size.get_untracked();
+            let (lx, ly, lw, lh) = layer.rect;
+            let map = move |fx: f32, fy: f32| -> (f32, f32) {
+                ((lx as f32 + fx * lw as f32) / gw.max(1) as f32, (ly as f32 + fy * lh as f32) / gh.max(1) as f32)
+            };
+            let game_view = LiveView::new(layer.frame.clone()).fit(ImageFit::Fill).cursor(CursorIcon::None).on_input(move |e| {
+                let e = match e {
+                    LiveInput::Move { x, y } => {
+                        let (x, y) = map(x, y);
+                        LiveInput::Move { x, y }
+                    }
+                    LiveInput::Down { button, x, y } => {
+                        let (x, y) = map(x, y);
+                        if let Some(vm) = st.vm(&id3) {
+                            super::capture::log(&vm, &format!("щелчок по слою игры → гостю {:.0},{:.0}", x * gw as f32, y * gh as f32));
+                        }
+                        LiveInput::Down { button, x, y }
+                    }
+                    LiveInput::Up { button, x, y } => {
+                        let (x, y) = map(x, y);
+                        LiveInput::Up { button, x, y }
+                    }
+                    LiveInput::Wheel { dx, dy, x, y } => {
+                        let (x, y) = map(x, y);
+                        LiveInput::Wheel { dx, dy, x, y }
+                    }
+                    other => other,
+                };
+                input(st, &id3, &s3, e)
+            });
+            let game = Positioned::new(game_view).at(x, y).dimensions(w, h);
             vec![boxed(Stack::new().fit(StackFit::Expand).child(screen).child(game))]
         });
         let mut stack = Stack::new().fit(StackFit::Expand).child(view);
         if power == Power::Paused {
             stack = stack.child(paused_veil(st, &vm.id));
         }
-        stack = stack.child(toolbar(st, &vm.id, full));
+        let tid = vm.id.clone();
+        stack = stack.child(Reactive::new(move || -> Vec<W> {
+            st.frame_tick.get();
+            if super::capture::active(&tid) {
+                return vec![];
+            }
+            vec![toolbar(st, &tid, full)]
+        }));
         vec![boxed(DecoratedBox::new().child(stack).class(if full { "screen-wrap full" } else { "screen-wrap" }))]
     }))
 }
@@ -129,7 +168,7 @@ fn input(st: St, id: &str, s: &crate::vnc::Session, e: LiveInput) {
                 if pressed && matches!(key, Key::Ctrl | Key::Alt) && CTRL.load(Ordering::Relaxed) && ALT.load(Ordering::Relaxed) {
                     s.key(0x1d, 0, false);
                     s.key(0x38, 0, false);
-                    super::capture::stop();
+                    super::capture::stop("Ctrl+Alt");
                     state::toast(st, t!("Мышь освобождена"));
                     return;
                 }
