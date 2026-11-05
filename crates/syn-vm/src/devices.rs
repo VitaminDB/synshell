@@ -834,10 +834,14 @@ pub fn vfio_watch(vm: &Vm) {
 
 /// Наблюдатель USB-портов (`syn-vm --usb-watch МАШИНА`, живёт, пока работает машина).
 /// QEMU сам подхватывает новое устройство в порту (`usb-host,hostbus=,hostport=`), но не
-/// всегда: libusb видит устройство раньше, чем udev откроет его на запись по правилу порта,
-/// открыть не может и больше не пробует. Поэтому при каждом новом устройстве в порту
-/// наблюдатель через 2 с проверяет, есть ли оно у гостя (`info usb`), и если нет —
-/// переподключает (`device_del` + `device_add`).
+/// всегда, и бывает два сбоя:
+/// 1. libusb видит устройство раньше, чем udev откроет его на запись по правилу порта, —
+///    QEMU не может его открыть и больше не пробует: устройства нет в `info usb`;
+/// 2. QEMU устройство отдал, но гость не смог его настроить (Android сразу после загрузки
+///    переключает USB-функции, SET_CONFIGURATION → EPIPE): в госте оно без интерфейсов.
+/// Поэтому 30 с после каждой смены устройства в порту наблюдатель проверяет оба места
+/// (гостя — через гостевой агент, если он отвечает) и при сбое дольше 3 с переподключает
+/// (`device_del` + `device_add`), не больше трёх раз подряд.
 pub fn usb_watch(id: &str) {
     use std::collections::HashMap;
     use std::time::Instant;
@@ -854,13 +858,20 @@ pub fn usb_watch(id: &str) {
             let _ = writeln!(f, "{} {m}", chrono_now());
         }
     };
+    struct Watch {
+        until: Instant,
+        next: Instant,
+        bad_since: Option<Instant>,
+        replugs: u32,
+    }
     let mut last: HashMap<String, Option<String>> = HashMap::new();
-    let mut due: HashMap<String, Instant> = HashMap::new();
+    let mut watch: HashMap<String, Watch> = HashMap::new();
     while crate::qemu::pid(&vm).is_some() {
+        let now = Instant::now();
         // Порты перечитываются: их добавляют и убирают на ходу.
         let ports: Vec<String> = crate::cli::find(id).map(|v| v.usb.into_iter().map(|u| u.port).collect()).unwrap_or_default();
         last.retain(|p, _| ports.contains(p));
-        due.retain(|p, _| ports.contains(p));
+        watch.retain(|p, _| ports.contains(p));
         for p in &ports {
             let key = crate::usb::dev_key(p);
             match last.get(p) {
@@ -870,47 +881,99 @@ pub fn usb_watch(id: &str) {
                 }
                 Some(old) if *old != key => {
                     if key.is_some() {
-                        due.insert(p.clone(), Instant::now() + Duration::from_secs(2));
+                        watch.insert(p.clone(), Watch { until: now + Duration::from_secs(30), next: now + Duration::from_secs(2), bad_since: None, replugs: 0 });
                     }
                     last.insert(p.clone(), key);
                 }
                 _ => {}
             }
         }
-        let ready: Vec<String> = due.iter().filter(|(_, t)| Instant::now() >= **t).map(|(p, _)| p.clone()).collect();
-        for p in ready {
-            due.remove(&p);
-            if crate::usb::dev_key(&p).is_none() {
+        for (p, w) in watch.iter_mut() {
+            if now < w.next {
                 continue;
             }
-            let qid = crate::usb::qemu_id(&p);
-            let has = crate::qmp::hmp(&vm, "info usb").map(|o| o.contains(&format!("ID: {qid}"))).unwrap_or(true);
-            if has {
-                continue;
-            }
-            log(format!("{p}: устройство не у гостя — переподключаю"));
-            let _ = crate::qmp::usb_detach(&vm, &p);
-            let mut ok = false;
-            for _ in 0..10 {
-                std::thread::sleep(Duration::from_millis(300));
-                match crate::qmp::usb_attach(&vm, &p) {
-                    Ok(()) => {
-                        ok = true;
-                        break;
-                    }
-                    // device_del ещё не закончился.
-                    Err(e) if e.to_string().contains("Duplicate") => continue,
-                    Err(e) => {
-                        log(format!("{p}: {e}"));
-                        break;
+            let Some(dev) = crate::usb::at(p) else { continue };
+            let qid = crate::usb::qemu_id(p);
+            let in_qemu = crate::qmp::hmp(&vm, "info usb").map(|o| o.contains(&format!("ID: {qid}"))).unwrap_or(true);
+            let problem = if !in_qemu {
+                Some("нет у QEMU")
+            } else {
+                match guest_usb_ok(&vm, &dev.vendor, &dev.product) {
+                    Some(false) => Some("в госте без интерфейсов"),
+                    _ => None,
+                }
+            };
+            match problem {
+                None => {
+                    w.bad_since = None;
+                    w.next = now + Duration::from_secs(5);
+                }
+                Some(why) => {
+                    let since = *w.bad_since.get_or_insert(now);
+                    // QEMU не открыл устройство — сразу; гость — после 3 с (мог ещё настраивать).
+                    if (!in_qemu || now.duration_since(since) >= Duration::from_secs(3)) && w.replugs < 3 {
+                        log(format!("{p} {}:{}: {why} — переподключаю", dev.vendor, dev.product));
+                        replug(&vm, p, &log);
+                        w.replugs += 1;
+                        w.bad_since = None;
+                        w.until = now + Duration::from_secs(30);
+                        w.next = now + Duration::from_secs(4);
+                    } else {
+                        w.next = now + Duration::from_secs(1);
                     }
                 }
             }
-            if ok {
+        }
+        watch.retain(|_, w| now < w.until);
+        std::thread::sleep(Duration::from_secs(1));
+    }
+}
+
+fn replug(vm: &Vm, p: &str, log: &dyn Fn(String)) {
+    let _ = crate::qmp::usb_detach(vm, p);
+    for _ in 0..10 {
+        std::thread::sleep(Duration::from_millis(300));
+        match crate::qmp::usb_attach(vm, p) {
+            Ok(()) => {
                 log(format!("{p}: переподключён"));
+                return;
+            }
+            // device_del ещё не закончился.
+            Err(e) if e.to_string().contains("Duplicate") => continue,
+            Err(e) => {
+                log(format!("{p}: {e}"));
+                return;
             }
         }
-        std::thread::sleep(Duration::from_secs(1));
+    }
+}
+
+/// Устройство VID:PID в госте настроено (есть конфигурация)? `None` — гостевой агент не
+/// отвечает или устройства в госте пока нет (не считается сбоем).
+fn guest_usb_ok(vm: &Vm, vid: &str, pid: &str) -> Option<bool> {
+    let (vid, pid) = (vid.to_ascii_lowercase(), pid.to_ascii_lowercase());
+    if !vid.chars().chain(pid.chars()).all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let argv: Vec<String> = if crate::qga::guest_is_windows(vm) {
+        // Только сбой USB (43 — дескриптор/остановлено, 10 — не запускается), не «нет драйвера» (28).
+        let ps = format!(
+            "$d=Get-CimInstance Win32_PnPEntity -Filter \"DeviceID LIKE 'USB\\\\VID_{v}&PID_{p}%'\"; if(-not $d){{'absent'}}elseif($d | ? {{ $_.ConfigManagerErrorCode -in 10,43 }}){{'broken'}}else{{'ok'}}",
+            v = vid.to_ascii_uppercase(),
+            p = pid.to_ascii_uppercase()
+        );
+        vec!["powershell.exe".into(), "-NoProfile".into(), "-Command".into(), ps]
+    } else {
+        let sh = format!(
+            "f=0; for d in /sys/bus/usb/devices/*; do [ -f \"$d/idVendor\" ] || continue; [ \"$(cat $d/idVendor)\" = {vid} ] && [ \"$(cat $d/idProduct)\" = {pid} ] || continue; f=1; [ -n \"$(cat $d/bConfigurationValue 2>/dev/null)\" ] && {{ echo ok; exit 0; }}; done; [ $f = 1 ] && echo broken || echo absent"
+        );
+        vec!["/bin/sh".into(), "-c".into(), sh]
+    };
+    let r = crate::qga::exec(vm, &argv, None, &[], Duration::from_secs(8)).ok()?;
+    match String::from_utf8_lossy(&r.stdout).trim() {
+        "ok" => Some(true),
+        "broken" => Some(false),
+        _ => None,
     }
 }
 

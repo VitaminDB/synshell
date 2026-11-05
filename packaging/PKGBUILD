@@ -20,7 +20,7 @@ pkgname=(synshell synshell-core synshell-mobile synshell-game synshell-link syns
          syn-remote syn-systeminfo syn-themeeditor syn-woman-cycle syndroid syn-wine-helper
          syncamera syn-blocks syn-epdtest syn-quitsmoke mss-lsp)
 pkgver=0.1.42
-pkgrel=191
+pkgrel=192
 pkgdesc="Окружение рабочего стола для Wayland на Rust и syngui"
 arch=('x86_64' 'aarch64')
 url="https://github.com/VitaminDB/synshell"
