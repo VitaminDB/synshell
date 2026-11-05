@@ -1034,7 +1034,10 @@ pub fn run(p: Pane, id: &str) {
                 ctx.dialog.set(Some(Dialog::OpenWith { paths, mime: f.mime.clone() }));
             }
         }
-        "refresh" => state::load(p, Some(state::selected_paths(p))),
+        "refresh" => {
+            state::load(p, Some(state::selected_paths(p)));
+            state::osd(t!("Обновлено"));
+        }
         "new-tab" => {
             state::new_tab(loc.clone(), true);
         }

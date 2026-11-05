@@ -534,6 +534,14 @@ ProgressBar {
 
 .toast-wrap { padding: 0px 0px 44px 0px; }
 
+/* Неброская подсказка посреди окна («Обновлено»). */
+.osd {
+    background: #000000a0;
+    border-radius: 999px;
+    padding: 6px 14px;
+}
+.osd-text { font-size: 12px; color: #ffffffd8; }
+
 .toast {
     background: var(--surface);
     border: 1px solid var(--border);

@@ -645,6 +645,7 @@ pub fn root() -> W {
         .child(fab_layer())
         .child(super::app::jobs_layer())
         .child(super::app::toast_layer())
+        .child(super::app::osd_layer())
         .class("grow");
     let main = Column::new()
         .cross_axis_alignment(CrossAxisAlignment::Stretch)

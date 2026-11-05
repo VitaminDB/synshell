@@ -175,6 +175,15 @@ fn zoom_bar() -> W {
     }))
 }
 
+/// Неброская подсказка посреди окна («Обновлено»).
+pub(super) fn osd_layer() -> W {
+    let osd = Reactive::new(move || -> Vec<W> {
+        let Some((_, text)) = state::ctx().osd.get() else { return vec![] };
+        vec![boxed(DecoratedBox::new().class("osd").child(Text::new(text).class("osd-text")))]
+    });
+    boxed(Column::new().main_axis_alignment(MainAxisAlignment::Center).cross_axis_alignment(CrossAxisAlignment::Center).child(osd))
+}
+
 pub(super) fn toast_layer() -> W {
     let toast = Reactive::new(move || -> Vec<W> {
         let Some(t) = state::ctx().toast.get() else { return vec![] };
@@ -338,6 +347,7 @@ fn desktop_root() -> W {
                 .child(main)
                 .child(jobs_layer())
                 .child(toast_layer())
+                .child(osd_layer())
                 .child(super::settings::layer(false))
                 .child(super::dialogs::dialogs())
                 .child(menu_layer()),

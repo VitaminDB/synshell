@@ -298,7 +298,12 @@ pub fn nav_bar() -> W {
                     &if loading { t!("Остановить") } else { t!("Обновить (F5)") },
                     "nav-btn",
                     true,
-                    move || state::load(p, Some(state::selected_paths(p))),
+                    move || {
+                        state::load(p, Some(state::selected_paths(p)));
+                        if !loading {
+                            state::osd(t!("Обновлено"));
+                        }
+                    },
                 )),
         )]
     });

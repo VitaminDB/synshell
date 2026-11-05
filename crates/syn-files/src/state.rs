@@ -145,6 +145,8 @@ pub struct Ctx {
     pub marks_rev: RwSignal<u64>,
     pub places_rev: RwSignal<u64>,
     pub toast: RwSignal<Option<Toast>>,
+    /// Неброская подсказка посреди окна («Обновлено») — на секунду.
+    pub osd: RwSignal<Option<(u64, String)>>,
     pub menu: RwSignal<Vec<MenuItem>>,
     pub menu_open: RwSignal<bool>,
     pub menu_pos: RwSignal<Point>,
@@ -240,6 +242,7 @@ pub fn init(cfg: Config, start: Vec<Location>) -> Ctx {
         marks_rev: use_signal(0u64),
         places_rev: use_signal(0u64),
         toast: use_signal(None),
+        osd: use_signal(None),
         menu: use_signal(Vec::new()),
         menu_open: use_signal(false),
         menu_pos: use_signal(Point::zero()),
@@ -807,6 +810,23 @@ pub fn menu_selected(id: &str) {
 }
 
 // ---------------------------------------------------------------- сообщения
+
+/// Неброская подсказка посреди окна на секунду (без значка и кнопок).
+pub fn osd(text: impl Into<String>) {
+    let Some(ctx) = try_ctx() else { return };
+    let id = next_id();
+    ctx.osd.set(Some((id, text.into())));
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(900));
+        run_on_main_thread(move || {
+            if let Some(ctx) = try_ctx() {
+                if ctx.osd.get_untracked().map(|o| o.0) == Some(id) {
+                    ctx.osd.set(None);
+                }
+            }
+        });
+    });
+}
 
 pub fn toast(text: impl Into<String>) {
     show_toast(text.into(), ToastKind::Info, false);
