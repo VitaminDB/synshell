@@ -17,7 +17,7 @@ pkgname=(synshell synshell-core synshell-mobile synshell-game synshell-link syns
          syn-remote syn-systeminfo syn-themeeditor syn-woman-cycle syndroid syn-wine-helper
          syncamera syn-blocks syn-epdtest mss-lsp)
 pkgver=0.1.42
-pkgrel=182
+pkgrel=183
 pkgdesc="Окружение рабочего стола для Wayland на Rust и syngui"
 arch=('x86_64' 'aarch64')
 url="https://github.com/VitaminDB/synshell"
@@ -101,7 +101,7 @@ package_synshell() {
 package_synshell-core() {
     pkgdesc="synshell: композитор synwm, оболочка, экран входа, клавиатура, снимки и показ экрана, параметры, проводник, терминал, установка программ"
     depends=('mesa' 'libinput' 'seatd' 'systemd-libs' 'libxkbcommon' 'libdrm' 'vulkan-icd-loader'
-             'fontconfig' 'freetype2' 'dbus' 'ffmpeg' 'sqlite' 'libarchive' 'xdg-desktop-portal' 'pipewire')
+             'fontconfig' 'freetype2' 'ttf-font' 'dbus' 'ffmpeg' 'sqlite' 'libarchive' 'xdg-desktop-portal' 'pipewire')
     optdepends=('xorg-xwayland: X11-программы'
                 'wireplumber: громкость (wpctl)'
                 'sound-theme-freedesktop: звуковая тема freedesktop (запасная для событий)'

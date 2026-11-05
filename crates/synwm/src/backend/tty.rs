@@ -582,6 +582,9 @@ pub fn scan_connectors(state: &mut State, node: DrmNode) {
     }
     // Новые.
     let mut added = false;
+    // Шаблон ignore_outputs отбрасывает служебные коннекторы (writeback «Virtual-1» на телефоне) рядом
+    // с настоящим экраном; у виртуальной машины единственный экран называется так же — его не гасить.
+    let all_ignored = !connected.is_empty() && connected.iter().all(|i| state.core.config.output_ignored(&format!("{}-{}", i.interface().as_str(), i.interface_id())));
     for info in connected {
         let crate::backend::Backend::Tty(t) = &mut state.backend else { return };
         let device = t.devices.get_mut(&node).unwrap();
@@ -589,7 +592,7 @@ pub fn scan_connectors(state: &mut State, node: DrmNode) {
             continue;
         }
         let name = format!("{}-{}", info.interface().as_str(), info.interface_id());
-        if state.core.config.output_ignored(&name) {
+        if state.core.config.output_ignored(&name) && !all_ignored {
             tracing::info!(name, "вывод пропущен (platform.ignore_outputs)");
             continue;
         }
