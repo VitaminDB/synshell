@@ -1,0 +1,331 @@
+# Выпуск synshell для `syngui package --workspace -f arch|tar|aur` (syngui-cli).
+# Пакеты, файлы и метаданные pacman; описание полей — syngui/syngui-cli/README.md.
+name = "synshell"
+url = "https://github.com/VitaminDB/synshell"
+license = ["GPL-3.0-only"]
+maintainer = "Alexeyev Vitaly"
+makedepends = ["cargo", "rust", "git", "clang", "pkgconf", "mesa", "libinput", "seatd", "libxkbcommon", "libdrm", "fontconfig", "freetype2", "dbus", "ffmpeg", "sqlite", "libarchive", "pipewire", "alsa-lib", "fuse3"]
+# C-части крейтов (ring, zstd) с -flto из makepkg.conf не линкуются с Rust.
+options = ["!lto"]
+
+# Служба нейросетей: cuda (NVIDIA), npu (Intel); без них — только процессор. SYNAPTIXD_FEATURES=cuda — переопределить.
+[crates.synaptixd]
+features = ["cuda", "npu"]
+features_env = "SYNAPTIXD_FEATURES"
+
+[packages.synshell]
+description = "Окружение рабочего стола synshell: основа и приложения (без нейросетей)"
+description_en = "synshell desktop environment: core and applications (without the neural-network service)"
+depends = ["synshell-core", "synshell-link", "synshell-game", "syn-notes", "syn-vm", "syn-video-player", "syn-audio-player", "syn-audio-recorder", "synpass", "syn-maps", "syn-remote", "syn-systeminfo", "syn-themeeditor", "syn-woman-cycle", "syndroid", "syn-wine-helper", "syncamera", "syn-blocks"]
+optdepends = [
+  "synshell-ai: ассистент (нужна служба нейросетей synaptix)",
+  "synshell-mobile: оболочка и службы телефона",
+]
+optdepends_en = [
+  "synshell-ai: assistant (needs the synaptix service)",
+  "synshell-mobile: phone shell and services",
+]
+
+[packages.synshell-core]
+description = "synshell: композитор synwm, оболочка, экран входа, клавиатура, снимки и показ экрана, параметры, проводник, терминал, установка программ"
+description_en = "synshell: synwm compositor, shell, login screen, on-screen keyboard, screenshots and screen sharing, settings, file manager, terminal, software center"
+depends = ["mesa", "libinput", "seatd", "systemd-libs", "libxkbcommon", "libdrm", "vulkan-icd-loader", "fontconfig", "freetype2", "ttf-font", "dbus", "ffmpeg", "sqlite", "libarchive", "xdg-desktop-portal", "pipewire"]
+bins = ["synwm", "syndesktop-shell", "synlogin", "synkeyboard", "syn-screencast", "synfsd"]
+apps = ["synsettings", "synpkg", "synfiles", "synshot", "syn-terminal"]
+provides = ["syndesktop"]
+conflicts = ["syndesktop"]
+replaces = ["syndesktop"]
+optdepends = [
+  "xorg-xwayland: X11-программы",
+  "wireplumber: громкость (wpctl)",
+  "sound-theme-freedesktop: звуковая тема freedesktop (запасная для событий)",
+  "brightnessctl: яркость",
+  "networkmanager: апплет сети",
+  "iwd: Wi-Fi (или networkmanager)",
+  "bluez: Bluetooth",
+  "playerctl: мультимедийные клавиши",
+  "wl-clipboard: снимки и пути к ним в буфер обмена",
+  "xdg-desktop-portal-kde: запасной портал выбора файлов",
+  "shared-mime-info: типы файлов в проводнике",
+  "ffmpegthumbnailer: миниатюры видео в проводнике",
+  "libheif: HEIC/HEIF/AVIF в просмотрщике и миниатюрах",
+  "imagemagick: редкие форматы картинок (JPEG XL, RAW…) в просмотрщике",
+  "breeze-icons: тема значков по умолчанию",
+  "archlinux-appstream-data: категории, значки и снимки программ в synpkg",
+  "polkit: установка программ (synpkg) без root",
+  "base-devel: сборка пакетов AUR в synpkg",
+  "pacman-contrib: проверка обновлений без root (checkupdates)",
+  "udisks2: флешки и диски в проводнике",
+  "gvfs-mtp: телефоны Android в проводнике (MTP)",
+  "gvfs-gphoto2: камеры в проводнике (PTP)",
+  "gvfs-afc: iPhone в проводнике",
+  "gvfs-smb: сетевые папки Windows и Samba в проводнике",
+  "git: метки git в проводнике",
+  "fuse3: архивы как папки в проводнике",
+  "intel-media-driver: аппаратное видео на Intel",
+  "libva-mesa-driver: аппаратное видео на AMD",
+  "nvidia-utils: кодер NVENC",
+]
+optdepends_en = [
+  "xorg-xwayland: X11 applications",
+  "wireplumber: volume control (wpctl)",
+  "sound-theme-freedesktop: freedesktop sound theme (event fallback)",
+  "brightnessctl: brightness",
+  "networkmanager: network applet",
+  "iwd: Wi-Fi (or networkmanager)",
+  "bluez: Bluetooth",
+  "playerctl: media keys",
+  "wl-clipboard: screenshots and paths to the clipboard",
+  "xdg-desktop-portal-kde: fallback file chooser portal",
+  "shared-mime-info: file types in the file manager",
+  "ffmpegthumbnailer: video thumbnails in the file manager",
+  "libheif: HEIC/HEIF/AVIF in the image viewer and thumbnails",
+  "imagemagick: rare image formats (JPEG XL, RAW…) in the image viewer",
+  "breeze-icons: default icon theme",
+  "archlinux-appstream-data: categories, icons and screenshots in the software center",
+  "polkit: installing software without root",
+  "base-devel: building AUR packages in the software center",
+  "pacman-contrib: update checks without root (checkupdates)",
+  "udisks2: USB drives and disks in the file manager",
+  "gvfs-mtp: Android phones in the file manager (MTP)",
+  "gvfs-gphoto2: cameras in the file manager (PTP)",
+  "gvfs-afc: iPhone in the file manager",
+  "gvfs-smb: Windows and Samba shares in the file manager",
+  "git: git status in the file manager",
+  "fuse3: archives as folders; files of linked devices",
+  "intel-media-driver: hardware video on Intel",
+  "libva-mesa-driver: hardware video on AMD",
+  "nvidia-utils: NVIDIA driver (NVENC, neural networks on the GPU)",
+]
+install = "packaging/synshell-core.install"
+files = [
+  { from = "crates/syn-files/data/synfiles-viewer.desktop", to = "usr/share/applications/" },
+  { from = "data/synshell-session", to = "usr/bin/", mode = "755" },
+  { from = "data/synshell.desktop", to = "usr/share/wayland-sessions/" },
+  { from = "data/sounds/themes/*", to = "usr/share/sounds/" },
+  { from = "data/synshell-portals.conf", to = "usr/share/xdg-desktop-portal/" },
+  { from = "data/synshell.portal", to = "usr/share/xdg-desktop-portal/portals/" },
+  { from = "crates/syn-pkg/data/pacman-helper", to = "usr/lib/synpkg/", mode = "755" },
+  { from = "crates/syn-pkg/data/org.synshell.synpkg.policy", to = "usr/share/polkit-1/actions/" },
+  { run = "echo '[Default Applications]'; cat crates/*/data/defaults.mimeapps | grep -v '^#' | grep '='", to = "usr/share/applications/synshell-mimeapps.list" },
+  { from = "crates/synshell-ui/data/syndesktop-lock.pam", to = "etc/pam.d/syndesktop-lock" },
+  { from = "crates/syn-login/data/synlogin.pam", to = "etc/pam.d/synlogin" },
+  { from = "crates/syn-login/data/synlogin.service", to = "usr/lib/systemd/system/" },
+  { from = "crates/syn-fsd/data/synfsd.service", to = "usr/lib/systemd/system/" },
+  { from = "docs/FSD.md", to = "usr/share/doc/synshell/" },
+  { from = "crates/synshell-common/default-config.toml", to = "usr/share/doc/synshell/config.toml.example" },
+]
+links = { "usr/bin/syndesktop" = "synwm" }
+
+[packages.synshell-mobile]
+description = "synshell для телефона: мобильная оболочка, модем (звонки, SMS, сеть), NFC, компас, шаги"
+description_en = "synshell for phones: mobile shell, modem (calls, SMS, data), NFC, compass, step counter"
+depends = ["synshell-core"]
+bins = ["synmobile-shell", "synmodem", "synmodemd", "synnfc", "synnfcd"]
+apps = ["synphone", "synsms", "syn-nfc", "syn-compass", "syn-health"]
+
+[packages.synshell-game]
+description = "synshell: игровой режим (полноэкранная оболочка для геймпада) и экранный контроллер"
+description_en = "synshell: game mode (full-screen gamepad shell) and on-screen controller"
+depends = ["synshell-core"]
+bins = ["syngame-shell", "syngamepad"]
+
+[packages.synshell-link]
+description = "synshell: связь компьютера и телефона — экран, ввод, файлы, уведомления (synlink)"
+description_en = "synshell: computer and phone link — screen, input, files, notifications (synlink)"
+depends = ["synshell-core"]
+bins = ["synlink"]
+apps = ["synlink-view"]
+optdepends = [
+  "openssh: ssh на связанные устройства",
+  "fuse3: файлы связанных устройств в проводнике",
+]
+optdepends_en = [
+  "openssh: ssh to linked devices",
+  "fuse3: archives as folders; files of linked devices",
+]
+install = "packaging/synshell-link.install"
+files = [
+  { from = "crates/syn-link/autostart/synlink.desktop", to = "etc/xdg/autostart/" },
+  { from = "crates/syn-link/data/80-synlink-usb.network", to = "usr/lib/systemd/network/" },
+]
+
+[packages.synshell-ai]
+description = "synshell: ассистент — чаты, голосовой режим, инструменты (служба нейросетей synaptix)"
+description_en = "synshell: assistant — chats, voice mode, tools (needs the synaptix service)"
+depends = ["synshell-core", "synaptix"]
+apps = ["synassistant"]
+
+[packages.synaptix]
+description = "Служба нейросетей synaptix: языковые модели, речь, картинки и видео для всех программ — на видеокарте NVIDIA, Intel NPU или процессоре"
+description_en = "synaptix neural-network service: language models, speech, images and video for all apps — on NVIDIA GPU, Intel NPU or CPU"
+depends = ["gcc-libs"]
+bins = ["synaptixd", "synaptixctl"]
+backup = ["etc/synaptix/synaptixd.toml"]
+dirs = ["usr/share/synaptix/models"]
+optdepends = [
+  "nvidia-utils: драйвер NVIDIA (libcuda) — нейросети на видеокарте",
+  "cuda: компилятор ядер NVRTC для видеокарты NVIDIA",
+  "openvino-intel-npu-plugin: нейросети на Intel NPU (Core Ultra), вместе с intel-npu-driver и intel-npu-compiler",
+  "intel-npu-driver: драйвер Intel NPU",
+  "intel-npu-compiler: компилятор графов Intel NPU",
+]
+optdepends_en = [
+  "nvidia-utils: NVIDIA driver (NVENC, neural networks on the GPU)",
+  "cuda: NVRTC kernel compiler for NVIDIA GPUs",
+  "openvino-intel-npu-plugin: neural networks on Intel NPU (Core Ultra)",
+  "intel-npu-driver: Intel NPU driver",
+  "intel-npu-compiler: Intel NPU graph compiler",
+]
+files = [
+  { from = "crates/synaptixd/data/synaptixd.service", to = "usr/lib/systemd/system/" },
+  { from = "crates/synaptixd/data/synaptixd.toml", to = "etc/synaptix/" },
+  { from = "docs/MODELS.md", to = "usr/share/doc/synaptix/" },
+]
+
+[packages.syn-notes]
+description = "Заметки synshell: страницы-холсты, канбан, Гант, карты мыслей, календарь, напоминания"
+description_en = "synshell Notes: canvas pages, kanban, Gantt, mind maps, calendar, reminders"
+depends = ["synshell-core"]
+apps = ["syn-notes"]
+groups = ["synshell-apps"]
+optdepends = [
+  "poppler-glib: PDF в читалке",
+]
+optdepends_en = [
+  "poppler-glib: PDF in the reader",
+]
+files = [
+  { from = "crates/syn-notes/data/syn-notes-autostart.desktop", to = "etc/xdg/autostart/syn-notes.desktop" },
+]
+
+[packages.syn-vm]
+description = "Виртуальные машины synshell на QEMU/KVM: мастер, встроенный экран, снимки, USB и PCI, гостевой агент, CLI и MCP"
+description_en = "synshell virtual machines on QEMU/KVM: wizard, built-in display, snapshots, USB and PCI passthrough, guest agent, CLI and MCP"
+depends = ["synshell-core"]
+apps = ["syn-vm"]
+groups = ["synshell-apps"]
+optdepends = [
+  "qemu-desktop: сами виртуальные машины",
+  "edk2-ovmf: UEFI",
+  "swtpm: TPM 2.0 для Windows 11",
+  "virtiofsd: общая папка virtiofs (Windows)",
+  "samba: общая папка по SMB",
+  "virtio-win: драйверы и гостевой агент для Windows (AUR)",
+]
+optdepends_en = [
+  "qemu-desktop: the virtual machines themselves",
+  "edk2-ovmf: UEFI",
+  "swtpm: TPM 2.0 for Windows 11",
+  "virtiofsd: virtiofs shared folder (Windows)",
+  "samba: SMB shared folder",
+  "virtio-win: Windows drivers and guest agent (AUR)",
+]
+
+[packages.syn-video-player]
+description = "Видеоплеер synshell: аппаратное декодирование, субтитры, нейрофильтры"
+description_en = "synshell video player: hardware decoding, subtitles, neural upscaling and frame interpolation"
+depends = ["synshell-core", "ffmpeg"]
+apps = ["syn-video-player"]
+groups = ["synshell-apps"]
+files = [
+  { from = "crates/syn-video-player/data/fonts/*.ttf", to = "usr/share/fonts/synshell/" },
+  { from = "crates/syn-video-player/data/fonts/OFL.txt", to = "usr/share/licenses/{pkgname}/fonts-OFL.txt" },
+]
+
+[packages.syn-audio-player]
+description = "Музыкальный плеер synshell"
+description_en = "synshell music player"
+depends = ["synshell-core", "ffmpeg"]
+apps = ["syn-audio-player"]
+groups = ["synshell-apps"]
+
+[packages.syn-audio-recorder]
+description = "Диктофон synshell"
+description_en = "synshell voice recorder"
+depends = ["synshell-core"]
+apps = ["syn-audio-recorder"]
+groups = ["synshell-apps"]
+
+[packages.synpass]
+description = "Пароли synshell: хранилище под мастер-паролем с синхронизацией"
+description_en = "synshell password manager"
+depends = ["synshell-core"]
+apps = ["synpass"]
+groups = ["synshell-apps"]
+
+[packages.syn-maps]
+description = "Карты synshell: OpenStreetMap, местоположение, поиск"
+description_en = "synshell maps"
+depends = ["synshell-core"]
+apps = ["syn-maps"]
+groups = ["synshell-apps"]
+
+[packages.syn-remote]
+description = "Пульт synshell: управление техникой через ИК-передатчик"
+description_en = "synshell remote control: IR blaster and smart TVs"
+depends = ["synshell-core"]
+apps = ["syn-remote"]
+groups = ["synshell-apps"]
+
+[packages.syn-systeminfo]
+description = "Монитор ресурсов synshell: процессор, графика, память, диски, сеть"
+description_en = "synshell system monitor: processes, CPU, GPU, memory, disks, network"
+depends = ["synshell-core"]
+apps = ["syn-systeminfo"]
+groups = ["synshell-apps"]
+
+[packages.syn-themeeditor]
+description = "Редактор тем synshell: палитра, генерация из акцента и обоев, живой просмотр"
+description_en = "synshell theme editor with live preview"
+depends = ["synshell-core"]
+apps = ["syn-themeeditor"]
+groups = ["synshell-apps"]
+
+[packages.syn-woman-cycle]
+description = "Женский календарь synshell"
+description_en = "synshell cycle tracker: periods, ovulation, symptoms — data stays on the device"
+depends = ["synshell-core"]
+apps = ["syn-woman-cycle"]
+groups = ["synshell-apps"]
+
+[packages.syndroid]
+description = "Android-приложения в synshell: контейнер LineageOS"
+description_en = "synshell Android container: run Android apps on the desktop"
+depends = ["synshell-core"]
+bins = ["syndroidd"]
+apps = ["syndroid"]
+groups = ["synshell-apps"]
+
+[packages.syn-wine-helper]
+description = "Компоненты Wine synshell: DLL и рантаймы, которых нет в Wine"
+description_en = "synshell Wine helper: run Windows games and programs"
+depends = ["synshell-core"]
+apps = ["syn-wine-helper"]
+groups = ["synshell-apps"]
+
+[packages.syncamera]
+description = "Камера synshell: фото, видео, ночь, таймлапс"
+description_en = "synshell camera: photos, video, night mode"
+depends = ["synshell-core"]
+apps = ["syncamera"]
+groups = ["synshell-apps"]
+
+[packages.syn-blocks]
+description = "Syn Blocks — головоломка 8×8"
+description_en = "synshell puzzle game with blocks"
+depends = ["synshell-core"]
+apps = ["syn-blocks"]
+groups = ["synshell-apps"]
+
+[packages.syn-epdtest]
+description = "Тест экрана E Ink synshell (для разработчиков)"
+description_en = "synshell E Ink display test"
+depends = ["synshell-core"]
+apps = ["syn-epdtest"]
+
+[packages.syn-quitsmoke]
+description = "Бросить курить (QuitSmoke): постепенно или сразу, вехи здоровья, тяга, статистика, награды"
+description_en = "QuitSmoke: quit smoking or vaping tracker — milestones, health recovery, savings"
+depends = ["synshell-core"]
+apps = ["syn-quitsmoke"]

@@ -106,7 +106,7 @@ The workspace sets `rust-version = "1.85"`. Build and runtime dependencies (Arch
 mesa, libinput, seatd, systemd-libs, libxkbcommon, libdrm, vulkan-icd-loader, fontconfig,
 freetype2, a font (`ttf-font`), dbus, ffmpeg, sqlite, libarchive, pipewire, xdg-desktop-portal. Optional ones — xorg-xwayland, wireplumber, brightnessctl, networkmanager,
 playerctl, wl-clipboard, ffmpegthumbnailer, libheif, imagemagick,
-breeze-icons — are listed with their purpose in the [PKGBUILD](packaging/PKGBUILD).
+breeze-icons — are listed with their purpose in [syngui-release.toml](syngui-release.toml) (packages are built with `syngui package -w -f arch`).
 
 **Nested, inside your current Wayland or X11 session** (it runs in a window):
 
@@ -131,10 +131,11 @@ SYNSHELL_CONFIG_DIR=/tmp/synshell-test PATH="$PWD/target/fast-release:$PATH" \
 **As a real session** on Arch Linux — one build produces separate packages, install what you need:
 
 ```sh
-cd packaging && makepkg -f                                   # release build (LTO)
-cd packaging && SYNSHELL_PROFILE=fast-release makepkg -f     # faster local build
-sudo pacman -U synshell-core-*.pkg.tar.zst                   # the minimum: a working desktop
-sudo pacman -U ./*.pkg.tar.zst                               # or everything
+# packages are described in syngui-release.toml and built with the syngui tool (cargo install --git https://github.com/VitaminDB/syngui syngui-cli)
+syngui package -w -f arch                                    # release build (LTO) → target/syngui/dist
+syngui package -w -f arch --fast --install                   # faster local build, installed in one transaction
+syngui package -w -f arch --only synshell-core               # the minimum: a working desktop
+syngui package -w -f arch -t linux-aarch64                   # packages for phones (aarch64)
 ```
 
 | Package | Contents |
