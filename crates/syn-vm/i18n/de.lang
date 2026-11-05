@@ -531,7 +531,7 @@
 "Мышь освобождена" = "Maus freigegeben"
 "Захват мыши — у машин с «3D-ускорением (syn-gpu)»" = "Mauserfassung – für Maschinen mit „3D-Beschleunigung (syn-gpu)“"
 "Запись экрана гостя в видео (Видео/Записи экрана)" = "Gastbildschirm als Video aufnehmen (Videos/Записи экрана)"
-"Захватить мышь для игры (Ctrl+Alt+G; Ctrl+Alt — освободить)" = ""
+"Захватить мышь для игры (Ctrl+Alt+G; Ctrl+Alt — освободить)" = "Maus für ein Spiel erfassen (Strg+Alt+G; Strg+Alt – freigeben)"
 "Ctrl+Alt+Del" = "Strg+Alt+Entf"
 "Другие сочетания" = "Weitere Tastenkombinationen"
 "Напечатать текст из буфера (Ctrl+Alt+V)" = "Text aus der Zwischenablage tippen (Strg+Alt+V)"

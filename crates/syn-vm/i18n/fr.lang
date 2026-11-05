@@ -531,7 +531,7 @@
 "Мышь освобождена" = "Souris libérée"
 "Захват мыши — у машин с «3D-ускорением (syn-gpu)»" = "Capture de la souris — pour les machines avec « Accélération 3D (syn-gpu) »"
 "Запись экрана гостя в видео (Видео/Записи экрана)" = "Enregistrer l’écran de l’invité en vidéo (Vidéos/Записи экрана)"
-"Захватить мышь для игры (Ctrl+Alt+G; Ctrl+Alt — освободить)" = ""
+"Захватить мышь для игры (Ctrl+Alt+G; Ctrl+Alt — освободить)" = "Capturer la souris pour un jeu (Ctrl+Alt+G ; Ctrl+Alt : libérer)"
 "Ctrl+Alt+Del" = "Ctrl+Alt+Suppr"
 "Другие сочетания" = "Autres raccourcis"
 "Напечатать текст из буфера (Ctrl+Alt+V)" = "Saisir le texte du presse-papiers (Ctrl+Alt+V)"
