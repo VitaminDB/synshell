@@ -22,7 +22,10 @@ pub fn help() -> String {
     h
 }
 
-const EXTRA_HELP: &[&str] = &[n_!("  --optimize МАШИНА [--apply]            Windows: быстрое видео, агент, диск инструментов; советы по диску и сети")];
+const EXTRA_HELP: &[&str] = &[
+    n_!("  --optimize МАШИНА [--apply]            Windows: быстрое видео, агент, диск инструментов; советы по диску и сети"),
+    n_!("  --present-dump МАШИНА ФАЙЛ.png         экран гостя с кадром игры syn-gpu поверх (проверка слоя без окна)"),
+];
 
 const HELP: &str = n_!("\
 syn-vm — виртуальные машины QEMU/KVM
@@ -160,7 +163,7 @@ pub fn run(cmd: &str, rest: Vec<String>) -> Option<i32> {
     let known = [
         "--list", "--status", "--start", "--stop", "--kill", "--reset", "--pause", "--resume", "--wait-boot", "--new", "--delete", "--get", "--set", "--exec", "--sh", "--push",
         "--pull", "--exec-status", "--agent", "--sync-time", "--screendump", "--type", "--key", "--click", "--scroll", "--devices", "--usb", "--attach", "--detach", "--cdrom", "--tools", "--snapshot",
-        "--qmp", "--mcp", "--optimize", "--vfio-helper", "--vfio-watch", "--usb-watch", "--record", "--record-stop", "--record-run",
+        "--qmp", "--mcp", "--optimize", "--present-dump", "--vfio-helper", "--vfio-watch", "--usb-watch", "--record", "--record-stop", "--record-run",
     ];
     if !known.contains(&cmd) {
         return None;
@@ -404,6 +407,23 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
         "--sync-time" => {
             let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             qga::sync_time(&vm)?;
+            Ok(0)
+        }
+        "--present-dump" => {
+            // Слой кадров игр syn-gpu без окна: экран гостя + кадр игры в месте её окна.
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
+            running(&vm)?;
+            let out = absolute(&a.pos(1, n_!("ФАЙЛ.png"))?)?;
+            let layer = crate::present::grab(&vm.id, Duration::from_secs(10))?;
+            qmp::screendump(&vm, &out)?;
+            let mut screen = image::open(&out)?.to_rgba8();
+            let (fw, fh, px, _) = layer.frame.latest();
+            let game = image::RgbaImage::from_raw(fw, fh, px.to_vec()).context("кадр")?;
+            let (x, y, w, h) = layer.rect;
+            let game = if (w, h) != (fw, fh) { image::imageops::resize(&game, w, h, image::imageops::FilterType::Triangle) } else { game };
+            image::imageops::overlay(&mut screen, &game, x as i64, y as i64);
+            screen.save(&out)?;
+            println!("{}: {}x{}, игра {fw}x{fh} в {x},{y} {w}x{h}{}", out.display(), screen.width(), screen.height(), if layer.fullscreen { ", во весь экран" } else { "" });
             Ok(0)
         }
         "--screendump" => {

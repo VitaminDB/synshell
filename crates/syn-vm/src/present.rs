@@ -88,6 +88,31 @@ pub fn start(id: &str, on_change: Arc<dyn Fn() + Send + Sync>) -> Arc<Present> {
     p
 }
 
+/// Проверка без окна: подключиться, дождаться видимого кадра игры (до `wait`), вернуть слой.
+pub fn grab(id: &str, wait: Duration) -> Result<Layer> {
+    let path = socket(id);
+    let s = UnixStream::connect(&path).with_context(|| path.display().to_string())?;
+    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true) });
+    let p2 = p.clone();
+    let t = std::thread::spawn(move || {
+        let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+        run(&p2, s, &cb)
+    });
+    let until = Instant::now() + wait;
+    let layer = loop {
+        if let Some(l) = p.visible() {
+            break Some(l);
+        }
+        if t.is_finished() || Instant::now() > until {
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    p.close();
+    let _ = t.join();
+    layer.with_context(|| syngui::t!("нет видимого кадра игры (окно игры свёрнуто или не активно?)"))
+}
+
 /// Отображение BAR2 только для чтения.
 struct Heap {
     ptr: *const u8,
