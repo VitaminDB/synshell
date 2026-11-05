@@ -56,6 +56,10 @@ fn main() {
                 print!("{}", cli::help());
                 return;
             }
+            "-V" | "--version" => {
+                println!("syn-vm {}", env!("CARGO_PKG_VERSION"));
+                return;
+            }
             "--new-window" => separate = true,
             "--tab" => tab = args.next().as_deref().and_then(Tab::parse),
             "--open" => target = args.next(),
@@ -68,7 +72,11 @@ fn main() {
             }
             "--scale" => scale = args.next().and_then(|s| s.parse().ok()).unwrap_or(scale),
             other if !other.starts_with('-') => target = Some(other.to_string()),
-            _ => {}
+            // Неизвестный ключ — ошибка, а не окно.
+            other => {
+                eprintln!("syn-vm: {}", syngui::t!("неизвестный ключ {k} (syn-vm --help)", k = other));
+                std::process::exit(2);
+            }
         }
     }
     // Файл (ISO, диск) — мастер новой машины с ним.

@@ -143,6 +143,7 @@
 "не удалось привязать {list} к vfio-pci (pkexec: {code})" = "no se pudo vincular {list} a vfio-pci (pkexec: {code})"
 
 # src/main.rs
+"неизвестный ключ {k} (syn-vm --help)" = "opción desconocida {k} (syn-vm --help)"
 "Виртуальные машины" = "Máquinas virtuales"
 
 # src/mcp.rs

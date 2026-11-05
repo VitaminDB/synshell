@@ -142,6 +142,7 @@
 "не удалось привязать {list} к vfio-pci (pkexec: {code})" = "{list}을(를) vfio-pci에 바인딩하지 못했습니다(pkexec: {code})"
 
 # src/main.rs
+"неизвестный ключ {k} (syn-vm --help)" = "알 수 없는 옵션 {k} (syn-vm --help)"
 "Виртуальные машины" = "가상 머신"
 
 # src/mcp.rs
