@@ -21,3 +21,16 @@ tracing-subscriber.workspace = true
 
 [dev-dependencies]
 syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "image", "testing"] }
+
+[package.metadata.syngui]
+name = "Цикл"
+description_en = "synshell cycle tracker: periods, ovulation, symptoms — data stays on the device"
+
+[package.metadata.syngui.ios]
+bundle_id = "io.github.vitamindb.syncycle"
+icon_viewbox = "8 8 112 112"
+icon_unround = 'rx="30"'
+status_bar_hidden = true
+
+[package.metadata.syngui.linux]
+depends = ["synshell-core"]
