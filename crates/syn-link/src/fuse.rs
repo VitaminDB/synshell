@@ -14,6 +14,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
+use synshell_tr::t;
 use fuser::{
     FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry,
     ReplyOpen, ReplyStatfs, ReplyWrite, Request, TimeOrNow,
@@ -420,7 +421,7 @@ pub async fn mount(d: &D, id: &str) -> Result<String> {
     if let Some(m) = d.mount_of(id) {
         return Ok(m);
     }
-    let t = d.trusted(id).context("не спарено")?;
+    let t = d.trusted(id).with_context(|| t!("не спарено"))?;
     let root = synshell_common::link::mount_root();
     std::fs::create_dir_all(&root)?;
     let mp: PathBuf = root.join(dir_name(&t.name));

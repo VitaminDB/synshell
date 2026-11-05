@@ -75,7 +75,7 @@ pub struct Daemon {
 
 impl Daemon {
     fn modem(&self) -> Result<Arc<Modem>> {
-        self.modem.lock().unwrap().clone().ok_or_else(|| anyhow!("модем не запущен"))
+        self.modem.lock().unwrap().clone().ok_or_else(|| anyhow!("{}", t!("модем не запущен")))
     }
 
     fn emit(&self, ev: Event) {
@@ -475,7 +475,7 @@ impl Daemon {
     fn send_sms(self: &Arc<Self>, number: String, text: String) -> Result<Sms> {
         let number: String = number.chars().filter(|c| !c.is_whitespace() && *c != '-' && *c != '(' && *c != ')').collect();
         if number.is_empty() || text.is_empty() {
-            bail!("пустой номер или текст");
+            bail!("{}", t!("пустой номер или текст"));
         }
         let m = self.modem()?;
         let msg = {
@@ -659,7 +659,7 @@ impl Daemon {
             .iter()
             .find(|s| s.euicc && s.card && s.active)
             .map(|s| s.logical)
-            .ok_or_else(|| anyhow!("eSIM (eUICC) не найдена"))
+            .ok_or_else(|| anyhow!("{}", t!("eSIM (eUICC) не найдена")))
     }
 
     /// Профиль eSIM сменился: карта перезапускается — заново поднять подписку и сеть.
@@ -747,7 +747,7 @@ impl Daemon {
 
     fn data_connect(&self) -> Result<data::Session> {
         use std::sync::atomic::Ordering::SeqCst;
-        let tx = self.ind_tx.lock().unwrap().clone().ok_or_else(|| anyhow!("модем не запущен"))?;
+        let tx = self.ind_tx.lock().unwrap().clone().ok_or_else(|| anyhow!("{}", t!("модем не запущен")))?;
         if !self.data_ready.load(SeqCst) {
             let pair = data::setup_kernel()?;
             data::setup_modem(&tx, pair)?;
@@ -932,7 +932,7 @@ impl Daemon {
 
     fn handle(self: &Arc<Self>, req: Request, peer: Peer) -> Result<Response> {
         if !matches!(req, Request::Status) && !peer.trusted {
-            bail!("нет доступа: SMS и звонки — для root и групп wheel/network");
+            bail!("{}", t!("нет доступа: SMS и звонки — для root и групп wheel/network"));
         }
         Ok(match req {
             Request::Status => Response::Status { status: self.inner.lock().unwrap().status.clone() },
@@ -986,7 +986,7 @@ impl Daemon {
             Request::Dial { number } => {
                 let number: String = number.chars().filter(|c| c.is_ascii_digit() || matches!(c, '+' | '*' | '#')).collect();
                 if number.is_empty() {
-                    bail!("пустой номер");
+                    bail!("{}", t!("пустой номер"));
                 }
                 let m = self.modem()?;
                 // Без радио или сети модем отвечает DeviceNotReady, а звонок застревал в «Вызов…»
@@ -996,10 +996,10 @@ impl Daemon {
                 };
                 let emergency = matches!(number.as_str(), "112" | "911" | "101" | "102" | "103" | "104" | "01" | "02" | "03");
                 if !radio {
-                    bail!("мобильная связь выключена — включите её (плитка «Мобильная связь» в шторке)");
+                    bail!("{}", t!("мобильная связь выключена — включите её (плитка «Мобильная связь» в шторке)"));
                 }
                 if !registered && !emergency {
-                    bail!("нет сети — звонок невозможен");
+                    bail!("{}", t!("нет сети — звонок невозможен"));
                 }
                 let clir = self.store.lock().unwrap().clir.clone();
                 let number = manage::with_clir(&number, &clir);
@@ -1037,7 +1037,7 @@ impl Daemon {
             }
             Request::Dtmf { id, digit } => {
                 if !(digit.is_ascii_digit() || matches!(digit, '*' | '#')) {
-                    bail!("недопустимый тон {digit}");
+                    bail!("{}", t!("недопустимый тон {digit}", digit = digit));
                 }
                 self.modem()?.voice.call(Message::new(0x28).tlv(0x01, vec![id, 1, digit as u8]), T)?;
                 Response::Ok
@@ -1208,7 +1208,7 @@ impl Daemon {
             }
             Request::SetClir { mode } => {
                 if !matches!(mode.as_str(), "network" | "hide" | "show") {
-                    bail!("неизвестный режим {mode}");
+                    bail!("{}", t!("неизвестный режим {mode}", mode = mode));
                 }
                 let mut st = self.store.lock().unwrap();
                 st.clir = mode;
@@ -1450,7 +1450,7 @@ mod erased {
 
 pub fn run() -> Result<()> {
     if unsafe { libc::getuid() } != 0 {
-        bail!("synmodemd запускается от root (synmodem.service)");
+        bail!("{}", t!("synmodemd запускается от root (synmodem.service)"));
     }
     let dir = std::path::Path::new(api::SOCKET).parent().unwrap();
     std::fs::create_dir_all(dir)?;

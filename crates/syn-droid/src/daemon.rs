@@ -104,7 +104,7 @@ impl Daemon {
             let mut i = self.inner.lock().unwrap();
             match i.state.unwrap_or(State::Stopped) {
                 State::Stopped => {}
-                s => bail!("Android уже {s:?}"),
+                s => bail!("{}", t!("Android уже {s}", s = format!("{s:?}"))),
             }
             i.state = Some(State::Starting);
             i.error = None;
@@ -228,7 +228,7 @@ impl Daemon {
                     i.state = Some(State::Stopping);
                     pid
                 }
-                (_, None) => bail!("нет PID контейнера"),
+                (_, None) => bail!("{}", t!("нет PID контейнера")),
             }
         };
         let _ = container::freeze(false);
@@ -243,7 +243,7 @@ impl Daemon {
         while i.state != Some(State::Stopped) {
             let left = deadline.saturating_duration_since(std::time::Instant::now());
             if left.is_zero() {
-                bail!("контейнер не остановился за 20 с");
+                bail!("{}", t!("контейнер не остановился за 20 с"));
             }
             i = self.changed.wait_timeout(i, left).unwrap().0;
         }
@@ -271,7 +271,7 @@ impl Daemon {
                 let booted = self.inner.lock().unwrap().android_version.is_some();
                 self.set_state(if booted { State::Running } else { State::Starting });
             }
-            _ => bail!("нельзя: Android {s:?}"),
+            _ => bail!("{}", t!("нельзя: Android {s}", s = format!("{s:?}"))),
         }
         Ok(())
     }
@@ -280,7 +280,7 @@ impl Daemon {
     fn ensure_not_running(&self, instance: &str) -> Result<()> {
         let active = Config::load().active.map(|a| images::instance_of(&a));
         if self.state() != State::Stopped && active.as_deref() == Some(instance) {
-            bail!("этот Android запущен — сначала остановите его");
+            bail!("{}", t!("этот Android запущен — сначала остановите его"));
         }
         Ok(())
     }
@@ -293,8 +293,8 @@ impl Daemon {
         let i = self.inner.lock().unwrap();
         match (i.state.unwrap_or(State::Stopped), i.init_pid) {
             (State::Running, Some(pid)) => Ok(pid),
-            (State::Starting, _) => bail!("Android ещё загружается"),
-            (s, _) => bail!("Android не запущен ({s:?})"),
+            (State::Starting, _) => bail!("{}", t!("Android ещё загружается")),
+            (s, _) => bail!("{}", t!("Android не запущен ({s})", s = format!("{s:?}"))),
         }
     }
 
@@ -359,7 +359,7 @@ impl Daemon {
     /// Загрузка образов с автоповтором; ход — в задании и (если известен сеанс) в уведомлении.
     fn fetch(self: &Arc<Self>, pend: PendingFetch) -> Result<u64> {
         if self.inner.lock().unwrap().jobs.iter().any(|j| !j.finished && j.title == FETCH_TITLE) {
-            bail!("загрузка образов уже идёт");
+            bail!("{}", t!("загрузка образов уже идёт"));
         }
         pend.save();
         let ty = pend.system_type.clone().unwrap_or_else(|| Config::load().system_type);
@@ -468,13 +468,13 @@ impl Daemon {
         // Запустить Android для своего сеанса может любой пользователь (Start сам сверяет uid сеанса)
         let own_start = matches!(&req, Request::Start { session } if session.uid == peer.uid);
         if !read_only && !peer.admin && !(app_op && session_owner) && !own_start {
-            bail!("нет прав: нужен root или группа wheel/android");
+            bail!("{}", t!("нет прав: нужен root или группа wheel/android"));
         }
         Ok(match req {
             Request::Status => Response::Status(self.status()),
             Request::Start { session } => {
                 if peer.uid != 0 && peer.uid != session.uid {
-                    bail!("нельзя запустить Android для чужого сеанса");
+                    bail!("{}", t!("нельзя запустить Android для чужого сеанса"));
                 }
                 self.start(session)?;
                 Response::Ok
@@ -484,7 +484,7 @@ impl Daemon {
                 Response::Ok
             }
             Request::Restart => {
-                let session = self.inner.lock().unwrap().session.clone().context("Android ещё не запускался")?;
+                let session = self.inner.lock().unwrap().session.clone().with_context(|| t!("Android ещё не запускался"))?;
                 self.stop()?;
                 self.start(session)?;
                 Response::Ok
@@ -506,18 +506,18 @@ impl Daemon {
             Request::FetchImages { system_type, session } => {
                 if let Some(se) = &session {
                     if peer.uid != 0 && peer.uid != se.uid {
-                        bail!("уведомления — только своему сеансу");
+                        bail!("{}", t!("уведомления — только своему сеансу"));
                     }
                 }
                 Response::Job { id: self.fetch(PendingFetch { system_type, session })? }
             }
             Request::CancelJob { id } => {
-                self.inner.lock().unwrap().ctl.get_mut(&id).context("задание нельзя отменить")?.0 = true;
+                self.inner.lock().unwrap().ctl.get_mut(&id).with_context(|| t!("задание нельзя отменить"))?.0 = true;
                 self.changed.notify_all();
                 Response::Ok
             }
             Request::RetryJobNow { id } => {
-                self.inner.lock().unwrap().ctl.get_mut(&id).context("задание не ждёт повтора")?.1 = true;
+                self.inner.lock().unwrap().ctl.get_mut(&id).with_context(|| t!("задание не ждёт повтора"))?.1 = true;
                 self.changed.notify_all();
                 Response::Ok
             }
@@ -535,7 +535,7 @@ impl Daemon {
             }
             Request::UseImages { name } => {
                 if !images::exists(&name) {
-                    bail!("нет набора «{name}»");
+                    bail!("{}", t!("нет набора «{name}»", name = name));
                 }
                 let mut c = Config::load();
                 c.active = Some(name);
@@ -546,7 +546,7 @@ impl Daemon {
                 let mut c = Config::load();
                 if c.active.as_deref() == Some(&name) {
                     if self.state() != State::Stopped {
-                        bail!("набор используется запущенным Android");
+                        bail!("{}", t!("набор используется запущенным Android"));
                     }
                     c.active = None;
                     c.save()?;
@@ -579,7 +579,7 @@ impl Daemon {
             Request::ResetData { instance } => {
                 self.ensure_not_running(&instance)?;
                 if instance.is_empty() || instance.contains('/') {
-                    bail!("неверный экземпляр");
+                    bail!("{}", t!("неверный экземпляр"));
                 }
                 let d = paths::data(&instance);
                 if d.exists() {
@@ -663,7 +663,7 @@ fn spawn_as(s: &Session, args: &[String]) -> Result<std::process::Child> {
     let home = std::fs::read_to_string("/etc/passwd")
         .ok()
         .and_then(|p| p.lines().find(|l| l.split(':').nth(2) == Some(&s.uid.to_string())).and_then(|l| l.split(':').nth(5).map(str::to_string)))
-        .context("домашний каталог владельца сеанса")?;
+        .with_context(|| t!("домашний каталог владельца сеанса"))?;
     std::process::Command::new(paths::SELF_EXE)
         .args(args)
         .env_clear()
@@ -741,7 +741,7 @@ fn serve(d: Arc<Daemon>, s: UnixStream) {
 
 pub fn run() -> Result<()> {
     if unsafe { libc::getuid() } != 0 {
-        bail!("syndroidd запускается от root (syndroid.service)");
+        bail!("{}", t!("syndroidd запускается от root (syndroid.service)"));
     }
     std::fs::create_dir_all(paths::RUN)?;
     let _ = std::fs::remove_file(paths::SOCKET);

@@ -75,31 +75,41 @@ pub struct Finish {
 
 /// Порядок = номер тайла в атласе (8×4, слева направо, сверху вниз).
 pub const FINISHES: [Finish; FINISH_COUNT as usize] = [
-    Finish { id: 1, en: "Gold", ru: "золото", tint: false, radius: 0.22, base: "#e9b83a", accent: "#fff1a8", shade: Shade::Metal, anim: Anim::Sheen, burst: Burst::Coins, sfx: Sfx::Gold },
-    Finish { id: 2, en: "Silver", ru: "серебро", tint: false, radius: 0.22, base: "#c9ced6", accent: "#ffffff", shade: Shade::Metal, anim: Anim::Sheen, burst: Burst::Coins, sfx: Sfx::Metal },
-    Finish { id: 3, en: "Copper", ru: "медь", tint: false, radius: 0.22, base: "#c8703c", accent: "#ffc79a", shade: Shade::Metal, anim: Anim::Sheen, burst: Burst::Coins, sfx: Sfx::Metal },
-    Finish { id: 4, en: "Bronze", ru: "бронза", tint: false, radius: 0.20, base: "#9a6a34", accent: "#e2b878", shade: Shade::Metal, anim: Anim::None, burst: Burst::Coins, sfx: Sfx::Metal },
-    Finish { id: 5, en: "Glass", ru: "стекло", tint: true, radius: 0.40, base: "#9fd3ff", accent: "#ffffff", shade: Shade::Glass, anim: Anim::None, burst: Burst::Shards, sfx: Sfx::Glass },
-    Finish { id: 6, en: "Crystal", ru: "хрусталь", tint: true, radius: 0.30, base: "#bfeaff", accent: "#ffffff", shade: Shade::Glass, anim: Anim::Sparkle, burst: Burst::Shards, sfx: Sfx::Crystal },
-    Finish { id: 7, en: "Velvet", ru: "велюр", tint: true, radius: 0.38, base: "#b0407a", accent: "#ffd0ea", shade: Shade::Soft, anim: Anim::None, burst: Burst::Fibres, sfx: Sfx::Velvet },
-    Finish { id: 8, en: "Oak", ru: "дуб", tint: false, radius: 0.16, base: "#c48b4c", accent: "#f0c88c", shade: Shade::Matte, anim: Anim::None, burst: Burst::Chips, sfx: Sfx::Wood },
-    Finish { id: 9, en: "Walnut", ru: "орех", tint: false, radius: 0.16, base: "#5f3a22", accent: "#b07a4c", shade: Shade::Matte, anim: Anim::None, burst: Burst::Chips, sfx: Sfx::Wood },
-    Finish { id: 10, en: "Marble", ru: "мрамор", tint: false, radius: 0.18, base: "#e9e6e1", accent: "#ffffff", shade: Shade::Glass, anim: Anim::None, burst: Burst::Dust, sfx: Sfx::Stone },
-    Finish { id: 11, en: "Granite", ru: "гранит", tint: false, radius: 0.18, base: "#7d7f86", accent: "#d0d2d8", shade: Shade::Matte, anim: Anim::None, burst: Burst::Dust, sfx: Sfx::Stone },
-    Finish { id: 12, en: "Obsidian", ru: "обсидиан", tint: false, radius: 0.30, base: "#1b1a22", accent: "#8f8fb0", shade: Shade::Glass, anim: Anim::Sheen, burst: Burst::Shards, sfx: Sfx::Glass },
-    Finish { id: 13, en: "Lava", ru: "лава", tint: false, radius: 0.22, base: "#3a2426", accent: "#ff7a2f", shade: Shade::Glow, anim: Anim::Pulse, burst: Burst::Embers, sfx: Sfx::Lava },
-    Finish { id: 14, en: "Ice", ru: "лёд", tint: false, radius: 0.34, base: "#bfe6ff", accent: "#ffffff", shade: Shade::Glass, anim: Anim::Sparkle, burst: Burst::Shards, sfx: Sfx::Ice },
-    Finish { id: 15, en: "Jade", ru: "нефрит", tint: false, radius: 0.36, base: "#4f9a6a", accent: "#bfe9c8", shade: Shade::Glass, anim: Anim::None, burst: Burst::Dust, sfx: Sfx::Stone },
-    Finish { id: 16, en: "Gem", ru: "самоцвет", tint: true, radius: 0.30, base: "#e04a6a", accent: "#ffffff", shade: Shade::Glass, anim: Anim::Sparkle, burst: Burst::Shards, sfx: Sfx::Crystal },
-    Finish { id: 17, en: "Pearl", ru: "перламутр", tint: false, radius: 0.45, base: "#efe3ea", accent: "#ffffff", shade: Shade::Glass, anim: Anim::Iridescent, burst: Burst::Dust, sfx: Sfx::Glass },
-    Finish { id: 18, en: "Neon", ru: "неон", tint: true, radius: 0.18, base: "#2ad4ff", accent: "#ffffff", shade: Shade::Glow, anim: Anim::Pulse, burst: Burst::Sparks, sfx: Sfx::Neon },
-    Finish { id: 19, en: "Leather", ru: "кожа", tint: false, radius: 0.30, base: "#7a4a2b", accent: "#c8905e", shade: Shade::Soft, anim: Anim::None, burst: Burst::Chips, sfx: Sfx::Velvet },
-    Finish { id: 20, en: "Denim", ru: "джинса", tint: false, radius: 0.30, base: "#3f5f96", accent: "#a9c2ee", shade: Shade::Soft, anim: Anim::None, burst: Burst::Fibres, sfx: Sfx::Velvet },
-    Finish { id: 21, en: "Porcelain", ru: "фарфор", tint: true, radius: 0.32, base: "#f2f4f7", accent: "#ffffff", shade: Shade::Glass, anim: Anim::None, burst: Burst::Shards, sfx: Sfx::Glass },
-    Finish { id: 22, en: "Candy", ru: "леденец", tint: true, radius: 0.48, base: "#ff5fa2", accent: "#ffffff", shade: Shade::Glass, anim: Anim::Sheen, burst: Burst::Sprinkles, sfx: Sfx::Candy },
-    Finish { id: 23, en: "Chocolate", ru: "шоколад", tint: false, radius: 0.14, base: "#4a2a1c", accent: "#9a6a4c", shade: Shade::Soft, anim: Anim::None, burst: Burst::Chips, sfx: Sfx::Candy },
-    Finish { id: 24, en: "Hologram", ru: "голограмма", tint: false, radius: 0.12, base: "#b8b8d8", accent: "#ffffff", shade: Shade::Metal, anim: Anim::Iridescent, burst: Burst::Sparks, sfx: Sfx::Neon },
+    Finish { id: 1, en: "Gold", ru: syngui::n_!("золото"), tint: false, radius: 0.22, base: "#e9b83a", accent: "#fff1a8", shade: Shade::Metal, anim: Anim::Sheen, burst: Burst::Coins, sfx: Sfx::Gold },
+    Finish { id: 2, en: "Silver", ru: syngui::n_!("серебро"), tint: false, radius: 0.22, base: "#c9ced6", accent: "#ffffff", shade: Shade::Metal, anim: Anim::Sheen, burst: Burst::Coins, sfx: Sfx::Metal },
+    Finish { id: 3, en: "Copper", ru: syngui::n_!("медь"), tint: false, radius: 0.22, base: "#c8703c", accent: "#ffc79a", shade: Shade::Metal, anim: Anim::Sheen, burst: Burst::Coins, sfx: Sfx::Metal },
+    Finish { id: 4, en: "Bronze", ru: syngui::n_!("бронза"), tint: false, radius: 0.20, base: "#9a6a34", accent: "#e2b878", shade: Shade::Metal, anim: Anim::None, burst: Burst::Coins, sfx: Sfx::Metal },
+    Finish { id: 5, en: "Glass", ru: syngui::n_!("стекло"), tint: true, radius: 0.40, base: "#9fd3ff", accent: "#ffffff", shade: Shade::Glass, anim: Anim::None, burst: Burst::Shards, sfx: Sfx::Glass },
+    Finish { id: 6, en: "Crystal", ru: syngui::n_!("хрусталь"), tint: true, radius: 0.30, base: "#bfeaff", accent: "#ffffff", shade: Shade::Glass, anim: Anim::Sparkle, burst: Burst::Shards, sfx: Sfx::Crystal },
+    Finish { id: 7, en: "Velvet", ru: syngui::n_!("велюр"), tint: true, radius: 0.38, base: "#b0407a", accent: "#ffd0ea", shade: Shade::Soft, anim: Anim::None, burst: Burst::Fibres, sfx: Sfx::Velvet },
+    Finish { id: 8, en: "Oak", ru: syngui::n_!("дуб"), tint: false, radius: 0.16, base: "#c48b4c", accent: "#f0c88c", shade: Shade::Matte, anim: Anim::None, burst: Burst::Chips, sfx: Sfx::Wood },
+    Finish { id: 9, en: "Walnut", ru: syngui::n_!("орех"), tint: false, radius: 0.16, base: "#5f3a22", accent: "#b07a4c", shade: Shade::Matte, anim: Anim::None, burst: Burst::Chips, sfx: Sfx::Wood },
+    Finish { id: 10, en: "Marble", ru: syngui::n_!("мрамор"), tint: false, radius: 0.18, base: "#e9e6e1", accent: "#ffffff", shade: Shade::Glass, anim: Anim::None, burst: Burst::Dust, sfx: Sfx::Stone },
+    Finish { id: 11, en: "Granite", ru: syngui::n_!("гранит"), tint: false, radius: 0.18, base: "#7d7f86", accent: "#d0d2d8", shade: Shade::Matte, anim: Anim::None, burst: Burst::Dust, sfx: Sfx::Stone },
+    Finish { id: 12, en: "Obsidian", ru: syngui::n_!("обсидиан"), tint: false, radius: 0.30, base: "#1b1a22", accent: "#8f8fb0", shade: Shade::Glass, anim: Anim::Sheen, burst: Burst::Shards, sfx: Sfx::Glass },
+    Finish { id: 13, en: "Lava", ru: syngui::n_!("лава"), tint: false, radius: 0.22, base: "#3a2426", accent: "#ff7a2f", shade: Shade::Glow, anim: Anim::Pulse, burst: Burst::Embers, sfx: Sfx::Lava },
+    Finish { id: 14, en: "Ice", ru: syngui::n_!("лёд"), tint: false, radius: 0.34, base: "#bfe6ff", accent: "#ffffff", shade: Shade::Glass, anim: Anim::Sparkle, burst: Burst::Shards, sfx: Sfx::Ice },
+    Finish { id: 15, en: "Jade", ru: syngui::n_!("нефрит"), tint: false, radius: 0.36, base: "#4f9a6a", accent: "#bfe9c8", shade: Shade::Glass, anim: Anim::None, burst: Burst::Dust, sfx: Sfx::Stone },
+    Finish { id: 16, en: "Gem", ru: syngui::n_!("самоцвет"), tint: true, radius: 0.30, base: "#e04a6a", accent: "#ffffff", shade: Shade::Glass, anim: Anim::Sparkle, burst: Burst::Shards, sfx: Sfx::Crystal },
+    Finish { id: 17, en: "Pearl", ru: syngui::n_!("перламутр"), tint: false, radius: 0.45, base: "#efe3ea", accent: "#ffffff", shade: Shade::Glass, anim: Anim::Iridescent, burst: Burst::Dust, sfx: Sfx::Glass },
+    Finish { id: 18, en: "Neon", ru: syngui::n_!("неон"), tint: true, radius: 0.18, base: "#2ad4ff", accent: "#ffffff", shade: Shade::Glow, anim: Anim::Pulse, burst: Burst::Sparks, sfx: Sfx::Neon },
+    Finish { id: 19, en: "Leather", ru: syngui::n_!("кожа"), tint: false, radius: 0.30, base: "#7a4a2b", accent: "#c8905e", shade: Shade::Soft, anim: Anim::None, burst: Burst::Chips, sfx: Sfx::Velvet },
+    Finish { id: 20, en: "Denim", ru: syngui::n_!("джинса"), tint: false, radius: 0.30, base: "#3f5f96", accent: "#a9c2ee", shade: Shade::Soft, anim: Anim::None, burst: Burst::Fibres, sfx: Sfx::Velvet },
+    Finish { id: 21, en: "Porcelain", ru: syngui::n_!("фарфор"), tint: true, radius: 0.32, base: "#f2f4f7", accent: "#ffffff", shade: Shade::Glass, anim: Anim::None, burst: Burst::Shards, sfx: Sfx::Glass },
+    Finish { id: 22, en: "Candy", ru: syngui::n_!("леденец"), tint: true, radius: 0.48, base: "#ff5fa2", accent: "#ffffff", shade: Shade::Glass, anim: Anim::Sheen, burst: Burst::Sprinkles, sfx: Sfx::Candy },
+    Finish { id: 23, en: "Chocolate", ru: syngui::n_!("шоколад"), tint: false, radius: 0.14, base: "#4a2a1c", accent: "#9a6a4c", shade: Shade::Soft, anim: Anim::None, burst: Burst::Chips, sfx: Sfx::Candy },
+    Finish { id: 24, en: "Hologram", ru: syngui::n_!("голограмма"), tint: false, radius: 0.12, base: "#b8b8d8", accent: "#ffffff", shade: Shade::Metal, anim: Anim::Iridescent, burst: Burst::Sparks, sfx: Sfx::Neon },
 ];
+
+impl Finish {
+    /// Подпись «Люкса»: английское имя крупно и перевод на язык интерфейса.
+    pub fn label(&self) -> String {
+        match crate::lang::gloss(self.ru) {
+            Some(g) => format!("{} · {g}", self.en.to_uppercase()),
+            None => self.en.to_uppercase(),
+        }
+    }
+}
 
 /// Отделка по номеру (1..=FINISH_COUNT); 0 и мусор → отделка по цвету.
 pub fn get(id: u8) -> &'static Finish {

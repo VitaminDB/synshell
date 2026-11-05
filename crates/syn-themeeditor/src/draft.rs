@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use synshell_common::t;
 
 use synshell_common::theme::{self, Source, Theme};
 use toml_edit::{value, DocumentMut, Item, Table};
@@ -308,11 +309,11 @@ impl Draft {
 
     pub fn import_bundle(text: &str) -> Result<Draft, String> {
         let doc: DocumentMut = text.parse().map_err(|e| format!("{e}"))?;
-        let id = doc.get("id").and_then(|v| v.as_str()).ok_or("нет id")?.to_string();
+        let id = doc.get("id").and_then(|v| v.as_str()).ok_or_else(|| t!("нет id"))?.to_string();
         let files: Vec<(String, String)> = doc
             .get("files")
             .and_then(Item::as_table_like)
-            .ok_or("нет [files]")?
+            .ok_or_else(|| t!("нет [files]"))?
             .iter()
             .filter_map(|(k, v)| Some((k.to_string(), v.as_str()?.to_string())))
             .filter(|(k, _)| !k.contains("..") && !k.starts_with('/'))

@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
+use syngui::t;
 
 use crate::model::Vm;
 use crate::vnc::Session;
@@ -80,10 +81,10 @@ pub fn default_path(vm: &Vm) -> PathBuf {
 /// Начать запись в отдельном процессе; вернуться, когда пошли кадры.
 pub fn start(vm: &Vm, o: &Opts) -> Result<Info> {
     if crate::qemu::pid(vm).is_none() {
-        bail!("«{}» не запущена", vm.name);
+        bail!("{}", t!("«{name}» не запущена", name = vm.name));
     }
     if let Some(i) = status(vm) {
-        bail!("уже идёт запись в {} (syn-vm --record-stop {})", i.path, vm.id);
+        bail!("{}", t!("уже идёт запись в {path} (syn-vm --record-stop {id})", path = i.path, id = vm.id));
     }
     let _ = std::fs::remove_file(info_path(vm));
     let exe = std::env::current_exe()?;
@@ -97,12 +98,12 @@ pub fn start(vm: &Vm, o: &Opts) -> Result<Info> {
             Ok(())
         });
     }
-    let mut child = c.spawn().context("запуск записи")?;
+    let mut child = c.spawn().with_context(|| t!("запуск записи"))?;
     let t0 = Instant::now();
     loop {
         if let Ok(Some(st)) = child.try_wait() {
             let log = std::fs::read_to_string(vm.run_dir().join("record.log")).unwrap_or_default();
-            bail!("запись не началась ({st}): {}", log.lines().filter(|l| !l.contains(" INFO ")).last().unwrap_or("").trim());
+            bail!("{}", t!("запись не началась ({st}): {log}", st = st, log = log.lines().filter(|l| !l.contains(" INFO ")).last().unwrap_or("").trim()));
         }
         if let Some(i) = status(vm).filter(|i| i.size.0 > 0) {
             std::thread::spawn(move || child.wait());
@@ -110,7 +111,7 @@ pub fn start(vm: &Vm, o: &Opts) -> Result<Info> {
         }
         if t0.elapsed() > Duration::from_secs(15) {
             let _ = child.kill();
-            bail!("запись не началась за 15 с — нет кадра от гостя");
+            bail!("{}", t!("запись не началась за 15 с — нет кадра от гостя"));
         }
         std::thread::sleep(Duration::from_millis(100));
     }
@@ -118,12 +119,12 @@ pub fn start(vm: &Vm, o: &Opts) -> Result<Info> {
 
 /// Остановить и дождаться готового файла.
 pub fn stop(vm: &Vm) -> Result<Info> {
-    let Some(i) = status(vm) else { bail!("у «{}» запись не идёт", vm.name) };
+    let Some(i) = status(vm) else { bail!("{}", t!("у «{name}» запись не идёт", name = vm.name)) };
     unsafe { libc::kill(i.pid, libc::SIGTERM) };
     let t0 = Instant::now();
     while alive(i.pid) {
         if t0.elapsed() > Duration::from_secs(60) {
-            bail!("запись не завершилась за 60 с (pid {})", i.pid);
+            bail!("{}", t!("запись не завершилась за 60 с (pid {pid})", pid = i.pid));
         }
         std::thread::sleep(Duration::from_millis(100));
     }
@@ -278,7 +279,7 @@ pub fn run(vm: &Vm, o: Opts) -> Result<()> {
         libc::signal(libc::SIGINT, on_signal as libc::sighandler_t);
         libc::signal(libc::SIGHUP, on_signal as libc::sighandler_t);
     }
-    let qpid = crate::qemu::pid(vm).context("машина не запущена")?;
+    let qpid = crate::qemu::pid(vm).with_context(|| t!("машина не запущена"))?;
     let fps = o.fps.clamp(1, 120);
     let mut info = Info { pid: std::process::id() as i32, path: o.out.display().to_string(), started: crate::model::now(), fps, audio: o.audio, ..Default::default() };
     let save = |i: &Info| {
@@ -294,7 +295,7 @@ pub fn run(vm: &Vm, o: Opts) -> Result<()> {
     let t0 = Instant::now();
     while session.frame.size().0 == 0 {
         if !session.alive() || t0.elapsed() > Duration::from_secs(10) || STOP.load(Ordering::SeqCst) {
-            bail!("нет кадра от гостя");
+            bail!("{}", t!("нет кадра от гостя"));
         }
         std::thread::sleep(Duration::from_millis(20));
     }
@@ -325,7 +326,7 @@ pub fn run(vm: &Vm, o: Opts) -> Result<()> {
         cmd.args(["-movflags", "+faststart"]);
     }
     cmd.arg(&o.out).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped());
-    let mut ff = cmd.spawn().context("ffmpeg не найден (пакет ffmpeg)")?;
+    let mut ff = cmd.spawn().with_context(|| t!("ffmpeg не найден (пакет ffmpeg)"))?;
     let mut stdin = ff.stdin.take().unwrap();
     let mut fferr = ff.stderr.take().unwrap();
     let errlog = Arc::new(Mutex::new(String::new()));
@@ -380,7 +381,7 @@ pub fn run(vm: &Vm, o: Opts) -> Result<()> {
             break;
         }
         if !session.alive() {
-            stats.error = "экран гостя отключился (машина выключена?)".into();
+            stats.error = t!("экран гостя отключился (машина выключена?)");
             break;
         }
         let (sw, sh, rgba, ver) = session.frame.latest();

@@ -458,7 +458,7 @@ pub enum Event {
 
 /// Один запрос к демону.
 pub fn request(req: &Request) -> Result<Response> {
-    let s = UnixStream::connect(SOCKET).with_context(|| format!("synmodemd не запущен ({SOCKET})"))?;
+    let s = UnixStream::connect(SOCKET).with_context(|| synshell_tr::t!("synmodemd не запущен ({socket})", socket = SOCKET))?;
     s.set_read_timeout(Some(Duration::from_secs(120)))?;
     let mut w = s.try_clone()?;
     let mut line = serde_json::to_string(req)?;
@@ -467,7 +467,7 @@ pub fn request(req: &Request) -> Result<Response> {
     let mut resp = String::new();
     BufReader::new(s).read_line(&mut resp)?;
     if resp.is_empty() {
-        bail!("synmodemd закрыл соединение");
+        bail!("{}", synshell_tr::t!("synmodemd закрыл соединение"));
     }
     let r: Response = serde_json::from_str(&resp)?;
     if let Response::Error { message } = r {
@@ -478,7 +478,7 @@ pub fn request(req: &Request) -> Result<Response> {
 
 /// Загрузить профиль eSIM (ждёт до 10 минут; ход — событиями `EsimProgress` подписки).
 pub fn esim_download(code: &str, confirmation: &str) -> Result<()> {
-    let s = UnixStream::connect(SOCKET).with_context(|| format!("synmodemd не запущен ({SOCKET})"))?;
+    let s = UnixStream::connect(SOCKET).with_context(|| synshell_tr::t!("synmodemd не запущен ({socket})", socket = SOCKET))?;
     s.set_read_timeout(Some(Duration::from_secs(600)))?;
     let mut w = s.try_clone()?;
     let mut line = serde_json::to_string(&Request::EsimDownload { code: code.to_string(), confirmation: confirmation.to_string() })?;
@@ -487,7 +487,7 @@ pub fn esim_download(code: &str, confirmation: &str) -> Result<()> {
     let mut resp = String::new();
     BufReader::new(s).read_line(&mut resp)?;
     if resp.is_empty() {
-        bail!("synmodemd закрыл соединение");
+        bail!("{}", synshell_tr::t!("synmodemd закрыл соединение"));
     }
     match serde_json::from_str::<Response>(&resp)? {
         Response::Error { message } => bail!("{message}"),
@@ -518,7 +518,7 @@ pub fn call_log() -> Result<Vec<CallRecord>> {
 
 /// Подписка на события: `f` вызывается на каждое событие, пока возвращает `true` и демон жив.
 pub fn subscribe(mut f: impl FnMut(Event) -> bool) -> Result<()> {
-    let s = UnixStream::connect(SOCKET).with_context(|| format!("synmodemd не запущен ({SOCKET})"))?;
+    let s = UnixStream::connect(SOCKET).with_context(|| synshell_tr::t!("synmodemd не запущен ({socket})", socket = SOCKET))?;
     let mut w = s.try_clone()?;
     let mut line = serde_json::to_string(&Request::Subscribe)?;
     line.push('\n');
@@ -543,7 +543,7 @@ pub fn subscribe(mut f: impl FnMut(Event) -> bool) -> Result<()> {
 
 /// Поток местоположения: приёмник работает, пока `f` возвращает `true`.
 pub fn gnss_watch(mut f: impl FnMut(Fix) -> bool) -> Result<()> {
-    let s = UnixStream::connect(SOCKET).with_context(|| format!("synmodemd не запущен ({SOCKET})"))?;
+    let s = UnixStream::connect(SOCKET).with_context(|| synshell_tr::t!("synmodemd не запущен ({socket})", socket = SOCKET))?;
     let mut w = s.try_clone()?;
     let mut line = serde_json::to_string(&Request::GnssWatch)?;
     line.push('\n');

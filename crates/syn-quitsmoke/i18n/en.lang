@@ -13,6 +13,7 @@
 "Пропустить" = "Skip"
 "Отмена" = "Cancel"
 "Ок" = "OK"
+"Сбросить" = "Reset"
 "Да" = "Yes"
 "Готово" = "Done"
 "дн" = "d"
@@ -310,4 +311,14 @@
 "Новая веха здоровья!" = "New health milestone!"
 "Отметить" = "Log"
 "Держусь" = "Holding"
-"Сбросить" = "Reset"
+
+# src/notify/android.rs
+"Статус" = "Status"
+"Текущий отсчёт и стрик" = "Current countdown and streak"
+"Вехи здоровья" = "Health milestones"
+"Достижения и вехи" = "Achievements and milestones"
+"Напоминания" = "Reminders"
+"Сигналы «можно курить»" = "“You may smoke now” alerts"
+
+# src/util.rs
+"{d} д {hms}" = "{d} d {hms}"

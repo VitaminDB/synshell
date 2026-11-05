@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
 use anyhow::{bail, Context, Result};
+use syngui::t;
 use serde::{Deserialize, Serialize};
 
 use crate::api::Session;
@@ -90,12 +91,12 @@ fn chmod(p: &Path, mode: u32) {
 
 /// Подготовить хост и запустить контейнер.
 pub fn start(c: &Config, session: &Session) -> Result<Running> {
-    let set = c.active.clone().context("не выбран набор образов (syndroid image fetch / use)")?;
+    let set = c.active.clone().with_context(|| t!("не выбран набор образов (syndroid image fetch / use)"))?;
     if !images::exists(&set) {
-        bail!("набор образов «{set}» не установлен");
+        bail!("{}", t!("набор образов «{set}» не установлен", set = set));
     }
     if !session.wayland_socket().exists() {
-        bail!("нет Wayland-сокета {}", session.wayland_socket().display());
+        bail!("{}", t!("нет Wayland-сокета {path}", path = session.wayland_socket().display()));
     }
     let instance = images::instance_of(&set);
     migrate_shared_data(&instance);
@@ -142,18 +143,18 @@ pub fn start(c: &Config, session: &Session) -> Result<Running> {
             Ok(())
         });
     }
-    let mut starter = cmd.spawn().context("стартер контейнера")?;
+    let mut starter = cmd.spawn().with_context(|| t!("стартер контейнера"))?;
     let r = (|| -> Result<i32> {
         let pid = starter.id() as i32;
         fs::create_dir_all(paths::CGROUP)?;
-        fs::write(Path::new(paths::CGROUP).join("cgroup.procs"), pid.to_string()).context("cgroup контейнера")?;
+        fs::write(Path::new(paths::CGROUP).join("cgroup.procs"), pid.to_string()).with_context(|| t!("cgroup контейнера"))?;
         if c.network {
             net::attach(pid)?;
         }
         starter.stdin.take().context("stdin")?.write_all(b"go\n")?;
         let mut line = String::new();
         BufReader::new(starter.stdout.take().context("stdout")?).read_line(&mut line)?;
-        line.trim().parse::<i32>().ok().context("контейнер не запустился (см. /run/syndroid/container.log)")
+        line.trim().parse::<i32>().ok().with_context(|| t!("контейнер не запустился (см. /run/syndroid/container.log)"))
     })();
     match r {
         Ok(init_pid) => Ok(Running { starter, init_pid, dnsmasq, shared: shared_names }),
@@ -467,9 +468,9 @@ fn setup_root(spec: &Spec) -> Result<()> {
     sys::mount("tmpfs", &xdg, "tmpfs", libc::MS_NODEV, "mode=0755")?;
     let host = r.join("run/xdg-host");
     fs::create_dir_all(&host)?;
-    sys::bind(&spec.session.xdg_runtime_dir, &host, false).context("XDG_RUNTIME_DIR сеанса")?;
+    sys::bind(&spec.session.xdg_runtime_dir, &host, false).with_context(|| t!("XDG_RUNTIME_DIR сеанса"))?;
     let rel = |p: &Path| -> Result<PathBuf> {
-        let p = p.strip_prefix(&spec.session.xdg_runtime_dir).map_err(|_| anyhow::anyhow!("{} вне XDG_RUNTIME_DIR", p.display()))?;
+        let p = p.strip_prefix(&spec.session.xdg_runtime_dir).map_err(|_| anyhow::anyhow!("{}", t!("{path} вне XDG_RUNTIME_DIR", path = p.display())))?;
         Ok(PathBuf::from("/run/xdg-host").join(p))
     };
     std::os::unix::fs::symlink(rel(&spec.session.wayland_socket())?, xdg.join(paths::CONTAINER_WAYLAND_DISPLAY))?;
@@ -526,7 +527,7 @@ pub fn android_env(init_pid: i32) -> Vec<(String, String)> {
 /// не хватает /proc/self).
 pub fn command_in(init_pid: i32, argv: &[String]) -> Result<Command> {
     if argv.is_empty() {
-        bail!("пустая команда");
+        bail!("{}", t!("пустая команда"));
     }
     let mut cmd = Command::new(paths::SELF_EXE);
     cmd.arg("__exec").arg(init_pid.to_string()).args(argv);
@@ -539,7 +540,7 @@ pub fn exec_main(args: &[String]) -> ! {
         let pid: i32 = args.first().context("нет PID")?.parse()?;
         let argv = &args[1..];
         let env = android_env(pid);
-        let pidfd = sys::pidfd_open(pid).context("контейнер не запущен")?;
+        let pidfd = sys::pidfd_open(pid).with_context(|| t!("контейнер не запущен"))?;
         let flags = libc::CLONE_NEWNS | libc::CLONE_NEWUTS | libc::CLONE_NEWNET | libc::CLONE_NEWCGROUP | libc::CLONE_NEWPID;
         if unsafe { libc::setns(pidfd.as_raw_fd(), flags) } != 0 {
             bail!("setns: {}", std::io::Error::last_os_error());

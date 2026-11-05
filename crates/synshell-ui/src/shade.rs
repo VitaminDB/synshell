@@ -650,7 +650,7 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
                 DataState::Waiting if !m.radio => t!("Режим полёта").into(),
                 DataState::Waiting => t!("Нет сети").into(),
                 DataState::Connecting => t!("Подключение…").into(),
-                DataState::Connected if m.roaming => t!("{v} · роуминг", v = if m.technology.is_empty() { "Подключён" } else { m.technology.as_str() }),
+                DataState::Connected if m.roaming => t!("{v} · роуминг", v = if m.technology.is_empty() { t!("Подключён") } else { m.technology.clone() }),
                 DataState::Connected => if m.technology.is_empty() { t!("Подключён").into() } else { m.technology.clone() },
                 DataState::Error => t!("Ошибка").into(),
             };

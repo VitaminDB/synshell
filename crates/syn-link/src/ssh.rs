@@ -13,6 +13,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
+use synshell_tr::t;
 
 use crate::identity::{data_dir, Trusted};
 
@@ -98,7 +99,7 @@ pub async fn sshd_port() -> Result<u16> {
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    bail!("sshd пользователя не запустился")
+    bail!("{}", t!("sshd пользователя не запустился"))
 }
 
 fn start_user_sshd() -> Result<std::process::Child> {
@@ -124,7 +125,7 @@ fn start_user_sshd() -> Result<std::process::Child> {
             hk.display()
         ),
     )?;
-    let sshd = ["/usr/bin/sshd", "/usr/sbin/sshd"].into_iter().find(|p| std::path::Path::new(p).exists()).context("нет sshd")?;
+    let sshd = ["/usr/bin/sshd", "/usr/sbin/sshd"].into_iter().find(|p| std::path::Path::new(p).exists()).with_context(|| t!("нет sshd"))?;
     tracing::info!("запускаю sshd пользователя на 127.0.0.1:{USER_SSHD_PORT}");
     Ok(std::process::Command::new(sshd)
         .arg("-D")
@@ -135,7 +136,7 @@ fn start_user_sshd() -> Result<std::process::Child> {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .context("запуск sshd")?)
+        .with_context(|| t!("запуск sshd"))?)
 }
 
 pub fn stop_user_sshd() {
@@ -166,7 +167,7 @@ pub fn authorize(id: &str, name: &str, key: &str) -> Result<()> {
     let mut lines: Vec<String> = old.lines().filter(|l| !l.trim_end().ends_with(&tag)).map(String::from).collect();
     // Комментарий ключа заменяем своей пометкой (по ней и удаляем).
     let mut parts = key.split_whitespace();
-    let (Some(t), Some(k)) = (parts.next(), parts.next()) else { bail!("странный ключ ssh") };
+    let (Some(t), Some(k)) = (parts.next(), parts.next()) else { bail!("{}", t!("странный ключ ssh")) };
     lines.push(format!("{t} {k} {}-{tag}", slug(name)));
     std::fs::write(&path, lines.join("\n") + "\n")?;
     use std::os::unix::fs::PermissionsExt;

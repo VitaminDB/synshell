@@ -107,7 +107,7 @@ fn http_error(what: &str, host: &str, url: &str, e: ureq::Error) -> anyhow::Erro
         E::StatusCode(code) if code >= 500 || code == 408 || code == 429 => {
             Transient(t!("{what}: сервер {host} недоступен (HTTP {code}) — попробуйте позже ({url})", what = what, host = host, code = code, url = url)).into()
         }
-        E::StatusCode(code) => anyhow::anyhow!("{what}: сервер {host} ответил HTTP {code} ({url})"),
+        E::StatusCode(code) => anyhow::anyhow!("{}", t!("{what}: сервер {host} ответил HTTP {code} ({url})", what = what, host = host, code = code, url = url)),
         E::Timeout(t) => Transient(t!("{what}: сервер {host} не ответил вовремя ({t}) ({url})", what = what, host = host, t = t, url = url)).into(),
         E::HostNotFound => Transient(t!("{what}: не найден сервер {host} — нет сети? ({url})", what = what, host = host, url = url)).into(),
         e @ (E::Io(_) | E::ConnectionFailed | E::Tls(_) | E::Protocol(_) | E::TooManyRedirects | E::RedirectFailed) => {
@@ -142,7 +142,7 @@ pub fn ota_latest(c: &Config) -> Result<(OtaEntry, OtaEntry)> {
         let mut r = agent(c, true).get(url).call().map_err(|e| http_error(&t!("OTA-канал"), host, url, e))?;
         let body: OtaResponse = serde_json::from_reader(r.body_mut().as_reader())
             .map_err(|e| Transient(t!("OTA-канал {host}: не JSON ({e}) ({url})", host = host, e = e, url = url)))?;
-        body.response.into_iter().max_by_key(|e| e.datetime).with_context(|| format!("пустой канал {url}"))
+        body.response.into_iter().max_by_key(|e| e.datetime).with_context(|| t!("пустой канал {url}", url = url))
     };
     Ok((get(&system_ota_url(c))?, get(&vendor_ota_url(c))?))
 }
@@ -206,14 +206,14 @@ pub fn exists(name: &str) -> bool {
 
 fn check_name(name: &str) -> Result<()> {
     if name.is_empty() || name.starts_with('.') || name.contains('/') {
-        bail!("недопустимое имя набора «{name}»");
+        bail!("{}", t!("недопустимое имя набора «{name}»", name = name));
     }
     Ok(())
 }
 
 pub fn remove(name: &str) -> Result<()> {
     check_name(name)?;
-    fs::remove_dir_all(dir(name)).with_context(|| format!("набор {name}"))?;
+    fs::remove_dir_all(dir(name)).with_context(|| t!("набор {name}", name = name))?;
     let _ = fs::remove_dir_all(paths::STATE.to_string() + "/overlay_rw/" + name);
     let _ = fs::remove_dir_all(paths::STATE.to_string() + "/overlay_work/" + name);
     Ok(())
@@ -367,7 +367,7 @@ fn unpack(src: &Path, part: &str, to: &Path, progress: Progress) -> Result<()> {
         let mut z = zip::ZipArchive::new(BufReader::new(File::open(src)?))?;
         let idx = (0..z.len())
             .find(|&i| z.by_index(i).map(|e| e.name().ends_with(&format!("{part}.img"))).unwrap_or(false))
-            .with_context(|| format!("в {} нет {part}.img", src.display()))?;
+            .with_context(|| t!("в {src} нет {part}.img", src = src.display(), part = part))?;
         let mut e = z.by_index(idx)?;
         copy(&mut e, &tmp, &what, progress)?;
     } else {

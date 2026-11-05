@@ -35,9 +35,9 @@ fn reset_cache() {
 
 pub fn init(state: &AppState) {
     let locale = state.settings.get_untracked().locale;
-    n::create_channel(CH_STATUS, "Статус", "Текущий отсчёт и стрик", ChannelImportance::Low);
-    n::create_channel(CH_MILESTONES, "Вехи здоровья", "Достижения и вехи", ChannelImportance::High);
-    n::create_channel(CH_REMINDERS, "Напоминания", "Сигналы «можно курить»", ChannelImportance::Default);
+    n::create_channel(CH_STATUS, &syngui::t!("Статус"), &syngui::t!("Текущий отсчёт и стрик"), ChannelImportance::Low);
+    n::create_channel(CH_MILESTONES, &syngui::t!("Вехи здоровья"), &syngui::t!("Достижения и вехи"), ChannelImportance::High);
+    n::create_channel(CH_REMINDERS, &syngui::t!("Напоминания"), &syngui::t!("Сигналы «можно курить»"), ChannelImportance::Default);
     let _ = locale;
     request_permission();
     reset_cache();

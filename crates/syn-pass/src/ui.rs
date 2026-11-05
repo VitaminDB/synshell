@@ -720,7 +720,7 @@ fn change_password(st: St) {
         // Проверка ответа — Argon2: на копии, не держа хранилище.
         let copy = SESSION.lock().unwrap().clone();
         let res = if !copy.is_some_and(|s| s.check_secret(&old)) {
-            Err(anyhow::anyhow!("Не подходит ни мастер-пароль, ни ответ на вопрос"))
+            Err(anyhow::anyhow!(t!("Не подходит ни мастер-пароль, ни ответ на вопрос")))
         } else {
             let mut g = SESSION.lock().unwrap();
             match g.as_mut() {

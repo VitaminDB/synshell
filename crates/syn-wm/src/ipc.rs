@@ -176,7 +176,7 @@ impl State {
                     None => continue,
                 },
                 Ok(req) => (self.handle_request(req), false),
-                Err(e) => (Response::Error { message: format!("неверный запрос: {e}") }, false),
+                Err(e) => (Response::Error { message: t!("неверный запрос: {e}", e = e) }, false),
             };
             let mut out = serde_json::to_string(&response).unwrap_or_default();
             out.push('\n');

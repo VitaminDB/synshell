@@ -44,11 +44,11 @@ impl Difficulty {
         }
     }
 
-    pub fn name(self) -> &'static str {
+    pub fn name(self) -> String {
         match self {
-            Difficulty::Easy => "ЛЕГКО",
-            Difficulty::Normal => "НОРМА",
-            Difficulty::Hard => "СЛОЖНО",
+            Difficulty::Easy => syngui::t!("ЛЕГКО"),
+            Difficulty::Normal => syngui::t!("НОРМА"),
+            Difficulty::Hard => syngui::t!("СЛОЖНО"),
         }
     }
 
@@ -89,11 +89,11 @@ impl Ability {
         }
     }
 
-    pub fn name(self) -> &'static str {
+    pub fn name(self) -> String {
         match self {
-            Ability::Reroll => "Обмен",
-            Ability::Hammer => "Молот",
-            Ability::Bomb => "Бомба",
+            Ability::Reroll => syngui::t!("Обмен"),
+            Ability::Hammer => syngui::t!("Молот"),
+            Ability::Bomb => syngui::t!("Бомба"),
         }
     }
 

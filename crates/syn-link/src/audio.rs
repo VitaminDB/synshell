@@ -66,7 +66,7 @@ fn pw_cat(mode: &str, latency: &str, target: Option<&str>, props: serde_json::Va
         c.stdin(Stdio::null()).stdout(Stdio::piped());
     }
     c.stderr(Stdio::piped());
-    let mut child = c.spawn().context("pw-cat (пакет pipewire) не запускается")?;
+    let mut child = c.spawn().with_context(|| t!("pw-cat (пакет pipewire) не запускается"))?;
     // Нет PipeWire или не тот формат — pw-cat выходит сразу.
     std::thread::sleep(Duration::from_millis(150));
     if let Some(st) = child.try_wait()? {
@@ -75,7 +75,7 @@ fn pw_cat(mode: &str, latency: &str, target: Option<&str>, props: serde_json::Va
             let _ = e.read_to_string(&mut err);
         }
         let why = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string();
-        bail!("pw-cat: {} ({st})", if why.is_empty() { "не запустился".into() } else { why });
+        bail!("pw-cat: {} ({st})", if why.is_empty() { t!("не запустился") } else { why });
     }
     if let Some(e) = child.stderr.take() {
         std::thread::spawn(move || {
@@ -302,7 +302,7 @@ impl EchoCancel {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .context("pw-cli (пакет pipewire) не запускается")?;
+            .with_context(|| t!("pw-cli (пакет pipewire) не запускается"))?;
         let args = format!(
             "load-module libpipewire-module-echo-cancel {{ library.name = aec/libspa-aec-webrtc monitor.mode = false \
              capture.props = {{ node.name = synlink-ec-capture node.passive = true }} \
@@ -315,7 +315,7 @@ impl EchoCancel {
         for _ in 0..20 {
             std::thread::sleep(Duration::from_millis(100));
             if let Some(st) = c.try_wait()? {
-                bail!("pw-cli вышел ({st})");
+                bail!("{}", t!("pw-cli вышел ({st})", st = st));
             }
             let out = Command::new("pw-cli").args(["ls", "Node"]).output()?;
             if String::from_utf8_lossy(&out.stdout).contains(EC_SOURCE) {
@@ -323,7 +323,7 @@ impl EchoCancel {
             }
         }
         let _ = c.kill();
-        bail!("модуль эхоподавления не создал узлы")
+        bail!("{}", t!("модуль эхоподавления не создал узлы"))
     }
 }
 
@@ -446,15 +446,15 @@ pub async fn serve(d: D, peer: String, mut w: quinn::SendStream, r: quinn::RecvS
 /// Включить звук с устройством: его звук играет здесь, наш микрофон (`mic`)
 /// уходит туда. Ответ — id устройства, номер сеанса и приёмник причины конца.
 pub async fn start(d: &D, device: &str, mic: bool) -> Result<(String, u64, oneshot::Receiver<String>)> {
-    let id = d.resolve(device).with_context(|| format!("нет устройства «{device}»"))?;
+    let id = d.resolve(device).with_context(|| t!("нет устройства «{device}»", device = device))?;
     if id == d.id.id {
-        bail!("звук своего устройства не нужен");
+        bail!("{}", t!("звук своего устройства не нужен"));
     }
-    let (conn, _) = d.conn(&id).with_context(|| format!("«{device}» не соединено"))?;
+    let (conn, _) = d.conn(&id).with_context(|| t!("«{device}» не соединено", device = device))?;
     let name = d.peer_info(&id).map(|p| p.name).unwrap_or_else(|| device.to_string());
     let proto_ver = d.session_info(&id).map(|(p, _)| p).unwrap_or(0);
     if proto_ver < MIN_PROTO {
-        bail!("на «{name}» synlink без звука трансляции — обновите synshell там");
+        bail!("{}", t!("на «{name}» synlink без звука трансляции — обновите synshell там", name = name));
     }
     stop(d, &id);
     let v2 = proto_ver >= crate::proto::PROTO_OPUS;
@@ -464,9 +464,9 @@ pub async fn start(d: &D, device: &str, mic: bool) -> Result<(String, u64, onesh
     match tokio::time::timeout(Duration::from_secs(8), proto::recv::<Reply>(&mut r)).await {
         Ok(Ok(Some(Reply::Done))) => {}
         Ok(Ok(Some(Reply::Err(e)))) => bail!("«{name}»: {e}"),
-        Ok(Ok(_)) => bail!("«{name}» не ответило"),
+        Ok(Ok(_)) => bail!("{}", t!("«{name}» не ответило", name = name)),
         Ok(Err(e)) => bail!("«{name}»: {e:#}"),
-        Err(_) => bail!("«{name}» не ответило вовремя"),
+        Err(_) => bail!("{}", t!("«{name}» не ответило вовремя", name = name)),
     }
     // Понимает ли та сторона Opus — первым сообщением AudioV2.
     let peer_opus = if v2 {

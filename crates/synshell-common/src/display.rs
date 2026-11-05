@@ -143,7 +143,7 @@ impl UpdateMode {
 impl TryFrom<String> for UpdateMode {
     type Error = String;
     fn try_from(s: String) -> Result<Self, String> {
-        UpdateMode::from_name(&s).ok_or_else(|| format!("недопустимое имя режима E Ink: {s:?}"))
+        UpdateMode::from_name(&s).ok_or_else(|| t!("недопустимое имя режима E Ink: {s}", s = format!("{s:?}")))
     }
 }
 
@@ -341,7 +341,7 @@ impl Serialize for Scheme {
 impl<'de> Deserialize<'de> for Scheme {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let s = String::deserialize(d)?;
-        Scheme::parse(&s).ok_or_else(|| serde::de::Error::custom(format!("режим волны E Ink: {s:?}, нужно «ui <hex>» или «auto <n>»")))
+        Scheme::parse(&s).ok_or_else(|| serde::de::Error::custom(t!("режим волны E Ink: {s}, нужно «ui <hex>» или «auto <n>»", s = format!("{s:?}"))))
     }
 }
 

@@ -191,7 +191,7 @@ pub fn profiles(ch: &Channel) -> Result<Vec<Profile>> {
     let body = find(&top, 0xBF2D).context("нет ProfileInfoListResponse")?;
     let inner = parse(body);
     let Some(list) = find(&inner, 0xA0) else {
-        bail!("eUICC: ошибка списка профилей");
+        bail!("{}", t!("eUICC: ошибка списка профилей"));
     };
     let mut out = Vec::new();
     for p in parse(list).into_iter().filter(|t| t.tag == 0xE3) {
@@ -229,7 +229,7 @@ fn result_code(resp: &[u8], tag: u32) -> Result<()> {
         127 => t!("неизвестная ошибка"),
         _ => t!("ошибка eUICC"),
     };
-    bail!("{why} (код {code})")
+    bail!("{}", t!("{why} (код {code})", why = why, code = code))
 }
 
 fn by_iccid(iccid: &str) -> Vec<u8> {

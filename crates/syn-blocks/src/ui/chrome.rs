@@ -65,7 +65,7 @@ fn brand_mark() -> W {
 fn titlebar(ctx: GameCtx) -> W {
     let fs_button = Tooltip::new(
         Button::new("").icon(theme::ICON_FULLSCREEN).class("tb-btn").on_click(move || toggle_fullscreen(ctx)),
-        "Во весь экран (F11)",
+        syngui::t!("Во весь экран (F11)"),
     )
     .delay_ms(500);
     let controls = Reactive::new(move || -> Vec<W> {

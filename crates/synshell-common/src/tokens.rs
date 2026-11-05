@@ -121,51 +121,51 @@ fn palette_color(p: &Palette, key: &str) -> Option<crate::config::Rgba> {
 }
 
 macro_rules! tok {
-    ($name:literal, $group:ident, $kind:ident, $label:literal, $doc:literal, $src:expr) => {
-        TokenSpec { name: $name, group: Group::$group, kind: Kind::$kind, label: n_!($label), doc: n_!($doc), source: $src }
+    ($name:literal, $group:ident, $kind:ident, $label:expr, $doc:expr, $src:expr) => {
+        TokenSpec { name: $name, group: Group::$group, kind: Kind::$kind, label: $label, doc: $doc, source: $src }
     };
 }
 
 /// Все токены. Порядок токенов палитры и производных — порядок в `:root`.
 pub const TOKENS: &[TokenSpec] = &[
-    tok!("bg", Surfaces, Color, "Фон", "Самый нижний фон: окна, рабочий стол без обоев, панели.", Source::Palette("bg")),
-    tok!("surface", Surfaces, Color, "Поверхность", "Карточки, меню, всплывающие окна.", Source::Palette("surface")),
-    tok!("surface-alt", Surfaces, Color, "Поверхность 2", "Поля ввода, вложенные карточки, полосы.", Source::Palette("surface_alt")),
-    tok!("panel-bg", Surfaces, Color, "Фон панели", "Фон панели и дока: «Фон» с непрозрачностью панелей.", Source::Derived(|c| c.p.bg.with_alpha(c.opacity).hex())),
-    tok!("menu-bg", Surfaces, Color, "Фон меню", "Фон меню и всплывающих окон: «Поверхность», почти непрозрачная.", Source::Derived(|c| c.p.surface.with_alpha(c.opacity.max(0.96)).hex())),
-    tok!("fg", Text, Color, "Текст", "Основной цвет текста и значков.", Source::Palette("fg")),
-    tok!("muted", Text, Color, "Приглушённый текст", "Подписи, подсказки, второстепенный текст.", Source::Palette("muted")),
-    tok!("border", Text, Color, "Рамка", "Рамки и разделители.", Source::Palette("border")),
-    tok!("accent", Accent, Color, "Акцент", "Выделение, активные элементы, основные кнопки.", Source::Palette("accent")),
-    tok!("accent-fg", Accent, Color, "Текст на акценте", "Текст и значки поверх акцента (по умолчанию — контрастный).", Source::Palette("accent_fg")),
-    tok!("accent-soft", Accent, Color, "Мягкий акцент", "Подложка выбранного пункта: акцент с прозрачностью 22%.", Source::Derived(|c| c.p.accent.with_alpha(0.22).hex())),
-    tok!("hover", States, Color, "Наведение", "Подсветка под указателем: текст с прозрачностью 8%.", Source::Derived(|c| c.p.fg.with_alpha(0.08).hex())),
-    tok!("pressed", States, Color, "Нажатие", "Подсветка нажатого: текст с прозрачностью 14%.", Source::Derived(|c| c.p.fg.with_alpha(0.14).hex())),
-    tok!("danger", Status, Color, "Ошибка", "Ошибки, удаление, опасные действия.", Source::Palette("danger")),
-    tok!("danger-soft", Status, Color, "Мягкая ошибка", "Подложка ошибки: прозрачность 18%.", Source::Derived(|c| c.p.danger.with_alpha(0.18).hex())),
-    tok!("success", Status, Color, "Успех", "Готово, подключено, заряд.", Source::Palette("success")),
-    tok!("warning", Status, Color, "Внимание", "Предупреждения.", Source::Palette("warning")),
-    tok!("radius", Shape, Length, "Скругление", "Скругление панелей, меню и карточек («Скругление углов»).", Source::Derived(|c| format!("{}px", c.radius))),
-    tok!("radius-sm", Shape, Length, "Малое скругление", "Скругление кнопок и полей: 60% от «Скругления».", Source::Derived(|c| format!("{}px", (c.radius * 0.6).round()))),
-    tok!("font-size", Shape, Length, "Размер шрифта", "Основной размер текста интерфейса.", Source::Derived(|c| format!("{}px", c.a.font_size))),
+    tok!("bg", Surfaces, Color, n_!("Фон"), n_!("Самый нижний фон: окна, рабочий стол без обоев, панели."), Source::Palette("bg")),
+    tok!("surface", Surfaces, Color, n_!("Поверхность"), n_!("Карточки, меню, всплывающие окна."), Source::Palette("surface")),
+    tok!("surface-alt", Surfaces, Color, n_!("Поверхность 2"), n_!("Поля ввода, вложенные карточки, полосы."), Source::Palette("surface_alt")),
+    tok!("panel-bg", Surfaces, Color, n_!("Фон панели"), n_!("Фон панели и дока: «Фон» с непрозрачностью панелей."), Source::Derived(|c| c.p.bg.with_alpha(c.opacity).hex())),
+    tok!("menu-bg", Surfaces, Color, n_!("Фон меню"), n_!("Фон меню и всплывающих окон: «Поверхность», почти непрозрачная."), Source::Derived(|c| c.p.surface.with_alpha(c.opacity.max(0.96)).hex())),
+    tok!("fg", Text, Color, n_!("Текст"), n_!("Основной цвет текста и значков."), Source::Palette("fg")),
+    tok!("muted", Text, Color, n_!("Приглушённый текст"), n_!("Подписи, подсказки, второстепенный текст."), Source::Palette("muted")),
+    tok!("border", Text, Color, n_!("Рамка"), n_!("Рамки и разделители."), Source::Palette("border")),
+    tok!("accent", Accent, Color, n_!("Акцент"), n_!("Выделение, активные элементы, основные кнопки."), Source::Palette("accent")),
+    tok!("accent-fg", Accent, Color, n_!("Текст на акценте"), n_!("Текст и значки поверх акцента (по умолчанию — контрастный)."), Source::Palette("accent_fg")),
+    tok!("accent-soft", Accent, Color, n_!("Мягкий акцент"), n_!("Подложка выбранного пункта: акцент с прозрачностью 22%."), Source::Derived(|c| c.p.accent.with_alpha(0.22).hex())),
+    tok!("hover", States, Color, n_!("Наведение"), n_!("Подсветка под указателем: текст с прозрачностью 8%."), Source::Derived(|c| c.p.fg.with_alpha(0.08).hex())),
+    tok!("pressed", States, Color, n_!("Нажатие"), n_!("Подсветка нажатого: текст с прозрачностью 14%."), Source::Derived(|c| c.p.fg.with_alpha(0.14).hex())),
+    tok!("danger", Status, Color, n_!("Ошибка"), n_!("Ошибки, удаление, опасные действия."), Source::Palette("danger")),
+    tok!("danger-soft", Status, Color, n_!("Мягкая ошибка"), n_!("Подложка ошибки: прозрачность 18%."), Source::Derived(|c| c.p.danger.with_alpha(0.18).hex())),
+    tok!("success", Status, Color, n_!("Успех"), n_!("Готово, подключено, заряд."), Source::Palette("success")),
+    tok!("warning", Status, Color, n_!("Внимание"), n_!("Предупреждения."), Source::Palette("warning")),
+    tok!("radius", Shape, Length, n_!("Скругление"), n_!("Скругление панелей, меню и карточек («Скругление углов»)."), Source::Derived(|c| format!("{}px", c.radius))),
+    tok!("radius-sm", Shape, Length, n_!("Малое скругление"), n_!("Скругление кнопок и полей: 60% от «Скругления»."), Source::Derived(|c| format!("{}px", (c.radius * 0.6).round()))),
+    tok!("font-size", Shape, Length, n_!("Размер шрифта"), n_!("Основной размер текста интерфейса."), Source::Derived(|c| format!("{}px", c.a.font_size))),
     // Поля варианта темы.
-    tok!("shadow", Windows, Color, "Тень", "Тень меню, уведомлений и окон.", Source::Variant("shadow")),
-    tok!("scrim", Windows, Color, "Затемнение", "Затемнение под модальными окнами и шторкой.", Source::Variant("scrim")),
+    tok!("shadow", Windows, Color, n_!("Тень"), n_!("Тень меню, уведомлений и окон."), Source::Variant("shadow")),
+    tok!("scrim", Windows, Color, n_!("Затемнение"), n_!("Затемнение под модальными окнами и шторкой."), Source::Variant("scrim")),
     // Токены программ: каждая задаёт свои значения, тема может перекрыть.
-    tok!("titlebar", Apps, Color, "Заголовок окна программы", "Полоса заголовка в программах с собственным заголовком.", Source::App),
-    tok!("sidebar", Apps, Color, "Боковая панель", "Боковая панель программ (Ассистент, Пульт, Пакеты…).", Source::App),
-    tok!("sidebar-bg", Apps, Color, "Боковая панель настроек", "Боковая панель «Параметров системы».", Source::App),
-    tok!("content", Apps, Color, "Область содержимого", "Фон основной области программ.", Source::App),
-    tok!("card", Apps, Color, "Карточка", "Фон карточек в программах.", Source::App),
-    tok!("card-bg", Apps, Color, "Фон карточки настроек", "Карточки «Параметров системы» и Проводника.", Source::App),
-    tok!("input-bg", Apps, Color, "Поле ввода", "Фон полей ввода.", Source::App),
-    tok!("field", Apps, Color, "Поле (Ассистент)", "Фон поля ввода сообщения.", Source::App),
-    tok!("divider", Apps, Color, "Разделитель", "Тонкие разделители списков.", Source::App),
-    tok!("accent-2", Apps, Color, "Второй акцент", "Второй цвет градиентов в программах.", Source::App),
-    tok!("accent-hover", Apps, Color, "Акцент под указателем", "Основная кнопка под указателем.", Source::App),
-    tok!("accent-glow", Apps, Color, "Свечение акцента", "Свечение вокруг активных элементов.", Source::App),
-    tok!("accent-dim", Apps, Color, "Тусклый акцент", "Слабая подложка акцента.", Source::App),
-    tok!("window-radius", Apps, Length, "Скругление окна", "Скругление углов окна программы (из «Декораций»).", Source::App),
+    tok!("titlebar", Apps, Color, n_!("Заголовок окна программы"), n_!("Полоса заголовка в программах с собственным заголовком."), Source::App),
+    tok!("sidebar", Apps, Color, n_!("Боковая панель"), n_!("Боковая панель программ (Ассистент, Пульт, Пакеты…)."), Source::App),
+    tok!("sidebar-bg", Apps, Color, n_!("Боковая панель настроек"), n_!("Боковая панель «Параметров системы»."), Source::App),
+    tok!("content", Apps, Color, n_!("Область содержимого"), n_!("Фон основной области программ."), Source::App),
+    tok!("card", Apps, Color, n_!("Карточка"), n_!("Фон карточек в программах."), Source::App),
+    tok!("card-bg", Apps, Color, n_!("Фон карточки настроек"), n_!("Карточки «Параметров системы» и Проводника."), Source::App),
+    tok!("input-bg", Apps, Color, n_!("Поле ввода"), n_!("Фон полей ввода."), Source::App),
+    tok!("field", Apps, Color, n_!("Поле (Ассистент)"), n_!("Фон поля ввода сообщения."), Source::App),
+    tok!("divider", Apps, Color, n_!("Разделитель"), n_!("Тонкие разделители списков."), Source::App),
+    tok!("accent-2", Apps, Color, n_!("Второй акцент"), n_!("Второй цвет градиентов в программах."), Source::App),
+    tok!("accent-hover", Apps, Color, n_!("Акцент под указателем"), n_!("Основная кнопка под указателем."), Source::App),
+    tok!("accent-glow", Apps, Color, n_!("Свечение акцента"), n_!("Свечение вокруг активных элементов."), Source::App),
+    tok!("accent-dim", Apps, Color, n_!("Тусклый акцент"), n_!("Слабая подложка акцента."), Source::App),
+    tok!("window-radius", Apps, Length, n_!("Скругление окна"), n_!("Скругление углов окна программы (из «Декораций»)."), Source::App),
 ];
 
 /// Найти токен по имени (с `--` или без).

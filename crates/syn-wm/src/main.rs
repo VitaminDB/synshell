@@ -145,7 +145,7 @@ fn reexec(inherited: &InheritedEnv) {
     tracing::info!(exe = %exe.display(), "exec нового композитора");
     let err = std::process::Command::new(&exe).args(std::env::args_os().skip(1)).exec();
     tracing::error!(?err, "перезапуск не удался");
-    eprintln!("synwm: перезапуск не удался: {err}");
+    eprintln!("synwm: {}", t!("перезапуск не удался: {err}", err = err));
     std::process::exit(1);
 }
 
@@ -195,7 +195,7 @@ fn cpu_backend(event_loop: &EventLoop<'static, State>, offload: bool) -> anyhow:
     #[cfg(not(feature = "pixman"))]
     {
         let _ = (event_loop, offload);
-        anyhow::bail!("сборка без CPU-рендерера (feature pixman)");
+        anyhow::bail!("{}", t!("сборка без CPU-рендерера (feature pixman)"));
     }
 }
 

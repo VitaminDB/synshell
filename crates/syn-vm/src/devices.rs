@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
+use syngui::{n_, t};
 
 use crate::model::{HostDev, Vm};
 
@@ -81,17 +82,17 @@ fn pci_name(addr: &str) -> Option<String> {
     Some(format!("{maker} {model}"))
 }
 
-fn class_name(class: u32) -> &'static str {
+fn class_name(class: u32) -> String {
     match class >> 8 {
-        0x0300 | 0x0302 | 0x0380 => "Видеокарта",
-        0x0108 => "NVMe",
-        0x0106 => "SATA",
-        0x0200 => "Ethernet",
-        0x0280 => "Wi-Fi",
-        0x0403 | 0x0401 => "Звук",
-        0x0c03 => "USB-контроллер",
-        0x0604 => "Мост PCI",
-        _ => "PCI",
+        0x0300 | 0x0302 | 0x0380 => t!("Видеокарта"),
+        0x0108 => "NVMe".into(),
+        0x0106 => "SATA".into(),
+        0x0200 => "Ethernet".into(),
+        0x0280 => "Wi-Fi".into(),
+        0x0403 | 0x0401 => t!("Звук"),
+        0x0c03 => t!("USB-контроллер"),
+        0x0604 => t!("Мост PCI"),
+        _ => "PCI".into(),
     }
 }
 
@@ -166,59 +167,61 @@ fn default_route_iface() -> Option<String> {
 /// Почему PCI-устройство нельзя отдать гостю (пусто — можно) и предупреждение.
 pub fn pci_check(addr: &str) -> (String, String) {
     if !iommu_on() {
-        return ("IOMMU выключен: добавьте intel_iommu=on iommu=pt (AMD — amd_iommu=on) в параметры ядра".into(), String::new());
+        return (t!("IOMMU выключен: добавьте intel_iommu=on iommu=pt (AMD — amd_iommu=on) в параметры ядра"), String::new());
     }
-    let Some(d) = pci_info(addr) else { return (format!("нет устройства {addr}"), String::new()) };
-    let Some(g) = d.group else { return ("устройство вне групп IOMMU".into(), String::new()) };
+    let Some(d) = pci_info(addr) else { return (t!("нет устройства {addr}", addr = addr), String::new()) };
+    let Some(g) = d.group else { return (t!("устройство вне групп IOMMU"), String::new()) };
     let mut warn = Vec::new();
+    let mut usb_warned = false;
     for m in pci_bundle(addr) {
         let Some(p) = pci_info(&m) else { continue };
-        let what = if m == addr { String::new() } else { format!("{m} ({}) из той же группы IOMMU {g}: ", p.name) };
+        let what = if m == addr { String::new() } else { format!("{}: ", t!("{m} ({name}) из той же группы IOMMU {g}", m = m, name = p.name, g = g)) };
         if p.class >> 16 == 0x06 {
-            return (format!("{what}мост или контроллер платформы — без него компьютер не работает"), String::new());
+            return (format!("{what}{}", t!("мост или контроллер платформы — без него компьютер не работает")), String::new());
         }
         if read(Path::new(PCI).join(&m).join("boot_vga")) == "1" {
-            return (format!("{what}основной видеовыход компьютера — экран погаснет"), String::new());
+            return (format!("{what}{}", t!("основной видеовыход компьютера — экран погаснет")), String::new());
         }
         if matches!(p.driver.as_str(), "i915" | "xe" | "amdgpu" | "radeon") && p.class >> 8 == 0x0300 {
             // Вторая видеокарта на amdgpu/xe тоже может держать экран.
             let users = users_of(&drm_nodes(&m));
             if !users.is_empty() {
-                return (format!("{what}видеокартой пользуются: {}", users.join(", ")), String::new());
+                return (format!("{what}{}", t!("видеокартой пользуются: {list}", list = users.join(", "))), String::new());
             }
         }
         if p.driver == "nvidia" {
             let users = users_of(&["/dev/nvidia".to_string()]);
             if !users.is_empty() {
-                return (format!("{what}видеокарта NVIDIA занята: {} — закройте их (или остановите службы) перед запуском машины", users.join(", ")), String::new());
+                return (format!("{what}{}", t!("видеокарта NVIDIA занята: {list} — закройте их (или остановите службы) перед запуском машины", list = users.join(", "))), String::new());
             }
         }
         let root_dev = root_block();
         for b in blocks_on_pci(&m) {
             if root_dev.as_deref().is_some_and(|r| r == b || disk_of(r).as_deref() == Some(b.as_str())) {
-                return (format!("{what}на диске {b} стоит эта система"), String::new());
+                return (format!("{what}{}", t!("на диске {b} стоит эта система", b = b)), String::new());
             }
             if !mounted_parts(&b).is_empty() {
-                return (format!("{what}разделы диска {b} подключены: {}", mounted_parts(&b).join(", ")), String::new());
+                return (format!("{what}{}", t!("разделы диска {b} подключены: {list}", b = b, list = mounted_parts(&b).join(", "))), String::new());
             }
-            warn.push(format!("диск {b} пропадёт у компьютера"));
+            warn.push(t!("диск {b} пропадёт у компьютера", b = b));
         }
         let def = default_route_iface();
         for n in nets_on_pci(&m) {
             if def.as_deref() == Some(n.as_str()) {
-                warn.push(format!("через {n} идёт интернет компьютера — он пропадёт"));
+                warn.push(t!("через {n} идёт интернет компьютера — он пропадёт", n = n));
             } else {
-                warn.push(format!("сеть {n} пропадёт у компьютера"));
+                warn.push(t!("сеть {n} пропадёт у компьютера", n = n));
             }
         }
-        if p.class >> 8 == 0x0c03 && !warn.iter().any(|w: &String| w.starts_with("всё в этом USB")) {
-            warn.push("всё в этом USB-контроллере (клавиатура, мышь, телефон) уйдёт гостю".into());
+        if p.class >> 8 == 0x0c03 && !usb_warned {
+            usb_warned = true;
+            warn.push(t!("всё в этом USB-контроллере (клавиатура, мышь, телефон) уйдёт гостю"));
         }
         if p.class >> 8 == 0x0403 && !what.is_empty() {
             continue;
         }
         if !what.is_empty() {
-            warn.push(format!("вместе с ним уйдёт {m} ({})", p.name));
+            warn.push(t!("вместе с ним уйдёт {m} ({name})", m = m, name = p.name));
         }
     }
     (String::new(), warn.join("; "))
@@ -307,11 +310,11 @@ pub fn input_list() -> Vec<(PathBuf, String, &'static str)> {
     for e in rd.flatten() {
         let n = e.file_name().to_string_lossy().into_owned();
         let kind = if n.ends_with("-event-kbd") {
-            "клавиатура"
+            n_!("клавиатура")
         } else if n.ends_with("-event-mouse") {
-            "мышь"
+            n_!("мышь")
         } else if n.ends_with("-event-joystick") {
-            "геймпад"
+            n_!("геймпад")
         } else {
             continue;
         };
@@ -353,7 +356,7 @@ pub fn block_list() -> Vec<(PathBuf, String, Vec<String>)> {
             let model = read(e.path().join("device/model"));
             let mut notes = Vec::new();
             if root.as_deref().is_some_and(|r| r == it || (it == disk && disk_of(r).as_deref() == Some(disk.as_str()))) {
-                notes.push("система".to_string());
+                notes.push(t!("система"));
             }
             let m = if it == disk { mounted_parts(&disk) } else { mounted_parts_one(&disk, &it) };
             notes.extend(m);
@@ -372,11 +375,11 @@ fn mounted_parts_one(disk: &str, part: &str) -> Vec<String> {
 fn human(b: u64) -> String {
     let g = b as f64 / 1e9;
     if g >= 1000.0 {
-        format!("{:.1} ТБ", g / 1000.0)
+        t!("{v} ТБ", v = format!("{:.1}", g / 1000.0))
     } else if g >= 1.0 {
-        format!("{g:.0} ГБ")
+        t!("{v} ГБ", v = format!("{g:.0}"))
     } else {
-        format!("{:.0} МБ", b as f64 / 1e6)
+        t!("{v} МБ", v = format!("{:.0}", b as f64 / 1e6))
     }
 }
 
@@ -384,18 +387,18 @@ fn human(b: u64) -> String {
 pub fn block_check(path: &str, readonly: bool) -> (String, String) {
     let name = Path::new(path).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
     let real = std::fs::canonicalize(path).ok().and_then(|p| p.file_name().map(|f| f.to_string_lossy().into_owned())).unwrap_or(name);
-    let Some(disk) = disk_of(&real) else { return (format!("{path}: не блочное устройство"), String::new()) };
+    let Some(disk) = disk_of(&real) else { return (t!("{path}: не блочное устройство", path = path), String::new()) };
     if root_block().is_some_and(|r| r == real || (real == disk && disk_of(&r).as_deref() == Some(disk.as_str()))) {
-        return ("на нём стоит эта система".into(), String::new());
+        return (t!("на нём стоит эта система"), String::new());
     }
     let m = if real == disk { mounted_parts(&disk) } else { mounted_parts_one(&disk, &real) };
     if !m.is_empty() {
         if readonly {
-            return (String::new(), format!("подключён у компьютера ({}) — гость увидит его на момент чтения, без свежих записей", m.join(", ")));
+            return (String::new(), t!("подключён у компьютера ({list}) — гость увидит его на момент чтения, без свежих записей", list = m.join(", ")));
         }
-        return (format!("подключён у компьютера: {} — отключите или отдайте только для чтения", m.join(", ")), String::new());
+        return (t!("подключён у компьютера: {list} — отключите или отдайте только для чтения", list = m.join(", ")), String::new());
     }
-    (String::new(), if readonly { String::new() } else { "гость пишет прямо на диск компьютера — данные на нём может испортить неосторожная установка".into() })
+    (String::new(), if readonly { String::new() } else { t!("гость пишет прямо на диск компьютера — данные на нём может испортить неосторожная установка") })
 }
 
 fn disk_of(dev: &str) -> Option<String> {
@@ -440,19 +443,19 @@ pub fn available() -> Vec<Avail> {
             continue;
         }
         let (blocked, warn) = pci_check(&p.addr);
-        let detail = format!("{}{}{}", p.addr, if p.driver.is_empty() { String::new() } else { format!(", драйвер {}", p.driver) }, p.group.map(|g| format!(", группа IOMMU {g}")).unwrap_or_default());
+        let detail = format!("{}{}{}", p.addr, if p.driver.is_empty() { String::new() } else { format!(", {}", t!("драйвер {d}", d = p.driver)) }, p.group.map(|g| format!(", {}", t!("группа IOMMU {g}", g = g))).unwrap_or_default());
         out.push(Avail { dev: HostDev::Pci { addr: p.addr.clone(), name: p.name.clone() }, kind: "pci", title: p.name, detail, blocked, warn, needs_access: false });
     }
     for (path, name, kind) in input_list() {
         let ok = access(&path, libc::R_OK | libc::W_OK);
-        let blocked = if kind == "геймпад" { "QEMU пересылает напрямую только клавиатуру и мышь — геймпад отдайте через USB (по порту или VID:PID)".to_string() } else { String::new() };
+        let blocked = if kind == "геймпад" { t!("QEMU пересылает напрямую только клавиатуру и мышь — геймпад отдайте через USB (по порту или VID:PID)") } else { String::new() };
         out.push(Avail {
             dev: HostDev::Input { path: path.display().to_string(), name: name.clone() },
             kind: "input",
-            title: format!("{name} — {kind}"),
-            detail: "переключение компьютер ↔ гость: оба Ctrl".into(),
+            title: format!("{name} — {}", syngui::i18n::t(kind)),
+            detail: t!("переключение компьютер ↔ гость: оба Ctrl"),
             blocked,
-            warn: if kind == "клавиатура" { "пока устройство у гостя, компьютер его не слышит".into() } else { String::new() },
+            warn: if kind == "клавиатура" { t!("пока устройство у гостя, компьютер его не слышит") } else { String::new() },
             needs_access: !ok,
         });
     }
@@ -474,7 +477,7 @@ pub fn available() -> Vec<Avail> {
             dev: HostDev::Serial { path: path.display().to_string(), name: title.clone() },
             kind: "serial",
             title,
-            detail: "гостю — как USB-UART (FTDI)".into(),
+            detail: t!("гостю — как USB-UART (FTDI)"),
             blocked: String::new(),
             warn: String::new(),
             needs_access: !access(&path, libc::R_OK | libc::W_OK),
@@ -485,7 +488,7 @@ pub fn available() -> Vec<Avail> {
             dev: HostDev::UsbId { vendor: d.vendor.clone(), product: d.product.clone(), name: d.name.clone() },
             kind: "usb-id",
             title: d.name.clone(),
-            detail: format!("{}:{} в порту {} — по VID:PID найдётся в любом гнезде", d.vendor, d.product, d.port),
+            detail: t!("{vid}:{pid} в порту {port} — по VID:PID найдётся в любом гнезде", vid = d.vendor, pid = d.product, port = d.port),
             blocked: String::new(),
             warn: String::new(),
             needs_access: !d.writable,
@@ -497,7 +500,7 @@ pub fn available() -> Vec<Avail> {
 /// Разбор `ТИП:ИД` из CLI: `pci:02:00.0`, `input:/dev/input/by-id/…`, `block:/dev/sdb`,
 /// `block-ro:/dev/sdb1`, `serial:/dev/ttyUSB0`, `usb-id:18d1:4ee7`.
 pub fn parse_spec(s: &str) -> Result<HostDev> {
-    let (k, v) = s.split_once(':').context("ожидается ТИП:ИД, например pci:02:00.0, block:/dev/sdb, usb-id:18d1:4ee7")?;
+    let (k, v) = s.split_once(':').with_context(|| t!("ожидается ТИП:ИД, например pci:02:00.0, block:/dev/sdb, usb-id:18d1:4ee7"))?;
     Ok(match k {
         "pci" => {
             let addr = if v.matches(':').count() == 1 { format!("0000:{v}") } else { v.to_string() };
@@ -512,7 +515,7 @@ pub fn parse_spec(s: &str) -> Result<HostDev> {
             let name = crate::usb::list().into_iter().find(|d| d.vendor == vid && d.product == pid).map(|d| d.name).unwrap_or_default();
             HostDev::UsbId { vendor: vid.to_lowercase(), product: pid.to_lowercase(), name }
         }
-        _ => bail!("неизвестный тип «{k}»: pci, input, block, block-ro, serial, usb-id (USB по порту — usb:3-6)"),
+        _ => bail!("{}", t!("неизвестный тип «{k}»: pci, input, block, block-ro, serial, usb-id (USB по порту — usb:3-6)", k = k)),
     })
 }
 
@@ -523,7 +526,7 @@ pub fn check(d: &HostDev) -> Result<String> {
         HostDev::Block { path, readonly, .. } => block_check(path, *readonly),
         HostDev::Input { path, .. } | HostDev::Serial { path, .. } => {
             if !Path::new(path).exists() {
-                (format!("нет {path}"), String::new())
+                (t!("нет {path}", path = path), String::new())
             } else {
                 (String::new(), String::new())
             }
@@ -573,7 +576,7 @@ pub fn hot_attach(vm: &Vm, d: &HostDev) -> Result<()> {
     let id = d.qemu_id();
     let mut c = crate::qmp::Conn::of(vm)?;
     match d {
-        HostDev::Pci { .. } => bail!("PCI-устройство подключается только при выключенной машине — запустите её снова"),
+        HostDev::Pci { .. } => bail!("{}", t!("PCI-устройство подключается только при выключенной машине — запустите её снова")),
         HostDev::UsbId { vendor, product, .. } => {
             c.call("device_add", json!({"driver": "usb-host", "bus": "xhci.0", "vendorid": u32::from_str_radix(vendor, 16)?, "productid": u32::from_str_radix(product, 16)?, "id": id}))?;
         }
@@ -605,7 +608,7 @@ pub fn hot_detach(vm: &Vm, d: &HostDev) -> Result<()> {
     let id = d.qemu_id();
     let mut c = crate::qmp::Conn::of(vm)?;
     match d {
-        HostDev::Pci { .. } => bail!("PCI-устройство отключается только при выключенной машине"),
+        HostDev::Pci { .. } => bail!("{}", t!("PCI-устройство отключается только при выключенной машине")),
         HostDev::UsbId { .. } => {
             c.call("device_del", json!({"id": id}))?;
         }
@@ -616,7 +619,7 @@ pub fn hot_detach(vm: &Vm, d: &HostDev) -> Result<()> {
             c.call("device_del", json!({"id": format!("{id}-dev")}))?;
             // Гость отпускает устройство не сразу (ACPI-извлечение).
             if !wait_gone(&mut c, &format!("{id}-dev"), Duration::from_secs(15)) {
-                bail!("гость не отпустил диск за 15 с — размонтируйте его в госте и повторите");
+                bail!("{}", t!("гость не отпустил диск за 15 с — размонтируйте его в госте и повторите"));
             }
             c.call("blockdev-del", json!({"node-name": id}))?;
         }
@@ -690,7 +693,7 @@ fn free_hotplug_port(c: &mut crate::qmp::Conn) -> Result<String> {
             }
         }
     }
-    bail!("нет свободного разъёма для горячего подключения диска — отдайте диск при выключенной машине")
+    bail!("{}", t!("нет свободного разъёма для горячего подключения диска — отдайте диск при выключенной машине"))
 }
 
 /// Сколько запасных портов PCIe добавлять каждой машине.
@@ -736,13 +739,13 @@ pub fn grant(nodes: &[String]) -> Result<()> {
     }
     for n in nodes {
         if !n.starts_with("/dev/") || n.contains(['\'', ' ', ';', '`', '$']) {
-            bail!("недопустимый путь {n}");
+            bail!("{}", t!("недопустимый путь {n}", n = n));
         }
     }
     let user = std::env::var("USER").unwrap_or_else(|_| unsafe { libc::getuid() }.to_string());
     let st = std::process::Command::new("pkexec").arg("setfacl").arg("-m").arg(format!("u:{user}:rw")).args(nodes).status().context("pkexec")?;
     if !st.success() {
-        bail!("доступ к {} не выдан (pkexec: {})", nodes.join(", "), st.code().unwrap_or(-1));
+        bail!("{}", t!("доступ к {list} не выдан (pkexec: {code})", list = nodes.join(", "), code = st.code().unwrap_or(-1)));
     }
     Ok(())
 }
@@ -796,7 +799,7 @@ pub fn vfio_prepare(vm: &Vm) -> Result<()> {
         .status()
         .context("pkexec")?;
     if !st.success() {
-        bail!("не удалось привязать {} к vfio-pci (pkexec: {})", addrs.join(", "), st.code().unwrap_or(-1));
+        bail!("{}", t!("не удалось привязать {list} к vfio-pci (pkexec: {code})", list = addrs.join(", "), code = st.code().unwrap_or(-1)));
     }
     Ok(())
 }

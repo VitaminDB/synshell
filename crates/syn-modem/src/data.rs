@@ -163,7 +163,10 @@ pub fn connect(ind: &std::sync::mpsc::Sender<Indication>) -> Result<Session> {
     let r = wds.call_raw(Message::new(0x20).u8(0x19, 4).u8(0x31, 1), Duration::from_secs(60))?;
     if let Err(e) = r.result() {
         let reason = r.reader(0x11).and_then(|mut rd| Some((rd.u16()?, rd.i16()?)));
-        bail!("сеанс не открыт: {e}{}", reason.map(|(t, v)| format!(" (причина {t}/{v})")).unwrap_or_default());
+        bail!("{}", match reason {
+            Some((t, v)) => synshell_tr::t!("сеанс не открыт: {e} (причина {t}/{v})", e = e, t = t, v = v),
+            None => synshell_tr::t!("сеанс не открыт: {e}", e = e),
+        });
     }
     let handle = r.reader(0x01).and_then(|mut rd| rd.u32()).context("нет номера сеанса")?;
     let settings = current_settings(&wds)?;
@@ -186,7 +189,7 @@ fn current_settings(wds: &Client) -> Result<Settings> {
 
 /// Адрес, MTU, маршрут по умолчанию и DNS (systemd-resolved, на интерфейс).
 pub fn configure(s: &Settings) -> Result<()> {
-    let Some(addr) = s.address else { bail!("модем не выдал адрес IPv4") };
+    let Some(addr) = s.address else { bail!("{}", synshell_tr::t!("модем не выдал адрес IPv4")) };
     let _ = sh(&["ip", "addr", "flush", "dev", IFACE]);
     sh(&["ip", "addr", "add", &format!("{addr}/{}", s.prefix.clamp(1, 32)), "dev", IFACE])?;
     if let Some(mtu) = s.mtu {

@@ -69,7 +69,7 @@ fn command(argv: &[String], cwd: Option<&str>) -> tokio::process::Command {
 fn spawn_pipes(argv: &[String], cwd: Option<&str>, out: mpsc::Sender<ExecOut>, mut inp: mpsc::Receiver<ExecIn>) -> Result<()> {
     let mut c = command(argv, cwd);
     c.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = c.spawn().with_context(|| format!("запуск {}", argv[0]))?;
+    let mut child = c.spawn().with_context(|| t!("запуск {cmd}", cmd = argv[0]))?;
     let mut stdin = child.stdin.take();
     let mut stdout = child.stdout.take().unwrap();
     let mut stderr = child.stderr.take().unwrap();
@@ -158,7 +158,7 @@ fn spawn_pty(
             Ok(())
         });
     }
-    let mut child = c.spawn().with_context(|| format!("запуск {}", argv[0]))?;
+    let mut child = c.spawn().with_context(|| t!("запуск {cmd}", cmd = argv[0]))?;
     let mfd = master.as_raw_fd();
     // Чтение мастера — в своём потоке (блокирующий fd).
     let mut rd = std::fs::File::from(master.try_clone()?);
@@ -231,7 +231,7 @@ where
                 Some(ExecOut::Stderr(d)) => err.extend_from_slice(&d),
                 Some(ExecOut::Exit(c)) => break c,
                 Some(ExecOut::Error(e)) => anyhow::bail!("{e}"),
-                None => anyhow::bail!("соединение оборвалось"),
+                None => anyhow::bail!("{}", t!("соединение оборвалось")),
             },
         }
     };

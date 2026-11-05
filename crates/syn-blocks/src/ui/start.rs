@@ -127,7 +127,7 @@ pub fn draw(v: &View, list: &mut DisplayList, alpha: f32, dy: f32) {
     list.push_glow_shadow(glow_r, gold.with_alpha(0.10 + 0.08 * breathe), 34.0, (0.0, 0.0), [30.0; 4]);
     text_shadowed(list, "SYN BLOCKS", title, gold.lerp(&Color::WHITE, 0.15 + 0.25 * breathe), 46.0, 800, TextAlign::CENTER);
     let sub = offset(sg.subtitle, 0.0, dy);
-    text_nowrap(list, "головоломка 8×8  ·  выберите вид игры", sub, hex(theme::TEXT_DIM).with_alpha(0.9), 13.0, 600, TextAlign::CENTER);
+    text_nowrap(list, &syngui::t!("головоломка 8×8  ·  выберите вид игры"), sub, hex(theme::TEXT_DIM).with_alpha(0.9), 13.0, 600, TextAlign::CENTER);
 
     let stats = v.stats();
     for (i, variant) in Variant::ALL.iter().enumerate() {
@@ -172,13 +172,13 @@ pub fn draw(v: &View, list: &mut DisplayList, alpha: f32, dy: f32) {
         let trophy = Rect::new(Point::new(tx, rec_y), Size::new(20.0, 20.0));
         icon(list, theme::ICON_TROPHY, trophy, hex(theme::GOLD), 15.0);
         let best_r = Rect::new(Point::new(tx + 24.0, rec_y), Size::new(tw - 24.0, 20.0));
-        text_nowrap(list, &format!("Рекорд  {best}"), best_r, hex(theme::GOLD), 13.5, 800, TextAlign::LEFT | TextAlign::VCENTER);
+        text_nowrap(list, &syngui::t!("Рекорд  {best}", best = best), best_r, hex(theme::GOLD), 13.5, 800, TextAlign::LEFT | TextAlign::VCENTER);
         // описание
         let desc = Rect::new(Point::new(tx, rect.origin.y + 72.0), Size::new(tw, rect.height() - 72.0 - 44.0));
-        let desc_text = if elv { "24 материала — золото, стекло, велюр, дуб… — блеск, анимации и английские реплики." } else { "Классика: чистые цвета, режимы блоков, честная раздача." };
-        text(list, desc_text, desc, hex(theme::TEXT_DIM).with_alpha(0.92), 12.5, 500, TextAlign::LEFT);
+        let desc_text = if elv { syngui::t!("24 материала — золото, стекло, велюр, дуб… — блеск, анимации и английские реплики.") } else { syngui::t!("Классика: чистые цвета, режимы блоков, честная раздача.") };
+        text(list, &desc_text, desc, hex(theme::TEXT_DIM).with_alpha(0.92), 12.5, 500, TextAlign::LEFT);
         // кнопка-подсказка в правом нижнем углу
-        let label = if v.start_saved[i] { "Продолжить" } else { "Играть" };
+        let label = if v.start_saved[i] { syngui::t!("Продолжить") } else { syngui::t!("Играть") };
         let bw = 118.0;
         let btn = Rect::new(Point::new(rect.origin.x + rect.width() - 16.0 - bw, rect.origin.y + rect.height() - 14.0 - 30.0), Size::new(bw, 30.0));
         let bcol = if elv { hex("#d9b25a") } else { hex(theme::BTN) };
@@ -187,11 +187,11 @@ pub fn draw(v: &View, list: &mut DisplayList, alpha: f32, dy: f32) {
         let fg = if elv { hex("#2a1030") } else { Color::WHITE };
         icon(list, theme::ICON_PLAY, ir, fg, 16.0);
         let lr = Rect::new(Point::new(btn.origin.x + 28.0, btn.origin.y), Size::new(bw - 34.0, btn.height()));
-        text_nowrap(list, label, lr, fg, 13.0, 800, TextAlign::CENTER);
+        text_nowrap(list, &label, lr, fg, 13.0, 800, TextAlign::CENTER);
     }
 
     // переключатели
-    let labels = ["Звуки", "Музыка", "Голос"];
+    let labels = [syngui::t!("Звуки"), syngui::t!("Музыка"), syngui::t!("Голос")];
     let on = [stats.sound, stats.music, stats.voice];
     for i in 0..3 {
         let rect = offset(sg.toggles[i], 0.0, dy);
@@ -201,7 +201,7 @@ pub fn draw(v: &View, list: &mut DisplayList, alpha: f32, dy: f32) {
         let ir = Rect::new(Point::new(rect.origin.x + 10.0, rect.origin.y), Size::new(22.0, rect.height()));
         icon(list, if on[i] { theme::ICON_CHECK_ON } else { theme::ICON_CHECK_OFF }, ir, Color::WHITE.with_alpha(if on[i] { 1.0 } else { 0.5 }), 18.0);
         let lr = Rect::new(Point::new(rect.origin.x + 34.0, rect.origin.y), Size::new(rect.width() - 40.0, rect.height()));
-        text_nowrap(list, labels[i], lr, Color::WHITE.with_alpha(if on[i] { 1.0 } else { 0.6 }), 13.5, 800, TextAlign::LEFT | TextAlign::VCENTER);
+        text_nowrap(list, &labels[i], lr, Color::WHITE.with_alpha(if on[i] { 1.0 } else { 0.6 }), 13.5, 800, TextAlign::LEFT | TextAlign::VCENTER);
     }
     // во весь экран / в окно
     if let Some(fr) = sg.fullscreen {

@@ -335,13 +335,13 @@ impl Material {
         }
     }
 
-    pub fn name(self) -> &'static str {
+    pub fn name(self) -> String {
         match self {
-            Material::Plain => "",
-            Material::Wood => "ДЕРЕВО",
-            Material::Crystal => "ХРУСТАЛЬ",
-            Material::Gold => "ЗОЛОТО",
-            Material::Lava => "ЛАВА",
+            Material::Plain => String::new(),
+            Material::Wood => syngui::t!("ДЕРЕВО"),
+            Material::Crystal => syngui::t!("ХРУСТАЛЬ"),
+            Material::Gold => syngui::t!("ЗОЛОТО"),
+            Material::Lava => syngui::t!("ЛАВА"),
         }
     }
 

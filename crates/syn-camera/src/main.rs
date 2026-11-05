@@ -202,7 +202,7 @@ fn main() {
     }
     let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "syn_camera=info,syncamera=info".into());
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
-    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::i18n::init(&[include_str!("../i18n/en.lang"), syn_media::CATALOG]);
     let (cfg, _) = Config::load();
     synshell_common::haptics::set_config(&cfg.haptics);
     let auto_rotate = cfg.rotation.auto;
@@ -905,7 +905,7 @@ fn night_shot(st: St, cam: Camera) {
     let rx = e.burst(n);
     std::thread::spawn(move || {
         let r = (|| -> anyhow::Result<std::path::PathBuf> {
-            let (frames, vu) = rx.recv_timeout(Duration::from_secs(15)).map_err(|_| anyhow::anyhow!("кадры серии не пришли"))?;
+            let (frames, vu) = rx.recv_timeout(Duration::from_secs(15)).map_err(|_| anyhow::anyhow!(t!("кадры серии не пришли")))?;
             run_on_main_thread(move || {
                 st.blink.set(st.blink.get_untracked() + 1);
                 st.progress.set(t!("Обработка ночного снимка…").into());

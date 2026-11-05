@@ -138,7 +138,7 @@ fn hud(v: &View, game: &Game, list: &mut DisplayList) {
     let num_rect = Rect::new(Point::new(plate.origin.x + 42.0, plate.origin.y + 1.0), Size::new(plate.width() - 46.0, 24.0));
     text_shadowed(list, &best_text, num_rect, gold.lerp(&Color::WHITE, flash * 0.5), 19.0 + flash * 4.0, 800, TextAlign::LEFT | TextAlign::VCENTER);
     let dr = Rect::new(Point::new(plate.origin.x + 42.0, plate.origin.y + 22.0), Size::new(plate.width() - 46.0, 14.0));
-    text_nowrap(list, game.difficulty.name(), dr, hex(theme::TEXT_DIM).with_alpha(0.85), 9.5, 800, TextAlign::LEFT | TextAlign::VCENTER);
+    text_nowrap(list, &game.difficulty.name(), dr, hex(theme::TEXT_DIM).with_alpha(0.85), 9.5, 800, TextAlign::LEFT | TextAlign::VCENTER);
 
     // ── комбо-пилюля по центру верхней строки; с ×3 — «огонь» ──
     if game.scoring.combo >= 2 && !game.over {
@@ -156,7 +156,7 @@ fn hud(v: &View, game: &Game, list: &mut DisplayList) {
         let inner = Rect::new(Point::new(pill.origin.x + 8.0, pill.origin.y), Size::new(22.0, pill.height()));
         icon(list, if fire { theme::ICON_FIRE } else { theme::ICON_BOLT }, inner, hex("#3a2205"), 18.0 + pulse * 10.0);
         let tr = Rect::new(Point::new(pill.origin.x + 30.0, pill.origin.y), Size::new(pill.width() - 34.0, pill.height()));
-        let label = if elv { format!("COMBO ×{}", game.scoring.combo) } else { format!("КОМБО ×{}", game.scoring.combo) };
+        let label = if elv { format!("COMBO ×{}", game.scoring.combo) } else { syngui::t!("КОМБО ×{combo}", combo = game.scoring.combo) };
         text_nowrap(list, &label, tr, hex("#3a2205"), 14.0, 800, TextAlign::CENTER);
     }
 
@@ -679,7 +679,7 @@ fn abilities(v: &View, game: &Game, list: &mut DisplayList) {
         let tx = r.origin.x + 8.0 + bd + 7.0;
         let tw = r.width() - (8.0 + bd + 7.0) - 6.0;
         let tr = Rect::new(Point::new(tx, r.origin.y + 8.0), Size::new(tw, 18.0));
-        text_nowrap(list, a.name(), tr, fg, 13.5, 800, TextAlign::LEFT | TextAlign::VCENTER);
+        text_nowrap(list, &a.name(), tr, fg, 13.5, 800, TextAlign::LEFT | TextAlign::VCENTER);
         let pill = Rect::new(Point::new(tx, r.origin.y + r.height() - 8.0 - 16.0), Size::new(38.0, 16.0));
         let (pb, pf) = if selected {
             (hex("#3a2205").with_alpha(0.25), hex("#3a2205"))
@@ -725,8 +725,8 @@ fn level_ring(v: &View, game: &Game, list: &mut DisplayList) {
     }
     text_nowrap(list, &v.level.to_string(), offset(rect, 0.0, -1.0), Color::WHITE, 17.0 * (1.0 + 0.3 * punch), 800, TextAlign::CENTER);
     let lr = Rect::new(Point::new(rect.origin.x - 10.0, rect.origin.y + size + 1.0), Size::new(size + 20.0, 13.0));
-    let label = if v.variant.is_deluxe() { "LEVEL" } else { "УРОВЕНЬ" };
-    text_nowrap(list, label, lr, hex(theme::TEXT_DIM).with_alpha(0.8), 8.5, 800, TextAlign::CENTER);
+    let label = if v.variant.is_deluxe() { "LEVEL".to_string() } else { syngui::t!("УРОВЕНЬ") };
+    text_nowrap(list, &label, lr, hex(theme::TEXT_DIM).with_alpha(0.8), 8.5, 800, TextAlign::CENTER);
 }
 
 /// Дуга окружности от доли `a` до `b` (0 — сверху, по часовой).
@@ -766,19 +766,12 @@ fn skin_chip(v: &View, list: &mut DisplayList) {
     draw_cube(list, cube, look.base, &style);
     let name = match look.finish {
         Some(f) => f.en.to_uppercase(),
-        None => world::skin_name(sk.material).to_string(),
+        None => world::skin_name(sk.material),
     };
-    let label = format!("{} +{} · {} {}", name, sk.material.mode_bonus(), sk.moves_left, moves_word(sk.moves_left));
+    let moves = syngui::tn!(sk.moves_left, "{n} ход", "{n} хода", "{n} ходов");
+    let label = format!("{} +{} · {}", name, sk.material.mode_bonus(), moves);
     let tr = Rect::new(Point::new(rect.origin.x + 26.0, rect.origin.y), Size::new(rect.width() - 30.0, rect.height()));
     text_nowrap(list, &label, tr, Color::WHITE.with_alpha(a), 12.5, 800, TextAlign::CENTER);
-}
-
-fn moves_word(n: u32) -> &'static str {
-    match (n % 10, n % 100) {
-        (1, x) if x != 11 => "ход",
-        (2..=4, x) if !(12..=14).contains(&x) => "хода",
-        _ => "ходов",
-    }
 }
 
 /// Подсказка после проигрыша, пока итоги не открыты.
@@ -794,7 +787,7 @@ fn over_hint(v: &View, list: &mut DisplayList) {
     let rect = inset(Rect::new(l.origin, Size::new(r.origin.x + r.width() - l.origin.x, l.height())), -3.0);
     let pal = v.palette();
     list.push_rect_bordered(rect, pal.panel.with_alpha(0.94), [rect.height() * 0.5; 4], Border { width: 1.5, color: Color::WHITE.with_alpha(0.35 * a) });
-    text_nowrap(list, "Коснитесь, чтобы увидеть итоги", rect, Color::WHITE.with_alpha(a), 15.0, 800, TextAlign::CENTER);
+    text_nowrap(list, &syngui::t!("Коснитесь, чтобы увидеть итоги"), rect, Color::WHITE.with_alpha(a), 15.0, 800, TextAlign::CENTER);
 }
 
 fn floats(v: &View, list: &mut DisplayList) {
@@ -884,17 +877,15 @@ fn card_buttons(v: &View, list: &mut DisplayList, card: &Card, t: f32, dy: f32) 
     for b in &card.buttons {
         let mut rect = offset(b.rect, 0.0, dy);
         let hot = b.rect.contains(v.pointer);
-        let track_label;
-        let (label, glyph): (&str, &str) = match b.action {
-            overlay::Action::ToggleSound => (if stats.sound { "Звуки: вкл" } else { "Звуки: выкл" }, if stats.sound { theme::ICON_CHECK_ON } else { theme::ICON_CHECK_OFF }),
-            overlay::Action::ToggleMusic => (if stats.music { "Музыка: вкл" } else { "Музыка: выкл" }, if stats.music { theme::ICON_CHECK_ON } else { theme::ICON_CHECK_OFF }),
-            overlay::Action::ToggleVoice => (if stats.voice { "Голос: вкл" } else { "Голос: выкл" }, if stats.voice { theme::ICON_CHECK_ON } else { theme::ICON_CHECK_OFF }),
-            overlay::Action::ToggleFullscreen => ("", if v.ctx.window.get_untracked().fullscreen { theme::ICON_FULLSCREEN_EXIT } else { theme::ICON_FULLSCREEN }),
+        let (label, glyph): (String, &str) = match b.action {
+            overlay::Action::ToggleSound => (if stats.sound { syngui::t!("Звуки: вкл") } else { syngui::t!("Звуки: выкл") }, if stats.sound { theme::ICON_CHECK_ON } else { theme::ICON_CHECK_OFF }),
+            overlay::Action::ToggleMusic => (if stats.music { syngui::t!("Музыка: вкл") } else { syngui::t!("Музыка: выкл") }, if stats.music { theme::ICON_CHECK_ON } else { theme::ICON_CHECK_OFF }),
+            overlay::Action::ToggleVoice => (if stats.voice { syngui::t!("Голос: вкл") } else { syngui::t!("Голос: выкл") }, if stats.voice { theme::ICON_CHECK_ON } else { theme::ICON_CHECK_OFF }),
+            overlay::Action::ToggleFullscreen => (String::new(), if v.ctx.window.get_untracked().fullscreen { theme::ICON_FULLSCREEN_EXIT } else { theme::ICON_FULLSCREEN }),
             overlay::Action::TrackNext if !b.label.is_empty() => {
-                track_label = format!("{}/{}  {}", stats.track as usize + 1, crate::audio::track_count(), crate::audio::track_name(stats.track as usize));
-                (track_label.as_str(), "")
+                (format!("{}/{}  {}", stats.track as usize + 1, crate::audio::track_count(), crate::audio::track_name(stats.track as usize)), "")
             }
-            _ => (b.label, b.icon),
+            _ => (if b.label.is_empty() { String::new() } else { syngui::i18n::t(b.label) }, b.icon),
         };
         let primary = match b.action {
             overlay::Action::Difficulty(i) => stats.difficulty as usize == i,
@@ -904,7 +895,7 @@ fn card_buttons(v: &View, list: &mut DisplayList, card: &Card, t: f32, dy: f32) 
         let compact = rect.width() < 200.0;
         let narrow = rect.width() < 70.0;
         // три переключателя в ряд: короткие подписи без «вкл/выкл» (галочка и так видна)
-        let label: &str = if compact && rect.width() < 130.0 { label.split(':').next().unwrap_or(label) } else { label };
+        let label: &str = if compact && rect.width() < 130.0 { label.split(':').next().unwrap_or(&label) } else { &label };
         // Узкие кнопки-иконки — ровные круги: радиус 25 при ширине < 50
         // давал «лимончик» с острыми краями сверху и снизу.
         if narrow {
@@ -990,20 +981,20 @@ fn menu_card(v: &View, game: &Game, list: &mut DisplayList, card: &Card, t: f32,
     card_frame(list, card, t, dy);
     let s = v.stats();
     let title = offset(card.title, 0.0, dy);
-    text_shadowed(list, "ПАУЗА", title, Color::WHITE.with_alpha(t), 30.0, 800, TextAlign::CENTER);
+    text_shadowed(list, &syngui::t!("ПАУЗА"), title, Color::WHITE.with_alpha(t), 30.0, 800, TextAlign::CENTER);
     let body = offset(card.body, 0.0, dy);
     let x = body.origin.x;
     let w = body.width();
     let mut y = body.origin.y;
     let b = &s.best_by[v.variant.index()];
-    stat_row(list, y, x, w, &format!("{}: рекорды Л · Н · С", v.variant.name()), &format!("{} · {} · {}", b[0], b[1], b[2]), t);
+    stat_row(list, y, x, w, &syngui::t!("{variant}: рекорды Л · Н · С", variant = v.variant.name()), &format!("{} · {} · {}", b[0], b[1], b[2]), t);
     y += 26.0;
-    stat_row(list, y, x, w, "Сыграно партий", &s.games.to_string(), t);
+    stat_row(list, y, x, w, &syngui::t!("Сыграно партий"), &s.games.to_string(), t);
     y += 26.0;
-    stat_row(list, y, x, w, "Лучшее комбо · идеальных", &format!("×{} · {}", s.best_combo.max(game.scoring.best_combo), s.perfects), t);
+    stat_row(list, y, x, w, &syngui::t!("Лучшее комбо · идеальных"), &format!("×{} · {}", s.best_combo.max(game.scoring.best_combo), s.perfects), t);
     y += 28.0;
     let hint = Rect::new(Point::new(x, y), Size::new(w, 22.0));
-    text_nowrap(list, "Сложность — для новой партии  ·  Q/W/E — способности", hint, hex(theme::TEXT_DIM).with_alpha(0.8 * t), 11.0, 500, TextAlign::CENTER);
+    text_nowrap(list, &syngui::t!("Сложность — для новой партии  ·  Q/W/E — способности"), hint, hex(theme::TEXT_DIM).with_alpha(0.8 * t), 11.0, 500, TextAlign::CENTER);
     card_buttons(v, list, card, t, dy);
 }
 
@@ -1014,9 +1005,9 @@ fn over_card(v: &View, game: &Game, list: &mut DisplayList, card: &Card, t: f32,
     let title = offset(card.title, 0.0, dy);
     if new_best {
         let pulse = 1.0 + 0.05 * (v.now * 6.0).sin();
-        text_shadowed(list, "НОВЫЙ РЕКОРД!", title, hex(theme::GOLD).with_alpha(t), 28.0 * pulse, 800, TextAlign::CENTER);
+        text_shadowed(list, &syngui::t!("НОВЫЙ РЕКОРД!"), title, hex(theme::GOLD).with_alpha(t), 28.0 * pulse, 800, TextAlign::CENTER);
     } else {
-        text_shadowed(list, "ИГРА ОКОНЧЕНА", title, Color::WHITE.with_alpha(t), 28.0, 800, TextAlign::CENTER);
+        text_shadowed(list, &syngui::t!("ИГРА ОКОНЧЕНА"), title, Color::WHITE.with_alpha(t), 28.0, 800, TextAlign::CENTER);
     }
     let body = offset(card.body, 0.0, dy);
     let x = body.origin.x;
@@ -1027,10 +1018,10 @@ fn over_card(v: &View, game: &Game, list: &mut DisplayList, card: &Card, t: f32,
     let trophy = Rect::new(Point::new(x + w * 0.5 - 52.0, tr.origin.y), Size::new(24.0, 24.0));
     icon(list, theme::ICON_TROPHY, trophy, hex(theme::GOLD).with_alpha(t), 20.0);
     let best_r = Rect::new(Point::new(x + w * 0.5 - 24.0, tr.origin.y), Size::new(w * 0.5, 24.0));
-    text(list, &format!("Рекорд  {}", s.best.max(game.scoring.score)), best_r, hex(theme::GOLD).with_alpha(t), 17.0, 800, TextAlign::LEFT | TextAlign::VCENTER);
+    text(list, &syngui::t!("Рекорд  {best}", best = s.best.max(game.scoring.score)), best_r, hex(theme::GOLD).with_alpha(t), 17.0, 800, TextAlign::LEFT | TextAlign::VCENTER);
     let mut y = body.origin.y + 96.0;
-    stat_row(list, y, x, w, "Собрано линий", &game.scoring.lines.to_string(), t);
+    stat_row(list, y, x, w, &syngui::t!("Собрано линий"), &game.scoring.lines.to_string(), t);
     y += 26.0;
-    stat_row(list, y, x, w, "Лучшее комбо · Ходов", &format!("×{}  ·  {}", game.scoring.best_combo, game.scoring.moves), t);
+    stat_row(list, y, x, w, &syngui::t!("Лучшее комбо · Ходов"), &format!("×{}  ·  {}", game.scoring.best_combo, game.scoring.moves), t);
     card_buttons(v, list, card, t, dy);
 }

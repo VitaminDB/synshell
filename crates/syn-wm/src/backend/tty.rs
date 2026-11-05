@@ -301,7 +301,7 @@ impl TtyBackend {
                 .map(render_node_of)
                 .filter(|n| n.ty() == NodeType::Render)
                 .or_else(|| all_gpus(&seat).ok()?.into_iter().find_map(|p| DrmNode::from_path(p).ok()))
-                .ok_or_else(|| anyhow::anyhow!("нет GPU"))?
+                .ok_or_else(|| anyhow::anyhow!("{}", synshell_tr::t!("нет GPU")))?
         };
         tracing::info!(%primary_gpu, "основной GPU");
         let gpus = GpuManager::new(GbmGlesBackend::with_context_priority(smithay::backend::egl::context::ContextPriority::High))
@@ -493,7 +493,7 @@ fn device_added(state: &mut State, node: DrmNode, path: &Path) -> anyhow::Result
             .values()
             .find(|d| d.render_node == Some(t.primary_gpu))
             .map(|d| d.manager.allocator().clone())
-            .ok_or_else(|| anyhow::anyhow!("нет основного GPU для устройства без рендеринга"))?
+            .ok_or_else(|| anyhow::anyhow!("{}", synshell_tr::t!("нет основного GPU для устройства без рендеринга")))?
     };
     let exporter = GbmFramebufferExporter::new(gbm.clone(), render_node);
     let mut renderer = t.gpus.single_renderer(&render_node.unwrap_or(t.primary_gpu))?;

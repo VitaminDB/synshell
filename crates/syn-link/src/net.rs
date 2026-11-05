@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use synshell_tr::t;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::{verify_tls12_signature, verify_tls13_signature, CryptoProvider};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
@@ -125,7 +126,7 @@ pub fn endpoint(id: &Identity, port: u16) -> Result<quinn::Endpoint> {
     client_cfg.transport_config(transport());
 
     let addr: SocketAddr = ([0, 0, 0, 0], port).into();
-    let mut ep = quinn::Endpoint::server(server_cfg, addr).with_context(|| format!("UDP-порт {port}"))?;
+    let mut ep = quinn::Endpoint::server(server_cfg, addr).with_context(|| t!("UDP-порт {port}", port = port))?;
     ep.set_default_client_config(client_cfg);
     Ok(ep)
 }

@@ -84,7 +84,7 @@ pub fn open(kind: Kind, w: u32, h: u32, hevc: bool, bitrate: u32, fps: u32) -> R
             Err(e) => errs.push(format!("{k:?}: {e:#}")),
         }
     }
-    bail!("нет видеокодера ({})", errs.join("; "))
+    bail!(syngui::t!("нет видеокодера ({errs})", errs = errs.join("; ")))
 }
 
 // ─── V4L2 M2M (телефон) ─────────────────────────────────────────────────────
@@ -172,7 +172,7 @@ impl VideoEncoder for Venc {
             // SAFETY: отображение буфера dma-heap кодера на запись
             let p = unsafe { libc::mmap(std::ptr::null_mut(), self.vi.in_size as usize, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_SHARED, fd, 0) };
             if p == libc::MAP_FAILED {
-                bail!("mmap входа кодера: {}", std::io::Error::last_os_error());
+                bail!(syngui::t!("mmap входа кодера: {err}", err = std::io::Error::last_os_error()));
             }
             self.maps[idx] = Some((p as *mut u8, self.vi.in_size as usize));
         }
@@ -185,7 +185,7 @@ impl VideoEncoder for Venc {
         // SAFETY: FFI кодера
         let r = unsafe { venc_queue(self.enc, idx as u32, key as c_int, pts_us) };
         if r < 0 {
-            bail!("видеокодер: {}", std::io::Error::from_raw_os_error(-r));
+            bail!(syngui::t!("видеокодер: {err}", err = std::io::Error::from_raw_os_error(-r)));
         }
         self.in_flight += 1;
         Ok(true)
@@ -199,7 +199,7 @@ impl VideoEncoder for Venc {
             // SAFETY: FFI кодера; данные действительны до следующего вызова
             let n = unsafe { venc_dequeue(self.enc, wait, &mut p, &mut ts, &mut key) };
             if n < 0 {
-                bail!("видеокодер: {}", std::io::Error::from_raw_os_error(-n as i32));
+                bail!(syngui::t!("видеокодер: {err}", err = std::io::Error::from_raw_os_error(-n as i32)));
             }
             if n == 0 {
                 return Ok(());
@@ -260,7 +260,7 @@ impl FfEnc {
         unsafe {
             let codec = ffi::avcodec_find_encoder_by_name(cname.as_ptr());
             if codec.is_null() {
-                bail!("{name}: нет в ffmpeg");
+                bail!(syngui::t!("{name}: нет в ffmpeg", name = name));
             }
             let mut e = FfEnc {
                 name: name.to_string(),
@@ -289,7 +289,7 @@ impl FfEnc {
                 set_opt(&mut opts, "tune", "zerolatency");
             }
             if vaapi {
-                let mut last = String::from("нет /dev/dri/renderD*");
+                let mut last = syngui::t!("нет /dev/dri/renderD*");
                 for n in 128..136 {
                     let dev = CString::new(format!("/dev/dri/renderD{n}"))?;
                     if !std::path::Path::new(dev.to_str()?).exists() {
@@ -315,7 +315,7 @@ impl FfEnc {
                 let r = ffi::av_hwframe_ctx_init(e.hw_frames);
                 if r < 0 {
                     ffi::av_dict_free(&mut opts);
-                    bail!("VAAPI кадры: {}", averr(r));
+                    bail!(syngui::t!("VAAPI кадры: {err}", err = averr(r)));
                 }
                 (*c).pix_fmt = ffi::AVPixelFormat::AV_PIX_FMT_VAAPI;
                 (*c).hw_frames_ctx = ffi::av_buffer_ref(e.hw_frames);
@@ -332,7 +332,7 @@ impl FfEnc {
             (*f).color_range = ffi::AVColorRange::AVCOL_RANGE_JPEG;
             let r = ffi::av_frame_get_buffer(f, 32);
             if r < 0 {
-                bail!("кадр кодера: {}", averr(r));
+                bail!(syngui::t!("кадр кодера: {err}", err = averr(r)));
             }
             Ok(e)
         }
@@ -366,7 +366,7 @@ impl VideoEncoder for FfEnc {
         unsafe {
             let f = self.frame;
             if ffi::av_frame_make_writable(f) < 0 {
-                bail!("кадр кодера занят");
+                bail!(syngui::t!("кадр кодера занят"));
             }
             let (w, h) = (((*f).width as usize).min(src.width), ((*f).height as usize).min(src.height));
             let (ls0, ls1) = ((*f).linesize[0] as usize, (*f).linesize[1] as usize);

@@ -90,7 +90,7 @@ fn copy(mime: &str, data: &[u8]) -> anyhow::Result<()> {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|e| anyhow::anyhow!("не удалось запустить wl-copy (пакет wl-clipboard): {e}"))?;
+        .map_err(|e| anyhow::anyhow!(syngui::t!("не удалось запустить wl-copy (пакет wl-clipboard): {e}", e = e)))?;
     if let Some(mut stdin) = child.stdin.take() {
         stdin.write_all(data)?;
     }

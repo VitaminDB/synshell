@@ -21,7 +21,19 @@ use syngui::prelude::*;
 pub const WINDOW_W: u32 = 460;
 pub const WINDOW_H: u32 = 820;
 
+/// Переводы: исходные строки русские (`t!`/`tn!`/`n_!`), каталоги —
+/// `i18n/<язык>.lang`; язык — `SYNSHELL_LANG`, иначе язык системы.
+pub fn init_i18n() {
+    syngui::i18n::set_source_language("ru");
+    syngui::i18n::register_catalogs(&[include_str!("../i18n/en.lang")]);
+    match std::env::var("SYNSHELL_LANG") {
+        Ok(l) if !l.trim().is_empty() => syngui::i18n::set_language(l.trim()),
+        _ => syngui::i18n::set_language(syngui::i18n::system_language()),
+    }
+}
+
 fn build_ctx() -> GameCtx {
+    init_i18n();
     let stats = persist::load();
     audio::init_with_voice(stats.music, stats.sound, stats.voice, stats.track as usize, stats.loop_all);
     let ctx = GameCtx::new(Rng::from_time().state(), stats);

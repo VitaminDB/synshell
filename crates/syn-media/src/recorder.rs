@@ -182,7 +182,7 @@ impl Recorder {
         let _ = self.tx.send(Job::Stop);
         match self.thread.take().map(|t| t.join()) {
             Some(Ok(r)) => r,
-            _ => Err(anyhow!("поток записи упал")),
+            _ => Err(anyhow!(syngui::t!("поток записи упал"))),
         }
     }
 }
@@ -272,7 +272,7 @@ fn encode_loop(
     }
     let mut m = mux.lock().unwrap();
     if !w.started && result.is_ok() {
-        result = Err(anyhow!("не записано ни одного кадра"));
+        result = Err(anyhow!(syngui::t!("не записано ни одного кадра")));
     }
     let fin = m.finish();
     tracing::info!(

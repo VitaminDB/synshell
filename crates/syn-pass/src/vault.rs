@@ -18,7 +18,7 @@ use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, Zeroizing};
-use syngui::n_;
+use syngui::{n_, t};
 
 const AAD: &[u8] = b"synpass/1";
 
@@ -141,7 +141,7 @@ impl Key {
         let nonce = B64.decode(nonce).context("nonce")?;
         let ct = B64.decode(data).context("данные")?;
         if nonce.len() != 24 {
-            bail!("повреждённое хранилище");
+            bail!(t!("повреждённое хранилище"));
         }
         let c = XChaCha20Poly1305::new(self.0.as_ref().into());
         Ok(c.decrypt(XNonce::from_slice(&nonce), Payload { msg: &ct, aad: AAD }).ok().map(Zeroizing::new))
@@ -184,7 +184,7 @@ impl Wrap {
     fn unwrap_with(&self, kek: &Key) -> Result<Option<Key>> {
         let Some(raw) = kek.decrypt(&self.nonce, &self.data)? else { return Ok(None) };
         if raw.len() != 32 {
-            bail!("повреждённый ключ хранилища");
+            bail!(t!("повреждённый ключ хранилища"));
         }
         let mut k = Zeroizing::new([0u8; 32]);
         k.copy_from_slice(&raw);
@@ -216,7 +216,7 @@ pub struct Envelope {
 impl Envelope {
     fn check(&self) -> Result<()> {
         if self.format != "synpass" || self.version != 2 {
-            bail!("неизвестный формат хранилища");
+            bail!(t!("неизвестный формат хранилища"));
         }
         Ok(())
     }
@@ -233,7 +233,7 @@ impl Envelope {
     fn open_data(&self, dek: &Key) -> Result<Option<Data>> {
         self.check()?;
         let Some(plain) = dek.decrypt(&self.nonce, &self.data)? else { return Ok(None) };
-        Ok(Some(serde_json::from_slice(&plain).context("содержимое хранилища")?))
+        Ok(Some(serde_json::from_slice(&plain).with_context(|| t!("содержимое хранилища"))?))
     }
 
     pub fn read(path: &Path) -> Result<Option<Self>> {
@@ -317,7 +317,7 @@ impl Session {
     /// Открыть мастер-паролем. `Ok(None)` — пароль неверный.
     pub fn unlock(env: &Envelope, password: &str) -> Result<Option<Self>> {
         env.check()?;
-        let w = env.wrap(WrapKind::Password).context("в хранилище нет мастер-пароля")?;
+        let w = env.wrap(WrapKind::Password).with_context(|| t!("в хранилище нет мастер-пароля"))?;
         let Some(dek) = w.unwrap(password)? else { return Ok(None) };
         Self::from_env(env, dek, Some(password))
     }
@@ -326,7 +326,7 @@ impl Session {
     /// `Ok(None)` — ответ неверный.
     pub fn recover(env: &Envelope, answer: &str, new_password: &str) -> Result<Option<Self>> {
         env.check()?;
-        let w = env.wrap(WrapKind::Recovery).context("секретный вопрос не задан")?;
+        let w = env.wrap(WrapKind::Recovery).with_context(|| t!("секретный вопрос не задан"))?;
         let Some(dek) = w.unwrap(&normalize_answer(answer))? else { return Ok(None) };
         let Some(mut s) = Self::from_env(env, dek, None)? else { return Ok(None) };
         s.change_password(new_password)?;

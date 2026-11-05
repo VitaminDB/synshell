@@ -286,8 +286,8 @@ impl Stream {
             .sizes()
             .into_iter()
             .min_by_key(|(sw, sh)| ((*sw as i64 - w as i64).abs() + (*sh as i64 - h as i64).abs(), std::cmp::Reverse(*sw)))
-            .ok_or_else(|| io::Error::other("у камеры нет размеров кадра"))?;
-        let format = dev.pick(w, h).ok_or_else(|| io::Error::other("нет подходящего формата кадров"))?;
+            .ok_or_else(|| io::Error::other(syngui::t!("у камеры нет размеров кадра")))?;
+        let format = dev.pick(w, h).ok_or_else(|| io::Error::other(syngui::t!("нет подходящего формата кадров")))?;
         let fd = open_dev(&dev.path)?;
         let raw = fd.as_raw_fd();
         let mut f: Format = zeroed();
@@ -347,7 +347,7 @@ impl Stream {
                 continue;
             }
             if pfd.revents & (libc::POLLERR | libc::POLLHUP) != 0 && pfd.revents & libc::POLLIN == 0 {
-                return Err(io::Error::other("камера отключилась"));
+                return Err(io::Error::other(syngui::t!("камера отключилась")));
             }
             let mut b: Buffer = zeroed();
             b.ty = BUF_TYPE_CAPTURE;

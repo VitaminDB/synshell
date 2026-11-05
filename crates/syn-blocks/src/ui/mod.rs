@@ -333,7 +333,7 @@ impl View {
         self.ctx.screen.set(Screen::Game);
         self.game_dirty = true;
         if variant.is_deluxe() && !self.game().over {
-            self.fx.banner_queue.push(Banner { text: lang::WELCOME.en.to_uppercase(), sub: Some(lang::WELCOME.ru.to_string()), born: now, color: theme::hex(theme::GOLD) });
+            self.fx.banner_queue.push(Banner { text: lang::WELCOME.en.to_uppercase(), sub: lang::WELCOME.gloss(), born: now, color: theme::hex(theme::GOLD) });
             self.say(Voice::Welcome, now);
         }
     }
@@ -642,10 +642,9 @@ impl View {
             let elv = self.variant.is_deluxe();
             for (i, &(m, count, pts)) in pl.material_bonus.iter().enumerate() {
                 let name = if elv {
-                    let f = finish::get(m.finish());
-                    format!("{} · {}", f.en.to_uppercase(), f.ru)
+                    finish::get(m.finish()).label()
                 } else {
-                    m.name().to_string()
+                    m.name()
                 };
                 self.fx.floats.push(FloatText {
                     text: format!("{} ×{}  +{}", name, count, pts),
@@ -683,10 +682,9 @@ impl View {
             if let Some((m, count, pts)) = pl.mode_bonus {
                 let i = pl.material_bonus.len();
                 let name = if elv {
-                    let f = finish::get(m.finish());
-                    format!("{} · {}", f.en.to_uppercase(), f.ru)
+                    finish::get(m.finish()).label()
                 } else {
-                    world::skin_name(m).to_string()
+                    world::skin_name(m)
                 };
                 self.fx.floats.push(FloatText {
                     text: format!("{} ×{}  +{}", name, count, pts),
@@ -743,18 +741,22 @@ impl View {
                         if let Some(v) = w.voice {
                             self.say(v, now + 0.05);
                         }
-                        let sub = if combo >= 2 { format!("{} · {} ×{combo}", w.ru, lang::COMBO.en.to_lowercase()) } else { w.ru.to_string() };
+                        let combo_text = (combo >= 2).then(|| format!("{} ×{combo}", lang::COMBO.en.to_lowercase()));
+                        let sub = match (w.gloss(), combo_text) {
+                            (Some(g), Some(c)) => Some(format!("{g} · {c}")),
+                            (g, c) => g.or(c),
+                        };
                         let gold = combo >= 3 || lines >= 3 || pl.perfect;
-                        (w.en.to_uppercase(), Some(sub), if gold { theme::hex(theme::GOLD) } else { Color::WHITE })
+                        (w.en.to_uppercase(), sub, if gold { theme::hex(theme::GOLD) } else { Color::WHITE })
                     }
                     None => (String::new(), None, Color::WHITE),
                 }
             } else {
-                let combo_text = if combo >= 2 { Some(format!("КОМБО ×{combo}")) } else { None };
+                let combo_text = if combo >= 2 { Some(syngui::t!("КОМБО ×{combo}", combo = combo)) } else { None };
                 if pl.perfect {
-                    ("ИДЕАЛЬНО!".to_string(), combo_text, theme::hex(theme::GOLD))
+                    (syngui::t!("ИДЕАЛЬНО!"), combo_text, theme::hex(theme::GOLD))
                 } else if let Some(p) = theme::praise(lines) {
-                    (p.to_string(), combo_text, if combo >= 3 { theme::hex(theme::GOLD) } else { Color::WHITE })
+                    (p, combo_text, if combo >= 3 { theme::hex(theme::GOLD) } else { Color::WHITE })
                 } else if let Some(ct) = combo_text {
                     (ct, None, theme::hex(theme::GOLD))
                 } else {
@@ -807,7 +809,7 @@ impl View {
                 audio::play(Sfx::Best);
                 self.say(Voice::NewRecord, now);
                 if self.fx.banner.is_none() {
-                    let (text, sub) = if self.variant.is_deluxe() { (lang::NEW_RECORD.en.to_uppercase(), Some(lang::NEW_RECORD.ru.to_string())) } else { ("НОВЫЙ РЕКОРД!".to_string(), None) };
+                    let (text, sub) = if self.variant.is_deluxe() { (lang::NEW_RECORD.en.to_uppercase(), lang::NEW_RECORD.gloss()) } else { (syngui::t!("НОВЫЙ РЕКОРД!"), None) };
                     self.fx.banner = Some(Banner { text, sub, born: now, color: theme::hex(theme::GOLD) });
                 }
             }
@@ -826,7 +828,7 @@ impl View {
             audio::play(Sfx::Refill);
         }
         if pl.over {
-            let (text, sub) = if self.variant.is_deluxe() { (lang::NO_MOVES.en.to_uppercase(), Some(lang::NO_MOVES.ru.to_string())) } else { ("НЕТ ХОДОВ".to_string(), None) };
+            let (text, sub) = if self.variant.is_deluxe() { (lang::NO_MOVES.en.to_uppercase(), lang::NO_MOVES.gloss()) } else { (syngui::t!("НЕТ ХОДОВ"), None) };
             self.fx.banner_queue.push(Banner { text, sub, born: now, color: theme::hex(theme::DANGER).lerp(&Color::WHITE, 0.25) });
             let delay = if lines > 0 { VANISH_DUR + 0.45 } else { 0.2 };
             self.fx.over_at = Some(now + delay);
@@ -854,8 +856,8 @@ impl View {
         self.set_world(wi);
         let w = &world::WORLDS[wi];
         let accent = theme::hex(w.accent);
-        let title = if self.variant.is_deluxe() { format!("{} {level}", lang::LEVEL.en.to_uppercase()) } else { format!("УРОВЕНЬ {level}") };
-        self.fx.banner_queue.push(Banner { text: title, sub: Some(w.name.to_uppercase()), born: now, color: Color::WHITE });
+        let title = if self.variant.is_deluxe() { format!("{} {level}", lang::LEVEL.en.to_uppercase()) } else { syngui::t!("УРОВЕНЬ {level}", level = level) };
+        self.fx.banner_queue.push(Banner { text: title, sub: Some(syngui::i18n::t(w.name).to_uppercase()), born: now, color: Color::WHITE });
         self.fx.screen_flashes.push(Flash { born: now + 0.1, color: accent, strength: 0.16 });
         // фейерверк: залпы над полем
         let b = self.geo.board;
@@ -922,7 +924,7 @@ impl View {
             None if moves > 6 && roll < 4 => {
                 self.start_skin(now + 0.3);
                 if let Some(s) = self.skin {
-                    self.fx.banner_queue.push(Banner { text: format!("РЕЖИМ: {}", world::skin_name(s.material)), sub: Some(format!("{} ходов", world::SKIN_MOVES)), born: now, color: Color::WHITE });
+                    self.fx.banner_queue.push(Banner { text: syngui::t!("РЕЖИМ: {mode}", mode = world::skin_name(s.material)), sub: Some(syngui::tn!(world::SKIN_MOVES, "{n} ход", "{n} хода", "{n} ходов")), born: now, color: Color::WHITE });
                 }
             }
             _ => {}

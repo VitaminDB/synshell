@@ -104,7 +104,7 @@ pub fn split_dhms(total_secs: u64) -> (u64, u64, u64, u64) {
 pub fn fmt_hms(total_secs: u64) -> String {
     let (d, h, m, s) = split_dhms(total_secs);
     if d > 0 {
-        format!("{d} д {h:02}:{m:02}:{s:02}")
+        syngui::t!("{d} д {hms}", d = d, hms = format!("{h:02}:{m:02}:{s:02}"))
     } else {
         format!("{h:02}:{m:02}:{s:02}")
     }

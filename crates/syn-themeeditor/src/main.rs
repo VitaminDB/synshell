@@ -118,7 +118,7 @@ fn parse_args() -> Args {
                 std::process::exit(0);
             }
             "-h" | "--help" => {
-                println!("syn-themeeditor [ТЕМА] [--new [ОБРАЗЕЦ]] [--import ФАЙЛ] [--mss-context [ФАЙЛ]] [--screenshot out.png [--size WxH] [--mode m] [--scene s] [--light]]");
+                println!("{}", t!("syn-themeeditor [ТЕМА] [--new [ОБРАЗЕЦ]] [--import ФАЙЛ] [--mss-context [ФАЙЛ]] [--screenshot out.png [--size WxH] [--mode m] [--scene s] [--light]]"));
                 std::process::exit(0);
             }
             other if !other.starts_with('-') => a.theme = Some(other.to_string()),

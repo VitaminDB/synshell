@@ -97,7 +97,7 @@ fn load<T: Clone + PartialEq + Send + Sync + 'static>(sig: RwSignal<R<T>>, f: im
 
 fn get<T>(req: Request, pick: impl FnOnce(Response) -> Option<T>) -> anyhow::Result<T> {
     let r = api::request(&req)?;
-    pick(r).ok_or_else(|| anyhow::anyhow!("неожиданный ответ synmodemd"))
+    pick(r).ok_or_else(|| anyhow::anyhow!(t!("неожиданный ответ synmodemd")))
 }
 
 /// Запрос с подсказкой о ходе и результате; `after` — что перечитать.

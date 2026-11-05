@@ -1,6 +1,16 @@
 @tag = "en"
 @name = "English"
 
+# src/backend/kms_cpu.rs
+"нет DRM-устройства" = "no DRM device"
+
+# src/backend/mod.rs
+"libinput: не удалось назначить seat" = "libinput: failed to assign seat"
+
+# src/backend/tty.rs
+"нет GPU" = "no GPU"
+"нет основного GPU для устройства без рендеринга" = "no primary GPU for the display-only device"
+
 # src/backend/winit.rs
 "synwm (вложенный)" = "synwm (nested)"
 
@@ -11,6 +21,7 @@
 "раскладка клавиатуры: {e}" = "keyboard layout: {e}"
 
 # src/ipc.rs
+"неверный запрос: {e}" = "invalid request: {e}"
 "нет окна {id}" = "no window {id}"
 "экран заблокирован" = "the screen is locked"
 "захват экрана: {e}" = "screen capture: {e}"
@@ -20,6 +31,8 @@
 
 # src/main.rs
 "synwm {v} — окружение рабочего стола для Wayland\n\nsynwm [--nested [--nested-size ШxВ] | --tty] [--cpu | --gpu] [--no-shell] [--no-autostart]\nsynwm msg <version|windows|workspaces|outputs|layouts|events|action ДЕЙСТВИЕ|window ID ОПЕРАЦИЯ|form-factor [РЕЖИМ]|reload|restart-shell|restart>\n" = "synwm {v} — desktop environment for Wayland\n\nsynwm [--nested [--nested-size WxH] | --tty] [--cpu | --gpu] [--no-shell] [--no-autostart]\nsynwm msg <version|windows|workspaces|outputs|layouts|events|action ACTION|window ID OPERATION|form-factor [MODE]|reload|restart-shell|restart>\n"
+"перезапуск не удался: {err}" = "restart failed: {err}"
+"сборка без CPU-рендерера (feature pixman)" = "built without the CPU renderer (feature pixman)"
 "использование: synwm msg <version|windows|workspaces|outputs|layouts|idle|events|action …|window ID ОПЕРАЦИЯ|x11-display ИМЯ…|form-factor [desktop|phone|game|device|toggle-game]|reload|restart-shell|restart>" = "usage: synwm msg <version|windows|workspaces|outputs|layouts|idle|events|action …|window ID OPERATION|x11-display NAME…|form-factor [desktop|phone|game|device|toggle-game]|reload|restart-shell|restart>"
 "нет связи с композитором: {e}" = "cannot connect to the compositor: {e}"
 "использование: synwm msg window ID activate|minimize|close|kill|maximize|fullscreen|floating|sticky|above|workspace N" = "usage: synwm msg window ID activate|minimize|close|kill|maximize|fullscreen|floating|sticky|above|workspace N"
@@ -30,6 +43,9 @@
 # src/remote.rs
 "нет вывода {name}" = "no output {name}"
 "сочетание {combo}: {e}" = "key combination {combo}: {e}"
+
+# src/state.rs
+"клавиатура: {e}" = "keyboard: {e}"
 
 # src/stream.rs
 "нет выводов" = "no outputs"

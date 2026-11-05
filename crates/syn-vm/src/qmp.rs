@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
+use syngui::t;
 
 use crate::model::Vm;
 
@@ -64,7 +65,7 @@ fn read_reply(r: &mut BufReader<UnixStream>) -> Result<Value> {
     loop {
         let mut line = String::new();
         if r.read_line(&mut line)? == 0 {
-            bail!("QMP: соединение закрыто");
+            bail!("QMP: {}", t!("соединение закрыто"));
         }
         let v: Value = serde_json::from_str(&line)?;
         if let Some(ret) = v.get("return") {
@@ -231,14 +232,14 @@ fn key_list(codes: &[String]) -> Value {
 /// Нажать сочетание: `ctrl+alt+delete`, `ctrl-alt-del`, `alt+f4`, `win+r`, `enter`.
 pub fn send_combo(vm: &Vm, combo: &str) -> Result<()> {
     let parts: Vec<&str> = if combo.contains('+') { combo.split('+').collect() } else if combo.len() > 1 && combo.contains('-') && combo != "-" { combo.split('-').collect() } else { vec![combo] };
-    let codes = parts.iter().map(|p| key_qcode(p).ok_or_else(|| anyhow!("неизвестная клавиша «{p}»"))).collect::<Result<Vec<_>>>()?;
+    let codes = parts.iter().map(|p| key_qcode(p).ok_or_else(|| anyhow!("{}", t!("неизвестная клавиша «{p}»", p = p)))).collect::<Result<Vec<_>>>()?;
     call(vm, "send-key", json!({ "keys": key_list(&codes), "hold-time": 120 }))?;
     Ok(())
 }
 
 /// Набрать текст (латиница и знаки раскладки US; `\n` — Enter).
 pub fn type_text(vm: &Vm, text: &str, delay: Duration) -> Result<()> {
-    let keys = text.chars().map(|c| char_qcode(c).ok_or_else(|| anyhow!("символ «{c}» нельзя набрать клавишами US — используйте --exec или буфер обмена"))).collect::<Result<Vec<_>>>()?;
+    let keys = text.chars().map(|c| char_qcode(c).ok_or_else(|| anyhow!("{}", t!("символ «{c}» нельзя набрать клавишами US — используйте --exec или буфер обмена", c = c)))).collect::<Result<Vec<_>>>()?;
     let mut c = Conn::of(vm)?;
     for (q, sh) in keys {
         let codes = if sh { vec!["shift".to_string(), q] } else { vec![q] };

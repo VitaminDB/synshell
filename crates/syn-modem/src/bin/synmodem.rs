@@ -10,6 +10,9 @@ const USAGE: &str = n_!("synmodem status | watch | radio on|off | data on|off | 
          | req JSON (любой запрос протокола, например {\"request\":\"modes\"}; ответ — JSON)");
 
 fn main() {
+    // Строки syn-modem — в общем каталоге synshell-common (его же грузят программы оболочки).
+    let lang = std::env::var("SYNSHELL_LANG").ok().filter(|v| !v.trim().is_empty()).unwrap_or_else(synshell_tr::language);
+    synshell_tr::init("ru", &lang, &[include_str!("../../../synshell-common/i18n/en.lang")]);
     if let Err(e) = run() {
         eprintln!("synmodem: {e:#}");
         std::process::exit(1);
@@ -88,7 +91,7 @@ fn run() -> Result<()> {
                 println!("{}", t!("{id} {kind} {number} {duration} с, {time}", id = c.id, kind = format!("{:?}", c.kind), number = c.number, duration = c.duration, time = c.time));
             }
         }
-        _ => bail!("{USAGE}"),
+        _ => bail!("{}", synshell_tr::t(USAGE)),
     }
     Ok(())
 }

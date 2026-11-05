@@ -8,7 +8,7 @@ use syngui::widgets::input::code_editor::{CodeEditor, CompletionItem, Completion
 use syngui::GestureDetector;
 use synshell_common::config::Rgba;
 use synshell_common::tokens::{self, Group, Kind, Source};
-use synshell_common::t;
+use synshell_common::{n_, t};
 
 use super::widgets::{card, color_row, group_title, slider_row, Target};
 use super::{boxed, icon_button, tip, W};
@@ -410,19 +410,19 @@ fn shape(st: St) -> W {
 
 /// Слои, которые можно добавить: оболочка, настройки, проводник и программы.
 const LAYERS: &[(&str, &str)] = &[
-    ("shell", "Оболочка"),
-    ("settings", "Параметры системы"),
-    ("files", "Проводник и терминал"),
-    ("synpkg", "Пакеты"),
-    ("syn-remote", "Пульт"),
-    ("synassistant", "Ассистент"),
-    ("syn-video-player", "Видео"),
-    ("syn-audio-player", "Музыка"),
-    ("synphone", "Телефон"),
-    ("synsms", "Сообщения"),
-    ("syncamera", "Камера"),
-    ("syn-maps", "Карты"),
-    ("syn-vm", "Виртуальные машины"),
+    ("shell", n_!("Оболочка")),
+    ("settings", n_!("Параметры системы")),
+    ("files", n_!("Проводник и терминал")),
+    ("synpkg", n_!("Пакеты")),
+    ("syn-remote", n_!("Пульт")),
+    ("synassistant", n_!("Ассистент")),
+    ("syn-video-player", n_!("Видео")),
+    ("syn-audio-player", n_!("Музыка")),
+    ("synphone", n_!("Телефон")),
+    ("synsms", n_!("Сообщения")),
+    ("syncamera", n_!("Камера")),
+    ("syn-maps", n_!("Карты")),
+    ("syn-vm", n_!("Виртуальные машины")),
 ];
 
 fn layer_label(id: &str) -> String {

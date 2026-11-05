@@ -14,34 +14,47 @@ pub struct Word {
     pub voice: Option<Voice>,
 }
 
+impl Word {
+    /// Перевод реплики на язык интерфейса — см. [`gloss`].
+    pub fn gloss(&self) -> Option<String> {
+        gloss(self.ru)
+    }
+}
+
+/// Перевод английского слова на язык интерфейса (`ru` — исходная строка
+/// каталога); `None`, когда интерфейс сам английский и перевод лишь повторил бы слово.
+pub fn gloss(ru: &str) -> Option<String> {
+    (syngui::i18n::language().tag().split(['-', '_']).next() != Some("en")).then(|| syngui::i18n::t(ru))
+}
+
 const fn w(en: &'static str, ru: &'static str, voice: Voice) -> Word {
     Word { en, ru, voice: Some(voice) }
 }
 
 /// Уровни похвалы: по числу линий и комбо за ход.
-pub const TIER_NICE: &[Word] = &[w("Nice!", "неплохо!", Voice::Nice), w("Good one!", "хороший ход!", Voice::GoodOne)];
+pub const TIER_NICE: &[Word] = &[w("Nice!", syngui::n_!("неплохо!"), Voice::Nice), w("Good one!", syngui::n_!("хороший ход!"), Voice::GoodOne)];
 pub const TIER_GREAT: &[Word] = &[
-    w("Beautiful!", "красиво!", Voice::Beautiful),
-    w("Wonderful!", "чудесно!", Voice::Wonderful),
-    w("Excellent!", "отлично!", Voice::Excellent),
+    w("Beautiful!", syngui::n_!("красиво!"), Voice::Beautiful),
+    w("Wonderful!", syngui::n_!("чудесно!"), Voice::Wonderful),
+    w("Excellent!", syngui::n_!("отлично!"), Voice::Excellent),
 ];
 pub const TIER_AMAZING: &[Word] = &[
-    w("Amazing!", "потрясающе!", Voice::Amazing),
-    w("Incredible!", "невероятно!", Voice::Incredible),
-    w("Magnificent!", "великолепно!", Voice::Magnificent),
+    w("Amazing!", syngui::n_!("потрясающе!"), Voice::Amazing),
+    w("Incredible!", syngui::n_!("невероятно!"), Voice::Incredible),
+    w("Magnificent!", syngui::n_!("великолепно!"), Voice::Magnificent),
 ];
 pub const TIER_FIRE: &[Word] = &[
-    w("You're on fire!", "ты в ударе!", Voice::OnFire),
-    w("Unstoppable!", "не остановить!", Voice::Unstoppable),
-    w("You're beautiful!", "ты прекрасна!", Voice::YouBeautiful),
+    w("You're on fire!", syngui::n_!("ты в ударе!"), Voice::OnFire),
+    w("Unstoppable!", syngui::n_!("не остановить!"), Voice::Unstoppable),
+    w("You're beautiful!", syngui::n_!("ты прекрасна!"), Voice::YouBeautiful),
 ];
-pub const PERFECT: &[Word] = &[w("Perfect!", "идеально!", Voice::Perfect), w("Flawless!", "безупречно!", Voice::Flawless)];
-pub const NEW_RECORD: Word = w("New record!", "новый рекорд!", Voice::NewRecord);
-pub const GAME_OVER: Word = w("Game over", "игра окончена", Voice::GameOver);
-pub const WELCOME: Word = w("Welcome back!", "с возвращением!", Voice::Welcome);
-pub const COMBO: Word = Word { en: "Combo", ru: "комбо", voice: None };
-pub const LEVEL: Word = Word { en: "Level", ru: "уровень", voice: None };
-pub const NO_MOVES: Word = Word { en: "No moves", ru: "нет ходов", voice: None };
+pub const PERFECT: &[Word] = &[w("Perfect!", syngui::n_!("идеально!"), Voice::Perfect), w("Flawless!", syngui::n_!("безупречно!"), Voice::Flawless)];
+pub const NEW_RECORD: Word = w("New record!", syngui::n_!("новый рекорд!"), Voice::NewRecord);
+pub const GAME_OVER: Word = w("Game over", syngui::n_!("игра окончена"), Voice::GameOver);
+pub const WELCOME: Word = w("Welcome back!", syngui::n_!("с возвращением!"), Voice::Welcome);
+pub const COMBO: Word = Word { en: "Combo", ru: syngui::n_!("комбо"), voice: None };
+pub const LEVEL: Word = Word { en: "Level", ru: syngui::n_!("уровень"), voice: None };
+pub const NO_MOVES: Word = Word { en: "No moves", ru: syngui::n_!("нет ходов"), voice: None };
 
 /// Уровень похвалы за ход: `None` — ход без очистки или одна линия без комбо.
 pub fn tier(lines: usize, combo: u32, perfect: bool) -> Option<&'static [Word]> {

@@ -5,6 +5,7 @@
 use std::time::Duration;
 
 use anyhow::{bail, Result};
+use synshell_tr::t;
 use synshell_common::ipc::{self, InputEvent};
 use synshell_common::link::{self, Request, Response};
 
@@ -26,13 +27,13 @@ pub fn screen(device: &str, output: Option<&str>) -> Result<Screen> {
     let Response::Wm { wm: ipc::Response::Outputs { outputs } } =
         req(&Request::Wm { device: device.into(), wm: ipc::Request::Outputs })?
     else {
-        bail!("нет списка выводов")
+        bail!("{}", t!("нет списка выводов"))
     };
     let o = match output {
         Some(n) => outputs.iter().find(|o| o.name == n),
         None => outputs.first(),
     };
-    let Some(o) = o else { bail!("нет вывода") };
+    let Some(o) = o else { bail!("{}", t!("нет вывода")) };
     let touch = match req(&Request::Status)? {
         Response::Status { status } => {
             if matches!(device, "local" | "self" | "") {
@@ -179,7 +180,7 @@ pub fn combo(device: &str, c: &str) -> Result<()> {
 }
 
 pub fn action(device: &str, a: &str) -> Result<()> {
-    let action = a.parse().map_err(|e| anyhow::anyhow!("действие «{a}»: {e}"))?;
+    let action = a.parse().map_err(|e| anyhow::anyhow!("{}", t!("действие «{a}»: {e}", a = a, e = e)))?;
     match req(&Request::Wm { device: device.into(), wm: ipc::Request::Action { action } })? {
         Response::Wm { wm: ipc::Response::Error { message } } => bail!("{message}"),
         _ => Ok(()),

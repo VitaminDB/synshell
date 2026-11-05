@@ -1,10 +1,6 @@
 @tag = "en"
 @name = "English"
 
-# src/engine.rs
-"Камера занята другой программой" = "Camera is in use by another app"
-"Камера остановилась — включаю снова…" = "Camera stopped — restarting…"
-
 # src/main.rs
 "Ночь" = "Night"
 "Профи" = "Pro"
@@ -20,6 +16,7 @@
 "Выбор папки: {e}" = "Folder selection: {e}"
 "Блокировка экспозиции и фокуса" = "Exposure and focus locked"
 "Съёмка — держите телефон неподвижно" = "Capturing — hold the phone still"
+"кадры серии не пришли" = "burst frames did not arrive"
 "Обработка ночного снимка…" = "Processing night shot…"
 "Ночной снимок не получился: {e}" = "Night shot failed: {e}"
 "{mp} Мп — снимок займёт до 15 секунд…" = "{mp} MP — capture may take up to 15 seconds…"
@@ -33,17 +30,6 @@
 "Неисправна: датчик не отвечает" = "Faulty: sensor not responding"
 "Неисправна: отвечает другой датчик" = "Faulty: a different sensor responds"
 "Недоступна ({other})" = "Unavailable ({other})"
-
-# src/proto.rs
-"служба камеры недоступна: {v}" = "camera service unavailable: {v}"
-"ошибка службы камеры" = "camera service error"
-"служба камеры другой версии (обновите syncamd)" = "camera service version mismatch (update syncamd)"
-"неожиданный ответ службы камеры" = "unexpected camera service response"
-"камера не включилась" = "camera failed to start"
-"формат кадров {format} не поддерживается" = "frame format {format} is not supported"
-"mmap буфера: {v}" = "buffer mmap: {v}"
-"снимок не получен" = "no photo received"
-"снимок: чтение memfd" = "photo: reading memfd"
 
 # src/ui.rs
 "{v} Мп" = "{v} MP"

@@ -234,11 +234,11 @@ const DUCK_GAIN: f32 = 0.45;
 
 /// Фоновые треки (YuE2, 22.05 кГц моно): имя и данные.
 pub const TRACKS: &[(&str, &[u8])] = &[
-    ("Шкатулка", include_bytes!("../assets/music/track1.wav")),
-    ("Лоу-фай", include_bytes!("../assets/music/track2.wav")),
-    ("Вечер", include_bytes!("../assets/music/track3.wav")),
-    ("Кафе", include_bytes!("../assets/music/track4.wav")),
-    ("Ночной город", include_bytes!("../assets/music/track5.wav")),
+    (syngui::n_!("Шкатулка"), include_bytes!("../assets/music/track1.wav")),
+    (syngui::n_!("Лоу-фай"), include_bytes!("../assets/music/track2.wav")),
+    (syngui::n_!("Вечер"), include_bytes!("../assets/music/track3.wav")),
+    (syngui::n_!("Кафе"), include_bytes!("../assets/music/track4.wav")),
+    (syngui::n_!("Ночной город"), include_bytes!("../assets/music/track5.wav")),
 ];
 
 pub fn track_count() -> usize {
@@ -252,8 +252,8 @@ pub fn current_track() -> usize {
     CURRENT_TRACK.load(Ordering::Relaxed)
 }
 
-pub fn track_name(i: usize) -> &'static str {
-    TRACKS[i % TRACKS.len()].0
+pub fn track_name(i: usize) -> String {
+    syngui::i18n::t(TRACKS[i % TRACKS.len()].0)
 }
 
 enum Cmd {

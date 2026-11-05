@@ -397,7 +397,7 @@ impl Core {
                 tracing::error!(?e, "раскладка из конфига не принята xkb — беру us");
                 seat.add_keyboard(XkbConfig::default(), kb.repeat_delay, kb.repeat_rate)
             })
-            .map_err(|e| anyhow::anyhow!("клавиатура: {e:?}"))?;
+            .map_err(|e| anyhow::anyhow!("{}", synshell_tr::t!("клавиатура: {e}", e = format!("{e:?}"))))?;
         let pointer = seat.add_pointer();
 
         let (bindings, binding_errors) = Bindings::from_config(&config);

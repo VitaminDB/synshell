@@ -7,6 +7,7 @@ use std::os::fd::{AsFd, AsRawFd, OwnedFd};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use synshell_tr::t;
 use synaptixd::bridge::{Frame, MAX_FRAME, REMOTE_PREFIX};
 use synaptixd::wire;
 
@@ -15,12 +16,12 @@ use crate::proto::{self, Reply};
 
 fn open_service(device: &str) -> Result<OwnedFd> {
     let path = synaptixd::socket_path();
-    let sock = wire::connect(&path).with_context(|| format!("служба нейросетей ({})", path.display()))?;
+    let sock = wire::connect(&path).with_context(|| t!("служба нейросетей ({path})", path = path.display()))?;
     // Метка: соединение с другого устройства — только свои модели, без
     // пересылки дальше и без смены настроек.
     let hello = serde_json::json!({ "id": 0, "op": "hello", "client": format!("{REMOTE_PREFIX}{device}") });
     wire::send(sock.as_fd(), hello.to_string().as_bytes(), &[])?;
-    wire::recv(sock.as_fd()).context("служба не ответила")?;
+    wire::recv(sock.as_fd()).with_context(|| t!("служба не ответила"))?;
     Ok(sock)
 }
 
@@ -62,9 +63,9 @@ pub async fn serve(d: D, peer: String, mut w: quinn::SendStream, mut r: quinn::R
                 Err(_) => return Ok(()),
             }
             let n = u64::from_be_bytes(len);
-            anyhow::ensure!(n <= MAX_FRAME, "кадр моста {n} байт — больше предела");
+            anyhow::ensure!(n <= MAX_FRAME, "{}", t!("кадр моста {n} байт — больше предела", n = n));
             let mut body = vec![0u8; n as usize];
-            r.read_exact(&mut body).await.context("обрыв кадра")?;
+            r.read_exact(&mut body).await.with_context(|| t!("обрыв кадра"))?;
             let s = sock.clone();
             tokio::task::spawn_blocking(move || Frame::decode_body(&body)?.send_to(s.as_fd())).await??;
         }

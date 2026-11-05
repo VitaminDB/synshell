@@ -181,7 +181,7 @@ fn state_line(p: &PeerInfo) -> String {
     } else if p.paired {
         parts.push(t!("Не в сети").into());
     } else {
-        parts.push(t!("Рядом · {v}", v = p.transport.map(|t| t.title()).unwrap_or("сеть")));
+        parts.push(t!("Рядом · {v}", v = p.transport.map(|t| t.title().to_string()).unwrap_or_else(|| t!("сеть"))));
     }
     if let Some(b) = &p.battery {
         parts.push(format!("{}{} %", if b.charging { "⚡" } else { "" }, b.percent));

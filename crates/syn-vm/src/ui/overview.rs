@@ -119,7 +119,7 @@ fn stats(vm: &Vm, l: &Live, narrow: bool) -> W {
     ];
     let tiles = vec![
         tile(icons::SCHEDULE, t!("Работает"), parts::duration(uptime), String::new()),
-        tile(icons::STORAGE, t!("Диск"), format!("{}/с", parts::bytes(l.disk_rate as u64)), parts::bytes(vm.used_bytes())),
+        tile(icons::STORAGE, t!("Диск"), t!("{v}/с", v = parts::bytes(l.disk_rate as u64)), parts::bytes(vm.used_bytes())),
         tile(if l.power == Power::Paused { icons::PAUSE } else { icons::BOLT }, t!("Ускорение"), if qemu::kvm_available() { t!("KVM") } else { t!("Эмуляция") }, String::new()),
     ];
     boxed(

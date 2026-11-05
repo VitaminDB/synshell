@@ -33,10 +33,10 @@ impl Variant {
         }
     }
 
-    pub fn name(self) -> &'static str {
+    pub fn name(self) -> String {
         match self {
-            Variant::Standard => "Стандарт",
-            Variant::Deluxe => "Люкс",
+            Variant::Standard => syngui::t!("Стандарт"),
+            Variant::Deluxe => syngui::t!("Люкс"),
         }
     }
 

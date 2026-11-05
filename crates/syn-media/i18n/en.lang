@@ -1,0 +1,55 @@
+@tag = "en"
+@name = "English"
+
+# src/audio.rs
+"микрофон не отвечает" = "microphone is not responding"
+"нет микрофона" = "no microphone"
+"настройки микрофона" = "microphone settings"
+"микрофон: {err}" = "microphone: {err}"
+"нет кодера AAC" = "no AAC encoder"
+"кодер AAC: {err}" = "AAC encoder: {err}"
+
+# src/encoder.rs
+"нет видеокодера ({errs})" = "no video encoder ({errs})"
+"mmap входа кодера: {err}" = "encoder input mmap: {err}"
+"видеокодер: {err}" = "video encoder: {err}"
+"{name}: нет в ffmpeg" = "{name}: not available in ffmpeg"
+"нет /dev/dri/renderD*" = "no /dev/dri/renderD*"
+"VAAPI кадры: {err}" = "VAAPI frames: {err}"
+"кадр кодера: {err}" = "encoder frame: {err}"
+"кадр кодера занят" = "encoder frame is busy"
+
+# src/engine.rs
+"камера не включена" = "camera is not on"
+"запись не идёт" = "not recording"
+"Камера занята другой программой" = "Camera is in use by another app"
+"Камера остановилась — включаю снова…" = "Camera stopped — restarting…"
+
+# src/mux.rs
+"mp4: поток видео" = "mp4: video stream"
+"mp4: поток звука" = "mp4: audio stream"
+"mp4: параметры звука: {err}" = "mp4: audio parameters: {err}"
+"пакет" = "packet"
+"запись mp4: {err}" = "mp4 write: {err}"
+"заголовок mp4: {err}" = "mp4 header: {err}"
+"завершение mp4: {err}" = "mp4 finalization: {err}"
+
+# src/recorder.rs
+"поток записи упал" = "recording thread crashed"
+"не записано ни одного кадра" = "no frames were recorded"
+
+# src/syncamd.rs
+"служба камеры недоступна: {v}" = "camera service unavailable: {v}"
+"ошибка службы камеры" = "camera service error"
+"служба камеры другой версии (обновите syncamd)" = "camera service version mismatch (update syncamd)"
+"неожиданный ответ службы камеры" = "unexpected camera service response"
+"камера не включилась" = "camera failed to start"
+"формат кадров {format} не поддерживается" = "frame format {format} is not supported"
+"mmap буфера: {v}" = "buffer mmap: {v}"
+"снимок не получен" = "no photo received"
+"снимок: чтение memfd" = "photo: reading memfd"
+
+# src/v4l2.rs
+"у камеры нет размеров кадра" = "camera reports no frame sizes"
+"нет подходящего формата кадров" = "no suitable frame format"
+"камера отключилась" = "camera disconnected"

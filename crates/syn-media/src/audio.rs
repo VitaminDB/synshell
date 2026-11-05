@@ -210,7 +210,7 @@ impl Audio {
             Ok(r) => r.map(|_| Audio { stop, thread, mixer }),
             Err(_) => {
                 stop.store(true, Ordering::SeqCst);
-                Err(anyhow!("микрофон не отвечает"))
+                Err(anyhow!(syngui::t!("микрофон не отвечает")))
             }
         }
     }
@@ -271,16 +271,16 @@ fn open_mic(buf: Arc<Mutex<VecDeque<f32>>>, channels: u16) -> Result<cpal::Strea
 
 fn open_mic_dev(buf: Arc<Mutex<VecDeque<f32>>>, channels: u16) -> Result<cpal::Stream> {
     use cpal::traits::{DeviceTrait, StreamTrait};
-    let dev = input_device().context("нет микрофона")?;
-    let def = dev.default_input_config().context("настройки микрофона")?;
+    let dev = input_device().with_context(|| syngui::t!("нет микрофона"))?;
+    let def = dev.default_input_config().with_context(|| syngui::t!("настройки микрофона"))?;
     let cfg = cpal::StreamConfig { channels, sample_rate: cpal::SampleRate(RATE), buffer_size: cpal::BufferSize::Default };
     let err_fn = |e| tracing::warn!("микрофон: {e}");
     let stream = match def.sample_format() {
         cpal::SampleFormat::I16 => dev.build_input_stream(&cfg, move |d: &[i16], _: &_| buf.lock().unwrap().extend(d.iter().map(|&v| v as f32 / 32768.0)), err_fn, None),
         _ => dev.build_input_stream(&cfg, move |d: &[f32], _: &_| buf.lock().unwrap().extend(d.iter().copied()), err_fn, None),
     }
-    .map_err(|e| anyhow!("микрофон: {e}"))?;
-    stream.play().map_err(|e| anyhow!("микрофон: {e}"))?;
+    .map_err(|e| anyhow!(syngui::t!("микрофон: {err}", err = e)))?;
+    stream.play().map_err(|e| anyhow!(syngui::t!("микрофон: {err}", err = e)))?;
     Ok(stream)
 }
 
@@ -289,7 +289,7 @@ fn open_aac(rate: u32, channels: u16) -> Result<*mut ffi::AVCodecContext> {
     unsafe {
         let codec = ffi::avcodec_find_encoder(ffi::AVCodecID::AV_CODEC_ID_AAC);
         if codec.is_null() {
-            bail!("нет кодера AAC");
+            bail!(syngui::t!("нет кодера AAC"));
         }
         let c = ffi::avcodec_alloc_context3(codec);
         (*c).sample_rate = rate as c_int;
@@ -302,7 +302,7 @@ fn open_aac(rate: u32, channels: u16) -> Result<*mut ffi::AVCodecContext> {
         if r < 0 {
             let mut c = c;
             ffi::avcodec_free_context(&mut c);
-            bail!("кодер AAC: {}", averr(r));
+            bail!(syngui::t!("кодер AAC: {err}", err = averr(r)));
         }
         Ok(c)
     }

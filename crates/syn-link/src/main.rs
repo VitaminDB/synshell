@@ -234,18 +234,18 @@ fn req(r: &Request) -> Result<Response> {
 }
 
 fn num(s: Option<&String>, what: &str) -> Result<f64> {
-    s.with_context(|| format!("нужно {what}"))?.parse().with_context(|| format!("{what}: не число"))
+    s.with_context(|| t!("нужно {what}", what = what))?.parse().with_context(|| t!("{what}: не число", what = what))
 }
 
 fn dev(args: &[String]) -> Result<String> {
-    args.get(1).cloned().context("нужно устройство (имя, id, phone или local)")
+    args.get(1).cloned().with_context(|| t!("нужно устройство (имя, id, phone или local)"))
 }
 
 fn cli(args: &[String]) -> Result<()> {
     let cmd = args[0].as_str();
     match cmd {
         "status" => {
-            let Response::Status { status } = req(&Request::Status)? else { bail!("нет состояния") };
+            let Response::Status { status } = req(&Request::Status)? else { bail!("{}", t!("нет состояния")) };
             if args.iter().any(|a| a == "--json") {
                 println!("{}", serde_json::to_string_pretty(&status)?);
                 return Ok(());
@@ -311,7 +311,7 @@ fn cli(args: &[String]) -> Result<()> {
         }
         "pair" => match args.get(1).map(String::as_str) {
             Some(a @ ("accept" | "reject")) => {
-                let d = args.get(2).context("нужно устройство")?;
+                let d = args.get(2).with_context(|| t!("нужно устройство"))?;
                 req(&Request::PairReply { device: d.clone(), accept: a == "accept" })?;
             }
             _ => {
@@ -354,7 +354,7 @@ fn cli(args: &[String]) -> Result<()> {
             let Response::Screenshot { path, width, height, output } =
                 req(&Request::Screenshot { device, output, path, max_size: max })?
             else {
-                bail!("нет снимка")
+                bail!("{}", t!("нет снимка"))
             };
             println!("{path} ({width}×{height}, {output})");
         }
@@ -388,16 +388,16 @@ fn cli(args: &[String]) -> Result<()> {
             gestures::scroll(&device, &s, num(args.get(2), "X")?, num(args.get(3), "Y")?, num(args.get(4), &t!("ШАГИ"))?, 0.0)?;
         }
         "type" => gestures::text(&dev(args)?, &args[2..].join(" "))?,
-        "key" => gestures::combo(&dev(args)?, args.get(2).context("нужно сочетание, например Alt+Tab")?)?,
+        "key" => gestures::combo(&dev(args)?, args.get(2).with_context(|| t!("нужно сочетание, например Alt+Tab"))?)?,
         "action" => gestures::action(&dev(args)?, &args[2..].join(" "))?,
         "windows" | "outputs" | "wm" => {
             let device = dev(args)?;
             let wm = match cmd {
                 "windows" => synshell_common::ipc::Request::Windows,
                 "outputs" => synshell_common::ipc::Request::Outputs,
-                _ => serde_json::from_str(args.get(2).context("нужен JSON запроса композитору")?)?,
+                _ => serde_json::from_str(args.get(2).with_context(|| t!("нужен JSON запроса композитору"))?)?,
             };
-            let Response::Wm { wm } = req(&Request::Wm { device, wm })? else { bail!("нет ответа") };
+            let Response::Wm { wm } = req(&Request::Wm { device, wm })? else { bail!("{}", t!("нет ответа")) };
             println!("{}", serde_json::to_string_pretty(&wm)?);
         }
         "exec" => {
@@ -413,7 +413,7 @@ fn cli(args: &[String]) -> Result<()> {
             }
             let argv: Vec<String> = args.get(i + 1..).map(|a| a.to_vec()).unwrap_or_default();
             if argv.is_empty() {
-                bail!("нужна команда после --");
+                bail!("{}", t!("нужна команда после --"));
             }
             let code = exec_stream(&device, argv, cwd, None)?;
             std::process::exit(code);
@@ -465,7 +465,7 @@ fn cli(args: &[String]) -> Result<()> {
         }
         "mount" | "umount" => {
             let Response::Mount { path } = req(&Request::Mount { device: dev(args)?, mount: cmd == "mount" })? else {
-                bail!("нет ответа")
+                bail!("{}", t!("нет ответа"))
             };
             if let Some(p) = path {
                 println!("{p}");
@@ -473,7 +473,7 @@ fn cli(args: &[String]) -> Result<()> {
         }
         "notifications" => {
             let Response::Notifications { notifications } = req(&Request::Notifications { device: args.get(1).cloned() })? else {
-                bail!("нет ответа")
+                bail!("{}", t!("нет ответа"))
             };
             for n in notifications {
                 println!("[{}] {} — {}: {}", n.device, n.app, n.summary, n.body);
@@ -484,13 +484,13 @@ fn cli(args: &[String]) -> Result<()> {
             let on = match args.get(2).map(String::as_str) {
                 Some("on") => true,
                 Some("off") => false,
-                _ => bail!("synlink audio УСТР on|off [--no-mic]"),
+                _ => bail!("{}", t!("synlink audio УСТР on|off [--no-mic]")),
             };
             let mic = !args.iter().any(|a| a == "--no-mic");
             match req(&Request::Audio { device, on, mic, hold: false })? {
                 Response::Ok => {}
                 Response::Error { message } => bail!("{message}"),
-                other => bail!("неожиданный ответ: {other:?}"),
+                other => bail!("{}", t!("неожиданный ответ: {other}", other = format!("{other:?}"))),
             }
         }
         "view" => {
@@ -499,18 +499,18 @@ fn cli(args: &[String]) -> Result<()> {
             let err = std::os::unix::process::CommandExt::exec(std::process::Command::new(exe).arg(device));
             bail!("synlink-view: {err}");
         }
-        other => bail!("неизвестная команда «{other}» (synlink --help)"),
+        other => bail!("{}", t!("неизвестная команда «{other}» (synlink --help)", other = other)),
     }
     Ok(())
 }
 
 /// Команда с выводом потоком; код выхода.
 fn exec_stream(device: &str, argv: Vec<String>, cwd: Option<String>, pty: Option<[u16; 2]>) -> Result<i32> {
-    let mut c = link::Client::connect().context("synlink не запущен")?;
+    let mut c = link::Client::connect().with_context(|| t!("synlink не запущен"))?;
     match c.request(&Request::Exec { device: device.into(), argv, cwd, stream: true, pty, timeout_ms: None })? {
         Response::Ok => {}
         Response::Error { message } => bail!("{message}"),
-        other => bail!("неожиданный ответ: {other:?}"),
+        other => bail!("{}", t!("неожиданный ответ: {other}", other = format!("{other:?}"))),
     }
     let (mut rd, mut wr) = c.into_parts();
     // stdin → устройство (в своём потоке).
@@ -572,7 +572,7 @@ fn exec_stream(device: &str, argv: Vec<String>, cwd: Option<String>, pty: Option
             _ => {}
         }
     }
-    bail!("соединение оборвалось")
+    bail!("{}", t!("соединение оборвалось"))
 }
 
 fn term_size() -> Option<[u16; 2]> {
@@ -604,11 +604,11 @@ fn shell(device: &str) -> Result<i32> {
 
 /// Туннель: stdin/stdout ↔ порт устройства (ProxyCommand для ssh).
 fn proxy(device: &str, port: u16) -> Result<()> {
-    let mut c = link::Client::connect().context("synlink не запущен")?;
+    let mut c = link::Client::connect().with_context(|| t!("synlink не запущен"))?;
     match c.request(&Request::Tcp { device: device.into(), port })? {
         Response::Ok => {}
         Response::Error { message } => bail!("{message}"),
-        other => bail!("неожиданный ответ: {other:?}"),
+        other => bail!("{}", t!("неожиданный ответ: {other}", other = format!("{other:?}"))),
     }
     let (mut rd, mut wr) = c.into_parts();
     // Без буферов stdio: stdout построчный, а поток ssh двоичный.

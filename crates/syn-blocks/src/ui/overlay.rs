@@ -95,23 +95,23 @@ pub fn menu_card(geo: &Geo) -> Card {
         body_h,
         &[
             if super::fullscreen_supported() {
-                &[(Action::Resume, true, "Продолжить", ICON_PLAY, 1.0), (Action::ToggleFullscreen, false, "", super::theme::ICON_FULLSCREEN, 0.2)]
+                &[(Action::Resume, true, syngui::n_!("Продолжить"), ICON_PLAY, 1.0), (Action::ToggleFullscreen, false, "", super::theme::ICON_FULLSCREEN, 0.2)]
             } else {
-                &[(Action::Resume, true, "Продолжить", ICON_PLAY, 1.0)]
+                &[(Action::Resume, true, syngui::n_!("Продолжить"), ICON_PLAY, 1.0)]
             },
-            &[(Action::NewGame, false, "Новая игра", ICON_REPLAY, 1.3), (Action::Home, false, "В начало", ICON_HOME, 1.0)],
+            &[(Action::NewGame, false, syngui::n_!("Новая игра"), ICON_REPLAY, 1.3), (Action::Home, false, syngui::n_!("В начало"), ICON_HOME, 1.0)],
             &[
-                (Action::Difficulty(0), false, "Легко", "", 1.0),
-                (Action::Difficulty(1), false, "Норма", "", 1.0),
-                (Action::Difficulty(2), false, "Сложно", "", 1.0),
+                (Action::Difficulty(0), false, syngui::n_!("Легко"), "", 1.0),
+                (Action::Difficulty(1), false, syngui::n_!("Норма"), "", 1.0),
+                (Action::Difficulty(2), false, syngui::n_!("Сложно"), "", 1.0),
             ],
             &[
                 (Action::TrackPrev, false, "", ICON_PREV, 0.55),
-                (Action::TrackNext, false, "Трек", "", 2.2),
+                (Action::TrackNext, false, syngui::n_!("Трек"), "", 2.2),
                 (Action::TrackNext, false, "", ICON_NEXT, 0.55),
                 (Action::ToggleLoopAll, false, "", ICON_LOOP, 0.55),
             ],
-            &[(Action::ToggleSound, false, "Звуки", ICON_CHECK_OFF, 1.0), (Action::ToggleMusic, false, "Музыка", ICON_CHECK_OFF, 1.0), (Action::ToggleVoice, false, "Голос", ICON_CHECK_OFF, 1.0)],
+            &[(Action::ToggleSound, false, syngui::n_!("Звуки"), ICON_CHECK_OFF, 1.0), (Action::ToggleMusic, false, syngui::n_!("Музыка"), ICON_CHECK_OFF, 1.0), (Action::ToggleVoice, false, syngui::n_!("Голос"), ICON_CHECK_OFF, 1.0)],
         ],
     )
 }
@@ -127,6 +127,6 @@ pub fn over_card(geo: &Geo) -> Card {
         height,
         title_h,
         body_h,
-        &[&[(Action::ViewBoard, false, "Поле", ICON_VIEW, 0.8), (Action::NewGame, true, "Играть снова", ICON_REPLAY, 1.2)], &[(Action::Home, false, "В начало", super::theme::ICON_HOME, 1.0)]],
+        &[&[(Action::ViewBoard, false, syngui::n_!("Поле"), ICON_VIEW, 0.8), (Action::NewGame, true, syngui::n_!("Играть снова"), ICON_REPLAY, 1.2)], &[(Action::Home, false, syngui::n_!("В начало"), super::theme::ICON_HOME, 1.0)]],
     )
 }

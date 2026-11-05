@@ -38,7 +38,7 @@ fn ok(r: Response) {
 fn status() -> Result<syn_droid::api::Status> {
     match api::call(&Request::Status)? {
         Response::Status(s) => Ok(s),
-        _ => bail!("неожиданный ответ"),
+        _ => bail!("{}", t!("неожиданный ответ")),
     }
 }
 
@@ -56,7 +56,7 @@ fn follow(id: u64) -> Result<()> {
     let mut last = String::new();
     loop {
         let s = status()?;
-        let Some(j) = s.jobs.iter().find(|j| j.id == id) else { bail!("задание пропало") };
+        let Some(j) = s.jobs.iter().find(|j| j.id == id) else { bail!("{}", t!("задание пропало")) };
         let line = if j.total > 0 {
             t!("{step}: {v} из {v2} ({v3}%)", step = syngui::i18n::t(&j.step), v = human(j.done), v2 = human(j.total), v3 = j.done * 100 / j.total)
         } else if j.done > 0 {
@@ -88,7 +88,7 @@ fn ensure_running(instance: Option<&str>) -> Result<()> {
     let mut s = status()?;
     if let Some(inst) = instance {
         if s.instance.as_deref() != Some(inst) {
-            let set = syn_droid::images::latest_of(inst).with_context(|| format!("нет образов Android «{inst}»"))?;
+            let set = syn_droid::images::latest_of(inst).with_context(|| t!("нет образов Android «{inst}»", inst = inst))?;
             eprintln!("{}", t!("Переключение на {v}…", v = syn_droid::images::instance_title(inst)));
             api::call(&Request::UseImages { name: set.name })?;
             if s.state != State::Stopped {
@@ -112,8 +112,8 @@ fn ensure_running(instance: Option<&str>) -> Result<()> {
         let s = status()?;
         match s.state {
             State::Running | State::Frozen => return Ok(()),
-            State::Stopped => bail!("Android не запустился: {}", s.error.unwrap_or_default()),
-            _ if std::time::Instant::now() > deadline => bail!("Android не загрузился за 3 минуты"),
+            State::Stopped => bail!("{}", t!("Android не запустился: {e}", e = s.error.unwrap_or_default())),
+            _ if std::time::Instant::now() > deadline => bail!("{}", t!("Android не загрузился за 3 минуты")),
             _ => {}
         }
     }
@@ -121,9 +121,9 @@ fn ensure_running(instance: Option<&str>) -> Result<()> {
 
 fn in_container(argv: Vec<String>) -> Result<()> {
     if unsafe { libc::getuid() } != 0 {
-        bail!("нужен root: sudo syndroid {}", std::env::args().skip(1).collect::<Vec<_>>().join(" "));
+        bail!("{}", t!("нужен root: sudo syndroid {args}", args = std::env::args().skip(1).collect::<Vec<_>>().join(" ")));
     }
-    let pid = status()?.init_pid.context("Android не запущен")?;
+    let pid = status()?.init_pid.with_context(|| t!("Android не запущен"))?;
     let err = container::command_in(pid, &argv)?.exec();
     Err(err.into())
 }

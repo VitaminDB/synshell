@@ -96,7 +96,7 @@ struct History {
 }
 
 thread_local! {
-    static DRAFT: RefCell<Draft> = RefCell::new(Draft::new_from(None, "my-theme".into(), "Моя тема"));
+    static DRAFT: RefCell<Draft> = RefCell::new(Draft::new_from(None, "my-theme".into(), &t!("Моя тема")));
     static HISTORY: RefCell<History> = const { RefCell::new(History { undo: Vec::new(), redo: Vec::new(), last: None }) };
     /// Открытая тема, когда её выбрали при несохранённых правках.
     static PENDING_OPEN: RefCell<Option<String>> = const { RefCell::new(None) };

@@ -101,12 +101,12 @@ pub const ICON_FULLSCREEN: &str = "\u{E5D0}"; // fullscreen
 pub const ICON_FULLSCREEN_EXIT: &str = "\u{E5D1}"; // fullscreen_exit
 
 /// Слова похвалы по числу линий за ход.
-pub fn praise(lines: usize) -> Option<&'static str> {
+pub fn praise(lines: usize) -> Option<String> {
     match lines {
         0 | 1 => None,
-        2 => Some("КЛАСС!"),
-        3 => Some("ОТЛИЧНО!"),
-        4 => Some("ВЕЛИКОЛЕПНО!"),
-        _ => Some("НЕВЕРОЯТНО!"),
+        2 => Some(syngui::t!("КЛАСС!")),
+        3 => Some(syngui::t!("ОТЛИЧНО!")),
+        4 => Some(syngui::t!("ВЕЛИКОЛЕПНО!")),
+        _ => Some(syngui::t!("НЕВЕРОЯТНО!")),
     }
 }

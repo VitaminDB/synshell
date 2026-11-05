@@ -5,6 +5,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 
 use anyhow::{bail, Context, Result};
+use syngui::t;
 use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
@@ -29,7 +30,7 @@ impl Session {
         let uid = unsafe { libc::getuid() };
         let gid = unsafe { libc::getgid() };
         let user = std::env::var("USER").unwrap_or_else(|_| uid.to_string());
-        let xdg = std::env::var("XDG_RUNTIME_DIR").context("нет XDG_RUNTIME_DIR — запускать из сеанса")?;
+        let xdg = std::env::var("XDG_RUNTIME_DIR").with_context(|| t!("нет XDG_RUNTIME_DIR — запускать из сеанса"))?;
         let wl = std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-0".into());
         let pulse = std::env::var("PULSE_RUNTIME_PATH").unwrap_or_else(|_| format!("{xdg}/pulse"));
         Ok(Self { uid, gid, user, xdg_runtime_dir: xdg, wayland_display: wl, pulse_runtime_path: pulse })
@@ -194,7 +195,7 @@ pub struct Instance {
 /// Запрос к демону.
 pub fn call(req: &Request) -> Result<Response> {
     let mut s = UnixStream::connect(paths::SOCKET)
-        .with_context(|| format!("{} — демон syndroidd не запущен?", paths::SOCKET))?;
+        .with_context(|| t!("{socket} — демон syndroidd не запущен?", socket = paths::SOCKET))?;
     let mut line = serde_json::to_string(req)?;
     line.push('\n');
     s.write_all(line.as_bytes())?;
@@ -202,7 +203,7 @@ pub fn call(req: &Request) -> Result<Response> {
     let mut out = String::new();
     r.read_line(&mut out)?;
     if out.is_empty() {
-        bail!("демон закрыл соединение");
+        bail!("{}", t!("демон закрыл соединение"));
     }
     let resp: Response = serde_json::from_str(&out)?;
     if let Response::Error { message } = resp {

@@ -11,16 +11,17 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use base64::Engine;
 use serde_json::{json, Value};
+use syngui::{n_, t, tn};
 
 use crate::cli;
 use crate::model;
 use crate::{devices, qemu, qga, qmp};
 
-const INSTRUCTIONS: &str = "syn-vm управляет виртуальными машинами QEMU/KVM этого компьютера. \
+const INSTRUCTIONS: &str = n_!("syn-vm управляет виртуальными машинами QEMU/KVM этого компьютера. \
 Машина — имя или id из `list`. Команды внутри гостя (`exec`, `read_file`, `write_file`, `push`, `pull`) идут через гостевой агент qemu-ga: \
 в Linux-госте нужен пакет qemu-guest-agent, в Windows — «Гостевые инструменты» с диска virtio-win (`tools`). \
 После `start` вызовите `wait_boot` — он ждёт, пока агент ответит. Без агента работают `screenshot`, `type_text`, `key`, `click` (через QMP): \
-координаты click — пиксели последнего снимка `screenshot` этой машины. Устройства компьютера — `devices`, отдать/забрать — `attach`/`detach`.";
+координаты click — пиксели последнего снимка `screenshot` этой машины. Устройства компьютера — `devices`, отдать/забрать — `attach`/`detach`.");
 
 pub fn run() -> Result<()> {
     let stdin = std::io::stdin();
@@ -50,7 +51,7 @@ fn dispatch(method: &str, params: &Value) -> Result<Value> {
             "protocolVersion": params.get("protocolVersion").and_then(Value::as_str).unwrap_or("2025-06-18"),
             "capabilities": {"tools": {}},
             "serverInfo": {"name": "syn-vm", "version": env!("CARGO_PKG_VERSION")},
-            "instructions": INSTRUCTIONS,
+            "instructions": t!(INSTRUCTIONS),
         })),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({"tools": tools()})),
@@ -59,12 +60,12 @@ fn dispatch(method: &str, params: &Value) -> Result<Value> {
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
             Ok(match call(name, &args) {
                 Ok(v) => v,
-                Err(e) => json!({"content": [{"type": "text", "text": format!("ошибка: {e:#}")}], "isError": true}),
+                Err(e) => json!({"content": [{"type": "text", "text": t!("ошибка: {e}", e = format!("{e:#}"))}], "isError": true}),
             })
         }
         "resources/list" => Ok(json!({"resources": []})),
         "prompts/list" => Ok(json!({"prompts": []})),
-        other => bail!("метод {other} не поддерживается"),
+        other => bail!("{}", t!("метод {m} не поддерживается", m = other)),
     }
 }
 
@@ -73,62 +74,62 @@ fn schema(props: Value, required: &[&str]) -> Value {
 }
 
 fn tools() -> Value {
-    let vm = json!({"type": "string", "description": "машина: имя или id"});
-    let s = |d: &str| json!({"type": "string", "description": d});
-    let n = |d: &str| json!({"type": "number", "description": d});
+    let vm = json!({"type": "string", "description": t!("машина: имя или id")});
+    let s = |d: &str| json!({"type": "string", "description": syngui::i18n::t(d)});
+    let n = |d: &str| json!({"type": "number", "description": syngui::i18n::t(d)});
     json!([
-        {"name": "list", "description": "Машины: id, имя, система, состояние (off/running/paused/busy).", "inputSchema": schema(json!({}), &[])},
-        {"name": "status", "description": "Подробно о машине: состояние, гостевой агент, система гостя, адреса, проброшенные порты и устройства.",
+        {"name": "list", "description": t!("Машины: id, имя, система, состояние (off/running/paused/busy)."), "inputSchema": schema(json!({}), &[])},
+        {"name": "status", "description": t!("Подробно о машине: состояние, гостевой агент, система гостя, адреса, проброшенные порты и устройства."),
          "inputSchema": schema(json!({"vm": vm}), &["vm"])},
-        {"name": "start", "description": "Запустить машину без окна. wait_boot=true — дождаться гостевого агента.",
-         "inputSchema": schema(json!({"vm": vm, "wait_boot": {"type": "boolean"}, "timeout_s": n("ожидание агента, с (300)")}), &["vm"])},
-        {"name": "stop", "description": "Выключить: гостевым агентом или ACPI; force — принудительно, если не выключилась за timeout_s.",
-         "inputSchema": schema(json!({"vm": vm, "force": {"type": "boolean"}, "timeout_s": n("ожидание, с (90)")}), &["vm"])},
-        {"name": "power", "description": "Сброс, пауза, продолжение, мгновенное выключение.",
+        {"name": "start", "description": t!("Запустить машину без окна. wait_boot=true — дождаться гостевого агента."),
+         "inputSchema": schema(json!({"vm": vm, "wait_boot": {"type": "boolean"}, "timeout_s": n(n_!("ожидание агента, с (300)"))}), &["vm"])},
+        {"name": "stop", "description": t!("Выключить: гостевым агентом или ACPI; force — принудительно, если не выключилась за timeout_s."),
+         "inputSchema": schema(json!({"vm": vm, "force": {"type": "boolean"}, "timeout_s": n(n_!("ожидание, с (90)"))}), &["vm"])},
+        {"name": "power", "description": t!("Сброс, пауза, продолжение, мгновенное выключение."),
          "inputSchema": schema(json!({"vm": vm, "action": {"type": "string", "enum": ["reset", "pause", "resume", "kill"]}}), &["vm", "action"])},
-        {"name": "wait_boot", "description": "Ждать, пока ответит гостевой агент (система загрузилась).",
-         "inputSchema": schema(json!({"vm": vm, "timeout_s": n("тайм-аут, с (300)")}), &["vm"])},
-        {"name": "exec", "description": "Выполнить команду в госте через гостевой агент: command — строка оболочки гостя (sh -c в Linux, cmd /c в Windows) или argv — массив без оболочки. Возвращает код, stdout, stderr.",
-         "inputSchema": schema(json!({"vm": vm, "command": s("строка оболочки"), "argv": {"type": "array", "items": {"type": "string"}},
-             "stdin": s("ввод программы"), "timeout_s": n("тайм-аут, с (600)"),
-             "detach": {"type": "boolean", "description": "не ждать: вернуть pid, итог — exec_status"}}), &["vm"])},
-        {"name": "exec_status", "description": "Итог команды, запущенной exec detach=true: код, stdout, stderr; «ещё работает» — если не завершилась. wait_s — подождать до стольких секунд. Вывод агент отдаёт один раз.",
-         "inputSchema": schema(json!({"vm": vm, "pid": n("pid в госте"), "wait_s": n("ждать завершения, с (0)")}), &["vm", "pid"])},
-        {"name": "read_file", "description": "Прочитать текстовый файл гостя (до 1 МБ).", "inputSchema": schema(json!({"vm": vm, "path": s("путь в госте")}), &["vm", "path"])},
-        {"name": "write_file", "description": "Записать текстовый файл в госте.", "inputSchema": schema(json!({"vm": vm, "path": s("путь в госте"), "content": {"type": "string"}}), &["vm", "path", "content"])},
-        {"name": "push", "description": "Скопировать файл с этого компьютера в гостя.", "inputSchema": schema(json!({"vm": vm, "local": s("путь здесь"), "path": s("путь в госте")}), &["vm", "local", "path"])},
-        {"name": "pull", "description": "Скопировать файл из гостя на этот компьютер.", "inputSchema": schema(json!({"vm": vm, "path": s("путь в госте"), "local": s("путь здесь")}), &["vm", "path", "local"])},
-        {"name": "screenshot", "description": "Снимок экрана гостя (PNG). Координаты для click — пиксели этого снимка (в исходном разрешении гостя, даже если снимок уменьшен).",
-         "inputSchema": schema(json!({"vm": vm, "max_size": n("длинная сторона, px (1280; 0 — без уменьшения)"), "save": s("ещё и сохранить PNG сюда")}), &["vm"])},
-        {"name": "type_text", "description": "Набрать текст клавишами (раскладка US; \\n — Enter). Кириллицу и длинный текст лучше передавать через exec/write_file.",
+        {"name": "wait_boot", "description": t!("Ждать, пока ответит гостевой агент (система загрузилась)."),
+         "inputSchema": schema(json!({"vm": vm, "timeout_s": n(n_!("тайм-аут, с (300)"))}), &["vm"])},
+        {"name": "exec", "description": t!("Выполнить команду в госте через гостевой агент: command — строка оболочки гостя (sh -c в Linux, cmd /c в Windows) или argv — массив без оболочки. Возвращает код, stdout, stderr."),
+         "inputSchema": schema(json!({"vm": vm, "command": s(n_!("строка оболочки")), "argv": {"type": "array", "items": {"type": "string"}},
+             "stdin": s(n_!("ввод программы")), "timeout_s": n(n_!("тайм-аут, с (600)")),
+             "detach": {"type": "boolean", "description": t!("не ждать: вернуть pid, итог — exec_status")}}), &["vm"])},
+        {"name": "exec_status", "description": t!("Итог команды, запущенной exec detach=true: код, stdout, stderr; «ещё работает» — если не завершилась. wait_s — подождать до стольких секунд. Вывод агент отдаёт один раз."),
+         "inputSchema": schema(json!({"vm": vm, "pid": n(n_!("pid в госте")), "wait_s": n(n_!("ждать завершения, с (0)"))}), &["vm", "pid"])},
+        {"name": "read_file", "description": t!("Прочитать текстовый файл гостя (до 1 МБ)."), "inputSchema": schema(json!({"vm": vm, "path": s(n_!("путь в госте"))}), &["vm", "path"])},
+        {"name": "write_file", "description": t!("Записать текстовый файл в госте."), "inputSchema": schema(json!({"vm": vm, "path": s(n_!("путь в госте")), "content": {"type": "string"}}), &["vm", "path", "content"])},
+        {"name": "push", "description": t!("Скопировать файл с этого компьютера в гостя."), "inputSchema": schema(json!({"vm": vm, "local": s(n_!("путь здесь")), "path": s(n_!("путь в госте"))}), &["vm", "local", "path"])},
+        {"name": "pull", "description": t!("Скопировать файл из гостя на этот компьютер."), "inputSchema": schema(json!({"vm": vm, "path": s(n_!("путь в госте")), "local": s(n_!("путь здесь"))}), &["vm", "path", "local"])},
+        {"name": "screenshot", "description": t!("Снимок экрана гостя (PNG). Координаты для click — пиксели этого снимка (в исходном разрешении гостя, даже если снимок уменьшен)."),
+         "inputSchema": schema(json!({"vm": vm, "max_size": n(n_!("длинная сторона, px (1280; 0 — без уменьшения)")), "save": s(n_!("ещё и сохранить PNG сюда"))}), &["vm"])},
+        {"name": "type_text", "description": t!("Набрать текст клавишами (раскладка US; \\n — Enter). Кириллицу и длинный текст лучше передавать через exec/write_file."),
          "inputSchema": schema(json!({"vm": vm, "text": {"type": "string"}}), &["vm", "text"])},
-        {"name": "key", "description": "Нажать сочетание: ctrl+alt+delete, alt+f4, win+r, enter, esc, tab, f12…",
+        {"name": "key", "description": t!("Нажать сочетание: ctrl+alt+delete, alt+f4, win+r, enter, esc, tab, f12…"),
          "inputSchema": schema(json!({"vm": vm, "combo": {"type": "string"}}), &["vm", "combo"])},
-        {"name": "click", "description": "Щелчок мышью в точке снимка screenshot (button: left/right/middle/none — только переместить).",
+        {"name": "click", "description": t!("Щелчок мышью в точке снимка screenshot (button: left/right/middle/none — только переместить)."),
          "inputSchema": schema(json!({"vm": vm, "x": n("X"), "y": n("Y"), "button": {"type": "string", "enum": ["left", "right", "middle", "none"]}, "double": {"type": "boolean"}}), &["vm", "x", "y"])},
-        {"name": "scroll", "description": "Колесо мыши: steps > 0 — вниз.", "inputSchema": schema(json!({"vm": vm, "steps": n("шаги")}), &["vm", "steps"])},
-        {"name": "devices", "description": "Устройства компьютера, которые можно отдать гостю (PCI/VFIO, клавиатуры и мыши, диски, последовательные порты, USB по VID:PID и по порту) — с причинами, если нельзя.",
+        {"name": "scroll", "description": t!("Колесо мыши: steps > 0 — вниз."), "inputSchema": schema(json!({"vm": vm, "steps": n(n_!("шаги"))}), &["vm", "steps"])},
+        {"name": "devices", "description": t!("Устройства компьютера, которые можно отдать гостю (PCI/VFIO, клавиатуры и мыши, диски, последовательные порты, USB по VID:PID и по порту) — с причинами, если нельзя."),
          "inputSchema": schema(json!({}), &[])},
-        {"name": "attach", "description": "Отдать устройство гостю (на ходу, где QEMU умеет; PCI — при следующем запуске). spec: usb:3-6, usb-id:VID:PID, pci:02:00.0, input:/dev/input/by-id/…, block:/dev/sdb, block-ro:/dev/sdb1, serial:/dev/ttyUSB0.",
+        {"name": "attach", "description": t!("Отдать устройство гостю (на ходу, где QEMU умеет; PCI — при следующем запуске). spec: usb:3-6, usb-id:VID:PID, pci:02:00.0, input:/dev/input/by-id/…, block:/dev/sdb, block-ro:/dev/sdb1, serial:/dev/ttyUSB0."),
          "inputSchema": schema(json!({"vm": vm, "spec": {"type": "string"}}), &["vm", "spec"])},
-        {"name": "detach", "description": "Вернуть устройство компьютеру (spec — как в attach).", "inputSchema": schema(json!({"vm": vm, "spec": {"type": "string"}}), &["vm", "spec"])},
-        {"name": "settings", "description": "Прочитать настройки машины (TOML) или изменить: set — объект {ключ: значение} (cpus, memory_mb, shared_dir, forwards, guest_agent, tools_cd…). Вступают в силу при следующем запуске.",
+        {"name": "detach", "description": t!("Вернуть устройство компьютеру (spec — как в attach)."), "inputSchema": schema(json!({"vm": vm, "spec": {"type": "string"}}), &["vm", "spec"])},
+        {"name": "settings", "description": t!("Прочитать настройки машины (TOML) или изменить: set — объект {ключ: значение} (cpus, memory_mb, shared_dir, forwards, guest_agent, tools_cd…). Вступают в силу при следующем запуске."),
          "inputSchema": schema(json!({"vm": vm, "set": {"type": "object"}}), &["vm"])},
-        {"name": "create", "description": "Новая машина: из образа установки (iso) или импорт готового диска (disk, при UEFI — vars, при TPM — tpm). Возвращает id.",
-         "inputSchema": schema(json!({"name": s("имя"), "os": {"type": "string", "enum": ["linux", "windows11", "windows10", "bsd", "android", "other"]},
-             "iso": s("образ в привод"), "disk": s("готовый диск (остаётся на месте)"), "vars": s("переменные UEFI (raw/qcow2)"), "tpm": s("каталог состояния swtpm"),
-             "cpus": n("ядра"), "memory_mb": n("память, МБ"), "disk_gb": n("размер нового диска, ГБ"),
-             "forwards": {"type": "array", "items": {"type": "string"}, "description": "проброс портов: [udp:]ХОСТ:ГОСТЬ"},
-             "set": {"type": "object", "description": "прочие настройки"}}), &["name"])},
-        {"name": "cdrom", "description": "Вставить образ в привод (iso) или извлечь (пусто).", "inputSchema": schema(json!({"vm": vm, "iso": s("путь или пусто")}), &["vm"])},
-        {"name": "tools", "description": "Диск «Гостевые инструменты» virtio-win (драйверы, qemu-ga, spice-vdagent для Windows): on/off — второй привод при запуске, download — скачать ISO.",
+        {"name": "create", "description": t!("Новая машина: из образа установки (iso) или импорт готового диска (disk, при UEFI — vars, при TPM — tpm). Возвращает id."),
+         "inputSchema": schema(json!({"name": s(n_!("имя")), "os": {"type": "string", "enum": ["linux", "windows11", "windows10", "bsd", "android", "other"]},
+             "iso": s(n_!("образ в привод")), "disk": s(n_!("готовый диск (остаётся на месте)")), "vars": s(n_!("переменные UEFI (raw/qcow2)")), "tpm": s(n_!("каталог состояния swtpm")),
+             "cpus": n(n_!("ядра")), "memory_mb": n(n_!("память, МБ")), "disk_gb": n(n_!("размер нового диска, ГБ")),
+             "forwards": {"type": "array", "items": {"type": "string"}, "description": t!("проброс портов: [udp:]ХОСТ:ГОСТЬ")},
+             "set": {"type": "object", "description": t!("прочие настройки")}}), &["name"])},
+        {"name": "cdrom", "description": t!("Вставить образ в привод (iso) или извлечь (пусто)."), "inputSchema": schema(json!({"vm": vm, "iso": s(n_!("путь или пусто"))}), &["vm"])},
+        {"name": "tools", "description": t!("Диск «Гостевые инструменты» virtio-win (драйверы, qemu-ga, spice-vdagent для Windows): on/off — второй привод при запуске, download — скачать ISO."),
          "inputSchema": schema(json!({"vm": vm, "action": {"type": "string", "enum": ["on", "off", "download"]}}), &["vm"])},
-        {"name": "snapshot", "description": "Снимки: list, create, restore, delete.",
-         "inputSchema": schema(json!({"vm": vm, "action": {"type": "string", "enum": ["list", "create", "restore", "delete"]}, "name": s("имя снимка")}), &["vm", "action"])},
-        {"name": "record", "description": "Запись экрана гостя в видео (родное разрешение, ровная частота, ffmpeg NVENC/VAAPI/x264, звук гостя). start — начать (с duration_s — записать столько секунд и вернуть итог), stop — остановить и получить итог, status — идёт ли запись.",
-         "inputSchema": schema(json!({"vm": vm, "action": {"type": "string", "enum": ["start", "stop", "status"]}, "path": s("файл (по умолчанию «Видео/Записи экрана»)"),
-             "fps": n("кадров в секунду (30)"), "audio": {"type": "boolean", "description": "со звуком гостя (по умолчанию — если звук у машины включён)"}, "duration_s": n("длительность, с")}), &["vm"])},
-        {"name": "qmp", "description": "Сырая команда QMP (для того, чего нет в других инструментах).",
+        {"name": "snapshot", "description": t!("Снимки: list, create, restore, delete."),
+         "inputSchema": schema(json!({"vm": vm, "action": {"type": "string", "enum": ["list", "create", "restore", "delete"]}, "name": s(n_!("имя снимка"))}), &["vm", "action"])},
+        {"name": "record", "description": t!("Запись экрана гостя в видео (родное разрешение, ровная частота, ffmpeg NVENC/VAAPI/x264, звук гостя). start — начать (с duration_s — записать столько секунд и вернуть итог), stop — остановить и получить итог, status — идёт ли запись."),
+         "inputSchema": schema(json!({"vm": vm, "action": {"type": "string", "enum": ["start", "stop", "status"]}, "path": s(n_!("файл (по умолчанию «Видео/Записи экрана»)")),
+             "fps": n(n_!("кадров в секунду (30)")), "audio": {"type": "boolean", "description": t!("со звуком гостя (по умолчанию — если звук у машины включён)")}, "duration_s": n(n_!("длительность, с"))}), &["vm"])},
+        {"name": "qmp", "description": t!("Сырая команда QMP (для того, чего нет в других инструментах)."),
          "inputSchema": schema(json!({"vm": vm, "command": {"type": "string"}, "arguments": {"type": "object"}}), &["vm", "command"])},
     ])
 }
@@ -138,7 +139,7 @@ fn text(s: impl Into<String>) -> Value {
 }
 
 fn arg<'a>(a: &'a Value, k: &str) -> Result<&'a str> {
-    a.get(k).and_then(Value::as_str).with_context(|| format!("нужен параметр {k}"))
+    a.get(k).and_then(Value::as_str).with_context(|| t!("нужен параметр {k}", k = k))
 }
 
 fn num(a: &Value, k: &str) -> Option<f64> {
@@ -154,12 +155,12 @@ fn clip(b: &[u8], max: usize) -> String {
     while !s.is_char_boundary(cut) {
         cut += 1;
     }
-    format!("[… обрезано {cut} байт …]\n{}", &s[cut..])
+    format!("[… {} …]\n{}", tn!(cut, "обрезано {n} байт", "обрезано {n} байта", "обрезано {n} байт"), &s[cut..])
 }
 
 fn running(vm: &model::Vm) -> Result<()> {
     if qemu::pid(vm).is_none() {
-        bail!("«{}» не запущена — сначала start", vm.name);
+        bail!("{}", t!("«{name}» не запущена — сначала start", name = vm.name));
     }
     Ok(())
 }
@@ -177,9 +178,9 @@ fn call(name: &str, a: &Value) -> Result<Value> {
             cli::start(&m)?;
             if a.get("wait_boot").and_then(Value::as_bool).unwrap_or(false) {
                 qga::wait(&m, Duration::from_secs(num(a, "timeout_s").unwrap_or(300.0) as u64))?;
-                return Ok(text(format!("«{}» запущена, агент отвечает", m.name)));
+                return Ok(text(t!("«{name}» запущена, агент отвечает", name = m.name)));
             }
-            Ok(text(format!("«{}» запущена", m.name)))
+            Ok(text(t!("«{name}» запущена", name = m.name)))
         }
         "stop" => {
             let m = vm()?;
@@ -197,15 +198,15 @@ fn call(name: &str, a: &Value) -> Result<Value> {
                         qemu::kill(&m);
                     }
                 }
-                o => bail!("неизвестное действие {o}"),
+                o => bail!("{}", t!("неизвестное действие {o}", o = o)),
             }
-            Ok(text("готово"))
+            Ok(text(t!("готово")))
         }
         "wait_boot" => {
             let m = vm()?;
             let t0 = std::time::Instant::now();
             qga::wait(&m, Duration::from_secs(num(a, "timeout_s").unwrap_or(300.0) as u64))?;
-            Ok(text(format!("агент отвечает ({:.0} с)", t0.elapsed().as_secs_f64())))
+            Ok(text(t!("агент отвечает ({s} с)", s = format!("{:.0}", t0.elapsed().as_secs_f64()))))
         }
         "exec" => {
             let m = vm()?;
@@ -213,17 +214,18 @@ fn call(name: &str, a: &Value) -> Result<Value> {
             let argv: Vec<String> = match (a.get("argv").and_then(Value::as_array), a.get("command").and_then(Value::as_str)) {
                 (Some(v), _) => v.iter().filter_map(|x| x.as_str().map(String::from)).collect(),
                 (None, Some(c)) => qga::shell_argv(&m, c),
-                _ => bail!("нужен command или argv"),
+                _ => bail!("{}", t!("нужен command или argv")),
             };
             let input = a.get("stdin").and_then(Value::as_str).map(|s| s.as_bytes().to_vec());
             if a.get("detach").and_then(Value::as_bool).unwrap_or(false) {
                 let pid = qga::exec_detached(&m, &argv, input.as_deref(), &[])?;
-                return Ok(text(format!("запущено, pid {pid} — итог: exec_status")));
+                return Ok(text(t!("запущено, pid {pid} — итог: exec_status", pid = pid)));
             }
             let mut r = qga::exec(&m, &argv, input.as_deref(), &[], Duration::from_secs(num(a, "timeout_s").unwrap_or(600.0) as u64))?;
             r.stdout = qga::decode_output(&m, std::mem::take(&mut r.stdout));
             r.stderr = qga::decode_output(&m, std::mem::take(&mut r.stderr));
-            let mut s = format!("код: {}{}\n", r.code, if r.timed_out { " (не дождались, процесс работает дальше)" } else { "" });
+            let mut s = if r.timed_out { t!("код: {code} (не дождались, процесс работает дальше)", code = r.code) } else { t!("код: {code}", code = r.code) };
+            s.push('\n');
             if !r.stdout.is_empty() {
                 s.push_str(&format!("--- stdout ---\n{}\n", clip(&r.stdout, 60_000)));
             }
@@ -242,10 +244,11 @@ fn call(name: &str, a: &Value) -> Result<Value> {
             } else {
                 qga::exec_status(&m, pid)?
             };
-            let Some(mut r) = r else { return Ok(text(format!("pid {pid} ещё работает"))) };
+            let Some(mut r) = r else { return Ok(text(t!("pid {pid} ещё работает", pid = pid))) };
             r.stdout = qga::decode_output(&m, std::mem::take(&mut r.stdout));
             r.stderr = qga::decode_output(&m, std::mem::take(&mut r.stderr));
-            let mut s = format!("код: {}\n", r.code);
+            let mut s = t!("код: {code}", code = r.code);
+            s.push('\n');
             if !r.stdout.is_empty() {
                 s.push_str(&format!("--- stdout ---\n{}\n", clip(&r.stdout, 60_000)));
             }
@@ -265,19 +268,20 @@ fn call(name: &str, a: &Value) -> Result<Value> {
             running(&m)?;
             let c = arg(a, "content")?;
             qga::write_file(&m, arg(a, "path")?, c.as_bytes())?;
-            Ok(text(format!("записано {} байт", c.len())))
+            let n = c.len();
+            Ok(text(tn!(n, "записано {n} байт", "записано {n} байта", "записано {n} байт")))
         }
         "push" => {
             let m = vm()?;
             running(&m)?;
             let n = qga::push(&m, Path::new(arg(a, "local")?), arg(a, "path")?)?;
-            Ok(text(format!("{n} байт")))
+            Ok(text(tn!(n, "{n} байт", "{n} байта", "{n} байт")))
         }
         "pull" => {
             let m = vm()?;
             running(&m)?;
             let n = qga::pull(&m, arg(a, "path")?, Path::new(arg(a, "local")?))?;
-            Ok(text(format!("{n} байт")))
+            Ok(text(tn!(n, "{n} байт", "{n} байта", "{n} байт")))
         }
         "screenshot" => {
             let m = vm()?;
@@ -294,7 +298,11 @@ fn call(name: &str, a: &Value) -> Result<Value> {
             let img = if max > 0 && w.max(h) > max { img.resize(max, max, image::imageops::FilterType::Triangle) } else { img };
             let mut png = Vec::new();
             img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)?;
-            let note = format!("экран гостя {w}x{h}{}", if img.width() != w { format!(", снимок уменьшен до {}x{} — координаты для click указывайте в пикселях снимка", img.width(), img.height()) } else { String::new() });
+            let note = if img.width() != w {
+                t!("экран гостя {w}x{h}, снимок уменьшен до {sw}x{sh} — координаты для click указывайте в пикселях снимка", w = w, h = h, sw = img.width(), sh = img.height())
+            } else {
+                t!("экран гостя {w}x{h}", w = w, h = h)
+            };
             // Запомнить масштаб для click.
             let _ = std::fs::write(m.run_dir().join("mcp-shot.scale"), format!("{} {}", w as f64 / img.width() as f64, h as f64 / img.height() as f64));
             Ok(json!({"content": [
@@ -305,13 +313,13 @@ fn call(name: &str, a: &Value) -> Result<Value> {
             let m = vm()?;
             running(&m)?;
             qmp::type_text(&m, arg(a, "text")?, Duration::from_millis(15))?;
-            Ok(text("набрано"))
+            Ok(text(t!("набрано")))
         }
         "key" => {
             let m = vm()?;
             running(&m)?;
             qmp::send_combo(&m, arg(a, "combo")?)?;
-            Ok(text("нажато"))
+            Ok(text(t!("нажато")))
         }
         "click" => {
             let m = vm()?;
@@ -327,13 +335,13 @@ fn call(name: &str, a: &Value) -> Result<Value> {
             let y = num(a, "y").context("y")? * sy;
             let b = a.get("button").and_then(Value::as_str).unwrap_or("left");
             cli::click(&m, x, y, (b != "none").then_some(b), a.get("double").and_then(Value::as_bool).unwrap_or(false))?;
-            Ok(text(format!("щелчок в {x:.0},{y:.0} (пиксели гостя)")))
+            Ok(text(t!("щелчок в {x},{y} (пиксели гостя)", x = format!("{x:.0}"), y = format!("{y:.0}"))))
         }
         "scroll" => {
             let m = vm()?;
             running(&m)?;
             qmp::wheel(&m, num(a, "steps").context("steps")? as i32)?;
-            Ok(text("готово"))
+            Ok(text(t!("готово")))
         }
         "devices" => {
             let list: Vec<Value> = devices::available()
@@ -360,13 +368,13 @@ fn call(name: &str, a: &Value) -> Result<Value> {
                     let vals = obj
                         .iter()
                         .map(|(k, v)| {
-                            let t: toml::Value = serde_json::from_value(v.clone()).with_context(|| format!("{k}: значение"))?;
+                            let t: toml::Value = serde_json::from_value(v.clone()).with_context(|| t!("{k}: значение", k = k))?;
                             Ok((k.clone(), t, v.as_str().map(String::from).unwrap_or_else(|| v.to_string())))
                         })
                         .collect::<Result<Vec<_>>>()?;
                     let n = cli::set_values(&m, vals)?;
                     n.save()?;
-                    Ok(text(format!("сохранено{}", if qemu::pid(&n).is_some() { " — вступит в силу при следующем запуске" } else { "" })))
+                    Ok(text(if qemu::pid(&n).is_some() { t!("сохранено — вступит в силу при следующем запуске") } else { t!("сохранено") }))
                 }
                 _ => Ok(text(toml::to_string_pretty(&m)?)),
             }
@@ -398,7 +406,7 @@ fn call(name: &str, a: &Value) -> Result<Value> {
                     .collect::<Result<Vec<_>>>()?;
                 cli::set_values(&m, vals)?.save()?;
             }
-            Ok(text(format!("создана: {}{}", String::from_utf8_lossy(&out.stdout).trim(), String::from_utf8_lossy(&out.stderr).trim().lines().map(|l| format!("\n{l}")).collect::<String>())))
+            Ok(text(format!("{}{}", t!("создана: {id}", id = String::from_utf8_lossy(&out.stdout).trim()), String::from_utf8_lossy(&out.stderr).trim().lines().map(|l| format!("\n{l}")).collect::<String>())))
         }
         "cdrom" => {
             let mut m = vm()?;
@@ -408,19 +416,19 @@ fn call(name: &str, a: &Value) -> Result<Value> {
             if qemu::pid(&m).is_some() {
                 qmp::change_cdrom(&m, &iso)?;
             }
-            Ok(text(if iso.is_empty() { "привод пуст".into() } else { format!("в приводе {iso}") }))
+            Ok(text(if iso.is_empty() { t!("привод пуст") } else { t!("в приводе {iso}", iso = iso) }))
         }
         "tools" => {
             let mut m = vm()?;
             match a.get("action").and_then(Value::as_str).unwrap_or("on") {
-                "download" => Ok(text(format!("скачано: {}", qemu::download_tools()?.display()))),
+                "download" => Ok(text(t!("скачано: {p}", p = qemu::download_tools()?.display()))),
                 o => {
                     m.tools_cd = o != "off";
                     m.save()?;
                     Ok(text(match (m.tools_cd, qemu::tools_iso()) {
-                        (true, Some(p)) => format!("при запуске второй привод — {}", p.display()),
-                        (true, None) => "virtio-win.iso не найден — tools action=download".into(),
-                        _ => "второй привод убран".into(),
+                        (true, Some(p)) => t!("при запуске второй привод — {p}", p = p.display()),
+                        (true, None) => t!("virtio-win.iso не найден — tools action=download"),
+                        _ => t!("второй привод убран"),
                     }))
                 }
             }
@@ -432,7 +440,7 @@ fn call(name: &str, a: &Value) -> Result<Value> {
                 "list" => Ok(text(cli::snapshots(&m, on).iter().map(|s| format!("{}\t{}\t{}", s.name, s.date, s.vm_size)).collect::<Vec<_>>().join("\n"))),
                 op => {
                     cli::snapshot(&m, on, op, arg(a, "name")?)?;
-                    Ok(text("готово"))
+                    Ok(text(t!("готово")))
                 }
             }
         }
@@ -441,8 +449,8 @@ fn call(name: &str, a: &Value) -> Result<Value> {
             match a.get("action").and_then(Value::as_str).unwrap_or("start") {
                 "stop" => Ok(text(cli::record_summary(&crate::record::stop(&m)?))),
                 "status" => Ok(text(match crate::record::status(&m) {
-                    Some(i) => format!("идёт запись: {} ({} с)", i.path, model::now().saturating_sub(i.started)),
-                    None => "запись не идёт".into(),
+                    Some(i) => t!("идёт запись: {path} ({s} с)", path = i.path, s = model::now().saturating_sub(i.started)),
+                    None => t!("запись не идёт"),
                 })),
                 _ => {
                     let o = crate::record::Opts {
@@ -456,7 +464,7 @@ fn call(name: &str, a: &Value) -> Result<Value> {
                     if wait {
                         return Ok(text(cli::record_summary(&crate::record::wait(&m)?)));
                     }
-                    Ok(text(format!("идёт запись: {} ({}x{}, {} к/с, {}) — остановить: record action=stop", i.path, i.size.0, i.size.1, i.fps, i.encoder)))
+                    Ok(text(t!("идёт запись: {path} ({w}x{h}, {fps} к/с, {enc}) — остановить: record action=stop", path = i.path, w = i.size.0, h = i.size.1, fps = i.fps, enc = i.encoder)))
                 }
             }
         }
@@ -466,6 +474,6 @@ fn call(name: &str, a: &Value) -> Result<Value> {
             let r = qmp::call(&m, arg(a, "command")?, a.get("arguments").cloned().unwrap_or(Value::Null))?;
             Ok(text(serde_json::to_string_pretty(&r)?))
         }
-        other => bail!("нет инструмента {other}"),
+        other => bail!("{}", t!("нет инструмента {name}", name = other)),
     }
 }

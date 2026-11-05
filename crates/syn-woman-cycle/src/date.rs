@@ -75,29 +75,29 @@ pub fn days_in_month(idx: i32) -> i32 {
 }
 
 pub fn month_name(m: u32) -> String {
-    let names = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+    let names = [syngui::n_!("Январь"), syngui::n_!("Февраль"), syngui::n_!("Март"), syngui::n_!("Апрель"), syngui::n_!("Май"), syngui::n_!("Июнь"), syngui::n_!("Июль"), syngui::n_!("Август"), syngui::n_!("Сентябрь"), syngui::n_!("Октябрь"), syngui::n_!("Ноябрь"), syngui::n_!("Декабрь")];
     syngui::i18n::t(names[(m as usize).clamp(1, 12) - 1])
 }
 
 /// Месяц в родительном падеже («12 октября»).
 pub fn month_gen(m: u32) -> String {
-    let names = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+    let names = [syngui::n_!("января"), syngui::n_!("февраля"), syngui::n_!("марта"), syngui::n_!("апреля"), syngui::n_!("мая"), syngui::n_!("июня"), syngui::n_!("июля"), syngui::n_!("августа"), syngui::n_!("сентября"), syngui::n_!("октября"), syngui::n_!("ноября"), syngui::n_!("декабря")];
     syngui::i18n::t(names[(m as usize).clamp(1, 12) - 1])
 }
 
 pub fn month_short(m: u32) -> String {
-    let names = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+    let names = [syngui::n_!("янв"), syngui::n_!("фев"), syngui::n_!("мар"), syngui::n_!("апр"), syngui::n_!("мая"), syngui::n_!("июн"), syngui::n_!("июл"), syngui::n_!("авг"), syngui::n_!("сен"), syngui::n_!("окт"), syngui::n_!("ноя"), syngui::n_!("дек")];
     syngui::i18n::t(names[(m as usize).clamp(1, 12) - 1])
 }
 
 /// Короткие имена дней недели с понедельника.
 pub fn weekday_short(wd: u32) -> String {
-    let names = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+    let names = [syngui::n_!("Пн"), syngui::n_!("Вт"), syngui::n_!("Ср"), syngui::n_!("Чт"), syngui::n_!("Пт"), syngui::n_!("Сб"), syngui::n_!("Вс")];
     syngui::i18n::t(names[wd as usize % 7])
 }
 
 pub fn weekday_name(wd: u32) -> String {
-    let names = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"];
+    let names = [syngui::n_!("понедельник"), syngui::n_!("вторник"), syngui::n_!("среда"), syngui::n_!("четверг"), syngui::n_!("пятница"), syngui::n_!("суббота"), syngui::n_!("воскресенье")];
     syngui::i18n::t(names[wd as usize % 7])
 }
 
@@ -128,9 +128,9 @@ pub fn range(a: Day, b: Day) -> String {
 pub fn relative(d: Day, today: Day) -> String {
     let n = d - today;
     match n {
-        0 => syngui::i18n::t("сегодня"),
-        1 => syngui::i18n::t("завтра"),
-        -1 => syngui::i18n::t("вчера"),
+        0 => syngui::t!("сегодня"),
+        1 => syngui::t!("завтра"),
+        -1 => syngui::t!("вчера"),
         n if n > 0 => syngui::tn!(n, "через {n} день", "через {n} дня", "через {n} дней"),
         n => syngui::tn!(-n, "{n} день назад", "{n} дня назад", "{n} дней назад"),
     }

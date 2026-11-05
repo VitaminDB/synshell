@@ -4,6 +4,9 @@
 # src/main.rs
 "Пароли" = "Passwords"
 
+# src/sync.rs
+"файлы устройства недоступны" = "device files are unavailable"
+
 # src/ui.rs
 "Не сохранено: {e}" = "Not saved: {e}"
 "Нет соединённых устройств" = "No connected devices"
@@ -32,6 +35,7 @@
 "Запись удалена" = "Entry deleted"
 "Введите текущий мастер-пароль или ответ на вопрос" = "Enter the current master password or the security answer"
 "Новый — не короче 8 символов" = "The new one must be at least 8 characters"
+"Не подходит ни мастер-пароль, ни ответ на вопрос" = "Neither the master password nor the security answer matches"
 "Мастер-пароль изменён — копии на устройствах обновятся при синхронизации" = "Master password changed — copies on your devices will update when they sync"
 "Введите ответ" = "Enter the answer"
 "Мастер-пароль неверен" = "Wrong master password"
@@ -159,6 +163,12 @@
 "Настройки" = "Settings"
 
 # src/vault.rs
+"повреждённое хранилище" = "damaged vault"
+"повреждённый ключ хранилища" = "damaged vault key"
+"неизвестный формат хранилища" = "unknown vault format"
+"содержимое хранилища" = "vault contents"
+"в хранилище нет мастер-пароля" = "the vault has no master password"
+"секретный вопрос не задан" = "no security question is set"
 "Очень слабый" = "Very weak"
 "Слабый" = "Weak"
 "Средний" = "Fair"

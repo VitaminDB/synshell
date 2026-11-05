@@ -8,6 +8,7 @@
 //! которых postcard не умеет) передаются строками JSON.
 
 use anyhow::{bail, Context, Result};
+use synshell_tr::t;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use synshell_common::link::DeviceKind;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -273,10 +274,10 @@ pub async fn recv<T: DeserializeOwned>(r: &mut (impl AsyncReadExt + Unpin)) -> R
     }
     let n = u32::from_be_bytes(len) as usize;
     if n > 128 << 20 {
-        bail!("сообщение {n} байт — слишком большое");
+        bail!("{}", t!("сообщение {n} байт — слишком большое", n = n));
     }
     let mut buf = vec![0u8; n];
-    r.read_exact(&mut buf).await.context("обрыв сообщения")?;
+    r.read_exact(&mut buf).await.with_context(|| t!("обрыв сообщения"))?;
     Ok(Some(postcard::from_bytes(&buf)?))
 }
 

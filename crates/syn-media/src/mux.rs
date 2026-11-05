@@ -49,7 +49,7 @@ impl Mux {
             let mut m = Mux { ctx, vst: -1, ast: -1, header: false, pending: Vec::new(), audio_tb: ffi::AVRational { num: 1, den: 48000 }, last_vdts: -1, finished: false };
             let st = ffi::avformat_new_stream(ctx, std::ptr::null());
             if st.is_null() {
-                bail!("mp4: поток видео");
+                bail!(syngui::t!("mp4: поток видео"));
             }
             let p = (*st).codecpar;
             (*p).codec_type = ffi::AVMediaType::AVMEDIA_TYPE_VIDEO;
@@ -91,11 +91,11 @@ impl Mux {
         unsafe {
             let st = ffi::avformat_new_stream(self.ctx, std::ptr::null());
             if st.is_null() {
-                bail!("mp4: поток звука");
+                bail!(syngui::t!("mp4: поток звука"));
             }
             let r = ffi::avcodec_parameters_from_context((*st).codecpar, enc);
             if r < 0 {
-                bail!("mp4: параметры звука: {}", averr(r));
+                bail!(syngui::t!("mp4: параметры звука: {err}", err = averr(r)));
             }
             (*st).time_base = (*enc).time_base;
             self.audio_tb = (*enc).time_base;
@@ -110,7 +110,7 @@ impl Mux {
             let pkt = ffi::av_packet_alloc();
             if ffi::av_new_packet(pkt, data.len() as c_int) < 0 {
                 ffi::av_packet_free(&mut (pkt as *mut _));
-                bail!("пакет");
+                bail!(syngui::t!("пакет"));
             }
             std::ptr::copy_nonoverlapping(data.as_ptr(), (*pkt).data, data.len());
             let st = *(*self.ctx).streams.add(stream as usize);
@@ -133,7 +133,7 @@ impl Mux {
             let r = ffi::av_interleaved_write_frame(self.ctx, p);
             ffi::av_packet_free(&mut p);
             if r < 0 {
-                bail!("запись mp4: {}", averr(r));
+                bail!(syngui::t!("запись mp4: {err}", err = averr(r)));
             }
         }
         Ok(())
@@ -155,7 +155,7 @@ impl Mux {
             }
             let r = ffi::avformat_write_header(self.ctx, std::ptr::null_mut());
             if r < 0 {
-                bail!("заголовок mp4: {}", averr(r));
+                bail!(syngui::t!("заголовок mp4: {err}", err = averr(r)));
             }
         }
         self.header = true;
@@ -176,7 +176,7 @@ impl Mux {
             if self.header {
                 let r = ffi::av_write_trailer(self.ctx);
                 if r < 0 {
-                    bail!("завершение mp4: {}", averr(r));
+                    bail!(syngui::t!("завершение mp4: {err}", err = averr(r)));
                 }
             }
         }

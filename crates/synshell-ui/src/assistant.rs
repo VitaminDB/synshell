@@ -700,7 +700,7 @@ fn ask(p: Panel, text: String, voice: bool) {
             }
             run_on_main_thread(move || {
                 if let Err(e) = r {
-                    p.answer.set(format!("**Ошибка:** {e}"));
+                    p.answer.set(t!("**Ошибка:** {e}", e = e));
                 }
                 p.chat_id.set(Some(id));
                 p.tool.set(None);

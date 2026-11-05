@@ -667,19 +667,19 @@ fn tile(ctx: ShellCtx, st: St, e: &DesktopEntry, mixed: bool) -> impl Widget {
 /// Имя новой группы — по общей категории приложений (как на телефонах), иначе «Группа».
 fn group_name(items: &[String]) -> String {
     const CATS: &[(&str, &str)] = &[
-        ("Game", "Игры"),
-        ("Development", "Разработка"),
-        ("Graphics", "Графика"),
-        ("Office", "Офис"),
-        ("Audio", "Музыка"),
-        ("Video", "Видео"),
-        ("AudioVideo", "Мультимедиа"),
-        ("Network", "Интернет"),
-        ("Education", "Обучение"),
-        ("Science", "Наука"),
-        ("Settings", "Настройки"),
-        ("System", "Система"),
-        ("Utility", "Утилиты"),
+        ("Game", n_!("Игры")),
+        ("Development", n_!("Разработка")),
+        ("Graphics", n_!("Графика")),
+        ("Office", n_!("Офис")),
+        ("Audio", n_!("Музыка")),
+        ("Video", n_!("Видео")),
+        ("AudioVideo", n_!("Мультимедиа")),
+        ("Network", n_!("Интернет")),
+        ("Education", n_!("Обучение")),
+        ("Science", n_!("Наука")),
+        ("Settings", n_!("Настройки")),
+        ("System", n_!("Система")),
+        ("Utility", n_!("Утилиты")),
     ];
     let entries: Vec<DesktopEntry> = items.iter().filter_map(|a| xdg::app_by_id(a)).collect();
     CATS.iter()

@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine;
 use serde_json::{json, Value};
+use syngui::t;
 
 use crate::model::Vm;
 
@@ -38,7 +39,7 @@ fn lock_channel(vm: &Vm, deadline: Instant) -> Result<std::fs::File> {
             return Ok(f);
         }
         if Instant::now() >= deadline {
-            bail!("«{}»: гостевой агент занят другим запросом (передача файла?) — повторите позже", vm.name);
+            bail!("{}", t!("«{name}»: гостевой агент занят другим запросом (передача файла?) — повторите позже", name = vm.name));
         }
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -107,7 +108,7 @@ impl Agent {
         loop {
             let mut line = String::new();
             if self.r.read_line(&mut line)? == 0 {
-                bail!("агент закрыл соединение");
+                bail!("{}", t!("агент закрыл соединение"));
             }
             let line = line.trim_matches(|c: char| c == '\u{ff}' || c.is_whitespace());
             if line.is_empty() {
@@ -132,17 +133,17 @@ impl Agent {
 
 fn not_configured(vm: &Vm) -> String {
     if vm.guest_agent {
-        format!("«{}»: машина запущена без канала агента — перезапустите её", vm.name)
+        t!("«{name}»: машина запущена без канала агента — перезапустите её", name = vm.name)
     } else {
-        format!("«{}»: канал гостевого агента выключен в настройках (guest_agent = true)", vm.name)
+        t!("«{name}»: канал гостевого агента выключен в настройках (guest_agent = true)", name = vm.name)
     }
 }
 
 fn not_running(vm: &Vm) -> String {
     if vm.os.is_windows() {
-        format!("«{}»: гостевой агент не отвечает — система ещё грузится или не установлены «Гостевые инструменты» (диск virtio-win → virtio-win-guest-tools.exe)", vm.name)
+        t!("«{name}»: гостевой агент не отвечает — система ещё грузится или не установлены «Гостевые инструменты» (диск virtio-win → virtio-win-guest-tools.exe)", name = vm.name)
     } else {
-        format!("«{}»: гостевой агент не отвечает — система ещё грузится или в госте нет qemu-guest-agent (pacman -S qemu-guest-agent / apt install qemu-guest-agent; systemctl enable --now qemu-guest-agent)", vm.name)
+        t!("«{name}»: гостевой агент не отвечает — система ещё грузится или в госте нет qemu-guest-agent (pacman -S qemu-guest-agent / apt install qemu-guest-agent; systemctl enable --now qemu-guest-agent)", name = vm.name)
     }
 }
 
@@ -161,7 +162,7 @@ pub fn wait(vm: &Vm, timeout: Duration) -> Result<()> {
     let t0 = Instant::now();
     loop {
         if crate::qemu::pid(vm).is_none() {
-            bail!("«{}» не запущена", vm.name);
+            bail!("{}", t!("«{name}» не запущена", name = vm.name));
         }
         if ping(vm) {
             return Ok(());
@@ -186,7 +187,7 @@ pub struct ExecResult {
 
 /// Запустить программу в госте и дождаться: `argv[0]` ищется по PATH гостя.
 pub fn exec(vm: &Vm, argv: &[String], input: Option<&[u8]>, env: &[String], timeout: Duration) -> Result<ExecResult> {
-    let Some((prog, args)) = argv.split_first() else { bail!("пустая команда") };
+    let Some((prog, args)) = argv.split_first() else { bail!("{}", t!("пустая команда")) };
     let mut a = json!({"path": prog, "arg": args, "capture-output": true});
     if let Some(i) = input {
         a["input-data"] = json!(B64.encode(i));
@@ -195,13 +196,13 @@ pub fn exec(vm: &Vm, argv: &[String], input: Option<&[u8]>, env: &[String], time
         a["env"] = json!(env);
     }
     let r = call(vm, "guest-exec", a)?;
-    let pid = r.get("pid").and_then(Value::as_i64).context("guest-exec: нет pid")?;
+    let pid = r.get("pid").and_then(Value::as_i64).with_context(|| format!("guest-exec: {}", t!("нет pid")))?;
     wait_exec(vm, pid, timeout)
 }
 
 /// Запустить и не ждать: pid в госте (итог — [`exec_status`]).
 pub fn exec_detached(vm: &Vm, argv: &[String], input: Option<&[u8]>, env: &[String]) -> Result<i64> {
-    let Some((prog, args)) = argv.split_first() else { bail!("пустая команда") };
+    let Some((prog, args)) = argv.split_first() else { bail!("{}", t!("пустая команда")) };
     let mut a = json!({"path": prog, "arg": args, "capture-output": true});
     if let Some(i) = input {
         a["input-data"] = json!(B64.encode(i));
@@ -209,7 +210,7 @@ pub fn exec_detached(vm: &Vm, argv: &[String], input: Option<&[u8]>, env: &[Stri
     if !env.is_empty() {
         a["env"] = json!(env);
     }
-    call(vm, "guest-exec", a)?.get("pid").and_then(Value::as_i64).context("guest-exec: нет pid")
+    call(vm, "guest-exec", a)?.get("pid").and_then(Value::as_i64).with_context(|| format!("guest-exec: {}", t!("нет pid")))
 }
 
 /// Итог запущенной команды: `None` — ещё работает. Агент отдаёт вывод один раз — после
@@ -370,7 +371,7 @@ pub fn info(vm: &Vm) -> Result<GuestInfo> {
             g.os = g.os.replace("Windows 10", "Windows 11");
         }
         if s("id") == "mswindows" && !s("kernel-release").is_empty() {
-            g.os = format!("{} (сборка {})", g.os, s("kernel-release"));
+            g.os = t!("{os} (сборка {build})", os = g.os, build = s("kernel-release"));
         }
     }
     if let Ok(v) = a.call("guest-get-host-name", Value::Null) {

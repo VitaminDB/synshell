@@ -20,7 +20,7 @@ pub async fn run(d: D) -> Result<()> {
     }
     // Живой демон уже есть — второй не нужен.
     if std::os::unix::net::UnixStream::connect(&path).is_ok() {
-        bail!("synlink уже запущен ({})", path.display());
+        bail!("{}", t!("synlink уже запущен ({path})", path = path.display()));
     }
     let _ = std::fs::remove_file(&path);
     let l = UnixListener::bind(&path)?;
@@ -47,11 +47,11 @@ fn target(d: &D, device: &str) -> Result<Target> {
     if device == "local" || device == "self" || device.is_empty() {
         return Ok(Target::Local);
     }
-    let id = d.resolve(device).with_context(|| format!("нет устройства «{device}»"))?;
+    let id = d.resolve(device).with_context(|| t!("нет устройства «{device}»", device = device))?;
     if id == d.id.id {
         return Ok(Target::Local);
     }
-    let (c, _) = d.conn(&id).with_context(|| format!("«{device}» не соединено"))?;
+    let (c, _) = d.conn(&id).with_context(|| t!("«{device}» не соединено", device = device))?;
     Ok(Target::Remote(c))
 }
 
@@ -158,16 +158,16 @@ async fn conn(d: D, s: UnixStream) -> Result<()> {
             }
             Request::Synaptix { device } => {
                 let opened = async {
-                    let Target::Remote(c) = target(&d, &device)? else { bail!("служба этой машины — в её сокете") };
+                    let Target::Remote(c) = target(&d, &device)? else { bail!("{}", t!("служба этой машины — в её сокете")) };
                     let id = d.resolve(&device).unwrap_or_default();
                     if d.session_info(&id).is_some_and(|(v, _)| v < proto::PROTO_SYNAPTIX) {
-                        bail!("на «{device}» старый synlink без моста нейросетей");
+                        bail!("{}", t!("на «{device}» старый synlink без моста нейросетей", device = device));
                     }
                     let (w, mut r) = crate::rpc::open(&c, &Rpc::Synaptix).await?;
                     match proto::recv::<Reply>(&mut r).await? {
                         Some(Reply::Done) => Ok((w, r)),
                         Some(Reply::Err(e)) => bail!("{e}"),
-                        _ => bail!("нет ответа"),
+                        _ => bail!("{}", t!("нет ответа")),
                     }
                 };
                 let (w, r) = match opened.await {
@@ -442,7 +442,7 @@ async fn handle(d: &D, req: Request) -> Result<Response> {
     Ok(match req {
         Request::Status => Response::Status { status: d.status() },
         Request::Pair { device } => {
-            let id = d.resolve(&device).with_context(|| format!("нет устройства «{device}»"))?;
+            let id = d.resolve(&device).with_context(|| t!("нет устройства «{device}»", device = device))?;
             d.clone().pair(id).await?;
             Response::Ok
         }
@@ -452,12 +452,12 @@ async fn handle(d: &D, req: Request) -> Result<Response> {
             Response::Ok
         }
         Request::Unpair { device } => {
-            let id = d.resolve(&device).with_context(|| format!("нет устройства «{device}»"))?;
+            let id = d.resolve(&device).with_context(|| t!("нет устройства «{device}»", device = device))?;
             d.unpair(&id)?;
             Response::Ok
         }
         Request::Disconnect { device } => {
-            let id = d.resolve(&device).with_context(|| format!("нет устройства «{device}»"))?;
+            let id = d.resolve(&device).with_context(|| t!("нет устройства «{device}»", device = device))?;
             d.disconnect(&id)?;
             Response::Ok
         }
@@ -470,7 +470,7 @@ async fn handle(d: &D, req: Request) -> Result<Response> {
                 Target::Local => tokio::task::spawn_blocking(move || crate::services::screenshot(output)).await??,
                 Target::Remote(c) => match crate::rpc::call(&c, &Rpc::Screenshot { output }).await? {
                     Reply::Shot { output, width, height, png } => (output, width, height, png),
-                    _ => bail!("неожиданный ответ"),
+                    _ => bail!("{}", t!("неожиданный ответ")),
                 },
             };
             if let Some(m) = max_size.filter(|m| *m > 0) {
@@ -503,7 +503,7 @@ async fn handle(d: &D, req: Request) -> Result<Response> {
                 Target::Local => tokio::task::spawn_blocking(move || crate::services::wm(wm)).await??,
                 Target::Remote(c) => match crate::rpc::call(&c, &Rpc::Wm { request: serde_json::to_string(&wm)? }).await? {
                     Reply::Json(j) => serde_json::from_str(&j)?,
-                    _ => bail!("неожиданный ответ"),
+                    _ => bail!("{}", t!("неожиданный ответ")),
                 },
             };
             Response::Wm { wm: resp }
@@ -519,7 +519,7 @@ async fn handle(d: &D, req: Request) -> Result<Response> {
             }
         }
         Request::Mount { device, mount } => {
-            let id = d.resolve(&device).with_context(|| format!("нет устройства «{device}»"))?;
+            let id = d.resolve(&device).with_context(|| t!("нет устройства «{device}»", device = device))?;
             if mount {
                 Response::Mount { path: Some(crate::fuse::mount(d, &id).await?) }
             } else {

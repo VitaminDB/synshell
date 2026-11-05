@@ -6,11 +6,17 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
+use syngui::{n_, t, tn};
 
 use crate::model::{self, HostDev, Vm};
 use crate::{devices, qemu, qga, qmp};
 
-pub const HELP: &str = "\
+/// Справка `--help` на языке пользователя.
+pub fn help() -> String {
+    t!(HELP)
+}
+
+const HELP: &str = n_!("\
 syn-vm — виртуальные машины QEMU/KVM
 
 Окно:
@@ -73,18 +79,18 @@ syn-vm — виртуальные машины QEMU/KVM
   --snapshot МАШИНА list|create|restore|delete [ИМЯ]
   --qmp МАШИНА КОМАНДА [JSON]            сырая команда QMP
   --mcp                                   MCP-сервер (stdio): claude mcp add syn-vm -- syn-vm --mcp
-";
+");
 
 /// Машина по id или имени (без учёта регистра).
 pub fn find(s: &str) -> Result<Vm> {
     let all = model::load_all();
     let l = s.to_lowercase();
-    all.iter().find(|v| v.id == s).or_else(|| all.iter().find(|v| v.name.to_lowercase() == l)).cloned().with_context(|| format!("нет машины «{s}» (syn-vm --list)"))
+    all.iter().find(|v| v.id == s).or_else(|| all.iter().find(|v| v.name.to_lowercase() == l)).cloned().with_context(|| t!("нет машины «{s}» (syn-vm --list)", s = s))
 }
 
 fn running(vm: &Vm) -> Result<()> {
     if qemu::pid(vm).is_none() {
-        bail!("«{}» не запущена (syn-vm --start {})", vm.name, vm.id);
+        bail!("{}", t!("«{name}» не запущена (syn-vm --start {id})", name = vm.name, id = vm.id));
     }
     Ok(())
 }
@@ -134,7 +140,7 @@ impl Args {
         self.opts.iter().filter(|(o, _)| o == k).filter_map(|(_, v)| v.clone()).collect()
     }
     fn pos(&self, i: usize, what: &str) -> Result<String> {
-        self.pos.get(i).cloned().with_context(|| format!("нужен аргумент: {what}"))
+        self.pos.get(i).cloned().with_context(|| t!("нужен аргумент: {what}", what = syngui::i18n::t(what)))
     }
     fn secs(&self, k: &str, def: u64) -> Duration {
         Duration::from_secs(self.get(k).and_then(|s| s.parse().ok()).unwrap_or(def))
@@ -156,12 +162,12 @@ pub fn run(cmd: &str, rest: Vec<String>) -> Option<i32> {
         "--mcp" => crate::mcp::run().map(|_| 0),
         "--vfio-helper" => devices::vfio_helper(&rest).map(|_| 0),
         "--record-run" => (|| -> Result<i32> {
-            let vm = find(rest.first().context("МАШИНА")?)?;
+            let vm = find(rest.first().with_context(|| t!("МАШИНА"))?)?;
             let dur: f64 = rest.get(4).and_then(|s| s.parse().ok()).unwrap_or(0.0);
             crate::record::run(
                 &vm,
                 crate::record::Opts {
-                    out: PathBuf::from(rest.get(1).context("ФАЙЛ")?),
+                    out: PathBuf::from(rest.get(1).with_context(|| t!("ФАЙЛ"))?),
                     fps: rest.get(2).and_then(|s| s.parse().ok()).unwrap_or(30),
                     audio: rest.get(3).is_some_and(|s| s == "1"),
                     duration: (dur > 0.0).then(|| Duration::from_secs_f64(dur)),
@@ -199,7 +205,7 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             Ok(0)
         }
         "--status" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             let s = status(&vm);
             if json_out {
                 println!("{s}");
@@ -209,30 +215,30 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             Ok(if s["state"] == "off" { 3 } else { 0 })
         }
         "--start" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             start(&vm)?;
             if a.has("--wait-boot") {
                 let t = a.get("--wait-boot").and_then(|s| s.parse().ok()).unwrap_or(300);
                 qga::wait(&vm, Duration::from_secs(t))?;
-                println!("{}: агент отвечает", vm.name);
+                println!("{}", t!("{name}: агент отвечает", name = vm.name));
             }
             Ok(0)
         }
         "--stop" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             let how = stop(&vm, a.secs("--timeout", 90), a.has("--force"))?;
             println!("{}: {how}", vm.name);
             Ok(0)
         }
         "--kill" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             if qmp::quit(&vm).is_err() {
                 qemu::kill(&vm);
             }
             Ok(0)
         }
         "--reset" | "--pause" | "--resume" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             running(&vm)?;
             match cmd {
                 "--reset" => qmp::reset(&vm)?,
@@ -242,58 +248,58 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             Ok(0)
         }
         "--wait-boot" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             let t = a.get("--wait-boot").and_then(|s| s.parse().ok()).map(Duration::from_secs).unwrap_or(a.secs("--timeout", 300));
             let t0 = Instant::now();
             qga::wait(&vm, t)?;
-            println!("{}: агент отвечает ({:.0} с)", vm.name, t0.elapsed().as_secs_f64());
+            println!("{}", t!("{name}: агент отвечает ({s} с)", name = vm.name, s = format!("{:.0}", t0.elapsed().as_secs_f64())));
             Ok(0)
         }
         "--new" => {
-            let vm = new_vm(&a.pos(0, "ИМЯ")?, a)?;
+            let vm = new_vm(&a.pos(0, n_!("ИМЯ"))?, a)?;
             println!("{}", vm.id);
             Ok(0)
         }
         "--delete" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             if !a.has("--yes") {
-                bail!("удаление «{}» со всеми дисками в {} — подтвердите флагом --yes", vm.name, vm.dir().display());
+                bail!("{}", t!("удаление «{name}» со всеми дисками в {dir} — подтвердите флагом --yes", name = vm.name, dir = vm.dir().display()));
             }
             if qemu::pid(&vm).is_some() {
-                bail!("«{}» работает — сначала --stop", vm.name);
+                bail!("{}", t!("«{name}» работает — сначала --stop", name = vm.name));
             }
             model::delete(&vm)?;
             Ok(0)
         }
         "--get" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             let t = toml::Value::try_from(&vm)?;
             match a.pos.get(1) {
-                Some(k) => println!("{}", get_key(&t, k).with_context(|| format!("нет ключа {k}"))?),
+                Some(k) => println!("{}", get_key(&t, k).with_context(|| t!("нет ключа {k}", k = k))?),
                 None => print!("{}", toml::to_string_pretty(&vm)?),
             }
             Ok(0)
         }
         "--set" => {
-            let mut vm = find(&a.pos(0, "МАШИНА")?)?;
+            let mut vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             let kv: Vec<String> = a.pos[1..].to_vec();
             if kv.is_empty() {
-                bail!("нужно КЛЮЧ=ЗНАЧЕНИЕ");
+                bail!("{}", t!("нужно КЛЮЧ=ЗНАЧЕНИЕ"));
             }
             vm = set_keys(&vm, &kv)?;
             vm.save()?;
             if qemu::pid(&vm).is_none() {
                 for w in qemu::port_conflicts(&vm).into_iter().chain(qemu::port_shared_with(&vm)) {
-                    eprintln!("внимание: {w}");
+                    eprintln!("{}", t!("внимание: {w}", w = w));
                 }
             }
             if qemu::pid(&vm).is_some() {
-                eprintln!("{}: машина работает — изменения вступят в силу при следующем запуске", vm.name);
+                eprintln!("{}", t!("{name}: машина работает — изменения вступят в силу при следующем запуске", name = vm.name));
             }
             Ok(0)
         }
         "--exec" | "--sh" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             running(&vm)?;
             let argv = if cmd == "--sh" {
                 let line = if a.tail.is_empty() { a.pos[1..].join(" ") } else { a.tail.join(" ") };
@@ -304,7 +310,7 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
                 a.tail.clone()
             };
             if argv.is_empty() {
-                bail!("нет команды: syn-vm --exec МАШИНА -- ПРОГРАММА [АРГ…]");
+                bail!("{}", t!("нет команды: syn-vm --exec МАШИНА -- ПРОГРАММА [АРГ…]"));
             }
             let input = if a.has("--stdin") {
                 let mut b = Vec::new();
@@ -327,19 +333,19 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             std::io::stdout().write_all(&r.stdout)?;
             std::io::stderr().write_all(&r.stderr)?;
             if r.timed_out {
-                eprintln!("syn-vm: не дождались (pid {} в госте работает дальше)", r.pid);
+                eprintln!("syn-vm: {}", t!("не дождались (pid {pid} в госте работает дальше)", pid = r.pid));
             }
             Ok(r.code)
         }
         "--exec-status" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             running(&vm)?;
-            let pid: i64 = a.pos(1, "PID")?.parse().context("PID — число")?;
+            let pid: i64 = a.pos(1, "PID")?.parse().with_context(|| t!("PID — число"))?;
             let r = match a.get("--wait") {
                 Some(t) => {
                     let r = qga::wait_exec(&vm, pid, Duration::from_secs(t.parse().unwrap_or(600)))?;
                     if r.timed_out {
-                        eprintln!("syn-vm: ещё работает");
+                        eprintln!("syn-vm: {}", t!("ещё работает"));
                         return Ok(125);
                     }
                     r
@@ -347,7 +353,7 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
                 None => match qga::exec_status(&vm, pid)? {
                     Some(r) => r,
                     None => {
-                        eprintln!("syn-vm: pid {pid} ещё работает");
+                        eprintln!("syn-vm: {}", t!("pid {pid} ещё работает", pid = pid));
                         return Ok(125);
                     }
                 },
@@ -358,25 +364,25 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             Ok(r.code)
         }
         "--push" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             running(&vm)?;
-            let n = qga::push(&vm, Path::new(&a.pos(1, "ФАЙЛ")?), &a.pos(2, "ПУТЬ_В_ГОСТЕ")?)?;
-            eprintln!("{n} байт");
+            let n = qga::push(&vm, Path::new(&a.pos(1, n_!("ФАЙЛ"))?), &a.pos(2, n_!("ПУТЬ_В_ГОСТЕ"))?)?;
+            eprintln!("{}", tn!(n, "{n} байт", "{n} байта", "{n} байт"));
             Ok(0)
         }
         "--pull" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             running(&vm)?;
-            let n = qga::pull(&vm, &a.pos(1, "ПУТЬ_В_ГОСТЕ")?, Path::new(&a.pos(2, "ФАЙЛ")?))?;
-            eprintln!("{n} байт");
+            let n = qga::pull(&vm, &a.pos(1, n_!("ПУТЬ_В_ГОСТЕ"))?, Path::new(&a.pos(2, n_!("ФАЙЛ"))?))?;
+            eprintln!("{}", tn!(n, "{n} байт", "{n} байта", "{n} байт"));
             Ok(0)
         }
         "--agent" | "--qmp" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             running(&vm)?;
-            let c = a.pos(1, "КОМАНДА")?;
+            let c = a.pos(1, n_!("КОМАНДА"))?;
             let args: Value = match a.pos.get(2) {
-                Some(s) => serde_json::from_str(s).context("аргументы — JSON")?,
+                Some(s) => serde_json::from_str(s).with_context(|| t!("аргументы — JSON"))?,
                 None => Value::Null,
             };
             let r = if cmd == "--agent" { qga::call(&vm, &c, args)? } else { qmp::call(&vm, &c, args)? };
@@ -384,28 +390,28 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             Ok(0)
         }
         "--sync-time" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             qga::sync_time(&vm)?;
             Ok(0)
         }
         "--screendump" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             running(&vm)?;
-            let out = absolute(&a.pos(1, "ФАЙЛ.png")?)?;
+            let out = absolute(&a.pos(1, n_!("ФАЙЛ.png"))?)?;
             qmp::screendump(&vm, &out)?;
             let (w, h) = image::image_dimensions(&out).unwrap_or((0, 0));
             println!("{}: {w}x{h}", out.display());
             Ok(0)
         }
         "--type" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             running(&vm)?;
             let text = a.pos[1..].join(" ").replace("\\n", "\n");
             qmp::type_text(&vm, &text, Duration::from_millis(a.get("--delay").and_then(|s| s.parse().ok()).unwrap_or(15)))?;
             Ok(0)
         }
         "--key" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             running(&vm)?;
             for c in &a.pos[1..] {
                 qmp::send_combo(&vm, c)?;
@@ -414,7 +420,7 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             Ok(0)
         }
         "--click" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             running(&vm)?;
             let x: f64 = a.pos(1, "X")?.parse()?;
             let y: f64 = a.pos(2, "Y")?.parse()?;
@@ -431,9 +437,9 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             Ok(0)
         }
         "--scroll" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             running(&vm)?;
-            qmp::wheel(&vm, a.pos(1, "ШАГИ")?.parse()?)?;
+            qmp::wheel(&vm, a.pos(1, n_!("ШАГИ"))?.parse()?)?;
             Ok(0)
         }
         "--devices" => {
@@ -451,7 +457,7 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             Ok(0)
         }
         "--usb" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             match a.pos.get(1).map(String::as_str).unwrap_or("list") {
                 "list" => {
                     for u in crate::usb::list().into_iter().filter(|u| !u.hub) {
@@ -459,22 +465,22 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
                         println!("{}\t{}\t{}:{}\t{}", u.port, if on { "guest" } else { "host" }, u.vendor, u.product, u.name);
                     }
                     for p in vm.usb.iter().filter(|p| crate::usb::at(&p.port).is_none()) {
-                        println!("{}\tguest\t(пусто)\t{}", p.port, p.name);
+                        println!("{}\tguest\t{}\t{}", p.port, t!("(пусто)"), p.name);
                     }
                     Ok(0)
                 }
                 op @ ("attach" | "detach") => {
-                    let port = a.pos(2, "ПОРТ")?;
+                    let port = a.pos(2, n_!("ПОРТ"))?;
                     let msg = set_usb(&vm, &port, op == "attach")?;
                     println!("{msg}");
                     Ok(0)
                 }
-                o => bail!("--usb МАШИНА list|attach|detach ПОРТ (не «{o}»)"),
+                o => bail!("{}", t!("--usb МАШИНА list|attach|detach ПОРТ (не «{o}»)", o = o)),
             }
         }
         "--attach" | "--detach" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
-            let spec = a.pos(1, "ТИП:ИД")?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
+            let spec = a.pos(1, n_!("ТИП:ИД"))?;
             let msg = if let Some(port) = spec.strip_prefix("usb:") {
                 set_usb(&vm, port, cmd == "--attach")?
             } else {
@@ -484,8 +490,8 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             Ok(0)
         }
         "--cdrom" => {
-            let mut vm = find(&a.pos(0, "МАШИНА")?)?;
-            let iso = a.pos(1, "ОБРАЗ|eject")?;
+            let mut vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
+            let iso = a.pos(1, n_!("ОБРАЗ|eject"))?;
             let iso = if iso == "eject" || iso.is_empty() { String::new() } else { absolute(&iso)?.to_string_lossy().into_owned() };
             vm.cdrom = iso.clone();
             vm.save()?;
@@ -495,7 +501,7 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             Ok(0)
         }
         "--tools" => {
-            let mut vm = find(&a.pos(0, "МАШИНА")?)?;
+            let mut vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             match a.pos.get(1).map(String::as_str).unwrap_or("on") {
                 "download" => {
                     let p = qemu::download_tools()?;
@@ -513,18 +519,18 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
                     vm.save()?;
                     match qemu::tools_iso() {
                         Some(p) if vm.tools_cd => println!("{}", p.display()),
-                        None if vm.tools_cd => eprintln!("virtio-win.iso не найден — syn-vm --tools {} download", vm.id),
+                        None if vm.tools_cd => eprintln!("{}", t!("virtio-win.iso не найден — syn-vm --tools {id} download", id = vm.id)),
                         _ => {}
                     }
                     if qemu::pid(&vm).is_some() {
-                        eprintln!("второй привод появится при следующем запуске; сейчас можно вставить в первый: syn-vm --cdrom {} ОБРАЗ", vm.id);
+                        eprintln!("{}", t!("второй привод появится при следующем запуске; сейчас можно вставить в первый: syn-vm --cdrom {id} ОБРАЗ", id = vm.id));
                     }
                 }
             }
             Ok(0)
         }
         "--record" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             let out = match a.pos.get(1) {
                 Some(p) => absolute(p)?,
                 None => crate::record::default_path(&vm),
@@ -537,23 +543,28 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             };
             let wait = o.duration.is_some();
             let i = crate::record::start(&vm, &o)?;
-            println!("запись: {} ({}x{}, {} к/с, {}{})", i.path, i.size.0, i.size.1, i.fps, i.encoder, if i.audio { ", со звуком" } else { "" });
+            let what = if i.audio {
+                t!("запись: {path} ({w}x{h}, {fps} к/с, {enc}, со звуком)", path = i.path, w = i.size.0, h = i.size.1, fps = i.fps, enc = i.encoder)
+            } else {
+                t!("запись: {path} ({w}x{h}, {fps} к/с, {enc})", path = i.path, w = i.size.0, h = i.size.1, fps = i.fps, enc = i.encoder)
+            };
+            println!("{what}");
             if wait {
                 let d = crate::record::wait(&vm)?;
                 print_record(&d);
             } else {
-                println!("остановить: syn-vm --record-stop {}", vm.id);
+                println!("{}", t!("остановить: syn-vm --record-stop {id}", id = vm.id));
             }
             Ok(0)
         }
         "--record-stop" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             let d = crate::record::stop(&vm)?;
             print_record(&d);
             Ok(if d.done.as_ref().is_some_and(|s| s.error.is_empty()) { 0 } else { 1 })
         }
         "--snapshot" => {
-            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             let op = a.pos(1, "list|create|restore|delete")?;
             let on = qemu::pid(&vm).is_some();
             if op == "list" {
@@ -562,32 +573,39 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
                 }
                 return Ok(0);
             }
-            let name = a.pos(2, "ИМЯ")?;
+            let name = a.pos(2, n_!("ИМЯ"))?;
             snapshot(&vm, on, &op, &name)?;
             Ok(0)
         }
-        _ => bail!("неизвестная команда {cmd}"),
+        _ => bail!("{}", t!("неизвестная команда {cmd}", cmd = cmd)),
     }
 }
 
 pub fn record_summary(i: &crate::record::Info) -> String {
     match &i.done {
-        Some(s) => format!(
-            "{}: {:.1} с, {} кадров ({} к/с, {}x{}, {}), от гостя {} обновлений, повторов из-за задержек {}, звук {:.1} с, {}{}",
-            i.path,
-            s.seconds,
-            s.frames,
-            i.fps,
-            i.size.0,
-            i.size.1,
-            i.encoder,
-            s.updates,
-            s.late,
-            s.audio_seconds,
-            if s.bytes >= 1_000_000 { format!("{:.1} МБ", s.bytes as f64 / 1e6) } else { format!("{} КБ", s.bytes / 1000) },
-            if s.error.is_empty() { String::new() } else { format!("\nошибка: {}", s.error) }
-        ),
-        None => format!("{}: идёт запись", i.path),
+        Some(s) => {
+            let size = if s.bytes >= 1_000_000 { t!("{v} МБ", v = format!("{:.1}", s.bytes as f64 / 1e6)) } else { t!("{v} КБ", v = s.bytes / 1000) };
+            let mut out = t!(
+                "{path}: {secs} с, {frames} кадров ({fps} к/с, {w}x{h}, {enc}), от гостя {updates} обновлений, повторов из-за задержек {late}, звук {audio} с, {size}",
+                path = i.path,
+                secs = format!("{:.1}", s.seconds),
+                frames = s.frames,
+                fps = i.fps,
+                w = i.size.0,
+                h = i.size.1,
+                enc = i.encoder,
+                updates = s.updates,
+                late = s.late,
+                audio = format!("{:.1}", s.audio_seconds),
+                size = size
+            );
+            if !s.error.is_empty() {
+                out.push('\n');
+                out.push_str(&t!("ошибка: {e}", e = s.error));
+            }
+            out
+        }
+        None => t!("{path}: идёт запись", path = i.path),
     }
 }
 
@@ -638,11 +656,14 @@ pub fn status(vm: &Vm) -> Value {
 
 fn print_status(s: &Value) {
     let g = |k: &str| s.get(k).map(|v| v.as_str().map(String::from).unwrap_or_else(|| v.to_string())).unwrap_or_default();
-    println!("{} ({})\nсостояние: {}\nсистема: {}, {} ядер, {} МБ", g("name"), g("id"), g("state"), g("os"), g("cpus"), g("memory_mb"));
+    println!("{} ({})", g("name"), g("id"));
+    println!("{}", t!("состояние: {s}", s = g("state")));
+    println!("{}", t!("система: {os}, ядер: {cpus}, {mem} МБ", os = g("os"), cpus = g("cpus"), mem = g("memory_mb")));
     if let Some(gst) = s.get("guest") {
-        println!("гость: {} ({}), адреса: {}", gst["os"].as_str().unwrap_or(""), gst["hostname"].as_str().unwrap_or(""), gst["ips"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).unwrap_or_default());
+        let ips = gst["ips"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+        println!("{}", t!("гость: {os} ({host}), адреса: {ips}", os = gst["os"].as_str().unwrap_or(""), host = gst["hostname"].as_str().unwrap_or(""), ips = ips));
     } else if s.get("agent").is_some() {
-        println!("агент: {}", g("agent"));
+        println!("{}", t!("агент: {a}", a = g("agent")));
     }
     for k in ["forwards", "usb", "devices"] {
         if s[k].as_array().is_some_and(|a| !a.is_empty()) {
@@ -663,16 +684,16 @@ pub fn start(vm: &Vm) -> Result<()> {
 /// Выключить: агентом (надёжнее, без вопросов гостя), иначе ACPI. Ждать до `timeout`.
 pub fn stop(vm: &Vm, timeout: Duration, force: bool) -> Result<String> {
     if qemu::pid(vm).is_none() {
-        return Ok("уже выключена".into());
+        return Ok(t!("уже выключена"));
     }
-    let how = if qga::ping(vm) && qga::shutdown(vm, "powerdown").is_ok() { "выключена гостевым агентом" } else {
+    let how = if qga::ping(vm) && qga::shutdown(vm, "powerdown").is_ok() { t!("выключена гостевым агентом") } else {
         qmp::powerdown(vm)?;
-        "выключена (ACPI)"
+        t!("выключена (ACPI)")
     };
     let t0 = Instant::now();
     while t0.elapsed() < timeout {
         if qemu::pid(vm).is_none() {
-            return Ok(how.into());
+            return Ok(how);
         }
         std::thread::sleep(Duration::from_millis(500));
     }
@@ -680,9 +701,9 @@ pub fn stop(vm: &Vm, timeout: Duration, force: bool) -> Result<String> {
         if qmp::quit(vm).is_err() {
             qemu::kill(vm);
         }
-        return Ok("не выключилась сама за отведённое время — остановлена принудительно".into());
+        return Ok(t!("не выключилась сама за отведённое время — остановлена принудительно"));
     }
-    bail!("«{}» не выключилась за {} с (--force — выключить принудительно)", vm.name, timeout.as_secs())
+    bail!("{}", t!("«{name}» не выключилась за {s} с (--force — выключить принудительно)", name = vm.name, s = timeout.as_secs()))
 }
 
 pub fn click(vm: &Vm, x: f64, y: f64, button: Option<&str>, double: bool) -> Result<()> {
@@ -696,7 +717,7 @@ pub fn click(vm: &Vm, x: f64, y: f64, button: Option<&str>, double: bool) -> Res
 /// USB по порту: в настройки и, если машина работает, сразу.
 pub fn set_usb(vm: &Vm, port: &str, on: bool) -> Result<String> {
     if crate::usb::split_port(port).is_none() {
-        bail!("неверный порт USB «{port}» (вид 3-6 или 1-2.4; список — syn-vm --usb {} list)", vm.id);
+        bail!("{}", t!("неверный порт USB «{port}» (вид 3-6 или 1-2.4; список — syn-vm --usb {id} list)", port = port, id = vm.id));
     }
     let mut vm = vm.clone();
     let had = vm.usb.iter().any(|u| u.port == port);
@@ -718,9 +739,9 @@ pub fn set_usb(vm: &Vm, port: &str, on: bool) -> Result<String> {
             Err(e) if e.to_string().contains("Duplicate") || e.to_string().contains("not found") => {}
             Err(e) => return Err(e),
         }
-        return Ok(format!("порт {port} {} (на ходу)", if on { "отдан гостю" } else { "возвращён компьютеру" }));
+        return Ok(if on { t!("порт {port} отдан гостю (на ходу)", port = port) } else { t!("порт {port} возвращён компьютеру (на ходу)", port = port) });
     }
-    Ok(format!("порт {port} {} — при запуске", if on { "будет у гостя" } else { "останется у компьютера" }))
+    Ok(if on { t!("порт {port} будет у гостя — при запуске", port = port) } else { t!("порт {port} останется у компьютера — при запуске", port = port) })
 }
 
 /// Устройство компьютера: в настройки и, если можно и машина работает, сразу.
@@ -739,7 +760,7 @@ pub fn set_device(vm: &Vm, d: HostDev, on: bool) -> Result<String> {
         }
         vm.devices.push(d.clone());
     } else {
-        let Some(old) = vm.devices.iter().find(|x| x.same(&d)).cloned() else { return Ok(format!("{} и так не у гостя", d.spec())) };
+        let Some(old) = vm.devices.iter().find(|x| x.same(&d)).cloned() else { return Ok(t!("{spec} и так не у гостя", spec = d.spec())) };
         if live && old.hotplug() {
             devices::hot_detach(&vm, &old)?;
         }
@@ -750,16 +771,17 @@ pub fn set_device(vm: &Vm, d: HostDev, on: bool) -> Result<String> {
         "{} {}",
         d.spec(),
         match (on, live, d.hotplug()) {
-            (true, true, true) => "подключено (на ходу)",
-            (false, true, true) => "отключено (на ходу)",
-            (true, true, false) => "будет у гостя при следующем запуске (PCI — только при выключенной машине)",
-            (false, true, false) => "вернётся компьютеру после выключения машины",
-            (true, false, _) => "будет у гостя при запуске",
-            (false, false, _) => "убрано из машины",
+            (true, true, true) => t!("подключено (на ходу)"),
+            (false, true, true) => t!("отключено (на ходу)"),
+            (true, true, false) => t!("будет у гостя при следующем запуске (PCI — только при выключенной машине)"),
+            (false, true, false) => t!("вернётся компьютеру после выключения машины"),
+            (true, false, _) => t!("будет у гостя при запуске"),
+            (false, false, _) => t!("убрано из машины"),
         }
     );
     if !warn.is_empty() {
-        msg.push_str(&format!("\nвнимание: {warn}"));
+        msg.push('\n');
+        msg.push_str(&t!("внимание: {w}", w = warn));
     }
     Ok(msg)
 }
@@ -772,11 +794,11 @@ fn print_devices(list: &[devices::Avail]) {
             println!(
                 "\n## {}",
                 match kind {
-                    "pci" => "PCI (VFIO, только при выключенной машине)",
-                    "input" => "Ввод (evdev)",
-                    "block" => "Диски и разделы",
-                    "serial" => "Последовательные порты",
-                    _ => "USB по VID:PID (по порту — usb:ПОРТ, см. --usb МАШИНА list)",
+                    "pci" => t!("PCI (VFIO, только при выключенной машине)"),
+                    "input" => t!("Ввод (evdev)"),
+                    "block" => t!("Диски и разделы"),
+                    "serial" => t!("Последовательные порты"),
+                    _ => t!("USB по VID:PID (по порту — usb:ПОРТ, см. --usb МАШИНА list)"),
                 }
             );
         }
@@ -786,17 +808,17 @@ fn print_devices(list: &[devices::Avail]) {
             println!("    {}", d.detail);
         }
         if !d.blocked.is_empty() {
-            println!("    нельзя: {}", d.blocked);
+            println!("    {}", t!("нельзя: {why}", why = d.blocked));
         }
         if !d.warn.is_empty() {
-            println!("    внимание: {}", d.warn);
+            println!("    {}", t!("внимание: {w}", w = d.warn));
         }
         if d.needs_access {
-            println!("    доступ: спросит пароль при подключении");
+            println!("    {}", t!("доступ: спросит пароль при подключении"));
         }
     }
     if !devices::iommu_on() {
-        println!("\nIOMMU выключен — PCI недоступны (intel_iommu=on iommu=pt)");
+        println!("\n{}", t!("IOMMU выключен — PCI недоступны (intel_iommu=on iommu=pt)"));
     }
 }
 
@@ -815,13 +837,13 @@ pub fn snapshot(vm: &Vm, on: bool, op: &str, name: &str) -> Result<()> {
             "create" => "savevm",
             "restore" => "loadvm",
             "delete" => "delvm",
-            o => bail!("неизвестное действие {o}"),
+            o => bail!("{}", t!("неизвестное действие {o}", o = o)),
         };
         qmp::hmp(vm, &format!("{c} \"{}\"", name.replace('"', "")))?;
         if op == "restore" {
             let re = devices::replug_usb(vm);
             if !re.is_empty() {
-                eprintln!("USB переподключено после снимка: {}", re.join(", "));
+                eprintln!("{}", t!("USB переподключено после снимка: {list}", list = re.join(", ")));
             }
             let _ = qga::sync_time(vm);
         }
@@ -831,7 +853,7 @@ pub fn snapshot(vm: &Vm, on: bool, op: &str, name: &str) -> Result<()> {
         "create" => "-c",
         "restore" => "-a",
         "delete" => "-d",
-        o => bail!("неизвестное действие {o}"),
+        o => bail!("{}", t!("неизвестное действие {o}", o = o)),
     };
     let mut files: Vec<_> = vm.disks.iter().map(|d| vm.disk_path(d)).filter(|p| p.extension().is_some_and(|e| e == "qcow2")).collect();
     if vm.vars_path().exists() {
@@ -868,7 +890,7 @@ fn get_key(t: &toml::Value, k: &str) -> Option<String> {
 pub fn set_keys(vm: &Vm, kv: &[String]) -> Result<Vm> {
     let mut vals = Vec::new();
     for item in kv {
-        let (k, v) = item.split_once('=').with_context(|| format!("«{item}»: ожидается КЛЮЧ=ЗНАЧЕНИЕ"))?;
+        let (k, v) = item.split_once('=').with_context(|| t!("«{item}»: ожидается КЛЮЧ=ЗНАЧЕНИЕ", item = item))?;
         let parsed = toml::from_str::<toml::Table>(&format!("v = {v}")).ok().and_then(|mut t| t.remove("v")).unwrap_or_else(|| toml::Value::String(v.to_string()));
         vals.push((k.trim().to_string(), parsed, v.to_string()));
     }
@@ -886,7 +908,7 @@ pub fn set_values(vm: &Vm, vals: Vec<(String, toml::Value, String)>) -> Result<V
         .unwrap_or_default();
     for (k, v, raw) in vals {
         if !known.contains(&k) || k == "id" {
-            bail!("нет настройки «{k}»; есть: {}", known.join(", "));
+            bail!("{}", t!("нет настройки «{k}»; есть: {list}", k = k, list = known.join(", ")));
         }
         // Строковые поля принимают и «4» как строку.
         let v = match (tbl.get(&k), v) {
@@ -895,7 +917,7 @@ pub fn set_values(vm: &Vm, vals: Vec<(String, toml::Value, String)>) -> Result<V
         };
         tbl.insert(k, v);
     }
-    let mut out: Vm = t.try_into().context("недопустимое значение")?;
+    let mut out: Vm = t.try_into().with_context(|| t!("недопустимое значение"))?;
     out.id = vm.id.clone();
     Ok(out)
 }
@@ -904,7 +926,7 @@ pub fn set_values(vm: &Vm, vals: Vec<(String, toml::Value, String)>) -> Result<V
 
 fn new_vm(name: &str, a: &Args) -> Result<Vm> {
     let iso = a.get("--iso").map(|p| absolute(&p)).transpose()?.map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
-    let disks: Vec<PathBuf> = a.all("--disk").iter().map(|d| std::fs::canonicalize(d).with_context(|| format!("нет диска {d}"))).collect::<Result<_>>()?;
+    let disks: Vec<PathBuf> = a.all("--disk").iter().map(|d| std::fs::canonicalize(d).with_context(|| t!("нет диска {d}", d = d))).collect::<Result<_>>()?;
     let os = match a.get("--os") {
         Some(o) => toml::Value::String(o.clone()).try_into::<model::OsKind>().map_err(|_| anyhow::anyhow!("--os: linux, windows11, windows10, bsd, android, other"))?,
         None => model::OsKind::guess(&iso).or_else(|| disks.first().and_then(|d| model::OsKind::guess(&d.to_string_lossy()))).unwrap_or_default(),
@@ -913,7 +935,7 @@ fn new_vm(name: &str, a: &Args) -> Result<Vm> {
     vm.name = name.to_string();
     if !iso.is_empty() {
         if !Path::new(&iso).exists() {
-            bail!("нет образа {iso}");
+            bail!("{}", t!("нет образа {iso}", iso = iso));
         }
         vm.cdrom = iso;
         // Готовый диск — грузиться с него; образ (cloud-init seed и т. п.) — просто в приводе.
@@ -937,16 +959,16 @@ fn new_vm(name: &str, a: &Args) -> Result<Vm> {
             Some(r) => (true, r),
             None => (false, f.strip_prefix("tcp:").unwrap_or(&f)),
         };
-        let (h, g) = rest.split_once(':').with_context(|| format!("--fwd {f}: ХОСТ:ГОСТЬ"))?;
+        let (h, g) = rest.split_once(':').with_context(|| t!("--fwd {f}: ХОСТ:ГОСТЬ", f = f))?;
         vm.forwards.push(model::PortForward { udp, host: h.parse()?, guest: g.parse()?, public: a.has("--public") });
     }
     if let Some(s) = a.get("--share") {
-        vm.shared_dir = std::fs::canonicalize(&s).with_context(|| format!("нет папки {s}"))?.to_string_lossy().into_owned();
+        vm.shared_dir = std::fs::canonicalize(&s).with_context(|| t!("нет папки {s}", s = s))?.to_string_lossy().into_owned();
     }
-    let vars = a.get("--vars").map(|v| std::fs::canonicalize(&v).with_context(|| format!("нет файла {v}"))).transpose()?;
-    let tpm = a.get("--tpm").map(|v| std::fs::canonicalize(&v).with_context(|| format!("нет каталога {v}"))).transpose()?;
+    let vars = a.get("--vars").map(|v| std::fs::canonicalize(&v).with_context(|| t!("нет файла {v}", v = v))).transpose()?;
+    let tpm = a.get("--tpm").map(|v| std::fs::canonicalize(&v).with_context(|| t!("нет каталога {v}", v = v))).transpose()?;
     if vars.is_some() && vm.firmware == model::Firmware::Bios {
-        bail!("--vars — переменные UEFI, а у машины BIOS (--firmware uefi или uefi-secure)");
+        bail!("{}", t!("--vars — переменные UEFI, а у машины BIOS (--firmware uefi или uefi-secure)"));
     }
     if tpm.is_some() {
         vm.tpm = true;
@@ -968,7 +990,7 @@ fn new_vm(name: &str, a: &Args) -> Result<Vm> {
             let _ = std::fs::remove_dir_all(&dst);
             let st = std::process::Command::new("cp").arg("-a").arg(t).arg(&dst).status()?;
             if !st.success() {
-                bail!("не удалось скопировать {}", t.display());
+                bail!("{}", t!("не удалось скопировать {p}", p = t.display()));
             }
         }
         vm.save()
@@ -978,10 +1000,10 @@ fn new_vm(name: &str, a: &Args) -> Result<Vm> {
         return Err(e);
     }
     for w in qemu::port_conflicts(&vm).into_iter().chain(qemu::port_shared_with(&vm)) {
-        eprintln!("внимание: {w}");
+        eprintln!("{}", t!("внимание: {w}", w = w));
     }
     if !disks.is_empty() {
-        eprintln!("диск остаётся на месте: {}", disks.iter().map(|d| d.display().to_string()).collect::<Vec<_>>().join(", "));
+        eprintln!("{}", t!("диск остаётся на месте: {list}", list = disks.iter().map(|d| d.display().to_string()).collect::<Vec<_>>().join(", ")));
     }
     Ok(vm)
 }

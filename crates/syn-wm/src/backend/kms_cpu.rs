@@ -118,7 +118,7 @@ pub fn device_path(seat: &str) -> anyhow::Result<PathBuf> {
     }
     primary_gpu(seat)?
         .or_else(|| all_gpus(seat).ok()?.into_iter().next())
-        .ok_or_else(|| anyhow::anyhow!("нет DRM-устройства"))
+        .ok_or_else(|| anyhow::anyhow!("{}", synshell_tr::t!("нет DRM-устройства")))
 }
 
 impl KmsCpuBackend {

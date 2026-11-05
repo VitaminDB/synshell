@@ -5,6 +5,7 @@
 use std::process::Stdio;
 
 use anyhow::{bail, Result};
+use syngui::t;
 use serde::{Deserialize, Serialize};
 
 use crate::container;
@@ -94,7 +95,7 @@ pub fn launchable(pid: i32) -> Result<Vec<App>> {
 /// Открыть приложение (окно — через `waydroid.active_apps`).
 pub fn launch(pid: i32, package: &str, multi: bool) -> Result<()> {
     if package.is_empty() || package.contains(['/', ' ']) {
-        bail!("неверное имя пакета «{package}»");
+        bail!("{}", t!("неверное имя пакета «{package}»", package = package));
     }
     // Пока Android перезапускает system_server (например, после перезапуска композитора hwcomposer теряет
     // экран, и SurfaceFlinger тянет за собой zygote), сервиса пакетов нет — подождать
@@ -110,7 +111,7 @@ pub fn launch(pid: i32, package: &str, multi: bool) -> Result<()> {
         }
     };
     let component = act.lines().map(str::trim).rfind(|l| l.contains('/')).map(str::to_string);
-    let Some(component) = component else { bail!("у {package} нет активности для запуска") };
+    let Some(component) = component else { bail!("{}", t!("у {package} нет активности для запуска", package = package)) };
     setprop(pid, "waydroid.active_apps", package)?;
     run(pid, &["/system/bin/am", "start", "-n", &component])?;
     // Как у Waydroid: в одном окне — без строки состояния Android, в мультиоконном — полноэкранно

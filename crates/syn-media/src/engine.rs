@@ -190,7 +190,7 @@ impl Engine {
 
     /// Начать запись; кодер — `Recorder::encoder()` (через [`Engine::with_recorder`]).
     pub fn start_recording(&self, s: recorder::Settings) -> Result<()> {
-        let cap = self.capture().ok_or_else(|| anyhow!("камера не включена"))?;
+        let cap = self.capture().ok_or_else(|| anyhow!(t!("камера не включена")))?;
         let (w, h) = cap.size();
         let r = Recorder::start(w, h, s)?;
         *self.inner.recorder.lock().unwrap() = Some(r);
@@ -226,7 +226,7 @@ impl Engine {
     }
 
     pub fn stop_recording(&self) -> Result<PathBuf> {
-        let r = self.inner.recorder.lock().unwrap().take().ok_or_else(|| anyhow!("запись не идёт"))?;
+        let r = self.inner.recorder.lock().unwrap().take().ok_or_else(|| anyhow!(t!("запись не идёт")))?;
         r.stop()
     }
 }

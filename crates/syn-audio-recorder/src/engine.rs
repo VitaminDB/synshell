@@ -141,7 +141,7 @@ impl Sink {
                 if st.success() {
                     Ok(())
                 } else {
-                    Err(format!("ffmpeg: {}", err.trim().lines().last().unwrap_or("ошибка")))
+                    Err(format!("ffmpeg: {}", err.trim().lines().last().map(str::to_string).unwrap_or_else(|| syngui::t!("ошибка"))))
                 }
             }
         }

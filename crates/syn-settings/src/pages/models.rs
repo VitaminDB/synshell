@@ -928,17 +928,17 @@ fn settings_card(sig: RwSignal<Snapshot>, id: &str, cfg: &Cfg) -> W {
 }
 
 const ENGINE_WEIGHTS: [(&str, &str); 7] = [
-    ("nvfp4", "NVFP4 — 4 бита"),
-    ("mxfp8", "MXFP8 — 8 бит"),
-    ("sq8", "SQ8 — 8 бит"),
-    ("sq4", "SQ4 — 4 бита"),
+    ("nvfp4", n_!("NVFP4 — 4 бита")),
+    ("mxfp8", n_!("MXFP8 — 8 бит")),
+    ("sq8", n_!("SQ8 — 8 бит")),
+    ("sq4", n_!("SQ4 — 4 бита")),
     ("bf16", "BF16"),
     ("f16", "F16"),
     ("f32", "F32"),
 ];
 const ENGINE_COMPUTE: [(&str, &str); 3] = [("bf16", "BF16"), ("f16", "F16"), ("f32", "F32")];
-const ENGINE_KV: [(&str, &str); 4] = [("fp8e4m3", "MXFP8 — вдвое меньше памяти"), ("bf16", "BF16"), ("f16", "F16"), ("f32", "F32")];
-const ENGINE_SYNC: [(&str, &str); 3] = [("auto", "Авто — на префилле"), ("on", "После каждого слоя"), ("off", "Не синхронизировать")];
+const ENGINE_KV: [(&str, &str); 4] = [("fp8e4m3", n_!("MXFP8 — вдвое меньше памяти")), ("bf16", "BF16"), ("f16", "F16"), ("f32", "F32")];
+const ENGINE_SYNC: [(&str, &str); 3] = [("auto", n_!("Авто — на префилле")), ("on", n_!("После каждого слоя")), ("off", n_!("Не синхронизировать"))];
 
 /// Правка профиля движка: любая правка делает профиль своим.
 fn set_engine(sig: RwSignal<Snapshot>, id: &str, f: impl FnOnce(&mut EngineProfile)) {

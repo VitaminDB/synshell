@@ -20,12 +20,12 @@ desktop = ["syngui/clipboard"]
 android = ["syngui/android"]
 
 [dependencies]
-syngui = { workspace = true, features = ["msdf", "effects", "winit", "material-icons", "audio", "image"] }
+syngui = { workspace = true, features = ["msdf", "effects", "winit", "material-icons", "audio", "image", "i18n"] }
 hound = "3.5"
 log = "0.4"
 
 [dev-dependencies]
-syngui = { workspace = true, features = ["msdf", "effects", "winit", "material-icons", "audio", "image", "testing"] }
+syngui = { workspace = true, features = ["msdf", "effects", "winit", "material-icons", "audio", "image", "i18n", "testing"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.15"

@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
+use synshell_tr::t;
 use synshell_common::ipc::{FrameInfo, Request, Response, VideoRequest};
 use tokio::sync::mpsc;
 
@@ -128,7 +129,7 @@ struct Wm {
 
 impl Wm {
     fn connect() -> Result<Self> {
-        let s = UnixStream::connect(synshell_common::paths::socket_path()).context("нет связи с композитором")?;
+        let s = UnixStream::connect(synshell_common::paths::socket_path()).with_context(|| t!("нет связи с композитором"))?;
         s.set_read_timeout(Some(Duration::from_millis(500)))?;
         Ok(Self { wr: s.try_clone()?, rd: BufReader::new(s) })
     }
@@ -146,7 +147,7 @@ impl Wm {
                 return Ok(None);
             }
             match self.rd.read_line(&mut line) {
-                Ok(0) => bail!("композитор закрыл соединение"),
+                Ok(0) => bail!("{}", t!("композитор закрыл соединение")),
                 Ok(_) => break,
                 Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => continue,
                 Err(e) => return Err(e.into()),
@@ -155,7 +156,7 @@ impl Wm {
         match serde_json::from_str::<Response>(&line)? {
             Response::Frame { frame } => Ok(Some(frame)),
             Response::Error { message } => bail!("{}", crate::services::old_wm(&message).map(String::from).unwrap_or(message)),
-            other => bail!("неожиданный ответ: {other:?}"),
+            other => bail!("{}", t!("неожиданный ответ: {other}", other = format!("{other:?}"))),
         }
     }
 }
@@ -172,7 +173,7 @@ fn capture_loop(
     let video = video.map(|v| VideoRequest { codec: v.codec, bitrate: v.bitrate, mixed: v.mixed });
     wm.send(&Request::FrameStream { output, cursor, video })?;
     let Some(mut info) = wm.wait(stop)? else { return Ok(()) };
-    let file = std::fs::File::open(&info.path).context("файл кадра")?;
+    let file = std::fs::File::open(&info.path).with_context(|| t!("файл кадра"))?;
     let mut sent = 0u64;
     loop {
         let mut frame = pack(&file, &info)?;
@@ -226,7 +227,7 @@ impl Map {
     }
     fn get(&self, off: usize, n: usize) -> Result<&[u8]> {
         if off + n > self.len {
-            bail!("файл кадра короче ожидаемого");
+            bail!("{}", t!("файл кадра короче ожидаемого"));
         }
         // SAFETY: в пределах отображения; композитор пишет в файл только до ответа.
         Ok(unsafe { std::slice::from_raw_parts(self.ptr.add(off), n) })

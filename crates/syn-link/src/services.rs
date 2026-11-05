@@ -10,7 +10,7 @@ use synshell_common::ipc::{Client, InputEvent, Request, Response};
 use synshell_tr::t;
 
 pub fn wm(req: Request) -> Result<Response> {
-    let mut c = Client::connect().context("нет связи с композитором")?;
+    let mut c = Client::connect().with_context(|| t!("нет связи с композитором"))?;
     Ok(c.request(&req)?)
 }
 
@@ -25,7 +25,7 @@ pub fn input(output: Option<String>, events: Vec<InputEvent>) -> Result<()> {
     match wm(Request::Input { output, events })? {
         Response::Ok => Ok(()),
         Response::Error { message } => bail!("{}", old_wm(&message).map(String::from).unwrap_or(message)),
-        other => bail!("неожиданный ответ: {other:?}"),
+        other => bail!("{}", t!("неожиданный ответ: {other}", other = format!("{other:?}"))),
     }
 }
 
@@ -33,26 +33,28 @@ pub fn input(output: Option<String>, events: Vec<InputEvent>) -> Result<()> {
 /// композитора (работает и на pixman, и при блокировке экрана), у старого
 /// композитора — через `capture`.
 pub fn frame(output: Option<String>) -> Result<(String, u32, u32, Vec<u8>)> {
-    let mut c = Client::connect().context("нет связи с композитором")?;
+    let mut c = Client::connect().with_context(|| t!("нет связи с композитором"))?;
     match c.request(&Request::FrameStream { output: output.clone(), cursor: false, video: None })? {
         Response::Frame { frame } => {
-            let data = std::fs::read(&frame.path).context("файл кадра")?;
+            let data = std::fs::read(&frame.path).with_context(|| t!("файл кадра"))?;
             let need = frame.width as usize * frame.height as usize * 4;
             if data.len() < need {
-                bail!("кадр неполный");
+                bail!("{}", t!("кадр неполный"));
             }
             Ok((frame.output, frame.width, frame.height, data[..need].to_vec()))
         }
-        Response::Error { message } if !message.starts_with("неверный запрос") => bail!("{message}"),
+        // Старый композитор не знает запроса: ошибка разбора serde («unknown variant»)
+        // не зависит от языка, в отличие от переведённого «неверный запрос: …».
+        Response::Error { message } if !message.starts_with("неверный запрос") && !message.contains("unknown variant") => bail!("{message}"),
         _ => {
             // Композитор без потока кадров.
             let mut c = Client::connect()?;
-            let Response::Capture { capture } = c.request(&Request::Capture)? else { bail!("захват экрана не поддерживается") };
+            let Response::Capture { capture } = c.request(&Request::Capture)? else { bail!("{}", t!("захват экрана не поддерживается")) };
             let o = match &output {
                 Some(n) => capture.outputs.iter().find(|o| &o.name == n),
                 None => capture.outputs.first(),
             }
-            .context("нет такого вывода")?;
+            .with_context(|| t!("нет такого вывода"))?;
             let data = std::fs::read(&o.path)?;
             for x in &capture.outputs {
                 let _ = std::fs::remove_file(&x.path);

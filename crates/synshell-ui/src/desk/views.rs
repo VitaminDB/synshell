@@ -600,7 +600,7 @@ fn usbc_rows(ports: &[syn_system::usbc::UsbcPort]) -> Vec<Box<dyn Widget>> {
         if let Some(inp) = &p.input {
             let mut v = t!("{v} В", v = format!("{:.1}", inp.voltage_v)).to_string();
             if let Some(a) = inp.current_a.filter(|a| *a > 0.0).or(inp.current_max_a) {
-                v = format!("{v} · {a:.2} А");
+                v = format!("{v} · {}", t!("{a} А", a = format!("{a:.2}")));
             }
             if let Some(w) = inp.watts().or(p.partner_source_w) {
                 v = format!("{v} · {}", watts(w));

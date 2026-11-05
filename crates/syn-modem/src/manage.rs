@@ -258,7 +258,7 @@ fn rat_name(r: i8) -> &'static str {
 }
 
 pub fn scan(nas: &Client) -> Result<Vec<Network>> {
-    let r = nas.call(Message::new(0x21), Duration::from_secs(300)).context("поиск сетей")?;
+    let r = nas.call(Message::new(0x21), Duration::from_secs(300)).with_context(|| synshell_tr::t!("поиск сетей"))?;
     let mut out: Vec<Network> = Vec::new();
     if let Some(mut rd) = r.reader(0x10) {
         let n = rd.u16().unwrap_or(0);
@@ -309,7 +309,7 @@ pub fn select(nas: &Client, plmn: Option<(u16, u16)>) -> Result<()> {
             Message::new(0x22).u8(0x01, 2).tlv(0x10, v).u8(0x11, 1)
         }
     };
-    nas.call(m, Duration::from_secs(60)).context("регистрация в сети")?;
+    nas.call(m, Duration::from_secs(60)).with_context(|| synshell_tr::t!("регистрация в сети"))?;
     Ok(())
 }
 
@@ -332,7 +332,7 @@ pub fn modes(nas: &Client) -> Result<Modes> {
 pub fn set_modes(nas: &Client, allowed: &[String]) -> Result<()> {
     let bits: u16 = MODE_BITS.iter().filter(|(n, _)| allowed.iter().any(|a| a == n)).map(|(_, b)| b).sum();
     if bits == 0 {
-        bail!("нужна хотя бы одна технология");
+        bail!("{}", synshell_tr::t!("нужна хотя бы одна технология"));
     }
     // Порядок поиска: от новых к старым
     let order: Vec<u8> = [(64u16, 12u8), (16, 8), (8, 5), (4, 4)].iter().filter(|(b, _)| bits & b != 0).map(|(_, r)| *r).collect();
@@ -419,24 +419,24 @@ fn apn_fields(m: Message, a: &Apn) -> Message {
 
 pub fn save_apn(wds: &Client, a: &Apn) -> Result<u8> {
     let index = if a.index == 0 {
-        let r = wds.call(apn_fields(Message::new(0x27).u8(0x01, 0), a), T).context("новая точка доступа")?;
+        let r = wds.call(apn_fields(Message::new(0x27).u8(0x01, 0), a), T).with_context(|| synshell_tr::t!("новая точка доступа"))?;
         r.reader(0x01).and_then(|mut rd| {
             rd.u8();
             rd.u8()
         })
-        .context("модем не вернул номер профиля")?
+        .with_context(|| synshell_tr::t!("модем не вернул номер профиля"))?
     } else {
-        wds.call(apn_fields(Message::new(0x28).tlv(0x01, vec![0, a.index]), a), T).context("изменение точки доступа")?;
+        wds.call(apn_fields(Message::new(0x28).tlv(0x01, vec![0, a.index]), a), T).with_context(|| synshell_tr::t!("изменение точки доступа"))?;
         a.index
     };
     if a.default {
-        wds.call(Message::new(0x4A).tlv(0x01, vec![0, 0, index]), T).context("точка доступа по умолчанию")?;
+        wds.call(Message::new(0x4A).tlv(0x01, vec![0, 0, index]), T).with_context(|| synshell_tr::t!("точка доступа по умолчанию"))?;
     }
     Ok(index)
 }
 
 pub fn delete_apn(wds: &Client, index: u8) -> Result<()> {
-    wds.call(Message::new(0x29).tlv(0x01, vec![0, index]), T).context("удаление точки доступа")?;
+    wds.call(Message::new(0x29).tlv(0x01, vec![0, index]), T).with_context(|| synshell_tr::t!("удаление точки доступа"))?;
     Ok(())
 }
 
@@ -447,7 +447,7 @@ fn pin_result(r: Result<Message>) -> Result<()> {
     if let Err(e) = r.result() {
         let left = r.reader(0x10).and_then(|mut rd| Some((rd.u8()?, rd.u8()?)));
         match left {
-            Some((v, u)) => bail!("{e}; осталось попыток PIN: {v}, PUK: {u}"),
+            Some((v, u)) => bail!("{}", synshell_tr::t!("{e}; осталось попыток PIN: {v}, PUK: {u}", e = e, v = v, u = u)),
             None => bail!("{e}"),
         }
     }
@@ -486,7 +486,7 @@ pub fn pin_unblock(uim: &Client, puk: &str, new: &str) -> Result<()> {
 
 pub fn smsc(wms: &Client) -> Result<String> {
     let r = wms.call(Message::new(0x34), T)?;
-    let mut rd = r.reader(0x01).context("нет адреса SMS-центра")?;
+    let mut rd = r.reader(0x01).with_context(|| synshell_tr::t!("нет адреса SMS-центра"))?;
     rd.bytes(3);
     Ok(rd.str8().unwrap_or_default())
 }
@@ -508,7 +508,7 @@ pub fn ussd_start(voice: &Client, code: &str) -> Result<()> {
 
 pub fn ussd_answer(voice: &Client, text: &str) -> Result<()> {
     let data = [vec![1u8], str8(text)].concat();
-    voice.call(Message::new(0x3B).tlv(0x01, data), Duration::from_secs(60)).context("ответ USSD")?;
+    voice.call(Message::new(0x3B).tlv(0x01, data), Duration::from_secs(60)).with_context(|| synshell_tr::t!("ответ USSD"))?;
     Ok(())
 }
 
@@ -584,7 +584,7 @@ pub fn set_call_waiting(voice: &Client, on: bool) -> Result<()> {
 }
 
 pub fn set_forward(voice: &Client, reason: &str, number: &str, timer: Option<u8>) -> Result<()> {
-    let code = FORWARDS.iter().find(|(n, _)| *n == reason).map(|(_, c)| *c).context("неизвестная переадресация")?;
+    let code = FORWARDS.iter().find(|(n, _)| *n == reason).map(|(_, c)| *c).with_context(|| synshell_tr::t!("неизвестная переадресация"))?;
     let n = number.trim();
     let mut m = Message::new(0x33).tlv(0x01, vec![if n.is_empty() { 4 } else { 3 }, code]).u8(0x10, 1);
     if !n.is_empty() {

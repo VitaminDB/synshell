@@ -867,7 +867,7 @@ fn images_view(st: St) -> W {
                         st.updates.set(t!("Проверка…").into());
                         bg(
                             move || {
-                                let Response::Config { config: mut c } = api::call(&Request::GetConfig)? else { anyhow::bail!("ответ") };
+                                let Response::Config { config: mut c } = api::call(&Request::GetConfig)? else { anyhow::bail!("{}", t!("неожиданный ответ")) };
                                 c.system_type = t.into();
                                 let (s, ven) = images::ota_latest(&c)?;
                                 let name = images::set_name(&s.filename);

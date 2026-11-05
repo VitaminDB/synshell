@@ -201,7 +201,7 @@ pub(crate) fn init_libinput(
     let mut libinput = Libinput::new_with_udev::<LibinputSessionInterface<_>>(session.clone().into());
     libinput
         .udev_assign_seat(&seat)
-        .map_err(|_| anyhow::anyhow!("libinput: не удалось назначить seat"))?;
+        .map_err(|_| anyhow::anyhow!("{}", synshell_tr::t!("libinput: не удалось назначить seat")))?;
     let input_backend = LibinputInputBackend::new(libinput.clone());
     let token = event_loop.handle().insert_source(input_backend, |mut event, _, state| {
         use smithay::backend::input::InputEvent;

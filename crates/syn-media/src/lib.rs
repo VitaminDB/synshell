@@ -24,6 +24,10 @@ pub mod recorder;
 pub mod syncamd;
 pub mod v4l2;
 
+/// Каталог переводов строк библиотеки (сообщения камеры и записи); его
+/// подключают программы, которые их показывают: `i18n::init(&[…, syn_media::CATALOG])`.
+pub const CATALOG: &str = include_str!("../i18n/en.lang");
+
 pub use capture::{cameras, front_camera, Cam};
 pub use engine::{Engine, Note, OpenSpec};
 pub use recorder::{Recorder, Settings};

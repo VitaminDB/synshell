@@ -77,19 +77,19 @@ pub async fn serve(d: D, peer: String, mut w: quinn::SendStream, mut r: quinn::R
 
 /// Простой вызов: запрос → ответ.
 pub async fn call(conn: &quinn::Connection, req: &Rpc) -> Result<Reply> {
-    let (mut w, mut r) = conn.open_bi().await.context("соединение")?;
+    let (mut w, mut r) = conn.open_bi().await.with_context(|| t!("соединение"))?;
     proto::send(&mut w, req).await?;
     let _ = w.finish();
     match proto::recv::<Reply>(&mut r).await? {
         Some(Reply::Err(e)) => bail!("{e}"),
         Some(rep) => Ok(rep),
-        None => bail!("устройство не ответило"),
+        None => bail!("{}", t!("устройство не ответило")),
     }
 }
 
 /// Открыть поток для вызова с продолжением (команда, туннель, экран).
 pub async fn open(conn: &quinn::Connection, req: &Rpc) -> Result<(quinn::SendStream, quinn::RecvStream)> {
-    let (mut w, r) = conn.open_bi().await.context("соединение")?;
+    let (mut w, r) = conn.open_bi().await.with_context(|| t!("соединение"))?;
     proto::send(&mut w, req).await?;
     Ok((w, r))
 }

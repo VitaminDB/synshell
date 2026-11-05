@@ -58,7 +58,7 @@ pub fn context(values: &std::collections::BTreeMap<String, String>) -> Arc<Conte
         if k.starts_with('@') || synshell_common::tokens::find(k).is_some() {
             continue;
         }
-        vars.push(VarInfo { name: format!("--{k}"), value: v.clone(), doc: synshell_tr::t("Своя переменная темы") });
+        vars.push(VarInfo { name: format!("--{k}"), value: v.clone(), doc: synshell_common::t!("Своя переменная темы") });
     }
     Arc::new(Context { variables: vars, known_classes: BUILTIN.0.clone(), keyframes: BUILTIN.1.clone() })
 }

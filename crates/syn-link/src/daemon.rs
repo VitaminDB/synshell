@@ -444,7 +444,7 @@ impl Daemon {
         };
         let res = async {
             let conn = self.ep.connect(addr, "synlink")?;
-            let conn = tokio::time::timeout(Duration::from_secs(6), conn).await.context("тайм-аут")??;
+            let conn = tokio::time::timeout(Duration::from_secs(6), conn).await.with_context(|| t!("тайм-аут"))??;
             Ok::<_, anyhow::Error>(conn)
         }
         .await;
@@ -503,18 +503,18 @@ impl Daemon {
         let addr = {
             let mut st = self.st.lock().unwrap();
             if st.peers.peers.contains_key(&id) {
-                bail!("уже спарено");
+                bail!("{}", t!("уже спарено"));
             }
             st.intents.insert(id.clone());
             st.backoff.remove(&id);
-            st.nearby.get(&id).map(|n| n.addr).context("устройство не найдено рядом")?
+            st.nearby.get(&id).map(|n| n.addr).with_context(|| t!("устройство не найдено рядом"))?
         };
         tokio::spawn(self.clone().connect(id, addr));
         Ok(())
     }
 
     pub fn pair_reply(&self, id: &str, accept: bool) -> Result<()> {
-        let tx = self.st.lock().unwrap().waiters.remove(id).context("нет запроса спаривания")?;
+        let tx = self.st.lock().unwrap().waiters.remove(id).with_context(|| t!("нет запроса спаривания"))?;
         let _ = tx.send(accept);
         Ok(())
     }
@@ -522,7 +522,7 @@ impl Daemon {
     pub fn unpair(&self, id: &str) -> Result<()> {
         let (t, sess) = {
             let mut st = self.st.lock().unwrap();
-            let t = st.peers.peers.remove(id).context("не спарено")?;
+            let t = st.peers.peers.remove(id).with_context(|| t!("не спарено"))?;
             st.peers.save();
             (t, st.sessions.remove(id))
         };
@@ -542,7 +542,7 @@ impl Daemon {
     }
 
     pub fn disconnect(&self, id: &str) -> Result<()> {
-        let s = self.st.lock().unwrap().sessions.get(id).map(|s| s.conn.clone()).context("не соединено")?;
+        let s = self.st.lock().unwrap().sessions.get(id).map(|s| s.conn.clone()).with_context(|| t!("не соединено"))?;
         s.close(0u32.into(), b"bye");
         Ok(())
     }
@@ -550,25 +550,25 @@ impl Daemon {
     // ─── сеанс ─────────────────────────────────────────────────────────
 
     async fn run_session(self: D, conn: quinn::Connection, outgoing: bool) -> Result<()> {
-        let fp = crate::net::peer_fingerprint(&conn).context("нет сертификата")?;
+        let fp = crate::net::peer_fingerprint(&conn).with_context(|| t!("нет сертификата"))?;
         let pid = crate::identity::id_of(&fp);
         if pid == self.id.id {
             conn.close(0u32.into(), b"self");
-            bail!("соединение с самим собой");
+            bail!("{}", t!("соединение с самим собой"));
         }
         let (mut tx, mut rx) = if outgoing {
             conn.open_bi().await?
         } else {
-            tokio::time::timeout(Duration::from_secs(5), conn.accept_bi()).await.context("нет управляющего потока")??
+            tokio::time::timeout(Duration::from_secs(5), conn.accept_bi()).await.with_context(|| t!("нет управляющего потока"))??
         };
         proto::send(&mut tx, &Ctl::Hello(self.hello())).await?;
         let hello = match tokio::time::timeout(Duration::from_secs(5), proto::recv::<Ctl>(&mut rx)).await?? {
             Some(Ctl::Hello(h)) => h,
-            _ => bail!("нет приветствия"),
+            _ => bail!("{}", t!("нет приветствия")),
         };
         if hello.id != pid {
             conn.close(1u32.into(), b"id");
-            bail!("id не совпадает с сертификатом");
+            bail!("{}", t!("id не совпадает с сертификатом"));
         }
         let ifaces = crate::netif::list();
         let transport = crate::netif::transport_for(conn.remote_address().ip(), &ifaces);
@@ -579,7 +579,7 @@ impl Daemon {
         let they_trust = match tokio::time::timeout(Duration::from_secs(5), proto::recv::<Ctl>(&mut rx)).await?? {
             Some(Ctl::Trusted) => true,
             Some(Ctl::PairRequest) => false,
-            _ => bail!("нет ответа о доверии"),
+            _ => bail!("{}", t!("нет ответа о доверии")),
         };
         if !(trusted && they_trust) {
             self.pairing(&conn, &mut tx, &mut rx, &hello, &fp, trusted, transport, outgoing).await?;
@@ -745,7 +745,7 @@ impl Daemon {
         let pid = hello.id.clone();
         if !self.st.lock().unwrap().pairing.insert(pid.clone()) {
             conn.close(0u32.into(), b"busy");
-            bail!("спаривание с этим устройством уже идёт");
+            bail!("{}", t!("спаривание с этим устройством уже идёт"));
         }
         let res = self.pairing_inner(conn, tx, rx, hello, fp, trusted, transport, outgoing).await;
         {
@@ -813,7 +813,7 @@ impl Daemon {
             Decide::Reject(why) => {
                 let _ = proto::send(tx, &Ctl::PairReject(synshell_tr::t(why))).await;
                 conn.close(0u32.into(), b"reject");
-                bail!("спаривание отклонено: {why}");
+                bail!("{}", t!("спаривание отклонено: {why}", why = why));
             }
             Decide::Show => {
                 self.add_prompt(prompt.clone(), None);
@@ -847,7 +847,7 @@ impl Daemon {
             };
             self.emit(Event::Paired { device: pid.clone(), name: hello.name.clone(), ok: false, message: Some(why.clone()) });
             conn.close(0u32.into(), b"reject");
-            bail!("спаривание не состоялось: {why}");
+            bail!("{}", t!("спаривание не состоялось: {why}", why = why));
         }
         let t = Trusted {
             id: pid.clone(),

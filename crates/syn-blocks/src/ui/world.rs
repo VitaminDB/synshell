@@ -48,15 +48,15 @@ pub struct World {
 pub const VELVET: usize = 8;
 
 pub const WORLDS: [World; 9] = [
-    World { name: "Сумерки", top: theme::BG_TOP, bottom: theme::BG_BOTTOM, glow: theme::GLOW, panel: theme::PANEL, edge: theme::PANEL_EDGE, empty: theme::CELL_EMPTY, accent: "#c9d2ff", ambient: Ambient::Bokeh },
-    World { name: "Океан", top: "#27b4d8", bottom: "#0b3474", glow: "#7fe7ff", panel: "#0a2243", edge: "#2a70a8", empty: "#12325a", accent: "#8ff0ff", ambient: Ambient::Bubbles },
-    World { name: "Закат", top: "#ff9466", bottom: "#6e2a86", glow: "#ffc08a", panel: "#34143c", edge: "#a0467a", empty: "#47204f", accent: "#ffd0a0", ambient: Ambient::Petals },
-    World { name: "Лес", top: "#48b876", bottom: "#123f30", glow: "#b6ff9a", panel: "#0e2a20", edge: "#2f8a5a", empty: "#173b2c", accent: "#e6ff8a", ambient: Ambient::Fireflies },
-    World { name: "Космос", top: "#2c2166", bottom: "#06071a", glow: "#9d7bff", panel: "#110e2c", edge: "#4b3aa8", empty: "#1b1840", accent: "#d6c8ff", ambient: Ambient::Stars },
-    World { name: "Зима", top: "#94cffa", bottom: "#3559ad", glow: "#e6f6ff", panel: "#1a2c5a", edge: "#6d9ad8", empty: "#253f78", accent: "#ffffff", ambient: Ambient::Snow },
-    World { name: "Вулкан", top: "#b3362a", bottom: "#24080f", glow: "#ff8a4a", panel: "#260d12", edge: "#9a3a2a", empty: "#381418", accent: "#ffb347", ambient: Ambient::Embers },
-    World { name: "Сияние", top: "#1c5f6c", bottom: "#081430", glow: "#7affc8", panel: "#0b1d2c", edge: "#2a8a7a", empty: "#122c3c", accent: "#9affd8", ambient: Ambient::Aurora },
-    World { name: "Бархат", top: "#5a1f4c", bottom: "#1a0a1e", glow: "#ffd27a", panel: "#241028", edge: "#a8813a", empty: "#33193a", accent: "#ffd27a", ambient: Ambient::Bokeh },
+    World { name: syngui::n_!("Сумерки"), top: theme::BG_TOP, bottom: theme::BG_BOTTOM, glow: theme::GLOW, panel: theme::PANEL, edge: theme::PANEL_EDGE, empty: theme::CELL_EMPTY, accent: "#c9d2ff", ambient: Ambient::Bokeh },
+    World { name: syngui::n_!("Океан"), top: "#27b4d8", bottom: "#0b3474", glow: "#7fe7ff", panel: "#0a2243", edge: "#2a70a8", empty: "#12325a", accent: "#8ff0ff", ambient: Ambient::Bubbles },
+    World { name: syngui::n_!("Закат"), top: "#ff9466", bottom: "#6e2a86", glow: "#ffc08a", panel: "#34143c", edge: "#a0467a", empty: "#47204f", accent: "#ffd0a0", ambient: Ambient::Petals },
+    World { name: syngui::n_!("Лес"), top: "#48b876", bottom: "#123f30", glow: "#b6ff9a", panel: "#0e2a20", edge: "#2f8a5a", empty: "#173b2c", accent: "#e6ff8a", ambient: Ambient::Fireflies },
+    World { name: syngui::n_!("Космос"), top: "#2c2166", bottom: "#06071a", glow: "#9d7bff", panel: "#110e2c", edge: "#4b3aa8", empty: "#1b1840", accent: "#d6c8ff", ambient: Ambient::Stars },
+    World { name: syngui::n_!("Зима"), top: "#94cffa", bottom: "#3559ad", glow: "#e6f6ff", panel: "#1a2c5a", edge: "#6d9ad8", empty: "#253f78", accent: "#ffffff", ambient: Ambient::Snow },
+    World { name: syngui::n_!("Вулкан"), top: "#b3362a", bottom: "#24080f", glow: "#ff8a4a", panel: "#260d12", edge: "#9a3a2a", empty: "#381418", accent: "#ffb347", ambient: Ambient::Embers },
+    World { name: syngui::n_!("Сияние"), top: "#1c5f6c", bottom: "#081430", glow: "#7affc8", panel: "#0b1d2c", edge: "#2a8a7a", empty: "#122c3c", accent: "#9affd8", ambient: Ambient::Aurora },
+    World { name: syngui::n_!("Бархат"), top: "#5a1f4c", bottom: "#1a0a1e", glow: "#ffd27a", panel: "#241028", edge: "#a8813a", empty: "#33193a", accent: "#ffd27a", ambient: Ambient::Bokeh },
 ];
 
 /// Длительность кроссфейда между мирами.
@@ -396,13 +396,13 @@ impl SkinMode {
     }
 }
 
-pub fn skin_name(m: Material) -> &'static str {
+pub fn skin_name(m: Material) -> String {
     match m {
-        Material::Wood => "ДЕРЕВО",
-        Material::Crystal => "ВИТРАЖ",
-        Material::Gold => "МЕТАЛЛ",
-        Material::Lava => "МАГМА",
-        Material::Plain => "",
+        Material::Wood => syngui::t!("ДЕРЕВО"),
+        Material::Crystal => syngui::t!("ВИТРАЖ"),
+        Material::Gold => syngui::t!("МЕТАЛЛ"),
+        Material::Lava => syngui::t!("МАГМА"),
+        Material::Plain => String::new(),
     }
 }
 

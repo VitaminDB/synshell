@@ -52,7 +52,7 @@ fn main() {
     while let Some(a) = args.next() {
         match a.as_str() {
             "-h" | "--help" => {
-                print!("{}", cli::HELP);
+                print!("{}", cli::help());
                 return;
             }
             "--new-window" => separate = true,

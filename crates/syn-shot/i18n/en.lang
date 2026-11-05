@@ -4,8 +4,13 @@
 # src/main.rs
 "synshot [--capture ФАЙЛ]\n\nВыделить область или окно и сохранить снимок экрана." = "synshot [--capture FILE]\n\nSelect an area or a window and save a screenshot."
 
+# src/output.rs
+"не удалось запустить wl-copy (пакет wl-clipboard): {e}" = "could not start wl-copy (wl-clipboard package): {e}"
+
 # src/ui.rs
 "Отмена (Esc)" = "Cancel (Esc)"
+"Курсор" = "Cursor"
+"Снимок с указателем мыши" = "Include the mouse pointer"
 "Выделите область или щёлкните по окну" = "Select an area or click a window"
 "Enter — весь экран · Ctrl+C — копировать · Esc — отмена" = "Enter — full screen · Ctrl+C — copy · Esc — cancel"
 "Весь экран" = "Full screen"
@@ -18,5 +23,3 @@
 "Сохранить и скопировать путь к файлу (Ctrl+Shift+C)" = "Save and copy the file path (Ctrl+Shift+C)"
 "Открыть" = "Open"
 "Сохранить и открыть (Ctrl+O)" = "Save and open (Ctrl+O)"
-"Курсор" = "Cursor"
-"Снимок с указателем мыши" = "Include the mouse pointer"

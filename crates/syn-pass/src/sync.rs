@@ -88,7 +88,7 @@ pub fn sync_all(s: &mut Session) -> (Vec<PeerSync>, bool) {
 }
 
 fn sync_one(s: &mut Session, p: &PeerInfo) -> anyhow::Result<(PeerState, bool)> {
-    let path = peer_vault(p).ok_or_else(|| anyhow::anyhow!("файлы устройства недоступны"))?;
+    let path = peer_vault(p).ok_or_else(|| anyhow::anyhow!(syngui::t!("файлы устройства недоступны")))?;
     let Some(env) = Envelope::read(&path)? else {
         s.seal()?.write(&path)?;
         return Ok((PeerState::Copied, false));
