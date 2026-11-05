@@ -1,18 +1,17 @@
 //! syn-vm — виртуальные машины synshell на QEMU/KVM: мастер создания по образу с
 //! подбором железа под систему (Windows 11 — TPM и Secure Boot), экран гостя прямо в
 //! окне (VNC на unix-сокете, разрешение под окно, общий буфер обмена), снимки,
-//! проброс портов, общая папка. Машины живут без окна: QEMU уходит в фон, а окно
-//! при запуске подхватывает работающие.
-//!
-//!   syn-vm [ИМЯ|ID] [--tab screen|overview|settings|snapshots]   окно (открыть машину)
-//!   syn-vm --start ИМЯ|ID            запустить машину без окна
-//!   syn-vm --list                    машины и их состояние
-//!   syn-vm --new ИМЯ [--iso ОБРАЗ] [--os linux|windows11|windows10|bsd|android|other]
-//!   syn-vm --screenshot out.png [--size 1280x800] [--scale 2] [--open ИМЯ] [--tab …] [--wizard N]
+//! проброс портов и устройств компьютера, общая папка, гостевой агент. Машины живут без
+//! окна: QEMU уходит в фон, а окно при запуске подхватывает работающие. Всё управление
+//! есть и в командной строке (`cli.rs`, `syn-vm --help`) и в MCP-сервере (`syn-vm --mcp`).
 //!
 //! Окно одно: повторный запуск передаёт машину открытому окну через сокет
 //! `$XDG_RUNTIME_DIR/syn-vm.sock` и выходит.
 
+mod cli;
+mod devices;
+mod mcp;
+mod qga;
 mod keymap;
 mod model;
 mod qemu;
@@ -41,59 +40,17 @@ fn main() {
     let mut wizard: Option<usize> = None;
     let mut size = (1280u32, 800u32);
     let mut scale = 2.0f64;
-    let mut args = std::env::args().skip(1);
+    let all: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(first) = all.first() {
+        if let Some(code) = cli::run(first, all[1..].to_vec()) {
+            std::process::exit(code);
+        }
+    }
+    let mut args = all.into_iter();
     while let Some(a) = args.next() {
         match a.as_str() {
             "-h" | "--help" => {
-                println!("{}", t!("syn-vm [МАШИНА] [--tab screen|overview|settings|snapshots] [--start МАШИНА] [--list] [--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--open МАШИНА] [--wizard ШАГ]]"));
-                return;
-            }
-            "--list" => {
-                for vm in model::load_all() {
-                    let on = qemu::pid(&vm).is_some();
-                    println!("{}\t{}\t{}", vm.id, if on { "running" } else { "off" }, vm.name);
-                }
-                return;
-            }
-            "--start" => {
-                let Some(name) = args.next() else { return };
-                match find(&name) {
-                    Some(vm) => {
-                        if let Err(e) = qemu::start(&vm) {
-                            eprintln!("{e}");
-                            std::process::exit(1);
-                        }
-                        qemu::after_boot(&vm);
-                    }
-                    None => {
-                        eprintln!("{}", t!("нет машины «{n}»", n = name));
-                        std::process::exit(1);
-                    }
-                }
-                return;
-            }
-            "--new" => {
-                let name = args.next().unwrap_or_default();
-                let rest: Vec<String> = args.by_ref().collect();
-                let opt = |k: &str| rest.iter().position(|a| a == k).and_then(|i| rest.get(i + 1)).cloned();
-                let iso = opt("--iso").unwrap_or_default();
-                let os = opt("--os")
-                    .and_then(|o| toml::Value::String(o).try_into::<model::OsKind>().ok())
-                    .or_else(|| model::OsKind::guess(&iso))
-                    .unwrap_or_default();
-                let mut vm = os.preset();
-                vm.name = name;
-                if !iso.is_empty() {
-                    vm.cdrom = std::fs::canonicalize(&iso).map(|p| p.to_string_lossy().into_owned()).unwrap_or(iso);
-                    vm.boot_cdrom = true;
-                }
-                match model::create(vm, None) {
-                    Ok(vm) => println!("{}", vm.id),
-                    Err(e) => {
-                        eprintln!("{e}");
-                        std::process::exit(1);
-                    }
-                }
+                print!("{}", cli::HELP);
                 return;
             }
             "--tab" => tab = args.next().as_deref().and_then(Tab::parse),
@@ -181,9 +138,7 @@ fn main() {
 
 /// Машина по id или имени (без учёта регистра).
 fn find(s: &str) -> Option<model::Vm> {
-    let all = model::load_all();
-    let l = s.to_lowercase();
-    all.iter().find(|v| v.id == s).or_else(|| all.iter().find(|v| v.name.to_lowercase() == l)).cloned()
+    cli::find(s).ok()
 }
 
 fn tab_id(t: Tab) -> &'static str {

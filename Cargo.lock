@@ -7073,6 +7073,7 @@ name = "syn-vm"
 version = "0.1.42"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "flate2",
  "image",
  "libc",
@@ -7833,6 +7834,7 @@ dependencies = [
  "synaptix-ops",
  "synaptix-tokenizer",
  "thiserror 2.0.21",
+ "unicode_categories",
 ]
 
 [[package]]
@@ -7867,6 +7869,7 @@ dependencies = [
  "synaptix-ops",
  "synaptix-tokenizer",
  "thiserror 2.0.21",
+ "tracing",
 ]
 
 [[package]]

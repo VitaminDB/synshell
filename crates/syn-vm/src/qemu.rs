@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 use anyhow::{bail, Context, Result};
 use syngui::prelude::*;
 
-use crate::model::{DiskBus, DisplayModel, Firmware, NetMode, OsKind, Vm};
+use crate::model::{DiskBus, DisplayModel, Firmware, NetMode, OsKind, ShareMode, Vm};
 
 pub const QEMU: &str = "qemu-system-x86_64";
 
@@ -87,6 +87,11 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
     push(&["-cpu", &cpu]);
     push(&["-smp", &format!("{}", vm.cpus.max(1))]);
     push(&["-m", &format!("{}M", vm.memory_mb.max(256))]);
+    let share = if !vm.shared_dir.is_empty() && Path::new(&vm.shared_dir).is_dir() { Some(vm.share_mode.resolve(vm.os)) } else { None };
+    if share == Some(ShareMode::Virtiofs) {
+        // virtiofs (vhost-user) читает память гостя напрямую — память общая.
+        push(&["-object", &format!("memory-backend-memfd,id=mem,size={}M,share=on", vm.memory_mb.max(256)), "-numa", "node,memdev=mem"]);
+    }
     push(&["-pidfile", &run.join("qemu.pid").to_string_lossy()]);
     push(&["-daemonize"]);
     push(&["-qmp", &format!("unix:{},server=on,wait=off", vm.qmp_path().display())]);
@@ -141,11 +146,25 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
     };
     push(&["-drive", &cd]);
     push(&["-device", &format!("ide-cd,drive=cd0,bus=ide.4,id=cdrom,bootindex={cd_boot}")]);
+    // «Гостевые инструменты» — второй привод: установщику Windows нужны драйверы с него,
+    // пока в первом приводе стоит сам установщик.
+    if vm.tools_cd {
+        if let Some(iso) = tools_iso() {
+            push(&["-drive", &format!("file={},if=none,id=cd1,media=cdrom,readonly=on", esc(&iso))]);
+            push(&["-device", "ide-cd,drive=cd1,bus=ide.5,id=toolscd"]);
+        }
+    }
 
     // Сеть.
     match vm.net {
         NetMode::Nat => {
             let mut nd = String::from("user,id=net0");
+            if share == Some(ShareMode::Smb) {
+                if smbd().is_none() {
+                    bail!("{}", t!("Для общей папки по SMB нужен пакет samba (smbd)"));
+                }
+                nd.push_str(&format!(",smb={}", esc(Path::new(&vm.shared_dir))));
+            }
             for f in &vm.forwards {
                 if f.host > 0 && f.guest > 0 {
                     nd.push_str(&format!(",hostfwd={}::{}-:{}", if f.udp { "udp" } else { "tcp" }, f.host, f.guest));
@@ -167,30 +186,136 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
 
     if vm.sound {
         let backend = if which("pipewire").is_some() || Path::new(&synshell_common::paths::runtime_dir()).join("pipewire-0").exists() { "pipewire" } else { "pa" };
-        push(&["-audiodev", &format!("{backend},id=snd0"), "-device", "ich9-intel-hda", "-device", "hda-duplex,audiodev=snd0"]);
+        let mut ad = format!("{backend},id=snd0");
+        if !vm.audio_out.is_empty() {
+            ad.push_str(&format!(",out.name={}", vm.audio_out.replace(',', ",,")));
+        }
+        if !vm.audio_in.is_empty() {
+            ad.push_str(&format!(",in.name={}", vm.audio_in.replace(',', ",,")));
+        }
+        push(&["-audiodev", &ad, "-device", "ich9-intel-hda", "-device", "hda-duplex,audiodev=snd0"]);
     }
 
-    if vm.tpm {
+    if vm.tpm && vm.tpm_host {
+        let dev = if Path::new("/dev/tpm0").exists() { "/dev/tpm0" } else { bail!("{}", t!("У компьютера нет TPM (/dev/tpm0)")) };
+        push(&["-tpmdev", &format!("passthrough,id=tpm0,path={dev},cancel-path=/dev/null"), "-device", "tpm-tis,tpmdev=tpm0"]);
+    } else if vm.tpm {
         push(&["-chardev", &format!("socket,id=chrtpm,path={}", run.join("swtpm.sock").display())]);
         push(&["-tpmdev", "emulator,id=tpm0,chardev=chrtpm", "-device", "tpm-tis,tpmdev=tpm0"]);
     }
 
+    if vm.clipboard || vm.guest_agent {
+        push(&["-device", "virtio-serial-pci,id=vser"]);
+    }
     if vm.clipboard {
-        push(&["-device", "virtio-serial-pci", "-chardev", "qemu-vdagent,id=vdagent,name=vdagent,clipboard=on"]);
-        push(&["-device", "virtserialport,chardev=vdagent,name=com.redhat.spice.0"]);
+        push(&["-chardev", "qemu-vdagent,id=vdagent,name=vdagent,clipboard=on"]);
+        push(&["-device", "virtserialport,bus=vser.0,chardev=vdagent,name=com.redhat.spice.0"]);
+    }
+    if vm.guest_agent {
+        push(&["-chardev", &format!("socket,id=qga0,path={},server=on,wait=off", vm.qga_path().display())]);
+        push(&["-device", "virtserialport,bus=vser.0,chardev=qga0,name=org.qemu.guest_agent.0"]);
     }
 
-    if !vm.shared_dir.is_empty() && Path::new(&vm.shared_dir).is_dir() {
-        push(&["-virtfs", &format!("local,path={},mount_tag=hostshare,security_model=none,id=share0", esc(Path::new(&vm.shared_dir)))]);
+    match share {
+        Some(ShareMode::P9) | Some(ShareMode::Auto) => {
+            push(&["-virtfs", &format!("local,path={},mount_tag=hostshare,security_model=none,id=share0", esc(Path::new(&vm.shared_dir)))]);
+        }
+        Some(ShareMode::Virtiofs) => {
+            push(&["-chardev", &format!("socket,id=vfs0,path={}", run.join("virtiofs.sock").display())]);
+            push(&["-device", "vhost-user-fs-pci,chardev=vfs0,tag=hostshare"]);
+        }
+        Some(ShareMode::Smb) | None => {}
     }
+
+    for d in &vm.devices {
+        a.extend(crate::devices::args(d));
+    }
+    let mut push = |items: &[&str]| a.extend(items.iter().map(|s| s.to_string()));
 
     if matches!(vm.os, OsKind::Linux | OsKind::Android | OsKind::Bsd) {
         push(&["-device", "virtio-rng-pci"]);
     }
     push(&["-device", "virtio-balloon-pci"]);
+    // Запасные разъёмы PCIe — для дисков, подключаемых на ходу. В конце, чтобы не сдвигать
+    // адреса остальных устройств у уже установленных систем.
+    for i in 0..crate::devices::HOTPLUG_PORTS {
+        push(&["-device", &format!("pcie-root-port,id=hp{i},chassis={},slot={}", 20 + i, 20 + i)]);
+    }
 
     a.extend(split_args(&vm.extra_args));
     Ok(a)
+}
+
+/// virtio-win: драйверы virtio, qemu-ga, spice-vdagent для Windows. Ищется рядом с
+/// образами установщиков машин, в «Загрузках», в папке syn-vm и в системе; новее — лучше.
+pub fn tools_iso() -> Option<PathBuf> {
+    let mut dirs: Vec<PathBuf> = vec![crate::model::root(), synshell_common::paths::user_dir_or_default("DOWNLOAD"), PathBuf::from("/usr/share/virtio"), PathBuf::from("/usr/share/virtio-win")];
+    for vm in crate::model::load_all() {
+        if let Some(p) = Path::new(&vm.cdrom).parent() {
+            dirs.push(p.to_path_buf());
+            if let Some(pp) = p.parent() {
+                dirs.push(pp.to_path_buf());
+            }
+        }
+    }
+    // Домашний каталог на две папки вглубь («Образы систем», ISO, Загрузки…).
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        for d in std::fs::read_dir(&home).into_iter().flatten().flatten() {
+            let n = d.file_name().to_string_lossy().into_owned();
+            if n.starts_with('.') || !d.path().is_dir() {
+                continue;
+            }
+            dirs.push(d.path());
+            for d2 in std::fs::read_dir(d.path()).into_iter().flatten().flatten() {
+                if !d2.file_name().to_string_lossy().starts_with('.') && d2.file_type().is_ok_and(|t| t.is_dir()) {
+                    dirs.push(d2.path());
+                }
+            }
+        }
+    }
+    for p in [std::env::var("SYN_VM_TOOLS_ISO").unwrap_or_default(), std::fs::read_to_string(crate::model::root().join("tools-iso.path")).unwrap_or_default().trim().to_string()] {
+        if !p.is_empty() && Path::new(&p).is_file() {
+            return Some(PathBuf::from(p));
+        }
+    }
+    let mut best: Option<(Vec<u32>, PathBuf)> = None;
+    for d in dirs {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let n = e.file_name().to_string_lossy().to_lowercase();
+            if n.starts_with("virtio-win") && n.ends_with(".iso") {
+                let ver: Vec<u32> = n.trim_start_matches("virtio-win").trim_end_matches(".iso").split(|c: char| !c.is_ascii_digit()).filter_map(|x| x.parse().ok()).collect();
+                if best.as_ref().is_none_or(|(v, _)| ver > *v) {
+                    best = Some((ver, e.path()));
+                }
+            }
+        }
+    }
+    best.map(|(_, p)| p)
+}
+
+/// Где взять virtio-win, если его нет.
+pub const TOOLS_URL: &str = "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso";
+
+/// Скачать virtio-win в папку syn-vm.
+pub fn download_tools() -> Result<PathBuf> {
+    let out = crate::model::root().join("virtio-win.iso");
+    let part = out.with_extension("iso.part");
+    let st = Command::new("curl").args(["-fL", "--retry", "3", "-o"]).arg(&part).arg(TOOLS_URL).status().context("curl")?;
+    if !st.success() {
+        let _ = std::fs::remove_file(&part);
+        bail!("{}", t!("Не удалось скачать virtio-win"));
+    }
+    std::fs::rename(&part, &out)?;
+    Ok(out)
+}
+
+pub fn smbd() -> Option<PathBuf> {
+    which("smbd").or_else(|| ["/usr/bin/smbd", "/usr/sbin/smbd"].iter().map(PathBuf::from).find(|p| p.exists()))
+}
+
+pub fn virtiofsd() -> Option<PathBuf> {
+    which("virtiofsd").or_else(|| ["/usr/lib/virtiofsd", "/usr/libexec/virtiofsd", "/usr/lib/qemu/virtiofsd"].iter().map(PathBuf::from).find(|p| p.exists()))
 }
 
 /// `usb-host` на физическом порту: QEMU сам подхватывает устройство после переподключения
@@ -255,12 +380,23 @@ pub fn start(vm: &Vm) -> Result<()> {
     }
     let run = vm.run_dir();
     std::fs::create_dir_all(&run)?;
-    for f in ["qmp.sock", "vnc.sock", "qemu.pid", "swtpm.sock"] {
+    for f in ["qmp.sock", "vnc.sock", "qemu.pid", "swtpm.sock", "qga.sock", "virtiofs.sock"] {
         let _ = std::fs::remove_file(run.join(f));
     }
     let args = args(vm)?;
-    if vm.tpm {
+    for d in &vm.devices {
+        crate::devices::check(d)?;
+    }
+    crate::devices::grant(&crate::devices::missing_access(&vm.devices))?;
+    if vm.tpm && vm.tpm_host {
+        crate::devices::grant(&["/dev/tpm0".to_string()]).ok();
+    }
+    crate::devices::vfio_prepare(vm)?;
+    if vm.tpm && !vm.tpm_host {
         start_tpm(vm)?;
+    }
+    if args.iter().any(|a| a.starts_with("vhost-user-fs-pci")) {
+        start_virtiofsd(vm)?;
     }
     tracing::info!("{QEMU} {}", args.join(" "));
     let out = Command::new(QEMU)
@@ -277,7 +413,48 @@ pub fn start(vm: &Vm) -> Result<()> {
         let msg = log.lines().filter(|l| !l.trim().is_empty()).map(|l| l.trim_start_matches("qemu-system-x86_64: ")).collect::<Vec<_>>().join("\n");
         bail!("{}", if msg.is_empty() { t!("QEMU завершился с ошибкой") } else { msg });
     }
+    // PCI-устройства вернутся компьютеру, когда машина выключится, — даже без окна.
+    if !crate::devices::vfio_addrs(vm).is_empty() {
+        use std::os::unix::process::CommandExt;
+        if let Ok(exe) = std::env::current_exe() {
+            let mut c = Command::new(exe);
+            c.arg("--vfio-watch").arg(&vm.id).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+            unsafe {
+                c.pre_exec(|| {
+                    libc::setsid();
+                    Ok(())
+                });
+            }
+            if let Ok(mut ch) = c.spawn() {
+                std::thread::spawn(move || ch.wait());
+            }
+        }
+    }
     Ok(())
+}
+
+/// virtiofsd общей папки: завершается сам, когда QEMU закрывает соединение.
+fn start_virtiofsd(vm: &Vm) -> Result<()> {
+    let bin = virtiofsd().context(t!("Для virtiofs нужен пакет virtiofsd"))?;
+    let sock = vm.run_dir().join("virtiofs.sock");
+    let log = std::fs::File::create(vm.dir().join("virtiofsd.log"))?;
+    let mut child = Command::new(bin)
+        .arg(format!("--socket-path={}", sock.display()))
+        .arg(format!("--shared-dir={}", vm.shared_dir))
+        .args(["--sandbox=none", "--cache=auto"])
+        .stdin(Stdio::null())
+        .stdout(log.try_clone()?)
+        .stderr(log)
+        .spawn()
+        .context("virtiofsd")?;
+    std::thread::spawn(move || child.wait());
+    for _ in 0..100 {
+        if sock.exists() {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    bail!("virtiofsd: {}", t!("сокет не появился"))
 }
 
 /// swtpm на сокете машины: завершается сам, когда QEMU закрывает соединение.

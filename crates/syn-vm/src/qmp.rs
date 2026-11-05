@@ -18,25 +18,46 @@ pub fn call(vm: &Vm, cmd: &str, args: Value) -> Result<Value> {
 }
 
 pub fn call_at(sock: &Path, cmd: &str, args: Value, timeout: Duration) -> Result<Value> {
-    let s = UnixStream::connect(sock)?;
-    s.set_read_timeout(Some(timeout))?;
-    s.set_write_timeout(Some(timeout))?;
-    let mut w = s.try_clone()?;
-    let mut r = BufReader::new(s);
-    let mut line = String::new();
-    // Приветствие.
-    r.read_line(&mut line)?;
-    if !line.contains("QMP") {
-        bail!("QMP: {}", line.trim());
+    Conn::open(sock, timeout)?.call(cmd, args)
+}
+
+/// Соединение на несколько команд подряд (ввод текста, проверки): QEMU держит одного
+/// клиента, так что соединение не стоит держать дольше, чем нужно.
+pub struct Conn {
+    w: UnixStream,
+    r: BufReader<UnixStream>,
+}
+
+impl Conn {
+    pub fn open(sock: &Path, timeout: Duration) -> Result<Conn> {
+        let s = UnixStream::connect(sock)?;
+        s.set_read_timeout(Some(timeout))?;
+        s.set_write_timeout(Some(timeout))?;
+        let w = s.try_clone()?;
+        let mut r = BufReader::new(s);
+        let mut line = String::new();
+        // Приветствие.
+        r.read_line(&mut line)?;
+        if !line.contains("QMP") {
+            bail!("QMP: {}", line.trim());
+        }
+        let mut c = Conn { w, r };
+        c.call("qmp_capabilities", Value::Null)?;
+        Ok(c)
     }
-    writeln!(w, "{}", json!({"execute": "qmp_capabilities"}))?;
-    read_reply(&mut r)?;
-    let mut req = json!({ "execute": cmd });
-    if !args.is_null() {
-        req["arguments"] = args;
+
+    pub fn of(vm: &Vm) -> Result<Conn> {
+        Conn::open(&vm.qmp_path(), Duration::from_secs(5))
     }
-    writeln!(w, "{req}")?;
-    read_reply(&mut r)
+
+    pub fn call(&mut self, cmd: &str, args: Value) -> Result<Value> {
+        let mut req = json!({ "execute": cmd });
+        if !args.is_null() {
+            req["arguments"] = args;
+        }
+        writeln!(self.w, "{req}")?;
+        read_reply(&mut self.r)
+    }
 }
 
 fn read_reply(r: &mut BufReader<UnixStream>) -> Result<Value> {
@@ -118,6 +139,145 @@ pub fn change_cdrom(vm: &Vm, iso: &str) -> Result<()> {
 /// Кадр экрана в PNG.
 pub fn screendump(vm: &Vm, out: &Path) -> Result<()> {
     call_at(&vm.qmp_path(), "screendump", json!({ "filename": out.to_string_lossy(), "format": "png" }), Duration::from_secs(3)).map(|_| ())
+}
+
+// ─── Ввод без окна: текст, сочетания, мышь ──────────────────────────────
+
+/// Символ → (qcode, нужен Shift) для раскладки US: гость получает клавиши, а не символы.
+pub fn char_qcode(c: char) -> Option<(String, bool)> {
+    let plain = |s: &str| Some((s.to_string(), false));
+    let shift = |s: &str| Some((s.to_string(), true));
+    match c {
+        'a'..='z' | '0'..='9' => plain(&c.to_string()),
+        'A'..='Z' => shift(&c.to_ascii_lowercase().to_string()),
+        ' ' => plain("spc"),
+        '\n' => plain("ret"),
+        '\t' => plain("tab"),
+        '-' => plain("minus"),
+        '=' => plain("equal"),
+        '[' => plain("bracket_left"),
+        ']' => plain("bracket_right"),
+        '\\' => plain("backslash"),
+        ';' => plain("semicolon"),
+        '\'' => plain("apostrophe"),
+        '`' => plain("grave_accent"),
+        ',' => plain("comma"),
+        '.' => plain("dot"),
+        '/' => plain("slash"),
+        '!' => shift("1"),
+        '@' => shift("2"),
+        '#' => shift("3"),
+        '$' => shift("4"),
+        '%' => shift("5"),
+        '^' => shift("6"),
+        '&' => shift("7"),
+        '*' => shift("8"),
+        '(' => shift("9"),
+        ')' => shift("0"),
+        '_' => shift("minus"),
+        '+' => shift("equal"),
+        '{' => shift("bracket_left"),
+        '}' => shift("bracket_right"),
+        '|' => shift("backslash"),
+        ':' => shift("semicolon"),
+        '"' => shift("apostrophe"),
+        '~' => shift("grave_accent"),
+        '<' => shift("comma"),
+        '>' => shift("dot"),
+        '?' => shift("slash"),
+        _ => None,
+    }
+}
+
+/// Имя клавиши в сочетании → qcode: `ctrl`, `alt`, `del`, `enter`, `f4`, `win`, `a`, `/`…
+pub fn key_qcode(name: &str) -> Option<String> {
+    let n = name.trim().to_ascii_lowercase();
+    let q = match n.as_str() {
+        "ctrl" | "control" | "ctrl_l" => "ctrl",
+        "ctrl_r" | "rctrl" => "ctrl_r",
+        "alt" | "alt_l" => "alt",
+        "altgr" | "alt_r" | "ralt" => "alt_r",
+        "shift" | "shift_l" => "shift",
+        "shift_r" | "rshift" => "shift_r",
+        "super" | "win" | "meta" | "cmd" | "logo" | "meta_l" => "meta_l",
+        "del" | "delete" => "delete",
+        "ins" | "insert" => "insert",
+        "enter" | "return" | "ret" => "ret",
+        "esc" | "escape" => "esc",
+        "space" | "spc" => "spc",
+        "backspace" | "bksp" | "bs" => "backspace",
+        "tab" => "tab",
+        "up" | "down" | "left" | "right" | "home" | "end" | "pause" | "menu" | "print" | "sysrq" => n.as_str(),
+        "pgup" | "pageup" | "page_up" => "pgup",
+        "pgdn" | "pagedown" | "page_down" => "pgdn",
+        "capslock" | "caps" | "caps_lock" => "caps_lock",
+        "minus" | "equal" | "comma" | "dot" | "slash" | "semicolon" | "apostrophe" | "backslash" | "grave_accent" | "bracket_left" | "bracket_right" => n.as_str(),
+        _ if n.len() >= 2 && n.starts_with('f') && n[1..].parse::<u8>().is_ok_and(|x| (1..=24).contains(&x)) => n.as_str(),
+        _ => {
+            let mut ch = n.chars();
+            return match (ch.next(), ch.next()) {
+                (Some(c), None) => char_qcode(c).map(|(q, _)| q),
+                _ => None,
+            };
+        }
+    };
+    Some(q.to_string())
+}
+
+fn key_list(codes: &[String]) -> Value {
+    Value::Array(codes.iter().map(|q| json!({"type": "qcode", "data": q})).collect())
+}
+
+/// Нажать сочетание: `ctrl+alt+delete`, `ctrl-alt-del`, `alt+f4`, `win+r`, `enter`.
+pub fn send_combo(vm: &Vm, combo: &str) -> Result<()> {
+    let parts: Vec<&str> = if combo.contains('+') { combo.split('+').collect() } else if combo.len() > 1 && combo.contains('-') && combo != "-" { combo.split('-').collect() } else { vec![combo] };
+    let codes = parts.iter().map(|p| key_qcode(p).ok_or_else(|| anyhow!("неизвестная клавиша «{p}»"))).collect::<Result<Vec<_>>>()?;
+    call(vm, "send-key", json!({ "keys": key_list(&codes), "hold-time": 120 }))?;
+    Ok(())
+}
+
+/// Набрать текст (латиница и знаки раскладки US; `\n` — Enter).
+pub fn type_text(vm: &Vm, text: &str, delay: Duration) -> Result<()> {
+    let keys = text.chars().map(|c| char_qcode(c).ok_or_else(|| anyhow!("символ «{c}» нельзя набрать клавишами US — используйте --exec или буфер обмена"))).collect::<Result<Vec<_>>>()?;
+    let mut c = Conn::of(vm)?;
+    for (q, sh) in keys {
+        let codes = if sh { vec!["shift".to_string(), q] } else { vec![q] };
+        c.call("send-key", json!({ "keys": key_list(&codes), "hold-time": 30 }))?;
+        std::thread::sleep(delay);
+    }
+    Ok(())
+}
+
+/// Щелчок (или перемещение без кнопки) по точке экрана гостя: координаты — пиксели кадра
+/// `width`×`height` (абсолютный указатель usb-tablet).
+pub fn click(vm: &Vm, x: f64, y: f64, size: (u32, u32), button: Option<&str>, double: bool) -> Result<()> {
+    let (w, h) = (size.0.max(1) as f64, size.1.max(1) as f64);
+    let ax = ((x / w).clamp(0.0, 1.0) * 32767.0).round() as i64;
+    let ay = ((y / h).clamp(0.0, 1.0) * 32767.0).round() as i64;
+    let mut c = Conn::of(vm)?;
+    c.call("input-send-event", json!({"events": [
+        {"type": "abs", "data": {"axis": "x", "value": ax}},
+        {"type": "abs", "data": {"axis": "y", "value": ay}}]}))?;
+    if let Some(b) = button {
+        for _ in 0..if double { 2 } else { 1 } {
+            std::thread::sleep(Duration::from_millis(40));
+            c.call("input-send-event", json!({"events": [{"type": "btn", "data": {"down": true, "button": b}}]}))?;
+            std::thread::sleep(Duration::from_millis(60));
+            c.call("input-send-event", json!({"events": [{"type": "btn", "data": {"down": false, "button": b}}]}))?;
+        }
+    }
+    Ok(())
+}
+
+/// Прокрутка колесом: `steps` > 0 — вниз.
+pub fn wheel(vm: &Vm, steps: i32) -> Result<()> {
+    let b = if steps > 0 { "wheel-down" } else { "wheel-up" };
+    let mut c = Conn::of(vm)?;
+    for _ in 0..steps.unsigned_abs() {
+        c.call("input-send-event", json!({"events": [{"type": "btn", "data": {"down": true, "button": b}}]}))?;
+        c.call("input-send-event", json!({"events": [{"type": "btn", "data": {"down": false, "button": b}}]}))?;
+    }
+    Ok(())
 }
 
 /// Снимок состояния машины (qcow2, внутренний).

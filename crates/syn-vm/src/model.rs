@@ -92,6 +92,7 @@ impl OsKind {
             OsKind::Windows11 => {
                 vm.firmware = Firmware::UefiSecure;
                 vm.tpm = true;
+                vm.tools_cd = true;
                 vm.disk_bus = DiskBus::Sata;
                 vm.nic = NicModel::E1000e;
                 vm.display = DisplayModel::Std;
@@ -99,6 +100,7 @@ impl OsKind {
             }
             OsKind::Windows10 => {
                 vm.firmware = Firmware::Uefi;
+                vm.tools_cd = true;
                 vm.disk_bus = DiskBus::Sata;
                 vm.nic = NicModel::E1000e;
                 vm.display = DisplayModel::Std;
@@ -242,6 +244,113 @@ pub struct UsbPass {
     pub name: String,
 }
 
+/// Как гость видит общую папку.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ShareMode {
+    /// Linux и BSD — 9p, Windows — virtiofs.
+    #[default]
+    Auto,
+    #[serde(rename = "9p")]
+    P9,
+    Virtiofs,
+    /// Samba QEMU в сети NAT (`\\10.0.2.4\qemu`), нужен smbd на компьютере.
+    Smb,
+}
+
+impl ShareMode {
+    pub const ALL: [ShareMode; 4] = [ShareMode::Auto, ShareMode::P9, ShareMode::Virtiofs, ShareMode::Smb];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            ShareMode::Auto => n_!("Авто"),
+            ShareMode::P9 => n_!("9p"),
+            ShareMode::Virtiofs => n_!("virtiofs"),
+            ShareMode::Smb => n_!("SMB"),
+        }
+    }
+
+    /// Что выбрать для системы.
+    pub fn resolve(self, os: OsKind) -> ShareMode {
+        match self {
+            ShareMode::Auto if os.is_windows() => ShareMode::Virtiofs,
+            ShareMode::Auto => ShareMode::P9,
+            m => m,
+        }
+    }
+}
+
+/// Устройство компьютера, отданное гостю (кроме USB по порту — оно в `usb`).
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum HostDev {
+    /// USB по VID:PID — запасной вариант к порту: устройство найдётся в любом гнезде.
+    UsbId { vendor: String, product: String, #[serde(default)] name: String },
+    /// PCI через VFIO (видеокарта, NVMe, сетевая, звук): только при выключенной машине.
+    Pci { addr: String, #[serde(default)] name: String },
+    /// Клавиатура, мышь, геймпад напрямую (evdev); переключение хост↔гость — оба Ctrl.
+    Input { path: String, #[serde(default)] name: String },
+    /// Целый диск или раздел компьютера.
+    Block { path: String, #[serde(default)] readonly: bool, #[serde(default)] name: String },
+    /// Последовательный порт (`/dev/ttyUSB0`, `/dev/ttyACM0`) — гостю как USB-UART.
+    Serial { path: String, #[serde(default)] name: String },
+}
+
+impl HostDev {
+    /// Тип и идентификатор для CLI: `usb-id:18d1:4ee7`, `pci:0000:01:00.0`, `input:/dev/input/…`.
+    pub fn spec(&self) -> String {
+        match self {
+            HostDev::UsbId { vendor, product, .. } => format!("usb-id:{vendor}:{product}"),
+            HostDev::Pci { addr, .. } => format!("pci:{addr}"),
+            HostDev::Input { path, .. } => format!("input:{path}"),
+            HostDev::Block { path, readonly, .. } => format!("{}:{path}", if *readonly { "block-ro" } else { "block" }),
+            HostDev::Serial { path, .. } => format!("serial:{path}"),
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        match self {
+            HostDev::UsbId { name, .. } | HostDev::Pci { name, .. } | HostDev::Input { name, .. } | HostDev::Block { name, .. } | HostDev::Serial { name, .. } => name,
+        }
+    }
+
+    /// Одно и то же устройство (без учёта подписи и режима).
+    pub fn same(&self, o: &HostDev) -> bool {
+        match (self, o) {
+            (HostDev::UsbId { vendor: a, product: b, .. }, HostDev::UsbId { vendor: c, product: d, .. }) => a == c && b == d,
+            (HostDev::Pci { addr: a, .. }, HostDev::Pci { addr: b, .. }) => a == b,
+            (HostDev::Input { path: a, .. }, HostDev::Input { path: b, .. }) | (HostDev::Block { path: a, .. }, HostDev::Block { path: b, .. }) | (HostDev::Serial { path: a, .. }, HostDev::Serial { path: b, .. }) => a == b,
+            _ => false,
+        }
+    }
+
+    /// Можно ли подключить на ходу.
+    pub fn hotplug(&self) -> bool {
+        !matches!(self, HostDev::Pci { .. })
+    }
+
+    /// Идентификатор в QEMU.
+    pub fn qemu_id(&self) -> String {
+        let h = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            match self {
+                HostDev::Block { path, .. } => path.hash(&mut h),
+                _ => self.spec().hash(&mut h),
+            }
+            h.finish() & 0xffff_ffff
+        };
+        let k = match self {
+            HostDev::UsbId { .. } => "usbid",
+            HostDev::Pci { .. } => "pci",
+            HostDev::Input { .. } => "input",
+            HostDev::Block { .. } => "blk",
+            HostDev::Serial { .. } => "ser",
+        };
+        format!("hd-{k}-{h:08x}")
+    }
+}
+
 /// Диск машины.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
 #[serde(default)]
@@ -287,6 +396,19 @@ pub struct Vm {
     pub shared_dir: String,
     /// USB-устройства компьютера, отданные гостю (по портам).
     pub usb: Vec<UsbPass>,
+    /// Прочие устройства компьютера: PCI, ввод, диски, последовательные порты, USB по VID:PID.
+    pub devices: Vec<HostDev>,
+    /// Как гость видит общую папку.
+    pub share_mode: ShareMode,
+    /// Канал гостевого агента (qemu-ga): команды, файлы, выключение без сети.
+    pub guest_agent: bool,
+    /// Второй привод с «Гостевыми инструментами» (virtio-win: драйверы, агент, spice-vdagent).
+    pub tools_cd: bool,
+    /// TPM компьютера вместо эмулятора (passthrough `/dev/tpmrm0`… — нужен доступ на запись).
+    pub tpm_host: bool,
+    /// Устройства PipeWire для звука гостя (пусто — по умолчанию).
+    pub audio_out: String,
+    pub audio_in: String,
     /// Цвет карточки.
     pub color: String,
     /// Дополнительные аргументы QEMU.
@@ -319,6 +441,13 @@ impl Default for Vm {
             clipboard: true,
             shared_dir: String::new(),
             usb: Vec::new(),
+            devices: Vec::new(),
+            share_mode: ShareMode::Auto,
+            guest_agent: true,
+            tools_cd: false,
+            tpm_host: false,
+            audio_out: String::new(),
+            audio_in: String::new(),
             color: String::new(),
             extra_args: String::new(),
         }
@@ -343,6 +472,10 @@ impl Vm {
 
     pub fn vnc_path(&self) -> PathBuf {
         self.run_dir().join("vnc.sock")
+    }
+
+    pub fn qga_path(&self) -> PathBuf {
+        self.run_dir().join("qga.sock")
     }
 
     pub fn pid_path(&self) -> PathBuf {
