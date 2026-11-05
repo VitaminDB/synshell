@@ -159,6 +159,11 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
 
     // USB: планшет — абсолютный указатель, курсор гостя совпадает с мышью.
     push(&["-device", "qemu-xhci,id=xhci", "-device", "usb-tablet,bus=xhci.0"]);
+    for u in &vm.usb {
+        if let Some(dev) = usb_host_device(&u.port) {
+            push(&["-device", &dev]);
+        }
+    }
 
     if vm.sound {
         let backend = if which("pipewire").is_some() || Path::new(&synshell_common::paths::runtime_dir()).join("pipewire-0").exists() { "pipewire" } else { "pa" };
@@ -186,6 +191,13 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
 
     a.extend(split_args(&vm.extra_args));
     Ok(a)
+}
+
+/// `usb-host` на физическом порту: QEMU сам подхватывает устройство после переподключения
+/// и смены режима (fastboot, recovery), пока машина работает.
+pub fn usb_host_device(port: &str) -> Option<String> {
+    let (bus, path) = crate::usb::split_port(port)?;
+    Some(format!("usb-host,bus=xhci.0,hostbus={bus},hostport={path},id={}", crate::usb::qemu_id(port)))
 }
 
 /// Запятая в путях `-drive file=…` удваивается.

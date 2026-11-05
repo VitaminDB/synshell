@@ -56,6 +56,19 @@ fn read_reply(r: &mut BufReader<UnixStream>) -> Result<Value> {
     }
 }
 
+/// Отдать гостю USB-порт на ходу.
+pub fn usb_attach(vm: &Vm, port: &str) -> Result<()> {
+    let Some((bus, path)) = crate::usb::split_port(port) else { bail!("USB: {port}") };
+    call(vm, "device_add", json!({"driver": "usb-host", "bus": "xhci.0", "hostbus": bus, "hostport": path, "id": crate::usb::qemu_id(port)}))?;
+    Ok(())
+}
+
+/// Вернуть USB-порт компьютеру на ходу.
+pub fn usb_detach(vm: &Vm, port: &str) -> Result<()> {
+    call(vm, "device_del", json!({"id": crate::usb::qemu_id(port)}))?;
+    Ok(())
+}
+
 /// Состояние QEMU: `running`, `paused`, `suspended`, `shutdown`, …
 pub fn status(vm: &Vm) -> Option<String> {
     let v = call_at(&vm.qmp_path(), "query-status", Value::Null, Duration::from_millis(800)).ok()?;

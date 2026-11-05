@@ -19,6 +19,7 @@ mod qemu;
 mod qmp;
 mod state;
 mod ui;
+mod usb;
 mod vnc;
 
 use std::io::{BufRead, BufReader, Write};

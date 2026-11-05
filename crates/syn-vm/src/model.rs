@@ -232,6 +232,16 @@ pub struct PortForward {
     pub guest: u16,
 }
 
+/// Проброшенное USB-устройство: физический порт компьютера.
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
+#[serde(default)]
+pub struct UsbPass {
+    /// Порт (`3-6`, `1-2.4`): любое устройство в нём уходит гостю.
+    pub port: String,
+    /// Что было в порту при добавлении — для подписи, когда порт пуст.
+    pub name: String,
+}
+
 /// Диск машины.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Default)]
 #[serde(default)]
@@ -275,6 +285,8 @@ pub struct Vm {
     pub clipboard: bool,
     /// Общая папка хоста (9p, метка `hostshare`).
     pub shared_dir: String,
+    /// USB-устройства компьютера, отданные гостю (по портам).
+    pub usb: Vec<UsbPass>,
     /// Цвет карточки.
     pub color: String,
     /// Дополнительные аргументы QEMU.
@@ -306,6 +318,7 @@ impl Default for Vm {
             sound: true,
             clipboard: true,
             shared_dir: String::new(),
+            usb: Vec::new(),
             color: String::new(),
             extra_args: String::new(),
         }

@@ -66,6 +66,8 @@ pub mod icons {
     pub const DNS: &str = "\u{E875}";
     pub const SPARK: &str = "\u{E65F}";
     pub const DEVICES: &str = "\u{E1B1}";
+    pub const USB: &str = "\u{E1E0}";
+    pub const REFRESH: &str = "\u{E5D5}";
     pub const SYNC: &str = "\u{E627}";
     pub const LAYERS: &str = "\u{E53B}";
     pub const HOURGLASS: &str = "\u{E88B}";
@@ -484,6 +486,37 @@ pub fn set_cdrom(st: St, id: &str, iso: String) {
             }
         });
     }
+}
+
+/// Отдать USB-порт машине или забрать: в настройки всегда, работающей — сразу.
+/// Порт без доступа на запись сначала открывается правилом udev (pkexec спросит пароль).
+pub fn set_usb(st: St, id: &str, port: String, on: bool) {
+    let Some(mut vm) = st.vm(id) else { return };
+    let had = vm.usb.iter().any(|u| u.port == port);
+    if on == had {
+        return;
+    }
+    if on {
+        let name = crate::usb::at(&port).map(|d| d.name).unwrap_or_default();
+        vm.usb.push(model::UsbPass { port: port.clone(), name });
+    } else {
+        vm.usb.retain(|u| u.port != port);
+    }
+    save_vm(st, vm.clone());
+    let running = st.power(id).on();
+    background(st, id, t!("USB…"), move || {
+        if on && crate::usb::at(&port).is_some_and(|d| !d.writable) && !crate::usb::allowed_ports().contains(&port) {
+            crate::usb::allow(std::slice::from_ref(&port))?;
+        }
+        if running {
+            if on {
+                crate::qmp::usb_attach(&vm, &port)?;
+            } else {
+                crate::qmp::usb_detach(&vm, &port)?;
+            }
+        }
+        Ok(None)
+    });
 }
 
 // ─── Экран ──────────────────────────────────────────────────────────────

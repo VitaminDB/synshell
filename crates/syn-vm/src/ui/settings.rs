@@ -25,6 +25,7 @@ pub fn page(st: St, narrow: bool) -> W {
         col = col.child(live(st, move |st, vm| boot(st, vm)));
         col = col.child(network(st, &vm));
         col = col.child(live(st, move |st, vm| devices(st, vm)));
+        col = col.child(live(st, move |st, vm| usb(st, vm)));
         col = col.child(advanced(st, &vm));
         vec![boxed(DecoratedBox::new().child(col).class(if narrow { "page narrow" } else { "page settings" }))]
     });
@@ -402,14 +403,70 @@ fn devices(st: St, vm: &Vm) -> W {
     )
 }
 
+/// USB-устройства компьютера: переключатель на каждый порт. Отданный порт пропадает у компьютера,
+/// пока машина работает; выбор привязан к порту, поэтому телефон в режимах fastboot и recovery
+/// остаётся у гостя.
+fn usb(st: St, vm: &Vm) -> W {
+    let host = crate::usb::list();
+    let mut col = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+    let mut ports: Vec<(String, String, String, bool)> = host
+        .iter()
+        .filter(|d| !d.hub)
+        .map(|d| {
+            let note = if d.writable { format!("{}:{}", d.vendor, d.product) } else { t!("{v}:{p} · нужен доступ (спросит пароль)", v = d.vendor, p = d.product) };
+            (d.port.clone(), d.name.clone(), note, true)
+        })
+        .collect();
+    for u in &vm.usb {
+        if !ports.iter().any(|p| p.0 == u.port) {
+            let name = if u.name.is_empty() { t!("Устройство") } else { u.name.clone() };
+            ports.push((u.port.clone(), name, t!("сейчас не подключено — подхватится само"), false));
+        }
+    }
+    for (port, name, note, present) in ports {
+        let on = vm.usb.iter().any(|u| u.port == port);
+        let id = vm.id.clone();
+        let p2 = port.clone();
+        col = col.child(
+            Row::new()
+                .gap(10.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(Icon::new(icons::USB).class(if present { "row-icon" } else { "row-icon dim" }))
+                .child(
+                    Column::new()
+                        .gap(2.0)
+                        .child(Text::new(name).max_lines(1).class("row-title"))
+                        .child(Text::new(t!("порт {p} · {n}", p = port, n = note)).max_lines(1).class("row-hint"))
+                        .class("grow"),
+                )
+                .child(Toggle::with_state(on).on_change(move |b| state::set_usb(st, &id, p2.clone(), b))),
+        );
+    }
+    if host.iter().all(|d| d.hub) && vm.usb.is_empty() {
+        col = col.child(Text::new(t!("USB-устройств не найдено")).class("row-hint"));
+    }
+    parts::section(
+        icons::USB,
+        t!("USB-устройства"),
+        vec![
+            row_wide(
+                t!("Отдать машине"),
+                t!("Устройство привязывается к порту компьютера: телефон в режиме fastboot или recovery остаётся у гостя. Пока машина работает, у компьютера его нет."),
+                col,
+            ),
+            row(t!("Список устройств"), t!("Обновить после подключения нового устройства"), Row::new().child(btn(icons::REFRESH, t!("Обновить"), "ghost", move || state::reload(st)))),
+        ],
+    )
+}
+
 fn advanced(st: St, vm: &Vm) -> W {
     let field = TextField::with_text(vm.extra_args.clone())
-        .placeholder(t!("например: -device usb-host,vendorid=0x1234,productid=0x5678"))
+        .placeholder(t!("например: -device virtio-rng-pci"))
         .submit_on_focus_lost(true)
         .on_submit(move |s: &str| {
             let s = s.trim().to_string();
             state::edit(st, |v| v.extra_args = s);
         })
         .class("field mono-field");
-    parts::section(icons::TERMINAL, t!("Дополнительно"), vec![row_wide(t!("Аргументы QEMU"), t!("Добавляются в конец командной строки — для USB-устройств, своих дисков и прочего"), field)])
+    parts::section(icons::TERMINAL, t!("Дополнительно"), vec![row_wide(t!("Аргументы QEMU"), t!("Добавляются в конец командной строки — для своих устройств, дисков и прочего"), field)])
 }
