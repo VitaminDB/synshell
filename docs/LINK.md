@@ -33,10 +33,10 @@ USB и в одной сети Wi-Fi и дают друг другу:
 
 | Часть | Где | Что делает |
 |---|---|---|
-| `synlink daemon` | `crates/synlink` | поиск, соединения, спаривание, вызовы, FUSE, уведомления, ssh |
+| `synlink daemon` | `crates/syn-link` | поиск, соединения, спаривание, вызовы, FUSE, уведомления, ssh |
 | протокол для программ | `synshell_common::link` | JSON-строки по `$XDG_RUNTIME_DIR/synlink.sock` |
-| `synlink` (CLI), `synlink mcp` | `crates/synlink` | команды и MCP-сервер поверх локального сокета |
-| `synlink-view` | `crates/synlink-view` | окно трансляции (виджет syngui `LiveView`) |
+| `synlink` (CLI), `synlink mcp` | `crates/syn-link` | команды и MCP-сервер поверх локального сокета |
+| `synlink-view` | `crates/syn-link-view` | окно трансляции (виджет syngui `LiveView`) |
 | оболочка | `synshell-ui/src/link.rs` | апплет `link`, окно «Устройства», шторка, диалог спаривания |
 | композитор | `synwm/src/remote.rs`, `stream.rs` | удалённый ввод и поток кадров (IPC `input`, `frame-stream`) |
 

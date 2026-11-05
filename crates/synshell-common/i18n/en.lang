@@ -1,7 +1,7 @@
 @tag = "en"
 @name = "English"
 
-# ../synmodem/src/bin/synmodem.rs
+# ../syn-modem/src/bin/synmodem.rs
 "synmodem status | watch | radio on|off | data on|off | sms [list] | sms send НОМЕР ТЕКСТ… | sms read НОМЕР\n         | dial НОМЕР | answer ID | hangup ID | dtmf ID ЦИФРА | calls | info | cell | esim | apn\n         | gnss [nmea] (местоположение раз в секунду; приёмник работает, пока команда идёт)\n         | req JSON (любой запрос протокола, например {\"request\":\"modes\"}; ответ — JSON)" = "synmodem status | watch | radio on|off | data on|off | sms [list] | sms send NUMBER TEXT… | sms read NUMBER\n         | dial NUMBER | answer ID | hangup ID | dtmf ID DIGIT | calls | info | cell | esim | apn\n         | gnss [nmea] (position once per second; the receiver runs while the command does)\n         | req JSON (any protocol request, e.g. {\"request\":\"modes\"}; the reply is JSON)"
 ", новое" = ", new"
 "{id} поставлено в отправку" = "{id} queued for sending"
@@ -11,14 +11,14 @@
 "{pos}; спутники {satellites_used}/{satellites_visible} [{v}]" = "{pos}; satellites {satellites_used}/{satellites_visible} [{v}]"
 "{id} {kind} {number} {duration} с, {time}" = "{id} {kind} {number} {duration} s, {time}"
 
-# ../synmodem/src/daemon.rs
+# ../syn-modem/src/daemon.rs
 "Роуминг: передача данных в роуминге выключена" = "Roaming: data roaming is off"
 "Запрос не выполнен" = "Request failed"
 "нет доступа к событиям" = "no access to events"
 "нет доступа к местоположению" = "no access to location"
 "запрос: {e}" = "request: {e}"
 
-# ../synmodem/src/euicc.rs
+# ../syn-modem/src/euicc.rs
 "тестовый" = "test"
 "служебный" = "provisioning"
 "рабочий" = "operational"
@@ -30,10 +30,10 @@
 "неизвестная ошибка" = "unknown error"
 "ошибка eUICC" = "eUICC error"
 
-# ../synmodem/src/gnss.rs
+# ../syn-modem/src/gnss.rs
 "ГЛОНАСС" = "GLONASS"
 
-# ../synmodem/src/lpa.rs
+# ../syn-modem/src/lpa.rs
 "Связь с eSIM" = "Talking to the eSIM"
 "Связь с сервером оператора" = "Contacting the carrier server"
 "Проверка сервера оператора" = "Verifying the carrier server"
@@ -47,10 +47,10 @@
 "lpac: {msg} ({data})" = "lpac: {msg} ({data})"
 "lpac завершился с кодом {c}: {err}" = "lpac exited with code {c}: {err}"
 
-# ../synmodem/src/qmi.rs
+# ../syn-modem/src/qmi.rs
 "SupsFailure (сеть отказала в услуге)" = "SupsFailure (the network refused the service)"
 
-# ../synmodem/src/time.rs
+# ../syn-modem/src/time.rs
 "янв" = "Jan"
 "фев" = "Feb"
 "мар" = "Mar"
@@ -170,17 +170,17 @@
 "Система" = "System"
 "Прочее" = "Other"
 
-# ../synsystem/src/backlight.rs
+# ../syn-system/src/backlight.rs
 "нет подсветки" = "no backlight"
 
-# ../synsystem/src/bluetooth.rs
+# ../syn-system/src/bluetooth.rs
 "нет адаптера Bluetooth" = "no Bluetooth adapter"
 
-# ../synsystem/src/geoclue_client.rs
+# ../syn-system/src/geoclue_client.rs
 "клиент GeoClue остановлен (агент отказал или служба перезапущена)" = "the GeoClue client stopped (the agent refused or the service restarted)"
 "сигналы GeoClue прекратились" = "GeoClue signals stopped"
 
-# ../synsystem/src/hwinfo.rs
+# ../syn-system/src/hwinfo.rs
 "Процессор" = "Processor"
 "Память" = "Memory"
 "Аккумулятор" = "Battery"
@@ -294,11 +294,11 @@
 "датчик не отвечает (нет ответа по шине камеры)" = "the sensor does not respond (no reply on the camera bus)"
 "{b} из {m}" = "{b} of {m}"
 
-# ../synsystem/src/memory.rs
+# ../syn-system/src/memory.rs
 "{v} ГБ" = "{v} GB"
 "{mb} МБ" = "{mb} MB"
 
-# ../synsystem/src/packages.rs
+# ../syn-system/src/packages.rs
 "локальный" = "local"
 "Версия" = "Version"
 "Сопровождающий" = "Maintainer"
@@ -328,7 +328,7 @@
 "Обновление системы" = "System update"
 "— шаг {v} из {n} —" = "— step {v} of {n} —"
 
-# ../synsystem/src/polkit_agent.rs
+# ../syn-system/src/polkit_agent.rs
 "polkit-агент сеанса: нет окна ввода пароля" = "session polkit agent: no password dialog"
 "polkit-агент: нет start-time процесса" = "polkit agent: no process start-time"
 "polkit-агент: системная шина: {e}" = "polkit agent: system bus: {e}"
@@ -341,23 +341,23 @@
 "Неверный пароль" = "Wrong password"
 "аутентификация не удалась" = "authentication failed"
 
-# ../synsystem/src/portal_files.rs
+# ../syn-system/src/portal_files.rs
 "Выбрать" = "Select"
 "портал выбора файлов: {e}" = "file chooser portal: {e}"
 
-# ../synsystem/src/sound.rs
+# ../syn-system/src/sound.rs
 "Динамический" = "Dynamic"
 "Кино" = "Movie"
 "Музыка" = "Music"
 "Свой" = "Custom"
 "Голос" = "Voice"
 
-# ../synsystem/src/time.rs
+# ../syn-system/src/time.rs
 "системная шина D-Bus: {e}" = "D-Bus system bus: {e}"
 "геосервисы не определили пояс" = "geolocation services did not determine the time zone"
 "нет связи с интернетом" = "no internet connection"
 
-# ../synsystem/src/vpn.rs
+# ../syn-system/src/vpn.rs
 "nmcli {v}: ошибка" = "nmcli {v}: error"
 "нет файла {p}" = "no file {p}"
 "поддерживаются .conf (WireGuard) и .ovpn (OpenVPN)" = ".conf (WireGuard) and .ovpn (OpenVPN) are supported"
@@ -365,7 +365,7 @@
 "нужны закрытый ключ, открытый ключ сервера и адрес сервера" = "a private key, the server's public key and the server address are required"
 "wg: {e} (нужен wireguard-tools)" = "wg: {e} (wireguard-tools is required)"
 
-# ../synsystem/src/wifi.rs
+# ../syn-system/src/wifi.rs
 "нужны права root: pkexec не найден" = "root rights are required: pkexec not found"
 "systemctl: код {v}" = "systemctl: code {v}"
 "{cmd}: код {v}" = "{cmd}: code {v}"

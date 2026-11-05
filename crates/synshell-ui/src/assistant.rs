@@ -8,9 +8,9 @@ use syngui::prelude::*;
 use syngui::widgets::visual::canvas::Canvas;
 use syngui::widgets::visual::MarkdownView;
 use syngui::widgets::{Stack, Tooltip};
-use synassist::agent::{Agent, AgentEvent, DaemonBackend};
-use synassist::chat::{Chat, Role, Store};
-use synassist_voice::{Phase, VisHandle, VoiceConfig, VoiceEvent};
+use syn_assist::agent::{Agent, AgentEvent, DaemonBackend};
+use syn_assist::chat::{Chat, Role, Store};
+use syn_assist_voice::{Phase, VisHandle, VoiceConfig, VoiceEvent};
 
 use syngui::StyleValue;
 use syngui::widgets::containers::Positioned;
@@ -250,7 +250,7 @@ fn dropped(p: Panel, data: DropData) {
 }
 
 fn is_video(path: &std::path::Path) -> bool {
-    synassist::attach::kind(path) == synassist::attach::Kind::Video
+    syn_assist::attach::kind(path) == syn_assist::attach::Kind::Video
 }
 
 /// Постер видео (миниатюра freedesktop) или `None`, пока он готовится —
@@ -314,7 +314,7 @@ fn stop_media() {
 }
 
 fn set_held(held: bool) {
-    synassist_voice::set_held(held);
+    syn_assist_voice::set_held(held);
     let p = panel();
     if p.held.get_untracked() != held {
         p.held.set(held);
@@ -396,7 +396,7 @@ fn autoplay(p: Panel) {
     let results = p.results.get_untracked();
     if let Some(f) = results.iter().find(|f| is_video(f)) {
         play_video(f);
-    } else if let Some(f) = results.iter().find(|f| synassist::attach::kind(f) == synassist::attach::Kind::Audio) {
+    } else if let Some(f) = results.iter().find(|f| syn_assist::attach::kind(f) == syn_assist::attach::Kind::Audio) {
         play_audio(f);
     }
 }
@@ -538,9 +538,9 @@ fn attachments_row(p: Panel) -> Box<dyn Widget> {
         }
         for (i, f) in files.iter().enumerate().filter(|(_, f)| !is_image(f) && !is_video(f)) {
             let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| f.to_string_lossy().into_owned());
-            let glyph = match synassist::attach::kind(f) {
-                synassist::attach::Kind::Audio => AUDIO,
-                synassist::attach::Kind::Pdf => PDF,
+            let glyph = match syn_assist::attach::kind(f) {
+                syn_assist::attach::Kind::Audio => AUDIO,
+                syn_assist::attach::Kind::Pdf => PDF,
                 _ => ATTACH,
             };
             row = row.child(Chip::new(name).icon(glyph).deletable().on_delete(move || remove(i)).class("assist-att"));
@@ -586,7 +586,7 @@ fn reply(p: Panel, yes: bool) {
 /// «Стоп»: прервать ответ, генерацию в службе и озвучку.
 fn stop(p: Panel) {
     shared().cancel.store(true, Ordering::Relaxed);
-    synassist_voice::stop_speaking();
+    syn_assist_voice::stop_speaking();
     reply(p, false);
 }
 
@@ -596,14 +596,14 @@ pub(crate) fn build_agent(cfg: &synshell_common::config::Assistant) -> Agent {
     let mut agent = Agent::configured(Arc::new(DaemonBackend), &cfg.disabled_tools, cfg.auto_approve, cfg.autocompact);
     agent = agent.approve(&cfg.approved_tools);
     if cfg.memory {
-        agent = agent.with_memory(synassist::memory::resolve(&cfg.memory_dir));
+        agent = agent.with_memory(syn_assist::memory::resolve(&cfg.memory_dir));
     }
     if cfg.skills {
-        agent = agent.with_skills(synassist::skills::resolve(&cfg.skills_dir));
+        agent = agent.with_skills(syn_assist::skills::resolve(&cfg.skills_dir));
     }
-    agent = agent.with_knowledge(cfg.knowledge.iter().map(|k| synassist::builtin::expand(k)).collect());
+    agent = agent.with_knowledge(cfg.knowledge.iter().map(|k| syn_assist::builtin::expand(k)).collect());
     agent = agent.with_instructions(&cfg.instructions);
-    agent.with_recipes(synassist::pipeline::resolve(&cfg.recipes_dir))
+    agent.with_recipes(syn_assist::pipeline::resolve(&cfg.recipes_dir))
 }
 
 fn ask(p: Panel, text: String, voice: bool) {
@@ -639,7 +639,7 @@ fn ask(p: Panel, text: String, voice: bool) {
             let cfg = synshell_common::Config::load().0.assistant;
             let mut agent = build_agent(&cfg);
             if voice {
-                agent.system = Some(synassist::prompt::build_voice(&agent.tools));
+                agent.system = Some(syn_assist::prompt::build_voice(&agent.tools));
             }
             let confirm = move |_: &str, summary: &str| -> bool {
                 let (tx, rx) = channel();
@@ -654,9 +654,9 @@ fn ask(p: Panel, text: String, voice: bool) {
                 // Перед долгим инструментом голосом сразу «сейчас сделаю» —
                 // и только потом инструмент (агент ждёт, пока фраза звучит).
                 if let (Some(cfg), AgentEvent::Message(m)) = (&voice_cfg, &ev) {
-                    if let Some(phrase) = synassist::prompt::before_tools(m, &starting) {
+                    if let Some(phrase) = syn_assist::prompt::before_tools(m, &starting) {
                         run_on_main_thread(move || p.phase.set(Phase::Speaking));
-                        let _ = synassist_voice::say(cfg, &phrase);
+                        let _ = syn_assist_voice::say(cfg, &phrase);
                         run_on_main_thread(move || p.phase.set(Phase::Thinking));
                     }
                 }
@@ -685,14 +685,14 @@ fn ask(p: Panel, text: String, voice: bool) {
             });
             let _ = store.save(&chat);
             let id = chat.id.clone();
-            let answer = synassist::prompt::final_answer(&chat.messages[from.min(chat.messages.len())..]);
+            let answer = syn_assist::prompt::final_answer(&chat.messages[from.min(chat.messages.len())..]);
             let result = match &r {
                 Ok(()) => Ok(answer.clone()),
                 Err(e) => Err(e.clone()),
             };
             // До ответа разговору: он озвучит ответ и сразу перейдёт к «слушаю».
             let playable = chat.messages[from.min(chat.messages.len())..].iter().filter(|m| m.role == Role::Tool).flat_map(|m| &m.files).any(|f| {
-                f.exists() && matches!(synassist::attach::kind(f), synassist::attach::Kind::Video | synassist::attach::Kind::Audio)
+                f.exists() && matches!(syn_assist::attach::kind(f), syn_assist::attach::Kind::Video | syn_assist::attach::Kind::Audio)
             });
             AUTOPLAY.store(voice && r.is_ok() && playable, Ordering::Release);
             if let Some(tx) = shared().turn.lock().unwrap().take() {
@@ -707,18 +707,18 @@ fn ask(p: Panel, text: String, voice: bool) {
                 p.busy.set(false);
                 p.confirm.set(None);
                 if speak_after && !answer.is_empty() {
-                    speak(p, synassist_voice::strip_markdown(&answer));
+                    speak(p, syn_assist_voice::strip_markdown(&answer));
                 }
             });
         })
         .ok();
 }
 
-fn listener(p: Panel) -> synassist_voice::Listener {
+fn listener(p: Panel) -> syn_assist_voice::Listener {
     Arc::new(move |ev: VoiceEvent| {
         run_on_main_thread(move || {
-            if !popup_open() && synassist_voice::conversation_running() {
-                synassist_voice::stop_conversation();
+            if !popup_open() && syn_assist_voice::conversation_running() {
+                syn_assist_voice::stop_conversation();
             }
             match ev {
                 VoiceEvent::Phase(ph) => {
@@ -741,7 +741,7 @@ fn listener(p: Panel) -> synassist_voice::Listener {
     })
 }
 
-fn turn(p: Panel) -> synassist_voice::Turn {
+fn turn(p: Panel) -> syn_assist_voice::Turn {
     Arc::new(move |text: String| -> Result<String, String> {
         let (tx, rx) = channel::<Result<String, String>>();
         *shared().turn.lock().unwrap() = Some(tx);
@@ -761,12 +761,12 @@ fn start_voice(p: Panel) {
     p.note.set(None);
     p.heard.set(String::new());
     p.muted.set(false);
-    synassist_voice::set_muted(false);
-    synassist_voice::start_conversation(VoiceConfig::load(), turn(p), listener(p));
+    syn_assist_voice::set_muted(false);
+    syn_assist_voice::start_conversation(VoiceConfig::load(), turn(p), listener(p));
 }
 
 fn stop_voice(p: Panel) {
-    synassist_voice::stop_conversation();
+    syn_assist_voice::stop_conversation();
     if let Some(tx) = shared().turn.lock().unwrap().take() {
         let _ = tx.send(Err(String::new()));
     }
@@ -776,7 +776,7 @@ fn stop_voice(p: Panel) {
 
 fn speak(p: Panel, text: String) {
     p.speaking.set(true);
-    synassist_voice::speak(
+    syn_assist_voice::speak(
         VoiceConfig::load(),
         text,
         Arc::new(move |_: Result<(), String>| run_on_main_thread(move || p.speaking.set(false))),
@@ -784,12 +784,12 @@ fn speak(p: Panel, text: String) {
 }
 
 fn toggle_dictation(p: Panel) {
-    if synassist_voice::dictating() {
-        synassist_voice::toggle_dictation(VoiceConfig::load(), listener(p), Arc::new(|_| {}));
+    if syn_assist_voice::dictating() {
+        syn_assist_voice::toggle_dictation(VoiceConfig::load(), listener(p), Arc::new(|_| {}));
         return;
     }
     p.dictating.set(true);
-    let started = synassist_voice::toggle_dictation(
+    let started = syn_assist_voice::toggle_dictation(
         VoiceConfig::load(),
         listener(p),
         Arc::new(move |r: Result<String, String>| {
@@ -897,9 +897,9 @@ fn voice_stage(p: Panel) -> Box<dyn Widget> {
             _ => (MIC, t!("Подождите…")),
         };
         let btn = Button::new("").icon(glyph).class("btn assist-center").on_click(move || match phase {
-            Phase::Speaking => synassist_voice::stop_speaking(),
+            Phase::Speaking => syn_assist_voice::stop_speaking(),
             Phase::Listening => {
-                synassist_voice::set_muted(!muted);
+                syn_assist_voice::set_muted(!muted);
                 p.muted.set(!muted);
             }
             Phase::Thinking => stop(p),
@@ -966,13 +966,13 @@ fn voice_stage(p: Panel) -> Box<dyn Widget> {
         let mut row = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).main_axis_alignment(MainAxisAlignment::Center);
         row = row.child(tip(
             Button::new("").icon(if muted { MIC_OFF } else { MIC }).class(if muted { "btn assist-act off" } else { "btn assist-act" }).on_click(move || {
-                synassist_voice::set_muted(!muted);
+                syn_assist_voice::set_muted(!muted);
                 p.muted.set(!muted);
             }),
             if muted { t!("Включить микрофон") } else { t!("Выключить микрофон") },
         ));
         if speaking {
-            row = row.child(tip(Button::new("").icon(STOP).class("btn assist-act").on_click(|| synassist_voice::stop_speaking()), t!("Замолчать")));
+            row = row.child(tip(Button::new("").icon(STOP).class("btn assist-act").on_click(|| syn_assist_voice::stop_speaking()), t!("Замолчать")));
         }
         row = row.child(tip(Button::new("").icon(KEYBOARD).class("btn assist-act").on_click(move || stop_voice(p)), t!("Вернуться к тексту")));
         row = row.child(tip(Button::new("").icon(CALL_END).class("btn assist-act end").on_click(move || stop_voice(p)), t!("Завершить")));
@@ -1086,9 +1086,9 @@ pub fn view(_ctx: ShellCtx) -> impl Widget {
             if !answer.is_empty() {
                 row = row.child(tip(Button::new("").icon(COPY).class("btn assist-act small").on_click(move || syngui::clipboard::copy(&a1)), t!("Копировать")));
                 if speaking {
-                    row = row.child(tip(Button::new("").icon(STOP).class("btn assist-act small").on_click(|| synassist_voice::stop_speaking()), t!("Остановить озвучку")));
+                    row = row.child(tip(Button::new("").icon(STOP).class("btn assist-act small").on_click(|| syn_assist_voice::stop_speaking()), t!("Остановить озвучку")));
                 } else {
-                    row = row.child(tip(Button::new("").icon(VOLUME_UP).class("btn assist-act small").on_click(move || speak(p, synassist_voice::strip_markdown(&a2))), t!("Прочитать вслух")));
+                    row = row.child(tip(Button::new("").icon(VOLUME_UP).class("btn assist-act small").on_click(move || speak(p, syn_assist_voice::strip_markdown(&a2))), t!("Прочитать вслух")));
                 }
             }
             row = row
@@ -1138,7 +1138,7 @@ fn results_view(results: Vec<std::path::PathBuf>, indent: bool) -> Box<dyn Widge
             col = col.child(video_tile(f.clone()));
             continue;
         }
-        if synassist::attach::kind(&f) == synassist::attach::Kind::Audio {
+        if syn_assist::attach::kind(&f) == syn_assist::attach::Kind::Audio {
             col = col.child(audio_row(f.clone()));
             continue;
         }
@@ -1151,7 +1151,7 @@ fn results_view(results: Vec<std::path::PathBuf>, indent: bool) -> Box<dyn Widge
                 None => Box::new(Chip::new(f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()).icon(PLAY).class("assist-att")),
             }
         } else {
-            let glyph = if synassist::attach::kind(&f) == synassist::attach::Kind::Audio { AUDIO } else { ATTACH };
+            let glyph = if syn_assist::attach::kind(&f) == syn_assist::attach::Kind::Audio { AUDIO } else { ATTACH };
             Box::new(Chip::new(f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()).icon(glyph).class("assist-att"))
         };
         let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();

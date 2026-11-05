@@ -1,5 +1,5 @@
 //! Местоположение для программ: оболочка — агент GeoClue
-//! ([`synsystem::geoclue_agent`]). Решение — по `[location]` конфига
+//! ([`syn_system::geoclue_agent`]). Решение — по `[location]` конфига
 //! (выключатель, разрешённые и запрещённые навсегда); незнакомую программу
 //! спрашивает диалогом по центру экрана: «Запретить», «Только сейчас» (до
 //! перезапуска оболочки), «Разрешить».
@@ -12,7 +12,7 @@ use syngui::async_runtime::run_on_main_thread;
 use syngui::input::MouseButton;
 use syngui::prelude::*;
 use synshell_common::config::Config;
-use synsystem::geoclue_agent::{self, Decision, Handle, LocationRequest, Policy, Prompter};
+use syn_system::geoclue_agent::{self, Decision, Handle, LocationRequest, Policy, Prompter};
 
 use crate::ctx::{PopupKind, ShellCtx};
 use crate::ui::{icon, InputArea};

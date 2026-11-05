@@ -14,7 +14,7 @@ pub const SHELL_SCOPE: &str = ".te-scope-shell";
 pub const SETTINGS_SCOPE: &str = ".te-scope-settings";
 
 const SHELL_MSS: &str = include_str!("../../synshell-ui/styles/shell.mss");
-const SETTINGS_MSS: &str = include_str!("../../synsettings/styles/settings.mss");
+const SETTINGS_MSS: &str = include_str!("../../syn-settings/styles/settings.mss");
 
 /// Конфиг, каким его увидят программы с этой темой: схема `dark`, тема как
 /// есть (без своего акцента и цветов пользователя), рекомендуемая форма.

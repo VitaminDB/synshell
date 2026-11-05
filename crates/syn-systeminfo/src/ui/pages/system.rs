@@ -78,7 +78,7 @@ pub fn memory(cx: &Cx, s: &Snap) -> Vec<W> {
         out.push(boxed(parts::card(col)));
     }
     // Больше всего памяти.
-    let mut top: Vec<&synsystem::procs::Process> = s.procs.iter().filter(|p| p.rss_kb > 0).collect();
+    let mut top: Vec<&syn_system::procs::Process> = s.procs.iter().filter(|p| p.rss_kb > 0).collect();
     top.sort_by(|a, b| b.rss_kb.cmp(&a.rss_kb));
     let max = top.first().map(|p| p.rss_kb).unwrap_or(1).max(1);
     let mut col = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(parts::card_head(icons::LIST, t!("Больше всего памяти"), Some(t!("RSS")), color));

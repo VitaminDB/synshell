@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use syngui::prelude::*;
-use synsystem::packages::{self as pk, JobEvent, Op};
+use syn_system::packages::{self as pk, JobEvent, Op};
 
 use super::{boxed, icon, icons, progress, Phase, St, W};
 use crate::gst::{GstPkg, Missing};

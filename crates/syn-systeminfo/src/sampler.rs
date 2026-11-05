@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
 use syngui::prelude::*;
-use synsystem::Sys;
+use syn_system::Sys;
 
 use crate::state::Page;
 
@@ -67,7 +67,7 @@ pub struct History {
 /// Интерфейс со скоростью.
 #[derive(Clone, Default)]
 pub struct Iface {
-    pub info: synsystem::network::Interface,
+    pub info: syn_system::network::Interface,
     pub rx_bps: f64,
     pub tx_bps: f64,
     pub addrs: Vec<String>,
@@ -102,33 +102,33 @@ pub struct App {
 #[derive(Clone, Default)]
 pub struct Snap {
     pub ticks: u64,
-    pub cpu: synsystem::cpu::CpuSnapshot,
+    pub cpu: syn_system::cpu::CpuSnapshot,
     pub cpu_model: Option<String>,
     pub device_model: Option<String>,
     pub kernel: String,
-    pub clusters: Vec<synsystem::cpu::Cluster>,
+    pub clusters: Vec<syn_system::cpu::Cluster>,
     pub load: Option<([f32; 3], u32)>,
     pub uptime: u64,
-    pub mem: synsystem::memory::Detail,
+    pub mem: syn_system::memory::Detail,
     pub swaps: Vec<(String, String, u64, u64)>,
     /// PSI: процессор, память, ввод-вывод, % за 10 с.
     pub pressure: [Option<f32>; 3],
-    pub gpus: Vec<synsystem::gpu::GpuDevice>,
+    pub gpus: Vec<syn_system::gpu::GpuDevice>,
     /// Видеопамять по процессам: pid, имя, байт.
     pub gpu_procs: Vec<(i32, String, u64)>,
-    pub npu: Option<synsystem::npu::Npu>,
+    pub npu: Option<syn_system::npu::Npu>,
     pub npu_cache: Option<u64>,
     pub models: Option<Vec<Model>>,
     pub net: Vec<Iface>,
-    pub disks: Vec<synsystem::disk::Disk>,
-    pub mounts: Vec<synsystem::disk::Mount>,
-    pub temps: Vec<synsystem::thermal::Sensor>,
+    pub disks: Vec<syn_system::disk::Disk>,
+    pub mounts: Vec<syn_system::disk::Mount>,
+    pub temps: Vec<syn_system::thermal::Sensor>,
     pub cpu_temp: Option<f32>,
     pub gpu_temp: Option<f32>,
-    pub battery: Option<synsystem::battery::Battery>,
-    pub batteries: Vec<synsystem::battery::BatteryInfo>,
+    pub battery: Option<syn_system::battery::Battery>,
+    pub batteries: Vec<syn_system::battery::BatteryInfo>,
     pub adc_volt: Option<f32>,
-    pub procs: Vec<synsystem::procs::Process>,
+    pub procs: Vec<syn_system::procs::Process>,
     /// Окна (нет композитора synwm — None).
     pub apps: Option<Vec<App>>,
     pub hist: History,
@@ -195,10 +195,10 @@ pub fn once() -> Snap {
 
 struct Sampler {
     sys: Sys,
-    cpu: synsystem::cpu::CpuSampler,
-    procs: synsystem::procs::ProcessTable,
-    npu: synsystem::npu::NpuSampler,
-    disks: synsystem::disk::DiskSampler,
+    cpu: syn_system::cpu::CpuSampler,
+    procs: syn_system::procs::ProcessTable,
+    npu: syn_system::npu::NpuSampler,
+    disks: syn_system::disk::DiskSampler,
     last_net: HashMap<String, (u64, u64)>,
     last_at: Option<std::time::Instant>,
     snap: Snap,
@@ -208,17 +208,17 @@ impl Sampler {
     fn new() -> Self {
         let sys = Sys::host();
         let snap = Snap {
-            cpu_model: synsystem::cpu::model(&sys),
-            device_model: synsystem::cpu::device_model(&sys),
+            cpu_model: syn_system::cpu::model(&sys),
+            device_model: syn_system::cpu::device_model(&sys),
             kernel: kernel(),
-            clusters: synsystem::cpu::clusters(&sys),
+            clusters: syn_system::cpu::clusters(&sys),
             ..Default::default()
         };
         Sampler {
-            cpu: synsystem::cpu::CpuSampler::new(sys.clone()),
-            procs: synsystem::procs::ProcessTable::new(sys.clone()),
-            npu: synsystem::npu::NpuSampler::new(sys.clone()),
-            disks: synsystem::disk::DiskSampler::new(sys.clone()),
+            cpu: syn_system::cpu::CpuSampler::new(sys.clone()),
+            procs: syn_system::procs::ProcessTable::new(sys.clone()),
+            npu: syn_system::npu::NpuSampler::new(sys.clone()),
+            disks: syn_system::disk::DiskSampler::new(sys.clone()),
             last_net: HashMap::new(),
             last_at: None,
             snap,
@@ -237,17 +237,17 @@ impl Sampler {
         self.last_at = Some(now);
 
         s.cpu = self.cpu.sample();
-        s.load = synsystem::cpu::load_average(sys);
-        s.uptime = synsystem::cpu::uptime_secs(sys).unwrap_or(0);
-        s.mem = synsystem::memory::detail(sys).unwrap_or_default();
+        s.load = syn_system::cpu::load_average(sys);
+        s.uptime = syn_system::cpu::uptime_secs(sys).unwrap_or(0);
+        s.mem = syn_system::memory::detail(sys).unwrap_or_default();
         if every(5) {
-            s.swaps = synsystem::memory::swaps(sys);
+            s.swaps = syn_system::memory::swaps(sys);
         }
-        s.pressure = ["cpu", "memory", "io"].map(|r| synsystem::memory::pressure(sys, r));
-        s.gpus = synsystem::gpu::devices(sys);
+        s.pressure = ["cpu", "memory", "io"].map(|r| syn_system::memory::pressure(sys, r));
+        s.gpus = syn_system::gpu::devices(sys);
         if matches!(page, Page::Vram | Page::Gpu) && every(2) {
             let names: HashMap<i32, String> = s.procs.iter().map(|p| (p.pid, p.name.clone())).collect();
-            s.gpu_procs = synsystem::gpu::process_memory(sys)
+            s.gpu_procs = syn_system::gpu::process_memory(sys)
                 .into_iter()
                 .map(|(pid, b)| (pid, names.get(&pid).cloned().or_else(|| sys.read(format!("/proc/{pid}/comm"))).unwrap_or_else(|| pid.to_string()), b))
                 .collect();
@@ -255,15 +255,15 @@ impl Sampler {
         s.npu = self.npu.sample();
         if page == Page::Npu || page == Page::Gpu {
             if s.npu.as_ref().is_some_and(|n| n.vendor == "qualcomm") && (s.npu_cache.is_none() || every(30)) {
-                s.npu_cache = Some(synsystem::npu::dir_size(sys, synsystem::npu::GRAPH_CACHE));
+                s.npu_cache = Some(syn_system::npu::dir_size(sys, syn_system::npu::GRAPH_CACHE));
             }
             if every(3) || s.models.is_none() {
                 s.models = models();
             }
         }
         // Сеть: скорость по разности счётчиков.
-        let ifaces = synsystem::network::interfaces(sys);
-        let addrs = if every(5) || s.net.is_empty() { Some(synsystem::network::addresses()) } else { None };
+        let ifaces = syn_system::network::interfaces(sys);
+        let addrs = if every(5) || s.net.is_empty() { Some(syn_system::network::addresses()) } else { None };
         let old: HashMap<String, Vec<String>> = s.net.iter().map(|i| (i.info.name.clone(), i.addrs.clone())).collect();
         s.net = ifaces
             .into_iter()
@@ -282,18 +282,18 @@ impl Sampler {
         self.last_net = s.net.iter().map(|i| (i.info.name.clone(), (i.info.rx_bytes, i.info.tx_bytes))).collect();
         s.disks = self.disks.sample();
         if every(5) || s.mounts.is_empty() {
-            s.mounts = synsystem::disk::mounts(sys);
+            s.mounts = syn_system::disk::mounts(sys);
         }
         if every(2) || s.temps.is_empty() {
-            let mut t = synsystem::thermal::sensors(sys);
-            s.cpu_temp = synsystem::thermal::cpu_celsius(&t);
-            s.gpu_temp = synsystem::thermal::gpu_celsius(&t).or_else(|| s.gpus.iter().find_map(|g| g.temp_c));
+            let mut t = syn_system::thermal::sensors(sys);
+            s.cpu_temp = syn_system::thermal::cpu_celsius(&t);
+            s.gpu_temp = syn_system::thermal::gpu_celsius(&t).or_else(|| s.gpus.iter().find_map(|g| g.temp_c));
             t.sort_by(|a, b| b.celsius.total_cmp(&a.celsius));
             s.temps = t;
         }
-        s.battery = synsystem::battery::read(sys);
-        s.batteries = synsystem::battery::batteries(sys);
-        s.adc_volt = if s.battery.is_none() { synsystem::battery::adc_voltage(sys) } else { None };
+        s.battery = syn_system::battery::read(sys);
+        s.batteries = syn_system::battery::batteries(sys);
+        s.adc_volt = if s.battery.is_none() { syn_system::battery::adc_voltage(sys) } else { None };
         if every(2) || s.procs.is_empty() {
             s.procs = self.procs.sample();
             s.apps = apps(&s.procs);
@@ -337,14 +337,14 @@ fn pct(used: u64, total: u64) -> f32 {
 }
 
 /// Окна композитора с суммой по процессу окна и его потомкам.
-fn apps(procs: &[synsystem::procs::Process]) -> Option<Vec<App>> {
+fn apps(procs: &[syn_system::procs::Process]) -> Option<Vec<App>> {
     use synshell_common::ipc::{Client, Request, Response};
     let Ok(Response::Windows { windows }) = Client::connect().ok()?.request(&Request::Windows) else { return None };
     let mut children: HashMap<i32, Vec<i32>> = HashMap::new();
     for p in procs {
         children.entry(p.ppid).or_default().push(p.pid);
     }
-    let by_pid: HashMap<i32, &synsystem::procs::Process> = procs.iter().map(|p| (p.pid, p)).collect();
+    let by_pid: HashMap<i32, &syn_system::procs::Process> = procs.iter().map(|p| (p.pid, p)).collect();
     let mut out: Vec<App> = windows
         .into_iter()
         .filter(|w| !w.skip_taskbar)

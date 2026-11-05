@@ -1,5 +1,5 @@
 //! syn-screencast — демонстрация экрана для портала synshell (бэкенд
-//! `org.freedesktop.impl.portal.ScreenCast` в оболочке, `synsystem::portal_screencast`).
+//! `org.freedesktop.impl.portal.ScreenCast` в оболочке, `syn_system::portal_screencast`).
 //!
 //! Кадры берутся у synwm по wlr-screencopy прямо в память буферов PipeWire: буферы — memfd,
 //! которые выделяет PipeWire, из того же fd делается пул wl_shm, и композитор рисует кадр

@@ -452,7 +452,7 @@ mod tests {
                     let ctx = crate::ShellCtx::new(cfg_clone(), synshell_common::config::FormFactor::Desktop);
                     provide_context(ctx);
                     snap().set(fetch());
-                    let vram = synsystem::gpu::devices(&synsystem::Sys::host()).into_iter().find_map(|g| Some((g.mem_used?, g.mem_total, g.name)));
+                    let vram = syn_system::gpu::devices(&syn_system::Sys::host()).into_iter().find_map(|g| Some((g.mem_used?, g.mem_total, g.name)));
                     data::snap().set(data::Snap { vram, ..Default::default() });
                     let pad = 12.0;
                     let cx = Cx { w: w - 2.0 * pad, h: h - 2.0 * pad - 28.0, color: Color::from_hex("#7aa2f7"), view: view.into(), history: 60 };

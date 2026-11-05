@@ -1,5 +1,5 @@
 //! Окно пароля polkit для программ сеанса: `pkexec` без своего агента (GParted из
-//! меню и любые другие). Агент сеанса — [`synsystem::polkit_agent`] (субъект
+//! меню и любые другие). Агент сеанса — [`syn_system::polkit_agent`] (субъект
 //! `unix-session`), он живёт в процессе оболочки. Его запросы приходят из рабочего
 //! потока, поэтому окно открывается через сигнал в главном потоке.
 
@@ -10,7 +10,7 @@ use syngui::async_runtime::run_on_main_thread;
 use syngui::prelude::*;
 use syngui::GestureDetector;
 use syngui_layer::{Anchor, KeyInfo, KeyboardInteractivity, Layer, SurfaceHooks, SurfaceId, SurfaceSpec};
-use synsystem::polkit_agent::{self, AuthRequest, AuthResponse, Prompter};
+use syn_system::polkit_agent::{self, AuthRequest, AuthResponse, Prompter};
 
 use crate::ctx::ShellCtx;
 use crate::ui::{icon, mi, rx};

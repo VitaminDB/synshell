@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use syngui::async_runtime::run_on_main_thread;
 use syngui::prelude::*;
-use synsystem::time::{self as systime, TimeStatus};
+use syn_system::time::{self as systime, TimeStatus};
 
 use crate::ctx::ShellCtx;
 use crate::ui::{icon, mi};

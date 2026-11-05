@@ -166,7 +166,7 @@ pub fn lock_now(ctx: ShellCtx) {
         return;
     }
     // За блокировкой запомненный пароль sudo действовать не должен.
-    synsystem::polkit_agent::forget();
+    syn_system::polkit_agent::forget();
     let st = state();
     st.error.set(String::new());
     st.checking.set(false);

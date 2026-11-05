@@ -19,7 +19,7 @@ pkgname=(synshell synshell-core synshell-mobile synshell-game synshell-link syns
          syn-remote syn-systeminfo syn-themeeditor syn-woman-cycle syndroid syn-wine-helper
          syncamera syn-blocks syn-epdtest mss-lsp)
 pkgver=0.1.42
-pkgrel=184
+pkgrel=185
 pkgdesc="Окружение рабочего стола для Wayland на Rust и syngui"
 arch=('x86_64' 'aarch64')
 url="https://github.com/VitaminDB/synshell"
@@ -45,6 +45,22 @@ _ai_bins=(synassistant)
 _app_crates=(syn-notes syn-vm syn-video-player syn-audio-player syn-audio-recorder synpass syn-maps syn-remote
              syn-systeminfo syn-themeeditor syn-woman-cycle syndroid syn-wine-helper syncamera syn-blocks syn-epdtest)
 
+# Программа → крейт (каталог crates/<крейт>): крейты переименованы к syn-<имя>, программы — нет.
+# (case, а не declare -A: makepkg подключает PKGBUILD внутри функции, и таблица была бы локальной).
+_crate() {
+    case "$1" in
+        synwm) echo syn-wm ;; syndesktop-shell) echo syn-desktop-shell ;; synlogin) echo syn-login ;;
+        synkeyboard) echo syn-keyboard ;; synshot) echo syn-shot ;; synsettings) echo syn-settings ;;
+        synfiles) echo syn-files ;; synpkg) echo syn-pkg ;; synfsd) echo syn-fsd ;;
+        synmobile-shell) echo syn-mobile-shell ;; synmodem|synmodemd) echo syn-modem ;; synphone) echo syn-phone ;;
+        synsms) echo syn-sms ;; synnfc|synnfcd) echo syn-nfcd ;; syngame-shell) echo syn-game-shell ;;
+        syngamepad) echo syn-gamepad ;; synlink) echo syn-link ;; synlink-view) echo syn-link-view ;;
+        synassistant) echo syn-assistant ;; synpass) echo syn-pass ;; syncamera) echo syn-camera ;;
+        syndroid|syndroidd) echo syn-droid ;;
+        *) echo "$1" ;;
+    esac
+}
+
 # Каталог рабочей копии syngui: соседний ../syngui при разработке или git-checkout cargo.
 _syngui_dir() {
     cargo metadata --format-version 1 2>/dev/null | grep -o '"manifest_path":"[^"]*/mss-analysis/Cargo.toml"' \
@@ -54,10 +70,10 @@ _syngui_dir() {
 build() {
     cd "$startdir/.."
     local p=() c
-    # Крейт synmodem даёт synmodem и synmodemd, synnfc — synnfc и synnfcd, syndroid — syndroid и syndroidd.
-    for c in "${_core_bins[@]}" synmobile-shell synmodem synphone synsms synnfc syn-nfc syn-compass syn-health \
-             "${_game_bins[@]}" "${_link_bins[@]}" "${_ai_bins[@]}" "${_app_crates[@]}"; do
-        p+=(-p "$c")
+    # Крейт syn-modem даёт synmodem и synmodemd, syn-nfcd — synnfc и synnfcd, syn-droid — syndroid и syndroidd.
+    for c in "${_core_bins[@]}" "${_mobile_bins[@]}" "${_game_bins[@]}" "${_link_bins[@]}" "${_ai_bins[@]}" "${_app_crates[@]}"; do
+        c=$(_crate "$c")
+        [[ " ${p[*]} " == *" $c "* ]] || p+=(-p "$c")
     done
     cargo build --profile "$_profile" "${p[@]}"
     cargo build --profile "$_profile" -p synaptixd --bins --features "$(echo "$_synaptix_features" | sed 's/[^,]*/synaptixd\/&/g')"
@@ -68,7 +84,7 @@ build() {
 
 check() {
     cd "$startdir/.."
-    cargo test --profile "$_profile" -p synshell-common -p synwm -p synshot -p synlogin -p synpass
+    cargo test --profile "$_profile" -p synshell-common -p syn-wm -p syn-shot -p syn-login -p syn-pass
 }
 
 # Программа: файл в /usr/bin.
@@ -78,7 +94,7 @@ _bin() {
 
 # Ярлык и значок приложения из crates/<имя>/data (что есть).
 _desktop() {
-    local d="$startdir/../crates/$1/data"
+    local d="$startdir/../crates/$(_crate "$1")/data"
     [ -f "$d/$1.desktop" ] && install -Dm644 "$d/$1.desktop" "$pkgdir/usr/share/applications/$1.desktop"
     [ -f "$d/icons/$1.svg" ] && install -Dm644 "$d/icons/$1.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/$1.svg"
     [ -f "$d/icons/$1.png" ] && install -Dm644 "$d/icons/$1.png" "$pkgdir/usr/share/icons/hicolor/256x256/apps/$1.png"
@@ -142,7 +158,7 @@ package_synshell-core() {
     local b
     for b in "${_core_bins[@]}"; do _bin "$b"; done
     for b in synsettings synpkg synfiles synshot syn-terminal; do _desktop "$b"; done
-    install -Dm644 crates/synfiles/data/synfiles-viewer.desktop "$pkgdir/usr/share/applications/synfiles-viewer.desktop"
+    install -Dm644 crates/syn-files/data/synfiles-viewer.desktop "$pkgdir/usr/share/applications/synfiles-viewer.desktop"
     install -Dm755 data/synshell-session "$pkgdir/usr/bin/synshell-session"
     ln -s synwm "$pkgdir/usr/bin/syndesktop"   # совместимость: старое имя композитора
     install -Dm644 data/synshell.desktop "$pkgdir/usr/share/wayland-sessions/synshell.desktop"
@@ -157,16 +173,16 @@ package_synshell-core() {
     install -Dm644 data/synshell-portals.conf "$pkgdir/usr/share/xdg-desktop-portal/synshell-portals.conf"
     install -Dm644 data/synshell.portal "$pkgdir/usr/share/xdg-desktop-portal/portals/synshell.portal"
     # «Программы»: pacman через pkexec с отменой задания и своё правило polkit.
-    install -Dm755 crates/synpkg/data/pacman-helper "$pkgdir/usr/lib/synpkg/pacman-helper"
-    install -Dm644 crates/synpkg/data/org.synshell.synpkg.policy "$pkgdir/usr/share/polkit-1/actions/org.synshell.synpkg.policy"
+    install -Dm755 crates/syn-pkg/data/pacman-helper "$pkgdir/usr/lib/synpkg/pacman-helper"
+    install -Dm644 crates/syn-pkg/data/org.synshell.synpkg.policy "$pkgdir/usr/share/polkit-1/actions/org.synshell.synpkg.policy"
     # Программы по умолчанию для типов файлов (XDG_CURRENT_DESKTOP=synshell); строка про
     # неустановленное приложение просто не сработает.
     { echo "[Default Applications]"; cat crates/*/data/defaults.mimeapps | grep -v '^#' | grep '='; } \
         | install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/synshell-mimeapps.list"
     install -Dm644 crates/synshell-ui/data/syndesktop-lock.pam "$pkgdir/etc/pam.d/syndesktop-lock"
-    install -Dm644 crates/synlogin/data/synlogin.pam "$pkgdir/etc/pam.d/synlogin"
-    install -Dm644 crates/synlogin/data/synlogin.service "$pkgdir/usr/lib/systemd/system/synlogin.service"
-    install -Dm644 crates/synfsd/data/synfsd.service "$pkgdir/usr/lib/systemd/system/synfsd.service"
+    install -Dm644 crates/syn-login/data/synlogin.pam "$pkgdir/etc/pam.d/synlogin"
+    install -Dm644 crates/syn-login/data/synlogin.service "$pkgdir/usr/lib/systemd/system/synlogin.service"
+    install -Dm644 crates/syn-fsd/data/synfsd.service "$pkgdir/usr/lib/systemd/system/synfsd.service"
     install -Dm644 docs/FSD.md "$pkgdir/usr/share/doc/synshell/FSD.md"
     install -Dm644 crates/synshell-common/default-config.toml "$pkgdir/usr/share/doc/synshell/config.toml.example"
 }
@@ -198,9 +214,9 @@ package_synshell-link() {
     _bin synlink
     _app synlink-view
     # Демон стартует с сеансом (synwm читает /etc/xdg/autostart).
-    install -Dm644 crates/synlink/autostart/synlink.desktop "$pkgdir/etc/xdg/autostart/synlink.desktop"
+    install -Dm644 crates/syn-link/autostart/synlink.desktop "$pkgdir/etc/xdg/autostart/synlink.desktop"
     # USB-сеть телефона: адрес по DHCP через systemd-networkd.
-    install -Dm644 crates/synlink/data/80-synlink-usb.network "$pkgdir/usr/lib/systemd/network/80-synlink-usb.network"
+    install -Dm644 crates/syn-link/data/80-synlink-usb.network "$pkgdir/usr/lib/systemd/network/80-synlink-usb.network"
 }
 
 package_synshell-ai() {

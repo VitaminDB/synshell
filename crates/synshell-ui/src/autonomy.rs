@@ -30,7 +30,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use synassist::chat::{Chat, Store};
+use syn_assist::chat::{Chat, Store};
 use synshell_common::config::Autonomy;
 use synshell_common::ipc::{Client, Request, Response};
 use syngui::async_runtime::run_on_main_thread;
@@ -116,7 +116,7 @@ fn quiet(cfg: &Autonomy) -> Result<(), String> {
     if !idle.locked && idle.seconds < cfg.idle_min as u64 * 60 {
         return Err(format!("ввод был {} с назад", idle.seconds));
     }
-    let gpus = synsystem::gpu::devices(&synsystem::Sys::host());
+    let gpus = syn_system::gpu::devices(&syn_system::Sys::host());
     if let Some(g) = gpus.iter().filter(|g| !g.asleep).find(|g| g.busy_percent.is_some_and(|b| b > cfg.max_gpu_percent as f32)) {
         return Err(format!("{} загружена на {:.0}%", g.name, g.busy_percent.unwrap_or(0.0)));
     }
@@ -276,7 +276,7 @@ fn run(ctx: ShellCtx, task: Task) {
             let from = chat.messages.len();
             let r = synaptixd::with_label(&t!("Ассистент · автономно"), || agent.run_turn(&mut chat, &prompt, &confirm, &cancel, &mut |_| {}));
             let _ = store.save(&chat);
-            let answer = synassist::prompt::final_answer(&chat.messages[from.min(chat.messages.len())..]);
+            let answer = syn_assist::prompt::final_answer(&chat.messages[from.min(chat.messages.len())..]);
             finish(ctx, &task, &chat.id, r.map(|_| answer));
             RUNNING.store(false, Ordering::Release);
         })

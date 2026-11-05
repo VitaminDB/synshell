@@ -2,8 +2,8 @@
 
 use syngui::mss::StyleValue;
 use syngui::prelude::*;
-use synnfc::api::Tag;
-use synnfc::ndef::Record;
+use syn_nfcd::api::Tag;
+use syn_nfcd::ndef::Record;
 
 use crate::icons;
 use crate::state::{Action, Saved, St};

@@ -16,11 +16,11 @@
 
 | Что | Где |
 |---|---|
-| Ядро: чаты, агентный цикл, инструменты (без интерфейса) | `crates/synassist` |
-| Голос: запись, детектор речи, распознавание, озвучка (без интерфейса) | `crates/synassist-voice` |
-| Окно с чатами | `crates/synassistant` |
+| Ядро: чаты, агентный цикл, инструменты (без интерфейса) | `crates/syn-assist` |
+| Голос: запись, детектор речи, распознавание, озвучка (без интерфейса) | `crates/syn-assist-voice` |
+| Окно с чатами | `crates/syn-assistant` |
 | Быстрая панель оболочки | `crates/synshell-ui/src/assistant.rs` (команда оболочки `assistant`, по умолчанию Super+A) |
-| Страница настроек | `crates/synsettings/src/pages/assistant.rs` |
+| Страница настроек | `crates/syn-settings/src/pages/assistant.rs` |
 | Разбор хода модели (текст, размышления, вызовы) | `synaptix/crates/synaptix/src/facade/chat/` (перенесено из synthos) |
 
 `synassist` — общий с synthos крейт: генерация спрятана за `agent::Backend` (`DaemonBackend` — служба synaptixd;
@@ -84,7 +84,7 @@ chat-шаблон модели с инструментами (`apply_chat_templa
 
 ## Голосовой режим
 
-`crates/synassist-voice` (общий для окна и панели Super+A, интерфейса не содержит):
+`crates/syn-assist-voice` (общий для окна и панели Super+A, интерфейса не содержит):
 
 - **Разговор** (`start_conversation`): микрофон через `syngui::audio::AudioRecorder` (`[assistant] microphone`), поток
   PCM → детектор речи `Vad` по RMS кадров 20 мс с плавающим порогом (фон — следящий минимум, как в synspeak): фраза

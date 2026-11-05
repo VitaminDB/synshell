@@ -155,7 +155,7 @@ fn overview(cx: &Cx, s: &Snap) -> Vec<W> {
     )));
 
     // Самые активные процессы.
-    let mut top: Vec<&synsystem::procs::Process> = s.procs.iter().filter(|p| !p.is_kernel()).collect();
+    let mut top: Vec<&syn_system::procs::Process> = s.procs.iter().filter(|p| !p.is_kernel()).collect();
     top.sort_by(|a, b| b.cpu_percent.total_cmp(&a.cpu_percent).then(b.rss_kb.cmp(&a.rss_kb)));
     let st = cx.st;
     let mut col = Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(

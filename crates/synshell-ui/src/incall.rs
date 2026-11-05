@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use syngui::async_runtime::run_on_main_thread;
 use syngui::prelude::*;
-use synmodem::api::CallState;
+use syn_modem::api::CallState;
 use synshell_common::action::Action;
 
 use crate::ctx::ShellCtx;

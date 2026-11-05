@@ -5,36 +5,36 @@ members = [
     "crates/synaptix-graph",
     "crates/synaptix-flow",
     "crates/synshell-tr",
-    "crates/synwm",
+    "crates/syn-wm",
     "crates/syngui-layer",
     "crates/synshell-ui",
-    "crates/syndesktop-shell",
-    "crates/synmobile-shell",
-    "crates/syngame-shell",
-    "crates/synkeyboard",
-    "crates/synsettings",
-    "crates/synfiles",
-    "crates/synfsd",
-    "crates/synshot",
-    "crates/synsystem",
-    "crates/synpkg",
-    "crates/synlogin",
-    "crates/synlink",
-    "crates/synlink-view",
-    "crates/syndroid",
-    "crates/synmodem",
-    "crates/synsms",
-    "crates/synpass",
-    "crates/synphone",
-    "crates/syncamera",
-    "crates/synmedia",
+    "crates/syn-desktop-shell",
+    "crates/syn-mobile-shell",
+    "crates/syn-game-shell",
+    "crates/syn-keyboard",
+    "crates/syn-settings",
+    "crates/syn-files",
+    "crates/syn-fsd",
+    "crates/syn-shot",
+    "crates/syn-system",
+    "crates/syn-pkg",
+    "crates/syn-login",
+    "crates/syn-link",
+    "crates/syn-link-view",
+    "crates/syn-droid",
+    "crates/syn-modem",
+    "crates/syn-sms",
+    "crates/syn-pass",
+    "crates/syn-phone",
+    "crates/syn-camera",
+    "crates/syn-media",
     "crates/syn-video-player",
     "crates/syn-audio-player",
     "crates/syn-audio-recorder",
     "crates/syn-terminal",
     "crates/syn-maps",
     "crates/syn-compass",
-    "crates/synnfc",
+    "crates/syn-nfcd",
     "crates/syn-nfc",
     "crates/syn-remote",
     "crates/syn-wine-helper",
@@ -43,11 +43,11 @@ members = [
     "crates/syn-systeminfo",
     "crates/syn-vm",
     "crates/syn-screencast",
-    "crates/syngamepad",
+    "crates/syn-gamepad",
     "crates/synaptixd",
-    "crates/synassist",
-    "crates/synassist-voice",
-    "crates/synassistant",
+    "crates/syn-assist",
+    "crates/syn-assist-voice",
+    "crates/syn-assistant",
     "crates/syn-notes",
     "crates/syn-notes-proto",
     "crates/syn-blocks",
@@ -66,16 +66,16 @@ license = "GPL-3.0-only"
 [workspace.dependencies]
 synshell-common = { path = "crates/synshell-common" }
 synshell-tr = { path = "crates/synshell-tr" }
-synassist = { path = "crates/synassist" }
-synassist-voice = { path = "crates/synassist-voice" }
+syn-assist = { path = "crates/syn-assist" }
+syn-assist-voice = { path = "crates/syn-assist-voice" }
 syn-notes-proto = { path = "crates/syn-notes-proto" }
 syngui-layer = { path = "crates/syngui-layer" }
-synsystem = { path = "crates/synsystem" }
-synmedia = { path = "crates/synmedia" }
+syn-system = { path = "crates/syn-system" }
+syn-media = { path = "crates/syn-media" }
 syn-dlss = { path = "crates/syn-dlss" }
-synmodem = { path = "crates/synmodem" }
+syn-modem = { path = "crates/syn-modem" }
 synshell-ui = { path = "crates/synshell-ui" }
-synfsd = { path = "crates/synfsd", default-features = false }
+syn-fsd = { path = "crates/syn-fsd", default-features = false }
 synaptixd = { path = "crates/synaptixd", default-features = false }
 synaptix-graph = { path = "crates/synaptix-graph" }
 synaptix-flow = { path = "crates/synaptix-flow" }

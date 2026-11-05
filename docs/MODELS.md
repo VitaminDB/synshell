@@ -18,7 +18,7 @@ synaptixd — системная служба, которая держит не�
 | Протокол и клиент (serde + libc, без synaptix) | `crates/synaptixd/src/lib.rs` |
 | Демон (фича `daemon`, тянет synaptix) | `crates/synaptixd/src/bin/synaptixd/` |
 | Юнит systemd | `crates/synaptixd/data/synaptixd.service` |
-| Раздел «Параметры → Нейросети» (меню → «По умолчанию», «Служба», страница каждой модели) | `crates/synsettings/src/pages/models.rs` |
+| Раздел «Параметры → Нейросети» (меню → «По умолчанию», «Служба», страница каждой модели) | `crates/syn-settings/src/pages/models.rs` |
 | Схема параметров моделей | `synaptix/crates/synaptix/src/facade/params.rs` |
 | Распознавание моделей по файлам | `synaptix/crates/synaptix/src/facade/catalog.rs` |
 | Библиотеки моделей (обход папок) | `crates/synaptixd/src/bin/synaptixd/library.rs` |

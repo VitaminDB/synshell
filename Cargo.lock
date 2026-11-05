@@ -6948,6 +6948,56 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-assist"
+version = "0.1.42"
+dependencies = [
+ "base64 0.22.1",
+ "dom_smoothie",
+ "futures-util",
+ "htmd",
+ "libc",
+ "log",
+ "reqwest",
+ "scraper",
+ "serde",
+ "serde_json",
+ "syn-notes-proto",
+ "synaptix-flow",
+ "synaptix-graph",
+ "synaptixd",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "url",
+ "urlencoding",
+]
+
+[[package]]
+name = "syn-assist-voice"
+version = "0.1.42"
+dependencies = [
+ "synaptixd",
+ "syngui",
+ "synshell-common",
+]
+
+[[package]]
+name = "syn-assistant"
+version = "0.1.42"
+dependencies = [
+ "serde_json",
+ "syn-assist",
+ "syn-assist-voice",
+ "syn-system",
+ "synaptix-graph",
+ "synaptixd",
+ "syngui",
+ "synshell-common",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "syn-audio-player"
 version = "0.1.42"
 dependencies = [
@@ -6964,9 +7014,9 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "syn-system",
  "syngui",
  "synshell-common",
- "synsystem",
  "toml 0.9.12+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
@@ -6983,16 +7033,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-camera"
+version = "0.1.42"
+dependencies = [
+ "anyhow",
+ "cpal",
+ "ffmpeg-next",
+ "image",
+ "libc",
+ "qrcode",
+ "rqrr",
+ "serde_json",
+ "syn-media",
+ "syn-system",
+ "syngui",
+ "synshell-common",
+ "tracing",
+ "tracing-subscriber",
+ "zbus",
+]
+
+[[package]]
 name = "syn-compass"
 version = "0.1.42"
 dependencies = [
  "serde",
+ "syn-system",
  "syngui",
  "synshell-common",
- "synsystem",
  "toml 0.9.12+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "syn-desktop-shell"
+version = "0.1.42"
+dependencies = [
+ "log",
+ "synshell-common",
+ "synshell-ui",
 ]
 
 [[package]]
@@ -7000,12 +7080,32 @@ name = "syn-dlss"
 version = "0.1.42"
 dependencies = [
  "libc",
+ "syn-system",
  "synaptixd",
  "syngui",
  "synshell-common",
- "synsystem",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "syn-droid"
+version = "0.1.42"
+dependencies = [
+ "anyhow",
+ "libc",
+ "rsbinder",
+ "serde",
+ "serde_json",
+ "sha2",
+ "syngui",
+ "synshell-common",
+ "toml 0.9.12+spec-1.1.0",
+ "tracing",
+ "tracing-subscriber",
+ "ureq",
+ "zbus",
+ "zip",
 ]
 
 [[package]]
@@ -7016,6 +7116,78 @@ dependencies = [
  "synshell-common",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "syn-files"
+version = "0.1.42"
+dependencies = [
+ "anyhow",
+ "fuser",
+ "image",
+ "libc",
+ "md5",
+ "notify",
+ "png 0.17.16",
+ "pollster",
+ "regex",
+ "serde",
+ "serde_json",
+ "syn-fsd",
+ "syngui",
+ "synshell-common",
+ "tempfile",
+ "toml 0.9.12+spec-1.1.0",
+ "toml_edit 0.23.10+spec-1.0.0",
+ "tracing",
+ "tracing-subscriber",
+ "wgpu",
+ "zbus",
+]
+
+[[package]]
+name = "syn-fsd"
+version = "0.1.42"
+dependencies = [
+ "anyhow",
+ "libc",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "toml 0.9.12+spec-1.1.0",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "syn-game-shell"
+version = "0.1.42"
+dependencies = [
+ "libc",
+ "log",
+ "serde",
+ "serde_json",
+ "syngui",
+ "syngui-layer",
+ "synshell-common",
+ "synshell-ui",
+ "toml_edit 0.23.10+spec-1.0.0",
+]
+
+[[package]]
+name = "syn-gamepad"
+version = "0.1.42"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "libc",
+ "log",
+ "serde",
+ "syngui",
+ "syngui-layer",
+ "synshell-common",
+ "toml 0.9.12+spec-1.1.0",
+ "toml_edit 0.23.10+spec-1.0.0",
 ]
 
 [[package]]
@@ -7033,18 +7205,127 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-keyboard"
+version = "0.1.42"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "log",
+ "syngui",
+ "syngui-layer",
+ "synshell-common",
+]
+
+[[package]]
+name = "syn-link"
+version = "0.1.42"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "fuser",
+ "libc",
+ "png 0.17.16",
+ "postcard",
+ "quinn",
+ "rcgen",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "synaptixd",
+ "synshell-common",
+ "synshell-tr",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "wayland-client",
+ "wayland-protocols-wlr",
+ "zbus",
+ "zstd",
+]
+
+[[package]]
+name = "syn-link-view"
+version = "0.1.42"
+dependencies = [
+ "env_logger",
+ "libc",
+ "log",
+ "serde",
+ "serde_json",
+ "syngui",
+ "synshell-common",
+ "zstd",
+]
+
+[[package]]
+name = "syn-login"
+version = "0.1.42"
+dependencies = [
+ "env_logger",
+ "libc",
+ "log",
+ "syn-system",
+ "syngui",
+ "syngui-layer",
+ "synshell-common",
+ "synshell-ui",
+]
+
+[[package]]
 name = "syn-maps"
 version = "0.1.42"
 dependencies = [
  "serde",
  "serde_json",
+ "syn-system",
  "syngui",
  "synshell-common",
- "synsystem",
  "toml 0.9.12+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
  "ureq",
+]
+
+[[package]]
+name = "syn-media"
+version = "0.1.42"
+dependencies = [
+ "anyhow",
+ "cc",
+ "cpal",
+ "ffmpeg-next",
+ "image",
+ "libc",
+ "syngui",
+ "tracing",
+]
+
+[[package]]
+name = "syn-mobile-shell"
+version = "0.1.42"
+dependencies = [
+ "libc",
+ "log",
+ "syn-modem",
+ "syn-system",
+ "syngui",
+ "syngui-layer",
+ "synshell-common",
+ "synshell-ui",
+]
+
+[[package]]
+name = "syn-modem"
+version = "0.1.42"
+dependencies = [
+ "anyhow",
+ "libc",
+ "serde",
+ "serde_json",
+ "synshell-tr",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -7053,9 +7334,23 @@ version = "0.1.42"
 dependencies = [
  "serde",
  "serde_json",
+ "syn-nfcd",
  "syngui",
- "synnfc",
  "synshell-common",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "syn-nfcd"
+version = "0.1.42"
+dependencies = [
+ "anyhow",
+ "libc",
+ "serde",
+ "serde_json",
+ "synshell-common",
+ "synshell-tr",
  "tracing",
  "tracing-subscriber",
 ]
@@ -7101,6 +7396,49 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-pass"
+version = "0.1.42"
+dependencies = [
+ "anyhow",
+ "argon2",
+ "base64 0.22.1",
+ "chacha20poly1305",
+ "getrandom 0.2.17",
+ "libc",
+ "serde",
+ "serde_json",
+ "syngui",
+ "synshell-common",
+ "toml 0.9.12+spec-1.1.0",
+ "wl-clipboard-rs",
+ "zeroize",
+]
+
+[[package]]
+name = "syn-phone"
+version = "0.1.42"
+dependencies = [
+ "syn-modem",
+ "syngui",
+ "synshell-common",
+]
+
+[[package]]
+name = "syn-pkg"
+version = "0.1.42"
+dependencies = [
+ "anyhow",
+ "png 0.17.16",
+ "pollster",
+ "serde_json",
+ "syn-system",
+ "syngui",
+ "synshell-common",
+ "toml_edit 0.23.10+spec-1.0.0",
+ "wgpu",
+]
+
+[[package]]
 name = "syn-remote"
 version = "0.1.42"
 dependencies = [
@@ -7132,14 +7470,79 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-settings"
+version = "0.1.42"
+dependencies = [
+ "anyhow",
+ "libc",
+ "png 0.17.16",
+ "pollster",
+ "serde",
+ "serde_json",
+ "syn-assist",
+ "syn-assist-voice",
+ "syn-modem",
+ "syn-system",
+ "synaptix-graph",
+ "synaptixd",
+ "syngui",
+ "synshell-common",
+ "toml 0.9.12+spec-1.1.0",
+ "toml_edit 0.23.10+spec-1.0.0",
+ "tracing",
+ "tracing-subscriber",
+ "wgpu",
+]
+
+[[package]]
+name = "syn-shot"
+version = "0.1.42"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "libc",
+ "log",
+ "png 0.17.16",
+ "serde_json",
+ "syngui",
+ "syngui-layer",
+ "synshell-common",
+ "toml_edit 0.23.10+spec-1.0.0",
+]
+
+[[package]]
+name = "syn-sms"
+version = "0.1.42"
+dependencies = [
+ "syn-modem",
+ "syngui",
+ "synshell-common",
+]
+
+[[package]]
+name = "syn-system"
+version = "0.1.42"
+dependencies = [
+ "blocking",
+ "flate2",
+ "libc",
+ "serde_json",
+ "synshell-tr",
+ "tempfile",
+ "tracing",
+ "zbus",
+ "zeroize",
+]
+
+[[package]]
 name = "syn-systeminfo"
 version = "0.1.42"
 dependencies = [
  "libc",
+ "syn-system",
  "synaptixd",
  "syngui",
  "synshell-common",
- "synsystem",
  "tracing",
  "tracing-subscriber",
 ]
@@ -7225,14 +7628,42 @@ dependencies = [
  "object",
  "serde",
  "sha2",
+ "syn-system",
  "syngui",
  "synshell-common",
- "synsystem",
  "toml 0.9.12+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
  "ureq",
  "zip",
+]
+
+[[package]]
+name = "syn-wm"
+version = "0.1.42"
+dependencies = [
+ "anyhow",
+ "bitflags 2.13.2",
+ "cc",
+ "cgmath",
+ "fontdue",
+ "libc",
+ "png 0.17.16",
+ "regex",
+ "serde",
+ "serde_json",
+ "smithay",
+ "synshell-common",
+ "synshell-tr",
+ "tiny-skia",
+ "toml_edit 0.23.10+spec-1.0.0",
+ "tracing",
+ "tracing-subscriber",
+ "wayland-backend",
+ "wayland-protocols-plasma",
+ "wayland-scanner",
+ "wayland-server",
+ "xcursor",
 ]
 
 [[package]]
@@ -8107,184 +8538,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "synassist"
-version = "0.1.42"
-dependencies = [
- "base64 0.22.1",
- "dom_smoothie",
- "futures-util",
- "htmd",
- "libc",
- "log",
- "reqwest",
- "scraper",
- "serde",
- "serde_json",
- "syn-notes-proto",
- "synaptix-flow",
- "synaptix-graph",
- "synaptixd",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "url",
- "urlencoding",
-]
-
-[[package]]
-name = "synassist-voice"
-version = "0.1.42"
-dependencies = [
- "synaptixd",
- "syngui",
- "synshell-common",
-]
-
-[[package]]
-name = "synassistant"
-version = "0.1.42"
-dependencies = [
- "serde_json",
- "synaptix-graph",
- "synaptixd",
- "synassist",
- "synassist-voice",
- "syngui",
- "synshell-common",
- "synsystem",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "sync_wrapper"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bf256ce5efdfa370213c1dabab5935a12e49f2c58d15e9eac2870d3b4f27263"
 dependencies = [
  "futures-core",
-]
-
-[[package]]
-name = "syncamera"
-version = "0.1.42"
-dependencies = [
- "anyhow",
- "cpal",
- "ffmpeg-next",
- "image",
- "libc",
- "qrcode",
- "rqrr",
- "serde_json",
- "syngui",
- "synmedia",
- "synshell-common",
- "synsystem",
- "tracing",
- "tracing-subscriber",
- "zbus",
-]
-
-[[package]]
-name = "syndesktop-shell"
-version = "0.1.42"
-dependencies = [
- "log",
- "synshell-common",
- "synshell-ui",
-]
-
-[[package]]
-name = "syndroid"
-version = "0.1.42"
-dependencies = [
- "anyhow",
- "libc",
- "rsbinder",
- "serde",
- "serde_json",
- "sha2",
- "syngui",
- "synshell-common",
- "toml 0.9.12+spec-1.1.0",
- "tracing",
- "tracing-subscriber",
- "ureq",
- "zbus",
- "zip",
-]
-
-[[package]]
-name = "synfiles"
-version = "0.1.42"
-dependencies = [
- "anyhow",
- "fuser",
- "image",
- "libc",
- "md5",
- "notify",
- "png 0.17.16",
- "pollster",
- "regex",
- "serde",
- "serde_json",
- "synfsd",
- "syngui",
- "synshell-common",
- "tempfile",
- "toml 0.9.12+spec-1.1.0",
- "toml_edit 0.23.10+spec-1.0.0",
- "tracing",
- "tracing-subscriber",
- "wgpu",
- "zbus",
-]
-
-[[package]]
-name = "synfsd"
-version = "0.1.42"
-dependencies = [
- "anyhow",
- "libc",
- "rusqlite",
- "serde",
- "serde_json",
- "toml 0.9.12+spec-1.1.0",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "syngame-shell"
-version = "0.1.42"
-dependencies = [
- "libc",
- "log",
- "serde",
- "serde_json",
- "syngui",
- "syngui-layer",
- "synshell-common",
- "synshell-ui",
- "toml_edit 0.23.10+spec-1.0.0",
-]
-
-[[package]]
-name = "syngamepad"
-version = "0.1.42"
-dependencies = [
- "anyhow",
- "env_logger",
- "libc",
- "log",
- "serde",
- "syngui",
- "syngui-layer",
- "synshell-common",
- "toml 0.9.12+spec-1.1.0",
- "toml_edit 0.23.10+spec-1.0.0",
 ]
 
 [[package]]
@@ -8352,6 +8611,7 @@ dependencies = [
  "wide",
  "winit",
  "wl-clipboard-rs",
+ "yeslogic-fontconfig-sys",
 ]
 
 [[package]]
@@ -8376,129 +8636,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "synkeyboard"
-version = "0.1.42"
-dependencies = [
- "anyhow",
- "env_logger",
- "log",
- "syngui",
- "syngui-layer",
- "synshell-common",
-]
-
-[[package]]
-name = "synlink"
-version = "0.1.42"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "fuser",
- "libc",
- "png 0.17.16",
- "postcard",
- "quinn",
- "rcgen",
- "rustls",
- "serde",
- "serde_json",
- "sha2",
- "synaptixd",
- "synshell-common",
- "synshell-tr",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "wayland-client",
- "wayland-protocols-wlr",
- "zbus",
- "zstd",
-]
-
-[[package]]
-name = "synlink-view"
-version = "0.1.42"
-dependencies = [
- "env_logger",
- "libc",
- "log",
- "serde",
- "serde_json",
- "syngui",
- "synshell-common",
- "zstd",
-]
-
-[[package]]
-name = "synlogin"
-version = "0.1.42"
-dependencies = [
- "env_logger",
- "libc",
- "log",
- "syngui",
- "syngui-layer",
- "synshell-common",
- "synshell-ui",
- "synsystem",
-]
-
-[[package]]
-name = "synmedia"
-version = "0.1.42"
-dependencies = [
- "anyhow",
- "cc",
- "cpal",
- "ffmpeg-next",
- "image",
- "libc",
- "syngui",
- "tracing",
-]
-
-[[package]]
-name = "synmobile-shell"
-version = "0.1.42"
-dependencies = [
- "libc",
- "log",
- "syngui",
- "syngui-layer",
- "synmodem",
- "synshell-common",
- "synshell-ui",
- "synsystem",
-]
-
-[[package]]
-name = "synmodem"
-version = "0.1.42"
-dependencies = [
- "anyhow",
- "libc",
- "serde",
- "serde_json",
- "synshell-tr",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "synnfc"
-version = "0.1.42"
-dependencies = [
- "anyhow",
- "libc",
- "serde",
- "serde_json",
- "synshell-common",
- "synshell-tr",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "synoptic"
 version = "2.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8509,74 +8646,6 @@ dependencies = [
  "nohash-hasher",
  "regex",
  "unicode-width 0.2.2",
-]
-
-[[package]]
-name = "synpass"
-version = "0.1.42"
-dependencies = [
- "anyhow",
- "argon2",
- "base64 0.22.1",
- "chacha20poly1305",
- "getrandom 0.2.17",
- "libc",
- "serde",
- "serde_json",
- "syngui",
- "synshell-common",
- "toml 0.9.12+spec-1.1.0",
- "wl-clipboard-rs",
- "zeroize",
-]
-
-[[package]]
-name = "synphone"
-version = "0.1.42"
-dependencies = [
- "syngui",
- "synmodem",
- "synshell-common",
-]
-
-[[package]]
-name = "synpkg"
-version = "0.1.42"
-dependencies = [
- "anyhow",
- "png 0.17.16",
- "pollster",
- "serde_json",
- "syngui",
- "synshell-common",
- "synsystem",
- "toml_edit 0.23.10+spec-1.0.0",
- "wgpu",
-]
-
-[[package]]
-name = "synsettings"
-version = "0.1.42"
-dependencies = [
- "anyhow",
- "libc",
- "png 0.17.16",
- "pollster",
- "serde",
- "serde_json",
- "synaptix-graph",
- "synaptixd",
- "synassist",
- "synassist-voice",
- "syngui",
- "synmodem",
- "synshell-common",
- "synsystem",
- "toml 0.9.12+spec-1.1.0",
- "toml_edit 0.23.10+spec-1.0.0",
- "tracing",
- "tracing-subscriber",
- "wgpu",
 ]
 
 [[package]]
@@ -8614,45 +8683,20 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "syn-assist",
+ "syn-assist-voice",
+ "syn-modem",
  "syn-notes-proto",
+ "syn-system",
  "synaptixd",
- "synassist",
- "synassist-voice",
  "syngui",
  "syngui-layer",
- "synmodem",
  "synshell-common",
- "synsystem",
  "toml 0.9.12+spec-1.1.0",
  "toml_edit 0.23.10+spec-1.0.0",
  "wayland-client",
  "wayland-protocols-wlr",
  "zbus",
-]
-
-[[package]]
-name = "synshot"
-version = "0.1.42"
-dependencies = [
- "anyhow",
- "env_logger",
- "libc",
- "log",
- "png 0.17.16",
- "serde_json",
- "syngui",
- "syngui-layer",
- "synshell-common",
- "toml_edit 0.23.10+spec-1.0.0",
-]
-
-[[package]]
-name = "synsms"
-version = "0.1.42"
-dependencies = [
- "syngui",
- "synmodem",
- "synshell-common",
 ]
 
 [[package]]
@@ -8678,21 +8722,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "synsystem"
-version = "0.1.42"
-dependencies = [
- "blocking",
- "flate2",
- "libc",
- "serde_json",
- "synshell-tr",
- "tempfile",
- "tracing",
- "zbus",
- "zeroize",
-]
-
-[[package]]
 name = "syntect"
 version = "5.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8711,34 +8740,6 @@ dependencies = [
  "thiserror 2.0.21",
  "walkdir",
  "yaml-rust",
-]
-
-[[package]]
-name = "synwm"
-version = "0.1.42"
-dependencies = [
- "anyhow",
- "bitflags 2.13.2",
- "cc",
- "cgmath",
- "fontdue",
- "libc",
- "png 0.17.16",
- "regex",
- "serde",
- "serde_json",
- "smithay",
- "synshell-common",
- "synshell-tr",
- "tiny-skia",
- "toml_edit 0.23.10+spec-1.0.0",
- "tracing",
- "tracing-subscriber",
- "wayland-backend",
- "wayland-protocols-plasma",
- "wayland-scanner",
- "wayland-server",
- "xcursor",
 ]
 
 [[package]]

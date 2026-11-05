@@ -1,0 +1,42 @@
+[package]
+name = "syn-files"
+description = "Проводник synshell"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "synfiles"
+path = "src/main.rs"
+
+[dependencies]
+syn-fsd.workspace = true
+synshell-common = { workspace = true, features = ["i18n", "thumbs", "drives", "style"] }
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "clipboard", "i18n", "image", "svg", "wayland-dnd", "ffmpeg", "markdown-syntax", "terminal"] }
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+toml_edit.workspace = true
+anyhow.workspace = true
+regex.workspace = true
+libc.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+# Слежение за папками (inotify).
+notify = "8"
+# Архивы как папки: свой FUSE (libarchive — через FFI).
+fuser = { version = "0.16", default-features = false }
+# Съёмные накопители: udisks2 по системной шине (монтирование, извлечение).
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+# Декодирование картинок (просмотрщик, снимки); миниатюры — synshell-common/thumbs.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff", "ico"] }
+png = "0.17"
+md5 = "0.7"
+# Offscreen-снимок интерфейса (`--screenshot`).
+wgpu = "28.0.0"
+pollster = "0.4"
+
+[dev-dependencies]
+syngui = { workspace = true, features = ["testing"] }
+tempfile = "3"

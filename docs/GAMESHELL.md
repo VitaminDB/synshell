@@ -127,7 +127,7 @@ cover = "~/Картинки/heroes.png"
 `tile_size` (`small`, `medium`, `large`), `tile_style` (`cover`, `icon`), `hero`, `background`
 (`hero`, `wallpaper`, `color`), `background_color`, `accent` (пусто — акцент темы), `hints`,
 `panels` (обычные панели `[[panel]]` и в игровом режиме). Свои стили —
-`~/.config/synshell/game.mss` поверх встроенных `crates/syngame-shell/styles/game.mss` (классы
+`~/.config/synshell/game.mss` поверх встроенных `crates/syn-game-shell/styles/game.mss` (классы
 `gs-*`, переменные `--gs-bg`, `--gs-fg`, `--gs-card`…).
 
 ## Код

@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use syngui::async_runtime::run_on_main_thread;
 use syngui::prelude::*;
-use synmodem::api::{self, CallKind, CallState, Event, Registration, SimState, SmsStatus, Status};
+use syn_modem::api::{self, CallKind, CallState, Event, Registration, SimState, SmsStatus, Status};
 
 use crate::ctx::ShellCtx;
 

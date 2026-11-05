@@ -77,7 +77,7 @@ fn main() {
 /// Нет модулей GStreamer: окно с пакетами, которых нет в системе; всё уже стоит или уже спрашивали в
 /// этом сеансе — молча.
 fn gst_missing(m: gst::Missing) -> i32 {
-    let pkgs = m.to_install(&synsystem::packages::installed_map());
+    let pkgs = m.to_install(&syn_system::packages::installed_map());
     if pkgs.is_empty() {
         eprintln!("{}", t!("модули GStreamer для {w}: подходящие пакеты уже установлены", w = m.what.join(" ")));
         return 0;

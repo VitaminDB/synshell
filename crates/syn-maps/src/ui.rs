@@ -10,7 +10,7 @@ use syngui::async_runtime::run_on_main_thread;
 use syngui::prelude::*;
 use syngui::widgets::visual::map_view::{MapCamera, MapMarker, MapPolyline, MapView, MapViewport, TileCache, TileProvider};
 use syngui::widgets::*;
-use synsystem::geoclue_client::{self, Fix, Status};
+use syn_system::geoclue_client::{self, Fix, Status};
 
 use crate::api::{self, Place, Profile, Route};
 use crate::icons;

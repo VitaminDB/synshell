@@ -6,7 +6,7 @@ use std::sync::{Arc, LazyLock};
 
 use mss_analysis::{Context, VarInfo};
 
-const SOURCES: &[&str] = &[include_str!("../../synshell-ui/styles/shell.mss"), include_str!("../../synsettings/styles/settings.mss")];
+const SOURCES: &[&str] = &[include_str!("../../synshell-ui/styles/shell.mss"), include_str!("../../syn-settings/styles/settings.mss")];
 
 /// Классы и анимации встроенных стилей (один раз за запуск).
 static BUILTIN: LazyLock<(Vec<String>, Vec<String>)> = LazyLock::new(|| {

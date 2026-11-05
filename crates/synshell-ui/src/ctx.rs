@@ -168,11 +168,11 @@ pub struct ShellCtx {
     pub external_power: RwSignal<Option<bool>>,
     pub network: RwSignal<Network>,
     /// Модем телефона (synmodemd); `None` — демона нет (компьютер или модем не поднят).
-    pub modem: RwSignal<Option<synmodem::api::Status>>,
+    pub modem: RwSignal<Option<syn_modem::api::Status>>,
     /// Включённая камера телефона (id HAL, syncamd); `None` — выключена или камер нет.
     pub camera: RwSignal<Option<u32>>,
-    /// Фонарик (`synsystem::torch`): состояние перечитывается при открытии шторки; `None` — фонарика нет.
-    pub torch: RwSignal<Option<synsystem::torch::State>>,
+    /// Фонарик (`syn_system::torch`): состояние перечитывается при открытии шторки; `None` — фонарика нет.
+    pub torch: RwSignal<Option<syn_system::torch::State>>,
     pub cpu: RwSignal<f32>,
     pub memory: RwSignal<f32>,
     /// Текущее локальное время, секунды Unix (обновляется таймером).

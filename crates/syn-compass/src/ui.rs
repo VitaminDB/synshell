@@ -9,7 +9,7 @@ use syngui::mss::StyleValue;
 use syngui::prelude::*;
 use syngui::containers::Positioned;
 use syngui::GestureDetector;
-use synsystem::geoclue_client::{self, Status};
+use syn_system::geoclue_client::{self, Status};
 
 use crate::icons;
 use crate::sensor::{Cal, Reading, Sensors, State};

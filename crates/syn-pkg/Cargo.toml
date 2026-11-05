@@ -1,0 +1,26 @@
+[package]
+name = "syn-pkg"
+description = "Установка программ synshell: pacman и AUR, для рабочего стола и телефона"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "synpkg"
+path = "src/main.rs"
+
+[dependencies]
+synshell-common = { workspace = true, features = ["i18n", "style"] }
+syn-system.workspace = true
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "clipboard", "i18n", "image", "svg"] }
+serde_json.workspace = true
+toml_edit.workspace = true
+anyhow.workspace = true
+# Offscreen-снимок интерфейса (`--screenshot`): свой wgpu-девайс + PNG.
+wgpu = "28.0.0"
+pollster = "0.4"
+png = "0.17"
+
+[dev-dependencies]
+syngui = { workspace = true, features = ["testing"] }

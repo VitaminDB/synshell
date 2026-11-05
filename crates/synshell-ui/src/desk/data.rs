@@ -29,21 +29,21 @@ pub struct Snap {
     pub mem_used_kb: u64,
     pub mem_total_kb: u64,
     pub gpu: Option<(Option<f32>, Option<u32>, Option<String>)>,
-    pub gpus: Vec<synsystem::gpu::GpuDevice>,
+    pub gpus: Vec<syn_system::gpu::GpuDevice>,
     pub cpu_model: Option<String>,
-    pub temp_devs: Vec<synsystem::thermal::TempDevice>,
-    pub battery: Option<synsystem::battery::Battery>,
-    pub battery_info: Option<synsystem::battery::BatteryInfo>,
+    pub temp_devs: Vec<syn_system::thermal::TempDevice>,
+    pub battery: Option<syn_system::battery::Battery>,
+    pub battery_info: Option<syn_system::battery::BatteryInfo>,
     /// Напряжение из АЦП, если драйвера батареи нет.
     pub adc_volt: Option<f32>,
-    pub usbc: Vec<synsystem::usbc::UsbcPort>,
+    pub usbc: Vec<syn_system::usbc::UsbcPort>,
     /// Байт/с принято, передано.
     pub net: (f64, f64),
     /// Видеопамять первого GPU, который её сообщает: занято, всего (у общей с ОЗУ — нет), имя.
     pub vram: Option<(u64, Option<u64>, String)>,
-    pub npu: Option<synsystem::npu::Npu>,
+    pub npu: Option<syn_system::npu::Npu>,
     /// Разделы с данными (корень первым).
-    pub mounts: Vec<synsystem::disk::Mount>,
+    pub mounts: Vec<syn_system::disk::Mount>,
     /// Приложения: окно, app_id, имя, память КБ, CPU %.
     pub apps: Vec<AppStat>,
     pub history: History,
@@ -119,16 +119,16 @@ fn start_sampler(sig: RwSignal<Snap>) {
     std::thread::Builder::new()
         .name("desk-data".into())
         .spawn(move || {
-            let sys = synsystem::Sys::host();
-            let mut cpu = synsystem::cpu::CpuSampler::new(sys.clone());
-            let mut procs = synsystem::procs::ProcSampler::new(sys.clone());
-            let mut npu_s = synsystem::npu::NpuSampler::new(sys.clone());
+            let sys = syn_system::Sys::host();
+            let mut cpu = syn_system::cpu::CpuSampler::new(sys.clone());
+            let mut procs = syn_system::procs::ProcSampler::new(sys.clone());
+            let mut npu_s = syn_system::npu::NpuSampler::new(sys.clone());
             let (mut h_cpu, mut h_mem, mut h_gpu, mut h_bat, mut h_rx, mut h_tx, mut h_temp) =
                 (VecDeque::new(), VecDeque::new(), VecDeque::new(), VecDeque::new(), VecDeque::new(), VecDeque::new(), VecDeque::new());
             let (mut h_vram, mut h_npu) = (VecDeque::new(), VecDeque::new());
-            let mut mounts: Vec<synsystem::disk::Mount> = Vec::new();
-            let mut gpus: Vec<synsystem::gpu::GpuDevice> = Vec::new();
-            let cpu_model = synsystem::thermal::cpu_short_name(&sys);
+            let mut mounts: Vec<syn_system::disk::Mount> = Vec::new();
+            let mut gpus: Vec<syn_system::gpu::GpuDevice> = Vec::new();
+            let cpu_model = syn_system::thermal::cpu_short_name(&sys);
             let mut tick = 0u64;
             let mut last_net: Option<(u64, u64)> = None;
             cpu.sample();
@@ -140,16 +140,16 @@ fn start_sampler(sig: RwSignal<Snap>) {
                     continue;
                 }
                 let c = cpu.sample();
-                let temps = synsystem::thermal::sensors(&sys);
-                let mem = synsystem::memory::read(&sys).unwrap_or_default();
-                let (rx, tx) = synsystem::network::traffic(&sys);
+                let temps = syn_system::thermal::sensors(&sys);
+                let mem = syn_system::memory::read(&sys).unwrap_or_default();
+                let (rx, tx) = syn_system::network::traffic(&sys);
                 let net = match last_net {
                     Some((r0, t0)) => (rx.saturating_sub(r0) as f64, tx.saturating_sub(t0) as f64),
                     None => (0.0, 0.0),
                 };
                 last_net = Some((rx, tx));
                 let wins = windows_slot().lock().map(|w| w.clone()).unwrap_or_default();
-                let groups: Vec<(u64, synsystem::procs::Source)> =
+                let groups: Vec<(u64, syn_system::procs::Source)> =
                     wins.iter().map(|(id, app, _, pid)| (*id, usage_source(&sys, app, *pid))).collect();
                 let stats = procs.sample_groups(&groups);
                 let mut apps: Vec<AppStat> = wins
@@ -161,31 +161,31 @@ fn start_sampler(sig: RwSignal<Snap>) {
                     .collect();
                 apps.sort_by(|a, b| b.mem_kb.cmp(&a.mem_kb));
                 if tick % 2 == 0 {
-                    gpus = synsystem::gpu::devices(&sys);
+                    gpus = syn_system::gpu::devices(&sys);
                 }
                 let gpu = match primary_gpu(&gpus) {
                     Some(g) => Some((if g.asleep { Some(0.0) } else { g.busy_percent }, g.cur_mhz, Some(g.name.clone()))),
-                    None => synsystem::gpu::read(&sys).map(|g| (g.busy_percent, g.cur_mhz, g.name)),
+                    None => syn_system::gpu::read(&sys).map(|g| (g.busy_percent, g.cur_mhz, g.name)),
                 };
-                let mut temp_devs = synsystem::thermal::devices(&sys);
+                let mut temp_devs = syn_system::thermal::devices(&sys);
                 for g in gpus.iter().filter(|g| !g.shared_memory) {
                     if let Some(t) = g.temp_c {
-                        temp_devs.retain(|d| !(d.kind == synsystem::thermal::TempKind::Gpu && d.name == "GPU"));
-                        temp_devs.push(synsystem::thermal::TempDevice { kind: synsystem::thermal::TempKind::Gpu, name: g.name.clone(), celsius: t, crit: Some(90.0) });
+                        temp_devs.retain(|d| !(d.kind == syn_system::thermal::TempKind::Gpu && d.name == "GPU"));
+                        temp_devs.push(syn_system::thermal::TempDevice { kind: syn_system::thermal::TempKind::Gpu, name: g.name.clone(), celsius: t, crit: Some(90.0) });
                     }
                 }
                 if let Some(g) = primary_gpu(&gpus) {
-                    for d in temp_devs.iter_mut().filter(|d| d.kind == synsystem::thermal::TempKind::Gpu && d.name == "GPU") {
+                    for d in temp_devs.iter_mut().filter(|d| d.kind == syn_system::thermal::TempKind::Gpu && d.name == "GPU") {
                         d.name = g.name.clone();
                     }
                 }
                 temp_devs.sort_by(|a, b| b.level().total_cmp(&a.level()));
-                let battery = synsystem::battery::read(&sys);
-                let cpu_temp = synsystem::thermal::cpu_celsius(&temps);
+                let battery = syn_system::battery::read(&sys);
+                let cpu_temp = syn_system::thermal::cpu_celsius(&temps);
                 let vram = gpus.iter().find_map(|g| Some((g.mem_used?, if g.shared_memory { None } else { g.mem_total }, g.name.clone())));
                 let npu = npu_s.sample();
                 if tick % 10 == 0 {
-                    mounts = synsystem::disk::mounts(&sys);
+                    mounts = syn_system::disk::mounts(&sys);
                     mounts.sort_by_key(|m| m.path != "/");
                 }
                 tick += 1;
@@ -203,7 +203,7 @@ fn start_sampler(sig: RwSignal<Snap>) {
                     cpu: c.usage,
                     cores: c.cores.iter().map(|k| (k.usage, k.cur_mhz, k.tier)).collect(),
                     cpu_temp,
-                    gpu_temp: primary_gpu(&gpus).and_then(|g| g.temp_c).or_else(|| synsystem::thermal::gpu_celsius(&temps)),
+                    gpu_temp: primary_gpu(&gpus).and_then(|g| g.temp_c).or_else(|| syn_system::thermal::gpu_celsius(&temps)),
                     temps: temp_list(&temps),
                     mem_percent: mem.used_percent(),
                     mem_used_kb: mem.used_kb(),
@@ -213,9 +213,9 @@ fn start_sampler(sig: RwSignal<Snap>) {
                     cpu_model: cpu_model.clone(),
                     temp_devs,
                     battery,
-                    battery_info: synsystem::battery::batteries(&sys).into_iter().next(),
-                    adc_volt: synsystem::battery::adc_voltage(&sys),
-                    usbc: synsystem::usbc::ports(&sys),
+                    battery_info: syn_system::battery::batteries(&sys).into_iter().next(),
+                    adc_volt: syn_system::battery::adc_voltage(&sys),
+                    usbc: syn_system::usbc::ports(&sys),
                     net,
                     vram,
                     npu,
@@ -245,7 +245,7 @@ fn start_sampler(sig: RwSignal<Snap>) {
 
 /// Датчики для виджета температур: зоны одного узла (`cpu-1-2-usr`,
 /// `cpu-0-0-usr` → `cpu`) — одной строкой с самой высокой, горячие первыми.
-fn temp_list(temps: &[synsystem::thermal::Sensor]) -> Vec<(String, f32)> {
+fn temp_list(temps: &[syn_system::thermal::Sensor]) -> Vec<(String, f32)> {
     let mut v: Vec<(String, f32)> = Vec::new();
     for t in temps {
         let base = t.name.strip_prefix("hwmon:").unwrap_or(&t.name);
@@ -283,14 +283,14 @@ fn track_windows(ctx: ShellCtx) {
 /// syndroid, его собственная память — не память Android: окно всего Android (app_id
 /// `Waydroid`) — весь контейнер (cgroup syndroid), окно приложения (`waydroid.<пакет>`) — процессы
 /// Android с именем пакета.
-fn usage_source(sys: &synsystem::Sys, app_id: &str, pid: i32) -> synsystem::procs::Source {
-    use synsystem::procs::Source;
+fn usage_source(sys: &syn_system::Sys, app_id: &str, pid: i32) -> syn_system::procs::Source {
+    use syn_system::procs::Source;
     const ANDROID_CGROUP: &str = "/sys/fs/cgroup/syndroid";
     if app_id == "Waydroid" {
         return Source::Cgroup(ANDROID_CGROUP.into());
     }
     if let Some(pkg) = app_id.strip_prefix("waydroid.") {
-        let pids = synsystem::procs::find_by_name(sys, pkg);
+        let pids = syn_system::procs::find_by_name(sys, pkg);
         if !pids.is_empty() {
             return Source::Pids(pids);
         }
@@ -298,6 +298,6 @@ fn usage_source(sys: &synsystem::Sys, app_id: &str, pid: i32) -> synsystem::proc
     Source::Pids(vec![pid])
 }
 
-pub fn primary_gpu(gpus: &[synsystem::gpu::GpuDevice]) -> Option<&synsystem::gpu::GpuDevice> {
+pub fn primary_gpu(gpus: &[syn_system::gpu::GpuDevice]) -> Option<&syn_system::gpu::GpuDevice> {
     gpus.iter().find(|g| !g.shared_memory && !g.asleep).or_else(|| gpus.iter().find(|g| !g.shared_memory)).or_else(|| gpus.first())
 }

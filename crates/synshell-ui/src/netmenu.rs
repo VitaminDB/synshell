@@ -1,5 +1,5 @@
 //! Окно «Сеть» (апплет `network` на панели и доке, плитка шторки): текущее
-//! подключение и управление Wi-Fi через `synsystem::wifi` (iwd или
+//! подключение и управление Wi-Fi через `syn_system::wifi` (iwd или
 //! NetworkManager, `[wifi] backend`): включить/выключить, список сетей с силой
 //! сигнала, подключение (пароль — для защищённой новой сети), отключение,
 //! «забыть», «Параметры сети…».
@@ -18,7 +18,7 @@ use syngui::input::MouseButton;
 use syngui::mss::StyleValue;
 use syngui::prelude::*;
 use std::result::Result;
-use synsystem::wifi::{self, WifiState};
+use syn_system::wifi::{self, WifiState};
 
 use crate::ctx::{PopupKind, ShellCtx};
 use crate::ui::{icon, mi, rx, InputArea};

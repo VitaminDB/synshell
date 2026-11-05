@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use synsystem::usb::{self, UsbDev};
+use syn_system::usb::{self, UsbDev};
 use syngui::t;
 
 use crate::ctx::ShellCtx;
@@ -10,7 +10,7 @@ pub fn start(_ctx: ShellCtx) {
     std::thread::Builder::new()
         .name("shell-usb".into())
         .spawn(|| {
-            let sys = synsystem::Sys::host();
+            let sys = syn_system::Sys::host();
             let mut known: HashMap<String, UsbDev> = usb::devices(&sys).into_iter().map(|d| (d.key(), d)).collect();
             let r = usb::watch(move || {
                 let now: HashMap<String, UsbDev> = usb::devices(&sys).into_iter().map(|d| (d.key(), d)).collect();

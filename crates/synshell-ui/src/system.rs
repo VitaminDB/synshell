@@ -11,14 +11,14 @@ use crate::actions::{spawn, which};
 use crate::ctx::ShellCtx;
 use syngui::t;
 
-pub use synsystem::battery::Battery;
-pub use synsystem::network::Network;
-pub use synsystem::volume::Volume;
+pub use syn_system::battery::Battery;
+pub use syn_system::network::Network;
+pub use syn_system::volume::Volume;
 
 // ─── Громкость ───────────────────────────────────────────────────────────────
 
 fn read_volume() -> Option<Volume> {
-    synsystem::volume::read()
+    syn_system::volume::read()
 }
 
 pub fn refresh_volume(ctx: ShellCtx) -> Option<Volume> {
@@ -37,7 +37,7 @@ pub fn change_volume(ctx: ShellCtx, delta: i32, set: Option<u32>) {
     // сигналы читаются только в главном потоке — предел берём до запуска фонового
     let max = max_volume(ctx);
     std::thread::spawn(move || {
-        synsystem::volume::change(delta, set, max);
+        syn_system::volume::change(delta, set, max);
         if let Some(v) = refresh_volume(ctx) {
             if set.is_none() {
                 let icon = if v.muted || v.percent == 0 { crate::ui::mi::VOLUME_OFF } else { crate::ui::mi::VOLUME_UP };
@@ -54,14 +54,14 @@ pub fn change_volume(ctx: ShellCtx, delta: i32, set: Option<u32>) {
 /// Выставить громкость микрофона, %.
 pub fn set_mic(ctx: ShellCtx, percent: u32) {
     std::thread::spawn(move || {
-        synsystem::volume::set_mic(percent);
+        syn_system::volume::set_mic(percent);
         refresh_volume(ctx);
     });
 }
 
 pub fn toggle_mute(ctx: ShellCtx, mic: bool) {
     std::thread::spawn(move || {
-        synsystem::volume::toggle_mute(mic);
+        syn_system::volume::toggle_mute(mic);
         if let Some(v) = refresh_volume(ctx) {
             let (icon, label) = if mic {
                 if v.mic_muted {
@@ -114,15 +114,15 @@ pub fn change_brightness(ctx: ShellCtx, delta: i32) {
         // synsystem сам уходит в brightnessctl, если sysfs не пускает; пара «белая + тёплая»
         // (E Ink) — общей яркостью, а brightnessctl напрямую сдвигал бы один канал.
         // Запись требует прав (udev-правило или группа video); без них — только показ.
-        let sys = synsystem::Sys::host();
-        let pct = match synsystem::backlight::change(&sys, delta as f32) {
+        let sys = syn_system::Sys::host();
+        let pct = match syn_system::backlight::change(&sys, delta as f32) {
             Ok(b) => {
                 crate::backlight::remember_level(b.percent());
                 Some(b.percent())
             }
             Err(e) => {
                 log::warn!("яркость: {e}");
-                synsystem::backlight::primary(&sys).map(|b| b.percent())
+                syn_system::backlight::primary(&sys).map(|b| b.percent())
             }
         };
         if let Some(p) = pct {
@@ -143,26 +143,26 @@ pub fn start(ctx: ShellCtx) {
     // Кабель питания: сразу по uevent, плюс опрос раз в 2 с (на случай,
     // если драйвер не шлёт событий).
     update_power(ctx);
-    if let Err(e) = synsystem::battery::watch(move || update_power(ctx)) {
+    if let Err(e) = syn_system::battery::watch(move || update_power(ctx)) {
         log::warn!("питание: нет uevent ({e})");
     }
     std::thread::Builder::new()
         .name("shell-sys".into())
         .spawn(move || {
-            let sys = synsystem::Sys::host();
-            let mut cpu = synsystem::cpu::CpuSampler::new(sys.clone());
+            let sys = syn_system::Sys::host();
+            let mut cpu = syn_system::cpu::CpuSampler::new(sys.clone());
             cpu.sample();
             let mut tick = 0u64;
             loop {
                 if tick % 15 == 0 {
-                    ctx.battery.set(synsystem::battery::read(&sys));
+                    ctx.battery.set(syn_system::battery::read(&sys));
                 }
                 update_power(ctx);
                 if tick % 3 == 0 {
-                    ctx.network.set(synsystem::network::read(&sys));
+                    ctx.network.set(syn_system::network::read(&sys));
                 }
                 ctx.cpu.set(cpu.sample().usage.round());
-                if let Some(m) = synsystem::memory::read(&sys) {
+                if let Some(m) = syn_system::memory::read(&sys) {
                     ctx.memory.set(m.used_percent().round());
                 }
                 tick += 1;
@@ -177,8 +177,8 @@ pub fn start(ctx: ShellCtx) {
 fn update_power(ctx: ShellCtx) {
     use std::sync::Mutex;
     static LAST: Mutex<Option<Option<bool>>> = Mutex::new(None);
-    let sys = synsystem::Sys::host();
-    let now = synsystem::battery::external_power(&sys);
+    let sys = syn_system::Sys::host();
+    let now = syn_system::battery::external_power(&sys);
     {
         let mut last = LAST.lock().unwrap();
         if *last == Some(now) {
@@ -187,12 +187,12 @@ fn update_power(ctx: ShellCtx) {
         *last = Some(now);
     }
     log::info!("питание: внешнее {now:?}");
-    ctx.battery.set(synsystem::battery::read(&sys));
+    ctx.battery.set(syn_system::battery::read(&sys));
     ctx.external_power.set(now);
     std::thread::spawn(move || {
         for _ in 0..3 {
             std::thread::sleep(Duration::from_millis(1500));
-            ctx.battery.set(synsystem::battery::read(&synsystem::Sys::host()));
+            ctx.battery.set(syn_system::battery::read(&syn_system::Sys::host()));
         }
     });
 }

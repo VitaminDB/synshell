@@ -75,7 +75,7 @@ synwm ≈3 % одного ядра; CPU — 30 fps, ≈54 %.
   F-клавиши, EN/RU).
 
 ## synmobile-shell
-`crates/synmobile-shell` — тонкая оболочка поверх общей библиотеки `crates/synshell-ui` (та же, что у
+`crates/syn-mobile-shell` — тонкая оболочка поверх общей библиотеки `crates/synshell-ui` (та же, что у
 рабочего стола): панели, доки, меню, уведомления, блокировка — общие, форм-фактор — `ShellCtx::form_factor`.
 
 - **Никаких встроенных строки состояния и навбара.** Панели и доки добавляет пользователь: удержание
@@ -236,7 +236,7 @@ w = тёплый / (белый + тёплый). `primary`/`set_percent` у та�
   архитектуры (`pacman -Sl`); без каталога synpkg предлагает его поставить. «Задачи»: лог открытого задания — на всю
   высоту, остальные — строками ниже (тап разворачивает). «Отменить» у идущего задания: текущему процессу — SIGINT
   группе (curl, makepkg), следующие шаги не начинаются. pacman от root через pkexec пользователю сигналом не достать,
-  поэтому он идёт через помощник `/usr/lib/synpkg/pacman-helper` (`crates/synpkg/data`, своё правило polkit
+  поэтому он идёт через помощник `/usr/lib/synpkg/pacman-helper` (`crates/syn-pkg/data`, своё правило polkit
   `org.synshell.synpkg.pacman`): «cancel» в его stdin → SIGINT pacman'у, тот прерывает транзакцию в безопасной точке
   и снимает блокировку базы (проверено на телефоне на загрузке). Без помощника — `pkexec pacman`, отмена только до
   ввода пароля. В помощнике нужен `set -m`: без управления заданиями фоновый pacman запускается с игнорируемым SIGINT.
@@ -245,7 +245,7 @@ w = тёплый / (белый + тёплый). `primary`/`set_percent` у та�
 - Пароль для pkexec спрашивает само приложение: `synsystem::polkit_agent` регистрирует процесс агентом polkit
   (субъект `unix-process`, как `pkttyagent --process`), окно ввода — `Prompter` приложения (в synpkg — поверх
   интерфейса). Сеансовый агент без logind не работает: polkitd ищет агента по процессу или logind-сеансу, а сеансы
-  synlogin идут без logind. Проверка без интерфейса: `SYN_PASS=… cargo run -p synsystem --example polkit_agent`.
+  synlogin идут без logind. Проверка без интерфейса: `SYN_PASS=… cargo run -p syn-system --example polkit_agent`.
   Помощник PAM — через `/run/polkit/agent-helper.socket`, а если сокет молчит (нет pidfd в ядре < 6.5), то setuid
   `polkit-agent-helper-1`.
 - Wi-Fi (`[wifi] backend`: iwd или NetworkManager) и Bluetooth (bluez) — страницы «Параметров» и окно «Сеть»
@@ -345,7 +345,7 @@ CPU; на Redmi K50 Ultra — юнит устройства в synmobile с ок
 с `LIBSEAT_BACKEND=noop`, сразу оболочка root.
 
 ## Экран входа synlogin
-`synlogin daemon [-- аргументы synwm]` (root, юнит `crates/synlogin/data/synlogin.service`) по кругу:
+`synlogin daemon [-- аргументы synwm]` (root, юнит `crates/syn-login/data/synlogin.service`) по кругу:
 1. композитор synwm с экраном входа вместо оболочки (`SYNSHELL_SHELL="synlogin greeter"`, `XDG_RUNTIME_DIR=
    /run/synlogin/greeter`): часы, карточки пользователей (UID 1000–59999 и root), пароль через PAM
    (`syndesktop-lock`, иначе `login`; у пользователя без пароля — вход по нажатию на карточку, без экрана пароля), «Новый пользователь» (логин, имя,
@@ -381,7 +381,7 @@ synlogin greeter`. Рендер: композитор — GPU (auto, откат 
 (убрать — `restart-shell`), дерево элементов с размерами — `SYNGUI_LAYER_TREE=1` в окружении оболочки. `SYNLOGIN_SYNWM` подменяет бинарник композитора.
 
 ## synkeyboard — экранная клавиатура
-`crates/synkeyboard`: отдельный демон на layer-shell (слой Top, снизу, exclusive zone = высота — окна
+`crates/syn-keyboard`: отдельный демон на layer-shell (слой Top, снизу, exclusive zone = высота — окна
 отодвигаются). Клавиши уходят композитору как evdev-коды через `zwp_virtual_keyboard_v1` (syngui-layer:
 `virtual_keyboard_key/modifiers/group`, keymap собирается `xkbcommon` для всех языков сразу — `us,ru`,
 язык переключается группой). Автопоказ — по `zwp_input_method_v2`: композитор активирует input-method,
@@ -431,7 +431,7 @@ synkeyboard key ctrl+shift+c       # сочетание; f1…f12, enter, tab, e
 демонам по сокетам: `syngamepad app|layout|show|hide`, `synkeyboard auto on|off`. synmobile-shell запускает
 syngamepad, как synkeyboard (перезапуск при падении, PDEATHSIG).
 
-`crates/syngamepad` — слой **Overlay** на весь экран (поверх полноэкранной игры; Top-слои при полноэкранном окне
+`crates/syn-gamepad` — слой **Overlay** на весь экран (поверх полноэкранной игры; Top-слои при полноэкранном окне
 ввод не получают), область ввода — только элементы, ручка и кнопка настройки. Элементы: стик (левый/правый стик
 геймпада, крестовина — D-pad/HAT геймпада в 8 направлениях, WASD, стрелки — клавиши ↑↓←→ клавиатуры, мышь;
 «плавающий» — центр под пальцем), крестовина (HAT, стрелки, WASD), кнопки (геймпад, клавиши и
@@ -468,7 +468,7 @@ syngamepad text <символы> | key <имя>   # от synkeyboard при вв
 ## Запуск на телефоне (Redmi K50 Ultra, см. synmobile)
 ```
 # кросс-сборка с хоста (sysroot = rootfs телефона):
-PROFILE=fast-release ~/Projects/2027/synmobile/tools/synport/target/fast-release/synport cross ~/Projects/2027/synshell -p synwm -p synmobile-shell -p synkeyboard
+PROFILE=fast-release ~/Projects/2027/synmobile/tools/synport/target/fast-release/synport cross ~/Projects/2027/synshell -p syn-wm -p syn-mobile-shell -p syn-keyboard
 # на телефоне (Arch по USB):
 LIBSEAT_BACKEND=noop SYNSHELL_DRM_DEVICE=/dev/dri/card0 XDG_RUNTIME_DIR=/run/weston \
   MESA_LOADER_DRIVER_OVERRIDE=zink TU_KGSL_DRM_NODE=/dev/dri/card0 \

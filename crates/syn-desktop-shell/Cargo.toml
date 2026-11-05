@@ -1,0 +1,16 @@
+[package]
+name = "syn-desktop-shell"
+description = "Desktop shell of the synshell environment: wallpaper and panels per monitor on top of synshell-ui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "syndesktop-shell"
+path = "src/main.rs"
+
+[dependencies]
+synshell-common.workspace = true
+synshell-ui.workspace = true
+log = "0.4"

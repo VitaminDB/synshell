@@ -588,7 +588,7 @@ fn rotation_option(r: synshell_common::action::Rotation, cur: synshell_common::a
 
 /// Bluetooth вкл/выкл (BlueZ, в фоне).
 fn bluetooth_power(on: bool) {
-    std::thread::spawn(move || match synsystem::bluetooth::Bluetooth::new() {
+    std::thread::spawn(move || match syn_system::bluetooth::Bluetooth::new() {
         Some(bt) => {
             if let Err(e) = bt.set_powered(on) {
                 log::warn!("Bluetooth: {e}");
@@ -629,7 +629,7 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
         // Мобильная связь (есть модем): тап — радио модема вкл/выкл
         let set_radio = |on: bool| {
             std::thread::spawn(move || {
-                if let Err(e) = synmodem::api::request(&synmodem::api::Request::SetRadio { on }) {
+                if let Err(e) = syn_modem::api::request(&syn_modem::api::Request::SetRadio { on }) {
                     log::warn!("радио модема: {e:#}");
                 }
             });
@@ -643,7 +643,7 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
         }
         // Мобильный интернет (передача данных по сотовой сети), отдельно от режима полёта
         if let Some(m) = ctx.modem.get().filter(|m| m.present) {
-            use synmodem::api::DataState;
+            use syn_modem::api::DataState;
             let on = m.data.enabled;
             let state = match m.data.state {
                 DataState::Off => t!("Выключен").to_string(),
@@ -656,7 +656,7 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
             };
             let set_data = |on: bool| {
                 std::thread::spawn(move || {
-                    if let Err(e) = synmodem::api::request(&synmodem::api::Request::SetData { on }) {
+                    if let Err(e) = syn_modem::api::request(&syn_modem::api::Request::SetData { on }) {
                         log::warn!("передача данных: {e:#}");
                     }
                 });
@@ -1028,8 +1028,8 @@ fn max_nits(ctx: &ShellCtx) -> Option<f32> {
 }
 
 fn sliders(ctx: ShellCtx) -> impl Widget {
-    let sys = synsystem::Sys::host();
-    let bl = synsystem::backlight::primary(&sys);
+    let sys = syn_system::Sys::host();
+    let bl = syn_system::backlight::primary(&sys);
     let nits = max_nits(&ctx);
     // Общая с автояркостью: ползунок идёт за ней, а её поправку задаёт ползунок.
     let bright = ctx.brightness;
@@ -1057,9 +1057,9 @@ fn sliders(ctx: ShellCtx) -> impl Widget {
                 if first {
                     let p3 = p2.clone();
                     std::thread::spawn(move || {
-                        let sys = synsystem::Sys::host();
+                        let sys = syn_system::Sys::host();
                         while let Some(v) = p3.lock().unwrap().take() {
-                            match synsystem::backlight::set_percent(&sys, v) {
+                            match syn_system::backlight::set_percent(&sys, v) {
                                 Ok(_) => crate::backlight::remember_level(v),
                                 Err(e) => log::warn!("яркость: {e}"),
                             }
@@ -1088,13 +1088,13 @@ fn sliders(ctx: ShellCtx) -> impl Widget {
         });
         col = col.child(row);
     }
-    if let Some(w) = synsystem::backlight::front_light(&sys).map(|fl| fl.state(&sys).1) {
+    if let Some(w) = syn_system::backlight::front_light(&sys).map(|fl| fl.state(&sys).1) {
         col = col.child(warmth_row(w));
     }
     // Удержание строки громкости или шеврон — панель «Звук»: громкость каждого выхода,
     // выбор выхода по умолчанию, маршруты играющих программ.
     let snd_open = use_signal(false);
-    let snd = use_signal(None::<Vec<synsystem::sound::Node>>);
+    let snd = use_signal(None::<Vec<syn_system::sound::Node>>);
     let vol = rx(move || {
         let v = ctx.volume.get();
         let Some(v) = v else { return Box::new(DecoratedBox::new()) as Box<dyn Widget> };
@@ -1149,7 +1149,7 @@ fn sliders(ctx: ShellCtx) -> impl Widget {
 // по умолчанию не трогается (HFP-микрофон Bluetooth на телефоне пока глушит звук).
 
 /// Узлы PipeWire раскрытой панели (`None` — панель закрыта); пишет [`sound_changed`].
-static SOUND_SIG: Mutex<Option<RwSignal<Option<Vec<synsystem::sound::Node>>>>> = Mutex::new(None);
+static SOUND_SIG: Mutex<Option<RwSignal<Option<Vec<syn_system::sound::Node>>>>> = Mutex::new(None);
 
 /// Звук изменился (событие `pactl subscribe` в `system::watch_volume` или своё действие):
 /// перечитать узлы, пока панель раскрыта. Чтения сливаются: пока идёт `pw-dump`,
@@ -1166,7 +1166,7 @@ pub fn sound_changed() {
         return;
     }
     std::thread::spawn(|| loop {
-        let nodes = synsystem::sound::nodes();
+        let nodes = syn_system::sound::nodes();
         syngui::async_runtime::run_on_main_thread(move || {
             let Some(sig) = *SOUND_SIG.lock().unwrap() else { return };
             if let Some(n) = nodes {
@@ -1187,7 +1187,7 @@ pub fn sound_changed() {
     });
 }
 
-fn toggle_sound_panel(open: RwSignal<bool>, snd: RwSignal<Option<Vec<synsystem::sound::Node>>>) {
+fn toggle_sound_panel(open: RwSignal<bool>, snd: RwSignal<Option<Vec<syn_system::sound::Node>>>) {
     let on = !open.get_untracked();
     *SOUND_SIG.lock().unwrap() = if on { Some(snd) } else { None };
     if on {
@@ -1203,13 +1203,13 @@ fn snd_set_volume(id: u32, percent: u32, max: u32) {
     if first {
         std::thread::spawn(|| {
             while let Some((id, p, max)) = PENDING.lock().unwrap().take() {
-                synsystem::sound::set_node_volume(id, p, max);
+                syn_system::sound::set_node_volume(id, p, max);
             }
         });
     }
 }
 
-fn snd_glyph(n: &synsystem::sound::Node) -> &'static str {
+fn snd_glyph(n: &syn_system::sound::Node) -> &'static str {
     match n.icon.as_deref() {
         Some(i) if i.contains("headphone") || i.contains("headset") => mi::HEADPHONES,
         Some(i) if i.contains("bluetooth") => mi::BLUETOOTH,
@@ -1217,8 +1217,8 @@ fn snd_glyph(n: &synsystem::sound::Node) -> &'static str {
     }
 }
 
-fn sound_panel(snd: RwSignal<Option<Vec<synsystem::sound::Node>>>, max: u32) -> Box<dyn Widget> {
-    use synsystem::sound::NodeKind;
+fn sound_panel(snd: RwSignal<Option<Vec<syn_system::sound::Node>>>, max: u32) -> Box<dyn Widget> {
+    use syn_system::sound::NodeKind;
     let Some(nodes) = snd.get() else {
         return Box::new(Text::new(t!("Чтение…")).class("shade-snd-hint"));
     };
@@ -1226,14 +1226,14 @@ fn sound_panel(snd: RwSignal<Option<Vec<synsystem::sound::Node>>>, max: u32) -> 
         .gap(2.0)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(DecoratedBox::new().class("shade-snd-sep"));
-    let outs: Vec<synsystem::sound::Node> = nodes.iter().filter(|n| n.kind == NodeKind::Output).cloned().collect();
+    let outs: Vec<syn_system::sound::Node> = nodes.iter().filter(|n| n.kind == NodeKind::Output).cloned().collect();
     if outs.is_empty() {
         col = col.child(Text::new(t!("Нет устройств вывода.")).class("shade-snd-hint"));
     }
     for n in &outs {
         col = col.child(snd_output_row(n, max));
     }
-    let apps: Vec<&synsystem::sound::Node> = nodes.iter().filter(|n| n.kind == NodeKind::AppStream).collect();
+    let apps: Vec<&syn_system::sound::Node> = nodes.iter().filter(|n| n.kind == NodeKind::AppStream).collect();
     if !apps.is_empty() {
         col = col.child(Text::new(t!("Приложения")).class("shade-section shade-snd-head"));
         for a in apps {
@@ -1256,14 +1256,14 @@ fn sound_panel(snd: RwSignal<Option<Vec<synsystem::sound::Node>>>, max: u32) -> 
 }
 
 /// Выход: тап по имени — сделать выходом по умолчанию, ползунок — его собственная громкость.
-fn snd_output_row(n: &synsystem::sound::Node, max: u32) -> impl Widget {
+fn snd_output_row(n: &syn_system::sound::Node, max: u32) -> impl Widget {
     let id = n.id;
     let default = n.default;
     let head = GestureDetector::new()
         .on_click(move || {
             if !default {
                 std::thread::spawn(move || {
-                    synsystem::sound::set_default(id);
+                    syn_system::sound::set_default(id);
                     sound_changed();
                 });
             }
@@ -1302,7 +1302,7 @@ fn snd_output_row(n: &synsystem::sound::Node, max: u32) -> impl Widget {
 }
 
 /// Поток программы: громкость и выбор выхода («Авто» — выход по умолчанию).
-fn snd_app_row(n: &synsystem::sound::Node, outs: &[synsystem::sound::Node], max: u32) -> impl Widget {
+fn snd_app_row(n: &syn_system::sound::Node, outs: &[syn_system::sound::Node], max: u32) -> impl Widget {
     let id = n.id;
     let tgt = n.target.as_deref().and_then(|t| outs.iter().find(|o| o.is_target(t)));
     let chip_text = tgt.map(|o| o.label.clone()).unwrap_or_else(|| t!("Авто").to_string());
@@ -1310,7 +1310,7 @@ fn snd_app_row(n: &synsystem::sound::Node, outs: &[synsystem::sound::Node], max:
         let target = n.target.clone();
         let mut options = vec![TileOption::new(mi::VOLUME_UP, t!("Как система"), move || {
             std::thread::spawn(move || {
-                synsystem::sound::set_stream_target(id, None);
+                syn_system::sound::set_stream_target(id, None);
                 sound_changed();
             });
         })
@@ -1323,7 +1323,7 @@ fn snd_app_row(n: &synsystem::sound::Node, outs: &[synsystem::sound::Node], max:
                 TileOption::new(snd_glyph(o), o.label.clone(), move || {
                     let name = name.clone();
                     std::thread::spawn(move || {
-                        synsystem::sound::set_stream_target(id, Some(&name));
+                        syn_system::sound::set_stream_target(id, Some(&name));
                         sound_changed();
                     });
                 })
@@ -1376,14 +1376,14 @@ fn warmth_row(w: f32) -> impl Widget {
 }
 
 // ─── Фонарик ─────────────────────────────────────────────────────────────────
-// Светодиоды вспышки (synsystem::torch, описание — /etc/syn-torch.conf платформы). Включённый фонарик —
+// Светодиоды вспышки (syn_system::torch, описание — /etc/syn-torch.conf платформы). Включённый фонарик —
 // строка в ползунках шторки: кнопка выключения, яркость, у двухтоновой вспышки — кнопки «Т» и «Х».
 
 /// Последняя яркость (доля наибольшего тока): с ней фонарик включается снова.
 static TORCH_LEVEL: Mutex<f32> = Mutex::new(0.3);
 
 fn torch_refresh(ctx: ShellCtx) {
-    let st = synsystem::torch::Torch::find().map(|t| t.state());
+    let st = syn_system::torch::Torch::find().map(|t| t.state());
     if let Some(s) = st.filter(|s| s.on) {
         *TORCH_LEVEL.lock().unwrap() = s.level;
     }
@@ -1391,8 +1391,8 @@ fn torch_refresh(ctx: ShellCtx) {
 }
 
 /// Записать состояние (в фоне; последнее побеждает) и показать его сразу.
-fn torch_set(ctx: ShellCtx, st: synsystem::torch::State) {
-    static PENDING: Mutex<Option<synsystem::torch::State>> = Mutex::new(None);
+fn torch_set(ctx: ShellCtx, st: syn_system::torch::State) {
+    static PENDING: Mutex<Option<syn_system::torch::State>> = Mutex::new(None);
     if st.on {
         *TORCH_LEVEL.lock().unwrap() = st.level;
     }
@@ -1400,7 +1400,7 @@ fn torch_set(ctx: ShellCtx, st: synsystem::torch::State) {
     let first = PENDING.lock().unwrap().replace(st).is_none();
     if first {
         std::thread::spawn(|| {
-            let Some(t) = synsystem::torch::Torch::find() else { return };
+            let Some(t) = syn_system::torch::Torch::find() else { return };
             while let Some(st) = PENDING.lock().unwrap().take() {
                 if let Err(e) = t.set(st) {
                     log::warn!("фонарик: {e}");
@@ -1411,14 +1411,14 @@ fn torch_set(ctx: ShellCtx, st: synsystem::torch::State) {
 }
 
 fn torch_toggle(ctx: ShellCtx) {
-    let cur = ctx.torch.get_untracked().unwrap_or(synsystem::torch::State { on: false, level: 0.0, warm: false, cold: false });
+    let cur = ctx.torch.get_untracked().unwrap_or(syn_system::torch::State { on: false, level: 0.0, warm: false, cold: false });
     let level = *TORCH_LEVEL.lock().unwrap();  // отдельно: torch_set берёт тот же мьютекс
-    torch_set(ctx, synsystem::torch::State { on: !cur.on, level, ..cur });
+    torch_set(ctx, syn_system::torch::State { on: !cur.on, level, ..cur });
 }
 
 /// Строка включённого фонарика в ползунках шторки.
 fn torch_row(ctx: ShellCtx) -> impl Widget {
-    let two_tone = synsystem::torch::Torch::find().is_some_and(|t| t.two_tone());
+    let two_tone = syn_system::torch::Torch::find().is_some_and(|t| t.two_tone());
     rx(move || {
         let Some(st) = ctx.torch.get().filter(|s| s.on) else { return Box::new(DecoratedBox::new()) as Box<dyn Widget> };
         let pct = (st.level * 100.0).round().clamp(1.0, 100.0);
@@ -1440,15 +1440,15 @@ fn torch_row(ctx: ShellCtx) -> impl Widget {
                     .range(1.0, 100.0)
                     .step(1.0)
                     .value(pct)
-                    .on_change(move |v| torch_set(ShellCtx::get(), synsystem::torch::State { level: v / 100.0, ..st }))
+                    .on_change(move |v| torch_set(ShellCtx::get(), syn_system::torch::State { level: v / 100.0, ..st }))
                     .class("grow"),
             )
             .child(Text::new(format!("{pct:.0}%")).class("shade-slider-value"));
         if two_tone {
             // оба выключены — горят оба; «Т»/«Х» — только тёплый/холодный, оба включены — смесь
             row = row
-                .child(badge(n_!("Т"), st.warm, Box::new(move || torch_set(ShellCtx::get(), synsystem::torch::State { warm: !st.warm, ..st }))))
-                .child(badge(n_!("Х"), st.cold, Box::new(move || torch_set(ShellCtx::get(), synsystem::torch::State { cold: !st.cold, ..st }))));
+                .child(badge(n_!("Т"), st.warm, Box::new(move || torch_set(ShellCtx::get(), syn_system::torch::State { warm: !st.warm, ..st }))))
+                .child(badge(n_!("Х"), st.cold, Box::new(move || torch_set(ShellCtx::get(), syn_system::torch::State { cold: !st.cold, ..st }))));
         }
         Box::new(DecoratedBox::new().child(row).class("shade-slider"))
     })

@@ -722,7 +722,7 @@ pub fn open_path(p: &std::path::Path) {
 
 /// Выбор каталога: портал (в synshell — окно Проводника), без него — kdialog или zenity. Блокирующий.
 pub fn pick_dir(start: &std::path::Path) -> Option<String> {
-    match synsystem::portal_files::pick(&t!("Каталог с DLL NVIDIA NGX"), true, start, &[]) {
+    match syn_system::portal_files::pick(&t!("Каталог с DLL NVIDIA NGX"), true, start, &[]) {
         Ok(p) => return p.map(|p| p.display().to_string()),
         Err(e) => tracing::info!("портал выбора файлов: {e} — kdialog/zenity"),
     }

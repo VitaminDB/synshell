@@ -1,5 +1,5 @@
 //! Камера телефона в оболочке: какая включена (`ctx.camera`) — подписка на
-//! службу камеры syncamd ([`synsystem::camera`]); значок «камера
+//! службу камеры syncamd ([`syn_system::camera`]); значок «камера
 //! используется» в строке состояния. Без syncamd (компьютер) — ничего.
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -19,11 +19,11 @@ pub fn start(ctx: ShellCtx) {
     std::thread::Builder::new()
         .name("shell-camera".into())
         .spawn(|| loop {
-            if !std::path::Path::new(synsystem::camera::SOCKET).exists() {
+            if !std::path::Path::new(syn_system::camera::SOCKET).exists() {
                 std::thread::sleep(Duration::from_secs(10));
                 continue;
             }
-            let r = synsystem::camera::watch(|st| {
+            let r = syn_system::camera::watch(|st| {
                 run_on_main_thread(move || ShellCtx::get().camera.set(st.camera));
                 true
             });

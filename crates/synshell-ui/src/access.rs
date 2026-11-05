@@ -1,5 +1,5 @@
 //! Доступ программ к устройствам через порталы: оболочка — бэкенд
-//! `org.freedesktop.impl.portal.Access` ([`synsystem::portal_access`]).
+//! `org.freedesktop.impl.portal.Access` ([`syn_system::portal_access`]).
 //! Портал Camera (и другие, кто спрашивает `AccessDialog`) зовёт его для
 //! программы без сохранённого решения; решение запоминает сам портал
 //! (хранилище разрешений), оболочка только спрашивает диалогом по центру
@@ -11,8 +11,8 @@ use std::sync::{Mutex, OnceLock};
 use syngui::async_runtime::run_on_main_thread;
 use syngui::input::MouseButton;
 use syngui::prelude::*;
-use synsystem::portal_access::{self, AccessRequest, Prompter};
-use synsystem::portal_screencast::{ScreenAsk, ScreenPicker, ScreenRequest};
+use syn_system::portal_access::{self, AccessRequest, Prompter};
+use syn_system::portal_screencast::{ScreenAsk, ScreenPicker, ScreenRequest};
 
 use crate::ctx::{PopupKind, ShellCtx};
 use crate::ui::{icon, mi, InputArea};

@@ -74,7 +74,7 @@ impl Delayed {
 
 /// Вернуть подсветке запомненное (в фоне). `only_if_dark` — только погашенную.
 fn restore(level: Option<f32>, warmth: Option<f32>, only_if_dark: bool) {
-    std::thread::spawn(move || match synsystem::backlight::restore(&synsystem::Sys::host(), level, warmth, only_if_dark) {
+    std::thread::spawn(move || match syn_system::backlight::restore(&syn_system::Sys::host(), level, warmth, only_if_dark) {
         Ok(true) => log::info!("подсветка: восстановлена яркость {level:?}, тепло {warmth:?}"),
         Ok(false) => {}
         Err(e) => log::warn!("подсветка: {e}"),
@@ -101,13 +101,13 @@ pub fn start(ctx: ShellCtx) {
         // тепло, сменённое в Параметрах, — при прежней яркости
         let w = w.unwrap().clamp(0.0, 100.0);
         std::thread::spawn(move || {
-            let sys = synsystem::Sys::host();
-            let Some((b, cur)) = synsystem::backlight::front_light_state(&sys) else { return };
+            let sys = syn_system::Sys::host();
+            let Some((b, cur)) = syn_system::backlight::front_light_state(&sys) else { return };
             // каналы погашены — яркость не включаем, тепло применится со следующей
             if b <= 0.0 || (cur - w).abs() < 0.5 {
                 return;
             }
-            if let Err(e) = synsystem::backlight::set_front_light(&sys, b, w) {
+            if let Err(e) = syn_system::backlight::set_front_light(&sys, b, w) {
                 log::warn!("тепло подсветки: {e}");
             }
         });
@@ -142,11 +142,11 @@ pub fn set_warmth(w: f32) {
         return;
     }
     std::thread::spawn(|| {
-        let sys = synsystem::Sys::host();
+        let sys = syn_system::Sys::host();
         loop {
             // значение снимается под замком после записи: новый сдвиг за это время подхватит этот же поток
             let Some(w) = *WARMTH_SYSFS.lock().unwrap() else { return };
-            if let Err(e) = synsystem::backlight::set_warmth(&sys, w) {
+            if let Err(e) = syn_system::backlight::set_warmth(&sys, w) {
                 log::warn!("тепло подсветки: {e}");
             }
             let mut p = WARMTH_SYSFS.lock().unwrap();

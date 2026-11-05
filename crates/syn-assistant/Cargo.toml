@@ -1,0 +1,23 @@
+[package]
+name = "syn-assistant"
+description = "Ассистент synshell: чаты с системной нейросетью, голосовой режим, инструменты системы, файлов, терминала, интернета и медиа"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "synassistant"
+path = "src/main.rs"
+
+[dependencies]
+synshell-common = { workspace = true, features = ["i18n", "thumbs", "style"] }
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "image", "markdown-syntax", "clipboard", "ffmpeg"] }
+syn-assist.workspace = true
+synaptix-graph.workspace = true
+syn-assist-voice.workspace = true
+synaptixd.workspace = true
+syn-system.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

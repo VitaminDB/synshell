@@ -18,7 +18,7 @@ use syngui::prelude::*;
 use syngui::GestureDetector;
 use syngui::video::AudioFilePlayer;
 use syngui::widgets::{EventHook, KeyReply};
-use synsystem::sound::{self, NodeKind};
+use syn_system::sound::{self, NodeKind};
 
 use crate::engine;
 use crate::store::{self, Recording, Settings};

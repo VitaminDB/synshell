@@ -129,7 +129,7 @@ pub fn list(cx: &Cx, s: &Snap) -> Vec<W> {
     let me = unsafe { libc::getuid() };
     let kernel = st.kernel_threads.get();
     let mine = st.mine.get();
-    let mut list: Vec<&synsystem::procs::Process> = s
+    let mut list: Vec<&syn_system::procs::Process> = s
         .procs
         .iter()
         .filter(|p| kernel || !p.is_kernel())
@@ -218,7 +218,7 @@ fn app_row(cx: &Cx, a: &App) -> W {
     boxed(DecoratedBox::new().child(row).class("row-item"))
 }
 
-fn proc_row(cx: &Cx, p: &synsystem::procs::Process, selected: bool) -> W {
+fn proc_row(cx: &Cx, p: &syn_system::procs::Process, selected: bool) -> W {
     let st = cx.st;
     let pid = p.pid;
     let cpu_class = if p.cpu_percent >= 25.0 { "num col-num hot" } else { "num col-num" };

@@ -20,7 +20,7 @@ fn tier_color(t: usize) -> Color {
 pub fn cpu(cx: &Cx, s: &Snap) -> Vec<W> {
     let color = Page::Cpu.color();
     let mut out = vec![header(cx, Page::Cpu, s.cpu_model.clone(), true)];
-    let online: Vec<&synsystem::cpu::Core> = s.cpu.cores.iter().filter(|c| c.online).collect();
+    let online: Vec<&syn_system::cpu::Core> = s.cpu.cores.iter().filter(|c| c.online).collect();
     let freq = online.iter().filter_map(|c| c.cur_mhz).max();
     let mut sub = Vec::new();
     if let Some(f) = freq {

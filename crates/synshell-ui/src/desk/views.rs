@@ -216,7 +216,7 @@ fn clock(ctx: ShellCtx, w: &DeskWidget, cx: &Cx) -> Box<dyn Widget> {
 fn value_of(kind: &str, s: &Snap) -> (f32, String, String) {
     match kind {
         "cpu" => (s.cpu, format!("{:.0}%", s.cpu), s.cpu_temp.map(|t| format!("{t:.0} °C")).unwrap_or_else(|| t!("процессор").into())),
-        "memory" => (s.mem_percent, format!("{:.0}%", s.mem_percent), synsystem::memory::human_kb(s.mem_used_kb)),
+        "memory" => (s.mem_percent, format!("{:.0}%", s.mem_percent), syn_system::memory::human_kb(s.mem_used_kb)),
         "gpu" if data::primary_gpu(&s.gpus).is_some_and(|g| g.asleep) => (0.0, t!("сон").into(), t!("не используется").into()),
         "gpu" => match &s.gpu {
             Some((busy, mhz, _)) => (busy.unwrap_or(0.0), busy.map(|b| format!("{b:.0}%")).unwrap_or("—".into()), mhz.map(|m| t!("{m} МГц", m = m)).unwrap_or_default()),
@@ -261,12 +261,12 @@ pub(super) fn human_bytes(b: u64) -> String {
     if gb >= 1000.0 {
         t!("{v} ТБ", v = format!("{:.1}", gb / 1024.0))
     } else {
-        synsystem::memory::human_kb(b / 1024)
+        syn_system::memory::human_kb(b / 1024)
     }
 }
 
 /// Состояние NPU без счётчика загрузки (Qualcomm): считает, готов (есть сеансы), простой, выключен.
-fn npu_state(n: &synsystem::npu::Npu) -> String {
+fn npu_state(n: &syn_system::npu::Npu) -> String {
     if !n.online {
         t!("выкл").into()
     } else if n.daemon.as_ref().is_some_and(|d| !d.workers.is_empty()) {
@@ -482,7 +482,7 @@ fn memory_pie(s: &Snap, cx: &Cx) -> impl Widget {
     Column::new()
         .gap(0.0)
         .child(
-            Text::new(t!("{v} из {v2}", v = synsystem::memory::human_kb(s.mem_used_kb), v2 = synsystem::memory::human_kb(s.mem_total_kb)))
+            Text::new(t!("{v} из {v2}", v = syn_system::memory::human_kb(s.mem_used_kb), v2 = syn_system::memory::human_kb(s.mem_total_kb)))
                 .max_lines(1)
                 .class("desk-k")
                 .style("height", StyleValue::px(head)),
@@ -563,7 +563,7 @@ fn watts(w: f32) -> String {
     t!("{w} Вт", w = if w >= 10.0 { format!("{w:.0}") } else { format!("{w:.1}") }).into()
 }
 
-fn usbc_label(ports: &[synsystem::usbc::UsbcPort], i: usize) -> String {
+fn usbc_label(ports: &[syn_system::usbc::UsbcPort], i: usize) -> String {
     let p = &ports[i];
     let side = match p.position.as_deref() {
         Some("left") => Some(t!("слева")),
@@ -586,8 +586,8 @@ fn usbc_label(ports: &[synsystem::usbc::UsbcPort], i: usize) -> String {
     }
 }
 
-fn usbc_rows(ports: &[synsystem::usbc::UsbcPort]) -> Vec<Box<dyn Widget>> {
-    use synsystem::usbc::OpMode;
+fn usbc_rows(ports: &[syn_system::usbc::UsbcPort]) -> Vec<Box<dyn Widget>> {
+    use syn_system::usbc::OpMode;
     let mut rows = Vec::new();
     for (i, p) in ports.iter().enumerate().filter(|(_, p)| p.connected()) {
         let name = match p.devices.first().and_then(|d| d.name()) {
@@ -742,7 +742,7 @@ fn network(ctx: ShellCtx, cx: Cx) -> Box<dyn Widget> {
 }
 
 /// Карточка «Сеть»: Wi-Fi, мобильная связь (если есть модем) и скорость.
-fn net_card(n: &synsystem::network::Network, modem: Option<&synmodem::api::Status>, rate: (f64, f64)) -> impl Widget {
+fn net_card(n: &syn_system::network::Network, modem: Option<&syn_modem::api::Status>, rate: (f64, f64)) -> impl Widget {
     let (glyph, title, sub) = match n.kind.as_str() {
         "wifi" if n.online => (mi::WIFI, n.connection.clone(), n.signal.map(|v| format!("Wi-Fi · {v} %")).unwrap_or_else(|| "Wi-Fi".into())),
         "ethernet" if n.online => (mi::ETHERNET, n.connection.clone(), t!("Проводная сеть").into()),
@@ -1064,15 +1064,15 @@ fn mount_icon(path: &str) -> &'static str {
     }
 }
 
-pub fn storage_mounts<'a>(w: &DeskWidget, all: &'a [synsystem::disk::Mount]) -> Vec<&'a synsystem::disk::Mount> {
+pub fn storage_mounts<'a>(w: &DeskWidget, all: &'a [syn_system::disk::Mount]) -> Vec<&'a syn_system::disk::Mount> {
     let chosen = w.strings("mounts");
-    let mut list: Vec<&synsystem::disk::Mount> = if chosen.is_empty() {
+    let mut list: Vec<&syn_system::disk::Mount> = if chosen.is_empty() {
         let removable = w.bool_or("removable", true);
         all.iter().filter(|m| !is_boot(&m.path) && (removable || !is_removable(&m.path))).collect()
     } else {
         chosen.iter().filter_map(|p| all.iter().find(|m| &m.path == p)).collect()
     };
-    let fill = |m: &synsystem::disk::Mount| m.used as f64 / m.total.max(1) as f64;
+    let fill = |m: &syn_system::disk::Mount| m.used as f64 / m.total.max(1) as f64;
     match w.str_or("sort", "system") {
         "fill" => list.sort_by(|a, b| fill(b).total_cmp(&fill(a))),
         "size" => list.sort_by(|a, b| b.total.cmp(&a.total)),
@@ -1184,7 +1184,7 @@ fn foot(kind: &str, s: &Snap) -> String {
             }
             parts.join(" · ")
         }
-        "memory" => t!("из {v}", v = synsystem::memory::human_kb(s.mem_total_kb)).to_string(),
+        "memory" => t!("из {v}", v = syn_system::memory::human_kb(s.mem_total_kb)).to_string(),
         "gpu" => match data::primary_gpu(&s.gpus) {
             Some(g) => {
                 let mut parts = vec![short_gpu(&g.name)];
@@ -1287,8 +1287,8 @@ fn core_view(s: &Snap, cx: &Cx) -> impl Widget {
     col
 }
 
-fn temp_icon(k: synsystem::thermal::TempKind) -> &'static str {
-    use synsystem::thermal::TempKind::*;
+fn temp_icon(k: syn_system::thermal::TempKind) -> &'static str {
+    use syn_system::thermal::TempKind::*;
     match k {
         Cpu => mi::CPU,
         Gpu => "\u{E30A}",
@@ -1302,8 +1302,8 @@ fn temp_icon(k: synsystem::thermal::TempKind) -> &'static str {
     }
 }
 
-fn temp_kind_label(k: synsystem::thermal::TempKind) -> String {
-    use synsystem::thermal::TempKind::*;
+fn temp_kind_label(k: syn_system::thermal::TempKind) -> String {
+    use syn_system::thermal::TempKind::*;
     match k {
         Cpu => t!("Процессор"),
         Gpu => t!("Видеокарта"),
@@ -1335,9 +1335,9 @@ fn temp_devices_view(s: &Snap, cx: &Cx, own_color: bool) -> Box<dyn Widget> {
         cx.color = Color::from_hex("#34d399");
     }
     let cx = &cx;
-    let mut sorted: Vec<&synsystem::thermal::TempDevice> = s.temp_devs.iter().collect();
-    let prio = |d: &synsystem::thermal::TempDevice| {
-        use synsystem::thermal::TempKind::*;
+    let mut sorted: Vec<&syn_system::thermal::TempDevice> = s.temp_devs.iter().collect();
+    let prio = |d: &syn_system::thermal::TempDevice| {
+        use syn_system::thermal::TempKind::*;
         let k = match d.kind {
             Cpu => 0,
             Gpu => 1,

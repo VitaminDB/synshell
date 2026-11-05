@@ -162,7 +162,7 @@ fn listen(tx: &std::sync::mpsc::Sender<Msg>, cfg: &Arc<Mutex<Brightness>>) -> zb
 }
 
 fn apply_loop(rx: Receiver<Msg>, cfg: Arc<Mutex<Brightness>>) {
-    let sys = synsystem::Sys::host();
+    let sys = syn_system::Sys::host();
     let mut lux: Option<f32> = None;
     let mut offset = cfg.lock().unwrap().offset;
     // Поправка из конфига, которую видели последней (сменилась в файле — принять), и несохранённая своя.
@@ -204,7 +204,7 @@ fn apply_loop(rx: Receiver<Msg>, cfg: Arc<Mutex<Brightness>>) {
         if !SCREEN_ON.load(std::sync::atomic::Ordering::SeqCst) {
             continue;
         }
-        let (Some(l), Some(bl)) = (lux, synsystem::backlight::primary(&sys)) else { continue };
+        let (Some(l), Some(bl)) = (lux, syn_system::backlight::primary(&sys)) else { continue };
         let now_pct = bl.percent();
         if written.is_some_and(|w| w.abs_diff(bl.brightness) > 1) {
             // ручная правка: запомнить поправку к кривой
@@ -242,7 +242,7 @@ fn apply_loop(rx: Receiver<Msg>, cfg: Arc<Mutex<Brightness>>) {
             next = goal;
             dim_since = None;
         }
-        match synsystem::backlight::set_percent(&sys, next) {
+        match syn_system::backlight::set_percent(&sys, next) {
             Ok(b) => {
                 written = Some(b.brightness);
                 cur = Some(next);

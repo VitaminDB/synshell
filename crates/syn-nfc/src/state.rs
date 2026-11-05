@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use syngui::prelude::*;
-use synnfc::api::{self, Event, Mode, Request, Status, Subscription, Tag};
-use synnfc::ndef::Record;
+use syn_nfcd::api::{self, Event, Mode, Request, Status, Subscription, Tag};
+use syn_nfcd::ndef::Record;
 
 /// Сохранённая метка.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
