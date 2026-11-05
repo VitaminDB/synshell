@@ -80,7 +80,8 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
     let cpu = if !kvm {
         "max".to_string()
     } else if vm.os.is_windows() {
-        "host,hv_relaxed,hv_vapic,hv_spinlocks=0x1fff,hv_time,hv_vpindex,hv_synic,hv_stimer,hv_frequencies".to_string()
+        // Просветления Hyper-V: без них Windows 11 заметно медленнее (таймеры, IPI, сброс TLB).
+        "host,hv_relaxed,hv_vapic,hv_spinlocks=0x1fff,hv_time,hv_vpindex,hv_synic,hv_stimer,hv_stimer_direct,hv_frequencies,hv_reset,hv_runtime,hv_tlbflush,hv_ipi".to_string()
     } else {
         "host".to_string()
     };
@@ -130,9 +131,15 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
             bail!("{}", t!("Нет файла диска: {p}", p = path.display()));
         }
         let fmt = if path.extension().is_some_and(|e| e == "qcow2") { "qcow2" } else { "raw" };
-        push(&["-drive", &format!("file={},if=none,id=disk{i},format={fmt},discard=unmap,detect-zeroes=unmap,cache=writeback,aio=threads", esc(&path))]);
+        // virtio: свой поток ввода-вывода и прямой доступ к файлу (без двойного кэша);
+        // SATA/NVMe — как раньше.
+        let io = if vm.disk_bus == DiskBus::Virtio { "cache=none,aio=native" } else { "cache=writeback,aio=threads" };
+        push(&["-drive", &format!("file={},if=none,id=disk{i},format={fmt},discard=unmap,detect-zeroes=unmap,{io}", esc(&path))]);
         match vm.disk_bus {
-            DiskBus::Virtio => push(&["-device", &format!("virtio-blk-pci,drive=disk{i},bootindex={boot}")]),
+            DiskBus::Virtio => {
+                push(&["-object", &format!("iothread,id=io{i}")]);
+                push(&["-device", &format!("virtio-blk-pci,drive=disk{i},iothread=io{i},bootindex={boot}")]);
+            }
             DiskBus::Sata => push(&["-device", &format!("ide-hd,drive=disk{i},bus=ide.{},bootindex={boot}", i.min(3))]),
             DiskBus::Nvme => push(&["-device", &format!("nvme,drive=disk{i},serial=synvm{i},bootindex={boot}")]),
         }

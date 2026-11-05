@@ -95,7 +95,9 @@ impl OsKind {
                 vm.tools_cd = true;
                 vm.disk_bus = DiskBus::Sata;
                 vm.nic = NicModel::E1000e;
-                vm.display = DisplayModel::Std;
+                // virtio-vga: в установщике — как VGA, с драйвером VirtIO GPU (virtio-win) — любое
+                // разрешение и быстрая отрисовка (std VGA — «Базовый видеоадаптер», медленно).
+                vm.display = DisplayModel::Virtio;
                 vm.clipboard = false;
             }
             OsKind::Windows10 => {
@@ -103,7 +105,9 @@ impl OsKind {
                 vm.tools_cd = true;
                 vm.disk_bus = DiskBus::Sata;
                 vm.nic = NicModel::E1000e;
-                vm.display = DisplayModel::Std;
+                // virtio-vga: в установщике — как VGA, с драйвером VirtIO GPU (virtio-win) — любое
+                // разрешение и быстрая отрисовка (std VGA — «Базовый видеоадаптер», медленно).
+                vm.display = DisplayModel::Virtio;
                 vm.clipboard = false;
             }
             OsKind::Other => {
@@ -460,6 +464,36 @@ impl Default for Vm {
 pub const PALETTE: [&str; 8] = ["#4f9dff", "#2ec27e", "#b77cff", "#ff9f43", "#22c3e6", "#f06292", "#a3d65c", "#ff6b5b"];
 
 impl Vm {
+    /// «Оптимизировать для Windows» (и уже созданной машины): что поменять в настройках
+    /// (применяется при следующем запуске) и что сделать вручную. Пусто — всё уже так.
+    pub fn optimized(&self) -> (Vm, Vec<String>, Vec<String>) {
+        let mut v = self.clone();
+        let mut changes = Vec::new();
+        let mut advice = Vec::new();
+        if !self.os.is_windows() {
+            return (v, changes, advice);
+        }
+        if v.display != DisplayModel::Virtio {
+            changes.push(t!("Видео: {from} → virtio-vga (с драйвером VirtIO GPU из «Гостевых инструментов» — любое разрешение, разрешение подстраивается под окно, быстрая отрисовка)", from = syngui::i18n::t(v.display.title())));
+            v.display = DisplayModel::Virtio;
+        }
+        if !v.guest_agent {
+            changes.push(t!("Гостевой агент: включить"));
+            v.guest_agent = true;
+        }
+        if !v.tools_cd {
+            changes.push(t!("Диск «Гостевые инструменты»: вставлять при запуске"));
+            v.tools_cd = true;
+        }
+        if v.disk_bus == DiskBus::Sata {
+            advice.push(t!("Диск SATA медленнее virtio. Перевести на virtio можно после установки «Гостевых инструментов» (драйвер viostor): сделайте снимок, поменяйте шину диска в настройках и запустите машину; не загрузится — верните снимок."));
+        }
+        if v.nic == NicModel::E1000e {
+            advice.push(t!("Сеть e1000e можно заменить на virtio после установки «Гостевых инструментов» (драйвер NetKVM)."));
+        }
+        (v, changes, advice)
+    }
+
     pub fn dir(&self) -> PathBuf {
         root().join(&self.id)
     }

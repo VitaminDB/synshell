@@ -942,3 +942,70 @@ fn process_start(pid: i32) -> Option<u64> {
     let btime: u64 = std::fs::read_to_string("/proc/stat").ok()?.lines().find_map(|l| l.strip_prefix("btime ")?.trim().parse().ok())?;
     Some(btime + (start_ticks as f64 / qemu::clk_tck()) as u64)
 }
+
+// ─── Гостевые инструменты ───────────────────────────────────────────────
+
+/// «Установить гостевые инструменты»: образ virtio-win (скачать, если нет) — в привод;
+/// агент отвечает — установщик запускается в госте сам (тихо, без перезагрузки), нет —
+/// подсказка, что запустить вручную. Linux: пакеты через агент или подсказка.
+pub fn install_tools(st: St, id: &str) {
+    let Some(vm) = st.vm(id) else { return };
+    let on = st.power(id).on();
+    background(st, id, t!("Гостевые инструменты…"), move || {
+        if !vm.os.is_windows() {
+            if on && crate::qga::ping(&vm) {
+                let sh = "if command -v pacman >/dev/null; then pacman -S --needed --noconfirm qemu-guest-agent spice-vdagent; elif command -v apt-get >/dev/null; then DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-guest-agent spice-vdagent; elif command -v dnf >/dev/null; then dnf install -y qemu-guest-agent spice-vdagent; fi; systemctl enable --now qemu-guest-agent";
+                crate::qga::exec_detached(&vm, &["/bin/sh".into(), "-c".into(), sh.into()], None, &[])?;
+                return Ok(Some(t!("В госте ставятся qemu-guest-agent и spice-vdagent")));
+            }
+            return Ok(Some(t!("В госте: пакеты qemu-guest-agent и spice-vdagent, затем systemctl enable --now qemu-guest-agent")));
+        }
+        let iso = match crate::qemu::tools_iso() {
+            Some(p) => p,
+            None => crate::qemu::download_tools()?,
+        };
+        let mut v = vm.clone();
+        v.tools_cd = true;
+        v.guest_agent = true;
+        v.save()?;
+        if !on {
+            return Ok(Some(t!("Диск «Гостевые инструменты» будет вставлен при запуске: в госте запустите с него virtio-win-guest-tools.exe")));
+        }
+        // Второго привода на работающей машине может не быть — образ в основной привод.
+        crate::qmp::change_cdrom(&vm, &iso.to_string_lossy())?;
+        if crate::qga::ping(&vm) {
+            let ps = "$d=Get-PSDrive -PSProvider FileSystem | ? { Test-Path ($_.Root+'virtio-win-guest-tools.exe') } | select -First 1; if(-not $d){ Start-Sleep 5; $d=Get-PSDrive -PSProvider FileSystem | ? { Test-Path ($_.Root+'virtio-win-guest-tools.exe') } | select -First 1 }; if($d){ Start-Process ($d.Root+'virtio-win-guest-tools.exe') -ArgumentList '/install','/quiet','/norestart' -Wait }";
+            crate::qga::exec_detached(&vm, &["powershell.exe".into(), "-NoProfile".into(), "-Command".into(), ps.into()], None, &[])?;
+            return Ok(Some(t!("Гостевые инструменты ставятся в госте (тихо, без перезагрузки); видео VirtIO GPU заработает после перезагрузки гостя")));
+        }
+        Ok(Some(t!("Диск «Гостевые инструменты» в приводе: в госте откройте его и запустите virtio-win-guest-tools.exe")))
+    });
+}
+
+/// Состояние инструментов в госте (через агент): версия, видеоадаптер, агент.
+pub fn tools_status(st: St, id: &str) {
+    let Some(vm) = st.vm(id) else { return };
+    background(st, id, t!("Проверка гостя…"), move || {
+        if !crate::qga::ping(&vm) {
+            return Ok(Some(t!("Гостевой агент не отвечает — поставьте «Гостевые инструменты»")));
+        }
+        let (argv, _) = if vm.os.is_windows() {
+            let ps = "$t=(Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*,HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\* -EA 0 | ? DisplayName -like 'Virtio-win*' | select -First 1).DisplayVersion; $v=(Get-CimInstance Win32_VideoController | select -Expand Name) -join ', '; \"tools=$t`nvideo=$v\"";
+            (vec!["powershell.exe".to_string(), "-NoProfile".into(), "-Command".into(), ps.into()], ())
+        } else {
+            (vec!["/bin/sh".to_string(), "-c".into(), "echo tools=$(qemu-ga --version 2>/dev/null | head -1); echo video=$(cat /sys/class/drm/card*/device/uevent 2>/dev/null | grep -m1 DRIVER= | cut -d= -f2)".into()], ())
+        };
+        let r = crate::qga::exec(&vm, &argv, None, &[], std::time::Duration::from_secs(30))?;
+        let out = String::from_utf8_lossy(&crate::qga::decode_output(&vm, r.stdout)).to_string();
+        let get = |k: &str| out.lines().find_map(|l| l.trim().strip_prefix(&format!("{k}=")).map(|s| s.trim().to_string())).unwrap_or_default();
+        let tools = get("tools");
+        let video = get("video");
+        let slow = video.contains("Basic Display") || video.contains("Базовый");
+        Ok(Some(t!(
+            "Инструменты: {tools}; видео: {video}{warn}",
+            tools = if tools.is_empty() { t!("не установлены") } else { tools },
+            video = if video.is_empty() { "—".into() } else { video },
+            warn = if slow { t!(" — медленно: нужен драйвер VirtIO GPU и видео virtio-vga («Оптимизировать»)") } else { String::new() }
+        )))
+    });
+}

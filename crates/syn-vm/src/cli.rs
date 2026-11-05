@@ -13,8 +13,16 @@ use crate::{devices, qemu, qga, qmp};
 
 /// Справка `--help` на языке пользователя.
 pub fn help() -> String {
-    t!(HELP)
+    // Новые команды — отдельными строками (весь HELP — один ключ перевода).
+    let mut h = t!(HELP);
+    for l in EXTRA_HELP {
+        h.push_str(&syngui::i18n::t(l));
+        h.push('\n');
+    }
+    h
 }
+
+const EXTRA_HELP: &[&str] = &[n_!("  --optimize МАШИНА [--apply]            Windows: быстрое видео, агент, диск инструментов; советы по диску и сети")];
 
 const HELP: &str = n_!("\
 syn-vm — виртуальные машины QEMU/KVM
@@ -152,7 +160,7 @@ pub fn run(cmd: &str, rest: Vec<String>) -> Option<i32> {
     let known = [
         "--list", "--status", "--start", "--stop", "--kill", "--reset", "--pause", "--resume", "--wait-boot", "--new", "--delete", "--get", "--set", "--exec", "--sh", "--push",
         "--pull", "--exec-status", "--agent", "--sync-time", "--screendump", "--type", "--key", "--click", "--scroll", "--devices", "--usb", "--attach", "--detach", "--cdrom", "--tools", "--snapshot",
-        "--qmp", "--mcp", "--vfio-helper", "--vfio-watch", "--usb-watch", "--record", "--record-stop", "--record-run",
+        "--qmp", "--mcp", "--optimize", "--vfio-helper", "--vfio-watch", "--usb-watch", "--record", "--record-stop", "--record-run",
     ];
     if !known.contains(&cmd) {
         return None;
@@ -457,6 +465,29 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
                 println!("{}", json!({"devices": v, "usb_ports": usb, "iommu": devices::iommu_on()}));
             } else {
                 print_devices(&list);
+            }
+            Ok(0)
+        }
+        "--optimize" => {
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
+            let (new, changes, advice) = vm.optimized();
+            if changes.is_empty() && advice.is_empty() {
+                println!("{}", t!("Настройки уже оптимальны"));
+                return Ok(0);
+            }
+            for c in &changes {
+                println!("• {c}");
+            }
+            for c in &advice {
+                println!("○ {c}");
+            }
+            if !changes.is_empty() {
+                if a.has("--apply") {
+                    new.save()?;
+                    println!("{}", t!("Применено — при следующем запуске машины"));
+                } else {
+                    println!("{}", t!("Применить: syn-vm --optimize {id} --apply", id = vm.id));
+                }
             }
             Ok(0)
         }

@@ -190,6 +190,7 @@ fn agent_card(st: St, vm: &Vm, l: &Live) -> W {
         return boxed(DecoratedBox::new());
     }
     let os = vm.os;
+    let vid = vm.id.clone();
     let body = Reactive::new(move || -> Vec<W> {
         let mut rows: Vec<W> = Vec::new();
         match st.guest.get() {
@@ -210,6 +211,8 @@ fn agent_card(st: St, vm: &Vm, l: &Live) -> W {
                     t!("Не отвечает. В госте: пакет qemu-guest-agent и systemctl enable --now qemu-guest-agent")
                 };
                 rows.push(boxed(Text::new(hint).max_lines(4).class("row-hint")));
+                let id = vid.clone();
+                rows.push(boxed(Row::new().child(parts::btn(state::icons::SYNC, t!("Установить гостевые инструменты"), "soft", move || state::install_tools(st, &id)))));
             }
         }
         vec![boxed(Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch).children(rows))]

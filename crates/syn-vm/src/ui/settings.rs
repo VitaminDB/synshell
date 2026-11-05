@@ -421,7 +421,7 @@ fn devices(st: St, vm: &Vm) -> W {
         icons::DEVICES,
         t!("Экран и устройства"),
         vec![
-            row(t!("Видеокарта"), t!("virtio-vga меняет разрешение под окно; Windows лучше со стандартной"), display),
+            row(t!("Видеокарта"), t!("virtio-vga — быстрее и меняет разрешение под окно (Windows: драйвер VirtIO GPU из «Гостевых инструментов»); стандартный VGA — медленно"), display),
             row(t!("Разрешение под окно"), t!("Гость получает размер окна (нужен драйвер virtio-gpu или QXL)"), Toggle::with_state(vm.auto_resize).on_change(move |b| state::edit(st, |v| v.auto_resize = b))),
             row(t!("Звук"), t!("Через PipeWire компьютера"), Toggle::with_state(vm.sound).on_change(move |b| state::edit(st, |v| v.sound = b))),
             row(t!("Вывод звука"), t!("Динамики или наушники для гостя"), DecoratedBox::new().child(audio(false, vm.audio_out.clone()))),
@@ -546,6 +546,37 @@ fn guest(st: St, vm: &Vm) -> W {
     }
     acts = acts.child(DecoratedBox::new().class("grow")).child(Text::new(t!("Вставлять при запуске")).class("row-hint")).child(Toggle::with_state(vm.tools_cd).on_change(move |b| state::edit(st, |v| v.tools_cd = b)));
     rows.push(row_wide(t!("Гостевые инструменты"), tools_hint, acts));
+    // Установка/обновление и проверка состояния в госте.
+    let mut acts2 = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center);
+    let id = vm.id.clone();
+    acts2 = acts2.child(btn(icons::SYNC, t!("Установить или обновить"), "soft", move || state::install_tools(st, &id)));
+    if st.power(&vm.id).on() {
+        let id = vm.id.clone();
+        acts2 = acts2.child(btn(icons::INFO, t!("Состояние в госте"), "ghost", move || state::tools_status(st, &id)));
+    }
+    rows.push(row_wide(
+        t!("Установка в госте"),
+        if win { t!("Образ в привод и virtio-win-guest-tools.exe — сам, если агент уже отвечает") } else { t!("qemu-guest-agent и spice-vdagent — через агент или вручную") },
+        acts2,
+    ));
+    // «Оптимизировать для Windows»: видео, агент, диск инструментов; советы.
+    let (opt, changes, advice) = vm.optimized();
+    if !changes.is_empty() || !advice.is_empty() {
+        let mut col = Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+        for c in changes.iter() {
+            col = col.child(Text::new(format!("• {c}")).max_lines(4).class("row-hint"));
+        }
+        for c in advice.iter() {
+            col = col.child(Text::new(format!("○ {c}")).max_lines(5).class("row-hint"));
+        }
+        if !changes.is_empty() {
+            col = col.child(Row::new().child(btn(icons::CHECK, t!("Применить (при следующем запуске)"), "soft", move || {
+                let o = opt.clone();
+                state::edit(st, move |v| *v = o);
+            })));
+        }
+        rows.push(row_wide(t!("Оптимизировать для Windows"), t!("Быстрее и удобнее: видео, агент, драйверы"), col));
+    }
     if !win {
         rows.push(row_wide(
             t!("Установка в Linux"),
