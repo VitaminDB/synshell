@@ -1,0 +1,62 @@
+@tag = "zh-CN"
+@name = "简体中文"
+
+# src/backend/kms_cpu.rs
+"нет DRM-устройства" = "没有 DRM 设备"
+
+# src/backend/mod.rs
+"libinput: не удалось назначить seat" = "libinput：无法分配 seat"
+
+# src/backend/tty.rs
+"нет GPU" = "没有 GPU"
+"нет основного GPU для устройства без рендеринга" = "无渲染设备缺少主 GPU"
+
+# src/backend/winit.rs
+"synwm (вложенный)" = "synwm（嵌套）"
+
+# src/bindings.rs
+"неизвестная клавиша «{key}» в «{combo}»" = "“{combo}”中的未知按键“{key}”"
+
+# src/config.rs
+"раскладка клавиатуры: {e}" = "键盘布局：{e}"
+
+# src/ipc.rs
+"неверный запрос: {e}" = "无效请求：{e}"
+"нет окна {id}" = "没有窗口 {id}"
+"экран заблокирован" = "屏幕已锁定"
+"захват экрана: {e}" = "屏幕捕获：{e}"
+"миниатюры окон: {e}" = "窗口缩略图：{e}"
+"поток кадров: {e}" = "帧流：{e}"
+"нет потока кадров (сначала frame-stream)" = "没有帧流（请先执行 frame-stream）"
+
+# src/main.rs
+"synwm {v} — окружение рабочего стола для Wayland\n\nsynwm [--nested [--nested-size ШxВ] | --tty] [--cpu | --gpu] [--no-shell] [--no-autostart]\nsynwm msg <version|windows|workspaces|outputs|layouts|events|action ДЕЙСТВИЕ|window ID ОПЕРАЦИЯ|form-factor [РЕЖИМ]|reload|restart-shell|restart>\n" = "synwm {v} — Wayland 桌面环境\n\nsynwm [--nested [--nested-size 宽x高] | --tty] [--cpu | --gpu] [--no-shell] [--no-autostart]\nsynwm msg <version|windows|workspaces|outputs|layouts|events|action 动作|window ID 操作|form-factor [模式]|reload|restart-shell|restart>\n"
+"перезапуск не удался: {err}" = "重启失败：{err}"
+"сборка без CPU-рендерера (feature pixman)" = "构建时未包含 CPU 渲染器（feature pixman）"
+"использование: synwm msg <version|windows|workspaces|outputs|layouts|idle|events|action …|window ID ОПЕРАЦИЯ|x11-display ИМЯ…|form-factor [desktop|phone|game|device|toggle-game]|reload|restart-shell|restart>" = "用法：synwm msg <version|windows|workspaces|outputs|layouts|idle|events|action …|window ID 操作|x11-display 名称…|form-factor [desktop|phone|game|device|toggle-game]|reload|restart-shell|restart>"
+"нет связи с композитором: {e}" = "无法连接合成器：{e}"
+"использование: synwm msg window ID activate|minimize|close|kill|maximize|fullscreen|floating|sticky|above|workspace N" = "用法：synwm msg window ID activate|minimize|close|kill|maximize|fullscreen|floating|sticky|above|workspace N"
+"неизвестная операция «{other}»" = "未知操作“{other}”"
+"неизвестная команда «{other}»" = "未知命令“{other}”"
+"нет связи с композитором ({v}): {e}" = "无法连接合成器（{v}）：{e}"
+
+# src/remote.rs
+"нет вывода {name}" = "没有输出 {name}"
+"сочетание {combo}: {e}" = "组合键 {combo}：{e}"
+
+# src/state.rs
+"клавиатура: {e}" = "键盘：{e}"
+
+# src/stream.rs
+"нет выводов" = "没有输出"
+"кадр потока: {e}" = "流帧：{e}"
+"файл кадра: {e}" = "帧文件：{e}"
+
+# src/wm/rules.rs
+"правило #{v}: {what}: {e}" = "规则 #{v}：{what}：{e}"
+
+# src/xwayland.rs
+"Xwayland выключен ([general] xwayland)" = "Xwayland 已关闭（[general] xwayland）"
+"непонятное разрешение «{wanted}»" = "无法识别的分辨率“{wanted}”"
+"Xwayland без дисплея" = "Xwayland 没有显示"
+"Xwayland не запущен" = "Xwayland 未运行"

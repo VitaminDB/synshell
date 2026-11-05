@@ -198,7 +198,7 @@ pub fn month_bar(month: RwSignal<i32>, today: Day, show_today: bool) -> W {
     let (y, m, _) = date::ymd(date::month_start(idx));
     let mut row = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center);
     row = row.child(icon_button(icons::PREV, "nav-btn", move || month.set(month.get_untracked() - 1)));
-    row = row.child(DecoratedBox::new().class("grow").child(Column::new().cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(format!("{} {y}", date::month_name(m))).class("month-title"))));
+    row = row.child(DecoratedBox::new().class("grow").child(Column::new().cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(date::month_year(m, y)).class("month-title"))));
     let cur = date::month_index(today);
     if show_today && idx != cur {
         row = row.child(Button::new(t!("Сегодня")).class("btn chip").on_click(move || month.set(cur)));
@@ -384,7 +384,7 @@ fn ribbon(st: St, w: f32) -> W {
     let mut col = Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
     for idx in first..=cur + AHEAD {
         let (y, m, _) = date::ymd(date::month_start(idx));
-        let title = if y == cur_y { date::month_name(m) } else { format!("{} {y}", date::month_name(m)) };
+        let title = if y == cur_y { date::month_name(m) } else { date::month_year(m, y) };
         let head = Text::new(title).class(if idx == cur { "month-title cur" } else { "month-title" });
         col = col.child(Named::new(format!("m{idx}"), DecoratedBox::new().class("month-head").child(head)));
         col = col.child(weeks(st, &fc, idx, w, Mode::Main));

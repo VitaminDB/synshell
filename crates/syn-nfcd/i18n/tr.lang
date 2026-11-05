@@ -1,0 +1,48 @@
+@tag = "tr"
+@name = "Türkçe"
+
+# src/api.rs
+"служба NFC не запущена ({SOCKET})" = "NFC hizmeti çalışmıyor ({SOCKET})"
+"ответ synnfcd" = "synnfcd yanıtı"
+"synnfcd закрыл соединение" = "synnfcd bağlantıyı kapattı"
+
+# src/bin/synnfc.rs
+"synnfc status | read | write-url URL | write-text ТЕКСТ | emulate-url URL" = "synnfc status | read | write-url URL | write-text METİN | emulate-url URL"
+"метка" = "etiket"
+"ошибка: {e}" = "hata: {e}"
+"NDEF: пусто" = "NDEF: boş"
+"без NDEF" = "NDEF yok"
+"поднесите метку… (Ctrl+C — выход)" = "etiketi yaklaştırın… (Ctrl+C — çıkış)"
+"записано на {uid}" = "{uid} etiketine yazıldı"
+"не записано на {uid}: {error}" = "{uid} etiketine yazılmadı: {error}"
+"эмулируемую метку прочитали" = "öykünülen etiket okundu"
+"контроллер" = "denetleyici"
+
+# src/daemon.rs
+"неверный запрос: {e}" = "geçersiz istek: {e}"
+
+# src/nci.rs
+"запись в NFC" = "NFC’ye yazma"
+"NFC: поток чтения закрыт" = "NFC: okuma iş parçacığı kapalı"
+"NFC: нет ответа на команду {gid} {oid}" = "NFC: {gid} {oid} komutuna yanıt yok"
+"NFC: команда {gid} {oid} — статус {s}" = "NFC: {gid} {oid} komutu — durum {s}"
+"NFC: пустой ответ на {gid} {oid}" = "NFC: {gid} {oid} komutuna boş yanıt"
+"метка убрана" = "etiket uzaklaştırıldı"
+"ошибка RF {v}" = "RF hatası {v}"
+"метка не ответила" = "etiket yanıt vermedi"
+
+# src/tag.rs
+"ISO 14443-4 (смарт-карта)" = "ISO 14443-4 (akıllı kart)"
+"протокол {protocol}" = "{protocol} protokolü"
+"Type 2: статус {s}" = "Type 2: durum {s}"
+"Type 2: пустой ответ" = "Type 2: boş yanıt"
+"Type 2: короткий ответ READ ({n} байт)" = "Type 2: kısa READ yanıtı ({n} bayt)"
+"ISO-DEP: короткий ответ" = "ISO-DEP: kısa yanıt"
+"нет приложения NDEF" = "NDEF uygulaması yok"
+"ISO-DEP: неверный CC" = "ISO-DEP: geçersiz CC"
+"запись на {v} не поддерживается" = "{v} etiketine yazma desteklenmiyor"
+"метка не размечена под NDEF" = "etiket NDEF için biçimlendirilmemiş"
+"метка защищена от записи" = "etiket yazmaya karşı korumalı"
+"не помещается: {n} байт из {size}" = "sığmıyor: {size} bayttan {n} bayt"
+"Type 2: запись страницы {v} не подтверждена" = "Type 2: {v}. sayfaya yazma onaylanmadı"
+"не помещается: {n} байт из {v}" = "sığmıyor: {v} bayttan {n} bayt"

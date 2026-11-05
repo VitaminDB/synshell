@@ -6,8 +6,8 @@
 "Терминал" = "Terminal"
 
 # src/ui.rs
-"Новая вкладка (Ctrl+Shift+T)" = "Neuer Tab (Ctrl+Shift+T)"
-"Настройки (Ctrl+,)" = "Einstellungen (Ctrl+,)"
+"Новая вкладка (Ctrl+Shift+T)" = "Neuer Tab (Strg+Umschalt+T)"
+"Настройки (Ctrl+,)" = "Einstellungen (Strg+,)"
 "Новая вкладка" = "Neuer Tab"
 "Закрыть вкладку?" = "Tab schließen?"
 "В ней работает программа — она будет завершена." = "Darin läuft ein Programm – es wird beendet."
@@ -23,7 +23,7 @@
 "{n} px" = "{n} px"
 "Межстрочный интервал" = "Zeilenabstand"
 "Шрифт" = "Schrift"
-"Ctrl+= и Ctrl+− — крупнее и мельче, Ctrl+0 — как было." = "Ctrl+= und Ctrl+− vergrößern und verkleinern, Ctrl+0 setzt zurück."
+"Ctrl+= и Ctrl+− — крупнее и мельче, Ctrl+0 — как было." = "Strg+= und Strg+− vergrößern und verkleinern, Strg+0 setzt zurück."
 "Как в системе" = "Wie im System"
 "Непрозрачность фона" = "Hintergrund-Deckkraft"
 "Цвета" = "Farben"

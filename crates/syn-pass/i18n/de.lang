@@ -73,7 +73,7 @@
 "Пока ни одного пароля" = "Noch keine Passwörter"
 "Выберите запись" = "Eintrag auswählen"
 "Добавьте первый — пароль сгенерируется сам" = "Fügen Sie den ersten hinzu – das Passwort wird automatisch erzeugt"
-"Ctrl+N — новая запись, Ctrl+L — заблокировать" = "Ctrl+N – neuer Eintrag, Ctrl+L – sperren"
+"Ctrl+N — новая запись, Ctrl+L — заблокировать" = "Strg+N – neuer Eintrag, Strg+L – sperren"
 "Добавить пароль" = "Passwort hinzufügen"
 "Синхронизация…" = "Synchronisierung …"
 "{name}: другой мастер-пароль" = "{name}: anderes Master-Passwort"

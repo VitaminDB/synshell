@@ -12,7 +12,7 @@
 "ошибка: {e}" = "Fehler: {e}"
 "NDEF: пусто" = "NDEF: leer"
 "без NDEF" = "ohne NDEF"
-"поднесите метку… (Ctrl+C — выход)" = "Tag an das Gerät halten … (Ctrl+C zum Beenden)"
+"поднесите метку… (Ctrl+C — выход)" = "Tag an das Gerät halten … (Strg+C zum Beenden)"
 "записано на {uid}" = "auf {uid} geschrieben"
 "не записано на {uid}: {error}" = "nicht auf {uid} geschrieben: {error}"
 "эмулируемую метку прочитали" = "das emulierte Tag wurde gelesen"

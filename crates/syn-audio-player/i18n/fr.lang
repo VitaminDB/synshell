@@ -1,0 +1,19 @@
+@tag = "fr"
+@name = "Français"
+
+# src/main.rs
+"syn-audio-player [ФАЙЛ|URI …]" = "syn-audio-player [FICHIER|URI …]"
+"Музыка" = "Musique"
+
+# src/ui.rs
+"Не удалось открыть «{path}»: {e}" = "Impossible d’ouvrir « {path} » : {e}"
+"Очередь" = "File d’attente"
+"Обновить" = "Actualiser"
+"Ищу музыку…" = "Recherche de musique…"
+"Музыка не найдена.\nПрограмма ищет в: {v}" = "Aucune musique trouvée.\nRecherche dans : {v}"
+"Играть / пауза" = "Lecture / pause"
+"Следующий" = "Suivant"
+"К списку" = "Retour à la liste"
+"Сейчас играет" = "Lecture en cours"
+"Повтор" = "Répéter"
+"Предыдущий" = "Précédent"

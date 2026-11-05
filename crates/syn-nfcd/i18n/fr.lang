@@ -1,0 +1,48 @@
+@tag = "fr"
+@name = "Français"
+
+# src/api.rs
+"служба NFC не запущена ({SOCKET})" = "le service NFC n’est pas lancé ({SOCKET})"
+"ответ synnfcd" = "réponse de synnfcd"
+"synnfcd закрыл соединение" = "synnfcd a fermé la connexion"
+
+# src/bin/synnfc.rs
+"synnfc status | read | write-url URL | write-text ТЕКСТ | emulate-url URL" = "synnfc status | read | write-url URL | write-text TEXTE | emulate-url URL"
+"метка" = "étiquette"
+"ошибка: {e}" = "erreur : {e}"
+"NDEF: пусто" = "NDEF : vide"
+"без NDEF" = "sans NDEF"
+"поднесите метку… (Ctrl+C — выход)" = "approchez une étiquette… (Ctrl+C pour quitter)"
+"записано на {uid}" = "écrit sur {uid}"
+"не записано на {uid}: {error}" = "non écrit sur {uid} : {error}"
+"эмулируемую метку прочитали" = "l’étiquette émulée a été lue"
+"контроллер" = "contrôleur"
+
+# src/daemon.rs
+"неверный запрос: {e}" = "requête invalide : {e}"
+
+# src/nci.rs
+"запись в NFC" = "écriture NFC"
+"NFC: поток чтения закрыт" = "NFC : le fil de lecture est fermé"
+"NFC: нет ответа на команду {gid} {oid}" = "NFC : pas de réponse à la commande {gid} {oid}"
+"NFC: команда {gid} {oid} — статус {s}" = "NFC : commande {gid} {oid} — état {s}"
+"NFC: пустой ответ на {gid} {oid}" = "NFC : réponse vide à {gid} {oid}"
+"метка убрана" = "étiquette retirée"
+"ошибка RF {v}" = "erreur RF {v}"
+"метка не ответила" = "l’étiquette n’a pas répondu"
+
+# src/tag.rs
+"ISO 14443-4 (смарт-карта)" = "ISO 14443-4 (carte à puce)"
+"протокол {protocol}" = "protocole {protocol}"
+"Type 2: статус {s}" = "Type 2 : état {s}"
+"Type 2: пустой ответ" = "Type 2 : réponse vide"
+"Type 2: короткий ответ READ ({n} байт)" = "Type 2 : réponse READ trop courte ({n} octets)"
+"ISO-DEP: короткий ответ" = "ISO-DEP : réponse trop courte"
+"нет приложения NDEF" = "pas d’application NDEF"
+"ISO-DEP: неверный CC" = "ISO-DEP : CC invalide"
+"запись на {v} не поддерживается" = "écriture sur {v} non prise en charge"
+"метка не размечена под NDEF" = "l’étiquette n’est pas formatée en NDEF"
+"метка защищена от записи" = "l’étiquette est protégée en écriture"
+"не помещается: {n} байт из {size}" = "trop volumineux : {n} octets sur {size}"
+"Type 2: запись страницы {v} не подтверждена" = "Type 2 : écriture de la page {v} non confirmée"
+"не помещается: {n} байт из {v}" = "trop volumineux : {n} octets sur {v}"

@@ -1,0 +1,55 @@
+@tag = "tr"
+@name = "Türkçe"
+
+# src/audio.rs
+"микрофон не отвечает" = "mikrofon yanıt vermiyor"
+"нет микрофона" = "mikrofon yok"
+"настройки микрофона" = "mikrofon ayarları"
+"микрофон: {err}" = "mikrofon: {err}"
+"нет кодера AAC" = "AAC kodlayıcısı yok"
+"кодер AAC: {err}" = "AAC kodlayıcısı: {err}"
+
+# src/encoder.rs
+"нет видеокодера ({errs})" = "video kodlayıcısı yok ({errs})"
+"mmap входа кодера: {err}" = "kodlayıcı girişi mmap: {err}"
+"видеокодер: {err}" = "video kodlayıcısı: {err}"
+"{name}: нет в ffmpeg" = "{name}: ffmpeg’de yok"
+"нет /dev/dri/renderD*" = "/dev/dri/renderD* yok"
+"VAAPI кадры: {err}" = "VAAPI kareleri: {err}"
+"кадр кодера: {err}" = "kodlayıcı karesi: {err}"
+"кадр кодера занят" = "kodlayıcı karesi meşgul"
+
+# src/engine.rs
+"камера не включена" = "kamera açık değil"
+"запись не идёт" = "kayıt yapılmıyor"
+"Камера занята другой программой" = "Kamera başka bir program tarafından kullanılıyor"
+"Камера остановилась — включаю снова…" = "Kamera durdu — yeniden açılıyor…"
+
+# src/mux.rs
+"mp4: поток видео" = "mp4: video akışı"
+"mp4: поток звука" = "mp4: ses akışı"
+"mp4: параметры звука: {err}" = "mp4: ses parametreleri: {err}"
+"пакет" = "paket"
+"запись mp4: {err}" = "mp4 yazma: {err}"
+"заголовок mp4: {err}" = "mp4 başlığı: {err}"
+"завершение mp4: {err}" = "mp4 sonlandırma: {err}"
+
+# src/recorder.rs
+"поток записи упал" = "kayıt iş parçacığı çöktü"
+"не записано ни одного кадра" = "hiç kare kaydedilmedi"
+
+# src/syncamd.rs
+"служба камеры недоступна: {v}" = "kamera hizmeti kullanılamıyor: {v}"
+"ошибка службы камеры" = "kamera hizmeti hatası"
+"служба камеры другой версии (обновите syncamd)" = "kamera hizmeti farklı sürümde (syncamd’yi güncelleyin)"
+"неожиданный ответ службы камеры" = "kamera hizmetinden beklenmeyen yanıt"
+"камера не включилась" = "kamera açılamadı"
+"формат кадров {format} не поддерживается" = "{format} kare biçimi desteklenmiyor"
+"mmap буфера: {v}" = "arabellek mmap: {v}"
+"снимок не получен" = "fotoğraf alınamadı"
+"снимок: чтение memfd" = "fotoğraf: memfd okunuyor"
+
+# src/v4l2.rs
+"у камеры нет размеров кадра" = "kamera kare boyutu bildirmiyor"
+"нет подходящего формата кадров" = "uygun kare biçimi yok"
+"камера отключилась" = "kamera bağlantısı kesildi"

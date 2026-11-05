@@ -20,7 +20,7 @@
 "Говорите — пауза завершит фразу, или нажмите микрофон ещё раз" = "Sprechen Sie – eine Pause beendet den Satz, oder tippen Sie erneut auf das Mikrofon"
 "Спросите что-нибудь…" = "Fragen Sie etwas …"
 "Закончить диктовку" = "Diktat beenden"
-"Надиктовать (Ctrl+M)" = "Diktieren (Ctrl+M)"
+"Надиктовать (Ctrl+M)" = "Diktieren (Strg+M)"
 "Модель распознавания речи не установлена" = "Kein Spracherkennungsmodell installiert"
 "Остановить (Esc)" = "Stoppen (Esc)"
 "Отправить (Enter)" = "Senden (Enter)"
@@ -51,10 +51,10 @@
 "Повторить" = "Wiederholen"
 
 # src/ui/mod.rs
-"Боковая панель (Ctrl+B)" = "Seitenleiste (Ctrl+B)"
+"Боковая панель (Ctrl+B)" = "Seitenleiste (Strg+B)"
 "Голосом" = "Per Sprache"
-"Голосовой разговор (Ctrl+Shift+M)" = "Sprachgespräch (Ctrl+Shift+M)"
-"Новый чат (Ctrl+N)" = "Neuer Chat (Ctrl+N)"
+"Голосовой разговор (Ctrl+Shift+M)" = "Sprachgespräch (Strg+Umschalt+M)"
+"Новый чат (Ctrl+N)" = "Neuer Chat (Strg+N)"
 "По умолчанию · {m}" = "Standard · {m}"
 "Модель по умолчанию" = "Standardmodell"
 "Показывать ход мыслей модели перед ответом" = "Gedankengang des Modells vor der Antwort anzeigen"
@@ -135,7 +135,7 @@
 "Настройки ассистента" = "Assistent-Einstellungen"
 "Поиск по чатам" = "Chats durchsuchen"
 "К чату" = "Zum Chat"
-"Скрыть панель (Ctrl+B)" = "Seitenleiste ausblenden (Ctrl+B)"
+"Скрыть панель (Ctrl+B)" = "Seitenleiste ausblenden (Strg+B)"
 "Рецепты — готовые сценарии" = "Rezepte – fertige Abläufe"
 
 # src/ui/voice.rs

@@ -1,0 +1,25 @@
+@tag = "tr"
+@name = "Türkçe"
+
+# src/main.rs
+"synshot [--capture ФАЙЛ]\n\nВыделить область или окно и сохранить снимок экрана." = "synshot [--capture DOSYA]\n\nBir alan veya pencere seçip ekran görüntüsünü kaydedin."
+
+# src/output.rs
+"не удалось запустить wl-copy (пакет wl-clipboard): {e}" = "wl-copy başlatılamadı (wl-clipboard paketi): {e}"
+
+# src/ui.rs
+"Отмена (Esc)" = "İptal (Esc)"
+"Курсор" = "İmleç"
+"Снимок с указателем мыши" = "Fare işaretçisiyle birlikte"
+"Выделите область или щёлкните по окну" = "Bir alan seçin veya bir pencereye tıklayın"
+"Enter — весь экран · Ctrl+C — копировать · Esc — отмена" = "Enter — tüm ekran · Ctrl+C — kopyala · Esc — iptal"
+"Весь экран" = "Tüm ekran"
+"Все экраны" = "Tüm ekranlar"
+"Копировать" = "Kopyala"
+"Копировать снимок в буфер обмена (Ctrl+C)" = "Ekran görüntüsünü panoya kopyala (Ctrl+C)"
+"Сохранить" = "Kaydet"
+"Сохранить в папку снимков (Enter, Ctrl+S)" = "Ekran görüntüleri klasörüne kaydet (Enter, Ctrl+S)"
+"Копировать путь" = "Yolu kopyala"
+"Сохранить и скопировать путь к файлу (Ctrl+Shift+C)" = "Kaydet ve dosya yolunu kopyala (Ctrl+Shift+C)"
+"Открыть" = "Aç"
+"Сохранить и открыть (Ctrl+O)" = "Kaydet ve aç (Ctrl+O)"

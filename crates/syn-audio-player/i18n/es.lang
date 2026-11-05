@@ -1,0 +1,19 @@
+@tag = "es"
+@name = "Español"
+
+# src/main.rs
+"syn-audio-player [ФАЙЛ|URI …]" = "syn-audio-player [ARCHIVO|URI …]"
+"Музыка" = "Música"
+
+# src/ui.rs
+"Не удалось открыть «{path}»: {e}" = "No se pudo abrir «{path}»: {e}"
+"Очередь" = "Cola"
+"Обновить" = "Actualizar"
+"Ищу музыку…" = "Buscando música…"
+"Музыка не найдена.\nПрограмма ищет в: {v}" = "No se encontró música.\nSe busca en: {v}"
+"Играть / пауза" = "Reproducir / pausa"
+"Следующий" = "Siguiente"
+"К списку" = "Volver a la lista"
+"Сейчас играет" = "Reproduciendo"
+"Повтор" = "Repetir"
+"Предыдущий" = "Anterior"

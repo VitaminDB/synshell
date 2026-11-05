@@ -1,0 +1,15 @@
+@tag = "ja"
+@name = "日本語"
+
+# src/main.rs
+"synkeyboard [show [float|dock] [for <сокет>]|hide|toggle|fn|lang | float on|off|toggle | type <текст> | key <сочетание> | auto on|off]\n  без аргументов — запустить демон экранной клавиатуры" = "synkeyboard [show [float|dock] [for <ソケット>]|hide|toggle|fn|lang | float on|off|toggle | type <テキスト> | key <組み合わせ> | auto on|off]\n  引数なし — スクリーンキーボードのデーモンを起動"
+"synkeyboard {cmd}: нужен аргумент" = "synkeyboard {cmd}: 引数が必要です"
+"synkeyboard: неизвестная команда «{other}»" = "synkeyboard: 不明なコマンド「{other}」"
+"show for: нужно имя сокета в $XDG_RUNTIME_DIR" = "show for: $XDG_RUNTIME_DIR 内のソケット名が必要です"
+"show: не понято «{other}»" = "show: 「{other}」を解釈できません"
+"команда не поддерживается: {other}" = "サポートされていないコマンド: {other}"
+"нет ответа от главного потока" = "メインスレッドから応答がありません"
+
+# src/ui.rs
+"неизвестная клавиша «{part}»" = "不明なキー「{part}」"
+"нет клавиши в сочетании" = "組み合わせにキーがありません"

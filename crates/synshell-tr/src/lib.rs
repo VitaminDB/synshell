@@ -292,6 +292,17 @@ macro_rules! catalogs {
         [
             include_str!(concat!($dir, "/en.lang")),
             include_str!(concat!($dir, "/de.lang")),
+            include_str!(concat!($dir, "/fr.lang")),
+            include_str!(concat!($dir, "/es.lang")),
+            include_str!(concat!($dir, "/it.lang")),
+            include_str!(concat!($dir, "/pt-BR.lang")),
+            include_str!(concat!($dir, "/pl.lang")),
+            include_str!(concat!($dir, "/uk.lang")),
+            include_str!(concat!($dir, "/kk.lang")),
+            include_str!(concat!($dir, "/tr.lang")),
+            include_str!(concat!($dir, "/zh-CN.lang")),
+            include_str!(concat!($dir, "/ja.lang")),
+            include_str!(concat!($dir, "/ko.lang")),
         ]
     };
 }

@@ -1,0 +1,48 @@
+@tag = "pl"
+@name = "Polski"
+
+# src/api.rs
+"служба NFC не запущена ({SOCKET})" = "usługa NFC nie jest uruchomiona ({SOCKET})"
+"ответ synnfcd" = "odpowiedź synnfcd"
+"synnfcd закрыл соединение" = "synnfcd zamknął połączenie"
+
+# src/bin/synnfc.rs
+"synnfc status | read | write-url URL | write-text ТЕКСТ | emulate-url URL" = "synnfc status | read | write-url URL | write-text TEKST | emulate-url URL"
+"метка" = "tag"
+"ошибка: {e}" = "błąd: {e}"
+"NDEF: пусто" = "NDEF: pusty"
+"без NDEF" = "bez NDEF"
+"поднесите метку… (Ctrl+C — выход)" = "przyłóż tag… (Ctrl+C — wyjście)"
+"записано на {uid}" = "zapisano na {uid}"
+"не записано на {uid}: {error}" = "nie zapisano na {uid}: {error}"
+"эмулируемую метку прочитали" = "emulowany tag został odczytany"
+"контроллер" = "kontroler"
+
+# src/daemon.rs
+"неверный запрос: {e}" = "nieprawidłowe żądanie: {e}"
+
+# src/nci.rs
+"запись в NFC" = "zapis do NFC"
+"NFC: поток чтения закрыт" = "NFC: wątek odczytu zamknięty"
+"NFC: нет ответа на команду {gid} {oid}" = "NFC: brak odpowiedzi na polecenie {gid} {oid}"
+"NFC: команда {gid} {oid} — статус {s}" = "NFC: polecenie {gid} {oid} — status {s}"
+"NFC: пустой ответ на {gid} {oid}" = "NFC: pusta odpowiedź na {gid} {oid}"
+"метка убрана" = "tag usunięty"
+"ошибка RF {v}" = "błąd RF {v}"
+"метка не ответила" = "tag nie odpowiedział"
+
+# src/tag.rs
+"ISO 14443-4 (смарт-карта)" = "ISO 14443-4 (karta inteligentna)"
+"протокол {protocol}" = "protokół {protocol}"
+"Type 2: статус {s}" = "Type 2: status {s}"
+"Type 2: пустой ответ" = "Type 2: pusta odpowiedź"
+"Type 2: короткий ответ READ ({n} байт)" = "Type 2: krótka odpowiedź READ ({n} B)"
+"ISO-DEP: короткий ответ" = "ISO-DEP: krótka odpowiedź"
+"нет приложения NDEF" = "brak aplikacji NDEF"
+"ISO-DEP: неверный CC" = "ISO-DEP: nieprawidłowy CC"
+"запись на {v} не поддерживается" = "zapis na {v} nie jest obsługiwany"
+"метка не размечена под NDEF" = "tag nie jest sformatowany dla NDEF"
+"метка защищена от записи" = "tag jest chroniony przed zapisem"
+"не помещается: {n} байт из {size}" = "nie mieści się: {n} B z {size}"
+"Type 2: запись страницы {v} не подтверждена" = "Type 2: zapis strony {v} nie został potwierdzony"
+"не помещается: {n} байт из {v}" = "nie mieści się: {n} B z {v}"

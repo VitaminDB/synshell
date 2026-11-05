@@ -127,7 +127,7 @@
 "X конца" = "End-X"
 "Y конца" = "End-Y"
 "длительность, мс (300)" = "Dauer, ms (300)"
-"Щипок двумя пальцами вокруг точки: расстояние между пальцами from → to (px снимка; больше — увеличить). На компьютере — Ctrl+колесо." = "Zwei-Finger-Zoom um einen Punkt: Abstand der Finger from → to (px des Bildschirmfotos; größer – vergrößern). Am Computer – Ctrl+Mausrad."
+"Щипок двумя пальцами вокруг точки: расстояние между пальцами from → to (px снимка; больше — увеличить). На компьютере — Ctrl+колесо." = "Zwei-Finger-Zoom um einen Punkt: Abstand der Finger from → to (px des Bildschirmfotos; größer – vergrößern). Am Computer – Strg+Mausrad."
 "X центра" = "Mittelpunkt X"
 "Y центра" = "Mittelpunkt Y"
 "начальное расстояние, px" = "Anfangsabstand, px"

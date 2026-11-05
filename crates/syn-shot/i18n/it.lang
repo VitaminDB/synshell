@@ -1,0 +1,25 @@
+@tag = "it"
+@name = "Italiano"
+
+# src/main.rs
+"synshot [--capture ФАЙЛ]\n\nВыделить область или окно и сохранить снимок экрана." = "synshot [--capture FILE]\n\nSeleziona un'area o una finestra e salva uno screenshot."
+
+# src/output.rs
+"не удалось запустить wl-copy (пакет wl-clipboard): {e}" = "impossibile avviare wl-copy (pacchetto wl-clipboard): {e}"
+
+# src/ui.rs
+"Отмена (Esc)" = "Annulla (Esc)"
+"Курсор" = "Cursore"
+"Снимок с указателем мыши" = "Includi il puntatore del mouse"
+"Выделите область или щёлкните по окну" = "Seleziona un'area o fai clic su una finestra"
+"Enter — весь экран · Ctrl+C — копировать · Esc — отмена" = "Invio — schermo intero · Ctrl+C — copia · Esc — annulla"
+"Весь экран" = "Schermo intero"
+"Все экраны" = "Tutti gli schermi"
+"Копировать" = "Copia"
+"Копировать снимок в буфер обмена (Ctrl+C)" = "Copia lo screenshot negli appunti (Ctrl+C)"
+"Сохранить" = "Salva"
+"Сохранить в папку снимков (Enter, Ctrl+S)" = "Salva nella cartella degli screenshot (Invio, Ctrl+S)"
+"Копировать путь" = "Copia percorso"
+"Сохранить и скопировать путь к файлу (Ctrl+Shift+C)" = "Salva e copia il percorso del file (Ctrl+Maiusc+C)"
+"Открыть" = "Apri"
+"Сохранить и открыть (Ctrl+O)" = "Salva e apri (Ctrl+O)"

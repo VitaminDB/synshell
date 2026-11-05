@@ -1,0 +1,55 @@
+@tag = "es"
+@name = "Español"
+
+# src/audio.rs
+"микрофон не отвечает" = "el micrófono no responde"
+"нет микрофона" = "no hay micrófono"
+"настройки микрофона" = "ajustes del micrófono"
+"микрофон: {err}" = "micrófono: {err}"
+"нет кодера AAC" = "no hay codificador AAC"
+"кодер AAC: {err}" = "codificador AAC: {err}"
+
+# src/encoder.rs
+"нет видеокодера ({errs})" = "no hay codificador de vídeo ({errs})"
+"mmap входа кодера: {err}" = "mmap de la entrada del codificador: {err}"
+"видеокодер: {err}" = "codificador de vídeo: {err}"
+"{name}: нет в ffmpeg" = "{name}: no está en ffmpeg"
+"нет /dev/dri/renderD*" = "no hay /dev/dri/renderD*"
+"VAAPI кадры: {err}" = "fotogramas VAAPI: {err}"
+"кадр кодера: {err}" = "fotograma del codificador: {err}"
+"кадр кодера занят" = "el fotograma del codificador está ocupado"
+
+# src/engine.rs
+"камера не включена" = "la cámara no está encendida"
+"запись не идёт" = "no se está grabando"
+"Камера занята другой программой" = "La cámara la está usando otro programa"
+"Камера остановилась — включаю снова…" = "La cámara se detuvo: reiniciándola…"
+
+# src/mux.rs
+"mp4: поток видео" = "mp4: flujo de vídeo"
+"mp4: поток звука" = "mp4: flujo de audio"
+"mp4: параметры звука: {err}" = "mp4: parámetros de audio: {err}"
+"пакет" = "paquete"
+"запись mp4: {err}" = "escritura de mp4: {err}"
+"заголовок mp4: {err}" = "cabecera de mp4: {err}"
+"завершение mp4: {err}" = "finalización de mp4: {err}"
+
+# src/recorder.rs
+"поток записи упал" = "el hilo de grabación falló"
+"не записано ни одного кадра" = "no se grabó ningún fotograma"
+
+# src/syncamd.rs
+"служба камеры недоступна: {v}" = "el servicio de la cámara no está disponible: {v}"
+"ошибка службы камеры" = "error del servicio de la cámara"
+"служба камеры другой версии (обновите syncamd)" = "el servicio de la cámara es de otra versión (actualiza syncamd)"
+"неожиданный ответ службы камеры" = "respuesta inesperada del servicio de la cámara"
+"камера не включилась" = "la cámara no se encendió"
+"формат кадров {format} не поддерживается" = "el formato de fotograma {format} no es compatible"
+"mmap буфера: {v}" = "mmap del búfer: {v}"
+"снимок не получен" = "no se recibió la foto"
+"снимок: чтение memfd" = "foto: lectura de memfd"
+
+# src/v4l2.rs
+"у камеры нет размеров кадра" = "la cámara no indica tamaños de fotograma"
+"нет подходящего формата кадров" = "no hay un formato de fotograma adecuado"
+"камера отключилась" = "la cámara se desconectó"

@@ -398,9 +398,9 @@ pub fn when(unix: i64, now: i64) -> String {
     } else if t.yday_abs + 1 == n.yday_abs {
         t!("Вчера, {t}", t = hm)
     } else if t.year == n.year {
-        format!("{} {}, {hm}", t.day, t!(MONTHS[(t.month - 1) as usize]))
+        t!("{d} {mon}, {time}", d = t.day, mon = t!(MONTHS[(t.month - 1) as usize]), time = hm)
     } else {
-        format!("{} {} {}", t.day, t!(MONTHS[(t.month - 1) as usize]), t.year)
+        t!("{d} {mon} {y}", d = t.day, mon = t!(MONTHS[(t.month - 1) as usize]), y = t.year)
     }
 }
 

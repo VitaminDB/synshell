@@ -1,0 +1,15 @@
+@tag = "kk"
+@name = "Қазақша"
+
+# src/main.rs
+"synkeyboard [show [float|dock] [for <сокет>]|hide|toggle|fn|lang | float on|off|toggle | type <текст> | key <сочетание> | auto on|off]\n  без аргументов — запустить демон экранной клавиатуры" = "synkeyboard [show [float|dock] [for <сокет>]|hide|toggle|fn|lang | float on|off|toggle | type <мәтін> | key <пернелер тіркесімі> | auto on|off]\n  аргументсіз — экрандық пернетақта демонын іске қосу"
+"synkeyboard {cmd}: нужен аргумент" = "synkeyboard {cmd}: аргумент қажет"
+"synkeyboard: неизвестная команда «{other}»" = "synkeyboard: белгісіз команда «{other}»"
+"show for: нужно имя сокета в $XDG_RUNTIME_DIR" = "show for: $XDG_RUNTIME_DIR ішіндегі сокет атауы қажет"
+"show: не понято «{other}»" = "show: «{other}» түсініксіз"
+"команда не поддерживается: {other}" = "команда қолдау көрсетілмейді: {other}"
+"нет ответа от главного потока" = "негізгі ағыннан жауап жоқ"
+
+# src/ui.rs
+"неизвестная клавиша «{part}»" = "белгісіз перне «{part}»"
+"нет клавиши в сочетании" = "тіркесімде перне жоқ"

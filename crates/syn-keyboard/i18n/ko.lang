@@ -1,0 +1,15 @@
+@tag = "ko"
+@name = "한국어"
+
+# src/main.rs
+"synkeyboard [show [float|dock] [for <сокет>]|hide|toggle|fn|lang | float on|off|toggle | type <текст> | key <сочетание> | auto on|off]\n  без аргументов — запустить демон экранной клавиатуры" = "synkeyboard [show [float|dock] [for <소켓>]|hide|toggle|fn|lang | float on|off|toggle | type <텍스트> | key <조합> | auto on|off]\n  인수 없음 — 화상 키보드 데몬 시작"
+"synkeyboard {cmd}: нужен аргумент" = "synkeyboard {cmd}: 인수가 필요합니다"
+"synkeyboard: неизвестная команда «{other}»" = "synkeyboard: 알 수 없는 명령 “{other}”"
+"show for: нужно имя сокета в $XDG_RUNTIME_DIR" = "show for: $XDG_RUNTIME_DIR 안의 소켓 이름이 필요합니다"
+"show: не понято «{other}»" = "show: 알 수 없는 단어 “{other}”"
+"команда не поддерживается: {other}" = "지원하지 않는 명령: {other}"
+"нет ответа от главного потока" = "메인 스레드에서 응답이 없습니다"
+
+# src/ui.rs
+"неизвестная клавиша «{part}»" = "알 수 없는 키 “{part}”"
+"нет клавиши в сочетании" = "조합에 키가 없습니다"

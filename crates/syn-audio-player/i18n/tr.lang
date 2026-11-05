@@ -1,0 +1,19 @@
+@tag = "tr"
+@name = "Türkçe"
+
+# src/main.rs
+"syn-audio-player [ФАЙЛ|URI …]" = "syn-audio-player [DOSYA|URI …]"
+"Музыка" = "Müzik"
+
+# src/ui.rs
+"Не удалось открыть «{path}»: {e}" = "“{path}” açılamadı: {e}"
+"Очередь" = "Sıra"
+"Обновить" = "Yenile"
+"Ищу музыку…" = "Müzik aranıyor…"
+"Музыка не найдена.\nПрограмма ищет в: {v}" = "Müzik bulunamadı.\nŞurada aranıyor: {v}"
+"Играть / пауза" = "Oynat / duraklat"
+"Следующий" = "Sonraki"
+"К списку" = "Listeye dön"
+"Сейчас играет" = "Şimdi çalıyor"
+"Повтор" = "Tekrarla"
+"Предыдущий" = "Önceki"

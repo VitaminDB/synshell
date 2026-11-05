@@ -85,9 +85,16 @@ pub fn month_gen(m: u32) -> String {
     syngui::i18n::t(names[(m as usize).clamp(1, 12) - 1])
 }
 
+/// Короткий месяц («12 окт»). Май — «мая» с невидимым U+2060 (WORD JOINER): отдельный
+/// ключ перевода от полного «мая» (в других языках сокращение и родительный падеж различаются).
 pub fn month_short(m: u32) -> String {
-    let names = [syngui::n_!("янв"), syngui::n_!("фев"), syngui::n_!("мар"), syngui::n_!("апр"), syngui::n_!("мая"), syngui::n_!("июн"), syngui::n_!("июл"), syngui::n_!("авг"), syngui::n_!("сен"), syngui::n_!("окт"), syngui::n_!("ноя"), syngui::n_!("дек")];
+    let names = [syngui::n_!("янв"), syngui::n_!("фев"), syngui::n_!("мар"), syngui::n_!("апр"), syngui::n_!("мая⁠"), syngui::n_!("июн"), syngui::n_!("июл"), syngui::n_!("авг"), syngui::n_!("сен"), syngui::n_!("окт"), syngui::n_!("ноя"), syngui::n_!("дек")];
     syngui::i18n::t(names[(m as usize).clamp(1, 12) - 1])
+}
+
+/// Заголовок месяца с годом («Октябрь 2026»; порядок — по языку).
+pub fn month_year(m: u32, y: i32) -> String {
+    syngui::t!("{month} {y}", month = month_name(m), y = y)
 }
 
 /// Короткие имена дней недели с понедельника.
@@ -104,13 +111,14 @@ pub fn weekday_name(wd: u32) -> String {
 /// «12 октября».
 pub fn long(d: Day) -> String {
     let (_, m, dd) = ymd(d);
-    format!("{dd} {}", month_gen(m))
+    // Порядок «день месяц» — по языку (нем. «12. Oktober», англ. «October 12»).
+    syngui::t!("{d} {month}", d = dd, month = month_gen(m))
 }
 
 /// «12 окт».
 pub fn short(d: Day) -> String {
     let (_, m, dd) = ymd(d);
-    format!("{dd} {}", month_short(m))
+    syngui::t!("{d} {mon}", d = dd, mon = month_short(m))
 }
 
 /// «12–18 окт» или «28 сен – 4 окт».
@@ -118,7 +126,7 @@ pub fn range(a: Day, b: Day) -> String {
     let (_, ma, da) = ymd(a);
     let (_, mb, db) = ymd(b);
     if ma == mb {
-        format!("{da}–{db} {}", month_short(mb))
+        syngui::t!("{a}–{b} {mon}", a = da, b = db, mon = month_short(mb))
     } else {
         format!("{} – {}", short(a), short(b))
     }

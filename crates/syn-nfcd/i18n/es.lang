@@ -1,0 +1,48 @@
+@tag = "es"
+@name = "Español"
+
+# src/api.rs
+"служба NFC не запущена ({SOCKET})" = "el servicio NFC no está en marcha ({SOCKET})"
+"ответ synnfcd" = "respuesta de synnfcd"
+"synnfcd закрыл соединение" = "synnfcd cerró la conexión"
+
+# src/bin/synnfc.rs
+"synnfc status | read | write-url URL | write-text ТЕКСТ | emulate-url URL" = "synnfc status | read | write-url URL | write-text TEXTO | emulate-url URL"
+"метка" = "etiqueta"
+"ошибка: {e}" = "error: {e}"
+"NDEF: пусто" = "NDEF: vacío"
+"без NDEF" = "sin NDEF"
+"поднесите метку… (Ctrl+C — выход)" = "acerca una etiqueta… (Ctrl+C para salir)"
+"записано на {uid}" = "escrito en {uid}"
+"не записано на {uid}: {error}" = "no escrito en {uid}: {error}"
+"эмулируемую метку прочитали" = "se leyó la etiqueta emulada"
+"контроллер" = "controlador"
+
+# src/daemon.rs
+"неверный запрос: {e}" = "solicitud no válida: {e}"
+
+# src/nci.rs
+"запись в NFC" = "escritura en NFC"
+"NFC: поток чтения закрыт" = "NFC: el hilo de lectura está cerrado"
+"NFC: нет ответа на команду {gid} {oid}" = "NFC: sin respuesta a la orden {gid} {oid}"
+"NFC: команда {gid} {oid} — статус {s}" = "NFC: orden {gid} {oid}: estado {s}"
+"NFC: пустой ответ на {gid} {oid}" = "NFC: respuesta vacía a {gid} {oid}"
+"метка убрана" = "se retiró la etiqueta"
+"ошибка RF {v}" = "error de RF {v}"
+"метка не ответила" = "la etiqueta no respondió"
+
+# src/tag.rs
+"ISO 14443-4 (смарт-карта)" = "ISO 14443-4 (tarjeta inteligente)"
+"протокол {protocol}" = "protocolo {protocol}"
+"Type 2: статус {s}" = "Type 2: estado {s}"
+"Type 2: пустой ответ" = "Type 2: respuesta vacía"
+"Type 2: короткий ответ READ ({n} байт)" = "Type 2: respuesta READ corta ({n} bytes)"
+"ISO-DEP: короткий ответ" = "ISO-DEP: respuesta corta"
+"нет приложения NDEF" = "no hay aplicación NDEF"
+"ISO-DEP: неверный CC" = "ISO-DEP: CC no válido"
+"запись на {v} не поддерживается" = "la escritura en {v} no es compatible"
+"метка не размечена под NDEF" = "la etiqueta no tiene formato NDEF"
+"метка защищена от записи" = "la etiqueta está protegida contra escritura"
+"не помещается: {n} байт из {size}" = "no cabe: {n} bytes de {size}"
+"Type 2: запись страницы {v} не подтверждена" = "Type 2: no se confirmó la escritura de la página {v}"
+"не помещается: {n} байт из {v}" = "no cabe: {n} bytes de {v}"

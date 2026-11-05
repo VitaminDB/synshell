@@ -1,0 +1,15 @@
+@tag = "zh-CN"
+@name = "简体中文"
+
+# src/main.rs
+"synkeyboard [show [float|dock] [for <сокет>]|hide|toggle|fn|lang | float on|off|toggle | type <текст> | key <сочетание> | auto on|off]\n  без аргументов — запустить демон экранной клавиатуры" = "synkeyboard [show [float|dock] [for <套接字>]|hide|toggle|fn|lang | float on|off|toggle | type <文本> | key <组合键> | auto on|off]\n  不带参数——启动屏幕键盘守护进程"
+"synkeyboard {cmd}: нужен аргумент" = "synkeyboard {cmd}：需要参数"
+"synkeyboard: неизвестная команда «{other}»" = "synkeyboard：未知命令“{other}”"
+"show for: нужно имя сокета в $XDG_RUNTIME_DIR" = "show for：需要 $XDG_RUNTIME_DIR 中的套接字名称"
+"show: не понято «{other}»" = "show：无法理解“{other}”"
+"команда не поддерживается: {other}" = "不支持的命令：{other}"
+"нет ответа от главного потока" = "主线程无响应"
+
+# src/ui.rs
+"неизвестная клавиша «{part}»" = "未知按键“{part}”"
+"нет клавиши в сочетании" = "组合键中没有按键"

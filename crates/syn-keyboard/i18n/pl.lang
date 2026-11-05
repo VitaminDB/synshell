@@ -1,0 +1,15 @@
+@tag = "pl"
+@name = "Polski"
+
+# src/main.rs
+"synkeyboard [show [float|dock] [for <сокет>]|hide|toggle|fn|lang | float on|off|toggle | type <текст> | key <сочетание> | auto on|off]\n  без аргументов — запустить демон экранной клавиатуры" = "synkeyboard [show [float|dock] [for <gniazdo>]|hide|toggle|fn|lang | float on|off|toggle | type <tekst> | key <skrót> | auto on|off]\n  bez argumentów — uruchomienie demona klawiatury ekranowej"
+"synkeyboard {cmd}: нужен аргумент" = "synkeyboard {cmd}: wymagany argument"
+"synkeyboard: неизвестная команда «{other}»" = "synkeyboard: nieznane polecenie „{other}”"
+"show for: нужно имя сокета в $XDG_RUNTIME_DIR" = "show for: wymagana nazwa gniazda w $XDG_RUNTIME_DIR"
+"show: не понято «{other}»" = "show: niezrozumiałe „{other}”"
+"команда не поддерживается: {other}" = "nieobsługiwane polecenie: {other}"
+"нет ответа от главного потока" = "brak odpowiedzi od głównego wątku"
+
+# src/ui.rs
+"неизвестная клавиша «{part}»" = "nieznany klawisz „{part}”"
+"нет клавиши в сочетании" = "brak klawisza w skrócie"

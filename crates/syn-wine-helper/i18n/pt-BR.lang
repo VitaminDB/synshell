@@ -1,0 +1,78 @@
+@tag = "pt-BR"
+@name = "Português (Brasil)"
+
+# src/fetch.rs
+"другой файл: {got} байт, sha256 {sum}" = "outro arquivo: {got} bytes, sha256 {sum}"
+
+# src/gst.rs
+"Основные форматы: AVI, MKV, MP4/MOV, FLAC, VP8/VP9" = "Formatos principais: AVI, MKV, MP4/MOV, FLAC, VP8/VP9"
+"ASF/WMV-контейнер, MPEG-1/2, AC-3 — форматы с лицензионными ограничениями" = "Contêiner ASF/WMV, MPEG-1/2, AC-3 — formatos com restrições de licença"
+"Новые и редкие форматы: AV1, MPEG-TS, HEVC и другие" = "Formatos novos e raros: AV1, MPEG-TS, HEVC e outros"
+"Кодеки FFmpeg: WMV, WMA, H.264, MPEG-4, AAC, Indeo, Cinepak и другие" = "Codecs do FFmpeg: WMV, WMA, H.264, MPEG-4, AAC, Indeo, Cinepak e outros"
+"Базовые модули: Ogg, Vorbis, Theora, Opus, преобразование видео и звука" = "Módulos básicos: Ogg, Vorbis, Theora, Opus, conversão de vídeo e áudio"
+
+# src/install.rs
+"нет пакета «{id}»" = "não há pacote “{id}”"
+"у пакета «{id}» нет варианта {arch}" = "o pacote “{id}” não tem variante {arch}"
+"в базе нет источника «{s}»" = "a fonte “{s}” não está no banco de dados"
+"{name}: скачивание {file}{step}" = "{name}: baixando {file}{step}"
+"{name}: скачивание {got} из {total} МБ{step}" = "{name}: baixando {got} de {total} MB{step}"
+"не удалось скачать {file}" = "não foi possível baixar {file}"
+"{name}: распаковка{step}" = "{name}: descompactando{step}"
+"в {file} нет {dll} ({arch})" = "{file} não contém {dll} ({arch})"
+
+# src/main.rs
+"syn-wine-helper [list | install ПАКЕТ|DLL… [--arch x86|x64] | remove ПАКЕТ… | scan ПРОГРАММА.exe | run ПРОГРАММА.exe [АРГ…] | probe ФАЙЛ]" = "syn-wine-helper [list | install PACOTE|DLL… [--arch x86|x64] | remove PACOTE… | scan PROGRAMA.exe | run PROGRAMA.exe [ARG…] | probe ARQUIVO]"
+"неизвестная команда «{c}» (см. --help)" = "comando desconhecido “{c}” (veja --help)"
+"модули GStreamer для {w}: подходящие пакеты уже установлены" = "módulos GStreamer para {w}: os pacotes adequados já estão instalados"
+"Каталог DLL: {d}" = "Pasta de DLLs: {d}"
+"нет пакета или DLL «{n}»" = "não há pacote ou DLL “{n}”"
+"что поставить? (syn-wine-helper list)" = "o que instalar? (syn-wine-helper list)"
+"{id}: удалено файлов — {n}" = "{id}: arquivos removidos — {n}"
+"какую программу проверить?" = "qual programa verificar?"
+"{exe} ({arch}): всех DLL хватает" = "{exe} ({arch}): não falta nenhuma DLL"
+"пакет {id}" = "pacote {id}"
+"в базе нет" = "não está no banco de dados"
+"какую программу запустить?" = "qual programa executar?"
+
+# src/scan.rs
+"{f}: не PE-файл" = "{f}: não é um arquivo PE"
+"{f}: машина {m:04x} — не x86 и не x64" = "{f}: máquina {m:04x} não é x86 nem x64"
+
+# src/ui/ask.rs
+"Компоненты установлены. Закройте программу и запустите её снова." = "Componentes instalados. Feche o programa e abra-o novamente."
+"Готово. Запустите игру снова из Steam." = "Pronto. Inicie o jogo novamente pelo Steam."
+"установлено, но программа не запустилась: {e}" = "instalado, mas o programa não iniciou: {e}"
+"Этого нет ни в Wine, ни в базе компонентов. Обычно такие библиотеки лежат рядом с программой — проверьте, что она скопирована целиком." = "Isto não existe nem no Wine nem no banco de componentes. Essas bibliotecas costumam vir junto com o programa — verifique se ele foi copiado por completo."
+"Не хватает компонентов" = "Faltam componentes"
+"Программе «{p}» нужны библиотеки, которых нет в Wine." = "“{p}” precisa de bibliotecas que o Wine não tem."
+"Эти библиотеки уже поставлены, но Wine их не нашёл. Нужен Wine с поддержкой общего каталога компонентов (патч syn-wine-helper)." = "Estas bibliotecas já estão instaladas, mas o Wine não as encontrou. É preciso um Wine com suporte à pasta compartilhada de componentes (modificação do syn-wine-helper)."
+"Скачать {s} — один раз: компоненты ставятся для всех программ." = "Baixar {s} uma única vez: os componentes servem para todos os programas."
+"Файлы уже скачаны: компоненты ставятся для всех программ." = "Os arquivos já foram baixados: os componentes servem para todos os programas."
+"Закрыть" = "Fechar"
+"Отмена" = "Cancelar"
+"Запустить так" = "Executar assim mesmo"
+"Повторить" = "Tentar novamente"
+"Установить" = "Instalar"
+"Установить и запустить" = "Instalar e executar"
+
+# src/ui/gst.rs
+"Установка {p}…" = "Instalando {p}…"
+"Модули установлены. Перезапустите программу, чтобы видео и звук заработали." = "Módulos instalados. Reinicie o programa para que vídeo e som funcionem."
+"программа" = "o programa"
+"Нечем воспроизвести видео" = "Não é possível reproduzir o vídeo"
+"«{p}» не может открыть видео или звук: в системе нет модулей GStreamer для этого формата." = "“{p}” não consegue abrir vídeo ou som: o sistema não tem módulos GStreamer para este formato."
+"Формат: {f}" = "Formato: {f}"
+"Пакеты ставятся в систему из репозиториев (pacman) и нужны всем программам Wine. Понадобится пароль администратора." = "Os pacotes são instalados no sistema a partir dos repositórios (pacman) e servem a todos os programas do Wine. Será pedida a senha de administrador."
+
+# src/ui/list.rs
+"Компоненты Wine" = "Componentes do Wine"
+"Библиотеки, которых нет в самом Wine. Ставятся один раз — для всех программ и префиксов; когда программе чего-то не хватит, Wine предложит поставить сам." = "Bibliotecas que faltam no próprio Wine. São instaladas uma vez para todos os programas e prefixos; quando faltar algo a um programa, o Wine oferece a instalação."
+"Каталог: {d}" = "Pasta: {d}"
+
+# src/ui/mod.rs
+"Подготовка…" = "Preparando…"
+"{n} МБ" = "{n} MB"
+"Не получилось: {e}" = "Falhou: {e}"
+"Модули видео и звука" = "Módulos de vídeo e som"
+"Нужны компоненты Wine" = "Componentes do Wine necessários"

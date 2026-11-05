@@ -1,0 +1,55 @@
+@tag = "pl"
+@name = "Polski"
+
+# src/audio.rs
+"микрофон не отвечает" = "mikrofon nie odpowiada"
+"нет микрофона" = "brak mikrofonu"
+"настройки микрофона" = "ustawienia mikrofonu"
+"микрофон: {err}" = "mikrofon: {err}"
+"нет кодера AAC" = "brak kodera AAC"
+"кодер AAC: {err}" = "koder AAC: {err}"
+
+# src/encoder.rs
+"нет видеокодера ({errs})" = "brak kodera wideo ({errs})"
+"mmap входа кодера: {err}" = "mmap wejścia kodera: {err}"
+"видеокодер: {err}" = "koder wideo: {err}"
+"{name}: нет в ffmpeg" = "{name}: brak w ffmpeg"
+"нет /dev/dri/renderD*" = "brak /dev/dri/renderD*"
+"VAAPI кадры: {err}" = "klatki VAAPI: {err}"
+"кадр кодера: {err}" = "klatka kodera: {err}"
+"кадр кодера занят" = "klatka kodera jest zajęta"
+
+# src/engine.rs
+"камера не включена" = "kamera nie jest włączona"
+"запись не идёт" = "nagrywanie nie trwa"
+"Камера занята другой программой" = "Kamera jest używana przez inny program"
+"Камера остановилась — включаю снова…" = "Kamera się zatrzymała — ponowne włączanie…"
+
+# src/mux.rs
+"mp4: поток видео" = "mp4: strumień wideo"
+"mp4: поток звука" = "mp4: strumień dźwięku"
+"mp4: параметры звука: {err}" = "mp4: parametry dźwięku: {err}"
+"пакет" = "pakiet"
+"запись mp4: {err}" = "zapis mp4: {err}"
+"заголовок mp4: {err}" = "nagłówek mp4: {err}"
+"завершение mp4: {err}" = "finalizacja mp4: {err}"
+
+# src/recorder.rs
+"поток записи упал" = "wątek nagrywania uległ awarii"
+"не записано ни одного кадра" = "nie nagrano żadnej klatki"
+
+# src/syncamd.rs
+"служба камеры недоступна: {v}" = "usługa kamery niedostępna: {v}"
+"ошибка службы камеры" = "błąd usługi kamery"
+"служба камеры другой версии (обновите syncamd)" = "usługa kamery w innej wersji (zaktualizuj syncamd)"
+"неожиданный ответ службы камеры" = "nieoczekiwana odpowiedź usługi kamery"
+"камера не включилась" = "nie udało się włączyć kamery"
+"формат кадров {format} не поддерживается" = "format klatek {format} nie jest obsługiwany"
+"mmap буфера: {v}" = "mmap bufora: {v}"
+"снимок не получен" = "nie otrzymano zdjęcia"
+"снимок: чтение memfd" = "zdjęcie: odczyt memfd"
+
+# src/v4l2.rs
+"у камеры нет размеров кадра" = "kamera nie podaje rozmiarów klatki"
+"нет подходящего формата кадров" = "brak odpowiedniego formatu klatek"
+"камера отключилась" = "kamera została odłączona"

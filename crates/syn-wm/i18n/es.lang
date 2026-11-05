@@ -1,0 +1,62 @@
+@tag = "es"
+@name = "Español"
+
+# src/backend/kms_cpu.rs
+"нет DRM-устройства" = "no hay dispositivo DRM"
+
+# src/backend/mod.rs
+"libinput: не удалось назначить seat" = "libinput: no se pudo asignar el seat"
+
+# src/backend/tty.rs
+"нет GPU" = "no hay GPU"
+"нет основного GPU для устройства без рендеринга" = "no hay GPU principal para el dispositivo sin renderizado"
+
+# src/backend/winit.rs
+"synwm (вложенный)" = "synwm (anidado)"
+
+# src/bindings.rs
+"неизвестная клавиша «{key}» в «{combo}»" = "tecla desconocida «{key}» en «{combo}»"
+
+# src/config.rs
+"раскладка клавиатуры: {e}" = "distribución de teclado: {e}"
+
+# src/ipc.rs
+"неверный запрос: {e}" = "solicitud no válida: {e}"
+"нет окна {id}" = "no existe la ventana {id}"
+"экран заблокирован" = "la pantalla está bloqueada"
+"захват экрана: {e}" = "captura de pantalla: {e}"
+"миниатюры окон: {e}" = "miniaturas de ventanas: {e}"
+"поток кадров: {e}" = "flujo de fotogramas: {e}"
+"нет потока кадров (сначала frame-stream)" = "no hay flujo de fotogramas (primero frame-stream)"
+
+# src/main.rs
+"synwm {v} — окружение рабочего стола для Wayland\n\nsynwm [--nested [--nested-size ШxВ] | --tty] [--cpu | --gpu] [--no-shell] [--no-autostart]\nsynwm msg <version|windows|workspaces|outputs|layouts|events|action ДЕЙСТВИЕ|window ID ОПЕРАЦИЯ|form-factor [РЕЖИМ]|reload|restart-shell|restart>\n" = "synwm {v} — entorno de escritorio para Wayland\n\nsynwm [--nested [--nested-size AnxAl] | --tty] [--cpu | --gpu] [--no-shell] [--no-autostart]\nsynwm msg <version|windows|workspaces|outputs|layouts|events|action ACCIÓN|window ID OPERACIÓN|form-factor [MODO]|reload|restart-shell|restart>\n"
+"перезапуск не удался: {err}" = "el reinicio falló: {err}"
+"сборка без CPU-рендерера (feature pixman)" = "compilado sin el renderizador por CPU (feature pixman)"
+"использование: synwm msg <version|windows|workspaces|outputs|layouts|idle|events|action …|window ID ОПЕРАЦИЯ|x11-display ИМЯ…|form-factor [desktop|phone|game|device|toggle-game]|reload|restart-shell|restart>" = "uso: synwm msg <version|windows|workspaces|outputs|layouts|idle|events|action …|window ID OPERACIÓN|x11-display NOMBRE…|form-factor [desktop|phone|game|device|toggle-game]|reload|restart-shell|restart>"
+"нет связи с композитором: {e}" = "no se puede conectar con el compositor: {e}"
+"использование: synwm msg window ID activate|minimize|close|kill|maximize|fullscreen|floating|sticky|above|workspace N" = "uso: synwm msg window ID activate|minimize|close|kill|maximize|fullscreen|floating|sticky|above|workspace N"
+"неизвестная операция «{other}»" = "operación desconocida «{other}»"
+"неизвестная команда «{other}»" = "comando desconocido «{other}»"
+"нет связи с композитором ({v}): {e}" = "no se puede conectar con el compositor ({v}): {e}"
+
+# src/remote.rs
+"нет вывода {name}" = "no existe la salida {name}"
+"сочетание {combo}: {e}" = "combinación {combo}: {e}"
+
+# src/state.rs
+"клавиатура: {e}" = "teclado: {e}"
+
+# src/stream.rs
+"нет выводов" = "no hay salidas"
+"кадр потока: {e}" = "fotograma del flujo: {e}"
+"файл кадра: {e}" = "archivo de fotograma: {e}"
+
+# src/wm/rules.rs
+"правило #{v}: {what}: {e}" = "regla #{v}: {what}: {e}"
+
+# src/xwayland.rs
+"Xwayland выключен ([general] xwayland)" = "Xwayland está desactivado ([general] xwayland)"
+"непонятное разрешение «{wanted}»" = "resolución no reconocida «{wanted}»"
+"Xwayland без дисплея" = "Xwayland sin pantalla"
+"Xwayland не запущен" = "Xwayland no está en ejecución"

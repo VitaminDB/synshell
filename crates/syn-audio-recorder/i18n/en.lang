@@ -33,6 +33,8 @@
 "дек." = "Dec"
 "Сегодня, {t}" = "Today, {t}"
 "Вчера, {t}" = "Yesterday, {t}"
+"{d} {mon}, {time}" = "{mon} {d}, {time}"
+"{d} {mon} {y}" = "{mon} {d}, {y}"
 
 # src/ui/list.rs
 "Читаю папку…" = "Reading the folder…"

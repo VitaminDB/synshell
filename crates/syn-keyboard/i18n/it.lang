@@ -1,0 +1,15 @@
+@tag = "it"
+@name = "Italiano"
+
+# src/main.rs
+"synkeyboard [show [float|dock] [for <сокет>]|hide|toggle|fn|lang | float on|off|toggle | type <текст> | key <сочетание> | auto on|off]\n  без аргументов — запустить демон экранной клавиатуры" = "synkeyboard [show [float|dock] [for <socket>]|hide|toggle|fn|lang | float on|off|toggle | type <testo> | key <combinazione> | auto on|off]\n  senza argomenti — avvia il demone della tastiera su schermo"
+"synkeyboard {cmd}: нужен аргумент" = "synkeyboard {cmd}: serve un argomento"
+"synkeyboard: неизвестная команда «{other}»" = "synkeyboard: comando sconosciuto «{other}»"
+"show for: нужно имя сокета в $XDG_RUNTIME_DIR" = "show for: serve il nome di un socket in $XDG_RUNTIME_DIR"
+"show: не понято «{other}»" = "show: non compreso «{other}»"
+"команда не поддерживается: {other}" = "comando non supportato: {other}"
+"нет ответа от главного потока" = "nessuna risposta dal thread principale"
+
+# src/ui.rs
+"неизвестная клавиша «{part}»" = "tasto sconosciuto «{part}»"
+"нет клавиши в сочетании" = "nessun tasto nella combinazione"

@@ -1,0 +1,78 @@
+@tag = "tr"
+@name = "Türkçe"
+
+# src/fetch.rs
+"другой файл: {got} байт, sha256 {sum}" = "farklı bir dosya: {got} bayt, sha256 {sum}"
+
+# src/gst.rs
+"Основные форматы: AVI, MKV, MP4/MOV, FLAC, VP8/VP9" = "Temel biçimler: AVI, MKV, MP4/MOV, FLAC, VP8/VP9"
+"ASF/WMV-контейнер, MPEG-1/2, AC-3 — форматы с лицензионными ограничениями" = "ASF/WMV kapsayıcısı, MPEG-1/2, AC-3 — lisans kısıtlamalı biçimler"
+"Новые и редкие форматы: AV1, MPEG-TS, HEVC и другие" = "Yeni ve nadir biçimler: AV1, MPEG-TS, HEVC ve diğerleri"
+"Кодеки FFmpeg: WMV, WMA, H.264, MPEG-4, AAC, Indeo, Cinepak и другие" = "FFmpeg kodekleri: WMV, WMA, H.264, MPEG-4, AAC, Indeo, Cinepak ve diğerleri"
+"Базовые модули: Ogg, Vorbis, Theora, Opus, преобразование видео и звука" = "Temel modüller: Ogg, Vorbis, Theora, Opus, video ve ses dönüştürme"
+
+# src/install.rs
+"нет пакета «{id}»" = "“{id}” paketi yok"
+"у пакета «{id}» нет варианта {arch}" = "“{id}” paketinin {arch} sürümü yok"
+"в базе нет источника «{s}»" = "“{s}” kaynağı veritabanında yok"
+"{name}: скачивание {file}{step}" = "{name}: {file} indiriliyor{step}"
+"{name}: скачивание {got} из {total} МБ{step}" = "{name}: {got} / {total} MB indiriliyor{step}"
+"не удалось скачать {file}" = "{file} indirilemedi"
+"{name}: распаковка{step}" = "{name}: açılıyor{step}"
+"в {file} нет {dll} ({arch})" = "{file} içinde {dll} yok ({arch})"
+
+# src/main.rs
+"syn-wine-helper [list | install ПАКЕТ|DLL… [--arch x86|x64] | remove ПАКЕТ… | scan ПРОГРАММА.exe | run ПРОГРАММА.exe [АРГ…] | probe ФАЙЛ]" = "syn-wine-helper [list | install PAKET|DLL… [--arch x86|x64] | remove PAKET… | scan PROGRAM.exe | run PROGRAM.exe [ARG…] | probe DOSYA]"
+"неизвестная команда «{c}» (см. --help)" = "bilinmeyen komut “{c}” (bkz. --help)"
+"модули GStreamer для {w}: подходящие пакеты уже установлены" = "{w} için GStreamer modülleri: uygun paketler zaten yüklü"
+"Каталог DLL: {d}" = "DLL dizini: {d}"
+"нет пакета или DLL «{n}»" = "“{n}” adında paket veya DLL yok"
+"что поставить? (syn-wine-helper list)" = "ne yüklensin? (syn-wine-helper list)"
+"{id}: удалено файлов — {n}" = "{id}: silinen dosya — {n}"
+"какую программу проверить?" = "hangi program denetlensin?"
+"{exe} ({arch}): всех DLL хватает" = "{exe} ({arch}): eksik DLL yok"
+"пакет {id}" = "{id} paketi"
+"в базе нет" = "veritabanında yok"
+"какую программу запустить?" = "hangi program çalıştırılsın?"
+
+# src/scan.rs
+"{f}: не PE-файл" = "{f}: PE dosyası değil"
+"{f}: машина {m:04x} — не x86 и не x64" = "{f}: makine {m:04x} — ne x86 ne x64"
+
+# src/ui/ask.rs
+"Компоненты установлены. Закройте программу и запустите её снова." = "Bileşenler yüklendi. Programı kapatıp yeniden başlatın."
+"Готово. Запустите игру снова из Steam." = "Tamamlandı. Oyunu Steam’den yeniden başlatın."
+"установлено, но программа не запустилась: {e}" = "yüklendi, ancak program başlamadı: {e}"
+"Этого нет ни в Wine, ни в базе компонентов. Обычно такие библиотеки лежат рядом с программой — проверьте, что она скопирована целиком." = "Bu ne Wine’da ne de bileşen veritabanında var. Bu tür kitaplıklar genellikle programın yanında bulunur — programın eksiksiz kopyalandığını denetleyin."
+"Не хватает компонентов" = "Eksik bileşenler"
+"Программе «{p}» нужны библиотеки, которых нет в Wine." = "“{p}” programı Wine’da olmayan kitaplıklara ihtiyaç duyuyor."
+"Эти библиотеки уже поставлены, но Wine их не нашёл. Нужен Wine с поддержкой общего каталога компонентов (патч syn-wine-helper)." = "Bu kitaplıklar zaten yüklü, ancak Wine onları bulamadı. Ortak bileşen dizinini destekleyen Wine (syn-wine-helper yaması) gerekli."
+"Скачать {s} — один раз: компоненты ставятся для всех программ." = "{s} bir kez indirilecek: bileşenler tüm programlar için yüklenir."
+"Файлы уже скачаны: компоненты ставятся для всех программ." = "Dosyalar zaten indirildi: bileşenler tüm programlar için yüklenir."
+"Закрыть" = "Kapat"
+"Отмена" = "İptal"
+"Запустить так" = "Yine de çalıştır"
+"Повторить" = "Yeniden dene"
+"Установить" = "Yükle"
+"Установить и запустить" = "Yükle ve çalıştır"
+
+# src/ui/gst.rs
+"Установка {p}…" = "{p} yükleniyor…"
+"Модули установлены. Перезапустите программу, чтобы видео и звук заработали." = "Modüller yüklendi. Video ve sesin çalışması için programı yeniden başlatın."
+"программа" = "program"
+"Нечем воспроизвести видео" = "Video oynatılamıyor"
+"«{p}» не может открыть видео или звук: в системе нет модулей GStreamer для этого формата." = "“{p}” video veya ses açamıyor: sistemde bu biçim için GStreamer modülü yok."
+"Формат: {f}" = "Biçim: {f}"
+"Пакеты ставятся в систему из репозиториев (pacman) и нужны всем программам Wine. Понадобится пароль администратора." = "Paketler depolardan (pacman) sisteme yüklenir ve tüm Wine programları için gereklidir. Yönetici parolası gerekecek."
+
+# src/ui/list.rs
+"Компоненты Wine" = "Wine bileşenleri"
+"Библиотеки, которых нет в самом Wine. Ставятся один раз — для всех программ и префиксов; когда программе чего-то не хватит, Wine предложит поставить сам." = "Wine’ın kendisinde olmayan kitaplıklar. Tüm programlar ve önekler için bir kez yüklenir; bir programda eksik olduğunda Wine yüklemeyi kendisi önerir."
+"Каталог: {d}" = "Dizin: {d}"
+
+# src/ui/mod.rs
+"Подготовка…" = "Hazırlanıyor…"
+"{n} МБ" = "{n} MB"
+"Не получилось: {e}" = "Başarısız: {e}"
+"Модули видео и звука" = "Video ve ses modülleri"
+"Нужны компоненты Wine" = "Wine bileşenleri gerekli"

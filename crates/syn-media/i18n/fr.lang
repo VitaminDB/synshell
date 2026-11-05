@@ -1,0 +1,55 @@
+@tag = "fr"
+@name = "Français"
+
+# src/audio.rs
+"микрофон не отвечает" = "le microphone ne répond pas"
+"нет микрофона" = "pas de microphone"
+"настройки микрофона" = "paramètres du microphone"
+"микрофон: {err}" = "microphone : {err}"
+"нет кодера AAC" = "pas d’encodeur AAC"
+"кодер AAC: {err}" = "encodeur AAC : {err}"
+
+# src/encoder.rs
+"нет видеокодера ({errs})" = "pas d’encodeur vidéo ({errs})"
+"mmap входа кодера: {err}" = "mmap de l’entrée de l’encodeur : {err}"
+"видеокодер: {err}" = "encodeur vidéo : {err}"
+"{name}: нет в ffmpeg" = "{name} : absent de ffmpeg"
+"нет /dev/dri/renderD*" = "pas de /dev/dri/renderD*"
+"VAAPI кадры: {err}" = "images VAAPI : {err}"
+"кадр кодера: {err}" = "image de l’encodeur : {err}"
+"кадр кодера занят" = "image de l’encodeur occupée"
+
+# src/engine.rs
+"камера не включена" = "la caméra n’est pas activée"
+"запись не идёт" = "aucun enregistrement en cours"
+"Камера занята другой программой" = "La caméra est utilisée par une autre application"
+"Камера остановилась — включаю снова…" = "La caméra s’est arrêtée — redémarrage…"
+
+# src/mux.rs
+"mp4: поток видео" = "mp4 : flux vidéo"
+"mp4: поток звука" = "mp4 : flux audio"
+"mp4: параметры звука: {err}" = "mp4 : paramètres audio : {err}"
+"пакет" = "paquet"
+"запись mp4: {err}" = "écriture mp4 : {err}"
+"заголовок mp4: {err}" = "en-tête mp4 : {err}"
+"завершение mp4: {err}" = "finalisation mp4 : {err}"
+
+# src/recorder.rs
+"поток записи упал" = "le fil d’enregistrement a planté"
+"не записано ни одного кадра" = "aucune image enregistrée"
+
+# src/syncamd.rs
+"служба камеры недоступна: {v}" = "service caméra indisponible : {v}"
+"ошибка службы камеры" = "erreur du service caméra"
+"служба камеры другой версии (обновите syncamd)" = "version différente du service caméra (mettez à jour syncamd)"
+"неожиданный ответ службы камеры" = "réponse inattendue du service caméra"
+"камера не включилась" = "la caméra n’a pas démarré"
+"формат кадров {format} не поддерживается" = "format d’image {format} non pris en charge"
+"mmap буфера: {v}" = "mmap du tampon : {v}"
+"снимок не получен" = "aucune photo reçue"
+"снимок: чтение memfd" = "photo : lecture du memfd"
+
+# src/v4l2.rs
+"у камеры нет размеров кадра" = "la caméra n’indique aucune taille d’image"
+"нет подходящего формата кадров" = "aucun format d’image adapté"
+"камера отключилась" = "caméra déconnectée"

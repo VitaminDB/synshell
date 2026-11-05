@@ -73,7 +73,7 @@ fn date_text(it: &Item) -> String {
         tm
     };
     const MONTHS: [&str; 12] = [n_!("янв."), n_!("февр."), n_!("марта"), n_!("апр."), n_!("мая"), n_!("июня"), n_!("июля"), n_!("авг."), n_!("сент."), n_!("окт."), n_!("нояб."), n_!("дек.")];
-    format!("{} {} {}, {:02}:{:02}", tm.tm_mday, syngui::i18n::t(MONTHS[tm.tm_mon.clamp(0, 11) as usize]), tm.tm_year + 1900, tm.tm_hour, tm.tm_min)
+    t!("{d} {mon} {y}, {time}", d = tm.tm_mday, mon = syngui::i18n::t(MONTHS[tm.tm_mon.clamp(0, 11) as usize]), y = tm.tm_year + 1900, time = format!("{:02}:{:02}", tm.tm_hour, tm.tm_min))
 }
 
 fn size_text(b: u64) -> String {

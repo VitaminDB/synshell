@@ -31,7 +31,9 @@ pub fn now() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
-const MONTHS: [&str; 12] = [n_!("янв"), n_!("фев"), n_!("мар"), n_!("апр"), n_!("мая"), n_!("июн"), n_!("июл"), n_!("авг"), n_!("сен"), n_!("окт"), n_!("ноя"), n_!("дек")];
+// Короткий май — «мая» с невидимым U+2060 (WORD JOINER): отдельный ключ перевода
+// от полного «мая» (в других языках сокращение и родительный падеж различаются).
+const MONTHS: [&str; 12] = [n_!("янв"), n_!("фев"), n_!("мар"), n_!("апр"), n_!("мая⁠"), n_!("июн"), n_!("июл"), n_!("авг"), n_!("сен"), n_!("окт"), n_!("ноя"), n_!("дек")];
 
 /// Коротко для списков: «14:05», «вчера», «3 окт», «3 окт 2025».
 pub fn short(t: i64) -> String {
@@ -42,9 +44,9 @@ pub fn short(t: i64) -> String {
     } else if l.days == n.days - 1 {
         t!("вчера").into()
     } else if l.year == n.year {
-        format!("{} {}", l.day, MONTHS[(l.month - 1) as usize])
+        t!("{d} {mon}", d = l.day, mon = synshell_tr::t(MONTHS[(l.month - 1) as usize]))
     } else {
-        format!("{} {} {}", l.day, MONTHS[(l.month - 1) as usize], l.year)
+        t!("{d} {mon} {y}", d = l.day, mon = synshell_tr::t(MONTHS[(l.month - 1) as usize]), y = l.year)
     }
 }
 
@@ -59,9 +61,9 @@ pub fn day_title(t: i64) -> String {
     } else if l.days == n.days - 1 {
         t!("Вчера").into()
     } else if l.year == n.year {
-        format!("{} {}", l.day, FULL[(l.month - 1) as usize])
+        t!("{d} {month}", d = l.day, month = synshell_tr::t(FULL[(l.month - 1) as usize]))
     } else {
-        format!("{} {} {}", l.day, FULL[(l.month - 1) as usize], l.year)
+        t!("{d} {month} {y}", d = l.day, month = synshell_tr::t(FULL[(l.month - 1) as usize]), y = l.year)
     }
 }
 

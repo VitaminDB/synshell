@@ -99,6 +99,7 @@
 "окт." = "Oct"
 "нояб." = "Nov"
 "дек." = "Dec"
+"{d} {mon} {y}, {time}" = "{mon} {d}, {y}, {time}"
 "{v} МБ" = "{v} MB"
 "{v} КБ" = "{v} KB"
 "Видео не открывается" = "Video cannot be opened"
