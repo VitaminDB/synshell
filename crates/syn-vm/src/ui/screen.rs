@@ -64,6 +64,24 @@ pub fn page(st: St, full: bool) -> W {
     }))
 }
 
+/// Щелчок левой кнопкой у машины с 3D: попал в кадр игры (или игра во весь экран) — захват.
+fn try_capture(st: St, id: &str, x: f32, y: f32) -> bool {
+    let Some(vm) = st.vm(id).filter(|v| v.gpu3d) else { return false };
+    let Some(layer) = state::game_layer(id) else { return false };
+    let (gw, gh) = st.guest_size.get_untracked();
+    let (gx, gy) = (x * gw as f32, y * gh as f32);
+    let (lx, ly, lw, lh) = layer.rect;
+    let inside = gx >= lx as f32 && gy >= ly as f32 && gx < (lx + lw as i32) as f32 && gy < (ly + lh as i32) as f32;
+    if !inside && !layer.fullscreen {
+        return false;
+    }
+    match super::capture::start(&vm) {
+        Ok(()) => state::toast(st, t!("Мышь захвачена игрой — Ctrl+Alt, чтобы освободить")),
+        Err(e) => state::toast_err(st, e),
+    }
+    true
+}
+
 /// Место окна игры (физические пиксели экрана гостя) → координаты в виджете экрана:
 /// как LiveView кладёт кадр гостя (с пропорциями / растянуть / 1:1, по центру).
 fn game_rect(st: St, fit: ImageFit, (x, y, w, h): (i32, i32, u32, u32)) -> Option<(f32, f32, f32, f32)> {
@@ -90,6 +108,49 @@ fn game_rect(st: St, fit: ImageFit, (x, y, w, h): (i32, i32, u32, u32)) -> Optio
 
 /// Ввод над кадром → гостю.
 fn input(st: St, id: &str, s: &crate::vnc::Session, e: LiveInput) {
+    // Захват для игр: мышь — относительной (смещения идут из syngui сами), кнопки и колесо —
+    // туда же; Ctrl+Alt — выход.
+    if super::capture::active(id) {
+        match e {
+            LiveInput::Move { .. } | LiveInput::TouchMove { .. } => return,
+            LiveInput::Down { button, .. } => {
+                if let Some(i) = button_index(button) {
+                    super::capture::button(i, true);
+                }
+                return;
+            }
+            LiveInput::Up { button, .. } => {
+                if let Some(i) = button_index(button) {
+                    super::capture::button(i, false);
+                }
+                return;
+            }
+            LiveInput::Wheel { dy, .. } => {
+                super::capture::wheel(dy.signum() as i32 * dy.abs().ceil() as i32);
+                return;
+            }
+            LiveInput::Key { key, pressed } => {
+                match key {
+                    Key::Ctrl => CTRL.store(pressed, Ordering::Relaxed),
+                    Key::Alt => ALT.store(pressed, Ordering::Relaxed),
+                    _ => {}
+                }
+                if pressed && matches!(key, Key::Ctrl | Key::Alt) && CTRL.load(Ordering::Relaxed) && ALT.load(Ordering::Relaxed) {
+                    s.key(0x1d, 0, false);
+                    s.key(0x38, 0, false);
+                    super::capture::stop();
+                    state::toast(st, t!("Мышь освобождена"));
+                    return;
+                }
+            }
+            _ => {}
+        }
+    } else if let LiveInput::Down { button: MouseButton::Left, x, y } = e {
+        // Щелчок по кадру игры (или по полноэкранной игре) — захват мыши.
+        if try_capture(st, id, x, y) {
+            return;
+        }
+    }
     match e {
         LiveInput::Move { x, y } => s.pointer(x, y),
         LiveInput::Down { button, x, y } => {
@@ -225,9 +286,23 @@ fn toolbar(st: St, id: &str, full: bool) -> W {
     let (a, b, c, d, e) = (id.to_string(), id.to_string(), id.to_string(), id.to_string(), id.to_string());
     let auto = st.vm(id).map(|v| v.auto_resize).unwrap_or(true);
     let size = st.guest_size.get_untracked();
-    let bar = Row::new()
-        .gap(4.0)
-        .cross_axis_alignment(CrossAxisAlignment::Center)
+    let gpu3d = st.vm(id).is_some_and(|v| v.gpu3d);
+    let cap_id = id.to_string();
+    let mut bar = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center);
+    if gpu3d {
+        // Захват мыши для игр (камера в 3D-играх читает сырые смещения); Ctrl+Alt — выход.
+        bar = bar
+            .child(icon_btn(icons::MOUSE, t!("Захватить мышь для игры (Ctrl+Alt — освободить)"), move || {
+                if let Some(vm) = st.vm(&cap_id) {
+                    match super::capture::start(&vm) {
+                        Ok(()) => state::toast(st, t!("Мышь захвачена игрой — Ctrl+Alt, чтобы освободить")),
+                        Err(e) => state::toast_err(st, e),
+                    }
+                }
+            }))
+            .child(DecoratedBox::new().class("vsep"));
+    }
+    let bar = bar
         .child(icon_btn(icons::KEYBOARD, t!("Ctrl+Alt+Del"), move || combo(&a, keymap::CTRL_ALT_DEL)))
         .child(icon_btn(icons::MORE, t!("Другие сочетания"), move || st.keys_menu.set(!st.keys_menu.get_untracked())))
         .child(DecoratedBox::new().class("vsep"))

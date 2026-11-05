@@ -408,6 +408,9 @@
 "Гостевые инструменты syn-gpu…" = "syn-gpu konuk araçları…"
 "Видеокарта syn-gpu…" = "syn-gpu ekran kartı…"
 
+# src/ui/capture.rs
+"У машины нет относительной мыши — перезапустите её с включённым 3D-ускорением" = "Makinede göreli fare yok — 3D hızlandırma açıkken yeniden başlatın"
+
 # src/ui/library.rs
 "Создайте машину из образа системы — Linux, Windows, BSD" = "Sistem kalıbından makine oluşturun — Linux, Windows, BSD"
 "{n} всего · {r} работает" = "toplam {n} · {r} çalışıyor"
@@ -524,7 +527,10 @@
 
 # src/ui/screen.rs
 "Подключение к экрану…" = "Ekrana bağlanılıyor…"
+"Мышь захвачена игрой — Ctrl+Alt, чтобы освободить" = "Fare oyun tarafından yakalandı — bırakmak için Ctrl+Alt"
+"Мышь освобождена" = "Fare bırakıldı"
 "Запись экрана гостя в видео (Видео/Записи экрана)" = "Konuk ekranını videoya kaydet (Videolar/Ekran kayıtları)"
+"Захватить мышь для игры (Ctrl+Alt — освободить)" = "Fareyi oyun için yakala (Ctrl+Alt — bırak)"
 "Ctrl+Alt+Del" = "Ctrl+Alt+Del"
 "Другие сочетания" = "Diğer kısayollar"
 "Напечатать текст из буфера (Ctrl+Alt+V)" = "Panodaki metni yaz (Ctrl+Alt+V)"

@@ -56,6 +56,7 @@ pub mod icons {
     pub const ASPECT: &str = "\u{E85B}";
     pub const STRETCH: &str = "\u{F1CE}";
     pub const ONE_TO_ONE: &str = "\u{E3C2}";
+    pub const MOUSE: &str = "\u{E323}";
     pub const ANDROID: &str = "\u{E859}";
     pub const WINDOW: &str = "\u{F088}";
     pub const APPS: &str = "\u{E5C3}";

@@ -408,6 +408,9 @@
 "Гостевые инструменты syn-gpu…" = "Outils invités syn-gpu…"
 "Видеокарта syn-gpu…" = "Carte graphique syn-gpu…"
 
+# src/ui/capture.rs
+"У машины нет относительной мыши — перезапустите её с включённым 3D-ускорением" = "La machine n’a pas de souris relative — redémarrez-la avec l’accélération 3D activée"
+
 # src/ui/library.rs
 "Создайте машину из образа системы — Linux, Windows, BSD" = "Créer une machine à partir d’une image système — Linux, Windows, BSD"
 "{n} всего · {r} работает" = "{n} au total · {r} en marche"
@@ -524,7 +527,10 @@
 
 # src/ui/screen.rs
 "Подключение к экрану…" = "Connexion à l’écran…"
+"Мышь захвачена игрой — Ctrl+Alt, чтобы освободить" = "Souris capturée par le jeu — Ctrl+Alt pour la libérer"
+"Мышь освобождена" = "Souris libérée"
 "Запись экрана гостя в видео (Видео/Записи экрана)" = "Enregistrer l’écran de l’invité en vidéo (Vidéos/Записи экрана)"
+"Захватить мышь для игры (Ctrl+Alt — освободить)" = "Capturer la souris pour un jeu (Ctrl+Alt : libérer)"
 "Ctrl+Alt+Del" = "Ctrl+Alt+Suppr"
 "Другие сочетания" = "Autres raccourcis"
 "Напечатать текст из буфера (Ctrl+Alt+V)" = "Saisir le texte du presse-papiers (Ctrl+Alt+V)"
