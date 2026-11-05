@@ -42,6 +42,7 @@ members = [
     "crates/syn-health",
     "crates/syn-systeminfo",
     "crates/syn-vm",
+    "crates/syn-quitsmoke",
     "crates/syn-screencast",
     "crates/syn-gamepad",
     "crates/synaptixd",

@@ -1,0 +1,48 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#16a65c"/>
+      <stop offset="0.55" stop-color="#22b869"/>
+      <stop offset="1" stop-color="#3ad57f"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.32" cy="0.28" r="0.85">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.28"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.05"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="leaf" x1="150" y1="120" x2="360" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e9fbf1"/>
+    </linearGradient>
+    <linearGradient id="vein" x1="256" y1="140" x2="256" y2="384" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2fbf71"/>
+      <stop offset="1" stop-color="#17a55b"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Фон -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <rect width="512" height="512" fill="url(#glow)"/>
+
+  <!-- Лист (лёгкий наклон) -->
+  <g transform="rotate(-18 256 256)">
+    <!-- тень -->
+    <path d="M256 132 C360 184, 360 332, 256 392 C152 332, 152 184, 256 132 Z"
+          fill="#0c6b3a" opacity="0.18" transform="translate(0 10)"/>
+    <!-- тело листа -->
+    <path d="M256 128 C360 180, 360 330, 256 390 C152 330, 152 180, 256 128 Z"
+          fill="url(#leaf)"/>
+    <!-- центральная жилка -->
+    <path d="M256 150 C250 230, 250 300, 244 372"
+          stroke="url(#vein)" stroke-width="10" stroke-linecap="round" fill="none"/>
+    <!-- боковые жилки -->
+    <path d="M253 208 C288 200, 312 214, 326 236" stroke="#2fbf71" stroke-width="7" stroke-linecap="round" fill="none" opacity="0.85"/>
+    <path d="M251 250 C222 246, 200 258, 188 278" stroke="#2fbf71" stroke-width="7" stroke-linecap="round" fill="none" opacity="0.85"/>
+    <path d="M249 296 C282 292, 302 304, 314 322" stroke="#2fbf71" stroke-width="7" stroke-linecap="round" fill="none" opacity="0.75"/>
+    <path d="M247 336 C222 334, 206 344, 196 360" stroke="#2fbf71" stroke-width="7" stroke-linecap="round" fill="none" opacity="0.7"/>
+  </g>
+
+  <!-- Дыхание / искра свежести -->
+  <circle cx="372" cy="150" r="12" fill="#ffffff" opacity="0.9"/>
+  <circle cx="404" cy="186" r="7" fill="#ffffff" opacity="0.7"/>
+</svg>

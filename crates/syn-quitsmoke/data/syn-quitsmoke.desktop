@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=QuitSmoke
+Name[ru]=Бросить курить
+Comment=Quit smoking gradually or at once: health milestones, cravings, statistics
+Comment[ru]=Бросить курить постепенно или сразу: вехи здоровья, тяга, статистика
+Exec=syn-quitsmoke
+Icon=syn-quitsmoke
+Categories=Utility;
+Keywords=smoking;health;quit;курение;здоровье;
+StartupNotify=true

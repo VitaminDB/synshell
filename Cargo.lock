@@ -7439,6 +7439,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-quitsmoke"
+version = "0.1.42"
+dependencies = [
+ "android_logger",
+ "libc",
+ "log",
+ "serde",
+ "serde_json",
+ "syngui",
+]
+
+[[package]]
 name = "syn-remote"
 version = "0.1.42"
 dependencies = [

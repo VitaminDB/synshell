@@ -11,13 +11,14 @@
 #                     подгружаются во время работы (CUDA Toolkit для сборки не нужен), без NVIDIA
 #                     служба работает на процессоре;
 #   syn-*           — приложения, каждое отдельно (группа synshell-apps);
+#   syn-quitsmoke   — «Бросить курить»: необязательное, не входит ни в метапакет, ни в группу;
 #   mss-lsp         — языковой сервер MSS (syngui);
 #   synshell        — метапакет: core и приложения «как у автора», без нейросетей.
 pkgbase=synshell
 pkgname=(synshell synshell-core synshell-mobile synshell-game synshell-link synshell-ai synaptix
          syn-notes syn-vm syn-video-player syn-audio-player syn-audio-recorder synpass syn-maps
          syn-remote syn-systeminfo syn-themeeditor syn-woman-cycle syndroid syn-wine-helper
-         syncamera syn-blocks syn-epdtest mss-lsp)
+         syncamera syn-blocks syn-epdtest syn-quitsmoke mss-lsp)
 pkgver=0.1.42
 pkgrel=185
 pkgdesc="Окружение рабочего стола для Wayland на Rust и syngui"
@@ -71,7 +72,7 @@ build() {
     cd "$startdir/.."
     local p=() c
     # Крейт syn-modem даёт synmodem и synmodemd, syn-nfcd — synnfc и synnfcd, syn-droid — syndroid и syndroidd.
-    for c in "${_core_bins[@]}" "${_mobile_bins[@]}" "${_game_bins[@]}" "${_link_bins[@]}" "${_ai_bins[@]}" "${_app_crates[@]}"; do
+    for c in "${_core_bins[@]}" "${_mobile_bins[@]}" "${_game_bins[@]}" "${_link_bins[@]}" "${_ai_bins[@]}" "${_app_crates[@]}" syn-quitsmoke; do
         c=$(_crate "$c")
         [[ " ${p[*]} " == *" $c "* ]] || p+=(-p "$c")
     done
@@ -382,6 +383,13 @@ package_syn-epdtest() {
     depends=(synshell-core)
     cd "$startdir/.."
     _app syn-epdtest
+}
+
+package_syn-quitsmoke() {
+    pkgdesc="Бросить курить (QuitSmoke): постепенно или сразу, вехи здоровья, тяга, статистика, награды"
+    depends=(synshell-core)
+    cd "$startdir/.."
+    _app syn-quitsmoke
 }
 
 package_mss-lsp() {

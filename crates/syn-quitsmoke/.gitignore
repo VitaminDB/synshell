@@ -1,0 +1,6 @@
+# Сборка Android (build-apk.sh)
+/android/build/
+/android/app/build/
+/android/.gradle/
+/android/local.properties
+/android/app/src/main/jniLibs/

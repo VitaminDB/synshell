@@ -1,0 +1,39 @@
+[package]
+name = "syn-quitsmoke"
+description = "Бросить курить (QuitSmoke): постепенный или сразу, вехи здоровья, тяга, статистика, награды — для телефона и компьютера; Android-сборка — build-apk.sh"
+version.workspace = true
+edition = "2024"
+authors.workspace = true
+license.workspace = true
+
+# Имя библиотеки прежнее: его загружает Android (android.app.lib_name = quitsmoke).
+[lib]
+name = "quitsmoke"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "syn-quitsmoke"
+path = "src/main.rs"
+
+[features]
+default = ["desktop"]
+desktop = ["syngui/clipboard"]
+android = ["syngui/android"]
+
+[dependencies]
+syngui = { workspace = true, features = ["msdf", "effects", "winit", "material-icons", "i18n"] }
+serde.workspace = true
+serde_json.workspace = true
+libc.workspace = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.15"
+log = "0.4"
+
+[package.metadata.android]
+package = "com.quitsmoke.app"
+build_targets = ["aarch64-linux-android"]
+
+[package.metadata.android.sdk]
+min_sdk_version = 30
+target_sdk_version = 35
