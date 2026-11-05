@@ -81,3 +81,38 @@ fn set_time_locale(lang: &str) {
         }
     }
 }
+
+/// Строка «Язык» в настройках программ: язык общий для всех программ и выбирается
+/// в «Параметрах → Язык»; программы показывают текущий и ведут туда ([`open_settings`]).
+pub struct LanguageRow {
+    /// «Язык».
+    pub title: String,
+    /// Текущий язык самоназванием («Deutsch»); при «Как в системе» — с пометкой.
+    pub value: String,
+    /// Пояснение: где меняется.
+    pub hint: String,
+}
+
+/// Подписи строки «Язык» на текущем языке.
+pub fn language_row() -> LanguageRow {
+    let (cfg, _) = crate::Config::load();
+    let cur = syngui::i18n::language();
+    let name = syngui::i18n::languages()
+        .into_iter()
+        .find(|l| l.tag == cur || l.tag.base() == cur.base())
+        .map(|l| l.name)
+        .unwrap_or_else(|| cur.tag().to_string());
+    let auto = std::env::var("SYNSHELL_LANG").map_or(true, |l| l.trim().is_empty()) && cfg.general.language.trim().is_empty();
+    LanguageRow {
+        title: syngui::i18n::t(crate::n_!("Язык")),
+        value: if auto { syngui::i18n::t_args(crate::n_!("{lang} (как в системе)"), &[("lang", &name)]) } else { name },
+        hint: syngui::i18n::t(crate::n_!("Общий для всех программ — меняется в Параметрах")),
+    }
+}
+
+/// Открыть «Параметры → Язык».
+pub fn open_settings() {
+    if let Err(e) = std::process::Command::new("synsettings").arg("--page").arg("language").spawn() {
+        tracing::warn!("synsettings: {e}");
+    }
+}

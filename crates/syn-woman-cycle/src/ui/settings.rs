@@ -211,6 +211,23 @@ fn theme_row(st: St, cur: ThemeMode, width: f32) -> W {
     boxed(DecoratedBox::new().class("set-row").child(Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(label(icons::PALETTE, t!("Тема"), String::new())).child(DecoratedBox::new().class("segs").child(row))))
 }
 
+/// «Язык»: общий для всех программ, выбирается в «Параметрах → Язык» — строка ведёт туда.
+fn language_row() -> W {
+    let r = synshell_common::i18n::language_row();
+    boxed(
+        GestureDetector::new().on_click(synshell_common::i18n::open_settings).child(
+            DecoratedBox::new().class("set-row").child(
+                Row::new()
+                    .gap(12.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(label(icons::TRANSLATE, r.title, r.hint))
+                    .child(Text::new(r.value).class("hint"))
+                    .child(icon(icons::NEXT).class("ic")),
+            ),
+        ),
+    )
+}
+
 pub fn page(st: St, wide: bool) -> W {
     boxed(Reactive::new(move || -> Vec<W> {
         let data = st.data.get();
@@ -238,7 +255,13 @@ pub fn page(st: St, wide: bool) -> W {
             1,
             section(
                 t!("Вид"),
-                vec![
+                {
+                    let mut rows: Vec<W> = Vec::new();
+                    // На телефоне и компьютере synshell — общий язык в «Параметрах»; в APK/iOS их нет.
+                    if !cfg!(any(target_os = "android", target_os = "ios")) {
+                        rows.push(language_row());
+                    }
+                    rows.extend([
                     scale_row(st),
                     decor_row(st, s.decor, super::content_width(wide)),
                     theme_row(st, s.theme, super::content_width(wide)),
@@ -246,7 +269,9 @@ pub fn page(st: St, wide: bool) -> W {
                     toggle_row(st, icons::FLOWER, t!("Показывать фертильное окно"), String::new(), s.show_fertile, |x, v| x.show_fertile = v),
                     toggle_row(st, icons::EGG, t!("Показывать овуляцию"), String::new(), s.show_ovulation, |x, v| x.show_ovulation = v),
                     toggle_row(st, icons::HEART, t!("Показывать близость"), t!("Отметки в календаре и статистике; можно скрыть от посторонних глаз"), s.show_intimacy, |x, v| x.show_intimacy = v),
-                ],
+                    ]);
+                    rows
+                },
             ),
         ));
         // iPhone: окно всегда на весь экран — раздела «Окно» нет.

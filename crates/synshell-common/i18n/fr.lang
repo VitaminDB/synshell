@@ -424,6 +424,11 @@
 "Встроенный профиль не переименовывается" = "Le profil intégré ne peut pas être renommé"
 "Профиля «{name}» нет" = "Aucun profil « {name} »"
 
+# src/i18n.rs
+"Язык" = "Langue"
+"{lang} (как в системе)" = "{lang} (système)"
+"Общий для всех программ — меняется в Параметрах" = "Commune à toutes les applications — se modifie dans les Paramètres"
+
 # src/ipc.rs
 "композитор закрыл соединение" = "le compositeur a fermé la connexion"
 "неожиданный ответ: {other}" = "réponse inattendue : {other}"

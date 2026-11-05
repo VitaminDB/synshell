@@ -30,3 +30,4 @@ pub const TIME: &str = "\u{E8B5}";
 pub const SHIELD: &str = "\u{E9E0}";
 pub const NO_SHIELD: &str = "\u{E641}";
 pub const TUNE: &str = "\u{E429}";
+pub const TRANSLATE: &str = "\u{E8E2}";

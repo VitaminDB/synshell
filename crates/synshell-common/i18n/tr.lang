@@ -424,6 +424,11 @@
 "Встроенный профиль не переименовывается" = "Yerleşik profil yeniden adlandırılamaz"
 "Профиля «{name}» нет" = "“{name}” profili yok"
 
+# src/i18n.rs
+"Язык" = "Dil"
+"{lang} (как в системе)" = "{lang} (sistem gibi)"
+"Общий для всех программ — меняется в Параметрах" = "Tüm uygulamalar için ortak — Ayarlar'dan değiştirilir"
+
 # src/ipc.rs
 "композитор закрыл соединение" = "bileşikleştirici bağlantıyı kapattı"
 "неожиданный ответ: {other}" = "beklenmeyen yanıt: {other}"
