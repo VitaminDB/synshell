@@ -6,7 +6,8 @@ pkgdesc="Окружение рабочего стола для Wayland на Rust
 arch=('x86_64')
 license=('GPL-3.0-only')
 depends=('mesa' 'libinput' 'seatd' 'systemd-libs' 'libxkbcommon' 'libdrm' 'vulkan-icd-loader'
-         'fontconfig' 'freetype2' 'dbus' 'ffmpeg' 'sqlite' 'libarchive')
+         'fontconfig' 'freetype2' 'dbus' 'ffmpeg' 'sqlite' 'libarchive'
+         'xdg-desktop-portal' 'xdg-desktop-portal-wlr')
 optdepends=('xorg-xwayland: X11-программы'
             'poppler-glib: PDF в читалке заметок'
             'openvino-intel-npu-plugin: нейросети на Intel NPU (Core Ultra), вместе с intel-npu-driver и intel-npu-compiler'
@@ -21,7 +22,6 @@ optdepends=('xorg-xwayland: X11-программы'
             'networkmanager: апплет сети'
             'playerctl: мультимедийные клавиши'
             'wl-clipboard: снимки и пути к ним в буфер обмена'
-            'xdg-desktop-portal-wlr: демонстрация экрана (браузеры, OBS) и снимки через портал'
             'xdg-desktop-portal-kde: портал выбора файлов'
             'grim: снимки экрана из командной строки'
             'shared-mime-info: типы файлов в проводнике'
@@ -48,6 +48,9 @@ optdepends=('xorg-xwayland: X11-программы'
             'qemu-desktop: виртуальные машины (syn-vm)'
             'edk2-ovmf: UEFI для виртуальных машин'
             'swtpm: TPM 2.0 для Windows 11 в виртуальной машине'
+            'virtiofsd: общая папка virtiofs в виртуальных машинах (Windows)'
+            'samba: общая папка по SMB в виртуальных машинах'
+            'virtio-win: драйверы и гостевой агент для Windows в виртуальных машинах (AUR)'
             'nvidia-utils: кодер NVENC для трансляции экрана')
 makedepends=('cargo' 'rust')
 # C-части крейтов (ring, zstd) с -flto из makepkg.conf не линкуются с Rust.
