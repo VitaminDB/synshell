@@ -455,6 +455,9 @@ pub fn start(vm: &Vm) -> Result<()> {
     }
     // Процесс QEMU дожидается поток (без зомби, пока жив syn-vm); дальше он — сам по себе.
     std::thread::spawn(move || child.wait());
+    // Указатель — планшет: у машин с 3D последней добавлена относительная мышь, и QEMU делает
+    // активной её (она нужна только в режиме захвата для игр).
+    crate::qmp::ensure_tablet(vm);
     // PCI-устройства вернутся компьютеру, когда машина выключится, — даже без окна.
     if !crate::devices::vfio_addrs(vm).is_empty() {
         spawn_watcher(vm, "--vfio-watch");
@@ -499,9 +502,22 @@ fn start_syn_gpu(vm: &Vm) -> Result<PathBuf> {
     std::fs::create_dir_all(&run)?;
     let sock = run.join(format!("{}.sock", vm.id));
     let pidf = run.join(format!("{}.pid", vm.id));
-    let alive = std::fs::read_to_string(&pidf).ok().and_then(|s| s.trim().parse::<i32>().ok()).is_some_and(|pid| unsafe { libc::kill(pid, 0) } == 0);
-    if alive && sock.exists() {
-        return Ok(sock);
+    // QEMU этой машины ещё не запущен — живой сервер остался от прошлого запуска (он как раз
+    // выходит после отключения QEMU): подключение к нему роняет QEMU. Всегда свежий сервер.
+    if let Some(pid) = std::fs::read_to_string(&pidf).ok().and_then(|s| s.trim().parse::<i32>().ok()) {
+        if unsafe { libc::kill(pid, 0) } == 0 {
+            unsafe { libc::kill(pid, libc::SIGTERM) };
+            for _ in 0..100 {
+                if unsafe { libc::kill(pid, 0) } != 0 {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            if unsafe { libc::kill(pid, 0) } == 0 {
+                unsafe { libc::kill(pid, libc::SIGKILL) };
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+        }
     }
     let bin = syn_gpu_bin().context(t!("Нет сервера 3D-видеокарты syn-gpu (переменная SYN_GPU или syn-gpu в PATH)"))?;
     let _ = std::fs::remove_file(&sock);
