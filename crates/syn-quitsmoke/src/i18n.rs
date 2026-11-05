@@ -19,10 +19,7 @@ pub fn init(locale: Locale) {
 
 /// Язык интерфейса по настройке приложения.
 pub fn apply(locale: Locale) {
-    syngui::i18n::set_language(match locale {
-        Locale::Ru => "ru",
-        Locale::En => "en",
-    });
+    syngui::i18n::set_language(locale.resolve());
 }
 
 /// Перевести ключ. Неизвестный ключ → пустая строка (заметно при отладке). Перевод
@@ -357,6 +354,7 @@ fn source(key: &str) -> Option<&'static str> {
         "settings.reminder.bar" => n_!("Прогресс-бар"),
         "settings.reminder.both" => n_!("Оба"),
         "settings.language" => n_!("Язык"),
+        "settings.language.system" => n_!("Как в системе"),
         "settings.reset" => n_!("Сбросить прогресс"),
         "settings.reset_confirm" => n_!("Точно сбросить весь прогресс? Это необратимо."),
         "settings.restart_onboarding" => n_!("Перезапустить настройку"),
@@ -376,11 +374,21 @@ mod tests {
 
     #[test]
     fn languages() {
-        init(Locale::En);
-        assert_eq!(t("nav.home", Locale::En), "Home");
-        assert_eq!(t("common.reset", Locale::En), "Reset");
-        assert_eq!(t("нет.такого", Locale::En), "");
-        apply(Locale::Ru);
-        assert_eq!(t("nav.home", Locale::Ru), "Дом");
+        let (en, ru, de) = (Locale::new("En"), Locale::new("ru"), Locale::new("de"));
+        init(en);
+        assert_eq!(t("nav.home", en), "Home");
+        assert_eq!(t("common.reset", en), "Reset");
+        assert_eq!(t("нет.такого", en), "");
+        apply(ru);
+        assert_eq!(t("nav.home", ru), "Дом");
+        apply(de);
+        assert_ne!(t("nav.home", de), "Дом");
+        // Прежние настройки «Ru»/«En» читаются как теги.
+        assert_eq!(Locale::new("Ru").tag(), "ru");
+        assert!(Locale::new("auto").is_auto());
+        // Выбор языка — все 14: каталоги и исходный русский.
+        let tags: Vec<String> = syngui::i18n::languages().iter().map(|l| l.tag.tag().to_string()).collect();
+        assert_eq!(tags.len(), 14, "{tags:?}");
+        assert!(tags.iter().any(|t| t == "ru"), "{tags:?}");
     }
 }

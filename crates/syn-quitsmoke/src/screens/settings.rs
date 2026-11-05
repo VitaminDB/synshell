@@ -111,13 +111,26 @@ fn body(state: AppState, confirm: RwSignal<bool>) -> impl Widget {
         .on_change(move |v| state.set_dark(v))
         .class("set-toggle");
 
-    let lang = SegmentedButton::new(vec!["RU", "EN"])
-        .selected(match st.locale {
-            Locale::Ru => 0,
-            Locale::En => 1,
+    // Язык: «Как в системе» и все языки каталогов (как в остальных программах synshell).
+    let system = state.tr("settings.language.system").to_string();
+    let langs: Vec<(String, String)> =
+        syngui::i18n::languages().into_iter().map(|l| (l.tag.tag().to_string(), l.name)).collect();
+    let current = if st.locale.is_auto() {
+        system.clone()
+    } else {
+        langs.iter().find(|(t, _)| t == st.locale.tag()).map(|(_, n)| n.clone()).unwrap_or_else(|| system.clone())
+    };
+    let mut lang = Dropdown::new().item(DropdownItem::simple(system.clone()));
+    for (_, name) in &langs {
+        lang = lang.item(DropdownItem::simple(name.clone()));
+    }
+    let lang = lang
+        .selected(current)
+        .on_change(move |v| {
+            let tag = langs.iter().find(|(_, n)| n == v).map(|(t, _)| t.as_str()).unwrap_or("auto");
+            state.set_locale(Locale::new(tag));
         })
-        .on_change(move |i| state.set_locale(if i == 0 { Locale::Ru } else { Locale::En }))
-        .class("set-seg");
+        .class("set-dropdown");
 
     let currency = Dropdown::new()
         .item(DropdownItem::simple("₸"))

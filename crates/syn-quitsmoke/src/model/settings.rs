@@ -2,25 +2,68 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Язык интерфейса.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Locale {
-    Ru,
-    En,
-}
+/// Язык интерфейса: тег каталога («ru», «de», «pt-BR» …) или «auto» — как в системе.
+/// Хранится строкой; прежние значения настроек «Ru»/«En» читаются как «ru»/«en».
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Locale(&'static str);
 
 impl Default for Locale {
     fn default() -> Self {
-        Locale::Ru
+        Locale::AUTO
     }
 }
 
 impl Locale {
-    pub fn toggled(self) -> Self {
-        match self {
-            Locale::Ru => Locale::En,
-            Locale::En => Locale::Ru,
+    /// Как в системе.
+    pub const AUTO: Locale = Locale("auto");
+
+    /// Язык по тегу (тегов конечное число — строка закрепляется один раз).
+    pub fn new(tag: &str) -> Self {
+        use std::collections::HashSet;
+        use std::sync::{Mutex, OnceLock};
+        let tag = match tag.trim() {
+            "" | "auto" => return Locale::AUTO,
+            "Ru" => "ru",
+            "En" => "en",
+            t => t,
+        };
+        static TAGS: OnceLock<Mutex<HashSet<&'static str>>> = OnceLock::new();
+        let mut set = TAGS.get_or_init(Default::default).lock().unwrap();
+        if let Some(t) = set.get(tag) {
+            return Locale(t);
         }
+        let t: &'static str = Box::leak(tag.to_string().into_boxed_str());
+        set.insert(t);
+        Locale(t)
+    }
+
+    pub fn tag(self) -> &'static str {
+        self.0
+    }
+
+    pub fn is_auto(self) -> bool {
+        self.0 == "auto"
+    }
+
+    /// Язык для каталогов: выбранный или язык системы.
+    pub fn resolve(self) -> syngui::i18n::Lang {
+        if self.is_auto() {
+            syngui::i18n::system_language()
+        } else {
+            syngui::i18n::Lang::new(self.0)
+        }
+    }
+}
+
+impl Serialize for Locale {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for Locale {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Locale::new(&String::deserialize(d)?))
     }
 }
 
@@ -63,7 +106,7 @@ impl Default for Settings {
             currency_symbol: "₸".to_string(), // тенге по умолчанию
             notifications_enabled: true,
             reminder_style: ReminderStyle::Both,
-            locale: Locale::Ru,
+            locale: Locale::AUTO,
         }
     }
 }

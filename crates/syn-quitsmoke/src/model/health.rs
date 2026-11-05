@@ -186,7 +186,7 @@ mod tests {
         use crate::i18n::t;
         use crate::model::settings::Locale;
         for m in HEALTH_MILESTONES.iter() {
-            for loc in [Locale::Ru, Locale::En] {
+            for loc in [Locale::new("ru"), Locale::new("en")] {
                 assert!(
                     !t(&format!("health.{}.title", m.key), loc).is_empty(),
                     "нет заголовка для {} ({loc:?})",
