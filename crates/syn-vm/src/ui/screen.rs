@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use syngui::mss::StyleValue;
 use syngui::prelude::*;
+use syngui::containers::Positioned;
 use syngui::widgets::{LiveInput, LiveView};
 use syngui::GestureDetector;
 use syngui::CursorIcon;
@@ -42,14 +43,17 @@ pub fn page(st: St, full: bool) -> W {
                 model::ScaleMode::Stretch => ImageFit::Fill,
                 model::ScaleMode::Native => ImageFit::None,
             };
-            vec![boxed(
-                LiveView::new(s.frame.clone())
-                    .fit(fit)
-                    .cursor(CursorIcon::None)
-                    .on_input(move |e| input(st, &id2, &s2, e))
-                    .on_resize(move |sz| on_resize(st, sz))
-                    .class("screen"),
-            )]
+            let screen = LiveView::new(s.frame.clone())
+                .fit(fit)
+                .cursor(CursorIcon::None)
+                .on_input(move |e| input(st, &id2, &s2, e))
+                .on_resize(move |sz| on_resize(st, sz))
+                .class("screen");
+            // Кадр игры (syn-gpu) — поверх, в месте окна игры на экране гостя, тем же масштабом.
+            let Some(layer) = state::game_layer(&id) else { return vec![boxed(screen)] };
+            let Some((x, y, w, h)) = game_rect(st, fit, layer.rect) else { return vec![boxed(screen)] };
+            let game = Positioned::new(LiveView::new(layer.frame.clone()).fit(ImageFit::Fill)).at(x, y).dimensions(w, h);
+            vec![boxed(Stack::new().fit(StackFit::Expand).child(screen).child(game))]
         });
         let mut stack = Stack::new().fit(StackFit::Expand).child(view);
         if power == Power::Paused {
@@ -58,6 +62,30 @@ pub fn page(st: St, full: bool) -> W {
         stack = stack.child(toolbar(st, &vm.id, full));
         vec![boxed(DecoratedBox::new().child(stack).class(if full { "screen-wrap full" } else { "screen-wrap" }))]
     }))
+}
+
+/// Место окна игры (физические пиксели экрана гостя) → координаты в виджете экрана:
+/// как LiveView кладёт кадр гостя (с пропорциями / растянуть / 1:1, по центру).
+fn game_rect(st: St, fit: ImageFit, (x, y, w, h): (i32, i32, u32, u32)) -> Option<(f32, f32, f32, f32)> {
+    let k = syngui::scale::pixel_ratio();
+    let (vw, vh) = st.view_size.get_untracked();
+    let (gw, gh) = st.guest_size.get_untracked();
+    if vw == 0 || vh == 0 || gw == 0 || gh == 0 || w == 0 || h == 0 {
+        return None;
+    }
+    let (bw, bh) = (vw as f32 / k, vh as f32 / k);
+    let (gw, gh) = (gw as f32, gh as f32);
+    let (sx, sy) = match fit {
+        ImageFit::Fill => (bw / gw, bh / gh),
+        // LiveView кладёт кадр 1:1 в логических единицах (пиксель гостя — логический пиксель).
+        ImageFit::None => (1.0, 1.0),
+        _ => {
+            let s = (bw / gw).min(bh / gh);
+            (s, s)
+        }
+    };
+    let (ox, oy) = ((bw - gw * sx) / 2.0, (bh - gh * sy) / 2.0);
+    Some((ox + x as f32 * sx, oy + y as f32 * sy, w as f32 * sx, h as f32 * sy))
 }
 
 /// Ввод над кадром → гостю.

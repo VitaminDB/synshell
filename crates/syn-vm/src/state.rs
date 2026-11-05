@@ -312,6 +312,23 @@ fn mirror() -> &'static Mutex<Vec<Vm>> {
     M.get_or_init(|| Mutex::new(Vec::new()))
 }
 
+/// Слой кадров игр syn-gpu машины (если её сервер видеокарты слушает).
+fn presents() -> &'static Mutex<HashMap<String, Arc<crate::present::Present>>> {
+    static P: OnceLock<Mutex<HashMap<String, Arc<crate::present::Present>>>> = OnceLock::new();
+    P.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Видимый слой игры машины.
+pub fn game_layer(id: &str) -> Option<crate::present::Layer> {
+    presents().lock().unwrap().get(id).and_then(|p| p.visible())
+}
+
+fn close_present(id: &str) {
+    if let Some(p) = presents().lock().unwrap().remove(id) {
+        p.close();
+    }
+}
+
 fn sessions() -> &'static Mutex<HashMap<String, Arc<Session>>> {
     static S: OnceLock<Mutex<HashMap<String, Arc<Session>>>> = OnceLock::new();
     S.get_or_init(|| Mutex::new(HashMap::new()))
@@ -637,8 +654,12 @@ pub fn attach(st: St, id: &str) {
         let id = id_n.clone();
         run_on_main_thread(move || on_note(st, &id, n));
     });
-    let s = Session::open(vm.vnc_path(), Duration::from_secs(15), on_frame, on_note);
-    sessions().lock().unwrap().insert(id_s, s);
+    let s = Session::open(vm.vnc_path(), Duration::from_secs(15), on_frame.clone(), on_note);
+    sessions().lock().unwrap().insert(id_s.clone(), s);
+    // Кадры игр syn-gpu поверх экрана (нет сервера — клиент просто ждёт сокет).
+    close_present(&id_s);
+    let p = crate::present::start(&id_s, on_frame);
+    presents().lock().unwrap().insert(id_s, p);
 }
 
 fn on_note(st: St, id: &str, n: Note) {
@@ -653,6 +674,7 @@ fn on_note(st: St, id: &str, n: Note) {
         }
         Note::Disconnected => {
             sessions().lock().unwrap().remove(id);
+            close_present(id);
             if current {
                 st.connected.set(false);
             }
@@ -902,6 +924,7 @@ pub fn start_poller(st: St) {
                     // Машина выключилась — закрыть экран, перечитать миниатюру.
                     for (id, l) in &old {
                         if l.power.on() && !out.contains_key(id) {
+                            close_present(id);
                             if let Some(s) = sessions().lock().unwrap().remove(id) {
                                 s.close();
                             }

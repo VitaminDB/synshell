@@ -15,6 +15,7 @@ mod qga;
 mod record;
 mod keymap;
 mod model;
+mod present;
 mod qemu;
 mod qmp;
 mod state;
