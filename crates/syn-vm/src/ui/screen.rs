@@ -11,6 +11,7 @@ use syngui::CursorIcon;
 
 use super::parts::{self, boxed, btn, icon_btn, W};
 use crate::keymap;
+use crate::model;
 use crate::state::{self, icons, Power, St};
 
 static CTRL: AtomicBool = AtomicBool::new(false);
@@ -35,8 +36,15 @@ pub fn page(st: St, full: bool) -> W {
             st.frame_tick.get();
             let s2 = s.clone();
             let id2 = id.clone();
+            // Разрешение под окно — кадр и так во всё окно; иначе — как выбрано (по умолчанию с пропорциями).
+            let fit = match st.vm(&id).map(|v| v.scale).unwrap_or_default() {
+                model::ScaleMode::Fit => ImageFit::Contain,
+                model::ScaleMode::Stretch => ImageFit::Fill,
+                model::ScaleMode::Native => ImageFit::None,
+            };
             vec![boxed(
                 LiveView::new(s.frame.clone())
+                    .fit(fit)
                     .cursor(CursorIcon::None)
                     .on_input(move |e| input(st, &id2, &s2, e))
                     .on_resize(move |sz| on_resize(st, sz))
@@ -186,7 +194,7 @@ fn record_button(st: St, id: String) -> W {
 }
 
 fn toolbar(st: St, id: &str, full: bool) -> W {
-    let (a, b, c, d) = (id.to_string(), id.to_string(), id.to_string(), id.to_string());
+    let (a, b, c, d, e) = (id.to_string(), id.to_string(), id.to_string(), id.to_string(), id.to_string());
     let auto = st.vm(id).map(|v| v.auto_resize).unwrap_or(true);
     let size = st.guest_size.get_untracked();
     let bar = Row::new()
@@ -208,6 +216,20 @@ fn toolbar(st: St, id: &str, full: bool) -> W {
                 state::toast(st, if on { t!("Разрешение гостя подстраивается под окно") } else { t!("Разрешение гостя больше не меняется") });
             },
         ))
+        .child({
+            // Масштаб кадра в окне (когда разрешение не под окно): с пропорциями / растянуть / 1:1.
+            let scale = st.vm(id).map(|v| v.scale).unwrap_or_default();
+            let ic = match scale {
+                model::ScaleMode::Fit => icons::ASPECT,
+                model::ScaleMode::Stretch => icons::STRETCH,
+                model::ScaleMode::Native => icons::ONE_TO_ONE,
+            };
+            icon_btn(ic, t!("Масштаб: {m} (нажмите — следующий)", m = syngui::i18n::t(scale.title())), move || {
+                state::edit(st, |v| v.scale = v.scale.next());
+                let m = st.vm(&e).map(|v| v.scale).unwrap_or_default();
+                state::toast(st, t!("Масштаб: {m}", m = syngui::i18n::t(m.title())));
+            })
+        })
         .child(Text::new(if size.0 > 0 { format!("{}×{}", size.0, size.1) } else { String::new() }).class("res-label"))
         .child(DecoratedBox::new().class("vsep"))
         .child(icon_btn(if full { icons::FULLSCREEN_EXIT } else { icons::FULLSCREEN }, t!("Во весь экран (Ctrl+Alt+F)"), move || toggle_full(st)));

@@ -98,7 +98,8 @@ impl OsKind {
                 // virtio-vga: в установщике — как VGA, с драйвером VirtIO GPU (virtio-win) — любое
                 // разрешение и быстрая отрисовка (std VGA — «Базовый видеоадаптер», медленно).
                 vm.display = DisplayModel::Virtio;
-                vm.clipboard = false;
+                // Буфер обмена: канал qemu-vdagent, в госте — spice-agent из «Гостевых инструментов».
+                vm.clipboard = true;
             }
             OsKind::Windows10 => {
                 vm.firmware = Firmware::Uefi;
@@ -108,7 +109,8 @@ impl OsKind {
                 // virtio-vga: в установщике — как VGA, с драйвером VirtIO GPU (virtio-win) — любое
                 // разрешение и быстрая отрисовка (std VGA — «Базовый видеоадаптер», медленно).
                 vm.display = DisplayModel::Virtio;
-                vm.clipboard = false;
+                // Буфер обмена: канал qemu-vdagent, в госте — spice-agent из «Гостевых инструментов».
+                vm.clipboard = true;
             }
             OsKind::Other => {
                 vm.firmware = Firmware::Bios;
@@ -215,6 +217,37 @@ pub enum DisplayModel {
     Virtio,
     Std,
     Qxl,
+}
+
+/// Масштаб экрана гостя в окне.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ScaleMode {
+    /// Вписать с сохранением пропорций (поля — фоном).
+    #[default]
+    Fit,
+    /// Растянуть на всё окно.
+    Stretch,
+    /// Пиксель в пиксель, по центру.
+    Native,
+}
+
+impl ScaleMode {
+    pub fn next(self) -> Self {
+        match self {
+            ScaleMode::Fit => ScaleMode::Stretch,
+            ScaleMode::Stretch => ScaleMode::Native,
+            ScaleMode::Native => ScaleMode::Fit,
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            ScaleMode::Fit => n_!("Вписать с пропорциями"),
+            ScaleMode::Stretch => n_!("Растянуть"),
+            ScaleMode::Native => n_!("1:1 — пиксель в пиксель"),
+        }
+    }
 }
 
 impl DisplayModel {
@@ -395,6 +428,8 @@ pub struct Vm {
     pub display: DisplayModel,
     /// Разрешение гостя — под размер окна.
     pub auto_resize: bool,
+    /// Как кадр гостя ложится в окно, когда разрешение не под окно.
+    pub scale: ScaleMode,
     pub sound: bool,
     /// Общий буфер обмена (qemu-vdagent, в госте — spice-vdagent).
     pub clipboard: bool,
@@ -443,6 +478,7 @@ impl Default for Vm {
             forwards: Vec::new(),
             display: DisplayModel::Virtio,
             auto_resize: true,
+            scale: ScaleMode::Fit,
             sound: true,
             clipboard: true,
             shared_dir: String::new(),
@@ -464,13 +500,21 @@ impl Default for Vm {
 pub const PALETTE: [&str; 8] = ["#4f9dff", "#2ec27e", "#b77cff", "#ff9f43", "#22c3e6", "#f06292", "#a3d65c", "#ff6b5b"];
 
 impl Vm {
-    /// «Оптимизировать для Windows» (и уже созданной машины): что поменять в настройках
+    /// «Оптимизировать» (и уже созданной машины; видео и драйверы — для Windows): что поменять в настройках
     /// (применяется при следующем запуске) и что сделать вручную. Пусто — всё уже так.
     pub fn optimized(&self) -> (Vm, Vec<String>, Vec<String>) {
         let mut v = self.clone();
         let mut changes = Vec::new();
         let mut advice = Vec::new();
+        if !v.clipboard {
+            changes.push(t!("Общий буфер обмена: включить (канал qemu-vdagent; в госте — служба spice-agent или spice-vdagent из «Гостевых инструментов»)"));
+            v.clipboard = true;
+        }
         if !self.os.is_windows() {
+            if !v.guest_agent {
+                changes.push(t!("Гостевой агент: включить"));
+                v.guest_agent = true;
+            }
             return (v, changes, advice);
         }
         if v.display != DisplayModel::Virtio {

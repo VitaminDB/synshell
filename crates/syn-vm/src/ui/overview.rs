@@ -203,6 +203,25 @@ fn agent_card(st: St, vm: &Vm, l: &Live) -> W {
                 if !g.agent_version.is_empty() {
                     rows.push(parts::kv(t!("Агент"), g.agent_version.clone()));
                 }
+                // Чего не хватает в госте (инструменты, видео, буфер) — с доустановкой одной кнопкой.
+                if let (Some((tid, tools)), Some(vm)) = (st.tools.get(), st.vm(&vid)) {
+                    if tid == vid {
+                        let problems = tools.problems(&vm);
+                        if !problems.is_empty() {
+                            for p in problems {
+                                rows.push(boxed(Text::new(format!("• {p}")).max_lines(3).class("row-hint")));
+                            }
+                            let id = vid.clone();
+                            let id2 = vid.clone();
+                            rows.push(boxed(
+                                Row::new()
+                                    .gap(8.0)
+                                    .child(parts::btn(state::icons::SYNC, t!("Доустановить"), "soft", move || state::install_tools(st, &id)))
+                                    .child(parts::btn(state::icons::INFO, t!("Проверить снова"), "ghost", move || state::tools_status(st, &id2))),
+                            ));
+                        }
+                    }
+                }
             }
             None => {
                 let hint = if os.is_windows() {

@@ -53,6 +53,9 @@ pub mod icons {
     pub const EDIT: &str = "\u{E3C9}";
     pub const SECURITY: &str = "\u{E32A}";
     pub const FIT: &str = "\u{EA10}";
+    pub const ASPECT: &str = "\u{E85B}";
+    pub const STRETCH: &str = "\u{F1CE}";
+    pub const ONE_TO_ONE: &str = "\u{E3C2}";
     pub const ANDROID: &str = "\u{E859}";
     pub const WINDOW: &str = "\u{F088}";
     pub const APPS: &str = "\u{E5C3}";
@@ -253,6 +256,8 @@ pub struct St {
     pub guest: RwSignal<Option<crate::qga::GuestInfo>>,
     /// Устройства компьютера для раздела настроек (`None` — ещё не собраны).
     pub host_devs: RwSignal<Option<Vec<crate::devices::Avail>>>,
+    /// Что в госте открытой машины (инструменты, видео, буфер) — проверяется раз в минуту.
+    pub tools: RwSignal<Option<(String, GuestTools)>>,
 }
 
 impl St {
@@ -281,6 +286,7 @@ impl St {
             window: use_signal(syngui::window::WindowState::default()),
             guest: use_signal(None),
             host_devs: use_signal(None),
+            tools: use_signal(None),
         }
     }
 
@@ -560,9 +566,25 @@ pub fn refresh_guest(st: St) {
     }
     std::thread::spawn(move || {
         let g = crate::qga::info(&vm).ok();
+        // Инструменты в госте — раз в минуту, пока агент отвечает.
+        static LAST: std::sync::Mutex<Option<(String, std::time::Instant)>> = std::sync::Mutex::new(None);
+        let due = g.is_some() && {
+            let mut l = LAST.lock().unwrap();
+            let due = l.as_ref().is_none_or(|(id, t)| id != &vm.id || t.elapsed() > std::time::Duration::from_secs(60));
+            if due {
+                *l = Some((vm.id.clone(), std::time::Instant::now()));
+            }
+            due
+        };
+        let tools = if due { guest_tools(&vm).ok() } else { None };
         run_on_main_thread(move || {
             if st.sel.get_untracked().as_deref() == Some(vm.id.as_str()) && st.guest.get_untracked() != g {
                 st.guest.set(g);
+            }
+            if let Some(t) = tools {
+                if st.tools.get_untracked().as_ref().is_none_or(|(id, old)| id != &vm.id || *old != t) {
+                    st.tools.set(Some((vm.id.clone(), t)));
+                }
             }
         });
     });
@@ -954,7 +976,7 @@ pub fn install_tools(st: St, id: &str) {
     background(st, id, t!("Гостевые инструменты…"), move || {
         if !vm.os.is_windows() {
             if on && crate::qga::ping(&vm) {
-                let sh = "if command -v pacman >/dev/null; then pacman -S --needed --noconfirm qemu-guest-agent spice-vdagent; elif command -v apt-get >/dev/null; then DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-guest-agent spice-vdagent; elif command -v dnf >/dev/null; then dnf install -y qemu-guest-agent spice-vdagent; fi; systemctl enable --now qemu-guest-agent";
+                let sh = "if command -v pacman >/dev/null; then pacman -S --needed --noconfirm qemu-guest-agent spice-vdagent; elif command -v apt-get >/dev/null; then DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-guest-agent spice-vdagent; elif command -v dnf >/dev/null; then dnf install -y qemu-guest-agent spice-vdagent; fi; systemctl enable --now qemu-guest-agent; systemctl enable --now spice-vdagentd 2>/dev/null";
                 crate::qga::exec_detached(&vm, &["/bin/sh".into(), "-c".into(), sh.into()], None, &[])?;
                 return Ok(Some(t!("В госте ставятся qemu-guest-agent и spice-vdagent")));
             }
@@ -974,7 +996,7 @@ pub fn install_tools(st: St, id: &str) {
         // Второго привода на работающей машине может не быть — образ в основной привод.
         crate::qmp::change_cdrom(&vm, &iso.to_string_lossy())?;
         if crate::qga::ping(&vm) {
-            let ps = "$d=Get-PSDrive -PSProvider FileSystem | ? { Test-Path ($_.Root+'virtio-win-guest-tools.exe') } | select -First 1; if(-not $d){ Start-Sleep 5; $d=Get-PSDrive -PSProvider FileSystem | ? { Test-Path ($_.Root+'virtio-win-guest-tools.exe') } | select -First 1 }; if($d){ Start-Process ($d.Root+'virtio-win-guest-tools.exe') -ArgumentList '/install','/quiet','/norestart' -Wait }";
+            let ps = "$d=Get-PSDrive -PSProvider FileSystem | ? { Test-Path ($_.Root+'virtio-win-guest-tools.exe') } | select -First 1; if(-not $d){ Start-Sleep 5; $d=Get-PSDrive -PSProvider FileSystem | ? { Test-Path ($_.Root+'virtio-win-guest-tools.exe') } | select -First 1 }; if($d){ Start-Process ($d.Root+'virtio-win-guest-tools.exe') -ArgumentList '/install','/quiet','/norestart' -Wait }; Get-Service -Name 'spice-agent','vdservice' -EA 0 | % { Set-Service $_.Name -StartupType Automatic; Start-Service $_.Name -EA 0 }";
             crate::qga::exec_detached(&vm, &["powershell.exe".into(), "-NoProfile".into(), "-Command".into(), ps.into()], None, &[])?;
             return Ok(Some(t!("Гостевые инструменты ставятся в госте (тихо, без перезагрузки); видео VirtIO GPU заработает после перезагрузки гостя")));
         }
@@ -982,30 +1004,84 @@ pub fn install_tools(st: St, id: &str) {
     });
 }
 
-/// Состояние инструментов в госте (через агент): версия, видеоадаптер, агент.
+/// Что «Гостевые инструменты» дали гостю (через агент).
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct GuestTools {
+    /// Версия virtio-win-guest-tools / qemu-ga; пусто — нет.
+    pub tools: String,
+    /// Видеоадаптеры гостя.
+    pub video: String,
+    /// Служба буфера обмена (spice-agent / spice-vdagentd) работает; `None` — не узнать.
+    pub clip: Option<bool>,
+}
+
+impl GuestTools {
+    /// Чего не хватает — по строке на проблему.
+    pub fn problems(&self, vm: &Vm) -> Vec<String> {
+        let mut p = Vec::new();
+        if vm.os.is_windows() && self.tools.is_empty() {
+            p.push(t!("Гостевые инструменты не установлены"));
+        }
+        if self.video.contains("Basic Display") || self.video.contains("Базов") {
+            p.push(if vm.display == model::DisplayModel::Virtio {
+                t!("Видео без драйвера VirtIO GPU — медленно")
+            } else {
+                t!("Видео — базовый адаптер, медленно: нужно видео virtio-vga («Оптимизировать»)")
+            });
+        }
+        if !vm.clipboard {
+            p.push(t!("Общий буфер обмена выключен («Оптимизировать»)"));
+        } else if self.clip == Some(false) {
+            p.push(t!("Служба буфера обмена в госте не запущена"));
+        }
+        p
+    }
+}
+
+/// Спросить гостя через агент: инструменты, видео, служба буфера обмена.
+pub fn guest_tools(vm: &Vm) -> anyhow::Result<GuestTools> {
+    let argv: Vec<String> = if vm.os.is_windows() {
+        let ps = "$t=(Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*,HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\* -EA 0 | ? DisplayName -like 'Virtio-win*' | select -First 1).DisplayVersion; $v=(Get-CimInstance Win32_VideoController | select -Expand Name) -join ', '; $s=Get-Service -Name 'spice-agent','vdservice' -EA 0 | select -First 1; $c=if($s){ [string]$s.Status }else{ 'none' }; \"tools=$t`nvideo=$v`nclip=$c\"";
+        vec!["powershell.exe".into(), "-NoProfile".into(), "-Command".into(), ps.into()]
+    } else {
+        vec!["/bin/sh".into(), "-c".into(), "echo tools=$(qemu-ga --version 2>/dev/null | head -1); echo video=$(cat /sys/class/drm/card*/device/uevent 2>/dev/null | grep -m1 DRIVER= | cut -d= -f2); echo clip=$(systemctl is-active spice-vdagentd 2>/dev/null || echo none)".into()]
+    };
+    let r = crate::qga::exec(vm, &argv, None, &[], std::time::Duration::from_secs(30))?;
+    let out = String::from_utf8_lossy(&crate::qga::decode_output(vm, r.stdout)).to_string();
+    let get = |k: &str| out.lines().find_map(|l| l.trim().strip_prefix(&format!("{k}=")).map(|s| s.trim().to_string())).unwrap_or_default();
+    let clip = match get("clip").as_str() {
+        "Running" | "active" => Some(true),
+        "none" | "" => None,
+        _ => Some(false),
+    };
+    Ok(GuestTools { tools: get("tools"), video: get("video"), clip })
+}
+
+/// Состояние инструментов в госте (через агент) — уведомлением.
 pub fn tools_status(st: St, id: &str) {
     let Some(vm) = st.vm(id) else { return };
     background(st, id, t!("Проверка гостя…"), move || {
         if !crate::qga::ping(&vm) {
             return Ok(Some(t!("Гостевой агент не отвечает — поставьте «Гостевые инструменты»")));
         }
-        let (argv, _) = if vm.os.is_windows() {
-            let ps = "$t=(Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*,HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\* -EA 0 | ? DisplayName -like 'Virtio-win*' | select -First 1).DisplayVersion; $v=(Get-CimInstance Win32_VideoController | select -Expand Name) -join ', '; \"tools=$t`nvideo=$v\"";
-            (vec!["powershell.exe".to_string(), "-NoProfile".into(), "-Command".into(), ps.into()], ())
-        } else {
-            (vec!["/bin/sh".to_string(), "-c".into(), "echo tools=$(qemu-ga --version 2>/dev/null | head -1); echo video=$(cat /sys/class/drm/card*/device/uevent 2>/dev/null | grep -m1 DRIVER= | cut -d= -f2)".into()], ())
+        let g = guest_tools(&vm)?;
+        let clip = match g.clip {
+            Some(true) => t!("работает"),
+            Some(false) => t!("остановлена"),
+            None => t!("нет"),
         };
-        let r = crate::qga::exec(&vm, &argv, None, &[], std::time::Duration::from_secs(30))?;
-        let out = String::from_utf8_lossy(&crate::qga::decode_output(&vm, r.stdout)).to_string();
-        let get = |k: &str| out.lines().find_map(|l| l.trim().strip_prefix(&format!("{k}=")).map(|s| s.trim().to_string())).unwrap_or_default();
-        let tools = get("tools");
-        let video = get("video");
-        let slow = video.contains("Basic Display") || video.contains("Базовый");
-        Ok(Some(t!(
-            "Инструменты: {tools}; видео: {video}{warn}",
-            tools = if tools.is_empty() { t!("не установлены") } else { tools },
-            video = if video.is_empty() { "—".into() } else { video },
-            warn = if slow { t!(" — медленно: нужен драйвер VirtIO GPU и видео virtio-vga («Оптимизировать»)") } else { String::new() }
-        )))
+        let mut msg = t!(
+            "Инструменты: {tools}; видео: {video}; служба буфера обмена: {clip}",
+            tools = if g.tools.is_empty() { t!("не установлены") } else { g.tools.clone() },
+            video = if g.video.is_empty() { "—".into() } else { g.video.clone() },
+            clip = clip
+        );
+        for p in g.problems(&vm) {
+            msg.push_str(&format!("\n• {p}"));
+        }
+        let gt = g.clone();
+        let vid = vm.id.clone();
+        run_on_main_thread(move || st.tools.set(Some((vid, gt))));
+        Ok(Some(msg))
     });
 }
