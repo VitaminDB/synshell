@@ -654,6 +654,11 @@ pub fn attach(st: St, id: &str) {
         let id = id_n.clone();
         run_on_main_thread(move || on_note(st, &id, n));
     });
+    // Указатель окна — в планшет (а не в «vdagent mouse» у машин, запущенных до mouse=off).
+    {
+        let v = vm.clone();
+        std::thread::spawn(move || crate::qmp::ensure_tablet(&v));
+    }
     let s = Session::open(vm.vnc_path(), Duration::from_secs(15), on_frame.clone(), on_note);
     sessions().lock().unwrap().insert(id_s.clone(), s);
     // Кадры игр syn-gpu поверх экрана (нет сервера — клиент просто ждёт сокет).

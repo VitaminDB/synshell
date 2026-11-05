@@ -249,12 +249,28 @@ pub fn type_text(vm: &Vm, text: &str, delay: Duration) -> Result<()> {
     Ok(())
 }
 
+/// Сделать активной мышью планшет usb-tablet (абсолютный указатель). У машин, запущенных
+/// с каналом qemu-vdagent без mouse=off, активной становится «vdagent mouse», и указатель
+/// с кликами до гостя не доходит.
+pub fn ensure_tablet(vm: &Vm) {
+    let Ok(list) = hmp(vm, "info mice") else { return };
+    let active_ok = list.lines().any(|l| l.trim_start().starts_with('*') && l.contains("Tablet"));
+    if active_ok {
+        return;
+    }
+    let idx = list.lines().find(|l| l.contains("Tablet")).and_then(|l| l.split('#').nth(1)).and_then(|s| s.split(':').next()).and_then(|s| s.trim().parse::<u32>().ok());
+    if let Some(i) = idx {
+        let _ = hmp(vm, &format!("mouse_set {i}"));
+    }
+}
+
 /// Щелчок (или перемещение без кнопки) по точке экрана гостя: координаты — пиксели кадра
 /// `width`×`height` (абсолютный указатель usb-tablet).
 pub fn click(vm: &Vm, x: f64, y: f64, size: (u32, u32), button: Option<&str>, double: bool) -> Result<()> {
     let (w, h) = (size.0.max(1) as f64, size.1.max(1) as f64);
     let ax = ((x / w).clamp(0.0, 1.0) * 32767.0).round() as i64;
     let ay = ((y / h).clamp(0.0, 1.0) * 32767.0).round() as i64;
+    ensure_tablet(vm);
     let mut c = Conn::of(vm)?;
     c.call("input-send-event", json!({"events": [
         {"type": "abs", "data": {"axis": "x", "value": ax}},
@@ -273,6 +289,7 @@ pub fn click(vm: &Vm, x: f64, y: f64, size: (u32, u32), button: Option<&str>, do
 /// Прокрутка колесом: `steps` > 0 — вниз.
 pub fn wheel(vm: &Vm, steps: i32) -> Result<()> {
     let b = if steps > 0 { "wheel-down" } else { "wheel-up" };
+    ensure_tablet(vm);
     let mut c = Conn::of(vm)?;
     for _ in 0..steps.unsigned_abs() {
         c.call("input-send-event", json!({"events": [{"type": "btn", "data": {"down": true, "button": b}}]}))?;

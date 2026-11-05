@@ -214,7 +214,9 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
         push(&["-device", "virtio-serial-pci,id=vser"]);
     }
     if vm.clipboard {
-        push(&["-chardev", "qemu-vdagent,id=vdagent,name=vdagent,clipboard=on"]);
+        // mouse=off: канал — только для буфера обмена; иначе он регистрирует свою «мышь» и
+        // становится активной, а клики и VNC-указатель уходят в неё (Windows их теряет).
+        push(&["-chardev", "qemu-vdagent,id=vdagent,name=vdagent,clipboard=on,mouse=off"]);
         push(&["-device", "virtserialport,bus=vser.0,chardev=vdagent,name=com.redhat.spice.0"]);
     }
     if vm.guest_agent {
