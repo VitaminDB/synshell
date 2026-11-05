@@ -839,9 +839,10 @@ pub fn vfio_watch(vm: &Vm) {
 ///    QEMU не может его открыть и больше не пробует: устройства нет в `info usb`;
 /// 2. QEMU устройство отдал, но гость не смог его настроить (Android сразу после загрузки
 ///    переключает USB-функции, SET_CONFIGURATION → EPIPE): в госте оно без интерфейсов.
-/// Поэтому 30 с после каждой смены устройства в порту наблюдатель проверяет оба места
-/// (гостя — через гостевой агент, если он отвечает) и при сбое дольше 3 с переподключает
-/// (`device_del` + `device_add`), не больше трёх раз подряд.
+/// Поэтому наблюдатель проверяет оба места (гостя — через гостевой агент, если он отвечает):
+/// часто — 30 с после смены устройства, attach на ходу и своего запуска, потом раз в 30 с
+/// (откат снимка и т. п.); сбой дольше 3 с — переподключает (`device_del` + `device_add`),
+/// не больше трёх раз за 10 мин.
 pub fn usb_watch(id: &str) {
     use std::collections::HashMap;
     use std::time::Instant;
@@ -859,11 +860,14 @@ pub fn usb_watch(id: &str) {
         }
     };
     struct Watch {
+        /// Частые проверки до этого времени (после смены устройства, attach, запуска).
         until: Instant,
         next: Instant,
         bad_since: Option<Instant>,
-        replugs: u32,
+        /// Переподключения за последние 10 мин (не больше трёх).
+        replugs: Vec<Instant>,
     }
+    let fresh = |now: Instant| Watch { until: now + Duration::from_secs(30), next: now + Duration::from_secs(2), bad_since: None, replugs: Vec::new() };
     let mut last: HashMap<String, Option<String>> = HashMap::new();
     let mut watch: HashMap<String, Watch> = HashMap::new();
     while crate::qemu::pid(&vm).is_some() {
@@ -875,14 +879,17 @@ pub fn usb_watch(id: &str) {
         for p in &ports {
             let key = crate::usb::dev_key(p);
             match last.get(p) {
-                // Первый взгляд — запомнить; гость уже получил то, что было при запуске.
+                // Порт впервые (запуск наблюдателя, attach на ходу) — частые проверки.
                 None => {
                     last.insert(p.clone(), key);
+                    watch.insert(p.clone(), fresh(now));
                 }
+                // Новое устройство в порту (переподключение, другой VID:PID).
                 Some(old) if *old != key => {
-                    if key.is_some() {
-                        watch.insert(p.clone(), Watch { until: now + Duration::from_secs(30), next: now + Duration::from_secs(2), bad_since: None, replugs: 0 });
-                    }
+                    let w = watch.entry(p.clone()).or_insert_with(|| fresh(now));
+                    w.until = now + Duration::from_secs(30);
+                    w.next = now + Duration::from_secs(2);
+                    w.bad_since = None;
                     last.insert(p.clone(), key);
                 }
                 _ => {}
@@ -892,29 +899,35 @@ pub fn usb_watch(id: &str) {
             if now < w.next {
                 continue;
             }
-            let Some(dev) = crate::usb::at(p) else { continue };
+            // Окно частых проверок кончилось — дальше раз в 30 с (откат снимка и т. п.).
+            let slow = now >= w.until;
+            let Some(dev) = crate::usb::at(p) else {
+                w.next = now + Duration::from_secs(if slow { 30 } else { 2 });
+                continue;
+            };
             let qid = crate::usb::qemu_id(p);
             let in_qemu = crate::qmp::hmp(&vm, "info usb").map(|o| o.contains(&format!("ID: {qid}"))).unwrap_or(true);
             let problem = if !in_qemu {
                 Some("нет у QEMU")
             } else {
                 match guest_usb_ok(&vm, &dev.vendor, &dev.product) {
-                    Some(false) => Some("в госте без интерфейсов"),
+                    Some(false) => Some("в госте не настроено"),
                     _ => None,
                 }
             };
+            w.replugs.retain(|t| now.duration_since(*t) < Duration::from_secs(600));
             match problem {
                 None => {
                     w.bad_since = None;
-                    w.next = now + Duration::from_secs(5);
+                    w.next = now + Duration::from_secs(if slow { 30 } else { 5 });
                 }
                 Some(why) => {
                     let since = *w.bad_since.get_or_insert(now);
                     // QEMU не открыл устройство — сразу; гость — после 3 с (мог ещё настраивать).
-                    if (!in_qemu || now.duration_since(since) >= Duration::from_secs(3)) && w.replugs < 3 {
+                    if (!in_qemu || now.duration_since(since) >= Duration::from_secs(3)) && w.replugs.len() < 3 {
                         log(format!("{p} {}:{}: {why} — переподключаю", dev.vendor, dev.product));
                         replug(&vm, p, &log);
-                        w.replugs += 1;
+                        w.replugs.push(now);
                         w.bad_since = None;
                         w.until = now + Duration::from_secs(30);
                         w.next = now + Duration::from_secs(4);
@@ -924,7 +937,6 @@ pub fn usb_watch(id: &str) {
                 }
             }
         }
-        watch.retain(|_, w| now < w.until);
         std::thread::sleep(Duration::from_secs(1));
     }
 }
