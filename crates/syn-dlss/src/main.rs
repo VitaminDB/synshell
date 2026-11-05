@@ -49,6 +49,7 @@ fn main() {
     let mut size = (760u32, 860u32);
     let mut scale = 1.0f64;
     let mut tab = state::Tab::Rendering;
+    let mut tab_given = false;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -63,7 +64,10 @@ fn main() {
                 }
             }
             "--scale" => scale = args.next().and_then(|s| s.parse().ok()).unwrap_or(scale),
-            "--tab" => tab = args.next().as_deref().and_then(state::Tab::parse).unwrap_or(tab),
+            "--tab" => {
+                tab = args.next().as_deref().and_then(state::Tab::parse).unwrap_or(tab);
+                tab_given = true;
+            }
             _ => {}
         }
     }
@@ -74,6 +78,10 @@ fn main() {
             || {
                 let st = state::St::new();
                 st.tab.set(tab);
+                // --tab — вкладка «Всех настроек»; в простом виде вкладок нет.
+                if tab_given && tab != state::Tab::Simple {
+                    st.advanced.set(true);
+                }
                 ui::root(st)
             },
             &mss,

@@ -3,7 +3,7 @@
 //!
 //!   syn-health                программа
 //!   syn-health --track        счётчик шагов в фоне (автозапуск сеанса; без шагомера — выход)
-//!   syn-health --screenshot out.png [--size 420x860] [--scale 2]
+//!   syn-health --screenshot out.png [--size 420x860] [--scale 2] [--settings]
 //!
 //! Без шагомера — `SYN_HEALTH_DEMO=1`: неделя шагов для проверки.
 
@@ -18,6 +18,7 @@ fn main() {
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
     synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
     let mut shot: Option<String> = None;
+    let mut settings_page = false;
     let mut size = (420u32, 860u32);
     let mut scale = 2.0f64;
     let mut args = std::env::args().skip(1);
@@ -32,6 +33,7 @@ fn main() {
                 return;
             }
             "--screenshot" => shot = args.next(),
+            "--settings" => settings_page = true,
             "--size" => {
                 if let Some((w, h)) = args.next().as_deref().and_then(|s| s.split_once('x')) {
                     size = (w.parse().unwrap_or(size.0), h.parse().unwrap_or(size.1));
@@ -47,7 +49,11 @@ fn main() {
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);
     if let Some(out) = shot {
-        let r = syngui::shot::render_png(|| Box::new(ui::root(ui::St::new())), &mss, size, scale, &out);
+        let r = syngui::shot::render_png(|| {
+            let st = ui::St::new();
+            st.settings_open.set(settings_page);
+            Box::new(ui::root(st))
+        }, &mss, size, scale, &out);
         match r {
             Ok((w, h)) => println!("{out}: {w}x{h}"),
             Err(e) => {

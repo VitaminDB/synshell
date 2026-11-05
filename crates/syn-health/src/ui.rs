@@ -4,6 +4,7 @@
 use syngui::core::Color;
 use syngui::mss::StyleValue;
 use syngui::prelude::*;
+use syngui::GestureDetector;
 use syngui::widgets::charts::{AxisConfig, BarChart, BarSeries, LegendPosition};
 
 use crate::store::{self, Settings, Steps};
@@ -178,6 +179,21 @@ fn stepper(label: String, value: String, minus: impl Fn() + Send + Sync + 'stati
         .class("set-row")
 }
 
+/// «Язык» — общий для всех программ; нажатие открывает «Параметры → Язык».
+fn language_row() -> impl Widget {
+    let r = synshell_common::i18n::language_row();
+    GestureDetector::new().on_click(synshell_common::i18n::open_settings).child(
+        Row::new()
+            .gap(10.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(Icon::new("\u{E8E2}").class("set-icon"))
+            .child(Column::new().gap(2.0).child(Text::new(r.title)).child(Text::new(r.hint).max_lines(2).class("muted small")).class("grow"))
+            .child(Text::new(r.value).max_lines(1).class("muted"))
+            .child(Icon::new("\u{E5CC}").class("set-icon muted"))
+            .class("set-row"),
+    )
+}
+
 fn settings(st: St) -> impl Widget {
     let s = st.settings.get();
     let upd = move |f: fn(&mut Settings)| {
@@ -190,6 +206,7 @@ fn settings(st: St) -> impl Widget {
         .gap(14.0)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
         .child(Text::new(t!("Настройки")).class("title"))
+        .child(language_row())
         .child(stepper(t!("Цель, шагов в день"), s.goal.to_string(), move || upd(|s| s.goal = s.goal.saturating_sub(1000).max(1000)), move || upd(|s| s.goal = (s.goal + 1000).min(50000))))
         .child(stepper(t!("Длина шага, см"), format!("{:.0}", s.step_m * 100.0), move || upd(|s| s.step_m = (s.step_m - 0.05).max(0.3)), move || upd(|s| s.step_m = (s.step_m + 0.05).min(1.5))))
         .child(stepper(t!("Вес, кг"), format!("{:.0}", s.weight_kg), move || upd(|s| s.weight_kg = (s.weight_kg - 1.0).max(30.0)), move || upd(|s| s.weight_kg = (s.weight_kg + 1.0).min(200.0))))

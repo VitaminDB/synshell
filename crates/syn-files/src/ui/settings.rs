@@ -57,11 +57,36 @@ fn toggle_row(title: &str, sub: &str, on: bool, f: impl FnMut(bool) + Send + 'st
     )
 }
 
+/// «Язык»: общий для всех программ, меняется в Параметрах — строка ведёт туда.
+fn language_row() -> W {
+    let r = synshell_common::i18n::language_row();
+    boxed(
+        GestureDetector::new().cursor(CursorIcon::Pointer).on_click(synshell_common::i18n::open_settings).child(
+            Row::new()
+                .gap(12.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(
+                    DecoratedBox::new().class("grow").child(
+                        Column::new()
+                            .gap(2.0)
+                            .child(Text::new(r.title).max_lines(2).class("set-row-title"))
+                            .child(Text::new(r.hint).max_lines(4).class("set-hint")),
+                    ),
+                )
+                .child(Text::new(r.value).max_lines(1).class("set-value"))
+                .child(Icon::new(icons::CHEVRON).class("icon set-hint")),
+        ),
+    )
+}
+
 fn view_section(phone: bool) -> W {
     let p = state::pane();
     let ctx = state::ctx();
     let view = p.view.get_untracked();
     let mut rows: Vec<W> = Vec::new();
+    if !cfg!(any(target_os = "android", target_os = "ios")) {
+        rows.push(language_row());
+    }
     rows.push(label(&t!("Как показывать файлы")));
     if phone {
         let grid = super::items::phone_grid(view);

@@ -434,12 +434,19 @@ fn settings_panel(st: St) -> W {
     let view = section(
         icons::INFO,
         &t!("Интерфейс"),
-        vec![toggle_row(
-            &t!("Показывать способ воспроизведения"),
-            &t!("Чип вверху: кодек, размер, аппаратно или программно."),
-            s.show_info,
-            move |on| update(st, |s| s.show_info = on),
-        )],
+        {
+            let mut rows = Vec::new();
+            if !cfg!(any(target_os = "android", target_os = "ios")) {
+                rows.push(language_row());
+            }
+            rows.push(toggle_row(
+                &t!("Показывать способ воспроизведения"),
+                &t!("Чип вверху: кодек, размер, аппаратно или программно."),
+                s.show_info,
+                move |on| update(st, |s| s.show_info = on),
+            ));
+            rows
+        },
     );
 
     let panel = Column::new()
@@ -521,6 +528,27 @@ fn section(icon: &'static str, title: &str, rows: Vec<W>) -> W {
 
 fn hint(text: &str) -> W {
     Box::new(Text::new(text).max_lines(4).class("set-hint"))
+}
+
+/// «Язык»: общий для всех программ, меняется в Параметрах — строка ведёт туда.
+fn language_row() -> W {
+    let r = synshell_common::i18n::language_row();
+    Box::new(
+        GestureDetector::new().cursor(syngui::CursorIcon::Pointer).on_click(synshell_common::i18n::open_settings).child(
+            Row::new()
+                .gap(12.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(
+                    Column::new()
+                        .gap(2.0)
+                        .child(Text::new(r.title).max_lines(2).class("set-row-title"))
+                        .child(Text::new(r.hint).max_lines(3).class("set-hint"))
+                        .class("grow"),
+                )
+                .child(Text::new(r.value).max_lines(1).class("set-hint"))
+                .child(Icon::new(icons::RIGHT).class("set-chevron")),
+        ),
+    )
 }
 
 fn toggle_row(title: &str, sub: &str, on: bool, f: impl FnMut(bool) + Send + 'static) -> W {

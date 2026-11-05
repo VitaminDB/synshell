@@ -20,6 +20,22 @@ fn styles() -> Vec<String> {
 }
 
 /// «Игры syn-wine»: флаг, по которому наш Wine сам включает слой своим программам.
+/// «Язык» — общий для всех программ; нажатие открывает «Параметры → Язык».
+fn language_row() -> W {
+    let r = synshell_common::i18n::language_row();
+    boxed(
+        syngui::GestureDetector::new().on_click(synshell_common::i18n::open_settings).child(c::row(
+            r.title,
+            r.hint,
+            Row::new()
+                .gap(6.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(Text::new(r.value).max_lines(1).class("row-hint"))
+                .child(Icon::new(icons::NEXT).class("ic")),
+        )),
+    )
+}
+
 fn syn_wine_row() -> W {
     c::row(
         t!("Игры syn-wine"),
@@ -110,7 +126,7 @@ pub fn simple(st: St) -> Vec<W> {
         }
         st.save();
     });
-    out.push(c::group(t!("Ещё"), vec![c::row(t!("Все настройки"), t!("Вкладки с тонкой настройкой модели, движения, композиции, отладки и помощника"), adv)]));
+    out.push(c::group(t!("Ещё"), vec![language_row(), c::row(t!("Все настройки"), t!("Вкладки с тонкой настройкой модели, движения, композиции, отладки и помощника"), adv)]));
     out
 }
 
@@ -452,6 +468,6 @@ pub fn helper(st: St) -> Vec<W> {
                 ),
             ],
         ),
-        c::group(t!("Настройки"), vec![boxed(profiles), boxed(bins), c::row(t!("Сбросить всё"), t!("Все настройки — по умолчанию; помощник пересоберёт функции"), Button::new(t!("Сбросить…")).class("btn ghost").on_click(move || st.reset_open.set(true)))]),
+        c::group(t!("Настройки"), vec![language_row(), boxed(profiles), boxed(bins), c::row(t!("Сбросить всё"), t!("Все настройки — по умолчанию; помощник пересоберёт функции"), Button::new(t!("Сбросить…")).class("btn ghost").on_click(move || st.reset_open.set(true)))]),
     ]
 }

@@ -185,6 +185,7 @@ CircularProgress { color: var(--accent); accent-color: var(--accent); }
 .set-name { font-size: 13px; font-weight: 600; }
 .opt { padding: 10px 0px; }
 .opt-label { font-size: 14px; }
+.opt-chevron { icon-size: 20px; icon-color: var(--muted); }
 TextField.num { width: 90px; }
 .prop-key { font-family: monospace; font-size: 12px; }
 TextField.prop-val { width: 180px; }

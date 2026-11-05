@@ -111,6 +111,7 @@ SystemWindowControls {
 .set-row-title { font-size: 14px; }
 .set-value { font-size: 13px; color: var(--muted); }
 .set-hint { font-size: 12px; color: var(--muted); }
+.set-chevron { font-size: 20px; icon-size: 20px; color: var(--muted); }
 .set-field { font-size: 13px; }
 
 .swatch {

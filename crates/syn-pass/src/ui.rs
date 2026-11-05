@@ -50,6 +50,8 @@ mod ic {
     pub const SHIELD: &str = "\u{E32A}";
     pub const DEVICES: &str = "\u{E1B1}";
     pub const QUESTION: &str = "\u{E8FD}";
+    pub const TRANSLATE: &str = "\u{E8E2}";
+    pub const NEXT: &str = "\u{E5CC}";
 }
 
 /// Открытое хранилище (между потоками: синхронизация и наблюдение за файлом).
@@ -1917,6 +1919,26 @@ fn editor(st: St, _phone: bool) -> W {
 
 // ─── Настройки ──────────────────────────────────────────────────────────────
 
+/// «Язык» — общий для всех программ; нажатие открывает «Параметры → Язык».
+fn language_row() -> W {
+    let r = synshell_common::i18n::language_row();
+    Box::new(
+        GestureDetector::new().on_click(synshell_common::i18n::open_settings).child(
+            DecoratedBox::new()
+                .child(
+                    Row::new()
+                        .gap(12.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(Icon::new(ic::TRANSLATE).class("dev-icon"))
+                        .child(Column::new().gap(2.0).child(Text::new(r.title).max_lines(1).class("dev-name")).child(Text::new(r.hint).max_lines(2).class("dev-sub")).class("grow"))
+                        .child(Text::new(r.value).max_lines(1).class("dev-sub"))
+                        .child(Icon::new(ic::NEXT).class("dev-sub")),
+                )
+                .class("dev-card"),
+        ),
+    )
+}
+
 fn settings_view(st: St) -> W {
     let choice = move |title: String, sub: String, opts: Vec<(u32, String)>, cur: u32, f: fn(&mut Prefs, u32)| -> W {
         let mut row = Flex::row().gap(6.0).wrap();
@@ -1934,6 +1956,7 @@ fn settings_view(st: St) -> W {
         let mut col = Column::new()
             .gap(20.0)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(language_row())
             .child(choice(t!("Автоблокировка"), t!("Закрыть хранилище, если долго ничего не делать"), vec![(1, t!("1 мин")), (5, t!("5 мин")), (15, t!("15 мин")), (60, t!("1 ч")), (0, t!("Никогда"))], p.autolock_min, |p, v| p.autolock_min = v))
             .child(choice(
                 t!("Очистка буфера обмена"),

@@ -979,6 +979,22 @@ fn instance_card(st: St, i: Instance, active_set: Option<String>, state: State) 
 
 // ─── Настройки ───────────────────────────────────────────────────────────────
 
+/// «Язык» — общий для всех программ; нажатие открывает «Параметры → Язык».
+fn language_row() -> W {
+    let r = synshell_common::i18n::language_row();
+    Box::new(
+        GestureDetector::new().on_click(synshell_common::i18n::open_settings).child(
+            Row::new()
+                .gap(12.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(Column::new().gap(2.0).child(Text::new(r.title).class("opt-label")).child(Text::new(r.hint).class("pkg-desc")).class("grow"))
+                .child(Text::new(r.value).max_lines(1).class("pkg-desc"))
+                .child(Icon::new("\u{E5CC}").class("opt-chevron"))
+                .class("opt"),
+        ),
+    )
+}
+
 fn settings_view(st: St) -> W {
     let body = Reactive::new(move || -> Vec<W> {
         let _ = st.cfg_rev.get();
@@ -1011,6 +1027,7 @@ fn settings_view(st: St) -> W {
         let general = card(
             Column::new()
                 .gap(4.0)
+                .child(language_row())
                 .child(toggle(&t!("Запускать при входе"), &t!("Android стартует вместе с сеансом (около 1 ГБ памяти)."), c.autostart, |c, v| c.autostart = v))
                 .child(toggle(
                     &t!("Каждое приложение — своим окном"),
