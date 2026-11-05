@@ -25,7 +25,7 @@ pub const WINDOW_H: u32 = 820;
 /// `i18n/<язык>.lang`; язык — `SYNSHELL_LANG`, иначе язык системы.
 pub fn init_i18n() {
     syngui::i18n::set_source_language("ru");
-    syngui::i18n::register_catalogs(&[include_str!("../i18n/en.lang")]);
+    syngui::i18n::register_catalogs(&synshell_tr::catalogs!("../i18n"));
     match std::env::var("SYNSHELL_LANG") {
         Ok(l) if !l.trim().is_empty() => syngui::i18n::set_language(l.trim()),
         _ => syngui::i18n::set_language(syngui::i18n::system_language()),

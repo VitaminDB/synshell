@@ -7,6 +7,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+synshell-tr.workspace = true
 syngui = { workspace = true, features = ["i18n"] }
 libc.workspace = true
 anyhow.workspace = true

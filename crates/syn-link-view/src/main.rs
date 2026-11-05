@@ -108,7 +108,7 @@ enum Rec {
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn,wgpu_core=warn,wgpu_hal=warn,naga=warn")).init();
-    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
     let Some(device) = std::env::args().nth(1).filter(|a| !a.starts_with('-')) else {
         eprintln!("{}", t!("synlink-view УСТРОЙСТВО — экран связанного устройства (имя, id или phone)"));
         std::process::exit(2);

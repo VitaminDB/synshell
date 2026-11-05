@@ -218,7 +218,7 @@ fn demo() -> model::Data {
 fn main() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "syn_woman_cycle=info".into());
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
-    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
     let mut shot: Option<String> = None;
     let mut size = (420u32, 900u32);
     let mut scale = 2.0f64;

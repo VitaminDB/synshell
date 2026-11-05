@@ -56,7 +56,7 @@ use crate::{
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    synshell_common::tr_init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::tr_init(&synshell_common::catalogs!("../i18n"));
     // Проба GPU в отдельном процессе (см. backend::probe_gpu): падение драйвера
     // (например, SIGILL программного рендерера) не должно ронять композитор.
     if args.first().map(String::as_str) == Some("--probe-gpu") {

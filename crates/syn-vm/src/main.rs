@@ -34,7 +34,7 @@ use state::{St, Tab};
 fn main() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "syn_vm=info".into());
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
-    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
     let mut target: Option<String> = None;
     let mut tab: Option<Tab> = None;
     let mut shot: Option<String> = None;

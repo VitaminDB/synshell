@@ -160,7 +160,7 @@ fn main() {
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
     // Само окно редактора — в теме системы, а не в примеряемом черновике.
     std::env::set_var("SYNSHELL_NO_THEME_PREVIEW", "1");
-    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
     let args = parse_args();
     let (cfg, _) = Config::load();
 

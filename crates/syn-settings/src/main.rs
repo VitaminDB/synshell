@@ -78,7 +78,7 @@ fn main() {
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()),
         )
         .init();
-    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
     let args = parse_args();
     let path = args
         .config

@@ -118,7 +118,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
     FORM_FACTOR.with(|f| f.set(shell.form_factor));
     let (config, err) = load_config(shell.form_factor);
     // Язык интерфейса: строки оболочки, телефонной и десктопной (`i18n/*.lang`).
-    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
     apply_animations(&config);
     if let Some(e) = err {
         log::error!("ошибка в конфиге, взяты значения по умолчанию: {e}");

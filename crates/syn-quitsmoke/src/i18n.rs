@@ -13,7 +13,7 @@ use crate::model::settings::Locale;
 /// Подключить каталоги и выбрать язык (вызвать один раз при старте).
 pub fn init(locale: Locale) {
     syngui::i18n::set_source_language("ru");
-    syngui::i18n::register_catalogs(&[include_str!("../i18n/en.lang")]);
+    syngui::i18n::register_catalogs(&synshell_tr::catalogs!("../i18n"));
     apply(locale);
 }
 

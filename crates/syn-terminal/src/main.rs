@@ -92,7 +92,7 @@ fn poll_tabs(st: state::St) {
 fn main() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "syn_terminal=info,syngui=warn".into());
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
-    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
     let args = parse_args();
     let (cfg, err) = Config::load();
     if let Some(e) = err {

@@ -81,7 +81,7 @@ pub fn run() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,wgpu_core=warn,wgpu_hal=warn,naga=warn")).init();
     // Язык экрана входа — системный: /etc/synshell/config.toml ([general] language), иначе LANG;
     // выбрали пользователя — его язык (см. user_language).
-    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
     synshell_common::i18n::apply(&system_config());
     let (cfg, _) = synshell_common::Config::load();
     std::thread::spawn(restore_backlight);

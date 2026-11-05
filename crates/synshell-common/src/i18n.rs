@@ -8,7 +8,7 @@
 //! этого крейта там, где показываются (`syngui::i18n::t(s)`).
 
 /// Общий каталог: строки synshell-common, synsystem, synmodem.
-const SHARED: &[&str] = &[include_str!("../i18n/en.lang")];
+const SHARED: &[&str] = &synshell_tr::catalogs!("../i18n");
 
 /// Язык исходных строк.
 pub const SOURCE: &str = "ru";

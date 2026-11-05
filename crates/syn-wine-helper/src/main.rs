@@ -39,7 +39,7 @@ use crate::pe::Arch;
 fn main() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "syn_wine_helper=info".into());
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
-    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
     let mut args = std::env::args().skip(1);
     let Some(cmd) = args.next() else {
         ui::run(ui::Mode::List, None);

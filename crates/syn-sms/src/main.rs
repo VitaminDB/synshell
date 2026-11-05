@@ -67,7 +67,7 @@ fn conversations(msgs: &[Sms]) -> Vec<Conv> {
 }
 
 fn main() {
-    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
     let args: Vec<String> = std::env::args().skip(1).collect();
     let chat = args.iter().position(|a| a == "--chat").and_then(|i| args.get(i + 1)).cloned();
     let new = args.iter().any(|a| a == "--new");

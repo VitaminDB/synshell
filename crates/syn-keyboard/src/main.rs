@@ -44,7 +44,7 @@ fn main() {
         .format_timestamp_millis()
         .init();
     // Подписи клавиш — данные раскладок и не переводятся; переводятся сообщения команд.
-    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("--version" | "-V") => {

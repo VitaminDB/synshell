@@ -52,7 +52,7 @@ fn watch(req: Request) -> anyhow::Result<()> {
 }
 
 fn main() {
-    synshell_common::tr_init(&[include_str!("../../i18n/en.lang")]);
+    synshell_common::tr_init(&synshell_common::catalogs!("../../i18n"));
     let args: Vec<String> = std::env::args().skip(1).collect();
     let r = match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
         ["status"] | [] => api::request(&Request::Status).map(|r| {

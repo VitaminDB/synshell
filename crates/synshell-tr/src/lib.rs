@@ -281,3 +281,17 @@ mod tests {
         assert_eq!(decimal(2.0, 1), "2,0");
     }
 }
+
+/// Каталоги переводов крейта — все языки synshell, кроме исходного русского:
+/// `synshell_tr::catalogs!("../i18n")` → `[&str; N]` из `include_str!` файлов
+/// `<каталог>/<язык>.lang` (путь — от файла, где вызван макрос). Новый язык
+/// добавляется здесь — и файл `<язык>.lang` во всех крейтах (хоть пустой).
+#[macro_export]
+macro_rules! catalogs {
+    ($dir:literal) => {
+        [
+            include_str!(concat!($dir, "/en.lang")),
+            include_str!(concat!($dir, "/de.lang")),
+        ]
+    };
+}

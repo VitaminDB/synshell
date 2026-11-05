@@ -20,6 +20,7 @@ desktop = ["syngui/clipboard"]
 android = ["syngui/android"]
 
 [dependencies]
+synshell-tr.workspace = true
 syngui = { workspace = true, features = ["msdf", "effects", "winit", "material-icons", "audio", "image", "i18n"] }
 hound = "3.5"
 log = "0.4"

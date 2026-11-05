@@ -363,7 +363,7 @@ pub fn new_state(cfg: Config, query: String, window: RwSignal<syngui::window::Wi
 }
 
 fn main() {
-    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
     if let Some(out) = arg_value("--screenshot") {
         if let Err(e) = shot::screenshot(&out) {
             eprintln!("{}", t!("synpkg: снимок: {e}", e = format!("{:#}", e)));

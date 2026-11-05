@@ -193,7 +193,7 @@ fn main() {
         // stdout — ответ окна выбора (--choose)
         .with_writer(std::io::stderr)
         .init();
-    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
     let raw: Vec<std::ffi::OsString> = std::env::args_os().collect();
     if raw.len() == 4 && raw[1] == "--archive-mount" {
         std::process::exit(archive::fs::run(std::path::Path::new(&raw[2]), std::path::Path::new(&raw[3])));

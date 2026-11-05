@@ -22,5 +22,5 @@ pub mod sys;
 
 /// Язык и каталоги переводов (окно, CLI, демон и его подкоманды).
 pub fn i18n_init() {
-    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
 }

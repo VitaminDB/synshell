@@ -41,7 +41,7 @@ struct St {
 }
 
 fn main() {
-    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
     let args: Vec<String> = std::env::args().skip(1).collect();
     let log = args.iter().any(|a| a == "--log");
     let number = args.iter().find(|a| !a.starts_with("--")).cloned().unwrap_or_default();

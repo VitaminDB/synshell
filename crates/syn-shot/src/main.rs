@@ -24,7 +24,7 @@ fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn,wgpu_core=warn,wgpu_hal=warn,naga=warn"))
         .format_timestamp_millis()
         .init();
-    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
 
     let mut capture: Option<String> = None;
     let mut it = std::env::args().skip(1);

@@ -40,7 +40,7 @@ pub use config::Config;
 pub mod i18n;
 
 /// Перевод строк библиотек: `synshell_common::t!`, `tn!`, `n_!` (см. `synshell_tr`).
-pub use synshell_tr::{decimal, decimal_separator, n_, t, tn};
+pub use synshell_tr::{catalogs, decimal, decimal_separator, n_, t, tn};
 
 /// Язык программы без syngui (synwm, CLI): `SYNSHELL_LANG`, `[general]
 /// language`, иначе `LC_ALL`/`LC_MESSAGES`/`LANG`; каталоги — свои `i18n/*.lang`
@@ -54,7 +54,7 @@ pub fn tr_init(catalogs: &[&str]) {
         .or_else(|| env("LC_MESSAGES"))
         .or_else(|| env("LANG"))
         .unwrap_or_else(|| "en".into());
-    let mut all: Vec<&str> = vec![include_str!("../i18n/en.lang")];
+    let mut all: Vec<&str> = synshell_tr::catalogs!("../i18n").to_vec();
     all.extend_from_slice(catalogs);
     synshell_tr::init("ru", &lang, &all);
 }

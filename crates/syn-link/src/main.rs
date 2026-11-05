@@ -62,7 +62,7 @@ phone/desktop или local (эта машина). ssh: `ssh phone` / `ssh <им�
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    synshell_common::tr_init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::tr_init(&synshell_common::catalogs!("../i18n"));
     let res = match args.first().map(String::as_str) {
         Some("daemon") => run_daemon(),
         Some("session") => run_session(),

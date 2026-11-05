@@ -12,7 +12,7 @@ const USAGE: &str = n_!("synmodem status | watch | radio on|off | data on|off | 
 fn main() {
     // Строки syn-modem — в общем каталоге synshell-common (его же грузят программы оболочки).
     let lang = std::env::var("SYNSHELL_LANG").ok().filter(|v| !v.trim().is_empty()).unwrap_or_else(synshell_tr::language);
-    synshell_tr::init("ru", &lang, &[include_str!("../../../synshell-common/i18n/en.lang")]);
+    synshell_tr::init("ru", &lang, &synshell_tr::catalogs!("../../../synshell-common/i18n"));
     if let Err(e) = run() {
         eprintln!("synmodem: {e:#}");
         std::process::exit(1);

@@ -202,7 +202,7 @@ fn main() {
     }
     let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "syn_camera=info,syncamera=info".into());
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
-    synshell_common::i18n::init(&[include_str!("../i18n/en.lang"), syn_media::CATALOG]);
+    synshell_common::i18n::init(&[&synshell_common::catalogs!("../i18n")[..], syn_media::CATALOGS].concat());
     let (cfg, _) = Config::load();
     synshell_common::haptics::set_config(&cfg.haptics);
     let auto_rotate = cfg.rotation.auto;

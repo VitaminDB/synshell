@@ -52,7 +52,7 @@ impl Prefs {
 }
 
 fn main() {
-    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);
     App::new()

@@ -44,7 +44,7 @@ pub fn theme(cfg: &Config) -> String {
 fn main() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "syn_dlss=info".into());
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
-    synshell_common::i18n::init(&[include_str!("../i18n/en.lang")]);
+    synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
     let mut shot: Option<String> = None;
     let mut size = (760u32, 860u32);
     let mut scale = 1.0f64;

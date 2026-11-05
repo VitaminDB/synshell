@@ -26,7 +26,7 @@ pub mod v4l2;
 
 /// Каталог переводов строк библиотеки (сообщения камеры и записи); его
 /// подключают программы, которые их показывают: `i18n::init(&[…, syn_media::CATALOG])`.
-pub const CATALOG: &str = include_str!("../i18n/en.lang");
+pub const CATALOGS: &[&str] = &synshell_tr::catalogs!("../i18n");
 
 pub use capture::{cameras, front_camera, Cam};
 pub use engine::{Engine, Note, OpenSpec};
