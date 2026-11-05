@@ -58,7 +58,6 @@ Text { color: var(--fg); font-size: 14px; }
 .set-sec-title { font-size: 15px; font-weight: 600; }
 .set-row-title { font-size: 14px; }
 .set-hint { font-size: 12px; color: var(--muted); }
-.set-chevron { font-size: 20px; icon-size: 20px; color: var(--muted); }
 
 /* Лента миниатюр каталога над шкалой перемотки (палитра тёмная — лежит на кадре). */
 .strip { padding: 0px 0px 4px 0px; }

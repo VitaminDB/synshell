@@ -88,7 +88,6 @@ Text { color: #ffffff; font-size: 14px; }
 .set-row { padding: 8px 0px; }
 .set-label { font-size: 15px; }
 .set-sub { font-size: 12px; color: #ffffff99; }
-.set-chevron { font-size: 20px; color: #ffffff99; }
 
 /* просмотр */
 .viewer-bg { background: #000000; width: 100%; height: 100%; }

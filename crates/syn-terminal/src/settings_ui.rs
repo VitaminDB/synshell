@@ -107,23 +107,14 @@ fn slider_head(title: String, value: String) -> W {
 
 // ─── разделы ───────────────────────────────────────────────────────────────
 
-/// «Язык»: общий для всех программ, меняется в Параметрах — раздел ведёт туда.
+/// «Язык» программы: «Как в системе» или свой — выбор сразу применяется.
 fn language_section() -> W {
     let r = synshell_common::i18n::language_row();
-    let row = GestureDetector::new().cursor(syngui::CursorIcon::Pointer).on_click(synshell_common::i18n::open_settings).child(
-        Row::new()
-            .gap(12.0)
-            .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(
-                Column::new()
-                    .gap(2.0)
-                    .child(Text::new(r.value).max_lines(1).class("set-row-title"))
-                    .child(Text::new(r.hint).max_lines(3).class("set-hint"))
-                    .class("grow"),
-            )
-            .child(Icon::new(icons::NEXT).class("set-chevron")),
-    );
-    section(icons::TRANSLATE, &r.title, vec![boxed(row)])
+    section(
+        icons::TRANSLATE,
+        &r.title,
+        vec![hint(&r.hint), boxed(synshell_common::i18n::language_dropdown().class("set-dropdown"))],
+    )
 }
 
 fn font_section(st: St) -> W {

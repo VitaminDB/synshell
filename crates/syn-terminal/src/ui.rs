@@ -40,8 +40,6 @@ pub mod icons {
     pub const CHECK: &str = "\u{E5CA}";
     /// translate: язык
     pub const TRANSLATE: &str = "\u{E8E2}";
-    /// chevron_right
-    pub const NEXT: &str = "\u{E5CC}";
 }
 
 pub fn icon_button(icon: &'static str, tip: String, class: &'static str, f: impl Fn() + Send + Sync + 'static) -> W {

@@ -17,7 +17,6 @@ Text { color: var(--fg); font-size: 14px; }
 .card-title { font-size: 15px; font-weight: 600; }
 .set-row { padding: 8px 12px; border-radius: 14px; background-color: var(--surface); }
 .set-icon { icon-size: 22px; icon-color: var(--fg); }
-.set-icon.muted { icon-color: var(--muted); }
 
 Button {
     background: var(--surface-alt);

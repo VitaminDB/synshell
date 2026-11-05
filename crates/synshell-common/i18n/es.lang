@@ -425,9 +425,9 @@
 "Профиля «{name}» нет" = "No existe el perfil «{name}»"
 
 # src/i18n.rs
+"Как в системе ({lang})" = "Como el sistema ({lang})"
 "Язык" = "Idioma"
-"{lang} (как в системе)" = "{lang} (como el sistema)"
-"Общий для всех программ — меняется в Параметрах" = "Común a todas las aplicaciones: se cambia en Ajustes"
+"«Как в системе» — язык из Параметров" = "«Como el sistema»: el idioma de Ajustes"
 
 # src/ipc.rs
 "композитор закрыл соединение" = "el compositor cerró la conexión"

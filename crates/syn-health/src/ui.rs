@@ -4,7 +4,6 @@
 use syngui::core::Color;
 use syngui::mss::StyleValue;
 use syngui::prelude::*;
-use syngui::GestureDetector;
 use syngui::widgets::charts::{AxisConfig, BarChart, BarSeries, LegendPosition};
 
 use crate::store::{self, Settings, Steps};
@@ -179,19 +178,21 @@ fn stepper(label: String, value: String, minus: impl Fn() + Send + Sync + 'stati
         .class("set-row")
 }
 
-/// «Язык» — общий для всех программ; нажатие открывает «Параметры → Язык».
+/// «Язык» программы: «Как в системе» или свой — выбор сразу применяется.
 fn language_row() -> impl Widget {
     let r = synshell_common::i18n::language_row();
-    GestureDetector::new().on_click(synshell_common::i18n::open_settings).child(
-        Row::new()
-            .gap(10.0)
-            .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(Icon::new("\u{E8E2}").class("set-icon"))
-            .child(Column::new().gap(2.0).child(Text::new(r.title)).child(Text::new(r.hint).max_lines(2).class("muted small")).class("grow"))
-            .child(Text::new(r.value).max_lines(1).class("muted"))
-            .child(Icon::new("\u{E5CC}").class("set-icon muted"))
-            .class("set-row"),
-    )
+    Column::new()
+        .gap(10.0)
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(
+            Row::new()
+                .gap(10.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(Icon::new("\u{E8E2}").class("set-icon"))
+                .child(Column::new().gap(2.0).child(Text::new(r.title)).child(Text::new(r.hint).max_lines(2).class("muted small")).class("grow")),
+        )
+        .child(synshell_common::i18n::language_dropdown())
+        .class("set-row")
 }
 
 fn settings(st: St) -> impl Widget {

@@ -1169,19 +1169,16 @@ pub fn scrim() -> W {
     Box::new(Column::new().width(vp.width).height(vp.height).class("scrim"))
 }
 
-/// «Язык» — общий для всех программ; нажатие открывает «Параметры → Язык».
+/// «Язык» программы: «Как в системе» или свой — выбор сразу применяется.
 fn language_row() -> W {
     let r = synshell_common::i18n::language_row();
     Box::new(
-        GestureDetector::new().on_click(synshell_common::i18n::open_settings).child(
-            Row::new()
-                .gap(12.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(Column::new().gap(2.0).child(Text::new(r.title).class("set-label")).child(Text::new(r.hint).max_lines(2).class("set-sub")).class("grow"))
-                .child(Text::new(r.value).max_lines(1).class("set-sub"))
-                .child(centered(gl::CHEVRON_R, "set-chevron", 22.0))
-                .class("set-row"),
-        ),
+        Column::new()
+            .gap(10.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(Column::new().gap(2.0).child(Text::new(r.title).class("set-label")).child(Text::new(r.hint).max_lines(2).class("set-sub")))
+            .child(synshell_common::i18n::language_dropdown())
+            .class("set-row"),
     )
 }
 

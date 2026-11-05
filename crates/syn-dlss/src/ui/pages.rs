@@ -20,20 +20,10 @@ fn styles() -> Vec<String> {
 }
 
 /// «Игры syn-wine»: флаг, по которому наш Wine сам включает слой своим программам.
-/// «Язык» — общий для всех программ; нажатие открывает «Параметры → Язык».
+/// «Язык» программы: «Как в системе» или свой — выбор сразу применяется.
 fn language_row() -> W {
     let r = synshell_common::i18n::language_row();
-    boxed(
-        syngui::GestureDetector::new().on_click(synshell_common::i18n::open_settings).child(c::row(
-            r.title,
-            r.hint,
-            Row::new()
-                .gap(6.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(Text::new(r.value).max_lines(1).class("row-hint"))
-                .child(Icon::new(icons::NEXT).class("ic")),
-        )),
-    )
+    c::row(r.title, r.hint, synshell_common::i18n::language_dropdown().width(240.0).max_height(360.0))
 }
 
 fn syn_wine_row() -> W {

@@ -51,7 +51,6 @@ pub mod icons {
     pub const RADIO_OFF: &str = "\u{E836}";
     pub const WARNING: &str = "\u{E002}";
     pub const TRANSLATE: &str = "\u{E8E2}";
-    pub const NEXT: &str = "\u{E5CC}";
 }
 
 pub fn icon(g: &str) -> syngui::widget::StyledWidget<Icon> {

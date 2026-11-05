@@ -51,7 +51,6 @@ mod ic {
     pub const DEVICES: &str = "\u{E1B1}";
     pub const QUESTION: &str = "\u{E8FD}";
     pub const TRANSLATE: &str = "\u{E8E2}";
-    pub const NEXT: &str = "\u{E5CC}";
 }
 
 /// Открытое хранилище (между потоками: синхронизация и наблюдение за файлом).
@@ -1919,23 +1918,25 @@ fn editor(st: St, _phone: bool) -> W {
 
 // ─── Настройки ──────────────────────────────────────────────────────────────
 
-/// «Язык» — общий для всех программ; нажатие открывает «Параметры → Язык».
+/// «Язык» программы: «Как в системе» или свой — выбор сразу применяется.
 fn language_row() -> W {
     let r = synshell_common::i18n::language_row();
     Box::new(
-        GestureDetector::new().on_click(synshell_common::i18n::open_settings).child(
-            DecoratedBox::new()
-                .child(
-                    Row::new()
-                        .gap(12.0)
-                        .cross_axis_alignment(CrossAxisAlignment::Center)
-                        .child(Icon::new(ic::TRANSLATE).class("dev-icon"))
-                        .child(Column::new().gap(2.0).child(Text::new(r.title).max_lines(1).class("dev-name")).child(Text::new(r.hint).max_lines(2).class("dev-sub")).class("grow"))
-                        .child(Text::new(r.value).max_lines(1).class("dev-sub"))
-                        .child(Icon::new(ic::NEXT).class("dev-sub")),
-                )
-                .class("dev-card"),
-        ),
+        DecoratedBox::new()
+            .child(
+                Column::new()
+                    .gap(10.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                    .child(
+                        Row::new()
+                            .gap(12.0)
+                            .cross_axis_alignment(CrossAxisAlignment::Center)
+                            .child(Icon::new(ic::TRANSLATE).class("dev-icon"))
+                            .child(Column::new().gap(2.0).child(Text::new(r.title).max_lines(1).class("dev-name")).child(Text::new(r.hint).max_lines(2).class("dev-sub")).class("grow")),
+                    )
+                    .child(synshell_common::i18n::language_dropdown()),
+            )
+            .class("dev-card"),
     )
 }
 

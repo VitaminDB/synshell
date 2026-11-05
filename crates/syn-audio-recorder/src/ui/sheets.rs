@@ -86,27 +86,29 @@ fn mics(st: St, wide: bool) -> W {
     shell(st, wide, t!("Микрофон"), boxed(list), move || st.sheet.set(None))
 }
 
-/// «Язык»: общий для всех программ, меняется в Параметрах — строка ведёт туда.
+/// «Язык» программы: «Как в системе» или свой — выбор сразу применяется.
 fn language_row() -> W {
     let r = synshell_common::i18n::language_row();
     boxed(
-        GestureDetector::new().cursor(syngui::CursorIcon::Pointer).on_click(synshell_common::i18n::open_settings).child(
-            DecoratedBox::new().class("opt").child(
-                Row::new()
-                    .gap(12.0)
-                    .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(icon(icons::TRANSLATE).class("ic opt-ic"))
-                    .child(
-                        DecoratedBox::new().class("grow").child(
-                            Column::new()
-                                .gap(2.0)
-                                .child(Text::new(r.title).max_lines(1).class("opt-title"))
-                                .child(Text::new(r.hint).max_lines(2).class("opt-sub")),
+        DecoratedBox::new().class("opt").child(
+            Column::new()
+                .gap(10.0)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(
+                    Row::new()
+                        .gap(12.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(icon(icons::TRANSLATE).class("ic opt-ic"))
+                        .child(
+                            DecoratedBox::new().class("grow").child(
+                                Column::new()
+                                    .gap(2.0)
+                                    .child(Text::new(r.title).max_lines(1).class("opt-title"))
+                                    .child(Text::new(r.hint).max_lines(2).class("opt-sub")),
+                            ),
                         ),
-                    )
-                    .child(Text::new(r.value).max_lines(1).class("opt-sub"))
-                    .child(icon(icons::NEXT).class("ic opt-radio")),
-            ),
+                )
+                .child(synshell_common::i18n::language_dropdown()),
         ),
     )
 }

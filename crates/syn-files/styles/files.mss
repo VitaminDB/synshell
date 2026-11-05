@@ -844,6 +844,22 @@ ItemView.phone { padding: 6px 6px 92px 6px; scrollbar-width: 4px; }
     border-color: var(--divider);
     accent-color: var(--accent);
 }
+.set-panel Dropdown {
+    background: var(--field);
+    color: var(--fg);
+    border: 1px solid var(--divider);
+    border-radius: 8px;
+    accent-color: var(--accent);
+    font-size: 13px;
+    padding: 7px 10px;
+    --popup-background: var(--surface);
+    --popup-color: var(--fg);
+    --popup-border: var(--border);
+    --popup-hover-background: var(--hover);
+    --popup-hover-color: var(--fg);
+    --popup-selected-background: var(--accent-soft);
+    --popup-selected-color: var(--accent);
+}
 
 /* Журнал изменений (synfsd): история в «Свойствах», исключения в настройках. */
 .hist-title { font-size: 14px; font-weight: 600; color: var(--fg); }

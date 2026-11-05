@@ -979,19 +979,16 @@ fn instance_card(st: St, i: Instance, active_set: Option<String>, state: State) 
 
 // ─── Настройки ───────────────────────────────────────────────────────────────
 
-/// «Язык» — общий для всех программ; нажатие открывает «Параметры → Язык».
+/// «Язык» программы: «Как в системе» или свой — выбор сразу применяется.
 fn language_row() -> W {
     let r = synshell_common::i18n::language_row();
     Box::new(
-        GestureDetector::new().on_click(synshell_common::i18n::open_settings).child(
-            Row::new()
-                .gap(12.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(Column::new().gap(2.0).child(Text::new(r.title).class("opt-label")).child(Text::new(r.hint).class("pkg-desc")).class("grow"))
-                .child(Text::new(r.value).max_lines(1).class("pkg-desc"))
-                .child(Icon::new("\u{E5CC}").class("opt-chevron"))
-                .class("opt"),
-        ),
+        Column::new()
+            .gap(10.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(Column::new().gap(2.0).child(Text::new(r.title).class("opt-label")).child(Text::new(r.hint).class("pkg-desc")))
+            .child(synshell_common::i18n::language_dropdown())
+            .class("opt"),
     )
 }
 

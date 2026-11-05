@@ -20,6 +20,10 @@ pub fn requested(cfg: &crate::Config) -> String {
             return l;
         }
     }
+    let own = app_language();
+    if !own.is_empty() {
+        return own;
+    }
     if !cfg.general.language.trim().is_empty() {
         return cfg.general.language.trim().to_string();
     }
@@ -82,35 +86,97 @@ fn set_time_locale(lang: &str) {
     }
 }
 
-/// Строка «Язык» в настройках программ: язык общий для всех программ и выбирается
-/// в «Параметрах → Язык»; программы показывают текущий и ведут туда ([`open_settings`]).
+/// Язык этой программы: свой выбор в её настройках поверх общего языка
+/// («Параметры → Язык»). Хранится отдельно от config.toml — `app-languages.toml`
+/// в каталоге настроек (`имя_программы = "тег"`), чтобы новый ключ не ломал
+/// конфиг у старых бинарников. Пусто — «Как в системе» (общий язык).
+fn app_id() -> String {
+    std::env::current_exe().ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned())).unwrap_or_default()
+}
+
+fn app_languages_path() -> std::path::PathBuf {
+    crate::paths::config_dir().join("app-languages.toml")
+}
+
+fn app_languages() -> std::collections::BTreeMap<String, String> {
+    std::fs::read_to_string(app_languages_path()).ok().and_then(|s| toml::from_str(&s).ok()).unwrap_or_default()
+}
+
+/// Свой язык программы (тег) или пусто — как в системе.
+pub fn app_language() -> String {
+    app_languages().remove(&app_id()).unwrap_or_default()
+}
+
+/// Выбрать язык программы (пусто — как в системе) и сразу применить.
+pub fn set_app_language(tag: &str) {
+    let mut all = app_languages();
+    let id = app_id();
+    if tag.trim().is_empty() {
+        all.remove(&id);
+    } else {
+        all.insert(id, tag.trim().to_string());
+    }
+    let p = app_languages_path();
+    let _ = std::fs::create_dir_all(crate::paths::config_dir());
+    if let Err(e) = toml::to_string(&all).map_err(std::io::Error::other).and_then(|s| std::fs::write(&p, s)) {
+        tracing::warn!("{}: {e}", p.display());
+    }
+    let (cfg, _) = crate::Config::load();
+    apply(&cfg);
+}
+
+/// Выбор для списка: «Как в системе (язык)» и все языки каталогов — самоназваниями.
+/// Значение «auto» — как в системе.
+pub fn language_choices() -> Vec<(String, String)> {
+    let (cfg, _) = crate::Config::load();
+    let global = {
+        let env = std::env::var("SYNSHELL_LANG").ok().filter(|l| !l.trim().is_empty());
+        env.unwrap_or_else(|| if cfg.general.language.trim().is_empty() { syngui::i18n::system_language().to_string() } else { cfg.general.language.trim().to_string() })
+    };
+    let mut langs: Vec<(String, String)> =
+        syngui::i18n::languages().into_iter().map(|l| (l.tag.tag().to_string(), l.name)).collect();
+    langs.sort_by(|a, b| a.1.cmp(&b.1));
+    let gl = syngui::i18n::Lang::new(&global);
+    let gname = langs.iter().find(|(t, _)| syngui::i18n::Lang::new(t).base() == gl.base()).map(|(_, n)| n.clone()).unwrap_or(global);
+    let mut out = vec![("auto".to_string(), syngui::i18n::t_args(crate::n_!("Как в системе ({lang})"), &[("lang", &gname)]))];
+    out.extend(langs);
+    out
+}
+
+/// Подписи строки «Язык» в настройках программ.
 pub struct LanguageRow {
     /// «Язык».
     pub title: String,
-    /// Текущий язык самоназванием («Deutsch»); при «Как в системе» — с пометкой.
-    pub value: String,
-    /// Пояснение: где меняется.
+    /// Пояснение.
     pub hint: String,
 }
 
-/// Подписи строки «Язык» на текущем языке.
 pub fn language_row() -> LanguageRow {
-    let (cfg, _) = crate::Config::load();
-    let cur = syngui::i18n::language();
-    let name = syngui::i18n::languages()
-        .into_iter()
-        .find(|l| l.tag == cur || l.tag.base() == cur.base())
-        .map(|l| l.name)
-        .unwrap_or_else(|| cur.tag().to_string());
-    let auto = std::env::var("SYNSHELL_LANG").map_or(true, |l| l.trim().is_empty()) && cfg.general.language.trim().is_empty();
     LanguageRow {
         title: syngui::i18n::t(crate::n_!("Язык")),
-        value: if auto { syngui::i18n::t_args(crate::n_!("{lang} (как в системе)"), &[("lang", &name)]) } else { name },
-        hint: syngui::i18n::t(crate::n_!("Общий для всех программ — меняется в Параметрах")),
+        hint: syngui::i18n::t(crate::n_!("«Как в системе» — язык из Параметров")),
     }
 }
 
-/// Открыть «Параметры → Язык».
+/// Готовый список языка программы: «Как в системе» по умолчанию и все языки;
+/// выбор применяется сразу. Вид — классом программы (`.class(…)`).
+pub fn language_dropdown() -> syngui::prelude::Dropdown {
+    use syngui::prelude::{Dropdown, DropdownItem};
+    let cur = app_language();
+    let choices = language_choices();
+    let selected = if cur.is_empty() {
+        "auto".to_string()
+    } else {
+        choices.iter().find(|(t, _)| syngui::i18n::Lang::new(t).base() == syngui::i18n::Lang::new(&cur).base()).map(|(t, _)| t.clone()).unwrap_or_else(|| "auto".into())
+    };
+    let mut d = Dropdown::new();
+    for (tag, name) in choices {
+        d = d.item(DropdownItem::new(tag, name));
+    }
+    d.selected(selected).on_change(|v| set_app_language(if v == "auto" { "" } else { v }))
+}
+
+/// Открыть «Параметры → Язык» (общий язык всех программ).
 pub fn open_settings() {
     if let Err(e) = std::process::Command::new("synsettings").arg("--page").arg("language").spawn() {
         tracing::warn!("synsettings: {e}");

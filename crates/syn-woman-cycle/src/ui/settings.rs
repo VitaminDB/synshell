@@ -211,19 +211,16 @@ fn theme_row(st: St, cur: ThemeMode, width: f32) -> W {
     boxed(DecoratedBox::new().class("set-row").child(Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(label(icons::PALETTE, t!("Тема"), String::new())).child(DecoratedBox::new().class("segs").child(row))))
 }
 
-/// «Язык»: общий для всех программ, выбирается в «Параметрах → Язык» — строка ведёт туда.
+/// «Язык»: «Как в системе» (язык из «Параметров») по умолчанию или свой из списка.
 fn language_row() -> W {
     let r = synshell_common::i18n::language_row();
     boxed(
-        GestureDetector::new().on_click(synshell_common::i18n::open_settings).child(
-            DecoratedBox::new().class("set-row").child(
-                Row::new()
-                    .gap(12.0)
-                    .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(label(icons::TRANSLATE, r.title, r.hint))
-                    .child(Text::new(r.value).class("hint"))
-                    .child(icon(icons::NEXT).class("ic")),
-            ),
+        DecoratedBox::new().class("set-row").child(
+            Column::new()
+                .gap(10.0)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(label(icons::TRANSLATE, r.title, r.hint))
+                .child(synshell_common::i18n::language_dropdown().class("set-dropdown")),
         ),
     )
 }

@@ -57,25 +57,20 @@ fn toggle_row(title: &str, sub: &str, on: bool, f: impl FnMut(bool) + Send + 'st
     )
 }
 
-/// «Язык»: общий для всех программ, меняется в Параметрах — строка ведёт туда.
+/// «Язык» программы: «Как в системе» или свой — выбор сразу применяется.
 fn language_row() -> W {
     let r = synshell_common::i18n::language_row();
     boxed(
-        GestureDetector::new().cursor(CursorIcon::Pointer).on_click(synshell_common::i18n::open_settings).child(
-            Row::new()
-                .gap(12.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(
-                    DecoratedBox::new().class("grow").child(
-                        Column::new()
-                            .gap(2.0)
-                            .child(Text::new(r.title).max_lines(2).class("set-row-title"))
-                            .child(Text::new(r.hint).max_lines(4).class("set-hint")),
-                    ),
-                )
-                .child(Text::new(r.value).max_lines(1).class("set-value"))
-                .child(Icon::new(icons::CHEVRON).class("icon set-hint")),
-        ),
+        Column::new()
+            .gap(10.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(
+                Column::new()
+                    .gap(2.0)
+                    .child(Text::new(r.title).max_lines(2).class("set-row-title"))
+                    .child(Text::new(r.hint).max_lines(4).class("set-hint")),
+            )
+            .child(synshell_common::i18n::language_dropdown()),
     )
 }
 

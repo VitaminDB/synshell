@@ -425,9 +425,9 @@
 "Профиля «{name}» нет" = "“{name}” profili yok"
 
 # src/i18n.rs
+"Как в системе ({lang})" = "Sistem gibi ({lang})"
 "Язык" = "Dil"
-"{lang} (как в системе)" = "{lang} (sistem gibi)"
-"Общий для всех программ — меняется в Параметрах" = "Tüm uygulamalar için ortak — Ayarlar'dan değiştirilir"
+"«Как в системе» — язык из Параметров" = "“Sistem gibi” — Ayarlar'daki dil"
 
 # src/ipc.rs
 "композитор закрыл соединение" = "bileşikleştirici bağlantıyı kapattı"
