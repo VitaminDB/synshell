@@ -271,6 +271,5 @@
 "Устройство привязывается к порту компьютера: телефон в режиме fastboot или recovery остаётся у гостя. Пока машина работает, у компьютера его нет." = "The device is bound to the computer's port: a phone in fastboot or recovery mode stays with the guest. While the machine runs, the computer does not see it."
 "Список устройств" = "Device list"
 "Обновить после подключения нового устройства" = "Refresh after plugging in a new device"
-"Обновить" = "Refresh"
 "например: -device virtio-rng-pci" = "e.g. -device virtio-rng-pci"
 "Добавляются в конец командной строки — для своих устройств, дисков и прочего" = "Appended to the command line — for your own devices, disks and more"
