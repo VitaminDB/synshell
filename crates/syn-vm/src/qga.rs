@@ -23,6 +23,25 @@ const B64: base64::engine::GeneralPurpose = base64::engine::general_purpose::STA
 pub struct Agent {
     w: UnixStream,
     r: BufReader<UnixStream>,
+    /// Блокировка канала машины на время соединения: у QEMU на канале агента один клиент,
+    /// остальные ждут своей очереди здесь, а не повисают на сокете.
+    _lock: std::fs::File,
+}
+
+/// Взять блокировку канала агента машины (flock на файл в каталоге запуска), ждать до `deadline`.
+fn lock_channel(vm: &Vm, deadline: Instant) -> Result<std::fs::File> {
+    use std::os::fd::AsRawFd;
+    let path = vm.run_dir().join("qga.lock");
+    let f = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path).with_context(|| path.display().to_string())?;
+    loop {
+        if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            return Ok(f);
+        }
+        if Instant::now() >= deadline {
+            bail!("«{}»: гостевой агент занят другим запросом (передача файла?) — повторите позже", vm.name);
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 impl Agent {
@@ -35,6 +54,7 @@ impl Agent {
             bail!("{}", not_configured(vm));
         }
         let deadline = Instant::now() + wait;
+        let lock = lock_channel(vm, deadline)?;
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
             let attempt = (|| -> Result<Agent> {
@@ -42,7 +62,7 @@ impl Agent {
                 s.set_read_timeout(Some(left.clamp(Duration::from_millis(300), Duration::from_millis(1500))))?;
                 s.set_write_timeout(Some(Duration::from_secs(5)))?;
                 let w = s.try_clone()?;
-                let mut a = Agent { w, r: BufReader::new(s) };
+                let mut a = Agent { w, r: BufReader::new(s), _lock: lock.try_clone()? };
                 a.sync()?;
                 // Дальше — ответы на команды (чтение больших файлов, долгие команды).
                 a.r.get_ref().set_read_timeout(Some(Duration::from_secs(60)))?;
@@ -174,30 +194,50 @@ pub fn exec(vm: &Vm, argv: &[String], input: Option<&[u8]>, env: &[String], time
     if !env.is_empty() {
         a["env"] = json!(env);
     }
-    let mut ag = Agent::connect(vm, Duration::from_secs(10))?;
-    let r = ag.call("guest-exec", a)?;
+    let r = call(vm, "guest-exec", a)?;
     let pid = r.get("pid").and_then(Value::as_i64).context("guest-exec: нет pid")?;
+    wait_exec(vm, pid, timeout)
+}
+
+/// Запустить и не ждать: pid в госте (итог — [`exec_status`]).
+pub fn exec_detached(vm: &Vm, argv: &[String], input: Option<&[u8]>, env: &[String]) -> Result<i64> {
+    let Some((prog, args)) = argv.split_first() else { bail!("пустая команда") };
+    let mut a = json!({"path": prog, "arg": args, "capture-output": true});
+    if let Some(i) = input {
+        a["input-data"] = json!(B64.encode(i));
+    }
+    if !env.is_empty() {
+        a["env"] = json!(env);
+    }
+    call(vm, "guest-exec", a)?.get("pid").and_then(Value::as_i64).context("guest-exec: нет pid")
+}
+
+/// Итог запущенной команды: `None` — ещё работает. Агент отдаёт вывод один раз — после
+/// успешного ответа о завершении запись о процессе у него удаляется.
+pub fn exec_status(vm: &Vm, pid: i64) -> Result<Option<ExecResult>> {
+    let s = call(vm, "guest-exec-status", json!({"pid": pid}))?;
+    if s.get("exited").and_then(Value::as_bool) != Some(true) {
+        return Ok(None);
+    }
+    let dec = |k: &str| s.get(k).and_then(Value::as_str).and_then(|b| B64.decode(b).ok()).unwrap_or_default();
+    let code = s.get("exitcode").and_then(Value::as_i64).map(|c| c as i32).or_else(|| s.get("signal").and_then(Value::as_i64).map(|sg| 128 + sg as i32)).unwrap_or(0);
+    Ok(Some(ExecResult { code, stdout: dec("out-data"), stderr: dec("err-data"), timed_out: false, pid }))
+}
+
+/// Ждать завершения: каждое обращение — своё короткое соединение, канал свободен для
+/// других запросов к той же машине (второй --sh, --status) между опросами.
+pub fn wait_exec(vm: &Vm, pid: i64, timeout: Duration) -> Result<ExecResult> {
     let t0 = Instant::now();
     let mut delay = Duration::from_millis(50);
     loop {
-        // Соединение оборвалось (агент перезапустился) — переподключиться и спросить снова.
-        let s = match ag.call("guest-exec-status", json!({"pid": pid})) {
-            Ok(s) => s,
-            Err(_) => {
-                ag = Agent::connect(vm, Duration::from_secs(10))?;
-                ag.call("guest-exec-status", json!({"pid": pid}))?
-            }
-        };
-        if s.get("exited").and_then(Value::as_bool) == Some(true) {
-            let dec = |k: &str| s.get(k).and_then(Value::as_str).and_then(|b| B64.decode(b).ok()).unwrap_or_default();
-            let code = s.get("exitcode").and_then(Value::as_i64).map(|c| c as i32).or_else(|| s.get("signal").and_then(Value::as_i64).map(|sg| 128 + sg as i32)).unwrap_or(0);
-            return Ok(ExecResult { code, stdout: dec("out-data"), stderr: dec("err-data"), timed_out: false, pid });
+        if let Some(r) = exec_status(vm, pid)? {
+            return Ok(r);
         }
         if t0.elapsed() > timeout {
             return Ok(ExecResult { code: 124, timed_out: true, pid, ..Default::default() });
         }
         std::thread::sleep(delay);
-        delay = (delay * 2).min(Duration::from_millis(500));
+        delay = (delay * 2).min(Duration::from_secs(1));
     }
 }
 

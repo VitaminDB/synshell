@@ -40,6 +40,9 @@ syn-vm — виртуальные машины QEMU/KVM
   --exec МАШИНА [--timeout СЕК] [--env К=З …] [--stdin] [--raw] -- ПРОГРАММА [АРГ…]
                                           (вывод Windows переводится из OEM-кодировки в UTF-8; --raw — как есть)
   --sh МАШИНА [--timeout СЕК] 'КОМАНДА'  через оболочку гостя (sh -c / cmd /c)
+       --detach (у --exec и --sh) — не ждать, напечатать pid в госте
+  --exec-status МАШИНА PID [--wait СЕК]  итог фоновой команды: вывод и её код; 125 — ещё работает
+                                          (вывод агент отдаёт один раз)
   --push МАШИНА ФАЙЛ ПУТЬ_В_ГОСТЕ        файл в гостя
   --pull МАШИНА ПУТЬ_В_ГОСТЕ ФАЙЛ        файл из гостя
   --agent МАШИНА КОМАНДА [JSON]          сырая команда агента (guest-info, guest-get-osinfo…)
@@ -93,7 +96,7 @@ struct Args {
     tail: Vec<String>,
 }
 
-const FLAGS: &[&str] = &["--audio", "--no-audio", "--raw", "--public", "--json", "--force", "--yes", "--stdin", "--right", "--middle", "--double", "--move", "--wait-boot"];
+const FLAGS: &[&str] = &["--detach", "--audio", "--no-audio", "--raw", "--public", "--json", "--force", "--yes", "--stdin", "--right", "--middle", "--double", "--move", "--wait-boot"];
 
 impl Args {
     fn parse(v: Vec<String>) -> Args {
@@ -142,7 +145,7 @@ impl Args {
 pub fn run(cmd: &str, rest: Vec<String>) -> Option<i32> {
     let known = [
         "--list", "--status", "--start", "--stop", "--kill", "--reset", "--pause", "--resume", "--wait-boot", "--new", "--delete", "--get", "--set", "--exec", "--sh", "--push",
-        "--pull", "--agent", "--sync-time", "--screendump", "--type", "--key", "--click", "--scroll", "--devices", "--usb", "--attach", "--detach", "--cdrom", "--tools", "--snapshot",
+        "--pull", "--exec-status", "--agent", "--sync-time", "--screendump", "--type", "--key", "--click", "--scroll", "--devices", "--usb", "--attach", "--detach", "--cdrom", "--tools", "--snapshot",
         "--qmp", "--mcp", "--vfio-helper", "--vfio-watch", "--record", "--record-stop", "--record-run",
     ];
     if !known.contains(&cmd) {
@@ -310,6 +313,11 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             } else {
                 None
             };
+            if a.has("--detach") {
+                let pid = qga::exec_detached(&vm, &argv, input.as_deref(), &a.all("--env"))?;
+                println!("{pid}");
+                return Ok(0);
+            }
             let mut r = qga::exec(&vm, &argv, input.as_deref(), &a.all("--env"), a.secs("--timeout", 600))?;
             if !a.has("--raw") {
                 r.stdout = qga::decode_output(&vm, std::mem::take(&mut r.stdout));
@@ -321,6 +329,32 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             if r.timed_out {
                 eprintln!("syn-vm: не дождались (pid {} в госте работает дальше)", r.pid);
             }
+            Ok(r.code)
+        }
+        "--exec-status" => {
+            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            running(&vm)?;
+            let pid: i64 = a.pos(1, "PID")?.parse().context("PID — число")?;
+            let r = match a.get("--wait") {
+                Some(t) => {
+                    let r = qga::wait_exec(&vm, pid, Duration::from_secs(t.parse().unwrap_or(600)))?;
+                    if r.timed_out {
+                        eprintln!("syn-vm: ещё работает");
+                        return Ok(125);
+                    }
+                    r
+                }
+                None => match qga::exec_status(&vm, pid)? {
+                    Some(r) => r,
+                    None => {
+                        eprintln!("syn-vm: pid {pid} ещё работает");
+                        return Ok(125);
+                    }
+                },
+            };
+            use std::io::Write;
+            std::io::stdout().write_all(&qga::decode_output(&vm, r.stdout))?;
+            std::io::stderr().write_all(&qga::decode_output(&vm, r.stderr))?;
             Ok(r.code)
         }
         "--push" => {

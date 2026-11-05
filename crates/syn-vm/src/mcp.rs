@@ -90,7 +90,10 @@ fn tools() -> Value {
          "inputSchema": schema(json!({"vm": vm, "timeout_s": n("тайм-аут, с (300)")}), &["vm"])},
         {"name": "exec", "description": "Выполнить команду в госте через гостевой агент: command — строка оболочки гостя (sh -c в Linux, cmd /c в Windows) или argv — массив без оболочки. Возвращает код, stdout, stderr.",
          "inputSchema": schema(json!({"vm": vm, "command": s("строка оболочки"), "argv": {"type": "array", "items": {"type": "string"}},
-             "stdin": s("ввод программы"), "timeout_s": n("тайм-аут, с (600)")}), &["vm"])},
+             "stdin": s("ввод программы"), "timeout_s": n("тайм-аут, с (600)"),
+             "detach": {"type": "boolean", "description": "не ждать: вернуть pid, итог — exec_status"}}), &["vm"])},
+        {"name": "exec_status", "description": "Итог команды, запущенной exec detach=true: код, stdout, stderr; «ещё работает» — если не завершилась. wait_s — подождать до стольких секунд. Вывод агент отдаёт один раз.",
+         "inputSchema": schema(json!({"vm": vm, "pid": n("pid в госте"), "wait_s": n("ждать завершения, с (0)")}), &["vm", "pid"])},
         {"name": "read_file", "description": "Прочитать текстовый файл гостя (до 1 МБ).", "inputSchema": schema(json!({"vm": vm, "path": s("путь в госте")}), &["vm", "path"])},
         {"name": "write_file", "description": "Записать текстовый файл в госте.", "inputSchema": schema(json!({"vm": vm, "path": s("путь в госте"), "content": {"type": "string"}}), &["vm", "path", "content"])},
         {"name": "push", "description": "Скопировать файл с этого компьютера в гостя.", "inputSchema": schema(json!({"vm": vm, "local": s("путь здесь"), "path": s("путь в госте")}), &["vm", "local", "path"])},
@@ -213,10 +216,36 @@ fn call(name: &str, a: &Value) -> Result<Value> {
                 _ => bail!("нужен command или argv"),
             };
             let input = a.get("stdin").and_then(Value::as_str).map(|s| s.as_bytes().to_vec());
+            if a.get("detach").and_then(Value::as_bool).unwrap_or(false) {
+                let pid = qga::exec_detached(&m, &argv, input.as_deref(), &[])?;
+                return Ok(text(format!("запущено, pid {pid} — итог: exec_status")));
+            }
             let mut r = qga::exec(&m, &argv, input.as_deref(), &[], Duration::from_secs(num(a, "timeout_s").unwrap_or(600.0) as u64))?;
             r.stdout = qga::decode_output(&m, std::mem::take(&mut r.stdout));
             r.stderr = qga::decode_output(&m, std::mem::take(&mut r.stderr));
             let mut s = format!("код: {}{}\n", r.code, if r.timed_out { " (не дождались, процесс работает дальше)" } else { "" });
+            if !r.stdout.is_empty() {
+                s.push_str(&format!("--- stdout ---\n{}\n", clip(&r.stdout, 60_000)));
+            }
+            if !r.stderr.is_empty() {
+                s.push_str(&format!("--- stderr ---\n{}\n", clip(&r.stderr, 20_000)));
+            }
+            Ok(json!({"content": [{"type": "text", "text": s}], "isError": r.code != 0}))
+        }
+        "exec_status" => {
+            let m = vm()?;
+            running(&m)?;
+            let pid = num(a, "pid").context("pid")? as i64;
+            let wait = num(a, "wait_s").unwrap_or(0.0);
+            let r = if wait > 0.0 {
+                Some(qga::wait_exec(&m, pid, Duration::from_secs_f64(wait))?).filter(|r| !r.timed_out)
+            } else {
+                qga::exec_status(&m, pid)?
+            };
+            let Some(mut r) = r else { return Ok(text(format!("pid {pid} ещё работает"))) };
+            r.stdout = qga::decode_output(&m, std::mem::take(&mut r.stdout));
+            r.stderr = qga::decode_output(&m, std::mem::take(&mut r.stderr));
+            let mut s = format!("код: {}\n", r.code);
             if !r.stdout.is_empty() {
                 s.push_str(&format!("--- stdout ---\n{}\n", clip(&r.stdout, 60_000)));
             }
