@@ -2,3 +2,4 @@
 /packaging/*.pkg.tar.zst
 /packaging/pkg
 /packaging/src
+/.cargo/config.toml
