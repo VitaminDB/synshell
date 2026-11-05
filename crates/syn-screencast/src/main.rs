@@ -23,6 +23,7 @@ use pipewire as pw;
 use pw::spa;
 use wayland_client::protocol::{wl_buffer, wl_output, wl_registry, wl_shm, wl_shm_pool};
 use wayland_client::{delegate_noop, Connection, Dispatch, EventQueue, QueueHandle, WEnum};
+use wayland_protocols::wp::linux_dmabuf::zv1::client::{zwp_linux_buffer_params_v1, zwp_linux_dmabuf_v1};
 use wayland_protocols_wlr::screencopy::v1::client::{zwlr_screencopy_frame_v1, zwlr_screencopy_manager_v1};
 
 type Mgr = zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1;
@@ -57,6 +58,7 @@ struct Wl {
     outputs: Vec<Out>,
     shm: Option<wl_shm::WlShm>,
     mgr: Option<Mgr>,
+    dmabuf: Option<zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1>,
     frame: FrameState,
 }
 
@@ -70,6 +72,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Wl {
                 }
                 "wl_shm" => st.shm = Some(reg.bind(name, 1, qh, ())),
                 "zwlr_screencopy_manager_v1" => st.mgr = Some(reg.bind(name, version.min(3), qh, ())),
+                "zwp_linux_dmabuf_v1" if version >= 3 => st.dmabuf = Some(reg.bind(name, 3, qh, ())),
                 _ => {}
             }
         }
@@ -116,6 +119,8 @@ delegate_noop!(Wl: ignore wl_shm::WlShm);
 delegate_noop!(Wl: ignore wl_shm_pool::WlShmPool);
 delegate_noop!(Wl: ignore wl_buffer::WlBuffer);
 delegate_noop!(Wl: ignore Mgr);
+delegate_noop!(Wl: ignore zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1);
+delegate_noop!(Wl: ignore zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1);
 
 struct Session {
     _conn: Connection,
@@ -253,12 +258,15 @@ fn screenshot(path: &str, output: &str, cursor: bool) -> Result<()> {
 
 // ─── Поток ──────────────────────────────────────────────────────────────
 
-/// Задание захватчику: заполнить буфер PipeWire (memfd `fd`, смещение, размер).
+/// Задание захватчику: заполнить буфер PipeWire.
 struct Job {
     buf: usize,
     fd: RawFd,
     offset: u32,
+    stride: u32,
     maxsize: u32,
+    /// DMA-BUF: модификатор раскладки; `None` — shm (memfd).
+    dmabuf: Option<u64>,
 }
 
 /// Ответ захватчика в цикл PipeWire.
@@ -278,8 +286,96 @@ fn spa_format(f: wl_shm::Format) -> Option<spa::param::video::VideoFormat> {
     })
 }
 
+/// Код DRM того же формата (для DMA-BUF).
+fn drm_format(f: wl_shm::Format) -> u32 {
+    let c = |s: &[u8; 4]| u32::from_le_bytes(*s);
+    match f {
+        wl_shm::Format::Argb8888 => c(b"AR24"),
+        wl_shm::Format::Xbgr8888 => c(b"XB24"),
+        wl_shm::Format::Abgr8888 => c(b"AB24"),
+        _ => c(b"XR24"),
+    }
+}
+
 fn pod(obj: spa::pod::Object) -> Vec<u8> {
     spa::pod::serialize::PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &spa::pod::Value::Object(obj)).unwrap().0.into_inner()
+}
+
+const MOD_LINEAR: u64 = 0;
+
+/// Предложение формата: с модификатором — DMA-BUF (LINEAR), без — shm.
+fn format_pod(vfmt: spa::param::video::VideoFormat, w: u32, h: u32, max_fps: u32, dmabuf: bool) -> Vec<u8> {
+    use spa::param::format::{FormatProperties as F, MediaSubtype, MediaType};
+    let mut obj = spa::pod::object!(
+        spa::utils::SpaTypes::ObjectParamFormat,
+        spa::param::ParamType::EnumFormat,
+        spa::pod::property!(F::MediaType, Id, MediaType::Video),
+        spa::pod::property!(F::MediaSubtype, Id, MediaSubtype::Raw),
+        spa::pod::property!(F::VideoFormat, Id, vfmt),
+        spa::pod::property!(F::VideoSize, Rectangle, spa::utils::Rectangle { width: w, height: h }),
+        spa::pod::property!(F::VideoFramerate, Fraction, spa::utils::Fraction { num: 0, denom: 1 }),
+        spa::pod::property!(
+            F::VideoMaxFramerate,
+            Choice,
+            Range,
+            Fraction,
+            spa::utils::Fraction { num: max_fps, denom: 1 },
+            spa::utils::Fraction { num: 1, denom: 1 },
+            spa::utils::Fraction { num: max_fps, denom: 1 }
+        ),
+    );
+    if dmabuf {
+        obj.properties.push(spa::pod::Property {
+            key: F::VideoModifier.as_raw(),
+            flags: spa::pod::PropertyFlags::MANDATORY,
+            value: spa::pod::Value::Choice(spa::pod::ChoiceValue::Long(spa::utils::Choice(
+                spa::utils::ChoiceFlags::empty(),
+                spa::utils::ChoiceEnum::Enum { default: MOD_LINEAR as i64, alternatives: vec![MOD_LINEAR as i64] },
+            ))),
+        });
+    }
+    pod(obj)
+}
+
+fn buffers_pod(size: u32, stride: u32, dmabuf: bool) -> Vec<u8> {
+    let int = |k: u32, v: i32| spa::pod::Property { key: k, flags: spa::pod::PropertyFlags::empty(), value: spa::pod::Value::Int(v) };
+    pod(spa::pod::Object {
+        type_: spa::utils::SpaTypes::ObjectParamBuffers.as_raw(),
+        id: spa::param::ParamType::Buffers.as_raw(),
+        properties: vec![
+            spa::pod::Property {
+                key: spa::sys::SPA_PARAM_BUFFERS_buffers,
+                flags: spa::pod::PropertyFlags::empty(),
+                value: spa::pod::Value::Choice(spa::pod::ChoiceValue::Int(spa::utils::Choice(
+                    spa::utils::ChoiceFlags::empty(),
+                    spa::utils::ChoiceEnum::Range { default: 4, min: 2, max: 8 },
+                ))),
+            },
+            int(spa::sys::SPA_PARAM_BUFFERS_blocks, 1),
+            int(spa::sys::SPA_PARAM_BUFFERS_size, size as i32),
+            int(spa::sys::SPA_PARAM_BUFFERS_stride, stride as i32),
+            int(spa::sys::SPA_PARAM_BUFFERS_dataType, 1 << if dmabuf { spa::sys::SPA_DATA_DmaBuf } else { spa::sys::SPA_DATA_MemFd }),
+        ],
+    })
+}
+
+/// В согласованном формате есть модификатор — значит, потребитель берёт DMA-BUF.
+fn has_modifier(param: &spa::pod::Pod) -> bool {
+    let Ok((_, v)) = spa::pod::deserialize::PodDeserializer::deserialize_any_from(param.as_bytes()) else { return false };
+    matches!(v, spa::pod::Value::Object(o) if o.properties.iter().any(|p| p.key == spa::param::format::FormatProperties::VideoModifier.as_raw()))
+}
+
+/// Устройство GBM на GPU композитора (`SYN_SCREENCAST_DRM`, иначе renderD128).
+fn gbm_device() -> Option<gbm::Device<std::fs::File>> {
+    let node = std::env::var("SYN_SCREENCAST_DRM").unwrap_or_else(|_| "/dev/dri/renderD128".into());
+    let f = std::fs::OpenOptions::new().read(true).write(true).open(&node).ok()?;
+    gbm::Device::new(f).ok()
+}
+
+/// Память буфера PipeWire, выделенная нами (флаг ALLOC_BUFFERS).
+enum Mem {
+    Shm(std::os::fd::OwnedFd),
+    Dma(gbm::BufferObject<()>, std::os::fd::OwnedFd),
 }
 
 fn stream(output: &str, cursor: bool, max_fps: u32) -> Result<()> {
@@ -289,6 +385,7 @@ fn stream(output: &str, cursor: bool, max_fps: u32) -> Result<()> {
     let (probe, (fmt, w, h, stride)) = s.begin(&out, cursor)?;
     probe.destroy();
     let vfmt = spa_format(fmt).with_context(|| format!("формат {fmt:?} не поддержан"))?;
+    let gbm = if s.st.dmabuf.is_some() { gbm_device() } else { None };
 
     pw::init();
     let mainloop = pw::main_loop::MainLoopRc::new(None)?;
@@ -312,8 +409,9 @@ fn stream(output: &str, cursor: bool, max_fps: u32) -> Result<()> {
     let (done_tx, done_rx) = pw::channel::channel::<Done>();
     let out2 = out.clone();
     let period = Duration::from_secs_f64(1.0 / max_fps.max(1) as f64);
+    let drm_fmt = drm_format(fmt);
     std::thread::spawn(move || {
-        let mut pools: std::collections::HashMap<(RawFd, u32), (wl_shm_pool::WlShmPool, wl_buffer::WlBuffer)> = Default::default();
+        let mut bufs: std::collections::HashMap<usize, (Option<wl_shm_pool::WlShmPool>, wl_buffer::WlBuffer)> = Default::default();
         let mut last = Instant::now() - period;
         let mut first = true;
         while let Ok(Some(job)) = job_rx.recv() {
@@ -322,23 +420,34 @@ fn stream(output: &str, cursor: bool, max_fps: u32) -> Result<()> {
                 if !wait.is_zero() {
                     std::thread::sleep(wait);
                 }
-                let (frame, (_, fw, fh, fstride)) = s.begin(&out2, cursor)?;
-                if (fw, fh, fstride) != (w, h, stride) {
+                let (frame, (_, fw, fh, _)) = s.begin(&out2, cursor)?;
+                if (fw, fh) != (w, h) {
                     frame.destroy();
                     bail!("размер вывода изменился ({fw}x{fh}) — начните показ заново");
                 }
-                if job.maxsize < stride * h {
-                    frame.destroy();
-                    bail!("буфер PipeWire меньше кадра");
-                }
-                let key = (job.fd, job.offset);
-                if !pools.contains_key(&key) {
+                if !bufs.contains_key(&job.buf) {
                     let fd = unsafe { BorrowedFd::borrow_raw(job.fd) };
-                    let pool = s.pool(fd, (job.offset + job.maxsize) as i32);
-                    let b = pool.create_buffer(job.offset as i32, w as i32, h as i32, stride as i32, fmt, &s.qh, ());
-                    pools.insert(key, (pool, b));
+                    let entry = match job.dmabuf {
+                        Some(modifier) => {
+                            let dm = s.st.dmabuf.as_ref().context("нет linux-dmabuf")?;
+                            let params = dm.create_params(&s.qh, ());
+                            params.add(fd, 0, job.offset, job.stride, (modifier >> 32) as u32, modifier as u32);
+                            let b = params.create_immed(w as i32, h as i32, drm_fmt, zwp_linux_buffer_params_v1::Flags::empty(), &s.qh, ());
+                            params.destroy();
+                            (None, b)
+                        }
+                        None => {
+                            if job.maxsize < stride * h {
+                                bail!("буфер PipeWire меньше кадра");
+                            }
+                            let pool = s.pool(fd, (job.offset + job.maxsize) as i32);
+                            let b = pool.create_buffer(job.offset as i32, w as i32, h as i32, stride as i32, fmt, &s.qh, ());
+                            (Some(pool), b)
+                        }
+                    };
+                    bufs.insert(job.buf, entry);
                 }
-                let buf = pools[&key].1.clone();
+                let buf = bufs[&job.buf].1.clone();
                 // Первый кадр — сразу, дальше — по изменениям на экране.
                 let ok = s.finish(&frame, &buf, !first)?;
                 first = false;
@@ -356,12 +465,14 @@ fn stream(output: &str, cursor: bool, max_fps: u32) -> Result<()> {
         }
     });
 
-    // Состояние цикла PipeWire.
     struct Loop {
         busy: bool,
         announced: bool,
+        /// Потребитель взял DMA-BUF (по согласованному формату).
+        dmabuf: bool,
+        mem: std::collections::HashMap<usize, (Mem, u32)>,
     }
-    let state = std::rc::Rc::new(std::cell::RefCell::new(Loop { busy: false, announced: false }));
+    let state = std::rc::Rc::new(std::cell::RefCell::new(Loop { busy: false, announced: false, dmabuf: false, mem: Default::default() }));
     let job_tx = std::rc::Rc::new(job_tx);
 
     // Взять свободный буфер и отдать захватчику.
@@ -377,14 +488,20 @@ fn stream(output: &str, cursor: bool, max_fps: u32) -> Result<()> {
             if raw.is_null() {
                 return;
             }
-            let d = unsafe { &*(*(*raw).buffer).datas };
-            if d.type_ != spa::sys::SPA_DATA_MemFd || d.fd < 0 {
-                eprintln!("syn-screencast: буфер не memfd ({})", d.type_);
+            let st = state.borrow();
+            let Some((mem, stride)) = st.mem.get(&(raw as usize)) else {
+                drop(st);
                 unsafe { stream.queue_raw_buffer(raw) };
                 return;
-            }
+            };
+            use std::os::fd::AsRawFd;
+            let job = match mem {
+                Mem::Shm(fd) => Job { buf: raw as usize, fd: fd.as_raw_fd(), offset: 0, stride: *stride, maxsize: stride * h, dmabuf: None },
+                Mem::Dma(bo, fd) => Job { buf: raw as usize, fd: fd.as_raw_fd(), offset: bo.offset(0), stride: *stride, maxsize: stride * h, dmabuf: Some(u64::from(bo.modifier())) },
+            };
+            drop(st);
             state.borrow_mut().busy = true;
-            let _ = job_tx.send(Some(Job { buf: raw as usize, fd: d.fd as RawFd, offset: d.mapoffset, maxsize: d.maxsize }));
+            let _ = job_tx.send(Some(job));
         }
     };
     let request = std::rc::Rc::new(request);
@@ -397,6 +514,7 @@ fn stream(output: &str, cursor: bool, max_fps: u32) -> Result<()> {
         move |msg| match msg {
             Done::Frame { buf, ok } => {
                 let raw = buf as *mut pw::sys::pw_buffer;
+                let stride = state.borrow().mem.get(&buf).map(|m| m.1).unwrap_or(stride);
                 unsafe {
                     let d = &mut *(*(*raw).buffer).datas;
                     let c = &mut *d.chunk;
@@ -418,6 +536,7 @@ fn stream(output: &str, cursor: bool, max_fps: u32) -> Result<()> {
     });
 
     let ml2 = mainloop.clone();
+    let gbm = std::rc::Rc::new(gbm);
     let _listener = stream
         .add_local_listener::<()>()
         .state_changed({
@@ -440,52 +559,91 @@ fn stream(output: &str, cursor: bool, max_fps: u32) -> Result<()> {
                 _ => {}
             }
         })
+        .param_changed({
+            let state = state.clone();
+            let gbm = gbm.clone();
+            move |s, _, id, param| {
+                let Some(param) = param else { return };
+                if id != spa::param::ParamType::Format.as_raw() {
+                    return;
+                }
+                let dma = has_modifier(param) && gbm.is_some();
+                state.borrow_mut().dmabuf = dma;
+                // Шаг строки DMA-BUF узнаётся только у выделенного буфера — пробный.
+                let dstride = if dma {
+                    gbm.as_ref().as_ref().and_then(|g| g.create_buffer_object::<()>(w, h, gbm::Format::Xrgb8888, gbm::BufferObjectFlags::RENDERING | gbm::BufferObjectFlags::LINEAR).ok()).map(|b| b.stride()).unwrap_or(stride)
+                } else {
+                    stride
+                };
+                let b = buffers_pod(dstride * h, dstride, dma);
+                let mut params = [spa::pod::Pod::from_bytes(&b).unwrap()];
+                let _ = s.update_params(&mut params);
+                eprintln!("syn-screencast: {}", if dma { "DMA-BUF (LINEAR)" } else { "shm (memfd)" });
+            }
+        })
+        .add_buffer({
+            let state = state.clone();
+            let gbm = gbm.clone();
+            move |_, _, raw| {
+                let dma = state.borrow().dmabuf;
+                let r = (|| -> Result<(Mem, u32)> {
+                    if dma {
+                        let g = gbm.as_ref().as_ref().context("нет GBM")?;
+                        let bo = g.create_buffer_object::<()>(w, h, gbm::Format::Xrgb8888, gbm::BufferObjectFlags::RENDERING | gbm::BufferObjectFlags::LINEAR)?;
+                        let fd = bo.fd_for_plane(0)?;
+                        let st = bo.stride();
+                        Ok((Mem::Dma(bo, fd), st))
+                    } else {
+                        Ok((Mem::Shm(memfd((stride * h) as usize)?), stride))
+                    }
+                })();
+                let Ok((mem, st)) = r.map_err(|e| eprintln!("syn-screencast: буфер: {e}")) else { return };
+                use std::os::fd::AsRawFd;
+                unsafe {
+                    let d = &mut *(*(*raw).buffer).datas;
+                    match &mem {
+                        Mem::Shm(fd) => {
+                            d.type_ = spa::sys::SPA_DATA_MemFd;
+                            d.fd = fd.as_raw_fd() as i64;
+                            d.mapoffset = 0;
+                        }
+                        Mem::Dma(bo, fd) => {
+                            d.type_ = spa::sys::SPA_DATA_DmaBuf;
+                            d.fd = fd.as_raw_fd() as i64;
+                            d.mapoffset = bo.offset(0);
+                        }
+                    }
+                    d.flags = spa::sys::SPA_DATA_FLAG_READWRITE;
+                    d.maxsize = st * h;
+                    d.data = std::ptr::null_mut();
+                    let c = &mut *d.chunk;
+                    c.offset = 0;
+                    c.stride = st as i32;
+                    c.size = st * h;
+                }
+                state.borrow_mut().mem.insert(raw as usize, (mem, st));
+            }
+        })
+        .remove_buffer({
+            let state = state.clone();
+            move |_, _, raw| {
+                state.borrow_mut().mem.remove(&(raw as usize));
+            }
+        })
         .process({
             let request = request.clone();
             move |_, _| request()
         })
         .register()?;
 
-    use spa::param::format::{FormatProperties as F, MediaSubtype, MediaType};
-    let format = pod(spa::pod::object!(
-        spa::utils::SpaTypes::ObjectParamFormat,
-        spa::param::ParamType::EnumFormat,
-        spa::pod::property!(F::MediaType, Id, MediaType::Video),
-        spa::pod::property!(F::MediaSubtype, Id, MediaSubtype::Raw),
-        spa::pod::property!(F::VideoFormat, Id, vfmt),
-        spa::pod::property!(F::VideoSize, Rectangle, spa::utils::Rectangle { width: w, height: h }),
-        spa::pod::property!(F::VideoFramerate, Fraction, spa::utils::Fraction { num: 0, denom: 1 }),
-        spa::pod::property!(
-            F::VideoMaxFramerate,
-            Choice,
-            Range,
-            Fraction,
-            spa::utils::Fraction { num: max_fps, denom: 1 },
-            spa::utils::Fraction { num: 1, denom: 1 },
-            spa::utils::Fraction { num: max_fps, denom: 1 }
-        ),
-    ));
-    let int = |k: u32, v: i32| spa::pod::Property { key: k, flags: spa::pod::PropertyFlags::empty(), value: spa::pod::Value::Int(v) };
-    let buffers = pod(spa::pod::Object {
-        type_: spa::utils::SpaTypes::ObjectParamBuffers.as_raw(),
-        id: spa::param::ParamType::Buffers.as_raw(),
-        properties: vec![
-            spa::pod::Property {
-                key: spa::sys::SPA_PARAM_BUFFERS_buffers,
-                flags: spa::pod::PropertyFlags::empty(),
-                value: spa::pod::Value::Choice(spa::pod::ChoiceValue::Int(spa::utils::Choice(
-                    spa::utils::ChoiceFlags::empty(),
-                    spa::utils::ChoiceEnum::Range { default: 4, min: 2, max: 8 },
-                ))),
-            },
-            int(spa::sys::SPA_PARAM_BUFFERS_blocks, 1),
-            int(spa::sys::SPA_PARAM_BUFFERS_size, (stride * h) as i32),
-            int(spa::sys::SPA_PARAM_BUFFERS_stride, stride as i32),
-            int(spa::sys::SPA_PARAM_BUFFERS_dataType, 1 << spa::sys::SPA_DATA_MemFd),
-        ],
-    });
-    let mut params = [spa::pod::Pod::from_bytes(&format).unwrap(), spa::pod::Pod::from_bytes(&buffers).unwrap()];
-    stream.connect(spa::utils::Direction::Output, None, pw::stream::StreamFlags::DRIVER | pw::stream::StreamFlags::AUTOCONNECT, &mut params)?;
+    // Сначала DMA-BUF (если есть GBM), запасной — shm.
+    let mut fmts: Vec<Vec<u8>> = Vec::new();
+    if gbm.is_some() {
+        fmts.push(format_pod(vfmt, w, h, max_fps, true));
+    }
+    fmts.push(format_pod(vfmt, w, h, max_fps, false));
+    let mut params: Vec<&spa::pod::Pod> = fmts.iter().map(|b| spa::pod::Pod::from_bytes(b).unwrap()).collect();
+    stream.connect(spa::utils::Direction::Output, None, pw::stream::StreamFlags::DRIVER | pw::stream::StreamFlags::ALLOC_BUFFERS | pw::stream::StreamFlags::AUTOCONNECT, &mut params)?;
 
     // Конец — закрытие stdin (портал закрыл сеанс).
     let ml3 = mainloop.clone();

@@ -7121,6 +7121,7 @@ name = "syn-screencast"
 version = "0.1.42"
 dependencies = [
  "anyhow",
+ "gbm",
  "image",
  "libc",
  "pipewire",

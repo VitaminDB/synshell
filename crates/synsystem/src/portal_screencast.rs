@@ -185,7 +185,7 @@ impl Session {
     #[zbus(signal)]
     async fn closed(emitter: &zbus::object_server::SignalEmitter<'_>) -> zbus::Result<()>;
 
-    #[zbus(property)]
+    #[zbus(property, name = "version")]
     fn version(&self) -> u32 {
         1
     }
@@ -337,7 +337,7 @@ impl ScreenCast {
         CURSOR_HIDDEN | CURSOR_EMBEDDED
     }
 
-    #[zbus(property)]
+    #[zbus(property, name = "version")]
     fn version(&self) -> u32 {
         4
     }
@@ -404,7 +404,7 @@ impl Screenshot {
         (RESPONSE_OTHER, HashMap::new())
     }
 
-    #[zbus(property)]
+    #[zbus(property, name = "version")]
     fn version(&self) -> u32 {
         2
     }
