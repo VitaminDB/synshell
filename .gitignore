@@ -3,3 +3,4 @@
 /packaging/pkg
 /packaging/src
 /.cargo/config.toml
+/packaging/aur

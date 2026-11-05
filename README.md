@@ -80,19 +80,31 @@ tested.
 
 ## Build and run
 
-synshell path-depends on syngui, so check both repositories out next to each other:
+syngui and synaptix are pulled from GitHub as git dependencies, so a plain clone builds on its own:
 
 ```sh
-git clone https://github.com/VitaminDB/syngui
 git clone https://github.com/VitaminDB/synshell
 cd synshell
 cargo build --profile fast-release        # quick local build → target/fast-release
 cargo build --release                     # LTO build → target/release
 ```
 
+Working on syngui or synaptix at the same time? Check them out next to synshell and point Cargo
+at the local copies with an untracked `.cargo/config.toml` in the synshell root:
+
+```toml
+[patch."https://github.com/VitaminDB/syngui.git"]
+syngui = { path = "../syngui/syngui" }
+mss-analysis = { path = "../syngui/mss-analysis" }
+
+[patch."https://github.com/VitaminDB/synaptix.git"]
+synaptix = { path = "../synaptix/crates/synaptix" }
+# …one line per synaptix crate listed in Cargo.toml
+```
+
 The workspace sets `rust-version = "1.85"`. Build and runtime dependencies (Arch package names):
 mesa, libinput, seatd, systemd-libs, libxkbcommon, libdrm, vulkan-icd-loader, fontconfig,
-freetype2, dbus. Optional ones — xorg-xwayland, wireplumber, brightnessctl, networkmanager,
+freetype2, a font (`ttf-font`), dbus, ffmpeg, sqlite, libarchive, pipewire, xdg-desktop-portal. Optional ones — xorg-xwayland, wireplumber, brightnessctl, networkmanager,
 playerctl, wl-clipboard, ffmpegthumbnailer, libheif, imagemagick,
 breeze-icons — are listed with their purpose in the [PKGBUILD](packaging/PKGBUILD).
 
@@ -116,15 +128,29 @@ SYNSHELL_CONFIG_DIR=/tmp/synshell-test PATH="$PWD/target/fast-release:$PATH" \
     target/fast-release/synwm --nested
 ```
 
-**As a real session** on Arch Linux:
+**As a real session** on Arch Linux — one build produces separate packages, install what you need:
 
 ```sh
-cd packaging && makepkg -si                   # release build
-cd packaging && SYNSHELL_PROFILE=fast-release makepkg -si   # faster local build
+cd packaging && makepkg -f                                   # release build (LTO)
+cd packaging && SYNSHELL_PROFILE=fast-release makepkg -f     # faster local build
+sudo pacman -U synshell-core-*.pkg.tar.zst                   # the minimum: a working desktop
+sudo pacman -U ./*.pkg.tar.zst                               # or everything
 ```
 
-then pick “synshell” in your display manager. The package installs the binaries, the session
-file, a PAM file for the lock screen, portal configuration and the `.desktop` files.
+| Package | Contents |
+|---|---|
+| `synshell-core` | compositor synwm, desktop shell, login screen synlogin, on-screen keyboard, screenshots and screen sharing portal, settings, file manager, terminal, software centre synpkg |
+| `synshell-mobile` | phone shell and phone services: modem (calls, SMS, data), NFC, compass, step counter |
+| `synshell-game` | game mode shell and on-screen game controller |
+| `synshell-link` | link between computer and phone: screen, input, files, notifications (synlink) |
+| `synshell-ai` | assistant (needs the `synaptix` service) |
+| `synaptix` | neural network service synaptixd — one package for every device: NVIDIA GPU, Intel NPU or CPU (CUDA and NPU are loaded at run time) |
+| `syn-notes`, `syn-vm`, `syn-video-player`, `syn-audio-player`, `syn-audio-recorder`, `synpass`, `syn-maps`, `syn-remote`, `syn-systeminfo`, `syn-themeeditor`, `syn-woman-cycle`, `syndroid`, `syn-wine-helper`, `syncamera`, `syn-blocks` | applications, one package each (group `synshell-apps`) |
+| `mss-lsp` | language server for syngui MSS stylesheets |
+| `synshell` | meta package: core plus the applications above, without neural networks |
+
+Then pick “synshell” in your display manager, or let the bundled login screen take over: on a
+system without another display manager `synshell-core` enables `synlogin.service`.
 
 Logs go to `~/.local/state/synshell/` (`synwm.log`, `shell.log`).
 
