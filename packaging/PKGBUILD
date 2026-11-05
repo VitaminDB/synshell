@@ -7,7 +7,9 @@
 #   synshell-game   — игровой режим и экранный контроллер;
 #   synshell-link   — связь компьютера и телефона (synlink);
 #   synshell-ai     — ассистент (нужна служба нейросетей synaptix);
-#   synaptix        — служба нейросетей synaptixd (CUDA, NPU); позже уедет в репозиторий synaptix;
+#   synaptix        — служба нейросетей synaptixd: один пакет на все устройства — CUDA и NPU
+#                     подгружаются во время работы (CUDA Toolkit для сборки не нужен), без NVIDIA
+#                     служба работает на процессоре;
 #   syn-*           — приложения, каждое отдельно (группа synshell-apps);
 #   mss-lsp         — языковой сервер MSS (syngui);
 #   synshell        — метапакет: core и приложения «как у автора», без нейросетей.
@@ -17,7 +19,7 @@ pkgname=(synshell synshell-core synshell-mobile synshell-game synshell-link syns
          syn-remote syn-systeminfo syn-themeeditor syn-woman-cycle syndroid syn-wine-helper
          syncamera syn-blocks syn-epdtest mss-lsp)
 pkgver=0.1.42
-pkgrel=183
+pkgrel=184
 pkgdesc="Окружение рабочего стола для Wayland на Rust и syngui"
 arch=('x86_64' 'aarch64')
 url="https://github.com/VitaminDB/synshell"
@@ -209,10 +211,10 @@ package_synshell-ai() {
 }
 
 package_synaptix() {
-    pkgdesc="Служба нейросетей synaptix: языковые модели, речь, картинки и видео для всех программ (CUDA, NPU, процессор)"
+    pkgdesc="Служба нейросетей synaptix: языковые модели, речь, картинки и видео для всех программ — на видеокарте NVIDIA, Intel NPU или процессоре"
     depends=('gcc-libs')
-    optdepends=('cuda: нейросети на видеокартах NVIDIA'
-                'nvidia-utils: драйвер NVIDIA'
+    optdepends=('nvidia-utils: драйвер NVIDIA (libcuda) — нейросети на видеокарте'
+                'cuda: компилятор ядер NVRTC для видеокарты NVIDIA'
                 'openvino-intel-npu-plugin: нейросети на Intel NPU (Core Ultra), вместе с intel-npu-driver и intel-npu-compiler'
                 'intel-npu-driver: драйвер Intel NPU'
                 'intel-npu-compiler: компилятор графов Intel NPU')
