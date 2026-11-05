@@ -315,10 +315,69 @@ fn cli(args: &[String]) -> Result<()> {
                 req(&Request::PairReply { device: d.clone(), accept: a == "accept" })?;
             }
             _ => {
-                req(&Request::Pair { device: dev(args)? })?;
+                let d = dev(args)?;
+                // Подписаться до запроса, чтобы не пропустить итог; ждать его с отсчётом.
+                let events = link::Client::connect()?.subscribe()?;
+                let (etx, erx) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    for e in events {
+                        if etx.send(e).is_err() {
+                            break;
+                        }
+                    }
+                });
+                req(&Request::Pair { device: d.clone() })?;
                 println!("{}", t!("запрос отправлен — подтвердите на устройстве (сверьте код)"));
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(100);
+                loop {
+                    let left = deadline.saturating_duration_since(std::time::Instant::now()).as_secs();
+                    if left == 0 {
+                        eprintln!("\r{}", t!("нет ответа — спаривание не состоялось"));
+                        std::process::exit(1);
+                    }
+                    eprint!("\r{}   ", t!("ждём подтверждения на устройстве… {s} с", s = left));
+                    match erx.recv_timeout(std::time::Duration::from_secs(1)) {
+                        Ok(Ok(link::Event::Paired { device, name, ok, message })) if device == d || device.starts_with(&d) || name == d => {
+                            eprint!("\r{}\r", " ".repeat(60));
+                            if ok {
+                                println!("{}", t!("спарено с «{name}»", name = name));
+                                break;
+                            }
+                            eprintln!("{}", t!("не спарено: {why}", why = message.unwrap_or_default()));
+                            std::process::exit(1);
+                        }
+                        Ok(Err(e)) => return Err(e.into()),
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => bail!("{}", t!("нет связи с synlink")),
+                        _ => {}
+                    }
+                }
             }
         },
+        "unpair" if args.get(1).map(String::as_str) == Some("--stale") => {
+            // Устаревшие спаривания: у одного устройства (имя и вид) после переустановки — новые id;
+            // остаётся соединённое или последнее увиденное, прочие забываются.
+            let Response::Status { status } = req(&Request::Status)? else { bail!("{}", t!("нет состояния")) };
+            let mut groups: std::collections::BTreeMap<(String, String), Vec<link::PeerInfo>> = Default::default();
+            for p in status.peers.into_iter().filter(|p| p.paired) {
+                groups.entry((p.name.clone(), format!("{:?}", p.kind))).or_default().push(p);
+            }
+            let mut n = 0;
+            for (_, mut list) in groups {
+                if list.len() < 2 {
+                    continue;
+                }
+                list.sort_by_key(|p| (p.connected, p.last_seen.unwrap_or(0)));
+                list.pop();
+                for p in list {
+                    req(&Request::Unpair { device: p.id.clone() })?;
+                    println!("{}", t!("забыто: «{name}» ({id})", name = p.name, id = &p.id[..8.min(p.id.len())]));
+                    n += 1;
+                }
+            }
+            if n == 0 {
+                println!("{}", t!("устаревших спариваний нет"));
+            }
+        }
         "unpair" => {
             req(&Request::Unpair { device: dev(args)? })?;
         }

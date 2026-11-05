@@ -306,11 +306,16 @@ fn card_body(p: PeerInfo, compact: bool, over: bool) -> impl Widget {
         col = col.child(actions);
     } else if !p.paired {
         let id = p.id.clone();
+        let (name, kind) = (p.name.clone(), p.kind);
         col = col.child(
             Row::new()
                 .gap(8.0)
                 .child(Text::new(t!("Не спарено — на устройстве появится код для сверки")).max_lines(2).class("link-note grow"))
-                .child(small_button(&t!("Спарить"), true, move || send(Request::Pair { device: id.clone() }))),
+                .child(small_button(&t!("Спарить"), true, move || {
+                    // Сразу видно, что нажатие принято; итог («спарено» или причина) — следом.
+                    crate::osd::show(ShellCtx::get(), kind_glyph(kind), None, t!("{name} · соединяю…", name = name));
+                    send(Request::Pair { device: id.clone() });
+                })),
         );
     }
     DecoratedBox::new().child(col).class(match (p.connected, over) {

@@ -559,6 +559,7 @@
 "Терминал" = "Terminal"
 "Не спарено — на устройстве появится код для сверки" = "Non associé — un code de vérification apparaîtra sur l’appareil"
 "Спарить" = "Associer"
+"{name} · соединяю…" = "{name} · connexion…"
 "Отправлено на {name}" = "Envoyé à {name}"
 "Сеть Wi-Fi изолирует устройства" = "Le réseau Wi-Fi isole les appareils"
 "Кроме роутера, в сети никого не видно — так обычно устроены гостевые сети. Подключитесь к другой сети, к точке доступа телефона или кабелем USB." = "Seul le routeur est visible sur le réseau — c’est généralement le cas des réseaux invités. Connectez-vous à un autre réseau, au point d’accès du téléphone ou par câble USB."

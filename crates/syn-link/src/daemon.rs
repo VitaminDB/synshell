@@ -514,7 +514,16 @@ impl Daemon {
     }
 
     pub fn pair_reply(&self, id: &str, accept: bool) -> Result<()> {
-        let tx = self.st.lock().unwrap().waiters.remove(id).with_context(|| t!("нет запроса спаривания"))?;
+        let tx = {
+            let mut st = self.st.lock().unwrap();
+            // Полный id или его начало (synlink status показывает первые 8 знаков), или имя.
+            let key = st
+                .waiters
+                .keys()
+                .find(|k| k.as_str() == id || (id.len() >= 4 && k.starts_with(id)) || st.prompts.iter().any(|p| &p.id == *k && p.name == id))
+                .cloned();
+            key.and_then(|k| st.waiters.remove(&k)).with_context(|| t!("нет запроса спаривания"))?
+        };
         let _ = tx.send(accept);
         Ok(())
     }
@@ -812,6 +821,9 @@ impl Daemon {
             Decide::Accept => true,
             Decide::Reject(why) => {
                 let _ = proto::send(tx, &Ctl::PairReject(synshell_tr::t(why))).await;
+                // Дать причине дойти: иначе та сторона видит только «closed by peer: reject».
+                let _ = tx.finish();
+                tokio::time::sleep(Duration::from_millis(400)).await;
                 conn.close(0u32.into(), b"reject");
                 bail!("{}", t!("спаривание отклонено: {why}", why = why));
             }
@@ -833,9 +845,23 @@ impl Daemon {
             }
         };
         proto::send(tx, &if mine { Ctl::PairAccept } else { Ctl::PairReject(t!("пользователь отказал").into()) }).await?;
+        let paired_elsewhere = async {
+            loop {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                if self.st.lock().unwrap().peers.peers.contains_key(&pid) {
+                    return;
+                }
+            }
+        };
         let theirs = tokio::select! {
             r = proto::recv::<Ctl>(rx) => r?,
             _ = tokio::time::sleep(Duration::from_secs(100)) => None,
+            // Встречное спаривание уже удалось — этой попытке ждать нечего.
+            _ = paired_elsewhere => {
+                self.drop_prompt(&pid);
+                conn.close(0u32.into(), b"paired");
+                bail!("{}", t!("уже спарено"));
+            }
         };
         self.drop_prompt(&pid);
         let ok = mine && matches!(theirs, Some(Ctl::PairAccept));
