@@ -12,6 +12,7 @@ mod cli;
 mod devices;
 mod mcp;
 mod qga;
+mod record;
 mod keymap;
 mod model;
 mod qemu;

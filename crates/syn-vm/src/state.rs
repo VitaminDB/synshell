@@ -71,6 +71,7 @@ pub mod icons {
     pub const SYNC: &str = "\u{E627}";
     pub const LAYERS: &str = "\u{E53B}";
     pub const HOURGLASS: &str = "\u{E88B}";
+    pub const RECORD: &str = "\u{E061}";
 }
 
 /// Состояние машины.
@@ -121,6 +122,8 @@ pub struct Live {
     pub since: u64,
     pub cpu_hist: Vec<f32>,
     pub mem_hist: Vec<f32>,
+    /// Идёт запись экрана: с какого времени (Unix), 0 — нет.
+    pub rec_since: u64,
 }
 
 /// Вкладки машины.
@@ -565,6 +568,27 @@ pub fn refresh_guest(st: St) {
     });
 }
 
+/// Начать или остановить запись экрана машины (файл — в «Видео/Записи экрана»).
+pub fn toggle_record(st: St, id: &str) {
+    let Some(vm) = st.vm(id) else { return };
+    let recording = st.live.get_untracked().get(id).is_some_and(|l| l.rec_since > 0);
+    let label = if recording { t!("Сохранение записи…") } else { t!("Запуск записи…") };
+    background(st, id, label, move || {
+        if recording {
+            let i = crate::record::stop(&vm)?;
+            let s = i.done.unwrap_or_default();
+            if !s.error.is_empty() {
+                anyhow::bail!("{}", s.error);
+            }
+            Ok(Some(t!("Запись сохранена: {p} ({d} с)", p = i.path, d = format!("{:.0}", s.seconds))))
+        } else {
+            let o = crate::record::Opts { out: crate::record::default_path(&vm), fps: 30, audio: vm.sound, duration: None };
+            crate::record::start(&vm, &o)?;
+            Ok(Some(t!("Идёт запись экрана")))
+        }
+    });
+}
+
 // ─── Экран ──────────────────────────────────────────────────────────────
 
 /// Сеанс экрана машины (если подключён).
@@ -824,7 +848,8 @@ pub fn start_poller(st: St) {
                         }
                     }
                     let s = *since.entry(vm.id.clone()).or_insert_with(|| process_start(pid).unwrap_or_else(model::now));
-                    out.insert(vm.id.clone(), Live { power, cpu, rss: ps.rss, disk_rate, since: s, cpu_hist: h.0.clone(), mem_hist: h.1.clone() });
+                    let rec_since = crate::record::status(vm).map(|i| i.started).unwrap_or(0);
+                    out.insert(vm.id.clone(), Live { power, cpu, rss: ps.rss, disk_rate, since: s, cpu_hist: h.0.clone(), mem_hist: h.1.clone(), rec_since });
 
                     // Миниатюра: последний кадр сохраняется в папке машины.
                     if tick % 3 == 0 && power == Power::Running {

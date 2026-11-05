@@ -61,6 +61,11 @@ syn-vm — виртуальные машины QEMU/KVM
   --cdrom МАШИНА ОБРАЗ|eject             образ в приводе
   --tools МАШИНА [on|off|download|ОБРАЗ.iso]  диск «Гостевые инструменты» (virtio-win)
 
+Запись экрана гостя (родное разрешение, ровная частота, ffmpeg: NVENC/VAAPI/x264):
+  --record МАШИНА [ФАЙЛ.mp4] [--fps 30|60] [--audio|--no-audio] [--duration СЕК]
+                                          без --duration — в фоне до --record-stop; звук — если он включён у машины
+  --record-stop МАШИНА                   остановить, дождаться файла, итог
+
 Прочее:
   --snapshot МАШИНА list|create|restore|delete [ИМЯ]
   --qmp МАШИНА КОМАНДА [JSON]            сырая команда QMP
@@ -88,7 +93,7 @@ struct Args {
     tail: Vec<String>,
 }
 
-const FLAGS: &[&str] = &["--raw", "--public", "--json", "--force", "--yes", "--stdin", "--right", "--middle", "--double", "--move", "--wait-boot"];
+const FLAGS: &[&str] = &["--audio", "--no-audio", "--raw", "--public", "--json", "--force", "--yes", "--stdin", "--right", "--middle", "--double", "--move", "--wait-boot"];
 
 impl Args {
     fn parse(v: Vec<String>) -> Args {
@@ -138,7 +143,7 @@ pub fn run(cmd: &str, rest: Vec<String>) -> Option<i32> {
     let known = [
         "--list", "--status", "--start", "--stop", "--kill", "--reset", "--pause", "--resume", "--wait-boot", "--new", "--delete", "--get", "--set", "--exec", "--sh", "--push",
         "--pull", "--agent", "--sync-time", "--screendump", "--type", "--key", "--click", "--scroll", "--devices", "--usb", "--attach", "--detach", "--cdrom", "--tools", "--snapshot",
-        "--qmp", "--mcp", "--vfio-helper", "--vfio-watch",
+        "--qmp", "--mcp", "--vfio-helper", "--vfio-watch", "--record", "--record-stop", "--record-run",
     ];
     if !known.contains(&cmd) {
         return None;
@@ -147,6 +152,20 @@ pub fn run(cmd: &str, rest: Vec<String>) -> Option<i32> {
     let r = match cmd {
         "--mcp" => crate::mcp::run().map(|_| 0),
         "--vfio-helper" => devices::vfio_helper(&rest).map(|_| 0),
+        "--record-run" => (|| -> Result<i32> {
+            let vm = find(rest.first().context("МАШИНА")?)?;
+            let dur: f64 = rest.get(4).and_then(|s| s.parse().ok()).unwrap_or(0.0);
+            crate::record::run(
+                &vm,
+                crate::record::Opts {
+                    out: PathBuf::from(rest.get(1).context("ФАЙЛ")?),
+                    fps: rest.get(2).and_then(|s| s.parse().ok()).unwrap_or(30),
+                    audio: rest.get(3).is_some_and(|s| s == "1"),
+                    duration: (dur > 0.0).then(|| Duration::from_secs_f64(dur)),
+                },
+            )?;
+            Ok(0)
+        })(),
         "--vfio-watch" => find(rest.first().map(String::as_str).unwrap_or("")).map(|vm| {
             devices::vfio_watch(&vm);
             0
@@ -470,6 +489,35 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             }
             Ok(0)
         }
+        "--record" => {
+            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let out = match a.pos.get(1) {
+                Some(p) => absolute(p)?,
+                None => crate::record::default_path(&vm),
+            };
+            let o = crate::record::Opts {
+                out,
+                fps: a.get("--fps").and_then(|s| s.parse().ok()).unwrap_or(30),
+                audio: a.has("--audio") || (vm.sound && !a.has("--no-audio")),
+                duration: a.get("--duration").and_then(|s| s.parse::<f64>().ok()).map(Duration::from_secs_f64),
+            };
+            let wait = o.duration.is_some();
+            let i = crate::record::start(&vm, &o)?;
+            println!("запись: {} ({}x{}, {} к/с, {}{})", i.path, i.size.0, i.size.1, i.fps, i.encoder, if i.audio { ", со звуком" } else { "" });
+            if wait {
+                let d = crate::record::wait(&vm)?;
+                print_record(&d);
+            } else {
+                println!("остановить: syn-vm --record-stop {}", vm.id);
+            }
+            Ok(0)
+        }
+        "--record-stop" => {
+            let vm = find(&a.pos(0, "МАШИНА")?)?;
+            let d = crate::record::stop(&vm)?;
+            print_record(&d);
+            Ok(if d.done.as_ref().is_some_and(|s| s.error.is_empty()) { 0 } else { 1 })
+        }
         "--snapshot" => {
             let vm = find(&a.pos(0, "МАШИНА")?)?;
             let op = a.pos(1, "list|create|restore|delete")?;
@@ -486,6 +534,31 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
         }
         _ => bail!("неизвестная команда {cmd}"),
     }
+}
+
+pub fn record_summary(i: &crate::record::Info) -> String {
+    match &i.done {
+        Some(s) => format!(
+            "{}: {:.1} с, {} кадров ({} к/с, {}x{}, {}), от гостя {} обновлений, повторов из-за задержек {}, звук {:.1} с, {}{}",
+            i.path,
+            s.seconds,
+            s.frames,
+            i.fps,
+            i.size.0,
+            i.size.1,
+            i.encoder,
+            s.updates,
+            s.late,
+            s.audio_seconds,
+            if s.bytes >= 1_000_000 { format!("{:.1} МБ", s.bytes as f64 / 1e6) } else { format!("{} КБ", s.bytes / 1000) },
+            if s.error.is_empty() { String::new() } else { format!("\nошибка: {}", s.error) }
+        ),
+        None => format!("{}: идёт запись", i.path),
+    }
+}
+
+fn print_record(i: &crate::record::Info) {
+    println!("{}", record_summary(i));
 }
 
 // ─── Действия (общие с MCP) ─────────────────────────────────────────────

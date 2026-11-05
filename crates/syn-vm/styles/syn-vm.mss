@@ -398,3 +398,9 @@ CircularProgress { color: var(--accent); accent-color: var(--accent); }
 /* ── Устройства компьютера ─────────────────────────────────── */
 .group-title { margin-top: 8px; color: var(--muted); font-size: 12px; }
 .row-hint.warn { color: var(--warning); }
+
+/* ── Запись экрана ─────────────────────────────────────────── */
+.rec-pill { padding: 5px 10px; border-radius: 999px; background-color: var(--danger); margin: 0px 2px; }
+.rec-dot { width: 8px; height: 8px; border-radius: 4px; background-color: #ffffff; }
+.rec-time { font-size: 12px; font-weight: 700; color: #ffffff; font-feature-settings: "tnum"; }
+.rec-stop { icon-size: 16px; icon-color: #ffffff; }

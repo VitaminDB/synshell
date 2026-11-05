@@ -163,6 +163,28 @@ fn combo(id: &str, keys: &[u32]) {
     }
 }
 
+/// Запись экрана гостя: точка — начать; идёт запись — красная плашка со временем, нажатие — остановить.
+/// Нажатие ловится снаружи перестраиваемой части: время обновляется каждую секунду, и
+/// жест внутри неё терялся бы, попав на перестройку.
+fn record_button(st: St, id: String) -> W {
+    let id2 = id.clone();
+    let face = Reactive::new(move || -> Vec<W> {
+        let since = st.live.get().get(&id).map(|l| l.rec_since).unwrap_or(0);
+        if since == 0 {
+            return vec![boxed(DecoratedBox::new().child(Icon::new(icons::RECORD).class("ibtn-icon")).class("ibtn"))];
+        }
+        let secs = crate::model::now().saturating_sub(since);
+        let label = format!("{}:{:02}", secs / 60, secs % 60);
+        vec![boxed(
+            DecoratedBox::new()
+                .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class("rec-dot")).child(Text::new(label).class("rec-time")).child(Icon::new(icons::STOP).class("rec-stop")))
+                .class("rec-pill"),
+        )]
+    });
+    let b = GestureDetector::new().cursor(CursorIcon::Pointer).on_click(move || state::toggle_record(st, &id2)).child(face);
+    boxed(Tooltip::new(b, t!("Запись экрана гостя в видео (Видео/Записи экрана)")).delay_ms(500))
+}
+
 fn toolbar(st: St, id: &str, full: bool) -> W {
     let (a, b, c, d) = (id.to_string(), id.to_string(), id.to_string(), id.to_string());
     let auto = st.vm(id).map(|v| v.auto_resize).unwrap_or(true);
@@ -175,6 +197,7 @@ fn toolbar(st: St, id: &str, full: bool) -> W {
         .child(DecoratedBox::new().class("vsep"))
         .child(icon_btn(icons::PASTE, t!("Напечатать текст из буфера (Ctrl+Alt+V)"), move || type_clipboard(&b)))
         .child(icon_btn(icons::CAMERA, t!("Снимок экрана"), move || state::screenshot(st, &c)))
+        .child(record_button(st, id.to_string()))
         .child(icon_btn(
             icons::FIT,
             if auto { t!("Разрешение под окно: включено") } else { t!("Разрешение под окно: выключено") },

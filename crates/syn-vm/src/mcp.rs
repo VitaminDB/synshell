@@ -122,6 +122,9 @@ fn tools() -> Value {
          "inputSchema": schema(json!({"vm": vm, "action": {"type": "string", "enum": ["on", "off", "download"]}}), &["vm"])},
         {"name": "snapshot", "description": "Снимки: list, create, restore, delete.",
          "inputSchema": schema(json!({"vm": vm, "action": {"type": "string", "enum": ["list", "create", "restore", "delete"]}, "name": s("имя снимка")}), &["vm", "action"])},
+        {"name": "record", "description": "Запись экрана гостя в видео (родное разрешение, ровная частота, ffmpeg NVENC/VAAPI/x264, звук гостя). start — начать (с duration_s — записать столько секунд и вернуть итог), stop — остановить и получить итог, status — идёт ли запись.",
+         "inputSchema": schema(json!({"vm": vm, "action": {"type": "string", "enum": ["start", "stop", "status"]}, "path": s("файл (по умолчанию «Видео/Записи экрана»)"),
+             "fps": n("кадров в секунду (30)"), "audio": {"type": "boolean", "description": "со звуком гостя (по умолчанию — если звук у машины включён)"}, "duration_s": n("длительность, с")}), &["vm"])},
         {"name": "qmp", "description": "Сырая команда QMP (для того, чего нет в других инструментах).",
          "inputSchema": schema(json!({"vm": vm, "command": {"type": "string"}, "arguments": {"type": "object"}}), &["vm", "command"])},
     ])
@@ -401,6 +404,30 @@ fn call(name: &str, a: &Value) -> Result<Value> {
                 op => {
                     cli::snapshot(&m, on, op, arg(a, "name")?)?;
                     Ok(text("готово"))
+                }
+            }
+        }
+        "record" => {
+            let m = vm()?;
+            match a.get("action").and_then(Value::as_str).unwrap_or("start") {
+                "stop" => Ok(text(cli::record_summary(&crate::record::stop(&m)?))),
+                "status" => Ok(text(match crate::record::status(&m) {
+                    Some(i) => format!("идёт запись: {} ({} с)", i.path, model::now().saturating_sub(i.started)),
+                    None => "запись не идёт".into(),
+                })),
+                _ => {
+                    let o = crate::record::Opts {
+                        out: a.get("path").and_then(Value::as_str).map(std::path::PathBuf::from).unwrap_or_else(|| crate::record::default_path(&m)),
+                        fps: num(a, "fps").unwrap_or(30.0) as u32,
+                        audio: a.get("audio").and_then(Value::as_bool).unwrap_or(m.sound),
+                        duration: num(a, "duration_s").filter(|d| *d > 0.0).map(Duration::from_secs_f64),
+                    };
+                    let wait = o.duration.is_some();
+                    let i = crate::record::start(&m, &o)?;
+                    if wait {
+                        return Ok(text(cli::record_summary(&crate::record::wait(&m)?)));
+                    }
+                    Ok(text(format!("идёт запись: {} ({}x{}, {} к/с, {}) — остановить: record action=stop", i.path, i.size.0, i.size.1, i.fps, i.encoder)))
                 }
             }
         }
