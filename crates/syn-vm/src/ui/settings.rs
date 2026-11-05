@@ -423,6 +423,15 @@ fn devices(st: St, vm: &Vm) -> W {
         vec![
             row(t!("Видеокарта"), t!("virtio-vga — быстрее и меняет разрешение под окно (Windows: драйвер VirtIO GPU из «Гостевых инструментов»); стандартный VGA — медленно"), display),
             row(t!("Разрешение под окно"), t!("Гость получает размер окна (нужен драйвер virtio-gpu или QXL)"), Toggle::with_state(vm.auto_resize).on_change(move |b| state::edit(st, |v| v.auto_resize = b))),
+            row(
+                t!("3D-ускорение (syn-gpu)"),
+                if crate::qemu::syn_gpu_bin().is_some() {
+                    t!("Своя видеокарта для игр: Vulkan и DirectX через DXVK, кадры игр — прямо в окно. Windows с драйвером syn-gpu: прошивка UEFI без Secure Boot, в госте bcdedit /set testsigning on")
+                } else {
+                    t!("Нужен сервер syn-gpu (проект qemu-vulkan-driver): переменная SYN_GPU или syn-gpu в PATH")
+                },
+                Toggle::with_state(vm.gpu3d).on_change(move |b| state::edit(st, |v| v.gpu3d = b)),
+            ),
             row(t!("Звук"), t!("Через PipeWire компьютера"), Toggle::with_state(vm.sound).on_change(move |b| state::edit(st, |v| v.sound = b))),
             row(t!("Вывод звука"), t!("Динамики или наушники для гостя"), DecoratedBox::new().child(audio(false, vm.audio_out.clone()))),
             row(t!("Микрофон"), t!("Что гость слышит как вход"), DecoratedBox::new().child(audio(true, vm.audio_in.clone()))),

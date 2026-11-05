@@ -430,6 +430,11 @@ pub struct Vm {
     pub auto_resize: bool,
     /// Как кадр гостя ложится в окно, когда разрешение не под окно.
     pub scale: ScaleMode,
+    /// 3D-ускорение: паравиртуальная видеокарта syn-gpu (сервер vfio-user, проект
+    /// qemu-vulkan-driver) — Windows с её драйвером; кадры игр — слоем поверх экрана.
+    pub gpu3d: bool,
+    /// Доп. ключи сервера syn-gpu (`--heap-gib 4 --gpu nvidia`).
+    pub gpu3d_args: String,
     pub sound: bool,
     /// Общий буфер обмена (qemu-vdagent, в госте — spice-vdagent).
     pub clipboard: bool,
@@ -479,6 +484,8 @@ impl Default for Vm {
             display: DisplayModel::Virtio,
             auto_resize: true,
             scale: ScaleMode::Fit,
+            gpu3d: false,
+            gpu3d_args: String::new(),
             sound: true,
             clipboard: true,
             shared_dir: String::new(),

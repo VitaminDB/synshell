@@ -389,7 +389,7 @@ pub fn start(vm: &Vm) -> Result<()> {
     for f in ["qmp.sock", "vnc.sock", "qemu.pid", "swtpm.sock", "qga.sock", "virtiofs.sock"] {
         let _ = std::fs::remove_file(run.join(f));
     }
-    let args = args(vm)?;
+    let mut args = args(vm)?;
     if let Some(e) = port_conflicts(vm).into_iter().next() {
         bail!("{e}");
     }
@@ -406,6 +406,12 @@ pub fn start(vm: &Vm) -> Result<()> {
     }
     if args.iter().any(|a| a.starts_with("vhost-user-fs-pci")) {
         start_virtiofsd(vm)?;
+    }
+    // Устройство уже в «Аргументах QEMU» (ручная настройка) — второе не добавлять.
+    if vm.gpu3d && !args.iter().any(|a| a.contains("vfio-user-pci")) {
+        let sock = start_syn_gpu(vm)?;
+        args.push("-device".into());
+        args.push(format!("{{\"driver\":\"vfio-user-pci\",\"socket\":{{\"path\":\"{}\",\"type\":\"unix\"}}}}", sock.display()));
     }
     tracing::info!("{QEMU} {}", args.join(" "));
     // QEMU — отдельной сессией (переживает syn-vm), весь его вывод — в qemu.log: с -daemonize
@@ -469,6 +475,60 @@ pub fn spawn_watcher(vm: &Vm, flag: &str) {
             std::thread::spawn(move || ch.wait());
         }
     }
+}
+
+/// Программа сервера syn-gpu: `SYN_GPU` или `syn-gpu` в PATH.
+pub fn syn_gpu_bin() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os("SYN_GPU").map(PathBuf::from).filter(|p| p.is_file()) {
+        return Some(p);
+    }
+    std::env::var_os("PATH").and_then(|path| std::env::split_paths(&path).map(|d| d.join("syn-gpu")).find(|p| p.is_file()))
+}
+
+/// Запустить сервер видеокарты syn-gpu машины (уже работает — оставить) и дождаться его сокета
+/// vfio-user. Сервер живёт, пока QEMU подключён, и выходит после выключения машины сам.
+fn start_syn_gpu(vm: &Vm) -> Result<PathBuf> {
+    let run = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp")).join("syn-gpu");
+    std::fs::create_dir_all(&run)?;
+    let sock = run.join(format!("{}.sock", vm.id));
+    let pidf = run.join(format!("{}.pid", vm.id));
+    let alive = std::fs::read_to_string(&pidf).ok().and_then(|s| s.trim().parse::<i32>().ok()).is_some_and(|pid| unsafe { libc::kill(pid, 0) } == 0);
+    if alive && sock.exists() {
+        return Ok(sock);
+    }
+    let bin = syn_gpu_bin().context(t!("Нет сервера 3D-видеокарты syn-gpu (переменная SYN_GPU или syn-gpu в PATH)"))?;
+    let _ = std::fs::remove_file(&sock);
+    let log = vm.dir().join("syn-gpu.log");
+    let mut c = Command::new(&bin);
+    c.arg("--socket").arg(&sock).arg("--log").arg(&log);
+    let extra: Vec<String> = vm.gpu3d_args.split_whitespace().map(String::from).collect();
+    if !extra.iter().any(|a| a == "--cpu-latency-us") {
+        c.args(["--cpu-latency-us", "0"]);
+    }
+    c.args(&extra).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    {
+        use std::os::unix::process::CommandExt;
+        unsafe {
+            c.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
+        }
+    }
+    let mut child = c.spawn().with_context(|| bin.display().to_string())?;
+    let _ = std::fs::write(&pidf, child.id().to_string());
+    for _ in 0..100 {
+        if sock.exists() {
+            std::thread::spawn(move || child.wait());
+            return Ok(sock);
+        }
+        if let Some(st) = child.try_wait()? {
+            let tail = std::fs::read_to_string(&log).unwrap_or_default().lines().rev().take(5).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+            bail!("{}", t!("Сервер syn-gpu завершился ({st}): {tail}", st = st, tail = tail));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    bail!("{}", t!("Сервер syn-gpu не открыл сокет за 5 с — журнал: {p}", p = log.display()))
 }
 
 /// Кто держит порт компьютера: другая машина syn-vm или процесс.
