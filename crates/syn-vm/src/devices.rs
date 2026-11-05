@@ -629,6 +629,43 @@ pub fn hot_detach(vm: &Vm, d: &HostDev) -> Result<()> {
     Ok(())
 }
 
+/// После восстановления снимка (`loadvm`) гость помнит USB-устройства на момент снимка, а QEMU
+/// держит хост-устройства по-прежнему: гость их не видит, а у компьютера их уже нет. Отключить и
+/// снова подключить всё USB машины (по портам и по VID:PID), что сейчас воткнуто. Возвращает,
+/// что переподключено.
+pub fn replug_usb(vm: &Vm) -> Vec<String> {
+    let mut done = Vec::new();
+    let Ok(mut c) = crate::qmp::Conn::of(vm) else { return done };
+    let mut items: Vec<(String, Value, String)> = Vec::new();
+    for u in &vm.usb {
+        let Some((bus, path)) = crate::usb::split_port(&u.port) else { continue };
+        if crate::usb::at(&u.port).is_none() {
+            continue;
+        }
+        let id = crate::usb::qemu_id(&u.port);
+        items.push((id.clone(), json!({"driver": "usb-host", "bus": "xhci.0", "hostbus": bus, "hostport": path, "id": id}), format!("usb:{}", u.port)));
+    }
+    for d in &vm.devices {
+        if let HostDev::UsbId { vendor, product, .. } = d {
+            let present = crate::usb::list().iter().any(|u| &u.vendor == vendor && &u.product == product);
+            let (Ok(v), Ok(p)) = (u32::from_str_radix(vendor, 16), u32::from_str_radix(product, 16)) else { continue };
+            if present {
+                let id = d.qemu_id();
+                items.push((id.clone(), json!({"driver": "usb-host", "bus": "xhci.0", "vendorid": v, "productid": p, "id": id}), d.spec()));
+            }
+        }
+    }
+    for (id, args, spec) in items {
+        let _ = c.call("device_del", json!({"id": id}));
+        wait_gone(&mut c, &id, Duration::from_secs(5));
+        match c.call("device_add", args) {
+            Ok(_) => done.push(spec),
+            Err(e) => tracing::warn!("{spec}: после восстановления снимка не подключён: {e}"),
+        }
+    }
+    done
+}
+
 fn wait_gone(c: &mut crate::qmp::Conn, id: &str, timeout: Duration) -> bool {
     let t0 = std::time::Instant::now();
     while t0.elapsed() < timeout {

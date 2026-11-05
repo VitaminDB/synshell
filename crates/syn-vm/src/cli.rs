@@ -785,6 +785,10 @@ pub fn snapshot(vm: &Vm, on: bool, op: &str, name: &str) -> Result<()> {
         };
         qmp::hmp(vm, &format!("{c} \"{}\"", name.replace('"', "")))?;
         if op == "restore" {
+            let re = devices::replug_usb(vm);
+            if !re.is_empty() {
+                eprintln!("USB переподключено после снимка: {}", re.join(", "));
+            }
             let _ = qga::sync_time(vm);
         }
         return Ok(());

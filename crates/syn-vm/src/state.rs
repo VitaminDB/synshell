@@ -763,6 +763,11 @@ pub fn snapshot_op(st: St, op: &'static str, name: String) {
                 _ => "delvm",
             };
             qmp::hmp(&vm, &format!("{cmd} \"{}\"", name.replace('"', "")))?;
+            if op == "restore" {
+                // Гость помнит USB на момент снимка, а QEMU держит устройства — переподключить.
+                crate::devices::replug_usb(&vm);
+                let _ = crate::qga::sync_time(&vm);
+            }
         } else {
             let flag = match op {
                 "create" => "-c",
