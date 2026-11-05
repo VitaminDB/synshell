@@ -157,6 +157,19 @@ pub fn run() {
                 };
             osk(if show { "show dock" } else { "hide" });
         });
+        // Клавиатура появилась или скрылась, экран повернули — поверхность сменила размер, и
+        // фокус поля пропадает; вернуть его выбранному полю.
+        let last_size = std::sync::Mutex::new(None::<(i64, i64)>);
+        create_effect(move || {
+            let sz = syngui::viewport::viewport_size().get();
+            let key = (sz.width.round() as i64, sz.height.round() as i64);
+            if last_size.lock().unwrap().replace(key).is_some_and(|k| k != key) {
+                syngui_layer::add_timer(std::time::Duration::from_millis(120), move || {
+                    st.osk_rev.set(st.osk_rev.get_untracked() + 1);
+                    None
+                });
+            }
+        });
         let outs = syngui_layer::outputs().get_untracked();
         for o in outs {
             // Слой Top и без своей исключительной зоны: клавиатура (тоже Top, создана позже —
@@ -472,7 +485,14 @@ fn view(st: St) -> impl Widget {
         }));
     }
     let power = power
-        .child(round_btn("\u{E312}", move || st.osk.set(!st.osk.get_untracked())))
+        .child(round_btn("\u{E312}", move || {
+            st.osk.set(!st.osk.get_untracked());
+            // Нажатие на кнопку сняло фокус с поля — вернуть его, чтобы клавиатура писала туда.
+            syngui_layer::add_timer(std::time::Duration::from_millis(500), move || {
+                st.osk_rev.set(st.osk_rev.get_untracked() + 1);
+                None
+            });
+        }))
         .child(round_btn("\u{E8FF}", move || st.zoom_open.set(!st.zoom_open.get_untracked())));
     let android_hint = Reactive::new(move || -> Vec<Box<dyn Widget>> {
         if !st.android_confirm.get() {
@@ -600,6 +620,9 @@ fn field(st: St, i: usize, placeholder: &str, secret: bool) -> impl Widget {
             .placeholder(placeholder)
             .obscure(secret)
             .autofocus(focus)
+            // Перестроенное поле — тот же элемент, autofocus второй раз не сработает;
+            // новый токен у выбранного поля снова забирает фокус.
+            .focus_token(if focus { st.osk_rev.get_untracked() } else { 0 })
             .on_change(move |t| set_value(st, i, t.to_string()))
             .on_submit(move |_| submit(st))
             .class("field"),
