@@ -176,6 +176,7 @@ impl Daemon {
         let audio: HashSet<String> = self.audio.lock().unwrap().keys().cloned().collect();
         let st = self.st.lock().unwrap();
         let mut peers: Vec<PeerInfo> = Vec::new();
+        let all: Vec<_> = st.peers.peers.values().cloned().collect();
         for t in st.peers.peers.values() {
             let s = st.sessions.get(&t.id);
             let n = st.nearby.get(&t.id);
@@ -192,7 +193,7 @@ impl Daemon {
                 user: Some(t.user.clone()),
                 home: Some(t.home.clone()),
                 mount: st.mounts.get(&t.id).cloned(),
-                ssh_host: Some(crate::ssh::host_alias(t)),
+                ssh_host: Some(crate::ssh::host_alias(t, &all)),
                 last_seen: t.last_seen,
                 audio: audio.contains(&t.id),
                 heard_ago: n.map(|n| n.seen.elapsed().as_secs() as u32),

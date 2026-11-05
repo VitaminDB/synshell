@@ -203,8 +203,16 @@ pub fn slug(name: &str) -> String {
     }
 }
 
-pub fn host_alias(t: &Trusted) -> String {
-    slug(&t.name)
+/// Имя для ssh. У нескольких устройств одно имя (тот же телефон после переустановки — новый id) — простое имя
+/// у того, что был на связи последним, у остальных — с началом id: `ssh <имя>` ведёт на живое устройство.
+pub fn host_alias(t: &Trusted, peers: &[Trusted]) -> String {
+    let base = slug(&t.name);
+    let recent = |p: &Trusted| (p.last_seen.unwrap_or(p.paired_at), p.paired_at, p.id.clone());
+    let newest = peers.iter().filter(|p| slug(&p.name) == base).max_by_key(|p| recent(p));
+    match newest {
+        Some(n) if n.id != t.id => format!("{base}-{}", &t.id[..t.id.len().min(8)]),
+        _ => base,
+    }
 }
 
 fn kind_alias(k: synshell_common::link::DeviceKind) -> &'static str {
@@ -234,7 +242,7 @@ fn write_config_inner(peers: &[Trusted]) -> Result<()> {
     let mut cfg = String::from("# Спаренные устройства synlink — файл пишет демон, правки затрутся.\n");
     let mut kh = String::new();
     for t in peers {
-        let mut names = vec![host_alias(t), format!("{}.synlink", t.id)];
+        let mut names = vec![host_alias(t, peers), format!("{}.synlink", t.id)];
         let ka = kind_alias(t.kind);
         if peers.iter().filter(|p| kind_alias(p.kind) == ka).count() == 1 {
             names.push(ka.to_string());
@@ -243,7 +251,7 @@ fn write_config_inner(peers: &[Trusted]) -> Result<()> {
         cfg.push_str(&format!(
             "\nHost {}\n    HostName {}\n    User {}\n    ProxyCommand {} proxy {}\n    IdentityFile {}\n    IdentitiesOnly yes\n    HostKeyAlias {alias}\n    UserKnownHostsFile {}\n    StrictHostKeyChecking {}\n    ServerAliveInterval 10\n",
             names.join(" "),
-            host_alias(t),
+            host_alias(t, peers),
             t.user,
             exe.display(),
             t.id,
@@ -271,4 +279,24 @@ fn write_config_inner(peers: &[Trusted]) -> Result<()> {
         std::fs::set_permissions(&main, std::fs::Permissions::from_mode(0o600))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn peer(id: &str, name: &str, seen: Option<i64>) -> Trusted {
+        Trusted { id: id.into(), name: name.into(), paired_at: 1, last_seen: seen, ..Default::default() }
+    }
+
+    #[test]
+    fn same_name_alias_goes_to_recent_device() {
+        let old = peer("613d06009eb4bd36", "Xiaomi 12T Pro", Some(100));
+        let new = peer("e6bdd83f2fb5359c", "Xiaomi 12T Pro", Some(200));
+        let other = peer("0481967d00000000", "BOOX Note Air 4C", None);
+        let all = vec![old.clone(), new.clone(), other.clone()];
+        assert_eq!(host_alias(&new, &all), "xiaomi-12t-pro");
+        assert_eq!(host_alias(&old, &all), "xiaomi-12t-pro-613d0600");
+        assert_eq!(host_alias(&other, &all), "boox-note-air-4c");
+    }
 }
