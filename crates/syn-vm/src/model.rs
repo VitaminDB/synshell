@@ -232,6 +232,8 @@ pub struct PortForward {
     pub udp: bool,
     pub host: u16,
     pub guest: u16,
+    /// Слушать на всех адресах компьютера (по умолчанию — только 127.0.0.1).
+    pub public: bool,
 }
 
 /// Проброшенное USB-устройство: физический порт компьютера.
@@ -762,7 +764,7 @@ mod tests {
     fn toml_roundtrip() {
         let mut vm = OsKind::Windows11.preset();
         vm.name = "Test".into();
-        vm.forwards.push(PortForward { udp: false, host: 2222, guest: 22 });
+        vm.forwards.push(PortForward { udp: false, host: 2222, guest: 22, public: false });
         let s = toml::to_string_pretty(&vm).unwrap();
         let back: Vm = toml::from_str(&s).unwrap();
         assert_eq!(vm, back);

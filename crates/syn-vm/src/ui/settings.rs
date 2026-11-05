@@ -362,7 +362,7 @@ fn add_forward(st: St, host: u16, guest: u16) {
     }
     state::edit(st, |v| {
         if !v.forwards.iter().any(|f| f.host == host) {
-            v.forwards.push(PortForward { udp: false, host, guest });
+            v.forwards.push(PortForward { udp: false, host, guest, public: false });
         }
     });
 }

@@ -14,6 +14,7 @@ use syngui::mss::StyleValue;
 use syngui::prelude::*;
 use syngui::widgets::{EventHook, KeyReply, LiveView};
 use syngui::GestureDetector;
+use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 use syngui::CursorIcon;
 
 use crate::model::Vm;
@@ -87,13 +88,26 @@ pub fn close_wizard(st: St) {
 
 pub fn root(st: St) -> EventHook {
     let narrow = syngui::viewport::viewport_below(NARROW_BELOW);
-    let body = Reactive::new(move || -> Vec<W> {
+    let body = move || Reactive::new(move || -> Vec<W> {
         syngui::i18n::subscribe();
         let full = st.fullscreen.get() && st.sel.get().is_some();
         if full {
             return vec![screen::page(st, true)];
         }
-        vec![if narrow.get() { phone(st) } else { desktop(st) }]
+        let n = narrow.get();
+        let page = if n { phone(st) } else { desktop(st) };
+        if is_phone() {
+            return vec![page];
+        }
+        vec![boxed(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(titlebar(st, n)).child(DecoratedBox::new().class("grow").child(page)))]
+    });
+    let flat = use_signal(is_phone());
+    create_effect(move || {
+        let w = st.window.get();
+        let v = is_phone() || w.maximized || w.fullscreen || (st.fullscreen.get() && st.sel.get().is_some());
+        if flat.get_untracked() != v {
+            flat.set(v);
+        }
     });
     let hook = EventHook::new()
         .on_key_down(move |k, m| {
@@ -115,15 +129,46 @@ pub fn root(st: St) -> EventHook {
             }
             KeyReply::Ignore
         })
-        .child(
-            Stack::new()
+        .child(Reactive::new(move || -> Vec<W> {
+            // Перестраивается только при смене «рамки», а не фокуса окна.
+            let flat = flat.get();
+            let stack = Stack::new()
                 .fit(StackFit::Expand)
-                .child(DecoratedBox::new().child(body).class("root"))
+                .child(DecoratedBox::new().child(body()).class("root"))
                 .child(toast_layer(st))
                 .child(wizard::layer(st))
-                .child(confirm_layer(st)),
-        );
+                .child(confirm_layer(st));
+            let frame = DecoratedBox::new().class(if flat { "window-frame flat" } else { "window-frame" }).clip(true).child(stack);
+            vec![boxed(WindowResizeRegion::new().over_content(true).inset(5.0).enabled(!flat).child(frame))]
+        }));
     hook
+}
+
+/// Телефон: окно на весь экран, без своего заголовка.
+fn is_phone() -> bool {
+    std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v == "phone")
+}
+
+/// Свой заголовок окна: знак, название открытой машины (за него окно перетаскивается),
+/// кнопки окна из настроек рабочего стола.
+fn titlebar(st: St, narrow: bool) -> W {
+    let title = Reactive::new(move || -> Vec<W> {
+        syngui::i18n::subscribe();
+        let name = st.sel.get().and_then(|id| st.vms.get().into_iter().find(|v| v.id == id)).map(|v| v.name).unwrap_or_else(|| t!("Виртуальные машины"));
+        vec![boxed(Text::new(name).max_lines(1).elide(Elide::End).class("tb-title"))]
+    });
+    let controls = Reactive::new(move || -> Vec<W> {
+        let w = st.window.get();
+        vec![boxed(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused))]
+    });
+    let mut row = Row::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
+    if !narrow {
+        row = row.child(DecoratedBox::new().class("tb-left").style("width", StyleValue::px(SIDEBAR_W)).child(WindowDragRegion::new().child(brand())));
+    }
+    row = row
+        .child(DecoratedBox::new().class("grow tb-drag").child(WindowDragRegion::new().child(DecoratedBox::new().class("tb-drag-space").child(title))))
+        .child(DecoratedBox::new().class("window-controls").child(controls));
+    boxed(DecoratedBox::new().class(if narrow { "titlebar narrow" } else { "titlebar" }).child(row))
 }
 
 // ─── Компьютер ──────────────────────────────────────────────────────────
@@ -198,7 +243,6 @@ fn sidebar(st: St) -> W {
         Column::new()
             .gap(12.0)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(brand())
             .child(btn(icons::ADD, t!("Новая машина"), "primary wide", move || new_vm(st)))
             .child(search)
             .child(home)

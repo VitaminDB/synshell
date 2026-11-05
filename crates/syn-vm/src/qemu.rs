@@ -167,7 +167,7 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
             }
             for f in &vm.forwards {
                 if f.host > 0 && f.guest > 0 {
-                    nd.push_str(&format!(",hostfwd={}::{}-:{}", if f.udp { "udp" } else { "tcp" }, f.host, f.guest));
+                    nd.push_str(&format!(",hostfwd={}:{}:{}-:{}", if f.udp { "udp" } else { "tcp" }, if f.public { "" } else { "127.0.0.1" }, f.host, f.guest));
                 }
             }
             push(&["-netdev", &nd]);
@@ -384,6 +384,9 @@ pub fn start(vm: &Vm) -> Result<()> {
         let _ = std::fs::remove_file(run.join(f));
     }
     let args = args(vm)?;
+    if let Some(e) = port_conflicts(vm).into_iter().next() {
+        bail!("{e}");
+    }
     for d in &vm.devices {
         crate::devices::check(d)?;
     }
@@ -431,6 +434,57 @@ pub fn start(vm: &Vm) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Кто держит порт компьютера: другая машина syn-vm или процесс.
+pub fn port_holder(port: u16, udp: bool, except: &str) -> Option<String> {
+    for o in crate::model::load_all() {
+        if o.id != except && o.net == NetMode::Nat && o.forwards.iter().any(|f| f.host == port && f.udp == udp) && pid(&o).is_some() {
+            return Some(t!("машина «{n}»", n = o.name));
+        }
+    }
+    let free = if udp { std::net::UdpSocket::bind(("0.0.0.0", port)).is_ok() } else { std::net::TcpListener::bind(("0.0.0.0", port)).is_ok() };
+    if free {
+        return None;
+    }
+    // Процесс — по ss (если есть).
+    let out = Command::new("ss").args([if udp { "-Hlunp" } else { "-Hltnp" }, &format!("sport = :{port}")]).output().ok();
+    let who = out
+        .and_then(|o| {
+            let s = String::from_utf8_lossy(&o.stdout).into_owned();
+            let name = s.split("users:((\"").nth(1)?.split('"').next()?.to_string();
+            let pid = s.split("pid=").nth(1)?.split(',').next()?.to_string();
+            Some(format!("{name} (pid {pid})"))
+        })
+        .unwrap_or_else(|| t!("другая программа"));
+    Some(who)
+}
+
+/// Занятые пробросы машины — по сообщению на каждый.
+pub fn port_conflicts(vm: &Vm) -> Vec<String> {
+    if vm.net != NetMode::Nat {
+        return vec![];
+    }
+    vm.forwards
+        .iter()
+        .filter(|f| f.host > 0)
+        .filter_map(|f| {
+            let who = port_holder(f.host, f.udp, &vm.id)?;
+            Some(t!("Порт {p} компьютера занят: {w} — выберите другой (syn-vm --set {id} forwards=…)", p = format!("{}{}", if f.udp { "udp:" } else { "" }, f.host), w = who, id = vm.id))
+        })
+        .collect()
+}
+
+/// Те же порты в настройках других машин (запущенных или нет).
+pub fn port_shared_with(vm: &Vm) -> Vec<String> {
+    let all = crate::model::load_all();
+    vm.forwards
+        .iter()
+        .filter_map(|f| {
+            let o = all.iter().find(|o| o.id != vm.id && o.forwards.iter().any(|g| g.host == f.host && g.udp == f.udp))?;
+            Some(t!("порт {p} есть и у машины «{n}» — одновременно они не запустятся", p = f.host, n = o.name))
+        })
+        .collect()
 }
 
 /// virtiofsd общей папки: завершается сам, когда QEMU закрывает соединение.

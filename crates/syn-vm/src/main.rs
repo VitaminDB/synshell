@@ -111,15 +111,21 @@ fn main() {
     }
     let _ = std::fs::remove_file(&sock);
     let listener = std::sync::Mutex::new(UnixListener::bind(&sock).ok());
+    let win = use_signal(syngui::window::WindowState::default());
     App::new()
         .title(t!("Виртуальные машины"))
         .app_id("syn-vm")
         .size(1360, 860)
         .min_size(360, 520)
+        .frameless()
+        .transparent(true)
+        .background(Color::from_srgb(0, 0, 0, 0.0))
+        .with_window_state(win)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(synshell_common::live::styles(mss, theme))
         .run(move |_| {
-            let st = St::new();
+            let mut st = St::new();
+            st.window = win;
             state::reload(st);
             state::start_poller(st);
             if let Some(id) = &target_id {

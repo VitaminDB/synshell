@@ -28,15 +28,17 @@ syn-vm — виртуальные машины QEMU/KVM
   --new ИМЯ [--iso ОБРАЗ] [--os linux|windows11|windows10|bsd|android|other]
         [--disk ФАЙЛ …] [--vars ФАЙЛ] [--tpm КАТАЛОГ] [--cpus N] [--memory МБ] [--disk-gb N]
         [--firmware bios|uefi|uefi-secure] [--disk-bus virtio|sata|nvme] [--nic virtio|e1000e|rtl8139]
-        [--fwd [udp:]ХОСТ:ГОСТЬ …] [--share КАТАЛОГ] [--set КЛЮЧ=ЗНАЧЕНИЕ …]
+        [--fwd [udp:]ХОСТ:ГОСТЬ …] [--public] [--share КАТАЛОГ] [--set КЛЮЧ=ЗНАЧЕНИЕ …]
                                           новая машина; с --disk — импорт готовой (диск остаётся на месте,
-                                          переменные UEFI и TPM копируются в папку машины)
+                                          переменные UEFI и TPM копируются в папку машины;
+                                          пробросы слушают 127.0.0.1, --public — все адреса)
   --delete МАШИНА --yes                  удалить машину и диски в её папке
   --get МАШИНА [КЛЮЧ]                    настройки (TOML) или одно значение
   --set МАШИНА КЛЮЧ=ЗНАЧЕНИЕ …           изменить настройки (значение — TOML или строка)
 
 Гость (через гостевой агент qemu-ga):
-  --exec МАШИНА [--timeout СЕК] [--env К=З …] [--stdin] -- ПРОГРАММА [АРГ…]
+  --exec МАШИНА [--timeout СЕК] [--env К=З …] [--stdin] [--raw] -- ПРОГРАММА [АРГ…]
+                                          (вывод Windows переводится из OEM-кодировки в UTF-8; --raw — как есть)
   --sh МАШИНА [--timeout СЕК] 'КОМАНДА'  через оболочку гостя (sh -c / cmd /c)
   --push МАШИНА ФАЙЛ ПУТЬ_В_ГОСТЕ        файл в гостя
   --pull МАШИНА ПУТЬ_В_ГОСТЕ ФАЙЛ        файл из гостя
@@ -86,7 +88,7 @@ struct Args {
     tail: Vec<String>,
 }
 
-const FLAGS: &[&str] = &["--json", "--force", "--yes", "--stdin", "--right", "--middle", "--double", "--move", "--wait-boot"];
+const FLAGS: &[&str] = &["--raw", "--public", "--json", "--force", "--yes", "--stdin", "--right", "--middle", "--double", "--move", "--wait-boot"];
 
 impl Args {
     fn parse(v: Vec<String>) -> Args {
@@ -258,6 +260,11 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             }
             vm = set_keys(&vm, &kv)?;
             vm.save()?;
+            if qemu::pid(&vm).is_none() {
+                for w in qemu::port_conflicts(&vm).into_iter().chain(qemu::port_shared_with(&vm)) {
+                    eprintln!("внимание: {w}");
+                }
+            }
             if qemu::pid(&vm).is_some() {
                 eprintln!("{}: машина работает — изменения вступят в силу при следующем запуске", vm.name);
             }
@@ -284,7 +291,11 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             } else {
                 None
             };
-            let r = qga::exec(&vm, &argv, input.as_deref(), &a.all("--env"), a.secs("--timeout", 600))?;
+            let mut r = qga::exec(&vm, &argv, input.as_deref(), &a.all("--env"), a.secs("--timeout", 600))?;
+            if !a.has("--raw") {
+                r.stdout = qga::decode_output(&vm, std::mem::take(&mut r.stdout));
+                r.stderr = qga::decode_output(&vm, std::mem::take(&mut r.stderr));
+            }
             use std::io::Write;
             std::io::stdout().write_all(&r.stdout)?;
             std::io::stderr().write_all(&r.stderr)?;
@@ -816,7 +827,7 @@ fn new_vm(name: &str, a: &Args) -> Result<Vm> {
             None => (false, f.strip_prefix("tcp:").unwrap_or(&f)),
         };
         let (h, g) = rest.split_once(':').with_context(|| format!("--fwd {f}: ХОСТ:ГОСТЬ"))?;
-        vm.forwards.push(model::PortForward { udp, host: h.parse()?, guest: g.parse()? });
+        vm.forwards.push(model::PortForward { udp, host: h.parse()?, guest: g.parse()?, public: a.has("--public") });
     }
     if let Some(s) = a.get("--share") {
         vm.shared_dir = std::fs::canonicalize(&s).with_context(|| format!("нет папки {s}"))?.to_string_lossy().into_owned();
@@ -854,6 +865,9 @@ fn new_vm(name: &str, a: &Args) -> Result<Vm> {
     if let Err(e) = r {
         let _ = model::delete(&vm);
         return Err(e);
+    }
+    for w in qemu::port_conflicts(&vm).into_iter().chain(qemu::port_shared_with(&vm)) {
+        eprintln!("внимание: {w}");
     }
     if !disks.is_empty() {
         eprintln!("диск остаётся на месте: {}", disks.iter().map(|d| d.display().to_string()).collect::<Vec<_>>().join(", "));

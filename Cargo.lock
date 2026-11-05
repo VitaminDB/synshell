@@ -7074,6 +7074,7 @@ version = "0.1.42"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "encoding_rs",
  "flate2",
  "image",
  "libc",

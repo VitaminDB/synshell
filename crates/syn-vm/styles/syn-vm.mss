@@ -1,6 +1,19 @@
 /* syn-vm — виртуальные машины. Палитра (--bg, --fg, --accent, …) — из [appearance]. */
 
 .root { background-color: var(--bg); }
+
+/* ── Окно: свой заголовок (CSD) ─────────────────────────────── */
+.window-frame { border-radius: var(--window-radius); border: 1px solid var(--border); background-color: var(--bg); }
+.window-frame.flat { border-radius: 0px; border-width: 0px; }
+.titlebar { height: 52px; background-color: var(--surface); border-bottom: 1px solid var(--border); }
+.titlebar.narrow { height: 44px; }
+.tb-left { height: 52px; padding: 0px 12px; align-items: center; border-right: 1px solid var(--border); }
+.tb-drag { height: 52px; }
+.titlebar.narrow .tb-drag { height: 44px; }
+.tb-drag-space { flex-grow: 1; min-width: 40px; height: 52px; padding: 0px 18px; align-items: center; }
+.titlebar.narrow .tb-drag-space { height: 44px; }
+.tb-title { font-size: 13px; font-weight: 600; color: var(--muted); }
+.window-controls { padding: 0px 6px; align-items: center; }
 .grow { flex-grow: 1; }
 .grow-2 { flex-grow: 2; }
 .grow-3 { flex-grow: 3; }
@@ -14,7 +27,7 @@ Icon { icon-color: var(--fg); icon-size: 20px; }
 .mono { font-family: "monospace"; font-size: 12px; color: var(--fg); }
 
 /* ── Боковая панель ─────────────────────────────────────────── */
-.sidebar { padding: 18px 12px 12px 12px; background-color: var(--surface); border-right: 1px solid var(--border); }
+.sidebar { padding: 14px 12px 12px 12px; background-color: var(--surface); border-right: 1px solid var(--border); }
 .brand { padding: 2px 6px 4px 6px; }
 .brand-logo { padding: 8px; border-radius: 13px; background: linear-gradient(135deg, var(--accent), #b77cff); }
 .brand-icon { icon-size: 21px; icon-color: #ffffff; }

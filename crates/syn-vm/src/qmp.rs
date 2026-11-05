@@ -130,9 +130,9 @@ pub fn resume(vm: &Vm) -> Result<()> {
 /// Вставить образ в привод (пустая строка — извлечь).
 pub fn change_cdrom(vm: &Vm, iso: &str) -> Result<()> {
     if iso.is_empty() {
-        call(vm, "eject", json!({ "id": "cd0", "force": true })).map(|_| ())
+        call(vm, "eject", json!({ "id": "cdrom", "force": true })).map(|_| ())
     } else {
-        call(vm, "blockdev-change-medium", json!({ "id": "cd0", "filename": iso, "format": "raw", "read-only-mode": "read-only" })).map(|_| ())
+        call(vm, "blockdev-change-medium", json!({ "id": "cdrom", "filename": iso, "format": "raw", "read-only-mode": "read-only" })).map(|_| ())
     }
 }
 

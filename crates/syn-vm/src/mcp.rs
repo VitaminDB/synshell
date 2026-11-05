@@ -210,7 +210,9 @@ fn call(name: &str, a: &Value) -> Result<Value> {
                 _ => bail!("нужен command или argv"),
             };
             let input = a.get("stdin").and_then(Value::as_str).map(|s| s.as_bytes().to_vec());
-            let r = qga::exec(&m, &argv, input.as_deref(), &[], Duration::from_secs(num(a, "timeout_s").unwrap_or(600.0) as u64))?;
+            let mut r = qga::exec(&m, &argv, input.as_deref(), &[], Duration::from_secs(num(a, "timeout_s").unwrap_or(600.0) as u64))?;
+            r.stdout = qga::decode_output(&m, std::mem::take(&mut r.stdout));
+            r.stderr = qga::decode_output(&m, std::mem::take(&mut r.stderr));
             let mut s = format!("код: {}{}\n", r.code, if r.timed_out { " (не дождались, процесс работает дальше)" } else { "" });
             if !r.stdout.is_empty() {
                 s.push_str(&format!("--- stdout ---\n{}\n", clip(&r.stdout, 60_000)));

@@ -22,4 +22,5 @@ libc.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 base64 = "0.22"
+encoding_rs = "0.8"
 image = { version = "0.25", default-features = false, features = ["png"] }

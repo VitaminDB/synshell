@@ -294,7 +294,7 @@ pub struct GuestInfo {
 }
 
 pub fn info(vm: &Vm) -> Result<GuestInfo> {
-    let mut a = Agent::connect(vm, Duration::from_secs(2))?;
+    let mut a = Agent::connect(vm, Duration::from_secs(4))?;
     let mut g = GuestInfo::default();
     if let Ok(v) = a.call("guest-info", Value::Null) {
         g.agent_version = v.get("version").and_then(Value::as_str).unwrap_or_default().to_string();
@@ -302,6 +302,13 @@ pub fn info(vm: &Vm) -> Result<GuestInfo> {
     if let Ok(v) = a.call("guest-get-osinfo", Value::Null) {
         let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
         g.os = [s("pretty-name"), s("name")].into_iter().find(|x| !x.is_empty()).unwrap_or_default();
+        // qemu-ga называет Windows 11 «Windows 10 Pro»: решает номер сборки (11 — с 22000).
+        if s("id") == "mswindows" && s("kernel-release").parse::<u32>().is_ok_and(|b| b >= 22000) && g.os.contains("Windows 10") {
+            g.os = g.os.replace("Windows 10", "Windows 11");
+        }
+        if s("id") == "mswindows" && !s("kernel-release").is_empty() {
+            g.os = format!("{} (сборка {})", g.os, s("kernel-release"));
+        }
     }
     if let Ok(v) = a.call("guest-get-host-name", Value::Null) {
         g.hostname = v.get("host-name").and_then(Value::as_str).unwrap_or_default().to_string();
@@ -327,4 +334,30 @@ pub fn info(vm: &Vm) -> Result<GuestInfo> {
 pub fn sync_time(vm: &Vm) -> Result<()> {
     let ns = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos() as i64;
     call(vm, "guest-set-time", json!({"time": ns})).map(|_| ())
+}
+
+/// Вывод программ Windows приходит в OEM-кодировке гостя (cp866 у русской системы):
+/// перевести в UTF-8. Кодовая страница спрашивается у гостя один раз за запуск машины.
+pub fn decode_output(vm: &Vm, bytes: Vec<u8>) -> Vec<u8> {
+    if bytes.is_empty() || std::str::from_utf8(&bytes).is_ok() || !guest_is_windows(vm) {
+        return bytes;
+    }
+    let cache = vm.run_dir().join("oemcp");
+    let cp = std::fs::read_to_string(&cache).ok().and_then(|s| s.trim().parse::<u32>().ok()).or_else(|| {
+        let r = exec(vm, &["reg".into(), "query".into(), r"HKLM\SYSTEM\CurrentControlSet\Control\Nls\CodePage".into(), "/v".into(), "OEMCP".into()], None, &[], Duration::from_secs(20)).ok()?;
+        let cp = String::from_utf8_lossy(&r.stdout).split_whitespace().last()?.parse::<u32>().ok()?;
+        let _ = std::fs::write(&cache, cp.to_string());
+        Some(cp)
+    });
+    let enc = match cp {
+        Some(866) => encoding_rs::IBM866,
+        Some(1251) => encoding_rs::WINDOWS_1251,
+        Some(1250) | Some(852) => encoding_rs::WINDOWS_1250,
+        Some(932) => encoding_rs::SHIFT_JIS,
+        Some(936) => encoding_rs::GBK,
+        Some(949) => encoding_rs::EUC_KR,
+        Some(950) => encoding_rs::BIG5,
+        _ => encoding_rs::WINDOWS_1252,
+    };
+    enc.decode(&bytes).0.into_owned().into_bytes()
 }

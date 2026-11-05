@@ -244,6 +244,10 @@ pub struct St {
     pub show_cmd: RwSignal<bool>,
     /// Размер области экрана (для разрешения гостя).
     pub view_size: RwSignal<(u32, u32)>,
+    /// Окно: развёрнуто, в фокусе, во весь экран (для своего заголовка).
+    pub window: RwSignal<syngui::window::WindowState>,
+    /// Сведения гостевого агента открытой машины (`None` — не отвечает).
+    pub guest: RwSignal<Option<crate::qga::GuestInfo>>,
 }
 
 impl St {
@@ -269,6 +273,8 @@ impl St {
             keys_menu: use_signal(false),
             show_cmd: use_signal(false),
             view_size: use_signal((0, 0)),
+            window: use_signal(syngui::window::WindowState::default()),
+            guest: use_signal(None),
         }
     }
 
