@@ -409,7 +409,7 @@
 "Видеокарта syn-gpu…" = "syn-gpu ekran kartı…"
 
 # src/ui/capture.rs
-"У машины нет относительной мыши — перезапустите её с включённым 3D-ускорением" = "Makinede göreli fare yok — 3D hızlandırma açıkken yeniden başlatın"
+"Не удалось подключить мышь для игр: {e}" = "Oyun faresi bağlanamadı: {e}"
 
 # src/ui/library.rs
 "Создайте машину из образа системы — Linux, Windows, BSD" = "Sistem kalıbından makine oluşturun — Linux, Windows, BSD"

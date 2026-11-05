@@ -585,7 +585,12 @@ pub fn refresh_guest(st: St) {
         }
         return;
     }
+    let capturing = crate::ui::capture::any();
     std::thread::spawn(move || {
+        // Указатель окна — планшет (USB-мышь или PS/2 могли стать активными после сброса гостем).
+        if !capturing {
+            crate::qmp::ensure_tablet(&vm);
+        }
         let g = crate::qga::info(&vm).ok();
         // Инструменты в госте — раз в минуту, пока агент отвечает.
         static LAST: std::sync::Mutex<Option<(String, std::time::Instant)>> = std::sync::Mutex::new(None);

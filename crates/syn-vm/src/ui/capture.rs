@@ -23,6 +23,11 @@ struct Cap {
 
 static CAP: Mutex<Option<Cap>> = Mutex::new(None);
 
+/// Захват включён у какой-нибудь машины.
+pub fn any() -> bool {
+    CAP.lock().unwrap().is_some()
+}
+
 /// Захват включён у этой машины (и указатель всё ещё заперт).
 pub fn active(id: &str) -> bool {
     let on = CAP.lock().unwrap().as_ref().is_some_and(|c| c.id == id);
@@ -37,10 +42,14 @@ pub fn active(id: &str) -> bool {
 /// Включить захват: относительная мышь гостя — активной, указатель — запереть.
 pub fn start(vm: &Vm) -> std::result::Result<(), String> {
     stop();
-    if !crate::qmp::set_mouse(vm, "USB Mouse") {
-        return Err(t!("У машины нет относительной мыши — перезапустите её с включённым 3D-ускорением"));
+    // Относительная мышь — на ходу (около секунды, пока гость её поднимет).
+    if let Err(e) = crate::qmp::rel_mouse_on(vm) {
+        return Err(t!("Не удалось подключить мышь для игр: {e}", e = e));
     }
-    syngui::signal::set_pointer_lock(true)?;
+    if let Err(e) = syngui::signal::set_pointer_lock(true) {
+        crate::qmp::rel_mouse_off(vm);
+        return Err(e);
+    }
     let _ = syngui::signal::inhibit_shortcuts(true);
     let (tx, rx) = channel::<Ev>();
     let v = vm.clone();
@@ -66,7 +75,7 @@ pub fn start(vm: &Vm) -> std::result::Result<(), String> {
                     Ev::Stop => break,
                 }
             }
-            crate::qmp::set_mouse(&v, "Tablet");
+            crate::qmp::rel_mouse_off(&v);
         })
         .map_err(|e| e.to_string())?;
     let mtx = tx.clone();

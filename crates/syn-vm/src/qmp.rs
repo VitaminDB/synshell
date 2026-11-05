@@ -260,6 +260,35 @@ pub fn set_mouse(vm: &Vm, name: &str) -> bool {
     idx.is_some_and(|i| hmp(vm, &format!("mouse_set {i}")).is_ok())
 }
 
+/// Подключить относительную мышь (usb-mouse, id relmouse) на ходу и сделать активной: ждёт, пока
+/// гость её поднимет (QEMU делает USB-мышь активной при сбросе устройства гостем).
+pub fn rel_mouse_on(vm: &Vm) -> Result<()> {
+    match call(vm, "device_add", json!({"driver": "usb-mouse", "bus": "xhci.0", "id": "relmouse"})) {
+        Ok(_) => {}
+        Err(e) if e.to_string().contains("Duplicate") => {}
+        Err(e) => return Err(e),
+    }
+    for _ in 0..30 {
+        if set_mouse(vm, "HID Mouse") {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    bail!("QEMU HID Mouse")
+}
+
+/// Отключить относительную мышь; указатель — снова планшет.
+pub fn rel_mouse_off(vm: &Vm) {
+    let _ = call(vm, "device_del", json!({"id": "relmouse"}));
+    for _ in 0..20 {
+        std::thread::sleep(Duration::from_millis(100));
+        if hmp(vm, "info mice").is_ok_and(|l| !l.contains("HID Mouse")) {
+            break;
+        }
+    }
+    ensure_tablet(vm);
+}
+
 /// Ввод игр в режиме захвата: относительные смещения и кнопки — сразу, по одному соединению QMP.
 pub struct RelInput {
     conn: Conn,

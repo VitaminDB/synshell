@@ -184,11 +184,8 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
 
     // USB: планшет — абсолютный указатель, курсор гостя совпадает с мышью.
     push(&["-device", "qemu-xhci,id=xhci", "-device", "usb-tablet,bus=xhci.0"]);
-    // Игры (машины с 3D) читают сырые смещения мыши — относительная мышь рядом с планшетом;
-    // активной её делает режим захвата окна (mouse_set), иначе указатель — планшет.
-    if vm.gpu3d {
-        push(&["-device", "usb-mouse,bus=xhci.0,id=relmouse"]);
-    }
+    // Относительная мышь для игр подключается на ходу в режиме захвата (ui::capture): постоянная
+    // USB-мышь становится активной после каждого сброса USB гостем и отнимает указатель у планшета.
     for u in &vm.usb {
         if let Some(dev) = usb_host_device(&u.port) {
             push(&["-device", &dev]);

@@ -409,7 +409,7 @@
 "Видеокарта syn-gpu…" = "syn-gpu-Grafikkarte…"
 
 # src/ui/capture.rs
-"У машины нет относительной мыши — перезапустите её с включённым 3D-ускорением" = "Die Maschine hat keine relative Maus – mit eingeschalteter 3D-Beschleunigung neu starten"
+"Не удалось подключить мышь для игр: {e}" = "Spielmaus konnte nicht angeschlossen werden: {e}"
 
 # src/ui/library.rs
 "Создайте машину из образа системы — Linux, Windows, BSD" = "Maschine aus einem Systemabbild erstellen — Linux, Windows, BSD"
