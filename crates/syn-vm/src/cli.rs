@@ -152,7 +152,7 @@ pub fn run(cmd: &str, rest: Vec<String>) -> Option<i32> {
     let known = [
         "--list", "--status", "--start", "--stop", "--kill", "--reset", "--pause", "--resume", "--wait-boot", "--new", "--delete", "--get", "--set", "--exec", "--sh", "--push",
         "--pull", "--exec-status", "--agent", "--sync-time", "--screendump", "--type", "--key", "--click", "--scroll", "--devices", "--usb", "--attach", "--detach", "--cdrom", "--tools", "--snapshot",
-        "--qmp", "--mcp", "--vfio-helper", "--vfio-watch", "--record", "--record-stop", "--record-run",
+        "--qmp", "--mcp", "--vfio-helper", "--vfio-watch", "--usb-watch", "--record", "--record-stop", "--record-run",
     ];
     if !known.contains(&cmd) {
         return None;
@@ -175,6 +175,10 @@ pub fn run(cmd: &str, rest: Vec<String>) -> Option<i32> {
             )?;
             Ok(0)
         })(),
+        "--usb-watch" => {
+            devices::usb_watch(rest.first().map(String::as_str).unwrap_or(""));
+            Ok(0)
+        }
         "--vfio-watch" => find(rest.first().map(String::as_str).unwrap_or("")).map(|vm| {
             devices::vfio_watch(&vm);
             0
@@ -738,6 +742,9 @@ pub fn set_usb(vm: &Vm, port: &str, on: bool) -> Result<String> {
             // Уже подключён (или уже отключён) — не ошибка.
             Err(e) if e.to_string().contains("Duplicate") || e.to_string().contains("not found") => {}
             Err(e) => return Err(e),
+        }
+        if on {
+            qemu::spawn_watcher(&vm, "--usb-watch");
         }
         return Ok(if on { t!("порт {port} отдан гостю (на ходу)", port = port) } else { t!("порт {port} возвращён компьютеру (на ходу)", port = port) });
     }

@@ -27,6 +27,15 @@ pub struct HostDevice {
     pub hub: bool,
 }
 
+/// Что сейчас стоит в порту: «шина:номер» (номер меняется при каждом переподключении,
+/// в том числе когда телефон уходит в fastboot с другим VID:PID); `None` — порт пуст.
+pub fn dev_key(port: &str) -> Option<String> {
+    let d = Path::new(SYS).join(port);
+    let bus = read(&d, "busnum");
+    let dev = read(&d, "devnum");
+    (!bus.is_empty() && !dev.is_empty()).then(|| format!("{bus}:{dev}"))
+}
+
 /// Порт → (`hostbus`, `hostport`) для QEMU.
 pub fn split_port(port: &str) -> Option<(u32, &str)> {
     let (bus, path) = port.split_once('-')?;

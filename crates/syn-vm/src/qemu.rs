@@ -418,22 +418,31 @@ pub fn start(vm: &Vm) -> Result<()> {
     }
     // PCI-устройства вернутся компьютеру, когда машина выключится, — даже без окна.
     if !crate::devices::vfio_addrs(vm).is_empty() {
-        use std::os::unix::process::CommandExt;
-        if let Ok(exe) = std::env::current_exe() {
-            let mut c = Command::new(exe);
-            c.arg("--vfio-watch").arg(&vm.id).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-            unsafe {
-                c.pre_exec(|| {
-                    libc::setsid();
-                    Ok(())
-                });
-            }
-            if let Ok(mut ch) = c.spawn() {
-                std::thread::spawn(move || ch.wait());
-            }
-        }
+        spawn_watcher(vm, "--vfio-watch");
+    }
+    // USB-порты: новое устройство в порту (телефон → fastboot) — гостю, даже если QEMU не подхватил.
+    if !vm.usb.is_empty() {
+        spawn_watcher(vm, "--usb-watch");
     }
     Ok(())
+}
+
+/// Фоновый наблюдатель машины (`syn-vm --vfio-watch|--usb-watch МАШИНА`), отдельной сессией.
+pub fn spawn_watcher(vm: &Vm, flag: &str) {
+    use std::os::unix::process::CommandExt;
+    if let Ok(exe) = std::env::current_exe() {
+        let mut c = Command::new(exe);
+        c.arg(flag).arg(&vm.id).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        unsafe {
+            c.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
+        }
+        if let Ok(mut ch) = c.spawn() {
+            std::thread::spawn(move || ch.wait());
+        }
+    }
 }
 
 /// Кто держит порт компьютера: другая машина syn-vm или процесс.

@@ -832,6 +832,93 @@ pub fn vfio_watch(vm: &Vm) {
     }
 }
 
+/// Наблюдатель USB-портов (`syn-vm --usb-watch МАШИНА`, живёт, пока работает машина).
+/// QEMU сам подхватывает новое устройство в порту (`usb-host,hostbus=,hostport=`), но не
+/// всегда: libusb видит устройство раньше, чем udev откроет его на запись по правилу порта,
+/// открыть не может и больше не пробует. Поэтому при каждом новом устройстве в порту
+/// наблюдатель через 2 с проверяет, есть ли оно у гостя (`info usb`), и если нет —
+/// переподключает (`device_del` + `device_add`).
+pub fn usb_watch(id: &str) {
+    use std::collections::HashMap;
+    use std::time::Instant;
+    let Ok(vm) = crate::cli::find(id) else { return };
+    // Один наблюдатель на машину.
+    let Ok(lock) = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(vm.dir().join("usb-watch.lock")) else { return };
+    use std::os::unix::io::AsRawFd;
+    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return;
+    }
+    let log = |m: String| {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(vm.dir().join("usb-watch.log")) {
+            let _ = writeln!(f, "{} {m}", chrono_now());
+        }
+    };
+    let mut last: HashMap<String, Option<String>> = HashMap::new();
+    let mut due: HashMap<String, Instant> = HashMap::new();
+    while crate::qemu::pid(&vm).is_some() {
+        // Порты перечитываются: их добавляют и убирают на ходу.
+        let ports: Vec<String> = crate::cli::find(id).map(|v| v.usb.into_iter().map(|u| u.port).collect()).unwrap_or_default();
+        last.retain(|p, _| ports.contains(p));
+        due.retain(|p, _| ports.contains(p));
+        for p in &ports {
+            let key = crate::usb::dev_key(p);
+            match last.get(p) {
+                // Первый взгляд — запомнить; гость уже получил то, что было при запуске.
+                None => {
+                    last.insert(p.clone(), key);
+                }
+                Some(old) if *old != key => {
+                    if key.is_some() {
+                        due.insert(p.clone(), Instant::now() + Duration::from_secs(2));
+                    }
+                    last.insert(p.clone(), key);
+                }
+                _ => {}
+            }
+        }
+        let ready: Vec<String> = due.iter().filter(|(_, t)| Instant::now() >= **t).map(|(p, _)| p.clone()).collect();
+        for p in ready {
+            due.remove(&p);
+            if crate::usb::dev_key(&p).is_none() {
+                continue;
+            }
+            let qid = crate::usb::qemu_id(&p);
+            let has = crate::qmp::hmp(&vm, "info usb").map(|o| o.contains(&format!("ID: {qid}"))).unwrap_or(true);
+            if has {
+                continue;
+            }
+            log(format!("{p}: устройство не у гостя — переподключаю"));
+            let _ = crate::qmp::usb_detach(&vm, &p);
+            let mut ok = false;
+            for _ in 0..10 {
+                std::thread::sleep(Duration::from_millis(300));
+                match crate::qmp::usb_attach(&vm, &p) {
+                    Ok(()) => {
+                        ok = true;
+                        break;
+                    }
+                    // device_del ещё не закончился.
+                    Err(e) if e.to_string().contains("Duplicate") => continue,
+                    Err(e) => {
+                        log(format!("{p}: {e}"));
+                        break;
+                    }
+                }
+            }
+            if ok {
+                log(format!("{p}: переподключён"));
+            }
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+}
+
+fn chrono_now() -> String {
+    let s = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    format!("{s}")
+}
+
 /// Помощник под root (`pkexec syn-vm --vfio-helper bind|unbind PID MEMLOCK АДРЕС…`).
 pub fn vfio_helper(args: &[String]) -> Result<()> {
     let [op, pid, memlock, addrs @ ..] = args else { bail!("--vfio-helper bind|unbind PID MEMLOCK ADDR…") };
