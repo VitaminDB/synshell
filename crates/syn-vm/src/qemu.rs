@@ -94,7 +94,6 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
         push(&["-object", &format!("memory-backend-memfd,id=mem,size={}M,share=on", vm.memory_mb.max(256)), "-numa", "node,memdev=mem"]);
     }
     push(&["-pidfile", &run.join("qemu.pid").to_string_lossy()]);
-    push(&["-daemonize"]);
     push(&["-qmp", &format!("unix:{},server=on,wait=off", vm.qmp_path().display())]);
     push(&["-display", "none"]);
     push(&["-vnc", &format!("unix:{}", vm.vnc_path().display())]);
@@ -409,20 +408,40 @@ pub fn start(vm: &Vm) -> Result<()> {
         start_virtiofsd(vm)?;
     }
     tracing::info!("{QEMU} {}", args.join(" "));
-    let out = Command::new(QEMU)
-        .args(&args)
-        .current_dir(vm.dir())
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .context(QEMU)?;
-    let log = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-    let _ = std::fs::write(vm.dir().join("qemu.log"), &log);
-    if !out.status.success() {
-        let msg = log.lines().filter(|l| !l.trim().is_empty()).map(|l| l.trim_start_matches("qemu-system-x86_64: ")).collect::<Vec<_>>().join("\n");
-        bail!("{}", if msg.is_empty() { t!("QEMU завершился с ошибкой") } else { msg });
+    // QEMU — отдельной сессией (переживает syn-vm), весь его вывод — в qemu.log: с -daemonize
+    // ошибки после ухода в фон (устройство vfio-user, ещё не готовый сокет) пропадали, и машина
+    // молча оставалась выключенной. Запуск удался, когда машина отвечает по QMP.
+    let log_path = vm.dir().join("qemu.log");
+    let log_file = std::fs::File::create(&log_path).with_context(|| log_path.display().to_string())?;
+    let mut child = {
+        use std::os::unix::process::CommandExt;
+        let mut c = Command::new(QEMU);
+        c.args(&args).current_dir(vm.dir()).stdin(Stdio::null()).stdout(log_file.try_clone()?).stderr(log_file);
+        unsafe {
+            c.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
+        }
+        c.spawn().context(QEMU)?
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        if let Some(st) = child.try_wait()? {
+            let log = std::fs::read_to_string(&log_path).unwrap_or_default();
+            let msg = log.lines().filter(|l| !l.trim().is_empty()).map(|l| l.trim_start_matches("qemu-system-x86_64: ")).collect::<Vec<_>>().join("\n");
+            bail!("{}", if msg.is_empty() { t!("QEMU завершился с ошибкой ({st})", st = st) } else { msg });
+        }
+        if crate::qmp::status(vm).is_some() {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            bail!("{}", t!("QEMU не ответил за минуту — смотрите {p}", p = log_path.display()));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
+    // Процесс QEMU дожидается поток (без зомби, пока жив syn-vm); дальше он — сам по себе.
+    std::thread::spawn(move || child.wait());
     // PCI-устройства вернутся компьютеру, когда машина выключится, — даже без окна.
     if !crate::devices::vfio_addrs(vm).is_empty() {
         spawn_watcher(vm, "--vfio-watch");
@@ -650,6 +669,7 @@ mod tests {
         vm.firmware = Firmware::Bios;
         let a = args(&vm).unwrap();
         assert!(a.iter().any(|s| s.starts_with("unix:") && s.ends_with("vnc.sock")));
-        assert!(a.contains(&"-daemonize".to_string()));
+        // Без -daemonize: QEMU — отдельной сессией, вывод в qemu.log (см. start).
+        assert!(!a.contains(&"-daemonize".to_string()));
     }
 }
