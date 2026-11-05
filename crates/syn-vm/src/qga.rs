@@ -413,15 +413,72 @@ pub fn decode_output(vm: &Vm, bytes: Vec<u8>) -> Vec<u8> {
         let _ = std::fs::write(&cache, cp.to_string());
         Some(cp)
     });
-    let enc = match cp {
-        Some(866) => encoding_rs::IBM866,
-        Some(1251) => encoding_rs::WINDOWS_1251,
-        Some(1250) | Some(852) => encoding_rs::WINDOWS_1250,
-        Some(932) => encoding_rs::SHIFT_JIS,
-        Some(936) => encoding_rs::GBK,
-        Some(949) => encoding_rs::EUC_KR,
-        Some(950) => encoding_rs::BIG5,
-        _ => encoding_rs::WINDOWS_1252,
+    // Кодовые страницы OEM (консоль) и ANSI (GetACP) системы: в одном выводе бывают обе —
+    // cmd.exe пишет в канал в OEM, а pnputil, certutil и другие — в ANSI.
+    let (oem, ansi): (&'static encoding_rs::Encoding, &'static encoding_rs::Encoding) = match cp {
+        Some(866) => (encoding_rs::IBM866, encoding_rs::WINDOWS_1251),
+        Some(1251) => (encoding_rs::WINDOWS_1251, encoding_rs::WINDOWS_1251),
+        Some(852) | Some(1250) => (encoding_rs::WINDOWS_1250, encoding_rs::WINDOWS_1250),
+        Some(932) => (encoding_rs::SHIFT_JIS, encoding_rs::SHIFT_JIS),
+        Some(936) => (encoding_rs::GBK, encoding_rs::GBK),
+        Some(949) => (encoding_rs::EUC_KR, encoding_rs::EUC_KR),
+        Some(950) => (encoding_rs::BIG5, encoding_rs::BIG5),
+        _ => (encoding_rs::WINDOWS_1252, encoding_rs::WINDOWS_1252),
     };
-    enc.decode(&bytes).0.into_owned().into_bytes()
+    decode_mixed(&bytes, oem, ansi).into_bytes()
+}
+
+/// Построчно: UTF-8 — как есть, иначе из OEM и ANSI — вариант, похожий на текст (больше
+/// букв, нет псевдографики: «╤ыєцхсэр» — признак ANSI, прочитанного как cp866).
+fn decode_mixed(bytes: &[u8], oem: &'static encoding_rs::Encoding, ansi: &'static encoding_rs::Encoding) -> String {
+    fn score(s: &str) -> i64 {
+        s.chars()
+            .map(|c| match c {
+                '\u{2500}'..='\u{259F}' => -4, // рамки и заливки
+                '\u{FFFD}' => -8,
+                c if c.is_alphabetic() => 2,
+                c if c.is_control() && !matches!(c, '\t' | '\r' | '\n') => -2,
+                _ => 0,
+            })
+            .sum()
+    }
+    let mut out = String::with_capacity(bytes.len());
+    for line in bytes.split_inclusive(|b| *b == b'\n') {
+        if let Ok(s) = std::str::from_utf8(line) {
+            out.push_str(s);
+            continue;
+        }
+        let a = oem.decode(line).0;
+        if std::ptr::eq(oem, ansi) {
+            out.push_str(&a);
+            continue;
+        }
+        let b = ansi.decode(line).0;
+        out.push_str(if score(&b) > score(&a) { &b } else { &a });
+    }
+    out
+}
+
+#[cfg(test)]
+mod decode_tests {
+    use super::*;
+
+    #[test]
+    fn oem_and_ansi_lines_in_one_output() {
+        // cmd.exe — OEM (cp866), pnputil — ANSI (cp1251), и строка в UTF-8.
+        let cmd = encoding_rs::IBM866.encode("Системе не удается найти указанный путь.\r\n").0;
+        let pnp = encoding_rs::WINDOWS_1251.encode("Служебная программа PnP (Майкрософт)\r\n").0;
+        let mut b = Vec::new();
+        b.extend_from_slice(&cmd);
+        b.extend_from_slice(&pnp);
+        b.extend_from_slice("Готово ✓\n".as_bytes());
+        let s = decode_mixed(&b, encoding_rs::IBM866, encoding_rs::WINDOWS_1251);
+        assert_eq!(s, "Системе не удается найти указанный путь.\r\nСлужебная программа PnP (Майкрософт)\r\nГотово ✓\n");
+    }
+
+    #[test]
+    fn plain_ascii_stays() {
+        let s = decode_mixed(b"Device ID: PCI\\VEN_1234\r\n", encoding_rs::IBM866, encoding_rs::WINDOWS_1251);
+        assert_eq!(s, "Device ID: PCI\\VEN_1234\r\n");
+    }
 }
