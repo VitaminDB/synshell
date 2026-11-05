@@ -1,9 +1,12 @@
 @tag = "en"
 @name = "English"
 
+# src/main.rs
 "syn-systeminfo [СТРАНИЦА] [--list-pages] [--screenshot СНИМОК.png [--page СТРАНИЦА] [--size ШxВ] [--scale N]]" = "syn-systeminfo [PAGE] [--list-pages] [--screenshot SHOT.png [--page PAGE] [--size WxH] [--scale N]]"
 "неизвестная страница «{p}» (--list-pages)" = "unknown page “{p}” (--list-pages)"
 "Монитор ресурсов" = "Resource Monitor"
+
+# src/state.rs
 "Обзор" = "Overview"
 "Процессор" = "Processor"
 "Графика" = "Graphics"
@@ -15,17 +18,26 @@
 "Датчики" = "Sensors"
 "Питание" = "Power"
 "Процессы" = "Processes"
+"CPU" = "CPU"
+"GPU" = "GPU"
+"VRAM" = "VRAM"
+"NPU" = "NPU"
 "ОЗУ" = "RAM"
 "Диски" = "Disks"
 "Темп." = "Temp."
 "Батарея" = "Battery"
+
+# src/ui/mod.rs
 "{n} процессов" = "{n} processes"
 "спит" = "asleep"
 "нет" = "none"
 "включён" = "on"
 "выключен" = "off"
 "Ресурсы" = "Resources"
+"synshell" = "synshell"
 "работает {d}" = "up {d}"
+
+# src/ui/pages/hw.rs
 "до {f}" = "up to {f}"
 "Загрузка" = "Load"
 "ожидание {p}" = "waiting {p}"
@@ -85,6 +97,7 @@
 "по PD на CDSP" = "one PD each on CDSP"
 "Кэш графов" = "Graph cache"
 "Служба synnpu-qnn" = "synnpu-qnn service"
+"pid {p}" = "pid {p}"
 "Рабочих процессов" = "Workers"
 "Моделей synaptixd на NPU сейчас нет." = "No synaptixd models on the NPU right now."
 "Нейросети на NPU" = "Neural networks on NPU"
@@ -94,6 +107,8 @@
 "ошибка" = "error"
 "выгружена" = "unloaded"
 "клиентов {n}" = "{n} clients"
+
+# src/ui/pages/mod.rs
 "1 мин" = "1 min"
 "5 мин" = "5 min"
 "5 минут назад" = "5 minutes ago"
@@ -106,12 +121,15 @@
 "Система" = "System"
 "Активнее всего" = "Most active"
 "все процессы →" = "all processes →"
+
+# src/ui/pages/procs.rs
 "«{n}» убит" = "“{n}” killed"
 "«{n}»: отправлен запрос завершиться" = "“{n}”: asked to terminate"
 "«{n}»: нет прав — процесс другого пользователя" = "“{n}”: permission denied — another user's process"
 "«{n}»: не удалось" = "“{n}”: failed"
 "Поиск по имени, команде, PID, пользователю" = "Search by name, command, PID, user"
 "Имя" = "Name"
+"PID" = "PID"
 "Только мои" = "Mine only"
 "Потоки ядра" = "Kernel threads"
 "{n} процессов · {t} потоков" = "{n} processes · {t} threads"
@@ -138,6 +156,8 @@
 "Поток ядра — завершить нельзя" = "Kernel thread — cannot be terminated"
 "Убить без сохранения данных?" = "Kill without saving data?"
 "Завершить" = "End"
+
+# src/ui/pages/system.rs
 "Всего {t}" = "Total {t}"
 "Общая (shmem)" = "Shared (shmem)"
 "Кэш файлов" = "File cache"
@@ -151,11 +171,17 @@
 "Ждёт записи" = "Pending writes"
 "Нехватка" = "Pressure"
 "PSI за 10 с" = "PSI over 10 s"
+"CMA" = "CMA"
 "zram, сжатие в памяти" = "zram, compressed in RAM"
 "файл" = "file"
 "раздел" = "partition"
 "Больше всего памяти" = "Largest memory users"
+"RSS" = "RSS"
+"Wi-Fi" = "Wi-Fi"
 "Мобильная сеть" = "Mobile network"
+"USB" = "USB"
+"VPN" = "VPN"
+"Ethernet" = "Ethernet"
 "Мост" = "Bridge"
 "Виртуальный" = "Virtual"
 "шкала {m}" = "scale {m}"
@@ -165,6 +191,7 @@
 "Скорость" = "Speed"
 "Всего" = "Total"
 "Адреса" = "Addresses"
+"MAC" = "MAC"
 "Линия" = "Link"
 "{n} Мбит/с" = "{n} Mbit/s"
 "Отключены: {l}" = "Down: {l}"
@@ -203,6 +230,8 @@
 "от паспортной" = "of design"
 "Циклы" = "Cycles"
 "Технология" = "Technology"
+
+# src/ui/parts.rs
 "{v} ТБ" = "{v} TB"
 "{v} ГБ" = "{v} GB"
 "{v} МБ" = "{v} MB"
