@@ -26,19 +26,34 @@ pub struct Agent {
 }
 
 impl Agent {
-    /// Соединиться и синхронизироваться; без ответа агента за `timeout` — ошибка.
-    pub fn connect(vm: &Vm, timeout: Duration) -> Result<Agent> {
+    /// Соединиться и синхронизироваться, повторяя до `wait`: после отключения прошлого
+    /// клиента агент (особенно в Windows) заново открывает порт virtio-serial и какое-то
+    /// время не отвечает — цепочка push → exec не должна от этого падать.
+    pub fn connect(vm: &Vm, wait: Duration) -> Result<Agent> {
         let sock = vm.qga_path();
         if !sock.exists() {
             bail!("{}", not_configured(vm));
         }
-        let s = UnixStream::connect(&sock).with_context(|| sock.display().to_string())?;
-        s.set_read_timeout(Some(timeout))?;
-        s.set_write_timeout(Some(timeout))?;
-        let w = s.try_clone()?;
-        let mut a = Agent { w, r: BufReader::new(s) };
-        a.sync().map_err(|e| anyhow!("{} ({e})", not_running(vm)))?;
-        Ok(a)
+        let deadline = Instant::now() + wait;
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            let attempt = (|| -> Result<Agent> {
+                let s = UnixStream::connect(&sock).with_context(|| sock.display().to_string())?;
+                s.set_read_timeout(Some(left.clamp(Duration::from_millis(300), Duration::from_millis(1500))))?;
+                s.set_write_timeout(Some(Duration::from_secs(5)))?;
+                let w = s.try_clone()?;
+                let mut a = Agent { w, r: BufReader::new(s) };
+                a.sync()?;
+                // Дальше — ответы на команды (чтение больших файлов, долгие команды).
+                a.r.get_ref().set_read_timeout(Some(Duration::from_secs(60)))?;
+                Ok(a)
+            })();
+            match attempt {
+                Ok(a) => return Ok(a),
+                Err(e) if Instant::now() + Duration::from_millis(200) >= deadline => return Err(anyhow!("{} ({e})", not_running(vm))),
+                Err(_) => std::thread::sleep(Duration::from_millis(200)),
+            }
+        }
     }
 
     fn sync(&mut self) -> Result<()> {
@@ -113,7 +128,7 @@ fn not_running(vm: &Vm) -> String {
 
 /// Один вызов.
 pub fn call(vm: &Vm, cmd: &str, args: Value) -> Result<Value> {
-    Agent::connect(vm, Duration::from_secs(3))?.call(cmd, args)
+    Agent::connect(vm, Duration::from_secs(10))?.call(cmd, args)
 }
 
 /// Агент отвечает.
@@ -159,12 +174,20 @@ pub fn exec(vm: &Vm, argv: &[String], input: Option<&[u8]>, env: &[String], time
     if !env.is_empty() {
         a["env"] = json!(env);
     }
-    let r = call(vm, "guest-exec", a)?;
+    let mut ag = Agent::connect(vm, Duration::from_secs(10))?;
+    let r = ag.call("guest-exec", a)?;
     let pid = r.get("pid").and_then(Value::as_i64).context("guest-exec: нет pid")?;
     let t0 = Instant::now();
     let mut delay = Duration::from_millis(50);
     loop {
-        let s = call(vm, "guest-exec-status", json!({"pid": pid}))?;
+        // Соединение оборвалось (агент перезапустился) — переподключиться и спросить снова.
+        let s = match ag.call("guest-exec-status", json!({"pid": pid})) {
+            Ok(s) => s,
+            Err(_) => {
+                ag = Agent::connect(vm, Duration::from_secs(10))?;
+                ag.call("guest-exec-status", json!({"pid": pid}))?
+            }
+        };
         if s.get("exited").and_then(Value::as_bool) == Some(true) {
             let dec = |k: &str| s.get(k).and_then(Value::as_str).and_then(|b| B64.decode(b).ok()).unwrap_or_default();
             let code = s.get("exitcode").and_then(Value::as_i64).map(|c| c as i32).or_else(|| s.get("signal").and_then(Value::as_i64).map(|sg| 128 + sg as i32)).unwrap_or(0);
@@ -199,7 +222,7 @@ const CHUNK: usize = 1 << 20;
 /// Файл хоста → гость. Возвращает число байт.
 pub fn push(vm: &Vm, local: &Path, guest: &str) -> Result<u64> {
     let mut f = std::fs::File::open(local).with_context(|| local.display().to_string())?;
-    let mut a = Agent::connect(vm, Duration::from_secs(30))?;
+    let mut a = Agent::connect(vm, Duration::from_secs(10))?;
     let h = a.call("guest-file-open", json!({"path": guest, "mode": "wb"}))?.as_i64().context("guest-file-open")?;
     let r = (|| -> Result<u64> {
         let mut buf = vec![0u8; CHUNK];
@@ -220,7 +243,7 @@ pub fn push(vm: &Vm, local: &Path, guest: &str) -> Result<u64> {
 
 /// Файл гостя → хост.
 pub fn pull(vm: &Vm, guest: &str, local: &Path) -> Result<u64> {
-    let mut a = Agent::connect(vm, Duration::from_secs(30))?;
+    let mut a = Agent::connect(vm, Duration::from_secs(10))?;
     let h = a.call("guest-file-open", json!({"path": guest, "mode": "rb"}))?.as_i64().context("guest-file-open")?;
     let tmp = local.with_extension("syn-vm-part");
     let r = (|| -> Result<u64> {
@@ -252,7 +275,7 @@ pub fn pull(vm: &Vm, guest: &str, local: &Path) -> Result<u64> {
 
 /// Прочитать небольшой файл гостя целиком.
 pub fn read_file(vm: &Vm, guest: &str, max: usize) -> Result<Vec<u8>> {
-    let mut a = Agent::connect(vm, Duration::from_secs(30))?;
+    let mut a = Agent::connect(vm, Duration::from_secs(10))?;
     let h = a.call("guest-file-open", json!({"path": guest, "mode": "rb"}))?.as_i64().context("guest-file-open")?;
     let mut out = Vec::new();
     let r = (|| -> Result<()> {
@@ -272,7 +295,7 @@ pub fn read_file(vm: &Vm, guest: &str, max: usize) -> Result<Vec<u8>> {
 }
 
 pub fn write_file(vm: &Vm, guest: &str, data: &[u8]) -> Result<()> {
-    let mut a = Agent::connect(vm, Duration::from_secs(30))?;
+    let mut a = Agent::connect(vm, Duration::from_secs(10))?;
     let h = a.call("guest-file-open", json!({"path": guest, "mode": "wb"}))?.as_i64().context("guest-file-open")?;
     let r = data.chunks(CHUNK).try_for_each(|c| a.call("guest-file-write", json!({"handle": h, "buf-b64": B64.encode(c)})).map(|_| ()));
     let _ = a.call("guest-file-close", json!({"handle": h}));
@@ -281,7 +304,7 @@ pub fn write_file(vm: &Vm, guest: &str, data: &[u8]) -> Result<()> {
 
 /// Выключить через агента (`powerdown`, `reboot`, `halt`).
 pub fn shutdown(vm: &Vm, mode: &str) -> Result<()> {
-    Agent::connect(vm, Duration::from_secs(3))?.send("guest-shutdown", json!({"mode": mode}))
+    Agent::connect(vm, Duration::from_secs(10))?.send("guest-shutdown", json!({"mode": mode}))
 }
 
 /// Сведения о госте для обзора: система, имя, адреса.
@@ -294,7 +317,7 @@ pub struct GuestInfo {
 }
 
 pub fn info(vm: &Vm) -> Result<GuestInfo> {
-    let mut a = Agent::connect(vm, Duration::from_secs(4))?;
+    let mut a = Agent::connect(vm, Duration::from_secs(6))?;
     let mut g = GuestInfo::default();
     if let Ok(v) = a.call("guest-info", Value::Null) {
         g.agent_version = v.get("version").and_then(Value::as_str).unwrap_or_default().to_string();
