@@ -26,5 +26,4 @@
 "Добро пожаловать" = "Welcome"
 "Создайте свою учётную запись. Она станет администратором: пароль от неё нужен для sudo и установки программ." = "Create your account. It will be an administrator: its password is needed for sudo and installing software."
 "Задайте пароль — он нужен для входа и для sudo" = "Set a password — it is needed to sign in and for sudo"
-"Пароль" = "Password"
 "Нажмите ещё раз — перезагрузка в Android" = "Tap again to reboot into Android"
