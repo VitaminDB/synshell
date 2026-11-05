@@ -410,6 +410,7 @@
 
 # src/ui/capture.rs
 "Не удалось подключить мышь для игр: {e}" = "Impossible de brancher la souris de jeu : {e}"
+"Мышь захвачена игрой — Ctrl+Alt, чтобы освободить" = "Souris capturée par le jeu — Ctrl+Alt pour la libérer"
 
 # src/ui/library.rs
 "Создайте машину из образа системы — Linux, Windows, BSD" = "Créer une machine à partir d’une image système — Linux, Windows, BSD"
@@ -527,10 +528,10 @@
 
 # src/ui/screen.rs
 "Подключение к экрану…" = "Connexion à l’écran…"
-"Мышь захвачена игрой — Ctrl+Alt, чтобы освободить" = "Souris capturée par le jeu — Ctrl+Alt pour la libérer"
 "Мышь освобождена" = "Souris libérée"
+"Захват мыши — у машин с «3D-ускорением (syn-gpu)»" = "Capture de la souris — pour les machines avec « Accélération 3D (syn-gpu) »"
 "Запись экрана гостя в видео (Видео/Записи экрана)" = "Enregistrer l’écran de l’invité en vidéo (Vidéos/Записи экрана)"
-"Захватить мышь для игры (Ctrl+Alt — освободить)" = "Capturer la souris pour un jeu (Ctrl+Alt : libérer)"
+"Захватить мышь для игры (Ctrl+Alt+G; Ctrl+Alt — освободить)" = ""
 "Ctrl+Alt+Del" = "Ctrl+Alt+Suppr"
 "Другие сочетания" = "Autres raccourcis"
 "Напечатать текст из буфера (Ctrl+Alt+V)" = "Saisir le texte du presse-papiers (Ctrl+Alt+V)"

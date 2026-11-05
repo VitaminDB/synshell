@@ -190,8 +190,13 @@ fn input(st: St, id: &str, s: &crate::vnc::Session, e: LiveInput) {
                     Key::G => {
                         s.key(0x1d, 0, false);
                         s.key(0x38, 0, false);
-                        if let Some(vm) = st.vm(id).filter(|v| v.gpu3d) {
-                            super::capture::start(st, &vm);
+                        if let Some(vm) = st.vm(id) {
+                            super::capture::log(&vm, "нажато Ctrl+Alt+G");
+                            if vm.gpu3d {
+                                super::capture::start(st, &vm);
+                            } else {
+                                state::toast(st, t!("Захват мыши — у машин с «3D-ускорением (syn-gpu)»"));
+                            }
                         }
                         return;
                     }
@@ -291,6 +296,7 @@ fn toolbar(st: St, id: &str, full: bool) -> W {
         bar = bar
             .child(icon_btn(icons::MOUSE, t!("Захватить мышь для игры (Ctrl+Alt+G; Ctrl+Alt — освободить)"), move || {
                 if let Some(vm) = st.vm(&cap_id) {
+                    super::capture::log(&vm, "нажата кнопка захвата");
                     super::capture::start(st, &vm);
                 }
             }))

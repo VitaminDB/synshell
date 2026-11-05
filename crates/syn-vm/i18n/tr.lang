@@ -410,6 +410,7 @@
 
 # src/ui/capture.rs
 "Не удалось подключить мышь для игр: {e}" = "Oyun faresi bağlanamadı: {e}"
+"Мышь захвачена игрой — Ctrl+Alt, чтобы освободить" = "Fare oyun tarafından yakalandı — bırakmak için Ctrl+Alt"
 
 # src/ui/library.rs
 "Создайте машину из образа системы — Linux, Windows, BSD" = "Sistem kalıbından makine oluşturun — Linux, Windows, BSD"
@@ -527,10 +528,10 @@
 
 # src/ui/screen.rs
 "Подключение к экрану…" = "Ekrana bağlanılıyor…"
-"Мышь захвачена игрой — Ctrl+Alt, чтобы освободить" = "Fare oyun tarafından yakalandı — bırakmak için Ctrl+Alt"
 "Мышь освобождена" = "Fare bırakıldı"
+"Захват мыши — у машин с «3D-ускорением (syn-gpu)»" = "Fare yakalama — “3D hızlandırma (syn-gpu)” olan makineler için"
 "Запись экрана гостя в видео (Видео/Записи экрана)" = "Konuk ekranını videoya kaydet (Videolar/Ekran kayıtları)"
-"Захватить мышь для игры (Ctrl+Alt — освободить)" = "Fareyi oyun için yakala (Ctrl+Alt — bırak)"
+"Захватить мышь для игры (Ctrl+Alt+G; Ctrl+Alt — освободить)" = ""
 "Ctrl+Alt+Del" = "Ctrl+Alt+Del"
 "Другие сочетания" = "Diğer kısayollar"
 "Напечатать текст из буфера (Ctrl+Alt+V)" = "Panodaki metni yaz (Ctrl+Alt+V)"
