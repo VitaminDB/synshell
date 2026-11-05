@@ -363,6 +363,12 @@ fn focused_output() -> String {
 fn shot(output: &str) -> Option<String> {
     let dir = std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir).join("synshell-screenshots");
     let _ = std::fs::create_dir_all(&dir);
+    // Программы забирают снимок сразу; старые — убрать (каталог в памяти).
+    for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+        if e.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|a| a > Duration::from_secs(3600)) {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
     let file = dir.join(format!("screenshot-{stamp}.png"));
     let st = Command::new(helper()).arg("--screenshot").arg(&file).args(["--output", output]).stdout(Stdio::null()).status().ok()?;
