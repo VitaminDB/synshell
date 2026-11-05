@@ -295,8 +295,12 @@ pub struct RelInput {
 }
 
 impl RelInput {
+    /// Через второй монитор (qmp-input.sock); у машин, запущенных раньше, — через основной
+    /// (пока захват идёт, прочие запросы к нему ждут).
     pub fn open(vm: &Vm) -> Result<Self> {
-        Ok(Self { conn: Conn::of(vm)? })
+        let p = vm.qmp_input_path();
+        let conn = if p.exists() { Conn::open(&p, Duration::from_secs(5))? } else { Conn::of(vm)? };
+        Ok(Self { conn })
     }
 
     pub fn motion(&mut self, dx: i64, dy: i64) -> Result<()> {

@@ -19,71 +19,128 @@ enum Ev {
 struct Cap {
     id: String,
     tx: Sender<Ev>,
+    /// Блокировка указателя уже подтверждена (на Wayland — не сразу после запроса).
+    locked_seen: bool,
 }
 
 static CAP: Mutex<Option<Cap>> = Mutex::new(None);
+
+/// Ход захвата и ошибки — в журнал машины (`syn-vm.log` в её папке).
+pub fn log(vm: &Vm, msg: &str) {
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(vm.dir().join("syn-vm.log")) {
+        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let _ = writeln!(f, "{t} захват: {msg}");
+    }
+}
 
 /// Захват включён у какой-нибудь машины.
 pub fn any() -> bool {
     CAP.lock().unwrap().is_some()
 }
 
-/// Захват включён у этой машины (и указатель всё ещё заперт).
+/// Захват включён у этой машины.
 pub fn active(id: &str) -> bool {
-    let on = CAP.lock().unwrap().as_ref().is_some_and(|c| c.id == id);
-    if on && !syngui::signal::pointer_locked() {
+    let mut g = CAP.lock().unwrap();
+    let Some(c) = g.as_mut().filter(|c| c.id == id) else { return false };
+    let locked = syngui::signal::pointer_locked();
+    if locked {
+        c.locked_seen = true;
+        return true;
+    }
+    if c.locked_seen {
         // Окно потеряло фокус — syngui уже отпустил указатель; привести своё в порядок.
+        drop(g);
         stop();
         return false;
     }
-    on
+    true
 }
 
-/// Включить захват: относительная мышь гостя — активной, указатель — запереть.
-pub fn start(vm: &Vm) -> std::result::Result<(), String> {
+/// Включить захват (в фоне: относительная мышь подключается около секунды): мышь гостя —
+/// относительной, указатель — запереть. Итог и ошибки — уведомлением и в журнал.
+pub fn start(st: crate::state::St, vm: &Vm) {
     stop();
-    // Относительная мышь — на ходу (около секунды, пока гость её поднимет).
-    if let Err(e) = crate::qmp::rel_mouse_on(vm) {
-        return Err(t!("Не удалось подключить мышь для игр: {e}", e = e));
-    }
+    let v = vm.clone();
+    std::thread::spawn(move || {
+        log(&v, "подключаю относительную мышь");
+        if let Err(e) = crate::qmp::rel_mouse_on(&v) {
+            log(&v, &format!("мышь не подключилась: {e}"));
+            let msg = t!("Не удалось подключить мышь для игр: {e}", e = e);
+            run_on_main_thread(move || crate::state::toast_err(st, msg));
+            return;
+        }
+        log(&v, "мышь активна, запираю указатель");
+        run_on_main_thread(move || lock(st, v));
+    });
+}
+
+fn lock(st: crate::state::St, vm: Vm) {
     if let Err(e) = syngui::signal::set_pointer_lock(true) {
-        crate::qmp::rel_mouse_off(vm);
-        return Err(e);
+        log(&vm, &format!("указатель не заперся: {e}"));
+        std::thread::spawn(move || crate::qmp::rel_mouse_off(&vm));
+        crate::state::toast_err(st, e);
+        return;
     }
-    let _ = syngui::signal::inhibit_shortcuts(true);
+    if let Err(e) = syngui::signal::inhibit_shortcuts(true) {
+        log(&vm, &format!("сочетания не перехвачены: {e}"));
+    }
     let (tx, rx) = channel::<Ev>();
     let v = vm.clone();
     std::thread::Builder::new()
         .name("syn-vm-capture".into())
         .spawn(move || {
-            let Ok(mut inp) = crate::qmp::RelInput::open(&v) else { return };
+            let mut inp = match crate::qmp::RelInput::open(&v) {
+                Ok(i) => i,
+                Err(e) => {
+                    log(&v, &format!("QMP: {e}"));
+                    return;
+                }
+            };
             // Дробные смещения копятся: на HiDPI мышь даёт доли пикселя.
             let (mut fx, mut fy) = (0.0f64, 0.0f64);
+            let mut errs = 0;
+            let mut moves = 0u64;
             while let Ok(ev) = rx.recv() {
-                match ev {
+                let r = match ev {
                     Ev::Motion(dx, dy) => {
+                        moves += 1;
+                        if moves == 1 || moves % 500 == 0 {
+                            log(&v, &format!("смещений мыши: {moves}"));
+                        }
                         fx += dx;
                         fy += dy;
                         let (ix, iy) = (fx.trunc(), fy.trunc());
                         fx -= ix;
                         fy -= iy;
-                        let _ = inp.motion(ix as i64, iy as i64);
+                        inp.motion(ix as i64, iy as i64)
                     }
                     Ev::Button(b, down) => {
-                        let _ = inp.button(b, down);
+                        log(&v, &format!("кнопка {b} {}", if down { "нажата" } else { "отпущена" }));
+                        inp.button(b, down)
                     }
                     Ev::Stop => break,
+                };
+                if let Err(e) = r {
+                    errs += 1;
+                    if errs <= 3 {
+                        log(&v, &format!("QMP: {e}"));
+                    }
                 }
             }
+            // Соединение ввода — закрыть до запросов к основному монитору.
+            drop(inp);
+            log(&v, "выход, указатель — планшету");
             crate::qmp::rel_mouse_off(&v);
         })
-        .map_err(|e| e.to_string())?;
+        .ok();
     let mtx = tx.clone();
     syngui::signal::on_raw_motion(Some(Box::new(move |dx, dy| {
         let _ = mtx.send(Ev::Motion(dx, dy));
     })));
-    *CAP.lock().unwrap() = Some(Cap { id: vm.id.clone(), tx });
-    Ok(())
+    *CAP.lock().unwrap() = Some(Cap { id: vm.id.clone(), tx, locked_seen: false });
+    log(&vm, "включён");
+    crate::state::toast(st, t!("Мышь захвачена игрой — Ctrl+Alt, чтобы освободить"));
 }
 
 /// Выключить захват: указатель и сочетания — системе, мышь гостя — снова планшет.

@@ -561,6 +561,12 @@ impl Vm {
         self.run_dir().join("qmp.sock")
     }
 
+    /// Второй монитор QMP — для ввода в режиме захвата (монитор принимает одно соединение
+    /// за раз, а захват держит своё всё время).
+    pub fn qmp_input_path(&self) -> PathBuf {
+        self.run_dir().join("qmp-input.sock")
+    }
+
     pub fn vnc_path(&self) -> PathBuf {
         self.run_dir().join("vnc.sock")
     }

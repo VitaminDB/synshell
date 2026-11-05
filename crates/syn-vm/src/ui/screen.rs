@@ -64,22 +64,13 @@ pub fn page(st: St, full: bool) -> W {
     }))
 }
 
-/// Щелчок левой кнопкой у машины с 3D: попал в кадр игры (или игра во весь экран) — захват.
-fn try_capture(st: St, id: &str, x: f32, y: f32) -> bool {
-    let Some(vm) = st.vm(id).filter(|v| v.gpu3d) else { return false };
-    let Some(layer) = state::game_layer(id) else { return false };
-    let (gw, gh) = st.guest_size.get_untracked();
-    let (gx, gy) = (x * gw as f32, y * gh as f32);
-    let (lx, ly, lw, lh) = layer.rect;
-    let inside = gx >= lx as f32 && gy >= ly as f32 && gx < (lx + lw as i32) as f32 && gy < (ly + lh as i32) as f32;
-    if !inside && !layer.fullscreen {
-        return false;
+/// Щелчок по полноэкранной игре (flags&2) у машины с 3D — захват мыши; сам щелчок уходит гостю.
+/// Окно игры не во весь экран — обычный щелчок (меню, лаунчеры): захват — кнопкой или Ctrl+Alt+G.
+fn try_capture(st: St, id: &str) {
+    let Some(vm) = st.vm(id).filter(|v| v.gpu3d) else { return };
+    if state::game_layer(id).is_some_and(|l| l.fullscreen) {
+        super::capture::start(st, &vm);
     }
-    match super::capture::start(&vm) {
-        Ok(()) => state::toast(st, t!("Мышь захвачена игрой — Ctrl+Alt, чтобы освободить")),
-        Err(e) => state::toast_err(st, e),
-    }
-    true
 }
 
 /// Место окна игры (физические пиксели экрана гостя) → координаты в виджете экрана:
@@ -145,11 +136,8 @@ fn input(st: St, id: &str, s: &crate::vnc::Session, e: LiveInput) {
             }
             _ => {}
         }
-    } else if let LiveInput::Down { button: MouseButton::Left, x, y } = e {
-        // Щелчок по кадру игры (или по полноэкранной игре) — захват мыши.
-        if try_capture(st, id, x, y) {
-            return;
-        }
+    } else if let LiveInput::Down { button: MouseButton::Left, .. } = e {
+        try_capture(st, id);
     }
     match e {
         LiveInput::Move { x, y } => s.pointer(x, y),
@@ -196,6 +184,15 @@ fn input(st: St, id: &str, s: &crate::vnc::Session, e: LiveInput) {
                         s.key(0x1d, 0, false);
                         s.key(0x38, 0, false);
                         type_clipboard(id);
+                        return;
+                    }
+                    // Ctrl+Alt+G — захват мыши для игры (машины с 3D).
+                    Key::G => {
+                        s.key(0x1d, 0, false);
+                        s.key(0x38, 0, false);
+                        if let Some(vm) = st.vm(id).filter(|v| v.gpu3d) {
+                            super::capture::start(st, &vm);
+                        }
                         return;
                     }
                     _ => {}
@@ -292,12 +289,9 @@ fn toolbar(st: St, id: &str, full: bool) -> W {
     if gpu3d {
         // Захват мыши для игр (камера в 3D-играх читает сырые смещения); Ctrl+Alt — выход.
         bar = bar
-            .child(icon_btn(icons::MOUSE, t!("Захватить мышь для игры (Ctrl+Alt — освободить)"), move || {
+            .child(icon_btn(icons::MOUSE, t!("Захватить мышь для игры (Ctrl+Alt+G; Ctrl+Alt — освободить)"), move || {
                 if let Some(vm) = st.vm(&cap_id) {
-                    match super::capture::start(&vm) {
-                        Ok(()) => state::toast(st, t!("Мышь захвачена игрой — Ctrl+Alt, чтобы освободить")),
-                        Err(e) => state::toast_err(st, e),
-                    }
+                    super::capture::start(st, &vm);
                 }
             }))
             .child(DecoratedBox::new().class("vsep"));

@@ -95,6 +95,7 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
     }
     push(&["-pidfile", &run.join("qemu.pid").to_string_lossy()]);
     push(&["-qmp", &format!("unix:{},server=on,wait=off", vm.qmp_path().display())]);
+    push(&["-qmp", &format!("unix:{},server=on,wait=off", vm.qmp_input_path().display())]);
     push(&["-display", "none"]);
     push(&["-vnc", &format!("unix:{}", vm.vnc_path().display())]);
     push(&["-rtc", if vm.os.is_windows() { "base=localtime" } else { "base=utc" }]);
