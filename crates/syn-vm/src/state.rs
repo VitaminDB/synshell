@@ -248,6 +248,8 @@ pub struct St {
     pub window: RwSignal<syngui::window::WindowState>,
     /// Сведения гостевого агента открытой машины (`None` — не отвечает).
     pub guest: RwSignal<Option<crate::qga::GuestInfo>>,
+    /// Устройства компьютера для раздела настроек (`None` — ещё не собраны).
+    pub host_devs: RwSignal<Option<Vec<crate::devices::Avail>>>,
 }
 
 impl St {
@@ -275,6 +277,7 @@ impl St {
             view_size: use_signal((0, 0)),
             window: use_signal(syngui::window::WindowState::default()),
             guest: use_signal(None),
+            host_devs: use_signal(None),
         }
     }
 
@@ -525,6 +528,43 @@ pub fn set_usb(st: St, id: &str, port: String, on: bool) {
     });
 }
 
+/// Отдать устройство компьютера машине или забрать (на ходу, где можно).
+pub fn set_device(st: St, id: &str, d: model::HostDev, on: bool) {
+    let Some(vm) = st.vm(id) else { return };
+    background(st, id, t!("Устройство…"), move || {
+        let msg = crate::cli::set_device(&vm, d, on)?;
+        run_on_main_thread(move || reload(st));
+        Ok(Some(msg))
+    });
+}
+
+/// Перечитать устройства компьютера (проверки IOMMU, занятость — в фоне).
+pub fn load_host_devices(st: St) {
+    std::thread::spawn(move || {
+        let list = crate::devices::available();
+        run_on_main_thread(move || st.host_devs.set(Some(list)));
+    });
+}
+
+/// Спросить гостевой агент открытой работающей машины.
+pub fn refresh_guest(st: St) {
+    let Some(vm) = st.selected() else { return };
+    if !vm.guest_agent || !st.power(&vm.id).on() {
+        if st.guest.get_untracked().is_some() {
+            st.guest.set(None);
+        }
+        return;
+    }
+    std::thread::spawn(move || {
+        let g = crate::qga::info(&vm).ok();
+        run_on_main_thread(move || {
+            if st.sel.get_untracked().as_deref() == Some(vm.id.as_str()) && st.guest.get_untracked() != g {
+                st.guest.set(g);
+            }
+        });
+    });
+}
+
 // ─── Экран ──────────────────────────────────────────────────────────────
 
 /// Сеанс экрана машины (если подключён).
@@ -745,6 +785,7 @@ pub fn start_poller(st: St) {
             let mut hist: HashMap<String, (Vec<f32>, Vec<f32>)> = HashMap::new();
             let mut since: HashMap<String, u64> = HashMap::new();
             let mut tick = 0u64;
+            let mut last_sig = disk_signature();
             loop {
                 let vms = mirror().lock().unwrap().clone();
                 let mut out: HashMap<String, Live> = HashMap::new();
@@ -796,7 +837,15 @@ pub fn start_poller(st: St) {
                     }
                 }
                 tick += 1;
+                // Машины, изменённые из командной строки или MCP, — перечитать.
+                let sig = disk_signature();
+                let changed_on_disk = std::mem::replace(&mut last_sig, sig.clone()) != sig && tick > 1;
+                let guest_tick = tick % 5 == 1;
                 run_on_main_thread(move || {
+                    // Свои сохранения окна тоже меняют файл — перечитывать, только если на диске другое.
+                    if changed_on_disk && model::load_all() != st.vms.get_untracked() {
+                        reload(st);
+                    }
                     let old = st.live.get_untracked();
                     // Машина выключилась — закрыть экран, перечитать миниатюру.
                     for (id, l) in &old {
@@ -826,8 +875,12 @@ pub fn start_poller(st: St) {
                             attach(st, &id);
                         }
                     }
+                    let sel_started = st.sel.get_untracked().is_some_and(|id| out.get(&id).is_some_and(|l| l.power.on()) && !old.get(&id).is_some_and(|l| l.power.on()));
                     if old != out {
                         st.live.set(out);
+                    }
+                    if guest_tick || sel_started {
+                        refresh_guest(st);
                     }
                     if thumbs_changed {
                         st.thumb_tick.update(|t| *t += 1);
@@ -837,6 +890,18 @@ pub fn start_poller(st: St) {
             }
         })
         .ok();
+}
+
+/// Отпечаток папки машин: имена и время изменения `vm.toml`.
+fn disk_signature() -> Vec<(String, std::time::SystemTime)> {
+    let mut v: Vec<_> = std::fs::read_dir(model::root())
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| Some((e.file_name().to_string_lossy().into_owned(), std::fs::metadata(e.path().join("vm.toml")).ok()?.modified().ok()?)))
+        .collect();
+    v.sort();
+    v
 }
 
 /// Время запуска процесса (Unix).

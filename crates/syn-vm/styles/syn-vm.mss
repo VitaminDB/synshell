@@ -394,3 +394,7 @@ CircularProgress { color: var(--accent); accent-color: var(--accent); }
 .toast-icon { icon-size: 20px; icon-color: var(--success); }
 .toast.error .toast-icon { icon-color: var(--danger); }
 .toast-text { font-size: 13px; }
+
+/* ── Устройства компьютера ─────────────────────────────────── */
+.group-title { margin-top: 8px; color: var(--muted); font-size: 12px; }
+.row-hint.warn { color: var(--warning); }

@@ -46,6 +46,7 @@ fn main() {
             std::process::exit(code);
         }
     }
+    let mut separate = false;
     let mut args = all.into_iter();
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -53,6 +54,7 @@ fn main() {
                 print!("{}", cli::HELP);
                 return;
             }
+            "--new-window" => separate = true,
             "--tab" => tab = args.next().as_deref().and_then(Tab::parse),
             "--open" => target = args.next(),
             "--wizard" => wizard = args.next().and_then(|s| s.parse().ok()),
@@ -80,6 +82,17 @@ fn main() {
                 if let Some(id) = &target_id {
                     st.sel.set(Some(id.clone()));
                     st.tab.set(tab.unwrap_or(Tab::Overview));
+                    if tab == Some(Tab::Settings) {
+                        st.host_devs.set(Some(devices::available()));
+                    }
+                    if let Some(vm) = st.vm(id) {
+                        if qemu::pid(&vm).is_some() {
+                            st.guest.set(qga::info(&vm).ok());
+                            let mut live = st.live.get_untracked();
+                            live.entry(vm.id.clone()).or_default().power = state::Power::Running;
+                            st.live.set(live);
+                        }
+                    }
                 }
                 if let Some(step) = wizard {
                     ui::new_vm(st);
@@ -103,14 +116,18 @@ fn main() {
     }
     // Окно уже открыто — передать ему машину.
     let sock = socket_path();
-    if let Ok(mut s) = UnixStream::connect(&sock) {
+    if separate {
+        // Отдельное окно (проверки, второй экран): без передачи открытому и без своего сокета.
+    } else if let Ok(mut s) = UnixStream::connect(&sock) {
         let line = format!("{}\t{}\t{}", target_id.clone().unwrap_or_default(), tab.map(tab_id).unwrap_or(""), file.clone().unwrap_or_default());
         if writeln!(s, "{line}").is_ok() {
             return;
         }
     }
-    let _ = std::fs::remove_file(&sock);
-    let listener = std::sync::Mutex::new(UnixListener::bind(&sock).ok());
+    if !separate {
+        let _ = std::fs::remove_file(&sock);
+    }
+    let listener = std::sync::Mutex::new(if separate { None } else { UnixListener::bind(&sock).ok() });
     let win = use_signal(syngui::window::WindowState::default());
     App::new()
         .title(t!("Виртуальные машины"))
@@ -139,7 +156,9 @@ fn main() {
             }
             Box::new(ui::root(st))
         });
-    let _ = std::fs::remove_file(&sock);
+    if !separate {
+        let _ = std::fs::remove_file(&sock);
+    }
 }
 
 /// Машина по id или имени (без учёта регистра).

@@ -26,7 +26,7 @@ pub fn page(st: St, narrow: bool) -> W {
         let vw = viewport_size().get().width;
         let wide = !narrow && vw >= 1180.0;
         let left = Column::new().gap(16.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(preview(st, &vm, &l, narrow)).child(stats(&vm, &l, narrow));
-        let right = Column::new().gap(16.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(info(&vm)).child(actions(st, &vm, &l));
+        let right = Column::new().gap(16.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(info(&vm)).child(agent_card(st, &vm, &l)).child(actions(st, &vm, &l));
         let body: W = if wide {
             boxed(
                 Row::new()
@@ -181,6 +181,45 @@ fn info(vm: &Vm) -> W {
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .child(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(parts::badge(icons::INFO, None, 30.0)).child(Text::new(t!("Сведения")).class("card-title grow")))
             .children(rows),
+    )
+}
+
+/// Гостевой агент: что он рассказывает о госте или как его поставить.
+fn agent_card(st: St, vm: &Vm, l: &Live) -> W {
+    if !l.power.on() || !vm.guest_agent {
+        return boxed(DecoratedBox::new());
+    }
+    let os = vm.os;
+    let body = Reactive::new(move || -> Vec<W> {
+        let mut rows: Vec<W> = Vec::new();
+        match st.guest.get() {
+            Some(g) => {
+                rows.push(parts::kv(t!("Система"), g.os.clone()));
+                if !g.hostname.is_empty() {
+                    rows.push(parts::kv(t!("Имя"), g.hostname.clone()));
+                }
+                rows.push(parts::kv(t!("Адреса"), if g.ips.is_empty() { t!("нет") } else { g.ips.join(", ") }));
+                if !g.agent_version.is_empty() {
+                    rows.push(parts::kv(t!("Агент"), g.agent_version.clone()));
+                }
+            }
+            None => {
+                let hint = if os.is_windows() {
+                    t!("Не отвечает. Поставьте «Гостевые инструменты»: диск virtio-win (настройки → Гостевой агент и инструменты) → virtio-win-guest-tools.exe")
+                } else {
+                    t!("Не отвечает. В госте: пакет qemu-guest-agent и systemctl enable --now qemu-guest-agent")
+                };
+                rows.push(boxed(Text::new(hint).max_lines(4).class("row-hint")));
+            }
+        }
+        vec![boxed(Column::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Stretch).children(rows))]
+    });
+    parts::card(
+        Column::new()
+            .gap(10.0)
+            .cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .child(Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(parts::badge(icons::TERMINAL, None, 30.0)).child(Text::new(t!("Гостевой агент")).class("card-title grow")))
+            .child(body),
     )
 }
 

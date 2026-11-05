@@ -36,6 +36,10 @@ pub fn open(st: St, id: Option<String>, tab: Option<Tab>) {
         st.connected.set(false);
     }
     st.sel.set(id.clone());
+    if changed {
+        st.guest.set(None);
+        state::refresh_guest(st);
+    }
     if let Some(id) = id {
         let on = st.power(&id).on();
         let tab = tab.unwrap_or(if changed { if on { Tab::Screen } else { Tab::Overview } } else { st.tab.get_untracked() });

@@ -8,7 +8,7 @@ use syngui::GestureDetector;
 use syngui::CursorIcon;
 
 use super::parts::{self, boxed, btn, row, row_wide, W};
-use crate::model::{self, DiskBus, DisplayModel, Firmware, NetMode, NicModel, OsKind, PortForward, Vm, PALETTE};
+use crate::model::{self, DiskBus, DisplayModel, Firmware, HostDev, NetMode, NicModel, OsKind, PortForward, ShareMode, Vm, PALETTE};
 use crate::state::{self, icons, St};
 
 pub fn page(st: St, narrow: bool) -> W {
@@ -25,7 +25,9 @@ pub fn page(st: St, narrow: bool) -> W {
         col = col.child(live(st, move |st, vm| boot(st, vm)));
         col = col.child(network(st, &vm));
         col = col.child(live(st, move |st, vm| devices(st, vm)));
+        col = col.child(live(st, move |st, vm| guest(st, vm)));
         col = col.child(live(st, move |st, vm| usb(st, vm)));
+        col = col.child(host_devices(st, &vm));
         col = col.child(advanced(st, &vm));
         vec![boxed(DecoratedBox::new().child(col).class(if narrow { "page narrow" } else { "page settings" }))]
     });
@@ -280,7 +282,16 @@ fn boot(st: St, vm: &Vm) -> W {
             row(t!("Сначала с привода"), t!("Включите, чтобы загрузиться с образа, когда на диске уже есть система"), Toggle::with_state(vm.boot_cdrom).on_change(move |b| state::edit(st, |v| v.boot_cdrom = b))),
             row(t!("Прошивка"), t!("Меняется только у выключенной машины; установленная система может перестать загружаться"), fw),
             row(t!("TPM 2.0"), t!("Нужен Windows 11 и BitLocker; эмулирует swtpm"), Toggle::with_state(vm.tpm).on_change(move |b| state::edit(st, |v| v.tpm = b))),
-        ],
+        ]
+        .into_iter()
+        .chain(vm.tpm.then(|| {
+            row(
+                t!("TPM компьютера"),
+                if std::path::Path::new("/dev/tpm0").exists() { t!("Вместо эмулятора — настоящий TPM (/dev/tpm0); пока машина работает, у компьютера его нет") } else { t!("У компьютера нет TPM") },
+                Toggle::with_state(vm.tpm_host).disabled(!std::path::Path::new("/dev/tpm0").exists()).on_change(move |b| state::edit(st, |v| v.tpm_host = b)),
+            )
+        }))
+        .collect(),
     )
 }
 
@@ -308,7 +319,13 @@ fn network(st: St, vm: &Vm) -> W {
                     .gap(10.0)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
                     .child(DecoratedBox::new().child(Text::new(if f.udp { "UDP" } else { "TCP" }).class("tag-label")).class("tag"))
-                    .child(Text::new(t!("localhost:{h} → гость:{g}", h = f.host, g = f.guest)).max_lines(1).class("row-title grow"))
+                    .child(Text::new(if f.public { t!("все адреса:{h} → гость:{g}", h = f.host, g = f.guest) } else { t!("localhost:{h} → гость:{g}", h = f.host, g = f.guest) }).max_lines(1).class("row-title grow"))
+                    .child(Text::new(t!("наружу")).class("row-hint"))
+                    .child(Toggle::with_state(f.public).on_change(move |b| state::edit(st, |v| {
+                        if let Some(f) = v.forwards.get_mut(i) {
+                            f.public = b;
+                        }
+                    })))
                     .child(super::parts::icon_btn(icons::CLOSE, t!("Убрать"), move || state::edit(st, |v| {
                         if i < v.forwards.len() {
                             v.forwards.remove(i);
@@ -382,6 +399,24 @@ fn devices(st: St, vm: &Vm) -> W {
     if !vm.shared_dir.is_empty() {
         share = share.child(super::parts::icon_btn(icons::CLOSE, t!("Не делиться"), move || state::edit(st, |v| v.shared_dir.clear())));
     }
+    let mode = vm.share_mode.resolve(vm.os);
+    let share_hint = match mode {
+        ShareMode::Virtiofs => t!("В Windows: драйвер virtio-fs и WinFsp с диска «Гостевые инструменты», служба VirtioFsSvc — диск Z:. В Linux: mount -t virtiofs hostshare /mnt. Снимки с памятью при virtiofs недоступны."),
+        ShareMode::Smb => t!("В госте: \\\\10.0.2.4\\qemu (нужен пакет samba на компьютере)"),
+        _ => t!("В госте: mount -t 9p -o trans=virtio hostshare /mnt (Windows 9p не умеет — выберите virtiofs или SMB)"),
+    };
+    let share_mode = dropdown(&ShareMode::ALL, vm.share_mode, ShareMode::title, |m| format!("{m:?}"), 160.0, move |m| state::edit(st, |v| v.share_mode = m));
+    let audio = |sources: bool, cur: String| -> W {
+        let nodes = crate::devices::audio_nodes(sources);
+        let mut dd = Dropdown::new().width(260.0).item(DropdownItem::new(String::new(), t!("По умолчанию")));
+        for (n, d) in &nodes {
+            dd = dd.item(DropdownItem::new(n.clone(), if d.is_empty() { n.clone() } else { d.clone() }));
+        }
+        boxed(dd.selected(cur).on_change(move |s: &str| {
+            let s = s.to_string();
+            state::edit(st, |v| if sources { v.audio_in = s } else { v.audio_out = s });
+        }))
+    };
     parts::section(
         icons::DEVICES,
         t!("Экран и устройства"),
@@ -389,16 +424,11 @@ fn devices(st: St, vm: &Vm) -> W {
             row(t!("Видеокарта"), t!("virtio-vga меняет разрешение под окно; Windows лучше со стандартной"), display),
             row(t!("Разрешение под окно"), t!("Гость получает размер окна (нужен драйвер virtio-gpu или QXL)"), Toggle::with_state(vm.auto_resize).on_change(move |b| state::edit(st, |v| v.auto_resize = b))),
             row(t!("Звук"), t!("Через PipeWire компьютера"), Toggle::with_state(vm.sound).on_change(move |b| state::edit(st, |v| v.sound = b))),
+            row(t!("Вывод звука"), t!("Динамики или наушники для гостя"), DecoratedBox::new().child(audio(false, vm.audio_out.clone()))),
+            row(t!("Микрофон"), t!("Что гость слышит как вход"), DecoratedBox::new().child(audio(true, vm.audio_in.clone()))),
             row(t!("Общий буфер обмена"), t!("Копирование между гостем и компьютером; в госте нужен spice-vdagent"), Toggle::with_state(vm.clipboard).on_change(move |b| state::edit(st, |v| v.clipboard = b))),
-            row(
-                t!("Общая папка"),
-                if vm.shared_dir.is_empty() {
-                    t!("В госте: mount -t 9p -o trans=virtio hostshare /mnt")
-                } else {
-                    t!("{p} · в госте: mount -t 9p -o trans=virtio hostshare /mnt", p = shared_name)
-                },
-                share,
-            ),
+            row(t!("Общая папка"), shared_name, share),
+            row(t!("Как гость видит папку"), share_hint, share_mode),
         ],
     )
 }
@@ -469,4 +499,175 @@ fn advanced(st: St, vm: &Vm) -> W {
         })
         .class("field mono-field");
     parts::section(icons::TERMINAL, t!("Дополнительно"), vec![row_wide(t!("Аргументы QEMU"), t!("Добавляются в конец командной строки — для своих устройств, дисков и прочего"), field)])
+}
+
+/// Гостевой агент и «Гостевые инструменты» (virtio-win).
+fn guest(st: St, vm: &Vm) -> W {
+    let win = vm.os.is_windows();
+    let agent_hint = if win {
+        t!("Команды, файлы и выключение без сети (syn-vm --exec, MCP). В Windows ставится с диска «Гостевые инструменты»: virtio-win-guest-tools.exe")
+    } else {
+        t!("Команды, файлы и выключение без сети (syn-vm --exec, MCP). В госте нужен пакет qemu-guest-agent")
+    };
+    let mut rows = vec![row(t!("Гостевой агент"), agent_hint, Toggle::with_state(vm.guest_agent).on_change(move |b| state::edit(st, |v| v.guest_agent = b)))];
+    let iso = crate::qemu::tools_iso();
+    let tools_hint = match &iso {
+        Some(p) => t!("Второй привод: {p} — драйверы virtio (диск, сеть, экран, общая папка), гостевой агент, spice-vdagent для буфера обмена", p = parts::file_name(&p.to_string_lossy())),
+        None => t!("Образ virtio-win не найден — скачайте или выберите файл"),
+    };
+    let mut acts = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center);
+    let id = vm.id.clone();
+    acts = acts.child(btn(icons::FOLDER_OPEN, t!("Выбрать…"), "ghost", move || {
+        let id = id.clone();
+        std::thread::spawn(move || {
+            if let Some(p) = parts::choose_file(&t!("Образ virtio-win"), &t!("Образы дисков"), &["*.iso", "*.ISO"], false) {
+                let _ = std::fs::write(model::root().join("tools-iso.path"), p.as_bytes());
+                run_on_main_thread(move || {
+                    let _ = &id;
+                    state::edit(st, |v| v.tools_cd = true);
+                    state::reload(st);
+                });
+            }
+        });
+    }));
+    if iso.is_none() {
+        let id = vm.id.clone();
+        acts = acts.child(btn(icons::SYNC, t!("Скачать"), "soft", move || {
+            state::background(st, &id, t!("Скачивается virtio-win…"), move || {
+                let p = crate::qemu::download_tools()?;
+                run_on_main_thread(move || state::reload(st));
+                Ok(Some(t!("Скачано: {p}", p = p.display())))
+            });
+        }));
+    } else if st.power(&vm.id).on() {
+        let id = vm.id.clone();
+        let p = iso.clone().unwrap().to_string_lossy().into_owned();
+        acts = acts.child(btn(icons::DISC, t!("В привод сейчас"), "soft", move || state::set_cdrom(st, &id, p.clone())));
+    }
+    acts = acts.child(DecoratedBox::new().class("grow")).child(Text::new(t!("Вставлять при запуске")).class("row-hint")).child(Toggle::with_state(vm.tools_cd).on_change(move |b| state::edit(st, |v| v.tools_cd = b)));
+    rows.push(row_wide(t!("Гостевые инструменты"), tools_hint, acts));
+    if !win {
+        rows.push(row_wide(
+            t!("Установка в Linux"),
+            t!("Агент, буфер обмена и разрешение под окно:"),
+            Column::new()
+                .gap(4.0)
+                .child(Text::new("Arch: sudo pacman -S qemu-guest-agent spice-vdagent").class("mono"))
+                .child(Text::new("Debian/Ubuntu: sudo apt install qemu-guest-agent spice-vdagent").class("mono"))
+                .child(Text::new("Fedora: sudo dnf install qemu-guest-agent spice-vdagent").class("mono"))
+                .child(Text::new("sudo systemctl enable --now qemu-guest-agent").class("mono")),
+        ));
+    }
+    parts::section(icons::TERMINAL, t!("Гостевой агент и инструменты"), rows)
+}
+
+fn kind_title(kind: &str) -> String {
+    match kind {
+        "pci" => t!("PCI через VFIO — видеокарта, NVMe, сеть, звук: при выключенной машине, привязка к vfio-pci спросит пароль"),
+        "input" => t!("Клавиатура и мышь напрямую — переключение компьютер ↔ гость: оба Ctrl"),
+        "block" => t!("Диски и разделы компьютера"),
+        "serial" => t!("Последовательные порты (гостю — USB-UART)"),
+        _ => t!("USB по VID:PID — найдётся в любом гнезде (запасной вариант к порту)"),
+    }
+}
+
+fn kind_icon(kind: &str) -> &'static str {
+    match kind {
+        "pci" => icons::MEMORY,
+        "input" => icons::KEYBOARD,
+        "block" => icons::STORAGE,
+        "serial" => icons::TERMINAL,
+        _ => icons::USB,
+    }
+}
+
+fn dev_kind(d: &HostDev) -> &'static str {
+    match d {
+        HostDev::Pci { .. } => "pci",
+        HostDev::Input { .. } => "input",
+        HostDev::Block { .. } => "block",
+        HostDev::Serial { .. } => "serial",
+        HostDev::UsbId { .. } => "usb-id",
+    }
+}
+
+/// Устройства компьютера: что уже у машины и что можно отдать — с причинами, если нельзя.
+fn host_devices(st: St, vm: &Vm) -> W {
+    let id = vm.id.clone();
+    let attached = live(st, move |st, vm| {
+        let mut col = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+        for d in &vm.devices {
+            let (d1, id) = (d.clone(), vm.id.clone());
+            let name = if d.name().is_empty() { d.spec() } else { d.name().to_string() };
+            let mode = match d {
+                HostDev::Block { readonly: true, .. } => t!(" · только чтение"),
+                HostDev::Pci { .. } => t!(" · при запуске"),
+                _ => t!(" · на ходу"),
+            };
+            col = col.child(
+                Row::new()
+                    .gap(10.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(Icon::new(kind_icon(dev_kind(d))).class("row-icon"))
+                    .child(Column::new().gap(2.0).child(Text::new(name).max_lines(1).class("row-title")).child(Text::new(format!("{}{mode}", d.spec())).max_lines(1).class("row-hint")).class("grow"))
+                    .child(super::parts::icon_btn(icons::CLOSE, t!("Вернуть компьютеру"), move || state::set_device(st, &id, d1.clone(), false))),
+            );
+        }
+        if vm.devices.is_empty() {
+            col = col.child(Text::new(t!("Машине отданы только USB-порты (раздел выше)")).class("row-hint"));
+        }
+        boxed(col)
+    });
+    let list = Reactive::new(move || -> Vec<W> {
+        let Some(all) = st.host_devs.get() else {
+            return vec![boxed(Row::new().child(btn(icons::SEARCH, t!("Показать устройства компьютера"), "soft", move || state::load_host_devices(st))))];
+        };
+        let vms = st.vms.get();
+        let Some(vm) = vms.iter().find(|v| v.id == id) else { return vec![] };
+        let mut col = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+        let mut kind = "";
+        for a in &all {
+            if a.kind != kind {
+                kind = a.kind;
+                col = col.child(Text::new(kind_title(kind)).max_lines(2).class("row-title group-title"));
+            }
+            let on = vm.devices.iter().any(|d| d.same(&a.dev));
+            let mut sub = a.detail.clone();
+            if a.needs_access {
+                sub.push_str(&t!(" · нужен доступ (спросит пароль)"));
+            }
+            let mut text = Column::new().gap(2.0).child(Text::new(a.title.clone()).max_lines(1).class("row-title"));
+            if !sub.is_empty() {
+                text = text.child(Text::new(sub).max_lines(2).class("row-hint"));
+            }
+            if !a.blocked.is_empty() {
+                text = text.child(Text::new(t!("Нельзя: {r}", r = a.blocked)).max_lines(3).class("row-hint bad"));
+            } else if !a.warn.is_empty() {
+                text = text.child(Text::new(a.warn.clone()).max_lines(3).class("row-hint warn"));
+            }
+            let (dev, id2) = (a.dev.clone(), vm.id.clone());
+            let mut r = Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(kind_icon(a.kind)).class(if a.blocked.is_empty() { "row-icon" } else { "row-icon dim" })).child(text.class("grow"));
+            if a.kind == "block" && a.blocked.is_empty() {
+                let (dev2, id3) = (a.dev.clone(), vm.id.clone());
+                let ro = vm.devices.iter().any(|d| matches!(d, HostDev::Block { readonly: true, .. }) && d.same(&a.dev));
+                r = r.child(Text::new(t!("чтение")).class("row-hint")).child(Toggle::with_state(ro).on_change(move |b| {
+                    if let HostDev::Block { path, name, .. } = dev2.clone() {
+                        state::set_device(st, &id3, HostDev::Block { path, readonly: b, name }, true);
+                    }
+                }));
+            }
+            r = r.child(Toggle::with_state(on).disabled(!a.blocked.is_empty() && !on).on_change(move |b| state::set_device(st, &id2, dev.clone(), b)));
+            col = col.child(r);
+        }
+        col = col.child(Row::new().child(btn(icons::REFRESH, t!("Обновить"), "ghost", move || state::load_host_devices(st))));
+        vec![boxed(col)]
+    });
+    parts::section(
+        icons::DEVICES,
+        t!("Устройства компьютера"),
+        vec![
+            row_wide(t!("У машины"), t!("Отданное гостю пропадает у компьютера, пока машина работает"), DecoratedBox::new().child(attached)),
+            row_wide(t!("Отдать машине"), t!("Системный диск, основной видеовыход и занятая видеокарта не отдаются; веб-камера, Bluetooth и смарт-карта — это USB (раздел выше)"), list),
+        ],
+    )
 }

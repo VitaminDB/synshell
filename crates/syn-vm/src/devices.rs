@@ -441,7 +441,7 @@ pub fn available() -> Vec<Avail> {
         }
         let (blocked, warn) = pci_check(&p.addr);
         let detail = format!("{}{}{}", p.addr, if p.driver.is_empty() { String::new() } else { format!(", драйвер {}", p.driver) }, p.group.map(|g| format!(", группа IOMMU {g}")).unwrap_or_default());
-        out.push(Avail { dev: HostDev::Pci { addr: p.addr.clone(), name: p.name.clone() }, kind: "pci", title: p.name, detail, blocked, warn, needs_access: true });
+        out.push(Avail { dev: HostDev::Pci { addr: p.addr.clone(), name: p.name.clone() }, kind: "pci", title: p.name, detail, blocked, warn, needs_access: false });
     }
     for (path, name, kind) in input_list() {
         let ok = access(&path, libc::R_OK | libc::W_OK);

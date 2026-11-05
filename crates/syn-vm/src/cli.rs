@@ -14,7 +14,7 @@ pub const HELP: &str = "\
 syn-vm — виртуальные машины QEMU/KVM
 
 Окно:
-  syn-vm [МАШИНА] [--tab screen|overview|settings|snapshots]
+  syn-vm [МАШИНА] [--tab screen|overview|settings|snapshots] [--new-window]
   syn-vm --screenshot СНИМОК.png [--size ШxВ] [--scale N] [--open МАШИНА] [--tab …] [--wizard ШАГ]   снимок окна
 
 Машины (МАШИНА — имя или id):
