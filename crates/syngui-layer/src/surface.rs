@@ -259,7 +259,7 @@ impl Surface {
             }
             Backend::Headless { .. } => {
                 gpu.ensure(None)?;
-                wgpu::TextureFormat::Rgba8UnormSrgb
+                wgpu::TextureFormat::Rgba8Unorm
             }
             Backend::Pending => return Ok(false),
         };

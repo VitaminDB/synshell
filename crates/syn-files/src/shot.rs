@@ -66,7 +66,8 @@ pub fn screenshot_with<R: IntoWidget<M>, M>(
     let (lw, lh) = size;
     let pw = (lw as f64 * scale).round() as u32;
     let ph = (lh as f64 * scale).round() as u32;
-    let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+    // Цвет кодируют шейдеры syngui (смешение в sRGB, как в CSS) — формат без sRGB, как в syngui::shot.
+    let format = wgpu::TextureFormat::Rgba8Unorm;
     let mut renderer = Renderer::new(&gpu, format, pw, ph, lw, lh, None);
     {
         let mut atlas = renderer.font_atlas.lock().unwrap_or_else(|e| e.into_inner());
