@@ -180,6 +180,11 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
                     nd.push_str(&format!(",hostfwd={}:{}:{}-:{}", if f.udp { "udp" } else { "tcp" }, if f.public { "" } else { "127.0.0.1" }, f.host, f.guest));
                 }
             }
+            // Канал своего агента по сети: гость подключается к 10.0.2.100:7777 — без драйверов
+            // virtio (Windows без virtio-win: сетевая карта e1000e — встроенный драйвер).
+            if vm.guest_agent {
+                nd.push_str(&format!(",guestfwd=tcp:{}-unix:{},,server=on,,wait=off", crate::agent::NET_ADDR, crate::agent::net_path(vm).display()));
+            }
             push(&["-netdev", &nd]);
             push(&["-device", &format!("{},netdev=net0", vm.nic.device())]);
         }

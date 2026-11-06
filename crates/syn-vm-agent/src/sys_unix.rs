@@ -148,6 +148,14 @@ pub fn start_logs() {
     });
 }
 
+pub fn set_time(unix_ms: u64) -> io::Result<()> {
+    let ts = libc::timespec { tv_sec: (unix_ms / 1000) as libc::time_t, tv_nsec: ((unix_ms % 1000) * 1_000_000) as libc::c_long };
+    if unsafe { libc::clock_settime(libc::CLOCK_REALTIME, &ts) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 pub fn service_main() -> io::Result<()> {
     crate::run();
     Ok(())

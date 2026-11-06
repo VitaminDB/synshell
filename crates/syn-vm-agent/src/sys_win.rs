@@ -98,6 +98,21 @@ pub fn boot_id() -> String {
     format!("{}", (now.saturating_sub(up) + 30) / 60 * 60)
 }
 
+/// Системное время (UTC).
+pub fn set_time(unix_ms: u64) -> io::Result<()> {
+    use windows_sys::Win32::System::SystemInformation::SetSystemTime;
+    use windows_sys::Win32::Foundation::{FILETIME, SYSTEMTIME};
+    use windows_sys::Win32::System::Time::FileTimeToSystemTime;
+    // FILETIME: сотни нс с 1601 года.
+    let ft = (unix_ms + 11_644_473_600_000) * 10_000;
+    let f = FILETIME { dwLowDateTime: ft as u32, dwHighDateTime: (ft >> 32) as u32 };
+    let mut st: SYSTEMTIME = unsafe { std::mem::zeroed() };
+    if unsafe { FileTimeToSystemTime(&f, &mut st) } == 0 || unsafe { SetSystemTime(&st) } == 0 {
+        return Err(last_err());
+    }
+    Ok(())
+}
+
 // ─── Порт ───────────────────────────────────────────────────────────────
 
 struct Port(HANDLE);

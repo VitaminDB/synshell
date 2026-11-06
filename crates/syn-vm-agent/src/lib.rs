@@ -14,6 +14,8 @@ use serde::{Deserialize, Serialize};
 
 /// Имя порта virtio-serial.
 pub const PORT: &str = "org.syn.vm.agent.0";
+/// Адрес хоста для агента по сети (guestfwd QEMU в сети NAT): без драйверов virtio.
+pub const NET_ADDR: &str = "10.0.2.100:7777";
 pub const MAGIC: [u8; 4] = *b"SVA1";
 /// Версия протокола.
 pub const VERSION: u32 = 1;
@@ -58,6 +60,9 @@ pub enum Msg {
     Ping { id: u64 },
     /// Присылать журналы гостя (`Log`).
     Logs { on: bool },
+    /// Точное время хоста (UTC, мс с 1970): агент ставит его системе — часы гостя не зависят
+    /// от того, как он толкует RTC (местное или UTC) и от пояса хоста.
+    SetTime { unix_ms: u64 },
     /// Посредник → клиент и клиент → посредник: состояние агента.
     Status { id: u64 },
     /// Обновить себя: новый exe уже записан по `path`; агент заменяет себя и перезапускается.
@@ -96,7 +101,7 @@ impl Msg {
         match self {
             Exec { id, .. } | Stdin { id } | Kill { id } | Put { id, .. } | PutEnd { id } | Mkdir { id, .. } | Get { id, .. } | List { id, .. } | Ping { id } | Status { id } | Update { id, .. } => Some(*id),
             Started { id, .. } | Out { id, .. } | Exit { id, .. } | Error { id, .. } | Done { id, .. } | Stat { id, .. } | Data { id } | End { id, .. } | Entries { id, .. } | Pong { id } | State { id, .. } => Some(*id),
-            Hi | Logs { .. } | Hello { .. } | Session { .. } | Log { .. } => None,
+            Hi | Logs { .. } | SetTime { .. } | Hello { .. } | Session { .. } | Log { .. } => None,
         }
     }
 

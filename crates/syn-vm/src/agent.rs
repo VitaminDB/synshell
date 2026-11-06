@@ -27,6 +27,14 @@ pub fn port_path(vm: &Vm) -> PathBuf {
     vm.run_dir().join("agent-port.sock")
 }
 
+/// Адрес агента в сети гостя (guestfwd QEMU) — должен совпадать с syn_vm_agent::NET_ADDR.
+pub const NET_ADDR: &str = syn_vm_agent::NET_ADDR;
+
+/// Сокет канала агента по сети (guestfwd).
+pub fn net_path(vm: &Vm) -> PathBuf {
+    vm.run_dir().join("agent-net.sock")
+}
+
 pub fn broker_path(vm: &Vm) -> PathBuf {
     vm.run_dir().join("agent.sock")
 }
@@ -141,7 +149,9 @@ pub fn run_broker(vm: &Vm) -> Result<()> {
     if crate::qemu::pid(vm).is_none() {
         bail!("{}", t!("«{name}» не запущена", name = vm.name));
     }
-    ensure_port(vm)?;
+    if let Err(e) = ensure_port(vm) {
+        tracing::warn!("агент: порт virtio-serial: {e}");
+    }
     let bp = broker_path(vm);
     let _ = std::fs::remove_file(&bp);
     let listener = UnixListener::bind(&bp).with_context(|| bp.display().to_string())?;
@@ -161,41 +171,72 @@ pub fn run_broker(vm: &Vm) -> Result<()> {
         });
     }
 
-    // Гость: соединение с портом; оборвалось — снова, пока машина работает.
+    // Гость: два канала — порт virtio-serial и сеть (guestfwd). Рабочий — тот, откуда пришло
+    // приветствие агента; каждый переподключается сам, пока машина работает.
+    for (path, kind) in [(port_path(vm), "virtio"), (net_path(vm), "net")] {
+        let (st, vm) = (st.clone(), vm.clone());
+        std::thread::spawn(move || transport(&vm, &st, &path, kind));
+    }
+    while crate::qemu::pid(vm).is_some() {
+        std::thread::sleep(Duration::from_secs(2));
+        // Пакет обновлён (наш exe заменён) — уйти: клиент запустит новый посредник.
+        if std::fs::read_link("/proc/self/exe").is_ok_and(|p| p.to_string_lossy().ends_with(" (deleted)")) {
+            tracing::info!("агент: syn-vm обновлён — посредник перезапускается");
+            let _ = std::fs::remove_file(&bp);
+            std::process::exit(0);
+        }
+    }
+    st.lock().unwrap().fail_all(&t!("машина выключилась"));
+    let _ = std::fs::remove_file(&bp);
+    Ok(())
+}
+
+/// Один канал к агенту: соединиться, поздороваться, читать кадры; оборвалось — снова.
+fn transport(vm: &Vm, st: &Arc<Mutex<Broker>>, path: &Path, kind: &str) {
     let mut last_note = Instant::now() - Duration::from_secs(60);
     loop {
-        if crate::qemu::pid(vm).is_none() {
-            st.lock().unwrap().fail_all(&t!("машина выключилась"));
-            let _ = std::fs::remove_file(&bp);
-            return Ok(());
+        if !path.exists() {
+            if kind == "virtio" {
+                let _ = ensure_port(vm);
+            }
+            std::thread::sleep(Duration::from_secs(2));
+            continue;
         }
-        let s = match UnixStream::connect(port_path(vm)) {
+        let s = match UnixStream::connect(path) {
             Ok(s) => s,
             Err(e) => {
                 if last_note.elapsed() > Duration::from_secs(30) {
-                    tracing::warn!("агент: порт {}: {e}", port_path(vm).display());
+                    tracing::warn!("агент ({kind}): {}: {e}", path.display());
                     last_note = Instant::now();
                 }
-                let _ = ensure_port(vm);
                 std::thread::sleep(Duration::from_secs(1));
                 continue;
             }
         };
-        let tx: Tx = Arc::new(Mutex::new(s.try_clone()?));
-        st.lock().unwrap().guest = Some(tx.clone());
+        let Ok(w) = s.try_clone() else { continue };
+        let tx: Tx = Arc::new(Mutex::new(w));
         let _ = write_frame(&mut *tx.lock().unwrap(), &Frame::new(Msg::Hi));
         let mut r = BufReader::with_capacity(256 * 1024, s);
-        loop {
-            let f = match read_frame(&mut r) {
-                Ok(f) => f,
-                Err(_) => break,
-            };
-            guest_frame(vm, &st, &tx, f);
+        while let Ok(f) = read_frame(&mut r) {
+            // Приветствие — этот канал рабочий.
+            if matches!(f.msg, Msg::Hello { .. }) {
+                let mut b = st.lock().unwrap();
+                if !b.guest.as_ref().is_some_and(|g| Arc::ptr_eq(g, &tx)) {
+                    append_log(vm, &format!("[agent] канал: {kind}"));
+                    b.guest = Some(tx.clone());
+                }
+            }
+            guest_frame(vm, st, &tx, f);
         }
         {
             let mut b = st.lock().unwrap();
-            b.guest = None;
-            b.fail_all(&t!("связь с агентом гостя прервалась"));
+            if b.guest.as_ref().is_some_and(|g| Arc::ptr_eq(g, &tx)) {
+                b.guest = None;
+                b.fail_all(&t!("связь с агентом гостя прервалась"));
+            }
+        }
+        if crate::qemu::pid(vm).is_none() {
+            return;
         }
         std::thread::sleep(Duration::from_millis(500));
     }
@@ -220,6 +261,9 @@ fn guest_frame(vm: &Vm, st: &Arc<Mutex<Broker>>, tx: &Tx, f: Frame) {
             b.hello = Some(f.msg.clone());
             let _ = std::fs::write(seen_path(vm), serde_json::to_vec_pretty(&f.msg).unwrap_or_default());
             let _ = write_frame(&mut *tx.lock().unwrap(), &Frame::new(Msg::Logs { on: true }));
+            // Часы гостя — по хосту (RTC после загрузки, паузы, снимка может врать).
+            let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+            let _ = write_frame(&mut *tx.lock().unwrap(), &Frame::new(Msg::SetTime { unix_ms: ms }));
         }
         Msg::Session { ref user } => {
             append_log(vm, &format!("[agent] сеанс: {}", user.as_deref().unwrap_or("вышел")));

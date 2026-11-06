@@ -717,12 +717,18 @@ fn on_note(st: St, id: &str, n: Note) {
 /// Попросить гостя подстроить разрешение под область экрана.
 pub fn fit_guest(st: St) {
     let Some(vm) = st.selected() else { return };
-    // Разрешение карты syn-gpu выбирает Windows (экрана virtio-vga нет).
-    if !vm.auto_resize || vm.display == model::DisplayModel::SynGpu {
+    if !vm.auto_resize {
         return;
     }
     let (w, h) = st.view_size.get_untracked();
     if w < 320 || h < 240 {
+        return;
+    }
+    // syn-gpu — основная видеокарта: режим монитора просит сервер syn-gpu (MODE по сокету вывода).
+    if vm.display == model::DisplayModel::SynGpu {
+        if let Some(p) = presents().lock().unwrap().get(&vm.id) {
+            p.request_mode(w, h);
+        }
         return;
     }
     if let Some(s) = session(&vm.id) {

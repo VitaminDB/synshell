@@ -30,6 +30,8 @@ const GONE: u32 = 3;
 const IMAGE: u32 = 4;
 const RELEASE: u32 = 16;
 const CAPS: u32 = 18;
+/// Клиент → сервер: желаемое разрешение экрана гостя (`Screen { width, height }`), «Разрешение под окно».
+const MODE: u32 = 19;
 /// FRAME.flags: кадр в изображении Vulkan (offset — его номер).
 const GPU_IMAGE: u32 = 1 << 2;
 /// FRAME.flags: рабочий стол гостя (DWM на карте syn-gpu, сервер с `--display`).
@@ -56,6 +58,9 @@ pub struct Layer {
 pub struct Present {
     layers: Mutex<HashMap<u64, Layer>>,
     alive: AtomicBool,
+    /// Желаемое разрешение (окно) — уходит сразу и после каждого (пере)подключения.
+    mode: Mutex<Option<(u32, u32)>>,
+    tx: Mutex<Option<Arc<Mutex<UnixStream>>>>,
 }
 
 impl Present {
@@ -77,6 +82,20 @@ impl Present {
     pub fn close(&self) {
         self.alive.store(false, Ordering::Relaxed);
     }
+
+    /// Разрешение экрана гостя под окно (физические пиксели).
+    pub fn request_mode(&self, w: u32, h: u32) {
+        if *self.mode.lock().unwrap() == Some((w, h)) {
+            return;
+        }
+        *self.mode.lock().unwrap() = Some((w, h));
+        if let Some(tx) = self.tx.lock().unwrap().clone() {
+            let b = [w.to_le_bytes(), h.to_le_bytes()].concat();
+            if send(&mut tx.lock().unwrap(), MODE, &b).is_ok() {
+                tracing::info!("syn-gpu present: разрешение под окно {w}×{h}");
+            }
+        }
+    }
 }
 
 fn socket(id: &str) -> PathBuf {
@@ -86,7 +105,7 @@ fn socket(id: &str) -> PathBuf {
 
 /// Запустить клиента: ждёт сокет, переподключается; `on_change` — новый кадр или слой.
 pub fn start(id: &str, on_change: Arc<dyn Fn() + Send + Sync>) -> Arc<Present> {
-    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true) });
+    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), tx: Mutex::new(None) });
     let me = p.clone();
     let path = socket(id);
     std::thread::Builder::new()
@@ -117,7 +136,7 @@ pub fn start(id: &str, on_change: Arc<dyn Fn() + Send + Sync>) -> Arc<Present> {
 pub fn grab(id: &str, wait: Duration, desktop: bool) -> Result<Layer> {
     let path = socket(id);
     let s = UnixStream::connect(&path).with_context(|| path.display().to_string())?;
-    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true) });
+    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), tx: Mutex::new(None) });
     let p2 = p.clone();
     let t = std::thread::spawn(move || {
         let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
@@ -164,6 +183,10 @@ fn run(p: &Present, mut s: UnixStream, on_change: &Arc<dyn Fn() + Send + Sync>, 
     let mut heap: Option<Heap> = None;
     // Запись RELEASE из потока GPU syngui (кадр дочитан) — отдельной копией сокета.
     let tx = Arc::new(Mutex::new(s.try_clone()?));
+    *p.tx.lock().unwrap() = Some(tx.clone());
+    if let Some((w, h)) = *p.mode.lock().unwrap() {
+        send(&mut tx.lock().unwrap(), MODE, &[w.to_le_bytes(), h.to_le_bytes()].concat())?;
+    }
     // CAPS уже отправлен (UUID карты окна известен только после создания GPU окна).
     let mut caps_sent = !gpu;
     // Импорт не удался — до конца соединения кадры через BAR2.
@@ -421,7 +444,7 @@ mod tests {
             fr.extend_from_slice(&v.to_le_bytes());
         }
         send(&mut srv, FRAME, &fr).unwrap();
-        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true) });
+        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), tx: Mutex::new(None) });
         let changed = Arc::new(AtomicBool::new(false));
         let ch = changed.clone();
         let p2 = p.clone();
@@ -475,7 +498,7 @@ mod tests {
             fr.extend_from_slice(&v.to_le_bytes());
         }
         send(&mut srv, FRAME, &fr).unwrap();
-        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true) });
+        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), tx: Mutex::new(None) });
         let p2 = p.clone();
         let t = std::thread::spawn(move || {
             let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});

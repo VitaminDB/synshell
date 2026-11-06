@@ -299,6 +299,17 @@ fn handle(f: Frame) {
         },
         Msg::Get { id, path } => get(id, path),
         Msg::List { id, path } => list(id, path),
+        Msg::SetTime { unix_ms } => {
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+            let diff = unix_ms as i64 - now;
+            // Расхождение меньше секунды — не трогать.
+            if diff.abs() >= 1000 {
+                match sys::set_time(unix_ms) {
+                    Ok(()) => log(&format!("время: поправка {:+.1} с", diff as f64 / 1000.0)),
+                    Err(e) => log(&format!("время: {e}")),
+                }
+            }
+        }
         Msg::Logs { on } => {
             LOGS_ON.store(on, Ordering::Relaxed);
         }
@@ -335,16 +346,21 @@ pub fn run() {
     });
     static OPENS: AtomicU64 = AtomicU64::new(0);
     loop {
-        let (mut r, w) = match sys::open_port() {
-            Ok(p) => p,
-            Err(e) => {
-                if OPENS.fetch_add(1, Ordering::Relaxed) % 60 == 0 {
-                    log(&format!("порт {}: {e}", syn_vm_agent::PORT));
+        // Порт virtio-serial (если в госте есть его драйвер), иначе — сеть (guestfwd QEMU).
+        let (mut r, w, via) = match sys::open_port() {
+            Ok((r, w)) => (r, w, "virtio"),
+            Err(pe) => match open_net() {
+                Ok((r, w)) => (r, w, "net"),
+                Err(ne) => {
+                    if OPENS.fetch_add(1, Ordering::Relaxed) % 60 == 0 {
+                        log(&format!("порт {}: {pe}; сеть {}: {ne}", syn_vm_agent::PORT, syn_vm_agent::NET_ADDR));
+                    }
+                    std::thread::sleep(Duration::from_secs(1));
+                    continue;
                 }
-                std::thread::sleep(Duration::from_secs(1));
-                continue;
-            }
+            },
         };
+        log(&format!("канал: {via}"));
         OPENS.store(0, Ordering::Relaxed);
         *link().lock().unwrap() = Some(w);
         send(hello());
@@ -360,6 +376,16 @@ pub fn run() {
         *link().lock().unwrap() = None;
         std::thread::sleep(Duration::from_millis(500));
     }
+}
+
+/// Канал по сети: TCP к хосту через guestfwd.
+fn open_net() -> io::Result<(Box<dyn Read + Send>, Box<dyn Write + Send>)> {
+    use std::net::{TcpStream, ToSocketAddrs};
+    let addr = syn_vm_agent::NET_ADDR.to_socket_addrs()?.next().ok_or_else(|| io::Error::other("адрес"))?;
+    let s = TcpStream::connect_timeout(&addr, Duration::from_secs(3))?;
+    s.set_nodelay(true)?;
+    let w = s.try_clone()?;
+    Ok((Box::new(s), Box::new(w)))
 }
 
 fn main() {
