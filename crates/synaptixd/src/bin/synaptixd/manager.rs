@@ -1173,7 +1173,12 @@ impl Manager {
             // Отмена хода — не сбой устройства: повторять её на CPU незачем.
             Err(e) if e.to_string().contains(synaptix_llm_common::generate::INTERRUPTED) => Err(Error::new(ErrorCode::Failed, e.to_string())),
             Err(e) if dev != DeviceKind::Cpu && lease.model.cpu_fallback() => {
-                tracing::warn!("{id}: ошибка на {} ({e}); повтор на CPU", dev.id());
+                // Сбой драйвера NPU при исполнении (QNN 1002/1003: DSP не хватило места
+                // на большую корзину при резидентных соседях) — не повод держать модель на
+                // CPU: этот ход — на CPU, следующий снова загрузит её на NPU.
+                let msg = e.to_string();
+                let transient = dev == DeviceKind::Npu && msg.contains("graphExecute") && (msg.contains("QNN 1002") || msg.contains("QNN 1003"));
+                tracing::warn!("{id}: ошибка на {} ({e}); повтор на CPU{}", dev.id(), if transient { " (только этот ход)" } else { "" });
                 drop(lease);
                 self.unload_with(id, false);
                 if let Some(s) = self.slots.lock().unwrap().get_mut(id) {
@@ -1181,7 +1186,15 @@ impl Manager {
                 }
                 self.load(id, Some(DeviceKind::Cpu))?;
                 let lease = self.acquire(id)?;
-                f(&lease.model).map_err(|e| Error::new(ErrorCode::Failed, e.to_string()))
+                let r = f(&lease.model).map_err(|e| Error::new(ErrorCode::Failed, e.to_string()));
+                if transient {
+                    drop(lease);
+                    self.unload_with(id, false);
+                    if let Some(s) = self.slots.lock().unwrap().get_mut(id) {
+                        s.fallback = false;
+                    }
+                }
+                r
             }
             Err(e) => Err(Error::new(ErrorCode::Failed, e.to_string())),
         }
