@@ -126,6 +126,7 @@ pub enum TtsEngine {
     Vox(synaptix_tts_voxcpm::VoxCpmPipeline),
     Audio8(synaptix_tts_audio8::Audio8Pipeline),
     Supertonic(synaptix_tts_supertonic::SupertonicPipeline),
+    Leokani(synaptix_tts_leokani::LeokaniPipeline),
 }
 
 /// Голос, которым продолжать: у OmniVoice — референс в кодах кодека, у
@@ -234,6 +235,23 @@ fn supertonic_voice(voice: Option<&str>, speaker: Option<&str>) -> anyhow::Resul
         _ => "M1",
     }
     .to_string())
+}
+
+/// Голос Leokani: заданный (dala/pono), иначе по персонажу (женские и
+/// детские — Dala, мужские — Pono), иначе Dala.
+fn leokani_voice(voice: Option<&str>, speaker: Option<&str>) -> anyhow::Result<String> {
+    if let Some(v) = voice.map(|v| v.trim().to_ascii_lowercase()).filter(|v| !v.is_empty()) {
+        anyhow::ensure!(v == "dala" || v == "pono", "Leokani: голос «{v}» — есть dala (женский) и pono (мужской)");
+        return Ok(v);
+    }
+    Ok(if speaker.is_some_and(|s| s.starts_with("male") || s == "boy") { "pono" } else { "dala" }.to_string())
+}
+
+/// Leokani говорит только по-английски.
+fn leokani_check_lang(language: Option<&str>, text: &str) -> anyhow::Result<()> {
+    let l = language.map(|l| l.trim().to_ascii_lowercase()).filter(|l| !l.is_empty() && l != "auto").unwrap_or_else(|| text_language(text).to_string());
+    anyhow::ensure!(l == "en", "Leokani говорит только по-английски (язык текста — {l})");
+    Ok(())
 }
 
 /// Язык Supertonic: заданный, иначе по письму текста (казахского у модели нет).
@@ -564,9 +582,13 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
             let a = arch.to_ascii_lowercase();
             // OmniVoice — F16, как upstream (BF16 слишком груб для её CFG и
             // выбора токенов); остальные — BF16.
-            let omni = !a.contains("vibevoice") && !a.starts_with("voxcpm") && a != "audio8" && a != "arktts" && a != "supertonic";
+            let omni = !a.contains("vibevoice") && !a.starts_with("voxcpm") && a != "audio8" && a != "arktts" && a != "supertonic" && a != "leokani";
             let (q, dtype) = audio_precision(dev, quant, if dev == DeviceKind::Npu || omni { DType::F16 } else { DType::BF16 });
-            let engine = if a == "supertonic" {
+            let engine = if a == "leokani" {
+                anyhow::ensure!(dev != DeviceKind::Npu, "Leokani на NPU службы пока не исполняется");
+                // 7M параметров: F32, на процессоре быстрее реального времени в сотни раз.
+                TtsEngine::Leokani(synaptix_tts_leokani::LeokaniPipeline::from_syn(path, device).map_err(|e| anyhow::anyhow!("{e}"))?)
+            } else if a == "supertonic" {
                 anyhow::ensure!(dev != DeviceKind::Npu, "Supertonic на NPU не исполняется");
                 // ~100M параметров: счёт F32, как оригинал в onnxruntime; квант не нужен.
                 TtsEngine::Supertonic(synaptix_tts_supertonic::SupertonicPipeline::from_syn(path, device).map_err(|e| anyhow::anyhow!("{e}"))?)
@@ -583,7 +605,7 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
                 TtsEngine::Omni(synaptix_tts_omnivoice::OmniVoicePipeline::from_syn_quant(path, device, dtype, q).map_err(|e| anyhow::anyhow!("{e}"))?)
             };
             let st = TtsState { engine, voices: Default::default(), anchors: Default::default(), refs: Default::default() };
-            let tag = if matches!(st.engine, TtsEngine::Supertonic(_)) { "F32".to_string() } else { precision_tag(q, dtype) };
+            let tag = if matches!(st.engine, TtsEngine::Supertonic(_) | TtsEngine::Leokani(_)) { "F32".to_string() } else { precision_tag(q, dtype) };
             Ok((Loaded::Tts(std::sync::Mutex::new(st), dev), Some(tag)))
         }
         ModelKind::Video => {
@@ -868,6 +890,13 @@ impl Loaded {
                 }
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
                 Ok((out.pcm, out.sample_rate as u32))
+            }
+            TtsEngine::Leokani(p) => {
+                anyhow::ensure!(r.voices.is_empty(), "Leokani не клонирует голос по записи — есть голоса dala и pono");
+                leokani_check_lang(r.language.as_deref(), text)?;
+                let v = leokani_voice(r.instruct.as_deref(), None)?;
+                let pcm = p.synthesize(text, &v, r.speed.unwrap_or(1.0).clamp(0.25, 4.0)).map_err(|e| anyhow::anyhow!("{e}"))?;
+                Ok((pcm, p.sample_rate()))
             }
             TtsEngine::Supertonic(p) => {
                 anyhow::ensure!(r.voices.is_empty(), "Supertonic не клонирует голос по записи — выберите готовый голос F1…M5");
@@ -1391,6 +1420,7 @@ impl Loaded {
         let is_vox = matches!(&p.lock().unwrap_or_else(|e| e.into_inner()).engine, TtsEngine::Vox(_));
         let preset_voice = preset.map(|(omni, vox, _)| if is_vox { vox } else { omni });
         let is_st = matches!(&p.lock().unwrap_or_else(|e| e.into_inner()).engine, TtsEngine::Supertonic(_));
+        let is_st = is_st || matches!(&p.lock().unwrap_or_else(|e| e.into_inner()).engine, TtsEngine::Leokani(_));
         let instruct = if is_st { params.text("voice") } else { params.text("voice").or(preset_voice) };
         let (speed, steps) = (params.f32("speed"), params.u32("steps").map(|s| s as usize));
         let stretch = speed.filter(|s| (s - 1.0).abs() > 1e-3);
@@ -1505,6 +1535,16 @@ impl Loaded {
                     r.map_err(|e| anyhow::anyhow!("{e}"))?
                 };
                 Ok((wav, p.output_sample_rate() as u32, Some(seed)))
+            }
+            TtsEngine::Leokani(p) => {
+                // Два готовых голоса, детерминированно (зерно не нужно); темп — родной.
+                anyhow::ensure!(ref_audio.is_none(), "Leokani не клонирует голос по записи — есть голоса dala и pono");
+                leokani_check_lang(language, text)?;
+                let v = leokani_voice(params.text("voice"), params.text("speaker"))?;
+                let pcm = p.synthesize(text, &v, speed as f32).map_err(|e| anyhow::anyhow!("{e}"))?;
+                let t = p.last_timings();
+                tracing::info!("leokani: голос {v}, звук {:.1} с за {:.3} с (G2P {:.3} с, кусков {})", t.audio_s, t.g2p_s + t.model_s, t.g2p_s, t.chunks);
+                Ok((pcm, p.sample_rate(), None))
             }
             TtsEngine::Supertonic(p) => {
                 // Готовые голоса: тембр задаёт стиль, зерно — только шум потока;
