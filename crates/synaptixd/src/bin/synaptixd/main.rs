@@ -396,6 +396,12 @@ impl Conn {
                 }
                 let stream = params.bool("stream").unwrap_or(false);
                 let arch = mgr.entry(&model).map(|e| e.arch.to_ascii_lowercase()).unwrap_or_default();
+                // Готовые голоса (Leokani, Supertonic): описание голоса («male»,
+                // «female, american accent») схема-список отбросила бы — переводим
+                // его в готовый голос до неё.
+                if let Some(v) = call.text("voice").and_then(|d| voices::preset_for_description(&arch, d)) {
+                    params.set("voice", Some(v.into()));
+                }
                 let vibe = arch.contains("vibevoice");
                 // VoxCPM по описанию плохо держит пол и возраст (девочка и
                 // пожилой мужчина — одной высоты): у него голос персонажа тоже

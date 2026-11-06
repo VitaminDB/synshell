@@ -125,6 +125,25 @@ pub fn clip_text(lang: &str) -> String {
     .to_string()
 }
 
+/// Готовый голос движка по словесному описанию (пол, возраст); уже готовое
+/// имя голоса и описание без пола — `None` (решает схема/умолчание).
+pub fn preset_for_description(arch: &str, desc: &str) -> Option<&'static str> {
+    let words: Vec<String> = desc.to_lowercase().split(|c: char| !c.is_alphabetic()).filter(|w| !w.is_empty()).map(String::from).collect();
+    let has = |ws: &[&str]| words.iter().any(|w| ws.contains(&w.as_str()));
+    let female = has(&["female", "woman", "women", "girl", "lady", "feminine", "женский", "женщина", "девочка"]);
+    let male = !female && has(&["male", "man", "men", "boy", "guy", "masculine", "мужской", "мужчина", "мальчик"]);
+    let child = has(&["girl", "boy", "child", "kid", "девочка", "мальчик", "ребёнок"]);
+    let old = has(&["elderly", "old", "senior", "пожилой", "пожилая", "старый"]);
+    let young = has(&["young", "молодой", "молодая"]);
+    match arch {
+        "leokani" if female => Some("dala"),
+        "leokani" if male => Some("pono"),
+        "supertonic" if female => Some(if child { "F2" } else if old { "F3" } else if young { "F4" } else { "F1" }),
+        "supertonic" if male => Some(if child { "M4" } else if old { "M3" } else if young { "M1" } else { "M2" }),
+        _ => None,
+    }
+}
+
 /// Ожидаемая высота голоса персонажа (медиана F0, Гц).
 pub fn pitch_range(speaker: &str) -> (f32, f32) {
     match speaker {
@@ -238,6 +257,15 @@ fn write_wav(path: &Path, pcm: &[f32], sr: u32) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preset_from_description() {
+        assert_eq!(preset_for_description("leokani", "male"), Some("pono"));
+        assert_eq!(preset_for_description("leokani", "female, american accent"), Some("dala"));
+        assert_eq!(preset_for_description("supertonic", "elderly male"), Some("M3"));
+        assert_eq!(preset_for_description("leokani", "dala"), None);
+        assert_eq!(preset_for_description("omnivoice", "male"), None);
+    }
 
     #[test]
     fn script() {
