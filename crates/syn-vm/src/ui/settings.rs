@@ -560,6 +560,48 @@ fn advanced(st: St, vm: &Vm) -> W {
     parts::section(icons::TERMINAL, t!("Дополнительно"), vec![row_wide(t!("Аргументы QEMU"), t!("Добавляются в конец командной строки — для своих устройств, дисков и прочего"), field)])
 }
 
+/// «Гостевые инструменты syn-vm»: что войдёт в образ, установка и состояние.
+fn syn_tools_rows(st: St, vm: &Vm, mut rows: Vec<W>) -> W {
+    let parts = [
+        crate::agent::agent_binary(true).map(|_| t!("агент")),
+        crate::guesttools::serial_dir().map(|_| t!("драйвер virtio-serial")),
+        crate::gputools::iso().map(|_| t!("syn-gpu")),
+    ];
+    let have: Vec<String> = parts.iter().flatten().cloned().collect();
+    let hint = if parts[0].is_none() {
+        t!("Нет сборки агента syn-vm-agent.exe — переустановите пакет syn-vm")
+    } else {
+        t!("Второй привод: образ syn-vm (собирается сам из установленных частей: {p}); в госте — install.cmd", p = have.join(", "))
+    };
+    let mut acts = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center);
+    if st.power(&vm.id).on() {
+        let id = vm.id.clone();
+        acts = acts.child(btn(icons::DISC, t!("В привод сейчас"), "soft", move || {
+            let id = id.clone();
+            state::background(st, &id.clone(), t!("Образ «Гостевые инструменты syn-vm»…"), move || {
+                let p = crate::guesttools::iso()?;
+                run_on_main_thread(move || state::set_cdrom(st, &id, p.to_string_lossy().into_owned()));
+                Ok(None)
+            });
+        }));
+    }
+    acts = acts.child(DecoratedBox::new().class("grow")).child(Text::new(t!("Вставлять при запуске")).class("row-hint")).child(Toggle::with_state(vm.tools_cd).on_change(move |b| state::edit(st, |v| v.tools_cd = b)));
+    rows.push(row_wide(t!("Гостевые инструменты"), hint, acts));
+    let mut acts2 = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center);
+    let id = vm.id.clone();
+    acts2 = acts2.child(btn(icons::SYNC, t!("Установить или обновить"), "soft", move || state::install_tools(st, &id)));
+    if st.power(&vm.id).on() {
+        let id = vm.id.clone();
+        acts2 = acts2.child(btn(icons::INFO, t!("Состояние в госте"), "ghost", move || state::tools_status(st, &id)));
+    }
+    rows.push(row_wide(
+        t!("Установка в госте"),
+        t!("Через агент — сама (драйверам нужна тестовая подпись: одна перезагрузка, дальше установка заканчивается сама); без агента — install.cmd с диска"),
+        acts2,
+    ));
+    parts::section(icons::TERMINAL, t!("Гостевой агент и инструменты"), rows)
+}
+
 /// Гостевой агент и «Гостевые инструменты» (virtio-win).
 fn guest(st: St, vm: &Vm) -> W {
     let win = vm.os.is_windows();
@@ -569,6 +611,30 @@ fn guest(st: St, vm: &Vm) -> W {
         t!("Команды, файлы и выключение без сети (syn-vm --exec, MCP). В госте нужен пакет qemu-guest-agent")
     };
     let mut rows = vec![row(t!("Гостевой агент"), agent_hint, Toggle::with_state(vm.guest_agent).on_change(move |b| state::edit(st, |v| v.guest_agent = b)))];
+    if win {
+        let dd = dropdown(&model::GuestTools::ALL, vm.guest_tools, model::GuestTools::title, |g| format!("{g:?}"), 300.0, move |g| {
+            let mut sb = false;
+            state::edit(st, |v| {
+                v.guest_tools = g;
+                // Драйверам syn-vm нужна тестовая подпись — с Secure Boot она не включится.
+                if g == model::GuestTools::SynVm && v.firmware == model::Firmware::UefiSecure {
+                    v.firmware = model::Firmware::Uefi;
+                    sb = true;
+                }
+            });
+            if sb {
+                state::toast(st, t!("Secure Boot выключен: драйверам syn-vm нужна тестовая подпись"));
+            }
+        });
+        rows.push(row(
+            t!("Чьи инструменты"),
+            t!("syn-vm — свои: агент, драйвер virtio-serial и видеокарта syn-gpu, без virtio-win в госте; virtio-win — драйверы Red Hat, qemu-ga и spice-agent. Вступает при следующем запуске"),
+            dd,
+        ));
+    }
+    if vm.syn_tools() {
+        return syn_tools_rows(st, vm, rows);
+    }
     let iso = crate::qemu::tools_iso();
     let tools_hint = match &iso {
         Some(p) => t!("Второй привод: {p} — драйверы virtio (диск, сеть, экран, общая папка), гостевой агент, spice-vdagent для буфера обмена", p = parts::file_name(&p.to_string_lossy())),

@@ -159,7 +159,13 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
     // «Гостевые инструменты» — второй привод: установщику Windows нужны драйверы с него,
     // пока в первом приводе стоит сам установщик.
     if vm.tools_cd {
-        if let Some(iso) = tools_iso() {
+        // Свои инструменты — образ syn-vm (собирается из установленных частей), иначе virtio-win.
+        let iso = if vm.syn_tools() {
+            crate::guesttools::iso().map_err(|e| tracing::warn!("гостевые инструменты syn-vm: {e}")).ok()
+        } else {
+            tools_iso()
+        };
+        if let Some(iso) = iso {
             push(&["-drive", &format!("file={},if=none,id=cd1,media=cdrom,readonly=on", esc(&iso))]);
             push(&["-device", "ide-cd,drive=cd1,bus=ide.5,id=toolscd"]);
         }
@@ -224,15 +230,19 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
     if vm.clipboard || vm.guest_agent {
         push(&["-device", "virtio-serial-pci,id=vser"]);
     }
-    if vm.clipboard {
+    // Свои инструменты: в госте нет spice-agent и qemu-ga — их портов нет (буфер обмена — позже
+    // через агента syn-vm).
+    if vm.clipboard && !vm.syn_tools() {
         // mouse=off: канал — только для буфера обмена; иначе он регистрирует свою «мышь» и
         // становится активной, а клики и VNC-указатель уходят в неё (Windows их теряет).
         push(&["-chardev", "qemu-vdagent,id=vdagent,name=vdagent,clipboard=on,mouse=off"]);
         push(&["-device", "virtserialport,bus=vser.0,chardev=vdagent,name=com.redhat.spice.0"]);
     }
     if vm.guest_agent {
-        push(&["-chardev", &format!("socket,id=qga0,path={},server=on,wait=off", vm.qga_path().display())]);
-        push(&["-device", "virtserialport,bus=vser.0,chardev=qga0,name=org.qemu.guest_agent.0"]);
+        if !vm.syn_tools() {
+            push(&["-chardev", &format!("socket,id=qga0,path={},server=on,wait=off", vm.qga_path().display())]);
+            push(&["-device", "virtserialport,bus=vser.0,chardev=qga0,name=org.qemu.guest_agent.0"]);
+        }
         // Свой агент syn-vm (syn-vm-agent) — отдельный порт; посредник запускается после QEMU.
         for x in crate::agent::qemu_args(vm) {
             push(&[&x]);
@@ -258,7 +268,10 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
     if matches!(vm.os, OsKind::Linux | OsKind::Android | OsKind::Bsd) {
         push(&["-device", "virtio-rng-pci"]);
     }
-    push(&["-device", "virtio-balloon-pci"]);
+    // Без virtio-win у balloon в Windows нет драйвера.
+    if !vm.syn_tools() {
+        push(&["-device", "virtio-balloon-pci"]);
+    }
     // Запасные разъёмы PCIe — для дисков, подключаемых на ходу. В конце, чтобы не сдвигать
     // адреса остальных устройств у уже установленных систем.
     for i in 0..crate::devices::HOTPLUG_PORTS {
@@ -772,5 +785,23 @@ mod tests {
         assert!(a.iter().any(|s| s.starts_with("unix:") && s.ends_with("vnc.sock")));
         // Без -daemonize: QEMU — отдельной сессией, вывод в qemu.log (см. start).
         assert!(!a.contains(&"-daemonize".to_string()));
+    }
+
+    #[test]
+    fn syn_tools_args() {
+        let mut vm = OsKind::Windows11.preset();
+        vm.id = "w".into();
+        vm.firmware = Firmware::Bios;
+        vm.tpm = false;
+        vm.tools_cd = false;
+        assert_eq!(vm.guest_tools, crate::model::GuestTools::SynVm);
+        let j = args(&vm).unwrap().join(" ");
+        assert!(!j.contains("virtio-balloon"));
+        assert!(!j.contains("org.qemu.guest_agent.0"));
+        assert!(!j.contains("com.redhat.spice.0"));
+        assert!(j.contains("org.syn.vm.agent.0") && j.contains("guestfwd=tcp:10.0.2.100:7777"));
+        vm.guest_tools = crate::model::GuestTools::VirtioWin;
+        let j = args(&vm).unwrap().join(" ");
+        assert!(j.contains("virtio-balloon") && j.contains("org.qemu.guest_agent.0") && j.contains("com.redhat.spice.0"));
     }
 }

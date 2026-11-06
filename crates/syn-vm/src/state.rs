@@ -1050,6 +1050,9 @@ pub fn install_tools(st: St, id: &str) {
     let Some(vm) = st.vm(id) else { return };
     let on = st.power(id).on();
     background(st, id, t!("Гостевые инструменты…"), move || {
+        if vm.syn_tools() {
+            return install_syn_tools(&vm, on).map(Some);
+        }
         if !vm.os.is_windows() {
             if on && crate::qga::ping(&vm) {
                 let sh = "if command -v pacman >/dev/null; then pacman -S --needed --noconfirm qemu-guest-agent spice-vdagent; elif command -v apt-get >/dev/null; then DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-guest-agent spice-vdagent; elif command -v dnf >/dev/null; then dnf install -y qemu-guest-agent spice-vdagent; fi; systemctl enable --now qemu-guest-agent; systemctl enable --now spice-vdagentd 2>/dev/null";
@@ -1099,13 +1102,17 @@ impl GuestTools {
             p.push(t!("Гостевые инструменты не установлены"));
         }
         if self.video.contains("Basic Display") || self.video.contains("Базов") {
-            p.push(if vm.display == model::DisplayModel::Virtio {
+            p.push(if vm.syn_tools() {
+                t!("Видео — базовый адаптер, медленно: выберите видеокарту «syn-gpu» (драйвер — на диске «Гостевые инструменты syn-vm»)")
+            } else if vm.display == model::DisplayModel::Virtio {
                 t!("Видео без драйвера VirtIO GPU — медленно")
             } else {
                 t!("Видео — базовый адаптер, медленно: нужно видео virtio-vga («Оптимизировать»)")
             });
         }
-        if !vm.clipboard {
+        if vm.syn_tools() {
+            // Буфер обмена через агента syn-vm — следующий этап.
+        } else if !vm.clipboard {
             p.push(t!("Общий буфер обмена выключен («Оптимизировать»)"));
         } else if self.clip == Some(false) {
             p.push(t!("Служба буфера обмена в госте не запущена"));
@@ -1116,7 +1123,11 @@ impl GuestTools {
 
 /// Спросить гостя через агент: инструменты, видео, служба буфера обмена.
 pub fn guest_tools(vm: &Vm) -> anyhow::Result<GuestTools> {
-    let argv: Vec<String> = if vm.os.is_windows() {
+    let argv: Vec<String> = if vm.syn_tools() {
+        // Свои инструменты: агент и драйвер virtio-serial — службы; видео — как обычно.
+        let ps = "$a=Get-Service syn-vm-agent -EA 0; $d=Get-Service syn-vm-serial -EA 0; $t=if($a){ 'syn-vm-agent: '+[string]$a.Status+'; syn-vm-serial: '+$(if($d){[string]$d.Status}else{'—'}) }else{ '' }; $v=(Get-CimInstance Win32_VideoController | select -Expand Name) -join ', '; \"tools=$t`nvideo=$v`nclip=none\"";
+        vec!["powershell.exe".into(), "-NoProfile".into(), "-Command".into(), ps.into()]
+    } else if vm.os.is_windows() {
         let ps = "$t=(Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*,HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\* -EA 0 | ? DisplayName -like 'Virtio-win*' | select -First 1).DisplayVersion; $v=(Get-CimInstance Win32_VideoController | select -Expand Name) -join ', '; $s=Get-Service -Name 'spice-agent','vdservice' -EA 0 | select -First 1; $c=if($s){ [string]$s.Status }else{ 'none' }; \"tools=$t`nvideo=$v`nclip=$c\"";
         vec!["powershell.exe".into(), "-NoProfile".into(), "-Command".into(), ps.into()]
     } else {
@@ -1131,6 +1142,49 @@ pub fn guest_tools(vm: &Vm) -> anyhow::Result<GuestTools> {
         _ => Some(false),
     };
     Ok(GuestTools { tools: get("tools"), video: get("video"), clip })
+}
+
+/// «Гостевые инструменты syn-vm»: образ в привод и install.ps1 — отдельным процессом (он
+/// перезапускает службу агента), затем ожидание итога по install-state.txt.
+pub fn install_syn_tools(vm: &Vm, on: bool) -> anyhow::Result<String> {
+    use std::time::{Duration, Instant};
+    let iso = crate::guesttools::iso()?;
+    let mut v = vm.clone();
+    v.tools_cd = true;
+    v.guest_agent = true;
+    v.save()?;
+    if !on {
+        return Ok(t!("Диск «Гостевые инструменты syn-vm» будет вставлен при запуске: в госте запустите с него install.cmd"));
+    }
+    crate::qmp::change_cdrom(vm, &iso.to_string_lossy())?;
+    if !crate::qga::ping(vm) {
+        return Ok(t!("Диск «Гостевые инструменты syn-vm» в приводе: в госте запустите с него install.cmd (от администратора)"));
+    }
+    let state = r"C:\ProgramData\syn-vm\install-state.txt";
+    let _ = crate::qga::write_file(vm, state, b"starting");
+    // Буква диска по метке; установщик — отдельным процессом (переживёт перезапуск агента).
+    let ps = format!(
+        "$d=$null; for($i=0;$i -lt 30 -and -not $d;$i++){{ $d=(Get-Volume -FileSystemLabel {l} -EA 0 | select -First 1).DriveLetter; if(-not $d){{ Start-Sleep 1 }} }}; if(-not $d){{ 'nodrive'; exit 3 }}; Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',(\"$($d):\\install.ps1\"),'-Quiet' -WindowStyle Hidden; 'started'",
+        l = crate::guesttools::LABEL
+    );
+    let r = crate::qga::exec(vm, &["powershell.exe".into(), "-NoProfile".into(), "-Command".into(), ps], None, &[], Duration::from_secs(60))?;
+    if r.code != 0 {
+        anyhow::bail!("{}", t!("диск «Гостевые инструменты syn-vm» в госте не найден"));
+    }
+    let t0 = Instant::now();
+    loop {
+        std::thread::sleep(Duration::from_secs(3));
+        let s = crate::qga::read_file(vm, state, 4096).ok().map(|b| String::from_utf8_lossy(&b).trim().trim_start_matches('\u{feff}').to_string()).unwrap_or_default();
+        match s.as_str() {
+            "ok" => return Ok(t!("Гостевые инструменты syn-vm установлены")),
+            "reboot" => return Ok(t!("Гостевые инструменты syn-vm: нужна перезагрузка гостя — после неё установка закончится сама")),
+            e if e.starts_with("error:") => anyhow::bail!("{}", t!("установка в госте: {e} (журнал C:\\ProgramData\\syn-vm\\install.log)", e = e.trim_start_matches("error:").trim())),
+            _ => {}
+        }
+        if t0.elapsed() > Duration::from_secs(900) {
+            anyhow::bail!("{}", t!("установка в госте не закончилась за 15 минут — журнал C:\\ProgramData\\syn-vm\\install.log"));
+        }
+    }
 }
 
 /// Состояние инструментов в госте (через агент) — уведомлением.

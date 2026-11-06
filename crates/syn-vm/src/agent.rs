@@ -304,6 +304,12 @@ fn serve_client(vm: &Vm, st: &Arc<Mutex<Broker>>, cid: u64, s: UnixStream) {
                     let _ = write_frame(&mut *c.lock().unwrap(), &reply);
                 }
             }
+            Msg::SetTime { .. } => {
+                if let Some(g) = b.guest.clone() {
+                    drop(b);
+                    let _ = write_frame(&mut *g.lock().unwrap(), &f);
+                }
+            }
             Msg::Logs { on } => {
                 if on {
                     b.log_subs.insert(cid);
@@ -502,8 +508,17 @@ impl Client {
 
     /// Файл на гость: размер и SHA-256 сверяются с гостем.
     pub fn put_file(&mut self, local: &Path, guest: &str) -> Result<u64> {
-        let mut f = std::fs::File::open(local).with_context(|| local.display().to_string())?;
+        let f = std::fs::File::open(local).with_context(|| local.display().to_string())?;
         let size = f.metadata()?.len();
+        self.put_reader(f, size, guest)
+    }
+
+    /// Данные из памяти — в файл гостя.
+    pub fn put_bytes(&mut self, data: &[u8], guest: &str) -> Result<u64> {
+        self.put_reader(data, data.len() as u64, guest)
+    }
+
+    fn put_reader(&mut self, mut f: impl Read, size: u64, guest: &str) -> Result<u64> {
         let id = self.id();
         self.send(Frame::new(Msg::Put { id, path: guest.to_string(), size }))?;
         let mut h = Sha256::new();
@@ -565,6 +580,27 @@ impl Client {
             Msg::Entries { entries, .. } => Ok(entries),
             m => bail!("list: {m:?}"),
         }
+    }
+
+    /// Небольшой файл гостя — в память (не больше `max` байт).
+    pub fn read(&mut self, guest: &str, max: usize) -> Result<Vec<u8>> {
+        let id = self.id();
+        self.send(Frame::new(Msg::Get { id, path: guest.to_string() }))?;
+        let mut out = Vec::new();
+        loop {
+            let fr = self.recv_for(id, Some(Duration::from_secs(120)))?;
+            match fr.msg {
+                Msg::Data { .. } if out.len() < max => out.extend_from_slice(&fr.data[..fr.data.len().min(max - out.len())]),
+                Msg::End { .. } => return Ok(out),
+                _ => {}
+            }
+        }
+    }
+
+    /// Часы гостя — по хосту.
+    pub fn set_time(&mut self) -> Result<()> {
+        let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+        self.send(Frame::new(Msg::SetTime { unix_ms: ms }))
     }
 
     fn get_file(&mut self, guest: &str, local: &Path) -> Result<u64> {
@@ -709,4 +745,32 @@ pub fn wait_boot(vm: &Vm, user: bool, timeout: Duration) -> Result<()> {
     };
     c.wait_ready(user, timeout.saturating_sub(t0.elapsed()))?;
     Ok(())
+}
+
+/// Не идти через свой агент (`--qga`).
+pub static FORCE_QGA: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Свой агент стоит в госте и на связи — команды qemu-ga (exec, файлы, сведения, выключение)
+/// идут через него. Ответ «на связи» помнится 3 с.
+pub fn preferred(vm: &Vm) -> bool {
+    use std::sync::atomic::Ordering;
+    if FORCE_QGA.load(Ordering::Relaxed) || !vm.guest_agent || !installed(vm) || crate::qemu::pid(vm).is_none() {
+        return false;
+    }
+    static CACHE: std::sync::OnceLock<Mutex<HashMap<String, (Instant, bool)>>> = std::sync::OnceLock::new();
+    let c = CACHE.get_or_init(Default::default);
+    if let Some(&(t, v)) = c.lock().unwrap().get(&vm.id) {
+        if t.elapsed() < Duration::from_secs(3) {
+            return v;
+        }
+    }
+    let v = online(vm);
+    c.lock().unwrap().insert(vm.id.clone(), (Instant::now(), v));
+    v
+}
+
+/// Сведения о госте из приветствия агента.
+pub fn guest_info(vm: &Vm) -> Result<crate::qga::GuestInfo> {
+    let i = Client::connect(vm)?.info()?.context("агент не на связи")?;
+    Ok(crate::qga::GuestInfo { os: i.os, hostname: i.host, ips: Vec::new(), agent_version: format!("syn-vm-agent {}", i.agent) })
 }

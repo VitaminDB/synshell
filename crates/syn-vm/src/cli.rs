@@ -86,6 +86,7 @@ syn-vm — виртуальные машины QEMU/KVM
   --detach МАШИНА ТИП:ИД
   --cdrom МАШИНА ОБРАЗ|eject             образ в приводе
   --tools МАШИНА [on|off|download|ОБРАЗ.iso]  диск «Гостевые инструменты» (virtio-win)
+  --tools МАШИНА iso|install             свои «Гостевые инструменты syn-vm» (guest_tools = syn-vm): образ, установка в госте
 
 Запись экрана гостя (родное разрешение, ровная частота, ffmpeg: NVENC/VAAPI/x264):
   --record МАШИНА [ФАЙЛ.mp4] [--fps 30|60] [--audio|--no-audio] [--duration СЕК]
@@ -176,6 +177,9 @@ pub fn run(cmd: &str, rest: Vec<String>) -> Option<i32> {
         return None;
     }
     let a = Args::parse(rest.clone());
+    if a.has("--qga") {
+        crate::agent::FORCE_QGA.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     let r = match cmd {
         "--mcp" => crate::mcp::run().map(|_| 0),
         "--vfio-helper" => devices::vfio_helper(&rest).map(|_| 0),
@@ -683,6 +687,14 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
         "--tools" => {
             let mut vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             match a.pos.get(1).map(String::as_str).unwrap_or("on") {
+                // Свои «Гостевые инструменты syn-vm»: образ (собрать) и установка в госте.
+                "iso" => println!("{}", crate::guesttools::iso()?.display()),
+                "install" => {
+                    if !vm.syn_tools() {
+                        bail!("{}", t!("у «{name}» инструменты virtio-win — сначала syn-vm --set {id} guest_tools=syn-vm", name = vm.name, id = vm.id));
+                    }
+                    println!("{}", crate::state::install_syn_tools(&vm, qemu::pid(&vm).is_some())?);
+                }
                 "download" => {
                     let p = qemu::download_tools()?;
                     println!("{}", p.display());

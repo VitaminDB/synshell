@@ -93,6 +93,7 @@ impl OsKind {
                 vm.firmware = Firmware::UefiSecure;
                 vm.tpm = true;
                 vm.tools_cd = true;
+                vm.guest_tools = GuestTools::SynVm;
                 vm.disk_bus = DiskBus::Sata;
                 vm.nic = NicModel::E1000e;
                 // virtio-vga: в установщике — как VGA, с драйвером VirtIO GPU (virtio-win) — любое
@@ -104,6 +105,7 @@ impl OsKind {
             OsKind::Windows10 => {
                 vm.firmware = Firmware::Uefi;
                 vm.tools_cd = true;
+                vm.guest_tools = GuestTools::SynVm;
                 vm.disk_bus = DiskBus::Sata;
                 vm.nic = NicModel::E1000e;
                 // virtio-vga: в установщике — как VGA, с драйвером VirtIO GPU (virtio-win) — любое
@@ -220,6 +222,29 @@ pub enum DisplayModel {
     /// Своя видеокарта syn-gpu — единственный экран гостя (экран и 3D на GPU компьютера):
     /// у QEMU `-vga none`, рабочий стол приходит кадрами DESKTOP сокета вывода syn-gpu.
     SynGpu,
+}
+
+/// Чьи «Гостевые инструменты» у Windows-гостя.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum GuestTools {
+    /// virtio-win (Red Hat): драйверы virtio, qemu-ga, spice-agent — как раньше.
+    #[default]
+    VirtioWin,
+    /// Свои: агент syn-vm и драйвер virtio-serial syn-vm-serial (+ syn-gpu); без virtio-win в госте
+    /// у QEMU нет balloon, портов qemu-ga и spice, диск — «Гостевые инструменты syn-vm».
+    SynVm,
+}
+
+impl GuestTools {
+    pub const ALL: [GuestTools; 2] = [GuestTools::SynVm, GuestTools::VirtioWin];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            GuestTools::SynVm => n_!("syn-vm — свои (агент, драйвер, syn-gpu)"),
+            GuestTools::VirtioWin => n_!("virtio-win (Red Hat)"),
+        }
+    }
 }
 
 /// Масштаб экрана гостя в окне.
@@ -454,6 +479,8 @@ pub struct Vm {
     pub guest_agent: bool,
     /// Второй привод с «Гостевыми инструментами» (virtio-win: драйверы, агент, spice-vdagent).
     pub tools_cd: bool,
+    /// Windows: свои «Гостевые инструменты» syn-vm или virtio-win.
+    pub guest_tools: GuestTools,
     /// TPM компьютера вместо эмулятора (passthrough `/dev/tpmrm0`… — нужен доступ на запись).
     pub tpm_host: bool,
     /// Устройства PipeWire для звука гостя (пусто — по умолчанию).
@@ -498,6 +525,7 @@ impl Default for Vm {
             share_mode: ShareMode::Auto,
             guest_agent: true,
             tools_cd: false,
+            guest_tools: GuestTools::VirtioWin,
             tpm_host: false,
             audio_out: String::new(),
             audio_in: String::new(),
@@ -517,6 +545,32 @@ impl Vm {
         let mut v = self.clone();
         let mut changes = Vec::new();
         let mut advice = Vec::new();
+        // Свои инструменты: virtio-win в госте нет — ни spice-agent, ни драйвера VirtIO GPU.
+        if v.syn_tools() {
+            if !v.guest_agent {
+                changes.push(t!("Гостевой агент: включить"));
+                v.guest_agent = true;
+            }
+            if !v.tools_cd {
+                changes.push(t!("Диск «Гостевые инструменты»: вставлять при запуске"));
+                v.tools_cd = true;
+            }
+            if v.gpu_on() && v.firmware == Firmware::UefiSecure {
+                changes.push(t!("Прошивка: UEFI без Secure Boot — драйверу syn-gpu нужна тестовая подпись"));
+                v.firmware = Firmware::Uefi;
+            }
+            if v.firmware == Firmware::UefiSecure {
+                changes.push(t!("Прошивка: UEFI без Secure Boot — драйверам syn-vm нужна тестовая подпись"));
+                v.firmware = Firmware::Uefi;
+            }
+            if v.display != DisplayModel::SynGpu && crate::qemu::syn_gpu_bin().is_some() {
+                advice.push(t!("Видео: «syn-gpu» — своя видеокарта (экран и 3D на GPU компьютера) после установки «Гостевых инструментов syn-vm»; virtio-vga без virtio-win — базовый адаптер, медленно."));
+            }
+            if v.disk_bus != DiskBus::Sata || v.nic != NicModel::E1000e {
+                advice.push(t!("Без virtio-win диску и сети нужны SATA и e1000e (драйверы есть в Windows)."));
+            }
+            return (v, changes, advice);
+        }
         if !v.clipboard {
             changes.push(t!("Общий буфер обмена: включить (канал qemu-vdagent; в госте — служба spice-agent или spice-vdagent из «Гостевых инструментов»)"));
             v.clipboard = true;
@@ -551,6 +605,11 @@ impl Vm {
             advice.push(t!("Сеть e1000e можно заменить на virtio после установки «Гостевых инструментов» (драйвер NetKVM)."));
         }
         (v, changes, advice)
+    }
+
+    /// Windows-гость со своими «Гостевыми инструментами» syn-vm (без virtio-win).
+    pub fn syn_tools(&self) -> bool {
+        self.os.is_windows() && self.guest_tools == GuestTools::SynVm
     }
 
     /// Видеокарта syn-gpu подключена: «3D-ускорение» или syn-gpu — основная видеокарта.

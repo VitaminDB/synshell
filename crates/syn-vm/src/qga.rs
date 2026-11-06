@@ -195,6 +195,9 @@ pub fn call(vm: &Vm, cmd: &str, args: Value) -> Result<Value> {
 
 /// Агент отвечает.
 pub fn ping(vm: &Vm) -> bool {
+    if crate::agent::preferred(vm) {
+        return true;
+    }
     vm.qga_path().exists() && Agent::connect(vm, Duration::from_millis(700)).and_then(|mut a| a.call("guest-ping", Value::Null)).is_ok()
 }
 
@@ -228,6 +231,12 @@ pub struct ExecResult {
 
 /// Запустить программу в госте и дождаться: `argv[0]` ищется по PATH гостя.
 pub fn exec(vm: &Vm, argv: &[String], input: Option<&[u8]>, env: &[String], timeout: Duration) -> Result<ExecResult> {
+    // Свой агент на связи — через него (вывод без предела, без переподключений).
+    if crate::agent::preferred(vm) {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let r = crate::agent::Client::connect(vm)?.exec(argv, false, None, env, input, timeout, &mut |fd, d| if fd == 2 { err.extend_from_slice(d) } else { out.extend_from_slice(d) })?;
+        return Ok(ExecResult { code: r.code, stdout: out, stderr: err, timed_out: r.timed_out, pid: 0 });
+    }
     let Some((prog, args)) = argv.split_first() else { bail!("{}", t!("пустая команда")) };
     let mut a = json!({"path": prog, "arg": args, "capture-output": true});
     if let Some(i) = input {
@@ -356,6 +365,9 @@ const CHUNK: usize = 1 << 20;
 
 /// Файл хоста → гость. Возвращает число байт.
 pub fn push(vm: &Vm, local: &Path, guest: &str) -> Result<u64> {
+    if crate::agent::preferred(vm) {
+        return crate::agent::Client::connect(vm)?.push(local, guest);
+    }
     let mut f = std::fs::File::open(local).with_context(|| local.display().to_string())?;
     let mut a = Agent::connect(vm, Duration::from_secs(10))?;
     let h = a.call("guest-file-open", json!({"path": guest, "mode": "wb"}))?.as_i64().context("guest-file-open")?;
@@ -378,6 +390,9 @@ pub fn push(vm: &Vm, local: &Path, guest: &str) -> Result<u64> {
 
 /// Файл гостя → хост.
 pub fn pull(vm: &Vm, guest: &str, local: &Path) -> Result<u64> {
+    if crate::agent::preferred(vm) {
+        return crate::agent::Client::connect(vm)?.pull(guest, local);
+    }
     let mut a = Agent::connect(vm, Duration::from_secs(10))?;
     let h = a.call("guest-file-open", json!({"path": guest, "mode": "rb"}))?.as_i64().context("guest-file-open")?;
     let tmp = local.with_extension("syn-vm-part");
@@ -410,6 +425,9 @@ pub fn pull(vm: &Vm, guest: &str, local: &Path) -> Result<u64> {
 
 /// Прочитать небольшой файл гостя целиком.
 pub fn read_file(vm: &Vm, guest: &str, max: usize) -> Result<Vec<u8>> {
+    if crate::agent::preferred(vm) {
+        return crate::agent::Client::connect(vm)?.read(guest, max);
+    }
     let mut a = Agent::connect(vm, Duration::from_secs(10))?;
     let h = a.call("guest-file-open", json!({"path": guest, "mode": "rb"}))?.as_i64().context("guest-file-open")?;
     let mut out = Vec::new();
@@ -430,6 +448,9 @@ pub fn read_file(vm: &Vm, guest: &str, max: usize) -> Result<Vec<u8>> {
 }
 
 pub fn write_file(vm: &Vm, guest: &str, data: &[u8]) -> Result<()> {
+    if crate::agent::preferred(vm) {
+        return crate::agent::Client::connect(vm)?.put_bytes(data, guest).map(|_| ());
+    }
     let mut a = Agent::connect(vm, Duration::from_secs(10))?;
     let h = a.call("guest-file-open", json!({"path": guest, "mode": "wb"}))?.as_i64().context("guest-file-open")?;
     let r = data.chunks(CHUNK).try_for_each(|c| a.call("guest-file-write", json!({"handle": h, "buf-b64": B64.encode(c)})).map(|_| ()));
@@ -439,6 +460,18 @@ pub fn write_file(vm: &Vm, guest: &str, data: &[u8]) -> Result<()> {
 
 /// Выключить через агента (`powerdown`, `reboot`, `halt`).
 pub fn shutdown(vm: &Vm, mode: &str) -> Result<()> {
+    if crate::agent::preferred(vm) {
+        let win = vm.os.is_windows();
+        let argv: Vec<String> = match (win, mode) {
+            (true, "reboot") => vec!["shutdown".into(), "/r".into(), "/t".into(), "0".into()],
+            (true, _) => vec!["shutdown".into(), "/s".into(), "/t".into(), "0".into()],
+            (false, "reboot") => vec!["systemctl".into(), "reboot".into()],
+            (false, _) => vec!["systemctl".into(), "poweroff".into()],
+        };
+        // Связь может оборваться раньше ответа — это и есть успех.
+        let _ = crate::agent::Client::connect(vm)?.exec(&argv, false, None, &[], None, Duration::from_secs(10), &mut |_, _| {});
+        return Ok(());
+    }
     Agent::connect(vm, Duration::from_secs(10))?.send("guest-shutdown", json!({"mode": mode}))
 }
 
@@ -452,6 +485,9 @@ pub struct GuestInfo {
 }
 
 pub fn info(vm: &Vm) -> Result<GuestInfo> {
+    if crate::agent::preferred(vm) {
+        return crate::agent::guest_info(vm);
+    }
     let mut a = Agent::connect(vm, Duration::from_secs(6))?;
     let mut g = GuestInfo::default();
     if let Ok(v) = a.call("guest-info", Value::Null) {
@@ -490,6 +526,9 @@ pub fn info(vm: &Vm) -> Result<GuestInfo> {
 
 /// Поставить часы гостя по хосту (после восстановления снимка или паузы).
 pub fn sync_time(vm: &Vm) -> Result<()> {
+    if crate::agent::preferred(vm) {
+        return crate::agent::Client::connect(vm)?.set_time();
+    }
     let ns = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos() as i64;
     call(vm, "guest-set-time", json!({"time": ns})).map(|_| ())
 }
