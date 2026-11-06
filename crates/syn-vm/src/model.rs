@@ -435,7 +435,7 @@ pub struct Vm {
     /// Как кадр гостя ложится в окно, когда разрешение не под окно.
     pub scale: ScaleMode,
     /// 3D-ускорение: паравиртуальная видеокарта syn-gpu (сервер vfio-user, проект
-    /// qemu-vulkan-driver) — Windows с её драйвером; кадры игр — слоем поверх экрана.
+    /// syn-virt) — Windows с её драйвером; кадры игр — слоем поверх экрана.
     pub gpu3d: bool,
     /// Доп. ключи сервера syn-gpu (`--heap-gib 4 --gpu nvidia`).
     pub gpu3d_args: String,

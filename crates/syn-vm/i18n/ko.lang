@@ -614,7 +614,7 @@
 "Гость получает размер окна (нужен драйвер virtio-gpu или QXL)" = "게스트가 창 크기를 받습니다(virtio-gpu 또는 QXL 드라이버 필요)"
 "3D-ускорение (syn-gpu)" = "3D 가속(syn-gpu)"
 "Своя видеокарта для игр: Vulkan и DirectX через DXVK, кадры игр — прямо в окно. Windows с драйвером syn-gpu: прошивка UEFI без Secure Boot, в госте bcdedit /set testsigning on" = "게임용 전용 그래픽 카드: DXVK를 통한 Vulkan 및 DirectX, 게임 프레임을 창에 바로 표시. syn-gpu 드라이버가 설치된 Windows: Secure Boot 없는 UEFI 펌웨어, 게스트에서 bcdedit /set testsigning on"
-"Нужен сервер syn-gpu (проект qemu-vulkan-driver): переменная SYN_GPU или syn-gpu в PATH" = "syn-gpu 서버가 필요합니다(qemu-vulkan-driver 프로젝트): SYN_GPU 변수 또는 PATH의 syn-gpu"
+"Нужен сервер syn-gpu (проект syn-virt): переменная SYN_GPU или syn-gpu в PATH" = "syn-gpu 서버가 필요합니다(syn-virt 프로젝트): SYN_GPU 변수 또는 PATH의 syn-gpu"
 "Secure Boot выключен: драйверу syn-gpu нужна тестовая подпись" = "Secure Boot 꺼짐: syn-gpu 드라이버에 테스트 서명이 필요합니다"
 "Установить" = "설치"
 "Состояние в госте" = "게스트 상태"

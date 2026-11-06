@@ -450,7 +450,7 @@ fn devices(st: St, vm: &Vm) -> W {
                 if crate::qemu::syn_gpu_bin().is_some() {
                     t!("Своя видеокарта для игр: Vulkan и DirectX через DXVK, кадры игр — прямо в окно. Windows с драйвером syn-gpu: прошивка UEFI без Secure Boot, в госте bcdedit /set testsigning on")
                 } else {
-                    t!("Нужен сервер syn-gpu (проект qemu-vulkan-driver): переменная SYN_GPU или syn-gpu в PATH")
+                    t!("Нужен сервер syn-gpu (проект syn-virt): переменная SYN_GPU или syn-gpu в PATH")
                 },
                 // syn-gpu — основная видеокарта: 3D подразумевается.
                 Toggle::with_state(vm.gpu_on()).disabled(syn_display).on_change(move |b| {

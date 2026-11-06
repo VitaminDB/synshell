@@ -617,7 +617,7 @@
 "Гость получает размер окна (нужен драйвер virtio-gpu или QXL)" = "The guest gets the window size (needs a virtio-gpu or QXL driver)"
 "3D-ускорение (syn-gpu)" = "3D acceleration (syn-gpu)"
 "Своя видеокарта для игр: Vulkan и DirectX через DXVK, кадры игр — прямо в окно. Windows с драйвером syn-gpu: прошивка UEFI без Secure Boot, в госте bcdedit /set testsigning on" = "A dedicated graphics card for games: Vulkan and DirectX via DXVK, game frames straight into the window. Windows with the syn-gpu driver: UEFI firmware without Secure Boot, bcdedit /set testsigning on in the guest"
-"Нужен сервер syn-gpu (проект qemu-vulkan-driver): переменная SYN_GPU или syn-gpu в PATH" = "Requires the syn-gpu server (qemu-vulkan-driver project): SYN_GPU variable or syn-gpu in PATH"
+"Нужен сервер syn-gpu (проект syn-virt): переменная SYN_GPU или syn-gpu в PATH" = "Requires the syn-gpu server (syn-virt project): SYN_GPU variable or syn-gpu in PATH"
 "Secure Boot выключен: драйверу syn-gpu нужна тестовая подпись" = "Secure Boot is off: the syn-gpu driver needs test signing"
 "Установить" = "Install"
 "Состояние в госте" = "Status in the guest"

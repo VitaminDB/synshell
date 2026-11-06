@@ -1,5 +1,5 @@
 //! Слой кадров игр поверх экрана гостя: сервер паравиртуальной видеокарты `syn-gpu`
-//! (проект qemu-vulkan-driver, docs/present.md, версия 1) отдаёт кадры swapchain из BAR2
+//! (проект syn-virt, docs/present.md, версия 1) отдаёт кадры swapchain из BAR2
 //! (memfd хоста), syn-vm рисует их поверх кадра VNC в месте окна игры.
 //!
 //! Сокет `$XDG_RUNTIME_DIR/syn-gpu/<машина>.present.sock`; нет сокета — слоя нет, всё как

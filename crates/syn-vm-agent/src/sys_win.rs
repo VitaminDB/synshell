@@ -583,7 +583,7 @@ struct KmtEscape {
     h_context: u32,
 }
 
-/// qemu-vulkan-driver proto::escape::LogRead (op 8).
+/// syn-virt proto::escape::LogRead (op 8).
 #[repr(C)]
 struct LogRead {
     magic: u32,

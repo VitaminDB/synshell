@@ -1,5 +1,5 @@
 //! «Гостевые инструменты syn-gpu»: драйвер паравиртуальной видеокарты syn-gpu в госте Windows
-//! одной командой (проект qemu-vulkan-driver, docs/guest-tools.md). Образ
+//! одной командой (проект syn-virt, docs/guest-tools.md). Образ
 //! `syn-gpu-guest-tools.iso` (метка тома SYNGPU) — в привод, затем через гостевой агент
 //! `<буква>:\install.cmd /quiet`: 0 — готово, 3010 — нужна перезагрузка (тестовая подпись;
 //! после неё установка доводится сама), иное — ошибка (журнал C:\ProgramData\syn-gpu\install.log).
