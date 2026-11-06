@@ -349,13 +349,16 @@ fn silero_voice(p: &synaptix_tts_silero::SileroPipeline, voice: Option<&str>, sp
     };
     let lang = language.map(|l| l.trim().to_ascii_lowercase()).filter(|l| !l.is_empty()).unwrap_or_else(|| text_language(text).to_string());
     let prefixed = all.iter().any(|s| s.contains('_'));
-    let pool: Vec<&String> = if prefixed {
+    // Английский — любым голосом (с его акцентом): латиница читается по английскому произношению.
+    let pool: Vec<&String> = if lang == "en" {
+        all.iter().collect()
+    } else if prefixed {
         let pre = format!("{}_", silero_lang_prefix(&lang));
         let v: Vec<&String> = all.iter().filter(|s| s.starts_with(&pre)).collect();
         anyhow::ensure!(!v.is_empty(), "у этой модели Silero нет голосов для языка «{lang}»; есть: {}", all.join(", "));
         v
     } else {
-        anyhow::ensure!(lang == "ru", "эта модель Silero говорит только по-русски (язык текста — {lang})");
+        anyhow::ensure!(lang == "ru", "эта модель Silero говорит по-русски и (с акцентом) по-английски (язык текста — {lang})");
         all.iter().collect()
     };
     let pick = match female {
@@ -1667,6 +1670,7 @@ impl Loaded {
                     rate: (speed as f32).clamp(0.3, 3.0),
                     pitch: params.f32("pitch").unwrap_or(1.0).clamp(0.0, 2.0),
                     accents: params.bool("accents").unwrap_or(true),
+                    english: params.bool("english"),
                     ..Default::default()
                 };
                 let pcm = p.synthesize(text, &o).map_err(|e| anyhow::anyhow!("{e}"))?;

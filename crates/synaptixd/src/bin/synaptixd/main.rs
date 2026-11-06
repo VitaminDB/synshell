@@ -547,7 +547,9 @@ impl Conn {
                         if best.as_ref().is_none_or(|b| e < b.0) {
                             best = Some((e, pcm, rate, sd));
                         }
-                        if e <= max_err {
+                        // Silero детерминирован: повтор дал бы тот же звук (акцентный английский
+                        // распознаётся хуже нормы — это не брак)
+                        if e <= max_err || arch == "silero" {
                             break;
                         }
                     }
