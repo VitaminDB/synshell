@@ -688,7 +688,20 @@ pub fn attach(st: St, id: &str) {
     sessions().lock().unwrap().insert(id_s.clone(), s);
     // Кадры игр syn-gpu поверх экрана (нет сервера — клиент просто ждёт сокет).
     close_present(&id_s);
-    let p = crate::present::start(&id_s, on_frame);
+    // Сообщения syn-gpu (нехватка видеопамяти) — поверх окна, с именем машины.
+    let name = vm.name.clone();
+    let on_notice: Arc<dyn Fn(crate::present::Notice) + Send + Sync> = Arc::new(move |n: crate::present::Notice| {
+        let text = match n.kind {
+            crate::present::OUT_OF_VIDEO_MEMORY => {
+                let mib = n.bytes.div_ceil(1 << 20);
+                let free = if n.free > 0 { t!(" (свободно {f} МиБ)", f = n.free >> 20) } else { String::new() };
+                t!("«{name}»: не хватает видеопамяти — гость запросил {mib} МиБ, GPU компьютера занят другими программами{free}. Программа в госте может потерять изображение: освободите видеопамять и перезапустите её", name = name.clone(), mib = mib, free = free)
+            }
+            k => t!("«{name}»: сообщение видеокарты syn-gpu {k}", name = name.clone(), k = k),
+        };
+        run_on_main_thread(move || toast_err(st, text));
+    });
+    let p = crate::present::start(&id_s, on_frame, on_notice);
     presents().lock().unwrap().insert(id_s, p.clone());
     // Частота монитора окна — серверу syn-gpu (VSync гостя от хоста); окно ушло на другой
     // монитор — новая частота (проверка раз в 2 с; уходит, только если изменилась).
