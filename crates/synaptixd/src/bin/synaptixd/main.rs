@@ -492,7 +492,9 @@ impl Conn {
                     // Высота голоса персонажа: OmniVoice и VoxCPM на отдельных
                     // фразах уходят от неё (мужской голос — к 230 Гц).
                     // У VibeVoice высоту задаёт клип-образец — повтор её не меняет.
-                    let pitch = p.text("speaker").filter(|_| !vibe).map(voices::pitch_range).filter(|r| r.1 < 1000.0);
+                    // У Supertonic голос персонажа — готовый стиль: высота задана им,
+                    // повтор с другим зерном её не меняет.
+                    let pitch = p.text("speaker").filter(|_| !vibe && arch != "supertonic").map(voices::pitch_range).filter(|r| r.1 < 1000.0);
                     let mut best: Option<(f32, Vec<f32>, u32, Option<u64>)> = None;
                     for attempt in 0..3i64 {
                         let mut p = p.clone();

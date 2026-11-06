@@ -125,6 +125,7 @@ pub enum TtsEngine {
     Vibe(synaptix_tts_vibevoice::VibeVoicePipeline),
     Vox(synaptix_tts_voxcpm::VoxCpmPipeline),
     Audio8(synaptix_tts_audio8::Audio8Pipeline),
+    Supertonic(synaptix_tts_supertonic::SupertonicPipeline),
 }
 
 /// Голос, которым продолжать: у OmniVoice — референс в кодах кодека, у
@@ -208,6 +209,38 @@ fn expected_pitch(instruct: &str) -> Option<(f32, f32)> {
     } else {
         None
     }
+}
+
+/// Готовый голос Supertonic: заданный (`F1`…`M5`), иначе по персонажу (по
+/// высоте голосов набора: см. SPEC крейта), иначе M1.
+fn supertonic_voice(voice: Option<&str>, speaker: Option<&str>) -> anyhow::Result<String> {
+    if let Some(v) = voice.map(str::trim).filter(|v| !v.is_empty()) {
+        let up = v.to_ascii_uppercase();
+        anyhow::ensure!(
+            matches!(up.as_str(), "F1" | "F2" | "F3" | "F4" | "F5" | "M1" | "M2" | "M3" | "M4" | "M5"),
+            "Supertonic: голос «{v}» — есть только готовые F1…F5 (женские) и M1…M5 (мужские)"
+        );
+        return Ok(up);
+    }
+    Ok(match speaker.unwrap_or("") {
+        "female_young" => "F4",
+        "female_adult" => "F1",
+        "female_elderly" => "F3",
+        "male_young" => "M1",
+        "male_adult" => "M2",
+        "male_elderly" => "M3",
+        "girl" => "F2",
+        "boy" => "M4",
+        _ => "M1",
+    }
+    .to_string())
+}
+
+/// Язык Supertonic: заданный, иначе по письму текста (казахского у модели нет).
+fn supertonic_lang(language: Option<&str>, text: &str) -> anyhow::Result<String> {
+    let l = language.map(|l| l.trim().to_ascii_lowercase()).filter(|l| !l.is_empty() && l != "auto").unwrap_or_else(|| text_language(text).to_string());
+    anyhow::ensure!(synaptix_tts_supertonic::text::LANGS.contains(&l.as_str()), "Supertonic не знает язык «{l}»; есть: {}", synaptix_tts_supertonic::text::LANGS.join(", "));
+    Ok(l)
 }
 
 /// Предел длительности фразы Audio8 по тексту (норма ~0,08 с на символ).
@@ -531,9 +564,13 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
             let a = arch.to_ascii_lowercase();
             // OmniVoice — F16, как upstream (BF16 слишком груб для её CFG и
             // выбора токенов); остальные — BF16.
-            let omni = !a.contains("vibevoice") && !a.starts_with("voxcpm") && a != "audio8" && a != "arktts";
+            let omni = !a.contains("vibevoice") && !a.starts_with("voxcpm") && a != "audio8" && a != "arktts" && a != "supertonic";
             let (q, dtype) = audio_precision(dev, quant, if dev == DeviceKind::Npu || omni { DType::F16 } else { DType::BF16 });
-            let engine = if a == "audio8" || a == "arktts" {
+            let engine = if a == "supertonic" {
+                anyhow::ensure!(dev != DeviceKind::Npu, "Supertonic на NPU не исполняется");
+                // ~100M параметров: счёт F32, как оригинал в onnxruntime; квант не нужен.
+                TtsEngine::Supertonic(synaptix_tts_supertonic::SupertonicPipeline::from_syn(path, device).map_err(|e| anyhow::anyhow!("{e}"))?)
+            } else if a == "audio8" || a == "arktts" {
                 anyhow::ensure!(dev != DeviceKind::Npu, "Audio8 на NPU не исполняется");
                 // LM обучен в BF16; F16 (выбор кванта) на нём не проверен.
                 let dtype = if dtype == DType::F16 { DType::BF16 } else { dtype };
@@ -546,7 +583,8 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
                 TtsEngine::Omni(synaptix_tts_omnivoice::OmniVoicePipeline::from_syn_quant(path, device, dtype, q).map_err(|e| anyhow::anyhow!("{e}"))?)
             };
             let st = TtsState { engine, voices: Default::default(), anchors: Default::default(), refs: Default::default() };
-            Ok((Loaded::Tts(std::sync::Mutex::new(st), dev), Some(precision_tag(q, dtype))))
+            let tag = if matches!(st.engine, TtsEngine::Supertonic(_)) { "F32".to_string() } else { precision_tag(q, dtype) };
+            Ok((Loaded::Tts(std::sync::Mutex::new(st), dev), Some(tag)))
         }
         ModelKind::Video => {
             if dev != DeviceKind::Cuda {
@@ -830,6 +868,15 @@ impl Loaded {
                 }
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
                 Ok((out.pcm, out.sample_rate as u32))
+            }
+            TtsEngine::Supertonic(p) => {
+                anyhow::ensure!(r.voices.is_empty(), "Supertonic не клонирует голос по записи — выберите готовый голос F1…M5");
+                let name = supertonic_voice(r.instruct.as_deref(), None)?;
+                let voice = p.voice(&name).ok_or_else(|| anyhow::anyhow!("нет голоса {name}"))?.clone();
+                let lang = supertonic_lang(r.language.as_deref(), text)?;
+                let o = synaptix_tts_supertonic::Options { steps: r.steps.unwrap_or(8).clamp(1, 64), speed: 1.05 * r.speed.unwrap_or(1.0).clamp(0.25, 4.0), seed: r.seed, ..Default::default() };
+                let pcm = p.synthesize(text, &lang, &voice, &o).map_err(|e| anyhow::anyhow!("{e}"))?;
+                Ok((pcm, p.sample_rate()))
             }
             TtsEngine::Audio8(p) => {
                 let opts = synaptix_tts_audio8::GenerateOptions { seed: r.seed, max_frames: audio8_max_frames(text), ..p.default_options() };
@@ -1343,7 +1390,8 @@ impl Loaded {
         }
         let is_vox = matches!(&p.lock().unwrap_or_else(|e| e.into_inner()).engine, TtsEngine::Vox(_));
         let preset_voice = preset.map(|(omni, vox, _)| if is_vox { vox } else { omni });
-        let instruct = params.text("voice").or(preset_voice);
+        let is_st = matches!(&p.lock().unwrap_or_else(|e| e.into_inner()).engine, TtsEngine::Supertonic(_));
+        let instruct = if is_st { params.text("voice") } else { params.text("voice").or(preset_voice) };
         let (speed, steps) = (params.f32("speed"), params.u32("steps").map(|s| s as usize));
         let stretch = speed.filter(|s| (s - 1.0).abs() > 1e-3);
         let mut guard = p.lock().unwrap_or_else(|e| e.into_inner());
@@ -1457,6 +1505,19 @@ impl Loaded {
                     r.map_err(|e| anyhow::anyhow!("{e}"))?
                 };
                 Ok((wav, p.output_sample_rate() as u32, Some(seed)))
+            }
+            TtsEngine::Supertonic(p) => {
+                // Готовые голоса: тембр задаёт стиль, зерно — только шум потока;
+                // темп — родной (длительность делится на него), без растяжения.
+                anyhow::ensure!(ref_audio.is_none(), "Supertonic не клонирует голос по записи — выберите готовый голос F1…M5");
+                let name = supertonic_voice(params.text("voice"), params.text("speaker"))?;
+                let voice = p.voice(&name).ok_or_else(|| anyhow::anyhow!("нет голоса {name}"))?.clone();
+                let lang = supertonic_lang(language, text)?;
+                let o = synaptix_tts_supertonic::Options { steps: steps.unwrap_or(8).clamp(1, 64), speed: 1.05 * speed as f32, seed: phrase_seed, ..Default::default() };
+                let pcm = p.synthesize(text, &lang, &voice, &o).map_err(|e| anyhow::anyhow!("{e}"))?;
+                let t = p.last_timings();
+                tracing::info!("supertonic: голос {name}, {lang}, звук {:.1} с за {:.2} с (поток {:.2} с, кусков {})", t.audio_s, t.dp_te_s + t.flow_s + t.vocoder_s, t.flow_s, t.chunks);
+                Ok((pcm, p.sample_rate(), Some(seed)))
             }
             TtsEngine::Audio8(p) => {
                 let sr = p.sample_rate();
