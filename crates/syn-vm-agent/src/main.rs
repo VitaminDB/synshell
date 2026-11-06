@@ -70,9 +70,88 @@ pub fn guest_log(src: &str, text: &str) {
     }
 }
 
-/// Свой журнал агента (stderr; в Windows — ещё файл рядом с exe).
+/// Свой журнал агента (stderr; в Windows — ещё файл в ProgramData).
 pub fn log(s: &str) {
     sys::agent_log(s);
+}
+
+// ─── Вспомогательный процесс в сеансе пользователя ──────────────────────
+//
+// Служба (Windows: сеанс 0) не видит буфер обмена и экран пользователя: это делает её копия
+// `syn-vm-agent session`, запущенная в интерактивном сеансе. Обмен — кадрами протокола через
+// stdin/stdout копии.
+
+/// Ввод копии в сеансе пользователя (нет — копия не запущена).
+fn helper() -> &'static Mutex<Option<Box<dyn Write + Send>>> {
+    static H: OnceLock<Mutex<Option<Box<dyn Write + Send>>>> = OnceLock::new();
+    H.get_or_init(|| Mutex::new(None))
+}
+
+/// Последние Share и Mode от хоста — новой копии (после входа пользователя) отдаются сразу.
+fn last_for_helper() -> &'static Mutex<Vec<Frame>> {
+    static L: OnceLock<Mutex<Vec<Frame>>> = OnceLock::new();
+    L.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn to_helper(f: &Frame) {
+    let mut h = helper().lock().unwrap();
+    if let Some(w) = h.as_mut() {
+        if syn_vm_agent::write_frame(w, f).is_err() {
+            *h = None;
+        }
+    }
+}
+
+fn remember_for_helper(f: &Frame) {
+    let mut l = last_for_helper().lock().unwrap();
+    let same = |a: &Msg, b: &Msg| std::mem::discriminant(a) == std::mem::discriminant(b);
+    l.retain(|x| !same(&x.msg, &f.msg));
+    l.push(f.clone());
+}
+
+/// Держать копию в сеансе пользователя, пока он вошёл (Windows).
+fn session_manager() {
+    if !sys::USES_HELPER {
+        return;
+    }
+    std::thread::spawn(|| loop {
+        std::thread::sleep(Duration::from_secs(2));
+        if helper().lock().unwrap().is_some() || sys::session_user().is_none() {
+            continue;
+        }
+        let Ok(me) = std::env::current_exe() else { continue };
+        let req = ExecReq { argv: vec![me.to_string_lossy().into_owned(), "session".into()], user: true, cwd: None, env: vec![], stdin: true };
+        let p = match sys::spawn(&req) {
+            Ok(p) => p,
+            Err(e) => {
+                log(&format!("копия в сеансе пользователя: {e}"));
+                continue;
+            }
+        };
+        log(&format!("копия в сеансе пользователя: pid {}", p.pid));
+        *helper().lock().unwrap() = p.stdin;
+        for f in last_for_helper().lock().unwrap().clone() {
+            to_helper(&f);
+        }
+        let mut out = p.stdout;
+        let mut err = p.stderr;
+        std::thread::spawn(move || {
+            let mut b = [0u8; 4096];
+            while matches!(err.read(&mut b), Ok(n) if n > 0) {}
+        });
+        let wait = p.wait;
+        std::thread::spawn(move || {
+            // Из копии — только буфер обмена (хосту как есть).
+            while let Ok(f) = read_frame(&mut out) {
+                if matches!(f.msg, Msg::Clip { .. }) {
+                    send(f);
+                }
+            }
+            *helper().lock().unwrap() = None;
+            let code = wait();
+            log(&format!("копия в сеансе пользователя завершилась ({code})"));
+        });
+    });
 }
 
 fn instance() -> u64 {
@@ -313,6 +392,27 @@ fn handle(f: Frame) {
         Msg::Logs { on } => {
             LOGS_ON.store(on, Ordering::Relaxed);
         }
+        Msg::Clip { .. } => {
+            if sys::USES_HELPER {
+                to_helper(&f);
+            }
+        }
+        Msg::Mode { .. } => {
+            if sys::USES_HELPER {
+                remember_for_helper(&f);
+                to_helper(&f);
+            }
+        }
+        Msg::Share { ref kind, ref target } => {
+            // Своё службы (реестр SMB, монтирование в Linux), затем — копии (подключить диск).
+            if let Err(e) = sys::share_prepare(kind, target) {
+                log(&format!("общая папка: {e}"));
+            }
+            if sys::USES_HELPER {
+                remember_for_helper(&f);
+                to_helper(&f);
+            }
+        }
         Msg::Update { id, path } => match sys::update(&path) {
             Ok(()) => {
                 send(Frame::new(Msg::Done { id, size: 0, sha256: String::new() }));
@@ -331,6 +431,7 @@ fn handle(f: Frame) {
 pub fn run() {
     log(&format!("syn-vm-agent {} запущен", env!("CARGO_PKG_VERSION")));
     sys::start_logs();
+    session_manager();
     // Пользователь сеанса вошёл или вышел — событие хосту.
     std::thread::spawn(|| {
         let mut last = sys::session_user();
@@ -396,6 +497,7 @@ fn main() {
             run();
             Ok(())
         }
+        "session" => sys::helper_main(),
         "install" => sys::install(),
         "uninstall" => sys::uninstall(),
         "-V" | "--version" => {

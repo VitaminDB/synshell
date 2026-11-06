@@ -148,8 +148,40 @@ pub fn start_logs() {
     });
 }
 
+/// Копия в сеансе пользователя не нужна (буфер обмена — spice-vdagent, монтирует служба).
+pub const USES_HELPER: bool = false;
+
+pub fn helper_main() -> io::Result<()> {
+    Err(io::Error::other("копия в сеансе пользователя — только в Windows"))
+}
+
+/// Общая папка хоста: `virtiofs` или `9p` с меткой hostshare в `target` (пусто — /mnt/hostshare).
+pub fn share_prepare(kind: &str, target: &str) -> io::Result<()> {
+    let target = if target.is_empty() { "/mnt/hostshare" } else { target };
+    let mounted = Command::new("mountpoint").args(["-q", target]).status().map(|s| s.success()).unwrap_or(false);
+    if kind.is_empty() {
+        if mounted {
+            let _ = Command::new("umount").arg(target).status();
+        }
+        return Ok(());
+    }
+    if mounted {
+        return Ok(());
+    }
+    std::fs::create_dir_all(target)?;
+    let st = match kind {
+        "virtiofs" => Command::new("mount").args(["-t", "virtiofs", "hostshare", target]).status()?,
+        _ => Command::new("mount").args(["-t", "9p", "-o", "trans=virtio,version=9p2000.L,msize=1048576,cache=mmap", "hostshare", target]).status()?,
+    };
+    if !st.success() {
+        return Err(io::Error::other(format!("mount {kind} hostshare {target}: {st}")));
+    }
+    crate::log(&format!("общая папка: {kind} → {target}"));
+    Ok(())
+}
+
 pub fn set_time(unix_ms: u64) -> io::Result<()> {
-    let ts = libc::timespec { tv_sec: (unix_ms / 1000) as libc::time_t, tv_nsec: ((unix_ms % 1000) * 1_000_000) as libc::c_long };
+    let ts = libc::timespec { tv_sec: (unix_ms / 1000) as _, tv_nsec: ((unix_ms % 1000) * 1_000_000) as libc::c_long };
     if unsafe { libc::clock_settime(libc::CLOCK_REALTIME, &ts) } != 0 {
         return Err(io::Error::last_os_error());
     }

@@ -68,6 +68,7 @@ syn-vm — виртуальные машины QEMU/KVM
   --agent-install МАШИНА [ФАЙЛ]          поставить или обновить свой агент в госте (службой)
   --agent-status МАШИНА                  агент на связи: версия, система, пользователь сеанса
   --agent-log МАШИНА [--follow]          журнал гостя: OutputDebugString, журнал событий, journald
+  --clipboard МАШИНА set ТЕКСТ|watch     буфер обмена гостя через агента (Windows со своими инструментами)
   --agent МАШИНА КОМАНДА [JSON]          сырая команда агента (guest-info, guest-get-osinfo…)
   --sync-time МАШИНА                     часы гостя по компьютеру
 
@@ -171,7 +172,7 @@ pub fn run(cmd: &str, rest: Vec<String>) -> Option<i32> {
         "--list", "--status", "--start", "--stop", "--kill", "--reset", "--pause", "--resume", "--wait-boot", "--new", "--delete", "--get", "--set", "--exec", "--sh", "--push",
         "--pull", "--exec-status", "--agent", "--sync-time", "--screendump", "--type", "--key", "--click", "--scroll", "--devices", "--usb", "--attach", "--detach", "--cdrom", "--tools", "--snapshot",
         "--qmp", "--mcp", "--optimize", "--present-dump", "--gpu-tools", "--vfio-helper", "--vfio-watch", "--usb-watch", "--record", "--record-stop", "--record-run",
-        "--agent-broker", "--agent-install", "--agent-status", "--agent-log",
+        "--agent-broker", "--agent-install", "--agent-status", "--agent-log", "--clipboard",
     ];
     if !known.contains(&cmd) {
         return None;
@@ -327,6 +328,22 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
         "--agent-broker" => {
             let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             crate::agent::run_broker(&vm)?;
+            Ok(0)
+        }
+        "--clipboard" => {
+            // Буфер обмена гостя через агента syn-vm: set ТЕКСТ — положить, watch — печатать изменения.
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
+            running(&vm)?;
+            let mut c = crate::agent::Client::connect(&vm)?;
+            match a.pos.get(1).map(String::as_str) {
+                Some("set") => {
+                    let text = if a.pos.len() > 2 { a.pos[2..].join(" ") } else { a.tail.join(" ") };
+                    c.send_clip(&text)?;
+                    // Дать посреднику отправить кадр до закрытия соединения.
+                    std::thread::sleep(Duration::from_millis(300));
+                }
+                _ => c.follow_clip(&mut |t| println!("{t}"))?,
+            }
             Ok(0)
         }
         "--agent-status" => {

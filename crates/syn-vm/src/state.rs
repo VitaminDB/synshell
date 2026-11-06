@@ -682,6 +682,9 @@ pub fn attach(st: St, id: &str) {
         std::thread::spawn(move || crate::qmp::ensure_tablet(&v));
     }
     let s = Session::open(vm.vnc_path(), Duration::from_secs(15), on_frame.clone(), on_note);
+    if vm.syn_tools() {
+        follow_guest_clip(&vm);
+    }
     sessions().lock().unwrap().insert(id_s.clone(), s);
     // Кадры игр syn-gpu поверх экрана (нет сервера — клиент просто ждёт сокет).
     close_present(&id_s);
@@ -744,13 +747,74 @@ pub fn fit_guest(st: St) {
         }
         return;
     }
+    // Свои инструменты без своей видеокарты: драйвера virtio-gpu нет — режим ставит агент.
+    if vm.syn_tools() {
+        std::thread::spawn(move || {
+            if crate::agent::preferred(&vm) {
+                if let Ok(mut c) = crate::agent::Client::connect(&vm) {
+                    let _ = c.send_mode(w, h);
+                }
+            }
+        });
+        return;
+    }
     if let Some(s) = session(&vm.id) {
         s.request_size(w, h);
     }
 }
 
 /// Отдать гостю текст буфера обмена хоста (он вставит его своей вставкой).
+/// Последний текст буфера обмена, пришедший от гостя или ушедший ему (без эха).
+fn clip_last() -> &'static Mutex<HashMap<String, String>> {
+    static C: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    C.get_or_init(Default::default)
+}
+
+/// Буфер обмена гостя через агента syn-vm → буфер хоста (окно подписывается при подключении).
+fn follow_guest_clip(vm: &Vm) {
+    static ON: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+    if !ON.get_or_init(Default::default).lock().unwrap().insert(vm.id.clone()) {
+        return; // уже слушаем
+    }
+    let vm = vm.clone();
+    std::thread::spawn(move || loop {
+        if crate::qemu::pid(&vm).is_none() {
+            ON.get_or_init(Default::default).lock().unwrap().remove(&vm.id);
+            return;
+        }
+        if let Ok(mut c) = crate::agent::Client::connect(&vm) {
+            let id = vm.id.clone();
+            let _ = c.follow_clip(&mut |text| {
+                if text.is_empty() {
+                    return;
+                }
+                clip_last().lock().unwrap().insert(id.clone(), text.clone());
+                run_on_main_thread(move || syngui::clipboard::copy(&text));
+            });
+        }
+        std::thread::sleep(Duration::from_secs(3));
+    });
+}
+
 pub fn offer_clipboard(id: &str) {
+    // Свои инструменты: буфер обмена — через агента syn-vm (spice-agent в госте нет).
+    if let Some(vm) = mirror().lock().unwrap().iter().find(|v| v.id == id && v.syn_tools()).cloned() {
+        if let Some(text) = syngui::clipboard::paste().filter(|t| !t.is_empty()) {
+            let mut last = clip_last().lock().unwrap();
+            if last.get(id) != Some(&text) {
+                last.insert(id.to_string(), text.clone());
+                drop(last);
+                std::thread::spawn(move || {
+                    if crate::agent::preferred(&vm) {
+                        if let Ok(mut c) = crate::agent::Client::connect(&vm) {
+                            let _ = c.send_clip(&text);
+                        }
+                    }
+                });
+            }
+        }
+        return;
+    }
     if let (Some(s), Some(text)) = (session(id), syngui::clipboard::paste()) {
         if !text.is_empty() {
             s.offer_clipboard(text);
@@ -1092,6 +1156,8 @@ pub struct GuestTools {
     pub video: String,
     /// Служба буфера обмена (spice-agent / spice-vdagentd) работает; `None` — не узнать.
     pub clip: Option<bool>,
+    /// Видеокарта syn-gpu в госте: «состояние, драйвер версия»; пусто — устройства нет.
+    pub gpu: String,
 }
 
 impl GuestTools {
@@ -1110,8 +1176,16 @@ impl GuestTools {
                 t!("Видео — базовый адаптер, медленно: нужно видео virtio-vga («Оптимизировать»)")
             });
         }
+        // Видеокарта syn-gpu подключена, а драйвер в госте не работает.
+        if vm.gpu_on() && vm.os.is_windows() {
+            if self.gpu.is_empty() {
+                p.push(t!("Видеокарты syn-gpu в госте не видно"));
+            } else if !self.gpu.starts_with("OK") {
+                p.push(t!("Видеокарта syn-gpu: {s} — поставьте «Гостевые инструменты»", s = self.gpu.clone()));
+            }
+        }
         if vm.syn_tools() {
-            // Буфер обмена через агента syn-vm — следующий этап.
+            // Буфер обмена — через агента syn-vm (копия в сеансе пользователя).
         } else if !vm.clipboard {
             p.push(t!("Общий буфер обмена выключен («Оптимизировать»)"));
         } else if self.clip == Some(false) {
@@ -1125,7 +1199,7 @@ impl GuestTools {
 pub fn guest_tools(vm: &Vm) -> anyhow::Result<GuestTools> {
     let argv: Vec<String> = if vm.syn_tools() {
         // Свои инструменты: агент и драйвер virtio-serial — службы; видео — как обычно.
-        let ps = "$a=Get-Service syn-vm-agent -EA 0; $d=Get-Service syn-vm-serial -EA 0; $t=if($a){ 'syn-vm-agent: '+[string]$a.Status+'; syn-vm-serial: '+$(if($d){[string]$d.Status}else{'—'}) }else{ '' }; $v=(Get-CimInstance Win32_VideoController | select -Expand Name) -join ', '; \"tools=$t`nvideo=$v`nclip=none\"";
+        let ps = "$a=Get-Service syn-vm-agent -EA 0; $d=Get-Service syn-vm-serial -EA 0; $t=if($a){ 'syn-vm-agent: '+[string]$a.Status+'; syn-vm-serial: '+$(if($d){[string]$d.Status}else{'—'}) }else{ '' }; $v=(Get-CimInstance Win32_VideoController | select -Expand Name) -join ', '; $g=Get-PnpDevice -PresentOnly -EA 0 | ? InstanceId -like 'PCI\\VEN_1B36&DEV_F00D*' | select -First 1; $gs=if($g){ [string]$g.Status+', '+(Get-PnpDeviceProperty -InstanceId $g.InstanceId -KeyName DEVPKEY_Device_DriverVersion -EA 0).Data }else{ '' }; \"tools=$t`nvideo=$v`nclip=none`ngpu=$gs\"";
         vec!["powershell.exe".into(), "-NoProfile".into(), "-Command".into(), ps.into()]
     } else if vm.os.is_windows() {
         let ps = "$t=(Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*,HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\* -EA 0 | ? DisplayName -like 'Virtio-win*' | select -First 1).DisplayVersion; $v=(Get-CimInstance Win32_VideoController | select -Expand Name) -join ', '; $s=Get-Service -Name 'spice-agent','vdservice' -EA 0 | select -First 1; $c=if($s){ [string]$s.Status }else{ 'none' }; \"tools=$t`nvideo=$v`nclip=$c\"";
@@ -1141,7 +1215,7 @@ pub fn guest_tools(vm: &Vm) -> anyhow::Result<GuestTools> {
         "none" | "" => None,
         _ => Some(false),
     };
-    Ok(GuestTools { tools: get("tools"), video: get("video"), clip })
+    Ok(GuestTools { tools: get("tools"), video: get("video"), clip, gpu: get("gpu") })
 }
 
 /// «Гостевые инструменты syn-vm»: образ в привод и install.ps1 — отдельным процессом (он
@@ -1206,6 +1280,9 @@ pub fn tools_status(st: St, id: &str) {
             video = if g.video.is_empty() { "—".into() } else { g.video.clone() },
             clip = clip
         );
+        if !g.gpu.is_empty() {
+            msg.push_str(&format!("\n{}", t!("Видеокарта syn-gpu: {s}", s = g.gpu.clone())));
+        }
         for p in g.problems(&vm) {
             msg.push_str(&format!("\n• {p}"));
         }

@@ -413,7 +413,7 @@ fn devices(st: St, vm: &Vm) -> W {
     if !vm.shared_dir.is_empty() {
         share = share.child(super::parts::icon_btn(icons::CLOSE, t!("Не делиться"), move || state::edit(st, |v| v.shared_dir.clear())));
     }
-    let mode = vm.share_mode.resolve(vm.os);
+    let mode = vm.share().unwrap_or(vm.share_mode.resolve(vm.os));
     let share_hint = match mode {
         ShareMode::Virtiofs => t!("В Windows: драйвер virtio-fs и WinFsp с диска «Гостевые инструменты», служба VirtioFsSvc — диск Z:. В Linux: mount -t virtiofs hostshare /mnt. Снимки с памятью при virtiofs недоступны."),
         ShareMode::Smb => t!("В госте: \\\\10.0.2.4\\qemu (нужен пакет samba на компьютере)"),

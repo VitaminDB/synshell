@@ -88,7 +88,7 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
     push(&["-cpu", &cpu]);
     push(&["-smp", &format!("{}", vm.cpus.max(1))]);
     push(&["-m", &format!("{}M", vm.memory_mb.max(256))]);
-    let share = if !vm.shared_dir.is_empty() && Path::new(&vm.shared_dir).is_dir() { Some(vm.share_mode.resolve(vm.os)) } else { None };
+    let share = vm.share();
     if share == Some(ShareMode::Virtiofs) {
         // virtiofs (vhost-user) читает память гостя напрямую — память общая.
         push(&["-object", &format!("memory-backend-memfd,id=mem,size={}M,share=on", vm.memory_mb.max(256)), "-numa", "node,memdev=mem"]);

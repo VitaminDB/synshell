@@ -607,6 +607,18 @@ impl Vm {
         (v, changes, advice)
     }
 
+    /// Способ общей папки: «Авто» — Linux/BSD 9p, Windows — virtiofs (virtio-win) или SMB
+    /// (свои инструменты: драйвера virtiofs нет, папку подключает агент syn-vm). Нет папки — None.
+    pub fn share(&self) -> Option<ShareMode> {
+        if self.shared_dir.is_empty() || !std::path::Path::new(&self.shared_dir).is_dir() {
+            return None;
+        }
+        Some(match self.share_mode {
+            ShareMode::Auto if self.syn_tools() => ShareMode::Smb,
+            m => m.resolve(self.os),
+        })
+    }
+
     /// Windows-гость со своими «Гостевыми инструментами» syn-vm (без virtio-win).
     pub fn syn_tools(&self) -> bool {
         self.os.is_windows() && self.guest_tools == GuestTools::SynVm

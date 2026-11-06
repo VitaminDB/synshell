@@ -63,6 +63,14 @@ pub enum Msg {
     /// Точное время хоста (UTC, мс с 1970): агент ставит его системе — часы гостя не зависят
     /// от того, как он толкует RTC (местное или UTC) и от пояса хоста.
     SetTime { unix_ms: u64 },
+    /// Буфер обмена (в обе стороны): текст UTF-8 — данные кадра; `mime` — `text/plain`.
+    Clip { mime: String },
+    /// Разрешение экрана гостя под окно (гостю без своей видеокарты: ChangeDisplaySettings).
+    Mode { width: u32, height: u32 },
+    /// Общая папка хоста: Windows — `net use БУКВА: \\10.0.2.4\qemu` в сеансе пользователя
+    /// (`kind` = "smb"), Linux — `mount -t virtiofs|9p hostshare ПУТЬ` (`kind` = "virtiofs"|"9p").
+    /// Пустой `kind` — отключить.
+    Share { kind: String, target: String },
     /// Посредник → клиент и клиент → посредник: состояние агента.
     Status { id: u64 },
     /// Обновить себя: новый exe уже записан по `path`; агент заменяет себя и перезапускается.
@@ -101,7 +109,7 @@ impl Msg {
         match self {
             Exec { id, .. } | Stdin { id } | Kill { id } | Put { id, .. } | PutEnd { id } | Mkdir { id, .. } | Get { id, .. } | List { id, .. } | Ping { id } | Status { id } | Update { id, .. } => Some(*id),
             Started { id, .. } | Out { id, .. } | Exit { id, .. } | Error { id, .. } | Done { id, .. } | Stat { id, .. } | Data { id } | End { id, .. } | Entries { id, .. } | Pong { id } | State { id, .. } => Some(*id),
-            Hi | Logs { .. } | SetTime { .. } | Hello { .. } | Session { .. } | Log { .. } => None,
+            Hi | Logs { .. } | SetTime { .. } | Clip { .. } | Mode { .. } | Share { .. } | Hello { .. } | Session { .. } | Log { .. } => None,
         }
     }
 

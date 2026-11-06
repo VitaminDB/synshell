@@ -60,8 +60,12 @@ fn data_dir() -> std::path::PathBuf {
 }
 
 pub fn agent_log(s: &str) {
-    eprintln!("{s}");
-    let dir = data_dir();
+    // Копия в сеансе пользователя пишет в свой файл (у неё нет прав на журнал службы).
+    let helper = HELPER_MODE.load(Ordering::Relaxed);
+    if !helper {
+        eprintln!("{s}");
+    }
+    let dir = if helper { std::env::temp_dir().join("syn-vm") } else { data_dir() };
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join("agent.log");
     if std::fs::metadata(&path).map(|m| m.len() > 1 << 20).unwrap_or(false) {
@@ -96,6 +100,208 @@ pub fn boot_id() -> String {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let up = unsafe { GetTickCount64() } / 1000;
     format!("{}", (now.saturating_sub(up) + 30) / 60 * 60)
+}
+
+// ─── Копия в сеансе пользователя: буфер обмена, режим экрана, общая папка ─
+
+pub const USES_HELPER: bool = true;
+
+static HELPER_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+const CF_UNICODETEXT: u32 = 13;
+
+fn clip_open() -> bool {
+    use windows_sys::Win32::System::DataExchange::OpenClipboard;
+    for _ in 0..20 {
+        if unsafe { OpenClipboard(null_mut()) } != 0 {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    false
+}
+
+fn clip_get() -> Option<String> {
+    use windows_sys::Win32::System::DataExchange::{CloseClipboard, GetClipboardData};
+    use windows_sys::Win32::System::Memory::{GlobalLock, GlobalUnlock};
+    if !clip_open() {
+        return None;
+    }
+    let s = unsafe {
+        let h = GetClipboardData(CF_UNICODETEXT);
+        if h.is_null() {
+            None
+        } else {
+            let p = GlobalLock(h) as *const u16;
+            let s = (!p.is_null()).then(|| from_wide(p));
+            GlobalUnlock(h);
+            s
+        }
+    };
+    unsafe { CloseClipboard() };
+    s
+}
+
+fn clip_set(text: &str) -> bool {
+    use windows_sys::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, SetClipboardData};
+    use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+    let w: Vec<u16> = text.replace("\r\n", "\n").replace('\n', "\r\n").encode_utf16().chain(std::iter::once(0)).collect();
+    if !clip_open() {
+        return false;
+    }
+    let ok = unsafe {
+        EmptyClipboard();
+        let h = GlobalAlloc(GMEM_MOVEABLE, w.len() * 2);
+        if h.is_null() {
+            false
+        } else {
+            let p = GlobalLock(h) as *mut u16;
+            std::ptr::copy_nonoverlapping(w.as_ptr(), p, w.len());
+            GlobalUnlock(h);
+            !SetClipboardData(CF_UNICODETEXT, h).is_null()
+        }
+    };
+    unsafe { CloseClipboard() };
+    ok
+}
+
+/// Самый большой режим основного экрана, что помещается в w×h.
+fn set_mode(w: u32, h: u32) {
+    use windows_sys::Win32::Graphics::Gdi::{ChangeDisplaySettingsExW, EnumDisplaySettingsW, DEVMODEW, DM_PELSHEIGHT, DM_PELSWIDTH};
+    let mut best: Option<DEVMODEW> = None;
+    let mut cur: DEVMODEW = unsafe { std::mem::zeroed() };
+    cur.dmSize = std::mem::size_of::<DEVMODEW>() as u16;
+    unsafe { EnumDisplaySettingsW(null(), 0xFFFF_FFFF, &mut cur) }; // ENUM_CURRENT_SETTINGS
+    let mut i = 0;
+    loop {
+        let mut dm: DEVMODEW = unsafe { std::mem::zeroed() };
+        dm.dmSize = std::mem::size_of::<DEVMODEW>() as u16;
+        if unsafe { EnumDisplaySettingsW(null(), i, &mut dm) } == 0 {
+            break;
+        }
+        i += 1;
+        if dm.dmBitsPerPel != 32 || dm.dmPelsWidth > w || dm.dmPelsHeight > h {
+            continue;
+        }
+        if best.as_ref().is_none_or(|b| dm.dmPelsWidth * dm.dmPelsHeight > b.dmPelsWidth * b.dmPelsHeight) {
+            best = Some(dm);
+        }
+    }
+    let Some(mut dm) = best else { return };
+    if (dm.dmPelsWidth, dm.dmPelsHeight) == (cur.dmPelsWidth, cur.dmPelsHeight) {
+        return;
+    }
+    dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT;
+    let r = unsafe { ChangeDisplaySettingsExW(null(), &dm, null_mut(), 0, null()) };
+    crate::log(&format!("режим экрана {}×{} (окно {w}×{h}): {r}", dm.dmPelsWidth, dm.dmPelsHeight));
+}
+
+/// Подключить общую папку диском (в сеансе пользователя — подключения у Windows свои на сеанс).
+fn share_map(kind: &str, target: &str) {
+    let letter = if target.is_empty() { "Z:".to_string() } else { target.to_string() };
+    let unc = r"\\10.0.2.4\qemu";
+    let net = |args: &[&str]| Command::new("net").args(args).creation_flags(CREATE_NO_WINDOW).output();
+    if kind.is_empty() {
+        let _ = net(&["use", &letter, "/delete", "/y"]);
+        return;
+    }
+    let list = net(&["use"]).map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+    if list.lines().any(|l| l.contains(&letter) && l.to_ascii_lowercase().contains(&unc.to_ascii_lowercase())) {
+        return;
+    }
+    let _ = net(&["use", &letter, "/delete", "/y"]);
+    // Сеть гостя после входа поднимается не сразу — несколько попыток.
+    for _ in 0..10 {
+        match net(&["use", &letter, unc, "/persistent:no"]) {
+            Ok(o) if o.status.success() => {
+                crate::log(&format!("общая папка: {letter} → {unc}"));
+                return;
+            }
+            Ok(o) => crate::log(&format!("net use {letter} {unc}: {}", String::from_utf8_lossy(&o.stderr).trim())),
+            Err(e) => crate::log(&format!("net use: {e}")),
+        }
+        std::thread::sleep(Duration::from_secs(3));
+    }
+}
+
+/// `syn-vm-agent session`: копия в сеансе пользователя.
+pub fn helper_main() -> io::Result<()> {
+    use windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber;
+    HELPER_MODE.store(true, Ordering::Relaxed);
+    crate::log("копия в сеансе пользователя запущена");
+    let out = std::sync::Arc::new(std::sync::Mutex::new(io::stdout()));
+    // Своя запись в буфер — номер запоминается, чтобы не вернуть текст хосту эхом.
+    static OWN_SEQ: AtomicU32 = AtomicU32::new(0);
+    {
+        let out = out.clone();
+        std::thread::spawn(move || {
+            let mut last = unsafe { GetClipboardSequenceNumber() };
+            loop {
+                std::thread::sleep(Duration::from_millis(300));
+                let seq = unsafe { GetClipboardSequenceNumber() };
+                if seq == last {
+                    continue;
+                }
+                last = seq;
+                if seq == OWN_SEQ.load(Ordering::Relaxed) {
+                    continue;
+                }
+                if let Some(t) = clip_get() {
+                    let f = syn_vm_agent::Frame::with_data(syn_vm_agent::Msg::Clip { mime: "text/plain".into() }, t.replace("\r\n", "\n").into_bytes());
+                    if syn_vm_agent::write_frame(&mut *out.lock().unwrap(), &f).is_err() {
+                        std::process::exit(0);
+                    }
+                }
+            }
+        });
+    }
+    let mut inp = io::stdin().lock();
+    loop {
+        let f = match syn_vm_agent::read_frame(&mut inp) {
+            Ok(f) => f,
+            Err(_) => std::process::exit(0),
+        };
+        match f.msg {
+            syn_vm_agent::Msg::Clip { .. } => {
+                let t = String::from_utf8_lossy(&f.data).into_owned();
+                if clip_set(&t) {
+                    OWN_SEQ.store(unsafe { GetClipboardSequenceNumber() }, Ordering::Relaxed);
+                }
+            }
+            syn_vm_agent::Msg::Mode { width, height } => set_mode(width, height),
+            syn_vm_agent::Msg::Share { kind, target } => {
+                std::thread::spawn(move || share_map(&kind, &target));
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Служба: подготовка общей папки. SMB QEMU (Samba) пускает только гостем без подписи — Windows 10/11
+/// по умолчанию так не подключается: разрешить гостевой вход и вход без подписи (внутри ВМ).
+pub fn share_prepare(kind: &str, _target: &str) -> io::Result<()> {
+    if kind != "smb" {
+        return Ok(());
+    }
+    let reg = |key: &str, name: &str, val: &str| {
+        Command::new("reg").args(["add", key, "/v", name, "/t", "REG_DWORD", "/d", val, "/f"]).creation_flags(CREATE_NO_WINDOW).output().map(|o| o.status.success()).unwrap_or(false)
+    };
+    let get = |key: &str, name: &str| {
+        Command::new("reg").args(["query", key, "/v", name]).creation_flags(CREATE_NO_WINDOW).output().map(|o| String::from_utf8_lossy(&o.stdout).split_whitespace().last().unwrap_or("").to_string()).unwrap_or_default()
+    };
+    let ws = r"HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters";
+    let pol = r"HKLM\SOFTWARE\Policies\Microsoft\Windows\LanmanWorkstation";
+    let mut changed = false;
+    for (k, n, v) in [(ws, "AllowInsecureGuestAuth", "0x1"), (ws, "RequireSecuritySignature", "0x0"), (pol, "AllowInsecureGuestAuth", "0x1")] {
+        if get(k, n) != v {
+            reg(k, n, if v == "0x1" { "1" } else { "0" });
+            changed = true;
+        }
+    }
+    if changed {
+        crate::log("общая папка SMB: разрешён гостевой вход без подписи (Samba QEMU)");
+    }
+    Ok(())
 }
 
 /// Системное время (UTC).

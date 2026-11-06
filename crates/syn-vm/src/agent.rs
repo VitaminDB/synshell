@@ -94,6 +94,7 @@ struct Broker {
     execs: HashSet<u64>,
     clients: HashMap<u64, Tx>,
     log_subs: HashSet<u64>,
+    clip_subs: HashSet<u64>,
 }
 
 impl Broker {
@@ -264,12 +265,24 @@ fn guest_frame(vm: &Vm, st: &Arc<Mutex<Broker>>, tx: &Tx, f: Frame) {
             // Часы гостя — по хосту (RTC после загрузки, паузы, снимка может врать).
             let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
             let _ = write_frame(&mut *tx.lock().unwrap(), &Frame::new(Msg::SetTime { unix_ms: ms }));
+            send_share(vm, tx);
         }
         Msg::Session { ref user } => {
             append_log(vm, &format!("[agent] сеанс: {}", user.as_deref().unwrap_or("вышел")));
+            // Вошёл — подключить общую папку в его сеансе (агент передаст её своей копии).
+            if user.is_some() {
+                send_share(vm, tx);
+            }
             b.user = user.clone();
             if let Some(Msg::Hello { user: u, .. }) = b.hello.as_mut() {
                 *u = user.clone();
+            }
+        }
+        Msg::Clip { .. } => {
+            for cid in b.clip_subs.clone() {
+                if let Some(c) = b.clients.get(&cid) {
+                    let _ = write_frame(&mut *c.lock().unwrap(), &f);
+                }
             }
         }
         Msg::Log { ref src } => {
@@ -304,7 +317,11 @@ fn serve_client(vm: &Vm, st: &Arc<Mutex<Broker>>, cid: u64, s: UnixStream) {
                     let _ = write_frame(&mut *c.lock().unwrap(), &reply);
                 }
             }
-            Msg::SetTime { .. } => {
+            // Подписка на буфер обмена гостя.
+            Msg::Clip { ref mime } if mime == "x-subscribe" => {
+                b.clip_subs.insert(cid);
+            }
+            Msg::SetTime { .. } | Msg::Clip { .. } | Msg::Mode { .. } => {
                 if let Some(g) = b.guest.clone() {
                     drop(b);
                     let _ = write_frame(&mut *g.lock().unwrap(), &f);
@@ -349,6 +366,7 @@ fn serve_client(vm: &Vm, st: &Arc<Mutex<Broker>>, cid: u64, s: UnixStream) {
     let mut b = st.lock().unwrap();
     b.clients.remove(&cid);
     b.log_subs.remove(&cid);
+    b.clip_subs.remove(&cid);
     let mine: Vec<u64> = b.routes.iter().filter(|(_, (c, _))| *c == cid).map(|(g, _)| *g).collect();
     for g in mine {
         if b.execs.remove(&g) {
@@ -360,6 +378,18 @@ fn serve_client(vm: &Vm, st: &Arc<Mutex<Broker>>, cid: u64, s: UnixStream) {
             b.back.remove(&(c, l));
         }
     }
+}
+
+/// Общая папка машины — агенту (настройки перечитываются: могли поменяться на ходу).
+fn send_share(vm: &Vm, tx: &Tx) {
+    let Ok(v) = crate::cli::find(&vm.id) else { return };
+    let (kind, target) = match v.share() {
+        Some(crate::model::ShareMode::Smb) if v.os.is_windows() => ("smb", "Z:"),
+        Some(crate::model::ShareMode::Virtiofs) if !v.os.is_windows() => ("virtiofs", "/mnt/hostshare"),
+        Some(crate::model::ShareMode::P9) if !v.os.is_windows() => ("9p", "/mnt/hostshare"),
+        _ => return,
+    };
+    let _ = write_frame(&mut *tx.lock().unwrap(), &Frame::new(Msg::Share { kind: kind.into(), target: target.into() }));
 }
 
 // ─── Клиент ─────────────────────────────────────────────────────────────
@@ -593,6 +623,27 @@ impl Client {
                 Msg::Data { .. } if out.len() < max => out.extend_from_slice(&fr.data[..fr.data.len().min(max - out.len())]),
                 Msg::End { .. } => return Ok(out),
                 _ => {}
+            }
+        }
+    }
+
+    /// Текст в буфер обмена гостя.
+    pub fn send_clip(&mut self, text: &str) -> Result<()> {
+        self.send(Frame::with_data(Msg::Clip { mime: "text/plain".into() }, text.as_bytes().to_vec()))
+    }
+
+    /// Разрешение экрана гостя (без своей видеокарты: ChangeDisplaySettings в его сеансе).
+    pub fn send_mode(&mut self, width: u32, height: u32) -> Result<()> {
+        self.send(Frame::new(Msg::Mode { width, height }))
+    }
+
+    /// Подписаться на буфер обмена гостя: `on_text` на каждый новый текст, до разрыва.
+    pub fn follow_clip(&mut self, on_text: &mut dyn FnMut(String)) -> Result<()> {
+        self.send(Frame::new(Msg::Clip { mime: "x-subscribe".into() }))?;
+        loop {
+            let f = self.recv(None)?;
+            if let Msg::Clip { .. } = &f.msg {
+                on_text(String::from_utf8_lossy(&f.data).into_owned());
             }
         }
     }
