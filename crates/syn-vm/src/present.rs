@@ -5,6 +5,12 @@
 //! Сокет `$XDG_RUNTIME_DIR/syn-gpu/<машина>.present.sock`; нет сокета — слоя нет, всё как
 //! раньше. Сообщения: `u32 type, u32 len`, полезная нагрузка (little-endian, repr(C));
 //! дескриптор BAR2 — SCM_RIGHTS при HELLO.
+//!
+//! Версия 2 (без копий): если окно рисует на той же видеокарте, что и syn-gpu, клиент шлёт
+//! CAPS с UUID карты; сервер отдаёт кольцо изображений Vulkan (IMAGE + fd OPAQUE_FD), а FRAME с
+//! флагом GPU_IMAGE называет номер изображения. syngui переписывает кадр в текстуру на GPU
+//! (`LiveFrame::set_external`), RELEASE уходит, когда GPU дочитал. Импорт не удался — CAPS с
+//! нулями, и сервер возвращается к BAR2.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -21,7 +27,11 @@ use syngui::widgets::LiveFrame;
 const HELLO: u32 = 1;
 const FRAME: u32 = 2;
 const GONE: u32 = 3;
+const IMAGE: u32 = 4;
 const RELEASE: u32 = 16;
+const CAPS: u32 = 18;
+/// FRAME.flags: кадр в изображении Vulkan (offset — его номер).
+const GPU_IMAGE: u32 = 1 << 2;
 /// DRM fourcc: байты B,G,R,A (`AR24` — с альфой, `XR24` — без).
 const AR24: u32 = u32::from_le_bytes(*b"AR24");
 const XR24: u32 = u32::from_le_bytes(*b"XR24");
@@ -72,7 +82,7 @@ pub fn start(id: &str, on_change: Arc<dyn Fn() + Send + Sync>) -> Arc<Present> {
                 if path.exists() {
                     match UnixStream::connect(&path) {
                         Ok(s) => {
-                            if let Err(e) = run(&me, s, &on_change) {
+                            if let Err(e) = run(&me, s, &on_change, true) {
                                 tracing::debug!("syn-gpu present: {e}");
                             }
                             me.layers.lock().unwrap().clear();
@@ -96,7 +106,7 @@ pub fn grab(id: &str, wait: Duration) -> Result<Layer> {
     let p2 = p.clone();
     let t = std::thread::spawn(move || {
         let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
-        run(&p2, s, &cb)
+        run(&p2, s, &cb, false)
     });
     let until = Instant::now() + wait;
     let layer = loop {
@@ -127,10 +137,33 @@ impl Drop for Heap {
     }
 }
 
-fn run(p: &Present, mut s: UnixStream, on_change: &Arc<dyn Fn() + Send + Sync>) -> Result<()> {
+/// Номера импортированных изображений — свои у каждого (по ним syngui кэширует импорт).
+static IMAGE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// `gpu` — окно (может читать кадры из изображений GPU); проверка без окна — только BAR2.
+fn run(p: &Present, mut s: UnixStream, on_change: &Arc<dyn Fn() + Send + Sync>, gpu: bool) -> Result<()> {
     s.set_read_timeout(Some(Duration::from_secs(1)))?;
     let mut heap: Option<Heap> = None;
+    // Запись RELEASE из потока GPU syngui (кадр дочитан) — отдельной копией сокета.
+    let tx = Arc::new(Mutex::new(s.try_clone()?));
+    // CAPS уже отправлен (UUID карты окна известен только после создания GPU окна).
+    let mut caps_sent = !gpu;
+    // Импорт не удался — до конца соединения кадры через BAR2.
+    let gpu_failed = Arc::new(AtomicBool::new(false));
+    let mut images: HashMap<(u64, u32), Arc<syngui::gpu::external::ExternalImage>> = HashMap::new();
     while p.alive.load(Ordering::Relaxed) {
+        if !caps_sent {
+            if let Some((dev, drv)) = syngui::gpu::external::device_uuids() {
+                let mut b = Vec::with_capacity(40);
+                b.extend_from_slice(&2u32.to_le_bytes());
+                b.extend_from_slice(&0u32.to_le_bytes());
+                b.extend_from_slice(&dev);
+                b.extend_from_slice(&drv);
+                send(&mut tx.lock().unwrap(), CAPS, &b)?;
+                caps_sent = true;
+                tracing::info!("syn-gpu present: окно на видеокарте с UUID {:02x?} — прошу кадры без копий", &dev[..4]);
+            }
+        }
         let (ty, payload, fd) = match read_msg(&mut s) {
             Ok(m) => m,
             Err(e) if is_timeout(&e) => continue,
@@ -159,9 +192,42 @@ fn run(p: &Present, mut s: UnixStream, on_change: &Arc<dyn Fn() + Send + Sync>) 
                 let (width, height, stride, format) = (u32_at(&payload, 24), u32_at(&payload, 28), u32_at(&payload, 32), u32_at(&payload, 36));
                 let (x, y) = (u32_at(&payload, 40) as i32, u32_at(&payload, 44) as i32);
                 let (w, h, flags) = (u32_at(&payload, 48), u32_at(&payload, 52), u32_at(&payload, 56));
+                let release = [surface.to_le_bytes(), seq.to_le_bytes()].concat();
+                if flags & GPU_IMAGE != 0 {
+                    let Some(img) = images.get(&(surface, offset as u32)).cloned() else {
+                        send(&mut tx.lock().unwrap(), RELEASE, &release)?;
+                        continue;
+                    };
+                    let (tx2, failed) = (tx.clone(), gpu_failed.clone());
+                    // Буфер свободен, когда GPU окна дочитал кадр (или кадр заменён, не показавшись).
+                    let ext = syngui::gpu::external::ExternalFrame::new(img, move |ok| {
+                        let mut t = tx2.lock().unwrap();
+                        let _ = send(&mut t, RELEASE, &release);
+                        if !ok && !failed.swap(true, Ordering::Relaxed) {
+                            tracing::warn!("syn-gpu present: импорт изображения GPU не удался — кадры через BAR2");
+                            let _ = send(&mut t, CAPS, &[2u32.to_le_bytes(), 0u32.to_le_bytes()].concat().into_iter().chain([0u8; 32]).collect::<Vec<u8>>());
+                        }
+                    });
+                    let mut layers = p.layers.lock().unwrap();
+                    let l = layers.entry(surface).or_insert_with(|| Layer {
+                        frame: LiveFrame::new(),
+                        rect: (0, 0, 0, 0),
+                        show: false,
+                        fullscreen: false,
+                        updated: Instant::now(),
+                    });
+                    l.frame.set_external(ext);
+                    l.rect = (x, y, w, h);
+                    l.show = flags & 1 != 0;
+                    l.fullscreen = flags & 2 != 0;
+                    l.updated = Instant::now();
+                    drop(layers);
+                    on_change();
+                    continue;
+                }
                 let pixels = heap.as_ref().and_then(|hp| copy_frame(hp, offset, width, height, stride, format));
                 // Кадр прочитан (или негоден) — буфер свободен.
-                send(&mut s, RELEASE, &[surface.to_le_bytes(), seq.to_le_bytes()].concat())?;
+                send(&mut tx.lock().unwrap(), RELEASE, &release)?;
                 if let Some(px) = pixels {
                     let mut layers = p.layers.lock().unwrap();
                     let l = layers.entry(surface).or_insert_with(|| Layer {
@@ -180,8 +246,27 @@ fn run(p: &Present, mut s: UnixStream, on_change: &Arc<dyn Fn() + Send + Sync>) 
                     on_change();
                 }
             }
+            IMAGE => {
+                let fd = fd.context("IMAGE без дескриптора")?;
+                let owned = unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
+                let surface = u64_at(&payload, 0);
+                let index = u32_at(&payload, 8);
+                let img = syngui::gpu::external::ExternalImage {
+                    id: IMAGE_ID.fetch_add(1, Ordering::Relaxed),
+                    fd: owned,
+                    format: u32_at(&payload, 12) as i32,
+                    width: u32_at(&payload, 16),
+                    height: u32_at(&payload, 20),
+                    flags: u32_at(&payload, 24),
+                    usage: u32_at(&payload, 28),
+                    size: u64_at(&payload, 32),
+                };
+                tracing::info!("syn-gpu present: поверхность {surface:#x}: изображение {index} {}×{}", img.width, img.height);
+                images.insert((surface, index), Arc::new(img));
+            }
             GONE => {
                 let surface = u64_at(&payload, 0);
+                images.retain(|k, _| k.0 != surface);
                 if p.layers.lock().unwrap().remove(&surface).is_some() {
                     on_change();
                 }
@@ -320,7 +405,7 @@ mod tests {
         let p2 = p.clone();
         let t = std::thread::spawn(move || {
             let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(move || ch.store(true, Ordering::Relaxed));
-            let _ = run(&p2, cli, &cb);
+            let _ = run(&p2, cli, &cb, false);
         });
         // RELEASE.
         let mut rel = [0u8; 24];
@@ -338,6 +423,57 @@ mod tests {
         send(&mut srv, GONE, &7u64.to_le_bytes()).unwrap();
         std::thread::sleep(Duration::from_millis(50));
         assert!(p.visible().is_none());
+        p.close();
+        drop(srv);
+        t.join().unwrap();
+    }
+
+    /// v2: IMAGE (fd) → FRAME с GPU_IMAGE → слой с кадром во внешнем изображении; RELEASE —
+    /// только когда кадр отпущен (здесь — GONE убирает слой), а не сразу после FRAME.
+    #[test]
+    fn gpu_image_release_on_drop() {
+        let (mut srv, cli) = UnixStream::pair().unwrap();
+        let memfd = unsafe { libc::memfd_create(c"img".as_ptr(), 0) };
+        // IMAGE: surface 7, index 1, B8G8R8A8_UNORM (44), 640×480, MUTABLE_FORMAT (8), usage 6, size 1 МиБ.
+        let mut im = Vec::new();
+        im.extend_from_slice(&IMAGE.to_le_bytes());
+        im.extend_from_slice(&40u32.to_le_bytes());
+        im.extend_from_slice(&7u64.to_le_bytes());
+        for v in [1u32, 44, 640, 480, 8, 6] {
+            im.extend_from_slice(&v.to_le_bytes());
+        }
+        im.extend_from_slice(&(1u64 << 20).to_le_bytes());
+        send_fd(&srv, &im, memfd);
+        unsafe { libc::close(memfd) };
+        let mut fr = Vec::new();
+        for v in [7u64, 5, 1] {
+            fr.extend_from_slice(&v.to_le_bytes());
+        }
+        for v in [640u32, 480, 0, XR24, 10, 20, 640, 480, 1 | GPU_IMAGE, 0] {
+            fr.extend_from_slice(&v.to_le_bytes());
+        }
+        send(&mut srv, FRAME, &fr).unwrap();
+        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true) });
+        let p2 = p.clone();
+        let t = std::thread::spawn(move || {
+            let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+            let _ = run(&p2, cli, &cb, false);
+        });
+        std::thread::sleep(Duration::from_millis(100));
+        let l = p.visible().expect("слой");
+        assert_eq!(l.rect, (10, 20, 640, 480));
+        assert_eq!(l.frame.size(), (640, 480));
+        assert!(l.frame.latest().2.is_empty(), "кадр во внешнем изображении — без пикселей в памяти");
+        drop(l);
+        // Пока слой держит кадр, RELEASE нет.
+        srv.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+        let mut rel = [0u8; 24];
+        assert!(srv.read_exact(&mut rel).is_err());
+        send(&mut srv, GONE, &7u64.to_le_bytes()).unwrap();
+        srv.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        srv.read_exact(&mut rel).unwrap();
+        assert_eq!(u32_at(&rel, 0), RELEASE);
+        assert_eq!((u64_at(&rel, 8), u64_at(&rel, 16)), (7, 5));
         p.close();
         drop(srv);
         t.join().unwrap();
