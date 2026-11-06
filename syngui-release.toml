@@ -183,6 +183,15 @@ files = [
   { from = "docs/MODELS.md", to = "usr/share/doc/synaptix/" },
 ]
 
+[packages.synaptix-model-leokani-tts-7m]
+description = "Модель synaptix: Leokani-tts 7M — мгновенный синтез английской речи (голоса Dala и Pono), на процессоре и NPU телефона. Лицензия модели CC BY-NC 4.0 — только некоммерческое использование"
+description_en = "synaptix model: Leokani-tts 7M — instant English speech synthesis (Dala and Pono voices), on CPU and phone NPU. Model license CC BY-NC 4.0 — non-commercial use only"
+depends = ["synaptix"]
+aur = false
+files = [
+  { run = "cat \"$HOME/Storage/Нейросети/Модели/tts/leokani-tts-7m.syn\"", to = "usr/share/synaptix/models/tts/leokani-tts-7m.syn" },
+]
+
 [packages.syn-notes]
 description = "Заметки synshell: страницы-холсты, канбан, Гант, карты мыслей, календарь, напоминания"
 description_en = "synshell Notes: canvas pages, kanban, Gantt, mind maps, calendar, reminders"

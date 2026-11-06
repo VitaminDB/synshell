@@ -5,6 +5,12 @@ use serde::Deserialize;
 pub const CONFIG: &str = "/etc/synaptix/synaptixd.toml";
 pub const STATE: &str = "/var/lib/synaptix/state.toml";
 pub const NPU_CACHE_RO: &str = "/usr/lib/synaptix/npu-cache";
+/// Модели из пакетов (synaptix-model-*): встроенная библиотека только для
+/// чтения, после библиотек пользователя (своя копия модели главнее).
+/// SYNAPTIXD_SYSTEM_MODELS — другой каталог (проверка копией службы).
+pub fn system_models() -> PathBuf {
+    std::env::var_os("SYNAPTIXD_SYSTEM_MODELS").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/usr/share/synaptix/models"))
+}
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(default)]

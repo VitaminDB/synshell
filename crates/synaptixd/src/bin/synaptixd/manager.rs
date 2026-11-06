@@ -197,6 +197,9 @@ fn scan_all(cfg: &Config, libs: &[LibraryConf]) -> BTreeMap<String, Manifest> {
             out.entry(m.id.clone()).or_insert(m);
         }
     }
+    for m in library::scan(&crate::config::system_models()) {
+        out.entry(m.id.clone()).or_insert(m);
+    }
     let legacy: Vec<(std::path::PathBuf, Option<std::path::PathBuf>)> = cfg.model_dirs.iter().map(|d| (d.clone(), None)).collect();
     for (id, m) in registry::scan(&legacy) {
         out.entry(id).or_insert(m);

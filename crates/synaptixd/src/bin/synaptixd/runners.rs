@@ -585,7 +585,6 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
             let omni = !a.contains("vibevoice") && !a.starts_with("voxcpm") && a != "audio8" && a != "arktts" && a != "supertonic" && a != "leokani";
             let (q, dtype) = audio_precision(dev, quant, if dev == DeviceKind::Npu || omni { DType::F16 } else { DType::BF16 });
             let engine = if a == "leokani" {
-                anyhow::ensure!(dev != DeviceKind::Npu, "Leokani на NPU службы пока не исполняется");
                 // 7M параметров: F32, на процессоре быстрее реального времени в сотни раз.
                 TtsEngine::Leokani(synaptix_tts_leokani::LeokaniPipeline::from_syn(path, device).map_err(|e| anyhow::anyhow!("{e}"))?)
             } else if a == "supertonic" {
