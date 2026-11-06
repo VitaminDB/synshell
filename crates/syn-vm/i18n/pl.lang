@@ -740,3 +740,9 @@
 # src/usb.rs
 "Неверный порт USB: {p}" = "Nieprawidłowy port USB: {p}"
 "Доступ к USB не выдан (pkexec: {c})" = "Nie przyznano dostępu do USB (pkexec: {c})"
+
+# syn-gpu — основная видеокарта
+"syn-gpu — своя видеокарта (экран и 3D на GPU компьютера)" = "syn-gpu — własna karta graficzna (obraz i 3D na GPU komputera)"
+"Экран появится, когда в Windows загрузится драйвер syn-gpu; загрузка и установка Windows не видны — для установки выберите virtio-vga" = "Obraz pojawi się, gdy Windows załaduje sterownik syn-gpu; rozruch i instalacja Windows nie są widoczne — do instalacji wybierz virtio-vga"
+"Ждём драйвер syn-gpu в госте…" = "Czekam na sterownik syn-gpu w gościu…"
+"нет кадра рабочего стола (драйвер syn-gpu в госте ещё не загрузился?)" = "brak klatki pulpitu (czy sterownik syn-gpu w gościu już się załadował?)"

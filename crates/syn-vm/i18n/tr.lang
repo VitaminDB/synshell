@@ -737,3 +737,9 @@
 # src/usb.rs
 "Неверный порт USB: {p}" = "Geçersiz USB portu: {p}"
 "Доступ к USB не выдан (pkexec: {c})" = "USB erişimi verilmedi (pkexec: {c})"
+
+# syn-gpu — основная видеокарта
+"syn-gpu — своя видеокарта (экран и 3D на GPU компьютера)" = "syn-gpu — kendi ekran kartı (ekran ve 3D bilgisayarın GPU'sunda)"
+"Экран появится, когда в Windows загрузится драйвер syn-gpu; загрузка и установка Windows не видны — для установки выберите virtio-vga" = "Ekran, Windows'ta syn-gpu sürücüsü yüklendiğinde görünür; açılış ve Windows kurulumu görünmez — kurulum için virtio-vga seçin"
+"Ждём драйвер syn-gpu в госте…" = "Konukta syn-gpu sürücüsü bekleniyor…"
+"нет кадра рабочего стола (драйвер syn-gpu в госте ещё не загрузился?)" = "masaüstü karesi yok (syn-gpu sürücüsü konukta yüklendi mi?)"

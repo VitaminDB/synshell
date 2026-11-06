@@ -217,6 +217,9 @@ pub enum DisplayModel {
     Virtio,
     Std,
     Qxl,
+    /// Своя видеокарта syn-gpu — единственный экран гостя (экран и 3D на GPU компьютера):
+    /// у QEMU `-vga none`, рабочий стол приходит кадрами DESKTOP сокета вывода syn-gpu.
+    SynGpu,
 }
 
 /// Масштаб экрана гостя в окне.
@@ -251,13 +254,14 @@ impl ScaleMode {
 }
 
 impl DisplayModel {
-    pub const ALL: [DisplayModel; 3] = [DisplayModel::Virtio, DisplayModel::Std, DisplayModel::Qxl];
+    pub const ALL: [DisplayModel; 4] = [DisplayModel::Virtio, DisplayModel::Std, DisplayModel::Qxl, DisplayModel::SynGpu];
 
     pub fn title(self) -> &'static str {
         match self {
             DisplayModel::Virtio => n_!("virtio-vga"),
             DisplayModel::Std => n_!("Стандартный VGA"),
             DisplayModel::Qxl => n_!("QXL"),
+            DisplayModel::SynGpu => n_!("syn-gpu — своя видеокарта (экран и 3D на GPU компьютера)"),
         }
     }
 }
@@ -524,11 +528,11 @@ impl Vm {
             }
             return (v, changes, advice);
         }
-        if v.gpu3d && v.firmware == Firmware::UefiSecure {
+        if v.gpu_on() && v.firmware == Firmware::UefiSecure {
             changes.push(t!("Прошивка: UEFI без Secure Boot — драйверу syn-gpu нужна тестовая подпись"));
             v.firmware = Firmware::Uefi;
         }
-        if v.display != DisplayModel::Virtio {
+        if !matches!(v.display, DisplayModel::Virtio | DisplayModel::SynGpu) {
             changes.push(t!("Видео: {from} → virtio-vga (с драйвером VirtIO GPU из «Гостевых инструментов» — любое разрешение, разрешение подстраивается под окно, быстрая отрисовка)", from = syngui::i18n::t(v.display.title())));
             v.display = DisplayModel::Virtio;
         }
@@ -547,6 +551,11 @@ impl Vm {
             advice.push(t!("Сеть e1000e можно заменить на virtio после установки «Гостевых инструментов» (драйвер NetKVM)."));
         }
         (v, changes, advice)
+    }
+
+    /// Видеокарта syn-gpu подключена: «3D-ускорение» или syn-gpu — основная видеокарта.
+    pub fn gpu_on(&self) -> bool {
+        self.gpu3d || self.display == DisplayModel::SynGpu
     }
 
     pub fn dir(&self) -> PathBuf {

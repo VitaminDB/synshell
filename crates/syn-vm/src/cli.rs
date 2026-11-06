@@ -433,7 +433,15 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             running(&vm)?;
             let out = absolute(&a.pos(1, n_!("ФАЙЛ.png"))?)?;
-            let layer = crate::present::grab(&vm.id, Duration::from_secs(10))?;
+            // syn-gpu — основная видеокарта: экрана QEMU нет, снимок — рабочий стол с карты.
+            if vm.display == model::DisplayModel::SynGpu {
+                let d = crate::present::grab(&vm.id, Duration::from_secs(10), true)?;
+                let (fw, fh, px, _) = d.frame.latest();
+                image::RgbaImage::from_raw(fw, fh, px.to_vec()).context("кадр")?.save(&out)?;
+                println!("{}: {fw}x{fh}, рабочий стол syn-gpu", out.display());
+                return Ok(0);
+            }
+            let layer = crate::present::grab(&vm.id, Duration::from_secs(10), false)?;
             qmp::screendump(&vm, &out)?;
             let mut screen = image::open(&out)?.to_rgba8();
             let (fw, fh, px, _) = layer.frame.latest();
@@ -1115,6 +1123,9 @@ mod tests {
         assert!(set_keys(&vm, &["cpus=abc".into()]).is_err());
         let v = set_keys(&vm, &["forwards=[{host=2222, guest=22}]".into()]).unwrap();
         assert_eq!(v.forwards[0].host, 2222);
+        let v = set_keys(&vm, &["display=syn-gpu".into()]).unwrap();
+        assert_eq!(v.display, model::DisplayModel::SynGpu);
+        assert!(v.gpu_on());
     }
 
     #[test]

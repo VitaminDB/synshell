@@ -118,6 +118,9 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
         DisplayModel::Virtio => push(&["-vga", "none", "-device", "virtio-vga,xres=1280,yres=800"]),
         DisplayModel::Std => push(&["-vga", "none", "-device", "VGA,vgamem_mb=64"]),
         DisplayModel::Qxl => push(&["-vga", "none", "-device", "qxl-vga,vgamem_mb=64"]),
+        // Единственный экран — syn-gpu (устройство vfio-user ниже): второй монитор у Windows
+        // (virtio-vga, фреймбуфер прошивки) ломает DWM на карте syn-gpu.
+        DisplayModel::SynGpu => push(&["-vga", "none"]),
     }
 
     // Диски.
@@ -413,7 +416,7 @@ pub fn start(vm: &Vm) -> Result<()> {
         start_virtiofsd(vm)?;
     }
     // Устройство уже в «Аргументах QEMU» (ручная настройка) — второе не добавлять.
-    if vm.gpu3d && !args.iter().any(|a| a.contains("vfio-user-pci")) {
+    if vm.gpu_on() && !args.iter().any(|a| a.contains("vfio-user-pci")) {
         let sock = start_syn_gpu(vm)?;
         args.push("-device".into());
         args.push(format!("{{\"driver\":\"vfio-user-pci\",\"socket\":{{\"path\":\"{}\",\"type\":\"unix\"}}}}", sock.display()));
@@ -525,6 +528,10 @@ fn start_syn_gpu(vm: &Vm) -> Result<PathBuf> {
     let extra: Vec<String> = vm.gpu3d_args.split_whitespace().map(String::from).collect();
     if !extra.iter().any(|a| a == "--cpu-latency-us") {
         c.args(["--cpu-latency-us", "0"]);
+    }
+    // syn-gpu — основная видеокарта: сервер даёт гостю монитор (рабочий стол — кадрами DESKTOP).
+    if vm.display == DisplayModel::SynGpu && !extra.iter().any(|a| a == "--display") {
+        c.arg("--display");
     }
     c.args(&extra).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     {

@@ -385,7 +385,21 @@ fn add_forward(st: St, host: u16, guest: u16) {
 }
 
 fn devices(st: St, vm: &Vm) -> W {
-    let display = dropdown(&DisplayModel::ALL, vm.display, DisplayModel::title, |d| format!("{d:?}"), 200.0, move |d| state::edit(st, |v| v.display = d));
+    let display = dropdown(&DisplayModel::ALL, vm.display, DisplayModel::title, |d| format!("{d:?}"), 300.0, move |d| {
+        let mut sb = false;
+        state::edit(st, |v| {
+            v.display = d;
+            // Драйверу syn-gpu нужна тестовая подпись — с Secure Boot она не включится.
+            if d == DisplayModel::SynGpu && v.firmware == model::Firmware::UefiSecure {
+                v.firmware = model::Firmware::Uefi;
+                sb = true;
+            }
+        });
+        if sb {
+            state::toast(st, t!("Secure Boot выключен: драйверу syn-gpu нужна тестовая подпись"));
+        }
+    });
+    let syn_display = vm.display == DisplayModel::SynGpu;
     let id = vm.id.clone();
     let shared_name = if vm.shared_dir.is_empty() { t!("Не выбрана") } else { vm.shared_dir.clone() };
     let mut share = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(btn(icons::FOLDER_OPEN, t!("Выбрать…"), "soft", move || {
@@ -421,7 +435,15 @@ fn devices(st: St, vm: &Vm) -> W {
         icons::DEVICES,
         t!("Экран и устройства"),
         vec![
-            row(t!("Видеокарта"), t!("virtio-vga — быстрее и меняет разрешение под окно (Windows: драйвер VirtIO GPU из «Гостевых инструментов»); стандартный VGA — медленно"), display),
+            row(
+                t!("Видеокарта"),
+                if syn_display {
+                    t!("Экран появится, когда в Windows загрузится драйвер syn-gpu; загрузка и установка Windows не видны — для установки выберите virtio-vga")
+                } else {
+                    t!("virtio-vga — быстрее и меняет разрешение под окно (Windows: драйвер VirtIO GPU из «Гостевых инструментов»); стандартный VGA — медленно")
+                },
+                display,
+            ),
             row(t!("Разрешение под окно"), t!("Гость получает размер окна (нужен драйвер virtio-gpu или QXL)"), Toggle::with_state(vm.auto_resize).on_change(move |b| state::edit(st, |v| v.auto_resize = b))),
             row(
                 t!("3D-ускорение (syn-gpu)"),
@@ -430,7 +452,8 @@ fn devices(st: St, vm: &Vm) -> W {
                 } else {
                     t!("Нужен сервер syn-gpu (проект qemu-vulkan-driver): переменная SYN_GPU или syn-gpu в PATH")
                 },
-                Toggle::with_state(vm.gpu3d).on_change(move |b| {
+                // syn-gpu — основная видеокарта: 3D подразумевается.
+                Toggle::with_state(vm.gpu_on()).disabled(syn_display).on_change(move |b| {
                     let mut sb = false;
                     state::edit(st, |v| {
                         v.gpu3d = b;

@@ -32,6 +32,8 @@ const RELEASE: u32 = 16;
 const CAPS: u32 = 18;
 /// FRAME.flags: кадр в изображении Vulkan (offset — его номер).
 const GPU_IMAGE: u32 = 1 << 2;
+/// FRAME.flags: рабочий стол гостя (DWM на карте syn-gpu, сервер с `--display`).
+const DESKTOP: u32 = 1 << 3;
 /// DRM fourcc: байты B,G,R,A (`AR24` — с альфой, `XR24` — без).
 const AR24: u32 = u32::from_le_bytes(*b"AR24");
 const XR24: u32 = u32::from_le_bytes(*b"XR24");
@@ -45,6 +47,8 @@ pub struct Layer {
     /// Окно игры видимо и активно (flags бит 0).
     pub show: bool,
     pub fullscreen: bool,
+    /// Рабочий стол гостя (FRAME.flags DESKTOP), а не окно игры.
+    pub desktop: bool,
     updated: Instant,
 }
 
@@ -58,6 +62,16 @@ impl Present {
     /// Слой, который показывать: последняя обновлённая видимая поверхность.
     pub fn visible(&self) -> Option<Layer> {
         self.layers.lock().unwrap().values().filter(|l| l.show).max_by_key(|l| l.updated).cloned()
+    }
+
+    /// Видимое окно игры (не рабочий стол).
+    pub fn game(&self) -> Option<Layer> {
+        self.layers.lock().unwrap().values().filter(|l| l.show && !l.desktop).max_by_key(|l| l.updated).cloned()
+    }
+
+    /// Рабочий стол гостя — последний кадр DESKTOP.
+    pub fn desktop(&self) -> Option<Layer> {
+        self.layers.lock().unwrap().values().filter(|l| l.desktop).max_by_key(|l| l.updated).cloned()
     }
 
     pub fn close(&self) {
@@ -98,8 +112,9 @@ pub fn start(id: &str, on_change: Arc<dyn Fn() + Send + Sync>) -> Arc<Present> {
     p
 }
 
-/// Проверка без окна: подключиться, дождаться видимого кадра игры (до `wait`), вернуть слой.
-pub fn grab(id: &str, wait: Duration) -> Result<Layer> {
+/// Проверка без окна: подключиться, дождаться видимого кадра игры (`desktop` — кадра рабочего
+/// стола) до `wait`, вернуть слой.
+pub fn grab(id: &str, wait: Duration, desktop: bool) -> Result<Layer> {
     let path = socket(id);
     let s = UnixStream::connect(&path).with_context(|| path.display().to_string())?;
     let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true) });
@@ -110,7 +125,7 @@ pub fn grab(id: &str, wait: Duration) -> Result<Layer> {
     });
     let until = Instant::now() + wait;
     let layer = loop {
-        if let Some(l) = p.visible() {
+        if let Some(l) = if desktop { p.desktop() } else { p.visible() } {
             break Some(l);
         }
         if t.is_finished() || Instant::now() > until {
@@ -120,6 +135,9 @@ pub fn grab(id: &str, wait: Duration) -> Result<Layer> {
     };
     p.close();
     let _ = t.join();
+    if desktop {
+        return layer.with_context(|| syngui::t!("нет кадра рабочего стола (драйвер syn-gpu в госте ещё не загрузился?)"));
+    }
     layer.with_context(|| syngui::t!("нет видимого кадра игры (окно игры свёрнуто или не активно?)"))
 }
 
@@ -214,12 +232,14 @@ fn run(p: &Present, mut s: UnixStream, on_change: &Arc<dyn Fn() + Send + Sync>, 
                         rect: (0, 0, 0, 0),
                         show: false,
                         fullscreen: false,
+                        desktop: false,
                         updated: Instant::now(),
                     });
                     l.frame.set_external(ext);
                     l.rect = (x, y, w, h);
                     l.show = flags & 1 != 0;
                     l.fullscreen = flags & 2 != 0;
+                    l.desktop = flags & DESKTOP != 0;
                     l.updated = Instant::now();
                     drop(layers);
                     on_change();
@@ -235,12 +255,14 @@ fn run(p: &Present, mut s: UnixStream, on_change: &Arc<dyn Fn() + Send + Sync>, 
                         rect: (0, 0, 0, 0),
                         show: false,
                         fullscreen: false,
+                        desktop: false,
                         updated: Instant::now(),
                     });
                     l.frame.set(width, height, px.into());
                     l.rect = (x, y, w, h);
                     l.show = flags & 1 != 0;
                     l.fullscreen = flags & 2 != 0;
+                    l.desktop = flags & DESKTOP != 0;
                     l.updated = Instant::now();
                     drop(layers);
                     on_change();

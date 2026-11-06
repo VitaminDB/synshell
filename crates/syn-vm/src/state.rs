@@ -323,8 +323,15 @@ fn presents() -> &'static Mutex<HashMap<String, Arc<crate::present::Present>>> {
 }
 
 /// Видимый слой игры машины.
+/// У машины с syn-gpu основной видеокартой рабочий стол — основное изображение, а не слой.
 pub fn game_layer(id: &str) -> Option<crate::present::Layer> {
-    presents().lock().unwrap().get(id).and_then(|p| p.visible())
+    let syn_display = mirror().lock().unwrap().iter().any(|v| v.id == id && v.display == model::DisplayModel::SynGpu);
+    presents().lock().unwrap().get(id).and_then(|p| if syn_display { p.game() } else { p.visible() })
+}
+
+/// Рабочий стол гостя на карте syn-gpu (кадры DESKTOP).
+pub fn desktop_layer(id: &str) -> Option<crate::present::Layer> {
+    presents().lock().unwrap().get(id).and_then(|p| p.desktop())
 }
 
 fn close_present(id: &str) {
@@ -603,7 +610,7 @@ pub fn refresh_guest(st: St) {
             due
         };
         let tools = if due { guest_tools(&vm).ok() } else { None };
-        let gpu = if due && vm.gpu3d { crate::gputools::status(&vm).ok() } else { None };
+        let gpu = if due && vm.gpu_on() { crate::gputools::status(&vm).ok() } else { None };
         run_on_main_thread(move || {
             if st.sel.get_untracked().as_deref() == Some(vm.id.as_str()) && st.guest.get_untracked() != g {
                 st.guest.set(g);
@@ -710,7 +717,8 @@ fn on_note(st: St, id: &str, n: Note) {
 /// Попросить гостя подстроить разрешение под область экрана.
 pub fn fit_guest(st: St) {
     let Some(vm) = st.selected() else { return };
-    if !vm.auto_resize {
+    // Разрешение карты syn-gpu выбирает Windows (экрана virtio-vga нет).
+    if !vm.auto_resize || vm.display == model::DisplayModel::SynGpu {
         return;
     }
     let (w, h) = st.view_size.get_untracked();
@@ -733,6 +741,12 @@ pub fn offer_clipboard(id: &str) {
 
 /// Миниатюра машины: экран сеанса, свежий кадр работающей или последний сохранённый.
 pub fn thumb(vm: &Vm) -> Option<Arc<LiveFrame>> {
+    // syn-gpu — основная видеокарта: экран VNC пуст, миниатюра — рабочий стол с карты.
+    if vm.display == model::DisplayModel::SynGpu {
+        if let Some(d) = desktop_layer(&vm.id) {
+            return Some(d.frame);
+        }
+    }
     if let Some(s) = session(&vm.id) {
         if s.frame.size().0 > 0 {
             return Some(s.frame.clone());

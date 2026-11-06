@@ -43,7 +43,17 @@ pub fn page(st: St, full: bool) -> W {
                 model::ScaleMode::Stretch => ImageFit::Fill,
                 model::ScaleMode::Native => ImageFit::None,
             };
-            let screen = LiveView::new(s.frame.clone())
+            // syn-gpu — основная видеокарта: изображение — рабочий стол с карты (кадры DESKTOP),
+            // экран VNC пуст (`-vga none`) и служит только вводу (планшет — в долях кадра).
+            let syn_display = st.vm(&id).is_some_and(|v| v.display == model::DisplayModel::SynGpu);
+            let (frame, guest) = if syn_display {
+                let Some(d) = state::desktop_layer(&id) else { return vec![waiting(t!("Ждём драйвер syn-gpu в госте…"))] };
+                let size = (d.rect.2, d.rect.3);
+                (d.frame.clone(), size)
+            } else {
+                (s.frame.clone(), st.guest_size.get_untracked())
+            };
+            let screen = LiveView::new(frame)
                 .fit(fit)
                 .cursor(CursorIcon::None)
                 .on_input(move |e| input(st, &id2, &s2, e))
@@ -51,10 +61,10 @@ pub fn page(st: St, full: bool) -> W {
                 .class("screen");
             // Кадр игры (syn-gpu) — поверх, в месте окна игры на экране гостя, тем же масштабом.
             let Some(layer) = state::game_layer(&id) else { return vec![boxed(screen)] };
-            let Some((x, y, w, h)) = game_rect(st, fit, layer.rect) else { return vec![boxed(screen)] };
+            let Some((x, y, w, h)) = game_rect(st, fit, guest, layer.rect) else { return vec![boxed(screen)] };
             // Ввод над слоем — гостю: доли слоя → доли кадра гостя (окно игры x,y,w,h).
             let (s3, id3) = (s.clone(), id.clone());
-            let (gw, gh) = st.guest_size.get_untracked();
+            let (gw, gh) = guest;
             let (lx, ly, lw, lh) = layer.rect;
             let map = move |fx: f32, fy: f32| -> (f32, f32) {
                 ((lx as f32 + fx * lw as f32) / gw.max(1) as f32, (ly as f32 + fy * lh as f32) / gh.max(1) as f32)
@@ -106,7 +116,7 @@ pub fn page(st: St, full: bool) -> W {
 /// Щелчок по полноэкранной игре (flags&2) у машины с 3D — захват мыши; сам щелчок уходит гостю.
 /// Окно игры не во весь экран — обычный щелчок (меню, лаунчеры): захват — кнопкой или Ctrl+Alt+G.
 fn try_capture(st: St, id: &str) {
-    let Some(vm) = st.vm(id).filter(|v| v.gpu3d) else { return };
+    let Some(vm) = st.vm(id).filter(|v| v.gpu_on()) else { return };
     if state::game_layer(id).is_some_and(|l| l.fullscreen) {
         super::capture::start(st, &vm);
     }
@@ -114,10 +124,9 @@ fn try_capture(st: St, id: &str) {
 
 /// Место окна игры (физические пиксели экрана гостя) → координаты в виджете экрана:
 /// как LiveView кладёт кадр гостя (с пропорциями / растянуть / 1:1, по центру).
-fn game_rect(st: St, fit: ImageFit, (x, y, w, h): (i32, i32, u32, u32)) -> Option<(f32, f32, f32, f32)> {
+fn game_rect(st: St, fit: ImageFit, (gw, gh): (u32, u32), (x, y, w, h): (i32, i32, u32, u32)) -> Option<(f32, f32, f32, f32)> {
     let k = syngui::scale::pixel_ratio();
     let (vw, vh) = st.view_size.get_untracked();
-    let (gw, gh) = st.guest_size.get_untracked();
     if vw == 0 || vh == 0 || gw == 0 || gh == 0 || w == 0 || h == 0 {
         return None;
     }
@@ -231,7 +240,7 @@ fn input(st: St, id: &str, s: &crate::vnc::Session, e: LiveInput) {
                         s.key(0x38, 0, false);
                         if let Some(vm) = st.vm(id) {
                             super::capture::log(&vm, "нажато Ctrl+Alt+G");
-                            if vm.gpu3d {
+                            if vm.gpu_on() {
                                 super::capture::start(st, &vm);
                             } else {
                                 state::toast(st, t!("Захват мыши — у машин с «3D-ускорением (syn-gpu)»"));
@@ -326,8 +335,11 @@ fn record_button(st: St, id: String) -> W {
 fn toolbar(st: St, id: &str, full: bool) -> W {
     let (a, b, c, d, e) = (id.to_string(), id.to_string(), id.to_string(), id.to_string(), id.to_string());
     let auto = st.vm(id).map(|v| v.auto_resize).unwrap_or(true);
-    let size = st.guest_size.get_untracked();
-    let gpu3d = st.vm(id).is_some_and(|v| v.gpu3d);
+    let size = match state::desktop_layer(id).filter(|_| st.vm(id).is_some_and(|v| v.display == model::DisplayModel::SynGpu)) {
+        Some(d) => (d.rect.2, d.rect.3),
+        None => st.guest_size.get_untracked(),
+    };
+    let gpu3d = st.vm(id).is_some_and(|v| v.gpu_on());
     let cap_id = id.to_string();
     let mut bar = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center);
     if gpu3d {

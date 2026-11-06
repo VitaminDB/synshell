@@ -247,7 +247,7 @@ fn agent_card(st: St, vm: &Vm, l: &Live) -> W {
 
 /// Видеокарта syn-gpu (машины с 3D): драйвер, ICD и игры с переключателем DXVK.
 fn gpu_card(st: St, vm: &Vm, l: &Live) -> W {
-    if !l.power.on() || !vm.gpu3d || !vm.guest_agent {
+    if !l.power.on() || !vm.gpu_on() || !vm.guest_agent {
         return boxed(DecoratedBox::new());
     }
     let vid = vm.id.clone();
