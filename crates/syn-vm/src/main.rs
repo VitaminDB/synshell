@@ -8,6 +8,7 @@
 //! Окно одно: повторный запуск передаёт машину открытому окну через сокет
 //! `$XDG_RUNTIME_DIR/syn-vm.sock` и выходит.
 
+mod agent;
 mod cli;
 mod devices;
 mod mcp;

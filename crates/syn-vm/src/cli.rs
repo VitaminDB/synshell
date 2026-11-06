@@ -42,7 +42,7 @@ syn-vm — виртуальные машины QEMU/KVM
   --stop МАШИНА [--force] [--timeout СЕК]  выключить (агентом или ACPI); --force — выдернуть шнур по тайм-ауту
   --kill МАШИНА                          выключить сразу
   --reset | --pause | --resume МАШИНА
-  --wait-boot МАШИНА [--timeout СЕК]     ждать, пока ответит гостевой агент (300 с)
+  --wait-boot МАШИНА [--user] [--timeout СЕК]  ждать гостевой агент (300 с); --user — и вход пользователя
   --new ИМЯ [--iso ОБРАЗ] [--os linux|windows11|windows10|bsd|android|other]
         [--disk ФАЙЛ …] [--vars ФАЙЛ] [--tpm КАТАЛОГ] [--cpus N] [--memory МБ] [--disk-gb N]
         [--firmware bios|uefi|uefi-secure] [--disk-bus virtio|sata|nvme] [--nic virtio|e1000e|rtl8139]
@@ -61,8 +61,13 @@ syn-vm — виртуальные машины QEMU/KVM
        --detach (у --exec и --sh) — не ждать, напечатать pid в госте
   --exec-status МАШИНА PID [--wait СЕК]  итог фоновой команды: вывод и её код; 125 — ещё работает
                                           (вывод агент отдаёт один раз)
-  --push МАШИНА ФАЙЛ ПУТЬ_В_ГОСТЕ        файл в гостя
-  --pull МАШИНА ПУТЬ_В_ГОСТЕ ФАЙЛ        файл из гостя
+  --push МАШИНА ФАЙЛ|КАТАЛОГ ПУТЬ_В_ГОСТЕ   файл или каталог в гостя (размер и SHA-256 сверяются)
+  --pull МАШИНА ПУТЬ_В_ГОСТЕ ФАЙЛ|КАТАЛОГ   файл или каталог из гостя
+       Свой агент syn-vm-agent (если стоит в госте): --exec с потоковым выводом, --user — в сеансе
+       вошедшего пользователя (окна, DXGI), --qga — по-старому через qemu-ga
+  --agent-install МАШИНА [ФАЙЛ]          поставить или обновить свой агент в госте (службой)
+  --agent-status МАШИНА                  агент на связи: версия, система, пользователь сеанса
+  --agent-log МАШИНА [--follow]          журнал гостя: OutputDebugString, журнал событий, journald
   --agent МАШИНА КОМАНДА [JSON]          сырая команда агента (guest-info, guest-get-osinfo…)
   --sync-time МАШИНА                     часы гостя по компьютеру
 
@@ -114,7 +119,7 @@ struct Args {
     tail: Vec<String>,
 }
 
-const FLAGS: &[&str] = &["--detach", "--audio", "--no-audio", "--raw", "--public", "--json", "--force", "--yes", "--stdin", "--right", "--middle", "--double", "--move", "--wait-boot"];
+const FLAGS: &[&str] = &["--user", "--qga", "--follow", "--detach", "--audio", "--no-audio", "--raw", "--public", "--json", "--force", "--yes", "--stdin", "--right", "--middle", "--double", "--move", "--wait-boot"];
 
 impl Args {
     fn parse(v: Vec<String>) -> Args {
@@ -165,6 +170,7 @@ pub fn run(cmd: &str, rest: Vec<String>) -> Option<i32> {
         "--list", "--status", "--start", "--stop", "--kill", "--reset", "--pause", "--resume", "--wait-boot", "--new", "--delete", "--get", "--set", "--exec", "--sh", "--push",
         "--pull", "--exec-status", "--agent", "--sync-time", "--screendump", "--type", "--key", "--click", "--scroll", "--devices", "--usb", "--attach", "--detach", "--cdrom", "--tools", "--snapshot",
         "--qmp", "--mcp", "--optimize", "--present-dump", "--gpu-tools", "--vfio-helper", "--vfio-watch", "--usb-watch", "--record", "--record-stop", "--record-run",
+        "--agent-broker", "--agent-install", "--agent-status", "--agent-log",
     ];
     if !known.contains(&cmd) {
         return None;
@@ -235,7 +241,7 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             start(&vm)?;
             if a.has("--wait-boot") {
                 let t = a.get("--wait-boot").and_then(|s| s.parse().ok()).unwrap_or(300);
-                qga::wait(&vm, Duration::from_secs(t))?;
+                crate::agent::wait_boot(&vm, a.has("--user"), Duration::from_secs(t))?;
                 println!("{}", t!("{name}: агент отвечает", name = vm.name));
             }
             Ok(0)
@@ -267,7 +273,7 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             let t = a.get("--wait-boot").and_then(|s| s.parse().ok()).map(Duration::from_secs).unwrap_or(a.secs("--timeout", 300));
             let t0 = Instant::now();
-            qga::wait(&vm, t)?;
+            crate::agent::wait_boot(&vm, a.has("--user"), t)?;
             println!("{}", t!("{name}: агент отвечает ({s} с)", name = vm.name, s = format!("{:.0}", t0.elapsed().as_secs_f64())));
             Ok(0)
         }
@@ -314,6 +320,52 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             }
             Ok(0)
         }
+        "--agent-broker" => {
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
+            crate::agent::run_broker(&vm)?;
+            Ok(0)
+        }
+        "--agent-status" => {
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
+            running(&vm)?;
+            match crate::agent::Client::connect(&vm)?.info()? {
+                Some(i) => {
+                    println!("syn-vm-agent {} — {} ({})", i.agent, i.os, i.host);
+                    println!("{}", t!("пользователь сеанса: {u}", u = i.user.as_deref().unwrap_or("—")));
+                    Ok(0)
+                }
+                None => {
+                    eprintln!("{}", t!("агент гостя не на связи (не установлен: syn-vm --agent-install {id})", id = vm.id));
+                    Ok(1)
+                }
+            }
+        }
+        "--agent-log" => {
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
+            let path = crate::agent::log_path(&vm);
+            if let Ok(s) = std::fs::read_to_string(&path) {
+                let lines: Vec<&str> = s.lines().collect();
+                let n = a.get("--lines").and_then(|n| n.parse().ok()).unwrap_or(200usize);
+                for l in &lines[lines.len().saturating_sub(n)..] {
+                    println!("{l}");
+                }
+            }
+            if a.has("--follow") {
+                running(&vm)?;
+                crate::agent::Client::connect(&vm)?.follow_logs(&mut |src, text| {
+                    for l in text.lines() {
+                        println!("[{src}] {l}");
+                    }
+                })?;
+            }
+            Ok(0)
+        }
+        "--agent-install" => {
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
+            running(&vm)?;
+            agent_install(&vm, a.pos.get(1).map(PathBuf::from))?;
+            Ok(0)
+        }
         "--exec" | "--sh" => {
             let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             running(&vm)?;
@@ -335,6 +387,50 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             } else {
                 None
             };
+            // Свой агент: потоковый вывод, без предела длины, --user — в сеансе пользователя.
+            if use_agent(&vm, a)? {
+                let raw = a.has("--raw");
+                let mut c = crate::agent::Client::connect(&vm)?;
+                // Кодировку вывода Windows угадывать по целым строкам: кусок потока может
+                // разрезать строку (и символ UTF-8) посередине.
+                let mut pending: [Vec<u8>; 2] = [Vec::new(), Vec::new()];
+                let emit = |fd: u8, d: &[u8]| {
+                    use std::io::Write;
+                    if fd == 2 {
+                        let _ = std::io::stderr().write_all(d);
+                    } else {
+                        let mut o = std::io::stdout();
+                        let _ = o.write_all(d);
+                        let _ = o.flush();
+                    }
+                };
+                let r = c.exec(&argv, a.has("--user"), a.get("--cwd"), &a.all("--env"), input.as_deref(), a.secs("--timeout", 600), &mut |fd, data| {
+                    if raw {
+                        return emit(fd, data);
+                    }
+                    let buf = &mut pending[(fd == 2) as usize];
+                    buf.extend_from_slice(data);
+                    let cut = match buf.iter().rposition(|b| *b == b'\n') {
+                        Some(i) => i + 1,
+                        // Строка без конца (ход выполнения): целый UTF-8 — сразу, иначе ждать.
+                        None if std::str::from_utf8(buf).is_ok() || buf.len() > 16384 => buf.len(),
+                        None => 0,
+                    };
+                    if cut > 0 {
+                        let line: Vec<u8> = buf.drain(..cut).collect();
+                        emit(fd, &qga::decode_output(&vm, line));
+                    }
+                })?;
+                for (i, rest) in pending.into_iter().enumerate() {
+                    if !rest.is_empty() {
+                        emit(if i == 1 { 2 } else { 1 }, &qga::decode_output(&vm, rest));
+                    }
+                }
+                if r.timed_out {
+                    eprintln!("syn-vm: {}", t!("тайм-аут: команда в госте завершена"));
+                }
+                return Ok(r.code);
+            }
             if a.has("--detach") {
                 let pid = qga::exec_detached(&vm, &argv, input.as_deref(), &a.all("--env"))?;
                 println!("{pid}");
@@ -382,14 +478,16 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
         "--push" => {
             let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             running(&vm)?;
-            let n = qga::push(&vm, Path::new(&a.pos(1, n_!("ФАЙЛ"))?), &a.pos(2, n_!("ПУТЬ_В_ГОСТЕ"))?)?;
+            let (local, guest) = (a.pos(1, n_!("ФАЙЛ"))?, a.pos(2, n_!("ПУТЬ_В_ГОСТЕ"))?);
+            let n = if use_agent(&vm, a)? { crate::agent::Client::connect(&vm)?.push(Path::new(&local), &guest)? } else { qga::push(&vm, Path::new(&local), &guest)? };
             eprintln!("{}", tn!(n, "{n} байт", "{n} байта", "{n} байт"));
             Ok(0)
         }
         "--pull" => {
             let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             running(&vm)?;
-            let n = qga::pull(&vm, &a.pos(1, n_!("ПУТЬ_В_ГОСТЕ"))?, Path::new(&a.pos(2, n_!("ФАЙЛ"))?))?;
+            let (guest, local) = (a.pos(1, n_!("ПУТЬ_В_ГОСТЕ"))?, a.pos(2, n_!("ФАЙЛ"))?);
+            let n = if use_agent(&vm, a)? { crate::agent::Client::connect(&vm)?.pull(&guest, Path::new(&local))? } else { qga::pull(&vm, &guest, Path::new(&local))? };
             eprintln!("{}", tn!(n, "{n} байт", "{n} байта", "{n} байт"));
             Ok(0)
         }
@@ -972,6 +1070,56 @@ fn get_key(t: &toml::Value, k: &str) -> Option<String> {
 }
 
 /// `ключ=значение`: значение разбирается как TOML (`4`, `true`, `[…]`), иначе — строка.
+/// Идти через свой агент: не просили qemu-ga (--qga, --detach) и агент на связи; --user —
+/// только через него.
+fn use_agent(vm: &Vm, a: &Args) -> Result<bool> {
+    if a.has("--qga") || a.has("--detach") {
+        if a.has("--user") {
+            bail!("{}", t!("--user — только через свой агент (без --qga и --detach)"));
+        }
+        return Ok(false);
+    }
+    if a.has("--user") || crate::agent::installed(vm) {
+        if crate::agent::online(vm) {
+            return Ok(true);
+        }
+        if a.has("--user") {
+            bail!("{}", t!("«{name}»: свой агент гостя не на связи — syn-vm --agent-install {id}", name = vm.name, id = vm.id));
+        }
+    }
+    Ok(false)
+}
+
+/// Поставить или обновить свой агент: на связи — обновление через него самого, иначе —
+/// установка через qemu-ga (exe во временный каталог гостя и `syn-vm-agent install`).
+fn agent_install(vm: &Vm, file: Option<PathBuf>) -> Result<()> {
+    let windows = qga::guest_is_windows(vm) || vm.os.is_windows();
+    let exe = match file {
+        Some(f) => f,
+        None => crate::agent::agent_binary(windows).with_context(|| t!("нет сборки агента для гостя ({f}) — SYN_VM_AGENT_EXE / SYN_VM_AGENT или /usr/share/syn-vm/agent", f = if windows { "syn-vm-agent.exe" } else { "syn-vm-agent" }))?,
+    };
+    if crate::agent::installed(vm) && crate::agent::online(vm) {
+        let dir = if windows { r"C:\Program Files\syn-vm" } else { "/usr/local/bin" };
+        crate::agent::Client::connect(vm)?.update(&exe, dir)?;
+        eprintln!("{}", t!("агент обновлён: {p} — ждём перезапуска…", p = exe.display()));
+    } else {
+        let tmp = if windows { r"C:\Windows\Temp\syn-vm-agent.exe" } else { "/tmp/syn-vm-agent" };
+        qga::push(vm, &exe, tmp)?;
+        let argv: Vec<String> = if windows { vec![tmp.into(), "install".into()] } else { vec!["sh".into(), "-c".into(), format!("chmod +x {tmp} && {tmp} install")] };
+        let r = qga::exec(vm, &argv, None, &[], Duration::from_secs(120))?;
+        let out = String::from_utf8_lossy(&qga::decode_output(vm, r.stdout)).into_owned() + &String::from_utf8_lossy(&qga::decode_output(vm, r.stderr));
+        if r.code != 0 {
+            bail!("{}", t!("установка агента: код {c}: {o}", c = r.code, o = out.trim()));
+        }
+        eprintln!("{}", out.trim());
+    }
+    // Агент вышел на связь (посредник ждёт его порт).
+    let mut c = crate::agent::Client::connect(vm)?;
+    let i = c.wait_ready(false, Duration::from_secs(60))?;
+    println!("syn-vm-agent {} — {} ({}), {}", i.agent, i.os, i.host, t!("пользователь: {u}", u = i.user.as_deref().unwrap_or("—")));
+    Ok(())
+}
+
 pub fn set_keys(vm: &Vm, kv: &[String]) -> Result<Vm> {
     let mut vals = Vec::new();
     for item in kv {

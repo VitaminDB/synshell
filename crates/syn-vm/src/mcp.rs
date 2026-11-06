@@ -177,7 +177,7 @@ fn call(name: &str, a: &Value) -> Result<Value> {
             let m = vm()?;
             cli::start(&m)?;
             if a.get("wait_boot").and_then(Value::as_bool).unwrap_or(false) {
-                qga::wait(&m, Duration::from_secs(num(a, "timeout_s").unwrap_or(300.0) as u64))?;
+                crate::agent::wait_boot(&m, false, Duration::from_secs(num(a, "timeout_s").unwrap_or(300.0) as u64))?;
                 return Ok(text(t!("«{name}» запущена, агент отвечает", name = m.name)));
             }
             Ok(text(t!("«{name}» запущена", name = m.name)))
@@ -205,7 +205,7 @@ fn call(name: &str, a: &Value) -> Result<Value> {
         "wait_boot" => {
             let m = vm()?;
             let t0 = std::time::Instant::now();
-            qga::wait(&m, Duration::from_secs(num(a, "timeout_s").unwrap_or(300.0) as u64))?;
+            crate::agent::wait_boot(&m, false, Duration::from_secs(num(a, "timeout_s").unwrap_or(300.0) as u64))?;
             Ok(text(t!("агент отвечает ({s} с)", s = format!("{:.0}", t0.elapsed().as_secs_f64()))))
         }
         "exec" => {

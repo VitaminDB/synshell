@@ -228,6 +228,10 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
     if vm.guest_agent {
         push(&["-chardev", &format!("socket,id=qga0,path={},server=on,wait=off", vm.qga_path().display())]);
         push(&["-device", "virtserialport,bus=vser.0,chardev=qga0,name=org.qemu.guest_agent.0"]);
+        // Свой агент syn-vm (syn-vm-agent) — отдельный порт; посредник запускается после QEMU.
+        for x in crate::agent::qemu_args(vm) {
+            push(&[&x]);
+        }
     }
 
     match share {
@@ -466,6 +470,10 @@ pub fn start(vm: &Vm) -> Result<()> {
     // USB-порты: новое устройство в порту (телефон → fastboot) — гостю, даже если QEMU не подхватил.
     if !vm.usb.is_empty() {
         spawn_watcher(vm, "--usb-watch");
+    }
+    // Посредник своего гостевого агента: постоянное соединение, журнал гостя в guest.log.
+    if vm.guest_agent {
+        spawn_watcher(vm, "--agent-broker");
     }
     Ok(())
 }

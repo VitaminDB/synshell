@@ -217,6 +217,11 @@ description = "Виртуальные машины synshell на QEMU/KVM: ма�
 description_en = "synshell virtual machines on QEMU/KVM: wizard, built-in display, snapshots, USB and PCI passthrough, guest agent, CLI and MCP"
 depends = ["synshell-core"]
 apps = ["syn-vm"]
+# Свой гостевой агент: служба Windows и Linux (syn-vm --agent-install МАШИНА).
+cross = [
+  { bin = "syn-vm-agent", target = "x86_64-pc-windows-gnu", to = "usr/share/syn-vm/agent/" },
+  { bin = "syn-vm-agent", target = "x86_64-unknown-linux-musl", to = "usr/share/syn-vm/agent/" },
+]
 groups = ["synshell-apps"]
 optdepends = [
   "qemu-desktop: сами виртуальные машины",

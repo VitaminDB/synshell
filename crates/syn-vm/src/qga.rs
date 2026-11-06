@@ -34,10 +34,13 @@ fn lock_channel(vm: &Vm, deadline: Instant) -> Result<std::fs::File> {
     use std::os::fd::AsRawFd;
     let path = vm.run_dir().join("qga.lock");
     let f = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path).with_context(|| path.display().to_string())?;
+    let want = vm.run_dir().join("qga.want");
     loop {
         if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
             return Ok(f);
         }
+        // Отметка «жду канал»: долгое ожидание команды (wait_exec) уступит соединение.
+        let _ = std::fs::write(&want, b"");
         if Instant::now() >= deadline {
             bail!("{}", t!("«{name}»: гостевой агент занят другим запросом (передача файла?) — повторите позже", name = vm.name));
         }
@@ -285,7 +288,16 @@ fn wait_exec_on(vm: &Vm, agent: Option<Agent>, pid: i64, timeout: Duration) -> R
     loop {
         let a = match agent.as_mut() {
             Some(a) => a,
-            None => agent.insert(Agent::connect(vm, Duration::from_secs(10))?),
+            // Переподключение (после обрыва или уступки канала): агент Windows открывает порт
+            // заново не сразу — повторять до общего срока, а не падать.
+            None => match Agent::connect(vm, Duration::from_secs(10)) {
+                Ok(c) => agent.insert(c),
+                Err(_) if t0.elapsed() < timeout => {
+                    std::thread::sleep(Duration::from_millis(500));
+                    continue;
+                }
+                Err(e) => return Err(e),
+            },
         };
         match a.call("guest-exec-status", json!({"pid": pid})).and_then(|s| exec_result(&s, pid)) {
             Ok(Some(r)) => return Ok(r),
@@ -304,9 +316,24 @@ fn wait_exec_on(vm: &Vm, agent: Option<Agent>, pid: i64, timeout: Duration) -> R
         if t0.elapsed() > timeout {
             return Ok(ExecResult { code: 124, timed_out: true, pid, ..Default::default() });
         }
+        // Кто-то ждёт канал (второй --sh во время долгой команды) — уступить соединение.
+        if agent.is_some() && someone_waits(vm) {
+            agent = None;
+            std::thread::sleep(Duration::from_millis(300));
+        }
         std::thread::sleep(delay);
         delay = (delay * 2).min(Duration::from_millis(500));
     }
+}
+
+/// Другой запрос ждал канал агента за последние 2 с.
+fn someone_waits(vm: &Vm) -> bool {
+    let p = vm.run_dir().join("qga.want");
+    let fresh = std::fs::metadata(&p).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|e| e < Duration::from_secs(2));
+    if fresh {
+        let _ = std::fs::remove_file(&p);
+    }
+    fresh
 }
 
 /// Строка оболочки гостя: `sh -c` в Linux, `cmd /c` в Windows.
