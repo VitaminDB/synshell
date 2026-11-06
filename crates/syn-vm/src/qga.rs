@@ -64,7 +64,16 @@ impl Agent {
                 s.set_write_timeout(Some(Duration::from_secs(5)))?;
                 let w = s.try_clone()?;
                 let mut a = Agent { w, r: BufReader::new(s), _lock: lock.try_clone()? };
-                a.sync()?;
+                // Нет ответа — повторить синхронизацию в том же соединении: переподключение
+                // заставляет агент Windows заново открывать порт virtio-serial, и частые
+                // переподключения сами не давали ему ответить.
+                loop {
+                    match a.sync() {
+                        Ok(()) => break,
+                        Err(e) if is_timeout(&e) && Instant::now() + Duration::from_millis(300) < deadline => continue,
+                        Err(e) => return Err(e),
+                    }
+                }
                 // Дальше — ответы на команды (чтение больших файлов, долгие команды).
                 a.r.get_ref().set_read_timeout(Some(Duration::from_secs(60)))?;
                 Ok(a)
@@ -78,7 +87,7 @@ impl Agent {
     }
 
     fn sync(&mut self) -> Result<()> {
-        let id = (std::process::id() as u64) << 20 ^ (crate::model::now() & 0xfffff);
+        let id = sync_id();
         self.w.write_all(&[0xff])?;
         writeln!(self.w, "{}", json!({"execute": "guest-sync-delimited", "arguments": {"id": id}}))?;
         loop {
@@ -93,6 +102,7 @@ impl Agent {
             let mut line = String::new();
             self.r.read_line(&mut line)?;
             let v: Value = serde_json::from_str(line.trim_start_matches('\u{ff}')).unwrap_or(Value::Null);
+            tracing::debug!("qga sync {id}: {}", line.trim());
             if v.get("return").and_then(Value::as_u64) == Some(id) {
                 return Ok(());
             }
@@ -114,7 +124,15 @@ impl Agent {
             if line.is_empty() {
                 continue;
             }
+            tracing::debug!("qga {cmd}: {}", &line[..line.len().min(300)]);
             let v: Value = serde_json::from_str(line)?;
+            // Запоздалый ответ на синхронизацию (прошлой попытки, прошлого соединения или другой
+            // программы): без пропуска он сходил за ответ на команду, а настоящий ответ терялся —
+            // так пропадал итог guest-exec-status (агент отдаёт его один раз) и следующий опрос
+            // получал «PID does not exist».
+            if v.get("return").and_then(Value::as_u64).is_some_and(is_sync_id) {
+                continue;
+            }
             if let Some(r) = v.get("return") {
                 return Ok(r.clone());
             }
@@ -129,6 +147,26 @@ impl Agent {
         writeln!(self.w, "{}", json!({"execute": cmd, "arguments": args}))?;
         Ok(())
     }
+}
+
+/// Ответ не пришёл за время ожидания (сокет жив).
+fn is_timeout(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<std::io::Error>().is_some_and(|e| matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut))
+}
+
+/// Метка номеров синхронизации (старшие биты): по ней запоздалый ответ на синхронизацию
+/// отличается от ответа на команду (числа агента — время в нс — с ней не совпадают).
+const SYNC_TAG: u64 = 0x5356;
+
+/// Свой номер на каждую синхронизацию: метка, процесс, счётчик.
+fn sync_id() -> u64 {
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + (crate::model::now() << 8);
+    SYNC_TAG << 40 | (std::process::id() as u64 & 0xffff) << 24 | (n & 0xff_ffff)
+}
+
+fn is_sync_id(v: u64) -> bool {
+    v >> 40 == SYNC_TAG
 }
 
 fn not_configured(vm: &Vm) -> String {
@@ -195,9 +233,10 @@ pub fn exec(vm: &Vm, argv: &[String], input: Option<&[u8]>, env: &[String], time
     if !env.is_empty() {
         a["env"] = json!(env);
     }
-    let r = call(vm, "guest-exec", a)?;
+    let mut agent = Agent::connect(vm, Duration::from_secs(10))?;
+    let r = agent.call("guest-exec", a)?;
     let pid = r.get("pid").and_then(Value::as_i64).with_context(|| format!("guest-exec: {}", t!("нет pid")))?;
-    wait_exec(vm, pid, timeout)
+    wait_exec_on(vm, Some(agent), pid, timeout)
 }
 
 /// Запустить и не ждать: pid в госте (итог — [`exec_status`]).
@@ -213,10 +252,15 @@ pub fn exec_detached(vm: &Vm, argv: &[String], input: Option<&[u8]>, env: &[Stri
     call(vm, "guest-exec", a)?.get("pid").and_then(Value::as_i64).with_context(|| format!("guest-exec: {}", t!("нет pid")))
 }
 
+
 /// Итог запущенной команды: `None` — ещё работает. Агент отдаёт вывод один раз — после
 /// успешного ответа о завершении запись о процессе у него удаляется.
 pub fn exec_status(vm: &Vm, pid: i64) -> Result<Option<ExecResult>> {
-    let s = call(vm, "guest-exec-status", json!({"pid": pid}))?;
+    exec_result(&call(vm, "guest-exec-status", json!({"pid": pid}))?, pid)
+}
+
+/// Ответ guest-exec-status → итог (`None` — ещё работает).
+fn exec_result(s: &Value, pid: i64) -> Result<Option<ExecResult>> {
     if s.get("exited").and_then(Value::as_bool) != Some(true) {
         return Ok(None);
     }
@@ -225,20 +269,43 @@ pub fn exec_status(vm: &Vm, pid: i64) -> Result<Option<ExecResult>> {
     Ok(Some(ExecResult { code, stdout: dec("out-data"), stderr: dec("err-data"), timed_out: false, pid }))
 }
 
-/// Ждать завершения: каждое обращение — своё короткое соединение, канал свободен для
-/// других запросов к той же машине (второй --sh, --status) между опросами.
+/// Ждать завершения по одному соединению: каждое переподключение заставляет агент Windows
+/// заново открывать порт virtio-serial, и при опросе отдельными соединениями он то и дело
+/// переставал отвечать на секунды. Пока ждём, другие запросы к агенту этой машины стоят в
+/// очереди блокировки канала; соединение оборвалось — переподключиться.
 pub fn wait_exec(vm: &Vm, pid: i64, timeout: Duration) -> Result<ExecResult> {
+    wait_exec_on(vm, None, pid, timeout)
+}
+
+fn wait_exec_on(vm: &Vm, agent: Option<Agent>, pid: i64, timeout: Duration) -> Result<ExecResult> {
     let t0 = Instant::now();
     let mut delay = Duration::from_millis(50);
+    let mut seen = false;
+    let mut agent = agent;
     loop {
-        if let Some(r) = exec_status(vm, pid)? {
-            return Ok(r);
+        let a = match agent.as_mut() {
+            Some(a) => a,
+            None => agent.insert(Agent::connect(vm, Duration::from_secs(10))?),
+        };
+        match a.call("guest-exec-status", json!({"pid": pid})).and_then(|s| exec_result(&s, pid)) {
+            Ok(Some(r)) => return Ok(r),
+            Ok(None) => seen = true,
+            // Агент уже отдал итог (и забыл процесс), но ответ до нас не дошёл: процесс завершён,
+            // код и вывод потеряны — сказать прямо, а не «PID lld does not exist».
+            Err(e) if seen && e.to_string().contains("does not exist") => {
+                bail!("{}", t!("процесс {pid} в госте завершился, но агент уже отдал его итог (код и вывод потеряны)", pid = pid))
+            }
+            Err(e) if e.downcast_ref::<std::io::Error>().is_some() => {
+                tracing::debug!("qga: соединение при ожидании {pid}: {e} — переподключение");
+                agent = None;
+            }
+            Err(e) => return Err(e),
         }
         if t0.elapsed() > timeout {
             return Ok(ExecResult { code: 124, timed_out: true, pid, ..Default::default() });
         }
         std::thread::sleep(delay);
-        delay = (delay * 2).min(Duration::from_secs(1));
+        delay = (delay * 2).min(Duration::from_millis(500));
     }
 }
 
@@ -480,5 +547,15 @@ mod decode_tests {
     fn plain_ascii_stays() {
         let s = decode_mixed(b"Device ID: PCI\\VEN_1234\r\n", encoding_rs::IBM866, encoding_rs::WINDOWS_1251);
         assert_eq!(s, "Device ID: PCI\\VEN_1234\r\n");
+    }
+
+    #[test]
+    fn sync_ids_unique_and_tagged() {
+        let (a, b) = (sync_id(), sync_id());
+        assert_ne!(a, b);
+        assert!(is_sync_id(a) && is_sync_id(b));
+        // guest-get-time (нс с 1970) и мелкие числа — не номера синхронизации.
+        assert!(!is_sync_id(1_793_954_132_060_000_000));
+        assert!(!is_sync_id(0) && !is_sync_id(9500));
     }
 }
