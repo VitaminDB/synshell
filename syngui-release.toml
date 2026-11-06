@@ -218,6 +218,36 @@ files = [
   { run = "cat \"$HOME/Storage/Нейросети/Модели/tts/silero-tts-v5-cis-base.syn\"", to = "usr/share/synaptix/models/tts/silero-tts-v5-cis-base.syn" },
 ]
 
+[packages.synaptix-model-w2v2-accent-saa]
+description = "Модель synaptix: wav2vec2 LV-60, дообученная synspeak — фонемное распознавание английского для оценки произношения (американский эталон + речь с акцентами). Лицензия Apache-2.0"
+description_en = "synaptix model: wav2vec2 LV-60 fine-tuned by synspeak — English phoneme recognition for pronunciation scoring (American reference + accented speech). Apache-2.0"
+depends = ["synaptix"]
+aur = false
+files = [
+  { run = "cat \"$HOME/Storage/Нейросети/Модели/pronunciation/w2v2-accent-saa/model.syn\"", to = "usr/share/synaptix/models/pronunciation/w2v2-accent-saa/model.syn" },
+  { run = "cat \"$HOME/Storage/Нейросети/Модели/pronunciation/w2v2-accent-saa/model.toml\"", to = "usr/share/synaptix/models/pronunciation/w2v2-accent-saa/model.toml" },
+]
+
+[packages.synaptix-model-mfa-english-us-arpa]
+description = "Модель synaptix: выравниватель Montreal Forced Aligner, английский (US ARPA) — точные границы звуков. Лицензия CC-BY-4.0"
+description_en = "synaptix model: Montreal Forced Aligner, English (US ARPA) — precise phone boundaries. CC-BY-4.0"
+depends = ["synaptix"]
+aur = false
+files = [
+  { run = "cat \"$HOME/Storage/Нейросети/Модели/pronunciation/mfa-english_us_arpa/model.mfa\"", to = "usr/share/synaptix/models/pronunciation/mfa-english_us_arpa/model.mfa" },
+  { run = "cat \"$HOME/Storage/Нейросети/Модели/pronunciation/mfa-english_us_arpa/model.toml\"", to = "usr/share/synaptix/models/pronunciation/mfa-english_us_arpa/model.toml" },
+]
+
+[packages.synaptix-model-w2v2-xlsr53-espeak]
+description = "Модель synaptix: wav2vec2 XLSR-53 — многоязычное фонемное распознавание (IPA), слышит и русские звуки: второй слушатель оценки произношения. Лицензия Apache-2.0"
+description_en = "synaptix model: wav2vec2 XLSR-53 — multilingual IPA phoneme recognition, hears Russian sounds too: second listener for pronunciation scoring. Apache-2.0"
+depends = ["synaptix"]
+aur = false
+files = [
+  { run = "cat \"$HOME/Storage/Нейросети/Модели/pronunciation/w2v2-xlsr53-espeak/model.syn\"", to = "usr/share/synaptix/models/pronunciation/w2v2-xlsr53-espeak/model.syn" },
+  { run = "cat \"$HOME/Storage/Нейросети/Модели/pronunciation/w2v2-xlsr53-espeak/model.toml\"", to = "usr/share/synaptix/models/pronunciation/w2v2-xlsr53-espeak/model.toml" },
+]
+
 [packages.syn-notes]
 description = "Заметки synshell: страницы-холсты, канбан, Гант, карты мыслей, календарь, напоминания"
 description_en = "synshell Notes: canvas pages, kanban, Gantt, mind maps, calendar, reminders"
