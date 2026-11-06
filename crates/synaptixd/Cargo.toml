@@ -21,6 +21,7 @@ daemon = [
     "dep:synaptix-tts-omnivoice",
     "dep:synaptix-tts-vibevoice",
     "dep:synaptix-tts-voxcpm",
+    "dep:synaptix-tts-audio8",
     "dep:synaptix-llm-common",
     "dep:synaptix-gen",
     "dep:synaptix-bundle",
@@ -52,6 +53,7 @@ synaptix = { workspace = true, optional = true, features = ["engine"] }
 synaptix-tts-omnivoice = { workspace = true, optional = true }
 synaptix-tts-vibevoice = { workspace = true, optional = true }
 synaptix-tts-voxcpm = { workspace = true, optional = true }
+synaptix-tts-audio8 = { workspace = true, optional = true }
 synaptix-llm-common = { workspace = true, optional = true }
 synaptix-gen = { workspace = true, optional = true }
 synaptix-bundle = { workspace = true, optional = true }

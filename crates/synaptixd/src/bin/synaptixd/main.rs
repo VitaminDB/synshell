@@ -400,8 +400,12 @@ impl Conn {
                 // VoxCPM по описанию плохо держит пол и возраст (девочка и
                 // пожилой мужчина — одной высоты): у него голос персонажа тоже
                 // с опорного клипа, описание — манера поверх тембра.
-                let clone_voice = vibe || (arch.starts_with("voxcpm") && std::env::var_os("SYNAPTIXD_VOX_CLIP").is_some());
+                // Audio8 голоса по описанию не знает: персонаж — клон с опорного
+                // клипа на языке текста (клону нужен и текст клипа).
+                let audio8 = arch == "audio8" || arch == "arktts";
+                let clone_voice = vibe || audio8 || (arch.starts_with("voxcpm") && std::env::var_os("SYNAPTIXD_VOX_CLIP").is_some());
                 let language = params.text("language").map(str::to_string);
+                let clip_language = if audio8 { language.clone().or_else(|| Some(runners::text_language(&text).to_string())) } else { language.clone() };
                 // Многоголосие: «Speaker N: …» + speakers — N-й персонаж списка.
                 let cast = params.text("speakers").map(voices::parse_speakers).unwrap_or_default();
                 for sp in &cast {
@@ -422,8 +426,12 @@ impl Conn {
                     }
                     if clone_voice && !own_ref {
                         if let Some(sp) = p.text("speaker").map(str::to_string) {
-                            let clip = voices::persona_clip(&mgr, &sp, language.as_deref())?;
+                            let clip = voices::persona_clip(&mgr, &sp, clip_language.as_deref())?;
                             p.set("ref_audio", Some(clip.to_string_lossy().into_owned().into()));
+                            if audio8 {
+                                let lang = clip_language.as_deref().map(|l| l.trim().to_ascii_lowercase()).filter(|l| !l.is_empty()).unwrap_or_else(|| "en".into());
+                                p.set("ref_text", Some(voices::clip_text(&lang).into()));
+                            }
                         }
                     }
                     Ok(())

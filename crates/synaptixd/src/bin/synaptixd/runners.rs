@@ -124,6 +124,7 @@ pub enum TtsEngine {
     Omni(synaptix_tts_omnivoice::OmniVoicePipeline),
     Vibe(synaptix_tts_vibevoice::VibeVoicePipeline),
     Vox(synaptix_tts_voxcpm::VoxCpmPipeline),
+    Audio8(synaptix_tts_audio8::Audio8Pipeline),
 }
 
 /// Голос, которым продолжать: у OmniVoice — референс в кодах кодека, у
@@ -131,6 +132,8 @@ pub enum TtsEngine {
 pub enum Voice {
     Omni(synaptix_tts_omnivoice::VoiceClonePrompt),
     Pcm { pcm: Vec<f32>, sr: u32 },
+    /// Audio8: коды кодека образца и его текст.
+    Audio8(synaptix_tts_audio8::VoicePrompt),
 }
 
 /// Синтезатор речи и запомненные голоса: `voices` — голоса разговоров
@@ -179,7 +182,7 @@ fn remember_anchor(anchors: &mut std::collections::HashMap<String, Voice>, key: 
 
 /// Язык текста по письму: кириллица с казахскими буквами — kk, кириллица —
 /// ru, иначе en.
-fn text_language(text: &str) -> &'static str {
+pub(crate) fn text_language(text: &str) -> &'static str {
     if text.chars().any(|c| "әғқңөұүһіӘҒҚҢӨҰҮҺІ".contains(c)) {
         "kk"
     } else if text.chars().filter(|c| c.is_alphabetic()).filter(|c| matches!(c, 'а'..='я' | 'А'..='Я' | 'ё' | 'Ё')).count() * 2
@@ -205,6 +208,24 @@ fn expected_pitch(instruct: &str) -> Option<(f32, f32)> {
     } else {
         None
     }
+}
+
+/// Предел длительности фразы Audio8 по тексту (норма ~0,08 с на символ).
+fn audio8_limit(text: &str) -> f32 {
+    text.chars().filter(|c| !c.is_whitespace()).count() as f32 * 0.13 + 1.5
+}
+
+/// Потолок кадров Audio8: предел длительности с запасом (21,5 кадра/с).
+fn audio8_max_frames(text: &str) -> usize {
+    (((audio8_limit(text) + 2.0) * 21.6) as usize).clamp(64, 2000)
+}
+
+/// Образец голоса Audio8: запись любого формата и её точный текст.
+fn audio8_voice(p: &synaptix_tts_audio8::Audio8Pipeline, path: &Path, text: &str) -> anyhow::Result<synaptix_tts_audio8::VoicePrompt> {
+    let text = text.trim();
+    anyhow::ensure!(!text.is_empty(), "Audio8 клонирует голос только с текстом образца (ref_text) — слово в слово");
+    let pcm = synaptix_flow::ops::media::decode_pcm(&path.to_string_lossy(), p.sample_rate()).map_err(|e| anyhow::anyhow!("образец голоса {}: {e}", path.display()))?;
+    p.voice_prompt(&pcm, p.sample_rate(), text).map_err(|e| anyhow::anyhow!("образец голоса {}: {e}", path.display()))
 }
 
 /// VibeVoice читает сценарий «Speaker N: …»; обычный текст — одним голосом.
@@ -510,9 +531,14 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
             let a = arch.to_ascii_lowercase();
             // OmniVoice — F16, как upstream (BF16 слишком груб для её CFG и
             // выбора токенов); остальные — BF16.
-            let omni = !a.contains("vibevoice") && !a.starts_with("voxcpm");
+            let omni = !a.contains("vibevoice") && !a.starts_with("voxcpm") && a != "audio8" && a != "arktts";
             let (q, dtype) = audio_precision(dev, quant, if dev == DeviceKind::Npu || omni { DType::F16 } else { DType::BF16 });
-            let engine = if a.contains("vibevoice") {
+            let engine = if a == "audio8" || a == "arktts" {
+                anyhow::ensure!(dev != DeviceKind::Npu, "Audio8 на NPU не исполняется");
+                // LM обучен в BF16; F16 (выбор кванта) на нём не проверен.
+                let dtype = if dtype == DType::F16 { DType::BF16 } else { dtype };
+                TtsEngine::Audio8(synaptix_tts_audio8::Audio8Pipeline::from_syn_quant(path, device, dtype, q).map_err(|e| anyhow::anyhow!("{e}"))?)
+            } else if a.contains("vibevoice") {
                 TtsEngine::Vibe(synaptix_tts_vibevoice::VibeVoicePipeline::from_syn_quant(path, device, dtype, q).map_err(|e| anyhow::anyhow!("{e}"))?)
             } else if a.starts_with("voxcpm") {
                 TtsEngine::Vox(synaptix_tts_voxcpm::VoxCpmPipeline::from_bundle_quant(path, device, dtype, q).map_err(|e| anyhow::anyhow!("{e}"))?)
@@ -804,6 +830,18 @@ impl Loaded {
                 }
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
                 Ok((out.pcm, out.sample_rate as u32))
+            }
+            TtsEngine::Audio8(p) => {
+                let opts = synaptix_tts_audio8::GenerateOptions { seed: r.seed, max_frames: audio8_max_frames(text), ..p.default_options() };
+                let voice = match r.voices.first() {
+                    Some(path) => Some(audio8_voice(p, path, r.ref_text.as_deref().unwrap_or(""))?),
+                    None => None,
+                };
+                let mut pcm = p.synthesize(text, voice.as_ref(), &opts).map_err(|e| anyhow::anyhow!("{e}"))?;
+                if let Some(s) = r.speed.filter(|s| (s - 1.0).abs() > 1e-3) {
+                    pcm = synaptix::facade::tts::time_stretch(&pcm, p.sample_rate(), s);
+                }
+                Ok((pcm, p.sample_rate()))
             }
             TtsEngine::Vibe(p) => {
                 use synaptix_tts_vibevoice::pipeline::VoiceSample;
@@ -1419,6 +1457,105 @@ impl Loaded {
                     r.map_err(|e| anyhow::anyhow!("{e}"))?
                 };
                 Ok((wav, p.output_sample_rate() as u32, Some(seed)))
+            }
+            TtsEngine::Audio8(p) => {
+                let sr = p.sample_rate();
+                let mut opts = p.default_options();
+                if let Some(t) = params.f32("temperature") {
+                    opts.temperature = t.clamp(0.05, 2.0);
+                }
+                if let Some(t) = params.f32("top_p") {
+                    opts.top_p = t.clamp(0.05, 1.0);
+                }
+                if let Some(k) = params.i64("top_k") {
+                    opts.top_k = k.clamp(1, 4096) as usize;
+                }
+                // Голос: образец пользователя (нужен его текст) — клон; иначе
+                // запомненный голос ключа, иначе опорная фраза зерна (её коды —
+                // образец для всех фраз голоса).
+                let mut remember = None;
+                let voice = if let Some(path) = ref_audio {
+                    let rkey = format!("{path}\x1f{ref_text}");
+                    if !st.refs.contains_key(&rkey) {
+                        let v = audio8_voice(p, Path::new(path), &ref_text)?;
+                        st.refs.insert(rkey.clone(), Voice::Audio8(v));
+                    }
+                    match st.refs.get(&rkey) {
+                        Some(Voice::Audio8(v)) => v.clone(),
+                        _ => anyhow::bail!("образец голоса не закодирован"),
+                    }
+                } else {
+                    let known = match st.voices.get(&key).filter(|_| !fresh) {
+                        Some(Voice::Audio8(v)) => Some(v.clone()),
+                        _ => None,
+                    };
+                    let v = match known {
+                        Some(v) => v,
+                        None => match st.anchors.get(&akey) {
+                            Some(Voice::Audio8(a)) => a.clone(),
+                            _ => {
+                                // Опора задаёт голос всем фразам: без обрыва по EOS
+                                // или с убеганием по длине — другое зерно (до 4 раз).
+                                let atext = anchor.join(" ");
+                                let limit = audio8_limit(&atext);
+                                let mut best: Option<(f32, synaptix_tts_audio8::VoicePrompt)> = None;
+                                for attempt in 0..4u64 {
+                                    let o = synaptix_tts_audio8::GenerateOptions { seed: seed.wrapping_add(attempt * 7919), max_frames: audio8_max_frames(&atext), ..opts.clone() };
+                                    let codes = p.generate_codes(&atext, None, &o).map_err(|e| anyhow::anyhow!("{e}"))?;
+                                    let t = p.last_timings();
+                                    let dur = t.frames as f32 * synaptix_tts_audio8::FRAME_SAMPLES as f32 / sr as f32;
+                                    let miss = if t.finished && dur <= limit { 0.0 } else { dur + 100.0 * (!t.finished) as u8 as f32 };
+                                    if miss > 0.0 {
+                                        tracing::warn!("audio8: опора — брак ({dur:.1} с при пределе {limit:.1} с), попытка {}/4", attempt + 1);
+                                    }
+                                    if best.as_ref().is_none_or(|b| miss < b.0) {
+                                        best = Some((miss, synaptix_tts_audio8::VoicePrompt { codes, text: atext.clone() }));
+                                    }
+                                    if miss == 0.0 {
+                                        break;
+                                    }
+                                }
+                                let a = best.expect("хотя бы одна попытка").1;
+                                remember_anchor(&mut st.anchors, akey, Voice::Audio8(a.clone()));
+                                a
+                            }
+                        },
+                    };
+                    remember = Some(v.clone());
+                    v
+                };
+                // Защита от убегания: длиннее нормы по тексту или без EOS —
+                // заново другим зерном, до трёх раз, иначе самый короткий.
+                let limit = audio8_limit(text);
+                let mut out: Option<Vec<f32>> = None;
+                for attempt in 0..3u64 {
+                    let o = synaptix_tts_audio8::GenerateOptions { seed: phrase_seed.wrapping_add(attempt * 0x9E37_79B9), max_frames: audio8_max_frames(text), ..opts.clone() };
+                    let pcm = p.synthesize(text, Some(&voice), &o).map_err(|e| anyhow::anyhow!("{e}"))?;
+                    let t = p.last_timings();
+                    let dur = pcm.len() as f32 / sr as f32;
+                    let ok = t.finished && dur <= limit;
+                    tracing::info!("audio8: {} кадров за {:.2} с ({:.0} кадр/с), звук {dur:.1} с, кодек {:.2} с", t.frames, t.decode_s, t.frames as f64 / t.decode_s.max(1e-9), t.codec_s);
+                    if !ok {
+                        tracing::warn!("audio8: брак ({dur:.1} с при пределе {limit:.1} с, EOS {}), попытка {}/3", t.finished, attempt + 1);
+                    }
+                    let better = out.as_ref().is_none_or(|b| pcm.len() < b.len());
+                    if ok {
+                        out = Some(pcm);
+                        break;
+                    }
+                    if better {
+                        out = Some(pcm);
+                    }
+                }
+                let pcm = out.expect("хотя бы одна попытка");
+                if let Some(v) = remember.filter(|_| !fresh) {
+                    st.voices.insert(key, Voice::Audio8(v));
+                }
+                let pcm = match stretch {
+                    Some(r) => synaptix::facade::tts::time_stretch(&pcm, sr, r),
+                    None => pcm,
+                };
+                Ok((pcm, sr, Some(seed)))
             }
             TtsEngine::Vibe(p) => {
                 use synaptix_tts_vibevoice::pipeline::VoiceSample;

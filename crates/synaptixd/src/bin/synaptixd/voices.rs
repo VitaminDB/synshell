@@ -116,7 +116,7 @@ pub fn persona_clip(mgr: &std::sync::Arc<Manager>, speaker: &str, language: Opti
 
 /// Текст опорного клипа: повествовательный, без приветствия — иначе
 /// VibeVoice на похожей фразе («Hello! …») продолжал читать текст клипа.
-fn clip_text(lang: &str) -> String {
+pub fn clip_text(lang: &str) -> String {
     match lang {
         "en" => "The morning was quiet, so we walked along the river for a long time and talked about our plans for the summer.",
         "kk" => "Таң тыныш болды, сондықтан біз өзен жағасымен ұзақ жүріп, жазғы жоспарларымызды әңгімелестік.",

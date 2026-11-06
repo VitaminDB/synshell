@@ -198,7 +198,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -209,7 +209,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1034,7 +1034,7 @@ checksum = "fe6d2e5af09e8c8ad56c969f2157a3d4238cebc7c55f0a517728c38f7b200f81"
 dependencies = [
  "serde",
  "termcolor",
- "unicode-width 0.2.2",
+ "unicode-width 0.1.14",
 ]
 
 [[package]]
@@ -1669,7 +1669,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -1961,7 +1961,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -4189,7 +4189,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -4688,7 +4688,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.45.0",
 ]
 
 [[package]]
@@ -5429,7 +5429,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6007,7 +6007,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6617,7 +6617,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -7705,13 +7705,13 @@ dependencies = [
  "serde_json",
  "synaptix-asr-gigaam",
  "synaptix-asr-whisper",
- "synaptix-audio",
+ "synaptix-audio 0.1.1",
  "synaptix-bundle",
  "synaptix-core",
  "synaptix-diarization-sortformer",
  "synaptix-embedding-bge-m3",
  "synaptix-infer",
- "synaptix-io",
+ "synaptix-io 0.1.1",
  "synaptix-kernels-cpu",
  "synaptix-kernels-cuda",
  "synaptix-llm-common",
@@ -7723,10 +7723,10 @@ dependencies = [
  "synaptix-llm-qwen3-next-hybrid",
  "synaptix-llm-qwen4-exp",
  "synaptix-llm-train",
- "synaptix-nn",
- "synaptix-ops",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
  "synaptix-runtime",
- "synaptix-tokenizer",
+ "synaptix-tokenizer 0.1.1",
  "synaptix-tts-omnivoice",
  "tracing",
 ]
@@ -7749,12 +7749,12 @@ dependencies = [
  "safetensors",
  "serde",
  "serde_json",
- "synaptix-audio",
+ "synaptix-audio 0.1.1",
  "synaptix-bundle",
  "synaptix-core",
- "synaptix-io",
- "synaptix-nn",
- "synaptix-ops",
+ "synaptix-io 0.1.1",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -7765,11 +7765,11 @@ dependencies = [
  "safetensors",
  "serde",
  "serde_json",
- "synaptix-audio",
+ "synaptix-audio 0.1.1",
  "synaptix-bundle",
  "synaptix-core",
- "synaptix-io",
- "synaptix-ops",
+ "synaptix-io 0.1.1",
+ "synaptix-ops 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -7780,14 +7780,14 @@ dependencies = [
  "safetensors",
  "serde",
  "serde_json",
- "synaptix-audio",
+ "synaptix-audio 0.1.1",
  "synaptix-bundle",
  "synaptix-core",
  "synaptix-infer",
- "synaptix-io",
- "synaptix-nn",
- "synaptix-ops",
- "synaptix-tokenizer",
+ "synaptix-io 0.1.1",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
+ "synaptix-tokenizer 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -7799,14 +7799,39 @@ dependencies = [
  "rubato",
  "rustfft",
  "synaptix-core",
- "synaptix-nn",
- "synaptix-ops",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-audio"
+version = "0.1.1"
+source = "git+https://github.com/VitaminDB/synaptix.git#b844753628c2e2c62b31342b26cab6d217702fe1"
+dependencies = [
+ "hound",
+ "rubato",
+ "rustfft",
+ "synaptix-core",
+ "synaptix-nn 0.1.1 (git+https://github.com/VitaminDB/synaptix.git)",
+ "synaptix-ops 0.1.1 (git+https://github.com/VitaminDB/synaptix.git)",
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "synaptix-autograd"
 version = "0.1.1"
+dependencies = [
+ "once_cell",
+ "parking_lot",
+ "synaptix-core",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-autograd"
+version = "0.1.1"
+source = "git+https://github.com/VitaminDB/synaptix.git#b844753628c2e2c62b31342b26cab6d217702fe1"
 dependencies = [
  "once_cell",
  "parking_lot",
@@ -7858,8 +7883,8 @@ name = "synaptix-depth-anything"
 version = "0.1.0"
 dependencies = [
  "synaptix-core",
- "synaptix-io",
- "synaptix-ops",
+ "synaptix-io 0.1.1",
+ "synaptix-ops 0.1.1",
 ]
 
 [[package]]
@@ -7869,12 +7894,12 @@ dependencies = [
  "safetensors",
  "serde",
  "serde_json",
- "synaptix-audio",
+ "synaptix-audio 0.1.1",
  "synaptix-bundle",
  "synaptix-core",
- "synaptix-io",
- "synaptix-nn",
- "synaptix-ops",
+ "synaptix-io 0.1.1",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -7884,8 +7909,8 @@ version = "0.1.1"
 dependencies = [
  "synaptix-core",
  "synaptix-infer",
- "synaptix-nn",
- "synaptix-ops",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -7898,10 +7923,10 @@ dependencies = [
  "serde_json",
  "synaptix-bundle",
  "synaptix-core",
- "synaptix-io",
- "synaptix-nn",
- "synaptix-ops",
- "synaptix-tokenizer",
+ "synaptix-io 0.1.1",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
+ "synaptix-tokenizer 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -7927,7 +7952,7 @@ dependencies = [
  "synaptix-image-qwen",
  "synaptix-image-qwen21",
  "synaptix-image-sdxl",
- "synaptix-io",
+ "synaptix-io 0.1.1",
  "synaptix-kernels-cpu",
  "synaptix-kernels-cuda",
  "synaptix-llm-gemma3",
@@ -7941,6 +7966,22 @@ dependencies = [
 [[package]]
 name = "synaptix-gguf"
 version = "0.1.1"
+dependencies = [
+ "half",
+ "memmap2 0.9.11",
+ "rayon",
+ "serde",
+ "serde_json",
+ "synaptix-bundle",
+ "synaptix-core",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
+name = "synaptix-gguf"
+version = "0.1.1"
+source = "git+https://github.com/VitaminDB/synaptix.git#b844753628c2e2c62b31342b26cab6d217702fe1"
 dependencies = [
  "half",
  "memmap2 0.9.11",
@@ -7974,11 +8015,11 @@ dependencies = [
  "synaptix-bundle",
  "synaptix-core",
  "synaptix-diffusion",
- "synaptix-io",
+ "synaptix-io 0.1.1",
  "synaptix-kernels-cuda",
- "synaptix-nn",
- "synaptix-ops",
- "synaptix-tokenizer",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
+ "synaptix-tokenizer 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -7991,11 +8032,11 @@ dependencies = [
  "synaptix-bundle",
  "synaptix-core",
  "synaptix-diffusion",
- "synaptix-io",
+ "synaptix-io 0.1.1",
  "synaptix-kernels-cuda",
- "synaptix-nn",
- "synaptix-ops",
- "synaptix-tokenizer",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
+ "synaptix-tokenizer 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -8008,11 +8049,11 @@ dependencies = [
  "synaptix-bundle",
  "synaptix-core",
  "synaptix-diffusion",
- "synaptix-io",
+ "synaptix-io 0.1.1",
  "synaptix-kernels-cuda",
- "synaptix-nn",
- "synaptix-ops",
- "synaptix-tokenizer",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
+ "synaptix-tokenizer 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -8026,10 +8067,10 @@ dependencies = [
  "synaptix-core",
  "synaptix-diffusion",
  "synaptix-image-qwen",
- "synaptix-io",
- "synaptix-nn",
- "synaptix-ops",
- "synaptix-tokenizer",
+ "synaptix-io 0.1.1",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
+ "synaptix-tokenizer 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -8043,10 +8084,10 @@ dependencies = [
  "synaptix-bundle",
  "synaptix-core",
  "synaptix-diffusion",
- "synaptix-io",
- "synaptix-nn",
- "synaptix-ops",
- "synaptix-tokenizer",
+ "synaptix-io 0.1.1",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
+ "synaptix-tokenizer 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -8061,9 +8102,9 @@ dependencies = [
  "serde_json",
  "synaptix-bundle",
  "synaptix-core",
- "synaptix-nn",
- "synaptix-ops",
- "synaptix-tokenizer",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
+ "synaptix-tokenizer 0.1.1",
  "thiserror 2.0.21",
  "tokio",
 ]
@@ -8082,7 +8123,23 @@ dependencies = [
  "symphonia",
  "synaptix-bundle",
  "synaptix-core",
- "synaptix-gguf",
+ "synaptix-gguf 0.1.1",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
+name = "synaptix-io"
+version = "0.1.1"
+source = "git+https://github.com/VitaminDB/synaptix.git#b844753628c2e2c62b31342b26cab6d217702fe1"
+dependencies = [
+ "memmap2 0.9.11",
+ "safetensors",
+ "serde",
+ "serde_json",
+ "synaptix-bundle",
+ "synaptix-core",
+ "synaptix-gguf 0.1.1 (git+https://github.com/VitaminDB/synaptix.git)",
  "thiserror 2.0.21",
  "tracing",
 ]
@@ -8138,8 +8195,8 @@ dependencies = [
  "serde_json",
  "synaptix-core",
  "synaptix-infer",
- "synaptix-nn",
- "synaptix-ops",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -8151,11 +8208,11 @@ dependencies = [
  "serde_json",
  "synaptix-bundle",
  "synaptix-core",
- "synaptix-io",
+ "synaptix-io 0.1.1",
  "synaptix-llm-common",
- "synaptix-nn",
- "synaptix-ops",
- "synaptix-tokenizer",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
+ "synaptix-tokenizer 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -8169,11 +8226,11 @@ dependencies = [
  "synaptix-bundle",
  "synaptix-core",
  "synaptix-infer",
- "synaptix-io",
+ "synaptix-io 0.1.1",
  "synaptix-llm-common",
- "synaptix-nn",
- "synaptix-ops",
- "synaptix-tokenizer",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
+ "synaptix-tokenizer 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -8186,11 +8243,11 @@ dependencies = [
  "serde_json",
  "synaptix-core",
  "synaptix-infer",
- "synaptix-io",
+ "synaptix-io 0.1.1",
  "synaptix-llm-common",
- "synaptix-nn",
- "synaptix-ops",
- "synaptix-tokenizer",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
+ "synaptix-tokenizer 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -8203,10 +8260,10 @@ dependencies = [
  "synaptix-bundle",
  "synaptix-core",
  "synaptix-infer",
- "synaptix-io",
+ "synaptix-io 0.1.1",
  "synaptix-llm-common",
- "synaptix-ops",
- "synaptix-tokenizer",
+ "synaptix-ops 0.1.1",
+ "synaptix-tokenizer 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -8219,11 +8276,11 @@ dependencies = [
  "synaptix-bundle",
  "synaptix-core",
  "synaptix-infer",
- "synaptix-io",
+ "synaptix-io 0.1.1",
  "synaptix-llm-common",
- "synaptix-nn",
- "synaptix-ops",
- "synaptix-tokenizer",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
+ "synaptix-tokenizer 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -8236,9 +8293,9 @@ dependencies = [
  "synaptix-bundle",
  "synaptix-core",
  "synaptix-infer",
- "synaptix-io",
+ "synaptix-io 0.1.1",
  "synaptix-llm-common",
- "synaptix-tokenizer",
+ "synaptix-tokenizer 0.1.1",
  "synaptix-vlm-minicpm",
  "synaptix-vlm-qwen3",
  "thiserror 2.0.21",
@@ -8252,11 +8309,11 @@ dependencies = [
  "serde_json",
  "synaptix-bundle",
  "synaptix-core",
- "synaptix-io",
+ "synaptix-io 0.1.1",
  "synaptix-llm-common",
- "synaptix-nn",
- "synaptix-ops",
- "synaptix-tokenizer",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
+ "synaptix-tokenizer 0.1.1",
  "synaptix-vlm-qwen3",
  "thiserror 2.0.21",
 ]
@@ -8270,7 +8327,7 @@ dependencies = [
  "serde_json",
  "synaptix-core",
  "synaptix-llm-common",
- "synaptix-ops",
+ "synaptix-ops 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -8283,11 +8340,11 @@ dependencies = [
  "synaptix-bundle",
  "synaptix-core",
  "synaptix-infer",
- "synaptix-io",
+ "synaptix-io 0.1.1",
  "synaptix-llm-common",
- "synaptix-nn",
- "synaptix-ops",
- "synaptix-tokenizer",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
+ "synaptix-tokenizer 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -8304,8 +8361,8 @@ dependencies = [
  "sha2",
  "synaptix-bundle",
  "synaptix-core",
- "synaptix-io",
- "synaptix-ops",
+ "synaptix-io 0.1.1",
+ "synaptix-ops 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -8318,10 +8375,10 @@ dependencies = [
  "synaptix-bundle",
  "synaptix-core",
  "synaptix-infer",
- "synaptix-io",
+ "synaptix-io 0.1.1",
  "synaptix-llm-common",
- "synaptix-nn",
- "synaptix-ops",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
  "thiserror 2.0.21",
  "unicode-normalization",
 ]
@@ -8331,9 +8388,21 @@ name = "synaptix-nn"
 version = "0.1.1"
 dependencies = [
  "once_cell",
- "synaptix-autograd",
+ "synaptix-autograd 0.1.1",
  "synaptix-core",
- "synaptix-ops",
+ "synaptix-ops 0.1.1",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-nn"
+version = "0.1.1"
+source = "git+https://github.com/VitaminDB/synaptix.git#b844753628c2e2c62b31342b26cab6d217702fe1"
+dependencies = [
+ "once_cell",
+ "synaptix-autograd 0.1.1 (git+https://github.com/VitaminDB/synaptix.git)",
+ "synaptix-core",
+ "synaptix-ops 0.1.1 (git+https://github.com/VitaminDB/synaptix.git)",
  "thiserror 2.0.21",
 ]
 
@@ -8351,6 +8420,19 @@ dependencies = [
 [[package]]
 name = "synaptix-ops"
 version = "0.1.1"
+dependencies = [
+ "half",
+ "rand 0.8.8",
+ "synaptix-core",
+ "synaptix-kernels-cpu",
+ "synaptix-kernels-cuda",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-ops"
+version = "0.1.1"
+source = "git+https://github.com/VitaminDB/synaptix.git#b844753628c2e2c62b31342b26cab6d217702fe1"
 dependencies = [
  "half",
  "rand 0.8.8",
@@ -8391,6 +8473,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "synaptix-tokenizer"
+version = "0.1.1"
+source = "git+https://github.com/VitaminDB/synaptix.git#b844753628c2e2c62b31342b26cab6d217702fe1"
+dependencies = [
+ "ahash",
+ "aho-corasick",
+ "minijinja",
+ "once_cell",
+ "regex",
+ "serde",
+ "serde_json",
+ "synaptix-core",
+ "thiserror 2.0.21",
+ "tokenizers",
+]
+
+[[package]]
+name = "synaptix-tts-audio8"
+version = "0.1.1"
+source = "git+https://github.com/VitaminDB/synaptix.git#b844753628c2e2c62b31342b26cab6d217702fe1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "synaptix-audio 0.1.1 (git+https://github.com/VitaminDB/synaptix.git)",
+ "synaptix-bundle",
+ "synaptix-core",
+ "synaptix-io 0.1.1 (git+https://github.com/VitaminDB/synaptix.git)",
+ "synaptix-nn 0.1.1 (git+https://github.com/VitaminDB/synaptix.git)",
+ "synaptix-ops 0.1.1 (git+https://github.com/VitaminDB/synaptix.git)",
+ "synaptix-tokenizer 0.1.1 (git+https://github.com/VitaminDB/synaptix.git)",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "synaptix-tts-omnivoice"
 version = "0.1.1"
 dependencies = [
@@ -8398,13 +8514,13 @@ dependencies = [
  "safetensors",
  "serde",
  "serde_json",
- "synaptix-audio",
+ "synaptix-audio 0.1.1",
  "synaptix-bundle",
  "synaptix-core",
- "synaptix-io",
- "synaptix-nn",
- "synaptix-ops",
- "synaptix-tokenizer",
+ "synaptix-io 0.1.1",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
+ "synaptix-tokenizer 0.1.1",
  "thiserror 2.0.21",
  "unicode_categories",
 ]
@@ -8416,14 +8532,14 @@ dependencies = [
  "safetensors",
  "serde",
  "serde_json",
- "synaptix-audio",
+ "synaptix-audio 0.1.1",
  "synaptix-bundle",
  "synaptix-core",
  "synaptix-infer",
- "synaptix-io",
- "synaptix-nn",
- "synaptix-ops",
- "synaptix-tokenizer",
+ "synaptix-io 0.1.1",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
+ "synaptix-tokenizer 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -8433,13 +8549,13 @@ version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
- "synaptix-audio",
+ "synaptix-audio 0.1.1",
  "synaptix-bundle",
  "synaptix-core",
- "synaptix-io",
- "synaptix-nn",
- "synaptix-ops",
- "synaptix-tokenizer",
+ "synaptix-io 0.1.1",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
+ "synaptix-tokenizer 0.1.1",
  "thiserror 2.0.21",
  "tracing",
 ]
@@ -8466,13 +8582,13 @@ dependencies = [
  "cudarc",
  "serde",
  "serde_json",
- "synaptix-audio",
+ "synaptix-audio 0.1.1",
  "synaptix-bundle",
  "synaptix-core",
- "synaptix-io",
- "synaptix-nn",
- "synaptix-ops",
- "synaptix-tokenizer",
+ "synaptix-io 0.1.1",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
+ "synaptix-tokenizer 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -8484,13 +8600,13 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
- "synaptix-audio",
+ "synaptix-audio 0.1.1",
  "synaptix-bundle",
  "synaptix-core",
- "synaptix-io",
- "synaptix-nn",
- "synaptix-ops",
- "synaptix-tokenizer",
+ "synaptix-io 0.1.1",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
+ "synaptix-tokenizer 0.1.1",
  "synaptix-vlm-qwen3",
  "thiserror 2.0.21",
 ]
@@ -8503,8 +8619,8 @@ dependencies = [
  "serde_json",
  "synaptix-bundle",
  "synaptix-core",
- "synaptix-io",
- "synaptix-ops",
+ "synaptix-io 0.1.1",
+ "synaptix-ops 0.1.1",
  "thiserror 2.0.21",
 ]
 
@@ -8516,10 +8632,10 @@ dependencies = [
  "serde_json",
  "synaptix-bundle",
  "synaptix-core",
- "synaptix-io",
- "synaptix-nn",
- "synaptix-ops",
- "synaptix-tokenizer",
+ "synaptix-io 0.1.1",
+ "synaptix-nn 0.1.1",
+ "synaptix-ops 0.1.1",
+ "synaptix-tokenizer 0.1.1",
  "thiserror 2.0.21",
  "tracing",
 ]
@@ -8543,6 +8659,7 @@ dependencies = [
  "synaptix-kernels-cuda",
  "synaptix-kernels-npu",
  "synaptix-llm-common",
+ "synaptix-tts-audio8",
  "synaptix-tts-omnivoice",
  "synaptix-tts-vibevoice",
  "synaptix-tts-voxcpm",
@@ -8787,7 +8904,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.5",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -8842,7 +8959,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "230a1b821ccbd75b185820a1f1ff7b14d21da1e442e22c0863ea5f08771a8874"
 dependencies = [
  "rustix 1.1.5",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -9362,7 +9479,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset 0.9.1",
  "tempfile",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -10154,7 +10271,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
