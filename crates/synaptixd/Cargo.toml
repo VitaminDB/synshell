@@ -25,6 +25,7 @@ daemon = [
     "dep:synaptix-tts-supertonic",
     "dep:synaptix-tts-leokani",
     "dep:synaptix-tts-f5",
+    "dep:synaptix-tts-silero",
     "dep:synaptix-llm-common",
     "dep:synaptix-gen",
     "dep:synaptix-bundle",
@@ -60,6 +61,7 @@ synaptix-tts-audio8 = { workspace = true, optional = true }
 synaptix-tts-supertonic = { workspace = true, optional = true }
 synaptix-tts-leokani = { workspace = true, optional = true }
 synaptix-tts-f5 = { workspace = true, optional = true }
+synaptix-tts-silero = { workspace = true, optional = true }
 synaptix-llm-common = { workspace = true, optional = true }
 synaptix-gen = { workspace = true, optional = true }
 synaptix-bundle = { workspace = true, optional = true }

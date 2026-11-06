@@ -402,6 +402,14 @@ impl Conn {
                 if let Some(v) = call.text("voice").and_then(|d| voices::preset_for_description(&arch, d)) {
                     params.set("voice", Some(v.into()));
                 }
+                // Silero: имена голосов — список схемы; описание («male», «женский») — в персонажа.
+                if arch == "silero" && call.get("speaker").is_none() {
+                    if let Some(sp) = call.text("voice").and_then(voices::speaker_for_description) {
+                        params.set("speaker", Some(sp.into()));
+                        // голос по умолчанию из схемы не должен перебить описание
+                        params.set("voice", None);
+                    }
+                }
                 let vibe = arch.contains("vibevoice");
                 // VoxCPM по описанию плохо держит пол и возраст (девочка и
                 // пожилой мужчина — одной высоты): у него голос персонажа тоже
@@ -508,7 +516,7 @@ impl Conn {
                     // У Supertonic голос персонажа — готовый стиль: высота задана им,
                     // повтор с другим зерном её не меняет.
                     // У F5 высоту задаёт клип-образец, как у VibeVoice.
-                    let pitch = p.text("speaker").filter(|_| !vibe && !f5 && arch != "supertonic" && arch != "leokani").map(voices::pitch_range).filter(|r| r.1 < 1000.0);
+                    let pitch = p.text("speaker").filter(|_| !vibe && !f5 && arch != "supertonic" && arch != "leokani" && arch != "silero").map(voices::pitch_range).filter(|r| r.1 < 1000.0);
                     let mut best: Option<(f32, Vec<f32>, u32, Option<u64>)> = None;
                     for attempt in 0..3i64 {
                         let mut p = p.clone();

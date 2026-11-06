@@ -128,6 +128,7 @@ pub enum TtsEngine {
     Supertonic(synaptix_tts_supertonic::SupertonicPipeline),
     Leokani(synaptix_tts_leokani::LeokaniPipeline),
     F5(synaptix_tts_f5::F5Pipeline),
+    Silero(synaptix_tts_silero::SileroPipeline),
 }
 
 /// Голос, которым продолжать: у OmniVoice — референс в кодах кодека, у
@@ -289,6 +290,79 @@ fn f5_voice(path: &Path, text: &str) -> anyhow::Result<synaptix_tts_f5::VoicePro
     let sr = synaptix_tts_f5::SAMPLE_RATE;
     let pcm = synaptix_flow::ops::media::decode_pcm(&path.to_string_lossy(), sr).map_err(|e| anyhow::anyhow!("образец голоса {}: {e}", path.display()))?;
     synaptix_tts_f5::VoicePrompt::new(&pcm, sr, text).map_err(|e| anyhow::anyhow!("образец голоса {}: {e}", path.display()))
+}
+
+/// Пол голоса Silero по имени (без префикса языка): true — женский.
+fn silero_female(name: &str) -> Option<bool> {
+    let n = name.rsplit('_').next().unwrap_or(name).trim_end_matches(|c: char| c.is_ascii_digit());
+    const F: &[&str] = &[
+        "baya", "kseniya", "xenia", "aigul", "albina", "alfia", "ekaterina", "vika", "karina", "kejilgan", "kermen", "larisa", "miyau", "nurgul", "oksana", "onaoy", "ramilia", "saida", "zara", "zhadyra", "zhazira", "zinaida",
+        "aihwa", "alima", "delghir", "danara", "aisha", "aidana", "adiba", "alsou", "guzel", "rasima", "zifa", "zulfiya", "kateryna", "lada", "tetiana", "anora", "dilnavoz",
+    ];
+    const M: &[&str] = &[
+        "aidar", "eugene", "alexandr", "anatoliy", "bogdan", "dmitriy", "gamat", "igor", "marat", "roman", "safarhuja", "sibday", "eduard", "erdni", "bakir", "abai", "timur", "zufar", "batir", "amir", "azat", "karim", "ildar", "damir", "bulat", "rustem", "ilgiz", "mansur", "murat", "mykyta", "oleksa",
+    ];
+    if F.contains(&n) {
+        Some(true)
+    } else if M.contains(&n) {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+/// Префикс голосов Silero СНГ по коду языка (ISO 639-1 или -3).
+fn silero_lang_prefix(lang: &str) -> &str {
+    match lang {
+        "kk" => "kaz",
+        "uk" => "ukr",
+        "tt" => "tat",
+        "ba" => "bak",
+        "be" => "bel",
+        "uz" => "uzb",
+        "ky" => "kir",
+        "tg" => "tgk",
+        "az" => "aze",
+        "hy" => "hye",
+        "ka" => "kat",
+        "cv" => "chv",
+        "ce" => "che",
+        "os" => "oss",
+        "tk" => "tuk",
+        l => l,
+    }
+}
+
+/// Голос Silero: заданное имя голоса пакета, иначе по полу (описание или персонаж) и языку
+/// текста (у пакетов СНГ — префикс языка; ru_ — те же голоса по-русски).
+fn silero_voice(p: &synaptix_tts_silero::SileroPipeline, voice: Option<&str>, speaker: Option<&str>, language: Option<&str>, text: &str) -> anyhow::Result<String> {
+    let all = p.speakers();
+    if let Some(v) = voice.map(str::trim).filter(|v| !v.is_empty()) {
+        if all.iter().any(|s| s == v) {
+            return Ok(v.to_string());
+        }
+    }
+    let desc = voice.unwrap_or("");
+    let female = match speaker {
+        Some(s) => Some(s.starts_with("female") || s == "girl"),
+        None => crate::voices::speaker_for_description(desc).map(|s| s.starts_with("female") || s == "girl"),
+    };
+    let lang = language.map(|l| l.trim().to_ascii_lowercase()).filter(|l| !l.is_empty()).unwrap_or_else(|| text_language(text).to_string());
+    let prefixed = all.iter().any(|s| s.contains('_'));
+    let pool: Vec<&String> = if prefixed {
+        let pre = format!("{}_", silero_lang_prefix(&lang));
+        let v: Vec<&String> = all.iter().filter(|s| s.starts_with(&pre)).collect();
+        anyhow::ensure!(!v.is_empty(), "у этой модели Silero нет голосов для языка «{lang}»; есть: {}", all.join(", "));
+        v
+    } else {
+        anyhow::ensure!(lang == "ru", "эта модель Silero говорит только по-русски (язык текста — {lang})");
+        all.iter().collect()
+    };
+    let pick = match female {
+        Some(f) => pool.iter().find(|s| silero_female(s) == Some(f)).or(pool.first()),
+        None => pool.iter().find(|s| ["xenia", "ru_zhazira", "kaz_zhazira"].contains(&s.as_str())).or(pool.first()),
+    };
+    pick.map(|s| s.to_string()).ok_or_else(|| anyhow::anyhow!("у модели Silero нет голосов"))
 }
 
 /// Русские версии F5-TTS обучены на русской и английской речи.
@@ -601,11 +675,15 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
             let a = arch.to_ascii_lowercase();
             // OmniVoice — F16, как upstream (BF16 слишком груб для её CFG и
             // выбора токенов); остальные — BF16.
-            let omni = !a.contains("vibevoice") && !a.starts_with("voxcpm") && a != "audio8" && a != "arktts" && a != "supertonic" && a != "leokani" && a != "f5";
+            let omni = !a.contains("vibevoice") && !a.starts_with("voxcpm") && a != "audio8" && a != "arktts" && a != "supertonic" && a != "leokani" && a != "f5" && a != "silero";
             let (q, dtype) = audio_precision(dev, quant, if dev == DeviceKind::Npu || omni { DType::F16 } else { DType::BF16 });
             let engine = if a == "leokani" {
                 // 7M параметров: F32, на процессоре быстрее реального времени в сотни раз.
                 TtsEngine::Leokani(synaptix_tts_leokani::LeokaniPipeline::from_syn(path, device).map_err(|e| anyhow::anyhow!("{e}"))?)
+            } else if a == "silero" {
+                anyhow::ensure!(dev != DeviceKind::Npu, "Silero на NPU не исполняется (на процессоре и так в сотню раз быстрее реального времени)");
+                // ~23M параметров: F32, как оригинал
+                TtsEngine::Silero(synaptix_tts_silero::SileroPipeline::from_syn(path, device).map_err(|e| anyhow::anyhow!("{e}"))?)
             } else if a == "f5" {
                 anyhow::ensure!(dev != DeviceKind::Npu, "F5-TTS на NPU не исполняется");
                 // Как upstream на видеокарте — F16 (BF16 грубее для потока с CFG); на CPU — F32.
@@ -628,7 +706,7 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
                 TtsEngine::Omni(synaptix_tts_omnivoice::OmniVoicePipeline::from_syn_quant(path, device, dtype, q).map_err(|e| anyhow::anyhow!("{e}"))?)
             };
             let st = TtsState { engine, voices: Default::default(), anchors: Default::default(), refs: Default::default() };
-            let tag = if matches!(st.engine, TtsEngine::Supertonic(_) | TtsEngine::Leokani(_)) { "F32".to_string() } else { precision_tag(q, dtype) };
+            let tag = if matches!(st.engine, TtsEngine::Supertonic(_) | TtsEngine::Leokani(_) | TtsEngine::Silero(_)) { "F32".to_string() } else { precision_tag(q, dtype) };
             Ok((Loaded::Tts(std::sync::Mutex::new(st), dev), Some(tag)))
         }
         ModelKind::Video => {
@@ -913,6 +991,13 @@ impl Loaded {
                 }
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
                 Ok((out.pcm, out.sample_rate as u32))
+            }
+            TtsEngine::Silero(p) => {
+                anyhow::ensure!(r.voices.is_empty(), "Silero не клонирует голос по записи — выберите готовый голос модели");
+                let v = silero_voice(p, r.instruct.as_deref(), None, r.language.as_deref(), text)?;
+                let o = synaptix_tts_silero::Options { speaker: v, rate: r.speed.unwrap_or(1.0).clamp(0.3, 3.0), ..Default::default() };
+                let pcm = p.synthesize(text, &o).map_err(|e| anyhow::anyhow!("{e}"))?;
+                Ok((pcm, o.sample_rate))
             }
             TtsEngine::F5(p) => {
                 let path = r.voices.first().ok_or_else(|| anyhow::anyhow!("F5-TTS говорит голосом образца: нужна запись голоса и её текст"))?;
@@ -1457,7 +1542,7 @@ impl Loaded {
         let is_vox = matches!(&p.lock().unwrap_or_else(|e| e.into_inner()).engine, TtsEngine::Vox(_));
         let preset_voice = preset.map(|(omni, vox, _)| if is_vox { vox } else { omni });
         let is_st = matches!(&p.lock().unwrap_or_else(|e| e.into_inner()).engine, TtsEngine::Supertonic(_));
-        let is_st = is_st || matches!(&p.lock().unwrap_or_else(|e| e.into_inner()).engine, TtsEngine::Leokani(_));
+        let is_st = is_st || matches!(&p.lock().unwrap_or_else(|e| e.into_inner()).engine, TtsEngine::Leokani(_) | TtsEngine::Silero(_));
         let instruct = if is_st { params.text("voice") } else { params.text("voice").or(preset_voice) };
         let (speed, steps) = (params.f32("speed"), params.u32("steps").map(|s| s as usize));
         let stretch = speed.filter(|s| (s - 1.0).abs() > 1e-3);
@@ -1572,6 +1657,22 @@ impl Loaded {
                     r.map_err(|e| anyhow::anyhow!("{e}"))?
                 };
                 Ok((wav, p.output_sample_rate() as u32, Some(seed)))
+            }
+            TtsEngine::Silero(p) => {
+                // Готовые голоса, детерминированно; темп — родной (длительности делятся на него).
+                anyhow::ensure!(ref_audio.is_none(), "Silero не клонирует голос по записи — выберите готовый голос модели");
+                let v = silero_voice(p, params.text("voice"), params.text("speaker"), language, text)?;
+                let o = synaptix_tts_silero::Options {
+                    speaker: v.clone(),
+                    rate: (speed as f32).clamp(0.3, 3.0),
+                    pitch: params.f32("pitch").unwrap_or(1.0).clamp(0.0, 2.0),
+                    accents: params.bool("accents").unwrap_or(true),
+                    ..Default::default()
+                };
+                let pcm = p.synthesize(text, &o).map_err(|e| anyhow::anyhow!("{e}"))?;
+                let t = p.last_timings();
+                tracing::info!("silero: голос {v}, звук {:.1} с за {:.3} с (фронтенд {:.3} с, кусков {})", t.audio_s, t.frontend_s + t.net_s, t.frontend_s, t.chunks);
+                Ok((pcm, o.sample_rate, None))
             }
             TtsEngine::F5(p) => {
                 // Голос — всегда клон: образец пользователя или опорный клип

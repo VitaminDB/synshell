@@ -97,6 +97,7 @@ synaptix-tts-audio8 = { git = "https://github.com/VitaminDB/synaptix.git" }
 synaptix-tts-supertonic = { git = "https://github.com/VitaminDB/synaptix.git" }
 synaptix-tts-leokani = { git = "https://github.com/VitaminDB/synaptix.git" }
 synaptix-tts-f5 = { git = "https://github.com/VitaminDB/synaptix.git" }
+synaptix-tts-silero = { git = "https://github.com/VitaminDB/synaptix.git" }
 synaptix-llm-common = { git = "https://github.com/VitaminDB/synaptix.git" }
 synaptix-gen = { git = "https://github.com/VitaminDB/synaptix.git" }
 syngui = { git = "https://github.com/VitaminDB/syngui.git", default-features = false }
