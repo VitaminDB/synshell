@@ -241,6 +241,7 @@ optdepends = [
   "virtiofsd: общая папка virtiofs (Windows)",
   "samba: общая папка по SMB",
   "virtio-win: драйверы и гостевой агент для Windows (AUR)",
+  "libisoburn: образ «Гостевые инструменты syn-vm» (xorriso)",
 ]
 optdepends_en = [
   "qemu-desktop: the virtual machines themselves",
@@ -249,6 +250,7 @@ optdepends_en = [
   "virtiofsd: virtiofs shared folder (Windows)",
   "samba: SMB shared folder",
   "virtio-win: Windows drivers and guest agent (AUR)",
+  "libisoburn: syn-vm guest tools image (xorriso)",
 ]
 
 [packages.syn-video-player]
