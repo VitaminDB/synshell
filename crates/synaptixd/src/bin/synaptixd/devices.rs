@@ -326,3 +326,15 @@ mod tests {
         bg.join().unwrap();
     }
 }
+
+/// Отпустить резидентные графы NPU (контексты в ОЗУ); байты. Без NPU — 0.
+pub fn release_npu_graphs() -> usize {
+    #[cfg(feature = "npu")]
+    {
+        synaptix_kernels_npu::release_graphs()
+    }
+    #[cfg(not(feature = "npu"))]
+    {
+        0
+    }
+}

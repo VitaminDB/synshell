@@ -954,6 +954,14 @@ impl Manager {
             if self.drop_kept_kv("не хватает памяти для новой") {
                 continue;
             }
+            // Графы NPU (контексты в ОЗУ) откроются снова из кэша на диске за ~1 с —
+            // отпускаем их прежде моделей: иначе две wav2vec2 на NPU выгружали друг друга
+            // на каждой фразе (кэш графов съедал запас памяти под соседа).
+            let freed = crate::devices::release_npu_graphs();
+            if freed > 0 {
+                tracing::info!("{id}: отпущены графы NPU ({} МБ) ради памяти", freed >> 20);
+                continue;
+            }
             if !self.evict_one(id, "не хватает памяти для новой") {
                 if avail >= need {
                     return Ok(());
