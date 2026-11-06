@@ -156,8 +156,9 @@ pub fn helper_main() -> io::Result<()> {
 }
 
 /// Общая папка хоста: `virtiofs` или `9p` с меткой hostshare в `target` (пусто — /mnt/hostshare).
-pub fn share_prepare(kind: &str, target: &str) -> io::Result<()> {
+pub fn share_prepare(kind: &str, target: &str, source: &str) -> io::Result<()> {
     let target = if target.is_empty() { "/mnt/hostshare" } else { target };
+    let tag = if source.is_empty() { "hostshare" } else { source };
     let mounted = Command::new("mountpoint").args(["-q", target]).status().map(|s| s.success()).unwrap_or(false);
     if kind.is_empty() {
         if mounted {
@@ -170,13 +171,13 @@ pub fn share_prepare(kind: &str, target: &str) -> io::Result<()> {
     }
     std::fs::create_dir_all(target)?;
     let st = match kind {
-        "virtiofs" => Command::new("mount").args(["-t", "virtiofs", "hostshare", target]).status()?,
-        _ => Command::new("mount").args(["-t", "9p", "-o", "trans=virtio,version=9p2000.L,msize=1048576,cache=mmap", "hostshare", target]).status()?,
+        "virtiofs" => Command::new("mount").args(["-t", "virtiofs", tag, target]).status()?,
+        _ => Command::new("mount").args(["-t", "9p", "-o", "trans=virtio,version=9p2000.L,msize=1048576,cache=mmap", tag, target]).status()?,
     };
     if !st.success() {
-        return Err(io::Error::other(format!("mount {kind} hostshare {target}: {st}")));
+        return Err(io::Error::other(format!("mount {kind} {tag} {target}: {st}")));
     }
-    crate::log(&format!("общая папка: {kind} → {target}"));
+    crate::log(&format!("общая папка: {kind} {tag} → {target}"));
     Ok(())
 }
 

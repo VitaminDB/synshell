@@ -46,7 +46,7 @@ syn-vm — виртуальные машины QEMU/KVM
   --new ИМЯ [--iso ОБРАЗ] [--os linux|windows11|windows10|bsd|android|other]
         [--disk ФАЙЛ …] [--vars ФАЙЛ] [--tpm КАТАЛОГ] [--cpus N] [--memory МБ] [--disk-gb N]
         [--firmware bios|uefi|uefi-secure] [--disk-bus virtio|sata|nvme] [--nic virtio|e1000e|rtl8139]
-        [--fwd [udp:]ХОСТ:ГОСТЬ …] [--public] [--share КАТАЛОГ] [--set КЛЮЧ=ЗНАЧЕНИЕ …]
+        [--fwd [udp:]ХОСТ:ГОСТЬ …] [--public] [--share КАТАЛОГ …] [--set КЛЮЧ=ЗНАЧЕНИЕ …]
                                           новая машина; с --disk — импорт готовой (диск остаётся на месте,
                                           переменные UEFI и TPM копируются в папку машины;
                                           пробросы слушают 127.0.0.1, --public — все адреса)
@@ -1224,8 +1224,14 @@ fn new_vm(name: &str, a: &Args) -> Result<Vm> {
         let (h, g) = rest.split_once(':').with_context(|| t!("--fwd {f}: ХОСТ:ГОСТЬ", f = f))?;
         vm.forwards.push(model::PortForward { udp, host: h.parse()?, guest: g.parse()?, public: a.has("--public") });
     }
-    if let Some(s) = a.get("--share") {
-        vm.shared_dir = std::fs::canonicalize(&s).with_context(|| t!("нет папки {s}", s = s))?.to_string_lossy().into_owned();
+    // --share можно повторять: первая — shared_dir, остальные — shares.
+    for (i, s) in a.all("--share").into_iter().enumerate() {
+        let p = std::fs::canonicalize(&s).with_context(|| t!("нет папки {s}", s = s))?.to_string_lossy().into_owned();
+        if i == 0 {
+            vm.shared_dir = p;
+        } else {
+            vm.shares.push(p);
+        }
     }
     let vars = a.get("--vars").map(|v| std::fs::canonicalize(&v).with_context(|| t!("нет файла {v}", v = v))).transpose()?;
     let tpm = a.get("--tpm").map(|v| std::fs::canonicalize(&v).with_context(|| t!("нет каталога {v}", v = v))).transpose()?;

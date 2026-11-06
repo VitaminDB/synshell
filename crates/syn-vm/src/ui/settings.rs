@@ -400,22 +400,61 @@ fn devices(st: St, vm: &Vm) -> W {
         }
     });
     let syn_display = vm.display == DisplayModel::SynGpu;
-    let id = vm.id.clone();
-    let shared_name = if vm.shared_dir.is_empty() { t!("Не выбрана") } else { vm.shared_dir.clone() };
-    let mut share = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(btn(icons::FOLDER_OPEN, t!("Выбрать…"), "soft", move || {
-        let _ = &id;
+    // Общие папки: первая — shared_dir, остальные — shares.
+    let all_dirs: Vec<String> = std::iter::once(vm.shared_dir.clone()).chain(vm.shares.iter().cloned()).filter(|d| !d.is_empty()).collect();
+    let shared_name = if all_dirs.is_empty() { t!("Не выбрана") } else { t!("Папок: {n}", n = all_dirs.len()) };
+    let mut share = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(btn(icons::FOLDER_OPEN, if all_dirs.is_empty() { t!("Выбрать…") } else { t!("Добавить папку…") }, "soft", move || {
         std::thread::spawn(move || {
             if let Some(p) = parts::choose_file(&t!("Общая папка"), "", &[], true) {
-                run_on_main_thread(move || state::edit(st, |v| v.shared_dir = p));
+                run_on_main_thread(move || {
+                    state::edit(st, |v| {
+                        if v.shared_dir.is_empty() {
+                            v.shared_dir = p;
+                        } else if v.shared_dir != p && !v.shares.contains(&p) {
+                            v.shares.push(p);
+                        }
+                    })
+                });
             }
         });
     }));
-    if !vm.shared_dir.is_empty() {
-        share = share.child(super::parts::icon_btn(icons::CLOSE, t!("Не делиться"), move || state::edit(st, |v| v.shared_dir.clear())));
+    if !all_dirs.is_empty() {
+        share = share.child(super::parts::icon_btn(icons::CLOSE, t!("Не делиться ни одной"), move || {
+            state::edit(st, |v| {
+                v.shared_dir.clear();
+                v.shares.clear();
+            })
+        }));
     }
+    // Каждая папка — своей строкой: путь, имя в госте, «убрать».
+    let smb_names = vm.share_mode != ShareMode::P9 && vm.share().is_some_and(|m| m == ShareMode::Smb);
+    let names = vm.share_names(smb_names);
+    let dirs_now = vm.share_dirs();
+    let share_rows: Vec<W> = all_dirs
+        .iter()
+        .map(|d| {
+            let d2 = d.clone();
+            let guest = dirs_now.iter().position(|x| x == d).and_then(|i| names.get(i).cloned()).map(|n| if smb_names { format!("\\\\10.0.2.4\\{n}") } else { n }).unwrap_or_else(|| t!("нет такой папки"));
+            row(
+                parts::file_name(d),
+                format!("{d} → {guest}"),
+                Row::new().child(super::parts::icon_btn(icons::CLOSE, t!("Убрать"), move || {
+                    let d = d2.clone();
+                    state::edit(st, |v| {
+                        if v.shared_dir == d {
+                            v.shared_dir = if v.shares.is_empty() { String::new() } else { v.shares.remove(0) };
+                        } else {
+                            v.shares.retain(|x| *x != d);
+                        }
+                    })
+                })),
+            )
+        })
+        .collect();
     let mode = vm.share().unwrap_or(vm.share_mode.resolve(vm.os));
     let share_hint = match mode {
         ShareMode::Virtiofs => t!("В Windows: драйвер virtio-fs и WinFsp с диска «Гостевые инструменты», служба VirtioFsSvc — диск Z:. В Linux: mount -t virtiofs hostshare /mnt. Снимки с памятью при virtiofs недоступны."),
+        ShareMode::Smb if vm.syn_tools() => t!("SMB (нужен пакет samba на компьютере): агент syn-vm сам подключает папки дисками Z:, Y:, X:… при входе пользователя"),
         ShareMode::Smb => t!("В госте: \\\\10.0.2.4\\qemu (нужен пакет samba на компьютере)"),
         _ => t!("В госте: mount -t 9p -o trans=virtio hostshare /mnt (Windows 9p не умеет — выберите virtiofs или SMB)"),
     };
@@ -486,7 +525,7 @@ fn devices(st: St, vm: &Vm) -> W {
             row(t!("Вывод звука"), t!("Динамики или наушники для гостя"), DecoratedBox::new().child(audio(false, vm.audio_out.clone()))),
             row(t!("Микрофон"), t!("Что гость слышит как вход"), DecoratedBox::new().child(audio(true, vm.audio_in.clone()))),
             row(t!("Общий буфер обмена"), t!("Копирование между гостем и компьютером; в госте нужен spice-vdagent"), Toggle::with_state(vm.clipboard).on_change(move |b| state::edit(st, |v| v.clipboard = b))),
-            row(t!("Общая папка"), shared_name, share),
+            row_wide(t!("Общие папки"), shared_name, Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(share).children(share_rows)),
             row(t!("Как гость видит папку"), share_hint, share_mode),
         ],
     )

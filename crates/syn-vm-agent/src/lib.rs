@@ -70,7 +70,14 @@ pub enum Msg {
     /// Общая папка хоста: Windows — `net use БУКВА: \\10.0.2.4\qemu` в сеансе пользователя
     /// (`kind` = "smb"), Linux — `mount -t virtiofs|9p hostshare ПУТЬ` (`kind` = "virtiofs"|"9p").
     /// Пустой `kind` — отключить.
-    Share { kind: String, target: String },
+    /// `source` — имя ресурса SMB (`qemu`, …) или метка 9p/virtiofs (`hostshare`, …); пусто —
+    /// первая папка (`qemu` / `hostshare`).
+    Share {
+        kind: String,
+        target: String,
+        #[serde(default)]
+        source: String,
+    },
     /// Посредник → клиент и клиент → посредник: состояние агента.
     Status { id: u64 },
     /// Обновить себя: новый exe уже записан по `path`; агент заменяет себя и перезапускается.

@@ -176,10 +176,9 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
         NetMode::Nat => {
             let mut nd = String::from("user,id=net0");
             if share == Some(ShareMode::Smb) {
-                if smbd().is_none() {
-                    bail!("{}", t!("Для общей папки по SMB нужен пакет samba (smbd)"));
-                }
-                nd.push_str(&format!(",smb={}", esc(Path::new(&vm.shared_dir))));
+                // Свой smbd на 10.0.2.4:445 (как делает QEMU для smb=, но со всеми папками машины).
+                let cmd = smb_command(vm)?;
+                nd.push_str(&format!(",guestfwd=tcp:10.0.2.4:445-cmd:{}", cmd.replace(',', ",,")));
             }
             for f in &vm.forwards {
                 if f.host > 0 && f.guest > 0 {
@@ -251,11 +250,15 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
 
     match share {
         Some(ShareMode::P9) | Some(ShareMode::Auto) => {
-            push(&["-virtfs", &format!("local,path={},mount_tag=hostshare,security_model=none,id=share0", esc(Path::new(&vm.shared_dir)))]);
+            for (i, (d, tag)) in vm.share_dirs().iter().zip(vm.share_names(false)).enumerate() {
+                push(&["-virtfs", &format!("local,path={},mount_tag={tag},security_model=none,id=share{i}", esc(Path::new(d)))]);
+            }
         }
         Some(ShareMode::Virtiofs) => {
-            push(&["-chardev", &format!("socket,id=vfs0,path={}", run.join("virtiofs.sock").display())]);
-            push(&["-device", "vhost-user-fs-pci,chardev=vfs0,tag=hostshare"]);
+            for (i, tag) in vm.share_names(false).iter().enumerate() {
+                push(&["-chardev", &format!("socket,id=vfs{i},path={}", run.join(virtiofs_sock(i)).display())]);
+                push(&["-device", &format!("vhost-user-fs-pci,chardev=vfs{i},tag={tag}")]);
+            }
         }
         Some(ShareMode::Smb) | None => {}
     }
@@ -637,13 +640,45 @@ pub fn port_shared_with(vm: &Vm) -> Vec<String> {
 }
 
 /// virtiofsd общей папки: завершается сам, когда QEMU закрывает соединение.
+fn virtiofs_sock(i: usize) -> String {
+    if i == 0 { "virtiofs.sock".into() } else { format!("virtiofs{i}.sock") }
+}
+
+/// Свой smbd для общих папок по SMB: конфигурация в каталоге запуска, команда для guestfwd
+/// (QEMU запускает её на каждое соединение гостя с 10.0.2.4:445, как для smb=).
+fn smb_command(vm: &Vm) -> Result<String> {
+    let bin = smbd().context(t!("Для общей папки по SMB нужен пакет samba (smbd)"))?;
+    let dir = vm.run_dir().join("smb");
+    for d in ["private", "lock", "state", "cache", "ncalrpc"] {
+        std::fs::create_dir_all(dir.join(d))?;
+    }
+    let user = std::env::var("USER").unwrap_or_else(|_| "nobody".into());
+    let mut conf = format!(
+        "[global]\nprivate dir={d}/private\ninterfaces=127.0.0.1\nbind interfaces only=yes\npid directory={d}\nlock directory={d}/lock\nstate directory={d}/state\ncache directory={d}/cache\nncalrpc dir={d}/ncalrpc\nlog file={d}/log.smbd\nsmb passwd file={d}/smbpasswd\nsecurity = user\nmap to guest = Bad User\nload printers = no\nprinting = bsd\ndisable spoolss = yes\nusershare max shares = 0\n",
+        d = dir.display()
+    );
+    for (path, name) in vm.share_dirs().iter().zip(vm.share_names(true)) {
+        conf += &format!("[{name}]\npath={path}\nread only=no\nguest ok=yes\nforce user={user}\n");
+    }
+    let cf = dir.join("smb.conf");
+    std::fs::write(&cf, conf)?;
+    Ok(format!("{} -l {} -s {}", bin.display(), dir.display(), cf.display()))
+}
+
 fn start_virtiofsd(vm: &Vm) -> Result<()> {
+    for (i, d) in vm.share_dirs().iter().enumerate() {
+        start_one_virtiofsd(vm, i, d)?;
+    }
+    Ok(())
+}
+
+fn start_one_virtiofsd(vm: &Vm, i: usize, shared: &str) -> Result<()> {
     let bin = virtiofsd().context(t!("Для virtiofs нужен пакет virtiofsd"))?;
-    let sock = vm.run_dir().join("virtiofs.sock");
-    let log = std::fs::File::create(vm.dir().join("virtiofsd.log"))?;
+    let sock = vm.run_dir().join(virtiofs_sock(i));
+    let log = std::fs::File::create(vm.dir().join(if i == 0 { "virtiofsd.log".to_string() } else { format!("virtiofsd{i}.log") }))?;
     let mut child = Command::new(bin)
         .arg(format!("--socket-path={}", sock.display()))
-        .arg(format!("--shared-dir={}", vm.shared_dir))
+        .arg(format!("--shared-dir={shared}"))
         .args(["--sandbox=none", "--cache=auto"])
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
@@ -785,6 +820,33 @@ mod tests {
         assert!(a.iter().any(|s| s.starts_with("unix:") && s.ends_with("vnc.sock")));
         // Без -daemonize: QEMU — отдельной сессией, вывод в qemu.log (см. start).
         assert!(!a.contains(&"-daemonize".to_string()));
+    }
+
+    #[test]
+    fn several_shares() {
+        let base = std::env::temp_dir().join("syn-vm-test-shares");
+        let (a, b) = (base.join("Один"), base.join("Два"));
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        let mut vm = OsKind::Windows11.preset();
+        vm.id = "shares-test".into();
+        vm.firmware = Firmware::Bios;
+        vm.tpm = false;
+        vm.tools_cd = false;
+        vm.shared_dir = a.to_string_lossy().into_owned();
+        vm.shares = vec![b.to_string_lossy().into_owned()];
+        assert_eq!(vm.share(), Some(ShareMode::Smb));
+        assert_eq!(vm.share_names(true), vec!["qemu".to_string(), "Два".to_string()]);
+        if smbd().is_some() {
+            let j = args(&vm).unwrap().join(" ");
+            assert!(j.contains("guestfwd=tcp:10.0.2.4:445-cmd:"));
+            let conf = std::fs::read_to_string(vm.run_dir().join("smb/smb.conf")).unwrap();
+            assert!(conf.contains("[qemu]") && conf.contains("[Два]"));
+        }
+        vm.os = OsKind::Linux;
+        vm.share_mode = ShareMode::P9;
+        let j = args(&vm).unwrap().join(" ");
+        assert!(j.contains("mount_tag=hostshare,") && j.contains("mount_tag=hostshare1,"));
     }
 
     #[test]

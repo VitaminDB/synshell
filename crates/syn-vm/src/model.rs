@@ -469,6 +469,8 @@ pub struct Vm {
     pub clipboard: bool,
     /// Общая папка хоста (9p, метка `hostshare`).
     pub shared_dir: String,
+    /// Ещё общие папки (первая — `shared_dir`).
+    pub shares: Vec<String>,
     /// USB-устройства компьютера, отданные гостю (по портам).
     pub usb: Vec<UsbPass>,
     /// Прочие устройства компьютера: PCI, ввод, диски, последовательные порты, USB по VID:PID.
@@ -520,6 +522,7 @@ impl Default for Vm {
             sound: true,
             clipboard: true,
             shared_dir: String::new(),
+            shares: Vec::new(),
             usb: Vec::new(),
             devices: Vec::new(),
             share_mode: ShareMode::Auto,
@@ -610,13 +613,53 @@ impl Vm {
     /// Способ общей папки: «Авто» — Linux/BSD 9p, Windows — virtiofs (virtio-win) или SMB
     /// (свои инструменты: драйвера virtiofs нет, папку подключает агент syn-vm). Нет папки — None.
     pub fn share(&self) -> Option<ShareMode> {
-        if self.shared_dir.is_empty() || !std::path::Path::new(&self.shared_dir).is_dir() {
+        if self.share_dirs().is_empty() {
             return None;
         }
         Some(match self.share_mode {
             ShareMode::Auto if self.syn_tools() => ShareMode::Smb,
             m => m.resolve(self.os),
         })
+    }
+
+    /// Общие папки, что есть на диске: `shared_dir`, затем `shares` (без повторов).
+    pub fn share_dirs(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for d in std::iter::once(&self.shared_dir).chain(self.shares.iter()) {
+            if !d.is_empty() && std::path::Path::new(d).is_dir() && !out.contains(d) {
+                out.push(d.clone());
+            }
+        }
+        out
+    }
+
+    /// Имена общих папок для гостя: SMB — имя ресурса (первая — `qemu`, как у QEMU), 9p/virtiofs —
+    /// метка (`hostshare`, `hostshare1`…). Порядок — как у [`Vm::share_dirs`].
+    pub fn share_names(&self, smb: bool) -> Vec<String> {
+        let mut used: Vec<String> = Vec::new();
+        self.share_dirs()
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                let name = if !smb {
+                    if i == 0 { "hostshare".to_string() } else { format!("hostshare{i}") }
+                } else if i == 0 {
+                    "qemu".to_string()
+                } else {
+                    let base: String = std::path::Path::new(d).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default().chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').take(60).collect();
+                    let base = if base.is_empty() || base.eq_ignore_ascii_case("qemu") { format!("share{i}") } else { base };
+                    let mut n = base.clone();
+                    let mut k = 2;
+                    while used.iter().any(|u| u.eq_ignore_ascii_case(&n)) {
+                        n = format!("{base}{k}");
+                        k += 1;
+                    }
+                    n
+                };
+                used.push(name.clone());
+                name
+            })
+            .collect()
     }
 
     /// Windows-гость со своими «Гостевыми инструментами» syn-vm (без virtio-win).

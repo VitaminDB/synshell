@@ -104,7 +104,11 @@ fn to_helper(f: &Frame) {
 
 fn remember_for_helper(f: &Frame) {
     let mut l = last_for_helper().lock().unwrap();
-    let same = |a: &Msg, b: &Msg| std::mem::discriminant(a) == std::mem::discriminant(b);
+    // Папок несколько — своя запись на каждую цель; режим экрана — одна.
+    let same = |a: &Msg, b: &Msg| match (a, b) {
+        (Msg::Share { target: x, .. }, Msg::Share { target: y, .. }) => x == y,
+        _ => std::mem::discriminant(a) == std::mem::discriminant(b),
+    };
     l.retain(|x| !same(&x.msg, &f.msg));
     l.push(f.clone());
 }
@@ -403,9 +407,9 @@ fn handle(f: Frame) {
                 to_helper(&f);
             }
         }
-        Msg::Share { ref kind, ref target } => {
+        Msg::Share { ref kind, ref target, ref source } => {
             // Своё службы (реестр SMB, монтирование в Linux), затем — копии (подключить диск).
-            if let Err(e) = sys::share_prepare(kind, target) {
+            if let Err(e) = sys::share_prepare(kind, target, source) {
                 log(&format!("общая папка: {e}"));
             }
             if sys::USES_HELPER {

@@ -197,9 +197,10 @@ fn set_mode(w: u32, h: u32) {
 }
 
 /// Подключить общую папку диском (в сеансе пользователя — подключения у Windows свои на сеанс).
-fn share_map(kind: &str, target: &str) {
+fn share_map(kind: &str, target: &str, source: &str) {
     let letter = if target.is_empty() { "Z:".to_string() } else { target.to_string() };
-    let unc = r"\\10.0.2.4\qemu";
+    let unc = format!(r"\\10.0.2.4\{}", if source.is_empty() { "qemu" } else { source });
+    let unc = unc.as_str();
     let net = |args: &[&str]| Command::new("net").args(args).creation_flags(CREATE_NO_WINDOW).output();
     if kind.is_empty() {
         let _ = net(&["use", &letter, "/delete", "/y"]);
@@ -269,8 +270,8 @@ pub fn helper_main() -> io::Result<()> {
                 }
             }
             syn_vm_agent::Msg::Mode { width, height } => set_mode(width, height),
-            syn_vm_agent::Msg::Share { kind, target } => {
-                std::thread::spawn(move || share_map(&kind, &target));
+            syn_vm_agent::Msg::Share { kind, target, source } => {
+                std::thread::spawn(move || share_map(&kind, &target, &source));
             }
             _ => {}
         }
@@ -279,7 +280,7 @@ pub fn helper_main() -> io::Result<()> {
 
 /// Служба: подготовка общей папки. SMB QEMU (Samba) пускает только гостем без подписи — Windows 10/11
 /// по умолчанию так не подключается: разрешить гостевой вход и вход без подписи (внутри ВМ).
-pub fn share_prepare(kind: &str, _target: &str) -> io::Result<()> {
+pub fn share_prepare(kind: &str, _target: &str, _source: &str) -> io::Result<()> {
     if kind != "smb" {
         return Ok(());
     }

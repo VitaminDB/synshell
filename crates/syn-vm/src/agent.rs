@@ -383,13 +383,17 @@ fn serve_client(vm: &Vm, st: &Arc<Mutex<Broker>>, cid: u64, s: UnixStream) {
 /// Общая папка машины — агенту (настройки перечитываются: могли поменяться на ходу).
 fn send_share(vm: &Vm, tx: &Tx) {
     let Ok(v) = crate::cli::find(&vm.id) else { return };
-    let (kind, target) = match v.share() {
-        Some(crate::model::ShareMode::Smb) if v.os.is_windows() => ("smb", "Z:"),
-        Some(crate::model::ShareMode::Virtiofs) if !v.os.is_windows() => ("virtiofs", "/mnt/hostshare"),
-        Some(crate::model::ShareMode::P9) if !v.os.is_windows() => ("9p", "/mnt/hostshare"),
+    let kind = match v.share() {
+        Some(crate::model::ShareMode::Smb) if v.os.is_windows() => "smb",
+        Some(crate::model::ShareMode::Virtiofs) if !v.os.is_windows() => "virtiofs",
+        Some(crate::model::ShareMode::P9) if !v.os.is_windows() => "9p",
         _ => return,
     };
-    let _ = write_frame(&mut *tx.lock().unwrap(), &Frame::new(Msg::Share { kind: kind.into(), target: target.into() }));
+    // Windows — диски с Z: вниз, Linux — /mnt/hostshare, /mnt/hostshare1…
+    for (i, source) in v.share_names(kind == "smb").into_iter().enumerate() {
+        let target = if kind == "smb" { format!("{}:", (b'Z' - i.min(20) as u8) as char) } else if i == 0 { "/mnt/hostshare".into() } else { format!("/mnt/hostshare{i}") };
+        let _ = write_frame(&mut *tx.lock().unwrap(), &Frame::new(Msg::Share { kind: kind.into(), target, source }));
+    }
 }
 
 // ─── Клиент ─────────────────────────────────────────────────────────────
