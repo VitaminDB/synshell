@@ -5,7 +5,7 @@ ConditionPathIsDirectory=/sys/class/remoteproc
 After=syn-modem.service
 
 [Service]
-ExecStart=/usr/local/bin/synmodemd
+ExecStart=/usr/bin/synmodemd
 Restart=on-failure
 RestartSec=3
 

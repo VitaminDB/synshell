@@ -4,7 +4,7 @@ Description=synnfc: NFC (чтение и запись меток, эмуляци
 After=systemd-udev-settle.service
 
 [Service]
-ExecStart=/usr/local/bin/synnfcd
+ExecStart=/usr/bin/synnfcd
 Restart=on-failure
 RestartSec=3
 

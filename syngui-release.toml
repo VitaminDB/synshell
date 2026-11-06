@@ -123,6 +123,10 @@ description_en = "synshell for phones: mobile shell, modem (calls, SMS, data), N
 depends = ["synshell-core"]
 bins = ["synmobile-shell", "synmodem", "synmodemd", "synnfc", "synnfcd"]
 apps = ["synphone", "synsms", "syn-nfc", "syn-compass", "syn-health"]
+files = [
+  { from = "crates/syn-modem/systemd/synmodem.service", to = "usr/lib/systemd/system/" },
+  { from = "crates/syn-nfcd/systemd/synnfc.service", to = "usr/lib/systemd/system/" },
+]
 
 [packages.synshell-game]
 description = "synshell: игровой режим (полноэкранная оболочка для геймпада) и экранный контроллер"
@@ -305,6 +309,9 @@ depends = ["synshell-core"]
 bins = ["syndroidd"]
 apps = ["syndroid"]
 groups = ["synshell-apps"]
+files = [
+  { from = "crates/syn-droid/systemd/syndroid.service", to = "usr/lib/systemd/system/" },
+]
 
 [packages.syn-wine-helper]
 description = "Компоненты Wine synshell: DLL и рантаймы, которых нет в Wine"
