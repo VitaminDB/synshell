@@ -207,6 +207,17 @@ files = [
   { run = "cat \"$HOME/Storage/Нейросети/Модели/tts/silero-tts-v5-6-ru.syn\"", to = "usr/share/synaptix/models/tts/silero-tts-v5-6-ru.syn" },
 ]
 
+[packages.synaptix-model-silero-tts-v5-cis-base]
+description = "Модель synaptix: Silero TTS v5 — языки СНГ, 60 голосов (казахский, татарский, башкирский, украинский и др.), английский — с акцентом голоса (нужен G2P из synaptix-model-leokani-tts-7m); быстро на процессоре. Лицензия MIT"
+description_en = "synaptix model: Silero TTS v5 — CIS languages, 60 voices (Kazakh, Tatar, Bashkir, Ukrainian and more), English with the voice's accent (needs G2P from synaptix-model-leokani-tts-7m); fast on CPU. MIT license"
+depends = ["synaptix"]
+optdepends = ["synaptix-model-leokani-tts-7m: английский текст по английскому произношению"]
+optdepends_en = ["synaptix-model-leokani-tts-7m: English text with English pronunciation"]
+aur = false
+files = [
+  { run = "cat \"$HOME/Storage/Нейросети/Модели/tts/silero-tts-v5-cis-base.syn\"", to = "usr/share/synaptix/models/tts/silero-tts-v5-cis-base.syn" },
+]
+
 [packages.syn-notes]
 description = "Заметки synshell: страницы-холсты, канбан, Гант, карты мыслей, календарь, напоминания"
 description_en = "synshell Notes: canvas pages, kanban, Gantt, mind maps, calendar, reminders"
