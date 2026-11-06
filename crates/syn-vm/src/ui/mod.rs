@@ -430,7 +430,8 @@ fn toast_layer(st: St) -> W {
                 .gap(10.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(Icon::new(if t.error { icons::ERROR } else { icons::CHECK_CIRCLE }).class("toast-icon"))
-                .child(Text::new(t.text).max_lines(6).selectable(true).class("toast-text"))
+                // Колонка с grow — текст получает ширину и переносится (иначе длинное сообщение режется краем окна).
+                .child(Column::new().child(Text::new(t.text).max_lines(6).selectable(true).class("toast-text")).class("grow"))
                 .child(icon_btn(icons::CLOSE, String::new(), move || st.toast.set(None)));
             let vw = viewport_size().get_untracked().width;
             vec![boxed(

@@ -22,6 +22,7 @@ sha2 = "0.10"
 libc.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+png = "0.17"
 windows-sys = { version = "0.60", features = [
     "Win32_Foundation",
     "Win32_Security",

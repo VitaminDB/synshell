@@ -69,6 +69,7 @@ syn-vm — виртуальные машины QEMU/KVM
   --agent-status МАШИНА                  агент на связи: версия, система, пользователь сеанса
   --agent-log МАШИНА [--follow]          журнал гостя: OutputDebugString, журнал событий, journald
   --clipboard МАШИНА set ТЕКСТ|watch     буфер обмена гостя через агента (Windows со своими инструментами)
+                                          set-image ФАЙЛ.png — картинку
   --agent МАШИНА КОМАНДА [JSON]          сырая команда агента (guest-info, guest-get-osinfo…)
   --sync-time МАШИНА                     часы гостя по компьютеру
 
@@ -336,13 +337,24 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             running(&vm)?;
             let mut c = crate::agent::Client::connect(&vm)?;
             match a.pos.get(1).map(String::as_str) {
+                Some("set-image") => {
+                    let f = a.pos(2, n_!("ФАЙЛ.png"))?;
+                    c.send_clip_data("image/png", std::fs::read(&f).with_context(|| f.clone())?)?;
+                    std::thread::sleep(Duration::from_millis(500));
+                }
                 Some("set") => {
                     let text = if a.pos.len() > 2 { a.pos[2..].join(" ") } else { a.tail.join(" ") };
                     c.send_clip(&text)?;
                     // Дать посреднику отправить кадр до закрытия соединения.
                     std::thread::sleep(Duration::from_millis(300));
                 }
-                _ => c.follow_clip(&mut |t| println!("{t}"))?,
+                _ => c.follow_clip(&mut |mime, d| {
+                    if mime == "text/plain" {
+                        println!("{}", String::from_utf8_lossy(&d));
+                    } else {
+                        println!("[{mime}, {} байт]", d.len());
+                    }
+                })?,
             }
             Ok(0)
         }

@@ -783,6 +783,12 @@ fn clip_last() -> &'static Mutex<HashMap<String, String>> {
     C.get_or_init(Default::default)
 }
 
+/// Отпечаток картинки для сравнения «то же самое» (без хранения байтов).
+fn clip_key(mime: &str, data: &[u8]) -> String {
+    let h = data.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ *b as u64).wrapping_mul(0x100_0000_01b3));
+    format!("{mime}:{}:{h:x}", data.len())
+}
+
 /// Буфер обмена гостя через агента syn-vm → буфер хоста (окно подписывается при подключении).
 fn follow_guest_clip(vm: &Vm) {
     static ON: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
@@ -797,10 +803,16 @@ fn follow_guest_clip(vm: &Vm) {
         }
         if let Ok(mut c) = crate::agent::Client::connect(&vm) {
             let id = vm.id.clone();
-            let _ = c.follow_clip(&mut |text| {
-                if text.is_empty() {
+            let _ = c.follow_clip(&mut |mime, data| {
+                if data.is_empty() {
                     return;
                 }
+                if mime == "image/png" {
+                    clip_last().lock().unwrap().insert(id.clone(), clip_key(mime, &data));
+                    run_on_main_thread(move || syngui::clipboard::copy_rich("", &[("image/png", &data)]));
+                    return;
+                }
+                let text = String::from_utf8_lossy(&data).into_owned();
                 clip_last().lock().unwrap().insert(id.clone(), text.clone());
                 run_on_main_thread(move || syngui::clipboard::copy(&text));
             });
@@ -812,15 +824,18 @@ fn follow_guest_clip(vm: &Vm) {
 pub fn offer_clipboard(id: &str) {
     // Свои инструменты: буфер обмена — через агента syn-vm (spice-agent в госте нет).
     if let Some(vm) = mirror().lock().unwrap().iter().find(|v| v.id == id && v.syn_tools()).cloned() {
-        if let Some(text) = syngui::clipboard::paste().filter(|t| !t.is_empty()) {
+        // Текст, иначе картинка PNG.
+        let item = syngui::clipboard::paste().filter(|t| !t.is_empty()).map(|t| ("text/plain".to_string(), t.into_bytes())).or_else(|| syngui::clipboard::paste_mime(&["image/png"]).filter(|(_, d)| !d.is_empty() && d.len() < 15 << 20));
+        if let Some((mime, data)) = item {
+            let key = if mime == "text/plain" { String::from_utf8_lossy(&data).into_owned() } else { clip_key(&mime, &data) };
             let mut last = clip_last().lock().unwrap();
-            if last.get(id) != Some(&text) {
-                last.insert(id.to_string(), text.clone());
+            if last.get(id) != Some(&key) {
+                last.insert(id.to_string(), key);
                 drop(last);
                 std::thread::spawn(move || {
                     if crate::agent::preferred(&vm) {
                         if let Ok(mut c) = crate::agent::Client::connect(&vm) {
-                            let _ = c.send_clip(&text);
+                            let _ = c.send_clip_data(&mime, data);
                         }
                     }
                 });

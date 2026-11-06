@@ -142,6 +142,150 @@ fn clip_get() -> Option<String> {
     s
 }
 
+/// Зарегистрированный формат «PNG» (браузеры, Office, «Ножницы»).
+fn png_format() -> u32 {
+    use windows_sys::Win32::System::DataExchange::RegisterClipboardFormatW;
+    let n = wide("PNG");
+    unsafe { RegisterClipboardFormatW(n.as_ptr()) }
+}
+
+const CF_DIB: u32 = 8;
+
+fn global_bytes(h: HANDLE) -> Option<Vec<u8>> {
+    use windows_sys::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
+    unsafe {
+        let n = GlobalSize(h);
+        let p = GlobalLock(h) as *const u8;
+        if p.is_null() || n == 0 {
+            return None;
+        }
+        let v = std::slice::from_raw_parts(p, n).to_vec();
+        GlobalUnlock(h);
+        Some(v)
+    }
+}
+
+/// Картинка из буфера — PNG: готовый формат «PNG» или CF_DIB (32/24 бита), закодированный здесь.
+fn clip_get_png() -> Option<Vec<u8>> {
+    use windows_sys::Win32::System::DataExchange::{CloseClipboard, GetClipboardData, IsClipboardFormatAvailable};
+    let pf = png_format();
+    if unsafe { IsClipboardFormatAvailable(pf) } == 0 && unsafe { IsClipboardFormatAvailable(CF_DIB) } == 0 {
+        return None;
+    }
+    if !clip_open() {
+        return None;
+    }
+    let r = unsafe {
+        if IsClipboardFormatAvailable(pf) != 0 {
+            let h = GetClipboardData(pf);
+            if h.is_null() { None } else { global_bytes(h) }
+        } else {
+            let h = GetClipboardData(CF_DIB);
+            if h.is_null() { None } else { global_bytes(h).and_then(|d| dib_to_png(&d)) }
+        }
+    };
+    unsafe { CloseClipboard() };
+    r
+}
+
+fn dib_to_png(d: &[u8]) -> Option<Vec<u8>> {
+    let u32_at = |i: usize| -> Option<u32> { Some(u32::from_le_bytes(d.get(i..i + 4)?.try_into().ok()?)) };
+    let hs: u32 = u32_at(0)?;
+    let w = i32::from_le_bytes(d.get(4..8)?.try_into().ok()?);
+    let h = i32::from_le_bytes(d.get(8..12)?.try_into().ok()?);
+    let bpp = u16::from_le_bytes(d.get(14..16)?.try_into().ok()?);
+    let comp: u32 = u32_at(16)?;
+    if w <= 0 || h == 0 || !(bpp == 32 || bpp == 24) || !(comp == 0 || comp == 3) {
+        return None;
+    }
+    let (w, top_down, hh) = (w as usize, h < 0, h.unsigned_abs() as usize);
+    // BI_BITFIELDS: после заголовка (40 байт) — три маски.
+    let off = hs as usize + if comp == 3 && hs == 40 { 12 } else { 0 };
+    let stride = (w * bpp as usize / 8 + 3) & !3;
+    let px = d.get(off..off + stride * hh)?;
+    let mut rgba = vec![0u8; w * hh * 4];
+    let mut any_alpha = false;
+    for y in 0..hh {
+        let row = &px[(if top_down { y } else { hh - 1 - y }) * stride..];
+        for x in 0..w {
+            let s = &row[x * bpp as usize / 8..];
+            let o = (y * w + x) * 4;
+            rgba[o] = s[2];
+            rgba[o + 1] = s[1];
+            rgba[o + 2] = s[0];
+            rgba[o + 3] = if bpp == 32 { s[3] } else { 255 };
+            any_alpha |= bpp == 32 && s[3] != 0;
+        }
+    }
+    // 32 бита с нулевой альфой — на деле без прозрачности.
+    if !any_alpha {
+        rgba.chunks_exact_mut(4).for_each(|p| p[3] = 255);
+    }
+    let mut out = Vec::new();
+    {
+        let mut e = png::Encoder::new(&mut out, w as u32, hh as u32);
+        e.set_color(png::ColorType::Rgba);
+        e.set_depth(png::BitDepth::Eight);
+        let mut wr = e.write_header().ok()?;
+        wr.write_image_data(&rgba).ok()?;
+    }
+    Some(out)
+}
+
+/// PNG → буфер обмена: «PNG» как есть и CF_DIB (32 бита, снизу вверх) для остальных программ.
+fn clip_set_png(data: &[u8]) -> bool {
+    use windows_sys::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, SetClipboardData};
+    use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+    let Ok(mut r) = png::Decoder::new(data).read_info() else { return false };
+    let mut buf = vec![0u8; r.output_buffer_size()];
+    let Ok(info) = r.next_frame(&mut buf) else { return false };
+    let (w, h) = (info.width as usize, info.height as usize);
+    let ch = match info.color_type {
+        png::ColorType::Rgba => 4,
+        png::ColorType::Rgb => 3,
+        _ => return false,
+    };
+    if info.bit_depth != png::BitDepth::Eight {
+        return false;
+    }
+    let mut dib = Vec::with_capacity(40 + w * h * 4);
+    for v in [40u32, w as u32, h as u32] {
+        dib.extend_from_slice(&v.to_le_bytes());
+    }
+    dib.extend_from_slice(&1u16.to_le_bytes());
+    dib.extend_from_slice(&32u16.to_le_bytes());
+    dib.extend_from_slice(&0u32.to_le_bytes()); // BI_RGB
+    dib.extend_from_slice(&((w * h * 4) as u32).to_le_bytes());
+    dib.extend_from_slice(&[0u8; 16]);
+    for y in (0..h).rev() {
+        for x in 0..w {
+            let s = &buf[(y * w + x) * ch..];
+            dib.extend_from_slice(&[s[2], s[1], s[0], if ch == 4 { s[3] } else { 255 }]);
+        }
+    }
+    let put = |fmt: u32, bytes: &[u8]| unsafe {
+        let hm = GlobalAlloc(GMEM_MOVEABLE, bytes.len());
+        if hm.is_null() {
+            return false;
+        }
+        let p = GlobalLock(hm) as *mut u8;
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), p, bytes.len());
+        GlobalUnlock(hm);
+        !SetClipboardData(fmt, hm).is_null()
+    };
+    if !clip_open() {
+        return false;
+    }
+    let ok = unsafe {
+        EmptyClipboard();
+        let a = put(png_format(), data);
+        let b = put(CF_DIB, &dib);
+        a || b
+    };
+    unsafe { CloseClipboard() };
+    ok
+}
+
 fn clip_set(text: &str) -> bool {
     use windows_sys::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, SetClipboardData};
     use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
@@ -247,8 +391,10 @@ pub fn helper_main() -> io::Result<()> {
                 if seq == OWN_SEQ.load(Ordering::Relaxed) {
                     continue;
                 }
-                if let Some(t) = clip_get() {
-                    let f = syn_vm_agent::Frame::with_data(syn_vm_agent::Msg::Clip { mime: "text/plain".into() }, t.replace("\r\n", "\n").into_bytes());
+                // Текст, иначе картинка (PNG; кадр протокола — до 16 МиБ).
+                let item = clip_get().map(|t| ("text/plain", t.replace("\r\n", "\n").into_bytes())).or_else(|| clip_get_png().filter(|p| p.len() < 15 << 20).map(|p| ("image/png", p)));
+                if let Some((mime, data)) = item {
+                    let f = syn_vm_agent::Frame::with_data(syn_vm_agent::Msg::Clip { mime: mime.into() }, data);
                     if syn_vm_agent::write_frame(&mut *out.lock().unwrap(), &f).is_err() {
                         std::process::exit(0);
                     }
@@ -263,9 +409,9 @@ pub fn helper_main() -> io::Result<()> {
             Err(_) => std::process::exit(0),
         };
         match f.msg {
-            syn_vm_agent::Msg::Clip { .. } => {
-                let t = String::from_utf8_lossy(&f.data).into_owned();
-                if clip_set(&t) {
+            syn_vm_agent::Msg::Clip { ref mime } => {
+                let ok = if mime == "image/png" { clip_set_png(&f.data) } else { clip_set(&String::from_utf8_lossy(&f.data)) };
+                if ok {
                     OWN_SEQ.store(unsafe { GetClipboardSequenceNumber() }, Ordering::Relaxed);
                 }
             }

@@ -633,7 +633,12 @@ impl Client {
 
     /// Текст в буфер обмена гостя.
     pub fn send_clip(&mut self, text: &str) -> Result<()> {
-        self.send(Frame::with_data(Msg::Clip { mime: "text/plain".into() }, text.as_bytes().to_vec()))
+        self.send_clip_data("text/plain", text.as_bytes().to_vec())
+    }
+
+    /// Содержимое буфера гостю: `text/plain` или `image/png`.
+    pub fn send_clip_data(&mut self, mime: &str, data: Vec<u8>) -> Result<()> {
+        self.send(Frame::with_data(Msg::Clip { mime: mime.into() }, data))
     }
 
     /// Разрешение экрана гостя (без своей видеокарты: ChangeDisplaySettings в его сеансе).
@@ -641,13 +646,13 @@ impl Client {
         self.send(Frame::new(Msg::Mode { width, height }))
     }
 
-    /// Подписаться на буфер обмена гостя: `on_text` на каждый новый текст, до разрыва.
-    pub fn follow_clip(&mut self, on_text: &mut dyn FnMut(String)) -> Result<()> {
+    /// Подписаться на буфер обмена гостя: `on_clip(mime, данные)` на каждое изменение, до разрыва.
+    pub fn follow_clip(&mut self, on_clip: &mut dyn FnMut(&str, Vec<u8>)) -> Result<()> {
         self.send(Frame::new(Msg::Clip { mime: "x-subscribe".into() }))?;
         loop {
             let f = self.recv(None)?;
-            if let Msg::Clip { .. } = &f.msg {
-                on_text(String::from_utf8_lossy(&f.data).into_owned());
+            if let Msg::Clip { mime } = f.msg {
+                on_clip(&mime, f.data);
             }
         }
     }
