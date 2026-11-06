@@ -196,9 +196,18 @@ files = [
   { run = "cat \"$HOME/Storage/Нейросети/Модели/tts/leokani-tts-7m.syn\"", to = "usr/share/synaptix/models/tts/leokani-tts-7m.syn" },
 ]
 
+[packages.synaptix-model-lfm3-1-7b]
+description = "Модель synaptix: LiquidAI LFM3-1.7B — языковая модель (свёртки + внимание), чат с размышлениями и инструментами, веса int8 (q8row) для процессора телефона. Лицензия LFM Open License v1.0"
+description_en = "synaptix model: LiquidAI LFM3-1.7B — language model (convolutions + attention), chat with reasoning and tools, int8 (q8row) weights for the phone CPU. LFM Open License v1.0"
+depends = ["synaptix"]
+aur = false
+files = [
+  { run = "cat \"$HOME/Storage/Нейросети/Модели/llm/lfm3-1.7b-q8row.syn\"", to = "usr/share/synaptix/models/llm/lfm3-1.7b.syn" },
+]
+
 [packages.synaptix-model-silero-tts-v5-6-ru]
-description = "Модель synaptix: Silero TTS v5.6 — русская речь (голоса aidar, baya, kseniya, eugene, xenia), ударения, «ё» и омографы сами, английский — с акцентом голоса (нужен G2P из synaptix-model-leokani-tts-7m); быстро на процессоре. Лицензия MIT"
-description_en = "synaptix model: Silero TTS v5.6 — Russian speech (aidar, baya, kseniya, eugene, xenia), automatic stress and homographs, English with the voice's accent (needs G2P from synaptix-model-leokani-tts-7m); fast on CPU. MIT license"
+description = "Модель synaptix: Silero TTS v5.6 — русская речь (голоса aidar, baya, kseniya, eugene, xenia), ударения, «ё» и омографы сами, английский — с акцентом голоса (нужен G2P из synaptix-model-leokani-tts-7m); быстро на процессоре. Лицензия CC BY-NC 4.0"
+description_en = "synaptix model: Silero TTS v5.6 — Russian speech (aidar, baya, kseniya, eugene, xenia), automatic stress and homographs, English with the voice's accent (needs G2P from synaptix-model-leokani-tts-7m); fast on CPU. CC BY-NC 4.0 license"
 depends = ["synaptix"]
 optdepends = ["synaptix-model-leokani-tts-7m: английский текст по английскому произношению"]
 optdepends_en = ["synaptix-model-leokani-tts-7m: English text with English pronunciation"]

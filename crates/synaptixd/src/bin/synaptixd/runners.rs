@@ -668,7 +668,15 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
                 Some(f) if !policy.transcode => f.clone(),
                 _ => dtype_label(policy.weights_storage),
             };
-            let max_seq = if dev == DeviceKind::Npu { Some(2048) } else { synaptix::facade::arch::config_max_seq(path) };
+            let max_seq = if dev == DeviceKind::Npu {
+                Some(2048)
+            } else {
+                // На процессоре машины с малой памятью (телефон) — не больше 32k: таблицы RoPE
+                // на заявленные 256k (LFM3) — это ~270 МБ ОЗУ, а такой контекст на CPU
+                // всё равно не прочитать за разумное время.
+                let cap = if dev == DeviceKind::Cpu && crate::manager::meminfo().0 < (16u64 << 30) { 32768 } else { usize::MAX };
+                synaptix::facade::arch::config_max_seq(path).map(|m| m.min(cap))
+            };
             let (llm, tok) = synaptix::facade::llm::load_llm_full(path, policy, &device, max_seq, runtime).map_err(|e| anyhow::anyhow!("{e}"))?;
             let window = llm.config().max_seq_len.max(2048);
             Ok((Loaded::Llm(Box::new(LlmSlot { llm, tok, window, path: path.to_path_buf(), sessions: std::sync::Mutex::new(Vec::new()), kv_seen: std::sync::Mutex::new(Vec::new()), kv_active: std::sync::Mutex::new(None), media: std::sync::Mutex::new(Vec::new()) })), Some(label)))

@@ -7730,6 +7730,7 @@ dependencies = [
  "synaptix-llm-common",
  "synaptix-llm-gemma3",
  "synaptix-llm-gemma4",
+ "synaptix-llm-lfm3",
  "synaptix-llm-llama",
  "synaptix-llm-muse-glimmer",
  "synaptix-llm-qwen3",
@@ -8144,7 +8145,9 @@ dependencies = [
 name = "synaptix-llm-common"
 version = "0.1.1"
 dependencies = [
+ "bytemuck",
  "cudarc",
+ "half",
  "rayon",
  "safetensors",
  "serde",
@@ -8180,6 +8183,23 @@ dependencies = [
  "serde",
  "serde_json",
  "synaptix-bundle",
+ "synaptix-core",
+ "synaptix-infer",
+ "synaptix-io",
+ "synaptix-llm-common",
+ "synaptix-nn",
+ "synaptix-ops",
+ "synaptix-tokenizer",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "synaptix-llm-lfm3"
+version = "0.1.1"
+dependencies = [
+ "rayon",
+ "serde",
+ "serde_json",
  "synaptix-core",
  "synaptix-infer",
  "synaptix-io",
