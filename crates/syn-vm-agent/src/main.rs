@@ -83,8 +83,13 @@ fn instance() -> u64 {
     })
 }
 
+/// Хост подписан на журналы.
+pub fn logs_on() -> bool {
+    LOGS_ON.load(Ordering::Relaxed)
+}
+
 /// Метка загрузки — один раз за запуск агента (не меняется от часов).
-fn boot() -> String {
+pub fn boot() -> String {
     static B: OnceLock<String> = OnceLock::new();
     B.get_or_init(sys::boot_id).clone()
 }

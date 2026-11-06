@@ -539,7 +539,162 @@ unsafe fn render_event(e: isize) -> String {
     format!("{time} {lvl} {provider} {id}: {}", msg.trim().replace("\r\n", " ").replace('\n', " "))
 }
 
+// ─── Журнал драйвера syn-gpu (кольцо KMD через D3DKMTEscape) ───────────────
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct KmtAdapterInfo {
+    h_adapter: u32,
+    luid_low: u32,
+    luid_high: i32,
+    num_sources: u32,
+    precise_present: i32,
+}
+
+#[repr(C)]
+struct KmtEnum2 {
+    num: u32,
+    adapters: *mut KmtAdapterInfo,
+}
+
+#[repr(C)]
+struct KmtEscape {
+    h_adapter: u32,
+    h_device: u32,
+    ty: u32,
+    flags: u32,
+    data: *mut c_void,
+    size: u32,
+    h_context: u32,
+}
+
+/// qemu-vulkan-driver proto::escape::LogRead (op 8).
+#[repr(C)]
+struct LogRead {
+    magic: u32,
+    op: u32,
+    status: i32,
+    _pad0: u32,
+    cursor: u64,
+    next: u64,
+    lost: u64,
+    len: u32,
+    _pad: u32,
+    data: [u8; 16384],
+}
+
+struct Kmt {
+    enum2: unsafe extern "system" fn(*mut KmtEnum2) -> i32,
+    escape: unsafe extern "system" fn(*const KmtEscape) -> i32,
+    close: unsafe extern "system" fn(*const u32) -> i32,
+}
+
+fn kmt() -> Option<Kmt> {
+    use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryA};
+    unsafe {
+        let gdi = LoadLibraryA(c"gdi32.dll".as_ptr().cast());
+        if gdi.is_null() {
+            return None;
+        }
+        let get = |n: &std::ffi::CStr| GetProcAddress(gdi, n.as_ptr().cast());
+        Some(Kmt {
+            enum2: std::mem::transmute(get(c"D3DKMTEnumAdapters2")?),
+            escape: std::mem::transmute(get(c"D3DKMTEscape")?),
+            close: std::mem::transmute(get(c"D3DKMTCloseAdapter")?),
+        })
+    }
+}
+
+/// Прочитать кольцо с `cursor`: (текст, следующая позиция, потеряно). Ошибка — не наш адаптер.
+fn kmd_read(k: &Kmt, adapter: u32, cursor: u64, r: &mut LogRead) -> Option<(usize, u64, u64)> {
+    r.magic = u32::from_le_bytes(*b"SYGE");
+    r.op = 8;
+    r.status = -1;
+    r.cursor = cursor;
+    r.len = 0;
+    let e = KmtEscape { h_adapter: adapter, h_device: 0, ty: 0, flags: 0, data: r as *mut LogRead as *mut c_void, size: std::mem::size_of::<LogRead>() as u32, h_context: 0 };
+    let st = unsafe { (k.escape)(&e) };
+    (st == 0 && r.status == 0).then(|| ((r.len as usize).min(r.data.len()), r.next, r.lost))
+}
+
+/// Адаптер syn-gpu: тот, что отвечает на LOG_READ.
+fn kmd_adapter(k: &Kmt, r: &mut LogRead) -> Option<u32> {
+    let mut q = KmtEnum2 { num: 0, adapters: null_mut() };
+    if unsafe { (k.enum2)(&mut q) } != 0 {
+        return None;
+    }
+    let mut list = vec![KmtAdapterInfo::default(); q.num as usize];
+    q.adapters = list.as_mut_ptr();
+    if unsafe { (k.enum2)(&mut q) } != 0 {
+        return None;
+    }
+    let mut found = None;
+    for a in &list[..q.num as usize] {
+        if found.is_none() && kmd_read(k, a.h_adapter, u64::MAX, r).is_some() {
+            found = Some(a.h_adapter);
+        } else {
+            unsafe { (k.close)(&a.h_adapter) };
+        }
+    }
+    found
+}
+
+/// Строки журнала KMD (и UMD через него) — хосту с меткой «syn-gpu». Позиция хранится на
+/// диске в пределах одной загрузки: перезапуск агента не повторяет строки.
+fn kmd_log() {
+    let Some(k) = kmt() else { return };
+    let mut r: Box<LogRead> = unsafe { Box::new(std::mem::zeroed()) };
+    let state = data_dir().join("kmd-log.cursor");
+    let boot = crate::boot();
+    let mut cursor: u64 = std::fs::read_to_string(&state)
+        .ok()
+        .and_then(|s| s.split_once(' ').filter(|(b, _)| *b == boot).and_then(|(_, c)| c.trim().parse().ok()))
+        .unwrap_or(0);
+    let mut announced = false;
+    loop {
+        // Хост ещё не слушает — не двигать позицию (строки дождутся его).
+        while !crate::logs_on() {
+            std::thread::sleep(Duration::from_millis(300));
+        }
+        let Some(h) = kmd_adapter(&k, &mut r) else {
+            std::thread::sleep(Duration::from_secs(5));
+            continue;
+        };
+        if !announced {
+            crate::log("журнал syn-gpu (KMD): слушаю");
+            announced = true;
+        }
+        let mut partial = String::new();
+        loop {
+            if !crate::logs_on() {
+                std::thread::sleep(Duration::from_millis(300));
+                continue;
+            }
+            let Some((n, next, lost)) = kmd_read(&k, h, cursor, &mut r) else { break };
+            if lost > 0 {
+                crate::guest_log("syn-gpu", &format!("[потеряно {lost} байт журнала]"));
+            }
+            if n > 0 {
+                partial.push_str(&String::from_utf8_lossy(&r.data[..n]));
+                if let Some(i) = partial.rfind('\n') {
+                    let lines: String = partial.drain(..=i).collect();
+                    crate::guest_log("syn-gpu", lines.trim_end());
+                }
+                cursor = next;
+                let _ = std::fs::write(&state, format!("{boot} {cursor}"));
+                continue; // ещё есть — читать сразу
+            }
+            cursor = next;
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        // Адаптер пропал (переустановка драйвера) — найти заново.
+        unsafe { (k.close)(&h) };
+        std::thread::sleep(Duration::from_secs(1));
+    }
+}
+
 pub fn start_logs() {
+    std::thread::spawn(kmd_log);
     std::thread::spawn(|| dbwin(r"Global\".into(), || true));
     // OutputDebugString процессов сеанса пользователя (DWM с UMD, игры) — в его пространстве имён.
     std::thread::spawn(|| {
