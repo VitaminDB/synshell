@@ -27,6 +27,8 @@ use syngui::widgets::LiveFrame;
 const HELLO: u32 = 1;
 const FRAME: u32 = 2;
 const GONE: u32 = 3;
+/// Сервер → клиент: аппаратный курсор гостя (`Cursor`, пиксели BGRA в BAR2).
+const CURSOR: u32 = 5;
 const IMAGE: u32 = 4;
 const RELEASE: u32 = 16;
 const CAPS: u32 = 18;
@@ -61,6 +63,14 @@ pub struct Present {
     /// Желаемое разрешение (окно) — уходит сразу и после каждого (пере)подключения.
     mode: Mutex<Option<(u32, u32)>>,
     tx: Mutex<Option<Arc<Mutex<UnixStream>>>>,
+    /// Номер своего указателя syngui для курсора гостя (0 — не ставить: проверка без окна).
+    cursor_id: u32,
+}
+
+/// Номер указателя syngui (`CursorIcon::Custom`) для курсора гостя машины.
+pub fn cursor_id(id: &str) -> u32 {
+    let h = id.bytes().fold(0x811c_9dc5u32, |h, b| (h ^ b as u32).wrapping_mul(0x0100_0193));
+    0x5356_0000 | (h & 0xffff)
 }
 
 impl Present {
@@ -105,7 +115,7 @@ fn socket(id: &str) -> PathBuf {
 
 /// Запустить клиента: ждёт сокет, переподключается; `on_change` — новый кадр или слой.
 pub fn start(id: &str, on_change: Arc<dyn Fn() + Send + Sync>) -> Arc<Present> {
-    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), tx: Mutex::new(None) });
+    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), tx: Mutex::new(None), cursor_id: cursor_id(id) });
     let me = p.clone();
     let path = socket(id);
     std::thread::Builder::new()
@@ -136,7 +146,7 @@ pub fn start(id: &str, on_change: Arc<dyn Fn() + Send + Sync>) -> Arc<Present> {
 pub fn grab(id: &str, wait: Duration, desktop: bool) -> Result<Layer> {
     let path = socket(id);
     let s = UnixStream::connect(&path).with_context(|| path.display().to_string())?;
-    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), tx: Mutex::new(None) });
+    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0 });
     let p2 = p.clone();
     let t = std::thread::spawn(move || {
         let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
@@ -192,6 +202,8 @@ fn run(p: &Present, mut s: UnixStream, on_change: &Arc<dyn Fn() + Send + Sync>, 
     // Импорт не удался — до конца соединения кадры через BAR2.
     let gpu_failed = Arc::new(AtomicBool::new(false));
     let mut images: HashMap<(u64, u32), Arc<syngui::gpu::external::ExternalImage>> = HashMap::new();
+    // Последний поставленный курсор: (seq, видим).
+    let mut cursor_state: Option<(u32, bool)> = None;
     while p.alive.load(Ordering::Relaxed) {
         if !caps_sent {
             if let Some((dev, drv)) = syngui::gpu::external::device_uuids() {
@@ -308,6 +320,34 @@ fn run(p: &Present, mut s: UnixStream, on_change: &Arc<dyn Fn() + Send + Sync>, 
                 };
                 tracing::info!("syn-gpu present: поверхность {surface:#x}: изображение {index} {}×{}", img.width, img.height);
                 images.insert((surface, index), Arc::new(img));
+            }
+            CURSOR if p.cursor_id != 0 && payload.len() >= 48 => {
+                let (seq, visible) = (u32_at(&payload, 0), u32_at(&payload, 4) != 0);
+                if cursor_state == Some((seq, visible)) {
+                    continue;
+                }
+                cursor_state = Some((seq, visible));
+                let (hx, hy, w, h, stride) = (u32_at(&payload, 16), u32_at(&payload, 20), u32_at(&payload, 24), u32_at(&payload, 28), u32_at(&payload, 32) as usize);
+                let off = u64_at(&payload, 40) as usize;
+                let img = if !visible || w == 0 || h == 0 {
+                    None
+                } else {
+                    heap.as_ref().and_then(|hp| {
+                        let (w, h) = (w.min(256) as usize, h.min(256) as usize);
+                        if stride < w * 4 || off.checked_add(stride * (h - 1) + w * 4)? > hp.len {
+                            return None;
+                        }
+                        let src = unsafe { std::slice::from_raw_parts(hp.ptr.add(off), stride * (h - 1) + w * 4) };
+                        let mut rgba = vec![0u8; w * h * 4];
+                        for row in 0..h {
+                            for (d, s) in rgba[row * w * 4..(row + 1) * w * 4].chunks_exact_mut(4).zip(src[row * stride..row * stride + w * 4].chunks_exact(4)) {
+                                d.copy_from_slice(&[s[2], s[1], s[0], s[3]]);
+                            }
+                        }
+                        Some(syngui::input::CursorImage { width: w as u16, height: h as u16, hot_x: hx.min(w as u32 - 1) as u16, hot_y: hy.min(h as u32 - 1) as u16, rgba })
+                    })
+                };
+                syngui::input::set_custom_cursor(p.cursor_id, img);
             }
             GONE => {
                 let surface = u64_at(&payload, 0);
@@ -444,7 +484,7 @@ mod tests {
             fr.extend_from_slice(&v.to_le_bytes());
         }
         send(&mut srv, FRAME, &fr).unwrap();
-        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), tx: Mutex::new(None) });
+        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0 });
         let changed = Arc::new(AtomicBool::new(false));
         let ch = changed.clone();
         let p2 = p.clone();
@@ -498,7 +538,7 @@ mod tests {
             fr.extend_from_slice(&v.to_le_bytes());
         }
         send(&mut srv, FRAME, &fr).unwrap();
-        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), tx: Mutex::new(None) });
+        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0 });
         let p2 = p.clone();
         let t = std::thread::spawn(move || {
             let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});

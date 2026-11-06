@@ -124,6 +124,7 @@ pub fn map_cursor(c: syngui::input::CursorIcon) -> smithay_client_toolkit::seat:
         C::SResize => S::SResize,
         C::WResize => S::WResize,
         // Скрытый указатель прячет вызывающий (`hide_cursor`); здесь — обычная стрелка.
-        C::None => S::Default,
+        // Свои картинки слоям оболочки не нужны — обычная стрелка.
+        C::None | C::Custom(_) => S::Default,
     }
 }

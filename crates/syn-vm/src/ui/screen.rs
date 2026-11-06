@@ -53,9 +53,11 @@ pub fn page(st: St, full: bool) -> W {
             } else {
                 (s.frame.clone(), st.guest_size.get_untracked())
             };
+            // Над рабочим столом syn-gpu — аппаратный курсор гостя (форма от сервера syn-gpu).
+            let guest_cursor = if syn_display { CursorIcon::Custom(crate::present::cursor_id(&id)) } else { CursorIcon::None };
             let screen = LiveView::new(frame)
                 .fit(fit)
-                .cursor(CursorIcon::None)
+                .cursor(guest_cursor)
                 .on_input(move |e| input(st, &id2, &s2, e))
                 .on_resize(move |sz| on_resize(st, sz))
                 .class("screen");
@@ -69,7 +71,7 @@ pub fn page(st: St, full: bool) -> W {
             let map = move |fx: f32, fy: f32| -> (f32, f32) {
                 ((lx as f32 + fx * lw as f32) / gw.max(1) as f32, (ly as f32 + fy * lh as f32) / gh.max(1) as f32)
             };
-            let game_view = LiveView::new(layer.frame.clone()).fit(ImageFit::Fill).cursor(CursorIcon::None).on_input(move |e| {
+            let game_view = LiveView::new(layer.frame.clone()).fit(ImageFit::Fill).cursor(guest_cursor).on_input(move |e| {
                 let e = match e {
                     LiveInput::Move { x, y } => {
                         let (x, y) = map(x, y);
