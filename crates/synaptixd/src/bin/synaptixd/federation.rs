@@ -252,6 +252,27 @@ fn model_kind(req: &Request) -> Option<(&str, Option<ModelKind>)> {
     })
 }
 
+/// `local:<id>` — модель этой машины явно (выбор в программе «здесь», даже
+/// если та же модель есть на сильном устройстве рядом). Префикс снимается;
+/// true — запрос не пересылать.
+pub fn take_local(req: &mut Request) -> bool {
+    use Request as R;
+    let model = match req {
+        R::Open { model } | R::Load { model } => model,
+        R::Ctc { model, .. } | R::MfaAlign { model, .. } | R::Image { model, .. } | R::Video { model, .. } | R::Music { model, .. } => model,
+        R::Embed { model, .. } | R::Transcribe { model, .. } | R::Speak { model, .. } | R::Rerank { model, .. } => model,
+        R::Generate { model, .. } | R::Tokenize { model, .. } | R::LlmInfo { model } => model,
+        _ => return false,
+    };
+    match model.trim().strip_prefix("local:") {
+        Some(id) => {
+            *model = id.to_string();
+            true
+        }
+        None => false,
+    }
+}
+
 impl Fed {
     fn run(self: Arc<Self>) {
         loop {

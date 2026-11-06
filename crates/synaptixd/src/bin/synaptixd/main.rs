@@ -788,7 +788,7 @@ impl Conn {
                 }
             }
             let _cleanup = Cleanup(blob_files);
-            let env = match parsed {
+            let mut env = match parsed {
                 Ok(e) => e,
                 Err(r) => {
                     if self.send(&r, &[]).is_err() {
@@ -798,7 +798,8 @@ impl Conn {
                 }
             };
             // Федерация: модель на спаренном устройстве — переслать туда.
-            if !self.remote && !matches!(env.req, Request::Subscribe) {
+            let here = federation::take_local(&mut env.req);
+            if !self.remote && !here && !matches!(env.req, Request::Subscribe) {
                 if let Some(fed) = federation::get() {
                     match fed.route(&env.req) {
                         federation::Route::Local => {}
