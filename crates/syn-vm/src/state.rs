@@ -686,7 +686,20 @@ pub fn attach(st: St, id: &str) {
     // Кадры игр syn-gpu поверх экрана (нет сервера — клиент просто ждёт сокет).
     close_present(&id_s);
     let p = crate::present::start(&id_s, on_frame);
-    presents().lock().unwrap().insert(id_s, p);
+    presents().lock().unwrap().insert(id_s, p.clone());
+    // Частота монитора окна — серверу syn-gpu (VSync гостя от хоста); окно ушло на другой
+    // монитор — новая частота (проверка раз в 2 с; уходит, только если изменилась).
+    std::thread::spawn(move || {
+        while p.is_alive() {
+            let p2 = p.clone();
+            run_on_main_thread(move || {
+                if let Some(mhz) = syngui::signal::monitor_refresh_millihertz() {
+                    p2.request_refresh(mhz);
+                }
+            });
+            std::thread::sleep(Duration::from_secs(2));
+        }
+    });
 }
 
 fn on_note(st: St, id: &str, n: Note) {

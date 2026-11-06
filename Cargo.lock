@@ -8481,6 +8481,7 @@ dependencies = [
  "synaptix-io",
  "synaptix-nn",
  "synaptix-ops",
+ "synaptix-tts-leokani",
  "thiserror 2.0.21",
 ]
 
