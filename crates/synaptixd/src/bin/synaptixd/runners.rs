@@ -127,6 +127,7 @@ pub enum TtsEngine {
     Audio8(synaptix_tts_audio8::Audio8Pipeline),
     Supertonic(synaptix_tts_supertonic::SupertonicPipeline),
     Leokani(synaptix_tts_leokani::LeokaniPipeline),
+    F5(synaptix_tts_f5::F5Pipeline),
 }
 
 /// Голос, которым продолжать: у OmniVoice — референс в кодах кодека, у
@@ -136,6 +137,8 @@ pub enum Voice {
     Pcm { pcm: Vec<f32>, sr: u32 },
     /// Audio8: коды кодека образца и его текст.
     Audio8(synaptix_tts_audio8::VoicePrompt),
+    /// F5-TTS: образец 24 кГц и его текст.
+    F5(synaptix_tts_f5::VoicePrompt),
 }
 
 /// Синтезатор речи и запомненные голоса: `voices` — голоса разговоров
@@ -277,6 +280,22 @@ fn audio8_voice(p: &synaptix_tts_audio8::Audio8Pipeline, path: &Path, text: &str
     anyhow::ensure!(!text.is_empty(), "Audio8 клонирует голос только с текстом образца (ref_text) — слово в слово");
     let pcm = synaptix_flow::ops::media::decode_pcm(&path.to_string_lossy(), p.sample_rate()).map_err(|e| anyhow::anyhow!("образец голоса {}: {e}", path.display()))?;
     p.voice_prompt(&pcm, p.sample_rate(), text).map_err(|e| anyhow::anyhow!("образец голоса {}: {e}", path.display()))
+}
+
+/// Образец голоса F5-TTS: запись любого формата и её точный текст.
+fn f5_voice(path: &Path, text: &str) -> anyhow::Result<synaptix_tts_f5::VoicePrompt> {
+    let text = text.trim();
+    anyhow::ensure!(!text.is_empty(), "F5-TTS клонирует голос только с текстом образца (ref_text) — слово в слово");
+    let sr = synaptix_tts_f5::SAMPLE_RATE;
+    let pcm = synaptix_flow::ops::media::decode_pcm(&path.to_string_lossy(), sr).map_err(|e| anyhow::anyhow!("образец голоса {}: {e}", path.display()))?;
+    synaptix_tts_f5::VoicePrompt::new(&pcm, sr, text).map_err(|e| anyhow::anyhow!("образец голоса {}: {e}", path.display()))
+}
+
+/// Русские версии F5-TTS обучены на русской и английской речи.
+fn f5_check_lang(language: Option<&str>, text: &str) -> anyhow::Result<()> {
+    let l = language.map(|l| l.trim().to_ascii_lowercase()).filter(|l| !l.is_empty()).unwrap_or_else(|| text_language(text).to_string());
+    anyhow::ensure!(l == "ru" || l == "en", "F5-TTS (русские версии) говорит по-русски и по-английски (язык текста — {l})");
+    Ok(())
 }
 
 /// VibeVoice читает сценарий «Speaker N: …»; обычный текст — одним голосом.
@@ -582,11 +601,16 @@ pub fn load(kind: ModelKind, arch: &str, path: &Path, components: &std::collecti
             let a = arch.to_ascii_lowercase();
             // OmniVoice — F16, как upstream (BF16 слишком груб для её CFG и
             // выбора токенов); остальные — BF16.
-            let omni = !a.contains("vibevoice") && !a.starts_with("voxcpm") && a != "audio8" && a != "arktts" && a != "supertonic" && a != "leokani";
+            let omni = !a.contains("vibevoice") && !a.starts_with("voxcpm") && a != "audio8" && a != "arktts" && a != "supertonic" && a != "leokani" && a != "f5";
             let (q, dtype) = audio_precision(dev, quant, if dev == DeviceKind::Npu || omni { DType::F16 } else { DType::BF16 });
             let engine = if a == "leokani" {
                 // 7M параметров: F32, на процессоре быстрее реального времени в сотни раз.
                 TtsEngine::Leokani(synaptix_tts_leokani::LeokaniPipeline::from_syn(path, device).map_err(|e| anyhow::anyhow!("{e}"))?)
+            } else if a == "f5" {
+                anyhow::ensure!(dev != DeviceKind::Npu, "F5-TTS на NPU не исполняется");
+                // Как upstream на видеокарте — F16 (BF16 грубее для потока с CFG); на CPU — F32.
+                let dtype = if dev == DeviceKind::Cpu { DType::F32 } else if dtype == DType::BF16 { DType::F16 } else { dtype };
+                TtsEngine::F5(synaptix_tts_f5::F5Pipeline::from_syn(path, device, Some(dtype), q).map_err(|e| anyhow::anyhow!("{e}"))?)
             } else if a == "supertonic" {
                 anyhow::ensure!(dev != DeviceKind::Npu, "Supertonic на NPU не исполняется");
                 // ~100M параметров: счёт F32, как оригинал в onnxruntime; квант не нужен.
@@ -889,6 +913,20 @@ impl Loaded {
                 }
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
                 Ok((out.pcm, out.sample_rate as u32))
+            }
+            TtsEngine::F5(p) => {
+                let path = r.voices.first().ok_or_else(|| anyhow::anyhow!("F5-TTS говорит голосом образца: нужна запись голоса и её текст"))?;
+                f5_check_lang(r.language.as_deref(), text)?;
+                let voice = f5_voice(path, r.ref_text.as_deref().unwrap_or(""))?;
+                let o = synaptix_tts_f5::Options {
+                    nfe: r.steps.unwrap_or(32).clamp(2, 128),
+                    cfg: r.guidance.unwrap_or(2.0),
+                    speed: r.speed.unwrap_or(1.0).clamp(0.3, 3.0),
+                    seed: r.seed,
+                    ..Default::default()
+                };
+                let pcm = p.synthesize(&voice, text, &o).map_err(|e| anyhow::anyhow!("{e}"))?;
+                Ok((pcm, p.sample_rate()))
             }
             TtsEngine::Leokani(p) => {
                 anyhow::ensure!(r.voices.is_empty(), "Leokani не клонирует голос по записи — есть голоса dala и pono");
@@ -1534,6 +1572,29 @@ impl Loaded {
                     r.map_err(|e| anyhow::anyhow!("{e}"))?
                 };
                 Ok((wav, p.output_sample_rate() as u32, Some(seed)))
+            }
+            TtsEngine::F5(p) => {
+                // Голос — всегда клон: образец пользователя или опорный клип
+                // персонажа (служба подставляет его вместе с текстом).
+                let path = ref_audio.ok_or_else(|| anyhow::anyhow!("F5-TTS говорит голосом образца: нужны ref_audio и ref_text (или персонаж speaker)"))?;
+                f5_check_lang(language, text)?;
+                let rkey = format!("{path}\x1f{ref_text}");
+                if !st.refs.contains_key(&rkey) {
+                    let v = f5_voice(Path::new(path), &ref_text)?;
+                    st.refs.insert(rkey.clone(), Voice::F5(v));
+                }
+                let Some(Voice::F5(voice)) = st.refs.get(&rkey) else { anyhow::bail!("образец голоса не подготовлен") };
+                let o = synaptix_tts_f5::Options {
+                    nfe: steps.unwrap_or(32).clamp(2, 128),
+                    cfg: guidance.unwrap_or(2.0),
+                    speed: (speed as f32).clamp(0.3, 3.0),
+                    seed: phrase_seed,
+                    ..Default::default()
+                };
+                let pcm = p.synthesize(voice, text, &o).map_err(|e| anyhow::anyhow!("{e}"))?;
+                let t = p.last_timings();
+                tracing::info!("f5: звук {:.1} с за {:.2} с (DiT {:.2} с, вокодер {:.2} с, кусков {})", t.audio_s, t.dit_s + t.vocoder_s, t.dit_s, t.vocoder_s, t.chunks);
+                Ok((pcm, p.sample_rate(), Some(seed)))
             }
             TtsEngine::Leokani(p) => {
                 // Два готовых голоса, детерминированно (зерно не нужно); темп — родной.

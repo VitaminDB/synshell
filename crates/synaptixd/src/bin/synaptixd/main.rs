@@ -408,7 +408,14 @@ impl Conn {
                 // с опорного клипа, описание — манера поверх тембра.
                 // Audio8 голоса по описанию не знает: персонаж — клон с опорного
                 // клипа на языке текста (клону нужен и текст клипа).
-                let audio8 = arch == "audio8" || arch == "arktts";
+                // F5-TTS говорит только голосом образца: без своего образца —
+                // персонаж (по описанию голоса, иначе female_adult), клип с текстом.
+                let f5 = arch == "f5";
+                if f5 && call.get("ref_audio").is_none() && params.text("speaker").is_none() && params.text("ref_audio").is_none() {
+                    let sp = call.text("voice").and_then(voices::speaker_for_description).unwrap_or("female_adult");
+                    params.set("speaker", Some(sp.into()));
+                }
+                let audio8 = arch == "audio8" || arch == "arktts" || f5;
                 let clone_voice = vibe || audio8 || (arch.starts_with("voxcpm") && std::env::var_os("SYNAPTIXD_VOX_CLIP").is_some());
                 let language = params.text("language").map(str::to_string);
                 let clip_language = if audio8 { language.clone().or_else(|| Some(runners::text_language(&text).to_string())) } else { language.clone() };
@@ -500,7 +507,8 @@ impl Conn {
                     // У VibeVoice высоту задаёт клип-образец — повтор её не меняет.
                     // У Supertonic голос персонажа — готовый стиль: высота задана им,
                     // повтор с другим зерном её не меняет.
-                    let pitch = p.text("speaker").filter(|_| !vibe && arch != "supertonic" && arch != "leokani").map(voices::pitch_range).filter(|r| r.1 < 1000.0);
+                    // У F5 высоту задаёт клип-образец, как у VibeVoice.
+                    let pitch = p.text("speaker").filter(|_| !vibe && !f5 && arch != "supertonic" && arch != "leokani").map(voices::pitch_range).filter(|r| r.1 < 1000.0);
                     let mut best: Option<(f32, Vec<f32>, u32, Option<u64>)> = None;
                     for attempt in 0..3i64 {
                         let mut p = p.clone();

@@ -144,6 +144,23 @@ pub fn preset_for_description(arch: &str, desc: &str) -> Option<&'static str> {
     }
 }
 
+/// Персонаж по словесному описанию голоса (для движков, которые голос только
+/// клонируют, — F5-TTS); описание без пола — `None`.
+pub fn speaker_for_description(desc: &str) -> Option<&'static str> {
+    let words: Vec<String> = desc.to_lowercase().split(|c: char| !c.is_alphabetic()).filter(|w| !w.is_empty()).map(String::from).collect();
+    let has = |ws: &[&str]| words.iter().any(|w| ws.contains(&w.as_str()));
+    let female = has(&["female", "woman", "women", "girl", "lady", "feminine", "женский", "женщина", "девочка"]);
+    let male = !female && has(&["male", "man", "men", "boy", "guy", "masculine", "мужской", "мужчина", "мальчик"]);
+    let child = has(&["girl", "boy", "child", "kid", "девочка", "мальчик", "ребёнок"]);
+    let old = has(&["elderly", "old", "senior", "пожилой", "пожилая", "старый"]);
+    let young = has(&["young", "молодой", "молодая"]);
+    match (female, male) {
+        (true, _) => Some(if child { "girl" } else if old { "female_elderly" } else if young { "female_young" } else { "female_adult" }),
+        (_, true) => Some(if child { "boy" } else if old { "male_elderly" } else if young { "male_young" } else { "male_adult" }),
+        _ => None,
+    }
+}
+
 /// Ожидаемая высота голоса персонажа (медиана F0, Гц).
 pub fn pitch_range(speaker: &str) -> (f32, f32) {
     match speaker {
@@ -264,6 +281,9 @@ mod tests {
         assert_eq!(preset_for_description("leokani", "female, american accent"), Some("dala"));
         assert_eq!(preset_for_description("supertonic", "elderly male"), Some("M3"));
         assert_eq!(preset_for_description("leokani", "dala"), None);
+        assert_eq!(speaker_for_description("elderly woman"), Some("female_elderly"));
+        assert_eq!(speaker_for_description("мужской"), Some("male_adult"));
+        assert_eq!(speaker_for_description("calm"), None);
         assert_eq!(preset_for_description("omnivoice", "male"), None);
     }
 

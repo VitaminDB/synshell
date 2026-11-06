@@ -41,6 +41,10 @@ fn read_wav(path: &str) -> Result<(Vec<f32>, u32), String> {
             ch = u16::from_le_bytes([body[2], body[3]]);
             sr = u32::from_le_bytes(body[4..8].try_into().unwrap());
             bits = u16::from_le_bytes([body[14], body[15]]);
+            // WAVE_FORMAT_EXTENSIBLE: настоящий формат — первые 2 байта GUID подтипа
+            if fmt == 0xFFFE && body.len() >= 26 {
+                fmt = u16::from_le_bytes([body[24], body[25]]);
+            }
         } else if id == b"data" {
             let samples: Vec<f32> = match (fmt, bits) {
                 (1, 16) => body.chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0).collect(),
