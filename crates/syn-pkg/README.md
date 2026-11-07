@@ -4,7 +4,7 @@
 
 **Software center for the synshell desktop — browse, install, remove and update programs from the Arch Linux repositories and AUR.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/syndesktop/) · [AUR: synshell-core-bin](https://aur.archlinux.org/packages/synshell-core-bin) · [AUR: synshell-core-git](https://aur.archlinux.org/packages/synshell-core-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: synshell-core-bin](https://aur.archlinux.org/packages/synshell-core-bin) · [AUR: synshell-core-git](https://aur.archlinux.org/packages/synshell-core-git)
 
 ![Explore](docs/screenshots/explore-en.png)
 

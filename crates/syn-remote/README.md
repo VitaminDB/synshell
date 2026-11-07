@@ -4,7 +4,7 @@
 
 **IR remote control for the synshell desktop — a phone with an IR LED controls TVs, air conditioners, projectors and more.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/syndesktop/) · [AUR: syn-remote-bin](https://aur.archlinux.org/packages/syn-remote-bin) · [AUR: syn-remote-git](https://aur.archlinux.org/packages/syn-remote-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: syn-remote-bin](https://aur.archlinux.org/packages/syn-remote-bin) · [AUR: syn-remote-git](https://aur.archlinux.org/packages/syn-remote-git)
 
 ![Remote](docs/screenshots/overview-en.png)
 

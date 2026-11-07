@@ -4,7 +4,7 @@
 
 **Проводник рабочего стола synshell — вкладки, две панели, архивы как папки, сетевые расположения, телефоны и диски, встроенный просмотр картинок.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/syndesktop/) · [AUR: synshell-core-bin](https://aur.archlinux.org/packages/synshell-core-bin) · [AUR: synshell-core-git](https://aur.archlinux.org/packages/synshell-core-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: synshell-core-bin](https://aur.archlinux.org/packages/synshell-core-bin) · [AUR: synshell-core-git](https://aur.archlinux.org/packages/synshell-core-git)
 
 ![Проводник](docs/screenshots/main-ru.png)
 

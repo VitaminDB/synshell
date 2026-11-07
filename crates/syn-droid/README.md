@@ -4,7 +4,7 @@
 
 **Android apps on the synshell desktop — a LineageOS container (Waydroid images) with its own runtime, a daemon, a management window and a CLI.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/syndesktop/) · [AUR: syndroid-bin](https://aur.archlinux.org/packages/syndroid-bin) · [AUR: syndroid-git](https://aur.archlinux.org/packages/syndroid-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: syndroid-bin](https://aur.archlinux.org/packages/syndroid-bin) · [AUR: syndroid-git](https://aur.archlinux.org/packages/syndroid-git)
 
 ![Apps](docs/screenshots/apps-en.png)
 

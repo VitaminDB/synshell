@@ -4,7 +4,7 @@
 
 **System monitor for the synshell desktop — processor, graphics and video memory, NPU, memory, network, storage, sensors, power and processes.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/syndesktop/) · [AUR: syn-systeminfo-bin](https://aur.archlinux.org/packages/syn-systeminfo-bin) · [AUR: syn-systeminfo-git](https://aur.archlinux.org/packages/syn-systeminfo-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: syn-systeminfo-bin](https://aur.archlinux.org/packages/syn-systeminfo-bin) · [AUR: syn-systeminfo-git](https://aur.archlinux.org/packages/syn-systeminfo-git)
 
 ![Processor](docs/screenshots/cpu-en.png)
 

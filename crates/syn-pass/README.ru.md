@@ -4,7 +4,7 @@
 
 **Пароли рабочего стола synshell — зашифрованное хранилище под одним мастер-паролем с синхронизацией между вашими устройствами synshell.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/syndesktop/) · [AUR: synpass-bin](https://aur.archlinux.org/packages/synpass-bin) · [AUR: synpass-git](https://aur.archlinux.org/packages/synpass-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: synpass-bin](https://aur.archlinux.org/packages/synpass-bin) · [AUR: synpass-git](https://aur.archlinux.org/packages/synpass-git)
 
 ![Пароли](docs/screenshots/list-ru.png)
 

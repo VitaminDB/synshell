@@ -4,7 +4,7 @@
 
 **The screen of a linked device in a window — watch and control your phone from the computer, or the computer from the phone.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/syndesktop/) · [AUR: synshell-link-bin](https://aur.archlinux.org/packages/synshell-link-bin) · [AUR: synshell-link-git](https://aur.archlinux.org/packages/synshell-link-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: synshell-link-bin](https://aur.archlinux.org/packages/synshell-link-bin) · [AUR: synshell-link-git](https://aur.archlinux.org/packages/synshell-link-git)
 
 ![Phone screen](docs/screenshots/phone-en.png)
 

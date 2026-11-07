@@ -4,7 +4,7 @@
 
 **Virtual machines for the synshell desktop — QEMU/KVM with a native UI, a scriptable CLI and an MCP server for AI agents.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/syndesktop/) · [AUR: syn-vm-bin](https://aur.archlinux.org/packages/syn-vm-bin) · [AUR: syn-vm-git](https://aur.archlinux.org/packages/syn-vm-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: syn-vm-bin](https://aur.archlinux.org/packages/syn-vm-bin) · [AUR: syn-vm-git](https://aur.archlinux.org/packages/syn-vm-git)
 
 ![Windows 11 running in syn-vm](docs/screenshots/screen-en.png)
 

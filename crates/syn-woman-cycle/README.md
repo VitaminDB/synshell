@@ -4,7 +4,7 @@
 
 **Cycle tracker for the synshell desktop — periods, fertile window and ovulation, symptoms and mood; the data stays on the device.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/syndesktop/) · [AUR: syn-woman-cycle-bin](https://aur.archlinux.org/packages/syn-woman-cycle-bin) · [AUR: syn-woman-cycle-git](https://aur.archlinux.org/packages/syn-woman-cycle-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: syn-woman-cycle-bin](https://aur.archlinux.org/packages/syn-woman-cycle-bin) · [AUR: syn-woman-cycle-git](https://aur.archlinux.org/packages/syn-woman-cycle-git)
 
 ![Overview](docs/screenshots/overview-en.png)
 

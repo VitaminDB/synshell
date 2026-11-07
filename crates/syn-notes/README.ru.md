@@ -4,7 +4,7 @@
 
 **Заметки рабочего стола synshell — страницы и свободные холсты с канбан-досками, диаграммами Ганта, картами мыслей, календарём и графиками, рукописный ввод и читалка книг в одном файле проекта `.syn`.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/syndesktop/) · [AUR: syn-notes-bin](https://aur.archlinux.org/packages/syn-notes-bin) · [AUR: syn-notes-git](https://aur.archlinux.org/packages/syn-notes-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: syn-notes-bin](https://aur.archlinux.org/packages/syn-notes-bin) · [AUR: syn-notes-git](https://aur.archlinux.org/packages/syn-notes-git)
 
 ![Канбан-доска](docs/screenshots/kanban-ru.png)
 

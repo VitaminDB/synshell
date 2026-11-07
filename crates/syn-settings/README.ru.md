@@ -4,7 +4,7 @@
 
 **Параметры системы рабочего стола synshell — темы, обои, панели, ввод, мониторы, сеть, звук и остальной `config.toml` в одном окне.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/syndesktop/) · [AUR: synshell-core-bin](https://aur.archlinux.org/packages/synshell-core-bin) · [AUR: synshell-core-git](https://aur.archlinux.org/packages/synshell-core-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: synshell-core-bin](https://aur.archlinux.org/packages/synshell-core-bin) · [AUR: synshell-core-git](https://aur.archlinux.org/packages/synshell-core-git)
 
 ![Темы](docs/screenshots/themes-ru.png)
 

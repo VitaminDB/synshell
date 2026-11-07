@@ -4,7 +4,7 @@
 
 **Видеоплеер рабочего стола synshell — аппаратное декодирование, субтитры с полным оформлением, простой монтаж и нейрофильтры.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/syndesktop/) · [AUR: syn-video-player-bin](https://aur.archlinux.org/packages/syn-video-player-bin) · [AUR: syn-video-player-git](https://aur.archlinux.org/packages/syn-video-player-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: syn-video-player-bin](https://aur.archlinux.org/packages/syn-video-player-bin) · [AUR: syn-video-player-git](https://aur.archlinux.org/packages/syn-video-player-git)
 
 ![Плеер](docs/screenshots/player-ru.png)
 

@@ -4,7 +4,7 @@
 
 **Терминал рабочего стола synshell — вкладки в заголовке окна, схемы цветов, настройка шрифта; на телефоне — ряд клавиш, которых нет на экранной клавиатуре.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/syndesktop/) · [AUR: synshell-core-bin](https://aur.archlinux.org/packages/synshell-core-bin) · [AUR: synshell-core-git](https://aur.archlinux.org/packages/synshell-core-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: synshell-core-bin](https://aur.archlinux.org/packages/synshell-core-bin) · [AUR: synshell-core-git](https://aur.archlinux.org/packages/synshell-core-git)
 
 ![Терминал](docs/screenshots/terminal-ru.png)
 

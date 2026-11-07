@@ -4,7 +4,7 @@
 
 **Android-приложения на рабочем столе synshell — контейнер LineageOS (образы Waydroid) со своим рантаймом, демон, окно управления и командная строка.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/syndesktop/) · [AUR: syndroid-bin](https://aur.archlinux.org/packages/syndroid-bin) · [AUR: syndroid-git](https://aur.archlinux.org/packages/syndroid-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: syndroid-bin](https://aur.archlinux.org/packages/syndroid-bin) · [AUR: syndroid-git](https://aur.archlinux.org/packages/syndroid-git)
 
 ![Приложения](docs/screenshots/apps-ru.png)
 

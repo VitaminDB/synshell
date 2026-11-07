@@ -4,7 +4,7 @@
 
 **ИК-пульт рабочего стола synshell — телефон с ИК-светодиодом управляет телевизорами, кондиционерами, проекторами и другой техникой.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/syndesktop/) · [AUR: syn-remote-bin](https://aur.archlinux.org/packages/syn-remote-bin) · [AUR: syn-remote-git](https://aur.archlinux.org/packages/syn-remote-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: syn-remote-bin](https://aur.archlinux.org/packages/syn-remote-bin) · [AUR: syn-remote-git](https://aur.archlinux.org/packages/syn-remote-git)
 
 ![Пульт](docs/screenshots/overview-ru.png)
 

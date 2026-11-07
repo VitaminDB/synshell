@@ -4,7 +4,7 @@
 
 **Theme editor for the synshell desktop — palette, shape and MSS styles with a live preview of the desktop and System Settings.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/syndesktop/) · [AUR: syn-themeeditor-bin](https://aur.archlinux.org/packages/syn-themeeditor-bin) · [AUR: syn-themeeditor-git](https://aur.archlinux.org/packages/syn-themeeditor-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: syn-themeeditor-bin](https://aur.archlinux.org/packages/syn-themeeditor-bin) · [AUR: syn-themeeditor-git](https://aur.archlinux.org/packages/syn-themeeditor-git)
 
 ![Quick tab](docs/screenshots/quick-en.png)
 

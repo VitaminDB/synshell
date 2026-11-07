@@ -4,7 +4,7 @@
 
 **Notes for the synshell desktop — pages and free canvases with kanban boards, Gantt charts, mind maps, a calendar and charts, handwriting and a book reader, all in one `.syn` project file.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/syndesktop/) · [AUR: syn-notes-bin](https://aur.archlinux.org/packages/syn-notes-bin) · [AUR: syn-notes-git](https://aur.archlinux.org/packages/syn-notes-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: syn-notes-bin](https://aur.archlinux.org/packages/syn-notes-bin) · [AUR: syn-notes-git](https://aur.archlinux.org/packages/syn-notes-git)
 
 ![Kanban board](docs/screenshots/kanban-en.png)
 

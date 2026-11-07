@@ -4,7 +4,7 @@
 
 **File manager for the synshell desktop — tabs, two panes, archives as folders, network locations, phones and drives, a built-in image viewer.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/syndesktop/) · [AUR: synshell-core-bin](https://aur.archlinux.org/packages/synshell-core-bin) · [AUR: synshell-core-git](https://aur.archlinux.org/packages/synshell-core-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: synshell-core-bin](https://aur.archlinux.org/packages/synshell-core-bin) · [AUR: synshell-core-git](https://aur.archlinux.org/packages/synshell-core-git)
 
 ![Files](docs/screenshots/main-en.png)
 

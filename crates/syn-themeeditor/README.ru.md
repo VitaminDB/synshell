@@ -4,7 +4,7 @@
 
 **Редактор тем рабочего стола synshell — палитра, форма и стили MSS с живым просмотром рабочего стола и «Параметров системы».**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/syndesktop/) · [AUR: syn-themeeditor-bin](https://aur.archlinux.org/packages/syn-themeeditor-bin) · [AUR: syn-themeeditor-git](https://aur.archlinux.org/packages/syn-themeeditor-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: syn-themeeditor-bin](https://aur.archlinux.org/packages/syn-themeeditor-bin) · [AUR: syn-themeeditor-git](https://aur.archlinux.org/packages/syn-themeeditor-git)
 
 ![Вкладка «Быстро»](docs/screenshots/quick-ru.png)
 

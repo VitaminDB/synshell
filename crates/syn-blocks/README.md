@@ -4,7 +4,7 @@
 
 **An 8×8 block puzzle for the synshell desktop and phones — place pieces, clear rows and columns, build combos.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/syndesktop/) · [AUR: syn-blocks-bin](https://aur.archlinux.org/packages/syn-blocks-bin) · [AUR: syn-blocks-git](https://aur.archlinux.org/packages/syn-blocks-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: syn-blocks-bin](https://aur.archlinux.org/packages/syn-blocks-bin) · [AUR: syn-blocks-git](https://aur.archlinux.org/packages/syn-blocks-git)
 
 ![Start page](docs/screenshots/start-en.png)
 
