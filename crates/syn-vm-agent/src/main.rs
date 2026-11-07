@@ -371,7 +371,11 @@ fn list(id: u64, path: String) {
 
 fn handle(f: Frame) {
     match f.msg {
-        Msg::Hi => send(hello()),
+        Msg::Hi => {
+            send(hello());
+            // Хост переподключился (новый посредник) — адреса ему заново.
+            *last_ips().lock().unwrap() = None;
+        }
         Msg::Ping { id } => send(Frame::new(Msg::Pong { id })),
         Msg::Exec { id, argv, user, cwd, env, stdin } => exec(id, ExecReq { argv, user, cwd, env, stdin }),
         Msg::Stdin { id } => {
