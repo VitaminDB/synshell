@@ -26,11 +26,11 @@ The screenshots were taken on a computer with a stand-in driver directory.
 
 ## Install
 
-**Arch Linux (AUR)** — x86_64 and aarch64:
+**Release archive** (not in the AUR — a developer tool) — x86_64 and aarch64, from [v0.2.0](https://github.com/VitaminDB/synshell/releases/tag/v0.2.0):
 
 ```sh
-yay -S syn-epdtest-bin      # prebuilt
-yay -S syn-epdtest-git      # built from source
+curl -LO https://github.com/VitaminDB/synshell/releases/download/v0.2.0/syn-epdtest-0.2.0-$(uname -m).tar.zst
+sudo tar -xpf syn-epdtest-0.2.0-$(uname -m).tar.zst -C /
 ```
 
 Depends on `synshell-core`; not part of the `synshell` metapackage. **From source:** `cargo build --release -p syn-epdtest` in the [synshell](../../README.md) repository.

@@ -26,11 +26,11 @@
 
 ## Установка
 
-**Arch Linux (AUR)** — x86_64 и aarch64:
+**Архив из выпуска** (в AUR нет — инструмент разработчика) — x86_64 и aarch64, из [v0.2.0](https://github.com/VitaminDB/synshell/releases/tag/v0.2.0):
 
 ```sh
-yay -S syn-epdtest-bin      # готовые бинарники
-yay -S syn-epdtest-git      # сборка из исходников
+curl -LO https://github.com/VitaminDB/synshell/releases/download/v0.2.0/syn-epdtest-0.2.0-$(uname -m).tar.zst
+sudo tar -xpf syn-epdtest-0.2.0-$(uname -m).tar.zst -C /
 ```
 
 Зависит от `synshell-core`; в метапакет `synshell` не входит. **Из исходников:** `cargo build --release -p syn-epdtest` в репозитории [synshell](../../README.md).
