@@ -61,10 +61,9 @@ fn data_dir() -> std::path::PathBuf {
 
 pub fn agent_log(s: &str) {
     // Копия в сеансе пользователя пишет в свой файл (у неё нет прав на журнал службы).
+    // Копия — тоже в stderr: служба читает его и пересылает в свой журнал и хосту (guest.log).
     let helper = HELPER_MODE.load(Ordering::Relaxed);
-    if !helper {
-        eprintln!("{s}");
-    }
+    eprintln!("{s}");
     let dir = if helper { std::env::temp_dir().join("syn-vm") } else { data_dir() };
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join("agent.log");

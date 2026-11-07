@@ -10,7 +10,7 @@
 //! /usr/local/bin), `syn-vm-agent uninstall`.
 
 use std::collections::HashMap;
-use std::io::{self, Read, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -149,10 +149,17 @@ fn session_manager() {
             to_helper(&f);
         }
         let mut out = p.stdout;
-        let mut err = p.stderr;
+        let err = p.stderr;
         std::thread::spawn(move || {
-            let mut b = [0u8; 4096];
-            while matches!(err.read(&mut b), Ok(n) if n > 0) {}
+            // Журнал копии (её файл — во временном каталоге пользователя): в свой и хосту.
+            for l in std::io::BufReader::new(err).lines() {
+                let Ok(l) = l else { break };
+                let l = l.trim_end();
+                if !l.is_empty() {
+                    log(&format!("копия: {l}"));
+                    guest_log("agent-session", l);
+                }
+            }
         });
         let wait = p.wait;
         std::thread::spawn(move || {
