@@ -7243,6 +7243,7 @@ dependencies = [
  "wayland-client",
  "wayland-protocols-wlr",
  "zbus",
+ "zeroize",
  "zstd",
 ]
 

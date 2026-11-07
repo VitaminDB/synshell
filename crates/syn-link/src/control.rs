@@ -447,9 +447,17 @@ async fn handle(d: &D, req: Request) -> Result<Response> {
             Response::Ok
         }
         Request::PairReply { device, accept } => {
-            let id = d.resolve(&device).unwrap_or(device);
+            // `wifi:УСТР` — вопрос о переносе сетей Wi-Fi с этого устройства.
+            let id = match device.strip_prefix("wifi:") {
+                Some(x) => crate::wifi::prompt_id(&d.resolve(x).unwrap_or_else(|| x.to_string())),
+                None => d.resolve(&device).unwrap_or(device),
+            };
             d.pair_reply(&id, accept)?;
             Response::Ok
+        }
+        Request::WifiImport { device } => {
+            let id = d.resolve(&device).with_context(|| t!("нет устройства «{device}»", device = device))?;
+            Response::Text { text: crate::wifi::offer(d.clone(), id, true).await? }
         }
         Request::Unpair { device } => {
             let id = d.resolve(&device).with_context(|| t!("нет устройства «{device}»", device = device))?;

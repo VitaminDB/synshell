@@ -79,9 +79,9 @@ pub fn start(ctx: ShellCtx) {
 /// второй раз не открывать — ни по событию, ни по состоянию (`open_popup` того же вида закрывает).
 static SHOWN: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
-/// Нужен ли диалог для запроса: входящий (решаем мы) или исходящий с кодом для сверки.
+/// Нужен ли диалог для запроса: входящий (решаем мы), исходящий с кодом для сверки или вопрос о переносе сетей Wi-Fi.
 fn wants_dialog(p: &PairPrompt) -> bool {
-    !p.outgoing || p.code.is_some()
+    p.wifi.is_some() || !p.outgoing || p.code.is_some()
 }
 
 /// Какие ждущие запросы показать сейчас: ещё не показанные. Ушедшие из состояния забываются
@@ -568,6 +568,9 @@ pub fn pair_view(ctx: ShellCtx, id: String) -> impl Widget {
         let Some(p): Option<PairPrompt> = ctx.link.get().and_then(|s| s.prompts.into_iter().find(|x| x.id == id)) else {
             return Box::new(Text::new(t!("Запрос спаривания закрыт")).class("popup-text")) as Box<dyn Widget>;
         };
+        if let Some(nets) = p.wifi.clone() {
+            return Box::new(wifi_offer_view(&p, nets)) as Box<dyn Widget>;
+        }
         let what = format!("{} «{}»", p.kind.title(), p.name);
         let (title, text) = match (&p.code, p.outgoing) {
             (Some(_), true) => (t!("Спаривание").to_string(), t!("Сверьте код с экраном устройства {what} и подтвердите там.", what = what)),
@@ -616,6 +619,64 @@ pub fn pair_view(ctx: ShellCtx, id: String) -> impl Widget {
         };
         Box::new(col.child(buttons))
     })
+}
+
+/// Вопрос на телефоне: перенести сети Wi-Fi с компьютера? Имена сетей — до согласия, пароли — только после.
+fn wifi_offer_view(p: &PairPrompt, nets: Vec<link::WifiBrief>) -> impl Widget {
+    use link::WifiSecurity;
+    const SHOW: usize = 8;
+    let mut list = Column::new().gap(4.0);
+    for n in nets.iter().take(SHOW) {
+        let note = match n.security {
+            WifiSecurity::Open => t!("без пароля"),
+            WifiSecurity::Psk | WifiSecurity::Sae => String::new(),
+            WifiSecurity::Wep => t!("WEP — не переносится"),
+            WifiSecurity::Enterprise => t!("802.1X — не переносится"),
+        };
+        let mut row = Row::new()
+            .gap(8.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(icon(gl::WIFI).class("link-note"))
+            .child(Text::new(n.ssid.clone()).max_lines(1).class("link-pair-text grow"));
+        if !note.is_empty() {
+            row = row.child(Text::new(note).max_lines(1).class("link-note"));
+        }
+        list = list.child(row);
+    }
+    if nets.len() > SHOW {
+        list = list.child(Text::new(t!("и ещё {n}", n = nets.len() - SHOW)).class("link-note"));
+    }
+    let (a, b) = (p.id.clone(), p.id.clone());
+    Column::new()
+        .gap(12.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(avatar(p.kind, true, true))
+        .child(Text::new(t!("Сети Wi-Fi")).class("link-pair-title"))
+        .child(Text::new(t!("Перенести сети Wi-Fi с компьютера «{name}»?", name = p.name)).max_lines(3).class("link-pair-text"))
+        .child(list)
+        .child(
+            Row::new()
+                .gap(8.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(icon(gl::SHIELD).class("link-shield"))
+                .child(
+                    Text::new(t!("Пароли придут по защищённому каналу спаривания. На компьютере может понадобиться пароль администратора."))
+                        .max_lines(4)
+                        .class("link-note"),
+                ),
+        )
+        .child(
+            Row::new()
+                .gap(8.0)
+                .child(small_button(&t!("Не надо"), false, move || {
+                    send(Request::PairReply { device: a.clone(), accept: false });
+                    ShellCtx::get().close_popup();
+                }))
+                .child(small_button(&t!("Разрешить"), true, move || {
+                    send(Request::PairReply { device: b.clone(), accept: true });
+                    ShellCtx::get().close_popup();
+                })),
+        )
 }
 
 /// Карточка шторки телефона: соединённое устройство или кабель.
@@ -708,6 +769,10 @@ pub fn applet(pc: &crate::panel::PanelCtx) -> Box<dyn Widget> {
 /// панелях и когда есть соединение или запрос спаривания.
 pub fn tray_item(pc: &crate::panel::PanelCtx) -> Option<Box<dyn Widget>> {
     let ctx = ShellCtx::get();
+    // Связь выключена в [link] — значка в лотке нет (апплет `link` поставлен вручную — его дело).
+    if !ctx.cfg().link.enabled {
+        return None;
+    }
     start(ctx);
     let has_applet = ctx.cfg().panels.iter().any(|p| p.applets.iter().any(|a| a.kind == "link"));
     if has_applet {
@@ -748,5 +813,8 @@ mod tests {
         let mut shown = Vec::new();
         assert!(prompts_to_show(&mut shown, &[prompt("a", true, None)]).is_empty());
         assert_eq!(prompts_to_show(&mut shown, &[prompt("b", true, Some("123456"))]), vec!["b".to_string()]);
+        // Вопрос о переносе сетей Wi-Fi — исходящий без кода, но диалог нужен.
+        let wifi = PairPrompt { wifi: Some(vec![]), ..prompt("wifi:c", true, None) };
+        assert_eq!(prompts_to_show(&mut shown, &[wifi]), vec!["wifi:c".to_string()]);
     }
 }

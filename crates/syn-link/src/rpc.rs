@@ -67,6 +67,10 @@ pub async fn serve(d: D, peer: String, mut w: quinn::SendStream, mut r: quinn::R
         Rpc::Audio { mic } => crate::audio::serve(d, peer, w, r, mic, None).await?,
         Rpc::AudioV2 { mic, opus } => crate::audio::serve(d, peer, w, r, mic, Some(opus)).await?,
         Rpc::Synaptix => crate::synaptix::serve(d, peer, w, r).await?,
+        req @ (Rpc::WifiList | Rpc::WifiExport { .. }) => {
+            let reply = crate::wifi::serve(&d, &peer, req).await;
+            proto::send(&mut w, &reply).await?;
+        }
         Rpc::Fs(req) => {
             let resp = tokio::task::spawn_blocking(move || crate::fs::handle(req)).await?;
             proto::send(&mut w, &Reply::Fs(resp)).await?;

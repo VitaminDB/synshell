@@ -15,8 +15,11 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// 2 — трансляция с видео (`Rpc::ScreenV2`), 3 — звук трансляции (`Rpc::Audio`),
 /// 4 — общий буфер обмена (`Ctl::Clipboard`), 5 — звук трансляции в Opus
-/// (`Rpc::AudioV2`), 6 — мост службы нейросетей (`Rpc::Synaptix`).
-pub const PROTO: u32 = 6;
+/// (`Rpc::AudioV2`), 6 — мост службы нейросетей (`Rpc::Synaptix`), 7 — перенос сетей Wi-Fi
+/// (`Rpc::WifiList`, `Rpc::WifiExport`).
+pub const PROTO: u32 = 7;
+/// С какой версии устройство отдаёт свои сети Wi-Fi.
+pub const PROTO_WIFI: u32 = 7;
 /// С какой версии устройство понимает `Rpc::Synaptix`.
 pub const PROTO_SYNAPTIX: u32 = 6;
 /// С какой версии устройство понимает `Rpc::AudioV2`.
@@ -106,6 +109,12 @@ pub enum Rpc {
     /// дальше кадры `synaptixd::bridge::Frame` в обе стороны (сырые байты:
     /// u64 длина + тело). Закрытие потока — отмена работы.
     Synaptix,
+    /// Сети Wi-Fi этой машины без секретов (proto ≥ 7): ответ `Json(Vec<link::WifiBrief>)`.
+    WifiList,
+    /// Сети с паролями (proto ≥ 7) — просит телефон после согласия пользователя там; эта сторона
+    /// может спросить пароль администратора (iwd хранит ключи только для root). Ответ —
+    /// `Json(wifi::Export)`. Новые варианты — только в конец.
+    WifiExport { ssids: Vec<String> },
 }
 
 /// Кадр звука трансляции. PCM s16le, 48 кГц, стерео, кусками по 10 мс.

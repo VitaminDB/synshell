@@ -151,6 +151,7 @@ install = "packaging/synshell-link.install"
 files = [
   { from = "crates/syn-link/autostart/synlink.desktop", to = "etc/xdg/autostart/" },
   { from = "crates/syn-link/data/80-synlink-usb.network", to = "usr/lib/systemd/network/" },
+  { from = "crates/syn-link/data/org.synshell.synlink.policy", to = "usr/share/polkit-1/actions/" },
 ]
 
 [packages.synshell-ai]

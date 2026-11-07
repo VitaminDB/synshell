@@ -596,6 +596,8 @@ impl Daemon {
         if !(trusted && they_trust) {
             self.pairing(&conn, &mut tx, &mut rx, &hello, &fp, trusted, transport, outgoing).await?;
         }
+        // Спарились только что (мы не знали эту сторону), мы — телефон, она — компьютер: предложить его сети Wi-Fi.
+        let offer_wifi = !trusted && self.kind.is_touch() && !hello.kind.is_touch() && hello.proto >= proto::PROTO_WIFI;
 
         // Сеанс установлен.
         let (ctl_tx, mut ctl_rx) = mpsc::unbounded_channel::<Ctl>();
@@ -635,6 +637,9 @@ impl Daemon {
             gen
         };
         tracing::info!(peer = %hello.name, id = %pid, transport = transport.title(), "соединено");
+        if offer_wifi {
+            crate::wifi::offer_after_pairing(self.clone(), pid.clone());
+        }
         crate::ssh::write_config(&self.trusted_all());
         let _ = ctl_tx.send(Ctl::State { battery: crate::netif::battery() });
         if let Some(info) = self.peer_info(&pid) {
@@ -819,6 +824,7 @@ impl Daemon {
             transport,
             code: if transport == Transport::Wifi { Some(code.clone()) } else { None },
             outgoing: matches!(decide, Decide::Show),
+            wifi: None,
         };
         let mine = match decide {
             Decide::Accept => true,
@@ -912,7 +918,7 @@ impl Daemon {
         Ok(())
     }
 
-    fn add_prompt(&self, p: PairPrompt, waiter: Option<oneshot::Sender<bool>>) {
+    pub(crate) fn add_prompt(&self, p: PairPrompt, waiter: Option<oneshot::Sender<bool>>) {
         {
             let mut st = self.st.lock().unwrap();
             st.prompts.retain(|x| x.id != p.id);
@@ -932,7 +938,7 @@ impl Daemon {
         self.st.lock().unwrap().waiters.contains_key(id)
     }
 
-    fn drop_prompt(&self, id: &str) {
+    pub(crate) fn drop_prompt(&self, id: &str) {
         crate::notify::close_prompt(id);
         let changed = {
             let mut st = self.st.lock().unwrap();

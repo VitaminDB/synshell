@@ -55,6 +55,7 @@ fn send(label: &'static str, req: Request) {
     std::thread::spawn(move || {
         let msg = match link::request(&req) {
             Ok(Response::Error { message }) => format!("{label}: {message}"),
+            Ok(Response::Text { text }) if !text.is_empty() => text,
             Err(e) => t!("{label}: synlink не отвечает ({e})", label = label, e = e),
             _ => t!("{label}: готово", label = label),
         };
@@ -94,7 +95,8 @@ fn state_text(p: &PeerInfo) -> String {
     parts.join(" · ")
 }
 
-fn device_row(p: &PeerInfo) -> W {
+/// `me_touch` — эта машина телефон (планшет): ей можно перенести сети Wi-Fi с компьютера.
+fn device_row(p: &PeerInfo, me_touch: bool) -> W {
     let head = Row::new()
         .gap(12.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
@@ -129,6 +131,11 @@ fn device_row(p: &PeerInfo) -> W {
                 });
             }))
             .child(button(&t!("Отключить"), move || send(n_!("Отключение"), Request::Disconnect { device: c.clone() })));
+        if me_touch && !p.kind.is_touch() {
+            // Спросит согласия в диалоге оболочки, итог — строкой.
+            let w = id.clone();
+            actions = actions.child(button(&t!("Сети Wi-Fi"), move || send(n_!("Перенос сетей Wi-Fi"), Request::WifiImport { device: w.clone() })));
+        }
     }
     if p.paired {
         let d = id.clone();
@@ -175,13 +182,14 @@ pub fn devices() -> W {
             ));
         }
         let (paired, nearby): (Vec<&PeerInfo>, Vec<&PeerInfo>) = st.peers.iter().partition(|p| p.paired);
+        let me_touch = st.me.kind.is_touch();
         if paired.is_empty() {
             out.push(group(&t!("Связанные устройства"), vec![note(&t!("Пока нет. Подключите телефон кабелем USB — спаривание начнётся само (подтвердите на телефоне), или спарьте устройство из списка «Рядом»."))]));
         } else {
-            out.push(group(&t!("Связанные устройства"), paired.into_iter().map(device_row).collect()));
+            out.push(group(&t!("Связанные устройства"), paired.into_iter().map(|p| device_row(p, me_touch)).collect()));
         }
         if !nearby.is_empty() {
-            out.push(group(&t!("Рядом"), nearby.into_iter().map(device_row).collect()));
+            out.push(group(&t!("Рядом"), nearby.into_iter().map(|p| device_row(p, me_touch)).collect()));
         }
         let hosts: Vec<W> = st
             .peers

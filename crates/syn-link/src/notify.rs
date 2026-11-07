@@ -208,6 +208,16 @@ fn post(summary: &str, body: &str, icon: &str, actions: &[&str], conn: Option<&z
     Ok(reply.body().deserialize::<u32>()?)
 }
 
+/// Сообщение synlink этой машины (в фоне; нет службы уведомлений — не показываем).
+pub fn info(summary: &str, body: &str) {
+    let (summary, body) = (summary.to_string(), body.to_string());
+    std::thread::spawn(move || {
+        if let Err(e) = post(&summary, &body, "network-wireless", &[], None) {
+            tracing::debug!("уведомление: {e:#}");
+        }
+    });
+}
+
 /// Запрос спаривания, если оболочка своего диалога не показывает (нет
 /// подписчиков): уведомление с кнопками «Принять» / «Отклонить».
 ///

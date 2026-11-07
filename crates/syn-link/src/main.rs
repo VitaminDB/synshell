@@ -24,6 +24,7 @@ mod screen;
 mod services;
 mod ssh;
 mod synaptix;
+mod wifi;
 
 use std::io::{Read, Write};
 
@@ -53,6 +54,9 @@ synlink notifications [УСТР]           уведомления с устро�
 synlink view УСТР                      окно трансляции (synlink-view)
 synlink audio УСТР on|off [--no-mic]   звук трансляции: звук устройства здесь,
                                        микрофон отсюда — там («synlink-mic»)
+synlink wifi-import КОМП | wifi-import accept|reject КОМП
+                                       на телефоне: перенести сети Wi-Fi компьютера
+                                       (спросит согласия на экране телефона)
 synlink mcp                            MCP-сервер (stdio) для Claude Code
 synlink session                        демон для автозапуска сеанса: юнитом
                                        systemd --user (synlink.service), иначе сам
@@ -68,6 +72,8 @@ fn main() {
         Some("session") => run_session(),
         Some("mcp") => mcp::run(),
         Some("clipboard-watch") => clipboard_watch(),
+        // Помощник от root (pkexec): пароли сетей iwd для переноса на телефон.
+        Some("wifi-secrets") => wifi::secrets_helper(&args[1..]),
         Some("-h" | "--help" | "help") | None => {
             println!("{}", synshell_tr::t(USAGE));
             Ok(())
@@ -320,7 +326,12 @@ fn cli(args: &[String]) -> Result<()> {
                     if extra.is_empty() { String::new() } else { format!(" · {}", extra.join(" · ")) }
                 );
             }
-            for pr in &status.prompts {
+            for pr in status.prompts.iter().filter(|p| p.wifi.is_some()) {
+                let n = pr.wifi.as_ref().map_or(0, |w| w.iter().filter(|x| x.security.transferable()).count());
+                let id = pr.id.strip_prefix("wifi:").unwrap_or(&pr.id);
+                println!("{}", t!("  ждёт ответа: перенести сети Wi-Fi с «{name}» ({n}) — synlink wifi-import accept {id}", name = pr.name, n = n, id = &id[..8.min(id.len())]));
+            }
+            for pr in status.prompts.iter().filter(|p| p.wifi.is_none()) {
                 println!("{}", t!("  ожидает спаривания: «{name}» по {title}{v} — synlink pair accept {v2}", name = pr.name, title = pr.transport.title(), v = pr.code.as_ref().map(|c| t!(", код {c}", c = c)).unwrap_or_default(), v2 = &pr.id[..8]));
             }
         }
@@ -412,6 +423,20 @@ fn cli(args: &[String]) -> Result<()> {
         "unpair" => {
             req(&Request::Unpair { device: dev(args)? })?;
         }
+        "wifi-import" => match args.get(1).map(String::as_str) {
+            Some(a @ ("accept" | "reject")) => {
+                let d = args.get(2).with_context(|| t!("нужно устройство"))?;
+                req(&Request::PairReply { device: format!("wifi:{d}"), accept: a == "accept" })?;
+            }
+            _ => {
+                let device = dev(args)?;
+                eprintln!("{}", t!("смотрю сети компьютера; если есть новые — подтвердите перенос на экране телефона…"));
+                match req(&Request::WifiImport { device })? {
+                    Response::Text { text } if !text.is_empty() => println!("{text}"),
+                    _ => {}
+                }
+            }
+        },
         "disconnect" => {
             req(&Request::Disconnect { device: dev(args)? })?;
         }

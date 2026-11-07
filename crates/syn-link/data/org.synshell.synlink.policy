@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- synlink wifi-secrets: пароли сохранённых сетей iwd (/var/lib/iwd читает только root) для
+     переноса на спаренный телефон — после согласия на телефоне. Помощник только читает и отдаёт
+     названные сети вызвавшему процессу; пароль администратора — каждый раз. -->
+<policyconfig>
+  <vendor>synshell</vendor>
+  <action id="org.synshell.synlink.wifi-secrets">
+    <description>Transfer Wi-Fi networks to a paired phone</description>
+    <description xml:lang="ru">Перенос сетей Wi-Fi на спаренный телефон</description>
+    <description xml:lang="uk">Перенесення мереж Wi-Fi на спарений телефон</description>
+    <description xml:lang="kk">Wi-Fi желілерін жұпталған телефонға көшіру</description>
+    <description xml:lang="de">Übertragung von WLAN-Netzen auf ein gekoppeltes Telefon</description>
+    <description xml:lang="es">Transferir redes Wi-Fi a un teléfono emparejado</description>
+    <description xml:lang="fr">Transférer les réseaux Wi-Fi vers un téléphone appairé</description>
+    <description xml:lang="it">Trasferimento delle reti Wi-Fi su un telefono associato</description>
+    <description xml:lang="pl">Przeniesienie sieci Wi-Fi na sparowany telefon</description>
+    <description xml:lang="pt_BR">Transferir redes Wi-Fi para um telefone pareado</description>
+    <description xml:lang="tr">Wi-Fi ağlarını eşleştirilmiş telefona aktarma</description>
+    <description xml:lang="ja">ペアリングした電話へ Wi-Fi ネットワークを転送</description>
+    <description xml:lang="ko">페어링된 휴대폰으로 Wi-Fi 네트워크 전송</description>
+    <description xml:lang="zh_CN">将 Wi-Fi 网络传输到已配对的手机</description>
+    <message>A paired phone asked for the saved Wi-Fi networks of this computer. Authentication is required to read their passwords</message>
+    <message xml:lang="ru">Спаренный телефон попросил сохранённые сети Wi-Fi этого компьютера. Чтобы прочитать их пароли, нужны права администратора</message>
+    <message xml:lang="uk">Спарений телефон попросив збережені мережі Wi-Fi цього комп’ютера. Щоб прочитати їхні паролі, потрібні права адміністратора</message>
+    <message xml:lang="kk">Жұпталған телефон осы компьютердің сақталған Wi-Fi желілерін сұрады. Олардың құпиясөздерін оқу үшін әкімші құқықтары керек</message>
+    <message xml:lang="de">Ein gekoppeltes Telefon hat die gespeicherten WLAN-Netze dieses Computers angefordert. Zum Lesen ihrer Passwörter ist eine Authentifizierung erforderlich</message>
+    <message xml:lang="es">Un teléfono emparejado ha pedido las redes Wi-Fi guardadas de este equipo. Se requiere autenticación para leer sus contraseñas</message>
+    <message xml:lang="fr">Un téléphone appairé a demandé les réseaux Wi-Fi enregistrés de cet ordinateur. Une authentification est requise pour lire leurs mots de passe</message>
+    <message xml:lang="it">Un telefono associato ha chiesto le reti Wi-Fi salvate di questo computer. Per leggerne le password è necessaria l'autenticazione</message>
+    <message xml:lang="pl">Sparowany telefon poprosił o zapisane sieci Wi-Fi tego komputera. Odczytanie ich haseł wymaga uwierzytelnienia</message>
+    <message xml:lang="pt_BR">Um telefone pareado pediu as redes Wi-Fi salvas deste computador. É necessária autenticação para ler as senhas</message>
+    <message xml:lang="tr">Eşleştirilmiş bir telefon bu bilgisayarın kayıtlı Wi-Fi ağlarını istedi. Parolalarını okumak için kimlik doğrulaması gerekiyor</message>
+    <message xml:lang="ja">ペアリングした電話がこのコンピューターに保存された Wi-Fi ネットワークを要求しました。パスワードを読み取るには認証が必要です</message>
+    <message xml:lang="ko">페어링된 휴대폰이 이 컴퓨터에 저장된 Wi-Fi 네트워크를 요청했습니다. 비밀번호를 읽으려면 인증이 필요합니다</message>
+    <message xml:lang="zh_CN">已配对的手机请求获取此计算机保存的 Wi-Fi 网络。读取其密码需要身份验证</message>
+    <icon_name>network-wireless</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/synlink</annotate>
+  </action>
+</policyconfig>

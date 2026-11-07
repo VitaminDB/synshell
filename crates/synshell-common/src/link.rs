@@ -159,6 +159,41 @@ pub struct PairPrompt {
     pub code: Option<String>,
     /// Мы начали спаривание и ждём ответа с той стороны.
     pub outgoing: bool,
+    /// Не спаривание, а вопрос «перенести сети Wi-Fi с компьютера?» (на телефоне, id — `wifi:<устройство>`):
+    /// какие сети предлагаются. Такой запрос — `outgoing` без кода, и старые оболочки диалога для него не открывают.
+    #[serde(default)]
+    pub wifi: Option<Vec<WifiBrief>>,
+}
+
+/// Защита сети Wi-Fi (перенос сетей с компьютера на телефон).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum WifiSecurity {
+    #[default]
+    Open,
+    /// WPA/WPA2-PSK (у iwd — и WPA3-SAE: он их не различает).
+    Psk,
+    /// WPA3-SAE.
+    Sae,
+    Wep,
+    /// 802.1X (корпоративная): сертификаты и учётные данные не переносятся.
+    Enterprise,
+}
+
+impl WifiSecurity {
+    /// Переносится ли сеть такой защиты.
+    pub fn transferable(self) -> bool {
+        matches!(self, WifiSecurity::Open | WifiSecurity::Psk | WifiSecurity::Sae)
+    }
+}
+
+/// Сеть Wi-Fi без секретов: что предлагается перенести.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct WifiBrief {
+    pub ssid: String,
+    pub security: WifiSecurity,
+    #[serde(default)]
+    pub hidden: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -269,6 +304,10 @@ pub enum Request {
     /// `Ok` — кадры `synaptixd::bridge::Frame` (u64 длина + тело) в обе
     /// стороны; закрытие соединения — отмена работы на устройстве.
     Synaptix { device: String },
+    /// Перенести сети Wi-Fi с соединённого компьютера сюда (на телефон): демон спрашивает согласия
+    /// здесь (`PairPrompt::wifi`, ответ — `PairReply { device: "wifi:<id>" }`), получает сети по
+    /// каналу спаривания и создаёт профили NetworkManager. Ответ — `Text` с итогом, когда всё кончилось.
+    WifiImport { device: String },
 }
 
 fn yes() -> bool {
@@ -286,6 +325,8 @@ pub enum Response {
     Exec { code: i32, stdout: String, stderr: String },
     Mount { path: Option<String> },
     Notifications { notifications: Vec<RemoteNotification> },
+    /// Итог словами (`WifiImport`).
+    Text { text: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
