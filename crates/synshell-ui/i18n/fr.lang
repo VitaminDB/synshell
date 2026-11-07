@@ -17,6 +17,9 @@
 "Запускается подсистема Android…" = "Démarrage du sous-système Android…"
 "Запускается подсистема Android · {s} с" = "Démarrage du sous-système Android · {s} s"
 
+# src/applets/taskbar.rs
+"Ещё окна" = "Autres fenêtres"
+
 # src/applets/window.rs
 "Загрузка…" = "Chargement…"
 

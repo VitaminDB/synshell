@@ -119,6 +119,11 @@ Text {
 .task-icon { width: 22px; height: 22px; }
 .task-glyph { icon-size: 20px; }
 .task-title { font-size: 13px; line-height: 22px; }
+/* «+N» — окна, которым не хватило места на панели задач */
+.task-more { padding: 5px 8px; }
+.task-more-label { color: var(--muted); font-size: 12px; }
+.panel-vertical .task-more { padding: 5px 2px; }
+.task-overflow-minimized { color: var(--muted); }
 
 /* Панель как заголовок окна: заголовок, кнопки, глобальное меню */
 .applet-window-title { padding: 4px 10px; }

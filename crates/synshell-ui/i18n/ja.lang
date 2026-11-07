@@ -17,6 +17,9 @@
 "Запускается подсистема Android…" = "Android サブシステムを起動中…"
 "Запускается подсистема Android · {s} с" = "Android サブシステムを起動中 · {s} 秒"
 
+# src/applets/taskbar.rs
+"Ещё окна" = "その他のウィンドウ"
+
 # src/applets/window.rs
 "Загрузка…" = "読み込み中…"
 

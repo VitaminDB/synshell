@@ -27,6 +27,8 @@ pub enum PopupKind {
     TrayMenu(String),
     /// Спрятанные значки лотка.
     TrayOverflow,
+    /// Окна, кнопки которых не поместились на панель задач (id окон).
+    TaskOverflow(Vec<u64>),
     /// Меню верхнего уровня `id` глобального меню (апплет `appmenu` на
     /// выводе `output`).
     GlobalMenu { output: String, id: i32 },

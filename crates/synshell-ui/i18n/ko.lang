@@ -17,6 +17,9 @@
 "Запускается подсистема Android…" = "Android 하위 시스템 시작 중…"
 "Запускается подсистема Android · {s} с" = "Android 하위 시스템 시작 중 · {s}초"
 
+# src/applets/taskbar.rs
+"Ещё окна" = "추가 창"
+
 # src/applets/window.rs
 "Загрузка…" = "불러오는 중…"
 

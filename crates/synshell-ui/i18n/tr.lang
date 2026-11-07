@@ -17,6 +17,9 @@
 "Запускается подсистема Android…" = "Android alt sistemi başlatılıyor…"
 "Запускается подсистема Android · {s} с" = "Android alt sistemi başlatılıyor · {s} sn"
 
+# src/applets/taskbar.rs
+"Ещё окна" = "Diğer pencereler"
+
 # src/applets/window.rs
 "Загрузка…" = "Yükleniyor…"
 
