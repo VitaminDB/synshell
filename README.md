@@ -74,6 +74,14 @@ documentation in `docs/` is in Russian.
   shell dialog, frames from synwm over `wlr-screencopy` straight into PipeWire buffers by
   `syn-screencast`) for browsers, OBS and other apps.
 
+### Layouts
+
+Panels, the dock and their applets are set up in `config.toml` or with the mouse in edit mode (right-click a panel → Edit): any number of panels on any edge, horizontal or vertical.
+
+| Top panel + dock | Classic taskbar (the default) | Vertical panel |
+|---|---|---|
+| ![Top panel with the clock in the centre and a dock at the bottom](docs/screenshots/desktop.png) | ![Classic taskbar at the bottom: launcher, desktops, window buttons, tray and clock](docs/screenshots/classic.png) | ![Vertical panel on the left: launcher, desktops, pinned applications, tray and clock](docs/screenshots/vertical.png) |
+
 | Launcher | Tile layout |
 |---|---|
 | ![Launcher with pinned applications](docs/screenshots/launcher.png) | ![Tile layout: the file manager, System Settings and the terminal](docs/screenshots/tile.png) |
