@@ -246,6 +246,21 @@ pub fn start(id: &str, on_change: Arc<dyn Fn() + Send + Sync>, on_notice: Arc<dy
     p
 }
 
+/// Наблюдатель без окна (запись экрана): кадры рабочего стола и курсор через сокет наблюдателей —
+/// окно не вытесняет и режим гостя не трогает. Закрыть — [`Present::close`].
+pub fn viewer(id: &str) -> Result<Arc<Present>> {
+    let path = view_socket(id);
+    let s = UnixStream::connect(&path).with_context(|| path.display().to_string())?;
+    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: String::new(), desk_size: Mutex::new((0, 0)) });
+    let p2 = p.clone();
+    std::thread::spawn(move || {
+        let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+        let _ = run(&p2, s, &cb, false);
+        p2.close();
+    });
+    Ok(p)
+}
+
 /// Экран без окна: рабочий стол и поверх — видимые поверхности (окна игр, всплывающие окна,
 /// которые гость выводит отдельными плоскостями) в их местах. Кадр RGBA.
 pub fn grab_screen(id: &str, wait: Duration) -> Result<(u32, u32, Vec<u8>)> {

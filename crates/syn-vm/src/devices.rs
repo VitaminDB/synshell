@@ -826,7 +826,7 @@ pub fn vfio_prepare(vm: &Vm) -> Result<()> {
     if all_bound && groups_ok && lim.rlim_cur >= need {
         return Ok(());
     }
-    let exe = std::env::current_exe()?;
+    let exe = crate::self_exe()?;
     let st = std::process::Command::new("pkexec")
         .arg(exe)
         .arg("--vfio-helper")
@@ -848,7 +848,7 @@ pub fn vfio_release(addrs: &[String]) -> Result<()> {
     if bound.is_empty() {
         return Ok(());
     }
-    let exe = std::env::current_exe()?;
+    let exe = crate::self_exe()?;
     let st = std::process::Command::new("pkexec").arg(exe).arg("--vfio-helper").arg("unbind").arg("0").arg("0").args(bound).status()?;
     if !st.success() {
         bail!("pkexec: {}", st.code().unwrap_or(-1));

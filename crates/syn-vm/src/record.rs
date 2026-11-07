@@ -79,6 +79,42 @@ pub fn default_path(vm: &Vm) -> PathBuf {
 }
 
 /// Начать запись в отдельном процессе; вернуться, когда пошли кадры.
+/// Источник кадров записи.
+enum Src {
+    Vnc(Arc<Session>),
+    Present(Arc<crate::present::Present>),
+}
+
+impl Src {
+    fn open(vm: &Vm) -> Result<Src> {
+        if vm.display == crate::model::DisplayModel::SynGpu {
+            return Ok(Src::Present(crate::present::viewer(&vm.id)?));
+        }
+        Ok(Src::Vnc(Session::open(vm.vnc_path(), Duration::from_secs(5), Arc::new(|| {}), Arc::new(|_| {}))))
+    }
+    fn latest(&self) -> (u32, u32, Arc<[u8]>, u64) {
+        match self {
+            Src::Vnc(s) => s.frame.latest(),
+            Src::Present(p) => p.desktop().map(|l| l.frame.latest()).unwrap_or((0, 0, Arc::from(Vec::new()), 0)),
+        }
+    }
+    fn alive(&self) -> bool {
+        match self {
+            Src::Vnc(s) => s.alive(),
+            Src::Present(p) => p.is_alive(),
+        }
+    }
+}
+
+impl Drop for Src {
+    fn drop(&mut self) {
+        match self {
+            Src::Vnc(s) => s.close(),
+            Src::Present(p) => p.close(),
+        }
+    }
+}
+
 pub fn start(vm: &Vm, o: &Opts) -> Result<Info> {
     if crate::qemu::pid(vm).is_none() {
         bail!("{}", t!("«{name}» не запущена", name = vm.name));
@@ -87,7 +123,7 @@ pub fn start(vm: &Vm, o: &Opts) -> Result<Info> {
         bail!("{}", t!("уже идёт запись в {path} (syn-vm --record-stop {id})", path = i.path, id = vm.id));
     }
     let _ = std::fs::remove_file(info_path(vm));
-    let exe = std::env::current_exe()?;
+    let exe = crate::self_exe()?;
     let mut c = Command::new(exe);
     c.arg("--record-run").arg(&vm.id).arg(&o.out).arg(o.fps.to_string()).arg(if o.audio { "1" } else { "0" }).arg(o.duration.map(|d| d.as_secs_f64()).unwrap_or(0.0).to_string());
     c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(std::fs::File::create(vm.run_dir().join("record.log"))?);
@@ -290,16 +326,17 @@ pub fn run(vm: &Vm, o: Opts) -> Result<()> {
     };
     save(&info);
 
-    // Кадры — свой сеанс VNC (общий доступ, окну не мешает).
-    let session = Session::open(vm.vnc_path(), Duration::from_secs(5), Arc::new(|| {}), Arc::new(|_| {}));
+    // Кадры: у видеокарты syn-gpu — рабочий стол наблюдателем present (VNC без -vga пуст);
+    // иначе — свой сеанс VNC (общий доступ, окну не мешает).
+    let session = Src::open(vm)?;
     let t0 = Instant::now();
-    while session.frame.size().0 == 0 {
+    while session.latest().0 == 0 {
         if !session.alive() || t0.elapsed() > Duration::from_secs(10) || STOP.load(Ordering::SeqCst) {
             bail!("{}", t!("нет кадра от гостя"));
         }
         std::thread::sleep(Duration::from_millis(20));
     }
-    let (fw, fh) = session.frame.size();
+    let (fw, fh) = { let (w, h, _, _) = session.latest(); (w, h) };
     // yuv420 — чётные стороны.
     let (w, h) = (fw & !1, fh & !1);
     let (enc, pre, args) = encoder(fps);
@@ -353,7 +390,7 @@ pub fn run(vm: &Vm, o: Opts) -> Result<()> {
     let mut write_err = String::new();
     // Первый кадр — до отсчёта: ffmpeg и кодировщик открываются не мгновенно.
     {
-        let (sw, sh, rgba, ver) = session.frame.latest();
+        let (sw, sh, rgba, ver) = session.latest();
         last_ver = last_ver.max(ver);
         fit_into(&rgba, sw, sh, &mut frame, w, h);
         stdin.write_all(&frame).context("ffmpeg")?;
@@ -384,7 +421,7 @@ pub fn run(vm: &Vm, o: Opts) -> Result<()> {
             stats.error = t!("экран гостя отключился (машина выключена?)");
             break;
         }
-        let (sw, sh, rgba, ver) = session.frame.latest();
+        let (sw, sh, rgba, ver) = session.latest();
         if ver != last_ver && sw > 0 {
             last_ver = ver;
             stats.updates += 1;
@@ -424,7 +461,7 @@ pub fn run(vm: &Vm, o: Opts) -> Result<()> {
         }
     }
     STOP.store(true, Ordering::SeqCst);
-    session.close();
+    drop(session);
     drop(tx);
     let _ = writer.join();
     let st = ff.wait()?;

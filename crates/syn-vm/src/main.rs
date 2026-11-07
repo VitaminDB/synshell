@@ -36,6 +36,22 @@ use synshell_common::Config;
 
 use state::{St, Tab};
 
+/// Свой исполняемый файл для запуска помощников (`--record-run`, наблюдатели). Если пакет
+/// обновили при открытом окне, `/proc/self/exe` указывает на удалённый файл («… (deleted)»)
+/// и запуск по нему не удаётся — тогда берётся новый файл по тому же пути.
+pub fn self_exe() -> std::io::Result<PathBuf> {
+    let exe = std::env::current_exe()?;
+    if exe.exists() {
+        return Ok(exe);
+    }
+    let s = exe.to_string_lossy();
+    let fresh = PathBuf::from(s.strip_suffix(" (deleted)").unwrap_or(&s));
+    if fresh.exists() {
+        return Ok(fresh);
+    }
+    Ok(exe)
+}
+
 fn main() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "syn_vm=info".into());
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();

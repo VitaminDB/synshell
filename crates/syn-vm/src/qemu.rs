@@ -528,7 +528,7 @@ pub fn start(vm: &Vm) -> Result<()> {
 /// Фоновый наблюдатель машины (`syn-vm --vfio-watch|--usb-watch МАШИНА`), отдельной сессией.
 pub fn spawn_watcher(vm: &Vm, flag: &str) {
     use std::os::unix::process::CommandExt;
-    if let Ok(exe) = std::env::current_exe() {
+    if let Ok(exe) = crate::self_exe() {
         let mut c = Command::new(exe);
         c.arg(flag).arg(&vm.id).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
         unsafe {

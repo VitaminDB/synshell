@@ -394,7 +394,7 @@ fn call(name: &str, a: &Value) -> Result<Value> {
             for f in a.get("forwards").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
                 args.extend(["--fwd".to_string(), f.to_string()]);
             }
-            let out = std::process::Command::new(std::env::current_exe()?).arg("--new").args(&args).output()?;
+            let out = std::process::Command::new(crate::self_exe()?).arg("--new").args(&args).output()?;
             if !out.status.success() {
                 bail!("{}", String::from_utf8_lossy(&out.stderr).trim());
             }
