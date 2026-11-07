@@ -600,7 +600,18 @@ impl State {
                 .collect();
             tiled.sort_by_key(|id| self.core.wm.tile_order_key(*id));
             let rects = layout::arrange(layout, area, tiled.len(), &params);
+            let pages = self.core.wm.mobile.pages_mode();
             for (id, frame) in tiled.iter().zip(rects) {
+                // Страница телефона с окном фиксированного размера (min = max: заставка, окно
+                // установки) — окно своего размера посреди страницы, а не растянутое: такое окно
+                // само не перерисуется под чужой размер.
+                let frame = match self.core.wm.get(*id).filter(|_| pages).and_then(fixed_size) {
+                    Some(size) => {
+                        let size = Size::from((size.w.min(frame.size.w), size.h.min(frame.size.h)));
+                        Rectangle::new(center_in(frame, size), size)
+                    }
+                    None => frame,
+                };
                 self.place_frame(*id, frame, title_h, animate, move_dur, true);
             }
             // Развёрнутые, прилепленные, во весь экран.
@@ -1750,4 +1761,10 @@ pub fn toplevel_title(surface: &WlSurface) -> String {
             .and_then(|d| d.lock().unwrap().title.clone())
             .unwrap_or_default()
     })
+}
+
+/// Размер окна, которое не меняет размер (подсказки min = max), — без заголовка.
+fn fixed_size(m: &crate::wm::Managed) -> Option<Size<i32, Logical>> {
+    let (min, max) = crate::grabs::size_limits(m);
+    (min.w > 0 && min.h > 0 && min == max).then_some(min)
 }

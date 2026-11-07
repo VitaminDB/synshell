@@ -398,7 +398,7 @@ impl PointerGrab<State> for ResizeGrab {
     }
 }
 
-fn size_limits(m: &crate::wm::Managed) -> (Size<i32, Logical>, Size<i32, Logical>) {
+pub(crate) fn size_limits(m: &crate::wm::Managed) -> (Size<i32, Logical>, Size<i32, Logical>) {
     if let Some(t) = m.window.toplevel() {
         with_states(t.wl_surface(), |states| {
             let mut guard = states.cached_state.get::<SurfaceCachedState>();
