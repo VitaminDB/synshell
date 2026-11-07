@@ -365,7 +365,9 @@ fn vm_page(st: St, id: String, narrow: bool) -> W {
         }]
     });
     let bar = Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(tabs).child(spacer()).class(if narrow { "tabbar narrow" } else { "tabbar" });
-    boxed(Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(head).child(bar).child(DecoratedBox::new().child(content).class("content grow")))
+    // Настройки ждут перезапуска, в госте нет драйвера syn-gpu — над любой вкладкой.
+    let notes = screen::notices(st, id.clone());
+    boxed(Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(head).child(bar).child(notes).child(DecoratedBox::new().child(content).class("content grow")))
 }
 
 fn header(st: St, vm: &Vm, l: &state::Live, busy: Option<String>, narrow: bool) -> W {

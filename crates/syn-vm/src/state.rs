@@ -264,6 +264,8 @@ pub struct St {
     /// Видеокарта syn-gpu в госте (драйвер, ICD, игры) — у машин с 3D, раз в минуту;
     /// `Err` — текст ошибки опроса (в том числе «не установлены»), `None` — ещё не спрашивали.
     pub gpu: RwSignal<Option<(String, std::result::Result<crate::gputools::Status, String>)>>,
+    /// Устройство syn-gpu и наш драйвер в госте открытой машины (через агент).
+    pub gpu_presence: RwSignal<Option<(String, crate::gputools::Presence)>>,
 }
 
 impl St {
@@ -294,6 +296,7 @@ impl St {
             host_devs: use_signal(None),
             tools: use_signal(None),
             gpu: use_signal(None),
+            gpu_presence: use_signal(None),
         }
     }
 
@@ -328,13 +331,122 @@ fn presents() -> &'static Mutex<HashMap<String, Arc<crate::present::Present>>> {
 /// Видимый слой игры машины.
 /// У машины с syn-gpu основной видеокартой рабочий стол — основное изображение, а не слой.
 pub fn game_layer(id: &str) -> Option<crate::present::Layer> {
-    let syn_display = mirror().lock().unwrap().iter().any(|v| v.id == id && v.display == model::DisplayModel::SynGpu);
+    let syn_display = launched_display(id) == Some(model::DisplayModel::SynGpu);
     presents().lock().unwrap().get(id).and_then(|p| if syn_display { p.game() } else { p.visible() })
 }
 
 /// Рабочий стол гостя на карте syn-gpu (кадры DESKTOP).
 pub fn desktop_layer(id: &str) -> Option<crate::present::Layer> {
     presents().lock().unwrap().get(id).and_then(|p| p.desktop())
+}
+
+/// Сервер syn-gpu машины открыл сокет кадров, но рабочий стол не пришёл ни разу — сколько ждём.
+pub fn desktop_wait(id: &str) -> Option<Duration> {
+    presents().lock().unwrap().get(id).filter(|p| p.desktop().is_none()).map(|p| p.age())
+}
+
+// ─── С чем запущена машина ──────────────────────────────────────────────
+
+/// Настройки работающих машин на момент запуска QEMU (pid → настройки); обновляет опрос.
+fn launched_cache() -> &'static Mutex<HashMap<String, (i32, Vm)>> {
+    static L: OnceLock<Mutex<HashMap<String, (i32, Vm)>>> = OnceLock::new();
+    L.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Перечитать, с чем работает машина (после запуска; опрос — сам раз в секунду).
+pub fn refresh_launched(vm: &Vm) {
+    let pid = qemu::pid(vm);
+    let mut c = launched_cache().lock().unwrap();
+    match pid.zip(qemu::launched(vm)) {
+        Some((pid, l)) => {
+            c.insert(vm.id.clone(), (pid, l));
+        }
+        None => {
+            c.remove(&vm.id);
+        }
+    }
+}
+
+/// С какими настройками работает машина (`None` — выключена).
+pub fn launched(id: &str) -> Option<Vm> {
+    launched_cache().lock().unwrap().get(id).map(|(_, v)| v.clone())
+}
+
+fn launched_display(id: &str) -> Option<model::DisplayModel> {
+    launched_cache().lock().unwrap().get(id).map(|(_, v)| v.display)
+}
+
+/// Видеокарта, с которой машина работает сейчас; выключена — из настроек.
+pub fn display_now(vm: &Vm) -> model::DisplayModel {
+    launched_display(&vm.id).unwrap_or(vm.display)
+}
+
+/// Машина, какой её видит гость: работает — настройки запуска (каналы агента, видеокарта),
+/// иначе — как в vm.toml.
+pub fn running_vm(vm: &Vm) -> Vm {
+    launched(&vm.id).map(|mut l| {
+        // Имя и пути — нынешние (переименование не требует перезапуска).
+        l.name = vm.name.clone();
+        l
+    })
+    .unwrap_or_else(|| vm.clone())
+}
+
+/// Что из настроек вступит после перезапуска работающей машины.
+pub fn pending_restart(vm: &Vm) -> Vec<String> {
+    launched(&vm.id).map(|l| vm.restart_changes(&l)).unwrap_or_default()
+}
+
+/// «Перезапустить сейчас»: штатное выключение (гостевой агент или ACPI) и запуск с новыми
+/// настройками.
+pub fn restart(st: St, id: &str) {
+    let Some(vm) = st.vm(id) else { return };
+    let id_s = id.to_string();
+    background(st, id, t!("Выключение гостя…"), move || {
+        let old = running_vm(&vm);
+        let changed = !pending_restart(&vm).is_empty();
+        crate::cli::stop(&old, Duration::from_secs(180), false)?;
+        set_busy(st, &id_s, Some(t!("Запуск…")));
+        // Настройки — свежие с диска (могли поменяться, пока гость выключался).
+        let vm = model::load_all().into_iter().find(|v| v.id == vm.id).unwrap_or(vm);
+        qemu::start(&vm)?;
+        refresh_launched(&vm);
+        let vm2 = vm.clone();
+        std::thread::spawn(move || qemu::after_boot(&vm2));
+        let id = id_s.clone();
+        run_on_main_thread(move || {
+            st.gpu_presence.set(None);
+            mark_power(st, &id, Power::Busy);
+            if st.sel.get_untracked().as_deref() == Some(id.as_str()) {
+                st.tab.set(Tab::Screen);
+                attach(st, &id);
+            }
+        });
+        Ok(Some(if changed { t!("Машина перезапущена с новыми настройками") } else { t!("Машина перезапущена") }))
+    });
+}
+
+/// Поставить драйвер syn-gpu в гостя из окна: ход — в подписи «занято», потом — заново
+/// проверить гостя.
+pub fn install_gpu_driver(st: St, id: &str) {
+    let Some(vm) = st.vm(id) else { return };
+    let vm = running_vm(&vm);
+    let id_s = id.to_string();
+    background(st, id, t!("Драйвер syn-gpu…"), move || {
+        let id2 = id_s.clone();
+        let step = move |s: String| {
+            let id = id2.clone();
+            run_on_main_thread(move || set_busy(st, &id, Some(s)));
+        };
+        let r = crate::gputools::install(&vm, &step);
+        let p = crate::gputools::presence(&vm).ok();
+        run_on_main_thread(move || {
+            if let Some(p) = p {
+                st.gpu_presence.set(Some((id_s, p)));
+            }
+        });
+        r.map(Some)
+    });
 }
 
 fn close_present(id: &str) {
@@ -458,6 +570,7 @@ pub fn start(st: St, id: &str) {
     let id2 = id.to_string();
     background(st, id, t!("Запуск…"), move || {
         qemu::start(&vm)?;
+        refresh_launched(&vm);
         let vm2 = vm.clone();
         std::thread::spawn(move || qemu::after_boot(&vm2));
         let id = id2.clone();
@@ -589,6 +702,7 @@ pub fn load_host_devices(st: St) {
 /// Спросить гостевой агент открытой работающей машины.
 pub fn refresh_guest(st: St) {
     let Some(vm) = st.selected() else { return };
+    let vm = running_vm(&vm);
     if !vm.guest_agent || !st.power(&vm.id).on() {
         if st.guest.get_untracked().is_some() {
             st.guest.set(None);
@@ -614,9 +728,29 @@ pub fn refresh_guest(st: St) {
         };
         let tools = if due { guest_tools(&vm).ok() } else { None };
         let gpu = if due && vm.gpu_on() { Some(crate::gputools::status(&vm).map_err(|e| e.to_string())) } else { None };
+        // Драйвер syn-gpu в госте: пока его нет — каждые 10 с (появится — сразу видно), потом — раз в 2 минуты.
+        let presence = if g.is_some() && vm.gpu_on() && !crate::dostools::is_dos(&vm) {
+            static LASTP: std::sync::Mutex<Option<(String, std::time::Instant, bool)>> = std::sync::Mutex::new(None);
+            let l = LASTP.lock().unwrap();
+            let every = if l.as_ref().is_some_and(|(_, _, ok)| *ok) { 120 } else { 10 };
+            let due = l.as_ref().is_none_or(|(id, t, _)| id != &vm.id || t.elapsed() > std::time::Duration::from_secs(every));
+            drop(l);
+            let p = if due { crate::gputools::presence(&vm).ok() } else { None };
+            if let Some(p) = p {
+                *LASTP.lock().unwrap() = Some((vm.id.clone(), std::time::Instant::now(), p.driver));
+            }
+            p
+        } else {
+            None
+        };
         run_on_main_thread(move || {
             if st.sel.get_untracked().as_deref() == Some(vm.id.as_str()) && st.guest.get_untracked() != g {
                 st.guest.set(g);
+            }
+            if let Some(p) = presence {
+                if st.sel.get_untracked().as_deref() == Some(vm.id.as_str()) && st.gpu_presence.get_untracked().as_ref().is_none_or(|(id, old)| id != &vm.id || *old != p) {
+                    st.gpu_presence.set(Some((vm.id.clone(), p)));
+                }
             }
             if let Some(g) = gpu {
                 if st.gpu.get_untracked().as_ref().is_none_or(|(id, old)| id != &vm.id || *old != g) {
@@ -684,10 +818,11 @@ pub fn attach(st: St, id: &str) {
         let v = vm.clone();
         std::thread::spawn(move || crate::qmp::ensure_tablet(&v));
     }
+    refresh_launched(&vm);
     let s = Session::open(vm.vnc_path(), Duration::from_secs(15), on_frame.clone(), on_note);
     // syn-gpu — основная видеокарта (`-vga none`): графической консоли нет, VNC клавиши не
     // передаёт — клавиатура через QMP (мышь идёт планшетом и так доходит).
-    if vm.display == model::DisplayModel::SynGpu {
+    if display_now(&vm) == model::DisplayModel::SynGpu {
         let p = vm.qmp_input_path();
         s.set_qmp_keys(if p.exists() { p } else { vm.qmp_path() });
     }
@@ -714,12 +849,17 @@ pub fn attach(st: St, id: &str) {
     presents().lock().unwrap().insert(id_s, p.clone());
     // Частота монитора окна — серверу syn-gpu (VSync гостя от хоста); окно ушло на другой
     // монитор — новая частота (проверка раз в 2 с; уходит, только если изменилась).
+    // Рабочий стол syn-gpu ещё не пришёл — экран перерисовать (подсказка «нет изображения»
+    // появляется по времени, без кадров).
     std::thread::spawn(move || {
         while p.is_alive() {
             let p2 = p.clone();
             run_on_main_thread(move || {
                 if let Some(mhz) = syngui::signal::monitor_refresh_millihertz() {
                     p2.request_refresh(mhz);
+                }
+                if p2.desktop().is_none() {
+                    st.frame_tick.update(|t| *t = t.wrapping_add(1));
                 }
             });
             std::thread::sleep(Duration::from_secs(2));
@@ -763,6 +903,8 @@ pub fn fit_guest(st: St) {
         return;
     }
     // syn-gpu — основная видеокарта: режим монитора просит сервер syn-gpu (MODE по сокету вывода).
+    // Важна видеокарта, с которой машина запущена, а не выбранная на будущий запуск.
+    let vm = running_vm(&vm);
     if vm.display == model::DisplayModel::SynGpu {
         if let Some(p) = presents().lock().unwrap().get(&vm.id) {
             p.request_mode(w, h);
@@ -862,7 +1004,7 @@ pub fn offer_clipboard(id: &str) {
 /// Миниатюра машины: экран сеанса, свежий кадр работающей или последний сохранённый.
 pub fn thumb(vm: &Vm) -> Option<Arc<LiveFrame>> {
     // syn-gpu — основная видеокарта: экран VNC пуст, миниатюра — рабочий стол с карты.
-    if vm.display == model::DisplayModel::SynGpu {
+    if display_now(vm) == model::DisplayModel::SynGpu {
         if let Some(d) = desktop_layer(&vm.id) {
             return Some(d.frame);
         }
@@ -1019,11 +1161,15 @@ pub fn start_poller(st: St) {
                 let mut thumbs_changed = false;
                 for vm in &vms {
                     let Some(pid) = qemu::pid(vm) else {
+                        launched_cache().lock().unwrap().remove(&vm.id);
                         prev.remove(&vm.id);
                         hist.remove(&vm.id);
                         since.remove(&vm.id);
                         continue;
                     };
+                    if launched_cache().lock().unwrap().get(&vm.id).is_none_or(|(p, _)| *p != pid) {
+                        refresh_launched(vm);
+                    }
                     let power = match qmp::status(vm).as_deref() {
                         Some("running") => Power::Running,
                         Some("paused" | "suspended" | "prelaunch" | "inmigrate" | "postmigrate" | "save-vm" | "restore-vm") => Power::Paused,

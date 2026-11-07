@@ -246,6 +246,8 @@ Icon { icon-color: var(--fg); icon-size: 20px; }
 .banner.info { background-color: var(--accent-soft); }
 .banner.info .banner-icon { icon-color: var(--accent); }
 .banner-icon { icon-size: 22px; }
+.notices { padding: 10px 24px 10px 24px; border-bottom: 1px solid var(--border); }
+.nopic-text { max-width: 560px; text-align: center; }
 
 .empty { padding: 28px 12px; }
 .empty-badge { padding: 16px; border-radius: 22px; background-color: var(--surface-alt); }

@@ -278,6 +278,48 @@ pub fn status(vm: &Vm) -> Result<Status> {
     serde_json::from_str(json).with_context(|| format!("status --json: {out}"))
 }
 
+/// Видеокарта syn-gpu глазами гостя.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Presence {
+    /// Устройство PCI 1b36:f00d в госте есть.
+    pub device: bool,
+    /// На нём работает наш драйвер (Windows — служба `syngpu`, Linux — модуль `syngpu`).
+    pub driver: bool,
+}
+
+impl Presence {
+    /// Устройство есть, а драйвера на нём нет (Windows — «Базовый видеоадаптер»): предложить установку.
+    pub fn needs_driver(&self) -> bool {
+        self.device && !self.driver
+    }
+
+    fn parse(out: &str) -> Presence {
+        let get = |k: &str| out.lines().any(|l| l.trim() == format!("{k}=1"));
+        Presence { device: get("device"), driver: get("driver") }
+    }
+}
+
+/// Есть ли в госте устройство syn-gpu и наш драйвер на нём (через гостевой агент, быстро).
+pub fn presence(vm: &Vm) -> Result<Presence> {
+    if vm.os.is_windows() {
+        let (_, out) = ps(
+            vm,
+            r"$g=Get-PnpDevice -PresentOnly -EA 0 | ? InstanceId -like 'PCI\VEN_1B36&DEV_F00D*' | select -First 1; if($g){ 'device=1'; $s=(Get-PnpDeviceProperty -InstanceId $g.InstanceId -KeyName DEVPKEY_Device_Service -EA 0).Data; if($s -eq 'syngpu'){ 'driver=1' } }",
+            Duration::from_secs(30),
+        )?;
+        return Ok(Presence::parse(&out));
+    }
+    if vm.os == crate::model::OsKind::Linux {
+        let (_, out) = sh(
+            vm,
+            r#"for d in /sys/bus/pci/devices/*; do [ "$(cat $d/vendor)" = 0x1b36 ] && [ "$(cat $d/device)" = 0xf00d ] || continue; echo device=1; [ "$(basename "$(readlink $d/driver)")" = syngpu ] && echo driver=1; break; done; true"#,
+            Duration::from_secs(30),
+        )?;
+        return Ok(Presence::parse(&out));
+    }
+    bail!("{}", t!("Гостевые инструменты syn-gpu — для Windows, Linux и DOS (прошивка BIOS)"))
+}
+
 /// Подключить (`true`) или вернуть исходные DLL (`false`) в папке игры.
 pub fn set_game(vm: &Vm, path: &str, on: bool) -> Result<()> {
     let p = path.replace('\'', "''");
@@ -286,4 +328,18 @@ pub fn set_game(vm: &Vm, path: &str, on: bool) -> Result<()> {
         bail!("{out}");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn presence_parse() {
+        assert_eq!(Presence::parse(""), Presence::default());
+        let p = Presence::parse("device=1\r\n");
+        assert!(p.device && !p.driver && p.needs_driver());
+        let p = Presence::parse("device=1\ndriver=1\n");
+        assert!(!p.needs_driver());
+    }
 }

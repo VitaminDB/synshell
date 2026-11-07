@@ -77,9 +77,10 @@ pub fn page(st: St, full: bool) -> W {
             };
             // syn-gpu — основная видеокарта: изображение — рабочий стол с карты (кадры DESKTOP),
             // экран VNC пуст (`-vga none`) и служит только вводу (планшет — в долях кадра).
-            let syn_display = st.vm(&id).is_some_and(|v| v.display == model::DisplayModel::SynGpu);
+            // Видеокарта — та, с которой машина запущена (выбранная в настройках вступит после перезапуска).
+            let syn_display = st.vm(&id).is_some_and(|v| state::display_now(&v) == model::DisplayModel::SynGpu);
             let (frame, guest) = if syn_display {
-                let Some(d) = state::desktop_layer(&id) else { return vec![waiting(t!("Ждём драйвер syn-gpu в госте…"))] };
+                let Some(d) = state::desktop_layer(&id) else { return vec![no_picture(st, &id)] };
                 let size = (d.rect.2, d.rect.3);
                 (d.frame.clone(), size)
             } else {
@@ -369,7 +370,7 @@ fn record_button(st: St, id: String) -> W {
 fn toolbar(st: St, id: &str, full: bool) -> W {
     let (a, b, c, d, e) = (id.to_string(), id.to_string(), id.to_string(), id.to_string(), id.to_string());
     let auto = st.vm(id).map(|v| v.auto_resize).unwrap_or(true);
-    let size = match state::desktop_layer(id).filter(|_| st.vm(id).is_some_and(|v| v.display == model::DisplayModel::SynGpu)) {
+    let size = match state::desktop_layer(id).filter(|_| st.vm(id).is_some_and(|v| state::display_now(&v) == model::DisplayModel::SynGpu)) {
         Some(d) => (d.rect.2, d.rect.3),
         None => st.guest_size.get_untracked(),
     };
@@ -503,6 +504,120 @@ fn paused_veil(st: St, id: &str) -> W {
             )
             .class("veil"),
     )
+}
+
+/// Кадров рабочего стола syn-gpu ещё нет. Первые секунды — просто ожидание (прошивка, GOP и
+/// VGA тоже идут через syn-gpu); дальше — что случилось и что сделать.
+fn no_picture(st: St, id: &str) -> W {
+    const GRACE: std::time::Duration = std::time::Duration::from_secs(8);
+    let wait = state::desktop_wait(id);
+    if wait.is_none_or(|w| w < GRACE) && crate::present::server_up(id) {
+        return waiting(t!("Ждём изображение с видеокарты syn-gpu…"));
+    }
+    let (title, text) = if !crate::present::server_up(id) {
+        (t!("Видеокарта syn-gpu не работает"), t!("Сервер видеокарты syn-gpu этой машины не запущен (журнал — syn-gpu.log в папке машины). Перезапустите машину."))
+    } else {
+        let secs = wait.map(|w| w.as_secs()).unwrap_or(0);
+        (
+            t!("Гость не выводит изображение на syn-gpu ({s} с)", s = secs),
+            t!("Обычно картинка идёт через syn-gpu сразу — прошивка, затем базовый видеоадаптер гостя, затем наш драйвер. Если экрана нет: гость завис или выключил монитор — перезапустите машину; если гость на связи — поставьте драйвер syn-gpu."),
+        )
+    };
+    let (a, b) = (id.to_string(), id.to_string());
+    let busy = st.busy.get_untracked().get(id).cloned();
+    let agent = st.guest.get_untracked().is_some() && crate::present::server_up(id);
+    let mut acts = Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center);
+    if let Some(b) = busy {
+        acts = acts.child(CircularProgress::new().indeterminate().size(20.0).stroke_width(2.5)).child(Text::new(b).class("muted"));
+    } else {
+        acts = acts.child(btn(icons::RESTART, t!("Перезапустить машину"), "primary", move || state::restart(st, &a)));
+        if agent {
+            acts = acts.child(btn(icons::SYNC, t!("Поставить драйвер syn-gpu"), "soft", move || state::install_gpu_driver(st, &b)));
+        }
+    }
+    let col = Column::new()
+        .gap(14.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(Icon::new(icons::MONITOR).class("veil-icon"))
+        .child(Text::new(title).class("veil-title"))
+        .child(Text::new(text).max_lines(5).class("veil-sub nopic-text"))
+        .child(acts);
+    boxed(DecoratedBox::new().child(Center::new().child(col)).class("screen-wrap"))
+}
+
+/// Полоса над страницей машины: настройки ждут перезапуска, в госте нет драйвера syn-gpu.
+pub fn notices(st: St, id: String) -> W {
+    boxed(Reactive::new(move || -> Vec<W> {
+        let vms = st.vms.get();
+        let on = st.live.get().get(&id).is_some_and(|l| l.power.on());
+        let busy = st.busy.get().get(&id).cloned();
+        let presence = st.gpu_presence.get();
+        let Some(vm) = vms.iter().find(|v| v.id == id) else { return vec![] };
+        if !on {
+            return vec![];
+        }
+        let mut out: Vec<W> = Vec::new();
+        let bar = |icon: &str, cls: &str, title: String, text: String, action: W| -> W {
+            boxed(
+                DecoratedBox::new()
+                    .child(
+                        Row::new()
+                            .gap(12.0)
+                            .cross_axis_alignment(CrossAxisAlignment::Center)
+                            .child(Icon::new(icon).class("banner-icon"))
+                            .child(Column::new().gap(2.0).child(Text::new(title).max_lines(2).class("row-title")).child(Text::new(text).max_lines(3).class("row-hint")).class("grow"))
+                            .child(action),
+                    )
+                    .class(format!("banner {cls} notice")),
+            )
+        };
+        let progress = |label: &str| -> W {
+            boxed(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(CircularProgress::new().indeterminate().size(18.0).stroke_width(2.5)).child(Text::new(label.to_string()).max_lines(1).class("muted")))
+        };
+        let pending = state::pending_restart(vm);
+        let launched = state::running_vm(vm);
+        if !pending.is_empty() {
+            let id2 = id.clone();
+            out.push(bar(
+                icons::INFO,
+                "info",
+                t!("Применится после перезапуска машины"),
+                pending.join("; "),
+                match &busy {
+                    Some(b) => progress(b),
+                    None => btn(icons::RESTART, t!("Перезапустить сейчас"), "primary", move || state::restart(st, &id2)),
+                },
+            ));
+        }
+        // Драйвер syn-gpu: устройство в госте есть, нашего драйвера на нём нет.
+        let need = presence.as_ref().is_some_and(|(pid, p)| *pid == id && p.needs_driver());
+        if need && launched.gpu_on() && vm.gpu_on() && crate::present::server_up(&id) {
+            let id2 = id.clone();
+            let text = if launched.os.is_windows() {
+                t!("Сейчас экран идёт через «Базовый видеоадаптер (Microsoft)»: без 3D, разрешение под окно не меняется. Установка — через гостевой агент, может понадобиться перезагрузка гостя.")
+            } else {
+                t!("Без драйвера нет 3D и разрешение под окно не меняется. Установка — через гостевой агент (DKMS: нужны gcc, make, dkms и заголовки ядра).")
+            };
+            out.push(bar(
+                icons::WARNING,
+                "warn",
+                t!("В госте нет драйвера syn-gpu"),
+                text,
+                match &busy {
+                    Some(b) => progress(b),
+                    None => btn(icons::SYNC, t!("Поставить драйвер syn-gpu"), "primary", move || state::install_gpu_driver(st, &id2)),
+                },
+            ));
+        }
+        if out.is_empty() {
+            return vec![];
+        }
+        let mut col = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+        for w in out {
+            col = col.child(w);
+        }
+        vec![boxed(col.class("notices"))]
+    }))
 }
 
 fn waiting(text: String) -> W {

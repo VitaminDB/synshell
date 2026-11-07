@@ -431,7 +431,7 @@ pub fn start(vm: &Vm) -> Result<()> {
     }
     let run = vm.run_dir();
     std::fs::create_dir_all(&run)?;
-    for f in ["qmp.sock", "vnc.sock", "qemu.pid", "swtpm.sock", "qga.sock", "virtiofs.sock"] {
+    for f in ["qmp.sock", "vnc.sock", "qemu.pid", "swtpm.sock", "qga.sock", "virtiofs.sock", LAUNCHED] {
         let _ = std::fs::remove_file(run.join(f));
     }
     let mut args = args(vm)?;
@@ -503,6 +503,10 @@ pub fn start(vm: &Vm) -> Result<()> {
     }
     // Процесс QEMU дожидается поток (без зомби, пока жив syn-vm); дальше он — сам по себе.
     std::thread::spawn(move || child.wait());
+    // С чем запущена машина: изменения в vm.toml, которые вступят после перезапуска, видны окну.
+    if let Ok(t) = toml::to_string_pretty(vm) {
+        let _ = std::fs::write(run.join(LAUNCHED), t);
+    }
     // Указатель — планшет: у машин с 3D последней добавлена относительная мышь, и QEMU делает
     // активной её (она нужна только в режиме захвата для игр).
     crate::qmp::ensure_tablet(vm);
@@ -834,6 +838,44 @@ pub fn after_boot(vm: &Vm) {
     }
 }
 
+/// Настройки, с которыми запущен QEMU машины (в папке запуска).
+const LAUNCHED: &str = "launched.toml";
+
+/// С какими настройками работает машина (`None` — выключена). Машина, запущенная до появления
+/// этого файла (или из чужой командной строки), — по командной строке QEMU: видеокарта и syn-gpu.
+pub fn launched(vm: &Vm) -> Option<Vm> {
+    let pid = pid(vm)?;
+    if let Some(mut l) = std::fs::read_to_string(vm.run_dir().join(LAUNCHED)).ok().and_then(|s| toml::from_str::<Vm>(&s).ok()) {
+        l.id = vm.id.clone();
+        return Some(l);
+    }
+    let cmd = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+    let args: Vec<String> = cmd.split(|b| *b == 0).map(|a| String::from_utf8_lossy(a).into_owned()).collect();
+    let mut l = vm.clone();
+    let (display, gpu) = display_of_args(&args);
+    l.display = display;
+    l.gpu3d = gpu && display != DisplayModel::SynGpu;
+    Some(l)
+}
+
+/// Видеокарта по аргументам QEMU и есть ли устройство syn-gpu (vfio-user-pci).
+pub fn display_of_args(args: &[String]) -> (DisplayModel, bool) {
+    let gpu = args.iter().any(|a| a.contains("vfio-user-pci"));
+    let dev = |name: &str| args.iter().any(|a| a.split(',').next() == Some(name));
+    let d = if dev("virtio-vga") || dev("virtio-vga-gl") {
+        DisplayModel::Virtio
+    } else if dev("qxl-vga") {
+        DisplayModel::Qxl
+    } else if dev("VGA") {
+        DisplayModel::Std
+    } else if gpu {
+        DisplayModel::SynGpu
+    } else {
+        DisplayModel::Std
+    };
+    (d, gpu)
+}
+
 /// PID работающего QEMU машины.
 pub fn pid(vm: &Vm) -> Option<i32> {
     let pid: i32 = std::fs::read_to_string(vm.pid_path()).ok()?.trim().parse().ok()?;
@@ -890,6 +932,27 @@ pub fn clk_tck() -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_from_args() {
+        let a = |s: &str| split_args(s);
+        assert_eq!(display_of_args(&a("-vga none -device virtio-vga,xres=1280,yres=800")), (DisplayModel::Virtio, false));
+        assert_eq!(display_of_args(&a(r#"-vga none -device virtio-vga,xres=1280 -device {"driver":"vfio-user-pci"}"#)), (DisplayModel::Virtio, true));
+        assert_eq!(display_of_args(&a(r#"-vga none -device {"driver":"vfio-user-pci","socket":{}}"#)), (DisplayModel::SynGpu, true));
+        assert_eq!(display_of_args(&a("-vga none -device VGA,vgamem_mb=64")), (DisplayModel::Std, false));
+        // Наши аргументы QEMU: что запишется в командную строку, то и распознаётся.
+        let mut vm = OsKind::Linux.preset();
+        vm.id = "t".into();
+        vm.firmware = Firmware::Bios;
+        for d in DisplayModel::ALL {
+            vm.display = d;
+            let mut args = args(&vm).unwrap();
+            if vm.gpu_on() {
+                args.push(r#"{"driver":"vfio-user-pci"}"#.into());
+            }
+            assert_eq!(display_of_args(&args).0, d);
+        }
+    }
 
     #[test]
     fn split() {

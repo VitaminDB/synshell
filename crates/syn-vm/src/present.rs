@@ -81,6 +81,11 @@ pub struct Present {
     /// Номер своего указателя syngui для курсора гостя (0 — не ставить: проверка без окна).
     cursor_id: u32,
     on_notice: Option<Arc<dyn Fn(Notice) + Send + Sync>>,
+    /// Когда клиент начал ждать кадры.
+    started: Instant,
+    /// Машина (пусто — проверка без машины): размер рабочего стола уходит в файл для ввода из CLI.
+    id: String,
+    desk_size: Mutex<(u32, u32)>,
 }
 
 /// Номер указателя syngui (`CursorIcon::Custom`) для курсора гостя машины.
@@ -103,6 +108,11 @@ impl Present {
     /// Рабочий стол гостя — последний кадр DESKTOP.
     pub fn desktop(&self) -> Option<Layer> {
         self.layers.lock().unwrap().values().filter(|l| l.desktop).max_by_key(|l| l.updated).cloned()
+    }
+
+    /// Сколько клиент работает (ждёт кадры).
+    pub fn age(&self) -> Duration {
+        self.started.elapsed()
     }
 
     pub fn close(&self) {
@@ -141,6 +151,42 @@ impl Present {
     }
 }
 
+/// Сервер syn-gpu машины работает: жив процесс из `<машина>.pid` (сокеты после падения сервера
+/// остаются файлами). Без файла pid — по сокету кадров.
+pub fn server_up(id: &str) -> bool {
+    let pidf = socket(id).with_file_name(format!("{id}.pid"));
+    match std::fs::read_to_string(&pidf).ok().and_then(|s| s.trim().parse::<i32>().ok()) {
+        Some(pid) => unsafe { libc::kill(pid, 0) == 0 },
+        None => socket(id).exists(),
+    }
+}
+
+/// Размер рабочего стола syn-gpu (последний известный окну или проверке) — для ввода из CLI.
+fn size_file(id: &str) -> PathBuf {
+    socket(id).with_file_name(format!("{id}.desktop-size"))
+}
+
+/// Последний известный размер рабочего стола syn-gpu машины (физические пиксели).
+pub fn desktop_size(id: &str) -> Option<(u32, u32)> {
+    let s = std::fs::read_to_string(size_file(id)).ok()?;
+    let mut it = s.split_whitespace().filter_map(|x| x.parse::<u32>().ok());
+    Some((it.next()?, it.next()?)).filter(|(w, h)| *w > 0 && *h > 0)
+}
+
+impl Present {
+    /// Кадр рабочего стола: размер изменился — записать (для `--click` без окна).
+    fn note_desktop(&self, w: u32, h: u32) {
+        if self.id.is_empty() || w == 0 || h == 0 {
+            return;
+        }
+        let mut d = self.desk_size.lock().unwrap();
+        if *d != (w, h) {
+            *d = (w, h);
+            let _ = std::fs::write(size_file(&self.id), format!("{w} {h}\n"));
+        }
+    }
+}
+
 fn socket(id: &str) -> PathBuf {
     let run = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"));
     run.join("syn-gpu").join(format!("{id}.present.sock"))
@@ -148,7 +194,7 @@ fn socket(id: &str) -> PathBuf {
 
 /// Запустить клиента: ждёт сокет, переподключается; `on_change` — новый кадр или слой.
 pub fn start(id: &str, on_change: Arc<dyn Fn() + Send + Sync>, on_notice: Arc<dyn Fn(Notice) + Send + Sync>) -> Arc<Present> {
-    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: cursor_id(id), on_notice: Some(on_notice) });
+    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: cursor_id(id), on_notice: Some(on_notice), started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)) });
     let me = p.clone();
     let path = socket(id);
     std::thread::Builder::new()
@@ -172,7 +218,14 @@ pub fn start(id: &str, on_change: Arc<dyn Fn() + Send + Sync>, on_notice: Arc<dy
                                 std::thread::sleep(Duration::from_secs(5));
                             }
                         }
-                        Err(e) => tracing::debug!("syn-gpu present {}: {e}", path.display()),
+                        Err(e) => {
+                            tracing::debug!("syn-gpu present {}: {e}", path.display());
+                            // Сокет остался, а сервера нет (упал) — кадры убрать: окно покажет, что случилось.
+                            if e.kind() == std::io::ErrorKind::ConnectionRefused && !me.layers.lock().unwrap().is_empty() {
+                                me.layers.lock().unwrap().clear();
+                                on_change();
+                            }
+                        }
                     }
                 } else if !me.layers.lock().unwrap().is_empty() {
                     // Сервера syn-gpu больше нет (машина выключена) — кадры убрать.
@@ -186,12 +239,67 @@ pub fn start(id: &str, on_change: Arc<dyn Fn() + Send + Sync>, on_notice: Arc<dy
     p
 }
 
+/// Экран без окна: рабочий стол и поверх — видимые поверхности (окна игр, всплывающие окна,
+/// которые гость выводит отдельными плоскостями) в их местах. Кадр RGBA.
+pub fn grab_screen(id: &str, wait: Duration) -> Result<(u32, u32, Vec<u8>)> {
+    let path = socket(id);
+    let s = UnixStream::connect(&path).with_context(|| path.display().to_string())?;
+    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)) });
+    let p2 = p.clone();
+    let t = std::thread::spawn(move || {
+        let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+        run(&p2, s, &cb, false)
+    });
+    let until = Instant::now() + wait;
+    while p.desktop().is_none() && !t.is_finished() && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // Прочие поверхности приходят следом за рабочим столом.
+    std::thread::sleep(Duration::from_millis(400));
+    p.close();
+    let _ = t.join();
+    let mut layers: Vec<Layer> = p.layers.lock().unwrap().values().cloned().collect();
+    let desk = layers.iter().filter(|l| l.desktop).max_by_key(|l| l.updated).cloned().with_context(|| syngui::t!("нет кадра рабочего стола (драйвер syn-gpu в госте ещё не загрузился?)"))?;
+    let (w, h, px, _) = desk.frame.latest();
+    let mut out = px.to_vec();
+    layers.retain(|l| !l.desktop && l.show);
+    layers.sort_by_key(|l| l.updated);
+    for l in layers {
+        let (lw, lh, lpx, _) = l.frame.latest();
+        let (x0, y0, rw, rh) = l.rect;
+        if lw == 0 || lh == 0 || rw == 0 || rh == 0 {
+            continue;
+        }
+        // Кадр поверхности — в прямоугольник окна (ближайший пиксель, без смешивания).
+        for y in 0..rh {
+            let dy = y0 + y as i32;
+            if dy < 0 || dy >= h as i32 {
+                continue;
+            }
+            let sy = (y as u64 * lh as u64 / rh as u64) as usize;
+            for x in 0..rw {
+                let dx = x0 + x as i32;
+                if dx < 0 || dx >= w as i32 {
+                    continue;
+                }
+                let sx = (x as u64 * lw as u64 / rw as u64) as usize;
+                let si = (sy * lw as usize + sx) * 4;
+                let di = (dy as usize * w as usize + dx as usize) * 4;
+                if let (Some(src), true) = (lpx.get(si..si + 4), di + 4 <= out.len()) {
+                    out[di..di + 4].copy_from_slice(src);
+                }
+            }
+        }
+    }
+    Ok((w, h, out))
+}
+
 /// Проверка без окна: подключиться, дождаться видимого кадра игры (`desktop` — кадра рабочего
 /// стола) до `wait`, вернуть слой.
 pub fn grab(id: &str, wait: Duration, desktop: bool) -> Result<Layer> {
     let path = socket(id);
     let s = UnixStream::connect(&path).with_context(|| path.display().to_string())?;
-    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None });
+    let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)) });
     let p2 = p.clone();
     let t = std::thread::spawn(move || {
         let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
@@ -325,6 +433,9 @@ fn run(p: &Present, mut s: UnixStream, on_change: &Arc<dyn Fn() + Send + Sync>, 
                     l.desktop = flags & DESKTOP != 0;
                     l.updated = Instant::now();
                     drop(layers);
+                    if flags & DESKTOP != 0 {
+                        p.note_desktop(w, h);
+                    }
                     on_change();
                     continue;
                 }
@@ -348,6 +459,9 @@ fn run(p: &Present, mut s: UnixStream, on_change: &Arc<dyn Fn() + Send + Sync>, 
                     l.desktop = flags & DESKTOP != 0;
                     l.updated = Instant::now();
                     drop(layers);
+                    if flags & DESKTOP != 0 {
+                        p.note_desktop(w, h);
+                    }
                     on_change();
                 }
             }
@@ -526,6 +640,9 @@ mod tests {
             tx: Mutex::new(None),
             cursor_id: 0,
             on_notice: Some(Arc::new(move |n: Notice| g.lock().unwrap().push((n.kind, n.bytes)))),
+            started: Instant::now(),
+            id: String::new(),
+            desk_size: Mutex::new((0, 0)),
         };
         let mut m = Vec::new();
         m.extend_from_slice(&NOTICE.to_le_bytes());
@@ -567,7 +684,7 @@ mod tests {
             fr.extend_from_slice(&v.to_le_bytes());
         }
         send(&mut srv, FRAME, &fr).unwrap();
-        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None });
+        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: String::new(), desk_size: Mutex::new((0, 0)) });
         let changed = Arc::new(AtomicBool::new(false));
         let ch = changed.clone();
         let p2 = p.clone();
@@ -621,7 +738,7 @@ mod tests {
             fr.extend_from_slice(&v.to_le_bytes());
         }
         send(&mut srv, FRAME, &fr).unwrap();
-        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None });
+        let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: String::new(), desk_size: Mutex::new((0, 0)) });
         let p2 = p.clone();
         let t = std::thread::spawn(move || {
             let cb: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});

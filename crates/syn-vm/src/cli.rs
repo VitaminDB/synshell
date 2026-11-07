@@ -40,6 +40,8 @@ syn-vm — виртуальные машины QEMU/KVM
   --status МАШИНА [--json]               состояние, агент, система гостя, адреса, порты
   --start МАШИНА [--wait-boot [СЕК]]     запустить без окна (и ждать гостевого агента)
   --stop МАШИНА [--force] [--timeout СЕК]  выключить (агентом или ACPI); --force — выдернуть шнур по тайм-ауту
+  --restart МАШИНА [--timeout СЕК]       перезапустить (штатное выключение и запуск): применить настройки,
+                                          которые вступают только после перезапуска (видеокарта и др.)
   --kill МАШИНА                          выключить сразу
   --reset | --pause | --resume МАШИНА
   --wait-boot МАШИНА [--user] [--timeout СЕК]  ждать гостевой агент (300 с); --user — и вход пользователя
@@ -170,7 +172,7 @@ impl Args {
 /// Команда CLI → код возврата; `None` — это не команда CLI (окно).
 pub fn run(cmd: &str, rest: Vec<String>) -> Option<i32> {
     let known = [
-        "--list", "--status", "--start", "--stop", "--kill", "--reset", "--pause", "--resume", "--wait-boot", "--new", "--delete", "--get", "--set", "--exec", "--sh", "--push",
+        "--list", "--status", "--start", "--stop", "--restart", "--kill", "--reset", "--pause", "--resume", "--wait-boot", "--new", "--delete", "--get", "--set", "--exec", "--sh", "--push",
         "--pull", "--exec-status", "--agent", "--sync-time", "--screendump", "--type", "--key", "--click", "--scroll", "--devices", "--usb", "--attach", "--detach", "--cdrom", "--tools", "--snapshot",
         "--qmp", "--mcp", "--optimize", "--present-dump", "--gpu-tools", "--vfio-helper", "--vfio-watch", "--usb-watch", "--record", "--record-stop", "--record-run",
         "--agent-broker", "--agent-install", "--agent-status", "--agent-log", "--clipboard",
@@ -254,8 +256,21 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
         }
         "--stop" => {
             let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
-            let how = stop(&vm, a.secs("--timeout", 90), a.has("--force"))?;
+            let how = stop(&qemu::launched(&vm).unwrap_or(vm.clone()), a.secs("--timeout", 90), a.has("--force"))?;
             println!("{}: {how}", vm.name);
+            Ok(0)
+        }
+        "--restart" => {
+            let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
+            let changes = qemu::launched(&vm).map(|l| vm.restart_changes(&l)).unwrap_or_default();
+            let how = stop(&qemu::launched(&vm).unwrap_or(vm.clone()), a.secs("--timeout", 180), a.has("--force"))?;
+            println!("{}: {how}", vm.name);
+            start(&vm)?;
+            if changes.is_empty() {
+                println!("{}", t!("{name}: запущена", name = vm.name));
+            } else {
+                println!("{}", t!("{name}: запущена с новыми настройками: {list}", name = vm.name, list = changes.join("; ")));
+            }
             Ok(0)
         }
         "--kill" => {
@@ -573,7 +588,7 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             running(&vm)?;
             let out = absolute(&a.pos(1, n_!("ФАЙЛ.png"))?)?;
             // syn-gpu — основная видеокарта: экрана QEMU нет, снимок — рабочий стол с карты.
-            if vm.display == model::DisplayModel::SynGpu {
+            if qemu::launched(&vm).map(|l| l.display).unwrap_or(vm.display) == model::DisplayModel::SynGpu {
                 let d = crate::present::grab(&vm.id, Duration::from_secs(10), true)?;
                 let (fw, fh, px, _) = d.frame.latest();
                 image::RgbaImage::from_raw(fw, fh, px.to_vec()).context("кадр")?.save(&out)?;
@@ -870,6 +885,11 @@ pub fn status(vm: &Vm) -> Value {
     });
     if state != "off" {
         v["pid"] = json!(qemu::pid(vm));
+        // С чем работает QEMU и что из vm.toml вступит только после перезапуска.
+        if let Some(l) = qemu::launched(vm) {
+            v["display"] = json!(l.display.short());
+            v["pending_restart"] = json!(vm.restart_changes(&l));
+        }
         v["qmp"] = json!(vm.qmp_path());
         v["vnc"] = json!(vm.vnc_path());
         match qga::info(vm) {
@@ -898,6 +918,13 @@ fn print_status(s: &Value) {
         if s[k].as_array().is_some_and(|a| !a.is_empty()) {
             println!("{k}: {}", s[k]);
         }
+    }
+    if s.get("display").is_some() {
+        println!("{}", t!("видеокарта: {d}", d = g("display")));
+    }
+    if let Some(p) = s["pending_restart"].as_array().filter(|a| !a.is_empty()) {
+        let list = p.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("; ");
+        println!("{}", t!("после перезапуска (syn-vm --restart): {list}", list = list));
     }
 }
 

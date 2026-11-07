@@ -281,6 +281,16 @@ impl ScaleMode {
 impl DisplayModel {
     pub const ALL: [DisplayModel; 4] = [DisplayModel::Virtio, DisplayModel::Std, DisplayModel::Qxl, DisplayModel::SynGpu];
 
+    /// Короткое имя (без перевода).
+    pub fn short(self) -> &'static str {
+        match self {
+            DisplayModel::Virtio => "virtio-vga",
+            DisplayModel::Std => "VGA",
+            DisplayModel::Qxl => "QXL",
+            DisplayModel::SynGpu => "syn-gpu",
+        }
+    }
+
     pub fn title(self) -> &'static str {
         match self {
             DisplayModel::Virtio => n_!("virtio-vga"),
@@ -716,6 +726,47 @@ impl Vm {
         self.gpu3d || self.display == DisplayModel::SynGpu
     }
 
+    /// Что из настроек работающей машины (`launched` — с чем запущен QEMU) вступит только после
+    /// перезапуска: по строке на изменение. Привод, USB, устройства компьютера, масштаб и прочее,
+    /// что меняется на ходу, — не в счёт.
+    pub fn restart_changes(&self, launched: &Vm) -> Vec<String> {
+        let (a, b) = (launched, self);
+        let mut out = Vec::new();
+        if a.display != b.display {
+            out.push(t!("видеокарта: {from} → {to}", from = a.display.short(), to = b.display.short()));
+        } else if a.gpu_on() != b.gpu_on() {
+            out.push(if b.gpu_on() { t!("3D-ускорение (syn-gpu): включено") } else { t!("3D-ускорение (syn-gpu): выключено") });
+        }
+        if a.gpu_on() && b.gpu_on() && a.gpu3d_args != b.gpu3d_args {
+            out.push(t!("настройки видеокарты syn-gpu"));
+        }
+        if a.cpus != b.cpus || a.memory_mb != b.memory_mb {
+            out.push(t!("процессор и память"));
+        }
+        if a.firmware != b.firmware || a.tpm != b.tpm || a.tpm_host != b.tpm_host || a.os != b.os {
+            out.push(t!("прошивка и TPM"));
+        }
+        if a.disks != b.disks || a.disk_bus != b.disk_bus || a.dos_tools != b.dos_tools {
+            out.push(t!("диски"));
+        }
+        if a.net != b.net || a.nic != b.nic || a.forwards != b.forwards {
+            out.push(t!("сеть"));
+        }
+        if a.sound != b.sound || a.sound_card != b.sound_card || a.audio_out != b.audio_out || a.audio_in != b.audio_in {
+            out.push(t!("звук"));
+        }
+        if a.shared_dir != b.shared_dir || a.shares != b.shares || a.share_mode != b.share_mode || a.clipboard != b.clipboard {
+            out.push(t!("общие папки и буфер обмена"));
+        }
+        if a.os.is_windows() && a.guest_tools != b.guest_tools {
+            out.push(t!("гостевые инструменты"));
+        }
+        if a.extra_args != b.extra_args {
+            out.push(t!("аргументы QEMU"));
+        }
+        out
+    }
+
     /// Значение ключа сервера syn-gpu из `gpu3d_args` (`--gpu nvidia` → `Some("nvidia")`).
     pub fn gpu_arg(&self, key: &str) -> Option<String> {
         let t: Vec<&str> = self.gpu3d_args.split_whitespace().collect();
@@ -1071,5 +1122,30 @@ mod tests {
         let v: Vm = toml::from_str("name = \"x\"\ncpus = 3\n").unwrap();
         assert_eq!(v.cpus, 3);
         assert!(v.auto_resize);
+    }
+
+    #[test]
+    fn restart_changes() {
+        let mut a = OsKind::Windows11.preset();
+        a.display = DisplayModel::Virtio;
+        let mut b = a.clone();
+        assert!(b.restart_changes(&a).is_empty());
+        // Что меняется на ходу — без перезапуска.
+        b.cdrom = "/x.iso".into();
+        b.scale = ScaleMode::Stretch;
+        b.auto_resize = !a.auto_resize;
+        b.name = "другое".into();
+        b.tools_cd = !a.tools_cd;
+        assert!(b.restart_changes(&a).is_empty());
+        b.display = DisplayModel::SynGpu;
+        let c = b.restart_changes(&a);
+        assert_eq!(c.len(), 1);
+        assert!(c[0].contains("virtio-vga → syn-gpu"), "{c:?}");
+        b.memory_mb += 1024;
+        b.guest_tools = if a.guest_tools == GuestTools::SynVm { GuestTools::VirtioWin } else { GuestTools::SynVm };
+        assert_eq!(b.restart_changes(&a).len(), 3);
+        let mut g = a.clone();
+        g.gpu3d = true;
+        assert_eq!(g.restart_changes(&a).len(), 1);
     }
 }
