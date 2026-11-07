@@ -45,8 +45,11 @@ fn ps(vm: &Vm, script: &str, timeout: Duration) -> Result<(i32, String)> {
 /// Поставить инструменты: образ в привод, install.cmd, при 3010 — перезагрузка и ожидание
 /// агента. `step` — ход для пользователя. Итог — строка состояния.
 pub fn install(vm: &Vm, step: &dyn Fn(String)) -> Result<String> {
+    if vm.os == crate::model::OsKind::Linux {
+        return install_linux(vm, step);
+    }
     if !vm.os.is_windows() {
-        bail!("{}", t!("Гостевые инструменты syn-gpu — только для Windows"));
+        bail!("{}", t!("Гостевые инструменты syn-gpu — для Windows и Linux"));
     }
     let iso = iso().with_context(|| t!("Нет образа {iso} (SYN_GPU_TOOLS, /usr/share/syn-gpu или ~/.local/share/syn-gpu)", iso = ISO))?;
     step(t!("Образ в привод…"));
@@ -84,6 +87,69 @@ pub fn install(vm: &Vm, step: &dyn Fn(String)) -> Result<String> {
     let _ = crate::qmp::change_cdrom(vm, "");
     res?;
     Ok(status(vm).map(|s| s.summary()).unwrap_or_else(|_| t!("Установлено")))
+}
+
+/// Команда `sh -c` в Linux-госте (агент — root) → код и вывод (stdout и stderr).
+fn sh(vm: &Vm, script: &str, timeout: Duration) -> Result<(i32, String)> {
+    let argv = vec!["sh".to_string(), "-c".into(), format!("{{ {script}\n}} 2>&1")];
+    let r = crate::qga::exec(vm, &argv, None, &[], timeout)?;
+    Ok((r.code, String::from_utf8_lossy(&r.stdout).trim().to_string()))
+}
+
+/// Linux-гость: образ в привод, монтирование по метке SYNGPU, `sh linux/install.sh` (DKMS-драйвер
+/// syngpu, Vulkan ICD, OpenGL через Zink), образ — из привода.
+fn install_linux(vm: &Vm, step: &dyn Fn(String)) -> Result<String> {
+    let iso = iso().with_context(|| t!("Нет образа {iso} (SYN_GPU_TOOLS, /usr/share/syn-gpu или ~/.local/share/syn-gpu)", iso = ISO))?;
+    step(t!("Образ в привод…"));
+    crate::qmp::change_cdrom(vm, &iso.to_string_lossy())?;
+    step(t!("Ждём гостевой агент…"));
+    crate::qga::wait(vm, Duration::from_secs(300))?;
+    step(t!("Установка в госте…"));
+    // Привод появляется не сразу; свой каталог монтирования — не мешать уже смонтированному.
+    let script = r#"
+d=; for i in $(seq 1 30); do d=$(blkid -L SYNGPU 2>/dev/null); [ -z "$d" ] && [ -e /dev/disk/by-label/SYNGPU ] && d=/dev/disk/by-label/SYNGPU; [ -n "$d" ] && break; sleep 1; done
+[ -z "$d" ] && { echo "нет диска SYNGPU"; exit 90; }
+m=$(mktemp -d /run/syn-gpu-iso.XXXXXX); mount -o ro "$d" "$m" || { rmdir "$m"; exit 91; }
+cd "$m/linux" && sh ./install.sh; rc=$?; cd /; umount "$m"; rmdir "$m"; exit $rc"#;
+    let r = sh(vm, script, Duration::from_secs(1800));
+    let _ = crate::qmp::change_cdrom(vm, "");
+    let (code, out) = r?;
+    let tail: String = out.lines().rev().take(15).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+    match code {
+        0 => {}
+        90 => bail!("{}", t!("Гость не видит диск SYNGPU — образ вставлен?")),
+        91 => bail!("{}", t!("Не удалось смонтировать диск SYNGPU в госте:\n{tail}", tail = tail)),
+        c => bail!("{}", t!("Установка не удалась (код {code}):\n{tail}", code = c, tail = tail)),
+    }
+    Ok(status(vm).map(|s| s.summary()).unwrap_or_else(|_| t!("Установлено")))
+}
+
+/// Состояние Linux-гостя: модуль syngpu (DKMS), Vulkan ICD и устройство Vulkan по умолчанию.
+fn status_linux(vm: &Vm) -> Result<Status> {
+    let script = r#"
+v=$(dkms status syngpu 2>/dev/null | sed -n 's#^syngpu/\([^,]*\),.*installed.*#\1#p' | head -1)
+[ -z "$v" ] && v=$(modinfo -F version syngpu 2>/dev/null)
+[ -z "$v" ] && modinfo syngpu >/dev/null 2>&1 && v=?
+echo "version=$v"
+[ -d /sys/module/syngpu ] && echo started=1 || echo started=0
+ls /usr/share/vulkan/icd.d/ 2>/dev/null | grep -qi syn && echo icd=1 || echo icd=0
+command -v vulkaninfo >/dev/null && echo "device=$(vulkaninfo --summary 2>/dev/null | sed -n 's/^[[:space:]]*deviceName[[:space:]]*=[[:space:]]*//p' | head -1)""#;
+    let (_, out) = sh(vm, script, Duration::from_secs(60))?;
+    let get = |k: &str| out.lines().find_map(|l| l.strip_prefix(&format!("{k}="))).unwrap_or("").trim().to_string();
+    let version = get("version");
+    let mut st = Status { linux: true, ..Default::default() };
+    st.driver.installed = !version.is_empty();
+    st.driver.version = version;
+    st.driver.started = get("started") == "1";
+    st.icd.found = get("icd") == "1";
+    st.icd.device = get("device");
+    if st.icd.found && st.icd.device.is_empty() {
+        st.icd.device = t!("Vulkan ICD установлен");
+    }
+    if !st.driver.installed && !st.icd.found {
+        bail!("{}", t!("Гостевые инструменты syn-gpu не установлены"));
+    }
+    Ok(st)
 }
 
 fn log_tail(vm: &Vm) -> String {
@@ -124,6 +190,9 @@ pub struct Status {
     pub icd: Icd,
     pub payload: Payload,
     pub games: Vec<Game>,
+    /// Linux-гость: игр с DXVK нет — в сводке только драйвер и ICD.
+    #[serde(skip)]
+    pub linux: bool,
 }
 
 #[derive(serde::Deserialize, Clone, Debug, Default, PartialEq)]
@@ -181,6 +250,10 @@ impl Status {
             t!("драйвер {v} не запущен (код {p})", v = self.driver.version, p = self.driver.problem)
         };
         let icd = if self.icd.found { self.icd.device.clone() } else if self.icd.error.is_empty() { t!("ICD не найден") } else { self.icd.error.clone() };
+        if self.linux {
+            let drv = if self.driver.installed && !self.driver.started { t!("драйвер {v} не загружен", v = self.driver.version) } else { drv };
+            return format!("{drv}; {icd}");
+        }
         let on = self.games.iter().filter(|g| g.dxvk == "on").count();
         t!("{drv}; {icd}; игр с DXVK: {on} из {n}", drv = drv, icd = icd, on = on, n = self.games.len())
     }
@@ -188,6 +261,9 @@ impl Status {
 
 /// Состояние в госте: `syn-gpu-agent status --json`.
 pub fn status(vm: &Vm) -> Result<Status> {
+    if vm.os == crate::model::OsKind::Linux {
+        return status_linux(vm);
+    }
     let (code, out) = ps(vm, &format!("if (Test-Path '{AGENT}') {{ & '{AGENT}' status --json }} else {{ exit 4 }}"), Duration::from_secs(30))?;
     if code == 4 {
         bail!("{}", t!("Гостевые инструменты syn-gpu не установлены"));

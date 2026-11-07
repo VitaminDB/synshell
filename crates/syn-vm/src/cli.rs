@@ -25,7 +25,7 @@ pub fn help() -> String {
 const EXTRA_HELP: &[&str] = &[
     n_!("  --optimize МАШИНА [--apply]            Windows: быстрое видео, агент, диск инструментов; советы по диску и сети"),
     n_!("  --present-dump МАШИНА ФАЙЛ.png         экран гостя с кадром игры syn-gpu поверх (проверка слоя без окна)"),
-    n_!("  --gpu-tools МАШИНА [install|status]    гостевые инструменты syn-gpu: драйвер 3D-видеокарты в Windows"),
+    n_!("  --gpu-tools МАШИНА [install|status]    гостевые инструменты syn-gpu: драйвер 3D-видеокарты в Windows и Linux"),
 ];
 
 const HELP: &str = n_!("\

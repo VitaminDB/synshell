@@ -815,3 +815,11 @@
 "Текст и картинки в обе стороны через агент syn-vm (пока пользователь вошёл)" = "syn-vm 에이전트를 통한 텍스트와 이미지 양방향 (사용자가 로그인한 동안)"
 "{n} ГиБ" = "{n} GiB"
 "Включено всегда: syn-gpu — основная видеокарта этой машины (раздел «Экран и устройства»)" = "항상 켜짐: syn-gpu가 이 머신의 기본 그래픽 카드입니다 (“화면 및 장치” 섹션)"
+
+# gputools.rs — Linux-гости
+"  --gpu-tools МАШИНА [install|status]    гостевые инструменты syn-gpu: драйвер 3D-видеокарты в Windows и Linux" = "  --gpu-tools 머신 [install|status]        syn-gpu 게스트 도구: Windows 및 Linux의 3D 그래픽 드라이버"
+"Vulkan ICD установлен" = "Vulkan ICD 설치됨"
+"Гостевые инструменты syn-gpu — для Windows и Linux" = "syn-gpu 게스트 도구는 Windows와 Linux용입니다"
+"Драйвер видеокарты в Linux: образ в привод, установка через гостевой агент (DKMS — нужны gcc, make, dkms и заголовки ядра), Vulkan и OpenGL через Zink" = "Linux 그래픽 드라이버: 이미지를 드라이브에 넣고 게스트 에이전트로 설치(DKMS — gcc, make, dkms, 커널 헤더 필요), Vulkan과 Zink를 통한 OpenGL"
+"Не удалось смонтировать диск SYNGPU в госте:\n{tail}" = "게스트에서 SYNGPU 디스크를 마운트하지 못했습니다:\n{tail}"
+"драйвер {v} не загружен" = "드라이버 {v} 로드되지 않음"

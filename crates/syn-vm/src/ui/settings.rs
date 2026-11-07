@@ -548,7 +548,11 @@ fn gpu(st: St, vm: &Vm) -> W {
                     .child(if on { btn(icons::INFO, t!("Состояние в госте"), "ghost", move || state::gpu_tools(st, &b, false)) } else { parts::btn_disabled(icons::INFO, t!("Состояние в госте"), "ghost") });
                 row(
                     t!("Гостевые инструменты syn-gpu"),
-                    if crate::gputools::iso().is_some() { t!("Драйвер видеокарты в Windows: образ в привод, установка через гостевой агент, при необходимости — перезагрузка") } else { t!("Нет образа syn-gpu-guest-tools.iso (SYN_GPU_TOOLS, /usr/share/syn-gpu или ~/.local/share/syn-gpu)") },
+                    if crate::gputools::iso().is_none() {
+                        t!("Нет образа syn-gpu-guest-tools.iso (SYN_GPU_TOOLS, /usr/share/syn-gpu или ~/.local/share/syn-gpu)")
+                    } else if vm.os == model::OsKind::Linux {
+                        t!("Драйвер видеокарты в Linux: образ в привод, установка через гостевой агент (DKMS — нужны gcc, make, dkms и заголовки ядра), Vulkan и OpenGL через Zink")
+                    } else { t!("Драйвер видеокарты в Windows: образ в привод, установка через гостевой агент, при необходимости — перезагрузка") },
                     acts,
                 )
             },

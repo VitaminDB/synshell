@@ -818,3 +818,11 @@
 "Текст и картинки в обе стороны через агент syn-vm (пока пользователь вошёл)" = "Texte et images dans les deux sens via l’agent syn-vm (tant qu’un utilisateur est connecté)"
 "{n} ГиБ" = "{n} Gio"
 "Включено всегда: syn-gpu — основная видеокарта этой машины (раздел «Экран и устройства»)" = "Toujours activé : syn-gpu est la carte graphique principale de cette machine (section « Écran et périphériques »)"
+
+# gputools.rs — Linux-гости
+"  --gpu-tools МАШИНА [install|status]    гостевые инструменты syn-gpu: драйвер 3D-видеокарты в Windows и Linux" = "  --gpu-tools MACHINE [install|status]   outils invités syn-gpu : pilote graphique 3D dans Windows et Linux"
+"Vulkan ICD установлен" = "ICD Vulkan installé"
+"Гостевые инструменты syn-gpu — для Windows и Linux" = "Les outils invité syn-gpu sont pour Windows et Linux"
+"Драйвер видеокарты в Linux: образ в привод, установка через гостевой агент (DKMS — нужны gcc, make, dkms и заголовки ядра), Vulkan и OpenGL через Zink" = "Pilote graphique sous Linux : image dans le lecteur, installation via l’agent invité (DKMS — gcc, make, dkms et en-têtes du noyau requis), Vulkan et OpenGL via Zink"
+"Не удалось смонтировать диск SYNGPU в госте:\n{tail}" = "Impossible de monter le disque SYNGPU dans l’invité :\n{tail}"
+"драйвер {v} не загружен" = "pilote {v} non chargé"
