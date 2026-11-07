@@ -94,6 +94,8 @@
 "слышно {s} с назад ({v})" = "visto há {s} s ({v})"
 "  ожидает спаривания: «{name}» по {title}{v} — synlink pair accept {v2}" = "  aguardando pareamento: “{name}” via {title}{v} — synlink pair accept {v2}"
 ", код {c}" = ", código {c}"
+"спаривание с «{name}» уже идёт и ждёт ответа здесь{code} — synlink pair accept {id}" = "o pareamento com “{name}” já está em andamento e aguarda resposta aqui{code} — synlink pair accept {id}"
+"спаривание с «{name}» уже идёт — подтвердите на устройстве{code}" = "o pareamento com “{name}” já está em andamento — confirme no dispositivo{code}"
 "нужно устройство" = "é preciso um dispositivo"
 "запрос отправлен — подтвердите на устройстве (сверьте код)" = "solicitação enviada — confirme no dispositivo (confira o código)"
 "нет ответа — спаривание не состоялось" = "sem resposta — o pareamento não aconteceu"

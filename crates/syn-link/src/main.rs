@@ -229,6 +229,26 @@ fn run_daemon() -> Result<()> {
     })
 }
 
+/// Сообщение для `synlink pair УСТР`, если спаривание с этим устройством уже идёт.
+fn pairing_note(status: &link::Status, d: &str) -> Option<String> {
+    let p = status.peers.iter().find(|p| p.id == d || (d.len() >= 4 && p.id.starts_with(d)) || p.name == d)?;
+    if !p.pairing {
+        return None;
+    }
+    let prompt = status.prompts.iter().find(|x| x.id == p.id);
+    let code = prompt.and_then(|x| x.code.as_ref()).map(|c| t!(", код {c}", c = c)).unwrap_or_default();
+    Some(match prompt {
+        // Та сторона просит нас — решать здесь.
+        Some(x) if !x.outgoing => t!(
+            "спаривание с «{name}» уже идёт и ждёт ответа здесь{code} — synlink pair accept {id}",
+            name = p.name,
+            code = code,
+            id = &p.id[..p.id.len().min(8)]
+        ),
+        _ => t!("спаривание с «{name}» уже идёт — подтвердите на устройстве{code}", name = p.name, code = code),
+    })
+}
+
 fn req(r: &Request) -> Result<Response> {
     gestures::req(r)
 }
@@ -316,6 +336,15 @@ fn cli(args: &[String]) -> Result<()> {
             }
             _ => {
                 let d = dev(args)?;
+                // Спаривание с ним уже идёт (телефон на кабеле спаривается сам, или прошлый запрос ещё ждёт):
+                // новый запрос ничего не начнёт — сказать, где подтверждать, и ждать итога того.
+                let busy = match req(&Request::Status) {
+                    Ok(Response::Status { status }) => pairing_note(&status, &d),
+                    _ => None,
+                };
+                if let Some(m) = &busy {
+                    println!("{m}");
+                }
                 // Подписаться до запроса, чтобы не пропустить итог; ждать его с отсчётом.
                 let events = link::Client::connect()?.subscribe()?;
                 let (etx, erx) = std::sync::mpsc::channel();
@@ -327,7 +356,9 @@ fn cli(args: &[String]) -> Result<()> {
                     }
                 });
                 req(&Request::Pair { device: d.clone() })?;
-                println!("{}", t!("запрос отправлен — подтвердите на устройстве (сверьте код)"));
+                if busy.is_none() {
+                    println!("{}", t!("запрос отправлен — подтвердите на устройстве (сверьте код)"));
+                }
                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(100);
                 loop {
                     let left = deadline.saturating_duration_since(std::time::Instant::now()).as_secs();
@@ -706,4 +737,37 @@ fn proxy(device: &str, port: u16) -> Result<()> {
 /// (иначе ProxyCommand в ssh-конфиге указывает в никуда).
 pub(crate) fn self_exe() -> std::path::PathBuf {
     synshell_common::paths::self_exe("synlink")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use synshell_common::link::{PairPrompt, PeerInfo, Status, Transport};
+
+    fn status(pairing: bool, prompt: Option<PairPrompt>) -> Status {
+        Status {
+            peers: vec![PeerInfo { id: "98e7788eece7faed".into(), name: "Xiaomi 12T Pro".into(), pairing, ..Default::default() }],
+            prompts: prompt.into_iter().collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn pair_while_pairing() {
+        // Не идёт — молчим.
+        assert_eq!(pairing_note(&status(false, None), "98e7788e"), None);
+        // По кабелю: компьютер согласился сам, решает телефон, кода нет.
+        let m = pairing_note(&status(true, None), "98e7788e").unwrap();
+        assert!(m.contains("уже идёт") && m.contains("Xiaomi 12T Pro") && !m.contains("код"), "{m}");
+        // По Wi-Fi начали отсюда: код для сверки.
+        let out = PairPrompt { id: "98e7788eece7faed".into(), transport: Transport::Wifi, code: Some("206 818".into()), outgoing: true, ..Default::default() };
+        let m = pairing_note(&status(true, Some(out.clone())), "Xiaomi 12T Pro").unwrap();
+        assert!(m.contains("подтвердите на устройстве") && m.contains("206 818"), "{m}");
+        // Та сторона просит нас — подсказать pair accept.
+        let inc = PairPrompt { outgoing: false, ..out };
+        let m = pairing_note(&status(true, Some(inc)), "98e7788eece7faed").unwrap();
+        assert!(m.contains("synlink pair accept 98e7788e") && m.contains("206 818"), "{m}");
+        // Другое устройство — не наше дело.
+        assert_eq!(pairing_note(&status(true, None), "abcd1234"), None);
+    }
 }

@@ -132,6 +132,9 @@ pub struct PeerInfo {
     /// Почему не соединено: идёт попытка, последняя ошибка, пауза после неудачного спаривания.
     #[serde(default)]
     pub link_note: Option<String>,
+    /// Идёт спаривание (ждём решения здесь или на той стороне) — новый `Request::Pair` не начнёт другое.
+    #[serde(default)]
+    pub pairing: bool,
 }
 
 impl PeerInfo {

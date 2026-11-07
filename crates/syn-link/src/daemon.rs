@@ -198,6 +198,7 @@ impl Daemon {
                 audio: audio.contains(&t.id),
                 heard_ago: n.map(|n| n.seen.elapsed().as_secs() as u32),
                 link_note: if s.is_some() { None } else { Self::link_note(&st, &t.id) },
+                pairing: st.pairing.contains(&t.id),
             });
         }
         for (id, n) in &st.nearby {
@@ -213,6 +214,7 @@ impl Daemon {
                 connected: false,
                 transport: Some(s.map(|s| s.transport).unwrap_or(n.transport)),
                 address: Some(n.addr.ip().to_string()),
+                pairing: st.pairing.contains(id),
                 ..Default::default()
             });
         }
