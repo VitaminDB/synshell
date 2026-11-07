@@ -1120,6 +1120,9 @@ fn use_agent(vm: &Vm, a: &Args) -> Result<bool> {
         }
         return Ok(false);
     }
+    if vm.syn_tools() && crate::agent::installed(vm) {
+        return Ok(true);
+    }
     if a.has("--user") || crate::agent::installed(vm) {
         if crate::agent::online(vm) {
             return Ok(true);

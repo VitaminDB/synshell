@@ -81,9 +81,11 @@ pub fn log(s: &str) {
 // `syn-vm-agent session`, запущенная в интерактивном сеансе. Обмен — кадрами протокола через
 // stdin/stdout копии.
 
-/// Ввод копии в сеансе пользователя (нет — копия не запущена).
-fn helper() -> &'static Mutex<Option<Box<dyn Write + Send>>> {
-    static H: OnceLock<Mutex<Option<Box<dyn Write + Send>>>> = OnceLock::new();
+/// Очередь кадров копии в сеансе пользователя (нет — копия не запущена). Пишет её отдельный
+/// поток: основной цикл чтения порта никогда не ждёт копию (зависшая копия раньше могла
+/// остановить приём от хоста).
+fn helper() -> &'static Mutex<Option<std::sync::mpsc::Sender<Frame>>> {
+    static H: OnceLock<Mutex<Option<std::sync::mpsc::Sender<Frame>>>> = OnceLock::new();
     H.get_or_init(|| Mutex::new(None))
 }
 
@@ -95,8 +97,8 @@ fn last_for_helper() -> &'static Mutex<Vec<Frame>> {
 
 fn to_helper(f: &Frame) {
     let mut h = helper().lock().unwrap();
-    if let Some(w) = h.as_mut() {
-        if syn_vm_agent::write_frame(w, f).is_err() {
+    if let Some(tx) = h.as_ref() {
+        if tx.send(f.clone()).is_err() {
             *h = None;
         }
     }
@@ -133,7 +135,16 @@ fn session_manager() {
             }
         };
         log(&format!("копия в сеансе пользователя: pid {}", p.pid));
-        *helper().lock().unwrap() = p.stdin;
+        let Some(mut stdin) = p.stdin else { continue };
+        let (tx, rx) = std::sync::mpsc::channel::<Frame>();
+        std::thread::spawn(move || {
+            for f in rx {
+                if syn_vm_agent::write_frame(&mut stdin, &f).is_err() {
+                    break;
+                }
+            }
+        });
+        *helper().lock().unwrap() = Some(tx);
         for f in last_for_helper().lock().unwrap().clone() {
             to_helper(&f);
         }

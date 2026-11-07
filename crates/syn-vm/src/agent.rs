@@ -817,6 +817,10 @@ pub fn preferred(vm: &Vm) -> bool {
     if FORCE_QGA.load(Ordering::Relaxed) || !vm.guest_agent || !installed(vm) || crate::qemu::pid(vm).is_none() {
         return false;
     }
+    // Свои инструменты: qemu-ga в госте нет — только агент (посредник поднимется сам).
+    if vm.syn_tools() {
+        return true;
+    }
     static CACHE: std::sync::OnceLock<Mutex<HashMap<String, (Instant, bool)>>> = std::sync::OnceLock::new();
     let c = CACHE.get_or_init(Default::default);
     if let Some(&(t, v)) = c.lock().unwrap().get(&vm.id) {
