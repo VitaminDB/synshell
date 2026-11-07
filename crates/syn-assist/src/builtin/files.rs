@@ -116,15 +116,15 @@ impl Tool for FilesTool {
     fn summary(&self, args: &Value) -> String {
         let p = str_arg(args, "path").unwrap_or("~");
         match str_arg(args, "action").unwrap_or("?") {
-            "list" => format!("Папка {p}"),
-            "read" => format!("Прочитать {p}"),
-            "search" => format!("Найти «{}» в {p}", str_arg(args, "query").unwrap_or("")),
-            "write" => format!("Записать {p}"),
-            "append" => format!("Дописать в {p}"),
-            "mkdir" => format!("Создать папку {p}"),
-            "move" => format!("Переместить {p} → {}", str_arg(args, "to").unwrap_or("?")),
-            "delete" => format!("Удалить {p}"),
-            "open" => format!("Открыть {p}"),
+            "list" => synshell_tr::t!("Папка {p}", p = p),
+            "read" => synshell_tr::t!("Прочитать {p}", p = p),
+            "search" => synshell_tr::t!("Найти «{query}» в {p}", query = str_arg(args, "query").unwrap_or(""), p = p),
+            "write" => synshell_tr::t!("Записать {p}", p = p),
+            "append" => synshell_tr::t!("Дописать в {p}", p = p),
+            "mkdir" => synshell_tr::t!("Создать папку {p}", p = p),
+            "move" => synshell_tr::t!("Переместить {p} → {to}", p = p, to = str_arg(args, "to").unwrap_or("?")),
+            "delete" => synshell_tr::t!("Удалить {p}", p = p),
+            "open" => synshell_tr::t!("Открыть {p}", p = p),
             other => other.to_string(),
         }
     }

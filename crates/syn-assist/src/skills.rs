@@ -135,7 +135,7 @@ impl Tool for SkillTool {
         Danger::Safe
     }
     fn summary(&self, args: &Value) -> String {
-        format!("Навык: {}", crate::tools::str_arg(args, "name").unwrap_or(""))
+        synshell_tr::t!("Навык: {name}", name = crate::tools::str_arg(args, "name").unwrap_or(""))
     }
     fn run(&self, args: &Value) -> ToolResult {
         let name = need_str(args, "name")?;

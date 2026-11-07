@@ -102,7 +102,7 @@ fn image(args: &Value, cancel: &AtomicBool) -> ToolResult {
     let mut c = synaptixd::Client::connect().map_err(|e| e.to_string())?;
     let model = model_arg(&mut c, args, ModelKind::Image).unwrap_or_default();
     let stop = c.canceller();
-    let (reply, png) = match crate::tools::watch_cancel(cancel, || stop.map(|s| s.cancel()).unwrap_or(()), || c.image(&model, prompt, &p, |i, n| crate::tools::progress(i, n, "картинка"))) {
+    let (reply, png) = match crate::tools::watch_cancel(cancel, || stop.map(|s| s.cancel()).unwrap_or(()), || c.image(&model, prompt, &p, |i, n| crate::tools::progress(i, n, &synshell_tr::t!("картинка")))) {
         Ok(r) => r,
         Err(e) if e.code == synaptixd::ErrorCode::NoModel => return generate(ModelKind::Image, "картинки"),
         Err(e) => return Err(e.to_string()),
@@ -200,7 +200,7 @@ fn video(args: &Value, cancel: &AtomicBool) -> ToolResult {
             }
         }
         p.seconds = Some(per);
-        let what = if n > 1 { format!("видео {}/{n}", k + 1) } else { "видео".into() };
+        let what = if n > 1 { synshell_tr::t!("видео {k}/{n}", k = k + 1, n = n) } else { synshell_tr::t!("видео") };
         let stop = c.canceller();
         let (reply, mp4) = match crate::tools::watch_cancel(cancel, || stop.map(|s| s.cancel()).unwrap_or(()), || c.video(&model, &text, &p, |i, t| crate::tools::progress(i, t, &what))) {
             Ok(r) => r,
@@ -214,7 +214,7 @@ fn video(args: &Value, cancel: &AtomicBool) -> ToolResult {
         seed = reply.seed;
     }
     let path = if n > 1 {
-        crate::tools::progress(0, 0, "склейка роликов");
+        crate::tools::progress(0, 0, &synshell_tr::t!("склейка роликов"));
         let out = dir.join(format!("video-{id}.mp4"));
         concat_clips(&clips, &out)?;
         for c in &clips {
@@ -295,7 +295,7 @@ fn music(args: &Value, cancel: &AtomicBool) -> ToolResult {
     };
     let model = picked.as_deref().unwrap_or("");
     let stop = c.canceller();
-    let (reply, wav) = match crate::tools::watch_cancel(cancel, || stop.map(|s| s.cancel()).unwrap_or(()), || c.music(model, prompt, lyrics, seconds, seed, |i, n| crate::tools::progress(i, n, "музыка"))) {
+    let (reply, wav) = match crate::tools::watch_cancel(cancel, || stop.map(|s| s.cancel()).unwrap_or(()), || c.music(model, prompt, lyrics, seconds, seed, |i, n| crate::tools::progress(i, n, &synshell_tr::t!("музыка")))) {
         Ok(r) => r,
         Err(e) if e.code == synaptixd::ErrorCode::NoModel => return generate(ModelKind::Music, "музыки"),
         Err(e) => return Err(e.to_string()),
@@ -375,10 +375,10 @@ impl Tool for MediaTool {
     fn summary(&self, args: &Value) -> String {
         let p: String = str_arg(args, "prompt").unwrap_or("").chars().take(60).collect();
         match str_arg(args, "action").unwrap_or("?") {
-            "speak" => format!("Озвучить: {p}"),
-            "image" => format!("Картинка: {p}"),
-            "video" => format!("Видео: {p}"),
-            "music" => format!("Музыка: {p}"),
+            "speak" => synshell_tr::t!("Озвучить: {p}", p = p),
+            "image" => synshell_tr::t!("Картинка: {p}", p = p),
+            "video" => synshell_tr::t!("Видео: {p}", p = p),
+            "music" => synshell_tr::t!("Музыка: {p}", p = p),
             other => other.to_string(),
         }
     }

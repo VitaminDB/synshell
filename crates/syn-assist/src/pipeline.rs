@@ -72,14 +72,14 @@ impl Tool for PipelineTool {
     fn summary(&self, args: &Value) -> String {
         if str_arg(args, "action") == Some("save") {
             let name = args.get("graph").and_then(|g| g.get("name")).and_then(Value::as_str).unwrap_or("");
-            return format!("Сохраняю рецепт: {name}");
+            return synshell_tr::t!("Сохраняю рецепт: {name}", name = name);
         }
         if str_arg(args, "action") == Some("delete") {
-            return format!("Удаляю рецепт: {}", str_arg(args, "recipe").unwrap_or(""));
+            return synshell_tr::t!("Удаляю рецепт: {name}", name = str_arg(args, "recipe").unwrap_or(""));
         }
         match str_arg(args, "recipe") {
-            Some(r) => format!("Рецепт: {r}"),
-            None => "Сценарий из нескольких шагов".into(),
+            Some(r) => synshell_tr::t!("Рецепт: {name}", name = r),
+            None => synshell_tr::t!("Сценарий из нескольких шагов"),
         }
     }
     fn run(&self, args: &Value) -> ToolResult {

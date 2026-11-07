@@ -162,10 +162,10 @@ impl Tool for MemoryTool {
     fn summary(&self, args: &Value) -> String {
         let name = str_arg(args, "name").unwrap_or("");
         match str_arg(args, "action").unwrap_or("") {
-            "save" => format!("Запоминаю: {name}"),
-            "read" => format!("Вспоминаю: {name}"),
-            "forget" => format!("Забываю: {name}"),
-            _ => "Смотрю память".into(),
+            "save" => synshell_tr::t!("Запоминаю: {name}", name = name),
+            "read" => synshell_tr::t!("Вспоминаю: {name}", name = name),
+            "forget" => synshell_tr::t!("Забываю: {name}", name = name),
+            _ => synshell_tr::t!("Смотрю память"),
         }
     }
     fn run(&self, args: &Value) -> ToolResult {

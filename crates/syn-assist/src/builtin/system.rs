@@ -234,19 +234,19 @@ impl Tool for SystemTool {
     fn summary(&self, args: &Value) -> String {
         let a = str_arg(args, "action").unwrap_or("?");
         match a {
-            "open_app" => format!("Открыть «{}»", str_arg(args, "app").unwrap_or("?")),
-            "open_settings" => format!("Параметры: {}", str_arg(args, "page").unwrap_or("")),
-            "volume" => "Громкость".into(),
-            "brightness" => "Яркость".into(),
+            "open_app" => synshell_tr::t!("Открыть «{app}»", app = str_arg(args, "app").unwrap_or("?")),
+            "open_settings" => synshell_tr::t!("Параметры: {page}", page = str_arg(args, "page").unwrap_or("")),
+            "volume" => synshell_tr::t!("Громкость"),
+            "brightness" => synshell_tr::t!("Яркость"),
             "wifi" => "Wi‑Fi".into(),
             "bluetooth" => "Bluetooth".into(),
-            "notify" => format!("Уведомление: {}", str_arg(args, "title").unwrap_or("")),
-            "reminder" => format!("Напоминание через {} мин", args.get("minutes").and_then(Value::as_f64).unwrap_or(0.0)),
-            "info" => "Состояние системы".into(),
-            "lock" => "Заблокировать экран".into(),
-            "suspend" => "Сон".into(),
-            "reboot" => "Перезагрузка".into(),
-            "poweroff" => "Выключение".into(),
+            "notify" => synshell_tr::t!("Уведомление: {title}", title = str_arg(args, "title").unwrap_or("")),
+            "reminder" => synshell_tr::t!("Напоминание через {minutes} мин", minutes = args.get("minutes").and_then(Value::as_f64).unwrap_or(0.0)),
+            "info" => synshell_tr::t!("Состояние системы"),
+            "lock" => synshell_tr::t!("Заблокировать экран"),
+            "suspend" => synshell_tr::t!("Сон"),
+            "reboot" => synshell_tr::t!("Перезагрузка"),
+            "poweroff" => synshell_tr::t!("Выключение"),
             other => other.to_string(),
         }
     }
@@ -314,8 +314,8 @@ impl Tool for WindowsTool {
     fn summary(&self, args: &Value) -> String {
         let a = str_arg(args, "action").unwrap_or("list");
         match args.get("id").and_then(Value::as_u64) {
-            Some(id) => format!("Окно {id}: {a}"),
-            None => "Список окон".into(),
+            Some(id) => synshell_tr::t!("Окно {id}: {action}", id = id, action = a),
+            None => synshell_tr::t!("Список окон"),
         }
     }
     fn run(&self, args: &Value) -> ToolResult {

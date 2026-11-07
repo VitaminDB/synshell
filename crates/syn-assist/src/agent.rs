@@ -394,10 +394,10 @@ impl Agent {
                 let msg = if repeats >= 2 || churn >= 4 {
                     // один и тот же вызов уже делался дважды — не повторять,
                     // подсказать сменить подход (частая петля у малых моделей)
-                    on(AgentEvent::ToolStart { name: call.name.clone(), summary: "повтор".into() });
+                    on(AgentEvent::ToolStart { name: call.name.clone(), summary: synshell_tr::t!("повтор") });
                     ChatMsg::tool(
                         &call.name,
-                        "повтор — пропущено".into(),
+                        synshell_tr::t!("повтор — пропущено"),
                         false,
                         "Похожий вызов уже повторялся — пропущен. Не долби одно и то же (hexdump кусков, disasm соседних адресов): много проверок делай ОДНИМ run_rhai (цикл внутри скрипта), а не десятком вызовов. Сведения о файле — file_info() (формат, сегменты, VA, entry, энтропия), не hexdump заголовка и не bash (file/struct/xxd/readelf). Данные по имени символа — read_data (не bytes/search/strings); строки с подстрокой и их функции-ссылатели — run_rhai string_refs(\"…\"); кто вызывает функцию с аргументами-константами — call_args(\"имя\", N); кто ссылается/вызывает — decompile_export refs_to/calls; декомпиляция — decompile/decompile_export. Адреса — это VA (0xffffff80…/0x8004…), не файловые смещения. Если нужного здесь нет — переходи к следующему пункту запроса и сохрани уже полученное.".into(),
                         Vec::new(),
@@ -484,7 +484,7 @@ impl Agent {
             ids.insert(0, id.to_string());
         }
         let pool: Vec<&Arc<dyn Tool>> = self.tools.iter().filter(|t| t.pooled()).collect();
-        let summary = format!("Загрузить инструмент: {}", ids.join(", "));
+        let summary = synshell_tr::t!("Загрузить инструмент: {ids}", ids = ids.join(", "));
         if ids.is_empty() {
             return ChatMsg::tool(AUTOTOOLS, summary, false, "нужен id инструмента из списка autotools".into(), Vec::new());
         }
@@ -514,7 +514,7 @@ impl Agent {
         let raw_name = if raw_name == "skill" { "autoskill" } else { raw_name };
         let name = crate::tools::args::canonical_name(raw_name, &names);
         if name == AUTOTOOLS {
-            on(AgentEvent::ToolStart { name: AUTOTOOLS.into(), summary: "Загрузить инструмент".into() });
+            on(AgentEvent::ToolStart { name: AUTOTOOLS.into(), summary: synshell_tr::t!("Загрузить инструмент") });
             return self.load_pooled(arguments);
         }
         if name == SUBAGENT && self.subagent {
@@ -571,9 +571,9 @@ impl Agent {
         let Some(task) = crate::tools::str_arg(&args, "task") else {
             return ChatMsg::tool(SUBAGENT, SUBAGENT.into(), false, "нужен параметр «task»".into(), Vec::new());
         };
-        let summary = format!("Субагент: {}", crate::chat::title_from(task));
+        let summary = synshell_tr::t!("Субагент: {task}", task = crate::chat::title_from(task));
         on(AgentEvent::ToolStart { name: SUBAGENT.into(), summary: summary.clone() });
-        if !self.approved(SUBAGENT) && !confirm.confirm(SUBAGENT, &format!("Субагент выполнит задачу сам, без отдельных подтверждений:\n{task}")) {
+        if !self.approved(SUBAGENT) && !confirm.confirm(SUBAGENT, &synshell_tr::t!("Субагент выполнит задачу сам, без отдельных подтверждений:\n{task}", task = task)) {
             return ChatMsg::tool(SUBAGENT, summary, false, "Пользователь отклонил запуск субагента.".into(), Vec::new());
         }
         let allowed: Option<Vec<&str>> = args.get("tools").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect());

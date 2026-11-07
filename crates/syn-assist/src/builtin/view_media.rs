@@ -49,7 +49,7 @@ impl Tool for ViewMediaTool {
         Danger::Safe
     }
     fn summary(&self, args: &Value) -> String {
-        format!("смотреть {}", paths(args).join(", "))
+        synshell_tr::t!("смотреть {files}", files = paths(args).join(", "))
     }
     fn run(&self, args: &Value) -> ToolResult {
         let asked = paths(args);

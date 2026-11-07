@@ -1,0 +1,79 @@
+@tag = "tr"
+@name = "Türkçe"
+
+# src/agent.rs
+"повтор" = "tekrar"
+"повтор — пропущено" = "tekrar — atlandı"
+"Загрузить инструмент: {ids}" = "Aracı yükle: {ids}"
+"Загрузить инструмент" = "Aracı yükle"
+"Субагент: {task}" = "Alt ajan: {task}"
+"Субагент выполнит задачу сам, без отдельных подтверждений:\n{task}" = "Alt ajan görevi ayrı onay almadan kendisi yapacak:\n{task}"
+
+# src/builtin/files.rs
+"Папка {p}" = "Klasör {p}"
+"Прочитать {p}" = "{p} oku"
+"Найти «{query}» в {p}" = "{p} içinde “{query}” ara"
+"Записать {p}" = "{p} yaz"
+"Дописать в {p}" = "{p} sonuna ekle"
+"Создать папку {p}" = "{p} klasörünü oluştur"
+"Переместить {p} → {to}" = "{p} → {to} taşı"
+"Удалить {p}" = "{p} sil"
+"Открыть {p}" = "{p} aç"
+
+# src/builtin/media.rs
+"картинка" = "görsel"
+"видео {k}/{n}" = "video {k}/{n}"
+"видео" = "video"
+"склейка роликов" = "kliplerin birleştirilmesi"
+"музыка" = "müzik"
+"Озвучить: {p}" = "Seslendir: {p}"
+"Картинка: {p}" = "Görsel: {p}"
+"Видео: {p}" = "Video: {p}"
+"Музыка: {p}" = "Müzik: {p}"
+
+# src/builtin/notes.rs
+"заметки: {action}" = "notlar: {action}"
+
+# src/builtin/system.rs
+"Открыть «{app}»" = "“{app}” aç"
+"Параметры: {page}" = "Ayarlar: {page}"
+"Громкость" = "Ses düzeyi"
+"Яркость" = "Parlaklık"
+"Уведомление: {title}" = "Bildirim: {title}"
+"Напоминание через {minutes} мин" = "{minutes} dk sonra hatırlatma"
+"Состояние системы" = "Sistem durumu"
+"Заблокировать экран" = "Ekranı kilitle"
+"Сон" = "Uyku"
+"Перезагрузка" = "Yeniden başlat"
+"Выключение" = "Kapat"
+"Окно {id}: {action}" = "Pencere {id}: {action}"
+"Список окон" = "Pencere listesi"
+
+# src/builtin/view_media.rs
+"смотреть {files}" = "{files} görüntüle"
+
+# src/chat.rs
+"Новый чат" = "Yeni sohbet"
+
+# src/kb.rs
+"Ищу в базах знаний: {query}" = "Bilgi tabanlarında aranıyor: {query}"
+
+# src/memory.rs
+"Запоминаю: {name}" = "Belleğe kaydediliyor: {name}"
+"Вспоминаю: {name}" = "Hatırlanıyor: {name}"
+"Забываю: {name}" = "Unutuluyor: {name}"
+"Смотрю память" = "Bellek kontrol ediliyor"
+
+# src/pipeline.rs
+"Сохраняю рецепт: {name}" = "Tarif kaydediliyor: {name}"
+"Удаляю рецепт: {name}" = "Tarif siliniyor: {name}"
+"Рецепт: {name}" = "Tarif: {name}"
+"Сценарий из нескольких шагов" = "Çok adımlı senaryo"
+
+# src/skills.rs
+"Навык: {name}" = "Beceri: {name}"
+
+# src/tools/web/mod.rs
+"Поиск: {query}" = "Arama: {query}"
+"Чтение: {url}" = "Okunuyor: {url}"
+"Интернет" = "İnternet"

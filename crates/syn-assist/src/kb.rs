@@ -304,7 +304,7 @@ impl Tool for KnowledgeTool {
         Danger::Safe
     }
     fn summary(&self, args: &Value) -> String {
-        format!("Ищу в базах знаний: {}", str_arg(args, "query").unwrap_or(""))
+        synshell_tr::t!("Ищу в базах знаний: {query}", query = str_arg(args, "query").unwrap_or(""))
     }
     fn run(&self, args: &Value) -> ToolResult {
         let query = need_str(args, "query")?;

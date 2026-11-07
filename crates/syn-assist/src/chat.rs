@@ -143,7 +143,7 @@ impl Chat {
             .iter()
             .find(|m| m.role == Role::User)
             .map(|m| title_from(&m.text))
-            .unwrap_or_else(|| "Новый чат".to_string())
+            .unwrap_or_else(|| synshell_tr::t!("Новый чат"))
     }
 }
 
@@ -154,7 +154,7 @@ pub fn title_from(text: &str) -> String {
         t.push('…');
     }
     if t.is_empty() {
-        "Новый чат".into()
+        synshell_tr::t!("Новый чат")
     } else {
         t
     }

@@ -6965,6 +6965,7 @@ dependencies = [
  "synaptix-flow",
  "synaptix-graph",
  "synaptixd",
+ "synshell-tr",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",

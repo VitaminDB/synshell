@@ -62,7 +62,7 @@ fn watch_config(st: state::St, initial: String) {
 fn main() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "syn_assistant=info,synassistant=info".into());
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
-    synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
+    synshell_common::i18n::init(&[&synshell_common::catalogs!("../i18n")[..], syn_assist::CATALOGS].concat());
     let mut shot: Option<String> = None;
     let mut size = (1180u32, 780u32);
     let mut scale = 1.0f64;

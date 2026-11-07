@@ -8,6 +8,7 @@ license.workspace = true
 
 [dependencies]
 syn-notes-proto.workspace = true
+synshell-tr.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 synaptixd.workspace = true

@@ -42,7 +42,7 @@ impl Tool for NotesTool {
     }
     fn summary(&self, args: &Value) -> String {
         let action = str_arg(args, "action").unwrap_or("?");
-        let mut s = format!("заметки: {action}");
+        let mut s = synshell_tr::t!("заметки: {action}", action = action);
         if let Some(op) = str_arg(args, "op") {
             s.push(' ');
             s.push_str(op);

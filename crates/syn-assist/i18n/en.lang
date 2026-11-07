@@ -1,0 +1,79 @@
+@tag = "en"
+@name = "English"
+
+# src/agent.rs
+"повтор" = "repeat"
+"повтор — пропущено" = "repeat — skipped"
+"Загрузить инструмент: {ids}" = "Load tool: {ids}"
+"Загрузить инструмент" = "Load tool"
+"Субагент: {task}" = "Subagent: {task}"
+"Субагент выполнит задачу сам, без отдельных подтверждений:\n{task}" = "The subagent will do the task on its own, without separate confirmations:\n{task}"
+
+# src/builtin/files.rs
+"Папка {p}" = "Folder {p}"
+"Прочитать {p}" = "Read {p}"
+"Найти «{query}» в {p}" = "Find “{query}” in {p}"
+"Записать {p}" = "Write {p}"
+"Дописать в {p}" = "Append to {p}"
+"Создать папку {p}" = "Create folder {p}"
+"Переместить {p} → {to}" = "Move {p} → {to}"
+"Удалить {p}" = "Delete {p}"
+"Открыть {p}" = "Open {p}"
+
+# src/builtin/media.rs
+"картинка" = "image"
+"видео {k}/{n}" = "video {k}/{n}"
+"видео" = "video"
+"склейка роликов" = "joining clips"
+"музыка" = "music"
+"Озвучить: {p}" = "Speak: {p}"
+"Картинка: {p}" = "Image: {p}"
+"Видео: {p}" = "Video: {p}"
+"Музыка: {p}" = "Music: {p}"
+
+# src/builtin/notes.rs
+"заметки: {action}" = "notes: {action}"
+
+# src/builtin/system.rs
+"Открыть «{app}»" = "Open “{app}”"
+"Параметры: {page}" = "Settings: {page}"
+"Громкость" = "Volume"
+"Яркость" = "Brightness"
+"Уведомление: {title}" = "Notification: {title}"
+"Напоминание через {minutes} мин" = "Reminder in {minutes} min"
+"Состояние системы" = "System status"
+"Заблокировать экран" = "Lock screen"
+"Сон" = "Sleep"
+"Перезагрузка" = "Restart"
+"Выключение" = "Power off"
+"Окно {id}: {action}" = "Window {id}: {action}"
+"Список окон" = "Window list"
+
+# src/builtin/view_media.rs
+"смотреть {files}" = "view {files}"
+
+# src/chat.rs
+"Новый чат" = "New chat"
+
+# src/kb.rs
+"Ищу в базах знаний: {query}" = "Searching knowledge bases: {query}"
+
+# src/memory.rs
+"Запоминаю: {name}" = "Remembering: {name}"
+"Вспоминаю: {name}" = "Recalling: {name}"
+"Забываю: {name}" = "Forgetting: {name}"
+"Смотрю память" = "Checking memory"
+
+# src/pipeline.rs
+"Сохраняю рецепт: {name}" = "Saving recipe: {name}"
+"Удаляю рецепт: {name}" = "Deleting recipe: {name}"
+"Рецепт: {name}" = "Recipe: {name}"
+"Сценарий из нескольких шагов" = "Multi-step scenario"
+
+# src/skills.rs
+"Навык: {name}" = "Skill: {name}"
+
+# src/tools/web/mod.rs
+"Поиск: {query}" = "Search: {query}"
+"Чтение: {url}" = "Reading: {url}"
+"Интернет" = "Internet"

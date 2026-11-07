@@ -91,9 +91,9 @@ impl Tool for WebTool {
 
     fn summary(&self, args: &Value) -> String {
         match parse_value(args) {
-            Ok(WebArgs::Search { query, .. }) => format!("Поиск: {query}"),
-            Ok(WebArgs::Read { url }) => format!("Чтение: {url}"),
-            Err(_) => "Интернет".to_string(),
+            Ok(WebArgs::Search { query, .. }) => synshell_tr::t!("Поиск: {query}", query = query),
+            Ok(WebArgs::Read { url }) => synshell_tr::t!("Чтение: {url}", url = url),
+            Err(_) => synshell_tr::t!("Интернет"),
         }
     }
 

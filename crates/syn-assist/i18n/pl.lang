@@ -1,0 +1,79 @@
+@tag = "pl"
+@name = "Polski"
+
+# src/agent.rs
+"повтор" = "powtórzenie"
+"повтор — пропущено" = "powtórzenie — pominięte"
+"Загрузить инструмент: {ids}" = "Wczytaj narzędzie: {ids}"
+"Загрузить инструмент" = "Wczytaj narzędzie"
+"Субагент: {task}" = "Podagent: {task}"
+"Субагент выполнит задачу сам, без отдельных подтверждений:\n{task}" = "Podagent wykona zadanie sam, bez osobnych potwierdzeń:\n{task}"
+
+# src/builtin/files.rs
+"Папка {p}" = "Folder {p}"
+"Прочитать {p}" = "Odczytaj {p}"
+"Найти «{query}» в {p}" = "Znajdź „{query}” w {p}"
+"Записать {p}" = "Zapisz {p}"
+"Дописать в {p}" = "Dopisz do {p}"
+"Создать папку {p}" = "Utwórz folder {p}"
+"Переместить {p} → {to}" = "Przenieś {p} → {to}"
+"Удалить {p}" = "Usuń {p}"
+"Открыть {p}" = "Otwórz {p}"
+
+# src/builtin/media.rs
+"картинка" = "obraz"
+"видео {k}/{n}" = "wideo {k}/{n}"
+"видео" = "wideo"
+"склейка роликов" = "łączenie klipów"
+"музыка" = "muzyka"
+"Озвучить: {p}" = "Przeczytaj na głos: {p}"
+"Картинка: {p}" = "Obraz: {p}"
+"Видео: {p}" = "Wideo: {p}"
+"Музыка: {p}" = "Muzyka: {p}"
+
+# src/builtin/notes.rs
+"заметки: {action}" = "notatki: {action}"
+
+# src/builtin/system.rs
+"Открыть «{app}»" = "Otwórz „{app}”"
+"Параметры: {page}" = "Ustawienia: {page}"
+"Громкость" = "Głośność"
+"Яркость" = "Jasność"
+"Уведомление: {title}" = "Powiadomienie: {title}"
+"Напоминание через {minutes} мин" = "Przypomnienie za {minutes} min"
+"Состояние системы" = "Stan systemu"
+"Заблокировать экран" = "Zablokuj ekran"
+"Сон" = "Uśpienie"
+"Перезагрузка" = "Ponowne uruchomienie"
+"Выключение" = "Wyłączenie"
+"Окно {id}: {action}" = "Okno {id}: {action}"
+"Список окон" = "Lista okien"
+
+# src/builtin/view_media.rs
+"смотреть {files}" = "obejrzyj {files}"
+
+# src/chat.rs
+"Новый чат" = "Nowy czat"
+
+# src/kb.rs
+"Ищу в базах знаний: {query}" = "Szukam w bazach wiedzy: {query}"
+
+# src/memory.rs
+"Запоминаю: {name}" = "Zapamiętuję: {name}"
+"Вспоминаю: {name}" = "Przypominam sobie: {name}"
+"Забываю: {name}" = "Zapominam: {name}"
+"Смотрю память" = "Przeglądam pamięć"
+
+# src/pipeline.rs
+"Сохраняю рецепт: {name}" = "Zapisuję przepis: {name}"
+"Удаляю рецепт: {name}" = "Usuwam przepis: {name}"
+"Рецепт: {name}" = "Przepis: {name}"
+"Сценарий из нескольких шагов" = "Scenariusz wieloetapowy"
+
+# src/skills.rs
+"Навык: {name}" = "Umiejętność: {name}"
+
+# src/tools/web/mod.rs
+"Поиск: {query}" = "Wyszukiwanie: {query}"
+"Чтение: {url}" = "Czytanie: {url}"
+"Интернет" = "Internet"
