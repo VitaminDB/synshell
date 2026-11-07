@@ -108,6 +108,9 @@ pub fn build(a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
     // растягивается, `flex-grow`): по ней кнопки сжимаются и уходят в «+N».
     // До первой раскладки неизвестна — бесконечность (как раньше).
     let avail = use_signal(f32::INFINITY);
+    // Толщина слота поперёк панели: на вертикальной ряд кнопок занимает её целиком,
+    // и кнопки встают по оси панели (как часы), а не к левому краю слота.
+    let thick = use_signal(0.0f32);
     let vertical = pc.vertical;
     let inner = crate::ui::rx(move || {
         let windows = ctx.windows.get();
@@ -126,6 +129,7 @@ pub fn build(a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
             .direction(if vertical { FlexDirection::Column } else { FlexDirection::Row })
             .gap(GAP)
             .cross_axis_alignment(CrossAxisAlignment::Center);
+        let th = thick.get();
         for w in shown {
             let cap = if vertical { max_width } else { f.per };
             flex = flex.child(task(w, f.labels, title_mode, cap, pc.clone()));
@@ -136,6 +140,8 @@ pub fn build(a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
         let body: Box<dyn Widget> = if f.overflow && !menu && len.is_finite() {
             let (sv, dim) = if vertical { (ScrollView::new().vertical(), "height") } else { (ScrollView::new().horizontal(), "width") };
             Box::new(sv.child(flex).class("taskbar-scroll").style(dim, syngui::mss::StyleValue::px(len)))
+        } else if vertical && th > 0.0 {
+            Box::new(Column::new().width(th).cross_axis_alignment(CrossAxisAlignment::Center).child(flex))
         } else {
             Box::new(flex)
         };
@@ -163,6 +169,9 @@ pub fn build(a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
     });
     Box::new(syngui::widgets::EventHook::new().fill().child(inner).on_resize(move |s| {
         let v = if vertical { s.height } else { s.width };
+        if vertical && s.width > 0.0 && (thick.get_untracked() - s.width).abs() >= 1.0 {
+            thick.set(s.width);
+        }
         if v > 0.0 && (avail.get_untracked() - v).abs() >= 1.0 {
             avail.set(v);
         }
