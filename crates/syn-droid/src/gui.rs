@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use syngui::async_runtime::run_on_main_thread;
+use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 use syngui::prelude::*;
 use syngui::widgets::{EventHook, KeyReply};
 use syngui::{GestureDetector, IntoWidget, ShowIf};
@@ -110,6 +111,13 @@ struct St {
     /// Android загружен — меняется только при смене состояния (статус обновляется каждые 1,5 с, и
     /// представления с полями ввода от него не зависят).
     running: RwSignal<bool>,
+    /// Состояние окна (фокус, развёрнуто) — для своих кнопок окна.
+    window: RwSignal<syngui::window::WindowState>,
+}
+
+/// Телефон: окно на весь экран, без своего заголовка и рамки.
+fn is_phone() -> bool {
+    std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v.trim().eq_ignore_ascii_case("phone"))
 }
 
 static CONFIRM_ID: AtomicU64 = AtomicU64::new(1);
@@ -118,11 +126,16 @@ static CONFIRM_ID: AtomicU64 = AtomicU64::new(1);
 pub fn run(images: bool) {
     let (scfg, _) = ShellConfig::load();
     let mss = theme(&scfg);
+    let win = use_signal(syngui::window::WindowState::default());
     App::new()
         .title("Android")
         .app_id("syndroid")
         .size(1040, 720)
         .min_size(340, 480)
+        .frameless()
+        .transparent(true)
+        .background(Color::from_srgb(0, 0, 0, 0.0))
+        .with_window_state(win)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(synshell_common::live::styles(mss, theme))
         .run(move |_| {
@@ -146,6 +159,7 @@ pub fn run(images: bool) {
                 confirm: use_signal(None),
                 rev: use_signal(0u64),
                 running: use_signal(false),
+                window: win,
             };
             poll_status(st);
             load_instances(st);
@@ -273,6 +287,7 @@ pub fn screenshot(args: &[&str]) {
                 confirm: use_signal(None),
                 rev: use_signal(0u64),
                 running: use_signal(!stopped),
+                window: use_signal(syngui::window::WindowState::default()),
             };
             root(st)
         },
@@ -539,7 +554,16 @@ fn pane<M>(st: St, title: &str, body: impl IntoWidget<M>) -> W {
 
 fn root(st: St) -> W {
     let narrow = syngui::viewport::viewport_below(720.0);
-    let body = Reactive::new(move || -> Vec<W> { vec![if narrow.get() { phone(st) } else { desktop(st) }] });
+    // Своя рамка окна: заголовок с кнопками окна над содержимым; на телефоне — только содержимое
+    let chrome = !is_phone();
+    let body = Reactive::new(move || -> Vec<W> {
+        let n = narrow.get();
+        let page = if n { phone(st) } else { desktop(st) };
+        if !chrome {
+            return vec![page];
+        }
+        vec![Box::new(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(titlebar(st, n)).child(DecoratedBox::new().child(page).class("grow")))]
+    });
     let toast = Column::new()
         .main_axis_alignment(MainAxisAlignment::End)
         .cross_axis_alignment(CrossAxisAlignment::Center)
@@ -575,13 +599,47 @@ fn root(st: St) -> W {
             })
             .child(
                 GestureDetector::new().on_back(move || go_back(st)).child(
-                    Stack::new()
-                        .fit(StackFit::Expand)
-                        .child(DecoratedBox::new().child(body).class("root"))
-                        .child(toast)
-                        .child(confirm_overlay(st)),
+                    WindowResizeRegion::new().over_content(true).inset(5.0).enabled(chrome).child(
+                        DecoratedBox::new().class(if chrome { "window-frame" } else { "window-frame flat" }).clip(true).child(
+                            Stack::new()
+                                .fit(StackFit::Expand)
+                                .child(DecoratedBox::new().child(body).class("root"))
+                                .child(toast)
+                                .child(confirm_overlay(st)),
+                        ),
+                    ),
                 ),
             ),
+    )
+}
+
+/// Знак программы: значок Android и название.
+fn brand() -> impl Widget {
+    Row::new()
+        .gap(8.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(Icon::new("\u{E859}").class("brand-icon"))
+        .child(Text::new("Android").class("brand"))
+}
+
+/// Заголовок окна. Широкое окно: слева знак над боковой панелью (её цвет продолжается вверх),
+/// дальше — место для перетаскивания и кнопки окна из настроек рабочего стола; узкое — знак,
+/// перетаскивание и кнопки одной полосой.
+fn titlebar(st: St, narrow: bool) -> W {
+    let controls = Reactive::new(move || -> Vec<W> {
+        let w = st.window.get();
+        vec![Box::new(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused))]
+    });
+    Box::new(
+        DecoratedBox::new()
+            .child(
+                Row::new()
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                    .child(WindowDragRegion::new().child(DecoratedBox::new().child(brand()).class(if narrow { "tb-brand narrow" } else { "tb-brand" })))
+                    .child(DecoratedBox::new().class("grow tb-drag").child(WindowDragRegion::new().child(DecoratedBox::new().class("tb-drag-space"))))
+                    .child(DecoratedBox::new().child(controls).class("window-controls")),
+            )
+            .class("titlebar"),
     )
 }
 
@@ -648,13 +706,11 @@ fn select_tab(st: St, t: Tab) {
 fn desktop(st: St) -> W {
     let nav = Reactive::new(move || -> Vec<W> {
         let cur = st.tab.get();
-        let mut col = Column::new().gap(4.0).child(
-            Row::new()
-                .gap(8.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(Icon::new("\u{E859}").class("brand-icon"))
-                .child(Text::new("Android").class("brand")),
-        );
+        let mut col = Column::new().gap(4.0);
+        // Со своим заголовком знак — в нём, над боковой панелью
+        if is_phone() {
+            col = col.child(DecoratedBox::new().child(brand()).class("side-brand"));
+        }
         for t in Tab::ALL {
             col = col.child(GestureDetector::new().on_click(move || select_tab(st, t)).child(
                 DecoratedBox::new()

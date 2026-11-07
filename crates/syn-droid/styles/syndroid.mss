@@ -7,7 +7,8 @@ Text { color: var(--fg); font-size: 14px; }
 .empty { padding: 24px 8px; }
 
 .sidebar { width: 220px; padding: 18px 12px; background: var(--surface-alt); }
-.brand { font-size: 20px; font-weight: 600; padding: 4px 10px 14px 10px; }
+.brand { font-size: 20px; font-weight: 600; }
+.side-brand { padding: 4px 10px 14px 10px; }
 .nav-item { padding: 9px 12px; border-radius: var(--radius-sm); transition: background-color 120ms ease-out; }
 .nav-item:hover { background-color: var(--hover); }
 .nav-item.active { background-color: var(--accent-soft); }
@@ -170,7 +171,7 @@ CircularProgress { color: var(--accent); accent-color: var(--accent); }
 .job-others { max-height: 200px; }
 
 /* ─── syndroid ─── */
-.brand-icon { font-size: 26px; color: #3DDC84; padding: 4px 0px 14px 10px; }
+.brand-icon { font-size: 26px; color: #3DDC84; }
 .card.hero { padding: 16px; }
 .hero-icon-box { padding: 10px; border-radius: 16px; background: #3DDC8426; }
 .hero-icon { font-size: 40px; color: #3DDC84; }
@@ -217,3 +218,18 @@ Toggle {
     &:checked { background: var(--accent); }
 }
 SegmentedButton { background-color: var(--input-bg); color: var(--fg); border-width: 1px; border-color: var(--border); border-radius: 10px; accent-color: var(--accent); font-size: 13px; }
+
+/* Своя рамка окна (на телефоне — плоская, без заголовка) */
+.window-frame { border-radius: var(--window-radius); border: 1px solid var(--border); background: var(--bg); }
+.window-frame.flat { border-radius: 0px; border-width: 0px; }
+.window-frame:window-maximized, .window-frame:window-fullscreen { border-radius: 0px; border-width: 0px; }
+.titlebar { height: 48px; background: var(--bg); }
+/* Знак над боковой панелью — её фон продолжается в заголовок */
+.tb-brand { width: 220px; height: 48px; padding: 0px 22px; background: var(--surface-alt); align-items: center; }
+.tb-brand.narrow { width: auto; padding: 0px 14px; background: var(--bg); }
+.tb-brand .brand { font-size: 15px; }
+.tb-brand .brand-icon { font-size: 22px; }
+.tb-drag { height: 48px; }
+.tb-drag-space { flex-grow: 1; height: 48px; min-width: 40px; }
+.window-controls { height: 48px; padding: 0px 6px 0px 4px; align-items: center; }
+SystemWindowControls { color: var(--fg); background-color: var(--hover); }

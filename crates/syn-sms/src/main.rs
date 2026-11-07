@@ -8,6 +8,7 @@ use syn_modem::api::{self, Event, Request, Sms, SmsStatus, Status};
 use syn_modem::time as tm;
 use synshell_common::Config;
 use syngui::async_runtime::run_on_main_thread;
+use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 use syngui::prelude::*;
 use syngui::widgets::{EventHook, KeyReply};
 use syngui::GestureDetector;
@@ -28,6 +29,13 @@ struct St {
     confirm_delete: RwSignal<bool>,
     /// Демон недоступен (причина).
     offline: RwSignal<Option<String>>,
+    /// Состояние окна (фокус, развёрнуто) — для своих кнопок окна.
+    window: RwSignal<syngui::window::WindowState>,
+}
+
+/// Телефон: окно на весь экран, без своих кнопок окна и рамки.
+fn is_phone() -> bool {
+    std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v.trim().eq_ignore_ascii_case("phone"))
 }
 
 /// Ключ переписки: последние 10 цифр номера («+7701…» и «8701…» — одна переписка), буквенный — как есть.
@@ -117,15 +125,22 @@ fn main() {
         }
         return;
     }
+    let win = use_signal(syngui::window::WindowState::default());
     App::new()
         .title(t!("Сообщения"))
         .app_id("synsms")
         .size(960, 680)
         .min_size(340, 480)
+        .frameless()
+        .transparent(true)
+        .background(Color::from_srgb(0, 0, 0, 0.0))
+        .with_window_state(win)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(synshell_common::live::styles(mss, theme))
         .run(move |_| {
             let st = new_st(chat.clone(), new);
+            st.window.set(win.get_untracked());
+            create_effect(move || st.window.set(win.get()));
             watch(st);
             mark_read_effect(st);
             root(st)
@@ -143,6 +158,7 @@ fn new_st(chat: Option<String>, new: bool) -> St {
         status: use_signal(None),
         confirm_delete: use_signal(false),
         offline: use_signal(None),
+        window: use_signal(syngui::window::WindowState::default()),
     }
 }
 
@@ -359,6 +375,12 @@ fn root(st: St) -> W {
             });
         }
     });
+    // Своя рамка окна; кнопки окна — в верхних панелях экранов (см. `bar_end`)
+    let chrome = !is_phone();
+    let frame = DecoratedBox::new()
+        .class(if chrome { "window-frame" } else { "window-frame flat" })
+        .clip(true)
+        .child(Stack::new().fit(StackFit::Expand).child(DecoratedBox::new().child(body).class("root")).child(toast));
     Box::new(
         EventHook::new()
             .on_key_down(move |k, _| {
@@ -371,9 +393,28 @@ fn root(st: St) -> W {
             .child(
                 GestureDetector::new()
                     .on_back(move || go_back(st))
-                    .child(Stack::new().fit(StackFit::Expand).child(DecoratedBox::new().child(body).class("root")).child(toast)),
+                    .child(WindowResizeRegion::new().over_content(true).inset(5.0).enabled(chrome).child(frame)),
             ),
     )
+}
+
+/// Кнопки окна в конце верхней панели (на телефоне их нет).
+fn bar_end(st: St, row: Row) -> Row {
+    if is_phone() {
+        return row;
+    }
+    row.child(Reactive::new(move || -> Vec<W> {
+        let w = st.window.get();
+        vec![Box::new(DecoratedBox::new().child(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused)).class("window-controls"))]
+    }))
+}
+
+/// Заголовок панели, за который перетаскивается окно (на телефоне — просто текст).
+fn drag_title(w: impl Widget + 'static) -> W {
+    if is_phone() {
+        return Box::new(DecoratedBox::new().child(w).class("grow"));
+    }
+    Box::new(DecoratedBox::new().class("grow drag-box").child(WindowDragRegion::new().child(DecoratedBox::new().child(w).class("drag-fill"))))
 }
 
 fn phone(st: St) -> W {
@@ -392,7 +433,7 @@ fn phone(st: St) -> W {
                 } else if let Some(n) = st.chat.get_untracked() {
                     chat_view(st, n, true)
                 } else {
-                    list_view(st)
+                    list_view(st, true)
                 }
             })
             .directional(true)
@@ -411,22 +452,26 @@ fn desktop(st: St) -> W {
         } else if let Some(n) = st.chat.get() {
             chat_view(st, n, false)
         } else {
-            Box::new(
+            // Пустая правая колонка: панель только с кнопками окна, чтобы окно было за что двигать
+            let mut stack = Stack::new().fit(StackFit::Expand).child(
                 Column::new()
                     .main_axis_alignment(MainAxisAlignment::Center)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
                     .gap(8.0)
                     .child(Icon::new("\u{E0B7}").class("empty-icon"))
-                    .child(Text::new(t!("Выберите переписку")).class("muted"))
-                    .class("grow"),
-            )
+                    .child(Text::new(t!("Выберите переписку")).class("muted")),
+            );
+            if !is_phone() {
+                stack = stack.child(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(bar_end(st, Row::new().cross_axis_alignment(CrossAxisAlignment::Center).child(drag_title(DecoratedBox::new()))).class("bar")));
+            }
+            Box::new(stack)
         };
         vec![v]
     });
     Box::new(
         Row::new()
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
-            .child(DecoratedBox::new().child(list_view(st)).class("side"))
+            .child(DecoratedBox::new().child(list_view(st, false)).class("side"))
             .child(DecoratedBox::new().child(right).class("grow main")),
     )
 }
@@ -472,7 +517,8 @@ fn avatar(number: &str) -> impl Widget {
         .class("avatar")
 }
 
-fn list_view(st: St) -> W {
+/// Список переписок; `alone` — список занимает окно один (узкое окно): в его панели кнопки окна.
+fn list_view(st: St, alone: bool) -> W {
     let list = Reactive::new(move || -> Vec<W> {
         let convs = conversations(&st.msgs.get());
         let open = st.chat.get().map(|c| key(&c));
@@ -542,7 +588,10 @@ fn list_view(st: St) -> W {
             .fit(StackFit::Expand)
             .child(
                 Column::new()
-                    .child(Row::new().cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(t!("Сообщения")).class("title grow")).class("bar"))
+                    .child({
+                        let row = Row::new().cross_axis_alignment(CrossAxisAlignment::Center).child(drag_title(Text::new(t!("Сообщения")).max_lines(1).class("title")));
+                        if alone { bar_end(st, row) } else { row }.class("bar")
+                    })
                     .child(network_note(st))
                     .child(ScrollView::new().vertical().child(Column::new().gap(2.0).child(list).class("list")).class("grow")),
             )
@@ -587,15 +636,13 @@ fn chat_view(st: St, number: String, phone: bool) -> W {
     let confirm_bar = Reactive::new(move || -> Vec<W> {
         if st.confirm_delete.get() {
             let n = n_del.clone();
-            return vec![Box::new(
-                Row::new()
-                    .gap(8.0)
-                    .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(Text::new(t!("Удалить переписку?")).class("bar-title grow"))
-                    .child(GestureDetector::new().on_click(move || st.confirm_delete.set(false)).child(DecoratedBox::new().child(Text::new(t!("Отмена")).class("btn-text")).class("btn")))
-                    .child(GestureDetector::new().on_click(move || delete_chat(st, &n)).child(DecoratedBox::new().child(Text::new(t!("Удалить")).class("btn-text btn-danger-text")).class("btn btn-danger")))
-                    .class("bar"),
-            )];
+            let row = Row::new()
+                .gap(8.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(drag_title(Text::new(t!("Удалить переписку?")).max_lines(1).class("bar-title")))
+                .child(GestureDetector::new().on_click(move || st.confirm_delete.set(false)).child(DecoratedBox::new().child(Text::new(t!("Отмена")).class("btn-text")).class("btn")))
+                .child(GestureDetector::new().on_click(move || delete_chat(st, &n)).child(DecoratedBox::new().child(Text::new(t!("Удалить")).class("btn-text btn-danger-text")).class("btn btn-danger")));
+            return vec![Box::new(bar_end(st, row).class("bar"))];
         }
         vec![]
     });
@@ -609,12 +656,11 @@ fn chat_view(st: St, number: String, phone: bool) -> W {
             if phone {
                 row = row.child(icon_btn("\u{E5C4}", move || st.chat.set(None)));
             }
-            vec![Box::new(
-                row.child(avatar(&title))
-                    .child(Text::new(title.clone()).max_lines(1).class("bar-title grow"))
-                    .child(icon_btn("\u{E872}", move || st.confirm_delete.set(true)))
-                    .class("bar"),
-            )]
+            let row = row
+                .child(avatar(&title))
+                .child(drag_title(Text::new(title.clone()).max_lines(1).class("bar-title")))
+                .child(icon_btn("\u{E872}", move || st.confirm_delete.set(true)));
+            vec![Box::new(bar_end(st, row).class("bar"))]
         }
     });
     let msgs = Reactive::new(move || -> Vec<W> {
@@ -670,7 +716,7 @@ fn new_view(st: St, phone: bool) -> W {
     if phone {
         bar = bar.child(icon_btn("\u{E5C4}", move || st.composing.set(false)));
     }
-    let bar = bar.child(Text::new(t!("Новое сообщение")).class("bar-title grow")).class("bar");
+    let bar = bar_end(st, bar.child(drag_title(Text::new(t!("Новое сообщение")).max_lines(1).class("bar-title")))).class("bar");
     let number = Reactive::new(move || -> Vec<W> {
         vec![Box::new(
             TextField::new()

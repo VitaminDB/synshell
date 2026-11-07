@@ -44,12 +44,17 @@ pub fn run_desktop() {
         .title("QuitSmoke")
         .size(400, 860)
         .min_size(360, 640)
+        // Своя рамка окна (заголовок и кнопки окна рисует nav::build_app)
+        .frameless()
+        .transparent(true)
+        .background(Color::from_srgb(0, 0, 0, 0.0))
+        .with_window_state(state.window)
         .vsync(true)
         .gpu_backend(GpuBackend::Auto)
         .gpu_power(GpuPowerPreference::LowPower)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_theme_styles(&light, &dark, state.theme_dark)
-        .run(move |_| Box::new(nav::build_app(state)));
+        .run(move |_| nav::build_app(state));
 }
 
 // ── Снимок для документации ──────────────────────────────────────────────
@@ -129,7 +134,7 @@ pub fn screenshot(args: &[String]) -> std::result::Result<(), String> {
                 "onboarding" => Screen::Onboarding,
                 _ => Screen::Home,
             });
-            Box::new(nav::build_app(state))
+            nav::build_app(state)
         },
         &mss,
         size,
@@ -168,5 +173,5 @@ fn android_main(app: syngui::app::AndroidApp) {
         .with_android_app(app)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_theme_styles(&light, &dark, state.theme_dark)
-        .run(move |_| Box::new(nav::build_app(state)));
+        .run(move |_| nav::build_app(state));
 }

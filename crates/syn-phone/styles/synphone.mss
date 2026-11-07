@@ -67,3 +67,17 @@ Text { color: var(--fg); font-size: 14px; }
 .toast-place { padding: 0px 16px 96px 16px; }
 .toast { padding: 10px 16px; border-radius: 999px; background: var(--fg); box-shadow: 0 6px 20px var(--shadow); }
 .toast-text { font-size: 13px; color: var(--bg); }
+
+/* Своя рамка окна (на телефоне — плоская, без заголовка) */
+.window-frame { border-radius: var(--window-radius); border: 1px solid var(--border); background: var(--bg); }
+.window-frame.flat { border-radius: 0px; border-width: 0px; }
+.window-frame:window-maximized, .window-frame:window-fullscreen { border-radius: 0px; border-width: 0px; }
+.titlebar { height: 44px; background: var(--bg); }
+.tb-left { height: 44px; padding: 0px 8px 0px 12px; align-items: center; }
+.brand { width: 26px; height: 26px; border-radius: 13px; background: #2e9d48; padding: 5px; }
+.brand-icon { font-size: 16px; color: #ffffff; }
+.brand-title { font-size: 13px; font-weight: 600; }
+.tb-drag { height: 44px; }
+.tb-drag-space { flex-grow: 1; height: 44px; min-width: 40px; padding: 0px 8px; align-items: center; justify-content: center; }
+.window-controls { height: 44px; padding: 0px 6px 0px 4px; align-items: center; }
+SystemWindowControls { color: var(--fg); background-color: var(--hover); }

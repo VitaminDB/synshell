@@ -55,7 +55,7 @@ Text { color: var(--fg); font-size: 14px; }
 .bubble-meta-out { color: #ffffffb0; }
 
 .composer { padding: 8px 10px 10px 12px; border-top-width: 1px; border-color: var(--border); background: var(--surface); }
-.input { background: var(--input-bg); border-radius: 22px; padding: 10px 14px; min-height: 44px; }
+.input { color: var(--fg); background: var(--input-bg); border-radius: 22px; padding: 10px 14px; min-height: 44px; }
 .send { width: 44px; height: 44px; border-radius: 22px; padding: 10px; background: var(--surface-alt); }
 .send-on { background: var(--accent); }
 .send-icon { font-size: 22px; color: #ffffff; }
@@ -69,3 +69,12 @@ Text { color: var(--fg); font-size: 14px; }
 .toast-place { padding: 0px 16px 96px 16px; }
 .toast { padding: 10px 16px; border-radius: 999px; background: var(--fg); box-shadow: 0 6px 20px var(--shadow); }
 .toast-text { font-size: 13px; color: var(--bg); }
+
+/* Своя рамка окна (на телефоне — плоская); кнопки окна — в конце верхних панелей */
+.window-frame { border-radius: var(--window-radius); border: 1px solid var(--border); background: var(--bg); }
+.window-frame.flat { border-radius: 0px; border-width: 0px; }
+.window-frame:window-maximized, .window-frame:window-fullscreen { border-radius: 0px; border-width: 0px; }
+.drag-box { height: 40px; }
+.drag-fill { flex-grow: 1; height: 40px; align-items: center; }
+.window-controls { height: 40px; padding: 0px 0px 0px 6px; align-items: center; }
+SystemWindowControls { color: var(--fg); background-color: var(--hover); }

@@ -49,6 +49,9 @@ pub struct AppState {
     pub vape_achievements: RwSignal<Vec<AchievementState>>,
     /// Включён ли режим «бросить вейп» (показывать ли второй счётчик).
     pub vape_enabled: RwSignal<bool>,
+
+    /// Состояние окна (фокус, развёрнуто) — для своих кнопок окна на компьютере.
+    pub window: RwSignal<syngui::window::WindowState>,
 }
 
 impl AppState {
@@ -74,6 +77,7 @@ impl AppState {
             log_vape: use_signal(data.log_vape.clone()),
             vape_achievements: use_signal(data.vape_achievements.clone()),
             vape_enabled: use_signal(data.vape_enabled),
+            window: use_signal(syngui::window::WindowState::default()),
         }
     }
 

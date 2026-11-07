@@ -488,3 +488,27 @@ Button.btn-soft:pressed { transform: scale(0.98); }
     letter-spacing: 0.5px;
     margin-bottom: 8px;
 }
+
+/* ── Своя рамка окна (компьютер; на Android и телефоне её нет) ─────────── */
+
+.window-frame {
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+}
+.window-frame:window-maximized, .window-frame:window-fullscreen { border-radius: 0px; border-width: 0px; }
+
+.titlebar { height: 44px; background: var(--bg); }
+.tb-drag { height: 44px; }
+.tb-drag-space { flex-grow: 1; height: 44px; padding: 0px 14px; align-items: center; }
+.tb-logo {
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    padding: 4px;
+    background: linear-gradient(135deg, var(--hero-a), var(--hero-b));
+}
+.tb-logo-icon { font-size: 18px; color: #ffffff; }
+.tb-title { color: var(--fg); font-size: 14px; font-weight: 700; }
+.window-controls { height: 44px; padding: 0px 6px 0px 4px; align-items: center; }
+SystemWindowControls { color: var(--fg); background-color: var(--surface-2); }

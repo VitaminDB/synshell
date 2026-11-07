@@ -9,6 +9,7 @@ use syn_modem::api::{self, Call, CallKind, CallRecord, CallState, Event, Request
 use syn_modem::time as tm;
 use synshell_common::Config;
 use syngui::async_runtime::run_on_main_thread;
+use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 use syngui::prelude::*;
 use syngui::widgets::{EventHook, KeyReply};
 use syngui::{GestureDetector, ShowIf};
@@ -39,6 +40,13 @@ struct St {
     /// 0 — обычный экран, 1 — разговор; вкладка 0 — набор, 1 — журнал.
     mode: RwSignal<usize>,
     page: RwSignal<usize>,
+    /// Состояние окна (фокус, развёрнуто) — для своих кнопок окна.
+    window: RwSignal<syngui::window::WindowState>,
+}
+
+/// Телефон: окно на весь экран, без своего заголовка (рамку и кнопки окна не рисуем).
+fn is_phone() -> bool {
+    std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v.trim().eq_ignore_ascii_case("phone"))
 }
 
 fn main() {
@@ -94,15 +102,22 @@ fn main() {
         }
         return;
     }
+    let win = use_signal(syngui::window::WindowState::default());
     App::new()
         .title(t!("Телефон"))
         .app_id("synphone")
         .size(420, 760)
         .min_size(320, 520)
+        .frameless()
+        .transparent(true)
+        .background(Color::from_srgb(0, 0, 0, 0.0))
+        .with_window_state(win)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(synshell_common::live::styles(mss.clone(), theme))
         .run(move |_| {
             let st = new_st(log, number.clone());
+            st.window.set(win.get_untracked());
+            create_effect(move || st.window.set(win.get()));
             create_effects(st);
             watch(st);
             seen_effect(st);
@@ -124,6 +139,7 @@ fn new_st(log: bool, number: String) -> St {
         muted: use_signal(false),
         mode: use_signal(0),
         page: use_signal(usize::from(log)),
+        window: use_signal(syngui::window::WindowState::default()),
     }
 }
 
@@ -281,6 +297,15 @@ fn root(st: St) -> W {
             });
         }
     });
+    // Своя рамка окна: заголовок с кнопками окна; на телефоне — только содержимое во весь экран
+    let chrome = !is_phone();
+    let content = Stack::new().fit(StackFit::Expand).child(DecoratedBox::new().child(body).class("root")).child(toast);
+    let inner: W = if chrome {
+        Box::new(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(titlebar(st)).child(DecoratedBox::new().child(content).class("grow")))
+    } else {
+        Box::new(content)
+    };
+    let frame = DecoratedBox::new().class(if chrome { "window-frame" } else { "window-frame flat" }).clip(true).child(inner);
     Box::new(
         EventHook::new()
             .on_key_down(move |k, _| {
@@ -323,7 +348,37 @@ fn root(st: St) -> W {
                     _ => KeyReply::Ignore,
                 }
             })
-            .child(Stack::new().fit(StackFit::Expand).child(DecoratedBox::new().child(body).class("root")).child(toast)),
+            .child(WindowResizeRegion::new().over_content(true).inset(5.0).enabled(chrome).child(frame)),
+    )
+}
+
+/// Заголовок окна: знак и название слева, сеть оператора посередине (за неё окно
+/// перетаскивается), кнопки окна из настроек рабочего стола справа. Фон — как у экрана,
+/// заголовок продолжает его, а не лежит отдельной полосой.
+fn titlebar(st: St) -> W {
+    let controls = Reactive::new(move || -> Vec<W> {
+        let w = st.window.get();
+        vec![Box::new(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused))]
+    });
+    let net = Reactive::new(move || -> Vec<W> {
+        let (text, ok) = net_text(st);
+        vec![Box::new(Text::new(text).max_lines(1).elide(Elide::End).class(if ok { "net-ok" } else { "net-bad" }))]
+    });
+    let brand = Row::new()
+        .gap(8.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(DecoratedBox::new().child(Icon::new("\u{E0B0}").class("brand-icon")).class("brand"))
+        .child(Text::new(t!("Телефон")).max_lines(1).class("brand-title"));
+    Box::new(
+        DecoratedBox::new()
+            .child(
+                Row::new()
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                    .child(WindowDragRegion::new().child(DecoratedBox::new().child(brand).class("tb-left")))
+                    .child(DecoratedBox::new().class("grow tb-drag").child(WindowDragRegion::new().child(DecoratedBox::new().child(net).class("tb-drag-space"))))
+                    .child(DecoratedBox::new().child(controls).class("window-controls")),
+            )
+            .class("titlebar"),
     )
 }
 
@@ -358,28 +413,28 @@ fn main_view(st: St) -> W {
     )
 }
 
+/// Сеть: оператор (и роуминг) или причина, почему её нет; `true` — сеть есть.
+fn net_text(st: St) -> (String, bool) {
+    match st.status.get() {
+        None => (t!("Модем недоступен").to_string(), false),
+        Some(s) if !s.present => (t!("Модем не запущен").into(), false),
+        Some(s) if !s.radio => (t!("Режим полёта").into(), false),
+        Some(s) if !s.registration.registered() => (t!("Нет сети").into(), false),
+        Some(s) => {
+            let op = if s.operator.is_empty() { s.plmn.clone() } else { s.operator.clone() };
+            (if s.roaming { t!("{op} · роуминг", op = op) } else { op }, true)
+        }
+    }
+}
+
+/// Строка сети над экраном набора — на телефоне; в окне с заголовком она в заголовке.
 fn network_note(st: St) -> impl Widget {
     Reactive::new(move || -> Vec<W> {
-        let text = match st.status.get() {
-            None => Some(t!("Модем недоступен").to_string()),
-            Some(s) if !s.present => Some(t!("Модем не запущен").into()),
-            Some(s) if !s.radio => Some(t!("Режим полёта").into()),
-            Some(s) if !s.registration.registered() => Some(t!("Нет сети").into()),
-            Some(s) => {
-                let op = if s.operator.is_empty() { s.plmn.clone() } else { s.operator.clone() };
-                return vec![Box::new(
-                    Row::new()
-                        .gap(6.0)
-                        .main_axis_alignment(MainAxisAlignment::Center)
-                        .child(Text::new(if s.roaming { t!("{op} · роуминг", op = op) } else { op }).class("net-ok"))
-                        .class("net"),
-                )];
-            }
-        };
-        match text {
-            Some(t) => vec![Box::new(Row::new().main_axis_alignment(MainAxisAlignment::Center).child(Text::new(t).class("net-bad")).class("net"))],
-            None => vec![],
+        if !is_phone() {
+            return vec![];
         }
+        let (text, ok) = net_text(st);
+        vec![Box::new(Row::new().gap(6.0).main_axis_alignment(MainAxisAlignment::Center).child(Text::new(text).class(if ok { "net-ok" } else { "net-bad" })).class("net"))]
     })
 }
 

@@ -27,7 +27,9 @@ const HELP: &str = n_!("syndroid — Android-приложения в synshell
   syndroid image use ИМЯ | remove ИМЯ
   syndroid shell [КОМАНДА…]           оболочка Android (root)
   syndroid logcat [АРГУМЕНТЫ…]
-  syndroid config                     настройки (TOML)");
+  syndroid config                     настройки (TOML)
+  syndroid --screenshot ФАЙЛ.png [--size ШxВ] [--scale N] [--page overview|apps|app|images|settings|stopped]
+                                      снимок окна на придуманных данных, без службы");
 
 fn ok(r: Response) {
     if let Response::Error { message } = r {

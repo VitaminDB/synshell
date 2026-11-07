@@ -1,5 +1,8 @@
 //! Корневой каркас: переключение экранов + Heartbeat (+ оверлей частиц — Фаза 3).
+//! На компьютере — своя рамка окна: заголовок со знаком и кнопками окна из настроек
+//! рабочего стола, изменение размера за края; на Android и телефоне synshell — без неё.
 
+use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 use syngui::prelude::*;
 use syngui::widgets::ParticleSystem;
 
@@ -9,15 +12,53 @@ use crate::widgets::components::scaffold;
 use crate::widgets::heartbeat::Heartbeat;
 
 /// Корневой виджет приложения.
-pub fn build_app(state: AppState) -> impl Widget {
-    Stack::new()
+pub fn build_app(state: AppState) -> Box<dyn Widget> {
+    let content = Stack::new()
         .fit(StackFit::Expand)
         .child(Reactive::new(move || vec![current_screen(state)]))
         // Оверлей конфетти: всплеск при изменении celebrate (поверх экрана, кликопрозрачный).
         .child(Reactive::new(move || {
             vec![Box::new(ParticleSystem::confetti(state.celebrate.get())) as Box<dyn Widget>]
         }))
-        .child(Heartbeat::new(state))
+        .child(Heartbeat::new(state));
+    if !window_chrome() {
+        return Box::new(content);
+    }
+    let inner = Column::new()
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(titlebar(state))
+        .child(DecoratedBox::new().child(content).class("grow"));
+    let frame = DecoratedBox::new().class("window-frame").clip(true).child(inner);
+    Box::new(WindowResizeRegion::new().over_content(true).inset(5.0).child(frame))
+}
+
+/// Своя рамка окна: на компьютере. На Android и iPhone окно — весь экран системы, на телефоне
+/// synshell (`SYNSHELL_FORM_FACTOR=phone`) — тоже во весь экран, без заголовка.
+pub fn window_chrome() -> bool {
+    !cfg!(any(target_os = "android", target_os = "ios"))
+        && !std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v.trim().eq_ignore_ascii_case("phone"))
+}
+
+/// Заголовок окна в цвет фона экранов: знак и название слева (за них, как и за пустое место,
+/// окно перетаскивается), кнопки окна справа.
+fn titlebar(state: AppState) -> impl Widget {
+    let controls = Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        let w = state.window.get();
+        vec![Box::new(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused))]
+    });
+    let brand = Row::new()
+        .gap(8.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(DecoratedBox::new().child(Icon::new(crate::icons::SMOKE_FREE).class("tb-logo-icon")).class("tb-logo"))
+        .child(Text::new("QuitSmoke").class("tb-title"));
+    DecoratedBox::new()
+        .child(
+            Row::new()
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(DecoratedBox::new().class("grow tb-drag").child(WindowDragRegion::new().child(DecoratedBox::new().child(brand).class("tb-drag-space"))))
+                .child(DecoratedBox::new().child(controls).class("window-controls")),
+        )
+        .class("titlebar")
 }
 
 /// Выбор активного экрана (реактивно по `state.screen`).
