@@ -1,0 +1,21 @@
+[package]
+name = "syn-steam-setup"
+description = "Steam synshell на aarch64: первая установка нативного клиента Valve с CDN Valve (по манифесту, с проверкой sha256) с окном хода загрузки"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "syn-steam-setup"
+path = "src/main.rs"
+
+[dependencies]
+synshell-common = { workspace = true, features = ["i18n", "style"] }
+syngui = { workspace = true, features = ["winit", "msdf", "effects", "material-icons", "i18n", "image"] }
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+ureq = "3"
+sha2 = "0.10"
+zip = { version = "2", default-features = false, features = ["deflate"] }

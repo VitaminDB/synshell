@@ -4,7 +4,9 @@
 # Режим по умолчанию: под мобильной оболочкой (synmobile-shell) — Big Picture (на весь экран, под касания),
 # иначе — обычный интерфейс. Клиент уже работает — нужный режим просим ссылкой steam://open/….
 #   x86_64  — бутстрап Valve /usr/lib/steam/bin_steam.sh (клиент в ~/.local/share/Steam, обновляет себя сам);
-#   aarch64 — нативный aarch64-клиент: /usr/lib/syn-steam/client — начальная копия, живёт в каталоге пользователя.
+#   aarch64 — нативный aarch64-клиент Valve в каталоге пользователя: в пакете его нет, при первом запуске его ставит
+#             syn-steam-setup (окно хода загрузки; компоненты по манифесту CDN Valve с проверкой sha256), дальше
+#             клиент обновляет себя сам. STEAM_ARM64_CHANNEL=publicbeta — бета-канал для первой установки.
 set -u
 
 mode=
@@ -41,13 +43,17 @@ if [ "$machine" != aarch64 ]; then
 fi
 
 # ---- aarch64: нативный клиент Valve ----
-dist=/usr/lib/syn-steam/client
+setup=/usr/lib/syn-steam/syn-steam-setup
 
-if [ ! -x "$client" ]; then
+# первый запуск (или прерванная установка): скачать клиент с CDN Valve
+if [ ! -x "$client" ] || [ -e "$root/.syn-steam-incomplete" ]; then
   echo "steam: установка клиента в $root" >&2
   mkdir -p -- "$root"
-  cp -a -- "$dist/." "$root/"
-  chmod -R u+rwX -- "$root"
+  if [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ]; then
+    "$setup" --root "$root" || exit $?
+  else
+    "$setup" --no-window --root "$root" || exit $?
+  fi
 fi
 
 mkdir -p -- "$HOME/.steam" "$root/package"

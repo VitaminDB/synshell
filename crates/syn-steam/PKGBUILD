@@ -1,17 +1,19 @@
 # Steam synshell — общий пакет для x86_64 и aarch64: свой запускатель /usr/bin/steam (Big Picture или обычный
 # интерфейс, уже запущенный клиент — ссылкой steam://open/…), ярлыки, иконки и udev-правила из тарбола Valve.
-#   x86_64  — бутстрап-запускатель Valve (steam-launcher, как пакет steam Arch), клиент ставит себя сам;
-#   aarch64 — нативный aarch64-клиент Valve из манифеста обновлений (начальная копия, дальше обновляет себя сам),
-#             обходы ядер Android: эмуляция SysV IPC (LD_PRELOAD) и setuid bwrap для pressure-vessel.
-# Обновить клиент aarch64: ./update-sources.sh [stable|publicbeta]
+# Клиента Valve в пакете нет (его нельзя распространять) — он ставит себя сам в каталог пользователя:
+#   x86_64  — бутстрап-запускатель Valve (steam-launcher, как пакет steam Arch);
+#   aarch64 — syn-steam-setup (setup/, крейт workspace synshell): при первом запуске скачивает нативный
+#             aarch64-клиент по манифесту steam_client_linuxarm64 с CDN Valve (sha256 из манифеста), окно хода
+#             загрузки; дальше клиент обновляет себя сам. Обходы ядер Android: эмуляция SysV IPC (LD_PRELOAD)
+#             и setuid bwrap для pressure-vessel.
+# Кросс-сборка aarch64 на x86_64-хосте: synmobile `synport hostpkg syn-steam` (CC, SYN_STEAM_MESON_CROSS,
+# CARGO_BUILD_TARGET и линковщик cargo задаёт он).
 
 pkgname=syn-steam
 pkgver=1.0.0.87
-pkgrel=1
-# версия нативного клиента aarch64 (манифест steam_client_linuxarm64)
-_client_arm64=1788652215
+pkgrel=2
 _bwrapver=0.10.0
-pkgdesc="Valve's Steam client with synshell launcher (native ARM64 client on aarch64)"
+pkgdesc="Steam launcher for synshell: Valve's bootstrap on x86_64, first-run installer of the native ARM64 client on aarch64"
 arch=(x86_64 aarch64)
 url="https://store.steampowered.com/"
 license=(LicenseRef-steam MIT)
@@ -35,7 +37,7 @@ depends_aarch64=(
   libxrandr libxrender libxss libxcb libxcursor libxshmfence libxft libxt libxmu
   libxxf86vm wayland libdecor
 )
-makedepends_aarch64=(gcc meson ninja libcap)
+makedepends_aarch64=(gcc meson ninja libcap cargo)
 optdepends=(
   'syn-wine: Windows-игры системным Wine (compat tool «syn-wine»)'
   'xorg-xrdb: курсор и масштаб из X-ресурсов'
@@ -45,8 +47,7 @@ optdepends=(
 provides=(steam steam-devices)
 conflicts=(steam steam-devices steam-arm64)
 replaces=(steam-arm64)
-options=(!strip !debug)
-_cdn=https://client-update.fastly.steamstatic.com
+options=(!strip !debug !lto)
 source=(
   "https://repo.steampowered.com/steam/archive/beta/steam_$pkgver.tar.gz"
   steam.sh
@@ -56,54 +57,15 @@ sha256sums=('649375d2f9377f8009aaf3e2ff09978041eb9114897d9c5a3886f1d82e27ba1f'
             SKIP
             SKIP)
 source_aarch64=(
-# BEGIN components
-  "tenfoot_images_all.zip::$_cdn/tenfoot_images_all.zip.86419c7a56c12dd107b5e0d46f50c8a9b121f3cc"
-  "steamui_websrc_all.zip::$_cdn/steamui_websrc_all.zip.d57af3a7bc6e1d54ca67e721a41d263befa5125c"
-  "resources_misc_all.zip::$_cdn/resources_misc_all.zip.99ed79ed868d732d8e9e9a45444b8f003191e3dd"
-  "resources_hidpi_all.zip::$_cdn/resources_hidpi_all.zip.a110d78e994c028dc1c412951e87a0c4e9c819f7"
-  "resources_all.zip::$_cdn/resources_all.zip.213fe769fd8484a0d149453c5655e70c1d13b086"
-  "strings_en_all.zip::$_cdn/strings_en_all.zip.071a3f6839c3b8d574731101f2862d5ed72ab2e4"
-  "strings_all.zip::$_cdn/strings_all.zip.9c6cdbadbbf194703f40a5eef735ce7b99eb10dc"
-  "public_all.zip::$_cdn/public_all.zip.4909469e2596e887494f0882fc39a493ac6c6925"
-  "bins_hardware_all.zip::$_cdn/bins_hardware_all.zip.0f397d26ddd470318a9dfd8ba019f6e64bb53875"
-  "steamui_websrc_sounds_all.zip::$_cdn/steamui_websrc_sounds_all.zip.74727ca40ef88c5012bb631488fd285418dce825"
-  "steamui_websrc_movies_all.zip::$_cdn/steamui_websrc_movies_all.zip.40e78cdda48e9a8a74baf614e0cdc7a6b96d26d1"
-  "webkit_linuxarm64_linuxarm64.zip::$_cdn/webkit_linuxarm64_linuxarm64.zip.c1d5fa58a564375f71b34bccaa51c19be1143137"
-  "sdl3_linuxarm64_linuxarm64.zip::$_cdn/sdl3_linuxarm64_linuxarm64.zip.f93eb71fa237ed9c1b2435302aaf8ef72bf19fdc"
-  "codecs_linuxarm64_linuxarm64.zip::$_cdn/codecs_linuxarm64_linuxarm64.zip.1b42568442a5238ca50cddedca932631b1865ccb"
-  "bins_linuxarm64_linuxarm64.zip::$_cdn/bins_linuxarm64_linuxarm64.zip.dc817d33f8308815bf4fde6a3cb61fd4529728c8"
-  "bins_sdk_linuxarm64_linuxarm64.zip::$_cdn/bins_sdk_linuxarm64_linuxarm64.zip.9e39e51c8c8235e87475e00a978a6d2f5d095113"
-  "resource_linuxarm64_linuxarm64.zip::$_cdn/resource_linuxarm64_linuxarm64.zip.6e5691ac5a1a55a554250468a98c3f8e454fea4a"
-# END components
   sysv-shim.c
   openbox-rc.xml
   "https://github.com/containers/bubblewrap/releases/download/v$_bwrapver/bubblewrap-$_bwrapver.tar.xz"
 )
 sha256sums_aarch64=(
-# BEGIN sums
-  '990676bc29d01736477c6b571b5048258a6156284ef242503112fc68567cbf01'
-  '791e7069a239ffb07366193b17ed93fe9c3b6e131fd766c505e3a7029e9c5f57'
-  '187e562403c7544af7162e08baf7677d030ad6f60947c2cdc7dcbcbf0a7a7fe6'
-  '5bdb97ec734f035c1d06a59b62980028b1b05b920c544ae3673b1a515d3d507e'
-  '769840cdb2b22ad9798a1a3950de2fe82b8b5d3d37389dcc9b1393f77480d67b'
-  'fe73301f09a423c3114575b54b929c5cc0d1aacc80f1067259e551ffd1c82a07'
-  '23e192629927ca1fcfda167b3cf55ed69fd212515fc0547eee268325b24d41a4'
-  'e8a1c9234c44e513d9c4ac094168b96bfa9e39b02fab8683cd793d2509f5ea94'
-  'c90da4bd9e6dc122317f54887633839e22871974656fd0c337c60b44522ff2b3'
-  'c823bd39d234e7d9a5fdb5ec6605eae3f175e52bb847725e8826ff526a61641c'
-  '885a32533327f0fd5ea98e6c6f13552e965cab4852dad7ce9ccf3d929d726b5b'
-  'b8687e0f20668d24055d8f2e9f6c4fbcbe84fbb99a7bc9de4595530be7029990'
-  '097bb5adfc0b7927b6e57dd8d23613052da7c026e69b4a024c3d43f70d5561e2'
-  '49a8bf59f30c31a244a289e4aae52ebfec341b69b5210adbdb54e0d59b9f41bd'
-  'c2d7c0ecb8de7e209504cd657b785127cd1ac3d905668c296e87c360b2b54163'
-  '55fa4fb9d7871058157544a749100e73afcd9e68be2618e2b23a20eea8aa5173'
-  'f78280db38d95a74096a00f7d2bc3061286db135e9e61bbf963eb65de39d66fc'
-# END sums
   SKIP
   SKIP
   '65d92cf44a63a51e1b7771f70c05013dce5bd6b0b2841c4b4be54b0c45565471'
 )
-noextract=($(printf '%s\n' "${source_aarch64[@]%%::*}" | grep '\.zip$'))
 
 build() {
   [[ $CARCH == aarch64 ]] || return 0
@@ -111,7 +73,7 @@ build() {
   # Ядро Android без SysV IPC (semget/shmget -> ENOSYS), а клиент Steam на нём
   # держит семафоры и разделяемую память: эмуляция через /dev/shm (LD_PRELOAD).
   # Та же эмуляция, что synmobile compat/x11/sysv-shim.c (обёртка Xwayland) — менять обе вместе.
-  gcc $CFLAGS -fPIC -shared $LDFLAGS -o libsysv-shim.so sysv-shim.c -lpthread
+  ${CC:-gcc} $CFLAGS -fPIC -shared $LDFLAGS -o libsysv-shim.so sysv-shim.c -lpthread
 
   # Ядро без SysV IPC отвергает CLONE_NEWIPC (EINVAL), изолировать там нечего:
   # --unshare-ipc делаем пустой операцией.
@@ -121,10 +83,17 @@ build() {
   # Ядро без user namespaces, а bubblewrap >= 0.11 больше не работает setuid.
   # Контейнеру Steam (pressure-vessel, Proton) — отдельный setuid bwrap 0.10.0;
   # системный /usr/bin/bwrap не трогаем.
-  arch-meson "bubblewrap-$_bwrapver" bwrap-build \
+  arch-meson "bubblewrap-$_bwrapver" bwrap-build ${SYN_STEAM_MESON_CROSS:+--cross-file "$SYN_STEAM_MESON_CROSS"} \
     -D man=disabled -D bash_completion=disabled -D zsh_completion=disabled \
     -D selinux=disabled -D tests=false -D c_std=gnu17
   meson compile -C bwrap-build
+
+  # первая установка клиента (окно хода загрузки) — крейт setup/ workspace synshell
+  local ws; ws=$(cd "$startdir/../.." && pwd)
+  cargo build --manifest-path "$ws/Cargo.toml" --profile "${SYN_STEAM_PROFILE:-release}" -p syn-steam-setup \
+    --target-dir "${CARGO_TARGET_DIR:-$ws/target}"
+  install -m755 "${CARGO_TARGET_DIR:-$ws/target}/${CARGO_BUILD_TARGET:+$CARGO_BUILD_TARGET/}${SYN_STEAM_PROFILE:-release}/syn-steam-setup" \
+    "$srcdir/syn-steam-setup"
 }
 
 package() {
@@ -159,36 +128,9 @@ package() {
   ln -s true "$pkgdir/usr/bin/steamdeps"
 }
 
-# aarch64: начальная копия нативного клиента (запускатель копирует её в каталог пользователя), шим, bwrap
+# aarch64: установщик клиента, шим, bwrap (сам клиент Valve ставит syn-steam-setup при первом запуске)
 _package_arm64() {
-  local dest="$pkgdir/usr/lib/syn-steam/client" z e t
-
-  mkdir -p "$dest"
-  for z in "${source_aarch64[@]%%::*}"; do
-    [[ $z == *.zip ]] && bsdtar -xf "$srcdir/$z" -C "$dest"
-  done
-
-  # в архивах Valve пути вида "dir\sub\file" — превращаем в каталоги
-  while IFS= read -r -d '' e; do
-    t="$dest/$(basename "$e" | tr '\\' '/')"
-    if [[ -d $e ]]; then
-      mkdir -p "$t"
-      cp -a "$e/." "$t/"
-      rm -rf "$e"
-    else
-      mkdir -p "$(dirname "$t")"
-      mv "$e" "$t"
-    fi
-  done < <(find "$dest" -mindepth 1 -maxdepth 1 -name '*\\*' -print0 | sort -z)
-
-  # права на исполнение для ELF и скриптов
-  while IFS= read -r -d '' e; do
-    case "$(head -c 4 "$e" | od -An -tx1 | tr -d ' \n')" in
-      7f454c46 | 2321*) chmod 755 "$e" ;;
-    esac
-  done < <(find "$dest" -type f -print0)
-  test -x "$dest/steamrtarm64/steam"
-
+  install -Dm755 "$srcdir/syn-steam-setup" "$pkgdir/usr/lib/syn-steam/syn-steam-setup"
   # прежнее имя запускателя
   install -d "$pkgdir/usr/bin"
   ln -s steam "$pkgdir/usr/bin/steam-arm64"

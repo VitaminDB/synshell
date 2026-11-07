@@ -7538,6 +7538,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn-steam-setup"
+version = "0.1.42"
+dependencies = [
+ "anyhow",
+ "sha2",
+ "syngui",
+ "synshell-common",
+ "tracing",
+ "tracing-subscriber",
+ "ureq",
+ "zip",
+]
+
+[[package]]
 name = "syn-system"
 version = "0.1.42"
 dependencies = [
