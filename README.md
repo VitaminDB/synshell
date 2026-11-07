@@ -1,5 +1,7 @@
 # synshell
 
+[Русский](README.ru.md)
+
 [![Licence: GPL-3.0 or commercial](https://img.shields.io/badge/licence-GPL--3.0%20%7C%20commercial-blue)](#licence)
 [![Platform: Linux (Wayland)](https://img.shields.io/badge/platform-Linux%20(Wayland)-informational)](#build-and-run)
 
