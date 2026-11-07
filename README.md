@@ -132,6 +132,8 @@ Every application has its own README with screenshots and a command-line referen
 
 The phone shell (`synmobile-shell`): the home screen with application icons laid out in pages, and the quick settings shade.
 
+To put Arch Linux with synshell next to Android on a phone, use [synport](https://github.com/VitaminDB/synport) — an installer for Windows and Linux, one USB cable. Video: [Arch Linux on an Android phone in 4 minutes](https://youtu.be/a1eQKbndKZ0).
+
 | Home screen | Quick settings |
 |---|---|
 | <img src="docs/screenshots/phone.png" width="300" alt="Phone shell: home screen with application icons"> | <img src="docs/screenshots/phone-shade.png" width="300" alt="Phone shell: quick settings shade with network, location, window mode, brightness and volume"> |

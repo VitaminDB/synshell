@@ -133,6 +133,8 @@ Arrow Lake выводит изображение на встроенную па�
 
 Телефонная оболочка (`synmobile-shell`): домашний экран со значками программ по страницам и шторка быстрых настроек.
 
+Поставить Arch Linux с synshell рядом с Android на телефон — [synport](https://github.com/VitaminDB/synport): установщик для Windows и Linux, один USB-кабель. Видео: [Arch Linux на Android-телефоне за 4 минуты](https://youtu.be/a1eQKbndKZ0).
+
 | Домашний экран | Быстрые настройки |
 |---|---|
 | <img src="docs/screenshots/phone-ru.png" width="300" alt="Телефонная оболочка: домашний экран со значками программ"> | <img src="docs/screenshots/phone-shade-ru.png" width="300" alt="Телефонная оболочка: шторка быстрых настроек — сеть, местоположение, режим окон, яркость и громкость"> |
