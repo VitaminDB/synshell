@@ -131,7 +131,7 @@
 # src/main.rs
 "synfiles [--view details|list|tiles|icons] [--split [ЛЕВАЯ ПРАВАЯ]] [ПУТЬ|URI…]\nsynfiles --viewer КАРТИНКА" = "synfiles [--view details|list|tiles|icons] [--split [СОЛ ОҢ]] [ЖОЛ|URI…]\nsynfiles --viewer СУРЕТ"
 "снимок не удался: {e}" = "түсіру сәтсіз: {e}"
-"Проводник" = "Зерттеуші"
+"Проводник" = "Файлдар"
 
 # src/model.rs
 "Папка" = "Қалта"
