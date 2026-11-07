@@ -145,6 +145,7 @@ Arrow Lake выводит изображение на встроенную па�
 | [syn-nfc](crates/syn-nfc/README.ru.md) | **NFC.** Чтение меток, сохранённые метки, запись своих и эмуляция метки телефоном. |
 | [syn-compass](crates/syn-compass/README.ru.md) | **Компас.** Магнитометр и акселерометр, уровень, метка направления и калибровка «восьмёркой». |
 | [syn-health](crates/syn-health/README.ru.md) | **Спорт и здоровье.** Шагомер телефона, расстояние, калории — по часам и за неделю. |
+| [synlink](crates/syn-link/README.ru.md) | **Связь телефона и компьютера.** По USB и Wi-Fi: экран, ввод, звук, файлы, уведомления, общий буфер обмена, `ssh phone`, командная строка и MCP-сервер для ИИ-агентов. |
 | [synlink-view](crates/syn-link-view/README.ru.md) | **Экран устройства.** Экран связанного устройства в окне: смотреть на телефон с компьютера и управлять им или наоборот. |
 | [syn-remote](crates/syn-remote/README.ru.md) | **Пульт.** Телефон с ИК-светодиодом управляет телевизорами, кондиционерами, проекторами и другой техникой. |
 
@@ -154,6 +155,9 @@ Arrow Lake выводит изображение на встроенную па�
 |---|---|
 | [syndroid](crates/syn-droid/README.ru.md) | **Android-приложения.** Контейнер LineageOS (образы Waydroid) со своим рантаймом, демон, окно управления и командная строка. |
 | [syn-wine-helper](crates/syn-wine-helper/README.ru.md) | **Компоненты Wine.** DLL, которых нет в самом Wine (MFC, рантаймы Visual Basic, OpenAL): ставятся один раз для всех префиксов и предлагаются, когда программе их не хватает. |
+| [syn-wine](crates/syn-wine/README.ru.md) | **Wine для программ и игр Windows.** Касания, мост Steam API из Proton, DXVK, Wine Mono и Gecko в пакете; ARM64EC с FEX на телефонах. |
+| [syn-steam](crates/syn-steam/README.ru.md) | **Steam на компьютере и телефоне.** Бутстрап Valve на x86_64; на aarch64 родной ARM64-клиент ставится при первом запуске, Big Picture под оболочкой телефона. |
+| [syn-dlss](crates/syn-dlss/README.ru.md) | **Нейрорендеринг DLSS 5.** Модель NVIDIA для Linux-игр, игр под Wine и видеоплеера: включить, настроить картинку, управлять помощником NGX. |
 
 **Здоровье и игры**
 

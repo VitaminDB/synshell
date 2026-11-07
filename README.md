@@ -144,6 +144,7 @@ The phone shell (`synmobile-shell`): the home screen with application icons laid
 | [syn-nfc](crates/syn-nfc/README.md) | **NFC app.** Read tags, keep them, write your own and let the phone act as a tag. |
 | [syn-compass](crates/syn-compass/README.md) | **Compass.** Magnetometer and accelerometer, a level, a bearing mark and figure-eight calibration. |
 | [syn-health](crates/syn-health/README.md) | **Steps and activity.** The phone's pedometer, distance, calories, by hour and by week. |
+| [synlink](crates/syn-link/README.md) | **Linking a phone and a computer.** Over USB and Wi-Fi: screen, input, sound, files, notifications, a shared clipboard, `ssh phone`, a CLI and an MCP server for AI agents. |
 | [synlink-view](crates/syn-link-view/README.md) | **The screen of a linked device in a window.** Watch and control your phone from the computer, or the computer from the phone. |
 | [syn-remote](crates/syn-remote/README.md) | **IR remote control.** A phone with an IR LED controls TVs, air conditioners, projectors and more. |
 
@@ -153,6 +154,9 @@ The phone shell (`synmobile-shell`): the home screen with application icons laid
 |---|---|
 | [syndroid](crates/syn-droid/README.md) | **Android apps.** A LineageOS container (Waydroid images) with its own runtime, a daemon, a management window and a CLI. |
 | [syn-wine-helper](crates/syn-wine-helper/README.md) | **Wine components.** DLLs that Wine itself does not have (MFC, Visual Basic runtimes, OpenAL), installed once for all prefixes and offered when a program needs them. |
+| [syn-wine](crates/syn-wine/README.md) | **Wine for Windows programs and games.** Touch input, the Steam API bridge from Proton, DXVK, Wine Mono and Gecko in the package; ARM64EC with FEX on phones. |
+| [syn-steam](crates/syn-steam/README.md) | **Steam on computers and phones.** Valve's bootstrap on x86_64; on aarch64 the native ARM64 client is installed on first start, with Big Picture under the phone shell. |
+| [syn-dlss](crates/syn-dlss/README.md) | **DLSS 5 neural rendering.** NVIDIA's model for Linux games, Wine games and the video player: switch it on, tune the picture, run the NGX helper. |
 
 **Health and games**
 
