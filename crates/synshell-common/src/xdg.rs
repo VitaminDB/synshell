@@ -622,13 +622,29 @@ pub fn lookup_icon(name: &str) -> Option<PathBuf> {
     found
 }
 
+/// Значок только из выбранной темы и тем, от которых она наследует, — без запасных
+/// breeze/Adwaita и /usr/share/pixmaps. Для «фирменных» значков вроде `start-here`:
+/// в запасных темах это чужой логотип (след GNOME из AdwaitaLegacy), лучше свой глиф.
+pub fn lookup_icon_themed(name: &str) -> Option<PathBuf> {
+    if name.is_empty() {
+        return None;
+    }
+    search_themes(name, false)
+}
+
 fn lookup_uncached(name: &str) -> Option<PathBuf> {
+    search_themes(name, true)
+}
+
+fn search_themes(name: &str, fallbacks: bool) -> Option<PathBuf> {
     let first = ICON_THEME.read().map(|g| g.clone()).unwrap_or_default();
     let mut queue: Vec<String> = Vec::new();
     if !first.is_empty() {
         queue.push(first);
     }
-    queue.extend(["breeze".to_string(), "Adwaita".to_string(), "hicolor".to_string()]);
+    if fallbacks {
+        queue.extend(["breeze".to_string(), "Adwaita".to_string(), "hicolor".to_string()]);
+    }
     let mut seen = Vec::new();
     let mut i = 0;
     while i < queue.len() {
@@ -647,6 +663,9 @@ fn lookup_uncached(name: &str) -> Option<PathBuf> {
                 queue.insert(i + k, inh.clone());
             }
         }
+    }
+    if !fallbacks {
+        return None;
     }
     for ext in ["svg", "png", "xpm"] {
         let p = PathBuf::from(format!("/usr/share/pixmaps/{name}.{ext}"));
