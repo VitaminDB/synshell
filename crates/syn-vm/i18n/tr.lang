@@ -817,3 +817,4 @@
 "Сколько видеопамяти компьютера syn-gpu отдаёт гостю; вступает при следующем запуске" = "syn-gpu’nun konuğa verdiği bilgisayar video belleği miktarı; bir sonraki başlatmada geçerli"
 "Текст и картинки в обе стороны через агент syn-vm (пока пользователь вошёл)" = "syn-vm ajanı üzerinden iki yönlü metin ve resim (bir kullanıcı oturum açmışken)"
 "{n} ГиБ" = "{n} GiB"
+"Включено всегда: syn-gpu — основная видеокарта этой машины (раздел «Экран и устройства»)" = "Her zaman açık: syn-gpu bu makinenin ana ekran kartıdır (“Ekran ve aygıtlar” bölümü)"

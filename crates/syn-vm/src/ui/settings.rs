@@ -515,7 +515,9 @@ fn gpu(st: St, vm: &Vm) -> W {
     let mut rows: Vec<W> = vec![
             row(
                 t!("3D-ускорение (syn-gpu)"),
-                if crate::qemu::syn_gpu_bin().is_some() {
+                if syn_display {
+                    t!("Включено всегда: syn-gpu — основная видеокарта этой машины (раздел «Экран и устройства»)")
+                } else if crate::qemu::syn_gpu_bin().is_some() {
                     t!("Своя видеокарта для игр: Vulkan и DirectX через DXVK, кадры игр — прямо в окно. Windows с драйвером syn-gpu: прошивка UEFI без Secure Boot, в госте bcdedit /set testsigning on")
                 } else {
                     t!("Нужен сервер syn-gpu (проект syn-virt): переменная SYN_GPU или syn-gpu в PATH")

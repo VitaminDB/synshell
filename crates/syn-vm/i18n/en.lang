@@ -817,3 +817,4 @@
 "Сколько видеопамяти компьютера syn-gpu отдаёт гостю; вступает при следующем запуске" = "How much of the host’s video memory syn-gpu gives the guest; applies on next start"
 "Текст и картинки в обе стороны через агент syn-vm (пока пользователь вошёл)" = "Text and images both ways via the syn-vm agent (while a user is signed in)"
 "{n} ГиБ" = "{n} GiB"
+"Включено всегда: syn-gpu — основная видеокарта этой машины (раздел «Экран и устройства»)" = "Always on: syn-gpu is this machine’s main graphics card (“Screen and devices” section)"

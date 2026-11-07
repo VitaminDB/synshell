@@ -522,7 +522,9 @@ pub fn syn_gpu_bin() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("SYN_GPU").map(PathBuf::from).filter(|p| p.is_file()) {
         return Some(p);
     }
-    std::env::var_os("PATH").and_then(|path| std::env::split_paths(&path).map(|d| d.join("syn-gpu")).find(|p| p.is_file()))
+    // Ссылка на сборку syn-virt (~/.local/bin/syn-gpu → target/…) на время пересборки повисает —
+    // сервер всё равно есть.
+    std::env::var_os("PATH").and_then(|path| std::env::split_paths(&path).map(|d| d.join("syn-gpu")).find(|p| p.is_file() || p.is_symlink()))
 }
 
 /// Запустить сервер видеокарты syn-gpu машины (уже работает — оставить) и дождаться его сокета
