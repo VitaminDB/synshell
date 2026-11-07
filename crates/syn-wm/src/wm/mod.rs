@@ -5,6 +5,7 @@
 //! его синхронизирует [`crate::state::State::sync_space`]. Операции над
 //! окнами — в `ops.rs` (им нужен `&mut State` ради фокуса клавиатуры).
 
+pub mod close_watch;
 pub mod game;
 pub mod layout;
 pub mod mobile;
@@ -289,9 +290,13 @@ impl Managed {
     /// Рисовать ли заголовок (серверные рамки и не во весь экран; у
     /// развёрнутого — если не включены развёрнутые окна без заголовка).
     pub fn has_titlebar(&self) -> bool {
-        self.ssd && !self.fullscreen && !(self.maximized && BORDERLESS_MAXIMIZED.load(Ordering::Relaxed))
+        self.ssd && !self.fullscreen && !(self.maximized && BORDERLESS_MAXIMIZED.load(Ordering::Relaxed)) && !MOBILE_PAGES.load(Ordering::Relaxed)
     }
 }
+
+/// Телефон в режиме страниц: окно — целая страница, заголовка серверной рамки нет (у программ
+/// с серверной рамкой, например «Параметров», висела строка с кнопками окна).
+pub static MOBILE_PAGES: AtomicBool = AtomicBool::new(false);
 
 /// `windows.borderless_maximized`: развёрнутые окна без заголовка.
 static BORDERLESS_MAXIMIZED: AtomicBool = AtomicBool::new(false);
@@ -363,6 +368,8 @@ pub struct Wm {
     /// Снимки окон, которым композитор отправил «закрыть» (окно, снимок, когда): клиент часто сперва отцепляет
     /// буфер (пустой коммит) — снимать в `unmap_window` уже нечего; через 3 с без закрытия — выбрасываются.
     pub close_snapshots: Vec<(WindowId, Closing, std::time::Instant)>,
+    /// Закрытие из оболочки: ждём ухода окна, выводим вперёд, добиваем (`close_watch.rs`).
+    pub close_watch: close_watch::CloseWatch,
     /// Волны от касаний (`[animations] ripple`): точка (глобальные координаты) и анимация 0 → 1.
     pub ripples: Vec<(Point<f64, Logical>, Animation)>,
     /// Окно, которое тащат мышью (едет при смене стола).
@@ -389,6 +396,7 @@ impl Wm {
             closing: Vec::new(),
             ripples: Vec::new(),
             close_snapshots: Vec::new(),
+            close_watch: Default::default(),
             dragging: None,
             mobile: mobile::MobileState::default(),
             next_id: 1,

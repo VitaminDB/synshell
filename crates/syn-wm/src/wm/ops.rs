@@ -241,6 +241,7 @@ impl State {
         if !no_focus && ws == self.core.wm.active && !self.core.is_locked() {
             self.focus_window(Some(id));
         }
+        self.close_watch_child_mapped(id);
         self.broadcast_mobile();
         self.core.ipc_dirty = true;
         self.core.queue_redraw_all();
@@ -327,6 +328,7 @@ impl State {
 
     pub fn unmap_window(&mut self, id: WindowId, destroyed: bool) {
         self.start_close_anim(id);
+        self.core.wm.close_watch.gone(id);
         let was_focused = self.core.wm.focused == Some(id);
         if let Some(m) = self.core.wm.get(id) {
             let w = m.window.clone();
@@ -538,6 +540,7 @@ impl State {
     /// Пересчитать геометрию окон активного стола (плитка, развёрнутые,
     /// во весь экран, прилепленные) по всем выводам.
     pub fn relayout(&mut self) {
+        crate::wm::MOBILE_PAGES.store(self.core.wm.mobile.pages_mode(), std::sync::atomic::Ordering::Relaxed);
         let outputs: Vec<(Output, Rect)> = self
             .core
             .space
@@ -983,6 +986,138 @@ impl State {
         }
     }
 
+    /// «Закрыть» из оболочки (IPC `WindowOp::Close`: шторка, «Недавние», панель задач): просьба
+    /// закрыться; не ушло за 0,7 с — окно выводится вперёд; повтор — SIGTERM, затем SIGKILL
+    /// (`wm/close_watch.rs`). Клавиши и кнопка заголовка — простая просьба (`close_window`).
+    pub fn shell_close_window(&mut self, id: WindowId) {
+        use super::close_watch::{Decision, SURFACE_AFTER};
+        if self.core.wm.get(id).is_none() {
+            return;
+        }
+        let now = std::time::Instant::now();
+        match self.core.wm.close_watch.request(id, now) {
+            Decision::Ask => {
+                self.close_window(id);
+                self.schedule_close_watch(SURFACE_AFTER);
+            }
+            Decision::Terminate => self.terminate_window(id, now),
+            Decision::Ignore => {}
+        }
+        self.core.ipc_dirty = true;
+    }
+
+    /// Повторное «закрыть»: SIGTERM процессу окна (и SIGCONT — вдруг он остановлен), через
+    /// `KILL_AFTER` — SIGKILL. Процесс неизвестен — ещё раз просьба.
+    fn terminate_window(&mut self, id: WindowId, now: std::time::Instant) {
+        use super::close_watch::KILL_AFTER;
+        let pid = self.core.wm.get(id).and_then(|m| self.signal_pid(m));
+        let Some(pid) = pid else {
+            tracing::info!(id, "закрыть принудительно: процесс окна неизвестен — снова просьба");
+            self.core.wm.close_watch.gone(id);
+            self.close_window(id);
+            return;
+        };
+        tracing::info!(id, pid, "закрыть принудительно: SIGTERM");
+        unsafe {
+            libc::kill(pid, libc::SIGTERM);
+            libc::kill(pid, libc::SIGCONT);
+        }
+        self.core.wm.close_watch.terminated(id, pid, now);
+        self.schedule_close_watch(KILL_AFTER);
+    }
+
+    /// PID, которому можно слать сигналы: не сам композитор, не init, не Xwayland.
+    fn signal_pid(&self, m: &Managed) -> Option<i32> {
+        let pid = self.window_pid(m).or_else(|| {
+            // X11-окно без _NET_WM_PID — спросить X-сервер (XRes)
+            m.window.x11_surface().and_then(|x| x.get_client_pid().ok()).map(|p| p as i32)
+        })?;
+        (pid > 1 && pid != std::process::id() as i32 && !self.xwayland_pids().contains(&pid)).then_some(pid)
+    }
+
+    fn schedule_close_watch(&mut self, after: Duration) {
+        use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+        let _ = self.core.loop_handle.insert_source(Timer::from_duration(after + Duration::from_millis(5)), |_, _, state| {
+            state.close_watch_tick();
+            TimeoutAction::Drop
+        });
+    }
+
+    /// Сроки закрытия наступили: вывести не ушедшие окна, добить процессы после SIGTERM.
+    pub fn close_watch_tick(&mut self) {
+        use super::close_watch::Due;
+        let now = std::time::Instant::now();
+        for due in self.core.wm.close_watch.tick(now) {
+            match due {
+                Due::Surface(id) => self.surface_closing(id, None),
+                Due::Expired(_) => self.core.ipc_dirty = true,
+                Due::Kill(pid) => {
+                    // процесс ещё есть — не ответил на SIGTERM
+                    if unsafe { libc::kill(pid, 0) } == 0 {
+                        tracing::info!(pid, "закрыть принудительно: SIGKILL");
+                        unsafe {
+                            libc::kill(pid, libc::SIGKILL);
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(t) = self.core.wm.close_watch.next_deadline() {
+            if t > now {
+                // запасной будильник: сроки, выставленные раньше, своими таймерами уже стоят
+                if t.duration_since(now) > super::close_watch::SURFACE_AFTER {
+                    self.schedule_close_watch(t.duration_since(now));
+                }
+            }
+        }
+    }
+
+    /// Окно не закрылось по просьбе (спрашивает «Выйти?» или занято) — развернуть, вывести вперёд с
+    /// фокусом; `child` — его новый диалог, фокус ему. Оболочке — `window-surfaced ID`: убрать шторку
+    /// и «Недавние», чтобы окно было видно.
+    fn surface_closing(&mut self, id: WindowId, child: Option<WindowId>) {
+        let Some(m) = self.core.wm.get(id) else { return };
+        if !m.mapped {
+            return;
+        }
+        tracing::info!(id, ?child, "окно не закрылось по просьбе — вывожу вперёд");
+        self.focus_window(Some(id));
+        if let Some(c) = child {
+            self.focus_window(Some(c));
+        }
+        self.core.ipc.broadcast(&Event::ShellCommand { command: format!("window-surfaced {id}") });
+        self.core.ipc_dirty = true;
+        self.core.queue_redraw_all();
+    }
+
+    /// Родитель окна: xdg_toplevel.set_parent или X11 WM_TRANSIENT_FOR.
+    pub fn parent_window(&self, id: WindowId) -> Option<WindowId> {
+        let m = self.core.wm.get(id)?;
+        if let Some(x) = m.window.x11_surface() {
+            let p = x.is_transient_for()?;
+            return self.core.wm.windows.iter().find(|w| w.window.x11_surface().is_some_and(|s| s.window_id() == p)).map(|w| w.id);
+        }
+        let parent = m.window.toplevel()?.parent()?;
+        self.core.wm.id_by_surface(&parent)
+    }
+
+    /// Появилось окно `id`: если это диалог окна, которому только что послали «закрыть», — вывести
+    /// их сразу, не дожидаясь срока.
+    fn close_watch_child_mapped(&mut self, id: WindowId) {
+        let mut cur = id;
+        for _ in 0..8 {
+            let Some(p) = self.parent_window(cur) else { return };
+            if p == cur {
+                return;
+            }
+            if self.core.wm.close_watch.child_appeared(p) {
+                self.surface_closing(p, Some(id));
+                return;
+            }
+            cur = p;
+        }
+    }
+
     /// PID программы окна. У X11-окон — из _NET_WM_PID: их Wayland-клиент — Xwayland.
     fn window_pid(&self, m: &Managed) -> Option<i32> {
         if let Some(x) = m.window.x11_surface() {
@@ -1390,6 +1525,7 @@ impl State {
             x11_id: m.window.x11_surface().map(|x| x.window_id()),
             touch_as_mouse: m.touch_as_mouse(),
             gtk_menu: m.window.toplevel().and_then(|t| crate::gtk_shell::menu(t.wl_surface())),
+            close_forced: self.core.wm.close_watch.is_pending(m.id, std::time::Instant::now()),
         }
     }
 
