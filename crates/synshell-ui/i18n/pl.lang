@@ -830,3 +830,7 @@
 "Подключено USB-устройство" = "Podłączono urządzenie USB"
 "Отключено USB-устройство" = "Odłączono urządzenie USB"
 "ID {id} · шина {bus} · устройство {dev}" = "ID {id} · magistrala {bus} · urządzenie {dev}"
+
+# popup.rs — меню завершения работы
+"Esc — отмена" = "Esc — anuluj"
+"{user} · Esc — отмена" = "{user} · Esc — anuluj"

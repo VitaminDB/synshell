@@ -829,3 +829,7 @@
 "Подключено USB-устройство" = "USB aygıtı bağlandı"
 "Отключено USB-устройство" = "USB aygıtının bağlantısı kesildi"
 "ID {id} · шина {bus} · устройство {dev}" = "ID {id} · veri yolu {bus} · aygıt {dev}"
+
+# popup.rs — меню завершения работы
+"Esc — отмена" = "Esc — iptal"
+"{user} · Esc — отмена" = "{user} · Esc — iptal"

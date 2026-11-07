@@ -273,16 +273,44 @@ Text {
 .cal-time { font-size: 26px; font-weight: bold; }
 .cal-date { font-size: 13px; color: var(--muted); }
 
-.power-btn {
-    width: 62px;
+/* Завершение работы: по центру экрана над затемнённой оболочкой. */
+.power-scrim { width: 100%; height: 100%; background-color: #000000a6; }
+.popup-card.power-card { padding: 28px 30px 22px 30px; border-radius: 28px; box-shadow: 0 24px 64px #00000080; }
+.power-title { font-size: 22px; font-weight: bold; color: var(--fg); }
+.power-sub { font-size: 12px; color: var(--muted); }
+.power-tile {
+    width: 112px;
     padding: 10px 4px;
-    border-radius: var(--radius-sm);
-    background-color: var(--surface-alt);
-    transition: background-color 100ms ease-out;
+    border-radius: 20px;
+    background-color: #00000000;
+    transition: background-color 120ms ease-out;
 }
-.power-btn:hover { background-color: var(--accent-soft); }
-.power-icon { icon-size: 26px; icon-color: var(--fg); }
-.power-label { font-size: 11px; color: var(--muted); }
+.power-tile:hover { background-color: var(--hover); }
+.power-circle {
+    width: 68px;
+    height: 68px;
+    border-radius: 34px;
+    padding: 20px;
+    background-color: var(--surface-alt);
+    transition: background-color 120ms ease-out;
+}
+.power-tile:hover .power-circle { background-color: var(--accent-soft); }
+.power-accent { background-color: var(--accent-soft); }
+.power-danger { background-color: var(--danger); }
+.power-tile:hover .power-danger { background-color: var(--danger); }
+.power-icon { icon-size: 28px; icon-color: var(--fg); }
+.power-danger .power-icon { icon-color: #ffffff; }
+.power-label { font-size: 13px; color: var(--fg); }
+/* Телефон: широкие строки во всю ширину карточки. */
+.power-row { width: 100%; padding: 8px 10px; border-radius: 22px; background-color: var(--surface-alt); }
+.power-row .power-circle { width: 48px; height: 48px; border-radius: 24px; padding: 10px; background-color: var(--pressed); }
+.power-row .power-accent { background-color: var(--accent-soft); }
+.power-row .power-danger { background-color: var(--danger); }
+.power-row .power-label { font-size: 16px; }
+.power-link-btn { padding: 6px 14px; border-radius: 16px; background-color: #00000000; transition: background-color 120ms ease-out; }
+.power-link-btn:hover { background-color: var(--hover); }
+.power-link { font-size: 12px; color: var(--muted); }
+.power-link-icon { icon-size: 16px; icon-color: var(--muted); }
 
 .meter { height: 6px; }
 .meter-fill { height: 6px; border-radius: 3px; background-color: var(--accent); }

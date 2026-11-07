@@ -63,7 +63,8 @@ fn width_of(kind: &PopupKind, ctx: &ShellCtx) -> f32 {
         PopupKind::Volume => 320.0,
         PopupKind::Network | PopupKind::Battery => 300.0,
         PopupKind::WifiConnect { .. } => 380.0,
-        PopupKind::Power => 360.0,
+        // Меню завершения работы — по центру экрана: пять круглых кнопок в ряд.
+        PopupKind::Power => 680.0,
         PopupKind::Notifications => ctx.cfg().notifications.width as f32 + 20.0,
         PopupKind::WindowMenu(_) => 240.0,
         PopupKind::GlobalMenu { .. } => 300.0,
@@ -213,7 +214,23 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
     let output_name = p.anchor.output.clone();
     // Клик мимо окна закрывает его; по другому пункту строки глобального
     // меню — открывает его меню (как в строке меню программы).
-    let backdrop = InputArea::new(DecoratedBox::new().class("popup-backdrop")).on_press(|_, p, _| {
+    // Меню завершения работы затемняет всю оболочку (окна, панели) — плавно
+    // проявляющейся подложкой; остальные окна — прозрачной.
+    let power = matches!(p.kind, PopupKind::Power);
+    let backdrop_body: Box<dyn Widget> = if power {
+        let dur = crate::anim::ms(&ShellCtx::get(), 260);
+        Box::new(
+            syngui::widgets::Presence::signal(open, || Box::new(DecoratedBox::new().class("power-scrim")) as Box<dyn Widget>)
+                .enter(syngui::widgets::Motion::fade())
+                .exit(syngui::widgets::Motion::fade())
+                .duration_ms(dur)
+                .exit_duration_ms(dur * 3 / 5)
+                .initial(dur > 0),
+        )
+    } else {
+        Box::new(DecoratedBox::new().class("popup-backdrop"))
+    };
+    let backdrop = InputArea::new(backdrop_body).on_press(|_, p, _| {
         if !crate::applets::window::switch_menu_at(p) {
             ShellCtx::get().close_popup();
         }
@@ -224,7 +241,7 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
         // Открыто наведением: закрыть, если указатель так и не дошёл до окна.
         arm_leave(&leave_timer, 1400);
     }
-    let attached = p.anchor.attached && p.anchor.rect.is_some() && !fan;
+    let attached = p.anchor.attached && p.anchor.rect.is_some() && !fan && !matches!(p.kind, PopupKind::Power);
     let edge_class = match p.anchor.edge {
         Edge::Top => "popup-flow-top",
         Edge::Bottom => "popup-flow-bottom",
@@ -246,7 +263,7 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
     let ctx = ShellCtx::get();
     let kind = p.kind.clone();
     let (ow0, _) = out;
-    let is_sheet = ctx.is_phone() && !p.kind.is_context_menu() && !centered_on_phone(&p.kind);
+    let is_sheet = ctx.is_phone() && !p.kind.is_context_menu() && !centered_on_phone(&p.kind) && !power;
     // Телефон: окно по центру экрана (часы) — во всю ширину, как лист.
     let full = is_sheet || (ctx.is_phone() && centered_on_phone(&p.kind));
     // Телефон горизонтально: листы (кроме меню запуска) не во всю ширину — кнопки и
@@ -254,11 +271,24 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
     let wide = crate::manager::is_landscape(&ctx);
     let wide_cap = if wide && !matches!(p.kind, PopupKind::Launcher) { SHEET_WIDE_MAX } else { f32::MAX };
     // На узком экране карточка не шире вывода.
-    let width = if full { (ow0 - 2.0 * GAP).min(wide_cap) } else { width.min((ow0 - 2.0 * GAP).max(120.0)) };
-    let card_class = if is_sheet { "popup-card popup-sheet".to_string() } else { card_class };
+    let width = if full {
+        (ow0 - 2.0 * GAP).min(wide_cap)
+    } else if power && ctx.is_phone() {
+        // Телефон: столбец широких кнопок, как меню кнопки питания Android.
+        (ow0 - 6.0 * GAP).clamp(240.0, 420.0)
+    } else {
+        width.min((ow0 - 2.0 * GAP).max(120.0))
+    };
+    let card_class = if is_sheet {
+        "popup-card popup-sheet".to_string()
+    } else if power {
+        "popup-card power-card".to_string()
+    } else {
+        card_class
+    };
     let presence_edge = if is_sheet {
         Some(Edge::Bottom)
-    } else if full {
+    } else if full || power {
         None
     } else {
         p.anchor.rect.map(|_| p.anchor.edge)
@@ -270,7 +300,7 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
     // обрезает его по своим скруглениям), поверх — фон панели. Иначе
     // полупрозрачная панель над обоями и такая же карточка над тёмным окном
     // выглядят разного цвета и перетекания нет.
-    let glass = on_panel && !is_sheet;
+    let glass = on_panel && !is_sheet && !power;
     // Панель со своей непрозрачностью красится поверх темы — карточка тем же цветом.
     let panel_bg = glass.then_some(p.anchor.panel_opacity).flatten();
     let glass_out = p.anchor.output.clone().unwrap_or_default();
@@ -335,7 +365,7 @@ fn frame(p: &Popup, width: f32, out: (f32, f32), fan: bool, open: RwSignal<bool>
     // Телефон: окна (громкость, сеть, «Добавить»…) — нижним листом во всю
     // ширину; контекстные меню — у пальца.
     let sheet = is_sheet;
-    let rect = if ctx.is_phone() && centered_on_phone(&p.kind) { None } else { p.anchor.rect };
+    let rect = if (ctx.is_phone() && centered_on_phone(&p.kind)) || power { None } else { p.anchor.rect };
     let placed: Box<dyn Widget> = if sheet {
         Box::new(
             Column::new()
@@ -630,45 +660,90 @@ fn battery(ctx: ShellCtx) -> impl Widget {
     })
 }
 
+/// Завершение работы — по центру экрана над затемнённой оболочкой. Компьютер:
+/// круглые кнопки в ряд; телефон: столбец широких кнопок, как меню кнопки
+/// питания Android. «Выключить» — красным акцентом.
 fn power() -> impl Widget {
-    let big = |glyph: &'static str, label: &'static str, action: Action| {
-        InputArea::new(
-            DecoratedBox::new()
-                .child(
-                    Column::new()
-                        .gap(6.0)
-                        .cross_axis_alignment(CrossAxisAlignment::Center)
-                        .child(icon(glyph).class("power-icon"))
-                        .child(Text::new(syngui::i18n::t(label)).class("power-label")),
-                )
-                .class("power-btn"),
-        )
-        .pointer()
-        .on_click(move |b, _, _| {
-            if b == MouseButton::Left {
-                ShellCtx::get().close_popup();
-                crate::actions::run(action.clone());
-            }
-        })
+    let phone = ShellCtx::get().is_phone();
+    let item = move |glyph: &'static str, label: &'static str, action: Action, kind: &'static str| {
+        let body: Box<dyn Widget> = if phone {
+            Box::new(
+                Row::new()
+                    .gap(16.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(DecoratedBox::new().child(icon(glyph).class("power-icon")).class(&format!("power-circle {kind}")))
+                    .child(Text::new(syngui::i18n::t(label)).class("power-label")),
+            )
+        } else {
+            Box::new(
+                Column::new()
+                    .gap(10.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(DecoratedBox::new().child(icon(glyph).class("power-icon")).class(&format!("power-circle {kind}")))
+                    .child(Text::new(syngui::i18n::t(label)).max_lines(1).class("power-label")),
+            )
+        };
+        InputArea::new(DecoratedBox::new().child(body).class(if phone { "power-tile power-row" } else { "power-tile" }))
+            .pointer()
+            .on_click(move |b, _, _| {
+                if b == MouseButton::Left {
+                    ShellCtx::get().close_popup();
+                    crate::actions::run(action.clone());
+                }
+            })
     };
-    Column::new()
-        .gap(12.0)
-        .child(title(t!("Завершение работы")))
-        .child(
-            Row::new()
-                .gap(8.0)
-                .main_axis_alignment(MainAxisAlignment::SpaceBetween)
-                .child(big(mi::LOCK, n_!("Блокировать"), Action::Shell("lock".into())))
-                .child(big(mi::LOGOUT, n_!("Выйти"), Action::Quit))
-                .child(big(mi::SLEEP, n_!("Сон"), Action::Suspend))
-                .child(big(mi::RESTART, n_!("Перезагрузка"), Action::Reboot))
-                .child(big(mi::POWER, n_!("Выключить"), Action::PowerOff)),
-        )
-        .child(DecoratedBox::new().class("menu-sep"))
-        .child(menu_item(crate::input_mode::GAMEPAD, t!("Игровой режим"), || {
-            ShellCtx::get().close_popup();
-            crate::actions::run(Action::FormFactor(synshell_common::action::FormFactorTarget::Game));
-        }))
+    let items = [
+        (mi::LOCK, n_!("Блокировать"), Action::Shell("lock".into()), "power-normal"),
+        (mi::LOGOUT, n_!("Выйти"), Action::Quit, "power-normal"),
+        (mi::SLEEP, n_!("Сон"), Action::Suspend, "power-normal"),
+        (mi::RESTART, n_!("Перезагрузка"), Action::Reboot, "power-accent"),
+        (mi::POWER, n_!("Выключить"), Action::PowerOff, "power-danger"),
+    ];
+    let user = std::env::var("USER").unwrap_or_default();
+    let head = Column::new()
+        .gap(4.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(Text::new(t!("Завершение работы")).class("power-title"))
+        .child(Text::new(match (phone, user.is_empty()) {
+            (true, _) => user.clone(),
+            (false, true) => t!("Esc — отмена"),
+            (false, false) => t!("{user} · Esc — отмена", user = user),
+        }).class("power-sub"));
+    let mut col = Column::new().gap(if phone { 8.0 } else { 22.0 }).cross_axis_alignment(CrossAxisAlignment::Stretch).child(head);
+    if phone {
+        // Самое частое — внизу, под большим пальцем: «Выключить» первым сверху, как в Android.
+        for (g, l, a, k) in items.into_iter().rev() {
+            col = col.child(item(g, l, a, k));
+        }
+    } else {
+        let mut row = Row::new().gap(14.0).main_axis_alignment(MainAxisAlignment::Center);
+        for (g, l, a, k) in items {
+            row = row.child(item(g, l, a, k));
+        }
+        col = col.child(row).child(
+            Row::new().main_axis_alignment(MainAxisAlignment::Center).child(
+                InputArea::new(
+                    DecoratedBox::new()
+                        .child(
+                            Row::new()
+                                .gap(8.0)
+                                .cross_axis_alignment(CrossAxisAlignment::Center)
+                                .child(icon(crate::input_mode::GAMEPAD).class("power-link-icon"))
+                                .child(Text::new(t!("Игровой режим")).class("power-link")),
+                        )
+                        .class("power-link-btn"),
+                )
+                .pointer()
+                .on_click(|b, _, _| {
+                    if b == MouseButton::Left {
+                        ShellCtx::get().close_popup();
+                        crate::actions::run(Action::FormFactor(synshell_common::action::FormFactorTarget::Game));
+                    }
+                }),
+            ),
+        );
+    }
+    col
 }
 
 fn window_menu(ctx: ShellCtx, id: u64) -> impl Widget {
