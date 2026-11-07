@@ -7,6 +7,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+syn-keyboard.workspace = true
 synshell-common = { workspace = true, features = ["drives", "i18n", "thumbs"] }
 syngui-layer.workspace = true
 syn-system.workspace = true

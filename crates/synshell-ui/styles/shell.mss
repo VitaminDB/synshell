@@ -512,7 +512,8 @@ Text {
 .lock-pill-text { font-size: 13px; color: #ffffff; }
 .lock-text-box { padding: 12px 18px; border-radius: 16px; background-color: #00000055; width: 280px; }
 .lock-text-dots { font-size: 18px; color: #ffffff; letter-spacing: 4px; }
-.lock-osk { padding: 8px; border-radius: 18px; background-color: #000000a0; }
+/* Подсказка «Пароль» — без разрядки точек. */
+.lock-text-hint { font-size: 16px; color: #ffffffa0; }
 
 /* ─── «Пуск» в духе Windows 11 (style = "win11") ──────────────────────────── */
 

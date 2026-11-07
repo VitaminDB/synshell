@@ -8837,6 +8837,7 @@ dependencies = [
  "serde_json",
  "syn-assist",
  "syn-assist-voice",
+ "syn-keyboard",
  "syn-modem",
  "syn-notes-proto",
  "syn-system",

@@ -116,7 +116,52 @@ pub struct Keyboard {
     pub chosen: RwSignal<Option<bool>>,
     /// Ряд цифр над буквами (`[osk] number_row`; без него цифры — долгим нажатием верхнего ряда).
     pub number_row: RwSignal<bool>,
+    /// Встроенная клавиатура ([`embedded`]): номер получателя символов в [`SINKS`]; 0 — демон
+    /// (виртуальная клавиатура или захват по сокету).
+    sink: u64,
 }
+
+/// Что набрано на встроенной клавиатуре: текст (буква, знак, смайлик, вставка) или клавиша
+/// без символа — имя как у захвата: `backspace`, `enter`, `space`, `tab`, `escape`, стрелки…
+#[derive(Debug, Clone, PartialEq)]
+pub enum Typed {
+    Text(String),
+    Key(&'static str),
+}
+
+thread_local! {
+    /// Получатели символов встроенных клавиатур.
+    static SINKS: std::cell::RefCell<std::collections::HashMap<u64, std::rc::Rc<dyn Fn(Typed)>>> = std::cell::RefCell::new(Default::default());
+    static NEXT_SINK: Cell<u64> = const { Cell::new(1) };
+}
+
+/// Клавиатура внутри своего окна или поверхности (экран блокировки): те же ряды, слои, долгие
+/// нажатия и вид, что у демона, но без полосы Esc/Ctrl/стрелок и без виртуальной клавиатуры —
+/// набранное получает `on`. Рисовать: [`keys`] — сами клавиши, [`overlay`] — буква над пальцем и
+/// полоска вариантов (во весь экран поверх, в общей `Stack` поверхности), стиль — [`STYLE`].
+pub fn embedded(on: impl Fn(Typed) + 'static) -> Keyboard {
+    let id = NEXT_SINK.with(|n| {
+        let id = n.get();
+        n.set(id + 1);
+        id
+    });
+    SINKS.with(|m| m.borrow_mut().insert(id, std::rc::Rc::new(on)));
+    Keyboard { sink: id, ..Keyboard::new(OskPlacement::Docked, false) }
+}
+
+/// Клавиши встроенной клавиатуры ([`embedded`]).
+pub fn keys(kb: Keyboard) -> impl Widget {
+    keys_view(kb)
+}
+
+/// Буква над нажатой клавишей и полоска вариантов встроенной клавиатуры: слой во весь экран
+/// (координаты — поверхности).
+pub fn overlay(kb: Keyboard) -> impl Widget {
+    Stack::new().child(popup_view(kb)).child(alts_view(kb))
+}
+
+/// Встроенный стиль клавиатуры (переменные `--panel-bg`, `--fg`, `--accent`, `--surface` — из темы).
+pub const STYLE: &str = include_str!("../styles/keyboard.mss");
 
 thread_local! {
     /// Поверхность и её вид (плавающая?) — смена вида пересоздаёт поверхность (другой слой).
@@ -162,6 +207,13 @@ fn type_unicode(c: char) {
 }
 
 impl Keyboard {
+    /// Отдать набранное получателю встроенной клавиатуры.
+    fn emit(&self, t: Typed) {
+        if let Some(f) = SINKS.with(|m| m.borrow().get(&self.sink).cloned()) {
+            f(t);
+        }
+    }
+
     pub fn new(placement: OskPlacement, number_row: bool) -> Self {
         Self {
             visible: use_signal(false),
@@ -181,6 +233,7 @@ impl Keyboard {
             placement: use_signal(placement),
             chosen: use_signal(None),
             number_row: use_signal(number_row),
+            sink: 0,
         }
     }
 
@@ -343,6 +396,17 @@ impl Keyboard {
     /// Клавиша с клавиатуры: при захвате — программе по сокету (`text` — её символ, как подписан,
     /// иначе имя клавиши), без него — композитору.
     fn press(&self, code: u32, with_shift: bool, latin: bool, caps: bool, text: Option<&str>) {
+        if self.sink != 0 {
+            match text {
+                Some(t) if !t.is_empty() => self.emit(Typed::Text(t.to_string())),
+                _ => {
+                    if let Some(name) = layout::key_name(code) {
+                        self.emit(Typed::Key(name));
+                    }
+                }
+            }
+            return;
+        }
         if let Some(sock) = self.capture.get_untracked() {
             let line = match text {
                 Some(t) if !t.is_empty() => format!("text {t}"),
@@ -359,6 +423,10 @@ impl Keyboard {
 
     /// Символ вне раскладки (смайлик, `€`): при захвате — текстом, иначе временной клавишей keymap.
     fn press_char(&self, c: char) {
+        if self.sink != 0 {
+            self.emit(Typed::Text(c.to_string()));
+            return;
+        }
         if let Some(sock) = self.capture.get_untracked() {
             capture_send(&sock, format!("text {c}"));
             return;
@@ -369,6 +437,12 @@ impl Keyboard {
     /// Вставить из буфера обмена: Ctrl+V (в группе 0 — сочетания программы ждут латинскую V);
     /// при захвате — текст буфера программе.
     fn paste(&self) {
+        if self.sink != 0 {
+            if let Some(text) = syngui::clipboard::paste().filter(|t| !t.is_empty()) {
+                self.emit(Typed::Text(text.replace('\n', " ")));
+            }
+            return;
+        }
         if let Some(sock) = self.capture.get_untracked() {
             std::thread::spawn(move || {
                 if let Some(text) = syngui::clipboard::paste().filter(|t| !t.is_empty()) {
@@ -433,7 +507,9 @@ impl Keyboard {
             Action::Layout => {
                 let next = (self.lang.get_untracked() + 1) % LANGS.len();
                 self.lang.set(next);
-                syngui_layer::virtual_keyboard_group(LANGS[next].group);
+                if self.sink == 0 {
+                    syngui_layer::virtual_keyboard_group(LANGS[next].group);
+                }
             }
             Action::Fn => self.fn_rows.set(!self.fn_rows.get_untracked()),
             Action::Hide => self.hide(),
@@ -812,6 +888,10 @@ fn track_alts(kb: Keyboard, p: Point) {
 /// (ASCII — US-раскладкой в группе 0; ё/ъ — кодами текущей группы RU). Shift —
 /// строго по регистру варианта: глобальный Caps не превращает цифру в символ.
 fn press_alt(kb: Keyboard, s: &str) {
+    if kb.sink != 0 {
+        kb.emit(Typed::Text(s.to_string()));
+        return;
+    }
     if let Some(sock) = kb.capture.get_untracked() {
         capture_send(&sock, format!("text {s}"));
         return;
@@ -864,6 +944,10 @@ fn keys_view(kb: Keyboard) -> impl Widget {
                 main = main.child(row_widget(kb, row, shift, ctrl, alt, sup, floating, key_h));
             }
             let mut col = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+            if kb.sink != 0 {
+                // Встроенная — только основные ряды (полоса Esc/Ctrl/стрелок здесь ни к чему).
+                return vec![Box::new(col.child(main)) as Box<dyn Widget>];
+            }
             // Дополнительная полоса и (по ⌨) ещё ряды — своим блоком другого фона над основными.
             let mut extra = Column::new().gap(GAP as f32);
             if fn_rows {

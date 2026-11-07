@@ -78,6 +78,7 @@ syn-media = { path = "crates/syn-media" }
 syn-dlss = { path = "crates/syn-dlss" }
 syn-modem = { path = "crates/syn-modem" }
 synshell-ui = { path = "crates/synshell-ui" }
+syn-keyboard = { path = "crates/syn-keyboard" }
 syn-fsd = { path = "crates/syn-fsd", default-features = false }
 synaptixd = { path = "crates/synaptixd", default-features = false }
 synaptix-graph = { path = "crates/synaptix-graph" }

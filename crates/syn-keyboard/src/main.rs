@@ -19,8 +19,7 @@
 //! Управляющий сокет — `$XDG_RUNTIME_DIR/synkeyboard.sock` (или
 //! `$SYNKEYBOARD_SOCKET`).
 
-mod layout;
-mod ui;
+use syn_keyboard::ui;
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};

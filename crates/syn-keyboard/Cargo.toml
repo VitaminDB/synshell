@@ -6,6 +6,10 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[lib]
+name = "syn_keyboard"
+path = "src/lib.rs"
+
 [[bin]]
 name = "synkeyboard"
 path = "src/main.rs"

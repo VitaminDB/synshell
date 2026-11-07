@@ -42,6 +42,8 @@ pub fn build(cfg: &Config) -> String {
     ));
     out.push_str(&a.theme_mss_variables());
     out.push_str(BASE);
+    // Клавиатура экрана блокировки — та же, что демон synkeyboard (её вид).
+    out.push_str(syn_keyboard::STYLE);
     out.push_str(layer().0);
     if let Some(f) = CONFIG_MSS.get() {
         out.push_str(&f(cfg));

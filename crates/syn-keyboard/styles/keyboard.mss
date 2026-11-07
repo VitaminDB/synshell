@@ -1,7 +1,7 @@
 /* synkeyboard — встроенная тема. Переменные (--bg, --fg, --accent, …)
  * приходят из [appearance] config.toml; своё — в ~/.config/synshell/keyboard.mss */
 
-Text { color: var(--fg); font-size: 18px; }
+/* Без общих правил для Text: стиль встраивается и в оболочку (экран блокировки) — у каждой подписи свой класс. */
 
 .keyboard {
     flex-grow: 1;
@@ -18,7 +18,7 @@ Text { color: var(--fg); font-size: 18px; }
 .key:active { background-color: var(--accent); }
 .key-fill { flex-grow: 1; }
 .key-spacer { flex-grow: 1; background-color: #00000000; }
-.key-label { font-size: 19px; text-box-edge: text; }
+.key-label { font-size: 19px; color: var(--fg); text-box-edge: text; }
 
 .key-special { background-color: #ffffff10; }
 .key-special .key-label { font-size: 15px; text-box-edge: ink; }
@@ -42,7 +42,7 @@ Text { color: var(--fg); font-size: 18px; }
     border-color: #ffffff22;
     box-shadow: 0 4px 14px #00000070;
 }
-.key-pop-label { font-size: 30px; text-box-edge: text; }
+.key-pop-label { font-size: 30px; color: var(--fg); text-box-edge: text; }
 
 .key-icon { font-size: 20px; color: var(--fg); }
 
@@ -65,7 +65,7 @@ Text { color: var(--fg); font-size: 18px; }
 
 /* Полоска вариантов по долгому нажатию (цифры/символы, ё/ъ, знаки у точки). */
 .key-alt { border-radius: 11px; }
-.key-alt-label { font-size: 23px; text-box-edge: text; }
+.key-alt-label { font-size: 23px; color: var(--fg); text-box-edge: text; }
 .key-alt-sel { background-color: var(--accent); }
 
 /* Мелкая подпись над основной — что даст долгое нажатие (цифра над q…p, смайлик у запятой). */

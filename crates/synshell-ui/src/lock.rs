@@ -365,6 +365,7 @@ fn phone_view(ctx: ShellCtx, out: OutputInfo, initial: Stage) -> impl Widget {
     pin.set(String::new());
     let st = state();
     let dur = crate::anim::group_ms(&ctx, "home", 280);
+    let kb = password_keyboard(pin);
     // Раскладка — снаружи реактивных узлов: Reactive/AnimatedSwitcher отдают
     // детям свободные ограничения (натуральный размер, прижаты влево-вверх),
     // и `grow`/выравнивание внутри них не работают. Поэтому слои на весь
@@ -385,7 +386,7 @@ fn phone_view(ctx: ShellCtx, out: OutputInfo, initial: Stage) -> impl Widget {
                         (Stage::Cover, false) => Box::new(cover_bottom()),
                         (_, true) => Box::new(Column::new()),
                         (Stage::Pin, false) => Box::new(pin_pad(ctx)),
-                        (Stage::Text, false) => Box::new(text_entry()),
+                        (Stage::Text, false) => Box::new(text_entry(kb)),
                     }
                 })
                 .directional(true)
@@ -437,6 +438,8 @@ fn phone_view(ctx: ShellCtx, out: OutputInfo, initial: Stage) -> impl Widget {
         .child(crate::manager::wallpaper_view(out.name.clone(), use_signal(0u64), None))
         .child(DecoratedBox::new().class("lock-scrim"))
         .child(gestures)
+        // Буква над пальцем и варианты долгого нажатия клавиатуры пароля — во весь экран.
+        .child(syn_keyboard::overlay(kb))
         .child(crate::charge_anim::layer())
 }
 
@@ -609,35 +612,47 @@ fn pin_pad(ctx: ShellCtx) -> impl Widget {
         .class("lock-pin")
 }
 
-fn text_entry() -> impl Widget {
-    use syngui::widgets::input::on_screen_keyboard::{on_screen_keyboard, KeyboardLayout, KeyboardState};
+/// Клавиатура ввода пароля — та же, что у демона synkeyboard (и на экране входа): ряды, слои,
+/// долгие нажатия; набранное — в `pin`.
+fn password_keyboard(pin: RwSignal<String>) -> syn_keyboard::ui::Keyboard {
+    use syn_keyboard::Typed;
+    syn_keyboard::embedded(move |t| match t {
+        Typed::Text(s) => pin.update(|p| p.push_str(&s)),
+        Typed::Key("space") => pin.update(|p| p.push(' ')),
+        Typed::Key("backspace") => pin.update(|p| {
+            p.pop();
+        }),
+        Typed::Key("enter") => submit(pin.get_untracked()),
+        Typed::Key(_) => {}
+    })
+}
+
+fn text_entry(kb: syn_keyboard::ui::Keyboard) -> impl Widget {
     use syngui::GestureDetector;
     let (stage, pin) = phone_state();
     let st = state();
-    let kb_state = KeyboardState::new("");
     let dots = crate::ui::rx(move || {
         let n = pin.get().chars().count();
-        Box::new(Text::new(if n == 0 { t!("Пароль").to_string() } else { "•".repeat(n) }).class("lock-text-dots"))
+        Box::new(if n == 0 { Text::new(t!("Пароль")).class("lock-text-hint") } else { Text::new("•".repeat(n)).class("lock-text-dots") })
     });
     let error = crate::ui::rx(move || Box::new(Text::new(st.error.get()).class("lock-error")));
-    let kb = on_screen_keyboard(kb_state, KeyboardLayout::text_en_ru(&t!("Войти")))
-        .gap(5.0)
-        .stretch(44.0)
-        .on_change(move |t| pin.set(t.to_string()))
-        .on_submit(|t| submit(t.to_string()))
-        .build();
-    Column::new()
+    let column = Column::new()
         .gap(16.0)
         .main_axis_alignment(MainAxisAlignment::End)
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(Text::new(display_name()).class("lock-user"))
         .child(DecoratedBox::new().child(dots).class("lock-text-box"))
         .child(error)
-        .child(DecoratedBox::new().child(kb).class("lock-osk").style("width", (syngui::viewport::viewport_size().get_untracked().width - 48.0).clamp(280.0, 720.0)))
         .child(
-            GestureDetector::new()
-                .on_click(move || stage.set(Stage::Pin))
-                .child(DecoratedBox::new().child(Text::new("123").class("lock-pill-text")).class("lock-pill")),
+            Row::new()
+                .gap(8.0)
+                .child(
+                    GestureDetector::new()
+                        .on_click(move || stage.set(Stage::Pin))
+                        .child(DecoratedBox::new().child(Text::new("123").class("lock-pill-text")).class("lock-pill")),
+                ),
         )
-        .class("lock-pin")
+        .child(Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(syn_keyboard::keys(kb)).style("width", (syngui::viewport::viewport_size().get_untracked().width - 48.0).max(280.0)))
+        .class("lock-pin lock-pin-text");
+    column
 }
