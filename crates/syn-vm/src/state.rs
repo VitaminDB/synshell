@@ -685,6 +685,12 @@ pub fn attach(st: St, id: &str) {
         std::thread::spawn(move || crate::qmp::ensure_tablet(&v));
     }
     let s = Session::open(vm.vnc_path(), Duration::from_secs(15), on_frame.clone(), on_note);
+    // syn-gpu — основная видеокарта (`-vga none`): графической консоли нет, VNC клавиши не
+    // передаёт — клавиатура через QMP (мышь идёт планшетом и так доходит).
+    if vm.display == model::DisplayModel::SynGpu {
+        let p = vm.qmp_input_path();
+        s.set_qmp_keys(if p.exists() { p } else { vm.qmp_path() });
+    }
     if vm.syn_tools() {
         follow_guest_clip(&vm);
     }

@@ -158,14 +158,26 @@ pub fn start(id: &str, on_change: Arc<dyn Fn() + Send + Sync>, on_notice: Arc<dy
                 if path.exists() {
                     match UnixStream::connect(&path) {
                         Ok(s) => {
+                            // Разрыв (другой клиент вытеснил нас, сервер перезапускается) — последний
+                            // кадр остаётся: неподвижный экран (DOS, текстовый режим) нового кадра
+                            // не шлёт, и без него окно стояло с заглушкой «Ждём драйвер», а ввод
+                            // (он идёт через LiveView кадра) пропадал.
+                            let t0 = std::time::Instant::now();
                             if let Err(e) = run(&me, s, &on_change, true) {
                                 tracing::debug!("syn-gpu present: {e}");
                             }
-                            me.layers.lock().unwrap().clear();
-                            on_change();
+                            // Разорвали почти сразу — экран забрал другой клиент (второе окно,
+                            // --present-dump): не отбирать его обратно каждую секунду.
+                            if t0.elapsed() < Duration::from_secs(3) {
+                                std::thread::sleep(Duration::from_secs(5));
+                            }
                         }
                         Err(e) => tracing::debug!("syn-gpu present {}: {e}", path.display()),
                     }
+                } else if !me.layers.lock().unwrap().is_empty() {
+                    // Сервера syn-gpu больше нет (машина выключена) — кадры убрать.
+                    me.layers.lock().unwrap().clear();
+                    on_change();
                 }
                 std::thread::sleep(Duration::from_secs(1));
             }

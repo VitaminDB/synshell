@@ -76,6 +76,10 @@ pub struct Session {
     wheel: Mutex<(f32, f32)>,
     /// Последний размер, о котором просили гостя.
     want_size: Mutex<Option<(u32, u32)>>,
+    /// Клавиатура — через QMP (`input-send-event`), а не VNC: у машины без графической консоли
+    /// (основная видеокарта syn-gpu, `-vga none`) VNC клавиши гостю не передаёт. Путь сокета
+    /// QMP и открытое соединение.
+    qmp_keys: Mutex<Option<(PathBuf, Option<crate::qmp::Conn>)>>,
 }
 
 type NoteFn = Arc<dyn Fn(Note) + Send + Sync>;
@@ -91,6 +95,7 @@ impl Session {
             buttons: Mutex::new(0),
             wheel: Mutex::new((0.0, 0.0)),
             want_size: Mutex::new(None),
+            qmp_keys: Mutex::new(None),
         });
         let me = s.clone();
         std::thread::Builder::new()
@@ -220,8 +225,37 @@ impl Session {
         self.send(&m);
     }
 
+    /// Клавиши слать через QMP (сокет `qmp-input.sock` машины) — для машин без графической консоли.
+    pub fn set_qmp_keys(&self, sock: PathBuf) {
+        *self.qmp_keys.lock().unwrap() = Some((sock, None));
+    }
+
+    /// Клавиша по номеру QEMU через QMP; `false` — не настроено или не вышло (тогда VNC).
+    fn qmp_key(&self, qnum: u32, down: bool) -> bool {
+        let mut g = self.qmp_keys.lock().unwrap();
+        let Some((sock, conn)) = g.as_mut() else { return false };
+        if qnum == 0 {
+            return false;
+        }
+        let ev = serde_json::json!({"events": [{"type": "key", "data": {"down": down, "key": {"type": "number", "data": qnum}}}]});
+        for _ in 0..2 {
+            if conn.is_none() {
+                *conn = crate::qmp::Conn::open(sock, std::time::Duration::from_secs(3)).ok();
+            }
+            let Some(c) = conn.as_mut() else { return false };
+            if c.call("input-send-event", ev.clone()).is_ok() {
+                return true;
+            }
+            *conn = None; // соединение разорвалось — открыть заново
+        }
+        false
+    }
+
     /// Клавиша по номеру QEMU; `keysym` — для сервера без расширенных событий.
     pub fn key(&self, qnum: u32, keysym: u32, down: bool) {
+        if self.qmp_key(qnum, down) {
+            return;
+        }
         let ext = self.sh.lock().unwrap().ext_keys;
         if ext {
             let mut m = [0u8; 12];
