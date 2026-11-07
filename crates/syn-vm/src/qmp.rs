@@ -133,7 +133,18 @@ pub fn change_cdrom(vm: &Vm, iso: &str) -> Result<()> {
     if iso.is_empty() {
         call(vm, "eject", json!({ "id": "cdrom", "force": true })).map(|_| ())
     } else {
-        call(vm, "blockdev-change-medium", json!({ "id": "cdrom", "filename": iso, "format": "raw", "read-only-mode": "read-only" })).map(|_| ())
+        let change = || call(vm, "blockdev-change-medium", json!({ "id": "cdrom", "filename": iso, "format": "raw", "read-only-mode": "read-only" }));
+        match change() {
+            Ok(_) => Ok(()),
+            // Гость запер лоток (Linux держит его запертым, даже когда привод не смонтирован):
+            // у смены диска принудительного режима нет — сначала принудительно извлечь.
+            Err(e) if e.to_string().contains("is locked") => {
+                call(vm, "eject", json!({ "id": "cdrom", "force": true }))?;
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                change().map(|_| ())
+            }
+            Err(e) => Err(e),
+        }
     }
 }
 

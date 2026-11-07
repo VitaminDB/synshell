@@ -826,3 +826,4 @@
 "Драйвер видеокарты в Linux: образ в привод, установка через гостевой агент (DKMS — нужны gcc, make, dkms и заголовки ядра), Vulkan и OpenGL через Zink" = "Grafiktreiber in Linux: Abbild ins Laufwerk, Installation über den Gastagenten (DKMS — braucht gcc, make, dkms und Kernel-Header), Vulkan und OpenGL über Zink"
 "Не удалось смонтировать диск SYNGPU в госте:\n{tail}" = "Die SYNGPU-Disc ließ sich im Gast nicht einhängen:\n{tail}"
 "драйвер {v} не загружен" = "Treiber {v} nicht geladen"
+"Перезагрузите гостя: новый драйвер загрузится после перезагрузки" = "Starten Sie den Gast neu: Der neue Treiber wird nach dem Neustart geladen"

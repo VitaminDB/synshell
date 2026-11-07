@@ -826,3 +826,4 @@
 "Драйвер видеокарты в Linux: образ в привод, установка через гостевой агент (DKMS — нужны gcc, make, dkms и заголовки ядра), Vulkan и OpenGL через Zink" = "Linux’ta ekran kartı sürücüsü: kalıp sürücüye, konuk ajanı ile kurulum (DKMS — gcc, make, dkms ve çekirdek başlıkları gerekir), Vulkan ve Zink ile OpenGL"
 "Не удалось смонтировать диск SYNGPU в госте:\n{tail}" = "Konukta SYNGPU diski bağlanamadı:\n{tail}"
 "драйвер {v} не загружен" = "{v} sürücüsü yüklenmedi"
+"Перезагрузите гостя: новый драйвер загрузится после перезагрузки" = "Konuğu yeniden başlatın: yeni sürücü yeniden başlatmadan sonra yüklenir"

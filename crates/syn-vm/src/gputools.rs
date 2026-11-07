@@ -104,6 +104,8 @@ fn install_linux(vm: &Vm, step: &dyn Fn(String)) -> Result<String> {
     crate::qmp::change_cdrom(vm, &iso.to_string_lossy())?;
     step(t!("Ждём гостевой агент…"));
     crate::qga::wait(vm, Duration::from_secs(300))?;
+    // Модуль уже загружен — новый заменит его только после перезагрузки гостя.
+    let loaded = sh(vm, "[ -d /sys/module/syngpu ]", Duration::from_secs(30)).map(|r| r.0 == 0).unwrap_or(false);
     step(t!("Установка в госте…"));
     // Привод появляется не сразу; свой каталог монтирования — не мешать уже смонтированному.
     let script = r#"
@@ -121,7 +123,8 @@ cd "$m/linux" && sh ./install.sh; rc=$?; cd /; umount "$m"; rmdir "$m"; exit $rc
         91 => bail!("{}", t!("Не удалось смонтировать диск SYNGPU в госте:\n{tail}", tail = tail)),
         c => bail!("{}", t!("Установка не удалась (код {code}):\n{tail}", code = c, tail = tail)),
     }
-    Ok(status(vm).map(|s| s.summary()).unwrap_or_else(|_| t!("Установлено")))
+    let sum = status(vm).map(|s| s.summary()).unwrap_or_else(|_| t!("Установлено"));
+    Ok(if loaded { format!("{sum}\n{}", t!("Перезагрузите гостя: новый драйвер загрузится после перезагрузки")) } else { sum })
 }
 
 /// Состояние Linux-гостя: модуль syngpu (DKMS), Vulkan ICD и устройство Vulkan по умолчанию.
