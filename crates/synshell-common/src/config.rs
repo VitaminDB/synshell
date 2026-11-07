@@ -2650,6 +2650,41 @@ pub struct Gameshell {
     pub games: Vec<GameEntry>,
 }
 
+impl Gameshell {
+    /// Программа оболочки игрового режима: первое слово `shell` (без
+    /// `VAR=…`, `env`, `exec`); пусто — `syngame-shell`.
+    pub fn program(&self) -> String {
+        let shell = self.shell.trim();
+        let shell = if shell.is_empty() { "syngame-shell" } else { shell };
+        shell
+            .split_whitespace()
+            .find(|w| !matches!(*w, "env" | "exec") && !is_env_assignment(w))
+            .unwrap_or("syngame-shell")
+            .trim_matches(|c| c == '"' || c == '\'')
+            .to_string()
+    }
+
+    /// Установлена ли оболочка игрового режима (пакет «Игровой режим» —
+    /// необязательный): программа в `PATH` или по своему пути.
+    pub fn installed(&self) -> bool {
+        self.installed_in(&[])
+    }
+
+    /// То же, с дополнительными каталогами поиска (композитор ищет и рядом с собой).
+    pub fn installed_in(&self, extra: &[std::path::PathBuf]) -> bool {
+        let prog = self.program();
+        if prog.contains('/') {
+            return std::path::Path::new(&prog).is_file();
+        }
+        extra.iter().any(|d| d.join(&prog).is_file()) || crate::xdg::which(&prog)
+    }
+}
+
+/// `ИМЯ=значение` в начале команды `sh -c`.
+fn is_env_assignment(w: &str) -> bool {
+    w.split_once('=').is_some_and(|(k, _)| !k.is_empty() && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && !k.starts_with(|c: char| c.is_ascii_digit()))
+}
+
 impl Default for Gameshell {
     fn default() -> Self {
         Self {
@@ -3702,5 +3737,25 @@ mod platform_tests {
         assert_eq!(FormFactor::parse("gameshell"), Some(FormFactor::Game));
         c.platform.form_factor = "game".into();
         assert_eq!(c.form_factor_setting(), Some(FormFactor::Game));
+    }
+
+    #[test]
+    fn game_shell_program() {
+        let mut g = Gameshell::default();
+        assert_eq!(g.program(), "syngame-shell");
+        g.shell = "  ".into();
+        assert_eq!(g.program(), "syngame-shell");
+        g.shell = "RUST_LOG=debug FOO_1=x exec syngame-shell --x".into();
+        assert_eq!(g.program(), "syngame-shell");
+        g.shell = "env A=1 /opt/game/shell".into();
+        assert_eq!(g.program(), "/opt/game/shell");
+        assert!(!g.installed());
+        g.shell = "/bin/sh -c true".into();
+        assert!(g.installed());
+        g.shell = "no-such-game-shell-xyz".into();
+        assert!(!g.installed());
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("no-such-game-shell-xyz"), "").unwrap();
+        assert!(g.installed_in(&[dir.path().to_path_buf()]));
     }
 }

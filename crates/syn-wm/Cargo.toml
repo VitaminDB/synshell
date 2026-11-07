@@ -41,6 +41,8 @@ wayland-protocols-plasma = { version = "0.3", features = ["server"] }
 wayland-server = "0.31"
 wayland-backend = "0.3"
 wayland-scanner = "0.31"
+# Уведомления композитора (игровой режим не установлен, возврат из упавшей оболочки).
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
 
 [build-dependencies]
 # Аппаратный видеокодер V4L2 для потока кадров (src/v4l2enc.c).

@@ -7710,6 +7710,7 @@ dependencies = [
  "wayland-scanner",
  "wayland-server",
  "xcursor",
+ "zbus",
 ]
 
 [[package]]

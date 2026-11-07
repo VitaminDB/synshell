@@ -717,21 +717,26 @@ fn tiles(ctx: ShellCtx) -> impl Widget {
                     .option(TileOption::new(mi::LAYERS, t!("Новые окна"), move || set(false)).hint(t!("Каждый запуск открывает новое окно")).checked(!on))
                     .settings("launcher")
                     .build()
-            })
-            .child({
-                let game = || {
-                    close();
-                    crate::actions::run(Action::FormFactor(synshell_common::action::FormFactorTarget::Game));
-                };
+            });
+        // Пакет «Игровой режим» (syngame-shell) необязательный: без него плитки нет —
+        // композитор переключил бы в режим без оболочки.
+        if cfg.gameshell.installed() {
+            let game = || {
+                close();
+                crate::actions::run(Action::FormFactor(synshell_common::action::FormFactorTarget::Game));
+            };
+            grid = grid.child(
                 Tile::new(crate::input_mode::GAMEPAD, t!("Игровой режим"), t!("Лаунчер игр"), false, game)
                     .option(TileOption::new(crate::input_mode::GAMEPAD, t!("Открыть лаунчер игр"), game))
                     .settings("gameshell")
-                    .build()
-            })
+                    .build(),
+            );
+        }
+        grid = grid
             .child({
                 // Автоповорот: выключен — ориентация зафиксирована; без акселерометра — неактивен.
                 let sensor = crate::rotation::has_sensor();
-                let auto = cfg.rotation.auto && sensor;
+                let auto = crate::rotation::auto_on(&ctx) && sensor;
                 let (glyph, state) = match (sensor, auto) {
                     (false, _) => ("\u{E1C0}", t!("Нет датчика")),
                     (true, true) => ("\u{E1C1}", t!("Включён")),

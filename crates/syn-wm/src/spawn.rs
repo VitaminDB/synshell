@@ -232,6 +232,8 @@ impl State {
         self.core.shell.restarts.retain(|t| now.duration_since(*t) < Duration::from_secs(60));
         if self.core.shell.restarts.len() >= 5 {
             tracing::error!("оболочка падает слишком часто — не перезапускаю");
+            // Оболочка не основного режима (игровой и т. п.) — назад в прежний режим.
+            self.shell_crash_fallback();
             return;
         }
         self.core.shell.restarts.push(now);

@@ -17,6 +17,7 @@ use smithay::xwayland::xwm::WmWindowType;
 use synshell_common::action::FormFactorTarget;
 use synshell_common::config::FormFactor;
 use synshell_common::ipc::Event;
+use synshell_tr::t;
 
 use super::WindowId;
 use crate::state::State;
@@ -126,7 +127,45 @@ impl State {
     /// Действие `form-factor`.
     pub fn form_factor_action(&mut self, target: FormFactorTarget) {
         let ff = self.resolve_form_factor(target);
+        if ff == FormFactor::Game && self.core.form_factor != FormFactor::Game && !self.game_shell_installed() {
+            notify_game_missing();
+            return;
+        }
+        // Режим выбран пользователем — прежние падения оболочек не в счёт.
+        self.core.failed_form_factors.clear();
         self.set_form_factor(ff, true);
+    }
+
+    /// Установлена ли оболочка игрового режима (пакет «Игровой режим» —
+    /// необязательный). Ищется и рядом с композитором — так её запускает `start_shell`.
+    pub fn game_shell_installed(&self) -> bool {
+        game_shell_installed(&self.core.config.gameshell)
+    }
+
+    /// Оболочка режима упала слишком часто: вернуться в прежний режим
+    /// (из игрового — в телефон или рабочий стол), а не оставлять экран без
+    /// оболочки. Упала оболочка основного режима устройства — ничего не делаем
+    /// (возвращаться некуда); режим, где оболочка уже падала, второй раз не
+    /// выбирается — по кругу не ходим.
+    pub fn shell_crash_fallback(&mut self) {
+        // Своя «оболочка» на весь сеанс (экран входа) — от режима не зависит.
+        if std::env::var("SYNSHELL_SHELL").is_ok_and(|s| !s.trim().is_empty()) {
+            return;
+        }
+        let cur = self.core.form_factor;
+        if !self.core.failed_form_factors.contains(&cur) {
+            self.core.failed_form_factors.push(cur);
+        }
+        let Some(to) = fallback_form_factor(cur, self.core.prev_form_factor, self.core.device_form_factor, &self.core.failed_form_factors, self.game_shell_installed()) else {
+            return;
+        };
+        tracing::warn!(from = cur.as_str(), to = to.as_str(), "оболочка режима падает — возврат в прежний режим");
+        crate::notify::post(
+            t!("Оболочка падает слишком часто"),
+            t!("Режим «{from}» не работает — возврат в режим «{to}».", from = mode_label(cur), to = mode_label(to)),
+            "dialog-warning",
+        );
+        self.set_form_factor(to, true);
     }
 
     /// Сменить режим оболочки на лету. `remember` — записать в config.toml,
@@ -169,6 +208,11 @@ impl State {
                 }
             }
         }
+        // Поворот игрового режима не запоминался — вернуть тот, что был до него
+        // (выбранный вручную или последний вне игрового режима).
+        if prev == FormFactor::Game {
+            self.restore_rotation_after_game();
+        }
         // Раскладка столов — умолчание нового режима (телефон выставит свою).
         let layout = self.core.config.windows.default_layout;
         for i in 0..self.core.wm.count() {
@@ -203,6 +247,14 @@ impl State {
         self.core.queue_redraw_all();
     }
 
+    /// Выход из игрового режима: поворот экрана — как до него.
+    fn restore_rotation_after_game(&mut self) {
+        let Some(o) = crate::backend::rotation_target(&self.core) else { return };
+        let saved = self.core.saved_rotation.get(&o.name()).copied();
+        let r = crate::backend::startup_rotation(&self.core.config.rotation, saved);
+        self.rotate(r);
+    }
+
     /// Правка `[platform] form_factor` в конфиге — переключить на лету.
     pub fn form_factor_setting_changed(&mut self) {
         let setting = self.core.config.form_factor_setting();
@@ -211,6 +263,63 @@ impl State {
         }
         self.core.form_factor_setting = setting;
         let ff = setting.unwrap_or(self.core.device_form_factor);
+        if ff == FormFactor::Game && self.core.form_factor != FormFactor::Game && !self.game_shell_installed() {
+            notify_game_missing();
+            return;
+        }
+        self.core.failed_form_factors.clear();
         self.set_form_factor(ff, false);
+    }
+}
+
+/// Установлена ли оболочка игрового режима: в `PATH` или рядом с композитором.
+pub fn game_shell_installed(g: &synshell_common::config::Gameshell) -> bool {
+    let exe_dir: Vec<_> = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())).into_iter().collect();
+    g.installed_in(&exe_dir)
+}
+
+/// Уведомление «Игровой режим не установлен» (режим не меняется).
+pub fn notify_game_missing() {
+    tracing::warn!("игровой режим не установлен (нет оболочки syngame-shell) — режим не меняю");
+    crate::notify::post(t!("Игровой режим не установлен"), t!("Поставьте „Игровой режим“ в Программах."), "input-gaming");
+}
+
+fn mode_label(ff: FormFactor) -> String {
+    match ff {
+        FormFactor::Desktop => t!("рабочий стол"),
+        FormFactor::Phone => t!("телефон"),
+        FormFactor::Game => t!("игровой"),
+    }
+}
+
+/// Куда вернуться, когда оболочка режима `cur` упала слишком часто: в
+/// прежний режим, иначе в режим устройства; `None` — упал сам режим
+/// устройства или вернуться некуда (там оболочка тоже падала).
+fn fallback_form_factor(cur: FormFactor, prev: FormFactor, device: FormFactor, failed: &[FormFactor], game_installed: bool) -> Option<FormFactor> {
+    if cur == device {
+        return None;
+    }
+    [prev, device].into_iter().find(|&f| f != cur && !failed.contains(&f) && (f != FormFactor::Game || game_installed))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use FormFactor::*;
+
+    #[test]
+    fn fallback() {
+        // Игровой на телефоне упал — в телефон.
+        assert_eq!(fallback_form_factor(Game, Phone, Phone, &[Game], true), Some(Phone));
+        // Из рабочего стола в игровой на телефоне — назад в рабочий стол.
+        assert_eq!(fallback_form_factor(Game, Desktop, Phone, &[Game], true), Some(Desktop));
+        // Прежний режим тоже падал — в режим устройства.
+        assert_eq!(fallback_form_factor(Game, Desktop, Phone, &[Desktop, Game], true), Some(Phone));
+        // Упал основной режим устройства — как раньше, ничего.
+        assert_eq!(fallback_form_factor(Phone, Game, Phone, &[Phone], true), None);
+        // Рабочий стол на телефоне упал, телефон уже падал — без круга.
+        assert_eq!(fallback_form_factor(Desktop, Phone, Phone, &[Phone, Desktop], true), None);
+        // В игровой без установленной оболочки не возвращаемся.
+        assert_eq!(fallback_form_factor(Desktop, Game, Phone, &[Desktop], false), Some(Phone));
     }
 }

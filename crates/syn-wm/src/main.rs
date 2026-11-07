@@ -22,6 +22,7 @@ mod ink;
 mod input;
 mod ipc;
 mod libinput_config;
+mod notify;
 mod remote;
 mod render;
 mod rotate_anim;
@@ -286,7 +287,13 @@ fn run(args: &[String]) -> anyhow::Result<bool> {
         }
     };
     let device_ff = device_ff.unwrap_or_default();
-    let form_factor = requested.unwrap_or(device_ff);
+    let mut form_factor = requested.unwrap_or(device_ff);
+    // Запомненный игровой режим, а пакет «Игровой режим» удалён — режим устройства,
+    // иначе оболочки нет и экран пуст.
+    if form_factor == FormFactor::Game && !no_shell && std::env::var("SYNSHELL_SHELL").map_or(true, |s| s.trim().is_empty()) && !wm::game::game_shell_installed(&config.gameshell) {
+        wm::game::notify_game_missing();
+        form_factor = device_ff;
+    }
     config.apply_form_factor(form_factor);
     tracing::info!(form_factor = form_factor.as_str(), device = device_ff.as_str(), "форм-фактор");
     let seat_name = backend.seat_name();

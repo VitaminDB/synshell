@@ -60,3 +60,12 @@
 "непонятное разрешение «{wanted}»" = "resolución no reconocida «{wanted}»"
 "Xwayland без дисплея" = "Xwayland sin pantalla"
 "Xwayland не запущен" = "Xwayland no está en ejecución"
+
+# src/wm/game.rs
+"Игровой режим не установлен" = "El modo juego no está instalado"
+"Поставьте „Игровой режим“ в Программах." = "Instale «Modo juego» en Programas."
+"Оболочка падает слишком часто" = "El shell falla con demasiada frecuencia"
+"Режим «{from}» не работает — возврат в режим «{to}»." = "El modo «{from}» no funciona: se vuelve al modo «{to}»."
+"рабочий стол" = "escritorio"
+"телефон" = "teléfono"
+"игровой" = "juego"

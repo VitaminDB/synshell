@@ -73,14 +73,14 @@ pub fn start(ctx: ShellCtx) {
     // «повернуть» показывает только сам поворот телефона.
     crate::on_reload(|ctx, _| {
         send_threshold(ctx.cfg().rotation.threshold_deg);
-        if ctx.cfg().rotation.auto {
+        if auto_on(&ctx) {
             apply_policy(ctx);
         }
     });
     create_effect(move || screen_power(ctx.screen_on.get()));
     create_effect(move || {
         let _ = ctx.comp_outputs.get();
-        if ctx.cfg().rotation.auto {
+        if auto_on(&ctx) {
             apply_policy(ctx);
         }
     });
@@ -294,11 +294,29 @@ fn apply_policy(ctx: ShellCtx) {
     let cfg = ctx.cfg();
     if r == current(&ctx) {
         hide_suggestion();
-    } else if cfg.rotation.auto {
+    } else if auto_on(&ctx) {
         hide_suggestion();
         crate::actions::run(Action::Rotate(r));
     } else if cfg.rotation.suggest {
         show_suggestion(ctx, r);
+    }
+}
+
+/// Автоповорот, выбранный в игровом режиме (0 — как `[rotation] auto`, 1 — выключен,
+/// 2 — включён): действует до выхода из режима (оболочка режима перезапускается),
+/// пользовательский `[rotation]` при этом не меняется.
+static GAME_AUTO: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+fn in_game() -> bool {
+    ShellCtx::get().form_factor == synshell_common::config::FormFactor::Game
+}
+
+/// Автоповорот действует: `[rotation] auto` или выбор игрового режима.
+pub fn auto_on(ctx: &ShellCtx) -> bool {
+    match GAME_AUTO.load(std::sync::atomic::Ordering::SeqCst) {
+        1 => false,
+        2 => true,
+        _ => ctx.cfg().rotation.auto,
     }
 }
 
@@ -319,6 +337,12 @@ pub fn current_rotation(ctx: &ShellCtx) -> Rotation {
 pub fn rotate_manual(r: Rotation) {
     hide_suggestion();
     crate::actions::run(Action::Rotate(r));
+    // Игровой режим поворачивает только на время режима: пользовательский
+    // `[rotation]` не трогается, при выходе synwm вернёт прежний поворот.
+    if in_game() {
+        GAME_AUTO.store(1, std::sync::atomic::Ordering::SeqCst);
+        return;
+    }
     match synshell_common::config_edit::edit(|doc| set_orientation(doc, r)) {
         Ok(true) => crate::reload_after_write(),
         Ok(false) => {}
@@ -345,6 +369,14 @@ pub fn rotate_next(ctx: &ShellCtx) {
 
 /// Включить/выключить автоповорот (плитка шторки) и запомнить в конфиге.
 pub fn set_auto(on: bool) {
+    // Игровой режим — только на время режима, в конфиг не пишется.
+    if in_game() {
+        GAME_AUTO.store(if on { 2 } else { 1 }, std::sync::atomic::Ordering::SeqCst);
+        if on {
+            apply_policy(ShellCtx::get());
+        }
+        return;
+    }
     if let Err(e) = synshell_common::config_edit::set_value(&["rotation", "auto"], toml_edit::Value::from(on)) {
         log::error!("автоповорот: {e:#}");
     }

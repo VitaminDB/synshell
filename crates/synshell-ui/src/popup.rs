@@ -722,7 +722,13 @@ fn power() -> impl Widget {
         for (g, l, a, k) in items {
             row = row.child(item(g, l, a, k));
         }
-        col = col.child(row).child(
+        col = col.child(row);
+        // Пакет «Игровой режим» (syngame-shell) необязательный: без него ссылки нет —
+        // композитор переключил бы в режим без оболочки.
+        if !ShellCtx::get().config.get().gameshell.installed() {
+            return col;
+        }
+        col = col.child(
             Row::new().main_axis_alignment(MainAxisAlignment::Center).child(
                 InputArea::new(
                     DecoratedBox::new()

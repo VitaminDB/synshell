@@ -60,3 +60,12 @@
 "непонятное разрешение «{wanted}»" = "anlaşılmayan çözünürlük “{wanted}”"
 "Xwayland без дисплея" = "Xwayland’in ekranı yok"
 "Xwayland не запущен" = "Xwayland çalışmıyor"
+
+# src/wm/game.rs
+"Игровой режим не установлен" = "Oyun kipi kurulu değil"
+"Поставьте „Игровой режим“ в Программах." = "Uygulamalar'dan “Oyun kipi”ni kurun."
+"Оболочка падает слишком часто" = "Kabuk çok sık çöküyor"
+"Режим «{from}» не работает — возврат в режим «{to}»." = "“{from}” kipi çalışmıyor — “{to}” kipine dönülüyor."
+"рабочий стол" = "masaüstü"
+"телефон" = "telefon"
+"игровой" = "oyun"

@@ -777,7 +777,9 @@ impl State {
             }
         }
         // Запомнить для следующего старта (и экрана входа) — состояние, не конфиг.
-        if self.core.saved_rotation.get(&name) != Some(&r) {
+        // Поворот игрового режима — только на время режима: экран входа и
+        // следующий сеанс его не наследуют, при выходе возвращается прежний.
+        if self.core.form_factor != synshell_common::config::FormFactor::Game && self.core.saved_rotation.get(&name) != Some(&r) {
             match synshell_common::rotation_state::save(&name, r) {
                 Ok(path) => tracing::debug!(output = name, rotation = r.as_str(), path = %path.display(), "ориентация запомнена"),
                 Err(e) => tracing::warn!(output = name, ?e, "ориентация не запомнена"),

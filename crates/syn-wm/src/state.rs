@@ -159,6 +159,9 @@ pub struct Core {
     /// Последнее прочитанное `[platform] form_factor` — правка в конфиге
     /// переключает режим на лету.
     pub form_factor_setting: Option<synshell_common::config::FormFactor>,
+    /// Режимы, чья оболочка упала слишком часто (после смены режима
+    /// пользователем — заново): в них не возвращаемся, чтобы не ходить по кругу.
+    pub failed_form_factors: Vec<synshell_common::config::FormFactor>,
 
     // ── конфигурация ──
     pub config: Config,
@@ -431,6 +434,7 @@ impl Core {
             eink: false,
             prev_form_factor: form_factor,
             form_factor_setting: None,
+            failed_form_factors: Vec::new(),
             config_watcher: FileWatcher::new(crate::config::watched_files(&config)),
             config,
             config_error,
