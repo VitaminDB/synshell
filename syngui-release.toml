@@ -29,7 +29,7 @@ optdepends_en = [
 [packages.synshell-core]
 description = "synshell: композитор synwm, оболочка, экран входа, клавиатура, снимки и показ экрана, параметры, проводник, терминал, установка программ"
 description_en = "synshell: synwm compositor, shell, login screen, on-screen keyboard, screenshots and screen sharing, settings, file manager, terminal, software center"
-depends = ["mesa", "libinput", "seatd", "systemd-libs", "libxkbcommon", "libdrm", "vulkan-icd-loader", "fontconfig", "freetype2", "ttf-font", "dbus", "ffmpeg", "sqlite", "libarchive", "xdg-desktop-portal", "pipewire"]
+depends = ["mesa", "libinput", "seatd", "systemd-libs", "libxkbcommon", "libdrm", "vulkan-icd-loader", "fontconfig", "freetype2", "ttf-font", "breeze-icons", "breeze-cursors", "dbus", "ffmpeg", "sqlite", "libarchive", "xdg-desktop-portal", "pipewire"]
 bins = ["synwm", "syndesktop-shell", "synlogin", "synkeyboard", "syn-screencast", "synfsd"]
 apps = ["synsettings", "synpkg", "synfiles", "synshot", "syn-terminal"]
 provides = ["syndesktop"]
@@ -50,7 +50,6 @@ optdepends = [
   "ffmpegthumbnailer: миниатюры видео в проводнике",
   "libheif: HEIC/HEIF/AVIF в просмотрщике и миниатюрах",
   "imagemagick: редкие форматы картинок (JPEG XL, RAW…) в просмотрщике",
-  "breeze-icons: тема значков по умолчанию",
   "archlinux-appstream-data: категории, значки и снимки программ в synpkg",
   "polkit: установка программ (synpkg) без root",
   "base-devel: сборка пакетов AUR в synpkg",
@@ -81,7 +80,6 @@ optdepends_en = [
   "ffmpegthumbnailer: video thumbnails in the file manager",
   "libheif: HEIC/HEIF/AVIF in the image viewer and thumbnails",
   "imagemagick: rare image formats (JPEG XL, RAW…) in the image viewer",
-  "breeze-icons: default icon theme",
   "archlinux-appstream-data: categories, icons and screenshots in the software center",
   "polkit: installing software without root",
   "base-devel: building AUR packages in the software center",
