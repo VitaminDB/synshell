@@ -89,6 +89,8 @@ pub enum Msg {
     Hello { version: u32, agent: String, os: String, host: String, boot: String, instance: u64, user: Option<String> },
     /// Вошёл (или вышел) пользователь интерактивного сеанса.
     Session { user: Option<String> },
+    /// Адреса гостя (без петли и link-local): после `Hello` и при смене.
+    Net { ips: Vec<String> },
     Started { id: u64, pid: u32 },
     /// Вывод команды (данные кадра): `fd` 1 — stdout, 2 — stderr.
     Out { id: u64, fd: u8 },
@@ -106,7 +108,13 @@ pub enum Msg {
 
     // ── посредник → клиент ──
     /// Ответ на `Status`: агент на связи (последний `Hello`) и пользователь сеанса.
-    State { id: u64, hello: Option<Box<Msg>>, user: Option<String> },
+    State {
+        id: u64,
+        hello: Option<Box<Msg>>,
+        user: Option<String>,
+        #[serde(default)]
+        ips: Vec<String>,
+    },
 }
 
 impl Msg {
@@ -116,7 +124,7 @@ impl Msg {
         match self {
             Exec { id, .. } | Stdin { id } | Kill { id } | Put { id, .. } | PutEnd { id } | Mkdir { id, .. } | Get { id, .. } | List { id, .. } | Ping { id } | Status { id } | Update { id, .. } => Some(*id),
             Started { id, .. } | Out { id, .. } | Exit { id, .. } | Error { id, .. } | Done { id, .. } | Stat { id, .. } | Data { id } | End { id, .. } | Entries { id, .. } | Pong { id } | State { id, .. } => Some(*id),
-            Hi | Logs { .. } | SetTime { .. } | Clip { .. } | Mode { .. } | Share { .. } | Hello { .. } | Session { .. } | Log { .. } => None,
+            Hi | Logs { .. } | SetTime { .. } | Clip { .. } | Mode { .. } | Share { .. } | Hello { .. } | Session { .. } | Net { .. } | Log { .. } => None,
         }
     }
 

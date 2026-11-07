@@ -616,10 +616,15 @@ impl Vm {
         if self.share_dirs().is_empty() {
             return None;
         }
-        Some(match self.share_mode {
+        Some(self.share_kind())
+    }
+
+    /// Каким способом делиться папками (и без выбранных папок — для подсказки в настройках).
+    pub fn share_kind(&self) -> ShareMode {
+        match self.share_mode {
             ShareMode::Auto if self.syn_tools() => ShareMode::Smb,
             m => m.resolve(self.os),
-        })
+        }
     }
 
     /// Общие папки, что есть на диске: `shared_dir`, затем `shares` (без повторов).
@@ -670,6 +675,32 @@ impl Vm {
     /// Видеокарта syn-gpu подключена: «3D-ускорение» или syn-gpu — основная видеокарта.
     pub fn gpu_on(&self) -> bool {
         self.gpu3d || self.display == DisplayModel::SynGpu
+    }
+
+    /// Значение ключа сервера syn-gpu из `gpu3d_args` (`--gpu nvidia` → `Some("nvidia")`).
+    pub fn gpu_arg(&self, key: &str) -> Option<String> {
+        let t: Vec<&str> = self.gpu3d_args.split_whitespace().collect();
+        t.iter().position(|a| *a == key).and_then(|i| t.get(i + 1)).map(|v| v.to_string())
+    }
+
+    /// Поставить (`Some`) или убрать (`None`) ключ сервера syn-gpu; прочие ключи — как были.
+    pub fn set_gpu_arg(&mut self, key: &str, val: Option<&str>) {
+        let t: Vec<&str> = self.gpu3d_args.split_whitespace().collect();
+        let mut out: Vec<String> = Vec::new();
+        let mut i = 0;
+        while i < t.len() {
+            if t[i] == key {
+                i += 2;
+                continue;
+            }
+            out.push(t[i].to_string());
+            i += 1;
+        }
+        if let Some(v) = val {
+            out.push(key.to_string());
+            out.push(v.to_string());
+        }
+        self.gpu3d_args = out.join(" ");
     }
 
     pub fn dir(&self) -> PathBuf {
@@ -967,6 +998,17 @@ pub fn free_space() -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gpu_args() {
+        let mut v = Vm { gpu3d_args: "--heap-gib 4 --gpu nvidia --log x".into(), ..Default::default() };
+        assert_eq!(v.gpu_arg("--gpu").as_deref(), Some("nvidia"));
+        v.set_gpu_arg("--gpu", Some("intel"));
+        assert_eq!(v.gpu3d_args, "--heap-gib 4 --log x --gpu intel");
+        v.set_gpu_arg("--heap-gib", None);
+        assert_eq!(v.gpu3d_args, "--log x --gpu intel");
+        assert_eq!(v.gpu_arg("--heap-gib"), None);
+    }
 
     #[test]
     fn guess_os() {

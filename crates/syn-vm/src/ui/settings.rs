@@ -25,6 +25,8 @@ pub fn page(st: St, narrow: bool) -> W {
         col = col.child(live(st, move |st, vm| boot(st, vm)));
         col = col.child(network(st, &vm));
         col = col.child(live(st, move |st, vm| devices(st, vm)));
+        col = col.child(live(st, move |st, vm| gpu(st, vm)));
+        col = col.child(live(st, move |st, vm| shares(st, vm)));
         col = col.child(live(st, move |st, vm| guest(st, vm)));
         col = col.child(live(st, move |st, vm| usb(st, vm)));
         col = col.child(host_devices(st, &vm));
@@ -400,6 +402,44 @@ fn devices(st: St, vm: &Vm) -> W {
         }
     });
     let syn_display = vm.display == DisplayModel::SynGpu;
+    let audio = |sources: bool, cur: String| -> W {
+        let nodes = crate::devices::audio_nodes(sources);
+        let mut dd = Dropdown::new().width(260.0).item(DropdownItem::new(String::new(), t!("По умолчанию")));
+        for (n, d) in &nodes {
+            dd = dd.item(DropdownItem::new(n.clone(), if d.is_empty() { n.clone() } else { d.clone() }));
+        }
+        boxed(dd.selected(cur).on_change(move |s: &str| {
+            let s = s.to_string();
+            state::edit(st, |v| if sources { v.audio_in = s } else { v.audio_out = s });
+        }))
+    };
+    parts::section(
+        icons::DEVICES,
+        t!("Экран и устройства"),
+        vec![
+            row(
+                t!("Видеокарта"),
+                if syn_display {
+                    t!("Экран появится, когда в Windows загрузится драйвер syn-gpu; загрузка и установка Windows не видны — для установки выберите virtio-vga")
+                } else {
+                    t!("virtio-vga — быстрее и меняет разрешение под окно (Windows: драйвер VirtIO GPU из «Гостевых инструментов»); стандартный VGA — медленно")
+                },
+                display,
+            ),
+            row(t!("Разрешение под окно"), t!("Гость получает размер окна (нужен драйвер virtio-gpu или QXL)"), Toggle::with_state(vm.auto_resize).on_change(move |b| state::edit(st, |v| v.auto_resize = b))),
+            row(t!("Звук"), t!("Через PipeWire компьютера"), Toggle::with_state(vm.sound).on_change(move |b| state::edit(st, |v| v.sound = b))),
+            row(t!("Вывод звука"), t!("Динамики или наушники для гостя"), DecoratedBox::new().child(audio(false, vm.audio_out.clone()))),
+            row(t!("Микрофон"), t!("Что гость слышит как вход"), DecoratedBox::new().child(audio(true, vm.audio_in.clone()))),
+            row(
+                t!("Общий буфер обмена"),
+                if vm.syn_tools() { t!("Текст и картинки в обе стороны через агент syn-vm (пока пользователь вошёл)") } else { t!("Копирование между гостем и компьютером; в госте нужен spice-vdagent") },
+                Toggle::with_state(vm.clipboard).on_change(move |b| state::edit(st, |v| v.clipboard = b))),
+        ],
+    )
+}
+
+/// Общие папки: первая — shared_dir, остальные — shares; как гость их видит.
+fn shares(st: St, vm: &Vm) -> W {
     // Общие папки: первая — shared_dir, остальные — shares.
     let all_dirs: Vec<String> = std::iter::once(vm.shared_dir.clone()).chain(vm.shares.iter().cloned()).filter(|d| !d.is_empty()).collect();
     let shared_name = if all_dirs.is_empty() { t!("Не выбрана") } else { t!("Папок: {n}", n = all_dirs.len()) };
@@ -451,7 +491,7 @@ fn devices(st: St, vm: &Vm) -> W {
             )
         })
         .collect();
-    let mode = vm.share().unwrap_or(vm.share_mode.resolve(vm.os));
+    let mode = vm.share_kind();
     let share_hint = match mode {
         ShareMode::Virtiofs => t!("В Windows: драйвер virtio-fs и WinFsp с диска «Гостевые инструменты», служба VirtioFsSvc — диск Z:. В Linux: mount -t virtiofs hostshare /mnt. Снимки с памятью при virtiofs недоступны."),
         ShareMode::Smb if vm.syn_tools() => t!("SMB (нужен пакет samba на компьютере): агент syn-vm сам подключает папки дисками Z:, Y:, X:… при входе пользователя"),
@@ -459,31 +499,20 @@ fn devices(st: St, vm: &Vm) -> W {
         _ => t!("В госте: mount -t 9p -o trans=virtio hostshare /mnt (Windows 9p не умеет — выберите virtiofs или SMB)"),
     };
     let share_mode = dropdown(&ShareMode::ALL, vm.share_mode, ShareMode::title, |m| format!("{m:?}"), 160.0, move |m| state::edit(st, |v| v.share_mode = m));
-    let audio = |sources: bool, cur: String| -> W {
-        let nodes = crate::devices::audio_nodes(sources);
-        let mut dd = Dropdown::new().width(260.0).item(DropdownItem::new(String::new(), t!("По умолчанию")));
-        for (n, d) in &nodes {
-            dd = dd.item(DropdownItem::new(n.clone(), if d.is_empty() { n.clone() } else { d.clone() }));
-        }
-        boxed(dd.selected(cur).on_change(move |s: &str| {
-            let s = s.to_string();
-            state::edit(st, |v| if sources { v.audio_in = s } else { v.audio_out = s });
-        }))
-    };
     parts::section(
-        icons::DEVICES,
-        t!("Экран и устройства"),
+        icons::FOLDER,
+        t!("Общие папки"),
         vec![
-            row(
-                t!("Видеокарта"),
-                if syn_display {
-                    t!("Экран появится, когда в Windows загрузится драйвер syn-gpu; загрузка и установка Windows не видны — для установки выберите virtio-vga")
-                } else {
-                    t!("virtio-vga — быстрее и меняет разрешение под окно (Windows: драйвер VirtIO GPU из «Гостевых инструментов»); стандартный VGA — медленно")
-                },
-                display,
-            ),
-            row(t!("Разрешение под окно"), t!("Гость получает размер окна (нужен драйвер virtio-gpu или QXL)"), Toggle::with_state(vm.auto_resize).on_change(move |b| state::edit(st, |v| v.auto_resize = b))),
+            row_wide(t!("Папки компьютера"), shared_name, Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(share).children(share_rows)),
+            row(t!("Как гость видит папку"), share_hint, share_mode),
+        ],
+    )
+}
+
+/// Видеокарта syn-gpu: 3D-ускорение, видеокарта компьютера, видеопамять гостя, инструменты в госте.
+fn gpu(st: St, vm: &Vm) -> W {
+    let syn_display = vm.display == DisplayModel::SynGpu;
+    let mut rows: Vec<W> = vec![
             row(
                 t!("3D-ускорение (syn-gpu)"),
                 if crate::qemu::syn_gpu_bin().is_some() {
@@ -521,14 +550,36 @@ fn devices(st: St, vm: &Vm) -> W {
                     acts,
                 )
             },
-            row(t!("Звук"), t!("Через PipeWire компьютера"), Toggle::with_state(vm.sound).on_change(move |b| state::edit(st, |v| v.sound = b))),
-            row(t!("Вывод звука"), t!("Динамики или наушники для гостя"), DecoratedBox::new().child(audio(false, vm.audio_out.clone()))),
-            row(t!("Микрофон"), t!("Что гость слышит как вход"), DecoratedBox::new().child(audio(true, vm.audio_in.clone()))),
-            row(t!("Общий буфер обмена"), t!("Копирование между гостем и компьютером; в госте нужен spice-vdagent"), Toggle::with_state(vm.clipboard).on_change(move |b| state::edit(st, |v| v.clipboard = b))),
-            row_wide(t!("Общие папки"), shared_name, Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(share).children(share_rows)),
-            row(t!("Как гость видит папку"), share_hint, share_mode),
-        ],
-    )
+    ];
+    if vm.gpu_on() {
+        // Видеокарта компьютера: сервер syn-gpu выбирает по производителю (без ключа — NVIDIA, если есть).
+        let cur = vm.gpu_arg("--gpu").unwrap_or_default();
+        let mut dd = Dropdown::new().width(300.0).item(DropdownItem::new(String::new(), t!("Авто (NVIDIA, если есть)")));
+        let gpus = crate::devices::host_gpus();
+        for g in &gpus {
+            dd = dd.item(DropdownItem::new(g.key.clone(), g.name.clone()));
+        }
+        if !cur.is_empty() && !gpus.iter().any(|g| g.key == cur) {
+            dd = dd.item(DropdownItem::new(cur.clone(), cur.clone()));
+        }
+        let host = boxed(dd.selected(cur).on_change(move |k: &str| {
+            let k = k.to_string();
+            state::edit(st, |v| v.set_gpu_arg("--gpu", if k.is_empty() { None } else { Some(&k) }));
+        }));
+        rows.push(row(t!("Видеокарта компьютера"), t!("На ней считается 3D гостя; вступает при следующем запуске"), DecoratedBox::new().child(host)));
+        // Видеопамять гостя: куча сервера, степень двойки (по умолчанию 4 ГиБ).
+        let heap = vm.gpu_arg("--heap-gib").unwrap_or_else(|| "4".into());
+        let mut dd = Dropdown::new().width(160.0);
+        for n in ["1", "2", "4", "8", "16", "32"] {
+            dd = dd.item(DropdownItem::new(n.to_string(), t!("{n} ГиБ", n = n)));
+        }
+        let heap_w = boxed(dd.selected(heap).on_change(move |n: &str| {
+            let n = n.to_string();
+            state::edit(st, |v| v.set_gpu_arg("--heap-gib", if n == "4" { None } else { Some(&n) }));
+        }));
+        rows.push(row(t!("Видеопамять гостя"), t!("Сколько видеопамяти компьютера syn-gpu отдаёт гостю; вступает при следующем запуске"), DecoratedBox::new().child(heap_w)));
+    }
+    parts::section(icons::MONITOR, t!("Видеокарта syn-gpu"), rows)
 }
 
 /// USB-устройства компьютера: переключатель на каждый порт. Отданный порт пропадает у компьютера,
@@ -644,7 +695,9 @@ fn syn_tools_rows(st: St, vm: &Vm, mut rows: Vec<W>) -> W {
 /// Гостевой агент и «Гостевые инструменты» (virtio-win).
 fn guest(st: St, vm: &Vm) -> W {
     let win = vm.os.is_windows();
-    let agent_hint = if win {
+    let agent_hint = if win && vm.syn_tools() {
+        t!("Команды, файлы, буфер обмена и выключение без сети (syn-vm --exec, MCP). Свой агент syn-vm ставится с диска «Гостевые инструменты syn-vm»")
+    } else if win {
         t!("Команды, файлы и выключение без сети (syn-vm --exec, MCP). В Windows ставится с диска «Гостевые инструменты»: virtio-win-guest-tools.exe")
     } else {
         t!("Команды, файлы и выключение без сети (syn-vm --exec, MCP). В госте нужен пакет qemu-guest-agent")

@@ -809,3 +809,14 @@
 # src/usb.rs
 "Неверный порт USB: {p}" = "Nieprawidłowy port USB: {p}"
 "Доступ к USB не выдан (pkexec: {c})" = "Nie przyznano dostępu do USB (pkexec: {c})"
+
+# src/ui/settings.rs (видеокарта syn-gpu, общие папки)
+"Авто (NVIDIA, если есть)" = "Automatycznie (NVIDIA, jeśli jest)"
+"Видеокарта компьютера" = "Karta graficzna komputera"
+"Видеопамять гостя" = "Pamięć wideo gościa"
+"Команды, файлы, буфер обмена и выключение без сети (syn-vm --exec, MCP). Свой агент syn-vm ставится с диска «Гостевые инструменты syn-vm»" = "Polecenia, pliki, schowek i wyłączanie bez sieci (syn-vm --exec, MCP). Agent syn-vm instaluje się z dysku „Narzędzia gościa syn-vm”"
+"На ней считается 3D гостя; вступает при следующем запуске" = "Liczy grafikę 3D gościa; obowiązuje od następnego uruchomienia"
+"Папки компьютера" = "Foldery komputera"
+"Сколько видеопамяти компьютера syn-gpu отдаёт гостю; вступает при следующем запуске" = "Ile pamięci wideo komputera syn-gpu daje gościowi; obowiązuje od następnego uruchomienia"
+"Текст и картинки в обе стороны через агент syn-vm (пока пользователь вошёл)" = "Tekst i obrazy w obie strony przez agenta syn-vm (gdy użytkownik jest zalogowany)"
+"{n} ГиБ" = "{n} GiB"

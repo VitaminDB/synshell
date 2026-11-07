@@ -806,3 +806,14 @@
 # src/usb.rs
 "Неверный порт USB: {p}" = "Geçersiz USB portu: {p}"
 "Доступ к USB не выдан (pkexec: {c})" = "USB erişimi verilmedi (pkexec: {c})"
+
+# src/ui/settings.rs (видеокарта syn-gpu, общие папки)
+"Авто (NVIDIA, если есть)" = "Otomatik (varsa NVIDIA)"
+"Видеокарта компьютера" = "Bilgisayarın ekran kartı"
+"Видеопамять гостя" = "Konuk video belleği"
+"Команды, файлы, буфер обмена и выключение без сети (syn-vm --exec, MCP). Свой агент syn-vm ставится с диска «Гостевые инструменты syn-vm»" = "Ağ olmadan komutlar, dosyalar, pano ve kapatma (syn-vm --exec, MCP). syn-vm ajanı “syn-vm Konuk Araçları” diskinden kurulur"
+"На ней считается 3D гостя; вступает при следующем запуске" = "Konuğun 3B işlemesini yapar; bir sonraki başlatmada geçerli"
+"Папки компьютера" = "Bilgisayar klasörleri"
+"Сколько видеопамяти компьютера syn-gpu отдаёт гостю; вступает при следующем запуске" = "syn-gpu’nun konuğa verdiği bilgisayar video belleği miktarı; bir sonraki başlatmada geçerli"
+"Текст и картинки в обе стороны через агент syn-vm (пока пользователь вошёл)" = "syn-vm ajanı üzerinden iki yönlü metin ve resim (bir kullanıcı oturum açmışken)"
+"{n} ГиБ" = "{n} GiB"

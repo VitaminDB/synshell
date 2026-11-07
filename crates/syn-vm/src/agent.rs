@@ -85,6 +85,8 @@ struct Broker {
     guest: Option<Tx>,
     hello: Option<Msg>,
     user: Option<String>,
+    /// Адреса гостя (`Net`).
+    ips: Vec<String>,
     next: u64,
     /// Свой номер → (клиент, его номер).
     routes: HashMap<u64, (u64, u64)>,
@@ -278,6 +280,12 @@ fn guest_frame(vm: &Vm, st: &Arc<Mutex<Broker>>, tx: &Tx, f: Frame) {
                 *u = user.clone();
             }
         }
+        Msg::Net { ref ips } => {
+            if b.ips != *ips {
+                append_log(vm, &format!("[agent] адреса: {}", if ips.is_empty() { "—".to_string() } else { ips.join(", ") }));
+                b.ips = ips.clone();
+            }
+        }
         Msg::Clip { .. } => {
             for cid in b.clip_subs.clone() {
                 if let Some(c) = b.clients.get(&cid) {
@@ -312,7 +320,7 @@ fn serve_client(vm: &Vm, st: &Arc<Mutex<Broker>>, cid: u64, s: UnixStream) {
         let mut b = st.lock().unwrap();
         match f.msg {
             Msg::Status { id } => {
-                let reply = Frame::new(Msg::State { id, hello: b.hello.clone().map(Box::new), user: b.user.clone() });
+                let reply = Frame::new(Msg::State { id, hello: b.hello.clone().map(Box::new), user: b.user.clone(), ips: b.ips.clone() });
                 if let Some(c) = b.clients.get(&cid) {
                     let _ = write_frame(&mut *c.lock().unwrap(), &reply);
                 }
@@ -406,6 +414,7 @@ pub struct Info {
     pub os: String,
     pub host: String,
     pub user: Option<String>,
+    pub ips: Vec<String>,
 }
 
 pub struct Client {
@@ -482,9 +491,9 @@ impl Client {
         let id = self.id();
         self.send(Frame::new(Msg::Status { id }))?;
         let f = self.recv_for(id, Some(Duration::from_secs(5)))?;
-        let Msg::State { hello, user, .. } = f.msg else { bail!("status") };
+        let Msg::State { hello, user, ips, .. } = f.msg else { bail!("status") };
         Ok(hello.and_then(|h| match *h {
-            Msg::Hello { agent, os, host, instance, .. } => Some(Info { instance, agent, os, host, user: user.clone() }),
+            Msg::Hello { agent, os, host, instance, .. } => Some(Info { instance, agent, os, host, user: user.clone(), ips: ips.clone() }),
             _ => None,
         }))
     }
@@ -836,5 +845,5 @@ pub fn preferred(vm: &Vm) -> bool {
 /// Сведения о госте из приветствия агента.
 pub fn guest_info(vm: &Vm) -> Result<crate::qga::GuestInfo> {
     let i = Client::connect(vm)?.info()?.context("агент не на связи")?;
-    Ok(crate::qga::GuestInfo { os: i.os, hostname: i.host, ips: Vec::new(), agent_version: format!("syn-vm-agent {}", i.agent) })
+    Ok(crate::qga::GuestInfo { os: i.os, hostname: i.host, ips: i.ips, agent_version: format!("syn-vm-agent {}", i.agent) })
 }

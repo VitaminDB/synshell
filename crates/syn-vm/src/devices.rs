@@ -71,6 +71,44 @@ fn pci_info(addr: &str) -> Option<PciDev> {
     Some(PciDev { addr: addr.to_string(), class, vendor, device, driver, group, name })
 }
 
+/// Видеокарта компьютера для сервера syn-gpu: ключ `--gpu` (nvidia/intel/amd) и имя.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HostGpu {
+    pub key: String,
+    pub name: String,
+}
+
+/// Видеокарты компьютера (`/sys/class/drm/cardN`), по одной на производителя — syn-gpu
+/// выбирает по производителю.
+pub fn host_gpus() -> Vec<HostGpu> {
+    let mut out: Vec<HostGpu> = Vec::new();
+    let Ok(rd) = std::fs::read_dir("/sys/class/drm") else { return out };
+    let mut cards: Vec<_> = rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.strip_prefix("card").is_some_and(|r| !r.is_empty() && r.chars().all(|c| c.is_ascii_digit()))).collect();
+    cards.sort();
+    for c in cards {
+        let dev = std::path::Path::new("/sys/class/drm").join(&c).join("device");
+        let vendor = std::fs::read_to_string(dev.join("vendor")).unwrap_or_default();
+        let key = match vendor.trim() {
+            "0x10de" => "nvidia",
+            "0x8086" => "intel",
+            "0x1002" => "amd",
+            _ => continue,
+        };
+        if out.iter().any(|g| g.key == key) {
+            continue;
+        }
+        let addr = std::fs::canonicalize(&dev).ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned())).unwrap_or_default();
+        // «NVIDIA GB203M / GN22-X11 [GeForce RTX 5090 Max-Q / Mobile]» → «NVIDIA GeForce RTX 5090 Max-Q / Mobile».
+        let full = pci_name(&addr).unwrap_or_else(|| key.to_uppercase());
+        let name = match (full.find('['), full.rfind(']')) {
+            (Some(a), Some(b)) if b > a => format!("{} {}", full.split_whitespace().next().unwrap_or(""), &full[a + 1..b]),
+            _ => full,
+        };
+        out.push(HostGpu { key: key.into(), name });
+    }
+    out
+}
+
 /// Имя из `lspci` (база pci.ids), если он есть.
 fn pci_name(addr: &str) -> Option<String> {
     let o = std::process::Command::new("lspci").args(["-s", addr, "-mm"]).output().ok()?;

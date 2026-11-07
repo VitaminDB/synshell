@@ -108,6 +108,17 @@ fn main() {
                             let l = live.entry(vm.id.clone()).or_default();
                             l.power = state::Power::Running;
                             l.since = qemu::pid(&vm).and_then(state::process_start).unwrap_or(0);
+                            // Один замер процессора и памяти (поллер окна до снимка не успевает).
+                            if let Some(pid) = qemu::pid(&vm) {
+                                let a = qemu::proc_stat(pid).unwrap_or_default();
+                                std::thread::sleep(std::time::Duration::from_millis(500));
+                                let b = qemu::proc_stat(pid).unwrap_or_default();
+                                let cpu = (b.ticks.saturating_sub(a.ticks) as f64 / qemu::clk_tck() / 0.5 * 100.0 / vm.cpus.max(1) as f64).clamp(0.0, 100.0) as f32;
+                                l.cpu = cpu;
+                                l.rss = b.rss;
+                                l.cpu_hist = vec![cpu; 2];
+                                l.mem_hist = vec![b.rss as f32 / (vm.memory_mb.max(1) as f32 * 1048576.0) * 100.0; 2];
+                            }
                             st.live.set(live);
                         }
                     }

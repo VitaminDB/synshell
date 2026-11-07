@@ -454,6 +454,7 @@ pub fn run() {
     log(&format!("syn-vm-agent {} запущен", env!("CARGO_PKG_VERSION")));
     sys::start_logs();
     session_manager();
+    net_watch();
     // Пользователь сеанса вошёл или вышел — событие хосту.
     std::thread::spawn(|| {
         let mut last = sys::session_user();
@@ -487,6 +488,7 @@ pub fn run() {
         OPENS.store(0, Ordering::Relaxed);
         *link().lock().unwrap() = Some(w);
         send(hello());
+        *last_ips().lock().unwrap() = None; // адреса — новому каналу заново
         loop {
             match read_frame(&mut r) {
                 Ok(f) => handle(f),
@@ -499,6 +501,47 @@ pub fn run() {
         *link().lock().unwrap() = None;
         std::thread::sleep(Duration::from_millis(500));
     }
+}
+
+fn last_ips() -> &'static Mutex<Option<Vec<String>>> {
+    static L: OnceLock<Mutex<Option<Vec<String>>>> = OnceLock::new();
+    L.get_or_init(|| Mutex::new(None))
+}
+
+/// Адрес, с которого гость выходит наружу (UDP «connect» пакетов не шлёт): в сторону хоста
+/// NAT QEMU (10.0.2.2), иначе — в интернет; IPv6 — так же.
+fn own_ips() -> Vec<String> {
+    use std::net::{IpAddr, UdpSocket};
+    let probe = |bind: &str, to: &[&str]| -> Option<IpAddr> {
+        let s = UdpSocket::bind(bind).ok()?;
+        to.iter().find_map(|a| s.connect(a).ok().and_then(|_| s.local_addr().ok()).map(|l| l.ip()).filter(|ip| !ip.is_unspecified() && !ip.is_loopback()))
+    };
+    let mut v = Vec::new();
+    if let Some(ip) = probe("0.0.0.0:0", &["10.0.2.2:9", "1.1.1.1:9"]) {
+        v.push(ip.to_string());
+    }
+    if let Some(ip) = probe("[::]:0", &["[2606:4700:4700::1111]:9"]) {
+        if !ip.to_string().to_ascii_lowercase().starts_with("fe80") {
+            v.push(ip.to_string());
+        }
+    }
+    v
+}
+
+/// Слежение за адресами: раз в 3 с, хосту — при смене (и сразу после `Hello`).
+fn net_watch() {
+    std::thread::spawn(|| loop {
+        if link().lock().unwrap().is_some() {
+            let ips = own_ips();
+            let mut last = last_ips().lock().unwrap();
+            if last.as_ref() != Some(&ips) {
+                *last = Some(ips.clone());
+                drop(last);
+                send(Frame::new(Msg::Net { ips }));
+            }
+        }
+        std::thread::sleep(Duration::from_secs(3));
+    });
 }
 
 /// Канал по сети: TCP к хосту через guestfwd.
