@@ -2,7 +2,7 @@
 @name = "Қазақша"
 
 # src/main.rs
-"syn-systeminfo [СТРАНИЦА] [--list-pages] [--screenshot СНИМОК.png [--page СТРАНИЦА] [--size ШxВ] [--scale N]]" = "syn-systeminfo [БЕТ] [--list-pages] [--screenshot СУРЕТ.png [--page БЕТ] [--size ЕxБ] [--scale N]]"
+"syn-systeminfo [СТРАНИЦА] [--list-pages] [--screenshot СНИМОК.png [--page СТРАНИЦА] [--size ШxВ] [--scale N] [--history СЕКУНД]]" = "syn-systeminfo [БЕТ] [--list-pages] [--screenshot СУРЕТ.png [--page БЕТ] [--size ЕxБ] [--scale N] [--history N]]"
 "неизвестная страница «{p}» (--list-pages)" = "белгісіз бет «{p}» (--list-pages)"
 "Монитор ресурсов" = "Ресурстар мониторы"
 

@@ -5,7 +5,8 @@
 //!                                   (`ram`), `network`, `disk`, `sensors` (`temps`), `battery`,
 //!                                   `processes` (`apps`), `overview`
 //!   syn-systeminfo --list-pages
-//!   syn-systeminfo --screenshot out.png [--page id] [--size 420x860] [--scale 2]
+//!   syn-systeminfo --screenshot out.png [--page id] [--size 420x860] [--scale 2] [--history СЕКУНД]
+//!                                   (`--history` — сначала копить замеры столько секунд: графики не пустые)
 //!
 //! Окно одно: повторный запуск (тап по виджету рабочего стола) передаёт страницу уже
 //! открытому окну через сокет `$XDG_RUNTIME_DIR/syn-systeminfo.sock` и выходит.
@@ -31,11 +32,12 @@ fn main() {
     let mut shot: Option<String> = None;
     let mut size = (420u32, 860u32);
     let mut scale = 2.0f64;
+    let mut history = 0u32;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "-h" | "--help" => {
-                println!("{}", t!("syn-systeminfo [СТРАНИЦА] [--list-pages] [--screenshot СНИМОК.png [--page СТРАНИЦА] [--size ШxВ] [--scale N]]"));
+                println!("{}", t!("syn-systeminfo [СТРАНИЦА] [--list-pages] [--screenshot СНИМОК.png [--page СТРАНИЦА] [--size ШxВ] [--scale N] [--history СЕКУНД]]"));
                 return;
             }
             "--list-pages" => {
@@ -52,6 +54,7 @@ fn main() {
                 }
             }
             "--scale" => scale = args.next().and_then(|s| s.parse().ok()).unwrap_or(scale),
+            "--history" => history = args.next().and_then(|s| s.parse().ok()).unwrap_or(0),
             other if !other.starts_with('-') => match Page::parse(other) {
                 Some(p) => page = p,
                 None => eprintln!("{}", t!("неизвестная страница «{p}» (--list-pages)", p = other)),
@@ -62,7 +65,8 @@ fn main() {
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);
     if let Some(out) = shot {
-        let snap = sampler::once();
+        sampler::set_page(page);
+        let snap = if history > 0 { sampler::collect(history) } else { sampler::once() };
         let r = syngui::shot::render_png(
             move || {
                 let st = St::new(page);

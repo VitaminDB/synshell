@@ -2,7 +2,7 @@
 @name = "Italiano"
 
 # src/main.rs
-"syn-systeminfo [СТРАНИЦА] [--list-pages] [--screenshot СНИМОК.png [--page СТРАНИЦА] [--size ШxВ] [--scale N]]" = "syn-systeminfo [PAGINA] [--list-pages] [--screenshot SHOT.png [--page PAGINA] [--size LxA] [--scale N]]"
+"syn-systeminfo [СТРАНИЦА] [--list-pages] [--screenshot СНИМОК.png [--page СТРАНИЦА] [--size ШxВ] [--scale N] [--history СЕКУНД]]" = "syn-systeminfo [PAGINA] [--list-pages] [--screenshot SHOT.png [--page PAGINA] [--size LxA] [--scale N] [--history N]]"
 "неизвестная страница «{p}» (--list-pages)" = "pagina sconosciuta «{p}» (--list-pages)"
 "Монитор ресурсов" = "Monitor risorse"
 

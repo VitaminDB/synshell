@@ -74,8 +74,12 @@ pub fn screenshot(out: &str, page: &str, size: (u32, u32), scale: f64) -> anyhow
 
     let logical = Size::new(lw as f32, lh as f32);
     let mut list = DisplayList::new();
-    // Несколько кадров: эффекты, пересборки, загрузка картинок.
-    for frame in 0..20 {
+    // Несколько кадров: эффекты, пересборки, загрузка картинок и миниатюр.
+    // Готово — когда загрузки нет два кадра подряд: готовая миниатюра
+    // приходит через очередь главного потока и запускает загрузку картинки
+    // только в следующем кадре.
+    let mut idle = 0;
+    for frame in 0..60 {
         // Фоновые декодеры картинок отдают результат через poll_bg —
         // в приложении его зовёт рендер каждого кадра.
         if let Some(store) = tree.image_store.as_ref() {
@@ -108,8 +112,11 @@ pub fn screenshot(out: &str, page: &str, size: (u32, u32), scale: f64) -> anyhow
                 .image_store
                 .as_ref()
                 .map(|s| s.lock().unwrap_or_else(|e| e.into_inner()).has_loading())
-                .unwrap_or(false);
-            if !loading {
+                .unwrap_or(false)
+                // Миниатюры галереи обоев делаются в фоновых потоках.
+                || synshell_common::thumbs::pending() > 0;
+            idle = if loading { 0 } else { idle + 1 };
+            if idle >= 2 {
                 break;
             }
         }
@@ -128,9 +135,8 @@ pub fn screenshot(out: &str, page: &str, size: (u32, u32), scale: f64) -> anyhow
         view_formats: &[],
     });
     let view = tex.create_view(&Default::default());
-    // Первый проход грузит картинки в GPU-кэш, второй рисует их.
-    renderer.render_to_view(&gpu, &view, (pw, ph), &list, bg);
-    renderer.render_to_view(&gpu, &view, (pw, ph), &list, bg);
+    // Картинки грузятся в GPU по бюджету на кадр — проходов столько, сколько нужно.
+    syngui::shot::render_all(&mut renderer, &gpu, &view, (pw, ph), &list, bg);
 
     let row = (pw * 4).div_ceil(256) * 256;
     let buf = gpu.device.create_buffer(&wgpu::BufferDescriptor {

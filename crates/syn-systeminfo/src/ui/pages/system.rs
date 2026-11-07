@@ -348,7 +348,7 @@ pub fn battery(cx: &Cx, s: &Snap) -> Vec<W> {
         t!("заряд и мощность (шкала {m} Вт)", m = format!("{pmax:.0}")),
         vec![Line::new(s.hist.battery.tail(cx.span), color), Line::new(s.hist.power.tail(cx.span).into_iter().map(|p| p / pmax * 100.0).collect(), pw_c).no_fill()],
         100.0,
-        vec![parts::legend(color, t!("Заряд"), format!("{}%", b.percent)), parts::legend(pw_c, t!("Мощность"), b.power_w.map(|p| format!("{p:.1} Вт")).unwrap_or_else(|| "—".into()))],
+        vec![parts::legend(color, t!("Заряд"), format!("{}%", b.percent)), parts::legend(pw_c, t!("Мощность"), b.power_w.map(|p| t!("{p} Вт", p = format!("{p:.1}"))).unwrap_or_else(|| "—".into()))],
     ));
     for bi in &s.batteries {
         let mut tiles = vec![parts::tile(t!("Состояние"), status_text(&bi.status), bi.health.clone())];

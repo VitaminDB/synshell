@@ -2,7 +2,7 @@
 @name = "한국어"
 
 # src/main.rs
-"syn-systeminfo [СТРАНИЦА] [--list-pages] [--screenshot СНИМОК.png [--page СТРАНИЦА] [--size ШxВ] [--scale N]]" = "syn-systeminfo [페이지] [--list-pages] [--screenshot 스크린샷.png [--page 페이지] [--size 가로x세로] [--scale N]]"
+"syn-systeminfo [СТРАНИЦА] [--list-pages] [--screenshot СНИМОК.png [--page СТРАНИЦА] [--size ШxВ] [--scale N] [--history СЕКУНД]]" = "syn-systeminfo [페이지] [--list-pages] [--screenshot 스크린샷.png [--page 페이지] [--size 가로x세로] [--scale N] [--history N]]"
 "неизвестная страница «{p}» (--list-pages)" = "알 수 없는 페이지 “{p}” (--list-pages)"
 "Монитор ресурсов" = "리소스 모니터"
 

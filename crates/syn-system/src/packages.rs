@@ -525,11 +525,30 @@ pub struct AppStreamComponent {
 }
 
 /// Разбор XML AppStream: компоненты `desktop-application`/`console-application`
-/// с `<pkgname>`. Название, описание и сводка — `xml:lang="ru"`, иначе без языка.
+/// с `<pkgname>`. Название, описание и сводка — на языке интерфейса
+/// (`xml:lang`, [`synshell_tr::language`]), иначе без языка (английские).
 /// Свой маленький разборщик тегов: формат плоский, вложенные `<name>`
 /// (`<developer>`) отсекаются по глубине, разметка внутри абзацев (`<em>`,
 /// `<code>`) — просто текст абзаца.
 pub fn parse_appstream(xml: &str) -> Vec<AppStreamComponent> {
+    parse_appstream_lang(xml, &synshell_tr::language())
+}
+
+/// Теги `xml:lang`, подходящие языку интерфейса: `pt-BR`/`pt_BR.UTF-8` →
+/// `pt_BR` и `pt`. Английский — без перевода (строки без языка).
+fn appstream_langs(ui: &str) -> Vec<String> {
+    let full = ui.split(['.', '@']).next().unwrap_or("").replace('-', "_");
+    let primary = full.split('_').next().unwrap_or("").to_string();
+    if primary.is_empty() || primary == "en" || primary == "C" || primary == "POSIX" {
+        return Vec::new();
+    }
+    if full == primary { vec![primary] } else { vec![full, primary] }
+}
+
+/// [`parse_appstream`] с явным языком интерфейса (`ru`, `de`, `pt-BR`…).
+pub fn parse_appstream_lang(xml: &str, ui_lang: &str) -> Vec<AppStreamComponent> {
+    let langs = appstream_langs(ui_lang);
+    let is_ui = |l: &str| langs.iter().any(|x| x == l);
     #[derive(Default)]
     struct Cur {
         c: AppStreamComponent,
@@ -537,7 +556,7 @@ pub fn parse_appstream(xml: &str) -> Vec<AppStreamComponent> {
         name_ru: Option<String>,
         summary_ru: Option<String>,
         desc_ru: Vec<String>,
-        /// Язык открытого `<description>`: `Some(None)` — без языка, `Some(Some("ru"))`, иначе пропуск.
+        /// Язык открытого `<description>`: `Some(None)` — без языка, `Some(Some(язык интерфейса))`, иначе пропуск.
         desc_lang: Option<Option<String>>,
         /// Открытый `<screenshot>` — основной (`type="default"`).
         shot_default: bool,
@@ -594,14 +613,14 @@ pub fn parse_appstream(xml: &str) -> Vec<AppStreamComponent> {
                     ("id", _) => c.c.id = v,
                     ("pkgname", None) => c.c.pkgname = v,
                     ("name", None) => c.c.name = v,
-                    ("name", Some("ru")) => c.name_ru = Some(v),
+                    ("name", Some(l)) if is_ui(l) && c.name_ru.is_none() => c.name_ru = Some(v),
                     ("summary", None) => c.c.summary = v,
-                    ("summary", Some("ru")) => c.summary_ru = Some(v),
+                    ("summary", Some(l)) if is_ui(l) && c.summary_ru.is_none() => c.summary_ru = Some(v),
                     ("p" | "li", _) if !v.is_empty() => {
                         let v = if t == "li" { format!("• {v}") } else { v };
                         match c.desc_lang.as_ref() {
                             Some(None) => c.c.description.push(v),
-                            Some(Some(l)) if l == "ru" => c.desc_ru.push(v),
+                            Some(Some(l)) if !l.is_empty() => c.desc_ru.push(v),
                             _ => {}
                         }
                     }
@@ -649,7 +668,8 @@ pub fn parse_appstream(xml: &str) -> Vec<AppStreamComponent> {
             ("description", 1) => {
                 c.desc_lang = match xml_attr(attrs, "xml:lang") {
                     None => Some(None),
-                    Some(l) if l == "ru" => Some(Some(l)),
+                    // Первое описание на языке интерфейса; второе (pt и pt_BR) — пропуск.
+                    Some(l) if is_ui(&l) && c.desc_ru.is_empty() => Some(Some(l)),
                     Some(_) => Some(Some(String::new())),
                 };
             }
@@ -1229,7 +1249,7 @@ mod tests {
   <pkgname>ttf-x</pkgname>
 </component>
 </components>"#;
-        let v = parse_appstream(xml);
+        let v = parse_appstream_lang(xml, "ru_RU.UTF-8");
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].pkgname, "plan9port");
         assert_eq!(v[0].name, "Акме");
@@ -1240,6 +1260,12 @@ mod tests {
         assert_eq!(v[0].description, vec!["Acme is an editor.", "• Fast"]);
         assert_eq!(v[0].screenshots, vec!["https://x/1.png", "https://x/2.png"]);
         assert_eq!(v[0].cached_icons, vec![(64, "p.jxl".to_string())]);
+        // Английский интерфейс — строки без языка; немецкий — своё описание.
+        let en = parse_appstream_lang(xml, "en");
+        assert_eq!(en[0].name, "Acme");
+        let de = parse_appstream_lang(xml, "de-DE");
+        assert_eq!(de[0].name, "Acme");
+        assert_eq!(de[0].description, vec!["Editor"]);
     }
 
     #[test]

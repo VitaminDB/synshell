@@ -2,7 +2,7 @@
 @name = "简体中文"
 
 # src/main.rs
-"syn-systeminfo [СТРАНИЦА] [--list-pages] [--screenshot СНИМОК.png [--page СТРАНИЦА] [--size ШxВ] [--scale N]]" = "syn-systeminfo [页面] [--list-pages] [--screenshot 截图.png [--page 页面] [--size 宽x高] [--scale N]]"
+"syn-systeminfo [СТРАНИЦА] [--list-pages] [--screenshot СНИМОК.png [--page СТРАНИЦА] [--size ШxВ] [--scale N] [--history СЕКУНД]]" = "syn-systeminfo [页面] [--list-pages] [--screenshot 截图.png [--page 页面] [--size 宽x高] [--scale N] [--history N]]"
 "неизвестная страница «{p}» (--list-pages)" = "未知页面“{p}”（--list-pages）"
 "Монитор ресурсов" = "资源监视器"
 

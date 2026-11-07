@@ -2,7 +2,7 @@
 @name = "Français"
 
 # src/main.rs
-"syn-systeminfo [СТРАНИЦА] [--list-pages] [--screenshot СНИМОК.png [--page СТРАНИЦА] [--size ШxВ] [--scale N]]" = "syn-systeminfo [PAGE] [--list-pages] [--screenshot CAPTURE.png [--page PAGE] [--size LxH] [--scale N]]"
+"syn-systeminfo [СТРАНИЦА] [--list-pages] [--screenshot СНИМОК.png [--page СТРАНИЦА] [--size ШxВ] [--scale N] [--history СЕКУНД]]" = "syn-systeminfo [PAGE] [--list-pages] [--screenshot CAPTURE.png [--page PAGE] [--size LxH] [--scale N] [--history N]]"
 "неизвестная страница «{p}» (--list-pages)" = "page inconnue « {p} » (--list-pages)"
 "Монитор ресурсов" = "Moniteur de ressources"
 

@@ -5,7 +5,9 @@
 //! графического сеанса. Действие очереди: install, aur, remove, upgrade,
 //! upgrade-aur; `--meta` — раздел «Метапакеты и группы» обзора или фильтр
 //! «Метапакеты» установленных, `--groups` — группы этого раздела;
-//! `SYNPKG_SHOT_MENU=имя` — открыть меню пакета (как правым щелчком).
+//! `SYNPKG_SHOT_MENU=имя` — открыть меню пакета (как правым щелчком);
+//! `--select имя` — подробности пакета (снимок ждёт сведения, описание и
+//! снимки экрана программы, до 20 с).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -43,6 +45,8 @@ pub fn screenshot(out: &str) -> anyhow::Result<()> {
     }
     st.installed.set(pk::installed());
     crate::set_catalog(st, pk::catalog());
+    // Значки каталога (JPEG XL → PNG) — как в окне, иначе на карточках заглушки.
+    crate::media::convert_catalog_icons();
     st.metas.set(Some(pk::metapackages()));
     st.groups.set(pk::groups());
     if matches!(tab, Tab::Updates | Tab::Jobs) {
@@ -76,6 +80,18 @@ pub fn screenshot(out: &str) -> anyhow::Result<()> {
             cancel: pk::JobCancel::default(),
             cancelling: false,
         }]);
+    }
+    let select = arg_value("--select");
+    if let Some(name) = &select {
+        let p = st
+            .catalog
+            .get_untracked()
+            .and_then(|c| c.into_iter().find(|a| &a.pkg.name == name).map(|a| a.pkg))
+            .or_else(|| st.installed.get_untracked().into_iter().find(|p| &p.name == name));
+        match p {
+            Some(p) => crate::select(st, p),
+            None => anyhow::bail!("--select {name}: нет такого пакета в каталоге и среди установленных"),
+        }
     }
     if let Some(g) = arg_value("--groups") {
         st.category.set(Some(crate::META_KEY));
@@ -129,8 +145,9 @@ pub fn screenshot(out: &str) -> anyhow::Result<()> {
     let logical = Size::new(lw as f32, lh as f32);
     let mut list = DisplayList::new();
     let menu = std::env::var("SYNPKG_SHOT_MENU").ok();
-    // Несколько кадров: эффекты, пересборки, загрузка картинок.
-    for frame in 0..20 {
+    // Несколько кадров: эффекты, пересборки, загрузка картинок (и подробностей пакета).
+    let frames = if select.is_some() { 170 } else { 20 };
+    for frame in 0..frames {
         if let Some(store) = tree.image_store.as_ref() {
             store.lock().unwrap_or_else(|e| e.into_inner()).poll_bg();
         }
@@ -179,7 +196,8 @@ pub fn screenshot(out: &str) -> anyhow::Result<()> {
                 .image_store
                 .as_ref()
                 .map(|s| s.lock().unwrap_or_else(|e| e.into_inner()).has_loading())
-                .unwrap_or(false);
+                .unwrap_or(false)
+                || (select.is_some() && (st.details.get_untracked().is_none() || st.media.get_untracked().is_none_or(|m| m.loading)));
             if !loading {
                 break;
             }
@@ -199,9 +217,8 @@ pub fn screenshot(out: &str) -> anyhow::Result<()> {
         view_formats: &[],
     });
     let view = tex.create_view(&Default::default());
-    // Первый проход грузит картинки в GPU-кэш, второй рисует их.
-    renderer.render_to_view(&gpu, &view, (pw, ph), &list, bg);
-    renderer.render_to_view(&gpu, &view, (pw, ph), &list, bg);
+    // Картинки грузятся в GPU по бюджету на кадр — проходов столько, сколько нужно.
+    syngui::shot::render_all(&mut renderer, &gpu, &view, (pw, ph), &list, bg);
 
     let row = (pw * 4).div_ceil(256) * 256;
     let buf = gpu.device.create_buffer(&wgpu::BufferDescriptor {

@@ -161,7 +161,7 @@ pub fn gpu(cx: &Cx, s: &Snap) -> Vec<W> {
             tiles.push(parts::tile(t!("Температура"), parts::celsius(t), None));
         }
         if let Some(p) = g.power_w {
-            tiles.push(parts::tile(t!("Мощность"), format!("{p:.1} Вт"), None));
+            tiles.push(parts::tile(t!("Мощность"), t!("{p} Вт", p = format!("{p:.1}")), None));
         }
         if let Some(u) = g.mem_used {
             let sub = match g.mem_total {

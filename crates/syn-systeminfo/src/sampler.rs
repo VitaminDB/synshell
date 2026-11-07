@@ -193,6 +193,18 @@ pub fn once() -> Snap {
     s.tick()
 }
 
+/// Снимок с историей за `secs` секунд (замер раз в секунду) — снимок экрана с
+/// заполненными графиками (`--screenshot … --history 60`).
+pub fn collect(secs: u32) -> Snap {
+    let mut s = Sampler::new();
+    let mut last = s.tick();
+    for _ in 0..secs {
+        std::thread::sleep(Duration::from_secs(1));
+        last = s.tick();
+    }
+    last
+}
+
 struct Sampler {
     sys: Sys,
     cpu: syn_system::cpu::CpuSampler,

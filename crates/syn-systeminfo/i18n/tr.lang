@@ -2,7 +2,7 @@
 @name = "Türkçe"
 
 # src/main.rs
-"syn-systeminfo [СТРАНИЦА] [--list-pages] [--screenshot СНИМОК.png [--page СТРАНИЦА] [--size ШxВ] [--scale N]]" = "syn-systeminfo [SAYFA] [--list-pages] [--screenshot GÖRÜNTÜ.png [--page SAYFA] [--size GxY] [--scale N]]"
+"syn-systeminfo [СТРАНИЦА] [--list-pages] [--screenshot СНИМОК.png [--page СТРАНИЦА] [--size ШxВ] [--scale N] [--history СЕКУНД]]" = "syn-systeminfo [SAYFA] [--list-pages] [--screenshot GÖRÜNTÜ.png [--page SAYFA] [--size GxY] [--scale N] [--history N]]"
 "неизвестная страница «{p}» (--list-pages)" = "bilinmeyen sayfa “{p}” (--list-pages)"
 "Монитор ресурсов" = "Kaynak İzleyici"
 
