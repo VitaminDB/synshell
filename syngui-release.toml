@@ -29,7 +29,7 @@ optdepends_en = [
 [packages.synshell-core]
 description = "synshell: композитор synwm, оболочка, экран входа, клавиатура, снимки и показ экрана, параметры, проводник, терминал, установка программ"
 description_en = "synshell: synwm compositor, shell, login screen, on-screen keyboard, screenshots and screen sharing, settings, file manager, terminal, software center"
-depends = ["mesa", "libinput", "seatd", "systemd-libs", "libxkbcommon", "libdrm", "pixman", "vulkan-icd-loader", "fontconfig", "freetype2", "ttf-font", "breeze-icons", "breeze-cursors", "hicolor-icon-theme", "dbus", "pam", "alsa-lib", "ffmpeg", "sqlite", "libarchive", "xdg-desktop-portal", "pipewire", "libpipewire"]
+depends = ["mesa", "libinput", "seatd", "systemd-libs", "libxkbcommon", "libdrm", "pixman", "vulkan-icd-loader", "fontconfig", "freetype2", "ttf-font", "breeze-icons", "breeze-cursors", "hicolor-icon-theme", "dbus", "pam", "alsa-lib", "ffmpeg", "sqlite", "libarchive", "xdg-desktop-portal", "pipewire", "libpipewire", "polkit"]
 bins = ["synwm", "syndesktop-shell", "synlogin", "synkeyboard", "syn-screencast", "synfsd"]
 apps = ["synsettings", "synpkg", "synfiles", "synshot", "syn-terminal"]
 provides = ["syndesktop"]
@@ -51,7 +51,6 @@ optdepends = [
   "libheif: HEIC/HEIF/AVIF в просмотрщике и миниатюрах",
   "imagemagick: редкие форматы картинок (JPEG XL, RAW…) в просмотрщике",
   "archlinux-appstream-data: категории, значки и снимки программ в synpkg",
-  "polkit: установка программ (synpkg) без root",
   "geoclue: местоположение для программ (Карты, компас)",
   "base-devel: сборка пакетов AUR в synpkg",
   "pacman-contrib: проверка обновлений без root (checkupdates)",
@@ -82,7 +81,6 @@ optdepends_en = [
   "libheif: HEIC/HEIF/AVIF in the image viewer and thumbnails",
   "imagemagick: rare image formats (JPEG XL, RAW…) in the image viewer",
   "archlinux-appstream-data: categories, icons and screenshots in the software center",
-  "polkit: installing software without root",
   "geoclue: location for applications (Maps, compass)",
   "base-devel: building AUR packages in the software center",
   "pacman-contrib: update checks without root (checkupdates)",
