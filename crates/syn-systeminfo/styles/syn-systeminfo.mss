@@ -155,3 +155,9 @@ TextField {
 .btn.danger-soft { background-color: #e5393526; }
 .btn.danger-soft .btn-label { color: #ef5350; }
 .btn.danger-soft .btn-icon { icon-color: #ef5350; }
+
+/* ── Своя рамка окна ────────────────────────────────────────── */
+/* Узкое окно: шапка — заголовок окна (отступы задаёт сама шапка). */
+.phone-head .csd-drag, .phone-head .csd-drag-space { height: 44px; }
+.phone-head .csd-drag-space { padding: 0px; }
+.phone-head .csd-controls { padding: 0px; }

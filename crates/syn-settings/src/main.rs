@@ -157,8 +157,12 @@ fn main() {
         .app_id("synsettings")
         .size(args.size.0, args.size.1)
         .min_size(340, 480)
+        .frameless()
+        .transparent(true)
+        .background(syngui::core::Color::from_srgb(0, 0, 0, 0.0))
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(theme)
+        .with_window_state(ctx.window)
         .run(move |_| {
             provide_context(ctx);
             app::root(ctx)

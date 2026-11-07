@@ -144,6 +144,9 @@ fn main() {
         .app_id("synlink-view")
         .size(win_w, win_h)
         .min_size(240, 240)
+        .frameless()
+        .transparent(true)
+        .background(Color::from_srgb(0, 0, 0, 0.0))
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(synshell_common::live::styles(mss, theme))
         .with_window_state(win)
@@ -172,7 +175,7 @@ fn main() {
             }
             start_stream(ctx, frame.clone());
             let input = start_input(device);
-            Box::new(root(ctx, frame.clone(), input))
+            root(ctx, frame.clone(), input)
         });
 }
 
@@ -253,7 +256,7 @@ fn screenshot_mode() -> i32 {
                 rec_settings: use_signal(record::Settings::default()),
             };
             let (tx, _) = mpsc::channel();
-            Box::new(root(ctx, frame, tx))
+            root(ctx, frame, tx)
         },
         &mss,
         size,
@@ -283,7 +286,7 @@ extern "C" fn on_stop(_: libc::c_int) {
 
 /// Таблица стилей окна; шрифт интерфейса окно не ставит.
 fn theme(cfg: &synshell_common::Config) -> String {
-    synshell_common::style::AppStyle::new(cfg, "synlink-view").font_selector("").base(STYLES).build()
+    synshell_common::style::AppStyle::new(cfg, "synlink-view").font_selector("").csd().base(STYLES).build()
 }
 
 fn emit(v: serde_json::Value) {
@@ -861,7 +864,7 @@ fn kind_glyph(k: DeviceKind) -> &'static str {
     }
 }
 
-fn root(ctx: Ctx, frame: Arc<LiveFrame>, input: mpsc::Sender<InputEvent>) -> impl Widget {
+fn root(ctx: Ctx, frame: Arc<LiveFrame>, input: mpsc::Sender<InputEvent>) -> Box<dyn Widget> {
     let _ = DEVICE.set(ctx.device.to_string());
     let touch = ctx.peer.kind.is_touch();
     let stats = ctx.stats;
@@ -934,7 +937,9 @@ fn root(ctx: Ctx, frame: Arc<LiveFrame>, input: mpsc::Sender<InputEvent>) -> imp
         vec![Box::new(bar(ctx)) as Box<dyn Widget>]
     });
 
-    EventHook::new()
+    // Своя рамка окна: кнопки окна — в строке устройства на панели (на телефоне и во весь
+    // экран их нет).
+    synshell_common::csd::frame(EventHook::new()
         // Системное «назад» телефона — из полноэкранного режима.
         .on_back(move || {
             if ctx.win.get_untracked().fullscreen {
@@ -954,7 +959,7 @@ fn root(ctx: Ctx, frame: Arc<LiveFrame>, input: mpsc::Sender<InputEvent>) -> imp
                         .class("stage grow"),
                 )
                 .class("root"),
-        )
+        ))
 }
 
 /// Панель: устройство, состояние, кнопки.
@@ -965,7 +970,8 @@ fn bar(ctx: Ctx) -> impl Widget {
     let note = ctx.note;
     let transport = peer.transport;
 
-    let header = Row::new()
+    // Значок и имя устройства — заголовок окна: за них окно перетаскивают.
+    let name = Row::new()
         .gap(10.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(DecoratedBox::new().child(icon(kind_glyph(peer.kind)).class("dev-icon")).class("dev-badge"))
@@ -992,7 +998,11 @@ fn bar(ctx: Ctx) -> impl Widget {
                     vec![Box::new(Text::new(line).max_lines(1).class("dev-state")) as Box<dyn Widget>]
                 }))
                 .class("grow"),
-        )
+        );
+    let header = Row::new()
+        .gap(10.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(synshell_common::csd::drag(name))
         .child(match transport {
             Some(t) => Box::new(
                 DecoratedBox::new()
@@ -1006,7 +1016,8 @@ fn bar(ctx: Ctx) -> impl Widget {
                     .class(if t == link::Transport::Usb { "chip chip-usb" } else { "chip chip-wifi" }),
             ) as Box<dyn Widget>,
             None => Box::new(DecoratedBox::new()),
-        });
+        })
+        .child(synshell_common::csd::controls(ctx.win));
 
     let dev = ctx.device;
     // Узкое окно (экран телефона) — кнопки переносятся на вторую строку.

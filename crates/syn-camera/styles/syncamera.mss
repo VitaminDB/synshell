@@ -147,3 +147,10 @@ Text { color: #ffffff; font-size: 14px; }
 .lens-check { font-size: 22px; color: #ffd54f; }
 .lens-block { font-size: 20px; color: #ffffff4d; }
 .set-icon { font-size: 22px; color: #ffd54f; }
+
+/* своя рамка окна (на компьютере): тёмная, как всё окно */
+.csd-frame { background-color: #000000; border-color: #ffffff26; }
+.csd-titlebar { background-color: #000000; border-bottom: 1px solid #ffffff1a; }
+.csd-title { color: #ffffff; }
+.csd-icon { icon-color: #ffffff; color: #ffffff; }
+SystemWindowControls { color: #ffffff; background-color: #ffffff1f; }

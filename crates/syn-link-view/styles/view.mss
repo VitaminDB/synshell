@@ -102,3 +102,8 @@ SegmentedButton {
     border-color: var(--border);
 }
 Toggle { width: 46px; height: 28px; background: var(--pressed); color: #ffffff; accent-color: var(--accent); border-radius: 14px; }
+
+/* Своя рамка окна: строка устройства — заголовок окна. */
+.bar .csd-drag, .bar .csd-drag-space { height: 40px; }
+.bar .csd-drag-space { padding: 0px; }
+.bar .csd-controls { padding: 0px; }

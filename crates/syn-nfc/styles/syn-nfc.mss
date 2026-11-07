@@ -73,3 +73,7 @@ SegmentedButton {
     accent-color: var(--accent);
     border-color: var(--border);
 }
+
+/* Широкое окно: строка вкладок — заголовок окна (место для перетаскивания по краям, кнопки окна). */
+.tabs-top { padding: 0px; }
+.tabs-top .csd-drag, .tabs-top .csd-drag-space { height: 64px; }

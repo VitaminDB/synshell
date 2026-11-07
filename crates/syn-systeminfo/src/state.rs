@@ -188,6 +188,8 @@ pub struct St {
     pub mine: RwSignal<bool>,
     pub toast: RwSignal<String>,
     pub confirm: RwSignal<Option<Confirm>>,
+    /// Состояние окна (развёрнуто, во весь экран, в фокусе) — для своей рамки.
+    pub window: RwSignal<syngui::window::WindowState>,
 }
 
 impl St {
@@ -203,6 +205,7 @@ impl St {
             mine: use_signal(false),
             toast: use_signal(String::new()),
             confirm: use_signal(None),
+            window: use_signal(syngui::window::WindowState::default()),
         }
     }
 }

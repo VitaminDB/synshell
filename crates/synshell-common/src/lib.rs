@@ -6,6 +6,8 @@
 pub mod action;
 pub mod app_theme;
 pub mod config;
+#[cfg(feature = "style")]
+pub mod csd;
 pub mod config_edit;
 pub mod display;
 pub mod eink_profiles;

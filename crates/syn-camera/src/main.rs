@@ -165,6 +165,8 @@ pub struct St {
     pub photo_dir: RwSignal<String>,
     pub video_dir: RwSignal<String>,
     pub fullscreen: RwSignal<bool>,
+    /// Состояние окна (развёрнуто, во весь экран, в фокусе) — для своей рамки.
+    pub window: RwSignal<syngui::window::WindowState>,
     pub toast: RwSignal<String>,
     /// Долгий снимок идёт: подпись над кадром (ночь, полное разрешение).
     pub progress: RwSignal<String>,
@@ -256,15 +258,21 @@ fn main() {
         screenshot(shot, &mss, auto_rotate);
         return;
     }
+    let window = use_signal(syngui::window::WindowState::default());
     App::new()
         .title(t!("Камера"))
         .app_id("syncamera")
         .size(420, 860)
         .min_size(320, 520)
+        .frameless()
+        .transparent(true)
+        .background(syngui::core::Color::from_srgb(0, 0, 0, 0.0))
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(synshell_common::live::styles(mss.clone(), theme))
+        .with_window_state(window)
         .run(move |_| {
-            let st = new_st(auto_rotate);
+            let mut st = new_st(auto_rotate);
+            st.window = window;
             start(st);
             // отладка вида подсказки без камеры: SYNCAMERA_DEMO_QR=текст
             if let Ok(t) = std::env::var("SYNCAMERA_DEMO_QR") {
@@ -342,6 +350,7 @@ fn new_st(auto_rotate: bool) -> St {
         photo_dir: use_signal(p.photo_dir.clone()),
         video_dir: use_signal(p.video_dir.clone()),
         fullscreen: use_signal(p.fullscreen),
+        window: use_signal(syngui::window::WindowState::default()),
         toast: use_signal(String::new()),
         progress: use_signal(String::new()),
         qr: use_signal(None),
@@ -408,7 +417,7 @@ fn screenshot(shot: Shot, mss: &str, auto_rotate: bool) {
 }
 
 fn theme(cfg: &Config) -> String {
-    synshell_common::style::AppStyle::new(cfg, "syncamera").font_selector("Text, Button").base(include_str!("../styles/syncamera.mss")).build()
+    synshell_common::style::AppStyle::new(cfg, "syncamera").font_selector("Text, Button").csd().base(include_str!("../styles/syncamera.mss")).build()
 }
 
 // ─── Запуск и сеанс ─────────────────────────────────────────────────────────

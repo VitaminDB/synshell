@@ -793,3 +793,12 @@ ProgressBar.lib-bar { height: 6px; border-radius: 3px; background-color: var(--p
 .mic-test-state { font-size: 13px; color: var(--muted); }
 .mic-test-state.on { color: var(--success); font-weight: 600; }
 .mic-test-state.pause { color: var(--warning); font-weight: 600; }
+
+/* ─── Своя рамка окна ─────────────────────────────────────────────── */
+.brand .csd-drag, .brand .csd-drag-space { height: 40px; }
+.brand .csd-drag-space { padding: 0px; }
+/* Узкое окно: крупный заголовок списка и строка страницы — заголовок окна. */
+.phone-head .csd-drag, .phone-head .csd-drag-space { height: 52px; }
+.phone-head .csd-drag-space { padding: 0px; }
+.phone-bar .csd-drag, .phone-bar .csd-drag-space { height: 44px; }
+.phone-bar .csd-drag-space { padding: 0px 6px; }

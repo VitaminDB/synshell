@@ -29,6 +29,7 @@ pub mod gl {
     pub const GRID_OFF: &str = "\u{E3EB}";
     pub const SWITCH: &str = "\u{EFEB}";
     pub const SETTINGS: &str = "\u{E8B8}";
+    pub const CAMERA: &str = "\u{E3AF}";
     pub const PAUSE: &str = "\u{E034}";
     pub const PLAY: &str = "\u{E037}";
     pub const CLOSE: &str = "\u{E5CD}";
@@ -120,8 +121,15 @@ fn cutout(st: St, landscape: bool) -> (f32, f32, f32) {
 const BOTTOM: f32 = 236.0;
 
 pub fn root(st: St) -> W {
+    use synshell_common::csd;
+    let full = csd::fullscreen(st.window);
     let body = Reactive::new(move || -> Vec<W> {
-        let vp = viewport_size().get();
+        let mut vp = viewport_size().get();
+        // Своя рамка окна на компьютере: заголовок с кнопками окна над видоискателем
+        // (на телефоне и во весь экран его нет).
+        if !csd::is_phone() && !full.get() {
+            vp.height -= csd::TITLEBAR_H;
+        }
         let _ = (st.aspect.get(), st.mode.get(), st.fullscreen.get(), st.dev_rot.get());
         let (sw, sh) = st.stream_size.get();
         if vp.width > vp.height {
@@ -142,7 +150,19 @@ pub fn root(st: St) -> W {
             vec![Box::new(DecoratedBox::new().child(Text::new(t).max_lines(3).class("toast-text")).class("toast"))]
         }))
         .class("toast-place");
-    Box::new(
+    let stack = Stack::new()
+        .fit(StackFit::Expand)
+        .child(fill("root"))
+        .child(body)
+        .child(lens_menu(st))
+        .child(settings_sheet(st))
+        .child(overlay_view)
+        .child(toast);
+    let main = Column::new()
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(csd::titlebar(st.window, || t!("Камера").to_string(), Some(gl::CAMERA)))
+        .child(DecoratedBox::new().child(stack).class("grow"));
+    csd::frame(
         GestureDetector::new()
             .on_back(move || {
                 if st.viewer.get_untracked().is_some() {
@@ -159,16 +179,7 @@ pub fn root(st: St) -> W {
                 }
                 false
             })
-            .child(
-                Stack::new()
-                    .fit(StackFit::Expand)
-                    .child(fill("root"))
-                    .child(body)
-                    .child(lens_menu(st))
-                    .child(settings_sheet(st))
-                    .child(overlay_view)
-                    .child(toast),
-            ),
+            .child(main),
     )
 }
 

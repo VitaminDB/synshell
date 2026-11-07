@@ -52,7 +52,7 @@ fn main() {
         let r = syngui::shot::render_png(|| {
             let st = ui::St::new();
             st.settings_open.set(settings_page);
-            Box::new(ui::root(st))
+            ui::root(st)
         }, &mss, size, scale, &out);
         match r {
             Ok((w, h)) => println!("{out}: {w}x{h}"),
@@ -63,17 +63,21 @@ fn main() {
         }
         return;
     }
+    let st = ui::St::new();
     App::new()
         .title(t!("Спорт и здоровье"))
         .app_id("syn-health")
         .size(440, 860)
         .min_size(320, 480)
+        .frameless()
+        .transparent(true)
+        .background(syngui::core::Color::from_srgb(0, 0, 0, 0.0))
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(synshell_common::live::styles(mss.clone(), theme))
+        .with_window_state(st.window)
         .run(move |_| {
-            let st = ui::St::new();
             ui::start(st);
-            Box::new(ui::root(st))
+            ui::root(st)
         });
 }
 
@@ -92,5 +96,5 @@ fn demo() {
 }
 
 fn theme(cfg: &Config) -> String {
-    synshell_common::style::AppStyle::new(cfg, "syn-health").font_selector("Text, Button").base(include_str!("../styles/syn-health.mss")).build()
+    synshell_common::style::AppStyle::new(cfg, "syn-health").font_selector("Text, Button").csd().base(include_str!("../styles/syn-health.mss")).build()
 }

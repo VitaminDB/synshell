@@ -10,6 +10,7 @@ use crate::state::{self, Ctx};
 use crate::store;
 use crate::sys;
 use crate::ui::*;
+use synshell_common::csd;
 
 fn sidebar(ctx: Ctx) -> Column {
     let search = TextField::new()
@@ -57,12 +58,18 @@ fn sidebar(ctx: Ctx) -> Column {
         .gap(12.0)
         .class("sidebar")
         .child(
+            // За значок и название окно перетаскивают.
             Row::new()
                 .gap(10.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .class("brand")
-                .child(DecoratedBox::new().class("brand-logo").child(Icon::new(icons::SETTINGS).class("brand-icon")))
-                .child(Text::new(t!("Параметры")).class("brand-title grow"))
+                .child(csd::drag(
+                    Row::new()
+                        .gap(10.0)
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(DecoratedBox::new().class("brand-logo").child(Icon::new(icons::SETTINGS).class("brand-icon")))
+                        .child(Text::new(t!("Параметры")).class("brand-title")),
+                ))
                 .child(history_buttons(ctx)),
         )
         .child(search)
@@ -160,6 +167,7 @@ pub fn root(ctx: Ctx) -> W {
         set_narrow(n);
         vec![if n { phone_root(ctx) } else { desktop_root(ctx) }]
     });
+    // Своя рамка окна: кнопки окна — над страницей (широкое окно) или в шапке (узкое).
     crate::pages::capture_hook(boxed(body))
 }
 
@@ -239,11 +247,14 @@ fn phone_list(ctx: Ctx) -> W {
         }
         vec![boxed(col)]
     });
+    // Заголовок — он же заголовок узкого окна на компьютере: за него окно перетаскивают,
+    // справа — кнопки окна (на телефоне и во весь экран их нет).
+    let head = Row::new().cross_axis_alignment(CrossAxisAlignment::Center).class("phone-head").child(csd::drag(Text::new(t!("Параметры")).class("phone-title"))).child(csd::controls(ctx.window));
     boxed(
         Column::new()
             .gap(14.0)
             .class("phone-list")
-            .child(Text::new(t!("Параметры")).class("phone-title"))
+            .child(head)
             .child(search)
             .child(error_banner(ctx))
             .child(ScrollView::new().vertical().class("grow").child(list)),
@@ -273,7 +284,8 @@ fn phone_page(ctx: Ctx) -> W {
         .child(syngui::GestureDetector::new().on_click(move || {
             go_back(ctx);
         }).child(DecoratedBox::new().class("phone-back").child(Icon::new(icons::BACK).class("phone-back-icon"))))
-        .child(title);
+        .child(csd::drag(title))
+        .child(csd::controls(ctx.window));
     boxed(
         Column::new()
             .gap(0.0)
@@ -323,9 +335,17 @@ fn desktop_root(ctx: Ctx) -> W {
         }
         vec![(pages::find(&id).build)()]
     });
+    // Над страницей — место для перетаскивания и кнопки окна (во весь экран их нет).
+    let top = Reactive::new(move || -> Vec<W> {
+        if !csd::decorated(ctx.window) {
+            return vec![];
+        }
+        vec![boxed(Row::new().cross_axis_alignment(CrossAxisAlignment::Center).height(csd::TITLEBAR_H).class("main-top").child(csd::drag(DecoratedBox::new())).child(csd::controls(ctx.window)))]
+    });
     let main = Column::new()
         .gap(0.0)
         .class("grow main")
+        .child(top)
         .child(error_banner(ctx))
         .child(DecoratedBox::new().class("grow page-host").child(content))
         .child(footer(ctx));

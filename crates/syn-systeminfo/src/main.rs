@@ -71,7 +71,7 @@ fn main() {
             move || {
                 let st = St::new(page);
                 st.snap.set_always(snap.clone());
-                Box::new(ui::root(st))
+                ui::root(st)
             },
             &mss,
             size,
@@ -96,21 +96,25 @@ fn main() {
     }
     let _ = std::fs::remove_file(&sock);
     let listener = std::sync::Mutex::new(UnixListener::bind(&sock).ok());
+    let st = St::new(page);
     App::new()
         .title(t!("Монитор ресурсов"))
         .app_id("syn-systeminfo")
         .size(1120, 760)
         .min_size(340, 480)
+        .frameless()
+        .transparent(true)
+        .background(syngui::core::Color::from_srgb(0, 0, 0, 0.0))
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(synshell_common::live::styles(mss.clone(), theme))
+        .with_window_state(st.window)
         .run(move |_| {
-            let st = St::new(page);
             sampler::set_page(page);
             sampler::start(st.snap);
             if let Some(l) = listener.lock().ok().and_then(|mut l| l.take()) {
                 listen(l, st);
             }
-            Box::new(ui::root(st))
+            ui::root(st)
         });
     let _ = std::fs::remove_file(&sock);
 }
@@ -135,5 +139,5 @@ fn listen(l: UnixListener, st: St) {
 }
 
 fn theme(cfg: &Config) -> String {
-    synshell_common::style::AppStyle::new(cfg, "syn-systeminfo").font_selector("Text, Button").base(include_str!("../styles/syn-systeminfo.mss")).build()
+    synshell_common::style::AppStyle::new(cfg, "syn-systeminfo").font_selector("Text, Button").csd().base(include_str!("../styles/syn-systeminfo.mss")).build()
 }

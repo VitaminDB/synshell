@@ -30,6 +30,8 @@ pub struct Ctx {
     /// для шапки. «Назад» сначала закрывает её; смена страницы — сбрасывает.
     pub sub: RwSignal<Option<(String, String)>>,
     pub sidebar_width: RwSignal<f32>,
+    /// Состояние окна (развёрнуто, во весь экран, в фокусе) — для своей рамки.
+    pub window: RwSignal<syngui::window::WindowState>,
 }
 
 pub const SIDEBAR_WIDTH: f32 = 264.0;
@@ -86,6 +88,7 @@ pub fn init(start: &str) -> Ctx {
         page_open: use_signal(false),
         sub: use_signal(sub),
         sidebar_width: use_signal(load_sidebar_width()),
+        window: use_signal(syngui::window::WindowState::default()),
     };
     CTX.with(|c| *c.borrow_mut() = Some(ctx));
     ctx
@@ -121,6 +124,9 @@ pub fn theme_mss(c: &Config) -> String {
         p.accent.mix(p.fg, 0.15).hex(),
         p.danger.with_alpha(0.16).hex(),
     ));
+    // Своя рамка окна (synshell_common::csd): скругление из «Декораций», заголовок и рамка.
+    s.push_str(&format!(":root {{\n  --window-radius: {}px;\n}}\n", c.decorations.corner_radius.max(0.0)));
+    s.push_str(synshell_common::csd::MSS);
     s.push_str(&a.theme_mss_variables());
     s.push_str(STYLES);
     s.push_str(&crate::pages::themes_gallery_mss(a.color_scheme));

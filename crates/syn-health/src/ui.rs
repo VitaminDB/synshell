@@ -13,6 +13,8 @@ pub struct St {
     pub steps: RwSignal<Steps>,
     pub settings: RwSignal<Settings>,
     pub settings_open: RwSignal<bool>,
+    /// Состояние окна (развёрнуто, во весь экран, в фокусе) — для своей рамки.
+    pub window: RwSignal<syngui::window::WindowState>,
     /// Шагомер есть (источник платформы).
     pub sensor: bool,
 }
@@ -23,6 +25,7 @@ impl St {
             steps: use_signal(Steps::load()),
             settings: use_signal(Settings::load()),
             settings_open: use_signal(false),
+            window: use_signal(syngui::window::WindowState::default()),
             sensor: std::path::Path::new(store::SOURCE).exists() || std::env::var_os("SYN_HEALTH_DEMO").is_some(),
         }
     }
@@ -77,7 +80,7 @@ fn stat(value: String, label: String) -> impl Widget {
     Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(value).class("stat-value")).child(Text::new(label).class("muted small")).class("stat grow")
 }
 
-pub fn root(st: St) -> impl Widget {
+pub fn root(st: St) -> Box<dyn Widget> {
     let body = move || -> Box<dyn Widget> {
         syngui::i18n::subscribe();
         let vp = viewport_size().get();
@@ -164,7 +167,12 @@ pub fn root(st: St) -> impl Widget {
         col = col.child(Button::new(t!("Настройки")).icon("\u{E8B8}").on_click(move || st.settings_open.set(true)));
         Box::new(ScrollView::new().vertical().child(col.class("page")))
     };
-    DecoratedBox::new().child(syngui::widgets::Reactive::new(move || vec![body()])).class("root")
+    // Своя рамка окна: заголовок с кнопками окна (на телефоне и во весь экран его нет).
+    let main = Column::new()
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(synshell_common::csd::titlebar(st.window, || t!("Спорт и здоровье").to_string(), Some("\u{E566}")))
+        .child(DecoratedBox::new().child(syngui::widgets::Reactive::new(move || vec![body()])).class("grow"));
+    synshell_common::csd::frame(DecoratedBox::new().child(main).class("root"))
 }
 
 fn stepper(label: String, value: String, minus: impl Fn() + Send + Sync + 'static, plus: impl Fn() + Send + Sync + 'static) -> impl Widget {

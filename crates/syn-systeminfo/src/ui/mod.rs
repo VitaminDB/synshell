@@ -26,14 +26,15 @@ pub fn open(st: St, p: Page) {
     sampler::set_page(p);
 }
 
-pub fn root(st: St) -> impl Widget {
+pub fn root(st: St) -> W {
     let narrow = syngui::viewport::viewport_below(NARROW_BELOW);
     let body = Reactive::new(move || -> Vec<W> {
         syngui::i18n::subscribe();
         let page = st.page.get();
         vec![if narrow.get() { phone(st, page) } else { desktop(st, page) }]
     });
-    DecoratedBox::new().child(body).class("root")
+    // Своя рамка окна: кнопки окна — над страницей (широкое окно) или в шапке (узкое).
+    synshell_common::csd::frame(DecoratedBox::new().child(body).class("root"))
 }
 
 /// Ширина области страницы.
@@ -108,11 +109,19 @@ fn desktop(st: St, page: Page) -> W {
     let sidebar = Column::new()
         .gap(14.0)
         .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .child(brand())
+        .child(syngui::overlay::WindowDragRegion::new().child(brand()))
         .child(ScrollView::new().vertical().child(nav).class("grow"))
         .class("sidebar")
         .style("width", StyleValue::px(SIDEBAR_W));
-    boxed(Row::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(sidebar).child(pages::page(st, page).class("main grow")))
+    // Над страницей — место для перетаскивания и кнопки окна (на телефоне и во весь экран их нет).
+    let top = Reactive::new(move || -> Vec<W> {
+        if !synshell_common::csd::decorated(st.window) {
+            return vec![];
+        }
+        vec![boxed(Row::new().cross_axis_alignment(CrossAxisAlignment::Center).height(synshell_common::csd::TITLEBAR_H).child(synshell_common::csd::drag(DecoratedBox::new())).child(synshell_common::csd::controls(st.window)).class("main-top"))]
+    });
+    let main = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(top).child(pages::page(st, page).class("grow"));
+    boxed(Row::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(sidebar).child(main.class("main grow")))
 }
 
 fn brand() -> W {
@@ -167,15 +176,22 @@ fn phone(st: St, page: Page) -> W {
         vec![boxed(flow.class("chips-row"))]
     });
     let chips_box: W = if touch { boxed(ScrollView::new().horizontal().child(chips).class("chips")) } else { boxed(DecoratedBox::new().child(chips).class("chips chips-wrap")) };
-    let head = Row::new()
+    // Шапка — она же заголовок узкого окна на компьютере: за название окно перетаскивают,
+    // справа — кнопки окна (на телефоне и во весь экран их нет).
+    let title = Row::new()
         .gap(10.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(DecoratedBox::new().child(Icon::new(icons::SPEED).class("brand-icon")).class("brand-logo"))
-        .child(Text::new(t!("Ресурсы")).class("phone-title grow"))
+        .child(Text::new(t!("Ресурсы")).class("phone-title"));
+    let head = Row::new()
+        .gap(10.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(synshell_common::csd::drag(title))
         .child(Reactive::new(move || -> Vec<W> {
             let s = st.snap.get();
             vec![boxed(Text::new(t!("работает {d}", d = parts::duration(s.uptime))).max_lines(1).class("muted small"))]
         }))
+        .child(synshell_common::csd::controls(st.window))
         .class("phone-head");
     boxed(
         Column::new()

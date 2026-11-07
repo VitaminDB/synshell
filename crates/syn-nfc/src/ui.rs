@@ -43,11 +43,16 @@ fn open(uri: &str) {
     let _ = std::process::Command::new("xdg-open").arg(uri).spawn();
 }
 
-pub fn root(st: St) -> impl Widget {
+pub fn root(st: St) -> Box<dyn Widget> {
+    use synshell_common::csd;
+    let full = csd::fullscreen(st.window);
     let body = move || -> Box<dyn Widget> {
         syngui::i18n::subscribe();
         let vp = viewport_size().get();
         let phone = vp.width < 700.0;
+        // Узкое окно на компьютере — заголовок с кнопками окна над страницей; в широком кнопки
+        // окна — в строке вкладок; на телефоне и во весь экран их нет.
+        let titlebar = phone && !csd::is_phone() && !full.get();
         let content: Box<dyn Widget> = match st.service.get() {
             Err(e) => Box::new(missing(&e)),
             Ok(s) if !s.present => Box::new(missing(&t!("Контроллер NFC не найден"))),
@@ -59,10 +64,13 @@ pub fn root(st: St) -> impl Widget {
         };
         let toast = st.toast.get();
         let mut col = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
-        if !phone {
+        if titlebar {
+            col = col.child(csd::titlebar(st.window, || "NFC".to_string(), Some(icons::NFC)));
+        } else if !phone {
             col = col.child(tabs(st, false));
         }
-        col = col.child(DecoratedBox::new().child(ScrollView::new().vertical().child(content)).style("height", StyleValue::px(vp.height - 64.0 - if toast.is_empty() { 0.0 } else { 40.0 })));
+        let top = if titlebar { csd::TITLEBAR_H } else { 0.0 };
+        col = col.child(DecoratedBox::new().child(ScrollView::new().vertical().child(content)).style("height", StyleValue::px(vp.height - 64.0 - top - if toast.is_empty() { 0.0 } else { 40.0 })));
         if !toast.is_empty() {
             col = col.child(DecoratedBox::new().child(Text::new(toast).max_lines(2).class("toast-text")).class("toast"));
         }
@@ -71,7 +79,7 @@ pub fn root(st: St) -> impl Widget {
         }
         Box::new(col)
     };
-    DecoratedBox::new().child(syngui::widgets::Reactive::new(move || vec![body()])).class("root")
+    csd::frame(DecoratedBox::new().child(syngui::widgets::Reactive::new(move || vec![body()])).class("root"))
 }
 
 fn tabs(st: St, bottom: bool) -> impl Widget {
@@ -91,7 +99,16 @@ fn tabs(st: St, bottom: bool) -> impl Widget {
                 .child(DecoratedBox::new().child(Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(glyph).class("tab-icon")).child(Text::new(syngui::i18n::t(label)).class("tab-label"))).class(class)),
         );
     }
-    DecoratedBox::new().child(row).class(if bottom { "tabs tabs-bottom" } else { "tabs" })
+    if bottom {
+        return DecoratedBox::new().child(row).class("tabs tabs-bottom");
+    }
+    // Широкое окно: строка вкладок — она же заголовок окна (по краям — место для
+    // перетаскивания, справа — кнопки окна).
+    use synshell_common::csd;
+    let brand = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(icons::NFC).class("csd-icon")).child(Text::new("NFC").class("csd-title"));
+    DecoratedBox::new()
+        .child(Row::new().cross_axis_alignment(CrossAxisAlignment::Center).child(csd::drag(brand)).child(row).child(csd::drag(DecoratedBox::new())).child(csd::controls(st.window)))
+        .class("tabs tabs-top")
 }
 
 fn missing(msg: &str) -> impl Widget {

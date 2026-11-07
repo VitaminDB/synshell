@@ -17,6 +17,8 @@ use crate::sensor::{Cal, Reading, Sensors, State};
 thread_local! {
     /// Последний угол поворота картушки без «перескока» 359° → 0°.
     static SHOWN: Cell<f32> = const { Cell::new(0.0) };
+    /// Высота своего заголовка окна над страницей (0 — на телефоне и во весь экран).
+    static TOP: Cell<f32> = const { Cell::new(0.0) };
 }
 
 /// Ближайший к прошлому эквивалент угла: картушка не крутится через всю окружность.
@@ -56,11 +58,13 @@ pub struct St {
     /// Метка направления (курс, на который ориентироваться).
     pub target: RwSignal<Option<f32>>,
     pub location: RwSignal<Option<geoclue_client::Fix>>,
+    /// Состояние окна (развёрнуто, во весь экран, в фокусе) — для своей рамки.
+    pub window: RwSignal<syngui::window::WindowState>,
 }
 
 impl St {
     pub fn new(sensors: Sensors) -> Self {
-        St { sensors, target: use_signal(None), location: use_signal(None) }
+        St { sensors, target: use_signal(None), location: use_signal(None), window: use_signal(syngui::window::WindowState::default()) }
     }
 }
 
@@ -80,10 +84,15 @@ pub fn start_location(st: St) {
     std::mem::forget(w);
 }
 
-pub fn root(st: St) -> impl Widget {
+pub fn root(st: St) -> Box<dyn Widget> {
+    use synshell_common::csd;
+    let full = csd::fullscreen(st.window);
     let body = move || -> Box<dyn Widget> {
         syngui::i18n::subscribe();
-        let vp = viewport_size().get();
+        let top = if csd::is_phone() || full.get() { 0.0 } else { csd::TITLEBAR_H };
+        TOP.with(|t| t.set(top));
+        let mut vp = viewport_size().get();
+        vp.height -= top;
         let wide = vp.width > vp.height * 1.15 && vp.width > 640.0;
         let dial_size = if wide { (vp.height - 200.0).clamp(200.0, 520.0) } else { (vp.width - 48.0).clamp(220.0, 440.0) };
         if st.sensors.collect.get().is_some() {
@@ -120,7 +129,12 @@ pub fn root(st: St) -> impl Widget {
             }
         }
     };
-    DecoratedBox::new().child(syngui::widgets::Reactive::new(move || vec![body()])).class("root")
+    // Своя рамка окна: заголовок с кнопками окна (на телефоне и во весь экран его нет).
+    let main = Column::new()
+        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+        .child(csd::titlebar(st.window, || t!("Компас").to_string(), Some("\u{E87A}")))
+        .child(DecoratedBox::new().child(syngui::widgets::Reactive::new(move || vec![body()])).class("grow"));
+    csd::frame(DecoratedBox::new().child(main).class("root"))
 }
 
 /// По центру окна. Высота — явно: Reactive отдаёт детям свободные ограничения, и колонка
@@ -132,7 +146,7 @@ fn center<M>(w: impl syngui::IntoWidget<M>) -> impl Widget {
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(w)
         .style("width", StyleValue::px(vp.width))
-        .style("height", StyleValue::px(vp.height))
+        .style("height", StyleValue::px(vp.height - TOP.with(|t| t.get())))
         .class("center-page")
 }
 

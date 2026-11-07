@@ -63,6 +63,8 @@ pub struct St {
     pub action: RwSignal<Action>,
     /// Короткое сообщение внизу.
     pub toast: RwSignal<String>,
+    /// Состояние окна (развёрнуто, во весь экран, в фокусе) — для своей рамки.
+    pub window: RwSignal<syngui::window::WindowState>,
 }
 
 /// Отправитель запросов в службу (поток подписки держит соединение).
@@ -77,6 +79,7 @@ impl St {
             saved: use_signal(load_saved()),
             action: use_signal(Action::Read),
             toast: use_signal(String::new()),
+            window: use_signal(syngui::window::WindowState::default()),
         }
     }
 

@@ -52,7 +52,7 @@ fn main() {
                 // показания приходят из фонового потока — дождаться первых
                 std::thread::sleep(std::time::Duration::from_millis(400));
                 syngui::async_runtime::drain_main_thread_callbacks();
-                Box::new(ui::root(st))
+                ui::root(st)
             },
             &mss,
             size,
@@ -68,24 +68,28 @@ fn main() {
         }
         return;
     }
+    let s = sensor::Sensors::new();
+    let st = ui::St::new(s);
     App::new()
         .title(t!("Компас"))
         .app_id("syn-compass")
         .size(420, 800)
         .min_size(320, 480)
+        .frameless()
+        .transparent(true)
+        .background(syngui::core::Color::from_srgb(0, 0, 0, 0.0))
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(synshell_common::live::styles(mss.clone(), theme))
+        .with_window_state(st.window)
         .run(move |_| {
-            let s = sensor::Sensors::new();
-            let st = ui::St::new(s);
             sensor::start(s);
             ui::start_location(st);
-            Box::new(ui::root(st))
+            ui::root(st)
         });
 }
 
 fn theme(cfg: &Config) -> String {
-    synshell_common::style::AppStyle::new(cfg, "syn-compass").font_selector("Text, Button").base(include_str!("../styles/syn-compass.mss")).build()
+    synshell_common::style::AppStyle::new(cfg, "syn-compass").font_selector("Text, Button").csd().base(include_str!("../styles/syn-compass.mss")).build()
 }
 
 /// Кодовые точки Material Icons.

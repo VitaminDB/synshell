@@ -56,6 +56,16 @@ impl<'a> AppStyle<'a> {
         self
     }
 
+    /// Своя рамка окна ([`crate::csd`]): скругление окна из «Декораций» и
+    /// стили заголовка и рамки — до [`Self::base`], чтобы программа могла их перекрыть.
+    #[cfg(feature = "style")]
+    pub fn csd(mut self) -> Self {
+        debug_assert!(!self.theme_vars, "csd() — до base()");
+        self.out.push_str(&format!(":root {{\n  --window-radius: {};\n}}\n", px(self.cfg.decorations.corner_radius.max(0.0))));
+        self.out.push_str(crate::csd::MSS);
+        self
+    }
+
     fn theme_vars(&mut self) {
         if !self.theme_vars {
             self.theme_vars = true;

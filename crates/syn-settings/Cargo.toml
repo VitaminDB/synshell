@@ -11,7 +11,7 @@ name = "synsettings"
 path = "src/main.rs"
 
 [dependencies]
-synshell-common = { workspace = true, features = ["thumbs", "i18n"] }
+synshell-common = { workspace = true, features = ["thumbs", "i18n", "style"] }
 syn-system.workspace = true
 syn-modem.workspace = true
 synaptixd.workspace = true

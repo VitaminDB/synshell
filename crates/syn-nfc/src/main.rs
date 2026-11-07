@@ -46,7 +46,7 @@ fn main() {
                 let st = state::St::new();
                 st.tab.set(tab);
                 state::start(st);
-                Box::new(ui::root(st))
+                ui::root(st)
             },
             &mss,
             size,
@@ -62,22 +62,26 @@ fn main() {
         }
         return;
     }
+    let st = state::St::new();
     App::new()
         .title("NFC")
         .app_id("syn-nfc")
         .size(480, 820)
         .min_size(320, 480)
+        .frameless()
+        .transparent(true)
+        .background(syngui::core::Color::from_srgb(0, 0, 0, 0.0))
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(synshell_common::live::styles(mss.clone(), theme))
+        .with_window_state(st.window)
         .run(move |_| {
-            let st = state::St::new();
             state::start(st);
-            Box::new(ui::root(st))
+            ui::root(st)
         });
 }
 
 fn theme(cfg: &Config) -> String {
-    synshell_common::style::AppStyle::new(cfg, "syn-nfc").base(include_str!("../styles/syn-nfc.mss")).build()
+    synshell_common::style::AppStyle::new(cfg, "syn-nfc").csd().base(include_str!("../styles/syn-nfc.mss")).build()
 }
 
 /// Кодовые точки Material Icons.
