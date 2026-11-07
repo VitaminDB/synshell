@@ -6949,7 +6949,7 @@ dependencies = [
 
 [[package]]
 name = "syn-assist"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "dom_smoothie",
@@ -6975,7 +6975,7 @@ dependencies = [
 
 [[package]]
 name = "syn-assist-voice"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "synaptixd",
  "syngui",
@@ -6984,7 +6984,7 @@ dependencies = [
 
 [[package]]
 name = "syn-assistant"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "serde_json",
  "syn-assist",
@@ -7000,7 +7000,7 @@ dependencies = [
 
 [[package]]
 name = "syn-audio-player"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "syngui",
  "synshell-common",
@@ -7010,7 +7010,7 @@ dependencies = [
 
 [[package]]
 name = "syn-audio-recorder"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "libc",
  "serde",
@@ -7036,7 +7036,7 @@ dependencies = [
 
 [[package]]
 name = "syn-camera"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "cpal",
@@ -7057,7 +7057,7 @@ dependencies = [
 
 [[package]]
 name = "syn-compass"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "serde",
  "syn-system",
@@ -7070,7 +7070,7 @@ dependencies = [
 
 [[package]]
 name = "syn-desktop-shell"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "log",
  "synshell-common",
@@ -7079,7 +7079,7 @@ dependencies = [
 
 [[package]]
 name = "syn-dlss"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "libc",
  "syn-system",
@@ -7092,7 +7092,7 @@ dependencies = [
 
 [[package]]
 name = "syn-droid"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "libc",
@@ -7112,7 +7112,7 @@ dependencies = [
 
 [[package]]
 name = "syn-epdtest"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "syngui",
  "synshell-common",
@@ -7122,7 +7122,7 @@ dependencies = [
 
 [[package]]
 name = "syn-files"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "fuser",
@@ -7149,7 +7149,7 @@ dependencies = [
 
 [[package]]
 name = "syn-fsd"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "libc",
@@ -7163,7 +7163,7 @@ dependencies = [
 
 [[package]]
 name = "syn-game-shell"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "libc",
  "log",
@@ -7178,7 +7178,7 @@ dependencies = [
 
 [[package]]
 name = "syn-gamepad"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "env_logger",
@@ -7194,7 +7194,7 @@ dependencies = [
 
 [[package]]
 name = "syn-health"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "libc",
  "serde",
@@ -7208,7 +7208,7 @@ dependencies = [
 
 [[package]]
 name = "syn-keyboard"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "env_logger",
@@ -7221,7 +7221,7 @@ dependencies = [
 
 [[package]]
 name = "syn-link"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -7250,7 +7250,7 @@ dependencies = [
 
 [[package]]
 name = "syn-link-view"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "env_logger",
  "image",
@@ -7265,7 +7265,7 @@ dependencies = [
 
 [[package]]
 name = "syn-login"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "env_logger",
  "libc",
@@ -7279,7 +7279,7 @@ dependencies = [
 
 [[package]]
 name = "syn-maps"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -7294,7 +7294,7 @@ dependencies = [
 
 [[package]]
 name = "syn-media"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "cc",
@@ -7309,7 +7309,7 @@ dependencies = [
 
 [[package]]
 name = "syn-mobile-shell"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "libc",
  "log",
@@ -7323,7 +7323,7 @@ dependencies = [
 
 [[package]]
 name = "syn-modem"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "libc",
@@ -7336,7 +7336,7 @@ dependencies = [
 
 [[package]]
 name = "syn-nfc"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -7349,7 +7349,7 @@ dependencies = [
 
 [[package]]
 name = "syn-nfcd"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "libc",
@@ -7363,7 +7363,7 @@ dependencies = [
 
 [[package]]
 name = "syn-notes"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "encoding_rs",
  "flate2",
@@ -7396,14 +7396,14 @@ dependencies = [
 
 [[package]]
 name = "syn-notes-proto"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "syn-pass"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -7422,7 +7422,7 @@ dependencies = [
 
 [[package]]
 name = "syn-phone"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "syn-modem",
  "syngui",
@@ -7431,7 +7431,7 @@ dependencies = [
 
 [[package]]
 name = "syn-pkg"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "png 0.17.16",
@@ -7446,7 +7446,7 @@ dependencies = [
 
 [[package]]
 name = "syn-quitsmoke"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "android_logger",
  "libc",
@@ -7459,7 +7459,7 @@ dependencies = [
 
 [[package]]
 name = "syn-remote"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "libc",
@@ -7475,7 +7475,7 @@ dependencies = [
 
 [[package]]
 name = "syn-screencast"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "gbm",
@@ -7490,7 +7490,7 @@ dependencies = [
 
 [[package]]
 name = "syn-settings"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "libc",
@@ -7515,7 +7515,7 @@ dependencies = [
 
 [[package]]
 name = "syn-shot"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "env_logger",
@@ -7531,7 +7531,7 @@ dependencies = [
 
 [[package]]
 name = "syn-sms"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "syn-modem",
  "syngui",
@@ -7540,7 +7540,7 @@ dependencies = [
 
 [[package]]
 name = "syn-steam-setup"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "sha2",
@@ -7554,7 +7554,7 @@ dependencies = [
 
 [[package]]
 name = "syn-system"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "blocking",
  "flate2",
@@ -7569,7 +7569,7 @@ dependencies = [
 
 [[package]]
 name = "syn-systeminfo"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "libc",
  "syn-system",
@@ -7582,7 +7582,7 @@ dependencies = [
 
 [[package]]
 name = "syn-terminal"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "serde",
  "syngui",
@@ -7594,7 +7594,7 @@ dependencies = [
 
 [[package]]
 name = "syn-themeeditor"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "image",
  "mss-analysis",
@@ -7611,7 +7611,7 @@ dependencies = [
 
 [[package]]
 name = "syn-video-player"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "image",
@@ -7631,7 +7631,7 @@ dependencies = [
 
 [[package]]
 name = "syn-vm"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -7651,7 +7651,7 @@ dependencies = [
 
 [[package]]
 name = "syn-vm-agent"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "libc",
  "png 0.17.16",
@@ -7663,7 +7663,7 @@ dependencies = [
 
 [[package]]
 name = "syn-wine-helper"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "cfb",
@@ -7686,7 +7686,7 @@ dependencies = [
 
 [[package]]
 name = "syn-wm"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bitflags 2.13.2",
@@ -7714,7 +7714,7 @@ dependencies = [
 
 [[package]]
 name = "syn-woman-cycle"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "libc",
  "serde",
@@ -7939,7 +7939,7 @@ dependencies = [
 
 [[package]]
 name = "synaptix-flow"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -7987,7 +7987,7 @@ dependencies = [
 
 [[package]]
 name = "synaptix-graph"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -8657,7 +8657,7 @@ dependencies = [
 
 [[package]]
 name = "synaptixd"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "libc",
@@ -8768,7 +8768,7 @@ dependencies = [
 
 [[package]]
 name = "syngui-layer"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "calloop 0.13.0",
@@ -8802,7 +8802,7 @@ dependencies = [
 
 [[package]]
 name = "synshell-common"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "image",
@@ -8822,11 +8822,11 @@ dependencies = [
 
 [[package]]
 name = "synshell-tr"
-version = "0.1.42"
+version = "0.2.0"
 
 [[package]]
 name = "synshell-ui"
-version = "0.1.42"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "env_logger",
