@@ -11,5 +11,6 @@
 "нет ответа от главного потока" = "keine Antwort vom Hauptthread"
 
 # src/ui.rs
+"Вставить" = "Einfügen"
 "неизвестная клавиша «{part}»" = "unbekannte Taste „{part}“"
 "нет клавиши в сочетании" = "keine Taste in der Kombination"

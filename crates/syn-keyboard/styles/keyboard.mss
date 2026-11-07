@@ -67,3 +67,7 @@ Text { color: var(--fg); font-size: 18px; }
 .key-alt { border-radius: 11px; }
 .key-alt-label { font-size: 23px; text-box-edge: text; }
 .key-alt-sel { background-color: var(--accent); }
+
+/* Символ с Shift мелко над основной подписью (цифры и знаки, как у клавиатуры Steam). */
+.key-hint { font-size: 11px; color: #ffffff99; text-box-edge: ink; }
+.key-active .key-hint { color: var(--fg); }

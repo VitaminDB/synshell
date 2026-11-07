@@ -4,7 +4,7 @@
 //! Два положения: **внизу** — полоса во всю ширину, высота из числа рядов, exclusive zone той же
 //! высоты отодвигает окна; **плавающая** — поверхность Overlay во весь экран (поверх полноэкранной
 //! игры и контроллера), область ввода — только сама клавиатура (окно поменьше с ручкой сверху:
-//! таскается пальцем, справа кнопка «спрятать»), окна она не трогает. Клавиша ⧉ в нижнем ряду
+//! таскается пальцем, справа кнопка «спрятать»), окна она не трогает. Клавиша ✥ в нижнем ряду
 //! переключает одно в другое; `[osk] placement` — что выбирать самой.
 //!
 //! «Захват» (`show … for <сокет>`): клавиши идут не композитору через виртуальную клавиатуру,
@@ -34,6 +34,10 @@ use crate::layout::{self, Key, Modifier, Page, LANGS};
 const KEY_H: u32 = 46;
 const FN_H: u32 = 34;
 const GAP: u32 = 5;
+/// Промежуток между половинками ячейки (стрелки одна над другой).
+const HALF_GAP: f32 = 3.0;
+/// Наименьшая ширина клавиши «Вставить» с подписью; уже — значок.
+const PASTE_TEXT_MIN_W: f32 = 60.0;
 const PAD: u32 = 6;
 /// Функциональные ряды — отдельным блоком: внутренний отступ и промежуток
 /// до основной клавиатуры.
@@ -119,6 +123,39 @@ thread_local! {
     static REPEAT: Cell<Option<u64>> = const { Cell::new(None) };
     /// Перетаскивание за ручку: палец и его сдвиг от угла клавиатуры.
     static DRAG: Cell<Option<(u64, f32, f32)>> = const { Cell::new(None) };
+    /// Keymap всех языков (`us,ru`) — основа для временной клавиши символов вне раскладки.
+    static KEYMAP: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+    /// Символ, стоящий сейчас на временной клавише (keymap не пересылается, пока он тот же).
+    static UNI: Cell<Option<char>> = const { Cell::new(None) };
+}
+
+/// Временная клавиша для символов вне раскладки: `<I248>` (evdev 240, KEY_UNKNOWN) — в keymap
+/// evdev она без символов. Так печатает и wtype: keymap с нужным keysym на свободной клавише.
+const UNI_KEY: &str = "<I248>";
+const UNI_CODE: u32 = 240;
+
+/// Keymap `base` с символом `c` на временной клавише (одна группа — при любом языке тот же символ).
+pub fn keymap_with_char(base: &str, c: char) -> Option<String> {
+    let start = base.find("xkb_symbols")?;
+    let end = start + base[start..].find("\n};")?;
+    let mut out = String::with_capacity(base.len() + 64);
+    out.push_str(&base[..end]);
+    out.push_str(&format!("\n\tkey {UNI_KEY} {{ [ U{:04X} ] }};", c as u32));
+    out.push_str(&base[end..]);
+    Some(out)
+}
+
+/// Напечатать символ вне раскладки: keymap с ним на временной клавише, затем её нажатие.
+fn type_unicode(c: char) {
+    if UNI.with(|u| u.get()) != Some(c) {
+        let Some(km) = KEYMAP.with(|k| k.borrow().as_deref().and_then(|base| keymap_with_char(base, c))) else {
+            log::warn!("нет клавиши для символа {c:?}");
+            return;
+        };
+        syngui_layer::virtual_keyboard_keymap(km);
+        UNI.with(|u| u.set(Some(c)));
+    }
+    tap_with(UNI_CODE, &[]);
 }
 
 impl Keyboard {
@@ -144,7 +181,7 @@ impl Keyboard {
     }
 
     fn height(&self) -> u32 {
-        let mut h = PAD * 2 + KEY_H * 4 + GAP * 3;
+        let mut h = PAD * 2 + KEY_H * 5 + GAP * 4;
         if self.fn_rows.get_untracked() {
             let n = layout::fn_rows().len() as u32;
             h += FN_H * n + GAP * (n - 1) + FN_PAD * 2 + FN_SEP;
@@ -175,6 +212,13 @@ impl Keyboard {
             keyboard: KeyboardInteractivity::None,
             ..Default::default()
         }
+    }
+
+    /// Ширина обычной клавиши (единицы интерфейса): ряд — 15 клавиш с промежутками.
+    fn unit_width(&self) -> f32 {
+        let w = if self.floating.get_untracked() { self.float_width() } else { syngui::viewport::viewport_size().get_untracked().width };
+        let n = 15.0;
+        (w - 2.0 * PAD as f32 - GAP as f32 * (n - 1.0)) / n
     }
 
     /// Ширина плавающей по ширине экрана.
@@ -245,15 +289,21 @@ impl Keyboard {
         }
     }
 
-    /// Нажать и отпустить клавишу с учётом залипших модификаторов.
-    fn tap(&self, code: u32, with_shift: bool, latin: bool) {
+    /// Нажать и отпустить клавишу с учётом залипших модификаторов; `caps` — клавиша букв
+    /// (Caps Lock делает её заглавной; цифры и знаки он не трогает).
+    fn tap(&self, code: u32, with_shift: bool, latin: bool, caps: bool) {
         let group = LANGS[self.lang.get_untracked()].group;
         let switch = latin && group != 0;
         if switch {
             syngui_layer::virtual_keyboard_group(0);
         }
         let mut mods: Vec<Modifier> = Vec::new();
-        if with_shift || self.shift.get_untracked() != Shift::Off {
+        let shift = match self.shift.get_untracked() {
+            Shift::Off => false,
+            Shift::Once => true,
+            Shift::Lock => caps,
+        };
+        if with_shift || shift {
             mods.push(Modifier::Shift);
         }
         if self.ctrl.get_untracked() {
@@ -273,7 +323,7 @@ impl Keyboard {
 
     /// Клавиша с клавиатуры: при захвате — программе по сокету (`text` — её символ, как подписан,
     /// иначе имя клавиши), без него — композитору.
-    fn press(&self, code: u32, with_shift: bool, latin: bool, text: Option<&str>) {
+    fn press(&self, code: u32, with_shift: bool, latin: bool, caps: bool, text: Option<&str>) {
         if let Some(sock) = self.capture.get_untracked() {
             let line = match text {
                 Some(t) if !t.is_empty() => format!("text {t}"),
@@ -285,7 +335,39 @@ impl Keyboard {
             capture_send(&sock, line);
             return;
         }
-        self.tap(code, with_shift, latin);
+        self.tap(code, with_shift, latin, caps);
+    }
+
+    /// Символ вне раскладки (смайлик, `€`): при захвате — текстом, иначе временной клавишей keymap.
+    fn press_char(&self, c: char) {
+        if let Some(sock) = self.capture.get_untracked() {
+            capture_send(&sock, format!("text {c}"));
+            return;
+        }
+        type_unicode(c);
+    }
+
+    /// Вставить из буфера обмена: Ctrl+V (в группе 0 — сочетания программы ждут латинскую V);
+    /// при захвате — текст буфера программе.
+    fn paste(&self) {
+        if let Some(sock) = self.capture.get_untracked() {
+            std::thread::spawn(move || {
+                if let Some(text) = syngui::clipboard::paste().filter(|t| !t.is_empty()) {
+                    capture_send(&sock, format!("text {}", text.replace('\n', " ")));
+                }
+            });
+            return;
+        }
+        let group = LANGS[self.lang.get_untracked()].group;
+        if group != 0 {
+            syngui_layer::virtual_keyboard_group(0);
+        }
+        // Терминалы вставляют по Ctrl+Shift+V (Ctrl+V — ввод следующего символа как есть).
+        let mods: &[Modifier] = if focused_is_terminal() { &[Modifier::Ctrl, Modifier::Shift] } else { &[Modifier::Ctrl] };
+        tap_with(layout::KEY_V, mods);
+        if group != 0 {
+            syngui_layer::virtual_keyboard_group(group);
+        }
     }
 
     /// Снять одноразовые модификаторы после клавиши.
@@ -307,7 +389,16 @@ impl Keyboard {
     pub fn act(&self, action: Action) {
         match action {
             Action::Key { code, shift, latin, .. } => {
-                self.press(code, shift, latin, None);
+                self.press(code, shift, latin, true, None);
+                self.release_oneshot();
+            }
+            Action::Char(c) => {
+                self.press_char(c);
+                self.release_oneshot();
+            }
+            Action::Caps => self.shift.set(if self.shift.get_untracked() == Shift::Lock { Shift::Off } else { Shift::Lock }),
+            Action::Paste => {
+                self.paste();
                 self.release_oneshot();
             }
             Action::Modifier(Modifier::Shift) => self.shift.set(match self.shift.get_untracked() {
@@ -328,6 +419,15 @@ impl Keyboard {
             Action::Float => self.set_floating(!self.floating.get_untracked()),
             Action::Spacer => {}
         }
+    }
+}
+
+/// Окно в фокусе — терминал (по app_id): ему вставка — Ctrl+Shift+V.
+fn focused_is_terminal() -> bool {
+    use synshell_common::ipc::{Client, Request, Response};
+    match Client::connect().and_then(|mut c| c.request(&Request::Windows)) {
+        Ok(Response::Windows { windows }) => windows.iter().find(|w| w.focused).is_some_and(|w| layout::is_terminal(&w.app_id)),
+        _ => false,
     }
 }
 
@@ -364,8 +464,8 @@ fn capture_send(sock: &str, line: String) {
 pub fn type_text(kb: Keyboard, text: &str) {
     for ch in text.chars() {
         match layout::us_char(ch) {
-            Some((code, shift)) => kb.tap(code, shift, !ch.is_ascii_alphabetic()),
-            None => log::warn!("нет клавиши для символа {ch:?}"),
+            Some((code, shift)) => kb.tap(code, shift, !ch.is_ascii_alphabetic(), true),
+            None => type_unicode(ch),
         }
     }
 }
@@ -415,7 +515,10 @@ pub fn install(kb: Keyboard) {
     // Раскладка: все языки в одной keymap, переключение группой.
     let layouts: Vec<&str> = LANGS.iter().map(|l| l.xkb).collect();
     match syngui_layer::xkb_keymap(&layouts.join(","), "", "") {
-        Some(keymap) => syngui_layer::virtual_keyboard_keymap(keymap),
+        Some(keymap) => {
+            KEYMAP.with(|k| *k.borrow_mut() = Some(keymap.clone()));
+            syngui_layer::virtual_keyboard_keymap(keymap);
+        }
         None => log::error!("не удалось собрать xkb keymap для {layouts:?}"),
     }
 
@@ -696,7 +799,7 @@ fn press_alt(kb: Keyboard, s: &str) {
         c => match layout::us_char(c) {
             Some((code, shift)) => (code, shift || upper, true),
             None => {
-                log::warn!("нет клавиши для варианта {s:?}");
+                type_unicode(c);
                 return;
             }
         },
@@ -722,6 +825,8 @@ fn keys_view(kb: Keyboard) -> impl Widget {
             let (ctrl, alt, sup) = (kb.ctrl.get(), kb.alt.get(), kb.sup.get());
             let fn_rows = kb.fn_rows.get();
             let floating = kb.floating.get();
+            // Ширина экрана — от неё подпись «Вставить» или значок.
+            let _ = syngui::viewport::viewport_size().get();
 
             let mut main = Column::new().gap(GAP as f32);
             for row in layout::rows(page, lang) {
@@ -748,26 +853,58 @@ fn keys_view(kb: Keyboard) -> impl Widget {
 #[allow(clippy::too_many_arguments)]
 fn row_widget(kb: Keyboard, keys: Vec<Key>, shift: Shift, ctrl: bool, alt: bool, sup: bool, floating: bool, height: f32) -> impl Widget {
     let mut row = Row::new().gap(GAP as f32).height(height).cross_axis_alignment(CrossAxisAlignment::Stretch);
-    for key in keys {
-        row = row.child(key_widget(kb, key, shift, ctrl, alt, sup, floating));
+    for mut key in keys {
+        row = match key.below.take() {
+            // Две клавиши одна над другой в одной ячейке (стрелки, как у Steam).
+            Some(below) => {
+                let width = key.width;
+                let half = |k: Key| key_widget(kb, Key { width: 1.0, ..k }, shift, ctrl, alt, sup, floating);
+                row.child(
+                    Column::new()
+                        .gap(HALF_GAP)
+                        .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                        .child(half(key))
+                        .child(half(*below))
+                        .style("flex-grow", width),
+                )
+            }
+            None => row.child(key_widget(kb, key, shift, ctrl, alt, sup, floating)),
+        };
     }
     row
 }
 
 fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: bool, floating: bool) -> Box<dyn Widget> {
-    let upper = shift != Shift::Off;
+    // Caps Lock делает заглавными только буквы; одноразовый Shift — и знаки (символ с Shift).
+    let upper = match shift {
+        Shift::Off => false,
+        Shift::Once => true,
+        Shift::Lock => key.hint.is_none(),
+    };
     let label = match (&key.shifted, upper) {
         (Some(s), true) => s.clone(),
+        // Узкой клавиатуре (плавающая, узкий экран) подпись не влезает — значок.
+        _ if key.action == Action::Paste => {
+            if kb.unit_width() * key.width < PASTE_TEXT_MIN_W {
+                layout::PASTE_ICON.to_string()
+            } else {
+                t!("Вставить")
+            }
+        }
         _ => key.label.clone(),
     };
+    // Мелкая подпись над основной: символ с Shift; при Shift они меняются местами.
+    let hint = key.hint.as_ref().map(|h| if upper { key.label.clone() } else { h.clone() });
     // Активные модификаторы подсвечиваются.
     let active = match key.action {
         Action::Modifier(Modifier::Shift) => shift != Shift::Off,
         Action::Modifier(Modifier::Ctrl) => ctrl,
         Action::Modifier(Modifier::Alt) => alt,
         Action::Modifier(Modifier::Super) => sup,
+        Action::Caps => shift == Shift::Lock,
         Action::Fn => kb.fn_rows.get_untracked(),
         Action::Float => floating,
+        Action::Page(Page::Letters) => true,
         _ => false,
     };
     let mut class = key.class.to_string();
@@ -782,22 +919,34 @@ fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: 
     if action == Action::Spacer {
         return Box::new(DecoratedBox::new().class("key-spacer").style("flex-grow", width));
     }
+    let caps = key.hint.is_none();
     let label_shown = label.clone();
     // Значок (Material Icons, частная область Юникода) — виджетом значка, не текстом.
     let icon = !label.is_empty() && label.chars().all(|c| ('\u{E000}'..='\u{F8FF}').contains(&c));
     let text: Box<dyn Widget> = if icon { Box::new(Icon::new(label).class("key-icon")) } else { Box::new(Text::new(label).class("key-label")) };
-    let body = DecoratedBox::new()
-        .child(
+    let inner: Box<dyn Widget> = match hint {
+        Some(h) => Box::new(
+            Column::new()
+                .main_axis_alignment(MainAxisAlignment::Center)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .gap(1.0)
+                .child(Text::new(h).class("key-hint"))
+                .child(text)
+                .class("key-fill"),
+        ),
+        None => Box::new(
             Row::new()
                 .main_axis_alignment(MainAxisAlignment::Center)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(text)
                 .class("key-fill"),
-        )
-        .class(class);
+        ),
+    };
+    let body = DecoratedBox::new().child(inner).class(class);
 
     // Что печатает клавиша при захвате: символьная — свою подпись (с Shift — заглавную).
-    let typed = (key.class == "key" && matches!(action, Action::Key { .. })).then(|| label_shown.clone());
+    let char_key = key.is_char();
+    let typed = (char_key && matches!(action, Action::Key { .. })).then(|| label_shown.clone());
     let mut gd = GestureDetector::new().child(body);
     match action {
         Action::Key { code, shift: with_shift, repeat: true, latin } => {
@@ -807,9 +956,9 @@ fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: 
                 .on_press(move |_| {
                     haptics::play(Feedback::Key);
                     stop_repeat();
-                    kb.press(code, with_shift, latin, None);
+                    kb.press(code, with_shift, latin, caps, None);
                     let t = syngui_layer::add_timer(Duration::from_millis(400), move || {
-                        kb.press(code, with_shift, latin, None);
+                        kb.press(code, with_shift, latin, caps, None);
                         Some(Duration::from_millis(60))
                     });
                     REPEAT.with(|r| r.set(Some(t)));
@@ -843,7 +992,7 @@ fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: 
                     return;
                 }
                 if inside {
-                    kb.press(code, with_shift, latin, typed.as_deref());
+                    kb.press(code, with_shift, latin, caps, typed.as_deref());
                     kb.release_oneshot();
                 }
             })
@@ -862,7 +1011,7 @@ fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: 
     // Отклик — сразу при касании клавиши (у автоповтора — в его on_press).
     // Буква над пальцем — у символьных клавиш (не у служебных и Fn).
     if !matches!(action, Action::Key { repeat: true, .. }) {
-        let popup = (key.class == "key" && matches!(action, Action::Key { .. })).then_some(label_shown);
+        let popup = char_key.then_some(label_shown);
         gd = gd.on_press_with_bounds(move |_, r| {
             haptics::play(Feedback::Key);
             if let Some(l) = &popup {
@@ -871,4 +1020,26 @@ fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: 
         });
     }
     Box::new(gd.style("flex-grow", width))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keymap_char_goes_into_symbols() {
+        let base = syngui_layer::xkb_keymap("us,ru", "", "").expect("keymap");
+        let km = keymap_with_char(&base, '😀').unwrap();
+        let sym = km.find("xkb_symbols").unwrap();
+        let at = km.find("key <I248> { [ U1F600 ] };").expect("временная клавиша");
+        assert!(at > sym, "клавиша — в разделе символов");
+        // Получившаяся keymap собирается xkbcommon и даёт смайлик на evdev 240.
+        let ctx = xkbcommon::xkb::Context::new(xkbcommon::xkb::CONTEXT_NO_FLAGS);
+        let keymap = xkbcommon::xkb::Keymap::new_from_string(&ctx, km, xkbcommon::xkb::KEYMAP_FORMAT_TEXT_V1, xkbcommon::xkb::KEYMAP_COMPILE_NO_FLAGS).expect("keymap собирается");
+        let mut state = xkbcommon::xkb::State::new(&keymap);
+        assert_eq!(state.key_get_utf8((UNI_CODE + 8).into()), "😀");
+        // И во второй группе (RU) — тот же символ.
+        state.update_mask(0, 0, 0, 0, 0, 1);
+        assert_eq!(state.key_get_utf8((UNI_CODE + 8).into()), "😀");
+    }
 }

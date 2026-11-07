@@ -7216,6 +7216,7 @@ dependencies = [
  "syngui",
  "syngui-layer",
  "synshell-common",
+ "xkbcommon 0.8.0",
 ]
 
 [[package]]
