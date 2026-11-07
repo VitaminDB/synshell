@@ -140,6 +140,7 @@
 # src/main.rs
 "неизвестное ускорение «{v}» (auto|none|v4l2|vaapi|nvdec|vulkan)" = "bilinmeyen hızlandırma “{v}” (auto|none|v4l2|vaapi|nvdec|vulkan)"
 "syn-video-player [--hw auto|none|v4l2|vaapi|nvdec|vulkan] [--bench [--yuv] [--dlss]] [ФАЙЛ|URI]" = "syn-video-player [--hw auto|none|v4l2|vaapi|nvdec|vulkan] [--bench [--yuv] [--dlss]] [DOSYA|URI]"
+"syn-video-player --screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page library|player|subs|filters|settings|tracks|edit] [--at С] [ФАЙЛ]" = "syn-video-player --screenshot GORUNTU.png [--size GxY] [--scale N] [--page library|player|subs|filters|settings|tracks|edit] [--at S] [DOSYA]"
 "--bench: нужен файл" = "--bench: dosya gerekli"
 "Видео" = "Videolar"
 

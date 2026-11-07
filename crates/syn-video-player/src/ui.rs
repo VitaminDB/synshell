@@ -147,6 +147,11 @@ fn hw_of(st: St) -> HwAccel {
 
 pub fn open(st: St, path: PathBuf) {
     let start = if st.settings.get_untracked().resume { settings::saved_position(&path) } else { None };
+    open_from(st, path, start);
+}
+
+/// Открыть ролик с секунды `start` (снимок `--at`) — со списком соседей каталога.
+pub fn open_from(st: St, path: PathBuf, start: Option<f64>) {
     load_siblings(st, &path);
     open_at(st, path, start, false);
 }

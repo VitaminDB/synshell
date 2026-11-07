@@ -155,7 +155,7 @@ fn free(st: St, models: Vec<(String, String)>) {
 
 fn gib(bytes: u64) -> String {
     let g = bytes as f64 / (1u64 << 30) as f64;
-    if g >= 10.0 { format!("{g:.0}") } else { format!("{g:.1}").replace('.', ",") }
+    if g >= 10.0 { format!("{g:.0}") } else { syngui::i18n::decimal(&format!("{g:.1}")) }
 }
 
 /// Окно вопроса поверх плеера.

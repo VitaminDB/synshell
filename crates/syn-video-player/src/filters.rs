@@ -148,7 +148,7 @@ fn label(text: &str) -> W {
 }
 
 fn ms(v: f32) -> String {
-    format!("{v:.1}").replace('.', ",")
+    syngui::i18n::decimal(&format!("{v:.1}"))
 }
 
 /// Нагрузка: время фильтров против времени кадра ролика.

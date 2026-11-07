@@ -140,6 +140,7 @@
 # src/main.rs
 "неизвестное ускорение «{v}» (auto|none|v4l2|vaapi|nvdec|vulkan)" = "nieznana akceleracja „{v}” (auto|none|v4l2|vaapi|nvdec|vulkan)"
 "syn-video-player [--hw auto|none|v4l2|vaapi|nvdec|vulkan] [--bench [--yuv] [--dlss]] [ФАЙЛ|URI]" = "syn-video-player [--hw auto|none|v4l2|vaapi|nvdec|vulkan] [--bench [--yuv] [--dlss]] [PLIK|URI]"
+"syn-video-player --screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page library|player|subs|filters|settings|tracks|edit] [--at С] [ФАЙЛ]" = "syn-video-player --screenshot ZRZUT.png [--size SxW] [--scale N] [--page library|player|subs|filters|settings|tracks|edit] [--at S] [PLIK]"
 "--bench: нужен файл" = "--bench: wymagany plik"
 "Видео" = "Wideo"
 

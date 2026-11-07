@@ -140,6 +140,7 @@
 # src/main.rs
 "неизвестное ускорение «{v}» (auto|none|v4l2|vaapi|nvdec|vulkan)" = "알 수 없는 가속 “{v}” (auto|none|v4l2|vaapi|nvdec|vulkan)"
 "syn-video-player [--hw auto|none|v4l2|vaapi|nvdec|vulkan] [--bench [--yuv] [--dlss]] [ФАЙЛ|URI]" = "syn-video-player [--hw auto|none|v4l2|vaapi|nvdec|vulkan] [--bench [--yuv] [--dlss]] [파일|URI]"
+"syn-video-player --screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page library|player|subs|filters|settings|tracks|edit] [--at С] [ФАЙЛ]" = "syn-video-player --screenshot SHOT.png [--size WxH] [--scale N] [--page library|player|subs|filters|settings|tracks|edit] [--at S] [파일]"
 "--bench: нужен файл" = "--bench: 파일이 필요합니다"
 "Видео" = "비디오"
 

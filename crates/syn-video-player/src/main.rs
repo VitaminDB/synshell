@@ -7,6 +7,8 @@
 //!                                                    (SVP_BENCH_FRAMES=N — только N кадров)
 //!                                                    (`--dlss` — через DLSS 5, время модели)
 //!
+//!   syn-video-player --screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page library|player|subs|filters|settings|tracks|edit] [--at С] [ФАЙЛ]
+//!
 //! Без файла — список видео из «Видео» (XDG_VIDEOS_DIR).
 
 mod bench;
@@ -38,6 +40,17 @@ pub struct Args {
     pub yuv: bool,
     /// `--bench --dlss`: кадры через DLSS 5 (помощник должен быть запущен).
     pub dlss: bool,
+    /// `--screenshot`: снимок интерфейса без окна.
+    pub shot: Option<Shot>,
+}
+
+pub struct Shot {
+    pub out: String,
+    pub size: (u32, u32),
+    pub scale: f64,
+    pub page: String,
+    /// `--at С`: с какой секунды открыть ролик.
+    pub at: Option<f64>,
 }
 
 fn parse_hw(s: &str) -> Option<HwAccel> {
@@ -79,13 +92,27 @@ fn percent_decode(s: &str) -> String {
 }
 
 fn parse_args() -> Args {
-    let mut a = Args { file: None, hw: None, bench: false, yuv: false, dlss: false };
+    let mut a = Args { file: None, hw: None, bench: false, yuv: false, dlss: false, shot: None };
+    let mut size = (1400u32, 900u32);
+    let mut scale = 1.0f64;
+    let mut page = String::from("library");
+    let mut out: Option<String> = None;
+    let mut at: Option<f64> = None;
     let mut it = std::env::args().skip(1);
     while let Some(s) = it.next() {
         match s.as_str() {
             "--bench" => a.bench = true,
             "--yuv" => a.yuv = true,
             "--dlss" => a.dlss = true,
+            "--screenshot" => out = it.next(),
+            "--size" => {
+                if let Some((w, h)) = it.next().as_deref().and_then(|s| s.split_once('x')) {
+                    size = (w.parse().unwrap_or(size.0), h.parse().unwrap_or(size.1));
+                }
+            }
+            "--scale" => scale = it.next().and_then(|s| s.parse().ok()).unwrap_or(scale),
+            "--page" => page = it.next().unwrap_or(page),
+            "--at" => at = it.next().and_then(|s| s.parse().ok()),
             "--hw" => {
                 let v = it.next().unwrap_or_default();
                 a.hw = Some(parse_hw(&v).unwrap_or_else(|| {
@@ -95,12 +122,14 @@ fn parse_args() -> Args {
             }
             "-h" | "--help" => {
                 println!("{}", t!("syn-video-player [--hw auto|none|v4l2|vaapi|nvdec|vulkan] [--bench [--yuv] [--dlss]] [ФАЙЛ|URI]"));
+                println!("{}", t!("syn-video-player --screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page library|player|subs|filters|settings|tracks|edit] [--at С] [ФАЙЛ]"));
                 std::process::exit(0)
             }
             _ if a.file.is_none() => a.file = Some(input_of(&s)),
             _ => {}
         }
     }
+    a.shot = out.map(|out| Shot { out, size, scale, page, at });
     a
 }
 
@@ -142,6 +171,17 @@ fn main() {
         };
         std::process::exit(bench::run(file, args.hw.unwrap_or(HwAccel::Auto), args.yuv, args.dlss));
     }
+    if let Some(shot) = &args.shot {
+        match screenshot(&args, shot) {
+            Ok((w, h)) => println!("{}: {w}x{h}", shot.out),
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+        // потоки декодера не ждать
+        std::process::exit(0);
+    }
     hdr_watch();
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);
@@ -158,49 +198,141 @@ fn main() {
             true
         })
         .run(move |_| {
-            let subs = subs::SubSettings::load();
-            let settings = settings::Settings::load();
-            let st = ui::St {
-                hw: args.hw,
-                settings: use_signal(settings.clone()),
-                info: use_signal(None),
-                settings_open: use_signal(false),
-                tracks_open: use_signal(false),
-                audio_pref: use_signal(None),
-                subs: use_signal(subs.clone()),
-                sub_style: use_signal(subs.style()),
-                subs_open: use_signal(false),
-                filters_open: use_signal(false),
-                filters_rev: use_signal(0),
-                split: use_signal(settings.dlss_split),
-                view_key: use_signal((settings.fill, settings.seek_step)),
-                sub_pref: use_signal(None),
-                sub_last: use_signal(None),
-                sub_rev: use_signal(0),
-                sub_gen: use_signal(0),
-                vram: use_signal(vram::Vram::None),
-                dlss: use_signal(dlss::Status::Off),
-                sr: use_signal(neural::Status::Off),
-                rife: use_signal(interp::Status::Off),
-                cards: use_signal(Vec::new()),
-                siblings: use_signal(Vec::new()),
-                scanning: use_signal(true),
-                playing: use_signal(None),
-                opening: use_signal(None),
-                error: use_signal(None),
-                fullscreen: use_signal(false),
-                direct: args.file.is_some(),
-                edit: use_signal(None),
-                sheet: use_signal(editor::Sheet::None),
-                pos: use_signal(0.0),
-            };
-            syngui::signal::create_detached_effect(move || editor::follow(st));
+            let st = new_state(args.hw, args.file.is_some());
             match &args.file {
                 Some(f) => ui::open(st, f.into()),
                 None => ui::rescan(st),
             }
             ui::root(st)
         });
+}
+
+/// Состояние программы (сигналы — в главном потоке, после запуска syngui).
+fn new_state(hw: Option<HwAccel>, direct: bool) -> ui::St {
+    let subs = subs::SubSettings::load();
+    let settings = settings::Settings::load();
+    let st = ui::St {
+        hw,
+        settings: use_signal(settings.clone()),
+        info: use_signal(None),
+        settings_open: use_signal(false),
+        tracks_open: use_signal(false),
+        audio_pref: use_signal(None),
+        subs: use_signal(subs.clone()),
+        sub_style: use_signal(subs.style()),
+        subs_open: use_signal(false),
+        filters_open: use_signal(false),
+        filters_rev: use_signal(0),
+        split: use_signal(settings.dlss_split),
+        view_key: use_signal((settings.fill, settings.seek_step)),
+        sub_pref: use_signal(None),
+        sub_last: use_signal(None),
+        sub_rev: use_signal(0),
+        sub_gen: use_signal(0),
+        vram: use_signal(vram::Vram::None),
+        dlss: use_signal(dlss::Status::Off),
+        sr: use_signal(neural::Status::Off),
+        rife: use_signal(interp::Status::Off),
+        cards: use_signal(Vec::new()),
+        siblings: use_signal(Vec::new()),
+        scanning: use_signal(true),
+        playing: use_signal(None),
+        opening: use_signal(None),
+        error: use_signal(None),
+        fullscreen: use_signal(false),
+        direct,
+        edit: use_signal(None),
+        sheet: use_signal(editor::Sheet::None),
+        pos: use_signal(0.0),
+    };
+    syngui::signal::create_detached_effect(move || editor::follow(st));
+    st
+}
+
+/// `--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page library|player|subs|filters|settings|tracks|edit] [--at С] [ФАЙЛ]`:
+/// снимок интерфейса без окна. Без файла — библиотека из «Видео»; страницы плеера открывают `ФАЙЛ`
+/// (или первый ролик библиотеки) и ждут первых кадров.
+fn screenshot(args: &Args, shot: &Shot) -> std::result::Result<(u32, u32), String> {
+    use std::cell::Cell;
+    use std::rc::Rc;
+    let (cfg, _) = Config::load();
+    let mss = theme(&cfg);
+    let cell: Rc<Cell<Option<ui::St>>> = Rc::new(Cell::new(None));
+    let page = shot.page.clone();
+    let player_page = page != "library";
+    let file = args.file.clone();
+    let hw = args.hw;
+    let at = shot.at;
+    let started = Rc::new(Cell::new(None::<std::time::Instant>));
+    let ready = {
+        let cell = cell.clone();
+        let page = page.clone();
+        let started = started.clone();
+        let paused = Rc::new(Cell::new(None::<()>));
+        Box::new(move || -> bool {
+            let Some(st) = cell.get() else { return false };
+            if !player_page {
+                return !st.scanning.get_untracked() && st.cards.with_untracked(|c| c.iter().all(|c| c.pic.with_untracked(Option::is_some)));
+            }
+            // библиотека нашлась — открыть первый ролик
+            if st.playing.get_untracked().is_none() && st.opening.get_untracked().is_none() && st.error.get_untracked().is_none() {
+                let first = st.cards.with_untracked(|c| c.first().map(|c| c.item.path.clone()));
+                match first {
+                    Some(p) if !st.scanning.get_untracked() => ui::open_from(st, p, at),
+                    _ => return false,
+                }
+                return false;
+            }
+            let Some(p) = st.playing.get_untracked() else { return st.error.get_untracked().is_some() };
+            // первые кадры декодированы — пауза; дальше ждём сводку декодирования и ленту миниатюр
+            let pos = p.player.lock().map(|pl| pl.position_sec()).unwrap_or(0.0);
+            if paused.get().is_none() {
+                // кадры пошли с места открытия, способ декодирования известен — пауза
+                if pos < at.unwrap_or(0.0) + 0.3 || st.info.with_untracked(|i| i.as_ref().is_none_or(|i| !i.known)) {
+                    return false;
+                }
+                if let Ok(mut pl) = p.player.lock() {
+                    pl.pause();
+                }
+                paused.set(Some(()));
+            }
+            let thumbs = st.siblings.with_untracked(|c| c.iter().all(|c| c.pic.with_untracked(Option::is_some)));
+            if !thumbs {
+                return false;
+            }
+            if started.get().is_none() {
+                started.set(Some(std::time::Instant::now()));
+                match page.as_str() {
+                    "subs" => st.subs_open.set(true),
+                    "filters" => st.filters_open.set(true),
+                    "settings" => st.settings_open.set(true),
+                    "tracks" => st.tracks_open.set(true),
+                    "edit" => editor::start(st),
+                    _ => {}
+                }
+            }
+            true
+        }) as Box<dyn Fn() -> bool>
+    };
+    let opts = syngui::shot::ShotOptions { ready: Some(ready), settle: std::time::Duration::from_millis(1500), timeout: std::time::Duration::from_secs(60), ..Default::default() };
+    syngui::shot::render_png_with(
+        move || {
+            let st = new_state(hw, false);
+            cell.set(Some(st));
+            match &file {
+                Some(f) if player_page => {
+                    ui::open_from(st, f.into(), at);
+                }
+                _ => ui::rescan(st),
+            }
+            ui::root(st)
+        },
+        &mss,
+        shot.size,
+        shot.scale,
+        &shot.out,
+        opts,
+    )
 }
 
 fn theme(cfg: &Config) -> String {

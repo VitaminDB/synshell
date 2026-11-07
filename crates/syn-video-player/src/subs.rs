@@ -612,16 +612,16 @@ fn sync_card(st: St) -> W {
             return vec![];
         }
         let d = store.delay();
-        let value = if d.abs() < 0.0005 { t!("вовремя").to_string() } else { format!("{:+.1} с", d).replace('.', ",") };
-        let b = |label: &str, by: f64| -> W { Box::new(Button::new(label).on_click(move || shift(st, by)).class("sub-step")) };
+        let value = if d.abs() < 0.0005 { t!("вовремя").to_string() } else { t!("{s} с", s = syngui::i18n::decimal(&format!("{:+.1}", d))).to_string() };
+        let b = |label: &str, by: f64| -> W { Box::new(Button::new(syngui::i18n::decimal(label)).on_click(move || shift(st, by)).class("sub-step")) };
         let row = Row::new()
             .gap(6.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(b("−0,5", -0.5))
-            .child(b("−0,1", -0.1))
+            .child(b("−0.5", -0.5))
+            .child(b("−0.1", -0.1))
             .child(DecoratedBox::new().child(Text::new(value).class("sub-delay")).class("grow sub-delay-box"))
-            .child(b("+0,1", 0.1))
-            .child(b("+0,5", 0.5));
+            .child(b("+0.1", 0.1))
+            .child(b("+0.5", 0.5));
         let mut rows: Vec<W> = vec![Box::new(row)];
         if d.abs() >= 0.0005 {
             rows.push(Box::new(Button::new(t!("Сбросить")).icon(icons::UNDO).on_click(move || {
@@ -770,7 +770,7 @@ fn pct(v: f32) -> String {
 }
 
 fn pct1(v: f32) -> String {
-    format!("{v:.1} %").replace('.', ",")
+    syngui::i18n::decimal(&format!("{v:.1} %"))
 }
 
 fn ms(v: f32) -> String {
@@ -778,7 +778,7 @@ fn ms(v: f32) -> String {
 }
 
 fn times(v: f32) -> String {
-    format!("×{v:.2}").replace('.', ",")
+    syngui::i18n::decimal(&format!("×{v:.2}"))
 }
 
 const WEIGHTS: [u16; 4] = [400, 500, 600, 800];
