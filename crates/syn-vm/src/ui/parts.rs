@@ -348,6 +348,14 @@ pub fn ago(t: u64) -> String {
     }
 }
 
+/// Путь для показа: домашний каталог — «~» (короче и без имени пользователя на снимках).
+pub fn home_short(path: &str) -> String {
+    match std::env::var("HOME") {
+        Ok(h) if !h.is_empty() && path.starts_with(&format!("{h}/")) => format!("~{}", &path[h.len()..]),
+        _ => path.to_string(),
+    }
+}
+
 pub fn file_name(path: &str) -> String {
     std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string())
 }

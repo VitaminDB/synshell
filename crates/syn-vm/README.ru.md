@@ -6,7 +6,7 @@
 
 [English](README.md) · [Сайт](https://alexeyev.dev/ru/syndesktop/) · [AUR: syn-vm-bin](https://aur.archlinux.org/packages/syn-vm-bin) · [AUR: syn-vm-git](https://aur.archlinux.org/packages/syn-vm-git)
 
-![Обзор](docs/screenshots/overview-ru.png)
+![Windows 11 в окне syn-vm](docs/screenshots/screen-ru.png)
 
 </div>
 
@@ -15,6 +15,7 @@
 - **Мастер** — машина из ISO, импорт готового диска (qcow2/raw/img; переменные UEFI и TPM копируются) или пустая; заготовки для Linux, Windows 11/10, BSD, Android.
 - **Готово для Windows 11** — UEFI + Secure Boot, TPM 2.0 (swtpm), «Гостевые инструменты syn-vm» одной кнопкой: свой агент, свой драйвер virtio-serial и драйвер видеокарты syn-gpu (или по-старому virtio-win).
 - **Встроенный экран** — экран гостя прямо в окне, ввод, разрешение гостя под окно, буфер обмена с текстом и картинками в обе стороны; живые миниатюры в списке машин.
+- **3D-графика (syn-gpu)** — Vulkan и DirectX (через DXVK) в Windows-гостях считаются на видеокарте компьютера; видеокарта компьютера и видеопамять гостя выбираются в настройках; кадры игр — прямо в окно.
 - **Снимки** — создать, вернуть, удалить; USB-устройства после возврата переподключаются.
 - **Проброс устройств** — PCI (VFIO, возвращается компьютеру при выключении), USB **по физическому порту** (телефон, который уходит Android → fastboot → recovery, остаётся у гостя), устройства ввода, диски целиком, последовательные порты, TPM компьютера, звук PipeWire.
 - **Общие папки** — несколько у одной машины: virtiofs, 9p или SMB; в Windows подключаются дисками Z:, Y:…, в Linux — в /mnt/hostshare…
@@ -24,9 +25,13 @@
 - **MCP-сервер** — ИИ-агент управляет машинами: `claude mcp add syn-vm -- syn-vm --mcp`.
 - **14 языков** — как в системе или свой язык в настройках приложения.
 
-| Мастер | Настройки | Снимки |
-|---|---|---|
-| ![Мастер](docs/screenshots/wizard-ru.png) | ![Настройки](docs/screenshots/settings-ru.png) | ![Снимки](docs/screenshots/snapshots-ru.png) |
+| Обзор | Мастер |
+|---|---|
+| ![Обзор](docs/screenshots/overview-ru.png) | ![Мастер](docs/screenshots/wizard-ru.png) |
+
+| Настройки | Снимки |
+|---|---|
+| ![Настройки](docs/screenshots/settings-ru.png) | ![Снимки](docs/screenshots/snapshots-ru.png) |
 
 <!-- Видео: ссылка на YouTube — когда будет опубликовано.
 [![syn-vm за 2 минуты](docs/screenshots/video-thumb.png)](https://youtube.com/watch?v=…)

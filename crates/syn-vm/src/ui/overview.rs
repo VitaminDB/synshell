@@ -175,7 +175,8 @@ fn info(vm: &Vm) -> W {
         rows.push(parts::kv(t!("Общая папка"), vm.shared_dir.clone()));
     }
     rows.push(parts::kv(t!("Создана"), state::chrono_like(vm.created).replace('.', ":")));
-    rows.push(parts::kv(t!("Папка"), vm.dir().to_string_lossy().into_owned()));
+    // Домашний каталог — «~» (короче и без имени пользователя на снимках экрана).
+    rows.push(parts::kv(t!("Папка"), parts::home_short(&vm.dir().to_string_lossy())));
     parts::card(
         Column::new()
             .gap(10.0)

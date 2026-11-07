@@ -6,7 +6,7 @@
 
 [Русский](README.ru.md) · [Website](https://alexeyev.dev/syndesktop/) · [AUR: syn-vm-bin](https://aur.archlinux.org/packages/syn-vm-bin) · [AUR: syn-vm-git](https://aur.archlinux.org/packages/syn-vm-git)
 
-![Overview](docs/screenshots/overview-en.png)
+![Windows 11 running in syn-vm](docs/screenshots/screen-en.png)
 
 </div>
 
@@ -15,6 +15,7 @@
 - **Wizard** — create a machine from an ISO, import an existing disk (qcow2/raw/img, UEFI variables and TPM are copied), or start empty; presets for Linux, Windows 11/10, BSD, Android.
 - **Windows 11 ready** — UEFI + Secure Boot, TPM 2.0 (swtpm), “syn-vm Guest Tools” in one click: its own agent, its own virtio-serial driver and the syn-gpu graphics driver (or virtio-win, as before).
 - **Built-in display** — the guest screen right in the window, input, guest resolution follows the window, two-way clipboard with text and images; live thumbnails in the machine list.
+- **3D graphics (syn-gpu)** — Vulkan and DirectX (through DXVK) in Windows guests rendered on the host GPU; pick the host graphics card and the guest's video memory in the settings; game frames go straight into the window.
 - **Snapshots** — create, restore and delete; USB devices are replugged after a restore.
 - **Device passthrough** — PCI (VFIO, returned to the host on shutdown), USB **by physical port** (a phone that goes Android → fastboot → recovery stays with the guest), input devices, whole disks, serial ports, host TPM, PipeWire audio.
 - **Shared folders** — several per machine: virtiofs, 9p or SMB; mapped as Z:, Y:… in Windows and mounted at /mnt/hostshare… in Linux.
@@ -24,9 +25,13 @@
 - **MCP server** — let an AI agent drive your VMs: `claude mcp add syn-vm -- syn-vm --mcp`.
 - **14 languages** — the UI follows the system or the language chosen in the app.
 
-| Wizard | Settings | Snapshots |
-|---|---|---|
-| ![Wizard](docs/screenshots/wizard-en.png) | ![Settings](docs/screenshots/settings-en.png) | ![Snapshots](docs/screenshots/snapshots-en.png) |
+| Overview | Wizard |
+|---|---|
+| ![Overview](docs/screenshots/overview-en.png) | ![Wizard](docs/screenshots/wizard-en.png) |
+
+| Settings | Snapshots |
+|---|---|
+| ![Settings](docs/screenshots/settings-en.png) | ![Snapshots](docs/screenshots/snapshots-en.png) |
 
 <!-- Video: replace with the YouTube link when it is published.
 [![syn-vm in 2 minutes](docs/screenshots/video-thumb.png)](https://youtube.com/watch?v=…)

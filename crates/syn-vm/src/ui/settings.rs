@@ -238,7 +238,7 @@ fn cdrom(st: St, vm: &Vm) -> W {
     let id2 = vm.id.clone();
     let name = if vm.cdrom.is_empty() { t!("Пусто") } else { parts::file_name(&vm.cdrom) };
     let missing = !vm.cdrom.is_empty() && !std::path::Path::new(&vm.cdrom).exists();
-    let hint = if missing { t!("Файл не найден: {p}", p = vm.cdrom) } else if vm.cdrom.is_empty() { t!("Вставьте образ установки или драйверов") } else { vm.cdrom.clone() };
+    let hint = if missing { t!("Файл не найден: {p}", p = vm.cdrom) } else if vm.cdrom.is_empty() { t!("Вставьте образ установки или драйверов") } else { parts::home_short(&vm.cdrom) };
     let mut acts = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(btn(icons::DISC, t!("Выбрать образ…"), "soft", move || {
         let id = id.clone();
         std::thread::spawn(move || {
