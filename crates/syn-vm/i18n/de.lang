@@ -820,9 +820,8 @@
 "Включено всегда: syn-gpu — основная видеокарта этой машины (раздел «Экран и устройства»)" = "Immer an: syn-gpu ist die Hauptgrafikkarte dieser Maschine (Bereich „Bildschirm und Geräte“)"
 
 # gputools.rs — Linux-гости
-"  --gpu-tools МАШИНА [install|status]    гостевые инструменты syn-gpu: драйвер 3D-видеокарты в Windows и Linux" = "  --gpu-tools MASCHINE [install|status]  syn-gpu-Gastwerkzeuge: 3D-Grafiktreiber in Windows und Linux"
+"  --gpu-tools МАШИНА [install|status]    гостевые инструменты syn-gpu: драйвер 3D-видеокарты в Windows и Linux, диск инструментов DOS" = "  --gpu-tools MASCHINE [install|status]  syn-gpu-Gastwerkzeuge: 3D-Grafiktreiber in Windows und Linux, DOS-Werkzeugdisk"
 "Vulkan ICD установлен" = "Vulkan-ICD installiert"
-"Гостевые инструменты syn-gpu — для Windows и Linux" = "syn-gpu-Gasttools gibt es für Windows und Linux"
 "Драйвер видеокарты в Linux: образ в привод, установка через гостевой агент (DKMS — нужны gcc, make, dkms и заголовки ядра), Vulkan и OpenGL через Zink" = "Grafiktreiber in Linux: Abbild ins Laufwerk, Installation über den Gastagenten (DKMS — braucht gcc, make, dkms und Kernel-Header), Vulkan und OpenGL über Zink"
 "Не удалось смонтировать диск SYNGPU в госте:\n{tail}" = "Die SYNGPU-Disc ließ sich im Gast nicht einhängen:\n{tail}"
 "драйвер {v} не загружен" = "Treiber {v} nicht geladen"
@@ -831,3 +830,19 @@
 "Звуковая карта" = "Soundkarte"
 "Авто: у машины с BIOS — Sound Blaster 16 с AdLib (DOS, Windows 9x), у остальных — Intel HDA" = "Automatisch: BIOS-Maschinen bekommen Sound Blaster 16 mit AdLib (DOS, Windows 9x), die übrigen Intel HDA"
 "Машина с BIOS: DOS хватает 16–64 МБ, Windows 9x — 64–256 МБ" = "BIOS-Maschine: DOS braucht 16–64 MB, Windows 9x 64–256 MB"
+
+# src/dostools.rs, src/ui/settings.rs
+"Гостевые инструменты syn-gpu — для Windows, Linux и DOS (прошивка BIOS)" = "syn-gpu-Gasttools gibt es für Windows, Linux und DOS (BIOS-Firmware)"
+"Нет инструментов DOS syn-gpu (SYNGPU.COM): /usr/lib/syn-gpu/dos-tools или out/dos-tools сборки syn-virt" = "Keine syn-gpu-DOS-Werkzeuge (SYNGPU.COM): /usr/lib/syn-gpu/dos-tools oder out/dos-tools des syn-virt-Builds"
+"В DOS запустите {p} (диск с меткой SYNGPU — после дисков машины; буква зависит от их разделов, проверьте командой DIR)" = "Unter DOS {p} starten (die Festplatte mit der Bezeichnung SYNGPU folgt nach den Festplatten der Maschine; der Buchstabe hängt von deren Partitionen ab, mit DIR prüfen)"
+"Включите «3D-ускорение (syn-gpu)» — инструментам DOS нужна видеокарта syn-gpu" = "„3D-Beschleunigung (syn-gpu)“ einschalten — die DOS-Werkzeuge brauchen die syn-gpu-Grafikkarte"
+"Диск инструментов DOS включён: подключится при запуске машины" = "DOS-Werkzeugdisk eingeschaltet: wird beim Start der Maschine angeschlossen"
+"Диск инструментов DOS подключён к машине" = "DOS-Werkzeugdisk ist an die Maschine angeschlossen"
+"Диск инструментов DOS появится при следующем запуске машины (горячее подключение дисков IDE QEMU не умеет): выключите и включите её" = "Die DOS-Werkzeugdisk erscheint beim nächsten Start der Maschine (QEMU kann IDE-Festplatten nicht im laufenden Betrieb anschließen): ausschalten und wieder starten"
+"диск инструментов DOS выключен (syn-vm --gpu-tools {id} install)" = "DOS-Werkzeugdisk ist aus (syn-vm --gpu-tools {id} install)"
+"диск инструментов DOS включён — подключится при запуске" = "DOS-Werkzeugdisk ist an — wird beim Start angeschlossen"
+"диск инструментов DOS подключён" = "DOS-Werkzeugdisk ist angeschlossen"
+"диск инструментов DOS включён — подключится при следующем запуске" = "DOS-Werkzeugdisk ist an — wird beim nächsten Start angeschlossen"
+"Диск инструментов DOS" = "DOS-Werkzeugdisk"
+"Жёсткий диск FAT с каталогом SYNGPU: Glide 2.x для игр DOS на видеокарте хоста. Подключается при запуске машины, изменения на нём не сохраняются." = "FAT-Festplatte mit dem Ordner SYNGPU: Glide 2.x für DOS-Spiele auf der Grafikkarte des Hosts. Wird beim Start der Maschine angeschlossen, Änderungen darauf bleiben nicht erhalten."
+"Диск инструментов DOS появится при следующем запуске машины" = "Die DOS-Werkzeugdisk erscheint beim nächsten Start der Maschine"

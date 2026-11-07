@@ -817,9 +817,8 @@
 "Включено всегда: syn-gpu — основная видеокарта этой машины (раздел «Экран и устройства»)" = "始终开启：syn-gpu 是这台虚拟机的主显卡（“屏幕和设备”部分）"
 
 # gputools.rs — Linux-гости
-"  --gpu-tools МАШИНА [install|status]    гостевые инструменты syn-gpu: драйвер 3D-видеокарты в Windows и Linux" = "  --gpu-tools 虚拟机 [install|status]       syn-gpu 客户机工具：Windows 和 Linux 中的 3D 显卡驱动"
+"  --gpu-tools МАШИНА [install|status]    гостевые инструменты syn-gpu: драйвер 3D-видеокарты в Windows и Linux, диск инструментов DOS" = "  --gpu-tools 虚拟机 [install|status]       syn-gpu 客户机工具：Windows 和 Linux 中的 3D 显卡驱动，DOS 工具盘"
 "Vulkan ICD установлен" = "已安装 Vulkan ICD"
-"Гостевые инструменты syn-gpu — для Windows и Linux" = "syn-gpu 客户机工具适用于 Windows 和 Linux"
 "Драйвер видеокарты в Linux: образ в привод, установка через гостевой агент (DKMS — нужны gcc, make, dkms и заголовки ядра), Vulkan и OpenGL через Zink" = "Linux 中的显卡驱动：镜像放入光驱，通过客户机代理安装（DKMS——需要 gcc、make、dkms 和内核头文件），Vulkan 以及通过 Zink 的 OpenGL"
 "Не удалось смонтировать диск SYNGPU в госте:\n{tail}" = "无法在客户机中挂载 SYNGPU 光盘：\n{tail}"
 "драйвер {v} не загружен" = "驱动 {v} 未加载"
@@ -828,3 +827,19 @@
 "Звуковая карта" = "声卡"
 "Авто: у машины с BIOS — Sound Blaster 16 с AdLib (DOS, Windows 9x), у остальных — Intel HDA" = "自动：BIOS 虚拟机使用带 AdLib 的 Sound Blaster 16（DOS、Windows 9x），其余使用 Intel HDA"
 "Машина с BIOS: DOS хватает 16–64 МБ, Windows 9x — 64–256 МБ" = "BIOS 虚拟机：DOS 需要 16–64 MB，Windows 9x 需要 64–256 MB"
+
+# src/dostools.rs, src/ui/settings.rs
+"Гостевые инструменты syn-gpu — для Windows, Linux и DOS (прошивка BIOS)" = "syn-gpu 客户机工具适用于 Windows、Linux 和 DOS（BIOS 固件）"
+"Нет инструментов DOS syn-gpu (SYNGPU.COM): /usr/lib/syn-gpu/dos-tools или out/dos-tools сборки syn-virt" = "没有 syn-gpu 的 DOS 工具（SYNGPU.COM）：/usr/lib/syn-gpu/dos-tools 或 syn-virt 构建的 out/dos-tools"
+"В DOS запустите {p} (диск с меткой SYNGPU — после дисков машины; буква зависит от их разделов, проверьте командой DIR)" = "在 DOS 中运行 {p}（卷标为 SYNGPU 的磁盘排在虚拟机磁盘之后；盘符取决于它们的分区，请用 DIR 查看）"
+"Включите «3D-ускорение (syn-gpu)» — инструментам DOS нужна видеокарта syn-gpu" = "请打开“3D 加速（syn-gpu）”——DOS 工具需要 syn-gpu 显卡"
+"Диск инструментов DOS включён: подключится при запуске машины" = "已启用 DOS 工具盘：虚拟机启动时接入"
+"Диск инструментов DOS подключён к машине" = "DOS 工具盘已接入虚拟机"
+"Диск инструментов DOS появится при следующем запуске машины (горячее подключение дисков IDE QEMU не умеет): выключите и включите её" = "DOS 工具盘将在虚拟机下次启动时出现（QEMU 不能热插 IDE 磁盘）：请关机后重新启动"
+"диск инструментов DOS выключен (syn-vm --gpu-tools {id} install)" = "DOS 工具盘已关闭（syn-vm --gpu-tools {id} install）"
+"диск инструментов DOS включён — подключится при запуске" = "DOS 工具盘已启用——启动时接入"
+"диск инструментов DOS подключён" = "DOS 工具盘已接入"
+"диск инструментов DOS включён — подключится при следующем запуске" = "DOS 工具盘已启用——下次启动时接入"
+"Диск инструментов DOS" = "DOS 工具盘"
+"Жёсткий диск FAT с каталогом SYNGPU: Glide 2.x для игр DOS на видеокарте хоста. Подключается при запуске машины, изменения на нём не сохраняются." = "带 SYNGPU 文件夹的 FAT 硬盘：在主机显卡上运行 DOS 游戏的 Glide 2.x。虚拟机启动时接入，对其的更改不会保留。"
+"Диск инструментов DOS появится при следующем запуске машины" = "DOS 工具盘将在虚拟机下次启动时出现"

@@ -45,11 +45,14 @@ fn ps(vm: &Vm, script: &str, timeout: Duration) -> Result<(i32, String)> {
 /// Поставить инструменты: образ в привод, install.cmd, при 3010 — перезагрузка и ожидание
 /// агента. `step` — ход для пользователя. Итог — строка состояния.
 pub fn install(vm: &Vm, step: &dyn Fn(String)) -> Result<String> {
+    if crate::dostools::is_dos(vm) {
+        return crate::dostools::install(vm);
+    }
     if vm.os == crate::model::OsKind::Linux {
         return install_linux(vm, step);
     }
     if !vm.os.is_windows() {
-        bail!("{}", t!("Гостевые инструменты syn-gpu — для Windows и Linux"));
+        bail!("{}", t!("Гостевые инструменты syn-gpu — для Windows, Linux и DOS (прошивка BIOS)"));
     }
     let iso = iso().with_context(|| t!("Нет образа {iso} (SYN_GPU_TOOLS, /usr/share/syn-gpu или ~/.local/share/syn-gpu)", iso = ISO))?;
     step(t!("Образ в привод…"));

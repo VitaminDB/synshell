@@ -817,9 +817,8 @@
 "Включено всегда: syn-gpu — основная видеокарта этой машины (раздел «Экран и устройства»)" = "항상 켜짐: syn-gpu가 이 머신의 기본 그래픽 카드입니다 (“화면 및 장치” 섹션)"
 
 # gputools.rs — Linux-гости
-"  --gpu-tools МАШИНА [install|status]    гостевые инструменты syn-gpu: драйвер 3D-видеокарты в Windows и Linux" = "  --gpu-tools 머신 [install|status]        syn-gpu 게스트 도구: Windows 및 Linux의 3D 그래픽 드라이버"
+"  --gpu-tools МАШИНА [install|status]    гостевые инструменты syn-gpu: драйвер 3D-видеокарты в Windows и Linux, диск инструментов DOS" = "  --gpu-tools 머신 [install|status]        syn-gpu 게스트 도구: Windows 및 Linux의 3D 그래픽 드라이버, DOS 도구 디스크"
 "Vulkan ICD установлен" = "Vulkan ICD 설치됨"
-"Гостевые инструменты syn-gpu — для Windows и Linux" = "syn-gpu 게스트 도구는 Windows와 Linux용입니다"
 "Драйвер видеокарты в Linux: образ в привод, установка через гостевой агент (DKMS — нужны gcc, make, dkms и заголовки ядра), Vulkan и OpenGL через Zink" = "Linux 그래픽 드라이버: 이미지를 드라이브에 넣고 게스트 에이전트로 설치(DKMS — gcc, make, dkms, 커널 헤더 필요), Vulkan과 Zink를 통한 OpenGL"
 "Не удалось смонтировать диск SYNGPU в госте:\n{tail}" = "게스트에서 SYNGPU 디스크를 마운트하지 못했습니다:\n{tail}"
 "драйвер {v} не загружен" = "드라이버 {v} 로드되지 않음"
@@ -828,3 +827,19 @@
 "Звуковая карта" = "사운드 카드"
 "Авто: у машины с BIOS — Sound Blaster 16 с AdLib (DOS, Windows 9x), у остальных — Intel HDA" = "자동: BIOS 머신은 AdLib 포함 Sound Blaster 16(DOS, Windows 9x), 나머지는 Intel HDA"
 "Машина с BIOS: DOS хватает 16–64 МБ, Windows 9x — 64–256 МБ" = "BIOS 머신: DOS는 16–64MB, Windows 9x는 64–256MB면 충분합니다"
+
+# src/dostools.rs, src/ui/settings.rs
+"Гостевые инструменты syn-gpu — для Windows, Linux и DOS (прошивка BIOS)" = "syn-gpu 게스트 도구는 Windows, Linux, DOS(BIOS 펌웨어)용입니다"
+"Нет инструментов DOS syn-gpu (SYNGPU.COM): /usr/lib/syn-gpu/dos-tools или out/dos-tools сборки syn-virt" = "syn-gpu DOS 도구(SYNGPU.COM)가 없습니다: /usr/lib/syn-gpu/dos-tools 또는 syn-virt 빌드의 out/dos-tools"
+"В DOS запустите {p} (диск с меткой SYNGPU — после дисков машины; буква зависит от их разделов, проверьте командой DIR)" = "DOS에서 {p}를 실행하세요(레이블 SYNGPU 디스크는 머신 디스크 다음에 옵니다. 드라이브 문자는 그 파티션에 따라 다르니 DIR로 확인하세요)"
+"Включите «3D-ускорение (syn-gpu)» — инструментам DOS нужна видеокарта syn-gpu" = "“3D 가속(syn-gpu)”을 켜세요 — DOS 도구에는 syn-gpu 그래픽 카드가 필요합니다"
+"Диск инструментов DOS включён: подключится при запуске машины" = "DOS 도구 디스크 켜짐: 머신이 시작될 때 연결됩니다"
+"Диск инструментов DOS подключён к машине" = "DOS 도구 디스크가 머신에 연결되어 있습니다"
+"Диск инструментов DOS появится при следующем запуске машины (горячее подключение дисков IDE QEMU не умеет): выключите и включите её" = "DOS 도구 디스크는 머신을 다음에 시작할 때 나타납니다(QEMU는 IDE 디스크 핫플러그를 지원하지 않음): 종료한 뒤 다시 시작하세요"
+"диск инструментов DOS выключен (syn-vm --gpu-tools {id} install)" = "DOS 도구 디스크 꺼짐(syn-vm --gpu-tools {id} install)"
+"диск инструментов DOS включён — подключится при запуске" = "DOS 도구 디스크 켜짐 — 시작할 때 연결"
+"диск инструментов DOS подключён" = "DOS 도구 디스크 연결됨"
+"диск инструментов DOS включён — подключится при следующем запуске" = "DOS 도구 디스크 켜짐 — 다음 시작 때 연결"
+"Диск инструментов DOS" = "DOS 도구 디스크"
+"Жёсткий диск FAT с каталогом SYNGPU: Glide 2.x для игр DOS на видеокарте хоста. Подключается при запуске машины, изменения на нём не сохраняются." = "SYNGPU 폴더가 있는 FAT 하드 디스크: 호스트 그래픽 카드로 DOS 게임용 Glide 2.x. 머신 시작 시 연결되며 변경 내용은 유지되지 않습니다."
+"Диск инструментов DOS появится при следующем запуске машины" = "DOS 도구 디스크는 머신을 다음에 시작할 때 나타납니다"

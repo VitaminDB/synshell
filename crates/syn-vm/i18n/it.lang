@@ -820,9 +820,8 @@
 "Включено всегда: syn-gpu — основная видеокарта этой машины (раздел «Экран и устройства»)" = "Sempre attivo: syn-gpu è la scheda grafica principale di questa macchina (sezione «Schermo e dispositivi»)"
 
 # gputools.rs — Linux-гости
-"  --gpu-tools МАШИНА [install|status]    гостевые инструменты syn-gpu: драйвер 3D-видеокарты в Windows и Linux" = "  --gpu-tools MACCHINA [install|status]  strumenti guest syn-gpu: driver grafico 3D in Windows e Linux"
+"  --gpu-tools МАШИНА [install|status]    гостевые инструменты syn-gpu: драйвер 3D-видеокарты в Windows и Linux, диск инструментов DOS" = "  --gpu-tools MACCHINA [install|status]  strumenti guest syn-gpu: driver grafico 3D in Windows e Linux, disco strumenti DOS"
 "Vulkan ICD установлен" = "ICD Vulkan installato"
-"Гостевые инструменты syn-gpu — для Windows и Linux" = "Gli strumenti guest syn-gpu sono per Windows e Linux"
 "Драйвер видеокарты в Linux: образ в привод, установка через гостевой агент (DKMS — нужны gcc, make, dkms и заголовки ядра), Vulkan и OpenGL через Zink" = "Driver grafico in Linux: immagine nell’unità, installazione tramite l’agente guest (DKMS — servono gcc, make, dkms e gli header del kernel), Vulkan e OpenGL tramite Zink"
 "Не удалось смонтировать диск SYNGPU в госте:\n{tail}" = "Impossibile montare il disco SYNGPU nel guest:\n{tail}"
 "драйвер {v} не загружен" = "driver {v} non caricato"
@@ -831,3 +830,19 @@
 "Звуковая карта" = "Scheda audio"
 "Авто: у машины с BIOS — Sound Blaster 16 с AdLib (DOS, Windows 9x), у остальных — Intel HDA" = "Automatico: Sound Blaster 16 con AdLib per le macchine BIOS (DOS, Windows 9x), Intel HDA per le altre"
 "Машина с BIOS: DOS хватает 16–64 МБ, Windows 9x — 64–256 МБ" = "Macchina BIOS: a DOS bastano 16–64 MB, a Windows 9x 64–256 MB"
+
+# src/dostools.rs, src/ui/settings.rs
+"Гостевые инструменты syn-gpu — для Windows, Linux и DOS (прошивка BIOS)" = "Gli strumenti guest syn-gpu sono per Windows, Linux e DOS (firmware BIOS)"
+"Нет инструментов DOS syn-gpu (SYNGPU.COM): /usr/lib/syn-gpu/dos-tools или out/dos-tools сборки syn-virt" = "Nessuno strumento DOS syn-gpu (SYNGPU.COM): /usr/lib/syn-gpu/dos-tools o out/dos-tools della build di syn-virt"
+"В DOS запустите {p} (диск с меткой SYNGPU — после дисков машины; буква зависит от их разделов, проверьте командой DIR)" = "In DOS esegui {p} (il disco con etichetta SYNGPU viene dopo i dischi della macchina; la lettera dipende dalle loro partizioni, verifica con DIR)"
+"Включите «3D-ускорение (syn-gpu)» — инструментам DOS нужна видеокарта syn-gpu" = "Attiva «Accelerazione 3D (syn-gpu)»: gli strumenti DOS richiedono la scheda video syn-gpu"
+"Диск инструментов DOS включён: подключится при запуске машины" = "Disco strumenti DOS attivato: viene collegato all'avvio della macchina"
+"Диск инструментов DOS подключён к машине" = "Il disco strumenti DOS è collegato alla macchina"
+"Диск инструментов DOS появится при следующем запуске машины (горячее подключение дисков IDE QEMU не умеет): выключите и включите её" = "Il disco strumenti DOS comparirà al prossimo avvio della macchina (QEMU non collega a caldo i dischi IDE): spegnila e riavviala"
+"диск инструментов DOS выключен (syn-vm --gpu-tools {id} install)" = "Disco strumenti DOS disattivato (syn-vm --gpu-tools {id} install)"
+"диск инструментов DOS включён — подключится при запуске" = "Disco strumenti DOS attivo — collegato all'avvio"
+"диск инструментов DOS подключён" = "Disco strumenti DOS collegato"
+"диск инструментов DOS включён — подключится при следующем запуске" = "Disco strumenti DOS attivo — collegato al prossimo avvio"
+"Диск инструментов DOS" = "Disco strumenti DOS"
+"Жёсткий диск FAT с каталогом SYNGPU: Glide 2.x для игр DOS на видеокарте хоста. Подключается при запуске машины, изменения на нём не сохраняются." = "Disco rigido FAT con la cartella SYNGPU: Glide 2.x per i giochi DOS sulla scheda video dell'host. Collegato all'avvio della macchina; le modifiche non vengono conservate."
+"Диск инструментов DOS появится при следующем запуске машины" = "Il disco strumenti DOS comparirà al prossimo avvio della macchina"

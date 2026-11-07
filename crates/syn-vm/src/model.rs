@@ -516,6 +516,8 @@ pub struct Vm {
     pub guest_agent: bool,
     /// Второй привод с «Гостевыми инструментами» (virtio-win: драйверы, агент, spice-vdagent).
     pub tools_cd: bool,
+    /// BIOS и syn-gpu: «Диск инструментов DOS» (FAT, каталог SYNGPU) — дополнительным диском.
+    pub dos_tools: bool,
     /// Windows: свои «Гостевые инструменты» syn-vm или virtio-win.
     pub guest_tools: GuestTools,
     /// TPM компьютера вместо эмулятора (passthrough `/dev/tpmrm0`… — нужен доступ на запись).
@@ -564,6 +566,7 @@ impl Default for Vm {
             share_mode: ShareMode::Auto,
             guest_agent: true,
             tools_cd: false,
+            dos_tools: false,
             guest_tools: GuestTools::VirtioWin,
             tpm_host: false,
             audio_out: String::new(),

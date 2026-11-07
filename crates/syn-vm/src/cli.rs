@@ -25,7 +25,7 @@ pub fn help() -> String {
 const EXTRA_HELP: &[&str] = &[
     n_!("  --optimize МАШИНА [--apply]            Windows: быстрое видео, агент, диск инструментов; советы по диску и сети"),
     n_!("  --present-dump МАШИНА ФАЙЛ.png         экран гостя с кадром игры syn-gpu поверх (проверка слоя без окна)"),
-    n_!("  --gpu-tools МАШИНА [install|status]    гостевые инструменты syn-gpu: драйвер 3D-видеокарты в Windows и Linux"),
+    n_!("  --gpu-tools МАШИНА [install|status]    гостевые инструменты syn-gpu: драйвер 3D-видеокарты в Windows и Linux, диск инструментов DOS"),
 ];
 
 const HELP: &str = n_!("\
@@ -543,6 +543,14 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
         }
         "--gpu-tools" => {
             let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
+            // DOS: диск инструментов подключается при запуске — машина может быть выключена.
+            if crate::dostools::is_dos(&vm) {
+                match a.pos.get(1).map(String::as_str).unwrap_or("status") {
+                    "install" => println!("{}", crate::dostools::install(&vm)?),
+                    _ => println!("{}", crate::dostools::status(&vm)),
+                }
+                return Ok(0);
+            }
             running(&vm)?;
             match a.pos.get(1).map(String::as_str).unwrap_or("status") {
                 "install" => {

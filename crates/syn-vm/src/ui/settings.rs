@@ -532,8 +532,7 @@ fn shares(st: St, vm: &Vm) -> W {
 /// Видеокарта syn-gpu: 3D-ускорение, видеокарта компьютера, видеопамять гостя, инструменты в госте.
 fn gpu(st: St, vm: &Vm) -> W {
     let syn_display = vm.display == DisplayModel::SynGpu;
-    let mut rows: Vec<W> = vec![
-            row(
+    let mut rows: Vec<W> = vec![row(
                 t!("3D-ускорение (syn-gpu)"),
                 if syn_display {
                     t!("Включено всегда: syn-gpu — основная видеокарта этой машины (раздел «Экран и устройства»)")
@@ -558,7 +557,9 @@ fn gpu(st: St, vm: &Vm) -> W {
                     }
                 }),
             ),
-            {
+    ];
+    if !crate::dostools::is_dos(vm) {
+        rows.push({
                 // Гостевые инструменты syn-gpu: драйвер видеокарты в госте одной кнопкой.
                 let (a, b) = (vm.id.clone(), vm.id.clone());
                 let on = st.power(&vm.id).on();
@@ -575,8 +576,39 @@ fn gpu(st: St, vm: &Vm) -> W {
                     } else { t!("Драйвер видеокарты в Windows: образ в привод, установка через гостевой агент, при необходимости — перезагрузка") },
                     acts,
                 )
-            },
-    ];
+            });
+    }
+    if vm.firmware == model::Firmware::Bios {
+        // Диск инструментов DOS: FAT-диск с SYNGPU.COM и GLIDE2X.OVL, подключается при запуске.
+        let have = crate::dostools::tools_dir().is_some();
+        let running = st.power(&vm.id).on();
+        let hint = if !have {
+            t!("Нет инструментов DOS syn-gpu (SYNGPU.COM): /usr/lib/syn-gpu/dos-tools или out/dos-tools сборки syn-virt")
+        } else {
+            format!("{} {}", t!("Жёсткий диск FAT с каталогом SYNGPU: Glide 2.x для игр DOS на видеокарте хоста. Подключается при запуске машины, изменения на нём не сохраняются."), crate::dostools::howto(vm))
+        };
+        let id = vm.id.clone();
+        rows.push(row(
+            t!("Диск инструментов DOS"),
+            hint,
+            Toggle::with_state(vm.dos_tools).disabled(!have || !vm.gpu_on()).on_change(move |b| {
+                state::edit(st, |v| v.dos_tools = b);
+                if b {
+                    let id = id.clone();
+                    std::thread::spawn(move || {
+                        let r = crate::dostools::image();
+                        run_on_main_thread(move || match r {
+                            Err(e) => state::toast_err(st, format!("{e:#}")),
+                            Ok(_) if running && !st.vm(&id).is_some_and(|v| crate::dostools::attached(&v)) => {
+                                state::toast(st, t!("Диск инструментов DOS появится при следующем запуске машины"))
+                            }
+                            Ok(_) => {}
+                        });
+                    });
+                }
+            }),
+        ));
+    }
     if vm.gpu_on() {
         // Видеокарта компьютера: сервер syn-gpu выбирает по производителю (без ключа — NVIDIA, если есть).
         let cur = vm.gpu_arg("--gpu").unwrap_or_default();

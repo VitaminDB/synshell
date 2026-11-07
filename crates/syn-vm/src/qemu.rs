@@ -172,6 +172,10 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
             push(&["-device", "ide-cd,drive=cd1,bus=ide.5,id=toolscd"]);
         }
     }
+    // BIOS и syn-gpu: «Диск инструментов DOS» (SYNGPU.COM и GLIDE2X.OVL).
+    if let Some(d) = crate::dostools::qemu_args(vm) {
+        push(&d.iter().map(String::as_str).collect::<Vec<_>>());
+    }
 
     // Сеть.
     match vm.net {

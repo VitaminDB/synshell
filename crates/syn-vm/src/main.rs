@@ -11,6 +11,7 @@
 mod agent;
 mod cli;
 mod devices;
+mod dostools;
 mod mcp;
 mod qga;
 mod record;

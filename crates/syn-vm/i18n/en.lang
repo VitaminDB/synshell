@@ -820,9 +820,8 @@
 "Включено всегда: syn-gpu — основная видеокарта этой машины (раздел «Экран и устройства»)" = "Always on: syn-gpu is this machine’s main graphics card (“Screen and devices” section)"
 
 # gputools.rs — Linux-гости
-"  --gpu-tools МАШИНА [install|status]    гостевые инструменты syn-gpu: драйвер 3D-видеокарты в Windows и Linux" = "  --gpu-tools MACHINE [install|status]   syn-gpu guest tools: 3D graphics driver in Windows and Linux"
+"  --gpu-tools МАШИНА [install|status]    гостевые инструменты syn-gpu: драйвер 3D-видеокарты в Windows и Linux, диск инструментов DOS" = "  --gpu-tools MACHINE [install|status]   syn-gpu guest tools: 3D graphics driver in Windows and Linux, DOS tools disk"
 "Vulkan ICD установлен" = "Vulkan ICD installed"
-"Гостевые инструменты syn-gpu — для Windows и Linux" = "syn-gpu guest tools are for Windows and Linux"
 "Драйвер видеокарты в Linux: образ в привод, установка через гостевой агент (DKMS — нужны gcc, make, dkms и заголовки ядра), Vulkan и OpenGL через Zink" = "Graphics driver in Linux: image into the drive, installed through the guest agent (DKMS — needs gcc, make, dkms and kernel headers), Vulkan and OpenGL through Zink"
 "Не удалось смонтировать диск SYNGPU в госте:\n{tail}" = "Could not mount the SYNGPU disc in the guest:\n{tail}"
 "драйвер {v} не загружен" = "driver {v} not loaded"
@@ -831,3 +830,19 @@
 "Звуковая карта" = "Sound card"
 "Авто: у машины с BIOS — Sound Blaster 16 с AdLib (DOS, Windows 9x), у остальных — Intel HDA" = "Auto: Sound Blaster 16 with AdLib for BIOS machines (DOS, Windows 9x), Intel HDA for the rest"
 "Машина с BIOS: DOS хватает 16–64 МБ, Windows 9x — 64–256 МБ" = "BIOS machine: DOS needs 16–64 MB, Windows 9x 64–256 MB"
+
+# src/dostools.rs, src/ui/settings.rs
+"Гостевые инструменты syn-gpu — для Windows, Linux и DOS (прошивка BIOS)" = "syn-gpu guest tools are for Windows, Linux and DOS (BIOS firmware)"
+"Нет инструментов DOS syn-gpu (SYNGPU.COM): /usr/lib/syn-gpu/dos-tools или out/dos-tools сборки syn-virt" = "No syn-gpu DOS tools (SYNGPU.COM): /usr/lib/syn-gpu/dos-tools or out/dos-tools of the syn-virt build"
+"В DOS запустите {p} (диск с меткой SYNGPU — после дисков машины; буква зависит от их разделов, проверьте командой DIR)" = "In DOS run {p} (the disk labelled SYNGPU comes after the machine's disks; the letter depends on their partitions, check with DIR)"
+"Включите «3D-ускорение (syn-gpu)» — инструментам DOS нужна видеокарта syn-gpu" = "Turn on “3D acceleration (syn-gpu)” — the DOS tools need the syn-gpu video card"
+"Диск инструментов DOS включён: подключится при запуске машины" = "DOS tools disk enabled: it is attached when the machine starts"
+"Диск инструментов DOS подключён к машине" = "DOS tools disk is attached to the machine"
+"Диск инструментов DOS появится при следующем запуске машины (горячее подключение дисков IDE QEMU не умеет): выключите и включите её" = "The DOS tools disk will appear on the next start of the machine (QEMU cannot hot-plug IDE disks): shut it down and start it again"
+"диск инструментов DOS выключен (syn-vm --gpu-tools {id} install)" = "DOS tools disk is off (syn-vm --gpu-tools {id} install)"
+"диск инструментов DOS включён — подключится при запуске" = "DOS tools disk is on — attached at start"
+"диск инструментов DOS подключён" = "DOS tools disk is attached"
+"диск инструментов DOS включён — подключится при следующем запуске" = "DOS tools disk is on — attached on the next start"
+"Диск инструментов DOS" = "DOS tools disk"
+"Жёсткий диск FAT с каталогом SYNGPU: Glide 2.x для игр DOS на видеокарте хоста. Подключается при запуске машины, изменения на нём не сохраняются." = "FAT hard disk with the SYNGPU folder: Glide 2.x for DOS games on the host video card. Attached when the machine starts; changes to it are not kept."
+"Диск инструментов DOS появится при следующем запуске машины" = "The DOS tools disk will appear on the next start of the machine"

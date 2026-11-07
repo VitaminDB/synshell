@@ -820,9 +820,8 @@
 "Включено всегда: syn-gpu — основная видеокарта этой машины (раздел «Экран и устройства»)" = "Sempre ativado: syn-gpu é a placa de vídeo principal desta máquina (seção “Tela e dispositivos”)"
 
 # gputools.rs — Linux-гости
-"  --gpu-tools МАШИНА [install|status]    гостевые инструменты syn-gpu: драйвер 3D-видеокарты в Windows и Linux" = "  --gpu-tools MÁQUINA [install|status]   ferramentas de convidado syn-gpu: driver gráfico 3D no Windows e Linux"
+"  --gpu-tools МАШИНА [install|status]    гостевые инструменты syn-gpu: драйвер 3D-видеокарты в Windows и Linux, диск инструментов DOS" = "  --gpu-tools MÁQUINA [install|status]   ferramentas de convidado syn-gpu: driver gráfico 3D no Windows e Linux, disco de ferramentas DOS"
 "Vulkan ICD установлен" = "ICD do Vulkan instalado"
-"Гостевые инструменты syn-gpu — для Windows и Linux" = "As ferramentas de convidado syn-gpu são para Windows e Linux"
 "Драйвер видеокарты в Linux: образ в привод, установка через гостевой агент (DKMS — нужны gcc, make, dkms и заголовки ядра), Vulkan и OpenGL через Zink" = "Driver de vídeo no Linux: imagem na unidade, instalação pelo agente do convidado (DKMS — requer gcc, make, dkms e cabeçalhos do kernel), Vulkan e OpenGL via Zink"
 "Не удалось смонтировать диск SYNGPU в госте:\n{tail}" = "Não foi possível montar o disco SYNGPU no convidado:\n{tail}"
 "драйвер {v} не загружен" = "driver {v} não carregado"
@@ -831,3 +830,19 @@
 "Звуковая карта" = "Placa de som"
 "Авто: у машины с BIOS — Sound Blaster 16 с AdLib (DOS, Windows 9x), у остальных — Intel HDA" = "Automático: Sound Blaster 16 com AdLib para máquinas BIOS (DOS, Windows 9x), Intel HDA para as demais"
 "Машина с BIOS: DOS хватает 16–64 МБ, Windows 9x — 64–256 МБ" = "Máquina BIOS: o DOS precisa de 16–64 MB; o Windows 9x, de 64–256 MB"
+
+# src/dostools.rs, src/ui/settings.rs
+"Гостевые инструменты syn-gpu — для Windows, Linux и DOS (прошивка BIOS)" = "As ferramentas de convidado syn-gpu são para Windows, Linux e DOS (firmware BIOS)"
+"Нет инструментов DOS syn-gpu (SYNGPU.COM): /usr/lib/syn-gpu/dos-tools или out/dos-tools сборки syn-virt" = "Sem ferramentas DOS do syn-gpu (SYNGPU.COM): /usr/lib/syn-gpu/dos-tools ou out/dos-tools da compilação do syn-virt"
+"В DOS запустите {p} (диск с меткой SYNGPU — после дисков машины; буква зависит от их разделов, проверьте командой DIR)" = "No DOS execute {p} (o disco com rótulo SYNGPU vem depois dos discos da máquina; a letra depende das partições deles, confira com DIR)"
+"Включите «3D-ускорение (syn-gpu)» — инструментам DOS нужна видеокарта syn-gpu" = "Ative “Aceleração 3D (syn-gpu)” — as ferramentas DOS precisam da placa de vídeo syn-gpu"
+"Диск инструментов DOS включён: подключится при запуске машины" = "Disco de ferramentas DOS ativado: é conectado ao iniciar a máquina"
+"Диск инструментов DOS подключён к машине" = "O disco de ferramentas DOS está conectado à máquina"
+"Диск инструментов DOS появится при следующем запуске машины (горячее подключение дисков IDE QEMU не умеет): выключите и включите её" = "O disco de ferramentas DOS aparecerá na próxima inicialização da máquina (o QEMU não conecta discos IDE a quente): desligue-a e ligue de novo"
+"диск инструментов DOS выключен (syn-vm --gpu-tools {id} install)" = "Disco de ferramentas DOS desativado (syn-vm --gpu-tools {id} install)"
+"диск инструментов DOS включён — подключится при запуске" = "Disco de ferramentas DOS ativado — conectado ao iniciar"
+"диск инструментов DOS подключён" = "Disco de ferramentas DOS conectado"
+"диск инструментов DOS включён — подключится при следующем запуске" = "Disco de ferramentas DOS ativado — conectado na próxima inicialização"
+"Диск инструментов DOS" = "Disco de ferramentas DOS"
+"Жёсткий диск FAT с каталогом SYNGPU: Glide 2.x для игр DOS на видеокарте хоста. Подключается при запуске машины, изменения на нём не сохраняются." = "Disco rígido FAT com a pasta SYNGPU: Glide 2.x para jogos DOS na placa de vídeo do host. Conectado ao iniciar a máquina; as alterações nele não são mantidas."
+"Диск инструментов DOS появится при следующем запуске машины" = "O disco de ferramentas DOS aparecerá na próxima inicialização da máquina"
