@@ -89,10 +89,14 @@ build() {
   meson compile -C bwrap-build
 
   # первая установка клиента (окно хода загрузки) — крейт setup/ workspace synshell
-  local ws; ws=$(cd "$startdir/../.." && pwd)
-  cargo build --manifest-path "$ws/Cargo.toml" --profile "${SYN_STEAM_PROFILE:-release}" -p syn-steam-setup \
+  local ws prof=${SYN_STEAM_PROFILE:-release} pv
+  ws=$(cd "$startdir/../.." && pwd)
+  # без отладочных сведений (пакет не strip-ается: setuid bwrap и кросс-сборка)
+  pv=${prof^^}; pv=${pv//-/_}
+  export "CARGO_PROFILE_${pv}_DEBUG=false" "CARGO_PROFILE_${pv}_STRIP=symbols"
+  cargo build --manifest-path "$ws/Cargo.toml" --profile "$prof" -p syn-steam-setup \
     --target-dir "${CARGO_TARGET_DIR:-$ws/target}"
-  install -m755 "${CARGO_TARGET_DIR:-$ws/target}/${CARGO_BUILD_TARGET:+$CARGO_BUILD_TARGET/}${SYN_STEAM_PROFILE:-release}/syn-steam-setup" \
+  install -m755 "${CARGO_TARGET_DIR:-$ws/target}/${CARGO_BUILD_TARGET:+$CARGO_BUILD_TARGET/}$prof/syn-steam-setup" \
     "$srcdir/syn-steam-setup"
 }
 

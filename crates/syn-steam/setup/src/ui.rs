@@ -57,6 +57,8 @@ enum Phase {
 #[derive(Clone, Copy)]
 struct St {
     phase: RwSignal<Phase>,
+    /// Последний прочитанный манифест — версия и размер видны и во время загрузки.
+    manifest: RwSignal<Option<Arc<Manifest>>>,
     window: RwSignal<WindowState>,
     opts: &'static Opts,
 }
@@ -86,7 +88,11 @@ fn check(st: St) {
     std::thread::spawn(move || {
         let r = install::fetch_manifest(channel);
         run_on_main_thread(move || match r {
-            Ok((m, _)) => st.phase.set(Phase::Ready(Arc::new(m))),
+            Ok((m, _)) => {
+                let m = Arc::new(m);
+                st.manifest.set(Some(m.clone()));
+                st.phase.set(Phase::Ready(m));
+            }
             Err(e) => set_error(st, e),
         });
     });
@@ -208,7 +214,7 @@ fn page(st: St) -> W {
                         s = mb(m.download_size())
                     ),
                     Phase::Checking => t!("Проверка версии…"),
-                    _ => String::new(),
+                    _ => st.manifest.get().map(|m| t!("Версия {v}, скачать {s}.", v = &m.version, s = mb(m.download_size()))).unwrap_or_default(),
                 };
                 if !info.is_empty() {
                     col = col.child(Text::new(info).max_lines(2).class("muted"));
@@ -398,6 +404,7 @@ pub fn run(opts: Opts) -> i32 {
         .run(move |_| {
             let st = St {
                 phase: use_signal(Phase::Checking),
+                manifest: use_signal(None),
                 window,
                 opts,
             };
@@ -449,9 +456,13 @@ pub fn screenshot(args: Vec<String>) {
                 "busy" => Phase::Busy("Скачивание 120,4 из 273,7 МБ (файл 5 из 17)".into(), Some(0.44)),
                 "offline" => Phase::Offline("https://client-update.fastly.steamstatic.com/steam_client_linuxarm64: dns failed".into()),
                 "error" => Phase::Error("bins_linuxarm64_linuxarm64.zip.dc81: другой файл — 1000 байт".into()),
-                _ => Phase::Ready(Arc::new(demo)),
+                _ => Phase::Ready(Arc::new(demo.clone())),
             };
             let st = St {
+                manifest: use_signal(match &phase {
+                    Phase::Busy(..) => Some(Arc::new(demo.clone())),
+                    _ => None,
+                }),
                 phase: use_signal(phase),
                 window: use_signal(WindowState::default()),
                 opts,
