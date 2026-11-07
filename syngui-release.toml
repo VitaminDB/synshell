@@ -257,6 +257,16 @@ files = [
   { run = "cat \"$HOME/Storage/Нейросети/Модели/pronunciation/w2v2-xlsr53-espeak/model.toml\"", to = "usr/share/synaptix/models/pronunciation/w2v2-xlsr53-espeak/model.toml" },
 ]
 
+[packages.synaptix-model-wavlm-silero]
+description = "Модель synaptix: WavLM Large, обученная synspeak на американском эталоне и синтезе русского акцента — оценка произношения с отдельными русскими звуками. Лицензия MIT"
+description_en = "synaptix model: WavLM Large trained by synspeak on American reference speech and synthetic Russian accent — pronunciation scoring with separate Russian sounds. MIT"
+depends = ["synaptix"]
+aur = false
+files = [
+  { run = "cat \"$HOME/Storage/Нейросети/Модели/pronunciation/wavlm-silero/model.syn\"", to = "usr/share/synaptix/models/pronunciation/wavlm-silero/model.syn" },
+  { run = "cat \"$HOME/Storage/Нейросети/Модели/pronunciation/wavlm-silero/model.toml\"", to = "usr/share/synaptix/models/pronunciation/wavlm-silero/model.toml" },
+]
+
 [packages.syn-notes]
 description = "Заметки synshell: страницы-холсты, канбан, Гант, карты мыслей, календарь, напоминания"
 description_en = "synshell Notes: canvas pages, kanban, Gantt, mind maps, calendar, reminders"
