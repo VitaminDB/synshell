@@ -825,3 +825,6 @@
 "драйвер {v} не загружен" = "드라이버 {v} 로드되지 않음"
 "Перезагрузите гостя: новый драйвер загрузится после перезагрузки" = "게스트를 다시 시작하세요: 새 드라이버는 다시 시작한 후 로드됩니다"
 "Машине с BIOS и видеокартой syn-gpu нужен QEMU со свойством x-vga у vfio-user-pci (патч syn-virt): укажите его в переменной SYN_VM_QEMU или выберите прошивку UEFI" = "BIOS와 syn-gpu 그래픽 카드를 쓰는 머신에는 vfio-user-pci에 x-vga 속성이 있는 QEMU(syn-virt 패치)가 필요합니다: SYN_VM_QEMU에 지정하거나 UEFI 펌웨어를 선택하세요"
+"Звуковая карта" = "사운드 카드"
+"Авто: у машины с BIOS — Sound Blaster 16 с AdLib (DOS, Windows 9x), у остальных — Intel HDA" = "자동: BIOS 머신은 AdLib 포함 Sound Blaster 16(DOS, Windows 9x), 나머지는 Intel HDA"
+"Машина с BIOS: DOS хватает 16–64 МБ, Windows 9x — 64–256 МБ" = "BIOS 머신: DOS는 16–64MB, Windows 9x는 64–256MB면 충분합니다"

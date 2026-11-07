@@ -312,6 +312,39 @@ pub struct UsbPass {
     pub name: String,
 }
 
+/// Звуковая карта гостя.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum SoundCard {
+    /// BIOS — Sound Blaster 16 с AdLib (DOS, Windows 9x), иначе Intel HDA.
+    #[default]
+    Auto,
+    Hda,
+    Sb16,
+    Ac97,
+}
+
+impl SoundCard {
+    pub const ALL: [SoundCard; 4] = [SoundCard::Auto, SoundCard::Hda, SoundCard::Sb16, SoundCard::Ac97];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            SoundCard::Auto => n_!("Авто"),
+            SoundCard::Hda => n_!("Intel HDA"),
+            SoundCard::Sb16 => n_!("Sound Blaster 16"),
+            SoundCard::Ac97 => n_!("AC97"),
+        }
+    }
+
+    pub fn resolve(self, fw: Firmware) -> SoundCard {
+        match self {
+            SoundCard::Auto if fw == Firmware::Bios => SoundCard::Sb16,
+            SoundCard::Auto => SoundCard::Hda,
+            c => c,
+        }
+    }
+}
+
 /// Как гость видит общую папку.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[serde(rename_all = "kebab-case")]
@@ -465,6 +498,8 @@ pub struct Vm {
     /// Доп. ключи сервера syn-gpu (`--heap-gib 4 --gpu nvidia`).
     pub gpu3d_args: String,
     pub sound: bool,
+    /// Звуковая карта (`auto` — по прошивке).
+    pub sound_card: SoundCard,
     /// Общий буфер обмена (qemu-vdagent, в госте — spice-vdagent).
     pub clipboard: bool,
     /// Общая папка хоста (9p, метка `hostshare`).
@@ -520,6 +555,7 @@ impl Default for Vm {
             gpu3d: false,
             gpu3d_args: String::new(),
             sound: true,
+            sound_card: SoundCard::Auto,
             clipboard: true,
             shared_dir: String::new(),
             shares: Vec::new(),

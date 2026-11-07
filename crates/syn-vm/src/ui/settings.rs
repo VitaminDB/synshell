@@ -156,7 +156,22 @@ fn hardware(st: St, vm: &Vm) -> W {
         t!("Процессор и память"),
         vec![
             row(t!("Ядра процессора"), t!("У компьютера — {n}; оставьте одно-два себе", n = host_cpu), ctl(cpu_slider, cpu_label)),
-            row(t!("Память"), t!("У компьютера — {m}; гость берёт её по мере надобности", m = parts::mem_mb(host_mem)), ctl(mem_slider, mem_label)),
+            if vm.firmware == Firmware::Bios {
+                // BIOS (DOS, Windows 9x): объёмы от 16 МБ — ползунок до объёма компьютера их не даёт выбрать.
+                let mut dd = Dropdown::new().width(160.0);
+                for mb in [16u32, 32, 64, 128, 256, 512, 1024, 2048, 4096].into_iter().filter(|m| *m as u64 <= host_mem as u64) {
+                    dd = dd.item(DropdownItem::new(mb.to_string(), parts::mem_mb(mb)));
+                }
+                let cur = vm.memory_mb.to_string();
+                let w = boxed(dd.selected(cur).on_change(move |s: &str| {
+                    if let Ok(n) = s.parse::<u32>() {
+                        state::edit(st, |vm| vm.memory_mb = n);
+                    }
+                }));
+                row(t!("Память"), t!("Машина с BIOS: DOS хватает 16–64 МБ, Windows 9x — 64–256 МБ"), DecoratedBox::new().child(w))
+            } else {
+                row(t!("Память"), t!("У компьютера — {m}; гость берёт её по мере надобности", m = parts::mem_mb(host_mem)), ctl(mem_slider, mem_label))
+            },
         ],
     )
 }
@@ -428,6 +443,11 @@ fn devices(st: St, vm: &Vm) -> W {
             ),
             row(t!("Разрешение под окно"), t!("Гость получает размер окна (нужен драйвер virtio-gpu или QXL)"), Toggle::with_state(vm.auto_resize).on_change(move |b| state::edit(st, |v| v.auto_resize = b))),
             row(t!("Звук"), t!("Через PipeWire компьютера"), Toggle::with_state(vm.sound).on_change(move |b| state::edit(st, |v| v.sound = b))),
+            row(
+                t!("Звуковая карта"),
+                t!("Авто: у машины с BIOS — Sound Blaster 16 с AdLib (DOS, Windows 9x), у остальных — Intel HDA"),
+                dropdown(&model::SoundCard::ALL, vm.sound_card, model::SoundCard::title, |c| format!("{c:?}"), 200.0, move |c| state::edit(st, |v| v.sound_card = c)),
+            ),
             row(t!("Вывод звука"), t!("Динамики или наушники для гостя"), DecoratedBox::new().child(audio(false, vm.audio_out.clone()))),
             row(t!("Микрофон"), t!("Что гость слышит как вход"), DecoratedBox::new().child(audio(true, vm.audio_in.clone()))),
             row(

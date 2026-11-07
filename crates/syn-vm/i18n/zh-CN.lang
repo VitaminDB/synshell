@@ -825,3 +825,6 @@
 "драйвер {v} не загружен" = "驱动 {v} 未加载"
 "Перезагрузите гостя: новый драйвер загрузится после перезагрузки" = "请重启客户机：新驱动会在重启后加载"
 "Машине с BIOS и видеокартой syn-gpu нужен QEMU со свойством x-vga у vfio-user-pci (патч syn-virt): укажите его в переменной SYN_VM_QEMU или выберите прошивку UEFI" = "使用 BIOS 和 syn-gpu 显卡的虚拟机需要 vfio-user-pci 带 x-vga 属性的 QEMU（syn-virt 补丁）：请在 SYN_VM_QEMU 中指定，或改用 UEFI 固件"
+"Звуковая карта" = "声卡"
+"Авто: у машины с BIOS — Sound Blaster 16 с AdLib (DOS, Windows 9x), у остальных — Intel HDA" = "自动：BIOS 虚拟机使用带 AdLib 的 Sound Blaster 16（DOS、Windows 9x），其余使用 Intel HDA"
+"Машина с BIOS: DOS хватает 16–64 МБ, Windows 9x — 64–256 МБ" = "BIOS 虚拟机：DOS 需要 16–64 MB，Windows 9x 需要 64–256 MB"

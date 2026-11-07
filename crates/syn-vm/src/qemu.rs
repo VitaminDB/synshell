@@ -87,11 +87,13 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
     };
     push(&["-cpu", &cpu]);
     push(&["-smp", &format!("{}", vm.cpus.max(1))]);
-    push(&["-m", &format!("{}M", vm.memory_mb.max(256))]);
+    // UEFI (OVMF) нужно не меньше 256 МБ; BIOS-машинам (DOS) хватает и 16.
+    let mem_min = if vm.firmware == Firmware::Bios { 16 } else { 256 };
+    push(&["-m", &format!("{}M", vm.memory_mb.max(mem_min))]);
     let share = vm.share();
     if share == Some(ShareMode::Virtiofs) {
         // virtiofs (vhost-user) читает память гостя напрямую — память общая.
-        push(&["-object", &format!("memory-backend-memfd,id=mem,size={}M,share=on", vm.memory_mb.max(256)), "-numa", "node,memdev=mem"]);
+        push(&["-object", &format!("memory-backend-memfd,id=mem,size={}M,share=on", vm.memory_mb.max(mem_min)), "-numa", "node,memdev=mem"]);
     }
     push(&["-pidfile", &run.join("qemu.pid").to_string_lossy()]);
     push(&["-qmp", &format!("unix:{},server=on,wait=off", vm.qmp_path().display())]);
@@ -215,7 +217,13 @@ pub fn args(vm: &Vm) -> Result<Vec<String>> {
         if !vm.audio_in.is_empty() {
             ad.push_str(&format!(",in.name={}", vm.audio_in.replace(',', ",,")));
         }
-        push(&["-audiodev", &ad, "-device", "ich9-intel-hda", "-device", "hda-duplex,audiodev=snd0"]);
+        push(&["-audiodev", &ad]);
+        match vm.sound_card.resolve(vm.firmware) {
+            // DOS-игры: цифровой звук SB16 и музыка FM-синтезом AdLib (OPL2, порт 0x388).
+            crate::model::SoundCard::Sb16 => push(&["-device", "sb16,audiodev=snd0", "-device", "adlib,audiodev=snd0"]),
+            crate::model::SoundCard::Ac97 => push(&["-device", "AC97,audiodev=snd0"]),
+            _ => push(&["-device", "ich9-intel-hda", "-device", "hda-duplex,audiodev=snd0"]),
+        }
     }
 
     if vm.tpm && vm.tpm_host {

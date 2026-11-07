@@ -831,3 +831,6 @@
 "драйвер {v} не загружен" = "sterownik {v} nie jest załadowany"
 "Перезагрузите гостя: новый драйвер загрузится после перезагрузки" = "Uruchom gościa ponownie: nowy sterownik załaduje się po ponownym uruchomieniu"
 "Машине с BIOS и видеокартой syn-gpu нужен QEMU со свойством x-vga у vfio-user-pci (патч syn-virt): укажите его в переменной SYN_VM_QEMU или выберите прошивку UEFI" = "Maszyna z BIOS-em i kartą graficzną syn-gpu potrzebuje QEMU, którego vfio-user-pci ma właściwość x-vga (łatka syn-virt): wskaż go w SYN_VM_QEMU albo wybierz oprogramowanie UEFI"
+"Звуковая карта" = "Karta dźwiękowa"
+"Авто: у машины с BIOS — Sound Blaster 16 с AdLib (DOS, Windows 9x), у остальных — Intel HDA" = "Automatycznie: maszyny z BIOS-em dostają Sound Blaster 16 z AdLib (DOS, Windows 9x), pozostałe Intel HDA"
+"Машина с BIOS: DOS хватает 16–64 МБ, Windows 9x — 64–256 МБ" = "Maszyna z BIOS-em: DOS potrzebuje 16–64 MB, Windows 9x 64–256 MB"
