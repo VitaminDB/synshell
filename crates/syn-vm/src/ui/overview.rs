@@ -118,7 +118,8 @@ fn stats(vm: &Vm, l: &Live, narrow: bool) -> W {
         chart(t!("Память"), parts::bytes(l.rss), t!("из {m}", m = parts::mem_mb(vm.memory_mb)), l.mem_hist.clone(), mem_c),
     ];
     let tiles = vec![
-        tile(icons::SCHEDULE, t!("Работает"), parts::duration(uptime), String::new()),
+        // Время запуска ещё не известно (первый опрос не прошёл) — не «с 1970 года».
+        tile(icons::SCHEDULE, t!("Работает"), if l.since == 0 { "—".into() } else { parts::duration(uptime) }, String::new()),
         tile(icons::STORAGE, t!("Диск"), t!("{v}/с", v = parts::bytes(l.disk_rate as u64)), parts::bytes(vm.used_bytes())),
         tile(if l.power == Power::Paused { icons::PAUSE } else { icons::BOLT }, t!("Ускорение"), if qemu::kvm_available() { t!("KVM") } else { t!("Эмуляция") }, String::new()),
     ];
@@ -255,9 +256,17 @@ fn gpu_card(st: St, vm: &Vm, l: &Live) -> W {
         let mut rows: Vec<W> = Vec::new();
         match st.gpu.get().filter(|(id, _)| *id == vid) {
             None => {
-                rows.push(boxed(Text::new(t!("Гостевые инструменты syn-gpu не установлены — «Установить» в настройках машины")).max_lines(3).class("row-hint")));
+                rows.push(boxed(Text::new(t!("Проверка гостя…")).max_lines(1).class("row-hint")));
             }
-            Some((_, s)) => {
+            Some((_, Err(e))) => {
+                let msg = if e == t!("Гостевые инструменты syn-gpu не установлены") {
+                    t!("Гостевые инструменты syn-gpu не установлены — «Установить» в настройках машины")
+                } else {
+                    e
+                };
+                rows.push(boxed(Text::new(msg).max_lines(3).class("row-hint")));
+            }
+            Some((_, Ok(s))) => {
                 rows.push(boxed(Text::new(s.summary()).max_lines(3).class("row-hint")));
                 for g in s.games {
                     let (id, path) = (vid.clone(), g.path.clone());

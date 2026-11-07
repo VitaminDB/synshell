@@ -259,8 +259,9 @@ pub struct St {
     pub host_devs: RwSignal<Option<Vec<crate::devices::Avail>>>,
     /// Что в госте открытой машины (инструменты, видео, буфер) — проверяется раз в минуту.
     pub tools: RwSignal<Option<(String, GuestTools)>>,
-    /// Видеокарта syn-gpu в госте (драйвер, ICD, игры) — у машин с 3D, раз в минуту.
-    pub gpu: RwSignal<Option<(String, crate::gputools::Status)>>,
+    /// Видеокарта syn-gpu в госте (драйвер, ICD, игры) — у машин с 3D, раз в минуту;
+    /// `Err` — текст ошибки опроса (в том числе «не установлены»), `None` — ещё не спрашивали.
+    pub gpu: RwSignal<Option<(String, std::result::Result<crate::gputools::Status, String>)>>,
 }
 
 impl St {
@@ -610,7 +611,7 @@ pub fn refresh_guest(st: St) {
             due
         };
         let tools = if due { guest_tools(&vm).ok() } else { None };
-        let gpu = if due && vm.gpu_on() { crate::gputools::status(&vm).ok() } else { None };
+        let gpu = if due && vm.gpu_on() { Some(crate::gputools::status(&vm).map_err(|e| e.to_string())) } else { None };
         run_on_main_thread(move || {
             if st.sel.get_untracked().as_deref() == Some(vm.id.as_str()) && st.guest.get_untracked() != g {
                 st.guest.set(g);
@@ -1125,7 +1126,7 @@ fn disk_signature() -> Vec<(String, std::time::SystemTime)> {
 }
 
 /// Время запуска процесса (Unix).
-fn process_start(pid: i32) -> Option<u64> {
+pub fn process_start(pid: i32) -> Option<u64> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     let rest = &stat[stat.rfind(')')? + 2..];
     let start_ticks: u64 = rest.split_whitespace().nth(19)?.parse().ok()?;
@@ -1345,7 +1346,7 @@ pub fn gpu_game(st: St, id: &str, path: String, on: bool) {
     background(st, id, t!("Видеокарта syn-gpu…"), move || {
         crate::gputools::set_game(&vm, &path, on)?;
         let s = crate::gputools::status(&vm)?;
-        run_on_main_thread(move || st.gpu.set(Some((id_s, s))));
+        run_on_main_thread(move || st.gpu.set(Some((id_s, Ok(s)))));
         Ok(None)
     });
 }

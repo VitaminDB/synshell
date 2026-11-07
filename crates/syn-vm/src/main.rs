@@ -101,8 +101,13 @@ fn main() {
                     if let Some(vm) = st.vm(id) {
                         if qemu::pid(&vm).is_some() {
                             st.guest.set(qga::info(&vm).ok());
+                            if vm.gpu_on() {
+                                st.gpu.set(Some((vm.id.clone(), crate::gputools::status(&vm).map_err(|e| e.to_string()))));
+                            }
                             let mut live = st.live.get_untracked();
-                            live.entry(vm.id.clone()).or_default().power = state::Power::Running;
+                            let l = live.entry(vm.id.clone()).or_default();
+                            l.power = state::Power::Running;
+                            l.since = qemu::pid(&vm).and_then(state::process_start).unwrap_or(0);
                             st.live.set(live);
                         }
                     }
