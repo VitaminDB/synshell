@@ -272,6 +272,11 @@ fn overlapped(st: &DockState) -> bool {
     if st.edge == Edge::Bottom && out.keyboard > 0 {
         return true;
     }
+    // Телефон, режим страниц: «домой» не сворачивает окна, а показывает домашнюю страницу —
+    // окна стола не видны и док не закрывают (раньше док пропадал, пока в фоне было окно).
+    if ctx.mobile.get_untracked().is_some_and(|m| m.mode == synshell_common::action::MobileMode::Pages && m.page.is_none()) {
+        return false;
+    }
     let ws = ctx.workspaces.get_untracked().iter().find(|w| w.active).map(|w| w.index);
     let bx0 = bar.origin.x + ox;
     let by0 = bar.origin.y + oy;
@@ -769,7 +774,7 @@ fn launcher_item(env: &ItemEnv, slot: usize, a: &Applet) -> Box<dyn Widget> {
     let icon_w = match glyph.as_deref() {
         Some(i) if i.chars().count() == 1 => launchers::icon_widget(&None, &Some(i.to_string()), "dock-icon-img", g.icon),
         Some(i) => launchers::icon_widget(&crate::xdg::lookup_icon(i), &Some(mi::APPS.to_string()).filter(|_| crate::xdg::lookup_icon(i).is_none()), "dock-icon-img", g.icon),
-        None => match crate::xdg::lookup_icon("start-here").or_else(|| crate::xdg::lookup_icon("applications-all")) {
+        None => match crate::xdg::lookup_icon_themed("start-here") {
             Some(p) => launchers::icon_widget(&Some(p), &None, "dock-icon-img", g.icon),
             None => launchers::icon_widget(&None, &Some(mi::APPS.to_string()), "dock-icon-img", g.icon),
         },
