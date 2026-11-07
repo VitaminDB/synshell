@@ -403,7 +403,7 @@ fn add_forward(st: St, host: u16, guest: u16) {
 
 fn devices(st: St, vm: &Vm) -> W {
     let display = dropdown(&DisplayModel::ALL, vm.display, DisplayModel::title, |d| format!("{d:?}"), 300.0, move |d| {
-        let mut sb = false;
+        let (mut sb, mut tools) = (false, false);
         state::edit(st, |v| {
             v.display = d;
             // Драйверу syn-gpu нужна тестовая подпись — с Secure Boot она не включится.
@@ -411,9 +411,17 @@ fn devices(st: St, vm: &Vm) -> W {
                 v.firmware = model::Firmware::Uefi;
                 sb = true;
             }
+            // Драйвер syn-gpu — только на диске «Гостевые инструменты syn-vm», в virtio-win его нет.
+            if d == DisplayModel::SynGpu && v.os.is_windows() && v.guest_tools != model::GuestTools::SynVm {
+                v.guest_tools = model::GuestTools::SynVm;
+                tools = true;
+            }
         });
         if sb {
             state::toast(st, t!("Secure Boot выключен: драйверу syn-gpu нужна тестовая подпись"));
+        }
+        if tools {
+            state::toast(st, t!("Гостевые инструменты — syn-vm: драйвер syn-gpu ставится с их диска или командой syn-vm --gpu-tools МАШИНА install"));
         }
     });
     let syn_display = vm.display == DisplayModel::SynGpu;

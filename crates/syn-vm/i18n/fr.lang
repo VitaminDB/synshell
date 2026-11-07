@@ -850,3 +850,4 @@
 "{n} кадров/с" = "{n} i/s"
 "Ограничение частоты кадров" = "Limite d’images par seconde"
 "Не больше N кадров в секунду: частота монитора гостя, вывод экрана и игр; своё число — ключ --max-fps в gpu3d_args; со следующего запуска" = "Au plus N images par seconde : fréquence du moniteur de l’invité, sortie de l’écran et des jeux ; valeur personnalisée — clé --max-fps dans gpu3d_args ; au prochain démarrage"
+"Гостевые инструменты — syn-vm: драйвер syn-gpu ставится с их диска или командой syn-vm --gpu-tools МАШИНА install" = "Outils invités : syn-vm. Installez le pilote syn-gpu depuis leur disque ou avec syn-vm --gpu-tools MACHINE install"

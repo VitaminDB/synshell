@@ -850,3 +850,4 @@
 "{n} кадров/с" = "{n} fps"
 "Ограничение частоты кадров" = "Kare hızı sınırı"
 "Не больше N кадров в секунду: частота монитора гостя, вывод экрана и игр; своё число — ключ --max-fps в gpu3d_args; со следующего запуска" = "Saniyede en fazla N kare: konuk monitör yenileme hızı, ekran ve oyun çıktısı; özel değer — gpu3d_args içinde --max-fps anahtarı; bir sonraki başlatmada"
+"Гостевые инструменты — syn-vm: драйвер syn-gpu ставится с их диска или командой syn-vm --gpu-tools МАШИНА install" = "Konuk araçları syn-vm olarak ayarlandı: syn-gpu sürücüsünü onların diskinden veya syn-vm --gpu-tools MAKİNE install ile kurun"
