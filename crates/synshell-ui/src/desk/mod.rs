@@ -658,6 +658,8 @@ pub fn page_view(ctx: ShellCtx, page: usize, output: String) -> impl Widget {
     let bar = rx(move || if edit.get() { Box::new(edit_bar(ctx)) } else { Box::new(DecoratedBox::new()) });
     // Телефон: стол не заходит под exclusive-панели, но плавающий док лежит поверх него.
     let lift = if ctx.is_phone() { overlay_bottom(&ctx) } else { reserved(&ctx)[2] };
+    // Слева — за панелью или доком у левого края (иначе переключатель уходит под них).
+    let left = if ctx.is_phone() { 0.0 } else { reserved(&ctx)[3] };
     // Переключатель «Виджеты / Заметки» — внизу слева, на компьютере.
     let switch = rx(move || {
         let _ = ctx.config.get();
@@ -674,7 +676,7 @@ pub fn page_view(ctx: ShellCtx, page: usize, output: String) -> impl Widget {
             Column::new()
                 .main_axis_alignment(MainAxisAlignment::End)
                 .cross_axis_alignment(CrossAxisAlignment::Start)
-                .child(Padding::only(16.0, 0.0, 0.0, lift + 16.0).child(switch)),
+                .child(Padding::only(left + 16.0, 0.0, 0.0, lift + 16.0).child(switch)),
         )
 }
 
