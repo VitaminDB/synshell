@@ -104,7 +104,7 @@
 "USB переподключено после снимка: {list}" = "快照后 USB 已重新连接：{list}"
 "--user — только через свой агент (без --qga и --detach)" = "--user 只能通过自有代理使用（不能与 --qga 和 --detach 同用）"
 "«{name}»: свой агент гостя не на связи — syn-vm --agent-install {id}" = "“{name}”：客户机的自有代理未连接——syn-vm --agent-install {id}"
-"нет сборки агента для гостя ({f}) — SYN_VM_AGENT_EXE / SYN_VM_AGENT или /usr/share/syn-vm/agent" = "没有适用于客户机的代理构建（{f}）——SYN_VM_AGENT_EXE / SYN_VM_AGENT 或 /usr/share/syn-vm/agent"
+"нет сборки агента для гостя ({f}) — SYN_VM_AGENT_EXE / SYN_VM_AGENT или /usr/lib/syn-vm/agent" = "没有适用于客户机的代理构建（{f}）——SYN_VM_AGENT_EXE / SYN_VM_AGENT 或 /usr/lib/syn-vm/agent"
 "агент обновлён: {p} — ждём перезапуска…" = "代理已更新：{p}——等待其重新启动…"
 "установка агента: код {c}: {o}" = "安装代理：代码 {c}：{o}"
 "пользователь: {u}" = "用户：{u}"
@@ -194,7 +194,7 @@
 "Гостевые инструменты syn-gpu не установлены" = "未安装 syn-gpu 客户机工具"
 
 # src/guesttools.rs
-"нет сборки агента syn-vm-agent.exe (/usr/share/syn-vm/agent)" = "没有 syn-vm-agent.exe 代理构建（/usr/share/syn-vm/agent）"
+"нет сборки агента syn-vm-agent.exe (/usr/lib/syn-vm/agent)" = "没有 syn-vm-agent.exe 代理构建（/usr/lib/syn-vm/agent）"
 "не удалось распаковать {p}" = "无法解压 {p}"
 "xorriso (пакет libisoburn) — нужен для образа «Гостевые инструменты syn-vm»" = "xorriso（libisoburn 软件包）——制作“syn-vm 客户机工具”镜像需要它"
 "xorriso не собрал образ" = "xorriso 未能生成镜像"

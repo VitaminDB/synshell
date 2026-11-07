@@ -105,7 +105,7 @@
 "USB переподключено после снимка: {list}" = "USB reconectado tras la instantánea: {list}"
 "--user — только через свой агент (без --qga и --detach)" = "--user — solo con el agente propio (sin --qga ni --detach)"
 "«{name}»: свой агент гостя не на связи — syn-vm --agent-install {id}" = "«{name}»: el agente propio del invitado no está conectado — syn-vm --agent-install {id}"
-"нет сборки агента для гостя ({f}) — SYN_VM_AGENT_EXE / SYN_VM_AGENT или /usr/share/syn-vm/agent" = "no hay compilación del agente para el invitado ({f}) — SYN_VM_AGENT_EXE / SYN_VM_AGENT o /usr/share/syn-vm/agent"
+"нет сборки агента для гостя ({f}) — SYN_VM_AGENT_EXE / SYN_VM_AGENT или /usr/lib/syn-vm/agent" = "no hay compilación del agente para el invitado ({f}) — SYN_VM_AGENT_EXE / SYN_VM_AGENT o /usr/lib/syn-vm/agent"
 "агент обновлён: {p} — ждём перезапуска…" = "agente actualizado: {p} — esperando el reinicio…"
 "установка агента: код {c}: {o}" = "instalación del agente: código {c}: {o}"
 "пользователь: {u}" = "usuario: {u}"
@@ -195,7 +195,7 @@
 "Гостевые инструменты syn-gpu не установлены" = "Las herramientas de invitado syn-gpu no están instaladas"
 
 # src/guesttools.rs
-"нет сборки агента syn-vm-agent.exe (/usr/share/syn-vm/agent)" = "no hay compilación de syn-vm-agent.exe (/usr/share/syn-vm/agent)"
+"нет сборки агента syn-vm-agent.exe (/usr/lib/syn-vm/agent)" = "no hay compilación de syn-vm-agent.exe (/usr/lib/syn-vm/agent)"
 "не удалось распаковать {p}" = "no se pudo descomprimir {p}"
 "xorriso (пакет libisoburn) — нужен для образа «Гостевые инструменты syn-vm»" = "xorriso (paquete libisoburn) — necesario para la imagen «Herramientas de invitado syn-vm»"
 "xorriso не собрал образ" = "xorriso no generó la imagen"

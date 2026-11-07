@@ -104,7 +104,7 @@
 "USB переподключено после снимка: {list}" = "스냅숏 후 USB 다시 연결됨: {list}"
 "--user — только через свой агент (без --qga и --detach)" = "--user는 자체 에이전트로만 사용할 수 있습니다(--qga, --detach 없이)"
 "«{name}»: свой агент гостя не на связи — syn-vm --agent-install {id}" = "“{name}”: 게스트의 자체 에이전트가 연결되어 있지 않습니다 — syn-vm --agent-install {id}"
-"нет сборки агента для гостя ({f}) — SYN_VM_AGENT_EXE / SYN_VM_AGENT или /usr/share/syn-vm/agent" = "게스트용 에이전트 빌드가 없습니다({f}) — SYN_VM_AGENT_EXE / SYN_VM_AGENT 또는 /usr/share/syn-vm/agent"
+"нет сборки агента для гостя ({f}) — SYN_VM_AGENT_EXE / SYN_VM_AGENT или /usr/lib/syn-vm/agent" = "게스트용 에이전트 빌드가 없습니다({f}) — SYN_VM_AGENT_EXE / SYN_VM_AGENT 또는 /usr/lib/syn-vm/agent"
 "агент обновлён: {p} — ждём перезапуска…" = "에이전트 업데이트됨: {p} — 다시 시작되기를 기다리는 중…"
 "установка агента: код {c}: {o}" = "에이전트 설치: 코드 {c}: {o}"
 "пользователь: {u}" = "사용자: {u}"
@@ -194,7 +194,7 @@
 "Гостевые инструменты syn-gpu не установлены" = "syn-gpu 게스트 도구가 설치되지 않음"
 
 # src/guesttools.rs
-"нет сборки агента syn-vm-agent.exe (/usr/share/syn-vm/agent)" = "syn-vm-agent.exe 에이전트 빌드가 없습니다(/usr/share/syn-vm/agent)"
+"нет сборки агента syn-vm-agent.exe (/usr/lib/syn-vm/agent)" = "syn-vm-agent.exe 에이전트 빌드가 없습니다(/usr/lib/syn-vm/agent)"
 "не удалось распаковать {p}" = "{p}의 압축을 풀 수 없습니다"
 "xorriso (пакет libisoburn) — нужен для образа «Гостевые инструменты syn-vm»" = "xorriso(libisoburn 패키지) — “syn-vm 게스트 도구” 이미지를 만드는 데 필요합니다"
 "xorriso не собрал образ" = "xorriso가 이미지를 만들지 못했습니다"

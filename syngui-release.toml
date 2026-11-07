@@ -289,8 +289,8 @@ depends = ["synshell-core"]
 apps = ["syn-vm"]
 # Свой гостевой агент: служба Windows и Linux (syn-vm --agent-install МАШИНА).
 cross = [
-  { bin = "syn-vm-agent", target = "x86_64-pc-windows-gnu", to = "usr/share/syn-vm/agent/" },
-  { bin = "syn-vm-agent", target = "x86_64-unknown-linux-musl", to = "usr/share/syn-vm/agent/" },
+  { bin = "syn-vm-agent", target = "x86_64-pc-windows-gnu", to = "usr/lib/syn-vm/agent/" },
+  { bin = "syn-vm-agent", target = "x86_64-unknown-linux-musl", to = "usr/lib/syn-vm/agent/" },
 ]
 groups = ["synshell-apps"]
 optdepends = [
@@ -412,6 +412,8 @@ apps = ["syn-blocks"]
 groups = ["synshell-apps"]
 
 [packages.syn-epdtest]
+# Инструмент разработчика (панели ONYX BOOX) — в архивах выпуска, не в AUR.
+aur = false
 description = "Тест экрана E Ink synshell (для разработчиков)"
 description_en = "synshell E Ink display test"
 depends = ["synshell-core"]

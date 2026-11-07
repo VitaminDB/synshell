@@ -1140,7 +1140,7 @@ fn agent_install(vm: &Vm, file: Option<PathBuf>) -> Result<()> {
     let windows = qga::guest_is_windows(vm) || vm.os.is_windows();
     let exe = match file {
         Some(f) => f,
-        None => crate::agent::agent_binary(windows).with_context(|| t!("нет сборки агента для гостя ({f}) — SYN_VM_AGENT_EXE / SYN_VM_AGENT или /usr/share/syn-vm/agent", f = if windows { "syn-vm-agent.exe" } else { "syn-vm-agent" }))?,
+        None => crate::agent::agent_binary(windows).with_context(|| t!("нет сборки агента для гостя ({f}) — SYN_VM_AGENT_EXE / SYN_VM_AGENT или /usr/lib/syn-vm/agent", f = if windows { "syn-vm-agent.exe" } else { "syn-vm-agent" }))?,
     };
     if crate::agent::installed(vm) && crate::agent::online(vm) {
         let dir = if windows { r"C:\Program Files\syn-vm" } else { "/usr/local/bin" };

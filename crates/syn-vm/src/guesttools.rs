@@ -51,7 +51,7 @@ fn mtime(p: &Path) -> u64 {
 
 /// Собрать (или взять готовый) образ. Нет агента — ошибка; нет драйвера или syn-gpu — без них.
 pub fn iso() -> Result<PathBuf> {
-    let agent = crate::agent::agent_binary(true).context(t!("нет сборки агента syn-vm-agent.exe (/usr/share/syn-vm/agent)"))?;
+    let agent = crate::agent::agent_binary(true).context(t!("нет сборки агента syn-vm-agent.exe (/usr/lib/syn-vm/agent)"))?;
     let serial = serial_dir();
     let gpu = crate::gputools::iso();
     // Отпечаток частей: пути, времена изменения, скрипты.

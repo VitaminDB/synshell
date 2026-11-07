@@ -781,6 +781,8 @@ pub fn agent_binary(windows: bool) -> Option<PathBuf> {
     if let Some(p) = std::env::var_os(if windows { "SYN_VM_AGENT_EXE" } else { "SYN_VM_AGENT" }) {
         c.push(PathBuf::from(p));
     }
+    // Пакет кладёт агентов в /usr/lib (исполняемые файлы; /usr/share — у прежних пакетов).
+    c.push(PathBuf::from("/usr/lib/syn-vm/agent").join(name));
     c.push(PathBuf::from("/usr/share/syn-vm/agent").join(name));
     if let Ok(me) = std::env::current_exe() {
         if let Some(dir) = me.parent() {
