@@ -58,6 +58,8 @@ Text { color: var(--fg); font-size: 14px; }
 
 /* настройки */
 .set-scrim { background: #00000080; }
+/* В окне панель ниже строки кнопок окна (см. chrome::panel_place). */
+.vp-panel-windowed { padding-top: 52px; }
 .set-panel { width: 380px; max-width: 92%; background: var(--bg); border-radius: 18px 0px 0px 18px; box-shadow: -6px 0px 24px #00000066; }
 .set-head { padding: 14px 8px 8px 20px; }
 .set-title { font-size: 20px; font-weight: 600; }

@@ -77,6 +77,16 @@ pub fn has_controls() -> bool {
     !is_phone()
 }
 
+/// Место боковой панели (субтитры, фильтры, настройки…): в окне — ниже строки с кнопками
+/// окна, чтобы панель их не закрывала; во весь экран и на телефоне — во всю высоту.
+pub fn panel_place(st: St) -> &'static str {
+    if has_controls() && !st.fullscreen.get() {
+        "vp-panel-place vp-panel-windowed"
+    } else {
+        "vp-panel-place"
+    }
+}
+
 /// Кнопки окна (свернуть, развернуть, закрыть); во весь экран их нет.
 pub fn controls(st: St, class: &'static str) -> W {
     Box::new(Reactive::new(move || -> Vec<W> {

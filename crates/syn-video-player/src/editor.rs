@@ -643,6 +643,7 @@ fn add_sheet(st: St) -> W {
                 Row::new()
                     .main_axis_alignment(MainAxisAlignment::End)
                     .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                        .class(crate::chrome::panel_place(st))
                     .child(GestureDetector::new().on_click(|| {}).child(panel)),
             ),
     )
