@@ -1,5 +1,6 @@
 use syngui::prelude::*;
 use syngui::GestureDetector;
+use syngui::overlay::WindowDragRegion;
 use syn_assist::chat::ChatSummary;
 
 use super::{boxed, icon, icon_button, W};
@@ -150,9 +151,13 @@ pub fn sidebar(st: St, phone: bool) -> W {
     if phone {
         head = head.child(icon_button(icons::ARROW_BACK, t!("К чату"), "tb-btn", move || st.list_open.set(false)));
     }
-    head = head.child(super::brand()).child(DecoratedBox::new().class("grow"));
+    head = head.child(super::brand());
+    // Узкая раскладка — шапка служит заголовком окна: за пустое место окно перетаскивают.
+    head = head.child(if phone { boxed(DecoratedBox::new().class("grow").child(WindowDragRegion::new().child(DecoratedBox::new().class("head-drag")))) } else { boxed(DecoratedBox::new().class("grow")) });
     if !phone {
         head = head.child(icon_button(icons::SIDEBAR, t!("Скрыть панель (Ctrl+B)"), "tb-btn", move || st.sidebar.set(false)));
+    } else {
+        head = head.child(super::narrow_window_controls(st));
     }
     boxed(
         Column::new()

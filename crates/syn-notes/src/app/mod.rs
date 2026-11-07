@@ -382,11 +382,20 @@ pub(crate) fn root() -> impl Widget {
     Reactive::new(move || -> Vec<W> {
         let w = wide.get();
         let fs = full.get();
-        vec![frame(wide, w && !fs)]
+        // Узкое окно на компьютере остаётся окном: заголовок с кнопками окна, рамка и изменение
+        // размера; на телефоне и во весь экран их нет.
+        vec![frame(wide, w && !fs, !fs && !is_phone())]
     })
 }
 
-fn frame(wide: RwSignal<bool>, chrome: bool) -> W {
+/// Телефон: окна во весь экран, без заголовка с кнопками окна.
+fn is_phone() -> bool {
+    cfg!(any(target_os = "android", target_os = "ios")) || std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v.trim().eq_ignore_ascii_case("phone"))
+}
+
+/// `chrome` — широкая раскладка с рамкой и панелью проектов; `window` — своё окно на
+/// компьютере (заголовок с кнопками, рамка, изменение размера) — и в узкой раскладке.
+fn frame(wide: RwSignal<bool>, chrome: bool, window: bool) -> W {
     let app = use_context::<AppCtx>();
     let ctx = use_context::<NotesCtx>();
     let notes_view = DecoratedBox::new().class("grow").child(Stack::new().fit(StackFit::Expand).child(Reactive::new(move || -> Vec<W> {
@@ -405,7 +414,7 @@ fn frame(wide: RwSignal<bool>, chrome: bool) -> W {
         row = row.child(rail_view::view());
     }
     let mut col = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
-    if chrome {
+    if chrome || window {
         // Чтение на весь экран — без заголовка окна (меню читалки — тапом).
         let lib = use_context::<notes::library::Library>();
         col = col.child(Reactive::new(move || -> Vec<W> {
@@ -436,9 +445,9 @@ fn frame(wide: RwSignal<bool>, chrome: bool) -> W {
         .child(notes::library::rename_dialog(ctx))
         .child(toasts);
     Box::new(
-        WindowResizeRegion::new().over_content(true).inset(5.0).enabled(chrome).child(
+        WindowResizeRegion::new().over_content(true).inset(5.0).enabled(chrome || window).child(
             DecoratedBox::new()
-                .class(if chrome { "window-frame" } else { "window-frame flat" })
+                .class(if chrome || window { "window-frame" } else { "window-frame flat" })
                 .clip(true)
                 .child(keys(stack)),
         ),

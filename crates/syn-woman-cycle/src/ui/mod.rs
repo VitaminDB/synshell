@@ -81,6 +81,17 @@ pub fn fullscreen_button(st: St) -> W {
     }))
 }
 
+/// Телефон: окна во весь экран, без заголовка с кнопками окна.
+fn is_phone() -> bool {
+    crate::model::default_fullscreen()
+}
+
+/// Свой заголовок окна (кнопки окна, полный экран): на компьютере — и в узком окне;
+/// на телефоне и во весь экран его нет (полный экран — кнопкой в заголовке страницы).
+pub fn has_titlebar(st: St, wide: bool) -> bool {
+    !st.window.get_untracked().fullscreen && (wide || !is_phone())
+}
+
 /// Заголовок страницы: дата или подпись сверху, крупное название, справа — действия.
 pub fn page_header(st: St, wide: bool, over: String, title: String, actions: Vec<W>) -> W {
     let mut row = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center);
@@ -89,8 +100,7 @@ pub fn page_header(st: St, wide: bool, over: String, title: String, actions: Vec
     for a in actions {
         row = row.child(a);
     }
-    let fs = st.window.get_untracked().fullscreen;
-    if !cfg!(target_os = "ios") && (!wide || fs) {
+    if !cfg!(target_os = "ios") && !has_titlebar(st, wide) {
         row = row.child(fullscreen_button(st));
     }
     boxed(DecoratedBox::new().class("page-header").child(row))
@@ -275,7 +285,9 @@ pub fn root(st: St) -> W {
         let fs = full.get();
         let onboarded = st.data.get().onboarded;
         let mut main = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).class(if w { "window" } else { "window phone" });
-        if w && !fs {
+        // Узкое окно на компьютере остаётся окном: заголовок с кнопками, рамка, изменение размера.
+        let window = !fs && (w || !is_phone());
+        if window {
             main = main.child(titlebar(st));
         }
         let body: W = if w && onboarded {
@@ -289,8 +301,8 @@ pub fn root(st: St) -> W {
         };
         main = main.child(body);
         let stack = Stack::new().fit(StackFit::Expand).child(main).child(calendar::menu_layer(st)).child(day::layer(st, w)).child(phase::layer(st, w)).child(settings::reset_dialog(st)).child(toast_layer(st));
-        let frame = DecoratedBox::new().class(if w && !fs { "window-frame" } else { "window-frame flat" }).clip(true).child(keys(st, stack));
-        let region = WindowResizeRegion::new().over_content(true).inset(5.0).enabled(w && !fs).child(frame);
+        let frame = DecoratedBox::new().class(if window { "window-frame" } else { "window-frame flat" }).clip(true).child(keys(st, stack));
+        let region = WindowResizeRegion::new().over_content(true).inset(5.0).enabled(window).child(frame);
         // iPhone: фон корня — цвет окна под вырезом камеры и полоской «домой»
         // (syngui берёт clear-color из корня и меняет его вместе с темой).
         if cfg!(target_os = "ios") {

@@ -152,6 +152,7 @@ Button.iv-tool-text {
 /* ── Телефон ─────────────────────────────────────────────────── */
 
 .iv-pbar { padding: 6px 4px; }
+.iv-pdrag { height: 44px; align-items: center; }
 .iv-pbtn {
     width: 44px;
     height: 44px;

@@ -846,8 +846,19 @@ fn appbar(st: St) -> W {
             }
         }
         row = row.child(icon_button(icons::SETTINGS, t!("Настройки"), "tb-btn", move || st.sheet.set(Some(Sheet::Settings))));
+        // Узкое окно на компьютере — те же кнопки окна, что у широкого (на телефоне окна во весь
+        // экран, кнопок нет; во весь экран — тоже нет).
+        let w = st.window.get();
+        if !is_phone() && !w.fullscreen {
+            row = row.child(DecoratedBox::new().class("window-controls").child(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused)));
+        }
         vec![boxed(DecoratedBox::new().class("appbar").child(row))]
     }))
+}
+
+/// Телефон: окна во весь экран, без кнопок окна и рамки.
+fn is_phone() -> bool {
+    cfg!(any(target_os = "android", target_os = "ios")) || std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v.trim().eq_ignore_ascii_case("phone"))
 }
 
 /// «Записи» с числом — на узком окне.
@@ -981,7 +992,9 @@ pub fn root(st: St) -> W {
         };
         let main = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).class(if w { "window" } else { "window phone" }).child(if w { titlebar(st) } else { appbar(st) }).child(DecoratedBox::new().class("grow").child(body));
         let stack = Stack::new().fit(StackFit::Expand).child(main).child(toast_layer(st)).child(sheets::layer(st, w));
-        let frame = DecoratedBox::new().class(if w { "window-frame" } else { "window-frame flat" }).clip(true).child(keys(st, stack));
-        vec![boxed(WindowResizeRegion::new().over_content(true).inset(5.0).enabled(w).child(frame))]
+        // Узкое окно на компьютере — по-прежнему окно: рамка и изменение размера за края.
+        let phone = !w && is_phone();
+        let frame = DecoratedBox::new().class(if phone { "window-frame flat" } else { "window-frame" }).clip(true).child(keys(st, stack));
+        vec![boxed(WindowResizeRegion::new().over_content(true).inset(5.0).enabled(!is_phone()).child(frame))]
     }))
 }

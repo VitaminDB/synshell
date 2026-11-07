@@ -337,7 +337,7 @@ fn header(st: St, wide: bool, w: f32) -> W {
     top = top.child(DecoratedBox::new().class("grow").child(Text::new(over).max_lines(1).class("hd-over")));
     top = top.child(Button::new(t!("Сегодня")).class("btn chip").on_click(move || scroll_to_named(format!("m{}", date::month_index(date::today())))));
     // iPhone: окно всегда на весь экран, переключать нечего.
-    if !cfg!(target_os = "ios") && (!wide || st.window.get_untracked().fullscreen) {
+    if !cfg!(target_os = "ios") && !super::has_titlebar(st, wide) {
         top = top.child(super::fullscreen_button(st));
     }
     let mut col = Column::new().gap(14.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(syngui::overlay::WindowDragRegion::new().child(top));

@@ -11,7 +11,7 @@ use syngui::async_runtime::run_on_main_thread;
 use syngui::mss::StyleValue;
 use syngui::prelude::*;
 use syngui::widgets::{EventHook, KeyReply, MenuItem, PopupMenu};
-use syngui::overlay::WindowResizeRegion;
+use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 use syngui::{GestureDetector, ShowIf, SplitDirection, SplitView};
 
 use crate::*;
@@ -33,8 +33,8 @@ pub fn root(st: St) -> W {
     let narrow = syngui::viewport::viewport_below(720.0);
     let body = Reactive::new(move || -> Vec<W> {
         let phone_ui = narrow.get();
-        // Телефон: рамку (закрыть, свернуть) рисует композитор; рабочий стол — свой заголовок.
-        run_on_main_thread(move || syngui::signal::set_decorations(phone_ui));
+        // Рамка — всегда своя (CSD): в узком окне на компьютере — заголовок с кнопками окна
+        // над телефонной раскладкой (`narrow_titlebar`), на телефоне его нет.
         vec![if phone_ui { phone(st) } else { crate::desk::desktop(st) }]
     });
     // Слои поверх окна выравниваются снаружи Reactive: он отдаёт детям
@@ -355,7 +355,38 @@ pub fn phone(st: St) -> W {
         }
         vec![Box::new(row.class("navbar"))]
     });
-    Box::new(Column::new().child(DecoratedBox::new().child(body).class("grow")).child(queue_bar(st)).child(navbar))
+    Box::new(Column::new().child(narrow_titlebar(st)).child(DecoratedBox::new().child(body).class("grow")).child(queue_bar(st)).child(navbar))
+}
+
+/// Телефон: окна во весь экран, без заголовка и кнопок окна.
+fn is_phone() -> bool {
+    cfg!(any(target_os = "android", target_os = "ios")) || std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v.trim().eq_ignore_ascii_case("phone"))
+}
+
+/// Заголовок узкого окна на компьютере: название (за него окно перетаскивают) и кнопки окна;
+/// на телефоне и во весь экран его нет.
+fn narrow_titlebar(st: St) -> W {
+    Box::new(Reactive::new(move || -> Vec<W> {
+        let w = st.window.get();
+        if is_phone() || w.fullscreen {
+            return vec![];
+        }
+        let brand = Row::new()
+            .gap(10.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(DecoratedBox::new().child(Icon::new("\u{EA12}").class("brand-icon")).class("brand-icon-box"))
+            .child(Text::new(t!("Программы")).max_lines(1).class("brand"));
+        vec![Box::new(
+            DecoratedBox::new()
+                .child(
+                    Row::new()
+                        .cross_axis_alignment(CrossAxisAlignment::Center)
+                        .child(DecoratedBox::new().class("grow tb-drag").child(WindowDragRegion::new().child(DecoratedBox::new().class("tb-drag-space tb-brand").child(brand))))
+                        .child(DecoratedBox::new().child(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused)).class("window-controls")),
+                )
+                .class("titlebar"),
+        )]
+    }))
 }
 
 /// Полоса очереди внизу списка: что отмечено и «Применить».

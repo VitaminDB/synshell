@@ -607,6 +607,8 @@ Toggle {
 }
 .pbar.selecting { background: var(--accent-soft); }
 .pbar-title { font-size: 19px; font-weight: 600; color: var(--fg); padding: 0px 8px; }
+.pbar-drag { height: 56px; align-items: center; }
+.pwindow-controls { padding: 0px 4px 0px 4px; }
 
 .pbtn {
     width: 44px;

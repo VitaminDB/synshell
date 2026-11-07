@@ -19,6 +19,8 @@
 .tb-left.open { width: 260px; }
 .drag-wrap { height: 46px; }
 .drag-space { height: 46px; flex-grow: 1; min-width: 40px; align-items: center; justify-content: center; }
+.head-drag { height: 36px; flex-grow: 1; min-width: 40px; }
+.bar-drag { height: 44px; align-items: center; }
 .tb-title-row { height: 46px; }
 .tb-title { font-size: 13px; font-weight: 600; color: var(--fg); max-width: 520px; }
 .tb-tools { height: 46px; padding: 0px 6px 0px 6px; align-items: center; }

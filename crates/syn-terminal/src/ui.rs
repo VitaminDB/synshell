@@ -62,9 +62,8 @@ pub fn root(st: St) -> W {
         if st.phone.get_untracked() != phone {
             st.phone.set(phone);
         }
-        // Телефон: рамку (закрыть, свернуть) рисует композитор. Окно может
-        // быть ещё не создано — переключаем из цикла событий.
-        run_on_main_thread(move || syngui::signal::set_decorations(phone));
+        // Рамка — всегда своя (CSD): в узком окне на компьютере кнопки окна — в
+        // верхней панели телефонной раскладки, на телефоне их нет.
         vec![if phone { phone_root(st) } else { desktop_root(st) }]
     }))
 }
@@ -125,7 +124,17 @@ fn phone_root(st: St) -> W {
         .class("window phone")
         .child(phone_bar(st))
         .child(terminal_view(st));
-    keys(st, layers(st, boxed(main)))
+    if is_phone() {
+        return keys(st, layers(st, boxed(main)));
+    }
+    // Узкое окно на компьютере — по-прежнему окно: своя рамка и изменение размера за края.
+    let frame = DecoratedBox::new().class("window-frame").clip(true).child(keys(st, layers(st, boxed(main))));
+    boxed(WindowResizeRegion::new().over_content(true).inset(5.0).child(frame))
+}
+
+/// Телефон: окна во весь экран, без рамки и кнопок окна.
+fn is_phone() -> bool {
+    cfg!(any(target_os = "android", target_os = "ios")) || std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v.trim().eq_ignore_ascii_case("phone"))
 }
 
 // ─── вкладки ───────────────────────────────────────────────────────────────
@@ -220,6 +229,20 @@ fn phone_bar(st: St) -> W {
         }
         vec![boxed(row)]
     });
+    // Узкое окно на компьютере: место, за которое окно перетаскивают, и кнопки окна;
+    // на телефоне и во весь экран их нет.
+    let controls = Reactive::new(move || -> Vec<W> {
+        let w = st.window.get();
+        if is_phone() || w.fullscreen {
+            return vec![];
+        }
+        vec![boxed(
+            Row::new()
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(WindowDragRegion::new().child(DecoratedBox::new().class("phone-drag")))
+                .child(DecoratedBox::new().class("phone-window-controls").child(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused))),
+        )]
+    });
     boxed(
         DecoratedBox::new().class("phone-bar").child(
             Row::new()
@@ -229,7 +252,8 @@ fn phone_bar(st: St) -> W {
                 // Esc, Tab, Ctrl и стрелки — в функциональных рядах экранной клавиатуры
                 .child(icon_button(icons::PASTE, t!("Вставить"), "tb-btn", move || st.command(TerminalCommand::Paste)))
                 .child(icon_button(icons::ADD, t!("Новая вкладка"), "tb-btn", move || st.new_tab_here()))
-                .child(icon_button(icons::SETTINGS, t!("Настройки"), "tb-btn", move || st.settings_open.set(true))),
+                .child(icon_button(icons::SETTINGS, t!("Настройки"), "tb-btn", move || st.settings_open.set(true)))
+                .child(controls),
         ),
     )
 }

@@ -88,6 +88,8 @@ SystemWindowControls {
 /* ── Телефон ───────────────────────────────────────────────────── */
 
 .phone-bar { background: var(--titlebar); padding: 6px 6px 6px 6px; }
+.phone-drag { width: 36px; height: 40px; }
+.phone-window-controls { padding: 0px 0px 0px 4px; }
 .window.phone .tab {
     height: 34px;
     border-radius: 9px;

@@ -63,7 +63,6 @@ pub fn root() -> W {
         let full = v().window.get().fullscreen;
         let phone = narrow.get();
         crate::state::set_phone(phone);
-        run_on_main_thread(move || syngui::signal::set_decorations(phone));
         let mut col = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).class(if phone { "iv-window phone" } else { "iv-window" });
         if phone {
             col = col.child(phone_titlebar());
@@ -142,15 +141,24 @@ fn phone_titlebar() -> W {
             v.menu_open.set(true);
         })
         .child(DecoratedBox::new().class("iv-pbtn").child(Icon::new(glyph::MORE).class("icon")));
+    // Узкое окно на компьютере — кнопки окна, как у широкого; на телефоне и во весь экран их нет.
+    let controls = Reactive::new(move || -> Vec<W> {
+        let w = v().window.get();
+        if crate::state::phone_device() || w.fullscreen {
+            return vec![];
+        }
+        vec![boxed(DecoratedBox::new().class("window-controls").child(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused)))]
+    });
     boxed(
         DecoratedBox::new().class("iv-titlebar iv-pbar").child(
             Row::new()
                 .gap(4.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
                 .child(pbtn(glyph::BACK, "", || std::process::exit(0)))
-                .child(DecoratedBox::new().class("grow").child(info))
+                .child(DecoratedBox::new().class("grow").child(WindowDragRegion::new().child(DecoratedBox::new().class("iv-pdrag").child(info))))
                 .child(info_btn)
-                .child(more),
+                .child(more)
+                .child(controls),
         ),
     )
 }

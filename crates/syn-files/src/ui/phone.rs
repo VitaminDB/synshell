@@ -8,6 +8,7 @@ use syngui::prelude::*;
 use syngui::data::ItemSelection;
 use syngui::widgets::*;
 use syngui::CursorIcon;
+use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 
 use super::{boxed, bx, icons, W};
 use crate::actions;
@@ -142,11 +143,24 @@ fn title_bar(p: Pane) -> W {
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .class("pbar")
             .child(pbtn(icons::MENU, "", || state::ctx().drawer.set(true)))
-            .child(Text::new(title).max_lines(1).class("pbar-title grow"))
+            .child(DecoratedBox::new().class("grow").child(WindowDragRegion::new().child(DecoratedBox::new().class("pbar-drag").child(Text::new(title).max_lines(1).class("pbar-title")))))
             .child(pbtn(icons::SEARCH, "", || state::ctx().phone_search.set(true)))
             .child(pbtn(icons::TUNE, "", || state::ctx().sheet.set(true)))
-            .child(pmenu_btn(icons::MORE_VERT, more_menu)),
+            .child(pmenu_btn(icons::MORE_VERT, more_menu))
+            .child(window_controls()),
     )
+}
+
+/// Кнопки окна в верхней панели: узкое окно на компьютере остаётся окном (свернуть,
+/// развернуть, закрыть); на телефоне и во весь экран их нет.
+pub(super) fn window_controls() -> W {
+    boxed(Reactive::new(move || -> Vec<W> {
+        let w = state::ctx().window.get();
+        if state::phone_device() || w.fullscreen {
+            return vec![];
+        }
+        vec![bx("pwindow-controls", SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused))]
+    }))
 }
 
 fn search_bar(p: Pane) -> W {
@@ -156,7 +170,8 @@ fn search_bar(p: Pane) -> W {
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .class("pbar")
             .child(pbtn(icons::BACK, "", move || exit_search(p)))
-            .child(DecoratedBox::new().class("grow").child(super::toolbar::search_field(true))),
+            .child(DecoratedBox::new().class("grow").child(super::toolbar::search_field(true)))
+            .child(window_controls()),
     )
 }
 
@@ -184,7 +199,7 @@ fn selection_bar(p: Pane, n: usize) -> W {
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .class("pbar selecting")
             .child(pbtn(icons::CLOSE, "", move || clear_selection(p)))
-            .child(Text::new(t!("Выбрано: {n}", n = n)).max_lines(1).class("pbar-title grow"))
+            .child(DecoratedBox::new().class("grow").child(WindowDragRegion::new().child(DecoratedBox::new().class("pbar-drag").child(Text::new(t!("Выбрано: {n}", n = n)).max_lines(1).class("pbar-title")))))
             .child(pbtn(if all { icons::DESELECT } else { icons::SELECT_ALL }, "", move || {
                 if all {
                     clear_selection(p)
@@ -192,7 +207,8 @@ fn selection_bar(p: Pane, n: usize) -> W {
                     actions::select_all(p)
                 }
             }))
-            .child(pmenu_btn(icons::MORE_VERT, items)),
+            .child(pmenu_btn(icons::MORE_VERT, items))
+            .child(window_controls()),
     )
 }
 
@@ -683,5 +699,10 @@ pub fn root() -> W {
             KeyReply::Ignore
         })
         .child(GestureDetector::new().on_back(back).child(layers));
-    boxed(hook)
+    if state::phone_device() {
+        return boxed(hook);
+    }
+    // Узкое окно на компьютере — по-прежнему окно: своя рамка и изменение размера за края.
+    let frame = DecoratedBox::new().class("window-frame").clip(true).child(hook);
+    boxed(WindowResizeRegion::new().over_content(true).inset(5.0).child(frame))
 }

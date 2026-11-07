@@ -252,10 +252,8 @@ pub fn root() -> W {
     boxed(Reactive::new(move || -> Vec<W> {
         let phone = narrow.get();
         state::set_phone(phone);
-        // Телефон: своего заголовка с кнопками окна нет — рамку (закрыть,
-        // свернуть, двигать) рисует композитор. Окно может быть ещё не
-        // создано — переключаем из цикла событий.
-        run_on_main_thread(move || syngui::signal::set_decorations(phone));
+        // Рамка — всегда своя (CSD): в узком окне на компьютере кнопки окна — в
+        // верхней панели телефонной раскладки, на телефоне их нет.
         let ctx = state::ctx();
         ctx.drawer.set(false);
         ctx.sheet.set(false);

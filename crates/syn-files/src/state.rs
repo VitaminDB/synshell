@@ -216,6 +216,12 @@ pub fn set_phone(v: bool) {
     PHONE.with(|p| p.set(v));
 }
 
+/// Телефон (а не просто узкое окно): окна во весь экран, без кнопок окна и рамки.
+/// Узкое окно на компьютере — телефонная раскладка, но со своими кнопками окна.
+pub fn phone_device() -> bool {
+    cfg!(any(target_os = "android", target_os = "ios")) || std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v.trim().eq_ignore_ascii_case("phone"))
+}
+
 pub fn default_sort(c: &Config) -> Sort {
     Sort { key: SortKey::parse(&c.files.sort_by), descending: c.files.sort_descending, folders_first: c.files.folders_first }
 }

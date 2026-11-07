@@ -211,10 +211,28 @@ fn phone_bar(st: St) -> W {
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .class("phone-bar")
             .child(icon_button(icons::MENU, t!("Чаты"), "tb-btn", move || st.list_open.set(true)))
-            .child(DecoratedBox::new().class("grow").child(title))
+            .child(DecoratedBox::new().class("grow").child(WindowDragRegion::new().child(DecoratedBox::new().class("bar-drag").child(title))))
             .child(icon_button(icons::VOICE_CHAT, t!("Голосовой разговор"), "tb-btn", move || crate::voice::start_conversation(st)))
-            .child(icon_button(icons::ADD, t!("Новый чат"), "tb-btn", move || st.new_chat())),
+            .child(icon_button(icons::ADD, t!("Новый чат"), "tb-btn", move || st.new_chat()))
+            .child(narrow_window_controls(st)),
     )
+}
+
+/// Телефон (или телефонная сборка): окна во весь экран, кнопок окна нет.
+fn is_phone() -> bool {
+    cfg!(any(target_os = "android", target_os = "ios")) || std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v.trim().eq_ignore_ascii_case("phone"))
+}
+
+/// Кнопки окна для верхней панели узкой раскладки: узкое окно на компьютере остаётся окном
+/// (свернуть, развернуть, закрыть); на телефоне и во весь экран их нет.
+pub(crate) fn narrow_window_controls(st: St) -> W {
+    boxed(Reactive::new(move || -> Vec<W> {
+        let w = st.window.get();
+        if is_phone() || w.fullscreen {
+            return vec![];
+        }
+        vec![boxed(DecoratedBox::new().class("window-controls").child(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused)))]
+    }))
 }
 
 fn menu_layer(st: St) -> W {
@@ -365,15 +383,17 @@ fn phone_root(st: St) -> W {
         }
     });
     let main = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).class("window phone").child(DecoratedBox::new().class("grow body-wrap").child(body));
-    keys(st, Stack::new().fit(StackFit::Expand).child(main).child(voice::overlay(st)).child(toast_layer(st)).child(dialogs(st)).child(menu_layer(st)))
+    let stack = keys(st, Stack::new().fit(StackFit::Expand).child(main).child(voice::overlay(st)).child(toast_layer(st)).child(dialogs(st)).child(menu_layer(st)));
+    // Узкое окно на компьютере тянется за края, как широкое.
+    boxed(WindowResizeRegion::new().over_content(true).inset(5.0).enabled(!is_phone()).child(stack))
 }
 
 pub fn root(st: St) -> W {
     let narrow = syngui::viewport::viewport_below(720.0);
     boxed(Reactive::new(move || -> Vec<W> {
         syngui::i18n::subscribe();
+        // Рамка — всегда своя (CSD): узкое окно на компьютере — со своими кнопками окна.
         let phone = narrow.get();
-        run_on_main_thread(move || syngui::signal::set_decorations(phone));
         vec![if phone { phone_root(st) } else { desktop_root(st) }]
     }))
 }
