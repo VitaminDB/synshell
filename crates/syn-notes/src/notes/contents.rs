@@ -138,6 +138,15 @@ fn drop_line(ctx: NotesCtx, hint: TreeDropHint) -> impl Widget {
     })
 }
 
+/// Название вкладки левой панели — без значка: рядом пять кнопок, и со значком «Содержимое», «İçindekiler»
+/// и подобные при обычной ширине панели сокращались до двух букв; какая вкладка открыта, видно по тексту, а
+/// значок соседней вкладки — на кнопке переключения.
+fn tab_title(text: String) -> impl Widget {
+    DecoratedBox::new()
+        .class("grow notes-tab-title")
+        .child(Text::new(text).max_lines(1).elide(Elide::End).class("panel-header-side-title"))
+}
+
 pub fn header() -> impl Widget {
     let ctx = use_context::<NotesCtx>();
     // Две вкладки в узкой панели не помещаются подписями — показываем
@@ -148,25 +157,21 @@ pub fn header() -> impl Widget {
             let row = Row::new()
                 .gap(6.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(DecoratedBox::new().class("grow").child(panel_header::side_title(MI_LIST_ALT, tr!("notes.tree.title"))))
+                .child(tab_title(tr!("notes.tree.title")))
                 .child(super::project_ui::menu_button());
             return vec![Box::new(row)];
         }
         let blocks = ctx.left_tab.get() == TAB_BLOCKS;
-        let (icon, title) = if blocks {
-            (MI_LAYERS, tr!("notes.blocks.title"))
-        } else {
-            (MI_LIST_ALT, tr!("notes.tree.title"))
-        };
+        let title = if blocks { tr!("notes.blocks.title") } else { tr!("notes.tree.title") };
         let (other_icon, other_title) = if blocks {
             (MI_LIST_ALT, tr!("notes.tree.title"))
         } else {
             (MI_LAYERS, tr!("notes.blocks.title"))
         };
         let mut row = Row::new()
-            .gap(6.0)
+            .gap(4.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(DecoratedBox::new().class("grow").child(panel_header::side_title(icon, title)))
+            .child(tab_title(title))
             .child(super::project_ui::menu_button())
             .child(panel_header::action_button(other_icon, other_title, move || {
                 ctx.left_tab.set(if blocks { TAB_PAGES } else { TAB_BLOCKS });
