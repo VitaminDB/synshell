@@ -30,10 +30,34 @@ else
   client=/usr/lib/steam/bin_steam.sh
 fi
 
+# Ядро без SysV IPC: эмуляция semget/shmget через /dev/shm (и для передачи ссылки работающему клиенту —
+# он ждёт её на семафоре). Она нужна и X-серверу — Chromium передаёт ему id сегментов разделяемой памяти
+# (MIT-SHM): Xwayland композитора получает системную (/usr/lib/libsysv-shim.so), наш запасной — LD_PRELOAD.
+if [ "$machine" = aarch64 ] && [ ! -e /proc/sysvipc ]; then
+  shim=/usr/lib/libsysv-shim.so
+  [ -e "$shim" ] || shim=/usr/lib/syn-steam/libsysv-shim.so
+  export LD_PRELOAD="$shim${LD_PRELOAD:+:$LD_PRELOAD}"
+fi
+
+# Работает ли клиент. comm «steam» и у самого запускателя (скрипт /usr/bin/steam), и у его копий,
+# ждущих клиента, — их (свой PID и интерпретаторы shell) не считаем, иначе каждый запуск после первого
+# шёл бы мимо настройки окружения (GL, шим IPC) прямо в клиент.
+client_running() {
+  local p exe
+  for p in $(pgrep -u "$(id -u)" -x steam 2>/dev/null); do
+    [ "$p" = "$$" ] && continue
+    exe=$(readlink "/proc/$p/exe" 2>/dev/null) || continue
+    case "${exe##*/}" in bash | sh | dash | zsh | busybox) continue ;; esac
+    return 0
+  done
+  return 1
+}
+
 # Клиент уже работает (закрытое окно Steam остаётся в фоне): ключ -gamepadui он передаёт себе и открывает
 # обычный интерфейс — режим просим ссылкой, прочие аргументы (steam://rungameid/… из %U) — следом.
-if pgrep -u "$(id -u)" -x steam >/dev/null 2>&1 && { [ "$machine" != aarch64 ] || [ -x "$client" ]; }; then
+if client_running && { [ "$machine" != aarch64 ] || [ -x "$client" ]; }; then
   if [ "$mode" = bigpicture ]; then url=steam://open/bigpicture; else url=; fi
+  [ "$machine" = aarch64 ] && export LD_PRELOAD="${LD_PRELOAD:+$LD_PRELOAD:}/usr/lib/libXrandr.so.2"
   exec "$client" ${url:+"$url"} "${args[@]}"
 fi
 [ "$mode" = bigpicture ] && args=(-gamepadui "${args[@]}")
@@ -62,13 +86,6 @@ ln -sfn -- "$root" "$HOME/.steam/steam"
 ln -sfn -- "$root/linuxarm64" "$HOME/.steam/sdkarm64"
 # оверлей подгружается через .steam/bin64/../steamrtarm64/
 ln -sfn -- "$root/steamrtarm64" "$HOME/.steam/bin64"
-
-# Ядро без SysV IPC: эмуляция semget/shmget через /dev/shm. Она нужна и X-серверу —
-# Chromium передаёт ему id сегментов разделяемой памяти (MIT-SHM): Xwayland композитора
-# получает системную (/usr/lib/libsysv-shim.so), наш запасной — ниже через LD_PRELOAD.
-shim=/usr/lib/libsysv-shim.so
-[ -e "$shim" ] || shim=/usr/lib/syn-steam/libsysv-shim.so
-[ -e /proc/sysvipc ] || export LD_PRELOAD="$shim${LD_PRELOAD:+:$LD_PRELOAD}"
 
 # Клиенту нужен X11. Обычно это Xwayland композитора (DISPLAY задан): окна Steam — обычные
 # окна оболочки, экран в физических пикселях, масштаб — из Xft.dpi. Без DISPLAY под Wayland
@@ -112,9 +129,15 @@ export LD_PRELOAD="${LD_PRELOAD:+$LD_PRELOAD:}/usr/lib/libXrandr.so.2"
 # OpenGL интерфейса клиента. В Xwayland композитора есть DRI3 (glamor на GPU): GL аппаратный
 # (zink поверх turnip); в своём Xwayland — программный: zink поверх Turnip без X11 WSI
 # (только VK_KHR_wayland_surface) падает в driBindContext. STEAM_ARM64_HWGL=0|1 — принудительно.
+# Без xdpyinfo (на чистом образе его не было) под Xwayland композитора считаем GL аппаратным: программный
+# llvmpipe там даёт чёрное окно Big Picture.
 if [ -z "${STEAM_ARM64_HWGL:-}" ]; then
   STEAM_ARM64_HWGL=0
-  [ -z "$own_x" ] && xdpyinfo -queryExtensions 2>/dev/null | grep -q DRI3 && STEAM_ARM64_HWGL=1
+  if [ -z "$own_x" ]; then
+    if ! command -v xdpyinfo >/dev/null 2>&1 || xdpyinfo -queryExtensions 2>/dev/null | grep -q DRI3; then
+      STEAM_ARM64_HWGL=1
+    fi
+  fi
 fi
 if [ "$STEAM_ARM64_HWGL" = 1 ]; then
   # turnip без X11 WSI: zink только без kopper (показ через DRI3)

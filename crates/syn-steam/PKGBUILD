@@ -11,7 +11,7 @@
 
 pkgname=syn-steam
 pkgver=1.0.0.87
-pkgrel=2
+pkgrel=3
 _bwrapver=0.10.0
 pkgdesc="Steam launcher for synshell: Valve's bootstrap on x86_64, first-run installer of the native ARM64 client on aarch64"
 arch=(x86_64 aarch64)
@@ -29,7 +29,7 @@ depends_x86_64=(
   lib32-pipewire lib32-systemd lib32-vulkan-driver lib32-vulkan-icd-loader
 )
 depends_aarch64=(
-  bubblewrap xorg-xwayland wayland-utils openbox
+  bubblewrap xorg-xwayland wayland-utils openbox xorg-xdpyinfo xorg-xrdb
   libgl mesa libdrm libva libvdpau systemd-libs libcap networkmanager
   glib2 gtk2 gtk3 ibus at-spi2-core libcups
   libogg libvorbis libvpx libsndfile openal libpipewire libpulse opus flac libsamplerate
@@ -40,7 +40,6 @@ depends_aarch64=(
 makedepends_aarch64=(gcc meson ninja libcap cargo)
 optdepends=(
   'syn-wine: Windows-игры системным Wine (compat tool «syn-wine»)'
-  'xorg-xrdb: курсор и масштаб из X-ресурсов'
   'ntsync-autoload: NTSync'
   'xdg-desktop-portal-impl: выбор файлов и папок'
 )
