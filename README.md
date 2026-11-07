@@ -215,7 +215,7 @@ The fully commented default config is
 
 ## How it is built
 
-This project is vibe-coded. Since spring 2026 I write all of my projects with [Claude Code](https://claude.com/claude-code): I decide what to build and how it fits together, describe each task, and review, run and test the result on my own machine — the model writes the code, the tests and most of the documentation. I use synshell as my own desktop session, so what is described here is what I run daily.
+Since spring 2026 I have been working in [Claude Code](https://claude.com/claude-code). I use synshell as my own desktop session, so what is described here is what I run daily.
 
 ## Support
 
