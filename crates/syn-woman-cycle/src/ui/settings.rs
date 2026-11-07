@@ -277,8 +277,9 @@ pub fn page(st: St, wide: bool) -> W {
             2,
             section(
                 t!("Окно"),
-                vec![toggle_row(st, icons::FULLSCREEN, t!("Открывать во весь экран"), t!("Выйти из полноэкранного режима — кнопкой вверху или F11"), s.fullscreen, |x, v| {
+                vec![toggle_row(st, icons::FULLSCREEN, t!("Открывать во весь экран"), t!("Выйти из полноэкранного режима — кнопкой вверху или F11"), s.start_fullscreen(), |x, v| {
                     x.fullscreen = v;
+                    x.fullscreen_chosen = true;
                     syngui::signal::set_fullscreen(v);
                 })],
             ),

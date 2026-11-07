@@ -86,6 +86,10 @@ pub struct Settings {
     pub decor: crate::decor::Decor,
     pub scale: f32,
     pub fullscreen: bool,
+    /// Пользователь сам выбрал «Открывать во весь экран». Пока нет — по устройству: телефон
+    /// во весь экран, компьютер в окне (раньше умолчание было «во весь экран» везде, и оно
+    /// записывалось в данные — без этого признака его не отличить от выбора).
+    pub fullscreen_chosen: bool,
     pub monday: bool,
     pub show_fertile: bool,
     pub show_ovulation: bool,
@@ -93,9 +97,21 @@ pub struct Settings {
     pub show_intimacy: bool,
 }
 
+/// Во весь экран по умолчанию — телефон (synshell, Android, iPhone), компьютер — в окне.
+pub fn default_fullscreen() -> bool {
+    cfg!(any(target_os = "android", target_os = "ios")) || std::env::var("SYNSHELL_FORM_FACTOR").as_deref() == Ok("phone")
+}
+
+impl Settings {
+    /// Открывать ли во весь экран: выбор пользователя, а без него — по устройству.
+    pub fn start_fullscreen(&self) -> bool {
+        if self.fullscreen_chosen { self.fullscreen } else { default_fullscreen() }
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
-        Settings { cycle_len: 28, period_len: 5, luteal: 14, auto: true, theme: ThemeMode::System, decor: crate::decor::Decor::Classic, scale: 1.0, fullscreen: true, monday: true, show_fertile: true, show_ovulation: true, show_intimacy: true }
+        Settings { cycle_len: 28, period_len: 5, luteal: 14, auto: true, theme: ThemeMode::System, decor: crate::decor::Decor::Classic, scale: 1.0, fullscreen: default_fullscreen(), fullscreen_chosen: false, monday: true, show_fertile: true, show_ovulation: true, show_intimacy: true }
     }
 }
 
@@ -416,6 +432,18 @@ impl Forecast {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Старые данные: «fullscreen: true» было умолчанием, а не выбором — на компьютере окно.
+    #[test]
+    fn old_fullscreen_default_is_not_a_choice() {
+        if std::env::var("SYNSHELL_FORM_FACTOR").as_deref() == Ok("phone") {
+            return;
+        }
+        let s: Settings = serde_json::from_str(r#"{"fullscreen":true}"#).unwrap();
+        assert!(!s.start_fullscreen());
+        let s: Settings = serde_json::from_str(r#"{"fullscreen":true,"fullscreen_chosen":true}"#).unwrap();
+        assert!(s.start_fullscreen());
+    }
 
     fn data(starts: &[Day], len: i32) -> Data {
         let mut d = Data::default();
