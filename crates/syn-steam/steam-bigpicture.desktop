@@ -1,7 +1,20 @@
 [Desktop Entry]
 Name=Steam Big Picture
 GenericName=Steam
-Comment=Steam на весь экран, под касания и геймпад
+Comment=Steam in full screen, for touch and gamepad
+Comment[ru]=Steam на весь экран, под касания и геймпад
+Comment[de]=Steam im Vollbild, für Touch und Gamepad
+Comment[es]=Steam a pantalla completa, para táctil y mando
+Comment[fr]=Steam en plein écran, pour le tactile et la manette
+Comment[it]=Steam a schermo intero, per touch e gamepad
+Comment[ja]=タッチとゲームパッド向けの全画面 Steam
+Comment[kk]=Толық экрандағы Steam, сенсор мен геймпадқа арналған
+Comment[ko]=터치와 게임패드용 전체 화면 Steam
+Comment[pl]=Steam na pełnym ekranie, do dotyku i pada
+Comment[pt_BR]=Steam em tela cheia, para toque e controle
+Comment[tr]=Dokunmatik ve oyun kumandası için tam ekran Steam
+Comment[uk]=Steam на весь екран, для дотиків і геймпада
+Comment[zh_CN]=全屏 Steam，适合触控和手柄
 Exec=/usr/bin/steam --bigpicture %U
 Icon=steam
 Terminal=false

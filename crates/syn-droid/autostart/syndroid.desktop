@@ -1,6 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=syndroid
-Comment=Запуск Android при входе в сеанс (если autostart = true в /var/lib/syndroid/config.toml)
+Comment=Start Android on login (if autostart = true in /var/lib/syndroid/config.toml)
+Comment[ru]=Запуск Android при входе в сеанс (если autostart = true в /var/lib/syndroid/config.toml)
 Exec=syndroid session
 NoDisplay=true

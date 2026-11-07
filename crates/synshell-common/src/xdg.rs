@@ -175,21 +175,42 @@ pub const CATEGORIES: &[(&str, &str, &str)] = &[
     ("other", n_!("Прочее"), "\u{E5D3}"),
 ];
 
-fn locale_keys() -> Vec<String> {
-    let lang = std::env::var("LC_ALL")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .or_else(|| std::env::var("LC_MESSAGES").ok().filter(|s| !s.is_empty()))
-        .or_else(|| std::env::var("LANG").ok())
-        .unwrap_or_default();
-    let base = lang.split('.').next().unwrap_or("").split('@').next().unwrap_or("").to_string();
+/// Ключи локали полей ярлыка (`Name[pt_BR]`, `Name[pt]`) — по языку интерфейса synshell
+/// (`SYNSHELL_LANG`, свой язык программы, `[general] language`, иначе язык системы), а не только
+/// по `LANG`: при английском интерфейсе на русской системе (и наоборот) имена программ — на языке
+/// интерфейса. Английский — поля без локали.
+pub fn locale_keys() -> Vec<String> {
+    locale_keys_of(&ui_language())
+}
+
+#[cfg(feature = "i18n")]
+fn ui_language() -> String {
+    crate::i18n::requested(&crate::Config::load().0)
+}
+
+#[cfg(not(feature = "i18n"))]
+fn ui_language() -> String {
+    let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
+    env("SYNSHELL_LANG")
+        .or_else(|| Some(crate::Config::load().0.general.language.trim().to_string()).filter(|l| !l.is_empty()))
+        .or_else(|| env("LC_ALL"))
+        .or_else(|| env("LC_MESSAGES"))
+        .or_else(|| env("LANG"))
+        .unwrap_or_default()
+}
+
+/// `ru_RU.UTF-8` → `[ru_RU, ru]`, `pt-BR` → `[pt_BR, pt]`; `C`/`POSIX`/пусто → нет ключей (английский).
+fn locale_keys_of(lang: &str) -> Vec<String> {
+    let lang = lang.trim().split(['.', '@', ':']).next().unwrap_or("");
+    let mut parts = lang.split(['_', '-']).filter(|p| !p.is_empty());
+    let Some(base) = parts.next().map(str::to_ascii_lowercase).filter(|b| b != "c" && b != "posix") else {
+        return Vec::new();
+    };
     let mut keys = Vec::new();
-    if !base.is_empty() && base != "C" && base != "POSIX" {
-        keys.push(base.clone());
-        if let Some((l, _)) = base.split_once('_') {
-            keys.push(l.to_string());
-        }
+    if let Some(r) = parts.find(|p| p.len() == 2) {
+        keys.push(format!("{base}_{}", r.to_ascii_uppercase()));
     }
+    keys.push(base);
     keys
 }
 
@@ -225,7 +246,15 @@ fn current_desktops() -> Vec<String> {
         .collect()
 }
 
+/// `locales` — ключи из [`locale_keys`]; пустой срез — они же (язык интерфейса).
 pub fn parse_desktop_file(path: &Path, id: String, locales: &[String]) -> Option<DesktopEntry> {
+    let own;
+    let locales = if locales.is_empty() {
+        own = locale_keys();
+        own.as_slice()
+    } else {
+        locales
+    };
     let text = std::fs::read_to_string(path).ok()?;
     let mut in_group = false;
     let mut kv: HashMap<String, String> = HashMap::new();
@@ -283,7 +312,16 @@ pub fn parse_desktop_file(path: &Path, id: String, locales: &[String]) -> Option
         name: get("Name")?,
         generic_name: get("GenericName").unwrap_or_default(),
         comment: get("Comment").unwrap_or_default(),
-        keywords: list(get("Keywords")),
+        // слова поиска: на языке интерфейса и английские (поле без локали)
+        keywords: {
+            let mut k = list(get("Keywords"));
+            for w in list(kv.get("Keywords").map(|v| unescape(v))) {
+                if !k.contains(&w) {
+                    k.push(w);
+                }
+            }
+            k
+        },
         exec: kv.get("Exec").cloned().unwrap_or_default(),
         icon: kv.get("Icon").cloned().unwrap_or_default(),
         terminal: kv.get("Terminal").map(String::as_str) == Some("true"),
@@ -687,6 +725,30 @@ pub fn window_icon(app_id: &str) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn locale_keys_of() {
+        assert_eq!(super::locale_keys_of("ru_RU.UTF-8"), ["ru_RU", "ru"]);
+        assert_eq!(super::locale_keys_of("pt-BR"), ["pt_BR", "pt"]);
+        assert_eq!(super::locale_keys_of("zh-Hans-CN"), ["zh_CN", "zh"]);
+        assert_eq!(super::locale_keys_of("en"), ["en"]);
+        assert!(super::locale_keys_of("C.UTF-8").is_empty());
+        assert!(super::locale_keys_of("").is_empty());
+    }
+
+    #[test]
+    fn desktop_name_by_locale() {
+        let dir = std::env::temp_dir().join(format!("synshell-xdg-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("t.desktop");
+        std::fs::write(&p, "[Desktop Entry]\nType=Application\nName=Terminal\nName[ru]=Терминал\nName[pt_BR]=Terminal BR\nExec=t\n").unwrap();
+        let name = |l: &[&str]| super::parse_desktop_file(&p, "t".into(), &l.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap().name;
+        assert_eq!(name(&["en"]), "Terminal");
+        assert_eq!(name(&["ru_RU", "ru"]), "Терминал");
+        assert_eq!(name(&["pt_BR", "pt"]), "Terminal BR");
+        assert_eq!(name(&["de_DE", "de"]), "Terminal");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     #[ignore = "зависит от установленных тем значков"]
     fn lookup_real_icons() {
