@@ -43,6 +43,7 @@ try {
         }
     }
     $S = $Stage
+    $NeedReboot = $false
     $HaveSerial = Test-Path (Join-Path $S 'drivers\syn-vm-serial\syn-vm-serial.inf')
 
     if ($HaveSerial) {
@@ -94,6 +95,8 @@ try {
         $pnp = $LASTEXITCODE
         Log ("драйвер syn-vm-serial: pnputil код $pnp`n" + $out.Trim())
         if ($pnp -ne 0 -and $pnp -ne 3010 -and $pnp -ne 259) { Fail "pnputil /add-driver: код $pnp" }
+        # Драйвер устройства, которое уже работает, заменится только после перезагрузки.
+        if ($pnp -eq 3010) { $NeedReboot = $true }
     }
 
     # 6. Гостевой агент syn-vm (служба; обновление — замена exe и перезапуск службы).
@@ -115,8 +118,9 @@ try {
     }
 
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+    if ($NeedReboot -and $code -eq 0) { $code = 3010; Log 'драйвер syn-vm-serial заменится после перезагрузки' }
     SetState $(if ($code -eq 3010) { 'reboot' } else { 'ok' })
-    Log ('=== готово' + $(if ($code -eq 3010) { ' (syn-gpu: нужна перезагрузка)' } else { '' }) + ' ===')
+    Log ('=== готово' + $(if ($code -eq 3010) { ' (нужна перезагрузка)' } else { '' }) + ' ===')
     exit $code
 } catch {
     Fail $_.Exception.Message
