@@ -206,13 +206,20 @@ pub fn start(ctx: ShellCtx) {
     std::thread::Builder::new()
         .name("shell-notify".into())
         .spawn(move || {
+            // Имя — без вытеснения и с очередью: вторая оболочка (вложенный synwm для проверок)
+            // не отбирает уведомления у живой, а живая, если имя занято, получит его, как только
+            // оно освободится. По умолчанию zbus просит «заменить и не ждать» — новая оболочка
+            // забирала имя, а прежняя теряла его навсегда.
             let r = zbus::blocking::connection::Builder::session()
-                .and_then(|b| b.name(IFACE))
                 .and_then(|b| b.serve_at(PATH, Server { ctx }))
-                .and_then(|b| b.build());
+                .and_then(|b| b.build())
+                .and_then(|conn| conn.request_name_with_flags(IFACE, zbus::fdo::RequestNameFlags::AllowReplacement.into()).map(|reply| (conn, reply)));
             match r {
-                Ok(conn) => {
-                    log::info!("уведомления: сервер {IFACE} запущен");
+                Ok((conn, reply)) => {
+                    match reply {
+                        zbus::fdo::RequestNameReply::InQueue => log::info!("уведомления: {IFACE} занято — в очереди, сервер включится, когда имя освободится"),
+                        _ => log::info!("уведомления: сервер {IFACE} запущен"),
+                    }
                     let _ = CONN.set(conn);
                     // Соединение обслуживается внутренним потоком zbus.
                     loop {
