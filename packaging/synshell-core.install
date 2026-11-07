@@ -1,10 +1,10 @@
-# Экран входа synlogin включается при установке, если другой экран входа
-# (display-manager.service) не выбран. Перезагрузка — и вход через synlogin.
+# Пакет службы не включает (правила Arch): только подсказывает, что включить.
+# Экран входа synlogin — если другой экран входа (display-manager.service) не выбран.
 
 post_install() {
-    echo ":: журнал изменений файлов: systemctl enable --now synfsd (история — в «Свойствах» проводника)"
+    echo ":: synshell: войти в сеанс — выберите «synshell» в своём экране входа (GDM, SDDM…)"
     if [ ! -e /etc/systemd/system/display-manager.service ]; then
-        systemctl enable synlogin.service >/dev/null 2>&1 \
-            && echo ":: экран входа synlogin включён (systemctl disable synlogin — выключить)"
+        echo ":: или включите экран входа synshell: systemctl enable synlogin.service (и перезагрузите)"
     fi
+    echo ":: журнал изменений файлов: systemctl enable --now synfsd (история — в «Свойствах» Проводника)"
 }

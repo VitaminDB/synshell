@@ -248,8 +248,9 @@ syngui package -w -f arch -t linux-aarch64                   # пакеты дл
 | `syn-notes`, `syn-vm`, `syn-video-player`, `syn-audio-player`, `syn-audio-recorder`, `synpass`, `syn-maps`, `syn-remote`, `syn-systeminfo`, `syn-themeeditor`, `syn-woman-cycle`, `syndroid`, `syn-wine-helper`, `syncamera`, `syn-blocks` | приложения, по пакету на каждое (группа `synshell-apps`) |
 | `synshell` | метапакет: основа и все приложения выше, без нейросетей |
 
-Затем выберите «synshell» в своём диспетчере входа или доверьтесь встроенному экрану входа: в
-системе без другого диспетчера входа `synshell-core` включает `synlogin.service`.
+Затем выберите «synshell» в своём диспетчере входа или включите встроенный экран входа: в
+системе без другого диспетчера входа — `systemctl enable synlogin.service` и перезагрузка (сам
+пакет службы не включает).
 
 Журналы пишутся в `~/.local/state/synshell/` (`synwm.log`, `shell.log`).
 

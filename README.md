@@ -247,8 +247,9 @@ syngui package -w -f arch -t linux-aarch64                   # packages for phon
 | `syn-notes`, `syn-vm`, `syn-video-player`, `syn-audio-player`, `syn-audio-recorder`, `synpass`, `syn-maps`, `syn-remote`, `syn-systeminfo`, `syn-themeeditor`, `syn-woman-cycle`, `syndroid`, `syn-wine-helper`, `syncamera`, `syn-blocks` | applications, one package each (group `synshell-apps`) |
 | `synshell` | meta package: core plus the applications above, without neural networks |
 
-Then pick “synshell” in your display manager, or let the bundled login screen take over: on a
-system without another display manager `synshell-core` enables `synlogin.service`.
+Then pick “synshell” in your display manager, or use the bundled login screen: on a system
+without another display manager run `systemctl enable synlogin.service` and reboot (the package
+does not enable services by itself).
 
 Logs go to `~/.local/state/synshell/` (`synwm.log`, `shell.log`).
 
