@@ -44,8 +44,8 @@ ignore_outputs = ["Virtual-*"]
 # Тема оформления: nord, catppuccin, tokyo-night, gruvbox, rose-pine,
 # everforest, dracula, kanagawa, solarized, synthwave, aurora, sakura,
 # brutal, terminal или своя из ~/.config/synshell/themes/<имя>/.
-# Пусто — стандартная.
-theme = ""
+# Пусто — стандартная (графит и синий акцент). По умолчанию — Nord.
+theme = "nord"
 color_scheme = "dark"          # dark | light (вариант темы)
 # Схему выбрал пользователь («Параметры» ставят true). Пока false — это умолчание:
 # на экране E Ink вместо него светлая.

@@ -271,7 +271,8 @@ pub struct Appearance {
 impl Default for Appearance {
     fn default() -> Self {
         Self {
-            theme: String::new(),
+            // Тема по умолчанию — Nord (решение пользователя к выпуску 0.2.0).
+            theme: "nord".into(),
             color_scheme: ColorScheme::Dark,
             color_scheme_chosen: false,
             accent: String::new(),
@@ -3415,8 +3416,10 @@ mod tests {
 
     #[test]
     fn default_file_parses_and_matches_defaults() {
-        let c = Config::parse(DEFAULT_CONFIG_TOML).expect("default-config.toml must parse");
+        let mut c = Config::parse(DEFAULT_CONFIG_TOML).expect("default-config.toml must parse");
         let d = Config::default();
+        // Разбор сразу загружает тему (`resolved`), умолчание — нет: сравниваем настройки.
+        c.appearance.resolved = None;
         assert_eq!(c.general, d.general);
         assert_eq!(c.windows, d.windows);
         assert_eq!(c.appearance, d.appearance);
@@ -3492,7 +3495,9 @@ mod tests {
 
     #[test]
     fn empty_is_default() {
-        assert_eq!(Config::parse("").unwrap(), Config::default());
+        let mut c = Config::parse("").unwrap();
+        c.appearance.resolved = None;
+        assert_eq!(c, Config::default());
     }
 
     #[test]
