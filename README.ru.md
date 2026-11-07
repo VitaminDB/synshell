@@ -15,7 +15,7 @@ plasmashell) и программа «Параметры системы», а к 
 следят за ним и применяют изменения на лету; «Параметры системы» правят тот же файл на месте и
 сохраняют ваши комментарии.
 
-![synshell: тема Synthwave, плавающая верхняя панель, док и проводник](docs/screenshots/desktop.png)
+![synshell: тема Nord, плавающая верхняя панель, док, проводник, монитор ресурсов и терминал](docs/screenshots/desktop-ru.png)
 
 ## Состояние
 
@@ -77,11 +77,15 @@ Arrow Lake выводит изображение на встроенную па�
 
 | Меню запуска | Раскладка «мозаика» |
 |---|---|
-| ![Меню запуска](docs/screenshots/launcher.png) | ![Раскладка «мозаика» с проводником и «Параметрами системы»](docs/screenshots/tile.png) |
+| ![Меню запуска с закреплёнными программами](docs/screenshots/launcher-ru.png) | ![Раскладка «мозаика»: проводник, «Параметры системы» и терминал](docs/screenshots/tile-ru.png) |
 
-| «Параметры системы» — «Темы», развёрнуты под панелью-заголовком | Снимок экрана |
+| «Параметры системы» — «Темы» | Снимок экрана |
 |---|---|
-| ![«Параметры системы», страница «Темы»](docs/screenshots/themes.png) | ![Выбор окна для снимка](docs/screenshots/screenshot.png) |
+| ![«Параметры системы», страница «Темы»](docs/screenshots/themes-ru.png) | ![Снимок экрана: выделение области, под рамкой — панель действий](docs/screenshots/screenshot-ru.png) |
+
+| Обзор окон | Меню завершения работы |
+|---|---|
+| ![Обзор окон: все окна стола рядом](docs/screenshots/overview-ru.png) | ![Меню завершения работы по центру затемнённого экрана: блокировка, выход, сон, перезагрузка, выключение](docs/screenshots/power-ru.png) |
 
 ## Приложения
 
@@ -118,6 +122,12 @@ Arrow Lake выводит изображение на встроенную па�
 | [syn-maps](crates/syn-maps/README.ru.md) | **Карты.** OpenStreetMap с поиском, маршрутами и вашим местоположением — на компьютере и телефоне. |
 
 **Телефон**
+
+Телефонная оболочка (`synmobile-shell`): домашний экран со значками программ по страницам и шторка быстрых настроек.
+
+| Домашний экран | Быстрые настройки |
+|---|---|
+| <img src="docs/screenshots/phone-ru.png" width="300" alt="Телефонная оболочка: домашний экран со значками программ"> | <img src="docs/screenshots/phone-shade-ru.png" width="300" alt="Телефонная оболочка: шторка быстрых настроек — сеть, местоположение, режим окон, яркость и громкость"> |
 
 | Приложение | Что делает |
 |---|---|
@@ -194,9 +204,8 @@ synaptix = { path = "../synaptix/crates/synaptix" }
 
 В рабочем пространстве задано `rust-version = "1.85"`. Зависимости для сборки и работы (имена пакетов Arch):
 mesa, libinput, seatd, systemd-libs, libxkbcommon, libdrm, pixman, vulkan-icd-loader, fontconfig,
-freetype2, шрифт (`ttf-font`), dbus, pam, alsa-lib, ffmpeg, sqlite, libarchive, pipewire, xdg-desktop-portal. Необязательные — xorg-xwayland, wireplumber, brightnessctl, networkmanager,
-playerctl, wl-clipboard, ffmpegthumbnailer, libheif, imagemagick,
-breeze-icons — перечислены с пояснением, зачем они нужны, в [syngui-release.toml](syngui-release.toml) (пакеты собираются командой `syngui package -w -f arch`).
+freetype2, шрифт (`ttf-font`), темы значков и курсора по умолчанию (breeze-icons, breeze-cursors), dbus, pam, alsa-lib, ffmpeg, sqlite, libarchive, pipewire, xdg-desktop-portal. Необязательные — xorg-xwayland, wireplumber, brightnessctl, networkmanager,
+playerctl, wl-clipboard, ffmpegthumbnailer, libheif, imagemagick — перечислены с пояснением, зачем они нужны, в [syngui-release.toml](syngui-release.toml) (пакеты собираются командой `syngui package -w -f arch`).
 
 **Вложенно, внутри текущего сеанса Wayland или X11** (в окне):
 

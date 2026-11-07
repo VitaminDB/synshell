@@ -15,7 +15,7 @@ Almost everything is configured in one file, `~/.config/synshell/config.toml`. T
 and the shell watch it and apply changes live; System Settings edits the same file in place and
 keeps your comments.
 
-![synshell: the Synthwave theme, a floating top panel, the dock and the file manager](docs/screenshots/desktop.png)
+![synshell: the Nord theme, a floating top panel, the dock, the file manager, Resource Monitor and the terminal](docs/screenshots/desktop.png)
 
 ## Status
 
@@ -76,11 +76,15 @@ documentation in `docs/` is in Russian.
 
 | Launcher | Tile layout |
 |---|---|
-| ![Launcher](docs/screenshots/launcher.png) | ![Tile layout with the file manager and System Settings](docs/screenshots/tile.png) |
+| ![Launcher with pinned applications](docs/screenshots/launcher.png) | ![Tile layout: the file manager, System Settings and the terminal](docs/screenshots/tile.png) |
 
-| System Settings — Themes, maximized under the panel-as-title-bar | Screenshot tool |
+| System Settings — Themes | Screenshot tool |
 |---|---|
-| ![System Settings, Themes page](docs/screenshots/themes.png) | ![Screenshot tool picking a window](docs/screenshots/screenshot.png) |
+| ![System Settings, Themes page](docs/screenshots/themes.png) | ![Screenshot tool: selecting an area, with the action bar under the frame](docs/screenshots/screenshot.png) |
+
+| Window overview | Power menu |
+|---|---|
+| ![Window overview: all windows of the desktop side by side](docs/screenshots/overview.png) | ![Power menu in the centre of a dimmed screen: lock, log out, sleep, restart, power off](docs/screenshots/power.png) |
 
 ## Applications
 
@@ -117,6 +121,12 @@ Every application has its own README with screenshots and a command-line referen
 | [syn-maps](crates/syn-maps/README.md) | **Maps.** OpenStreetMap with search, routes and your own location, on computers and phones. |
 
 **Phone**
+
+The phone shell (`synmobile-shell`): the home screen with application icons laid out in pages, and the quick settings shade.
+
+| Home screen | Quick settings |
+|---|---|
+| <img src="docs/screenshots/phone.png" width="300" alt="Phone shell: home screen with application icons"> | <img src="docs/screenshots/phone-shade.png" width="300" alt="Phone shell: quick settings shade with network, location, window mode, brightness and volume"> |
 
 | Application | What it does |
 |---|---|
@@ -193,9 +203,8 @@ synaptix = { path = "../synaptix/crates/synaptix" }
 
 The workspace sets `rust-version = "1.85"`. Build and runtime dependencies (Arch package names):
 mesa, libinput, seatd, systemd-libs, libxkbcommon, libdrm, pixman, vulkan-icd-loader, fontconfig,
-freetype2, a font (`ttf-font`), dbus, pam, alsa-lib, ffmpeg, sqlite, libarchive, pipewire, xdg-desktop-portal. Optional ones — xorg-xwayland, wireplumber, brightnessctl, networkmanager,
-playerctl, wl-clipboard, ffmpegthumbnailer, libheif, imagemagick,
-breeze-icons — are listed with their purpose in [syngui-release.toml](syngui-release.toml) (packages are built with `syngui package -w -f arch`).
+freetype2, a font (`ttf-font`), the default icon and cursor themes (breeze-icons, breeze-cursors), dbus, pam, alsa-lib, ffmpeg, sqlite, libarchive, pipewire, xdg-desktop-portal. Optional ones — xorg-xwayland, wireplumber, brightnessctl, networkmanager,
+playerctl, wl-clipboard, ffmpegthumbnailer, libheif, imagemagick — are listed with their purpose in [syngui-release.toml](syngui-release.toml) (packages are built with `syngui package -w -f arch`).
 
 **Nested, inside your current Wayland or X11 session** (it runs in a window):
 

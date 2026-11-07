@@ -548,6 +548,13 @@
 "Система" = "System"
 "Прочее" = "Inne"
 
+# themes/*/theme.toml — имена встроенных тем
+"Аврора" = "Zorza"
+"Необрутализм" = "Neobrutalizm"
+"Сакура" = "Sakura"
+"Синтвейв" = "Synthwave"
+"Терминал" = "Terminal"
+
 # themes/*/theme.toml — описания встроенных тем
 "Матовое стекло над полярным сиянием: прозрачные панели и светлые кромки." = "Matowe szkło nad zorzą polarną: półprzezroczyste panele i jasne krawędzie."
 "Толстые чёрные рамки, жёсткие тени без размытия, кричащие цвета и прямые углы." = "Grube czarne ramki, twarde cienie bez rozmycia, krzykliwe kolory i proste kąty."

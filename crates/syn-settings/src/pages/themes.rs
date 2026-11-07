@@ -140,8 +140,8 @@ fn card(t: Option<&Arc<Theme>>, scheme: ColorScheme, selected: bool, width: Opti
     let radius = num("corner_radius", 10.0) as f32;
     let opacity = num("panel_opacity", 0.92) as f32;
     let (name, desc) = match t {
-        // Описания встроенных тем — в общем каталоге переводов (synshell-common/i18n).
-        Some(t) => (t.name.clone(), crate::ui::tl(&t.description)),
+        // Имена и описания встроенных тем — в общем каталоге переводов (synshell-common/i18n).
+        Some(t) => (crate::ui::tl(&t.name), crate::ui::tl(&t.description)),
         None => (t!("Стандартная").to_string(), t!("Сдержанная палитра synshell: графит и синий акцент.").to_string()),
     };
     let variants = match t {
@@ -276,7 +276,7 @@ pub fn apply(t: Option<&Theme>) {
         ch
     });
     state::toast(match t {
-        Some(t) => t!("Тема «{name}» применена", name = t.name),
+        Some(t) => t!("Тема «{name}» применена", name = crate::ui::tl(&t.name)),
         None => t!("Стандартная тема применена").to_string(),
     });
     state::bump();

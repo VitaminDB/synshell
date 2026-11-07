@@ -548,6 +548,13 @@
 "Система" = "System"
 "Прочее" = "Other"
 
+# themes/*/theme.toml — имена встроенных тем
+"Аврора" = "Aurora"
+"Необрутализм" = "Neobrutalism"
+"Сакура" = "Sakura"
+"Синтвейв" = "Synthwave"
+"Терминал" = "Terminal"
+
 # themes/*/theme.toml — описания встроенных тем
 "Матовое стекло над полярным сиянием: прозрачные панели и светлые кромки." = "Frosted glass over the northern lights: translucent panels and bright edges."
 "Толстые чёрные рамки, жёсткие тени без размытия, кричащие цвета и прямые углы." = "Thick black borders, hard unblurred shadows, loud colors and square corners."
