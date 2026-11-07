@@ -76,6 +76,9 @@ Text {
 .clock-time { font-size: 14px; font-weight: bold; }
 .clock-date { font-size: 10px; color: var(--muted); }
 .clock-date-v { font-size: 10px; }
+.clock-time-v { font-size: 15px; line-height: 17px; letter-spacing: 0px; }
+.panel-vertical .applet-clock { padding: 3px 0px; }
+.battery-pct-v { font-size: 10px; line-height: 12px; }
 
 .battery-low .icon { icon-color: var(--danger); }
 

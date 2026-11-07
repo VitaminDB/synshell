@@ -85,6 +85,7 @@ fn launcher(a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
 fn clock(a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
     let ctx = ShellCtx::get();
     let seconds = a.bool_or("seconds", false);
+    let custom = a.str("format").is_some();
     let fmt = a.str("format").map(String::from).unwrap_or_else(|| if seconds { "%H:%M:%S" } else { "%H:%M" }.into());
     let date_fmt = a.str("date_format").map(String::from).unwrap_or_else(|| if pc.vertical { "%d.%m".into() } else { "%a, %d %b".into() });
     // На тонкой панели (строка состояния телефона) дата под часами не
@@ -99,7 +100,15 @@ fn clock(a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
                 let now = ctx.now.get();
                 // Без секунд — перерисовка раз в минуту.
                 let t = if fmt.contains("%S") || fmt.contains("%T") { now } else { now - now % 60 };
-                let mut col = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(crate::clock::format(t, &fmt)).class("clock-time"));
+                let mut col = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Center);
+                if vertical && !custom {
+                    // Вертикальная панель уже строки «14:02»: часы и минуты (и секунды) столбиком.
+                    for part in crate::clock::format(t, &fmt).split(':') {
+                        col = col.child(Text::new(part.to_string()).class("clock-time clock-time-v"));
+                    }
+                } else {
+                    col = col.child(Text::new(crate::clock::format(t, &fmt)).class("clock-time"));
+                }
                 if show_date {
                     col = col.child(Text::new(crate::clock::format(t, &date_fmt)).class(if vertical { "clock-date clock-date-v" } else { "clock-date" }));
                 }
@@ -204,16 +213,27 @@ pub fn battery_glyph(b: &crate::system::Battery) -> &'static str {
 fn battery(a: &Applet, pc: &PanelCtx) -> Box<dyn Widget> {
     let ctx = ShellCtx::get();
     let show_pct = a.bool_or("percent", true);
+    let vertical = pc.vertical;
     let pc = pc.clone();
     Box::new(crate::ui::rx(move || {
         let Some(b) = ctx.battery.get() else {
             // Батареи нет (настольный ПК) — апплет не занимает места.
             return Box::new(DecoratedBox::new());
         };
-        let mut row = Row::new().gap(3.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(battery_glyph(&b)));
-        if show_pct {
-            row = row.child(Text::new(format!("{}%", b.percent)).class("applet-label"));
-        }
+        // На вертикальной панели процент — мелко под значком, иначе не влезает в ширину.
+        let row: Box<dyn Widget> = if vertical {
+            let mut col = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(battery_glyph(&b)));
+            if show_pct {
+                col = col.child(Text::new(format!("{}%", b.percent)).class("applet-label battery-pct-v"));
+            }
+            Box::new(col)
+        } else {
+            let mut row = Row::new().gap(3.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(battery_glyph(&b)));
+            if show_pct {
+                row = row.child(Text::new(format!("{}%", b.percent)).class("applet-label"));
+            }
+            Box::new(row)
+        };
         let low = b.percent <= 15 && !b.charging;
         let pc = pc.clone();
         Box::new(
