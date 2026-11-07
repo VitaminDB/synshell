@@ -4,7 +4,7 @@
 
 **E Ink screen profiles and test patterns for synshell on ONYX BOOX devices — a tool for developers and for tuning the panel.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/syn-epdtest/) · [AUR: syn-epdtest-bin](https://aur.archlinux.org/packages/syn-epdtest-bin) · [AUR: syn-epdtest-git](https://aur.archlinux.org/packages/syn-epdtest-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/syn-epdtest/)
 
 ![Profile editor](docs/screenshots/profile-en.png)
 
