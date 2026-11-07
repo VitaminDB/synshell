@@ -363,11 +363,53 @@ pub fn guest_is_windows(vm: &Vm) -> bool {
 
 const CHUNK: usize = 1 << 20;
 
-/// Файл хоста → гость. Возвращает число байт.
+/// Файл или каталог хоста → гость. Возвращает число байт.
 pub fn push(vm: &Vm, local: &Path, guest: &str) -> Result<u64> {
     if crate::agent::preferred(vm) {
         return crate::agent::Client::connect(vm)?.push(local, guest);
     }
+    if !local.is_dir() {
+        return push_file(vm, local, guest);
+    }
+    // Каталог через qemu-ga: подкаталоги создаёт команда гостя, файлы идут по одному.
+    let win = guest_is_windows(vm);
+    let sep = if win { "\\" } else { "/" };
+    let mkdir = |p: &str| -> Result<()> {
+        let argv: Vec<String> = if win {
+            ["cmd.exe", "/c", "if", "not", "exist", p, "mkdir", p].iter().map(|s| s.to_string()).collect()
+        } else {
+            ["mkdir", "-p", p].iter().map(|s| s.to_string()).collect()
+        };
+        let r = exec(vm, &argv, None, &[], Duration::from_secs(60))?;
+        if r.code != 0 {
+            bail!("mkdir {p}: {}", String::from_utf8_lossy(&decode_output(vm, r.stderr)).trim());
+        }
+        Ok(())
+    };
+    let root = guest.trim_end_matches(['/', '\\']).to_string();
+    mkdir(&root)?;
+    let mut total = 0;
+    let mut stack = vec![local.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let mut items: Vec<_> = std::fs::read_dir(&d).with_context(|| d.display().to_string())?.flatten().collect();
+        items.sort_by_key(|e| e.file_name());
+        for e in items {
+            let p = e.path();
+            let rel = p.strip_prefix(local).unwrap_or(&p).components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join(sep);
+            let g = format!("{root}{sep}{rel}");
+            if p.is_dir() {
+                mkdir(&g)?;
+                stack.push(p);
+            } else {
+                total += push_file(vm, &p, &g)?;
+            }
+        }
+    }
+    Ok(total)
+}
+
+/// Один файл хоста → гость через qemu-ga.
+fn push_file(vm: &Vm, local: &Path, guest: &str) -> Result<u64> {
     let mut f = std::fs::File::open(local).with_context(|| local.display().to_string())?;
     let mut a = Agent::connect(vm, Duration::from_secs(10))?;
     let h = a.call("guest-file-open", json!({"path": guest, "mode": "wb"}))?.as_i64().context("guest-file-open")?;
