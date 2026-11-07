@@ -928,23 +928,24 @@ fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: 
     // Значок (Material Icons, частная область Юникода) — виджетом значка, не текстом.
     let icon = !label.is_empty() && label.chars().all(|c| ('\u{E000}'..='\u{F8FF}').contains(&c));
     let text: Box<dyn Widget> = if icon { Box::new(Icon::new(label).class("key-icon")) } else { Box::new(Text::new(label).class("key-label")) };
+    let centered = Row::new()
+        .main_axis_alignment(MainAxisAlignment::Center)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(text)
+        .class("key-fill");
+    // Мелкая подпись — в правом верхнем углу поверх клавиши: основная остаётся по центру
+    // и не обрезается на низких клавишах (телефон лёжа).
     let inner: Box<dyn Widget> = match hint {
         Some(h) => Box::new(
-            Column::new()
-                .main_axis_alignment(MainAxisAlignment::Center)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .gap(1.0)
-                .child(Text::new(h).class("key-hint"))
-                .child(text)
-                .class("key-fill"),
+            Stack::new().child(centered).child(
+                Column::new()
+                    .main_axis_alignment(MainAxisAlignment::Start)
+                    .cross_axis_alignment(CrossAxisAlignment::End)
+                    .child(Padding::only(0.0, 2.0, 5.0, 0.0).child(Text::new(h).class("key-hint")))
+                    .class("key-fill"),
+            ),
         ),
-        None => Box::new(
-            Row::new()
-                .main_axis_alignment(MainAxisAlignment::Center)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(text)
-                .class("key-fill"),
-        ),
+        None => Box::new(centered),
     };
     let body = DecoratedBox::new().child(inner).class(class);
 
