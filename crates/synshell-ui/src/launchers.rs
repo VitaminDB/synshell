@@ -90,6 +90,15 @@ impl Launchable {
     }
 }
 
+/// Закреплённый значок `app` указывает на программу без `.desktop`
+/// (её удалили или не ставили) и своей команды у него нет — такой значок
+/// не показывается (конфиг не трогаем): появится сам, когда программу
+/// поставят (`ShellCtx::apps_rev`).
+pub fn applet_app_missing(a: &Applet) -> bool {
+    let id = a.str("app").unwrap_or("").trim();
+    !id.is_empty() && a.str("command").is_none_or(|c| c.trim().is_empty()) && xdg::app_by_id(id).is_none()
+}
+
 /// Картинка значка (или глиф) с классом.
 pub fn icon_widget(icon_path: &Option<PathBuf>, glyph: &Option<String>, class: &str, size: f32) -> Box<dyn Widget> {
     if let Some(g) = glyph {
@@ -564,11 +573,17 @@ pub fn stack_title(a: &Applet) -> String {
 /// у приложения есть окна.
 pub fn app_applet(a: &Applet, pc: &PanelCtx, index: usize) -> Box<dyn Widget> {
     let ctx = ShellCtx::get();
-    let l = Launchable::from_applet(a);
+    let a = a.clone();
     let show_label = a.bool_or("label", false);
     let pc = pc.clone();
     let panel = pc.index;
     Box::new(crate::ui::rx(move || {
+        // Программу поставили или удалили — значок появляется или пропадает.
+        let _ = ctx.apps_rev.get();
+        if ctx.editing.get() != Some(panel) && applet_app_missing(&a) {
+            return Box::new(DecoratedBox::new()) as Box<dyn Widget>;
+        }
+        let l = Launchable::from_applet(&a);
         let windows = ctx.windows.get();
         let mine = windows_of(&l.app_id, &windows);
         let launching = is_launching(&ctx, &l.key());

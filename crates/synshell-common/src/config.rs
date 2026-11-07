@@ -1237,7 +1237,7 @@ impl Default for Wallpaper {
             color2: String::new(),
             slideshow_minutes: 0,
             per_output: BTreeMap::new(),
-            desktop_icons: false,
+            desktop_icons: true,
             layout: "same".into(),
             zoom: 1.0,
             center: [0.5, 0.5],

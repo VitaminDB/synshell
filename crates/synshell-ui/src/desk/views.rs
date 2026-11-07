@@ -899,27 +899,43 @@ pub const KILL: &str = "\u{E99A}";
 // ─── Значки приложений ──────────────────────────────────────────────────────
 
 /// Сетка значков: свои (`apps`), закреплённые на домашнем экране (`[mobile]
-/// home_apps`) или все программы по алфавиту.
+/// home_apps`) или все программы по алфавиту. Общая сетка показывает свой
+/// отрезок программ ([`super::launcher_plan`]) — столько, сколько помещается,
+/// без прокрутки; плитки делят высоту поровну.
 fn launcher_grid(ctx: ShellCtx, w: &DeskWidget, cx: &Cx) -> Box<dyn Widget> {
     let own = w.strings("apps");
-    let cols_opt = w.int_or("columns", 0);
+    let range = w.options.get(super::RANGE_COUNT).is_some().then(|| {
+        let first = w.int_or(super::RANGE_FIRST, 0).max(0) as usize;
+        first..first + w.int_or(super::RANGE_COUNT, 0).max(0) as usize
+    });
+    let w = w.clone();
     let (cw, ch) = (cx.w, cx.h);
     Box::new(rx(move || {
         let _ = ctx.apps_rev.get();
         let cfg = ctx.cfg();
-        let ids = if own.is_empty() { cfg.mobile.home_apps.clone() } else { own.clone() };
-        let entries: Vec<xdg::DesktopEntry> = if ids.is_empty() {
-            // Программы Linux; приложения Android — в меню, своим разделом.
-            let mut v: Vec<_> = xdg::apps().iter().filter(|a| !a.no_display && a.android.is_none()).cloned().collect();
-            v.sort_by_key(|a| a.name.to_lowercase());
-            v
-        } else {
-            ids.iter().filter_map(|id| xdg::app_by_id(id)).collect()
-        };
-        let cols = if cols_opt > 0 { cols_opt as usize } else if ctx.is_phone() { cfg.mobile.home_columns.clamp(2, 8) as usize } else { ((cw / 96.0) as usize).max(1) };
-        let mut grid = Grid::new(cols.clamp(1, 12)).gap(4.0);
-        for e in &entries {
-            grid = grid.child(app_tile(ctx, e));
+        let entries: Vec<xdg::DesktopEntry> = if own.is_empty() { super::home_entries(&cfg) } else { own.iter().filter_map(|id| xdg::app_by_id(id)).collect() };
+        let (cols, rows) = super::launcher_dims(&ctx, &w, cw, ch);
+        let mut grid = Grid::new(cols).gap(4.0);
+        match &range {
+            Some(r) => {
+                let tile_h = ((ch - 4.0 * rows.saturating_sub(1) as f32) / rows as f32).floor();
+                let slice = entries.get(r.start.min(entries.len())..r.end.min(entries.len())).unwrap_or(&[]);
+                // последняя сетка без новых страниц (компьютер) может получить больше, чем помещается
+                let fits = slice.len() <= cols * rows;
+                for e in slice {
+                    let tile = DecoratedBox::new().child(app_tile(ctx, e));
+                    let tile: Box<dyn Widget> = if fits { Box::new(tile.style("height", StyleValue::px(tile_h))) } else { Box::new(tile) };
+                    grid = grid.child(tile);
+                }
+                if fits {
+                    return Box::new(DecoratedBox::new().child(grid).style("height", StyleValue::px(ch))) as Box<dyn Widget>;
+                }
+            }
+            None => {
+                for e in &entries {
+                    grid = grid.child(app_tile(ctx, e));
+                }
+            }
         }
         Box::new(DecoratedBox::new().child(ScrollView::new().vertical().child(grid)).style("height", StyleValue::px(ch)))
     }))

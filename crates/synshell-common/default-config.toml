@@ -221,7 +221,7 @@ mode = "fill"                  # fill | fit | stretch | center | tile
 color = ""                     # пусто — обои темы
 color2 = ""                    # второй цвет — градиент, если нет картинки
 slideshow_minutes = 0
-desktop_icons = false
+desktop_icons = true
 layout = "same"                # same — одни на всех столах | workspace — свои у каждого стола |
                                # panorama — одна картинка на все столы, сдвигается при переключении
 zoom = 1.0                     # кадр: масштаб относительно «заполнить экран» (mode = "fill")

@@ -476,6 +476,8 @@ fn items_row(panel: &Panel, st: &DockState, editing: bool) -> impl Widget {
         let launching = ctx.launching.get();
         let bursts = ctx.bursts.get();
         let _ = ctx.focused.get();
+        // Программу поставили или удалили — значок появляется или пропадает.
+        let _ = ctx.apps_rev.get();
         let vertical = st2.edge.is_vertical();
         let cross = match st2.edge {
             Edge::Bottom | Edge::Right => CrossAxisAlignment::End,
@@ -495,9 +497,16 @@ fn items_row(panel: &Panel, st: &DockState, editing: bool) -> impl Widget {
             .range(dock.zoom_range)
             .gap(4.0)
             .class(if editing { "dock-items dock-items-editing" } else { "dock-items" });
-        let pinned: Vec<String> = applets.iter().filter(|a| a.kind == "app").map(|a| Launchable::from_applet(a).app_id).collect();
+        // Закреплённые значки программ без `.desktop` не показываются (кроме
+        // правки — чтобы их можно было убрать); окна такой программы, если
+        // есть, идут в `taskbar` как незакреплённые.
+        let hidden = |a: &synshell_common::config::Applet| !editing && a.kind == "app" && launchers::applet_app_missing(a);
+        let pinned: Vec<String> = applets.iter().filter(|a| a.kind == "app" && !hidden(a)).map(|a| Launchable::from_applet(a).app_id).collect();
         let env = ItemEnv { st: st2.clone(), windows: &windows, launching: &launching, bursts: &bursts, dock: &dock };
         for (ai, a) in applets.iter().enumerate() {
+            if hidden(a) {
+                continue;
+            }
             match a.kind.as_str() {
                 "taskbar" => {
                     if editing {

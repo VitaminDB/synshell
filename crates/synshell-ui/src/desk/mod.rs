@@ -385,7 +385,9 @@ pub fn grid(ctx: &ShellCtx, output: &str) -> Grid {
         let ch = if cfg.desktop.icon_size > 0 { ch.max(cfg.desktop.icon_size as f32 + ICON_ROOM) } else { ch };
         // сверху — точки столов
         let y0 = 34.0;
-        let rows = ((h - y0 - pad) / ch).floor().max(1.0) as u32;
+        // Снизу — плавающий док поверх стола: строки (и сетка значков во всю
+        // высоту) кончаются над ним.
+        let rows = ((h - y0 - pad - overlay_bottom(ctx)) / ch).floor().max(1.0) as u32;
         let x0 = ((w - cols as f32 * cw) / 2.0).floor().max(pad);
         Grid { cols, rows, cw, ch, x0, y0, width: w, height: h }
     } else {
@@ -573,14 +575,30 @@ pub fn page_view(ctx: ShellCtx, page: usize, output: String) -> impl Widget {
         } else {
             Vec::new()
         };
-        let mut g = grid(&ctx, &output);
+        // Программы поставили или удалили — значки заново раскладываются по страницам.
+        let _ = ctx.apps_rev.get();
         let list = items(&ctx);
-        let mut placed: Vec<(Slot, DeskWidget)> =
-            list.iter().enumerate().filter(|(_, w)| on_page(&ctx, w, page, &output)).map(|(i, w)| (Slot::Item(i), w.clone())).collect();
-        // Телефон горизонтально (не в правке): виджеты по порядку — в сетку на всю ширину.
-        if ctx.is_phone() && g.width > g.height && !editing {
-            (g, placed) = spread(g, placed);
+        let (g, mut placed) = page_items(&ctx, &list, page, &output, editing);
+        // Общая сетка значков течёт со страницы на страницу: каждой — свой отрезок
+        // программ; страницы сверх столов — только значки, не правятся.
+        let plan = launcher_plan(&ctx, &list, &output, editing);
+        for (slot, w) in placed.iter_mut() {
+            if let Slot::Item(i) = slot {
+                if let Some(r) = plan.ranges.get(i) {
+                    mark_range(w, r);
+                }
+            }
         }
+        let extra: Vec<(Slot, DeskWidget)> = page
+            .checked_sub(plan.count)
+            .and_then(|k| plan.extra.get(k))
+            .map(|(src, w, r)| {
+                let mut w = w.clone();
+                mark_range(&mut w, r);
+                (Slot::Item(*src), w)
+            })
+            .into_iter()
+            .collect();
         // Файлы рабочего стола без своего места — в свободные клетки
         // сверху вниз, затем вправо (как в KDE).
         if icons {
@@ -625,6 +643,9 @@ pub fn page_view(ctx: ShellCtx, page: usize, output: String) -> impl Widget {
         for (slot, w) in placed {
             stack = stack.child(place(ctx, g, slot, w, editing));
         }
+        for (slot, w) in extra {
+            stack = stack.child(place(ctx, g, slot, w, false));
+        }
         let page_w: Box<dyn Widget> = if ctx.is_phone() && content_h > g.height + 1.0 {
             Box::new(ScrollView::new().vertical().child(stack))
         } else {
@@ -655,6 +676,161 @@ pub fn page_view(ctx: ShellCtx, page: usize, output: String) -> impl Widget {
                 .cross_axis_alignment(CrossAxisAlignment::Start)
                 .child(Padding::only(16.0, 0.0, 0.0, lift + 16.0).child(switch)),
         )
+}
+
+/// Виджеты страницы `page` (с 0) и её сетка; телефон горизонтально (не в
+/// правке) — виджеты по порядку в сетку на всю ширину ([`spread`]).
+fn page_items(ctx: &ShellCtx, list: &[DeskWidget], page: usize, output: &str, editing: bool) -> (Grid, Vec<(Slot, DeskWidget)>) {
+    let g = grid(ctx, output);
+    let placed: Vec<(Slot, DeskWidget)> =
+        list.iter().enumerate().filter(|(_, w)| on_page(ctx, w, page, output)).map(|(i, w)| (Slot::Item(i), w.clone())).collect();
+    if ctx.is_phone() && g.width > g.height && !editing {
+        return spread(g, placed);
+    }
+    (g, placed)
+}
+
+// ─── Значки приложений по страницам ─────────────────────────────────────────
+
+/// Высота плитки значка в сетке: значок 56 + подпись в две строки + поля.
+pub const TILE_H: f32 = 116.0;
+/// Наименьшая ширина плитки — сколько колонок встаёт на широком экране.
+pub const TILE_W: f32 = 92.0;
+
+/// Ключи отрезка программ, который показывает сетка значков (только в
+/// раскладке страницы, в конфиг не пишутся).
+pub(crate) const RANGE_FIRST: &str = "_first";
+pub(crate) const RANGE_COUNT: &str = "_count";
+
+fn mark_range(w: &mut DeskWidget, r: &std::ops::Range<usize>) {
+    w.set(RANGE_FIRST, r.start as i64);
+    w.set(RANGE_COUNT, r.len() as i64);
+}
+
+/// Программы общей сетки значков: `[mobile] home_apps` или все программы
+/// Linux по алфавиту (приложения Android — в меню, своим разделом).
+pub fn home_entries(cfg: &synshell_common::Config) -> Vec<crate::xdg::DesktopEntry> {
+    if cfg.mobile.home_apps.is_empty() {
+        let mut v: Vec<_> = crate::xdg::apps().iter().filter(|a| !a.no_display && a.android.is_none()).cloned().collect();
+        v.sort_by_key(|a| a.name.to_lowercase());
+        v
+    } else {
+        cfg.mobile.home_apps.iter().filter_map(|id| crate::xdg::app_by_id(id)).collect()
+    }
+}
+
+/// Колонок и строк плиток в сетке значков `w` размером `iw`×`ih`: колонки —
+/// свои (`columns`), на телефоне `[mobile] home_columns` (горизонтально —
+/// больше, сколько встаёт плиток), строки — сколько плиток помещается.
+pub fn launcher_dims(ctx: &ShellCtx, w: &DeskWidget, iw: f32, ih: f32) -> (usize, usize) {
+    let own = w.int_or("columns", 0);
+    let cols = if own > 0 {
+        own as usize
+    } else if ctx.is_phone() {
+        let hc = phone_columns(&ctx.cfg()) as usize;
+        if iw > ih { hc.max((iw / TILE_W) as usize) } else { hc }
+    } else {
+        ((iw / 96.0) as usize).max(1)
+    };
+    (cols.clamp(1, 12), ((ih / TILE_H) as usize).max(1))
+}
+
+/// Сетка значков течёт по страницам: тип `launcher` без своего списка
+/// (`apps`) и на определённом столе (`page` ≥ 1).
+fn flows(w: &DeskWidget) -> bool {
+    w.kind == "launcher" && w.page > 0 && w.strings("apps").is_empty()
+}
+
+/// Разложить `n` программ по сеткам ёмкостью `caps` (по порядку, как на
+/// домашнем экране Android): каждой — сколько помещается, остаток — на
+/// следующую. Не уместились — с `extra` новые страницы по `extra` значков,
+/// без него остаток уходит в последнюю сетку (она прокручивается).
+pub fn paginate(n: usize, caps: &[usize], extra: Option<usize>) -> (Vec<std::ops::Range<usize>>, Vec<std::ops::Range<usize>>) {
+    let mut at = 0;
+    let mut ranges: Vec<std::ops::Range<usize>> = caps
+        .iter()
+        .map(|&c| {
+            let r = at..(at + c).min(n);
+            at = r.end;
+            r
+        })
+        .collect();
+    let mut more = Vec::new();
+    if at < n {
+        match extra.filter(|&c| c > 0) {
+            Some(c) => {
+                while at < n {
+                    more.push(at..(at + c).min(n));
+                    at = (at + c).min(n);
+                }
+            }
+            None => {
+                if let Some(last) = ranges.last_mut() {
+                    last.end = n;
+                }
+            }
+        }
+    }
+    (ranges, more)
+}
+
+/// Раскладка общей сетки значков по столам.
+pub struct LauncherPlan {
+    /// Столов (страниц из конфига).
+    pub count: usize,
+    /// Виджет (номер в списке) → отрезок программ.
+    pub ranges: std::collections::HashMap<usize, std::ops::Range<usize>>,
+    /// Страницы сверх столов (телефон): с какого виджета взяты (его меню),
+    /// виджет и отрезок.
+    pub extra: Vec<(usize, DeskWidget, std::ops::Range<usize>)>,
+}
+
+/// Раскладка общей сетки значков: сетки по столам по порядку (стол, строка,
+/// колонка) получают программы, сколько вмещают; на телефоне не
+/// уместившиеся — на новые страницы после последнего стола, как последняя
+/// сетка.
+pub fn launcher_plan(ctx: &ShellCtx, list: &[DeskWidget], output: &str, editing: bool) -> LauncherPlan {
+    let count = ctx.cfg().workspaces.count.max(1) as usize;
+    let mut chain: Vec<(usize, DeskWidget, usize)> = Vec::new();
+    for page in 0..count {
+        let (g, mut placed) = page_items(ctx, list, page, output, editing);
+        placed.sort_by_key(|(_, w)| (w.y, w.x));
+        for (slot, w) in placed {
+            let Slot::Item(i) = slot else { continue };
+            if !flows(&w) {
+                continue;
+            }
+            let [_, _, pw, ph] = g.rect(g.cells(&w));
+            let (cols, rows) = launcher_dims(ctx, &w, pw - 2.0 * GAP, ph - 2.0 * GAP);
+            chain.push((i, w, cols * rows));
+        }
+    }
+    let mut plan = LauncherPlan { count, ranges: Default::default(), extra: Vec::new() };
+    if chain.is_empty() {
+        return plan;
+    }
+    let n = home_entries(&ctx.cfg()).len();
+    let caps: Vec<usize> = chain.iter().map(|c| c.2).collect();
+    let last = chain.last().cloned();
+    let (ranges, more) = paginate(n, &caps, ctx.is_phone().then(|| last.as_ref().map_or(0, |l| l.2)));
+    for ((i, _, _), r) in chain.into_iter().zip(ranges) {
+        plan.ranges.insert(i, r);
+    }
+    if let Some((src, w, _)) = last {
+        for (k, r) in more.into_iter().enumerate() {
+            let mut w = w.clone();
+            w.page = (count + k + 1) as u32;
+            plan.extra.push((src, w, r));
+        }
+    }
+    plan
+}
+
+/// Страниц домашнего экрана телефона на выводе `output`: столы и, если
+/// программы не уместились, страницы значков после них.
+pub fn home_pages(ctx: &ShellCtx, output: &str) -> usize {
+    let plan = launcher_plan(ctx, &items(ctx), output, editing().get_untracked());
+    plan.count + plan.extra.len()
 }
 
 /// Показан ли вид «Заметки» (компьютер, `[desktop] view = "notes"`).
@@ -998,6 +1174,30 @@ mod tests {
         assert_eq!(g.cells(&DeskWidget::new("launcher", 1, 3, 0, 0)), (1, 3, 3, 7));
         // шире сетки — обрезается по правому краю
         assert_eq!(g.cells(&DeskWidget::new("cpu", 2, 0, 5, 2)), (2, 0, 2, 2));
+    }
+
+    #[test]
+    fn apps_flow_across_pages() {
+        // 29 программ, сетки 4×7 на трёх столах: 28 + 1 + пусто, лишних страниц нет.
+        let (r, more) = paginate(29, &[28, 28, 28], Some(28));
+        assert_eq!(r, vec![0..28, 28..29, 29..29]);
+        assert!(more.is_empty());
+        // 70 программ, сетки 4×6 на двух столах: ещё страница сверх столов.
+        let (r, more) = paginate(70, &[24, 24], Some(24));
+        assert_eq!(r, vec![0..24, 24..48]);
+        assert_eq!(more, vec![48..70]);
+        // 100 программ, 3×4 (горизонтально): 12 + 12 и ещё 7 страниц, последняя неполная.
+        let (r, more) = paginate(100, &[12, 12], Some(12));
+        assert_eq!(r, vec![0..12, 12..24]);
+        assert_eq!(more.len(), 7);
+        assert_eq!(more.last(), Some(&(96..100)));
+        // каждая программа ровно один раз, по порядку
+        let all: Vec<usize> = r.iter().chain(more.iter()).flat_map(|x| x.clone()).collect();
+        assert_eq!(all, (0..100).collect::<Vec<_>>());
+        // без новых страниц (компьютер) остаток — в последнюю сетку
+        let (r, more) = paginate(30, &[10, 10], None);
+        assert_eq!(r, vec![0..10, 10..30]);
+        assert!(more.is_empty());
     }
 
     #[test]
