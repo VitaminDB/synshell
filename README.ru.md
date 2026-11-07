@@ -193,8 +193,8 @@ synaptix = { path = "../synaptix/crates/synaptix" }
 ```
 
 В рабочем пространстве задано `rust-version = "1.85"`. Зависимости для сборки и работы (имена пакетов Arch):
-mesa, libinput, seatd, systemd-libs, libxkbcommon, libdrm, vulkan-icd-loader, fontconfig,
-freetype2, шрифт (`ttf-font`), dbus, ffmpeg, sqlite, libarchive, pipewire, xdg-desktop-portal. Необязательные — xorg-xwayland, wireplumber, brightnessctl, networkmanager,
+mesa, libinput, seatd, systemd-libs, libxkbcommon, libdrm, pixman, vulkan-icd-loader, fontconfig,
+freetype2, шрифт (`ttf-font`), dbus, pam, alsa-lib, ffmpeg, sqlite, libarchive, pipewire, xdg-desktop-portal. Необязательные — xorg-xwayland, wireplumber, brightnessctl, networkmanager,
 playerctl, wl-clipboard, ffmpegthumbnailer, libheif, imagemagick,
 breeze-icons — перечислены с пояснением, зачем они нужны, в [syngui-release.toml](syngui-release.toml) (пакеты собираются командой `syngui package -w -f arch`).
 

@@ -29,7 +29,7 @@ optdepends_en = [
 [packages.synshell-core]
 description = "synshell: композитор synwm, оболочка, экран входа, клавиатура, снимки и показ экрана, параметры, проводник, терминал, установка программ"
 description_en = "synshell: synwm compositor, shell, login screen, on-screen keyboard, screenshots and screen sharing, settings, file manager, terminal, software center"
-depends = ["mesa", "libinput", "seatd", "systemd-libs", "libxkbcommon", "libdrm", "vulkan-icd-loader", "fontconfig", "freetype2", "ttf-font", "breeze-icons", "breeze-cursors", "dbus", "ffmpeg", "sqlite", "libarchive", "xdg-desktop-portal", "pipewire"]
+depends = ["mesa", "libinput", "seatd", "systemd-libs", "libxkbcommon", "libdrm", "pixman", "vulkan-icd-loader", "fontconfig", "freetype2", "ttf-font", "breeze-icons", "breeze-cursors", "hicolor-icon-theme", "dbus", "pam", "alsa-lib", "ffmpeg", "sqlite", "libarchive", "xdg-desktop-portal", "pipewire", "libpipewire"]
 bins = ["synwm", "syndesktop-shell", "synlogin", "synkeyboard", "syn-screencast", "synfsd"]
 apps = ["synsettings", "synpkg", "synfiles", "synshot", "syn-terminal"]
 provides = ["syndesktop"]

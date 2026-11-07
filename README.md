@@ -192,8 +192,8 @@ synaptix = { path = "../synaptix/crates/synaptix" }
 ```
 
 The workspace sets `rust-version = "1.85"`. Build and runtime dependencies (Arch package names):
-mesa, libinput, seatd, systemd-libs, libxkbcommon, libdrm, vulkan-icd-loader, fontconfig,
-freetype2, a font (`ttf-font`), dbus, ffmpeg, sqlite, libarchive, pipewire, xdg-desktop-portal. Optional ones — xorg-xwayland, wireplumber, brightnessctl, networkmanager,
+mesa, libinput, seatd, systemd-libs, libxkbcommon, libdrm, pixman, vulkan-icd-loader, fontconfig,
+freetype2, a font (`ttf-font`), dbus, pam, alsa-lib, ffmpeg, sqlite, libarchive, pipewire, xdg-desktop-portal. Optional ones — xorg-xwayland, wireplumber, brightnessctl, networkmanager,
 playerctl, wl-clipboard, ffmpegthumbnailer, libheif, imagemagick,
 breeze-icons — are listed with their purpose in [syngui-release.toml](syngui-release.toml) (packages are built with `syngui package -w -f arch`).
 
