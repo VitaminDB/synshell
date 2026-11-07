@@ -29,11 +29,7 @@ pub fn view(st: St) -> W {
         let full = st.fullscreen.get();
         let fs = FullscreenCtl {
             active: full,
-            toggle: Arc::new(move || {
-                let on = !st.fullscreen.get_untracked();
-                st.fullscreen.set(on);
-                syngui::signal::set_fullscreen(on);
-            }),
+            toggle: Arc::new(move || crate::chrome::toggle_fullscreen(st)),
         };
         let done = p.clone();
         let title = p.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
@@ -95,8 +91,7 @@ fn header(st: St, title: String) -> W {
                 })
                 .class("vp-btn"),
         )
-        .child(Text::new(title).max_lines(1).class("player-title"))
-        .child(DecoratedBox::new().class("grow"))
+        .child(crate::chrome::drag(Text::new(title).max_lines(1).elide(Elide::End).class("player-title")))
         .child(crate::filters::button(st))
         .child(crate::subs::button(st))
         .child(crate::tracks::button(st))
@@ -112,6 +107,9 @@ fn header(st: St, title: String) -> W {
                 .on_click(move || st.settings_open.set(true))
                 .class("vp-btn"),
         );
+    // шапка плеера — она же заголовок окна: во весь экран (на телефоне хватает кнопки внизу) и кнопки окна
+    let top = if crate::chrome::has_controls() { top.child(crate::chrome::fullscreen_button(st, true)) } else { top };
+    let top = top.child(crate::chrome::controls(st, "window-controls vp-wc"));
     // Чип — под строкой с названием, по центру: на телефоне в портрете рядом с названием ему тесно.
     Box::new(
         Column::new()

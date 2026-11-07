@@ -12,6 +12,7 @@
 //! Без файла — список видео из «Видео» (XDG_VIDEOS_DIR).
 
 mod bench;
+mod chrome;
 mod edit;
 mod editor;
 mod library;
@@ -185,11 +186,17 @@ fn main() {
     hdr_watch();
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);
+    let win = use_signal(syngui::window::WindowState::default());
     App::new()
         .title(t!("Видео"))
         .app_id("syn-video-player")
         .size(960, 640)
         .min_size(320, 400)
+        .frameless()
+        .transparent(true)
+        .background(Color::from_srgb(0, 0, 0, 0.0))
+        .fullscreen(chrome::start_fullscreen(&settings::Settings::load()))
+        .with_window_state(win)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(synshell_common::live::styles(mss.clone(), theme))
         .on_close_request(|| {
@@ -198,7 +205,8 @@ fn main() {
             true
         })
         .run(move |_| {
-            let st = new_state(args.hw, args.file.is_some());
+            let st = new_state(args.hw, args.file.is_some(), win);
+            chrome::follow_window(st);
             match &args.file {
                 Some(f) => ui::open(st, f.into()),
                 None => ui::rescan(st),
@@ -208,7 +216,7 @@ fn main() {
 }
 
 /// Состояние программы (сигналы — в главном потоке, после запуска syngui).
-fn new_state(hw: Option<HwAccel>, direct: bool) -> ui::St {
+fn new_state(hw: Option<HwAccel>, direct: bool, window: RwSignal<syngui::window::WindowState>) -> ui::St {
     let subs = subs::SubSettings::load();
     let settings = settings::Settings::load();
     let st = ui::St {
@@ -239,7 +247,8 @@ fn new_state(hw: Option<HwAccel>, direct: bool) -> ui::St {
         playing: use_signal(None),
         opening: use_signal(None),
         error: use_signal(None),
-        fullscreen: use_signal(false),
+        fullscreen: use_signal(chrome::start_fullscreen(&settings)),
+        window,
         direct,
         edit: use_signal(None),
         sheet: use_signal(editor::Sheet::None),
@@ -317,7 +326,7 @@ fn screenshot(args: &Args, shot: &Shot) -> std::result::Result<(u32, u32), Strin
     let opts = syngui::shot::ShotOptions { ready: Some(ready), settle: std::time::Duration::from_millis(1500), timeout: std::time::Duration::from_secs(60), ..Default::default() };
     syngui::shot::render_png_with(
         move || {
-            let st = new_state(hw, false);
+            let st = new_state(hw, false, use_signal(syngui::window::WindowState { focused: true, ..Default::default() }));
             cell.set(Some(st));
             match &file {
                 Some(f) if player_page => {

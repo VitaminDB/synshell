@@ -59,3 +59,6 @@
 "Строим…" = "Rota oluşturuluyor…"
 "Маршрут" = "Rota"
 "В путь" = "Yola çık"
+
+# src/ui.rs (заголовок окна)
+"В пути" = "Yolda"

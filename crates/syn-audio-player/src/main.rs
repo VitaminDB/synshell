@@ -5,6 +5,7 @@
 //!
 //! Без файлов — библиотека из «Музыки» (XDG_MUSIC_DIR) и «Загрузок»; с файлами — они очередь, первый играет.
 
+mod chrome;
 mod library;
 mod ui;
 
@@ -72,15 +73,22 @@ fn main() {
     if let Some(out) = shot {
         std::process::exit(screenshot(&out, &mss, size, scale, page == "player"));
     }
+    let win = use_signal(syngui::window::WindowState::default());
     App::new()
         .title(t!("Музыка"))
         .app_id("syn-audio-player")
         .size(420, 720)
         .min_size(320, 420)
+        .frameless()
+        .transparent(true)
+        .background(Color::from_srgb(0, 0, 0, 0.0))
+        .fullscreen(chrome::start_fullscreen())
+        .with_window_state(win)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(synshell_common::live::styles(mss.clone(), theme))
         .run(move |_| {
-            let st = new_state(!files.is_empty());
+            let st = new_state(!files.is_empty(), win);
+            chrome::follow_window(st);
             ui::start_ticker(st);
             if files.is_empty() {
                 ui::rescan(st);
@@ -93,7 +101,7 @@ fn main() {
         });
 }
 
-fn new_state(direct: bool) -> ui::St {
+fn new_state(direct: bool, window: RwSignal<syngui::window::WindowState>) -> ui::St {
     ui::St {
         tracks: use_signal(Vec::new()),
         scanning: use_signal(!direct),
@@ -107,6 +115,8 @@ fn new_state(direct: bool) -> ui::St {
         full: use_signal(direct),
         repeat: use_signal(ui::Repeat::Off),
         error: use_signal(None),
+        fs: use_signal(chrome::start_fullscreen()),
+        window,
         direct,
     }
 }
@@ -144,7 +154,7 @@ fn screenshot(out: &str, mss: &str, size: (u32, u32), scale: f64, full: bool) ->
     };
     let r = syngui::shot::render_png_with(
         move || {
-            let st = new_state(false);
+            let st = new_state(false, use_signal(syngui::window::WindowState { focused: true, ..Default::default() }));
             st_out.set(Some(st));
             ui::rescan(st);
             ui::root(st)

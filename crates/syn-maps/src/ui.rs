@@ -7,6 +7,7 @@ use std::sync::Mutex as StdMutex;
 use std::time::Instant;
 
 use syngui::async_runtime::run_on_main_thread;
+use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 use syngui::prelude::*;
 use syngui::widgets::visual::map_view::{MapCamera, MapMarker, MapPolyline, MapView, MapViewport, TileCache, TileProvider};
 use syngui::widgets::*;
@@ -58,6 +59,8 @@ pub struct St {
     /// В пути: карта за мной, сверху — следующий манёвр.
     navigating: RwSignal<bool>,
     error: RwSignal<Option<String>>,
+    /// Состояние окна (развёрнуто, во весь экран, в фокусе) — для своего заголовка.
+    pub window: RwSignal<syngui::window::WindowState>,
 }
 
 impl St {
@@ -81,6 +84,7 @@ impl St {
             steps_open: use_signal(false),
             navigating: use_signal(false),
             error: use_signal(None),
+            window: use_signal(syngui::window::WindowState { focused: true, ..Default::default() }),
         };
         if explicit {
             st.place.set(Some(Place { name: t!("Точка").into(), address: format!("{lat:.5}, {lon:.5}"), lat, lon }));
@@ -301,7 +305,7 @@ pub fn root(st: St) -> W {
         }
         vec![Box::new(col)]
     });
-    Box::new(
+    let body: W = Box::new(
         GestureDetector::new()
             .on_back(move || {
                 if !st.results.get_untracked().is_empty() {
@@ -323,6 +327,64 @@ pub fn root(st: St) -> W {
                 false
             })
             .child(Stack::new().fit(StackFit::Expand).child(map(st)).child(overlay).child(toast(st))),
+    );
+    window(st, body)
+}
+
+/// Телефон: окно на весь экран, без своего заголовка.
+fn is_phone() -> bool {
+    std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v == "phone")
+}
+
+/// Своё окно (CSD): над картой — заголовок (знак, название, открытое место; за него окно
+/// перетаскивается) и кнопки окна из настроек рабочего стола, рамка, изменение размера за край.
+/// На телефоне — только карта.
+fn window(st: St, body: W) -> W {
+    if is_phone() {
+        return body;
+    }
+    let full = use_signal(false);
+    create_effect(move || {
+        let v = st.window.get().fullscreen;
+        if full.get_untracked() != v {
+            full.set(v);
+        }
+    });
+    let bar = Reactive::new(move || -> Vec<W> { if full.get() { vec![] } else { vec![titlebar(st)] } });
+    let col = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(bar).child(DecoratedBox::new().class("grow map-area").clip(true).child(body));
+    let frame = DecoratedBox::new().class("window-frame").clip(true).child(col);
+    Box::new(WindowResizeRegion::new().over_content(true).inset(5.0).child(frame))
+}
+
+fn titlebar(st: St) -> W {
+    let title = Reactive::new(move || -> Vec<W> {
+        syngui::i18n::subscribe();
+        let mut row = Row::new()
+            .gap(10.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(DecoratedBox::new().child(Icon::new(icons::MAP).class("tb-mark-icon")).class("tb-mark"))
+            .child(Text::new(t!("Карты")).max_lines(1).class("tb-title"));
+        let sub = if st.navigating.get() {
+            Some(t!("В пути").to_string())
+        } else {
+            st.place.get().map(|p| p.name)
+        };
+        if let Some(sub) = sub.filter(|s| !s.is_empty()) {
+            row = row.child(Text::new(sub).max_lines(1).elide(Elide::End).class("tb-sub"));
+        }
+        vec![Box::new(row)]
+    });
+    let controls = Reactive::new(move || -> Vec<W> {
+        let w = st.window.get();
+        vec![Box::new(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused))]
+    });
+    Box::new(
+        DecoratedBox::new().class("titlebar").child(
+            Row::new()
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .child(DecoratedBox::new().class("grow tb-drag").child(WindowDragRegion::new().child(DecoratedBox::new().class("tb-drag-space").child(title))))
+                .child(DecoratedBox::new().class("window-controls").child(controls)),
+        ),
     )
 }
 

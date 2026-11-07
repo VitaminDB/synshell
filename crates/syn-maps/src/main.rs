@@ -59,11 +59,16 @@ fn main() {
         return;
     }
     let set = settings::Settings::load();
+    let win = use_signal(syngui::window::WindowState::default());
     App::new()
         .title(t!("Карты"))
         .app_id("syn-maps")
         .size(960, 720)
         .min_size(320, 420)
+        .frameless()
+        .transparent(true)
+        .background(Color::from_srgb(0, 0, 0, 0.0))
+        .with_window_state(win)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(synshell_common::live::styles(mss.clone(), theme))
         .run(move |_| {
@@ -71,7 +76,8 @@ fn main() {
                 Some((lat, lon, z)) => (lat, lon, z.unwrap_or(16.0)),
                 None => (set.lat, set.lon, set.zoom),
             };
-            let st = ui::St::new(lat, lon, zoom, set.layer, start.is_some());
+            let mut st = ui::St::new(lat, lon, zoom, set.layer, start.is_some());
+            st.window = win;
             ui::start_location(st);
             ui::root(st)
         });

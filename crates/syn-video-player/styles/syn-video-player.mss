@@ -2,6 +2,16 @@
 
 .grow { flex-grow: 1; }
 .root { background: var(--bg); }
+
+/* своё окно: рамка, перетаскивание за шапку, кнопки окна */
+.window-frame { border-radius: var(--window-radius); border: 1px solid var(--border); background-color: var(--bg); }
+.window-frame.flat { border-radius: 0px; border-width: 0px; }
+.window-frame:window-maximized, .window-frame:window-fullscreen { border-radius: 0px; border-width: 0px; }
+.drag { min-width: 40px; }
+.drag-space { flex-grow: 1; min-height: 44px; align-items: center; }
+.window-controls { padding: 0px 0px 0px 6px; align-items: center; }
+SystemWindowControls { color: var(--fg); background-color: var(--hover); }
+.vp-wc SystemWindowControls { color: #ffffff; background-color: #ffffff29; }
 Text { color: var(--fg); font-size: 14px; }
 
 /* библиотека */

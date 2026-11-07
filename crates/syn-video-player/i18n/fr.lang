@@ -303,3 +303,7 @@
 "Освободить" = "Libérer"
 "Освобождаю видеопамять…" = "Libération de la mémoire vidéo…"
 "Выгружаю модели synaptixd." = "Déchargement des modèles synaptixd."
+
+# src/chrome.rs
+"Во весь экран (F11)" = "Plein écran (F11)"
+"Выйти из полноэкранного режима (F11)" = "Quitter le plein écran (F11)"

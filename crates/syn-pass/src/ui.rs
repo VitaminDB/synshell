@@ -7,6 +7,7 @@ use std::time::{Duration, SystemTime};
 
 use synshell_common::link::{self, DeviceKind, Event};
 use syngui::async_runtime::run_on_main_thread;
+use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 use syngui::prelude::*;
 use syngui::widgets::{EventHook, KeyReply};
 use syngui::{GestureDetector, MultilineTextEdit};
@@ -129,16 +130,19 @@ struct St {
     recovering: RwSignal<bool>,
     /// `[link] clipboard` — общий буфер обмена.
     shared_clip: bool,
+    /// Состояние окна (развёрнуто, во весь экран, в фокусе) — для своего заголовка.
+    window: RwSignal<syngui::window::WindowState>,
 }
 
 fn touch() {
     LAST_ACTIVE.store(vault::now_ms(), Ordering::Relaxed);
 }
 
-pub fn root() -> W {
+pub fn root(window: RwSignal<syngui::window::WindowState>) -> W {
     let (cfg, _) = synshell_common::Config::load();
     let has_vault = vault::vault_path().exists();
-    let st = state(has_vault, cfg.link.enabled && cfg.link.clipboard);
+    let mut st = state(has_vault, cfg.link.enabled && cfg.link.clipboard);
+    st.window = window;
     touch();
     watch_link(st);
     ticker(st);
@@ -189,6 +193,7 @@ fn state(has_vault: bool, shared_clip: bool) -> St {
         lock_question: use_signal(None),
         recovering: use_signal(false),
         shared_clip,
+        window: use_signal(syngui::window::WindowState { focused: true, ..Default::default() }),
     }
 }
 
@@ -933,14 +938,88 @@ fn build_root(st: St) -> W {
                 }
             })
             .child(
-                GestureDetector::new().on_back(move || go_back(st)).child(
+                GestureDetector::new().on_back(move || go_back(st)).child(window_frame(
+                    st,
                     Stack::new()
                         .fit(StackFit::Expand)
                         .child(DecoratedBox::new().child(body).class("root"))
                         .child(overlays)
                         .child(toast),
-                ),
+                )),
             ),
+    )
+}
+
+// ─── Своё окно (CSD) ────────────────────────────────────────────────────────
+
+/// Телефон: окно на весь экран, без своего заголовка.
+fn is_phone() -> bool {
+    std::env::var("SYNSHELL_FORM_FACTOR").is_ok_and(|v| v == "phone")
+}
+
+/// Широкое окно с открытым хранилищем: шапка списка — левая часть заголовка окна.
+fn wide_open(st: St, narrow: RwSignal<bool>) -> bool {
+    !narrow.get() && st.phase.get() == Phase::Open
+}
+
+/// Рамка, заголовок с кнопками окна из настроек рабочего стола, изменение размера за край.
+/// На телефоне — только содержимое.
+fn window_frame(st: St, inner: impl Widget + 'static) -> W {
+    if is_phone() {
+        return Box::new(inner);
+    }
+    let narrow = syngui::viewport::viewport_below(760.0);
+    let full = use_signal(false);
+    create_effect(move || {
+        let v = st.window.get().fullscreen;
+        if full.get_untracked() != v {
+            full.set(v);
+        }
+    });
+    let bar = Reactive::new(move || -> Vec<W> {
+        if full.get() {
+            return vec![];
+        }
+        vec![titlebar(st, wide_open(st, narrow))]
+    });
+    let col = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).child(bar).child(DecoratedBox::new().class("grow").child(inner));
+    let frame = DecoratedBox::new().class("window-frame").clip(true).child(col);
+    Box::new(WindowResizeRegion::new().over_content(true).inset(5.0).child(frame))
+}
+
+/// Заголовок окна. Широкое окно с открытым хранилищем: слева — шапка списка (название, синхронизация,
+/// замок, настройки) над колонкой списка; иначе — тонкая полоса. За пустое место окно перетаскивается.
+fn titlebar(st: St, wide: bool) -> W {
+    let controls = Reactive::new(move || -> Vec<W> {
+        let w = st.window.get();
+        vec![Box::new(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused))]
+    });
+    let drag = |child: W| -> W { Box::new(DecoratedBox::new().class("grow tb-drag").child(WindowDragRegion::new().child(DecoratedBox::new().class("tb-drag-space").child(child)))) };
+    let mut row = Row::new().cross_axis_alignment(CrossAxisAlignment::Stretch);
+    if wide {
+        row = row.child(DecoratedBox::new().class("tb-side").child(list_header(st, true)));
+    }
+    row = row.child(drag(Box::new(DecoratedBox::new()))).child(DecoratedBox::new().class("window-controls").child(controls));
+    Box::new(DecoratedBox::new().class(if wide { "titlebar wide" } else { "titlebar" }).child(row))
+}
+
+/// Шапка списка: название, синхронизация, замок, настройки (`drag` — за название окно перетаскивается).
+fn list_header(st: St, drag: bool) -> W {
+    let title = Text::new(t!("Пароли")).max_lines(1).elide(Elide::End).class("title list-title");
+    let title: W = if drag {
+        Box::new(DecoratedBox::new().class("grow tb-drag").child(WindowDragRegion::new().child(DecoratedBox::new().class("tb-title-space").child(title))))
+    } else {
+        Box::new(Row::new().class("grow").child(title))
+    };
+    Box::new(
+        Row::new()
+            .gap(4.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .child(title)
+            .child(sync_chip(st))
+            .child(icon_btn(ic::LOCK, "", move || lock(st)))
+            .child(icon_btn(ic::SETTINGS, "", move || st.settings.set(true)))
+            .class("bar"),
     )
 }
 
@@ -1387,15 +1466,8 @@ fn sync_chip(st: St) -> W {
 }
 
 fn list_view(st: St, phone: bool) -> W {
-    let header = Row::new()
-        .gap(4.0)
-        .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(Text::new(t!("Пароли")).max_lines(1).elide(Elide::End).class("title list-title"))
-        .child(DecoratedBox::new().class("grow"))
-        .child(sync_chip(st))
-        .child(icon_btn(ic::LOCK, "", move || lock(st)))
-        .child(icon_btn(ic::SETTINGS, "", move || st.settings.set(true)))
-        .class("bar");
+    // в широком окне шапка списка — в заголовке окна (кроме телефона: там заголовка нет)
+    let header: W = if phone || is_phone() { list_header(st, false) } else { Box::new(DecoratedBox::new()) };
     let search = Reactive::new(move || -> Vec<W> {
         vec![Box::new(
             TextField::with_text(st.query.get_untracked())

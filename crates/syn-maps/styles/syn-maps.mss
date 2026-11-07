@@ -4,6 +4,19 @@
 Text { color: var(--fg); font-size: 14px; }
 .muted { color: var(--muted); }
 
+/* своё окно: заголовок над картой, рамка */
+.window-frame { border-radius: var(--window-radius); border: 1px solid var(--border); background-color: var(--bg); }
+.window-frame:window-maximized, .window-frame:window-fullscreen { border-radius: 0px; border-width: 0px; }
+.titlebar { height: 44px; background-color: var(--bg); border-bottom: 1px solid var(--border); }
+.tb-drag { height: 44px; }
+.tb-drag-space { flex-grow: 1; min-width: 40px; height: 44px; padding: 0px 14px; align-items: center; }
+.tb-mark { width: 26px; height: 26px; border-radius: 8px; padding: 4px; background: var(--accent); }
+.tb-mark-icon { font-size: 18px; color: #ffffff; }
+.tb-title { font-size: 14px; font-weight: 600; }
+.tb-sub { font-size: 13px; color: var(--muted); }
+.window-controls { padding: 0px 6px; align-items: center; }
+SystemWindowControls { color: var(--fg); background-color: var(--hover); }
+
 /* слои «Светлая» и «Тёмная» — плитки OpenStreetMap под фильтром */
 .tiles-light { filter: grayscale(0.6) brightness(1.06) contrast(0.92); }
 .tiles-dark { filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.85) saturate(0.6); }

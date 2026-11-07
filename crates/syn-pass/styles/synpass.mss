@@ -113,6 +113,17 @@ Text { color: var(--fg); font-size: 14px; }
 .dev-go { font-size: 20px; icon-size: 20px; color: var(--muted); icon-color: var(--muted); }
 
 /* ─── список ─── */
+/* своё окно: рамка, заголовок (в широком окне слева — шапка списка), кнопки окна */
+.window-frame { border-radius: var(--window-radius); border: 1px solid var(--border); background-color: var(--bg); }
+.window-frame:window-maximized, .window-frame:window-fullscreen { border-radius: 0px; border-width: 0px; }
+.titlebar { height: 40px; background: var(--bg); }
+.titlebar.wide { height: 60px; }
+.tb-side { width: 380px; border-right-width: 1px; border-color: var(--border); background: var(--surface); }
+.tb-drag { min-width: 40px; }
+.tb-drag-space { flex-grow: 1; align-items: center; }
+.tb-title-space { flex-grow: 1; align-items: center; }
+.window-controls { padding: 0px 8px; align-items: center; }
+SystemWindowControls { color: var(--fg); background-color: var(--hover); }
 .side { width: 380px; border-right-width: 1px; border-color: var(--border); background: var(--surface); }
 .main { background: var(--bg); }
 .bar { padding: 10px 10px 6px 14px; min-height: 60px; }

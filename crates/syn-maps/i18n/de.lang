@@ -59,3 +59,6 @@
 "Строим…" = "Route wird berechnet …"
 "Маршрут" = "Route"
 "В путь" = "Los"
+
+# src/ui.rs (заголовок окна)
+"В пути" = "Unterwegs"

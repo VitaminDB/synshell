@@ -59,3 +59,6 @@
 "Строим…" = "Routing…"
 "Маршрут" = "Directions"
 "В путь" = "Start"
+
+# src/ui.rs (заголовок окна)
+"В пути" = "En route"

@@ -59,3 +59,6 @@
 "Строим…" = "Calcolo…"
 "Маршрут" = "Indicazioni"
 "В путь" = "Parti"
+
+# src/ui.rs (заголовок окна)
+"В пути" = "In viaggio"

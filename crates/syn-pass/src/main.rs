@@ -64,14 +64,19 @@ fn main() {
         shot(&args, args.get(i + 1).cloned().unwrap_or_else(|| "synpass.png".into()), &mss);
         return;
     }
+    let win = use_signal(syngui::window::WindowState::default());
     App::new()
         .title(t!("Пароли"))
         .app_id("synpass")
         .size(980, 680)
         .min_size(340, 480)
+        .frameless()
+        .transparent(true)
+        .background(Color::from_srgb(0, 0, 0, 0.0))
+        .with_window_state(win)
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(synshell_common::live::styles(mss, theme))
-        .run(move |_| ui::root());
+        .run(move |_| ui::root(win));
 }
 
 fn theme(cfg: &Config) -> String {

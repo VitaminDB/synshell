@@ -50,6 +50,10 @@ pub struct St {
     pub full: RwSignal<bool>,
     pub repeat: RwSignal<Repeat>,
     pub error: RwSignal<Option<String>>,
+    /// Окно во весь экран (выбор пользователя; следует за окном).
+    pub fs: RwSignal<bool>,
+    /// Состояние окна (развёрнуто, во весь экран, в фокусе) — для своего заголовка.
+    pub window: RwSignal<syngui::window::WindowState>,
     /// Запущена с файлами: очередь — они, библиотека не сканируется.
     pub direct: bool,
 }
@@ -62,7 +66,8 @@ static OPEN_GEN: AtomicU64 = AtomicU64::new(0);
 
 pub fn root(st: St) -> W {
     let body = Reactive::new(move || -> Vec<W> { vec![if st.full.get() { player_view(st) } else { library_view(st) }] });
-    Box::new(
+    crate::chrome::frame(
+        st,
         GestureDetector::new()
             .on_back(move || {
                 if st.full.get_untracked() {
@@ -296,11 +301,12 @@ pub fn probe_all(st: St, paths: Vec<PathBuf>) {
 
 fn library_view(st: St) -> W {
     let header = Row::new()
-        .gap(8.0)
+        .gap(4.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(Text::new(if st.direct { t!("Очередь") } else { t!("Музыка") }).class("title"))
-        .child(DecoratedBox::new().class("grow"))
+        .child(crate::chrome::drag(Text::new(if st.direct { t!("Очередь") } else { t!("Музыка") }).max_lines(1).elide(Elide::End).class("title")))
         .child(icon_button(icons::REFRESH, &t!("Обновить"), move || rescan(st)))
+        .child(crate::chrome::fullscreen_button(st))
+        .child(crate::chrome::controls(st))
         .class("header");
     let list = Reactive::new(move || -> Vec<W> {
         let tracks = st.tracks.get();
@@ -455,8 +461,9 @@ fn player_view(st: St) -> W {
         .gap(8.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
         .child(icon_button(icons::EXPAND_MORE, &t!("К списку"), move || st.full.set(false)))
-        .child(Text::new(t!("Сейчас играет")).class("now"))
-        .child(DecoratedBox::new().class("grow"))
+        .child(crate::chrome::drag(Text::new(t!("Сейчас играет")).max_lines(1).elide(Elide::End).class("now")))
+        .child(crate::chrome::fullscreen_button(st))
+        .child(crate::chrome::controls(st))
         .class("header");
     let info = Reactive::new(move || -> Vec<W> {
         let t = current_track(st).unwrap_or_default();
@@ -562,4 +569,6 @@ pub mod icons {
     pub const REPEAT_ONE: &str = "\u{E041}";
     pub const EXPAND_MORE: &str = "\u{E5CF}";
     pub const HOURGLASS: &str = "\u{E88B}";
+    pub const FULLSCREEN: &str = "\u{E5D0}";
+    pub const FULLSCREEN_EXIT: &str = "\u{E5D1}";
 }

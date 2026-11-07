@@ -67,9 +67,9 @@ pub fn start(st: St) {
         st.error.set(Some(t!("У ролика неизвестна длительность — монтаж недоступен")));
         return;
     }
+    // монтаж — в окне; выбор «во весь экран» не меняется
     if st.fullscreen.get_untracked() {
-        st.fullscreen.set(false);
-        syngui::signal::set_fullscreen(false);
+        crate::chrome::set_fullscreen(st, false, false);
     }
     st.settings_open.set(false);
     st.sheet.set(Sheet::None);
@@ -220,10 +220,10 @@ fn top_bar(st: St) -> W {
             .gap(6.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .child(ToolButton::new(icons::CLOSE).tooltip(t!("Закрыть монтаж")).on_click(move || leave(st, false)).class("vp-btn"))
-            .child(title)
-            .child(DecoratedBox::new().class("grow"))
+            .child(crate::chrome::drag(title))
             .child(undo)
             .child(pill(icons::SAVE, &t!("Сохранить"), true, move || open_save(st)))
+            .child(crate::chrome::controls(st, "window-controls vp-wc"))
             .class("ed-top"),
     )
 }

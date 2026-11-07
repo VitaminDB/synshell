@@ -99,7 +99,10 @@ pub struct St {
     /// Файл открывается (поток открытия ещё не вернулся).
     pub opening: RwSignal<Option<PathBuf>>,
     pub error: RwSignal<Option<String>>,
+    /// Во весь экран (выбор пользователя; следует за окном).
     pub fullscreen: RwSignal<bool>,
+    /// Состояние окна (развёрнуто, во весь экран, в фокусе) — для своего заголовка.
+    pub window: RwSignal<syngui::window::WindowState>,
     /// Программа запущена с файлом: «назад» из плеера закрывает окно, а не ведёт в библиотеку.
     pub direct: bool,
     /// Монтаж открытого ролика (ножницы в шапке плеера).
@@ -118,7 +121,8 @@ pub fn root(st: St) -> W {
         let playing = st.playing.get().is_some() || st.opening.get().is_some() || (st.direct && st.error.get().is_some());
         vec![if playing { crate::player::view(st) } else { library_view(st) }]
     });
-    Box::new(
+    crate::chrome::frame(
+        st,
         GestureDetector::new()
             .on_back(move || back(st))
             .child(Stack::new().fit(StackFit::Expand).child(DecoratedBox::new().class("root")).child(body)),
@@ -304,10 +308,6 @@ pub fn close(st: St) {
             drop(p)
         });
     }
-    if st.fullscreen.get_untracked() {
-        st.fullscreen.set(false);
-        syngui::signal::set_fullscreen(false);
-    }
 }
 
 /// Запомнить, где остановились (если включено «продолжать с места остановки»).
@@ -428,12 +428,14 @@ fn load_thumbs(todo: Vec<(Item, RwSignal<Option<Arc<Pic>>>)>) {
 }
 
 fn library_view(st: St) -> W {
+    // шапка библиотеки — она же заголовок окна
     let header = Row::new()
-        .gap(8.0)
+        .gap(4.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(Text::new(t!("Видео")).class("title"))
-        .child(DecoratedBox::new().class("grow"))
+        .child(crate::chrome::drag(Text::new(t!("Видео")).max_lines(1).elide(Elide::End).class("title")))
         .child(icon_button(icons::REFRESH, &t!("Обновить"), move || rescan(st)))
+        .child(crate::chrome::fullscreen_button(st, false))
+        .child(crate::chrome::controls(st, "window-controls"))
         .class("header");
     let grid = Reactive::new(move || -> Vec<W> {
         let cards = st.cards.get();
@@ -574,4 +576,6 @@ pub mod icons {
     pub const PALETTE: &str = "\u{E40A}";
     /// auto_mode → hdr_auto нет в шрифте: brightness_auto
     pub const AUTO: &str = "\u{E1AB}";
+    pub const FULLSCREEN: &str = "\u{E5D0}";
+    pub const FULLSCREEN_EXIT: &str = "\u{E5D1}";
 }
