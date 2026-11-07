@@ -68,6 +68,9 @@ Text { color: var(--fg); font-size: 18px; }
 .key-alt-label { font-size: 23px; text-box-edge: text; }
 .key-alt-sel { background-color: var(--accent); }
 
-/* Символ с Shift мелко над основной подписью (цифры и знаки, как у клавиатуры Steam). */
+/* Мелкая подпись над основной — что даст долгое нажатие (цифра над q…p, смайлик у запятой). */
 .key-hint { font-size: 11px; color: #ffffff99; text-box-edge: ink; }
 .key-active .key-hint { color: var(--fg); }
+
+/* Дополнительная полоса (Esc/Tab/Ctrl/Alt/стрелки/Вставить/⌨/плавающая/Скрыть) над основными рядами. */
+.keyboard-bar { background-color: #00000000; }

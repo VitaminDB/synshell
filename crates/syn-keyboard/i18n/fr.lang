@@ -11,6 +11,5 @@
 "нет ответа от главного потока" = "aucune réponse du thread principal"
 
 # src/ui.rs
-"Вставить" = "Coller"
 "неизвестная клавиша «{part}»" = "touche inconnue « {part} »"
 "нет клавиши в сочетании" = "aucune touche dans le raccourci"

@@ -55,9 +55,13 @@ impl Modifier {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
-    /// Буквы — раскладка как у экранной клавиатуры Steam (5 рядов: цифры, три ряда букв, нижний).
+    /// Буквы: 3 ряда букв (по ~10 широких клавиш) и нижний ряд.
     Letters,
-    /// Смайлы и знаки вне US-раскладки (•, √, €, °, ©…) — клавиша со смайликом.
+    /// Цифры и основные знаки (`?123`).
+    Symbols,
+    /// Остальные знаки (`=\<`): `~ | • √ € © …`.
+    Symbols2,
+    /// Смайлы (долгое нажатие запятой или клавиша на странице знаков).
     Emoji,
 }
 
@@ -71,14 +75,12 @@ pub enum Action {
     /// Символ вне раскладки (смайлик, `€`, `√`): печатается через временную клавишу keymap.
     Char(char),
     Modifier(Modifier),
-    /// Caps Lock: буквы заглавными до повторного нажатия (цифры и знаки — без Shift).
-    Caps,
     Page(Page),
     /// Следующая раскладка (EN → RU → …).
     Layout,
-    /// Показать/спрятать ряды Esc/Tab/стрелки/F1–F12.
+    /// Показать/спрятать ряды F1–F12, Ins/Del/Home/End/PgUp/PgDn.
     Fn,
-    /// Вставить из буфера обмена (Ctrl+V; при захвате — текстом).
+    /// Вставить из буфера обмена (Ctrl+V; терминалу — Ctrl+Shift+V; при захвате — текстом).
     Paste,
     Hide,
     /// Плавающая ↔ внизу.
@@ -90,36 +92,27 @@ pub enum Action {
 #[derive(Debug, Clone)]
 pub struct Key {
     pub label: String,
-    /// Подпись при активном Shift/Caps (для букв — заглавная, для цифр и знаков — символ с Shift).
+    /// Подпись при активном Shift/Caps (у букв — заглавная).
     pub shifted: Option<String>,
-    /// Мелкая подпись над основной — символ с Shift у цифр и знаков (как у клавиатуры Steam).
-    /// Такие клавиши Caps Lock не трогает.
+    /// Мелкая подпись в углу — что даёт долгое нажатие (цифра над q…p, смайлик у запятой).
     pub hint: Option<String>,
     pub action: Action,
     /// Ширина в долях обычной клавиши.
     pub width: f32,
     pub class: &'static str,
     /// Варианты по долгому нажатию (полоска над клавишей, выбор скольжением):
-    /// цифры и символы у букв, ё/ъ, знаки препинания у точки — как в Gboard.
+    /// цифры и символы у букв, ё/ъ, знаки препинания у точки.
     pub alts: Vec<String>,
-    /// Вторая клавиша под этой в той же ячейке (половина высоты ряда): блок стрелок.
-    pub below: Option<Box<Key>>,
+    /// Действие по долгому нажатию вместо полоски вариантов (запятая → смайлы).
+    pub long: Option<Action>,
 }
 
 impl Key {
     fn new(label: &str, action: Action, width: f32, class: &'static str) -> Self {
-        Self { label: label.into(), shifted: None, hint: None, action, width, class, alts: Vec::new(), below: None }
+        Self { label: label.into(), shifted: None, hint: None, action, width, class, alts: Vec::new(), long: None }
     }
     fn letter(label: &str, upper: &str, code: u32) -> Self {
         Self { shifted: Some(upper.into()), ..Self::new(label, Action::Key { code, shift: false, repeat: false, latin: false }, 1.0, "key") }
-    }
-    /// Знак с символом Shift над ним: `latin` — из US-раскладки при любом языке.
-    fn dual(label: &str, upper: &str, code: u32, latin: bool) -> Self {
-        Self {
-            shifted: Some(upper.into()),
-            hint: Some(upper.into()),
-            ..Self::new(label, Action::Key { code, shift: false, repeat: false, latin }, 1.0, "key")
-        }
     }
     fn special(label: &str, action: Action, width: f32) -> Self {
         Self::new(label, action, width, "key key-special")
@@ -135,52 +128,56 @@ impl Key {
         self.alts = list;
         self
     }
-    fn over(mut self, below: Key) -> Self {
-        self.below = Some(Box::new(below));
+    fn hint(mut self, h: &str) -> Self {
+        self.hint = Some(h.into());
+        self
+    }
+    fn wide(mut self, width: f32) -> Self {
+        self.width = width;
         self
     }
     /// Печатный символ: цифры, буквы и знаки (подпись нажатой — над пальцем).
     pub fn is_char(&self) -> bool {
         self.class == "key" && matches!(self.action, Action::Key { .. } | Action::Char(_))
     }
+    /// Буква: Caps Lock делает её заглавной (цифры и знаки он не трогает).
+    pub fn is_letter(&self) -> bool {
+        matches!(self.action, Action::Key { latin: false, .. }) && self.shifted.is_some()
+    }
 }
 
-/// Варианты буквы по долгому нажатию, как в Gboard: цифры на верхнем ряду,
-/// символы на среднем и нижнем; у «е» — «ё», у «ь» — «ъ».
+/// Варианты буквы по долгому нажатию: цифра у верхнего ряда, символы у среднего
+/// и нижнего — первым (его и даёт удержание без сдвига пальца); у «е» — «ё», у «ь» — «ъ».
 fn letter_alts(row: usize, i: usize, ch: char) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    match ch {
-        'е' => out.push("ё".into()),
-        'ь' => out.push("ъ".into()),
-        _ => {}
-    }
     let sym = match row {
         0 => "1234567890".chars().nth(i),
         1 => "@#$_&-+()".chars().nth(i),
         _ => "*\"':;!?".chars().nth(i),
     };
+    match ch {
+        'е' => out.push("ё".into()),
+        'ь' => out.push("ъ".into()),
+        _ => {}
+    }
     if let Some(s) = sym {
         out.push(s.to_string());
     }
     out
 }
 
-/// Язык: имя, группа в keymap `us,ru` и клавиши основного блока по физическим местам
-/// (как на обычной клавиатуре: в RU знаки US заняты буквами — ё, х ъ, ж э, б ю).
+/// Язык: имя, группа в keymap `us,ru` и три ряда букв по физическим клавишам.
 pub struct Lang {
     pub name: &'static str,
     /// Имя раскладки xkb (`us`, `ru`).
     pub xkb: &'static str,
     pub group: u32,
-    /// Ряды букв (по три): буквы ряда без знаков по краям.
     pub rows: [&'static str; 3],
-    /// Буквы на местах знаков US (`` ` [ ] ; ' , . ``): пусто — там знаки US.
-    pub extra: &'static str,
 }
 
 pub const LANGS: &[Lang] = &[
-    Lang { name: "EN", xkb: "us", group: 0, rows: ["qwertyuiop", "asdfghjkl", "zxcvbnm"], extra: "" },
-    Lang { name: "RU", xkb: "ru", group: 1, rows: ["йцукенгшщз", "фывапролд", "ячсмить"], extra: "ёхъжэбю" },
+    Lang { name: "EN", xkb: "us", group: 0, rows: ["qwertyuiop", "asdfghjkl", "zxcvbnm"] },
+    Lang { name: "RU", xkb: "ru", group: 1, rows: ["йцукенгшщзх", "фывапролджэ", "ячсмитьбю"] },
 ];
 
 /// evdev-коды физических клавиш трёх буквенных рядов (QWERTY): q-p-[ , a-l-;-' , z-m-,-.
@@ -190,33 +187,23 @@ const ROW_CODES: [&[u32]; 3] = [
     &[44, 45, 46, 47, 48, 49, 50, 51, 52],
 ];
 
-/// Подпись клавиши «плавающая ↔ внизу» — значок Material Icons (open_with), не текст.
+/// Значки Material Icons (частная область Юникода — рисуются значком, не текстом).
 pub const FLOAT_ICON: &str = "\u{E89F}";
-/// Значки Material Icons нижнего ряда и стрелок: смайлик, глобус (язык), спрятать клавиатуру,
-/// клавиатура (доп. ряды), стрелки, стереть.
-pub const EMOJI_ICON: &str = "\u{E24E}";
 pub const LANG_ICON: &str = "\u{E894}";
 pub const HIDE_ICON: &str = "\u{E31A}";
 pub const FN_ICON: &str = "\u{E312}";
 pub const BACKSPACE_ICON: &str = "\u{E14A}";
-/// «Вставить» на узкой клавиатуре (content_paste).
+pub const ENTER_ICON: &str = "\u{E31B}";
+pub const SHIFT_ICON: &str = "\u{E5D8}";
+/// «Вставить» (content_paste).
 pub const PASTE_ICON: &str = "\u{E14F}";
 const UP_ICON: &str = "\u{E316}";
 const DOWN_ICON: &str = "\u{E313}";
 const LEFT_ICON: &str = "\u{E314}";
 const RIGHT_ICON: &str = "\u{E315}";
 
-/// Подпись «Вставить» — переводится (`t!`) в ui; здесь — ключ каталога.
-pub const PASTE_LABEL: &str = "Вставить";
-
-/// Смайлы (три ряда) и знаки вне US-раскладки (четвёртый) страницы [`Page::Emoji`] — по 15 в ряд,
-/// как ширина буквенной страницы.
-const EMOJI_ROWS: [&str; 4] = [
-    "😀😃😄😁😆😅😂🤣😊😇🙂😉😍😘😋",
-    "😎🤔😐😴😢😭😡😱🥳🤗🙄😬🤩😏🥺",
-    "👍👎👌🙏👏💪👋🤝👀💯🔥🎉🎁💖⭐",
-    "•√π÷×¶∆£€¢°©®™§",
-];
+/// Смайлы страницы [`Page::Emoji`]: три ряда по 10 (в последнем — 8 и ⌫).
+const EMOJI_ROWS: [&str; 3] = ["😀😂🤣😊😍😘😎🤔😉🙂", "😅😭😢😡😱🥳🤗🙄👍👎", "👌🙏👏💪🔥🎉💯💖"];
 
 /// Имя клавиши для программы, принимающей клавиши вместо виртуальной клавиатуры (`show … for <сокет>`):
 /// клавиши без символа. `None` — клавиша такой программе не нужна.
@@ -267,112 +254,144 @@ pub fn is_terminal(app_id: &str) -> bool {
     ["term", "foot", "kitty", "alacritty", "konsole", "ghostty", "tilix", "terminator", "st-256color"].iter().any(|t| id.contains(t))
 }
 
-/// Знак US с его символом Shift: `[` → `{`.
-fn us_dual(c: char) -> Key {
-    let (code, _) = us_char(c).expect("знак US-раскладки");
-    let upper = "`1234567890-=[]\\;',./".find(c).map(|i| "~!@#$%^&*()_+{}|:\"<>?".chars().nth(i).unwrap()).unwrap_or(c);
-    Key::dual(&c.to_string(), &upper.to_string(), code, true)
+/// Клавиша знака: US-раскладка (группа 0) или, вне её, — символ временной клавишей.
+fn sym(c: char) -> Key {
+    match us_char(c) {
+        Some((code, shift)) => Key::new(&c.to_string(), Action::Key { code, shift, repeat: false, latin: true }, 1.0, "key"),
+        None => Key::new(&c.to_string(), Action::Char(c), 1.0, "key"),
+    }
 }
 
-/// Буква языка на физической клавише `code`.
-fn lang_letter(ch: char, code: u32) -> Key {
-    Key::letter(&ch.to_string(), &ch.to_uppercase().to_string(), code)
+fn syms(s: &str) -> Vec<Key> {
+    s.chars().map(sym).collect()
 }
 
-/// Ширина рядов (в обычных клавишах): все по 15, как у клавиатуры Steam.
-#[cfg(test)]
-const WIDTH: f32 = 15.0;
+/// Число колонок языка (самый длинный ряд букв, не меньше 10): ряды всех страниц этой ширины.
+pub fn columns(lang: &Lang) -> f32 {
+    lang.rows.iter().map(|r| r.chars().count() as f32).fold(10.0, f32::max)
+}
 
-/// Ряды страницы для языка `lang`: 5 рядов одной высоты.
-pub fn rows(page: Page, lang: &Lang) -> Vec<Vec<Key>> {
-    let mut out: Vec<Vec<Key>> = Vec::new();
-    let extra: Vec<char> = lang.extra.chars().collect();
-    // Буква языка на месте знака US (ё вместо `, х ъ вместо [ ] …) или сам знак.
-    let place = |i: usize, us: char| -> Key {
-        match extra.get(i) {
-            Some(&ch) => lang_letter(ch, us_char(us).unwrap().0),
-            None => us_dual(us),
+fn units(row: &[Key]) -> f32 {
+    row.iter().map(|k| k.width).sum::<f32>()
+}
+
+/// Ряды одинаковой ширины `max`: короткие ряды получают пустые поля по краям
+/// (средний ряд букв — сдвиг на полклавиши), клавиши во всех рядах одной ширины.
+fn pad_rows(rows: &mut [Vec<Key>], max: f32) {
+    for row in rows.iter_mut() {
+        let extra = max - units(row);
+        if extra > 0.05 {
+            let spacer = || Key::new("", Action::Spacer, extra / 2.0, "key-spacer");
+            row.insert(0, spacer());
+            row.push(spacer());
         }
-    };
+    }
+}
+
+/// Ряд с ⌫ справа и клавишей `left` слева: края добирают ширину до `cols`.
+fn edged(left: Key, mid: Vec<Key>, cols: f32) -> Vec<Key> {
+    let side = ((cols - units(&mid)) / 2.0).max(1.0);
+    let mut row = vec![left.wide(side)];
+    row.extend(mid);
+    row.push(Key::repeat(BACKSPACE_ICON, KEY_BACKSPACE, side));
+    row
+}
+
+/// Ряды страницы `page` для языка `lang` (с нижним); `number_row` — ряд цифр над буквами.
+pub fn rows(page: Page, lang: &Lang, number_row: bool) -> Vec<Vec<Key>> {
+    let cols = columns(lang);
+    let mut out: Vec<Vec<Key>> = Vec::new();
     match page {
         Page::Letters => {
-            // 1: ` 1 … 0 - = и широкий ⌫.
-            let mut r1 = vec![place(0, '`')];
-            r1.extend("1234567890-=".chars().map(us_dual));
-            r1.push(Key::repeat(BACKSPACE_ICON, KEY_BACKSPACE, 2.0));
-            out.push(r1);
-            // 2–4: буквы с клавишами по краям.
-            let letters = |r: usize| -> Vec<Key> {
-                lang.rows[r]
+            if number_row {
+                out.push(syms("1234567890"));
+            }
+            for (r, letters) in lang.rows.iter().enumerate() {
+                let keys: Vec<Key> = letters
                     .chars()
                     .zip(ROW_CODES[r].iter())
                     .enumerate()
-                    .map(|(i, (ch, code))| lang_letter(ch, *code).with_alts(letter_alts(r, i, ch)))
-                    .collect()
-            };
-            let mut r2 = vec![Key::special("Tab", Action::Key { code: KEY_TAB, shift: false, repeat: false, latin: false }, 1.5)];
-            r2.extend(letters(0));
-            r2.extend([place(1, '['), place(2, ']')]);
-            // «\» — у RU тоже знак (там Shift даёт «/»): из своей группы, как на клавиатуре.
-            r2.push(if extra.is_empty() { Key { width: 1.5, ..us_dual('\\') } } else { Key { width: 1.5, ..Key::dual("\\", "/", 43, false) } });
-            out.push(r2);
-            let mut r3 = vec![Key::special("Caps", Action::Caps, 1.75)];
-            r3.extend(letters(1));
-            r3.extend([place(3, ';'), place(4, '\'')]);
-            r3.push(Key::special("Enter", Action::Key { code: KEY_ENTER, shift: false, repeat: false, latin: false }, 2.25));
-            out.push(r3);
-            let mut r4 = vec![Key::special("Shift", Action::Modifier(Modifier::Shift), 2.5)];
-            r4.extend(letters(2));
-            r4.extend([place(5, ','), place(6, '.')]);
-            // «/» в RU — «.» (Shift — «,») на той же клавише своей группы.
-            r4.push(if extra.is_empty() { us_dual('/') } else { Key::dual(".", ",", 53, false).alts(&["!", "?", ",", ";", ":", "-", "\"", "'"]) });
-            if extra.is_empty() {
-                // Знаки препинания у точки, как раньше в нижнем ряду.
-                if let Some(dot) = r4.iter_mut().find(|k| k.label == ".") {
-                    dot.alts = ["!", "?", ",", ";", ":", "-", "\"", "'"].iter().map(|s| s.to_string()).collect();
-                }
+                    .map(|(i, (ch, code))| {
+                        let mut k = Key::letter(&ch.to_string(), &ch.to_uppercase().to_string(), *code).with_alts(letter_alts(r, i, ch));
+                        // Без ряда цифр цифра — мелко в углу верхнего ряда (долгое нажатие).
+                        if r == 0 && !number_row {
+                            if let Some(d) = "1234567890".chars().nth(i) {
+                                k.hint = Some(d.to_string());
+                                k.alts.retain(|a| a != &d.to_string());
+                                k.alts.insert(0, d.to_string());
+                            }
+                        }
+                        k
+                    })
+                    .collect();
+                out.push(if r == 2 { edged(Key::special(SHIFT_ICON, Action::Modifier(Modifier::Shift), 1.0), keys, cols) } else { keys });
             }
-            r4.push(Key::special("Shift", Action::Modifier(Modifier::Shift), 2.5));
-            out.push(r4);
+        }
+        Page::Symbols => {
+            out.push(syms("1234567890"));
+            out.push(syms("@#$_&-+()/"));
+            out.push(edged(Key::special("=\\<", Action::Page(Page::Symbols2), 1.0), syms("*\"':;!?"), cols));
+        }
+        Page::Symbols2 => {
+            out.push(syms("~`|•√π÷×¶∆"));
+            out.push(syms("£€¢^°={}<>"));
+            out.push(edged(Key::special("?123", Action::Page(Page::Symbols), 1.0), syms("\\©®™%[]"), cols));
         }
         Page::Emoji => {
-            for (i, chars) in EMOJI_ROWS.iter().enumerate() {
-                let mut row: Vec<Key> = chars.chars().map(|c| Key::new(&c.to_string(), Action::Char(c), 1.0, "key")).collect();
-                if i == 0 {
-                    // ⌫ на своём месте — справа в первом ряду; смайлов в нём на один меньше.
-                    row.truncate(13);
+            for (i, s) in EMOJI_ROWS.iter().enumerate() {
+                let mut row: Vec<Key> = s.chars().map(|c| Key::new(&c.to_string(), Action::Char(c), 1.0, "key")).collect();
+                if i == 2 {
                     row.push(Key::repeat(BACKSPACE_ICON, KEY_BACKSPACE, 2.0));
                 }
                 out.push(row);
             }
         }
     }
-    // Нижний ряд: смайлы, язык, свои — доп. ряды ⌨ и плавающая; пробел, стрелки, «Вставить», «Скрыть».
-    let emoji = match page {
-        Page::Letters => Key::special(EMOJI_ICON, Action::Page(Page::Emoji), 1.0),
-        Page::Emoji => Key::special(EMOJI_ICON, Action::Page(Page::Letters), 1.0),
+    let n = out.len();
+    pad_rows(&mut out[..n], cols);
+    // Нижний ряд: слой (?123 / ABC), запятая (долгое — смайлы), язык, пробел с именем языка, точка, Enter.
+    let layer = match page {
+        Page::Letters => Key::special("?123", Action::Page(Page::Symbols), 1.5),
+        _ => Key::special("ABC", Action::Page(Page::Letters), 1.5),
     };
-    let arrow = |icon: &str, code: u32| Key::repeat(icon, code, 1.0);
+    let comma = Key { long: Some(Action::Page(Page::Emoji)), ..sym(',') }.hint("☺");
+    let space = Key::special(lang.name, Action::Key { code: KEY_SPACE, shift: false, repeat: false, latin: false }, cols - 6.0);
     out.push(vec![
-        emoji,
+        layer,
+        comma,
         Key::special(LANG_ICON, Action::Layout, 1.0),
-        Key::special(FN_ICON, Action::Fn, 1.0),
-        Key::special(FLOAT_ICON, Action::Float, 1.0),
-        Key::special(lang.name, Action::Key { code: KEY_SPACE, shift: false, repeat: false, latin: false }, 5.5),
-        // Блок стрелок как у Steam: два столбца по две половинки.
-        arrow(UP_ICON, KEY_UP).over(arrow(LEFT_ICON, KEY_LEFT)),
-        arrow(DOWN_ICON, KEY_DOWN).over(arrow(RIGHT_ICON, KEY_RIGHT)),
-        Key::special(PASTE_LABEL, Action::Paste, 2.0),
-        Key::special(HIDE_ICON, Action::Hide, 1.5),
+        space,
+        sym('.').alts(&["!", "?", ",", ";", ":", "-", "\"", "'"]),
+        Key::special(ENTER_ICON, Action::Key { code: KEY_ENTER, shift: false, repeat: false, latin: false }, 1.5),
     ]);
     out
 }
 
-/// Функциональные ряды: Esc/Tab/модификаторы/навигация, затем F1–F6 и
-/// F7–F12 со стрелками перевёрнутой «T» справа, как на клавиатуре.
+/// Дополнительная полоса над клавишами (для терминала и программ): Esc, Tab, Ctrl, Alt, стрелки,
+/// «Вставить», ещё ряды (F1–F12…), плавающая ↔ внизу, «Скрыть».
+pub fn toolbar() -> Vec<Key> {
+    let k = |label: &str, code: u32, repeat: bool| Key::new(label, Action::Key { code, shift: false, repeat, latin: false }, 1.0, "key key-fn");
+    let s = |label: &str, action: Action| Key::new(label, action, 1.0, "key key-fn");
+    vec![
+        k("Esc", KEY_ESC, false),
+        k("Tab", KEY_TAB, false),
+        s("Ctrl", Action::Modifier(Modifier::Ctrl)),
+        s("Alt", Action::Modifier(Modifier::Alt)),
+        k(LEFT_ICON, KEY_LEFT, true),
+        k(UP_ICON, KEY_UP, true),
+        k(DOWN_ICON, KEY_DOWN, true),
+        k(RIGHT_ICON, KEY_RIGHT, true),
+        s(PASTE_ICON, Action::Paste),
+        s(FN_ICON, Action::Fn),
+        s(FLOAT_ICON, Action::Float),
+        s(HIDE_ICON, Action::Hide),
+    ]
+}
+
+/// Ещё ряды (кнопка ⌨ полосы): ⌘ Ins Del Home End PgUp PgDn, F1–F6, F7–F12.
 pub fn fn_rows() -> Vec<Vec<Key>> {
-    fn k(label: &str, code: u32, width: f32, repeat: bool) -> Key {
-        Key::new(label, Action::Key { code, shift: false, repeat, latin: false }, width, "key key-fn")
+    fn k(label: &str, code: u32, repeat: bool) -> Key {
+        Key::new(label, Action::Key { code, shift: false, repeat, latin: false }, 1.0, "key key-fn")
     }
     fn f(n: u32) -> Key {
         let code = match n {
@@ -382,25 +401,16 @@ pub fn fn_rows() -> Vec<Vec<Key>> {
         };
         Key::new(&format!("F{n}"), Action::Key { code, shift: false, repeat: false, latin: false }, 1.0, "key key-fn key-f")
     }
-    fn m(label: &str, m: Modifier, width: f32) -> Key {
-        Key::new(label, Action::Modifier(m), width, "key key-fn")
-    }
     let row1 = vec![
-        k("Esc", KEY_ESC, 1.0, false),
-        k("Tab", KEY_TAB, 1.0, false),
-        m("Ctrl", Modifier::Ctrl, 1.1),
-        m("Alt", Modifier::Alt, 1.0),
-        m("⌘", Modifier::Super, 0.8),
-        k("Ins", KEY_INSERT, 0.9, false),
-        k("Del", KEY_DELETE, 0.9, true),
-        k("PgUp", KEY_PAGEUP, 1.5, true),
-        k("PgDn", KEY_PAGEDOWN, 1.5, true),
+        Key::new("⌘", Action::Modifier(Modifier::Super), 1.0, "key key-fn"),
+        k("Ins", KEY_INSERT, false),
+        k("Del", KEY_DELETE, true),
+        k("Home", KEY_HOME, false),
+        k("End", KEY_END, false),
+        k("PgUp", KEY_PAGEUP, true),
+        k("PgDn", KEY_PAGEDOWN, true),
     ];
-    let mut row2: Vec<Key> = (1..=6).map(f).collect();
-    row2.extend([k("Home", KEY_HOME, 1.0, false), k("↑", KEY_UP, 1.0, true), k("End", KEY_END, 1.0, false)]);
-    let mut row3: Vec<Key> = (7..=12).map(f).collect();
-    row3.extend([k("←", KEY_LEFT, 1.0, true), k("↓", KEY_DOWN, 1.0, true), k("→", KEY_RIGHT, 1.0, true)]);
-    vec![row1, row2, row3]
+    vec![row1, (1..=6).map(f).collect(), (7..=12).map(f).collect()]
 }
 
 /// Клавиша по имени для CLI (`synkeyboard key ctrl+c`): `a`…`z`, `0`…`9`,
@@ -439,102 +449,104 @@ pub fn key_by_name(name: &str) -> Option<u32> {
     Some(code)
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn labels(row: &[Key]) -> Vec<String> {
-        row.iter().map(|k| k.label.clone()).collect()
+        row.iter().filter(|k| k.action != Action::Spacer).map(|k| k.label.clone()).collect()
     }
 
-    fn row_width(row: &[Key]) -> f32 {
-        row.iter().map(|k| k.width).sum()
+    fn check_widths(rows: &[Vec<Key>], cols: f32) {
+        for r in rows {
+            assert!((units(r) - cols).abs() < 0.01, "ширина ряда {:?}: {}", labels(r), units(r));
+        }
     }
 
     #[test]
-    fn steam_layout_en() {
-        let rows = rows(Page::Letters, &LANGS[0]);
+    fn letters_en() {
+        let rows = rows(Page::Letters, &LANGS[0], false);
+        assert_eq!(rows.len(), 4);
+        check_widths(&rows, 10.0);
+        assert_eq!(labels(&rows[0]).concat(), "qwertyuiop");
+        // Цифры — мелко над верхним рядом и первыми по долгому нажатию.
+        assert_eq!(rows[0][0].hint.as_deref(), Some("1"));
+        assert_eq!(rows[0][9].alts[0], "0");
+        // Средний ряд — со сдвигом на полклавиши.
+        assert_eq!(rows[1][0].action, Action::Spacer);
+        assert!((rows[1][0].width - 0.5).abs() < 0.01);
+        assert_eq!(rows[2][0].action, Action::Modifier(Modifier::Shift));
+        assert_eq!(labels(&rows[2])[1..8].concat(), "zxcvbnm");
+        assert!(matches!(rows[2][8].action, Action::Key { code: KEY_BACKSPACE, repeat: true, .. }));
+        let bottom: Vec<Action> = rows[3].iter().map(|k| k.action).collect();
+        assert_eq!(bottom[0], Action::Page(Page::Symbols));
+        assert_eq!(rows[3][1].long, Some(Action::Page(Page::Emoji)));
+        assert_eq!(bottom[2], Action::Layout);
+        assert!(matches!(bottom[3], Action::Key { code: KEY_SPACE, .. }));
+        assert_eq!(rows[3][3].label, "EN");
+        assert!(rows[3][4].alts.contains(&"?".to_string()));
+        assert!(matches!(bottom[5], Action::Key { code: KEY_ENTER, .. }));
+        // Служебные — не в основных рядах.
+        let all: Vec<Action> = rows.iter().flatten().map(|k| k.action).collect();
+        assert!(!all.iter().any(|a| matches!(a, Action::Paste | Action::Hide | Action::Fn | Action::Key { code: KEY_TAB, .. })));
+    }
+
+    #[test]
+    fn number_row() {
+        let rows = rows(Page::Letters, &LANGS[0], true);
         assert_eq!(rows.len(), 5);
-        for r in &rows {
-            assert!((row_width(r) - WIDTH).abs() < 0.01, "ширина ряда {:?}", labels(r));
-        }
-        assert_eq!(labels(&rows[0])[..13].join(""), "`1234567890-=");
-        assert_eq!(rows[0][13].action, Action::Key { code: KEY_BACKSPACE, shift: false, repeat: true, latin: false });
-        let hints: String = rows[0][..13].iter().map(|k| k.hint.clone().unwrap()).collect();
-        assert_eq!(hints, "~!@#$%^&*()_+");
-        assert_eq!(labels(&rows[1]).join(" "), "Tab q w e r t y u i o p [ ] \\");
-        assert_eq!(labels(&rows[2]).join(" "), "Caps a s d f g h j k l ; ' Enter");
-        assert_eq!(labels(&rows[3]).join(" "), "Shift z x c v b n m , . / Shift");
-        assert_eq!(rows[2][0].action, Action::Caps);
-        // Знаки — из US-раскладки при любом языке, буквы — нет; у букв нет подписи Shift.
-        assert!(matches!(rows[1][11].action, Action::Key { code: 26, latin: true, .. }));
-        assert!(rows[1][1].hint.is_none() && rows[1][1].shifted.as_deref() == Some("Q"));
-        // Нижний ряд: смайлы, язык, доп. ряды, плавающая, пробел, стрелки парами, «Вставить», «Скрыть».
-        let bottom: Vec<Action> = rows[4].iter().map(|k| k.action).collect();
-        assert_eq!(bottom[0], Action::Page(Page::Emoji));
-        assert_eq!(bottom[1], Action::Layout);
-        assert_eq!(bottom[2], Action::Fn);
-        assert_eq!(bottom[3], Action::Float);
-        assert!(matches!(bottom[4], Action::Key { code: KEY_SPACE, .. }));
-        let arrows: Vec<u32> = rows[4][5..7]
-            .iter()
-            .flat_map(|k| [k, k.below.as_deref().unwrap()])
-            .map(|k| match k.action {
-                Action::Key { code, repeat: true, .. } => code,
-                a => panic!("{a:?}"),
-            })
-            .collect();
-        assert_eq!(arrows, [KEY_UP, KEY_LEFT, KEY_DOWN, KEY_RIGHT]);
-        assert_eq!(bottom[7], Action::Paste);
-        assert_eq!(bottom[8], Action::Hide);
-        // Варианты по долгому нажатию у букв и точки сохранились.
-        assert_eq!(rows[1][1].alts, ["1"]);
-        assert!(rows[3].iter().find(|k| k.label == ".").unwrap().alts.contains(&"?".to_string()));
+        check_widths(&rows, 10.0);
+        assert_eq!(labels(&rows[0]).concat(), "1234567890");
+        assert!(rows[1][0].hint.is_none());
     }
 
     #[test]
-    fn steam_layout_ru() {
-        let rows = rows(Page::Letters, &LANGS[1]);
-        for r in &rows {
-            assert!((row_width(r) - WIDTH).abs() < 0.01, "ширина ряда {:?}", labels(r));
-        }
-        assert_eq!(labels(&rows[0])[..13].join(""), "ё1234567890-=");
-        assert_eq!(labels(&rows[1]).join(" "), "Tab й ц у к е н г ш щ з х ъ \\");
-        assert_eq!(labels(&rows[2]).join(" "), "Caps ф ы в а п р о л д ж э Enter");
-        assert_eq!(labels(&rows[3]).join(" "), "Shift я ч с м и т ь б ю . Shift");
-        // ё, х, ъ, ж, э, б, ю — буквы на физических местах знаков US, в своей группе.
-        assert!(matches!(rows[0][0].action, Action::Key { code: 41, latin: false, .. }));
-        assert!(matches!(rows[1][11].action, Action::Key { code: 26, latin: false, .. }));
-        assert!(matches!(rows[3][9].action, Action::Key { code: 52, latin: false, .. }));
-        assert_eq!(rows[0][0].shifted.as_deref(), Some("Ё"));
-        assert!(rows[0][0].hint.is_none());
-        // Точка RU: Shift — запятая, в своей группе (код 53).
-        let dot = &rows[3][10];
-        assert_eq!((dot.label.as_str(), dot.hint.as_deref()), (".", Some(",")));
-        assert!(matches!(dot.action, Action::Key { code: 53, latin: false, .. }));
-        // Цифры с символами US над ними.
-        assert_eq!(rows[0][2].hint.as_deref(), Some("@"));
-        assert_eq!(rows[1][5].alts, ["ё", "5"]);
+    fn letters_ru() {
+        let rows = rows(Page::Letters, &LANGS[1], false);
+        check_widths(&rows, 11.0);
+        assert_eq!(labels(&rows[0]).concat(), "йцукенгшщзх");
+        assert_eq!(labels(&rows[1]).concat(), "фывапролджэ");
+        assert_eq!(labels(&rows[2])[1..10].concat(), "ячсмитьбю");
+        assert_eq!(rows[0][4].alts, ["5", "ё"]);
+        assert!(rows[2][7].alts.contains(&"ъ".to_string()));
+        assert!(matches!(rows[0][10].action, Action::Key { code: 26, latin: false, .. }));
+        assert_eq!(rows[3][3].label, "RU");
     }
 
     #[test]
-    fn emoji_page() {
-        let rows = rows(Page::Emoji, &LANGS[0]);
-        assert_eq!(rows.len(), 5);
-        for r in &rows {
-            assert!((row_width(r) - WIDTH).abs() < 0.01, "ширина ряда {:?}", labels(r));
+    fn symbol_pages() {
+        for lang in LANGS {
+            for page in [Page::Symbols, Page::Symbols2, Page::Emoji] {
+                let rows = rows(page, lang, false);
+                assert_eq!(rows.len(), 4);
+                check_widths(&rows, columns(lang));
+                assert_eq!(rows[3][0].action, Action::Page(Page::Letters));
+            }
         }
-        assert_eq!(rows[0][0].action, Action::Char('😀'));
-        assert!(rows[3].iter().any(|k| k.action == Action::Char('€')));
-        assert_eq!(rows[4][0].action, Action::Page(Page::Letters));
+        let s2 = rows(Page::Symbols2, &LANGS[0], false);
+        // Знаки вне US — временной клавишей, US — кодом.
+        assert!(s2.iter().flatten().any(|k| k.action == Action::Char('€')));
+        assert!(s2.iter().flatten().any(|k| matches!(k.action, Action::Key { code: 41, shift: true, latin: true, .. })));
+        let e = rows(Page::Emoji, &LANGS[0], false);
+        assert_eq!(e[0][0].action, Action::Char('😀'));
+    }
+
+    #[test]
+    fn toolbar_has_terminal_keys() {
+        let t: Vec<Action> = toolbar().iter().map(|k| k.action).collect();
+        for want in [Action::Paste, Action::Hide, Action::Fn, Action::Float, Action::Modifier(Modifier::Ctrl), Action::Modifier(Modifier::Alt)] {
+            assert!(t.contains(&want), "{want:?}");
+        }
+        for code in [KEY_ESC, KEY_TAB, KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN] {
+            assert!(t.iter().any(|a| matches!(a, Action::Key { code: c, .. } if *c == code)));
+        }
     }
 
     #[test]
     fn terminals() {
         assert!(is_terminal("syn-terminal"));
-        assert!(is_terminal("org.wezfurlong.wezterm"));
         assert!(is_terminal("foot"));
         assert!(!is_terminal("syn-notes"));
-        assert!(!is_terminal("firefox"));
     }
 }

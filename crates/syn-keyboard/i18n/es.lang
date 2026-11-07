@@ -11,6 +11,5 @@
 "нет ответа от главного потока" = "sin respuesta del hilo principal"
 
 # src/ui.rs
-"Вставить" = "Pegar"
 "неизвестная клавиша «{part}»" = "tecla desconocida «{part}»"
 "нет клавиши в сочетании" = "no hay tecla en la combinación"

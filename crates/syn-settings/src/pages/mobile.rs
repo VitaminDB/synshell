@@ -157,6 +157,12 @@ pub fn phone() -> W {
                             ("docked", n_!("Внизу")),
                         ],
                     ),
+                    switch_row(
+                        t!("Ряд цифр"),
+                        t!("Цифры отдельным рядом над буквами; без него — долгим нажатием верхнего ряда"),
+                        op!["osk", "number_row"],
+                        c.osk.number_row_or(c.process_form_factor() == synshell_common::config::FormFactor::Phone),
+                    ),
                 ],
             ),
             group(

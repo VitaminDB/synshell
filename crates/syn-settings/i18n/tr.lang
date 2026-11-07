@@ -787,6 +787,8 @@
 "Экранная клавиатура" = "Ekran klavyesi"
 "Масштаб клавиатуры" = "Klavye ölçeği"
 "Отдельно от масштаба оболочки: высота клавиш и подписи; меняется сразу" = "Kabuk ölçeğinden ayrı: tuş yüksekliği ve etiketler; hemen değişir"
+"Ряд цифр" = "Rakam satırı"
+"Цифры отдельным рядом над буквами; без него — долгим нажатием верхнего ряда" = "Rakamlar harflerin üstünde ayrı satırda; yoksa — üst satıra uzun basın"
 "Где клавиатура" = "Klavyenin yeri"
 "Внизу она отодвигает окна; плавающая — окно поменьше, таскается за ручку, клавиша ⧉ переключает" = "Altta pencereleri iter; yüzen — daha küçük bir pencere, tutamağından sürüklenir, ⧉ tuşu geçiş yapar"
 "Как удобнее (внизу на страницах, плавающая на свободном столе и над игрой)" = "Hangisi uygunsa (sayfalarda altta, serbest masada ve oyun üstünde yüzen)"

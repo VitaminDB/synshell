@@ -787,6 +787,8 @@
 "Экранная клавиатура" = "Bildschirmtastatur"
 "Масштаб клавиатуры" = "Skalierung der Tastatur"
 "Отдельно от масштаба оболочки: высота клавиш и подписи; меняется сразу" = "Unabhängig von der Shell-Skalierung: Tastenhöhe und Beschriftungen; gilt sofort"
+"Ряд цифр" = "Zahlenreihe"
+"Цифры отдельным рядом над буквами; без него — долгим нажатием верхнего ряда" = "Ziffern als eigene Reihe über den Buchstaben; ohne sie — obere Reihe lange drücken"
 "Где клавиатура" = "Position der Tastatur"
 "Внизу она отодвигает окна; плавающая — окно поменьше, таскается за ручку, клавиша ⧉ переключает" = "Unten schiebt sie die Fenster weg; schwebend – ein kleineres Fenster, am Griff verschiebbar, die Taste ⧉ schaltet um"
 "Как удобнее (внизу на страницах, плавающая на свободном столе и над игрой)" = "Je nach Situation (unten bei Seiten, schwebend auf freier Arbeitsfläche und über Spielen)"

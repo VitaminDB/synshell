@@ -99,9 +99,11 @@ fn daemon() {
     let initial = mss.clone();
     let scale = config.osk.scale;
     let placement = config.osk.placement;
+    let phone = config.process_form_factor() == synshell_common::config::FormFactor::Phone;
+    let number_row = config.osk.number_row_or(phone);
     let result = syngui_layer::run(syngui_layer::RunOptions { font_family: font }, &mss, move || {
         syngui_layer::set_ui_zoom(scale);
-        let kb = ui::Keyboard::new(placement);
+        let kb = ui::Keyboard::new(placement, number_row);
         ui::install(kb);
         listen(kb);
         watch_config(kb, initial);
@@ -128,6 +130,11 @@ fn watch_config(kb: ui::Keyboard, initial: String) {
                 syngui_layer::set_stylesheet(mss);
             }
             syngui_layer::set_ui_zoom(cfg.osk.scale);
+            let phone = cfg.process_form_factor() == synshell_common::config::FormFactor::Phone;
+            let number_row = cfg.osk.number_row_or(phone);
+            if kb.number_row.get_untracked() != number_row {
+                kb.number_row.set(number_row);
+            }
             if kb.placement.get_untracked() != cfg.osk.placement {
                 kb.placement.set(cfg.osk.placement);
                 // Настройку сменили — своё прежнее «⧉» забыть, показывать по ней.

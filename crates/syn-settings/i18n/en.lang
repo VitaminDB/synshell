@@ -787,6 +787,8 @@
 "Экранная клавиатура" = "On-screen keyboard"
 "Масштаб клавиатуры" = "Keyboard scale"
 "Отдельно от масштаба оболочки: высота клавиш и подписи; меняется сразу" = "Separate from the shell scale: key height and labels; applies immediately"
+"Ряд цифр" = "Number row"
+"Цифры отдельным рядом над буквами; без него — долгим нажатием верхнего ряда" = "Digits as a separate row above the letters; without it — long-press the top row"
 "Где клавиатура" = "Keyboard position"
 "Внизу она отодвигает окна; плавающая — окно поменьше, таскается за ручку, клавиша ⧉ переключает" = "At the bottom it pushes windows aside; floating — a smaller window dragged by its handle, the ⧉ key switches"
 "Как удобнее (внизу на страницах, плавающая на свободном столе и над игрой)" = "Whichever fits (bottom on pages, floating on a free desktop and over games)"

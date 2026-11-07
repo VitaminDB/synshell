@@ -11,6 +11,5 @@
 "нет ответа от главного потока" = "ana iş parçacığından yanıt yok"
 
 # src/ui.rs
-"Вставить" = "Yapıştır"
 "неизвестная клавиша «{part}»" = "bilinmeyen tuş “{part}”"
 "нет клавиши в сочетании" = "kısayolda tuş yok"

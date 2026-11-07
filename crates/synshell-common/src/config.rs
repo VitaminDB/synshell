@@ -3147,6 +3147,17 @@ pub struct Osk {
     /// Где клавиатура: внизу экрана, отодвигая окна, или плавающая (окно поменьше, таскается за ручку,
     /// окна не трогает). `auto` — внизу на страницах, плавающая на свободном столе и когда её просит контроллер.
     pub placement: OskPlacement,
+    /// Ряд цифр над буквами экранной клавиатуры; не задан — на телефоне нет (цифры — долгим
+    /// нажатием верхнего ряда, подписаны мелко), на остальных есть.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub number_row: Option<bool>,
+}
+
+impl Osk {
+    /// Ряд цифр с учётом умолчания по форм-фактору.
+    pub fn number_row_or(&self, phone: bool) -> bool {
+        self.number_row.unwrap_or(!phone)
+    }
 }
 
 impl Default for Osk {
@@ -3158,6 +3169,7 @@ impl Default for Osk {
             apps: Default::default(),
             app_layouts: Default::default(),
             placement: OskPlacement::Auto,
+            number_row: None,
         }
     }
 }

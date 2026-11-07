@@ -31,13 +31,12 @@ pub use crate::layout::Action;
 use crate::layout::{self, Key, Modifier, Page, LANGS};
 
 /// Высота обычного ряда, функционального ряда, отступы (логические px).
-const KEY_H: u32 = 46;
+const KEY_H: u32 = 50;
+/// Наименьшая высота клавиши и наибольшая доля высоты экрана под клавиатуру (без доп. рядов ⌨).
+const MIN_KEY_H: u32 = 30;
+const MAX_SHARE: f32 = 0.5;
 const FN_H: u32 = 34;
 const GAP: u32 = 5;
-/// Промежуток между половинками ячейки (стрелки одна над другой).
-const HALF_GAP: f32 = 3.0;
-/// Наименьшая ширина клавиши «Вставить» с подписью; уже — значок.
-const PASTE_TEXT_MIN_W: f32 = 60.0;
 const PAD: u32 = 6;
 /// Функциональные ряды — отдельным блоком: внутренний отступ и промежуток
 /// до основной клавиатуры.
@@ -115,6 +114,8 @@ pub struct Keyboard {
     pub placement: RwSignal<OskPlacement>,
     /// Что выбрал пользователь клавишей ⧉ (при `placement = "auto"` — до перезапуска).
     pub chosen: RwSignal<Option<bool>>,
+    /// Ряд цифр над буквами (`[osk] number_row`; без него цифры — долгим нажатием верхнего ряда).
+    pub number_row: RwSignal<bool>,
 }
 
 thread_local! {
@@ -123,6 +124,8 @@ thread_local! {
     static REPEAT: Cell<Option<u64>> = const { Cell::new(None) };
     /// Перетаскивание за ручку: палец и его сдвиг от угла клавиатуры.
     static DRAG: Cell<Option<(u64, f32, f32)>> = const { Cell::new(None) };
+    /// Долгое нажатие уже сработало своим действием — отпускание клавишу не печатает.
+    static LONG_FIRED: Cell<bool> = const { Cell::new(false) };
     /// Keymap всех языков (`us,ru`) — основа для временной клавиши символов вне раскладки.
     static KEYMAP: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
     /// Символ, стоящий сейчас на временной клавише (keymap не пересылается, пока он тот же).
@@ -159,7 +162,7 @@ fn type_unicode(c: char) {
 }
 
 impl Keyboard {
-    pub fn new(placement: OskPlacement) -> Self {
+    pub fn new(placement: OskPlacement, number_row: bool) -> Self {
         Self {
             visible: use_signal(false),
             page: use_signal(Page::Letters),
@@ -177,11 +180,34 @@ impl Keyboard {
             capture: use_signal(None),
             placement: use_signal(placement),
             chosen: use_signal(None),
+            number_row: use_signal(number_row),
         }
     }
 
+    /// Высота основных рядов (по буквам; страницы знаков и смайлов растягивают ряды на неё же).
+    fn main_height(&self) -> u32 {
+        let n = layout::rows(Page::Letters, &LANGS[0], self.number_row.get_untracked()).len() as u32;
+        self.key_h(n) * n + GAP * (n - 1)
+    }
+
+    /// Высота клавиши: [`KEY_H`], но клавиатура с полосой — не выше [`MAX_SHARE`] экрана
+    /// (телефон лёжа), клавиша — не ниже [`MIN_KEY_H`].
+    fn key_h(&self, n: u32) -> u32 {
+        let screen = syngui_layer::outputs()
+            .get_untracked()
+            .iter()
+            .map(|o| o.size.1 as f32 / syngui_layer::ui_zoom().max(0.1))
+            .fold(0.0, f32::max);
+        if screen <= 0.0 {
+            return KEY_H;
+        }
+        let budget = screen * MAX_SHARE - (PAD * 2 + FN_H + FN_SEP + GAP * (n - 1)) as f32;
+        ((budget / n as f32).max(0.0) as u32).clamp(MIN_KEY_H, KEY_H)
+    }
+
     fn height(&self) -> u32 {
-        let mut h = PAD * 2 + KEY_H * 5 + GAP * 4;
+        // Полоса (Esc/Tab/Ctrl/стрелки/Вставить/Скрыть) — всегда, над основными рядами.
+        let mut h = PAD * 2 + FN_H + FN_SEP + self.main_height();
         if self.fn_rows.get_untracked() {
             let n = layout::fn_rows().len() as u32;
             h += FN_H * n + GAP * (n - 1) + FN_PAD * 2 + FN_SEP;
@@ -212,13 +238,6 @@ impl Keyboard {
             keyboard: KeyboardInteractivity::None,
             ..Default::default()
         }
-    }
-
-    /// Ширина обычной клавиши (единицы интерфейса): ряд — 15 клавиш с промежутками.
-    fn unit_width(&self) -> f32 {
-        let w = if self.floating.get_untracked() { self.float_width() } else { syngui::viewport::viewport_size().get_untracked().width };
-        let n = 15.0;
-        (w - 2.0 * PAD as f32 - GAP as f32 * (n - 1.0)) / n
     }
 
     /// Ширина плавающей по ширине экрана.
@@ -396,7 +415,6 @@ impl Keyboard {
                 self.press_char(c);
                 self.release_oneshot();
             }
-            Action::Caps => self.shift.set(if self.shift.get_untracked() == Shift::Lock { Shift::Off } else { Shift::Lock }),
             Action::Paste => {
                 self.paste();
                 self.release_oneshot();
@@ -408,7 +426,10 @@ impl Keyboard {
             Action::Modifier(Modifier::Ctrl) => self.ctrl.set(!self.ctrl.get_untracked()),
             Action::Modifier(Modifier::Alt) => self.alt.set(!self.alt.get_untracked()),
             Action::Modifier(Modifier::Super) => self.sup.set(!self.sup.get_untracked()),
-            Action::Page(p) => self.page.set(p),
+            Action::Page(p) => {
+                self.page.set(p);
+                self.shift.set(Shift::Off);
+            }
             Action::Layout => {
                 let next = (self.lang.get_untracked() + 1) % LANGS.len();
                 self.lang.set(next);
@@ -541,6 +562,9 @@ pub fn install(kb: Keyboard) {
         let visible = kb.visible.get();
         let floating = kb.floating.get();
         let _ = kb.fn_rows.get();
+        let _ = kb.number_row.get();
+        // Экран повернули — высота клавиш другая.
+        let _ = syngui_layer::outputs().get();
         let current = SURFACE.with(|s| s.get());
         match (visible, current) {
             (true, Some((id, f))) if f == floating => {
@@ -619,6 +643,8 @@ fn floating_view(kb: Keyboard) -> impl Widget {
             Stack::new()
                 .child(Reactive::new(move || -> Vec<Box<dyn Widget>> {
                     let _ = kb.fn_rows.get();
+                    let _ = kb.number_row.get();
+                    let _ = syngui_layer::outputs().get();
                     let _ = syngui::viewport::viewport_size().get();
                     let [_, _, w, h] = kb.float_rect();
                     // Высота — явно: иначе `.keyboard` (flex-grow) растянулся бы до низа экрана.
@@ -825,25 +851,31 @@ fn keys_view(kb: Keyboard) -> impl Widget {
             let (ctrl, alt, sup) = (kb.ctrl.get(), kb.alt.get(), kb.sup.get());
             let fn_rows = kb.fn_rows.get();
             let floating = kb.floating.get();
-            // Ширина экрана — от неё подпись «Вставить» или значок.
-            let _ = syngui::viewport::viewport_size().get();
+            let number_row = kb.number_row.get();
+            // Экран повернули — высота клавиш другая.
+            let _ = syngui_layer::outputs().get();
 
+            // Все страницы — одной высоты (по буквам): у страницы с меньшим числом рядов они выше.
+            let rows = layout::rows(page, lang, number_row);
+            let n = rows.len() as f32;
+            let key_h = (kb.main_height() as f32 - GAP as f32 * (n - 1.0)) / n;
             let mut main = Column::new().gap(GAP as f32);
-            for row in layout::rows(page, lang) {
-                main = main.child(row_widget(kb, row, shift, ctrl, alt, sup, floating, KEY_H as f32));
+            for row in rows {
+                main = main.child(row_widget(kb, row, shift, ctrl, alt, sup, floating, key_h));
             }
             let mut col = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+            // Дополнительная полоса и (по ⌨) ещё ряды — своим блоком другого фона над основными.
+            let mut extra = Column::new().gap(GAP as f32);
             if fn_rows {
-                // Дополнительные ряды — своим блоком другого фона, с просветом
-                // до основной клавиатуры.
-                let mut extra = Column::new().gap(GAP as f32);
                 for row in layout::fn_rows() {
                     extra = extra.child(row_widget(kb, row, shift, ctrl, alt, sup, floating, FN_H as f32));
                 }
-                col = col
-                    .child(DecoratedBox::new().child(extra).class("keyboard-fn").style("padding", StyleValue::px(FN_PAD as f32)))
-                    .child(DecoratedBox::new().style("height", StyleValue::px(FN_SEP as f32)));
             }
+            extra = extra.child(row_widget(kb, layout::toolbar(), shift, ctrl, alt, sup, floating, FN_H as f32));
+            let pad = if fn_rows { FN_PAD as f32 } else { 0.0 };
+            col = col
+                .child(DecoratedBox::new().child(extra).class(if fn_rows { "keyboard-fn" } else { "keyboard-bar" }).style("padding", StyleValue::px(pad)))
+                .child(DecoratedBox::new().style("height", StyleValue::px(FN_SEP as f32)));
             col = col.child(main);
             vec![Box::new(col) as Box<dyn Widget>]
         }))
@@ -853,58 +885,29 @@ fn keys_view(kb: Keyboard) -> impl Widget {
 #[allow(clippy::too_many_arguments)]
 fn row_widget(kb: Keyboard, keys: Vec<Key>, shift: Shift, ctrl: bool, alt: bool, sup: bool, floating: bool, height: f32) -> impl Widget {
     let mut row = Row::new().gap(GAP as f32).height(height).cross_axis_alignment(CrossAxisAlignment::Stretch);
-    for mut key in keys {
-        row = match key.below.take() {
-            // Две клавиши одна над другой в одной ячейке (стрелки, как у Steam).
-            Some(below) => {
-                let width = key.width;
-                let half = |k: Key| key_widget(kb, Key { width: 1.0, ..k }, shift, ctrl, alt, sup, floating);
-                row.child(
-                    Column::new()
-                        .gap(HALF_GAP)
-                        .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                        .child(half(key))
-                        .child(half(*below))
-                        .style("flex-grow", width),
-                )
-            }
-            None => row.child(key_widget(kb, key, shift, ctrl, alt, sup, floating)),
-        };
+    for key in keys {
+        row = row.child(key_widget(kb, key, shift, ctrl, alt, sup, floating));
     }
     row
 }
 
 fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: bool, floating: bool) -> Box<dyn Widget> {
-    // Caps Lock делает заглавными только буквы; одноразовый Shift — и знаки (символ с Shift).
-    let upper = match shift {
-        Shift::Off => false,
-        Shift::Once => true,
-        Shift::Lock => key.hint.is_none(),
-    };
+    // Заглавные — у букв при Shift или Caps.
+    let upper = shift != Shift::Off && key.is_letter();
     let label = match (&key.shifted, upper) {
         (Some(s), true) => s.clone(),
-        // Узкой клавиатуре (плавающая, узкий экран) подпись не влезает — значок.
-        _ if key.action == Action::Paste => {
-            if kb.unit_width() * key.width < PASTE_TEXT_MIN_W {
-                layout::PASTE_ICON.to_string()
-            } else {
-                t!("Вставить")
-            }
-        }
         _ => key.label.clone(),
     };
-    // Мелкая подпись над основной: символ с Shift; при Shift они меняются местами.
-    let hint = key.hint.as_ref().map(|h| if upper { key.label.clone() } else { h.clone() });
+    // Мелкая подпись над основной — что даст долгое нажатие (цифра, смайлик).
+    let hint = key.hint.clone();
     // Активные модификаторы подсвечиваются.
     let active = match key.action {
         Action::Modifier(Modifier::Shift) => shift != Shift::Off,
         Action::Modifier(Modifier::Ctrl) => ctrl,
         Action::Modifier(Modifier::Alt) => alt,
         Action::Modifier(Modifier::Super) => sup,
-        Action::Caps => shift == Shift::Lock,
         Action::Fn => kb.fn_rows.get_untracked(),
         Action::Float => floating,
-        Action::Page(Page::Letters) => true,
         _ => false,
     };
     let mut class = key.class.to_string();
@@ -919,7 +922,8 @@ fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: 
     if action == Action::Spacer {
         return Box::new(DecoratedBox::new().class("key-spacer").style("flex-grow", width));
     }
-    let caps = key.hint.is_none();
+    let caps = key.is_letter();
+    let long = key.long;
     let label_shown = label.clone();
     // Значок (Material Icons, частная область Юникода) — виджетом значка, не текстом.
     let icon = !label.is_empty() && label.chars().all(|c| ('\u{E000}'..='\u{F8FF}').contains(&c));
@@ -976,7 +980,15 @@ fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: 
                 .on_long_press(move |_| kb.shift.set(Shift::Lock));
         }
         Action::Key { code, shift: with_shift, latin, .. } => {
-            if !key.alts.is_empty() {
+            if let Some(long) = long {
+                // Долгое нажатие — своё действие (запятая → смайлы); отпускание после него не печатает.
+                gd = gd.on_long_press(move |_| {
+                    LONG_FIRED.with(|f| f.set(true));
+                    kb.popup.set(None);
+                    haptics::play(Feedback::Key);
+                    kb.act(long);
+                });
+            } else if !key.alts.is_empty() {
                 // Долгое нажатие — полоска вариантов, выбор скольжением (ввод — в on_release).
                 let alts = key.alts.clone();
                 gd = gd
@@ -985,6 +997,9 @@ fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: 
             }
             gd = gd.on_release(move |inside| {
                 kb.popup.set(None);
+                if LONG_FIRED.with(|f| f.replace(false)) {
+                    return;
+                }
                 if let Some(a) = kb.alts.get_untracked().filter(|a| a.owner == code) {
                     kb.alts.set(None);
                     press_alt(kb, &a.alts[a.sel]);
@@ -1013,6 +1028,7 @@ fn key_widget(kb: Keyboard, key: Key, shift: Shift, ctrl: bool, alt: bool, sup: 
     if !matches!(action, Action::Key { repeat: true, .. }) {
         let popup = char_key.then_some(label_shown);
         gd = gd.on_press_with_bounds(move |_, r| {
+            LONG_FIRED.with(|f| f.set(false));
             haptics::play(Feedback::Key);
             if let Some(l) = &popup {
                 kb.popup.set(Some((l.clone(), [r.origin.x, r.origin.y, r.size.width, r.size.height])));

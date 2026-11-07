@@ -11,6 +11,5 @@
 "нет ответа от главного потока" = "no response from the main thread"
 
 # src/ui.rs
-"Вставить" = "Paste"
 "неизвестная клавиша «{part}»" = "unknown key “{part}”"
 "нет клавиши в сочетании" = "no key in the combination"
