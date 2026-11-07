@@ -92,16 +92,51 @@ impl Src {
         }
         Ok(Src::Vnc(Session::open(vm.vnc_path(), Duration::from_secs(5), Arc::new(|| {}), Arc::new(|_| {}))))
     }
+    /// Последний кадр; у syn-gpu курсор гостя (в кадре рабочего стола его нет) — дорисован,
+    /// а его движение меняет версию кадра.
     fn latest(&self) -> (u32, u32, Arc<[u8]>, u64) {
         match self {
             Src::Vnc(s) => s.frame.latest(),
-            Src::Present(p) => p.desktop().map(|l| l.frame.latest()).unwrap_or((0, 0, Arc::from(Vec::new()), 0)),
+            Src::Present(p) => {
+                let Some((w, h, px, ver)) = p.desktop().map(|l| l.frame.latest()) else { return (0, 0, Arc::from(Vec::new()), 0) };
+                let Some(c) = p.cursor() else { return (w, h, px, ver) };
+                let mut out = px.to_vec();
+                draw_cursor(&mut out, w, h, &c);
+                // Версия: кадр и положение курсора (движение без нового кадра — тоже обновление).
+                let cv = (c.x as u32 as u64) << 16 ^ (c.y as u32 as u64) << 40 ^ Arc::as_ptr(&c.rgba) as u64;
+                (w, h, Arc::from(out), ver.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ cv)
+            }
         }
     }
     fn alive(&self) -> bool {
         match self {
             Src::Vnc(s) => s.alive(),
             Src::Present(p) => p.is_alive(),
+        }
+    }
+}
+
+/// Курсор поверх кадра RGBA (альфа не предумножена).
+fn draw_cursor(out: &mut [u8], w: u32, h: u32, c: &crate::present::GuestCursor) {
+    for cy in 0..c.height as i32 {
+        let y = c.y + cy;
+        if y < 0 || y >= h as i32 {
+            continue;
+        }
+        for cx in 0..c.width as i32 {
+            let x = c.x + cx;
+            if x < 0 || x >= w as i32 {
+                continue;
+            }
+            let si = ((cy as u32 * c.width + cx as u32) * 4) as usize;
+            let a = c.rgba[si + 3] as u32;
+            if a == 0 {
+                continue;
+            }
+            let di = ((y as u32 * w + x as u32) * 4) as usize;
+            for k in 0..3 {
+                out[di + k] = ((c.rgba[si + k] as u32 * a + out[di + k] as u32 * (255 - a)) / 255) as u8;
+            }
         }
     }
 }
