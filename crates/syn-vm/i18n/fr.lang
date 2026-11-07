@@ -846,3 +846,7 @@
 "Диск инструментов DOS" = "Disque d’outils DOS"
 "Жёсткий диск FAT с каталогом SYNGPU: Glide 2.x для игр DOS на видеокарте хоста. Подключается при запуске машины, изменения на нём не сохраняются." = "Disque dur FAT avec le dossier SYNGPU : Glide 2.x pour les jeux DOS sur la carte graphique de l’hôte. Branché au démarrage de la machine ; les modifications ne sont pas conservées."
 "Диск инструментов DOS появится при следующем запуске машины" = "Le disque d’outils DOS apparaîtra au prochain démarrage de la machine"
+"Без ограничения" = "Sans limite"
+"{n} кадров/с" = "{n} i/s"
+"Ограничение частоты кадров" = "Limite d’images par seconde"
+"Не больше N кадров в секунду: частота монитора гостя, вывод экрана и игр; своё число — ключ --max-fps в gpu3d_args; со следующего запуска" = "Au plus N images par seconde : fréquence du moniteur de l’invité, sortie de l’écran et des jeux ; valeur personnalisée — clé --max-fps dans gpu3d_args ; au prochain démarrage"

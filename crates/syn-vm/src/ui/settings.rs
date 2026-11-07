@@ -635,6 +635,24 @@ fn gpu(st: St, vm: &Vm) -> W {
             let n = n.to_string();
             state::edit(st, |v| v.set_gpu_arg("--heap-gib", if n == "4" { None } else { Some(&n) }));
         }));
+        // Ограничение частоты кадров: монитор гостя (VSync), вывод экрана и кадров игр.
+        let fps = vm.gpu_arg("--max-fps").unwrap_or_default();
+        let mut dd = Dropdown::new().width(160.0).item(DropdownItem::new(String::new(), t!("Без ограничения")));
+        for n in ["30", "60", "75", "120", "144"] {
+            dd = dd.item(DropdownItem::new(n.to_string(), t!("{n} кадров/с", n = n)));
+        }
+        if !fps.is_empty() && !["30", "60", "75", "120", "144"].contains(&fps.as_str()) {
+            dd = dd.item(DropdownItem::new(fps.clone(), t!("{n} кадров/с", n = fps.clone())));
+        }
+        let fps_w = boxed(dd.selected(fps).on_change(move |n: &str| {
+            let n = n.to_string();
+            state::edit(st, |v| v.set_gpu_arg("--max-fps", if n.is_empty() || n == "0" { None } else { Some(&n) }));
+        }));
+        rows.push(row(
+            t!("Ограничение частоты кадров"),
+            t!("Не больше N кадров в секунду: частота монитора гостя, вывод экрана и игр; своё число — ключ --max-fps в gpu3d_args; со следующего запуска"),
+            DecoratedBox::new().child(fps_w),
+        ));
         rows.push(row(t!("Видеопамять гостя"), t!("Сколько видеопамяти компьютера syn-gpu отдаёт гостю; вступает при следующем запуске"), DecoratedBox::new().child(heap_w)));
     }
     parts::section(icons::MONITOR, t!("Видеокарта syn-gpu"), rows)
