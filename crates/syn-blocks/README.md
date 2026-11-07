@@ -1,22 +1,56 @@
+<div align="center">
+
 # Syn Blocks
 
-Крейт workspace synshell (`crates/syn-blocks`, бывший Elle Block): бинарник `syn-blocks` ставится в образ synmobile
-вместе с остальными программами synshell, APK для Android — `run-phone.sh` (`syn-blocks-release.apk`).
+**An 8×8 block puzzle for the synshell desktop and phones — place pieces, clear rows and columns, build combos.**
 
-Головоломка 8×8 в духе Block Blast на собственном GUI-фреймворке [syngui](../../../syngui):
-desktop (Linux) и Android, интерфейс на русском.
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/syndesktop/) · [AUR: syn-blocks-bin](https://aur.archlinux.org/packages/syn-blocks-bin) · [AUR: syn-blocks-git](https://aur.archlinux.org/packages/syn-blocks-git)
 
-- стартовая страница с двумя видами игры: **Стандарт** и **Люкс** (24 материала-отделки
-  из AI-текстур — золото, стекло, велюр, дуб…, богаче анимации, английские реплики с переводом);
-- честная раздача: тройка фигур всегда размещаема целиком, иногда «под идеальную очистку»;
-- материалы фигур (дерево, хрусталь, золото, лава) с бонусами, частицами и звуками;
-- комбо-эффекты, способности за энергию линий (обмен, молот, бомба), три уровня сложности;
-- пять фоновых треков (YuE2 через `synaptix song`), эффекты синтезированы `tools/gen_sfx.py`.
+![Start page](docs/screenshots/start-en.png)
 
-```bash
-cargo run -p syn-blocks   # окно 460×820
-cargo test -p syn-blocks  # модель + интеграционные тесты без GPU
-./run-phone.sh            # APK arm64 → телефон по USB/Wi-Fi
+</div>
+
+## Features
+
+- **Two game types** — **Standard** with plain colors, and **Deluxe** with 24 material finishes (gold, glass, velvet, oak…), richer animations and English voice lines.
+- **Fair dealing** — the three pieces of a deal always fit on the board together; sometimes a deal lets you clear the whole board.
+- **Materials** — wood, crystal, gold and lava pieces with their own bonuses, particles and sounds.
+- **Combos and abilities** — cleared lines charge energy for swap, hammer and bomb.
+- **Levels and worlds** — the score opens new worlds with their own colors and background particles; for a few moves all blocks may turn into one material.
+- **Three difficulties** — easy, normal, hard; best scores are kept per game type and difficulty, an unfinished game is saved.
+- **Sound** — background music tracks and sound effects, each switchable.
+- **Mouse, touch and keyboard** — keys 1–3 pick a piece, arrows move it, Enter places it; F11 toggles full screen, Esc leaves it.
+- **14 languages** — the UI follows the system language.
+
+| Standard | Deluxe |
+|---|---|
+| ![Standard](docs/screenshots/standard-en.png) | ![Deluxe](docs/screenshots/deluxe-en.png) |
+
+## Install
+
+**Arch Linux (AUR)** — x86_64 and aarch64:
+
+```sh
+yay -S syn-blocks-bin      # prebuilt
+yay -S syn-blocks-git      # built from source
 ```
 
-Архитектура — `docs/PLAN.md`.
+The whole desktop: `yay -S synshell-bin`. **From source:** `cargo build --release -p syn-blocks` in the [synshell](../../README.md) repository; `cargo test -p syn-blocks` runs the model and integration tests without a GPU.
+
+## Command line
+
+```sh
+syn-blocks                                              # play
+syn-blocks --screenshot board.png --page board          # screenshot of a sample game
+syn-blocks --screenshot deluxe.png --page board --deluxe
+```
+
+`--page` takes `start`, `board`, `drag`, `over`, `menu`, `clear`; `--size` and `--scale` set the size.
+
+## Part of synshell
+
+Syn Blocks is one of the applications of [synshell](../../README.md) — a Wayland desktop environment in Rust for computers and phones, built on the [syngui](https://github.com/VitaminDB/syngui) UI framework.
+
+## License
+
+GPL-3.0-only
