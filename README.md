@@ -2,7 +2,6 @@
 
 [![Licence: GPL-3.0 or commercial](https://img.shields.io/badge/licence-GPL--3.0%20%7C%20commercial-blue)](#licence)
 [![Platform: Linux (Wayland)](https://img.shields.io/badge/platform-Linux%20(Wayland)-informational)](#build-and-run)
-[![Vibe-coded with Claude Code](https://img.shields.io/badge/vibe--coded-Claude%20Code-d97757)](#how-it-is-built)
 
 A Wayland desktop environment written in Rust. It is split the way KDE Plasma is: a compositor
 (the KWin role), a separate shell process for panels, dock, launcher and notifications (the
@@ -213,9 +212,9 @@ The fully commented default config is
   framework; it picks up the synshell theme and window buttons when running in a synshell
   session.
 
-## How it is built
+## How it is tested
 
-Since spring 2026 I have been working in [Claude Code](https://claude.com/claude-code). I use synshell as my own desktop session, so what is described here is what I run daily.
+I use synshell as my own desktop session, so what is described here is what I run daily. Developed with the help of [Claude Code](https://claude.com/claude-code).
 
 ## Support
 
