@@ -22,9 +22,12 @@ then has been fast, so expect rough edges and config keys that still move. It ru
 session on Arch Linux on a hybrid laptop (Intel Arrow Lake iGPU driving the internal 2560×1600
 240 Hz panel at 1.4× scale, plus an NVIDIA RTX 5090 Laptop GPU). Multiple GPUs, monitor hotplug and
 other distributions are handled in the code, but no configuration other than this one has been
-tested.
+tested. The phone build (aarch64) runs on a Xiaomi 12T Pro.
 
-**The interface is in Russian only for now**, and so is the documentation in `docs/`.
+The interface is translated into 14 languages — English, Russian, German, Spanish, French,
+Italian, Japanese, Kazakh, Korean, Polish, Brazilian Portuguese, Turkish, Ukrainian and
+Simplified Chinese; it follows the system language or the one picked in System Settings. The
+documentation in `docs/` is in Russian.
 
 ## What is in the box
 
@@ -76,6 +79,91 @@ tested.
 | System Settings — Themes, maximized under the panel-as-title-bar | Screenshot tool |
 |---|---|
 | ![System Settings, Themes page](docs/screenshots/themes.png) | ![Screenshot tool picking a window](docs/screenshots/screenshot.png) |
+
+## Applications
+
+Every application has its own README with screenshots and a command-line reference.
+
+**Desktop**
+
+| Application | What it does |
+|---|---|
+| [synsettings](crates/syn-settings/README.md) | **System settings.** Themes, wallpaper, panels, input, displays, network, sound and the rest of `config.toml` in one window. |
+| [synfiles](crates/syn-files/README.md) | **File manager.** Tabs, two panes, archives as folders, network locations, phones and drives, a built-in image viewer. |
+| [syn-terminal](crates/syn-terminal/README.md) | **Terminal.** Tabs in the title bar, color schemes, font settings; on a phone, a row of keys the on-screen keyboard lacks. |
+| [synshot](crates/syn-shot/README.md) | **Screenshots.** The screen freezes, you select an area or click a window, then copy, save or open it. |
+| [synpkg](crates/syn-pkg/README.md) | **Software center.** Browse, install, remove and update programs from the Arch Linux repositories and AUR. |
+| [syn-systeminfo](crates/syn-systeminfo/README.md) | **System monitor.** Processor, graphics and video memory, NPU, memory, network, storage, sensors, power and processes. |
+| [syn-themeeditor](crates/syn-themeeditor/README.md) | **Theme editor.** Palette, shape and MSS styles with a live preview of the desktop and System Settings. |
+
+**Work**
+
+| Application | What it does |
+|---|---|
+| [syn-notes](crates/syn-notes/README.md) | **Notes.** Pages and free canvases with kanban boards, Gantt charts, mind maps, a calendar and charts, handwriting and a book reader, all in one `.syn` project file. |
+| [synpass](crates/syn-pass/README.md) | **Password manager.** An encrypted vault under one master password, synced with your other synshell devices. |
+| [synassistant](crates/syn-assistant/README.md) | **The synshell assistant.** Chat and voice conversations with local neural networks that can control the system, files, notes and the web. |
+| [syn-vm](crates/syn-vm/README.md) | **Virtual machines.** QEMU/KVM with a native UI, a scriptable CLI and an MCP server for AI agents. |
+
+**Media**
+
+| Application | What it does |
+|---|---|
+| [syn-video-player](crates/syn-video-player/README.md) | **Video player.** Hardware decoding, subtitles with full styling, a simple cut-and-join editor and neural filters. |
+| [syn-audio-player](crates/syn-audio-player/README.md) | **Music player.** Your Music folder as a library, any audio format through ffmpeg. |
+| [syn-audio-recorder](crates/syn-audio-recorder/README.md) | **Voice recorder.** Live waveform, microphone choice, phone noise suppression, Opus/FLAC/WAV. |
+| [syn-maps](crates/syn-maps/README.md) | **Maps.** OpenStreetMap with search, routes and your own location, on computers and phones. |
+
+**Phone**
+
+| Application | What it does |
+|---|---|
+| [synphone](crates/syn-phone/README.md) | **Phone app.** Keypad, call log and the in-call screen, on top of the synshell modem daemon. |
+| [synsms](crates/syn-sms/README.md) | **Messages app.** SMS conversations through the synshell modem daemon, laid out for a phone or a wide window. |
+| [syncamera](crates/syn-camera/README.md) | **Camera.** Photo, night, pro, video and time-lapse, with zoom, tap-to-focus and a built-in viewer. |
+| [syn-nfc](crates/syn-nfc/README.md) | **NFC app.** Read tags, keep them, write your own and let the phone act as a tag. |
+| [syn-compass](crates/syn-compass/README.md) | **Compass.** Magnetometer and accelerometer, a level, a bearing mark and figure-eight calibration. |
+| [syn-health](crates/syn-health/README.md) | **Steps and activity.** The phone's pedometer, distance, calories, by hour and by week. |
+| [synlink-view](crates/syn-link-view/README.md) | **The screen of a linked device in a window.** Watch and control your phone from the computer, or the computer from the phone. |
+| [syn-remote](crates/syn-remote/README.md) | **IR remote control.** A phone with an IR LED controls TVs, air conditioners, projectors and more. |
+
+**Compatibility**
+
+| Application | What it does |
+|---|---|
+| [syndroid](crates/syn-droid/README.md) | **Android apps.** A LineageOS container (Waydroid images) with its own runtime, a daemon, a management window and a CLI. |
+| [syn-wine-helper](crates/syn-wine-helper/README.md) | **Wine components.** DLLs that Wine itself does not have (MFC, Visual Basic runtimes, OpenAL), installed once for all prefixes and offered when a program needs them. |
+
+**Health and games**
+
+| Application | What it does |
+|---|---|
+| [syn-woman-cycle](crates/syn-woman-cycle/README.md) | **Cycle tracker.** Periods, fertile window and ovulation, symptoms and mood; the data stays on the device. |
+| [syn-quitsmoke](crates/syn-quitsmoke/README.md) | **QuitSmoke.** A tracker for quitting smoking or vaping, all at once or gradually: smoke-free time, savings, health milestones, cravings and awards. |
+| [Syn Blocks](crates/syn-blocks/README.md) | **An 8×8 block puzzle.** Place pieces, clear rows and columns, build combos. |
+
+**Developer tools**
+
+| Application | What it does |
+|---|---|
+| [syn-epdtest](crates/syn-epdtest/README.md) | **E Ink screen profiles and test patterns.** A tool for developers and for tuning the panel. |
+
+| | | |
+|---|---|---|
+| [![syn-vm](crates/syn-vm/docs/screenshots/screen-en.png)](crates/syn-vm/README.md) | [![syn-notes](crates/syn-notes/docs/screenshots/kanban-en.png)](crates/syn-notes/README.md) | [![syn-video-player](crates/syn-video-player/docs/screenshots/player-en.png)](crates/syn-video-player/README.md) |
+| [![synfiles](crates/syn-files/docs/screenshots/main-en.png)](crates/syn-files/README.md) | [![synsettings](crates/syn-settings/docs/screenshots/themes-en.png)](crates/syn-settings/README.md) | [![syn-systeminfo](crates/syn-systeminfo/docs/screenshots/cpu-en.png)](crates/syn-systeminfo/README.md) |
+
+## Install from AUR
+
+Arch Linux, x86_64 and aarch64. Every package comes as `-bin` (prebuilt) and `-git` (built from this repository):
+
+```sh
+yay -S synshell-bin          # the desktop and all applications, without neural networks
+yay -S synshell-core-bin     # the minimum: compositor, shell, settings, file manager, terminal
+yay -S syn-vm-bin            # or any single application by its package name
+```
+
+Package names are in the table under “As a real session” below; the phone shell is `synshell-mobile`, neural networks are `synaptix` and `synshell-ai`.
 
 ## Build and run
 
@@ -146,7 +234,6 @@ syngui package -w -f arch -t linux-aarch64                   # packages for phon
 | `synshell-ai` | assistant (needs the `synaptix` service) |
 | `synaptix` | neural network service synaptixd — one package for every device: NVIDIA GPU, Intel NPU or CPU (CUDA and NPU are loaded at run time) |
 | `syn-notes`, `syn-vm`, `syn-video-player`, `syn-audio-player`, `syn-audio-recorder`, `synpass`, `syn-maps`, `syn-remote`, `syn-systeminfo`, `syn-themeeditor`, `syn-woman-cycle`, `syndroid`, `syn-wine-helper`, `syncamera`, `syn-blocks` | applications, one package each (group `synshell-apps`) |
-| `mss-lsp` | language server for syngui MSS stylesheets |
 | `synshell` | meta package: core plus the applications above, without neural networks |
 
 Then pick “synshell” in your display manager, or let the bundled login screen take over: on a
