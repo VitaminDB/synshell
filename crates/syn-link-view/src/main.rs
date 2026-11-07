@@ -109,6 +109,9 @@ enum Rec {
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn,wgpu_core=warn,wgpu_hal=warn,naga=warn")).init();
     synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
+    if std::env::args().any(|a| a == "--screenshot") {
+        std::process::exit(screenshot_mode());
+    }
     let Some(device) = std::env::args().nth(1).filter(|a| !a.starts_with('-')) else {
         eprintln!("{}", t!("synlink-view УСТРОЙСТВО — экран связанного устройства (имя, id или phone)"));
         std::process::exit(2);
@@ -171,6 +174,102 @@ fn main() {
             let input = start_input(device);
             Box::new(root(ctx, frame.clone(), input))
         });
+}
+
+// ─── снимок окна ─────────────────────────────────────────────────────────────
+
+/// `--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--kind phone|desktop] [--frame КАДР.png]
+/// [--page view|record]`: окно без демона synlink и без устройства — проверка вёрстки и снимки для
+/// документации. Экран устройства — картинка `--frame` (без неё — серый кадр).
+fn screenshot_mode() -> i32 {
+    let mut out = String::new();
+    let mut size = (560u32, 1150u32);
+    let mut scale = 1.0f64;
+    let mut kind = DeviceKind::Phone;
+    let mut frame_file: Option<String> = None;
+    let mut page = String::from("view");
+    let mut it = std::env::args().skip(1);
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--screenshot" => out = it.next().unwrap_or_default(),
+            "--size" => {
+                if let Some((w, h)) = it.next().as_deref().and_then(|s| s.split_once('x')) {
+                    size = (w.parse().unwrap_or(size.0), h.parse().unwrap_or(size.1));
+                }
+            }
+            "--scale" => scale = it.next().and_then(|s| s.parse().ok()).unwrap_or(scale),
+            "--kind" => kind = if it.next().as_deref() == Some("desktop") { DeviceKind::Desktop } else { DeviceKind::Phone },
+            "--frame" => frame_file = it.next(),
+            "--page" => page = it.next().unwrap_or(page),
+            _ => {}
+        }
+    }
+    if out.is_empty() {
+        eprintln!("synlink-view --screenshot OUT.png [--size WxH] [--scale N] [--kind phone|desktop] [--frame IMG.png] [--page view|record]");
+        return 2;
+    }
+    let frame = LiveFrame::new();
+    let (fw, fh) = match frame_file.as_deref().map(image::open) {
+        Some(Ok(img)) => {
+            let img = img.to_rgba8();
+            let (w, h) = img.dimensions();
+            frame.set(w, h, Arc::from(img.into_raw()));
+            (w, h)
+        }
+        Some(Err(e)) => {
+            eprintln!("--frame: {e}");
+            return 1;
+        }
+        None => {
+            let (w, h) = if kind.is_touch() { (1080, 2400) } else { (1920, 1080) };
+            frame.set(w, h, Arc::from(vec![0x40u8; (w * h * 4) as usize]));
+            (w, h)
+        }
+    };
+    let peer: &'static PeerInfo = Box::leak(Box::new(PeerInfo {
+        id: "demo".into(),
+        name: kind.title(),
+        kind,
+        paired: true,
+        connected: true,
+        transport: Some(if kind.is_touch() { link::Transport::Usb } else { link::Transport::Wifi }),
+        ..Default::default()
+    }));
+    let mss = theme(&synshell_common::Config::load().0);
+    let r = syngui::shot::render_png(
+        move || {
+            let ctx = Ctx {
+                device: "demo",
+                peer,
+                frame_rev: use_signal(1u64),
+                stats: use_signal(Stats { fps: 60.0, kbps: 2350.0, size: (fw, fh), state: String::new(), codec: "HEVC".into() }),
+                win: use_signal(WindowState::default()),
+                sound: use_signal(Sound::On),
+                note: use_signal(String::new()),
+                hud: use_signal(false),
+                refresh: 60,
+                rec: use_signal(Rec::Idle),
+                rec_panel: use_signal(page == "record"),
+                rec_settings: use_signal(record::Settings::default()),
+            };
+            let (tx, _) = mpsc::channel();
+            Box::new(root(ctx, frame, tx))
+        },
+        &mss,
+        size,
+        scale,
+        &out,
+    );
+    match r {
+        Ok((w, h)) => {
+            println!("{out}: {w}x{h}");
+            0
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            1
+        }
+    }
 }
 
 // ─── запись без окна ─────────────────────────────────────────────────────────

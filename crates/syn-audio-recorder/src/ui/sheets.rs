@@ -20,7 +20,8 @@ fn shell(st: St, wide: bool, title: String, body: W, close: impl Fn() + Send + S
     if !wide {
         col = col.child(Row::new().main_axis_alignment(MainAxisAlignment::Center).child(DecoratedBox::new().class("grabber")));
     }
-    let card = DecoratedBox::new().class(if wide { "sheet card" } else { "sheet bottom" }).child(col.child(head).child(body));
+    // тело листа прокручивается: настройки выше листа (max-height) не вылезают за его край
+    let card = DecoratedBox::new().class(if wide { "sheet card" } else { "sheet bottom" }).child(col.child(head).child(DecoratedBox::new().class("sheet-body").child(ScrollView::new().vertical().child(body))));
     let _ = st;
     let place = if wide {
         Column::new().main_axis_alignment(MainAxisAlignment::Center).cross_axis_alignment(CrossAxisAlignment::Center).class("sheet-wrap").child(card)
@@ -153,7 +154,7 @@ fn settings(st: St, wide: bool) -> W {
                     .class("seg"),
             );
             let mb = s.opus_kbps as f64 * 60.0 / 8.0 / 1024.0;
-            col = col.child(Text::new(t!("≈ {mb} МБ в минуту; 32 — речь, 64 — с запасом, 128 — музыка", mb = format!("{mb:.1}").replace('.', ","))).max_lines(2).class("opt-sub"));
+            col = col.child(Text::new(t!("≈ {mb} МБ в минуту; 32 — речь, 64 — с запасом, 128 — музыка", mb = format!("{mb:.1}").replace('.', &t!(",")))).max_lines(2).class("opt-sub"));
         }
         col = col.child(Text::new(t!("Папка записей")).class("section"));
         let folder = use_signal(s.dir().display().to_string());

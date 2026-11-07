@@ -182,6 +182,8 @@ fn main() {
 
 /// Экран для снимка (`--page`): проверка вёрстки без телефона.
 fn screenshot_page(st: state::St, page: &str) {
+    // снимок показывает пульт как на телефоне с ИК-светодиодом, без предупреждения «передатчик не найден»
+    st.ir.set(Some("syn-ir".into()));
     match page {
         "add" => st.page.set(state::Page::Categories),
         "db" => st.page.set(state::Page::Database),

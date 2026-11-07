@@ -127,19 +127,27 @@ fn main() {
 fn screenshot_state(st: ui::St, page: &str) {
     use ui::{MicItem, MicState, Ns, Page, Rec, Sheet};
     let now = store::now();
+    // примеры (микрофоны, записи, папка) — на языке снимка: это не строки интерфейса, в каталоги не идут
+    let ru = syngui::i18n::language().tag().starts_with("ru");
+    let mics: [&str; 3] = if ru { ["Микрофон", "Нижний микрофон", "Верхний микрофон"] } else { ["Microphone", "Bottom microphone", "Top microphone"] };
     st.mics.set(vec![
-        MicItem { name: "palaudio.mic".into(), label: "Микрофон".into(), default: true },
-        MicItem { name: "palaudio.mic.bottom".into(), label: "Нижний микрофон".into(), default: false },
-        MicItem { name: "palaudio.mic.top".into(), label: "Верхний микрофон".into(), default: false },
+        MicItem { name: "palaudio.mic".into(), label: mics[0].into(), default: true },
+        MicItem { name: "palaudio.mic.bottom".into(), label: mics[1].into(), default: false },
+        MicItem { name: "palaudio.mic.top".into(), label: mics[2].into(), default: false },
     ]);
     st.ns.set(Some(Ns { on: true, active: true }));
     st.mic.set(MicState::Open);
+    let names: [&str; 5] = if ru {
+        ["Запись 2026-11-02 19:30", "Лекция: архитектура ПО", "Идея для песни", "Совещание", "Запись 2026-10-20 08:12"]
+    } else {
+        ["Recording 2026-11-02 19:30", "Lecture: software architecture", "Song idea", "Team meeting", "Recording 2026-10-20 08:12"]
+    };
     let recs: Vec<store::Recording> = [
-        ("Запись 2026-11-02 19:30", 42.0, 0, 330_000),
-        ("Лекция: архитектура ПО", 3121.0, 86_400, 24_500_000),
-        ("Идея для песни", 95.0, 3 * 86_400, 780_000),
-        ("Совещание", 1820.0, 9 * 86_400, 14_200_000),
-        ("Запись 2026-10-20 08:12", 12.0, 13 * 86_400, 98_000),
+        (names[0], 42.0, 0, 330_000),
+        (names[1], 3121.0, 86_400, 24_500_000),
+        (names[2], 95.0, 3 * 86_400, 780_000),
+        (names[3], 1820.0, 9 * 86_400, 14_200_000),
+        (names[4], 12.0, 13 * 86_400, 98_000),
     ]
     .iter()
     .enumerate()

@@ -181,6 +181,7 @@ SystemWindowControls { color: var(--fg); background-color: var(--hover); }
 .sheet.card { width: 460px; max-height: 620px; border-radius: 24px; }
 .sheet.bottom { border-radius: 26px 26px 0px 0px; padding: 10px 16px 28px 18px; max-height: 760px; }
 .grabber { width: 40px; height: 4px; border-radius: 2px; background-color: var(--border); }
+.sheet-body { flex-shrink: 1; }
 .sheet-title { font-size: 18px; font-weight: 700; color: var(--fg); }
 
 .opt { padding: 12px 14px; border-radius: 16px; background-color: var(--surface); border: 1px solid #00000000; transition: background-color 120ms ease-out; }
