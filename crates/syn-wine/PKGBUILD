@@ -7,7 +7,7 @@
 
 pkgname=syn-wine
 pkgver=11.19
-pkgrel=23
+pkgrel=24
 # мост Steam API из Proton (lsteamclient, steam.exe) — фиксированный коммит ValveSoftware/Proton
 _proton=ce53dd45cef6e51fbdb88524581dc1b0b11669fe
 # DXVK: x86_64 — релиз Valve/doitsujin; aarch64 — x64/aarch64/x32 из Hangover, arm64ec — своя сборка
@@ -22,6 +22,14 @@ _dxvk_arm64ec=3.1.1
 # POP в память на странице под отслеживанием SMC (FEX перезапускал инструкцию с уже сдвинутым ESP — двойной pop);
 # fex-wow64-debugregs.patch: Dr0–Dr3/Dr6/Dr7, записанные гостем в контекст, читаются назад (SecuROM сверяет Dr7)
 _fex=fa556167d5a64ec7adb5503c2aa15b169c292cac
+# Wine Mono и Wine Gecko — в пакете (без окна «Загрузка Wine Mono/Gecko» при создании префикса). Версии — те, что
+# ждёт Wine $pkgver (dlls/appwiz.cpl/addons.c: MONO_VERSION, GECKO_VERSION): ищутся только точные. Распакованные
+# каталоги в /usr/share/wine/{mono,gecko} — как пакеты Arch wine-mono/wine-gecko (общие для всех префиксов, в
+# префикс ставится лишь маленький support-msi Mono). Mono: x86_64 — архив x86 (libmono x86 и x86_64), aarch64 —
+# arm64 (libmono arm64, x86_64 для ARM64EC и x86 для WoW64). Gecko для ARM64 нет — оба x86/x86_64: им пользуются
+# x86-программы (WoW64/FEX) и x86_64 (ARM64EC).
+_mono=11.3.0
+_gecko=2.47.4
 # DPI по умолчанию для новых префиксов на телефоне (aarch64; подобрано: минимум 180), на x86_64 — 96 как в Wine
 _dpi=180
 pkgdesc="Wine (development) with synshell patches: touch, Steam API bridge, syn-wine-helper, DXVK; ARM64EC/FEX on aarch64"
@@ -39,13 +47,11 @@ depends=(
 makedepends=(clang lld llvm perl flex bison libusb autoconf)
 optdepends=(
   'samba: ntlm_auth for NTLM auth'
-  'wine-mono: .NET'
-  'wine-gecko: HTML (mshtml)'
   'ntsync-autoload: NTSync'
   'synshell: syn-wine-helper — недостающие DLL (MFC, VB6, OpenAL…)'
 )
-provides=("wine=$pkgver")
-conflicts=(wine wine-arm64ec)
+provides=("wine=$pkgver" "wine-mono=$_mono" "wine-gecko=$_gecko")
+conflicts=(wine wine-arm64ec wine-mono wine-gecko)
 replaces=(wine-arm64ec)
 options=(!lto !debug !strip staticlibs)
 install=syn-wine.install
@@ -78,18 +84,30 @@ source=(
   toolmanifest.vdf
   syn-wine
   "proton-${_proton:0:7}.tar.gz::https://github.com/ValveSoftware/Proton/archive/$_proton.tar.gz"
+  "https://dl.winehq.org/wine/wine-gecko/$_gecko/wine-gecko-$_gecko-x86.tar.xz"
+  "https://dl.winehq.org/wine/wine-gecko/$_gecko/wine-gecko-$_gecko-x86_64.tar.xz"
 )
-source_x86_64=("https://github.com/doitsujin/dxvk/releases/download/v$_dxvk/dxvk-$_dxvk.tar.gz")
+source_x86_64=(
+  "https://github.com/doitsujin/dxvk/releases/download/v$_dxvk/dxvk-$_dxvk.tar.gz"
+  "https://github.com/wine-mono/wine-mono/releases/download/wine-mono-$_mono/wine-mono-$_mono-x86.tar.xz"
+)
 source_aarch64=(
+  "https://github.com/wine-mono/wine-mono/releases/download/wine-mono-$_mono/wine-mono-$_mono-arm64.tar.xz"
   "https://github.com/AndreRH/hangover/releases/download/hangover-$_hangover/hangover_${_hangover}_dlls.tar"
   "dxvk-$_dxvk_arm64ec-arm64ec.tar.gz"
   "libwow64fex-${_fex:0:7}.dll"
 )
-noextract=("proton-${_proton:0:7}.tar.gz" "dxvk-$_dxvk.tar.gz" "hangover_${_hangover}_dlls.tar" "dxvk-$_dxvk_arm64ec-arm64ec.tar.gz")
+noextract=("proton-${_proton:0:7}.tar.gz" "dxvk-$_dxvk.tar.gz" "hangover_${_hangover}_dlls.tar" "dxvk-$_dxvk_arm64ec-arm64ec.tar.gz"
+           "wine-gecko-$_gecko-x86.tar.xz" "wine-gecko-$_gecko-x86_64.tar.xz"
+           "wine-mono-$_mono-x86.tar.xz" "wine-mono-$_mono-arm64.tar.xz")
 sha256sums=('4820066eda68e553d330239ffc628164a348d1c623e49d058e011c5a7cda95f1'
-            SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP)
-sha256sums_x86_64=(SKIP)
-sha256sums_aarch64=(SKIP SKIP SKIP)
+            SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP SKIP
+            '2cfc8d5c948602e21eff8a78613e1826f2d033df9672cace87fed56e8310afb6'
+            'fd88fc7e537d058d7a8abf0c1ebc90c574892a466de86706a26d254710a82814')
+sha256sums_x86_64=(SKIP
+                   '54a1b0111c3fe4b785eae688af94d27e64995707ad648b6fee8000381b80d298')
+sha256sums_aarch64=('227cbeef943c71d9bbcbd9d00ea026decbc4ecfb758346f13d2a34a7fd8ecfcf'
+                    SKIP SKIP SKIP)
 
 # архитектуры PE-частей; опции configure — и для makepkg, и для кросс-сборки на хосте (synport hostpkg syn-wine,
 # CARCH=aarch64)
@@ -111,6 +129,9 @@ prepare() {
   [[ $CARCH == aarch64 ]] && { mkdir -p emu && bsdtar -xf "hangover_${_hangover}_dlls.tar" -C emu; }
 
   cd "wine-$pkgver"
+  # Mono/Gecko в пакете должны быть ровно тех версий, что ждёт этот Wine
+  grep -q "^#define MONO_VERSION \"$_mono\"" dlls/appwiz.cpl/addons.c
+  grep -q "^#define GECKO_VERSION \"$_gecko\"" dlls/appwiz.cpl/addons.c
   # winewayland.drv не обрабатывает wl_touch: касание -> левая кнопка мыши
   patch -Np1 -i "$srcdir/wayland-touch.patch"
   # при DPI-масштабировании win32u заменял всю pNext-цепочку swapchain на свою
@@ -286,6 +307,18 @@ package() {
     done
   fi
   install -Dm755 "$srcdir/setup-dxvk" "$pkgdir/usr/bin/setup-dxvk"
+
+  # Wine Mono и Gecko: распакованные каталоги, их Wine находит сам (mscoree/mshtml: $datadir/wine/{mono,gecko})
+  local monoarch=x86
+  [[ $CARCH == aarch64 ]] && monoarch=arm64
+  install -d "$pkgdir/usr/share/wine/mono" "$pkgdir/usr/share/wine/gecko"
+  bsdtar --no-same-owner -xf "$srcdir/wine-mono-$_mono-$monoarch.tar.xz" -C "$pkgdir/usr/share/wine/mono"
+  for a in x86 x86_64; do
+    bsdtar --no-same-owner -xf "$srcdir/wine-gecko-$_gecko-$a.tar.xz" -C "$pkgdir/usr/share/wine/gecko"
+  done
+  test -e "$pkgdir/usr/share/wine/mono/wine-mono-$_mono/bin/libmono-2.0-$([[ $CARCH == aarch64 ]] && echo arm64 || echo x86_64).dll"
+  test -e "$pkgdir/usr/share/wine/gecko/wine-gecko-$_gecko-x86/xul.dll"
+  test -e "$pkgdir/usr/share/wine/gecko/wine-gecko-$_gecko-x86_64/xul.dll"
 
   # compat tool Steam «syn-wine»: Windows-игры Steam этим Wine (без Proton); Steam ищет и в /usr/share/steam
   local ct="$pkgdir/usr/share/steam/compatibilitytools.d/syn-wine"
