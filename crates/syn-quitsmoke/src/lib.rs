@@ -42,6 +42,8 @@ pub fn run_desktop() {
     let (light, dark) = theme_sheets();
     App::new()
         .title("QuitSmoke")
+        // app_id = имя .desktop: значок и группировка окна на панели (без него app_id был пустым).
+        .app_id("syn-quitsmoke")
         .size(400, 860)
         .min_size(360, 640)
         // Своя рамка окна (заголовок и кнопки окна рисует nav::build_app)
