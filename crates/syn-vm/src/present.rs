@@ -192,6 +192,13 @@ fn socket(id: &str) -> PathBuf {
     run.join("syn-gpu").join(format!("{id}.present.sock"))
 }
 
+/// Сокет наблюдателей (`<машина>.present-view.sock`): рабочий стол и курсор, окно не вытесняет и
+/// режим гостя не трогает. Старый сервер без него — основной сокет.
+fn view_socket(id: &str) -> PathBuf {
+    let v = socket(id).with_file_name(format!("{id}.present-view.sock"));
+    if v.exists() { v } else { socket(id) }
+}
+
 /// Запустить клиента: ждёт сокет, переподключается; `on_change` — новый кадр или слой.
 pub fn start(id: &str, on_change: Arc<dyn Fn() + Send + Sync>, on_notice: Arc<dyn Fn(Notice) + Send + Sync>) -> Arc<Present> {
     let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: cursor_id(id), on_notice: Some(on_notice), started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)) });
@@ -242,7 +249,9 @@ pub fn start(id: &str, on_change: Arc<dyn Fn() + Send + Sync>, on_notice: Arc<dy
 /// Экран без окна: рабочий стол и поверх — видимые поверхности (окна игр, всплывающие окна,
 /// которые гость выводит отдельными плоскостями) в их местах. Кадр RGBA.
 pub fn grab_screen(id: &str, wait: Duration) -> Result<(u32, u32, Vec<u8>)> {
-    let path = socket(id);
+    // Наблюдателем: снимок не забирает у открытого окна главный поток и режим гостя. Наблюдателю
+    // приходят рабочий стол и курсор; кадры игр — `grab(…, false)` (основной сокет).
+    let path = view_socket(id);
     let s = UnixStream::connect(&path).with_context(|| path.display().to_string())?;
     let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)) });
     let p2 = p.clone();
@@ -297,7 +306,8 @@ pub fn grab_screen(id: &str, wait: Duration) -> Result<(u32, u32, Vec<u8>)> {
 /// Проверка без окна: подключиться, дождаться видимого кадра игры (`desktop` — кадра рабочего
 /// стола) до `wait`, вернуть слой.
 pub fn grab(id: &str, wait: Duration, desktop: bool) -> Result<Layer> {
-    let path = socket(id);
+    // Кадр рабочего стола — наблюдателем (окно не вытесняется); кадры игр приходят только главному.
+    let path = if desktop { view_socket(id) } else { socket(id) };
     let s = UnixStream::connect(&path).with_context(|| path.display().to_string())?;
     let p = Arc::new(Present { layers: Mutex::new(HashMap::new()), alive: AtomicBool::new(true), mode: Mutex::new(None), refresh: Mutex::new(None), tx: Mutex::new(None), cursor_id: 0, on_notice: None, started: Instant::now(), id: id.to_string(), desk_size: Mutex::new((0, 0)) });
     let p2 = p.clone();
