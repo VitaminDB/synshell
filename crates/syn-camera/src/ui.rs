@@ -369,7 +369,10 @@ fn chip_btn_on(label: &str, on: bool, f: impl Fn() + Send + Sync + 'static) -> W
 fn preview(st: St, pw: f32, ph: f32, px: f32, py: f32) -> W {
     let live = Reactive::new(move || -> Vec<W> {
         let _ = st.frame_rev.get();
-        let Some(e) = st.engine.get_untracked() else { return vec![] };
+        let Some(e) = st.engine.get_untracked() else {
+            // снимок окна без камеры (`--screenshot --preview`)
+            return crate::DEMO_PREVIEW.get().map(|p| -> W { Box::new(Image::new(p.clone()).fit(ImageFit::Cover).class("live")) }).into_iter().collect();
+        };
         vec![Box::new(LiveView::new(e.preview()).fit(ImageFit::Cover).class("live"))]
     });
     let pinch_start = std::sync::Arc::new(std::sync::Mutex::new(None::<f32>));
@@ -1202,7 +1205,7 @@ fn setting_choice(label: &'static str, sig: RwSignal<u32>, opts: &'static [(u32,
             .child(Text::new(syngui::i18n::t(label)).class("set-label"))
             .child(Reactive::new(move || -> Vec<W> {
                 let cur = sig.get();
-                let mut row = Row::new().gap(6.0);
+                let mut row = Flex::new().wrap().gap(6.0);
                 for (v, name) in opts.iter().copied() {
                     row = row.child(chip_btn_on(&syngui::i18n::t(name), cur == v, move || sig.set(v)));
                 }
@@ -1224,7 +1227,7 @@ fn resolution_choice(st: St) -> W {
                 let Some(c) = crate::current_cam(st) else { return vec![] };
                 let sizes = c.photo_sizes();
                 let cur = c.photo_size_for(want);
-                let mut row = Row::new().gap(6.0);
+                let mut row = Flex::new().wrap().gap(6.0);
                 for (i, s) in sizes.iter().copied().enumerate() {
                     let mp = proto::megapixels(s);
                     let v = if i == 0 { 0 } else { mp };

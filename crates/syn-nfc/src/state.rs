@@ -129,6 +129,15 @@ impl St {
     }
 }
 
+/// Текстовая запись демо-метки на языке интерфейса.
+fn demo_text() -> Record {
+    if syngui::i18n::language().base() == "ru" {
+        Record::Text { text: "Метка у входной двери".into(), lang: "ru".into() }
+    } else {
+        Record::Text { text: "Front door tag".into(), lang: "en".into() }
+    }
+}
+
 /// Подписка на службу в фоне; оборвалась — переподключиться через 3 с.
 /// `SYN_NFC_DEMO=1` — без службы: контроллер и прочитанная метка для проверки.
 pub fn start(st: St) {
@@ -141,7 +150,7 @@ pub fn start(st: St) {
             kind: "NTAG215".into(),
             atqa: "4400".into(),
             sak: "00".into(),
-            ndef: Some(vec![Record::Uri { uri: "https://github.com/VitaminDB/synshell".into() }, Record::Text { text: "Метка у входной двери".into(), lang: "ru".into() }]),
+            ndef: Some(vec![Record::Uri { uri: "https://github.com/VitaminDB/synshell".into() }, demo_text()]),
             capacity: 504,
             writable: true,
             ..Default::default()

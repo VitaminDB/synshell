@@ -1,6 +1,7 @@
 //! synphone — «Телефон»: набор номера, журнал звонков и экран разговора через демон модема `synmodemd`.
 //! Есть звонок — окно целиком занимает экран разговора (оболочка поднимает окно на входящий).
-//! `synphone --log` — открыть журнал, `synphone НОМЕР` — номер в набор.
+//! `synphone --log` — открыть журнал, `synphone НОМЕР` — номер в набор; `--screenshot СНИМОК.png [--size ШxВ]
+//! [--scale N] [--page dial|log|call]` — снимок окна с придуманными данными (без модема).
 
 use std::time::Duration;
 
@@ -42,11 +43,57 @@ struct St {
 
 fn main() {
     synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let log = args.iter().any(|a| a == "--log");
-    let number = args.iter().find(|a| !a.starts_with("--")).cloned().unwrap_or_default();
+    let mut log = false;
+    let mut number = String::new();
+    let mut shot: Option<String> = None;
+    let mut size = (430u32, 900u32);
+    let mut scale = 2.0f64;
+    let mut page = String::from("dial");
+    let mut args = std::env::args().skip(1);
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "-h" | "--help" => {
+                println!("synphone [NUMBER] [--log] [--screenshot FILE.png [--size WxH] [--scale N] [--page dial|log|call]]");
+                return;
+            }
+            "--log" => log = true,
+            "--screenshot" => shot = args.next(),
+            "--size" => {
+                if let Some((w, h)) = args.next().as_deref().and_then(|s| s.split_once('x')) {
+                    size = (w.parse().unwrap_or(size.0), h.parse().unwrap_or(size.1));
+                }
+            }
+            "--scale" => scale = args.next().and_then(|s| s.parse().ok()).unwrap_or(scale),
+            "--page" => page = args.next().unwrap_or(page),
+            a if !a.starts_with("--") && number.is_empty() => number = a.to_string(),
+            _ => {}
+        }
+    }
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);
+    if let Some(out) = shot {
+        // Снимок с придуманными данными (без модема): набор, журнал или разговор
+        let r = syngui::shot::render_png(
+            move || {
+                let st = new_st(page == "log", number);
+                demo(st, &page);
+                create_effects(st);
+                root(st)
+            },
+            &mss,
+            size,
+            scale,
+            &out,
+        );
+        match r {
+            Ok((w, h)) => println!("{out}: {w}x{h}"),
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     App::new()
         .title(t!("Телефон"))
         .app_id("synphone")
@@ -55,34 +102,67 @@ fn main() {
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(synshell_common::live::styles(mss.clone(), theme))
         .run(move |_| {
-            let st = St {
-                tab: use_signal(if log { Tab::Log } else { Tab::Dial }),
-                number: use_signal(number.clone()),
-                log: use_signal(Vec::new()),
-                status: use_signal(None),
-                toast: use_signal(String::new()),
-                tick: use_signal(tm::now()),
-                dtmf_open: use_signal(false),
-                speaker: use_signal(false),
-                muted: use_signal(false),
-                mode: use_signal(0),
-                page: use_signal(usize::from(log)),
-            };
-            create_effect(move || {
-                let calls = st.status.get().is_some_and(|s| !s.calls.is_empty());
-                st.mode.set(usize::from(calls));
-                // Звонок кончился — palaudiod сбрасывает громкую связь и микрофон
-                if !calls {
-                    st.speaker.set(false);
-                    st.muted.set(false);
-                }
-            });
-            create_effect(move || st.page.set(if st.tab.get() == Tab::Log { 1 } else { 0 }));
+            let st = new_st(log, number.clone());
+            create_effects(st);
             watch(st);
             seen_effect(st);
             ticker(st);
             root(st)
         });
+}
+
+fn new_st(log: bool, number: String) -> St {
+    St {
+        tab: use_signal(if log { Tab::Log } else { Tab::Dial }),
+        number: use_signal(number),
+        log: use_signal(Vec::new()),
+        status: use_signal(None),
+        toast: use_signal(String::new()),
+        tick: use_signal(tm::now()),
+        dtmf_open: use_signal(false),
+        speaker: use_signal(false),
+        muted: use_signal(false),
+        mode: use_signal(0),
+        page: use_signal(usize::from(log)),
+    }
+}
+
+fn create_effects(st: St) {
+    create_effect(move || {
+        let calls = st.status.get().is_some_and(|s| !s.calls.is_empty());
+        st.mode.set(usize::from(calls));
+        // Звонок кончился — palaudiod сбрасывает громкую связь и микрофон
+        if !calls {
+            st.speaker.set(false);
+            st.muted.set(false);
+        }
+    });
+    create_effect(move || st.page.set(if st.tab.get() == Tab::Log { 1 } else { 0 }));
+}
+
+/// Придуманные данные для снимков (`--screenshot`): сеть, журнал, разговор.
+fn demo(st: St, page: &str) {
+    let now = tm::now();
+    let mut status = Status { present: true, radio: true, operator: "Demo Mobile".into(), plmn: "001/01".into(), technology: "LTE".into(), bars: Some(4), ..Default::default() };
+    status.registration = api::Registration::Home;
+    if page == "call" {
+        status.calls = vec![Call { id: 1, number: "+1 555 0142".into(), state: CallState::Active, incoming: true, answered_at: Some(now - 83), started_at: now - 90 }];
+    }
+    st.status.set(Some(status));
+    if page == "dial" && st.number.get_untracked().is_empty() {
+        st.number.set("+1 555 0198".into());
+    }
+    let rec = |id: u64, number: &str, kind: CallKind, ago: i64, duration: u32, new: bool| CallRecord { id, number: number.into(), kind, time: now - ago, duration, new };
+    st.log.set(vec![
+        rec(1, "+1 555 0142", CallKind::Incoming, 25 * 60, 312, false),
+        rec(2, "+1 555 0198", CallKind::Missed, 2 * 3600, 0, page != "log"),
+        rec(3, "+1 555 0117", CallKind::Outgoing, 5 * 3600, 74, false),
+        rec(4, "", CallKind::Rejected, 26 * 3600, 0, false),
+        rec(5, "+1 555 0163", CallKind::Outgoing, 28 * 3600, 0, false),
+        rec(6, "+1 555 0142", CallKind::Incoming, 3 * 86400, 1265, false),
+        rec(7, "+1 555 0129", CallKind::Outgoing, 4 * 86400, 45, false),
+        rec(8, "+1 555 0181", CallKind::Missed, 6 * 86400, 0, false),
+    ]);
 }
 
 fn theme(cfg: &Config) -> String {

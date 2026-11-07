@@ -1,5 +1,6 @@
 //! synsms — «Сообщения»: переписка по SMS через демон модема `synmodemd`. Телефон — стек «переписки →
-//! чат», рабочий стол — две колонки. `synsms --chat НОМЕР` открывает переписку, `--new` — новое сообщение.
+//! чат», рабочий стол — две колонки. `synsms --chat НОМЕР` открывает переписку, `--new` — новое сообщение;
+//! `--screenshot СНИМОК.png [--size ШxВ] [--scale N]` — снимок окна с придуманной перепиской (без модема).
 
 use std::time::Duration;
 
@@ -68,11 +69,54 @@ fn conversations(msgs: &[Sms]) -> Vec<Conv> {
 
 fn main() {
     synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let chat = args.iter().position(|a| a == "--chat").and_then(|i| args.get(i + 1)).cloned();
-    let new = args.iter().any(|a| a == "--new");
+    let mut chat: Option<String> = None;
+    let mut new = false;
+    let mut shot: Option<String> = None;
+    let mut size = (430u32, 900u32);
+    let mut scale = 2.0f64;
+    let mut args = std::env::args().skip(1);
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "-h" | "--help" => {
+                println!("synsms [--chat NUMBER | --new] [--screenshot FILE.png [--size WxH] [--scale N]]");
+                return;
+            }
+            "--chat" => chat = args.next(),
+            "--new" => new = true,
+            "--screenshot" => shot = args.next(),
+            "--size" => {
+                if let Some((w, h)) = args.next().as_deref().and_then(|s| s.split_once('x')) {
+                    size = (w.parse().unwrap_or(size.0), h.parse().unwrap_or(size.1));
+                }
+            }
+            "--scale" => scale = args.next().and_then(|s| s.parse().ok()).unwrap_or(scale),
+            _ => {}
+        }
+    }
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);
+    if let Some(out) = shot {
+        // Снимок с придуманной перепиской (без модема); `--chat` — открыть переписку с этим номером
+        let r = syngui::shot::render_png(
+            move || {
+                let st = new_st(chat, new);
+                demo(st);
+                root(st)
+            },
+            &mss,
+            size,
+            scale,
+            &out,
+        );
+        match r {
+            Ok((w, h)) => println!("{out}: {w}x{h}"),
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     App::new()
         .title(t!("Сообщения"))
         .app_id("synsms")
@@ -81,21 +125,64 @@ fn main() {
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(synshell_common::live::styles(mss, theme))
         .run(move |_| {
-            let st = St {
-                msgs: use_signal(Vec::new()),
-                chat: use_signal(chat.clone()),
-                composing: use_signal(new),
-                draft: use_signal(String::new()),
-                new_number: use_signal(String::new()),
-                toast: use_signal(String::new()),
-                status: use_signal(None),
-                confirm_delete: use_signal(false),
-                offline: use_signal(None),
-            };
+            let st = new_st(chat.clone(), new);
             watch(st);
             mark_read_effect(st);
             root(st)
         });
+}
+
+fn new_st(chat: Option<String>, new: bool) -> St {
+    St {
+        msgs: use_signal(Vec::new()),
+        chat: use_signal(chat),
+        composing: use_signal(new),
+        draft: use_signal(String::new()),
+        new_number: use_signal(String::new()),
+        toast: use_signal(String::new()),
+        status: use_signal(None),
+        confirm_delete: use_signal(false),
+        offline: use_signal(None),
+    }
+}
+
+/// Придуманная переписка для снимков (`--screenshot`).
+fn demo(st: St) {
+    let now = tm::now();
+    let mut status = Status { present: true, radio: true, operator: "Demo Mobile".into(), ..Default::default() };
+    status.registration = syn_modem::api::Registration::Home;
+    st.status.set(Some(status));
+    let ru = syngui::i18n::language().base() == "ru";
+    let tx = |en: &'static str, r: &'static str| if ru { r } else { en };
+    let mut id = 0u64;
+    let mut m = |number: &str, text: &str, ago: i64, incoming: bool, read: bool| {
+        id += 1;
+        Sms { id, number: number.into(), text: text.into(), time: now - ago, incoming, read, status: if incoming { SmsStatus::Received } else { SmsStatus::Sent } }
+    };
+    let alex = "+1 555 0142";
+    let msgs = vec![
+        m(alex, tx("Hi! Are we still on for the hike on Saturday?", "Привет! В субботу идём в поход?"), 2 * 86400 + 3600, true, true),
+        m(alex, tx("Yes, meet at the station at 8:00.", "Да, встречаемся на вокзале в 8:00."), 2 * 86400 + 3000, false, true),
+        m(alex, tx("Great. I'll bring the tent.", "Отлично. Палатку возьму я."), 2 * 86400 + 2900, true, true),
+        m(alex, tx("The forecast says sunny all day", "Обещают солнце весь день"), 50 * 60, true, true),
+        m(alex, tx("Perfect, don't forget water and snacks", "Отлично, не забудь воду и перекус"), 45 * 60, false, true),
+        m(alex, tx("Already packed. See you tomorrow!", "Уже собрал. До завтра!"), 12 * 60, true, false),
+        m("+1 555 0198", tx("Your table for two is booked for 19:30.", "Столик на двоих забронирован на 19:30."), 3 * 3600, true, false),
+        m("+1 555 0117", tx("Thanks, got the files.", "Спасибо, файлы получил."), 27 * 3600, true, true),
+        m("+1 555 0117", tx("Sending the draft tonight.", "Черновик пришлю вечером."), 28 * 3600, false, true),
+        m("DemoBank", tx("Code 4821 to confirm your sign-in. Do not share it.", "Код 4821 для входа. Никому не сообщайте."), 3 * 86400, true, true),
+        m("+1 555 0163", tx("Happy birthday! 🎉", "С днём рождения! 🎉"), 5 * 86400, true, true),
+        m("+1 555 0129", tx("Running 10 minutes late", "Опаздываю на 10 минут"), 9 * 86400, false, true),
+    ];
+    // Открытая переписка прочитана (как после SmsRead у демона)
+    let open = st.chat.get_untracked().map(|c| key(&c));
+    let msgs = msgs.into_iter().map(|mut m| {
+        if open.as_deref() == Some(key(&m.number).as_str()) {
+            m.read = true;
+        }
+        m
+    });
+    st.msgs.set(msgs.collect());
 }
 
 fn theme(cfg: &Config) -> String {
@@ -464,31 +551,33 @@ fn list_view(st: St) -> W {
 }
 
 fn composer(st: St, number: impl Fn() -> String + Send + Sync + Clone + 'static) -> impl Widget {
-    let n2 = number.clone();
-    Row::new()
-        .gap(8.0)
-        .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(Reactive::new(move || -> Vec<W> {
-            let number = number.clone();
-            vec![Box::new(
-                TextField::new()
-                    .text(st.draft.get())
-                    .placeholder(t!("Сообщение"))
-                    .on_change(move |t| st.draft.set(t.to_string()))
-                    .on_submit(move |_| send(st, number()))
-                    .class("input grow"),
-            )]
-        }).class("grow"))
-        .child(Reactive::new(move || -> Vec<W> {
-            let n2 = n2.clone();
-            let can = !st.draft.get().trim().is_empty();
-            vec![Box::new(
-                GestureDetector::new()
-                    .on_click(move || send(st, n2()))
-                    .child(DecoratedBox::new().child(Icon::new("\u{E163}").class("send-icon")).class(if can { "send send-on" } else { "send" })),
-            )]
-        }))
-        .class("composer")
+    // Строка целиком в Reactive: поле — прямой flex-ребёнок Row (у Reactive с .grow поле
+    // оставалось натуральной ширины, кнопка «Отправить» прилипала к нему посередине строки)
+    Reactive::new(move || -> Vec<W> {
+        let n1 = number.clone();
+        let n2 = number.clone();
+        let draft = st.draft.get();
+        let can = !draft.trim().is_empty();
+        vec![Box::new(
+            Row::new()
+                .gap(8.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(
+                    TextField::new()
+                        .text(draft)
+                        .placeholder(t!("Сообщение"))
+                        .on_change(move |t| st.draft.set(t.to_string()))
+                        .on_submit(move |_| send(st, n1()))
+                        .class("input grow"),
+                )
+                .child(
+                    GestureDetector::new()
+                        .on_click(move || send(st, n2()))
+                        .child(DecoratedBox::new().child(Icon::new("\u{E163}").class("send-icon")).class(if can { "send send-on" } else { "send" })),
+                )
+                .class("composer"),
+        )]
+    })
 }
 
 fn chat_view(st: St, number: String, phone: bool) -> W {

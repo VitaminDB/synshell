@@ -193,11 +193,56 @@ fn scan_done(text: &str) -> bool {
     true
 }
 
+/// Кадр вместо превью камеры для снимка окна (`--screenshot … --preview КАРТИНКА`).
+pub static DEMO_PREVIEW: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Параметры `--screenshot`: снимок окна без камеры и службы.
+struct Shot {
+    out: String,
+    size: (u32, u32),
+    scale: f64,
+    mode: Option<Mode>,
+    settings: bool,
+    viewer: bool,
+}
+
 fn main() {
+    let mut shot: Option<Shot> = None;
     let mut args = std::env::args().skip(1);
-    if let Some(a) = args.next() {
-        if a == "--scan-qr" {
-            let _ = SCAN_QR.set(Some(args.next().unwrap_or_default()));
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "-h" | "--help" => {
+                println!("syncamera [--scan-qr [PREFIX]] [--screenshot FILE.png [--size WxH] [--scale N] [--preview IMAGE] [--mode night|pro|photo|video|timelapse] [--settings] [--viewer]]");
+                return;
+            }
+            "--scan-qr" => {
+                let _ = SCAN_QR.set(Some(args.next().filter(|p| !p.starts_with("--")).unwrap_or_default()));
+            }
+            "--screenshot" => shot = Some(Shot { out: args.next().unwrap_or_default(), size: (430, 900), scale: 2.0, mode: None, settings: false, viewer: false }),
+            "--size" => {
+                if let (Some(s), Some((w, h))) = (shot.as_mut(), args.next().as_deref().and_then(|v| v.split_once('x')).map(|(w, h)| (w.parse().ok(), h.parse().ok()))) {
+                    s.size = (w.unwrap_or(s.size.0), h.unwrap_or(s.size.1));
+                }
+            }
+            "--scale" => {
+                if let (Some(s), Some(v)) = (shot.as_mut(), args.next().and_then(|v| v.parse().ok())) {
+                    s.scale = v;
+                }
+            }
+            "--preview" => {
+                if let Some(p) = args.next() {
+                    let _ = DEMO_PREVIEW.set(p);
+                }
+            }
+            "--mode" => {
+                let m = args.next().unwrap_or_default();
+                if let Some(s) = shot.as_mut() {
+                    s.mode = ["night", "pro", "photo", "video", "timelapse"].iter().position(|n| *n == m).map(|i| Mode::from_index(i as u32));
+                }
+            }
+            "--settings" => shot.iter_mut().for_each(|s| s.settings = true),
+            "--viewer" => shot.iter_mut().for_each(|s| s.viewer = true),
+            _ => {}
         }
     }
     let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "syn_camera=info,syncamera=info".into());
@@ -207,6 +252,10 @@ fn main() {
     synshell_common::haptics::set_config(&cfg.haptics);
     let auto_rotate = cfg.rotation.auto;
     let mss = theme(&cfg);
+    if let Some(shot) = shot {
+        screenshot(shot, &mss, auto_rotate);
+        return;
+    }
     App::new()
         .title(t!("Камера"))
         .app_id("syncamera")
@@ -215,69 +264,7 @@ fn main() {
         .with_icon_font(syngui::text::icon_fonts::material::FONT_DATA)
         .with_live_styles(synshell_common::live::styles(mss.clone(), theme))
         .run(move |_| {
-            let p = Prefs::load();
-            // камера при запуске
-            let (front, lens) = match p.start_cam {
-                1 => (false, Lens::Main),
-                2 => (false, Lens::Wide),
-                3 => (true, Lens::Main),
-                _ => (p.front, Lens::from_index(p.lens)),
-            };
-            let st = St {
-                engine: use_signal(None),
-                cams: use_signal(Vec::new()),
-                mode: use_signal(Mode::from_index(p.mode)),
-                front: use_signal(front),
-                lens: use_signal(lens),
-                status: use_signal(t!("Включаю камеру…").to_string()),
-                frame_rev: use_signal(0),
-                stream_size: use_signal((0, 0)),
-                flash: use_signal(p.flash),
-                timer: use_signal(p.timer),
-                grid: use_signal(p.grid),
-                aspect: use_signal(p.aspect),
-                photo_mp: use_signal(p.photo_mp),
-                video_q: use_signal(p.video_q),
-                hevc: use_signal(p.hevc),
-                mic: use_signal(p.mic),
-                stab: use_signal(p.stab),
-                sound: use_signal(p.sound),
-                timelapse: use_signal(p.timelapse),
-                torch: use_signal(false),
-                zoom: use_signal(if !front && lens == Lens::Wide { 0.6 } else { 1.0 }),
-                zooming: use_signal(false),
-                focus_pt: use_signal(None),
-                focus_seq: use_signal(0),
-                locked: use_signal(false),
-                ev: use_signal(0),
-                meta: use_signal(Meta::default()),
-                pro_field: use_signal(None),
-                iso: use_signal(0),
-                shutter_ns: use_signal(0),
-                focus_d: use_signal(-1.0),
-                awb: use_signal(1),
-                rec: use_signal(Rec::Idle),
-                rec_us: use_signal(0),
-                countdown: use_signal(0),
-                busy: use_signal(false),
-                blink: use_signal(0),
-                thumb: use_signal(None),
-                items: use_signal(Vec::new()),
-                viewer: use_signal(None),
-                settings: use_signal(false),
-                lens_menu: use_signal(false),
-                modules: use_signal(modules::back_modules()),
-                start_cam: use_signal(p.start_cam),
-                photo_dir: use_signal(p.photo_dir.clone()),
-                video_dir: use_signal(p.video_dir.clone()),
-                fullscreen: use_signal(p.fullscreen),
-                toast: use_signal(String::new()),
-                progress: use_signal(String::new()),
-                qr: use_signal(None),
-                qr_seen: use_signal(0),
-                dev_rot: use_signal(0),
-                auto_rotate,
-            };
+            let st = new_st(auto_rotate);
             start(st);
             // отладка вида подсказки без камеры: SYNCAMERA_DEMO_QR=текст
             if let Ok(t) = std::env::var("SYNCAMERA_DEMO_QR") {
@@ -295,6 +282,129 @@ fn main() {
             }
             ui::root(st)
         });
+}
+
+/// Состояние программы из сохранённых настроек.
+fn new_st(auto_rotate: bool) -> St {
+    let p = Prefs::load();
+    // камера при запуске
+    let (front, lens) = match p.start_cam {
+        1 => (false, Lens::Main),
+        2 => (false, Lens::Wide),
+        3 => (true, Lens::Main),
+        _ => (p.front, Lens::from_index(p.lens)),
+    };
+    St {
+        engine: use_signal(None),
+        cams: use_signal(Vec::new()),
+        mode: use_signal(Mode::from_index(p.mode)),
+        front: use_signal(front),
+        lens: use_signal(lens),
+        status: use_signal(t!("Включаю камеру…").to_string()),
+        frame_rev: use_signal(0),
+        stream_size: use_signal((0, 0)),
+        flash: use_signal(p.flash),
+        timer: use_signal(p.timer),
+        grid: use_signal(p.grid),
+        aspect: use_signal(p.aspect),
+        photo_mp: use_signal(p.photo_mp),
+        video_q: use_signal(p.video_q),
+        hevc: use_signal(p.hevc),
+        mic: use_signal(p.mic),
+        stab: use_signal(p.stab),
+        sound: use_signal(p.sound),
+        timelapse: use_signal(p.timelapse),
+        torch: use_signal(false),
+        zoom: use_signal(if !front && lens == Lens::Wide { 0.6 } else { 1.0 }),
+        zooming: use_signal(false),
+        focus_pt: use_signal(None),
+        focus_seq: use_signal(0),
+        locked: use_signal(false),
+        ev: use_signal(0),
+        meta: use_signal(Meta::default()),
+        pro_field: use_signal(None),
+        iso: use_signal(0),
+        shutter_ns: use_signal(0),
+        focus_d: use_signal(-1.0),
+        awb: use_signal(1),
+        rec: use_signal(Rec::Idle),
+        rec_us: use_signal(0),
+        countdown: use_signal(0),
+        busy: use_signal(false),
+        blink: use_signal(0),
+        thumb: use_signal(None),
+        items: use_signal(Vec::new()),
+        viewer: use_signal(None),
+        settings: use_signal(false),
+        lens_menu: use_signal(false),
+        modules: use_signal(modules::back_modules()),
+        start_cam: use_signal(p.start_cam),
+        photo_dir: use_signal(p.photo_dir.clone()),
+        video_dir: use_signal(p.video_dir.clone()),
+        fullscreen: use_signal(p.fullscreen),
+        toast: use_signal(String::new()),
+        progress: use_signal(String::new()),
+        qr: use_signal(None),
+        qr_seen: use_signal(0),
+        dev_rot: use_signal(0),
+        auto_rotate,
+    }
+}
+
+/// Снимок окна (`--screenshot`) без камеры: превью — картинка `--preview`, снятое — из папки «Изображения».
+fn screenshot(shot: Shot, mss: &str, auto_rotate: bool) {
+    let viewer = shot.viewer;
+    let st_cell: std::rc::Rc<std::cell::Cell<Option<St>>> = Default::default();
+    let cell = st_cell.clone();
+    let opts = syngui::shot::ShotOptions {
+        ready: Some(Box::new(move || cell.get().is_none_or(|st| st.thumb.get_untracked().is_some() || st.items.get_untracked().is_empty() && !viewer))),
+        settle: Duration::from_millis(300),
+        timeout: Duration::from_secs(10),
+        ..Default::default()
+    };
+    let r = syngui::shot::render_png_with(
+        move || {
+            let st = new_st(auto_rotate);
+            st.status.set(String::new());
+            if let Some(m) = shot.mode {
+                st.mode.set(m);
+            }
+            st.settings.set(shot.settings);
+            // поток «идёт» (иначе превью затемнено как при переключении камеры)
+            if DEMO_PREVIEW.get().is_some() {
+                let (w, h) = if st.mode.get_untracked().video() { (16, 9) } else { aspect_ratio(st.aspect.get_untracked()) };
+                st.stream_size.set((w * 240, h * 240));
+            }
+            let some = |s: String| (!s.trim().is_empty()).then(|| std::path::PathBuf::from(s.trim()));
+            media::set_dirs(some(st.photo_dir.get_untracked()), some(st.video_dir.get_untracked()));
+            reload_items(st, true);
+            if viewer {
+                // список снятого грузится в фоне — дождаться
+                for _ in 0..50 {
+                    syngui::async_runtime::drain_main_thread_callbacks();
+                    if !st.items.get_untracked().is_empty() {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                st.viewer.set(Some(0));
+            }
+            st_cell.set(Some(st));
+            ui::root(st)
+        },
+        mss,
+        shot.size,
+        shot.scale,
+        &shot.out,
+        opts,
+    );
+    match r {
+        Ok((w, h)) => println!("{}: {w}x{h}", shot.out),
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    }
 }
 
 fn theme(cfg: &Config) -> String {
