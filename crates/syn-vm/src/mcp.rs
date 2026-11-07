@@ -287,7 +287,7 @@ fn call(name: &str, a: &Value) -> Result<Value> {
             let m = vm()?;
             running(&m)?;
             let tmp = m.run_dir().join("mcp-shot.png");
-            qmp::screendump(&m, &tmp)?;
+            cli::screendump(&m, &tmp)?;
             if let Some(p) = a.get("save").and_then(Value::as_str) {
                 std::fs::copy(&tmp, p)?;
             }

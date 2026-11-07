@@ -240,10 +240,37 @@ fn key_list(codes: &[String]) -> Value {
     Value::Array(codes.iter().map(|q| json!({"type": "qcode", "data": q})).collect())
 }
 
+/// Машина работает с syn-gpu основной видеокартой (`-vga none`): графической консоли нет, и
+/// `send-key` до гостя не доходит — ввод только событиями `input-send-event`.
+pub fn direct_input(vm: &Vm) -> bool {
+    crate::qemu::launched(vm).map(|l| l.display).unwrap_or(vm.display) == crate::model::DisplayModel::SynGpu
+}
+
+/// Соединение для ввода: отдельный монитор `qmp-input.sock` (окно держит его, пока открыто, —
+/// тогда основной).
+pub fn input_conn(vm: &Vm) -> Result<Conn> {
+    match Conn::open(&vm.qmp_input_path(), Duration::from_millis(800)) {
+        Ok(c) => Ok(c),
+        Err(_) => Conn::of(vm),
+    }
+}
+
+/// Сочетание событиями: нажать по порядку, подержать, отпустить в обратном.
+fn key_events(c: &mut Conn, codes: &[String], hold: Duration) -> Result<()> {
+    let ev = |q: &String, down: bool| json!({"type": "key", "data": {"down": down, "key": {"type": "qcode", "data": q}}});
+    c.call("input-send-event", json!({"events": codes.iter().map(|q| ev(q, true)).collect::<Vec<_>>()}))?;
+    std::thread::sleep(hold);
+    c.call("input-send-event", json!({"events": codes.iter().rev().map(|q| ev(q, false)).collect::<Vec<_>>()}))?;
+    Ok(())
+}
+
 /// Нажать сочетание: `ctrl+alt+delete`, `ctrl-alt-del`, `alt+f4`, `win+r`, `enter`.
 pub fn send_combo(vm: &Vm, combo: &str) -> Result<()> {
     let parts: Vec<&str> = if combo.contains('+') { combo.split('+').collect() } else if combo.len() > 1 && combo.contains('-') && combo != "-" { combo.split('-').collect() } else { vec![combo] };
     let codes = parts.iter().map(|p| key_qcode(p).ok_or_else(|| anyhow!("{}", t!("неизвестная клавиша «{p}»", p = p)))).collect::<Result<Vec<_>>>()?;
+    if direct_input(vm) {
+        return key_events(&mut input_conn(vm)?, &codes, Duration::from_millis(120));
+    }
     call(vm, "send-key", json!({ "keys": key_list(&codes), "hold-time": 120 }))?;
     Ok(())
 }
@@ -251,10 +278,15 @@ pub fn send_combo(vm: &Vm, combo: &str) -> Result<()> {
 /// Набрать текст (латиница и знаки раскладки US; `\n` — Enter).
 pub fn type_text(vm: &Vm, text: &str, delay: Duration) -> Result<()> {
     let keys = text.chars().map(|c| char_qcode(c).ok_or_else(|| anyhow!("{}", t!("символ «{c}» нельзя набрать клавишами US — используйте --exec или буфер обмена", c = c)))).collect::<Result<Vec<_>>>()?;
-    let mut c = Conn::of(vm)?;
+    let direct = direct_input(vm);
+    let mut c = if direct { input_conn(vm)? } else { Conn::of(vm)? };
     for (q, sh) in keys {
         let codes = if sh { vec!["shift".to_string(), q] } else { vec![q] };
-        c.call("send-key", json!({ "keys": key_list(&codes), "hold-time": 30 }))?;
+        if direct {
+            key_events(&mut c, &codes, Duration::from_millis(30))?;
+        } else {
+            c.call("send-key", json!({ "keys": key_list(&codes), "hold-time": 30 }))?;
+        }
         std::thread::sleep(delay);
     }
     Ok(())
@@ -353,7 +385,7 @@ pub fn click(vm: &Vm, x: f64, y: f64, size: (u32, u32), button: Option<&str>, do
     let ax = ((x / w).clamp(0.0, 1.0) * 32767.0).round() as i64;
     let ay = ((y / h).clamp(0.0, 1.0) * 32767.0).round() as i64;
     ensure_tablet(vm);
-    let mut c = Conn::of(vm)?;
+    let mut c = if direct_input(vm) { input_conn(vm)? } else { Conn::of(vm)? };
     c.call("input-send-event", json!({"events": [
         {"type": "abs", "data": {"axis": "x", "value": ax}},
         {"type": "abs", "data": {"axis": "y", "value": ay}}]}))?;
@@ -372,7 +404,7 @@ pub fn click(vm: &Vm, x: f64, y: f64, size: (u32, u32), button: Option<&str>, do
 pub fn wheel(vm: &Vm, steps: i32) -> Result<()> {
     let b = if steps > 0 { "wheel-down" } else { "wheel-up" };
     ensure_tablet(vm);
-    let mut c = Conn::of(vm)?;
+    let mut c = if direct_input(vm) { input_conn(vm)? } else { Conn::of(vm)? };
     for _ in 0..steps.unsigned_abs() {
         c.call("input-send-event", json!({"events": [{"type": "btn", "data": {"down": true, "button": b}}]}))?;
         c.call("input-send-event", json!({"events": [{"type": "btn", "data": {"down": false, "button": b}}]}))?;

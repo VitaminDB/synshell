@@ -611,7 +611,7 @@ fn dispatch(cmd: &str, a: &Args) -> Result<i32> {
             let vm = find(&a.pos(0, n_!("МАШИНА"))?)?;
             running(&vm)?;
             let out = absolute(&a.pos(1, n_!("ФАЙЛ.png"))?)?;
-            qmp::screendump(&vm, &out)?;
+            screendump(&vm, &out)?;
             let (w, h) = image::image_dimensions(&out).unwrap_or((0, 0));
             println!("{}: {w}x{h}", out.display());
             Ok(0)
@@ -962,7 +962,30 @@ pub fn stop(vm: &Vm, timeout: Duration, force: bool) -> Result<String> {
     bail!("{}", t!("«{name}» не выключилась за {s} с (--force — выключить принудительно)", name = vm.name, s = timeout.as_secs()))
 }
 
+/// Кадр экрана гостя в PNG. syn-gpu — основная видеокарта: у QEMU экрана нет, кадр — рабочий
+/// стол с карты (его размер запоминается для `--click`).
+pub fn screendump(vm: &Vm, out: &Path) -> Result<()> {
+    if qmp::direct_input(vm) {
+        let (fw, fh, px) = crate::present::grab_screen(&vm.id, Duration::from_secs(10))?;
+        image::RgbaImage::from_raw(fw, fh, px).context("кадр")?.save(out)?;
+        return Ok(());
+    }
+    qmp::screendump(vm, out)
+}
+
 pub fn click(vm: &Vm, x: f64, y: f64, button: Option<&str>, double: bool) -> Result<()> {
+    // syn-gpu — основная видеокарта: экрана QEMU нет, координаты — в пикселях рабочего стола
+    // syn-gpu (размер помнит окно или прошлый снимок; иначе — один кадр с карты).
+    if qmp::direct_input(vm) {
+        let size = match crate::present::desktop_size(&vm.id) {
+            Some(s) => s,
+            None => {
+                let d = crate::present::grab(&vm.id, Duration::from_secs(10), true)?;
+                (d.rect.2, d.rect.3)
+            }
+        };
+        return qmp::click(vm, x, y, size, button, double);
+    }
     let tmp = vm.run_dir().join("click.png");
     qmp::screendump(vm, &tmp)?;
     let size = image::image_dimensions(&tmp)?;
