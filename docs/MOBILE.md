@@ -292,7 +292,7 @@ w = тёплый / (белый + тёплый). `primary`/`set_percent` у та�
   режим: кнопки в заголовке, на стартовой странице и в меню паузы, F11; на телефоне — во весь экран по умолчанию,
   выбор запоминается (`fullscreen=` в `stats.txt`). Сохранения — `~/.local/share/syn-blocks/` (старый каталог
   `elle_block` переезжает сам), `SYN_BLOCKS_DATA` — другой; демо-состояния `SYN_BLOCKS_DEMO=…`. Тот же крейт
-  собирается в APK для Android: `crates/syn-blocks/run-phone.sh` (`com.syngui.synblocks`, `syn-blocks-release.apk`).
+  собирается в APK для Android: `syngui build -t android -p syn-blocks` (`com.syngui.synblocks`).
 - **syn-remote** «Пульт»: ИК-пульт для бытовой техники. Передача — платформенной `syn-ir raw ЧАСТОТА -`
   (synmobile, hw/ir; `SYN_REMOTE_IR` — другая программа), кодирование протоколов (NEC/NECext/NEC42, Samsung32,
   RC5/RC5X, RC6, SIRC 12/15/20, Kaseikyo, RCA, Pioneer, raw) — в `src/ir.rs` по таймингам прошивки Flipper Zero.

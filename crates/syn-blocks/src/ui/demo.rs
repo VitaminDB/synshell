@@ -8,7 +8,7 @@ use crate::persist::Variant;
 use syngui::prelude::*;
 
 /// Переменная окружения; на Android окружения нет, поэтому значение можно
-/// «вшить» при сборке: `SYN_BLOCKS_DEMO=board SYN_BLOCKS_WORLD=3 ./run-phone.sh`.
+/// «вшить» при сборке: `SYN_BLOCKS_DEMO=board SYN_BLOCKS_WORLD=3 syngui run -d android -p syn-blocks`.
 fn var(name: &str) -> Option<String> {
     if let Ok(v) = std::env::var(name) {
         return Some(v);

@@ -62,8 +62,9 @@
   «лестницей» высоты по комбо; переключатели «Звуки/Музыка» в меню
   сохраняются. Эффекты синтезированы `tools/gen_sfx.py` (numpy), музыка —
   YuE2 через `synaptix song` (см. `assets/music/*.log`).
-* **Android-сборка**: `./run-phone.sh` собирает APK (arm64-v8a) и ставит на
-  телефон по USB; каталог `android/` — gradle-проект с GameActivity.
+* **Android-сборка**: `syngui build -t android -p syn-blocks` собирает APK
+  (arm64-v8a) по `[package.metadata.syngui]` в Cargo.toml; gradle-проект с
+  GameActivity генерируется в `target/syngui/android/syn-blocks`.
 * **Стартовая страница** (`ui/start.rs`): логотип, две карточки видов игры и
   переключатели «Звуки · Музыка · Голос». Вид игры (`persist::Variant`) —
   одна логика, разная визуальная часть; у каждого вида своя сохранённая
@@ -152,8 +153,8 @@ cargo test                 # модель + интеграционные тес�
 cargo run                  # окно 460×820
 SYN_BLOCKS_DATA=/tmp/x cargo run   # отдельный файл статистики
 SYN_BLOCKS_DEMO=drag|over|menu|board|clear|start|finishes cargo run # демо-состояния (clear — ход с очисткой через 3.6 с)
-SYN_BLOCKS_VARIANT=deluxe SYN_BLOCKS_DEMO=finishes ./run-phone.sh        # витрина всех отделок на телефоне
-./run-phone.sh             # APK → телефон (cargo ndk arm64 + gradle, adb install)
+SYN_BLOCKS_VARIANT=deluxe SYN_BLOCKS_DEMO=finishes syngui run -d android -p syn-blocks  # витрина всех отделок на телефоне
+syngui build -t android -p syn-blocks   # APK (arm64-v8a); syngui run -d android — поставить и запустить
 python3 tools/gen_sfx.py   # пересинтезировать эффекты
 tools/gen_textures.sh [id] # текстуры отделок: synaptix imagine, FLUX.2 klein 9B (~17 с/шт)
 python3 tools/build_atlas.py --sheet /tmp/blocks.png # отрендерить блоки в assets/tex/atlas.png (+ контрольный лист)

@@ -30,3 +30,23 @@ syngui = { workspace = true, features = ["msdf", "effects", "winit", "material-i
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.15"
+
+# Android: syngui build -t android -p syn-blocks (gradle-проект генерируется в target/syngui/android).
+[package.metadata.syngui]
+id = "com.syngui.synblocks"
+name = "Syn Blocks"
+icon = "data/icons/syn-blocks.png"
+description_en = "Syn Blocks: 8×8 block puzzle in the spirit of Block Blast"
+
+[package.metadata.syngui.android]
+features = ["android"]
+default_features = false
+abis = ["arm64-v8a"]
+min_sdk = 30
+target_sdk = 35
+orientation = "portrait"
+background = "#2f3db4"
+fullscreen = true
+
+[package.metadata.syngui.linux]
+depends = ["synshell-core"]

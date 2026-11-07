@@ -37,6 +37,10 @@ yay -S syn-blocks-git      # built from source
 
 The whole desktop: `yay -S synshell-bin`. **From source:** `cargo build --release -p syn-blocks` in the [synshell](../../README.md) repository; `cargo test -p syn-blocks` runs the model and integration tests without a GPU.
 
+## Android
+
+An APK for Android 11 and newer (arm64) is attached to the [synshell releases](https://github.com/VitaminDB/synshell/releases) on GitHub: download it on the phone and open it to install. To build it yourself: `syngui build -t android -p syn-blocks` (the [syngui](https://github.com/VitaminDB/syngui) tool).
+
 ## Command line
 
 ```sh

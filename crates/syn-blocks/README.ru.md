@@ -37,6 +37,10 @@ yay -S syn-blocks-git      # сборка из исходников
 
 Весь рабочий стол: `yay -S synshell-bin`. **Из исходников:** `cargo build --release -p syn-blocks` в репозитории [synshell](../../README.md); `cargo test -p syn-blocks` — тесты модели и интеграционные тесты без GPU.
 
+## Android
+
+APK для Android 11 и новее (arm64) — в [релизах synshell](https://github.com/VitaminDB/synshell/releases) на GitHub: скачайте его на телефоне и откройте, чтобы установить. Собрать самому: `syngui build -t android -p syn-blocks` (утилита [syngui](https://github.com/VitaminDB/syngui)).
+
 ## Командная строка
 
 ```sh
