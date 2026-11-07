@@ -835,6 +835,10 @@ impl Daemon {
             Decide::Ask => {
                 let (wtx, wrx) = oneshot::channel();
                 self.add_prompt(prompt.clone(), Some(wtx));
+                tracing::info!(
+                    peer = %hello.name, transport = transport.title(), shells = self.events.receiver_count(),
+                    "запрос спаривания ждёт решения пользователя"
+                );
                 crate::notify::pair_prompt(&prompt);
                 let ok = tokio::select! {
                     r = wrx => r.unwrap_or(false),
@@ -842,6 +846,7 @@ impl Daemon {
                     _ = conn.closed() => false,
                 };
                 self.drop_prompt(&pid);
+                tracing::info!(peer = %hello.name, ok, "запрос спаривания решён");
                 ok
             }
         };
@@ -914,8 +919,15 @@ impl Daemon {
                 st.waiters.insert(p.id.clone(), w);
             }
         }
-        self.emit(Event::PairPrompt { prompt: p });
+        // Сначала состояние с запросом, потом событие: диалог оболочки берёт запрос из состояния
+        // (иначе мелькало «Запрос спаривания закрыт» до следующего Status).
         self.emit_status();
+        self.emit(Event::PairPrompt { prompt: p });
+    }
+
+    /// Запрос спаривания с устройством ещё ждёт решения.
+    pub fn prompt_pending(&self, id: &str) -> bool {
+        self.st.lock().unwrap().waiters.contains_key(id)
     }
 
     fn drop_prompt(&self, id: &str) {

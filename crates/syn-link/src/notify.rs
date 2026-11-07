@@ -210,6 +210,10 @@ fn post(summary: &str, body: &str, icon: &str, actions: &[&str], conn: Option<&z
 
 /// Запрос спаривания, если оболочка своего диалога не показывает (нет
 /// подписчиков): уведомление с кнопками «Принять» / «Отклонить».
+///
+/// Сразу после загрузки (телефон: демон связи уже спросил по кабелю) ни оболочки, ни службы
+/// уведомлений может ещё не быть: тогда ждём, пока не появится одно из двух, — оболочка, подписавшись,
+/// откроет диалог по состоянию (`prompts`), иначе уведомление уходит, как только его есть кому показать.
 pub fn pair_prompt(p: &PairPrompt) {
     let Some(d) = DAEMON.get().cloned() else { return };
     if d.events.receiver_count() > 0 {
@@ -218,13 +222,36 @@ pub fn pair_prompt(p: &PairPrompt) {
     let p = p.clone();
     std::thread::spawn(move || {
         let res = (|| -> anyhow::Result<()> {
-            let conn = zbus::blocking::Connection::session()?;
             let body = match &p.code {
                 Some(c) => t!("{title} «{name}» по {title2} хочет соединиться. Код: {c}", title = p.kind.title(), name = p.name, title2 = p.transport.title(), c = c),
                 None => t!("{title} «{name}» подключён по {title2}. Разрешить доступ?", title = p.kind.title(), name = p.name, title2 = p.transport.title()),
             };
-            let nid = post(&t!("Спаривание устройств"), &body, "phone", &["accept", &t!("Принять"), "reject", &t!("Отклонить")], Some(&conn))?;
+            let actions = ["accept", &t!("Принять"), "reject", &t!("Отклонить")];
+            let mut tries = 0u32;
+            let (conn, nid) = loop {
+                if d.events.receiver_count() > 0 || !d.prompt_pending(&p.id) {
+                    return Ok(());
+                }
+                let r = zbus::blocking::Connection::session()
+                    .map_err(anyhow::Error::from)
+                    .and_then(|c| post(&t!("Спаривание устройств"), &body, "phone", &actions, Some(&c)).map(|n| (c, n)));
+                match r {
+                    Ok(x) => break x,
+                    Err(e) => {
+                        if tries == 0 {
+                            tracing::info!(id = %p.id, "уведомление о спаривании пока некому показать — жду оболочку: {e:#}");
+                        }
+                        tries += 1;
+                        std::thread::sleep(std::time::Duration::from_secs(2));
+                    }
+                }
+            };
             PROMPTS.lock().unwrap().get_or_insert_with(HashMap::new).insert(p.id.clone(), nid);
+            // Решили, пока уведомление уходило, — `close_prompt` его ещё не видел.
+            if !d.prompt_pending(&p.id) {
+                close_prompt(&p.id);
+                return Ok(());
+            }
             let rule = zbus::MatchRule::builder()
                 .msg_type(zbus::message::Type::Signal)
                 .interface("org.freedesktop.Notifications")?

@@ -75,6 +75,37 @@ pub fn start(ctx: ShellCtx) {
     let _ = ctx;
 }
 
+/// Запросы спаривания, диалог которых оболочка уже открывала (пока запрос ждёт решения):
+/// второй раз не открывать — ни по событию, ни по состоянию (`open_popup` того же вида закрывает).
+static SHOWN: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Нужен ли диалог для запроса: входящий (решаем мы) или исходящий с кодом для сверки.
+fn wants_dialog(p: &PairPrompt) -> bool {
+    !p.outgoing || p.code.is_some()
+}
+
+/// Какие ждущие запросы показать сейчас: ещё не показанные. Ушедшие из состояния забываются
+/// (тот же id придёт заново — новый запрос, диалог снова нужен).
+fn prompts_to_show(shown: &mut Vec<String>, prompts: &[PairPrompt]) -> Vec<String> {
+    shown.retain(|id| prompts.iter().any(|p| &p.id == id));
+    let mut out = Vec::new();
+    for p in prompts.iter().filter(|p| wants_dialog(p)) {
+        if !shown.contains(&p.id) {
+            shown.push(p.id.clone());
+            out.push(p.id.clone());
+        }
+    }
+    out
+}
+
+fn show_pair(ctx: ShellCtx, id: String) {
+    if ctx.popup.get_untracked().is_some_and(|p| p.kind == PopupKind::LinkPair(id.clone())) {
+        return;
+    }
+    crate::shade::close();
+    ctx.open_popup(PopupKind::LinkPair(id), crate::commands::centered());
+}
+
 fn on_event(ctx: ShellCtx, e: Event) {
     match e {
         Event::Status { status } => {
@@ -86,7 +117,15 @@ fn on_event(ctx: ShellCtx, e: Event) {
                     }
                 }
             }
+            // Запрос, пришедший до подписки оболочки (телефон только загрузился: демон связи уже
+            // соединился по кабелю и спросил, а оболочка ещё не запущена), виден только в состоянии —
+            // события PairPrompt она не получала. Раньше диалог так и не появлялся, через 90 с
+            // телефон отказывал, и спаривание проходило лишь со второго запроса.
+            let show = prompts_to_show(&mut SHOWN.lock().unwrap(), &status.prompts);
             ctx.link.set(Some(status));
+            if let Some(id) = show.into_iter().next() {
+                show_pair(ctx, id);
+            }
         }
         Event::Connected { device } => {
             let how = device.transport.map(|t| t.title()).unwrap_or(n_!("сети"));
@@ -96,9 +135,13 @@ fn on_event(ctx: ShellCtx, e: Event) {
             crate::osd::show(ctx, gl::LINK_OFF, None, t!("{name} · соединение разорвано", name = device.name));
         }
         Event::PairPrompt { prompt } => {
-            if !prompt.outgoing || prompt.code.is_some() {
-                crate::shade::close();
-                ctx.open_popup(PopupKind::LinkPair(prompt.id.clone()), crate::commands::centered());
+            if wants_dialog(&prompt) {
+                let mut shown = SHOWN.lock().unwrap();
+                if !shown.contains(&prompt.id) {
+                    shown.push(prompt.id.clone());
+                }
+                drop(shown);
+                show_pair(ctx, prompt.id);
             }
         }
         Event::Paired { name, ok, message, .. } => {
@@ -675,4 +718,35 @@ pub fn tray_item(pc: &crate::panel::PanelCtx) -> Option<Box<dyn Widget>> {
         return None;
     }
     Some(applet(pc))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn prompt(id: &str, outgoing: bool, code: Option<&str>) -> PairPrompt {
+        PairPrompt { id: id.into(), outgoing, code: code.map(Into::into), ..Default::default() }
+    }
+
+    /// Запрос, ждавший до подписки оболочки, показывается по первому же состоянию — и только раз.
+    #[test]
+    fn pending_prompt_from_first_status() {
+        let mut shown = Vec::new();
+        let usb = prompt("98e7788eece7faed", false, None);
+        assert_eq!(prompts_to_show(&mut shown, &[usb.clone()]), vec![usb.id.clone()]);
+        // Следующие состояния с тем же запросом (каждые 30 с, батарея…) диалог не переоткрывают.
+        assert!(prompts_to_show(&mut shown, &[usb.clone()]).is_empty());
+        // Запрос решён — ушёл из состояния; новый запрос того же устройства — снова диалог.
+        assert!(prompts_to_show(&mut shown, &[]).is_empty());
+        assert_eq!(prompts_to_show(&mut shown, &[usb.clone()]), vec![usb.id]);
+    }
+
+    /// Свой исходящий запрос без кода (по кабелю решает та сторона) диалога не требует,
+    /// исходящий по Wi-Fi с кодом — требует (сверить код).
+    #[test]
+    fn outgoing_prompts() {
+        let mut shown = Vec::new();
+        assert!(prompts_to_show(&mut shown, &[prompt("a", true, None)]).is_empty());
+        assert_eq!(prompts_to_show(&mut shown, &[prompt("b", true, Some("123456"))]), vec!["b".to_string()]);
+    }
 }
