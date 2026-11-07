@@ -830,3 +830,4 @@
 "Не удалось смонтировать диск SYNGPU в госте:\n{tail}" = "Nie udało się zamontować dysku SYNGPU w gościu:\n{tail}"
 "драйвер {v} не загружен" = "sterownik {v} nie jest załadowany"
 "Перезагрузите гостя: новый драйвер загрузится после перезагрузки" = "Uruchom gościa ponownie: nowy sterownik załaduje się po ponownym uruchomieniu"
+"Машине с BIOS и видеокартой syn-gpu нужен QEMU со свойством x-vga у vfio-user-pci (патч syn-virt): укажите его в переменной SYN_VM_QEMU или выберите прошивку UEFI" = "Maszyna z BIOS-em i kartą graficzną syn-gpu potrzebuje QEMU, którego vfio-user-pci ma właściwość x-vga (łatka syn-virt): wskaż go w SYN_VM_QEMU albo wybierz oprogramowanie UEFI"

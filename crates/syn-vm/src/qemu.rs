@@ -401,7 +401,7 @@ pub fn split_args(s: &str) -> Vec<String> {
 /// Командная строка для показа («Подробнее»).
 pub fn command_line(vm: &Vm) -> String {
     match args(vm) {
-        Ok(a) => std::iter::once(QEMU.to_string())
+        Ok(a) => std::iter::once(qemu_bin(vm).map(|p| p.display().to_string()).unwrap_or_else(|_| QEMU.to_string()))
             .chain(a.into_iter().map(|s| if s.contains(' ') || s.is_empty() { format!("'{s}'") } else { s }))
             .collect::<Vec<_>>()
             .join(" "),
@@ -444,9 +444,12 @@ pub fn start(vm: &Vm) -> Result<()> {
     if vm.gpu_on() && !args.iter().any(|a| a.contains("vfio-user-pci")) {
         let sock = start_syn_gpu(vm)?;
         args.push("-device".into());
-        args.push(format!("{{\"driver\":\"vfio-user-pci\",\"socket\":{{\"path\":\"{}\",\"type\":\"unix\"}}}}", sock.display()));
+        // BIOS: старые VGA-адреса — устройству (свой VGA/VBE BIOS syn-gpu); UEFI — не нужно (GOP).
+        let xvga = if needs_xvga(vm) { ",\"x-vga\":true" } else { "" };
+        args.push(format!("{{\"driver\":\"vfio-user-pci\",\"socket\":{{\"path\":\"{}\",\"type\":\"unix\"}}{xvga}}}", sock.display()));
     }
-    tracing::info!("{QEMU} {}", args.join(" "));
+    let qemu = qemu_bin(vm)?;
+    tracing::info!("{} {}", qemu.display(), args.join(" "));
     // QEMU — отдельной сессией (переживает syn-vm), весь его вывод — в qemu.log: с -daemonize
     // ошибки после ухода в фон (устройство vfio-user, ещё не готовый сокет) пропадали, и машина
     // молча оставалась выключенной. Запуск удался, когда машина отвечает по QMP.
@@ -454,7 +457,7 @@ pub fn start(vm: &Vm) -> Result<()> {
     let log_file = std::fs::File::create(&log_path).with_context(|| log_path.display().to_string())?;
     let mut child = {
         use std::os::unix::process::CommandExt;
-        let mut c = Command::new(QEMU);
+        let mut c = Command::new(&qemu);
         c.args(&args).current_dir(vm.dir()).stdin(Stdio::null()).stdout(log_file.try_clone()?).stderr(log_file);
         unsafe {
             c.pre_exec(|| {
@@ -462,7 +465,7 @@ pub fn start(vm: &Vm) -> Result<()> {
                 Ok(())
             });
         }
-        c.spawn().context(QEMU)?
+        c.spawn().with_context(|| qemu.display().to_string())?
     };
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
     loop {
@@ -515,6 +518,55 @@ pub fn spawn_watcher(vm: &Vm, flag: &str) {
             std::thread::spawn(move || ch.wait());
         }
     }
+}
+
+/// syn-gpu у машины с BIOS: старые VGA-адреса (текст, режимы 13h/12h, VBE) должны доходить до
+/// устройства — свойство `x-vga` у `vfio-user-pci` (патч QEMU из syn-virt, пока его нет в upstream).
+pub fn needs_xvga(vm: &Vm) -> bool {
+    vm.gpu_on() && vm.firmware == Firmware::Bios
+}
+
+/// Умеет ли QEMU `x-vga` у `vfio-user-pci` (ответ кэшируется на программу).
+fn supports_xvga(bin: &Path) -> bool {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, bool>>> = std::sync::OnceLock::new();
+    let c = CACHE.get_or_init(Default::default);
+    if let Some(v) = c.lock().unwrap().get(bin) {
+        return *v;
+    }
+    let ok = Command::new(bin)
+        .args(["-device", "vfio-user-pci,help"])
+        .stdin(Stdio::null())
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains("x-vga") || String::from_utf8_lossy(&o.stderr).contains("x-vga"))
+        .unwrap_or(false);
+    c.lock().unwrap().insert(bin.to_path_buf(), ok);
+    ok
+}
+
+/// Программа QEMU для машины: `SYN_VM_QEMU`; машине с BIOS и syn-gpu — первый QEMU с `x-vga`
+/// (системный, сборка syn-virt рядом с сервером syn-gpu, /usr/lib/syn-gpu/qemu); иначе системный.
+pub fn qemu_bin(vm: &Vm) -> Result<PathBuf> {
+    if let Some(p) = std::env::var_os("SYN_VM_QEMU").map(PathBuf::from).filter(|p| p.is_file()) {
+        return Ok(p);
+    }
+    let system = which(QEMU).unwrap_or_else(|| PathBuf::from(QEMU));
+    if !needs_xvga(vm) {
+        return Ok(system);
+    }
+    let mut c = vec![system];
+    if let Some(bin) = syn_gpu_bin().and_then(|b| std::fs::canonicalize(b).ok()) {
+        // syn-virt/target/<профиль>/syn-gpu → syn-virt/out/qemu/bin
+        if let Some(root) = bin.parent().and_then(Path::parent).and_then(Path::parent) {
+            c.push(root.join("out/qemu/bin").join(QEMU));
+        }
+        if let Some(dir) = bin.parent() {
+            c.push(dir.join("qemu/bin").join(QEMU));
+        }
+    }
+    c.push(PathBuf::from("/usr/lib/syn-gpu/qemu/bin").join(QEMU));
+    c.into_iter().find(|p| p.is_file() && supports_xvga(p)).with_context(|| {
+        t!("Машине с BIOS и видеокартой syn-gpu нужен QEMU со свойством x-vga у vfio-user-pci (патч syn-virt): укажите его в переменной SYN_VM_QEMU или выберите прошивку UEFI")
+    })
 }
 
 /// Программа сервера syn-gpu: `SYN_GPU` или `syn-gpu` в PATH.

@@ -827,3 +827,4 @@
 "Не удалось смонтировать диск SYNGPU в госте:\n{tail}" = "Could not mount the SYNGPU disc in the guest:\n{tail}"
 "драйвер {v} не загружен" = "driver {v} not loaded"
 "Перезагрузите гостя: новый драйвер загрузится после перезагрузки" = "Restart the guest: the new driver loads after a restart"
+"Машине с BIOS и видеокартой syn-gpu нужен QEMU со свойством x-vga у vfio-user-pci (патч syn-virt): укажите его в переменной SYN_VM_QEMU или выберите прошивку UEFI" = "A BIOS machine with the syn-gpu graphics card needs a QEMU whose vfio-user-pci has the x-vga property (the syn-virt patch): set it in SYN_VM_QEMU or choose UEFI firmware"
