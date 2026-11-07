@@ -209,6 +209,8 @@ fn view(ctx: ShellCtx, open: RwSignal<bool>) -> impl Widget {
                 ) as Box<dyn Widget>;
             }
             let mut row = Row::new().gap(16.0).cross_axis_alignment(CrossAxisAlignment::Center);
+            // под карточкой с «Закрыть принудительно» — кнопка: лента выше на её высоту
+            let forced = list.iter().any(|w| w.close_forced);
             for w in list {
                 row = row.child(Keyed::new(w.id, w.close_forced as u64, move || Box::new(AnimatedPosition::new(card(w.clone())))));
             }
@@ -216,7 +218,8 @@ fn view(ctx: ShellCtx, open: RwSignal<bool>) -> impl Widget {
             // «Закрыть все» за нижний край.
             // ScrollView в колонке забирает всю высоту — держим его в блоке
             // высотой с карточку.
-            Box::new(DecoratedBox::new().child(ScrollView::new().horizontal().child(row.class("recents-row"))).class("recents-scroll"))
+            let scroll = DecoratedBox::new().child(ScrollView::new().horizontal().child(row.class("recents-row"))).class("recents-scroll");
+            Box::new(if forced { scroll.style("height", 556.0f32) } else { scroll })
         });
         let clear = GestureDetector::new()
             .on_click(|| {
