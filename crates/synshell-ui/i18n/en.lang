@@ -581,6 +581,13 @@
 "Подключено по USB" = "Connected via USB"
 "{what}. Разрешить ему экран, ввод, файлы, уведомления и ssh этого устройства?" = "{what}. Allow it the screen, input, files, notifications and ssh of this device?"
 "Кабель USB" = "USB cable"
+"без пароля" = ""
+"WEP — не переносится" = ""
+"802.1X — не переносится" = ""
+"Сети Wi-Fi" = ""
+"Перенести сети Wi-Fi с компьютера «{name}»?" = ""
+"Пароли придут по защищённому каналу спаривания. На компьютере может понадобиться пароль администратора." = ""
+"Не надо" = ""
 
 # src/location.rs
 "Запрос местоположения закрыт" = "Location request closed"
@@ -687,11 +694,13 @@
 "Звук" = "Sound"
 "Параметры звука…" = "Sound settings…"
 "Батарея не найдена" = "No battery found"
-"Завершение работы" = "Shut down"
 "Выйти" = "Log out"
 "Сон" = "Sleep"
 "Перезагрузка" = "Restart"
 "Выключить" = "Power off"
+"Завершение работы" = "Shut down"
+"Esc — отмена" = "Esc to cancel"
+"{user} · Esc — отмена" = "{user} · Esc to cancel"
 "Игровой режим" = "Game mode"
 "Восстановить" = "Restore"
 "Свернуть" = "Minimize"
@@ -705,6 +714,7 @@
 "✓ На всех столах" = "✓ On all desktops"
 "На всех столах" = "On all desktops"
 "На стол «{name}»" = "To desktop “{name}”"
+"Закрыть принудительно" = "Force close"
 "Убить (SIGKILL)" = "Kill (SIGKILL)"
 
 # src/recents.rs
@@ -829,7 +839,3 @@
 "Подключено USB-устройство" = "USB device connected"
 "Отключено USB-устройство" = "USB device disconnected"
 "ID {id} · шина {bus} · устройство {dev}" = "ID {id} · bus {bus} · device {dev}"
-
-# popup.rs — меню завершения работы
-"Esc — отмена" = "Esc to cancel"
-"{user} · Esc — отмена" = "{user} · Esc to cancel"

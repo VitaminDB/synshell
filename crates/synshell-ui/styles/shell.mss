@@ -462,6 +462,10 @@ Text {
 .recents-thumb { border-radius: 18px; overflow: hidden; background-color: var(--bg); }
 .recents-big-icon { width: 72px; height: 72px; }
 .recents-window-title { font-size: 13px; color: var(--muted); text-align: center; }
+.recents-force { padding: 8px 14px; border-radius: 999px; background-color: #e5393530; }
+.recents-force:active { scale: 0.94; }
+.recents-force-icon { icon-size: 16px; icon-color: #ef5350; }
+.recents-force-text { font-size: 13px; font-weight: 600; color: #ef5350; }
 .recents-clear { padding: 10px 20px; border-radius: 999px; background-color: #ffffff22; }
 .recents-clear-icon { icon-size: 20px; icon-color: #ffffff; }
 .recents-clear-text { font-size: 14px; color: #ffffff; }

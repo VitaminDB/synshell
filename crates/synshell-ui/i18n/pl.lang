@@ -581,6 +581,13 @@
 "Подключено по USB" = "Połączono przez USB"
 "{what}. Разрешить ему экран, ввод, файлы, уведомления и ssh этого устройства?" = "{what}. Zezwolić na dostęp do ekranu, wprowadzania, plików, powiadomień i ssh tego urządzenia?"
 "Кабель USB" = "Kabel USB"
+"без пароля" = ""
+"WEP — не переносится" = ""
+"802.1X — не переносится" = ""
+"Сети Wi-Fi" = ""
+"Перенести сети Wi-Fi с компьютера «{name}»?" = ""
+"Пароли придут по защищённому каналу спаривания. На компьютере может понадобиться пароль администратора." = ""
+"Не надо" = ""
 
 # src/location.rs
 "Запрос местоположения закрыт" = "Żądanie lokalizacji zamknięte"
@@ -687,11 +694,13 @@
 "Звук" = "Dźwięk"
 "Параметры звука…" = "Ustawienia dźwięku…"
 "Батарея не найдена" = "Nie znaleziono baterii"
-"Завершение работы" = "Wyłączanie"
 "Выйти" = "Wyloguj"
 "Сон" = "Uśpij"
 "Перезагрузка" = "Uruchom ponownie"
 "Выключить" = "Wyłącz"
+"Завершение работы" = "Wyłączanie"
+"Esc — отмена" = "Esc — anuluj"
+"{user} · Esc — отмена" = "{user} · Esc — anuluj"
 "Игровой режим" = "Tryb gry"
 "Восстановить" = "Przywróć"
 "Свернуть" = "Minimalizuj"
@@ -705,6 +714,7 @@
 "✓ На всех столах" = "✓ Na wszystkich obszarach roboczych"
 "На всех столах" = "Na wszystkich obszarach roboczych"
 "На стол «{name}»" = "Do obszaru roboczego „{name}”"
+"Закрыть принудительно" = "Wymuś zamknięcie"
 "Убить (SIGKILL)" = "Zabij (SIGKILL)"
 
 # src/recents.rs
@@ -830,7 +840,3 @@
 "Подключено USB-устройство" = "Podłączono urządzenie USB"
 "Отключено USB-устройство" = "Odłączono urządzenie USB"
 "ID {id} · шина {bus} · устройство {dev}" = "ID {id} · magistrala {bus} · urządzenie {dev}"
-
-# popup.rs — меню завершения работы
-"Esc — отмена" = "Esc — anuluj"
-"{user} · Esc — отмена" = "{user} · Esc — anuluj"

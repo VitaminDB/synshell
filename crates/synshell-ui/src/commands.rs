@@ -163,6 +163,15 @@ pub fn handle(cmd: &str) {
         }
         "shade" => crate::shade::toggle(),
         "recents" => crate::recents::toggle(),
+        // окно не закрылось по просьбе из шторки/«Недавних» — композитор вывел его вперёд
+        "window-surfaced" => {
+            if let Ok(id) = arg.trim().parse::<u64>() {
+                crate::actions::closing_done(id);
+                crate::recents::window_surfaced(id);
+            }
+            crate::shade::close();
+            ctx.close_popup();
+        }
         "desktop-menu" => crate::edit::open_desktop_menu(&ctx, None, syngui::core::Point::new(40.0, 120.0)),
         "add-panel" => crate::edit::add_panel(false),
         "add-dock" => crate::edit::add_panel(true),

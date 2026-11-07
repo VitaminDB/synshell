@@ -316,6 +316,10 @@ pub struct WindowInfo {
     /// Меню GTK-программы (`gtk_shell1.set_dbus_properties`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gtk_menu: Option<GtkMenu>,
+    /// Окну уже послали «закрыть» из оболочки, а оно осталось: следующее `WindowOp::Close`
+    /// завершит процесс (SIGTERM, затем SIGKILL) — карточки пишут «Закрыть принудительно».
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub close_forced: bool,
 }
 
 /// Где на D-Bus меню GTK-программы: `org.gtk.Menus` по пути `menubar`,

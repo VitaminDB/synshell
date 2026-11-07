@@ -581,6 +581,13 @@
 "Подключено по USB" = "Über USB verbunden"
 "{what}. Разрешить ему экран, ввод, файлы, уведомления и ssh этого устройства?" = "{what}. Bildschirm, Eingabe, Dateien, Benachrichtigungen und ssh dieses Geräts freigeben?"
 "Кабель USB" = "USB-Kabel"
+"без пароля" = ""
+"WEP — не переносится" = ""
+"802.1X — не переносится" = ""
+"Сети Wi-Fi" = ""
+"Перенести сети Wi-Fi с компьютера «{name}»?" = ""
+"Пароли придут по защищённому каналу спаривания. На компьютере может понадобиться пароль администратора." = ""
+"Не надо" = ""
 
 # src/location.rs
 "Запрос местоположения закрыт" = "Standortanfrage geschlossen"
@@ -687,11 +694,13 @@
 "Звук" = "Ton"
 "Параметры звука…" = "Toneinstellungen …"
 "Батарея не найдена" = "Kein Akku gefunden"
-"Завершение работы" = "Herunterfahren"
 "Выйти" = "Abmelden"
 "Сон" = "Bereitschaft"
 "Перезагрузка" = "Neu starten"
 "Выключить" = "Ausschalten"
+"Завершение работы" = "Herunterfahren"
+"Esc — отмена" = "Esc — abbrechen"
+"{user} · Esc — отмена" = "{user} · Esc — abbrechen"
 "Игровой режим" = "Spielmodus"
 "Восстановить" = "Wiederherstellen"
 "Свернуть" = "Minimieren"
@@ -705,6 +714,7 @@
 "✓ На всех столах" = "✓ Auf allen Desktops"
 "На всех столах" = "Auf allen Desktops"
 "На стол «{name}»" = "Auf Desktop „{name}“"
+"Закрыть принудительно" = "Schließen erzwingen"
 "Убить (SIGKILL)" = "Beenden erzwingen (SIGKILL)"
 
 # src/recents.rs
@@ -829,7 +839,3 @@
 "Подключено USB-устройство" = "USB-Gerät verbunden"
 "Отключено USB-устройство" = "USB-Gerät getrennt"
 "ID {id} · шина {bus} · устройство {dev}" = "ID {id} · Bus {bus} · Gerät {dev}"
-
-# popup.rs — меню завершения работы
-"Esc — отмена" = "Esc — abbrechen"
-"{user} · Esc — отмена" = "{user} · Esc — abbrechen"

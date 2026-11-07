@@ -173,6 +173,21 @@ pub fn open() {
     SURFACE.with(|s| s.set(Some(id)));
 }
 
+/// Окно не закрылось по просьбе, композитор вывел его вперёд: карточку снова показывать
+/// (смахнули — спрятали), ленту убрать, чтобы окно с вопросом было видно.
+pub fn window_surfaced(id: u64) {
+    if let Some(g) = GONE.with(|g| g.get()) {
+        let mut v = g.get_untracked();
+        if v.contains(&id) {
+            v.retain(|x| *x != id);
+            g.set(v);
+        }
+    }
+    if is_open() {
+        close();
+    }
+}
+
 fn gone() -> RwSignal<Vec<u64>> {
     GONE.with(|g| g.get()).unwrap_or_else(|| use_signal(Vec::new()))
 }
@@ -195,7 +210,7 @@ fn view(ctx: ShellCtx, open: RwSignal<bool>) -> impl Widget {
             }
             let mut row = Row::new().gap(16.0).cross_axis_alignment(CrossAxisAlignment::Center);
             for w in list {
-                row = row.child(Keyed::new(w.id, 0, move || Box::new(AnimatedPosition::new(card(w.clone())))));
+                row = row.child(Keyed::new(w.id, w.close_forced as u64, move || Box::new(AnimatedPosition::new(card(w.clone())))));
             }
             // Высота ленты — по карточкам: растянутая лента выталкивала
             // «Закрыть все» за нижний край.
@@ -247,7 +262,24 @@ fn card(w: WindowInfo) -> impl Widget {
     let leaving = use_signal(true);
     let dur = crate::anim::group_ms(&ShellCtx::get(), "pages", 240);
     let title = crate::xdg::window_subtitle(entry.as_ref(), &w.title);
+    let forced = w.close_forced;
     let body = move || -> Box<dyn Widget> {
+        // окно не закрылось по просьбе — смахивание или кнопка завершат процесс
+        let force_btn = forced.then(|| -> Box<dyn Widget> {
+            Box::new(GestureDetector::new()
+                .on_click(move || {
+                    crate::actions::window_op(id, WindowOp::Close);
+                    let g = gone();
+                    let mut v = g.get_untracked();
+                    v.push(id);
+                    g.set(v);
+                })
+                .child(
+                    DecoratedBox::new()
+                        .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(mi::CLOSE).class("recents-force-icon")).child(Text::new(t!("Закрыть принудительно")).class("recents-force-text")))
+                        .class("recents-force"),
+                ))
+        });
         Box::new(
             DecoratedBox::new()
                 .child(
@@ -261,7 +293,8 @@ fn card(w: WindowInfo) -> impl Widget {
                                 .child(launchers::icon_widget(&icon_path, &None, "recents-app-icon", 28.0))
                                 .child(Text::new(name.clone()).max_lines(1).class("recents-app-name")),
                         )
-                        .child(preview(id, icon_path.clone(), title.clone())),
+                        .child(preview(id, icon_path.clone(), title.clone()))
+                        .children(force_btn),
                 )
                 .class("recents-card")
                 // по рамке миниатюры (горизонтально — шире), поля .recents-card — 12 px

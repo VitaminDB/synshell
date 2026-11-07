@@ -98,6 +98,11 @@ fn note_closing(id: u64) {
     });
 }
 
+/// Окно не закрылось по просьбе и выведено вперёд (`window-surfaced`) — снова показывать его.
+pub fn closing_done(id: u64) {
+    CLOSING.with(|c| c.borrow_mut().retain(|(i, _)| *i != id));
+}
+
 /// Окну недавно послали «закрыть» (из оболочки) — оно, скорее всего, вот-вот исчезнет.
 pub fn is_closing(id: u64) -> bool {
     CLOSING.with(|c| c.borrow().iter().any(|(i, t)| *i == id && t.elapsed() < CLOSING_FOR))

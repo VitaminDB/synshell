@@ -162,6 +162,11 @@ impl State {
         Some(display_number)
     }
 
+    /// PID запущенных Xwayland: им сигналы «закрыть принудительно» не шлём.
+    pub fn xwayland_pids(&self) -> Vec<i32> {
+        self.core.xwayland.iter().filter_map(|x| x.client.get_credentials(&self.core.display_handle).ok()).map(|c| c.pid).collect()
+    }
+
     /// DISPLAY для программы с именами `keys`: Xwayland с её разрешением
     /// (`[[x11_app]]`, иначе общий). Программы с одинаковым разрешением делят
     /// один Xwayland; нового нет — запускается.

@@ -453,7 +453,7 @@ impl State {
                 }
             }
             WindowOp::Minimize => self.minimize(id),
-            WindowOp::Close => self.close_window(id),
+            WindowOp::Close => self.shell_close_window(id),
             WindowOp::Kill => self.kill_window(id),
             WindowOp::ToggleMaximize => self.toggle_maximize(id),
             WindowOp::ToggleFullscreen => self.toggle_fullscreen(id),

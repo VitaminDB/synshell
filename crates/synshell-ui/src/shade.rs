@@ -950,6 +950,7 @@ fn open_apps(ctx: ShellCtx) -> impl Widget {
             });
             let icon_path = entry.as_ref().and_then(|e| crate::xdg::lookup_icon(&e.icon)).or_else(|| crate::xdg::window_icon(&w.app_id));
             let id = w.id;
+            let forced = w.close_forced;
             let mut chip = Row::new()
                 .gap(8.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
@@ -968,9 +969,21 @@ fn open_apps(ctx: ShellCtx) -> impl Widget {
                                 .class(class),
                         )
                 };
+                let close_label = if forced { t!("Закрыть принудительно") } else { t!("Закрыть") };
                 chip = chip
-                    .child(act(mi::CLOSE, t!("Закрыть"), "shade-act", WindowOp::Close))
+                    .child(act(mi::CLOSE, close_label, "shade-act", WindowOp::Close))
                     .child(act(crate::desk::KILL, t!("Убить"), "shade-act shade-act-kill", WindowOp::Kill));
+            } else if forced {
+                // окно не закрылось по просьбе — следующее «закрыть» завершит процесс
+                chip = chip.child(
+                    GestureDetector::new()
+                        .on_click(move || crate::actions::window_op(id, WindowOp::Close))
+                        .child(
+                            DecoratedBox::new()
+                                .child(Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(mi::CLOSE).class("shade-act-icon")).child(Text::new(t!("Закрыть принудительно")).class("shade-act-text")))
+                                .class("shade-act shade-act-kill"),
+                        ),
+                );
             } else {
                 chip = chip.child(
                     GestureDetector::new()
