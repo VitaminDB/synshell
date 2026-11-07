@@ -11,7 +11,7 @@ use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, Wind
 use syngui::prelude::*;
 use syngui::widgets::visual::map_view::{MapCamera, MapMarker, MapPolyline, MapView, MapViewport, TileCache, TileProvider};
 use syngui::widgets::*;
-use syn_system::geoclue_client::{self, Fix, Status};
+use syn_system::geoclue_client::{self, Fix, Problem, Status};
 
 use crate::api::{self, Place, Profile, Route};
 use crate::icons;
@@ -45,7 +45,10 @@ pub struct St {
     layer: RwSignal<usize>,
     layers_open: RwSignal<bool>,
     fix: RwSignal<Option<Fix>>,
-    loc_error: RwSignal<Option<String>>,
+    loc_error: RwSignal<Option<Problem>>,
+    /// Карточка «Местоположение выключено / запрещено» с кнопкой исправления (показывается, когда
+    /// местоположение нужно: своё место, маршрут, в путь).
+    loc_notice: RwSignal<bool>,
     /// Карта следует за своим местом (кнопка «моё место»; сдвиг карты пальцем — выключает).
     follow: RwSignal<bool>,
     query: RwSignal<String>,
@@ -72,6 +75,7 @@ impl St {
             layers_open: use_signal(false),
             fix: use_signal(None),
             loc_error: use_signal(None),
+            loc_notice: use_signal(false),
             // без явной точки при запуске — сразу к своему месту, как только оно появится
             follow: use_signal(!explicit),
             query: use_signal(String::new()),
@@ -115,19 +119,27 @@ fn fly(st: St, lat: f64, lon: f64, zoom: Option<f64>) {
 // ─── местоположение ────────────────────────────────────────────────────────
 
 pub fn start_location(st: St) {
-    let w = geoclue_client::watch("syn-maps", 0, move |s| {
+    let w = geoclue_client::watch(crate::APP_ID, 0, move |s| {
         run_on_main_thread(move || match s {
             Status::Waiting => {}
             Status::Fix(f) => {
                 let first = st.fix.get_untracked().is_none();
                 st.fix.set(Some(f));
                 st.loc_error.set(None);
+                st.loc_notice.set(false);
                 if st.follow.get_untracked() || st.navigating.get_untracked() {
                     let z = if first { Some(16.0f64.max(st.view.get_untracked().zoom_level)) } else { None };
                     fly(st, f.lat, f.lon, z);
                 }
             }
-            Status::Error(e) => st.loc_error.set(Some(e)),
+            Status::Error(p) => {
+                // клиент переподключается каждые 5 с — карточку показываем при смене причины, а не на каждый повтор
+                let changed = st.loc_error.get_untracked().as_ref() != Some(&p);
+                if changed && fixable(&p) && (st.follow.get_untracked() || st.navigating.get_untracked()) {
+                    st.loc_notice.set(true);
+                }
+                st.loc_error.set(Some(p));
+            }
         })
     });
     *WATCH.lock().unwrap() = Some(w);
@@ -141,10 +153,88 @@ fn my_location(st: St) {
         }
         None => {
             st.follow.set(true);
-            let msg = st.loc_error.get_untracked().unwrap_or_else(|| t!("Определяем местоположение…").into());
-            st.error.set(Some(msg));
+            if !need_location(st) {
+                let msg = st.loc_error.get_untracked().map(|p| p.message()).unwrap_or_else(|| t!("Определяем местоположение…").into());
+                st.error.set(Some(msg));
+            }
         }
     }
+}
+
+/// Причину можно исправить здесь же: включить местоположение или разрешить его Картам.
+fn fixable(p: &Problem) -> bool {
+    matches!(p, Problem::Disabled | Problem::Denied)
+}
+
+/// Местоположение нужно, а оно выключено или запрещено — показать карточку с кнопкой. `true` — показана.
+fn need_location(st: St) -> bool {
+    let show = st.fix.get_untracked().is_none() && st.loc_error.get_untracked().as_ref().is_some_and(fixable);
+    if show {
+        st.loc_notice.set(true);
+    }
+    show
+}
+
+/// Кнопка карточки: включить местоположение (`[location] enabled`) или разрешить его Картам
+/// (`[location] allowed`). Оболочка-агент GeoClue подхватывает конфиг сразу, клиент GeoClue Карт
+/// переподключается сам (раз в 5 с).
+fn fix_location(st: St) {
+    let Some(p) = st.loc_error.get_untracked() else { return };
+    st.loc_notice.set(false);
+    if SHOT.load(Ordering::Relaxed) {
+        return;
+    }
+    let r = match p {
+        Problem::Disabled => synshell_common::config_edit::set_location_enabled(true).map(|_| ()),
+        Problem::Denied => synshell_common::config_edit::remember_location(crate::APP_ID, true),
+        _ => return,
+    };
+    match r {
+        Ok(()) => {
+            st.follow.set(true);
+            st.error.set(Some(t!("Определяем местоположение…").into()));
+        }
+        Err(e) => {
+            tracing::warn!("[location]: {e:#}");
+            st.error.set(Some(t!("Не удалось изменить настройки: {e}", e = e.to_string()).into()));
+        }
+    }
+}
+
+/// Карточка над кнопками справа: почему нет своего места и кнопка исправить.
+fn loc_banner(st: St, phone: bool) -> W {
+    Box::new(Reactive::new(move || -> Vec<W> {
+        if !st.loc_notice.get() {
+            return vec![];
+        }
+        let Some(p) = st.loc_error.get() else { return vec![] };
+        let (title, sub, action) = match p {
+            Problem::Disabled => (t!("Местоположение выключено"), t!("Включите его, чтобы видеть себя на карте и ехать по маршруту."), t!("Включить")),
+            Problem::Denied => (t!("Картам запрещено определять местоположение"), t!("Разрешите, чтобы видеть себя на карте и ехать по маршруту."), t!("Разрешить")),
+            _ => return vec![],
+        };
+        let card = Column::new()
+            .gap(10.0)
+            .child(
+                Row::new()
+                    .gap(12.0)
+                    .cross_axis_alignment(CrossAxisAlignment::Center)
+                    .child(Icon::new(icons::LOCATION_OFF).class("loc-icon"))
+                    .child(DecoratedBox::new().child(Column::new().gap(2.0).child(Text::new(title).max_lines(2).class("row-title")).child(Text::new(sub).max_lines(3).class("row-sub"))).class("grow"))
+                    .child(icon_button(icons::CLOSE, "ib", move || st.loc_notice.set(false))),
+            )
+            .child(
+                Row::new().child(DecoratedBox::new().class("grow")).child(
+                    GestureDetector::new()
+                        .on_click(move || fix_location(st))
+                        .cursor(syngui::CursorIcon::Pointer)
+                        .child(DecoratedBox::new().child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(icons::MY_LOCATION).class("btn-icon")).child(Text::new(action).class("btn-text"))).class("btn")),
+                ),
+            );
+        // на телефоне — во всю ширину, на компьютере — как карточка снизу (400 px)
+        let card = DecoratedBox::new().child(card).class(if phone { "card loc-card grow" } else { "card loc-card sheet-desktop" });
+        vec![Box::new(DecoratedBox::new().child(Row::new().child(card)).class("loc-wrap"))]
+    }))
 }
 
 /// Расстояние по сфере, м.
@@ -225,6 +315,7 @@ fn build_route(st: St) {
         Some(f) => (f.lat, f.lon),
         None => {
             let v = st.view.get_untracked();
+            need_location(st);
             st.error.set(Some(t!("Местоположение ещё не известно — маршрут от центра карты").into()));
             (v.center_lat, v.center_lng)
         }
@@ -299,7 +390,7 @@ pub fn root(st: St) -> W {
     let narrow = syngui::viewport::viewport_below(720.0);
     let overlay = Reactive::new(move || -> Vec<W> {
         let phone = narrow.get();
-        let mut col = Column::new().child(top_bar(st, phone)).child(DecoratedBox::new().class("grow")).child(fabs(st)).child(sheet(st, phone));
+        let mut col = Column::new().child(top_bar(st, phone)).child(DecoratedBox::new().class("grow")).child(loc_banner(st, phone)).child(fabs(st)).child(sheet(st, phone));
         if !phone {
             col = col.class("desktop");
         }
@@ -652,6 +743,7 @@ fn route_card(st: St, r: Route) -> W {
                 .child(GestureDetector::new().on_click(move || {
                     st.navigating.set(true);
                     st.steps_open.set(false);
+                    need_location(st);
                     if let Some(f) = st.fix.get_untracked() {
                         fly(st, f.lat, f.lon, Some(17.0));
                     }
@@ -732,6 +824,11 @@ pub fn shot_state(st: St, page: &str) -> std::sync::Arc<std::sync::atomic::Atomi
     let done = ready.clone();
     st.follow.set(false);
     match page {
+        "locoff" => {
+            st.loc_error.set(Some(Problem::Disabled));
+            st.loc_notice.set(true);
+            done.store(true, Ordering::SeqCst);
+        }
         "place" => {
             st.layers_open.set(true);
             std::thread::spawn(move || {

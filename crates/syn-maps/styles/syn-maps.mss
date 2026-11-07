@@ -54,6 +54,11 @@ SystemWindowControls { color: var(--fg); background-color: var(--hover); }
 .fab-on .ib-icon { color: var(--accent); }
 .layers { padding: 6px; }
 
+/* «Местоположение выключено» над кнопками справа */
+.loc-wrap { padding: 0px 10px 10px 10px; }
+.loc-card { padding: 12px 8px 12px 16px; }
+.loc-icon { font-size: 28px; color: var(--accent); }
+
 /* карточка снизу */
 .sheet { margin: 0px 10px 10px 10px; padding: 12px 12px 12px 16px; }
 .sheet-desktop { width: 400px; }

@@ -100,25 +100,15 @@ pub fn start(ctx: ShellCtx) {
                 let _ = HANDLE.set(h);
             }
             // GeoClue не установлен — местоположения для программ нет, оболочке это не мешает
-            Err(e) => log::info!("агент GeoClue: {e}"),
+            Err(e) => log::warn!("агент GeoClue: {e}"),
         })
         .ok();
     let _ = ctx;
 }
 
 fn remember(desktop_id: &str, allow: bool) {
-    let loc = Config::load().0.location;
-    let (key, mut list, other_key, mut other) =
-        if allow { ("allowed", loc.allowed, "denied", loc.denied) } else { ("denied", loc.denied, "allowed", loc.allowed) };
-    if !list.iter().any(|x| x == desktop_id) {
-        list.push(desktop_id.to_string());
-    }
-    other.retain(|x| x != desktop_id);
-    let arr = |l: Vec<String>| toml_edit::Value::Array(l.into_iter().collect());
-    for (k, l) in [(key, list), (other_key, other)] {
-        if let Err(e) = synshell_common::config_edit::set_value(&["location", k], arr(l)) {
-            log::warn!("[location] {k}: {e:#}");
-        }
+    if let Err(e) = synshell_common::config_edit::remember_location(desktop_id, allow) {
+        log::warn!("[location]: {e:#}");
     }
 }
 

@@ -52,6 +52,7 @@ optdepends = [
   "imagemagick: редкие форматы картинок (JPEG XL, RAW…) в просмотрщике",
   "archlinux-appstream-data: категории, значки и снимки программ в synpkg",
   "polkit: установка программ (synpkg) без root",
+  "geoclue: местоположение для программ (Карты, компас)",
   "base-devel: сборка пакетов AUR в synpkg",
   "pacman-contrib: проверка обновлений без root (checkupdates)",
   "udisks2: флешки и диски в проводнике",
@@ -82,6 +83,7 @@ optdepends_en = [
   "imagemagick: rare image formats (JPEG XL, RAW…) in the image viewer",
   "archlinux-appstream-data: categories, icons and screenshots in the software center",
   "polkit: installing software without root",
+  "geoclue: location for applications (Maps, compass)",
   "base-devel: building AUR packages in the software center",
   "pacman-contrib: update checks without root (checkupdates)",
   "udisks2: USB drives and disks in the file manager",
@@ -110,6 +112,7 @@ files = [
   { from = "crates/syn-login/data/synlogin.pam", to = "etc/pam.d/synlogin" },
   { from = "crates/syn-login/data/synlogin.service", to = "usr/lib/systemd/system/" },
   { from = "crates/syn-fsd/data/synfsd.service", to = "usr/lib/systemd/system/" },
+  { from = "data/geoclue-synshell.conf", to = "etc/geoclue/conf.d/90-synshell.conf" },
   { from = "docs/FSD.md", to = "usr/share/doc/synshell/" },
   { from = "crates/synshell-common/default-config.toml", to = "usr/share/doc/synshell/config.toml.example" },
 ]

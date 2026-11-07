@@ -40,7 +40,7 @@
 "{v} ч {v2} мин" = "{v} sa {v2} dk"
 
 # src/main.rs
-"syn-maps --screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page search|place|route]" = "syn-maps --screenshot GORUNTU.png [--size GxY] [--scale N] [--page search|place|route]"
+"syn-maps --screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page search|place|route|locoff]" = "syn-maps --screenshot GORUNTU.png [--size GxY] [--scale N] [--page search|place|route|locoff]"
 "syn-maps [geo:ШИРОТА,ДОЛГОТА[?z=МАСШТАБ]]" = "syn-maps [geo:ENLEM,BOYLAM[?z=YAKINLAŞTIRMA]]"
 "Карты" = "Haritalar"
 
@@ -59,6 +59,13 @@
 "Строим…" = "Rota oluşturuluyor…"
 "Маршрут" = "Rota"
 "В путь" = "Yola çık"
+"Местоположение выключено" = "Konum kapalı"
+"Включите его, чтобы видеть себя на карте и ехать по маршруту." = "Kendinizi haritada görmek ve rotaları izlemek için açın."
+"Включить" = "Aç"
+"Картам запрещено определять местоположение" = "Haritalar'ın konumunuzu kullanmasına izin verilmiyor"
+"Разрешите, чтобы видеть себя на карте и ехать по маршруту." = "Kendinizi haritada görmek ve rotaları izlemek için izin verin."
+"Разрешить" = "İzin ver"
+"Не удалось изменить настройки: {e}" = "Ayarlar değiştirilemedi: {e}"
 
 # src/ui.rs (заголовок окна)
 "В пути" = "Yolda"

@@ -40,7 +40,7 @@
 "{v} ч {v2} мин" = "{v} h {v2} min"
 
 # src/main.rs
-"syn-maps --screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page search|place|route]" = "syn-maps --screenshot CAPTURA.png [--size AnxAl] [--scale N] [--page search|place|route]"
+"syn-maps --screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page search|place|route|locoff]" = "syn-maps --screenshot CAPTURA.png [--size AnxAl] [--scale N] [--page search|place|route|locoff]"
 "syn-maps [geo:ШИРОТА,ДОЛГОТА[?z=МАСШТАБ]]" = "syn-maps [geo:LATITUD,LONGITUD[?z=ZOOM]]"
 "Карты" = "Mapas"
 
@@ -59,6 +59,13 @@
 "Строим…" = "Calculando…"
 "Маршрут" = "Ruta"
 "В путь" = "Ir"
+"Местоположение выключено" = "La ubicación está desactivada"
+"Включите его, чтобы видеть себя на карте и ехать по маршруту." = "Actívala para verte en el mapa y seguir rutas."
+"Включить" = "Activar"
+"Картам запрещено определять местоположение" = "Mapas no tiene permiso para usar tu ubicación"
+"Разрешите, чтобы видеть себя на карте и ехать по маршруту." = "Permítelo para verte en el mapa y seguir rutas."
+"Разрешить" = "Permitir"
+"Не удалось изменить настройки: {e}" = "No se pudo cambiar la configuración: {e}"
 
 # src/ui.rs (заголовок окна)
 "В пути" = "En ruta"

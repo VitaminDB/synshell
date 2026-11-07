@@ -3,7 +3,7 @@
 //! велосипеде (OSRM) с пошаговыми подсказками и слежением за положением.
 //!
 //!   syn-maps [geo:ШИРОТА,ДОЛГОТА[?q=…]]
-//!   syn-maps --screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page search|place|route]
+//!   syn-maps --screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page search|place|route|locoff]
 
 mod api;
 mod settings;
@@ -37,7 +37,7 @@ fn main() {
         match a.as_str() {
             "-h" | "--help" => {
                 println!("{}", t!("syn-maps [geo:ШИРОТА,ДОЛГОТА[?z=МАСШТАБ]]"));
-                println!("{}", t!("syn-maps --screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page search|place|route]"));
+                println!("{}", t!("syn-maps --screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page search|place|route|locoff]"));
                 return;
             }
             "--screenshot" => shot = args.next(),
@@ -132,12 +132,16 @@ fn theme(cfg: &Config) -> String {
 }
 
 /// Кодовые точки Material Icons.
+/// Id программы (.desktop без суффикса): окно, GeoClue и `[location] allowed`.
+pub const APP_ID: &str = "syn-maps";
+
 pub mod icons {
     pub const SEARCH: &str = "\u{E8B6}";
     pub const CLOSE: &str = "\u{E5CD}";
     pub const BACK: &str = "\u{E5C4}";
     pub const MY_LOCATION: &str = "\u{E55C}";
     pub const LOCATION_SEARCHING: &str = "\u{E1B4}";
+    pub const LOCATION_OFF: &str = "\u{E0C7}";
     pub const NAVIGATION: &str = "\u{E55D}";
     pub const LAYERS: &str = "\u{E53B}";
     pub const DIRECTIONS: &str = "\u{E52E}";

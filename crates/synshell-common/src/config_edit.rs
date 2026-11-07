@@ -104,6 +104,28 @@ pub fn set_value(path: &[&str], value: Value) -> anyhow::Result<bool> {
     })
 }
 
+/// `[location] enabled`: местоположение для программ вкл/выкл. Агент GeoClue в оболочке
+/// подхватывает смену конфига сразу (`MaxAccuracyLevel`).
+pub fn set_location_enabled(on: bool) -> anyhow::Result<bool> {
+    set_value(&["location", "enabled"], Value::from(on))
+}
+
+/// Запомнить ответ «Разрешить»/«Запретить» программе `desktop_id` (id .desktop без суффикса) в
+/// `[location] allowed`/`denied`; из противоположного списка она убирается.
+pub fn remember_location(desktop_id: &str, allow: bool) -> anyhow::Result<()> {
+    let loc = Config::load().0.location;
+    let (key, mut list, other_key, mut other) =
+        if allow { ("allowed", loc.allowed, "denied", loc.denied) } else { ("denied", loc.denied, "allowed", loc.allowed) };
+    if !list.iter().any(|x| x == desktop_id) {
+        list.push(desktop_id.to_string());
+    }
+    other.retain(|x| x != desktop_id);
+    let arr = |l: Vec<String>| Value::Array(l.into_iter().collect());
+    set_value(&["location", key], arr(list))?;
+    set_value(&["location", other_key], arr(other))?;
+    Ok(())
+}
+
 /// Структура serde → таблица `toml_edit` (вложенное — inline).
 pub fn to_table<T: serde::Serialize>(v: &T) -> Table {
     let text = toml::to_string(v).unwrap_or_default();

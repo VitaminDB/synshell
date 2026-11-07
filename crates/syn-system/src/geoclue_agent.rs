@@ -102,9 +102,14 @@ impl Agent {
         }
     }
 
+    /// Читается из выключателя живьём: GeoClue запрашивает свойство при каждом своём запуске (он
+    /// запускается по D-Bus и через минуту простоя выходит), так что состояние `[location]` не устаревает,
+    /// даже если уведомление о смене не дошло.
     #[zbus(property)]
     fn max_accuracy_level(&self) -> u32 {
-        self.max.load(Ordering::Relaxed)
+        let level = if self.policy.enabled() { ACCURACY_EXACT } else { ACCURACY_NONE };
+        self.max.store(level, Ordering::Relaxed);
+        level
     }
 }
 
@@ -135,9 +140,19 @@ fn add_agent(conn: &Connection) -> zbus::Result<()> {
         .map(|_| ())
 }
 
+fn warn_add_agent(e: &zbus::Error) {
+    let text = e.to_string();
+    if text.contains("not allowed to act as agent") {
+        // пакет synshell кладёт /etc/geoclue/conf.d/90-synshell.conf
+        tracing::warn!("GeoClue AddAgent: {text} — «{AGENT_ID}» нет в [agent] whitelist (/etc/geoclue/conf.d)");
+    } else {
+        tracing::warn!("GeoClue AddAgent: {text}");
+    }
+}
+
 /// Зарегистрировать агента (один раз на процесс) и следить за перезапуском
-/// GeoClue. Блокирующая — звать из фонового потока; GeoClue нет на шине —
-/// ошибка.
+/// GeoClue. Блокирующая — звать из фонового потока. Ошибка — только если
+/// нет системной шины; отказ `AddAgent` повторяется при следующем запуске GeoClue.
 pub fn start(policy: impl Policy + 'static, prompter: impl Prompter + 'static) -> Result<Arc<Handle>, String> {
     let slot = HANDLE.get_or_init(|| Mutex::new(None));
     if let Some(h) = slot.lock().unwrap().clone() {
@@ -147,7 +162,11 @@ pub fn start(policy: impl Policy + 'static, prompter: impl Prompter + 'static) -
     let max = Arc::new(AtomicU32::new(if policy.enabled() { ACCURACY_EXACT } else { ACCURACY_NONE }));
     let agent = Agent { policy: Arc::new(policy), prompter: Arc::new(prompter), max: max.clone() };
     conn.object_server().at(AGENT_PATH, agent).map_err(|e| e.to_string())?;
-    add_agent(&conn).map_err(|e| format!("GeoClue AddAgent: {e}"))?;
+    // Не вышло — повторим, когда GeoClue снова появится на шине (он запускается по D-Bus и выходит после
+    // минуты простоя, а конфиг, в том числе `[agent] whitelist`, перечитывает при запуске).
+    if let Err(e) = add_agent(&conn) {
+        warn_add_agent(&e);
+    }
     let h = Arc::new(Handle { conn: conn.clone(), max });
     *slot.lock().unwrap() = Some(h.clone());
     std::thread::Builder::new()
@@ -160,7 +179,7 @@ pub fn start(policy: impl Policy + 'static, prompter: impl Prompter + 'static) -
                 if args.new_owner().is_some() {
                     // GeoClue перезапустился: агентов он не помнит
                     if let Err(e) = add_agent(&conn) {
-                        tracing::warn!("GeoClue AddAgent: {e}");
+                        warn_add_agent(&e);
                     }
                 }
             }

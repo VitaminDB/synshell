@@ -127,6 +127,11 @@
 # ../syn-system/src/geoclue_client.rs
 "клиент GeoClue остановлен (агент отказал или служба перезапущена)" = "GeoClue istemcisi durdu (ajan reddetti ya da hizmet yeniden başladı)"
 "сигналы GeoClue прекратились" = "GeoClue sinyalleri kesildi"
+"Местоположение выключено" = "Konum kapalı"
+"Этой программе запрещено определять местоположение" = "Bu uygulamanın konumunuzu kullanmasına izin verilmiyor"
+"Служба местоположения GeoClue не установлена или не запускается" = "GeoClue konum hizmeti kurulu değil ya da başlamıyor"
+"Местоположение недоступно: оболочка не зарегистрирована агентом GeoClue" = "Konum kullanılamıyor: kabuk GeoClue aracısı olarak kayıtlı değil"
+"Не удалось определить местоположение: {e}" = "Konum belirlenemedi: {e}"
 
 # ../syn-system/src/hwinfo.rs
 "Процессор" = "İşlemci"

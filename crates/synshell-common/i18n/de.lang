@@ -127,6 +127,11 @@
 # ../syn-system/src/geoclue_client.rs
 "клиент GeoClue остановлен (агент отказал или служба перезапущена)" = "der GeoClue-Client wurde beendet (Agent hat abgelehnt oder Dienst neu gestartet)"
 "сигналы GeoClue прекратились" = "GeoClue-Signale haben aufgehört"
+"Местоположение выключено" = "Standort ist ausgeschaltet"
+"Этой программе запрещено определять местоположение" = "Diese App darf Ihren Standort nicht verwenden"
+"Служба местоположения GeoClue не установлена или не запускается" = "Der Standortdienst GeoClue ist nicht installiert oder startet nicht"
+"Местоположение недоступно: оболочка не зарегистрирована агентом GeoClue" = "Standort nicht verfügbar: Die Oberfläche ist nicht als GeoClue-Agent registriert"
+"Не удалось определить местоположение: {e}" = "Standort konnte nicht ermittelt werden: {e}"
 
 # ../syn-system/src/hwinfo.rs
 "Процессор" = "Prozessor"

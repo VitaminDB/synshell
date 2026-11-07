@@ -37,7 +37,71 @@ pub enum Status {
     Waiting,
     Fix(Fix),
     /// GeoClue нет, агент отказал или ошибка шины.
-    Error(String),
+    Error(Problem),
+}
+
+/// Почему местоположения нет — чтобы программа показала понятный текст и, где можно, кнопку исправления.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Problem {
+    /// Местоположение выключено в системе (`[location] enabled = false`: агент оболочки
+    /// отдаёт `MaxAccuracyLevel` 0, GeoClue отвечает «Geolocation disabled for UID»).
+    Disabled,
+    /// Пользователь запретил местоположение этой программе (агент отказал).
+    Denied,
+    /// Службы GeoClue нет или она не запускается.
+    NoService,
+    /// Нет агента местоположения (оболочка не зарегистрирована в GeoClue).
+    NoAgent,
+    /// Прочее — уже человеческим текстом с подробностями.
+    Other(String),
+}
+
+impl Problem {
+    /// Разобрать ошибку D-Bus/GeoClue.
+    pub fn classify(e: &zbus::Error) -> Problem {
+        let text = e.to_string();
+        let name = match e {
+            zbus::Error::MethodError(n, _, _) => n.as_str().to_string(),
+            zbus::Error::FDO(f) => match f.as_ref() {
+                zbus::fdo::Error::ServiceUnknown(_) => "org.freedesktop.DBus.Error.ServiceUnknown".into(),
+                zbus::fdo::Error::NameHasNoOwner(_) => "org.freedesktop.DBus.Error.NameHasNoOwner".into(),
+                _ => String::new(),
+            },
+            _ => String::new(),
+        };
+        Problem::from_text(&format!("{name} {text}"), &text)
+    }
+
+    fn from_text(s: &str, text: &str) -> Problem {
+        if s.contains("Geolocation disabled") {
+            Problem::Disabled
+        } else if s.contains("Agent rejected") || s.contains("disallowed") && !s.contains("no agent") {
+            Problem::Denied
+        } else if s.contains("no agent") {
+            Problem::NoAgent
+        } else if s.contains("ServiceUnknown") || s.contains("NameHasNoOwner") || s.contains("startup job failed") {
+            Problem::NoService
+        } else {
+            Problem::Other(text.trim().to_string())
+        }
+    }
+
+    /// Текст для пользователя на языке интерфейса.
+    pub fn message(&self) -> String {
+        match self {
+            Problem::Disabled => t!("Местоположение выключено").into(),
+            Problem::Denied => t!("Этой программе запрещено определять местоположение").into(),
+            Problem::NoService => t!("Служба местоположения GeoClue не установлена или не запускается").into(),
+            Problem::NoAgent => t!("Местоположение недоступно: оболочка не зарегистрирована агентом GeoClue").into(),
+            Problem::Other(e) => t!("Не удалось определить местоположение: {e}", e = e).into(),
+        }
+    }
+}
+
+impl std::fmt::Display for Problem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message())
+    }
 }
 
 /// Работающее слежение; удаление — остановка клиента.
@@ -65,7 +129,7 @@ pub fn watch(desktop_id: &str, distance_m: u32, on_status: impl Fn(Status) + Sen
             while !s.load(Ordering::SeqCst) {
                 if let Err(e) = run(&id, distance_m, &s, &on_status) {
                     tracing::warn!(error = %e, "geoclue: клиент");
-                    on_status(Status::Error(e.to_string()));
+                    on_status(Status::Error(Problem::classify(&e)));
                 }
                 for _ in 0..50 {
                     if s.load(Ordering::SeqCst) {
@@ -80,6 +144,8 @@ pub fn watch(desktop_id: &str, distance_m: u32, on_status: impl Fn(Status) + Sen
 }
 
 fn run(desktop_id: &str, distance_m: u32, stop: &AtomicBool, on_status: &dyn Fn(Status)) -> zbus::Result<()> {
+    // Ошибки GeoClue (Start: выключено, запрещено, нет агента) приходят как MethodError с текстом —
+    // [`Problem::classify`] разбирает их сам.
     let conn = Connection::system()?;
     let manager = Proxy::new(&conn, GEOCLUE, "/org/freedesktop/GeoClue2/Manager", "org.freedesktop.GeoClue2.Manager")?;
     let path: OwnedObjectPath = manager.call("GetClient", &())?;
@@ -149,4 +215,31 @@ fn read_fix(conn: &Connection, path: &str) -> Option<Fix> {
         heading: opt(loc.get_property("Heading").ok(), 0.0),
         speed: opt(loc.get_property("Speed").ok(), 0.0),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn method_error(name: &str, text: &str) -> zbus::Error {
+        let msg = zbus::Message::method_call("/", "X").unwrap().build(&()).unwrap();
+        zbus::Error::MethodError(name.try_into().unwrap(), Some(text.into()), msg)
+    }
+
+    #[test]
+    fn classify_geoclue_errors() {
+        let denied = "org.freedesktop.DBus.Error.AccessDenied";
+        assert_eq!(Problem::classify(&method_error(denied, "Geolocation disabled for UID 1000")), Problem::Disabled);
+        assert_eq!(
+            Problem::classify(&method_error(denied, "Agent rejected 'syn-maps' for user '1000'. Please ensure that 'syn-maps' has installed a valid syn-maps.desktop file.")),
+            Problem::Denied
+        );
+        assert_eq!(Problem::classify(&method_error(denied, "'syn-maps' disallowed, no agent for UID 1000")), Problem::NoAgent);
+        assert_eq!(
+            Problem::classify(&method_error("org.freedesktop.DBus.Error.NameHasNoOwner", "Could not activate remote peer 'org.freedesktop.GeoClue2': startup job failed")),
+            Problem::NoService
+        );
+        assert_eq!(Problem::classify(&method_error("org.freedesktop.DBus.Error.ServiceUnknown", "The name is not activatable")), Problem::NoService);
+        assert!(matches!(Problem::classify(&zbus::Error::Failure("x".into())), Problem::Other(t) if t == "x"));
+    }
 }

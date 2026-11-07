@@ -268,6 +268,11 @@ pub fn log_dir() -> std::path::PathBuf {
     dir
 }
 
+/// Системные автозапуски, чью работу в synshell делает оболочка. Демо-агент GeoClue решает по
+/// gsettings `org.gnome.system.location enabled` (читает при старте, по умолчанию false) и, став агентом,
+/// отказывал программам «Geolocation disabled», хотя `[location]` включено: агент — оболочка.
+const NOT_IN_SYNSHELL: &[&str] = &["geoclue-demo-agent.desktop"];
+
 /// Команды XDG Autostart: пользовательские перекрывают системные по имени
 /// файла; учитываются Hidden, OnlyShowIn/NotShowIn, TryExec.
 fn xdg_autostart_commands() -> Vec<String> {
@@ -285,7 +290,10 @@ fn xdg_autostart_commands() -> Vec<String> {
                 continue;
             }
             let fname = path.file_name().unwrap().to_string_lossy().to_string();
-            if !seen.insert(fname) {
+            if !seen.insert(fname.clone()) {
+                continue;
+            }
+            if NOT_IN_SYNSHELL.contains(&fname.as_str()) {
                 continue;
             }
             let Ok(text) = std::fs::read_to_string(&path) else { continue };
