@@ -270,7 +270,7 @@ fn maneuver_text(m: &OsrmManeuver, name: &str) -> String {
         "turn" => t!("Поверните {dir}", dir = dir),
         "end of road" => t!("В конце дороги — {dir}", dir = dir),
         "new name" | "continue" => {
-            if dir == "прямо" {
+            if matches!(m.modifier.as_deref(), None | Some("straight")) {
                 t!("Продолжайте прямо").to_string()
             } else {
                 t!("Держитесь {dir}", dir = dir)

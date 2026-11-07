@@ -4,6 +4,10 @@
 Text { color: var(--fg); font-size: 14px; }
 .muted { color: var(--muted); }
 
+/* слои «Светлая» и «Тёмная» — плитки OpenStreetMap под фильтром */
+.tiles-light { filter: grayscale(0.6) brightness(1.06) contrast(0.92); }
+.tiles-dark { filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.85) saturate(0.6); }
+
 /* карточки поверх карты */
 .card { background: var(--bg); border-radius: 16px; box-shadow: 0px 2px 10px rgba(0, 0, 0, 0.28); }
 .top { padding: 10px 10px 0px 10px; }

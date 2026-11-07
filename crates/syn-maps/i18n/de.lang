@@ -19,7 +19,7 @@
 "резко направо" = "scharf rechts"
 "с разворотом" = "mit Wenden"
 "прямо" = "geradeaus"
-"Начните движение" = "Losfahren"
+"Начните движение" = "Los geht's"
 "Вы на месте" = "Sie haben Ihr Ziel erreicht"
 "Развернитесь" = "Wenden"
 "Поверните {dir}" = "{dir} abbiegen"
@@ -40,6 +40,7 @@
 "{v} ч {v2} мин" = "{v} Std. {v2} Min."
 
 # src/main.rs
+"syn-maps --screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page search|place|route]" = "syn-maps --screenshot BILD.png [--size BxH] [--scale N] [--page search|place|route]"
 "syn-maps [geo:ШИРОТА,ДОЛГОТА[?z=МАСШТАБ]]" = "syn-maps [geo:BREITE,LÄNGE[?z=ZOOM]]"
 "Карты" = "Karten"
 

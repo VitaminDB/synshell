@@ -20,12 +20,20 @@ type W = Box<dyn Widget>;
 /// Слои: название, значок, источник.
 pub const LAYERS: [(&str, &str); 4] = [(n_!("Схема"), icons::MAP), (n_!("Светлая"), icons::MAP), (n_!("Тёмная"), icons::DARK), (n_!("Спутник"), icons::SATELLITE)];
 
+/// Плитки CARTO без ключа теперь приходят с водяным знаком «API KEY REQUIRED», поэтому «Светлая» и
+/// «Тёмная» — те же плитки OpenStreetMap под фильтром (класс `tiles-light` / `tiles-dark` в MSS).
 fn provider(i: usize) -> TileProvider {
     match i {
-        1 => TileProvider::carto_voyager(),
-        2 => TileProvider::carto_dark(),
         3 => TileProvider::esri_satellite(),
         _ => TileProvider::osm(),
+    }
+}
+
+fn tiles_class(i: usize) -> &'static str {
+    match i {
+        1 => "tiles-light",
+        2 => "tiles-dark",
+        _ => "tiles",
     }
 }
 
@@ -88,6 +96,8 @@ static ROUTE_GEN: AtomicU64 = AtomicU64::new(0);
 static ADDR_GEN: AtomicU64 = AtomicU64::new(0);
 static WATCH: StdMutex<Option<geoclue_client::Watch>> = StdMutex::new(None);
 static SAVED: StdMutex<Option<Instant>> = StdMutex::new(None);
+/// Режим снимка (`--screenshot`): без GeoClue и без записи настроек.
+pub static SHOT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn next_seq() -> u64 {
     SEQ.fetch_add(1, Ordering::Relaxed)
@@ -244,8 +254,9 @@ fn fit_route(st: St, r: &Route) {
     }
     let v = st.view.get_untracked();
     let (w, h) = (v.viewport_w.max(200.0) as f64, v.viewport_h.max(300.0) as f64);
-    let (top, bottom, side) = (72.0, 200.0f64.min(h * 0.4), 24.0);
-    let (vis_w, vis_h) = ((w - 2.0 * side).max(80.0), (h - top - bottom - 24.0).max(80.0));
+    // на телефоне карточки сверху и снизу во всю ширину, на компьютере — столбцом слева (400 px), кнопки справа
+    let (top, bottom, left, right) = if w >= 720.0 { (24.0, 24.0, 430.0, 88.0) } else { (72.0, 200.0f64.min(h * 0.4), 24.0, 24.0) };
+    let (vis_w, vis_h) = ((w - left - right).max(80.0), (h - top - bottom - 24.0).max(80.0));
     // размах маршрута в мировых пикселях при масштабе 0 — масштаб, при котором он влезает
     let pts0: Vec<(f64, f64)> = r.points.iter().map(|&(la, lo)| world_px(la, lo, 0.0)).collect();
     let (x0, x1) = pts0.iter().fold((f64::MAX, f64::MIN), |(a, b), p| (a.min(p.0), b.max(p.0)));
@@ -255,7 +266,8 @@ fn fit_route(st: St, r: &Route) {
     let k = 2f64.powf(z);
     let (mx, my) = ((x0 + x1) / 2.0 * k, (y0 + y1) / 2.0 * k);
     let target_y = top + vis_h / 2.0 + 12.0;
-    let (lat, lon) = world_px_to_geo(mx, my + (h / 2.0 - target_y), z);
+    let target_x = left + vis_w / 2.0;
+    let (lat, lon) = world_px_to_geo(mx + (w / 2.0 - target_x), my + (h / 2.0 - target_y), z);
     st.follow.set(false);
     fly(st, lat, lon, Some(z));
 }
@@ -335,9 +347,10 @@ fn map(st: St) -> W {
             markers.push(MapMarker::new(f.lat, f.lon).color(Color::new(0.1, 0.5, 1.0, 1.0)).size(20.0));
         }
         let results = st.results.get_untracked();
+        let layer = st.layer.get();
         vec![Box::new(
             MapView::new()
-                .provider(provider(st.layer.get()))
+                .provider(provider(layer))
                 .tile_cache_arc(cache.clone())
                 .smooth_zoom(true)
                 .overzoom(2)
@@ -363,12 +376,17 @@ fn map(st: St) -> W {
                     st.layers_open.set(false);
                     st.follow.set(false);
                 })
-                .on_long_press(move |lat, lon| drop_pin(st, lat, lon)),
+                .on_long_press(move |lat, lon| drop_pin(st, lat, lon))
+                .class(tiles_class(layer)),
         )]
     }))
 }
 
 fn save_view(st: St) {
+    // снимок экрана не трогает настройки
+    if SHOT.load(Ordering::Relaxed) {
+        return;
+    }
     let mut last = SAVED.lock().unwrap();
     if last.is_some_and(|t| t.elapsed().as_secs_f32() < 2.0) {
         return;
@@ -630,4 +648,78 @@ fn toast(st: St) -> W {
             ),
         )]
     }))
+}
+
+// ─── снимок экрана ─────────────────────────────────────────────────────────
+
+/// Точка и слой, с которых начинается снимок `page`: только общеизвестные места (Париж).
+pub fn shot_start(page: &str) -> (f64, f64, f64, usize) {
+    match page {
+        "place" => (48.8584, 2.2945, 15.0, 2),
+        "route" => (48.8600, 2.3150, 14.0, 1),
+        _ => (48.8566, 2.3522, 13.0, 0),
+    }
+}
+
+/// Состояние для снимка: поиск, точка или маршрут — запросами к тем же серверам, что и в работе.
+/// Возвращает флаг готовности (ответ сервера пришёл).
+pub fn shot_state(st: St, page: &str) -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+    let ready = Arc::new(AtomicBool::new(false));
+    let done = ready.clone();
+    st.follow.set(false);
+    match page {
+        "place" => {
+            st.layers_open.set(true);
+            std::thread::spawn(move || {
+                let r = api::search("Tour Eiffel", None);
+                run_on_main_thread(move || {
+                    if let Some(p) = r.ok().and_then(|l| l.into_iter().next()) {
+                        st.camera.set(MapCamera { lat: p.lat, lng: p.lon, zoom: 15.0, seq: next_seq(), animate: false });
+                        st.place.set(Some(p));
+                    }
+                    done.store(true, Ordering::SeqCst);
+                });
+            });
+        }
+        "route" => {
+            st.profile.set(Profile::Bike);
+            st.steps_open.set(true);
+            std::thread::spawn(move || {
+                // от Лувра к Эйфелевой башне
+                let r = api::route(Profile::Bike, (48.8606, 2.3376), (48.8584, 2.2945));
+                run_on_main_thread(move || {
+                    match r {
+                        Ok(route) => {
+                            st.place.set(Some(Place { name: String::new(), address: String::new(), lat: 48.8584, lon: 2.2945 }));
+                            fit_route(st, &route);
+                            if let Some(mut c) = Some(st.camera.get_untracked()) {
+                                c.animate = false;
+                                st.camera.set(c);
+                            }
+                            st.route.set(Some(route));
+                        }
+                        Err(e) => tracing::warn!("снимок: {e}"),
+                    }
+                    done.store(true, Ordering::SeqCst);
+                });
+            });
+        }
+        _ => {
+            // запрос на языке места — одинаковые результаты во всех языках интерфейса
+            let q = "Musée".to_string();
+            st.query.set(q.clone());
+            std::thread::spawn(move || {
+                let r = api::search(&q, Some((48.8566, 2.3522, 0.05)));
+                run_on_main_thread(move || {
+                    if let Ok(l) = r {
+                        st.results.set(l);
+                    }
+                    done.store(true, Ordering::SeqCst);
+                });
+            });
+        }
+    }
+    ready
 }

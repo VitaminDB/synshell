@@ -3,6 +3,7 @@
 //! велосипеде (OSRM) с пошаговыми подсказками и слежением за положением.
 //!
 //!   syn-maps [geo:ШИРОТА,ДОЛГОТА[?q=…]]
+//!   syn-maps --screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page search|place|route]
 
 mod api;
 mod settings;
@@ -27,18 +28,36 @@ fn main() {
     tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).init();
     synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
     let mut start: Option<(f64, f64, Option<f64>)> = None;
-    for a in std::env::args().skip(1) {
+    let mut shot: Option<String> = None;
+    let mut size = (1400u32, 900u32);
+    let mut scale = 1.0f64;
+    let mut page = String::from("search");
+    let mut args = std::env::args().skip(1);
+    while let Some(a) = args.next() {
         match a.as_str() {
             "-h" | "--help" => {
                 println!("{}", t!("syn-maps [geo:ШИРОТА,ДОЛГОТА[?z=МАСШТАБ]]"));
+                println!("{}", t!("syn-maps --screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page search|place|route]"));
                 return;
             }
+            "--screenshot" => shot = args.next(),
+            "--size" => {
+                if let Some((w, h)) = args.next().as_deref().and_then(|s| s.split_once('x')) {
+                    size = (w.parse().unwrap_or(size.0), h.parse().unwrap_or(size.1));
+                }
+            }
+            "--scale" => scale = args.next().and_then(|s| s.parse().ok()).unwrap_or(scale),
+            "--page" => page = args.next().unwrap_or(page),
             _ => start = geo_uri(&a).or(start),
         }
     }
     syngui::widgets::visual::map_view::tile_loader::set_user_agent(api::USER_AGENT);
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);
+    if let Some(out) = shot {
+        screenshot(&out, &page, &mss, size, scale);
+        return;
+    }
     let set = settings::Settings::load();
     App::new()
         .title(t!("Карты"))
@@ -56,6 +75,50 @@ fn main() {
             ui::start_location(st);
             ui::root(st)
         });
+}
+
+/// Снимок окна без окна: без своего местоположения и без настроек пользователя, только публичные места.
+fn screenshot(out: &str, page: &str, mss: &str, size: (u32, u32), scale: f64) {
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+    ui::SHOT.store(true, Ordering::Relaxed);
+    let (lat, lon, zoom, layer) = ui::shot_start(page);
+    let ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = ready.clone();
+    let page = page.to_string();
+    let opts = syngui::shot::ShotOptions {
+        wait: Duration::from_secs(4),
+        ready: Some(Box::new(move || flag.load(Ordering::SeqCst))),
+        // после ответа: перелёт камеры и плитки нового места
+        settle: Duration::from_secs(8),
+        timeout: Duration::from_secs(60),
+        ..Default::default()
+    };
+    let r = syngui::shot::render_png_with(
+        move || {
+            let st = ui::St::new(lat, lon, zoom, layer, false);
+            let r = ui::shot_state(st, &page);
+            std::thread::spawn(move || {
+                while !r.load(Ordering::SeqCst) {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                ready.store(true, Ordering::SeqCst);
+            });
+            ui::root(st)
+        },
+        mss,
+        size,
+        scale,
+        out,
+        opts,
+    );
+    match r {
+        Ok((w, h)) => println!("{out}: {w}x{h}"),
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    }
 }
 
 fn theme(cfg: &Config) -> String {

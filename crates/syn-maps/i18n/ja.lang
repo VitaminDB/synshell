@@ -40,6 +40,7 @@
 "{v} ч {v2} мин" = "{v} 時間 {v2} 分"
 
 # src/main.rs
+"syn-maps --screenshot СНИМОК.png [--size ШxВ] [--scale N] [--page search|place|route]" = "syn-maps --screenshot SHOT.png [--size WxH] [--scale N] [--page search|place|route]"
 "syn-maps [geo:ШИРОТА,ДОЛГОТА[?z=МАСШТАБ]]" = "syn-maps [geo:LAT,LON[?z=ZOOM]]"
 "Карты" = "マップ"
 
