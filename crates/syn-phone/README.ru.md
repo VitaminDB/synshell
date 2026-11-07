@@ -4,7 +4,7 @@
 
 **«Телефон» synshell для телефонов — набор номера, журнал звонков и экран разговора поверх демона модема synshell.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: synshell-mobile-bin](https://aur.archlinux.org/packages/synshell-mobile-bin) · [AUR: synshell-mobile-git](https://aur.archlinux.org/packages/synshell-mobile-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/syn-phone/) · [AUR: synshell-mobile-bin](https://aur.archlinux.org/packages/synshell-mobile-bin) · [AUR: synshell-mobile-git](https://aur.archlinux.org/packages/synshell-mobile-git)
 
 ![Набор номера](docs/screenshots/dialer-ru.png)
 

@@ -4,7 +4,7 @@
 
 **Диктофон рабочего стола synshell — живая волна, выбор микрофона, шумоподавление телефона, Opus/FLAC/WAV.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: syn-audio-recorder-bin](https://aur.archlinux.org/packages/syn-audio-recorder-bin) · [AUR: syn-audio-recorder-git](https://aur.archlinux.org/packages/syn-audio-recorder-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/syn-audio-recorder/) · [AUR: syn-audio-recorder-bin](https://aur.archlinux.org/packages/syn-audio-recorder-bin) · [AUR: syn-audio-recorder-git](https://aur.archlinux.org/packages/syn-audio-recorder-git)
 
 ![Запись](docs/screenshots/overview-ru.png)
 

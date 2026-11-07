@@ -4,7 +4,7 @@
 
 **Музыкальный плеер рабочего стола synshell — папка «Музыка» как медиатека, любой аудиоформат через ffmpeg.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: syn-audio-player-bin](https://aur.archlinux.org/packages/syn-audio-player-bin) · [AUR: syn-audio-player-git](https://aur.archlinux.org/packages/syn-audio-player-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/syn-audio-player/) · [AUR: syn-audio-player-bin](https://aur.archlinux.org/packages/syn-audio-player-bin) · [AUR: syn-audio-player-git](https://aur.archlinux.org/packages/syn-audio-player-git)
 
 ![Медиатека](docs/screenshots/library-ru.png)
 

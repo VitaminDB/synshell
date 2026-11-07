@@ -4,7 +4,7 @@
 
 **Головоломка 8×8 для рабочего стола synshell и телефонов — расставляйте фигуры, очищайте ряды и столбцы, собирайте комбо.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: syn-blocks-bin](https://aur.archlinux.org/packages/syn-blocks-bin) · [AUR: syn-blocks-git](https://aur.archlinux.org/packages/syn-blocks-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/syn-blocks/) · [AUR: syn-blocks-bin](https://aur.archlinux.org/packages/syn-blocks-bin) · [AUR: syn-blocks-git](https://aur.archlinux.org/packages/syn-blocks-git)
 
 ![Стартовая страница](docs/screenshots/start-ru.png)
 

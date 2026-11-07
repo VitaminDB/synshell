@@ -4,7 +4,7 @@
 
 **Camera for synshell on phones — photo, night, pro, video and time-lapse, with zoom, tap-to-focus and a built-in viewer.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: syncamera-bin](https://aur.archlinux.org/packages/syncamera-bin) · [AUR: syncamera-git](https://aur.archlinux.org/packages/syncamera-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/syn-camera/) · [AUR: syncamera-bin](https://aur.archlinux.org/packages/syncamera-bin) · [AUR: syncamera-git](https://aur.archlinux.org/packages/syncamera-git)
 
 ![Photo](docs/screenshots/photo-en.png)
 

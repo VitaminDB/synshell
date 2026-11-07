@@ -4,7 +4,7 @@
 
 **Voice recorder for the synshell desktop — live waveform, microphone choice, phone noise suppression, Opus/FLAC/WAV.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: syn-audio-recorder-bin](https://aur.archlinux.org/packages/syn-audio-recorder-bin) · [AUR: syn-audio-recorder-git](https://aur.archlinux.org/packages/syn-audio-recorder-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/syn-audio-recorder/) · [AUR: syn-audio-recorder-bin](https://aur.archlinux.org/packages/syn-audio-recorder-bin) · [AUR: syn-audio-recorder-git](https://aur.archlinux.org/packages/syn-audio-recorder-git)
 
 ![Recording](docs/screenshots/overview-en.png)
 

@@ -4,7 +4,7 @@
 
 **Maps for the synshell desktop — OpenStreetMap with search, routes and your own location, on computers and phones.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: syn-maps-bin](https://aur.archlinux.org/packages/syn-maps-bin) · [AUR: syn-maps-git](https://aur.archlinux.org/packages/syn-maps-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/syn-maps/) · [AUR: syn-maps-bin](https://aur.archlinux.org/packages/syn-maps-bin) · [AUR: syn-maps-git](https://aur.archlinux.org/packages/syn-maps-git)
 
 ![Route](docs/screenshots/route-en.png)
 

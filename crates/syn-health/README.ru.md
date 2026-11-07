@@ -4,7 +4,7 @@
 
 **«Спорт и здоровье» synshell для телефонов — шагомер телефона, расстояние, калории, по часам и за неделю.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: synshell-mobile-bin](https://aur.archlinux.org/packages/synshell-mobile-bin) · [AUR: synshell-mobile-git](https://aur.archlinux.org/packages/synshell-mobile-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/syn-health/) · [AUR: synshell-mobile-bin](https://aur.archlinux.org/packages/synshell-mobile-bin) · [AUR: synshell-mobile-git](https://aur.archlinux.org/packages/synshell-mobile-git)
 
 ![Сегодня](docs/screenshots/today-ru.png)
 

@@ -4,7 +4,7 @@
 
 **Компас synshell для телефонов — магнитометр и акселерометр, уровень, метка направления и калибровка «восьмёркой».**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: synshell-mobile-bin](https://aur.archlinux.org/packages/synshell-mobile-bin) · [AUR: synshell-mobile-git](https://aur.archlinux.org/packages/synshell-mobile-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/syn-compass/) · [AUR: synshell-mobile-bin](https://aur.archlinux.org/packages/synshell-mobile-bin) · [AUR: synshell-mobile-git](https://aur.archlinux.org/packages/synshell-mobile-git)
 
 ![Компас](docs/screenshots/compass-ru.png)
 

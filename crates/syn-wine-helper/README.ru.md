@@ -4,7 +4,7 @@
 
 **Компоненты Wine рабочего стола synshell — DLL, которых нет в самом Wine (MFC, рантаймы Visual Basic, OpenAL): ставятся один раз для всех префиксов и предлагаются, когда программе их не хватает.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: syn-wine-helper-bin](https://aur.archlinux.org/packages/syn-wine-helper-bin) · [AUR: syn-wine-helper-git](https://aur.archlinux.org/packages/syn-wine-helper-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/syn-wine-helper/) · [AUR: syn-wine-helper-bin](https://aur.archlinux.org/packages/syn-wine-helper-bin) · [AUR: syn-wine-helper-git](https://aur.archlinux.org/packages/syn-wine-helper-git)
 
 ![Не хватает компонентов](docs/screenshots/ask-ru.png)
 

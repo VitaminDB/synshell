@@ -4,7 +4,7 @@
 
 **Монитор ресурсов рабочего стола synshell — процессор, графика и видеопамять, нейропроцессор, память, сеть, накопители, датчики, питание и процессы.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: syn-systeminfo-bin](https://aur.archlinux.org/packages/syn-systeminfo-bin) · [AUR: syn-systeminfo-git](https://aur.archlinux.org/packages/syn-systeminfo-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/syn-systeminfo/) · [AUR: syn-systeminfo-bin](https://aur.archlinux.org/packages/syn-systeminfo-bin) · [AUR: syn-systeminfo-git](https://aur.archlinux.org/packages/syn-systeminfo-git)
 
 ![Процессор](docs/screenshots/cpu-ru.png)
 

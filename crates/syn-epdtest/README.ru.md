@@ -4,7 +4,7 @@
 
 **Профили и тест экрана E Ink для synshell на устройствах ONYX BOOX — инструмент для разработчиков и для настройки панели.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: syn-epdtest-bin](https://aur.archlinux.org/packages/syn-epdtest-bin) · [AUR: syn-epdtest-git](https://aur.archlinux.org/packages/syn-epdtest-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/syn-epdtest/) · [AUR: syn-epdtest-bin](https://aur.archlinux.org/packages/syn-epdtest-bin) · [AUR: syn-epdtest-git](https://aur.archlinux.org/packages/syn-epdtest-git)
 
 ![Редактор профиля](docs/screenshots/profile-ru.png)
 

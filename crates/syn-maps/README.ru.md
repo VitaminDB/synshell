@@ -4,7 +4,7 @@
 
 **Карты рабочего стола synshell — OpenStreetMap с поиском, маршрутами и своим местоположением, на компьютере и телефоне.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: syn-maps-bin](https://aur.archlinux.org/packages/syn-maps-bin) · [AUR: syn-maps-git](https://aur.archlinux.org/packages/syn-maps-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/syn-maps/) · [AUR: syn-maps-bin](https://aur.archlinux.org/packages/syn-maps-bin) · [AUR: syn-maps-git](https://aur.archlinux.org/packages/syn-maps-git)
 
 ![Маршрут](docs/screenshots/route-ru.png)
 

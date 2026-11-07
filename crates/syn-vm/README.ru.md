@@ -4,7 +4,7 @@
 
 **Виртуальные машины рабочего стола synshell — QEMU/KVM с родным интерфейсом, командной строкой для скриптов и MCP-сервером для ИИ-агентов.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: syn-vm-bin](https://aur.archlinux.org/packages/syn-vm-bin) · [AUR: syn-vm-git](https://aur.archlinux.org/packages/syn-vm-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/syn-vm/) · [AUR: syn-vm-bin](https://aur.archlinux.org/packages/syn-vm-bin) · [AUR: syn-vm-git](https://aur.archlinux.org/packages/syn-vm-git)
 
 ![Windows 11 в окне syn-vm](docs/screenshots/screen-ru.png)
 

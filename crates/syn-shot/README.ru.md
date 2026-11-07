@@ -4,7 +4,7 @@
 
 **Снимки экрана рабочего стола synshell — экран застывает, вы выделяете область или щёлкаете по окну, затем копируете, сохраняете или открываете снимок.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: synshell-core-bin](https://aur.archlinux.org/packages/synshell-core-bin) · [AUR: synshell-core-git](https://aur.archlinux.org/packages/synshell-core-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/syn-shot/) · [AUR: synshell-core-bin](https://aur.archlinux.org/packages/synshell-core-bin) · [AUR: synshell-core-git](https://aur.archlinux.org/packages/synshell-core-git)
 
 ![Выделение области](docs/screenshots/select-ru.png)
 

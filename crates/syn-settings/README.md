@@ -4,7 +4,7 @@
 
 **System settings for the synshell desktop — themes, wallpaper, panels, input, displays, network, sound and the rest of `config.toml` in one window.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: synshell-core-bin](https://aur.archlinux.org/packages/synshell-core-bin) · [AUR: synshell-core-git](https://aur.archlinux.org/packages/synshell-core-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/syn-settings/) · [AUR: synshell-core-bin](https://aur.archlinux.org/packages/synshell-core-bin) · [AUR: synshell-core-git](https://aur.archlinux.org/packages/synshell-core-git)
 
 ![Themes](docs/screenshots/themes-en.png)
 

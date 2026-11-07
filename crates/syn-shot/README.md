@@ -4,7 +4,7 @@
 
 **Screenshots for the synshell desktop — the screen freezes, you select an area or click a window, then copy, save or open it.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: synshell-core-bin](https://aur.archlinux.org/packages/synshell-core-bin) · [AUR: synshell-core-git](https://aur.archlinux.org/packages/synshell-core-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/syn-shot/) · [AUR: synshell-core-bin](https://aur.archlinux.org/packages/synshell-core-bin) · [AUR: synshell-core-git](https://aur.archlinux.org/packages/synshell-core-git)
 
 ![Area selection](docs/screenshots/select-en.png)
 

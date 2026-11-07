@@ -4,7 +4,7 @@
 
 **Экран связанного устройства в окне — смотреть на телефон с компьютера и управлять им, или наоборот.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: synshell-link-bin](https://aur.archlinux.org/packages/synshell-link-bin) · [AUR: synshell-link-git](https://aur.archlinux.org/packages/synshell-link-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/syn-link-view/) · [AUR: synshell-link-bin](https://aur.archlinux.org/packages/synshell-link-bin) · [AUR: synshell-link-git](https://aur.archlinux.org/packages/synshell-link-git)
 
 ![Экран телефона](docs/screenshots/phone-ru.png)
 

@@ -4,7 +4,7 @@
 
 **Wine components for the synshell desktop — DLLs that Wine itself does not have (MFC, Visual Basic runtimes, OpenAL), installed once for all prefixes and offered when a program needs them.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: syn-wine-helper-bin](https://aur.archlinux.org/packages/syn-wine-helper-bin) · [AUR: syn-wine-helper-git](https://aur.archlinux.org/packages/syn-wine-helper-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/syn-wine-helper/) · [AUR: syn-wine-helper-bin](https://aur.archlinux.org/packages/syn-wine-helper-bin) · [AUR: syn-wine-helper-git](https://aur.archlinux.org/packages/syn-wine-helper-git)
 
 ![Missing components](docs/screenshots/ask-en.png)
 

@@ -4,7 +4,7 @@
 
 **The synshell assistant — chat and voice conversations with local neural networks that can control the system, files, notes and the web.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: synshell-ai-bin](https://aur.archlinux.org/packages/synshell-ai-bin) · [AUR: synshell-ai-git](https://aur.archlinux.org/packages/synshell-ai-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/syn-assistant/) · [AUR: synshell-ai-bin](https://aur.archlinux.org/packages/synshell-ai-bin) · [AUR: synshell-ai-git](https://aur.archlinux.org/packages/synshell-ai-git)
 
 ![Chat](docs/screenshots/chat-en.png)
 

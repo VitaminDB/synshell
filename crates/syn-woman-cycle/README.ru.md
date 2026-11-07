@@ -4,7 +4,7 @@
 
 **Женский календарь рабочего стола synshell — месячные, фертильное окно и овуляция, самочувствие и настроение; данные остаются на устройстве.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: syn-woman-cycle-bin](https://aur.archlinux.org/packages/syn-woman-cycle-bin) · [AUR: syn-woman-cycle-git](https://aur.archlinux.org/packages/syn-woman-cycle-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/syn-woman-cycle/) · [AUR: syn-woman-cycle-bin](https://aur.archlinux.org/packages/syn-woman-cycle-bin) · [AUR: syn-woman-cycle-git](https://aur.archlinux.org/packages/syn-woman-cycle-git)
 
 ![Обзор](docs/screenshots/overview-ru.png)
 

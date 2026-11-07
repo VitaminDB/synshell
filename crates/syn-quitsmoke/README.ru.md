@@ -4,7 +4,7 @@
 
 **QuitSmoke — помощник, чтобы бросить курить или вейп, сразу или постепенно: время без курения, экономия, вехи здоровья, тяга и награды.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: syn-quitsmoke-bin](https://aur.archlinux.org/packages/syn-quitsmoke-bin) · [AUR: syn-quitsmoke-git](https://aur.archlinux.org/packages/syn-quitsmoke-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/syn-quitsmoke/) · [AUR: syn-quitsmoke-bin](https://aur.archlinux.org/packages/syn-quitsmoke-bin) · [AUR: syn-quitsmoke-git](https://aur.archlinux.org/packages/syn-quitsmoke-git)
 
 ![Главная](docs/screenshots/home-ru.png)
 

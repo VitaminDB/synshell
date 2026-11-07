@@ -4,7 +4,7 @@
 
 **Установка программ для рабочего стола synshell — каталог, установка, удаление и обновление программ из репозиториев Arch Linux и AUR.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: synshell-core-bin](https://aur.archlinux.org/packages/synshell-core-bin) · [AUR: synshell-core-git](https://aur.archlinux.org/packages/synshell-core-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/syn-pkg/) · [AUR: synshell-core-bin](https://aur.archlinux.org/packages/synshell-core-bin) · [AUR: synshell-core-git](https://aur.archlinux.org/packages/synshell-core-git)
 
 ![Обзор](docs/screenshots/explore-ru.png)
 

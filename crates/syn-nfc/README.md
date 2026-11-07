@@ -4,7 +4,7 @@
 
 **NFC app for synshell on phones — read tags, keep them, write your own and let the phone act as a tag.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: synshell-mobile-bin](https://aur.archlinux.org/packages/synshell-mobile-bin) · [AUR: synshell-mobile-git](https://aur.archlinux.org/packages/synshell-mobile-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/syn-nfc/) · [AUR: synshell-mobile-bin](https://aur.archlinux.org/packages/synshell-mobile-bin) · [AUR: synshell-mobile-git](https://aur.archlinux.org/packages/synshell-mobile-git)
 
 ![Read](docs/screenshots/read-en.png)
 

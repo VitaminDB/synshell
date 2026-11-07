@@ -4,7 +4,7 @@
 
 **Камера synshell для телефонов — фото, ночь, профи, видео и таймлапс, зум, фокус касанием и просмотр снятого.**
 
-[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/) · [AUR: syncamera-bin](https://aur.archlinux.org/packages/syncamera-bin) · [AUR: syncamera-git](https://aur.archlinux.org/packages/syncamera-git)
+[English](README.md) · [Сайт](https://alexeyev.dev/ru/synshell/syn-camera/) · [AUR: syncamera-bin](https://aur.archlinux.org/packages/syncamera-bin) · [AUR: syncamera-git](https://aur.archlinux.org/packages/syncamera-git)
 
 ![Фото](docs/screenshots/photo-ru.png)
 

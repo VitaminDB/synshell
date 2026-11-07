@@ -4,7 +4,7 @@
 
 **Password manager for the synshell desktop — an encrypted vault under one master password, synced with your other synshell devices.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: synpass-bin](https://aur.archlinux.org/packages/synpass-bin) · [AUR: synpass-git](https://aur.archlinux.org/packages/synpass-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/syn-pass/) · [AUR: synpass-bin](https://aur.archlinux.org/packages/synpass-bin) · [AUR: synpass-git](https://aur.archlinux.org/packages/synpass-git)
 
 ![Passwords](docs/screenshots/list-en.png)
 

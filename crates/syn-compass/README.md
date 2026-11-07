@@ -4,7 +4,7 @@
 
 **Compass for synshell on phones — magnetometer and accelerometer, a level, a bearing mark and figure-eight calibration.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: synshell-mobile-bin](https://aur.archlinux.org/packages/synshell-mobile-bin) · [AUR: synshell-mobile-git](https://aur.archlinux.org/packages/synshell-mobile-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/syn-compass/) · [AUR: synshell-mobile-bin](https://aur.archlinux.org/packages/synshell-mobile-bin) · [AUR: synshell-mobile-git](https://aur.archlinux.org/packages/synshell-mobile-git)
 
 ![Compass](docs/screenshots/compass-en.png)
 

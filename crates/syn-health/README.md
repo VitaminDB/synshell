@@ -4,7 +4,7 @@
 
 **Steps and activity for synshell on phones — the phone's pedometer, distance, calories, by hour and by week.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: synshell-mobile-bin](https://aur.archlinux.org/packages/synshell-mobile-bin) · [AUR: synshell-mobile-git](https://aur.archlinux.org/packages/synshell-mobile-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/syn-health/) · [AUR: synshell-mobile-bin](https://aur.archlinux.org/packages/synshell-mobile-bin) · [AUR: synshell-mobile-git](https://aur.archlinux.org/packages/synshell-mobile-git)
 
 ![Today](docs/screenshots/today-en.png)
 

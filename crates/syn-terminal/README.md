@@ -4,7 +4,7 @@
 
 **Terminal for the synshell desktop — tabs in the title bar, color schemes, font settings; on a phone, a row of keys the on-screen keyboard lacks.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: synshell-core-bin](https://aur.archlinux.org/packages/synshell-core-bin) · [AUR: synshell-core-git](https://aur.archlinux.org/packages/synshell-core-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/syn-terminal/) · [AUR: synshell-core-bin](https://aur.archlinux.org/packages/synshell-core-bin) · [AUR: synshell-core-git](https://aur.archlinux.org/packages/synshell-core-git)
 
 ![Terminal](docs/screenshots/terminal-en.png)
 

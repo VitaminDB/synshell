@@ -4,7 +4,7 @@
 
 **Video player for the synshell desktop — hardware decoding, subtitles with full styling, a simple cut-and-join editor and neural filters.**
 
-[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/) · [AUR: syn-video-player-bin](https://aur.archlinux.org/packages/syn-video-player-bin) · [AUR: syn-video-player-git](https://aur.archlinux.org/packages/syn-video-player-git)
+[Русский](README.ru.md) · [Website](https://alexeyev.dev/synshell/syn-video-player/) · [AUR: syn-video-player-bin](https://aur.archlinux.org/packages/syn-video-player-bin) · [AUR: syn-video-player-git](https://aur.archlinux.org/packages/syn-video-player-git)
 
 ![Player](docs/screenshots/player-en.png)
 
