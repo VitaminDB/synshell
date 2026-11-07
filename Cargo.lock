@@ -7270,6 +7270,7 @@ dependencies = [
  "env_logger",
  "libc",
  "log",
+ "syn-keyboard",
  "syn-system",
  "syngui",
  "syngui-layer",

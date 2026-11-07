@@ -151,7 +151,9 @@ pub fn handle(cmd: &str) {
         // Жест «назад» при открытом оверлее: закрыть окно оболочки или
         // выйти из режима редактирования.
         "back" => {
-            if crate::recents::is_open() {
+            if crate::lock::preview_open() {
+                crate::lock::close_preview();
+            } else if crate::recents::is_open() {
                 crate::recents::close();
             } else if crate::shade::is_open() {
                 crate::shade::close();

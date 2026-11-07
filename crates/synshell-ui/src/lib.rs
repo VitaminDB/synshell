@@ -41,6 +41,10 @@ pub mod menu_prefs;
 pub mod link;
 pub mod location;
 pub mod lock;
+pub mod login_screen;
+
+/// Строки оболочки — и для экрана входа (общий экран входа и блокировки, [`login_screen`]).
+pub const CATALOGS: &[&str] = &synshell_common::catalogs!("../i18n");
 pub mod manager;
 pub mod modem;
 pub mod netmenu;
@@ -118,7 +122,7 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
     FORM_FACTOR.with(|f| f.set(shell.form_factor));
     let (config, err) = load_config(shell.form_factor);
     // Язык интерфейса: строки оболочки, телефонной и десктопной (`i18n/*.lang`).
-    synshell_common::i18n::init(&[&synshell_common::catalogs!("../i18n")[..], syn_assist::CATALOGS].concat());
+    synshell_common::i18n::init(&[CATALOGS, syn_assist::CATALOGS].concat());
     apply_animations(&config);
     if let Some(e) = err {
         log::error!("ошибка в конфиге, взяты значения по умолчанию: {e}");
@@ -139,6 +143,8 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
     });
     let mss = theme::build(&config);
     app_colors::sync(&config);
+    // Экран входа — в том же виде, что оболочка (тема, акцент, обои).
+    theme::save_login_theme(&config);
     let font = Some(config.appearance.font.trim().to_string()).filter(|f| !f.is_empty());
     let form_factor = shell.form_factor;
     let install = shell.install;
@@ -361,6 +367,7 @@ pub fn reload_config() {
         syngui_layer::set_stylesheet(theme::build(&cfg));
     }
     app_colors::sync(&cfg);
+    theme::save_login_theme(&cfg);
     ctx.dnd.set(cfg.notifications.do_not_disturb);
     synshell_common::haptics::set_config(&cfg.haptics);
     ctx.config.set_always(Arc::new(cfg));

@@ -31,7 +31,8 @@ pub fn set_config_mss(f: fn(&Config) -> String) {
     let _ = CONFIG_MSS.set(f);
 }
 
-pub fn build(cfg: &Config) -> String {
+/// Переменные палитры (`[appearance]` и темы).
+fn variables(cfg: &Config) -> String {
     let a = &cfg.appearance;
     let mut out = a.mss_variables();
     let pal = a.palette();
@@ -41,13 +42,13 @@ pub fn build(cfg: &Config) -> String {
         pal.bg.with_alpha(0.35).hex(),
     ));
     out.push_str(&a.theme_mss_variables());
-    out.push_str(BASE);
-    // Клавиатура экрана блокировки — та же, что демон synkeyboard (её вид).
-    out.push_str(syn_keyboard::STYLE);
-    out.push_str(layer().0);
-    if let Some(f) = CONFIG_MSS.get() {
-        out.push_str(&f(cfg));
-    }
+    out
+}
+
+/// Шрифт, стили темы, цвет обоев и `~/.config/synshell/theme.mss` — поверх встроенных стилей.
+fn theme_rules(cfg: &Config) -> String {
+    let a = &cfg.appearance;
+    let mut out = String::new();
     // Общий шрифт — на всё, что рисует текст.
     if !a.font.trim().is_empty() {
         out.push_str(&format!("Text, Button, TextField {{\n  font-family: \"{}\";\n}}\n", a.font.trim()));
@@ -63,6 +64,37 @@ pub fn build(cfg: &Config) -> String {
         out.push_str("\n/* ~/.config/synshell/theme.mss */\n");
         out.push_str(&user);
     }
+    out
+}
+
+/// Экран блокировки и входа (общий вид) и клавиатура ввода пароля (та же, что демон synkeyboard).
+pub const LOGIN_STYLE: &str = include_str!("../styles/login.mss");
+
+/// Тема экрана входа — вид оболочки этого пользователя ([`synshell_common::login_theme`]): палитра,
+/// стили темы и обои. Пишется при каждой сборке темы; файл не изменился — не трогается.
+pub fn save_login_theme(cfg: &Config) {
+    let w = &cfg.wallpaper;
+    let frame = w.frame_for("", 0);
+    let wallpaper = synshell_common::wallpaper::pick(&frame.path, 0)
+        .and_then(|p| synshell_common::wallpaper::displayable(&p))
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let t = synshell_common::login_theme::LoginTheme { mss: variables(cfg) + &theme_rules(cfg), wallpaper, mode: w.mode.clone() };
+    if let Err(e) = synshell_common::login_theme::save(&t) {
+        log::warn!("тема экрана входа: {e}");
+    }
+}
+
+pub fn build(cfg: &Config) -> String {
+    let mut out = variables(cfg);
+    out.push_str(BASE);
+    out.push_str(LOGIN_STYLE);
+    out.push_str(syn_keyboard::STYLE);
+    out.push_str(layer().0);
+    if let Some(f) = CONFIG_MSS.get() {
+        out.push_str(&f(cfg));
+    }
+    out.push_str(&theme_rules(cfg));
     if let Some(f) = layer().1 {
         if let Ok(user) = std::fs::read_to_string(paths::config_dir().join(f)) {
             out.push_str(&format!("\n/* ~/.config/synshell/{f} */\n"));

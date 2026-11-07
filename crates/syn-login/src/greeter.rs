@@ -47,6 +47,8 @@ struct St {
     zoom: RwSignal<f64>,
     /// Растёт при каждом сдвиге ползунка — запись в конфиг после паузы.
     zoom_rev: RwSignal<u64>,
+    /// Неудачные попытки входа — общий экран входа стирает набранное.
+    attempt: RwSignal<u32>,
 }
 
 /// Пределы и шаг ползунка масштаба.
@@ -81,7 +83,8 @@ pub fn run() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,wgpu_core=warn,wgpu_hal=warn,naga=warn")).init();
     // Язык экрана входа — системный: /etc/synshell/config.toml ([general] language), иначе LANG;
     // выбрали пользователя — его язык (см. user_language).
-    synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
+    // Свои строки и строки общего экрана входа и блокировки (synshell-ui).
+    synshell_common::i18n::init(&[&synshell_common::catalogs!("../i18n")[..], synshell_ui::CATALOGS].concat());
     synshell_common::i18n::apply(&system_config());
     let (cfg, _) = synshell_common::Config::load();
     std::thread::spawn(restore_backlight);
@@ -101,7 +104,14 @@ pub fn run() {
     if eink {
         style = style.base(include_str!("../styles/greeter-eink.mss"));
     }
-    let mss = style.build();
+    // Общий экран входа и блокировки и его клавиатура (как у synkeyboard).
+    style = style.base(synshell_ui::theme::LOGIN_STYLE).base(syn_keyboard::STYLE);
+    let mut mss = style.build();
+    // Вид оболочки последнего пользователя: палитра, тема, обои (как SDDM = экран блокировки).
+    if let Some(t) = login_theme() {
+        mss.push_str("\n/* /var/lib/synshell/theme.toml */\n");
+        mss.push_str(&t.mss);
+    }
     let outputs_cfg = cfg.outputs.clone();
     start_keyboard();
     let r = syngui_layer::run(syngui_layer::RunOptions::default(), &mss, move || {
@@ -120,6 +130,7 @@ pub fn run() {
             zoom_open: use_signal(false),
             zoom: use_signal(current_zoom(&outputs_cfg)),
             zoom_rev: use_signal(0),
+            attempt: use_signal(0),
         };
         // Часы — с точностью до минуты и по её смене: лишний кадр на E Ink — обновление панели.
         syngui_layer::add_timer(until_next_minute(), move || {
@@ -152,7 +163,8 @@ pub fn run() {
             let show = st.osk.get()
                 && match st.stage.get() {
                     Stage::Users => false,
-                    Stage::Password(u) => !users::has_empty_password(&u.name),
+                    // Телефон: у пароля своя клавиатура общего экрана входа.
+                    Stage::Password(u) => !users::has_empty_password(&u.name) && !phone(),
                     Stage::Create => true,
                 };
             osk(if show { "show dock" } else { "hide" });
@@ -361,6 +373,7 @@ fn login(st: St, user: User) {
                 Ok(()) => finish(&user.name),
                 Err(e) => {
                     st.error.set(e);
+                    st.attempt.set(st.attempt.get_untracked() + 1);
                     set_value(st, 0, String::new());
                     select_field(st, 0);
                     st.osk_rev.set(st.osk_rev.get_untracked() + 1);
@@ -456,6 +469,8 @@ fn view(st: St) -> impl Widget {
             AnimatedSwitcher::new(key, move || -> Box<dyn Widget> {
                 match st.stage.get_untracked() {
                     Stage::Users => Box::new(users_view(st)),
+                    // Телефон: ввод пароля — общий экран поверх (см. phone_password).
+                    Stage::Password(u) if phone() && !users::has_empty_password(&u.name) => Box::new(Column::new()),
                     Stage::Password(u) => Box::new(password_view(st, u)),
                     Stage::Create => Box::new(create_view(st)),
                 }
@@ -466,6 +481,89 @@ fn view(st: St) -> impl Widget {
             .animate_size(false),
         )]
     });
+    let android_hint = Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        if !st.android_confirm.get() {
+            return vec![];
+        }
+        vec![Box::new(Text::new(t!("Нажмите ещё раз — перезагрузка в Android")).class("hint"))]
+    });
+    let zoom = Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        if !st.zoom_open.get() {
+            return vec![];
+        }
+        vec![Box::new(zoom_view(st))]
+    });
+    let column = Column::new()
+        .main_axis_alignment(MainAxisAlignment::SpaceBetween)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(clock)
+        .child(body)
+        .child(Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(zoom).child(android_hint).child(power_row(st)))
+        .class("root");
+    // Телефон, ввод пароля — общий экран входа и блокировки (тот же, что блокировка сеанса).
+    let screen = Reactive::new(move || -> Vec<Box<dyn Widget>> {
+        match st.stage.get() {
+            Stage::Password(u) if phone() && !users::has_empty_password(&u.name) => vec![Box::new(phone_password(st, u))],
+            _ => vec![],
+        }
+    });
+    Stack::new()
+        .fit(StackFit::Expand)
+        .child(background())
+        .child(column)
+        .child(screen)
+}
+
+/// Фон экрана входа: обои пользователя из темы экрана входа, иначе градиент.
+fn background() -> Box<dyn Widget> {
+    match login_theme() {
+        Some(t) => synshell_ui::login_screen::wallpaper_background(t.wallpaper, t.mode),
+        None => Box::new(DecoratedBox::new().class("bg")),
+    }
+}
+
+/// Тема экрана входа (вид оболочки последнего пользователя), прочитанная один раз.
+fn login_theme() -> Option<synshell_common::login_theme::LoginTheme> {
+    static T: std::sync::OnceLock<Option<synshell_common::login_theme::LoginTheme>> = std::sync::OnceLock::new();
+    T.get_or_init(synshell_common::login_theme::load).clone()
+}
+
+/// Пароль на телефоне — общий экран входа и блокировки ([`synshell_ui::login_screen`]).
+fn phone_password(st: St, u: User) -> impl Widget {
+    use std::sync::Arc;
+    let several = st.users.get_untracked().len() > 1;
+    let u2 = u.clone();
+    let spec = synshell_ui::login_screen::Spec {
+        name: u.display(),
+        now: st.now,
+        notes: None,
+        checking: st.busy,
+        error: st.error,
+        attempt: st.attempt,
+        submit: Arc::new(move |p: String| {
+            set_value(st, 0, p);
+            login(st, u2.clone());
+        }),
+        swipe: Arc::new(|| false),
+        extra: several.then(|| {
+            (
+                t!("Другой пользователь").to_string(),
+                Arc::new(move || {
+                    reset_values(st);
+                    st.stage.set(Stage::Users);
+                }) as Arc<dyn Fn() + Send + Sync>,
+            )
+        }),
+        footer: Some(Arc::new(move || Box::new(power_row(st)) as Box<dyn Widget>)),
+        background: Arc::new(background),
+        initial: synshell_ui::login_screen::Stage::Cover,
+        anim_ms: if eink() { 0 } else { 260 },
+    };
+    synshell_ui::login_screen::view(spec)
+}
+
+/// Кнопки внизу: выключение, перезагрузка (и в Android), клавиатура, масштаб.
+fn power_row(st: St) -> impl Widget {
     let mut power = Row::new()
         .gap(10.0)
         .child(round_btn("\u{E8AC}", || finish("!poweroff")))
@@ -494,30 +592,7 @@ fn view(st: St) -> impl Widget {
             });
         }))
         .child(round_btn("\u{E8FF}", move || st.zoom_open.set(!st.zoom_open.get_untracked())));
-    let android_hint = Reactive::new(move || -> Vec<Box<dyn Widget>> {
-        if !st.android_confirm.get() {
-            return vec![];
-        }
-        vec![Box::new(Text::new(t!("Нажмите ещё раз — перезагрузка в Android")).class("hint"))]
-    });
-    let zoom = Reactive::new(move || -> Vec<Box<dyn Widget>> {
-        if !st.zoom_open.get() {
-            return vec![];
-        }
-        vec![Box::new(zoom_view(st))]
-    });
-    Stack::new()
-        .fit(StackFit::Expand)
-        .child(DecoratedBox::new().class("bg"))
-        .child(
-            Column::new()
-                .main_axis_alignment(MainAxisAlignment::SpaceBetween)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(clock)
-                .child(body)
-                .child(Column::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Center).child(zoom).child(android_hint).child(power))
-                .class("root"),
-        )
+    power
 }
 
 fn submit(st: St) {

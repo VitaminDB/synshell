@@ -135,6 +135,10 @@ fn run_greeter() {
     if let Err(e) = synshell_common::rotation_state::ensure_system_file() {
         log::warn!("файл ориентации экрана: {e}");
     }
+    // Тема экрана входа — копия вида оболочки пользователя (пишет оболочка, см. login_theme).
+    if let Err(e) = synshell_common::login_theme::ensure_system_file() {
+        log::warn!("файл темы экрана входа: {e}");
+    }
     restore_eink();
     let _ = std::fs::remove_file(REQUEST);
     let rt = "/run/synlogin/greeter";
