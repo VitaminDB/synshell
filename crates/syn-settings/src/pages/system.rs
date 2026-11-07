@@ -812,6 +812,7 @@ pub fn autostart() -> W {
 
 /// Готовые разрешения экрана X11 (`[x11] resolution`, `[[x11_app]]`).
 const X11_RESOLUTIONS: &[(&str, &str)] = &[
+    ("auto", n_!("Авто — на телефоне крупно, на компьютере чётко")),
     ("native", n_!("Как у экрана — чётко, мелко")),
     ("1440p", "1440p"),
     ("1080p", "1080p"),
@@ -823,7 +824,7 @@ const X11_RESOLUTIONS: &[(&str, &str)] = &[
 
 /// Выбор разрешения X11: готовые варианты и текущее значение, если оно своё.
 fn x11_resolution_choice(p: crate::ui::P, current: &str) -> impl Widget {
-    let cur = if current.trim().is_empty() { "native" } else { current.trim() };
+    let cur = if current.trim().is_empty() { "auto" } else { current.trim() };
     let mut opts: Vec<(String, String)> = X11_RESOLUTIONS.iter().map(|(v, l)| (v.to_string(), tl(l))).collect();
     if !opts.iter().any(|(v, _)| v.eq_ignore_ascii_case(cur)) {
         opts.push((cur.to_string(), cur.to_string()));
@@ -997,7 +998,7 @@ fn x11_group(c: &synshell_common::config::Config) -> W {
         row(
             t!("Своё значение"),
             t!("Ширина×высота, 720p или 50%"),
-            opt_text(op!["x11", "resolution"], &c.x11.resolution, "native", 200.0),
+            opt_text(op!["x11", "resolution"], &c.x11.resolution, "auto", 200.0),
         ),
     ];
     for (i, a) in c.x11_apps.iter().enumerate() {

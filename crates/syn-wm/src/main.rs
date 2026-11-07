@@ -376,12 +376,16 @@ fn run(args: &[String]) -> anyhow::Result<bool> {
     state.core.shell.stop();
     let restart = state.core.restart_requested;
     let x_displays: Vec<u32> = state.core.xwayland.iter().filter_map(|x| x.display).collect();
+    let modes_files: Vec<std::path::PathBuf> = state.core.xwayland.iter().map(|x| x.modes_file().to_path_buf()).collect();
     // Освободить DRM, ввод, сокеты до exec.
     drop(state);
     drop(event_loop);
     // Перед exec Xwayland уже убит, но его замок и сокет остались бы: новый
     // композитор счёл бы дисплей занятым (PID замка — наш ребёнок-зомби) и
     // взял следующий номер.
+    for f in modes_files {
+        let _ = std::fs::remove_file(f);
+    }
     for n in x_displays {
         let _ = std::fs::remove_file(format!("/tmp/.X{n}-lock"));
         let _ = std::fs::remove_file(format!("/tmp/.X11-unix/X{n}"));

@@ -2930,7 +2930,8 @@ impl Default for Brightness {
 #[serde(default, deny_unknown_fields)]
 pub struct X11 {
     /// Разрешение экрана X11 для всех программ — см. [`X11Resolution`]:
-    /// `native` (пиксели экрана, по умолчанию), `logical` (как у Wayland-программ),
+    /// `auto` (по умолчанию: на телефоне `logical`, иначе `native`), `native` (пиксели
+    /// экрана), `logical` (как у Wayland-программ),
     /// `1920x864`, `720p` (короткая сторона), `50%` (доля от пикселей экрана).
     /// Меньше пикселей — крупнее интерфейс программы (и быстрее игры):
     /// композитор растягивает её окна на экран.
@@ -2953,7 +2954,7 @@ pub struct X11 {
 impl Default for X11 {
     fn default() -> Self {
         Self {
-            resolution: "native".into(),
+            resolution: "auto".into(),
             modes: ["1080p", "900p", "720p", "600p", "540p", "480p"].map(String::from).to_vec(),
             aspects: ["screen", "16:9", "4:3"].map(String::from).to_vec(),
             dpi: 0,
@@ -2977,6 +2978,9 @@ pub struct X11App {
 /// Разрешение экрана X11-программ.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum X11Resolution {
+    /// По устройству — см. [`X11Resolution::resolve`]: на телефоне `Logical` (при крупном
+    /// масштабе программы без своего масштаба иначе нечитаемо мелкие), иначе `Native`.
+    Auto,
     /// Пиксели экрана: всё чётко, интерфейс по DPI программы.
     Native,
     /// Логический размер вывода — как у Wayland-программ с масштабом.
@@ -2995,7 +2999,8 @@ impl X11Resolution {
     pub fn parse(s: &str) -> Option<Self> {
         let s = s.trim().to_ascii_lowercase();
         Some(match s.as_str() {
-            "" | "native" => Self::Native,
+            "" | "auto" => Self::Auto,
+            "native" => Self::Native,
             "logical" => Self::Logical,
             _ => {
                 if let Some(p) = s.strip_suffix('%') {
@@ -3016,11 +3021,20 @@ impl X11Resolution {
     /// Масштаб клиента Xwayland (пикселей X11 на логический пиксель) для
     /// вывода с масштабом `output_scale` и логическим размером `logical`.
     /// `logical` — дробный (пиксели / масштаб), чтобы `720p` дал ровно 720.
+    /// `Auto` для устройства: `phone` — телефон (`Logical`), иначе `Native`.
+    pub fn resolve(self, phone: bool) -> Self {
+        match self {
+            Self::Auto if phone => Self::Logical,
+            Self::Auto => Self::Native,
+            r => r,
+        }
+    }
+
     pub fn client_scale(self, output_scale: f64, logical: (f64, f64)) -> f64 {
         let long = logical.0.max(logical.1).max(1.0);
         let short = logical.0.min(logical.1).max(1.0);
         let s = match self {
-            Self::Native => output_scale,
+            Self::Native | Self::Auto => output_scale,
             Self::Logical => 1.0,
             Self::Size(w, h) => w.max(h) as f64 / long,
             Self::Short(p) => p as f64 / short,
@@ -3038,7 +3052,7 @@ impl X11Resolution {
         let aspect = screen.0 / screen.1.max(1.0);
         let even = |v: f64| ((v / 2.0).round() * 2.0).max(2.0) as u32;
         match self {
-            Self::Native => (even(screen.0 / client_scale * output_scale), even(screen.1 / client_scale * output_scale)),
+            Self::Native | Self::Auto => (even(screen.0 / client_scale * output_scale), even(screen.1 / client_scale * output_scale)),
             Self::Logical => (even(screen.0 / client_scale), even(screen.1 / client_scale)),
             Self::Size(w, h) => (w.max(h), w.min(h)),
             Self::Short(p) => (even(p as f64 * aspect), p),
@@ -3378,6 +3392,17 @@ impl Default for Packages {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn x11_resolution_auto() {
+        assert_eq!(X11Resolution::parse("auto"), Some(X11Resolution::Auto));
+        assert_eq!(X11Resolution::parse(""), Some(X11Resolution::Auto));
+        assert_eq!(X11Resolution::parse("native"), Some(X11Resolution::Native));
+        assert_eq!(X11Resolution::Auto.resolve(true), X11Resolution::Logical);
+        assert_eq!(X11Resolution::Auto.resolve(false), X11Resolution::Native);
+        assert_eq!(X11Resolution::Short(720).resolve(true), X11Resolution::Short(720));
+        assert_eq!(Config::parse("").unwrap().x11.resolution, "auto");
+    }
+
     #[test]
     fn x11_mode_aspects() {
         let mut x = X11 { modes: vec!["720p".into(), "1600x720".into(), "480p@4:3".into(), "bad".into()], ..X11::default() };

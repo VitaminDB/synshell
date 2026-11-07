@@ -65,6 +65,17 @@ export WINEDEBUG="${WINEDEBUG:--all}"
     wine reg add 'HKCU\Software\Wine\X11 Driver' /v EmulateModeset /d Y /f && wineserver -w \
       && touch "$WINEPREFIX/.synshell-emulate-modeset"
   fi
+  # DPI программ Windows — как у X-сервера игры (Xft.dpi от synwm: 96 × масштаб X11). На телефоне X11 по
+  # умолчанию в логическом разрешении (окна растягивает композитор) — там 96; LogPixels пакета (HKLM) при
+  # этом увеличивал бы интерфейс второй раз. HKCU важнее HKLM; пишется только при смене. Только aarch64
+  # (там и LogPixels пакета): на компьютере x86_64 DPI Wine прежний.
+  if [ "$machine" = aarch64 ] && [ -n "${DISPLAY:-}" ] && command -v xrdb >/dev/null; then
+    dpi=$(xrdb -query 2>/dev/null | sed -n 's/^Xft\.dpi:[[:space:]]*\([0-9]*\).*/\1/p' | head -1)
+    if [ -n "$dpi" ] && [ "$dpi" -ge 48 ] && [ "$(cat "$WINEPREFIX/.synshell-dpi" 2>/dev/null)" != "$dpi" ]; then
+      wine reg add 'HKCU\Control Panel\Desktop' /v LogPixels /t REG_DWORD /d "$dpi" /f && wineserver -w \
+        && echo "$dpi" >"$WINEPREFIX/.synshell-dpi"
+    fi
+  fi
   # Steam API (как Proton): steamclient(64).dll Valve — в «Program Files (x86)\Steam» префикса, путь к ним
   # пишет wine.inf (ActiveProcess\SteamClientDll64). ntdll перенаправляет их экспорты на lsteamclient.dll —
   # мост к ~/.steam/sdkarm64/steamclient.so клиента Steam. Без него steam_api игры не инициализируется.

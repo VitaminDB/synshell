@@ -25,7 +25,7 @@ use smithay::{
     },
 };
 
-use synshell_common::config::X11Resolution;
+use synshell_common::config::{FormFactor, X11Resolution};
 
 use crate::{focus::FocusTarget, state::State, wm::ResizeEdge};
 use synshell_tr::t;
@@ -56,6 +56,13 @@ impl XwaylandState {
 }
 
 /// Xwayland, которому принадлежит X11-окно.
+impl XwaylandState {
+    /// Файл режимов экрана этого Xwayland (удаляется при выходе композитора).
+    pub fn modes_file(&self) -> &std::path::Path {
+        &self.modes_file
+    }
+}
+
 pub fn instance_of<'a>(list: &'a [XwaylandState], x: &X11Surface) -> Option<&'a XwaylandState> {
     let id = x.xwm_id()?;
     list.iter().find(|i| i.xwm_id() == Some(id))
@@ -101,6 +108,9 @@ impl State {
     /// Запустить Xwayland с разрешением `resolution`; номер дисплея — сразу.
     fn spawn_xwayland(&mut self, resolution: String) -> Option<u32> {
         let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir);
+        if self.core.xwayland.is_empty() {
+            remove_stale_modes_files(&runtime);
+        }
         let modes_file = runtime.join(format!("synwm-x11-modes-{}-{}", std::process::id(), self.core.xwayland.len()));
         let _ = std::fs::write(&modes_file, "");
         let mut env: Vec<(String, String)> = std::env::vars()
@@ -175,8 +185,9 @@ impl State {
             return Err(t!("Xwayland выключен ([general] xwayland)").into());
         }
         let wanted = self.core.config.x11_resolution_for(keys).to_string();
-        let parsed = X11Resolution::parse(&wanted).ok_or_else(|| t!("непонятное разрешение «{wanted}»", wanted = wanted))?;
-        let same = |r: &str| X11Resolution::parse(r) == Some(parsed);
+        let phone = self.core.form_factor == FormFactor::Phone;
+        let parsed = X11Resolution::parse(&wanted).ok_or_else(|| t!("непонятное разрешение «{wanted}»", wanted = wanted))?.resolve(phone);
+        let same = |r: &str| X11Resolution::parse(r).map(|r| r.resolve(phone)) == Some(parsed);
         // Общий подходит, если разрешение совпадает.
         if let Some(i) = self.core.xwayland.iter().position(|x| same(&x.resolution)) {
             let x = &self.core.xwayland[i];
@@ -219,11 +230,14 @@ impl State {
         let dpi_setting = self.core.config.x11.dpi;
         let x11 = self.core.config.x11.clone();
         let mut changed = false;
+        let phone = self.core.form_factor == FormFactor::Phone;
         for i in 0..self.core.xwayland.len() {
-            let res = X11Resolution::parse(&self.core.xwayland[i].resolution).unwrap_or_else(|| {
-                tracing::warn!(resolution = %self.core.xwayland[i].resolution, "непонятное разрешение X11, беру native");
-                X11Resolution::Native
-            });
+            let res = X11Resolution::parse(&self.core.xwayland[i].resolution)
+                .unwrap_or_else(|| {
+                    tracing::warn!(resolution = %self.core.xwayland[i].resolution, "непонятное разрешение X11, беру native");
+                    X11Resolution::Native
+                })
+                .resolve(phone);
             let scale = res.client_scale(output_scale, logical);
             // Режимы экрана для игр — в пикселях этого Xwayland, длинная сторона первой.
             let screen = (long * scale, short * scale);
@@ -291,6 +305,20 @@ impl State {
             .iter()
             .find(|m| m.window.x11_surface() == Some(window))
             .map(|m| m.id)
+    }
+}
+
+/// Файлы режимов экрана Xwayland (`synwm-x11-modes-<pid>-<n>`) композиторов, которых уже нет
+/// (упавших или убитых): при обычном выходе свои файлы удаляет сам композитор.
+fn remove_stale_modes_files(dir: &std::path::Path) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let name = e.file_name();
+        let Some(rest) = name.to_str().and_then(|n| n.strip_prefix("synwm-x11-modes-")) else { continue };
+        let Some(pid) = rest.split('-').next().and_then(|p| p.parse::<u32>().ok()) else { continue };
+        if !std::path::Path::new(&format!("/proc/{pid}")).exists() {
+            let _ = std::fs::remove_file(e.path());
+        }
     }
 }
 

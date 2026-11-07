@@ -1750,6 +1750,7 @@
 "Запускать XDG Autostart" = "XDG Autostart ausführen"
 "~/.config/autostart и /etc/xdg/autostart" = "~/.config/autostart und /etc/xdg/autostart"
 "Как у экрана — чётко, мелко" = "Wie der Bildschirm – scharf, klein"
+"Авто — на телефоне крупно, на компьютере чётко" = "Automatisch – auf dem Telefon groß, am Computer scharf"
 "720p — крупно" = "720p – groß"
 "540p — очень крупно" = "540p – sehr groß"
 "Как у Wayland-программ" = "Wie bei Wayland-Anwendungen"
