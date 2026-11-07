@@ -417,6 +417,16 @@ pub fn apps() -> Arc<Vec<DesktopEntry>> {
         .unwrap_or_default()
 }
 
+/// Перечитать только список программ (имена на языке интерфейса) — без сброса значков:
+/// после смены языка.
+pub fn reload_app_names() {
+    let v = Arc::new(load_apps());
+    let lock = APPS.get_or_init(|| RwLock::new(v.clone()));
+    if let Ok(mut g) = lock.write() {
+        *g = v;
+    }
+}
+
 /// Перечитать приложения и сбросить индексы значков (новый пакет мог
 /// принести и значок). Тяжело (разбор тем значков) — звать не из потока UI.
 pub fn reload_apps() {

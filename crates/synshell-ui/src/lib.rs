@@ -317,7 +317,14 @@ pub fn reload_config() {
     }
     log::info!("конфиг перечитан");
     // Сменили язык — до пересборки поверхностей (смена [general] — пересборка).
+    let lang_before = syngui::i18n::language();
     synshell_common::i18n::apply(&cfg);
+    if syngui::i18n::language() != lang_before {
+        // Имена программ из .desktop (значки стола, док, меню запуска) — на новом языке: кэш
+        // программ разобран со старыми Name[…], его перечитать до пересборки.
+        xdg::reload_app_names();
+        ctx.apps_rev.set(ctx.apps_rev.get_untracked() + 1);
+    }
     apply_animations(&cfg);
     xdg::set_icon_theme(&cfg.appearance.icon_theme);
     // Сменилось только оформление (тема, обои, анимации) — поверхности
