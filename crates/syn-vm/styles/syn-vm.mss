@@ -257,7 +257,10 @@ Icon { icon-color: var(--fg); icon-size: 20px; }
 .screen-wrap { background-color: #0b0b0e; }
 .screen-wrap.full { background-color: #000000; }
 .screen { background-color: #0b0b0e; }
-.float-wrap { padding: 10px 0px 0px 0px; }
+.float-wrap { padding: 10px 0px 0px 0px; width: 100%; }
+.grip { padding: 6px 2px 6px 4px; border-radius: 999px; }
+.grip:hover { background-color: #ffffff1a; }
+.grip-icon { icon-color: #ffffff99; icon-size: 18px; }
 .float-bar {
     padding: 4px 6px;
     border-radius: 999px;

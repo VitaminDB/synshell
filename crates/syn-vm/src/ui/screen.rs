@@ -19,6 +19,38 @@ static CTRL: AtomicBool = AtomicBool::new(false);
 static ALT: AtomicBool = AtomicBool::new(false);
 static RESIZE_SEQ: AtomicU64 = AtomicU64::new(0);
 
+// ─── Положение панели над экраном гостя ─────────────────────────────────
+// Сдвиг (логические пиксели) от места по умолчанию — сверху по центру; панель тянут за ручку
+// слева, двойной щелчок по ручке — обратно в центр. Запоминается в `<данные>/syn-vm/screen-bar`.
+
+fn bar_file() -> std::path::PathBuf {
+    model::root().join("screen-bar")
+}
+
+fn bar_offset() -> &'static std::sync::Mutex<(f32, f32)> {
+    static O: std::sync::OnceLock<std::sync::Mutex<(f32, f32)>> = std::sync::OnceLock::new();
+    O.get_or_init(|| {
+        let v = std::fs::read_to_string(bar_file()).ok().and_then(|s| {
+            let mut it = s.split_whitespace().filter_map(|x| x.parse::<f32>().ok());
+            Some((it.next()?, it.next()?))
+        });
+        std::sync::Mutex::new(v.unwrap_or((0.0, 0.0)))
+    })
+}
+
+/// Сдвиг в пределах области экрана (`view_size` — физические пиксели).
+fn clamp_offset(st: St, (dx, dy): (f32, f32)) -> (f32, f32) {
+    let k = syngui::scale::pixel_ratio().max(0.1);
+    let (w, h) = st.view_size.get_untracked();
+    let (w, h) = (w as f32 / k, h as f32 / k);
+    let mx = (w / 2.0 - 120.0).max(0.0);
+    (dx.clamp(-mx, mx), dy.clamp(0.0, (h - 70.0).max(0.0)))
+}
+
+fn save_bar(o: (f32, f32)) {
+    let _ = std::fs::write(bar_file(), format!("{:.0} {:.0}\n", o.0, o.1));
+}
+
 pub fn page(st: St, full: bool) -> W {
     boxed(Reactive::new(move || -> Vec<W> {
         let Some(id) = st.sel.get() else { return vec![] };
@@ -343,7 +375,23 @@ fn toolbar(st: St, id: &str, full: bool) -> W {
     };
     let gpu3d = st.vm(id).is_some_and(|v| v.gpu_on());
     let cap_id = id.to_string();
-    let mut bar = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center);
+    // Ручка: тянуть панель в любое место экрана; двойной щелчок — сверху по центру.
+    let grip = GestureDetector::new()
+        .cursor(CursorIcon::Move)
+        .on_pan_update(move |u| {
+            let mut o = bar_offset().lock().unwrap();
+            *o = clamp_offset(st, (o.0 + u.delta.x, o.1 + u.delta.y));
+            drop(o);
+            st.frame_tick.update(|t| *t = t.wrapping_add(1));
+        })
+        .on_pan_end(|_| save_bar(*bar_offset().lock().unwrap()))
+        .on_double_click(move || {
+            *bar_offset().lock().unwrap() = (0.0, 0.0);
+            save_bar((0.0, 0.0));
+            st.frame_tick.update(|t| *t = t.wrapping_add(1));
+        })
+        .child(DecoratedBox::new().child(Icon::new(icons::DRAG).class("grip-icon")).class("grip"));
+    let mut bar = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).child(grip);
     if gpu3d {
         // Захват мыши для игр (камера в 3D-играх читает сырые смещения); Ctrl+Alt — выход.
         bar = bar
@@ -425,13 +473,18 @@ fn toolbar(st: St, id: &str, full: bool) -> W {
                 .class("menu"),
         )]
     });
+    // Сверху по центру со сдвигом: отступ слева/справа сдвигает центр, сверху — вниз.
+    let (dx, dy) = clamp_offset(st, *bar_offset().lock().unwrap());
     boxed(
         Column::new()
             .gap(6.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
             .child(bar)
             .child(menu)
-            .class("float-wrap"),
+            .class("float-wrap")
+            .style("padding-top", StyleValue::px(10.0 + dy))
+            .style("padding-left", StyleValue::px((2.0 * dx).max(0.0)))
+            .style("padding-right", StyleValue::px((-2.0 * dx).max(0.0))),
     )
 }
 
