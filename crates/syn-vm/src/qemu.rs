@@ -445,7 +445,14 @@ pub fn start(vm: &Vm) -> Result<()> {
         let sock = start_syn_gpu(vm)?;
         args.push("-device".into());
         // BIOS: старые VGA-адреса — устройству (свой VGA/VBE BIOS syn-gpu); UEFI — не нужно (GOP).
-        let xvga = if needs_xvga(vm) { ",\"x-vga\":true" } else { "" };
+        let xvga = if needs_xvga(vm) {
+            match vga_accel_lib() {
+                Some(lib) => format!(",\"x-vga\":true,\"x-vga-accel\":\"{}\"", lib.display()),
+                None => ",\"x-vga\":true".to_string(),
+            }
+        } else {
+            String::new()
+        };
         args.push(format!("{{\"driver\":\"vfio-user-pci\",\"socket\":{{\"path\":\"{}\",\"type\":\"unix\"}}{xvga}}}", sock.display()));
     }
     let qemu = qemu_bin(vm)?;
@@ -567,6 +574,19 @@ pub fn qemu_bin(vm: &Vm) -> Result<PathBuf> {
     c.into_iter().find(|p| p.is_file() && supports_xvga(p)).with_context(|| {
         t!("Машине с BIOS и видеокартой syn-gpu нужен QEMU со свойством x-vga у vfio-user-pci (патч syn-virt): укажите его в переменной SYN_VM_QEMU или выберите прошивку UEFI")
     })
+}
+
+/// Библиотека VGA syn-gpu для QEMU (`x-vga-accel`): VGA исполняется в самом QEMU над общей
+/// памятью, без обращения к серверу на каждое чтение и запись — для игр DOS обязательно.
+/// Рядом с реальной программой syn-gpu, затем /usr/lib/syn-gpu; нет — без неё (медленнее).
+pub fn vga_accel_lib() -> Option<PathBuf> {
+    const LIB: &str = "libsyn_gpu_qemu.so";
+    let mut c: Vec<PathBuf> = Vec::new();
+    if let Some(dir) = syn_gpu_bin().and_then(|b| std::fs::canonicalize(b).ok()).and_then(|b| b.parent().map(Path::to_path_buf)) {
+        c.push(dir.join(LIB));
+    }
+    c.push(PathBuf::from("/usr/lib/syn-gpu").join(LIB));
+    c.into_iter().find(|p| p.is_file())
 }
 
 /// Программа сервера syn-gpu: `SYN_GPU` или `syn-gpu` в PATH.
