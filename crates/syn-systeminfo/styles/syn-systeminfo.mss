@@ -32,6 +32,8 @@ Icon { icon-color: var(--fg); }
 .phone-title { font-size: 20px; font-weight: 700; }
 .chips { padding: 4px 0px 8px 0px; }
 .chips-row { padding: 0px 16px; }
+/* Окно на компьютере: плашки переносятся строками (Flex не берёт отступ из класса). */
+.chips-wrap { padding: 4px 16px 8px 16px; }
 .chip {
     padding: 8px 12px;
     border-radius: 999px;

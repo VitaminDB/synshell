@@ -147,15 +147,26 @@ fn nav_item(st: St, p: Page, active: bool, s: &Snap) -> W {
 // ─── Телефон ────────────────────────────────────────────────────────────────
 
 fn phone(st: St, page: Page) -> W {
+    // Телефон — лента плашек листается пальцем; узкое окно на компьютере — плашки
+    // переносятся строками (мышью ленту не пролистать, и не видно, что справа есть ещё).
+    let touch = std::env::var("SYNSHELL_FORM_FACTOR").as_deref() == Ok("phone");
     let chips = Reactive::new(move || -> Vec<W> {
         let cur = st.page.get();
         let s = st.snap.get();
-        let mut row = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center);
-        for p in Page::ALL {
-            row = row.child(chip(st, p, p == cur, &s));
+        if touch {
+            let mut row = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center);
+            for p in Page::ALL {
+                row = row.child(chip(st, p, p == cur, &s));
+            }
+            return vec![boxed(row.class("chips-row"))];
         }
-        vec![boxed(row.class("chips-row"))]
+        let mut flow = Flex::row().wrap().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        for p in Page::ALL {
+            flow = flow.child(chip(st, p, p == cur, &s));
+        }
+        vec![boxed(flow.class("chips-row"))]
     });
+    let chips_box: W = if touch { boxed(ScrollView::new().horizontal().child(chips).class("chips")) } else { boxed(DecoratedBox::new().child(chips).class("chips chips-wrap")) };
     let head = Row::new()
         .gap(10.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
@@ -171,7 +182,7 @@ fn phone(st: St, page: Page) -> W {
             .gap(0.0)
             .cross_axis_alignment(CrossAxisAlignment::Stretch)
             .child(head)
-            .child(ScrollView::new().horizontal().child(chips).class("chips"))
+            .child(chips_box)
             .child(pages::page(st, page).class("grow")),
     )
 }
