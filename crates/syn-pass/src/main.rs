@@ -55,6 +55,15 @@ fn main() {
     synshell_common::i18n::init(&synshell_common::catalogs!("../i18n"));
     let (cfg, _) = Config::load();
     let mss = theme(&cfg);
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if matches!(args.first().map(String::as_str), Some("-h" | "--help")) {
+        println!("{}", t!("synpass [--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--view locked|list|edit|big|settings]]"));
+        return;
+    }
+    if let Some(i) = args.iter().position(|a| a == "--screenshot") {
+        shot(&args, args.get(i + 1).cloned().unwrap_or_else(|| "synpass.png".into()), &mss);
+        return;
+    }
     App::new()
         .title(t!("Пароли"))
         .app_id("synpass")
@@ -77,4 +86,32 @@ fn theme(cfg: &Config) -> String {
         ])
         .base(include_str!("../styles/synpass.mss"))
         .build()
+}
+
+/// `--screenshot`: снимок без окна на демо-хранилище в памяти (настоящее
+/// хранилище не читается, синхронизации нет) — см. [`ui::shot_root`].
+fn shot(args: &[String], out: String, mss: &str) {
+    let mut size = (980u32, 680u32);
+    let mut scale = 1.0f64;
+    let mut view = "list".to_string();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--size" => {
+                if let Some((w, h)) = it.next().and_then(|s| s.split_once('x')) {
+                    size = (w.parse().unwrap_or(size.0), h.parse().unwrap_or(size.1));
+                }
+            }
+            "--scale" => scale = it.next().and_then(|s| s.parse().ok()).unwrap_or(scale),
+            "--view" => view = it.next().cloned().unwrap_or(view),
+            _ => {}
+        }
+    }
+    match syngui::shot::render_png(move || ui::shot_root(&view), mss, size, scale, &out) {
+        Ok((w, h)) => println!("{out}: {w}x{h}"),
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    }
 }

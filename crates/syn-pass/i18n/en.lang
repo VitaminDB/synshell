@@ -78,7 +78,7 @@
 "Синхронизация…" = "Syncing…"
 "{name}: другой мастер-пароль" = "{name}: different master password"
 "{name}: нет доступа" = "{name}: no access"
-"Только здесь" = "This device only"
+"Только здесь" = "Local only"
 "Поиск" = "Search"
 "Все · {n}" = "All · {n}"
 "Избранное · {favs}" = "Favorites · {favs}"
@@ -174,3 +174,4 @@
 "Средний" = "Fair"
 "Надёжный" = "Strong"
 "Отличный" = "Excellent"
+"synpass [--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--view locked|list|edit|big|settings]]" = "synpass [--screenshot SHOT.png [--size WxH] [--scale N] [--view locked|list|edit|big|settings]]"

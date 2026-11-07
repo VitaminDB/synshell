@@ -39,6 +39,12 @@ pub fn preview_config(base: &Config, theme: &Theme, dark: bool) -> Config {
     if let Some(r) = theme.decorations.get("corner_radius").and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64))) {
         cfg.decorations.corner_radius = r as f32;
     }
+    if let Some(h) = theme.decorations.get("title_height").and_then(|v| v.as_integer().or_else(|| v.as_float().map(|f| f as i64))) {
+        cfg.decorations.title_height = h as _;
+    }
+    if let Some(al) = theme.decorations.get("title_align").and_then(|v| v.as_str()) {
+        cfg.decorations.title_align = al.to_string();
+    }
     cfg
 }
 
@@ -72,6 +78,16 @@ pub fn build(cfg: &Config) -> String {
         title_fg(active).hex(),
         title_fg(inactive).fade(0.7).hex(),
         cfg.decorations.corner_radius.max(0.0),
+    ));
+    // Высота и выравнивание заголовка — как у композитора.
+    let justify = match cfg.decorations.title_align.as_str() {
+        "left" => "flex-start",
+        "right" => "flex-end",
+        _ => "center",
+    };
+    shell.push_str(&format!(
+        ".te-win-title {{ min-height: {}px; align-items: center; }}\n.te-win-title-slot {{ justify-content: {justify}; align-items: center; }}\n",
+        cfg.decorations.title_height,
     ));
 
     // «Параметры системы» — как synsettings::state::theme_mss.

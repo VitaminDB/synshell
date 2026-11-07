@@ -211,3 +211,8 @@
 "Цвет пишется как #rrggbb, #rrggbbaa или имя цвета палитры" = "Escribe el color como #rrggbb, #rrggbbaa o un nombre de color de la paleta"
 "Контраст с «{bg}»: {r}:1. Для текста нужно не меньше 4.5, для крупного и значков — 3" = "Contraste con «{bg}»: {r}:1. El texto necesita al menos 4,5; el texto grande y los iconos, 3"
 "Сбросить: значение по умолчанию" = "Restablecer el valor predeterminado"
+# Названия встроенных тем (themes/*/theme.toml)
+"Аврора" = "Aurora"
+"Необрутализм" = "Neobrutalismo"
+"Сакура" = "Sakura"
+"Синтвейв" = "Synthwave"

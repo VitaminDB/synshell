@@ -71,7 +71,7 @@ fn chat_item(st: St, c: &ChatSummary, current: bool, renaming: bool) -> W {
                         Column::new()
                             .gap(1.0)
                             .class("grow")
-                            .child(Text::new(c.title.clone()).max_lines(1).elide(Elide::End).class("chat-title"))
+                            .child(Text::new(super::chat_title(c.title.clone())).max_lines(1).elide(Elide::End).class("chat-title"))
                             .child(Text::new(if c.preview.is_empty() { t!("Без ответа").to_string() } else { c.preview.clone() }).max_lines(1).elide(Elide::End).class("chat-preview")),
                     )
                     .child(more),

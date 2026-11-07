@@ -73,7 +73,7 @@ SystemWindowControls { color: var(--fg); background-color: var(--hover); }
 .te-btn.te-round:hover { background-color: var(--hover); }
 .te-btn.te-off { opacity: 0.35; }
 .te-btn.te-mini { padding: 4px; icon-size: 16px; }
-.te-btn.te-wide { justify-content: center; }
+.te-btn.te-wide { justify-content: center; width: 100%; }
 .te-btn.te-danger-ic { icon-color: var(--danger); }
 .te-btn.te-chip-btn { padding: 4px 10px; font-size: 12px; border-radius: 14px; }
 .te-btn.te-chip-on { background-color: var(--accent-soft); border-color: var(--accent); }
@@ -117,7 +117,7 @@ SystemWindowControls { color: var(--fg); background-color: var(--hover); }
     background-color: var(--sidebar);
     border-color: var(--divider);
     border-left-width: 1px;
-    padding: 12px 12px 0px 12px;
+    padding: 12px 12px 8px 12px;
 }
 .te-insp-scroll { padding: 2px 4px 24px 0px; }
 .te-modes { font-size: 12px; }

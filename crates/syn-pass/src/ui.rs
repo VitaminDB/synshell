@@ -1379,7 +1379,7 @@ fn sync_chip(st: St) -> W {
                 })
                 .child(
                     DecoratedBox::new()
-                        .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(glyph).class("chip-icon")).child(Text::new(text).max_lines(1).class("chip-text")))
+                        .child(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Icon::new(glyph).class("chip-icon")).child(Text::new(text).max_lines(1).elide(Elide::End).class("chip-text")))
                         .class(cls),
                 ),
         )]
@@ -1390,7 +1390,7 @@ fn list_view(st: St, phone: bool) -> W {
     let header = Row::new()
         .gap(4.0)
         .cross_axis_alignment(CrossAxisAlignment::Center)
-        .child(Text::new(t!("Пароли")).max_lines(1).class("title"))
+        .child(Text::new(t!("Пароли")).max_lines(1).elide(Elide::End).class("title list-title"))
         .child(DecoratedBox::new().class("grow"))
         .child(sync_chip(st))
         .child(icon_btn(ic::LOCK, "", move || lock(st)))
@@ -1742,7 +1742,7 @@ fn edit_field(st: St, label: &'static str, glyph: &'static str, get: fn(&Entry) 
                 .class("field"),
         )]
     });
-    Box::new(Column::new().gap(6.0).child(Text::new(label).class("ed-label")).child(f))
+    Box::new(Column::new().gap(6.0).child(Text::new(syngui::i18n::t(label)).class("ed-label")).child(f))
 }
 
 fn generator(st: St) -> W {
@@ -2144,4 +2144,65 @@ mod make_vault {
         }
         s.seal().unwrap().write(&crate::vault::vault_path()).unwrap();
     }
+}
+
+// ─── Снимок без окна ────────────────────────────────────────────────────────
+
+/// Вид для `synpass --screenshot`: демо-хранилище с придуманными записями
+/// только в памяти — файл хранилища не читается и не пишется, синхронизации,
+/// наблюдения за synlink и автоблокировки нет.
+/// `view`: `locked` (вход), `list` (список и запись), `edit` (редактор с
+/// генератором), `big` (крупный пароль), `settings`.
+pub fn shot_root(view: &str) -> W {
+    let st = state(view == "locked", false);
+    if view == "locked" {
+        return build_root(st);
+    }
+    let mut s = Session::create("demo-master-password").expect("демо-хранилище");
+    let day = 86_400_000i64;
+    let now = vault::now_ms();
+    let ru = syngui::i18n::language().tag().starts_with("ru");
+    let demo: [(&str, &str, &str, &str, &str, &str, bool, i64); 8] = [
+        ("Mail", "Почта", "alex@example.com", "https://mail.example.com", "Vt7#qLm2!xR9wKp4sZ8e", "", true, 2),
+        ("Bank", "Банк", "alex.morgan", "https://bank.example.org", "h4F!t9Qz@Lr2mW8c", "", true, 1),
+        ("Cloud storage", "Облако", "alex@example.com", "https://cloud.example.net", "Ry6&Kd3p#Wq8Tz2v", "", false, 9),
+        ("Home Wi-Fi", "Домашний Wi-Fi", "", "", "sunny-river-4821", "", false, 40),
+        ("Online shop", "Интернет-магазин", "alex.m", "https://shop.example.com", "Pc9$Mn4x!Bv7Lq3t", "", false, 15),
+        ("Forum", "Форум", "night_owl", "https://forum.example.org", "Jw5^Hs8k@Ft2Gd6y", "", false, 60),
+        ("Router", "Роутер", "admin", "http://192.168.1.1", "Qx3!Ze7r#Nm9Kp2w", "", false, 120),
+        ("Work VPN", "Рабочий VPN", "a.morgan", "https://vpn.example.com", "Ub8@Ty4n!Ws6Lc1z", "", true, 3),
+    ];
+    for (i, (en, rus, user, url, pw, notes, fav, age)) in demo.iter().enumerate() {
+        let mut e = Entry::new();
+        e.title = if ru { rus } else { en }.to_string();
+        e.username = user.to_string();
+        e.url = url.to_string();
+        e.password = pw.to_string();
+        e.notes = notes.to_string();
+        e.favorite = *fav;
+        e.created = now - age * day - 400 * day;
+        e.modified = now - age * day;
+        e.used = if i < 3 { now - (i as i64 + 1) * 3_600_000 } else { 0 };
+        s.data.entries.push(e);
+    }
+    if let Some(e) = s.data.entries.first_mut() {
+        e.notes = if ru { "Резервные коды — в сейфе.".into() } else { "Backup codes are in the safe.".into() };
+    }
+    let first = s.data.entries.first().map(|e| e.id.clone());
+    *SESSION.lock().unwrap() = Some(s);
+    st.phase.set(Phase::Open);
+    refresh(st);
+    st.selected.set(first.clone());
+    match view {
+        "edit" => {
+            if let Some(id) = &first {
+                start_edit(st, id);
+                st.gen_open.set(true);
+            }
+        }
+        "big" => st.big.set(first),
+        "settings" => st.settings.set(true),
+        _ => {}
+    }
+    build_root(st)
 }

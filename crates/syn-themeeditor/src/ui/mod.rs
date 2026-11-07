@@ -62,6 +62,8 @@ fn title(st: St) -> W {
         let dirty = st.dirty.get();
         let (name, builtin) = with_draft(|d| (d.name(), d.is_builtin()));
         let mut row = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).class("te-title-row");
+        // Названия встроенных тем — в каталоге переводов.
+        let name = if builtin { syngui::i18n::t(&name) } else { name };
         row = row.child(Text::new(name).max_lines(1).elide(Elide::End).class("te-title"));
         if builtin {
             row = row.child(DecoratedBox::new().class("te-chip").child(Text::new(t!("встроенная")).class("te-chip-text")));

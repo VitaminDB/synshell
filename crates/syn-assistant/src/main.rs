@@ -103,6 +103,10 @@ fn main() {
         let r = syngui::shot::render_png(
             || {
                 let st = state::St::new(&cfg);
+                // Состояние службы — один раз (только чтение), как в окне при запуске.
+                let (service, models) = state::probe_service();
+                st.service.set(service);
+                st.models.set(models);
                 if fresh {
                     st.new_chat();
                 }

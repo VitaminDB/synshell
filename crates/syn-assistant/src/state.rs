@@ -479,7 +479,7 @@ impl St {
     }
 }
 
-fn probe_service() -> (Service, Vec<(String, String)>) {
+pub fn probe_service() -> (Service, Vec<(String, String)>) {
     let Ok(mut c) = synaptixd::Client::connect() else { return (Service::default(), Vec::new()) };
     let title = |r: synaptixd::Result<synaptixd::ModelEntry>| r.ok().map(|m| m.title);
     let llm = title(c.resolve(synaptixd::ModelKind::Llm));

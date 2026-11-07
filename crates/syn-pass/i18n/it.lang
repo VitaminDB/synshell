@@ -174,3 +174,4 @@
 "Средний" = "Discreta"
 "Надёжный" = "Robusta"
 "Отличный" = "Ottima"
+"synpass [--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--view locked|list|edit|big|settings]]" = "synpass [--screenshot SCREENSHOT.png [--size LxA] [--scale N] [--view locked|list|edit|big|settings]]"

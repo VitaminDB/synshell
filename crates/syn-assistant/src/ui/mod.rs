@@ -57,7 +57,7 @@ fn titlebar(st: St) -> W {
         if busy {
             row = row.child(CircularProgress::new().indeterminate().size(14.0).stroke_width(2.0).class("spin"));
         }
-        row = row.child(Text::new(c.display_title()).max_lines(1).elide(Elide::End).class("tb-title"));
+        row = row.child(Text::new(chat_title(c.display_title())).max_lines(1).elide(Elide::End).class("tb-title"));
         vec![boxed(row)]
     });
     let tools = Reactive::new(move || -> Vec<W> {
@@ -204,7 +204,7 @@ fn chat_pane(st: St, phone: bool) -> W {
 }
 
 fn phone_bar(st: St) -> W {
-    let title = Reactive::new(move || -> Vec<W> { vec![boxed(Text::new(st.chat.get().display_title()).max_lines(1).elide(Elide::End).class("tb-title"))] });
+    let title = Reactive::new(move || -> Vec<W> { vec![boxed(Text::new(chat_title(st.chat.get().display_title())).max_lines(1).elide(Elide::End).class("tb-title"))] });
     boxed(
         Row::new()
             .gap(6.0)
@@ -376,4 +376,13 @@ pub fn root(st: St) -> W {
         run_on_main_thread(move || syngui::signal::set_decorations(phone));
         vec![if phone { phone_root(st) } else { desktop_root(st) }]
     }))
+}
+
+/// Название чата для показа: заглушку «Новый чат» из syn-assist — на языке интерфейса.
+pub fn chat_title(title: String) -> String {
+    if title == "Новый чат" {
+        t!("Новый чат").to_string()
+    } else {
+        title
+    }
 }

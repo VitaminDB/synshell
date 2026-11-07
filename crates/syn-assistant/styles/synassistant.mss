@@ -116,6 +116,14 @@ Dropdown.model-pick { background-color: var(--surface); border-radius: 999px; pa
 .avatar-ic { icon-color: #ffffff; icon-size: 18px; }
 .avatar-gap { width: 30px; }
 .answer { font-size: 14px; color: var(--fg); }
+/* Markdown ответов — цвета темы (по умолчанию у MarkdownView светлые таблицы и код). */
+.answer, .think-body, .tool-out {
+    --md-heading-color: var(--fg); --md-link-color: var(--accent); --md-bullet-color: var(--muted); --md-checkbox-color: var(--accent);
+    --md-code-bg: var(--surface-alt); --md-code-color: var(--fg); --md-code-block-bg: var(--surface-alt); --md-code-block-color: var(--fg);
+    --md-quote-bg: var(--accent-dim); --md-quote-text-color: var(--fg); --md-quote-border-color: var(--accent);
+    --md-table-border-color: var(--border); --md-table-header-bg: var(--surface-alt); --md-table-header-color: var(--fg); --md-table-stripe-bg: var(--hover);
+    --md-hr-color: var(--border);
+}
 .actions { padding: 2px 0px 0px 0px; }
 .think { padding: 8px 12px; border-radius: 12px; background-color: var(--card); border: 1px solid var(--divider); }
 .think-ic { icon-size: 16px; icon-color: var(--muted); }

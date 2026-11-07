@@ -146,7 +146,7 @@ fn win_title(st: St, inactive: bool, text: String) -> W {
             Row::new()
                 .gap(8.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(DecoratedBox::new().class("grow").child(Text::new(text.clone()).max_lines(1).class("te-win-title-text")))
+                .child(DecoratedBox::new().class("grow te-win-title-slot").child(Text::new(text.clone()).max_lines(1).class("te-win-title-text")))
                 .child(DecoratedBox::new().class("te-win-dot"))
                 .child(DecoratedBox::new().class("te-win-dot"))
                 .child(DecoratedBox::new().class("te-win-dot te-win-dot-close")),

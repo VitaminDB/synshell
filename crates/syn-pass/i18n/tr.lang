@@ -174,3 +174,4 @@
 "Средний" = "Orta"
 "Надёжный" = "Güçlü"
 "Отличный" = "Mükemmel"
+"synpass [--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--view locked|list|edit|big|settings]]" = "synpass [--screenshot GÖRÜNTÜ.png [--size GxY] [--scale N] [--view locked|list|edit|big|settings]]"

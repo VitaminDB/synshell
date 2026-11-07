@@ -117,6 +117,7 @@ Text { color: var(--fg); font-size: 14px; }
 .main { background: var(--bg); }
 .bar { padding: 10px 10px 6px 14px; min-height: 60px; }
 .title { font-size: 26px; font-weight: bold; padding: 4px 4px; }
+.list-title { flex-shrink: 1; }
 .bar-title { font-size: 18px; font-weight: 600; }
 .tools { padding: 4px 14px 10px 14px; }
 .segbtn { height: 34px; padding: 0px 12px; border-radius: 17px; background-color: var(--surface-alt); justify-content: center; align-items: center; transition: background-color 140ms ease; }
@@ -126,7 +127,7 @@ Text { color: var(--fg); font-size: 14px; }
 .seg-text { font-size: 13px; font-weight: 600; color: var(--fg); }
 .segbtn-on .seg-text { color: var(--accent-fg); }
 
-.chip { height: 32px; padding: 0px 12px; border-radius: 16px; background-color: var(--surface-alt); align-items: center; max-width: 136px; margin: 0px 4px 0px 8px; }
+.chip { height: 32px; padding: 0px 12px; border-radius: 16px; background-color: var(--surface-alt); align-items: center; max-width: 128px; margin: 0px 2px 0px 6px; }
 .chip-icon { font-size: 16px; icon-size: 16px; color: var(--muted); icon-color: var(--muted); }
 .chip-text { font-size: 12px; color: var(--muted); flex-shrink: 1; }
 .chip-ok { background-color: var(--accent-soft); }
@@ -230,3 +231,6 @@ Text { color: var(--fg); font-size: 14px; }
 @keyframes toast-in { from { opacity: 0; translate-y: 12px; } to { opacity: 1; translate-y: 0px; } }
 .toast-icon { font-size: 18px; icon-size: 18px; color: var(--bg); icon-color: var(--bg); }
 .toast-text { font-size: 14px; color: var(--bg); }
+
+/* Выбор языка в настройках: без своего правила Dropdown рисует светлую подложку и в тёмной теме. */
+Dropdown { background: var(--input-bg); color: var(--fg); accent-color: var(--accent); border: 1px solid var(--border); border-radius: 8px; font-size: 13px; padding: 7px 10px; }

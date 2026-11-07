@@ -34,7 +34,7 @@ fn theme_list(st: St) -> W {
             for it in list {
                 let id = it.id.clone();
                 let active = it.id == cur;
-                let mut text = Column::new().gap(1.0).child(Text::new(it.name.clone()).max_lines(1).elide(Elide::End).class("te-theme-name"));
+                let mut text = Column::new().gap(1.0).child(Text::new(if it.builtin || it.overrides_builtin { syngui::i18n::t(&it.name) } else { it.name.clone() }).max_lines(1).elide(Elide::End).class("te-theme-name"));
                 if it.overrides_builtin {
                     text = text.child(Text::new(t!("изменённая встроенная")).class("te-theme-sub"));
                 }

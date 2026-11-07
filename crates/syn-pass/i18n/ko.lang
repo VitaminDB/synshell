@@ -173,3 +173,4 @@
 "Средний" = "보통"
 "Надёжный" = "강함"
 "Отличный" = "매우 강함"
+"synpass [--screenshot СНИМОК.png [--size ШxВ] [--scale N] [--view locked|list|edit|big|settings]]" = "synpass [--screenshot 스크린샷.png [--size WxH] [--scale N] [--view locked|list|edit|big|settings]]"
