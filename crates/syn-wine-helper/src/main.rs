@@ -94,7 +94,7 @@ fn list() -> i32 {
     println!("{}", t!("Каталог DLL: {d}", d = store::dll_root().display()));
     for p in &db.packages {
         let st: Vec<String> = p.archs().iter().map(|a| format!("{}{}", a.name(), if store::installed(p, *a) { "✓" } else { "" })).collect();
-        println!("{:<22} {:<14} {:<26} {}", p.id, st.join(" "), p.name, p.dlls.join(", "));
+        println!("{:<22} {:<14} {:<26} {}", p.id, st.join(" "), p.title(), p.dlls.join(", "));
     }
     0
 }

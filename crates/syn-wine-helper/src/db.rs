@@ -47,6 +47,16 @@ impl Package {
         Arch::ALL.into_iter().filter(|a| self.pick(*a).is_some()).collect()
     }
 
+    /// Название на языке интерфейса (у встроенных пакетов — из каталогов переводов).
+    pub fn title(&self) -> String {
+        syngui::i18n::t(&self.name)
+    }
+
+    /// Описание на языке интерфейса.
+    pub fn about(&self) -> String {
+        syngui::i18n::t(&self.description)
+    }
+
     pub fn provides(&self, dll: &str) -> bool {
         self.dlls.iter().any(|d| d.eq_ignore_ascii_case(dll))
     }
@@ -104,3 +114,23 @@ impl Db {
         self.packages.iter().find(|p| p.provides(dll) && p.pick(arch).is_some())
     }
 }
+
+/// Строки встроенной `data/packages.toml` для каталогов переводов (`n_!` собирает i18n-extract).
+#[allow(dead_code)]
+const PACKAGE_STRINGS: &[&str] = &[
+    syngui::n_!("Microsoft Foundation Classes из Visual C++ 6.0 — программы и игры 1998–2005 годов"),
+    syngui::n_!("Microsoft Foundation Classes из Visual Studio .NET 2002"),
+    syngui::n_!("Active Template Library из Visual Studio .NET 2002"),
+    syngui::n_!("Microsoft Foundation Classes из Visual Studio .NET 2003"),
+    syngui::n_!("Microsoft Foundation Classes из Visual C++ 2005"),
+    syngui::n_!("Microsoft Foundation Classes из Visual C++ 2008"),
+    syngui::n_!("Microsoft Foundation Classes из Visual C++ 2010"),
+    syngui::n_!("Microsoft Foundation Classes из Visual C++ 2012"),
+    syngui::n_!("Microsoft Foundation Classes из Visual C++ 2013"),
+    syngui::n_!("Microsoft Foundation Classes из Visual C++ 2015–2022"),
+    syngui::n_!("Потоки C++ 2022"),
+    syngui::n_!("vcruntime140_threads.dll из Visual C++ 2022 (17.10+): у Wine её нет"),
+    syngui::n_!("Среда выполнения Visual Basic 5.0 (msvbvm50.dll)"),
+    syngui::n_!("Среда выполнения Visual Basic 6.0 SP6 (msvbvm60.dll)"),
+    syngui::n_!("Звук OpenAL для игр — открытая реализация OpenAL Soft вместо установщика Creative"),
+];

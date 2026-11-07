@@ -17,7 +17,7 @@ path = "src/main.rs"
 
 [features]
 default = ["desktop"]
-desktop = ["syngui/clipboard"]
+desktop = ["syngui/clipboard", "syngui/image"]
 android = ["syngui/android"]
 
 [dependencies]

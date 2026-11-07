@@ -69,6 +69,56 @@ pub fn run_desktop() {
         });
 }
 
+/// Снимок окна без окна и звука на демо-состоянии (`ui::demo`) — для документации:
+/// `syn-blocks --screenshot out.png [--size 460x862] [--scale 2] [--page start|board|drag|over|menu|clear] [--deluxe]`.
+/// Рекорд и сохранённые партии пользователя не читаются и не пишутся.
+#[cfg(not(target_os = "android"))]
+pub fn screenshot(args: &[String]) -> std::result::Result<(), String> {
+    let mut it = args.iter();
+    let out = it.next().cloned().ok_or("--screenshot ФАЙЛ.png")?;
+    let mut size = (WINDOW_W, WINDOW_H + 42);
+    let mut scale = 2.0f64;
+    let mut page = String::from("start");
+    let mut deluxe = false;
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--size" => {
+                if let Some((w, h)) = it.next().and_then(|s| s.split_once('x')) {
+                    size = (w.parse().unwrap_or(size.0), h.parse().unwrap_or(size.1));
+                }
+            }
+            "--scale" => scale = it.next().and_then(|s| s.parse().ok()).unwrap_or(scale),
+            "--page" => page = it.next().cloned().unwrap_or(page),
+            "--deluxe" => deluxe = true,
+            _ => {}
+        }
+    }
+    // Демо-состояние читает переменные окружения; данные — во временном каталоге.
+    std::env::set_var("SYN_BLOCKS_DEMO", &page);
+    if deluxe {
+        std::env::set_var("SYN_BLOCKS_VARIANT", "deluxe");
+    }
+    std::env::set_var("SYN_BLOCKS_DATA", std::env::temp_dir().join(format!("syn-blocks-shot-{}", std::process::id())));
+    init_i18n();
+    let r = syngui::shot::render_png(
+        || {
+            // придуманные рекорды для стартовой страницы
+            let stats = persist::Stats { best: 2654, games: 12, best_by: [[0, 2654, 0], [0, 1830, 0]], ..Default::default() };
+            let ctx = GameCtx::new(2027, stats);
+            ctx.screen.set(if page == "start" { Screen::Start } else { Screen::Game });
+            ctx.variant.set(if deluxe { Variant::Deluxe } else { Variant::Standard });
+            provide_context(ctx);
+            ui::chrome::root(ctx)
+        },
+        &ui::chrome::mss(),
+        size,
+        scale,
+        &out,
+    )?;
+    println!("{out}: {}x{}", r.0, r.1);
+    Ok(())
+}
+
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(app: syngui::app::AndroidApp) {

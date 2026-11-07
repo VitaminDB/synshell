@@ -140,6 +140,7 @@ fn main() -> Result<()> {
     match a.as_slice() {
         [] => syn_droid::gui::run(false),
         ["--images"] => syn_droid::gui::run(true),
+        ["--screenshot", rest @ ..] => syn_droid::gui::screenshot(rest),
         ["help"] | ["-h"] | ["--help"] => println!("{}", syngui::i18n::t(HELP)),
         ["status"] => {
             let s = status()?;

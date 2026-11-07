@@ -80,3 +80,20 @@
 
 # src/ui/mod.rs (gst)
 "Модули видео и звука" = "Video- und Tonmodule"
+
+# data/packages.toml (src/db.rs)
+"Microsoft Foundation Classes из Visual C++ 6.0 — программы и игры 1998–2005 годов" = "Microsoft Foundation Classes aus Visual C++ 6.0 – Programme und Spiele von 1998–2005"
+"Microsoft Foundation Classes из Visual Studio .NET 2002" = "Microsoft Foundation Classes aus Visual Studio .NET 2002"
+"Active Template Library из Visual Studio .NET 2002" = "Active Template Library aus Visual Studio .NET 2002"
+"Microsoft Foundation Classes из Visual Studio .NET 2003" = "Microsoft Foundation Classes aus Visual Studio .NET 2003"
+"Microsoft Foundation Classes из Visual C++ 2005" = "Microsoft Foundation Classes aus Visual C++ 2005"
+"Microsoft Foundation Classes из Visual C++ 2008" = "Microsoft Foundation Classes aus Visual C++ 2008"
+"Microsoft Foundation Classes из Visual C++ 2010" = "Microsoft Foundation Classes aus Visual C++ 2010"
+"Microsoft Foundation Classes из Visual C++ 2012" = "Microsoft Foundation Classes aus Visual C++ 2012"
+"Microsoft Foundation Classes из Visual C++ 2013" = "Microsoft Foundation Classes aus Visual C++ 2013"
+"Microsoft Foundation Classes из Visual C++ 2015–2022" = "Microsoft Foundation Classes aus Visual C++ 2015–2022"
+"Потоки C++ 2022" = "C++-2022-Threads"
+"vcruntime140_threads.dll из Visual C++ 2022 (17.10+): у Wine её нет" = "vcruntime140_threads.dll aus Visual C++ 2022 (17.10+): fehlt in Wine"
+"Среда выполнения Visual Basic 5.0 (msvbvm50.dll)" = "Visual-Basic-5.0-Laufzeit (msvbvm50.dll)"
+"Среда выполнения Visual Basic 6.0 SP6 (msvbvm60.dll)" = "Visual-Basic-6.0 SP6-Laufzeit (msvbvm60.dll)"
+"Звук OpenAL для игр — открытая реализация OpenAL Soft вместо установщика Creative" = "OpenAL-Ton für Spiele – die freie Implementierung OpenAL Soft statt des Creative-Installers"

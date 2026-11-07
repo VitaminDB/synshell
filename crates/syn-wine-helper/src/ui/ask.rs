@@ -41,11 +41,11 @@ fn package_card(id: &str, arch: crate::pe::Arch) -> W {
         Row::new()
             .gap(8.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
-            .child(Text::new(p.name.clone()).class("name"))
+            .child(Text::new(p.title()).class("name"))
             .child(DecoratedBox::new().class("chip").child(Text::new(arch.name()).class("chip-text"))),
     );
     if !p.description.is_empty() {
-        col = col.child(Text::new(p.description.clone()).max_lines(3).class("muted small"));
+        col = col.child(Text::new(p.about()).max_lines(3).class("muted small"));
     }
     col = col.child(Text::new(p.dlls.join(", ")).max_lines(2).class("dlls"));
     boxed(DecoratedBox::new().class("card").child(Row::new().gap(12.0).child(DecoratedBox::new().class("badge").child(icon(icons::EXTENSION).class("ic badge-ic"))).child(DecoratedBox::new().class("grow").child(col))))

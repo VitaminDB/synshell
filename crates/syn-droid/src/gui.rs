@@ -176,6 +176,120 @@ pub fn run(images: bool) {
         });
 }
 
+/// Снимок окна без демона и контейнера — на придуманных данных (для документации):
+/// `syndroid --screenshot out.png [--size 1400x900] [--scale 1] [--page overview|apps|app|images|settings|stopped]`.
+pub fn screenshot(args: &[&str]) {
+    let mut it = args.iter();
+    let Some(out) = it.next().map(|s| s.to_string()) else { return };
+    let mut size = (1400u32, 900u32);
+    let mut scale = 1.0f64;
+    let mut page = String::from("overview");
+    while let Some(a) = it.next() {
+        match *a {
+            "--size" => {
+                if let Some((w, h)) = it.next().and_then(|s| s.split_once('x')) {
+                    size = (w.parse().unwrap_or(size.0), h.parse().unwrap_or(size.1));
+                }
+            }
+            "--scale" => scale = it.next().and_then(|s| s.parse().ok()).unwrap_or(scale),
+            "--page" => page = it.next().map(|s| s.to_string()).unwrap_or(page),
+            _ => {}
+        }
+    }
+    let (scfg, _) = ShellConfig::load();
+    let mss = theme(&scfg);
+    let r = syngui::shot::render_png(
+        move || {
+            let stopped = page == "stopped";
+            let set = "lineage-20.0-20261020-VANILLA".to_string();
+            let status = Status {
+                state: if stopped { State::Stopped } else { State::Running },
+                image: Some(set.clone()),
+                instance: Some("lineage-20.0-VANILLA".into()),
+                instance_title: Some("LineageOS 20.0".into()),
+                init_pid: None,
+                session: None,
+                uptime: (!stopped).then_some(42 * 60 + 17),
+                android_version: Some("13".into()),
+                jobs: Vec::new(),
+                memory: (!stopped).then_some(1_480 * 1_048_576),
+                error: None,
+            };
+            let apps = [
+                ("Calculator", "com.android.calculator2"),
+                ("Calendar", "org.lineageos.etar"),
+                ("Camera", "org.lineageos.aperture"),
+                ("Clock", "com.android.deskclock"),
+                ("Contacts", "com.android.contacts"),
+                ("Files", "com.android.documentsui"),
+                ("Gallery", "org.lineageos.glimpse"),
+                ("Music", "org.lineageos.twelve"),
+                ("Settings", "com.android.settings"),
+            ]
+            .into_iter()
+            .map(|(n, p)| AppRow { package: p.into(), name: n.into(), icon: None })
+            .collect::<Vec<_>>();
+            let local = |f: &str| images::Origin::Local { file: f.into() };
+            let instances = vec![
+                Instance {
+                    id: "lineage-20.0-VANILLA".into(),
+                    title: "LineageOS 20.0".into(),
+                    sets: vec![images::ImageSet { name: set.clone(), system: local("system.img"), vendor: local("vendor.img"), installed: 1_792_800_000, size: 1_020 * 1_048_576 }],
+                    data_size: 2_310 * 1_048_576,
+                    active: true,
+                },
+                Instance {
+                    id: "lineage-20.0-GAPPS".into(),
+                    title: "LineageOS 20.0 · GApps".into(),
+                    sets: vec![images::ImageSet { name: "lineage-20.0-20261013-GAPPS".into(), system: local("system.img"), vendor: local("vendor.img"), installed: 1_792_200_000, size: 1_310 * 1_048_576 }],
+                    data_size: 640 * 1_048_576,
+                    active: false,
+                },
+            ];
+            let tab = match page.as_str() {
+                "apps" | "app" => Tab::Apps,
+                "images" => Tab::Images,
+                "settings" => Tab::Settings,
+                _ => Tab::Overview,
+            };
+            let selected = (page == "app").then(|| apps[3].clone());
+            let st = St {
+                tab: use_signal(tab),
+                status: use_signal(Some(status)),
+                apps: use_signal(Some(apps)),
+                app_filter: use_signal(String::new()),
+                selected: use_signal(selected),
+                instances: use_signal(Some(instances)),
+                updates: use_signal(String::new()),
+                variant: use_signal(0usize),
+                import_system: use_signal(String::new()),
+                import_vendor: use_signal(String::new()),
+                apk: use_signal(String::new()),
+                cfg: use_signal(Some(Config::default())),
+                cfg_rev: use_signal(0u64),
+                log: use_signal(String::new()),
+                log_filter: use_signal(String::new()),
+                toast: use_signal(String::new()),
+                confirm: use_signal(None),
+                rev: use_signal(0u64),
+                running: use_signal(!stopped),
+            };
+            root(st)
+        },
+        &mss,
+        size,
+        scale,
+        &out,
+    );
+    match r {
+        Ok((w, h)) => println!("{out}: {w}x{h}"),
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    }
+}
+
 fn theme(cfg: &ShellConfig) -> String {
     let a = &cfg.appearance;
     let p = a.palette();

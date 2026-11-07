@@ -15,8 +15,8 @@ fn row(st: St, p: &crate::db::Package) -> W {
     }
     let info = Column::new()
         .gap(4.0)
-        .child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(p.name.clone()).class("name")).child(chips))
-        .child(Text::new(p.description.clone()).max_lines(3).class("muted small"))
+        .child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(Text::new(p.title()).class("name")).child(chips))
+        .child(Text::new(p.about()).max_lines(3).class("muted small"))
         .child(Text::new(p.dlls.join(", ")).max_lines(2).class("dlls"));
     let id = p.id.clone();
     let action: W = if done.len() == archs.len() {

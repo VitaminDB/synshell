@@ -449,7 +449,7 @@ pub fn page(st: St, wide: bool) -> W {
         let _ = st.dark.get();
         vec![ribbon(st, w)]
     });
-    let body = ScrollView::new().vertical().class("ribbon").child(Column::new().cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class("ribbon-inner").style("width", StyleValue::px(w + 32.0)).child(months)));
+    let body = ScrollView::new().vertical().class("ribbon").child(DecoratedBox::new().class("fill").child(Column::new().cross_axis_alignment(CrossAxisAlignment::Center).child(DecoratedBox::new().class("ribbon-inner").style("width", StyleValue::px(w + 32.0)).child(months))));
     boxed(
         Column::new()
             .cross_axis_alignment(CrossAxisAlignment::Stretch)

@@ -16,7 +16,7 @@ Text { color: var(--fg); font-size: 14px; }
 .list-pane { padding: 0px; }
 .detail-pane { width: 420px; border-left-width: 1px; border-color: var(--border); background: var(--surface); }
 .pane { padding: 16px; flex-grow: 1; }
-.detail-empty { padding: 180px 16px 16px 16px; width: 100%; justify-content: center; }
+.detail-empty { padding: 180px 16px 16px 16px; width: 100%; height: 100%; justify-content: center; }
 .empty-icon { font-size: 48px; color: var(--muted); }
 
 
@@ -195,3 +195,25 @@ TextField.prop-val { width: 180px; }
 .log-err { color: var(--danger); }
 .log-warn { color: #ef9a00; }
 .card { padding: 12px 14px; }
+
+/* Выпадающий список, переключатель и сегменты — без своих правил виджеты рисуют светлую подложку и в тёмной теме. */
+Dropdown {
+    background: var(--input-bg);
+    color: var(--fg);
+    accent-color: var(--accent);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 13px;
+    padding: 7px 10px;
+}
+Toggle {
+    width: 40px;
+    height: 22px;
+    background: var(--pressed);
+    color: #ffffff;
+    accent-color: var(--accent);
+    border-radius: 11px;
+    transition: background-color 180ms ease-out;
+    &:checked { background: var(--accent); }
+}
+SegmentedButton { background-color: var(--input-bg); color: var(--fg); border-width: 1px; border-color: var(--border); border-radius: 10px; accent-color: var(--accent); font-size: 13px; }
