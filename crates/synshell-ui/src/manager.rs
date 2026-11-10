@@ -208,7 +208,7 @@ fn workspace_pos(pos: Option<RwSignal<f32>>) -> f32 {
 pub fn wallpaper_view(out_name: String, slide: RwSignal<u64>, pos: Option<RwSignal<f32>>) -> impl Widget {
     // Готова JPEG-копия HEIC/AVIF — перестроить.
     let converted = use_signal(0u64);
-    Stack::new().fit(StackFit::Expand).child(DecoratedBox::new().class("wallpaper-color")).child(crate::ui::rx(move || {
+    crate::ui::rx(move || {
         let slot = slide.get();
         let _ = converted.get();
         let cfg = ShellCtx::get().config.get();
@@ -256,8 +256,10 @@ pub fn wallpaper_view(out_name: String, slide: RwSignal<u64>, pos: Option<RwSign
             h.finish()
         };
         let out = out_name.clone();
-        Box::new(
-            AnimatedSwitcher::new(key, move || match &picked {
+        // Цвет фона — только когда картинки нет или она не на весь экран: под непрозрачной
+        // картинкой «заполнить»/панорамы он перекрашивал экран впустую (на Adreno 505 ~3 мс кадра).
+        let covered = framed && picked.is_some();
+        let switcher = AnimatedSwitcher::new(key, move || match &picked {
                 Some(p) if framed => Box::new(framed_image(p.clone(), out.clone(), frame.zoom, frame.center, pano.clone(), pos, follow_ms)),
                 Some(p) => Box::new(Image::new(p.to_string_lossy()).fit(fit).placeholder(false).class("wallpaper-image")),
                 None => Box::new(DecoratedBox::new()),
@@ -268,9 +270,13 @@ pub fn wallpaper_view(out_name: String, slide: RwSignal<u64>, pos: Option<RwSign
             .exit_duration_ms(dur.max(1) * 2)
             .easing(syngui::animation::Easing::EaseInOutSine)
             .animate_size(false)
-            .directional(false),
-        )
-    }))
+            .directional(false);
+        let mut stack = Stack::new().fit(StackFit::Expand);
+        if !covered {
+            stack = stack.child(DecoratedBox::new().class("wallpaper-color"));
+        }
+        Box::new(stack.child(switcher)) as Box<dyn Widget>
+    })
 }
 
 /// Картинка с кадром: область под пропорции вывода, в панораме — окно
