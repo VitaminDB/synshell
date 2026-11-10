@@ -67,6 +67,8 @@ pub enum AgentEvent {
     ToolStart { name: String, summary: String },
     /// Ход текущего инструмента: шаг из всего (0/0 — только этап) и подпись.
     ToolProgress { step: usize, total: usize, label: String },
+    /// Живой вывод текущего инструмента (терминал bash): кусок текста и stderr ли.
+    ToolOutput { text: String, err: bool },
     Message(ChatMsg),
     Compacted(Vec<ChatMsg>),
     /// Расход после вызова модели: занято контекста, окно, этот вызов, всего за чат.
@@ -534,22 +536,41 @@ impl Agent {
         }
         // Ход долгих инструментов (генерация) — событиями, через канал: колбэк
         // `on` не Send, а слушатель хода живёт в потоке инструмента.
-        let (tx, rx) = std::sync::mpsc::channel::<(usize, usize, String)>();
+        enum Live {
+            Progress(usize, usize, String),
+            Output(String, bool),
+        }
+        let (tx, rx) = std::sync::mpsc::channel::<Live>();
+        let out_tx = std::sync::Mutex::new(tx.clone());
         let request = crate::tools::request();
         let result = std::thread::scope(|scope| {
-            let worker = scope.spawn(|| crate::tools::with_progress(Box::new(move |s, t, l| {
-                let _ = tx.send((s, t, l.to_string()));
-            }), || {
-                crate::tools::set_request(&request);
-                tool.run_ctx(&args, cancel)
-            }));
+            let worker = scope.spawn(|| {
+                let sink: crate::tools::OutputFn = Arc::new(move |text: &str, err: bool| {
+                    let _ = out_tx.lock().unwrap().send(Live::Output(text.to_string(), err));
+                });
+                crate::tools::with_output(sink, || {
+                    crate::tools::with_progress(
+                        Box::new(move |s, t, l| {
+                            let _ = tx.send(Live::Progress(s, t, l.to_string()));
+                        }),
+                        || {
+                            crate::tools::set_request(&request);
+                            tool.run_ctx(&args, cancel)
+                        },
+                    )
+                })
+            });
+            let mut emit = |ev: Live| match ev {
+                Live::Progress(step, total, label) => on(AgentEvent::ToolProgress { step, total, label }),
+                Live::Output(text, err) => on(AgentEvent::ToolOutput { text, err }),
+            };
             loop {
                 match rx.recv_timeout(std::time::Duration::from_millis(100)) {
-                    Ok((step, total, label)) => on(AgentEvent::ToolProgress { step, total, label }),
+                    Ok(ev) => emit(ev),
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) if !worker.is_finished() => {}
                     Err(_) => {
-                        while let Ok((step, total, label)) = rx.try_recv() {
-                            on(AgentEvent::ToolProgress { step, total, label });
+                        while let Ok(ev) = rx.try_recv() {
+                            emit(ev);
                         }
                         break;
                     }

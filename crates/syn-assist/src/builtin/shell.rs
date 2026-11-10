@@ -41,7 +41,8 @@ impl Tool for ShellTool {
         let command = need_str(args, "command")?;
         let cwd = super::expand(str_arg(args, "cwd").unwrap_or("~"));
         let timeout = bash::timeout_secs(args.get("timeout_sec").or_else(|| args.get("timeout")));
-        bash::run_blocking(command, Some(&cwd), timeout, cancel).map(ToolOutput::text).map_err(|e| e.to_string())
+        let tap = crate::tools::output_sink().map(|sink| -> bash::Tap { std::sync::Arc::new(move |which, text| sink(text, which == bash::Stream::Stderr)) });
+        bash::run_blocking_tapped(command, Some(&cwd), timeout, cancel, tap).map(ToolOutput::text).map_err(|e| e.to_string())
     }
 }
 
@@ -55,5 +56,15 @@ mod tests {
         let r = t.run(&json!({"command":"pwd; exit 3","cwd":"/tmp"})).unwrap().text;
         assert!(r.contains("/tmp") && r.contains("exit: 3"), "{r}");
         assert!(t.run(&json!({"command":"sleep 5","timeout_sec":1})).is_err());
+    }
+
+    #[test]
+    fn live_output_reaches_sink() {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<(String, bool)>::new()));
+        let s2 = seen.clone();
+        let r = crate::tools::with_output(std::sync::Arc::new(move |t: &str, err| s2.lock().unwrap().push((t.to_string(), err))), || ShellTool.run(&json!({"command":"echo one; echo two >&2"})).unwrap().text);
+        let seen = seen.lock().unwrap();
+        assert!(seen.iter().any(|(t, e)| t.contains("one") && !e) && seen.iter().any(|(t, e)| t.contains("two") && *e), "{seen:?}");
+        assert!(r.contains("one") && r.contains("two"), "{r}");
     }
 }

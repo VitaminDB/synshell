@@ -111,12 +111,13 @@ pub fn compose(st: St) -> W {
         vec![boxed(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).child(icon(icons::CLOUD).class("ic warn-ic")).child(Text::new(text).max_lines(2).class("warn-text")))]
     });
     boxed(
-        DecoratedBox::new().class("compose-wrap").child(
+        DecoratedBox::new().class("compose-wrap").child(super::centered(
             Column::new()
                 .gap(6.0)
                 .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .class("column")
                 .child(hint)
                 .child(DecoratedBox::new().class("composer").child(Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(attachments(st)).child(dictation_hint(st)).child(field))),
-        ),
+        )),
     )
 }

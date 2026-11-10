@@ -71,6 +71,7 @@ fn main() {
     let mut voice_mode = false;
     let mut fresh = false;
     let mut shot_voice = false;
+    let mut shot_tools = false;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -86,6 +87,7 @@ fn main() {
             "--voice" => voice_mode = true,
             "--new" => fresh = true,
             "--shot-voice" => shot_voice = true,
+            "--shot-tools" => shot_tools = true,
             "--cli" => {
                 cli(&args.collect::<Vec<_>>().join(" "));
                 return;
@@ -109,6 +111,11 @@ fn main() {
                 st.models.set(models);
                 if fresh {
                     st.new_chat();
+                }
+                if shot_tools {
+                    // Снимок с раскрытыми окнами вывода инструментов.
+                    let n = st.chat.with_untracked(|c| c.messages.len());
+                    st.tool_open.set((0..n).map(|i| (st.tool_key(i), true)).collect());
                 }
                 if shot_voice {
                     st.voice.open.set(true);

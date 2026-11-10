@@ -141,34 +141,138 @@ pub fn files_row(files: &[std::path::PathBuf]) -> Option<W> {
     Some(boxed(col))
 }
 
-fn tool_card(m: &ChatMsg) -> W {
-    let run = m.tool.clone().unwrap_or(syn_assist::chat::ToolRun { name: "tool".into(), summary: String::new(), ok: true });
-    let open = use_signal(false);
-    let text = m.text.clone();
-    let mut col = Column::new()
-        .gap(6.0)
-        .cross_axis_alignment(CrossAxisAlignment::Stretch)
-        .child(
-            GestureDetector::new().on_click(move || open.set(!open.get_untracked())).child(
-                Row::new()
-                    .gap(10.0)
-                    .cross_axis_alignment(CrossAxisAlignment::Center)
-                    .child(DecoratedBox::new().class(if run.ok { "tool-badge" } else { "tool-badge fail" }).child(icon(icons::tool(&run.name)).class("ic tool-ic")))
-                    .child(Text::new(if run.summary.is_empty() { run.name.clone() } else { run.summary.clone() }).max_lines(1).elide(Elide::End).class("tool-sum grow"))
-                    .child(icon(if run.ok { icons::CHECK } else { icons::ERROR }).class(if run.ok { "ic tool-ok" } else { "ic tool-fail" })),
-            ),
-        )
-        .child(Reactive::new(move || -> Vec<W> {
-            if open.get() {
-                vec![boxed(Text::new(text.clone()).selectable(true).class("tool-out"))]
-            } else {
-                vec![]
-            }
-        }));
-    if let Some(f) = files_row(&m.files) {
-        col = col.child(f);
+/// Строк живого вывода в окне.
+const TERM_LINES: usize = 24;
+/// Строк готового вывода в окне (хвост).
+const OUT_LINES: usize = 80;
+
+#[derive(Clone, Copy, PartialEq)]
+enum ToolState {
+    Running,
+    Ok,
+    Fail,
+}
+
+/// Строка вызова: значок, имя инструмента, что делает, число строк вывода, итог, стрелка.
+fn tool_row(name: &str, summary: &str, state: ToolState, open: bool, lines: usize) -> W {
+    let badge = if state == ToolState::Fail { "tool-badge fail" } else { "tool-badge" };
+    let mut row = Row::new()
+        .gap(10.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .class("tool-row")
+        .child(DecoratedBox::new().class(badge).child(icon(icons::tool(name)).class("ic tool-ic")))
+        .child(Text::new(name).max_lines(1).class("tool-name"))
+        .child(Text::new(if summary.is_empty() { name } else { summary }).max_lines(1).elide(Elide::End).class("tool-sum grow"));
+    if lines > 0 {
+        row = row.child(Text::new(t!("{n} стр.", n = lines)).class("tool-count"));
     }
-    boxed(col.class(if run.ok { "tool-card" } else { "tool-card failed" }))
+    row = match state {
+        ToolState::Running => row.child(CircularProgress::new().indeterminate().size(16.0).stroke_width(2.0).class("spin")),
+        ToolState::Ok => row.child(icon(icons::CHECK).class("ic tool-ok")),
+        ToolState::Fail => row.child(icon(icons::ERROR).class("ic tool-fail")),
+    };
+    boxed(row.child(icon(if open { icons::EXPAND_MORE } else { icons::CHEVRON_RIGHT }).class("ic tool-chevron")))
+}
+
+/// Тёмное окно терминала: вывод инструмента (живой — построчно, со stderr;
+/// готовый — одним текстом, его можно выделять и копировать).
+fn term_window(st: St, title: &str, lines: &[(String, bool)], state: ToolState) -> W {
+    let running = state == ToolState::Running;
+    let mut v: Vec<&(String, bool)> = lines.iter().collect();
+    // хвостовая пустая строка — недописанная
+    while v.last().is_some_and(|(l, _)| l.is_empty()) {
+        v.pop();
+    }
+    let total = v.len();
+    let skip = total.saturating_sub(if running { TERM_LINES } else { OUT_LINES });
+    let mut body = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch);
+    if skip > 0 {
+        body = body.child(Text::new(t!("… выше ещё {n} стр.", n = skip)).class("term-note"));
+    }
+    if total == 0 {
+        body = body.child(Text::new(if running { t!("ожидание вывода…") } else { t!("(без вывода)") }).class("term-note"));
+    }
+    let all: String = v.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>().join("\n");
+    if running {
+        for (line, err) in v.into_iter().skip(skip) {
+            body = body.child(Text::new(if line.is_empty() { " " } else { line.as_str() }).max_lines(1).class(if *err { "term-line err" } else { "term-line" }));
+        }
+        body = body.child(Text::new("▍").class("term-cursor"));
+    } else if total > 0 {
+        let text: Vec<&str> = v.into_iter().skip(skip).map(|(l, _)| l.as_str()).collect();
+        body = body.child(Text::new(text.join("\n")).selectable(true).class("term-line"));
+    }
+    let (label, class) = match state {
+        ToolState::Running => (t!("выполняется"), "term-state run"),
+        ToolState::Ok => (t!("готово"), "term-state"),
+        ToolState::Fail => (t!("ошибка"), "term-state fail"),
+    };
+    let mut bar = Row::new()
+        .gap(6.0)
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .child(DecoratedBox::new().class("term-dot r"))
+        .child(DecoratedBox::new().class("term-dot y"))
+        .child(DecoratedBox::new().class("term-dot g"))
+        .child(Text::new(title).max_lines(1).elide(Elide::End).class("term-cmd grow"))
+        .child(Text::new(label).class(class));
+    if total > 0 {
+        bar = bar.child(icon_button(icons::COPY, t!("Копировать вывод"), "term-copy", move || st.copy(&all)));
+    }
+    boxed(
+        DecoratedBox::new().class("term").clip(true).child(
+            Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(DecoratedBox::new().class("term-bar").child(bar)).child(DecoratedBox::new().class("term-body").child(body)),
+        ),
+    )
+}
+
+/// Карточка вызова инструмента: строка и раскрывающееся окно вывода.
+#[allow(clippy::too_many_arguments)]
+fn tool_card(st: St, key: String, name: &str, summary: &str, state: ToolState, lines: Vec<(String, bool)>, default_open: bool, extra: Vec<W>) -> W {
+    let open = st.tool_open.with(|m| m.get(&key).copied()).unwrap_or(default_open);
+    let n = lines.iter().filter(|(l, _)| !l.is_empty()).count();
+    let head = GestureDetector::new().on_click(move || st.toggle_tool(&key, default_open)).child(tool_row(name, summary, state, open, n));
+    let mut col = Column::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(head);
+    if open {
+        let title = if summary.is_empty() || name == "bash" { summary.to_string() } else { format!("{name} · {summary}") };
+        col = col.child(term_window(st, if title.is_empty() { name } else { &title }, &lines, state));
+    }
+    for w in extra {
+        col = col.child(w);
+    }
+    boxed(col.class(match state {
+        ToolState::Fail => "tool-card failed",
+        ToolState::Running => "tool-card running",
+        ToolState::Ok => "tool-card",
+    }))
+}
+
+fn done_tool_card(st: St, index: usize, m: &ChatMsg) -> W {
+    let run = m.tool.clone().unwrap_or(syn_assist::chat::ToolRun { name: "tool".into(), summary: String::new(), ok: true });
+    let lines = crate::state::strip_ansi(&m.text).lines().map(|l| (l.to_string(), false)).collect();
+    tool_card(st, st.tool_key(index), &run.name, &run.summary, if run.ok { ToolState::Ok } else { ToolState::Fail }, lines, false, files_row(&m.files).into_iter().collect())
+}
+
+/// Идущий вызов: тот же ключ, что получит карточка результата, — раскрытое окно
+/// не схлопывается, когда инструмент закончил.
+fn live_tool_card(st: St, l: &Live, name: &str, summary: &str) -> W {
+    let mut extra: Vec<W> = Vec::new();
+    if let Some((frac, label)) = &l.progress {
+        let bar = match frac {
+            Some(f) => ProgressBar::new().value(f.clamp(0.0, 1.0)),
+            None => ProgressBar::new().indeterminate(),
+        }
+        .class("tool-progress");
+        let pct = frac.map(|f| format!("{:.0}%", f * 100.0)).unwrap_or_default();
+        extra.push(boxed(
+            Column::new()
+                .gap(4.0)
+                .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                .class("tool-progress-box")
+                .child(Row::new().gap(8.0).child(Text::new(label.clone()).max_lines(1).class("hint grow")).child(Text::new(pct).class("hint")))
+                .child(bar),
+        ));
+    }
+    tool_card(st, st.live_tool_key(), name, summary, ToolState::Running, l.term.clone(), !l.term.is_empty(), extra)
 }
 
 fn summary_card(m: &ChatMsg) -> W {
@@ -233,7 +337,7 @@ fn user_bubble(m: &ChatMsg) -> W {
     boxed(Row::new().main_axis_alignment(MainAxisAlignment::End).child(col))
 }
 
-fn message(st: St, m: &ChatMsg, last_answer: bool) -> Option<W> {
+fn message(st: St, index: usize, m: &ChatMsg, last_answer: bool) -> Option<W> {
     if m.compacted {
         return None;
     }
@@ -254,7 +358,7 @@ fn message(st: St, m: &ChatMsg, last_answer: bool) -> Option<W> {
             }
             Some(boxed(Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Start).class("assistant").child(avatar()).child(col)))
         }
-        Role::Tool => Some(boxed(Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Start).class("assistant").child(DecoratedBox::new().class("avatar-gap")).child(tool_card(m)))),
+        Role::Tool => Some(boxed(Row::new().gap(12.0).cross_axis_alignment(CrossAxisAlignment::Start).class("assistant").child(DecoratedBox::new().class("avatar-gap")).child(DecoratedBox::new().class("grow").child(done_tool_card(st, index, m))))),
     }
 }
 
@@ -276,7 +380,7 @@ fn typing() -> W {
     )
 }
 
-fn live_view(l: &Live) -> W {
+fn live_view(st: St, l: &Live) -> W {
     let mut col = Column::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("grow");
     if !l.thinking.is_empty() {
         col = col.child(thinking_block(&l.thinking, l.text.is_empty()));
@@ -284,31 +388,7 @@ fn live_view(l: &Live) -> W {
     if !l.text.is_empty() {
         col = col.child(markdown(&l.text, "answer"));
     } else if let Some((name, summary)) = &l.tool {
-        col = col.child(
-            Row::new()
-                .gap(10.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(DecoratedBox::new().class("tool-badge").child(icon(icons::tool(name)).class("ic tool-ic")))
-                .child(Text::new(summary.clone()).max_lines(1).elide(Elide::End).class("tool-sum grow"))
-                .child(CircularProgress::new().indeterminate().size(16.0).stroke_width(2.0).class("spin"))
-                .class("tool-card"),
-        );
-        if let Some((frac, label)) = &l.progress {
-            let bar = match frac {
-                Some(f) => ProgressBar::new().value(f.clamp(0.0, 1.0)),
-                None => ProgressBar::new().indeterminate(),
-            }
-            .class("tool-progress");
-            let pct = frac.map(|f| format!("{:.0}%", f * 100.0)).unwrap_or_default();
-            col = col.child(
-                Column::new()
-                    .gap(4.0)
-                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                    .class("tool-progress-box")
-                    .child(Row::new().gap(8.0).child(Text::new(label.clone()).max_lines(1).class("hint grow")).child(Text::new(pct).class("hint")))
-                    .child(bar),
-            );
-        }
+        col = col.child(live_tool_card(st, l, name, summary));
     } else if !l.tool_text.is_empty() {
         col = col.child(Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).child(typing()).child(Text::new(t!("Готовит действие…")).class("hint")));
     } else if l.thinking.is_empty() {
@@ -385,13 +465,15 @@ fn feed_list(st: St) -> W {
         let last_idx = chat.messages.iter().rposition(|m| m.role == Role::Assistant && !m.text.is_empty() && !m.compacted);
         let mut col = Column::new().gap(16.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("feed");
         for (i, m) in chat.messages.iter().enumerate() {
-            if let Some(w) = message(st, m, !busy && Some(i) == last_idx) {
+            if let Some(w) = message(st, i, m, !busy && Some(i) == last_idx) {
                 col = col.child(w);
             }
         }
         vec![boxed(col)]
     });
-    let live = Reactive::new(move || -> Vec<W> { st.live.get().map(|l| live_view(&l)).into_iter().collect() });
+    let live = Reactive::new(move || -> Vec<W> {
+        st.live.get().map(|l| live_view(st, &l)).into_iter().collect()
+    });
     let error = Reactive::new(move || -> Vec<W> {
         st.error
             .get()
@@ -414,7 +496,7 @@ fn feed_list(st: St) -> W {
             .vertical()
             .follow_end(true)
             .class("grow")
-            .child(Column::new().gap(16.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("feed-pad").child(list).child(live).child(error)),
+            .child(super::centered(Column::new().gap(16.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("feed-pad column").child(list).child(live).child(error))),
     )
 }
 

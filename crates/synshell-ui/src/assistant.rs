@@ -1017,6 +1017,14 @@ fn header(p: Panel) -> Box<dyn Widget> {
                 tip(Button::new("").icon(SEND).class("btn assist-mic send").on_click(move || ask(p, p.query.get_untracked(), false)), t!("Отправить"))
             }
         });
+        // Переход в окно ассистента — всегда под рукой, а не только после ответа:
+        // открывает этот разговор (или последний чат, если вопроса ещё не было).
+        let open_chat = rx(move || -> Box<dyn Widget> {
+            if p.busy.get() {
+                return Box::new(DecoratedBox::new());
+            }
+            tip(Button::new("").icon(OPEN).class("btn assist-mic open").on_click(move || open_window(p)), t!("Открыть чат в окне ассистента"))
+        });
         Box::new(
             Row::new()
                 .gap(8.0)
@@ -1035,6 +1043,7 @@ fn header(p: Panel) -> Box<dyn Widget> {
                 .child(mic)
                 .child(send)
                 .child(tip(Button::new("").icon(VOICE_CHAT).class("btn assist-mic voice").on_click(move || start_voice(p)), t!("Голосовой разговор")))
+                .child(open_chat)
                 .child(tip(Button::new("").icon(CLOSE).class("btn assist-mic close").on_click(close), t!("Закрыть (Esc)"))),
         )
     }))

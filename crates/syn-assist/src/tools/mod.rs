@@ -91,6 +91,28 @@ pub fn progress(step: usize, total: usize, label: &str) {
     });
 }
 
+/// Живой вывод инструмента (терминал): `(текст, stderr ли)`. Слушатель ставит
+/// агент на время вызова; инструмент берёт его через [`output_sink`] и может
+/// звать из любых потоков. Только для показа — результат не меняется.
+pub type OutputFn = std::sync::Arc<dyn Fn(&str, bool) + Send + Sync>;
+
+thread_local! {
+    static OUTPUT: std::cell::RefCell<Option<OutputFn>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Слушатель живого вывода текущего вызова (если интерфейс его показывает).
+pub fn output_sink() -> Option<OutputFn> {
+    OUTPUT.with(|o| o.borrow().clone())
+}
+
+/// Выполнить `f` со слушателем живого вывода (в том же потоке).
+pub fn with_output<R>(listener: OutputFn, f: impl FnOnce() -> R) -> R {
+    let prev = OUTPUT.with(|o| o.replace(Some(listener)));
+    let r = f();
+    OUTPUT.with(|o| *o.borrow_mut() = prev);
+    r
+}
+
 thread_local! {
     static REQUEST: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
 }

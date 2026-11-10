@@ -30,6 +30,12 @@ pub fn icon_button(glyph: &str, tooltip: impl Into<String>, class: &str, on_clic
     tip(Button::new("").icon(glyph).class(&format!("btn round flat {class}")).on_click(on_click), tooltip)
 }
 
+/// Колонка чата по середине широкого окна: лента, подтверждение и поле ввода —
+/// одной ширины (`.column`), а не прижаты к левому краю.
+pub fn centered(w: impl Widget + 'static) -> W {
+    boxed(Column::new().cross_axis_alignment(CrossAxisAlignment::Center).class("center-host").child(w))
+}
+
 fn brand() -> W {
     boxed(
         Row::new()
@@ -175,11 +181,11 @@ fn toolbar(st: St, phone: bool) -> W {
 fn confirm_bar(st: St) -> W {
     boxed(Reactive::new(move || -> Vec<W> {
         let Some((tool, summary)) = st.confirm.get() else { return vec![] };
-        vec![boxed(
+        vec![centered(
             Row::new()
                 .gap(12.0)
                 .cross_axis_alignment(CrossAxisAlignment::Center)
-                .class("confirm")
+                .class("confirm column")
                 .child(DecoratedBox::new().class("confirm-badge").child(icon(icons::tool(&tool)).class("ic confirm-ic")))
                 .child(
                     Column::new()

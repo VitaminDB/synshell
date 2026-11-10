@@ -110,10 +110,12 @@ Dropdown.model-pick { background-color: var(--surface); border-radius: 999px; pa
 .usage.warn { color: var(--warning); }
 .usage-label { font-size: 11px; color: var(--muted); }
 
-.feed-pad { padding: 18px 24px 16px 24px; max-width: 920px; }
+/* Колонка чата: по середине широкого окна, лента и поле ввода одной ширины. */
+.center-host { width: 100%; }
+.column { width: 100%; max-width: 940px; }
+.feed-pad { padding: 18px 24px 16px 24px; }
 .user-bubble { padding: 10px 14px; border-radius: 18px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); max-width: 620px; box-shadow: 0 3px 10px var(--accent-dim); }
 .user-text { color: var(--accent-fg); font-size: 14px; }
-.assistant { max-width: 860px; }
 .avatar { width: 30px; height: 30px; border-radius: 999px; background: linear-gradient(135deg, var(--accent), var(--accent-3)); justify-content: center; align-items: center; margin: 2px 0px 0px 0px; }
 .avatar-ic { icon-color: #ffffff; icon-size: 18px; }
 .avatar-gap { width: 30px; }
@@ -131,16 +133,40 @@ Dropdown.model-pick { background-color: var(--surface); border-radius: 999px; pa
 .think-ic { icon-size: 16px; icon-color: var(--muted); }
 .think-head { font-size: 12px; color: var(--muted); }
 .think-body { font-size: 12px; color: var(--muted); }
-.tool-card { padding: 8px 12px; border-radius: 12px; background-color: var(--card); border: 1px solid var(--divider); max-width: 760px; }
+.tool-card { padding: 7px 10px 7px 8px; border-radius: 12px; background-color: var(--card); border: 1px solid var(--divider); transition: border-color 120ms ease-out; }
+.tool-card:hover { border-color: var(--border); }
+.tool-card.running { border-color: var(--accent-soft); }
 .tool-card.failed { border-color: var(--danger); }
+.tool-row { min-height: 28px; }
 .tool-badge { width: 26px; height: 26px; border-radius: 8px; background-color: var(--accent-dim); justify-content: center; align-items: center; }
 .tool-badge.fail { background-color: var(--danger-soft); }
 .tool-ic { icon-size: 16px; icon-color: var(--accent); }
 .tool-badge.fail .tool-ic { icon-color: var(--danger); }
+.tool-name { font-family: monospace; font-size: 12px; font-weight: 600; color: var(--fg); padding: 2px 7px; border-radius: 6px; background-color: var(--surface-alt); }
+.tool-sum { font-size: 13px; color: var(--muted); }
+.tool-count { font-size: 11px; color: var(--muted); }
 .tool-ok { icon-size: 16px; icon-color: var(--success); }
 .tool-fail { icon-size: 16px; icon-color: var(--danger); }
-.tool-sum { font-size: 13px; color: var(--fg); }
-.tool-out { font-size: 12px; color: var(--muted); font-family: monospace; }
+.tool-chevron { icon-size: 18px; icon-color: var(--muted); }
+
+/* Окно вывода инструмента: тёмный терминал в любой теме. */
+.term { border-radius: 10px; background-color: #0B0E14; border: 1px solid #FFFFFF14; }
+.term-bar { padding: 4px 6px 4px 10px; min-height: 30px; background-color: #151A23; border-bottom-width: 1px; border-color: #FFFFFF0F; align-items: center; }
+.term-dot { width: 9px; height: 9px; border-radius: 5px; background-color: #3A404C; }
+.term-dot.r { background-color: #FF5F57; }
+.term-dot.y { background-color: #FEBC2E; }
+.term-dot.g { background-color: #28C840; }
+.term-cmd { font-family: monospace; font-size: 11px; color: #8B949E; padding: 0px 0px 0px 6px; }
+.term-state { font-size: 10px; color: #6E7681; }
+.term-state.run { color: #3FB950; }
+.term-state.fail { color: #FF7B72; }
+.btn.term-copy { padding: 4px; icon-size: 14px; icon-color: #8B949E; }
+.btn.term-copy:hover { background-color: #FFFFFF14; icon-color: #C9D1D9; }
+.term-body { padding: 8px 12px 10px 12px; }
+.term-line { font-family: monospace; font-size: 12px; line-height: 1.45; color: #C9D1D9; }
+.term-line.err { color: #FF7B72; }
+.term-note { font-family: monospace; font-size: 12px; color: #6E7681; }
+.term-cursor { font-family: monospace; font-size: 12px; color: #3FB950; }
 .att-tile-box { border-radius: 12px; border-width: 1px; border-color: var(--border); background-color: var(--surface-alt); }
 .att-tile { width: 100%; height: 100%; border-radius: 12px; }
 .att-tile-empty { background-color: var(--surface-alt); }
@@ -152,7 +178,7 @@ Dropdown.model-pick { background-color: var(--surface); border-radius: 999px; pa
 .att-image { max-width: 420px; max-height: 420px; border-radius: 12px; }
 .typing { accent-color: var(--accent); }
 .spin { color: var(--accent); }
-.error-card { padding: 10px 12px; border-radius: 12px; background-color: var(--danger-soft); border: 1px solid var(--danger); max-width: 760px; }
+.error-card { padding: 10px 12px; border-radius: 12px; background-color: var(--danger-soft); border: 1px solid var(--danger); }
 .error-ic { icon-color: var(--danger); }
 .error { font-size: 13px; color: var(--fg); }
 
@@ -228,7 +254,7 @@ MultilineTextEdit.input { background-color: #00000000; color: var(--fg); border:
 .recipe-log { padding: 4px 0px; }
 .recipe-error { font-size: 13px; color: var(--danger); }
 
-.tool-progress-box { padding: 2px 4px 2px 44px; }
+.tool-progress-box { padding: 0px 4px 2px 36px; }
 .tool-progress { height: 6px; border-radius: 3px; background-color: var(--surface-alt); color: var(--accent); accent-color: var(--accent); }
 
 .player-audio { padding: 8px 12px; border-radius: 12px; background-color: var(--surface-alt); border-width: 1px; border-color: var(--border); }

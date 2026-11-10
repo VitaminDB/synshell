@@ -20,6 +20,53 @@ pub struct Live {
     pub tool: Option<(String, String)>,
     /// Ход инструмента: доля 0..1 (None — неизвестна) и подпись этапа.
     pub progress: Option<(Option<f32>, String)>,
+    /// Окно терминала: живой вывод инструмента (строка, stderr ли).
+    pub term: Vec<(String, bool)>,
+}
+
+/// Строк живого вывода в памяти.
+const TERM_KEEP: usize = 200;
+
+impl Live {
+    /// Дописать кусок вывода: `\r` перерисовывает строку (прогресс), ANSI вырезается.
+    pub fn term_push(&mut self, text: &str, err: bool) {
+        let clean = strip_ansi(text);
+        for (i, part) in clean.split('\n').enumerate() {
+            // новая строка: после \n, в начале или при смене потока
+            if i > 0 || self.term.last().is_none_or(|(_, e)| *e != err) {
+                self.term.push((String::new(), err));
+            }
+            let line = &mut self.term.last_mut().unwrap().0;
+            match part.rsplit_once('\r') {
+                Some((_, tail)) => *line = tail.to_string(),
+                None => line.push_str(part),
+            }
+        }
+        if self.term.len() > TERM_KEEP {
+            let cut = self.term.len() - TERM_KEEP;
+            self.term.drain(..cut);
+        }
+    }
+}
+
+pub fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut it = s.chars().peekable();
+    while let Some(c) = it.next() {
+        if c == '\x1b' {
+            if it.peek() == Some(&'[') {
+                it.next();
+                for d in it.by_ref() {
+                    if d.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        out.push(c);
+    }
+    out
 }
 
 #[derive(Clone, Copy)]
@@ -47,6 +94,8 @@ pub struct St {
     pub chats: RwSignal<Vec<ChatSummary>>,
     pub chat: RwSignal<Chat>,
     pub live: RwSignal<Option<Live>>,
+    /// Раскрытые карточки инструментов: «чат:номер сообщения» → открыта ли.
+    pub tool_open: RwSignal<std::collections::HashMap<String, bool>>,
     pub busy: RwSignal<bool>,
     pub confirm: RwSignal<Option<(String, String)>>,
     pub error: RwSignal<Option<String>>,
@@ -108,6 +157,7 @@ impl St {
             chats: use_signal(chats),
             chat: use_signal(chat),
             live: use_signal(None),
+            tool_open: use_signal(Default::default()),
             busy: use_signal(false),
             confirm: use_signal(None),
             error: use_signal(None),
@@ -445,10 +495,23 @@ impl St {
             AgentEvent::Text(t) => self.live_update(|l| l.text.push_str(&t)),
             AgentEvent::Thinking(t) => self.live_update(|l| l.thinking.push_str(&t)),
             AgentEvent::ToolText(t) => self.live_update(|l| l.tool_text.push_str(&t)),
-            AgentEvent::ToolStart { name, summary } => self.live_update(|l| {
-                l.tool = Some((name, summary));
-                l.progress = None;
-            }),
+            AgentEvent::ToolStart { name, summary } => {
+                // Терминал — сразу раскрытым: вывод команды виден по ходу и остаётся после.
+                if name == "bash" {
+                    let key = self.live_tool_key();
+                    if self.tool_open.with_untracked(|m| !m.contains_key(&key)) {
+                        self.tool_open.update(|m| {
+                            m.insert(key, true);
+                        });
+                    }
+                }
+                self.live_update(|l| {
+                    l.tool = Some((name, summary));
+                    l.progress = None;
+                    l.term.clear();
+                })
+            }
+            AgentEvent::ToolOutput { text, err } => self.live_update(|l| l.term_push(&text, err)),
             AgentEvent::ToolProgress { step, total, label } => self.live_update(|l| l.progress = Some(((total > 0).then(|| step as f32 / total as f32), label))),
             AgentEvent::Message(m) => self.push(m),
             AgentEvent::Compacted(msgs) => {
@@ -463,6 +526,24 @@ impl St {
             }
             AgentEvent::Done => {}
         }
+    }
+
+    /// Ключ карточки инструмента по номеру сообщения в чате.
+    pub fn tool_key(self, index: usize) -> String {
+        format!("{}:{index}", self.chat.with_untracked(|c| c.id.clone()))
+    }
+
+    /// Ключ идущего инструмента: его результат станет следующим сообщением.
+    pub fn live_tool_key(self) -> String {
+        self.tool_key(self.chat.with_untracked(|c| c.messages.len()))
+    }
+
+    pub fn toggle_tool(self, key: &str, default: bool) {
+        let key = key.to_string();
+        self.tool_open.update(|m| {
+            let cur = m.get(&key).copied().unwrap_or(default);
+            m.insert(key, !cur);
+        });
     }
 
     fn live_update(self, f: impl FnOnce(&mut Live)) {

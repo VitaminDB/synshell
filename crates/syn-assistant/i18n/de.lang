@@ -159,3 +159,13 @@
 # src/voice.rs
 "Озвучка: {e}" = "Sprachausgabe: {e}"
 "Распознавание: {e}" = "Erkennung: {e}"
+
+# src/ui/feed.rs — окно вывода инструмента
+"{n} стр." = "{n} Z."
+"… выше ещё {n} стр." = "… darüber noch {n} Z."
+"ожидание вывода…" = "warte auf Ausgabe…"
+"(без вывода)" = "(keine Ausgabe)"
+"выполняется" = "läuft"
+"готово" = "fertig"
+"ошибка" = "Fehler"
+"Копировать вывод" = "Ausgabe kopieren"

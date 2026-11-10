@@ -842,3 +842,6 @@
 "Подключено USB-устройство" = "USB device connected"
 "Отключено USB-устройство" = "USB device disconnected"
 "ID {id} · шина {bus} · устройство {dev}" = "ID {id} · bus {bus} · device {dev}"
+
+# src/assistant.rs — переход в чат
+"Открыть чат в окне ассистента" = "Open the chat in the assistant window"

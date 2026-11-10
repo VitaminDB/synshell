@@ -842,3 +842,6 @@
 "Подключено USB-устройство" = "USB aygıtı bağlandı"
 "Отключено USB-устройство" = "USB aygıtının bağlantısı kesildi"
 "ID {id} · шина {bus} · устройство {dev}" = "ID {id} · veri yolu {bus} · aygıt {dev}"
+
+# src/assistant.rs — переход в чат
+"Открыть чат в окне ассистента" = "Sohbeti asistan penceresinde aç"
