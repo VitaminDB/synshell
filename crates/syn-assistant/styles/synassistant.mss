@@ -166,7 +166,7 @@ TextField.rename-field { background-color: var(--field); border: 1px solid var(-
 .btn.term-copy { padding: 4px; icon-size: 14px; icon-color: #8B949E; }
 .btn.term-copy:hover { background-color: #FFFFFF14; icon-color: #C9D1D9; }
 .term-body { padding: 8px 12px 10px 12px; }
-.term-line { font-family: monospace; font-size: 12px; color: #C9D1D9; }
+.term-line { font-family: monospace; font-size: 12px; line-height: 1.45; color: #C9D1D9; }
 .term-line.err { color: #FF7B72; }
 .term-note { font-family: monospace; font-size: 12px; color: #6E7681; }
 .term-cursor { font-family: monospace; font-size: 12px; color: #3FB950; }

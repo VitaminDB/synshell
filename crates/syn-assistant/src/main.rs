@@ -111,6 +111,9 @@ fn main() {
                 let (service, models) = state::probe_service();
                 st.service.set(service);
                 st.models.set(models);
+                if let Some(id) = open_chat.as_deref() {
+                    st.open(id);
+                }
                 if fresh {
                     st.new_chat();
                 }
