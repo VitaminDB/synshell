@@ -405,7 +405,18 @@ impl Surface {
                     wl.frame(qh, wl.clone());
                     self.frame_pending = true;
                 }
+                let t_render = Instant::now();
                 let stats = renderer.render(shared, wsurf.as_ref().unwrap(), &self.display_list, clear);
+                if syngui::perf::is_enabled() {
+                    // Профиль кадра (`MGUI_PROFILE`): после отрисовки ждём GPU —
+                    // так видно чистое время видеокарты, а не только CPU.
+                    let render = t_render.elapsed();
+                    let t_gpu = Instant::now();
+                    let _ = shared.device.poll(wgpu::PollType::wait_indefinitely());
+                    syngui::perf::add_time(syngui::perf::TimeKind::GpuWait, t_gpu.elapsed());
+                    let [rebuild, layout, dl] = self.view.last_timings;
+                    syngui::perf::record_frame(rebuild, layout, dl, render, stats.draw_calls, stats.vertex_count, self.display_list.iter_all_commands().count());
+                }
                 if stats.draw_calls == 0 {
                     // Кадр не дошёл (поверхность потеряна) — следующий не пропускать.
                     self.view.invalidate();
