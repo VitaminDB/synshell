@@ -351,12 +351,12 @@ fn power_request(req: &str) {
         "!reboot-android" => {
             // Выбор системы следующей загрузки — syn-boot (меню boot.img или BCB в misc).
             let bin = ["/usr/local/bin/syn-boot", "/usr/bin/syn-boot"].into_iter().find(|p| std::path::Path::new(p).exists()).unwrap_or("syn-boot");
-            match Command::new(bin).arg("android").status() {
-                Ok(st) if st.success() => {
-                    log::info!("следующая загрузка — Android");
-                    let _ = Command::new("systemctl").arg("reboot").status();
-                }
-                r => log::error!("syn-boot android не удался ({r:?}) — перезагрузка отменена"),
+            // syn-boot android -r перезагружает сам — так, как нужно этому устройству: на Samsung (Linux в recovery,
+            // lk2nd) тёплый сброс всегда открывает lk2nd, и только с командой «boot-android» в misc lk2nd грузит
+            // Android; `syn-boot android` + свой `systemctl reboot` писал пустую команду — грузился снова Linux
+            match Command::new(bin).args(["android", "-r"]).status() {
+                Ok(st) if st.success() => log::info!("перезагрузка в Android"),
+                r => log::error!("syn-boot android -r не удался ({r:?}) — перезагрузка отменена"),
             }
         }
         _ => {}
