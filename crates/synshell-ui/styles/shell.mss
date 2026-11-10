@@ -24,6 +24,11 @@ Text {
 
 .panel {
     flex-grow: 1;
+    /* Во всю поверхность: Reactive не растягивает ребёнка по высоте, и фон
+     * кончался по содержимому (45 при поверхности 46) — у отлипшей панели
+     * между ней и развёрнутым окном просвечивали обои. */
+    width: 100%;
+    height: 100%;
     background-color: var(--panel-bg);
     border-width: 1px;
     border-color: var(--border);

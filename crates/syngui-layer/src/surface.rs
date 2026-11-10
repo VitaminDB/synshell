@@ -239,7 +239,10 @@ impl Surface {
         // интерфейса: физический буфер тот же.
         let zoom = self.zoom();
         let scale = self.scale() * zoom;
-        let (uw, uh) = (lw as f64 / zoom, lh as f64 / zoom);
+        // Раскладка — на весь физический буфер: при дробном масштабе он
+        // округлён (46 × 1.25 = 57.5 → 58 строк), и край фона по 57.5
+        // оставлял последнюю строку прозрачной — щель между панелью и окном.
+        let (uw, uh) = (phys.0 as f64 / scale, phys.1 as f64 / scale);
         let (uw_px, uh_px) = (uw.ceil().max(1.0) as u32, uh.ceil().max(1.0) as u32);
 
         // Поверхность wgpu и рендерер — лениво и при смене размера.
@@ -375,9 +378,10 @@ impl Surface {
             }
         }
         log::trace!(
-            "кадр {} #{}: {lw}x{lh}@{scale}, изменён={changed}, анимация={}, картинки={images_busy}",
+            "кадр {} #{}: {lw}x{lh}@{scale} (раскладка {uw:.2}x{uh:.2}, буфер {:?}), изменён={changed}, анимация={}, картинки={images_busy}",
             self.spec.namespace,
             self.id.0,
+            self.phys,
             animating || started
         );
         if !changed && !images_busy {
@@ -456,7 +460,7 @@ fn dump_tree(tree: &syngui::widget::ElementTree, id: syngui::widget::ElementId, 
     let Some(el) = tree.get(id) else { return };
     let b = el.bounds();
     out.push_str(&format!(
-        "{:indent$}{} [{:.0},{:.0} {:.0}x{:.0}] {}\n",
+        "{:indent$}{} [{:.1},{:.1} {:.1}x{:.1}] {}\n",
         "",
         el.element_type_name(),
         b.origin.x,
