@@ -96,11 +96,22 @@ pub fn compose(st: St) -> W {
             if st.busy.get() {
                 vec![tip(Button::new("").icon(icons::STOP).class("btn round stop").on_click(move || st.stop()), t!("Остановить (Esc)"))]
             } else {
-                vec![tip(Button::new("").icon(icons::SEND).class("btn round send").on_click(move || st.send(draft.lock().unwrap().clone())), t!("Отправить (Enter)"))]
+                vec![tip(Button::new("").icon(icons::ARROW_UP).class("btn round send").on_click(move || st.send(draft.lock().unwrap().clone())), t!("Отправить (Enter)"))]
             }
         });
         let attach = tip(Button::new("").icon(icons::ATTACH).class("btn round flat attach").on_click(move || st.attach()), t!("Прикрепить файл"));
-        vec![boxed(Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::End).child(attach).child(edit).child(mic).child(send))]
+        let phone = syngui::viewport::viewport_below(720.0).get_untracked();
+        let bottom = Row::new()
+            .gap(6.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .class("composer-bar")
+            .child(attach)
+            .child(super::model_picker(st, phone))
+            .child(super::mode_chips(st, phone))
+            .child(DecoratedBox::new().class("grow"))
+            .child(mic)
+            .child(send);
+        vec![boxed(Column::new().gap(2.0).cross_axis_alignment(CrossAxisAlignment::Stretch).child(edit).child(bottom))]
     });
     let hint = Reactive::new(move || -> Vec<W> {
         let s = st.service.get();

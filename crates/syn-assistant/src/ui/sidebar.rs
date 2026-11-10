@@ -3,7 +3,7 @@ use syngui::GestureDetector;
 use syngui::overlay::WindowDragRegion;
 use syn_assist::chat::ChatSummary;
 
-use super::{boxed, icon, icon_button, W};
+use super::{boxed, icon_button, tip, W};
 use crate::icons;
 use crate::state::St;
 
@@ -64,20 +64,25 @@ fn chat_item(st: St, c: &ChatSummary, current: bool, renaming: bool) -> W {
             })
             .child(
                 Row::new()
-                    .gap(8.0)
+                    .gap(6.0)
                     .cross_axis_alignment(CrossAxisAlignment::Center)
                     .class(if current { "chat-item active" } else { "chat-item" })
-                    .child(icon(icons::CHAT).class(if current { "ic chat-ic on" } else { "ic chat-ic" }))
-                    .child(
-                        Column::new()
-                            .gap(1.0)
-                            .class("grow")
-                            .child(Text::new(super::chat_title(c.title.clone())).max_lines(1).elide(Elide::End).class("chat-title"))
-                            .child(Text::new(if c.preview.is_empty() { t!("Без ответа").to_string() } else { c.preview.clone() }).max_lines(1).elide(Elide::End).class("chat-preview")),
-                    )
-                    .child(more),
+                    .child(Text::new(super::chat_title(c.title.clone())).max_lines(1).elide(Elide::End).class(if current { "chat-title on grow" } else { "chat-title grow" }))
+                    .child(if current { boxed(more) } else { boxed(Text::new(when(c.updated)).class("chat-time")) }),
             ),
     )
+}
+
+/// Давность чата: «сейчас», минуты, часы, дни, недели.
+fn when(updated: i64) -> String {
+    let min = ((syn_assist::chat::now() - updated).max(0) / 60_000) as u64;
+    match min {
+        0 => t!("сейчас").to_string(),
+        1..=59 => t!("{n} мин", n = min).to_string(),
+        60..=1439 => t!("{n} ч", n = min / 60).to_string(),
+        1440..=10079 => t!("{n} д", n = min / 1440).to_string(),
+        _ => t!("{n} нед", n = min / 10080).to_string(),
+    }
 }
 
 fn list(st: St) -> W {
@@ -105,39 +110,36 @@ fn list(st: St) -> W {
     }))
 }
 
-fn status_row(ok: bool, label: String, value: String) -> W {
-    boxed(
+fn status_dot(ok: bool, glyph: &'static str, tip_text: String) -> W {
+    tip(
         Row::new()
-            .gap(8.0)
+            .gap(4.0)
             .cross_axis_alignment(CrossAxisAlignment::Center)
+            .class(if ok { "svc ok" } else { "svc off" })
             .child(DecoratedBox::new().class(if ok { "dot ok" } else { "dot off" }))
-            .child(Text::new(label).class("status-label"))
-            .child(Text::new(value).max_lines(1).elide(Elide::End).class("status-value grow")),
+            .child(Icon::new(glyph).class("ic svc-ic")),
+        tip_text,
     )
 }
 
+/// Нижняя строка: состояние нейросетей значками (подробности — в подсказках) и настройки.
 fn footer(st: St) -> W {
     boxed(Reactive::new(move || -> Vec<W> {
         let s = st.service.get();
         let none = t!("нет").to_string();
-        let mut col = Column::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("status");
+        let mut row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center).class("status");
         if !s.online {
-            col = col.child(status_row(false, t!("Нейросети").to_string(), t!("служба не отвечает").to_string()));
+            row = row.child(status_dot(false, icons::CLOUD, t!("Нейросети: служба не отвечает").to_string())).child(Text::new(t!("служба не отвечает")).max_lines(1).class("status-label"));
         } else {
-            col = col
-                .child(status_row(s.llm.is_some(), t!("Модель").to_string(), s.llm.clone().unwrap_or_else(|| none.clone())))
-                .child(status_row(s.asr.is_some(), t!("Слух").to_string(), s.asr.clone().unwrap_or_else(|| none.clone())))
-                .child(status_row(s.tts.is_some(), t!("Голос").to_string(), s.tts.clone().unwrap_or(none)));
+            row = row
+                .child(status_dot(s.llm.is_some(), icons::MEMORY, format!("{}: {}", t!("Модель"), s.llm.clone().unwrap_or_else(|| none.clone()))))
+                .child(status_dot(s.asr.is_some(), icons::MIC, format!("{}: {}", t!("Слух"), s.asr.clone().unwrap_or_else(|| none.clone()))))
+                .child(status_dot(s.tts.is_some(), icons::VOLUME_UP, format!("{}: {}", t!("Голос"), s.tts.clone().unwrap_or(none))));
         }
-        col = col.child(
-            Button::new(t!("Настройки ассистента"))
-                .icon(icons::TUNE)
-                .class("btn ghost small")
-                .on_click(|| {
-                    let _ = std::process::Command::new("synsettings").arg("assistant").spawn();
-                }),
-        );
-        vec![boxed(col)]
+        row = row.child(DecoratedBox::new().class("grow")).child(icon_button(icons::TUNE, t!("Настройки ассистента"), "tb-btn", || {
+            let _ = std::process::Command::new("synsettings").arg("assistant").spawn();
+        }));
+        vec![boxed(row)]
     }))
 }
 
@@ -153,7 +155,8 @@ pub fn sidebar(st: St, phone: bool) -> W {
     }
     head = head.child(super::brand());
     // Узкая раскладка — шапка служит заголовком окна: за пустое место окно перетаскивают.
-    head = head.child(if phone { boxed(DecoratedBox::new().class("grow").child(WindowDragRegion::new().child(DecoratedBox::new().class("head-drag")))) } else { boxed(DecoratedBox::new().class("grow")) });
+    // Шапка служит и заголовком окна: за пустое место окно перетаскивают.
+    head = head.child(boxed(DecoratedBox::new().class("grow").child(WindowDragRegion::new().child(DecoratedBox::new().class("head-drag")))));
     if !phone {
         head = head.child(icon_button(icons::SIDEBAR, t!("Скрыть панель (Ctrl+B)"), "tb-btn", move || st.sidebar.set(false)));
     } else {
@@ -169,7 +172,7 @@ pub fn sidebar(st: St, phone: bool) -> W {
             .child(
                 Row::new()
                     .gap(6.0)
-                    .child(Button::new(t!("Новый чат")).icon(icons::ADD).class("btn new grow").on_click(move || st.new_chat()))
+                    .child(DecoratedBox::new().class("grow").child(tip(Button::new(t!("Новый чат")).icon(icons::EDIT_SQUARE).class("btn new").on_click(move || st.new_chat()), t!("Новый чат (Ctrl+N)"))))
                     .child(super::icon_button(icons::BOLT, t!("Рецепты — готовые сценарии"), "tb-btn", move || st.recipes_open.set(true))),
             )
             .child(ScrollView::new().vertical().class("grow chat-list").child(list(st)))

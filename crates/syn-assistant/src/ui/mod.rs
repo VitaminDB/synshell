@@ -7,7 +7,7 @@ mod voice;
 
 use syngui::overlay::{ControlsSide, SystemWindowControls, WindowDragRegion, WindowResizeRegion};
 use syngui::prelude::*;
-use syngui::widgets::{ConfirmDialog, EventHook, KeyReply, MenuItem, PopupMenu, Stack, StackFit, Tooltip};
+use syngui::widgets::{ConfirmDialog, EventHook, KeyReply, MenuItem, PopupMenu, SplitView, Stack, StackFit, Tooltip};
 
 use crate::icons;
 use crate::state::St;
@@ -36,7 +36,7 @@ pub fn centered(w: impl Widget + 'static) -> W {
     boxed(Column::new().cross_axis_alignment(CrossAxisAlignment::Center).class("center-host").child(w))
 }
 
-fn brand() -> W {
+pub fn brand() -> W {
     boxed(
         Row::new()
             .gap(10.0)
@@ -46,29 +46,35 @@ fn brand() -> W {
     )
 }
 
-fn titlebar(st: St) -> W {
+/// Шапка панели чата — она же заголовок окна (CSD): название чата, расход
+/// контекста, голос, действия и кнопки окна. Отдельной полосы заголовка нет.
+fn pane_header(st: St) -> W {
     let left = Reactive::new(move || -> Vec<W> {
-        let open = st.sidebar.get();
-        let mut row = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center).class(if open { "tb-left open" } else { "tb-left" });
-        row = row.child(icon_button(icons::SIDEBAR, t!("Боковая панель (Ctrl+B)"), "tb-btn", move || st.sidebar.set(!st.sidebar.get_untracked())));
-        if !open {
-            row = row.child(brand());
+        if st.sidebar.get() {
+            return vec![];
         }
-        vec![boxed(row)]
+        vec![boxed(
+            Row::new()
+                .gap(6.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(icon_button(icons::SIDEBAR, t!("Боковая панель (Ctrl+B)"), "tb-btn", move || st.sidebar.set(true)))
+                .child(icon_button(icons::ADD, t!("Новый чат (Ctrl+N)"), "tb-btn", move || st.new_chat())),
+        )]
     });
     let title = Reactive::new(move || -> Vec<W> {
         let c = st.chat.get();
         let busy = st.busy.get();
-        let mut row = Row::new().gap(8.0).cross_axis_alignment(CrossAxisAlignment::Center).main_axis_alignment(MainAxisAlignment::Center).class("tb-title-row");
+        let mut row = Row::new().gap(10.0).cross_axis_alignment(CrossAxisAlignment::Center).class("hd-title-row");
+        row = row.child(Text::new(chat_title(c.display_title())).max_lines(1).elide(Elide::End).class("hd-title"));
         if busy {
             row = row.child(CircularProgress::new().indeterminate().size(14.0).stroke_width(2.0).class("spin"));
         }
-        row = row.child(Text::new(chat_title(c.display_title())).max_lines(1).elide(Elide::End).class("tb-title"));
         vec![boxed(row)]
     });
     let tools = Reactive::new(move || -> Vec<W> {
         let voice_on = st.voice.open.get();
-        let mut row = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        let mut row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        row = row.child(usage(st));
         row = row.child(tip(
             Button::new(t!("Голосом"))
                 .icon(icons::VOICE_CHAT)
@@ -82,27 +88,55 @@ fn titlebar(st: St) -> W {
                 }),
             t!("Голосовой разговор (Ctrl+Shift+M)"),
         ));
-        row = row.child(icon_button(icons::ADD, t!("Новый чат (Ctrl+N)"), "tb-btn", move || st.new_chat()));
+        let more = Button::new("").icon(icons::MORE).class("btn round flat tb-btn").on_click_with_bounds(move |r| {
+            st.menu_chat.set(Some(st.chat.get_untracked().id));
+            st.menu_pos.set(Point::new(r.max_x() - 220.0, r.max_y() + 4.0));
+            st.menu_open.set(true);
+        });
+        row = row.child(tip(more, t!("Действия с чатом")));
         vec![boxed(row)]
     });
     let controls = Reactive::new(move || -> Vec<W> {
         let w = st.window.get();
-        vec![boxed(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused))]
+        if w.fullscreen {
+            return vec![];
+        }
+        vec![boxed(DecoratedBox::new().class("window-controls").child(SystemWindowControls::new(ControlsSide::Right).maximized(w.maximized).active(w.focused)))]
     });
     boxed(
-        DecoratedBox::new().class("titlebar").child(
+        DecoratedBox::new().class("pane-header").child(
             Row::new()
-                .cross_axis_alignment(CrossAxisAlignment::Stretch)
-                .child(DecoratedBox::new().class("tb-left-wrap").child(left))
-                .child(DecoratedBox::new().class("grow drag-wrap").child(WindowDragRegion::new().child(DecoratedBox::new().class("drag-space").child(title))))
-                .child(DecoratedBox::new().class("tb-tools").child(tools))
-                .child(DecoratedBox::new().class("window-controls").child(controls)),
+                .gap(4.0)
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .child(left)
+                .child(DecoratedBox::new().class("grow").child(WindowDragRegion::new().child(DecoratedBox::new().class("hd-drag").child(title))))
+                .child(tools)
+                .child(controls),
         ),
     )
 }
 
-fn toolbar(st: St, phone: bool) -> W {
-    let model = Reactive::new(move || -> Vec<W> {
+/// Расход окна контекста: тонкая полоска с процентом (пусто в новом чате).
+fn usage(st: St) -> W {
+    let c = st.chat.get();
+    if c.context == 0 || c.messages.is_empty() {
+        return boxed(DecoratedBox::new());
+    }
+    let pct = (c.prompt_tokens as f32 / c.context as f32).clamp(0.0, 1.0);
+    tip(
+        Row::new()
+            .gap(6.0)
+            .cross_axis_alignment(CrossAxisAlignment::Center)
+            .class("usage-box")
+            .child(ProgressBar::with_value(pct).class(if pct > 0.85 { "usage warn" } else { "usage" }))
+            .child(Text::new(format!("{}%", (pct * 100.0).round() as u32)).class("usage-label")),
+        t!("Занято окно контекста: {a} из {b} токенов", a = c.prompt_tokens, b = c.context),
+    )
+}
+
+/// Выбор модели — компактный, в нижней строке поля ввода.
+pub fn model_picker(st: St, phone: bool) -> W {
+    boxed(Reactive::new(move || -> Vec<W> {
         let models = st.models.get();
         let cur = st.chat.get().model;
         let service = st.service.get();
@@ -118,17 +152,21 @@ fn toolbar(st: St, phone: bool) -> W {
         vec![boxed(
             Dropdown::with_items(items)
                 .selected(selected)
-                .width(if phone { 170.0 } else { 260.0 })
+                .width(if phone { 150.0 } else { 240.0 })
                 .max_height(360.0)
                 .on_change(move |v| st.set_model(v))
-                .class(if phone { "model-pick phone" } else { "model-pick" }),
+                .class("model-pick"),
         )]
-    });
-    let chips = Reactive::new(move || -> Vec<W> {
+    }))
+}
+
+/// Режимы ответа: размышления и озвучка — переключатели в поле ввода.
+pub fn mode_chips(st: St, phone: bool) -> W {
+    boxed(Reactive::new(move || -> Vec<W> {
         let thinking = st.chat.get().thinking;
         let speak = st.speak_answers.get();
         let speaking = st.voice.speaking.get();
-        let mut row = Row::new().gap(6.0).cross_axis_alignment(CrossAxisAlignment::Center);
+        let mut row = Row::new().gap(4.0).cross_axis_alignment(CrossAxisAlignment::Center);
         row = row.child(tip(
             Button::new(if phone { String::new() } else { t!("Размышления").to_string() }).icon(icons::PSYCHOLOGY).class(if thinking { "btn chip on" } else { "btn chip" }).on_click(move || st.set_thinking(!thinking)),
             t!("Показывать ход мыслей модели перед ответом"),
@@ -138,44 +176,10 @@ fn toolbar(st: St, phone: bool) -> W {
             t!("Читать ответы вслух"),
         ));
         if speaking {
-            row = row.child(tip(
-                Button::new(t!("Стоп")).icon(icons::STOP).class("btn chip speaking").on_click(|| crate::voice::stop_speaking()),
-                t!("Остановить озвучку"),
-            ));
+            row = row.child(tip(Button::new(t!("Стоп")).icon(icons::STOP).class("btn chip speaking").on_click(|| crate::voice::stop_speaking()), t!("Остановить озвучку")));
         }
         vec![boxed(row)]
-    });
-    let usage = Reactive::new(move || -> Vec<W> {
-        let c = st.chat.get();
-        if c.context == 0 || c.messages.is_empty() {
-            return vec![];
-        }
-        let pct = (c.prompt_tokens as f32 / c.context as f32).clamp(0.0, 1.0);
-        vec![tip(
-            Row::new()
-                .gap(6.0)
-                .cross_axis_alignment(CrossAxisAlignment::Center)
-                .child(ProgressBar::with_value(pct).class(if pct > 0.85 { "usage warn" } else { "usage" }))
-                .child(Text::new(format!("{}%", (pct * 100.0).round() as u32)).class("usage-label")),
-            t!("Занято окно контекста: {a} из {b} токенов", a = c.prompt_tokens, b = c.context),
-        )]
-    });
-    let more = Button::new("").icon(icons::MORE).class("btn round flat tb-btn").on_click_with_bounds(move |r| {
-        st.menu_chat.set(Some(st.chat.get_untracked().id));
-        st.menu_pos.set(Point::new(r.max_x() - 220.0, r.max_y() + 4.0));
-        st.menu_open.set(true);
-    });
-    boxed(
-        Row::new()
-            .gap(10.0)
-            .cross_axis_alignment(CrossAxisAlignment::Center)
-            .class(if phone { "toolbar phone" } else { "toolbar" })
-            .child(model)
-            .child(chips)
-            .child(DecoratedBox::new().class("grow"))
-            .child(usage)
-            .child(tip(more, t!("Действия с чатом"))),
-    )
+    }))
 }
 
 fn confirm_bar(st: St) -> W {
@@ -202,10 +206,8 @@ fn confirm_bar(st: St) -> W {
 
 fn chat_pane(st: St, phone: bool) -> W {
     let mut col = Column::new().gap(0.0).cross_axis_alignment(CrossAxisAlignment::Stretch).class("pane grow");
-    if phone {
-        col = col.child(phone_bar(st));
-    }
-    col = col.child(toolbar(st, phone)).child(feed::feed(st, phone)).child(confirm_bar(st)).child(compose::compose(st));
+    col = col.child(if phone { phone_bar(st) } else { pane_header(st) });
+    col = col.child(feed::feed(st, phone)).child(confirm_bar(st)).child(compose::compose(st));
     boxed(DecoratedBox::new().class("pane-wrap grow").child(col))
 }
 
@@ -365,16 +367,29 @@ fn desktop_root(st: St) -> W {
             if st.sidebar.get() {
                 row = row.child(DecoratedBox::new().class("sidebar").child(recipes::sidebar(st, rs)));
             }
-            row = row.child(recipes::pane(st, rs));
+            row = row.child(
+                Column::new()
+                    .cross_axis_alignment(CrossAxisAlignment::Stretch)
+                    .class("grow pane-wrap")
+                    .child(pane_header(st))
+                    .child(DecoratedBox::new().class("grow").child(recipes::pane(st, rs))),
+            );
             return vec![boxed(row)];
         }
         if st.sidebar.get() {
-            row = row.child(sidebar::sidebar(st, false));
+            // Ширина панели чатов — перетаскиваемым разделителем.
+            return vec![boxed(
+                SplitView::new(DecoratedBox::new().class("grow").child(sidebar::sidebar(st, false)), DecoratedBox::new().class("grow").child(chat_pane(st, false)))
+                    .first_size_signal(st.sidebar_w)
+                    .first_size_range(220.0, 480.0)
+                    .min_size(420.0)
+                    .class("side-split grow"),
+            )];
         }
         row = row.child(chat_pane(st, false));
         vec![boxed(row)]
     });
-    let main = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).class("window").child(titlebar(st)).child(DecoratedBox::new().class("grow body-wrap").child(body));
+    let main = Column::new().cross_axis_alignment(CrossAxisAlignment::Stretch).class("window").child(DecoratedBox::new().class("grow body-wrap").child(body));
     let stack = Stack::new().fit(StackFit::Expand).child(main).child(voice::overlay(st)).child(toast_layer(st)).child(dialogs(st)).child(menu_layer(st));
     let frame = DecoratedBox::new().class("window-frame").clip(true).child(keys(st, stack));
     boxed(WindowResizeRegion::new().over_content(true).inset(5.0).child(frame))

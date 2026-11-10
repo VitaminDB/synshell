@@ -105,6 +105,8 @@ pub struct St {
     pub recipes_open: RwSignal<bool>,
     pub empty: RwSignal<bool>,
     pub sidebar: RwSignal<bool>,
+    /// Ширина боковой панели (тянется разделителем, хранится между запусками).
+    pub sidebar_w: RwSignal<f32>,
     pub window: RwSignal<syngui::window::WindowState>,
     pub theme: RwSignal<String>,
     pub search: RwSignal<String>,
@@ -166,6 +168,7 @@ impl St {
             recipes_open: use_signal(false),
             empty: use_signal(true),
             sidebar: use_signal(true),
+            sidebar_w: use_signal(load_sidebar_width()),
             window: use_signal(syngui::window::WindowState::default()),
             theme: use_signal(String::new()),
             search: use_signal(String::new()),
@@ -558,6 +561,23 @@ impl St {
         self.chat.set(c);
         self.live.set(Some(Live::default()));
     }
+}
+
+fn sidebar_width_file() -> PathBuf {
+    synshell_common::paths::state_home().join("synassistant").join("sidebar-width")
+}
+
+fn load_sidebar_width() -> f32 {
+    std::fs::read_to_string(sidebar_width_file()).ok().and_then(|s| s.trim().parse::<f32>().ok()).filter(|w| (200.0..=520.0).contains(w)).unwrap_or(272.0)
+}
+
+/// Запомнить ширину боковой панели (при закрытии окна).
+pub fn save_sidebar_width(w: f32) {
+    let f = sidebar_width_file();
+    if let Some(d) = f.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let _ = std::fs::write(f, format!("{}", w.round()));
 }
 
 pub fn probe_service() -> (Service, Vec<(String, String)>) {

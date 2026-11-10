@@ -25,8 +25,10 @@ pub fn theme(cfg: &Config) -> String {
             ("sidebar", sidebar.hex()),
             ("content", content.hex()),
             ("field", field.hex()),
+            ("code-bg", if dark { p.bg.mix(Rgba::rgb(0, 0, 0), 0.25).hex() } else { p.surface_alt.hex() }),
             ("accent-2", accent2.hex()),
             ("accent-3", accent3.hex()),
+            ("accent-hover", p.accent.mix(Rgba::rgb(255, 255, 255), 0.18).hex()),
             ("accent-glow", p.accent.with_alpha(0.35).hex()),
             ("accent-dim", p.accent.with_alpha(0.12).hex()),
             ("card", if dark { p.surface.with_alpha(0.55).hex() } else { p.surface.hex() }),
@@ -153,6 +155,7 @@ fn main() {
         .with_live_styles(st.theme)
         .with_window_state(st.window)
         .on_close_request(move || {
+            state::save_sidebar_width(st.sidebar_w.get_untracked());
             voice::shutdown();
             true
         })

@@ -169,3 +169,11 @@
 "готово" = "fertig"
 "ошибка" = "Fehler"
 "Копировать вывод" = "Ausgabe kopieren"
+
+# src/ui/sidebar.rs — список чатов и состояние
+"сейчас" = "jetzt"
+"{n} мин" = "{n} Min."
+"{n} ч" = "{n} Std."
+"{n} д" = "{n} T."
+"{n} нед" = "{n} Wo."
+"Нейросети: служба не отвечает" = "KI: Dienst antwortet nicht"

@@ -38,6 +38,8 @@ pub const TUNE: &str = "\u{E429}";
 pub const DONE: &str = "\u{E876}";
 pub const SIDEBAR: &str = "\u{E5D2}";
 pub const EXPAND_MORE: &str = "\u{E5CF}";
+pub const EDIT_SQUARE: &str = "\u{E745}";
+pub const ARROW_UP: &str = "\u{E5D8}";
 pub const CHEVRON_RIGHT: &str = "\u{E5CC}";
 
 pub fn tool(name: &str) -> &'static str {
