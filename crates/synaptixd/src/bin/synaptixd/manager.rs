@@ -1176,6 +1176,20 @@ impl Manager {
             let _dl = devices::lock(dev);
             r = f(&lease.model);
         }
+        // Отдавать модели нечего, а карта занята соседями: выгрузить с неё незанятые модели и повторить ход
+        // на карте — прежде чем думать о CPU (языковая модель на десятки гигабайт туда не поместится).
+        if dev == DeviceKind::Cuda && r.as_ref().err().is_some_and(is_oom) {
+            let mut evicted = false;
+            while self.evict_one_on(id, Some(DeviceKind::Cuda), "ходу соседней модели не хватило видеопамяти") {
+                evicted = true;
+            }
+            if evicted {
+                tracing::warn!("{id}: ход упёрся в видеопамять ({}); соседи выгружены, повтор на cuda", r.as_ref().err().unwrap());
+                release_vram(Some(DeviceKind::Cuda));
+                let _dl = devices::lock(dev);
+                r = f(&lease.model);
+            }
+        }
         match r {
             Ok(v) => Ok(v),
             // Отмена хода — не сбой устройства: повторять её на CPU незачем.
@@ -1192,7 +1206,14 @@ impl Manager {
                 if let Some(s) = self.slots.lock().unwrap().get_mut(id) {
                     s.fallback = true;
                 }
-                self.load(id, Some(DeviceKind::Cpu))?;
+                // На CPU модель не помещается — причиной остаётся сбой на устройстве, а не «нужно 170 ГБ».
+                if let Err(le) = self.load(id, Some(DeviceKind::Cpu)) {
+                    if let Some(s) = self.slots.lock().unwrap().get_mut(id) {
+                        s.fallback = false;
+                    }
+                    tracing::warn!("{id}: на CPU не загрузить ({}); следующий запрос снова загрузит на {}", le.message, dev.id());
+                    return Err(Error::new(ErrorCode::Failed, format!("сбой на {}: {msg}", dev.id())));
+                }
                 let lease = self.acquire(id)?;
                 let r = f(&lease.model).map_err(|e| Error::new(ErrorCode::Failed, e.to_string()));
                 if transient {
