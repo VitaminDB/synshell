@@ -227,6 +227,36 @@ pub fn reconfigure_surface(id: SurfaceId, spec: SurfaceSpec) {
 /// проходит насквозь к окнам под поверхностью. `None` — вся поверхность.
 /// Док с запасом места над значками под увеличение ловит клики только
 /// своей полосой.
+static COMPOSITOR_BLUR: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Композитор размывает фон под областями `backdrop-filter` (`ext-background-effect-v1`).
+pub fn compositor_blur() -> bool {
+    COMPOSITOR_BLUR.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+type BlurCallback = Box<dyn Fn(bool) + Send>;
+static BLUR_CALLBACK: std::sync::Mutex<Option<BlurCallback>> = std::sync::Mutex::new(None);
+
+/// Вызывать `f`, когда композитор объявляет или снимает размытие фона (оболочка пересобирает
+/// тему: правила `backdrop-filter` нужны, только если размывать есть кому). Вызывается в цикле
+/// событий хоста.
+pub fn on_compositor_blur(f: impl Fn(bool) + Send + 'static) {
+    // Возможность могла прийти раньше подписки (сразу после привязки глобала) — сообщить сразу.
+    if compositor_blur() {
+        f(true);
+    }
+    *BLUR_CALLBACK.lock().unwrap() = Some(Box::new(f));
+}
+
+pub(crate) fn set_compositor_blur(on: bool) {
+    let was = COMPOSITOR_BLUR.swap(on, std::sync::atomic::Ordering::Relaxed);
+    if was != on {
+        if let Some(f) = BLUR_CALLBACK.lock().unwrap().as_ref() {
+            f(on);
+        }
+    }
+}
+
 pub fn set_input_region(id: SurfaceId, rects: Option<Vec<[i32; 4]>>) {
     push(Command::InputRegion { id, rects });
 }

@@ -77,6 +77,18 @@ pub struct Surface {
     pub input_region: Option<Vec<[i32; 4]>>,
     /// Семейство шрифта, с которым создан рендерер (для [`crate::gpu::Gpu::recycle`]).
     pub font_family: Option<String>,
+    /// Объект `ext_background_effect_surface_v1` и последняя отправленная область размытия
+    /// (логические координаты поверхности).
+    pub blur_obj: Option<smithay_client_toolkit::reexports::protocols::ext::background_effect::v1::client::ext_background_effect_surface_v1::ExtBackgroundEffectSurfaceV1>,
+    pub blur_sent: Vec<[i32; 4]>,
+}
+
+/// Размытие фона композитором (`ext-background-effect-v1`) для кадра поверхности.
+pub struct BlurCtx<'a> {
+    pub compositor: &'a smithay_client_toolkit::compositor::CompositorState,
+    pub manager: &'a smithay_client_toolkit::reexports::protocols::ext::background_effect::v1::client::ext_background_effect_manager_v1::ExtBackgroundEffectManagerV1,
+    /// Композитор объявил возможность размытия.
+    pub active: bool,
 }
 
 impl Surface {
@@ -104,6 +116,8 @@ impl Surface {
             phys: (0, 0),
             rscale: 0.0,
             input_region: None,
+            blur_obj: None,
+            blur_sent: Vec::new(),
         }
     }
 
@@ -218,6 +232,7 @@ impl Surface {
     /// Нарисовать кадр, если он нужен. Возвращает `true`, если что-то
     /// отправлено композитору.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         gpu: &mut Gpu,
@@ -226,6 +241,7 @@ impl Surface {
         font_family: Option<String>,
         dump_dir: Option<&Path>,
         output_size: (u32, u32),
+        blur: Option<&BlurCtx<'_>>,
     ) -> anyhow::Result<bool> {
         if !self.configured || matches!(self.backend, Backend::Pending) {
             return Ok(false);
@@ -395,6 +411,44 @@ impl Surface {
             (c[2] * 255.0) as u8,
             c[3],
         );
+
+        // Размытие фона: области `backdrop-filter` — композитору (уйдут с этим же commit);
+        // если он размывает сам, слои размытия внутри поверхности не нужны.
+        if let (Some(b), Some(qh), Backend::Wayland { role, .. }) = (blur, qh, &self.backend) {
+            let regions = self.display_list.backdrop_regions(b.active);
+            let rects: Vec<[i32; 4]> = if b.active {
+                regions
+                    .iter()
+                    .map(|r| {
+                        let x0 = (r.origin.x as f64 * zoom).round() as i32;
+                        let y0 = (r.origin.y as f64 * zoom).round() as i32;
+                        let x1 = ((r.origin.x + r.size.width) as f64 * zoom).round() as i32;
+                        let y1 = ((r.origin.y + r.size.height) as f64 * zoom).round() as i32;
+                        [x0, y0, (x1 - x0).max(0), (y1 - y0).max(0)]
+                    })
+                    .filter(|r| r[2] > 0 && r[3] > 0)
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            if rects != self.blur_sent {
+                let wl = role.wl_surface();
+                if self.blur_obj.is_none() && !rects.is_empty() {
+                    self.blur_obj = Some(b.manager.get_background_effect(wl, qh, ()));
+                }
+                if let Some(obj) = &self.blur_obj {
+                    if rects.is_empty() {
+                        obj.set_blur_region(None);
+                    } else if let Ok(region) = smithay_client_toolkit::compositor::Region::new(b.compositor) {
+                        for r in &rects {
+                            region.add(r[0], r[1], r[2], r[3]);
+                        }
+                        obj.set_blur_region(Some(region.wl_region()));
+                    }
+                }
+                self.blur_sent = rects;
+            }
+        }
 
         match &mut self.backend {
             Backend::Wayland { wsurf, viewport, role, .. } => {

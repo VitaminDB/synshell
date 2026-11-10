@@ -15,6 +15,8 @@ mod eink_hold;
 mod encode;
 mod focus;
 mod grabs;
+mod background_effect;
+mod blur;
 mod gtk_shell;
 mod handlers;
 mod hdr;

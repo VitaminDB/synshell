@@ -152,6 +152,8 @@ pub fn run(shell: Shell) -> anyhow::Result<()> {
     syngui_layer::run(syngui_layer::RunOptions { font_family: font }, &mss, move || {
         let ctx = ShellCtx::new(config, form_factor);
         provide_context(ctx);
+        // Композитор объявил (или снял) размытие фона — тема с правилами `backdrop-filter` или без.
+        syngui_layer::on_compositor_blur(|_| syngui_layer::set_stylesheet(theme::build(&ShellCtx::get().cfg())));
         clock::start(ctx);
         system::start(ctx);
         datetime::start(ctx);

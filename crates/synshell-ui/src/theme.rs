@@ -60,6 +60,16 @@ fn theme_rules(cfg: &Config) -> String {
         out.push('\n');
     }
     out.push_str(&format!(".wallpaper-color {{ background: {}; }}\n", a.wallpaper_background(&cfg.wallpaper)));
+    // Размытие под меню, шторкой и всплывающими окнами (`[animations] blur`): размывает композитор
+    // (ext-background-effect-v1) по областям `backdrop-filter`; фон карточек — полупрозрачный,
+    // иначе размытого под ним не видно.
+    if cfg.animations.effect("blur") && syngui_layer::compositor_blur() {
+        let pal = a.palette();
+        let glass = pal.surface.with_alpha(a.panel_opacity.clamp(0.0, 1.0).min(0.62)).hex();
+        out.push_str(&format!(
+            "\n/* размытие фона */\n.popup-card, .shade {{ backdrop-filter: blur(24px); background-color: {glass}; }}\n/* окна апплетов панели — своё «стекло» из обоев, перетекает в панель */\n.popup-card.popup-panel {{ backdrop-filter: none; background-color: #00000000; }}\n"
+        ));
+    }
     if let Ok(user) = std::fs::read_to_string(paths::user_theme_file()) {
         out.push_str("\n/* ~/.config/synshell/theme.mss */\n");
         out.push_str(&user);

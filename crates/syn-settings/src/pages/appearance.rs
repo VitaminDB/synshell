@@ -566,7 +566,7 @@ pub fn animations() -> W {
                 &t!("Эффекты"),
                 vec![
                     switch_row(t!("Частицы"), t!("Искры и конфетти дока"), op!["animations", "particles"], a.particles),
-                    switch_row(t!("Размытие"), t!("Под меню и всплывающими окнами; на CPU-композиторе телефона дорого"), op!["animations", "blur"], a.blur),
+                    switch_row(t!("Размытие"), t!("Матовое стекло под меню, всплывающими окнами и шторкой; без видеокарты недоступно"), op!["animations", "blur"], a.blur),
                     switch_row(&t!("Волна от нажатия"), "", op!["animations", "ripple"], a.ripple),
                 ],
             ),

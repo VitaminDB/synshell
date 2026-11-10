@@ -154,6 +154,7 @@ impl State {
         if let Some(e) = &self.core.config_error {
             tracing::warn!(error = e, "ошибки в конфиге");
         }
+        crate::background_effect::update_capabilities(self);
         let error = self.core.config_error.clone();
         self.core.ipc.broadcast(&Event::ConfigReloaded { error });
         self.broadcast_workspaces();

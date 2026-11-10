@@ -146,7 +146,7 @@
 "Частицы" = "Particules"
 "Искры и конфетти дока" = "Étincelles et confettis du dock"
 "Размытие" = "Flou"
-"Под меню и всплывающими окнами; на CPU-композиторе телефона дорого" = "Sous les menus et fenêtres contextuelles ; coûteux avec le compositeur CPU du téléphone"
+"Матовое стекло под меню, всплывающими окнами и шторкой; без видеокарты недоступно" = "Verre dépoli derrière les menus, les fenêtres contextuelles et le volet ; indisponible sans GPU"
 "Волна от нажатия" = "Onde au toucher"
 "Наборы" = "Préréglages"
 "Быстро выставить" = "Réglage rapide"

@@ -146,7 +146,7 @@
 "Частицы" = "Particles"
 "Искры и конфетти дока" = "Dock sparks and confetti"
 "Размытие" = "Blur"
-"Под меню и всплывающими окнами; на CPU-композиторе телефона дорого" = "Behind menus and popups; expensive with the phone's CPU compositor"
+"Матовое стекло под меню, всплывающими окнами и шторкой; без видеокарты недоступно" = "Frosted glass behind menus, popups and the shade; unavailable without a GPU"
 "Волна от нажатия" = "Press ripple"
 "Наборы" = "Presets"
 "Быстро выставить" = "Quick setup"

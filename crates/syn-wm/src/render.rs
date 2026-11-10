@@ -51,6 +51,23 @@ smithay::backend::renderer::element::render_elements! {
     Cropped = CropRenderElement<WinElement<R>>,
     Transformed = RelocateRenderElement<RescaleRenderElement<WinElement<R>>>,
     Rotate = crate::rotate_anim::RotateElement,
+    /// Размытый фон под поверхностью (`ext-background-effect-v1`).
+    Blur = crate::blur::BlurElement,
+}
+
+/// Размытие фона в собираемом кадре: включено ли, радиус, очистка, вывод; запросы —
+/// индекс в списке (под элементами поверхности) и область.
+struct BlurCtx {
+    on: bool,
+    radius: f32,
+    clear: Color32F,
+    output: Rectangle<i32, Physical>,
+    name: String,
+    reqs: Vec<(usize, crate::blur::BlurReq)>,
+}
+
+thread_local! {
+    static BLUR: std::cell::RefCell<Option<BlurCtx>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Стабильные id сплошных элементов окна — для трекера повреждений.
@@ -129,6 +146,20 @@ where
     let bg = core.config.appearance.wallpaper_color(&core.config.wallpaper);
     let clear = color32(bg, 1.0);
     let mut out: Vec<OutputElement<R>> = Vec::new();
+    {
+        let mode = output.current_mode().map(|m| m.size).unwrap_or_default();
+        let size = output.current_transform().transform_size(mode);
+        BLUR.with(|b| {
+            *b.borrow_mut() = Some(BlurCtx {
+                on: core.config.animations.effect("blur"),
+                radius: (core.config.appearance.corner_radius as f64 * scale_f) as f32,
+                clear,
+                output: Rectangle::from_size(size),
+                name: output.name(),
+                reqs: Vec::new(),
+            })
+        });
+    }
 
     // Снимок поворота экрана — поверх всего, и курсора тоже.
     if let Some(a) = core.rotate_anim.as_mut().filter(|a| &a.output == output) {
@@ -323,6 +354,20 @@ where
     layer_elements(renderer, output, Layer::Bottom, scale, &mut out);
     layer_elements(renderer, output, Layer::Background, scale, &mut out);
 
+    // Размытый фон под поверхностями, попросившими его: всё, что за ними в списке, — в текстуру.
+    if let Some(ctx) = BLUR.with(|b| b.borrow_mut().take()) {
+        let keys: Vec<String> = ctx.reqs.iter().map(|(_, r)| r.key.clone()).collect();
+        for (idx, req) in ctx.reqs.into_iter().rev() {
+            if idx > out.len() {
+                continue;
+            }
+            if let Some(b) = renderer.make_blur(&out[idx..], &req, scale) {
+                out.insert(idx, OutputElement::Blur(b));
+            }
+        }
+        crate::blur::retain(&ctx.name, &keys);
+    }
+
     (out, clear)
 }
 
@@ -367,6 +412,24 @@ where
                 .into_iter()
                 .map(OutputElement::Surface),
         );
+        // Поверхность попросила размыть фон под собой — запомнить место (под её элементами).
+        let idx = out.len();
+        BLUR.with(|b| {
+            let mut b = b.borrow_mut();
+            let Some(ctx) = b.as_mut().filter(|c| c.on) else { return };
+            let Some(region) = crate::background_effect::blur_region(l.wl_surface()) else { return };
+            let mut bbox: Option<Rectangle<i32, Logical>> = None;
+            for (kind, r) in &region.rects {
+                if matches!(kind, smithay::wayland::compositor::RectangleKind::Add) {
+                    bbox = Some(bbox.map_or(*r, |b| b.merge(*r)));
+                }
+            }
+            let Some(r) = bbox else { return };
+            let area = Rectangle::new(geo.loc + r.loc, r.size).to_physical_precise_round(scale);
+            let Some(area) = area.intersection(ctx.output) else { return };
+            let key = format!("{}:{:?}", ctx.name, smithay::reexports::wayland_server::Resource::id(l.wl_surface()));
+            ctx.reqs.push((idx, crate::blur::BlurReq { key, area, output: ctx.output, radius: ctx.radius, clear: ctx.clear }));
+        });
     }
 }
 

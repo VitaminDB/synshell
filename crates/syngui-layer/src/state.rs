@@ -67,6 +67,9 @@ pub struct State {
     shm: Option<Shm>,
     fractional: Option<WpFractionalScaleManagerV1>,
     viewporter: Option<WpViewporter>,
+    /// `ext_background_effect_manager_v1` и объявлена ли возможность размытия.
+    blur_mgr: Option<smithay_client_toolkit::reexports::protocols::ext::background_effect::v1::client::ext_background_effect_manager_v1::ExtBackgroundEffectManagerV1>,
+    blur_cap: bool,
     lock_state: Option<SessionLockState>,
     session_lock: Option<SessionLock>,
     lock_factory: Option<crate::LockFactory>,
@@ -155,6 +158,8 @@ pub fn run(options: RunOptions, stylesheet: &str, init: Box<dyn FnOnce()>) -> an
         shm: None,
         fractional: None,
         viewporter: None,
+        blur_mgr: None,
+        blur_cap: false,
         lock_state: None,
         session_lock: None,
         lock_factory: None,
@@ -297,6 +302,7 @@ impl State {
         self.shm = Shm::bind(globals, qh).ok();
         self.fractional = globals.bind::<WpFractionalScaleManagerV1, _, _>(qh, 1..=1, ()).ok();
         self.viewporter = globals.bind::<WpViewporter, _, _>(qh, 1..=1, ()).ok();
+        self.blur_mgr = globals.bind(qh, 1..=1, ()).ok();
         self.lock_state = Some(SessionLockState::new(globals, qh));
         self.data_manager = DataDeviceManagerState::bind(globals, qh).ok();
         self.vk.bind(globals, qh);
@@ -666,7 +672,11 @@ impl State {
                 continue;
             }
             let qh = self.qh.clone();
-            if let Err(e) = s.render(&mut self.gpu, &self.engine, qh.as_ref(), font, dump.as_deref(), output_size) {
+            let blur = match (&self.compositor, &self.blur_mgr) {
+                (Some(compositor), Some(manager)) => Some(crate::surface::BlurCtx { compositor, manager, active: self.blur_cap }),
+                _ => None,
+            };
+            if let Err(e) = s.render(&mut self.gpu, &self.engine, qh.as_ref(), font, dump.as_deref(), output_size, blur.as_ref()) {
                 log::error!("syngui-layer: кадр {}: {e}", s.spec.namespace);
                 s.needs_frame = false;
             }
@@ -1384,6 +1394,43 @@ impl Dispatch<WpFractionalScaleV1, SurfaceId> for State {
 
 impl Dispatch<WpViewporter, ()> for State {
     fn event(_: &mut Self, _: &WpViewporter, _: <WpViewporter as Proxy>::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+}
+
+impl Dispatch<smithay_client_toolkit::reexports::protocols::ext::background_effect::v1::client::ext_background_effect_manager_v1::ExtBackgroundEffectManagerV1, ()> for State {
+    fn event(
+        st: &mut Self,
+        _: &smithay_client_toolkit::reexports::protocols::ext::background_effect::v1::client::ext_background_effect_manager_v1::ExtBackgroundEffectManagerV1,
+        event: smithay_client_toolkit::reexports::protocols::ext::background_effect::v1::client::ext_background_effect_manager_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        use smithay_client_toolkit::reexports::protocols::ext::background_effect::v1::client::ext_background_effect_manager_v1::{Capability, Event};
+        if let Event::Capabilities { flags } = event {
+            let cap = flags.into_result().is_ok_and(|f| f.contains(Capability::Blur));
+            crate::set_compositor_blur(cap);
+            if cap != st.blur_cap {
+                st.blur_cap = cap;
+                // Пересобрать кадры: слои размытия — то внутри поверхности, то у композитора.
+                for s in st.surfaces.values_mut() {
+                    s.view.invalidate();
+                    s.needs_frame = true;
+                }
+            }
+        }
+    }
+}
+
+impl Dispatch<smithay_client_toolkit::reexports::protocols::ext::background_effect::v1::client::ext_background_effect_surface_v1::ExtBackgroundEffectSurfaceV1, ()> for State {
+    fn event(
+        _: &mut Self,
+        _: &smithay_client_toolkit::reexports::protocols::ext::background_effect::v1::client::ext_background_effect_surface_v1::ExtBackgroundEffectSurfaceV1,
+        _: smithay_client_toolkit::reexports::protocols::ext::background_effect::v1::client::ext_background_effect_surface_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
 }
 
 impl Dispatch<WpViewport, ()> for State {
