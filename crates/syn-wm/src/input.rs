@@ -1609,6 +1609,7 @@ impl State {
                 }
             }
             Action::Reboot => crate::spawn::spawn_shell(&self.core, "systemctl reboot"),
+            Action::RebootAndroid => crate::spawn::spawn_shell(&self.core, synshell_common::dualboot::REBOOT_ANDROID_CMD),
             Action::PowerOff => crate::spawn::spawn_shell(&self.core, "systemctl poweroff"),
             Action::PowerOffMonitors => self.set_monitors_power(false),
             Action::ScreenToggle => {

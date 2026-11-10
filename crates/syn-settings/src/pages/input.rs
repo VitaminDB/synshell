@@ -220,6 +220,7 @@ pub fn action_label(a: &Action) -> String {
         Action::Lock => t!("Заблокировать").into(),
         Action::Suspend => t!("Сон").into(),
         Action::Reboot => t!("Перезагрузка").into(),
+        Action::RebootAndroid => t!("Перезагрузка в Android").into(),
         Action::PowerOff => t!("Выключение").into(),
         Action::PowerOffMonitors => t!("Погасить мониторы").into(),
         Action::ScreenToggle => t!("Погасить и заблокировать / включить экран").into(),

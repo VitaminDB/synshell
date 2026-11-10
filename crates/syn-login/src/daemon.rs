@@ -363,9 +363,9 @@ fn power_request(req: &str) {
     }
 }
 
-/// Можно ли перезагрузиться в Android: меню boot.img (diting) или BCB в разделе misc.
+/// Можно ли перезагрузиться в Android — общая проверка с меню питания оболочки (synshell_common::dualboot).
 pub fn android_boot_available() -> bool {
-    std::path::Path::new("/android/data/local/tmp/syn").is_dir() || std::path::Path::new("/etc/synmobile/boot-bcb").is_file()
+    synshell_common::dualboot::android_boot_available()
 }
 
 pub fn run() -> ! {

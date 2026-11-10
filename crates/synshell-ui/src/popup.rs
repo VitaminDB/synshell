@@ -694,13 +694,17 @@ fn power() -> impl Widget {
                 }
             })
     };
-    let items = [
+    let mut items = vec![
         (mi::LOCK, n_!("Блокировать"), Action::Shell("lock".into()), "power-normal"),
         (mi::LOGOUT, n_!("Выйти"), Action::Quit, "power-normal"),
         (mi::SLEEP, n_!("Сон"), Action::Suspend, "power-normal"),
         (mi::RESTART, n_!("Перезагрузка"), Action::Reboot, "power-accent"),
-        (mi::POWER, n_!("Выключить"), Action::PowerOff, "power-danger"),
     ];
+    // Двойная загрузка (synmobile): на всех устройствах и в любой раскладке — та же проверка, что у экрана входа
+    if synshell_common::dualboot::android_boot_available() {
+        items.push((mi::ANDROID, n_!("Перезагрузить в Android"), Action::RebootAndroid, "power-accent"));
+    }
+    items.push((mi::POWER, n_!("Выключить"), Action::PowerOff, "power-danger"));
     let user = std::env::var("USER").unwrap_or_default();
     let head = Column::new()
         .gap(4.0)
@@ -723,11 +727,10 @@ fn power() -> impl Widget {
             row = row.child(item(g, l, a, k));
         }
         col = col.child(row);
-        // Пакет «Игровой режим» (syngame-shell) необязательный: без него ссылки нет —
-        // композитор переключил бы в режим без оболочки.
-        if !ShellCtx::get().config.get().gameshell.installed() {
-            return col;
-        }
+    }
+    // Пакет «Игровой режим» (syngame-shell) необязательный: без него ссылки нет — композитор переключил бы в режим
+    // без оболочки. С ним — в любой раскладке (телефон, планшет, компьютер), как и остальные пункты.
+    if ShellCtx::get().config.get().gameshell.installed() {
         col = col.child(
             Row::new().main_axis_alignment(MainAxisAlignment::Center).child(
                 InputArea::new(

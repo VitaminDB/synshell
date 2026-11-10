@@ -412,6 +412,8 @@ pub enum Action {
     Lock,
     Suspend,
     Reboot,
+    /// Перезагрузиться в Android (двойная загрузка synmobile, [`crate::dualboot`]).
+    RebootAndroid,
     PowerOff,
     /// Выключить/включить мониторы (DPMS).
     PowerOffMonitors,
@@ -460,7 +462,7 @@ impl Action {
         "focus-next", "focus-prev", "workspace", "move-to-workspace", "move-to-workspace-follow",
         "focus-output", "move-to-output", "layout", "cycle-layout", "master-ratio",
         "master-count", "keyboard-layout-next", "keyboard-layout", "screenshot",
-        "screenshot-window", "screenshot-interactive", "overview", "reload-config", "quit", "lock", "suspend", "reboot",
+        "screenshot-window", "screenshot-interactive", "overview", "reload-config", "quit", "lock", "suspend", "reboot", "reboot-android",
         "poweroff", "monitors-off", "shell", "back", "key", "form-factor", "mobile-mode", "mobile-mode-cycle", "page",
         "camera-home", "rotate", "screen-toggle", "screen-off", "screen-on", "proximity-blank", "none",
     ];
@@ -535,6 +537,7 @@ impl FromStr for Action {
             "lock" => Action::Lock,
             "suspend" => Action::Suspend,
             "reboot" => Action::Reboot,
+            "reboot-android" => Action::RebootAndroid,
             "poweroff" | "shutdown" => Action::PowerOff,
             "monitors-off" => Action::PowerOffMonitors,
             "screen-toggle" => Action::ScreenToggle,
@@ -601,6 +604,7 @@ impl fmt::Display for Action {
             Action::Lock => f.write_str("lock"),
             Action::Suspend => f.write_str("suspend"),
             Action::Reboot => f.write_str("reboot"),
+            Action::RebootAndroid => f.write_str("reboot-android"),
             Action::PowerOff => f.write_str("poweroff"),
             Action::PowerOffMonitors => f.write_str("monitors-off"),
             Action::ScreenToggle => f.write_str("screen-toggle"),

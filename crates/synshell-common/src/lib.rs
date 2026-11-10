@@ -14,6 +14,7 @@ pub mod eink_profiles;
 pub mod eink_state;
 #[cfg(feature = "drives")]
 pub mod drives;
+pub mod dualboot;
 pub mod haptics;
 pub mod ipc;
 pub mod link;

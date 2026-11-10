@@ -123,6 +123,7 @@ pub fn run(action: Action) {
         // Без композитора synshell — системные действия напрямую.
         Action::Suspend if !ctx.connected.get_untracked() => spawn("systemctl suspend"),
         Action::Reboot if !ctx.connected.get_untracked() => spawn("systemctl reboot"),
+        Action::RebootAndroid if !ctx.connected.get_untracked() => spawn(synshell_common::dualboot::REBOOT_ANDROID_CMD),
         Action::PowerOff if !ctx.connected.get_untracked() => spawn("systemctl poweroff"),
         Action::Lock if !ctx.connected.get_untracked() => crate::commands::handle("lock"),
         Action::Quit if !ctx.connected.get_untracked() => spawn("loginctl terminate-session \"$XDG_SESSION_ID\""),
