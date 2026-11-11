@@ -784,7 +784,9 @@ impl Stream {
             order.retain(|j| *j != i);
             order.insert(0, i);
         }
-        for (tried, i) in order.into_iter().enumerate() {
+        // в предел — только неудачи с форматом и потоком; «занято» (один ioctl ссылки) — дёшево, пробуем дальше
+        let mut tried = 0;
+        for i in order {
             if tried >= 6 {
                 break;
             }
@@ -801,6 +803,9 @@ impl Stream {
                 // и задней бывают свои; «занята» — только если свободного пути не нашлось
                 Err(e) => {
                     tracing::debug!("mcam: путь {i}: {}", e.text);
+                    if !e.busy {
+                        tried += 1;
+                    }
                     if e.busy || !last.busy {
                         last = e;
                     }
